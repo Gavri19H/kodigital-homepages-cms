@@ -471,6 +471,9 @@ describe("R2 P3 FIX-FIRST BLOCKER-1 — one benign save can never wipe the serve
       lgData: { overrides: state.overrides ?? {} },
       slideList: [],
       templates: state.templates,
+      editorArmOwnsTarget: () => true,
+      themeOverrideActive: () => false,
+      shownOverridePalette: () => ({}),
     };
     return loadIsland("  function deepClone(v) {", "\n\n  // --- override routing", sandbox, "clientEffective()") as Record<
       string,

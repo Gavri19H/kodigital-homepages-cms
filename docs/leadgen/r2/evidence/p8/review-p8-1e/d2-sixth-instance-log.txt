@@ -1,0 +1,9 @@
+Charlie funnel theme_json: {"palette":{"brand_primary":"success","accent":"#5A2D8C"},"typography":{"display_size":"xl"}}
+Charlie ARM B frame_overrides_json: {"theme_id":"thm_p8-repro"} (a per-arm theme RECORD binding — what "A/B this theme" creates)
+THE ARM RENDERS --lg-primary = #AB1234 | #AB1234 (record) x19 | #0E7C3A x15
+rail Brand primary with the switch OFF (panel edits the FUNNEL): {"swatch":"rgb(14, 124, 58)","tag":"This funnel"}
+rail with the switch ON ("Override for this variant" — the panel now edits THIS ARM): [{"role":"brand_primary","swatch":"rgb(14, 124, 58)","tag":"This funnel"},{"role":"brand_secondary","swatch":"rgb(42, 80, 128)","tag":"Base design"},{"role":"accent","swatch":"rgb(90, 45, 140)","tag":"This funnel"},{"role":"success","swatch":"rgb(14, 124, 58)","tag":"Base design"}]
+=> the arm paints #AB1234 for brand_primary; the rail claims rgb(14, 124, 58) tagged "This funnel"
+writes issued by this probe (must be empty): []
+ERRORS: []
+arm overrides unchanged after the probe: {"theme_id":"thm_p8-repro"}

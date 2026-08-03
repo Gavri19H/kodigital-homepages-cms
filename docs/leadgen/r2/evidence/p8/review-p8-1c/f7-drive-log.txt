@@ -1,0 +1,5 @@
+editor default (A): {"header":"R2Fix Fixture Quote — Funnel A","picker":"lgf_01KZ271383F5X1SQ3DXTXKNJE5","swatch":"rgb(171, 18, 52)","source":"Base design","errBox":"(none)","errVisible":false,"displaySize":""}
+--- now the target-funnel theme GET FAILS (500) and we switch to P8-Charlie ---
+after failed GET, target=Charlie: {"header":"P8-Charlie","picker":"lgf_01KZ279RW7CMXCDT9JF8WJG30E","swatch":"rgba(0, 0, 0, 0)","source":"Base design","errBox":"(none)","errVisible":false,"displaySize":""}
+EXPECTED if honest: either Charlie values (#0E7C3A / display_size xl) or a surfaced error; observed above.
+errors: ["console:Failed to load resource: the server responded with a status of 500 (Internal Server Error)"]

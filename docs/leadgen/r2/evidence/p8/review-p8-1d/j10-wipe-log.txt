@@ -1,0 +1,7 @@
+Charlie theme BEFORE: {"palette":{"brand_primary":"success","accent":"#5A2D8C"},"typography":{"display_size":"xl"}}
+panel header: P8-Charlie | hash: #tab=themes
+banner: {"hidden":true,"text":""}
+writes: ["PUT /api/admin/leadgen/funnels/lgf_01KZ279RW7CMXCDT9JF8WJG30E/theme {\"theme_json\":{\"scales\":{\"shadow\":\"high\"}}}"]
+Charlie theme AFTER one benign edit (no target switch): {"scales":{"shadow":"high"}}
+ERRORS: NONE
+restored Charlie: 200 {"palette":{"brand_primary":"success","accent":"#5A2D8C"},"typography":{"display_size":"xl"}}

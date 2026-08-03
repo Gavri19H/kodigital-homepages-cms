@@ -1,0 +1,48 @@
+PATCH section -> 200
+bump PUT theme -> 200
+
+##### RUN A @1280 #####
+section head: R2Fix Fixture Quote — Funnel A
+maps attrs on page: 1
+Autocomplete ctor calls: [{"id":"lg-addr-rv1c_addr_street","opts":{"types":["address"],"fields":["address_components","formatted_address"]}}]
+BEFORE boxes: {"rv1c_addr":{"value":"","placeholder":"Street address","w":326,"h":55,"vis":true},"rv1c_addr_street":{"value":"","placeholder":"Street address","w":326,"h":55,"vis":true},"rv1c_addr_city":{"value":"","placeholder":"City","w":326,"h":55,"vis":true},"rv1c_addr_zip":{"value":"","placeholder":"ZIP code","w":326,"h":55,"vis":true}}
+AFTER boxes: {"rv1c_addr":{"value":"1600 Amphitheatre Parkway","placeholder":"Street address","w":326,"h":55,"vis":true},"rv1c_addr_street":{"value":"1600 Amphitheatre Parkway","placeholder":"Street address","w":326,"h":55,"vis":true},"rv1c_addr_city":{"value":"Mountain View","placeholder":"City","w":326,"h":55,"vis":true},"rv1c_addr_zip":{"value":"","placeholder":"ZIP code","w":326,"h":55,"vis":true}}
+STORE: {}
+ZIP after manual typing: 30301
+AUCTION POSTS: NONE
+ERRORS: NONE
+
+##### RUN A @375 #####
+section head: R2Fix Fixture Quote — Funnel A
+maps attrs on page: 1
+Autocomplete ctor calls: [{"id":"lg-addr-rv1c_addr_street","opts":{"types":["address"],"fields":["address_components","formatted_address"]}}]
+BEFORE boxes: {"rv1c_addr":{"value":"","placeholder":"Street address","w":317,"h":55,"vis":true},"rv1c_addr_street":{"value":"","placeholder":"Street address","w":317,"h":55,"vis":true},"rv1c_addr_city":{"value":"","placeholder":"City","w":317,"h":55,"vis":true},"rv1c_addr_zip":{"value":"","placeholder":"ZIP code","w":317,"h":55,"vis":true}}
+AFTER boxes: {"rv1c_addr":{"value":"1600 Amphitheatre Parkway","placeholder":"Street address","w":317,"h":55,"vis":true},"rv1c_addr_street":{"value":"1600 Amphitheatre Parkway","placeholder":"Street address","w":317,"h":55,"vis":true},"rv1c_addr_city":{"value":"Mountain View","placeholder":"City","w":317,"h":55,"vis":true},"rv1c_addr_zip":{"value":"","placeholder":"ZIP code","w":317,"h":55,"vis":true}}
+STORE: {}
+ZIP after manual typing: 30301
+AUCTION POSTS: NONE
+ERRORS: NONE
+PATCH section -> 200
+bump PUT theme -> 200
+
+##### RUN B (lone full_address mode:autofill) @1280 #####
+data-lg-maps attrs: 1
+raw data-lg-maps: ["{\"enable_autocomplete\":true,\"validate\":false,\"fills\":{\"city\":\"rv1c_addr_city\"}}"]
+SDK script tags: 1
+SDK network requests: ["https://maps.googleapis.com/maps/api/js?key=AIzaSyCrbDA_KeBS6Vc7tIaLW-ntAEOETiKPA_8&librar"]
+fields on page: ["rv1c_addr","rv1c_addr_street","rv1c_addr_city","rv1c_addr_zip","r2fix_carrier"]
+input has data-address-autocomplete: 1
+ERRORS: ["console:Failed to load resource: net::ERR_FAILED"]
+
+##### RUN B (lone full_address mode:autofill) @375 #####
+data-lg-maps attrs: 1
+raw data-lg-maps: ["{\"enable_autocomplete\":true,\"validate\":false,\"fills\":{\"city\":\"rv1c_addr_city\"}}"]
+SDK script tags: 1
+SDK network requests: ["https://maps.googleapis.com/maps/api/js?key=AIzaSyCrbDA_KeBS6Vc7tIaLW-ntAEOETiKPA_8&librar"]
+fields on page: ["rv1c_addr","rv1c_addr_street","rv1c_addr_city","rv1c_addr_zip","r2fix_carrier"]
+input has data-address-autocomplete: 1
+ERRORS: ["console:Failed to load resource: net::ERR_FAILED"]
+PATCH section -> 200
+bump PUT theme -> 200
+
+RESTORED v3 to props {}

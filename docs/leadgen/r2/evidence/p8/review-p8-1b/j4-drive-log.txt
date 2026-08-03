@@ -1,0 +1,268 @@
+##### (c) A/B THIS THEME with a preset selected #####
+hash= #tab=themes&funnel=lgf_01KZ279RW7CMXCDT9JF8WJG30E header= P8-Charlie
+(c0) no-preset click -> requests: 0  banner: {"err":"Pick a preset first, then A/B it.","status":"","notice":""}
+(c1) preset options: [{"v":"","t":"Choose a preset…"},{"v":"thm_p8-repro","t":"P8 Repro"}]
+(c2) dialogs: ["prompt: New variant's share of traffic, in percent (the rest stays with the current variant):","beforeunload: "]
+(c2) requests:
+      GET /quotes/lgq_01KZ271383Y0MPV4BM2WKKCC4W/structure 
+      POST /funnels/F_CHARLIE/experiments {}
+      POST /experiments/lgx_01KZ2SKW5K26RKFKX2XYG2QR3H/start 
+      POST /variants/V_CHARLIE/fork 
+      POST /experiments/lgx_01KZ2SKW5K26RKFKX2XYG2QR3H/stop 
+      PUT /variants/lgn_01KZ2SKW5V4EF5JVKR9N3YD8MD {"traffic_allocation_bp":5000,"frame_overrides_json":{"theme_id":"thm_p8-repro"}}
+      PUT /variants/V_CHARLIE {"traffic_allocation_bp":5000}
+      POST /experiments/lgx_01KZ2SKW5K26RKFKX2XYG2QR3H/start 
+      GET /sections?status=active&page_size=200 
+      GET /themes 
+      GET /themes 
+      GET /quotes/lgq_01KZ271383Y0MPV4BM2WKKCC4W/shared-page 
+      GET /frame-template-records 
+      GET /quotes/lgq_01KZ271383Y0MPV4BM2WKKCC4W 
+      POST /sections/preview {"content_json":{"components":[{"type":"AddressAutocompleteQuestion","question_id":"p8_addr","internal_field":"p8_addr","props":{}},{"type":"ContinueButton","question_id":"p8_addr_cont","props":{"label":"Continue"}}]},"viewport":"desktop","
+      POST /variants/V_CHARLIE/preview {"mode":"section","viewport":"desktop","draft_frame_config":{"template":"centered","version":1,"background":{"image_media_id":null}},"section_public_id":"lgs_01KZ27138G80K46S7XBWKGA764","site_id":"st_cad9f863eb2444a1"}
+(c2) banner: {"err":"","status":"","notice":""}
+ERRORS: NONE
+
+##### (d) APPLY-TEMPLATE target #####
+hash= #tab=templates&funnel=lgf_01KZ279RW7CMXCDT9JF8WJG30E header= P8-Charlie
+after round-trip header= P8-Charlie
+(d) picker cards matching "Full background": 1
+(d) Switch template btn count= 1  disabled= false
+(d) dialogs: []
+(d) writes:
+      POST /variants/V_CHARLIE/preview {"mode":"section","viewport":"desktop","draft_frame_config":{"template":"centered","version":1,"cta_slots":[],"disclosure":{"entries":[]},"free_text":[],"brand_logos":{"enabled":false,"layout":"row","
+      POST /variants/V_CHARLIE/preview {"mode":"section","viewport":"desktop","draft_frame_config":{"template":"centered","version":1,"cta_slots":[],"disclosure":{"entries":[]},"free_text":[],"brand_logos":{"enabled":false,"layout":"row","
+      POST /funnels/F_CHARLIE/apply-template {"template_id":4}
+      POST /sections/preview {"content_json":{"components":[{"type":"AddressAutocompleteQuestion","question_id":"p8_addr","internal_field":"p8_addr","props":{}},{"type":"ContinueButton","question_id":"p8_addr_cont","props":{"labe
+      POST /variants/V_CHARLIE/preview {"mode":"section","viewport":"desktop","draft_frame_config":{"template":"centered","version":1,"background":{"image_media_id":null}},"sample_section":true,"site_id":"st_cad9f863eb2444a1"}
+      POST /variants/V_CHARLIE/preview {"mode":"section","viewport":"desktop","draft_frame_config":{"template":"centered","version":1,"background":{"image_media_id":null}},"section_public_id":"lgs_01KZ27138G80K46S7XBWKGA764","site_id":"st_
+ERRORS: NONE
+
+##### (e) palette Edit prefill vs target funnel #####
+CHARLIE targeted; Charlie palette.brand_primary = role "success" (#0E7C3A / rgb(14,124,58)). Funnel A = #AB1234 / rgb(171,18,52)
+{
+ "swatch": "rgb(171, 18, 52)",
+ "source": "Base design",
+ "inputs": [
+  {
+   "tag": "BUTTON",
+   "type": "button",
+   "id": "",
+   "val": "",
+   "txt": "Base"
+  },
+  {
+   "tag": "BUTTON",
+   "type": "button",
+   "id": "",
+   "val": "",
+   "txt": "Soft wash"
+  },
+  {
+   "tag": "BUTTON",
+   "type": "button",
+   "id": "",
+   "val": "",
+   "txt": "Darker"
+  },
+  {
+   "tag": "BUTTON",
+   "type": "button",
+   "id": "",
+   "val": "",
+   "txt": "Lighter"
+  },
+  {
+   "tag": "BUTTON",
+   "type": "button",
+   "id": "",
+   "val": "",
+   "txt": ""
+  },
+  {
+   "tag": "BUTTON",
+   "type": "button",
+   "id": "",
+   "val": "",
+   "txt": ""
+  },
+  {
+   "tag": "BUTTON",
+   "type": "button",
+   "id": "",
+   "val": "",
+   "txt": ""
+  },
+  {
+   "tag": "BUTTON",
+   "type": "button",
+   "id": "",
+   "val": "",
+   "txt": ""
+  },
+  {
+   "tag": "BUTTON",
+   "type": "button",
+   "id": "",
+   "val": "",
+   "txt": ""
+  },
+  {
+   "tag": "BUTTON",
+   "type": "button",
+   "id": "",
+   "val": "",
+   "txt": ""
+  },
+  {
+   "tag": "BUTTON",
+   "type": "button",
+   "id": "",
+   "val": "",
+   "txt": ""
+  },
+  {
+   "tag": "BUTTON",
+   "type": "button",
+   "id": "",
+   "val": "",
+   "txt": ""
+  },
+  {
+   "tag": "BUTTON",
+   "type": "button",
+   "id": "",
+   "val": "",
+   "txt": ""
+  },
+  {
+   "tag": "BUTTON",
+   "type": "button",
+   "id": "",
+   "val": "",
+   "txt": ""
+  },
+  {
+   "tag": "BUTTON",
+   "type": "button",
+   "id": "",
+   "val": "",
+   "txt": ""
+  },
+  {
+   "tag": "BUTTON",
+   "type": "button",
+   "id": "",
+   "val": "",
+   "txt": ""
+  },
+  {
+   "tag": "BUTTON",
+   "type": "button",
+   "id": "",
+   "val": "",
+   "txt": ""
+  },
+  {
+   "tag": "BUTTON",
+   "type": "button",
+   "id": "",
+   "val": "",
+   "txt": ""
+  },
+  {
+   "tag": "BUTTON",
+   "type": "button",
+   "id": "",
+   "val": "",
+   "txt": "Reset to inherited"
+  }
+ ],
+ "picks": [
+  {
+   "v": "brand_primary",
+   "aria": null,
+   "cls": "lg-role-swatch",
+   "bg": "rgb(171, 18, 52)"
+  },
+  {
+   "v": "brand_secondary",
+   "aria": null,
+   "cls": "lg-role-swatch",
+   "bg": "rgb(238, 119, 51)"
+  },
+  {
+   "v": "accent",
+   "aria": null,
+   "cls": "lg-role-swatch",
+   "bg": "rgb(232, 93, 38)"
+  },
+  {
+   "v": "success",
+   "aria": null,
+   "cls": "lg-role-swatch",
+   "bg": "rgb(14, 124, 58)"
+  },
+  {
+   "v": "error",
+   "aria": null,
+   "cls": "lg-role-swatch",
+   "bg": "rgb(211, 47, 47)"
+  },
+  {
+   "v": "page_background",
+   "aria": null,
+   "cls": "lg-role-swatch",
+   "bg": "rgb(245, 247, 250)"
+  },
+  {
+   "v": "card_background",
+   "aria": null,
+   "cls": "lg-role-swatch",
+   "bg": "rgb(255, 255, 255)"
+  },
+  {
+   "v": "surface_wash",
+   "aria": null,
+   "cls": "lg-role-swatch",
+   "bg": "rgb(238, 119, 51)"
+  },
+  {
+   "v": "border",
+   "aria": null,
+   "cls": "lg-role-swatch",
+   "bg": "rgb(238, 119, 51)"
+  },
+  {
+   "v": "text_primary",
+   "aria": null,
+   "cls": "lg-role-swatch",
+   "bg": "rgb(26, 31, 54)"
+  },
+  {
+   "v": "text_muted",
+   "aria": null,
+   "cls": "lg-role-swatch",
+   "bg": "rgb(238, 119, 51)"
+  },
+  {
+   "v": "button_primary_bg",
+   "aria": null,
+   "cls": "lg-role-swatch",
+   "bg": "rgb(238, 119, 51)"
+  },
+  {
+   "v": "button_primary_text",
+   "aria": null,
+   "cls": "lg-role-swatch",
+   "bg": "rgb(238, 238, 238)"
+  },
+  {
+   "v": "button_secondary_bg",
+   "aria": null,
+   "cls": "lg-role-swatch",
+   "bg": "rgb(238, 119, 51)"
+  }
+ ]
+}
+ERRORS: NONE

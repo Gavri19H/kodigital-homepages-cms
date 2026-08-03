@@ -1,0 +1,21 @@
+===== F8-c: does the per-arm theme_id RENDER live? (funnel theme = {}, arm override = thm_p8-repro) =====
+status 404 | #AB1234 (record) x 0 | #1B3A5C (base design) x 0
+
+===== B2: theme-record PATCH -> live page on ONE fresh ?_cb, no activation save =====
+record before: {"brand_primary":"#AB1234","accent":"#E85D26","page_bg":"#F5F7FA","card":"#FFFFFF","text":"#1A1F36","success":"#0E7C3A",
+BEFORE  #AB1234 x 0  #2E9F6B x 0
+PATCH theme record -> 200 {"item":{"id":"thm_p8-repro","name":"P8 Repro","roles":{"brand_primary":"#2E9F6B","accent":"#E85D26","page_bg":"#F5F7FA","card":"#FFFFFF","t
+AFTER   #AB1234 x 0  #2E9F6B x 0   (NO activation save, NO funnel-theme PUT between the two fetches)
+--lg-primary @1280: 
+continue-button bg @1280: rgb(238, 119, 51)
+store probe @1280: typed= 123 Probe St store= {}
+errors @1280: ["console:Google Maps JavaScript API error: RefererNotAllowedMapError\nhttps://developers.google.com/maps/documentation/javascript/error-messages#referer-not-allowed-map-error\nYour site URL to be authorized: http://r2fix.e2e.test:8901/lg/r2fix"]
+--lg-primary @375: 
+continue-button bg @375: rgb(238, 119, 51)
+store probe @375: typed= 123 Probe St store= {}
+errors @375: ["console:Google Maps JavaScript API error: RefererNotAllowedMapError\nhttps://developers.google.com/maps/documentation/javascript/error-messages#referer-not-allowed-map-error\nYour site URL to be authorized: http://r2fix.e2e.test:8901/lg/r2fix"]
+
+===== restore fixture =====
+theme record -> 200
+arm overrides -> 200
+funnel A theme -> 200

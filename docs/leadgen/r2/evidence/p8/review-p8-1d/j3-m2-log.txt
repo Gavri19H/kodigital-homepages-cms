@@ -1,0 +1,15 @@
+=== m-2 honest: fresh full load on the editor default funnel A ===
+before: {"header":"R2Fix Fixture Quote — Funnel A","hash":"#tab=themes","swatches":["rgb(171, 18, 52)","rgb(238, 119, 51)","rgb(232, 93, 38)","rgb(14, 124, 58)","rgb(211, 47, 47)","rgb(245, 247, 250)","rgb(255, 255, 255)","rgb(238, 119, 51)","rgb(238, 119, 51)","rgb(26, 31, 54)","rgb(238, 119, 51)","rgb(238, 119, 51)","rgb(238, 238, 238)","rgb(238, 119, 51)"],"nTransparent":0,"displaySize":"","err":{"hidden":true,"text":"","top":0,"inViewport":true},"scrollY":0}
+after failed GET: {"header":"P8-Charlie","hash":"#tab=themes&funnel=lgf_01KZ279RW7CMXCDT9JF8WJG30E","swatches":["rgb(171, 18, 52)","rgb(238, 119, 51)","rgb(232, 93, 38)","rgb(14, 124, 58)","rgb(211, 47, 47)","rgb(245, 247, 250)","rgb(255, 255, 255)","rgb(238, 119, 51)","rgb(238, 119, 51)","rgb(26, 31, 54)","rgb(238, 119, 51)","rgb(238, 119, 51)","rgb(238, 238, 238)","rgb(238, 119, 51)"],"nTransparent":0,"displaySize":"","err":{"hidden":false,"text":"Could not load the theme for P8-Charlie — theme read failed. The controls below still show the previous values.","top":389,"inViewport":true},"scrollY":0}
+14 swatches held identical? true
+writes during the failure: []
+375 natural scroll: {"scrollY":0,"err":{"hidden":false,"text":"Could not load the theme for P8-Charlie — theme read failed. The controls below still show the previous values.","top":554,"inViewport":true}}
+375 scrolled to the rail: {"scrollY":0,"err":{"hidden":false,"text":"Could not load the theme for P8-Charlie — theme read failed. The controls below still show the previous values.","top":-186,"inViewport":false}}
+=== the NEXT edit in that state — what reaches storage ===
+Charlie stored BEFORE the edit: {"palette":{"brand_primary":"success","accent":"#5A2D8C"},"typography":{"display_size":"xl"}}
+writes: ["PUT /api/admin/leadgen/funnels/lgf_01KZ279RW7CMXCDT9JF8WJG30E/theme {\"theme_json\":{\"palette\":{\"brand_secondary\":\"error\"}}}"]
+Charlie stored AFTER one colour edit: {"palette":{"brand_secondary":"error"}}
+lost keys: ["typography"]
+rail after the edit: {"header":"P8-Charlie","err":{"hidden":false,"text":"Could not load the theme for P8-Charlie — theme read failed. The controls below still show the previous values.","top":-351,"inViewport":false},"nTransparent":0}
+ERRORS: ["console:Failed to load resource: the server responded with a status of 500 (Internal Server Error)","console:Failed to load resource: the server responded with a status of 500 (Internal Server Error)"]
+restored Charlie: 200 {"palette":{"brand_primary":"success","accent":"#5A2D8C"},"typography":{"display_size":"xl"}}

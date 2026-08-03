@@ -1,0 +1,8 @@
+served editor island found: true | length 218273
+BASELINE on the REAL island (guard expects []): []
+MISSED  E1  island-TOP-LEVEL capture of the arm palette, then an ungated display read of the capture  -> []
+MISSED  E2  a SECOND read of the SSR blob — the same arm state, spelled lgData.overrides  -> []
+MISSED  E3  the radio’s checked state read through name= instead of data-override-group (F-2’s own shape, other spelling)  -> []
+MISSED  E4  the switch CONTAINER attribute (data-override-switch) — not in the DOM token set  -> []
+MISSED  E5  arm state fetched from the network and displayed ungated  -> []
+CAUGHT  E6  control: the same read named workingOverrides inside a new function (guard SHOULD catch)  -> ["unlisted:j1Control:workingOverrides","ungated:j1Control:workingOverrides"]

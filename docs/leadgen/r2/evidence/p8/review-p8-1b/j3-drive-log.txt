@@ -1,0 +1,49 @@
+##### READ FIDELITY (swatches) #####
+BOOT (editor funnel A -> theme_id thm_p8-repro, brand_primary #AB1234 = rgb(171,18,52))
+{"header":"R2Fix Fixture Quote — Funnel A","rows":[{"role":"brand_primary","swatch":"rgb(171, 18, 52)","source":"Base design"},{"role":"brand_secondary","swatch":"rgb(238, 119, 51)","source":"Base design"},{"role":"accent","swatch":"rgb(232, 93, 38)","source":"Base design"},{"role":"success","swatch":"rgb(14, 124, 58)","source":"Base design"},{"role":"error","swatch":"rgb(211, 47, 47)","source":"Base design"}],"display_size":""}
+AFTER CHARLIE CHIP (Charlie brand_primary role "success" = #0E7C3A = rgb(14,124,58); display_size xl)
+{"header":"P8-Charlie","rows":[{"role":"brand_primary","swatch":"rgb(171, 18, 52)","source":"Base design"},{"role":"brand_secondary","swatch":"rgb(238, 119, 51)","source":"Base design"},{"role":"accent","swatch":"rgb(232, 93, 38)","source":"Base design"},{"role":"success","swatch":"rgb(14, 124, 58)","source":"Base design"},{"role":"error","swatch":"rgb(211, 47, 47)","source":"Base design"}],"display_size":"xl"}
+ERRORS: NONE
+
+##### WRITE-TARGET CLOSED SET #####
+hash= #tab=themes&funnel=lgf_01KZ279RW7CMXCDT9JF8WJG30E
+(a) edited scales.spacing = regular
+(a) autosave writes:
+      POST /sections/preview {"content_json":{"components":[{"type":"AddressAutocompleteQuestion","question_id":"p8_addr","internal_field":"p8_addr","props":{}},{"type":"ContinueButton","question_id":"p8_addr_cont","props":{"labe
+      PUT /funnels/F_CHARLIE/theme {"theme_json":{"palette":{"brand_primary":"success"},"typography":{"display_size":"xl"},"scales":{"spacing":"regular"}}}
+(a) #lg-variant-save visible= true
+(a) ONE-SAVE chain writes:
+(b) preset options: [{"v":"","t":"Choose a preset…"},{"v":"thm_p8-repro","t":"P8 Repro"}]
+(b) apply disabled= false
+(b) APPLY-TO-THIS-FUNNEL writes:
+      PUT /funnels/F_CHARLIE/theme {"theme_json":{"theme_id":"thm_p8-repro"}}
+      POST /sections/preview {"content_json":{"components":[{"type":"AddressAutocompleteQuestion","question_id":"p8_addr","internal_field":"p8_addr","props":{}},{"type":"ContinueButton","question_id":"p8_addr_cont","props":{"label":"Continue"}}]},"viewport":"desktop","
+      POST /variants/lgn_01KZ279RW7WYQ9361MMFF0D2SW/preview {"mode":"section","viewport":"desktop","draft_frame_config":{"template":"centered","version":1,"background":{"image_media_id":null}},"sample_section":true,"site_id":"st_cad9f863eb2444a1"}
+      POST /variants/lgn_01KZ279RW7WYQ9361MMFF0D2SW/preview {"mode":"section","viewport":"desktop","draft_frame_config":{"template":"centered","version":1,"background":{"image_media_id":null}},"section_public_id":"lgs_01KZ27138G80K46S7XBWKGA764","site_id":"st_cad9f863eb2444a1"}
+(b) reads:
+     GET /funnels/F_CHARLIE/theme
+     GET /sections?status=active&page_size=200
+     GET /themes
+     GET /funnels/F_CHARLIE/frame
+     GET /themes
+     GET /quotes/lgq_01KZ271383Y0MPV4BM2WKKCC4W/shared-page
+     GET /frame-template-records
+     GET /quotes/lgq_01KZ271383Y0MPV4BM2WKKCC4W
+     GET /themes
+(c) A/B this theme disabled= false
+(c) A/B THIS THEME requests:
+ERRORS: NONE
+
+##### TEMPLATES: canvas-preview payload + apply-template target #####
+hash= #tab=templates&funnel=lgf_01KZ279RW7CMXCDT9JF8WJG30E  header= P8-Charlie
+   GET /funnels/F_CHARLIE/theme
+  PREVIEW POST /sections/preview 
+     BODY: {"content_json":{"components":[{"type":"AddressAutocompleteQuestion","question_id":"p8_addr","internal_field":"p8_addr","props":{}},{"type":"ContinueButton","question_id":"p8_addr_cont","props":{"label":"Continue"}}]},"viewport":"desktop","frame_context":{"funnel_public_id":"lgf_01KZ279RW7CMXCDT9JF8WJG30E","variant_public_id":"lgn_01KZ279RW7WYQ9361MMFF0D2SW"}}
+   GET /funnels/F_CHARLIE/frame
+  PREVIEW POST /variants/lgn_01KZ279RW7WYQ9361MMFF0D2SW/preview 
+     BODY: {"mode":"section","viewport":"desktop","draft_frame_config":{"template":"centered","version":1,"background":{"image_media_id":null}},"section_public_id":"lgs_01KZ27138G80K46S7XBWKGA764","site_id":"st_cad9f863eb2444a1"}
+apply btn present= 1  disabled= false
+  modal buttons: ["Close","Cancel","Save","+ Add arm","Revert to single section","Cancel","Save","+ Add case","Revert to single section","Cancel","Save","Centered card\nCard layout · bar progress","Site header + footer\nBare layout · bar progress","Header + call CTA\nCard layout · bar progress","Full background\nCard layout · dots progress","White + trust bar\nBare layout · bar progress","Minimal\nBare layout · bar progress · no footer","Switch template","Back","Cancel","Create A/B arm","Cancel","Close","Cancel","Insert link","Close","Upload & use","Generate with AI"]
+  APPLY-TEMPLATE requests:
+      POST /variants/lgn_01KZ279RW7WYQ9361MMFF0D2SW/preview {"mode":"section","viewport":"desktop","draft_frame_config":{"template":"centered","version":1,"cta_slots":[],"disclosure":{"entries":[]},"free_text":[],"brand_logos":{"enabled":false,"layout":"row","items":[],"slot":"below_section","align"
+ERRORS: NONE

@@ -1,0 +1,10 @@
+editor-own (Charlie) after arm override: {"header":"P8-Charlie","swatch":"rgb(255, 153, 0)","source":"This funnel","selected":"success","firstPickBg":"rgb(255, 153, 0)","hash":"#tab=themes"}
+TARGET=Bravo: {"header":"P8-Bravo","swatch":"rgb(255, 153, 0)","source":"This funnel","selected":null,"firstPickBg":"rgb(255, 153, 0)","hash":"#tab=themes&funnel=lgf_01KZ279RVPT0Z7SX8GE81KSAVM"}
+--- now pick role "success" for brand_primary while targeting Bravo ---
+after pick success: {"header":"P8-Bravo","swatch":"rgb(255, 153, 0)","source":"This funnel","selected":"success","firstPickBg":"rgb(255, 153, 0)","hash":"#tab=themes&funnel=lgf_01KZ279RVPT0Z7SX8GE81KSAVM"}
+writes: [
+ "POST /sections/preview {\"content_json\":{\"components\":[{\"type\":\"AddressAutocompleteQuestion\",\"question_id\":\"p8_addr\",\"internal_field\":\"p8_addr\",\"props\":{}},{\"type\":\"ContinueButton\",\"qu",
+ "PUT /funnels/lgf_01KZ279RVPT0Z7SX8GE81KSAVM/theme {\"theme_json\":{\"card_defaults\":{\"radius\":\"lg\"},\"palette\":{\"brand_primary\":\"success\"}}}"
+]
+Bravo stored theme now: {"card_defaults":{"radius":"lg"},"palette":{"brand_primary":"success"}} tokens.brand_primary= #0E7C3A
+ERRORS: NONE

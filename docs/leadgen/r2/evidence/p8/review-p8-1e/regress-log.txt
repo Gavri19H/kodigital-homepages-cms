@@ -1,0 +1,22 @@
+=== B2 REGRESSION: theme-record PATCH reaches the live page on ONE fresh ?_cb, with NO activation save ===
+live sheet BEFORE the PATCH: #AB1234 x20 | #3E1F7A x0 | content_version(A) lgn_01KZ271383SKKSFFWG23N1XGZK:371
+PATCH brand_primary #AB1234 -> #3E1F7A: 200
+live sheet AFTER ONE fresh ?_cb (no activation save, no funnel-theme PUT): #AB1234 x0 | #3E1F7A x20 | content_version(A) lgn_01KZ271383SKKSFFWG23N1XGZK:372
+theme record restored: 200 | brand_primary now #AB1234
+
+=== B3 REGRESSION: Charlie chip -> Activation tab -> back to Themes -> RELOAD -> edit ===
+themes BEFORE: {"A":"{\"theme_id\":\"thm_p8-repro\"}","B":"{\"card_defaults\":{\"radius\":\"lg\"},\"palette\":{\"brand_primary\":\"success\"}}","C":"{\"palette\":{\"brand_primary\":\"success\",\"accent\":\"#5A2D8C\"},\"typography\":{\"display_size\":\"xl\"}}","D":"{\"scales\":{\"spacing\":\"roomy\"}}"}
+after the Theme chip on P8-Charlie (chip label: "Custom"): {"header":"P8-Charlie","hash":"#tab=themes&funnel=lgf_01KZ279RW7CMXCDT9JF8WJG30E","select":"lgf_01KZ279RW7CMXCDT9JF8WJG30E"}
+after a plain tab round-trip (Activation -> Themes): {"header":"P8-Charlie","hash":"#tab=themes&funnel=lgf_01KZ279RW7CMXCDT9JF8WJG30E","select":"lgf_01KZ279RW7CMXCDT9JF8WJG30E"}
+after a full RELOAD: {"header":"P8-Charlie","hash":"#tab=themes&funnel=lgf_01KZ279RW7CMXCDT9JF8WJG30E","select":"lgf_01KZ279RW7CMXCDT9JF8WJG30E","swatch0":"rgb(14, 124, 58)","src0":"This funnel"}
+the edit after the round-trip + reload wrote: ["PUT /api/admin/leadgen/funnels/lgf_01KZ279RW7CMXCDT9JF8WJG30E/theme {\"theme_json\":{\"palette\":{\"brand_primary\":\"success\",\"accent\":\"#5A2D8C\"},\"typography\":{\"display_size\":\"xl\",\"size\":\"l\"}}}"]
+themes AFTER: {"A":"{\"theme_id\":\"thm_p8-repro\"}","B":"{\"card_defaults\":{\"radius\":\"lg\"},\"palette\":{\"brand_primary\":\"success\"}}","C":"{\"palette\":{\"brand_primary\":\"success\",\"accent\":\"#5A2D8C\"},\"typography\":{\"display_size\":\"xl\",\"size\":\"l\"}}","D":"{\"scales\":{\"spacing\":\"roomy\"}}"}
+ONLY Charlie changed? true
+A live sheet still carries thm_p8-repro brand_primary #AB1234: 20 | Charlie green #0E7C3A leaked into A? 23
+
+=== B3 Template chip on P8-Delta ===
+after the Template chip on P8-Delta (chip label "Template"): {"hash":"#tab=templates&funnel=lgf_01KZ279RWTSZB5054A8Q9WBQ7X","headers":["P8-Delta","P8-Delta"],"tab":"Templates"}
+frames unchanged by merely opening the chip? A: true | D: true
+
+CONSOLE/PAGE ERRORS across the whole regression drive: []
+restore Charlie theme: 200 {"palette":{"brand_primary":"success","accent":"#5A2D8C"},"typography":{"display_size":"xl"}}

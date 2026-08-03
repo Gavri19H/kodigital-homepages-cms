@@ -1,0 +1,26 @@
+
+########## B1 — SINGLE FIELD full_address at 1280 ##########
+active section: 02 · Where do you live?
+maps attrs on page: 1
+SDK stub loaded: false
+Autocomplete ctor calls: [{"id":"","opts":{"types":["address"],"fields":["address_components","formatted_address"]}}]
+BEFORE boxes: {"rv1b_full":{"value":"","placeholder":"Home address","w":326,"h":52,"visible":true}}
+place_changed: FIRED
+AFTER boxes: {"rv1b_full":{"value":"1600 Amphitheatre Pkwy","placeholder":"Home address","w":326,"h":52,"visible":true}}
+STORE right after place: {"lg:att_01KZ2T0Z764XR1GW9JHG9N07P1":"{\"v\":1,\"tuple\":{\"funnel_variant_id\":\"lgn_01KZ271383SKKSFFWG23N1XGZK\",\"section_order_hash\":\"b1b4a151b6869b33918a7013c0a052f460738b1ce44b3028ad81ab1dfb90fd4c\",\"content_version\":354},\"section_index\":1,\"back_stack\":[0],\"answers\":{\"rv1b_full\":{\"value\":\"1600 Amphitheatre Pkwy\",\"answer_source\":\"user_selected\",\"question_id\":\"p8_addr\",\"section_public_id\":\"lgs_01KZ27DTF599M85YHNEDHS6WA0\",\"answered_at\":1785727061712}},\"saved_at\":1785727061712}"}
+POSTS:
+    POST /lg/auction {"funnel_attempt_id":"att_01KZ2T0Z764XR1GW9JHG9N07P1","signed_config_token":"v2.eyJmdW5uZWxfdmFyaWFudF9pZCI6Imxnbl8wMUtaMjcxMzgzU0tLU0ZGV0cyM04xWEdaSyIsInNlY3Rpb25fb3JkZXJfaGFzaCI6ImIxYjRhMTUxYjY4NjliMzM5MThhNzAxM2MwYTA1MmY0NjA3MzhiMWNlNDRiMzAyOGFkODFhYjFkZmI5MGZkNGMiLCJjb250ZW50X3ZlcnNpb24iOjM1NCwiZnVubmVsX2F0dGVtcHRfaWQiOiJhdHRfMDFLWjJUMFo3NjRYUjFHVzlKSEc5TjA3UDEiLCJzZXNzaW9uX2lkIjoiYzljNTVhMmItNGEyZS00Y2U0LWI3ZDktZDEwNTdmZWY1NDMyIiwiYW5zd2VyX21hcHBpbmdfaGFzaCI6IjlhM2Y0MjY5NmE0YjRlZGE5MTRmNzk5ODhiYTYzMWJlM2M1NjRlNjI2OTBhYzhjODg2ZWI1MTI2ZGIxMWVlN2MiLCJhdWN0aW9uX2NvbmZpZ192ZXJzaW9uIjoiMSIsImxhbmRpbmdfdXJsIjoiaHR0cDovL3IyZml4LmUyZS50ZXN0L2xnL3IyZml4P19jYj0xNzg1NzI3MDU3MDIyNHozdXI3NHVwemUiLCJwYWdlX3BsYW5faGFzaCI6ImVmZDQyYmY5OWViMWQ1ZDRkYmJiMjA0Y2JkMDk5YmFiZWYxMTA1NzI3ZmMxMTJiYzYzOTFlMjg4YmY4NWFmMDkifQ.n3HoD_NAo4N0U1TFJwRMFgnQqHh9x15Bpt5viIodSdU","funnel_variant_id":"lgn_01KZ271383SKKSFFWG2
+ERRORS: NONE
+
+########## B1 — SINGLE FIELD full_address at 375 ##########
+active section: 02 · Where do you live?
+maps attrs on page: 1
+SDK stub loaded: false
+Autocomplete ctor calls: [{"id":"","opts":{"types":["address"],"fields":["address_components","formatted_address"]}}]
+BEFORE boxes: {"rv1b_full":{"value":"","placeholder":"Home address","w":317,"h":52,"visible":true}}
+place_changed: FIRED
+AFTER boxes: {"rv1b_full":{"value":"1600 Amphitheatre Pkwy","placeholder":"Home address","w":317,"h":52,"visible":true}}
+STORE right after place: {"lg:att_01KZ2T19PV3ARF5R59VD4719FE":"{\"v\":1,\"tuple\":{\"funnel_variant_id\":\"lgn_01KZ271383SKKSFFWG23N1XGZK\",\"section_order_hash\":\"b1b4a151b6869b33918a7013c0a052f460738b1ce44b3028ad81ab1dfb90fd4c\",\"content_version\":354},\"section_index\":1,\"back_stack\":[0],\"answers\":{\"rv1b_full\":{\"value\":\"1600 Amphitheatre Pkwy\",\"answer_source\":\"user_selected\",\"question_id\":\"p8_addr\",\"section_public_id\":\"lgs_01KZ27DTF599M85YHNEDHS6WA0\",\"answered_at\":1785727072421}},\"saved_at\":1785727072422}"}
+POSTS:
+    POST /lg/auction {"funnel_attempt_id":"att_01KZ2T19PV3ARF5R59VD4719FE","signed_config_token":"v2.eyJmdW5uZWxfdmFyaWFudF9pZCI6Imxnbl8wMUtaMjcxMzgzU0tLU0ZGV0cyM04xWEdaSyIsInNlY3Rpb25fb3JkZXJfaGFzaCI6ImIxYjRhMTUxYjY4NjliMzM5MThhNzAxM2MwYTA1MmY0NjA3MzhiMWNlNDRiMzAyOGFkODFhYjFkZmI5MGZkNGMiLCJjb250ZW50X3ZlcnNpb24iOjM1NCwiZnVubmVsX2F0dGVtcHRfaWQiOiJhdHRfMDFLWjJUMTlQVjNBUkY1UjU5VkQ0NzE5RkUiLCJzZXNzaW9uX2lkIjoiYTAzMmM3OWEtZDgxYi00NzNmLTlkODItN2UxMWZiNDBiMGFlIiwiYW5zd2VyX21hcHBpbmdfaGFzaCI6IjlhM2Y0MjY5NmE0YjRlZGE5MTRmNzk5ODhiYTYzMWJlM2M1NjRlNjI2OTBhYzhjODg2ZWI1MTI2ZGIxMWVlN2MiLCJhdWN0aW9uX2NvbmZpZ192ZXJzaW9uIjoiMSIsImxhbmRpbmdfdXJsIjoiaHR0cDovL3IyZml4LmUyZS50ZXN0L2xnL3IyZml4P19jYj0xNzg1NzI3MDY3ODMxd2pkb25tdjVhc20iLCJwYWdlX3BsYW5faGFzaCI6ImVmZDQyYmY5OWViMWQ1ZDRkYmJiMjA0Y2JkMDk5YmFiZWYxMTA1NzI3ZmMxMTJiYzYzOTFlMjg4YmY4NWFmMDkifQ.0PLOgm2cjxQvcYxuLnOnVA5BLQM-Qhq2KoPOLecEkI0","funnel_variant_id":"lgn_01KZ271383SKKSFFWG2
+ERRORS: NONE

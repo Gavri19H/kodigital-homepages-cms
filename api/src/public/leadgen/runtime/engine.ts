@@ -28,7 +28,6 @@ import {
   LgStateStore,
   scanForRestorableSnapshot,
   storageKeyForAttempt,
-  type LgAnswerSource,
   type LgBindingTuple,
   type LgComponentConfig,
   type LgConditional,
@@ -823,27 +822,15 @@ export class LgEngine {
     // re-runs the field wiring on ready), render the current step.
     this.bindListeners();
     wireMapsFields(this.root, {
-      // Coordinator ruling (2026-07-20): stamp the section that OWNS the
-      // edited field, not the anchor (this.currentSection()) — on a same-
-      // screen multi-section page an Address on section 2 must not mis-
-      // attribute to section 1's public id just because this.si still
-      // points at the page's anchor. maps.ts hands back only the field NAME
-      // (no DOM element to walk), so resolution is an internal_field lookup
-      // across config.sections (inlined -- its one call site) — falls back
-      // to the anchor only if no section declares the field at all (should
-      // not happen for a validly authored funnel). `||` not `??`/`?.` -- a
-      // resolved section is always a non-null object (never falsy-but-
-      // defined), and the es2019 build target transpiles `?.`/`??` into far
-      // costlier ternary chains than a plain `||`/explicit null check.
-      setAnswer: (field, value, meta) => {
-        const owner =
-          this.config.sections.find((s) => s.components.some((c) => c.internal_field === field)) ||
-          this.currentSection();
-        this.writeAnswer(field, value, {
-          question_id: meta.question_id,
-          section_public_id: owner !== null ? owner.section_public_id : "",
-        });
-      },
+      // P8 B1: maps.ts no longer hands the engine a field NAME to write into
+      // the store behind the visitor's back (that path is deleted — it stamped
+      // answers no box ever showed). A resolved place fills the VISIBLE input
+      // and dispatches the real `change` the delegated listener below already
+      // owns, so the answer is recorded by handleInputEvent off the DOM: the
+      // question, the owning section (2026-07-20 coordinator ruling: the
+      // section that OWNS the edited field, not the page anchor) and the value
+      // all come from the element the visitor is looking at. Beacons are the
+      // only hook left.
       emit: (type, fields) => {
         this.beacons.enqueue(type, { ...this.sectionDims(this.currentSection()), ...fields });
       },
@@ -1204,16 +1191,6 @@ export class LgEngine {
   }
 
   // ----- answers (§3.4 / §3.5.3) ------------------------------------------
-
-  private writeAnswer(
-    internalField: string,
-    value: unknown,
-    meta: { question_id: string; section_public_id: string },
-  ): LgAnswerSource {
-    const write = this.store.recordUserAnswer(internalField, value, meta);
-    this.afterAnswerMutation();
-    return write.entry.answer_source;
-  }
 
   // Same-screen pages: an answer anywhere on the page can drive a
   // conditional ANYWHERE ELSE on the SAME page (both simultaneously on
@@ -1585,8 +1562,9 @@ export class LgEngine {
     // Map the sub-input's slot to the group's configured field (props.fields,
     // default first/last), so each sub-answer is recorded under its real field
     // (matching the server's answers.ts fieldsOf) and validateSection's
-    // group-required check can see it. Address parts are filled via the Places
-    // path (maps.ts setAnswer), so only the name slots need this capture bridge.
+    // group-required check can see it. Address parts already carry their own
+    // [data-lg-field] boxes (renderAddressFieldSet), so this generic capture
+    // records them without a bridge — only the name slots need one.
     if (internalField === "") {
       const slot = input.getAttribute("data-name-field");
       if ((slot === "first" || slot === "last") && component?.type === "NameFieldsGroup") {
@@ -1926,9 +1904,9 @@ export class LgEngine {
     const visible = this.visibleIndexes();
     const pos = visible.indexOf(this.si);
     const section = this.currentSection();
-    // `||`/explicit checks not `?.`/`??` -- see the setAnswer hook's note
-    // above (this file's es2019 build target transpiles chained `?.`/`??`
-    // into far costlier ternary chains; this is a 3-link chain).
+    // `||`/explicit checks not `?.`/`??` (this file's es2019 build target
+    // transpiles chained `?.`/`??` into far costlier ternary chains; this is
+    // a 3-link chain).
     const meta = this.planMeta !== null && section !== null ? this.planMeta.get(section.section_public_id) : undefined;
     const page = meta !== undefined ? meta[0] : undefined;
     const total = page !== undefined ? this.pagesCount : visible.length;

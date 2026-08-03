@@ -49,8 +49,16 @@ function addressNode(props: Record<string, unknown>): LeadgenComponentNode {
 const FULL_ADDRESS_BASELINE =
   '<div class="lg-address" data-component-type="AddressAutocompleteQuestion" data-question-id="q_addr" data-internal-field="addr" data-answer-type="object" data-lg-question="q_addr" data-lg-field="addr" data-provider="google" data-lg-maps="{}"><input class="lg-input lg-address-input" type="text" data-lg-input autocomplete="street-address" placeholder="Start typing your address…" data-address-autocomplete="true"></div>';
 
+// P8 defect contract B1/R1-1: the `data-lg-maps` portion of this pin was
+// re-minted from the CONVERGED flat wire shape (top-level enable_autocomplete/
+// validate; empty fills omitted — flatMapsConfigJson, presets.ts) — the
+// PRE-fix pin carried a nested {enabled,jobs:{...},fills:{}} shape that
+// runtime/maps.ts parseMapsConfig never read, so this field's autocomplete
+// silently decoded to false (P8-DEFECT-CONTRACT.md R1-1). Every OTHER byte —
+// the label/structure/placeholder/aria assertions this describe block
+// exists to pin — is unchanged; only the data-lg-maps attribute value moved.
 const STREET_ONLY_BASELINE =
-  '<div class="lg-address lg-address-fieldset" data-component-type="AddressAutocompleteQuestion" data-question-id="q_addr" data-internal-field="addr" data-answer-type="object" data-lg-question="q_addr" data-lg-field="addr" data-provider="google"><div class="lg-address-fields" style="display:flex;flex-direction:column;gap:0.5rem"><span class="lg-address-field-wrap" data-lg-field="addr_street" data-lg-maps="{&quot;enabled&quot;:true,&quot;jobs&quot;:{&quot;validate&quot;:false,&quot;auction&quot;:false,&quot;autocomplete&quot;:true},&quot;fills&quot;:{}}"><input class="lg-input" type="text" data-lg-input placeholder="Street address" aria-label="Street address" autocomplete="street-address" data-address-autocomplete="true"><p class="lg-error lg-error-auto" role="alert" aria-live="polite" hidden data-lg-error-for="addr_street" style="color:#D32F2F"></p></span></div></div>';
+  '<div class="lg-address lg-address-fieldset" data-component-type="AddressAutocompleteQuestion" data-question-id="q_addr" data-internal-field="addr" data-answer-type="object" data-lg-question="q_addr" data-lg-field="addr" data-provider="google"><div class="lg-address-fields" style="display:flex;flex-direction:column;gap:0.5rem"><span class="lg-address-field-wrap" data-lg-field="addr_street" data-lg-maps="{&quot;enable_autocomplete&quot;:true,&quot;validate&quot;:false}"><input class="lg-input" type="text" data-lg-input placeholder="Street address" aria-label="Street address" autocomplete="street-address" data-address-autocomplete="true"><p class="lg-error lg-error-auto" role="alert" aria-live="polite" hidden data-lg-error-for="addr_street" style="color:#D32F2F"></p></span></div></div>';
 
 describe("P5-F3 item 1 — persistent per-field labels on the multi-field address composite (owner A.1 #6)", () => {
   it("the D3 unconfigured default (4-field composite) renders one visible <label> per field, for/id-associated, placeholder+aria-label kept", () => {

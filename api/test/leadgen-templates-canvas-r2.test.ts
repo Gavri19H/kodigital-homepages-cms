@@ -325,7 +325,8 @@ describeDb("R2 ② canvas — ONE preview endpoint serves the empty funnel too",
     const src = islandSource();
     expect(src).not.toContain("/sections/preview");
     expect(src).not.toContain("renderFixture");
-    expect(src.match(/\/variants\/' \+ encodeURIComponent\(boot\.selected_variant\) \+ '\/preview/g)?.length ?? 0).toBe(1);
+    // B3/R6-1 (P8-1 S1.6): identity source is the carried-funnel resolver now; the ONE-endpoint claim this test protects is unchanged.
+    expect(src.match(/\/variants\/' \+ encodeURIComponent\(targetVariant\) \+ '\/preview/g)?.length ?? 0).toBe(1);
     // …and it asks that ONE endpoint for the empty-funnel sample.
     expect(src).toContain("body.sample_section = true");
   });

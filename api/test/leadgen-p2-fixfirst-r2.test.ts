@@ -879,6 +879,7 @@ describeDb("R2 P2 FIX-FIRST-2 FIX 1 (producer) — every palette affordance anno
       byId: (id: string) => (id === "lg-theme-hex-role" ? roleSel : id === "lg-theme-hex-value" ? valueEl : null),
       showMsg: (_id: string, m: string) => errors.push(m),
       hideMsg: () => {},
+      themeOverrideActive: () => false,
       // applyPaletteValue's own collaborators (this slice does not re-implement
       // them; they are the funnel tab's canvas/dirty bookkeeping).
       isControl: true,
@@ -889,7 +890,10 @@ describeDb("R2 P2 FIX-FIRST-2 FIX 1 (producer) — every palette affordance anno
       writeThemeValue: () => {},
       paintSwatches: () => {},
       markStripSelection: () => {},
-      updateOverrideBadge: () => {},
+      // P8-1 K1: updateOverrideBadge() is removed from quotes-tabs/funnel.ts
+      // (dead code — the badge it painted has been null on every served page
+      // since the §8.2/§10 canvas rewrite); applyPaletteValue's sliced body no
+      // longer calls it, so this manifest carries no stub for it either.
       schedulePreview: () => {},
       markDirty: () => {},
       baseTokens: { brand_primary: "#1B3A5C" },
@@ -1064,6 +1068,12 @@ describeDb("R2 P2 FIX-FIRST-2 FIX 2 — a preset's mappable fonts survive the fi
       Number,
       encodeURIComponent,
       fetch: fetchShim,
+      // P8-1 J1 (review #4, F-1) MANIFEST ENTRY: normalizedThemePut now
+      // REJECTS an unreadable theme GET through this helper (quotes-tabs/
+      // funnel.ts) instead of merging onto {} and PUTting the funnel's whole
+      // theme away. This slice drives the READABLE path, so the manifest
+      // carries a stub, not the board-blob chain the real helper names.
+      themeReadAbortError: (body: unknown) => new Error(`theme read failed: ${JSON.stringify(body)}`),
       workingTheme: { theme_id: preset.item.id, scales: { radius: "round" }, version: 1 },
       __capture: (p: Promise<{ ok: boolean; body: unknown }>) => {
         captured = p;

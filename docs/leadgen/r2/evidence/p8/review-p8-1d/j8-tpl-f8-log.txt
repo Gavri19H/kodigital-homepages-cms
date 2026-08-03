@@ -1,0 +1,24 @@
+frame_config BEFORE: A = null | D = null
+=== B3.5 Template chip on P8-Delta -> edit a layout control -> Save ===
+chip: clicked: Template
+templates headers: ["P8-Delta","P8-Delta"] | hash: #tab=templates&funnel=lgf_01KZ279RWTSZB5054A8Q9WBQ7X
+visible frame controls: [{"k":"progress.style","tag":"INPUT","v":"bar"},{"k":"progress.style","tag":"INPUT","v":"dots"},{"k":"progress.style","tag":"INPUT","v":"numbered"},{"k":"progress.style","tag":"INPUT","v":"percent"},{"k":"progress.style","tag":"INPUT","v":"icon_on_track"},{"k":"progress.style","tag":"INPUT","v":"hidden"},{"k":"progress.icon","tag":"SELECT","v":""},{"k":"progress.position","tag":"SELECT","v":"under
+editing progress.icon  -> dot
+save button present: false
+writes: []
+frame_config AFTER: A = null | D = null
+A UNCHANGED? true | D changed? false
+=== F8 per-arm theme_id ===
+unknown theme_id  -> {"s":400,"t":"{\"error\":\"Validation failed\",\"fields\":{\"frame_overrides_json\":\"frame/theme overrides failed validation\"},\"problems\":[{\"path\":\"frame_overrides.version\",\"scope\":\"frame\",\"severity\":\"e"}
+unknown KEY       -> {"s":400,"t":"{\"error\":\"Validation failed\",\"fields\":{\"frame_overrides_json\":\"frame/theme overrides failed validation\"},\"problems\":[{\"path\":\"frame_overrides.version\",\"scope\":\"frame\",\"severity\":\"e"}
+known theme_id    -> {"s":400,"t":"{\"error\":\"Validation failed\",\"fields\":{\"frame_overrides_json\":\"frame/theme overrides failed validation\"},\"problems\":[{\"path\":\"frame_overrides.version\",\"scope\":\"frame\",\"severity\":\"e"}
+activation blocks: [] | mentions theme_id: false
+arm preview: 200 | #AB1234 occurrences (the arm override theme record colour): 20 | #0E7C3A (Charlie funnel colour): 23
+=== HUNT (375): arm override ON + target switched — what the operator sees ===
+state with target=Delta: {"header":"P8-Delta","overrideChecked":true,"inheritChecked":false,"swatch":"rgb(27, 58, 92)"}
+write issued while "Override for this variant" is ticked: ["PUT /api/admin/leadgen/funnels/lgf_01KZ279RWTSZB5054A8Q9WBQ7X/theme {\"theme_json\":{\"scales\":{\"spacing\":\"roomy\"},\"palette\":{\"brand_primary\":\"success\"}}}"]
+arm frame_overrides_json: {"theme_id":"thm_p8-repro"}
+Delta theme now: {"scales":{"spacing":"roomy"},"palette":{"brand_primary":"success"}}
+ERRORS: NONE
+restore Delta theme: 200
+final: D frame = null | D theme = {"scales":{"spacing":"roomy"}}

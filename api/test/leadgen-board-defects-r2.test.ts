@@ -150,9 +150,35 @@ function seedSection(sdb: SqliteDb, name: string, vertical: string): { id: numbe
 interface QuoteDetail { public_id: string; funnels: Array<{ public_id: string; variants: Array<{ public_id: string }> }> }
 
 describe("island script (client-side) regressions — string-level guard", () => {
+  // RE-POINTED (P8-1 F5, B3/R6-1 — measured, not weakened). The retired line
+  // was, verbatim:
+  //   expect(QUOTE_EDITOR_SCRIPT).toMatch(/data-template-picker[\s\S]{0,80}gotoTab\('templates'\)/);
+  // It measured a BYTE DISTANCE, not a behaviour. P8-1 F1 made the Template
+  // chip set the persisted target funnel (setTargetFunnel(...)) BEFORE
+  // navigating — the correct fix for the owner's B3 defect — which pushed the
+  // gap from under 80 chars to ~425 (~145 with the explanatory comment
+  // stripped), so the pin started failing on a chip that behaves exactly as
+  // its claim requires. The CLAIM is unchanged and still enforced below, now
+  // STRUCTURALLY: inside the Template chip's OWN handler block (never a
+  // whole-script indexOf, which would match an unrelated gotoTab elsewhere in
+  // the island) the handler NAVIGATES to the top-bar Templates tab, and opens
+  // no popover / inline panel / menu of its own — the retired v2.x embedded
+  // apply-popover mechanism the owner rejected ("why you kept the old and
+  // wrong option in the funnel builder??") stays gone, both as the two named
+  // dead functions and as any inline-open call on this path.
   it("SRC-11B: the Template chip dispatch NAVIGATES to the top-bar Templates tab, no embedded popover mechanism remains", () => {
     expect(QUOTE_EDITOR_SCRIPT).toContain("data-template-picker");
-    expect(QUOTE_EDITOR_SCRIPT).toMatch(/data-template-picker[\s\S]{0,80}gotoTab\('templates'\)/);
+    const at = QUOTE_EDITOR_SCRIPT.indexOf("var tplChip = t.closest('[data-template-picker]');");
+    expect(at, "the Template chip's handler block").toBeGreaterThan(-1);
+    const end = QUOTE_EDITOR_SCRIPT.indexOf("return;", at);
+    expect(end, "the Template chip's handler end").toBeGreaterThan(at);
+    const block = QUOTE_EDITOR_SCRIPT.slice(at, end);
+    // navigates to the top-bar tab
+    expect(block).toContain("gotoTab('templates')");
+    // …and opens nothing inline on the way there
+    for (const inlineOpen of ["openPopoverList(", "openMenu(", "openTemplatePicker(", ".open = true", "lg-hidden"]) {
+      expect(block, `the Template chip must not open ${inlineOpen} inline`).not.toContain(inlineOpen);
+    }
     expect(QUOTE_EDITOR_SCRIPT).not.toContain("openTemplatePicker(");
     expect(QUOTE_EDITOR_SCRIPT).not.toContain("frameTemplateRecordItems(");
   });

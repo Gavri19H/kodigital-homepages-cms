@@ -997,11 +997,12 @@ describe("v2.4 03 §3.3 — data-lg-* hydration hooks", () => {
 // ---------------------------------------------------------------------------
 
 describe("v2.4 §3.3 — data-lg-maps (field-level props.maps; compat fallback)", () => {
-  it("AddressAutocompleteQuestion's default 4-field composite always carries data-lg-maps on its autocomplete-driving field (R2 P5/D3: no props.maps ⇒ the per-field {enabled,jobs,fills} shape, not the old node-level '{}' compat fallback)", () => {
+  it("AddressAutocompleteQuestion's default 4-field composite always carries data-lg-maps on its autocomplete-driving field (R2 P5/D3 / B1 R1-1: no props.maps ⇒ the flat {enable_autocomplete, autocomplete, fills} shape parseMapsConfig reads, not the retired nested {enabled,jobs,fills} shape)", () => {
     const html = renderComponent(NODE_SPECS.AddressAutocompleteQuestion, DESIGN);
     // exactly ONE data-lg-maps: the first (street) field drives autocomplete.
     expect((html.match(/data-lg-maps/g) ?? []).length).toBe(1);
-    expect(html).toMatch(/data-lg-field="q_street"[^>]*data-lg-maps="[^"]*&quot;enabled&quot;:true/);
+    // B1/R1-1 re-mint: pinned bytes froze the defective nested data-lg-maps; flat shape per presets.ts flatMapsConfigJson — still pins that the street field's data-lg-maps has autocomplete enabled.
+    expect(html).toMatch(/data-lg-field="q_street"[^>]*data-lg-maps="[^"]*&quot;enable_autocomplete&quot;:true/);
     expect(html).toContain("&quot;fills&quot;:{&quot;city&quot;:&quot;q_city&quot;");
   });
 

@@ -1,0 +1,25 @@
+section 5 BEFORE: {"components":[{"type":"AddressAutocompleteQuestion","question_id":"p8_addr","internal_field":"p8_addr","props":{}},{"type":"ContinueButton","question_id":"p8_addr_cont","props":{"label":"Continue"}}]}
+
+### A-lone-MANUAL-jobON (PATCH 200, my unique label served after 0s) — expect: no data-lg-maps AND no data-address-autocomplete, no SDK
+    {"mapsAttrs":[],"autoAttrs":0,"sdkRefs":0,"placeholders":["Addr-R5K7Q2-MANUAL"],"addrInputSnippet":"<div class=\"lg-address\" data-component-type=\"AddressAutocompleteQuestion\" data-question-id=\"p8_addr\" data-internal-field=\"p8_addr\" data-answer-type=\"object\" data-lg-question=\"p8_addr\" data-lg-field=\"p8_addr\" data-provider=\"google\"><input class=\"lg-input lg-address-input\" type=\"text\" data-lg-input autocomplete=\"street-address\" placeholder=\"Addr-R5K7Q2-MANUAL\"><p class=\"lg-error lg-error-auto\" role=\"alert\" aria-live=\"p"}
+
+### B-lone-AUTOFILL-jobON (PATCH 200, my unique label served after 60s) — expect: BOTH attrs + SDK
+    {"mapsAttrs":[],"autoAttrs":1,"sdkRefs":0,"placeholders":["Addr-R5K7Q2-AUTOFILL"],"addrInputSnippet":"<div class=\"lg-address\" data-component-type=\"AddressAutocompleteQuestion\" data-question-id=\"p8_addr\" data-internal-field=\"p8_addr\" data-answer-type=\"object\" data-lg-question=\"p8_addr\" data-lg-field=\"p8_addr\" data-provider=\"google\" data-lg-maps=\"{&quot;enable_autocomplete&quot;:true,&quot;validate&quot;:false}\"><input class=\"lg-input lg-address-input\" type=\"text\" data-lg-input autocomplete=\"street-address\" placeholder"}
+section 5 BEFORE: {"components":[{"type":"AddressAutocompleteQuestion","question_id":"p8_addr","internal_field":"p8_addr","props":{"maps":{"enabled":true,"jobs":{"validate":false,"auction":false,"autocomplete":true}},"fields":[{"field":"full_address","mode":"autofill","label":"Addr-R5K7Q2-AUTOFILL"}]}},{"type":"ContinueButton","question_id":"p8_addr_cont","props":{"label":"Continue"}}]}
+
+### C-lone-FREETEXT-mapsOFF (PATCH 200, my unique label served after 50s) — expect: owner §8 free text: neither attr, no SDK
+    {"mapsAttrs":[],"autoAttrs":0,"sdkRefs":0,"placeholders":["Addr-R5K7Q2-FREETEXT"],"addrInputSnippet":"<div class=\"lg-address\" data-component-type=\"AddressAutocompleteQuestion\" data-question-id=\"p8_addr\" data-internal-field=\"p8_addr\" data-answer-type=\"object\" data-lg-question=\"p8_addr\" data-lg-field=\"p8_addr\" data-provider=\"google\"><input class=\"lg-input lg-address-input\" type=\"text\" data-lg-input autocomplete=\"street-address\" placeholder=\"Addr-R5K7Q2-FREETEXT\"><p class=\"lg-error lg-error-auto\" role=\"alert\" aria-live="}
+
+### D-composite-street-city-state-zipMANUAL (PATCH 200, my unique label served after 60s) — expect: street carries maps+fills; the owner’s manual ZIP does not
+    {"mapsAttrs":[],"autoAttrs":1,"sdkRefs":0,"placeholders":["Street-R5K7Q2","City-R5K7Q2","State-R5K7Q2","ZIP-R5K7Q2"],"addrInputSnippet":""}
+
+section 5 restored: 200 {"components":[{"type":"AddressAutocompleteQuestion","question_id":"p8_addr","internal_field":"p8_addr","props":{"maps":{"enabled":true,"jobs":{"validate":false,"auction":false,"autocomplete":true}},"fields":[{"field":"full_address","mode":"autofill","label":"Addr-R5K7Q2-AUTOFILL"}]}},{"type":"ContinueButton","question_id":"p8_addr_cont","props":{"label":"Continue"}}]}
+section 5 restored to the ORIGINAL props {}: 200 {"components":[{"type":"AddressAutocompleteQuestion","question_id":"p8_addr","internal_field":"p8_addr","props":{}},{"type":"ContinueButton","question_id":"p8_addr_cont","props":{"label":"Continue"}}]}
+default D3 composite live again after 35s
+inputs on the served page:
+    {"ph":"Street address","field":"","autocompleteAttr":true}
+    {"ph":"City","field":"","autocompleteAttr":false}
+    {"ph":"State","field":"","autocompleteAttr":false}
+    {"ph":"ZIP code","field":"","autocompleteAttr":false}
+address wrappers:
+total data-address-autocomplete on the page: 1 | total data-lg-maps: 1

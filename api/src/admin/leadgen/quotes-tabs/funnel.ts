@@ -82,7 +82,6 @@ import {
   PROBLEM_SCOPE_LABELS,
   PREFLIGHT_PASS_CHECKS,
   FRAME_REGION_LABELS,
-  OVERRIDE_GROUP_LABELS,
   primaryVariantOf,
   renderRoleStrip,
   frameControl,
@@ -417,6 +416,24 @@ function templateLabelFor(funnel: FunnelNode, templates: FrameTemplateItem[]): s
 }
 
 
+// P8 B3 (contract R6-1): the Theme chip used to render the static literal
+// "Theme" regardless of the funnel's actual stored theme. This derives the
+// best HONEST label from what the board's FunnelNode already carries
+// (theme_json) -- no new endpoint/join threaded in (R1 scope discipline):
+// null -> "Default"; an inline override (no theme_id key) -> "Custom"; a
+// {theme_id} preset pointer -> the record's own name IF the board's data
+// already carried it -- it doesn't (no preset catalog is threaded into
+// renderBuilderPanel/renderFunnelColumn), reported to the conductor as the
+// named gap -- so this falls back to the raw id, per the contract's own
+// stated fallback ("the record's name if already available ... else the id").
+function themeChipLabel(funnel: FunnelNode): string {
+  const themeJson = funnel.theme_json;
+  if (themeJson === null || themeJson === undefined) { return "Default"; }
+  const themeId = typeof themeJson["theme_id"] === "string" ? (themeJson["theme_id"] as string) : "";
+  return themeId !== "" ? themeId : "Custom";
+}
+
+
 function renderFunnelColumn(
   funnel: FunnelNode,
   structure: StructureBody,
@@ -444,8 +461,8 @@ function renderFunnelColumn(
         <span class="lg-kebab-btn lg-funnel-kebab" data-funnel-kebab data-chip-menu="funnel" role="button" tabindex="0" aria-label="Funnel options">${BOARD_ICON.kebab}</span>
       </div>
       <div class="lg-col-meta">
-        <span class="lg-pickchip" data-theme-picker data-pin="8.2-theme-picker" role="button" tabindex="0">Theme</span>
-        <span class="lg-pickchip" data-template-picker data-pin="8.2-template-picker" role="button" tabindex="0">${escapeHtml(templateName)}</span>
+        <span class="lg-pickchip" data-theme-picker data-pin="8.2-theme-picker" data-chip-funnel-public-id="${escapeHtml(funnel.public_id)}" data-chip-funnel-active-variant="${escapeHtml(funnel.active_variant_public_id ?? "")}" role="button" tabindex="0">${escapeHtml(themeChipLabel(funnel))}</span>
+        <span class="lg-pickchip" data-template-picker data-pin="8.2-template-picker" data-chip-funnel-public-id="${escapeHtml(funnel.public_id)}" data-chip-funnel-active-variant="${escapeHtml(funnel.active_variant_public_id ?? "")}" role="button" tabindex="0">${escapeHtml(templateName)}</span>
       </div>
       <div class="lg-col-actions">
         <span class="lg-badge-ab" data-ab-badge data-pin="4.3-ab-badge" role="button" tabindex="0">${escapeHtml(abLabel)}</span>
@@ -772,7 +789,6 @@ export const QUOTE_EDITOR_SCRIPT = `
   var ELIGIBILITY_REASON_LABELS = ${JSON.stringify(LEADGEN_ELIGIBILITY_REASON_LABELS)};
   var PREFLIGHT_PASS_CHECKS = ${JSON.stringify(PREFLIGHT_PASS_CHECKS)};
   var REGION_LABELS = ${JSON.stringify(FRAME_REGION_LABELS)};
-  var OVERRIDE_LABELS = ${JSON.stringify(OVERRIDE_GROUP_LABELS)};
   var TOKEN_ROLES = ${JSON.stringify(FUNNEL_TOKEN_ROLES)};
   var PROBLEM_SCOPES = ${JSON.stringify(PROBLEM_SCOPE_ORDER)};
   var PROBLEM_SCOPE_NAMES = ${JSON.stringify(PROBLEM_SCOPE_LABELS)};
@@ -1243,6 +1259,45 @@ export const QUOTE_EDITOR_SCRIPT = `
   // --- sub-tab switching ----------------------------------------------------
   var tabs = root.querySelectorAll('.lg-qtab');
   var panels = root.querySelectorAll('.lg-qpanel');
+  /* ===== P8-1 F1 (B3/R6-1 round 2): the PERSISTED editor location ==========
+     Which tab is open, and which funnel the Themes/Templates tabs are
+     editing, both ride in the page URL's hash as tab=<name>&funnel=<public
+     id>. Why the hash: it is the ONE channel every one of this page's
+     SEPARATE top-level island scopes can read and write without sharing a
+     closure (this file emits two, quotes-tabs/themes.ts and
+     quotes-tabs/templates.ts one each), it survives a reload, and the idiom
+     already exists in this codebase (ui-section-studio.ts opens its mapping
+     drawer from window.location.hash on load). It replaces the FIRST fix's
+     transient data-carried-funnel-public-id attribute, which this very
+     listener wiped on the next plain tab click -- so a Theme edit made after
+     Themes -> Activation -> Themes silently landed on the editor-selected
+     funnel again (the owner's original R6-1 report, reproduced).
+     Every reader/writer below is deliberately self-sufficient: an identical
+     copy of these two helpers lives in the board island's scope further down
+     (a function in one top-level IIFE is NOT visible in another -- the exact
+     mistake that threw "clearCarriedChipFunnel is not defined" in a real
+     browser while every unit test passed). window.location/window.history
+     are read defensively so the ES5-sandbox island harnesses (which stub
+     window with timers only) keep booting this script unchanged. ======== */
+  function lgHashParam(name) {
+    var loc = (typeof window === 'undefined' || !window) ? null : window.location;
+    var h = (loc && loc.hash) ? String(loc.hash) : '';
+    var m = h.match(new RegExp('[#&]' + name + '=([^&]*)'));
+    return m ? decodeURIComponent(m[1]) : '';
+  }
+  function lgSetHashParam(name, value) {
+    var loc = (typeof window === 'undefined' || !window) ? null : window.location;
+    if (!loc) { return; }
+    var tab = name === 'tab' ? value : lgHashParam('tab');
+    var funnel = name === 'funnel' ? value : lgHashParam('funnel');
+    var parts = [];
+    if (tab) { parts.push('tab=' + encodeURIComponent(tab)); }
+    if (funnel) { parts.push('funnel=' + encodeURIComponent(funnel)); }
+    var hash = parts.length > 0 ? '#' + parts.join('&') : '';
+    var hist = window.history;
+    if (hist && hist.replaceState) { hist.replaceState(null, '', (loc.pathname || '') + (loc.search || '') + hash); return; }
+    loc.hash = hash;
+  }
   function activate(name) {
     var i;
     for (i = 0; i < tabs.length; i++) {
@@ -1258,11 +1313,35 @@ export const QUOTE_EDITOR_SCRIPT = `
     // stale value.
     if (name === 'templates' || name === 'themes') { populateAllControls(); }
     if (name === 'themes') { loadThemePresetOptions(); }
+    // P8-1 F1: remember WHERE the operator is, so a reload comes back to the
+    // same tab (and, via the funnel param this preserves, the same funnel).
+    lgSetHashParam('tab', name);
   }
   var ti;
   for (ti = 0; ti < tabs.length; ti++) {
+    // P8-1 F1 (B3/R6-1 round 2): a plain top-bar tab click NO LONGER clears
+    // the funnel the Themes/Templates tabs are editing. The first fix cleared
+    // it here (the carry was a transient DOM attribute), which is exactly why
+    // Themes -> Activation -> Themes silently retargeted the editor-selected
+    // funnel and the owner's theme edit landed on the wrong one. activate()
+    // persists the tab; the funnel param it preserves survives the trip.
     tabs[ti].addEventListener('click', function () { activate(this.getAttribute('data-tab')); });
   }
+  // P8-1 F1: honour the persisted location on load, so a reload while editing
+  // a funnel's theme comes back to that tab (the funnel param is read by the
+  // Themes/Templates islands themselves). Deferred to DOMContentLoaded (the
+  // repo idiom, see quotes-tabs/templates.ts's own init) so every other
+  // island on this page has finished booting before a tab is activated; an
+  // unknown tab name is ignored rather than blanking every panel.
+  function honourPersistedTab() {
+    var want = lgHashParam('tab');
+    if (want === '') { return; }
+    var hit = null;
+    var hi;
+    for (hi = 0; hi < tabs.length; hi++) { if (tabs[hi].getAttribute('data-tab') === want) { hit = tabs[hi]; } }
+    if (hit !== null) { activate(want); }
+  }
+  if (document.readyState === 'loading') { document.addEventListener('DOMContentLoaded', honourPersistedTab); } else { honourPersistedTab(); }
   // Generic data-goto-tab click delegation (the head's Publish button jumps
   // into Activation; the board's A/B badge / theme pickchip jump into A/B /
   // Themes via this SAME mechanism, gotoTab() in the board island below).
@@ -1380,11 +1459,36 @@ export const QUOTE_EDITOR_SCRIPT = `
   // theme_id excluded) on top via deepMerge (a NESTED merge — so editing
   // ONE palette role never displaces the preset's OTHER resolved roles,
   // unlike a shallow key overwrite); then PUT.
+  // P8-1 J1 (review #4, BLOCKER F-1) — THE OTHER READ-BEFORE-MERGE, FAIL-CLOSED.
+  // FAIL-BEFORE: '(getRes.ok && getRes.body && getRes.body.theme) || {}' checked
+  // .ok and then threw the answer away — every false value collapsed to {}, and
+  // the deepMerge below PUT that as the funnel's WHOLE theme. That is the wipe
+  // the preset branch's own comment describes ("turned an unreadable preset into
+  // an EMPTY inline theme and PUT it, wiping the funnel's look with no error"),
+  // one level up, on the funnel's own theme; quotes-tabs/themes.ts's autosave
+  // carried the identical collapse and review #4 measured it destroying
+  // P8-Charlie's stored theme twice. An unreadable GET now REJECTS: the one-Save
+  // chain's catch surfaces the message, themeDirty stays set (Save is the
+  // retry), and no theme PUT is ever sent.
+  // theme === null is NOT unreadable — frame-handlers.ts themeProjection answers
+  // {theme: null} for a funnel with no stored theme, whose first edit must save.
+  function themeReadAbortError(body) {
+    var name = targetFunnelName();
+    var why = (body && typeof body.error === 'string' && body.error !== '') ? body.error : 'the theme could not be read';
+    var msg = 'Theme save: could not read the current theme for ' + name + ' \\u2014 ' + why +
+      '. Nothing was saved and ' + name + '\\u2019s stored theme is unchanged.';
+    var e = new Error(msg);
+    e.lgOperatorMessage = msg;
+    return e;
+  }
   function normalizedThemePut(funnelBase) {
     return fetch(funnelBase + '/theme', { credentials: 'same-origin', headers: { Accept: 'application/json' } })
-      .then(function (r) { return r.json().then(function (j) { return { ok: r.ok, body: j }; }); })
+      .then(function (r) { return r.json().then(function (j) { return { ok: r.ok, body: j }; }, function () { return { ok: false, body: null }; }); })
       .then(function (getRes) {
-        var current = (getRes.ok && getRes.body && getRes.body.theme) || {};
+        if (!(getRes.ok && getRes.body && typeof getRes.body === 'object' && getRes.body.theme !== undefined)) {
+          throw themeReadAbortError(getRes.body);
+        }
+        var current = getRes.body.theme || {};
         if (typeof current.theme_id === 'string' && current.theme_id !== '') {
           // R2 P2 FIX-FIRST-2 (fail-closed): a preset that cannot be read
           // REJECTS here — the one-Save chain's own catch surfaces the
@@ -1408,6 +1512,85 @@ export const QUOTE_EDITOR_SCRIPT = `
       });
   }
 
+  // P8-1 F5 (B3/R6-1, defect C) — WHICH funnel the one-Save chain writes.
+  // F1 gave the Themes/Templates panels a PERSISTED target funnel (the URL
+  // hash's funnel=<public id>, set by a column's Theme/Template chip or by
+  // either panel's own picker), but this chain still hard-coded
+  // funnelPublicId — the EDITOR-selected funnel, frozen at page load. The
+  // Templates panel's element controls are saved by THIS chain (its
+  // [data-frame-key]/[data-tplbox-*] DOM sits inside #lg-quote-editor and is
+  // wired by this island's delegated listeners), so "switch the Templates
+  // target to Charlie, edit a layout control, press Save" issued
+  // PUT /funnels/<Funnel A>/frame — silently overwriting a funnel the
+  // operator is not looking at. That is the owner's B3 sentence again, one
+  // path over, and destructive.
+  // The two funnel-scoped steps below (frame PUT; normalizedThemePut's
+  // GET+PUT /theme) now resolve the SAME target the panels do, with the
+  // editor's funnel as the default when no target is set. Same guard
+  // quotes-tabs/templates.ts's targetFunnelPublicId() uses: a hash pointing
+  // at a funnel the board no longer has falls back rather than editing blind.
+  // Step 3 is NOT re-pointed: it is variant-scoped (lander_*/
+  // funnel_design_id/auction_id/frame_overrides_json all belong to the
+  // editor-selected ARM, whose controls are the Funnel-settings dialog's) —
+  // switching which funnel the Templates canvas edits does not move the arm.
+  function saveTargetFunnelPublicId() {
+    var picked = lgHashParam('funnel');
+    if (picked === '' || picked === funnelPublicId) { return funnelPublicId; }
+    var board = readBlob('lg-board-data');
+    var rows = (board && board.funnels) ? board.funnels : [];
+    var bi;
+    for (bi = 0; bi < rows.length; bi++) { if (rows[bi].public_id === picked) { return picked; } }
+    return funnelPublicId;
+  }
+  // The NAME of that funnel, from the board rows already on the page
+  // (#lg-board-data — the same list saveTargetFunnelPublicId validates
+  // against). Used by the two operator sentences this island now writes: the
+  // fail-closed theme-read refusal above and the off-target override note
+  // below. No new source of funnel truth.
+  function targetFunnelName() {
+    var picked = saveTargetFunnelPublicId();
+    var board = readBlob('lg-board-data');
+    var rows = (board && board.funnels) ? board.funnels : [];
+    var ni;
+    for (ni = 0; ni < rows.length; ni++) {
+      if (rows[ni].public_id === picked && rows[ni].name) { return String(rows[ni].name); }
+    }
+    return 'this funnel';
+  }
+  // P8-1 F6 (B3/R6-1, F5's named residual) — WHOSE ARM the override switch
+  // speaks for. The §4.5 per-arm override switch belongs to the EDITOR-selected
+  // VARIANT, which is an arm of the EDITOR-selected FUNNEL. When the Themes/
+  // Templates panels target a DIFFERENT funnel (F1's hash target), that arm is
+  // not part of it, so every override route below would write the editor
+  // funnel's arm (PUT /variants/<editor arm> frame_overrides_json) while the
+  // panel's header names the target — the owner's B3 sentence again, one path
+  // over, and invisible: the funnel on screen changes nothing at all.
+  // With no target set (or a target that IS the editor funnel) this answers
+  // true and every override route behaves exactly as before.
+  function editorArmOwnsTarget() { return saveTargetFunnelPublicId() === funnelPublicId; }
+  // The ONE question the three theme-override routes ask (applyPaletteValue,
+  // the role-reset handler, the preset Apply button) — never three hand-rolled
+  // copies of the same condition that can drift apart again.
+  function themeOverrideActive() { return !isControl && overrideMode['theme'] === 'override' && editorArmOwnsTarget(); }
+  // P8-1 H1 (review #3, BLOCKER) — THE READ SIDE OF THAT SAME QUESTION.
+  // Every WRITE asked the predicate above (applyPaletteValue, the role-reset,
+  // writeTargetFor); every READ of the arm's override palette asked nothing,
+  // so with another funnel targeted the rail painted the EDITOR ARM's colour
+  // under the target funnel's name and tagged it "This funnel" — driven and
+  // measured on all four role strips (swatch rgb(255, 153, 0), header and
+  // picker both reading "Editing: P8-Bravo", canvas 30px away painting
+  // Bravo's own). Worse, the control then looked DEAD: a role pick for Bravo
+  // issued its PUT and stored the value, and the swatch did not move, because
+  // this ungated read kept winning over what the pick had just written.
+  // ONE predicate, both directions: the arm's palette is what the rail SHOWS
+  // exactly when it is what a write would TOUCH. Off-target (or override off)
+  // it is {} and every read falls through to the target funnel's own theme —
+  // which is where that write goes.
+  function shownOverridePalette() {
+    if (!themeOverrideActive()) { return {}; }
+    return (workingOverrides.theme && workingOverrides.theme.palette) ? workingOverrides.theme.palette : {};
+  }
+
   // --- 4.7 one-Save: frame PUT (when edited) -> theme PUT (when edited) ->
   // variant PUT (ONLY when order/lander/design/auction/rules or the sparse
   // overrides changed). Each step's dirty flag clears THE MOMENT its own PUT
@@ -1421,7 +1604,7 @@ export const QUOTE_EDITOR_SCRIPT = `
       hideMsg('lg-quote-error'); hideMsg('lg-quote-ok');
       saveBtn.disabled = true;
       var warned = 0;
-      var funnelBase = '/api/admin/leadgen/funnels/' + encodeURIComponent(funnelPublicId);
+      var funnelBase = '/api/admin/leadgen/funnels/' + encodeURIComponent(saveTargetFunnelPublicId());
       var step1 = frameDirty
         ? putJson(funnelBase + '/frame', { frame_config_json: workingFrame })
         : Promise.resolve({ ok: true, body: null });
@@ -1434,7 +1617,7 @@ export const QUOTE_EDITOR_SCRIPT = `
           : Promise.resolve({ ok: true, body: null });
       }).then(function (res2) {
         if (!res2.ok) { throw new Error(saveFailureText(res2, 'Theme save')); }
-        if (res2.body !== null) { themeDirty = false; }
+        if (res2.body !== null) { themeDirty = false; themeDirtyPaths = {}; }
         if (res2.body && res2.body.problems) { warned += res2.body.problems.length; }
         return (variantDirty || overridesDirty)
           ? putJson('/api/admin/leadgen/variants/' + encodeURIComponent(variantPublicId), collectPayload())
@@ -1520,6 +1703,11 @@ export const QUOTE_EDITOR_SCRIPT = `
     }
     return cur;
   }
+  function clearPath(obj, path) {
+    var parts = path.split('.');
+    var parent = parts.length > 1 ? getPath(obj, parts.slice(0, -1).join('.')) : obj;
+    if (isRecordVal(parent)) { delete parent[parts[parts.length - 1]]; }
+  }
   function setPath(obj, path, value) {
     var parts = path.split('.');
     var cur = obj;
@@ -1536,6 +1724,15 @@ export const QUOTE_EDITOR_SCRIPT = `
   var workingOverrides = deepClone(lgData.overrides || {});
   var frameDirty = false;
   var themeDirty = false;
+  // P8-1 F6 (F5's defect-D neighbour): WHICH theme paths this session still
+  // owes a write for. quotes-tabs/themes.ts's rail autosaves the very controls
+  // this island also records (one operator edit was MEASURED issuing two
+  // PUT /funnels/<target>/theme — the rail's own, then the one-Save chain's
+  // re-send). The rail announces each landed autosave (lg:theme-autosaved) and
+  // the listener below retires the paths it covered, so the chain re-sends
+  // only what the rail did NOT persist (a rejected autosave leaves the path
+  // here, so Save is still the retry).
+  var themeDirtyPaths = {};
   var overridesDirty = false;
   var overrideMode = {};
   // R2 P7: the dead frame-studio canvas took its state with it (viewport,
@@ -1593,6 +1790,15 @@ export const QUOTE_EDITOR_SCRIPT = `
     delete groups.template;
     delete groups.version;
     deepMerge(eff, groups);
+    // P8-1 H1 — the SAME class on the frame half, closed with the SAME
+    // predicate: writeConfigValue routes a group to the arm's overrides only
+    // while writeTargetFor says editorArmOwnsTarget(), so those override
+    // values may only be DISPLAYED while that holds. Targeting another funnel
+    // they belong to an arm of a funnel nobody is looking at — merging them
+    // here filled that funnel's inspector controls (and the non-palette
+    // role-strip selections) with another arm's values, and a Save then wrote
+    // what was on screen.
+    if (!editorArmOwnsTarget()) { return eff; }
     var g;
     for (g in workingOverrides) {
       if (!Object.prototype.hasOwnProperty.call(workingOverrides, g)) { continue; }
@@ -1607,7 +1813,11 @@ export const QUOTE_EDITOR_SCRIPT = `
 
   // --- override routing (§4.5) ----------------------------------------------
   function writeTargetFor(group) {
-    if (!isControl && overrideMode[group] === 'override') { return 'overrides'; }
+    // P8-1 F6: 'overrides' means "the EDITOR arm's frame_overrides_json" — a
+    // legal destination only while the panel is editing the editor's OWN
+    // funnel (editorArmOwnsTarget). Targeting another funnel, the write stays
+    // funnel-scoped and the one-Save chain sends it to THAT funnel's frame.
+    if (!isControl && overrideMode[group] === 'override' && editorArmOwnsTarget()) { return 'overrides'; }
     return 'frame';
   }
   function writeConfigValue(path, value) {
@@ -1622,25 +1832,44 @@ export const QUOTE_EDITOR_SCRIPT = `
       frameDirty = true;
     }
     markDirty();
-    updateOverrideBadge();
   }
-  function updateOverrideBadge() {
-    var badge = byId('lg-override-badge');
-    var list = byId('lg-override-badge-list');
-    if (!badge || !list) { return; }
-    var names = [];
-    var g;
-    for (g in workingOverrides) {
-      if (!Object.prototype.hasOwnProperty.call(workingOverrides, g)) { continue; }
-      if (g === 'template' || g === 'version') { continue; }
-      if (isRecordVal(workingOverrides[g]) && !isEmptyObject(workingOverrides[g])) { names.push(OVERRIDE_LABELS[g] || g); }
-    }
-    if (names.length === 0) { badge.className = 'lg-chip lg-override-badge lg-hidden'; return; }
-    badge.className = 'lg-chip lg-override-badge';
-    clearChildren(list);
-    list.appendChild(document.createTextNode(names.join(', ')));
-  }
-  function initOverrideSwitches() {
+  // P8-1 K1 (F-13, review #4): updateOverrideBadge() was removed here — the
+  // canvas badge it painted (document.getElementById('lg-override-badge'))
+  // has been null on every served editor page since the §8.2/§10 board
+  // rewrite deleted the canvas it belonged to (MEASURED: review #4 and
+  // test/leadgen-p8-b3-funnel-identity.test.ts's served-page probe both find
+  // no such id on any page, including a non-control arm with §4.5 switches
+  // rendered). test/leadgen-quote-builder-ui.test.ts already pins that
+  // absence as a REQUIREMENT ("the canvas override badge shell is gone with
+  // the canvas, §8.2/§10"), so painting one is not merely dead — it would be
+  // wrong. The override state this function read (workingOverrides) is
+  // still exercised by every write path below unchanged; only the dead
+  // DOM-disclosure function is gone.
+  // P8-1 J1 (review #4, MAJOR F-2) — A CONTROL THAT CANNOT BE HONOURED IS NOT
+  // OFFERED (contract §4 R3). THE FIFTH instance of this class on this surface.
+  // FAIL-BEFORE (driven, review #4 j8-tpl-f8-log.txt, 375): with the arm's
+  // "Override for this variant" ticked and the panel targeted at P8-Delta the
+  // page read {"header":"P8-Delta","overrideChecked":true,"inheritChecked":
+  // false} — and the very next role pick issued
+  // PUT /funnels/<Delta>/theme {"theme_json":{...,"palette":{"brand_primary":
+  // "success"}}}, restyling a WHOLE funnel for every visitor while the arm's
+  // frame_overrides_json stayed {"theme_id":"thm_p8-repro"} and no status
+  // message said a word. Every WRITE already asked editorArmOwnsTarget()
+  // (F6/H1) and every READ asks it through shownOverridePalette (H1); the
+  // SWITCH ITSELF asked nothing, so it kept promising arm scope for an arm this
+  // panel cannot reach.
+  // WHY NOT "route it to the target's arm": the §4.5 switch is per-ARM state and
+  // the arm is the EDITOR-selected VARIANT (renderOverrideSwitch's own contract:
+  // the group's edits go to "the sparse frame_overrides_json"). This panel
+  // selects a target FUNNEL, never one of that funnel's arms — there is no
+  // target-arm to route to, and inventing one would silently author an override
+  // on an arm the operator never chose. So R3's resolution: off-target the
+  // control is DISABLED, reads "Same as funnel", and says where the edit really
+  // lands. overrideMode is untouched, so returning to the editor's own funnel
+  // restores exactly the state the operator left.
+  function overrideSwitchOfferable() { return !isControl && editorArmOwnsTarget(); }
+  function syncOverrideSwitches() {
+    var offerable = overrideSwitchOfferable();
     var radios = root.querySelectorAll('[data-override-group]');
     var i;
     for (i = 0; i < radios.length; i++) {
@@ -1648,13 +1877,31 @@ export const QUOTE_EDITOR_SCRIPT = `
       if (overrideMode[group] === undefined) {
         overrideMode[group] = isRecordVal(workingOverrides[group]) && !isEmptyObject(workingOverrides[group]) ? 'override' : 'inherit';
       }
-      radios[i].checked = radios[i].value === overrideMode[group];
+      radios[i].disabled = !offerable;
+      radios[i].checked = offerable ? (radios[i].value === overrideMode[group]) : (radios[i].value === 'inherit');
+    }
+    var notes = root.querySelectorAll('[data-override-note]');
+    var name = targetFunnelName();
+    var text = offerable ? '' : ('Editing ' + name + '. A variant override belongs to the variant this page is open on, ' +
+      'so it cannot be set from here \\u2014 changes are saved to ' + name + ' and apply to every visitor of that funnel.');
+    for (i = 0; i < notes.length; i++) {
+      notes[i].textContent = text;
+      notes[i].className = offerable ? 'lg-override-note lg-hidden' : 'lg-override-note';
     }
   }
+  // The boot entry keeps its name (and its one call site below); the switch's
+  // whole visible state is one function now, so it can never drift from the
+  // predicate the writes ask.
+  function initOverrideSwitches() { syncOverrideSwitches(); }
   root.addEventListener('change', function (ev) {
     var el = ev.target;
     if (!el || !el.getAttribute || el.getAttribute('data-override-group') === null) { return; }
     var group = el.getAttribute('data-override-group');
+    // P8-1 J1 (F-2): off-target this control is disabled, so a change here can
+    // only be an engine that fires on a disabled input or a scripted click.
+    // Either way it must not arm an override for an arm this panel is not
+    // editing: repaint the honest state and stand down.
+    if (!overrideSwitchOfferable()) { syncOverrideSwitches(); return; }
     overrideMode[group] = el.value === 'override' ? 'override' : 'inherit';
     if (overrideMode[group] === 'inherit' && workingOverrides[group] !== undefined) {
       delete workingOverrides[group];
@@ -1662,7 +1909,6 @@ export const QUOTE_EDITOR_SCRIPT = `
       markDirty();
     }
     populateAllControls();
-    updateOverrideBadge();
   });
 
   // --- inspector control binding ---------------------------------------------
@@ -1971,29 +2217,44 @@ export const QUOTE_EDITOR_SCRIPT = `
   }());
 
   // --- role swatches (frame keys + theme palette + theme role picks) ---------
-  function resolveRoleValue(role) {
-    var pal = workingTheme.palette || {};
-    var ov = workingOverrides.theme && workingOverrides.theme.palette ? workingOverrides.theme.palette : {};
+  // P8-1 G1 (review #2, F-1/F-2): every read below resolves from the funnel the
+  // panel is CURRENTLY TARGETING — shownTheme() for what that funnel authored,
+  // targetTokens() for what its roles resolve to. Both were the editor funnel's
+  // boot-time values before, which is how the rail came to paint one funnel's
+  // colours and authorship under another funnel's name.
+  function resolveRoleValue(role, shown) {
+    var pal = shown.palette || {};
+    var tok = targetTokens();
+    // P8-1 H1: gated exactly like the write (shownOverridePalette) — the arm's
+    // override is displayed only while the arm is what a pick would write to.
+    var ov = shownOverridePalette();
     var v = ov[role] !== undefined ? ov[role] : pal[role];
-    if (v === undefined || v === null || v === '') { return tokens[role] || ''; }
+    if (v === undefined || v === null || v === '') { return tok[role] || ''; }
     if (String(v).charAt(0) === '#') { return String(v); }
-    return tokens[v] || tokens[role] || '';
+    return tok[v] || tok[role] || '';
   }
   function paintSwatches() {
+    var shown = shownTheme();
     var swatches = root.querySelectorAll('.lg-role-swatch');
     var i;
     for (i = 0; i < swatches.length; i++) {
-      swatches[i].style.background = resolveRoleValue(swatches[i].getAttribute('data-role-pick'));
+      swatches[i].style.background = resolveRoleValue(swatches[i].getAttribute('data-role-pick'), shown);
     }
     var themeSw = root.querySelectorAll('[data-theme-role]');
     for (i = 0; i < themeSw.length; i++) {
       var role = themeSw[i].getAttribute('data-theme-role');
       var sw = themeSw[i].querySelector('[data-role-swatch]');
-      if (sw) { sw.style.background = resolveRoleValue(role); }
+      if (sw) { sw.style.background = resolveRoleValue(role, shown); }
       var src = themeSw[i].querySelector('[data-role-source]');
       if (src) {
-        var owned = (workingTheme.palette && workingTheme.palette[role] !== undefined) ||
-          (workingOverrides.theme && workingOverrides.theme.palette && workingOverrides.theme.palette[role] !== undefined);
+        // Whether the TARGETED funnel's theme owns this role — measured lying
+        // before G1: P8-Charlie's brand_primary, authored as role success,
+        // read "Base design" because the switch listener empties workingTheme.
+        // P8-1 H1: and lying the other way after G1 — an EDITOR-ARM override
+        // read here ungated tagged "This funnel" on a funnel that authors
+        // nothing, so the tag now asks the write predicate too.
+        var owned = (shown.palette && shown.palette[role] !== undefined) ||
+          shownOverridePalette()[role] !== undefined;
         clearChildren(src);
         src.appendChild(document.createTextNode(owned ? 'This funnel' : 'Base design'));
       }
@@ -2001,6 +2262,7 @@ export const QUOTE_EDITOR_SCRIPT = `
     paintHarmonyChips();
   }
   function markStripSelection() {
+    var shown = shownTheme();
     var strips = root.querySelectorAll('[data-role-strip]');
     var i, j;
     for (i = 0; i < strips.length; i++) {
@@ -2008,9 +2270,15 @@ export const QUOTE_EDITOR_SCRIPT = `
       var current = null;
       if (key.indexOf('palette.') === 0) {
         var role = key.slice(8);
-        current = (workingTheme.palette && workingTheme.palette[role]) || null;
+        // P8-1 H1: the marked pick is the value a write would REPLACE — so it
+        // reads the arm's override first while that is where writes go
+        // (applyPaletteValue's own order), and the target funnel's theme
+        // otherwise. Before this, a role picked with the override ON wrote the
+        // arm and the ring never moved off the funnel's own value.
+        var ovp = shownOverridePalette();
+        current = (ovp[role] !== undefined ? ovp[role] : (shown.palette && shown.palette[role])) || null;
       } else if (key.indexOf('theme:') === 0) {
-        current = getPath(workingTheme, key.slice(6)) || null;
+        current = getPath(shown, key.slice(6)) || null;
       } else {
         current = getPath(clientEffective(), key) || null;
       }
@@ -2023,14 +2291,13 @@ export const QUOTE_EDITOR_SCRIPT = `
   function writeThemeValue(path, value) {
     if (value === null || value === '') {
       // delete the key — absent inherits from the base design (09 §9.2)
-      var parts = path.split('.');
-      var parent = parts.length > 1 ? getPath(workingTheme, parts.slice(0, -1).join('.')) : workingTheme;
-      if (isRecordVal(parent)) { delete parent[parts[parts.length - 1]]; }
+      clearPath(workingTheme, path);
     } else {
       setPath(workingTheme, path, value);
       workingTheme.version = 1;
     }
     themeDirty = true;
+    themeDirtyPaths[path] = 1;
     markDirty();
     paintSwatches();
     markStripSelection();
@@ -2058,7 +2325,10 @@ export const QUOTE_EDITOR_SCRIPT = `
   // colors): §4.5-aware — rides frame_overrides_json.theme when the theme
   // override switch is ON for this arm, the funnel theme otherwise.
   function applyPaletteValue(role, value) {
-    if (!isControl && overrideMode['theme'] === 'override') {
+    // P8-1 F6: the arm's override only owns this write while the panel is on
+    // the editor's own funnel (see themeOverrideActive) — otherwise the role
+    // goes to the TARGET funnel's theme through writeThemeValue below.
+    if (themeOverrideActive()) {
       if (!isRecordVal(workingOverrides.theme)) { workingOverrides.theme = {}; }
       if (!isRecordVal(workingOverrides.theme.palette)) { workingOverrides.theme.palette = {}; }
       workingOverrides.theme.palette[role] = value;
@@ -2066,7 +2336,6 @@ export const QUOTE_EDITOR_SCRIPT = `
       markDirty();
       paintSwatches();
       markStripSelection();
-      updateOverrideBadge();
     } else {
       if (!isRecordVal(workingTheme.palette)) { workingTheme.palette = {}; }
       writeThemeValue('palette.' + role, value);
@@ -2091,11 +2360,14 @@ export const QUOTE_EDITOR_SCRIPT = `
     if (!el || !el.getAttribute) { return; }
     var resetRole = el.getAttribute('data-role-reset');
     if (resetRole === null) { return; }
-    if (workingOverrides.theme && workingOverrides.theme.palette && workingOverrides.theme.palette[resetRole] !== undefined) {
+    // P8-1 F6: clearing the EDITOR arm's override is only "reset to inherited"
+    // while this panel edits the editor's own funnel; targeting another funnel
+    // the reset belongs to THAT funnel's theme (writeThemeValue's delete).
+    if (editorArmOwnsTarget() && workingOverrides.theme && workingOverrides.theme.palette && workingOverrides.theme.palette[resetRole] !== undefined) {
       delete workingOverrides.theme.palette[resetRole];
       overridesDirty = true;
       markDirty();
-      paintSwatches(); markStripSelection(); updateOverrideBadge();
+      paintSwatches(); markStripSelection();
       emitPaletteDraft(resetRole, null);
       return;
     }
@@ -2155,7 +2427,17 @@ export const QUOTE_EDITOR_SCRIPT = `
       channelHex(rgb[2] * (1 - ratio) + target[2] * ratio);
   }
   function harmonyValue(role, step) {
-    var base = baseTokens[role] || tokens[role] || '';
+    // P8-1 G1 (review #2, F-3): the fallback resolves against the TARGETED
+    // funnel's role table, not the editor funnel's boot-time one. baseTokens
+    // itself is the BASE DESIGN's table (09 §9.3: "curated harmonies derived
+    // from the base design"; the panel's own copy says "Suggested from this
+    // design's base value") — it is per-DESIGN, not per-funnel, and the SSR
+    // blob carries only the editor funnel's design. Targeting a funnel on a
+    // DIFFERENT base design therefore still derives from the editor funnel's
+    // design; GET /funnels/:id/theme returns {theme, effective_tokens} and no
+    // base-design table, so closing that residue needs the endpoint to carry
+    // one (frame-handlers.ts themeProjection) — reported, not silently patched.
+    var base = baseTokens[role] || targetTokens()[role] || '';
     if (step === 'base') { return base; }
     if (step === 'wash') { return mixHex(base, [255, 255, 255], 0.85); }
     if (step === 'darker') { return mixHex(base, [0, 0, 0], 0.25); }
@@ -2201,6 +2483,61 @@ export const QUOTE_EDITOR_SCRIPT = `
   });
 
   // --- populate every inspector control from the effective config ------------
+  // P8-1 F6 (B3/R6-1, defect D one file over) — the STORED theme of the funnel
+  // the Themes/Templates panels are currently editing. Boots as the editor
+  // funnel's own SSR theme (lg-quote-data), and is replaced by the target
+  // funnel's own the moment quotes-tabs/themes.ts announces it — that island
+  // GETs /funnels/<target>/theme on every target switch anyway (it is the
+  // island that owns the rail), so this is ONE fetch feeding two consumers,
+  // exactly like F5's lg:target-funnel-frame seam for the layout controls.
+  // A baseline whose funnel is not the current target is DISCARDED rather than
+  // shown: better a blank control for one round-trip than another funnel's
+  // values under a header naming this one.
+  // P8-1 G1 (review #2, F-1): it carries that funnel's role→value table as well
+  // — the SAME GET's effective_tokens. The rail's COLOUR half (14 role rows'
+  // swatches, the role-pick strips, the harmony chips) resolves every value
+  // through that table, and reading it off the boot blob is what made the panel
+  // paint Funnel A's brand-primary under P8-Charlie's name while the selects beside
+  // it correctly read Charlie's "xl".
+  var targetThemeState = { funnel: funnelPublicId, theme: themeState.theme || {}, tokens: tokens };
+  // P8-1 H1 (m-2) — a funnel whose theme the rail COULD NOT READ. The discard
+  // rule above is "blank for one round-trip", which is only true while a table
+  // is on its way: driven against an injected 500, no table ever came and all
+  // 14 swatches sat at rgba(0, 0, 0, 0) with every select blank, silently and
+  // permanently. For a funnel the rail has announced as unreadable the panel
+  // therefore KEEPS the table it is already showing, and the page's own error
+  // banner says so in the same breath (quotes-tabs/themes.ts writes it) — the
+  // disclosure is what makes holding the previous values honest rather than a
+  // funnel's name over another funnel's numbers.
+  var unreadableThemeFunnel = '';
+  function themeTableIsCurrent() {
+    var t = saveTargetFunnelPublicId();
+    return targetThemeState.funnel === t || unreadableThemeFunnel === t;
+  }
+  function themeBaseline() {
+    return themeTableIsCurrent() ? (targetThemeState.theme || {}) : {};
+  }
+  // Same discard rule as themeBaseline(): a table announced for a funnel that
+  // is no longer the target is DROPPED, never painted under this one's name.
+  function targetTokens() {
+    return themeTableIsCurrent() ? (targetThemeState.tokens || {}) : {};
+  }
+  // THE THEME THE PANEL IS SHOWING: the target funnel's stored theme with this
+  // session's edits — the sets AND the deletions (writeThemeValue removes a key
+  // to mean "inherit from the base design", so the baseline underneath must not
+  // put it back) — on top. F6 computed this merge inline for the 16
+  // [data-theme-key] selects only; every role row now reads the same thing, so
+  // the authorship tag and the role-pick selection stop describing the editor
+  // funnel while the header names another.
+  function shownTheme() {
+    var shown = deepMerge(deepClone(themeBaseline()), workingTheme);
+    var p;
+    for (p in themeDirtyPaths) {
+      if (!Object.prototype.hasOwnProperty.call(themeDirtyPaths, p)) { continue; }
+      if (getPath(workingTheme, p) === undefined) { clearPath(shown, p); }
+    }
+    return shown;
+  }
   function populateAllControls() {
     var eff = clientEffective();
     var controls = root.querySelectorAll('[data-frame-key]');
@@ -2225,15 +2562,124 @@ export const QUOTE_EDITOR_SCRIPT = `
     fillBrandLogos(eff.brand_logos || null);
     fillFooterBlocks((eff.footer && eff.footer.blocks) || []);
     fillImages(eff.images || []);
+    // The rail's theme controls: the TARGET funnel's stored theme with this
+    // session's own edits on top. Painting from workingTheme ALONE (the
+    // pre-F6 code) told the truth only about the editor's funnel: after a
+    // target switch F5 deliberately empties it, so all 16 selects read
+    // "Inherit from base design" — MEASURED on 2026-08-03 against P8-Charlie,
+    // whose stored theme_json carries typography.display_size = "xl".
+    var themeShown = shownTheme();
     var themeControls = root.querySelectorAll('[data-theme-key]');
     for (i = 0; i < themeControls.length; i++) {
-      var tval = getPath(workingTheme, themeControls[i].getAttribute('data-theme-key'));
+      var tval = getPath(themeShown, themeControls[i].getAttribute('data-theme-key'));
       themeControls[i].value = tval === null || tval === undefined ? '' : String(tval);
     }
     syncAllMediaFields();
     paintSwatches();
     markStripSelection();
+    // P8-1 J1 (F-2): the §4.5 override switch is one of this panel's controls,
+    // so it is repainted with the rest of them — which is what makes it follow
+    // EVERY target change (both seams below call this, as does boot).
+    syncOverrideSwitches();
   }
+
+  // P8-1 F5 (B3/R6-1, defect D) — REPAINT THE CONTROLS ON A TARGET SWITCH.
+  // The Templates panel's canvas re-read the newly targeted funnel's frame
+  // (F1's syncFrameToTargetFunnel), but every control beside it — the
+  // box-picker element groups, the dynamic CTA/disclosure/free-text/
+  // brand-logo/footer-block/image lists, the media fields — is populated from
+  // THIS island's state, which stayed on the editor-selected funnel. The
+  // screen then asserted something untrue: canvas = Charlie, controls =
+  // Funnel A. Worse, with the save chain now correctly writing the target,
+  // those stale values would have been PUT onto Charlie on the next Save.
+  // No second fetch: quotes-tabs/templates.ts already GETs /funnels/:id/frame
+  // on every target change (from ANY source — a chip click, either panel's
+  // picker, or a reload that boots on a persisted target) and hands the SAME
+  // response body over as this event's detail.
+  // The theme baseline resets to EMPTY rather than to the old funnel's
+  // theme: workingTheme boots as the editor funnel's whole stored theme, and
+  // normalizedThemePut merges it onto whatever it GETs, so carrying it across
+  // a switch would stamp Funnel A's palette onto Charlie the first time any
+  // theme control is touched. Post-switch the chain carries ONLY edits made
+  // after the switch, merged onto the target's own stored theme.
+  document.addEventListener('lg:target-funnel-frame', function (ev) {
+    var detail = (ev && ev.detail) ? ev.detail : null;
+    if (!detail || !detail.frame) { return; }
+    frameState = detail.frame;
+    workingFrame = deepClone(frameState.frame_config || {});
+    workingTheme = {};
+    frameDirty = false;
+    themeDirty = false;
+    themeDirtyPaths = {};
+    dirty = variantDirty || allocDirty || overridesDirty;
+    populateAllControls();
+  });
+
+  // P8-1 F6 — the THEME half of that same seam (quotes-tabs/themes.ts owns the
+  // rail, so it owns the GET). Its announcement is what lets the rail's own
+  // selects show the target funnel's stored values instead of the blank
+  // "Inherit from base design" every one of them showed after a switch.
+  document.addEventListener('lg:target-funnel-theme', function (ev) {
+    var detail = (ev && ev.detail) ? ev.detail : null;
+    if (!detail || !detail.funnel_public_id) { return; }
+    // P8-1 H1 (m-2): the rail could not READ this funnel's theme. Hold the
+    // table already on screen (see unreadableThemeFunnel) instead of blanking
+    // the whole colour half forever. The pre-switch EDITS still go: they were
+    // authored against the previous funnel and the one-Save chain now writes
+    // the target, so carrying them would stamp one funnel's edits onto
+    // another — the exact destruction F5/F6 closed.
+    if (detail.failed === true) {
+      unreadableThemeFunnel = detail.funnel_public_id;
+      if (targetThemeState.funnel !== detail.funnel_public_id) {
+        workingTheme = {};
+        themeDirty = false;
+        themeDirtyPaths = {};
+        dirty = variantDirty || allocDirty || overridesDirty || frameDirty;
+      }
+      populateAllControls();
+      return;
+    }
+    unreadableThemeFunnel = '';
+    // A baseline for a DIFFERENT funnel than the one this session's theme
+    // edits were made against: drop those edits, exactly as the frame seam
+    // above drops the layout ones. workingTheme boots as the editor funnel's
+    // WHOLE stored theme and normalizedThemePut merges it onto whatever it
+    // GETs, so carrying it across would stamp one funnel's palette onto
+    // another — F5 closed that on the frame announcement; this closes it on
+    // the theme announcement, which is the one that always fires (the rail
+    // owns the theme GET; the Templates island need not even be on the page).
+    var switchedFunnel = targetThemeState.funnel !== detail.funnel_public_id;
+    // P8-1 G1: the colour table rides the same announcement (the rail's ONE
+    // GET returns both halves), so the swatches, the authorship tags, the
+    // role-pick selection and the harmony chips re-point with the selects.
+    targetThemeState = { funnel: detail.funnel_public_id, theme: detail.theme || {}, tokens: detail.effective_tokens || {} };
+    if (switchedFunnel) {
+      workingTheme = {};
+      themeDirty = false;
+      themeDirtyPaths = {};
+      dirty = variantDirty || allocDirty || overridesDirty || frameDirty;
+    }
+    if (detail.funnel_public_id !== saveTargetFunnelPublicId()) { return; }
+    populateAllControls();
+  });
+
+  // P8-1 F6 — ONE operator edit, ONE write. The rail (quotes-tabs/themes.ts)
+  // persists a theme edit the moment it is made; this island ALSO recorded it
+  // and the one-Save chain re-sent it (measured: two PUT /funnels/<target>/
+  // theme for a single Display-size change). A landed autosave retires the
+  // paths it covered here, so Save re-sends only what the rail did not
+  // persist — a REJECTED autosave announces nothing and stays retryable.
+  document.addEventListener('lg:theme-autosaved', function (ev) {
+    var detail = (ev && ev.detail) ? ev.detail : null;
+    if (!detail || detail.funnel_public_id !== saveTargetFunnelPublicId()) { return; }
+    var paths = detail.paths || [];
+    var pi;
+    for (pi = 0; pi < paths.length; pi++) { delete themeDirtyPaths[paths[pi]]; }
+    var k;
+    for (k in themeDirtyPaths) { if (Object.prototype.hasOwnProperty.call(themeDirtyPaths, k)) { return; } }
+    themeDirty = false;
+    dirty = variantDirty || allocDirty || overridesDirty || frameDirty;
+  });
 
   // ==========================================================================
   // Round-4 P5b — Templates-tab per-element dynamic lists. Each dynamic list
@@ -3485,21 +3931,25 @@ export const QUOTE_EDITOR_SCRIPT = `
       .catch(function () { /* leave the select as-is on a transient network error */ });
   }
 
-  // Fork the SELECTED variant, then apply the new arm's traffic split (and
-  // shrink the original's to match, keeping Σ==10000) — the SAME §16.2 fork+
-  // allocation mechanism "Fork this variant"/"Add variant"/"A/B this theme"
-  // all share. themeIdOrNull !== null additionally assigns that preset as the
-  // new arm's theme override (frame_overrides_json.theme_id) — the theme A/B
-  // one-click path; null leaves the fork's own cloned theme untouched (the
-  // generic "Add variant" path).
+  // Fork an arm, then apply the new arm's traffic split (and shrink the
+  // original's to match, keeping Σ==10000) — the SAME §16.2 fork+allocation
+  // mechanism "Add variant" and "A/B this theme" share (forkThenSplit below).
+  // themeIdOrNull !== null additionally assigns that preset as the new arm's
+  // theme override (frame_overrides_json.theme_id) — the theme A/B one-click
+  // path; null leaves the fork's own cloned theme untouched (the generic "Add
+  // variant" path).
   // §16.2 line 35 (quotes-handlers.ts putVariantHandler): a traffic_allocation_bp
   // CHANGE on an ACTIVE variant whose funnel has a RUNNING test is refused
   // (409) — "the operator rebalances via stop -> edit -> start, and START
   // bumps the revision + re-gates Σ==10000 + cleanly re-buckets." fork's own
   // precondition requires a running test to bootstrap the 2nd arm, so
-  // forkWithAllocation/saveAllocations always hit this guard when they try to
+  // forkThenSplit/saveAllocations always hit this guard when they try to
   // set a CUSTOM split afterward — both ride that exact stop -> edit -> start
   // cycle below rather than the old bare concurrent PUTs.
+  // P8-1 F7: WHICH funnel's experiment that cycle stops and restarts is the
+  // caller's answer, never this DOM badge's — [data-stop-experiment] is the
+  // A/B tab's chip for the EDITOR-selected funnel, so a Themes-rail action on
+  // another funnel would stop/start a live test nobody is looking at.
   function findRunningExperimentId() {
     var stopBtn = root.querySelector('[data-stop-experiment]');
     return stopBtn ? stopBtn.getAttribute('data-stop-experiment') : null;
@@ -3517,10 +3967,18 @@ export const QUOTE_EDITOR_SCRIPT = `
 
   // P6 fixes3 (E1): the A/B tab now carries the server's fork precondition on
   // the button itself (data-add-variant-state, computed in quotes-tabs/ab.ts)
-  // and disables it with a visible reason. The Themes tab's "A/B this theme"
-  // hits the SAME fork endpoint from a panel that shows no such state, so it
-  // reads that attribute and names the next step instead of prompting the
-  // operator straight into the 409. Returns null when a fork can proceed.
+  // and disables it with a visible reason, so the A/B tab's own "Add variant"
+  // names the next step instead of prompting the operator straight into the
+  // 409. Returns null when a fork can proceed.
+  // P8-1 F7 (B3/R6-1): this reader speaks for THAT button only. The state it
+  // reads is the server's verdict about the EDITOR-selected funnel, which says
+  // nothing about any other funnel — so the Themes rail's "A/B this theme",
+  // which acts on the panel's TARGET funnel, no longer consults it: with the
+  // header reading "P8-Charlie" it refused Charlie's fork whenever Funnel A's
+  // test was frozen and — the dangerous direction — waved it through whenever
+  // Funnel A was "ready". That path now SATISFIES the target's own
+  // precondition (abThisThemeOnTarget below) instead of guessing at it from
+  // another funnel's badge.
   function addVariantBlockedReason() {
     var btn = byId('lg-add-variant');
     if (!btn) { return null; }
@@ -3531,17 +3989,80 @@ export const QUOTE_EDITOR_SCRIPT = `
     return txt || 'A second variant is only allowed as an arm of a running A/B test \\u2014 create one on the A/B tab, start it, then add the variant.';
   }
 
-  function forkWithAllocation(themeIdOrNull) {
-    var blockedWhy = addVariantBlockedReason();
-    if (blockedWhy) { showMsg('lg-quote-error', blockedWhy); return; }
+  // P8-1 F7 (B3/R6-1): WHICH ARM the panels' target funnel exposes — its ACTIVE
+  // variant, read from the board blob's own active_variant_public_id (the SAME
+  // row quotes-tabs/themes.ts's targetVariantPublicId() reads for its canvas
+  // preview), and the editor's own arm whenever the target IS the editor's
+  // funnel, so an untargeted page behaves exactly as before. Read AT THE
+  // ACTION, never cached — same rule as saveTargetFunnelPublicId().
+  function saveTargetVariantPublicId() {
+    var picked = saveTargetFunnelPublicId();
+    if (picked === funnelPublicId) { return variantPublicId; }
+    var board = readBlob('lg-board-data');
+    var rows = (board && board.funnels) ? board.funnels : [];
+    var bi;
+    for (bi = 0; bi < rows.length; bi++) {
+      if (rows[bi].public_id === picked) { return rows[bi].active_variant_public_id || variantPublicId; }
+    }
+    return variantPublicId;
+  }
+
+  // The split, asked ONCE and before any request, so a cancelled prompt leaves
+  // nothing behind on any funnel. null = cancelled or out of range.
+  function promptForkSplit() {
     var pctStr = window.prompt("New variant's share of traffic, in percent (the rest stays with the current variant):", '50');
-    if (pctStr === null) { return; }
+    if (pctStr === null) { return null; }
     var pct = parseFloat(pctStr);
-    if (!(pct >= 0 && pct <= 100)) { showMsg('lg-quote-error', 'Enter a number between 0 and 100.'); return; }
+    if (!(pct >= 0 && pct <= 100)) { showMsg('lg-quote-error', 'Enter a number between 0 and 100.'); return null; }
     var newBp = Math.round(pct * 100);
-    var keepBp = 10000 - newBp;
-    hideMsg('lg-quote-error');
-    fetch('/api/admin/leadgen/variants/' + encodeURIComponent(variantPublicId) + '/fork', {
+    return { newBp: newBp, keepBp: 10000 - newBp };
+  }
+
+  // P8-1 F7: the TARGET funnel's RUNNING experiment id — resolved, or created
+  // and started. Byte-for-byte the shape quotes-tabs/templates.ts's "A/B
+  // templates" already runs against its own target (ensureRunningThenFork:
+  // GET the quote structure -> that funnel's ab_tests -> the running one, else
+  // POST /funnels/:id/experiments then POST /experiments/:id/start), because
+  // nothing page-local carries ANOTHER funnel's experiment id: the #lg-board-
+  // data blob has no ab_tests, and [data-stop-experiment] is the A/B tab's
+  // badge for the editor-selected funnel only. Two readers of one concept, one
+  // implementation shape (contract R1) — not a second invented flow.
+  function ensureRunningTestOnTarget() {
+    return fetch('/api/admin/leadgen/quotes/' + encodeURIComponent(quotePublicId) + '/structure', {
+      credentials: 'same-origin', headers: { 'Accept': 'application/json' }
+    }).then(function (r) { return r.json().then(function (j) { return { ok: r.ok, body: j }; }); }).then(function (structRes) {
+      var want = saveTargetFunnelPublicId();
+      var funnels = (structRes.ok && structRes.body && structRes.body.funnels) ? structRes.body.funnels : [];
+      var funnel = null;
+      var i;
+      for (i = 0; i < funnels.length; i++) { if (funnels[i].public_id === want) { funnel = funnels[i]; } }
+      var abTests = funnel ? (funnel.ab_tests || []) : [];
+      var running = null;
+      for (i = 0; i < abTests.length; i++) { if (abTests[i].status === 'running') { running = abTests[i]; } }
+      if (running) { return running.public_id; }
+      return fetch('/api/admin/leadgen/funnels/' + encodeURIComponent(saveTargetFunnelPublicId()) + '/experiments', {
+        method: 'POST', credentials: 'same-origin',
+        headers: { 'content-type': 'application/json', 'Accept': 'application/json' },
+        body: JSON.stringify({})
+      }).then(function (r) { return r.json().then(function (j) { return { ok: r.ok, body: j }; }); }).then(function (createRes) {
+        if (!createRes.ok || !createRes.body || !createRes.body.public_id) { throw new Error((createRes.body && createRes.body.error) ? createRes.body.error : 'Could not create an A/B test.'); }
+        var createdId = createRes.body.public_id;
+        return startExperimentReq(createdId).then(function (startRes) {
+          if (!startRes.ok) { throw new Error((startRes.body && startRes.body.error) ? startRes.body.error : 'Could not start the A/B test.'); }
+          return createdId;
+        });
+      });
+    });
+  }
+
+  // The shared TAIL of every fork+split: fork sourceVariant, then run the
+  // §16.2 stop -> edit -> start cycle on runningTestId (null = that funnel has
+  // no running test). Callers differ ONLY in which funnel's arm + experiment
+  // they hand it: "Add variant" the editor's, "A/B this theme" the target's.
+  function forkThenSplit(sourceVariant, runningTestId, themeIdOrNull, split) {
+    var newBp = split.newBp;
+    var keepBp = split.keepBp;
+    return fetch('/api/admin/leadgen/variants/' + encodeURIComponent(sourceVariant) + '/fork', {
       method: 'POST', credentials: 'same-origin', headers: { 'Accept': 'application/json' }
     }).then(function (r) { return r.json().then(function (j) { return { ok: r.ok, body: j }; }); }).then(function (res) {
       if (!res.ok || !res.body || !res.body.public_id) {
@@ -3551,7 +4072,6 @@ export const QUOTE_EDITOR_SCRIPT = `
       var newVariantId = res.body.public_id;
       var newPatch = { traffic_allocation_bp: newBp };
       if (themeIdOrNull) { newPatch.frame_overrides_json = { theme_id: themeIdOrNull }; }
-      var runningTestId = findRunningExperimentId();
       var stopStep = runningTestId ? stopExperimentReq(runningTestId) : Promise.resolve({ ok: true, body: null });
       return stopStep.then(function (stopRes) {
         if (!stopRes.ok) {
@@ -3564,7 +4084,7 @@ export const QUOTE_EDITOR_SCRIPT = `
             headers: { 'content-type': 'application/json', 'Accept': 'application/json' },
             body: JSON.stringify(newPatch)
           }).then(function (r2) { return r2.json().then(function (j2) { return { ok: r2.ok, body: j2 }; }); }),
-          fetch('/api/admin/leadgen/variants/' + encodeURIComponent(variantPublicId), {
+          fetch('/api/admin/leadgen/variants/' + encodeURIComponent(sourceVariant), {
             method: 'PUT', credentials: 'same-origin',
             headers: { 'content-type': 'application/json', 'Accept': 'application/json' },
             body: JSON.stringify({ traffic_allocation_bp: keepBp })
@@ -3583,12 +4103,43 @@ export const QUOTE_EDITOR_SCRIPT = `
               showMsg('lg-quote-error', (startRes.body && startRes.body.fields && startRes.body.fields.traffic_allocation_bp) ? startRes.body.fields.traffic_allocation_bp : ((startRes.body && startRes.body.error) ? startRes.body.error : 'The split saved, but restarting the test failed — start it from the A/B tab.'));
               return;
             }
-            window.location.href = '/admin/leadgen/quotes/' + encodeURIComponent(quotePublicId) + '/edit?variant=' + encodeURIComponent(variantPublicId);
+            window.location.href = '/admin/leadgen/quotes/' + encodeURIComponent(quotePublicId) + '/edit?variant=' + encodeURIComponent(sourceVariant);
           });
         });
       });
-    }).catch(function () {
+    });
+  }
+
+  function forkWithAllocation(themeIdOrNull) {
+    var blockedWhy = addVariantBlockedReason();
+    if (blockedWhy) { showMsg('lg-quote-error', blockedWhy); return; }
+    var split = promptForkSplit();
+    if (split === null) { return; }
+    hideMsg('lg-quote-error');
+    // The A/B tab's own button: the editor-selected arm, and the running test
+    // its own badge names.
+    forkThenSplit(variantPublicId, findRunningExperimentId(), themeIdOrNull, split).catch(function () {
       showMsg('lg-quote-error', 'Network error while adding a variant.');
+    });
+  }
+
+  // P8-1 F7 (B3/R6-1) — the LAST enumerated wrong-target write. "A/B this
+  // theme" sits in the Themes rail, UNDER the header that names the target
+  // funnel, and it forked the editor funnel's arm while stopping and starting
+  // the editor funnel's experiment: with the header reading "P8-Charlie" one
+  // click mutated Funnel A's live A/B test and left Charlie untouched — the
+  // owner's B3 sentence ("a theme edit writes to the wrong funnel") in its
+  // most destructive form yet. Funnel, arm and experiment now all resolve to
+  // the SAME target the rest of this rail writes to.
+  function abThisThemeOnTarget(themeId) {
+    var split = promptForkSplit();
+    if (split === null) { return; }
+    hideMsg('lg-quote-error');
+    var sourceVariant = saveTargetVariantPublicId();
+    ensureRunningTestOnTarget().then(function (runningTestId) {
+      return forkThenSplit(sourceVariant, runningTestId, themeId, split);
+    }).catch(function (err) {
+      showMsg('lg-quote-error', (err && err.message) ? err.message : 'Network error while A/B-ing this theme.');
     });
   }
 
@@ -3605,14 +4156,23 @@ export const QUOTE_EDITOR_SCRIPT = `
         // the theme override switch ON, to the FUNNEL otherwise — the SAME
         // override-vs-funnel split writeThemeValue/applyPaletteValue already
         // respect for every other theme edit on this panel.
-        var useOverride = !isControl && overrideMode['theme'] === 'override';
+        // P8-1 F6 (B3/R6-1, MEASURED sixth instance): this button lives in the
+        // Themes rail, under the scope line that NAMES the target funnel, and
+        // its label says "Apply to this funnel" — yet it hard-coded
+        // funnelPublicId. Driven on 2026-08-03 with the header reading
+        // "P8-Charlie", one click issued
+        //   PUT /api/admin/leadgen/funnels/<Funnel A>/theme {"theme_json":{"theme_id":…}}
+        // — the owner's R6-1 sentence verbatim, one path over, and destructive
+        // (it REPLACES the whole theme_json of a funnel nobody is looking at).
+        // Both legs now resolve the same target the rest of the chain does.
+        var useOverride = themeOverrideActive();
         var req = useOverride
           ? fetch('/api/admin/leadgen/variants/' + encodeURIComponent(variantPublicId), {
               method: 'PUT', credentials: 'same-origin',
               headers: { 'content-type': 'application/json', 'Accept': 'application/json' },
               body: JSON.stringify({ frame_overrides_json: { theme_id: themeId } })
             })
-          : fetch('/api/admin/leadgen/funnels/' + encodeURIComponent(funnelPublicId) + '/theme', {
+          : fetch('/api/admin/leadgen/funnels/' + encodeURIComponent(saveTargetFunnelPublicId()) + '/theme', {
               method: 'PUT', credentials: 'same-origin',
               headers: { 'content-type': 'application/json', 'Accept': 'application/json' },
               body: JSON.stringify({ theme_json: { theme_id: themeId } })
@@ -3634,7 +4194,7 @@ export const QUOTE_EDITOR_SCRIPT = `
         var sel = byId('lg-theme-preset-select');
         var themeId = sel ? sel.value : '';
         if (!themeId) { showMsg('lg-quote-error', 'Pick a preset first, then A/B it.'); return; }
-        forkWithAllocation(themeId);
+        abThisThemeOnTarget(themeId);
       });
     }
 
@@ -3721,7 +4281,6 @@ export const QUOTE_EDITOR_SCRIPT = `
   // --- studio boot ------------------------------------------------------------
   initOverrideSwitches();
   populateAllControls();
-  updateOverrideBadge();
 
   // --- A/B (§16.2): allocation Σ, save, lifecycle (create/start/stop), preview -
   function allocInputs() { return root.querySelectorAll('[data-alloc-input]'); }
@@ -4486,6 +5045,59 @@ export const QUOTE_EDITOR_SCRIPT = `
     if (btn) { btn.click(); }
   }
 
+  /* ========== P8-1 F1 (B3/R6-1 round 2): the TARGET funnel ================
+     A Theme/Template chip click must scope its destination tab to the funnel
+     COLUMN that was clicked, not this editor's single "selected" funnel (the
+     editor root's own data-funnel-public-id, frozen at page load). Round 1
+     carried that identity in a transient attribute on #lg-quote-editor that
+     the plain-tab-click listener cleared and no reload survived; the owner's
+     defect came straight back after one tab round-trip. It now rides in the
+     page URL's hash (tab=<name>&funnel=<public id>) -- persistent across tab
+     navigation AND a reload, readable by quotes-tabs/themes.ts and
+     quotes-tabs/templates.ts (each a SEPARATE island closure that cannot see
+     this island's private vars), and switchable by the operator from the
+     funnel picker in either of those two panels' headers.
+     This file emits its client script as SEVERAL back-to-back top-level
+     (function () { ... }()) scopes, not one (see this file's
+     QUOTE_EDITOR_SCRIPT header), and a function in one is NOT visible in
+     another -- a real browser threw "clearCarriedChipFunnel is not defined"
+     the instant round 1's version of this ran. So this scope carries its OWN
+     copy of the two hash helpers (byte-identical to the tab router's copy
+     above) and resolves nothing from that outer scope.
+     Ordering against gotoTab() no longer matters in either direction: NOTHING
+     clears the target anymore. The dispatched lg:target-funnel-change event
+     is how the two panels repaint their header/picker without a reload; they
+     re-read the hash at every action regardless, so an engine without
+     createEvent still targets the right funnel. ======================== */
+  function lgHashParam(name) {
+    var loc = (typeof window === 'undefined' || !window) ? null : window.location;
+    var h = (loc && loc.hash) ? String(loc.hash) : '';
+    var m = h.match(new RegExp('[#&]' + name + '=([^&]*)'));
+    return m ? decodeURIComponent(m[1]) : '';
+  }
+  function lgSetHashParam(name, value) {
+    var loc = (typeof window === 'undefined' || !window) ? null : window.location;
+    if (!loc) { return; }
+    var tab = name === 'tab' ? value : lgHashParam('tab');
+    var funnel = name === 'funnel' ? value : lgHashParam('funnel');
+    var parts = [];
+    if (tab) { parts.push('tab=' + encodeURIComponent(tab)); }
+    if (funnel) { parts.push('funnel=' + encodeURIComponent(funnel)); }
+    var hash = parts.length > 0 ? '#' + parts.join('&') : '';
+    var hist = window.history;
+    if (hist && hist.replaceState) { hist.replaceState(null, '', (loc.pathname || '') + (loc.search || '') + hash); return; }
+    loc.hash = hash;
+  }
+  function setTargetFunnel(funnelPub) {
+    if (!funnelPub) { return; }
+    lgSetHashParam('funnel', funnelPub);
+    try {
+      var evt = document.createEvent('CustomEvent');
+      evt.initCustomEvent('lg:target-funnel-change', true, false, { funnel_public_id: funnelPub });
+      document.dispatchEvent(evt);
+    } catch (e) { /* older engines without createEvent: the panels still read the hash at action time */ }
+  }
+
   /* ================= chip / page mutation helpers ================= */
   function funnelOfEl(el) {
     var col = el.closest ? el.closest('[data-funnel-col]') : null;
@@ -5102,12 +5714,32 @@ export const QUOTE_EDITOR_SCRIPT = `
     var pv = t.closest('[data-preview]');
     if (pv) { ev.stopPropagation(); var pf2 = funnelOfEl(pv); if (pf2 && pf2.model) { previewFunnel(pf2.model); } return; }
     if (t.closest('[data-ab-badge]')) { ev.stopPropagation(); gotoTab('ab'); return; }
-    if (t.closest('[data-theme-picker]')) { ev.stopPropagation(); gotoTab('themes'); return; }
+    var tpChip = t.closest('[data-theme-picker]');
+    if (tpChip) {
+      ev.stopPropagation();
+      // P8-1 F1 (B3/R6-1): make THIS chip's OWN column the target funnel
+      // BEFORE navigating, so the Themes panel paints its name and reads its
+      // theme the moment it opens. Nothing clears it afterwards -- not this
+      // gotoTab's real .click(), not a later plain tab click, not a reload.
+      setTargetFunnel(tpChip.getAttribute('data-chip-funnel-public-id'));
+      gotoTab('themes');
+      return;
+    }
     // SRC-11B (owner: "the themes and the templates are moving to the top
     // bar, why you kept the old and wrong option in the funnel builder??").
     // NAVIGATES to the top-bar Templates tab — exactly like its Theme sibling
     // just above — never opens an embedded apply-popover in the builder.
-    if (t.closest('[data-template-picker]')) { ev.stopPropagation(); gotoTab('templates'); return; }
+    var tplChip = t.closest('[data-template-picker]');
+    if (tplChip) {
+      ev.stopPropagation();
+      // P8-1 F1 (B3/R6-1): identical to the Theme chip above -- this column
+      // becomes the persisted target funnel, then we navigate.
+      // quotes-tabs/templates.ts's TPL_SCRIPT resolves the same target for
+      // its canvas preview, "Apply to funnel" and "A/B templates" writes.
+      setTargetFunnel(tplChip.getAttribute('data-chip-funnel-public-id'));
+      gotoTab('templates');
+      return;
+    }
     var nm = t.closest('[data-funnel-name]');
     if (nm) { ev.stopPropagation(); var ncol = nm.closest('[data-funnel-col]'); beginRename(nm, ncol.getAttribute('data-funnel-public-id')); return; }
     var fp = t.closest('[data-lib-filter]');

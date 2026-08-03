@@ -1,0 +1,20 @@
+=== CASE A (unique label): lone full_address, Maps ON + autocomplete job ON, Mode = MANUAL ===
+selected address node via: about:srcdoc n=1
+visible inspector tabs: ["content","style","rules","maps","offers"]
+maps state: {"enabled":true,"autocomplete":true,"note":"Google Maps is on for this field — pick which field(s) below use Autofill mode."}
+rows after "Plain text address": [{"kind":"full_address","mode":"manual","modeOpts":["manual","autofill"]}]
+rows before save: [{"mode":"manual"}]
+STORED props: {"fields":[{"field":"full_address","mode":"manual","label":"AddrD-MANUAL"}],"maps":{"enabled":true,"jobs":{"validate":false,"auction":false,"autocomplete":true}}}
+j5a-lone-MANUAL-jobON: served page carries MY save after 0s
+### j5a-lone-MANUAL-jobON ### {"mapsAttrs":[],"sdkScripts":0,"pac":0,"autoAttrs":1,"inputs":[{"ph":"AddrD-MANUAL","w":326}],"fields":[]} | SDK requests: 0 | errors: NONE
+=== CASE C (owner §8 free text): "Plain text address" with Maps UNCHECKED ===
+selected address node via: about:srcdoc n=1
+visible inspector tabs: ["content","style","rules","maps","offers"]
+maps state: {"enabled":false,"autocomplete":false,"note":"Google Maps is on for this field — pick which field(s) below use Autofill mode."}
+rows after "Plain text address": [{"kind":"full_address","mode":"manual","modeOpts":["manual"]}]
+rows before save: [{"mode":"manual"}]
+STORED props: {"fields":[{"field":"full_address","mode":"manual","label":"AddrD-FREETEXT"}]}
+j5c-lone-FREETEXT-mapsOFF: served page carries MY save after 42s
+### j5c-lone-FREETEXT-mapsOFF ### {"mapsAttrs":[],"sdkScripts":0,"pac":0,"autoAttrs":1,"inputs":[{"ph":"AddrD-FREETEXT","w":326}],"fields":[]} | SDK requests: 0 | errors: NONE
+studio errors: NONE
+SUMMARY A/C: {"A":{"maps":0,"sdkScripts":0,"sdkReq":0,"pac":0,"autoAttr":1},"C":{"maps":0,"sdkScripts":0,"sdkReq":0,"pac":0,"autoAttr":1}}

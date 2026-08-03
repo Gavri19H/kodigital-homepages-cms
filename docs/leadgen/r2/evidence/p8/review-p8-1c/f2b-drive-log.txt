@@ -1,0 +1,34 @@
+=== 5. Charlie TEMPLATE chip (from the board) ===
+  Charlie chips: [{"kind":"theme","text":"Custom"},{"kind":"template","text":"Template"}]
+  FunnelA chips: [{"kind":"theme","text":"thm_p8-repro"},{"kind":"template","text":"Template"}]
+  hash= #tab=templates&funnel=lgf_01KZ279RW7CMXCDT9JF8WJG30E
+  templates header= ["P8-Charlie","P8-Charlie"]
+=== 6. fresh load, top-bar Themes = editor default A; write typography.size=l ===
+  header= R2Fix Fixture Quote — Funnel A
+  WRITES: [
+ "POST /sections/preview {\"content_json\":{\"components\":[{\"type\":\"AddressAutocompleteQuestion\",\"question_id\":\"p8_addr\",\"internal_field\":\"p8_addr\",\"props\":{}},{\"type\":\"ContinueButton\",\"question_id\":\"p8_addr_cont\",\"props\":{\"labe",
+ "PUT /funnels/FA/theme {\"theme_json\":{\"palette\":{\"brand_primary\":\"#AB1234\",\"accent\":\"#E85D26\",\"page_background\":\"#F5F7FA\",\"card_background\":\"#FFFFFF\",\"text_primary\":\"#1A1F36\",\"success\":\"#0E7C3A\",\"error\":\"#D32F2F\",\"brand_sec"
+]
+=== 7. picker -> Delta; write scales.spacing=roomy ===
+  header= P8-Delta
+  WRITES: [
+ "POST /sections/preview {\"content_json\":{\"components\":[{\"type\":\"AddressAutocompleteQuestion\",\"question_id\":\"p8_addr\",\"internal_field\":\"p8_addr\",\"props\":{}},{\"type\":\"ContinueButton\",\"question_id\":\"p8_addr_cont\",\"props\":{\"labe",
+ "POST /variants/lgn_01KZ279RWT95FK8V7WDVFXCF5F/preview {\"mode\":\"section\",\"viewport\":\"desktop\",\"draft_frame_config\":{\"template\":\"centered\",\"background\":{\"image_media_id\":null},\"version\":1},\"section_public_id\":\"lgs_01KZ27138G80K46S7XBWKGA764\",\"site_id\":\"st_",
+ "POST /sections/preview {\"content_json\":{\"components\":[{\"type\":\"AddressAutocompleteQuestion\",\"question_id\":\"p8_addr\",\"internal_field\":\"p8_addr\",\"props\":{}},{\"type\":\"ContinueButton\",\"question_id\":\"p8_addr_cont\",\"props\":{\"labe",
+ "PUT /funnels/FD/theme {\"theme_json\":{\"scales\":{\"spacing\":\"roomy\"}}}"
+]
+  storage: {"A":"{\"palette\":{\"brand_primary\":\"#AB1234\",\"accent\":\"#E85D26\",\"page_background\":\"#F5F7FA\",\"card_background\":\"#FFFFFF\",\"text_primary\":\"#1A1F36\",\"success\":\"#0E7C3A\",\"error\":\"#D32F2F\",\"brand_secondary\":\"#ee7733\",\"surface_wash\":\"#ee7733\",\"border\":\"#ee7733\",\"text_muted\":\"#ee7733\",\"button_primary_bg\":\"#ee7733\",\"button_primary_text\":\"#eeeeee\",\"button_secondary_bg\":\"#ee7733\"},\"typography\":{\"display_size\":\"xxl\",\"size\":\"l\"},\"scales\":{\"radius\":\"soft\"},\"field_defaults\":{\"min_height\":\"medium\"},\"button_defaults\":{\"fill\":\"soft\",\"layout\":\"list\",\"selected\":\"mark\",\"min_height\":\"m\"}}","B":"{}","C":"{\"palette\":{\"brand_primary\":\"success\",\"accent\":\"#5A2D8C\"},\"typography\":{\"display_size\":\"xl\"}}","D":"{\"scales\":{\"spacing\":\"roomy\"}}"}
+=== 8. HUNT: editor arm = Charlie arm B (non-control) -> theme override ON -> target Bravo ===
+  override switch state: {"switchPresent":true,"editorFunnel":"lgf_01KZ279RW7CMXCDT9JF8WJG30E","isControl":false,"overrides":"{\"theme_id\":\"thm_p8-repro\"}","header":"P8-Charlie"}
+  after arm-override edit (target=Charlie, editor own): {"swatch":"rgb(255, 153, 0)","source":"This funnel","header":"P8-Charlie","picker":"lgf_01KZ279RW7CMXCDT9JF8WJG30E","hash":"#tab=themes"}
+  writes: []
+  --> switch TARGET to Bravo (no save)
+  BRAVO targeted brand_primary: {"swatch":"rgb(255, 153, 0)","source":"This funnel","header":"P8-Bravo","picker":"lgf_01KZ279RVPT0Z7SX8GE81KSAVM","hash":"#tab=themes&funnel=lgf_01KZ279RVPT0Z7SX8GE81KSAVM"}
+  EXPECTED Bravo token rgb(27, 58, 92); arm override #FF9900 = rgb(255, 153, 0)
+  write after target switch: [
+ "POST /sections/preview {\"content_json\":{\"components\":[{\"type\":\"AddressAutocompleteQuestion\",\"question_id\":\"p8_addr\",\"internal_field\":\"p8_addr\",\"props\":{}},{\"type\":\"ContinueButton\",\"question_id\":\"p8_addr_cont\",\"props\":{\"labe",
+ "PUT /funnels/FB/theme {\"theme_json\":{\"card_defaults\":{\"radius\":\"lg\"}}}"
+]
+  FINAL storage: {"A":"{\"palette\":{\"brand_primary\":\"#AB1234\",\"accent\":\"#E85D26\",\"page_background\":\"#F5F7FA\",\"card_background\":\"#FFFFFF\",\"text_primary\":\"#1A1F36\",\"success\":\"#0E7C3A\",\"error\":\"#D32F2F\",\"brand_secondary\":\"#ee7733\",\"surface_wash\":\"#ee7733\",\"border\":\"#ee7733\",\"text_muted\":\"#ee7733\",\"button_primary_bg\":\"#ee7733\",\"button_primary_text\":\"#eeeeee\",\"button_secondary_bg\":\"#ee7733\"},\"typography\":{\"display_size\":\"xxl\",\"size\":\"l\"},\"scales\":{\"radius\":\"soft\"},\"field_defaults\":{\"min_height\":\"medium\"},\"button_defaults\":{\"fill\":\"soft\",\"layout\":\"list\",\"selected\":\"mark\",\"min_height\":\"m\"}}","B":"{\"card_defaults\":{\"radius\":\"lg\"}}","C":"{\"palette\":{\"brand_primary\":\"success\",\"accent\":\"#5A2D8C\"},\"typography\":{\"display_size\":\"xl\"}}","D":"{\"scales\":{\"spacing\":\"roomy\"}}"}
+=== ERRORS ===
+NONE

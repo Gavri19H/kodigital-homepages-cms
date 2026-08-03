@@ -1,0 +1,11 @@
+=== B3 ACCEPTANCE, verbatim: from funnel C's CHIP, change a COLOUR #2F6E4F ===
+themes BEFORE: {"A":"{\"theme_id\":\"thm_p8-repro\"}","B":"{\"card_defaults\":{\"radius\":\"lg\"},\"palette\":{\"brand_primary\":\"success\"}}","C":"{\"palette\":{\"brand_primary\":\"success\",\"accent\":\"#5A2D8C\"},\"typography\":{\"display_size\":\"xl\"}}","D":"{\"scales\":{\"spacing\":\"roomy\"}}"}
+rendered pages BEFORE (occurrences of #2F6E4F): {"A":{"mine":0,"status":200},"B":{"mine":0,"status":200},"C":{"mine":0,"status":200},"D":{"mine":0,"status":200}}
+panel after Save: {"header":"P8-Charlie","hash":"#tab=themes&funnel=lgf_01KZ279RW7CMXCDT9JF8WJG30E","err":{"hidden":true,"text":"","top":0,"inViewport":true},"ok":{"hidden":false,"text":"Saved."}}
+theme writes: ["POST /api/admin/leadgen/variants/lgn_01KZ271383SKKSFFWG23N1XGZK/preview {\"mode\":\"section\",\"viewport\":\"desktop\",\"draft_frame_config\":{\"template\":\"white-trust\",\"background\":{\"image_media_id\":null},\"version\":1},\"section_public_id\":\"lgs_01KZ27138G80K46S7XBWKGA764\",\"site_id\":\"st_cad9f863eb2444a1\"}","POST /api/admin/leadgen/variants/lgn_01KZ279RW7WYQ9361MMFF0D2SW/preview {\"mode\":\"section\",\"viewport\":\"desktop\",\"draft_frame_config\":{\"template\":\"centered\",\"version\":1,\"background\":{\"image_media_id\":null}},\"section_public_id\":\"lgs_01KZ27138G80K46S7XBWKGA764\",\"site_id\":\"st_cad9f863eb2444a1\"}","PUT /api/admin/leadgen/funnels/lgf_01KZ279RW7CMXCDT9JF8WJG30E/theme {\"theme_json\":{\"palette\":{\"brand_primary\":\"success\",\"accent\":\"#5A2D8C\",\"brand_secondary\":\"#2F6E4F\"},\"typography\":{\"display_size\":\"xl\"}}}"]
+themes AFTER: {"A":"{\"theme_id\":\"thm_p8-repro\"}","B":"{\"card_defaults\":{\"radius\":\"lg\"},\"palette\":{\"brand_primary\":\"success\"}}","C":"{\"palette\":{\"brand_primary\":\"success\",\"accent\":\"#5A2D8C\",\"brand_secondary\":\"#2F6E4F\"},\"typography\":{\"display_size\":\"xl\"}}","D":"{\"scales\":{\"spacing\":\"roomy\"}}"}
+rendered pages AFTER (occurrences of #2F6E4F): {"A":{"mine":0,"status":200},"B":{"mine":0,"status":200},"C":{"mine":8,"status":200},"D":{"mine":0,"status":200}}
+ONLY Charlie changed in storage? true
+ONLY Charlie renders my colour? true
+ERRORS: []
+restore Charlie: 200 {"palette":{"brand_primary":"success","accent":"#5A2D8C"},"typography":{"display_size":"xl"}}

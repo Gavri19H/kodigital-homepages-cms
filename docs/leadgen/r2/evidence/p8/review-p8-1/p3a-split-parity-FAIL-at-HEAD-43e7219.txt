@@ -1,0 +1,119 @@
+
+ RUN  v4.1.10 /Users/guyhaikov/a2z-workspaces/kodigital-cms-leadgen-r2-wt
+
+ ❯ api/test/leadgen-p3a-split-parity.test.ts (12 tests | 1 failed) 138ms
+       × full page is byte-identical to the pre-split capture 13ms
+
+⎯⎯⎯⎯⎯⎯⎯ Failed Tests 1 ⎯⎯⎯⎯⎯⎯⎯
+
+ FAIL  api/test/leadgen-p3a-split-parity.test.ts > P3a split parity — post-split render == pre-split captured fixtures (byte-identical) > Editor page — rich fixture (2 ordered sections + 1 rule) > full page is byte-identical to the pre-split capture
+AssertionError: expected '<!DOCTYPE html>\n<html lang="en">\n<h…' to be '<!DOCTYPE html>\n<html lang="en">\n<h…' // Object.is equality
+
+- Expected
++ Received
+
+@@ -4068,10 +4068,25 @@
+      // Header/Background inspectors) and the moved theme editor never show a
+      // stale value.
+      if (name === 'templates' || name === 'themes') { populateAllControls(); }
+      if (name === 'themes') { loadThemePresetOptions(); }
+    }
++   // FIX ROUND B3: this listener's own top-level (function () { ... }())
++   // scope is emitted separately from, and BEFORE, the scope that defines the
++   // chip handlers' setCarriedChipFunnel/clearCarriedChipFunnel below (this
++   // island's client script is several back-to-back top-level IIFEs, not one
++   // -- see this file's QUOTE_EDITOR_SCRIPT header); a function-scope closure
++   // never reaches into a DIFFERENT top-level IIFE, so THIS scope needs its
++   // OWN copy of the clear behaviour (a real browser threw
++   // "clearCarriedChipFunnel is not defined" here before this fix). Reuses
++   // this SAME scope's own root (already resolved above) -- keep both
++   // copies' clearing logic identical.
++   function clearCarriedChipFunnel() {
++     if (!root) { return; }
++     root.removeAttribute('data-carried-funnel-public-id');
++     root.removeAttribute('data-carried-variant-public-id');
++   }
+    var ti;
+    for (ti = 0; ti < tabs.length; ti++) {
+      // P8 B3 (R6-1): a plain top-bar tab click (no chip context) clears any
+      // carried funnel FIRST, so it resolves to the editor-default -- today's
+      // behaviour. This SAME listener also fires synchronously from inside
+@@ -7435,31 +7450,45 @@
+    }
+
+    /* ========== P8 B3 (R6-1): chip-carried funnel identity ==================
+       A Theme/Template chip click must scope its destination tab to the funnel
+       COLUMN that was clicked, not this editor's single "selected" funnel
+-      (root's own data-funnel-public-id/data-variant-public-id, frozen at page
+-      load) -- while a plain top-bar .lg-qtab click (no chip context) keeps
+-      today's behaviour. The carried identity rides as attributes on this SAME
+-      root: quotes-tabs/themes.ts's own inline island script is a SEPARATE
+-      closure (its own island, per that file's header) and cannot see this
+-      island's private vars, so a shared DOM attribute is the only channel
+-      between the two.
++      (the editor root's own data-funnel-public-id/data-variant-public-id,
++      frozen at page load) -- while a plain top-bar .lg-qtab click (no chip
++      context) keeps today's behaviour. The carried identity rides as
++      attributes on #lg-quote-editor: quotes-tabs/themes.ts's own inline island
++      script is a SEPARATE closure (its own island, per that file's header)
++      and cannot see this island's private vars, so a shared DOM attribute is
++      the only channel between the two.
++      FIX ROUND B3: this file emits its client script as SEVERAL back-to-back
++      top-level (function () { ... }()) scopes, not one (see this file's
++      QUOTE_EDITOR_SCRIPT header) -- this helper's own scope is a LATER,
++      SEPARATE one from the scope that declares this file's root var (the
++      plain-tab-click listener's scope, above), so the two never share
++      closure. Resolve #lg-quote-editor HERE, at call time, instead of
++      reaching for that outer root (a real browser threw
++      "root is not defined" the instant this used to run).
+       gotoTab() performs a REAL .click() on the tab button, which synchronously
+-      fires the plain-tab-click listener below (which CLEARS this state)
+-      BEFORE gotoTab() returns -- so a chip handler that calls gotoTab() THEN
++      fires the plain-tab-click listener above (which CLEARS this state, via
++      its OWN call-time lookup, for the same cross-scope reason) BEFORE
++      gotoTab() returns -- so a chip handler that calls gotoTab() THEN
+       setCarriedChipFunnel() always ends with the carried funnel set; a LATER
+       plain tab click clears it again, restoring today's default. ========= */
++   function chipCarryEditorRoot() {
++     return document.getElementById('lg-quote-editor');
++   }
+    function setCarriedChipFunnel(funnelPub, variantPub) {
+-     if (!root) { return; }
+-     root.setAttribute('data-carried-funnel-public-id', funnelPub || '');
+-     root.setAttribute('data-carried-variant-public-id', variantPub || '');
++     var er = chipCarryEditorRoot();
++     if (!er) { return; }
++     er.setAttribute('data-carried-funnel-public-id', funnelPub || '');
++     er.setAttribute('data-carried-variant-public-id', variantPub || '');
+    }
+    function clearCarriedChipFunnel() {
+-     if (!root) { return; }
+-     root.removeAttribute('data-carried-funnel-public-id');
+-     root.removeAttribute('data-carried-variant-public-id');
++     var er = chipCarryEditorRoot();
++     if (!er) { return; }
++     er.removeAttribute('data-carried-funnel-public-id');
++     er.removeAttribute('data-carried-variant-public-id');
+    }
+
+    /* ================= chip / page mutation helpers ================= */
+    function funnelOfEl(el) {
+      var col = el.closest ? el.closest('[data-funnel-col]') : null;
+
+ ❯ expectByteIdenticalModuloIds api/test/leadgen-p3a-split-parity.test.ts:244:32
+    242|
+    243| function expectByteIdenticalModuloIds(actual: string, expected: string…
+    244|   expect(normalizeIds(actual)).toBe(normalizeIds(expected));
+       |                                ^
+    245| }
+    246|
+ ❯ api/test/leadgen-p3a-split-parity.test.ts:321:7
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[1/1]⎯
+
+
+ Test Files  1 failed (1)
+      Tests  1 failed | 11 passed (12)
+   Start at  03:10:00
+   Duration  1.56s (transform 1.07s, setup 0ms, import 1.32s, tests 138ms, environment 0ms)
+

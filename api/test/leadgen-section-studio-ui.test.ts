@@ -3516,9 +3516,10 @@ describeDb("section studio — §9 field-level Maps config (job-based model, Pha
     const addrMapsMatch = addrRendered.match(/data-lg-maps="([^"]*)"/);
     expect(addrMapsMatch, "the autocomplete-driving field carries a REAL data-lg-maps config").not.toBeNull();
     const addrMapsDecoded = addrMapsMatch![1]!.replace(/&quot;/g, '"');
+    // B1/R1-1 re-mint: pinned bytes froze the defective nested data-lg-maps; flat shape per presets.ts flatMapsConfigJson — still pins that the round trip preserves autocomplete=true/validate=false plus the sibling-fill map onto the runtime wire.
     expect(JSON.parse(addrMapsDecoded)).toEqual({
-      enabled: true,
-      jobs: { validate: false, auction: false, autocomplete: true },
+      enable_autocomplete: true,
+      validate: false,
       fills: { city: "address_line_city", state: "address_line_state", zip: "address_line_zip" },
     });
   });

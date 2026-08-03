@@ -1,0 +1,34 @@
+=== PROBE 0 (sixth-instance hunt): arm bound to a theme RECORD — rail vs the arm the canvas renders ===
+arm frame_overrides_json right now: {"theme_id":"thm_p8-repro","theme":{"palette":{"accent":"error"}}}
+ARM preview (POST /variants/<Charlie arm B>/preview) status 200 | #AB1234 (theme RECORD thm_p8-repro brand_primary): 19 | #0E7C3A (Charlie funnel palette brand_primary=success): 15 | #D32F2F (the accent=error I picked on the arm): 19 | #5A2D8C (Charlie funnel accent): 0
+arm restored: 200 {"theme_id":"thm_p8-repro"}
+
+=== K1: target -> P8-Echo-themeless (no stored theme). NO false error banner, inherited values ===
+E stored theme (API): null
+before switch (editor funnel A): {"header":"R2Fix Fixture Quote — Funnel A","err":{"hidden":true,"text":"","top":0,"inViewport":true},"badge":false}
+after switch to E: {"header":"P8-Echo-themeless","select":"lgf_01KZ3ANG2WX5WQBY7SB9GFCNMT","hash":"#tab=themes&funnel=lgf_01KZ3ANG2WX5WQBY7SB9GFCNMT","swatches":["rgb(27, 58, 92)","rgb(42, 80, 128)","rgb(232, 93, 38)","rgb(14, 124, 58)","rgb(211, 47, 47)","rgb(245, 247, 250)","rgb(255, 255, 255)","rgb(232, 238, 244)","rgb(210, 217, 229)","rgb(26, 31, 54)","rgb(74, 85, 104)","rgb(27, 58, 92)","rgb(255, 255, 255)","rgb(242, 246, 250)"],"sources":["Base design","Base design","Base design","Base design","Base design","Base design","Base design","Base design","Base design","Base design","Base design","Base design","Base design","Base design"],"nRoleRows":14,"err":{"hidden":true,"text":"","top":0,"inViewport":true},"ok":{"hidden":true,"text":""},"status":null,"badge":false,"scrollY":0}
+E at 375: {"header":"P8-Echo-themeless","select":"lgf_01KZ3ANG2WX5WQBY7SB9GFCNMT","hash":"#tab=themes&funnel=lgf_01KZ3ANG2WX5WQBY7SB9GFCNMT","swatches":["rgb(27, 58, 92)","rgb(42, 80, 128)","rgb(232, 93, 38)","rgb(14, 124, 58)","rgb(211, 47, 47)","rgb(245, 247, 250)","rgb(255, 255, 255)","rgb(232, 238, 244)","rgb(210, 217, 229)","rgb(26, 31, 54)","rgb(74, 85, 104)","rgb(27, 58, 92)","rgb(255, 255, 255)","rgb(242, 246, 250)"],"sources":["Base design","Base design","Base design","Base design","Base design","Base design","Base design","Base design","Base design","Base design","Base design","Base design","Base design","Base design"],"nRoleRows":14,"err":{"hidden":true,"text":"","top":0,"inViewport":true},"ok":{"hidden":true,"text":""},"status":null,"badge":false,"scrollY":0}
+#lg-override-badge present anywhere? false | lg-override-badge CSS rule in any stylesheet? 0 | lg-override-badge in the served HTML? true
+ERRORS so far: []
+
+=== BOUNDARY: brand-new themeless funnel "P8-Foxtrot-r5mscyurdu" — its FIRST theme edit must save ===
+created lgf_01KZ3BRPH4MAHSR1Y87TXZJ7X1 status 201 | stored theme: null
+FATAL page.selectOption: Timeout 30000ms exceeded.
+Call log:
+[2m  - waiting for locator('#lg-theme-target-select')[22m
+[2m    - locator resolved to <select data-lg-target-funnel="" id="lg-theme-target-select" class="form-select form-select-sm" aria-label="Funnel this theme edits">…</select>[22m
+[2m  - attempting select option action[22m
+[2m    2 × waiting for element to be visible and enabled[22m
+[2m      - did not find some options[22m
+[2m    - retrying select option action[22m
+[2m    - waiting 20ms[22m
+[2m    2 × waiting for element to be visible and enabled[22m
+[2m      - did not find some options[22m
+[2m    - retrying select option action[22m
+[2m      - waiting 100ms[22m
+[2m    59 × waiting for element to be visible and enabled[22m
+[2m       - did not find some options[22m
+[2m     - retrying select option action[22m
+[2m       - waiting 500ms[22m
+
+    at /private/tmp/claude-501/-Users-guyhaikov-a2z-workspaces/264c07a0-6cb9-4ecd-bcad-a675a304f020/scratchpad/drive/f3.js:79:14

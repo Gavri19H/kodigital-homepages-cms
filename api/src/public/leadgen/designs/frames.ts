@@ -17,6 +17,10 @@
 //     (mirror of the design-registry unknown-id fallback rule);
 //   - validateFrameConfig — server gate for PUT /funnels/:id/frame (§4.8):
 //     unknown keys REJECTED, path-precise §3.6 problems in operator language.
+//     KNOWN, and so never rejected: the v3.1 §10.1/§11.1 per-variant theme
+//     reference `theme_id`, a real key of the frame-overrides document
+//     (shape-checked here; its meaning and KV lookup belong to the theme /
+//     handler layers).
 
 import { FUNNEL_TOKEN_ROLES, isFunnelTokenRole, THEME_RECORD_FONT_NAMES } from "./theme";
 import type { FunnelTokenRole, Problem, ProblemSeverity, VariantThemeOverrides } from "./theme";
@@ -589,7 +593,15 @@ export type StoredFrameConfig = Omit<FrameConfig, "template"> & { template?: str
 // frame_config_json PLUS `theme.palette.*` role overrides (§4.5). The `theme`
 // key is EXCLUDED from the frame merge — resolveTokens consumes it as its
 // layer 3. `template`/`version` are funnel-level and never variant-overridable.
-export type FrameOverrides = StoredFrameConfig & { theme?: VariantThemeOverrides };
+// v3.1 §10.1/§11.1 — the column also holds the per-variant theme REFERENCE
+// `theme_id` ("A/B frame + theme_id overrides"). Like `theme` it is consumed
+// by the theme layer (winningThemeId), not by the frame merge; it is declared
+// here because it is part of THIS document's schema, which is why
+// validateFrameConfig recognises it (see its theme_id branch).
+export type FrameOverrides = StoredFrameConfig & {
+  theme?: VariantThemeOverrides;
+  theme_id?: string;
+};
 
 // ---------------------------------------------------------------------------
 // §4.3 FRAME_TEMPLATES — 6 templates, each = named per-group defaults.
@@ -988,7 +1000,8 @@ function mergeInto(base: Record<string, unknown>, patch: Record<string, unknown>
 
 // ---------------------------------------------------------------------------
 // validateFrameConfig — §3.3 server validation. Closed-set enums; unknown keys
-// REJECTED (top level, group level, nested objects, list entries); colours are
+// REJECTED (top level, group level, nested objects, list entries) — `theme_id`
+// (v3.1 §10.1) is a KNOWN top-level key, shape-checked, never rejected; colours are
 // role names; media refs are media_id strings; href/tel follow the SAFE_HREF
 // rule. Problems are §3.6-shaped: path-precise (frame.header.cta.href), scope
 // `frame`, operator-language messages (never raw JSON, never internal ids).
@@ -1680,6 +1693,36 @@ export function validateFrameConfig(raw: unknown): FrameConfigValidation {
           "frame.template",
           `The frame template must be one of: ${FRAME_TEMPLATE_IDS.join(", ")}.`,
         );
+      }
+      continue;
+    }
+    // v3.1 §10.1 — "A funnel variant overrides it for A/B via
+    // leadgen_funnel_variants.frame_overrides_json.theme_id" (§11.1 lists the
+    // column as holding "A/B frame + theme_id overrides"). `theme_id` is
+    // therefore a LEGITIMATE top-level key of a frame-overrides document, not
+    // an unknown frame group. theme.ts owns its MEANING (winningThemeId reads
+    // frame_overrides_json["theme_id"] as the per-variant theme REFERENCE,
+    // beating the funnel's theme_json) and the admin handler layer owns the
+    // KV existence check (this module reaches no storage) — so all this pure
+    // validator pins is the SHAPE: a non-empty theme id string.
+    //
+    // P8-1 F8 (product bug — two sides of one feature on different
+    // contracts): the WRITER (PUT /variants/:id) destructures theme_id out
+    // before calling this function and validates it separately, so a stored
+    // `{"theme_id":"thm_…"}` is written happily — but three READERS hand the
+    // key straight through to this loop: the activation preflight
+    // (computeVariantV25Problems), the draft-overrides preview
+    // (draft_frame_overrides) and the serve resolver's overrides validation.
+    // The first two turned the operator's own saved value into the publish
+    // blocker "'theme_id' isn't a recognised frame setting"; the third got
+    // `config === null` and SILENTLY dropped the entire overrides patch at
+    // render time. Recognising the key HERE converges all four call sites on
+    // the single schema the contract says the column holds. Narrowing only:
+    // every OTHER unrecognised key still falls through to the rejection
+    // below, and a malformed theme_id is still reported.
+    if (key === "theme_id") {
+      if (!isNonEmptyString(value)) {
+        push("error", "frame.theme_id", "The theme reference must be a theme id.");
       }
       continue;
     }

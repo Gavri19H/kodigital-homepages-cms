@@ -1010,7 +1010,7 @@ describeDb("quote builder EXECUTED island — (b) edit → save path replays thr
     expect(studio.byId("lg-quote-ok").hidden).toBe(false);
   });
 
-  it("forked arm: an override-switch edit writes frame_overrides_json (badge derives client-side; PUT persists; server agrees)", async () => {
+  it("forked arm: an override-switch edit writes frame_overrides_json (client override state; PUT persists; server agrees)", async () => {
     const h = await studioHarness();
     // Rework M1 (§4.3-10): forkVariantHandler now unconditionally refuses a
     // 2nd active variant — archiving the source first is the minimal way to
@@ -1032,10 +1032,16 @@ describeDb("quote builder EXECUTED island — (b) edit → save path replays thr
     expect(studio.probe.workingOverrides).toEqual({ progress: { style: "dots" } });
     expect(studio.probe.frameDirty).toBe(false); // routed to the OVERRIDES target, not the funnel frame
 
-    // §4.5 canvas badge: derived by the island from its live override state
-    const badge = studio.byId("lg-override-badge");
-    expect(badge.className).toBe("lg-chip lg-override-badge");
-    expect(textOf(studio.byId("lg-override-badge-list"))).toBe("Progress");
+    // P8-1 K1 (F-13): the OLD canvas override badge this test used to assert
+    // here (document.getElementById('lg-override-badge')) was DEAD CODE —
+    // that id is null on every served page (this harness's byId() used to
+    // auto-vivify a stub div for it, which passed regardless of whether the
+    // product ever rendered one; see test/leadgen-quote-builder-ui.test.ts's
+    // "the canvas override badge shell is gone with the canvas (§8.2/§10)"
+    // and test/leadgen-p8-b3-funnel-identity.test.ts's served-page probe).
+    // updateOverrideBadge() is removed from quotes-tabs/funnel.ts; the real
+    // client-side override state it used to read is already proven above via
+    // studio.probe.workingOverrides.
 
     // DEV-58 (Phase D): the unsaved override rides the ADDITIVE
     // draft_frame_overrides param in the stored-column shape; the funnel

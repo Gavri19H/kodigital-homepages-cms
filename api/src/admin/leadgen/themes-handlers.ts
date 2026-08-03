@@ -48,6 +48,13 @@ import {
 // invalidation machinery, just a wider "which funnels reference this
 // theme_id" scan (§10.5 "no back-reference stored").
 import { invalidateOnVariantPublish } from "../../public/leadgen/invalidate";
+// B2 (P8 defect contract R2-2) — a theme CONTENT edit must ALSO bump
+// content_version on every affected funnel's ACTIVE variant(s), exactly like
+// putFunnelThemeHandler's PUT /funnels/:id/theme flow does (frame-
+// handlers.ts:305): the shell/config cache keys carry the content_version
+// axis, so THAT bump — not just the KV/CDN sweep above — is what makes an
+// edit reach visitors. Reused verbatim, no new invalidation machinery.
+import { bumpActiveVariantContentVersions } from "./quotes-handlers";
 import type { Env } from "../../env";
 import type { WaitUntilContext } from "../../wait-until-context";
 
@@ -381,6 +388,11 @@ interface AffectedFunnel {
   // scheduleThemeInvalidate's sweep — only ever read those two, so this is
   // strictly additive).
   funnel_name: string;
+  // B2 fix — bumpActiveVariantContentVersions takes the numeric funnel id
+  // (not the public_id); additive column on the same scan, read by
+  // updateThemeHandler's content-version bump only (deleteThemeHandler's
+  // usage payload still reads only public_id/funnel_name, untouched).
+  funnel_id: number;
 }
 
 // A stored theme_json / frame_overrides_json TEXT column references this
@@ -407,28 +419,38 @@ function referencesThemeId(raw: string | null, themeId: string): boolean {
 async function findFunnelsReferencingTheme(db: D1Database, themeId: string): Promise<AffectedFunnel[]> {
   const needle = `%"theme_id":"${themeId}"%`;
   const byFunnel = await db
-    .prepare("SELECT public_id, quote_id, funnel_name, theme_json FROM leadgen_funnels WHERE theme_json LIKE ?")
+    .prepare("SELECT id, public_id, quote_id, funnel_name, theme_json FROM leadgen_funnels WHERE theme_json LIKE ?")
     .bind(needle)
-    .all<{ public_id: string; quote_id: number; funnel_name: string; theme_json: string | null }>();
+    .all<{ id: number; public_id: string; quote_id: number; funnel_name: string; theme_json: string | null }>();
   const byVariant = await db
     .prepare(
-      `SELECT f.public_id AS f_public_id, f.quote_id AS f_quote_id, f.funnel_name AS f_funnel_name, v.frame_overrides_json AS frame_overrides_json
+      `SELECT f.id AS f_id, f.public_id AS f_public_id, f.quote_id AS f_quote_id, f.funnel_name AS f_funnel_name, v.frame_overrides_json AS frame_overrides_json
        FROM leadgen_funnel_variants v
        JOIN leadgen_funnels f ON f.id = v.funnel_id
        WHERE v.frame_overrides_json LIKE ?`,
     )
     .bind(needle)
-    .all<{ f_public_id: string; f_quote_id: number; f_funnel_name: string; frame_overrides_json: string | null }>();
+    .all<{ f_id: number; f_public_id: string; f_quote_id: number; f_funnel_name: string; frame_overrides_json: string | null }>();
 
   const affected = new Map<string, AffectedFunnel>();
   for (const row of byFunnel.results ?? []) {
     if (referencesThemeId(row.theme_json, themeId)) {
-      affected.set(row.public_id, { public_id: row.public_id, quote_id: row.quote_id, funnel_name: row.funnel_name });
+      affected.set(row.public_id, {
+        public_id: row.public_id,
+        quote_id: row.quote_id,
+        funnel_name: row.funnel_name,
+        funnel_id: row.id,
+      });
     }
   }
   for (const row of byVariant.results ?? []) {
     if (referencesThemeId(row.frame_overrides_json, themeId)) {
-      affected.set(row.f_public_id, { public_id: row.f_public_id, quote_id: row.f_quote_id, funnel_name: row.f_funnel_name });
+      affected.set(row.f_public_id, {
+        public_id: row.f_public_id,
+        quote_id: row.f_quote_id,
+        funnel_name: row.f_funnel_name,
+        funnel_id: row.f_id,
+      });
     }
   }
   return [...affected.values()];
@@ -516,7 +538,20 @@ export async function updateThemeHandler(c: AdminContext): Promise<Response> {
   const changed = JSON.stringify(current) !== JSON.stringify(record);
   const next = { ...existing, [id]: record };
   await writeThemeRecords(c.env.CACHE, next);
-  if (changed) scheduleThemeInvalidate(c, id);
+  if (changed) {
+    // B2 fix (P8 defect contract R2-2): a theme-record PATCH never bumped
+    // content_version, so the served shell/config stayed cached at the OLD
+    // value until an unrelated activation PUT happened to bump it —
+    // scheduleThemeInvalidate below only sweeps the KV/CDN shell cache, a
+    // SEPARATE mechanism (out of scope, untouched). Mirrors putFunnelTheme-
+    // Handler's flow (frame-handlers.ts:305) exactly: AWAITED, not
+    // fire-and-forget, because the response's downstream visitor requests
+    // depend on the write having landed first (d1-database-safety: await
+    // business-critical writes a downstream SELECT depends on).
+    const affected = await findFunnelsReferencingTheme(c.env.DB, id);
+    await Promise.all(affected.map((funnel) => bumpActiveVariantContentVersions(c.env.DB, funnel.funnel_id)));
+    scheduleThemeInvalidate(c, id);
+  }
   return c.json({ item: record, items: Object.values(next) });
 }
 

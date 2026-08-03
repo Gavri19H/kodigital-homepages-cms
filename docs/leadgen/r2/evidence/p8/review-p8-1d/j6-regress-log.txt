@@ -1,0 +1,9 @@
+restore section 5 props:{} -> 200
+section 5 props now: {}
+composite (4-field) render live after 0s
+### B1 composite regression ### {"mapsAttrs":[{"f":"p8_addr_street","v":"{\"enable_autocomplete\":true,\"validate\":false,\"fills\":{\"city\":\"p8_addr_city\",\"state\":\"p8_addr_state\",\"zip\":\"p8_addr_zip\"}}"}],"sdkScripts":8,"pac":1,"inputs":[{"ph":"Street address","val":"","w":326},{"ph":"City","val":"","w":326},{"ph":"State","val":"","w":326},{"ph":"ZIP code","val":"","w":326}]} | SDK reqs: 8 | errors: NONE
+live sheet BEFORE the PATCH: #AB1234 x19, #2B7A78 x0
+PATCH theme record brand_primary #AB1234 -> #2B7A78: 200
+B2: new colour live after 0s on a fresh ?_cb, with NO activation save
+live sheet AFTER the PATCH: #AB1234 x0, #2B7A78 x19
+theme record restored: 200

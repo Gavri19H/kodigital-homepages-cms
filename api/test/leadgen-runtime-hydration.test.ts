@@ -305,7 +305,7 @@ describe("M2/M3 — runtime/maps.ts loads the Places SDK itself (03 §3.2d / 08 
     const installSdk = (): void => {
       win["google"] = { maps: { places: { Autocomplete: FakeAutocomplete } } };
     };
-    const hooks: LgMapsHooks = { setAnswer: () => undefined, emit: () => undefined };
+    const hooks: LgMapsHooks = { emit: () => undefined };
     stubBrowserGlobals(win, doc);
     return { win, doc, root, input, ctorCalls, installSdk, hooks };
   }

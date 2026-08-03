@@ -1,0 +1,136 @@
+===== STEP 1: Charlie Theme chip -> Activation -> Themes -> edit =====
+chips carrying Charlie id: 2
+  chip 0 text= "Custom" gototab=  cls= lg-pickchip
+  chip 1 text= "Template" gototab=  cls= lg-pickchip
+after chip click: hash= #tab=themes&funnel=lgf_01KZ279RW7CMXCDT9JF8WJG30E
+  themes header name= "P8-Charlie"
+after Activation tab: hash= #tab=activation&funnel=lgf_01KZ279RW7CMXCDT9JF8WJG30E
+after back to Themes: hash= #tab=themes&funnel=lgf_01KZ279RW7CMXCDT9JF8WJG30E
+  themes header name= "P8-Charlie"
+control opts= ["","m","l","xl","xxl"]
+control current= xl
+SET typography.display_size = xxl  (step 1)
+WRITES after edit:
+    POST /sections/preview {"content_json":{"components":[{"type":"AddressAutocompleteQuestion","question_id":"p8_addr","internal_field":"p8_addr","props":{}},{"type":"ContinueButton","question_id":"p8_addr_
+    PUT /funnels/FUNNEL_CHARLIE/theme {"theme_json":{"palette":{"brand_primary":"success"},"typography":{"display_size":"xxl"}}}
+STORAGE after edit: {
+ "A": "{\"theme_id\":\"thm_p8-repro\"}",
+ "B": "{}",
+ "CHARLIE": "{\"palette\":{\"brand_primary\":\"success\"},\"typography\":{\"display_size\":\"xxl\"}}",
+ "D": "{}"
+}
+===== STEP 2: reload mid-edit =====
+after reload: hash= #tab=themes&funnel=lgf_01KZ279RW7CMXCDT9JF8WJG30E
+  active tab= themes
+  themes header name= "P8-Charlie"
+SET button_defaults.radius = full
+WRITES after post-reload edit:
+    POST /sections/preview {"content_json":{"components":[{"type":"AddressAutocompleteQuestion","question_id":"p8_addr","internal_field":"p8_addr","props":{}},{"type":"ContinueButton","question_id":"p8_addr_
+    PUT /funnels/FUNNEL_CHARLIE/theme {"theme_json":{"palette":{"brand_primary":"success"},"typography":{"display_size":"xxl"},"button_defaults":{"radius":"full"}}}
+===== STEP 3: second chip click -> funnel D =====
+after D chip: hash= #tab=themes&funnel=lgf_01KZ279RWTSZB5054A8Q9WBQ7X
+  themes header name= "P8-Delta"
+SET scales.radius = round
+WRITES after D edit:
+    POST /sections/preview {"content_json":{"components":[{"type":"AddressAutocompleteQuestion","question_id":"p8_addr","internal_field":"p8_addr","props":{}},{"type":"ContinueButton","question_id":"p8_addr_
+    PUT /funnels/FUNNEL_D/theme {"theme_json":{"scales":{"radius":"round"}}}
+===== STEP 4: picker switch to B =====
+picker options= [{"v":"lgf_01KZ271383F5X1SQ3DXTXKNJE5","t":"R2Fix Fixture Quote — Funnel A"},{"v":"lgf_01KZ279RVPT0Z7SX8GE81KSAVM","t":"P8-Bravo"},{"v":"lgf_01KZ279RW7CMXCDT9JF8WJG30E","t":"P8-Charlie"},{"v":"lgf_01KZ279RWTSZB5054A8Q9WBQ7X","t":"P8-Delta"}]
+after picker: hash= #tab=themes&funnel=lgf_01KZ279RVPT0Z7SX8GE81KSAVM header= "P8-Bravo"
+SET card_defaults.shadow = xl
+WRITES after picker-switch edit:
+    POST /sections/preview {"content_json":{"components":[{"type":"AddressAutocompleteQuestion","question_id":"p8_addr","internal_field":"p8_addr","props":{}},{"type":"ContinueButton","question_id":"p8_addr_
+    POST /variants/lgn_01KZ279RVQND8EXE6DBMN8ESNS/preview {"mode":"section","viewport":"desktop","draft_frame_config":{"template":"centered","background":{"image_media_id":null},"version":1},"section_public_id":"lgs_01KZ27138G80K46S7XBWKG
+    POST /sections/preview {"content_json":{"components":[{"type":"AddressAutocompleteQuestion","question_id":"p8_addr","internal_field":"p8_addr","props":{}},{"type":"ContinueButton","question_id":"p8_addr_
+    PUT /funnels/FUNNEL_B/theme {"theme_json":{"card_defaults":{"shadow":"xl"}}}
+===== STEP 5: fresh load, no hash, plain Themes top-bar tab =====
+hash= #tab=themes header= "R2Fix Fixture Quote — Funnel A"
+SET field_defaults.min_height = large
+WRITES (should be FUNNEL_A, the editor default):
+    POST /sections/preview {"content_json":{"components":[{"type":"AddressAutocompleteQuestion","question_id":"p8_addr","internal_field":"p8_addr","props":{}},{"type":"ContinueButton","question_id":"p8_addr_
+    PUT /funnels/FUNNEL_A/theme {"theme_json":{"palette":{"brand_primary":"#AB1234","accent":"#E85D26","page_background":"#F5F7FA","card_background":"#FFFFFF","text_primary":"#1A1F36","success":"#0E7C3A","error":
+===== STEP 6: Charlie Template chip -> Activation -> Templates -> apply =====
+template chip class= lg-pickchip text= "Template"
+after tpl chip: hash= #tab=templates&funnel=lgf_01KZ279RW7CMXCDT9JF8WJG30E tplheader= "P8-Charlie"
+after tpl round-trip: hash= #tab=templates&funnel=lgf_01KZ279RW7CMXCDT9JF8WJG30E tplheader= "P8-Charlie"
+
+=== BROWSER ERRORS ===
+NONE
+
+=== ALL ADMIN REQUESTS ===
+GET /sections?status=active&page_size=200
+GET /themes
+GET /themes
+GET /quotes/lgq_01KZ271383Y0MPV4BM2WKKCC4W/shared-page
+GET /frame-template-records
+GET /quotes/lgq_01KZ271383Y0MPV4BM2WKKCC4W
+POST /sections/preview
+POST /variants/lgn_01KZ271383SKKSFFWG23N1XGZK/preview
+GET /funnels/FUNNEL_CHARLIE/theme
+POST /sections/preview
+GET /funnels/FUNNEL_CHARLIE/frame
+GET /themes
+POST /variants/lgn_01KZ279RW7WYQ9361MMFF0D2SW/preview
+GET /themes
+GET /funnels/FUNNEL_CHARLIE/theme
+POST /sections/preview
+PUT /funnels/FUNNEL_CHARLIE/theme
+GET /funnels/FUNNEL_A/theme
+GET /funnels/FUNNEL_B/theme
+GET /funnels/FUNNEL_CHARLIE/theme
+GET /funnels/FUNNEL_D/theme
+GET /funnels/FUNNEL_CHARLIE/theme
+GET /sections?status=active&page_size=200
+GET /themes
+GET /funnels/FUNNEL_CHARLIE/frame
+GET /themes
+GET /quotes/lgq_01KZ271383Y0MPV4BM2WKKCC4W/shared-page
+GET /frame-template-records
+GET /quotes/lgq_01KZ271383Y0MPV4BM2WKKCC4W
+GET /themes
+POST /sections/preview
+POST /variants/lgn_01KZ279RW7WYQ9361MMFF0D2SW/preview
+POST /variants/lgn_01KZ279RW7WYQ9361MMFF0D2SW/preview
+GET /funnels/FUNNEL_CHARLIE/theme
+POST /sections/preview
+PUT /funnels/FUNNEL_CHARLIE/theme
+GET /funnels/FUNNEL_D/theme
+POST /sections/preview
+GET /funnels/FUNNEL_D/frame
+GET /themes
+POST /variants/lgn_01KZ279RWT95FK8V7WDVFXCF5F/preview
+GET /funnels/FUNNEL_D/theme
+POST /sections/preview
+PUT /funnels/FUNNEL_D/theme
+GET /funnels/FUNNEL_B/theme
+POST /sections/preview
+GET /funnels/FUNNEL_B/frame
+POST /variants/lgn_01KZ279RVQND8EXE6DBMN8ESNS/preview
+GET /funnels/FUNNEL_B/theme
+POST /sections/preview
+PUT /funnels/FUNNEL_B/theme
+GET /sections?status=active&page_size=200
+GET /themes
+GET /themes
+GET /quotes/lgq_01KZ271383Y0MPV4BM2WKKCC4W/shared-page
+GET /frame-template-records
+GET /quotes/lgq_01KZ271383Y0MPV4BM2WKKCC4W
+POST /sections/preview
+POST /variants/lgn_01KZ271383SKKSFFWG23N1XGZK/preview
+GET /themes
+GET /funnels/FUNNEL_A/theme
+GET /themes/thm_p8-repro
+POST /sections/preview
+PUT /funnels/FUNNEL_A/theme
+GET /sections?status=active&page_size=200
+GET /themes
+GET /themes
+GET /quotes/lgq_01KZ271383Y0MPV4BM2WKKCC4W/shared-page
+GET /frame-template-records
+GET /quotes/lgq_01KZ271383Y0MPV4BM2WKKCC4W
+POST /sections/preview
+POST /variants/lgn_01KZ271383SKKSFFWG23N1XGZK/preview
+GET /funnels/FUNNEL_CHARLIE/theme
+POST /sections/preview
+GET /funnels/FUNNEL_CHARLIE/frame
+POST /variants/lgn_01KZ279RW7WYQ9361MMFF0D2SW/preview

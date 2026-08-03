@@ -668,7 +668,10 @@ button.lg-publish-why-fix:focus-visible{outline:2px solid currentColor;outline-o
 .lg-list-row{display:flex;gap:6px;align-items:center;margin-bottom:6px;flex-wrap:wrap}
 .lg-list-row .form-input{flex:1;min-width:90px}
 .lg-override-switch{display:flex;gap:12px;align-items:center;border:1px dashed var(--c-border);border-radius:6px;padding:6px 10px;margin-bottom:10px;font-size:12px;flex-wrap:wrap}
-.lg-override-badge{position:sticky;top:0;z-index:2}
+/* P8-1 J1 (F-2): the override switch's own disclosure line — filled by
+   quotes-tabs/funnel.ts's syncOverrideSwitches when the switch cannot be
+   honoured for the funnel this panel currently targets. */
+.lg-override-note{flex-basis:100%;margin:0;color:var(--c-muted);font-size:11px;line-height:1.4}
 .lg-panel-card{border:1px solid var(--c-border);border-radius:8px;padding:12px;background:var(--c-card,#fff)}
 .lg-panel-card h3{margin:0 0 8px;font-size:14px}
 .lg-panel-card h4{margin:14px 0 8px;font-size:13px}
@@ -916,11 +919,19 @@ export function iconSelectMarkup(field: string, label: string): string {
 // §4.5 — the per-group override switch (non-control arms only): "Same as
 // funnel (default) / Override for this variant"; writes route the group's
 // edits into the sparse frame_overrides_json instead of the funnel frame.
+// P8-1 J1 (review #4, MAJOR F-2 / contract §4 R3): that routing is only
+// meaningful for the arm THIS page is open on. When the Themes/Templates
+// panels target a DIFFERENT funnel there is no reachable arm, so the switch
+// cannot be honoured — quotes-tabs/funnel.ts's syncOverrideSwitches disables
+// it and fills the note slot below with where the edit really lands. The slot
+// is EMPTY and hidden whenever the switch can be honoured (the vast majority
+// of the time), so the offered control is unchanged.
 export function renderOverrideSwitch(group: string, isControl: boolean): string {
   if (isControl) return "";
   return `<div class="lg-override-switch" data-override-switch="${escapeHtml(group)}">
     <label class="lg-check"><input type="radio" name="lg-ov-${escapeHtml(group)}" value="inherit" data-override-group="${escapeHtml(group)}" checked /> Same as funnel (default)</label>
     <label class="lg-check"><input type="radio" name="lg-ov-${escapeHtml(group)}" value="override" data-override-group="${escapeHtml(group)}" /> Override for this variant</label>
+    <p class="lg-override-note lg-hidden" data-override-note="${escapeHtml(group)}"></p>
   </div>`;
 }
 

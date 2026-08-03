@@ -1,0 +1,5 @@
+CLEAN Charlie: {"scopeText":"Editing: P8-Charlie · Funnel theme · affects every slide and every component default of this funnelR2Fix Fixtu","scopeBox":{"w":314,"h":65,"y":42},"name":"P8-Charlie","swatch":"rgb(14, 124, 58)","source":"This funnel","rowY":144,"scrollW":1280,"innerW":1280}
+CLEAN Charlie @375: {"scopeText":"Editing: P8-Charlie · Funnel theme · affects every slide and every component default of this funnelR2Fix Fixtu","scopeBox":{"w":314,"h":65,"y":42},"name":"P8-Charlie","swatch":"rgb(14, 124, 58)","source":"This funnel","rowY":144,"scrollW":375,"innerW":375}
+ARM-OV target Bravo: {"scopeText":"Editing: P8-Bravo · Funnel theme · affects every slide and every component default of this funnelR2Fix Fixture","scopeBox":{"w":314,"h":65,"y":42},"name":"P8-Bravo","swatch":"rgb(255, 153, 0)","source":"This funnel","rowY":216,"scrollW":1280,"innerW":1280}
+ARM-OV target Bravo @375: {"scopeText":"Editing: P8-Bravo · Funnel theme · affects every slide and every component default of this funnelR2Fix Fixture","scopeBox":{"w":314,"h":65,"y":42},"name":"P8-Bravo","swatch":"rgb(255, 153, 0)","source":"This funnel","rowY":216,"scrollW":375,"innerW":375}
+ERRORS: NONE

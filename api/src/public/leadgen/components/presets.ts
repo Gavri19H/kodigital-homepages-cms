@@ -2125,18 +2125,33 @@ function newShapeFills(raw: LeadgenNewMapsShape): Record<string, string> | undef
   return Object.keys(out).length > 0 ? out : undefined;
 }
 
+// P8 defect contract B1/R1-1: the ONE `data-lg-maps` wire-shape builder every
+// producer of that attribute must call — top-level flat `enable_autocomplete`/
+// `validate` keys (the ONLY keys runtime/maps.ts parseMapsConfig reads for the
+// browser-leg jobs) plus an optional nested `fills` object (parseMapsConfig's
+// per-slot `pick()` reads a nested `fills.<slot>` just as readily as a flat
+// `autofill_<slot>` key, so nesting fills — but never the job flags — is
+// safe). `auction` is server-side only (the §9 facet, sections-handlers.ts
+// zipValidation / serve-auction.ts deriveAuctionFacet) and never rides the
+// wire, matching the pre-existing convention below. Before this fix,
+// renderAddressFieldSet's per-field loop serialized a SEPARATE nested
+// `{enabled,jobs:{validate,auction,autocomplete},fills}` shape that
+// parseMapsConfig has no reader for at all, so `autocomplete` always decoded
+// to `false` and every multi-field address composite's Places wiring silently
+// no-op'd (P8-DEFECT-CONTRACT.md R1-1). One producer shape, never duplicated.
+function flatMapsConfigJson(jobs: { validate: boolean; autocomplete: boolean }, fills?: Record<string, string>): string {
+  const config: Record<string, unknown> = { enable_autocomplete: jobs.autocomplete, validate: jobs.validate };
+  if (fills !== undefined && Object.keys(fills).length > 0) config["fills"] = fills;
+  return JSON.stringify(config);
+}
+
 function mapsConfigJson(node: LeadgenComponentNode): string {
   const raw = node.props?.["maps"];
   if (isNewMapsShape(raw)) {
     const jobs = mapsJobsFor(node);
-    // enable_autocomplete/validate ONLY (the runtime's browser-leg keys); the
-    // `auction` job is server-side (the §9 facet) and never rides the wire.
-    const config: Record<string, unknown> = { enable_autocomplete: jobs.autocomplete, validate: jobs.validate };
     // S3-7: stop DISCARDING the fills — emit the nested object parseMapsConfig
     // reads (only when authored, so fills-less content is unchanged).
-    const fills = newShapeFills(raw);
-    if (fills !== undefined) config["fills"] = fills;
-    return JSON.stringify(config);
+    return flatMapsConfigJson(jobs, newShapeFills(raw));
   }
   if (typeof raw === "object" && raw !== null && !Array.isArray(raw)) {
     return JSON.stringify(raw);
@@ -3258,12 +3273,32 @@ function renderAddressFieldSet(
   if (specs.length === 1 && specs[0]!.field === "full_address") {
     const f = specs[0]!;
     const placeholder = f.label ?? "Start typing your address…";
+    // P8-1 fix-round-3 H2 (owner A.1 #6 "the mapping of what is auto-filled
+    // per field should definately be an option... but not in this poor
+    // way"): honour THIS row's own authored mode, exactly as the composite
+    // branch below already does (autocompleteIndex keys on `f.mode ===
+    // "autofill"`) — one rule, no special-casing. mode:"manual" never
+    // carries data-lg-maps at all here either (the composite's non-driver
+    // fields carry no attribute at all, not an attribute parsing to false),
+    // so initMapsFields' `[data-lg-maps]` query never finds this field and
+    // no autocomplete wires, REGARDLESS of the node-level Maps job.
+    // mode:"autofill" (the default when unspecified) is untouched —
+    // addressMapsEnabled alone still gates it exactly as before.
+    const lonelyMapsEnabled = addressMapsEnabled && f.mode !== "manual";
+    // P8-1 fix-round-4 J2 (reviewer F-5): data-address-autocomplete is a
+    // pure DOM-honesty marker of "this field drives autocomplete" — gate it
+    // on the SAME lonelyMapsEnabled condition H2 already applied to
+    // data-lg-maps just above, so a mode:"manual" field or a Maps-disabled
+    // free-text address never advertises an autocomplete wiring that isn't
+    // there. No runtime consumer reads this attribute today (grep-verified);
+    // this is a truthful-DOM fix only, not a behavior change.
     return (
-      `<div class="lg-address"${hydration(node)}${fieldSizeStyle(node, ctx)} data-provider="${esc(provider)}"${addressMapsEnabled ? attr("data-lg-maps", mapsConfigJson(node)) : ""}>` +
+      `<div class="lg-address"${hydration(node)}${fieldSizeStyle(node, ctx)} data-provider="${esc(provider)}"${lonelyMapsEnabled ? attr("data-lg-maps", mapsConfigJson(node)) : ""}>` +
       `<input class="lg-input lg-address-input" type="text" data-lg-input` +
       ` autocomplete="street-address"${attr("placeholder", placeholder)}` +
       (node.required === true || f.required ? " required" : "") +
-      ` data-address-autocomplete="true">` +
+      (lonelyMapsEnabled ? ` data-address-autocomplete="true"` : "") +
+      `>` +
       slot +
       `</div>` +
       fieldHelperLine(node)
@@ -3330,11 +3365,12 @@ function renderAddressFieldSet(
           fillsForMapsConfig[other.field] = m9AddressFieldName(addrBase, addrFillsObj, other.field as Exclude<LeadgenAddressFieldKind, "full_address">);
         }
       }
+      // P8 B1/R1-1: the SAME flatMapsConfigJson producer mapsConfigJson uses
+      // (this field always drives autocomplete; auction never rides the
+      // wire — see flatMapsConfigJson's own comment) — no more separate
+      // nested {enabled,jobs,fills} shape that parseMapsConfig couldn't read.
       const mapsAttr = isAutocompleteField
-        ? attr(
-            "data-lg-maps",
-            JSON.stringify({ enabled: true, jobs: { validate: addrJobs.validate, auction: false, autocomplete: true }, fills: fillsForMapsConfig }),
-          )
+        ? attr("data-lg-maps", flatMapsConfigJson({ validate: addrJobs.validate, autocomplete: true }, fillsForMapsConfig))
         : "";
       const zip5Attrs = kind === "zip" && f.zip5 ? ` inputmode="numeric" pattern="\\d{5}" maxlength="5"` : "";
       const hasIcon = i === 0 && icon !== "";

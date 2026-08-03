@@ -1,0 +1,26 @@
+stored props at start (CASE A: manual + job ON): {"maps":{"enabled":true,"jobs":{"validate":false,"auction":false,"autocomplete":true}},"fields":[{"field":"full_address","mode":"manual","label":"Address"}]}
+### j4a-lone-MANUAL-jobON @1280 ### {"section":"02 · Where do you live?","mapsAttrs":[],"sdkScripts":0,"autoAttrs":1,"ctor":[],"pac":0,"inputs":[{"ph":"Address","w":326,"cls":"lg-input lg-address-input"}]}
+j4a-lone-MANUAL-jobON SDK requests: 0 []
+j4a-lone-MANUAL-jobON console/page errors: NONE
+=== CASE B: same node, Mode switched to AUTOFILL through the studio ===
+selected address node via: about:srcdoc n=1
+visible inspector tabs: ["content","style","rules","maps","offers"]
+maps state: {"enabled":true,"autocomplete":true,"note":"Google Maps is on for this field — pick which field(s) below use Autofill mode."}
+rows after "Plain text address": [{"kind":"full_address","mode":"manual","modeOpts":["manual","autofill"]}]
+rows before save: [{"mode":"autofill"}]
+STORED props: {"maps":{"enabled":true,"jobs":{"validate":false,"auction":false,"autocomplete":true}},"fields":[{"field":"full_address","mode":"autofill","label":"Address"}]}
+### j4b-lone-AUTOFILL-jobON @1280 ### {"section":"02 · Where do you live?","mapsAttrs":[],"sdkScripts":0,"autoAttrs":1,"ctor":[],"pac":0,"inputs":[{"ph":"Address","w":326,"cls":"lg-input lg-address-input"}]}
+j4b-lone-AUTOFILL-jobON SDK requests: 0 []
+j4b-lone-AUTOFILL-jobON console/page errors: NONE
+=== CASE C (owner free-text, contract §8): "Plain text address" with Maps UNCHECKED ===
+selected address node via: about:srcdoc n=1
+visible inspector tabs: ["content","style","rules","maps","offers"]
+maps state: {"enabled":false,"autocomplete":false,"note":"Google Maps is on for this field — pick which field(s) below use Autofill mode."}
+rows after "Plain text address": [{"kind":"full_address","mode":"manual","modeOpts":["manual"]}]
+rows before save: [{"mode":"manual"}]
+STORED props: {"fields":[{"field":"full_address","mode":"manual","label":"Address"}]}
+### j4c-lone-FREETEXT-mapsOFF @1280 ### {"section":"02 · Where do you live?","mapsAttrs":[],"sdkScripts":0,"autoAttrs":1,"ctor":[],"pac":0,"inputs":[{"ph":"Address","w":326,"cls":"lg-input lg-address-input"}]}
+j4c-lone-FREETEXT-mapsOFF SDK requests: 0 []
+j4c-lone-FREETEXT-mapsOFF console/page errors: NONE
+studio-side errors across all three authoring passes: NONE
+SUMMARY: {"A":{"maps":0,"sdkScripts":0,"sdkReq":0,"ctor":0,"pac":0},"B":{"maps":0,"sdkScripts":0,"sdkReq":0,"ctor":0,"pac":0},"C":{"maps":0,"sdkScripts":0,"sdkReq":0,"ctor":0,"pac":0}}

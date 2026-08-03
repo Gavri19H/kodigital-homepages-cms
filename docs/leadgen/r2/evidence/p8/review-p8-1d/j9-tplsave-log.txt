@@ -1,0 +1,9 @@
+frame BEFORE: A= null D= null
+chip: Template
+headers: ["P8-Delta","P8-Delta"]
+writes after Save: ["PUT /api/admin/leadgen/funnels/lgf_01KZ279RWTSZB5054A8Q9WBQ7X/frame {\"frame_config_json\":{\"progress\":{\"position\":\"top\"},\"template\":\"centered\",\"version\":1}}"]
+frame AFTER: A= null D= {"progress":{"position":"top"},"template":"centered","version":1}
+A untouched? true | D got the edit? true
+ERRORS: NONE
+restore D frame: 400 {"error":"Validation failed","fields":{"frame_config_json":"frame_config_json must be a JSON object"
+final D frame: {"progress":{"position":"top"},"template":"centered","version":1}

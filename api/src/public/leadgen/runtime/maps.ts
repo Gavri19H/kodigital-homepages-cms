@@ -9,9 +9,10 @@
 // callback/load-event) and (re)runs `initMapsFields` once Places is ready.
 // This module wires whatever is present:
 //   * SDK + key present → attach Places Autocomplete to each field carrying a
-//     `data-lg-maps="{configJSON}"` hook; on a place selection, autofill the
-//     mapped internal fields and emit `address_autofill`; a complete/valid
-//     resolution additionally emits `address_validation_success`, an
+//     `data-lg-maps="{configJSON}"` hook; on a place selection, fill the
+//     mapped fields' VISIBLE inputs — the engine's own input path then records
+//     exactly what is on screen (P8 B1) — and emit `address_autofill`; a
+//     complete/valid resolution additionally emits `address_validation_success`, an
 //     incomplete one `address_validation_error` (10 §10.2 producer row).
 //   * key missing → graceful CONSOLE-ERROR-FREE no-op: no script tag, nothing
 //     wired, manual entry keeps working (08 §8.8 "Autocomplete/validation
@@ -103,10 +104,11 @@ export function extractAddressParts(components: readonly AddressComponentLike[])
 }
 
 export interface LgMapsHooks {
-  // Write an autofilled value through the engine's normal answer path
-  // (answer_source: user_selected — the user picked the place).
-  setAnswer: (internalField: string, value: unknown, meta: { question_id: string }) => void;
-  // Beacon emitters (engine stamps section dims).
+  // Beacon emitters (engine stamps section dims). P8 B1 deleted the former
+  // store-only `setAnswer` member entirely: a resolved place fills the
+  // VISIBLE input and lets the engine's own input listener record it (see
+  // fillVisibleInput below), so nothing here can stamp an answer the visitor
+  // cannot see.
   emit: (
     eventType: "address_autofill" | "address_validation_success" | "address_validation_error",
     fields: Record<string, unknown>,
@@ -121,6 +123,59 @@ interface PlacesAutocompleteLike {
     address_components?: AddressComponentLike[];
     formatted_address?: string;
   } | null;
+}
+
+// P8 B1 (the ROOT of "a chosen suggestion changes nothing on screen"): an
+// autofilled value enters through the SAME door a keystroke does — the value
+// lands in the VISIBLE input and a real `change` event tells the engine, whose
+// root-level input/change listener (engine.bindListeners → handleInputEvent)
+// reads the value straight off the element and does the rest (records it,
+// clears that field's stale error, re-evaluates dependencies/Continue,
+// persists, beacons). Before this, maps.ts wrote the STORE directly and never
+// touched the DOM: the City box still showed its grey placeholder while the
+// answer the buyer receives already carried Google's value — an answer the
+// visitor could neither see nor correct. Because the engine reads the box, the
+// stored answer can now only ever BE what is displayed, and the visitor's own
+// next keystroke still wins (same path, later).
+function fillVisibleInput(el: HTMLInputElement, value: string): void {
+  el.value = value;
+  el.dispatchEvent(new Event("change", { bubbles: true }));
+}
+
+// The VISIBLE input an autofill target names, or null. `[data-lg-field]` is the
+// wrapper every renderer stamps with the internal_field and `[data-lg-input]`
+// its control (presets.ts) — the SAME pair handleInputEvent reads back off a
+// keystroke. A target with no rendered input fills NOTHING, anywhere: no box
+// to show or correct it means no answer (P8 B1's "the owner's manual ZIP").
+function fillTarget(root: Element, internalField: string): HTMLInputElement | null {
+  let el: Element | null = null;
+  try {
+    el = root.querySelector('[data-lg-field="' + internalField + '"] [data-lg-input]');
+  } catch {
+    return null; // a field name that is not a valid selector fills nothing
+  }
+  return el instanceof HTMLInputElement ? el : null;
+}
+
+// P8 F4 (owner D3/A.1#6 "poorly designed with poor logic"): a genuine
+// multi-field address (renderAddressFieldSet, presets.ts) renders EACH part
+// as its own SIBLING [data-lg-field] box under one [data-lg-question]
+// wrapper; the single full_address box carries data-lg-question AND
+// data-lg-field on the SAME wrapping element with no [data-lg-field] anywhere
+// inside it. Counting the DISTINCT data-lg-field values under the question
+// wrapper — >1 only when true siblings render — tells composite from
+// single-field structurally, with no address-naming convention assumed and
+// no dependence on config.fills (which is empty whenever every sibling is
+// authored mode:"manual", yet the boxes are still siblings on screen).
+function isCompositeAddressField(fieldEl: Element): boolean {
+  const scope = fieldEl.closest("[data-lg-question]") ?? fieldEl;
+  const names = new Set<string>();
+  const subfields = scope.querySelectorAll("[data-lg-field]");
+  for (let i = 0; i < subfields.length; i++) {
+    const name = subfields[i]?.getAttribute("data-lg-field");
+    if (name !== null && name !== undefined && name !== "") names.add(name);
+  }
+  return names.size > 1;
 }
 
 function placesCtor(): (new (
@@ -153,9 +208,6 @@ export function initMapsFields(root: Element, hooks: LgMapsHooks): number {
     if (input === null || !(input instanceof HTMLInputElement)) continue;
 
     const questionId = fieldEl.closest("[data-lg-question]")?.getAttribute("data-lg-question") ?? "";
-    const ownField = fieldEl.closest("[data-lg-field]")?.getAttribute("data-lg-field") ??
-      fieldEl.getAttribute("data-lg-field") ??
-      "";
 
     // Dedicated try/catch: a Places wiring failure must never break the
     // funnel (manual entry keeps working) nor log an error.
@@ -178,13 +230,27 @@ export function initMapsFields(root: Element, hooks: LgMapsHooks): number {
             return;
           }
           const parts = extractAddressParts(components);
-          const line = config.normalize && parts.street !== "" ? parts.street : input.value;
+          // P8 F4 (owner D3 "auto fill only for street address and city...
+          // the user will insert the Zip by himself" + A.1#6 "poorly designed
+          // with poor logic"): on a genuine multi-field composite the anchor
+          // IS the box labelled "Street address" sitting next to sibling
+          // city/state/zip boxes — it must hold ONLY the street line, never
+          // Google's full formatted address duplicated across every sibling.
+          // The single full_address box (no siblings at all — one box IS the
+          // whole address) is untouched: `normalize` still gates it exactly
+          // as before, and stays authorable for that legacy case (a
+          // composite's anchor no longer NEEDS the flag — it always resolves
+          // to parts.street there — but nothing here removes the option).
+          const isComposite = isCompositeAddressField(fieldEl);
+          const line =
+            (isComposite || config.normalize) && parts.street !== "" ? parts.street : input.value;
 
-          // The field's own answer: the (possibly normalized) address line.
-          if (ownField !== "") {
-            hooks.setAnswer(ownField, line, { question_id: questionId });
-          }
-          // Linked autofills (08 §8.8 field pickers).
+          // The field's own answer: the (possibly normalized) address line —
+          // into the box the visitor is looking at (Places already put its own
+          // text there; a normalize:true config replaces it, visibly).
+          fillVisibleInput(input, line);
+          // Linked autofills (08 §8.8 field pickers): ONLY the fields the
+          // operator mapped, and ONLY where that field has a visible input.
           const links: Array<[string | undefined, string]> = [
             [config.fills.street, parts.street],
             [config.fills.city, parts.city],
@@ -193,10 +259,11 @@ export function initMapsFields(root: Element, hooks: LgMapsHooks): number {
           ];
           const filled: string[] = [];
           for (const [target, value] of links) {
-            if (target !== undefined && target !== "" && value !== "") {
-              hooks.setAnswer(target, value, { question_id: questionId });
-              filled.push(target);
-            }
+            if (target === undefined || target === "" || value === "") continue;
+            const el = fillTarget(root, target);
+            if (el === null) continue; // nothing on screen ⇒ nothing recorded
+            fillVisibleInput(el, value);
+            filled.push(target);
           }
           hooks.emit("address_autofill", {
             question_id: questionId,
@@ -246,18 +313,39 @@ export function mapsSdkSrc(key: string): string {
 
 export type LgMapsSdkOutcome = "no_key" | "no_fields" | "already_loaded" | "pending" | "injected";
 
+// P8 defect contract B1/R1-1: whether at least one `[data-lg-maps]` field
+// under `root` parses to a RUNNABLE browser job. `autocomplete` is the ONLY
+// leg initMapsFields ever wires (its own `if (config === null ||
+// !config.autocomplete) continue;` skip above) — a field whose config has
+// `validate:true` but `autocomplete:false` never gets an Autocomplete
+// instance, so `validate` alone has zero browser-side effect and is not
+// "runnable" on its own. Before this fix, maybeInjectMapsSdk injected the SDK
+// whenever a `[data-lg-maps]` ATTRIBUTE existed at all, regardless of what it
+// parsed to — every address funnel paid for a wasted Maps JS load even when
+// every field's parsed config carried autocomplete:false. Exported for the
+// B1 regression spec (test/leadgen-p8-b1-maps-shape.test.ts).
+export function mapsFieldsNeedSdk(root: Element): boolean {
+  const fields = root.querySelectorAll("[data-lg-maps]");
+  for (let i = 0; i < fields.length; i++) {
+    const config = parseMapsConfig(fields[i]?.getAttribute("data-lg-maps") ?? null);
+    if (config !== null && config.autocomplete) return true;
+  }
+  return false;
+}
+
 // Inject the Maps SDK script when (a) the shell spliced a browser key global
-// and (b) at least one `[data-lg-maps]` field exists — then run `onReady`
-// once Places is available. Key-missing (or any failure) is a CONSOLE-ERROR-
-// FREE no-op: no script tag, no throw, manual entry keeps working (08 §8.8).
-// Idempotent: a second call while the script is in flight chains onto the
-// same ready queue — never a second tag.
+// and (b) at least one `[data-lg-maps]` field parses to a runnable job
+// (mapsFieldsNeedSdk) — then run `onReady` once Places is available.
+// Key-missing (or any failure) is a CONSOLE-ERROR-FREE no-op: no script tag,
+// no throw, manual entry keeps working (08 §8.8). Idempotent: a second call
+// while the script is in flight chains onto the same ready queue — never a
+// second tag.
 export function maybeInjectMapsSdk(root: Element, onReady: () => void): LgMapsSdkOutcome {
   try {
     const w = window as unknown as Record<string, unknown>;
     const key = w["__LG_MAPS_KEY__"];
     if (typeof key !== "string" || key === "") return "no_key";
-    if (root.querySelector("[data-lg-maps]") === null) return "no_fields";
+    if (!mapsFieldsNeedSdk(root)) return "no_fields";
     if (placesCtor() !== null) {
       onReady();
       return "already_loaded";

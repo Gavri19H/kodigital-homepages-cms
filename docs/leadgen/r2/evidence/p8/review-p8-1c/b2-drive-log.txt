@@ -1,0 +1,12 @@
+===== B2 spot-check: theme-record PATCH -> live page, ONE fresh ?_cb, no activation save =====
+record brand_primary before: #AB1234
+BEFORE @1280: {"AB1234":20,"NEW":0,"base":45,"btn":"rgb(238, 119, 51)","progress":"rgba(0, 0, 0, 0)","pageerrors":[]}
+PATCH -> 200 (no activation save, no funnel-theme PUT)
+AFTER  @1280: {"AB1234":0,"NEW":20,"base":45,"btn":"rgb(238, 119, 51)","progress":"rgba(0, 0, 0, 0)","pageerrors":[]}
+AFTER  @375 : {"AB1234":0,"NEW":20,"base":45,"btn":"rgb(238, 119, 51)","progress":"rgba(0, 0, 0, 0)","pageerrors":[]}
+restore record -> 200
+final funnel themes:
+   A {"theme_id":"thm_p8-repro"}
+   B {"card_defaults":{"radius":"lg"},"palette":{"brand_primary":"success"}}
+   C {"palette":{"brand_primary":"success","accent":"#5A2D8C"},"typography":{"display_size":"xl"}}
+   D {"scales":{"spacing":"roomy"}}

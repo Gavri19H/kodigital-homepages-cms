@@ -95,6 +95,7 @@ describe("A-6a byte-identity sweep — pre-P2 fixtures render byte-identical", (
       required: true,
       props: { provider: "google" },
     } as LeadgenComponentNode;
+    // B1/R1-1 re-mint: pinned bytes froze the defective nested data-lg-maps; flat shape per presets.ts flatMapsConfigJson — the fixture's data-lg-maps attr value was re-minted (see fixtures/p2-prerender/pre-p2-render.json), everything else in the byte-identity pin is unchanged.
     expect(renderComponent(node, DESIGN)).toBe(frozen["legacyAddress"]);
   });
 
@@ -885,6 +886,7 @@ describe("§6.10 / M9 — address renders per props.fields[]", () => {
       readFileSync(join(HERE, "fixtures", "p2-prerender", "pre-p2-render.json"), "utf8"),
     ) as Record<string, string>;
     const html = renderComponent(legacy, DESIGN);
+    // B1/R1-1 re-mint: pinned bytes froze the defective nested data-lg-maps; flat shape per presets.ts flatMapsConfigJson — the fixture's data-lg-maps attr value was re-minted (see fixtures/p2-prerender/pre-p2-render.json), everything else in the byte-identity pin is unchanged.
     expect(html).toBe(frozen["legacyAddress"]);
     // D3's own words: the 4 real fields, not a decorative preview.
     expect(html).toContain('data-lg-field="addr_street"');

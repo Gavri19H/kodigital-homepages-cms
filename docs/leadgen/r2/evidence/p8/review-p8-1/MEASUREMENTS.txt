@@ -1,0 +1,72 @@
+REVIEW DRIVE — P8-1 adversarial review, branch leadgen-r2-p8-1 @ 43e7219, local worker :8901
+All figures below were produced by the reviewer's own Playwright/HTTP drives (scripts in the
+session scratchpad), never copied from the conductor's artifacts.
+
+[GATE] npx vitest run test/leadgen-p3a-split-parity.test.ts  ->  1 failed | 11 passed (12)
+       (raw: p3a-split-parity-FAIL-at-HEAD-43e7219.txt). Gate log's last passing full suite
+       was stamped 8185ec4; 43e7219 changed api/src/admin/leadgen/quotes-tabs/funnel.ts
+       (QUOTE_EDITOR_SCRIPT) without re-capturing api/test/fixtures/p3a-presplit/editor-full.html.
+[GATE] npm run typecheck at 43e7219 -> exit 0.
+[GATE] LEADGEN_RUNTIME_JS_BYTES = 52948 (<= 53248). Baseline f240788 = 52762.
+[GATE] New tests contributed by the 3 new P8 files = 16 (b1 5 + b2 1 + b3 10).
+       7662 baseline + 16 = 7678, gate log's final run = 7677 -> unexplained -1.
+
+[B1] real Google SDK, D3 default 4-field address (screens b1-real-sdk-d3-default-{1280,375}.png)
+     street input class "lg-input pac-target-input", autocomplete="off", .pac-container = 1,
+     10 maps.googleapis.com requests, 0 console errors  => Google's own artifacts prove the
+     Autocomplete constructor ran on lg-addr-p8_addr_street.
+[B1] stub SDK (deterministic interception), same page: ctor calls = 1,
+     args {id:"lg-addr-p8_addr_street", types:["address"], fields:["address_components","formatted_address"]}.
+[B1] no-job address (all four fields mode:manual, authored by the reviewer via the real PATCH
+     route): served page has 0 data-lg-maps attributes and 0 maps.googleapis.com references.
+[B1] owner scenario "auto fill only for street address and city ... user inserts the Zip himself,
+     validate 5 digits": authored street(autofill)+city(autofill)+zip(manual,zip5).
+     served attr = {"enable_autocomplete":true,"validate":false,"fills":{"city":"rev81_addr_city"}}
+     zip input carries pattern="\d{5}"  -> shape correct.
+     DRIVEN place_changed with a full Google-shaped place:
+       answer store  rev81_addr_street="1600 Amphitheatre Parkway", rev81_addr_city="Mountain View"
+       DOM           #lg-addr-rev81_addr_city .value = ""   (box 326x52, VISIBLE)  <-- nothing painted
+     screens: b1-owner-street-city-zipmanual-afterplace-{1280,375}.png
+     Same on the D3 default: city/state/zip all "" in the DOM while the store holds
+     Mountain View / CA / 94043 (b1-fill-after-place-{1280,375}.png).
+[B1] free-text (props.maps.enabled=false, single full_address): served
+     data-lg-maps="{"enabled":false}" — a wire key parseMapsConfig has no reader for.
+
+[B2] roles.page_bg #7A1030 -> #1F6F3C via PATCH /api/admin/leadgen/themes/thm_p8-repro (200).
+     NO activation save, NO funnel-theme PUT, NO restart. content_version 195 -> 196.
+     Fresh ?_cb load: #lg-funnel-root background rgb(122,16,48) -> rgb(31,111,60)
+     at 1280 (1264x900) and 375 (359x780).
+     screens b2-review-{before,after}-patch-{1280,375}.png
+[B2] multi-funnel: A (funnel.theme_json.theme_id) and B (same) both bumped on one PATCH
+     (167->168 and 2->3); Charlie (inline palette, no ref) correctly not bumped.
+[B2] variant-level canonical override frame_overrides_json.theme_id on funnel D: 3 -> 4. Bumped.
+[B2] ThemeRecord spot-checks (first VISIBLE element only, 1280):
+     roles.page_bg      #F5F7FA -> #2E1065 : #lg-funnel-root bg rgb(245,247,250)->rgb(46,16,101) ALIVE
+     typography.base_px 10 -> 24           : .lg-continue font-size 9.376px->22.496px (320x52) ALIVE
+     controls.corners   sharp -> pill      : .lg-question-card radius 10px->20px (420x450) ALIVE
+                                             (b2/after.md claims 9999px — not what its own sweep or this drive shows)
+     button_style.selected wash -> mark    : .lg-check-hollow 0 -> 3, each 19x19 VISIBLE ALIVE
+     roles.card         #FFFFFF -> #2E7D32 : .lg-input bg and .lg-btn-answer bg change;
+                                             .lg-question-card background does NOT (rgb(255,255,255) both) MIS-TARGETED
+
+[B3] chips carry per-column identity; from each of the 4 columns' Theme chips the write hit that
+     column: GET+PUT /funnels/{A,B,C,D}/theme, storage display_size m/l/xl/xxl landed 1:1,
+     0 console errors, 0 pageerrors (1280 and 375).
+[B3] TRAP — chip -> another top-bar tab -> back to Themes -> edit:
+     clicked Charlie's chip (carried=lgf_...G30E), clicked Activation, clicked Themes,
+     changed Display size -> GET+PUT /funnels/lgf_01KZ271383F5X1SQ3DXTXKNJE5/theme (FUNNEL A).
+     Storage: Funnel A display_size m->l, Charlie unchanged. Panel header the whole time:
+     "Editing: Funnel theme · affects every slide and every component default of this funnel".
+     screen b3-trap-tab-roundtrip-1280.png
+[B3] TRAP — chip -> page reload -> edit: same, write hit Funnel A (display_size -> xxl).
+[B3] TEMPLATE chip, direct: POST /funnels/lgf_...G30E/apply-template {template_id:4}
+     -> Charlie frame_template_id 1 -> 4. CORRECT.
+[B3] TEMPLATE chip, tab round-trip: POST /funnels/lgf_01KZ271383F5X1SQ3DXTXKNJE5/apply-template
+     {template_id:5} -> Funnel A frame_template_id null -> 5. WRONG FUNNEL.
+     screens b3-tpl-confirm-{carry,roundtrip}-1280.png
+
+FIXTURE RESIDUE left by this review (re-seed before the next phase):
+  leadgen_funnels.frame_template_id: Funnel A = 5 (was null), P8-Charlie = 4 (was 1)
+  theme_json for P8-Bravo / P8-Delta restored to {} (were null — no API route clears to null)
+  everything else (section 5 content_json, funnel A theme ref, Charlie palette, thm_p8-repro
+  record) restored to the pre-review values.

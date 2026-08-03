@@ -1,0 +1,5214 @@
+=== STEP 1: click Charlie theme chip ===
+chip count 1 label "Custom"
+CHARLIE measured: {
+ "header": "P8-Charlie",
+ "picker": "lgf_01KZ279RW7CMXCDT9JF8WJG30E",
+ "hash": "#tab=themes&funnel=lgf_01KZ279RW7CMXCDT9JF8WJG30E",
+ "rows": [
+  {
+   "role": "brand_primary",
+   "swatch": "rgb(14, 124, 58)",
+   "source": "This funnel",
+   "selectedPick": "success",
+   "picks": [
+    {
+     "pick": "brand_primary",
+     "sel": false,
+     "bg": "rgb(14, 124, 58)"
+    },
+    {
+     "pick": "brand_secondary",
+     "sel": false,
+     "bg": "rgb(42, 80, 128)"
+    },
+    {
+     "pick": "accent",
+     "sel": false,
+     "bg": "rgb(232, 93, 38)"
+    },
+    {
+     "pick": "success",
+     "sel": true,
+     "bg": "rgb(14, 124, 58)"
+    },
+    {
+     "pick": "error",
+     "sel": false,
+     "bg": "rgb(211, 47, 47)"
+    },
+    {
+     "pick": "page_background",
+     "sel": false,
+     "bg": "rgb(245, 247, 250)"
+    },
+    {
+     "pick": "card_background",
+     "sel": false,
+     "bg": "rgb(255, 255, 255)"
+    },
+    {
+     "pick": "surface_wash",
+     "sel": false,
+     "bg": "rgb(232, 238, 244)"
+    },
+    {
+     "pick": "border",
+     "sel": false,
+     "bg": "rgb(210, 217, 229)"
+    },
+    {
+     "pick": "text_primary",
+     "sel": false,
+     "bg": "rgb(26, 31, 54)"
+    },
+    {
+     "pick": "text_muted",
+     "sel": false,
+     "bg": "rgb(74, 85, 104)"
+    },
+    {
+     "pick": "button_primary_bg",
+     "sel": false,
+     "bg": "rgb(27, 58, 92)"
+    },
+    {
+     "pick": "button_primary_text",
+     "sel": false,
+     "bg": "rgb(255, 255, 255)"
+    },
+    {
+     "pick": "button_secondary_bg",
+     "sel": false,
+     "bg": "rgb(242, 246, 250)"
+    }
+   ],
+   "harm": [
+    {
+     "step": "base",
+     "chip": "rgb(27, 58, 92)"
+    },
+    {
+     "step": "wash",
+     "chip": "rgb(221, 225, 231)"
+    },
+    {
+     "step": "darker",
+     "chip": "rgb(20, 44, 69)"
+    },
+    {
+     "step": "lighter",
+     "chip": "rgb(95, 117, 141)"
+    }
+   ]
+  },
+  {
+   "role": "brand_secondary",
+   "swatch": "rgb(42, 80, 128)",
+   "source": "Base design",
+   "selectedPick": null,
+   "picks": [
+    {
+     "pick": "brand_primary",
+     "sel": false,
+     "bg": "rgb(14, 124, 58)"
+    },
+    {
+     "pick": "brand_secondary",
+     "sel": false,
+     "bg": "rgb(42, 80, 128)"
+    },
+    {
+     "pick": "accent",
+     "sel": false,
+     "bg": "rgb(232, 93, 38)"
+    },
+    {
+     "pick": "success",
+     "sel": false,
+     "bg": "rgb(14, 124, 58)"
+    },
+    {
+     "pick": "error",
+     "sel": false,
+     "bg": "rgb(211, 47, 47)"
+    },
+    {
+     "pick": "page_background",
+     "sel": false,
+     "bg": "rgb(245, 247, 250)"
+    },
+    {
+     "pick": "card_background",
+     "sel": false,
+     "bg": "rgb(255, 255, 255)"
+    },
+    {
+     "pick": "surface_wash",
+     "sel": false,
+     "bg": "rgb(232, 238, 244)"
+    },
+    {
+     "pick": "border",
+     "sel": false,
+     "bg": "rgb(210, 217, 229)"
+    },
+    {
+     "pick": "text_primary",
+     "sel": false,
+     "bg": "rgb(26, 31, 54)"
+    },
+    {
+     "pick": "text_muted",
+     "sel": false,
+     "bg": "rgb(74, 85, 104)"
+    },
+    {
+     "pick": "button_primary_bg",
+     "sel": false,
+     "bg": "rgb(27, 58, 92)"
+    },
+    {
+     "pick": "button_primary_text",
+     "sel": false,
+     "bg": "rgb(255, 255, 255)"
+    },
+    {
+     "pick": "button_secondary_bg",
+     "sel": false,
+     "bg": "rgb(242, 246, 250)"
+    }
+   ],
+   "harm": [
+    {
+     "step": "base",
+     "chip": "rgb(42, 80, 128)"
+    },
+    {
+     "step": "wash",
+     "chip": "rgb(223, 229, 236)"
+    },
+    {
+     "step": "darker",
+     "chip": "rgb(32, 60, 96)"
+    },
+    {
+     "step": "lighter",
+     "chip": "rgb(106, 133, 166)"
+    }
+   ]
+  },
+  {
+   "role": "accent",
+   "swatch": "rgb(232, 93, 38)",
+   "source": "Base design",
+   "selectedPick": null,
+   "picks": [
+    {
+     "pick": "brand_primary",
+     "sel": false,
+     "bg": "rgb(14, 124, 58)"
+    },
+    {
+     "pick": "brand_secondary",
+     "sel": false,
+     "bg": "rgb(42, 80, 128)"
+    },
+    {
+     "pick": "accent",
+     "sel": false,
+     "bg": "rgb(232, 93, 38)"
+    },
+    {
+     "pick": "success",
+     "sel": false,
+     "bg": "rgb(14, 124, 58)"
+    },
+    {
+     "pick": "error",
+     "sel": false,
+     "bg": "rgb(211, 47, 47)"
+    },
+    {
+     "pick": "page_background",
+     "sel": false,
+     "bg": "rgb(245, 247, 250)"
+    },
+    {
+     "pick": "card_background",
+     "sel": false,
+     "bg": "rgb(255, 255, 255)"
+    },
+    {
+     "pick": "surface_wash",
+     "sel": false,
+     "bg": "rgb(232, 238, 244)"
+    },
+    {
+     "pick": "border",
+     "sel": false,
+     "bg": "rgb(210, 217, 229)"
+    },
+    {
+     "pick": "text_primary",
+     "sel": false,
+     "bg": "rgb(26, 31, 54)"
+    },
+    {
+     "pick": "text_muted",
+     "sel": false,
+     "bg": "rgb(74, 85, 104)"
+    },
+    {
+     "pick": "button_primary_bg",
+     "sel": false,
+     "bg": "rgb(27, 58, 92)"
+    },
+    {
+     "pick": "button_primary_text",
+     "sel": false,
+     "bg": "rgb(255, 255, 255)"
+    },
+    {
+     "pick": "button_secondary_bg",
+     "sel": false,
+     "bg": "rgb(242, 246, 250)"
+    }
+   ],
+   "harm": [
+    {
+     "step": "base",
+     "chip": "rgb(232, 93, 38)"
+    },
+    {
+     "step": "wash",
+     "chip": "rgb(252, 231, 222)"
+    },
+    {
+     "step": "darker",
+     "chip": "rgb(174, 70, 29)"
+    },
+    {
+     "step": "lighter",
+     "chip": "rgb(239, 142, 103)"
+    }
+   ]
+  },
+  {
+   "role": "success",
+   "swatch": "rgb(14, 124, 58)",
+   "source": "Base design",
+   "selectedPick": null,
+   "picks": [
+    {
+     "pick": "brand_primary",
+     "sel": false,
+     "bg": "rgb(14, 124, 58)"
+    },
+    {
+     "pick": "brand_secondary",
+     "sel": false,
+     "bg": "rgb(42, 80, 128)"
+    },
+    {
+     "pick": "accent",
+     "sel": false,
+     "bg": "rgb(232, 93, 38)"
+    },
+    {
+     "pick": "success",
+     "sel": false,
+     "bg": "rgb(14, 124, 58)"
+    },
+    {
+     "pick": "error",
+     "sel": false,
+     "bg": "rgb(211, 47, 47)"
+    },
+    {
+     "pick": "page_background",
+     "sel": false,
+     "bg": "rgb(245, 247, 250)"
+    },
+    {
+     "pick": "card_background",
+     "sel": false,
+     "bg": "rgb(255, 255, 255)"
+    },
+    {
+     "pick": "surface_wash",
+     "sel": false,
+     "bg": "rgb(232, 238, 244)"
+    },
+    {
+     "pick": "border",
+     "sel": false,
+     "bg": "rgb(210, 217, 229)"
+    },
+    {
+     "pick": "text_primary",
+     "sel": false,
+     "bg": "rgb(26, 31, 54)"
+    },
+    {
+     "pick": "text_muted",
+     "sel": false,
+     "bg": "rgb(74, 85, 104)"
+    },
+    {
+     "pick": "button_primary_bg",
+     "sel": false,
+     "bg": "rgb(27, 58, 92)"
+    },
+    {
+     "pick": "button_primary_text",
+     "sel": false,
+     "bg": "rgb(255, 255, 255)"
+    },
+    {
+     "pick": "button_secondary_bg",
+     "sel": false,
+     "bg": "rgb(242, 246, 250)"
+    }
+   ],
+   "harm": [
+    {
+     "step": "base",
+     "chip": "rgb(14, 124, 58)"
+    },
+    {
+     "step": "wash",
+     "chip": "rgb(219, 235, 225)"
+    },
+    {
+     "step": "darker",
+     "chip": "rgb(11, 93, 44)"
+    },
+    {
+     "step": "lighter",
+     "chip": "rgb(86, 163, 117)"
+    }
+   ]
+  },
+  {
+   "role": "error",
+   "swatch": "rgb(211, 47, 47)",
+   "source": "Base design",
+   "selectedPick": null,
+   "picks": [
+    {
+     "pick": "brand_primary",
+     "sel": false,
+     "bg": "rgb(14, 124, 58)"
+    },
+    {
+     "pick": "brand_secondary",
+     "sel": false,
+     "bg": "rgb(42, 80, 128)"
+    },
+    {
+     "pick": "accent",
+     "sel": false,
+     "bg": "rgb(232, 93, 38)"
+    },
+    {
+     "pick": "success",
+     "sel": false,
+     "bg": "rgb(14, 124, 58)"
+    },
+    {
+     "pick": "error",
+     "sel": false,
+     "bg": "rgb(211, 47, 47)"
+    },
+    {
+     "pick": "page_background",
+     "sel": false,
+     "bg": "rgb(245, 247, 250)"
+    },
+    {
+     "pick": "card_background",
+     "sel": false,
+     "bg": "rgb(255, 255, 255)"
+    },
+    {
+     "pick": "surface_wash",
+     "sel": false,
+     "bg": "rgb(232, 238, 244)"
+    },
+    {
+     "pick": "border",
+     "sel": false,
+     "bg": "rgb(210, 217, 229)"
+    },
+    {
+     "pick": "text_primary",
+     "sel": false,
+     "bg": "rgb(26, 31, 54)"
+    },
+    {
+     "pick": "text_muted",
+     "sel": false,
+     "bg": "rgb(74, 85, 104)"
+    },
+    {
+     "pick": "button_primary_bg",
+     "sel": false,
+     "bg": "rgb(27, 58, 92)"
+    },
+    {
+     "pick": "button_primary_text",
+     "sel": false,
+     "bg": "rgb(255, 255, 255)"
+    },
+    {
+     "pick": "button_secondary_bg",
+     "sel": false,
+     "bg": "rgb(242, 246, 250)"
+    }
+   ],
+   "harm": [
+    {
+     "step": "base",
+     "chip": "rgb(211, 47, 47)"
+    },
+    {
+     "step": "wash",
+     "chip": "rgb(248, 224, 224)"
+    },
+    {
+     "step": "darker",
+     "chip": "rgb(158, 35, 35)"
+    },
+    {
+     "step": "lighter",
+     "chip": "rgb(224, 109, 109)"
+    }
+   ]
+  },
+  {
+   "role": "page_background",
+   "swatch": "rgb(245, 247, 250)",
+   "source": "Base design",
+   "selectedPick": null,
+   "picks": [
+    {
+     "pick": "brand_primary",
+     "sel": false,
+     "bg": "rgb(14, 124, 58)"
+    },
+    {
+     "pick": "brand_secondary",
+     "sel": false,
+     "bg": "rgb(42, 80, 128)"
+    },
+    {
+     "pick": "accent",
+     "sel": false,
+     "bg": "rgb(232, 93, 38)"
+    },
+    {
+     "pick": "success",
+     "sel": false,
+     "bg": "rgb(14, 124, 58)"
+    },
+    {
+     "pick": "error",
+     "sel": false,
+     "bg": "rgb(211, 47, 47)"
+    },
+    {
+     "pick": "page_background",
+     "sel": false,
+     "bg": "rgb(245, 247, 250)"
+    },
+    {
+     "pick": "card_background",
+     "sel": false,
+     "bg": "rgb(255, 255, 255)"
+    },
+    {
+     "pick": "surface_wash",
+     "sel": false,
+     "bg": "rgb(232, 238, 244)"
+    },
+    {
+     "pick": "border",
+     "sel": false,
+     "bg": "rgb(210, 217, 229)"
+    },
+    {
+     "pick": "text_primary",
+     "sel": false,
+     "bg": "rgb(26, 31, 54)"
+    },
+    {
+     "pick": "text_muted",
+     "sel": false,
+     "bg": "rgb(74, 85, 104)"
+    },
+    {
+     "pick": "button_primary_bg",
+     "sel": false,
+     "bg": "rgb(27, 58, 92)"
+    },
+    {
+     "pick": "button_primary_text",
+     "sel": false,
+     "bg": "rgb(255, 255, 255)"
+    },
+    {
+     "pick": "button_secondary_bg",
+     "sel": false,
+     "bg": "rgb(242, 246, 250)"
+    }
+   ],
+   "harm": [
+    {
+     "step": "base",
+     "chip": "rgb(245, 247, 250)"
+    },
+    {
+     "step": "wash",
+     "chip": "rgb(254, 254, 254)"
+    },
+    {
+     "step": "darker",
+     "chip": "rgb(184, 185, 188)"
+    },
+    {
+     "step": "lighter",
+     "chip": "rgb(248, 249, 252)"
+    }
+   ]
+  },
+  {
+   "role": "card_background",
+   "swatch": "rgb(255, 255, 255)",
+   "source": "Base design",
+   "selectedPick": null,
+   "picks": [
+    {
+     "pick": "brand_primary",
+     "sel": false,
+     "bg": "rgb(14, 124, 58)"
+    },
+    {
+     "pick": "brand_secondary",
+     "sel": false,
+     "bg": "rgb(42, 80, 128)"
+    },
+    {
+     "pick": "accent",
+     "sel": false,
+     "bg": "rgb(232, 93, 38)"
+    },
+    {
+     "pick": "success",
+     "sel": false,
+     "bg": "rgb(14, 124, 58)"
+    },
+    {
+     "pick": "error",
+     "sel": false,
+     "bg": "rgb(211, 47, 47)"
+    },
+    {
+     "pick": "page_background",
+     "sel": false,
+     "bg": "rgb(245, 247, 250)"
+    },
+    {
+     "pick": "card_background",
+     "sel": false,
+     "bg": "rgb(255, 255, 255)"
+    },
+    {
+     "pick": "surface_wash",
+     "sel": false,
+     "bg": "rgb(232, 238, 244)"
+    },
+    {
+     "pick": "border",
+     "sel": false,
+     "bg": "rgb(210, 217, 229)"
+    },
+    {
+     "pick": "text_primary",
+     "sel": false,
+     "bg": "rgb(26, 31, 54)"
+    },
+    {
+     "pick": "text_muted",
+     "sel": false,
+     "bg": "rgb(74, 85, 104)"
+    },
+    {
+     "pick": "button_primary_bg",
+     "sel": false,
+     "bg": "rgb(27, 58, 92)"
+    },
+    {
+     "pick": "button_primary_text",
+     "sel": false,
+     "bg": "rgb(255, 255, 255)"
+    },
+    {
+     "pick": "button_secondary_bg",
+     "sel": false,
+     "bg": "rgb(242, 246, 250)"
+    }
+   ],
+   "harm": [
+    {
+     "step": "base",
+     "chip": "rgb(255, 255, 255)"
+    },
+    {
+     "step": "wash",
+     "chip": "rgb(255, 255, 255)"
+    },
+    {
+     "step": "darker",
+     "chip": "rgb(191, 191, 191)"
+    },
+    {
+     "step": "lighter",
+     "chip": "rgb(255, 255, 255)"
+    }
+   ]
+  },
+  {
+   "role": "surface_wash",
+   "swatch": "rgb(232, 238, 244)",
+   "source": "Base design",
+   "selectedPick": null,
+   "picks": [
+    {
+     "pick": "brand_primary",
+     "sel": false,
+     "bg": "rgb(14, 124, 58)"
+    },
+    {
+     "pick": "brand_secondary",
+     "sel": false,
+     "bg": "rgb(42, 80, 128)"
+    },
+    {
+     "pick": "accent",
+     "sel": false,
+     "bg": "rgb(232, 93, 38)"
+    },
+    {
+     "pick": "success",
+     "sel": false,
+     "bg": "rgb(14, 124, 58)"
+    },
+    {
+     "pick": "error",
+     "sel": false,
+     "bg": "rgb(211, 47, 47)"
+    },
+    {
+     "pick": "page_background",
+     "sel": false,
+     "bg": "rgb(245, 247, 250)"
+    },
+    {
+     "pick": "card_background",
+     "sel": false,
+     "bg": "rgb(255, 255, 255)"
+    },
+    {
+     "pick": "surface_wash",
+     "sel": false,
+     "bg": "rgb(232, 238, 244)"
+    },
+    {
+     "pick": "border",
+     "sel": false,
+     "bg": "rgb(210, 217, 229)"
+    },
+    {
+     "pick": "text_primary",
+     "sel": false,
+     "bg": "rgb(26, 31, 54)"
+    },
+    {
+     "pick": "text_muted",
+     "sel": false,
+     "bg": "rgb(74, 85, 104)"
+    },
+    {
+     "pick": "button_primary_bg",
+     "sel": false,
+     "bg": "rgb(27, 58, 92)"
+    },
+    {
+     "pick": "button_primary_text",
+     "sel": false,
+     "bg": "rgb(255, 255, 255)"
+    },
+    {
+     "pick": "button_secondary_bg",
+     "sel": false,
+     "bg": "rgb(242, 246, 250)"
+    }
+   ],
+   "harm": [
+    {
+     "step": "base",
+     "chip": "rgb(232, 238, 244)"
+    },
+    {
+     "step": "wash",
+     "chip": "rgb(252, 252, 253)"
+    },
+    {
+     "step": "darker",
+     "chip": "rgb(174, 179, 183)"
+    },
+    {
+     "step": "lighter",
+     "chip": "rgb(239, 243, 247)"
+    }
+   ]
+  },
+  {
+   "role": "border",
+   "swatch": "rgb(210, 217, 229)",
+   "source": "Base design",
+   "selectedPick": null,
+   "picks": [
+    {
+     "pick": "brand_primary",
+     "sel": false,
+     "bg": "rgb(14, 124, 58)"
+    },
+    {
+     "pick": "brand_secondary",
+     "sel": false,
+     "bg": "rgb(42, 80, 128)"
+    },
+    {
+     "pick": "accent",
+     "sel": false,
+     "bg": "rgb(232, 93, 38)"
+    },
+    {
+     "pick": "success",
+     "sel": false,
+     "bg": "rgb(14, 124, 58)"
+    },
+    {
+     "pick": "error",
+     "sel": false,
+     "bg": "rgb(211, 47, 47)"
+    },
+    {
+     "pick": "page_background",
+     "sel": false,
+     "bg": "rgb(245, 247, 250)"
+    },
+    {
+     "pick": "card_background",
+     "sel": false,
+     "bg": "rgb(255, 255, 255)"
+    },
+    {
+     "pick": "surface_wash",
+     "sel": false,
+     "bg": "rgb(232, 238, 244)"
+    },
+    {
+     "pick": "border",
+     "sel": false,
+     "bg": "rgb(210, 217, 229)"
+    },
+    {
+     "pick": "text_primary",
+     "sel": false,
+     "bg": "rgb(26, 31, 54)"
+    },
+    {
+     "pick": "text_muted",
+     "sel": false,
+     "bg": "rgb(74, 85, 104)"
+    },
+    {
+     "pick": "button_primary_bg",
+     "sel": false,
+     "bg": "rgb(27, 58, 92)"
+    },
+    {
+     "pick": "button_primary_text",
+     "sel": false,
+     "bg": "rgb(255, 255, 255)"
+    },
+    {
+     "pick": "button_secondary_bg",
+     "sel": false,
+     "bg": "rgb(242, 246, 250)"
+    }
+   ],
+   "harm": [
+    {
+     "step": "base",
+     "chip": "rgb(210, 217, 229)"
+    },
+    {
+     "step": "wash",
+     "chip": "rgb(248, 249, 251)"
+    },
+    {
+     "step": "darker",
+     "chip": "rgb(158, 163, 172)"
+    },
+    {
+     "step": "lighter",
+     "chip": "rgb(224, 228, 237)"
+    }
+   ]
+  },
+  {
+   "role": "text_primary",
+   "swatch": "rgb(26, 31, 54)",
+   "source": "Base design",
+   "selectedPick": null,
+   "picks": [
+    {
+     "pick": "brand_primary",
+     "sel": false,
+     "bg": "rgb(14, 124, 58)"
+    },
+    {
+     "pick": "brand_secondary",
+     "sel": false,
+     "bg": "rgb(42, 80, 128)"
+    },
+    {
+     "pick": "accent",
+     "sel": false,
+     "bg": "rgb(232, 93, 38)"
+    },
+    {
+     "pick": "success",
+     "sel": false,
+     "bg": "rgb(14, 124, 58)"
+    },
+    {
+     "pick": "error",
+     "sel": false,
+     "bg": "rgb(211, 47, 47)"
+    },
+    {
+     "pick": "page_background",
+     "sel": false,
+     "bg": "rgb(245, 247, 250)"
+    },
+    {
+     "pick": "card_background",
+     "sel": false,
+     "bg": "rgb(255, 255, 255)"
+    },
+    {
+     "pick": "surface_wash",
+     "sel": false,
+     "bg": "rgb(232, 238, 244)"
+    },
+    {
+     "pick": "border",
+     "sel": false,
+     "bg": "rgb(210, 217, 229)"
+    },
+    {
+     "pick": "text_primary",
+     "sel": false,
+     "bg": "rgb(26, 31, 54)"
+    },
+    {
+     "pick": "text_muted",
+     "sel": false,
+     "bg": "rgb(74, 85, 104)"
+    },
+    {
+     "pick": "button_primary_bg",
+     "sel": false,
+     "bg": "rgb(27, 58, 92)"
+    },
+    {
+     "pick": "button_primary_text",
+     "sel": false,
+     "bg": "rgb(255, 255, 255)"
+    },
+    {
+     "pick": "button_secondary_bg",
+     "sel": false,
+     "bg": "rgb(242, 246, 250)"
+    }
+   ],
+   "harm": [
+    {
+     "step": "base",
+     "chip": "rgb(26, 31, 54)"
+    },
+    {
+     "step": "wash",
+     "chip": "rgb(221, 221, 225)"
+    },
+    {
+     "step": "darker",
+     "chip": "rgb(20, 23, 41)"
+    },
+    {
+     "step": "lighter",
+     "chip": "rgb(95, 98, 114)"
+    }
+   ]
+  },
+  {
+   "role": "text_muted",
+   "swatch": "rgb(74, 85, 104)",
+   "source": "Base design",
+   "selectedPick": null,
+   "picks": [
+    {
+     "pick": "brand_primary",
+     "sel": false,
+     "bg": "rgb(14, 124, 58)"
+    },
+    {
+     "pick": "brand_secondary",
+     "sel": false,
+     "bg": "rgb(42, 80, 128)"
+    },
+    {
+     "pick": "accent",
+     "sel": false,
+     "bg": "rgb(232, 93, 38)"
+    },
+    {
+     "pick": "success",
+     "sel": false,
+     "bg": "rgb(14, 124, 58)"
+    },
+    {
+     "pick": "error",
+     "sel": false,
+     "bg": "rgb(211, 47, 47)"
+    },
+    {
+     "pick": "page_background",
+     "sel": false,
+     "bg": "rgb(245, 247, 250)"
+    },
+    {
+     "pick": "card_background",
+     "sel": false,
+     "bg": "rgb(255, 255, 255)"
+    },
+    {
+     "pick": "surface_wash",
+     "sel": false,
+     "bg": "rgb(232, 238, 244)"
+    },
+    {
+     "pick": "border",
+     "sel": false,
+     "bg": "rgb(210, 217, 229)"
+    },
+    {
+     "pick": "text_primary",
+     "sel": false,
+     "bg": "rgb(26, 31, 54)"
+    },
+    {
+     "pick": "text_muted",
+     "sel": false,
+     "bg": "rgb(74, 85, 104)"
+    },
+    {
+     "pick": "button_primary_bg",
+     "sel": false,
+     "bg": "rgb(27, 58, 92)"
+    },
+    {
+     "pick": "button_primary_text",
+     "sel": false,
+     "bg": "rgb(255, 255, 255)"
+    },
+    {
+     "pick": "button_secondary_bg",
+     "sel": false,
+     "bg": "rgb(242, 246, 250)"
+    }
+   ],
+   "harm": [
+    {
+     "step": "base",
+     "chip": "rgb(74, 85, 104)"
+    },
+    {
+     "step": "wash",
+     "chip": "rgb(228, 230, 232)"
+    },
+    {
+     "step": "darker",
+     "chip": "rgb(56, 64, 78)"
+    },
+    {
+     "step": "lighter",
+     "chip": "rgb(128, 136, 149)"
+    }
+   ]
+  },
+  {
+   "role": "button_primary_bg",
+   "swatch": "rgb(27, 58, 92)",
+   "source": "Base design",
+   "selectedPick": null,
+   "picks": [
+    {
+     "pick": "brand_primary",
+     "sel": false,
+     "bg": "rgb(14, 124, 58)"
+    },
+    {
+     "pick": "brand_secondary",
+     "sel": false,
+     "bg": "rgb(42, 80, 128)"
+    },
+    {
+     "pick": "accent",
+     "sel": false,
+     "bg": "rgb(232, 93, 38)"
+    },
+    {
+     "pick": "success",
+     "sel": false,
+     "bg": "rgb(14, 124, 58)"
+    },
+    {
+     "pick": "error",
+     "sel": false,
+     "bg": "rgb(211, 47, 47)"
+    },
+    {
+     "pick": "page_background",
+     "sel": false,
+     "bg": "rgb(245, 247, 250)"
+    },
+    {
+     "pick": "card_background",
+     "sel": false,
+     "bg": "rgb(255, 255, 255)"
+    },
+    {
+     "pick": "surface_wash",
+     "sel": false,
+     "bg": "rgb(232, 238, 244)"
+    },
+    {
+     "pick": "border",
+     "sel": false,
+     "bg": "rgb(210, 217, 229)"
+    },
+    {
+     "pick": "text_primary",
+     "sel": false,
+     "bg": "rgb(26, 31, 54)"
+    },
+    {
+     "pick": "text_muted",
+     "sel": false,
+     "bg": "rgb(74, 85, 104)"
+    },
+    {
+     "pick": "button_primary_bg",
+     "sel": false,
+     "bg": "rgb(27, 58, 92)"
+    },
+    {
+     "pick": "button_primary_text",
+     "sel": false,
+     "bg": "rgb(255, 255, 255)"
+    },
+    {
+     "pick": "button_secondary_bg",
+     "sel": false,
+     "bg": "rgb(242, 246, 250)"
+    }
+   ],
+   "harm": [
+    {
+     "step": "base",
+     "chip": "rgb(27, 58, 92)"
+    },
+    {
+     "step": "wash",
+     "chip": "rgb(221, 225, 231)"
+    },
+    {
+     "step": "darker",
+     "chip": "rgb(20, 44, 69)"
+    },
+    {
+     "step": "lighter",
+     "chip": "rgb(95, 117, 141)"
+    }
+   ]
+  },
+  {
+   "role": "button_primary_text",
+   "swatch": "rgb(255, 255, 255)",
+   "source": "Base design",
+   "selectedPick": null,
+   "picks": [
+    {
+     "pick": "brand_primary",
+     "sel": false,
+     "bg": "rgb(14, 124, 58)"
+    },
+    {
+     "pick": "brand_secondary",
+     "sel": false,
+     "bg": "rgb(42, 80, 128)"
+    },
+    {
+     "pick": "accent",
+     "sel": false,
+     "bg": "rgb(232, 93, 38)"
+    },
+    {
+     "pick": "success",
+     "sel": false,
+     "bg": "rgb(14, 124, 58)"
+    },
+    {
+     "pick": "error",
+     "sel": false,
+     "bg": "rgb(211, 47, 47)"
+    },
+    {
+     "pick": "page_background",
+     "sel": false,
+     "bg": "rgb(245, 247, 250)"
+    },
+    {
+     "pick": "card_background",
+     "sel": false,
+     "bg": "rgb(255, 255, 255)"
+    },
+    {
+     "pick": "surface_wash",
+     "sel": false,
+     "bg": "rgb(232, 238, 244)"
+    },
+    {
+     "pick": "border",
+     "sel": false,
+     "bg": "rgb(210, 217, 229)"
+    },
+    {
+     "pick": "text_primary",
+     "sel": false,
+     "bg": "rgb(26, 31, 54)"
+    },
+    {
+     "pick": "text_muted",
+     "sel": false,
+     "bg": "rgb(74, 85, 104)"
+    },
+    {
+     "pick": "button_primary_bg",
+     "sel": false,
+     "bg": "rgb(27, 58, 92)"
+    },
+    {
+     "pick": "button_primary_text",
+     "sel": false,
+     "bg": "rgb(255, 255, 255)"
+    },
+    {
+     "pick": "button_secondary_bg",
+     "sel": false,
+     "bg": "rgb(242, 246, 250)"
+    }
+   ],
+   "harm": [
+    {
+     "step": "base",
+     "chip": "rgb(255, 255, 255)"
+    },
+    {
+     "step": "wash",
+     "chip": "rgb(255, 255, 255)"
+    },
+    {
+     "step": "darker",
+     "chip": "rgb(191, 191, 191)"
+    },
+    {
+     "step": "lighter",
+     "chip": "rgb(255, 255, 255)"
+    }
+   ]
+  },
+  {
+   "role": "button_secondary_bg",
+   "swatch": "rgb(242, 246, 250)",
+   "source": "Base design",
+   "selectedPick": null,
+   "picks": [
+    {
+     "pick": "brand_primary",
+     "sel": false,
+     "bg": "rgb(14, 124, 58)"
+    },
+    {
+     "pick": "brand_secondary",
+     "sel": false,
+     "bg": "rgb(42, 80, 128)"
+    },
+    {
+     "pick": "accent",
+     "sel": false,
+     "bg": "rgb(232, 93, 38)"
+    },
+    {
+     "pick": "success",
+     "sel": false,
+     "bg": "rgb(14, 124, 58)"
+    },
+    {
+     "pick": "error",
+     "sel": false,
+     "bg": "rgb(211, 47, 47)"
+    },
+    {
+     "pick": "page_background",
+     "sel": false,
+     "bg": "rgb(245, 247, 250)"
+    },
+    {
+     "pick": "card_background",
+     "sel": false,
+     "bg": "rgb(255, 255, 255)"
+    },
+    {
+     "pick": "surface_wash",
+     "sel": false,
+     "bg": "rgb(232, 238, 244)"
+    },
+    {
+     "pick": "border",
+     "sel": false,
+     "bg": "rgb(210, 217, 229)"
+    },
+    {
+     "pick": "text_primary",
+     "sel": false,
+     "bg": "rgb(26, 31, 54)"
+    },
+    {
+     "pick": "text_muted",
+     "sel": false,
+     "bg": "rgb(74, 85, 104)"
+    },
+    {
+     "pick": "button_primary_bg",
+     "sel": false,
+     "bg": "rgb(27, 58, 92)"
+    },
+    {
+     "pick": "button_primary_text",
+     "sel": false,
+     "bg": "rgb(255, 255, 255)"
+    },
+    {
+     "pick": "button_secondary_bg",
+     "sel": false,
+     "bg": "rgb(242, 246, 250)"
+    }
+   ],
+   "harm": [
+    {
+     "step": "base",
+     "chip": "rgb(242, 246, 250)"
+    },
+    {
+     "step": "wash",
+     "chip": "rgb(253, 254, 254)"
+    },
+    {
+     "step": "darker",
+     "chip": "rgb(182, 185, 188)"
+    },
+    {
+     "step": "lighter",
+     "chip": "rgb(246, 249, 252)"
+    }
+   ]
+  }
+ ],
+ "selects": [
+  {
+   "key": "typography.display",
+   "value": ""
+  },
+  {
+   "key": "typography.body",
+   "value": ""
+  },
+  {
+   "key": "typography.size",
+   "value": ""
+  },
+  {
+   "key": "typography.display_size",
+   "value": "xl"
+  },
+  {
+   "key": "scales.spacing",
+   "value": ""
+  },
+  {
+   "key": "scales.radius",
+   "value": ""
+  },
+  {
+   "key": "scales.shadow",
+   "value": ""
+  },
+  {
+   "key": "button_defaults.radius",
+   "value": ""
+  },
+  {
+   "key": "button_defaults.min_height",
+   "value": ""
+  },
+  {
+   "key": "button_defaults.casing",
+   "value": ""
+  },
+  {
+   "key": "field_defaults.min_height",
+   "value": ""
+  },
+  {
+   "key": "button_defaults.fill",
+   "value": ""
+  },
+  {
+   "key": "button_defaults.layout",
+   "value": ""
+  },
+  {
+   "key": "button_defaults.selected",
+   "value": ""
+  },
+  {
+   "key": "card_defaults.radius",
+   "value": ""
+  },
+  {
+   "key": "card_defaults.shadow",
+   "value": ""
+  }
+ ],
+ "themeStrips": [
+  {
+   "key": "theme:button_defaults.background_role",
+   "selected": null,
+   "swatches": [
+    {
+     "p": "brand_primary",
+     "bg": "rgb(14, 124, 58)",
+     "sel": false
+    },
+    {
+     "p": "brand_secondary",
+     "bg": "rgb(42, 80, 128)",
+     "sel": false
+    },
+    {
+     "p": "accent",
+     "bg": "rgb(232, 93, 38)",
+     "sel": false
+    },
+    {
+     "p": "success",
+     "bg": "rgb(14, 124, 58)",
+     "sel": false
+    },
+    {
+     "p": "error",
+     "bg": "rgb(211, 47, 47)",
+     "sel": false
+    },
+    {
+     "p": "page_background",
+     "bg": "rgb(245, 247, 250)",
+     "sel": false
+    },
+    {
+     "p": "card_background",
+     "bg": "rgb(255, 255, 255)",
+     "sel": false
+    },
+    {
+     "p": "surface_wash",
+     "bg": "rgb(232, 238, 244)",
+     "sel": false
+    },
+    {
+     "p": "border",
+     "bg": "rgb(210, 217, 229)",
+     "sel": false
+    },
+    {
+     "p": "text_primary",
+     "bg": "rgb(26, 31, 54)",
+     "sel": false
+    },
+    {
+     "p": "text_muted",
+     "bg": "rgb(74, 85, 104)",
+     "sel": false
+    },
+    {
+     "p": "button_primary_bg",
+     "bg": "rgb(27, 58, 92)",
+     "sel": false
+    },
+    {
+     "p": "button_primary_text",
+     "bg": "rgb(255, 255, 255)",
+     "sel": false
+    },
+    {
+     "p": "button_secondary_bg",
+     "bg": "rgb(242, 246, 250)",
+     "sel": false
+    }
+   ]
+  },
+  {
+   "key": "theme:button_defaults.text_role",
+   "selected": null,
+   "swatches": [
+    {
+     "p": "brand_primary",
+     "bg": "rgb(14, 124, 58)",
+     "sel": false
+    },
+    {
+     "p": "brand_secondary",
+     "bg": "rgb(42, 80, 128)",
+     "sel": false
+    },
+    {
+     "p": "accent",
+     "bg": "rgb(232, 93, 38)",
+     "sel": false
+    },
+    {
+     "p": "success",
+     "bg": "rgb(14, 124, 58)",
+     "sel": false
+    },
+    {
+     "p": "error",
+     "bg": "rgb(211, 47, 47)",
+     "sel": false
+    },
+    {
+     "p": "page_background",
+     "bg": "rgb(245, 247, 250)",
+     "sel": false
+    },
+    {
+     "p": "card_background",
+     "bg": "rgb(255, 255, 255)",
+     "sel": false
+    },
+    {
+     "p": "surface_wash",
+     "bg": "rgb(232, 238, 244)",
+     "sel": false
+    },
+    {
+     "p": "border",
+     "bg": "rgb(210, 217, 229)",
+     "sel": false
+    },
+    {
+     "p": "text_primary",
+     "bg": "rgb(26, 31, 54)",
+     "sel": false
+    },
+    {
+     "p": "text_muted",
+     "bg": "rgb(74, 85, 104)",
+     "sel": false
+    },
+    {
+     "p": "button_primary_bg",
+     "bg": "rgb(27, 58, 92)",
+     "sel": false
+    },
+    {
+     "p": "button_primary_text",
+     "bg": "rgb(255, 255, 255)",
+     "sel": false
+    },
+    {
+     "p": "button_secondary_bg",
+     "bg": "rgb(242, 246, 250)",
+     "sel": false
+    }
+   ]
+  },
+  {
+   "key": "theme:card_defaults.background_role",
+   "selected": null,
+   "swatches": [
+    {
+     "p": "brand_primary",
+     "bg": "rgb(14, 124, 58)",
+     "sel": false
+    },
+    {
+     "p": "brand_secondary",
+     "bg": "rgb(42, 80, 128)",
+     "sel": false
+    },
+    {
+     "p": "accent",
+     "bg": "rgb(232, 93, 38)",
+     "sel": false
+    },
+    {
+     "p": "success",
+     "bg": "rgb(14, 124, 58)",
+     "sel": false
+    },
+    {
+     "p": "error",
+     "bg": "rgb(211, 47, 47)",
+     "sel": false
+    },
+    {
+     "p": "page_background",
+     "bg": "rgb(245, 247, 250)",
+     "sel": false
+    },
+    {
+     "p": "card_background",
+     "bg": "rgb(255, 255, 255)",
+     "sel": false
+    },
+    {
+     "p": "surface_wash",
+     "bg": "rgb(232, 238, 244)",
+     "sel": false
+    },
+    {
+     "p": "border",
+     "bg": "rgb(210, 217, 229)",
+     "sel": false
+    },
+    {
+     "p": "text_primary",
+     "bg": "rgb(26, 31, 54)",
+     "sel": false
+    },
+    {
+     "p": "text_muted",
+     "bg": "rgb(74, 85, 104)",
+     "sel": false
+    },
+    {
+     "p": "button_primary_bg",
+     "bg": "rgb(27, 58, 92)",
+     "sel": false
+    },
+    {
+     "p": "button_primary_text",
+     "bg": "rgb(255, 255, 255)",
+     "sel": false
+    },
+    {
+     "p": "button_secondary_bg",
+     "bg": "rgb(242, 246, 250)",
+     "sel": false
+    }
+   ]
+  },
+  {
+   "key": "theme:card_defaults.border_role",
+   "selected": null,
+   "swatches": [
+    {
+     "p": "brand_primary",
+     "bg": "rgb(14, 124, 58)",
+     "sel": false
+    },
+    {
+     "p": "brand_secondary",
+     "bg": "rgb(42, 80, 128)",
+     "sel": false
+    },
+    {
+     "p": "accent",
+     "bg": "rgb(232, 93, 38)",
+     "sel": false
+    },
+    {
+     "p": "success",
+     "bg": "rgb(14, 124, 58)",
+     "sel": false
+    },
+    {
+     "p": "error",
+     "bg": "rgb(211, 47, 47)",
+     "sel": false
+    },
+    {
+     "p": "page_background",
+     "bg": "rgb(245, 247, 250)",
+     "sel": false
+    },
+    {
+     "p": "card_background",
+     "bg": "rgb(255, 255, 255)",
+     "sel": false
+    },
+    {
+     "p": "surface_wash",
+     "bg": "rgb(232, 238, 244)",
+     "sel": false
+    },
+    {
+     "p": "border",
+     "bg": "rgb(210, 217, 229)",
+     "sel": false
+    },
+    {
+     "p": "text_primary",
+     "bg": "rgb(26, 31, 54)",
+     "sel": false
+    },
+    {
+     "p": "text_muted",
+     "bg": "rgb(74, 85, 104)",
+     "sel": false
+    },
+    {
+     "p": "button_primary_bg",
+     "bg": "rgb(27, 58, 92)",
+     "sel": false
+    },
+    {
+     "p": "button_primary_text",
+     "bg": "rgb(255, 255, 255)",
+     "sel": false
+    },
+    {
+     "p": "button_secondary_bg",
+     "bg": "rgb(242, 246, 250)",
+     "sel": false
+    }
+   ]
+  }
+ ],
+ "overrides": null,
+ "editorFunnel": "lgf_01KZ271383F5X1SQ3DXTXKNJE5",
+ "canvasSrcdocLen": 74091
+}
+canvas --lg-primary: EMPTY
+=== STEP 2: picker -> Bravo ===
+BRAVO measured: {
+ "header": "P8-Bravo",
+ "picker": "lgf_01KZ279RVPT0Z7SX8GE81KSAVM",
+ "hash": "#tab=themes&funnel=lgf_01KZ279RVPT0Z7SX8GE81KSAVM",
+ "rows": [
+  {
+   "role": "brand_primary",
+   "swatch": "rgb(27, 58, 92)",
+   "source": "Base design",
+   "selectedPick": null,
+   "picks": [
+    {
+     "pick": "brand_primary",
+     "sel": false,
+     "bg": "rgb(27, 58, 92)"
+    },
+    {
+     "pick": "brand_secondary",
+     "sel": false,
+     "bg": "rgb(42, 80, 128)"
+    },
+    {
+     "pick": "accent",
+     "sel": false,
+     "bg": "rgb(232, 93, 38)"
+    },
+    {
+     "pick": "success",
+     "sel": false,
+     "bg": "rgb(14, 124, 58)"
+    },
+    {
+     "pick": "error",
+     "sel": false,
+     "bg": "rgb(211, 47, 47)"
+    },
+    {
+     "pick": "page_background",
+     "sel": false,
+     "bg": "rgb(245, 247, 250)"
+    },
+    {
+     "pick": "card_background",
+     "sel": false,
+     "bg": "rgb(255, 255, 255)"
+    },
+    {
+     "pick": "surface_wash",
+     "sel": false,
+     "bg": "rgb(232, 238, 244)"
+    },
+    {
+     "pick": "border",
+     "sel": false,
+     "bg": "rgb(210, 217, 229)"
+    },
+    {
+     "pick": "text_primary",
+     "sel": false,
+     "bg": "rgb(26, 31, 54)"
+    },
+    {
+     "pick": "text_muted",
+     "sel": false,
+     "bg": "rgb(74, 85, 104)"
+    },
+    {
+     "pick": "button_primary_bg",
+     "sel": false,
+     "bg": "rgb(27, 58, 92)"
+    },
+    {
+     "pick": "button_primary_text",
+     "sel": false,
+     "bg": "rgb(255, 255, 255)"
+    },
+    {
+     "pick": "button_secondary_bg",
+     "sel": false,
+     "bg": "rgb(242, 246, 250)"
+    }
+   ],
+   "harm": [
+    {
+     "step": "base",
+     "chip": "rgb(27, 58, 92)"
+    },
+    {
+     "step": "wash",
+     "chip": "rgb(221, 225, 231)"
+    },
+    {
+     "step": "darker",
+     "chip": "rgb(20, 44, 69)"
+    },
+    {
+     "step": "lighter",
+     "chip": "rgb(95, 117, 141)"
+    }
+   ]
+  },
+  {
+   "role": "brand_secondary",
+   "swatch": "rgb(42, 80, 128)",
+   "source": "Base design",
+   "selectedPick": null,
+   "picks": [
+    {
+     "pick": "brand_primary",
+     "sel": false,
+     "bg": "rgb(27, 58, 92)"
+    },
+    {
+     "pick": "brand_secondary",
+     "sel": false,
+     "bg": "rgb(42, 80, 128)"
+    },
+    {
+     "pick": "accent",
+     "sel": false,
+     "bg": "rgb(232, 93, 38)"
+    },
+    {
+     "pick": "success",
+     "sel": false,
+     "bg": "rgb(14, 124, 58)"
+    },
+    {
+     "pick": "error",
+     "sel": false,
+     "bg": "rgb(211, 47, 47)"
+    },
+    {
+     "pick": "page_background",
+     "sel": false,
+     "bg": "rgb(245, 247, 250)"
+    },
+    {
+     "pick": "card_background",
+     "sel": false,
+     "bg": "rgb(255, 255, 255)"
+    },
+    {
+     "pick": "surface_wash",
+     "sel": false,
+     "bg": "rgb(232, 238, 244)"
+    },
+    {
+     "pick": "border",
+     "sel": false,
+     "bg": "rgb(210, 217, 229)"
+    },
+    {
+     "pick": "text_primary",
+     "sel": false,
+     "bg": "rgb(26, 31, 54)"
+    },
+    {
+     "pick": "text_muted",
+     "sel": false,
+     "bg": "rgb(74, 85, 104)"
+    },
+    {
+     "pick": "button_primary_bg",
+     "sel": false,
+     "bg": "rgb(27, 58, 92)"
+    },
+    {
+     "pick": "button_primary_text",
+     "sel": false,
+     "bg": "rgb(255, 255, 255)"
+    },
+    {
+     "pick": "button_secondary_bg",
+     "sel": false,
+     "bg": "rgb(242, 246, 250)"
+    }
+   ],
+   "harm": [
+    {
+     "step": "base",
+     "chip": "rgb(42, 80, 128)"
+    },
+    {
+     "step": "wash",
+     "chip": "rgb(223, 229, 236)"
+    },
+    {
+     "step": "darker",
+     "chip": "rgb(32, 60, 96)"
+    },
+    {
+     "step": "lighter",
+     "chip": "rgb(106, 133, 166)"
+    }
+   ]
+  },
+  {
+   "role": "accent",
+   "swatch": "rgb(232, 93, 38)",
+   "source": "Base design",
+   "selectedPick": null,
+   "picks": [
+    {
+     "pick": "brand_primary",
+     "sel": false,
+     "bg": "rgb(27, 58, 92)"
+    },
+    {
+     "pick": "brand_secondary",
+     "sel": false,
+     "bg": "rgb(42, 80, 128)"
+    },
+    {
+     "pick": "accent",
+     "sel": false,
+     "bg": "rgb(232, 93, 38)"
+    },
+    {
+     "pick": "success",
+     "sel": false,
+     "bg": "rgb(14, 124, 58)"
+    },
+    {
+     "pick": "error",
+     "sel": false,
+     "bg": "rgb(211, 47, 47)"
+    },
+    {
+     "pick": "page_background",
+     "sel": false,
+     "bg": "rgb(245, 247, 250)"
+    },
+    {
+     "pick": "card_background",
+     "sel": false,
+     "bg": "rgb(255, 255, 255)"
+    },
+    {
+     "pick": "surface_wash",
+     "sel": false,
+     "bg": "rgb(232, 238, 244)"
+    },
+    {
+     "pick": "border",
+     "sel": false,
+     "bg": "rgb(210, 217, 229)"
+    },
+    {
+     "pick": "text_primary",
+     "sel": false,
+     "bg": "rgb(26, 31, 54)"
+    },
+    {
+     "pick": "text_muted",
+     "sel": false,
+     "bg": "rgb(74, 85, 104)"
+    },
+    {
+     "pick": "button_primary_bg",
+     "sel": false,
+     "bg": "rgb(27, 58, 92)"
+    },
+    {
+     "pick": "button_primary_text",
+     "sel": false,
+     "bg": "rgb(255, 255, 255)"
+    },
+    {
+     "pick": "button_secondary_bg",
+     "sel": false,
+     "bg": "rgb(242, 246, 250)"
+    }
+   ],
+   "harm": [
+    {
+     "step": "base",
+     "chip": "rgb(232, 93, 38)"
+    },
+    {
+     "step": "wash",
+     "chip": "rgb(252, 231, 222)"
+    },
+    {
+     "step": "darker",
+     "chip": "rgb(174, 70, 29)"
+    },
+    {
+     "step": "lighter",
+     "chip": "rgb(239, 142, 103)"
+    }
+   ]
+  },
+  {
+   "role": "success",
+   "swatch": "rgb(14, 124, 58)",
+   "source": "Base design",
+   "selectedPick": null,
+   "picks": [
+    {
+     "pick": "brand_primary",
+     "sel": false,
+     "bg": "rgb(27, 58, 92)"
+    },
+    {
+     "pick": "brand_secondary",
+     "sel": false,
+     "bg": "rgb(42, 80, 128)"
+    },
+    {
+     "pick": "accent",
+     "sel": false,
+     "bg": "rgb(232, 93, 38)"
+    },
+    {
+     "pick": "success",
+     "sel": false,
+     "bg": "rgb(14, 124, 58)"
+    },
+    {
+     "pick": "error",
+     "sel": false,
+     "bg": "rgb(211, 47, 47)"
+    },
+    {
+     "pick": "page_background",
+     "sel": false,
+     "bg": "rgb(245, 247, 250)"
+    },
+    {
+     "pick": "card_background",
+     "sel": false,
+     "bg": "rgb(255, 255, 255)"
+    },
+    {
+     "pick": "surface_wash",
+     "sel": false,
+     "bg": "rgb(232, 238, 244)"
+    },
+    {
+     "pick": "border",
+     "sel": false,
+     "bg": "rgb(210, 217, 229)"
+    },
+    {
+     "pick": "text_primary",
+     "sel": false,
+     "bg": "rgb(26, 31, 54)"
+    },
+    {
+     "pick": "text_muted",
+     "sel": false,
+     "bg": "rgb(74, 85, 104)"
+    },
+    {
+     "pick": "button_primary_bg",
+     "sel": false,
+     "bg": "rgb(27, 58, 92)"
+    },
+    {
+     "pick": "button_primary_text",
+     "sel": false,
+     "bg": "rgb(255, 255, 255)"
+    },
+    {
+     "pick": "button_secondary_bg",
+     "sel": false,
+     "bg": "rgb(242, 246, 250)"
+    }
+   ],
+   "harm": [
+    {
+     "step": "base",
+     "chip": "rgb(14, 124, 58)"
+    },
+    {
+     "step": "wash",
+     "chip": "rgb(219, 235, 225)"
+    },
+    {
+     "step": "darker",
+     "chip": "rgb(11, 93, 44)"
+    },
+    {
+     "step": "lighter",
+     "chip": "rgb(86, 163, 117)"
+    }
+   ]
+  },
+  {
+   "role": "error",
+   "swatch": "rgb(211, 47, 47)",
+   "source": "Base design",
+   "selectedPick": null,
+   "picks": [
+    {
+     "pick": "brand_primary",
+     "sel": false,
+     "bg": "rgb(27, 58, 92)"
+    },
+    {
+     "pick": "brand_secondary",
+     "sel": false,
+     "bg": "rgb(42, 80, 128)"
+    },
+    {
+     "pick": "accent",
+     "sel": false,
+     "bg": "rgb(232, 93, 38)"
+    },
+    {
+     "pick": "success",
+     "sel": false,
+     "bg": "rgb(14, 124, 58)"
+    },
+    {
+     "pick": "error",
+     "sel": false,
+     "bg": "rgb(211, 47, 47)"
+    },
+    {
+     "pick": "page_background",
+     "sel": false,
+     "bg": "rgb(245, 247, 250)"
+    },
+    {
+     "pick": "card_background",
+     "sel": false,
+     "bg": "rgb(255, 255, 255)"
+    },
+    {
+     "pick": "surface_wash",
+     "sel": false,
+     "bg": "rgb(232, 238, 244)"
+    },
+    {
+     "pick": "border",
+     "sel": false,
+     "bg": "rgb(210, 217, 229)"
+    },
+    {
+     "pick": "text_primary",
+     "sel": false,
+     "bg": "rgb(26, 31, 54)"
+    },
+    {
+     "pick": "text_muted",
+     "sel": false,
+     "bg": "rgb(74, 85, 104)"
+    },
+    {
+     "pick": "button_primary_bg",
+     "sel": false,
+     "bg": "rgb(27, 58, 92)"
+    },
+    {
+     "pick": "button_primary_text",
+     "sel": false,
+     "bg": "rgb(255, 255, 255)"
+    },
+    {
+     "pick": "button_secondary_bg",
+     "sel": false,
+     "bg": "rgb(242, 246, 250)"
+    }
+   ],
+   "harm": [
+    {
+     "step": "base",
+     "chip": "rgb(211, 47, 47)"
+    },
+    {
+     "step": "wash",
+     "chip": "rgb(248, 224, 224)"
+    },
+    {
+     "step": "darker",
+     "chip": "rgb(158, 35, 35)"
+    },
+    {
+     "step": "lighter",
+     "chip": "rgb(224, 109, 109)"
+    }
+   ]
+  },
+  {
+   "role": "page_background",
+   "swatch": "rgb(245, 247, 250)",
+   "source": "Base design",
+   "selectedPick": null,
+   "picks": [
+    {
+     "pick": "brand_primary",
+     "sel": false,
+     "bg": "rgb(27, 58, 92)"
+    },
+    {
+     "pick": "brand_secondary",
+     "sel": false,
+     "bg": "rgb(42, 80, 128)"
+    },
+    {
+     "pick": "accent",
+     "sel": false,
+     "bg": "rgb(232, 93, 38)"
+    },
+    {
+     "pick": "success",
+     "sel": false,
+     "bg": "rgb(14, 124, 58)"
+    },
+    {
+     "pick": "error",
+     "sel": false,
+     "bg": "rgb(211, 47, 47)"
+    },
+    {
+     "pick": "page_background",
+     "sel": false,
+     "bg": "rgb(245, 247, 250)"
+    },
+    {
+     "pick": "card_background",
+     "sel": false,
+     "bg": "rgb(255, 255, 255)"
+    },
+    {
+     "pick": "surface_wash",
+     "sel": false,
+     "bg": "rgb(232, 238, 244)"
+    },
+    {
+     "pick": "border",
+     "sel": false,
+     "bg": "rgb(210, 217, 229)"
+    },
+    {
+     "pick": "text_primary",
+     "sel": false,
+     "bg": "rgb(26, 31, 54)"
+    },
+    {
+     "pick": "text_muted",
+     "sel": false,
+     "bg": "rgb(74, 85, 104)"
+    },
+    {
+     "pick": "button_primary_bg",
+     "sel": false,
+     "bg": "rgb(27, 58, 92)"
+    },
+    {
+     "pick": "button_primary_text",
+     "sel": false,
+     "bg": "rgb(255, 255, 255)"
+    },
+    {
+     "pick": "button_secondary_bg",
+     "sel": false,
+     "bg": "rgb(242, 246, 250)"
+    }
+   ],
+   "harm": [
+    {
+     "step": "base",
+     "chip": "rgb(245, 247, 250)"
+    },
+    {
+     "step": "wash",
+     "chip": "rgb(254, 254, 254)"
+    },
+    {
+     "step": "darker",
+     "chip": "rgb(184, 185, 188)"
+    },
+    {
+     "step": "lighter",
+     "chip": "rgb(248, 249, 252)"
+    }
+   ]
+  },
+  {
+   "role": "card_background",
+   "swatch": "rgb(255, 255, 255)",
+   "source": "Base design",
+   "selectedPick": null,
+   "picks": [
+    {
+     "pick": "brand_primary",
+     "sel": false,
+     "bg": "rgb(27, 58, 92)"
+    },
+    {
+     "pick": "brand_secondary",
+     "sel": false,
+     "bg": "rgb(42, 80, 128)"
+    },
+    {
+     "pick": "accent",
+     "sel": false,
+     "bg": "rgb(232, 93, 38)"
+    },
+    {
+     "pick": "success",
+     "sel": false,
+     "bg": "rgb(14, 124, 58)"
+    },
+    {
+     "pick": "error",
+     "sel": false,
+     "bg": "rgb(211, 47, 47)"
+    },
+    {
+     "pick": "page_background",
+     "sel": false,
+     "bg": "rgb(245, 247, 250)"
+    },
+    {
+     "pick": "card_background",
+     "sel": false,
+     "bg": "rgb(255, 255, 255)"
+    },
+    {
+     "pick": "surface_wash",
+     "sel": false,
+     "bg": "rgb(232, 238, 244)"
+    },
+    {
+     "pick": "border",
+     "sel": false,
+     "bg": "rgb(210, 217, 229)"
+    },
+    {
+     "pick": "text_primary",
+     "sel": false,
+     "bg": "rgb(26, 31, 54)"
+    },
+    {
+     "pick": "text_muted",
+     "sel": false,
+     "bg": "rgb(74, 85, 104)"
+    },
+    {
+     "pick": "button_primary_bg",
+     "sel": false,
+     "bg": "rgb(27, 58, 92)"
+    },
+    {
+     "pick": "button_primary_text",
+     "sel": false,
+     "bg": "rgb(255, 255, 255)"
+    },
+    {
+     "pick": "button_secondary_bg",
+     "sel": false,
+     "bg": "rgb(242, 246, 250)"
+    }
+   ],
+   "harm": [
+    {
+     "step": "base",
+     "chip": "rgb(255, 255, 255)"
+    },
+    {
+     "step": "wash",
+     "chip": "rgb(255, 255, 255)"
+    },
+    {
+     "step": "darker",
+     "chip": "rgb(191, 191, 191)"
+    },
+    {
+     "step": "lighter",
+     "chip": "rgb(255, 255, 255)"
+    }
+   ]
+  },
+  {
+   "role": "surface_wash",
+   "swatch": "rgb(232, 238, 244)",
+   "source": "Base design",
+   "selectedPick": null,
+   "picks": [
+    {
+     "pick": "brand_primary",
+     "sel": false,
+     "bg": "rgb(27, 58, 92)"
+    },
+    {
+     "pick": "brand_secondary",
+     "sel": false,
+     "bg": "rgb(42, 80, 128)"
+    },
+    {
+     "pick": "accent",
+     "sel": false,
+     "bg": "rgb(232, 93, 38)"
+    },
+    {
+     "pick": "success",
+     "sel": false,
+     "bg": "rgb(14, 124, 58)"
+    },
+    {
+     "pick": "error",
+     "sel": false,
+     "bg": "rgb(211, 47, 47)"
+    },
+    {
+     "pick": "page_background",
+     "sel": false,
+     "bg": "rgb(245, 247, 250)"
+    },
+    {
+     "pick": "card_background",
+     "sel": false,
+     "bg": "rgb(255, 255, 255)"
+    },
+    {
+     "pick": "surface_wash",
+     "sel": false,
+     "bg": "rgb(232, 238, 244)"
+    },
+    {
+     "pick": "border",
+     "sel": false,
+     "bg": "rgb(210, 217, 229)"
+    },
+    {
+     "pick": "text_primary",
+     "sel": false,
+     "bg": "rgb(26, 31, 54)"
+    },
+    {
+     "pick": "text_muted",
+     "sel": false,
+     "bg": "rgb(74, 85, 104)"
+    },
+    {
+     "pick": "button_primary_bg",
+     "sel": false,
+     "bg": "rgb(27, 58, 92)"
+    },
+    {
+     "pick": "button_primary_text",
+     "sel": false,
+     "bg": "rgb(255, 255, 255)"
+    },
+    {
+     "pick": "button_secondary_bg",
+     "sel": false,
+     "bg": "rgb(242, 246, 250)"
+    }
+   ],
+   "harm": [
+    {
+     "step": "base",
+     "chip": "rgb(232, 238, 244)"
+    },
+    {
+     "step": "wash",
+     "chip": "rgb(252, 252, 253)"
+    },
+    {
+     "step": "darker",
+     "chip": "rgb(174, 179, 183)"
+    },
+    {
+     "step": "lighter",
+     "chip": "rgb(239, 243, 247)"
+    }
+   ]
+  },
+  {
+   "role": "border",
+   "swatch": "rgb(210, 217, 229)",
+   "source": "Base design",
+   "selectedPick": null,
+   "picks": [
+    {
+     "pick": "brand_primary",
+     "sel": false,
+     "bg": "rgb(27, 58, 92)"
+    },
+    {
+     "pick": "brand_secondary",
+     "sel": false,
+     "bg": "rgb(42, 80, 128)"
+    },
+    {
+     "pick": "accent",
+     "sel": false,
+     "bg": "rgb(232, 93, 38)"
+    },
+    {
+     "pick": "success",
+     "sel": false,
+     "bg": "rgb(14, 124, 58)"
+    },
+    {
+     "pick": "error",
+     "sel": false,
+     "bg": "rgb(211, 47, 47)"
+    },
+    {
+     "pick": "page_background",
+     "sel": false,
+     "bg": "rgb(245, 247, 250)"
+    },
+    {
+     "pick": "card_background",
+     "sel": false,
+     "bg": "rgb(255, 255, 255)"
+    },
+    {
+     "pick": "surface_wash",
+     "sel": false,
+     "bg": "rgb(232, 238, 244)"
+    },
+    {
+     "pick": "border",
+     "sel": false,
+     "bg": "rgb(210, 217, 229)"
+    },
+    {
+     "pick": "text_primary",
+     "sel": false,
+     "bg": "rgb(26, 31, 54)"
+    },
+    {
+     "pick": "text_muted",
+     "sel": false,
+     "bg": "rgb(74, 85, 104)"
+    },
+    {
+     "pick": "button_primary_bg",
+     "sel": false,
+     "bg": "rgb(27, 58, 92)"
+    },
+    {
+     "pick": "button_primary_text",
+     "sel": false,
+     "bg": "rgb(255, 255, 255)"
+    },
+    {
+     "pick": "button_secondary_bg",
+     "sel": false,
+     "bg": "rgb(242, 246, 250)"
+    }
+   ],
+   "harm": [
+    {
+     "step": "base",
+     "chip": "rgb(210, 217, 229)"
+    },
+    {
+     "step": "wash",
+     "chip": "rgb(248, 249, 251)"
+    },
+    {
+     "step": "darker",
+     "chip": "rgb(158, 163, 172)"
+    },
+    {
+     "step": "lighter",
+     "chip": "rgb(224, 228, 237)"
+    }
+   ]
+  },
+  {
+   "role": "text_primary",
+   "swatch": "rgb(26, 31, 54)",
+   "source": "Base design",
+   "selectedPick": null,
+   "picks": [
+    {
+     "pick": "brand_primary",
+     "sel": false,
+     "bg": "rgb(27, 58, 92)"
+    },
+    {
+     "pick": "brand_secondary",
+     "sel": false,
+     "bg": "rgb(42, 80, 128)"
+    },
+    {
+     "pick": "accent",
+     "sel": false,
+     "bg": "rgb(232, 93, 38)"
+    },
+    {
+     "pick": "success",
+     "sel": false,
+     "bg": "rgb(14, 124, 58)"
+    },
+    {
+     "pick": "error",
+     "sel": false,
+     "bg": "rgb(211, 47, 47)"
+    },
+    {
+     "pick": "page_background",
+     "sel": false,
+     "bg": "rgb(245, 247, 250)"
+    },
+    {
+     "pick": "card_background",
+     "sel": false,
+     "bg": "rgb(255, 255, 255)"
+    },
+    {
+     "pick": "surface_wash",
+     "sel": false,
+     "bg": "rgb(232, 238, 244)"
+    },
+    {
+     "pick": "border",
+     "sel": false,
+     "bg": "rgb(210, 217, 229)"
+    },
+    {
+     "pick": "text_primary",
+     "sel": false,
+     "bg": "rgb(26, 31, 54)"
+    },
+    {
+     "pick": "text_muted",
+     "sel": false,
+     "bg": "rgb(74, 85, 104)"
+    },
+    {
+     "pick": "button_primary_bg",
+     "sel": false,
+     "bg": "rgb(27, 58, 92)"
+    },
+    {
+     "pick": "button_primary_text",
+     "sel": false,
+     "bg": "rgb(255, 255, 255)"
+    },
+    {
+     "pick": "button_secondary_bg",
+     "sel": false,
+     "bg": "rgb(242, 246, 250)"
+    }
+   ],
+   "harm": [
+    {
+     "step": "base",
+     "chip": "rgb(26, 31, 54)"
+    },
+    {
+     "step": "wash",
+     "chip": "rgb(221, 221, 225)"
+    },
+    {
+     "step": "darker",
+     "chip": "rgb(20, 23, 41)"
+    },
+    {
+     "step": "lighter",
+     "chip": "rgb(95, 98, 114)"
+    }
+   ]
+  },
+  {
+   "role": "text_muted",
+   "swatch": "rgb(74, 85, 104)",
+   "source": "Base design",
+   "selectedPick": null,
+   "picks": [
+    {
+     "pick": "brand_primary",
+     "sel": false,
+     "bg": "rgb(27, 58, 92)"
+    },
+    {
+     "pick": "brand_secondary",
+     "sel": false,
+     "bg": "rgb(42, 80, 128)"
+    },
+    {
+     "pick": "accent",
+     "sel": false,
+     "bg": "rgb(232, 93, 38)"
+    },
+    {
+     "pick": "success",
+     "sel": false,
+     "bg": "rgb(14, 124, 58)"
+    },
+    {
+     "pick": "error",
+     "sel": false,
+     "bg": "rgb(211, 47, 47)"
+    },
+    {
+     "pick": "page_background",
+     "sel": false,
+     "bg": "rgb(245, 247, 250)"
+    },
+    {
+     "pick": "card_background",
+     "sel": false,
+     "bg": "rgb(255, 255, 255)"
+    },
+    {
+     "pick": "surface_wash",
+     "sel": false,
+     "bg": "rgb(232, 238, 244)"
+    },
+    {
+     "pick": "border",
+     "sel": false,
+     "bg": "rgb(210, 217, 229)"
+    },
+    {
+     "pick": "text_primary",
+     "sel": false,
+     "bg": "rgb(26, 31, 54)"
+    },
+    {
+     "pick": "text_muted",
+     "sel": false,
+     "bg": "rgb(74, 85, 104)"
+    },
+    {
+     "pick": "button_primary_bg",
+     "sel": false,
+     "bg": "rgb(27, 58, 92)"
+    },
+    {
+     "pick": "button_primary_text",
+     "sel": false,
+     "bg": "rgb(255, 255, 255)"
+    },
+    {
+     "pick": "button_secondary_bg",
+     "sel": false,
+     "bg": "rgb(242, 246, 250)"
+    }
+   ],
+   "harm": [
+    {
+     "step": "base",
+     "chip": "rgb(74, 85, 104)"
+    },
+    {
+     "step": "wash",
+     "chip": "rgb(228, 230, 232)"
+    },
+    {
+     "step": "darker",
+     "chip": "rgb(56, 64, 78)"
+    },
+    {
+     "step": "lighter",
+     "chip": "rgb(128, 136, 149)"
+    }
+   ]
+  },
+  {
+   "role": "button_primary_bg",
+   "swatch": "rgb(27, 58, 92)",
+   "source": "Base design",
+   "selectedPick": null,
+   "picks": [
+    {
+     "pick": "brand_primary",
+     "sel": false,
+     "bg": "rgb(27, 58, 92)"
+    },
+    {
+     "pick": "brand_secondary",
+     "sel": false,
+     "bg": "rgb(42, 80, 128)"
+    },
+    {
+     "pick": "accent",
+     "sel": false,
+     "bg": "rgb(232, 93, 38)"
+    },
+    {
+     "pick": "success",
+     "sel": false,
+     "bg": "rgb(14, 124, 58)"
+    },
+    {
+     "pick": "error",
+     "sel": false,
+     "bg": "rgb(211, 47, 47)"
+    },
+    {
+     "pick": "page_background",
+     "sel": false,
+     "bg": "rgb(245, 247, 250)"
+    },
+    {
+     "pick": "card_background",
+     "sel": false,
+     "bg": "rgb(255, 255, 255)"
+    },
+    {
+     "pick": "surface_wash",
+     "sel": false,
+     "bg": "rgb(232, 238, 244)"
+    },
+    {
+     "pick": "border",
+     "sel": false,
+     "bg": "rgb(210, 217, 229)"
+    },
+    {
+     "pick": "text_primary",
+     "sel": false,
+     "bg": "rgb(26, 31, 54)"
+    },
+    {
+     "pick": "text_muted",
+     "sel": false,
+     "bg": "rgb(74, 85, 104)"
+    },
+    {
+     "pick": "button_primary_bg",
+     "sel": false,
+     "bg": "rgb(27, 58, 92)"
+    },
+    {
+     "pick": "button_primary_text",
+     "sel": false,
+     "bg": "rgb(255, 255, 255)"
+    },
+    {
+     "pick": "button_secondary_bg",
+     "sel": false,
+     "bg": "rgb(242, 246, 250)"
+    }
+   ],
+   "harm": [
+    {
+     "step": "base",
+     "chip": "rgb(27, 58, 92)"
+    },
+    {
+     "step": "wash",
+     "chip": "rgb(221, 225, 231)"
+    },
+    {
+     "step": "darker",
+     "chip": "rgb(20, 44, 69)"
+    },
+    {
+     "step": "lighter",
+     "chip": "rgb(95, 117, 141)"
+    }
+   ]
+  },
+  {
+   "role": "button_primary_text",
+   "swatch": "rgb(255, 255, 255)",
+   "source": "Base design",
+   "selectedPick": null,
+   "picks": [
+    {
+     "pick": "brand_primary",
+     "sel": false,
+     "bg": "rgb(27, 58, 92)"
+    },
+    {
+     "pick": "brand_secondary",
+     "sel": false,
+     "bg": "rgb(42, 80, 128)"
+    },
+    {
+     "pick": "accent",
+     "sel": false,
+     "bg": "rgb(232, 93, 38)"
+    },
+    {
+     "pick": "success",
+     "sel": false,
+     "bg": "rgb(14, 124, 58)"
+    },
+    {
+     "pick": "error",
+     "sel": false,
+     "bg": "rgb(211, 47, 47)"
+    },
+    {
+     "pick": "page_background",
+     "sel": false,
+     "bg": "rgb(245, 247, 250)"
+    },
+    {
+     "pick": "card_background",
+     "sel": false,
+     "bg": "rgb(255, 255, 255)"
+    },
+    {
+     "pick": "surface_wash",
+     "sel": false,
+     "bg": "rgb(232, 238, 244)"
+    },
+    {
+     "pick": "border",
+     "sel": false,
+     "bg": "rgb(210, 217, 229)"
+    },
+    {
+     "pick": "text_primary",
+     "sel": false,
+     "bg": "rgb(26, 31, 54)"
+    },
+    {
+     "pick": "text_muted",
+     "sel": false,
+     "bg": "rgb(74, 85, 104)"
+    },
+    {
+     "pick": "button_primary_bg",
+     "sel": false,
+     "bg": "rgb(27, 58, 92)"
+    },
+    {
+     "pick": "button_primary_text",
+     "sel": false,
+     "bg": "rgb(255, 255, 255)"
+    },
+    {
+     "pick": "button_secondary_bg",
+     "sel": false,
+     "bg": "rgb(242, 246, 250)"
+    }
+   ],
+   "harm": [
+    {
+     "step": "base",
+     "chip": "rgb(255, 255, 255)"
+    },
+    {
+     "step": "wash",
+     "chip": "rgb(255, 255, 255)"
+    },
+    {
+     "step": "darker",
+     "chip": "rgb(191, 191, 191)"
+    },
+    {
+     "step": "lighter",
+     "chip": "rgb(255, 255, 255)"
+    }
+   ]
+  },
+  {
+   "role": "button_secondary_bg",
+   "swatch": "rgb(242, 246, 250)",
+   "source": "Base design",
+   "selectedPick": null,
+   "picks": [
+    {
+     "pick": "brand_primary",
+     "sel": false,
+     "bg": "rgb(27, 58, 92)"
+    },
+    {
+     "pick": "brand_secondary",
+     "sel": false,
+     "bg": "rgb(42, 80, 128)"
+    },
+    {
+     "pick": "accent",
+     "sel": false,
+     "bg": "rgb(232, 93, 38)"
+    },
+    {
+     "pick": "success",
+     "sel": false,
+     "bg": "rgb(14, 124, 58)"
+    },
+    {
+     "pick": "error",
+     "sel": false,
+     "bg": "rgb(211, 47, 47)"
+    },
+    {
+     "pick": "page_background",
+     "sel": false,
+     "bg": "rgb(245, 247, 250)"
+    },
+    {
+     "pick": "card_background",
+     "sel": false,
+     "bg": "rgb(255, 255, 255)"
+    },
+    {
+     "pick": "surface_wash",
+     "sel": false,
+     "bg": "rgb(232, 238, 244)"
+    },
+    {
+     "pick": "border",
+     "sel": false,
+     "bg": "rgb(210, 217, 229)"
+    },
+    {
+     "pick": "text_primary",
+     "sel": false,
+     "bg": "rgb(26, 31, 54)"
+    },
+    {
+     "pick": "text_muted",
+     "sel": false,
+     "bg": "rgb(74, 85, 104)"
+    },
+    {
+     "pick": "button_primary_bg",
+     "sel": false,
+     "bg": "rgb(27, 58, 92)"
+    },
+    {
+     "pick": "button_primary_text",
+     "sel": false,
+     "bg": "rgb(255, 255, 255)"
+    },
+    {
+     "pick": "button_secondary_bg",
+     "sel": false,
+     "bg": "rgb(242, 246, 250)"
+    }
+   ],
+   "harm": [
+    {
+     "step": "base",
+     "chip": "rgb(242, 246, 250)"
+    },
+    {
+     "step": "wash",
+     "chip": "rgb(253, 254, 254)"
+    },
+    {
+     "step": "darker",
+     "chip": "rgb(182, 185, 188)"
+    },
+    {
+     "step": "lighter",
+     "chip": "rgb(246, 249, 252)"
+    }
+   ]
+  }
+ ],
+ "selects": [
+  {
+   "key": "typography.display",
+   "value": ""
+  },
+  {
+   "key": "typography.body",
+   "value": ""
+  },
+  {
+   "key": "typography.size",
+   "value": ""
+  },
+  {
+   "key": "typography.display_size",
+   "value": ""
+  },
+  {
+   "key": "scales.spacing",
+   "value": ""
+  },
+  {
+   "key": "scales.radius",
+   "value": ""
+  },
+  {
+   "key": "scales.shadow",
+   "value": ""
+  },
+  {
+   "key": "button_defaults.radius",
+   "value": ""
+  },
+  {
+   "key": "button_defaults.min_height",
+   "value": ""
+  },
+  {
+   "key": "button_defaults.casing",
+   "value": ""
+  },
+  {
+   "key": "field_defaults.min_height",
+   "value": ""
+  },
+  {
+   "key": "button_defaults.fill",
+   "value": ""
+  },
+  {
+   "key": "button_defaults.layout",
+   "value": ""
+  },
+  {
+   "key": "button_defaults.selected",
+   "value": ""
+  },
+  {
+   "key": "card_defaults.radius",
+   "value": ""
+  },
+  {
+   "key": "card_defaults.shadow",
+   "value": ""
+  }
+ ],
+ "themeStrips": [
+  {
+   "key": "theme:button_defaults.background_role",
+   "selected": null,
+   "swatches": [
+    {
+     "p": "brand_primary",
+     "bg": "rgb(27, 58, 92)",
+     "sel": false
+    },
+    {
+     "p": "brand_secondary",
+     "bg": "rgb(42, 80, 128)",
+     "sel": false
+    },
+    {
+     "p": "accent",
+     "bg": "rgb(232, 93, 38)",
+     "sel": false
+    },
+    {
+     "p": "success",
+     "bg": "rgb(14, 124, 58)",
+     "sel": false
+    },
+    {
+     "p": "error",
+     "bg": "rgb(211, 47, 47)",
+     "sel": false
+    },
+    {
+     "p": "page_background",
+     "bg": "rgb(245, 247, 250)",
+     "sel": false
+    },
+    {
+     "p": "card_background",
+     "bg": "rgb(255, 255, 255)",
+     "sel": false
+    },
+    {
+     "p": "surface_wash",
+     "bg": "rgb(232, 238, 244)",
+     "sel": false
+    },
+    {
+     "p": "border",
+     "bg": "rgb(210, 217, 229)",
+     "sel": false
+    },
+    {
+     "p": "text_primary",
+     "bg": "rgb(26, 31, 54)",
+     "sel": false
+    },
+    {
+     "p": "text_muted",
+     "bg": "rgb(74, 85, 104)",
+     "sel": false
+    },
+    {
+     "p": "button_primary_bg",
+     "bg": "rgb(27, 58, 92)",
+     "sel": false
+    },
+    {
+     "p": "button_primary_text",
+     "bg": "rgb(255, 255, 255)",
+     "sel": false
+    },
+    {
+     "p": "button_secondary_bg",
+     "bg": "rgb(242, 246, 250)",
+     "sel": false
+    }
+   ]
+  },
+  {
+   "key": "theme:button_defaults.text_role",
+   "selected": null,
+   "swatches": [
+    {
+     "p": "brand_primary",
+     "bg": "rgb(27, 58, 92)",
+     "sel": false
+    },
+    {
+     "p": "brand_secondary",
+     "bg": "rgb(42, 80, 128)",
+     "sel": false
+    },
+    {
+     "p": "accent",
+     "bg": "rgb(232, 93, 38)",
+     "sel": false
+    },
+    {
+     "p": "success",
+     "bg": "rgb(14, 124, 58)",
+     "sel": false
+    },
+    {
+     "p": "error",
+     "bg": "rgb(211, 47, 47)",
+     "sel": false
+    },
+    {
+     "p": "page_background",
+     "bg": "rgb(245, 247, 250)",
+     "sel": false
+    },
+    {
+     "p": "card_background",
+     "bg": "rgb(255, 255, 255)",
+     "sel": false
+    },
+    {
+     "p": "surface_wash",
+     "bg": "rgb(232, 238, 244)",
+     "sel": false
+    },
+    {
+     "p": "border",
+     "bg": "rgb(210, 217, 229)",
+     "sel": false
+    },
+    {
+     "p": "text_primary",
+     "bg": "rgb(26, 31, 54)",
+     "sel": false
+    },
+    {
+     "p": "text_muted",
+     "bg": "rgb(74, 85, 104)",
+     "sel": false
+    },
+    {
+     "p": "button_primary_bg",
+     "bg": "rgb(27, 58, 92)",
+     "sel": false
+    },
+    {
+     "p": "button_primary_text",
+     "bg": "rgb(255, 255, 255)",
+     "sel": false
+    },
+    {
+     "p": "button_secondary_bg",
+     "bg": "rgb(242, 246, 250)",
+     "sel": false
+    }
+   ]
+  },
+  {
+   "key": "theme:card_defaults.background_role",
+   "selected": null,
+   "swatches": [
+    {
+     "p": "brand_primary",
+     "bg": "rgb(27, 58, 92)",
+     "sel": false
+    },
+    {
+     "p": "brand_secondary",
+     "bg": "rgb(42, 80, 128)",
+     "sel": false
+    },
+    {
+     "p": "accent",
+     "bg": "rgb(232, 93, 38)",
+     "sel": false
+    },
+    {
+     "p": "success",
+     "bg": "rgb(14, 124, 58)",
+     "sel": false
+    },
+    {
+     "p": "error",
+     "bg": "rgb(211, 47, 47)",
+     "sel": false
+    },
+    {
+     "p": "page_background",
+     "bg": "rgb(245, 247, 250)",
+     "sel": false
+    },
+    {
+     "p": "card_background",
+     "bg": "rgb(255, 255, 255)",
+     "sel": false
+    },
+    {
+     "p": "surface_wash",
+     "bg": "rgb(232, 238, 244)",
+     "sel": false
+    },
+    {
+     "p": "border",
+     "bg": "rgb(210, 217, 229)",
+     "sel": false
+    },
+    {
+     "p": "text_primary",
+     "bg": "rgb(26, 31, 54)",
+     "sel": false
+    },
+    {
+     "p": "text_muted",
+     "bg": "rgb(74, 85, 104)",
+     "sel": false
+    },
+    {
+     "p": "button_primary_bg",
+     "bg": "rgb(27, 58, 92)",
+     "sel": false
+    },
+    {
+     "p": "button_primary_text",
+     "bg": "rgb(255, 255, 255)",
+     "sel": false
+    },
+    {
+     "p": "button_secondary_bg",
+     "bg": "rgb(242, 246, 250)",
+     "sel": false
+    }
+   ]
+  },
+  {
+   "key": "theme:card_defaults.border_role",
+   "selected": null,
+   "swatches": [
+    {
+     "p": "brand_primary",
+     "bg": "rgb(27, 58, 92)",
+     "sel": false
+    },
+    {
+     "p": "brand_secondary",
+     "bg": "rgb(42, 80, 128)",
+     "sel": false
+    },
+    {
+     "p": "accent",
+     "bg": "rgb(232, 93, 38)",
+     "sel": false
+    },
+    {
+     "p": "success",
+     "bg": "rgb(14, 124, 58)",
+     "sel": false
+    },
+    {
+     "p": "error",
+     "bg": "rgb(211, 47, 47)",
+     "sel": false
+    },
+    {
+     "p": "page_background",
+     "bg": "rgb(245, 247, 250)",
+     "sel": false
+    },
+    {
+     "p": "card_background",
+     "bg": "rgb(255, 255, 255)",
+     "sel": false
+    },
+    {
+     "p": "surface_wash",
+     "bg": "rgb(232, 238, 244)",
+     "sel": false
+    },
+    {
+     "p": "border",
+     "bg": "rgb(210, 217, 229)",
+     "sel": false
+    },
+    {
+     "p": "text_primary",
+     "bg": "rgb(26, 31, 54)",
+     "sel": false
+    },
+    {
+     "p": "text_muted",
+     "bg": "rgb(74, 85, 104)",
+     "sel": false
+    },
+    {
+     "p": "button_primary_bg",
+     "bg": "rgb(27, 58, 92)",
+     "sel": false
+    },
+    {
+     "p": "button_primary_text",
+     "bg": "rgb(255, 255, 255)",
+     "sel": false
+    },
+    {
+     "p": "button_secondary_bg",
+     "bg": "rgb(242, 246, 250)",
+     "sel": false
+    }
+   ]
+  }
+ ],
+ "overrides": null,
+ "editorFunnel": "lgf_01KZ271383F5X1SQ3DXTXKNJE5",
+ "canvasSrcdocLen": 74192
+}
+canvas --lg-primary: EMPTY
+=== STEP 3: fresh load, plain Themes tab (editor default = A) ===
+DEFAULT-A measured: {
+ "header": "R2Fix Fixture Quote — Funnel A",
+ "picker": "lgf_01KZ271383F5X1SQ3DXTXKNJE5",
+ "hash": "#tab=themes",
+ "rows": [
+  {
+   "role": "brand_primary",
+   "swatch": "rgb(171, 18, 52)",
+   "source": "Base design",
+   "selectedPick": null,
+   "picks": [
+    {
+     "pick": "brand_primary",
+     "sel": false,
+     "bg": "rgb(171, 18, 52)"
+    },
+    {
+     "pick": "brand_secondary",
+     "sel": false,
+     "bg": "rgb(238, 119, 51)"
+    },
+    {
+     "pick": "accent",
+     "sel": false,
+     "bg": "rgb(232, 93, 38)"
+    },
+    {
+     "pick": "success",
+     "sel": false,
+     "bg": "rgb(14, 124, 58)"
+    },
+    {
+     "pick": "error",
+     "sel": false,
+     "bg": "rgb(211, 47, 47)"
+    },
+    {
+     "pick": "page_background",
+     "sel": false,
+     "bg": "rgb(245, 247, 250)"
+    },
+    {
+     "pick": "card_background",
+     "sel": false,
+     "bg": "rgb(255, 255, 255)"
+    },
+    {
+     "pick": "surface_wash",
+     "sel": false,
+     "bg": "rgb(238, 119, 51)"
+    },
+    {
+     "pick": "border",
+     "sel": false,
+     "bg": "rgb(238, 119, 51)"
+    },
+    {
+     "pick": "text_primary",
+     "sel": false,
+     "bg": "rgb(26, 31, 54)"
+    },
+    {
+     "pick": "text_muted",
+     "sel": false,
+     "bg": "rgb(238, 119, 51)"
+    },
+    {
+     "pick": "button_primary_bg",
+     "sel": false,
+     "bg": "rgb(238, 119, 51)"
+    },
+    {
+     "pick": "button_primary_text",
+     "sel": false,
+     "bg": "rgb(238, 238, 238)"
+    },
+    {
+     "pick": "button_secondary_bg",
+     "sel": false,
+     "bg": "rgb(238, 119, 51)"
+    }
+   ],
+   "harm": [
+    {
+     "step": "base",
+     "chip": "rgb(27, 58, 92)"
+    },
+    {
+     "step": "wash",
+     "chip": "rgb(221, 225, 231)"
+    },
+    {
+     "step": "darker",
+     "chip": "rgb(20, 44, 69)"
+    },
+    {
+     "step": "lighter",
+     "chip": "rgb(95, 117, 141)"
+    }
+   ]
+  },
+  {
+   "role": "brand_secondary",
+   "swatch": "rgb(238, 119, 51)",
+   "source": "Base design",
+   "selectedPick": null,
+   "picks": [
+    {
+     "pick": "brand_primary",
+     "sel": false,
+     "bg": "rgb(171, 18, 52)"
+    },
+    {
+     "pick": "brand_secondary",
+     "sel": false,
+     "bg": "rgb(238, 119, 51)"
+    },
+    {
+     "pick": "accent",
+     "sel": false,
+     "bg": "rgb(232, 93, 38)"
+    },
+    {
+     "pick": "success",
+     "sel": false,
+     "bg": "rgb(14, 124, 58)"
+    },
+    {
+     "pick": "error",
+     "sel": false,
+     "bg": "rgb(211, 47, 47)"
+    },
+    {
+     "pick": "page_background",
+     "sel": false,
+     "bg": "rgb(245, 247, 250)"
+    },
+    {
+     "pick": "card_background",
+     "sel": false,
+     "bg": "rgb(255, 255, 255)"
+    },
+    {
+     "pick": "surface_wash",
+     "sel": false,
+     "bg": "rgb(238, 119, 51)"
+    },
+    {
+     "pick": "border",
+     "sel": false,
+     "bg": "rgb(238, 119, 51)"
+    },
+    {
+     "pick": "text_primary",
+     "sel": false,
+     "bg": "rgb(26, 31, 54)"
+    },
+    {
+     "pick": "text_muted",
+     "sel": false,
+     "bg": "rgb(238, 119, 51)"
+    },
+    {
+     "pick": "button_primary_bg",
+     "sel": false,
+     "bg": "rgb(238, 119, 51)"
+    },
+    {
+     "pick": "button_primary_text",
+     "sel": false,
+     "bg": "rgb(238, 238, 238)"
+    },
+    {
+     "pick": "button_secondary_bg",
+     "sel": false,
+     "bg": "rgb(238, 119, 51)"
+    }
+   ],
+   "harm": [
+    {
+     "step": "base",
+     "chip": "rgb(42, 80, 128)"
+    },
+    {
+     "step": "wash",
+     "chip": "rgb(223, 229, 236)"
+    },
+    {
+     "step": "darker",
+     "chip": "rgb(32, 60, 96)"
+    },
+    {
+     "step": "lighter",
+     "chip": "rgb(106, 133, 166)"
+    }
+   ]
+  },
+  {
+   "role": "accent",
+   "swatch": "rgb(232, 93, 38)",
+   "source": "Base design",
+   "selectedPick": null,
+   "picks": [
+    {
+     "pick": "brand_primary",
+     "sel": false,
+     "bg": "rgb(171, 18, 52)"
+    },
+    {
+     "pick": "brand_secondary",
+     "sel": false,
+     "bg": "rgb(238, 119, 51)"
+    },
+    {
+     "pick": "accent",
+     "sel": false,
+     "bg": "rgb(232, 93, 38)"
+    },
+    {
+     "pick": "success",
+     "sel": false,
+     "bg": "rgb(14, 124, 58)"
+    },
+    {
+     "pick": "error",
+     "sel": false,
+     "bg": "rgb(211, 47, 47)"
+    },
+    {
+     "pick": "page_background",
+     "sel": false,
+     "bg": "rgb(245, 247, 250)"
+    },
+    {
+     "pick": "card_background",
+     "sel": false,
+     "bg": "rgb(255, 255, 255)"
+    },
+    {
+     "pick": "surface_wash",
+     "sel": false,
+     "bg": "rgb(238, 119, 51)"
+    },
+    {
+     "pick": "border",
+     "sel": false,
+     "bg": "rgb(238, 119, 51)"
+    },
+    {
+     "pick": "text_primary",
+     "sel": false,
+     "bg": "rgb(26, 31, 54)"
+    },
+    {
+     "pick": "text_muted",
+     "sel": false,
+     "bg": "rgb(238, 119, 51)"
+    },
+    {
+     "pick": "button_primary_bg",
+     "sel": false,
+     "bg": "rgb(238, 119, 51)"
+    },
+    {
+     "pick": "button_primary_text",
+     "sel": false,
+     "bg": "rgb(238, 238, 238)"
+    },
+    {
+     "pick": "button_secondary_bg",
+     "sel": false,
+     "bg": "rgb(238, 119, 51)"
+    }
+   ],
+   "harm": [
+    {
+     "step": "base",
+     "chip": "rgb(232, 93, 38)"
+    },
+    {
+     "step": "wash",
+     "chip": "rgb(252, 231, 222)"
+    },
+    {
+     "step": "darker",
+     "chip": "rgb(174, 70, 29)"
+    },
+    {
+     "step": "lighter",
+     "chip": "rgb(239, 142, 103)"
+    }
+   ]
+  },
+  {
+   "role": "success",
+   "swatch": "rgb(14, 124, 58)",
+   "source": "Base design",
+   "selectedPick": null,
+   "picks": [
+    {
+     "pick": "brand_primary",
+     "sel": false,
+     "bg": "rgb(171, 18, 52)"
+    },
+    {
+     "pick": "brand_secondary",
+     "sel": false,
+     "bg": "rgb(238, 119, 51)"
+    },
+    {
+     "pick": "accent",
+     "sel": false,
+     "bg": "rgb(232, 93, 38)"
+    },
+    {
+     "pick": "success",
+     "sel": false,
+     "bg": "rgb(14, 124, 58)"
+    },
+    {
+     "pick": "error",
+     "sel": false,
+     "bg": "rgb(211, 47, 47)"
+    },
+    {
+     "pick": "page_background",
+     "sel": false,
+     "bg": "rgb(245, 247, 250)"
+    },
+    {
+     "pick": "card_background",
+     "sel": false,
+     "bg": "rgb(255, 255, 255)"
+    },
+    {
+     "pick": "surface_wash",
+     "sel": false,
+     "bg": "rgb(238, 119, 51)"
+    },
+    {
+     "pick": "border",
+     "sel": false,
+     "bg": "rgb(238, 119, 51)"
+    },
+    {
+     "pick": "text_primary",
+     "sel": false,
+     "bg": "rgb(26, 31, 54)"
+    },
+    {
+     "pick": "text_muted",
+     "sel": false,
+     "bg": "rgb(238, 119, 51)"
+    },
+    {
+     "pick": "button_primary_bg",
+     "sel": false,
+     "bg": "rgb(238, 119, 51)"
+    },
+    {
+     "pick": "button_primary_text",
+     "sel": false,
+     "bg": "rgb(238, 238, 238)"
+    },
+    {
+     "pick": "button_secondary_bg",
+     "sel": false,
+     "bg": "rgb(238, 119, 51)"
+    }
+   ],
+   "harm": [
+    {
+     "step": "base",
+     "chip": "rgb(14, 124, 58)"
+    },
+    {
+     "step": "wash",
+     "chip": "rgb(219, 235, 225)"
+    },
+    {
+     "step": "darker",
+     "chip": "rgb(11, 93, 44)"
+    },
+    {
+     "step": "lighter",
+     "chip": "rgb(86, 163, 117)"
+    }
+   ]
+  },
+  {
+   "role": "error",
+   "swatch": "rgb(211, 47, 47)",
+   "source": "Base design",
+   "selectedPick": null,
+   "picks": [
+    {
+     "pick": "brand_primary",
+     "sel": false,
+     "bg": "rgb(171, 18, 52)"
+    },
+    {
+     "pick": "brand_secondary",
+     "sel": false,
+     "bg": "rgb(238, 119, 51)"
+    },
+    {
+     "pick": "accent",
+     "sel": false,
+     "bg": "rgb(232, 93, 38)"
+    },
+    {
+     "pick": "success",
+     "sel": false,
+     "bg": "rgb(14, 124, 58)"
+    },
+    {
+     "pick": "error",
+     "sel": false,
+     "bg": "rgb(211, 47, 47)"
+    },
+    {
+     "pick": "page_background",
+     "sel": false,
+     "bg": "rgb(245, 247, 250)"
+    },
+    {
+     "pick": "card_background",
+     "sel": false,
+     "bg": "rgb(255, 255, 255)"
+    },
+    {
+     "pick": "surface_wash",
+     "sel": false,
+     "bg": "rgb(238, 119, 51)"
+    },
+    {
+     "pick": "border",
+     "sel": false,
+     "bg": "rgb(238, 119, 51)"
+    },
+    {
+     "pick": "text_primary",
+     "sel": false,
+     "bg": "rgb(26, 31, 54)"
+    },
+    {
+     "pick": "text_muted",
+     "sel": false,
+     "bg": "rgb(238, 119, 51)"
+    },
+    {
+     "pick": "button_primary_bg",
+     "sel": false,
+     "bg": "rgb(238, 119, 51)"
+    },
+    {
+     "pick": "button_primary_text",
+     "sel": false,
+     "bg": "rgb(238, 238, 238)"
+    },
+    {
+     "pick": "button_secondary_bg",
+     "sel": false,
+     "bg": "rgb(238, 119, 51)"
+    }
+   ],
+   "harm": [
+    {
+     "step": "base",
+     "chip": "rgb(211, 47, 47)"
+    },
+    {
+     "step": "wash",
+     "chip": "rgb(248, 224, 224)"
+    },
+    {
+     "step": "darker",
+     "chip": "rgb(158, 35, 35)"
+    },
+    {
+     "step": "lighter",
+     "chip": "rgb(224, 109, 109)"
+    }
+   ]
+  },
+  {
+   "role": "page_background",
+   "swatch": "rgb(245, 247, 250)",
+   "source": "Base design",
+   "selectedPick": null,
+   "picks": [
+    {
+     "pick": "brand_primary",
+     "sel": false,
+     "bg": "rgb(171, 18, 52)"
+    },
+    {
+     "pick": "brand_secondary",
+     "sel": false,
+     "bg": "rgb(238, 119, 51)"
+    },
+    {
+     "pick": "accent",
+     "sel": false,
+     "bg": "rgb(232, 93, 38)"
+    },
+    {
+     "pick": "success",
+     "sel": false,
+     "bg": "rgb(14, 124, 58)"
+    },
+    {
+     "pick": "error",
+     "sel": false,
+     "bg": "rgb(211, 47, 47)"
+    },
+    {
+     "pick": "page_background",
+     "sel": false,
+     "bg": "rgb(245, 247, 250)"
+    },
+    {
+     "pick": "card_background",
+     "sel": false,
+     "bg": "rgb(255, 255, 255)"
+    },
+    {
+     "pick": "surface_wash",
+     "sel": false,
+     "bg": "rgb(238, 119, 51)"
+    },
+    {
+     "pick": "border",
+     "sel": false,
+     "bg": "rgb(238, 119, 51)"
+    },
+    {
+     "pick": "text_primary",
+     "sel": false,
+     "bg": "rgb(26, 31, 54)"
+    },
+    {
+     "pick": "text_muted",
+     "sel": false,
+     "bg": "rgb(238, 119, 51)"
+    },
+    {
+     "pick": "button_primary_bg",
+     "sel": false,
+     "bg": "rgb(238, 119, 51)"
+    },
+    {
+     "pick": "button_primary_text",
+     "sel": false,
+     "bg": "rgb(238, 238, 238)"
+    },
+    {
+     "pick": "button_secondary_bg",
+     "sel": false,
+     "bg": "rgb(238, 119, 51)"
+    }
+   ],
+   "harm": [
+    {
+     "step": "base",
+     "chip": "rgb(245, 247, 250)"
+    },
+    {
+     "step": "wash",
+     "chip": "rgb(254, 254, 254)"
+    },
+    {
+     "step": "darker",
+     "chip": "rgb(184, 185, 188)"
+    },
+    {
+     "step": "lighter",
+     "chip": "rgb(248, 249, 252)"
+    }
+   ]
+  },
+  {
+   "role": "card_background",
+   "swatch": "rgb(255, 255, 255)",
+   "source": "Base design",
+   "selectedPick": null,
+   "picks": [
+    {
+     "pick": "brand_primary",
+     "sel": false,
+     "bg": "rgb(171, 18, 52)"
+    },
+    {
+     "pick": "brand_secondary",
+     "sel": false,
+     "bg": "rgb(238, 119, 51)"
+    },
+    {
+     "pick": "accent",
+     "sel": false,
+     "bg": "rgb(232, 93, 38)"
+    },
+    {
+     "pick": "success",
+     "sel": false,
+     "bg": "rgb(14, 124, 58)"
+    },
+    {
+     "pick": "error",
+     "sel": false,
+     "bg": "rgb(211, 47, 47)"
+    },
+    {
+     "pick": "page_background",
+     "sel": false,
+     "bg": "rgb(245, 247, 250)"
+    },
+    {
+     "pick": "card_background",
+     "sel": false,
+     "bg": "rgb(255, 255, 255)"
+    },
+    {
+     "pick": "surface_wash",
+     "sel": false,
+     "bg": "rgb(238, 119, 51)"
+    },
+    {
+     "pick": "border",
+     "sel": false,
+     "bg": "rgb(238, 119, 51)"
+    },
+    {
+     "pick": "text_primary",
+     "sel": false,
+     "bg": "rgb(26, 31, 54)"
+    },
+    {
+     "pick": "text_muted",
+     "sel": false,
+     "bg": "rgb(238, 119, 51)"
+    },
+    {
+     "pick": "button_primary_bg",
+     "sel": false,
+     "bg": "rgb(238, 119, 51)"
+    },
+    {
+     "pick": "button_primary_text",
+     "sel": false,
+     "bg": "rgb(238, 238, 238)"
+    },
+    {
+     "pick": "button_secondary_bg",
+     "sel": false,
+     "bg": "rgb(238, 119, 51)"
+    }
+   ],
+   "harm": [
+    {
+     "step": "base",
+     "chip": "rgb(255, 255, 255)"
+    },
+    {
+     "step": "wash",
+     "chip": "rgb(255, 255, 255)"
+    },
+    {
+     "step": "darker",
+     "chip": "rgb(191, 191, 191)"
+    },
+    {
+     "step": "lighter",
+     "chip": "rgb(255, 255, 255)"
+    }
+   ]
+  },
+  {
+   "role": "surface_wash",
+   "swatch": "rgb(238, 119, 51)",
+   "source": "Base design",
+   "selectedPick": null,
+   "picks": [
+    {
+     "pick": "brand_primary",
+     "sel": false,
+     "bg": "rgb(171, 18, 52)"
+    },
+    {
+     "pick": "brand_secondary",
+     "sel": false,
+     "bg": "rgb(238, 119, 51)"
+    },
+    {
+     "pick": "accent",
+     "sel": false,
+     "bg": "rgb(232, 93, 38)"
+    },
+    {
+     "pick": "success",
+     "sel": false,
+     "bg": "rgb(14, 124, 58)"
+    },
+    {
+     "pick": "error",
+     "sel": false,
+     "bg": "rgb(211, 47, 47)"
+    },
+    {
+     "pick": "page_background",
+     "sel": false,
+     "bg": "rgb(245, 247, 250)"
+    },
+    {
+     "pick": "card_background",
+     "sel": false,
+     "bg": "rgb(255, 255, 255)"
+    },
+    {
+     "pick": "surface_wash",
+     "sel": false,
+     "bg": "rgb(238, 119, 51)"
+    },
+    {
+     "pick": "border",
+     "sel": false,
+     "bg": "rgb(238, 119, 51)"
+    },
+    {
+     "pick": "text_primary",
+     "sel": false,
+     "bg": "rgb(26, 31, 54)"
+    },
+    {
+     "pick": "text_muted",
+     "sel": false,
+     "bg": "rgb(238, 119, 51)"
+    },
+    {
+     "pick": "button_primary_bg",
+     "sel": false,
+     "bg": "rgb(238, 119, 51)"
+    },
+    {
+     "pick": "button_primary_text",
+     "sel": false,
+     "bg": "rgb(238, 238, 238)"
+    },
+    {
+     "pick": "button_secondary_bg",
+     "sel": false,
+     "bg": "rgb(238, 119, 51)"
+    }
+   ],
+   "harm": [
+    {
+     "step": "base",
+     "chip": "rgb(232, 238, 244)"
+    },
+    {
+     "step": "wash",
+     "chip": "rgb(252, 252, 253)"
+    },
+    {
+     "step": "darker",
+     "chip": "rgb(174, 179, 183)"
+    },
+    {
+     "step": "lighter",
+     "chip": "rgb(239, 243, 247)"
+    }
+   ]
+  },
+  {
+   "role": "border",
+   "swatch": "rgb(238, 119, 51)",
+   "source": "Base design",
+   "selectedPick": null,
+   "picks": [
+    {
+     "pick": "brand_primary",
+     "sel": false,
+     "bg": "rgb(171, 18, 52)"
+    },
+    {
+     "pick": "brand_secondary",
+     "sel": false,
+     "bg": "rgb(238, 119, 51)"
+    },
+    {
+     "pick": "accent",
+     "sel": false,
+     "bg": "rgb(232, 93, 38)"
+    },
+    {
+     "pick": "success",
+     "sel": false,
+     "bg": "rgb(14, 124, 58)"
+    },
+    {
+     "pick": "error",
+     "sel": false,
+     "bg": "rgb(211, 47, 47)"
+    },
+    {
+     "pick": "page_background",
+     "sel": false,
+     "bg": "rgb(245, 247, 250)"
+    },
+    {
+     "pick": "card_background",
+     "sel": false,
+     "bg": "rgb(255, 255, 255)"
+    },
+    {
+     "pick": "surface_wash",
+     "sel": false,
+     "bg": "rgb(238, 119, 51)"
+    },
+    {
+     "pick": "border",
+     "sel": false,
+     "bg": "rgb(238, 119, 51)"
+    },
+    {
+     "pick": "text_primary",
+     "sel": false,
+     "bg": "rgb(26, 31, 54)"
+    },
+    {
+     "pick": "text_muted",
+     "sel": false,
+     "bg": "rgb(238, 119, 51)"
+    },
+    {
+     "pick": "button_primary_bg",
+     "sel": false,
+     "bg": "rgb(238, 119, 51)"
+    },
+    {
+     "pick": "button_primary_text",
+     "sel": false,
+     "bg": "rgb(238, 238, 238)"
+    },
+    {
+     "pick": "button_secondary_bg",
+     "sel": false,
+     "bg": "rgb(238, 119, 51)"
+    }
+   ],
+   "harm": [
+    {
+     "step": "base",
+     "chip": "rgb(210, 217, 229)"
+    },
+    {
+     "step": "wash",
+     "chip": "rgb(248, 249, 251)"
+    },
+    {
+     "step": "darker",
+     "chip": "rgb(158, 163, 172)"
+    },
+    {
+     "step": "lighter",
+     "chip": "rgb(224, 228, 237)"
+    }
+   ]
+  },
+  {
+   "role": "text_primary",
+   "swatch": "rgb(26, 31, 54)",
+   "source": "Base design",
+   "selectedPick": null,
+   "picks": [
+    {
+     "pick": "brand_primary",
+     "sel": false,
+     "bg": "rgb(171, 18, 52)"
+    },
+    {
+     "pick": "brand_secondary",
+     "sel": false,
+     "bg": "rgb(238, 119, 51)"
+    },
+    {
+     "pick": "accent",
+     "sel": false,
+     "bg": "rgb(232, 93, 38)"
+    },
+    {
+     "pick": "success",
+     "sel": false,
+     "bg": "rgb(14, 124, 58)"
+    },
+    {
+     "pick": "error",
+     "sel": false,
+     "bg": "rgb(211, 47, 47)"
+    },
+    {
+     "pick": "page_background",
+     "sel": false,
+     "bg": "rgb(245, 247, 250)"
+    },
+    {
+     "pick": "card_background",
+     "sel": false,
+     "bg": "rgb(255, 255, 255)"
+    },
+    {
+     "pick": "surface_wash",
+     "sel": false,
+     "bg": "rgb(238, 119, 51)"
+    },
+    {
+     "pick": "border",
+     "sel": false,
+     "bg": "rgb(238, 119, 51)"
+    },
+    {
+     "pick": "text_primary",
+     "sel": false,
+     "bg": "rgb(26, 31, 54)"
+    },
+    {
+     "pick": "text_muted",
+     "sel": false,
+     "bg": "rgb(238, 119, 51)"
+    },
+    {
+     "pick": "button_primary_bg",
+     "sel": false,
+     "bg": "rgb(238, 119, 51)"
+    },
+    {
+     "pick": "button_primary_text",
+     "sel": false,
+     "bg": "rgb(238, 238, 238)"
+    },
+    {
+     "pick": "button_secondary_bg",
+     "sel": false,
+     "bg": "rgb(238, 119, 51)"
+    }
+   ],
+   "harm": [
+    {
+     "step": "base",
+     "chip": "rgb(26, 31, 54)"
+    },
+    {
+     "step": "wash",
+     "chip": "rgb(221, 221, 225)"
+    },
+    {
+     "step": "darker",
+     "chip": "rgb(20, 23, 41)"
+    },
+    {
+     "step": "lighter",
+     "chip": "rgb(95, 98, 114)"
+    }
+   ]
+  },
+  {
+   "role": "text_muted",
+   "swatch": "rgb(238, 119, 51)",
+   "source": "Base design",
+   "selectedPick": null,
+   "picks": [
+    {
+     "pick": "brand_primary",
+     "sel": false,
+     "bg": "rgb(171, 18, 52)"
+    },
+    {
+     "pick": "brand_secondary",
+     "sel": false,
+     "bg": "rgb(238, 119, 51)"
+    },
+    {
+     "pick": "accent",
+     "sel": false,
+     "bg": "rgb(232, 93, 38)"
+    },
+    {
+     "pick": "success",
+     "sel": false,
+     "bg": "rgb(14, 124, 58)"
+    },
+    {
+     "pick": "error",
+     "sel": false,
+     "bg": "rgb(211, 47, 47)"
+    },
+    {
+     "pick": "page_background",
+     "sel": false,
+     "bg": "rgb(245, 247, 250)"
+    },
+    {
+     "pick": "card_background",
+     "sel": false,
+     "bg": "rgb(255, 255, 255)"
+    },
+    {
+     "pick": "surface_wash",
+     "sel": false,
+     "bg": "rgb(238, 119, 51)"
+    },
+    {
+     "pick": "border",
+     "sel": false,
+     "bg": "rgb(238, 119, 51)"
+    },
+    {
+     "pick": "text_primary",
+     "sel": false,
+     "bg": "rgb(26, 31, 54)"
+    },
+    {
+     "pick": "text_muted",
+     "sel": false,
+     "bg": "rgb(238, 119, 51)"
+    },
+    {
+     "pick": "button_primary_bg",
+     "sel": false,
+     "bg": "rgb(238, 119, 51)"
+    },
+    {
+     "pick": "button_primary_text",
+     "sel": false,
+     "bg": "rgb(238, 238, 238)"
+    },
+    {
+     "pick": "button_secondary_bg",
+     "sel": false,
+     "bg": "rgb(238, 119, 51)"
+    }
+   ],
+   "harm": [
+    {
+     "step": "base",
+     "chip": "rgb(74, 85, 104)"
+    },
+    {
+     "step": "wash",
+     "chip": "rgb(228, 230, 232)"
+    },
+    {
+     "step": "darker",
+     "chip": "rgb(56, 64, 78)"
+    },
+    {
+     "step": "lighter",
+     "chip": "rgb(128, 136, 149)"
+    }
+   ]
+  },
+  {
+   "role": "button_primary_bg",
+   "swatch": "rgb(238, 119, 51)",
+   "source": "Base design",
+   "selectedPick": null,
+   "picks": [
+    {
+     "pick": "brand_primary",
+     "sel": false,
+     "bg": "rgb(171, 18, 52)"
+    },
+    {
+     "pick": "brand_secondary",
+     "sel": false,
+     "bg": "rgb(238, 119, 51)"
+    },
+    {
+     "pick": "accent",
+     "sel": false,
+     "bg": "rgb(232, 93, 38)"
+    },
+    {
+     "pick": "success",
+     "sel": false,
+     "bg": "rgb(14, 124, 58)"
+    },
+    {
+     "pick": "error",
+     "sel": false,
+     "bg": "rgb(211, 47, 47)"
+    },
+    {
+     "pick": "page_background",
+     "sel": false,
+     "bg": "rgb(245, 247, 250)"
+    },
+    {
+     "pick": "card_background",
+     "sel": false,
+     "bg": "rgb(255, 255, 255)"
+    },
+    {
+     "pick": "surface_wash",
+     "sel": false,
+     "bg": "rgb(238, 119, 51)"
+    },
+    {
+     "pick": "border",
+     "sel": false,
+     "bg": "rgb(238, 119, 51)"
+    },
+    {
+     "pick": "text_primary",
+     "sel": false,
+     "bg": "rgb(26, 31, 54)"
+    },
+    {
+     "pick": "text_muted",
+     "sel": false,
+     "bg": "rgb(238, 119, 51)"
+    },
+    {
+     "pick": "button_primary_bg",
+     "sel": false,
+     "bg": "rgb(238, 119, 51)"
+    },
+    {
+     "pick": "button_primary_text",
+     "sel": false,
+     "bg": "rgb(238, 238, 238)"
+    },
+    {
+     "pick": "button_secondary_bg",
+     "sel": false,
+     "bg": "rgb(238, 119, 51)"
+    }
+   ],
+   "harm": [
+    {
+     "step": "base",
+     "chip": "rgb(27, 58, 92)"
+    },
+    {
+     "step": "wash",
+     "chip": "rgb(221, 225, 231)"
+    },
+    {
+     "step": "darker",
+     "chip": "rgb(20, 44, 69)"
+    },
+    {
+     "step": "lighter",
+     "chip": "rgb(95, 117, 141)"
+    }
+   ]
+  },
+  {
+   "role": "button_primary_text",
+   "swatch": "rgb(238, 238, 238)",
+   "source": "Base design",
+   "selectedPick": null,
+   "picks": [
+    {
+     "pick": "brand_primary",
+     "sel": false,
+     "bg": "rgb(171, 18, 52)"
+    },
+    {
+     "pick": "brand_secondary",
+     "sel": false,
+     "bg": "rgb(238, 119, 51)"
+    },
+    {
+     "pick": "accent",
+     "sel": false,
+     "bg": "rgb(232, 93, 38)"
+    },
+    {
+     "pick": "success",
+     "sel": false,
+     "bg": "rgb(14, 124, 58)"
+    },
+    {
+     "pick": "error",
+     "sel": false,
+     "bg": "rgb(211, 47, 47)"
+    },
+    {
+     "pick": "page_background",
+     "sel": false,
+     "bg": "rgb(245, 247, 250)"
+    },
+    {
+     "pick": "card_background",
+     "sel": false,
+     "bg": "rgb(255, 255, 255)"
+    },
+    {
+     "pick": "surface_wash",
+     "sel": false,
+     "bg": "rgb(238, 119, 51)"
+    },
+    {
+     "pick": "border",
+     "sel": false,
+     "bg": "rgb(238, 119, 51)"
+    },
+    {
+     "pick": "text_primary",
+     "sel": false,
+     "bg": "rgb(26, 31, 54)"
+    },
+    {
+     "pick": "text_muted",
+     "sel": false,
+     "bg": "rgb(238, 119, 51)"
+    },
+    {
+     "pick": "button_primary_bg",
+     "sel": false,
+     "bg": "rgb(238, 119, 51)"
+    },
+    {
+     "pick": "button_primary_text",
+     "sel": false,
+     "bg": "rgb(238, 238, 238)"
+    },
+    {
+     "pick": "button_secondary_bg",
+     "sel": false,
+     "bg": "rgb(238, 119, 51)"
+    }
+   ],
+   "harm": [
+    {
+     "step": "base",
+     "chip": "rgb(255, 255, 255)"
+    },
+    {
+     "step": "wash",
+     "chip": "rgb(255, 255, 255)"
+    },
+    {
+     "step": "darker",
+     "chip": "rgb(191, 191, 191)"
+    },
+    {
+     "step": "lighter",
+     "chip": "rgb(255, 255, 255)"
+    }
+   ]
+  },
+  {
+   "role": "button_secondary_bg",
+   "swatch": "rgb(238, 119, 51)",
+   "source": "Base design",
+   "selectedPick": null,
+   "picks": [
+    {
+     "pick": "brand_primary",
+     "sel": false,
+     "bg": "rgb(171, 18, 52)"
+    },
+    {
+     "pick": "brand_secondary",
+     "sel": false,
+     "bg": "rgb(238, 119, 51)"
+    },
+    {
+     "pick": "accent",
+     "sel": false,
+     "bg": "rgb(232, 93, 38)"
+    },
+    {
+     "pick": "success",
+     "sel": false,
+     "bg": "rgb(14, 124, 58)"
+    },
+    {
+     "pick": "error",
+     "sel": false,
+     "bg": "rgb(211, 47, 47)"
+    },
+    {
+     "pick": "page_background",
+     "sel": false,
+     "bg": "rgb(245, 247, 250)"
+    },
+    {
+     "pick": "card_background",
+     "sel": false,
+     "bg": "rgb(255, 255, 255)"
+    },
+    {
+     "pick": "surface_wash",
+     "sel": false,
+     "bg": "rgb(238, 119, 51)"
+    },
+    {
+     "pick": "border",
+     "sel": false,
+     "bg": "rgb(238, 119, 51)"
+    },
+    {
+     "pick": "text_primary",
+     "sel": false,
+     "bg": "rgb(26, 31, 54)"
+    },
+    {
+     "pick": "text_muted",
+     "sel": false,
+     "bg": "rgb(238, 119, 51)"
+    },
+    {
+     "pick": "button_primary_bg",
+     "sel": false,
+     "bg": "rgb(238, 119, 51)"
+    },
+    {
+     "pick": "button_primary_text",
+     "sel": false,
+     "bg": "rgb(238, 238, 238)"
+    },
+    {
+     "pick": "button_secondary_bg",
+     "sel": false,
+     "bg": "rgb(238, 119, 51)"
+    }
+   ],
+   "harm": [
+    {
+     "step": "base",
+     "chip": "rgb(242, 246, 250)"
+    },
+    {
+     "step": "wash",
+     "chip": "rgb(253, 254, 254)"
+    },
+    {
+     "step": "darker",
+     "chip": "rgb(182, 185, 188)"
+    },
+    {
+     "step": "lighter",
+     "chip": "rgb(246, 249, 252)"
+    }
+   ]
+  }
+ ],
+ "selects": [
+  {
+   "key": "typography.display",
+   "value": ""
+  },
+  {
+   "key": "typography.body",
+   "value": ""
+  },
+  {
+   "key": "typography.size",
+   "value": ""
+  },
+  {
+   "key": "typography.display_size",
+   "value": ""
+  },
+  {
+   "key": "scales.spacing",
+   "value": ""
+  },
+  {
+   "key": "scales.radius",
+   "value": ""
+  },
+  {
+   "key": "scales.shadow",
+   "value": ""
+  },
+  {
+   "key": "button_defaults.radius",
+   "value": ""
+  },
+  {
+   "key": "button_defaults.min_height",
+   "value": ""
+  },
+  {
+   "key": "button_defaults.casing",
+   "value": ""
+  },
+  {
+   "key": "field_defaults.min_height",
+   "value": ""
+  },
+  {
+   "key": "button_defaults.fill",
+   "value": ""
+  },
+  {
+   "key": "button_defaults.layout",
+   "value": ""
+  },
+  {
+   "key": "button_defaults.selected",
+   "value": ""
+  },
+  {
+   "key": "card_defaults.radius",
+   "value": ""
+  },
+  {
+   "key": "card_defaults.shadow",
+   "value": ""
+  }
+ ],
+ "themeStrips": [
+  {
+   "key": "theme:button_defaults.background_role",
+   "selected": null,
+   "swatches": [
+    {
+     "p": "brand_primary",
+     "bg": "rgb(171, 18, 52)",
+     "sel": false
+    },
+    {
+     "p": "brand_secondary",
+     "bg": "rgb(238, 119, 51)",
+     "sel": false
+    },
+    {
+     "p": "accent",
+     "bg": "rgb(232, 93, 38)",
+     "sel": false
+    },
+    {
+     "p": "success",
+     "bg": "rgb(14, 124, 58)",
+     "sel": false
+    },
+    {
+     "p": "error",
+     "bg": "rgb(211, 47, 47)",
+     "sel": false
+    },
+    {
+     "p": "page_background",
+     "bg": "rgb(245, 247, 250)",
+     "sel": false
+    },
+    {
+     "p": "card_background",
+     "bg": "rgb(255, 255, 255)",
+     "sel": false
+    },
+    {
+     "p": "surface_wash",
+     "bg": "rgb(238, 119, 51)",
+     "sel": false
+    },
+    {
+     "p": "border",
+     "bg": "rgb(238, 119, 51)",
+     "sel": false
+    },
+    {
+     "p": "text_primary",
+     "bg": "rgb(26, 31, 54)",
+     "sel": false
+    },
+    {
+     "p": "text_muted",
+     "bg": "rgb(238, 119, 51)",
+     "sel": false
+    },
+    {
+     "p": "button_primary_bg",
+     "bg": "rgb(238, 119, 51)",
+     "sel": false
+    },
+    {
+     "p": "button_primary_text",
+     "bg": "rgb(238, 238, 238)",
+     "sel": false
+    },
+    {
+     "p": "button_secondary_bg",
+     "bg": "rgb(238, 119, 51)",
+     "sel": false
+    }
+   ]
+  },
+  {
+   "key": "theme:button_defaults.text_role",
+   "selected": null,
+   "swatches": [
+    {
+     "p": "brand_primary",
+     "bg": "rgb(171, 18, 52)",
+     "sel": false
+    },
+    {
+     "p": "brand_secondary",
+     "bg": "rgb(238, 119, 51)",
+     "sel": false
+    },
+    {
+     "p": "accent",
+     "bg": "rgb(232, 93, 38)",
+     "sel": false
+    },
+    {
+     "p": "success",
+     "bg": "rgb(14, 124, 58)",
+     "sel": false
+    },
+    {
+     "p": "error",
+     "bg": "rgb(211, 47, 47)",
+     "sel": false
+    },
+    {
+     "p": "page_background",
+     "bg": "rgb(245, 247, 250)",
+     "sel": false
+    },
+    {
+     "p": "card_background",
+     "bg": "rgb(255, 255, 255)",
+     "sel": false
+    },
+    {
+     "p": "surface_wash",
+     "bg": "rgb(238, 119, 51)",
+     "sel": false
+    },
+    {
+     "p": "border",
+     "bg": "rgb(238, 119, 51)",
+     "sel": false
+    },
+    {
+     "p": "text_primary",
+     "bg": "rgb(26, 31, 54)",
+     "sel": false
+    },
+    {
+     "p": "text_muted",
+     "bg": "rgb(238, 119, 51)",
+     "sel": false
+    },
+    {
+     "p": "button_primary_bg",
+     "bg": "rgb(238, 119, 51)",
+     "sel": false
+    },
+    {
+     "p": "button_primary_text",
+     "bg": "rgb(238, 238, 238)",
+     "sel": false
+    },
+    {
+     "p": "button_secondary_bg",
+     "bg": "rgb(238, 119, 51)",
+     "sel": false
+    }
+   ]
+  },
+  {
+   "key": "theme:card_defaults.background_role",
+   "selected": null,
+   "swatches": [
+    {
+     "p": "brand_primary",
+     "bg": "rgb(171, 18, 52)",
+     "sel": false
+    },
+    {
+     "p": "brand_secondary",
+     "bg": "rgb(238, 119, 51)",
+     "sel": false
+    },
+    {
+     "p": "accent",
+     "bg": "rgb(232, 93, 38)",
+     "sel": false
+    },
+    {
+     "p": "success",
+     "bg": "rgb(14, 124, 58)",
+     "sel": false
+    },
+    {
+     "p": "error",
+     "bg": "rgb(211, 47, 47)",
+     "sel": false
+    },
+    {
+     "p": "page_background",
+     "bg": "rgb(245, 247, 250)",
+     "sel": false
+    },
+    {
+     "p": "card_background",
+     "bg": "rgb(255, 255, 255)",
+     "sel": false
+    },
+    {
+     "p": "surface_wash",
+     "bg": "rgb(238, 119, 51)",
+     "sel": false
+    },
+    {
+     "p": "border",
+     "bg": "rgb(238, 119, 51)",
+     "sel": false
+    },
+    {
+     "p": "text_primary",
+     "bg": "rgb(26, 31, 54)",
+     "sel": false
+    },
+    {
+     "p": "text_muted",
+     "bg": "rgb(238, 119, 51)",
+     "sel": false
+    },
+    {
+     "p": "button_primary_bg",
+     "bg": "rgb(238, 119, 51)",
+     "sel": false
+    },
+    {
+     "p": "button_primary_text",
+     "bg": "rgb(238, 238, 238)",
+     "sel": false
+    },
+    {
+     "p": "button_secondary_bg",
+     "bg": "rgb(238, 119, 51)",
+     "sel": false
+    }
+   ]
+  },
+  {
+   "key": "theme:card_defaults.border_role",
+   "selected": null,
+   "swatches": [
+    {
+     "p": "brand_primary",
+     "bg": "rgb(171, 18, 52)",
+     "sel": false
+    },
+    {
+     "p": "brand_secondary",
+     "bg": "rgb(238, 119, 51)",
+     "sel": false
+    },
+    {
+     "p": "accent",
+     "bg": "rgb(232, 93, 38)",
+     "sel": false
+    },
+    {
+     "p": "success",
+     "bg": "rgb(14, 124, 58)",
+     "sel": false
+    },
+    {
+     "p": "error",
+     "bg": "rgb(211, 47, 47)",
+     "sel": false
+    },
+    {
+     "p": "page_background",
+     "bg": "rgb(245, 247, 250)",
+     "sel": false
+    },
+    {
+     "p": "card_background",
+     "bg": "rgb(255, 255, 255)",
+     "sel": false
+    },
+    {
+     "p": "surface_wash",
+     "bg": "rgb(238, 119, 51)",
+     "sel": false
+    },
+    {
+     "p": "border",
+     "bg": "rgb(238, 119, 51)",
+     "sel": false
+    },
+    {
+     "p": "text_primary",
+     "bg": "rgb(26, 31, 54)",
+     "sel": false
+    },
+    {
+     "p": "text_muted",
+     "bg": "rgb(238, 119, 51)",
+     "sel": false
+    },
+    {
+     "p": "button_primary_bg",
+     "bg": "rgb(238, 119, 51)",
+     "sel": false
+    },
+    {
+     "p": "button_primary_text",
+     "bg": "rgb(238, 238, 238)",
+     "sel": false
+    },
+    {
+     "p": "button_secondary_bg",
+     "bg": "rgb(238, 119, 51)",
+     "sel": false
+    }
+   ]
+  }
+ ],
+ "overrides": null,
+ "editorFunnel": "lgf_01KZ271383F5X1SQ3DXTXKNJE5",
+ "canvasSrcdocLen": 77659
+}
+canvas --lg-primary: EMPTY
+=== ERRORS ===
+NONE
+=== ADMIN REQUESTS ===
+GET /sections?status=active&page_size=200
+GET /themes
+GET /themes
+GET /quotes/lgq_01KZ271383Y0MPV4BM2WKKCC4W/shared-page
+GET /frame-template-records
+GET /quotes/lgq_01KZ271383Y0MPV4BM2WKKCC4W
+POST /sections/preview
+POST /variants/lgn_01KZ271383SKKSFFWG23N1XGZK/preview
+GET /funnels/FC/theme
+POST /sections/preview
+GET /funnels/FC/frame
+GET /themes
+POST /variants/lgn_01KZ279RW7WYQ9361MMFF0D2SW/preview
+GET /funnels/FB/theme
+POST /sections/preview
+GET /funnels/FB/frame
+POST /variants/lgn_01KZ279RVQND8EXE6DBMN8ESNS/preview
+GET /sections?status=active&page_size=200
+GET /themes
+GET /themes
+GET /quotes/lgq_01KZ271383Y0MPV4BM2WKKCC4W/shared-page
+GET /frame-template-records
+GET /quotes/lgq_01KZ271383Y0MPV4BM2WKKCC4W
+POST /sections/preview
+POST /variants/lgn_01KZ271383SKKSFFWG23N1XGZK/preview
+GET /themes

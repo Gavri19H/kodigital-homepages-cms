@@ -1,0 +1,10 @@
+=== CASE B (re-drive with a unique label): lone full_address, Maps ON + job ON, Mode = AUTOFILL ===
+selected address node via: about:srcdoc n=1
+visible inspector tabs: ["content","style","rules","maps","offers"]
+maps state: {"enabled":true,"autocomplete":true,"note":"Autofill needs Google Maps — turn it on in the Maps tab to offer it for these fields."}
+rows after "Plain text address": [{"kind":"full_address","mode":"manual","modeOpts":["manual","autofill"]}]
+rows before save: [{"mode":"autofill"}]
+STORED props: {"fields":[{"field":"full_address","mode":"autofill","label":"AddrD-AUTOFILL"}],"maps":{"enabled":true,"jobs":{"validate":false,"auction":false,"autocomplete":true}}}
+served page carries MY save (AddrD-AUTOFILL) after 0s
+### j5b-lone-AUTOFILL-jobON ### {"section":"02 · Where do you live?","mapsAttrs":["{\"enable_autocomplete\":true,\"validate\":false}"],"sdkScripts":7,"ctor":[],"pac":1,"inputs":[{"ph":"AddrD-AUTOFILL","w":326}]} | SDK requests: 8 ["https://maps.googleapis.com/maps/api/js?key=AIzaSyCrbDA_KeBS6Vc7tIaLW-ntAEOETiKP"] | errors: NONE
+studio errors: NONE

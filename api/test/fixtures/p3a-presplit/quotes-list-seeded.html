@@ -262,7 +262,10 @@ button.lg-publish-why-fix:focus-visible{outline:2px solid currentColor;outline-o
 .lg-list-row{display:flex;gap:6px;align-items:center;margin-bottom:6px;flex-wrap:wrap}
 .lg-list-row .form-input{flex:1;min-width:90px}
 .lg-override-switch{display:flex;gap:12px;align-items:center;border:1px dashed var(--c-border);border-radius:6px;padding:6px 10px;margin-bottom:10px;font-size:12px;flex-wrap:wrap}
-.lg-override-badge{position:sticky;top:0;z-index:2}
+/* P8-1 J1 (F-2): the override switch's own disclosure line — filled by
+   quotes-tabs/funnel.ts's syncOverrideSwitches when the switch cannot be
+   honoured for the funnel this panel currently targets. */
+.lg-override-note{flex-basis:100%;margin:0;color:var(--c-muted);font-size:11px;line-height:1.4}
 .lg-panel-card{border:1px solid var(--c-border);border-radius:8px;padding:12px;background:var(--c-card,#fff)}
 .lg-panel-card h3{margin:0 0 8px;font-size:14px}
 .lg-panel-card h4{margin:14px 0 8px;font-size:13px}
@@ -409,9 +412,9 @@ button.lg-publish-why-fix:focus-visible{outline:2px solid currentColor;outline-o
 </div>
 <div class="card">
   <div class="table-wrapper">
-    <table class="table table--sticky-edges leadgen-quotes-list" aria-label="Quotes list" data-lg-analytics data-analytics-from="2026-07-04" data-analytics-to="2026-08-02">
+    <table class="table table--sticky-edges leadgen-quotes-list" aria-label="Quotes list" data-lg-analytics data-analytics-from="2026-07-05" data-analytics-to="2026-08-03">
       <thead><tr><th scope="col">Name</th><th scope="col">Activity</th><th scope="col">Verticals</th><th scope="col" class="lg-num">Variants</th><th scope="col">A/B status</th><th scope="col" class="lg-num">Active sites</th><th scope="col" class="lg-num">Visits</th><th scope="col" class="lg-num">Completion rate</th><th scope="col" class="lg-num">Avg RPS</th><th scope="col" class="lg-num">Unfilled rate</th><th scope="col" class="lg-num">Revenue</th><th scope="col">Actions</th></tr></thead>
-      <tbody><tr data-entity-id="lgq_01KZ1TK3EZ06RMAB6NT0F23DZM" data-entity-name="&lt;img src=x onerror=alert(1)&gt;">
+      <tbody><tr data-entity-id="lgq_01KZ3ATY5DMMGZWWK9E8XXWDH1" data-entity-name="&lt;img src=x onerror=alert(1)&gt;">
   <td>&lt;img src=x onerror=alert(1)&gt;</td>
   <td>quote_funnel</td>
   <td>life, health</td>
@@ -424,14 +427,14 @@ button.lg-publish-why-fix:focus-visible{outline:2px solid currentColor;outline-o
   <td class="lg-num" data-metric="unfilled_rate"><span class="skel" aria-hidden="true"></span></td>
   <td class="lg-num" data-metric="revenue"><span class="skel" aria-hidden="true"></span></td>
   <td><div class="table-actions">
-    <a href="/admin/leadgen/quotes/lgq_01KZ1TK3EZ06RMAB6NT0F23DZM/edit" class="btn btn-sm btn-secondary">Edit</a>
-    <div class="lg-kebab" data-kebab><button type="button" class="btn btn-sm btn-outline lg-kebab-btn" data-kebab-toggle data-kebab-target="lg-kebab-menu-1" aria-haspopup="true" aria-expanded="false" aria-label="More actions for &amp;lt;img src=x onerror=alert(1)&amp;gt;">&#8942;</button><div class="lg-kebab-menu" id="lg-kebab-menu-1" data-kebab-menu hidden role="menu"><button type="button" class="lg-kebab-item" role="menuitem" data-quote-duplicate="lgq_01KZ1TK3EZ06RMAB6NT0F23DZM" data-entity-name="&lt;img src=x onerror=alert(1)&gt;">Duplicate</button>
-    <button type="button" class="lg-kebab-item" role="menuitem" data-quote-usage="lgq_01KZ1TK3EZ06RMAB6NT0F23DZM" aria-expanded="false">Usage</button>
-    <button type="button" class="lg-kebab-item lg-kebab-danger" role="menuitem" data-quote-archive="lgq_01KZ1TK3EZ06RMAB6NT0F23DZM" data-entity-name="&lt;img src=x onerror=alert(1)&gt;">Archive</button>
-    <button type="button" class="lg-kebab-item lg-kebab-danger" role="menuitem" data-quote-delete="lgq_01KZ1TK3EZ06RMAB6NT0F23DZM" data-entity-name="&lt;img src=x onerror=alert(1)&gt;">Delete</button></div></div>
+    <a href="/admin/leadgen/quotes/lgq_01KZ3ATY5DMMGZWWK9E8XXWDH1/edit" class="btn btn-sm btn-secondary">Edit</a>
+    <div class="lg-kebab" data-kebab><button type="button" class="btn btn-sm btn-outline lg-kebab-btn" data-kebab-toggle data-kebab-target="lg-kebab-menu-1" aria-haspopup="true" aria-expanded="false" aria-label="More actions for &amp;lt;img src=x onerror=alert(1)&amp;gt;">&#8942;</button><div class="lg-kebab-menu" id="lg-kebab-menu-1" data-kebab-menu hidden role="menu"><button type="button" class="lg-kebab-item" role="menuitem" data-quote-duplicate="lgq_01KZ3ATY5DMMGZWWK9E8XXWDH1" data-entity-name="&lt;img src=x onerror=alert(1)&gt;">Duplicate</button>
+    <button type="button" class="lg-kebab-item" role="menuitem" data-quote-usage="lgq_01KZ3ATY5DMMGZWWK9E8XXWDH1" aria-expanded="false">Usage</button>
+    <button type="button" class="lg-kebab-item lg-kebab-danger" role="menuitem" data-quote-archive="lgq_01KZ3ATY5DMMGZWWK9E8XXWDH1" data-entity-name="&lt;img src=x onerror=alert(1)&gt;">Archive</button>
+    <button type="button" class="lg-kebab-item lg-kebab-danger" role="menuitem" data-quote-delete="lgq_01KZ3ATY5DMMGZWWK9E8XXWDH1" data-entity-name="&lt;img src=x onerror=alert(1)&gt;">Delete</button></div></div>
   </div></td>
 </tr>
-<tr class="lg-usage-row" data-quote-usage-row="lgq_01KZ1TK3EZ06RMAB6NT0F23DZM" hidden>
+<tr class="lg-usage-row" data-quote-usage-row="lgq_01KZ3ATY5DMMGZWWK9E8XXWDH1" hidden>
   <td colspan="12"><div class="lg-usage-panel" data-quote-usage-panel role="status" aria-live="polite"></div></td>
 </tr></tbody>
     </table>

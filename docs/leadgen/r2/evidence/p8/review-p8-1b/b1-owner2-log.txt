@@ -1,0 +1,96 @@
+
+########## B1 — OWNER SCENARIO (faithful Places stub: box pre-filled with FULL formatted address) at 1280 ##########
+active section: 02 · Where do you live?
+maps attrs on page: 1
+SDK stub loaded: false
+Autocomplete ctor calls: [{"id":"lg-addr-rv1b_addr_street","opts":{"types":["address"],"fields":["address_components","formatted_address"]}}]
+BEFORE boxes: {"rv1b_addr_street":{"value":"","placeholder":"Street address","w":326,"h":52,"visible":true},"rv1b_addr_city":{"value":"","placeholder":"City","w":326,"h":52,"visible":true},"rv1b_addr_zip":{"value":"","placeholder":"ZIP code","w":326,"h":52,"visible":true}}
+place_changed: FIRED
+AFTER boxes: {"rv1b_addr_street":{"value":"1600 Amphitheatre Parkway","placeholder":"Street address","w":326,"h":52,"visible":true},"rv1b_addr_city":{"value":"Mountain View","placeholder":"City","w":326,"h":52,"visible":true},"rv1b_addr_zip":{"value":"","placeholder":"ZIP code","w":326,"h":52,"visible":true}}
+STORE right after place: {"lg:att_01KZ2T3K6PDGDWWDXTQ1MV6X50":"{\"v\":1,\"tuple\":{\"funnel_variant_id\":\"lgn_01KZ271383SKKSFFWG23N1XGZK\",\"section_order_hash\":\"ae7fbfc4cabc5a2594db195d9dee9bd9dc1f402e3c280ffb2715e8c82e847d50\",\"content_version\":354},\"section_index\":1,\"back_stack\":[0],\"answers\":{\"rv1b_addr_street\":{\"value\":\"1600 Amphitheatre Parkway\",\"answer_source\":\"user_selected\",\"question_id\":\"p8_addr\",\"section_public_id\":\"lgs_01KZ27DTF599M85YHNEDHS6WA0\",\"answered_at\":1785727147718},\"rv1b_addr_city\":{\"value\":\"Mountain View\",\"answer_source\":\"user_selected\",\"question_id\":\"p8_addr\",\"section_public_id\":\"lgs_01KZ27DTF599M85YHNEDHS6WA0\",\"answered_at\":1785727147718}},\"saved_at\":1785727147718}"}
+q3 err locator.click: Timeout 30000ms exceeded.
+Call log:
+[2m  - waiting for locator('section[data-lg-index="2"] [data-lg-answer], section[data-lg-index="2"] .lg-btn-answer').first()[22m
+[2m    - locator resolved to <button role="radio" type="button" aria-checked="false" data-value="acme_insurance" class="lg-btn lg-btn-answer" data-lg-choice="acme_insurance" data-analytics-id="r2fix_acme_insurance">…</button>[22m
+[2m  - attempting click action[22m
+[2m    2 × waiting for element to be visible, enabled and stable[22m
+[2m      - element is not visible[22m
+[2m    - retrying click action[22m
+[2m    - waiting 20ms[22m
+[2m    2 × waiting for element to be visible, enabled and stable[22m
+[2m      - element is not visible[22m
+[2m    - retrying click action[22m
+[2m      - waiting 100ms[22m
+[2m    58 × waiting for element to be visible, enabled and stable[22m
+[2m       - element is not visible[22m
+[2m     - retrying click action[22m
+[2m       - waiting 500ms[22m
+
+c3 err locator.click: Timeout 30000ms exceeded.
+Call log:
+[2m  - waiting for locator('section[data-lg-index="2"] [data-lg-continue]')[22m
+[2m    - locator resolved to <button type="submit" data-lg-continue="" data-btn-fill="soft" data-loading="false" class="lg-btn lg-continue" data-loading-label="Continue" data-question-id="r2fix_q_cont" data-component-type="ContinueButton">…</button>[22m
+[2m  - attempting click action[22m
+[2m    2 × waiting for element to be visible, enabled and stable[22m
+[2m      - element is not visible[22m
+[2m    - retrying click action[22m
+[2m    - waiting 20ms[22m
+[2m    2 × waiting for element to be visible, enabled and stable[22m
+[2m      - element is not visible[22m
+[2m    - retrying click action[22m
+[2m      - waiting 100ms[22m
+[2m    58 × waiting for element to be visible, enabled and stable[22m
+[2m       - element is not visible[22m
+[2m     - retrying click action[22m
+[2m       - waiting 500ms[22m
+
+POSTS:
+ERRORS: NONE
+
+########## B1 — OWNER SCENARIO (faithful Places stub: box pre-filled with FULL formatted address) at 375 ##########
+active section: 02 · Where do you live?
+maps attrs on page: 1
+SDK stub loaded: false
+Autocomplete ctor calls: [{"id":"lg-addr-rv1b_addr_street","opts":{"types":["address"],"fields":["address_components","formatted_address"]}}]
+BEFORE boxes: {"rv1b_addr_street":{"value":"","placeholder":"Street address","w":317,"h":52,"visible":true},"rv1b_addr_city":{"value":"","placeholder":"City","w":317,"h":52,"visible":true},"rv1b_addr_zip":{"value":"","placeholder":"ZIP code","w":317,"h":52,"visible":true}}
+place_changed: FIRED
+AFTER boxes: {"rv1b_addr_street":{"value":"1600 Amphitheatre Parkway","placeholder":"Street address","w":317,"h":52,"visible":true},"rv1b_addr_city":{"value":"Mountain View","placeholder":"City","w":317,"h":52,"visible":true},"rv1b_addr_zip":{"value":"","placeholder":"ZIP code","w":317,"h":52,"visible":true}}
+STORE right after place: {"lg:att_01KZ2T5R9XD4MSC0TBNS7C4MEA":"{\"v\":1,\"tuple\":{\"funnel_variant_id\":\"lgn_01KZ271383SKKSFFWG23N1XGZK\",\"section_order_hash\":\"ae7fbfc4cabc5a2594db195d9dee9bd9dc1f402e3c280ffb2715e8c82e847d50\",\"content_version\":354},\"section_index\":1,\"back_stack\":[0],\"answers\":{\"rv1b_addr_street\":{\"value\":\"1600 Amphitheatre Parkway\",\"answer_source\":\"user_selected\",\"question_id\":\"p8_addr\",\"section_public_id\":\"lgs_01KZ27DTF599M85YHNEDHS6WA0\",\"answered_at\":1785727218445},\"rv1b_addr_city\":{\"value\":\"Mountain View\",\"answer_source\":\"user_selected\",\"question_id\":\"p8_addr\",\"section_public_id\":\"lgs_01KZ27DTF599M85YHNEDHS6WA0\",\"answered_at\":1785727218445}},\"saved_at\":1785727218445}"}
+q3 err locator.click: Timeout 30000ms exceeded.
+Call log:
+[2m  - waiting for locator('section[data-lg-index="2"] [data-lg-answer], section[data-lg-index="2"] .lg-btn-answer').first()[22m
+[2m    - locator resolved to <button role="radio" type="button" aria-checked="false" data-value="acme_insurance" class="lg-btn lg-btn-answer" data-lg-choice="acme_insurance" data-analytics-id="r2fix_acme_insurance">…</button>[22m
+[2m  - attempting click action[22m
+[2m    2 × waiting for element to be visible, enabled and stable[22m
+[2m      - element is not visible[22m
+[2m    - retrying click action[22m
+[2m    - waiting 20ms[22m
+[2m    2 × waiting for element to be visible, enabled and stable[22m
+[2m      - element is not visible[22m
+[2m    - retrying click action[22m
+[2m      - waiting 100ms[22m
+[2m    58 × waiting for element to be visible, enabled and stable[22m
+[2m       - element is not visible[22m
+[2m     - retrying click action[22m
+[2m       - waiting 500ms[22m
+
+c3 err locator.click: Timeout 30000ms exceeded.
+Call log:
+[2m  - waiting for locator('section[data-lg-index="2"] [data-lg-continue]')[22m
+[2m    - locator resolved to <button type="submit" data-lg-continue="" data-btn-fill="soft" data-loading="false" class="lg-btn lg-continue" data-loading-label="Continue" data-question-id="r2fix_q_cont" data-component-type="ContinueButton">…</button>[22m
+[2m  - attempting click action[22m
+[2m    2 × waiting for element to be visible, enabled and stable[22m
+[2m      - element is not visible[22m
+[2m    - retrying click action[22m
+[2m    - waiting 20ms[22m
+[2m    2 × waiting for element to be visible, enabled and stable[22m
+[2m      - element is not visible[22m
+[2m    - retrying click action[22m
+[2m      - waiting 100ms[22m
+[2m    58 × waiting for element to be visible, enabled and stable[22m
+[2m       - element is not visible[22m
+[2m     - retrying click action[22m
+[2m       - waiting 500ms[22m
+
+POSTS:
+ERRORS: NONE

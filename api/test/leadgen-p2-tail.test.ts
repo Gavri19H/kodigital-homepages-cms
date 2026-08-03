@@ -445,6 +445,12 @@ describeDb("R2 P2 tail — item 2: normalizedThemePut resolves a theme_id preset
     runInNewContext(src, {
       ...SANDBOX_BUILTINS,
       fetch: fetchShim,
+      // P8-1 J1 (review #4, F-1) MANIFEST ENTRY: normalizedThemePut now
+      // REJECTS an unreadable theme GET through this helper instead of merging
+      // onto {} and PUTting the funnel's whole theme away. This slice drives
+      // the READABLE path, so the manifest carries a stub rather than the
+      // board-blob chain the real helper names.
+      themeReadAbortError: (body: unknown) => new Error(`theme read failed: ${JSON.stringify(body)}`),
       // The operator edited ONLY the "accent" swatch this session; workingTheme
       // still carries the theme_id the preset-apply reload left behind (R7's
       // exact described shape) — FAIL-BEFORE this drops the WHOLE preset the

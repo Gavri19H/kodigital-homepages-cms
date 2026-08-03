@@ -262,7 +262,10 @@ button.lg-publish-why-fix:focus-visible{outline:2px solid currentColor;outline-o
 .lg-list-row{display:flex;gap:6px;align-items:center;margin-bottom:6px;flex-wrap:wrap}
 .lg-list-row .form-input{flex:1;min-width:90px}
 .lg-override-switch{display:flex;gap:12px;align-items:center;border:1px dashed var(--c-border);border-radius:6px;padding:6px 10px;margin-bottom:10px;font-size:12px;flex-wrap:wrap}
-.lg-override-badge{position:sticky;top:0;z-index:2}
+/* P8-1 J1 (F-2): the override switch's own disclosure line — filled by
+   quotes-tabs/funnel.ts's syncOverrideSwitches when the switch cannot be
+   honoured for the funnel this panel currently targets. */
+.lg-override-note{flex-basis:100%;margin:0;color:var(--c-muted);font-size:11px;line-height:1.4}
 .lg-panel-card{border:1px solid var(--c-border);border-radius:8px;padding:12px;background:var(--c-card,#fff)}
 .lg-panel-card h3{margin:0 0 8px;font-size:14px}
 .lg-panel-card h4{margin:14px 0 8px;font-size:13px}
@@ -397,7 +400,7 @@ button.lg-publish-why-fix:focus-visible{outline:2px solid currentColor;outline-o
         <div class="header-actions"></div>
       </header>
       <div class="admin-content"><nav class="leadgen-tabs" aria-label="LeadGen sections"><a href="/admin/leadgen/offers" class="leadgen-tab">Offers</a><a href="/admin/leadgen/sections" class="leadgen-tab">Sections</a><a href="/admin/leadgen/quotes" class="leadgen-tab active" aria-current="page">Quotes</a><a href="/admin/leadgen/auction" class="leadgen-tab">Auction</a></nav>
-<div id="lg-quote-editor" data-quote-id="1" data-quote-public-id="lgq_01KZ1XFJRYERM4DBK7VDQFAHBK" data-variant-public-id="lgn_01KZ1XFJRYH068699RHXNB16PZ" data-variant-funnel-id="lgf_01KZ1XFJRYKSWE6KWPWDB6579X" data-variant-funnel-variant-id="lgn_01KZ1XFJRYH068699RHXNB16PZ" data-funnel-public-id="lgf_01KZ1XFJRYKSWE6KWPWDB6579X">
+<div id="lg-quote-editor" data-quote-id="1" data-quote-public-id="lgq_01KZ3ATY6MVYME3Q8HF00WQV7D" data-variant-public-id="lgn_01KZ3ATY6MND79WBJMFASZ8ZXC" data-variant-funnel-id="lgf_01KZ3ATY6MSE3AFH6Z0XAQMCQP" data-variant-funnel-variant-id="lgn_01KZ3ATY6MND79WBJMFASZ8ZXC" data-funnel-public-id="lgf_01KZ3ATY6MSE3AFH6Z0XAQMCQP">
   <div class="lg-editor-head">
     <a href="/admin/leadgen/quotes" class="btn btn-outline">&#8592; Quotes</a>
     <h2 class="lg-editor-title" id="lg-quote-title">&lt;b&gt;Quote&lt;/b&gt;</h2>
@@ -417,7 +420,7 @@ button.lg-publish-why-fix:focus-visible{outline:2px solid currentColor;outline-o
     <button type="button" id="lg-publish-goto" class="btn btn-secondary" data-goto-tab="activation">Publish&#8230;</button>
   </div>
   <details class="lg-advanced"><summary>Advanced</summary>
-    <p class="form-help">Reference id: <code class="lg-editor-pubid">lgq_01KZ1XFJRYERM4DBK7VDQFAHBK</code></p>
+    <p class="form-help">Reference id: <code class="lg-editor-pubid">lgq_01KZ3ATY6MVYME3Q8HF00WQV7D</code></p>
   </details>
   <p id="lg-quote-error" class="alert alert-error" hidden role="alert"></p>
   <p id="lg-quote-ok" class="alert alert-success" hidden role="status"></p>
@@ -439,10 +442,10 @@ button.lg-publish-why-fix:focus-visible{outline:2px solid currentColor;outline-o
       <div class="lg-lib-filters" data-lib-filters><button type="button" class="lg-filter-pill active" data-lib-filter="">All</button><button type="button" class="lg-filter-pill" data-lib-filter="health">health</button><button type="button" class="lg-filter-pill" data-lib-filter="life">life</button></div>
     </div>
     <div class="lg-lib-list" data-lib-list>
-      <div class="lg-lib-card in-current" data-lib-card data-section-public-id="lgs_01KZ1XFJRY9C88MRJHWCGEKJT2" data-section-name="Second" data-vertical-key="health" data-activity-key="quote_funnel" data-pin="8.2-library-card" role="button" tabindex="0" aria-label="Add section Second to a page">
+      <div class="lg-lib-card in-current" data-lib-card data-section-public-id="lgs_01KZ3ATY6NGDK76EWYN82N53A1" data-section-name="Second" data-vertical-key="health" data-activity-key="quote_funnel" data-pin="8.2-library-card" role="button" tabindex="0" aria-label="Add section Second to a page">
     <div class="lg-lc-top"><span class="lg-grip" aria-hidden="true"><svg width="12" height="16" viewBox="0 0 12 16" fill="currentColor" aria-hidden="true"><circle cx="3" cy="3" r="1.4"/><circle cx="9" cy="3" r="1.4"/><circle cx="3" cy="8" r="1.4"/><circle cx="9" cy="8" r="1.4"/><circle cx="3" cy="13" r="1.4"/><circle cx="9" cy="13" r="1.4"/></svg></span><span class="lg-lc-name">Second</span></div>
     <div class="lg-lc-meta"><span class="lg-chip-activity">quote_funnel · health</span><span class="lg-chip-inuse-here" data-pin="8.2-library-inuse-badge">In this funnel</span></div>
-  </div><div class="lg-lib-card in-current" data-lib-card data-section-public-id="lgs_01KZ1XFJRYCDENAFXWN4Q0AMR8" data-section-name="&lt;i&gt;First&lt;/i&gt;" data-vertical-key="life" data-activity-key="quote_funnel" data-pin="8.2-library-card" role="button" tabindex="0" aria-label="Add section &lt;i&gt;First&lt;/i&gt; to a page">
+  </div><div class="lg-lib-card in-current" data-lib-card data-section-public-id="lgs_01KZ3ATY6MJA2QVEHQ65QT34K5" data-section-name="&lt;i&gt;First&lt;/i&gt;" data-vertical-key="life" data-activity-key="quote_funnel" data-pin="8.2-library-card" role="button" tabindex="0" aria-label="Add section &lt;i&gt;First&lt;/i&gt; to a page">
     <div class="lg-lc-top"><span class="lg-grip" aria-hidden="true"><svg width="12" height="16" viewBox="0 0 12 16" fill="currentColor" aria-hidden="true"><circle cx="3" cy="3" r="1.4"/><circle cx="9" cy="3" r="1.4"/><circle cx="3" cy="8" r="1.4"/><circle cx="9" cy="8" r="1.4"/><circle cx="3" cy="13" r="1.4"/><circle cx="9" cy="13" r="1.4"/></svg></span><span class="lg-lc-name">&lt;i&gt;First&lt;/i&gt;</span></div>
     <div class="lg-lc-meta"><span class="lg-chip-activity">quote_funnel · life</span><span class="lg-chip-inuse-here" data-pin="8.2-library-inuse-badge">In this funnel</span></div>
   </div>
@@ -466,7 +469,7 @@ button.lg-publish-why-fix:focus-visible{outline:2px solid currentColor;outline-o
       <div class="lg-hint-neutral">Only one shared page — its sections can be A/B'd per slot.</div>
     </div>
   </div>
-          <div class="lg-col lg-col-funnel is-default" data-funnel-col data-funnel-public-id="lgf_01KZ1XFJRYKSWE6KWPWDB6579X" data-funnel-id="1" data-funnel-active-variant="lgn_01KZ1XFJRYH068699RHXNB16PZ" data-pin="8.2-funnel-column">
+          <div class="lg-col lg-col-funnel is-default" data-funnel-col data-funnel-public-id="lgf_01KZ3ATY6MSE3AFH6Z0XAQMCQP" data-funnel-id="1" data-funnel-active-variant="lgn_01KZ3ATY6MND79WBJMFASZ8ZXC" data-pin="8.2-funnel-column">
     <div class="lg-col-head" data-pin="8.2-funnel-header">
       <div class="lg-col-title-row">
         <span class="lg-col-title" data-funnel-name data-pin="8.2-inline-rename" tabindex="0" role="textbox" aria-label="Funnel name (click to rename)">&lt;b&gt;Quote&lt;/b&gt; — Funnel A</span>
@@ -474,34 +477,34 @@ button.lg-publish-why-fix:focus-visible{outline:2px solid currentColor;outline-o
         <span class="lg-kebab-btn lg-funnel-kebab" data-funnel-kebab data-chip-menu="funnel" role="button" tabindex="0" aria-label="Funnel options"><svg width="16" height="16" viewBox="0 0 24 24" fill="currentColor" aria-hidden="true"><circle cx="12" cy="5" r="1.7"/><circle cx="12" cy="12" r="1.7"/><circle cx="12" cy="19" r="1.7"/></svg></span>
       </div>
       <div class="lg-col-meta">
-        <span class="lg-pickchip" data-theme-picker data-pin="8.2-theme-picker" role="button" tabindex="0">Theme</span>
-        <span class="lg-pickchip" data-template-picker data-pin="8.2-template-picker" role="button" tabindex="0">Template</span>
+        <span class="lg-pickchip" data-theme-picker data-pin="8.2-theme-picker" data-chip-funnel-public-id="lgf_01KZ3ATY6MSE3AFH6Z0XAQMCQP" data-chip-funnel-active-variant="lgn_01KZ3ATY6MND79WBJMFASZ8ZXC" role="button" tabindex="0">Default</span>
+        <span class="lg-pickchip" data-template-picker data-pin="8.2-template-picker" data-chip-funnel-public-id="lgf_01KZ3ATY6MSE3AFH6Z0XAQMCQP" data-chip-funnel-active-variant="lgn_01KZ3ATY6MND79WBJMFASZ8ZXC" role="button" tabindex="0">Template</span>
       </div>
       <div class="lg-col-actions">
         <span class="lg-badge-ab" data-ab-badge data-pin="4.3-ab-badge" role="button" tabindex="0">A/B</span>
         <span class="lg-btn-ghost lg-col-preview" data-preview data-pin="8.2-preview" role="button" tabindex="0">Preview<svg width="12" height="12" viewBox="0 0 24 24" fill="none" aria-hidden="true"><path d="M7 17L17 7M9 7h8v8" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"/></svg></span>
       </div>
     </div>
-    <div class="lg-col-body" data-funnel-body><div class="lg-page-card" data-page-card data-page-public-id="lgpg_01KZ1XFJS0NV2JXGH487C3Q4G0" data-page-index="0" data-pin="8.2-page-card">
+    <div class="lg-col-body" data-funnel-body><div class="lg-page-card" data-page-card data-page-public-id="lgpg_01KZ3ATY6P3SGHMX67BDN9GKZV" data-page-index="0" data-pin="8.2-page-card">
     <div class="lg-page-head">
       <span class="lg-grip lg-page-grip" data-page-grip aria-hidden="true"><svg width="12" height="16" viewBox="0 0 12 16" fill="currentColor" aria-hidden="true"><circle cx="3" cy="3" r="1.4"/><circle cx="9" cy="3" r="1.4"/><circle cx="3" cy="8" r="1.4"/><circle cx="9" cy="8" r="1.4"/><circle cx="3" cy="13" r="1.4"/><circle cx="9" cy="13" r="1.4"/></svg></span>
       <span class="lg-page-num">Page 1</span>
       <span class="lg-kebab-btn lg-page-kebab" data-page-kebab data-chip-menu="page" role="button" tabindex="0" aria-label="Page options"><svg width="16" height="16" viewBox="0 0 24 24" fill="currentColor" aria-hidden="true"><circle cx="12" cy="5" r="1.7"/><circle cx="12" cy="12" r="1.7"/><circle cx="12" cy="19" r="1.7"/></svg></span>
     </div>
-    <div class="lg-chip-list" data-chip-list><div class="lg-sec-chip" data-sec-chip data-chip-scope="funnel" data-section-public-id="lgs_01KZ1XFJRYCDENAFXWN4Q0AMR8" data-slot-id="1" data-slot-kind="fixed">
+    <div class="lg-chip-list" data-chip-list><div class="lg-sec-chip" data-sec-chip data-chip-scope="funnel" data-section-public-id="lgs_01KZ3ATY6MJA2QVEHQ65QT34K5" data-slot-id="1" data-slot-kind="fixed">
     <span class="lg-grip lg-chip-grip" data-chip-grip aria-hidden="true"><svg width="12" height="16" viewBox="0 0 12 16" fill="currentColor" aria-hidden="true"><circle cx="3" cy="3" r="1.4"/><circle cx="9" cy="3" r="1.4"/><circle cx="3" cy="8" r="1.4"/><circle cx="9" cy="8" r="1.4"/><circle cx="3" cy="13" r="1.4"/><circle cx="9" cy="13" r="1.4"/></svg></span>
     <span class="lg-map-dot" data-mapping-status="none" title="No Offers selected yet"></span>
     <span class="lg-sc-name">&lt;i&gt;First&lt;/i&gt;</span>
     <span class="lg-kebab-btn lg-chip-kebab" data-chip-kebab data-chip-menu="funnel-chip" role="button" tabindex="0" aria-label="Section options"><svg width="16" height="16" viewBox="0 0 24 24" fill="currentColor" aria-hidden="true"><circle cx="12" cy="5" r="1.7"/><circle cx="12" cy="12" r="1.7"/><circle cx="12" cy="19" r="1.7"/></svg></span>
   </div></div>
     <span class="lg-add-section" data-add-section role="button" tabindex="0"><svg width="13" height="13" viewBox="0 0 24 24" fill="none" aria-hidden="true"><path d="M12 5v14M5 12h14" stroke="currentColor" stroke-width="2.2" stroke-linecap="round"/></svg> ＋ section</span>
-  </div><div class="lg-page-card" data-page-card data-page-public-id="lgpg_01KZ1XFJS0ZVJ3CWP8HBY7C2RH" data-page-index="1" data-pin="8.2-page-card">
+  </div><div class="lg-page-card" data-page-card data-page-public-id="lgpg_01KZ3ATY6PEKA2J4FY57ZANHTB" data-page-index="1" data-pin="8.2-page-card">
     <div class="lg-page-head">
       <span class="lg-grip lg-page-grip" data-page-grip aria-hidden="true"><svg width="12" height="16" viewBox="0 0 12 16" fill="currentColor" aria-hidden="true"><circle cx="3" cy="3" r="1.4"/><circle cx="9" cy="3" r="1.4"/><circle cx="3" cy="8" r="1.4"/><circle cx="9" cy="8" r="1.4"/><circle cx="3" cy="13" r="1.4"/><circle cx="9" cy="13" r="1.4"/></svg></span>
       <span class="lg-page-num">Page 2</span>
       <span class="lg-kebab-btn lg-page-kebab" data-page-kebab data-chip-menu="page" role="button" tabindex="0" aria-label="Page options"><svg width="16" height="16" viewBox="0 0 24 24" fill="currentColor" aria-hidden="true"><circle cx="12" cy="5" r="1.7"/><circle cx="12" cy="12" r="1.7"/><circle cx="12" cy="19" r="1.7"/></svg></span>
     </div>
-    <div class="lg-chip-list" data-chip-list><div class="lg-sec-chip" data-sec-chip data-chip-scope="funnel" data-section-public-id="lgs_01KZ1XFJRY9C88MRJHWCGEKJT2" data-slot-id="2" data-slot-kind="fixed">
+    <div class="lg-chip-list" data-chip-list><div class="lg-sec-chip" data-sec-chip data-chip-scope="funnel" data-section-public-id="lgs_01KZ3ATY6NGDK76EWYN82N53A1" data-slot-id="2" data-slot-kind="fixed">
     <span class="lg-grip lg-chip-grip" data-chip-grip aria-hidden="true"><svg width="12" height="16" viewBox="0 0 12 16" fill="currentColor" aria-hidden="true"><circle cx="3" cy="3" r="1.4"/><circle cx="9" cy="3" r="1.4"/><circle cx="3" cy="8" r="1.4"/><circle cx="9" cy="8" r="1.4"/><circle cx="3" cy="13" r="1.4"/><circle cx="9" cy="13" r="1.4"/></svg></span>
     <span class="lg-map-dot" data-mapping-status="none" title="No Offers selected yet"></span>
     <span class="lg-sc-name">Second</span>
@@ -519,7 +522,7 @@ button.lg-publish-why-fix:focus-visible{outline:2px solid currentColor;outline-o
       </div>
     </div>
     <div class="lg-board-right" data-rules-rail>
-      <div class="lg-qr-rail" id="lg-qr-rail" data-pin="8.2-rules-rail" data-quote-public-id="lgq_01KZ1XFJRYERM4DBK7VDQFAHBK"><style>
+      <div class="lg-qr-rail" id="lg-qr-rail" data-pin="8.2-rules-rail" data-quote-public-id="lgq_01KZ3ATY6MVYME3Q8HF00WQV7D"><style>
 .lg-qr-rail{display:flex;flex-direction:column;min-height:0}
 .lg-qr-head{padding:16px 16px 12px;border-bottom:1px solid rgba(20,32,54,.08)}
 .lg-qr-title{font-size:14px;font-weight:800;color:#14233a;margin-bottom:6px}
@@ -599,7 +602,7 @@ button.lg-publish-why-fix:focus-visible{outline:2px solid currentColor;outline-o
 .lg-qr-sentence{font-size:12px;color:#374966;background:#f7f9fb;border-radius:8px;padding:10px 12px;line-height:1.5}
 .lg-qr-sentlab{font-size:9.5px;font-weight:800;letter-spacing:.4px;text-transform:uppercase;color:#8894a8;display:block;margin-bottom:4px}
 .lg-qr-modal-foot{display:flex;justify-content:flex-end;gap:10px;padding-top:14px}
-</style><div class="lg-qr-head"><div class="lg-qr-title">Routing rules</div><div class="lg-qr-desc">Rules decide which funnel a visitor sees, and can tag the lead, set the FB multiplier, or redirect. Lowest priority number wins when more than one matches.</div></div><div class="lg-qr-colhead"><span class="lg-qr-cprio">Priority</span><span class="lg-qr-cname">Name · Checkpoint · Conditions · Actions · Status</span></div><div class="lg-qr-list" id="lg-qr-list" data-pin="8.2-rules-table"><div data-qr-cards></div><div class="lg-qr-newbtn" data-pin="8.2-new-rule-btn" role="button" tabindex="0" data-qr-new>+ New rule</div></div><div class="lg-qr-overlay" id="lg-qr-modal" data-pin="8.2-rule-modal" role="dialog" aria-modal="true" aria-label="Routing rule" hidden><div class="lg-qr-modal card"><div class="lg-qr-modal-head"><h3 id="lg-qr-modal-title">New routing rule</h3><span class="lg-qr-x" role="button" tabindex="0" data-qr-cancel aria-label="Close">✖</span></div><div class="lg-qr-modal-body"><div class="lg-qr-fieldblock" data-pin="8.2-rule-name"><label class="lg-qr-label" for="lg-qr-name">Rule name<span class="lg-qr-req">*</span> <span class="lg-qr-opt">· up to 80 characters</span></label><input class="form-input" id="lg-qr-name" type="text" maxlength="80" data-qr-modal-name /></div><div class="lg-qr-grid2"><div data-pin="4.3-3-checkpoint"><label class="lg-qr-label">Checkpoint <span class="lg-qr-opt">· read-only</span></label><div class="lg-qr-readonly" data-qr-modal-checkpoint>Entry</div><div class="lg-qr-help">Derived from the conditions — where this rule can first apply.</div><div class="lg-qr-callout warn" data-qr-modal-a6 data-pin="A-6-inline" hidden><span class="lg-qr-warnico" aria-hidden="true">⚠</span><span>This rule can never apply before a visitor enters a funnel that asks these questions.</span></div></div><div data-pin="8.2-rule-priority"><label class="lg-qr-label" for="lg-qr-priority">Priority</label><input class="form-input" id="lg-qr-priority" type="number" min="1" max="100" step="1" value="100" data-qr-modal-priority /><div class="lg-qr-help">1 = highest priority, 100 = lowest.</div></div></div><div class="lg-qr-cardblock" data-pin="8.2-rule-conditions"><div class="lg-qr-cbhead"><span class="lg-qr-cbtitle">Conditions</span><div class="lg-qr-seg" data-pin="8.2-anyall" data-qr-matchmode><span class="lg-qr-segitem active" data-qr-match="all" role="button" tabindex="0">Match ALL</span><span class="lg-qr-segitem" data-qr-match="any" role="button" tabindex="0">Match ANY</span></div></div><div id="lg-qr-cond-mount"></div><input type="hidden" data-qr-cond-out /><div class="lg-qr-help">Sources: answer fields (by name) · UTM Source/Medium/Campaign/Content · Device · OS · State · Hour · Weekday. Operators map to eq · neq · gt · lt · gte · lte.</div></div><div data-pin="4.3-9-actions"><div class="lg-qr-actions-head"><span class="lg-qr-cbtitle">Actions</span> <span class="lg-qr-opt">· pick at least one</span></div><div class="lg-qr-arow" data-pin="action-target-funnel" data-qr-action="target_funnel"><span class="lg-qr-swi on" role="switch" tabindex="0" aria-checked="true" data-qr-action-toggle><span class="lg-qr-knob"></span></span><div class="lg-qr-amain"><div class="lg-qr-aname">Target funnel</div><div class="lg-qr-adesc">Serve this funnel to matching visitors.</div><select class="form-select" data-qr-target-funnel aria-label="Target funnel"><option value="">— choose a funnel —</option><option value="lgf_01KZ1XFJRYKSWE6KWPWDB6579X" data-funnel-id="1">&lt;b&gt;Quote&lt;/b&gt; — Funnel A (Default)</option></select></div></div><div class="lg-qr-arow" data-pin="action-feed-name" data-qr-action="feed_name"><span class="lg-qr-swi on" role="switch" tabindex="0" aria-checked="true" data-qr-action-toggle><span class="lg-qr-knob"></span></span><div class="lg-qr-amain"><div class="lg-qr-aname">Feed name</div><div class="lg-qr-adesc">Tag matching leads for analytics &amp; offer routing.</div><input class="form-input" type="text" list="lg-qr-feeds" data-qr-feed-name aria-label="Feed name" /><datalist id="lg-qr-feeds"></datalist><div class="lg-qr-help" data-qr-feed-help>No feed names used yet.</div></div></div><div class="lg-qr-arow" data-pin="action-fb-multiplier" data-qr-action="value_multiplier"><span class="lg-qr-swi on" role="switch" tabindex="0" aria-checked="true" data-qr-action-toggle><span class="lg-qr-knob"></span></span><div class="lg-qr-amain"><div class="lg-qr-aname">FB multiplier</div><div class="lg-qr-adesc">Replaces the base S2S multiplier for this conversion.</div><input class="form-input" type="number" step="any" min="0" data-qr-multiplier aria-label="FB multiplier" style="max-width:140px" /></div></div><div class="lg-qr-arow" data-pin="action-redirect-pct" data-qr-action="redirect_pct"><span class="lg-qr-swi on" role="switch" tabindex="0" aria-checked="true" data-qr-action-toggle><span class="lg-qr-knob"></span></span><div class="lg-qr-amain"><div class="lg-qr-aname">Redirect %</div><div class="lg-qr-adesc">0 = no redirect. Share of matching sessions sent to the target instead of our funnel; the rest continue with the other actions.</div><input class="form-input" type="number" step="any" min="0" max="100" data-qr-redirect-pct aria-label="Redirect percent" style="max-width:140px" /></div></div><div class="lg-qr-arow" data-pin="action-redirect-target" data-qr-action="redirect_target"><span class="lg-qr-swi on" role="switch" tabindex="0" aria-checked="true" data-qr-action-toggle><span class="lg-qr-knob"></span></span><div class="lg-qr-amain"><div class="lg-qr-aname">Redirect target</div><div class="lg-qr-adesc">Where redirected sessions go — an offer, or an allowlisted URL.</div><div class="lg-qr-seg" data-qr-target-mode><span class="lg-qr-segitem active" data-qr-mode="offer" role="button" tabindex="0">Offer</span><span class="lg-qr-segitem" data-qr-mode="url" role="button" tabindex="0">Allowlisted URL</span></div><select class="form-select" data-qr-target-offer aria-label="Redirect offer"><option value="">— choose an offer —</option></select><div data-qr-url-wrap hidden><input class="form-input" type="text" data-qr-redirect-url aria-label="Allowlisted redirect URL" placeholder="https://…" /><div class="lg-qr-help">Only hosts on the site allowlist can be entered here.</div></div></div></div></div><div class="lg-qr-errmsg" data-pin="A-11-validation" data-qr-action-error hidden><span class="lg-qr-warnico" aria-hidden="true">⚠</span>Pick at least one action for this rule.</div><p class="alert alert-error lg-qr-error" data-qr-modal-error role="alert" hidden></p><div class="lg-qr-sentence" data-pin="8.2-rule-sentence"><span class="lg-qr-sentlab">In plain language</span> <span data-qr-sentence></span></div></div><div class="lg-qr-modal-foot"><span class="btn btn-outline" role="button" tabindex="0" data-qr-cancel>Cancel</span><span class="btn btn-primary" role="button" tabindex="0" data-qr-save>Save rule</span></div></div></div><script id="lg-qr-data" type="application/json">{"quote_public_id":"lgq_01KZ1XFJRYERM4DBK7VDQFAHBK","rules":[],"funnels":[{"id":1,"public_id":"lgf_01KZ1XFJRYKSWE6KWPWDB6579X","name":"\u003cb>Quote\u003c/b> — Funnel A","is_default":true,"pages":[{"position":0,"fields":["f"]},{"position":1,"fields":["f"]}]}],"default_funnel_id":1,"shared_page_fields":[],"answer_fields":[{"internal_field":"f","label":"Second · f"}],"entry_fields":[{"internal_field":"utm_source","label":"UTM Source"},{"internal_field":"utm_medium","label":"UTM Medium"},{"internal_field":"utm_campaign","label":"UTM Campaign"},{"internal_field":"utm_content","label":"UTM Content"},{"internal_field":"device","label":"Device"},{"internal_field":"os","label":"OS"},{"internal_field":"state","label":"State"},{"internal_field":"hour","label":"Hour"},{"internal_field":"weekday","label":"Weekday"}],"offers":[],"feed_values":[]}</script></div>
+</style><div class="lg-qr-head"><div class="lg-qr-title">Routing rules</div><div class="lg-qr-desc">Rules decide which funnel a visitor sees, and can tag the lead, set the FB multiplier, or redirect. Lowest priority number wins when more than one matches.</div></div><div class="lg-qr-colhead"><span class="lg-qr-cprio">Priority</span><span class="lg-qr-cname">Name · Checkpoint · Conditions · Actions · Status</span></div><div class="lg-qr-list" id="lg-qr-list" data-pin="8.2-rules-table"><div data-qr-cards></div><div class="lg-qr-newbtn" data-pin="8.2-new-rule-btn" role="button" tabindex="0" data-qr-new>+ New rule</div></div><div class="lg-qr-overlay" id="lg-qr-modal" data-pin="8.2-rule-modal" role="dialog" aria-modal="true" aria-label="Routing rule" hidden><div class="lg-qr-modal card"><div class="lg-qr-modal-head"><h3 id="lg-qr-modal-title">New routing rule</h3><span class="lg-qr-x" role="button" tabindex="0" data-qr-cancel aria-label="Close">✖</span></div><div class="lg-qr-modal-body"><div class="lg-qr-fieldblock" data-pin="8.2-rule-name"><label class="lg-qr-label" for="lg-qr-name">Rule name<span class="lg-qr-req">*</span> <span class="lg-qr-opt">· up to 80 characters</span></label><input class="form-input" id="lg-qr-name" type="text" maxlength="80" data-qr-modal-name /></div><div class="lg-qr-grid2"><div data-pin="4.3-3-checkpoint"><label class="lg-qr-label">Checkpoint <span class="lg-qr-opt">· read-only</span></label><div class="lg-qr-readonly" data-qr-modal-checkpoint>Entry</div><div class="lg-qr-help">Derived from the conditions — where this rule can first apply.</div><div class="lg-qr-callout warn" data-qr-modal-a6 data-pin="A-6-inline" hidden><span class="lg-qr-warnico" aria-hidden="true">⚠</span><span>This rule can never apply before a visitor enters a funnel that asks these questions.</span></div></div><div data-pin="8.2-rule-priority"><label class="lg-qr-label" for="lg-qr-priority">Priority</label><input class="form-input" id="lg-qr-priority" type="number" min="1" max="100" step="1" value="100" data-qr-modal-priority /><div class="lg-qr-help">1 = highest priority, 100 = lowest.</div></div></div><div class="lg-qr-cardblock" data-pin="8.2-rule-conditions"><div class="lg-qr-cbhead"><span class="lg-qr-cbtitle">Conditions</span><div class="lg-qr-seg" data-pin="8.2-anyall" data-qr-matchmode><span class="lg-qr-segitem active" data-qr-match="all" role="button" tabindex="0">Match ALL</span><span class="lg-qr-segitem" data-qr-match="any" role="button" tabindex="0">Match ANY</span></div></div><div id="lg-qr-cond-mount"></div><input type="hidden" data-qr-cond-out /><div class="lg-qr-help">Sources: answer fields (by name) · UTM Source/Medium/Campaign/Content · Device · OS · State · Hour · Weekday. Operators map to eq · neq · gt · lt · gte · lte.</div></div><div data-pin="4.3-9-actions"><div class="lg-qr-actions-head"><span class="lg-qr-cbtitle">Actions</span> <span class="lg-qr-opt">· pick at least one</span></div><div class="lg-qr-arow" data-pin="action-target-funnel" data-qr-action="target_funnel"><span class="lg-qr-swi on" role="switch" tabindex="0" aria-checked="true" data-qr-action-toggle><span class="lg-qr-knob"></span></span><div class="lg-qr-amain"><div class="lg-qr-aname">Target funnel</div><div class="lg-qr-adesc">Serve this funnel to matching visitors.</div><select class="form-select" data-qr-target-funnel aria-label="Target funnel"><option value="">— choose a funnel —</option><option value="lgf_01KZ3ATY6MSE3AFH6Z0XAQMCQP" data-funnel-id="1">&lt;b&gt;Quote&lt;/b&gt; — Funnel A (Default)</option></select></div></div><div class="lg-qr-arow" data-pin="action-feed-name" data-qr-action="feed_name"><span class="lg-qr-swi on" role="switch" tabindex="0" aria-checked="true" data-qr-action-toggle><span class="lg-qr-knob"></span></span><div class="lg-qr-amain"><div class="lg-qr-aname">Feed name</div><div class="lg-qr-adesc">Tag matching leads for analytics &amp; offer routing.</div><input class="form-input" type="text" list="lg-qr-feeds" data-qr-feed-name aria-label="Feed name" /><datalist id="lg-qr-feeds"></datalist><div class="lg-qr-help" data-qr-feed-help>No feed names used yet.</div></div></div><div class="lg-qr-arow" data-pin="action-fb-multiplier" data-qr-action="value_multiplier"><span class="lg-qr-swi on" role="switch" tabindex="0" aria-checked="true" data-qr-action-toggle><span class="lg-qr-knob"></span></span><div class="lg-qr-amain"><div class="lg-qr-aname">FB multiplier</div><div class="lg-qr-adesc">Replaces the base S2S multiplier for this conversion.</div><input class="form-input" type="number" step="any" min="0" data-qr-multiplier aria-label="FB multiplier" style="max-width:140px" /></div></div><div class="lg-qr-arow" data-pin="action-redirect-pct" data-qr-action="redirect_pct"><span class="lg-qr-swi on" role="switch" tabindex="0" aria-checked="true" data-qr-action-toggle><span class="lg-qr-knob"></span></span><div class="lg-qr-amain"><div class="lg-qr-aname">Redirect %</div><div class="lg-qr-adesc">0 = no redirect. Share of matching sessions sent to the target instead of our funnel; the rest continue with the other actions.</div><input class="form-input" type="number" step="any" min="0" max="100" data-qr-redirect-pct aria-label="Redirect percent" style="max-width:140px" /></div></div><div class="lg-qr-arow" data-pin="action-redirect-target" data-qr-action="redirect_target"><span class="lg-qr-swi on" role="switch" tabindex="0" aria-checked="true" data-qr-action-toggle><span class="lg-qr-knob"></span></span><div class="lg-qr-amain"><div class="lg-qr-aname">Redirect target</div><div class="lg-qr-adesc">Where redirected sessions go — an offer, or an allowlisted URL.</div><div class="lg-qr-seg" data-qr-target-mode><span class="lg-qr-segitem active" data-qr-mode="offer" role="button" tabindex="0">Offer</span><span class="lg-qr-segitem" data-qr-mode="url" role="button" tabindex="0">Allowlisted URL</span></div><select class="form-select" data-qr-target-offer aria-label="Redirect offer"><option value="">— choose an offer —</option></select><div data-qr-url-wrap hidden><input class="form-input" type="text" data-qr-redirect-url aria-label="Allowlisted redirect URL" placeholder="https://…" /><div class="lg-qr-help">Only hosts on the site allowlist can be entered here.</div></div></div></div></div><div class="lg-qr-errmsg" data-pin="A-11-validation" data-qr-action-error hidden><span class="lg-qr-warnico" aria-hidden="true">⚠</span>Pick at least one action for this rule.</div><p class="alert alert-error lg-qr-error" data-qr-modal-error role="alert" hidden></p><div class="lg-qr-sentence" data-pin="8.2-rule-sentence"><span class="lg-qr-sentlab">In plain language</span> <span data-qr-sentence></span></div></div><div class="lg-qr-modal-foot"><span class="btn btn-outline" role="button" tabindex="0" data-qr-cancel>Cancel</span><span class="btn btn-primary" role="button" tabindex="0" data-qr-save>Save rule</span></div></div></div><script id="lg-qr-data" type="application/json">{"quote_public_id":"lgq_01KZ3ATY6MVYME3Q8HF00WQV7D","rules":[],"funnels":[{"id":1,"public_id":"lgf_01KZ3ATY6MSE3AFH6Z0XAQMCQP","name":"\u003cb>Quote\u003c/b> — Funnel A","is_default":true,"pages":[{"position":0,"fields":["f"]},{"position":1,"fields":["f"]}]}],"default_funnel_id":1,"shared_page_fields":[],"answer_fields":[{"internal_field":"f","label":"Second · f"}],"entry_fields":[{"internal_field":"utm_source","label":"UTM Source"},{"internal_field":"utm_medium","label":"UTM Medium"},{"internal_field":"utm_campaign","label":"UTM Campaign"},{"internal_field":"utm_content","label":"UTM Content"},{"internal_field":"device","label":"Device"},{"internal_field":"os","label":"OS"},{"internal_field":"state","label":"State"},{"internal_field":"hour","label":"Hour"},{"internal_field":"weekday","label":"Weekday"}],"offers":[],"feed_values":[]}</script></div>
     </div>
   </div>
   <div class="lg-board-menus" data-board-menus>
@@ -616,7 +619,7 @@ button.lg-publish-why-fix:focus-visible{outline:2px solid currentColor;outline-o
     </div>
   </div>
   <div class="lg-template-menu lg-hidden" data-template-menu role="menu"></div>
-  <div class="lg-board-guard lg-hidden" data-funnel-settings role="dialog" aria-modal="true" aria-labelledby="lg-funnel-settings-title" data-settings-variant="lgn_01KZ1XFJRYH068699RHXNB16PZ">
+  <div class="lg-board-guard lg-hidden" data-funnel-settings role="dialog" aria-modal="true" aria-labelledby="lg-funnel-settings-title" data-settings-variant="lgn_01KZ3ATY6MND79WBJMFASZ8ZXC">
     <div class="lg-board-guard-panel">
       <div class="lg-board-guard-head"><h3 id="lg-funnel-settings-title">Funnel settings</h3></div>
       <div class="lg-fsettings-body">
@@ -669,7 +672,7 @@ button.lg-publish-why-fix:focus-visible{outline:2px solid currentColor;outline-o
       </div>
     </div>
   </div>
-  <script type="application/json" id="lg-board-data">{"quote_public_id":"lgq_01KZ1XFJRYERM4DBK7VDQFAHBK","default_funnel_id":1,"shared_page_id":null,"shared_sections":[],"shared_slots":[],"funnels":[{"public_id":"lgf_01KZ1XFJRYKSWE6KWPWDB6579X","id":1,"name":"\u003cb>Quote\u003c/b> — Funnel A","display_order":1,"is_default":true,"active_variant_public_id":"lgn_01KZ1XFJRYH068699RHXNB16PZ","arms":1,"frame_template_id":null,"settings":{"variant_public_id":"lgn_01KZ1XFJRYH068699RHXNB16PZ","lander_enabled":false,"lander_headline":"","lander_subheadline":"","lander_hero_media_url":"","funnel_design_id":"default","auction_id":null},"pages":[{"page_id":"lgpg_01KZ1XFJS0NV2JXGH487C3Q4G0","slots":[{"slot_id":1,"kind":"fixed","section_ids":["lgs_01KZ1XFJRYCDENAFXWN4Q0AMR8"],"allocations":null,"rules":null}]},{"page_id":"lgpg_01KZ1XFJS0ZVJ3CWP8HBY7C2RH","slots":[{"slot_id":2,"kind":"fixed","section_ids":["lgs_01KZ1XFJRY9C88MRJHWCGEKJT2"],"allocations":null,"rules":null}]}]}],"sections":[{"public_id":"lgs_01KZ1XFJRY9C88MRJHWCGEKJT2","name":"Second","activity":"quote_funnel","vertical":"health"},{"public_id":"lgs_01KZ1XFJRYCDENAFXWN4Q0AMR8","name":"\u003ci>First\u003c/i>","activity":"quote_funnel","vertical":"life"}],"templates":[{"id":"centered","label":"Centered card"},{"id":"header-footer","label":"Site header + footer"},{"id":"header-cta","label":"Header + call CTA"},{"id":"full-background","label":"Full background"},{"id":"white-trust","label":"White + trust bar"},{"id":"minimal","label":"Minimal"}]}</script>
+  <script type="application/json" id="lg-board-data">{"quote_public_id":"lgq_01KZ3ATY6MVYME3Q8HF00WQV7D","default_funnel_id":1,"shared_page_id":null,"shared_sections":[],"shared_slots":[],"funnels":[{"public_id":"lgf_01KZ3ATY6MSE3AFH6Z0XAQMCQP","id":1,"name":"\u003cb>Quote\u003c/b> — Funnel A","display_order":1,"is_default":true,"active_variant_public_id":"lgn_01KZ3ATY6MND79WBJMFASZ8ZXC","arms":1,"frame_template_id":null,"settings":{"variant_public_id":"lgn_01KZ3ATY6MND79WBJMFASZ8ZXC","lander_enabled":false,"lander_headline":"","lander_subheadline":"","lander_hero_media_url":"","funnel_design_id":"default","auction_id":null},"pages":[{"page_id":"lgpg_01KZ3ATY6P3SGHMX67BDN9GKZV","slots":[{"slot_id":1,"kind":"fixed","section_ids":["lgs_01KZ3ATY6MJA2QVEHQ65QT34K5"],"allocations":null,"rules":null}]},{"page_id":"lgpg_01KZ3ATY6PEKA2J4FY57ZANHTB","slots":[{"slot_id":2,"kind":"fixed","section_ids":["lgs_01KZ3ATY6NGDK76EWYN82N53A1"],"allocations":null,"rules":null}]}]}],"sections":[{"public_id":"lgs_01KZ3ATY6NGDK76EWYN82N53A1","name":"Second","activity":"quote_funnel","vertical":"health"},{"public_id":"lgs_01KZ3ATY6MJA2QVEHQ65QT34K5","name":"\u003ci>First\u003c/i>","activity":"quote_funnel","vertical":"life"}],"templates":[{"id":"centered","label":"Centered card"},{"id":"header-footer","label":"Site header + footer"},{"id":"header-cta","label":"Header + call CTA"},{"id":"full-background","label":"Full background"},{"id":"white-trust","label":"White + trust bar"},{"id":"minimal","label":"Minimal"}]}</script>
 </div>
   <div class="lg-qpanel" data-panel="templates">
   <style>
@@ -746,6 +749,7 @@ button.lg-publish-why-fix:focus-visible{outline:2px solid currentColor;outline-o
 .lg-hidden{display:none}
 </style>
   <div class="lg-panel-card" id="lg-tpl-bar">
+  <div class="lg-scope-head">Editing: <strong id="lg-tpl-target-name" data-lg-target-funnel-name>this funnel</strong> · Funnel layout template · affects every slide of this funnel<select class="form-select form-select-sm" id="lg-tpl-target-select" data-lg-target-funnel aria-label="Funnel this template edits" style="margin-left:8px;max-width:200px;vertical-align:middle"></select></div>
   <div class="lg-tpl2-bar-row">
     <span class="lg-tpl2-eyebrow">Saved templates</span>
     <div id="lg-tpl-list" class="lg-tpl2-chip-row"><span class="form-help">Loading templates&#8230;</span></div>
@@ -1239,6 +1243,72 @@ button.lg-publish-why-fix:focus-visible{outline:2px solid currentColor;outline-o
   var lastRealProgressStyle = 'bar';
   var previewSeq = 0;
   var currentSections = [];
+  // P8-1 F1 (B3/R6-1, round 2): WHICH funnel this panel edits lives in the
+  // page URL's hash (tab=<name>&funnel=<public id>), set by a board Template
+  // chip click (quotes-tabs/funnel.ts) or by this panel's own funnel picker,
+  // and read HERE at each action, never cached. Round 1 used a transient
+  // data-carried-funnel-public-id attribute on #lg-quote-editor that the plain
+  // tab-click listener wiped, so one tab round-trip silently retargeted the
+  // editor's own funnel. The hash survives tab navigation, a reload and
+  // repeated chip clicks; this island is a separate closure from both other
+  // islands, so a shared page-level channel is the only way across.
+  // window.location is read defensively (the ES5 island-probe harnesses stub
+  // window with timers only).
+  function lgHashParam(name) {
+    var loc = (typeof window === 'undefined' || !window) ? null : window.location;
+    var h = (loc && loc.hash) ? String(loc.hash) : '';
+    var m = h.match(new RegExp('[#&]' + name + '=([^&]*)'));
+    return m ? decodeURIComponent(m[1]) : '';
+  }
+  function lgSetHashParam(name, value) {
+    var loc = (typeof window === 'undefined' || !window) ? null : window.location;
+    if (!loc) { return; }
+    var tab = name === 'tab' ? value : lgHashParam('tab');
+    var funnel = name === 'funnel' ? value : lgHashParam('funnel');
+    var parts = [];
+    if (tab) { parts.push('tab=' + encodeURIComponent(tab)); }
+    if (funnel) { parts.push('funnel=' + encodeURIComponent(funnel)); }
+    var hash = parts.length > 0 ? '#' + parts.join('&') : '';
+    var hist = window.history;
+    if (hist && hist.replaceState) { hist.replaceState(null, '', (loc.pathname || '') + (loc.search || '') + hash); return; }
+    loc.hash = hash;
+  }
+  // The board's own funnel rows — the SAME list the board columns render,
+  // already on this page as #lg-board-data (quotes-tabs/funnel.ts's
+  // boardDataBlob, emitted before this panel). No new endpoint.
+  function boardFunnels() {
+    var el = document.getElementById('lg-board-data');
+    var raw = el ? (el.textContent || el.innerText || '') : '';
+    if (!raw) { return []; }
+    var parsed = null;
+    try { parsed = JSON.parse(raw); } catch (e) { return []; }
+    return (parsed && parsed.funnels) ? parsed.funnels : [];
+  }
+  function boardFunnelBy(pub) {
+    var fs = boardFunnels();
+    var i;
+    for (i = 0; i < fs.length; i++) { if (fs[i].public_id === pub) { return fs[i]; } }
+    return null;
+  }
+  function targetFunnelPublicId() {
+    // A chosen funnel the board no longer has resolves back to the editor
+    // default rather than editing blind.
+    var picked = lgHashParam('funnel');
+    if (picked !== '' && boardFunnelBy(picked) !== null) { return picked; }
+    return boot ? boot.funnel_public_id : '';
+  }
+  function targetVariantPublicId() {
+    var picked = targetFunnelPublicId();
+    var bootFunnel = boot ? boot.funnel_public_id : '';
+    var bootVariant = boot ? boot.selected_variant : '';
+    if (picked === bootFunnel) { return bootVariant; }
+    var f = boardFunnelBy(picked);
+    return (f && f.active_variant_public_id) ? f.active_variant_public_id : bootVariant;
+  }
+  function targetFunnelName() {
+    var f = boardFunnelBy(targetFunnelPublicId());
+    return (f && f.name) ? String(f.name) : '';
+  }
 
   function byId(id) { return document.getElementById(id); }
   function toArray(nodeList) { return Array.prototype.slice.call(nodeList); }
@@ -1397,7 +1467,10 @@ button.lg-publish-why-fix:focus-visible{outline:2px solid currentColor;outline-o
   // reflected NO frame edit) — it asks this same endpoint for the sample
   // section INSIDE the real frame with sample_section:true.
   function renderCanvasPreview() {
-    if (!boot || !boot.selected_variant) { return; }
+    // P8-1 S1.6 (B3/R6-1): target the carried variant when a Template chip
+    // click set one, the editor-default otherwise.
+    var targetVariant = targetVariantPublicId();
+    if (!boot || !targetVariant) { return; }
     var sectionSelect = byId('lg-tpl-section-select');
     var sectionPublicId = sectionSelect ? sectionSelect.value : '';
     var noSections = currentSections.length === 0;
@@ -1416,7 +1489,7 @@ button.lg-publish-why-fix:focus-visible{outline:2px solid currentColor;outline-o
     // appear (#11A "I chose a site - why I don't see its logo????"). The
     // funnel builder's canvas already sends it (funnel.ts previewBody).
     if (mySiteId) { body.site_id = mySiteId; }
-    fetchJson(LG_API + '/variants/' + encodeURIComponent(boot.selected_variant) + '/preview', {
+    fetchJson(LG_API + '/variants/' + encodeURIComponent(targetVariant) + '/preview', {
       method: 'POST', credentials: 'same-origin',
       headers: { 'content-type': 'application/json', 'Accept': 'application/json' },
       body: JSON.stringify(body)
@@ -2382,8 +2455,10 @@ button.lg-publish-why-fix:focus-visible{outline:2px solid currentColor;outline-o
     if (backBtn) { backBtn.addEventListener('click', function () { applyDialogShowState('choose'); }); }
     if (confirmBtn) {
       confirmBtn.addEventListener('click', function () {
-        if (!applyChosenTemplate || !boot || !boot.funnel_public_id) { return; }
-        fetchJson(LG_API + '/funnels/' + encodeURIComponent(boot.funnel_public_id) + '/apply-template', {
+        // P8-1 S1.6 (B3/R6-1): target the carried funnel when present.
+        var targetFunnel = targetFunnelPublicId();
+        if (!applyChosenTemplate || !boot || !targetFunnel) { return; }
+        fetchJson(LG_API + '/funnels/' + encodeURIComponent(targetFunnel) + '/apply-template', {
           method: 'POST', credentials: 'same-origin',
           headers: { 'content-type': 'application/json', Accept: 'application/json' },
           body: JSON.stringify({ template_id: applyChosenTemplate.id })
@@ -2422,10 +2497,13 @@ button.lg-publish-why-fix:focus-visible{outline:2px solid currentColor;outline-o
     if (cancelBtn) { cancelBtn.addEventListener('click', closeDialog); }
     if (confirmBtn) {
       confirmBtn.addEventListener('click', function () {
-        if (!boot || !boot.selected_variant || !boot.funnel_public_id || !select || !select.value) { return; }
+        // P8-1 S1.6 (B3/R6-1): target the carried funnel/variant when present.
+        var targetFunnelForAb = targetFunnelPublicId();
+        var targetVariantForAb = targetVariantPublicId();
+        if (!boot || !targetVariantForAb || !targetFunnelForAb || !select || !select.value) { return; }
         var templateId = select.value;
-        var funnelId = boot.funnel_public_id;
-        var variantId = boot.selected_variant;
+        var funnelId = targetFunnelForAb;
+        var variantId = targetVariantForAb;
 
         function ensureRunningThenFork() {
           return fetchJson(LG_API + '/quotes/' + encodeURIComponent(boot.quote_public_id) + '/structure', { credentials: 'same-origin', headers: { Accept: 'application/json' } })
@@ -2475,6 +2553,99 @@ button.lg-publish-why-fix:focus-visible{outline:2px solid currentColor;outline-o
     }
   }
 
+  // --- P8-1 F1: WHICH funnel this panel edits, said out loud ---------------
+  function paintTargetHeader() {
+    var name = targetFunnelName();
+    var nameEl = byId('lg-tpl-target-name');
+    if (nameEl) {
+      clearChildren(nameEl);
+      nameEl.appendChild(text(name !== '' ? name : 'this funnel'));
+    }
+    var sel = byId('lg-tpl-target-select');
+    if (!sel) { return; }
+    var fs = boardFunnels();
+    if (fs.length === 0) { return; }
+    var want = targetFunnelPublicId();
+    clearChildren(sel);
+    var i;
+    for (i = 0; i < fs.length; i++) {
+      var opt = document.createElement('option');
+      opt.value = fs[i].public_id;
+      opt.appendChild(text(fs[i].name));
+      if (fs[i].public_id === want) { opt.selected = true; }
+      sel.appendChild(opt);
+    }
+    sel.value = want;
+  }
+  // Re-read the newly targeted funnel's own layout state (GET /funnels/:id/
+  // frame — the SAME body ui-quotes.ts seeds boot.frame from), so the canvas
+  // stops previewing the editor-selected funnel's frame over another funnel's
+  // variant, then re-render.
+  // P8-1 F5 (B3/R6-1, defect D): this panel's CONTROLS are not this island's
+  // — the element groups, the dynamic lists and the media fields beside the
+  // canvas are populated and written by quotes-tabs/funnel.ts's island
+  // (delegated [data-frame-key]/[data-tplbox-*] wiring over the whole
+  // #lg-quote-editor subtree; see this file's header). Only the canvas
+  // followed the target switch, so the operator read Funnel A's control
+  // values while the canvas rendered the target. Hand that island the frame
+  // body ALREADY fetched here — one GET, two consumers, no second request.
+  function announceTargetFunnelFrame(pub, frame) {
+    try {
+      var evt = document.createEvent('CustomEvent');
+      evt.initCustomEvent('lg:target-funnel-frame', true, false, { funnel_public_id: pub, frame: frame });
+      document.dispatchEvent(evt);
+    } catch (e) { /* engines without createEvent: the save chain still resolves its target from the hash */ }
+  }
+  function syncFrameToTargetFunnel() {
+    // P8-1 F6: named targetFunnel, not f — this island also binds the name f
+    // to a BOARD ROW (boardFunnelBy) two functions up, and the closed-set
+    // proof in test/leadgen-p8-b3-funnel-identity.test.ts decides "is this URL
+    // built from the target resolver?" by following the identifier's
+    // assignments. One name, one meaning: every targetFunnel here is the
+    // resolver's answer.
+    var targetFunnel = targetFunnelPublicId();
+    if (!targetFunnel) { renderCanvasPreview(); return; }
+    fetchJson(LG_API + '/funnels/' + encodeURIComponent(targetFunnel) + '/frame', {
+      credentials: 'same-origin', headers: { Accept: 'application/json' }
+    }).then(function (res) {
+      if (res.ok && res.body) {
+        myFrame = deepClone(res.body.frame_config || {}) || {};
+        if (boot) { boot.frame = res.body; }
+        announceTargetFunnelFrame(targetFunnel, res.body);
+      }
+      renderCanvasPreview();
+    });
+  }
+  function onTargetFunnelChanged() {
+    paintTargetHeader();
+    syncFrameToTargetFunnel();
+  }
+  function announceTargetFunnel(pub) {
+    var delivered = false;
+    try {
+      var evt = document.createEvent('CustomEvent');
+      evt.initCustomEvent('lg:target-funnel-change', true, false, { funnel_public_id: pub });
+      document.dispatchEvent(evt);
+      delivered = true;
+    } catch (e) { delivered = false; }
+    if (!delivered) { onTargetFunnelChanged(); }
+  }
+  function wireTargetPicker() {
+    var sel = byId('lg-tpl-target-select');
+    if (!sel) { return; }
+    sel.addEventListener('change', function (ev) {
+      var el = (ev && ev.target) ? ev.target : sel;
+      // Only THIS panel's picker (its own marker attribute) switches funnels —
+      // this island also listens for change events on the whole document.
+      if (!el.getAttribute || el.getAttribute('data-lg-target-funnel') === null) { return; }
+      var next = el.value || '';
+      if (next === '') { return; }
+      lgSetHashParam('funnel', next);
+      announceTargetFunnel(next);
+    });
+    document.addEventListener('lg:target-funnel-change', function () { onTargetFunnelChanged(); });
+  }
+
   // --- init ---------------------------------------------------------------
   function init() {
     boot = loadBoot();
@@ -2500,6 +2671,15 @@ button.lg-publish-why-fix:focus-visible{outline:2px solid currentColor;outline-o
     wireProgressToggle();
     syncProgressToggleUi();
     syncRadioActiveClasses();
+
+    // P8-1 F1: name the target funnel + wire its picker before the first
+    // canvas render, and — when the operator returns to a persisted target
+    // that is NOT the funnel this page was opened on (a reload, or a chip
+    // click into a different column) — read THAT funnel's own layout state
+    // instead of previewing this page's boot frame over it.
+    paintTargetHeader();
+    wireTargetPicker();
+    if (boot && targetFunnelPublicId() !== boot.funnel_public_id) { syncFrameToTargetFunnel(); }
 
     populateThemeSwitcher();
     wireThemeCreateAffordance();
@@ -2545,7 +2725,7 @@ button.lg-publish-why-fix:focus-visible{outline:2px solid currentColor;outline-o
     <div class="lg-theme-rail" id="lg-theme-rail" data-pin="r2-theme-rail" style="flex:0 0 340px;min-width:280px;max-width:380px">
     <div id="lg-themes-panel-mount"><div class="lg-panel-card" id="lg-theme-editor">
   <h3>Funnel theme</h3>
-  <div class="lg-scope-head">Editing: <strong>Funnel theme</strong> · affects every slide and every component default of this funnel</div>
+  <div class="lg-scope-head">Editing: <strong id="lg-theme-target-name" data-lg-target-funnel-name>this funnel</strong> · Funnel theme · affects every slide and every component default of this funnel<select class="form-select form-select-sm" id="lg-theme-target-select" data-lg-target-funnel aria-label="Funnel this theme edits" style="margin-left:8px;max-width:200px;vertical-align:middle"></select></div>
   
   <h3>Colors</h3>
   <div id="lg-theme-palette"><div class="lg-theme-role-row" data-theme-role="brand_primary">
@@ -2914,8 +3094,77 @@ button.lg-publish-why-fix:focus-visible{outline:2px solid currentColor;outline-o
   // unrelated seam-test harness locates the MAIN combined editor script by
   // scanning every served script's raw text for exactly that one substring.
   var editorRoot = document.querySelector('#lg-quote-editor');
+  // P8-1 F1 (contract R6-1, round 2): funnelPublicId/variantPublicId below are
+  // the EDITOR-DEFAULT funnel (whichever variant this page was opened on) --
+  // frozen once, same as before, and still what this panel edits when nothing
+  // else is chosen. WHICH funnel is chosen now lives in the page URL's hash
+  // (tab=<name>&funnel=<public id>), written by a board Theme/Template chip
+  // click (quotes-tabs/funnel.ts) or by this panel's own funnel picker.
+  // Round 1 used a transient data-carried-funnel-public-id attribute that the
+  // plain-tab-click listener wiped, so Themes -> Activation -> Themes silently
+  // retargeted the editor's funnel and the owner's edit landed on the wrong
+  // one; a hash param survives tab navigation, a reload and repeated chip
+  // clicks. Every target read below happens AT THE ACTION (never cached).
   var funnelPublicId = editorRoot ? (editorRoot.getAttribute('data-funnel-public-id') || '') : '';
   var variantPublicId = editorRoot ? (editorRoot.getAttribute('data-variant-public-id') || '') : '';
+  // Self-sufficient copies (this island is its own closure; see the file
+  // header) of the two hash helpers quotes-tabs/funnel.ts also carries.
+  // window.location is read defensively so the ES5 island-probe harnesses,
+  // which stub window with timers only, keep booting this script unchanged.
+  function lgHashParam(name) {
+    var loc = (typeof window === 'undefined' || !window) ? null : window.location;
+    var h = (loc && loc.hash) ? String(loc.hash) : '';
+    var m = h.match(new RegExp('[#&]' + name + '=([^&]*)'));
+    return m ? decodeURIComponent(m[1]) : '';
+  }
+  function lgSetHashParam(name, value) {
+    var loc = (typeof window === 'undefined' || !window) ? null : window.location;
+    if (!loc) { return; }
+    var tab = name === 'tab' ? value : lgHashParam('tab');
+    var funnel = name === 'funnel' ? value : lgHashParam('funnel');
+    var parts = [];
+    if (tab) { parts.push('tab=' + encodeURIComponent(tab)); }
+    if (funnel) { parts.push('funnel=' + encodeURIComponent(funnel)); }
+    var hash = parts.length > 0 ? '#' + parts.join('&') : '';
+    var hist = window.history;
+    if (hist && hist.replaceState) { hist.replaceState(null, '', (loc.pathname || '') + (loc.search || '') + hash); return; }
+    loc.hash = hash;
+  }
+  // The board's own funnel rows (public_id / name / active_variant_public_id)
+  // -- the SAME list the board columns render, already on this page as the
+  // #lg-board-data blob (quotes-tabs/funnel.ts's boardDataBlob, emitted before
+  // this panel). No new endpoint, no second source of funnel truth.
+  function boardFunnels() {
+    var el = document.getElementById('lg-board-data');
+    var raw = el ? (el.textContent || el.innerText || '') : '';
+    if (!raw) { return []; }
+    var parsed = null;
+    try { parsed = JSON.parse(raw); } catch (e) { return []; }
+    return (parsed && parsed.funnels) ? parsed.funnels : [];
+  }
+  function boardFunnelBy(pub) {
+    var fs = boardFunnels();
+    var i;
+    for (i = 0; i < fs.length; i++) { if (fs[i].public_id === pub) { return fs[i]; } }
+    return null;
+  }
+  function targetFunnelPublicId() {
+    // A chosen funnel the board no longer has (a stale bookmark, a deleted
+    // column) resolves back to the editor default rather than editing blind.
+    var picked = lgHashParam('funnel');
+    if (picked !== '' && boardFunnelBy(picked) !== null) { return picked; }
+    return funnelPublicId;
+  }
+  function targetVariantPublicId() {
+    var picked = targetFunnelPublicId();
+    if (picked === funnelPublicId) { return variantPublicId; }
+    var f = boardFunnelBy(picked);
+    return (f && f.active_variant_public_id) ? f.active_variant_public_id : variantPublicId;
+  }
+  function targetFunnelName() {
+    var f = boardFunnelBy(targetFunnelPublicId());
+    return (f && f.name) ? String(f.name) : '';
+  }
   var isControl = root.getAttribute('data-is-control') === 'true';
 
   function byId(id) { return document.getElementById(id); }
@@ -2945,6 +3194,212 @@ button.lg-publish-why-fix:focus-visible{outline:2px solid currentColor;outline-o
     statusNotice = text || '';
     paintStatus();
   }
+
+  // --- P8-1 F1: WHICH funnel this panel edits, said out loud ----------------
+  // The scope line names the target funnel and the picker beside it changes
+  // the target, so an operator who arrived from the top bar (no chip) is never
+  // stranded on a funnel they can neither see nor change. Both are painted
+  // from boardFunnels() above.
+  function paintTargetHeader() {
+    var name = targetFunnelName();
+    var nameEl = byId('lg-theme-target-name');
+    if (nameEl) { nameEl.textContent = name !== '' ? name : 'this funnel'; }
+    var sel = byId('lg-theme-target-select');
+    if (!sel) { return; }
+    var fs = boardFunnels();
+    if (fs.length === 0) { return; }
+    var want = targetFunnelPublicId();
+    clearChildren(sel);
+    var i;
+    for (i = 0; i < fs.length; i++) {
+      var opt = document.createElement('option');
+      opt.value = fs[i].public_id;
+      opt.textContent = fs[i].name;
+      if (fs[i].public_id === want) { opt.selected = true; }
+      sel.appendChild(opt);
+    }
+    sel.value = want;
+  }
+  // --- P8-1 F6: the rail's CONTROLS follow the target too --------------------
+  // FAIL-BEFORE (driven 2026-08-03): a Theme-chip click on P8-Charlie repainted
+  // the header ("Editing: P8-Charlie") and the canvas, while all 16
+  // [data-theme-key] selects beside them still read "Inherit from base design"
+  // — Charlie stores typography.display_size = "xl". The operator read one
+  // funnel's values under another funnel's name; F5 fixed exactly this class
+  // for the Templates panel's layout controls and named this file's rail as
+  // the surviving instance.
+  // F6 closed it for the SELECTS ONLY — a REDUCED MODEL of its own fix, found
+  // by review #2's drive: with P8-Charlie targeted the canvas painted Charlie's
+  // --lg-primary #0E7C3A while the Brand-primary swatch beside it painted
+  // rgb(171,18,52) (Funnel A's brand-primary), across all 14 role rows, every
+  // role-pick swatch and every harmony chip, at 1280 and 375. P8-1 G1 hands the
+  // colour table over too (announceTargetFunnelTheme below) so the WHOLE rail
+  // reads one funnel.
+  // The controls are quotes-tabs/funnel.ts's to paint (its own delegated
+  // populateAllControls owns every inspector control on this page), so this
+  // island does what quotes-tabs/templates.ts does for the frame: it fetches
+  // the newly targeted funnel's stored theme ONCE and hands the SAME body over
+  // as an event detail — one GET, two consumers, no second request.
+  // P8-1 G1 (review #2, F-1): the announcement carries the SAME response's
+  // effective_tokens as well. F6 handed over the stored theme only, so the consumer's
+  // 16 selects followed the target while the 14 role rows beside them — whose
+  // swatches, harmony chips and role picks all resolve through the role→value
+  // table — kept painting the EDITOR funnel's colours under the target
+  // funnel's name. GET /funnels/:id/theme already returns both halves
+  // ({theme, effective_tokens}: frame-handlers.ts themeProjection), so this is
+  // still ONE GET feeding two consumers, not a second mechanism.
+  function announceTargetFunnelTheme(pub, theme, tokens) {
+    try {
+      var evt = document.createEvent('CustomEvent');
+      evt.initCustomEvent('lg:target-funnel-theme', true, false, { funnel_public_id: pub, theme: theme, effective_tokens: tokens });
+      document.dispatchEvent(evt);
+    } catch (e) { /* engines without createEvent: the rail's own writes still resolve the target from the hash */ }
+  }
+  // P8-1 H1 (m-2): the page's OWN error banner — ui-quotes.ts's
+  // #lg-quote-error, which sits above the tab strip (so it is on screen from
+  // every tab) and is the element quotes-tabs/funnel.ts's showMsg already
+  // writes. One existing element, no new mechanism, nothing blocked.
+  function showPageError(text) {
+    var el = byId('lg-quote-error');
+    if (!el) { return; }
+    el.textContent = text;
+    el.hidden = false;
+    // P8-1 J1 (review #4, MINOR F-7): this banner sits ABOVE the tab strip, so
+    // an operator scrolled down to the rail never saw the refusal it exists to
+    // deliver — MEASURED at 375 with the rail on screen: top -186px,
+    // inViewport false. Bring it into view; feature-detected, so a page (or an
+    // island-probe harness) whose element has no scroller is unaffected.
+    // block:'center' rather than the default top-align — MEASURED at 375: a
+    // top-aligned banner lands under the sticky admin header, which covered its
+    // first line. An engine that ignores the options object still top-aligns.
+    if (typeof el.scrollIntoView === 'function') {
+      try { el.scrollIntoView({ block: 'center' }); } catch (e) { /* engines that refuse: the banner is still shown */ }
+    }
+  }
+  // P8-1 J1 (review #4, MAJOR F-3): WHOSE values the controls are showing. The
+  // rail boots on the editor funnel's SSR theme and is re-pointed only by a
+  // SUCCESSFUL read below, so this is exactly the funnel whose numbers are on
+  // screen — which is what the failure banner has to say out loud when it is
+  // not the funnel the header names.
+  var themeShownFunnel = funnelPublicId;
+  function syncThemeToTargetFunnel() {
+    // Named targetFunnel for the same reason quotes-tabs/templates.ts's
+    // syncFrameToTargetFunnel is: f is this island's BOARD-ROW name.
+    var targetFunnel = targetFunnelPublicId();
+    if (targetFunnel === '') { return; }
+    fetch('/api/admin/leadgen/funnels/' + encodeURIComponent(targetFunnel) + '/theme', {
+      credentials: 'same-origin', headers: { 'Accept': 'application/json' }
+    }).then(function (r) {
+      return r.json().then(function (j) { return { ok: r.ok, body: j }; });
+    }).then(function (res) {
+      // P8-1 H1 (m-2): this said "leaves the controls as they are" and did the
+      // opposite. A failed GET still resolved, so (body.theme || {}) announced
+      // an EMPTY theme AND an EMPTY colour table for the target funnel: driven
+      // against an injected 500, all 14 swatches went rgba(0, 0, 0, 0) and
+      // every select went blank, with no message anywhere on the page. A
+      // response that is not a readable theme now announces NOTHING — the
+      // controls really do keep their previous values — and says why.
+      // P8-1 K1 (F-1 residual): theme === null is NOT unreadable, the SAME
+      // fact themeReadIsReadable below already applies to the write side.
+      // frame-handlers.ts themeProjection returns {theme: null} for a funnel
+      // that simply has no stored theme yet (a readable, empty answer), never
+      // for a failed read. Excluding it here painted a false "Could not load
+      // the theme" banner on EVERY themeless funnel switch and, worse, left
+      // quotes-tabs/funnel.ts's targetThemeState/unreadableThemeFunnel
+      // pointing at the PREVIOUS funnel's colour table (its failed branch
+      // never updates targetThemeState), so the rail also kept painting the
+      // OLD funnel's swatches under the NEW funnel's name.
+      var readable = res.ok && res.body && typeof res.body === 'object' && res.body.theme !== undefined;
+      if (!readable) {
+        announceUnreadableTheme(targetFunnel);
+        showPageError(themeReadFailureText(res.body, targetFunnel));
+        return;
+      }
+      themeShownFunnel = targetFunnel;
+      announceTargetFunnelTheme(targetFunnel, res.body.theme || {}, res.body.effective_tokens || {});
+    }).catch(function () {
+      announceUnreadableTheme(targetFunnel);
+      showPageError(themeReadFailureText(null, targetFunnel));
+    });
+  }
+  // The FAILURE half of the seam above — the same event, saying "there is no
+  // table for this funnel". quotes-tabs/funnel.ts owns the controls, so it is
+  // the one that can hold their current values; without being told, its
+  // "blank until the table arrives" rule blanks them forever.
+  function announceUnreadableTheme(pub) {
+    try {
+      var evt = document.createEvent('CustomEvent');
+      evt.initCustomEvent('lg:target-funnel-theme', true, false, { funnel_public_id: pub, failed: true });
+      document.dispatchEvent(evt);
+    } catch (e) { /* engines without createEvent: the banner below is still shown */ }
+  }
+  function funnelNameOf(pub, fallback) {
+    var f = boardFunnelBy(pub);
+    return (f && f.name) ? String(f.name) : fallback;
+  }
+  function themeReadWhy(body) {
+    return (body && typeof body.error === 'string' && body.error !== '') ? body.error : 'the theme could not be read';
+  }
+  // P8-1 J1 (review #4, MAJOR F-3) — SAY WHOSE VALUES ARE ON SCREEN.
+  // FAIL-BEFORE (driven, review #4, j3-m2-failedget-1280.png): header
+  // "Editing: P8-Charlie", Brand primary painting rgb(171, 18, 52) — Funnel
+  // A's own brand primary — and the canvas 30px away painting Charlie's own
+  // green, under a banner that said only "the controls still show the previous
+  // values". It never said the values belong to a DIFFERENT funnel, nor that
+  // an edit made now lands on the one in the header. Holding the previous
+  // values is only honest when the disclosure names them (quotes-tabs/
+  // funnel.ts's own comment on unreadableThemeFunnel demands exactly that:
+  // never "a funnel's name over another funnel's numbers").
+  function themeReadFailureText(body, pub) {
+    var name = funnelNameOf(pub, 'that funnel');
+    var why = themeReadWhy(body);
+    var head = 'Could not load the theme for ' + name + ' \u2014 ' + why + '. ';
+    if (themeShownFunnel === pub || themeShownFunnel === '') {
+      return head + 'The controls below still show the previous values for ' + name +
+        ', which may be out of date. Any edit you make now is saved to ' + name + '.';
+    }
+    return head + 'The controls below still show the previous values \u2014 they are ' +
+      funnelNameOf(themeShownFunnel, 'another funnel') + '\u2019s, NOT ' + name +
+      '\u2019s. Any edit you make now is saved to ' + name + '.';
+  }
+  function onTargetFunnelChanged() {
+    // The rail's in-flight draft belonged to the PREVIOUS funnel — drop it, so
+    // the canvas re-reads the newly targeted funnel's own stored theme.
+    railDraftTheme = null;
+    setNotice('');
+    paintTargetHeader();
+    syncThemeToTargetFunnel();
+    refreshCanvas();
+  }
+  function announceTargetFunnel(pub) {
+    var delivered = false;
+    try {
+      var evt = document.createEvent('CustomEvent');
+      evt.initCustomEvent('lg:target-funnel-change', true, false, { funnel_public_id: pub });
+      document.dispatchEvent(evt);
+      delivered = true;
+    } catch (e) { delivered = false; }
+    // The dispatch above re-enters this island through its own listener below;
+    // when the engine has no CustomEvent, react directly instead.
+    if (!delivered) { onTargetFunnelChanged(); }
+  }
+  var targetSelectEl = byId('lg-theme-target-select');
+  if (targetSelectEl) {
+    targetSelectEl.addEventListener('change', function (ev) {
+      var el = (ev && ev.target) ? ev.target : targetSelectEl;
+      // The rail's own delegated change listener and this one are wired to
+      // different elements, but an island probe can hand both the same event:
+      // only THIS panel's picker (its own marker attribute) switches funnels.
+      if (!el.getAttribute || el.getAttribute('data-lg-target-funnel') === null) { return; }
+      var next = el.value || '';
+      if (next === '') { return; }
+      lgSetHashParam('funnel', next);
+      announceTargetFunnel(next);
+    });
+  }
+  // A chip click on the board (quotes-tabs/funnel.ts) or the Templates panel's
+  // own picker announces the same event — this panel follows either way.
+  document.addEventListener('lg:target-funnel-change', function () { onTargetFunnelChanged(); });
 
   // --- section library (client-fetched — GET /api/admin/leadgen/sections) ---
   var allSections = [];
@@ -3103,10 +3558,13 @@ button.lg-publish-why-fix:focus-visible{outline:2px solid currentColor;outline-o
     if (!frame || chosenSection === null) { return; }
     canvasSeq += 1;
     var seq = canvasSeq;
-    var frameCtx = funnelPublicId !== ''
-      ? { funnel_public_id: funnelPublicId, variant_public_id: variantPublicId }
+    // P8 B3 (R6-1): the carried (chip-clicked) funnel when present, the
+    // editor-default otherwise -- read fresh on every refresh, never cached.
+    var targetFunnel = targetFunnelPublicId();
+    var frameCtx = targetFunnel !== ''
+      ? { funnel_public_id: targetFunnel, variant_public_id: targetVariantPublicId() }
       : { default: true };
-    if (funnelPublicId !== '' && railDraftTheme !== null && hasAnyKey(railDraftTheme)) {
+    if (targetFunnel !== '' && railDraftTheme !== null && hasAnyKey(railDraftTheme)) {
       frameCtx.draft_theme = railDraftTheme;
     }
     var body = {
@@ -3207,20 +3665,63 @@ button.lg-publish-why-fix:focus-visible{outline:2px solid currentColor;outline-o
   // edit below merges on top of the preset's own values, not a bare
   // theme_id).
 
+  // P8-1 J1 (review #4, BLOCKER F-1) — THE READ-BEFORE-MERGE FAILS CLOSED.
+  // FAIL-BEFORE (driven twice by review #4): the GET below had NO r.ok check
+  // at all — a 500 answered a JSON {error} body, 'getBody.theme' read
+  // undefined, the merge base collapsed to {} and the very next PUT REPLACED
+  // the funnel's whole stored theme with the single edit just made. Measured
+  // on P8-Charlie (j10-wipe-log.txt, no target switch, one Shadows -> High
+  // select): a stored theme carrying palette.brand_primary, palette.accent and
+  // typography.display_size became exactly {"scales":{"shadow":
+  // "high"}}; and again with a target switch (j3-m2-log.txt) it became
+  // {"palette":{"brand_secondary":"error"}} after ONE colour click. The PRESET
+  // sub-case three lines into the chain already aborts for precisely this
+  // reason (presetInlineOrAbort, whose comment describes the same wipe); this
+  // is that same shape for the funnel-theme read itself, so an unreadable GET
+  // writes NOTHING and the operator is told.
+  // theme === null is NOT unreadable: frame-handlers.ts themeProjection
+  // returns {theme: null} for a funnel that simply has no stored theme yet,
+  // and that funnel's FIRST edit must still save.
+  function themeReadIsReadable(res) {
+    return !!(res && res.ok && res.body && typeof res.body === 'object' && res.body.theme !== undefined);
+  }
+  function themeWriteAbortError(body, pub) {
+    var name = funnelNameOf(pub, 'that funnel');
+    var msg = 'Could not read the current theme for ' + name + ' \u2014 ' + themeReadWhy(body) +
+      '. Your change was NOT saved and ' + name + '\u2019s stored theme is unchanged.';
+    var e = new Error(msg);
+    e.lgOperatorMessage = msg;
+    return e;
+  }
+
   var applyTimer = null;
   var pendingEdits = {};
+  // P8-1 F1: the funnel that was on screen when the operator made the queued
+  // edit. Switching the picker inside the 350ms debounce must not redirect an
+  // already-made edit onto the newly picked funnel.
+  var pendingFunnel = '';
   function flushThemeEdits() {
     applyTimer = null;
     var edits = pendingEdits;
     pendingEdits = {};
-    if (funnelPublicId === '') { return; }
-    var base = '/api/admin/leadgen/funnels/' + encodeURIComponent(funnelPublicId) + '/theme';
+    // P8-1 F1 (B3/R6-1): read+write THAT funnel -- the persisted target when
+    // one is chosen, the editor-default otherwise. FAIL-BEFORE: this used the
+    // frozen funnelPublicId unconditionally, so a Theme-chip click on a
+    // DIFFERENT funnel column still GET+PUT the editor-selected funnel.
+    var targetFunnel = pendingFunnel !== '' ? pendingFunnel : targetFunnelPublicId();
+    pendingFunnel = '';
+    if (targetFunnel === '') { return; }
+    var base = '/api/admin/leadgen/funnels/' + encodeURIComponent(targetFunnel) + '/theme';
     var previousDraft = railDraftTheme;
     setStatus('Applying\u2026');
     fetch(base, { credentials: 'same-origin', headers: { 'Accept': 'application/json' } })
-      .then(function (r) { return r.json(); })
-      .then(function (getBody) {
-        var current = (getBody && getBody.theme) || {};
+      .then(function (r) {
+        return r.json().then(function (j) { return { ok: r.ok, body: j }; }, function () { return { ok: false, body: null }; });
+      })
+      .then(function (getRes) {
+        // P8-1 J1 (F-1): fail CLOSED — see themeReadIsReadable above.
+        if (!themeReadIsReadable(getRes)) { throw themeWriteAbortError(getRes.body, targetFunnel); }
+        var current = getRes.body.theme || {};
         if (typeof current.theme_id === 'string' && current.theme_id !== '') {
           // FAIL-CLOSED (R2 P2 FIX-FIRST-2): an unreadable preset ABORTS here
           // — no PUT, stored theme untouched (see the shared snippet).
@@ -3243,9 +3744,13 @@ button.lg-publish-why-fix:focus-visible{outline:2px solid currentColor;outline-o
           }
         }
         // Leg 2: render the DRAFT now — the canvas no longer waits on (nor
-        // depends on) the write landing.
-        railDraftTheme = merged;
-        refreshCanvas();
+        // depends on) the write landing. P8-1 F1: unless the operator has
+        // since switched funnels, in which case the canvas is already showing
+        // the OTHER funnel and this draft is not its theme.
+        if (targetFunnel === targetFunnelPublicId()) {
+          railDraftTheme = merged;
+          refreshCanvas();
+        }
         return fetch(base, {
           method: 'PUT', credentials: 'same-origin',
           headers: { 'content-type': 'application/json', 'Accept': 'application/json' },
@@ -3255,19 +3760,44 @@ button.lg-publish-why-fix:focus-visible{outline:2px solid currentColor;outline-o
       .then(function (res) {
         if (!res.ok) {
           // A rejected save must not leave the canvas showing a value the
-          // funnel does not have — roll the draft back and re-render.
-          railDraftTheme = previousDraft;
-          refreshCanvas();
+          // funnel does not have — roll the draft back and re-render (same
+          // still-on-that-funnel condition as the draft render above).
+          if (targetFunnel === targetFunnelPublicId()) {
+            railDraftTheme = previousDraft;
+            refreshCanvas();
+          }
           setNotice(saveRejectionText(res.body));
           return;
         }
         setStatus('');
+        // P8-1 F6 — ONE operator edit, ONE write. quotes-tabs/funnel.ts also
+        // records every [data-theme-key]/palette edit (its own delegated
+        // listeners cover this rail) and its one-Save chain re-sent them: a
+        // single Display-size change was MEASURED issuing two
+        // PUT /funnels/<target>/theme. Telling that island which paths just
+        // LANDED lets it retire them; a rejected save takes the branch above
+        // and announces nothing, so Save stays the retry.
+        var landed = [];
+        var pk;
+        for (pk in edits) { if (Object.prototype.hasOwnProperty.call(edits, pk)) { landed.push(pk); } }
+        try {
+          var doneEvt = document.createEvent('CustomEvent');
+          doneEvt.initCustomEvent('lg:theme-autosaved', true, false, { funnel_public_id: targetFunnel, paths: landed });
+          document.dispatchEvent(doneEvt);
+        } catch (e) { /* engines without createEvent: the chain simply re-sends the same value */ }
       })
       .catch(function (err) {
-        // A fail-closed preset read (presetInlineOrAbort) rejects BEFORE any
-        // PUT — the funnel's theme is untouched, so say exactly that instead
-        // of the generic network line.
-        setNotice((err && err.lgOperatorMessage) ? err.lgOperatorMessage : 'Network error applying the change.');
+        // A fail-closed read (presetInlineOrAbort, or the funnel-theme read
+        // itself since P8-1 J1) rejects BEFORE any PUT — the funnel's theme is
+        // untouched, so say exactly that instead of the generic network line.
+        var msg = (err && err.lgOperatorMessage) ? err.lgOperatorMessage : 'Network error applying the change.';
+        setNotice(msg);
+        // P8-1 J1 (F-1/F-7): a REFUSED edit is page-level news. The rail's
+        // status line lives at the top of the canvas column, which was
+        // measured off-screen while the operator worked the rail below it, so
+        // the refusal also goes to the page's own banner (the SAME element
+        // showPageError already owns — no new surface).
+        showPageError(msg);
       });
   }
 
@@ -3275,11 +3805,18 @@ button.lg-publish-why-fix:focus-visible{outline:2px solid currentColor;outline-o
     // A non-control variant with its OWN override switch turned ON writes to
     // the VARIANT's frame_overrides_json, not the funnel's theme_json — left
     // to the existing override-save flow untouched (narrower scope, R2 note).
-    if (!isControl && overrideIsOn()) { return; }
+    // P8-1 F6: that arm belongs to the EDITOR's funnel. While this panel is
+    // pointed at a DIFFERENT funnel the arm is not part of it, so standing
+    // down here would drop the edit on the floor (the editor arm's override
+    // flow cannot write another funnel) — the target funnel's own theme is
+    // the only correct destination, and that is this autosave's.
+    if (!isControl && overrideIsOn() && targetFunnelPublicId() === funnelPublicId) { return; }
     // A fresh edit clears the previous refusal notice — the operator is
     // trying again, and a stale message must not outrank the new attempt.
     setNotice('');
     pendingEdits[path] = value;
+    // P8-1 F1: pin the funnel AT QUEUE TIME (see pendingFunnel above).
+    if (pendingFunnel === '') { pendingFunnel = targetFunnelPublicId(); }
     if (applyTimer) { window.clearTimeout(applyTimer); }
     applyTimer = window.setTimeout(flushThemeEdits, 350);
   }
@@ -3322,6 +3859,14 @@ button.lg-publish-why-fix:focus-visible{outline:2px solid currentColor;outline-o
     queueThemeEdit('palette.' + detail.role, value);
   });
 
+  // P8-1 F1: name the funnel before anything else paints, so the panel is
+  // never on screen without saying which funnel it edits.
+  paintTargetHeader();
+  // P8-1 F6: a page that BOOTS on a persisted target (a reload while editing
+  // another funnel's theme) must not leave the rail showing the editor
+  // funnel's SSR values under the target's name — same condition
+  // quotes-tabs/templates.ts's own init uses for the frame.
+  if (targetFunnelPublicId() !== funnelPublicId) { syncThemeToTargetFunnel(); }
   loadSections();
 }());
 </script>
@@ -3330,21 +3875,21 @@ button.lg-publish-why-fix:focus-visible{outline:2px solid currentColor;outline-o
   <div class="card">
     <h3>Traffic allocation</h3>
     <p class="form-help">Test this funnel against variants of itself — a different template, theme, sections, or rules. Add a variant, change what you want on it, then split the traffic below (must sum to <strong>100%</strong>; stored as basis points, per-test Σ == 10000) before a test can start. Equal arms; no control.</p>
-    <div id="lg-ab-variant-list" class="lg-alloc-list"><div class="lg-alloc-row" data-variant="lgn_01KZ1XFJRYH068699RHXNB16PZ">
+    <div id="lg-ab-variant-list" class="lg-alloc-list"><div class="lg-alloc-row" data-variant="lgn_01KZ3ATY6MND79WBJMFASZ8ZXC">
     <span class="lg-alloc-label"><strong>A</strong></span>
     <label class="lg-alloc-pct"><input type="number" class="form-input lg-alloc-input" data-alloc-input
-      data-variant-id="lgn_01KZ1XFJRYH068699RHXNB16PZ" data-variant-label="A"
+      data-variant-id="lgn_01KZ3ATY6MND79WBJMFASZ8ZXC" data-variant-label="A"
       min="0" max="100" step="0.01" value="100" /> %</label>
-    <p class="form-help" data-arm-overrides="lgn_01KZ1XFJRYH068699RHXNB16PZ">Same layout as funnel (no overrides)</p>
-    <p class="form-help" data-arm-varies="lgn_01KZ1XFJRYH068699RHXNB16PZ">Base variant</p>
+    <p class="form-help" data-arm-overrides="lgn_01KZ3ATY6MND79WBJMFASZ8ZXC">Same layout as funnel (no overrides)</p>
+    <p class="form-help" data-arm-varies="lgn_01KZ3ATY6MND79WBJMFASZ8ZXC">Base variant</p>
     
-    <p class="form-help lg-hidden" data-delete-variant-err="lgn_01KZ1XFJRYH068699RHXNB16PZ" role="alert"></p>
+    <p class="form-help lg-hidden" data-delete-variant-err="lgn_01KZ3ATY6MND79WBJMFASZ8ZXC" role="alert"></p>
   </div></div>
     <p class="lg-alloc-summary">Σ = <strong data-alloc-sum>&mdash;</strong> <span data-alloc-sum-note class="form-help"></span></p>
     <div class="toolbar">
       <button type="button" id="lg-save-allocations" class="btn btn-primary">Save allocations</button>
       <button type="button" id="lg-add-variant" class="btn btn-secondary" data-add-variant-state="no-test" disabled aria-disabled="true" aria-describedby="lg-add-variant-why" title="a second variant exists only as an arm of a RUNNING A/B test, and this funnel has no test yet — press &quot;Create A/B test&quot;, then &quot;Start A/B test&quot;, then add the variant.">Add variant&#8230;</button>
-      <button type="button" id="lg-create-experiment" class="btn btn-secondary" data-quote-public-id="lgq_01KZ1XFJRYERM4DBK7VDQFAHBK">Create A/B test</button>
+      <button type="button" id="lg-create-experiment" class="btn btn-secondary" data-quote-public-id="lgq_01KZ3ATY6MVYME3Q8HF00WQV7D">Create A/B test</button>
     </div>
     <p class="form-help lg-ab-order" data-ab-order>Order to A/B this funnel: <strong>1.</strong> Create A/B test &rarr; <strong>2.</strong> Start A/B test &rarr; <strong>3.</strong> Add variant (it becomes the test&#39;s second arm, split 50/50). Until a test is running the funnel keeps exactly one variant.</p>
     <p class="form-help lg-ab-add-why" id="lg-add-variant-why" data-add-variant-blocked="no-test" role="status">&#9888; <strong>Add variant is unavailable:</strong> a second variant exists only as an arm of a RUNNING A/B test, and this funnel has no test yet — press &quot;Create A/B test&quot;, then &quot;Start A/B test&quot;, then add the variant.</p>
@@ -3354,7 +3899,7 @@ button.lg-publish-why-fix:focus-visible{outline:2px solid currentColor;outline-o
   <div class="lg-qpanel" data-panel="activation">
   <div class="card">
     <h3>Activation preflight</h3>
-    <div id="lg-preflight-panel" data-preflight-state="blocked"><p class="lg-preflight-blocked-title">Cannot activate this Quote.</p><div id="lg-preflight-problems" data-problem-count="1"><div class="lg-problem-group" data-problem-scope="section"><h4 class="lg-problem-group-title">Slides</h4><div class="lg-problem-row" data-problem-severity="error" data-problem-path="activation.shared_page"><span class="lg-problem-chip" data-severity="error">Error</span><span class="lg-problem-msg">The shared first page needs at least one section.</span><a class="btn btn-sm btn-secondary" href="/admin/leadgen/quotes/lgq_01KZ1XFJRYERM4DBK7VDQFAHBK/edit">Open Quote Builder</a></div></div></div></div>
+    <div id="lg-preflight-panel" data-preflight-state="blocked"><p class="lg-preflight-blocked-title">Cannot activate this Quote.</p><div id="lg-preflight-problems" data-problem-count="1"><div class="lg-problem-group" data-problem-scope="section"><h4 class="lg-problem-group-title">Slides</h4><div class="lg-problem-row" data-problem-severity="error" data-problem-path="activation.shared_page"><span class="lg-problem-chip" data-severity="error">Error</span><span class="lg-problem-msg">The shared first page needs at least one section.</span><a class="btn btn-sm btn-secondary" href="/admin/leadgen/quotes/lgq_01KZ3ATY6MVYME3Q8HF00WQV7D/edit">Open Quote Builder</a></div></div></div></div>
   </div>
   <div class="card">
     <h3>Site activation</h3>
@@ -3403,7 +3948,7 @@ button.lg-publish-why-fix:focus-visible{outline:2px solid currentColor;outline-o
     <div class="lg-media-grid" id="lg-media-picker-grid"></div>
   </div>
 </div>
-  <script type="application/json" id="lg-quote-data">{"quote_public_id":"lgq_01KZ1XFJRYERM4DBK7VDQFAHBK","quote_id":"lgq_01KZ1XFJRYERM4DBK7VDQFAHBK","activity":"quote_funnel","selected_variant":"lgn_01KZ1XFJRYH068699RHXNB16PZ","selected_variant_is_control":true,"funnel_public_id":"lgf_01KZ1XFJRYKSWE6KWPWDB6579X","sections":[{"public_id":"lgs_01KZ1XFJRYCDENAFXWN4Q0AMR8","name":"\u003ci>First\u003c/i>"},{"public_id":"lgs_01KZ1XFJRY9C88MRJHWCGEKJT2","name":"Second"}],"frame":{"frame_config":null,"effective_frame":{"version":1,"template":"centered","compat":{"allow_section_chrome":false},"header":{"enabled":true,"logo_source":"site","logo_media_id":null,"logo_size":"m","logo_align":"center","tagline":null,"secure_badge":{"enabled":false,"text":null},"cta":{"enabled":false,"label":"","href":null,"tel":null},"disclosure_link":false,"sticky":true},"progress":{"style":"bar","position":"under_header","thickness":"m","width":"content","color_role":"brand_primary","show_label":false},"back":{"style":"text","position":"in_card","label":"Back","history_fallback":true},"disclosure":{"enabled":false,"location":"footer","link_label":"Advertising Disclosure","text":""},"footer":{"enabled":true,"show_on":"all","links_source":"site","links":[],"trust_text":null,"description":null,"show_logo":false,"hide_on_mobile":false},"trust_strip":{"enabled":false,"source":"manual","logos":[],"placement":"below_unit","mobile":"wrap"},"benefit_bar":{"enabled":false,"items":[],"placement":"below_unit"},"background":{"role":"page_background","image_media_id":null,"style":"flat"},"section_slot":{"max_width":"m","align":"center","card":"card","padding":"m","offset_y":"none","allow_section_card":true,"transition":"fade","continue_placement":"inside_unit","continue_style_role":"button_primary"},"mobile":{}},"template_defaults":{"version":1,"template":"centered","compat":{"allow_section_chrome":false},"header":{"enabled":true,"logo_source":"site","logo_media_id":null,"logo_size":"m","logo_align":"center","tagline":null,"secure_badge":{"enabled":false,"text":null},"cta":{"enabled":false,"label":"","href":null,"tel":null},"disclosure_link":false,"sticky":true},"progress":{"style":"bar","position":"under_header","thickness":"m","width":"content","color_role":"brand_primary","show_label":false},"back":{"style":"text","position":"in_card","label":"Back","history_fallback":true},"disclosure":{"enabled":false,"location":"footer","link_label":"Advertising Disclosure","text":""},"footer":{"enabled":true,"show_on":"all","links_source":"site","links":[],"trust_text":null,"description":null,"show_logo":false,"hide_on_mobile":false},"trust_strip":{"enabled":false,"source":"manual","logos":[],"placement":"below_unit","mobile":"wrap"},"benefit_bar":{"enabled":false,"items":[],"placement":"below_unit"},"background":{"role":"page_background","image_media_id":null,"style":"flat"},"section_slot":{"max_width":"m","align":"center","card":"card","padding":"m","offset_y":"none","allow_section_card":true,"transition":"fade","continue_placement":"inside_unit","continue_style_role":"button_primary"},"mobile":{}},"problems":[]},"theme":{"theme":null,"effective_tokens":{"brand_primary":"#1B3A5C","brand_secondary":"#2A5080","accent":"#E85D26","success":"#0E7C3A","error":"#D32F2F","page_background":"#F5F7FA","card_background":"#FFFFFF","surface_wash":"#E8EEF4","border":"#D2D9E5","text_primary":"#1A1F36","text_muted":"#4A5568","button_primary_bg":"#1B3A5C","button_primary_text":"#FFFFFF","button_secondary_bg":"#F2F6FA"},"problems":[]},"base_tokens":{"brand_primary":"#1B3A5C","brand_secondary":"#2A5080","accent":"#E85D26","success":"#0E7C3A","error":"#D32F2F","page_background":"#F5F7FA","card_background":"#FFFFFF","surface_wash":"#E8EEF4","border":"#D2D9E5","text_primary":"#1A1F36","text_muted":"#4A5568","button_primary_bg":"#1B3A5C","button_primary_text":"#FFFFFF","button_secondary_bg":"#F2F6FA"},"templates":[{"id":"centered","label":"Centered card","defaults":{"version":1,"template":"centered","compat":{"allow_section_chrome":false},"header":{"enabled":true,"logo_source":"site","logo_media_id":null,"logo_size":"m","logo_align":"center","tagline":null,"secure_badge":{"enabled":false,"text":null},"cta":{"enabled":false,"label":"","href":null,"tel":null},"disclosure_link":false,"sticky":true},"progress":{"style":"bar","position":"under_header","thickness":"m","width":"content","color_role":"brand_primary","show_label":false},"back":{"style":"text","position":"in_card","label":"Back","history_fallback":true},"disclosure":{"enabled":false,"location":"footer","link_label":"Advertising Disclosure","text":""},"footer":{"enabled":true,"show_on":"all","links_source":"site","links":[],"trust_text":null,"description":null,"show_logo":false,"hide_on_mobile":false},"trust_strip":{"enabled":false,"source":"manual","logos":[],"placement":"below_unit","mobile":"wrap"},"benefit_bar":{"enabled":false,"items":[],"placement":"below_unit"},"background":{"role":"page_background","image_media_id":null,"style":"flat"},"section_slot":{"max_width":"m","align":"center","card":"card","padding":"m","offset_y":"none","allow_section_card":true,"transition":"fade","continue_placement":"inside_unit","continue_style_role":"button_primary"},"mobile":{}}},{"id":"header-footer","label":"Site header + footer","defaults":{"version":1,"template":"header-footer","compat":{"allow_section_chrome":false},"header":{"enabled":true,"logo_source":"site","logo_media_id":null,"logo_size":"m","logo_align":"left","tagline":null,"secure_badge":{"enabled":true,"text":null},"cta":{"enabled":false,"label":"","href":null,"tel":null},"disclosure_link":false,"sticky":true},"progress":{"style":"bar","position":"under_header","thickness":"m","width":"content","color_role":"brand_primary","show_label":false},"back":{"style":"text","position":"in_card","label":"Back","history_fallback":true},"disclosure":{"enabled":false,"location":"footer","link_label":"Advertising Disclosure","text":""},"footer":{"enabled":true,"show_on":"all","links_source":"site","links":[],"trust_text":null,"description":null,"show_logo":true,"hide_on_mobile":false},"trust_strip":{"enabled":false,"source":"manual","logos":[],"placement":"below_unit","mobile":"wrap"},"benefit_bar":{"enabled":false,"items":[],"placement":"below_unit"},"background":{"role":"page_background","image_media_id":null,"style":"flat"},"section_slot":{"max_width":"m","align":"center","card":"bare","padding":"m","offset_y":"none","allow_section_card":true,"transition":"fade","continue_placement":"inside_unit","continue_style_role":"button_primary"},"mobile":{}}},{"id":"header-cta","label":"Header + call CTA","defaults":{"version":1,"template":"header-cta","compat":{"allow_section_chrome":false},"header":{"enabled":true,"logo_source":"site","logo_media_id":null,"logo_size":"m","logo_align":"center","tagline":null,"secure_badge":{"enabled":false,"text":null},"cta":{"enabled":false,"label":"","href":null,"tel":null},"disclosure_link":false,"sticky":true},"progress":{"style":"bar","position":"under_header","thickness":"m","width":"content","color_role":"brand_primary","show_label":false},"back":{"style":"text","position":"below_card","label":"Back","history_fallback":true},"disclosure":{"enabled":true,"location":"top_bar","link_label":"Advertising Disclosure","text":""},"footer":{"enabled":true,"show_on":"all","links_source":"site","links":[],"trust_text":null,"description":null,"show_logo":false,"hide_on_mobile":false},"trust_strip":{"enabled":false,"source":"manual","logos":[],"placement":"below_unit","mobile":"wrap"},"benefit_bar":{"enabled":false,"items":[],"placement":"below_unit"},"background":{"role":"page_background","image_media_id":null,"style":"flat"},"section_slot":{"max_width":"m","align":"center","card":"card","padding":"m","offset_y":"none","allow_section_card":true,"transition":"fade","continue_placement":"inside_unit","continue_style_role":"button_primary"},"mobile":{}}},{"id":"full-background","label":"Full background","defaults":{"version":1,"template":"full-background","compat":{"allow_section_chrome":false},"header":{"enabled":true,"logo_source":"site","logo_media_id":null,"logo_size":"m","logo_align":"center","tagline":null,"secure_badge":{"enabled":false,"text":null},"cta":{"enabled":false,"label":"","href":null,"tel":null},"disclosure_link":false,"sticky":false},"progress":{"style":"dots","position":"above_unit","thickness":"m","width":"content","color_role":"brand_primary","show_label":false},"back":{"style":"text","position":"in_card","label":"Back","history_fallback":true},"disclosure":{"enabled":false,"location":"footer","link_label":"Advertising Disclosure","text":""},"footer":{"enabled":true,"show_on":"all","links_source":"site","links":[],"trust_text":null,"description":null,"show_logo":false,"hide_on_mobile":false},"trust_strip":{"enabled":false,"source":"manual","logos":[],"placement":"below_unit","mobile":"wrap"},"benefit_bar":{"enabled":false,"items":[],"placement":"below_unit"},"background":{"role":"brand_primary","image_media_id":null,"style":"brand"},"section_slot":{"max_width":"m","align":"center","card":"card","padding":"m","offset_y":"none","allow_section_card":true,"transition":"fade","continue_placement":"inside_unit","continue_style_role":"button_primary"},"mobile":{}}},{"id":"white-trust","label":"White + trust bar","defaults":{"version":1,"template":"white-trust","compat":{"allow_section_chrome":false},"header":{"enabled":true,"logo_source":"site","logo_media_id":null,"logo_size":"s","logo_align":"center","tagline":null,"secure_badge":{"enabled":false,"text":null},"cta":{"enabled":false,"label":"","href":null,"tel":null},"disclosure_link":false,"sticky":false},"progress":{"style":"bar","position":"under_header","thickness":"m","width":"content","color_role":"brand_primary","show_label":false},"back":{"style":"text","position":"in_card","label":"Back","history_fallback":true},"disclosure":{"enabled":false,"location":"footer","link_label":"Advertising Disclosure","text":""},"footer":{"enabled":true,"show_on":"all","links_source":"site","links":[],"trust_text":null,"description":null,"show_logo":false,"hide_on_mobile":false},"trust_strip":{"enabled":false,"source":"manual","logos":[],"placement":"footer","mobile":"wrap"},"benefit_bar":{"enabled":false,"items":[],"placement":"below_unit"},"background":{"role":"card_background","image_media_id":null,"style":"flat"},"section_slot":{"max_width":"m","align":"center","card":"bare","padding":"m","offset_y":"none","allow_section_card":true,"transition":"fade","continue_placement":"inside_unit","continue_style_role":"button_primary"},"mobile":{}}},{"id":"minimal","label":"Minimal","defaults":{"version":1,"template":"minimal","compat":{"allow_section_chrome":false},"header":{"enabled":true,"logo_source":"site","logo_media_id":null,"logo_size":"m","logo_align":"center","tagline":null,"secure_badge":{"enabled":false,"text":null},"cta":{"enabled":false,"label":"","href":null,"tel":null},"disclosure_link":false,"sticky":true},"progress":{"style":"bar","position":"under_header","thickness":"m","width":"content","color_role":"brand_primary","show_label":false},"back":{"style":"text","position":"under_header_left","label":"Back","history_fallback":true},"disclosure":{"enabled":false,"location":"footer","link_label":"Advertising Disclosure","text":""},"footer":{"enabled":false,"show_on":"all","links_source":"site","links":[],"trust_text":null,"description":null,"show_logo":false,"hide_on_mobile":false},"trust_strip":{"enabled":false,"source":"manual","logos":[],"placement":"below_unit","mobile":"wrap"},"benefit_bar":{"enabled":false,"items":[],"placement":"below_unit"},"background":{"role":"page_background","image_media_id":null,"style":"flat"},"section_slot":{"max_width":"m","align":"center","card":"bare","padding":"m","offset_y":"none","allow_section_card":true,"transition":"fade","continue_placement":"inside_unit","continue_style_role":"button_primary"},"mobile":{}}}],"sites":[{"site_id":"site-1","site_name":"Site One","badge":"Not activated yet"}],"overrides":null,"preflight":{"ok":true,"quote_id":"lgq_01KZ1XFJRYERM4DBK7VDQFAHBK","funnel_id":"lgf_01KZ1XFJRYKSWE6KWPWDB6579X","funnel_variant_id":"lgn_01KZ1XFJRYH068699RHXNB16PZ","blocks":[],"computed_at":1785697127202,"problems":[{"path":"activation.shared_page","scope":"section","severity":"error","message":"The shared first page needs at least one section.","fix_url":"/admin/leadgen/quotes/lgq_01KZ1XFJRYERM4DBK7VDQFAHBK/edit"}]}}</script>
+  <script type="application/json" id="lg-quote-data">{"quote_public_id":"lgq_01KZ3ATY6MVYME3Q8HF00WQV7D","quote_id":"lgq_01KZ3ATY6MVYME3Q8HF00WQV7D","activity":"quote_funnel","selected_variant":"lgn_01KZ3ATY6MND79WBJMFASZ8ZXC","selected_variant_is_control":true,"funnel_public_id":"lgf_01KZ3ATY6MSE3AFH6Z0XAQMCQP","sections":[{"public_id":"lgs_01KZ3ATY6MJA2QVEHQ65QT34K5","name":"\u003ci>First\u003c/i>"},{"public_id":"lgs_01KZ3ATY6NGDK76EWYN82N53A1","name":"Second"}],"frame":{"frame_config":null,"effective_frame":{"version":1,"template":"centered","compat":{"allow_section_chrome":false},"header":{"enabled":true,"logo_source":"site","logo_media_id":null,"logo_size":"m","logo_align":"center","tagline":null,"secure_badge":{"enabled":false,"text":null},"cta":{"enabled":false,"label":"","href":null,"tel":null},"disclosure_link":false,"sticky":true},"progress":{"style":"bar","position":"under_header","thickness":"m","width":"content","color_role":"brand_primary","show_label":false},"back":{"style":"text","position":"in_card","label":"Back","history_fallback":true},"disclosure":{"enabled":false,"location":"footer","link_label":"Advertising Disclosure","text":""},"footer":{"enabled":true,"show_on":"all","links_source":"site","links":[],"trust_text":null,"description":null,"show_logo":false,"hide_on_mobile":false},"trust_strip":{"enabled":false,"source":"manual","logos":[],"placement":"below_unit","mobile":"wrap"},"benefit_bar":{"enabled":false,"items":[],"placement":"below_unit"},"background":{"role":"page_background","image_media_id":null,"style":"flat"},"section_slot":{"max_width":"m","align":"center","card":"card","padding":"m","offset_y":"none","allow_section_card":true,"transition":"fade","continue_placement":"inside_unit","continue_style_role":"button_primary"},"mobile":{}},"template_defaults":{"version":1,"template":"centered","compat":{"allow_section_chrome":false},"header":{"enabled":true,"logo_source":"site","logo_media_id":null,"logo_size":"m","logo_align":"center","tagline":null,"secure_badge":{"enabled":false,"text":null},"cta":{"enabled":false,"label":"","href":null,"tel":null},"disclosure_link":false,"sticky":true},"progress":{"style":"bar","position":"under_header","thickness":"m","width":"content","color_role":"brand_primary","show_label":false},"back":{"style":"text","position":"in_card","label":"Back","history_fallback":true},"disclosure":{"enabled":false,"location":"footer","link_label":"Advertising Disclosure","text":""},"footer":{"enabled":true,"show_on":"all","links_source":"site","links":[],"trust_text":null,"description":null,"show_logo":false,"hide_on_mobile":false},"trust_strip":{"enabled":false,"source":"manual","logos":[],"placement":"below_unit","mobile":"wrap"},"benefit_bar":{"enabled":false,"items":[],"placement":"below_unit"},"background":{"role":"page_background","image_media_id":null,"style":"flat"},"section_slot":{"max_width":"m","align":"center","card":"card","padding":"m","offset_y":"none","allow_section_card":true,"transition":"fade","continue_placement":"inside_unit","continue_style_role":"button_primary"},"mobile":{}},"problems":[]},"theme":{"theme":null,"effective_tokens":{"brand_primary":"#1B3A5C","brand_secondary":"#2A5080","accent":"#E85D26","success":"#0E7C3A","error":"#D32F2F","page_background":"#F5F7FA","card_background":"#FFFFFF","surface_wash":"#E8EEF4","border":"#D2D9E5","text_primary":"#1A1F36","text_muted":"#4A5568","button_primary_bg":"#1B3A5C","button_primary_text":"#FFFFFF","button_secondary_bg":"#F2F6FA"},"problems":[]},"base_tokens":{"brand_primary":"#1B3A5C","brand_secondary":"#2A5080","accent":"#E85D26","success":"#0E7C3A","error":"#D32F2F","page_background":"#F5F7FA","card_background":"#FFFFFF","surface_wash":"#E8EEF4","border":"#D2D9E5","text_primary":"#1A1F36","text_muted":"#4A5568","button_primary_bg":"#1B3A5C","button_primary_text":"#FFFFFF","button_secondary_bg":"#F2F6FA"},"templates":[{"id":"centered","label":"Centered card","defaults":{"version":1,"template":"centered","compat":{"allow_section_chrome":false},"header":{"enabled":true,"logo_source":"site","logo_media_id":null,"logo_size":"m","logo_align":"center","tagline":null,"secure_badge":{"enabled":false,"text":null},"cta":{"enabled":false,"label":"","href":null,"tel":null},"disclosure_link":false,"sticky":true},"progress":{"style":"bar","position":"under_header","thickness":"m","width":"content","color_role":"brand_primary","show_label":false},"back":{"style":"text","position":"in_card","label":"Back","history_fallback":true},"disclosure":{"enabled":false,"location":"footer","link_label":"Advertising Disclosure","text":""},"footer":{"enabled":true,"show_on":"all","links_source":"site","links":[],"trust_text":null,"description":null,"show_logo":false,"hide_on_mobile":false},"trust_strip":{"enabled":false,"source":"manual","logos":[],"placement":"below_unit","mobile":"wrap"},"benefit_bar":{"enabled":false,"items":[],"placement":"below_unit"},"background":{"role":"page_background","image_media_id":null,"style":"flat"},"section_slot":{"max_width":"m","align":"center","card":"card","padding":"m","offset_y":"none","allow_section_card":true,"transition":"fade","continue_placement":"inside_unit","continue_style_role":"button_primary"},"mobile":{}}},{"id":"header-footer","label":"Site header + footer","defaults":{"version":1,"template":"header-footer","compat":{"allow_section_chrome":false},"header":{"enabled":true,"logo_source":"site","logo_media_id":null,"logo_size":"m","logo_align":"left","tagline":null,"secure_badge":{"enabled":true,"text":null},"cta":{"enabled":false,"label":"","href":null,"tel":null},"disclosure_link":false,"sticky":true},"progress":{"style":"bar","position":"under_header","thickness":"m","width":"content","color_role":"brand_primary","show_label":false},"back":{"style":"text","position":"in_card","label":"Back","history_fallback":true},"disclosure":{"enabled":false,"location":"footer","link_label":"Advertising Disclosure","text":""},"footer":{"enabled":true,"show_on":"all","links_source":"site","links":[],"trust_text":null,"description":null,"show_logo":true,"hide_on_mobile":false},"trust_strip":{"enabled":false,"source":"manual","logos":[],"placement":"below_unit","mobile":"wrap"},"benefit_bar":{"enabled":false,"items":[],"placement":"below_unit"},"background":{"role":"page_background","image_media_id":null,"style":"flat"},"section_slot":{"max_width":"m","align":"center","card":"bare","padding":"m","offset_y":"none","allow_section_card":true,"transition":"fade","continue_placement":"inside_unit","continue_style_role":"button_primary"},"mobile":{}}},{"id":"header-cta","label":"Header + call CTA","defaults":{"version":1,"template":"header-cta","compat":{"allow_section_chrome":false},"header":{"enabled":true,"logo_source":"site","logo_media_id":null,"logo_size":"m","logo_align":"center","tagline":null,"secure_badge":{"enabled":false,"text":null},"cta":{"enabled":false,"label":"","href":null,"tel":null},"disclosure_link":false,"sticky":true},"progress":{"style":"bar","position":"under_header","thickness":"m","width":"content","color_role":"brand_primary","show_label":false},"back":{"style":"text","position":"below_card","label":"Back","history_fallback":true},"disclosure":{"enabled":true,"location":"top_bar","link_label":"Advertising Disclosure","text":""},"footer":{"enabled":true,"show_on":"all","links_source":"site","links":[],"trust_text":null,"description":null,"show_logo":false,"hide_on_mobile":false},"trust_strip":{"enabled":false,"source":"manual","logos":[],"placement":"below_unit","mobile":"wrap"},"benefit_bar":{"enabled":false,"items":[],"placement":"below_unit"},"background":{"role":"page_background","image_media_id":null,"style":"flat"},"section_slot":{"max_width":"m","align":"center","card":"card","padding":"m","offset_y":"none","allow_section_card":true,"transition":"fade","continue_placement":"inside_unit","continue_style_role":"button_primary"},"mobile":{}}},{"id":"full-background","label":"Full background","defaults":{"version":1,"template":"full-background","compat":{"allow_section_chrome":false},"header":{"enabled":true,"logo_source":"site","logo_media_id":null,"logo_size":"m","logo_align":"center","tagline":null,"secure_badge":{"enabled":false,"text":null},"cta":{"enabled":false,"label":"","href":null,"tel":null},"disclosure_link":false,"sticky":false},"progress":{"style":"dots","position":"above_unit","thickness":"m","width":"content","color_role":"brand_primary","show_label":false},"back":{"style":"text","position":"in_card","label":"Back","history_fallback":true},"disclosure":{"enabled":false,"location":"footer","link_label":"Advertising Disclosure","text":""},"footer":{"enabled":true,"show_on":"all","links_source":"site","links":[],"trust_text":null,"description":null,"show_logo":false,"hide_on_mobile":false},"trust_strip":{"enabled":false,"source":"manual","logos":[],"placement":"below_unit","mobile":"wrap"},"benefit_bar":{"enabled":false,"items":[],"placement":"below_unit"},"background":{"role":"brand_primary","image_media_id":null,"style":"brand"},"section_slot":{"max_width":"m","align":"center","card":"card","padding":"m","offset_y":"none","allow_section_card":true,"transition":"fade","continue_placement":"inside_unit","continue_style_role":"button_primary"},"mobile":{}}},{"id":"white-trust","label":"White + trust bar","defaults":{"version":1,"template":"white-trust","compat":{"allow_section_chrome":false},"header":{"enabled":true,"logo_source":"site","logo_media_id":null,"logo_size":"s","logo_align":"center","tagline":null,"secure_badge":{"enabled":false,"text":null},"cta":{"enabled":false,"label":"","href":null,"tel":null},"disclosure_link":false,"sticky":false},"progress":{"style":"bar","position":"under_header","thickness":"m","width":"content","color_role":"brand_primary","show_label":false},"back":{"style":"text","position":"in_card","label":"Back","history_fallback":true},"disclosure":{"enabled":false,"location":"footer","link_label":"Advertising Disclosure","text":""},"footer":{"enabled":true,"show_on":"all","links_source":"site","links":[],"trust_text":null,"description":null,"show_logo":false,"hide_on_mobile":false},"trust_strip":{"enabled":false,"source":"manual","logos":[],"placement":"footer","mobile":"wrap"},"benefit_bar":{"enabled":false,"items":[],"placement":"below_unit"},"background":{"role":"card_background","image_media_id":null,"style":"flat"},"section_slot":{"max_width":"m","align":"center","card":"bare","padding":"m","offset_y":"none","allow_section_card":true,"transition":"fade","continue_placement":"inside_unit","continue_style_role":"button_primary"},"mobile":{}}},{"id":"minimal","label":"Minimal","defaults":{"version":1,"template":"minimal","compat":{"allow_section_chrome":false},"header":{"enabled":true,"logo_source":"site","logo_media_id":null,"logo_size":"m","logo_align":"center","tagline":null,"secure_badge":{"enabled":false,"text":null},"cta":{"enabled":false,"label":"","href":null,"tel":null},"disclosure_link":false,"sticky":true},"progress":{"style":"bar","position":"under_header","thickness":"m","width":"content","color_role":"brand_primary","show_label":false},"back":{"style":"text","position":"under_header_left","label":"Back","history_fallback":true},"disclosure":{"enabled":false,"location":"footer","link_label":"Advertising Disclosure","text":""},"footer":{"enabled":false,"show_on":"all","links_source":"site","links":[],"trust_text":null,"description":null,"show_logo":false,"hide_on_mobile":false},"trust_strip":{"enabled":false,"source":"manual","logos":[],"placement":"below_unit","mobile":"wrap"},"benefit_bar":{"enabled":false,"items":[],"placement":"below_unit"},"background":{"role":"page_background","image_media_id":null,"style":"flat"},"section_slot":{"max_width":"m","align":"center","card":"bare","padding":"m","offset_y":"none","allow_section_card":true,"transition":"fade","continue_placement":"inside_unit","continue_style_role":"button_primary"},"mobile":{}}}],"sites":[{"site_id":"site-1","site_name":"Site One","badge":"Not activated yet"}],"overrides":null,"preflight":{"ok":true,"quote_id":"lgq_01KZ3ATY6MVYME3Q8HF00WQV7D","funnel_id":"lgf_01KZ3ATY6MSE3AFH6Z0XAQMCQP","funnel_variant_id":"lgn_01KZ3ATY6MND79WBJMFASZ8ZXC","blocks":[],"computed_at":1785744685273,"problems":[{"path":"activation.shared_page","scope":"section","severity":"error","message":"The shared first page needs at least one section.","fix_url":"/admin/leadgen/quotes/lgq_01KZ3ATY6MVYME3Q8HF00WQV7D/edit"}]}}</script>
 </div></div>
     </main>
   </div>
@@ -3534,7 +4079,6 @@ if (!document.getElementById('toast-animations')) {
   var ELIGIBILITY_REASON_LABELS = {"no_active_schema":"No active payload schema","schema_validation_errors":"Active payload schema has validation errors","test_untested":"Provider test has not been run yet","test_failed":"Last provider test failed","endpoint_missing":"No endpoint configured for the live (production) environment","invalid_headers":"A request header cannot resolve (empty name or missing macro/secret reference)","carrier_parse_missing":"Response parsing (carrier parse) is not configured","carrier_parse_invalid":"Response parsing (carrier parse) configuration is invalid"};
   var PREFLIGHT_PASS_CHECKS = [{"id":"section_mappings_complete","label":"Selected-offer mappings complete for every active section"},{"id":"required_provider_fields_mapped","label":"All required provider fields mapped"},{"id":"no_orphaned_provider_fields","label":"No mapped provider fields missing from active schemas"},{"id":"type_conversions_valid","label":"All answer-to-provider type conversions valid"},{"id":"payload_schema_versions_present","label":"Every selected dynamic offer has an active payload schema version"},{"id":"dependencies_resolve","label":"All visibility conditions reference existing fields"},{"id":"auction_config_valid","label":"Auction configuration valid"},{"id":"participating_offers_eligible","label":"All participating dynamic offers eligible for live auction"}];
   var REGION_LABELS = {"header":"Header","progress":"Progress","back":"Back","disclosure":"Disclosure","footer":"Footer","trust_strip":"Trust strip","benefit_bar":"Benefit bar","background":"Background","section_slot":"Section slot"};
-  var OVERRIDE_LABELS = {"header":"Header","progress":"Progress","back":"Back","disclosure":"Disclosure","footer":"Footer","trust_strip":"Trust strip","benefit_bar":"Benefit bar","background":"Background","section_slot":"Section slot","mobile":"Mobile behavior","theme":"Theme colors"};
   var TOKEN_ROLES = ["brand_primary","brand_secondary","accent","success","error","page_background","card_background","surface_wash","border","text_primary","text_muted","button_primary_bg","button_primary_text","button_secondary_bg"];
   var PROBLEM_SCOPES = ["frame","theme","section","component","choice","mapping"];
   var PROBLEM_SCOPE_NAMES = {"frame":"Funnel layout","theme":"Theme","section":"Slides","component":"Components","choice":"Choices","mapping":"Offer mapping"};
@@ -4005,6 +4549,45 @@ if (!document.getElementById('toast-animations')) {
   // --- sub-tab switching ----------------------------------------------------
   var tabs = root.querySelectorAll('.lg-qtab');
   var panels = root.querySelectorAll('.lg-qpanel');
+  /* ===== P8-1 F1 (B3/R6-1 round 2): the PERSISTED editor location ==========
+     Which tab is open, and which funnel the Themes/Templates tabs are
+     editing, both ride in the page URL's hash as tab=<name>&funnel=<public
+     id>. Why the hash: it is the ONE channel every one of this page's
+     SEPARATE top-level island scopes can read and write without sharing a
+     closure (this file emits two, quotes-tabs/themes.ts and
+     quotes-tabs/templates.ts one each), it survives a reload, and the idiom
+     already exists in this codebase (ui-section-studio.ts opens its mapping
+     drawer from window.location.hash on load). It replaces the FIRST fix's
+     transient data-carried-funnel-public-id attribute, which this very
+     listener wiped on the next plain tab click -- so a Theme edit made after
+     Themes -> Activation -> Themes silently landed on the editor-selected
+     funnel again (the owner's original R6-1 report, reproduced).
+     Every reader/writer below is deliberately self-sufficient: an identical
+     copy of these two helpers lives in the board island's scope further down
+     (a function in one top-level IIFE is NOT visible in another -- the exact
+     mistake that threw "clearCarriedChipFunnel is not defined" in a real
+     browser while every unit test passed). window.location/window.history
+     are read defensively so the ES5-sandbox island harnesses (which stub
+     window with timers only) keep booting this script unchanged. ======== */
+  function lgHashParam(name) {
+    var loc = (typeof window === 'undefined' || !window) ? null : window.location;
+    var h = (loc && loc.hash) ? String(loc.hash) : '';
+    var m = h.match(new RegExp('[#&]' + name + '=([^&]*)'));
+    return m ? decodeURIComponent(m[1]) : '';
+  }
+  function lgSetHashParam(name, value) {
+    var loc = (typeof window === 'undefined' || !window) ? null : window.location;
+    if (!loc) { return; }
+    var tab = name === 'tab' ? value : lgHashParam('tab');
+    var funnel = name === 'funnel' ? value : lgHashParam('funnel');
+    var parts = [];
+    if (tab) { parts.push('tab=' + encodeURIComponent(tab)); }
+    if (funnel) { parts.push('funnel=' + encodeURIComponent(funnel)); }
+    var hash = parts.length > 0 ? '#' + parts.join('&') : '';
+    var hist = window.history;
+    if (hist && hist.replaceState) { hist.replaceState(null, '', (loc.pathname || '') + (loc.search || '') + hash); return; }
+    loc.hash = hash;
+  }
   function activate(name) {
     var i;
     for (i = 0; i < tabs.length; i++) {
@@ -4020,11 +4603,35 @@ if (!document.getElementById('toast-animations')) {
     // stale value.
     if (name === 'templates' || name === 'themes') { populateAllControls(); }
     if (name === 'themes') { loadThemePresetOptions(); }
+    // P8-1 F1: remember WHERE the operator is, so a reload comes back to the
+    // same tab (and, via the funnel param this preserves, the same funnel).
+    lgSetHashParam('tab', name);
   }
   var ti;
   for (ti = 0; ti < tabs.length; ti++) {
+    // P8-1 F1 (B3/R6-1 round 2): a plain top-bar tab click NO LONGER clears
+    // the funnel the Themes/Templates tabs are editing. The first fix cleared
+    // it here (the carry was a transient DOM attribute), which is exactly why
+    // Themes -> Activation -> Themes silently retargeted the editor-selected
+    // funnel and the owner's theme edit landed on the wrong one. activate()
+    // persists the tab; the funnel param it preserves survives the trip.
     tabs[ti].addEventListener('click', function () { activate(this.getAttribute('data-tab')); });
   }
+  // P8-1 F1: honour the persisted location on load, so a reload while editing
+  // a funnel's theme comes back to that tab (the funnel param is read by the
+  // Themes/Templates islands themselves). Deferred to DOMContentLoaded (the
+  // repo idiom, see quotes-tabs/templates.ts's own init) so every other
+  // island on this page has finished booting before a tab is activated; an
+  // unknown tab name is ignored rather than blanking every panel.
+  function honourPersistedTab() {
+    var want = lgHashParam('tab');
+    if (want === '') { return; }
+    var hit = null;
+    var hi;
+    for (hi = 0; hi < tabs.length; hi++) { if (tabs[hi].getAttribute('data-tab') === want) { hit = tabs[hi]; } }
+    if (hit !== null) { activate(want); }
+  }
+  if (document.readyState === 'loading') { document.addEventListener('DOMContentLoaded', honourPersistedTab); } else { honourPersistedTab(); }
   // Generic data-goto-tab click delegation (the head's Publish button jumps
   // into Activation; the board's A/B badge / theme pickchip jump into A/B /
   // Themes via this SAME mechanism, gotoTab() in the board island below).
@@ -4273,11 +4880,36 @@ if (!document.getElementById('toast-animations')) {
   // theme_id excluded) on top via deepMerge (a NESTED merge — so editing
   // ONE palette role never displaces the preset's OTHER resolved roles,
   // unlike a shallow key overwrite); then PUT.
+  // P8-1 J1 (review #4, BLOCKER F-1) — THE OTHER READ-BEFORE-MERGE, FAIL-CLOSED.
+  // FAIL-BEFORE: '(getRes.ok && getRes.body && getRes.body.theme) || {}' checked
+  // .ok and then threw the answer away — every false value collapsed to {}, and
+  // the deepMerge below PUT that as the funnel's WHOLE theme. That is the wipe
+  // the preset branch's own comment describes ("turned an unreadable preset into
+  // an EMPTY inline theme and PUT it, wiping the funnel's look with no error"),
+  // one level up, on the funnel's own theme; quotes-tabs/themes.ts's autosave
+  // carried the identical collapse and review #4 measured it destroying
+  // P8-Charlie's stored theme twice. An unreadable GET now REJECTS: the one-Save
+  // chain's catch surfaces the message, themeDirty stays set (Save is the
+  // retry), and no theme PUT is ever sent.
+  // theme === null is NOT unreadable — frame-handlers.ts themeProjection answers
+  // {theme: null} for a funnel with no stored theme, whose first edit must save.
+  function themeReadAbortError(body) {
+    var name = targetFunnelName();
+    var why = (body && typeof body.error === 'string' && body.error !== '') ? body.error : 'the theme could not be read';
+    var msg = 'Theme save: could not read the current theme for ' + name + ' \u2014 ' + why +
+      '. Nothing was saved and ' + name + '\u2019s stored theme is unchanged.';
+    var e = new Error(msg);
+    e.lgOperatorMessage = msg;
+    return e;
+  }
   function normalizedThemePut(funnelBase) {
     return fetch(funnelBase + '/theme', { credentials: 'same-origin', headers: { Accept: 'application/json' } })
-      .then(function (r) { return r.json().then(function (j) { return { ok: r.ok, body: j }; }); })
+      .then(function (r) { return r.json().then(function (j) { return { ok: r.ok, body: j }; }, function () { return { ok: false, body: null }; }); })
       .then(function (getRes) {
-        var current = (getRes.ok && getRes.body && getRes.body.theme) || {};
+        if (!(getRes.ok && getRes.body && typeof getRes.body === 'object' && getRes.body.theme !== undefined)) {
+          throw themeReadAbortError(getRes.body);
+        }
+        var current = getRes.body.theme || {};
         if (typeof current.theme_id === 'string' && current.theme_id !== '') {
           // R2 P2 FIX-FIRST-2 (fail-closed): a preset that cannot be read
           // REJECTS here — the one-Save chain's own catch surfaces the
@@ -4301,6 +4933,85 @@ if (!document.getElementById('toast-animations')) {
       });
   }
 
+  // P8-1 F5 (B3/R6-1, defect C) — WHICH funnel the one-Save chain writes.
+  // F1 gave the Themes/Templates panels a PERSISTED target funnel (the URL
+  // hash's funnel=<public id>, set by a column's Theme/Template chip or by
+  // either panel's own picker), but this chain still hard-coded
+  // funnelPublicId — the EDITOR-selected funnel, frozen at page load. The
+  // Templates panel's element controls are saved by THIS chain (its
+  // [data-frame-key]/[data-tplbox-*] DOM sits inside #lg-quote-editor and is
+  // wired by this island's delegated listeners), so "switch the Templates
+  // target to Charlie, edit a layout control, press Save" issued
+  // PUT /funnels/<Funnel A>/frame — silently overwriting a funnel the
+  // operator is not looking at. That is the owner's B3 sentence again, one
+  // path over, and destructive.
+  // The two funnel-scoped steps below (frame PUT; normalizedThemePut's
+  // GET+PUT /theme) now resolve the SAME target the panels do, with the
+  // editor's funnel as the default when no target is set. Same guard
+  // quotes-tabs/templates.ts's targetFunnelPublicId() uses: a hash pointing
+  // at a funnel the board no longer has falls back rather than editing blind.
+  // Step 3 is NOT re-pointed: it is variant-scoped (lander_*/
+  // funnel_design_id/auction_id/frame_overrides_json all belong to the
+  // editor-selected ARM, whose controls are the Funnel-settings dialog's) —
+  // switching which funnel the Templates canvas edits does not move the arm.
+  function saveTargetFunnelPublicId() {
+    var picked = lgHashParam('funnel');
+    if (picked === '' || picked === funnelPublicId) { return funnelPublicId; }
+    var board = readBlob('lg-board-data');
+    var rows = (board && board.funnels) ? board.funnels : [];
+    var bi;
+    for (bi = 0; bi < rows.length; bi++) { if (rows[bi].public_id === picked) { return picked; } }
+    return funnelPublicId;
+  }
+  // The NAME of that funnel, from the board rows already on the page
+  // (#lg-board-data — the same list saveTargetFunnelPublicId validates
+  // against). Used by the two operator sentences this island now writes: the
+  // fail-closed theme-read refusal above and the off-target override note
+  // below. No new source of funnel truth.
+  function targetFunnelName() {
+    var picked = saveTargetFunnelPublicId();
+    var board = readBlob('lg-board-data');
+    var rows = (board && board.funnels) ? board.funnels : [];
+    var ni;
+    for (ni = 0; ni < rows.length; ni++) {
+      if (rows[ni].public_id === picked && rows[ni].name) { return String(rows[ni].name); }
+    }
+    return 'this funnel';
+  }
+  // P8-1 F6 (B3/R6-1, F5's named residual) — WHOSE ARM the override switch
+  // speaks for. The §4.5 per-arm override switch belongs to the EDITOR-selected
+  // VARIANT, which is an arm of the EDITOR-selected FUNNEL. When the Themes/
+  // Templates panels target a DIFFERENT funnel (F1's hash target), that arm is
+  // not part of it, so every override route below would write the editor
+  // funnel's arm (PUT /variants/<editor arm> frame_overrides_json) while the
+  // panel's header names the target — the owner's B3 sentence again, one path
+  // over, and invisible: the funnel on screen changes nothing at all.
+  // With no target set (or a target that IS the editor funnel) this answers
+  // true and every override route behaves exactly as before.
+  function editorArmOwnsTarget() { return saveTargetFunnelPublicId() === funnelPublicId; }
+  // The ONE question the three theme-override routes ask (applyPaletteValue,
+  // the role-reset handler, the preset Apply button) — never three hand-rolled
+  // copies of the same condition that can drift apart again.
+  function themeOverrideActive() { return !isControl && overrideMode['theme'] === 'override' && editorArmOwnsTarget(); }
+  // P8-1 H1 (review #3, BLOCKER) — THE READ SIDE OF THAT SAME QUESTION.
+  // Every WRITE asked the predicate above (applyPaletteValue, the role-reset,
+  // writeTargetFor); every READ of the arm's override palette asked nothing,
+  // so with another funnel targeted the rail painted the EDITOR ARM's colour
+  // under the target funnel's name and tagged it "This funnel" — driven and
+  // measured on all four role strips (swatch rgb(255, 153, 0), header and
+  // picker both reading "Editing: P8-Bravo", canvas 30px away painting
+  // Bravo's own). Worse, the control then looked DEAD: a role pick for Bravo
+  // issued its PUT and stored the value, and the swatch did not move, because
+  // this ungated read kept winning over what the pick had just written.
+  // ONE predicate, both directions: the arm's palette is what the rail SHOWS
+  // exactly when it is what a write would TOUCH. Off-target (or override off)
+  // it is {} and every read falls through to the target funnel's own theme —
+  // which is where that write goes.
+  function shownOverridePalette() {
+    if (!themeOverrideActive()) { return {}; }
+    return (workingOverrides.theme && workingOverrides.theme.palette) ? workingOverrides.theme.palette : {};
+  }
+
   // --- 4.7 one-Save: frame PUT (when edited) -> theme PUT (when edited) ->
   // variant PUT (ONLY when order/lander/design/auction/rules or the sparse
   // overrides changed). Each step's dirty flag clears THE MOMENT its own PUT
@@ -4314,7 +5025,7 @@ if (!document.getElementById('toast-animations')) {
       hideMsg('lg-quote-error'); hideMsg('lg-quote-ok');
       saveBtn.disabled = true;
       var warned = 0;
-      var funnelBase = '/api/admin/leadgen/funnels/' + encodeURIComponent(funnelPublicId);
+      var funnelBase = '/api/admin/leadgen/funnels/' + encodeURIComponent(saveTargetFunnelPublicId());
       var step1 = frameDirty
         ? putJson(funnelBase + '/frame', { frame_config_json: workingFrame })
         : Promise.resolve({ ok: true, body: null });
@@ -4327,7 +5038,7 @@ if (!document.getElementById('toast-animations')) {
           : Promise.resolve({ ok: true, body: null });
       }).then(function (res2) {
         if (!res2.ok) { throw new Error(saveFailureText(res2, 'Theme save')); }
-        if (res2.body !== null) { themeDirty = false; }
+        if (res2.body !== null) { themeDirty = false; themeDirtyPaths = {}; }
         if (res2.body && res2.body.problems) { warned += res2.body.problems.length; }
         return (variantDirty || overridesDirty)
           ? putJson('/api/admin/leadgen/variants/' + encodeURIComponent(variantPublicId), collectPayload())
@@ -4413,6 +5124,11 @@ if (!document.getElementById('toast-animations')) {
     }
     return cur;
   }
+  function clearPath(obj, path) {
+    var parts = path.split('.');
+    var parent = parts.length > 1 ? getPath(obj, parts.slice(0, -1).join('.')) : obj;
+    if (isRecordVal(parent)) { delete parent[parts[parts.length - 1]]; }
+  }
   function setPath(obj, path, value) {
     var parts = path.split('.');
     var cur = obj;
@@ -4429,6 +5145,15 @@ if (!document.getElementById('toast-animations')) {
   var workingOverrides = deepClone(lgData.overrides || {});
   var frameDirty = false;
   var themeDirty = false;
+  // P8-1 F6 (F5's defect-D neighbour): WHICH theme paths this session still
+  // owes a write for. quotes-tabs/themes.ts's rail autosaves the very controls
+  // this island also records (one operator edit was MEASURED issuing two
+  // PUT /funnels/<target>/theme — the rail's own, then the one-Save chain's
+  // re-send). The rail announces each landed autosave (lg:theme-autosaved) and
+  // the listener below retires the paths it covered, so the chain re-sends
+  // only what the rail did NOT persist (a rejected autosave leaves the path
+  // here, so Save is still the retry).
+  var themeDirtyPaths = {};
   var overridesDirty = false;
   var overrideMode = {};
   // R2 P7: the dead frame-studio canvas took its state with it (viewport,
@@ -4486,6 +5211,15 @@ if (!document.getElementById('toast-animations')) {
     delete groups.template;
     delete groups.version;
     deepMerge(eff, groups);
+    // P8-1 H1 — the SAME class on the frame half, closed with the SAME
+    // predicate: writeConfigValue routes a group to the arm's overrides only
+    // while writeTargetFor says editorArmOwnsTarget(), so those override
+    // values may only be DISPLAYED while that holds. Targeting another funnel
+    // they belong to an arm of a funnel nobody is looking at — merging them
+    // here filled that funnel's inspector controls (and the non-palette
+    // role-strip selections) with another arm's values, and a Save then wrote
+    // what was on screen.
+    if (!editorArmOwnsTarget()) { return eff; }
     var g;
     for (g in workingOverrides) {
       if (!Object.prototype.hasOwnProperty.call(workingOverrides, g)) { continue; }
@@ -4500,7 +5234,11 @@ if (!document.getElementById('toast-animations')) {
 
   // --- override routing (§4.5) ----------------------------------------------
   function writeTargetFor(group) {
-    if (!isControl && overrideMode[group] === 'override') { return 'overrides'; }
+    // P8-1 F6: 'overrides' means "the EDITOR arm's frame_overrides_json" — a
+    // legal destination only while the panel is editing the editor's OWN
+    // funnel (editorArmOwnsTarget). Targeting another funnel, the write stays
+    // funnel-scoped and the one-Save chain sends it to THAT funnel's frame.
+    if (!isControl && overrideMode[group] === 'override' && editorArmOwnsTarget()) { return 'overrides'; }
     return 'frame';
   }
   function writeConfigValue(path, value) {
@@ -4515,25 +5253,44 @@ if (!document.getElementById('toast-animations')) {
       frameDirty = true;
     }
     markDirty();
-    updateOverrideBadge();
   }
-  function updateOverrideBadge() {
-    var badge = byId('lg-override-badge');
-    var list = byId('lg-override-badge-list');
-    if (!badge || !list) { return; }
-    var names = [];
-    var g;
-    for (g in workingOverrides) {
-      if (!Object.prototype.hasOwnProperty.call(workingOverrides, g)) { continue; }
-      if (g === 'template' || g === 'version') { continue; }
-      if (isRecordVal(workingOverrides[g]) && !isEmptyObject(workingOverrides[g])) { names.push(OVERRIDE_LABELS[g] || g); }
-    }
-    if (names.length === 0) { badge.className = 'lg-chip lg-override-badge lg-hidden'; return; }
-    badge.className = 'lg-chip lg-override-badge';
-    clearChildren(list);
-    list.appendChild(document.createTextNode(names.join(', ')));
-  }
-  function initOverrideSwitches() {
+  // P8-1 K1 (F-13, review #4): updateOverrideBadge() was removed here — the
+  // canvas badge it painted (document.getElementById('lg-override-badge'))
+  // has been null on every served editor page since the §8.2/§10 board
+  // rewrite deleted the canvas it belonged to (MEASURED: review #4 and
+  // test/leadgen-p8-b3-funnel-identity.test.ts's served-page probe both find
+  // no such id on any page, including a non-control arm with §4.5 switches
+  // rendered). test/leadgen-quote-builder-ui.test.ts already pins that
+  // absence as a REQUIREMENT ("the canvas override badge shell is gone with
+  // the canvas, §8.2/§10"), so painting one is not merely dead — it would be
+  // wrong. The override state this function read (workingOverrides) is
+  // still exercised by every write path below unchanged; only the dead
+  // DOM-disclosure function is gone.
+  // P8-1 J1 (review #4, MAJOR F-2) — A CONTROL THAT CANNOT BE HONOURED IS NOT
+  // OFFERED (contract §4 R3). THE FIFTH instance of this class on this surface.
+  // FAIL-BEFORE (driven, review #4 j8-tpl-f8-log.txt, 375): with the arm's
+  // "Override for this variant" ticked and the panel targeted at P8-Delta the
+  // page read {"header":"P8-Delta","overrideChecked":true,"inheritChecked":
+  // false} — and the very next role pick issued
+  // PUT /funnels/<Delta>/theme {"theme_json":{...,"palette":{"brand_primary":
+  // "success"}}}, restyling a WHOLE funnel for every visitor while the arm's
+  // frame_overrides_json stayed {"theme_id":"thm_p8-repro"} and no status
+  // message said a word. Every WRITE already asked editorArmOwnsTarget()
+  // (F6/H1) and every READ asks it through shownOverridePalette (H1); the
+  // SWITCH ITSELF asked nothing, so it kept promising arm scope for an arm this
+  // panel cannot reach.
+  // WHY NOT "route it to the target's arm": the §4.5 switch is per-ARM state and
+  // the arm is the EDITOR-selected VARIANT (renderOverrideSwitch's own contract:
+  // the group's edits go to "the sparse frame_overrides_json"). This panel
+  // selects a target FUNNEL, never one of that funnel's arms — there is no
+  // target-arm to route to, and inventing one would silently author an override
+  // on an arm the operator never chose. So R3's resolution: off-target the
+  // control is DISABLED, reads "Same as funnel", and says where the edit really
+  // lands. overrideMode is untouched, so returning to the editor's own funnel
+  // restores exactly the state the operator left.
+  function overrideSwitchOfferable() { return !isControl && editorArmOwnsTarget(); }
+  function syncOverrideSwitches() {
+    var offerable = overrideSwitchOfferable();
     var radios = root.querySelectorAll('[data-override-group]');
     var i;
     for (i = 0; i < radios.length; i++) {
@@ -4541,13 +5298,31 @@ if (!document.getElementById('toast-animations')) {
       if (overrideMode[group] === undefined) {
         overrideMode[group] = isRecordVal(workingOverrides[group]) && !isEmptyObject(workingOverrides[group]) ? 'override' : 'inherit';
       }
-      radios[i].checked = radios[i].value === overrideMode[group];
+      radios[i].disabled = !offerable;
+      radios[i].checked = offerable ? (radios[i].value === overrideMode[group]) : (radios[i].value === 'inherit');
+    }
+    var notes = root.querySelectorAll('[data-override-note]');
+    var name = targetFunnelName();
+    var text = offerable ? '' : ('Editing ' + name + '. A variant override belongs to the variant this page is open on, ' +
+      'so it cannot be set from here \u2014 changes are saved to ' + name + ' and apply to every visitor of that funnel.');
+    for (i = 0; i < notes.length; i++) {
+      notes[i].textContent = text;
+      notes[i].className = offerable ? 'lg-override-note lg-hidden' : 'lg-override-note';
     }
   }
+  // The boot entry keeps its name (and its one call site below); the switch's
+  // whole visible state is one function now, so it can never drift from the
+  // predicate the writes ask.
+  function initOverrideSwitches() { syncOverrideSwitches(); }
   root.addEventListener('change', function (ev) {
     var el = ev.target;
     if (!el || !el.getAttribute || el.getAttribute('data-override-group') === null) { return; }
     var group = el.getAttribute('data-override-group');
+    // P8-1 J1 (F-2): off-target this control is disabled, so a change here can
+    // only be an engine that fires on a disabled input or a scripted click.
+    // Either way it must not arm an override for an arm this panel is not
+    // editing: repaint the honest state and stand down.
+    if (!overrideSwitchOfferable()) { syncOverrideSwitches(); return; }
     overrideMode[group] = el.value === 'override' ? 'override' : 'inherit';
     if (overrideMode[group] === 'inherit' && workingOverrides[group] !== undefined) {
       delete workingOverrides[group];
@@ -4555,7 +5330,6 @@ if (!document.getElementById('toast-animations')) {
       markDirty();
     }
     populateAllControls();
-    updateOverrideBadge();
   });
 
   // --- inspector control binding ---------------------------------------------
@@ -4864,29 +5638,44 @@ if (!document.getElementById('toast-animations')) {
   }());
 
   // --- role swatches (frame keys + theme palette + theme role picks) ---------
-  function resolveRoleValue(role) {
-    var pal = workingTheme.palette || {};
-    var ov = workingOverrides.theme && workingOverrides.theme.palette ? workingOverrides.theme.palette : {};
+  // P8-1 G1 (review #2, F-1/F-2): every read below resolves from the funnel the
+  // panel is CURRENTLY TARGETING — shownTheme() for what that funnel authored,
+  // targetTokens() for what its roles resolve to. Both were the editor funnel's
+  // boot-time values before, which is how the rail came to paint one funnel's
+  // colours and authorship under another funnel's name.
+  function resolveRoleValue(role, shown) {
+    var pal = shown.palette || {};
+    var tok = targetTokens();
+    // P8-1 H1: gated exactly like the write (shownOverridePalette) — the arm's
+    // override is displayed only while the arm is what a pick would write to.
+    var ov = shownOverridePalette();
     var v = ov[role] !== undefined ? ov[role] : pal[role];
-    if (v === undefined || v === null || v === '') { return tokens[role] || ''; }
+    if (v === undefined || v === null || v === '') { return tok[role] || ''; }
     if (String(v).charAt(0) === '#') { return String(v); }
-    return tokens[v] || tokens[role] || '';
+    return tok[v] || tok[role] || '';
   }
   function paintSwatches() {
+    var shown = shownTheme();
     var swatches = root.querySelectorAll('.lg-role-swatch');
     var i;
     for (i = 0; i < swatches.length; i++) {
-      swatches[i].style.background = resolveRoleValue(swatches[i].getAttribute('data-role-pick'));
+      swatches[i].style.background = resolveRoleValue(swatches[i].getAttribute('data-role-pick'), shown);
     }
     var themeSw = root.querySelectorAll('[data-theme-role]');
     for (i = 0; i < themeSw.length; i++) {
       var role = themeSw[i].getAttribute('data-theme-role');
       var sw = themeSw[i].querySelector('[data-role-swatch]');
-      if (sw) { sw.style.background = resolveRoleValue(role); }
+      if (sw) { sw.style.background = resolveRoleValue(role, shown); }
       var src = themeSw[i].querySelector('[data-role-source]');
       if (src) {
-        var owned = (workingTheme.palette && workingTheme.palette[role] !== undefined) ||
-          (workingOverrides.theme && workingOverrides.theme.palette && workingOverrides.theme.palette[role] !== undefined);
+        // Whether the TARGETED funnel's theme owns this role — measured lying
+        // before G1: P8-Charlie's brand_primary, authored as role success,
+        // read "Base design" because the switch listener empties workingTheme.
+        // P8-1 H1: and lying the other way after G1 — an EDITOR-ARM override
+        // read here ungated tagged "This funnel" on a funnel that authors
+        // nothing, so the tag now asks the write predicate too.
+        var owned = (shown.palette && shown.palette[role] !== undefined) ||
+          shownOverridePalette()[role] !== undefined;
         clearChildren(src);
         src.appendChild(document.createTextNode(owned ? 'This funnel' : 'Base design'));
       }
@@ -4894,6 +5683,7 @@ if (!document.getElementById('toast-animations')) {
     paintHarmonyChips();
   }
   function markStripSelection() {
+    var shown = shownTheme();
     var strips = root.querySelectorAll('[data-role-strip]');
     var i, j;
     for (i = 0; i < strips.length; i++) {
@@ -4901,9 +5691,15 @@ if (!document.getElementById('toast-animations')) {
       var current = null;
       if (key.indexOf('palette.') === 0) {
         var role = key.slice(8);
-        current = (workingTheme.palette && workingTheme.palette[role]) || null;
+        // P8-1 H1: the marked pick is the value a write would REPLACE — so it
+        // reads the arm's override first while that is where writes go
+        // (applyPaletteValue's own order), and the target funnel's theme
+        // otherwise. Before this, a role picked with the override ON wrote the
+        // arm and the ring never moved off the funnel's own value.
+        var ovp = shownOverridePalette();
+        current = (ovp[role] !== undefined ? ovp[role] : (shown.palette && shown.palette[role])) || null;
       } else if (key.indexOf('theme:') === 0) {
-        current = getPath(workingTheme, key.slice(6)) || null;
+        current = getPath(shown, key.slice(6)) || null;
       } else {
         current = getPath(clientEffective(), key) || null;
       }
@@ -4916,14 +5712,13 @@ if (!document.getElementById('toast-animations')) {
   function writeThemeValue(path, value) {
     if (value === null || value === '') {
       // delete the key — absent inherits from the base design (09 §9.2)
-      var parts = path.split('.');
-      var parent = parts.length > 1 ? getPath(workingTheme, parts.slice(0, -1).join('.')) : workingTheme;
-      if (isRecordVal(parent)) { delete parent[parts[parts.length - 1]]; }
+      clearPath(workingTheme, path);
     } else {
       setPath(workingTheme, path, value);
       workingTheme.version = 1;
     }
     themeDirty = true;
+    themeDirtyPaths[path] = 1;
     markDirty();
     paintSwatches();
     markStripSelection();
@@ -4951,7 +5746,10 @@ if (!document.getElementById('toast-animations')) {
   // colors): §4.5-aware — rides frame_overrides_json.theme when the theme
   // override switch is ON for this arm, the funnel theme otherwise.
   function applyPaletteValue(role, value) {
-    if (!isControl && overrideMode['theme'] === 'override') {
+    // P8-1 F6: the arm's override only owns this write while the panel is on
+    // the editor's own funnel (see themeOverrideActive) — otherwise the role
+    // goes to the TARGET funnel's theme through writeThemeValue below.
+    if (themeOverrideActive()) {
       if (!isRecordVal(workingOverrides.theme)) { workingOverrides.theme = {}; }
       if (!isRecordVal(workingOverrides.theme.palette)) { workingOverrides.theme.palette = {}; }
       workingOverrides.theme.palette[role] = value;
@@ -4959,7 +5757,6 @@ if (!document.getElementById('toast-animations')) {
       markDirty();
       paintSwatches();
       markStripSelection();
-      updateOverrideBadge();
     } else {
       if (!isRecordVal(workingTheme.palette)) { workingTheme.palette = {}; }
       writeThemeValue('palette.' + role, value);
@@ -4984,11 +5781,14 @@ if (!document.getElementById('toast-animations')) {
     if (!el || !el.getAttribute) { return; }
     var resetRole = el.getAttribute('data-role-reset');
     if (resetRole === null) { return; }
-    if (workingOverrides.theme && workingOverrides.theme.palette && workingOverrides.theme.palette[resetRole] !== undefined) {
+    // P8-1 F6: clearing the EDITOR arm's override is only "reset to inherited"
+    // while this panel edits the editor's own funnel; targeting another funnel
+    // the reset belongs to THAT funnel's theme (writeThemeValue's delete).
+    if (editorArmOwnsTarget() && workingOverrides.theme && workingOverrides.theme.palette && workingOverrides.theme.palette[resetRole] !== undefined) {
       delete workingOverrides.theme.palette[resetRole];
       overridesDirty = true;
       markDirty();
-      paintSwatches(); markStripSelection(); updateOverrideBadge();
+      paintSwatches(); markStripSelection();
       emitPaletteDraft(resetRole, null);
       return;
     }
@@ -5048,7 +5848,17 @@ if (!document.getElementById('toast-animations')) {
       channelHex(rgb[2] * (1 - ratio) + target[2] * ratio);
   }
   function harmonyValue(role, step) {
-    var base = baseTokens[role] || tokens[role] || '';
+    // P8-1 G1 (review #2, F-3): the fallback resolves against the TARGETED
+    // funnel's role table, not the editor funnel's boot-time one. baseTokens
+    // itself is the BASE DESIGN's table (09 §9.3: "curated harmonies derived
+    // from the base design"; the panel's own copy says "Suggested from this
+    // design's base value") — it is per-DESIGN, not per-funnel, and the SSR
+    // blob carries only the editor funnel's design. Targeting a funnel on a
+    // DIFFERENT base design therefore still derives from the editor funnel's
+    // design; GET /funnels/:id/theme returns {theme, effective_tokens} and no
+    // base-design table, so closing that residue needs the endpoint to carry
+    // one (frame-handlers.ts themeProjection) — reported, not silently patched.
+    var base = baseTokens[role] || targetTokens()[role] || '';
     if (step === 'base') { return base; }
     if (step === 'wash') { return mixHex(base, [255, 255, 255], 0.85); }
     if (step === 'darker') { return mixHex(base, [0, 0, 0], 0.25); }
@@ -5094,6 +5904,61 @@ if (!document.getElementById('toast-animations')) {
   });
 
   // --- populate every inspector control from the effective config ------------
+  // P8-1 F6 (B3/R6-1, defect D one file over) — the STORED theme of the funnel
+  // the Themes/Templates panels are currently editing. Boots as the editor
+  // funnel's own SSR theme (lg-quote-data), and is replaced by the target
+  // funnel's own the moment quotes-tabs/themes.ts announces it — that island
+  // GETs /funnels/<target>/theme on every target switch anyway (it is the
+  // island that owns the rail), so this is ONE fetch feeding two consumers,
+  // exactly like F5's lg:target-funnel-frame seam for the layout controls.
+  // A baseline whose funnel is not the current target is DISCARDED rather than
+  // shown: better a blank control for one round-trip than another funnel's
+  // values under a header naming this one.
+  // P8-1 G1 (review #2, F-1): it carries that funnel's role→value table as well
+  // — the SAME GET's effective_tokens. The rail's COLOUR half (14 role rows'
+  // swatches, the role-pick strips, the harmony chips) resolves every value
+  // through that table, and reading it off the boot blob is what made the panel
+  // paint Funnel A's brand-primary under P8-Charlie's name while the selects beside
+  // it correctly read Charlie's "xl".
+  var targetThemeState = { funnel: funnelPublicId, theme: themeState.theme || {}, tokens: tokens };
+  // P8-1 H1 (m-2) — a funnel whose theme the rail COULD NOT READ. The discard
+  // rule above is "blank for one round-trip", which is only true while a table
+  // is on its way: driven against an injected 500, no table ever came and all
+  // 14 swatches sat at rgba(0, 0, 0, 0) with every select blank, silently and
+  // permanently. For a funnel the rail has announced as unreadable the panel
+  // therefore KEEPS the table it is already showing, and the page's own error
+  // banner says so in the same breath (quotes-tabs/themes.ts writes it) — the
+  // disclosure is what makes holding the previous values honest rather than a
+  // funnel's name over another funnel's numbers.
+  var unreadableThemeFunnel = '';
+  function themeTableIsCurrent() {
+    var t = saveTargetFunnelPublicId();
+    return targetThemeState.funnel === t || unreadableThemeFunnel === t;
+  }
+  function themeBaseline() {
+    return themeTableIsCurrent() ? (targetThemeState.theme || {}) : {};
+  }
+  // Same discard rule as themeBaseline(): a table announced for a funnel that
+  // is no longer the target is DROPPED, never painted under this one's name.
+  function targetTokens() {
+    return themeTableIsCurrent() ? (targetThemeState.tokens || {}) : {};
+  }
+  // THE THEME THE PANEL IS SHOWING: the target funnel's stored theme with this
+  // session's edits — the sets AND the deletions (writeThemeValue removes a key
+  // to mean "inherit from the base design", so the baseline underneath must not
+  // put it back) — on top. F6 computed this merge inline for the 16
+  // [data-theme-key] selects only; every role row now reads the same thing, so
+  // the authorship tag and the role-pick selection stop describing the editor
+  // funnel while the header names another.
+  function shownTheme() {
+    var shown = deepMerge(deepClone(themeBaseline()), workingTheme);
+    var p;
+    for (p in themeDirtyPaths) {
+      if (!Object.prototype.hasOwnProperty.call(themeDirtyPaths, p)) { continue; }
+      if (getPath(workingTheme, p) === undefined) { clearPath(shown, p); }
+    }
+    return shown;
+  }
   function populateAllControls() {
     var eff = clientEffective();
     var controls = root.querySelectorAll('[data-frame-key]');
@@ -5118,15 +5983,124 @@ if (!document.getElementById('toast-animations')) {
     fillBrandLogos(eff.brand_logos || null);
     fillFooterBlocks((eff.footer && eff.footer.blocks) || []);
     fillImages(eff.images || []);
+    // The rail's theme controls: the TARGET funnel's stored theme with this
+    // session's own edits on top. Painting from workingTheme ALONE (the
+    // pre-F6 code) told the truth only about the editor's funnel: after a
+    // target switch F5 deliberately empties it, so all 16 selects read
+    // "Inherit from base design" — MEASURED on 2026-08-03 against P8-Charlie,
+    // whose stored theme_json carries typography.display_size = "xl".
+    var themeShown = shownTheme();
     var themeControls = root.querySelectorAll('[data-theme-key]');
     for (i = 0; i < themeControls.length; i++) {
-      var tval = getPath(workingTheme, themeControls[i].getAttribute('data-theme-key'));
+      var tval = getPath(themeShown, themeControls[i].getAttribute('data-theme-key'));
       themeControls[i].value = tval === null || tval === undefined ? '' : String(tval);
     }
     syncAllMediaFields();
     paintSwatches();
     markStripSelection();
+    // P8-1 J1 (F-2): the §4.5 override switch is one of this panel's controls,
+    // so it is repainted with the rest of them — which is what makes it follow
+    // EVERY target change (both seams below call this, as does boot).
+    syncOverrideSwitches();
   }
+
+  // P8-1 F5 (B3/R6-1, defect D) — REPAINT THE CONTROLS ON A TARGET SWITCH.
+  // The Templates panel's canvas re-read the newly targeted funnel's frame
+  // (F1's syncFrameToTargetFunnel), but every control beside it — the
+  // box-picker element groups, the dynamic CTA/disclosure/free-text/
+  // brand-logo/footer-block/image lists, the media fields — is populated from
+  // THIS island's state, which stayed on the editor-selected funnel. The
+  // screen then asserted something untrue: canvas = Charlie, controls =
+  // Funnel A. Worse, with the save chain now correctly writing the target,
+  // those stale values would have been PUT onto Charlie on the next Save.
+  // No second fetch: quotes-tabs/templates.ts already GETs /funnels/:id/frame
+  // on every target change (from ANY source — a chip click, either panel's
+  // picker, or a reload that boots on a persisted target) and hands the SAME
+  // response body over as this event's detail.
+  // The theme baseline resets to EMPTY rather than to the old funnel's
+  // theme: workingTheme boots as the editor funnel's whole stored theme, and
+  // normalizedThemePut merges it onto whatever it GETs, so carrying it across
+  // a switch would stamp Funnel A's palette onto Charlie the first time any
+  // theme control is touched. Post-switch the chain carries ONLY edits made
+  // after the switch, merged onto the target's own stored theme.
+  document.addEventListener('lg:target-funnel-frame', function (ev) {
+    var detail = (ev && ev.detail) ? ev.detail : null;
+    if (!detail || !detail.frame) { return; }
+    frameState = detail.frame;
+    workingFrame = deepClone(frameState.frame_config || {});
+    workingTheme = {};
+    frameDirty = false;
+    themeDirty = false;
+    themeDirtyPaths = {};
+    dirty = variantDirty || allocDirty || overridesDirty;
+    populateAllControls();
+  });
+
+  // P8-1 F6 — the THEME half of that same seam (quotes-tabs/themes.ts owns the
+  // rail, so it owns the GET). Its announcement is what lets the rail's own
+  // selects show the target funnel's stored values instead of the blank
+  // "Inherit from base design" every one of them showed after a switch.
+  document.addEventListener('lg:target-funnel-theme', function (ev) {
+    var detail = (ev && ev.detail) ? ev.detail : null;
+    if (!detail || !detail.funnel_public_id) { return; }
+    // P8-1 H1 (m-2): the rail could not READ this funnel's theme. Hold the
+    // table already on screen (see unreadableThemeFunnel) instead of blanking
+    // the whole colour half forever. The pre-switch EDITS still go: they were
+    // authored against the previous funnel and the one-Save chain now writes
+    // the target, so carrying them would stamp one funnel's edits onto
+    // another — the exact destruction F5/F6 closed.
+    if (detail.failed === true) {
+      unreadableThemeFunnel = detail.funnel_public_id;
+      if (targetThemeState.funnel !== detail.funnel_public_id) {
+        workingTheme = {};
+        themeDirty = false;
+        themeDirtyPaths = {};
+        dirty = variantDirty || allocDirty || overridesDirty || frameDirty;
+      }
+      populateAllControls();
+      return;
+    }
+    unreadableThemeFunnel = '';
+    // A baseline for a DIFFERENT funnel than the one this session's theme
+    // edits were made against: drop those edits, exactly as the frame seam
+    // above drops the layout ones. workingTheme boots as the editor funnel's
+    // WHOLE stored theme and normalizedThemePut merges it onto whatever it
+    // GETs, so carrying it across would stamp one funnel's palette onto
+    // another — F5 closed that on the frame announcement; this closes it on
+    // the theme announcement, which is the one that always fires (the rail
+    // owns the theme GET; the Templates island need not even be on the page).
+    var switchedFunnel = targetThemeState.funnel !== detail.funnel_public_id;
+    // P8-1 G1: the colour table rides the same announcement (the rail's ONE
+    // GET returns both halves), so the swatches, the authorship tags, the
+    // role-pick selection and the harmony chips re-point with the selects.
+    targetThemeState = { funnel: detail.funnel_public_id, theme: detail.theme || {}, tokens: detail.effective_tokens || {} };
+    if (switchedFunnel) {
+      workingTheme = {};
+      themeDirty = false;
+      themeDirtyPaths = {};
+      dirty = variantDirty || allocDirty || overridesDirty || frameDirty;
+    }
+    if (detail.funnel_public_id !== saveTargetFunnelPublicId()) { return; }
+    populateAllControls();
+  });
+
+  // P8-1 F6 — ONE operator edit, ONE write. The rail (quotes-tabs/themes.ts)
+  // persists a theme edit the moment it is made; this island ALSO recorded it
+  // and the one-Save chain re-sent it (measured: two PUT /funnels/<target>/
+  // theme for a single Display-size change). A landed autosave retires the
+  // paths it covered here, so Save re-sends only what the rail did not
+  // persist — a REJECTED autosave announces nothing and stays retryable.
+  document.addEventListener('lg:theme-autosaved', function (ev) {
+    var detail = (ev && ev.detail) ? ev.detail : null;
+    if (!detail || detail.funnel_public_id !== saveTargetFunnelPublicId()) { return; }
+    var paths = detail.paths || [];
+    var pi;
+    for (pi = 0; pi < paths.length; pi++) { delete themeDirtyPaths[paths[pi]]; }
+    var k;
+    for (k in themeDirtyPaths) { if (Object.prototype.hasOwnProperty.call(themeDirtyPaths, k)) { return; } }
+    themeDirty = false;
+    dirty = variantDirty || allocDirty || overridesDirty || frameDirty;
+  });
 
   // ==========================================================================
   // Round-4 P5b — Templates-tab per-element dynamic lists. Each dynamic list
@@ -6378,21 +7352,25 @@ if (!document.getElementById('toast-animations')) {
       .catch(function () { /* leave the select as-is on a transient network error */ });
   }
 
-  // Fork the SELECTED variant, then apply the new arm's traffic split (and
-  // shrink the original's to match, keeping Σ==10000) — the SAME §16.2 fork+
-  // allocation mechanism "Fork this variant"/"Add variant"/"A/B this theme"
-  // all share. themeIdOrNull !== null additionally assigns that preset as the
-  // new arm's theme override (frame_overrides_json.theme_id) — the theme A/B
-  // one-click path; null leaves the fork's own cloned theme untouched (the
-  // generic "Add variant" path).
+  // Fork an arm, then apply the new arm's traffic split (and shrink the
+  // original's to match, keeping Σ==10000) — the SAME §16.2 fork+allocation
+  // mechanism "Add variant" and "A/B this theme" share (forkThenSplit below).
+  // themeIdOrNull !== null additionally assigns that preset as the new arm's
+  // theme override (frame_overrides_json.theme_id) — the theme A/B one-click
+  // path; null leaves the fork's own cloned theme untouched (the generic "Add
+  // variant" path).
   // §16.2 line 35 (quotes-handlers.ts putVariantHandler): a traffic_allocation_bp
   // CHANGE on an ACTIVE variant whose funnel has a RUNNING test is refused
   // (409) — "the operator rebalances via stop -> edit -> start, and START
   // bumps the revision + re-gates Σ==10000 + cleanly re-buckets." fork's own
   // precondition requires a running test to bootstrap the 2nd arm, so
-  // forkWithAllocation/saveAllocations always hit this guard when they try to
+  // forkThenSplit/saveAllocations always hit this guard when they try to
   // set a CUSTOM split afterward — both ride that exact stop -> edit -> start
   // cycle below rather than the old bare concurrent PUTs.
+  // P8-1 F7: WHICH funnel's experiment that cycle stops and restarts is the
+  // caller's answer, never this DOM badge's — [data-stop-experiment] is the
+  // A/B tab's chip for the EDITOR-selected funnel, so a Themes-rail action on
+  // another funnel would stop/start a live test nobody is looking at.
   function findRunningExperimentId() {
     var stopBtn = root.querySelector('[data-stop-experiment]');
     return stopBtn ? stopBtn.getAttribute('data-stop-experiment') : null;
@@ -6410,10 +7388,18 @@ if (!document.getElementById('toast-animations')) {
 
   // P6 fixes3 (E1): the A/B tab now carries the server's fork precondition on
   // the button itself (data-add-variant-state, computed in quotes-tabs/ab.ts)
-  // and disables it with a visible reason. The Themes tab's "A/B this theme"
-  // hits the SAME fork endpoint from a panel that shows no such state, so it
-  // reads that attribute and names the next step instead of prompting the
-  // operator straight into the 409. Returns null when a fork can proceed.
+  // and disables it with a visible reason, so the A/B tab's own "Add variant"
+  // names the next step instead of prompting the operator straight into the
+  // 409. Returns null when a fork can proceed.
+  // P8-1 F7 (B3/R6-1): this reader speaks for THAT button only. The state it
+  // reads is the server's verdict about the EDITOR-selected funnel, which says
+  // nothing about any other funnel — so the Themes rail's "A/B this theme",
+  // which acts on the panel's TARGET funnel, no longer consults it: with the
+  // header reading "P8-Charlie" it refused Charlie's fork whenever Funnel A's
+  // test was frozen and — the dangerous direction — waved it through whenever
+  // Funnel A was "ready". That path now SATISFIES the target's own
+  // precondition (abThisThemeOnTarget below) instead of guessing at it from
+  // another funnel's badge.
   function addVariantBlockedReason() {
     var btn = byId('lg-add-variant');
     if (!btn) { return null; }
@@ -6424,17 +7410,80 @@ if (!document.getElementById('toast-animations')) {
     return txt || 'A second variant is only allowed as an arm of a running A/B test \u2014 create one on the A/B tab, start it, then add the variant.';
   }
 
-  function forkWithAllocation(themeIdOrNull) {
-    var blockedWhy = addVariantBlockedReason();
-    if (blockedWhy) { showMsg('lg-quote-error', blockedWhy); return; }
+  // P8-1 F7 (B3/R6-1): WHICH ARM the panels' target funnel exposes — its ACTIVE
+  // variant, read from the board blob's own active_variant_public_id (the SAME
+  // row quotes-tabs/themes.ts's targetVariantPublicId() reads for its canvas
+  // preview), and the editor's own arm whenever the target IS the editor's
+  // funnel, so an untargeted page behaves exactly as before. Read AT THE
+  // ACTION, never cached — same rule as saveTargetFunnelPublicId().
+  function saveTargetVariantPublicId() {
+    var picked = saveTargetFunnelPublicId();
+    if (picked === funnelPublicId) { return variantPublicId; }
+    var board = readBlob('lg-board-data');
+    var rows = (board && board.funnels) ? board.funnels : [];
+    var bi;
+    for (bi = 0; bi < rows.length; bi++) {
+      if (rows[bi].public_id === picked) { return rows[bi].active_variant_public_id || variantPublicId; }
+    }
+    return variantPublicId;
+  }
+
+  // The split, asked ONCE and before any request, so a cancelled prompt leaves
+  // nothing behind on any funnel. null = cancelled or out of range.
+  function promptForkSplit() {
     var pctStr = window.prompt("New variant's share of traffic, in percent (the rest stays with the current variant):", '50');
-    if (pctStr === null) { return; }
+    if (pctStr === null) { return null; }
     var pct = parseFloat(pctStr);
-    if (!(pct >= 0 && pct <= 100)) { showMsg('lg-quote-error', 'Enter a number between 0 and 100.'); return; }
+    if (!(pct >= 0 && pct <= 100)) { showMsg('lg-quote-error', 'Enter a number between 0 and 100.'); return null; }
     var newBp = Math.round(pct * 100);
-    var keepBp = 10000 - newBp;
-    hideMsg('lg-quote-error');
-    fetch('/api/admin/leadgen/variants/' + encodeURIComponent(variantPublicId) + '/fork', {
+    return { newBp: newBp, keepBp: 10000 - newBp };
+  }
+
+  // P8-1 F7: the TARGET funnel's RUNNING experiment id — resolved, or created
+  // and started. Byte-for-byte the shape quotes-tabs/templates.ts's "A/B
+  // templates" already runs against its own target (ensureRunningThenFork:
+  // GET the quote structure -> that funnel's ab_tests -> the running one, else
+  // POST /funnels/:id/experiments then POST /experiments/:id/start), because
+  // nothing page-local carries ANOTHER funnel's experiment id: the #lg-board-
+  // data blob has no ab_tests, and [data-stop-experiment] is the A/B tab's
+  // badge for the editor-selected funnel only. Two readers of one concept, one
+  // implementation shape (contract R1) — not a second invented flow.
+  function ensureRunningTestOnTarget() {
+    return fetch('/api/admin/leadgen/quotes/' + encodeURIComponent(quotePublicId) + '/structure', {
+      credentials: 'same-origin', headers: { 'Accept': 'application/json' }
+    }).then(function (r) { return r.json().then(function (j) { return { ok: r.ok, body: j }; }); }).then(function (structRes) {
+      var want = saveTargetFunnelPublicId();
+      var funnels = (structRes.ok && structRes.body && structRes.body.funnels) ? structRes.body.funnels : [];
+      var funnel = null;
+      var i;
+      for (i = 0; i < funnels.length; i++) { if (funnels[i].public_id === want) { funnel = funnels[i]; } }
+      var abTests = funnel ? (funnel.ab_tests || []) : [];
+      var running = null;
+      for (i = 0; i < abTests.length; i++) { if (abTests[i].status === 'running') { running = abTests[i]; } }
+      if (running) { return running.public_id; }
+      return fetch('/api/admin/leadgen/funnels/' + encodeURIComponent(saveTargetFunnelPublicId()) + '/experiments', {
+        method: 'POST', credentials: 'same-origin',
+        headers: { 'content-type': 'application/json', 'Accept': 'application/json' },
+        body: JSON.stringify({})
+      }).then(function (r) { return r.json().then(function (j) { return { ok: r.ok, body: j }; }); }).then(function (createRes) {
+        if (!createRes.ok || !createRes.body || !createRes.body.public_id) { throw new Error((createRes.body && createRes.body.error) ? createRes.body.error : 'Could not create an A/B test.'); }
+        var createdId = createRes.body.public_id;
+        return startExperimentReq(createdId).then(function (startRes) {
+          if (!startRes.ok) { throw new Error((startRes.body && startRes.body.error) ? startRes.body.error : 'Could not start the A/B test.'); }
+          return createdId;
+        });
+      });
+    });
+  }
+
+  // The shared TAIL of every fork+split: fork sourceVariant, then run the
+  // §16.2 stop -> edit -> start cycle on runningTestId (null = that funnel has
+  // no running test). Callers differ ONLY in which funnel's arm + experiment
+  // they hand it: "Add variant" the editor's, "A/B this theme" the target's.
+  function forkThenSplit(sourceVariant, runningTestId, themeIdOrNull, split) {
+    var newBp = split.newBp;
+    var keepBp = split.keepBp;
+    return fetch('/api/admin/leadgen/variants/' + encodeURIComponent(sourceVariant) + '/fork', {
       method: 'POST', credentials: 'same-origin', headers: { 'Accept': 'application/json' }
     }).then(function (r) { return r.json().then(function (j) { return { ok: r.ok, body: j }; }); }).then(function (res) {
       if (!res.ok || !res.body || !res.body.public_id) {
@@ -6444,7 +7493,6 @@ if (!document.getElementById('toast-animations')) {
       var newVariantId = res.body.public_id;
       var newPatch = { traffic_allocation_bp: newBp };
       if (themeIdOrNull) { newPatch.frame_overrides_json = { theme_id: themeIdOrNull }; }
-      var runningTestId = findRunningExperimentId();
       var stopStep = runningTestId ? stopExperimentReq(runningTestId) : Promise.resolve({ ok: true, body: null });
       return stopStep.then(function (stopRes) {
         if (!stopRes.ok) {
@@ -6457,7 +7505,7 @@ if (!document.getElementById('toast-animations')) {
             headers: { 'content-type': 'application/json', 'Accept': 'application/json' },
             body: JSON.stringify(newPatch)
           }).then(function (r2) { return r2.json().then(function (j2) { return { ok: r2.ok, body: j2 }; }); }),
-          fetch('/api/admin/leadgen/variants/' + encodeURIComponent(variantPublicId), {
+          fetch('/api/admin/leadgen/variants/' + encodeURIComponent(sourceVariant), {
             method: 'PUT', credentials: 'same-origin',
             headers: { 'content-type': 'application/json', 'Accept': 'application/json' },
             body: JSON.stringify({ traffic_allocation_bp: keepBp })
@@ -6476,12 +7524,43 @@ if (!document.getElementById('toast-animations')) {
               showMsg('lg-quote-error', (startRes.body && startRes.body.fields && startRes.body.fields.traffic_allocation_bp) ? startRes.body.fields.traffic_allocation_bp : ((startRes.body && startRes.body.error) ? startRes.body.error : 'The split saved, but restarting the test failed — start it from the A/B tab.'));
               return;
             }
-            window.location.href = '/admin/leadgen/quotes/' + encodeURIComponent(quotePublicId) + '/edit?variant=' + encodeURIComponent(variantPublicId);
+            window.location.href = '/admin/leadgen/quotes/' + encodeURIComponent(quotePublicId) + '/edit?variant=' + encodeURIComponent(sourceVariant);
           });
         });
       });
-    }).catch(function () {
+    });
+  }
+
+  function forkWithAllocation(themeIdOrNull) {
+    var blockedWhy = addVariantBlockedReason();
+    if (blockedWhy) { showMsg('lg-quote-error', blockedWhy); return; }
+    var split = promptForkSplit();
+    if (split === null) { return; }
+    hideMsg('lg-quote-error');
+    // The A/B tab's own button: the editor-selected arm, and the running test
+    // its own badge names.
+    forkThenSplit(variantPublicId, findRunningExperimentId(), themeIdOrNull, split).catch(function () {
       showMsg('lg-quote-error', 'Network error while adding a variant.');
+    });
+  }
+
+  // P8-1 F7 (B3/R6-1) — the LAST enumerated wrong-target write. "A/B this
+  // theme" sits in the Themes rail, UNDER the header that names the target
+  // funnel, and it forked the editor funnel's arm while stopping and starting
+  // the editor funnel's experiment: with the header reading "P8-Charlie" one
+  // click mutated Funnel A's live A/B test and left Charlie untouched — the
+  // owner's B3 sentence ("a theme edit writes to the wrong funnel") in its
+  // most destructive form yet. Funnel, arm and experiment now all resolve to
+  // the SAME target the rest of this rail writes to.
+  function abThisThemeOnTarget(themeId) {
+    var split = promptForkSplit();
+    if (split === null) { return; }
+    hideMsg('lg-quote-error');
+    var sourceVariant = saveTargetVariantPublicId();
+    ensureRunningTestOnTarget().then(function (runningTestId) {
+      return forkThenSplit(sourceVariant, runningTestId, themeId, split);
+    }).catch(function (err) {
+      showMsg('lg-quote-error', (err && err.message) ? err.message : 'Network error while A/B-ing this theme.');
     });
   }
 
@@ -6498,14 +7577,23 @@ if (!document.getElementById('toast-animations')) {
         // the theme override switch ON, to the FUNNEL otherwise — the SAME
         // override-vs-funnel split writeThemeValue/applyPaletteValue already
         // respect for every other theme edit on this panel.
-        var useOverride = !isControl && overrideMode['theme'] === 'override';
+        // P8-1 F6 (B3/R6-1, MEASURED sixth instance): this button lives in the
+        // Themes rail, under the scope line that NAMES the target funnel, and
+        // its label says "Apply to this funnel" — yet it hard-coded
+        // funnelPublicId. Driven on 2026-08-03 with the header reading
+        // "P8-Charlie", one click issued
+        //   PUT /api/admin/leadgen/funnels/<Funnel A>/theme {"theme_json":{"theme_id":…}}
+        // — the owner's R6-1 sentence verbatim, one path over, and destructive
+        // (it REPLACES the whole theme_json of a funnel nobody is looking at).
+        // Both legs now resolve the same target the rest of the chain does.
+        var useOverride = themeOverrideActive();
         var req = useOverride
           ? fetch('/api/admin/leadgen/variants/' + encodeURIComponent(variantPublicId), {
               method: 'PUT', credentials: 'same-origin',
               headers: { 'content-type': 'application/json', 'Accept': 'application/json' },
               body: JSON.stringify({ frame_overrides_json: { theme_id: themeId } })
             })
-          : fetch('/api/admin/leadgen/funnels/' + encodeURIComponent(funnelPublicId) + '/theme', {
+          : fetch('/api/admin/leadgen/funnels/' + encodeURIComponent(saveTargetFunnelPublicId()) + '/theme', {
               method: 'PUT', credentials: 'same-origin',
               headers: { 'content-type': 'application/json', 'Accept': 'application/json' },
               body: JSON.stringify({ theme_json: { theme_id: themeId } })
@@ -6527,7 +7615,7 @@ if (!document.getElementById('toast-animations')) {
         var sel = byId('lg-theme-preset-select');
         var themeId = sel ? sel.value : '';
         if (!themeId) { showMsg('lg-quote-error', 'Pick a preset first, then A/B it.'); return; }
-        forkWithAllocation(themeId);
+        abThisThemeOnTarget(themeId);
       });
     }
 
@@ -6614,7 +7702,6 @@ if (!document.getElementById('toast-animations')) {
   // --- studio boot ------------------------------------------------------------
   initOverrideSwitches();
   populateAllControls();
-  updateOverrideBadge();
 
   // --- A/B (§16.2): allocation Σ, save, lifecycle (create/start/stop), preview -
   function allocInputs() { return root.querySelectorAll('[data-alloc-input]'); }
@@ -7379,6 +8466,59 @@ if (!document.getElementById('toast-animations')) {
     if (btn) { btn.click(); }
   }
 
+  /* ========== P8-1 F1 (B3/R6-1 round 2): the TARGET funnel ================
+     A Theme/Template chip click must scope its destination tab to the funnel
+     COLUMN that was clicked, not this editor's single "selected" funnel (the
+     editor root's own data-funnel-public-id, frozen at page load). Round 1
+     carried that identity in a transient attribute on #lg-quote-editor that
+     the plain-tab-click listener cleared and no reload survived; the owner's
+     defect came straight back after one tab round-trip. It now rides in the
+     page URL's hash (tab=<name>&funnel=<public id>) -- persistent across tab
+     navigation AND a reload, readable by quotes-tabs/themes.ts and
+     quotes-tabs/templates.ts (each a SEPARATE island closure that cannot see
+     this island's private vars), and switchable by the operator from the
+     funnel picker in either of those two panels' headers.
+     This file emits its client script as SEVERAL back-to-back top-level
+     (function () { ... }()) scopes, not one (see this file's
+     QUOTE_EDITOR_SCRIPT header), and a function in one is NOT visible in
+     another -- a real browser threw "clearCarriedChipFunnel is not defined"
+     the instant round 1's version of this ran. So this scope carries its OWN
+     copy of the two hash helpers (byte-identical to the tab router's copy
+     above) and resolves nothing from that outer scope.
+     Ordering against gotoTab() no longer matters in either direction: NOTHING
+     clears the target anymore. The dispatched lg:target-funnel-change event
+     is how the two panels repaint their header/picker without a reload; they
+     re-read the hash at every action regardless, so an engine without
+     createEvent still targets the right funnel. ======================== */
+  function lgHashParam(name) {
+    var loc = (typeof window === 'undefined' || !window) ? null : window.location;
+    var h = (loc && loc.hash) ? String(loc.hash) : '';
+    var m = h.match(new RegExp('[#&]' + name + '=([^&]*)'));
+    return m ? decodeURIComponent(m[1]) : '';
+  }
+  function lgSetHashParam(name, value) {
+    var loc = (typeof window === 'undefined' || !window) ? null : window.location;
+    if (!loc) { return; }
+    var tab = name === 'tab' ? value : lgHashParam('tab');
+    var funnel = name === 'funnel' ? value : lgHashParam('funnel');
+    var parts = [];
+    if (tab) { parts.push('tab=' + encodeURIComponent(tab)); }
+    if (funnel) { parts.push('funnel=' + encodeURIComponent(funnel)); }
+    var hash = parts.length > 0 ? '#' + parts.join('&') : '';
+    var hist = window.history;
+    if (hist && hist.replaceState) { hist.replaceState(null, '', (loc.pathname || '') + (loc.search || '') + hash); return; }
+    loc.hash = hash;
+  }
+  function setTargetFunnel(funnelPub) {
+    if (!funnelPub) { return; }
+    lgSetHashParam('funnel', funnelPub);
+    try {
+      var evt = document.createEvent('CustomEvent');
+      evt.initCustomEvent('lg:target-funnel-change', true, false, { funnel_public_id: funnelPub });
+      document.dispatchEvent(evt);
+    } catch (e) { /* older engines without createEvent: the panels still read the hash at action time */ }
+  }
+
   /* ================= chip / page mutation helpers ================= */
   function funnelOfEl(el) {
     var col = el.closest ? el.closest('[data-funnel-col]') : null;
@@ -7995,12 +9135,32 @@ if (!document.getElementById('toast-animations')) {
     var pv = t.closest('[data-preview]');
     if (pv) { ev.stopPropagation(); var pf2 = funnelOfEl(pv); if (pf2 && pf2.model) { previewFunnel(pf2.model); } return; }
     if (t.closest('[data-ab-badge]')) { ev.stopPropagation(); gotoTab('ab'); return; }
-    if (t.closest('[data-theme-picker]')) { ev.stopPropagation(); gotoTab('themes'); return; }
+    var tpChip = t.closest('[data-theme-picker]');
+    if (tpChip) {
+      ev.stopPropagation();
+      // P8-1 F1 (B3/R6-1): make THIS chip's OWN column the target funnel
+      // BEFORE navigating, so the Themes panel paints its name and reads its
+      // theme the moment it opens. Nothing clears it afterwards -- not this
+      // gotoTab's real .click(), not a later plain tab click, not a reload.
+      setTargetFunnel(tpChip.getAttribute('data-chip-funnel-public-id'));
+      gotoTab('themes');
+      return;
+    }
     // SRC-11B (owner: "the themes and the templates are moving to the top
     // bar, why you kept the old and wrong option in the funnel builder??").
     // NAVIGATES to the top-bar Templates tab — exactly like its Theme sibling
     // just above — never opens an embedded apply-popover in the builder.
-    if (t.closest('[data-template-picker]')) { ev.stopPropagation(); gotoTab('templates'); return; }
+    var tplChip = t.closest('[data-template-picker]');
+    if (tplChip) {
+      ev.stopPropagation();
+      // P8-1 F1 (B3/R6-1): identical to the Theme chip above -- this column
+      // becomes the persisted target funnel, then we navigate.
+      // quotes-tabs/templates.ts's TPL_SCRIPT resolves the same target for
+      // its canvas preview, "Apply to funnel" and "A/B templates" writes.
+      setTargetFunnel(tplChip.getAttribute('data-chip-funnel-public-id'));
+      gotoTab('templates');
+      return;
+    }
     var nm = t.closest('[data-funnel-name]');
     if (nm) { ev.stopPropagation(); var ncol = nm.closest('[data-funnel-col]'); beginRename(nm, ncol.getAttribute('data-funnel-public-id')); return; }
     var fp = t.closest('[data-lib-filter]');

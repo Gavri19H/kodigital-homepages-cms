@@ -73,6 +73,7 @@
 .lg-hidden{display:none}
 </style>
   <div class="lg-panel-card" id="lg-tpl-bar">
+  <div class="lg-scope-head">Editing: <strong id="lg-tpl-target-name" data-lg-target-funnel-name>this funnel</strong> · Funnel layout template · affects every slide of this funnel<select class="form-select form-select-sm" id="lg-tpl-target-select" data-lg-target-funnel aria-label="Funnel this template edits" style="margin-left:8px;max-width:200px;vertical-align:middle"></select></div>
   <div class="lg-tpl2-bar-row">
     <span class="lg-tpl2-eyebrow">Saved templates</span>
     <div id="lg-tpl-list" class="lg-tpl2-chip-row"><span class="form-help">Loading templates&#8230;</span></div>
@@ -566,6 +567,72 @@
   var lastRealProgressStyle = 'bar';
   var previewSeq = 0;
   var currentSections = [];
+  // P8-1 F1 (B3/R6-1, round 2): WHICH funnel this panel edits lives in the
+  // page URL's hash (tab=<name>&funnel=<public id>), set by a board Template
+  // chip click (quotes-tabs/funnel.ts) or by this panel's own funnel picker,
+  // and read HERE at each action, never cached. Round 1 used a transient
+  // data-carried-funnel-public-id attribute on #lg-quote-editor that the plain
+  // tab-click listener wiped, so one tab round-trip silently retargeted the
+  // editor's own funnel. The hash survives tab navigation, a reload and
+  // repeated chip clicks; this island is a separate closure from both other
+  // islands, so a shared page-level channel is the only way across.
+  // window.location is read defensively (the ES5 island-probe harnesses stub
+  // window with timers only).
+  function lgHashParam(name) {
+    var loc = (typeof window === 'undefined' || !window) ? null : window.location;
+    var h = (loc && loc.hash) ? String(loc.hash) : '';
+    var m = h.match(new RegExp('[#&]' + name + '=([^&]*)'));
+    return m ? decodeURIComponent(m[1]) : '';
+  }
+  function lgSetHashParam(name, value) {
+    var loc = (typeof window === 'undefined' || !window) ? null : window.location;
+    if (!loc) { return; }
+    var tab = name === 'tab' ? value : lgHashParam('tab');
+    var funnel = name === 'funnel' ? value : lgHashParam('funnel');
+    var parts = [];
+    if (tab) { parts.push('tab=' + encodeURIComponent(tab)); }
+    if (funnel) { parts.push('funnel=' + encodeURIComponent(funnel)); }
+    var hash = parts.length > 0 ? '#' + parts.join('&') : '';
+    var hist = window.history;
+    if (hist && hist.replaceState) { hist.replaceState(null, '', (loc.pathname || '') + (loc.search || '') + hash); return; }
+    loc.hash = hash;
+  }
+  // The board's own funnel rows — the SAME list the board columns render,
+  // already on this page as #lg-board-data (quotes-tabs/funnel.ts's
+  // boardDataBlob, emitted before this panel). No new endpoint.
+  function boardFunnels() {
+    var el = document.getElementById('lg-board-data');
+    var raw = el ? (el.textContent || el.innerText || '') : '';
+    if (!raw) { return []; }
+    var parsed = null;
+    try { parsed = JSON.parse(raw); } catch (e) { return []; }
+    return (parsed && parsed.funnels) ? parsed.funnels : [];
+  }
+  function boardFunnelBy(pub) {
+    var fs = boardFunnels();
+    var i;
+    for (i = 0; i < fs.length; i++) { if (fs[i].public_id === pub) { return fs[i]; } }
+    return null;
+  }
+  function targetFunnelPublicId() {
+    // A chosen funnel the board no longer has resolves back to the editor
+    // default rather than editing blind.
+    var picked = lgHashParam('funnel');
+    if (picked !== '' && boardFunnelBy(picked) !== null) { return picked; }
+    return boot ? boot.funnel_public_id : '';
+  }
+  function targetVariantPublicId() {
+    var picked = targetFunnelPublicId();
+    var bootFunnel = boot ? boot.funnel_public_id : '';
+    var bootVariant = boot ? boot.selected_variant : '';
+    if (picked === bootFunnel) { return bootVariant; }
+    var f = boardFunnelBy(picked);
+    return (f && f.active_variant_public_id) ? f.active_variant_public_id : bootVariant;
+  }
+  function targetFunnelName() {
+    var f = boardFunnelBy(targetFunnelPublicId());
+    return (f && f.name) ? String(f.name) : '';
+  }
 
   function byId(id) { return document.getElementById(id); }
   function toArray(nodeList) { return Array.prototype.slice.call(nodeList); }
@@ -724,7 +791,10 @@
   // reflected NO frame edit) — it asks this same endpoint for the sample
   // section INSIDE the real frame with sample_section:true.
   function renderCanvasPreview() {
-    if (!boot || !boot.selected_variant) { return; }
+    // P8-1 S1.6 (B3/R6-1): target the carried variant when a Template chip
+    // click set one, the editor-default otherwise.
+    var targetVariant = targetVariantPublicId();
+    if (!boot || !targetVariant) { return; }
     var sectionSelect = byId('lg-tpl-section-select');
     var sectionPublicId = sectionSelect ? sectionSelect.value : '';
     var noSections = currentSections.length === 0;
@@ -743,7 +813,7 @@
     // appear (#11A "I chose a site - why I don't see its logo????"). The
     // funnel builder's canvas already sends it (funnel.ts previewBody).
     if (mySiteId) { body.site_id = mySiteId; }
-    fetchJson(LG_API + '/variants/' + encodeURIComponent(boot.selected_variant) + '/preview', {
+    fetchJson(LG_API + '/variants/' + encodeURIComponent(targetVariant) + '/preview', {
       method: 'POST', credentials: 'same-origin',
       headers: { 'content-type': 'application/json', 'Accept': 'application/json' },
       body: JSON.stringify(body)
@@ -1709,8 +1779,10 @@
     if (backBtn) { backBtn.addEventListener('click', function () { applyDialogShowState('choose'); }); }
     if (confirmBtn) {
       confirmBtn.addEventListener('click', function () {
-        if (!applyChosenTemplate || !boot || !boot.funnel_public_id) { return; }
-        fetchJson(LG_API + '/funnels/' + encodeURIComponent(boot.funnel_public_id) + '/apply-template', {
+        // P8-1 S1.6 (B3/R6-1): target the carried funnel when present.
+        var targetFunnel = targetFunnelPublicId();
+        if (!applyChosenTemplate || !boot || !targetFunnel) { return; }
+        fetchJson(LG_API + '/funnels/' + encodeURIComponent(targetFunnel) + '/apply-template', {
           method: 'POST', credentials: 'same-origin',
           headers: { 'content-type': 'application/json', Accept: 'application/json' },
           body: JSON.stringify({ template_id: applyChosenTemplate.id })
@@ -1749,10 +1821,13 @@
     if (cancelBtn) { cancelBtn.addEventListener('click', closeDialog); }
     if (confirmBtn) {
       confirmBtn.addEventListener('click', function () {
-        if (!boot || !boot.selected_variant || !boot.funnel_public_id || !select || !select.value) { return; }
+        // P8-1 S1.6 (B3/R6-1): target the carried funnel/variant when present.
+        var targetFunnelForAb = targetFunnelPublicId();
+        var targetVariantForAb = targetVariantPublicId();
+        if (!boot || !targetVariantForAb || !targetFunnelForAb || !select || !select.value) { return; }
         var templateId = select.value;
-        var funnelId = boot.funnel_public_id;
-        var variantId = boot.selected_variant;
+        var funnelId = targetFunnelForAb;
+        var variantId = targetVariantForAb;
 
         function ensureRunningThenFork() {
           return fetchJson(LG_API + '/quotes/' + encodeURIComponent(boot.quote_public_id) + '/structure', { credentials: 'same-origin', headers: { Accept: 'application/json' } })
@@ -1802,6 +1877,99 @@
     }
   }
 
+  // --- P8-1 F1: WHICH funnel this panel edits, said out loud ---------------
+  function paintTargetHeader() {
+    var name = targetFunnelName();
+    var nameEl = byId('lg-tpl-target-name');
+    if (nameEl) {
+      clearChildren(nameEl);
+      nameEl.appendChild(text(name !== '' ? name : 'this funnel'));
+    }
+    var sel = byId('lg-tpl-target-select');
+    if (!sel) { return; }
+    var fs = boardFunnels();
+    if (fs.length === 0) { return; }
+    var want = targetFunnelPublicId();
+    clearChildren(sel);
+    var i;
+    for (i = 0; i < fs.length; i++) {
+      var opt = document.createElement('option');
+      opt.value = fs[i].public_id;
+      opt.appendChild(text(fs[i].name));
+      if (fs[i].public_id === want) { opt.selected = true; }
+      sel.appendChild(opt);
+    }
+    sel.value = want;
+  }
+  // Re-read the newly targeted funnel's own layout state (GET /funnels/:id/
+  // frame — the SAME body ui-quotes.ts seeds boot.frame from), so the canvas
+  // stops previewing the editor-selected funnel's frame over another funnel's
+  // variant, then re-render.
+  // P8-1 F5 (B3/R6-1, defect D): this panel's CONTROLS are not this island's
+  // — the element groups, the dynamic lists and the media fields beside the
+  // canvas are populated and written by quotes-tabs/funnel.ts's island
+  // (delegated [data-frame-key]/[data-tplbox-*] wiring over the whole
+  // #lg-quote-editor subtree; see this file's header). Only the canvas
+  // followed the target switch, so the operator read Funnel A's control
+  // values while the canvas rendered the target. Hand that island the frame
+  // body ALREADY fetched here — one GET, two consumers, no second request.
+  function announceTargetFunnelFrame(pub, frame) {
+    try {
+      var evt = document.createEvent('CustomEvent');
+      evt.initCustomEvent('lg:target-funnel-frame', true, false, { funnel_public_id: pub, frame: frame });
+      document.dispatchEvent(evt);
+    } catch (e) { /* engines without createEvent: the save chain still resolves its target from the hash */ }
+  }
+  function syncFrameToTargetFunnel() {
+    // P8-1 F6: named targetFunnel, not f — this island also binds the name f
+    // to a BOARD ROW (boardFunnelBy) two functions up, and the closed-set
+    // proof in test/leadgen-p8-b3-funnel-identity.test.ts decides "is this URL
+    // built from the target resolver?" by following the identifier's
+    // assignments. One name, one meaning: every targetFunnel here is the
+    // resolver's answer.
+    var targetFunnel = targetFunnelPublicId();
+    if (!targetFunnel) { renderCanvasPreview(); return; }
+    fetchJson(LG_API + '/funnels/' + encodeURIComponent(targetFunnel) + '/frame', {
+      credentials: 'same-origin', headers: { Accept: 'application/json' }
+    }).then(function (res) {
+      if (res.ok && res.body) {
+        myFrame = deepClone(res.body.frame_config || {}) || {};
+        if (boot) { boot.frame = res.body; }
+        announceTargetFunnelFrame(targetFunnel, res.body);
+      }
+      renderCanvasPreview();
+    });
+  }
+  function onTargetFunnelChanged() {
+    paintTargetHeader();
+    syncFrameToTargetFunnel();
+  }
+  function announceTargetFunnel(pub) {
+    var delivered = false;
+    try {
+      var evt = document.createEvent('CustomEvent');
+      evt.initCustomEvent('lg:target-funnel-change', true, false, { funnel_public_id: pub });
+      document.dispatchEvent(evt);
+      delivered = true;
+    } catch (e) { delivered = false; }
+    if (!delivered) { onTargetFunnelChanged(); }
+  }
+  function wireTargetPicker() {
+    var sel = byId('lg-tpl-target-select');
+    if (!sel) { return; }
+    sel.addEventListener('change', function (ev) {
+      var el = (ev && ev.target) ? ev.target : sel;
+      // Only THIS panel's picker (its own marker attribute) switches funnels —
+      // this island also listens for change events on the whole document.
+      if (!el.getAttribute || el.getAttribute('data-lg-target-funnel') === null) { return; }
+      var next = el.value || '';
+      if (next === '') { return; }
+      lgSetHashParam('funnel', next);
+      announceTargetFunnel(next);
+    });
+    document.addEventListener('lg:target-funnel-change', function () { onTargetFunnelChanged(); });
+  }
+
   // --- init ---------------------------------------------------------------
   function init() {
     boot = loadBoot();
@@ -1827,6 +1995,15 @@
     wireProgressToggle();
     syncProgressToggleUi();
     syncRadioActiveClasses();
+
+    // P8-1 F1: name the target funnel + wire its picker before the first
+    // canvas render, and — when the operator returns to a persisted target
+    // that is NOT the funnel this page was opened on (a reload, or a chip
+    // click into a different column) — read THAT funnel's own layout state
+    // instead of previewing this page's boot frame over it.
+    paintTargetHeader();
+    wireTargetPicker();
+    if (boot && targetFunnelPublicId() !== boot.funnel_public_id) { syncFrameToTargetFunnel(); }
 
     populateThemeSwitcher();
     wireThemeCreateAffordance();

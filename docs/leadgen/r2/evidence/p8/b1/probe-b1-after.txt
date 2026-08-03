@@ -1,0 +1,44 @@
+
+=== B1 PROBE (contract R1-1 acceptance) ===
+
+--- multi-field address (autocomplete job ON) ---
+url:                       http://r2fix.e2e.test:8901/lg/r2fix?_cb=<ts>
+[data-lg-maps] fields:     1 (visible 1)
+funnel walk:               [{"hop":0,"visibleMapsFields":0},{"hop":1,"visibleMapsFields":1}]
+served config (field 1):   {"enable_autocomplete":true,"validate":false,"fills":{"city":"p8_addr_city","state":"p8_addr_state","zip":"p8_addr_zip"}}
+SDK <script> tags:         9
+SDK requests:              9
+   -> https://maps.googleapis.com/maps/api/js?key=REDACTED&libraries=places&loading=async&callback=__LG_MAPS_ON_READY__
+   -> https://maps.googleapis.com/maps-api-v3/api/js/65/11b/places_impl.js
+   -> https://maps.googleapis.com/maps-api-v3/api/js/65/11b/places.js
+   -> https://maps.googleapis.com/maps-api-v3/api/js/65/11b/controls.js
+   -> https://maps.googleapis.com/maps-api-v3/api/js/65/11b/common.js
+   -> https://maps.googleapis.com/maps-api-v3/api/js/65/11b/util.js
+   -> https://maps.googleapis.com/maps-api-v3/api/js/65/11b/main.js
+   -> https://maps.googleapis.com/maps/api/mapsjs/gen_204?csp_test=true
+   -> https://maps.googleapis.com/maps/api/js/AuthenticationService.Authenticate?1shttp%3A%2F%2Fr2fix.e2e.test%3A8901%2Flg%2Fr2fix&4sAIzaSyCrbDA_K
+   <- HTTP 200
+   <- HTTP 200
+   <- HTTP 200
+   <- HTTP 200
+   <- HTTP 200
+   <- HTTP 200
+   <- HTTP 200
+   <- HTTP 200
+   <- HTTP 200
+places ctor present:       true   (interceptor attached: true)
+ready-callback intercepted: true
+.pac-container elements:   1   <-- Google's own per-widget signal
+Autocomplete ctor calls:   1   <-- the B1 measurement
+ctor args:                 [{"id":"lg-addr-p8_addr_street","fields":["address_components","formatted_address"]}]
+google gm_authFailure:     true
+typing leg:                attempted=true predictions=0
+  chosen prediction:       (none)
+  fields BEFORE:           {"lg-addr-p8_addr_street":"","lg-addr-p8_addr_city":"","lg-addr-p8_addr_state":"","lg-addr-p8_addr_zip":""}
+  fields AFTER:            null
+console errors:
+   ! Google Maps JavaScript API error: RefererNotAllowedMapError
+https://developers.google.com/maps/documentation/javascript/error-messages#referer-not-allowed-map-error
+Your site URL to be authorized: htt
+
+(evidence tooling — conductor runs this as the authoritative pass)
