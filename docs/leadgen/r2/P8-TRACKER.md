@@ -62,6 +62,21 @@ verify:all 0 · runtime 52,762 ≤ 53,248.
 | P8-1 | F2 B-3 autofill root (opus) | opus | 162,838 | 1607s | autofill enters via the real keystroke path; unseen-ZIP money-path defect gone; bundle 52,948→52,674 |
 | P8-1 | F1 B-2 identity root (opus) | opus | 269,030 | 1760s | hash-persisted target + named headers + pickers; found a THIRD wrong-funnel write path (Save chain) |
 | P8-1 | F4 street-content (sonnet) | sonnet | 204,798 | 1158s | composite street gets street-only; found 2 new tests had ENCODED the bug; bundle 52,938 |
+| P8-3 | scout: guard + key inventory | haiku | 78,838 | 120s | guard calls the REAL producers (worth extending); vitest env node, NO jsdom/CSS parser, no-new-deps → hand cascade resolver is the only route |
+| P8-3 | scout: minors N1/N7/N11/N18/N20 | haiku | 103,344 | 173s | all sites grounded; N1's 4th control is in funnel.ts (NOT the theme files) — caught an unallocated item |
+| P8-3 | S3.1 theme emitter + N18 (opus) | opus | 209,845 | 1024s | code-complete; spec 11 failed → 21 passed; bundle unchanged 52,938; 0 pins re-minted; 2 residuals surfaced |
+| P8-3 | S3.2 theme-UI minors (sonnet) | sonnet | 291,657 | 1330s | code-complete; 12/12; N7 fixed at the STRING (cause is in unowned files) — conductor must measure the rendered width |
+| P8-3 | S3.4 34-key inline sweep (sonnet) | sonnet | 251,595 | 1404s | instrument built + run: 34/34 keys, source-enumerated, count matches the contract; ALIVE 27 / DEAD 1 / MIS-TARGETED 1 / UNMEASURABLE 5; found 2 defects the contract missed |
+| P8-3 | S3.6 palette.success + palette.card_background (opus) | opus | 113,736 | 607s | WIRED success to 3 enumerated real surfaces (not removed); card role now paints the card; precedence pinned both ways; 12 failed → 20 passed; blast radius 582 passed |
+| P8-3 | S3.5 N1 base-design label (sonnet) | sonnet | 166,514 | 948s | **falsified the conductor's own brief premise on evidence** — the registry registers ONE design object under both keys, so it labelled honestly instead of inventing a visual split; 3 failed → 10 passed |
+| P8-3 | S3.3 guard extend + re-predicate (opus) | opus | 266,106 | 1984s | 129 keys enumerated from source (34+25+66+4; the 34+25 reconciles to R3's 59); 4 exemptions all "no control offers this", exact-set pinned; ZERO dead-and-offered; sabotage red-proof 7 failed → restore → 47 passed |
+
+Two near-identical names that are DIFFERENT keys — do not conflate them in review:
+`ThemeJson.spacing` (theme.ts:566, offered as the rail's "Spacing" control at themes.ts:255, ALIVE via
+applySpacingScale theme.ts:1244) vs `ThemeRecord.spacing` (theme.ts:1008, dead BUT offered by no UI —
+conductor-verified: ui-theme-manager.ts has no density control — so exempt, not an R3 breach). P8-1's
+"spacing DEAD" finding was the second one. Same hazard: `palette.card_background` vs
+`card_defaults.background_role` (S3.4's own flag).
 
 ## Environment notes
 
@@ -72,6 +87,25 @@ live fetches need Host: r2fix.e2e.test + Chrome UA. Playwright drives override P
 Fixture: quote lgq_01KZ271383Y0MPV4BM2WKKCC4W; funnels A lgf_…JE5 (default, theme thm_p8-repro),
 B lgf_…SAVM, C "P8-Charlie" lgf_…G30E, D lgf_…BQ7X; sections: shared=1, buttons=2, address=5
 (P8 Address Repro v3, position 0 of funnel A); site r2fix.e2e.test.
+
+## R3's actual root cause (confirmed independently by two slices, on two authoring axes)
+
+**The base design freezes COPIES of role/scale values into component token slots, so a theme that
+writes the role leaves the painted component untouched.** `questionCard.{background,border,
+borderRadius,boxShadow}` are frozen literals shadowing `color.card` / `content.cardRadius` /
+`cardPanel.border` / `design.shadow.*`; `successState.*`, `reassuranceBadge.*`,
+`trustBar.iconColor` and `validation.successColor` are frozen `#0E7C3A` copies of `color.success`.
+Every "dead" and "mis-targeted" theme key in R3 is an instance: the key wrote the role, the role
+was never read, and the only selectors that DID read it belong to components no driven page
+renders (`.lg-card-panel`, `.lg-disclosure-panel`). The contract's own framing — "dead controls"
+— named the symptom; the cause is one shadowing pattern in the token layer.
+Closure argument: the class is bounded by the 34 authorable inline keys, all 34 of which the
+sweep measures — a frozen copy no authorable key targets is not an R3 breach.
+
+Frozen suites live in `api/test-ui/` (Playwright, `playwright.config.ts:231 testDir:'./test-ui'`),
+NOT in `api/test/` — so `npm test` never runs them and they are a CLOSE-phase concern:
+`test-ui/leadgen-visual.spec.ts`, `test-ui/leadgen-v31-gate1c-baselines.spec.ts`
+(screenshots under `test-ui/__screenshots__/`). Never rebaseline either one.
 
 ## Root-cause pass: why the SAME class surfaced four times (required after 2 non-converging FIX-FIRST rounds)
 
