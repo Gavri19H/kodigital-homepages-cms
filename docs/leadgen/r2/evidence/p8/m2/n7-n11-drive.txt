@@ -1,0 +1,41 @@
+# P8-3 N7 / N11 conductor drive — 1280, real admin editor
+presets present: 2
+page errors: none
+
+## N7 — truncation of each visible theme select's OWN displayed value
+key                              label                              text  content box   verdict
+typography.display               Inherit from base                  105.05     125   151   fits (tight — see 3x shot)
+typography.body                  Inherit from base                  105.05     125   151   fits (tight — see 3x shot)
+typography.size                  Inherit from base                  105.05     125   151   fits (tight — see 3x shot)
+typography.display_size          Inherit from base                  105.05     125   151   fits (tight — see 3x shot)
+scales.spacing                   Inherit from base                  105.05     125   151   fits (tight — see 3x shot)
+scales.radius                    Inherit from base                  105.05     125   151   fits (tight — see 3x shot)
+scales.shadow                    Inherit from base                  105.05     125   151   fits (tight — see 3x shot)
+button_defaults.radius           Inherit from base                  105.05     125   151   fits (tight — see 3x shot)
+button_defaults.min_height       Inherit from base                  105.05     125   151   fits (tight — see 3x shot)
+button_defaults.casing           Inherit from base                  105.05     125   151   fits (tight — see 3x shot)
+field_defaults.min_height        Inherit from base                  105.05     125   151   fits (tight — see 3x shot)
+button_defaults.fill             Inherit from base                  105.05     125   151   fits (tight — see 3x shot)
+button_defaults.layout           Inherit from base                  105.05     125   151   fits (tight — see 3x shot)
+button_defaults.selected         Inherit from base                  105.05     125   151   fits (tight — see 3x shot)
+card_defaults.radius             Inherit from base                  105.05     125   151   fits (tight — see 3x shot)
+card_defaults.shadow             Inherit from base                  105.05     125   151   fits (tight — see 3x shot)
+
+truncated selects: 0 of 16
+
+## N11 — preset actions with presets PRESENT
+{
+  "apply": {
+    "present": true,
+    "disabled": false,
+    "title": "",
+    "text": "Apply to this funnel"
+  },
+  "ab": {
+    "present": true,
+    "disabled": false,
+    "title": "Fork this variant with the picked preset as its theme, then set the traffic split",
+    "text": "A/B this theme"
+  },
+  "help": "Save the current look as a reusable preset from the Themes manager, then apply or delete any preset there. Presets are shared across every funnel."
+}
