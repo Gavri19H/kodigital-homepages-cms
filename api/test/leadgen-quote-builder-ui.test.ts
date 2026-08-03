@@ -815,8 +815,15 @@ describeDb("Quote Builder frame studio — theme editor (09 §9.3)", () => {
     }
     // THE CLAIM THIS LEG MAKES (unchanged): every curated closed set renders a
     // HUMAN label, never its raw enum id. R2 P8-3 N20 RE-MINT of the font case
-    // only: `literata` still renders a human label, but the label is now
-    // "Literata (legacy)". THE PRODUCT IS RIGHT HERE, not the old pin —
+    // only: `literata` still renders a human label. FIX ROUND F2: that label
+    // was "Literata (legacy)" — engineering vocabulary printed to a marketer,
+    // which jargon-scan.mjs's gate correctly rejected on the identical wording
+    // in the sibling Themes manager (owner verbatim: "the rules you build are
+    // using jargon" / "theme is only design language!!!! colors, fonts,
+    // sizes") — re-minted to "Literata (shows as default font)", a
+    // plain-English OUTCOME label (no vendored @font-face, so an operator's
+    // device without that exact family paints the generic fallback stack
+    // instead). THE PRODUCT IS RIGHT HERE, not the old pin —
     // literata/sora/system are the three ids the renderer does NOT vendor a
     // @font-face for (designs/fonts.generated.ts
     // LEADGEN_SELF_HOSTED_FONT_FAMILIES is exactly the OTHER 8: Poppins, Space
@@ -830,7 +837,7 @@ describeDb("Quote Builder frame studio — theme editor (09 §9.3)", () => {
     // rendered SELECTED) is covered by test/leadgen-p8-n-theme-ui.test.ts:287
     // and :445 — this leg keeps only its own "human label, not the raw id"
     // claim, and the added negative below is what makes that claim explicit.
-    expect(html).toContain(">Literata (legacy)</option>");
+    expect(html).toContain(">Literata (shows as default font)</option>");
     expect(html).not.toContain(">literata</option>");
     expect(html).toContain(">Roomy</option>");
     expect(html).toContain(">Round</option>");

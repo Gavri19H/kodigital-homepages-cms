@@ -140,15 +140,25 @@ function renderHarmonyRow(role: string): string {
 // renderer actually serves via a vendored @font-face) — they render through a
 // generic fallback stack, so picking one AFRESH does not reliably paint as
 // chosen. They keep their EXACT enum values (a funnel already storing one
-// renders byte-identically — the same THEME_FONT_STACKS lookup, untouched)
-// but are labelled "(legacy)" and sorted after the 8 real choices
-// (THEME_FONT_SELECT_IDS below), so the rail's fresh-choice vocabulary is the
-// SAME 8 words, in the SAME order, the Themes manager offers
-// (ui-theme-manager.ts THEME_RECORD_FONT_NAMES's own last 8 entries).
+// renders byte-identically — the same THEME_FONT_STACKS lookup, untouched).
+// FIX ROUND F2 — the first pass labelled these "(legacy)", engineering
+// vocabulary printed to a marketer; jargon-scan.mjs's own gate correctly
+// rejected the identical wording in the sibling Themes manager (owner
+// verbatim: "the rules you build are using jargon" / "theme is only design
+// language!!!! colors, fonts, sizes"). This scanner does not even cover this
+// file, so the gate never caught this rail copy — fixed anyway, in lockstep.
+// Replaced with a plain-English OUTCOME label describing what actually
+// happens (confirmed above: no vendored @font-face, so an operator's device
+// not already carrying that exact family paints the generic fallback stack
+// instead), sorted after the 8 real choices (THEME_FONT_SELECT_IDS below),
+// so the rail's fresh-choice vocabulary is the SAME words, in the SAME
+// order, the Themes manager offers (ui-theme-manager.ts
+// THEME_RECORD_FONT_NAMES's own last 8 entries / fontDisplayLabel) —
+// deliberately converged; do not let them drift apart again.
 const THEME_FONT_LABELS: Readonly<Record<string, string>> = {
-  literata: "Literata (legacy)",
-  sora: "Sora (legacy)",
-  system: "System (legacy)",
+  literata: "Literata (shows as default font)",
+  sora: "Sora (shows as default font)",
+  system: "System (shows as default font)",
   poppins: "Poppins",
   space_grotesk: "Space Grotesk",
   fraunces: "Fraunces",
@@ -159,9 +169,10 @@ const THEME_FONT_LABELS: Readonly<Record<string, string>> = {
   lexend: "Lexend",
 };
 const THEME_FONT_LEGACY_IDS: ReadonlySet<string> = new Set(["literata", "sora", "system"]);
-// Fresh (self-hosted) choices first, legacy last — DISPLAY ORDER only; every
-// value THEME_FONT_IDS carries is still present, so a stored id round-trips
-// byte-identically (I1: values never change, only what is displayed).
+// Fresh (self-hosted) choices first, unavailable-labelled last — DISPLAY
+// ORDER only; every value THEME_FONT_IDS carries is still present, so a
+// stored id round-trips byte-identically (I1: values never change, only
+// what is displayed).
 const THEME_FONT_SELECT_IDS: readonly string[] = [
   ...THEME_FONT_IDS.filter((id) => !THEME_FONT_LEGACY_IDS.has(id)),
   ...THEME_FONT_IDS.filter((id) => THEME_FONT_LEGACY_IDS.has(id)),

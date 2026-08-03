@@ -734,18 +734,30 @@ export const EXTRA_ROLE_META: ReadonlyArray<{ key: ThemeRecordExtraRoleKey; labe
 // (quotes-tabs/themes.ts THEME_FONT_LABELS) also demotes. They keep their
 // EXACT enum values (a preset already storing one renders byte-identically —
 // same THEME_RECORD_FONT_STACKS lookup, untouched) but sort after the 8 real
-// choices and read "(legacy)", so this manager's fresh-choice vocabulary is
-// the SAME 8 words, in the SAME order, the rail offers.
+// choices.
+// FIX ROUND F2 — the first pass labelled these "(legacy)", which is
+// engineering vocabulary printed to a marketer; the product's own
+// jargon-scan gate correctly rejected it (owner verbatim: "the rules you
+// build are using jargon" / "theme is only design language!!!! colors,
+// fonts, sizes"). Replaced with a plain-English OUTCOME label: because none
+// of these 3 families is vendored a @font-face (confirmed above), a visitor
+// whose device does not already have that exact family installed sees the
+// generic stack THEME_RECORD_FONT_STACKS falls to instead (Georgia/
+// system-ui/monospace) — the label says what will happen, not why. Same
+// wording, same mechanism, on the rail (quotes-tabs/themes.ts
+// THEME_FONT_LABELS) — the two were deliberately converged; do not let them
+// drift apart again.
 const THEME_RECORD_FONT_LEGACY_NAMES: ReadonlySet<ThemeRecordFontName> = new Set(["Newsreader", "Inter", "Roboto Mono"]);
-// Fresh (self-hosted) choices first, legacy last — DISPLAY ORDER only; every
-// name THEME_RECORD_FONT_NAMES carries is still present and still the exact
-// PATCH value (I1: values never change, only what is displayed).
+// Fresh (self-hosted) choices first, unavailable-labelled last — DISPLAY
+// ORDER only; every name THEME_RECORD_FONT_NAMES carries is still present
+// and still the exact PATCH value (I1: values never change, only what is
+// displayed).
 const THEME_RECORD_FONT_SELECT_NAMES: readonly ThemeRecordFontName[] = [
   ...THEME_RECORD_FONT_NAMES.filter((n) => !THEME_RECORD_FONT_LEGACY_NAMES.has(n)),
   ...THEME_RECORD_FONT_NAMES.filter((n) => THEME_RECORD_FONT_LEGACY_NAMES.has(n)),
 ];
 function fontDisplayLabel(name: ThemeRecordFontName): string {
-  return THEME_RECORD_FONT_LEGACY_NAMES.has(name) ? `${name} (legacy)` : name;
+  return THEME_RECORD_FONT_LEGACY_NAMES.has(name) ? `${name} (shows as default font)` : name;
 }
 
 function fontOptionsHtml(selected: ThemeRecordFontName): string {

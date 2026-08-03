@@ -294,11 +294,16 @@ describe("N20 — theme rail: fresh self-hosted fonts sort first, legacy (not se
       expect(block, id).toContain(`value="${id}"`);
     }
     expect(block).toContain(">Poppins<");
-    expect(block).toContain(">Literata (legacy)<");
-    expect(block).toContain(">Sora (legacy)<");
-    expect(block).toContain(">System (legacy)<");
+    // FIX ROUND F2: "(legacy)" was engineering jargon printed to a marketer
+    // (jargon-scan.mjs's gate correctly rejected it) — re-pinned to the
+    // plain-English outcome label. Strictness unchanged: still an exact
+    // substring pin on the rendered <option> text, still asserting the same
+    // fresh-first/unavailable-last ordering below.
+    expect(block).toContain(">Literata (shows as default font)<");
+    expect(block).toContain(">Sora (shows as default font)<");
+    expect(block).toContain(">System (shows as default font)<");
     const lastFreshAt = block.indexOf(">Lexend<");
-    const firstLegacyAt = block.indexOf("(legacy)");
+    const firstLegacyAt = block.indexOf("(shows as default font)");
     expect(lastFreshAt).toBeGreaterThan(-1);
     expect(firstLegacyAt).toBeGreaterThan(lastFreshAt);
   });
@@ -307,7 +312,7 @@ describe("N20 — theme rail: fresh self-hosted fonts sort first, legacy (not se
     const html = renderThemesTabPanel(true);
     const block = selectBlock(html, 'data-theme-key="typography.body"');
     expect(block.indexOf(">Manrope<")).toBeGreaterThan(-1);
-    expect(block.indexOf("(legacy)")).toBeGreaterThan(block.indexOf(">Manrope<"));
+    expect(block.indexOf("(shows as default font)")).toBeGreaterThan(block.indexOf(">Manrope<"));
   });
 });
 
@@ -442,7 +447,12 @@ function fontSelectBlockById(html: string, id: string): string {
 }
 
 describeDb("N20 — Themes manager: fresh-first ordering, legacy labelled and still selectable", () => {
-  it("a preset storing a LEGACY font (Newsreader) keeps it SELECTED, labelled '(legacy)', and sorted after the fresh choices", async () => {
+  // FIX ROUND F2: "(legacy)" was engineering jargon printed to a marketer
+  // (jargon-scan.mjs's gate correctly rejected it) — every pin below is
+  // re-minted to the plain-English outcome label at the SAME strictness
+  // (exact substring match on the rendered <option> text; same selected/
+  // ordering claims).
+  it("a preset storing a LEGACY font (Newsreader) keeps it SELECTED, labelled '(shows as default font)', and sorted after the fresh choices", async () => {
     const { env } = newHarness();
     const created = await json<ThemeCreateResponse>(
       await admin.request(`${API}/themes`, jsonInit("POST", presetBody("Legacy Font Preset", "Newsreader", "Roboto Mono")), env),
@@ -451,14 +461,14 @@ describeDb("N20 — Themes manager: fresh-first ordering, legacy labelled and st
     const { html } = await getHtml(env, `/admin/leadgen/themes?theme=${created.item.id}`);
     const headlineBlock = fontSelectBlockById(html, "tm-headline-font");
     expect(headlineBlock).toContain('value="Newsreader" selected');
-    expect(headlineBlock).toContain(">Newsreader (legacy)<");
+    expect(headlineBlock).toContain(">Newsreader (shows as default font)<");
     // fresh-first: a self-hosted family's option index precedes the legacy one.
     expect(headlineBlock.indexOf(">Poppins<")).toBeGreaterThan(-1);
-    expect(headlineBlock.indexOf(">Poppins<")).toBeLessThan(headlineBlock.indexOf(">Newsreader (legacy)<"));
+    expect(headlineBlock.indexOf(">Poppins<")).toBeLessThan(headlineBlock.indexOf(">Newsreader (shows as default font)<"));
 
     const bodyBlock = fontSelectBlockById(html, "tm-body-font");
     expect(bodyBlock).toContain('value="Roboto Mono" selected');
-    expect(bodyBlock).toContain(">Roboto Mono (legacy)<");
+    expect(bodyBlock).toContain(">Roboto Mono (shows as default font)<");
   });
 
   it("a preset storing a FRESH self-hosted font (Poppins/Lexend) keeps it SELECTED with NO legacy suffix, and renders the SAME 8 words the rail offers", async () => {
@@ -470,12 +480,12 @@ describeDb("N20 — Themes manager: fresh-first ordering, legacy labelled and st
     const { html } = await getHtml(env, `/admin/leadgen/themes?theme=${created.item.id}`);
     const headlineBlock = fontSelectBlockById(html, "tm-headline-font");
     expect(headlineBlock).toContain('value="Poppins" selected');
-    expect(headlineBlock).not.toContain("Poppins (legacy)");
+    expect(headlineBlock).not.toContain("Poppins (shows as default font)");
     for (const name of ["Space Grotesk", "Fraunces", "Playfair Display", "Manrope", "DM Sans", "Work Sans", "Lexend"]) {
       expect(headlineBlock, name).toContain(name);
     }
     const bodyBlock = fontSelectBlockById(html, "tm-body-font");
     expect(bodyBlock).toContain('value="Lexend" selected');
-    expect(bodyBlock).not.toContain("Lexend (legacy)");
+    expect(bodyBlock).not.toContain("Lexend (shows as default font)");
   });
 });
