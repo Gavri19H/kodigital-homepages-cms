@@ -1,0 +1,19 @@
+
+=== pageBG=#7B2FF7 (purple), card=#FFFFFF ===
+   {
+ "root": "rgb(123, 47, 247) [1264x900 vis=true z=auto pos=static]",
+ "frameBg": "rgb(255, 255, 255) [1280x900 vis=true z=0 pos=fixed]",
+ "card": "rgb(255, 255, 255) [420x86 vis=true z=auto pos=static]",
+ "topmostAt_20_450": "lg-frame lg-frame--white-trust -> rgb(123, 47, 247)",
+ "frameBgClass": "lg-frame-background lg-frame-bg-role-card_background lg-frame-bg-style-flat"
+}
+
+=== pageBG=#F5F7FA, card=#12A594 (teal) ===
+   {
+ "root": "rgb(245, 247, 250) [1264x900 vis=true z=auto pos=static]",
+ "frameBg": "rgb(18, 165, 148) [1280x900 vis=true z=0 pos=fixed]",
+ "card": "rgb(18, 165, 148) [420x86 vis=true z=auto pos=static]",
+ "topmostAt_20_450": "lg-frame lg-frame--white-trust -> rgb(245, 247, 250)",
+ "frameBgClass": "lg-frame-background lg-frame-bg-role-card_background lg-frame-bg-style-flat"
+}
+RESTORED {"theme_id":"thm_p8-repro"}

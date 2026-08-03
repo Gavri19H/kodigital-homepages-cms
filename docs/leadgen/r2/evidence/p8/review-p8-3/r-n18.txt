@@ -1,0 +1,20 @@
+## card_defaults.background_role — measured where input.lg-input is VISIBLE
+   arm error reachedInputPage=true
+     input.lg-input   -> {"_vis":true,"_w":326,"_h":54,"_matched":4,"_visible":4,"_text":"","backgroundColor":"rgb(194, 24, 7)"}
+     .lg-question-card-> {"_vis":true,"_w":420,"_h":484,"_matched":10,"_visible":1,"_text":"Street addressCityStateZIP codeContinue","backgroundColor":"rgb(194, 24, 7)"}
+   arm success reachedInputPage=true
+     input.lg-input   -> {"_vis":true,"_w":326,"_h":54,"_matched":4,"_visible":4,"_text":"","backgroundColor":"rgb(18, 165, 148)"}
+     .lg-question-card-> {"_vis":true,"_w":420,"_h":484,"_matched":10,"_visible":1,"_text":"Street addressCityStateZIP codeContinue","backgroundColor":"rgb(18, 165, 148)"}
+
+## N18 typography.display_size vs header logo (logo_size m, text logo)
+   ds=m logo rules: []
+   ds=m display tokens: []
+   ds=m .lg-logo        -> {"ABSENT":true,"_matched":0,"_visible":0}
+   ds=m header class    -> "lg-frame-region lg-frame-header lg-frame-header--center lg-frame-header--logo-m lg-frame-header--static"
+   ds=m question title  -> {"_vis":false,"_w":0,"_h":0,"_matched":1,"_visible":0,"_text":"Which carrier do you want a quote from?","fontSize":"31px"}
+   ds=xxl logo rules: []
+   ds=xxl display tokens: []
+   ds=xxl .lg-logo        -> {"ABSENT":true,"_matched":0,"_visible":0}
+   ds=xxl header class    -> "lg-frame-region lg-frame-header lg-frame-header--center lg-frame-header--logo-m lg-frame-header--static"
+   ds=xxl question title  -> {"_vis":false,"_w":0,"_h":0,"_matched":1,"_visible":0,"_text":"Which carrier do you want a quote from?","fontSize":"71.3px"}
+RESTORED theme={"theme_id":"thm_p8-repro"} frame={}

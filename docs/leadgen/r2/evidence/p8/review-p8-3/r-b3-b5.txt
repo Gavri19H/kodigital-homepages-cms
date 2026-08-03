@@ -1,0 +1,123 @@
+BEFORE themes: {
+ "A": "{\"theme_id\":\"thm_p8-repro\"}",
+ "B": "{\"card_defaults\":{\"radius\":\"lg\"},\"palette\":{\"brand_primary\":\"success\"}}",
+ "C": "{\"palette\":{\"brand_primary\":\"#5f758d\",\"accent\":\"#5A2D8C\"},\"typography\":{\"display_size\":\"xl\",\"display\":\"lexend\"}}",
+ "D": "{\"scales\":{\"spacing\":\"roomy\"}}",
+ "E": "null"
+}
+
+== B5 GEOMETRY @1280 ==
+{
+ "viewport": 1280,
+ "docScrollW": 1280,
+ "docClientW": 1280,
+ "boardRect": {
+  "x": 491,
+  "w": 488
+ },
+ "funnelCols": 5,
+ "colRects": [
+  {
+   "name": "R2Fix Fixture Quote — Funnel A",
+   "x": 503,
+   "w": 216
+  },
+  {
+   "name": "R2C3 Bravo Extremely Long Funnel C",
+   "x": 731,
+   "w": 216
+  },
+  {
+   "name": "P8-Charlie",
+   "x": 959,
+   "w": 216
+  },
+  {
+   "name": "P8-Delta",
+   "x": 1187,
+   "w": 216
+  },
+  {
+   "name": "P8-Echo-themeless",
+   "x": 1415,
+   "w": 216
+  }
+ ],
+ "fullyVisible": 2,
+ "sharedX": 491,
+ "rails": {
+  "lib": false,
+  "rules": true
+ }
+}
+
+== B5 library cards ==
+{
+ "cards": [
+  {
+   "t": "P8 Address Repro v3\n    r2fix_activity · r",
+   "cls": "lg-lib-card in-current"
+  },
+  {
+   "t": "RVW2F9K3 F-SHARED-TOUCH-LANDING\n    r2fix_",
+   "cls": "lg-lib-card"
+  },
+  {
+   "t": "RVW2F9K3 F-KEYBOARD-PICK\n    r2fix_activit",
+   "cls": "lg-lib-card"
+  },
+  {
+   "t": "RVW2F9K3 F-FURTHEST-LANDING\n    r2fix_acti",
+   "cls": "lg-lib-card"
+  },
+  {
+   "t": "RVW2F9K3 F-INVARIANT-ATTACK\n    r2fix_acti",
+   "cls": "lg-lib-card"
+  },
+  {
+   "t": "RVW2EKMSDEW0YD Keyboard Pick Probe\n    r2f",
+   "cls": "lg-lib-card"
+  },
+  {
+   "t": "RVW2EFMSDEUK9D Furthest Column Landing Pro",
+   "cls": "lg-lib-card"
+  },
+  {
+   "t": "RVW2EMSDEEG5X Guard Attack Probe Section\n ",
+   "cls": "lg-lib-card in-current"
+  }
+ ],
+ "cols": 5
+}
+lib cards matched: 35
+drag "R2C3C Clean Shared Band Touch Landing Probe
+    r2" -> LAST funnel column (of 5) cardBox={"x":291,"y":1711.125,"width":183,"height":89.5} targetBox={"x":1415,"y":784.59375,"width":216,"height":560}
+after-drag screenshot + board scrollLeft: scrollLeftDuringDrag=0
+visible alerts after drop: []
+
+== B3 theme chips on the board ==
+[]
+B3 chip click -> no theme chip in Charlie
+B3 themes panel after chip: {"header":null,"targetSelected":"R2Fix Fixture Quote — Funnel A","url":"#funnel"}
+B3 apply -> applied #9E1F63
+
+AFTER themes: {
+ "A": "{\"palette\":{\"brand_primary\":\"#9E1F63\",\"accent\":\"#E85D26\",\"page_background\":\"#F5F7FA\",\"card_background\":\"#FFFFFF\",\"text_primary\":\"#1A1F36\",\"success\":\"#0E7C3A\",\"error\":\"#D32F2F\",\"brand_secondary\":\"#ee7733\",\"surface_wash\":\"#ee7733\",\"border\":\"#ee7733\",\"text_muted\":\"#ee7733\",\"button_primary_bg\":\"#ee7733\",\"button_primary_text\":\"#eeeeee\",\"button_secondary_bg\":\"#ee7733\"},\"typography\":{\"display_size\":\"xxl\"},\"scales\":{\"radius\":\"soft\"},\"field_defaults\":{\"min_height\":\"medium\"},\"button_defaults\":{\"fill\":\"soft\",\"layout\":\"list\",\"selected\":\"mark\",\"min_height\":\"m\"}}",
+ "B": "{\"card_defaults\":{\"radius\":\"lg\"},\"palette\":{\"brand_primary\":\"success\"}}",
+ "C": "{\"palette\":{\"brand_primary\":\"#5f758d\",\"accent\":\"#5A2D8C\"},\"typography\":{\"display_size\":\"xl\",\"display\":\"lexend\"}}",
+ "D": "{\"scales\":{\"spacing\":\"roomy\"}}",
+ "E": "null"
+}
+  A: CHANGED  {"palette":{"brand_primary":"#9E1F63","accent":"#E85D26","page_background":"#F5F7FA","card_background":"#FFFFFF","text_primary":"#1A1F36","success":"#0E7C3A","error":"#D32F2F","brand_secondary":"#ee7733","surface_wash":"#ee7733","border":"#ee7733","text_muted":"#ee7733","button_primary_bg":"#ee7733","button_primary_text":"#eeeeee","button_secondary_bg":"#ee7733"},"typography":{"display_size":"xxl"},"scales":{"radius":"soft"},"field_defaults":{"min_height":"medium"},"button_defaults":{"fill":"soft","layout":"list","selected":"mark","min_height":"m"}}
+  B: UNCHANGED  {"card_defaults":{"radius":"lg"},"palette":{"brand_primary":"success"}}
+  C: UNCHANGED  {"palette":{"brand_primary":"#5f758d","accent":"#5A2D8C"},"typography":{"display_size":"xl","display":"lexend"}}
+  D: UNCHANGED  {"scales":{"spacing":"roomy"}}
+  E: UNCHANGED  null
+console/page errors: []
+RESTORED: {
+ "A": "{\"theme_id\":\"thm_p8-repro\"}",
+ "B": "{\"card_defaults\":{\"radius\":\"lg\"},\"palette\":{\"brand_primary\":\"success\"}}",
+ "C": "{\"palette\":{\"brand_primary\":\"#5f758d\",\"accent\":\"#5A2D8C\"},\"typography\":{\"display_size\":\"xl\",\"display\":\"lexend\"}}",
+ "D": "{\"scales\":{\"spacing\":\"roomy\"}}",
+ "E": "null"
+}

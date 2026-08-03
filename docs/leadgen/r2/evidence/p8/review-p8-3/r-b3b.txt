@@ -1,0 +1,64 @@
+STRUCTURE NOW: [{"id":"lgf_01KZ271383F5X1SQ3DXTXKNJE5","name":"R2Fix Fixture Quote — Funnel A","pages":[]},{"id":"lgf_01KZ279RVPT0Z7SX8GE81KSAVM","name":"R2C3 Bravo Extremely Long Funnel Column Name For The Truncation Audit Delta Echo","pages":[]},{"id":"lgf_01KZ279RW7CMXCDT9JF8WJG30E","name":"P8-Charlie","pages":[]},{"id":"lgf_01KZ279RWTSZB5054A8Q9WBQ7X","name":"P8-Delta","pages":[]},{"id":"lgf_01KZ3ANG2WX5WQBY7SB9GFCNMT","name":"P8-Echo-themeless","pages":[]}]
+
+== B3 theme chips ==
+[
+ {
+  "label": "thm_p8-repro",
+  "funnel": "lgf_01KZ271383F5X1SQ3DXTXKNJE5",
+  "col": "R2Fix Fixture Quote — Funnel A"
+ },
+ {
+  "label": "Custom",
+  "funnel": "lgf_01KZ279RVPT0Z7SX8GE81KSAVM",
+  "col": "R2C3 Bravo Extremely Long Funnel C"
+ },
+ {
+  "label": "Custom",
+  "funnel": "lgf_01KZ279RW7CMXCDT9JF8WJG30E",
+  "col": "P8-Charlie"
+ },
+ {
+  "label": "Custom",
+  "funnel": "lgf_01KZ279RWTSZB5054A8Q9WBQ7X",
+  "col": "P8-Delta"
+ },
+ {
+  "label": "Default",
+  "funnel": "lgf_01KZ3ANG2WX5WQBY7SB9GFCNMT",
+  "col": "P8-Echo-themeless"
+ }
+]
+Charlie chip: {"label":"Custom","funnel":"lgf_01KZ279RW7CMXCDT9JF8WJG30E","col":"P8-Charlie"}
+panel after Charlie chip: {
+ "hash": "#tab=themes&funnel=lgf_01KZ279RW7CMXCDT9JF8WJG30E",
+ "targetSelected": "P8-Charlie",
+ "headings": [
+  "A · Background",
+  "B · Logo",
+  "C · Phone / URL",
+  "D · Disclosure",
+  "E · Free text",
+  "F · Brand logos",
+  "H · Images",
+  "I · Progress",
+  "J · Footer",
+  "Live preview"
+ ]
+}
+apply -> applied #9E1F63
+
+== B3 storage verdict ==
+  A: UNCHANGED  hasUnique=false  {"theme_id":"thm_p8-repro"}
+  B: UNCHANGED  hasUnique=false  {"card_defaults":{"radius":"lg"},"palette":{"brand_primary":"success"}}
+  C: CHANGED  hasUnique=true  {"palette":{"brand_primary":"#9E1F63","accent":"#5A2D8C"},"typography":{"display_size":"xl","display":"lexend"}}
+  D: UNCHANGED  hasUnique=false  {"scales":{"spacing":"roomy"}}
+  E: UNCHANGED  hasUnique=false  null
+errors: []
+RESTORED: {
+ "A": "{\"theme_id\":\"thm_p8-repro\"}",
+ "B": "{\"card_defaults\":{\"radius\":\"lg\"},\"palette\":{\"brand_primary\":\"success\"}}",
+ "C": "{\"palette\":{\"brand_primary\":\"#5f758d\",\"accent\":\"#5A2D8C\"},\"typography\":{\"display_size\":\"xl\",\"display\":\"lexend\"}}",
+ "D": "{\"scales\":{\"spacing\":\"roomy\"}}",
+ "E": "null"
+}
+STRUCTURE AFTER: [{"id":"lgf_01KZ271383F5X1SQ3DXTXKNJE5","name":"R2Fix Fixture Quote — Funnel A","pages":[]},{"id":"lgf_01KZ279RVPT0Z7SX8GE81KSAVM","name":"R2C3 Bravo Extremely Long Funnel Column Name For The Truncation Audit Delta Echo","pages":[]},{"id":"lgf_01KZ279RW7CMXCDT9JF8WJG30E","name":"P8-Charlie","pages":[]},{"id":"lgf_01KZ279RWTSZB5054A8Q9WBQ7X","name":"P8-Delta","pages":[]},{"id":"lgf_01KZ3ANG2WX5WQBY7SB9GFCNMT","name":"P8-Echo-themeless","pages":[]}]
