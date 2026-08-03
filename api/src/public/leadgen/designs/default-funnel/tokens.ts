@@ -14,8 +14,12 @@
 //   DISPLAY family slots (headline voice): page.fontDisplay, header.logoFontFamily,
 //     headline.fontFamily, rangeQuestion.valueFontFamily, successState.headingFontFamily
 //   DISPLAY size slots (the display_size ramp scales these): headline.fontSizeDesktop,
-//     headline.fontSizeMobile, header.logoFontSize, rangeQuestion.valueFontSize,
+//     headline.fontSizeMobile, rangeQuestion.valueFontSize,
 //     successState.headingFontSize
+//     (R2 P8 N18: header.logoFontSize was in this list and is NOT any more —
+//      the logo is chrome sized by its own per-logo Size control, and scaling
+//      it here moved ONLY the `-m` rung while the hard-coded `-s`/`-l` rungs
+//      stood still. See DISPLAY_FONTSIZE_PATHS in designs/theme.ts.)
 //   BODY family slots (paragraph voice): page.fontFamily, primaryButton.fontFamily
 // (The base design's own families — 'Sora'/'Literata'/'Newsreader' — are NOT in
 // the P6 self-hosted set, so a legacy funnel emits no @font-face and renders

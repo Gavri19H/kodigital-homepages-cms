@@ -1,5 +1,5 @@
 WARNING: preflight GET http://127.0.0.1:8901/lg/r2fix -> HTTP 404 (continuing)
-# P8-3 S3.4 — 34-key INLINE theme_json sweep, 2026-08-03T19:40:37.323Z
+# P8-3 S3.4 — 34-key INLINE theme_json sweep, 2026-08-03T21:01:27.279Z
 funnel lgf_01KZ271383F5X1SQ3DXTXKNJE5  ·  write path PUT /funnels/:id/theme (FULL theme_json)  ·  page /lg/r2fix (fresh ?_cb per load)
 enumeration: 14 palette + 4 typography + 3 scales + 8 button_defaults + 4 card_defaults + 1 field_defaults = 34 keys
 
@@ -18,27 +18,39 @@ enumeration: 14 palette + 4 typography + 3 scales + 8 button_defaults + 4 card_d
      - frame.background patched to {"style":"brand_gradient"} (prior frame_config_json: {})
      - frame restored to {}
 
-## palette.accent   [MIS-TARGETED]
+## palette.accent   [ALIVE]
    label: Accent — quotes-tabs/shared.ts:460 ROLE_META, used_by "category label, highlights, recommended"
-   target: #lg-addr-p8_addr_street border-top-color (AUTHORED: PATCH /sections/:id design_overrides.border_color="accent" on the p8_addr node -> --lg-field-border custom property, presets.ts nodeBorderColorValue/appearanceStyleEntries)
-   arm A ("#123456"): borderTopColor=rgb(18, 52, 86)   [_vis:true 326x54  matched:1 visible:1]
-   arm B ("#ee7733"): borderTopColor=rgb(238, 119, 51)   [_vis:true 326x54  matched:1 visible:1]
-   LABEL IMPLIES: .lg-category color (LABEL 'category label' implies THIS element — styles.ts categoryLabel.color, a separate base-design literal never written by setRoleToken('accent'); this fixture renders no .lg-category node at all, corroborating the claim is unwired)
-     implied A: ABSENT (selector matched 0 nodes)
-     implied B: ABSENT (selector matched 0 nodes)
+   target: .lg-category color (LABEL "category label" — quotes-tabs/shared.ts:460 ROLE_META; AUTHORED: POST /sections + PUT /variants/:id inserting a CategoryLabel section; applyAccentRole -> design.categoryLabel.color, presets.ts renderCategoryLabel)
+   arm A ("#123456"): color=rgb(18, 52, 86)   [_vis:true 326x16  matched:1 visible:1]
+   arm B ("#ee7733"): color=rgb(238, 119, 51)   [_vis:true 326x16  matched:1 visible:1]
+   SECONDARY (bonus, non-decision): #lg-addr-p8_addr_street border-top-color (AUTHORED: PATCH /sections/:id design_overrides.border_color="accent" on the p8_addr node -> --lg-field-border custom property, presets.ts nodeBorderColorValue/appearanceStyleEntries; the PRE-existing per-node override mechanism, independent of applyAccentRole — bonus corroboration only)
+     secondary A: borderTopColor=rgb(18, 52, 86)   [_vis:true 326x54  matched:1 visible:1]
+     secondary B: borderTopColor=rgb(238, 119, 51)   [_vis:true 326x54  matched:1 visible:1]
    harness notes:
      - section 5 (p8_addr node) design_overrides.border_color set to "accent"
+     - created temp section 31 (CategoryLabel) and inserted at position 1 of variant lgn_01KZ271383SKKSFFWG23N1XGZK
      - section 5 content_json restored byte-exact
+     - variant lgn_01KZ271383SKKSFFWG23N1XGZK section order restored to original [{"section_id":5},{"section_id":11},{"section_id":8},{"section_id":2},{"section_id":13}]
+     - temp section 31 deleted
 
-## palette.success   [DEAD]
+## palette.success   [ALIVE]
    label: Success — quotes-tabs/shared.ts:461 ROLE_META, used_by "reassurance, valid states"
-   DEAD basis: grep -rn "color\.success\b" src/public/leadgen/ -> exactly 2 hits, both DEFINITIONS not consumers: theme.ts:93 (ROLE_TO_BASE_TOKEN map) and default-funnel/styles.ts:500 ("--lg-success": color.success, an unconsumed custom-property definition). Zero CSS rule anywhere reads color.success or var(--lg-success).
+   target: .lg-badge-icon color (LABEL "reassurance" — quotes-tabs/shared.ts:461 ROLE_META; AUTHORED: POST /sections + PUT /variants/:id inserting a ReassuranceBadge section; applySuccessRole -> design.reassuranceBadge.iconColor, presets.ts renderReassuranceBadge)
+   arm A ("#00ff00"): color=rgb(0, 255, 0)   [_vis:true 12x14  matched:1 visible:1]
+   arm B ("#003300"): color=rgb(0, 51, 0)   [_vis:true 12x14  matched:1 visible:1]
+   harness notes:
+     - created temp section 32 (ReassuranceBadge) and inserted at position 1 of variant lgn_01KZ271383SKKSFFWG23N1XGZK
+     - variant lgn_01KZ271383SKKSFFWG23N1XGZK section order restored to original [{"section_id":5},{"section_id":11},{"section_id":8},{"section_id":2},{"section_id":13}]
+     - temp section 32 deleted
 
-## palette.error   [UNMEASURABLE]
+## palette.error   [ALIVE]
    label: Error — quotes-tabs/shared.ts:462 ROLE_META, used_by "validation errors"
-   target: DRIVEN: .lg-tscard[data-error="true"] border-top-color, after button_defaults.layout="card" + an unanswered required-choice Continue click on the carrier ButtonAnswerGroup (engine.ts handleContinue/sectionPassesAt -> render.ts setFieldError, which sets .lg-error + aria-invalid, never data-error); styles.ts .lg-tscard[data-error="true"]{border-color:color.error}
-   arm A ("#ff0000"): ABSENT (selector matched 0 nodes)
-   arm B ("#330000"): ABSENT (selector matched 0 nodes)
+   target: DRIVEN: [data-lg-error-for="r2fix_carrier"] color, after a Continue click on the carrier ButtonAnswerGroup with NO choice selected (engine.ts handleContinue/sectionPassesAt -> render.ts:228 setFieldError, the real required-validation producer, unhides the slot and inline-styles it with validation.errorTextColor); styles.ts .lg-error{color:validation.errorTextColor}, same token applyErrorRole writes
+   arm A ("#ff0000"): color=rgb(255, 0, 0)   [_vis:true 64x51  matched:1 visible:1]
+   arm B ("#330000"): color=rgb(51, 0, 0)   [_vis:true 64x51  matched:1 visible:1]
+   SECONDARY (bonus, non-decision): .lg-input[aria-invalid="true"] border-top-color (bonus corroboration, EXPECTED ABSENT: this fixture has no required question backed by a bare <input data-lg-input> — driven and confirmed, not assumed; input.errorBorderColor is a real consumer, styles.ts .lg-input[aria-invalid="true"]{border-color:input.errorBorderColor}, just unreachable on THIS fixture's current structure without authoring a new section)
+     secondary A: ABSENT (selector matched 0 nodes)
+     secondary B: ABSENT (selector matched 0 nodes)
 
 ## palette.page_background   [ALIVE]
    label: Page background — quotes-tabs/shared.ts:463 ROLE_META, used_by "frame background"
@@ -64,9 +76,9 @@ enumeration: 14 palette + 4 typography + 3 scales + 8 button_defaults + 4 card_d
    arm A ("#123456"): boxShadow=rgb(18, 52, 86) 0px 0px 0px 3px   [_vis:true 176x176  matched:1 visible:1]
    arm B ("#ee7733"): boxShadow=rgb(238, 119, 51) 0px 0px 0px 3px   [_vis:true 176x176  matched:1 visible:1]
    harness notes:
-     - created temp section 21 (NumberRangeQuestion radial) and inserted at position 1 of variant lgn_01KZ271383SKKSFFWG23N1XGZK
+     - created temp section 33 (NumberRangeQuestion radial) and inserted at position 1 of variant lgn_01KZ271383SKKSFFWG23N1XGZK
      - variant lgn_01KZ271383SKKSFFWG23N1XGZK section order restored to original [{"section_id":5},{"section_id":11},{"section_id":8},{"section_id":2},{"section_id":13}]
-     - temp section 21 deleted
+     - temp section 33 deleted
 
 ## palette.border   [ALIVE]
    label: Border — quotes-tabs/shared.ts:466 ROLE_META, used_by "card/input borders"
@@ -251,9 +263,9 @@ restored funnel theme to {"theme_id":"thm_p8-repro"}
 |---|---|---|---|
 | palette.brand_primary | "#123456" -> "#ee7733" | ALIVE | .lg-progress-fill background-color (color.primary -> frame progress fill, styles.ts .lg-frame-progress--role-brand_primary rule) |
 | palette.brand_secondary | "#123456" -> "#ee7733" | ALIVE | .lg-frame-background.lg-frame-bg-style-brand_gradient background-image (AUTHORED: PUT /funnels/:id/frame {background:{style:"brand_gradient"}}; styles.ts "linear-gradient(160deg,brand_primary,brand_secondary)") |
-| palette.accent | "#123456" -> "#ee7733" | MIS-TARGETED | #lg-addr-p8_addr_street border-top-color (AUTHORED: PATCH /sections/:id design_overrides.border_color="accent" on the p8_addr node -> --lg-field-border custom property, presets.ts nodeBorderColorValue/appearanceStyleEntries) |
-| palette.success | "#00ff00" -> "#003300" | DEAD | grep -rn "color\.success\b" src/public/leadgen/ -> exactly 2 hits, both DEFINITIONS not consumers: theme.ts:93 (ROLE_TO_BASE_TOKEN map) and default-funnel/styles.ts:500 ("--lg-success": color.success, an unconsumed custom-property definition). Zero CSS rule anywhere reads color.success or var(--lg-success). |
-| palette.error | "#ff0000" -> "#330000" | UNMEASURABLE | DRIVEN: .lg-tscard[data-error="true"] border-top-color, after button_defaults.layout="card" + an unanswered required-choice Continue click on the carrier ButtonAnswerGroup (engine.ts handleContinue/sectionPassesAt -> render.ts setFieldError, which sets .lg-error + aria-invalid, never data-error); styles.ts .lg-tscard[data-error="true"]{border-color:color.error} |
+| palette.accent | "#123456" -> "#ee7733" | ALIVE | .lg-category color (LABEL "category label" — quotes-tabs/shared.ts:460 ROLE_META; AUTHORED: POST /sections + PUT /variants/:id inserting a CategoryLabel section; applyAccentRole -> design.categoryLabel.color, presets.ts renderCategoryLabel) |
+| palette.success | "#00ff00" -> "#003300" | ALIVE | .lg-badge-icon color (LABEL "reassurance" — quotes-tabs/shared.ts:461 ROLE_META; AUTHORED: POST /sections + PUT /variants/:id inserting a ReassuranceBadge section; applySuccessRole -> design.reassuranceBadge.iconColor, presets.ts renderReassuranceBadge) |
+| palette.error | "#ff0000" -> "#330000" | ALIVE | DRIVEN: [data-lg-error-for="r2fix_carrier"] color, after a Continue click on the carrier ButtonAnswerGroup with NO choice selected (engine.ts handleContinue/sectionPassesAt -> render.ts:228 setFieldError, the real required-validation producer, unhides the slot and inline-styles it with validation.errorTextColor); styles.ts .lg-error{color:validation.errorTextColor}, same token applyErrorRole writes |
 | palette.page_background | "#123456" -> "#ee7733" | ALIVE | #lg-funnel-root background-color (page.backgroundColor, scope-root rule) |
 | palette.card_background | "#123456" -> "#ee7733" | ALIVE | #lg-addr-p8_addr_street background-color (color.card -> .lg-input background, styles.ts:1828) |
 | palette.surface_wash | "#123456" -> "#ee7733" | ALIVE | AUTHORED: .lg-range-radial-outer box-shadow while .lg-range-radial-input is REAL-focused (a NumberRangeQuestion radial section inserted via PUT /variants/:id sections); styles.ts .lg-range-radial:focus-within .lg-range-radial-outer{box-shadow:0 0 0 3px color.primaryWash} |
@@ -284,15 +296,21 @@ restored funnel theme to {"theme_id":"thm_p8-repro"}
 | card_defaults.shadow | "none" -> "xl" | ALIVE | .lg-question-card box-shadow (R2 P8 M2: design.questionCard.boxShadow = shadowStepValue(baseDesign, cd.shadow), theme.ts:1407-1408 — explicit step wins over scales.shadow by design, theme.ts:1397-1406) |
 | field_defaults.min_height | "small" -> "large" | ALIVE | #lg-addr-p8_addr_street min-height (applyFieldHeightStep -> design.input.minHeight, theme.ts:1422-1426, styles.ts:1827 — SAME applier ThemeRecord's controls.field_height uses) |
 
-TOTALS: 34 keys swept — ALIVE 31, DEAD 1, MIS-TARGETED 1, UNMEASURABLE 1.
+TOTALS: 34 keys swept — ALIVE 34, DEAD 0, MIS-TARGETED 0, UNMEASURABLE 0.
 
 Harness notes (retries / flakes) — repeated above inline, collected here too:
   - palette.brand_secondary: frame.background patched to {"style":"brand_gradient"} (prior frame_config_json: {})
   - palette.brand_secondary: frame restored to {}
   - palette.accent: section 5 (p8_addr node) design_overrides.border_color set to "accent"
+  - palette.accent: created temp section 31 (CategoryLabel) and inserted at position 1 of variant lgn_01KZ271383SKKSFFWG23N1XGZK
   - palette.accent: section 5 content_json restored byte-exact
-  - palette.surface_wash: created temp section 21 (NumberRangeQuestion radial) and inserted at position 1 of variant lgn_01KZ271383SKKSFFWG23N1XGZK
+  - palette.accent: variant lgn_01KZ271383SKKSFFWG23N1XGZK section order restored to original [{"section_id":5},{"section_id":11},{"section_id":8},{"section_id":2},{"section_id":13}]
+  - palette.accent: temp section 31 deleted
+  - palette.success: created temp section 32 (ReassuranceBadge) and inserted at position 1 of variant lgn_01KZ271383SKKSFFWG23N1XGZK
+  - palette.success: variant lgn_01KZ271383SKKSFFWG23N1XGZK section order restored to original [{"section_id":5},{"section_id":11},{"section_id":8},{"section_id":2},{"section_id":13}]
+  - palette.success: temp section 32 deleted
+  - palette.surface_wash: created temp section 33 (NumberRangeQuestion radial) and inserted at position 1 of variant lgn_01KZ271383SKKSFFWG23N1XGZK
   - palette.surface_wash: variant lgn_01KZ271383SKKSFFWG23N1XGZK section order restored to original [{"section_id":5},{"section_id":11},{"section_id":8},{"section_id":2},{"section_id":13}]
-  - palette.surface_wash: temp section 21 deleted
+  - palette.surface_wash: temp section 33 deleted
   - palette.button_secondary_bg: frame.benefit_bar patched to {"enabled":true,"items":[{"icon":"circle-check","text":"Fast & free"}],"placement":"below_unit"} (prior frame_config_json: {})
   - palette.button_secondary_bg: frame restored to {}

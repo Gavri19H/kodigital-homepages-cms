@@ -452,23 +452,58 @@ export const PREFLIGHT_PASS_CHECKS: ReadonlyArray<{ id: string; label: string }>
 // v2.5 09 §9.1 — semantic role metadata (label + "Used by", verbatim from the
 // contract table). The ONLY color vocabulary on normal surfaces; the island
 // paints swatches from `effective_tokens` — no hex is ever SSR'd as text.
+//
+// R2 P8 M2 / S3.11 — FIVE more roles of the SAME class S3.6/S3.9/S3.10 closed
+// for success/error/accent: a phrase here promising a surface that no role
+// applier actually writes (a "frozen copy" — a component slot that HAPPENS to
+// start at the role's own default hex but is never re-written when the role is
+// authored). MEASURED at this HEAD (grep + tokens.ts literal cross-reference;
+// test/leadgen-p8-m2-role-usedby.test.ts pins the surviving claims to the REAL
+// generated stylesheet):
+//   - brand_primary: "progress fill" (progress.fillColor, a frozen gradient
+//     literal) / "selected borders" (iconCard.selectedBorderColor, frozen) /
+//     "logo text" (header.logoColor, frozen) never move — NONE is written by
+//     setRoleToken or any applier. Replaced with the two surfaces that DO:
+//     the range stepper button (rest state) and the card/answer-button focus
+//     ring, both direct `color.primary` reads.
+//   - surface_wash: "selected fills"/"quiet panels" — color.primaryWash's only
+//     consumer is a range-dial focus ring; the CardPanel/BackgroundPanel
+//     "wash" background option and the answer-button wash-selected fill both
+//     read SEPARATE frozen tokens (cardPanel.backgroundWash /
+//     iconCard.selectedBackground), not this role.
+//   - text_primary: "headlines" (headline.color, frozen, a DIFFERENT hex from
+//     page.textColor) / "labels" (page.textSecondaryColor — text_muted's own
+//     token, not this one) never move. Replaced with the two direct
+//     page.textColor reads: the page's own body-text cascade and `.lg-input`.
+//   - text_muted: "subheadlines" (subheadline.color, frozen) / "helper"
+//     (validation.helperColor, a THIRD frozen token) never move via THIS role.
+//     Replaced with `.lg-label` and the disclosure fine-print, both direct
+//     page.textSecondaryColor reads.
+//   - button_secondary_bg: "back button-style" (backButton carries no
+//     background field at all) / "quiet buttons" (the only button-shaped
+//     reads of color.primaryGhost are :hover states) never move at rest.
+//     Replaced with the two resting backgrounds that DO: the benefit bar and
+//     the top-bar disclosure band.
+// brand_secondary/accent/success/error/page_background/card_background/
+// border/button_primary_bg/button_primary_text were audited too and are
+// unchanged (each phrase maps to a real, direct consumer).
 // ---------------------------------------------------------------------------
 
 export const ROLE_META: ReadonlyArray<{ role: string; label: string; used_by: string }> = [
-  { role: "brand_primary", label: "Brand primary", used_by: "buttons, progress fill, selected borders, logo text" },
+  { role: "brand_primary", label: "Brand primary", used_by: "buttons, focus ring" },
   { role: "brand_secondary", label: "Brand secondary", used_by: "gradients, secondary emphasis" },
   { role: "accent", label: "Accent", used_by: "category label, highlights, recommended" },
   { role: "success", label: "Success", used_by: "reassurance, valid states" },
   { role: "error", label: "Error", used_by: "validation errors" },
   { role: "page_background", label: "Page background", used_by: "frame background" },
   { role: "card_background", label: "Card background", used_by: "question card, answer cards" },
-  { role: "surface_wash", label: "Soft fill", used_by: "selected fills, quiet panels" },
+  { role: "surface_wash", label: "Soft fill", used_by: "range-slider focus ring" },
   { role: "border", label: "Border", used_by: "card/input borders" },
-  { role: "text_primary", label: "Text", used_by: "headlines, labels" },
-  { role: "text_muted", label: "Muted text", used_by: "subheadlines, helper, meta" },
+  { role: "text_primary", label: "Text", used_by: "body text, input text" },
+  { role: "text_muted", label: "Muted text", used_by: "labels, disclosure text" },
   { role: "button_primary_bg", label: "Button", used_by: "Continue/CTA background" },
   { role: "button_primary_text", label: "Button text", used_by: "Continue/CTA text" },
-  { role: "button_secondary_bg", label: "Secondary button", used_by: "back button-style, quiet buttons" },
+  { role: "button_secondary_bg", label: "Secondary button", used_by: "benefit bar, disclosure bar" },
 ];
 
 

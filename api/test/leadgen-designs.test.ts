@@ -169,7 +169,17 @@ describe("funnelChromeCss — every §14.2 token group is represented", () => {
   it("emits the icon-card interaction states (§14.4 selected/hover/disabled/error/focus)", () => {
     expect(css).toContain(".lg-card:hover");
     expect(css).toContain('.lg-card[aria-checked="true"]');
-    expect(css).toContain('.lg-card[data-error="true"]');
+    // R2 P8 M2 / S3.10 — the error leg was `.lg-card[data-error="true"]`, a
+    // selector no producer could ever satisfy (nothing in the visitor runtime
+    // writes `data-error`). Same assertion, same strictness, now naming the
+    // state runtime/render.ts:228 setFieldError really produces: ERROR_CLASS
+    // on the [data-lg-field] block that contains the cards. The full
+    // declaration is asserted (selector AND value), which is STRICTER than the
+    // bare selector substring it replaces.
+    expect(css).toContain(
+      `.lg-error .lg-card{border-color:${defaultFunnelDesign.iconCard.errorBorderColor}}`,
+    );
+    expect(css).not.toContain("data-error");
     expect(css).toContain(".lg-card:focus-visible");
     expect(css).toContain('.lg-card[aria-disabled="true"]');
   });

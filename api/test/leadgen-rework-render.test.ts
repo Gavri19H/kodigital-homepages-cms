@@ -1230,7 +1230,15 @@ describe("§8.4 gap round — theme Answer-layout:'card' (Image23)", () => {
       '.lg-tscard{display:block;width:100%;text-align:left;border-radius:14px;padding:18px 20px',
     );
     expect(sheet).toMatch(/\.lg-tscard:hover\{border-color:[^;]+;background:[^}]+\}/);
-    expect(sheet).toContain('.lg-tscard[data-error="true"]');
+    // R2 P8 M2 / S3.10 — was `.lg-tscard[data-error="true"]`: a selector the
+    // product can never satisfy (no producer writes `data-error` anywhere).
+    // Same assertion, same strictness, re-pointed at the state
+    // runtime/render.ts:228 setFieldError really produces — ERROR_CLASS
+    // ("lg-error") on the [data-lg-field] answer-group root that CONTAINS the
+    // chips. The full declaration is asserted (selector AND the error colour),
+    // which is stricter than the bare selector substring it replaces.
+    expect(sheet).toContain(`.lg-error .lg-tscard{border-color:${DESIGN.color.error}}`);
+    expect(sheet).not.toContain("data-error");
     expect(sheet).toContain(".lg-tscard.lg-other-trigger{display:flex");
     // mobile-375 shrink (P0 pack data-pin 8.4-mobile-title-subtitle-cards) —
     // fail-before this gap round: this block did not exist at all.

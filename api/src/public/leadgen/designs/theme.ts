@@ -275,13 +275,25 @@ export const THEME_DISPLAY_SIZE_FACTORS: Record<ThemeDisplaySizeScale, number> =
 };
 
 // The DISPLAY font-size token paths display_size scales (the *FontSize*
-// siblings of applyDisplayFont's family slots — headline / logo / range value
-// / success heading). Body/paragraph font-size tokens are deliberately absent
+// siblings of applyDisplayFont's family slots — headline / range value /
+// success heading). Body/paragraph font-size tokens are deliberately absent
 // so a display-XXL headline never enlarges body copy.
+//
+// R2 P8 N18 — `header.logoFontSize` WAS in this list and is not any more.
+// The display ramp is the ramp for DISPLAY TYPE (the words the visitor reads
+// as content); the header logo is CHROME whose size is governed by its own
+// per-logo Size control — the three-rung strip `.lg-frame-header--logo-{s|m|l}`
+// (styles.ts, 0.95rem / header.logoFontSize / 1.35rem). Keeping the logo in the
+// ramp scaled exactly ONE of those three rungs: at display_size=xxl the `-m`
+// logo went 1.1rem -> 2.53rem while `-s` (hard-coded 0.95rem) and `-l`
+// (hard-coded 1.35rem) did not move at all, so "medium" painted nearly twice
+// "large" and the operator's own size control was inverted by an unrelated
+// typography knob. Removing the path makes the rendered logo font-size
+// IDENTICAL at every display_size for all three rungs; display type (headline,
+// range value, success heading) still scales exactly as before.
 const DISPLAY_FONTSIZE_PATHS: ReadonlyArray<readonly [group: string, key: string]> = [
   ["headline", "fontSizeDesktop"],
   ["headline", "fontSizeMobile"],
-  ["header", "logoFontSize"],
   ["rangeQuestion", "valueFontSize"],
   ["successState", "headingFontSize"],
 ];
@@ -385,6 +397,52 @@ const FIELD_MIN_HEIGHT_CSS: Record<ThemeFieldMinHeight, string> = {
 
 export const THEME_BUTTON_CASINGS = ["none", "upper"] as const;
 export type ThemeButtonCasing = (typeof THEME_BUTTON_CASINGS)[number];
+
+// R2 P8 M2 — THE CASING STASH, and why `button_defaults.casing` needed one.
+//
+// MEASURED at HEAD on the live visitor page (docs/leadgen/r2/evidence/p8/m2/
+// repro-before.txt): flipping casing none -> upper through the real operator
+// route left `.lg-continue` (320x52) and `.lg-btn-answer` (151x66) at
+// `text-transform:none` on BOTH arms. The value DID resolve — onto
+// EffectiveButtonDefaults.text_transform (below) — but that readout has ZERO
+// CSS consumers: the only two `text-transform` declarations the stylesheet ever
+// emits read categoryLabel.textTransform and banner.ctaTextTransform, neither
+// of which is a button. A control the operator can set that moves no pixel is
+// the dead-control class this product has already shipped four times.
+//
+// WHY A SYMBOL STASH AND NOT A NEW TOKEN: funnelChromeCss receives only the
+// resolved `design`, so the casing has to travel ON that object. A new
+// `primaryButton.textTransform` KEY would change the serialized `design_tokens`
+// bytes (buildPublicConfig) and break the A0 legacy config byte-pin — the
+// explicit constraint tokens.ts's own header states. A Symbol-keyed stash is
+// skipped by JSON.stringify, so the public config is byte-identical, and it is
+// the SAME mechanism the P6 button-style triple already uses to reach the very
+// same two renderers (readButtonStyle above). It is DELIBERATELY a SEPARATE
+// stash from that triple rather than a fourth axis on it: EffectiveButtonStyle
+// is the {fill,layout,selected} vocabulary whose presence gates the
+// data-btn-* attributes and the whole pushButtonStyleRules block, and a theme
+// that sets ONLY casing must not start emitting those.
+//
+// Stashed ONLY for the non-default value, so a theme with no casing (and every
+// legacy funnel) leaves the design — and every consumer's bytes — untouched.
+const BUTTON_CASING_STASH = Symbol("lgButtonCasing");
+
+function setButtonCasing(design: EffectiveFunnelDesign, casing: ThemeButtonCasing): void {
+  (design as unknown as Record<symbol, unknown>)[BUTTON_CASING_STASH] = casing;
+}
+
+// Read the stashed button casing off a resolved design (styles.ts consumer).
+// Undefined ⇒ the theme asked for no casing ⇒ the consumer emits exactly its
+// pre-M2 CSS. Accepts the base FunnelDesign too (the legacy render path passes
+// the un-stashed registry design) — always undefined there.
+export function readButtonCasing(
+  design: FunnelDesign | EffectiveFunnelDesign,
+): ThemeButtonCasing | undefined {
+  const stash = (design as unknown as Record<symbol, unknown>)[BUTTON_CASING_STASH];
+  return typeof stash === "string" && (THEME_BUTTON_CASINGS as readonly string[]).includes(stash)
+    ? (stash as ThemeButtonCasing)
+    : undefined;
+}
 
 // ---------------------------------------------------------------------------
 // P6 THEME v2 (D-7 / deliverable 3) — the BUTTON-STYLE sub-schema. Three
@@ -1107,6 +1165,13 @@ export function resolveTokens(
 
   // --- palette (roles), layers 3 → 2 → 1 -----------------------------------
   const roles = {} as Record<FunnelTokenRole, string>;
+  // Which roles the operator actually AUTHORED (any layer). The frozen-copy
+  // appliers below must fire only for these: an unauthored role resolves to
+  // its own base value, and re-writing that value through a different token
+  // SHAPE (e.g. "#0E7C3A" over the border shorthand "1px solid #0E7C3A")
+  // would not be a no-op. Gating on "authored" is what keeps a funnel that
+  // sets neither key byte-identical (S3.6 invariant I5).
+  const authoredRoles = new Set<FunnelTokenRole>();
   for (const role of FUNNEL_TOKEN_ROLES) {
     const layered =
       pickPaletteValue(overrides.palette, role) ??
@@ -1118,9 +1183,91 @@ export function resolveTokens(
       const resolved = isFunnelTokenRole(layered) ? baseTokenForRole(baseDesign, layered) : layered;
       roles[role] = resolved;
       setRoleToken(design, role, resolved);
+      authoredRoles.add(role);
     } else {
       roles[role] = baseTokenForRole(baseDesign, role);
     }
+  }
+
+  // R2 P8 M2 / S3.6 — TWO ROLES THAT DID NOT PAINT WHAT THEY NAME.
+  //
+  // MEASURED at HEAD on the live visitor page by the driven 34-key inline
+  // sweep (docs/leadgen/r2/evidence/p8/m2/inline-sweep-before.txt), each role
+  // written through the real operator route and the first VISIBLE match read
+  // with getComputedStyle:
+  //   • `success` was DEAD (sweep line 20): the ONLY two mentions of
+  //     `color.success` in src/public/leadgen/ are its own definitions —
+  //     ROLE_TO_BASE_TOKEN above and the unread `--lg-success` custom property
+  //     (styles.ts:500). Zero CSS rule read either. The operator was offered a
+  //     "Success" colour that painted nothing.
+  //   • `card_background` was MIS-TARGETED (sweep line 34): it moved an
+  //     `input.lg-input` (326x54, via color.card → styles.ts:1828) while
+  //     `.lg-question-card` (420x406) — the element the label "Card
+  //     background" names, and the first item in its own ROLE_META `used_by`
+  //     ("question card, answer cards") — stayed rgb(255,255,255) on BOTH arms.
+  //
+  // THE ONE CAUSE: the base design FROZE COPIES of these role colours into
+  // component token slots instead of referencing the role token, so writing
+  // the role left the painted component untouched. It is the SAME cause the
+  // card_defaults fix below (§ "card defaults") already closed on the other
+  // authoring axis — one cause, two axes.
+  //
+  // THE FIX, additive exactly like that one: an AUTHORED role also writes the
+  // frozen copies it owns. Every pre-existing write is kept (color.success and
+  // color.card still move), so no existing consumer changes shape — `.lg-input`
+  // (styles.ts:1828, pinned by leadgen-theme-tokens.test.ts) keeps its
+  // behaviour. No control is added, removed or relabelled.
+  if (authoredRoles.has("success")) applySuccessRole(design, roles.success);
+  // R2 P8 M2 / S3.9 — THE THIRD ROLE OF THE SAME SHAPE: `error` ("Error",
+  // used_by "validation errors" — ROLE_META, quotes-tabs/shared.ts:462).
+  //
+  // MEASURED at this HEAD, by hand: `grep -rn "data-error" src/` returns 19
+  // hits and NOT ONE of them writes a `data-error` attribute — 16 are the
+  // unrelated admin `data-error-for` slot id, 1 is render-error.ts's
+  // `data-error-status`, and the remaining 2 ARE the two CSS rules that read
+  // it (styles.ts:282 `.lg-tscard[data-error="true"]` <- color.error and
+  // styles.ts:1720 `.lg-card[data-error="true"]` <- iconCard.errorBorderColor).
+  // No producer exists anywhere in the product, so `color.error` — the token
+  // this role writes through setRoleToken above — reached only those two
+  // unreachable rules plus the unread `--lg-error` custom property
+  // (styles.ts:501). The operator was offered an "Error" colour that painted
+  // nothing a visitor can ever see.
+  //
+  // THE REAL ERROR STATE, read out of source (runtime/render.ts:228
+  // setFieldError — the ONE producer, called by engine.ts on a failed
+  // validation): it (a) fills + unhides the `[data-lg-error-for="…"]` slot,
+  // (b) adds ERROR_CLASS ("lg-error") to the owning `[data-lg-field]` block,
+  // (c) sets `aria-invalid="true"` on its `[data-lg-input]`. The rules that DO
+  // match that state read FROZEN COPIES of the same red:
+  //   • styles.ts:1834 `.lg-input[aria-invalid="true"]` <- input.errorBorderColor
+  //   • styles.ts:1882 `.lg-error`                      <- validation.errorTextColor
+  //     (the slot ALSO carries that token inline from the renderer itself —
+  //     presets.ts:333/3146/3721 `style({color: validation.errorTextColor})`)
+  // Both are frozen "#D32F2F" copies of color.error (tokens.ts:152/156/158) —
+  // the SAME cause as success/card_background above, third axis. So the fix is
+  // the same additive one: an AUTHORED role also writes the frozen copies it
+  // owns. Every pre-existing write is kept (color.error still moves).
+  //
+  // DONE IN S3.10 (was deferred here as "not done — byte-pinned fixtures this
+  // slice does not own"): both `[data-error="true"]` rules are now re-pointed
+  // at the state the runtime really produces — styles.ts `${scope} .lg-error
+  // .lg-tscard` and `${scope} .lg-error .lg-card`. No `data-error` producer was
+  // invented; the two fixtures were re-minted against the real renderer.
+  if (authoredRoles.has("error")) applyErrorRole(design, roles.error);
+  // R2 P8 M2 / S3.10 — THE FOURTH ROLE OF THE SAME SHAPE: `accent` ("Accent",
+  // used_by "category label, highlights, recommended" — ROLE_META,
+  // quotes-tabs/shared.ts:460, rendered VERBATIM into the theme rail the
+  // operator reads at quotes-tabs/themes.ts:201). See applyAccentRole below for
+  // the surface-by-surface enumeration this fires.
+  if (authoredRoles.has("accent")) applyAccentRole(design, roles.accent);
+  if (authoredRoles.has("card_background")) {
+    // PRECEDENCE (S3.6 invariant I3): applied HERE, before the card_defaults
+    // block, so an explicit `card_defaults.background_role` — the operator's
+    // narrower, component-level "Card background" control — OVERWRITES this
+    // theme-wide semantic role. Same direction as the explicit-shadow-step
+    // rule below: the more specific control always wins. Pinned both ways by
+    // leadgen-p8-m2-palette-roles.test.ts.
+    design.questionCard.background = roles.card_background;
   }
 
   // --- scales (§9.3) --------------------------------------------------------
@@ -1277,6 +1424,13 @@ export function resolveTokens(
     selected: bd.selected ?? recordButtonStyle.selected ?? BUTTON_STYLE_DEFAULTS.selected,
   };
   if (buttonStyleIsNonDefault(buttonStyle)) setButtonStyle(design, buttonStyle);
+  // R2 P8 M2: the SAME casing value that feeds the readout below now also
+  // travels to the stylesheet (readButtonCasing → styles.ts's `.lg-btn`
+  // text-transform rule, which reaches BOTH surfaces the visitor presses:
+  // `.lg-continue` and `.lg-btn-answer` both carry `.lg-btn`). One resolution,
+  // two consumers — the readout can no longer say "uppercase" while the page
+  // paints lowercase.
+  if (bd.casing === "upper") setButtonCasing(design, "upper");
   const button_defaults: EffectiveButtonDefaults = {
     background: design.primaryButton.background,
     color: design.primaryButton.color,
@@ -1286,15 +1440,68 @@ export function resolveTokens(
   };
 
   // --- card defaults (§9.3) --------------------------------------------------
+  //
+  // R2 P8 M2 — THE CARD THE OPERATOR MEANS IS `.lg-question-card`.
+  //
+  // MEASURED at HEAD on the live visitor page (docs/leadgen/r2/evidence/p8/m2/
+  // repro-before.txt), each key flipped through the real operator route and the
+  // first VISIBLE match read with getComputedStyle: `shadow` none->xl, `radius`
+  // sm->full and `border_role` error->success all left the one card a visitor
+  // sees (420x86 `.lg-question-card`) IDENTICAL, and `background_role`
+  // error->success moved the wrong element — an `input.lg-input`.
+  //
+  // WHY: the four keys resolved onto design.color.card / design.content.
+  // cardRadius / design.cardPanel.border (+ a shadow that reached no design
+  // token at all), whose only card-shaped selectors are `.lg-card-panel` /
+  // `.lg-disclosure-panel` — components a driven funnel page renders ZERO nodes
+  // of. The card that IS painted reads the `questionCard` token group
+  // (styles.ts `.lg-question-card`), which no theme layer ever wrote. The
+  // operator's own labels are "Card background / Card border / Card corners /
+  // Card shadow" (quotes-tabs/themes.ts), and in this product those words name
+  // `.lg-question-card`.
+  //
+  // THE FIX: each key ALSO writes the questionCard slot its label names. The
+  // pre-existing writes are KEPT (byte-identical for every consumer of
+  // color.card / content.cardRadius / cardPanel.border — a theme that sets none
+  // of these keys is untouched either way), so this is purely additive: the
+  // label now reaches the surface it names as well as the ones it already did.
   const cd = theme.card_defaults ?? {};
-  if (cd.background_role !== undefined) design.color.card = roles[cd.background_role];
-  if (cd.radius !== undefined) design.content.cardRadius = design.radius[cd.radius];
-  if (cd.border_role !== undefined) design.cardPanel.border = `1px solid ${roles[cd.border_role]}`;
+  if (cd.background_role !== undefined) {
+    design.color.card = roles[cd.background_role];
+    design.questionCard.background = roles[cd.background_role];
+  }
+  if (cd.radius !== undefined) {
+    design.content.cardRadius = design.radius[cd.radius];
+    // Applied AFTER applyRadiusScale (above), which shifts this same field —
+    // so an explicit STEP wins over the scale, exactly as applyRadiusScale's
+    // own comment already promised for the other component corners.
+    design.questionCard.borderRadius = design.radius[cd.radius];
+  }
+  if (cd.border_role !== undefined) {
+    design.cardPanel.border = `1px solid ${roles[cd.border_role]}`;
+    // The base card border is `1px solid #E9EDF3` — the same 1px-solid shape,
+    // so only the colour moves.
+    design.questionCard.border = `1px solid ${roles[cd.border_role]}`;
+  }
+  // PRECEDENCE, decided deliberately (R2 P8 M2 invariant I3): where BOTH
+  // `scales.shadow` (a scale) and `card_defaults.shadow` (an explicit step)
+  // reach this surface, the EXPLICIT STEP WINS — unconditionally. It is
+  // therefore resolved against the BASE design's shadow ladder, not the
+  // scale-shifted one: `scales.shadow:"none"` blanks every step of the working
+  // ladder (applyShadowScale), so resolving the step there would silently hand
+  // the scale the win for exactly the combination this rule exists to settle
+  // ("no shadows overall, but this card is elevated"). The step is applied
+  // after the scale, so it overwrites the scale's component shift too.
+  // Pinned both ways by leadgen-p8-m2-theme-keys.test.ts.
+  const explicitCardShadow = cd.shadow !== undefined ? shadowStepValue(baseDesign, cd.shadow) : undefined;
+  if (explicitCardShadow !== undefined) design.questionCard.boxShadow = explicitCardShadow;
   const card_defaults: EffectiveCardDefaults = {
     background: design.color.card,
     border_color: cd.border_role !== undefined ? roles[cd.border_role] : design.color.border,
     border_radius: design.content.cardRadius,
-    shadow: cd.shadow !== undefined ? shadowStepValue(design, cd.shadow) : design.shadow.md,
+    // The readout is the value that PAINTS (one resolution, never a second
+    // opinion) — `design.shadow.md` when no step was authored, i.e. the scale.
+    shadow: explicitCardShadow ?? design.shadow.md,
   };
 
   const result: EffectiveTokens = {
@@ -1332,7 +1539,143 @@ function pickPaletteValue(
   return typeof value === "string" ? value : undefined;
 }
 
-function shadowStepValue(design: EffectiveFunnelDesign, step: ThemeShadowStep): string {
+// R2 P8 M2 / S3.6 — the frozen copies of `color.success`, wired to the role.
+//
+// THE ENUMERATION this list is built from — every surface in this product
+// where a success state is rendered to a VISITOR, read out of source, which is
+// what settled "wire it" over "remove the control" (contract R3 corollary):
+//   • SuccessState     `.lg-success` / `.lg-success-icon` — renderSuccessState
+//                      (presets.ts), node type "SuccessState"; painted from
+//                      successState.border / .iconColor (styles.ts) AND styled
+//                      inline by the renderer from the same two tokens.
+//   • ReassuranceBadge `.lg-badge` / `.lg-badge-icon` — renderReassuranceBadge,
+//                      node type "ReassuranceBadge"; painted from
+//                      reassuranceBadge.border / .textColor / .iconColor.
+//                      ("reassurance" is the first word of this role's own
+//                      ROLE_META `used_by`, quotes-tabs/shared.ts.)
+//   • TrustBar         `.lg-trustbar-icon` — renderTrustBar, node type
+//                      "TrustBar"; painted from trustBar.iconColor.
+// Real success surfaces exist, so the control stays and is made honest; no
+// success surface was invented to justify keeping it.
+//
+// `validation.successColor` has ZERO consumers in styles.ts/presets.ts. It is
+// written for coherence (one success colour, no stale second opinion in the
+// resolved design) — never counted as paint.
+//
+// The border tokens are `1px solid <colour>` in the base design, so only the
+// COLOUR moves and the 1px-solid shape is preserved — the same treatment
+// questionCard.border already gets in the card_defaults block.
+function applySuccessRole(design: EffectiveFunnelDesign, value: string): void {
+  design.successState.border = `1px solid ${value}`;
+  design.successState.iconColor = value;
+  design.reassuranceBadge.border = `1px solid ${value}`;
+  design.reassuranceBadge.iconColor = value;
+  design.reassuranceBadge.textColor = value;
+  design.trustBar.iconColor = value;
+  design.validation.successColor = value;
+}
+
+// R2 P8 M2 / S3.9 — the frozen copies of `color.error`, wired to the role.
+// Read the applySuccessRole comment above first: this is the SAME pattern on
+// the error axis, deliberately not a second invention.
+//
+// THE ENUMERATION this list is built from — every place a base token IS the
+// error red at HEAD (`grep -n "#D32F2F" tokens.ts` = 4 slots: color.error:30,
+// iconCard.errorBorderColor:148, input.errorBorderColor:156,
+// validation.errorTextColor:158) crossed with the rule that reads it:
+//   • input.errorBorderColor    -> `.lg-input[aria-invalid="true"]`
+//                                  (styles.ts:1834). REAL: render.ts:228 sets
+//                                  exactly that attribute on [data-lg-input].
+//   • validation.errorTextColor -> `.lg-error` (styles.ts:1882) AND the error
+//                                  slot's own inline `color` from the renderer
+//                                  (presets.ts:333/3146/3721). REAL: the slot
+//                                  render.ts:228 fills and unhides carries the
+//                                  class, and ERROR_CLASS is that same class.
+//   • iconCard.errorBorderColor -> WAS `.lg-card[data-error="true"]`
+//                                  (styles.ts:1720) — unreachable, because no
+//                                  producer anywhere writes `data-error`.
+//                                  S3.10 RE-POINTED that rule at the state the
+//                                  runtime does produce (`${scope} .lg-error
+//                                  .lg-card`: ERROR_CLASS lands on the
+//                                  [data-lg-field] group root — presets.ts:178
+//                                  hydration() — and the choice cards are its
+//                                  descendants), so this write now PAINTS.
+// `color.error` itself keeps its existing write (setRoleToken, above) — it also
+// reaches the re-pointed `${scope} .lg-error .lg-tscard` (styles.ts:282), the
+// same treatment on the title/subtitle answer pack.
+// This applier is additive and re-routes nothing.
+function applyErrorRole(design: EffectiveFunnelDesign, value: string): void {
+  design.input.errorBorderColor = value;
+  design.validation.errorTextColor = value;
+  design.iconCard.errorBorderColor = value;
+}
+
+// R2 P8 M2 / S3.10 — the frozen copies of `color.accent`, wired to the role.
+// Read the applySuccessRole comment above first: this is the SAME pattern on
+// the accent axis, deliberately not a fourth invention.
+//
+// THE ENUMERATION, built exactly the way applyErrorRole's was — every base
+// token that IS the accent orange (`grep -n "E85D26" default-funnel/tokens.ts`
+// = 7 slots on 5 lines) crossed with the rule that reads it, and matched
+// against the three things the operator's OWN "Used by" line promises
+// ("category label, highlights, recommended"):
+//   • categoryLabel.color   -> "CATEGORY LABEL". `${scope} .lg-category`
+//                              (styles.ts:877) AND the renderer's own inline
+//                              `style({color})` (presets.ts:911/3802, the
+//                              `?? design.categoryLabel.color` default).
+//                              REAL: node types CategoryLabel and TextBlock
+//                              role "Category label" both render .lg-category.
+//   • header.logoAccentColor -> "HIGHLIGHTS". `${scope} .lg-logo-accent`
+//                              (styles.ts:812) AND the renderer's inline
+//                              style (presets.ts:846/3952) on the Header /
+//                              auto-logo image block. MEASURED: the product
+//                              has NO element called a "highlight" (`grep -rni
+//                              highlight src/public/leadgen` = 0 hits); the one
+//                              accent-painted emphasis surface that exists is
+//                              the highlighted word of the logo, so that is
+//                              what the word is honoured against. No highlight
+//                              element was invented to satisfy the label.
+//   • banner.recommendedBorder -> "RECOMMENDED". `${scope} .lg-banner[data-
+//                              recommended="true"]` (styles.ts:1909). REAL and
+//                              REACHABLE: auction/banner.ts:303 renders
+//                              `data-recommended="true"` for the winner, and
+//                              runtime/render.ts:285 injects that markup into
+//                              the funnel frame's [data-lg-banners], where the
+//                              FUNNEL sheet paints it. Base is "2px solid
+//                              #E85D26", so only the COLOUR moves — the same
+//                              shape-preserving treatment applySuccessRole
+//                              gives its "1px solid" borders.
+// COHERENCE ONLY — written so a themed design carries ONE accent with no stale
+// second opinion, NEVER counted as paint (exactly like validation.successColor
+// in applySuccessRole):
+//   • color.recommendedBorder          — zero consumers anywhere in src/.
+//   • banner.recommendedCtaBackground  — its ONLY reader is banner-default/
+//     styles.ts:80, whose scope `[data-banner-design="banner-default"]` no
+//     element in src/ ever sets (measured: 0 producers). Reported, not fixed
+//     here: that whole banner sub-sheet is scope-dead, and it is also fed the
+//     UNRESOLVED base tokens (registry getBannerDesign returns
+//     defaultFunnelDesign.banner), so no theme reaches it by any path.
+// NOT WRITTEN, deliberately: banner.recommendedBg ("#FFFAF7") and
+// banner.recommendedGlow ("rgba(232,93,38,.12)") are accent TINTS, not copies
+// of the accent hex — moving them needs colour math, which is a different
+// change from "the frozen copy follows its role". color.accentHover /
+// color.accentLight are likewise different hexes, and their only readers are
+// the admin colour picker's list (ui-section-studio.ts:1707/1714), not paint.
+// `color.accent` itself keeps its existing write (setRoleToken, above): it
+// still reaches the per-node `design_overrides.border_color:"accent"` enum
+// (presets.ts:2382) and the `--lg-accent` custom property (styles.ts:497).
+function applyAccentRole(design: EffectiveFunnelDesign, value: string): void {
+  design.categoryLabel.color = value;
+  design.header.logoAccentColor = value;
+  design.banner.recommendedBorder = `2px solid ${value}`;
+  design.banner.recommendedCtaBackground = value;
+  design.color.recommendedBorder = value;
+}
+
+function shadowStepValue(
+  design: FunnelDesign | EffectiveFunnelDesign,
+  step: ThemeShadowStep,
+): string {
   return step === "none" ? "none" : design.shadow[step];
 }
 
@@ -1593,14 +1936,70 @@ function applyRadiusScale(design: EffectiveFunnelDesign, scale: ThemeRadiusScale
 
 const SHADOW_ORDER = ["sm", "md", "lg", "xl"] as const;
 
+// R2 P8 M2 — the shadow twin of shiftComponentRadius above, and for the SAME
+// measured reason.
+//
+// MEASURED at HEAD (docs/leadgen/r2/evidence/p8/m2/repro-before.txt):
+// `scales.shadow` none -> high moved the emitted --lg-shadow-* custom
+// properties and left `.lg-question-card`, `.lg-btn-answer` and `.lg-continue`
+// with IDENTICAL painted box-shadows. The buttons carry no box-shadow at all in
+// the default look (nothing to scale — see the spec's own assertion), but the
+// card DOES: its `0 8px 28px rgba(20,32,54,.10)` is a component literal that
+// reads no scale step, so a "shadow scale" that could not touch the only
+// shadowed surface a visitor sees.
+//
+// A component shadow is placed at its NEAREST base step and moved from there —
+// the identical rule §9.3 already states for radius ("radius sharp = one step
+// down the base radius scale"). Nearness is measured on the shadow's own
+// elevation magnitude (|y-offset| + blur, the two lengths that read as height);
+// a value outside the base scale's span, or one this cannot parse (gradients,
+// `inset`, multi-shadow lists), is left alone rather than guessed at.
+function shadowElevation(value: string): number | null {
+  // The colour function goes FIRST — its own commas/decimals are not lengths.
+  const stripped = value.replace(/(?:rgba?|hsla?)\([^)]*\)/g, " ").trim();
+  // A comma survives only in a MULTI-shadow list; `inset` is a different shape.
+  if (stripped === "" || stripped.includes(",") || /inset/i.test(stripped)) return null;
+  const lengths = stripped.match(/-?\d*\.?\d+(?:px)?/g);
+  if (lengths === null || lengths.length < 3) return null;
+  const y = Number.parseFloat(lengths[1] as string);
+  const blur = Number.parseFloat(lengths[2] as string);
+  return Number.isFinite(y) && Number.isFinite(blur) ? Math.abs(y) + blur : null;
+}
+
+function shiftComponentShadow(
+  base: Record<(typeof SHADOW_ORDER)[number], string>,
+  value: string,
+  shift: -1 | 1,
+): string {
+  const px = shadowElevation(value);
+  if (px === null) return value;
+  const steps = SHADOW_ORDER.map((k) => shadowElevation(base[k]));
+  const lo = steps[0];
+  const hi = steps[steps.length - 1];
+  if (lo === null || lo === undefined || hi === null || hi === undefined || px < lo || px > hi) return value;
+  let nearest = 0;
+  for (let i = 1; i < steps.length; i++) {
+    const s = steps[i];
+    const best = steps[nearest];
+    if (s !== null && s !== undefined && best !== null && best !== undefined && Math.abs(s - px) < Math.abs(best - px)) {
+      nearest = i;
+    }
+  }
+  const key = SHADOW_ORDER[Math.min(Math.max(nearest + shift, 0), SHADOW_ORDER.length - 1)];
+  return key === undefined ? value : base[key];
+}
+
 function applyShadowScale(design: EffectiveFunnelDesign, scale: ThemeShadowScale): void {
   if (scale === "mid") return;
   if (scale === "none") {
     for (const key of SHADOW_ORDER) design.shadow[key] = "none";
     design.shadow.glow = "none";
+    // …and the painted card, whose shadow is a component literal, not a step.
+    design.questionCard.boxShadow = "none";
     return;
   }
   const shift = THEME_SHADOW_SHIFTS[scale];
+  if (shift === 0) return; // unreachable ("mid" returned above) — narrows the step
   const base = { ...design.shadow };
   for (let i = 0; i < SHADOW_ORDER.length; i++) {
     const to = SHADOW_ORDER[i];
@@ -1608,6 +2007,11 @@ function applyShadowScale(design: EffectiveFunnelDesign, scale: ThemeShadowScale
     if (to !== undefined && from !== undefined) design.shadow[to] = base[from];
   }
   // glow is an accent effect outside the ordered scale — unchanged here.
+  // The scale must reach the PAINTED shadow, not just the --lg-shadow-* custom
+  // properties (the exact failure applyRadiusScale's own note records for
+  // corners). An explicit card_defaults.shadow STEP still wins: it is applied
+  // after this and overwrites this same field.
+  design.questionCard.boxShadow = shiftComponentShadow(base, design.questionCard.boxShadow, shift);
 }
 
 // Display-font token slots (the serif/display family consumers in tokens.ts).

@@ -176,6 +176,12 @@ async function getFunnelStructure() {
 let accentOriginalSection; // { id, content_json } — the address section, pre-patch
 let surfaceWashOriginalStructure; // { variantId, variantPublicId, sections } — pre-insert
 let surfaceWashNewSectionId; // the temp probe section's numeric id
+// S3.12 — same per-key authored-state discipline, two more entries that need
+// a REAL inserted section to reach a surface the role now actually paints.
+let successOriginalStructure; // { variantId, variantPublicId, sections } — pre-insert
+let successNewSectionId; // the temp ReassuranceBadge probe section's numeric id
+let accentCategoryOriginalStructure; // { variantId, variantPublicId, sections } — pre-insert
+let accentCategoryNewSectionId; // the temp CategoryLabel probe section's numeric id
 
 function makeFrameGroupSetupTeardown(groupKey, buildValue) {
   const state = { original: undefined };
@@ -428,22 +434,27 @@ const KEYS = [
     label: "Accent — quotes-tabs/shared.ts:460 ROLE_META, used_by \"category label, highlights, recommended\"",
     valueA: "#123456",
     valueB: "#ee7733",
-    // S3.8: reachable by AUTHORING one field's design_overrides.border_color
-    // (contract M2/R3) — design.color.accent's only real consumer is
-    // nodeBorderColorValue('accent') (presets.ts), a PER-NODE
-    // design_overrides.border_color enum ("accent" is one of the 3 valid
-    // roles, content-schema.ts LEADGEN_NODE_BORDER_COLOR_ROLES). setup()
-    // PATCHes the fixture's own address section (resolved live, never
-    // hardcoded) to add {border_color:"accent"} on the p8_addr node via
-    // PATCH /sections/:id (the SAME route the Style tab calls); teardown()
-    // restores that section's content_json byte-exact. The border rides
-    // --lg-field-border (inline custom property), consumed uniformly by
-    // EVERY sub-field of the composite, so the already-measured
-    // #lg-addr-p8_addr_street selector is still the right probe target.
-    // impliedMeasure/impliedTarget corroborate the row's OWN prior note that
-    // the label's "category label" claim is unwired: .lg-category reads
-    // categoryLabel.color (styles.ts), a separate base-design literal never
-    // touched by setRoleToken('accent') — measured, not fixed (out of slice).
+    // S3.8: design.color.accent's per-node consumer is
+    // nodeBorderColorValue('accent') (presets.ts), reached via a
+    // design_overrides.border_color enum on the p8_addr node (PATCH
+    // /sections/:id, the SAME route the Style tab calls) — kept below as a
+    // SECONDARY, bonus-corroboration probe; real and unaffected by the fix.
+    // S3.12: theme.ts's applyAccentRole (~:1667) now wires the AUTHORED
+    // `accent` role directly into design.categoryLabel.color. The row's OWN
+    // prior note — "this fixture renders no .lg-category node at all,
+    // corroborating the claim is unwired" — was a GAP to close, not a code
+    // fix: authoring a REAL CategoryLabel section (POST /sections + PUT
+    // /variants/:id, the SAME insertion pattern palette.surface_wash /
+    // palette.success use) makes the label-implied element ACTUALLY
+    // RENDER, so it is now the PRIMARY target directly (no separate
+    // impliedMeasure indirection needed — decide() already returns ALIVE
+    // once a row with no impliedMeasure moves+is-visible). NOT measured
+    // here, deliberately: banner.recommendedBorder (the role's third
+    // consumer) rests on banner-default/styles.ts's own scope
+    // (`[data-banner-design="banner-default"]`), which has ZERO producers
+    // anywhere in src/ (theme.ts's own applyAccentRole comment) — a verdict
+    // resting on that surface would be false. header.logoAccentColor is a
+    // second real, unmeasured surface — reported, not fixed, out of slice.
     depth: 1,
     setup: async (notes) => {
       const struct = await getFunnelStructure();
@@ -456,19 +467,57 @@ const KEYS = [
       addrNode.design_overrides = { ...(addrNode.design_overrides ?? {}), border_color: "accent" };
       await patchJson(sectionApi(addrSectionId), { content_json: mutated });
       notes.push(`section ${addrSectionId} (p8_addr node) design_overrides.border_color set to "accent"`);
+
+      accentCategoryOriginalStructure = struct;
+      const created = await postJson(SECTIONS_API, {
+        section_name: "P8 S3.12 Accent CategoryLabel Probe (temporary)",
+        activity: "r2fix_activity",
+        vertical: "r2fix_vertical",
+        headline_text: "P8 S3.12 accent probe",
+        content_json: {
+          components: [
+            { type: "CategoryLabel", question_id: "p8_s312_category", props: { text: "P8 S3.12 category" } },
+            { type: "ContinueButton", question_id: "p8_s312_category_cont", props: { label: "Continue" } },
+          ],
+        },
+      });
+      accentCategoryNewSectionId = created.id;
+      const newOrder = [struct.sections[0], { section_id: accentCategoryNewSectionId }, ...struct.sections.slice(1)];
+      await putJson(variantApi(struct.variantPublicId), { sections: newOrder });
+      notes.push(
+        `created temp section ${accentCategoryNewSectionId} (CategoryLabel) and inserted at position 1 of variant ${struct.variantPublicId}`,
+      );
     },
     teardown: async (notes) => {
       if (accentOriginalSection) {
         await patchJson(sectionApi(accentOriginalSection.id), { content_json: accentOriginalSection.content_json });
         notes.push(`section ${accentOriginalSection.id} content_json restored byte-exact`);
       }
+      if (accentCategoryOriginalStructure) {
+        await putJson(variantApi(accentCategoryOriginalStructure.variantPublicId), {
+          sections: accentCategoryOriginalStructure.sections,
+        });
+        notes.push(
+          `variant ${accentCategoryOriginalStructure.variantPublicId} section order restored to original ${JSON.stringify(accentCategoryOriginalStructure.sections)}`,
+        );
+      }
+      if (accentCategoryNewSectionId) {
+        await deleteJson(sectionApi(accentCategoryNewSectionId));
+        notes.push(`temp section ${accentCategoryNewSectionId} deleted`);
+      }
     },
-    measure: (page) => probe(page, "#lg-addr-p8_addr_street", ["borderTopColor"]),
+    measure: async (page) => {
+      await advanceUntil(page, ".lg-category", 8);
+      return probe(page, ".lg-category", ["color"]);
+    },
     target:
-      "#lg-addr-p8_addr_street border-top-color (AUTHORED: PATCH /sections/:id design_overrides.border_color=\"accent\" on the p8_addr node -> --lg-field-border custom property, presets.ts nodeBorderColorValue/appearanceStyleEntries)",
-    impliedMeasure: (page) => probe(page, ".lg-category", ["color"]),
-    impliedTarget:
-      ".lg-category color (LABEL 'category label' implies THIS element — styles.ts categoryLabel.color, a separate base-design literal never written by setRoleToken('accent'); this fixture renders no .lg-category node at all, corroborating the claim is unwired)",
+      '.lg-category color (LABEL "category label" — quotes-tabs/shared.ts:460 ROLE_META; AUTHORED: POST /sections + PUT /variants/:id inserting a CategoryLabel section; applyAccentRole -> design.categoryLabel.color, presets.ts renderCategoryLabel)',
+    secondary: {
+      depth: 1,
+      measure: (page) => probe(page, "#lg-addr-p8_addr_street", ["borderTopColor"]),
+      target:
+        '#lg-addr-p8_addr_street border-top-color (AUTHORED: PATCH /sections/:id design_overrides.border_color="accent" on the p8_addr node -> --lg-field-border custom property, presets.ts nodeBorderColorValue/appearanceStyleEntries; the PRE-existing per-node override mechanism, independent of applyAccentRole — bonus corroboration only)',
+    },
   },
   {
     key: "palette.success",
@@ -477,8 +526,71 @@ const KEYS = [
     label: "Success — quotes-tabs/shared.ts:461 ROLE_META, used_by \"reassurance, valid states\"",
     valueA: "#00ff00",
     valueB: "#003300",
-    deadReason:
-      'grep -rn "color\\.success\\b" src/public/leadgen/ -> exactly 2 hits, both DEFINITIONS not consumers: theme.ts:93 (ROLE_TO_BASE_TOKEN map) and default-funnel/styles.ts:500 ("--lg-success": color.success, an unconsumed custom-property definition). Zero CSS rule anywhere reads color.success or var(--lg-success).',
+    // S3.12 DEFECT FIX: this row previously carried a hardcoded `deadReason`
+    // with NO `measure` function at all — a verdict asserted, never
+    // measured (the exact paper-audit failure mode this contract exists to
+    // end). The grep basis it cited ("color.success has exactly 2 hits,
+    // both definitions") is now STALE, not merely outdated: theme.ts's
+    // applySuccessRole (~:1568) wires the AUTHORED `success` role into the
+    // frozen component slots successState.border/.iconColor,
+    // reassuranceBadge.border/.iconColor/.textColor and trustBar.iconColor —
+    // none of those tokens is named `color.success`, so a grep on that
+    // literal string can never see this fix (the applySuccessRole comment's
+    // own point: "A grep is not a measurement"). "reassurance" is literally
+    // the FIRST word of this role's own operator-facing ROLE_META `used_by`
+    // (quotes-tabs/shared.ts), so ReassuranceBadge (.lg-badge/.lg-badge-
+    // icon, presets.ts renderReassuranceBadge) IS the label-implied surface
+    // itself — no impliedMeasure indirection needed. setup() creates a new
+    // section (ReassuranceBadge + ContinueButton) via POST /sections and
+    // inserts it at position 1 of the fixture's OWN variant (resolved
+    // live) — the SAME insertion point palette.surface_wash already uses,
+    // right after the address section and BEFORE the carrier page, never
+    // crossing the carrier's required ButtonAnswerGroup/auction boundary.
+    // teardown() restores the variant's original section order, then
+    // deletes the temp section.
+    depth: 1,
+    setup: async (notes) => {
+      const struct = await getFunnelStructure();
+      successOriginalStructure = struct;
+      const created = await postJson(SECTIONS_API, {
+        section_name: "P8 S3.12 Success Role Probe (temporary)",
+        activity: "r2fix_activity",
+        vertical: "r2fix_vertical",
+        headline_text: "P8 S3.12 success probe",
+        content_json: {
+          components: [
+            { type: "ReassuranceBadge", question_id: "p8_s312_badge", props: { text: "Trusted & secure" } },
+            { type: "ContinueButton", question_id: "p8_s312_badge_cont", props: { label: "Continue" } },
+          ],
+        },
+      });
+      successNewSectionId = created.id;
+      const newOrder = [struct.sections[0], { section_id: successNewSectionId }, ...struct.sections.slice(1)];
+      await putJson(variantApi(struct.variantPublicId), { sections: newOrder });
+      notes.push(
+        `created temp section ${successNewSectionId} (ReassuranceBadge) and inserted at position 1 of variant ${struct.variantPublicId}`,
+      );
+    },
+    teardown: async (notes) => {
+      if (successOriginalStructure) {
+        await putJson(variantApi(successOriginalStructure.variantPublicId), {
+          sections: successOriginalStructure.sections,
+        });
+        notes.push(
+          `variant ${successOriginalStructure.variantPublicId} section order restored to original ${JSON.stringify(successOriginalStructure.sections)}`,
+        );
+      }
+      if (successNewSectionId) {
+        await deleteJson(sectionApi(successNewSectionId));
+        notes.push(`temp section ${successNewSectionId} deleted`);
+      }
+    },
+    measure: async (page) => {
+      await advanceUntil(page, ".lg-badge-icon", 8);
+      return probe(page, ".lg-badge-icon", ["color"]);
+    },
+    target:
+      '.lg-badge-icon color (LABEL "reassurance" — quotes-tabs/shared.ts:461 ROLE_META; AUTHORED: POST /sections + PUT /variants/:id inserting a ReassuranceBadge section; applySuccessRole -> design.reassuranceBadge.iconColor, presets.ts renderReassuranceBadge)',
   },
   {
     key: "palette.error",
@@ -487,33 +599,61 @@ const KEYS = [
     label: "Error — quotes-tabs/shared.ts:462 ROLE_META, used_by \"validation errors\"",
     valueA: "#ff0000",
     valueB: "#330000",
-    // S3.8: attempted the contract's own reachability hint — set
-    // button_defaults.layout="card" (extraTheme, adds the .lg-tscard class
-    // to every .lg-btn-answer, presets.ts isCard) THEN drive a real
-    // client-validation error (click Continue on the carrier
-    // ButtonAnswerGroup, required:true, with NO choice selected — safe: this
-    // repo's own engine.ts handleContinue returns before ANY navigation when
-    // sectionPassesAt fails, so this never reaches /lg/auction).
-    // FINDING: the drive does NOT reach the cited selector. Grepped the
-    // WHOLE visitor runtime (src/public/leadgen/runtime/*.ts, serve.ts) for
-    // `data-error` — zero producers exist anywhere. The one real required-
-    // validation path is render.ts's setFieldError, which sets the
-    // `.lg-error` CLASS + `aria-invalid` on the `[data-lg-input]` descendant
-    // of `[data-lg-field]` — it NEVER writes a `data-error` attribute, and
-    // never touches `.lg-tscard` at all. This is measured live below (both
-    // arms), not merely reasoned from source: expect 0 matched.
+    // S3.8/S3.9 (kept — still true): a drive of button_defaults.layout=
+    // "card" + an unanswered required-choice Continue on the carrier
+    // ButtonAnswerGroup measured LIVE that `.lg-tscard[data-error="true"]`
+    // never matches (0 matched, both arms) — grepping the WHOLE visitor
+    // runtime for `data-error` finds zero producers anywhere. The real
+    // required-validation path is render.ts:228 setFieldError.
+    // S3.12 FIRST ATTEMPT (superseded, kept as a note): depth 1 + a bare
+    // Continue click on the address page with every field EMPTY also read
+    // UNMEASURABLE — driven and checked, not assumed: a click-by-click walk
+    // of this fixture with NOTHING ever filled shows the address group's
+    // OWN required check PASSES on empty input (the click legitimately
+    // advances past it; validation.ts has no per-field `props.fields` on
+    // this node, so it validates as one scalar keyed to internal_field
+    // "p8_addr" — and that check does not require an answer here). So
+    // `.lg-input[aria-invalid="true"]` is genuinely unreachable via the
+    // address page on THIS fixture.
+    // S3.12 REAL FIX: this fixture's one actually-enforced required field is
+    // the carrier's own ButtonAnswerGroup (question_id "r2fix_q_carrier",
+    // internal_field "r2fix_carrier", section "R2Fix Fixture Carrier
+    // Buttons") — confirmed live: a Continue click there with NO choice
+    // selected paints "This field is required." into its message slot.
+    // `[data-lg-error-for="r2fix_carrier"]` carries validation.errorTextColor
+    // as an INLINE style set by the renderer itself (render.ts:228 unhides
+    // it; presets.ts style({color: validation.errorTextColor}) at render
+    // time) — the SAME token applyErrorRole now writes, and the one of its
+    // two real consumers reachable WITHOUT authoring a new required
+    // text-input section (no question in this fixture has a bare `<input
+    // data-lg-input>` gated by `required`, so `input.errorBorderColor` /
+    // `.lg-input[aria-invalid="true"]` stays genuinely UNREACHABLE here —
+    // driven and confirmed below as a bonus secondary, expected ABSENT, not
+    // merely assumed).
     depth: 2,
-    extraTheme: { button_defaults: { layout: "card" } },
     measure: async (page) => {
       const cont = page.locator("[data-lg-continue]:visible").first();
       if ((await cont.count()) > 0) {
         await cont.click({ timeout: 5000 }).catch(() => {});
-        await page.waitForTimeout(500);
+        await page.waitForTimeout(400);
       }
-      return probe(page, '.lg-tscard[data-error="true"]', ["borderTopColor"]);
+      return probe(page, '[data-lg-error-for="r2fix_carrier"]', ["color"]);
     },
     target:
-      'DRIVEN: .lg-tscard[data-error="true"] border-top-color, after button_defaults.layout="card" + an unanswered required-choice Continue click on the carrier ButtonAnswerGroup (engine.ts handleContinue/sectionPassesAt -> render.ts setFieldError, which sets .lg-error + aria-invalid, never data-error); styles.ts .lg-tscard[data-error="true"]{border-color:color.error}',
+      'DRIVEN: [data-lg-error-for="r2fix_carrier"] color, after a Continue click on the carrier ButtonAnswerGroup with NO choice selected (engine.ts handleContinue/sectionPassesAt -> render.ts:228 setFieldError, the real required-validation producer, unhides the slot and inline-styles it with validation.errorTextColor); styles.ts .lg-error{color:validation.errorTextColor}, same token applyErrorRole writes',
+    secondary: {
+      depth: 2,
+      measure: async (page) => {
+        const cont = page.locator("[data-lg-continue]:visible").first();
+        if ((await cont.count()) > 0) {
+          await cont.click({ timeout: 5000 }).catch(() => {});
+          await page.waitForTimeout(400);
+        }
+        return probe(page, '.lg-input[aria-invalid="true"]', ["borderTopColor"]);
+      },
+      target:
+        '.lg-input[aria-invalid="true"] border-top-color (bonus corroboration, EXPECTED ABSENT: this fixture has no required question backed by a bare <input data-lg-input> — driven and confirmed, not assumed; input.errorBorderColor is a real consumer, styles.ts .lg-input[aria-invalid="true"]{border-color:input.errorBorderColor}, just unreachable on THIS fixture\'s current structure without authoring a new section)',
+    },
   },
   {
     key: "palette.page_background",

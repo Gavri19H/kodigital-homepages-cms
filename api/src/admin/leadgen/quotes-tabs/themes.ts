@@ -133,10 +133,22 @@ function renderHarmonyRow(role: string): string {
 // de-underscored raw id when no label is given (e.g. "space grotesk"), so
 // this map exists purely to give every option a polished human label,
 // extending the pre-existing 3-id inline label the two font selects used.
+//
+// R2 P8-3 N20 — literata/sora/system are NOT self-hosted (theme.ts's own doc
+// comment: "NONE of them is self-hosted"; fonts.generated.ts's
+// LEADGEN_SELF_HOSTED_FONT_FAMILIES is the 8 that follow, and only the 8 the
+// renderer actually serves via a vendored @font-face) — they render through a
+// generic fallback stack, so picking one AFRESH does not reliably paint as
+// chosen. They keep their EXACT enum values (a funnel already storing one
+// renders byte-identically — the same THEME_FONT_STACKS lookup, untouched)
+// but are labelled "(legacy)" and sorted after the 8 real choices
+// (THEME_FONT_SELECT_IDS below), so the rail's fresh-choice vocabulary is the
+// SAME 8 words, in the SAME order, the Themes manager offers
+// (ui-theme-manager.ts THEME_RECORD_FONT_NAMES's own last 8 entries).
 const THEME_FONT_LABELS: Readonly<Record<string, string>> = {
-  literata: "Literata",
-  sora: "Sora",
-  system: "System",
+  literata: "Literata (legacy)",
+  sora: "Sora (legacy)",
+  system: "System (legacy)",
   poppins: "Poppins",
   space_grotesk: "Space Grotesk",
   fraunces: "Fraunces",
@@ -146,6 +158,14 @@ const THEME_FONT_LABELS: Readonly<Record<string, string>> = {
   work_sans: "Work Sans",
   lexend: "Lexend",
 };
+const THEME_FONT_LEGACY_IDS: ReadonlySet<string> = new Set(["literata", "sora", "system"]);
+// Fresh (self-hosted) choices first, legacy last — DISPLAY ORDER only; every
+// value THEME_FONT_IDS carries is still present, so a stored id round-trips
+// byte-identically (I1: values never change, only what is displayed).
+const THEME_FONT_SELECT_IDS: readonly string[] = [
+  ...THEME_FONT_IDS.filter((id) => !THEME_FONT_LEGACY_IDS.has(id)),
+  ...THEME_FONT_IDS.filter((id) => THEME_FONT_LEGACY_IDS.has(id)),
+];
 
 
 // R2 F-3 — the two SIZE rails.
@@ -161,6 +181,18 @@ const THEME_FONT_LABELS: Readonly<Record<string, string>> = {
 // emitted panel markup carries no comment/whitespace noise on the wire.
 const BUTTON_HEIGHT_LABELS: Readonly<Record<string, string>> = { s: "Small", m: "Medium", l: "Large" };
 const FIELD_HEIGHT_LABELS: Readonly<Record<string, string>> = { small: "Small", medium: "Medium", large: "Large" };
+
+// R2 P8-3 N1 — THEME_RADIUS_STEPS/THEME_SHADOW_STEPS (the button/card corner +
+// card shadow rails) rendered their raw enum members (sm|md|lg|xl|full /
+// none|sm|md|lg|xl) as the visible option text — an engineering token where a
+// design word belongs (owner: "theme is only design language!!!! colors,
+// fonts, sizes"). Same mechanism as every other themeSelect call above
+// (a label map), never a new one. "full" is theme.ts's own documented
+// "semantic fully round" step; the shadow ladder mirrors the radius wording
+// (Small/Medium/Large/Extra large) since it is the SAME sm/md/lg/xl shape
+// plus "none".
+const THEME_RADIUS_STEP_LABELS: Readonly<Record<string, string>> = { sm: "Small", md: "Medium", lg: "Large", xl: "Extra large", full: "Fully round" };
+const THEME_SHADOW_STEP_LABELS: Readonly<Record<string, string>> = { none: "None", sm: "Small", md: "Medium", lg: "Large", xl: "Extra large" };
 
 function renderThemeEditorPanel(isControl: boolean): string {
   const paletteRows = ROLE_META.map(
@@ -178,8 +210,17 @@ function renderThemeEditorPanel(isControl: boolean): string {
   </div>`,
   ).join("");
 
+  // R2 P8-3 N7 — this blank/default option's own text was "Inherit from base
+  // design" (24 chars); the rail's `.lg-scalars` grid (shared.ts) is a
+  // 2-column layout inside a ~340px-max rail, so the CLOSED <select> (which
+  // always shows exactly this text for every untouched field) had no room
+  // and truncated to "Inherit from base de…". The grid's column count
+  // (shared.ts) and the select's own width:100% (templates/layout.ts) are
+  // both outside this file; the string is the one lever inside it, so this
+  // shortens the text rather than reflowing shared layout every other rail
+  // control also uses. The stored VALUE stays "" (inherit) — display only.
   const themeSelect = (label: string, key: string, values: readonly string[], labels?: Readonly<Record<string, string>>): string =>
-    `<div class="form-group"><label class="form-label">${escapeHtml(label)}</label><select class="form-select" data-theme-key="${escapeHtml(key)}"><option value="">Inherit from base design</option>${enumOptions(values, labels)}</select></div>`;
+    `<div class="form-group"><label class="form-label">${escapeHtml(label)}</label><select class="form-select" data-theme-key="${escapeHtml(key)}"><option value="">Inherit from base</option>${enumOptions(values, labels)}</select></div>`;
 
   // R2 P2 S2b: the OLD `lg-theme-minipreview`/`lg-theme-minipreview-frame`
   // mini-preview strip (a `data-mini-preview-mode="frame"` request, which
@@ -204,8 +245,8 @@ function renderThemeEditorPanel(isControl: boolean): string {
   <h3>Typography</h3>
   <p class="form-help">Display sets headlines, big numbers and the display size below. Body sets paragraphs, labels and inputs — the two never share a size or a font by accident.</p>
   <div class="lg-scalars">
-    ${themeSelect("Display font (headlines)", "typography.display", THEME_FONT_IDS, THEME_FONT_LABELS)}
-    ${themeSelect("Body font (paragraphs)", "typography.body", THEME_FONT_IDS, THEME_FONT_LABELS)}
+    ${themeSelect("Display font (headlines)", "typography.display", THEME_FONT_SELECT_IDS, THEME_FONT_LABELS)}
+    ${themeSelect("Body font (paragraphs)", "typography.body", THEME_FONT_SELECT_IDS, THEME_FONT_LABELS)}
     ${themeSelect("Body text size", "typography.size", THEME_SIZE_SCALES, { s: "Small", m: "Medium", l: "Large" })}
     ${themeSelect("Display size", "typography.display_size", THEME_DISPLAY_SIZE_SCALES, { m: "Base", l: "Large", xl: "X-Large", xxl: "XX-Large" })}
   </div>
@@ -219,7 +260,7 @@ function renderThemeEditorPanel(isControl: boolean): string {
   ${frameControl("Button background", renderRoleStrip("theme:button_defaults.background_role"))}
   ${frameControl("Button text", renderRoleStrip("theme:button_defaults.text_role"))}
   <div class="lg-scalars">
-    ${themeSelect("Button corners", "button_defaults.radius", THEME_RADIUS_STEPS)}
+    ${themeSelect("Button corners", "button_defaults.radius", THEME_RADIUS_STEPS, THEME_RADIUS_STEP_LABELS)}
     ${themeSelect("Button height", "button_defaults.min_height", THEME_BUTTON_MIN_HEIGHTS, BUTTON_HEIGHT_LABELS)}
     ${themeSelect("Button casing", "button_defaults.casing", ["none", "upper"], { none: "As written", upper: "UPPERCASE" })}
   </div>
@@ -238,8 +279,8 @@ function renderThemeEditorPanel(isControl: boolean): string {
   ${frameControl("Card background", renderRoleStrip("theme:card_defaults.background_role"))}
   ${frameControl("Card border", renderRoleStrip("theme:card_defaults.border_role"))}
   <div class="lg-scalars">
-    ${themeSelect("Card corners", "card_defaults.radius", THEME_RADIUS_STEPS)}
-    ${themeSelect("Card shadow", "card_defaults.shadow", THEME_SHADOW_STEPS)}
+    ${themeSelect("Card corners", "card_defaults.radius", THEME_RADIUS_STEPS, THEME_RADIUS_STEP_LABELS)}
+    ${themeSelect("Card shadow", "card_defaults.shadow", THEME_SHADOW_STEPS, THEME_SHADOW_STEP_LABELS)}
   </div>
   <details class="lg-advanced" id="lg-theme-advanced">
     <summary>Advanced token administration</summary>
@@ -267,14 +308,23 @@ function renderThemeEditorPanel(isControl: boolean): string {
 // one-click fork.
 // ---------------------------------------------------------------------------
 
+// R2 P8-3 N11 (contract §4 R3 corollary: "a control that cannot be honoured
+// must not be offered") — with zero saved presets there is nothing to apply
+// or A/B, so both actions render disabled and the help text says so plainly,
+// the same "disabled control + a note naming why" idiom quotes-tabs/funnel.ts
+// already uses for the theme override switch when it is off-target. Every
+// state below is CONFIRMED by THEMES_TAB_SCRIPT's refreshPresetAvailability
+// (a plain read of the existing GET /api/admin/leadgen/themes list, never
+// assumed) — no new save-blocker, validator or gate: this only makes the
+// existing buttons' presentation agree with what a click on them can do.
 function renderThemePresetsPanel(): string {
   return `<div class="lg-panel-card" id="lg-theme-presets">
   <h3>Theme presets</h3>
-  <p class="form-help">Save the current look as a reusable preset from the Themes manager, then apply or delete any preset there. Presets are shared across every funnel.</p>
+  <p class="form-help" id="lg-theme-preset-help">Checking for saved presets&#8230;</p>
   <div class="lg-preset-apply-row">
     <select class="form-select" id="lg-theme-preset-select" aria-label="Theme preset"><option value="">Loading presets&#8230;</option></select>
-    <button type="button" class="btn btn-sm btn-secondary" id="lg-theme-preset-apply">Apply to this funnel</button>
-    <button type="button" class="btn btn-sm btn-outline" id="lg-theme-ab-this" title="Fork this variant with the picked preset as its theme, then set the traffic split">A/B this theme</button>
+    <button type="button" class="btn btn-sm btn-secondary" id="lg-theme-preset-apply" disabled title="Checking for saved presets&#8230;">Apply to this funnel</button>
+    <button type="button" class="btn btn-sm btn-outline" id="lg-theme-ab-this" disabled title="Checking for saved presets&#8230;">A/B this theme</button>
   </div>
   <a class="btn btn-sm btn-outline" href="/admin/leadgen/themes" target="_blank" rel="noopener" id="lg-theme-manage-link">Manage all presets &#8594;</a>
 </div>`;
@@ -1298,6 +1348,41 @@ const THEMES_TAB_SCRIPT = `
     queueThemeEdit('palette.' + detail.role, value);
   });
 
+  // --- N11: the preset actions are honest (contract §4 R3 corollary) --------
+  // Disabled + "Checking…" is the SSR default (renderThemePresetsPanel) so a
+  // slow or failed read never shows a false "ready" — this function is the
+  // ONLY thing that ever enables the two buttons, and only once it has
+  // CONFIRMED at least one preset exists via the SAME read-only list GET
+  // funnel.ts's own loadThemePresetOptions already calls (no new endpoint).
+  var PRESET_ZERO_HELP = 'No presets saved yet \\u2014 save one from the Themes manager, then it can be applied here.';
+  var PRESET_READY_HELP = 'Save the current look as a reusable preset from the Themes manager, then apply or delete any preset there. Presets are shared across every funnel.';
+  var PRESET_FAILED_HELP = 'Could not check for saved presets \\u2014 reload the page to try again.';
+  var PRESET_ZERO_TITLE = 'No presets saved yet \\u2014 create one from the Themes manager first.';
+  var PRESET_AB_READY_TITLE = 'Fork this variant with the picked preset as its theme, then set the traffic split';
+  function refreshPresetAvailability() {
+    var applyBtn = byId('lg-theme-preset-apply');
+    var abBtn = byId('lg-theme-ab-this');
+    var helpEl = byId('lg-theme-preset-help');
+    fetch('/api/admin/leadgen/themes', { credentials: 'same-origin', headers: { 'Accept': 'application/json' } })
+      .then(function (r) { return r.json(); })
+      .then(function (body) {
+        var items = (body && body.items) || [];
+        var hasPresets = items.length > 0;
+        if (applyBtn) { applyBtn.disabled = !hasPresets; applyBtn.title = hasPresets ? '' : PRESET_ZERO_TITLE; }
+        if (abBtn) { abBtn.disabled = !hasPresets; abBtn.title = hasPresets ? PRESET_AB_READY_TITLE : PRESET_ZERO_TITLE; }
+        if (helpEl) { helpEl.textContent = hasPresets ? PRESET_READY_HELP : PRESET_ZERO_HELP; }
+      })
+      .catch(function () {
+        // Fail closed on the DISPLAY, same as everywhere else in this
+        // island: unconfirmed never reads as ready. The buttons stay
+        // disabled (their SSR default); only the copy tells the operator
+        // WHY, rather than leaving "Checking…" showing forever.
+        if (helpEl) { helpEl.textContent = PRESET_FAILED_HELP; }
+        if (applyBtn) { applyBtn.title = PRESET_FAILED_HELP; }
+        if (abBtn) { abBtn.title = PRESET_FAILED_HELP; }
+      });
+  }
+
   // P8-1 F1: name the funnel before anything else paints, so the panel is
   // never on screen without saying which funnel it edits.
   paintTargetHeader();
@@ -1311,6 +1396,7 @@ const THEMES_TAB_SCRIPT = `
   // the site's branding instead of waiting for the operator to touch a select.
   initSiteDefault();
   loadSections();
+  refreshPresetAvailability();
 }());
 `;
 

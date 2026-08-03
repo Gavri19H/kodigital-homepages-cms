@@ -683,13 +683,26 @@ function renderLeftList(
 // CENTER — editor (golden :661-701, contract §10.4)
 // ---------------------------------------------------------------------------
 
-const ROLE_META: ReadonlyArray<{ key: ThemeRecordRoleKey; label: string; sub: string; border: boolean }> = [
-  { key: "brand_primary", label: "Brand primary", sub: "buttons · progress · selected", border: false },
-  { key: "accent", label: "Accent", sub: "highlights · recommended", border: false },
-  { key: "page_bg", label: "Page background", sub: "behind the card", border: true },
-  { key: "card", label: "Card", sub: "question surface", border: true },
-  { key: "text", label: "Text", sub: "headings & body", border: false },
-  { key: "success", label: "Success", sub: "reassurance · valid", border: false },
+// R2 P8 M2 / S3.11: converged VERBATIM (word-for-word, comma vs "·" only)
+// with quotes-tabs/shared.ts's ROLE_META for every role both files describe —
+// the rail and this manager must never describe the same role differently
+// (test/leadgen-p8-m2-role-usedby.test.ts pins the convergence). brand_primary
+// and text also correct two now-fixed false claims — see shared.ts's own
+// ROLE_META comment for the full per-role evidence (frozen, unwired copies:
+// progress.fillColor / iconCard.selectedBorderColor / header.logoColor for
+// brand_primary; headline.color / page.textSecondaryColor for text).
+// Exported (S3.11): so test/leadgen-p8-m2-role-usedby.test.ts can pin this
+// table's words against the REAL rail (shared.ts's ROLE_META) and the REAL
+// generated stylesheet without a second, hand-copied fixture — no rendering
+// behaviour changes (renderCenterEditor's own `ROLE_META.map(...)` call is
+// unchanged).
+export const ROLE_META: ReadonlyArray<{ key: ThemeRecordRoleKey; label: string; sub: string; border: boolean }> = [
+  { key: "brand_primary", label: "Brand primary", sub: "buttons · focus ring", border: false },
+  { key: "accent", label: "Accent", sub: "category label · highlights · recommended", border: false },
+  { key: "page_bg", label: "Page background", sub: "frame background", border: true },
+  { key: "card", label: "Card", sub: "question card · answer cards", border: true },
+  { key: "text", label: "Text", sub: "body text · input text", border: false },
+  { key: "success", label: "Success", sub: "reassurance · valid states", border: false },
 ];
 
 // P6b round 2 (deliverable 3 — "presets carry+expose the v2 axes"): the 7
@@ -700,19 +713,44 @@ const ROLE_META: ReadonlyArray<{ key: ThemeRecordRoleKey; label: string; sub: st
 // human name in both editors. All 7 are OPTIONAL (a preset may set some/all/
 // none) — renderCenterEditor below falls back to a neutral placeholder swatch
 // for any unset key (safeHex's existing undefined-input handling).
-const EXTRA_ROLE_META: ReadonlyArray<{ key: ThemeRecordExtraRoleKey; label: string; sub: string; border: boolean }> = [
+// S3.11: surface_wash/text_muted/button_secondary_bg corrected in lockstep
+// with shared.ts's ROLE_META (same evidence, same replacement words) — see
+// this file's own ROLE_META comment above for the pointer.
+export const EXTRA_ROLE_META: ReadonlyArray<{ key: ThemeRecordExtraRoleKey; label: string; sub: string; border: boolean }> = [
   { key: "brand_secondary", label: "Brand secondary", sub: "gradients · secondary emphasis", border: false },
-  { key: "surface_wash", label: "Soft fill", sub: "selected fills · quiet panels", border: false },
+  { key: "surface_wash", label: "Soft fill", sub: "range-slider focus ring", border: false },
   { key: "border", label: "Border", sub: "card/input borders", border: true },
-  { key: "text_muted", label: "Muted text", sub: "subheadlines · helper · meta", border: false },
+  { key: "text_muted", label: "Muted text", sub: "labels · disclosure text", border: false },
   { key: "button_primary_bg", label: "Button", sub: "Continue/CTA background", border: false },
   { key: "button_primary_text", label: "Button text", sub: "Continue/CTA text", border: false },
-  { key: "button_secondary_bg", label: "Secondary button", sub: "back button-style · quiet buttons", border: false },
+  { key: "button_secondary_bg", label: "Secondary button", sub: "benefit bar · disclosure bar", border: false },
 ];
 
+// R2 P8-3 N20 — THEME_RECORD_FONT_NAMES's original 3 (Newsreader/Inter/Roboto
+// Mono) are NOT self-hosted (theme.ts's own THEME_RECORD_FONT_STACKS doc
+// comment; fonts.generated.ts's LEADGEN_SELF_HOSTED_FONT_FAMILIES is the 8
+// that follow, and only the 8 the renderer actually vendors a @font-face
+// for) — the SAME "back-compat, not self-hosted" set the funnel-theme rail
+// (quotes-tabs/themes.ts THEME_FONT_LABELS) also demotes. They keep their
+// EXACT enum values (a preset already storing one renders byte-identically —
+// same THEME_RECORD_FONT_STACKS lookup, untouched) but sort after the 8 real
+// choices and read "(legacy)", so this manager's fresh-choice vocabulary is
+// the SAME 8 words, in the SAME order, the rail offers.
+const THEME_RECORD_FONT_LEGACY_NAMES: ReadonlySet<ThemeRecordFontName> = new Set(["Newsreader", "Inter", "Roboto Mono"]);
+// Fresh (self-hosted) choices first, legacy last — DISPLAY ORDER only; every
+// name THEME_RECORD_FONT_NAMES carries is still present and still the exact
+// PATCH value (I1: values never change, only what is displayed).
+const THEME_RECORD_FONT_SELECT_NAMES: readonly ThemeRecordFontName[] = [
+  ...THEME_RECORD_FONT_NAMES.filter((n) => !THEME_RECORD_FONT_LEGACY_NAMES.has(n)),
+  ...THEME_RECORD_FONT_NAMES.filter((n) => THEME_RECORD_FONT_LEGACY_NAMES.has(n)),
+];
+function fontDisplayLabel(name: ThemeRecordFontName): string {
+  return THEME_RECORD_FONT_LEGACY_NAMES.has(name) ? `${name} (legacy)` : name;
+}
+
 function fontOptionsHtml(selected: ThemeRecordFontName): string {
-  return THEME_RECORD_FONT_NAMES.map(
-    (name) => `<option value="${escapeHtml(name)}"${name === selected ? " selected" : ""}>${escapeHtml(name)}</option>`,
+  return THEME_RECORD_FONT_SELECT_NAMES.map(
+    (name) => `<option value="${escapeHtml(name)}"${name === selected ? " selected" : ""}>${escapeHtml(fontDisplayLabel(name))}</option>`,
   ).join("");
 }
 

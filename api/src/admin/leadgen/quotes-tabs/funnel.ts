@@ -37,6 +37,10 @@ import {
   FRAME_TRUST_PLACEMENTS,
 } from "../../../public/leadgen/designs/frames";
 import { FUNNEL_TOKEN_ROLES } from "../../../public/leadgen/designs/theme";
+// S3.7: resolves a stored funnel_design_id (canonical or alias) to the
+// distinct design it renders — used only to mark the correct <option>
+// selected; the visitor-facing resolution path is untouched (I1/I2).
+import { getFunnelDesign } from "../../../public/leadgen/designs/registry";
 import { ENTRY_KNOWN_SLOT_FIELDS } from "../../../public/leadgen/resolver";
 // R2 P2 tail (item 2): the preset-resolve algorithm quotes-tabs/themes.ts's
 // THEMES_TAB_SCRIPT already uses (MINOR-1) — extracted to a shared module so
@@ -528,13 +532,26 @@ function renderBoardMenus(): string {
 // so the controls carry real current values on first paint. Provenance:
 // 5ccf40e:quotes-tabs/funnel.ts (renderStructurePanel <details id=lg-funnel-
 // settings>) / 4c9b534:ui-quotes.ts.
+// R2 P8-3 N1, 4th control (S3.5 fixed the raw-id label; S3.7 — §4 R3
+// corollary "a control that cannot be honoured must not be offered" — fixes
+// the deeper defect: FUNNEL_DESIGNS registers ONE distinct design under TWO
+// keys ("default" alias + canonical "default-funnel"), so offering one
+// <option> per registry key offered the operator two choices that do the
+// identical thing, which is not a choice (I1). listFunnelDesignOptions
+// (quotes-handlers.ts) now dedupes to one entry per DISTINCT design and is
+// the single source of `label` (I3) — this function only renders `d.label`
+// as delivered. The `selected` check resolves `current`'s stored id through
+// getFunnelDesign (the SAME resolver the visitor-facing path uses) so a
+// funnel storing the alias ("default") still shows the canonical entry
+// selected — a non-empty, correct state (I2) — instead of matching nothing.
 function renderFunnelSettingsDialog(
   designs: Array<{ id: string; label: string }>,
   auctions: AuctionListItem[],
   current: VariantNode | null,
 ): string {
+  const currentDesignId = current !== null ? getFunnelDesign(current.funnel_design_id).id : null;
   const designOptions = designs
-    .map((d) => `<option value="${escapeHtml(d.id)}"${current !== null && d.id === current.funnel_design_id ? " selected" : ""}>${escapeHtml(d.label)}</option>`)
+    .map((d) => `<option value="${escapeHtml(d.id)}"${currentDesignId === d.id ? " selected" : ""}>${escapeHtml(d.label)}</option>`)
     .join("");
   const auctionOptions = [`<option value="">— none —</option>`]
     .concat(
@@ -4996,7 +5013,12 @@ export const QUOTE_EDITOR_SCRIPT = `
     var hl = fsById('lg-lander-headline'); if (hl) { hl.value = s.lander_headline || ''; }
     var sub = fsById('lg-lander-sub'); if (sub) { sub.value = s.lander_subheadline || ''; }
     var hero = fsById('lg-lander-hero'); if (hero) { hero.value = s.lander_hero_media_url || ''; }
-    var des = fsById('lg-funnel-design'); if (des) { des.value = s.funnel_design_id || ''; }
+    var des = fsById('lg-funnel-design');
+    if (des) {
+      var fid = s.funnel_design_id || '';
+      des.value = fid;
+      if (des.value !== fid) { des.selectedIndex = 0; }
+    }
     var auc = fsById('lg-auction-id'); if (auc) { auc.value = (s.auction_id === null || s.auction_id === undefined) ? '' : String(s.auction_id); }
     show(fsettingsEl);
   }

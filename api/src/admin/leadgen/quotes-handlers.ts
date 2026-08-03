@@ -6916,6 +6916,49 @@ export async function experimentAssignmentPreviewHandler(c: AdminContext): Promi
 
 // The list of available funnel visual designs (§15.4) — read-only registry
 // projection for the editor's design selector.
+//
+// R2 P8-3 S3.7 (§4 R3 corollary "a control that cannot be honoured must not
+// be offered" + owner: "theme is only design language!!!! colors, fonts,
+// sizes"): FUNNEL_DESIGNS registers exactly ONE distinct design object under
+// TWO keys — "default" (the resolver's documented fallback alias) and its
+// own canonical id "default-funnel" (registry.ts). One entry per registry
+// KEY offered the operator two options that do the identical thing, which
+// is not a choice (I1). Dedupe by the design's OWN `.id` — the SAME
+// `[...new Set(...)]` idiom ui-section-studio.ts's designPickerOptions
+// already uses against this exact registry — so the option set tracks
+// DISTINCT designs, not raw registry keys: a future distinct design still
+// surfaces automatically, a future alias still collapses automatically.
+//
+// `label` is computed HERE, once, via funnelDesignLabel/FUNNEL_DESIGN_LABELS
+// below — the single source of display labels for this control (I3).
+// quotes-tabs/funnel.ts's renderFunnelSettingsDialog renders `d.label` as
+// delivered; it does not maintain a second, parallel label map.
 export function listFunnelDesignOptions(): Array<{ id: string; label: string }> {
-  return Object.keys(FUNNEL_DESIGNS).map((id) => ({ id, label: id }));
+  const distinctIds = [...new Set(Object.values(FUNNEL_DESIGNS).map((d) => d.id))];
+  return distinctIds.map((id) => ({ id, label: funnelDesignLabel(id) }));
+}
+
+// The visible design word for each DISTINCT design this registry resolves
+// to (keyed by a design's own canonical id, e.g. "default-funnel" — never a
+// fallback alias key like "default", which per I1 is never independently
+// offered as its own choice). Owner: "theme is only design language!!!!
+// colors, fonts, sizes" — the operator is a marketer, not an engineer; a
+// raw registry id is not a design word.
+export const FUNNEL_DESIGN_LABELS: Readonly<Record<string, string>> = {
+  "default-funnel": "Default Funnel Design",
+};
+
+// I2/I4: a distinct design id this map does not cover must never fall
+// through to rendering its raw registry key — that would reproduce the
+// exact defect this fixes. Throwing turns a future unlabeled design id into
+// a visible failure, surfaced here (before listFunnelDesignOptions ever
+// returns) rather than a silent id leak at render time; completeness
+// against the real registry's distinct ids is asserted directly by
+// test/leadgen-p8-n1-design-label.test.ts.
+export function funnelDesignLabel(id: string): string {
+  const label = FUNNEL_DESIGN_LABELS[id];
+  if (label === undefined) {
+    throw new Error(`listFunnelDesignOptions: funnel design id "${id}" has no operator label — add one to FUNNEL_DESIGN_LABELS`);
+  }
+  return label;
 }

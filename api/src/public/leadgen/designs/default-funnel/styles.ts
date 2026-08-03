@@ -26,7 +26,10 @@ import type { DefaultFunnelDesign } from "./tokens";
 // import back into this module (its registry import is type-only) — no cycle.
 // P6: readButtonStyle reads the theme's resolved button-style triple off the
 // design stash (Symbol-keyed; undefined for a legacy/un-themed design).
-import { FUNNEL_TOKEN_ROLES, baseTokenForRole, readButtonStyle } from "../theme";
+// R2 P8 M2: readButtonCasing reads theme_json.button_defaults.casing off its
+// own (separate) stash — see theme.ts's BUTTON_CASING_STASH note for why the
+// casing does not ride the button-style triple.
+import { FUNNEL_TOKEN_ROLES, baseTokenForRole, readButtonCasing, readButtonStyle } from "../theme";
 import type { EffectiveButtonStyle, EffectiveFunnelDesign } from "../theme";
 // P6 self-hosted fonts (build-time-vendored WOFF2 Latin subsets, base64 data:
 // URLs — ZERO external font requests). selfHostedFontFaceCss emits the
@@ -275,8 +278,17 @@ function pushButtonStyleRules(
         "border-color": color.border,
         background: color.primaryGhost,
       }),
-      // error (mirrors the EXISTING .lg-card[data-error="true"] idiom).
-      rule(`${scope} .lg-tscard[data-error="true"]`, { "border-color": color.error }),
+      // error — R2 P8 M2 / S3.10. WAS `.lg-tscard[data-error="true"]`, which
+      // could never match: NOTHING in the visitor runtime writes a
+      // `data-error` attribute (every `data-error` hit in src/ is the
+      // unrelated admin `data-error-for` slot id). Re-pointed at the state the
+      // runtime really produces — runtime/render.ts:228 setFieldError adds
+      // ERROR_CLASS ("lg-error") to the owning `[data-lg-field]` block, which
+      // for this pack is the `.lg-answer-group` root (presets.ts:1491
+      // hydration()), and the .lg-tscard chips are its descendants. Re-pointed
+      // rather than removed: the pack's error affordance is real; its selector
+      // was not. NO producer was invented to make the old selector reachable.
+      rule(`${scope} .lg-error .lg-tscard`, { "border-color": color.error }),
       // the "Other" trigger's ONLY anatomy delta from a plain choice card —
       // title left, chevron right (the pack's own trailing-affordance row).
       rule(`${scope} .lg-tscard.lg-other-trigger`, {
@@ -1713,8 +1725,16 @@ export function funnelChromeCss(
       opacity: iconCard.disabledOpacity,
       cursor: "not-allowed",
     }),
-    // error state (§14.4)
-    rule(`${scope} .lg-card[data-error="true"]`, { "border-color": iconCard.errorBorderColor }),
+    // error state (§14.4) — R2 P8 M2 / S3.10. WAS
+    // `.lg-card[data-error="true"]`, an unreachable selector: no producer in
+    // the visitor runtime ever writes `data-error`. Re-pointed at the state
+    // runtime/render.ts:228 setFieldError really produces (ERROR_CLASS
+    // "lg-error" on the `[data-lg-field]` block — here the `.lg-card-grid`
+    // root, presets.ts:1717 hydration() — with the `.lg-card` buttons as its
+    // descendants). Same specificity class as the selector it replaces
+    // (scope attr + 2), same source position, so the interaction-state
+    // cascade against selected/hover/disabled is unchanged.
+    rule(`${scope} .lg-error .lg-card`, { "border-color": iconCard.errorBorderColor }),
     // P1a (register PC-11): the icon slot centers its glyph without constraining
     // it — P1b's leadgenIconSvg(id,48) emits an explicit 48×48 <svg>, so an
     // inline-flex box sizes TO the 48px icon (never shrinks it) and centers a
@@ -2387,6 +2407,27 @@ export function funnelChromeCss(
   const buttonStyle = readButtonStyle(design);
   if (buttonStyle !== undefined) {
     pushButtonStyleRules(scope, design, buttonStyle, out, mobile);
+  }
+
+  // ---- R2 P8 M2: theme button CASING --------------------------------------
+  // `theme_json.button_defaults.casing` resolved to EffectiveButtonDefaults.
+  // text_transform and stopped there — the readout had ZERO CSS consumers, so
+  // the operator's Uppercase painted nothing (measured: `.lg-continue` and
+  // `.lg-btn-answer` both `text-transform:none` on BOTH arms,
+  // docs/leadgen/r2/evidence/p8/m2/repro-before.txt).
+  //
+  // ONE rule on `.lg-btn` reaches BOTH surfaces the visitor presses: the
+  // continue pill is `class="lg-btn lg-continue"` and every answer chip is
+  // `class="lg-btn lg-btn-answer"` (presets.ts). No other rule in this sheet
+  // declares `text-transform` on a button (the only two emissions are
+  // categoryLabel.textTransform and banner.ctaTextTransform), so this rule
+  // never competes; it is emitted HERE — after the base `.lg-btn` rule, before
+  // the frame-region block — so it also wins on source order at equal
+  // specificity, and the no-frame sheet stays a byte-stable prefix of the
+  // framed sheet (13 §13.1). Absent/`none` casing ⇒ nothing emitted ⇒
+  // byte-identical to pre-M2.
+  if (readButtonCasing(design) === "upper") {
+    out.push(rule(`${scope} .lg-btn`, { "text-transform": "uppercase" }));
   }
 
   // ---- v2.5 frame-region rules (13 §13.1, opt-in — see FunnelChromeCssOpts).
