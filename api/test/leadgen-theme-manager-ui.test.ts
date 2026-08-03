@@ -465,15 +465,52 @@ describeDb("GET /admin/leadgen/themes — full page (§10.2/§10.3, Appendix A)"
     expect(html).not.toContain("Cozy");
   });
 
+  // R2 P8-3 M2/S3.11 RE-MINT — four of these six sublabels changed. PRECEDENCE:
+  // P8-DEFECT-CONTRACT.md wins over v3.1's Appendix A string list, and its §4 R3
+  // corollary is "a control that cannot be honoured must not be offered", so a
+  // pinned sublabel naming a surface the role provably does not paint is a pin
+  // encoding a defect. Verdict PER STRING (source of truth: the real
+  // resolveTokens+funnelChromeCss audit in test/leadgen-p8-m2-role-usedby.test.ts,
+  // plus the token literals cited below from designs/default-funnel/tokens.ts and
+  // designs/theme.ts ROLE_TO_BASE_TOKEN):
+  //
+  //  1. brand_primary "buttons · progress · selected" -> "buttons · focus ring".
+  //     THE OLD TEXT WAS FALSE. brand_primary writes exactly ONE token,
+  //     `color.primary` (theme.ts:90). `progress.fillColor` is the frozen
+  //     literal "linear-gradient(90deg,#1B3A5C,#2A5080)" and
+  //     `iconCard.selectedBorderColor` is the frozen literal "#1B3A5C" (the
+  //     SAME hex as color.primary by coincidence, not by wiring) — no applier
+  //     ever rewrites either, so authoring this role moved neither surface.
+  //  2. accent "highlights · recommended" — UNCHANGED, still true, still pinned.
+  //  3. page_bg "behind the card" -> "frame background". THE OLD TEXT WAS NOT
+  //     FALSE: page_background paints the scope root's own background-color,
+  //     which is indeed behind the card. This one is a CONVERGENCE re-mint, not
+  //     a lie correction — the manager and the funnel-theme rail must not
+  //     describe the same role with different words, which
+  //     leadgen-p8-m2-role-usedby.test.ts I4 now pins; "frame background" is
+  //     the rail's (audited) wording for the same surface.
+  //  4. card "question surface" -> "question card · answer cards". The old text
+  //     was true but INCOMPLETE: card_background also paints
+  //     `.lg-btn.lg-btn-answer`'s resting background, not only
+  //     `.lg-question-card`. Same I4 convergence; strictly more of the truth.
+  //  5. text "headings &amp; body" -> "body text · input text". THE OLD TEXT WAS
+  //     HALF FALSE: text_primary writes only `page.textColor` ("#1A1F36");
+  //     `headline.color` is a DIFFERENT frozen literal ("#16324f") that no
+  //     applier rewrites, so "headings" never moved with this role.
+  //  6. success "reassurance · valid" — UNCHANGED, still true, still pinned.
+  //
+  // NOT WEAKENED: the four re-minted strings are pinned as the FULL sublabel
+  // text (previously three of them were partial substrings), so this leg now
+  // constrains more bytes than it did before.
   it("role sublabels + role note + size-language note render verbatim (Appendix A)", async () => {
     const { sdb, env } = newHarness();
     await seedFixture(sdb, env);
     const { html } = await getHtml(env, "/admin/leadgen/themes");
-    expect(html).toContain("buttons · progress · selected");
+    expect(html).toContain("buttons · focus ring");
     expect(html).toContain("highlights · recommended");
-    expect(html).toContain("behind the card");
-    expect(html).toContain("question surface");
-    expect(html).toContain("headings &amp; body");
+    expect(html).toContain("frame background");
+    expect(html).toContain("question card · answer cards");
+    expect(html).toContain("body text · input text");
     expect(html).toContain("reassurance · valid");
     expect(html).toContain(
       "Components reference these roles, never fixed shades — change one here and every question in the funnel reskins.",

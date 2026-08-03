@@ -775,7 +775,24 @@ describeDb("Quote Builder frame studio — theme editor (09 §9.3)", () => {
       expect(html, `reset ${role}`).toContain(`data-role-reset="${role}"`);
     }
     expect((html.match(/data-theme-role="/g) ?? []).length).toBe(14);
-    expect(html).toContain("Used by: buttons, progress fill, selected borders, logo text");
+    // R2 P8-3 M2/S3.11 RE-MINT. THE OLD PIN WAS ENCODING A DEFECT, not
+    // describing behaviour: brand_primary writes exactly ONE token,
+    // `color.primary` (designs/theme.ts:90 ROLE_TO_BASE_TOKEN), so three of the
+    // four phrases it advertised never moved when the operator authored the
+    // role — `progress.fillColor` is the frozen literal
+    // "linear-gradient(90deg,#1B3A5C,#2A5080)", `iconCard.selectedBorderColor`
+    // and `header.logoColor` are frozen "#1B3A5C" literals that merely share
+    // color.primary's default hex by coincidence (designs/default-funnel/
+    // tokens.ts). Contract §4 R3 corollary: "a control that cannot be honoured
+    // must not be offered" — a role whose own help text names surfaces it does
+    // not paint is offering exactly that. The two surviving phrases are the two
+    // real, direct `color.primary` reads, both proven to move A->B through the
+    // REAL resolveTokens+funnelChromeCss pair in
+    // test/leadgen-p8-m2-role-usedby.test.ts (the stepper button's rest colour
+    // and the card/answer-button focus ring). This HARD-CODED pin is deliberately
+    // kept rather than deferred to that file's I3 leg, which reads the same
+    // ROLE_META array it asserts against; this one is the independent copy.
+    expect(html).toContain("Used by: buttons, focus ring");
     expect(html).toContain("data-role-source");
     expect(html).toContain(">Base design</span>");
   });
@@ -796,7 +813,25 @@ describeDb("Quote Builder frame studio — theme editor (09 §9.3)", () => {
     ]) {
       expect(html, `theme strip ${strip}`).toContain(`data-role-strip="${strip}"`);
     }
-    expect(html).toContain(">Literata</option>");
+    // THE CLAIM THIS LEG MAKES (unchanged): every curated closed set renders a
+    // HUMAN label, never its raw enum id. R2 P8-3 N20 RE-MINT of the font case
+    // only: `literata` still renders a human label, but the label is now
+    // "Literata (legacy)". THE PRODUCT IS RIGHT HERE, not the old pin —
+    // literata/sora/system are the three ids the renderer does NOT vendor a
+    // @font-face for (designs/fonts.generated.ts
+    // LEADGEN_SELF_HOSTED_FONT_FAMILIES is exactly the OTHER 8: Poppins, Space
+    // Grotesk, Fraunces, Playfair Display, Manrope, DM Sans, Work Sans,
+    // Lexend), so a fresh pick of one does not reliably paint as chosen. N20
+    // labels them rather than removing them (their enum VALUES are untouched,
+    // so a funnel already storing one still round-trips byte-identically) —
+    // §1's no-hardening boundary: a label, not a gate; the option stays
+    // selectable. The full new behaviour (8 fresh ids sorted before all 3
+    // legacy ids, every id still a selectable value, a stored legacy id still
+    // rendered SELECTED) is covered by test/leadgen-p8-n-theme-ui.test.ts:287
+    // and :445 — this leg keeps only its own "human label, not the raw id"
+    // claim, and the added negative below is what makes that claim explicit.
+    expect(html).toContain(">Literata (legacy)</option>");
+    expect(html).not.toContain(">literata</option>");
     expect(html).toContain(">Roomy</option>");
     expect(html).toContain(">Round</option>");
   });

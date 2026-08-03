@@ -725,11 +725,27 @@ describeDb("Gate 2 strings — Themes manager (Appendix A, D1+KV)", () => {
       "themes CENTER editor",
     );
     // role sublabels (Appendix A remainder)
+    //
+    // R2 P8-3 M2/S3.11 RE-MINT of four of these six. PRECEDENCE:
+    // docs/leadgen/r2/P8-DEFECT-CONTRACT.md wins over the v3.1 Appendix A string
+    // list, and its §4 R3 corollary ("a control that cannot be honoured must not
+    // be offered") makes a pinned sublabel that names a surface the role does not
+    // paint a pin encoding a defect. The per-string verdicts (which of the four
+    // were FALSE vs merely divergent, with the token literals that prove it) are
+    // written out once, in full, at the sibling leg
+    // test/leadgen-theme-manager-ui.test.ts "role sublabels + role note + size-
+    // language note render verbatim (Appendix A)" — this Appendix-A roster is
+    // kept in lockstep with it rather than restating the evidence. Source of
+    // truth for what each role really paints:
+    // test/leadgen-p8-m2-role-usedby.test.ts (real resolveTokens +
+    // funnelChromeCss, no hand-built side). Two of the six ("highlights ·
+    // recommended", "reassurance · valid") were audited as still true and are
+    // unchanged.
     assertAllPresent(
       html,
       [
-        "buttons · progress · selected", "highlights · recommended", "behind the card", "question surface",
-        "headings &amp; body", "reassurance · valid",
+        "buttons · focus ring", "highlights · recommended", "frame background", "question card · answer cards",
+        "body text · input text", "reassurance · valid",
         "Components reference these roles, never fixed shades — change one here and every question in the funnel reskins.",
       ],
       "themes role sublabels + note",

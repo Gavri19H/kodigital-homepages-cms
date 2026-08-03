@@ -725,6 +725,42 @@ function plainTabClicks(page: PageState, tabs: readonly string[]): void {
 // legitimately fetches while resolving).
 const themeCallsOf = (island: IslandHandle): Array<{ url: string }> => island.calls.filter((c) => c.url.includes("/funnels/") && c.url.endsWith("/theme"));
 
+// R2 P8-3 (F1) — the WRONG-TARGET net used by the two legs below, which assert
+// "EVERY theme call targets funnel X / NO call targets funnel Y".
+//
+// WHICH SIDE WAS WRONG: the MATCHER, not the island. Both legs used to filter
+// `url.includes("/theme") && !url.includes("preview")`. `"/theme"` is a
+// PREFIX of `"/themes"`, so that predicate also caught the preset-catalog read
+// `GET /api/admin/leadgen/themes` (themes.ts:1366 refreshPresetAvailability),
+// a collection endpoint that is not funnel-scoped and carries no target at
+// all — `.every(url contains "/funnels/<A>/theme")` therefore went false on a
+// call that has nothing to target. MEASURED on the failing leg: the island
+// issues 4 calls — `…/sections?status=active&page_size=200`,
+// `…/themes`, and the funnel-scoped GET+PUT pair `…/funnels/<A>/theme` ×2,
+// both already on the RIGHT funnel. The B3 behaviour is intact.
+//
+// WHY THIS PREDICATE AND NOT `themeCallsOf` ABOVE. Narrowing these two legs to
+// `themeCallsOf`'s `/funnels/ + endsWith("/theme")` would ALSO pass, but it
+// would silently drop coverage: a theme write on any NON-funnel-scoped path
+// (e.g. a future `/variants/:id/theme`) would fall outside the filter and the
+// "every call targets X" assertion would go vacuously true on it. So this
+// EXCLUDES the preset plane precisely instead of narrowing to funnels.
+// COVERAGE, old vs new, over the complete `/theme`-bearing admin route set
+// (router.ts:218-222 + :334-335 — `/themes`, `/themes/:id`, `/funnels/:id/theme`;
+// grep confirms NO `/variants/:id/theme` route exists at this HEAD):
+//   * `/funnels/:id/theme` (GET+PUT)      — matched by BOTH old and new.
+//   * any other `…/theme` shape, present  — matched by BOTH old and new
+//     or future, that carries a target      (this is the coverage narrowing
+//                                            to `/funnels/` would have lost).
+//   * `…/preview…`                        — excluded by BOTH (unchanged).
+//   * `/themes` and `/themes/:id`         — the preset plane; excluded by the
+//                                            NEW predicate only. That is the
+//                                            whole fix, and it removes zero
+//                                            target-bearing calls.
+const PRESET_PLANE_URL = /\/themes(?:\/|$|\?)/;
+const themeTargetCallsOf = (island: IslandHandle): Array<{ url: string }> =>
+  island.calls.filter((c) => c.url.includes("/theme") && !c.url.includes("preview") && !PRESET_PLANE_URL.test(c.url));
+
 describeDb("P8 B3 (contract R6-1) — part (b): the Themes island targets the chip-carried funnel when present, the editor-default otherwise", () => {
   it("no carried context: GET+PUT still target the editor-default funnel (today's behaviour, unchanged)", async () => {
     const { sdb, env } = newHarness();
@@ -735,7 +771,7 @@ describeDb("P8 B3 (contract R6-1) — part (b): the Themes island targets the ch
     fireRadiusEdit(island);
     await island.settle();
 
-    const themeCalls = island.calls.filter((c) => c.url.includes("/theme") && !c.url.includes("preview"));
+    const themeCalls = themeTargetCallsOf(island);
     expect(themeCalls.length, "GET+PUT count to /theme").toBeGreaterThan(0);
     expect(themeCalls.every((c) => c.url.includes(`/funnels/${fx.funnelA}/theme`)), "every /theme call targets funnel A").toBe(true);
     expect(themeCalls.some((c) => c.url.includes(fx.funnelC)), "no call targets funnel C").toBe(false);
@@ -759,7 +795,7 @@ describeDb("P8 B3 (contract R6-1) — part (b): the Themes island targets the ch
     fireRadiusEdit(island);
     await island.settle();
 
-    const themeCalls = island.calls.filter((c) => c.url.includes("/theme") && !c.url.includes("preview"));
+    const themeCalls = themeTargetCallsOf(island);
     expect(themeCalls.length, "GET+PUT count to /theme").toBeGreaterThan(0);
     expect(themeCalls.every((c) => c.url.includes(`/funnels/${fx.funnelC}/theme`)), "every /theme call targets the CARRIED funnel C").toBe(true);
     expect(themeCalls.some((c) => c.url.includes(fx.funnelA)), "no call targets the editor-default funnel A").toBe(false);
