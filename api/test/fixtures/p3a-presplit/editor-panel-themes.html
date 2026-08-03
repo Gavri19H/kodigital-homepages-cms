@@ -32,7 +32,7 @@
   <h3>Colors</h3>
   <div id="lg-theme-palette"><div class="lg-theme-role-row" data-theme-role="brand_primary">
     <span class="lg-theme-swatch" data-role-swatch aria-hidden="true"></span>
-    <span class="lg-grow"><strong>Brand primary</strong><br /><span class="lg-used-by">Used by: buttons, focus ring</span></span>
+    <span class="lg-grow"><strong>Brand primary</strong><br /><span class="lg-used-by">Used by: buttons, progress fill, focus ring</span></span>
     <span class="lg-inherit-tag" data-role-source>Base design</span>
     <details class="lg-theme-edit"><summary class="form-help">Edit</summary>
       <p class="form-help">Suggested from this design&#8217;s base value:</p>
@@ -98,7 +98,7 @@
     </details>
   </div><div class="lg-theme-role-row" data-theme-role="card_background">
     <span class="lg-theme-swatch" data-role-swatch aria-hidden="true"></span>
-    <span class="lg-grow"><strong>Card background</strong><br /><span class="lg-used-by">Used by: question card, answer cards</span></span>
+    <span class="lg-grow"><strong>Card background</strong><br /><span class="lg-used-by">Used by: question card, answer cards, input fields</span></span>
     <span class="lg-inherit-tag" data-role-source>Base design</span>
     <details class="lg-theme-edit"><summary class="form-help">Edit</summary>
       <p class="form-help">Suggested from this design&#8217;s base value:</p>
@@ -188,8 +188,8 @@
   <h3>Typography</h3>
   <p class="form-help">Display sets headlines, big numbers and the display size below. Body sets paragraphs, labels and inputs — the two never share a size or a font by accident.</p>
   <div class="lg-scalars">
-    <div class="form-group"><label class="form-label">Display font (headlines)</label><select class="form-select" data-theme-key="typography.display"><option value="">Inherit from base</option><option value="poppins">Poppins</option><option value="space_grotesk">Space Grotesk</option><option value="fraunces">Fraunces</option><option value="playfair">Playfair Display</option><option value="manrope">Manrope</option><option value="dm_sans">DM Sans</option><option value="work_sans">Work Sans</option><option value="lexend">Lexend</option><option value="literata">Literata (shows as default font)</option><option value="sora">Sora (shows as default font)</option><option value="system">System (shows as default font)</option></select></div>
-    <div class="form-group"><label class="form-label">Body font (paragraphs)</label><select class="form-select" data-theme-key="typography.body"><option value="">Inherit from base</option><option value="poppins">Poppins</option><option value="space_grotesk">Space Grotesk</option><option value="fraunces">Fraunces</option><option value="playfair">Playfair Display</option><option value="manrope">Manrope</option><option value="dm_sans">DM Sans</option><option value="work_sans">Work Sans</option><option value="lexend">Lexend</option><option value="literata">Literata (shows as default font)</option><option value="sora">Sora (shows as default font)</option><option value="system">System (shows as default font)</option></select></div>
+    <div class="form-group"><label class="form-label">Display font (headlines)</label><select class="form-select" data-theme-key="typography.display"><option value="">Inherit from base</option><option value="poppins">Poppins</option><option value="space_grotesk">Space Grotesk</option><option value="fraunces">Fraunces</option><option value="playfair">Playfair Display</option><option value="manrope">Manrope</option><option value="dm_sans">DM Sans</option><option value="work_sans">Work Sans</option><option value="lexend">Lexend</option><option value="literata" hidden>Literata (shows as default font)</option><option value="sora" hidden>Sora (shows as default font)</option><option value="system" hidden>System (shows as default font)</option></select></div>
+    <div class="form-group"><label class="form-label">Body font (paragraphs)</label><select class="form-select" data-theme-key="typography.body"><option value="">Inherit from base</option><option value="poppins">Poppins</option><option value="space_grotesk">Space Grotesk</option><option value="fraunces">Fraunces</option><option value="playfair">Playfair Display</option><option value="manrope">Manrope</option><option value="dm_sans">DM Sans</option><option value="work_sans">Work Sans</option><option value="lexend">Lexend</option><option value="literata" hidden>Literata (shows as default font)</option><option value="sora" hidden>Sora (shows as default font)</option><option value="system" hidden>System (shows as default font)</option></select></div>
     <div class="form-group"><label class="form-label">Body text size</label><select class="form-select" data-theme-key="typography.size"><option value="">Inherit from base</option><option value="s">Small</option><option value="m">Medium</option><option value="l">Large</option></select></div>
     <div class="form-group"><label class="form-label">Display size</label><select class="form-select" data-theme-key="typography.display_size"><option value="">Inherit from base</option><option value="m">Base</option><option value="l">Large</option><option value="xl">X-Large</option><option value="xxl">XX-Large</option></select></div>
   </div>
@@ -239,7 +239,7 @@
   <h3>Theme presets</h3>
   <p class="form-help" id="lg-theme-preset-help">Checking for saved presets&#8230;</p>
   <div class="lg-preset-apply-row">
-    <select class="form-select" id="lg-theme-preset-select" aria-label="Theme preset"><option value="">Loading presets&#8230;</option></select>
+    <select class="form-select" id="lg-theme-preset-select" aria-label="Theme preset"><option value="" data-lg-preset-ssr="1">Loading presets&#8230;</option></select>
     <button type="button" class="btn btn-sm btn-secondary" id="lg-theme-preset-apply" disabled title="Checking for saved presets&#8230;">Apply to this funnel</button>
     <button type="button" class="btn btn-sm btn-outline" id="lg-theme-ab-this" disabled title="Checking for saved presets&#8230;">A/B this theme</button>
   </div>
@@ -1296,28 +1296,73 @@
   var PRESET_FAILED_HELP = 'Could not check for saved presets \u2014 reload the page to try again.';
   var PRESET_ZERO_TITLE = 'No presets saved yet \u2014 create one from the Themes manager first.';
   var PRESET_AB_READY_TITLE = 'Fork this variant with the picked preset as its theme, then set the traffic split';
-  function refreshPresetAvailability() {
+  var PRESET_TICK_MS = 400;
+  var PRESET_UNKNOWN_LIMIT = 25;
+  var presetShown = '';
+  var presetUnknownTicks = 0;
+
+  // FIX ROUND F3 (MINOR-9) — DO NOT ISSUE A SECOND CATALOG READ.
+  // FAIL-BEFORE (reviewer, driven): 4x GET /api/admin/leadgen/themes on one
+  // Themes-tab load; the 4th was this island's own, added by F2 on top of the
+  // three quotes-tabs/funnel.ts's loadThemePresetOptions already issues (its
+  // eager boot call, the activate('themes') hook and the presets-frame load
+  // handler). The catalog is already on the page: funnel.ts writes it into
+  // #lg-theme-preset-select, and that select is the EXACT list "Apply to this
+  // funnel" can act on — so deriving availability from it is not merely
+  // cheaper, it is more correct than a second GET (a fresh GET is how the
+  // buttons came to read "ready" while the picker beside them was empty).
+  //
+  // The SSR placeholder carries data-lg-preset-ssr (renderThemePresetsPanel,
+  // this file) so "funnel.ts has not repopulated yet" is distinguishable from
+  // "repopulated, and there are none" WITHOUT pinning any of funnel.ts's
+  // strings here — clearChildren() destroys the marker the moment the real
+  // list lands. Unknown stays disabled (fail closed).
+  function presetSelectState() {
+    var sel = byId('lg-theme-preset-select');
+    if (!sel || !sel.options) { return 'unknown'; }
+    if (sel.options.length > 1) { return 'ready'; }
+    if (sel.options.length === 1 && sel.options[0] && sel.options[0].getAttribute && sel.options[0].getAttribute('data-lg-preset-ssr') === '1') { return 'unknown'; }
+    if (sel.options.length === 0) { return 'unknown'; }
+    return 'zero';
+  }
+  function applyPresetState(state) {
     var applyBtn = byId('lg-theme-preset-apply');
     var abBtn = byId('lg-theme-ab-this');
     var helpEl = byId('lg-theme-preset-help');
-    fetch('/api/admin/leadgen/themes', { credentials: 'same-origin', headers: { 'Accept': 'application/json' } })
-      .then(function (r) { return r.json(); })
-      .then(function (body) {
-        var items = (body && body.items) || [];
-        var hasPresets = items.length > 0;
-        if (applyBtn) { applyBtn.disabled = !hasPresets; applyBtn.title = hasPresets ? '' : PRESET_ZERO_TITLE; }
-        if (abBtn) { abBtn.disabled = !hasPresets; abBtn.title = hasPresets ? PRESET_AB_READY_TITLE : PRESET_ZERO_TITLE; }
-        if (helpEl) { helpEl.textContent = hasPresets ? PRESET_READY_HELP : PRESET_ZERO_HELP; }
-      })
-      .catch(function () {
-        // Fail closed on the DISPLAY, same as everywhere else in this
-        // island: unconfirmed never reads as ready. The buttons stay
-        // disabled (their SSR default); only the copy tells the operator
-        // WHY, rather than leaving "Checking…" showing forever.
-        if (helpEl) { helpEl.textContent = PRESET_FAILED_HELP; }
-        if (applyBtn) { applyBtn.title = PRESET_FAILED_HELP; }
-        if (abBtn) { abBtn.title = PRESET_FAILED_HELP; }
-      });
+    var hasPresets = state === 'ready';
+    var title = state === 'failed' ? PRESET_FAILED_HELP : PRESET_ZERO_TITLE;
+    if (applyBtn) { applyBtn.disabled = !hasPresets; applyBtn.title = hasPresets ? '' : title; }
+    if (abBtn) { abBtn.disabled = !hasPresets; abBtn.title = hasPresets ? PRESET_AB_READY_TITLE : title; }
+    if (helpEl) {
+      helpEl.textContent = hasPresets ? PRESET_READY_HELP : (state === 'failed' ? PRESET_FAILED_HELP : PRESET_ZERO_HELP);
+      // MAJOR-2: the reason is ON SCREEN, not only in a tooltip — and only
+      // once the blocked state is CONFIRMED, so an ordinary load never
+      // flashes a warning while funnel.ts's read is still in flight.
+      helpEl.className = hasPresets ? 'form-help' : 'form-help lg-preset-help-blocked';
+    }
+  }
+  function refreshPresetAvailability() {
+    var state = presetSelectState();
+    if (state === 'unknown') {
+      presetUnknownTicks = presetUnknownTicks + 1;
+      if (presetUnknownTicks >= PRESET_UNKNOWN_LIMIT) {
+        // Fail closed on the DISPLAY, same as everywhere else in this island:
+        // unconfirmed never reads as ready. The buttons stay disabled (their
+        // SSR default); the copy tells the operator WHY rather than leaving
+        // "Checking…" showing forever.
+        applyPresetState('failed');
+        presetShown = 'failed';
+        return;
+      }
+    } else if (state !== presetShown) {
+      applyPresetState(state);
+      presetShown = state;
+    }
+    // A DOM read, never a request: funnel.ts repopulates the picker when the
+    // operator re-enters this tab (a preset created in the standalone manager
+    // arrives that way), so the two buttons keep agreeing with the picker for
+    // the life of the page at zero network cost.
+    if (window.setTimeout) { window.setTimeout(refreshPresetAvailability, PRESET_TICK_MS); }
   }
 
   // P8-1 F1: name the funnel before anything else paints, so the panel is

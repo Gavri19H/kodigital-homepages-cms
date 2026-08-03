@@ -132,8 +132,7 @@ html,body{height:100%;overflow-x:hidden}
 .lg-qtab.active{color:var(--c-primary);border-bottom-color:var(--c-primary)}
 .lg-qpanel{display:none}
 .lg-qpanel.active{display:block}
-.lg-scalars{display:grid;grid-template-columns:repeat(2,1fr);gap:12px}
-@media (max-width:640px){.lg-scalars{grid-template-columns:1fr}}
+.lg-scalars{display:grid;grid-template-columns:repeat(auto-fit,minmax(220px,1fr));gap:12px}
 .lg-section-row{display:flex;align-items:center;gap:8px;padding:8px;border:1px solid var(--c-border);border-radius:6px;margin-bottom:6px}
 .lg-section-row .lg-grow{flex:1}
 .lg-auction-entry-mark{background:var(--c-warn-bg,#fff4e5);color:var(--c-warn,#8a5300);border:1px dashed var(--c-warn,#e0a04a);border-radius:6px;padding:8px;margin:6px 0;font-size:13px}
@@ -285,6 +284,9 @@ button.lg-publish-why-fix:focus-visible{outline:2px solid currentColor;outline-o
 /* --- P6b: Themes-tab presets (apply picker + embedded theme-manager) ------- */
 .lg-preset-apply-row{display:flex;gap:8px;align-items:center;flex-wrap:wrap;margin:10px 0}
 .lg-preset-apply-row select{flex:1 1 220px;min-width:160px}
+.lg-preset-apply-row .btn:disabled{background:var(--c-bg-alt);border-color:var(--c-border);color:var(--c-muted);opacity:.55;cursor:not-allowed;box-shadow:none}
+.lg-preset-apply-row .btn:disabled:hover{background:var(--c-bg-alt);border-color:var(--c-border);color:var(--c-muted)}
+.lg-preset-help-blocked{color:var(--c-warn,#8a5300);background:var(--c-warn-bg,#fff4e5);border:1px dashed var(--c-warn,#e0a04a);border-radius:6px;padding:6px 8px;font-weight:600}
 .lg-theme-presets-frame{display:block;width:100%;height:820px;border:1px solid var(--c-border);border-radius:8px;margin-top:10px}
 /* === P3b (§8.2) — Funnel-builder BOARD ==================================== */
 /* Geometry pinned to docs/leadgen/rework/design-pack/board.html: 292px left
