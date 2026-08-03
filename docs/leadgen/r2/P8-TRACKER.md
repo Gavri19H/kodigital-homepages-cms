@@ -27,7 +27,18 @@ verify:all 0 · runtime 52,762 ≤ 53,248.
       (static it() blocks are +16 with zero removals; the 5 touched files match baseline per-file exactly).
       Per-file baseline map captured for an exact diff at the post-fix gate run.
 - [ ] P8-2 Blockers II (B4, B5, M9.3)
-- [ ] P8-3 Theme keys honoured (M2, N1, N7, N11, N18, N20 + 80-key sweep)
+- [ ] P8-3 Theme keys honoured (M2, N1, N7, N11, N18, N20 + 80-key sweep) — branch `leadgen-r2-p8-3` off base `6649879`
+      **Conductor reproduction FIRST** (contract numbers are from an older sha and two have already been
+      falsified): all six R3 claims re-measured by hand through the real PUT route, reading
+      getComputedStyle on the first VISIBLE match — every claim reproduces, two of them STRONGER
+      (radius/border_role targets match ZERO nodes, not 0×0; scales.shadow is dead not PARTIAL).
+      Evidence `evidence/p8/m2/repro-before.{md,txt}`, probe `api/scripts/p8/repro-m2-inline.mjs`.
+      ONE CAUSE under four of six: `.lg-question-card` reads a frozen literal token block
+      (tokens.ts:79 → styles.ts:569-574) that no theme layer writes, while the whole `card_defaults`
+      group resolves onto `.lg-card-panel`/`.lg-disclosure-panel` — components no driven page renders.
+      Slices: S3.1 emitter+tokens+N18 (Opus) · S3.2 theme-UI minors N1/N7/N11/N20 (Sonnet, upgraded
+      from Haiku: both owned files are inline-script islands) · S3.4 34-key sweep probe (Sonnet, the
+      only slice permitted to touch the server) · S3.3 guard extend+re-predicate (Opus, after S3.1).
 - [ ] P8-4 Templates (M3, M1, M10, M9.1/.2/.4/.5, R7, N6, N9, N12, N17)
 - [ ] P8-5 Studio truth (M5, M6, M7, M4, R6-2/3/4, N14, N15, N16, REQ-R5)
 - [ ] P8-6 Sweep & surface (M8, N2–N5, N8, N10, N13, N19, OWNER rows)
