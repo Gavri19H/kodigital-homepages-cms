@@ -29,7 +29,7 @@ bump PUT theme -> 200
 data-lg-maps attrs: 1
 raw data-lg-maps: ["{\"enable_autocomplete\":true,\"validate\":false,\"fills\":{\"city\":\"rv1c_addr_city\"}}"]
 SDK script tags: 1
-SDK network requests: ["https://maps.googleapis.com/maps/api/js?key=AIzaSyCrbDA_KeBS6Vc7tIaLW-ntAEOETiKPA_8&librar"]
+SDK network requests: ["https://maps.googleapis.com/maps/api/js?key=REDACTED-GOOGLE-MAPS-KEY&librar"]
 fields on page: ["rv1c_addr","rv1c_addr_street","rv1c_addr_city","rv1c_addr_zip","r2fix_carrier"]
 input has data-address-autocomplete: 1
 ERRORS: ["console:Failed to load resource: net::ERR_FAILED"]
@@ -38,7 +38,7 @@ ERRORS: ["console:Failed to load resource: net::ERR_FAILED"]
 data-lg-maps attrs: 1
 raw data-lg-maps: ["{\"enable_autocomplete\":true,\"validate\":false,\"fills\":{\"city\":\"rv1c_addr_city\"}}"]
 SDK script tags: 1
-SDK network requests: ["https://maps.googleapis.com/maps/api/js?key=AIzaSyCrbDA_KeBS6Vc7tIaLW-ntAEOETiKPA_8&librar"]
+SDK network requests: ["https://maps.googleapis.com/maps/api/js?key=REDACTED-GOOGLE-MAPS-KEY&librar"]
 fields on page: ["rv1c_addr","rv1c_addr_street","rv1c_addr_city","rv1c_addr_zip","r2fix_carrier"]
 input has data-address-autocomplete: 1
 ERRORS: ["console:Failed to load resource: net::ERR_FAILED"]
