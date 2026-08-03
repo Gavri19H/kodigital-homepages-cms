@@ -36,9 +36,14 @@ verify:all 0 · runtime 52,762 ≤ 53,248.
       ONE CAUSE under four of six: `.lg-question-card` reads a frozen literal token block
       (tokens.ts:79 → styles.ts:569-574) that no theme layer writes, while the whole `card_defaults`
       group resolves onto `.lg-card-panel`/`.lg-disclosure-panel` — components no driven page renders.
-      Slices: S3.1 emitter+tokens+N18 (Opus) · S3.2 theme-UI minors N1/N7/N11/N20 (Sonnet, upgraded
-      from Haiku: both owned files are inline-script islands) · S3.4 34-key sweep probe (Sonnet, the
-      only slice permitted to touch the server) · S3.3 guard extend+re-predicate (Opus, after S3.1).
+      Slices ran as 12, not the planned 3 — each new one answered a defect the previous one MEASURED:
+      S3.1 emitter+tokens+N18 · S3.2 theme-UI minors · S3.4 the 34-key sweep instrument · S3.3 guard
+      (129 keys, re-predicated) · S3.5 N1's 4th control (found unallocated by a scout) · S3.6 the 2
+      palette defects the sweep found · S3.7 the false-choice design select at its producer · S3.8
+      reach the 5 unmeasurable states · S3.9 the error role · S3.10 accent + 2 unreachable rules ·
+      S3.11 role "Used by" text · S3.12 the last hardcoded sweep verdict.
+      **Final inline sweep: 34/34 ALIVE, 0 DEAD, 0 MIS-TARGETED, 0 UNMEASURABLE** (3 identical runs).
+      NOTE: S3.11 changes admin markup, so p3a needs a SECOND recapture before the gate.
 - [ ] P8-4 Templates (M3, M1, M10, M9.1/.2/.4/.5, R7, N6, N9, N12, N17)
 - [ ] P8-5 Studio truth (M5, M6, M7, M4, R6-2/3/4, N14, N15, N16, REQ-R5)
 - [ ] P8-6 Sweep & surface (M8, N2–N5, N8, N10, N13, N19, OWNER rows)
@@ -71,6 +76,8 @@ verify:all 0 · runtime 52,762 ≤ 53,248.
 | P8-3 | S3.5 N1 base-design label (sonnet) | sonnet | 166,514 | 948s | **falsified the conductor's own brief premise on evidence** — the registry registers ONE design object under both keys, so it labelled honestly instead of inventing a visual split; 3 failed → 10 passed |
 | P8-3 | S3.8 reach the 5 unmeasurable states (sonnet) | sonnet | 339,724 | 2217s | 4 of 5 resolved by AUTHORING the state through real operator routes; found `.lg-tscard[data-error]` has NO producer; flagged the probe's hardcoded palette.success verdict |
 | P8-3 | S3.9 error role (opus) | opus | 188,927 | 1310s | error role wired to the state render.ts really produces; 6 failed → 16 passed; STOPPED on the dead rules rather than weaken unowned tests; corrected the conductor's accent premise |
+| P8-3 | S3.10 accent role + dead data-error rules (opus) | opus | 164,805 | 934s | accent wired to the surfaces its own "Used by" names; both unreachable rules re-pointed; 2 fixtures re-minted; the 2 assertions made STRICTER (selector+value+not.toContain); 11 failed → 154 passed |
+| P8-3 | S3.12 measure every sweep row (sonnet) | sonnet | 285,169 | 1919s | audited all 34 rows for hardcoded verdicts (exactly 1); **final sweep 34/34 ALIVE, 0/0/0**, stable across 3 runs; falsified its own brief's aria-invalid route empirically; fixture restore verified by GET |
 | P8-3 | S3.3 guard extend + re-predicate (opus) | opus | 266,106 | 1984s | 129 keys enumerated from source (34+25+66+4; the 34+25 reconciles to R3's 59); 4 exemptions all "no control offers this", exact-set pinned; ZERO dead-and-offered; sabotage red-proof 7 failed → restore → 47 passed |
 
 Two near-identical names that are DIFFERENT keys — do not conflate them in review:
