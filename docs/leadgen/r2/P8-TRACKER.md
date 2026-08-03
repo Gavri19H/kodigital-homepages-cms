@@ -78,6 +78,9 @@ verify:all 0 · runtime 52,762 ≤ 53,248.
 | P8-3 | S3.9 error role (opus) | opus | 188,927 | 1310s | error role wired to the state render.ts really produces; 6 failed → 16 passed; STOPPED on the dead rules rather than weaken unowned tests; corrected the conductor's accent premise |
 | P8-3 | S3.10 accent role + dead data-error rules (opus) | opus | 164,805 | 934s | accent wired to the surfaces its own "Used by" names; both unreachable rules re-pointed; 2 fixtures re-minted; the 2 assertions made STRICTER (selector+value+not.toContain); 11 failed → 154 passed |
 | P8-3 | S3.12 measure every sweep row (sonnet) | sonnet | 285,169 | 1919s | audited all 34 rows for hardcoded verdicts (exactly 1); **final sweep 34/34 ALIVE, 0/0/0**, stable across 3 runs; falsified its own brief's aria-invalid route empirically; fixture restore verified by GET |
+| P8-3 | F1 8 gate failures (opus) | opus | 131,580 | 747s | all 8 judged product-correct with per-case evidence; proved the byte-pin was NOT a leak (1 differing line of 397); avoided the vacuous-matcher trap |
+| P8-3 | F2 jargon label (sonnet) | sonnet | 132,224 | 700s | '(legacy)' → '(shows as default font)' on BOTH surfaces; jargon gate TOTAL 0 |
+| P8-3 | REVIEW #1 (opus, fresh) | opus | 330,991 | 2122s | **FIX-FIRST** — 1 blocker, 3 majors, 11 minors; re-drove B3 + B5 (both PERFECT); confirmed every gate count, F1's 8 pin updates, p3a×3, security clean |
 | P8-3 | S3.3 guard extend + re-predicate (opus) | opus | 266,106 | 1984s | 129 keys enumerated from source (34+25+66+4; the 34+25 reconciles to R3's 59); 4 exemptions all "no control offers this", exact-set pinned; ZERO dead-and-offered; sabotage red-proof 7 failed → restore → 47 passed |
 
 Two near-identical names that are DIFFERENT keys — do not conflate them in review:
@@ -115,6 +118,28 @@ Frozen suites live in `api/test-ui/` (Playwright, `playwright.config.ts:231 test
 NOT in `api/test/` — so `npm test` never runs them and they are a CLOSE-phase concern:
 `test-ui/leadgen-visual.spec.ts`, `test-ui/leadgen-v31-gate1c-baselines.spec.ts`
 (screenshots under `test-ui/__screenshots__/`). Never rebaseline either one.
+
+## Review #1 (P8-3): the two findings that indict the CONDUCTOR's method, not a slice
+
+**BLOCKER-1 — I measured the wrong universe, again.** N7's clause is "no select shows a truncated
+version of its own value". I measured each select's *currently displayed* value — which on a fresh
+load is always the default "Inherit from base" (105.05px in a 125px box, fits). I never enumerated
+the OTHER options. Fix round F2 then wrote 29-35 character font labels, and the review measured
+"Literata (shows as default font)" at 191.43px in that same 125px box (+66.43px), rendering
+"Literata (shows as ⌄". The phase RE-CREATED the defect it was fixing, and my own evidence file had
+already warned that the string fix left the cause (the 2-column grid) untouched — I wrote the warning
+and then did not act on it. Same shape as the P8-1 lesson: an enumeration is only as closed as the
+universe it names, and "the value on screen right now" is not the same universe as "any value the
+operator can select".
+
+**MAJOR-1 — my sweep's ALIVE verdict hid a mis-target.** `card_defaults.background_role` writes the
+component slot AND re-points the global `card_background` role token. My sweep measured the card and
+the input and called it ALIVE; the review measured `.lg-frame-background` and found flipping the
+control floods the whole 1280x900 viewport and turns all four inputs teal-on-teal, silently
+overriding the operator's own palette swatch in the same rail. A verdict of ALIVE proves the key
+paints SOMETHING; it does not prove the key paints ONLY what its label claims. The guard has the same
+hole (MINOR-2): its predicate is "some visible computed value changed", so it closes R3's DEAD branch
+and leaves the MIS-TARGETED branch unguarded — it calls this very key ALIVE.
 
 ## Root-cause pass: why the SAME class surfaced four times (required after 2 non-converging FIX-FIRST rounds)
 
