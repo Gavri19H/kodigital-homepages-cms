@@ -303,23 +303,7 @@ function renderSectionChooserPane(): string {
 
 // ---------------------------------------------------------------------------
 // R2 P2 S2b — CENTER: the ONE sticky canvas. A.3 verbatim: "sticky center
-// canvas".
-//
-// P8-2 B4 — the PREVIEW-SITE picker. Owner (SRC-11A, Image18): "I chose a site
-// - why I don't see its logo????". Before this the Themes tab had NO site
-// control of any kind and no listener on the page-level one (#lg-site-select,
-// ui-quotes.ts), so the canvas resolved NO SiteBranding: MEASURED against the
-// real route on the r2fix fixture site, the composed body went 5,634 -> 6,164
-// bytes once frame_context.site_id was supplied, and the footer went from
-// ZERO links to Contact / Privacy policy / Terms of use plus the site-settings
-// link the Templates canvas already paints. The select is the SHARED
-// renderSiteSelect helper (quotes-tabs/shared.ts — the same markup, the same
-// `data-site-select` hook and the same `data-badge` the top-bar and Templates
-// pickers carry), so choosing a site on ANY tab moves every canvas: the island
-// below listens on the document for that hook, and quotes-tabs/templates.ts's
-// own listener mirrors this one back into the Templates canvas.
-//
-// `position:sticky` (inline — this tab introduces no new admin
+// canvas". `position:sticky` (inline — this tab introduces no new admin
 // stylesheet dependency; matches ui-theme-manager.ts's own all-inline-style
 // convention) with a top offset clearing the admin shell's fixed 60px header
 // + 24px content padding (ui-theme-manager.ts's own documented 84px figure),
