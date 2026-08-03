@@ -289,20 +289,53 @@ button.lg-publish-why-fix:focus-visible{outline:2px solid currentColor;outline-o
 /* === P3b (§8.2) — Funnel-builder BOARD ==================================== */
 /* Geometry pinned to docs/leadgen/rework/design-pack/board.html: 292px left
    library rail / fluid center board (h-scroll INSIDE .lg-board only) / 344px
-   right routing-rules mount. navy = --c-primary (#1B3A5C golden master). */
-.lg-board-shell{display:flex;min-height:620px;border:1px solid var(--c-border);border-radius:10px;overflow:hidden;background:#EDF0F4;align-items:stretch}
-.lg-board-left{flex:0 0 292px;width:292px;background:#fff;border-right:1px solid var(--c-border);display:flex;flex-direction:column;min-height:0}
+   right routing-rules mount. navy = --c-primary (#1B3A5C golden master).
+
+   P8 B5 (contract §5 B5 — "in the middle create different funnels side by
+   side ... how he can see them side by side?"): the three lane widths and the
+   funnel-column width are TOKENS, and they step down below the design-pack's
+   own 1600px reference width. At 1280 the pinned 292/344 rails left a 344px
+   centre — ONE 288px column, and the shared column ate that one — so no two
+   funnels could ever be seen side by side. Both rails STAY (owner-required,
+   §5 B5 acceptance); they narrow, they never disappear, and at >=1600 every
+   number below is the design-pack value byte-for-byte. Measured on the live
+   board (5 funnels): fully-visible funnel columns 375 -> 1, 1280 -> 2,
+   1440 -> 2, 1600 -> 2, 1920 -> 3. */
+.lg-board-shell{--lg-rail-l:292px;--lg-rail-r:344px;--lg-col-w:288px;--lg-col-gap:14px;--lg-board-pad:16px;display:flex;min-height:620px;border:1px solid var(--c-border);border-radius:10px;overflow:hidden;background:#EDF0F4;align-items:stretch}
+@media (max-width:1599px){.lg-board-shell{--lg-rail-l:256px;--lg-rail-r:308px;--lg-col-w:248px;--lg-col-gap:12px;--lg-board-pad:14px}}
+@media (max-width:1439px){.lg-board-shell{--lg-rail-l:216px;--lg-rail-r:276px;--lg-col-w:216px;--lg-col-gap:12px;--lg-board-pad:12px}}
+.lg-board-left{flex:0 0 var(--lg-rail-l);width:var(--lg-rail-l);background:#fff;border-right:1px solid var(--c-border);display:flex;flex-direction:column;min-height:0}
 .lg-board-center{flex:1 1 auto;min-width:0;display:flex;flex-direction:column;min-height:0}
-.lg-board-right{flex:0 0 344px;width:344px;background:#fff;border-left:1px solid var(--c-border);display:flex;flex-direction:column;min-height:0;overflow-y:auto}
+.lg-board-right{flex:0 0 var(--lg-rail-r);width:var(--lg-rail-r);background:#fff;border-left:1px solid var(--c-border);display:flex;flex-direction:column;min-height:0;overflow-y:auto}
 /* the board is the ONLY horizontal scroller (AC: board h-scroll internal) */
-.lg-board{flex:1 1 auto;min-height:0;overflow:auto;padding:16px}
-.lg-board-cols{display:flex;gap:14px;align-items:flex-start;min-height:100%}
-.lg-col{flex:0 0 288px;width:288px;background:#F7F9FB;border:1px solid var(--c-border);border-radius:12px;display:flex;flex-direction:column;max-height:560px}
-.lg-col-shared{position:sticky;left:0;z-index:3;background:#fff;border:1.5px solid #C7D6E6;box-shadow:6px 0 14px -8px rgba(20,32,54,.18)}
+.lg-board{flex:1 1 auto;min-height:0;overflow:auto;padding:var(--lg-board-pad)}
+.lg-board-cols{display:flex;gap:var(--lg-col-gap);align-items:flex-start;min-height:100%}
+.lg-col{flex:0 0 var(--lg-col-w);width:var(--lg-col-w);background:#F7F9FB;border:1px solid var(--c-border);border-radius:12px;display:flex;flex-direction:column;max-height:560px}
+/* P8 B5: the shared first page is a BAND above the funnel lane, not a column
+   inside it. Its old position:sticky;left:0 never pinned anything (measured x
+   583 -> -825 as the board scrolled, while the island's comment claimed it
+   "is pinned and never scrolls"): a sticky box only sticks within its
+   scrollport, and .lg-board-cols is that scrollport's content, so the shared
+   column scrolled away with everything else. Sitting in .lg-board-center
+   ABOVE .lg-board, the band is OUTSIDE the horizontal scroller altogether —
+   genuinely always visible — and it hands its 288px back to the funnel lane,
+   which is what makes two funnel columns fit at 1280. It is also the truer
+   picture of the owner's own sentence: "the first page is shared by **all**
+   the funnels". Drop target, chips, kebabs and [data-shared-col] hooks are
+   unchanged. */
+.lg-col-shared{flex:0 0 auto;display:flex;flex-wrap:wrap;align-items:center;gap:12px;padding:10px 14px;background:#fff;border-bottom:1px solid var(--c-border)}
+.lg-col-shared .lg-col-head{flex:1 1 210px;min-width:170px;max-width:300px;padding:0;border:0;background:none;border-radius:0}
+.lg-col-shared .lg-col-body{flex:4 1 300px;min-width:0;display:flex;flex-wrap:wrap;align-items:center;gap:10px;padding:0;overflow:visible}
+.lg-col-shared .lg-col-meta{margin-top:4px}
+.lg-col-shared .lg-page-card{flex:3 1 240px;min-width:0;margin:0;display:flex;flex-wrap:wrap;align-items:center;gap:8px}
+.lg-col-shared .lg-page-head{margin:0}
+.lg-col-shared .lg-chip-list{flex:1 1 180px;min-width:0;flex-direction:row;flex-wrap:wrap;gap:6px}
+.lg-col-shared .lg-sec-chip{margin-bottom:0;max-width:100%}
+.lg-col-shared .lg-add-section{padding:0}
+.lg-col-shared .lg-hint-neutral{flex:1 1 150px;min-width:0;margin:0}
 .lg-col-funnel.is-default{border-color:var(--c-primary)}
 .lg-col-funnel.lg-drop-target,.lg-page-card.lg-drop-target,.lg-col-shared.lg-drop-target{outline:2px dashed var(--c-primary,#1B3A5C);outline-offset:-2px;background:#EAF0F6}
 .lg-col-head{flex:0 0 auto;padding:12px;border-bottom:1px solid var(--c-border)}
-.lg-col-shared .lg-col-head{background:#EAF0F6;border-radius:11px 11px 0 0}
 .lg-col-tag{display:inline-flex;align-items:center;gap:5px;font-size:9.5px;font-weight:800;letter-spacing:.6px;text-transform:uppercase;color:var(--c-primary,#1B3A5C);margin-bottom:6px}
 .lg-col-title-row{display:flex;align-items:center;gap:8px}
 .lg-col-title{font-size:14px;font-weight:800;color:var(--c-text);flex:1 1 auto;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;border-bottom:1.5px dashed transparent;padding:1px 2px;cursor:text}
@@ -332,7 +365,7 @@ button.lg-publish-why-fix:focus-visible{outline:2px solid currentColor;outline-o
 .lg-empty-col-body{flex:1 1 auto;display:flex;flex-direction:column;gap:12px;padding:16px}
 .lg-empty-hint{border:1.5px dashed #D5DCE6;border-radius:10px;padding:20px 14px;text-align:center;font-size:12.5px;color:#78818F;line-height:1.5}
 .lg-hint-neutral{display:block;background:#F6F8FB;border-radius:8px;padding:10px 12px;font-size:11.5px;color:#7C889A;line-height:1.45;margin-top:2px}
-.lg-stub-col{flex:0 0 250px;width:250px;align-self:stretch;min-height:220px;border:1.5px dashed #D5DCE6;border-radius:12px;background:rgba(255,255,255,.5);display:flex;flex-direction:column;align-items:center;justify-content:center;gap:9px;padding:20px;cursor:pointer;text-align:center}
+.lg-stub-col{flex:0 0 var(--lg-col-w);width:var(--lg-col-w);align-self:stretch;min-height:220px;border:1.5px dashed #D5DCE6;border-radius:12px;background:rgba(255,255,255,.5);display:flex;flex-direction:column;align-items:center;justify-content:center;gap:9px;padding:20px;cursor:pointer;text-align:center}
 .lg-plus-ring{width:40px;height:40px;border-radius:50%;background:#EAF0F6;display:inline-flex;align-items:center;justify-content:center;color:var(--c-primary,#1B3A5C)}
 .lg-stub-title{font-size:14px;font-weight:800;color:var(--c-primary,#1B3A5C)}
 .lg-stub-sub{font-size:11.5px;color:#8A93A3;line-height:1.45;max-width:180px}
@@ -356,7 +389,18 @@ button.lg-publish-why-fix:focus-visible{outline:2px solid currentColor;outline-o
 .lg-chip-activity{display:inline-flex;align-items:center;font-size:11px;font-weight:600;color:#8A93A3;background:#F3F5F8;border-radius:20px;padding:3px 9px}
 .lg-chip-inuse{display:inline-flex;align-items:center;font-size:9.5px;letter-spacing:.3px;padding:2px 7px;font-weight:700;color:#98A1B0;background:#EEF1F6;border-radius:20px}
 .lg-chip-inuse-here{display:inline-flex;align-items:center;font-size:9.5px;letter-spacing:.3px;padding:2px 7px;font-weight:700;color:var(--c-primary,#1B3A5C);background:#EAF0F6;border-radius:20px}
-.lg-lib-card .lg-grip{color:#C2CACF;flex:0 0 auto;display:inline-flex}
+.lg-lib-card .lg-grip{color:#C2CACF;flex:0 0 auto;display:inline-flex;position:relative}
+/* P8-2 F-2: a finger needs more than the icon's own box to grab; the target is
+   widened with a pseudo-element so the card's layout does not move a pixel. */
+.lg-lib-card .lg-grip::after{content:"";position:absolute;left:-9px;top:-9px;right:-9px;bottom:-9px}
+/* P8 B5 / P8-2 F-2: the drag GRIPS claim the touch gesture for themselves (the
+   island's touchstart/touchmove engine), so a finger press-and-drag on a grip
+   drags the section instead of scrolling the page. This used to name the whole
+   .lg-lib-card — i.e. essentially the entire left rail — and a plain vertical
+   swipe there stopped scrolling the page (measured 0px of travel), painted a
+   drag ghost and ended in a red "Dropped outside a funnel". The rail must
+   still scroll: every surface except the grips is left to the browser. */
+.lg-chip-grip,.lg-page-grip,.lg-lib-card .lg-grip{touch-action:none}
 /* board drag ghost + drop insertion line */
 .lg-drag-ghost{position:fixed;z-index:60;pointer-events:none;width:220px;padding:10px 12px;border:1px solid var(--c-primary,#1B3A5C);border-radius:9px;background:#fff;box-shadow:0 12px 28px rgba(20,32,54,.22);font-size:13px;font-weight:700;color:var(--c-primary,#1B3A5C);opacity:.96}
 /* §10/S5.1: .lg-drop-indicator(+::before) deleted — 0 references (P5 CSS orphan-scan). */
@@ -379,7 +423,11 @@ button.lg-publish-why-fix:focus-visible{outline:2px solid currentColor;outline-o
 .lg-board-guard-body .lg-guard-blocker{display:flex;gap:8px;align-items:flex-start;background:#FBEEEC;border:1px solid rgba(178,58,44,.28);border-radius:10px;padding:11px 13px;margin-bottom:8px}
 .lg-board-guard-foot{padding:12px 18px;border-top:1px solid #EEF1F6;display:flex;justify-content:flex-end;gap:10px;background:#FBFCFD}
 .lg-fsettings-body{padding:16px 18px;color:var(--c-text);font-size:13px;max-height:70vh;overflow-y:auto}
-.lg-board-inline-err{color:#B23A2C;font-size:12px;font-weight:600;margin:6px 0 0;padding:8px 10px;background:#FBEEEC;border:1px solid rgba(178,58,44,.28);border-radius:8px}
+/* P8-2 F-3: the refusal is only a "visible reason" if it can be read. It is
+   placed by the island (placeInlineErr) into a column/block host rather than
+   beside a flex-row item; these two lines keep it inside whatever host it
+   lands in instead of widening it. */
+.lg-board-inline-err{color:#B23A2C;font-size:12px;font-weight:600;line-height:1.45;margin:6px 0;padding:8px 10px;background:#FBEEEC;border:1px solid rgba(178,58,44,.28);border-radius:8px;box-sizing:border-box;max-width:100%;min-width:0}
 @media (max-width:1100px){.lg-board-shell{flex-direction:column}.lg-board-left,.lg-board-right{flex:1 1 auto;width:auto;border:0;border-bottom:1px solid var(--c-border)}}
 </style>
 </head>
@@ -400,7 +448,7 @@ button.lg-publish-why-fix:focus-visible{outline:2px solid currentColor;outline-o
         <div class="header-actions"></div>
       </header>
       <div class="admin-content"><nav class="leadgen-tabs" aria-label="LeadGen sections"><a href="/admin/leadgen/offers" class="leadgen-tab">Offers</a><a href="/admin/leadgen/sections" class="leadgen-tab">Sections</a><a href="/admin/leadgen/quotes" class="leadgen-tab active" aria-current="page">Quotes</a><a href="/admin/leadgen/auction" class="leadgen-tab">Auction</a></nav>
-<div id="lg-quote-editor" data-quote-id="1" data-quote-public-id="lgq_01KZ3ATY6MVYME3Q8HF00WQV7D" data-variant-public-id="lgn_01KZ3ATY6MND79WBJMFASZ8ZXC" data-variant-funnel-id="lgf_01KZ3ATY6MSE3AFH6Z0XAQMCQP" data-variant-funnel-variant-id="lgn_01KZ3ATY6MND79WBJMFASZ8ZXC" data-funnel-public-id="lgf_01KZ3ATY6MSE3AFH6Z0XAQMCQP">
+<div id="lg-quote-editor" data-quote-id="1" data-quote-public-id="lgq_01KZ4AEAVW8KWA6VCD166NXW0T" data-variant-public-id="lgn_01KZ4AEAVW0T7GT2RH9T5A58JH" data-variant-funnel-id="lgf_01KZ4AEAVW4B2YNVPANM4Y5QE6" data-variant-funnel-variant-id="lgn_01KZ4AEAVW0T7GT2RH9T5A58JH" data-funnel-public-id="lgf_01KZ4AEAVW4B2YNVPANM4Y5QE6">
   <div class="lg-editor-head">
     <a href="/admin/leadgen/quotes" class="btn btn-outline">&#8592; Quotes</a>
     <h2 class="lg-editor-title" id="lg-quote-title">&lt;b&gt;Quote&lt;/b&gt;</h2>
@@ -420,7 +468,7 @@ button.lg-publish-why-fix:focus-visible{outline:2px solid currentColor;outline-o
     <button type="button" id="lg-publish-goto" class="btn btn-secondary" data-goto-tab="activation">Publish&#8230;</button>
   </div>
   <details class="lg-advanced"><summary>Advanced</summary>
-    <p class="form-help">Reference id: <code class="lg-editor-pubid">lgq_01KZ3ATY6MVYME3Q8HF00WQV7D</code></p>
+    <p class="form-help">Reference id: <code class="lg-editor-pubid">lgq_01KZ4AEAVW8KWA6VCD166NXW0T</code></p>
   </details>
   <p id="lg-quote-error" class="alert alert-error" hidden role="alert"></p>
   <p id="lg-quote-ok" class="alert alert-success" hidden role="status"></p>
@@ -442,22 +490,20 @@ button.lg-publish-why-fix:focus-visible{outline:2px solid currentColor;outline-o
       <div class="lg-lib-filters" data-lib-filters><button type="button" class="lg-filter-pill active" data-lib-filter="">All</button><button type="button" class="lg-filter-pill" data-lib-filter="health">health</button><button type="button" class="lg-filter-pill" data-lib-filter="life">life</button></div>
     </div>
     <div class="lg-lib-list" data-lib-list>
-      <div class="lg-lib-card in-current" data-lib-card data-section-public-id="lgs_01KZ3ATY6NGDK76EWYN82N53A1" data-section-name="Second" data-vertical-key="health" data-activity-key="quote_funnel" data-pin="8.2-library-card" role="button" tabindex="0" aria-label="Add section Second to a page">
-    <div class="lg-lc-top"><span class="lg-grip" aria-hidden="true"><svg width="12" height="16" viewBox="0 0 12 16" fill="currentColor" aria-hidden="true"><circle cx="3" cy="3" r="1.4"/><circle cx="9" cy="3" r="1.4"/><circle cx="3" cy="8" r="1.4"/><circle cx="9" cy="8" r="1.4"/><circle cx="3" cy="13" r="1.4"/><circle cx="9" cy="13" r="1.4"/></svg></span><span class="lg-lc-name">Second</span></div>
+      <div class="lg-lib-card in-current" data-lib-card data-section-public-id="lgs_01KZ4AEAVXXE08J2TS9YTXVSRJ" data-section-name="Second" data-vertical-key="health" data-activity-key="quote_funnel" data-pin="8.2-library-card" role="button" tabindex="0" aria-label="Add section Second to a page">
+    <div class="lg-lc-top"><span class="lg-grip" data-lib-grip aria-hidden="true"><svg width="12" height="16" viewBox="0 0 12 16" fill="currentColor" aria-hidden="true"><circle cx="3" cy="3" r="1.4"/><circle cx="9" cy="3" r="1.4"/><circle cx="3" cy="8" r="1.4"/><circle cx="9" cy="8" r="1.4"/><circle cx="3" cy="13" r="1.4"/><circle cx="9" cy="13" r="1.4"/></svg></span><span class="lg-lc-name" title="Second">Second</span></div>
     <div class="lg-lc-meta"><span class="lg-chip-activity">quote_funnel · health</span><span class="lg-chip-inuse-here" data-pin="8.2-library-inuse-badge">In this funnel</span></div>
-  </div><div class="lg-lib-card in-current" data-lib-card data-section-public-id="lgs_01KZ3ATY6MJA2QVEHQ65QT34K5" data-section-name="&lt;i&gt;First&lt;/i&gt;" data-vertical-key="life" data-activity-key="quote_funnel" data-pin="8.2-library-card" role="button" tabindex="0" aria-label="Add section &lt;i&gt;First&lt;/i&gt; to a page">
-    <div class="lg-lc-top"><span class="lg-grip" aria-hidden="true"><svg width="12" height="16" viewBox="0 0 12 16" fill="currentColor" aria-hidden="true"><circle cx="3" cy="3" r="1.4"/><circle cx="9" cy="3" r="1.4"/><circle cx="3" cy="8" r="1.4"/><circle cx="9" cy="8" r="1.4"/><circle cx="3" cy="13" r="1.4"/><circle cx="9" cy="13" r="1.4"/></svg></span><span class="lg-lc-name">&lt;i&gt;First&lt;/i&gt;</span></div>
+  </div><div class="lg-lib-card in-current" data-lib-card data-section-public-id="lgs_01KZ4AEAVX560E3RM89PPHZ4G9" data-section-name="&lt;i&gt;First&lt;/i&gt;" data-vertical-key="life" data-activity-key="quote_funnel" data-pin="8.2-library-card" role="button" tabindex="0" aria-label="Add section &lt;i&gt;First&lt;/i&gt; to a page">
+    <div class="lg-lc-top"><span class="lg-grip" data-lib-grip aria-hidden="true"><svg width="12" height="16" viewBox="0 0 12 16" fill="currentColor" aria-hidden="true"><circle cx="3" cy="3" r="1.4"/><circle cx="9" cy="3" r="1.4"/><circle cx="3" cy="8" r="1.4"/><circle cx="9" cy="8" r="1.4"/><circle cx="3" cy="13" r="1.4"/><circle cx="9" cy="13" r="1.4"/></svg></span><span class="lg-lc-name" title="&lt;i&gt;First&lt;/i&gt;">&lt;i&gt;First&lt;/i&gt;</span></div>
     <div class="lg-lc-meta"><span class="lg-chip-activity">quote_funnel · life</span><span class="lg-chip-inuse-here" data-pin="8.2-library-inuse-badge">In this funnel</span></div>
   </div>
     </div>
   </div>
     <div class="lg-board-center">
-      <div class="lg-board" data-board data-pin="8.2-board">
-        <div class="lg-board-cols" data-board-cols>
-          <div class="lg-col lg-col-shared" data-shared-col data-page-public-id="" data-pin="8.2-shared-first-page">
+      <div class="lg-col-shared" data-shared-col data-page-public-id="" data-pin="8.2-shared-first-page">
     <div class="lg-col-head">
       <span class="lg-col-tag"><svg width="11" height="11" viewBox="0 0 24 24" fill="none" aria-hidden="true"><path d="M12 2l2 5 5 .4-3.8 3.3 1.2 5L12 18l-4.6 2.7 1.2-5L4.8 7.4l5-.4z" stroke="currentColor" stroke-width="1.8" stroke-linejoin="round"/></svg> Shared · quote-owned</span>
-      <div class="lg-col-title-row"><span class="lg-col-title">Shared first page</span></div>
+      <div class="lg-col-title-row"><span class="lg-col-title" title="Shared first page">Shared first page</span></div>
       <div class="lg-col-meta"><span class="lg-col-help">Every visitor sees this first — entry rules only pre-select the funnel.</span></div>
     </div>
     <div class="lg-col-body" data-shared-body>
@@ -469,45 +515,47 @@ button.lg-publish-why-fix:focus-visible{outline:2px solid currentColor;outline-o
       <div class="lg-hint-neutral">Only one shared page — its sections can be A/B'd per slot.</div>
     </div>
   </div>
-          <div class="lg-col lg-col-funnel is-default" data-funnel-col data-funnel-public-id="lgf_01KZ3ATY6MSE3AFH6Z0XAQMCQP" data-funnel-id="1" data-funnel-active-variant="lgn_01KZ3ATY6MND79WBJMFASZ8ZXC" data-pin="8.2-funnel-column">
+      <div class="lg-board" data-board data-pin="8.2-board">
+        <div class="lg-board-cols" data-board-cols>
+          <div class="lg-col lg-col-funnel is-default" data-funnel-col data-funnel-public-id="lgf_01KZ4AEAVW4B2YNVPANM4Y5QE6" data-funnel-id="1" data-funnel-active-variant="lgn_01KZ4AEAVW0T7GT2RH9T5A58JH" data-pin="8.2-funnel-column">
     <div class="lg-col-head" data-pin="8.2-funnel-header">
       <div class="lg-col-title-row">
-        <span class="lg-col-title" data-funnel-name data-pin="8.2-inline-rename" tabindex="0" role="textbox" aria-label="Funnel name (click to rename)">&lt;b&gt;Quote&lt;/b&gt; — Funnel A</span>
+        <span class="lg-col-title" data-funnel-name data-pin="8.2-inline-rename" tabindex="0" role="textbox" aria-label="Funnel name (click to rename)" title="&lt;b&gt;Quote&lt;/b&gt; — Funnel A">&lt;b&gt;Quote&lt;/b&gt; — Funnel A</span>
         <span class="lg-badge-default" data-default-chip data-pin="4.3-default-chip" tabindex="0" aria-label="Default funnel">Default<span class="lg-tip" role="tooltip" data-pin="A-3-tooltip">Visitors who match no rule see this funnel.</span></span>
         <span class="lg-kebab-btn lg-funnel-kebab" data-funnel-kebab data-chip-menu="funnel" role="button" tabindex="0" aria-label="Funnel options"><svg width="16" height="16" viewBox="0 0 24 24" fill="currentColor" aria-hidden="true"><circle cx="12" cy="5" r="1.7"/><circle cx="12" cy="12" r="1.7"/><circle cx="12" cy="19" r="1.7"/></svg></span>
       </div>
       <div class="lg-col-meta">
-        <span class="lg-pickchip" data-theme-picker data-pin="8.2-theme-picker" data-chip-funnel-public-id="lgf_01KZ3ATY6MSE3AFH6Z0XAQMCQP" data-chip-funnel-active-variant="lgn_01KZ3ATY6MND79WBJMFASZ8ZXC" role="button" tabindex="0">Default</span>
-        <span class="lg-pickchip" data-template-picker data-pin="8.2-template-picker" data-chip-funnel-public-id="lgf_01KZ3ATY6MSE3AFH6Z0XAQMCQP" data-chip-funnel-active-variant="lgn_01KZ3ATY6MND79WBJMFASZ8ZXC" role="button" tabindex="0">Template</span>
+        <span class="lg-pickchip" data-theme-picker data-pin="8.2-theme-picker" data-chip-funnel-public-id="lgf_01KZ4AEAVW4B2YNVPANM4Y5QE6" data-chip-funnel-active-variant="lgn_01KZ4AEAVW0T7GT2RH9T5A58JH" role="button" tabindex="0">Default</span>
+        <span class="lg-pickchip" data-template-picker data-pin="8.2-template-picker" data-chip-funnel-public-id="lgf_01KZ4AEAVW4B2YNVPANM4Y5QE6" data-chip-funnel-active-variant="lgn_01KZ4AEAVW0T7GT2RH9T5A58JH" role="button" tabindex="0">Template</span>
       </div>
       <div class="lg-col-actions">
         <span class="lg-badge-ab" data-ab-badge data-pin="4.3-ab-badge" role="button" tabindex="0">A/B</span>
         <span class="lg-btn-ghost lg-col-preview" data-preview data-pin="8.2-preview" role="button" tabindex="0">Preview<svg width="12" height="12" viewBox="0 0 24 24" fill="none" aria-hidden="true"><path d="M7 17L17 7M9 7h8v8" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"/></svg></span>
       </div>
     </div>
-    <div class="lg-col-body" data-funnel-body><div class="lg-page-card" data-page-card data-page-public-id="lgpg_01KZ3ATY6P3SGHMX67BDN9GKZV" data-page-index="0" data-pin="8.2-page-card">
+    <div class="lg-col-body" data-funnel-body><div class="lg-page-card" data-page-card data-page-public-id="lgpg_01KZ4AEAVYJ4WGMN4F0SQ2K1X8" data-page-index="0" data-pin="8.2-page-card">
     <div class="lg-page-head">
       <span class="lg-grip lg-page-grip" data-page-grip aria-hidden="true"><svg width="12" height="16" viewBox="0 0 12 16" fill="currentColor" aria-hidden="true"><circle cx="3" cy="3" r="1.4"/><circle cx="9" cy="3" r="1.4"/><circle cx="3" cy="8" r="1.4"/><circle cx="9" cy="8" r="1.4"/><circle cx="3" cy="13" r="1.4"/><circle cx="9" cy="13" r="1.4"/></svg></span>
       <span class="lg-page-num">Page 1</span>
       <span class="lg-kebab-btn lg-page-kebab" data-page-kebab data-chip-menu="page" role="button" tabindex="0" aria-label="Page options"><svg width="16" height="16" viewBox="0 0 24 24" fill="currentColor" aria-hidden="true"><circle cx="12" cy="5" r="1.7"/><circle cx="12" cy="12" r="1.7"/><circle cx="12" cy="19" r="1.7"/></svg></span>
     </div>
-    <div class="lg-chip-list" data-chip-list><div class="lg-sec-chip" data-sec-chip data-chip-scope="funnel" data-section-public-id="lgs_01KZ3ATY6MJA2QVEHQ65QT34K5" data-slot-id="1" data-slot-kind="fixed">
+    <div class="lg-chip-list" data-chip-list><div class="lg-sec-chip" data-sec-chip data-chip-scope="funnel" data-section-public-id="lgs_01KZ4AEAVX560E3RM89PPHZ4G9" data-slot-id="1" data-slot-kind="fixed">
     <span class="lg-grip lg-chip-grip" data-chip-grip aria-hidden="true"><svg width="12" height="16" viewBox="0 0 12 16" fill="currentColor" aria-hidden="true"><circle cx="3" cy="3" r="1.4"/><circle cx="9" cy="3" r="1.4"/><circle cx="3" cy="8" r="1.4"/><circle cx="9" cy="8" r="1.4"/><circle cx="3" cy="13" r="1.4"/><circle cx="9" cy="13" r="1.4"/></svg></span>
     <span class="lg-map-dot" data-mapping-status="none" title="No Offers selected yet"></span>
-    <span class="lg-sc-name">&lt;i&gt;First&lt;/i&gt;</span>
+    <span class="lg-sc-name" title="&lt;i&gt;First&lt;/i&gt;">&lt;i&gt;First&lt;/i&gt;</span>
     <span class="lg-kebab-btn lg-chip-kebab" data-chip-kebab data-chip-menu="funnel-chip" role="button" tabindex="0" aria-label="Section options"><svg width="16" height="16" viewBox="0 0 24 24" fill="currentColor" aria-hidden="true"><circle cx="12" cy="5" r="1.7"/><circle cx="12" cy="12" r="1.7"/><circle cx="12" cy="19" r="1.7"/></svg></span>
   </div></div>
     <span class="lg-add-section" data-add-section role="button" tabindex="0"><svg width="13" height="13" viewBox="0 0 24 24" fill="none" aria-hidden="true"><path d="M12 5v14M5 12h14" stroke="currentColor" stroke-width="2.2" stroke-linecap="round"/></svg> ＋ section</span>
-  </div><div class="lg-page-card" data-page-card data-page-public-id="lgpg_01KZ3ATY6PEKA2J4FY57ZANHTB" data-page-index="1" data-pin="8.2-page-card">
+  </div><div class="lg-page-card" data-page-card data-page-public-id="lgpg_01KZ4AEAVYDC7BM2P3E5W0D8D2" data-page-index="1" data-pin="8.2-page-card">
     <div class="lg-page-head">
       <span class="lg-grip lg-page-grip" data-page-grip aria-hidden="true"><svg width="12" height="16" viewBox="0 0 12 16" fill="currentColor" aria-hidden="true"><circle cx="3" cy="3" r="1.4"/><circle cx="9" cy="3" r="1.4"/><circle cx="3" cy="8" r="1.4"/><circle cx="9" cy="8" r="1.4"/><circle cx="3" cy="13" r="1.4"/><circle cx="9" cy="13" r="1.4"/></svg></span>
       <span class="lg-page-num">Page 2</span>
       <span class="lg-kebab-btn lg-page-kebab" data-page-kebab data-chip-menu="page" role="button" tabindex="0" aria-label="Page options"><svg width="16" height="16" viewBox="0 0 24 24" fill="currentColor" aria-hidden="true"><circle cx="12" cy="5" r="1.7"/><circle cx="12" cy="12" r="1.7"/><circle cx="12" cy="19" r="1.7"/></svg></span>
     </div>
-    <div class="lg-chip-list" data-chip-list><div class="lg-sec-chip" data-sec-chip data-chip-scope="funnel" data-section-public-id="lgs_01KZ3ATY6NGDK76EWYN82N53A1" data-slot-id="2" data-slot-kind="fixed">
+    <div class="lg-chip-list" data-chip-list><div class="lg-sec-chip" data-sec-chip data-chip-scope="funnel" data-section-public-id="lgs_01KZ4AEAVXXE08J2TS9YTXVSRJ" data-slot-id="2" data-slot-kind="fixed">
     <span class="lg-grip lg-chip-grip" data-chip-grip aria-hidden="true"><svg width="12" height="16" viewBox="0 0 12 16" fill="currentColor" aria-hidden="true"><circle cx="3" cy="3" r="1.4"/><circle cx="9" cy="3" r="1.4"/><circle cx="3" cy="8" r="1.4"/><circle cx="9" cy="8" r="1.4"/><circle cx="3" cy="13" r="1.4"/><circle cx="9" cy="13" r="1.4"/></svg></span>
     <span class="lg-map-dot" data-mapping-status="none" title="No Offers selected yet"></span>
-    <span class="lg-sc-name">Second</span>
+    <span class="lg-sc-name" title="Second">Second</span>
     <span class="lg-kebab-btn lg-chip-kebab" data-chip-kebab data-chip-menu="funnel-chip" role="button" tabindex="0" aria-label="Section options"><svg width="16" height="16" viewBox="0 0 24 24" fill="currentColor" aria-hidden="true"><circle cx="12" cy="5" r="1.7"/><circle cx="12" cy="12" r="1.7"/><circle cx="12" cy="19" r="1.7"/></svg></span>
   </div></div>
     <span class="lg-add-section" data-add-section role="button" tabindex="0"><svg width="13" height="13" viewBox="0 0 24 24" fill="none" aria-hidden="true"><path d="M12 5v14M5 12h14" stroke="currentColor" stroke-width="2.2" stroke-linecap="round"/></svg> ＋ section</span>
@@ -522,7 +570,7 @@ button.lg-publish-why-fix:focus-visible{outline:2px solid currentColor;outline-o
       </div>
     </div>
     <div class="lg-board-right" data-rules-rail>
-      <div class="lg-qr-rail" id="lg-qr-rail" data-pin="8.2-rules-rail" data-quote-public-id="lgq_01KZ3ATY6MVYME3Q8HF00WQV7D"><style>
+      <div class="lg-qr-rail" id="lg-qr-rail" data-pin="8.2-rules-rail" data-quote-public-id="lgq_01KZ4AEAVW8KWA6VCD166NXW0T"><style>
 .lg-qr-rail{display:flex;flex-direction:column;min-height:0}
 .lg-qr-head{padding:16px 16px 12px;border-bottom:1px solid rgba(20,32,54,.08)}
 .lg-qr-title{font-size:14px;font-weight:800;color:#14233a;margin-bottom:6px}
@@ -602,7 +650,7 @@ button.lg-publish-why-fix:focus-visible{outline:2px solid currentColor;outline-o
 .lg-qr-sentence{font-size:12px;color:#374966;background:#f7f9fb;border-radius:8px;padding:10px 12px;line-height:1.5}
 .lg-qr-sentlab{font-size:9.5px;font-weight:800;letter-spacing:.4px;text-transform:uppercase;color:#8894a8;display:block;margin-bottom:4px}
 .lg-qr-modal-foot{display:flex;justify-content:flex-end;gap:10px;padding-top:14px}
-</style><div class="lg-qr-head"><div class="lg-qr-title">Routing rules</div><div class="lg-qr-desc">Rules decide which funnel a visitor sees, and can tag the lead, set the FB multiplier, or redirect. Lowest priority number wins when more than one matches.</div></div><div class="lg-qr-colhead"><span class="lg-qr-cprio">Priority</span><span class="lg-qr-cname">Name · Checkpoint · Conditions · Actions · Status</span></div><div class="lg-qr-list" id="lg-qr-list" data-pin="8.2-rules-table"><div data-qr-cards></div><div class="lg-qr-newbtn" data-pin="8.2-new-rule-btn" role="button" tabindex="0" data-qr-new>+ New rule</div></div><div class="lg-qr-overlay" id="lg-qr-modal" data-pin="8.2-rule-modal" role="dialog" aria-modal="true" aria-label="Routing rule" hidden><div class="lg-qr-modal card"><div class="lg-qr-modal-head"><h3 id="lg-qr-modal-title">New routing rule</h3><span class="lg-qr-x" role="button" tabindex="0" data-qr-cancel aria-label="Close">✖</span></div><div class="lg-qr-modal-body"><div class="lg-qr-fieldblock" data-pin="8.2-rule-name"><label class="lg-qr-label" for="lg-qr-name">Rule name<span class="lg-qr-req">*</span> <span class="lg-qr-opt">· up to 80 characters</span></label><input class="form-input" id="lg-qr-name" type="text" maxlength="80" data-qr-modal-name /></div><div class="lg-qr-grid2"><div data-pin="4.3-3-checkpoint"><label class="lg-qr-label">Checkpoint <span class="lg-qr-opt">· read-only</span></label><div class="lg-qr-readonly" data-qr-modal-checkpoint>Entry</div><div class="lg-qr-help">Derived from the conditions — where this rule can first apply.</div><div class="lg-qr-callout warn" data-qr-modal-a6 data-pin="A-6-inline" hidden><span class="lg-qr-warnico" aria-hidden="true">⚠</span><span>This rule can never apply before a visitor enters a funnel that asks these questions.</span></div></div><div data-pin="8.2-rule-priority"><label class="lg-qr-label" for="lg-qr-priority">Priority</label><input class="form-input" id="lg-qr-priority" type="number" min="1" max="100" step="1" value="100" data-qr-modal-priority /><div class="lg-qr-help">1 = highest priority, 100 = lowest.</div></div></div><div class="lg-qr-cardblock" data-pin="8.2-rule-conditions"><div class="lg-qr-cbhead"><span class="lg-qr-cbtitle">Conditions</span><div class="lg-qr-seg" data-pin="8.2-anyall" data-qr-matchmode><span class="lg-qr-segitem active" data-qr-match="all" role="button" tabindex="0">Match ALL</span><span class="lg-qr-segitem" data-qr-match="any" role="button" tabindex="0">Match ANY</span></div></div><div id="lg-qr-cond-mount"></div><input type="hidden" data-qr-cond-out /><div class="lg-qr-help">Sources: answer fields (by name) · UTM Source/Medium/Campaign/Content · Device · OS · State · Hour · Weekday. Operators map to eq · neq · gt · lt · gte · lte.</div></div><div data-pin="4.3-9-actions"><div class="lg-qr-actions-head"><span class="lg-qr-cbtitle">Actions</span> <span class="lg-qr-opt">· pick at least one</span></div><div class="lg-qr-arow" data-pin="action-target-funnel" data-qr-action="target_funnel"><span class="lg-qr-swi on" role="switch" tabindex="0" aria-checked="true" data-qr-action-toggle><span class="lg-qr-knob"></span></span><div class="lg-qr-amain"><div class="lg-qr-aname">Target funnel</div><div class="lg-qr-adesc">Serve this funnel to matching visitors.</div><select class="form-select" data-qr-target-funnel aria-label="Target funnel"><option value="">— choose a funnel —</option><option value="lgf_01KZ3ATY6MSE3AFH6Z0XAQMCQP" data-funnel-id="1">&lt;b&gt;Quote&lt;/b&gt; — Funnel A (Default)</option></select></div></div><div class="lg-qr-arow" data-pin="action-feed-name" data-qr-action="feed_name"><span class="lg-qr-swi on" role="switch" tabindex="0" aria-checked="true" data-qr-action-toggle><span class="lg-qr-knob"></span></span><div class="lg-qr-amain"><div class="lg-qr-aname">Feed name</div><div class="lg-qr-adesc">Tag matching leads for analytics &amp; offer routing.</div><input class="form-input" type="text" list="lg-qr-feeds" data-qr-feed-name aria-label="Feed name" /><datalist id="lg-qr-feeds"></datalist><div class="lg-qr-help" data-qr-feed-help>No feed names used yet.</div></div></div><div class="lg-qr-arow" data-pin="action-fb-multiplier" data-qr-action="value_multiplier"><span class="lg-qr-swi on" role="switch" tabindex="0" aria-checked="true" data-qr-action-toggle><span class="lg-qr-knob"></span></span><div class="lg-qr-amain"><div class="lg-qr-aname">FB multiplier</div><div class="lg-qr-adesc">Replaces the base S2S multiplier for this conversion.</div><input class="form-input" type="number" step="any" min="0" data-qr-multiplier aria-label="FB multiplier" style="max-width:140px" /></div></div><div class="lg-qr-arow" data-pin="action-redirect-pct" data-qr-action="redirect_pct"><span class="lg-qr-swi on" role="switch" tabindex="0" aria-checked="true" data-qr-action-toggle><span class="lg-qr-knob"></span></span><div class="lg-qr-amain"><div class="lg-qr-aname">Redirect %</div><div class="lg-qr-adesc">0 = no redirect. Share of matching sessions sent to the target instead of our funnel; the rest continue with the other actions.</div><input class="form-input" type="number" step="any" min="0" max="100" data-qr-redirect-pct aria-label="Redirect percent" style="max-width:140px" /></div></div><div class="lg-qr-arow" data-pin="action-redirect-target" data-qr-action="redirect_target"><span class="lg-qr-swi on" role="switch" tabindex="0" aria-checked="true" data-qr-action-toggle><span class="lg-qr-knob"></span></span><div class="lg-qr-amain"><div class="lg-qr-aname">Redirect target</div><div class="lg-qr-adesc">Where redirected sessions go — an offer, or an allowlisted URL.</div><div class="lg-qr-seg" data-qr-target-mode><span class="lg-qr-segitem active" data-qr-mode="offer" role="button" tabindex="0">Offer</span><span class="lg-qr-segitem" data-qr-mode="url" role="button" tabindex="0">Allowlisted URL</span></div><select class="form-select" data-qr-target-offer aria-label="Redirect offer"><option value="">— choose an offer —</option></select><div data-qr-url-wrap hidden><input class="form-input" type="text" data-qr-redirect-url aria-label="Allowlisted redirect URL" placeholder="https://…" /><div class="lg-qr-help">Only hosts on the site allowlist can be entered here.</div></div></div></div></div><div class="lg-qr-errmsg" data-pin="A-11-validation" data-qr-action-error hidden><span class="lg-qr-warnico" aria-hidden="true">⚠</span>Pick at least one action for this rule.</div><p class="alert alert-error lg-qr-error" data-qr-modal-error role="alert" hidden></p><div class="lg-qr-sentence" data-pin="8.2-rule-sentence"><span class="lg-qr-sentlab">In plain language</span> <span data-qr-sentence></span></div></div><div class="lg-qr-modal-foot"><span class="btn btn-outline" role="button" tabindex="0" data-qr-cancel>Cancel</span><span class="btn btn-primary" role="button" tabindex="0" data-qr-save>Save rule</span></div></div></div><script id="lg-qr-data" type="application/json">{"quote_public_id":"lgq_01KZ3ATY6MVYME3Q8HF00WQV7D","rules":[],"funnels":[{"id":1,"public_id":"lgf_01KZ3ATY6MSE3AFH6Z0XAQMCQP","name":"\u003cb>Quote\u003c/b> — Funnel A","is_default":true,"pages":[{"position":0,"fields":["f"]},{"position":1,"fields":["f"]}]}],"default_funnel_id":1,"shared_page_fields":[],"answer_fields":[{"internal_field":"f","label":"Second · f"}],"entry_fields":[{"internal_field":"utm_source","label":"UTM Source"},{"internal_field":"utm_medium","label":"UTM Medium"},{"internal_field":"utm_campaign","label":"UTM Campaign"},{"internal_field":"utm_content","label":"UTM Content"},{"internal_field":"device","label":"Device"},{"internal_field":"os","label":"OS"},{"internal_field":"state","label":"State"},{"internal_field":"hour","label":"Hour"},{"internal_field":"weekday","label":"Weekday"}],"offers":[],"feed_values":[]}</script></div>
+</style><div class="lg-qr-head"><div class="lg-qr-title">Routing rules</div><div class="lg-qr-desc">Rules decide which funnel a visitor sees, and can tag the lead, set the FB multiplier, or redirect. Lowest priority number wins when more than one matches.</div></div><div class="lg-qr-colhead"><span class="lg-qr-cprio">Priority</span><span class="lg-qr-cname">Name · Checkpoint · Conditions · Actions · Status</span></div><div class="lg-qr-list" id="lg-qr-list" data-pin="8.2-rules-table"><div data-qr-cards></div><div class="lg-qr-newbtn" data-pin="8.2-new-rule-btn" role="button" tabindex="0" data-qr-new>+ New rule</div></div><div class="lg-qr-overlay" id="lg-qr-modal" data-pin="8.2-rule-modal" role="dialog" aria-modal="true" aria-label="Routing rule" hidden><div class="lg-qr-modal card"><div class="lg-qr-modal-head"><h3 id="lg-qr-modal-title">New routing rule</h3><span class="lg-qr-x" role="button" tabindex="0" data-qr-cancel aria-label="Close">✖</span></div><div class="lg-qr-modal-body"><div class="lg-qr-fieldblock" data-pin="8.2-rule-name"><label class="lg-qr-label" for="lg-qr-name">Rule name<span class="lg-qr-req">*</span> <span class="lg-qr-opt">· up to 80 characters</span></label><input class="form-input" id="lg-qr-name" type="text" maxlength="80" data-qr-modal-name /></div><div class="lg-qr-grid2"><div data-pin="4.3-3-checkpoint"><label class="lg-qr-label">Checkpoint <span class="lg-qr-opt">· read-only</span></label><div class="lg-qr-readonly" data-qr-modal-checkpoint>Entry</div><div class="lg-qr-help">Derived from the conditions — where this rule can first apply.</div><div class="lg-qr-callout warn" data-qr-modal-a6 data-pin="A-6-inline" hidden><span class="lg-qr-warnico" aria-hidden="true">⚠</span><span>This rule can never apply before a visitor enters a funnel that asks these questions.</span></div></div><div data-pin="8.2-rule-priority"><label class="lg-qr-label" for="lg-qr-priority">Priority</label><input class="form-input" id="lg-qr-priority" type="number" min="1" max="100" step="1" value="100" data-qr-modal-priority /><div class="lg-qr-help">1 = highest priority, 100 = lowest.</div></div></div><div class="lg-qr-cardblock" data-pin="8.2-rule-conditions"><div class="lg-qr-cbhead"><span class="lg-qr-cbtitle">Conditions</span><div class="lg-qr-seg" data-pin="8.2-anyall" data-qr-matchmode><span class="lg-qr-segitem active" data-qr-match="all" role="button" tabindex="0">Match ALL</span><span class="lg-qr-segitem" data-qr-match="any" role="button" tabindex="0">Match ANY</span></div></div><div id="lg-qr-cond-mount"></div><input type="hidden" data-qr-cond-out /><div class="lg-qr-help">Sources: answer fields (by name) · UTM Source/Medium/Campaign/Content · Device · OS · State · Hour · Weekday. Operators map to eq · neq · gt · lt · gte · lte.</div></div><div data-pin="4.3-9-actions"><div class="lg-qr-actions-head"><span class="lg-qr-cbtitle">Actions</span> <span class="lg-qr-opt">· pick at least one</span></div><div class="lg-qr-arow" data-pin="action-target-funnel" data-qr-action="target_funnel"><span class="lg-qr-swi on" role="switch" tabindex="0" aria-checked="true" data-qr-action-toggle><span class="lg-qr-knob"></span></span><div class="lg-qr-amain"><div class="lg-qr-aname">Target funnel</div><div class="lg-qr-adesc">Serve this funnel to matching visitors.</div><select class="form-select" data-qr-target-funnel aria-label="Target funnel"><option value="">— choose a funnel —</option><option value="lgf_01KZ4AEAVW4B2YNVPANM4Y5QE6" data-funnel-id="1">&lt;b&gt;Quote&lt;/b&gt; — Funnel A (Default)</option></select></div></div><div class="lg-qr-arow" data-pin="action-feed-name" data-qr-action="feed_name"><span class="lg-qr-swi on" role="switch" tabindex="0" aria-checked="true" data-qr-action-toggle><span class="lg-qr-knob"></span></span><div class="lg-qr-amain"><div class="lg-qr-aname">Feed name</div><div class="lg-qr-adesc">Tag matching leads for analytics &amp; offer routing.</div><input class="form-input" type="text" list="lg-qr-feeds" data-qr-feed-name aria-label="Feed name" /><datalist id="lg-qr-feeds"></datalist><div class="lg-qr-help" data-qr-feed-help>No feed names used yet.</div></div></div><div class="lg-qr-arow" data-pin="action-fb-multiplier" data-qr-action="value_multiplier"><span class="lg-qr-swi on" role="switch" tabindex="0" aria-checked="true" data-qr-action-toggle><span class="lg-qr-knob"></span></span><div class="lg-qr-amain"><div class="lg-qr-aname">FB multiplier</div><div class="lg-qr-adesc">Replaces the base S2S multiplier for this conversion.</div><input class="form-input" type="number" step="any" min="0" data-qr-multiplier aria-label="FB multiplier" style="max-width:140px" /></div></div><div class="lg-qr-arow" data-pin="action-redirect-pct" data-qr-action="redirect_pct"><span class="lg-qr-swi on" role="switch" tabindex="0" aria-checked="true" data-qr-action-toggle><span class="lg-qr-knob"></span></span><div class="lg-qr-amain"><div class="lg-qr-aname">Redirect %</div><div class="lg-qr-adesc">0 = no redirect. Share of matching sessions sent to the target instead of our funnel; the rest continue with the other actions.</div><input class="form-input" type="number" step="any" min="0" max="100" data-qr-redirect-pct aria-label="Redirect percent" style="max-width:140px" /></div></div><div class="lg-qr-arow" data-pin="action-redirect-target" data-qr-action="redirect_target"><span class="lg-qr-swi on" role="switch" tabindex="0" aria-checked="true" data-qr-action-toggle><span class="lg-qr-knob"></span></span><div class="lg-qr-amain"><div class="lg-qr-aname">Redirect target</div><div class="lg-qr-adesc">Where redirected sessions go — an offer, or an allowlisted URL.</div><div class="lg-qr-seg" data-qr-target-mode><span class="lg-qr-segitem active" data-qr-mode="offer" role="button" tabindex="0">Offer</span><span class="lg-qr-segitem" data-qr-mode="url" role="button" tabindex="0">Allowlisted URL</span></div><select class="form-select" data-qr-target-offer aria-label="Redirect offer"><option value="">— choose an offer —</option></select><div data-qr-url-wrap hidden><input class="form-input" type="text" data-qr-redirect-url aria-label="Allowlisted redirect URL" placeholder="https://…" /><div class="lg-qr-help">Only hosts on the site allowlist can be entered here.</div></div></div></div></div><div class="lg-qr-errmsg" data-pin="A-11-validation" data-qr-action-error hidden><span class="lg-qr-warnico" aria-hidden="true">⚠</span>Pick at least one action for this rule.</div><p class="alert alert-error lg-qr-error" data-qr-modal-error role="alert" hidden></p><div class="lg-qr-sentence" data-pin="8.2-rule-sentence"><span class="lg-qr-sentlab">In plain language</span> <span data-qr-sentence></span></div></div><div class="lg-qr-modal-foot"><span class="btn btn-outline" role="button" tabindex="0" data-qr-cancel>Cancel</span><span class="btn btn-primary" role="button" tabindex="0" data-qr-save>Save rule</span></div></div></div><script id="lg-qr-data" type="application/json">{"quote_public_id":"lgq_01KZ4AEAVW8KWA6VCD166NXW0T","rules":[],"funnels":[{"id":1,"public_id":"lgf_01KZ4AEAVW4B2YNVPANM4Y5QE6","name":"\u003cb>Quote\u003c/b> — Funnel A","is_default":true,"pages":[{"position":0,"fields":["f"]},{"position":1,"fields":["f"]}]}],"default_funnel_id":1,"shared_page_fields":[],"answer_fields":[{"internal_field":"f","label":"Second · f"}],"entry_fields":[{"internal_field":"utm_source","label":"UTM Source"},{"internal_field":"utm_medium","label":"UTM Medium"},{"internal_field":"utm_campaign","label":"UTM Campaign"},{"internal_field":"utm_content","label":"UTM Content"},{"internal_field":"device","label":"Device"},{"internal_field":"os","label":"OS"},{"internal_field":"state","label":"State"},{"internal_field":"hour","label":"Hour"},{"internal_field":"weekday","label":"Weekday"}],"offers":[],"feed_values":[]}</script></div>
     </div>
   </div>
   <div class="lg-board-menus" data-board-menus>
@@ -619,7 +667,7 @@ button.lg-publish-why-fix:focus-visible{outline:2px solid currentColor;outline-o
     </div>
   </div>
   <div class="lg-template-menu lg-hidden" data-template-menu role="menu"></div>
-  <div class="lg-board-guard lg-hidden" data-funnel-settings role="dialog" aria-modal="true" aria-labelledby="lg-funnel-settings-title" data-settings-variant="lgn_01KZ3ATY6MND79WBJMFASZ8ZXC">
+  <div class="lg-board-guard lg-hidden" data-funnel-settings role="dialog" aria-modal="true" aria-labelledby="lg-funnel-settings-title" data-settings-variant="lgn_01KZ4AEAVW0T7GT2RH9T5A58JH">
     <div class="lg-board-guard-panel">
       <div class="lg-board-guard-head"><h3 id="lg-funnel-settings-title">Funnel settings</h3></div>
       <div class="lg-fsettings-body">
@@ -672,7 +720,7 @@ button.lg-publish-why-fix:focus-visible{outline:2px solid currentColor;outline-o
       </div>
     </div>
   </div>
-  <script type="application/json" id="lg-board-data">{"quote_public_id":"lgq_01KZ3ATY6MVYME3Q8HF00WQV7D","default_funnel_id":1,"shared_page_id":null,"shared_sections":[],"shared_slots":[],"funnels":[{"public_id":"lgf_01KZ3ATY6MSE3AFH6Z0XAQMCQP","id":1,"name":"\u003cb>Quote\u003c/b> — Funnel A","display_order":1,"is_default":true,"active_variant_public_id":"lgn_01KZ3ATY6MND79WBJMFASZ8ZXC","arms":1,"frame_template_id":null,"settings":{"variant_public_id":"lgn_01KZ3ATY6MND79WBJMFASZ8ZXC","lander_enabled":false,"lander_headline":"","lander_subheadline":"","lander_hero_media_url":"","funnel_design_id":"default","auction_id":null},"pages":[{"page_id":"lgpg_01KZ3ATY6P3SGHMX67BDN9GKZV","slots":[{"slot_id":1,"kind":"fixed","section_ids":["lgs_01KZ3ATY6MJA2QVEHQ65QT34K5"],"allocations":null,"rules":null}]},{"page_id":"lgpg_01KZ3ATY6PEKA2J4FY57ZANHTB","slots":[{"slot_id":2,"kind":"fixed","section_ids":["lgs_01KZ3ATY6NGDK76EWYN82N53A1"],"allocations":null,"rules":null}]}]}],"sections":[{"public_id":"lgs_01KZ3ATY6NGDK76EWYN82N53A1","name":"Second","activity":"quote_funnel","vertical":"health"},{"public_id":"lgs_01KZ3ATY6MJA2QVEHQ65QT34K5","name":"\u003ci>First\u003c/i>","activity":"quote_funnel","vertical":"life"}],"templates":[{"id":"centered","label":"Centered card"},{"id":"header-footer","label":"Site header + footer"},{"id":"header-cta","label":"Header + call CTA"},{"id":"full-background","label":"Full background"},{"id":"white-trust","label":"White + trust bar"},{"id":"minimal","label":"Minimal"}]}</script>
+  <script type="application/json" id="lg-board-data">{"quote_public_id":"lgq_01KZ4AEAVW8KWA6VCD166NXW0T","default_funnel_id":1,"shared_page_id":null,"shared_sections":[],"shared_slots":[],"funnels":[{"public_id":"lgf_01KZ4AEAVW4B2YNVPANM4Y5QE6","id":1,"name":"\u003cb>Quote\u003c/b> — Funnel A","display_order":1,"is_default":true,"active_variant_public_id":"lgn_01KZ4AEAVW0T7GT2RH9T5A58JH","arms":1,"frame_template_id":null,"settings":{"variant_public_id":"lgn_01KZ4AEAVW0T7GT2RH9T5A58JH","lander_enabled":false,"lander_headline":"","lander_subheadline":"","lander_hero_media_url":"","funnel_design_id":"default","auction_id":null},"pages":[{"page_id":"lgpg_01KZ4AEAVYJ4WGMN4F0SQ2K1X8","slots":[{"slot_id":1,"kind":"fixed","section_ids":["lgs_01KZ4AEAVX560E3RM89PPHZ4G9"],"allocations":null,"rules":null}]},{"page_id":"lgpg_01KZ4AEAVYDC7BM2P3E5W0D8D2","slots":[{"slot_id":2,"kind":"fixed","section_ids":["lgs_01KZ4AEAVXXE08J2TS9YTXVSRJ"],"allocations":null,"rules":null}]}]}],"sections":[{"public_id":"lgs_01KZ4AEAVXXE08J2TS9YTXVSRJ","name":"Second","activity":"quote_funnel","vertical":"health"},{"public_id":"lgs_01KZ4AEAVX560E3RM89PPHZ4G9","name":"\u003ci>First\u003c/i>","activity":"quote_funnel","vertical":"life"}],"templates":[{"id":"centered","label":"Centered card"},{"id":"header-footer","label":"Site header + footer"},{"id":"header-cta","label":"Header + call CTA"},{"id":"full-background","label":"Full background"},{"id":"white-trust","label":"White + trust bar"},{"id":"minimal","label":"Minimal"}]}</script>
 </div>
   <div class="lg-qpanel" data-panel="templates">
   <style>
@@ -2701,7 +2749,7 @@ button.lg-publish-why-fix:focus-visible{outline:2px solid currentColor;outline-o
 </script>
 </div>
   <div class="lg-qpanel" data-panel="themes">
-  <div class="lg-theme-3pane" data-lg-themes-tab data-is-control="true" data-pin="8.4-themes-tab-layout" style="display:flex;align-items:flex-start;gap:18px">
+  <div class="lg-theme-3pane" data-lg-themes-tab data-is-control="true" data-pin="8.4-themes-tab-layout" style="display:flex;flex-wrap:wrap;align-items:flex-start;gap:18px">
     <div class="lg-board-left" data-pin="r2-theme-chooser" style="flex:0 0 280px;width:280px;">
     <div class="lg-lib-head">
       <div class="lg-lib-title">Section library</div>
@@ -2712,17 +2760,21 @@ button.lg-publish-why-fix:focus-visible{outline:2px solid currentColor;outline-o
       <p class="lg-col-help" style="padding:8px 4px">Loading sections&#8230;</p>
     </div>
   </div>
-    <div class="lg-theme-canvas-pane" id="lg-theme-canvas-pane" data-pin="r2-sticky-canvas" style="flex:1 1 420px;min-width:320px;position:sticky;top:84px;">
+    <div class="lg-theme-canvas-pane" id="lg-theme-canvas-pane" data-pin="r2-sticky-canvas" style="flex:1 1 320px;min-width:320px;position:sticky;top:84px;">
     <div class="lg-panel-card">
       <div style="display:flex;align-items:center;justify-content:space-between;gap:10px;margin-bottom:10px">
         <h3 style="margin:0">Live preview</h3>
         <span class="form-help" id="lg-theme-canvas-section-name" style="margin:0"></span>
       </div>
+      <div style="display:flex;align-items:center;gap:8px;margin-bottom:10px">
+        <label class="form-help" for="lg-theme-site-select" style="margin:0;white-space:nowrap">Preview site</label>
+        <span style="flex:1 1 auto;min-width:0"><select id="lg-theme-site-select" class="form-select" data-site-select aria-label="Preview site"><option value="">CMS fallback branding</option><option value="site-1" data-badge="Not activated yet">Site One — Not activated yet</option></select></span>
+      </div>
       <iframe id="lg-theme-canvas-frame" class="lg-theme-canvas-frame" title="Theme live preview" sandbox="allow-same-origin" style="width:100%;min-height:440px;border:1px solid var(--c-border);border-radius:10px;background:#EDF0F4;display:block"></iframe>
       <p class="form-help" id="lg-theme-canvas-status" role="status" aria-live="polite"></p>
     </div>
   </div>
-    <div class="lg-theme-rail" id="lg-theme-rail" data-pin="r2-theme-rail" style="flex:0 0 340px;min-width:280px;max-width:380px">
+    <div class="lg-theme-rail" id="lg-theme-rail" data-pin="r2-theme-rail" style="flex:0 1 340px;min-width:280px;max-width:380px">
     <div id="lg-themes-panel-mount"><div class="lg-panel-card" id="lg-theme-editor">
   <h3>Funnel theme</h3>
   <div class="lg-scope-head">Editing: <strong id="lg-theme-target-name" data-lg-target-funnel-name>this funnel</strong> · Funnel theme · affects every slide and every component default of this funnel<select class="form-select form-select-sm" id="lg-theme-target-select" data-lg-target-funnel aria-label="Funnel this theme edits" style="margin-left:8px;max-width:200px;vertical-align:middle"></select></div>
@@ -3503,6 +3555,7 @@ button.lg-publish-why-fix:focus-visible{outline:2px solid currentColor;outline-o
         var nm = document.createElement('span');
         nm.className = 'lg-lc-name';
         nm.textContent = s.section_name;
+        nm.title = s.section_name;
         top.appendChild(nm);
         var meta = document.createElement('div');
         meta.className = 'lg-lc-meta';
@@ -3553,6 +3606,123 @@ button.lg-publish-why-fix:focus-visible{outline:2px solid currentColor;outline-o
   var railDraftTheme = null;
   // hasAnyKey now comes from the shared theme-preset-resolve snippet above.
   var canvasSeq = 0;
+
+  // --- P8-2 B4: the PREVIEW SITE this canvas renders under -------------------
+  // FAIL-BEFORE (measured on the real route, r2fix fixture site): this island
+  // never sent a site at all, so resolveSiteBranding was never called and the
+  // canvas painted no site logo and an EMPTY footer while the Templates canvas
+  // beside it painted Contact / Privacy policy / Terms of use for the very
+  // same funnel. The site is read from the page's site selects AT EVERY
+  // RENDER (never cached at boot), so this canvas and the Templates one can
+  // never disagree about which site is on screen.
+  //
+  // The default is the SAME rule quotes-tabs/templates.ts (populateSiteSelect)
+  // and quotes-tabs/funnel.ts (initSiteSelectDefault) already apply: an
+  // explicit choice already made on ANOTHER tab's picker wins, else the first
+  // option whose SSR-rendered data-badge is "Active". Without agreeing on that
+  // rule the two canvases would boot on different sites and "matching
+  // Templates for the same site and moment" could not hold.
+  function siteSelectList() {
+    // Feature-detected: the ES5 island-probe harnesses stub document with
+    // querySelector/getElementById only, and a missing picker must never stop
+    // the canvas from rendering.
+    if (!document.querySelectorAll) { return []; }
+    var found = document.querySelectorAll('[data-site-select]');
+    var out = [];
+    var i;
+    for (i = 0; i < found.length; i++) { out.push(found[i]); }
+    return out;
+  }
+  function mySiteSelect() { return byId('lg-theme-site-select'); }
+  function currentSiteId() {
+    var mine = mySiteSelect();
+    if (mine && mine.value) { return mine.value; }
+    var all = siteSelectList();
+    var i;
+    for (i = 0; i < all.length; i++) { if (all[i].value) { return all[i].value; } }
+    return '';
+  }
+  function initSiteDefault() {
+    var mine = mySiteSelect();
+    var all = siteSelectList();
+    var chosen = '';
+    var i;
+    for (i = 0; i < all.length; i++) {
+      if (all[i] !== mine && all[i].value) { chosen = all[i].value; break; }
+    }
+    if (chosen === '' && mine && mine.querySelector) {
+      var active = mine.querySelector('option[data-badge="Active"]');
+      if (active) { chosen = active.value || ''; }
+    }
+    if (chosen === '') { return; }
+    for (i = 0; i < all.length; i++) { all[i].value = chosen; }
+  }
+  // ONE delegated listener for EVERY site picker on the page (this tab's own,
+  // the Templates canvas's, and the top bar's #lg-site-select — the control
+  // the owner is pointing at in Image18): whichever one the operator uses, the
+  // others follow and this canvas re-renders. quotes-tabs/templates.ts holds
+  // the mirror half for its own canvas, so one choice moves both.
+  document.addEventListener('change', function (ev) {
+    var el = (ev && ev.target) ? ev.target : null;
+    if (!el || !el.getAttribute || el.getAttribute('data-site-select') === null) { return; }
+    var picked = el.value || '';
+    var all = siteSelectList();
+    var i;
+    for (i = 0; i < all.length; i++) { if (all[i] !== el) { all[i].value = picked; } }
+    refreshCanvas();
+  });
+
+  // --- P8-2 B4: the BROKEN-LOGO watcher, brought to parity ------------------
+  // Owner (SRC-11A, Image18): "I chose a site - why I don't see its logo????"
+  // — the red box in that image is a ~143x18 sliver of alt text where the logo
+  // belongs. quotes-tabs/templates.ts already answers that on ITS canvas
+  // (watchCanvasLogo, R2 P7 D1); this canvas had NO watcher at all, so a site
+  // whose stored logo file is gone showed the same unexplained sliver here.
+  // Same mechanism, same copy (LOGO_UNREACHABLE_CANVAS_TEXT, imported): the
+  // srcdoc iframe has scripting OFF, so nothing inside the document can react
+  // to the load failure — the ADMIN page can, because sandbox="allow-same-
+  // origin" keeps contentDocument reachable.
+  var LOGO_UNREACHABLE_TEXT = "This site's logo image could not be loaded — re-upload it in Site settings.";
+  function replaceBrokenLogo(img) {
+    if (!img || img.getAttribute('data-logo-broken') === '1') { return; }
+    img.setAttribute('data-logo-broken', '1');
+    var doc = img.ownerDocument;
+    var chip = doc.createElement('span');
+    chip.className = 'lg-frame-logo-fallback';
+    chip.setAttribute('data-logo-unreachable', '1');
+    chip.setAttribute('style', 'display:inline-flex;align-items:center;gap:8px;font-size:13px;color:#5A6470;background:#F6F8FB;border:1px dashed #E1E6EE;border-radius:20px;padding:7px 14px');
+    chip.appendChild(doc.createTextNode(LOGO_UNREACHABLE_TEXT));
+    if (img.parentNode) { img.parentNode.replaceChild(chip, img); }
+  }
+  function armLogoErrorHandler(img) {
+    if (img.getAttribute('data-logo-armed') === '1') { return; }
+    img.setAttribute('data-logo-armed', '1');
+    img.onerror = function () { replaceBrokenLogo(img); };
+  }
+  function checkCanvasLogos(idoc) {
+    if (!idoc || !idoc.querySelectorAll) { return; }
+    var imgs = idoc.querySelectorAll('img.lg-logo-img');
+    var i;
+    for (i = 0; i < imgs.length; i++) {
+      var img = imgs[i];
+      // complete && naturalWidth === 0 is the browser's own "this load failed"
+      // state; a still-loading image is re-checked by the img's error handler.
+      if (img.complete && img.naturalWidth === 0) { replaceBrokenLogo(img); }
+      else if (!img.complete) { armLogoErrorHandler(img); }
+    }
+  }
+  function watchCanvasLogo(frame) {
+    var run = function () {
+      var idoc = null;
+      try { idoc = frame.contentDocument; } catch (e) { idoc = null; }
+      checkCanvasLogos(idoc);
+    };
+    frame.onload = run;
+    // srcdoc can already be parsed when a re-render reuses the same document;
+    // one deferred pass covers that race without polling.
+    if (window.setTimeout) { window.setTimeout(run, 250); }
+  }
+
   function refreshCanvas() {
     var frame = byId('lg-theme-canvas-frame');
     if (!frame || chosenSection === null) { return; }
@@ -3567,6 +3737,11 @@ button.lg-publish-why-fix:focus-visible{outline:2px solid currentColor;outline-o
     if (targetFunnel !== '' && railDraftTheme !== null && hasAnyKey(railDraftTheme)) {
       frameCtx.draft_theme = railDraftTheme;
     }
+    // P8-2 B4: the chosen site rides the SAME frame_context the funnel does —
+    // only on the funnel-pinned branch, since the empty-state branch
+    // ({default:true}) resolves no funnel to brand.
+    var pickedSite = currentSiteId();
+    if (targetFunnel !== '' && pickedSite !== '') { frameCtx.site_id = pickedSite; }
     var body = {
       content_json: chosenSection.content_json,
       viewport: 'desktop',
@@ -3582,6 +3757,7 @@ button.lg-publish-why-fix:focus-visible{outline:2px solid currentColor;outline-o
       if (!res.ok || !res.body || !res.body.preview) { setStatus('Preview unavailable.'); return; }
       var p = res.body.preview;
       frame.setAttribute('srcdoc', '<!doctype html><html><head><meta charset="utf-8"><style>' + (p.css || '') + '</style></head><body>' + (p.html || '') + '</body></html>');
+      watchCanvasLogo(frame);
       setStatus('');
     }).catch(function () {
       if (seq !== canvasSeq) { return; }
@@ -3867,6 +4043,10 @@ button.lg-publish-why-fix:focus-visible{outline:2px solid currentColor;outline-o
   // funnel's SSR values under the target's name — same condition
   // quotes-tabs/templates.ts's own init uses for the frame.
   if (targetFunnelPublicId() !== funnelPublicId) { syncThemeToTargetFunnel(); }
+  // P8-2 B4: agree with the other tabs' pickers on which site is showing
+  // BEFORE the first canvas render, so the very first paint already carries
+  // the site's branding instead of waiting for the operator to touch a select.
+  initSiteDefault();
   loadSections();
 }());
 </script>
@@ -3875,21 +4055,21 @@ button.lg-publish-why-fix:focus-visible{outline:2px solid currentColor;outline-o
   <div class="card">
     <h3>Traffic allocation</h3>
     <p class="form-help">Test this funnel against variants of itself — a different template, theme, sections, or rules. Add a variant, change what you want on it, then split the traffic below (must sum to <strong>100%</strong>; stored as basis points, per-test Σ == 10000) before a test can start. Equal arms; no control.</p>
-    <div id="lg-ab-variant-list" class="lg-alloc-list"><div class="lg-alloc-row" data-variant="lgn_01KZ3ATY6MND79WBJMFASZ8ZXC">
+    <div id="lg-ab-variant-list" class="lg-alloc-list"><div class="lg-alloc-row" data-variant="lgn_01KZ4AEAVW0T7GT2RH9T5A58JH">
     <span class="lg-alloc-label"><strong>A</strong></span>
     <label class="lg-alloc-pct"><input type="number" class="form-input lg-alloc-input" data-alloc-input
-      data-variant-id="lgn_01KZ3ATY6MND79WBJMFASZ8ZXC" data-variant-label="A"
+      data-variant-id="lgn_01KZ4AEAVW0T7GT2RH9T5A58JH" data-variant-label="A"
       min="0" max="100" step="0.01" value="100" /> %</label>
-    <p class="form-help" data-arm-overrides="lgn_01KZ3ATY6MND79WBJMFASZ8ZXC">Same layout as funnel (no overrides)</p>
-    <p class="form-help" data-arm-varies="lgn_01KZ3ATY6MND79WBJMFASZ8ZXC">Base variant</p>
+    <p class="form-help" data-arm-overrides="lgn_01KZ4AEAVW0T7GT2RH9T5A58JH">Same layout as funnel (no overrides)</p>
+    <p class="form-help" data-arm-varies="lgn_01KZ4AEAVW0T7GT2RH9T5A58JH">Base variant</p>
     
-    <p class="form-help lg-hidden" data-delete-variant-err="lgn_01KZ3ATY6MND79WBJMFASZ8ZXC" role="alert"></p>
+    <p class="form-help lg-hidden" data-delete-variant-err="lgn_01KZ4AEAVW0T7GT2RH9T5A58JH" role="alert"></p>
   </div></div>
     <p class="lg-alloc-summary">Σ = <strong data-alloc-sum>&mdash;</strong> <span data-alloc-sum-note class="form-help"></span></p>
     <div class="toolbar">
       <button type="button" id="lg-save-allocations" class="btn btn-primary">Save allocations</button>
       <button type="button" id="lg-add-variant" class="btn btn-secondary" data-add-variant-state="no-test" disabled aria-disabled="true" aria-describedby="lg-add-variant-why" title="a second variant exists only as an arm of a RUNNING A/B test, and this funnel has no test yet — press &quot;Create A/B test&quot;, then &quot;Start A/B test&quot;, then add the variant.">Add variant&#8230;</button>
-      <button type="button" id="lg-create-experiment" class="btn btn-secondary" data-quote-public-id="lgq_01KZ3ATY6MVYME3Q8HF00WQV7D">Create A/B test</button>
+      <button type="button" id="lg-create-experiment" class="btn btn-secondary" data-quote-public-id="lgq_01KZ4AEAVW8KWA6VCD166NXW0T">Create A/B test</button>
     </div>
     <p class="form-help lg-ab-order" data-ab-order>Order to A/B this funnel: <strong>1.</strong> Create A/B test &rarr; <strong>2.</strong> Start A/B test &rarr; <strong>3.</strong> Add variant (it becomes the test&#39;s second arm, split 50/50). Until a test is running the funnel keeps exactly one variant.</p>
     <p class="form-help lg-ab-add-why" id="lg-add-variant-why" data-add-variant-blocked="no-test" role="status">&#9888; <strong>Add variant is unavailable:</strong> a second variant exists only as an arm of a RUNNING A/B test, and this funnel has no test yet — press &quot;Create A/B test&quot;, then &quot;Start A/B test&quot;, then add the variant.</p>
@@ -3899,7 +4079,7 @@ button.lg-publish-why-fix:focus-visible{outline:2px solid currentColor;outline-o
   <div class="lg-qpanel" data-panel="activation">
   <div class="card">
     <h3>Activation preflight</h3>
-    <div id="lg-preflight-panel" data-preflight-state="blocked"><p class="lg-preflight-blocked-title">Cannot activate this Quote.</p><div id="lg-preflight-problems" data-problem-count="1"><div class="lg-problem-group" data-problem-scope="section"><h4 class="lg-problem-group-title">Slides</h4><div class="lg-problem-row" data-problem-severity="error" data-problem-path="activation.shared_page"><span class="lg-problem-chip" data-severity="error">Error</span><span class="lg-problem-msg">The shared first page needs at least one section.</span><a class="btn btn-sm btn-secondary" href="/admin/leadgen/quotes/lgq_01KZ3ATY6MVYME3Q8HF00WQV7D/edit">Open Quote Builder</a></div></div></div></div>
+    <div id="lg-preflight-panel" data-preflight-state="blocked"><p class="lg-preflight-blocked-title">Cannot activate this Quote.</p><div id="lg-preflight-problems" data-problem-count="1"><div class="lg-problem-group" data-problem-scope="section"><h4 class="lg-problem-group-title">Sections</h4><div class="lg-problem-row" data-problem-severity="error" data-problem-path="activation.shared_page"><span class="lg-problem-chip" data-severity="error">Error</span><span class="lg-problem-msg">The shared first page needs at least one section.</span><a class="btn btn-sm btn-secondary" href="/admin/leadgen/quotes/lgq_01KZ4AEAVW8KWA6VCD166NXW0T/edit">Open Quote Builder</a></div></div></div></div>
   </div>
   <div class="card">
     <h3>Site activation</h3>
@@ -3948,7 +4128,7 @@ button.lg-publish-why-fix:focus-visible{outline:2px solid currentColor;outline-o
     <div class="lg-media-grid" id="lg-media-picker-grid"></div>
   </div>
 </div>
-  <script type="application/json" id="lg-quote-data">{"quote_public_id":"lgq_01KZ3ATY6MVYME3Q8HF00WQV7D","quote_id":"lgq_01KZ3ATY6MVYME3Q8HF00WQV7D","activity":"quote_funnel","selected_variant":"lgn_01KZ3ATY6MND79WBJMFASZ8ZXC","selected_variant_is_control":true,"funnel_public_id":"lgf_01KZ3ATY6MSE3AFH6Z0XAQMCQP","sections":[{"public_id":"lgs_01KZ3ATY6MJA2QVEHQ65QT34K5","name":"\u003ci>First\u003c/i>"},{"public_id":"lgs_01KZ3ATY6NGDK76EWYN82N53A1","name":"Second"}],"frame":{"frame_config":null,"effective_frame":{"version":1,"template":"centered","compat":{"allow_section_chrome":false},"header":{"enabled":true,"logo_source":"site","logo_media_id":null,"logo_size":"m","logo_align":"center","tagline":null,"secure_badge":{"enabled":false,"text":null},"cta":{"enabled":false,"label":"","href":null,"tel":null},"disclosure_link":false,"sticky":true},"progress":{"style":"bar","position":"under_header","thickness":"m","width":"content","color_role":"brand_primary","show_label":false},"back":{"style":"text","position":"in_card","label":"Back","history_fallback":true},"disclosure":{"enabled":false,"location":"footer","link_label":"Advertising Disclosure","text":""},"footer":{"enabled":true,"show_on":"all","links_source":"site","links":[],"trust_text":null,"description":null,"show_logo":false,"hide_on_mobile":false},"trust_strip":{"enabled":false,"source":"manual","logos":[],"placement":"below_unit","mobile":"wrap"},"benefit_bar":{"enabled":false,"items":[],"placement":"below_unit"},"background":{"role":"page_background","image_media_id":null,"style":"flat"},"section_slot":{"max_width":"m","align":"center","card":"card","padding":"m","offset_y":"none","allow_section_card":true,"transition":"fade","continue_placement":"inside_unit","continue_style_role":"button_primary"},"mobile":{}},"template_defaults":{"version":1,"template":"centered","compat":{"allow_section_chrome":false},"header":{"enabled":true,"logo_source":"site","logo_media_id":null,"logo_size":"m","logo_align":"center","tagline":null,"secure_badge":{"enabled":false,"text":null},"cta":{"enabled":false,"label":"","href":null,"tel":null},"disclosure_link":false,"sticky":true},"progress":{"style":"bar","position":"under_header","thickness":"m","width":"content","color_role":"brand_primary","show_label":false},"back":{"style":"text","position":"in_card","label":"Back","history_fallback":true},"disclosure":{"enabled":false,"location":"footer","link_label":"Advertising Disclosure","text":""},"footer":{"enabled":true,"show_on":"all","links_source":"site","links":[],"trust_text":null,"description":null,"show_logo":false,"hide_on_mobile":false},"trust_strip":{"enabled":false,"source":"manual","logos":[],"placement":"below_unit","mobile":"wrap"},"benefit_bar":{"enabled":false,"items":[],"placement":"below_unit"},"background":{"role":"page_background","image_media_id":null,"style":"flat"},"section_slot":{"max_width":"m","align":"center","card":"card","padding":"m","offset_y":"none","allow_section_card":true,"transition":"fade","continue_placement":"inside_unit","continue_style_role":"button_primary"},"mobile":{}},"problems":[]},"theme":{"theme":null,"effective_tokens":{"brand_primary":"#1B3A5C","brand_secondary":"#2A5080","accent":"#E85D26","success":"#0E7C3A","error":"#D32F2F","page_background":"#F5F7FA","card_background":"#FFFFFF","surface_wash":"#E8EEF4","border":"#D2D9E5","text_primary":"#1A1F36","text_muted":"#4A5568","button_primary_bg":"#1B3A5C","button_primary_text":"#FFFFFF","button_secondary_bg":"#F2F6FA"},"problems":[]},"base_tokens":{"brand_primary":"#1B3A5C","brand_secondary":"#2A5080","accent":"#E85D26","success":"#0E7C3A","error":"#D32F2F","page_background":"#F5F7FA","card_background":"#FFFFFF","surface_wash":"#E8EEF4","border":"#D2D9E5","text_primary":"#1A1F36","text_muted":"#4A5568","button_primary_bg":"#1B3A5C","button_primary_text":"#FFFFFF","button_secondary_bg":"#F2F6FA"},"templates":[{"id":"centered","label":"Centered card","defaults":{"version":1,"template":"centered","compat":{"allow_section_chrome":false},"header":{"enabled":true,"logo_source":"site","logo_media_id":null,"logo_size":"m","logo_align":"center","tagline":null,"secure_badge":{"enabled":false,"text":null},"cta":{"enabled":false,"label":"","href":null,"tel":null},"disclosure_link":false,"sticky":true},"progress":{"style":"bar","position":"under_header","thickness":"m","width":"content","color_role":"brand_primary","show_label":false},"back":{"style":"text","position":"in_card","label":"Back","history_fallback":true},"disclosure":{"enabled":false,"location":"footer","link_label":"Advertising Disclosure","text":""},"footer":{"enabled":true,"show_on":"all","links_source":"site","links":[],"trust_text":null,"description":null,"show_logo":false,"hide_on_mobile":false},"trust_strip":{"enabled":false,"source":"manual","logos":[],"placement":"below_unit","mobile":"wrap"},"benefit_bar":{"enabled":false,"items":[],"placement":"below_unit"},"background":{"role":"page_background","image_media_id":null,"style":"flat"},"section_slot":{"max_width":"m","align":"center","card":"card","padding":"m","offset_y":"none","allow_section_card":true,"transition":"fade","continue_placement":"inside_unit","continue_style_role":"button_primary"},"mobile":{}}},{"id":"header-footer","label":"Site header + footer","defaults":{"version":1,"template":"header-footer","compat":{"allow_section_chrome":false},"header":{"enabled":true,"logo_source":"site","logo_media_id":null,"logo_size":"m","logo_align":"left","tagline":null,"secure_badge":{"enabled":true,"text":null},"cta":{"enabled":false,"label":"","href":null,"tel":null},"disclosure_link":false,"sticky":true},"progress":{"style":"bar","position":"under_header","thickness":"m","width":"content","color_role":"brand_primary","show_label":false},"back":{"style":"text","position":"in_card","label":"Back","history_fallback":true},"disclosure":{"enabled":false,"location":"footer","link_label":"Advertising Disclosure","text":""},"footer":{"enabled":true,"show_on":"all","links_source":"site","links":[],"trust_text":null,"description":null,"show_logo":true,"hide_on_mobile":false},"trust_strip":{"enabled":false,"source":"manual","logos":[],"placement":"below_unit","mobile":"wrap"},"benefit_bar":{"enabled":false,"items":[],"placement":"below_unit"},"background":{"role":"page_background","image_media_id":null,"style":"flat"},"section_slot":{"max_width":"m","align":"center","card":"bare","padding":"m","offset_y":"none","allow_section_card":true,"transition":"fade","continue_placement":"inside_unit","continue_style_role":"button_primary"},"mobile":{}}},{"id":"header-cta","label":"Header + call CTA","defaults":{"version":1,"template":"header-cta","compat":{"allow_section_chrome":false},"header":{"enabled":true,"logo_source":"site","logo_media_id":null,"logo_size":"m","logo_align":"center","tagline":null,"secure_badge":{"enabled":false,"text":null},"cta":{"enabled":false,"label":"","href":null,"tel":null},"disclosure_link":false,"sticky":true},"progress":{"style":"bar","position":"under_header","thickness":"m","width":"content","color_role":"brand_primary","show_label":false},"back":{"style":"text","position":"below_card","label":"Back","history_fallback":true},"disclosure":{"enabled":true,"location":"top_bar","link_label":"Advertising Disclosure","text":""},"footer":{"enabled":true,"show_on":"all","links_source":"site","links":[],"trust_text":null,"description":null,"show_logo":false,"hide_on_mobile":false},"trust_strip":{"enabled":false,"source":"manual","logos":[],"placement":"below_unit","mobile":"wrap"},"benefit_bar":{"enabled":false,"items":[],"placement":"below_unit"},"background":{"role":"page_background","image_media_id":null,"style":"flat"},"section_slot":{"max_width":"m","align":"center","card":"card","padding":"m","offset_y":"none","allow_section_card":true,"transition":"fade","continue_placement":"inside_unit","continue_style_role":"button_primary"},"mobile":{}}},{"id":"full-background","label":"Full background","defaults":{"version":1,"template":"full-background","compat":{"allow_section_chrome":false},"header":{"enabled":true,"logo_source":"site","logo_media_id":null,"logo_size":"m","logo_align":"center","tagline":null,"secure_badge":{"enabled":false,"text":null},"cta":{"enabled":false,"label":"","href":null,"tel":null},"disclosure_link":false,"sticky":false},"progress":{"style":"dots","position":"above_unit","thickness":"m","width":"content","color_role":"brand_primary","show_label":false},"back":{"style":"text","position":"in_card","label":"Back","history_fallback":true},"disclosure":{"enabled":false,"location":"footer","link_label":"Advertising Disclosure","text":""},"footer":{"enabled":true,"show_on":"all","links_source":"site","links":[],"trust_text":null,"description":null,"show_logo":false,"hide_on_mobile":false},"trust_strip":{"enabled":false,"source":"manual","logos":[],"placement":"below_unit","mobile":"wrap"},"benefit_bar":{"enabled":false,"items":[],"placement":"below_unit"},"background":{"role":"brand_primary","image_media_id":null,"style":"brand"},"section_slot":{"max_width":"m","align":"center","card":"card","padding":"m","offset_y":"none","allow_section_card":true,"transition":"fade","continue_placement":"inside_unit","continue_style_role":"button_primary"},"mobile":{}}},{"id":"white-trust","label":"White + trust bar","defaults":{"version":1,"template":"white-trust","compat":{"allow_section_chrome":false},"header":{"enabled":true,"logo_source":"site","logo_media_id":null,"logo_size":"s","logo_align":"center","tagline":null,"secure_badge":{"enabled":false,"text":null},"cta":{"enabled":false,"label":"","href":null,"tel":null},"disclosure_link":false,"sticky":false},"progress":{"style":"bar","position":"under_header","thickness":"m","width":"content","color_role":"brand_primary","show_label":false},"back":{"style":"text","position":"in_card","label":"Back","history_fallback":true},"disclosure":{"enabled":false,"location":"footer","link_label":"Advertising Disclosure","text":""},"footer":{"enabled":true,"show_on":"all","links_source":"site","links":[],"trust_text":null,"description":null,"show_logo":false,"hide_on_mobile":false},"trust_strip":{"enabled":false,"source":"manual","logos":[],"placement":"footer","mobile":"wrap"},"benefit_bar":{"enabled":false,"items":[],"placement":"below_unit"},"background":{"role":"card_background","image_media_id":null,"style":"flat"},"section_slot":{"max_width":"m","align":"center","card":"bare","padding":"m","offset_y":"none","allow_section_card":true,"transition":"fade","continue_placement":"inside_unit","continue_style_role":"button_primary"},"mobile":{}}},{"id":"minimal","label":"Minimal","defaults":{"version":1,"template":"minimal","compat":{"allow_section_chrome":false},"header":{"enabled":true,"logo_source":"site","logo_media_id":null,"logo_size":"m","logo_align":"center","tagline":null,"secure_badge":{"enabled":false,"text":null},"cta":{"enabled":false,"label":"","href":null,"tel":null},"disclosure_link":false,"sticky":true},"progress":{"style":"bar","position":"under_header","thickness":"m","width":"content","color_role":"brand_primary","show_label":false},"back":{"style":"text","position":"under_header_left","label":"Back","history_fallback":true},"disclosure":{"enabled":false,"location":"footer","link_label":"Advertising Disclosure","text":""},"footer":{"enabled":false,"show_on":"all","links_source":"site","links":[],"trust_text":null,"description":null,"show_logo":false,"hide_on_mobile":false},"trust_strip":{"enabled":false,"source":"manual","logos":[],"placement":"below_unit","mobile":"wrap"},"benefit_bar":{"enabled":false,"items":[],"placement":"below_unit"},"background":{"role":"page_background","image_media_id":null,"style":"flat"},"section_slot":{"max_width":"m","align":"center","card":"bare","padding":"m","offset_y":"none","allow_section_card":true,"transition":"fade","continue_placement":"inside_unit","continue_style_role":"button_primary"},"mobile":{}}}],"sites":[{"site_id":"site-1","site_name":"Site One","badge":"Not activated yet"}],"overrides":null,"preflight":{"ok":true,"quote_id":"lgq_01KZ3ATY6MVYME3Q8HF00WQV7D","funnel_id":"lgf_01KZ3ATY6MSE3AFH6Z0XAQMCQP","funnel_variant_id":"lgn_01KZ3ATY6MND79WBJMFASZ8ZXC","blocks":[],"computed_at":1785744685273,"problems":[{"path":"activation.shared_page","scope":"section","severity":"error","message":"The shared first page needs at least one section.","fix_url":"/admin/leadgen/quotes/lgq_01KZ3ATY6MVYME3Q8HF00WQV7D/edit"}]}}</script>
+  <script type="application/json" id="lg-quote-data">{"quote_public_id":"lgq_01KZ4AEAVW8KWA6VCD166NXW0T","quote_id":"lgq_01KZ4AEAVW8KWA6VCD166NXW0T","activity":"quote_funnel","selected_variant":"lgn_01KZ4AEAVW0T7GT2RH9T5A58JH","selected_variant_is_control":true,"funnel_public_id":"lgf_01KZ4AEAVW4B2YNVPANM4Y5QE6","sections":[{"public_id":"lgs_01KZ4AEAVX560E3RM89PPHZ4G9","name":"\u003ci>First\u003c/i>"},{"public_id":"lgs_01KZ4AEAVXXE08J2TS9YTXVSRJ","name":"Second"}],"frame":{"frame_config":null,"effective_frame":{"version":1,"template":"centered","compat":{"allow_section_chrome":false},"header":{"enabled":true,"logo_source":"site","logo_media_id":null,"logo_size":"m","logo_align":"center","tagline":null,"secure_badge":{"enabled":false,"text":null},"cta":{"enabled":false,"label":"","href":null,"tel":null},"disclosure_link":false,"sticky":true},"progress":{"style":"bar","position":"under_header","thickness":"m","width":"content","color_role":"brand_primary","show_label":false},"back":{"style":"text","position":"in_card","label":"Back","history_fallback":true},"disclosure":{"enabled":false,"location":"footer","link_label":"Advertising Disclosure","text":""},"footer":{"enabled":true,"show_on":"all","links_source":"site","links":[],"trust_text":null,"description":null,"show_logo":false,"hide_on_mobile":false},"trust_strip":{"enabled":false,"source":"manual","logos":[],"placement":"below_unit","mobile":"wrap"},"benefit_bar":{"enabled":false,"items":[],"placement":"below_unit"},"background":{"role":"page_background","image_media_id":null,"style":"flat"},"section_slot":{"max_width":"m","align":"center","card":"card","padding":"m","offset_y":"none","allow_section_card":true,"transition":"fade","continue_placement":"inside_unit","continue_style_role":"button_primary"},"mobile":{}},"template_defaults":{"version":1,"template":"centered","compat":{"allow_section_chrome":false},"header":{"enabled":true,"logo_source":"site","logo_media_id":null,"logo_size":"m","logo_align":"center","tagline":null,"secure_badge":{"enabled":false,"text":null},"cta":{"enabled":false,"label":"","href":null,"tel":null},"disclosure_link":false,"sticky":true},"progress":{"style":"bar","position":"under_header","thickness":"m","width":"content","color_role":"brand_primary","show_label":false},"back":{"style":"text","position":"in_card","label":"Back","history_fallback":true},"disclosure":{"enabled":false,"location":"footer","link_label":"Advertising Disclosure","text":""},"footer":{"enabled":true,"show_on":"all","links_source":"site","links":[],"trust_text":null,"description":null,"show_logo":false,"hide_on_mobile":false},"trust_strip":{"enabled":false,"source":"manual","logos":[],"placement":"below_unit","mobile":"wrap"},"benefit_bar":{"enabled":false,"items":[],"placement":"below_unit"},"background":{"role":"page_background","image_media_id":null,"style":"flat"},"section_slot":{"max_width":"m","align":"center","card":"card","padding":"m","offset_y":"none","allow_section_card":true,"transition":"fade","continue_placement":"inside_unit","continue_style_role":"button_primary"},"mobile":{}},"problems":[]},"theme":{"theme":null,"effective_tokens":{"brand_primary":"#1B3A5C","brand_secondary":"#2A5080","accent":"#E85D26","success":"#0E7C3A","error":"#D32F2F","page_background":"#F5F7FA","card_background":"#FFFFFF","surface_wash":"#E8EEF4","border":"#D2D9E5","text_primary":"#1A1F36","text_muted":"#4A5568","button_primary_bg":"#1B3A5C","button_primary_text":"#FFFFFF","button_secondary_bg":"#F2F6FA"},"problems":[]},"base_tokens":{"brand_primary":"#1B3A5C","brand_secondary":"#2A5080","accent":"#E85D26","success":"#0E7C3A","error":"#D32F2F","page_background":"#F5F7FA","card_background":"#FFFFFF","surface_wash":"#E8EEF4","border":"#D2D9E5","text_primary":"#1A1F36","text_muted":"#4A5568","button_primary_bg":"#1B3A5C","button_primary_text":"#FFFFFF","button_secondary_bg":"#F2F6FA"},"templates":[{"id":"centered","label":"Centered card","defaults":{"version":1,"template":"centered","compat":{"allow_section_chrome":false},"header":{"enabled":true,"logo_source":"site","logo_media_id":null,"logo_size":"m","logo_align":"center","tagline":null,"secure_badge":{"enabled":false,"text":null},"cta":{"enabled":false,"label":"","href":null,"tel":null},"disclosure_link":false,"sticky":true},"progress":{"style":"bar","position":"under_header","thickness":"m","width":"content","color_role":"brand_primary","show_label":false},"back":{"style":"text","position":"in_card","label":"Back","history_fallback":true},"disclosure":{"enabled":false,"location":"footer","link_label":"Advertising Disclosure","text":""},"footer":{"enabled":true,"show_on":"all","links_source":"site","links":[],"trust_text":null,"description":null,"show_logo":false,"hide_on_mobile":false},"trust_strip":{"enabled":false,"source":"manual","logos":[],"placement":"below_unit","mobile":"wrap"},"benefit_bar":{"enabled":false,"items":[],"placement":"below_unit"},"background":{"role":"page_background","image_media_id":null,"style":"flat"},"section_slot":{"max_width":"m","align":"center","card":"card","padding":"m","offset_y":"none","allow_section_card":true,"transition":"fade","continue_placement":"inside_unit","continue_style_role":"button_primary"},"mobile":{}}},{"id":"header-footer","label":"Site header + footer","defaults":{"version":1,"template":"header-footer","compat":{"allow_section_chrome":false},"header":{"enabled":true,"logo_source":"site","logo_media_id":null,"logo_size":"m","logo_align":"left","tagline":null,"secure_badge":{"enabled":true,"text":null},"cta":{"enabled":false,"label":"","href":null,"tel":null},"disclosure_link":false,"sticky":true},"progress":{"style":"bar","position":"under_header","thickness":"m","width":"content","color_role":"brand_primary","show_label":false},"back":{"style":"text","position":"in_card","label":"Back","history_fallback":true},"disclosure":{"enabled":false,"location":"footer","link_label":"Advertising Disclosure","text":""},"footer":{"enabled":true,"show_on":"all","links_source":"site","links":[],"trust_text":null,"description":null,"show_logo":true,"hide_on_mobile":false},"trust_strip":{"enabled":false,"source":"manual","logos":[],"placement":"below_unit","mobile":"wrap"},"benefit_bar":{"enabled":false,"items":[],"placement":"below_unit"},"background":{"role":"page_background","image_media_id":null,"style":"flat"},"section_slot":{"max_width":"m","align":"center","card":"bare","padding":"m","offset_y":"none","allow_section_card":true,"transition":"fade","continue_placement":"inside_unit","continue_style_role":"button_primary"},"mobile":{}}},{"id":"header-cta","label":"Header + call CTA","defaults":{"version":1,"template":"header-cta","compat":{"allow_section_chrome":false},"header":{"enabled":true,"logo_source":"site","logo_media_id":null,"logo_size":"m","logo_align":"center","tagline":null,"secure_badge":{"enabled":false,"text":null},"cta":{"enabled":false,"label":"","href":null,"tel":null},"disclosure_link":false,"sticky":true},"progress":{"style":"bar","position":"under_header","thickness":"m","width":"content","color_role":"brand_primary","show_label":false},"back":{"style":"text","position":"below_card","label":"Back","history_fallback":true},"disclosure":{"enabled":true,"location":"top_bar","link_label":"Advertising Disclosure","text":""},"footer":{"enabled":true,"show_on":"all","links_source":"site","links":[],"trust_text":null,"description":null,"show_logo":false,"hide_on_mobile":false},"trust_strip":{"enabled":false,"source":"manual","logos":[],"placement":"below_unit","mobile":"wrap"},"benefit_bar":{"enabled":false,"items":[],"placement":"below_unit"},"background":{"role":"page_background","image_media_id":null,"style":"flat"},"section_slot":{"max_width":"m","align":"center","card":"card","padding":"m","offset_y":"none","allow_section_card":true,"transition":"fade","continue_placement":"inside_unit","continue_style_role":"button_primary"},"mobile":{}}},{"id":"full-background","label":"Full background","defaults":{"version":1,"template":"full-background","compat":{"allow_section_chrome":false},"header":{"enabled":true,"logo_source":"site","logo_media_id":null,"logo_size":"m","logo_align":"center","tagline":null,"secure_badge":{"enabled":false,"text":null},"cta":{"enabled":false,"label":"","href":null,"tel":null},"disclosure_link":false,"sticky":false},"progress":{"style":"dots","position":"above_unit","thickness":"m","width":"content","color_role":"brand_primary","show_label":false},"back":{"style":"text","position":"in_card","label":"Back","history_fallback":true},"disclosure":{"enabled":false,"location":"footer","link_label":"Advertising Disclosure","text":""},"footer":{"enabled":true,"show_on":"all","links_source":"site","links":[],"trust_text":null,"description":null,"show_logo":false,"hide_on_mobile":false},"trust_strip":{"enabled":false,"source":"manual","logos":[],"placement":"below_unit","mobile":"wrap"},"benefit_bar":{"enabled":false,"items":[],"placement":"below_unit"},"background":{"role":"brand_primary","image_media_id":null,"style":"brand"},"section_slot":{"max_width":"m","align":"center","card":"card","padding":"m","offset_y":"none","allow_section_card":true,"transition":"fade","continue_placement":"inside_unit","continue_style_role":"button_primary"},"mobile":{}}},{"id":"white-trust","label":"White + trust bar","defaults":{"version":1,"template":"white-trust","compat":{"allow_section_chrome":false},"header":{"enabled":true,"logo_source":"site","logo_media_id":null,"logo_size":"s","logo_align":"center","tagline":null,"secure_badge":{"enabled":false,"text":null},"cta":{"enabled":false,"label":"","href":null,"tel":null},"disclosure_link":false,"sticky":false},"progress":{"style":"bar","position":"under_header","thickness":"m","width":"content","color_role":"brand_primary","show_label":false},"back":{"style":"text","position":"in_card","label":"Back","history_fallback":true},"disclosure":{"enabled":false,"location":"footer","link_label":"Advertising Disclosure","text":""},"footer":{"enabled":true,"show_on":"all","links_source":"site","links":[],"trust_text":null,"description":null,"show_logo":false,"hide_on_mobile":false},"trust_strip":{"enabled":false,"source":"manual","logos":[],"placement":"footer","mobile":"wrap"},"benefit_bar":{"enabled":false,"items":[],"placement":"below_unit"},"background":{"role":"card_background","image_media_id":null,"style":"flat"},"section_slot":{"max_width":"m","align":"center","card":"bare","padding":"m","offset_y":"none","allow_section_card":true,"transition":"fade","continue_placement":"inside_unit","continue_style_role":"button_primary"},"mobile":{}}},{"id":"minimal","label":"Minimal","defaults":{"version":1,"template":"minimal","compat":{"allow_section_chrome":false},"header":{"enabled":true,"logo_source":"site","logo_media_id":null,"logo_size":"m","logo_align":"center","tagline":null,"secure_badge":{"enabled":false,"text":null},"cta":{"enabled":false,"label":"","href":null,"tel":null},"disclosure_link":false,"sticky":true},"progress":{"style":"bar","position":"under_header","thickness":"m","width":"content","color_role":"brand_primary","show_label":false},"back":{"style":"text","position":"under_header_left","label":"Back","history_fallback":true},"disclosure":{"enabled":false,"location":"footer","link_label":"Advertising Disclosure","text":""},"footer":{"enabled":false,"show_on":"all","links_source":"site","links":[],"trust_text":null,"description":null,"show_logo":false,"hide_on_mobile":false},"trust_strip":{"enabled":false,"source":"manual","logos":[],"placement":"below_unit","mobile":"wrap"},"benefit_bar":{"enabled":false,"items":[],"placement":"below_unit"},"background":{"role":"page_background","image_media_id":null,"style":"flat"},"section_slot":{"max_width":"m","align":"center","card":"bare","padding":"m","offset_y":"none","allow_section_card":true,"transition":"fade","continue_placement":"inside_unit","continue_style_role":"button_primary"},"mobile":{}}}],"sites":[{"site_id":"site-1","site_name":"Site One","badge":"Not activated yet"}],"overrides":null,"preflight":{"ok":true,"quote_id":"lgq_01KZ4AEAVW8KWA6VCD166NXW0T","funnel_id":"lgf_01KZ4AEAVW4B2YNVPANM4Y5QE6","funnel_variant_id":"lgn_01KZ4AEAVW0T7GT2RH9T5A58JH","blocks":[],"computed_at":1785777826689,"problems":[{"path":"activation.shared_page","scope":"section","severity":"error","message":"The shared first page needs at least one section.","fix_url":"/admin/leadgen/quotes/lgq_01KZ4AEAVW8KWA6VCD166NXW0T/edit"}]}}</script>
 </div></div>
     </main>
   </div>
@@ -4081,7 +4261,7 @@ if (!document.getElementById('toast-animations')) {
   var REGION_LABELS = {"header":"Header","progress":"Progress","back":"Back","disclosure":"Disclosure","footer":"Footer","trust_strip":"Trust strip","benefit_bar":"Benefit bar","background":"Background","section_slot":"Section slot"};
   var TOKEN_ROLES = ["brand_primary","brand_secondary","accent","success","error","page_background","card_background","surface_wash","border","text_primary","text_muted","button_primary_bg","button_primary_text","button_secondary_bg"];
   var PROBLEM_SCOPES = ["frame","theme","section","component","choice","mapping"];
-  var PROBLEM_SCOPE_NAMES = {"frame":"Funnel layout","theme":"Theme","section":"Slides","component":"Components","choice":"Choices","mapping":"Offer mapping"};
+  var PROBLEM_SCOPE_NAMES = {"frame":"Funnel layout","theme":"Theme","section":"Sections","component":"Components","choice":"Choices","mapping":"Offer mapping"};
 
   function clearChildren(el) { while (el.firstChild) { el.removeChild(el.firstChild); } }
   function preflightCodeLabel(code) { return PREFLIGHT_CODE_LABELS[code] || String(code || '').replace(/_/g, ' '); }
@@ -8129,11 +8309,46 @@ if (!document.getElementById('toast-animations')) {
     fs.sort(function (a, b) { return (a.display_order || a.id) - (b.display_order || b.id); });
     return fs;
   }
+  // P8 B5: the keyboard pick list's key for the shared first page (no funnel
+  // public_id can collide with it — they are all lgf_-prefixed ULIDs).
+  var SHARED_TARGET_KEY = '__shared__';
 
   /* ---- inline error (A-4 uniqueness on drop, etc.) ---- */
+  // P8-2 F-1 (the CLASS, not the instance): an alert is anchored next to the
+  // surface that refused, and those surfaces are no longer all inside
+  // .lg-board — the shared first page is a band in .lg-board-center, ABOVE
+  // the scroller. A cleanup scoped to the board therefore never removed a
+  // shared-band alert: the next refusal put a second, contradicting message
+  // on screen while the first stayed forever. Board decoration is cleaned up
+  // over the WHOLE document, exactly like its sibling clearDropTargets --
+  // both cover every surface their decoration can be attached to.
   function clearInlineErrs() {
-    var errs = board.querySelectorAll('.lg-board-inline-err'); var i;
+    var errs = document.querySelectorAll('.lg-board-inline-err'); var i;
     for (i = 0; i < errs.length; i++) { if (errs[i].parentNode) { errs[i].parentNode.removeChild(errs[i]); } }
+  }
+  // P8-2 F-3: WHERE an anchored alert goes. Dropped in beside an anchor that
+  // sits in a horizontal row (a funnel column in the lane, a card in the
+  // shared band) the alert becomes a lane item of its own: measured 73px wide
+  // and nine one-word lines tall at 1280, and it shoved the funnel columns
+  // sideways (x 503 -> 450, two fully-visible columns down to one). So a
+  // row-mounted anchor takes the alert INSIDE itself, and an alert that still
+  // lands in a row claims a whole row rather than a slice of one.
+  function isRowFlow(el) {
+    if (!el || el.nodeType !== 1 || !window.getComputedStyle) { return false; }
+    var cs = window.getComputedStyle(el);
+    if (cs.display !== 'flex' && cs.display !== 'inline-flex') { return false; }
+    var fd = cs.flexDirection || 'row';
+    return fd === 'row' || fd === 'row-reverse';
+  }
+  function placeInlineErr(p, nearEl) {
+    if (!nearEl || !nearEl.parentNode) { board.insertBefore(p, board.firstChild); return; }
+    var host = nearEl.parentNode; var before = nearEl.nextSibling;
+    if (isRowFlow(host)) {
+      host = (nearEl.querySelector ? nearEl.querySelector('.lg-col-body') : null) || nearEl;
+      before = host.firstChild;
+    }
+    if (isRowFlow(host)) { p.style.flex = '1 0 100%'; }
+    host.insertBefore(p, before);
   }
   function showInlineErr(nearEl, msg) {
     clearInlineErrs();
@@ -8141,8 +8356,7 @@ if (!document.getElementById('toast-animations')) {
     p.className = 'lg-board-inline-err';
     p.setAttribute('role', 'alert');
     p.appendChild(document.createTextNode(msg));
-    if (nearEl && nearEl.parentNode) { nearEl.parentNode.insertBefore(p, nearEl.nextSibling); }
-    else { board.insertBefore(p, board.firstChild); }
+    placeInlineErr(p, nearEl);
     if (p.scrollIntoView) { p.scrollIntoView({ block: 'nearest' }); }
   }
 
@@ -8179,7 +8393,10 @@ if (!document.getElementById('toast-animations')) {
     var variantPub = funnel.active_variant_public_id;
     if (!variantPub) { showInlineErr(nearEl, 'This funnel has no active variant to save into.'); return; }
     req('PUT', API + '/variants/' + encodeURIComponent(variantPub), { pages: funnelPagesToPut(funnel) }).then(function (res) {
-      if (!res.ok) { showInlineErr(nearEl, firstFieldError(res.body)); return; }
+      // P8-2 MAJOR-1 sibling: a rejected save never reloads either, so a
+      // 'lib' drop that resolved a target but failed here must not leave the
+      // one-shot click guard armed for the next genuine tap to eat.
+      if (!res.ok) { suppressNextLibClick = false; showInlineErr(nearEl, firstFieldError(res.body)); return; }
       reloadPage();
     });
   }
@@ -8207,6 +8424,9 @@ if (!document.getElementById('toast-animations')) {
   function saveSharedSlots(putSlots, nearEl, onError) {
     req('PUT', API + '/quotes/' + encodeURIComponent(quoteId) + '/shared-page', { slots: putSlots }).then(function (res) {
       if (!res.ok) {
+        // P8-2 MAJOR-1 sibling: the shared page is the OTHER 'lib' drop
+        // destination; a rejected save here must not leave the guard armed.
+        suppressNextLibClick = false;
         if (onError) { onError(firstFieldError(res.body)); return; }
         showInlineErr(nearEl, firstFieldError(res.body)); return;
       }
@@ -8236,8 +8456,10 @@ if (!document.getElementById('toast-animations')) {
   // board menu/popover, remembered so a scroll REPOSITIONS the menu (keeps it
   // pinned to its control) instead of CLOSING it. The old scroll -> closeMenus
   // listener closed on ANY scroll — but opening a menu from a control inside the
-  // horizontally-scrolled board region (every funnel column; the shared column
-  // is pinned and never scrolls) itself triggers a scroll (the browser scrolls a
+  // horizontally-scrolled board region (every funnel column; the shared first
+  // page is NOT in that region at all — P8 B5 moved it into the band above the
+  // scroller, which is what finally made the old "is pinned and never scrolls"
+  // claim true; its dead position:sticky is gone) itself triggers a scroll (the browser scrolls a
   // not-fully-visible focused control into view), so the menu was hidden in the
   // SAME interaction it was opened. Repositioning is the correct behavior for a
   // position:fixed popover and eliminates the self-close entirely (outside-click
@@ -8252,12 +8474,25 @@ if (!document.getElementById('toast-animations')) {
   }
   function positionAt(menuEl, anchor) {
     var r = anchor.getBoundingClientRect();
-    menuEl.style.top = (r.bottom + 4) + 'px';
     var left = r.left;
     var mw = menuEl.offsetWidth || 190;
     if (left + mw > window.innerWidth - 8) { left = window.innerWidth - mw - 8; }
     if (left < 8) { left = 8; }
     menuEl.style.left = left + 'px';
+    // P8 B5: the vertical clamp the left/right clamp above always had. A
+    // board control low in the viewport put its menu BELOW the fold (measured:
+    // a chip kebab menu at top 794 + height 204 = 998 in a 950px viewport, so
+    // its items could not be reached at all) — and the B5 keyboard path opens
+    // its funnel picker through this same function, so an unreachable popover
+    // would be a control that cannot be honoured. Flip above the anchor when
+    // there is room, else pin to the bottom edge.
+    var mh = menuEl.offsetHeight || 0;
+    var top = r.bottom + 4;
+    if (mh > 0 && top + mh > window.innerHeight - 8) {
+      var above = r.top - 4 - mh;
+      top = above >= 8 ? above : Math.max(8, window.innerHeight - mh - 8);
+    }
+    menuEl.style.top = top + 'px';
   }
   function openMenu(name, anchor, ctx) {
     closeMenus();
@@ -8268,6 +8503,14 @@ if (!document.getElementById('toast-animations')) {
     positionAt(menuEl, anchor);
     openMenuEl = menuEl;
     openMenuAnchor = anchor;
+    // P8 B5 (keyboard axis): the SSR items ship tabindex="-1", so an open menu
+    // had no tab stop at all — the kebab menus ARE the a11y equivalent of the
+    // chip/page move drags, and none of their items could be reached. Give
+    // them a real tab stop and put focus on the first (ARIA menu behaviour);
+    // Enter/Space activates, Escape closes, both already wired.
+    var mItems = menuEl.querySelectorAll('.lg-menu-item'); var mi;
+    for (mi = 0; mi < mItems.length; mi++) { mItems[mi].setAttribute('tabindex', '0'); }
+    if (mItems.length > 0 && mItems[0].focus) { mItems[0].focus(); }
   }
 
   /* ================= FUNNEL CRUD ================= */
@@ -8405,7 +8648,11 @@ if (!document.getElementById('toast-animations')) {
   }
 
   /* ============ SECTION PICKER (＋ section — the a11y/click add path) ======= */
-  function openPopoverList(anchor, items, onPick) {
+  // The focusFirst flag (P8 B5): opened from the keyboard, so the list is not just
+  // reachable but OPERABLE — every item is a real tab stop and the first one
+  // takes focus; Enter/Space on a focused item activates it (see the keydown
+  // handler), Escape closes. Mouse callers pass nothing and are unchanged.
+  function openPopoverList(anchor, items, onPick, focusFirst) {
     closeMenus();
     var tm = document.querySelector('[data-template-menu]');
     if (!tm) { return; }
@@ -8419,7 +8666,7 @@ if (!document.getElementById('toast-animations')) {
         var el = document.createElement('div');
         el.className = 'lg-menu-item';
         el.setAttribute('role', 'menuitem');
-        el.setAttribute('tabindex', '-1');
+        el.setAttribute('tabindex', '0');
         el.appendChild(document.createTextNode(it.label));
         el.addEventListener('click', function (ev) { ev.stopPropagation(); closeMenus(); onPick(it.value); });
         tm.appendChild(el);
@@ -8429,6 +8676,23 @@ if (!document.getElementById('toast-animations')) {
     positionAt(tm, anchor);
     openMenuEl = tm;
     openMenuAnchor = anchor;
+    if (focusFirst && tm.firstChild && tm.firstChild.focus) { tm.firstChild.focus(); }
+  }
+  // The board's drop targets, as a pick list: the shared first page, then
+  // every funnel column in board order (the default one is named as such).
+  function boardTargetItems() {
+    var out = [{ label: 'Shared first page', value: SHARED_TARGET_KEY }];
+    var fs = orderedFunnels(); var i;
+    for (i = 0; i < fs.length; i++) {
+      out.push({ label: fs[i].name + (fs[i].is_default ? ' (default)' : ''), value: fs[i].public_id });
+    }
+    return out;
+  }
+  function addSectionToBoardTarget(sectionPublicId, targetKey, anchorEl) {
+    if (targetKey === SHARED_TARGET_KEY) { addSectionToShared(sectionPublicId, anchorEl); return; }
+    var f = funnelByPublic(targetKey);
+    if (!f) { return; }
+    addSectionToFunnelPage(f, (f.pages.length - 1), sectionPublicId, anchorEl);
   }
   function sectionItems() {
     var secs = BOARD.sections || []; var out = []; var i;
@@ -8913,11 +9177,75 @@ if (!document.getElementById('toast-animations')) {
     ruledDialog.addEventListener('change', refreshRuledSentence);
   }
 
-  /* ================= DRAG ENGINE (in-house mouse; both engines) ============= */
+  /* ============ DRAG ENGINE (in-house mouse + touch; both engines) ========== */
+  // P8 B5 (contract §5 B5): three things were missing and all three made a
+  // column that needs scrolling unreachable —
+  //   1. no auto-scroll: holding a drag at the board edge did nothing
+  //      (scrollLeft unchanged after 1.5s), and dropTargetUnder is
+  //      elementFromPoint, so an off-screen column could never be the target;
+  //   2. no visible reason: a drop that hit nothing was a silent no-op;
+  //   3. no touch: zero touchstart handlers, so on a touch device the grips
+  //      and library cards were drag affordances that could not be dragged.
+  // The pointer maths lives ONCE in dragMoveAt/dragEndAt; mouse and touch are
+  // thin adapters over it, so the two input paths can never drift.
   var drag = null;
+  // D11 + P8-2 review #5 -- THE INVARIANT this one-shot flag must satisfy:
+  // it is armed if and only if a click will actually be delivered to a library
+  // card as a consequence of the gesture that just ended. Armed with no click
+  // coming, it eats the operator's next genuine tap; left unarmed with one
+  // coming, that click reopens the target picker on top of the refusal the
+  // same gesture produced. clickWillReachLibCard (below) is the ONE place that
+  // decision is made; set in dragEndAt, consumed (and reset) by the very next
+  // click on a library card.
+  var suppressNextLibClick = false;
+  var autoScrollTimer = null;
+  var AUTO_SCROLL_EDGE = 56;
+  var AUTO_SCROLL_STEP = 18;
+  var AUTO_SCROLL_MS = 16;
+  var TOUCH_MOVE_OPTS = { passive: false, capture: true };
+  var DROP_OUTSIDE_MESSAGE = 'Dropped outside a funnel \u2014 drop a section on a funnel column, or on the shared first page above the board.';
+  var DROP_UNRESOLVED_MESSAGE = 'That drop could not be applied \u2014 nothing was changed. Reload the page and try again.';
   function clearDropTargets() {
-    var els = board.querySelectorAll('.lg-drop-target'); var i;
+    var els = document.querySelectorAll('.lg-drop-target'); var i;
     for (i = 0; i < els.length; i++) { els[i].className = els[i].className.replace(/\s*lg-drop-target/g, ''); }
+  }
+  function stopAutoScroll() {
+    if (autoScrollTimer !== null) { window.clearInterval(autoScrollTimer); autoScrollTimer = null; }
+    if (drag) { drag.scrollDir = 0; }
+  }
+  // Hold a drag near (or past) a board edge and the board scrolls itself, so
+  // the columns that were off-screen come under the pointer and can be
+  // dropped on. The highlight is recomputed on every scrolled frame because
+  // the element under a STATIONARY pointer changes as the lane moves.
+  function armAutoScroll(dir) {
+    if (!drag) { stopAutoScroll(); return; }
+    if (drag.scrollDir === dir) { return; }
+    stopAutoScroll();
+    drag.scrollDir = dir;
+    if (dir === 0) { return; }
+    autoScrollTimer = window.setInterval(function () {
+      if (!drag) { stopAutoScroll(); return; }
+      var before = board.scrollLeft;
+      board.scrollLeft = before + (drag.scrollDir * AUTO_SCROLL_STEP);
+      if (board.scrollLeft === before) { return; }
+      refreshDropTarget(drag.x, drag.y);
+    }, AUTO_SCROLL_MS);
+  }
+  function autoScrollFor(x, y) {
+    var r = board.getBoundingClientRect();
+    if (y < r.top - 60 || y > r.bottom + 60) { armAutoScroll(0); return; }
+    if (x > r.right - AUTO_SCROLL_EDGE) { armAutoScroll(1); return; }
+    if (x < r.left + AUTO_SCROLL_EDGE) { armAutoScroll(-1); return; }
+    armAutoScroll(0);
+  }
+  function refreshDropTarget(x, y) {
+    clearDropTargets();
+    var t = dropTargetUnder(x, y);
+    if (t) {
+      var hi = t.pageEl || t.colEl;
+      if (hi && hi.className.indexOf('lg-drop-target') < 0) { hi.className = hi.className + ' lg-drop-target'; }
+    }
+    return t;
   }
   function dropTargetUnder(x, y) {
     var el = document.elementFromPoint(x, y);
@@ -8931,13 +9259,70 @@ if (!document.getElementById('toast-animations')) {
     if (funnelCol) { return { scope: 'funnel', pageEl: null, colEl: funnelCol }; }
     return null;
   }
-  function startDrag(kind, sourceEl, ev) {
-    if (ev.button !== undefined && ev.button !== 0) { return; }
-    ev.preventDefault();
+  // P8-2 MAJOR-A: the GEOMETRY half -- whether THIS release point sits back on
+  // the given library card, the only release point whose click (the platform
+  // fires it at the nearest common ancestor of the press and release targets)
+  // can land inside that card. The rail and the board are disjoint regions (a
+  // library card is never also inside a funnel/shared column), so this can
+  // never be true at the same (x,y) where dropTargetUnder above resolves a
+  // board target.
+  function releaseOverLibCard(el, x, y) {
+    var hit = document.elementFromPoint(x, y);
+    if (!hit || !hit.closest) { return false; }
+    return hit.closest('[data-lib-card]') === el;
+  }
+  // P8-2 review #5: the WHOLE question, in one place -- will the gesture that
+  // is ending actually deliver a click to a library card? Two MEASURED facts
+  // decide it:
+  //   1. WHETHER THIS GESTURE LEAVES A CLICK AT ALL. Counted on the running
+  //      worker with a capture-phase listener on the clicks that really reach
+  //      the card at release: mouse@1280 = 1, touch@1280 = 0, touch@375 = 0.
+  //      dragEndAt is only reached when the drag MOVED (an unmoved press
+  //      returns above), and a moved touch gesture is not a tap: Chromium's
+  //      touchmove-slop suppressor and tap-slop click threshold are the same
+  //      15px constant. Below 15px of travel the browser delivers a compatibility
+  //      click and suppresses touchmove entirely (so the product never marks the
+  //      drag moved); at/above 15px it delivers touchmove and no click. That is
+  //      why the !d.touch check can never leave a real click unswallowed: a touch
+  //      gesture cannot be marked moved while a click is still coming. That unmoved
+  //      tap is exactly the click this guard must never eat.
+  //   2. GEOMETRY -- releaseOverLibCard above.
+  // drag.touch has been recorded on every drag since the touch adapter landed
+  // and was never read by anything; reading it here is the fix. The condition
+  // this replaces was geometry alone, so a touch drag released back on its
+  // source card armed a guard with no click to consume it and swallowed the
+  // operator's next real tap: measured "the picker does not open" on tap 1 at
+  // both 1280 and 375. The note that justified it -- that this is "the one
+  // geometry where mouseup's target can equal mousedown's target, so the
+  // browser's own click still fires there" -- is true of a mouse and false of
+  // a finger, and that false premise is the whole defect.
+  function clickWillReachLibCard(d, x, y) {
+    if (!d || d.kind !== 'lib') { return false; }
+    if (d.touch) { return false; }
+    return releaseOverLibCard(d.el, x, y);
+  }
+  function touchPoint(ev) {
+    if (ev.touches && ev.touches.length > 0) { return ev.touches[0]; }
+    if (ev.changedTouches && ev.changedTouches.length > 0) { return ev.changedTouches[0]; }
+    return null;
+  }
+  function startDrag(kind, sourceEl, ev, isTouch) {
+    var pt = isTouch ? touchPoint(ev) : ev;
+    if (!pt) { return; }
+    if (!isTouch && ev.button !== undefined && ev.button !== 0) { return; }
+    if (!isTouch) { ev.preventDefault(); }
     var nameEl = sourceEl.querySelector('.lg-sc-name') || sourceEl.querySelector('.lg-lc-name') || sourceEl.querySelector('.lg-page-num');
-    drag = { kind: kind, el: sourceEl, startX: ev.clientX, startY: ev.clientY, moved: false, ghost: null, label: nameEl ? nameEl.textContent : 'Section' };
-    document.addEventListener('mousemove', onDragMove, true);
-    document.addEventListener('mouseup', onDragUp, true);
+    // touch: which input is carrying this gesture. Recorded here since the
+    // touch adapter landed; clickWillReachLibCard is what finally reads it.
+    drag = { kind: kind, el: sourceEl, startX: pt.clientX, startY: pt.clientY, x: pt.clientX, y: pt.clientY, moved: false, ghost: null, scrollDir: 0, touch: !!isTouch, label: nameEl ? nameEl.textContent : 'Section' };
+    if (isTouch) {
+      document.addEventListener('touchmove', onTouchMove, TOUCH_MOVE_OPTS);
+      document.addEventListener('touchend', onTouchEnd, true);
+      document.addEventListener('touchcancel', onTouchCancel, true);
+    } else {
+      document.addEventListener('mousemove', onDragMove, true);
+      document.addEventListener('mouseup', onDragUp, true);
+    }
   }
   function ensureGhost() {
     if (drag.ghost) { return; }
@@ -8948,40 +9333,79 @@ if (!document.getElementById('toast-animations')) {
     drag.ghost = g;
     if (drag.el.className.indexOf('lg-dragging') < 0) { drag.el.className = drag.el.className + ' lg-dragging'; }
   }
-  function onDragMove(ev) {
+  function dragMoveAt(x, y) {
     if (!drag) { return; }
     if (!drag.moved) {
-      if (Math.abs(ev.clientX - drag.startX) < 5 && Math.abs(ev.clientY - drag.startY) < 5) { return; }
+      if (Math.abs(x - drag.startX) < 5 && Math.abs(y - drag.startY) < 5) { return; }
       drag.moved = true;
       ensureGhost();
     }
-    if (drag.ghost) { drag.ghost.style.left = (ev.clientX + 8) + 'px'; drag.ghost.style.top = (ev.clientY + 8) + 'px'; }
-    clearDropTargets();
-    var t = dropTargetUnder(ev.clientX, ev.clientY);
-    if (t) {
-      var hi = t.pageEl || t.colEl;
-      if (hi && hi.className.indexOf('lg-drop-target') < 0) { hi.className = hi.className + ' lg-drop-target'; }
-    }
+    drag.x = x; drag.y = y;
+    if (drag.ghost) { drag.ghost.style.left = (x + 8) + 'px'; drag.ghost.style.top = (y + 8) + 'px'; }
+    refreshDropTarget(x, y);
+    autoScrollFor(x, y);
+  }
+  function onDragMove(ev) { dragMoveAt(ev.clientX, ev.clientY); }
+  function onTouchMove(ev) {
+    if (!drag) { return; }
+    var pt = touchPoint(ev);
+    if (!pt) { return; }
+    // We own this gesture (the sources carry touch-action:none), so the page
+    // must not scroll under the finger while the section is being carried.
+    if (ev.cancelable) { ev.preventDefault(); }
+    dragMoveAt(pt.clientX, pt.clientY);
   }
   function endDrag() {
+    stopAutoScroll();
     document.removeEventListener('mousemove', onDragMove, true);
     document.removeEventListener('mouseup', onDragUp, true);
+    document.removeEventListener('touchmove', onTouchMove, TOUCH_MOVE_OPTS);
+    document.removeEventListener('touchend', onTouchEnd, true);
+    document.removeEventListener('touchcancel', onTouchCancel, true);
     if (drag && drag.ghost && drag.ghost.parentNode) { drag.ghost.parentNode.removeChild(drag.ghost); }
     if (drag && drag.el) { drag.el.className = drag.el.className.replace(/\s*lg-dragging/g, ''); }
     clearDropTargets();
     drag = null;
   }
-  function onDragUp(ev) {
+  function onDragUp(ev) { dragEndAt(ev.clientX, ev.clientY); }
+  function onTouchEnd(ev) {
+    if (!drag) { return; }
+    var pt = touchPoint(ev);
+    dragEndAt(pt ? pt.clientX : drag.x, pt ? pt.clientY : drag.y);
+  }
+  function onTouchCancel() { endDrag(); }
+  function dragEndAt(x, y) {
     if (!drag) { return; }
     if (!drag.moved) { endDrag(); return; }
-    var t = dropTargetUnder(ev.clientX, ev.clientY);
-    var d = drag; endDrag();
-    if (!t) { return; }
+    var t = dropTargetUnder(x, y);
+    var d = drag;
+    // P8-2 MAJOR-A / review #5: arm the one-shot click guard iff this gesture
+    // will actually deliver a click to a library card -- the single question
+    // clickWillReachLibCard answers (geometry AND a click that still exists).
+    // Two earlier conditions failed the same way, each by asserting a cause it
+    // had not established: "a drop target resolved" (a resolved target means
+    // the release landed on the board, disjoint from the rail, so no click
+    // could reach the card from there -- and it left the one case that DOES
+    // leave a click, release back on the source card, unarmed, so the
+    // follow-up click reopened the picker on top of the "Dropped outside a
+    // funnel" alert); then geometry alone, which armed on touch releases that
+    // leave no click behind and ate the operator's next genuine tap.
+    var armLibClickGuard = clickWillReachLibCard(d, x, y);
+    endDrag();
+    if (armLibClickGuard) { suppressNextLibClick = true; }
+    // B5: never a silent no-op. A drop that landed on nothing droppable says
+    // so, in the board's own inline-error vocabulary.
+    if (!t) { showInlineErr(null, DROP_OUTSIDE_MESSAGE); return; }
     if (d.kind === 'lib') {
       var pub = d.el.getAttribute('data-section-public-id');
       if (t.scope === 'shared') { addSectionToShared(pub, t.pageEl || t.colEl); return; }
       var f = funnelByPublic(t.colEl ? t.colEl.getAttribute('data-funnel-public-id') : '');
-      if (!f) { return; }
+      // P8-2 MINOR-1: a resolved-but-unknown funnel column never reloads
+      // either. Structurally unreachable while armed (armLibClickGuard can
+      // only be true when dropTargetUnder found NO target, which returns
+      // above before this line) -- cleared anyway, matching saveFunnel's and
+      // saveSharedSlots' own "must not leave the guard armed" clears.
+      if (!f) { suppressNextLibClick = false; showInlineErr(t.pageEl || t.colEl, DROP_OUTSIDE_MESSAGE); return; }
       var pi = t.pageEl ? Number(t.pageEl.getAttribute('data-page-index')) : (f.pages.length - 1);
       addSectionToFunnelPage(f, pi, pub, t.pageEl || t.colEl);
       return;
@@ -8989,7 +9413,12 @@ if (!document.getElementById('toast-animations')) {
     if (d.kind === 'chip') {
       var srcScope = d.el.getAttribute('data-chip-scope');
       if (srcScope === 'shared') {
-        if (t.scope !== 'shared') { showInlineErr(t.pageEl || t.colEl, 'Shared-page sections stay on the shared page.'); }
+        // B5 (same "silent attempt" class): dropping a shared chip back on the
+        // shared page used to do nothing AND say nothing. It is honest about
+        // both outcomes now — the cross-page refusal, and the fact that the
+        // shared page's own order is not drag-editable.
+        if (t.scope !== 'shared') { showInlineErr(t.pageEl || t.colEl, 'Shared-page sections stay on the shared page.'); return; }
+        showInlineErr(t.pageEl || t.colEl, 'The shared first page keeps the order its sections were added in \u2014 remove and re-add a section to change it.');
         return;
       }
       if (t.scope === 'shared') { showInlineErr(t.pageEl || t.colEl, 'Sections can\u2019t move into the shared page \u2014 drag from the library.'); return; }
@@ -9001,10 +9430,10 @@ if (!document.getElementById('toast-animations')) {
       }
       var srcPi = pageIndexOfEl(d.el); var slotId = Number(d.el.getAttribute('data-slot-id'));
       var destPi = t.pageEl ? Number(t.pageEl.getAttribute('data-page-index')) : srcPi;
-      if (srcPi < 0) { return; }
+      if (srcPi < 0) { showInlineErr(t.pageEl || t.colEl, DROP_UNRESOLVED_MESSAGE); return; }
       var srcPage = srcF.model.pages[srcPi]; var moved = null; var kept = []; var i;
       for (i = 0; i < srcPage.slots.length; i++) { if (srcPage.slots[i].slot_id === slotId) { moved = srcPage.slots[i]; } else { kept.push(srcPage.slots[i]); } }
-      if (!moved) { return; }
+      if (!moved) { showInlineErr(t.pageEl || t.colEl, DROP_UNRESOLVED_MESSAGE); return; }
       srcPage.slots = kept;
       var destPage = srcF.model.pages[destPi] || srcPage;
       destPage.slots.push(moved);
@@ -9012,11 +9441,15 @@ if (!document.getElementById('toast-animations')) {
       return;
     }
     if (d.kind === 'page') {
-      var pf = funnelOfEl(d.el); if (!pf || !pf.model) { return; }
-      if (t.scope !== 'funnel' || !t.colEl || t.colEl.getAttribute('data-funnel-public-id') !== pf.pub) { return; }
+      var pf = funnelOfEl(d.el); if (!pf || !pf.model) { showInlineErr(t.pageEl || t.colEl, DROP_UNRESOLVED_MESSAGE); return; }
+      if (t.scope !== 'funnel' || !t.colEl || t.colEl.getAttribute('data-funnel-public-id') !== pf.pub) {
+        showInlineErr(t.pageEl || t.colEl, 'Pages stay in their own funnel \u2014 drop this page inside ' + pf.model.name + ', or use the page menu to reorder it.');
+        return;
+      }
       var from = Number(d.el.getAttribute('data-page-index'));
       var toIdx = t.pageEl ? Number(t.pageEl.getAttribute('data-page-index')) : (pf.model.pages.length - 1);
-      if (from < 0 || toIdx < 0 || from === toIdx) { return; }
+      if (from < 0 || toIdx < 0) { showInlineErr(t.pageEl || t.colEl, DROP_UNRESOLVED_MESSAGE); return; }
+      if (from === toIdx) { return; }
       var pg = pf.model.pages.splice(from, 1)[0];
       pf.model.pages.splice(toIdx, 0, pg);
       saveFunnel(pf.model, t.pageEl || t.colEl);
@@ -9041,16 +9474,41 @@ if (!document.getElementById('toast-animations')) {
   if (searchInput) { searchInput.addEventListener('input', applyLibFilter); }
 
   /* ================= DELEGATED EVENTS ================= */
-  (shell || document).addEventListener('mousedown', function (ev) {
-    var t = ev.target;
-    if (!t || !t.closest) { return; }
-    if (t.closest('[data-chip-kebab],[data-page-kebab],[data-funnel-kebab],[data-add-section],[data-add-shared-section],[data-add-page],[data-preview],[data-ab-badge],[data-theme-picker],[data-template-picker],[data-funnel-name],[data-lib-search],[data-lib-filter]')) { return; }
+  // The controls a press must NOT start a drag on (they open menus/dialogs or
+  // take text). ONE list, read by both the mouse and the touch entry points.
+  var DRAG_SKIP_SELECTOR = '[data-chip-kebab],[data-page-kebab],[data-funnel-kebab],[data-add-section],[data-add-shared-section],[data-add-page],[data-preview],[data-ab-badge],[data-theme-picker],[data-template-picker],[data-funnel-name],[data-lib-search],[data-lib-filter]';
+  function dragSourceFor(t, isTouch) {
+    if (!t || !t.closest) { return null; }
+    if (t.closest(DRAG_SKIP_SELECTOR)) { return null; }
     var chipGrip = t.closest('[data-chip-grip]');
-    if (chipGrip) { var chip = chipGrip.closest('[data-sec-chip]'); if (chip) { startDrag('chip', chip, ev); } return; }
+    if (chipGrip) { var chip = chipGrip.closest('[data-sec-chip]'); return chip ? { kind: 'chip', el: chip } : null; }
     var pageGrip = t.closest('[data-page-grip]');
-    if (pageGrip) { var pc = pageGrip.closest('[data-page-card]'); if (pc) { startDrag('page', pc, ev); } return; }
+    if (pageGrip) { var pc = pageGrip.closest('[data-page-card]'); return pc ? { kind: 'page', el: pc } : null; }
     var lib = t.closest('[data-lib-card]');
-    if (lib) { startDrag('lib', lib, ev); return; }
+    if (lib) {
+      // P8-2 F-2: with a finger the library CARD is the rail's scroll surface,
+      // so only its grip starts a touch drag -- claiming the whole card broke
+      // ordinary scrolling on the owner's own left rail. A mouse, which has no
+      // scroll gesture to lose, still drags from anywhere on the card. Same
+      // deliberate-affordance rule the chip and page grips already follow.
+      if (isTouch && !t.closest('[data-lib-grip]')) { return null; }
+      return { kind: 'lib', el: lib };
+    }
+    return null;
+  }
+  (shell || document).addEventListener('mousedown', function (ev) {
+    var src = dragSourceFor(ev.target, false);
+    if (src) { startDrag(src.kind, src.el, ev, false); }
+  }, true);
+  // P8 B5: the touch half of the same engine. The drag GRIPS carry
+  // touch-action:none (shared.ts), so the browser hands us the gesture instead
+  // of scrolling; a single-finger press on a grip drags, multi-touch and every
+  // other surface (the card body, the board, the rails) are left to the
+  // browser so the page still scrolls under a finger.
+  (shell || document).addEventListener('touchstart', function (ev) {
+    if (!ev.touches || ev.touches.length !== 1) { return; }
+    var src = dragSourceFor(ev.target, true);
+    if (src) { startDrag(src.kind, src.el, ev, true); }
   }, true);
 
   document.addEventListener('click', function (ev) {
@@ -9173,6 +9631,24 @@ if (!document.getElementById('toast-animations')) {
       applyLibFilter();
       return;
     }
+    // D11: a tap is the natural touch affordance on a board library card, and
+    // it was inert -- only keydown (Enter/Space) opened the target picker.
+    // Matches the Themes chooser card sibling, which already binds click
+    // alongside keydown. suppressNextLibClick (set in dragEndAt only when
+    // clickWillReachLibCard says a click is genuinely coming) swallows the
+    // click a real drag leaves behind, so a drag never also opens this picker
+    // -- and a drag that leaves NO click never arms it, so the operator's very
+    // next tap still opens the picker.
+    var libCard = t.closest('[data-lib-card]');
+    if (libCard) {
+      if (suppressNextLibClick) { suppressNextLibClick = false; return; }
+      ev.stopPropagation();
+      var libCardPub = libCard.getAttribute('data-section-public-id');
+      openPopoverList(libCard, boardTargetItems(), function (targetKey) {
+        addSectionToBoardTarget(libCardPub, targetKey, libCard);
+      });
+      return;
+    }
     if (openMenuEl && !openMenuEl.contains(t)) { closeMenus(); }
   });
 
@@ -9182,13 +9658,49 @@ if (!document.getElementById('toast-animations')) {
     var t = ev.target;
     if (!t || !t.closest) { return; }
     if (t.closest('[data-add-funnel]')) { ev.preventDefault(); addFunnel(); return; }
+    // P8 B5: the keyboard equivalent of the drag now reaches EVERY column.
+    // It used to add the section to the default funnel and nothing else, so a
+    // keyboard operator could not put a section in funnels B..E at all (and
+    // was never told which funnel had been chosen for them). Enter/Space now
+    // opens the SAME popover list the "＋ section" control uses, naming the
+    // shared first page and every funnel column — including the ones that
+    // need horizontal scrolling, which is the whole point.
     var lib = t.closest('[data-lib-card]');
     if (lib) {
       ev.preventDefault();
-      var fs = orderedFunnels(); var target = null; var i;
-      for (i = 0; i < fs.length; i++) { if (fs[i].is_default) { target = fs[i]; break; } }
-      if (!target) { target = fs[0]; }
-      if (target) { addSectionToFunnelPage(target, (target.pages.length - 1), lib.getAttribute('data-section-public-id'), lib); }
+      var libPub = lib.getAttribute('data-section-public-id');
+      openPopoverList(lib, boardTargetItems(), function (targetKey) {
+        addSectionToBoardTarget(libPub, targetKey, lib);
+      }, true);
+      return;
+    }
+    // Menu/popover items are role=menuitem divs: Enter/Space activates the
+    // focused one (openPopoverList/openMenu give them a real tab stop), so
+    // every menu-driven board action has a keyboard path, not just a mouse one.
+    var mi = t.closest('.lg-menu-item');
+    if (mi && openMenuEl && openMenuEl.contains(mi)) { ev.preventDefault(); mi.click(); return; }
+    // ...and the controls that OPEN those menus. Every board affordance is a
+    // div carrying role="button" + tabindex="0" (the kebabs, ＋ section,
+    // + Add page, Preview, the A/B badge, the Theme/Template chips): a div
+    // does NOT synthesise a click from Enter/Space the way a <button> does,
+    // so before this the kebab menus — the a11y equivalent of the chip/page
+    // MOVE drags — could be focused but never opened. Same B5 keyboard class
+    // as the library card above.
+    // Scoped to the board's OWN surfaces (its library rail, the shared band,
+    // the columns); the routing-rules rail is another slice's UI and keeps its
+    // own behaviour. P8-2 review #5 (F3): ".lg-board-left" alone was NOT that
+    // scope -- the Themes tab's chooser rail reuses the same class
+    // (quotes-tabs/themes.ts renderSectionChooserPane) and its cards are
+    // role=button divs that already carry their OWN click AND keydown
+    // handlers, so this delegation fired a second activation on them: measured
+    // live on the Themes tab, click = 1 POST /sections/preview, Enter = 2.
+    // The board's own rail is the one carrying data-pin="8.2-left-library"
+    // (the chooser's is "r2-theme-chooser"), so the selector now matches what
+    // the sentence above always claimed.
+    var btn = t.closest('[role="button"]');
+    if (btn && btn.closest('[data-board],[data-shared-col],.lg-board-left[data-pin="8.2-left-library"]') && btn.getAttribute('data-lib-card') === null) {
+      ev.preventDefault();
+      btn.click();
       return;
     }
   });
@@ -10336,7 +10848,8 @@ if (!document.getElementById('toast-animations')) {
 
     var top = el('div', 'lg-qr-top');
     var prio = el('span', 'lg-qr-prio'); prio.setAttribute('data-qr-prio', ''); txt(prio, rule.priority); top.appendChild(prio);
-    var nm = el('span', 'lg-qr-name'); nm.setAttribute('data-qr-name', ''); txt(nm, (rule.rule_name && rule.rule_name.replace(/^\s+|\s+$/g, '') !== '') ? rule.rule_name : '(unnamed rule)'); top.appendChild(nm);
+    var nmText = (rule.rule_name && rule.rule_name.replace(/^\s+|\s+$/g, '') !== '') ? rule.rule_name : '(unnamed rule)';
+    var nm = el('span', 'lg-qr-name'); nm.setAttribute('data-qr-name', ''); nm.title = nmText; txt(nm, nmText); top.appendChild(nm);
     var st = el('span', 'lg-qr-status ' + (disabled ? 'disabled' : 'active')); st.setAttribute('data-qr-status', ''); st.appendChild(el('span', 'lg-qr-dot')); st.appendChild(document.createTextNode(disabled ? 'Disabled' : 'Active')); top.appendChild(st);
     card.appendChild(top);
 

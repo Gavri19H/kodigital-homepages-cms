@@ -237,7 +237,7 @@ function renderLibraryCard(
   }
   const activityVert = `${section.activity} · ${section.vertical}`;
   return `<div class="lg-lib-card${inCurrent ? " in-current" : ""}" data-lib-card data-section-public-id="${escapeHtml(section.public_id)}" data-section-name="${escapeHtml(section.section_name)}" data-vertical-key="${escapeHtml(section.vertical.toLowerCase())}" data-activity-key="${escapeHtml(section.activity.toLowerCase())}" data-pin="8.2-library-card" role="button" tabindex="0" aria-label="Add section ${escapeHtml(section.section_name)} to a page">
-    <div class="lg-lc-top"><span class="lg-grip" aria-hidden="true">${BOARD_ICON.grip}</span><span class="lg-lc-name">${escapeHtml(section.section_name)}</span></div>
+    <div class="lg-lc-top"><span class="lg-grip" data-lib-grip aria-hidden="true">${BOARD_ICON.grip}</span><span class="lg-lc-name" title="${escapeHtml(section.section_name)}">${escapeHtml(section.section_name)}</span></div>
     <div class="lg-lc-meta"><span class="lg-chip-activity">${escapeHtml(activityVert)}</span>${badge}</div>
   </div>`;
 }
@@ -283,7 +283,7 @@ function renderSectionChip(
   return `<div class="lg-sec-chip" data-sec-chip data-chip-scope="${opts.scope}" data-section-public-id="${escapeHtml(sectionPublicId)}"${slotAttrs}${opts.scope === "shared" ? ' data-pin="8.2-shared-chip"' : ""}>
     <span class="lg-grip lg-chip-grip" data-chip-grip aria-hidden="true">${BOARD_ICON.grip}</span>
     <span class="lg-map-dot" data-mapping-status="${dot}" title="${escapeHtml(MAPPING_DOT_TITLES[dot])}"></span>
-    <span class="lg-sc-name">${escapeHtml(name)}</span>
+    <span class="lg-sc-name" title="${escapeHtml(name)}">${escapeHtml(name)}</span>
     <span class="lg-kebab-btn lg-chip-kebab" data-chip-kebab data-chip-menu="${menuName}" role="button" tabindex="0" aria-label="Section options">${BOARD_ICON.kebab}</span>
   </div>`;
 }
@@ -362,10 +362,16 @@ function renderSharedColumn(sharedPage: SharedPageBody | null | undefined): stri
       .map((s) => renderSectionChip(s.section_name, s.section_public_id, { scope: "shared", mappingStatus: s.mapping_status }))
       .join("");
   }
-  return `<div class="lg-col lg-col-shared" data-shared-col data-page-public-id="${escapeHtml(sharedPage?.page_id ?? "")}" data-pin="8.2-shared-first-page">
+  // P8 B5: rendered as the board's TOP BAND (see renderBuilderPanel — it is a
+  // child of .lg-board-center, above the scrolling .lg-board), no longer a
+  // column inside the horizontally scrolling lane. Same element, same
+  // data-shared-col / data-shared-page-card / chip hooks the drop engine, the
+  // publish-blocker deep link ([data-shared-col] [data-add-shared-section])
+  // and markBoardColumnBlocked all resolve; only its class + position change.
+  return `<div class="lg-col-shared" data-shared-col data-page-public-id="${escapeHtml(sharedPage?.page_id ?? "")}" data-pin="8.2-shared-first-page">
     <div class="lg-col-head">
       <span class="lg-col-tag">${BOARD_ICON.star} Shared · quote-owned</span>
-      <div class="lg-col-title-row"><span class="lg-col-title">Shared first page</span></div>
+      <div class="lg-col-title-row"><span class="lg-col-title" title="Shared first page">Shared first page</span></div>
       <div class="lg-col-meta"><span class="lg-col-help">Every visitor sees this first — entry rules only pre-select the funnel.</span></div>
     </div>
     <div class="lg-col-body" data-shared-body>
@@ -456,7 +462,7 @@ function renderFunnelColumn(
   return `<div class="lg-col lg-col-funnel${isDefault ? " is-default" : ""}" data-funnel-col data-funnel-public-id="${escapeHtml(funnel.public_id)}" data-funnel-id="${funnel.id}" data-funnel-active-variant="${escapeHtml(funnel.active_variant_public_id ?? "")}" data-pin="8.2-funnel-column">
     <div class="lg-col-head" data-pin="8.2-funnel-header">
       <div class="lg-col-title-row">
-        <span class="lg-col-title" data-funnel-name data-pin="8.2-inline-rename" tabindex="0" role="textbox" aria-label="Funnel name (click to rename)">${escapeHtml(funnel.funnel_name)}</span>
+        <span class="lg-col-title" data-funnel-name data-pin="8.2-inline-rename" tabindex="0" role="textbox" aria-label="Funnel name (click to rename)" title="${escapeHtml(funnel.funnel_name)}">${escapeHtml(funnel.funnel_name)}</span>
         ${isDefault ? renderDefaultChip() : ""}
         <span class="lg-kebab-btn lg-funnel-kebab" data-funnel-kebab data-chip-menu="funnel" role="button" tabindex="0" aria-label="Funnel options">${BOARD_ICON.kebab}</span>
       </div>
@@ -714,9 +720,9 @@ export function renderBuilderPanel(
   <div class="lg-board-shell" data-pin="8.2-tab-geometry">
     ${renderBoardLibrary(available, structure, currentFunnelPublicId)}
     <div class="lg-board-center">
+      ${renderSharedColumn(structure.shared_page ?? null)}
       <div class="lg-board" data-board data-pin="8.2-board">
         <div class="lg-board-cols" data-board-cols>
-          ${renderSharedColumn(structure.shared_page ?? null)}
           ${funnelCols}
           ${renderAddFunnelStub()}
         </div>
@@ -4708,11 +4714,46 @@ export const QUOTE_EDITOR_SCRIPT = `
     fs.sort(function (a, b) { return (a.display_order || a.id) - (b.display_order || b.id); });
     return fs;
   }
+  // P8 B5: the keyboard pick list's key for the shared first page (no funnel
+  // public_id can collide with it — they are all lgf_-prefixed ULIDs).
+  var SHARED_TARGET_KEY = '__shared__';
 
   /* ---- inline error (A-4 uniqueness on drop, etc.) ---- */
+  // P8-2 F-1 (the CLASS, not the instance): an alert is anchored next to the
+  // surface that refused, and those surfaces are no longer all inside
+  // .lg-board — the shared first page is a band in .lg-board-center, ABOVE
+  // the scroller. A cleanup scoped to the board therefore never removed a
+  // shared-band alert: the next refusal put a second, contradicting message
+  // on screen while the first stayed forever. Board decoration is cleaned up
+  // over the WHOLE document, exactly like its sibling clearDropTargets --
+  // both cover every surface their decoration can be attached to.
   function clearInlineErrs() {
-    var errs = board.querySelectorAll('.lg-board-inline-err'); var i;
+    var errs = document.querySelectorAll('.lg-board-inline-err'); var i;
     for (i = 0; i < errs.length; i++) { if (errs[i].parentNode) { errs[i].parentNode.removeChild(errs[i]); } }
+  }
+  // P8-2 F-3: WHERE an anchored alert goes. Dropped in beside an anchor that
+  // sits in a horizontal row (a funnel column in the lane, a card in the
+  // shared band) the alert becomes a lane item of its own: measured 73px wide
+  // and nine one-word lines tall at 1280, and it shoved the funnel columns
+  // sideways (x 503 -> 450, two fully-visible columns down to one). So a
+  // row-mounted anchor takes the alert INSIDE itself, and an alert that still
+  // lands in a row claims a whole row rather than a slice of one.
+  function isRowFlow(el) {
+    if (!el || el.nodeType !== 1 || !window.getComputedStyle) { return false; }
+    var cs = window.getComputedStyle(el);
+    if (cs.display !== 'flex' && cs.display !== 'inline-flex') { return false; }
+    var fd = cs.flexDirection || 'row';
+    return fd === 'row' || fd === 'row-reverse';
+  }
+  function placeInlineErr(p, nearEl) {
+    if (!nearEl || !nearEl.parentNode) { board.insertBefore(p, board.firstChild); return; }
+    var host = nearEl.parentNode; var before = nearEl.nextSibling;
+    if (isRowFlow(host)) {
+      host = (nearEl.querySelector ? nearEl.querySelector('.lg-col-body') : null) || nearEl;
+      before = host.firstChild;
+    }
+    if (isRowFlow(host)) { p.style.flex = '1 0 100%'; }
+    host.insertBefore(p, before);
   }
   function showInlineErr(nearEl, msg) {
     clearInlineErrs();
@@ -4720,8 +4761,7 @@ export const QUOTE_EDITOR_SCRIPT = `
     p.className = 'lg-board-inline-err';
     p.setAttribute('role', 'alert');
     p.appendChild(document.createTextNode(msg));
-    if (nearEl && nearEl.parentNode) { nearEl.parentNode.insertBefore(p, nearEl.nextSibling); }
-    else { board.insertBefore(p, board.firstChild); }
+    placeInlineErr(p, nearEl);
     if (p.scrollIntoView) { p.scrollIntoView({ block: 'nearest' }); }
   }
 
@@ -4758,7 +4798,10 @@ export const QUOTE_EDITOR_SCRIPT = `
     var variantPub = funnel.active_variant_public_id;
     if (!variantPub) { showInlineErr(nearEl, 'This funnel has no active variant to save into.'); return; }
     req('PUT', API + '/variants/' + encodeURIComponent(variantPub), { pages: funnelPagesToPut(funnel) }).then(function (res) {
-      if (!res.ok) { showInlineErr(nearEl, firstFieldError(res.body)); return; }
+      // P8-2 MAJOR-1 sibling: a rejected save never reloads either, so a
+      // 'lib' drop that resolved a target but failed here must not leave the
+      // one-shot click guard armed for the next genuine tap to eat.
+      if (!res.ok) { suppressNextLibClick = false; showInlineErr(nearEl, firstFieldError(res.body)); return; }
       reloadPage();
     });
   }
@@ -4786,6 +4829,9 @@ export const QUOTE_EDITOR_SCRIPT = `
   function saveSharedSlots(putSlots, nearEl, onError) {
     req('PUT', API + '/quotes/' + encodeURIComponent(quoteId) + '/shared-page', { slots: putSlots }).then(function (res) {
       if (!res.ok) {
+        // P8-2 MAJOR-1 sibling: the shared page is the OTHER 'lib' drop
+        // destination; a rejected save here must not leave the guard armed.
+        suppressNextLibClick = false;
         if (onError) { onError(firstFieldError(res.body)); return; }
         showInlineErr(nearEl, firstFieldError(res.body)); return;
       }
@@ -4815,8 +4861,10 @@ export const QUOTE_EDITOR_SCRIPT = `
   // board menu/popover, remembered so a scroll REPOSITIONS the menu (keeps it
   // pinned to its control) instead of CLOSING it. The old scroll -> closeMenus
   // listener closed on ANY scroll — but opening a menu from a control inside the
-  // horizontally-scrolled board region (every funnel column; the shared column
-  // is pinned and never scrolls) itself triggers a scroll (the browser scrolls a
+  // horizontally-scrolled board region (every funnel column; the shared first
+  // page is NOT in that region at all — P8 B5 moved it into the band above the
+  // scroller, which is what finally made the old "is pinned and never scrolls"
+  // claim true; its dead position:sticky is gone) itself triggers a scroll (the browser scrolls a
   // not-fully-visible focused control into view), so the menu was hidden in the
   // SAME interaction it was opened. Repositioning is the correct behavior for a
   // position:fixed popover and eliminates the self-close entirely (outside-click
@@ -4831,12 +4879,25 @@ export const QUOTE_EDITOR_SCRIPT = `
   }
   function positionAt(menuEl, anchor) {
     var r = anchor.getBoundingClientRect();
-    menuEl.style.top = (r.bottom + 4) + 'px';
     var left = r.left;
     var mw = menuEl.offsetWidth || 190;
     if (left + mw > window.innerWidth - 8) { left = window.innerWidth - mw - 8; }
     if (left < 8) { left = 8; }
     menuEl.style.left = left + 'px';
+    // P8 B5: the vertical clamp the left/right clamp above always had. A
+    // board control low in the viewport put its menu BELOW the fold (measured:
+    // a chip kebab menu at top 794 + height 204 = 998 in a 950px viewport, so
+    // its items could not be reached at all) — and the B5 keyboard path opens
+    // its funnel picker through this same function, so an unreachable popover
+    // would be a control that cannot be honoured. Flip above the anchor when
+    // there is room, else pin to the bottom edge.
+    var mh = menuEl.offsetHeight || 0;
+    var top = r.bottom + 4;
+    if (mh > 0 && top + mh > window.innerHeight - 8) {
+      var above = r.top - 4 - mh;
+      top = above >= 8 ? above : Math.max(8, window.innerHeight - mh - 8);
+    }
+    menuEl.style.top = top + 'px';
   }
   function openMenu(name, anchor, ctx) {
     closeMenus();
@@ -4847,6 +4908,14 @@ export const QUOTE_EDITOR_SCRIPT = `
     positionAt(menuEl, anchor);
     openMenuEl = menuEl;
     openMenuAnchor = anchor;
+    // P8 B5 (keyboard axis): the SSR items ship tabindex="-1", so an open menu
+    // had no tab stop at all — the kebab menus ARE the a11y equivalent of the
+    // chip/page move drags, and none of their items could be reached. Give
+    // them a real tab stop and put focus on the first (ARIA menu behaviour);
+    // Enter/Space activates, Escape closes, both already wired.
+    var mItems = menuEl.querySelectorAll('.lg-menu-item'); var mi;
+    for (mi = 0; mi < mItems.length; mi++) { mItems[mi].setAttribute('tabindex', '0'); }
+    if (mItems.length > 0 && mItems[0].focus) { mItems[0].focus(); }
   }
 
   /* ================= FUNNEL CRUD ================= */
@@ -4984,7 +5053,11 @@ export const QUOTE_EDITOR_SCRIPT = `
   }
 
   /* ============ SECTION PICKER (＋ section — the a11y/click add path) ======= */
-  function openPopoverList(anchor, items, onPick) {
+  // The focusFirst flag (P8 B5): opened from the keyboard, so the list is not just
+  // reachable but OPERABLE — every item is a real tab stop and the first one
+  // takes focus; Enter/Space on a focused item activates it (see the keydown
+  // handler), Escape closes. Mouse callers pass nothing and are unchanged.
+  function openPopoverList(anchor, items, onPick, focusFirst) {
     closeMenus();
     var tm = document.querySelector('[data-template-menu]');
     if (!tm) { return; }
@@ -4998,7 +5071,7 @@ export const QUOTE_EDITOR_SCRIPT = `
         var el = document.createElement('div');
         el.className = 'lg-menu-item';
         el.setAttribute('role', 'menuitem');
-        el.setAttribute('tabindex', '-1');
+        el.setAttribute('tabindex', '0');
         el.appendChild(document.createTextNode(it.label));
         el.addEventListener('click', function (ev) { ev.stopPropagation(); closeMenus(); onPick(it.value); });
         tm.appendChild(el);
@@ -5008,6 +5081,23 @@ export const QUOTE_EDITOR_SCRIPT = `
     positionAt(tm, anchor);
     openMenuEl = tm;
     openMenuAnchor = anchor;
+    if (focusFirst && tm.firstChild && tm.firstChild.focus) { tm.firstChild.focus(); }
+  }
+  // The board's drop targets, as a pick list: the shared first page, then
+  // every funnel column in board order (the default one is named as such).
+  function boardTargetItems() {
+    var out = [{ label: 'Shared first page', value: SHARED_TARGET_KEY }];
+    var fs = orderedFunnels(); var i;
+    for (i = 0; i < fs.length; i++) {
+      out.push({ label: fs[i].name + (fs[i].is_default ? ' (default)' : ''), value: fs[i].public_id });
+    }
+    return out;
+  }
+  function addSectionToBoardTarget(sectionPublicId, targetKey, anchorEl) {
+    if (targetKey === SHARED_TARGET_KEY) { addSectionToShared(sectionPublicId, anchorEl); return; }
+    var f = funnelByPublic(targetKey);
+    if (!f) { return; }
+    addSectionToFunnelPage(f, (f.pages.length - 1), sectionPublicId, anchorEl);
   }
   function sectionItems() {
     var secs = BOARD.sections || []; var out = []; var i;
@@ -5492,11 +5582,75 @@ export const QUOTE_EDITOR_SCRIPT = `
     ruledDialog.addEventListener('change', refreshRuledSentence);
   }
 
-  /* ================= DRAG ENGINE (in-house mouse; both engines) ============= */
+  /* ============ DRAG ENGINE (in-house mouse + touch; both engines) ========== */
+  // P8 B5 (contract §5 B5): three things were missing and all three made a
+  // column that needs scrolling unreachable —
+  //   1. no auto-scroll: holding a drag at the board edge did nothing
+  //      (scrollLeft unchanged after 1.5s), and dropTargetUnder is
+  //      elementFromPoint, so an off-screen column could never be the target;
+  //   2. no visible reason: a drop that hit nothing was a silent no-op;
+  //   3. no touch: zero touchstart handlers, so on a touch device the grips
+  //      and library cards were drag affordances that could not be dragged.
+  // The pointer maths lives ONCE in dragMoveAt/dragEndAt; mouse and touch are
+  // thin adapters over it, so the two input paths can never drift.
   var drag = null;
+  // D11 + P8-2 review #5 -- THE INVARIANT this one-shot flag must satisfy:
+  // it is armed if and only if a click will actually be delivered to a library
+  // card as a consequence of the gesture that just ended. Armed with no click
+  // coming, it eats the operator's next genuine tap; left unarmed with one
+  // coming, that click reopens the target picker on top of the refusal the
+  // same gesture produced. clickWillReachLibCard (below) is the ONE place that
+  // decision is made; set in dragEndAt, consumed (and reset) by the very next
+  // click on a library card.
+  var suppressNextLibClick = false;
+  var autoScrollTimer = null;
+  var AUTO_SCROLL_EDGE = 56;
+  var AUTO_SCROLL_STEP = 18;
+  var AUTO_SCROLL_MS = 16;
+  var TOUCH_MOVE_OPTS = { passive: false, capture: true };
+  var DROP_OUTSIDE_MESSAGE = 'Dropped outside a funnel \\u2014 drop a section on a funnel column, or on the shared first page above the board.';
+  var DROP_UNRESOLVED_MESSAGE = 'That drop could not be applied \\u2014 nothing was changed. Reload the page and try again.';
   function clearDropTargets() {
-    var els = board.querySelectorAll('.lg-drop-target'); var i;
+    var els = document.querySelectorAll('.lg-drop-target'); var i;
     for (i = 0; i < els.length; i++) { els[i].className = els[i].className.replace(/\\s*lg-drop-target/g, ''); }
+  }
+  function stopAutoScroll() {
+    if (autoScrollTimer !== null) { window.clearInterval(autoScrollTimer); autoScrollTimer = null; }
+    if (drag) { drag.scrollDir = 0; }
+  }
+  // Hold a drag near (or past) a board edge and the board scrolls itself, so
+  // the columns that were off-screen come under the pointer and can be
+  // dropped on. The highlight is recomputed on every scrolled frame because
+  // the element under a STATIONARY pointer changes as the lane moves.
+  function armAutoScroll(dir) {
+    if (!drag) { stopAutoScroll(); return; }
+    if (drag.scrollDir === dir) { return; }
+    stopAutoScroll();
+    drag.scrollDir = dir;
+    if (dir === 0) { return; }
+    autoScrollTimer = window.setInterval(function () {
+      if (!drag) { stopAutoScroll(); return; }
+      var before = board.scrollLeft;
+      board.scrollLeft = before + (drag.scrollDir * AUTO_SCROLL_STEP);
+      if (board.scrollLeft === before) { return; }
+      refreshDropTarget(drag.x, drag.y);
+    }, AUTO_SCROLL_MS);
+  }
+  function autoScrollFor(x, y) {
+    var r = board.getBoundingClientRect();
+    if (y < r.top - 60 || y > r.bottom + 60) { armAutoScroll(0); return; }
+    if (x > r.right - AUTO_SCROLL_EDGE) { armAutoScroll(1); return; }
+    if (x < r.left + AUTO_SCROLL_EDGE) { armAutoScroll(-1); return; }
+    armAutoScroll(0);
+  }
+  function refreshDropTarget(x, y) {
+    clearDropTargets();
+    var t = dropTargetUnder(x, y);
+    if (t) {
+      var hi = t.pageEl || t.colEl;
+      if (hi && hi.className.indexOf('lg-drop-target') < 0) { hi.className = hi.className + ' lg-drop-target'; }
+    }
+    return t;
   }
   function dropTargetUnder(x, y) {
     var el = document.elementFromPoint(x, y);
@@ -5510,13 +5664,70 @@ export const QUOTE_EDITOR_SCRIPT = `
     if (funnelCol) { return { scope: 'funnel', pageEl: null, colEl: funnelCol }; }
     return null;
   }
-  function startDrag(kind, sourceEl, ev) {
-    if (ev.button !== undefined && ev.button !== 0) { return; }
-    ev.preventDefault();
+  // P8-2 MAJOR-A: the GEOMETRY half -- whether THIS release point sits back on
+  // the given library card, the only release point whose click (the platform
+  // fires it at the nearest common ancestor of the press and release targets)
+  // can land inside that card. The rail and the board are disjoint regions (a
+  // library card is never also inside a funnel/shared column), so this can
+  // never be true at the same (x,y) where dropTargetUnder above resolves a
+  // board target.
+  function releaseOverLibCard(el, x, y) {
+    var hit = document.elementFromPoint(x, y);
+    if (!hit || !hit.closest) { return false; }
+    return hit.closest('[data-lib-card]') === el;
+  }
+  // P8-2 review #5: the WHOLE question, in one place -- will the gesture that
+  // is ending actually deliver a click to a library card? Two MEASURED facts
+  // decide it:
+  //   1. WHETHER THIS GESTURE LEAVES A CLICK AT ALL. Counted on the running
+  //      worker with a capture-phase listener on the clicks that really reach
+  //      the card at release: mouse@1280 = 1, touch@1280 = 0, touch@375 = 0.
+  //      dragEndAt is only reached when the drag MOVED (an unmoved press
+  //      returns above), and a moved touch gesture is not a tap: Chromium's
+  //      touchmove-slop suppressor and tap-slop click threshold are the same
+  //      15px constant. Below 15px of travel the browser delivers a compatibility
+  //      click and suppresses touchmove entirely (so the product never marks the
+  //      drag moved); at/above 15px it delivers touchmove and no click. That is
+  //      why the !d.touch check can never leave a real click unswallowed: a touch
+  //      gesture cannot be marked moved while a click is still coming. That unmoved
+  //      tap is exactly the click this guard must never eat.
+  //   2. GEOMETRY -- releaseOverLibCard above.
+  // drag.touch has been recorded on every drag since the touch adapter landed
+  // and was never read by anything; reading it here is the fix. The condition
+  // this replaces was geometry alone, so a touch drag released back on its
+  // source card armed a guard with no click to consume it and swallowed the
+  // operator's next real tap: measured "the picker does not open" on tap 1 at
+  // both 1280 and 375. The note that justified it -- that this is "the one
+  // geometry where mouseup's target can equal mousedown's target, so the
+  // browser's own click still fires there" -- is true of a mouse and false of
+  // a finger, and that false premise is the whole defect.
+  function clickWillReachLibCard(d, x, y) {
+    if (!d || d.kind !== 'lib') { return false; }
+    if (d.touch) { return false; }
+    return releaseOverLibCard(d.el, x, y);
+  }
+  function touchPoint(ev) {
+    if (ev.touches && ev.touches.length > 0) { return ev.touches[0]; }
+    if (ev.changedTouches && ev.changedTouches.length > 0) { return ev.changedTouches[0]; }
+    return null;
+  }
+  function startDrag(kind, sourceEl, ev, isTouch) {
+    var pt = isTouch ? touchPoint(ev) : ev;
+    if (!pt) { return; }
+    if (!isTouch && ev.button !== undefined && ev.button !== 0) { return; }
+    if (!isTouch) { ev.preventDefault(); }
     var nameEl = sourceEl.querySelector('.lg-sc-name') || sourceEl.querySelector('.lg-lc-name') || sourceEl.querySelector('.lg-page-num');
-    drag = { kind: kind, el: sourceEl, startX: ev.clientX, startY: ev.clientY, moved: false, ghost: null, label: nameEl ? nameEl.textContent : 'Section' };
-    document.addEventListener('mousemove', onDragMove, true);
-    document.addEventListener('mouseup', onDragUp, true);
+    // touch: which input is carrying this gesture. Recorded here since the
+    // touch adapter landed; clickWillReachLibCard is what finally reads it.
+    drag = { kind: kind, el: sourceEl, startX: pt.clientX, startY: pt.clientY, x: pt.clientX, y: pt.clientY, moved: false, ghost: null, scrollDir: 0, touch: !!isTouch, label: nameEl ? nameEl.textContent : 'Section' };
+    if (isTouch) {
+      document.addEventListener('touchmove', onTouchMove, TOUCH_MOVE_OPTS);
+      document.addEventListener('touchend', onTouchEnd, true);
+      document.addEventListener('touchcancel', onTouchCancel, true);
+    } else {
+      document.addEventListener('mousemove', onDragMove, true);
+      document.addEventListener('mouseup', onDragUp, true);
+    }
   }
   function ensureGhost() {
     if (drag.ghost) { return; }
@@ -5527,40 +5738,79 @@ export const QUOTE_EDITOR_SCRIPT = `
     drag.ghost = g;
     if (drag.el.className.indexOf('lg-dragging') < 0) { drag.el.className = drag.el.className + ' lg-dragging'; }
   }
-  function onDragMove(ev) {
+  function dragMoveAt(x, y) {
     if (!drag) { return; }
     if (!drag.moved) {
-      if (Math.abs(ev.clientX - drag.startX) < 5 && Math.abs(ev.clientY - drag.startY) < 5) { return; }
+      if (Math.abs(x - drag.startX) < 5 && Math.abs(y - drag.startY) < 5) { return; }
       drag.moved = true;
       ensureGhost();
     }
-    if (drag.ghost) { drag.ghost.style.left = (ev.clientX + 8) + 'px'; drag.ghost.style.top = (ev.clientY + 8) + 'px'; }
-    clearDropTargets();
-    var t = dropTargetUnder(ev.clientX, ev.clientY);
-    if (t) {
-      var hi = t.pageEl || t.colEl;
-      if (hi && hi.className.indexOf('lg-drop-target') < 0) { hi.className = hi.className + ' lg-drop-target'; }
-    }
+    drag.x = x; drag.y = y;
+    if (drag.ghost) { drag.ghost.style.left = (x + 8) + 'px'; drag.ghost.style.top = (y + 8) + 'px'; }
+    refreshDropTarget(x, y);
+    autoScrollFor(x, y);
+  }
+  function onDragMove(ev) { dragMoveAt(ev.clientX, ev.clientY); }
+  function onTouchMove(ev) {
+    if (!drag) { return; }
+    var pt = touchPoint(ev);
+    if (!pt) { return; }
+    // We own this gesture (the sources carry touch-action:none), so the page
+    // must not scroll under the finger while the section is being carried.
+    if (ev.cancelable) { ev.preventDefault(); }
+    dragMoveAt(pt.clientX, pt.clientY);
   }
   function endDrag() {
+    stopAutoScroll();
     document.removeEventListener('mousemove', onDragMove, true);
     document.removeEventListener('mouseup', onDragUp, true);
+    document.removeEventListener('touchmove', onTouchMove, TOUCH_MOVE_OPTS);
+    document.removeEventListener('touchend', onTouchEnd, true);
+    document.removeEventListener('touchcancel', onTouchCancel, true);
     if (drag && drag.ghost && drag.ghost.parentNode) { drag.ghost.parentNode.removeChild(drag.ghost); }
     if (drag && drag.el) { drag.el.className = drag.el.className.replace(/\\s*lg-dragging/g, ''); }
     clearDropTargets();
     drag = null;
   }
-  function onDragUp(ev) {
+  function onDragUp(ev) { dragEndAt(ev.clientX, ev.clientY); }
+  function onTouchEnd(ev) {
+    if (!drag) { return; }
+    var pt = touchPoint(ev);
+    dragEndAt(pt ? pt.clientX : drag.x, pt ? pt.clientY : drag.y);
+  }
+  function onTouchCancel() { endDrag(); }
+  function dragEndAt(x, y) {
     if (!drag) { return; }
     if (!drag.moved) { endDrag(); return; }
-    var t = dropTargetUnder(ev.clientX, ev.clientY);
-    var d = drag; endDrag();
-    if (!t) { return; }
+    var t = dropTargetUnder(x, y);
+    var d = drag;
+    // P8-2 MAJOR-A / review #5: arm the one-shot click guard iff this gesture
+    // will actually deliver a click to a library card -- the single question
+    // clickWillReachLibCard answers (geometry AND a click that still exists).
+    // Two earlier conditions failed the same way, each by asserting a cause it
+    // had not established: "a drop target resolved" (a resolved target means
+    // the release landed on the board, disjoint from the rail, so no click
+    // could reach the card from there -- and it left the one case that DOES
+    // leave a click, release back on the source card, unarmed, so the
+    // follow-up click reopened the picker on top of the "Dropped outside a
+    // funnel" alert); then geometry alone, which armed on touch releases that
+    // leave no click behind and ate the operator's next genuine tap.
+    var armLibClickGuard = clickWillReachLibCard(d, x, y);
+    endDrag();
+    if (armLibClickGuard) { suppressNextLibClick = true; }
+    // B5: never a silent no-op. A drop that landed on nothing droppable says
+    // so, in the board's own inline-error vocabulary.
+    if (!t) { showInlineErr(null, DROP_OUTSIDE_MESSAGE); return; }
     if (d.kind === 'lib') {
       var pub = d.el.getAttribute('data-section-public-id');
       if (t.scope === 'shared') { addSectionToShared(pub, t.pageEl || t.colEl); return; }
       var f = funnelByPublic(t.colEl ? t.colEl.getAttribute('data-funnel-public-id') : '');
-      if (!f) { return; }
+      // P8-2 MINOR-1: a resolved-but-unknown funnel column never reloads
+      // either. Structurally unreachable while armed (armLibClickGuard can
+      // only be true when dropTargetUnder found NO target, which returns
+      // above before this line) -- cleared anyway, matching saveFunnel's and
+      // saveSharedSlots' own "must not leave the guard armed" clears.
+      if (!f) { suppressNextLibClick = false; showInlineErr(t.pageEl || t.colEl, DROP_OUTSIDE_MESSAGE); return; }
       var pi = t.pageEl ? Number(t.pageEl.getAttribute('data-page-index')) : (f.pages.length - 1);
       addSectionToFunnelPage(f, pi, pub, t.pageEl || t.colEl);
       return;
@@ -5568,7 +5818,12 @@ export const QUOTE_EDITOR_SCRIPT = `
     if (d.kind === 'chip') {
       var srcScope = d.el.getAttribute('data-chip-scope');
       if (srcScope === 'shared') {
-        if (t.scope !== 'shared') { showInlineErr(t.pageEl || t.colEl, 'Shared-page sections stay on the shared page.'); }
+        // B5 (same "silent attempt" class): dropping a shared chip back on the
+        // shared page used to do nothing AND say nothing. It is honest about
+        // both outcomes now — the cross-page refusal, and the fact that the
+        // shared page's own order is not drag-editable.
+        if (t.scope !== 'shared') { showInlineErr(t.pageEl || t.colEl, 'Shared-page sections stay on the shared page.'); return; }
+        showInlineErr(t.pageEl || t.colEl, 'The shared first page keeps the order its sections were added in \\u2014 remove and re-add a section to change it.');
         return;
       }
       if (t.scope === 'shared') { showInlineErr(t.pageEl || t.colEl, 'Sections can\\u2019t move into the shared page \\u2014 drag from the library.'); return; }
@@ -5580,10 +5835,10 @@ export const QUOTE_EDITOR_SCRIPT = `
       }
       var srcPi = pageIndexOfEl(d.el); var slotId = Number(d.el.getAttribute('data-slot-id'));
       var destPi = t.pageEl ? Number(t.pageEl.getAttribute('data-page-index')) : srcPi;
-      if (srcPi < 0) { return; }
+      if (srcPi < 0) { showInlineErr(t.pageEl || t.colEl, DROP_UNRESOLVED_MESSAGE); return; }
       var srcPage = srcF.model.pages[srcPi]; var moved = null; var kept = []; var i;
       for (i = 0; i < srcPage.slots.length; i++) { if (srcPage.slots[i].slot_id === slotId) { moved = srcPage.slots[i]; } else { kept.push(srcPage.slots[i]); } }
-      if (!moved) { return; }
+      if (!moved) { showInlineErr(t.pageEl || t.colEl, DROP_UNRESOLVED_MESSAGE); return; }
       srcPage.slots = kept;
       var destPage = srcF.model.pages[destPi] || srcPage;
       destPage.slots.push(moved);
@@ -5591,11 +5846,15 @@ export const QUOTE_EDITOR_SCRIPT = `
       return;
     }
     if (d.kind === 'page') {
-      var pf = funnelOfEl(d.el); if (!pf || !pf.model) { return; }
-      if (t.scope !== 'funnel' || !t.colEl || t.colEl.getAttribute('data-funnel-public-id') !== pf.pub) { return; }
+      var pf = funnelOfEl(d.el); if (!pf || !pf.model) { showInlineErr(t.pageEl || t.colEl, DROP_UNRESOLVED_MESSAGE); return; }
+      if (t.scope !== 'funnel' || !t.colEl || t.colEl.getAttribute('data-funnel-public-id') !== pf.pub) {
+        showInlineErr(t.pageEl || t.colEl, 'Pages stay in their own funnel \\u2014 drop this page inside ' + pf.model.name + ', or use the page menu to reorder it.');
+        return;
+      }
       var from = Number(d.el.getAttribute('data-page-index'));
       var toIdx = t.pageEl ? Number(t.pageEl.getAttribute('data-page-index')) : (pf.model.pages.length - 1);
-      if (from < 0 || toIdx < 0 || from === toIdx) { return; }
+      if (from < 0 || toIdx < 0) { showInlineErr(t.pageEl || t.colEl, DROP_UNRESOLVED_MESSAGE); return; }
+      if (from === toIdx) { return; }
       var pg = pf.model.pages.splice(from, 1)[0];
       pf.model.pages.splice(toIdx, 0, pg);
       saveFunnel(pf.model, t.pageEl || t.colEl);
@@ -5620,16 +5879,41 @@ export const QUOTE_EDITOR_SCRIPT = `
   if (searchInput) { searchInput.addEventListener('input', applyLibFilter); }
 
   /* ================= DELEGATED EVENTS ================= */
-  (shell || document).addEventListener('mousedown', function (ev) {
-    var t = ev.target;
-    if (!t || !t.closest) { return; }
-    if (t.closest('[data-chip-kebab],[data-page-kebab],[data-funnel-kebab],[data-add-section],[data-add-shared-section],[data-add-page],[data-preview],[data-ab-badge],[data-theme-picker],[data-template-picker],[data-funnel-name],[data-lib-search],[data-lib-filter]')) { return; }
+  // The controls a press must NOT start a drag on (they open menus/dialogs or
+  // take text). ONE list, read by both the mouse and the touch entry points.
+  var DRAG_SKIP_SELECTOR = '[data-chip-kebab],[data-page-kebab],[data-funnel-kebab],[data-add-section],[data-add-shared-section],[data-add-page],[data-preview],[data-ab-badge],[data-theme-picker],[data-template-picker],[data-funnel-name],[data-lib-search],[data-lib-filter]';
+  function dragSourceFor(t, isTouch) {
+    if (!t || !t.closest) { return null; }
+    if (t.closest(DRAG_SKIP_SELECTOR)) { return null; }
     var chipGrip = t.closest('[data-chip-grip]');
-    if (chipGrip) { var chip = chipGrip.closest('[data-sec-chip]'); if (chip) { startDrag('chip', chip, ev); } return; }
+    if (chipGrip) { var chip = chipGrip.closest('[data-sec-chip]'); return chip ? { kind: 'chip', el: chip } : null; }
     var pageGrip = t.closest('[data-page-grip]');
-    if (pageGrip) { var pc = pageGrip.closest('[data-page-card]'); if (pc) { startDrag('page', pc, ev); } return; }
+    if (pageGrip) { var pc = pageGrip.closest('[data-page-card]'); return pc ? { kind: 'page', el: pc } : null; }
     var lib = t.closest('[data-lib-card]');
-    if (lib) { startDrag('lib', lib, ev); return; }
+    if (lib) {
+      // P8-2 F-2: with a finger the library CARD is the rail's scroll surface,
+      // so only its grip starts a touch drag -- claiming the whole card broke
+      // ordinary scrolling on the owner's own left rail. A mouse, which has no
+      // scroll gesture to lose, still drags from anywhere on the card. Same
+      // deliberate-affordance rule the chip and page grips already follow.
+      if (isTouch && !t.closest('[data-lib-grip]')) { return null; }
+      return { kind: 'lib', el: lib };
+    }
+    return null;
+  }
+  (shell || document).addEventListener('mousedown', function (ev) {
+    var src = dragSourceFor(ev.target, false);
+    if (src) { startDrag(src.kind, src.el, ev, false); }
+  }, true);
+  // P8 B5: the touch half of the same engine. The drag GRIPS carry
+  // touch-action:none (shared.ts), so the browser hands us the gesture instead
+  // of scrolling; a single-finger press on a grip drags, multi-touch and every
+  // other surface (the card body, the board, the rails) are left to the
+  // browser so the page still scrolls under a finger.
+  (shell || document).addEventListener('touchstart', function (ev) {
+    if (!ev.touches || ev.touches.length !== 1) { return; }
+    var src = dragSourceFor(ev.target, true);
+    if (src) { startDrag(src.kind, src.el, ev, true); }
   }, true);
 
   document.addEventListener('click', function (ev) {
@@ -5752,6 +6036,24 @@ export const QUOTE_EDITOR_SCRIPT = `
       applyLibFilter();
       return;
     }
+    // D11: a tap is the natural touch affordance on a board library card, and
+    // it was inert -- only keydown (Enter/Space) opened the target picker.
+    // Matches the Themes chooser card sibling, which already binds click
+    // alongside keydown. suppressNextLibClick (set in dragEndAt only when
+    // clickWillReachLibCard says a click is genuinely coming) swallows the
+    // click a real drag leaves behind, so a drag never also opens this picker
+    // -- and a drag that leaves NO click never arms it, so the operator's very
+    // next tap still opens the picker.
+    var libCard = t.closest('[data-lib-card]');
+    if (libCard) {
+      if (suppressNextLibClick) { suppressNextLibClick = false; return; }
+      ev.stopPropagation();
+      var libCardPub = libCard.getAttribute('data-section-public-id');
+      openPopoverList(libCard, boardTargetItems(), function (targetKey) {
+        addSectionToBoardTarget(libCardPub, targetKey, libCard);
+      });
+      return;
+    }
     if (openMenuEl && !openMenuEl.contains(t)) { closeMenus(); }
   });
 
@@ -5761,13 +6063,49 @@ export const QUOTE_EDITOR_SCRIPT = `
     var t = ev.target;
     if (!t || !t.closest) { return; }
     if (t.closest('[data-add-funnel]')) { ev.preventDefault(); addFunnel(); return; }
+    // P8 B5: the keyboard equivalent of the drag now reaches EVERY column.
+    // It used to add the section to the default funnel and nothing else, so a
+    // keyboard operator could not put a section in funnels B..E at all (and
+    // was never told which funnel had been chosen for them). Enter/Space now
+    // opens the SAME popover list the "＋ section" control uses, naming the
+    // shared first page and every funnel column — including the ones that
+    // need horizontal scrolling, which is the whole point.
     var lib = t.closest('[data-lib-card]');
     if (lib) {
       ev.preventDefault();
-      var fs = orderedFunnels(); var target = null; var i;
-      for (i = 0; i < fs.length; i++) { if (fs[i].is_default) { target = fs[i]; break; } }
-      if (!target) { target = fs[0]; }
-      if (target) { addSectionToFunnelPage(target, (target.pages.length - 1), lib.getAttribute('data-section-public-id'), lib); }
+      var libPub = lib.getAttribute('data-section-public-id');
+      openPopoverList(lib, boardTargetItems(), function (targetKey) {
+        addSectionToBoardTarget(libPub, targetKey, lib);
+      }, true);
+      return;
+    }
+    // Menu/popover items are role=menuitem divs: Enter/Space activates the
+    // focused one (openPopoverList/openMenu give them a real tab stop), so
+    // every menu-driven board action has a keyboard path, not just a mouse one.
+    var mi = t.closest('.lg-menu-item');
+    if (mi && openMenuEl && openMenuEl.contains(mi)) { ev.preventDefault(); mi.click(); return; }
+    // ...and the controls that OPEN those menus. Every board affordance is a
+    // div carrying role="button" + tabindex="0" (the kebabs, ＋ section,
+    // + Add page, Preview, the A/B badge, the Theme/Template chips): a div
+    // does NOT synthesise a click from Enter/Space the way a <button> does,
+    // so before this the kebab menus — the a11y equivalent of the chip/page
+    // MOVE drags — could be focused but never opened. Same B5 keyboard class
+    // as the library card above.
+    // Scoped to the board's OWN surfaces (its library rail, the shared band,
+    // the columns); the routing-rules rail is another slice's UI and keeps its
+    // own behaviour. P8-2 review #5 (F3): ".lg-board-left" alone was NOT that
+    // scope -- the Themes tab's chooser rail reuses the same class
+    // (quotes-tabs/themes.ts renderSectionChooserPane) and its cards are
+    // role=button divs that already carry their OWN click AND keydown
+    // handlers, so this delegation fired a second activation on them: measured
+    // live on the Themes tab, click = 1 POST /sections/preview, Enter = 2.
+    // The board's own rail is the one carrying data-pin="8.2-left-library"
+    // (the chooser's is "r2-theme-chooser"), so the selector now matches what
+    // the sentence above always claimed.
+    var btn = t.closest('[role="button"]');
+    if (btn && btn.closest('[data-board],[data-shared-col],.lg-board-left[data-pin="8.2-left-library"]') && btn.getAttribute('data-lib-card') === null) {
+      ev.preventDefault();
+      btn.click();
       return;
     }
   });

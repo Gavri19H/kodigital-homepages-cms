@@ -1,5 +1,5 @@
 <div class="lg-qpanel" data-panel="themes">
-  <div class="lg-theme-3pane" data-lg-themes-tab data-is-control="true" data-pin="8.4-themes-tab-layout" style="display:flex;align-items:flex-start;gap:18px">
+  <div class="lg-theme-3pane" data-lg-themes-tab data-is-control="true" data-pin="8.4-themes-tab-layout" style="display:flex;flex-wrap:wrap;align-items:flex-start;gap:18px">
     <div class="lg-board-left" data-pin="r2-theme-chooser" style="flex:0 0 280px;width:280px;">
     <div class="lg-lib-head">
       <div class="lg-lib-title">Section library</div>
@@ -10,17 +10,21 @@
       <p class="lg-col-help" style="padding:8px 4px">Loading sections&#8230;</p>
     </div>
   </div>
-    <div class="lg-theme-canvas-pane" id="lg-theme-canvas-pane" data-pin="r2-sticky-canvas" style="flex:1 1 420px;min-width:320px;position:sticky;top:84px;">
+    <div class="lg-theme-canvas-pane" id="lg-theme-canvas-pane" data-pin="r2-sticky-canvas" style="flex:1 1 320px;min-width:320px;position:sticky;top:84px;">
     <div class="lg-panel-card">
       <div style="display:flex;align-items:center;justify-content:space-between;gap:10px;margin-bottom:10px">
         <h3 style="margin:0">Live preview</h3>
         <span class="form-help" id="lg-theme-canvas-section-name" style="margin:0"></span>
       </div>
+      <div style="display:flex;align-items:center;gap:8px;margin-bottom:10px">
+        <label class="form-help" for="lg-theme-site-select" style="margin:0;white-space:nowrap">Preview site</label>
+        <span style="flex:1 1 auto;min-width:0"><select id="lg-theme-site-select" class="form-select" data-site-select aria-label="Preview site"><option value="">CMS fallback branding</option><option value="site-1" data-badge="Not activated yet">Site One — Not activated yet</option></select></span>
+      </div>
       <iframe id="lg-theme-canvas-frame" class="lg-theme-canvas-frame" title="Theme live preview" sandbox="allow-same-origin" style="width:100%;min-height:440px;border:1px solid var(--c-border);border-radius:10px;background:#EDF0F4;display:block"></iframe>
       <p class="form-help" id="lg-theme-canvas-status" role="status" aria-live="polite"></p>
     </div>
   </div>
-    <div class="lg-theme-rail" id="lg-theme-rail" data-pin="r2-theme-rail" style="flex:0 0 340px;min-width:280px;max-width:380px">
+    <div class="lg-theme-rail" id="lg-theme-rail" data-pin="r2-theme-rail" style="flex:0 1 340px;min-width:280px;max-width:380px">
     <div id="lg-themes-panel-mount"><div class="lg-panel-card" id="lg-theme-editor">
   <h3>Funnel theme</h3>
   <div class="lg-scope-head">Editing: <strong id="lg-theme-target-name" data-lg-target-funnel-name>this funnel</strong> · Funnel theme · affects every slide and every component default of this funnel<select class="form-select form-select-sm" id="lg-theme-target-select" data-lg-target-funnel aria-label="Funnel this theme edits" style="margin-left:8px;max-width:200px;vertical-align:middle"></select></div>
@@ -801,6 +805,7 @@
         var nm = document.createElement('span');
         nm.className = 'lg-lc-name';
         nm.textContent = s.section_name;
+        nm.title = s.section_name;
         top.appendChild(nm);
         var meta = document.createElement('div');
         meta.className = 'lg-lc-meta';
@@ -851,6 +856,123 @@
   var railDraftTheme = null;
   // hasAnyKey now comes from the shared theme-preset-resolve snippet above.
   var canvasSeq = 0;
+
+  // --- P8-2 B4: the PREVIEW SITE this canvas renders under -------------------
+  // FAIL-BEFORE (measured on the real route, r2fix fixture site): this island
+  // never sent a site at all, so resolveSiteBranding was never called and the
+  // canvas painted no site logo and an EMPTY footer while the Templates canvas
+  // beside it painted Contact / Privacy policy / Terms of use for the very
+  // same funnel. The site is read from the page's site selects AT EVERY
+  // RENDER (never cached at boot), so this canvas and the Templates one can
+  // never disagree about which site is on screen.
+  //
+  // The default is the SAME rule quotes-tabs/templates.ts (populateSiteSelect)
+  // and quotes-tabs/funnel.ts (initSiteSelectDefault) already apply: an
+  // explicit choice already made on ANOTHER tab's picker wins, else the first
+  // option whose SSR-rendered data-badge is "Active". Without agreeing on that
+  // rule the two canvases would boot on different sites and "matching
+  // Templates for the same site and moment" could not hold.
+  function siteSelectList() {
+    // Feature-detected: the ES5 island-probe harnesses stub document with
+    // querySelector/getElementById only, and a missing picker must never stop
+    // the canvas from rendering.
+    if (!document.querySelectorAll) { return []; }
+    var found = document.querySelectorAll('[data-site-select]');
+    var out = [];
+    var i;
+    for (i = 0; i < found.length; i++) { out.push(found[i]); }
+    return out;
+  }
+  function mySiteSelect() { return byId('lg-theme-site-select'); }
+  function currentSiteId() {
+    var mine = mySiteSelect();
+    if (mine && mine.value) { return mine.value; }
+    var all = siteSelectList();
+    var i;
+    for (i = 0; i < all.length; i++) { if (all[i].value) { return all[i].value; } }
+    return '';
+  }
+  function initSiteDefault() {
+    var mine = mySiteSelect();
+    var all = siteSelectList();
+    var chosen = '';
+    var i;
+    for (i = 0; i < all.length; i++) {
+      if (all[i] !== mine && all[i].value) { chosen = all[i].value; break; }
+    }
+    if (chosen === '' && mine && mine.querySelector) {
+      var active = mine.querySelector('option[data-badge="Active"]');
+      if (active) { chosen = active.value || ''; }
+    }
+    if (chosen === '') { return; }
+    for (i = 0; i < all.length; i++) { all[i].value = chosen; }
+  }
+  // ONE delegated listener for EVERY site picker on the page (this tab's own,
+  // the Templates canvas's, and the top bar's #lg-site-select — the control
+  // the owner is pointing at in Image18): whichever one the operator uses, the
+  // others follow and this canvas re-renders. quotes-tabs/templates.ts holds
+  // the mirror half for its own canvas, so one choice moves both.
+  document.addEventListener('change', function (ev) {
+    var el = (ev && ev.target) ? ev.target : null;
+    if (!el || !el.getAttribute || el.getAttribute('data-site-select') === null) { return; }
+    var picked = el.value || '';
+    var all = siteSelectList();
+    var i;
+    for (i = 0; i < all.length; i++) { if (all[i] !== el) { all[i].value = picked; } }
+    refreshCanvas();
+  });
+
+  // --- P8-2 B4: the BROKEN-LOGO watcher, brought to parity ------------------
+  // Owner (SRC-11A, Image18): "I chose a site - why I don't see its logo????"
+  // — the red box in that image is a ~143x18 sliver of alt text where the logo
+  // belongs. quotes-tabs/templates.ts already answers that on ITS canvas
+  // (watchCanvasLogo, R2 P7 D1); this canvas had NO watcher at all, so a site
+  // whose stored logo file is gone showed the same unexplained sliver here.
+  // Same mechanism, same copy (LOGO_UNREACHABLE_CANVAS_TEXT, imported): the
+  // srcdoc iframe has scripting OFF, so nothing inside the document can react
+  // to the load failure — the ADMIN page can, because sandbox="allow-same-
+  // origin" keeps contentDocument reachable.
+  var LOGO_UNREACHABLE_TEXT = "This site's logo image could not be loaded — re-upload it in Site settings.";
+  function replaceBrokenLogo(img) {
+    if (!img || img.getAttribute('data-logo-broken') === '1') { return; }
+    img.setAttribute('data-logo-broken', '1');
+    var doc = img.ownerDocument;
+    var chip = doc.createElement('span');
+    chip.className = 'lg-frame-logo-fallback';
+    chip.setAttribute('data-logo-unreachable', '1');
+    chip.setAttribute('style', 'display:inline-flex;align-items:center;gap:8px;font-size:13px;color:#5A6470;background:#F6F8FB;border:1px dashed #E1E6EE;border-radius:20px;padding:7px 14px');
+    chip.appendChild(doc.createTextNode(LOGO_UNREACHABLE_TEXT));
+    if (img.parentNode) { img.parentNode.replaceChild(chip, img); }
+  }
+  function armLogoErrorHandler(img) {
+    if (img.getAttribute('data-logo-armed') === '1') { return; }
+    img.setAttribute('data-logo-armed', '1');
+    img.onerror = function () { replaceBrokenLogo(img); };
+  }
+  function checkCanvasLogos(idoc) {
+    if (!idoc || !idoc.querySelectorAll) { return; }
+    var imgs = idoc.querySelectorAll('img.lg-logo-img');
+    var i;
+    for (i = 0; i < imgs.length; i++) {
+      var img = imgs[i];
+      // complete && naturalWidth === 0 is the browser's own "this load failed"
+      // state; a still-loading image is re-checked by the img's error handler.
+      if (img.complete && img.naturalWidth === 0) { replaceBrokenLogo(img); }
+      else if (!img.complete) { armLogoErrorHandler(img); }
+    }
+  }
+  function watchCanvasLogo(frame) {
+    var run = function () {
+      var idoc = null;
+      try { idoc = frame.contentDocument; } catch (e) { idoc = null; }
+      checkCanvasLogos(idoc);
+    };
+    frame.onload = run;
+    // srcdoc can already be parsed when a re-render reuses the same document;
+    // one deferred pass covers that race without polling.
+    if (window.setTimeout) { window.setTimeout(run, 250); }
+  }
+
   function refreshCanvas() {
     var frame = byId('lg-theme-canvas-frame');
     if (!frame || chosenSection === null) { return; }
@@ -865,6 +987,11 @@
     if (targetFunnel !== '' && railDraftTheme !== null && hasAnyKey(railDraftTheme)) {
       frameCtx.draft_theme = railDraftTheme;
     }
+    // P8-2 B4: the chosen site rides the SAME frame_context the funnel does —
+    // only on the funnel-pinned branch, since the empty-state branch
+    // ({default:true}) resolves no funnel to brand.
+    var pickedSite = currentSiteId();
+    if (targetFunnel !== '' && pickedSite !== '') { frameCtx.site_id = pickedSite; }
     var body = {
       content_json: chosenSection.content_json,
       viewport: 'desktop',
@@ -880,6 +1007,7 @@
       if (!res.ok || !res.body || !res.body.preview) { setStatus('Preview unavailable.'); return; }
       var p = res.body.preview;
       frame.setAttribute('srcdoc', '<!doctype html><html><head><meta charset="utf-8"><style>' + (p.css || '') + '</style></head><body>' + (p.html || '') + '</body></html>');
+      watchCanvasLogo(frame);
       setStatus('');
     }).catch(function () {
       if (seq !== canvasSeq) { return; }
@@ -1165,6 +1293,10 @@
   // funnel's SSR values under the target's name — same condition
   // quotes-tabs/templates.ts's own init uses for the frame.
   if (targetFunnelPublicId() !== funnelPublicId) { syncThemeToTargetFunnel(); }
+  // P8-2 B4: agree with the other tabs' pickers on which site is showing
+  // BEFORE the first canvas render, so the very first paint already carries
+  // the site's branding instead of waiting for the operator to touch a select.
+  initSiteDefault();
   loadSections();
 }());
 </script>

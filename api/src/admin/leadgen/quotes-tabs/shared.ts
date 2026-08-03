@@ -417,10 +417,17 @@ export const PROBLEM_SCOPE_ORDER: ReadonlyArray<string> = [
 ];
 
 
+// P8 M9.3 (contract §6 M9 item 3): `section: "Slides"` named a thing the
+// product does not have — the operator authors PAGES made of SECTIONS, and
+// every other surface (the board's "＋ section", the Section library, the
+// Sections tab) says section. The scope KEY is unchanged (the server emits
+// `scope: "section"`); only the human label is corrected. Rendered by
+// activation.ts's problem-group <h4> and mirrored into funnel.ts's ES5
+// island as PROBLEM_SCOPE_NAMES, so both surfaces move together.
 export const PROBLEM_SCOPE_LABELS: Readonly<Record<string, string>> = {
   frame: "Funnel layout",
   theme: "Theme",
-  section: "Slides",
+  section: "Sections",
   component: "Components",
   choice: "Choices",
   mapping: "Offer mapping",
@@ -695,20 +702,53 @@ button.lg-publish-why-fix:focus-visible{outline:2px solid currentColor;outline-o
 /* === P3b (§8.2) — Funnel-builder BOARD ==================================== */
 /* Geometry pinned to docs/leadgen/rework/design-pack/board.html: 292px left
    library rail / fluid center board (h-scroll INSIDE .lg-board only) / 344px
-   right routing-rules mount. navy = --c-primary (#1B3A5C golden master). */
-.lg-board-shell{display:flex;min-height:620px;border:1px solid var(--c-border);border-radius:10px;overflow:hidden;background:#EDF0F4;align-items:stretch}
-.lg-board-left{flex:0 0 292px;width:292px;background:#fff;border-right:1px solid var(--c-border);display:flex;flex-direction:column;min-height:0}
+   right routing-rules mount. navy = --c-primary (#1B3A5C golden master).
+
+   P8 B5 (contract §5 B5 — "in the middle create different funnels side by
+   side ... how he can see them side by side?"): the three lane widths and the
+   funnel-column width are TOKENS, and they step down below the design-pack's
+   own 1600px reference width. At 1280 the pinned 292/344 rails left a 344px
+   centre — ONE 288px column, and the shared column ate that one — so no two
+   funnels could ever be seen side by side. Both rails STAY (owner-required,
+   §5 B5 acceptance); they narrow, they never disappear, and at >=1600 every
+   number below is the design-pack value byte-for-byte. Measured on the live
+   board (5 funnels): fully-visible funnel columns 375 -> 1, 1280 -> 2,
+   1440 -> 2, 1600 -> 2, 1920 -> 3. */
+.lg-board-shell{--lg-rail-l:292px;--lg-rail-r:344px;--lg-col-w:288px;--lg-col-gap:14px;--lg-board-pad:16px;display:flex;min-height:620px;border:1px solid var(--c-border);border-radius:10px;overflow:hidden;background:#EDF0F4;align-items:stretch}
+@media (max-width:1599px){.lg-board-shell{--lg-rail-l:256px;--lg-rail-r:308px;--lg-col-w:248px;--lg-col-gap:12px;--lg-board-pad:14px}}
+@media (max-width:1439px){.lg-board-shell{--lg-rail-l:216px;--lg-rail-r:276px;--lg-col-w:216px;--lg-col-gap:12px;--lg-board-pad:12px}}
+.lg-board-left{flex:0 0 var(--lg-rail-l);width:var(--lg-rail-l);background:#fff;border-right:1px solid var(--c-border);display:flex;flex-direction:column;min-height:0}
 .lg-board-center{flex:1 1 auto;min-width:0;display:flex;flex-direction:column;min-height:0}
-.lg-board-right{flex:0 0 344px;width:344px;background:#fff;border-left:1px solid var(--c-border);display:flex;flex-direction:column;min-height:0;overflow-y:auto}
+.lg-board-right{flex:0 0 var(--lg-rail-r);width:var(--lg-rail-r);background:#fff;border-left:1px solid var(--c-border);display:flex;flex-direction:column;min-height:0;overflow-y:auto}
 /* the board is the ONLY horizontal scroller (AC: board h-scroll internal) */
-.lg-board{flex:1 1 auto;min-height:0;overflow:auto;padding:16px}
-.lg-board-cols{display:flex;gap:14px;align-items:flex-start;min-height:100%}
-.lg-col{flex:0 0 288px;width:288px;background:#F7F9FB;border:1px solid var(--c-border);border-radius:12px;display:flex;flex-direction:column;max-height:560px}
-.lg-col-shared{position:sticky;left:0;z-index:3;background:#fff;border:1.5px solid #C7D6E6;box-shadow:6px 0 14px -8px rgba(20,32,54,.18)}
+.lg-board{flex:1 1 auto;min-height:0;overflow:auto;padding:var(--lg-board-pad)}
+.lg-board-cols{display:flex;gap:var(--lg-col-gap);align-items:flex-start;min-height:100%}
+.lg-col{flex:0 0 var(--lg-col-w);width:var(--lg-col-w);background:#F7F9FB;border:1px solid var(--c-border);border-radius:12px;display:flex;flex-direction:column;max-height:560px}
+/* P8 B5: the shared first page is a BAND above the funnel lane, not a column
+   inside it. Its old position:sticky;left:0 never pinned anything (measured x
+   583 -> -825 as the board scrolled, while the island's comment claimed it
+   "is pinned and never scrolls"): a sticky box only sticks within its
+   scrollport, and .lg-board-cols is that scrollport's content, so the shared
+   column scrolled away with everything else. Sitting in .lg-board-center
+   ABOVE .lg-board, the band is OUTSIDE the horizontal scroller altogether —
+   genuinely always visible — and it hands its 288px back to the funnel lane,
+   which is what makes two funnel columns fit at 1280. It is also the truer
+   picture of the owner's own sentence: "the first page is shared by **all**
+   the funnels". Drop target, chips, kebabs and [data-shared-col] hooks are
+   unchanged. */
+.lg-col-shared{flex:0 0 auto;display:flex;flex-wrap:wrap;align-items:center;gap:12px;padding:10px 14px;background:#fff;border-bottom:1px solid var(--c-border)}
+.lg-col-shared .lg-col-head{flex:1 1 210px;min-width:170px;max-width:300px;padding:0;border:0;background:none;border-radius:0}
+.lg-col-shared .lg-col-body{flex:4 1 300px;min-width:0;display:flex;flex-wrap:wrap;align-items:center;gap:10px;padding:0;overflow:visible}
+.lg-col-shared .lg-col-meta{margin-top:4px}
+.lg-col-shared .lg-page-card{flex:3 1 240px;min-width:0;margin:0;display:flex;flex-wrap:wrap;align-items:center;gap:8px}
+.lg-col-shared .lg-page-head{margin:0}
+.lg-col-shared .lg-chip-list{flex:1 1 180px;min-width:0;flex-direction:row;flex-wrap:wrap;gap:6px}
+.lg-col-shared .lg-sec-chip{margin-bottom:0;max-width:100%}
+.lg-col-shared .lg-add-section{padding:0}
+.lg-col-shared .lg-hint-neutral{flex:1 1 150px;min-width:0;margin:0}
 .lg-col-funnel.is-default{border-color:var(--c-primary)}
 .lg-col-funnel.lg-drop-target,.lg-page-card.lg-drop-target,.lg-col-shared.lg-drop-target{outline:2px dashed var(--c-primary,#1B3A5C);outline-offset:-2px;background:#EAF0F6}
 .lg-col-head{flex:0 0 auto;padding:12px;border-bottom:1px solid var(--c-border)}
-.lg-col-shared .lg-col-head{background:#EAF0F6;border-radius:11px 11px 0 0}
 .lg-col-tag{display:inline-flex;align-items:center;gap:5px;font-size:9.5px;font-weight:800;letter-spacing:.6px;text-transform:uppercase;color:var(--c-primary,#1B3A5C);margin-bottom:6px}
 .lg-col-title-row{display:flex;align-items:center;gap:8px}
 .lg-col-title{font-size:14px;font-weight:800;color:var(--c-text);flex:1 1 auto;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;border-bottom:1.5px dashed transparent;padding:1px 2px;cursor:text}
@@ -738,7 +778,7 @@ button.lg-publish-why-fix:focus-visible{outline:2px solid currentColor;outline-o
 .lg-empty-col-body{flex:1 1 auto;display:flex;flex-direction:column;gap:12px;padding:16px}
 .lg-empty-hint{border:1.5px dashed #D5DCE6;border-radius:10px;padding:20px 14px;text-align:center;font-size:12.5px;color:#78818F;line-height:1.5}
 .lg-hint-neutral{display:block;background:#F6F8FB;border-radius:8px;padding:10px 12px;font-size:11.5px;color:#7C889A;line-height:1.45;margin-top:2px}
-.lg-stub-col{flex:0 0 250px;width:250px;align-self:stretch;min-height:220px;border:1.5px dashed #D5DCE6;border-radius:12px;background:rgba(255,255,255,.5);display:flex;flex-direction:column;align-items:center;justify-content:center;gap:9px;padding:20px;cursor:pointer;text-align:center}
+.lg-stub-col{flex:0 0 var(--lg-col-w);width:var(--lg-col-w);align-self:stretch;min-height:220px;border:1.5px dashed #D5DCE6;border-radius:12px;background:rgba(255,255,255,.5);display:flex;flex-direction:column;align-items:center;justify-content:center;gap:9px;padding:20px;cursor:pointer;text-align:center}
 .lg-plus-ring{width:40px;height:40px;border-radius:50%;background:#EAF0F6;display:inline-flex;align-items:center;justify-content:center;color:var(--c-primary,#1B3A5C)}
 .lg-stub-title{font-size:14px;font-weight:800;color:var(--c-primary,#1B3A5C)}
 .lg-stub-sub{font-size:11.5px;color:#8A93A3;line-height:1.45;max-width:180px}
@@ -762,7 +802,18 @@ button.lg-publish-why-fix:focus-visible{outline:2px solid currentColor;outline-o
 .lg-chip-activity{display:inline-flex;align-items:center;font-size:11px;font-weight:600;color:#8A93A3;background:#F3F5F8;border-radius:20px;padding:3px 9px}
 .lg-chip-inuse{display:inline-flex;align-items:center;font-size:9.5px;letter-spacing:.3px;padding:2px 7px;font-weight:700;color:#98A1B0;background:#EEF1F6;border-radius:20px}
 .lg-chip-inuse-here{display:inline-flex;align-items:center;font-size:9.5px;letter-spacing:.3px;padding:2px 7px;font-weight:700;color:var(--c-primary,#1B3A5C);background:#EAF0F6;border-radius:20px}
-.lg-lib-card .lg-grip{color:#C2CACF;flex:0 0 auto;display:inline-flex}
+.lg-lib-card .lg-grip{color:#C2CACF;flex:0 0 auto;display:inline-flex;position:relative}
+/* P8-2 F-2: a finger needs more than the icon's own box to grab; the target is
+   widened with a pseudo-element so the card's layout does not move a pixel. */
+.lg-lib-card .lg-grip::after{content:"";position:absolute;left:-9px;top:-9px;right:-9px;bottom:-9px}
+/* P8 B5 / P8-2 F-2: the drag GRIPS claim the touch gesture for themselves (the
+   island's touchstart/touchmove engine), so a finger press-and-drag on a grip
+   drags the section instead of scrolling the page. This used to name the whole
+   .lg-lib-card — i.e. essentially the entire left rail — and a plain vertical
+   swipe there stopped scrolling the page (measured 0px of travel), painted a
+   drag ghost and ended in a red "Dropped outside a funnel". The rail must
+   still scroll: every surface except the grips is left to the browser. */
+.lg-chip-grip,.lg-page-grip,.lg-lib-card .lg-grip{touch-action:none}
 /* board drag ghost + drop insertion line */
 .lg-drag-ghost{position:fixed;z-index:60;pointer-events:none;width:220px;padding:10px 12px;border:1px solid var(--c-primary,#1B3A5C);border-radius:9px;background:#fff;box-shadow:0 12px 28px rgba(20,32,54,.22);font-size:13px;font-weight:700;color:var(--c-primary,#1B3A5C);opacity:.96}
 /* §10/S5.1: .lg-drop-indicator(+::before) deleted — 0 references (P5 CSS orphan-scan). */
@@ -785,7 +836,11 @@ button.lg-publish-why-fix:focus-visible{outline:2px solid currentColor;outline-o
 .lg-board-guard-body .lg-guard-blocker{display:flex;gap:8px;align-items:flex-start;background:#FBEEEC;border:1px solid rgba(178,58,44,.28);border-radius:10px;padding:11px 13px;margin-bottom:8px}
 .lg-board-guard-foot{padding:12px 18px;border-top:1px solid #EEF1F6;display:flex;justify-content:flex-end;gap:10px;background:#FBFCFD}
 .lg-fsettings-body{padding:16px 18px;color:var(--c-text);font-size:13px;max-height:70vh;overflow-y:auto}
-.lg-board-inline-err{color:#B23A2C;font-size:12px;font-weight:600;margin:6px 0 0;padding:8px 10px;background:#FBEEEC;border:1px solid rgba(178,58,44,.28);border-radius:8px}
+/* P8-2 F-3: the refusal is only a "visible reason" if it can be read. It is
+   placed by the island (placeInlineErr) into a column/block host rather than
+   beside a flex-row item; these two lines keep it inside whatever host it
+   lands in instead of widening it. */
+.lg-board-inline-err{color:#B23A2C;font-size:12px;font-weight:600;line-height:1.45;margin:6px 0;padding:8px 10px;background:#FBEEEC;border:1px solid rgba(178,58,44,.28);border-radius:8px;box-sizing:border-box;max-width:100%;min-width:0}
 @media (max-width:1100px){.lg-board-shell{flex-direction:column}.lg-board-left,.lg-board-right{flex:1 1 auto;width:auto;border:0;border-bottom:1px solid var(--c-border)}}
 `;
 

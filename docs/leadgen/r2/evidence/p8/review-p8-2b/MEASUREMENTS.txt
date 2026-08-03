@@ -1,0 +1,122 @@
+P8-2 REVIEW #2 (review-p8-2b) — RAW DRIVEN MEASUREMENTS
+branch leadgen-r2-p8-2 @ 21fc363 · server http://127.0.0.1:8901 · quote lgq_01KZ271383Y0MPV4BM2WKKCC4W
+funnels A lgf_...JE5 / B ...SAVM / C ...G30E / D ...BQ7X / E ...GFCNMT (5 columns)
+Section authored by THIS session (unique, later hard-deleted):
+  lgs_01KZ3Q3FKKN7P0R60T9JFNADPY "RV2B-1785757548-UniqueProbeSectionWithAVeryLongNameForTruncation"
+
+== F-1 stale alert (1280) ==
+after shared-band refusal : alerts on screen = 1
+  text  "The shared first page keeps the order its sections were added in — remove and re-add a section to change it."
+  box   261x70 at (517,209) · lines 3 · host .lg-page-card inside [data-shared-col] · style flex "1 0 100%" · inBoard=false
+  funnel cols x = 503 731 959 1187 1415 (w216) · fullyVisible = 2
+after NEXT action (cross-funnel chip drag) : alerts on screen = 1 (the NEW one only; shared-band alert REMOVED)
+  text  "Sections can’t move between funnels — drag from the library instead."
+  box   190x70 at (744,597) · lines 3 · host .lg-col-body
+  funnel cols x = 503 731 959 1187 1415 · fullyVisible = 2  (UNMOVED)
+screenshots f1-sharedband-refusal-1280.png · f1-after-next-action-crossfunnel-1280.png
+
+== F-3 anchored-refusal geometry, every kind (1280) ==
+kind                       box       lines  host             cols x                       fully
+shared chip -> shared page 261x70    3      .lg-page-card    503 731 959 1187 1415        2
+cross-funnel chip          190x70    3      .lg-col-body     503 731 959 1187 1415        2
+page dropped in wrong funn 190x105   5      .lg-col-body     503 731 959 1187 1415        2
+dropped outside a funnel   464x53    2      .lg-board        503 731 959 1187 1415        2
+documentElement.scrollWidth == clientWidth in all four states. line-height 17.4px.
+screenshots f3-page-wrong-funnel-1280.png · f3-drop-outside-1280.png
+
+== F-2 touch (375, CDP Input.dispatchTouchEvent) ==
+scroller confirmed: document.body (window.scrollY == 0 and documentElement.scrollTop == 0 throughout)
+swipe starting on CARD BODY, sampled WHILE THE FINGER IS DOWN:
+  body.scrollTop 450 469 488 507 526 545 564 583 602 621  (+171px, monotonic)
+  .lg-drag-ghost count during swipe = 0 · alerts after touchend = 0
+swipe starting on the GRIP:
+  body.scrollTop 621 621 621 621 621 621 (0px) · .lg-drag-ghost count = 1
+GRIP touch-drag -> shared band: highlight "lg-page-card lg-drop-target"; PUT /quotes/.../shared-page;
+  STORED shared page after = ["R2Fix Fixture Shared Continue","RV2B-1785757548-UniqueProbe...Truncation"]
+GRIP touch-drag -> funnel column at 375: NOT REACHABLE in one gesture (no vertical auto-scroll).
+  library card abs top 815 · first funnel page card abs top 1736 · viewport height 812.
+  attempt returns the visible reason "Dropped outside a funnel — drop a section on a funnel column, or on the
+  shared first page above the board."  (Tapping a library card does nothing: the target picker is keydown-only.)
+screenshots f2-swipe-on-card-body-fingerdown-375.png · f2-grip-touchdrag-mid-375.png · f2-grip-touchdrag-landed-375.png
+
+== F-8 Themes site picker ==
+1280: .lg-theme-3pane rowCount 1 · panes 280 / 326 / 340 at x 274 / 572 / 916 · scrollWidth 982 == clientWidth 982
+      picker #lg-theme-site-select in viewport; elementFromPoint(center) === the select
+375 : rowCount 3 (stacked) · picker box x105 w241 h36 (inside 375) · after scrollIntoView: inViewport true,
+      elementFromPoint(center) === the select
+375 site change re-renders the canvas: iframe hash 1301495717 -> 1641148983;
+      footer text "" -> "ContactPrivacy policyTerms of use"
+RESIDUAL (375): .lg-theme-3pane scrollWidth 390 vs clientWidth 343. Sole overflowing descendant is
+      #lg-theme-canvas-section-name (form-help, x93 -> right 406) carrying a long unbroken section name.
+screenshots f8-themes-tab-1280.png · f8-picker-inview-375.png · f8-themes-canvas-site-375.png
+
+== B4 parity Templates canvas vs Themes canvas (independent re-drive) ==
+key                A@1280      C@1280      E@1280      A@375       C@375       E@375
+regions match      yes         yes         yes         yes         yes         yes
+CSS bytes          71934       68501       68496       71934       68501       68496   (identical both sides)
+footer links       Contact / Privacy policy / Terms of use  (identical both sides, all six)
+A regions: back background footer header logo progress section_slot
+C/E regions: back background footer logo logo progress section_slot
+console errors: 0 on every load
+screenshots b4-templates-{A,C,E}-{1280,375}.png · b4-themes-{A,C,E}-{1280,375}.png
+
+== Acceptance (re-measured) ==
+1280 board x491 w488 · funnel cols x 503 731 959 1187 1415 w216 · fullyVisible 2 (with FIVE funnels)
+     left rail present · right rail present · documentElement.scrollWidth == clientWidth
+375  fullyVisible 1 · both rails present · no document overflow
+shared band x = 491 at board.scrollLeft 0 AND at board.scrollLeft 880 (maximum) — static across a full scroll
+auto-scroll during a real page.mouse drag held at the right edge: board.scrollLeft 18 -> 880 (+862)
+drop landed in the FURTHEST column P8-Echo-themeless; board blob after: Echo pages [[lgs_01KZ3Q3FKKN7P0R60T9JFNADPY]]
+publish blockers 4 -> 3 after the landing
+keyboard: Enter on a library card opens a picker listing "Shared first page" + all five funnels; Escape closes
+screenshots accept-board-{1280,375}.png · accept-sharedband-after-full-scroll-1280.png ·
+            accept-autoscroll-mid-1280.png · accept-drag-landed-furthest-1280.png · accept-keyboard-picker-1280.png
+
+== F-9 title-on-truncated-name, ALL library/chip surfaces ==
+funnel-builder library cards (funnel.ts:240)     : 6/6 title == full name              PASS
+Themes-tab section chooser  (themes.ts:819)      : 7/7 title === null; clipped sw490/cw221 (1280), 490/222 (375)
+board section chips .lg-sc-name (funnel.ts:286)  : 3/3 title === null; ALL CLIPPED at 1280
+     sw/cw = 185/131 ("R2Fix Fixture Shared Continue"), 128/87 ("P8 Address Repro v3"), 177/87 ("R2Fix Fixture Carrier Buttons")
+CSS clipping both: shared.ts:800 (.lg-lc-name) and shared.ts:773 (.lg-sc-name) = overflow:hidden;text-overflow:ellipsis;white-space:nowrap
+screenshots f9-themes-library-no-title-{1280,375}.png
+
+== P8-1 regression sweep ==
+B2 theme-record PATCH -> live: thm_p8-repro brand_primary #5C1BA0 -> #0B7ACE; ONE fresh ?_cb GET of
+   http://127.0.0.1:8901/lg/r2fix (Host: r2fix.e2e.test), NO activation save:
+   old colour 20 -> 0 occurrences · new colour 0 -> 20 · content_version 390 -> 391   (restored afterwards)
+B3 chip identity: from P8-Charlie's board chip -> scope line "P8-Charlie", target select value = Charlie,
+   EXACTLY ONE write  PUT /funnels/lgf_01KZ279RW7CMXCDT9JF8WJG30E/theme
+   theme_json before/after: C brand_primary "#142c45" -> "accent"; A, B, D, E byte-identical  (restored afterwards)
+failed theme GET (injected 500 on /funnels/*/theme): page says
+   "Could not load the theme for P8-Charlie — Internal error. The controls below still show the previous values —
+    they are R2Fix Fixture Quote — Funnel A’s, NOT P8-Charlie’s. Any edit you make now is saved to P8-Charlie."
+   transparent swatches 0 of 14 (controls keep their previous values)
+override switch on-target : radios inherit(checked)/override, both enabled, note hidden
+override switch off-target: both radios DISABLED + note "Editing R2Fix Fixture Quote — Funnel A. A variant override
+   belongs to the variant this page is open on, so it cannot be set from here — changes are saved to
+   R2Fix Fixture Quote — Funnel A and apply to every visitor of that funnel."
+M9.3: Activation problem-group titles = ["Theme","Sections"]; zero "slide" strings on that surface
+console errors: 0 in every drive above (the only console line anywhere was the deliberately injected 500)
+screenshots reg-b3-charlie-colour-write-1280.png · reg-failed-theme-get-1280.png ·
+            reg-override-switch-{ontarget,offtarget}-1280.png · m93-scope-label-activation-1280.png
+
+== live probes of register claims ==
+ADJ-P8-12  PUT /variants/lgn_01KZ3ANG2WTWSKRXAV7BZPBFF6 {"pages":[]} -> HTTP 400
+           {"error":"Validation failed","fields":{"pages":"pages must be a non-empty array"}}   CLAIM TRUE
+ADJ-P8-11  PUT .../variants/... {slots:[{kind:"fixed",section_id:"lgs_01KZ27D1Z55HWZ8F7WD5H9396T"}]} -> HTTP 400
+           {"fields":{"pages.0.slots.0.section_id":"section lgs_01KZ27D1Z55HWZ8F7WD5H9396T vertical 'finance'
+            is not one of the quote verticals"}}                                                CLAIM TRUE
+ADJ-P8-16  templates.ts:894 / themes.ts:200 "affects every slide of this funnel" — present
+           templates.ts:753 "Progress counts the slides" — present
+           quotes-handlers.ts:6516 "Slide N '…' … on every slide" — present
+           scopeHead() carrying "affects every slide of this funnel" is at shared.ts:997 (cell says :987);
+           imported at funnel.ts:93 and NEVER CALLED — dead export, as the cell states
+
+== ADJ-P8-15 re-driven independently on a quote authored by THIS review ==
+POST /quotes -> lgq_01KZ3RYKMSZX1T41NRDYZT00TF, first funnel lgf_01KZ3RYKMSEXAGPHQ6H1QP3KTV
+  frame_config_json = null AND frame_template_id = null   (the state POST /quotes gives every new quote)
+Templates canvas : regions [background, logo, logo, progress, section_slot, back, footer] · CSS 68,496 · footer links []
+Themes    canvas : regions []                                                            · CSS 31,891 · footer links []
+=> the contract's own B4 numbers reproduce VERBATIM on this state. ADJ-P8-15 is accurate.
+   (probe quote archived afterwards; console errors 0)
+screenshots adj15-templates-NULLFRAME-1280.png · adj15-themes-NULLFRAME-1280.png

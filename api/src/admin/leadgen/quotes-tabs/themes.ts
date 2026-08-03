@@ -84,7 +84,15 @@ import {
   renderRoleStrip,
   frameControl,
   renderOverrideSwitch,
+  renderSiteSelect,
 } from "./shared";
+import type { PreviewSiteOption } from "./shared";
+// P8-2 B4 — the canvas copy for a site logo whose file cannot be loaded. The
+// SAME exported constant quotes-tabs/templates.ts's canvas already renders
+// (its own R2 P7 D1 fix), imported rather than re-typed so both canvases say
+// one sentence. Source-text constant only; no runtime coupling between the
+// two islands (each is its own IIFE).
+import { LOGO_UNREACHABLE_CANVAS_TEXT } from "./templates";
 // R2 P2 tail (item 2): the preset-resolve algorithm (PRESET_ROLE_BRIDGE /
 // PRESET_EXTRA_ROLE_BRIDGE / hasAnyKey / inlineThemeFromPreset) now lives in
 // this shared snippet so quotes-tabs/funnel.ts's one-Save theme path can
@@ -303,19 +311,45 @@ function renderSectionChooserPane(): string {
 
 // ---------------------------------------------------------------------------
 // R2 P2 S2b — CENTER: the ONE sticky canvas. A.3 verbatim: "sticky center
-// canvas". `position:sticky` (inline — this tab introduces no new admin
+// canvas".
+//
+// P8-2 B4 — the PREVIEW-SITE picker. Owner (SRC-11A, Image18): "I chose a site
+// - why I don't see its logo????". Before this the Themes tab had NO site
+// control of any kind and no listener on the page-level one (#lg-site-select,
+// ui-quotes.ts), so the canvas resolved NO SiteBranding: MEASURED against the
+// real route on the r2fix fixture site, the composed body went 5,634 -> 6,164
+// bytes once frame_context.site_id was supplied, and the footer went from
+// ZERO links to Contact / Privacy policy / Terms of use plus the site-settings
+// link the Templates canvas already paints. The select is the SHARED
+// renderSiteSelect helper (quotes-tabs/shared.ts — the same markup, the same
+// `data-site-select` hook and the same `data-badge` the top-bar and Templates
+// pickers carry), so choosing a site on ANY tab moves every canvas: the island
+// below listens on the document for that hook, and quotes-tabs/templates.ts's
+// own listener mirrors this one back into the Templates canvas.
+//
+// `position:sticky` (inline — this tab introduces no new admin
 // stylesheet dependency; matches ui-theme-manager.ts's own all-inline-style
 // convention) with a top offset clearing the admin shell's fixed 60px header
 // + 24px content padding (ui-theme-manager.ts's own documented 84px figure),
 // so it stays in view while the (taller) right rail scrolls past it.
 // ---------------------------------------------------------------------------
 
-function renderThemeCanvasPane(): string {
-  return `<div class="lg-theme-canvas-pane" id="lg-theme-canvas-pane" data-pin="r2-sticky-canvas" style="flex:1 1 420px;min-width:320px;position:sticky;top:84px;">
+function renderThemeCanvasPane(sites: PreviewSiteOption[]): string {
+  // P8-2 F-8: the basis is the pane's own min-width, because a wrapping flex
+  // row breaks its lines on BASIS, not on the shrunk width. At 320 the three
+  // panes' bases are 280 + 320 + 340 + 2*18 = 976 <= the 982px content box at
+  // 1280, so they stay on one row and grow back to the same 280/326/340 they
+  // measured before; a 420 basis totalled 1076 and threw the rail onto a
+  // second row at the acceptance width.
+  return `<div class="lg-theme-canvas-pane" id="lg-theme-canvas-pane" data-pin="r2-sticky-canvas" style="flex:1 1 320px;min-width:320px;position:sticky;top:84px;">
     <div class="lg-panel-card">
       <div style="display:flex;align-items:center;justify-content:space-between;gap:10px;margin-bottom:10px">
         <h3 style="margin:0">Live preview</h3>
         <span class="form-help" id="lg-theme-canvas-section-name" style="margin:0"></span>
+      </div>
+      <div style="display:flex;align-items:center;gap:8px;margin-bottom:10px">
+        <label class="form-help" for="lg-theme-site-select" style="margin:0;white-space:nowrap">Preview site</label>
+        <span style="flex:1 1 auto;min-width:0">${renderSiteSelect("lg-theme-site-select", sites)}</span>
       </div>
       <iframe id="lg-theme-canvas-frame" class="lg-theme-canvas-frame" title="Theme live preview" sandbox="allow-same-origin" style="width:100%;min-height:440px;border:1px solid var(--c-border);border-radius:10px;background:#EDF0F4;display:block"></iframe>
       <p class="form-help" id="lg-theme-canvas-status" role="status" aria-live="polite"></p>
@@ -339,7 +373,11 @@ function renderThemeCanvasPane(): string {
 // ---------------------------------------------------------------------------
 
 function renderThemeRailPane(isControl: boolean): string {
-  return `<div class="lg-theme-rail" id="lg-theme-rail" data-pin="r2-theme-rail" style="flex:0 0 340px;min-width:280px;max-width:380px">
+  // P8-2 F-8: `0 1` (not `0 0`) so the rail gives ground before the row wraps.
+  // At 1280 nothing changes — the three panes measure 280+326+340+2*18 = 982,
+  // exactly the content width — but a few pixels less no longer throws a pane
+  // off the row.
+  return `<div class="lg-theme-rail" id="lg-theme-rail" data-pin="r2-theme-rail" style="flex:0 1 340px;min-width:280px;max-width:380px">
     <div id="lg-themes-panel-mount">${renderThemeEditorPanel(isControl)}</div>
     ${renderThemePresetsPanel()}
   </div>`;
@@ -780,6 +818,7 @@ const THEMES_TAB_SCRIPT = `
         var nm = document.createElement('span');
         nm.className = 'lg-lc-name';
         nm.textContent = s.section_name;
+        nm.title = s.section_name;
         top.appendChild(nm);
         var meta = document.createElement('div');
         meta.className = 'lg-lc-meta';
@@ -830,6 +869,123 @@ const THEMES_TAB_SCRIPT = `
   var railDraftTheme = null;
   // hasAnyKey now comes from the shared theme-preset-resolve snippet above.
   var canvasSeq = 0;
+
+  // --- P8-2 B4: the PREVIEW SITE this canvas renders under -------------------
+  // FAIL-BEFORE (measured on the real route, r2fix fixture site): this island
+  // never sent a site at all, so resolveSiteBranding was never called and the
+  // canvas painted no site logo and an EMPTY footer while the Templates canvas
+  // beside it painted Contact / Privacy policy / Terms of use for the very
+  // same funnel. The site is read from the page's site selects AT EVERY
+  // RENDER (never cached at boot), so this canvas and the Templates one can
+  // never disagree about which site is on screen.
+  //
+  // The default is the SAME rule quotes-tabs/templates.ts (populateSiteSelect)
+  // and quotes-tabs/funnel.ts (initSiteSelectDefault) already apply: an
+  // explicit choice already made on ANOTHER tab's picker wins, else the first
+  // option whose SSR-rendered data-badge is "Active". Without agreeing on that
+  // rule the two canvases would boot on different sites and "matching
+  // Templates for the same site and moment" could not hold.
+  function siteSelectList() {
+    // Feature-detected: the ES5 island-probe harnesses stub document with
+    // querySelector/getElementById only, and a missing picker must never stop
+    // the canvas from rendering.
+    if (!document.querySelectorAll) { return []; }
+    var found = document.querySelectorAll('[data-site-select]');
+    var out = [];
+    var i;
+    for (i = 0; i < found.length; i++) { out.push(found[i]); }
+    return out;
+  }
+  function mySiteSelect() { return byId('lg-theme-site-select'); }
+  function currentSiteId() {
+    var mine = mySiteSelect();
+    if (mine && mine.value) { return mine.value; }
+    var all = siteSelectList();
+    var i;
+    for (i = 0; i < all.length; i++) { if (all[i].value) { return all[i].value; } }
+    return '';
+  }
+  function initSiteDefault() {
+    var mine = mySiteSelect();
+    var all = siteSelectList();
+    var chosen = '';
+    var i;
+    for (i = 0; i < all.length; i++) {
+      if (all[i] !== mine && all[i].value) { chosen = all[i].value; break; }
+    }
+    if (chosen === '' && mine && mine.querySelector) {
+      var active = mine.querySelector('option[data-badge="Active"]');
+      if (active) { chosen = active.value || ''; }
+    }
+    if (chosen === '') { return; }
+    for (i = 0; i < all.length; i++) { all[i].value = chosen; }
+  }
+  // ONE delegated listener for EVERY site picker on the page (this tab's own,
+  // the Templates canvas's, and the top bar's #lg-site-select — the control
+  // the owner is pointing at in Image18): whichever one the operator uses, the
+  // others follow and this canvas re-renders. quotes-tabs/templates.ts holds
+  // the mirror half for its own canvas, so one choice moves both.
+  document.addEventListener('change', function (ev) {
+    var el = (ev && ev.target) ? ev.target : null;
+    if (!el || !el.getAttribute || el.getAttribute('data-site-select') === null) { return; }
+    var picked = el.value || '';
+    var all = siteSelectList();
+    var i;
+    for (i = 0; i < all.length; i++) { if (all[i] !== el) { all[i].value = picked; } }
+    refreshCanvas();
+  });
+
+  // --- P8-2 B4: the BROKEN-LOGO watcher, brought to parity ------------------
+  // Owner (SRC-11A, Image18): "I chose a site - why I don't see its logo????"
+  // — the red box in that image is a ~143x18 sliver of alt text where the logo
+  // belongs. quotes-tabs/templates.ts already answers that on ITS canvas
+  // (watchCanvasLogo, R2 P7 D1); this canvas had NO watcher at all, so a site
+  // whose stored logo file is gone showed the same unexplained sliver here.
+  // Same mechanism, same copy (LOGO_UNREACHABLE_CANVAS_TEXT, imported): the
+  // srcdoc iframe has scripting OFF, so nothing inside the document can react
+  // to the load failure — the ADMIN page can, because sandbox="allow-same-
+  // origin" keeps contentDocument reachable.
+  var LOGO_UNREACHABLE_TEXT = ${JSON.stringify(LOGO_UNREACHABLE_CANVAS_TEXT)};
+  function replaceBrokenLogo(img) {
+    if (!img || img.getAttribute('data-logo-broken') === '1') { return; }
+    img.setAttribute('data-logo-broken', '1');
+    var doc = img.ownerDocument;
+    var chip = doc.createElement('span');
+    chip.className = 'lg-frame-logo-fallback';
+    chip.setAttribute('data-logo-unreachable', '1');
+    chip.setAttribute('style', 'display:inline-flex;align-items:center;gap:8px;font-size:13px;color:#5A6470;background:#F6F8FB;border:1px dashed #E1E6EE;border-radius:20px;padding:7px 14px');
+    chip.appendChild(doc.createTextNode(LOGO_UNREACHABLE_TEXT));
+    if (img.parentNode) { img.parentNode.replaceChild(chip, img); }
+  }
+  function armLogoErrorHandler(img) {
+    if (img.getAttribute('data-logo-armed') === '1') { return; }
+    img.setAttribute('data-logo-armed', '1');
+    img.onerror = function () { replaceBrokenLogo(img); };
+  }
+  function checkCanvasLogos(idoc) {
+    if (!idoc || !idoc.querySelectorAll) { return; }
+    var imgs = idoc.querySelectorAll('img.lg-logo-img');
+    var i;
+    for (i = 0; i < imgs.length; i++) {
+      var img = imgs[i];
+      // complete && naturalWidth === 0 is the browser's own "this load failed"
+      // state; a still-loading image is re-checked by the img's error handler.
+      if (img.complete && img.naturalWidth === 0) { replaceBrokenLogo(img); }
+      else if (!img.complete) { armLogoErrorHandler(img); }
+    }
+  }
+  function watchCanvasLogo(frame) {
+    var run = function () {
+      var idoc = null;
+      try { idoc = frame.contentDocument; } catch (e) { idoc = null; }
+      checkCanvasLogos(idoc);
+    };
+    frame.onload = run;
+    // srcdoc can already be parsed when a re-render reuses the same document;
+    // one deferred pass covers that race without polling.
+    if (window.setTimeout) { window.setTimeout(run, 250); }
+  }
+
   function refreshCanvas() {
     var frame = byId('lg-theme-canvas-frame');
     if (!frame || chosenSection === null) { return; }
@@ -844,6 +1000,11 @@ const THEMES_TAB_SCRIPT = `
     if (targetFunnel !== '' && railDraftTheme !== null && hasAnyKey(railDraftTheme)) {
       frameCtx.draft_theme = railDraftTheme;
     }
+    // P8-2 B4: the chosen site rides the SAME frame_context the funnel does —
+    // only on the funnel-pinned branch, since the empty-state branch
+    // ({default:true}) resolves no funnel to brand.
+    var pickedSite = currentSiteId();
+    if (targetFunnel !== '' && pickedSite !== '') { frameCtx.site_id = pickedSite; }
     var body = {
       content_json: chosenSection.content_json,
       viewport: 'desktop',
@@ -859,6 +1020,7 @@ const THEMES_TAB_SCRIPT = `
       if (!res.ok || !res.body || !res.body.preview) { setStatus('Preview unavailable.'); return; }
       var p = res.body.preview;
       frame.setAttribute('srcdoc', '<!doctype html><html><head><meta charset="utf-8"><style>' + (p.css || '') + '</style></head><body>' + (p.html || '') + '</body></html>');
+      watchCanvasLogo(frame);
       setStatus('');
     }).catch(function () {
       if (seq !== canvasSeq) { return; }
@@ -1144,12 +1306,24 @@ const THEMES_TAB_SCRIPT = `
   // funnel's SSR values under the target's name — same condition
   // quotes-tabs/templates.ts's own init uses for the frame.
   if (targetFunnelPublicId() !== funnelPublicId) { syncThemeToTargetFunnel(); }
+  // P8-2 B4: agree with the other tabs' pickers on which site is showing
+  // BEFORE the first canvas render, so the very first paint already carries
+  // the site's branding instead of waiting for the operator to touch a select.
+  initSiteDefault();
   loadSections();
 }());
 `;
 
 
-export function renderThemesTabPanel(isControl: boolean): string {
+export function renderThemesTabPanel(
+  isControl: boolean,
+  // P8-2 B4: the activation sites the canvas may preview under, threaded from
+  // ui-quotes.ts's OWN previewSiteOptions(activation) result — the SAME array
+  // the top-bar picker renders, never a second source of site truth. Defaults
+  // to none so the panel still renders (CMS fallback branding only) for a
+  // caller with no activation data.
+  sites: PreviewSiteOption[] = [],
+): string {
   // Round-4 P5b deliverable 1: a CLEAN mount point — the tab button + this
   // wrapper div stay byte-stable; R2 P2 S2b replaces ONLY the inner three
   // panes (was: a single stacked column with a placeholder mini-preview
@@ -1157,10 +1331,19 @@ export function renderThemesTabPanel(isControl: boolean): string {
   // A.3 rejected). `data-is-control` feeds THEMES_TAB_SCRIPT (above) so its
   // live-apply path knows whether this variant is primary (funnel-scoped
   // writes) or a non-control arm (which may have its own override switch).
+  //
+  // P8-2 F-8: `flex-wrap:wrap`. The three panes are UNCHANGED and still sit on
+  // one row wherever they fit (measured at 1280: one row, 280 + 326 + 340 in a
+  // 982px box). Below that the row used to overflow silently — the pane
+  // measured scrollWidth 976 against clientWidth 343 at 375, `body` clips
+  // overflow-x, so documentElement reported no overflow while B4's required
+  // "Preview site" picker sat at x 403..621, off the 375px screen and with no
+  // scrollable ancestor to bring it back. Wrapping stacks the panes instead of
+  // clipping them, so every control stays reachable at 375.
   return `<div class="lg-qpanel" data-panel="themes">
-  <div class="lg-theme-3pane" data-lg-themes-tab data-is-control="${isControl ? "true" : "false"}" data-pin="8.4-themes-tab-layout" style="display:flex;align-items:flex-start;gap:18px">
+  <div class="lg-theme-3pane" data-lg-themes-tab data-is-control="${isControl ? "true" : "false"}" data-pin="8.4-themes-tab-layout" style="display:flex;flex-wrap:wrap;align-items:flex-start;gap:18px">
     ${renderSectionChooserPane()}
-    ${renderThemeCanvasPane()}
+    ${renderThemeCanvasPane(sites)}
     ${renderThemeRailPane(isControl)}
   </div>
   <script>${THEMES_TAB_SCRIPT}</script>

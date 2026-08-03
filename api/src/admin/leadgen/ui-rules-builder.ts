@@ -2106,7 +2106,7 @@ function renderQuoteRuleCard(rule: QuoteRulesRailRule, data: QuoteRulesRailData)
     `<div class="lg-qr-card${isDisabled ? " disabled" : ""}"${isDisabled ? ' data-pin="8.2-rule-disabled"' : ""} data-qr-card data-rule-public-id="${escapeHtml(rule.public_id)}" data-rule-priority="${escapeHtml(String(rule.priority))}">` +
     `<div class="lg-qr-top">` +
     `<span class="lg-qr-prio" data-qr-prio>${escapeHtml(String(rule.priority))}</span>` +
-    `<span class="lg-qr-name" data-qr-name>${escapeHtml(name)}</span>` +
+    `<span class="lg-qr-name" data-qr-name title="${escapeHtml(name)}">${escapeHtml(name)}</span>` +
     `<span class="lg-qr-status ${isDisabled ? "disabled" : "active"}" data-qr-status><span class="lg-qr-dot"></span>${isDisabled ? "Disabled" : "Active"}</span>` +
     `</div>` +
     `<div class="lg-qr-ckpt" data-qr-ckpt><span class="lg-qr-ckico" aria-hidden="true">◷</span><span data-qr-ckpt-text>${escapeHtml(cpLabel)}</span></div>` +
@@ -2544,7 +2544,8 @@ export const QUOTE_RULES_SCRIPT = `(function () {
 
     var top = el('div', 'lg-qr-top');
     var prio = el('span', 'lg-qr-prio'); prio.setAttribute('data-qr-prio', ''); txt(prio, rule.priority); top.appendChild(prio);
-    var nm = el('span', 'lg-qr-name'); nm.setAttribute('data-qr-name', ''); txt(nm, (rule.rule_name && rule.rule_name.replace(/^\\s+|\\s+$/g, '') !== '') ? rule.rule_name : '(unnamed rule)'); top.appendChild(nm);
+    var nmText = (rule.rule_name && rule.rule_name.replace(/^\\s+|\\s+$/g, '') !== '') ? rule.rule_name : '(unnamed rule)';
+    var nm = el('span', 'lg-qr-name'); nm.setAttribute('data-qr-name', ''); nm.title = nmText; txt(nm, nmText); top.appendChild(nm);
     var st = el('span', 'lg-qr-status ' + (disabled ? 'disabled' : 'active')); st.setAttribute('data-qr-status', ''); st.appendChild(el('span', 'lg-qr-dot')); st.appendChild(document.createTextNode(disabled ? 'Disabled' : 'Active')); top.appendChild(st);
     card.appendChild(top);
 

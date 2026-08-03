@@ -766,7 +766,7 @@ function quoteEditorHtml(
   ${subtabs}
   ${renderBuilderPanel(structure, selected, designs, auctions, available, templates, sites, railData)}
   ${renderTemplatesTabPanel(selectedIsControl, answerFields)}
-  ${renderThemesTabPanel(selectedIsControl)}
+  ${renderThemesTabPanel(selectedIsControl, sites)}
   ${renderAbPanel(structure, selected)}
   ${renderActivationPanel(activation)}
   ${renderAnalyticsPanel()}

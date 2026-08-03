@@ -1243,7 +1243,8 @@ describeDb("Activation tab problems[] surfacing (14 §14.2, C2 LIVE)", () => {
     // the problems wrap + the section-scope group with its operator label
     expect(html).toContain('id="lg-preflight-problems"');
     expect(html).toContain('data-problem-scope="section"');
-    expect(html).toContain(">Slides</h4>");
+    // P8 M9.3: the scope label was "Slides"; the product has pages and sections, never slides. This still pins that the section-scope heading renders — only the wording moved.
+    expect(html).toContain(">Sections</h4>");
     // the §14.1 row: severity chip + copy + path identity
     expect(html).toContain('data-problem-severity="error"');
     expect(html).toContain('data-severity="error"');
