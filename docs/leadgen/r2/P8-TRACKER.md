@@ -69,6 +69,8 @@ verify:all 0 · runtime 52,762 ≤ 53,248.
 | P8-3 | S3.4 34-key inline sweep (sonnet) | sonnet | 251,595 | 1404s | instrument built + run: 34/34 keys, source-enumerated, count matches the contract; ALIVE 27 / DEAD 1 / MIS-TARGETED 1 / UNMEASURABLE 5; found 2 defects the contract missed |
 | P8-3 | S3.6 palette.success + palette.card_background (opus) | opus | 113,736 | 607s | WIRED success to 3 enumerated real surfaces (not removed); card role now paints the card; precedence pinned both ways; 12 failed → 20 passed; blast radius 582 passed |
 | P8-3 | S3.5 N1 base-design label (sonnet) | sonnet | 166,514 | 948s | **falsified the conductor's own brief premise on evidence** — the registry registers ONE design object under both keys, so it labelled honestly instead of inventing a visual split; 3 failed → 10 passed |
+| P8-3 | S3.8 reach the 5 unmeasurable states (sonnet) | sonnet | 339,724 | 2217s | 4 of 5 resolved by AUTHORING the state through real operator routes; found `.lg-tscard[data-error]` has NO producer; flagged the probe's hardcoded palette.success verdict |
+| P8-3 | S3.9 error role (opus) | opus | 188,927 | 1310s | error role wired to the state render.ts really produces; 6 failed → 16 passed; STOPPED on the dead rules rather than weaken unowned tests; corrected the conductor's accent premise |
 | P8-3 | S3.3 guard extend + re-predicate (opus) | opus | 266,106 | 1984s | 129 keys enumerated from source (34+25+66+4; the 34+25 reconciles to R3's 59); 4 exemptions all "no control offers this", exact-set pinned; ZERO dead-and-offered; sabotage red-proof 7 failed → restore → 47 passed |
 
 Two near-identical names that are DIFFERENT keys — do not conflate them in review:
