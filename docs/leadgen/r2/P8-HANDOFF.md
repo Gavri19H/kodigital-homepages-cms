@@ -309,3 +309,16 @@ A slice put a backtick inside a comment that lives **inside an emitted island te
 literal in an island file before you suspect your own change** — and check whether another slice is editing
 that file concurrently. This is why the island hazard list ("ES5 only, no backticks in emitted bodies or
 comments, no hex in island comments") is in every `ui-section-studio.ts` dispatch.
+
+## Instrument hazard: `vitest run <file>` SILENTLY SKIPS a filename that does not exist, and exits 0
+Confirmed by hand:
+```
+npx vitest run test/leadgen-answers.test.ts test/DOES-NOT-EXIST.test.ts   ->   EXIT=0
+```
+A slice caught this because a lane I wrote named `test/leadgen-payload-builder.test.ts`, which does not exist
+(the real file is `…-builder-ui.test.ts`). Vitest ran 5 files where the command named 6 and still reported
+success. **Any slice lane in this mission that mistyped a filename gave false confidence.** The phase GATE is
+unaffected — it runs the whole suite with a bare `npx vitest run` — which is exactly why the gate, not the
+lane, is authoritative.
+**Rule: whenever a lane names specific files, count the `Test Files N passed` figure against the number of
+files you named.** A mismatch is a broken command, not a pass. Put that instruction in the dispatch.
