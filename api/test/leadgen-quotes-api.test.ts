@@ -567,7 +567,17 @@ describeDb("§15.3 variant PUT — section-order replace-set (contiguous, auctio
 
     const bad = await admin.request(`${API}/variants/${variantId}`, jsonInit("PUT", { auction_id: 999999 }), env);
     expect(bad.status).toBe(400);
-    expect(((await bad.json()) as { fields: { auction_id: string } }).fields.auction_id).toMatch(/does not exist/);
+    // P8-5 M5 (owner: "the rules you build are using jargon, have no actions,
+    // and just poor poor execution"). This FK-existence message used to read
+    // "auction 999999 does not exist" — an internal row id the operator never
+    // typed (the Auction control is a NAME dropdown; the id is only the
+    // selected option's value attribute) and no action to take. It is now
+    // operator copy: the picker's own label + the action. Pinned as the exact
+    // sentence AND as the SHAPE of the old leak (any run of 4+ digits), so a
+    // regression that re-echoes a different id is caught too.
+    const msg = ((await bad.json()) as { fields: { auction_id: string } }).fields.auction_id;
+    expect(msg).toBe("the selected Auction no longer exists — refresh the page and pick another Auction.");
+    expect(msg).not.toMatch(/\d{4,}/);
   });
 });
 
@@ -610,7 +620,18 @@ describeDb("§15.5 variant PUT — funnel-rule replace-set + redirect safety", (
     const variantId = q.funnels[0]!.variants[0]!.public_id;
     const res = await putRules(env, variantId, [{ rule_type: "redirect_direct_offer", target_offer_id: 999999 }]);
     expect(res.status).toBe(400);
-    expect(JSON.stringify(await res.json())).toMatch(/does not exist/);
+    // P8-5 M5, same operator-copy register as the Auction FK above (both come
+    // from quotes-handlers.ts describeMissingReference). Pinned on the MESSAGE,
+    // not on JSON.stringify(body): the field KEY still carries the id
+    // (`rules.target_offer_id.999999`) because it is the machine binding the
+    // rules editor uses to attach the error to the offending row — measured
+    // below, and deliberately NOT copy. The operator-visible sentence names the
+    // picker label + the action and carries no raw id.
+    const body = (await res.json()) as { error: string; fields: Record<string, string> };
+    expect(Object.keys(body.fields)).toEqual(["rules.target_offer_id.999999"]);
+    const msg = body.fields["rules.target_offer_id.999999"]!;
+    expect(msg).toBe("the selected Offer no longer exists — refresh the page and pick another Offer.");
+    expect(msg).not.toMatch(/\d{4,}/);
   });
 
   it("a raw redirect_url is honored ONLY when allowlisted AND host ∈ admin allowlist", async () => {
