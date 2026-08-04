@@ -239,6 +239,18 @@ because P8-Charlie is empty (ADJ-P8-41).
 4. **In-file claims are load-bearing and rot.** Four rounds each wrote a comment correcting a false claim and
    asserted a NEW false one (incl. an exemption reason whose grep matched its own comment). State only what
    you measured.
+4b. **A false green can survive its own fix.** Three assertions in `leadgen-sections-api.test.ts` were
+   rewritten from document-wide `toContain` to slot-level reads — which fixed **WHICH ELEMENT** they read but
+   not **WHAT VALUE** they expected. They kept asserting fabricated behaviour, in a stronger-looking idiom,
+   and stayed green through two rounds until someone drove the live page. When you repair a weak assertion,
+   re-derive the expected VALUE from the product, not just the selector.
+
+4c. **Two claims of mine that were wrong, as warnings about conductor-authored briefs:** I twice told agents
+   the parity probe reported *"0 disagreements across 5 scenarios × 8 rows"* when G3d had actually reported
+   **4** (the known `lg-valid` rows, ADJ-P8-49); and I wrote a register census (27·2·25) that no shipped test
+   produced. A brief or a register row is an in-file claim too — it rots the same way, and a subagent will
+   reasonably build on it. Re-read the source report before quoting a number into a dispatch.
+
 5. **The instrument is wrong as often as the product.** The paint predicate was wrong in BOTH directions
    (class-only credited, then class-only discarded; the real answer was resolving pseudo-elements); `offeredIn`
    was blind to single quotes; my own drive sampled `.lg-question-card` for a signal it can't carry.
@@ -276,3 +288,15 @@ trying to PASS N18 on stylesheet bytes; that row is now `INCONCLUSIVE` with a na
 Deploy, secrets, production data, destructive git, budget caps, compliance scope, captcha/2FA, and
 **manual visual QA incl. re-blessing any frozen baseline**. `api/.dev.vars`'s two `GOOGLE_MAPS_*` slots are
 deliberately EMPTY — do NOT re-add a key.
+
+## Operational: the dev server can die mid-run
+`wrangler dev` on :8901 died during a slice's drive (`undici UND_ERR_HEADERS_TIMEOUT` on a PATCH). The
+slice's probe still restored its fixture through `finally` (status 200) — **write probes that restore in
+`finally`, not at the end of the happy path.** Restart is the CONDUCTOR's job (implementers never start or
+stop servers):
+```
+cd .../kodigital-cms-leadgen-r2-wt/api
+nohup npx wrangler dev --port 8901 --ip 127.0.0.1 --var DEV_BYPASS_AUTH:true --var ADMIN_HOST:127.0.0.1 > /tmp/wrangler-8901.log 2>&1 &
+```
+Then poll in short logged steps until `curl -H "Host: 127.0.0.1" http://127.0.0.1:8901/admin/leadgen/quotes`
+returns 200. If a drive reports impossible results, check the server is alive before believing them.
