@@ -31,22 +31,31 @@ P8-4's tip before P8-4 merged). They will merge as ONE squash PR with both claus
   (`fieldLabel()` now `:2454`), N4 (BOTH `:1966` SSR + `:2450` island), N5, N8, N10 (exactly 2 sites:
   `ui-quotes.ts:655`, `ab.ts:157`), N13 (`ui-payload-builder.ts:2879` vs `:2880`), N19, + write the four §9 owner rows.
 
-### In flight when context ran out
-`F2` (agent) owns `presets.ts` (5 aria-label sites), `leadgen-r4a-pipeline.test.ts:432` (stale pin),
-`sections.ts:161-162` (stale comment). Uncommitted work in the tree is its + S5.2c's — commit before gating.
+### P8-5 GATE RUN 1 — done, FAILED, fix round `F3` dispatched
+Log `docs/leadgen/r2/gate-logs/p8-phase-5-run1.log`, HEAD `60e7f75`, clean tree.
+`typecheck 0` · **4 failed / 8300 passed / 30 skipped (8334, 499 files)** · bundle 52,930 OK ·
+register 86 rows / 0 violations · **`VERIFY_ALL_EXIT=1`**.
+p3a recapture already done and **clean — 0 real changes** in every fixture (ULID drift only), committed.
+
+`F3` (agent, running) owns `leadgen-frame-legacy-pin.test.ts`, `leadgen-section-preview-frame.test.ts`,
+`test/fixtures/leadgen-legacy-pin/**`, and the golden-regions allowlist. Its two jobs:
+- **3 `preview.css` byte pins** moved by two INTENDED changes: N15's pill `bottom`→`top` at
+  `default-funnel/styles.ts:981` (+ `:1043` clamp, `:1101` minmax margin) per Image11, and N16's
+  `.studio-container-chip` `top:0`→`top:-18px`. Re-mint by hand (PIN_UPDATE is broken), add each moved
+  rule to the test's own modulo list with a reason, never broaden the comparison.
+- **1 unclassified golden-regions block** (`verify:all` prints `[UNCLASSIFIED — needs an allowlist entry]
+  1 block(s)`), most likely M4's new custom address-validation control. Classify per the existing
+  entries' convention; do NOT relax the census.
 
 ## Next steps, in order
-1. Land F2, commit.
-2. **p3a recapture** (`npx tsx src/scripts/capture-p3a-presplit.ts` from `api/`), classify EVERY differing
-   line, prove intended strings exist in `api/src`.
-3. **P8-5 gate** (ritual below) → green at branch HEAD, clean tree.
-4. Fresh-context **adversarial review** of P8-5 → must return SHIP **with the per-clause table**.
-5. **P8-6**: dispatch its minors (all grounded, sites above), gate, review.
-6. **CLOSE**: terminal battery (full unit + full Playwright, sharded, `PW_PORT` override; frozen suites
+1. Land F3, commit, **re-run the P8-5 gate** → must be green at branch HEAD on a clean tree.
+2. Fresh-context **adversarial review** of P8-5 → must return SHIP **with the per-clause table**.
+3. **P8-6**: dispatch its minors (all grounded, sites above), gate, review.
+4. **CLOSE**: terminal battery (full unit + full Playwright, sharded, `PW_PORT` override; frozen suites
    `test-ui/leadgen-visual.spec.ts` + `test-ui/leadgen-v31-gate1c-baselines.spec.ts` enumerated as
    owner-pending expected-fails, **never rebaselined**) + owner-journey sweep + full-program review +
    final report + 3–5 lines to `.a2z/LEARNINGS.md`.
-7. ONE squash PR to the base; then flip register rows to PASS only on SHIP.
+5. ONE squash PR to the base; then flip register rows to PASS only on SHIP.
 
 ## The gate ritual (yours alone, once per phase)
 ```bash
