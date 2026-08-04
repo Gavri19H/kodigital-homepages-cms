@@ -1,0 +1,1112 @@
+{
+ "routes": [
+  {
+   "W": 1280,
+   "path": "/admin/leadgen/offers",
+   "status": 200,
+   "copies": 6,
+   "installed": "function",
+   "total": 10,
+   "notable": []
+  },
+  {
+   "W": 1280,
+   "path": "/admin/leadgen/offers/new",
+   "status": 200,
+   "copies": 6,
+   "installed": "function",
+   "total": 10,
+   "notable": []
+  },
+  {
+   "W": 1280,
+   "path": "/admin/leadgen/offers/lgo_01KZ27136XE7F8RCMJSRH1Q25V/edit",
+   "status": 200,
+   "copies": 6,
+   "installed": "function",
+   "total": 15,
+   "notable": []
+  },
+  {
+   "W": 1280,
+   "path": "/admin/leadgen/sections",
+   "status": 200,
+   "copies": 6,
+   "installed": "function",
+   "total": 4,
+   "notable": []
+  },
+  {
+   "W": 1280,
+   "path": "/admin/leadgen/sections/new",
+   "status": 200,
+   "copies": 6,
+   "installed": "function",
+   "total": 87,
+   "notable": [
+    {
+     "id": "lg-section-activity",
+     "style": "border:0;background:transparent;font:inherit;color:#8A93A3;outline:none;min-width:11ch",
+     "own": null,
+     "clipped": null,
+     "title": null,
+     "vis": true
+    },
+    {
+     "id": "lg-section-vertical",
+     "style": "border:0;background:transparent;font:inherit;color:#8A93A3;outline:none;min-width:10ch",
+     "own": null,
+     "clipped": null,
+     "title": null,
+     "vis": true
+    },
+    {
+     "id": "lg-preview-theme",
+     "style": "font-size:12px;padding:3px 6px;flex:0 0 130px;min-width:0;width:130px;max-width:130px",
+     "own": null,
+     "clipped": null,
+     "title": null,
+     "vis": true
+    }
+   ]
+  },
+  {
+   "W": 1280,
+   "path": "/admin/leadgen/sections/lgs_01KZ27DTF599M85YHNEDHS6WA0/edit",
+   "status": 200,
+   "copies": 6,
+   "installed": "function",
+   "total": 99,
+   "notable": [
+    {
+     "id": "lg-section-activity",
+     "style": "border:0;background:transparent;font:inherit;color:inherit;outline:none;min-width:11ch",
+     "own": null,
+     "clipped": null,
+     "title": null,
+     "vis": true
+    },
+    {
+     "id": "lg-section-vertical",
+     "style": "border:0;background:transparent;font:inherit;color:inherit;outline:none;min-width:10ch",
+     "own": null,
+     "clipped": null,
+     "title": null,
+     "vis": true
+    },
+    {
+     "id": "lg-preview-theme",
+     "style": "font-size:12px;padding:3px 6px;flex:0 0 130px;min-width:0;width:130px;max-width:130px",
+     "own": null,
+     "clipped": null,
+     "title": null,
+     "vis": true
+    }
+   ]
+  },
+  {
+   "W": 1280,
+   "path": "/admin/leadgen/themes",
+   "status": 200,
+   "copies": 6,
+   "installed": "function",
+   "total": 2,
+   "notable": [
+    {
+     "id": "tm-headline-font",
+     "style": "appearance:none;-webkit-appearance:none;border:0;background:transparent;outline:none;font-family:'Roboto Mono',monospace;font-size:14px;color:#2A3346;width:100%;cursor:pointer",
+     "own": null,
+     "clipped": null,
+     "title": null,
+     "vis": true
+    },
+    {
+     "id": "tm-body-font",
+     "style": "appearance:none;-webkit-appearance:none;border:0;background:transparent;outline:none;font-family:'Roboto Mono',monospace;font-size:14px;color:#2A3346;width:100%;cursor:pointer",
+     "own": null,
+     "clipped": null,
+     "title": null,
+     "vis": true
+    }
+   ]
+  },
+  {
+   "W": 1280,
+   "path": "/admin/leadgen/themes?embed=1",
+   "status": 200,
+   "copies": 6,
+   "installed": "function",
+   "total": 2,
+   "notable": [
+    {
+     "id": "tm-headline-font",
+     "style": "appearance:none;-webkit-appearance:none;border:0;background:transparent;outline:none;font-family:'Roboto Mono',monospace;font-size:14px;color:#2A3346;width:100%;cursor:pointer",
+     "own": null,
+     "clipped": null,
+     "title": null,
+     "vis": true
+    },
+    {
+     "id": "tm-body-font",
+     "style": "appearance:none;-webkit-appearance:none;border:0;background:transparent;outline:none;font-family:'Roboto Mono',monospace;font-size:14px;color:#2A3346;width:100%;cursor:pointer",
+     "own": null,
+     "clipped": null,
+     "title": null,
+     "vis": true
+    }
+   ]
+  },
+  {
+   "W": 1280,
+   "path": "/admin/leadgen/quotes",
+   "status": 200,
+   "copies": 6,
+   "installed": "function",
+   "total": 3,
+   "notable": []
+  },
+  {
+   "W": 1280,
+   "path": "/admin/leadgen/quotes/new",
+   "status": 200,
+   "copies": 6,
+   "installed": "function",
+   "total": 2,
+   "notable": []
+  },
+  {
+   "W": 1280,
+   "path": "/admin/leadgen/quotes/lgq_01KZ271383Y0MPV4BM2WKKCC4W/edit",
+   "status": 200,
+   "copies": 6,
+   "installed": "function",
+   "total": 43,
+   "notable": [
+    {
+     "id": "lg-tpl-target-select",
+     "style": "margin-left:8px;max-width:200px;vertical-align:middle",
+     "own": null,
+     "clipped": null,
+     "title": null,
+     "vis": false
+    },
+    {
+     "id": "lg-tpl-theme-select",
+     "style": "max-width:180px",
+     "own": null,
+     "clipped": null,
+     "title": null,
+     "vis": false
+    },
+    {
+     "id": "lg-tpl-section-select",
+     "style": "max-width:240px",
+     "own": null,
+     "clipped": null,
+     "title": null,
+     "vis": false
+    },
+    {
+     "id": "lg-tpl-site-select",
+     "style": "max-width:220px;margin-left:auto",
+     "own": null,
+     "clipped": null,
+     "title": null,
+     "vis": false
+    },
+    {
+     "id": "lg-theme-target-select",
+     "style": "margin-left:8px;max-width:200px;vertical-align:middle",
+     "own": null,
+     "clipped": null,
+     "title": null,
+     "vis": false
+    }
+   ]
+  },
+  {
+   "W": 1280,
+   "path": "/admin/leadgen/auction",
+   "status": 200,
+   "copies": 6,
+   "installed": "function",
+   "total": 3,
+   "notable": []
+  },
+  {
+   "W": 1280,
+   "path": "/admin/leadgen/dashboard",
+   "status": 404,
+   "copies": 0,
+   "installed": "undefined",
+   "total": 0,
+   "notable": []
+  },
+  {
+   "W": 1280,
+   "path": "/admin",
+   "status": 200,
+   "copies": 0,
+   "installed": "undefined",
+   "total": 0,
+   "notable": []
+  },
+  {
+   "W": 1280,
+   "path": "/admin/pages",
+   "status": 200,
+   "copies": 0,
+   "installed": "undefined",
+   "total": 3,
+   "notable": []
+  },
+  {
+   "W": 1280,
+   "path": "/admin/articles",
+   "status": 200,
+   "copies": 0,
+   "installed": "undefined",
+   "total": 7,
+   "notable": []
+  },
+  {
+   "W": 375,
+   "path": "/admin/leadgen/offers",
+   "status": 200,
+   "copies": 6,
+   "installed": "function",
+   "total": 10,
+   "notable": [
+    {
+     "id": "Provider filter",
+     "style": "text-overflow: ellipsis;",
+     "own": null,
+     "clipped": "1",
+     "title": "All providers",
+     "vis": true
+    },
+    {
+     "id": "Vertical filter",
+     "style": "text-overflow: ellipsis;",
+     "own": null,
+     "clipped": "1",
+     "title": "All verticals",
+     "vis": true
+    },
+    {
+     "id": "Activity filter",
+     "style": "text-overflow: ellipsis;",
+     "own": null,
+     "clipped": "1",
+     "title": "All activities",
+     "vis": true
+    },
+    {
+     "id": "Status filter",
+     "style": "text-overflow: ellipsis;",
+     "own": null,
+     "clipped": "1",
+     "title": "All statuses",
+     "vis": true
+    },
+    {
+     "id": "Offer type filter",
+     "style": "text-overflow: ellipsis;",
+     "own": null,
+     "clipped": "1",
+     "title": "All offer types",
+     "vis": true
+    },
+    {
+     "id": "Dynamic or static filter",
+     "style": "text-overflow: ellipsis;",
+     "own": null,
+     "clipped": "1",
+     "title": "Dynamic + static",
+     "vis": true
+    },
+    {
+     "id": "Analytics timeframe",
+     "style": "text-overflow: ellipsis;",
+     "own": null,
+     "clipped": "1",
+     "title": "Last 30 days",
+     "vis": true
+    }
+   ]
+  },
+  {
+   "W": 375,
+   "path": "/admin/leadgen/offers/new",
+   "status": 200,
+   "copies": 6,
+   "installed": "function",
+   "total": 10,
+   "notable": [
+    {
+     "id": "Provider filter",
+     "style": "text-overflow: ellipsis;",
+     "own": null,
+     "clipped": "1",
+     "title": "All providers",
+     "vis": true
+    },
+    {
+     "id": "Vertical filter",
+     "style": "text-overflow: ellipsis;",
+     "own": null,
+     "clipped": "1",
+     "title": "All verticals",
+     "vis": true
+    },
+    {
+     "id": "Activity filter",
+     "style": "text-overflow: ellipsis;",
+     "own": null,
+     "clipped": "1",
+     "title": "All activities",
+     "vis": true
+    },
+    {
+     "id": "Status filter",
+     "style": "text-overflow: ellipsis;",
+     "own": null,
+     "clipped": "1",
+     "title": "All statuses",
+     "vis": true
+    },
+    {
+     "id": "Offer type filter",
+     "style": "text-overflow: ellipsis;",
+     "own": null,
+     "clipped": "1",
+     "title": "All offer types",
+     "vis": true
+    },
+    {
+     "id": "Dynamic or static filter",
+     "style": "text-overflow: ellipsis;",
+     "own": null,
+     "clipped": "1",
+     "title": "Dynamic + static",
+     "vis": true
+    },
+    {
+     "id": "Analytics timeframe",
+     "style": "text-overflow: ellipsis;",
+     "own": null,
+     "clipped": "1",
+     "title": "Last 30 days",
+     "vis": true
+    }
+   ]
+  },
+  {
+   "W": 375,
+   "path": "/admin/leadgen/offers/lgo_01KZ27136XE7F8RCMJSRH1Q25V/edit",
+   "status": 200,
+   "copies": 6,
+   "installed": "function",
+   "total": 15,
+   "notable": []
+  },
+  {
+   "W": 375,
+   "path": "/admin/leadgen/sections",
+   "status": 200,
+   "copies": 6,
+   "installed": "function",
+   "total": 4,
+   "notable": [
+    {
+     "id": "Activity",
+     "style": "text-overflow: ellipsis;",
+     "own": null,
+     "clipped": "1",
+     "title": "All activities",
+     "vis": true
+    },
+    {
+     "id": "Vertical",
+     "style": "text-overflow: ellipsis;",
+     "own": null,
+     "clipped": "1",
+     "title": "All verticals",
+     "vis": true
+    },
+    {
+     "id": "Status",
+     "style": "text-overflow: ellipsis;",
+     "own": null,
+     "clipped": "1",
+     "title": "All statuses",
+     "vis": true
+    },
+    {
+     "id": "Analytics timeframe",
+     "style": "text-overflow: ellipsis;",
+     "own": null,
+     "clipped": "1",
+     "title": "Last 30 days",
+     "vis": true
+    }
+   ]
+  },
+  {
+   "W": 375,
+   "path": "/admin/leadgen/sections/new",
+   "status": 200,
+   "copies": 6,
+   "installed": "function",
+   "total": 87,
+   "notable": [
+    {
+     "id": "lg-section-activity",
+     "style": "border:0;background:transparent;font:inherit;color:#8A93A3;outline:none;min-width:11ch",
+     "own": null,
+     "clipped": null,
+     "title": null,
+     "vis": true
+    },
+    {
+     "id": "lg-section-vertical",
+     "style": "border:0;background:transparent;font:inherit;color:#8A93A3;outline:none;min-width:10ch",
+     "own": null,
+     "clipped": null,
+     "title": null,
+     "vis": true
+    },
+    {
+     "id": "lg-preview-theme",
+     "style": "font-size:12px;padding:3px 6px;flex:0 0 130px;min-width:0;width:130px;max-width:130px",
+     "own": null,
+     "clipped": null,
+     "title": null,
+     "vis": true
+    }
+   ]
+  },
+  {
+   "W": 375,
+   "path": "/admin/leadgen/sections/lgs_01KZ27DTF599M85YHNEDHS6WA0/edit",
+   "status": 200,
+   "copies": 6,
+   "installed": "function",
+   "total": 99,
+   "notable": [
+    {
+     "id": "lg-section-activity",
+     "style": "border:0;background:transparent;font:inherit;color:inherit;outline:none;min-width:11ch",
+     "own": null,
+     "clipped": null,
+     "title": null,
+     "vis": true
+    },
+    {
+     "id": "lg-section-vertical",
+     "style": "border:0;background:transparent;font:inherit;color:inherit;outline:none;min-width:10ch",
+     "own": null,
+     "clipped": null,
+     "title": null,
+     "vis": true
+    },
+    {
+     "id": "lg-preview-theme",
+     "style": "font-size:12px;padding:3px 6px;flex:0 0 130px;min-width:0;width:130px;max-width:130px",
+     "own": null,
+     "clipped": null,
+     "title": null,
+     "vis": true
+    }
+   ]
+  },
+  {
+   "W": 375,
+   "path": "/admin/leadgen/themes",
+   "status": 200,
+   "copies": 6,
+   "installed": "function",
+   "total": 2,
+   "notable": [
+    {
+     "id": "tm-headline-font",
+     "style": "appearance:none;-webkit-appearance:none;border:0;background:transparent;outline:none;font-family:'Roboto Mono',monospace;font-size:14px;color:#2A3346;width:100%;cursor:pointer",
+     "own": null,
+     "clipped": null,
+     "title": null,
+     "vis": true
+    },
+    {
+     "id": "tm-body-font",
+     "style": "appearance:none;-webkit-appearance:none;border:0;background:transparent;outline:none;font-family:'Roboto Mono',monospace;font-size:14px;color:#2A3346;width:100%;cursor:pointer",
+     "own": null,
+     "clipped": null,
+     "title": null,
+     "vis": true
+    }
+   ]
+  },
+  {
+   "W": 375,
+   "path": "/admin/leadgen/themes?embed=1",
+   "status": 200,
+   "copies": 6,
+   "installed": "function",
+   "total": 2,
+   "notable": [
+    {
+     "id": "tm-headline-font",
+     "style": "appearance:none;-webkit-appearance:none;border:0;background:transparent;outline:none;font-family:'Roboto Mono',monospace;font-size:14px;color:#2A3346;width:100%;cursor:pointer",
+     "own": null,
+     "clipped": null,
+     "title": null,
+     "vis": true
+    },
+    {
+     "id": "tm-body-font",
+     "style": "appearance:none;-webkit-appearance:none;border:0;background:transparent;outline:none;font-family:'Roboto Mono',monospace;font-size:14px;color:#2A3346;width:100%;cursor:pointer",
+     "own": null,
+     "clipped": null,
+     "title": null,
+     "vis": true
+    }
+   ]
+  },
+  {
+   "W": 375,
+   "path": "/admin/leadgen/quotes",
+   "status": 200,
+   "copies": 6,
+   "installed": "function",
+   "total": 3,
+   "notable": []
+  },
+  {
+   "W": 375,
+   "path": "/admin/leadgen/quotes/new",
+   "status": 200,
+   "copies": 6,
+   "installed": "function",
+   "total": 2,
+   "notable": []
+  },
+  {
+   "W": 375,
+   "path": "/admin/leadgen/quotes/lgq_01KZ271383Y0MPV4BM2WKKCC4W/edit",
+   "status": 200,
+   "copies": 6,
+   "installed": "function",
+   "total": 43,
+   "notable": [
+    {
+     "id": "lg-tpl-target-select",
+     "style": "margin-left:8px;max-width:200px;vertical-align:middle",
+     "own": null,
+     "clipped": null,
+     "title": null,
+     "vis": false
+    },
+    {
+     "id": "lg-tpl-theme-select",
+     "style": "max-width:180px",
+     "own": null,
+     "clipped": null,
+     "title": null,
+     "vis": false
+    },
+    {
+     "id": "lg-tpl-section-select",
+     "style": "max-width:240px",
+     "own": null,
+     "clipped": null,
+     "title": null,
+     "vis": false
+    },
+    {
+     "id": "lg-tpl-site-select",
+     "style": "max-width:220px;margin-left:auto",
+     "own": null,
+     "clipped": null,
+     "title": null,
+     "vis": false
+    },
+    {
+     "id": "lg-theme-target-select",
+     "style": "margin-left:8px;max-width:200px;vertical-align:middle",
+     "own": null,
+     "clipped": null,
+     "title": null,
+     "vis": false
+    }
+   ]
+  },
+  {
+   "W": 375,
+   "path": "/admin/leadgen/auction",
+   "status": 200,
+   "copies": 6,
+   "installed": "function",
+   "total": 3,
+   "notable": [
+    {
+     "id": "Status",
+     "style": "text-overflow: ellipsis;",
+     "own": null,
+     "clipped": "1",
+     "title": "All statuses",
+     "vis": true
+    },
+    {
+     "id": "Analytics timeframe",
+     "style": "text-overflow: ellipsis;",
+     "own": null,
+     "clipped": "1",
+     "title": "Last 30 days",
+     "vis": true
+    }
+   ]
+  },
+  {
+   "W": 375,
+   "path": "/admin/leadgen/dashboard",
+   "status": 404,
+   "copies": 0,
+   "installed": "undefined",
+   "total": 0,
+   "notable": []
+  },
+  {
+   "W": 375,
+   "path": "/admin",
+   "status": 200,
+   "copies": 0,
+   "installed": "undefined",
+   "total": 0,
+   "notable": []
+  },
+  {
+   "W": 375,
+   "path": "/admin/pages",
+   "status": 200,
+   "copies": 0,
+   "installed": "undefined",
+   "total": 3,
+   "notable": []
+  },
+  {
+   "W": 375,
+   "path": "/admin/articles",
+   "status": 200,
+   "copies": 0,
+   "installed": "undefined",
+   "total": 7,
+   "notable": []
+  }
+ ],
+ "n7": {
+  "manager-1280": {
+   "selects": 2,
+   "options": 22,
+   "overCount": 0,
+   "over": [],
+   "titledClipped": [],
+   "clippedNoTitle": 0,
+   "rows": [
+    {
+     "id": "tm-headline-font",
+     "n": 11,
+     "sw": 282,
+     "cw": 282,
+     "title": null
+    },
+    {
+     "id": "tm-body-font",
+     "n": 11,
+     "sw": 282,
+     "cw": 282,
+     "title": null
+    }
+   ],
+   "errs": []
+  },
+  "manager-375": {
+   "selects": 2,
+   "options": 22,
+   "overCount": 0,
+   "over": [],
+   "titledClipped": [],
+   "clippedNoTitle": 0,
+   "rows": [
+    {
+     "id": "tm-headline-font",
+     "n": 11,
+     "sw": 282,
+     "cw": 282,
+     "title": null
+    },
+    {
+     "id": "tm-body-font",
+     "n": 11,
+     "sw": 282,
+     "cw": 282,
+     "title": null
+    }
+   ],
+   "errs": []
+  },
+  "rail-1280": {
+   "selects": 21,
+   "options": 115,
+   "overCount": 2,
+   "over": [
+    {
+     "id": "lg-theme-site-select",
+     "option": "Seed Local Living — Not activated yet",
+     "over": 31,
+     "sw": 253,
+     "cw": 222,
+     "title": null,
+     "own": null
+    },
+    {
+     "id": "lg-theme-target-select",
+     "option": "R2C3 Bravo Extremely Long Funnel Column Name For The Truncation Audit Delta Echo",
+     "over": 281,
+     "sw": 479,
+     "cw": 198,
+     "title": null,
+     "own": null
+    }
+   ],
+   "titledClipped": [],
+   "clippedNoTitle": 0,
+   "rows": [
+    {
+     "id": "lg-site-select",
+     "n": 3,
+     "sw": 294,
+     "cw": 294,
+     "title": null
+    },
+    {
+     "id": "lg-theme-site-select",
+     "n": 3,
+     "sw": 222,
+     "cw": 222,
+     "title": null
+    },
+    {
+     "id": "lg-theme-target-select",
+     "n": 5,
+     "sw": 198,
+     "cw": 198,
+     "title": null
+    },
+    {
+     "id": "form-select",
+     "n": 12,
+     "sw": 312,
+     "cw": 312,
+     "title": null
+    },
+    {
+     "id": "form-select",
+     "n": 12,
+     "sw": 312,
+     "cw": 312,
+     "title": null
+    },
+    {
+     "id": "form-select",
+     "n": 4,
+     "sw": 312,
+     "cw": 312,
+     "title": null
+    },
+    {
+     "id": "form-select",
+     "n": 5,
+     "sw": 312,
+     "cw": 312,
+     "title": null
+    },
+    {
+     "id": "form-select",
+     "n": 4,
+     "sw": 312,
+     "cw": 312,
+     "title": null
+    },
+    {
+     "id": "form-select",
+     "n": 4,
+     "sw": 312,
+     "cw": 312,
+     "title": null
+    },
+    {
+     "id": "form-select",
+     "n": 5,
+     "sw": 312,
+     "cw": 312,
+     "title": null
+    },
+    {
+     "id": "form-select",
+     "n": 6,
+     "sw": 312,
+     "cw": 312,
+     "title": null
+    },
+    {
+     "id": "form-select",
+     "n": 4,
+     "sw": 312,
+     "cw": 312,
+     "title": null
+    },
+    {
+     "id": "form-select",
+     "n": 3,
+     "sw": 312,
+     "cw": 312,
+     "title": null
+    },
+    {
+     "id": "form-select",
+     "n": 4,
+     "sw": 312,
+     "cw": 312,
+     "title": null
+    },
+    {
+     "id": "form-select",
+     "n": 4,
+     "sw": 312,
+     "cw": 312,
+     "title": null
+    },
+    {
+     "id": "form-select",
+     "n": 4,
+     "sw": 312,
+     "cw": 312,
+     "title": null
+    },
+    {
+     "id": "form-select",
+     "n": 3,
+     "sw": 312,
+     "cw": 312,
+     "title": null
+    },
+    {
+     "id": "form-select",
+     "n": 6,
+     "sw": 312,
+     "cw": 312,
+     "title": null
+    },
+    {
+     "id": "form-select",
+     "n": 6,
+     "sw": 312,
+     "cw": 312,
+     "title": null
+    },
+    {
+     "id": "lg-theme-hex-role",
+     "n": 14,
+     "sw": 290,
+     "cw": 290,
+     "title": null
+    },
+    {
+     "id": "lg-theme-preset-select",
+     "n": 4,
+     "sw": 312,
+     "cw": 312,
+     "title": null
+    }
+   ],
+   "errs": []
+  },
+  "rail-375": {
+   "selects": 21,
+   "options": 115,
+   "overCount": 2,
+   "over": [
+    {
+     "id": "lg-theme-site-select",
+     "option": "Seed Local Living — Not activated yet",
+     "over": 14,
+     "sw": 253,
+     "cw": 239,
+     "title": null,
+     "own": null
+    },
+    {
+     "id": "lg-theme-target-select",
+     "option": "R2C3 Bravo Extremely Long Funnel Column Name For The Truncation Audit Delta Echo",
+     "over": 281,
+     "sw": 479,
+     "cw": 198,
+     "title": null,
+     "own": null
+    }
+   ],
+   "titledClipped": [],
+   "clippedNoTitle": 0,
+   "rows": [
+    {
+     "id": "lg-site-select",
+     "n": 3,
+     "sw": 258,
+     "cw": 258,
+     "title": null
+    },
+    {
+     "id": "lg-theme-site-select",
+     "n": 3,
+     "sw": 239,
+     "cw": 239,
+     "title": null
+    },
+    {
+     "id": "lg-theme-target-select",
+     "n": 5,
+     "sw": 198,
+     "cw": 198,
+     "title": null
+    },
+    {
+     "id": "form-select",
+     "n": 12,
+     "sw": 312,
+     "cw": 312,
+     "title": null
+    },
+    {
+     "id": "form-select",
+     "n": 12,
+     "sw": 312,
+     "cw": 312,
+     "title": null
+    },
+    {
+     "id": "form-select",
+     "n": 4,
+     "sw": 312,
+     "cw": 312,
+     "title": null
+    },
+    {
+     "id": "form-select",
+     "n": 5,
+     "sw": 312,
+     "cw": 312,
+     "title": null
+    },
+    {
+     "id": "form-select",
+     "n": 4,
+     "sw": 312,
+     "cw": 312,
+     "title": null
+    },
+    {
+     "id": "form-select",
+     "n": 4,
+     "sw": 312,
+     "cw": 312,
+     "title": null
+    },
+    {
+     "id": "form-select",
+     "n": 5,
+     "sw": 312,
+     "cw": 312,
+     "title": null
+    },
+    {
+     "id": "form-select",
+     "n": 6,
+     "sw": 312,
+     "cw": 312,
+     "title": null
+    },
+    {
+     "id": "form-select",
+     "n": 4,
+     "sw": 312,
+     "cw": 312,
+     "title": null
+    },
+    {
+     "id": "form-select",
+     "n": 3,
+     "sw": 312,
+     "cw": 312,
+     "title": null
+    },
+    {
+     "id": "form-select",
+     "n": 4,
+     "sw": 312,
+     "cw": 312,
+     "title": null
+    },
+    {
+     "id": "form-select",
+     "n": 4,
+     "sw": 312,
+     "cw": 312,
+     "title": null
+    },
+    {
+     "id": "form-select",
+     "n": 4,
+     "sw": 312,
+     "cw": 312,
+     "title": null
+    },
+    {
+     "id": "form-select",
+     "n": 3,
+     "sw": 312,
+     "cw": 312,
+     "title": null
+    },
+    {
+     "id": "form-select",
+     "n": 6,
+     "sw": 312,
+     "cw": 312,
+     "title": null
+    },
+    {
+     "id": "form-select",
+     "n": 6,
+     "sw": 312,
+     "cw": 312,
+     "title": null
+    },
+    {
+     "id": "lg-theme-hex-role",
+     "n": 14,
+     "sw": 290,
+     "cw": 290,
+     "title": null
+    },
+    {
+     "id": "lg-theme-preset-select",
+     "n": 4,
+     "sw": 312,
+     "cw": 312,
+     "title": null
+    }
+   ],
+   "errs": []
+  }
+ }
+}

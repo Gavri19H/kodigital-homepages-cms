@@ -27,7 +27,11 @@ verify:all 0 · runtime 52,762 ≤ 53,248.
       (static it() blocks are +16 with zero removals; the 5 touched files match baseline per-file exactly).
       Per-file baseline map captured for an exact diff at the post-fix gate run.
 - [ ] P8-2 Blockers II (B4, B5, M9.3)
-- [ ] P8-3 Theme keys honoured (M2, N1, N7, N11, N18, N20 + 80-key sweep) — branch `leadgen-r2-p8-3` off base `6649879`
+- [x] **P8-3 Theme keys honoured — SHIP (review #5, 0 blockers / 0 majors / 4 unreachable-or-scope minors)**
+      Merged after 9 gate runs, 8 p3a recaptures (every differing line classified), 5 adversarial reviews.
+      Final gate: typecheck 0 · 8156 passed / 0 failed / 30 skipped (8186, 487 files) · verify:all 0 · bundle 52,938/53,248 · register 73 rows / 0 violations · zero-drift 0 removed, 1 intended change, 7724+462=8186.
+      Clause verdicts: M2 PASS · N1 PASS · N7 PASS · N11 PASS · N20 PASS · **N18 INCONCLUSIVE** (no logo on the fixture, so no E10 visible-element proof — check_register's R3 caught the conductor trying to PASS it on stylesheet bytes).
+      Original: P8-3 Theme keys honoured (M2, N1, N7, N11, N18, N20 + 80-key sweep) — branch `leadgen-r2-p8-3` off base `6649879`
       **Conductor reproduction FIRST** (contract numbers are from an older sha and two have already been
       falsified): all six R3 claims re-measured by hand through the real PUT route, reading
       getComputedStyle on the first VISIBLE match — every claim reproduces, two of them STRONGER
