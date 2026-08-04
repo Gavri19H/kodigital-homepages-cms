@@ -41,3 +41,27 @@ been falsified more than once on this mission.
 Two legs, and the second is a human judgement that is never automated: (a) DOM-anatomy assertions plus a
 committed same-theme screenshot baseline (a self-diff), and (b) a human side-by-side against Image11.
 **Never** an automated pixel-match against the owner's image.
+
+## Refinement after grounding the code (conductor, before dispatch)
+
+My first reading called the pills and the end labels "duplicated". The code says something more precise,
+and the fix depends on the difference:
+
+- The pill is `.lg-range-handle-value`, a child of `.lg-range-handle` (`presets.ts:977-999`, span at `:996`),
+  positioned by `styles.ts:975-988` as `position:absolute; bottom:calc(100% + spacing.sm); left:50%;
+  transform:translateX(-50%); font-weight:700` — i.e. **above** its handle. Bold matches Image11;
+  the placement is the defect.
+- The end labels are `.lg-range-minmax` (`presets.ts:1004-1008`), a **separate flex row emitted after the
+  track closes** (`styles.ts:1083-1090`, `justify-content:space-between`). They are the scale, exactly as
+  Image11 has them.
+- They are NOT the same source: the pill is live-rewritten by `engine.ts syncDualRange:603-612`, while the
+  end label is `propStr(node,"minLabel") ?? formatRangeValue(min,…)` set once at render and never updated
+  (zero `lg-range-minmax` hits in `engine.ts`).
+
+So the contract's "values are duplicated (pills `$0 | $1,000`, end labels `$0 | $1,000`)" is what you see
+**when the handles are resting at min and max** — the two rows then coincidentally read the same numbers.
+It is not a second bug. Fixing the position (pill under its handle, per Image11) leaves the scale row where
+the owner's image already puts it, and the apparent duplication resolves itself the moment a handle moves.
+
+A fix that *removed* the end labels to stop the "duplication" would delete the scale Image11 explicitly
+shows. Do not do that.
