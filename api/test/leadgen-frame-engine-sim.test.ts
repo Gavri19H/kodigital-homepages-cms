@@ -512,7 +512,13 @@ describe("frame dots progress mount (11 §11.6 — updateProgress re-stamps .lg-
     // EXACTLY one active dot, and it is the 2nd (index 1).
     expect(activeDotIndexes(h.dots)).toEqual([1]);
     // The hidden label sink absorbed the step text (dots untouched by text).
-    expect(h.progressMount.querySelector("[data-lg-progress-label]")!.textContent).toBe("2 / 3");
+    // R2 P8 F1 (M1 "Label wording differs three ways"): SSR, hydration, and
+    // the help text were unified onto ONE shape, "Step N of M" (render.ts
+    // updateProgress's stepText) — "2 / 3" is the retired hydration-only
+    // wording; it must not be restored.
+    expect(h.progressMount.querySelector("[data-lg-progress-label]")!.textContent).toBe(
+      "Step 2 of 3",
+    );
   });
 
   it('mount carrying SSR aria-valuetext="Step 1 of 3" is re-stamped "Step 2 of 3" on advance; the attr-less mount gains none', async () => {
