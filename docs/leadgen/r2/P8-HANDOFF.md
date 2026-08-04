@@ -154,6 +154,14 @@ p3a recapture already done and **clean — 0 real changes** in every fixture (UL
      G3's warm retry is SPENT (G3b was it): this needs a FRESH lean dispatch.
    - A freshly PATCHed section once took **>20s** to reach the served shell (G3 raised its probe settle loop
      to 90s after a timeout). Worth knowing before anyone reads a slow drive as a product fault.
+     **This then KILLED a reviewer**: a long silent wait produced no stream output for 600s and the watchdog
+     failed the agent mid-drive. Tell every driving agent: **poll in short logged steps (~2s, print each
+     attempt), never one long silent wait**; prefer `curl`/fetch assertions over browser waits unless the
+     claim needs paint or a real click; and write findings to `REVIEW.md` incrementally so a stall cannot
+     lose the whole run. Reusable probes already exist in `api/scripts/p8/` —
+     `drive-g3-canvas-live-error.mjs` (canvas-vs-live, 5 scenarios × 8 rows), `probe-p85g1-b1.mjs` (fills
+     collision), `probe-p85g1-money.mjs` (the auction walk), `probe-p85g1.mjs` (badge geometry + the 375
+     save) — so no reviewer needs to rebuild the harness, only to verify its claims independently.
 3. Land **F13**, then a **SCOPED re-review of P8-4** covering F12 + F13 (P8-4's last verdict was FIX-FIRST —
    see the section above; it cannot merge on that).
 4. **P8-6**: dispatch its 5 slices (sites re-grounded above), gate, review.
