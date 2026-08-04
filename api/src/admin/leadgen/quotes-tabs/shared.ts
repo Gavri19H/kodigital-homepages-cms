@@ -513,10 +513,49 @@ export const PREFLIGHT_PASS_CHECKS: ReadonlyArray<{ id: string; label: string }>
 // brand_secondary/accent/success/error/page_background/border/
 // button_primary_bg/button_primary_text were audited too and are unchanged
 // (each phrase maps to a real, direct consumer).
+//
+// R2 P8-3 FIX ROUND F10 (review-p8-3b MINOR-3) reported TWO phrases as
+// measured-false but left them byte-identical because their literals were
+// hard-pinned in test files that slice did not own. R2 P8-3 FIX ROUND F11 owns
+// all of them and lands both corrections.
+//
+//   brand_primary: "buttons" -> "stepper buttons". F10's drive:
+//   palette.brand_primary = #FF00AA moved `.lg-progress-fill` to rgb(255,0,170)
+//   while the Continue button stayed rgb(27,58,92) — every button a funnel
+//   renders follows button_primary_bg, which has its own row below. F11
+//   re-measured it as an EXHAUSTIVE sentinel sweep of the REAL
+//   resolveTokens+funnelChromeCss pair (every declaration in the generated
+//   stylesheet that moves when, and only when, this one role is authored):
+//   15 declarations move, and the ONLY button-shaped one is
+//   `.lg-range-stepper-btn` (border + color) — the range stepper's +/- keys.
+//   The other movers are the focus rings (`.lg-card:focus-visible`,
+//   `.lg-btn.lg-btn-answer:focus-visible`), the progress fill, and
+//   opt-in-only frame regions (`--role-brand_primary` / `--color-brand_primary`
+//   classes the operator must point a SEPARATE control at, so not claimed
+//   here). "Stepper" is the operator's OWN word for that control
+//   (ui-section-studio.ts:2325 slider-type option `{ value: "stepper", name:
+//   "Stepper" }`), not a new coinage.
+//
+//   border: "card/input borders" -> "answer card/input borders". F10's drive:
+//   border #D2D9E5 -> #00FF00 moved the `input.lg-input` borders and the
+//   answer-card borders while `.lg-question-card` stayed rgb(233,237,243).
+//   F11's sweep agrees: of 12 moving declarations the three unconditional
+//   component borders are `.lg-card` (the choice/answer card — a
+//   `<button role="radio">` in `.lg-card-grid`, components/presets.ts:1687),
+//   `.lg-btn.lg-btn-answer` and `.lg-input`. The bare noun "card" reads as the
+//   QUESTION card in this very rail (card_background's own row says "question
+//   card"), so it named a surface this role does not paint; "answer card"
+//   is the same rail's existing word for the surface it does.
+//
+// Both phrases are pinned to the real generated stylesheet by
+// test/leadgen-p8-m2-role-usedby.test.ts (I1 completeness + I2 sentinel sweep),
+// converged with ui-theme-manager.ts by its I4 leg, and re-pinned as literals
+// in test/leadgen-quote-builder-ui.test.ts, test/leadgen-theme-manager-ui.test.ts
+// and test/leadgen-v31-gate2-strings.test.ts.
 // ---------------------------------------------------------------------------
 
 export const ROLE_META: ReadonlyArray<{ role: string; label: string; used_by: string }> = [
-  { role: "brand_primary", label: "Brand primary", used_by: "buttons, progress fill, focus ring" },
+  { role: "brand_primary", label: "Brand primary", used_by: "stepper buttons, progress fill, focus ring" },
   { role: "brand_secondary", label: "Brand secondary", used_by: "gradients, secondary emphasis" },
   { role: "accent", label: "Accent", used_by: "category label, highlights, recommended" },
   { role: "success", label: "Success", used_by: "reassurance, valid states" },
@@ -524,7 +563,7 @@ export const ROLE_META: ReadonlyArray<{ role: string; label: string; used_by: st
   { role: "page_background", label: "Page background", used_by: "frame background" },
   { role: "card_background", label: "Card background", used_by: "question card, answer cards, input fields" },
   { role: "surface_wash", label: "Soft fill", used_by: "range-slider focus ring" },
-  { role: "border", label: "Border", used_by: "card/input borders" },
+  { role: "border", label: "Border", used_by: "answer card/input borders" },
   { role: "text_primary", label: "Text", used_by: "body text, input text" },
   { role: "text_muted", label: "Muted text", used_by: "labels, disclosure text" },
   { role: "button_primary_bg", label: "Button", used_by: "Continue/CTA background" },
@@ -607,9 +646,20 @@ export const OVERRIDE_GROUP_LABELS: Readonly<Record<string, string>> = {
 //   MECHANISM: auto-fit + a minmax() floor. A column is never narrower than
 //   220px; a container that cannot seat two 220px columns plus the 12px gap
 //   collapses to ONE full-width column instead of halving every box.
-//   ARITHMETIC for the only consumer of this rule (quotes-tabs/themes.ts's
-//   rail — flex:0 1 340px, min-width:280px, max-width:380px, inside
-//   .lg-panel-card padding:12px + border:1px): panel content 254..354px, and
+//   CORRECTION (FIX ROUND F10, review-p8-3b MINOR-4): this line used to call
+//   the rail "the only consumer of this rule". IT IS NOT. `.lg-scalars` is
+//   also emitted by ui-quotes.ts:630, quotes-tabs/templates.ts:324/371/546/607
+//   and ui-auctions.ts (a dozen sites, under that file's own duplicate rule).
+//   The change was still safe — driven, no regression: /admin/leadgen/quotes/
+//   new collapses its empty tracks (460px 460px 0px 0px at 1280, 293px at
+//   375), the Templates inspector's 3-cell grids render single-column at
+//   318/317px, the auctions editor keeps 460px 460px — but a false
+//   "only consumer" claim is exactly what lets the next edit skip the
+//   re-measure. THIS STYLESHEET IS EMITTED ON EVERY ADMIN PAGE: any rule
+//   changed here moves fixtures for pages this slice never opened.
+//   ARITHMETIC for the rail this defect was reported against
+//   (quotes-tabs/themes.ts — flex:0 1 340px, min-width:280px, max-width:380px,
+//   inside .lg-panel-card padding:12px + border:1px): panel content 254..354px, and
 //   2*220+12 = 452 > 354, so the rail is single-column at EVERY width it can
 //   take. Worst-case select content = 254 - 26 = 228.00px against the longest
 //   label the rail emits (191.43px measured / 214.3px by the conservative

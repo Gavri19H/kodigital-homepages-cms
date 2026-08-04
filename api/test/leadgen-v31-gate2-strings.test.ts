@@ -756,10 +756,22 @@ describeDb("Gate 2 strings — Themes manager (Appendix A, D1+KV)", () => {
     // token (color.card) is ALSO `.lg-input`'s resting background
     // (default-funnel/styles.ts:1845). Full per-string evidence in the
     // sibling leg's F8 addendum (test/leadgen-theme-manager-ui.test.ts).
+    //
+    // R2 P8-3 FIX ROUND F11 (review-p8-3b MINOR-3) — brand_primary's roster
+    // entry corrected to "stepper buttons · progress fill · focus ring". The
+    // bare noun "buttons" was FALSE for every button a funnel renders (driven:
+    // brand_primary #FF00AA left the Continue button at rgb(27,58,92); buttons
+    // follow button_primary_bg), and F11's exhaustive sentinel sweep of the
+    // REAL generated stylesheet finds `.lg-range-stepper-btn` as this role's
+    // only button-shaped consumer. Full per-string evidence in the sibling leg
+    // (test/leadgen-theme-manager-ui.test.ts, item 7). NOT WEAKENED — and note
+    // the SUBSTRING TRAP this roster had to escape: the old entry still matches
+    // inside the new sublabel, so leaving it would have kept passing while
+    // pinning nothing; the roster carries the FULL new string.
     assertAllPresent(
       html,
       [
-        "buttons · progress fill · focus ring", "highlights · recommended", "frame background",
+        "stepper buttons · progress fill · focus ring", "highlights · recommended", "frame background",
         "question card · answer cards · input fields",
         "body text · input text", "reassurance · valid",
         "Components reference these roles, never fixed shades — change one here and every question in the funnel reskins.",

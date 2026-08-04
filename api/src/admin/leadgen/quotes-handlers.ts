@@ -6965,8 +6965,21 @@ export const FUNNEL_DESIGN_LABELS: Readonly<Record<string, string>> = {
 // assertFunnelDesignLabelsComplete below: a developer-facing check
 // (test/leadgen-p8-n1-design-label.test.ts calls it directly against the
 // real registry), never reachable from an operator's request.
+// R2 P8-3 FIX ROUND F11 — the lookup is OWN-PROPERTY guarded. A plain object
+// literal inherits Object.prototype, so a bare `FUNNEL_DESIGN_LABELS[id]` on
+// an inherited key ("constructor", "toString", "valueOf", "__proto__", …)
+// returns a FUNCTION, not undefined: the `!== undefined` branch then handed
+// that function back through a `string` return type and the operator's editor
+// would have rendered "function Object() { [native code] }" as a design word —
+// the raw-engineering-identifier class N1 exists to remove, arriving by a
+// different door. `id` reaches here from a registry key, and today's registry
+// has none of those names, so this is a latent hole rather than a live one;
+// the guard closes it for one byte's worth of cost. No throw is reinstated on
+// this render path (F5 MINOR-7): an unknown id still degrades to the neutral
+// word. Regression: test/leadgen-p8-3-f5-major3-minor5.test.ts ("F11 — the
+// design-label lookup is own-property guarded").
 export function funnelDesignLabel(id: string): string {
-  const label = FUNNEL_DESIGN_LABELS[id];
+  const label = Object.prototype.hasOwnProperty.call(FUNNEL_DESIGN_LABELS, id) ? FUNNEL_DESIGN_LABELS[id] : undefined;
   return label !== undefined ? label : "Design";
 }
 

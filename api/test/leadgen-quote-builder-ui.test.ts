@@ -802,7 +802,26 @@ describeDb("Quote Builder frame studio — theme editor (09 §9.3)", () => {
     // test/leadgen-p8-m2-role-usedby.test.ts's I2 leg). Three phrases survive
     // now, not two — only "selected borders"/"logo text" stay out, measured
     // frozen.
-    expect(html).toContain("Used by: buttons, progress fill, focus ring");
+    //
+    // R2 P8-3 FIX ROUND F11 (review-p8-3b MINOR-3) — the bare noun "buttons"
+    // is gone: "stepper buttons". F10 drove palette.brand_primary = #FF00AA
+    // and the Continue button stayed rgb(27,58,92) while the progress fill
+    // moved, so the word promised the operator the opposite of what the swatch
+    // does; F11's exhaustive sentinel sweep of the REAL generated stylesheet
+    // (15 moving declarations) confirms `.lg-range-stepper-btn` is the only
+    // button-shaped consumer this role has. NOT WEAKENED — the pin is the same
+    // full-line literal, one word longer.
+    expect(html).toContain("Used by: stepper buttons, progress fill, focus ring");
+    // F11, the SAME class on a second role: `border` said "card/input
+    // borders", and "card" reads as the QUESTION card in this very rail (see
+    // card_background's own row). Driven, `.lg-question-card` stayed
+    // rgb(233,237,243) while the answer-card and input borders moved; the
+    // sweep's unconditional movers are `.lg-card`, `.lg-btn.lg-btn-answer` and
+    // `.lg-input`. This is a NEW independent hard-coded pin (the rail's border
+    // line had none before F11), the sibling of the brand_primary line above:
+    // test/leadgen-p8-m2-role-usedby.test.ts's I3 leg reads the same ROLE_META
+    // it asserts against, so a hard copy is what makes a silent revert fail.
+    expect(html).toContain("Used by: answer card/input borders");
     expect(html).toContain("data-role-source");
     expect(html).toContain(">Base design</span>");
   });

@@ -701,7 +701,16 @@ export const ROLE_META: ReadonlyArray<{ key: ThemeRecordRoleKey; label: string; 
   // shared.ts's ROLE_META (same evidence: frames.ts:645 defaults every frame's
   // progress to the brand_primary role and default-funnel/styles.ts:2553-2558
   // paints `.lg-frame-progress--role-brand_primary .lg-progress-fill` from it).
-  { key: "brand_primary", label: "Brand primary", sub: "buttons · progress fill · focus ring", border: false },
+  // FIX ROUND F11 (review-p8-3b MINOR-3, the correction F10 measured but could
+  // not land) — "buttons" -> "stepper buttons", in lockstep with
+  // quotes-tabs/shared.ts's ROLE_META (I4 of
+  // test/leadgen-p8-m2-role-usedby.test.ts requires the two tables to read the
+  // SAME words, so they move together). Evidence: an exhaustive sentinel sweep
+  // of the REAL resolveTokens+funnelChromeCss pair — of the 15 declarations
+  // that move with this role, the only button-shaped one is
+  // `.lg-range-stepper-btn`; every button a funnel actually renders follows
+  // button_primary_bg. Full measurement in shared.ts's own ROLE_META comment.
+  { key: "brand_primary", label: "Brand primary", sub: "stepper buttons · progress fill · focus ring", border: false },
   { key: "accent", label: "Accent", sub: "category label · highlights · recommended", border: false },
   { key: "page_bg", label: "Page background", sub: "frame background", border: true },
   // R2 P8-3 FIX ROUND F8 — "input fields" added, in lockstep with
@@ -727,7 +736,13 @@ export const ROLE_META: ReadonlyArray<{ key: ThemeRecordRoleKey; label: string; 
 export const EXTRA_ROLE_META: ReadonlyArray<{ key: ThemeRecordExtraRoleKey; label: string; sub: string; border: boolean }> = [
   { key: "brand_secondary", label: "Brand secondary", sub: "gradients · secondary emphasis", border: false },
   { key: "surface_wash", label: "Soft fill", sub: "range-slider focus ring", border: false },
-  { key: "border", label: "Border", sub: "card/input borders", border: true },
+  // FIX ROUND F11 — "card/input borders" -> "answer card/input borders", in
+  // lockstep with shared.ts's ROLE_META. The bare noun "card" read as the
+  // QUESTION card (which this role provably does not paint: driven, it stayed
+  // rgb(233,237,243)); the three unconditional component borders that DO move
+  // are `.lg-card`, `.lg-btn.lg-btn-answer` and `.lg-input`. Full measurement
+  // in shared.ts's own ROLE_META comment.
+  { key: "border", label: "Border", sub: "answer card/input borders", border: true },
   { key: "text_muted", label: "Muted text", sub: "labels · disclosure text", border: false },
   { key: "button_primary_bg", label: "Button", sub: "Continue/CTA background", border: false },
   { key: "button_primary_text", label: "Button text", sub: "Continue/CTA text", border: false },
@@ -896,8 +911,19 @@ function advancedHexRow(topGroup: "roles" | "extra_roles", key: string, hex: str
 //    both columns down. 1280 IS UNCHANGED: hypothetical sizes 300 + 26 (gap) +
 //    340 (the flex:0 1 340px preview column) = 666 still fit the 670px row the
 //    reviewer measured (304 + 26 + 340), and this column still grows to that
-//    same 304px. At 375 the row is ~343px, 666 > 343, so the two columns stack
-//    and this one takes the full 343px.
+//    same 304px.
+//    CORRECTION, FIX ROUND F10 — this comment used to continue "At 375 the row
+//    is ~343px, 666 > 343, so the two columns stack and this one takes the
+//    full 343px." THAT SENTENCE WAS FALSE and the product falsified it: the
+//    row it describes is inside the CENTRE PANE, and at 375 that pane measured
+//    56.0px (clientWidth 56, scrollWidth 348), because .tm-body was a nowrap
+//    row with two unshrinkable 300/320 rails. So this column did take a full
+//    line — a 300px line starting at x=345, 270px outside a 375 viewport, with
+//    its two font selects 6% visible. The stacking that makes the sentence
+//    true had to be added one level up (.tm-body's flex-wrap, THEME_MGR_STYLES
+//    below); at 375 the centre pane is now the full 341px line and this column
+//    takes 300..341 of it, on screen. Never re-argue a width in prose here:
+//    the numbers above and below are driven measurements of this page.
 //
 // 2. data-pin="8.4-typography-grid" — 1fr 1fr -> repeat(auto-fit,minmax(320px,
 //    1fr)). FAIL-BEFORE (reviewer, driven at 1280): 1fr 1fr gave each font
@@ -976,7 +1002,7 @@ function renderCenterEditor(theme: ThemeRecord, matches: VariantThemeUsage[], ca
   // its designed 340px wherever there is room. No media query: the trigger
   // is this column's OWN width, so the ?embed=1 standalone shell (no admin
   // nav) degrades on the same rule.
-  return `<div style="flex:1 1 auto;overflow-y:auto;padding:24px 28px;min-width:0">
+  return `<div data-pin="8.4-center-pane" style="flex:1 1 348px;overflow-y:auto;padding:24px 28px;min-width:0">
     <div style="display:flex;flex-wrap:wrap;gap:26px;align-items:flex-start">
     <div style="flex:1 1 240px;min-width:300px" data-pin="8.4-editor-controls">
       <div style="display:flex;align-items:center;gap:13px;margin-bottom:5px">
@@ -1180,7 +1206,27 @@ export const THEME_MGR_STYLES = `
    that bound; the per-column overflow-y:auto is what actually makes the
    list (and the other 2 columns) scroll internally instead.  */
 .tm-shell{position:relative;display:flex;flex-direction:column;min-height:0;height:calc(100vh - 108px);border-radius:14px;overflow:hidden;border:1px solid #C4CCD9;background:${TM_COLOR.appBg}}
-.tm-body{flex:1 1 auto;display:flex;min-height:640px}
+/* R2 P8-3 FIX ROUND F10 (review-p8-3b MAJOR-1) -- THE THREE COLUMNS MUST BE
+   ABLE TO STACK. This row was nowrap with two unshrinkable rails
+   (flex:0 0 300px / flex:0 0 320px), so the whole deficit landed on the
+   centre column. MEASURED on the real page (chromium, 127.0.0.1:8901) BEFORE
+   this change: at 375 .tm-body is 341px wide with scrollWidth 676, the centre
+   editor pane computes to 56px, [data-pin="8.4-editor-controls"] sits at
+   x=345 w=300 (right edge 645, 270px past the viewport), #tm-headline-font
+   and #tm-body-font are 282px with 6% of their width inside the viewport,
+   and the right rail (x=373) is entirely off-screen -- while
+   document.scrollWidth == innerWidth, so nothing on screen says so.
+   flex-wrap lets the line break instead, keyed on the row's OWN width (the
+   real constraint: the admin sidebar is present at 1280 and gone at 375, so
+   no viewport media query describes it correctly). overflow-y:auto is what
+   makes the stacked columns reachable: .tm-shell is overflow:hidden with a
+   fixed height, and each column's own overflow-y:auto is inert once the
+   columns are lines rather than side-by-side items.
+   1280 IS UNCHANGED and that is arithmetic from the measured numbers, not
+   prose: .tm-body is 980px there, the hypothetical row is 300 + 348 + 320 =
+   968 <= 980 so it stays ONE line, and the centre still grows into all the
+   free space -> 360px, the same 360px measured before this change. */
+.tm-body{flex:1 1 auto;display:flex;flex-wrap:wrap;overflow-y:auto;min-height:640px}
 `;
 
 // ---------------------------------------------------------------------------
@@ -1440,7 +1486,7 @@ export async function leadgenThemeManagerPage(c: UiContext): Promise<Response> {
   const centerHtml =
     selected !== null
       ? renderCenterEditor(selected, usageForTheme(usage, selected.id), canvasHtml)
-      : `<div style="flex:1 1 auto;padding:28px;color:${TM_COLOR.footerText};font-size:13px">Create a theme to get started.</div>`;
+      : `<div data-pin="8.4-center-pane" style="flex:1 1 348px;padding:28px;color:${TM_COLOR.footerText};font-size:13px">Create a theme to get started.</div>`;
   const rightHtml =
     selected !== null
       ? renderRightPanel(selected.id, usage, themesById)

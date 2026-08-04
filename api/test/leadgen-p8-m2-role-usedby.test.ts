@@ -55,6 +55,25 @@
 // below, and the residual is deleted from the guard file — it now proves the
 // label covers the paint instead of exempting it.
 //
+// R2 P8-3 FIX ROUND F11 (review-p8-3b MINOR-3 — the two phrases F10 measured
+// FALSE but could not land, because their literals were pinned in files F10 did
+// not own). Both were audited here against a surface NARROWER than the word:
+//   brand_primary: "buttons" -> "stepper buttons". This table's row always
+//     pointed at `.lg-range-stepper-btn`; F11 re-measured with an exhaustive
+//     sweep (every declaration of the REAL generated stylesheet that moves when
+//     only this role is authored — 15 of them) and that stepper is the sole
+//     button-shaped mover. Every button a funnel renders follows
+//     button_primary_bg. Driven at review time: brand_primary #FF00AA moved the
+//     progress fill to rgb(255,0,170) while the Continue button stayed
+//     rgb(27,58,92).
+//   border: "card/input borders" -> "answer card/input borders". The sweep
+//     finds 12 movers; the unconditional component borders are `.lg-card`,
+//     `.lg-btn.lg-btn-answer` and `.lg-input` — never `.lg-question-card`
+//     (driven: it stayed rgb(233,237,243)). "card" alone read as the question
+//     card, the surface card_background's own row in the same rail claims.
+// A THIRD SURFACES row (`.lg-btn.lg-btn-answer`) was ADDED with the border
+// rename, so the widened phrase is audited on every surface it names.
+//
 // HOW THIS FILE AVOIDS E10/E11 (a test that hand-builds BOTH sides). Neither
 // side is hand-written:
 //   - the PRODUCER is the REAL, unmodified resolveTokens + funnelChromeCss
@@ -157,7 +176,14 @@ interface Surface {
 const SURFACES: Surface[] = [
   // brand_primary (S3.11 fix) — :1101 rest-state stepper button, :1719 focus
   // ring shared by icon cards + answer buttons.
-  { role: "brand_primary", phrase: "buttons", selector: `${SCOPE} .lg-range-stepper-btn`, property: "color", render: (v) => v },
+  // R2 P8-3 FIX ROUND F11 — the phrase is now "stepper buttons", not the bare
+  // noun "buttons". The selector below never changed: this row ALWAYS pointed
+  // at `.lg-range-stepper-btn`, so the old word was already wider than its own
+  // audited surface. F11's exhaustive sentinel sweep (every declaration in the
+  // REAL generated stylesheet that moves when only this role is authored: 15)
+  // confirms `.lg-range-stepper-btn` is the sole button-shaped mover — the
+  // Continue/answer buttons follow button_primary_bg. Word, meet surface.
+  { role: "brand_primary", phrase: "stepper buttons", selector: `${SCOPE} .lg-range-stepper-btn`, property: "color", render: (v) => v },
   { role: "brand_primary", phrase: "focus ring", selector: `${SCOPE} .lg-card:focus-visible`, property: "outline", render: (v) => `2px solid ${v}` },
   // FIX ROUND F3 (MINOR-4) — "progress fill" RESTORED. S3.11 dropped it after
   // looking only at the token (`progress.fillColor`, default-funnel/tokens.ts:84,
@@ -242,12 +268,24 @@ const SURFACES: Surface[] = [
     render: (v) => `0 0 0 3px ${v}`,
   },
 
-  // border — the LIVE phrase is the single slash-joined "card/input borders"
-  // (no comma — phrasesOf never splits it), verified via TWO real, both
-  // UNCONDITIONAL consumers: :1667 `.lg-card` (the icon/multi-choice answer
-  // CARD's border-color var() fallback) and :1814 `.lg-input` (the field's).
-  { role: "border", phrase: "card/input borders", selector: `${SCOPE} .lg-card`, property: "border-color", render: (v) => `var(--lg-field-border, ${v})` },
-  { role: "border", phrase: "card/input borders", selector: `${SCOPE} .lg-input`, property: "border-color", render: (v) => `var(--lg-field-border, ${v})` },
+  // border — the LIVE phrase is the single slash-joined "answer card/input
+  // borders" (no comma — phrasesOf never splits it), verified via THREE real,
+  // all UNCONDITIONAL consumers: :1667 `.lg-card` (the choice/answer CARD's
+  // border-color var() fallback — a `<button role="radio">` inside
+  // `.lg-card-grid`, components/presets.ts:1687), the `.lg-btn.lg-btn-answer`
+  // answer button's own border, and :1814 `.lg-input` (the field's).
+  // R2 P8-3 FIX ROUND F11 — the phrase was "card/input borders" and the bare
+  // noun "card" read as the QUESTION card, which this role does NOT paint:
+  // F11's exhaustive sentinel sweep of the REAL generated stylesheet shows 12
+  // declarations moving with this role and `.lg-question-card`'s border is not
+  // one of them (review-p8-3b drove the same result live: it stayed
+  // rgb(233,237,243) while the answer-card and input borders moved). The third
+  // row below is NEW: `.lg-btn.lg-btn-answer` is the other real "answer card"
+  // border the sweep found, so the widened word is audited on every surface it
+  // now names rather than on a subset.
+  { role: "border", phrase: "answer card/input borders", selector: `${SCOPE} .lg-card`, property: "border-color", render: (v) => `var(--lg-field-border, ${v})` },
+  { role: "border", phrase: "answer card/input borders", selector: `${SCOPE} .lg-btn.lg-btn-answer`, property: "border-color", render: (v) => `var(--lg-field-border, ${v})` },
+  { role: "border", phrase: "answer card/input borders", selector: `${SCOPE} .lg-input`, property: "border-color", render: (v) => `var(--lg-field-border, ${v})` },
 
   // text_primary (S3.11 fix) — :499 the scope root's own cascading text
   // colour (page.textColor's DEFAULT reach — "body text") and :1814 `.lg-input`

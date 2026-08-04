@@ -1424,6 +1424,7 @@ const THEMES_TAB_SCRIPT = `
   var PRESET_ZERO_TITLE = 'No presets saved yet \\u2014 create one from the Themes manager first.';
   var PRESET_AB_READY_TITLE = 'Fork this variant with the picked preset as its theme, then set the traffic split';
   var PRESET_TICK_MS = 400;
+  var PRESET_SLOW_MS = 4000;
   var PRESET_UNKNOWN_LIMIT = 25;
   var presetShown = '';
   var presetUnknownTicks = 0;
@@ -1468,7 +1469,36 @@ const THEMES_TAB_SCRIPT = `
       helpEl.className = hasPresets ? 'form-help' : 'form-help lg-preset-help-blocked';
     }
   }
+  // FIX ROUND F10 (review-p8-3b MINOR-2 + MINOR-5) — WATCH THE PICKER, DO NOT
+  // POLL IT FOREVER, AND NEVER LATCH A FAILURE.
+  // FAIL-BEFORE (reviewer, source-confirmed): (a) after
+  // PRESET_UNKNOWN_LIMIT * PRESET_TICK_MS = 10s of 'unknown' this function
+  // called applyPresetState('failed') and RETURNED WITHOUT RESCHEDULING, so a
+  // catalog that resolved at 10.1s (slow link, cold worker) left both buttons
+  // dead and the help reading "Could not check…" beside a picker full of
+  // presets, for the life of the page; (b) in every other state it
+  // rescheduled itself every 400ms forever, with no stop condition.
+  // Both come from the same root: a timer was standing in for an event that
+  // the DOM already publishes. funnel.ts's loadThemePresetOptions repopulates
+  // the picker with clearChildren() + appendChild(), i.e. childList
+  // mutations on the exact element this island reads — so observing it is
+  // both cheaper and strictly more correct than any tick. The fast tick
+  // survives ONLY as the boot race window (and as the fallback for an engine
+  // with no MutationObserver, where a slow retry replaces the terminal
+  // return). No new gate: this changes when the same three states are
+  // recomputed, never what they permit.
+  var presetWatchAttached = false;
+  function watchPresetSelect() {
+    if (presetWatchAttached) { return true; }
+    if (typeof MutationObserver !== 'function') { return false; }
+    var sel = byId('lg-theme-preset-select');
+    if (!sel) { return false; }
+    new MutationObserver(function () { refreshPresetAvailability(); }).observe(sel, { childList: true });
+    presetWatchAttached = true;
+    return true;
+  }
   function refreshPresetAvailability() {
+    var watching = watchPresetSelect();
     var state = presetSelectState();
     if (state === 'unknown') {
       presetUnknownTicks = presetUnknownTicks + 1;
@@ -1476,9 +1506,15 @@ const THEMES_TAB_SCRIPT = `
         // Fail closed on the DISPLAY, same as everywhere else in this island:
         // unconfirmed never reads as ready. The buttons stay disabled (their
         // SSR default); the copy tells the operator WHY rather than leaving
-        // "Checking…" showing forever.
-        applyPresetState('failed');
-        presetShown = 'failed';
+        // "Checking…" showing forever. RECOVERABLE: the observer (or the slow
+        // retry) re-runs this the moment the picker is repopulated, so a late
+        // catalog flips the buttons on instead of being masked by the
+        // fallback.
+        if (presetShown !== 'failed') {
+          applyPresetState('failed');
+          presetShown = 'failed';
+        }
+        if (!watching && window.setTimeout) { window.setTimeout(refreshPresetAvailability, PRESET_SLOW_MS); }
         return;
       }
     } else if (state !== presetShown) {
@@ -1489,7 +1525,13 @@ const THEMES_TAB_SCRIPT = `
     // operator re-enters this tab (a preset created in the standalone manager
     // arrives that way), so the two buttons keep agreeing with the picker for
     // the life of the page at zero network cost.
-    if (window.setTimeout) { window.setTimeout(refreshPresetAvailability, PRESET_TICK_MS); }
+    if (state === 'unknown') {
+      if (window.setTimeout) { window.setTimeout(refreshPresetAvailability, PRESET_TICK_MS); }
+      return;
+    }
+    // Settled. With the observer attached there is now NO timer at all; only
+    // an engine without MutationObserver keeps a slow one.
+    if (!watching && window.setTimeout) { window.setTimeout(refreshPresetAvailability, PRESET_SLOW_MS); }
   }
 
   // P8-1 F1: name the funnel before anything else paints, so the panel is

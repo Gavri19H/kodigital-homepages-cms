@@ -798,6 +798,31 @@ export function renderBuilderPanel(
 // path ships one without the other. The guard test asserts both halves of
 // that fact from the exported production strings, so a future edit that
 // breaks it fails loudly instead of leaving a dead "Load pages…" button.
+//
+// R2 P8-3 FIX ROUND F10 (review-p8-3b BLOCKER-1) — loadThemePresetOptions's
+// ZERO-PRESET PLACEHOLDER: THE STRING MUST FIT THE BOX IT IS WRITTEN INTO.
+// The history of that one line, every number measured on the running product
+// (chromium, 127.0.0.1:8901, both widths):
+//   F5 wrote 'No presets yet -- create one below' (218.67px, it fit). Contract
+//   §6 M9.4 is right that "below" names nothing, so F5 replaced it with
+//   'No presets yet -- create one from the Themes manager' — 347.05px into
+//   #lg-theme-preset-select, whose content box is 288.00px at 1280 AND 375
+//   (228.00px at the rail's own declared min-width). Driven: scrollWidth 363 >
+//   clientWidth 312, text-overflow clip, no title, so the operator read
+//   "No presets yet -- create one from the Theme(v)" — the destination the fix
+//   existed to add was the exact part that got clipped. Now 'No presets yet'
+//   (100.50px by the test's conservative model, inside 228.00px).
+// The destination is NOT dropped, it moves to the element that can hold it:
+// the N11 help line rendered directly ABOVE this row (quotes-tabs/themes.ts
+// PRESET_ZERO_HELP — "No presets saved yet — save one from the Themes manager,
+// then it can be applied here.") is a wrapping <p>, painted as a blocked state
+// in exactly this state, beside the panel's own "Manage all presets" link.
+// test/leadgen-p8-n-theme-ui.test.ts's clip invariant reads THIS literal back
+// out of the served island bytes and measures it against this select's real
+// box, so a longer replacement fails there instead of on a reviewer's screen.
+// Everything above is here in TS on purpose: the template literal below is
+// served verbatim to the browser and string scanners read those bytes, so a
+// narrative quoting the old copy inside the island is itself a defect.
 // ---------------------------------------------------------------------------
 
 export const QUOTE_EDITOR_SCRIPT = `
@@ -3978,12 +4003,11 @@ export const QUOTE_EDITOR_SCRIPT = `
         clearChildren(sel);
         var placeholder = document.createElement('option');
         placeholder.value = '';
-        // R2 P8-3 F5 MAJOR-3 (review-p8-3, contract Sec6 M9.4's own cited
-        // stale-copy example): this used to read 'create one below' -- the
-        // N11 panel's help line (quotes-tabs/themes.ts PRESET_ZERO_HELP)
-        // points the operator at the Themes manager instead, and there is
-        // nothing below this select. Same destination, both places.
-        placeholder.textContent = items.length === 0 ? 'No presets yet \\u2014 create one from the Themes manager' : 'Choose a preset\\u2026';
+        // F10 BLOCKER-1: keep this literal SHORT -- it is painted inside
+        // #lg-theme-preset-select. Rationale + measurements are in the TS
+        // comment above QUOTE_EDITOR_SCRIPT (deliberately not here: every
+        // byte of this island is served, and string scanners read it).
+        placeholder.textContent = items.length === 0 ? 'No presets yet' : 'Choose a preset\\u2026';
         sel.appendChild(placeholder);
         var i;
         for (i = 0; i < items.length; i++) {

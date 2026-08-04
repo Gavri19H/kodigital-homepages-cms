@@ -521,11 +521,33 @@ describeDb("GET /admin/leadgen/themes — full page (§10.2/§10.3, Appendix A)"
   // "question card · answer cards · input fields" pins the FULL sublabel, not
   // the old "question card · answer cards" prefix (which would still silently
   // match — never rely on a stale substring to keep passing).
+  //
+  //  7. R2 P8-3 FIX ROUND F11 (review-p8-3b MINOR-3) — brand_primary's leading
+  //     noun corrected once more: "buttons" -> "stepper buttons". THE OLD WORD
+  //     WAS FALSE for every button a funnel renders: F10 drove
+  //     palette.brand_primary = #FF00AA and the Continue button stayed
+  //     rgb(27,58,92) (buttons follow button_primary_bg) while the progress
+  //     fill moved to rgb(255,0,170). F11's exhaustive sentinel sweep of the
+  //     REAL resolveTokens+funnelChromeCss pair — the 15 declarations that move
+  //     when only this role is authored — finds exactly one button-shaped
+  //     consumer, `.lg-range-stepper-btn`, the +/- keys of the slider type the
+  //     operator himself picks as "Stepper" (ui-section-studio.ts:2325).
+  //     PRECEDENCE unchanged: the contract's §4 R3 corollary beats Appendix A's
+  //     older string. And this was a SUBSTRING TRAP — "buttons · progress fill
+  //     · focus ring" still matches inside "stepper buttons · …", so this pin
+  //     went to the FULL new sublabel; a `toContain` left at the old text would
+  //     have passed either way and pinned nothing.
+  //     The sibling role corrected in the same round, `border`
+  //     ("card/input borders" -> "answer card/input borders"), is an EXTRA_ROLE
+  //     _META sublabel, outside this Appendix-A roster; its independent literal
+  //     pin lives in test/leadgen-quote-builder-ui.test.ts beside the rail's
+  //     brand_primary line, and both words are audited against the real
+  //     stylesheet in test/leadgen-p8-m2-role-usedby.test.ts.
   it("role sublabels + role note + size-language note render verbatim (Appendix A)", async () => {
     const { sdb, env } = newHarness();
     await seedFixture(sdb, env);
     const { html } = await getHtml(env, "/admin/leadgen/themes");
-    expect(html).toContain("buttons · progress fill · focus ring");
+    expect(html).toContain("stepper buttons · progress fill · focus ring");
     expect(html).toContain("highlights · recommended");
     expect(html).toContain("frame background");
     expect(html).toContain("question card · answer cards · input fields");

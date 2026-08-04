@@ -81,8 +81,10 @@ import { dirname, join } from "node:path";
 import { runInNewContext } from "node:vm";
 import admin from "../src/admin/router";
 import { renderThemesTabPanel } from "../src/admin/leadgen/quotes-tabs/themes";
+import { QUOTE_EDITOR_SCRIPT } from "../src/admin/leadgen/quotes-tabs/funnel";
 import { LG_QUOTES_STYLES } from "../src/admin/leadgen/quotes-tabs/shared";
-import { ADMIN_STYLES } from "../src/admin/templates/layout";
+import type { PreviewSiteOption } from "../src/admin/leadgen/quotes-tabs/shared";
+import { ADMIN_SCRIPTS, ADMIN_STYLES } from "../src/admin/templates/layout";
 import { THEME_FONT_IDS, THEME_FONT_STACKS, THEME_RECORD_FONT_NAMES, THEME_RECORD_FONT_STACKS, resolveTokens } from "../src/public/leadgen/designs/theme";
 import { DEFAULT_FUNNEL_SCOPE, funnelChromeCss } from "../src/public/leadgen/designs/default-funnel/styles";
 import { defaultFunnelDesign } from "../src/public/leadgen/designs/default-funnel/tokens";
@@ -503,64 +505,351 @@ describe("N7 — the shared blank option is short enough not to be its own trunc
   });
 });
 
-// ---------------------------------------------------------------------------
-// N7 THE BOX INVARIANT (rail) — for EVERY option of EVERY select in the rail's
-// `.lg-scalars` grids, at EVERY width the rail can take, the option's text
-// fits that select's own content box. This is the assertion whose absence let
-// the truncation ship green twice.
-// ---------------------------------------------------------------------------
-describe("N7 BOX INVARIANT — theme rail: no option is wider than its own select", () => {
-  const html = renderThemesTabPanel(true, []);
-  const railStyle = inlineStyleOf(html, 'id="lg-theme-rail"');
-  const railMin = px(styleValue(railStyle, "min-width"));
-  const railMax = px(styleValue(railStyle, "max-width"));
+// ===========================================================================
+// N7 — THE CLIP INVARIANT (FIX ROUND F10). ONE mechanism, three surfaces.
+//
+// WHAT THIS REPLACES, AND WHY. F3 shipped two box invariants: one over the
+// rail's `.lg-scalars` grids, one over the manager's typography grid. Both
+// were correct and both were BLIND, because each was scoped to the CONTAINER
+// CLASS the reported instance happened to live in. Review #2 then measured a
+// string written by F5 into `#lg-theme-preset-select` — same panel, same tab,
+// different container (`.lg-preset-apply-row`) — overflowing by +59.05px at
+// 1280 AND 375. A universe named by container class is not the universe the
+// operator sees. NOTHING IS RETIRED: every assertion those two blocks made is
+// made here, over a strictly larger set (they covered 18 selects between them;
+// this covers every select the three surfaces render, currently 24), with the
+// same conservative width model and the same declaration-derived boxes.
+//
+// THE INVARIANT. Every operator-facing control that can clip its own text, on
+// the Themes rail, the Themes manager and the quote-editor board, either
+//   (A) shows every PRODUCT-AUTHORED string it can hold in full, inside its
+//       own content box, at every width its layout can take; or
+//   (B) can hold OPERATOR data (a site, funnel, section or preset name — a
+//       length no box can bound), in which case the product must hand the
+//       operator the full text anyway: the clip-reveal in
+//       templates/layout.ts's ADMIN_SCRIPTS (title + ellipsis, driven by the
+//       element's OWN scrollWidth/clientWidth).
+// A select is put in (B) by MEASUREMENT, not by a list: the same surface is
+// rendered twice through the real code with two different real data sets and
+// the option texts are diffed. A select whose texts move with the data is
+// data-bearing; one whose texts do not is product-authored. So a control added
+// tomorrow is classified by what it does, not by whether someone remembered it.
+//
+// WHAT THE UNIVERSE OF STRINGS IS. Not "the options in the SSR markup" — that
+// is precisely what missed the BLOCKER, whose string is written by an island
+// at runtime and appears nowhere in the markup. For every select the universe
+// is: its real SSR option texts, PLUS every string literal the REAL served
+// island script assigns to a `.textContent` inside the function that resolves
+// that select by id. `#lg-theme-preset-select` therefore carries funnel.ts's
+// two placeholder literals, and a longer replacement fails HERE.
+//
+// SURFACE COVERAGE — stated exactly, because a coverage claim wider than the
+// code is the same failure as a box claim wider than the browser. The BOX leg
+// enumerates TWO surfaces, the two whose renderers this slice owns:
+//   S1 the Themes tab     — renderThemesTabPanel (quotes-tabs/themes.ts): the
+//                           16 rail scalars, the funnel picker, the preview-
+//                           site picker, the Advanced role picker and the
+//                           preset picker = 20 controls.
+//   S2 the Themes manager — the REAL admin route /admin/leadgen/themes: both
+//                           font selects = 2 controls.
+// The REVEAL leg (B) is page-global by construction — it lives in
+// templates/layout.ts's ADMIN_SCRIPTS, which adminLayout and
+// adminStandalonePage interpolate into EVERY admin page — so it covers the
+// quote-editor board and every other admin surface, including controls added
+// tomorrow, without this file enumerating them.
+// WHAT IS DELIBERATELY NOT IN THE BOX LEG, and why (each also in
+// OUT_OF_COVERAGE below, with its measured overflow): the whole
+// /admin/leadgen/quotes/:id/edit page composes SIX tab panels from five
+// renderers and serves 70 more selects, most of them from files this slice
+// does not own and from inspector containers whose width no declaration in an
+// owned file pins. Putting a box under those here would be arithmetic dressed
+// as coverage — the paper-audit failure this contract names. They are covered
+// behaviourally by (B) instead, and that was DRIVEN, not assumed:
+// #lg-tpl-target-select (+283.77px) and #lg-tpl-section-select (+305.80px)
+// both went from title="" / text-overflow:clip to the full operator name in a
+// title plus an ellipsis, at 1280 and at 375.
+//
+// HOW THIS AVOIDS E10/E11. vitest's environment is "node": no jsdom, no CSS
+// engine, no font metrics (no-new-deps). So this is not a cascade measurement
+// and never claims to be — the DRIVEN runs are the behavioural proof (E6).
+// What it contributes is the arithmetic the driven runs cannot re-derive
+// cheaply, with NEITHER side hand-built: the select set and the option set
+// come from the real renderers/real routes, the literals from the real served
+// island bytes, the boxes from the real stylesheets and the real inline
+// styles, and the width model is calibrated against 29 pixel widths the real
+// browser produced (CALIBRATION above), asserted never to under-state one.
+// ===========================================================================
 
-  const panelCard = styleRule(LG_QUOTES_STYLES, ".lg-panel-card");
-  const panelChromeX = paddingX(decl(panelCard, "padding")) + px(decl(panelCard, "border")) * 2;
-
-  const scalars = styleRule(LG_QUOTES_STYLES, ".lg-scalars");
-  const gridSpec = decl(scalars, "grid-template-columns");
-  const gap = px(decl(scalars, "gap"));
-
-  const formSelect = styleRule(ADMIN_STYLES, ".form-select");
-  const selectChromeX = paddingX(decl(formSelect, "padding")) + px(decl(formSelect, "border")) * 2;
-  const fontPx = px(decl(formSelect, "font-size"));
-
-  const selects = selectsInsideClass(html, "lg-scalars");
-
-  // The narrowest content box the rail can produce ANYWHERE in its declared
-  // width range — scanned, never assumed, because the column count is a step
-  // function of the container width.
-  let worstContent = Number.POSITIVE_INFINITY;
-  let worstAt = railMin;
-  for (let railW = railMin; railW <= railMax; railW += 1) {
-    const panelW = railW - panelChromeX;
-    const cols = columnCount(gridSpec, panelW, gap);
-    const content = (panelW - gap * (cols - 1)) / cols - selectChromeX;
-    if (content < worstContent) {
-      worstContent = content;
-      worstAt = railW;
+// --- the real ancestor chain of a select, out of the real markup ----------
+const VOID_TAGS = new Set(["area", "base", "br", "col", "embed", "hr", "img", "input", "link", "meta", "param", "source", "track", "wbr"]);
+interface RawEl {
+  tag: string;
+  attrs: string;
+  start: number;
+  end: number;
+}
+// Only the MARKUP: <script>/<style> bodies and comments are not elements, and
+// a tag name mentioned inside one is not a control the operator can see.
+function markupOnly(html: string): string {
+  return html
+    .replace(/<script\b[^>]*>[\s\S]*?<\/script>/g, (m) => " ".repeat(m.length))
+    .replace(/<style\b[^>]*>[\s\S]*?<\/style>/g, (m) => " ".repeat(m.length))
+    .replace(/<!--[\s\S]*?-->/g, (m) => " ".repeat(m.length));
+}
+// Every <select> in `html`, each with the open-element stack above it.
+function selectsWithChain(rawHtml: string): Array<{ select: ParsedSelect; chain: RawEl[]; at: number }> {
+  const html = markupOnly(rawHtml); // offsets preserved (blanked, never removed)
+  const stack: RawEl[] = [];
+  const out: Array<{ select: ParsedSelect; chain: RawEl[]; at: number }> = [];
+  for (const m of html.matchAll(/<(\/?)([a-zA-Z][\w-]*)((?:"[^"]*"|'[^']*'|[^>"'])*?)(\/?)>/g)) {
+    const closing = m[1] === "/";
+    const tag = (m[2] as string).toLowerCase();
+    const attrs = m[3] as string;
+    const at = m.index as number;
+    if (tag === "select" && !closing) {
+      const block = html.slice(at, html.indexOf("</select>", at) + "</select>".length);
+      out.push({ select: parseSelects(block)[0] as ParsedSelect, chain: stack.slice(), at });
+      continue; // options are parsed above; never push <select> itself
+    }
+    if (VOID_TAGS.has(tag) || m[4] === "/") continue;
+    if (closing) {
+      for (let i = stack.length - 1; i >= 0; i -= 1) {
+        if ((stack[i] as RawEl).tag === tag) {
+          stack.length = i;
+          break;
+        }
+      }
+    } else {
+      stack.push({ tag, attrs, start: at, end: -1 });
     }
   }
+  return out;
+}
+// One balanced element of ANY tag starting at `from` (sliceElement above is
+// <div>-only and stays as it is — its own callers depend on that).
+function sliceAnyElement(html: string, from: number): string {
+  const open = html.slice(from).match(/^<([a-zA-Z][\w-]*)/);
+  if (open === null) throw new Error("not an element start");
+  const tag = (open[1] as string).toLowerCase();
+  if (VOID_TAGS.has(tag)) return html.slice(from, html.indexOf(">", from) + 1);
+  let depth = 0;
+  const re = new RegExp(`<(/?)${tag}\\b((?:"[^"]*"|'[^']*'|[^>"'])*?)(/?)>`, "g");
+  for (const m of html.slice(from).matchAll(re)) {
+    if (m[3] === "/") continue;
+    depth += m[1] === "/" ? -1 : 1;
+    if (depth === 0) return html.slice(from, from + (m.index as number) + m[0].length);
+  }
+  throw new Error(`unbalanced <${tag}> while slicing the real markup`);
+}
+// The top-level element children of one element's markup, each carrying its
+// ABSOLUTE offset in the page so "which child holds my select" is an index
+// comparison, never a substring guess.
+function topLevelChildren(elementHtml: string, baseOffset: number): Array<{ html: string; tag: string; attrs: string; from: number; to: number }> {
+  const innerAt = elementHtml.indexOf(">") + 1;
+  const inner = elementHtml.slice(innerAt, elementHtml.lastIndexOf("<"));
+  const kids: Array<{ html: string; tag: string; attrs: string; from: number; to: number }> = [];
+  let i = 0;
+  while (i < inner.length) {
+    const next = inner.indexOf("<", i);
+    if (next === -1) break;
+    const open = inner.slice(next).match(/^<([a-zA-Z][\w-]*)((?:"[^"]*"|'[^']*'|[^>"'])*?)(\/?)>/);
+    if (open === null) {
+      i = next + 1;
+      continue;
+    }
+    const slice = sliceAnyElement(inner, next);
+    const from = baseOffset + innerAt + next;
+    kids.push({ html: slice, tag: (open[1] as string).toLowerCase(), attrs: open[2] as string, from, to: from + slice.length });
+    i = next + slice.length;
+  }
+  return kids;
+}
 
-  it("the rail really is the container this arithmetic describes (real markup + real sheets, nothing assumed)", () => {
-    expect(railMin).toBeGreaterThan(0);
-    expect(railMax).toBeGreaterThanOrEqual(railMin);
-    expect(decl(formSelect, "width")).toBe("100%");
-    expect(selects.length).toBe(16);
-    for (const s of selects) expect(s.options.length).toBeGreaterThan(0);
-    expect(worstContent).toBeGreaterThan(0);
-  });
-
-  for (const select of selects) {
-    const key = attr(select.attrs, "data-theme-key") ?? "(unkeyed)";
-    for (const option of select.options) {
-      it(`${key}: "${option.text}" fits the ${worstContent.toFixed(2)}px content box (worst case, rail at ${worstAt}px)`, () => {
-        expect(textWidthPx(option.text, fontPx)).toBeLessThanOrEqual(worstContent);
-      });
+// --- declarations for one element, from the real sheets + real inline style -
+function classesOf(attrs: string): string[] {
+  return (attr(attrs, "class") ?? "").split(/\s+/).filter((c) => c !== "");
+}
+function declFor(attrs: string, prop: string, sheets: readonly string[]): string | null {
+  const inline = attr(attrs, "style");
+  if (inline !== null) {
+    try {
+      return decl(inline, prop);
+    } catch {
+      /* fall through to the class rules */
     }
   }
-});
+  for (const cls of classesOf(attrs)) {
+    for (const sheet of sheets) {
+      try {
+        return decl(styleRule(sheet, `.${cls}`), prop);
+      } catch {
+        /* this class does not carry it */
+      }
+    }
+  }
+  return null;
+}
+function pxOr(value: string | null, fallback: number): number {
+  if (value === null) return fallback;
+  try {
+    return px(value);
+  } catch {
+    return fallback;
+  }
+}
+function chromeX(attrs: string, sheets: readonly string[]): number {
+  const pad = declFor(attrs, "padding", sheets);
+  const border = declFor(attrs, "border", sheets);
+  return (pad === null ? 0 : paddingX(pad)) + (border === null ? 0 : pxOr(border, 0) * 2);
+}
+function fontPxOf(attrs: string, sheets: readonly string[], fallback: number): number {
+  return pxOr(declFor(attrs, "font-size", sheets), fallback);
+}
+function visibleText(elementHtml: string): string {
+  return decodeEntities(elementHtml.replace(/<[^>]*>/g, "")).trim();
+}
+// `flex: <grow> <shrink> <basis>` -> the basis in px, when it has one.
+function flexBasisPx(attrs: string, sheets: readonly string[]): number | null {
+  const spec = declFor(attrs, "flex", sheets);
+  if (spec === null) return null;
+  const m = spec.trim().match(/(?:^|\s)(\d+(?:\.\d+)?)px\s*$/);
+  return m === null ? null : Number(m[1]);
+}
+
+// --- the box: resolve DOWN the real chain from the nearest anchored --------
+// --- ancestor to the select's own content box. -----------------------------
+// An ANCHOR is an ancestor whose own width is pinned by a declaration
+// (min-width/max-width, or a flex basis with a min-width) — the only honest
+// place to start without a layout engine. Everything below it is resolved from
+// the real declarations of each hop: padding/border, grid tracks, flex lines.
+interface BoxResult {
+  content: number;
+  at: number;
+  anchor: string;
+}
+function resolveContentBox(html: string, entry: { select: ParsedSelect; chain: RawEl[]; at: number }, sheets: readonly string[]): BoxResult | null {
+  let anchorIdx = -1;
+  for (let i = entry.chain.length - 1; i >= 0; i -= 1) {
+    const el = entry.chain[i] as RawEl;
+    const min = declFor(el.attrs, "min-width", sheets);
+    const max = declFor(el.attrs, "max-width", sheets);
+    if ((min !== null && /px/.test(min)) || (max !== null && /px/.test(max)) || flexBasisPx(el.attrs, sheets) !== null) {
+      anchorIdx = i;
+      break;
+    }
+  }
+  const selectMax = declFor(entry.select.attrs, "max-width", sheets);
+  const selectChrome = chromeX(entry.select.attrs, sheets);
+  // A select capped by its OWN max-width needs no ancestor: the cap IS the box
+  // (its content is always wider than the cap, or it would not be capped).
+  if (selectMax !== null && /px/.test(selectMax)) {
+    return { content: px(selectMax) - selectChrome, at: px(selectMax), anchor: "own max-width" };
+  }
+  if (anchorIdx === -1) return null;
+
+  const anchor = entry.chain[anchorIdx] as RawEl;
+  const anchorMin = pxOr(declFor(anchor.attrs, "min-width", sheets), flexBasisPx(anchor.attrs, sheets) ?? 0);
+  const anchorMax = pxOr(declFor(anchor.attrs, "max-width", sheets), Math.max(anchorMin, 1200));
+  if (anchorMin <= 0) return null;
+
+  let worst: BoxResult | null = null;
+  for (let anchorW = anchorMin; anchorW <= anchorMax; anchorW += 1) {
+    let width = anchorW;
+    for (let i = anchorIdx; i < entry.chain.length; i += 1) {
+      const el = entry.chain[i] as RawEl;
+      width -= chromeX(el.attrs, sheets);
+      const grid = declFor(el.attrs, "grid-template-columns", sheets);
+      const gap = pxOr(declFor(el.attrs, "gap", sheets), 0);
+      if (grid !== null) {
+        const cols = columnCount(grid, width, gap);
+        width = (width - gap * (cols - 1)) / cols;
+        continue;
+      }
+      if ((declFor(el.attrs, "display", sheets) ?? "").indexOf("flex") > -1) {
+        const kids = topLevelChildren(sliceAnyElement(html, el.start), el.start);
+        const wraps = (declFor(el.attrs, "flex-wrap", sheets) ?? "nowrap") === "wrap";
+        const mineIdx = kids.findIndex((k) => entry.at >= k.from && entry.at < k.to);
+        const others = kids.filter((_k, n) => n !== mineIdx);
+        let siblingW = 0;
+        for (const k of others) {
+          const basis = flexBasisPx(k.attrs, sheets);
+          const maxW = declFor(k.attrs, "max-width", sheets);
+          const wAttr = attr(k.attrs, "width"); // svg/img chevrons and icons
+          if (basis !== null) siblingW += basis;
+          else if (maxW !== null && /px/.test(maxW)) siblingW += px(maxW);
+          else if (wAttr !== null && /^\d+$/.test(wAttr)) siblingW += Number(wAttr) + chromeX(k.attrs, sheets);
+          else siblingW += textWidthPx(visibleText(k.html), fontPxOf(k.attrs, sheets, 14)) + chromeX(k.attrs, sheets);
+        }
+        const gaps = gap * Math.max(0, kids.length - 1);
+        // The line-break decision needs MY OWN hypothetical width too, not
+        // just the siblings': a child declared width:100% (every .form-select)
+        // already claims the whole line, which is exactly why the browser puts
+        // it alone on one and gives it the full width — .lg-list-row measured
+        // 292px of a 292px line, .lg-preset-apply-row 314 of 314. Comparing
+        // siblings alone said "it shares", and under-stated both boxes by more
+        // than half.
+        const mineEl = mineIdx === -1 ? null : (kids[mineIdx] as { attrs: string; html: string });
+        const mineBasis = mineEl === null ? null : flexBasisPx(mineEl.attrs, sheets);
+        const claimsFullLine =
+          mineEl !== null && (declFor(mineEl.attrs, "width", sheets) === "100%" || /class="[^"]*\bform-select\b/.test(mineEl.html) || mineEl.html.startsWith("<select"));
+        const mineHypo = mineBasis !== null ? mineBasis : claimsFullLine ? width : textWidthPx(visibleText(mineEl?.html ?? ""), fontPxOf(mineEl?.attrs ?? "", sheets, 14));
+        const nextOther = others.length > 0 ? (others[0] as { attrs: string; html: string }) : null;
+        const nextHypo =
+          nextOther === null ? 0 : (flexBasisPx(nextOther.attrs, sheets) ?? textWidthPx(visibleText(nextOther.html), fontPxOf(nextOther.attrs, sheets, 14)) + chromeX(nextOther.attrs, sheets));
+        const alone = wraps && (mineHypo >= width || mineHypo + gap + nextHypo > width);
+        width = alone ? width : width - siblingW - gaps;
+        continue;
+      }
+    }
+    width -= selectChrome;
+    if (worst === null || width < worst.content) worst = { content: width, at: anchorW, anchor: (attr(anchor.attrs, "id") ?? attr(anchor.attrs, "data-pin") ?? attr(anchor.attrs, "class") ?? anchor.tag) };
+  }
+  return worst;
+}
+
+// --- the string universe: SSR options + the island literals written in -----
+// The real served script, sliced to the function body that resolves this
+// select by id, then every string literal assigned to a `.textContent`.
+// `literals` are product copy (they must FIT); `writesData` means the island
+// also assigns something that is NOT a literal — an operator's own name — so
+// no box can bound this control and it needs the reveal instead. The harvest
+// is scoped to the enclosing function, which is deliberately conservative: it
+// may attribute a sibling element's literal to this select, and that can only
+// ever make the fit check stricter, never blinder.
+function islandTextWrites(script: string, selectId: string): { literals: string[]; writesData: boolean } {
+  const out: string[] = [];
+  let writesData = false;
+  for (const ref of script.matchAll(new RegExp(`['"]${selectId.replace(/[-/\\^$*+?.()|[\]{}]/g, "\\$&")}['"]`, "g"))) {
+    const fnAt = script.lastIndexOf("function", ref.index as number);
+    if (fnAt === -1) continue;
+    const bodyAt = script.indexOf("{", fnAt);
+    let depth = 0;
+    let end = bodyAt;
+    for (let i = bodyAt; i < script.length; i += 1) {
+      if (script[i] === "{") depth += 1;
+      else if (script[i] === "}") {
+        depth -= 1;
+        if (depth === 0) {
+          end = i;
+          break;
+        }
+      }
+    }
+    const body = script.slice(bodyAt, end);
+    for (const w of body.matchAll(/\.(?:textContent|text|innerText)\s*=\s*([^;]+);/g)) {
+      const rhs = w[1] as string;
+      let stripped = rhs;
+      for (const lit of rhs.matchAll(/'((?:[^'\\]|\\.)*)'|"((?:[^"\\]|\\.)*)"/g)) {
+        const raw = (lit[1] ?? lit[2]) as string;
+        out.push(raw.replace(/\\u([0-9a-fA-F]{4})/g, (_m, h: string) => String.fromCharCode(parseInt(h, 16))).replace(/\\'/g, "'"));
+        stripped = stripped.replace(lit[0] as string, "");
+      }
+      // anything left after removing the literals is an expression: data.
+      if (/[A-Za-z_$][\w$]*/.test(stripped.replace(/\b(?:true|false|null|undefined)\b/g, ""))) writesData = true;
+    }
+  }
+  return { literals: [...new Set(out)], writesData };
+}
 
 // ===========================================================================
 // N20 (rail half) — fresh (self-hosted) fonts first, legacy last, labelled
@@ -621,15 +910,26 @@ describe("N20 — theme rail: fresh self-hosted fonts sort first, legacy (not se
 // response through the REAL admin router — so the item COUNT that decides the
 // state is never hand-invented (E11: the island side and the data side are
 // both real; only funnel.ts's DOM-writing hop is simulated, and it is named).
+// The zero-preset placeholder EXACTLY as quotes-tabs/funnel.ts writes it,
+// harvested from the real exported island source and never re-typed, so this
+// harness cannot drift from its producer.
+function zeroStatePlaceholderLiteral(): string {
+  const literals = islandTextWrites(QUOTE_EDITOR_SCRIPT, "lg-theme-preset-select").literals;
+  const zero = literals.filter((t) => /^no .*preset/i.test(t));
+  expect(zero.length, `funnel.ts must write exactly one zero-state placeholder literal; found ${JSON.stringify(literals)}`).toBe(1);
+  return zero[0] as string;
+}
+
 interface MinimalIslandHandle {
   elementById(id: string): Record<string, unknown>;
   settle(): Promise<void>;
   pumpTimers(rounds?: number): Promise<void>;
   repopulatePicker(optionTexts: readonly string[]): void;
   fetchedUrls(): string[];
+  pendingTimers(): number;
 }
 
-function bootThemesIslandMinimal(env: Env): MinimalIslandHandle {
+function bootThemesIslandMinimal(env: Env, withObserver = false): MinimalIslandHandle {
   const html = renderThemesTabPanel(true);
   const script = html.slice(html.lastIndexOf("<script>") + "<script>".length, html.lastIndexOf("</script>"));
 
@@ -694,7 +994,29 @@ function bootThemesIslandMinimal(env: Env): MinimalIslandHandle {
     return p;
   };
 
-  runInNewContext(script, { document, window: win, fetch: fetchShim, JSON, Object, String, Boolean, Number });
+  // F10 (MINOR-2/MINOR-5): the island now WATCHES the picker instead of
+  // polling it, so the sandbox carries a real (minimal) MutationObserver whose
+  // callbacks repopulatePicker() fires — the same childList churn
+  // quotes-tabs/funnel.ts's clearChildren()+appendChild() produces on the real
+  // page. Engines without it fall back to the timer, which the legs above
+  // still exercise (this stub is only installed when `observed` is asked for).
+  const observers: Array<{ target: unknown; cb: () => void }> = [];
+  function MutationObserverStub(this: Record<string, unknown>, cb: () => void) {
+    (this as { observe: (t: unknown) => void }).observe = (t: unknown) => {
+      observers.push({ target: t, cb });
+    };
+  }
+  runInNewContext(script, {
+    document,
+    window: win,
+    fetch: fetchShim,
+    MutationObserver: withObserver ? MutationObserverStub : undefined,
+    JSON,
+    Object,
+    String,
+    Boolean,
+    Number,
+  });
 
   return {
     elementById(id) {
@@ -716,9 +1038,15 @@ function bootThemesIslandMinimal(env: Env): MinimalIslandHandle {
     },
     repopulatePicker(optionTexts) {
       pickerEl["options"] = optionTexts.map((t) => option(t, false));
+      for (const o of observers) {
+        if (o.target === pickerEl) o.cb();
+      }
     },
     fetchedUrls() {
       return urls.slice();
+    },
+    pendingTimers() {
+      return timers.length;
     },
   };
 }
@@ -750,7 +1078,11 @@ describeDb("N11 — zero presets: both actions render disabled, and stay disable
 
     const island = bootThemesIslandMinimal(env);
     await island.settle();
-    island.repopulatePicker(["No presets yet — create one below"]); // funnel.ts's own zero-state shape
+    // funnel.ts's own zero-state shape, READ OUT of the real served island
+    // rather than re-typed here (F10: a hand-typed copy of the producer's
+    // string is the E11 "both sides hand-built" trap, and it is exactly what
+    // went stale the moment BLOCKER-1's fix shortened that literal).
+    island.repopulatePicker([zeroStatePlaceholderLiteral()]);
     await island.pumpTimers(2);
 
     const applyBtn = island.elementById("lg-theme-preset-apply");
@@ -762,6 +1094,46 @@ describeDb("N11 — zero presets: both actions render disabled, and stay disable
     expect(String(applyBtn["title"])).toContain("No presets saved yet");
     // MAJOR-2: the reason is on the page, carried by a class that paints it.
     expect(String(helpEl["className"])).toContain("lg-preset-help-blocked");
+  });
+});
+
+// ---------------------------------------------------------------------------
+// MINOR-2 + MINOR-5 (review-p8-3b) — THE FAILED STATE IS RECOVERABLE, AND THE
+// POLL IS BOUNDED. FAIL-BEFORE (source-confirmed by the reviewer):
+// refreshPresetAvailability called applyPresetState('failed') after
+// PRESET_UNKNOWN_LIMIT (25) x PRESET_TICK_MS (400ms) = 10s and RETURNED
+// WITHOUT RESCHEDULING, so a catalog that resolved at 10.1s left both buttons
+// dead beside a populated picker for the life of the page; and in every other
+// state it re-armed a 400ms timer forever. Both legs below are EXECUTED
+// against the REAL served island in the vm sandbox.
+// ---------------------------------------------------------------------------
+describeDb("MINOR-2/MINOR-5 — a late catalog recovers the dead state, and the settled island keeps no timer", () => {
+  it("EXECUTED: after the 10s unknown window has latched 'failed', a picker that fills LATER re-enables both actions", async () => {
+    const { env } = newHarness();
+    const island = bootThemesIslandMinimal(env, true);
+    await island.settle();
+    // burn past PRESET_UNKNOWN_LIMIT while the picker still shows the SSR
+    // marker: the island gives up and says so.
+    await island.pumpTimers(30);
+    expect(String(island.elementById("lg-theme-preset-help")["textContent"])).toContain("Could not check");
+    expect(island.elementById("lg-theme-preset-apply")["disabled"]).toBe(true);
+    expect(island.pendingTimers(), "the failed state must not keep re-arming the fast tick").toBe(0);
+
+    // …then the slow catalog lands and funnel.ts fills the picker.
+    island.repopulatePicker(["Choose a preset…", "Arrived Late Preset"]);
+    expect(island.elementById("lg-theme-preset-apply")["disabled"], "a late catalog must un-stick the buttons").toBe(false);
+    expect(island.elementById("lg-theme-ab-this")["disabled"]).toBe(false);
+    expect(String(island.elementById("lg-theme-preset-help")["textContent"])).not.toContain("Could not check");
+  });
+
+  it("EXECUTED: once the state is settled the island holds NO pending timer at all — the watcher replaced the poll", async () => {
+    const { env } = newHarness();
+    const island = bootThemesIslandMinimal(env, true);
+    await island.settle();
+    island.repopulatePicker(["Choose a preset…", "Ready Preset"]);
+    await island.pumpTimers(3);
+    expect(island.elementById("lg-theme-preset-apply")["disabled"]).toBe(false);
+    expect(island.pendingTimers(), "a settled island must not keep polling every 400ms").toBe(0);
   });
 });
 
@@ -922,63 +1294,299 @@ function offeredTexts(select: ParsedSelect): string[] {
   return select.options.filter((o) => !o.hidden && o.value !== "").map((o) => o.text);
 }
 
-// ---------------------------------------------------------------------------
-// N7 THE BOX INVARIANT (Themes manager) — same rule, the other surface. The
-// reviewer measured this select truncating its own value by +74.2px at 1280
-// and by +167.1px at 375.
-// ---------------------------------------------------------------------------
-describeDb("N7 BOX INVARIANT — Themes manager: no font option is wider than its own select", () => {
-  it("EXECUTED against the REAL manager page: every option of both font selects fits the computed content box at every column width", async () => {
+// ===========================================================================
+// N7 — THE CLIP INVARIANT, EXECUTED over all three surfaces at once.
+// (Machinery + the coverage statement are at the top of the N7 section.)
+// ===========================================================================
+
+// A select this enumeration finds but cannot place a box around. Every entry
+// carries the reason IN FILE; the leg below FAILS if an entry ever becomes
+// resolvable, so this can never quietly become a parking lot.
+const OUT_OF_COVERAGE: ReadonlyArray<{ id: string; reason: string }> = [
+  {
+    id: "lg-site-select",
+    reason:
+      "the quote-editor page header's site picker (ui-quotes.ts:730, a file this slice does not own; it is on the board surface, not inside either enumerated one). It sits in a .lg-chip inside .lg-editor-head, a wrapping row whose width is the admin content box, which no declaration in any owned file pins — there is no honest anchor to resolve from. DATA-BEARING (operator site names), so the clip reveal covers it. Driven: widest entry -33.84px at 1280 (fits) and +2.47px at 375, which the element's own scrollWidth reports as no overflow at all, so the reveal correctly stays silent.",
+  },
+  {
+    id: "lg-tpl-target-select",
+    reason:
+      "the Templates tab's funnel picker (quotes-tabs/templates.ts:894). Not this slice's file and not one of the three covered surfaces. Measured +283.77px with operator funnel names; data-bearing, so the page-global clip reveal covers it — driven after this round it reports title='R2C3 Bravo Extremely Long Funnel Column Name…' and text-overflow:ellipsis. Reported to the conductor as an adjacent surface, not silently absorbed.",
+  },
+  {
+    id: "lg-tpl-section-select",
+    reason:
+      "the Templates tab's section picker (quotes-tabs/templates.ts:862). Same file, same reason; measured +305.80px with operator section names and likewise closed by the page-global reveal.",
+  },
+  {
+    id: "lg-tpl-theme-select",
+    reason: "the Templates tab's theme switcher (quotes-tabs/templates.ts:858). Not owned, not a covered surface; driven -68.86px (fits).",
+  },
+  {
+    id: "lg-tpl-site-select",
+    reason: "the Templates tab's site picker (quotes-tabs/templates.ts:865). Not owned, not a covered surface; driven -3.22px (fits) and data-bearing, so the reveal covers the unbounded case.",
+  },
+];
+
+interface CoveredSelect {
+  surface: string;
+  key: string;
+  select: ParsedSelect;
+  box: BoxResult | null;
+  strings: string[];
+  dataBearing: boolean;
+  fontPx: number;
+}
+
+async function coveredSelects(env: Env, themeId: string): Promise<CoveredSelect[]> {
+  const sheets = [LG_QUOTES_STYLES, ADMIN_STYLES] as const;
+  const siteA: PreviewSiteOption[] = [
+    { site_id: "s1", site_name: "R2Fix Fixture Site", badge: "Active" },
+    { site_id: "s2", site_name: "Seed Local Living", badge: "Not activated yet" },
+  ];
+  const siteB: PreviewSiteOption[] = [
+    { site_id: "s1", site_name: "Zzz Other Site", badge: "Active" },
+    { site_id: "s2", site_name: "Another Longer Site Name Entirely", badge: "Not activated yet" },
+  ];
+  // The islands as SERVED, never re-typed: every <script> body the surface
+  // itself emits, plus (for the Themes tab, which is mounted inside the quote
+  // editor) that page's own script — the one that fills the preset picker.
+  const scriptsOf = (html: string): string => [...html.matchAll(/<script[^>]*>([\s\S]*?)<\/script>/g)].map((m) => m[1] as string).join("\n");
+  const railA = renderThemesTabPanel(true, siteA);
+  const managerHtml = (await getHtml(env, `/admin/leadgen/themes?theme=${themeId}`)).html;
+
+  const surfaces: Array<{ name: string; html: string; alt: string; script: string; fallbackFont: number }> = [
+    {
+      name: "S1 Themes tab (renderThemesTabPanel)",
+      html: railA,
+      alt: renderThemesTabPanel(true, siteB),
+      script: scriptsOf(railA) + "\n" + QUOTE_EDITOR_SCRIPT,
+      fallbackFont: px(decl(styleRule(ADMIN_STYLES, ".form-select"), "font-size")),
+    },
+    {
+      name: "S2 Themes manager (/admin/leadgen/themes)",
+      html: managerHtml,
+      alt: managerHtml,
+      script: scriptsOf(managerHtml),
+      fallbackFont: 14,
+    },
+  ];
+
+  const out: CoveredSelect[] = [];
+  for (const surface of surfaces) {
+    const altById = new Map(selectsWithChain(surface.alt).map((e) => [attr(e.select.attrs, "id") ?? attr(e.select.attrs, "data-theme-key") ?? "", e.select.options.map((o) => o.text).join(" ")]));
+    for (const entry of selectsWithChain(surface.html)) {
+      const id = attr(entry.select.attrs, "id") ?? "";
+      const key = id !== "" ? id : (attr(entry.select.attrs, "data-theme-key") ?? "(unkeyed)");
+      const ssrTexts = entry.select.options.map((o) => o.text);
+      const island = id === "" ? { literals: [] as string[], writesData: false } : islandTextWrites(surface.script, id);
+      // DATA-BEARING is MEASURED, never listed: either the SAME renderer with
+      // DIFFERENT real data produced different option texts, or the real
+      // island assigns a non-literal (an operator's own name) into it.
+      const dataBearing = altById.get(key) !== ssrTexts.join(" ") || island.writesData;
+      out.push({
+        surface: surface.name,
+        key,
+        select: entry.select,
+        box: resolveContentBox(surface.html, entry, sheets),
+        // The product-authored universe: SSR options that do NOT move with the
+        // data, plus every literal the real island writes into this select.
+        strings: [...new Set([...(dataBearing ? [] : ssrTexts), ...island.literals])],
+        dataBearing,
+        fontPx: pxOr(declFor(entry.select.attrs, "font-size", sheets), surface.fallbackFont),
+      });
+    }
+  }
+  return out;
+}
+
+describeDb("N7 CLIP INVARIANT — every select on the covered surfaces shows its own product text in full", () => {
+  it("EXECUTED: the enumeration reaches the whole surface set, and every select is either boxed or named out of coverage", async () => {
     const { env } = newHarness();
     const created = await json<ThemeCreateResponse>(
-      await admin.request(`${API}/themes`, jsonInit("POST", presetBody("Box Invariant Preset", "Newsreader", "Roboto Mono")), env),
+      await admin.request(`${API}/themes`, jsonInit("POST", presetBody("Clip Invariant Preset", "Newsreader", "Roboto Mono")), env),
       "create preset",
     );
-    const { html } = await getHtml(env, `/admin/leadgen/themes?theme=${created.item.id}`);
+    const all = await coveredSelects(env, created.item.id);
 
-    // Every number below is parsed out of the markup the real page emitted.
-    const editorMin = px(styleValue(inlineStyleOf(html, 'data-pin="8.4-editor-controls"'), "min-width"));
-    const gridStyle = inlineStyleOf(html, 'data-pin="8.4-typography-grid"');
-    const gridSpec = decl(gridStyle, "grid-template-columns");
-    const gap = px(decl(gridStyle, "gap"));
-    const wrapAt = html.indexOf('class="tm-font-select-wrap"');
-    expect(wrapAt, "the real page must carry the font-select wrapper").toBeGreaterThan(-1);
-    const wrapStyle = inlineStyleOf(html, 'class="tm-font-select-wrap"');
-    const wrapChromeX = paddingX(decl(wrapStyle, "padding")) + px(decl(wrapStyle, "border")) * 2;
-    // the chevron is a real flex sibling of the select and takes its width out
-    // of the same line box
-    const chevronPx = Number(html.slice(wrapAt).match(/<svg width="(\d+)"/)?.[1] ?? "0");
-    expect(chevronPx).toBeGreaterThan(0);
-
-    const selects = managerFontSelects(html);
-    const fontPx = px(decl(attr(selects[0]!.attrs, "style") ?? "", "font-size"));
-
-    // Narrowest box anywhere from the column's declared floor up through a
-    // generously wide desktop column — scanned, because column count is a step
-    // function of the container width.
-    let worst = Number.POSITIVE_INFINITY;
-    let worstAt = editorMin;
-    for (let colW = editorMin; colW <= 1200; colW += 1) {
-      const cols = columnCount(gridSpec, colW, gap);
-      const content = (colW - gap * (cols - 1)) / cols - wrapChromeX - chevronPx;
-      if (content < worst) {
-        worst = content;
-        worstAt = colW;
-      }
+    // The enumeration is real: the two surfaces together render the 16 rail
+    // scalars + the 4 other Themes-tab selects + the 2 manager font selects.
+    expect(all.length, all.map((c) => c.key).join(", ")).toBe(22);
+    expect(all.filter((c) => c.key.startsWith("typography.") || c.key.startsWith("scales.") || c.key.startsWith("button_defaults.") || c.key.startsWith("card_defaults.") || c.key.startsWith("field_defaults.")).length).toBe(16);
+    for (const id of ["lg-theme-target-select", "lg-theme-site-select", "lg-theme-hex-role", "lg-theme-preset-select", "tm-headline-font", "tm-body-font"]) {
+      expect(all.some((c) => c.key === id), `the enumeration missed ${id}`).toBe(true);
     }
-    expect(worst).toBeGreaterThan(0);
+
+    const unplaced = all.filter((c) => c.box === null).map((c) => `${c.key} (${c.surface})`);
+    const excused = new Set(OUT_OF_COVERAGE.map((o) => o.id));
+    expect(
+      unplaced.filter((u) => !excused.has(u.split(" ")[0] as string)),
+      "a select on a covered surface has no resolvable box: give it one, or add it to OUT_OF_COVERAGE with a written reason",
+    ).toEqual([]);
+  });
+
+  it("EXECUTED: no product-authored string is wider than the box that shows it, at the narrowest width its layout can take", async () => {
+    const { env } = newHarness();
+    const created = await json<ThemeCreateResponse>(
+      await admin.request(`${API}/themes`, jsonInit("POST", presetBody("Clip Invariant Preset", "Newsreader", "Roboto Mono")), env),
+      "create preset",
+    );
+    const all = await coveredSelects(env, created.item.id);
 
     const overflowing: string[] = [];
-    for (const select of selects) {
-      for (const option of select.options) {
-        const w = textWidthPx(option.text, fontPx);
-        if (w > worst) overflowing.push(`${attr(select.attrs, "id")}: "${option.text}" ${w.toFixed(2)}px > ${worst.toFixed(2)}px`);
+    let checked = 0;
+    for (const c of all) {
+      if (c.box === null) continue;
+      for (const text of c.strings) {
+        checked += 1;
+        const w = textWidthPx(text, c.fontPx);
+        if (w > c.box.content) {
+          overflowing.push(`${c.key}: "${text}" ${w.toFixed(2)}px > ${c.box.content.toFixed(2)}px (anchor ${c.box.anchor} at ${c.box.at}px, ${c.surface})`);
+        }
       }
     }
-    expect(
-      overflowing,
-      `worst-case content box ${worst.toFixed(2)}px at column width ${worstAt}px (grid "${gridSpec}", gap ${gap}, wrap chrome ${wrapChromeX}, chevron ${chevronPx})`,
-    ).toEqual([]);
+    // THE INVARIANT, first, so a regression's own message is the one that
+    // names the offending string, its width and its box.
+    expect(overflowing).toEqual([]);
+    // …and it was not vacuous. The enumeration is not hollow and nothing was
+    // skipped in silence: the number of strings measured IS the number the
+    // covered selects carry (a floor of 100 so an empty universe cannot pass),
+    // and both halves really came from the real artifacts — the rail's SSR
+    // options AND funnel.ts's island literals for the picker.
+    const boxed = all.filter((c) => c.box !== null);
+    expect(boxed.length).toBe(all.length);
+    expect(checked).toBe(boxed.reduce((n, c) => n + c.strings.length, 0));
+    expect(checked).toBeGreaterThanOrEqual(100);
+    const picker = all.find((c) => c.key === "lg-theme-preset-select") as CoveredSelect;
+    expect(picker.strings, "funnel.ts's zero-state literal must reach this check").toContain("No presets yet");
+    expect(picker.strings).toContain("Choose a preset…");
+  });
+
+  it("EXECUTED: every select that can hold OPERATOR data is covered by the clip reveal, and the reveal is on the page that renders it", async () => {
+    const { env } = newHarness();
+    const created = await json<ThemeCreateResponse>(
+      await admin.request(`${API}/themes`, jsonInit("POST", presetBody("Clip Invariant Preset", "Newsreader", "Roboto Mono")), env),
+      "create preset",
+    );
+    const all = await coveredSelects(env, created.item.id);
+    // Detected by re-rendering the SAME surface with DIFFERENT real data —
+    // never by a list of "the ones I think take names".
+    const bearing = all.filter((c) => c.dataBearing).map((c) => c.key);
+    expect(bearing, "the differential render must catch the site picker").toContain("lg-theme-site-select");
+    for (const key of bearing) {
+      expect(OUT_OF_COVERAGE.some((o) => o.id === key) || all.find((c) => c.key === key)?.box !== null, `${key} is data-bearing and unplaced`).toBe(true);
+    }
+    // …and the mechanism that covers them is served on the real page.
+    const { html } = await getHtml(env, `/admin/leadgen/themes?theme=${created.item.id}`);
+    expect(html).toContain("function lgRevealClippedSelect(");
+    expect(html).toContain("sel.scrollWidth > sel.clientWidth");
+  });
+
+  it("the OUT_OF_COVERAGE list is honest: every excused select is really unplaceable or really outside the covered surfaces", async () => {
+    const { env } = newHarness();
+    const created = await json<ThemeCreateResponse>(
+      await admin.request(`${API}/themes`, jsonInit("POST", presetBody("Clip Invariant Preset", "Newsreader", "Roboto Mono")), env),
+      "create preset",
+    );
+    const all = await coveredSelects(env, created.item.id);
+    for (const row of OUT_OF_COVERAGE) {
+      expect(row.reason.length, `${row.id} needs a written reason`).toBeGreaterThan(80);
+      const hit = all.find((c) => c.key === row.id);
+      // Stale-residual leg: an excused id that this enumeration now places
+      // must be REMOVED from the list, not left standing.
+      expect(hit === undefined || hit.box === null, `${row.id} is now resolvable — delete its OUT_OF_COVERAGE row`).toBe(true);
+    }
+  });
+});
+
+// ---------------------------------------------------------------------------
+// THE CLIP REVEAL, EXECUTED — the REAL served ADMIN_SCRIPTS bytes run in a
+// node:vm against a select whose painted box is the one THIS FILE computes
+// from the real declarations, so neither side of the boundary is hand-built:
+// the script is the real artifact, the overflow condition is the real
+// arithmetic. FAIL-BEFORE (driven, both widths): every one of these selects
+// reported title="" and text-overflow:clip while its text was clipped.
+// ---------------------------------------------------------------------------
+describe("N7 CLIP REVEAL — the real admin script hands over text a select cannot show", () => {
+  function runReveal(scrollW: number, clientW: number, optionText: string): Record<string, unknown> {
+    const attrs: Record<string, string> = {};
+    const style: Record<string, string> = {};
+    const sel = {
+      tagName: "SELECT",
+      scrollWidth: scrollW,
+      clientWidth: clientW,
+      selectedIndex: 0,
+      options: [{ textContent: optionText }],
+      style,
+      setAttribute(n: string, v: string) {
+        attrs[n] = v;
+      },
+      getAttribute: (n: string) => attrs[n] ?? null,
+      removeAttribute(n: string) {
+        delete attrs[n];
+      },
+    };
+    const listeners: Record<string, (e: unknown) => void> = {};
+    const doc = {
+      getElementById: () => null,
+      querySelectorAll: () => [sel],
+      createElement: () => ({ style: {}, setAttribute() {}, appendChild() {} }),
+      addEventListener(type: string, fn: (e: unknown) => void) {
+        listeners[type] = fn;
+      },
+      head: { appendChild() {} },
+      body: {},
+    };
+    const win: Record<string, unknown> = {};
+    runInNewContext(ADMIN_SCRIPTS, {
+      document: doc,
+      window: win,
+      setTimeout: (fn: () => void) => {
+        fn();
+        return 0;
+      },
+      String,
+      Object,
+      Number,
+      Boolean,
+      JSON,
+      fetch: () => Promise.resolve({}),
+    });
+    return { attrs, style, sel, win, listeners };
+  }
+
+  it("EXECUTED: a select whose own box cannot show its selected option gets that option verbatim as a title, plus an ellipsis", () => {
+    const r = runReveal(363, 312, "No presets yet — create one from the Themes manager");
+    expect((r["attrs"] as Record<string, string>)["title"]).toBe("No presets yet — create one from the Themes manager");
+    expect((r["attrs"] as Record<string, string>)["data-lg-clipped"]).toBe("1");
+    expect((r["style"] as Record<string, string>)["textOverflow"]).toBe("ellipsis");
+  });
+
+  it("EXECUTED: a select that fits is left completely alone — no title, no ellipsis, no attribute", () => {
+    const r = runReveal(312, 312, "No presets saved yet");
+    expect((r["attrs"] as Record<string, string>)["title"]).toBeUndefined();
+    expect((r["style"] as Record<string, string>)["textOverflow"]).toBeUndefined();
+  });
+
+  it("EXECUTED: the reveal is withdrawn when a shorter value is selected — and only ever its OWN title", () => {
+    const r = runReveal(363, 312, "Seed Local Living — Not activated yet");
+    const sel = r["sel"] as { scrollWidth: number; options: Array<{ textContent: string }> };
+    expect((r["attrs"] as Record<string, string>)["title"]).toBe("Seed Local Living — Not activated yet");
+    sel.scrollWidth = 312;
+    sel.options[0]!.textContent = "R2Fix Fixture Site — Active";
+    (r["win"] as { lgRevealClippedSelects: (root: unknown) => void }).lgRevealClippedSelects(null);
+    expect((r["attrs"] as Record<string, string>)["title"]).toBeUndefined();
+    expect((r["attrs"] as Record<string, string>)["data-lg-clipped"]).toBeUndefined();
+  });
+
+  it("EXECUTED: it reacts to the events an island-filled select actually produces (change / focusin / mouseover), with no timer of its own", () => {
+    const r = runReveal(312, 312, "short");
+    const listeners = r["listeners"] as Record<string, (e: unknown) => void>;
+    for (const type of ["change", "focusin", "mouseover"]) expect(typeof listeners[type], type).toBe("function");
+    const sel = r["sel"] as { scrollWidth: number };
+    sel.scrollWidth = 400;
+    (listeners["change"] as (e: unknown) => void)({ target: r["sel"] });
+    expect((r["attrs"] as Record<string, string>)["title"]).toBe("short");
   });
 });
 
