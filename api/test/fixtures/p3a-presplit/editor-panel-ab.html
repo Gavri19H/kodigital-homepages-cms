@@ -2,21 +2,21 @@
   <div class="card">
     <h3>Traffic allocation</h3>
     <p class="form-help">Test this funnel against variants of itself — a different template, theme, sections, or rules. Add a variant, change what you want on it, then split the traffic below (must sum to <strong>100%</strong>; stored as basis points, per-test Σ == 10000) before a test can start. Equal arms; no control.</p>
-    <div id="lg-ab-variant-list" class="lg-alloc-list"><div class="lg-alloc-row" data-variant="lgn_01KZ5CR9BWK5GEE7RJV289YN80">
+    <div id="lg-ab-variant-list" class="lg-alloc-list"><div class="lg-alloc-row" data-variant="lgn_01KZ5GWP0H53GJJGPSR982F0PQ">
     <span class="lg-alloc-label"><strong>A</strong></span>
     <label class="lg-alloc-pct"><input type="number" class="form-input lg-alloc-input" data-alloc-input
-      data-variant-id="lgn_01KZ5CR9BWK5GEE7RJV289YN80" data-variant-label="A"
+      data-variant-id="lgn_01KZ5GWP0H53GJJGPSR982F0PQ" data-variant-label="A"
       min="0" max="100" step="0.01" value="100" /> %</label>
-    <p class="form-help" data-arm-overrides="lgn_01KZ5CR9BWK5GEE7RJV289YN80">Same layout as funnel (no overrides)</p>
-    <p class="form-help" data-arm-varies="lgn_01KZ5CR9BWK5GEE7RJV289YN80">Base variant</p>
+    <p class="form-help" data-arm-overrides="lgn_01KZ5GWP0H53GJJGPSR982F0PQ">Same layout as funnel (no overrides)</p>
+    <p class="form-help" data-arm-varies="lgn_01KZ5GWP0H53GJJGPSR982F0PQ">Base variant</p>
     
-    <p class="form-help lg-hidden" data-delete-variant-err="lgn_01KZ5CR9BWK5GEE7RJV289YN80" role="alert"></p>
+    <p class="form-help lg-hidden" data-delete-variant-err="lgn_01KZ5GWP0H53GJJGPSR982F0PQ" role="alert"></p>
   </div></div>
     <p class="lg-alloc-summary">Σ = <strong data-alloc-sum>&mdash;</strong> <span data-alloc-sum-note class="form-help"></span></p>
     <div class="toolbar">
       <button type="button" id="lg-save-allocations" class="btn btn-primary">Save allocations</button>
       <button type="button" id="lg-add-variant" class="btn btn-secondary" data-add-variant-state="no-test" disabled aria-disabled="true" aria-describedby="lg-add-variant-why" title="a second variant exists only as an arm of a RUNNING A/B test, and this funnel has no test yet — press &quot;Create A/B test&quot;, then &quot;Start A/B test&quot;, then add the variant.">Add variant&#8230;</button>
-      <button type="button" id="lg-create-experiment" class="btn btn-secondary" data-quote-public-id="lgq_01KZ5CR9BWS3K1AM5V9T7SBQ9E">Create A/B test</button>
+      <button type="button" id="lg-create-experiment" class="btn btn-secondary" data-quote-public-id="lgq_01KZ5GWP0HE2A3Y6HGDZD5G77E">Create A/B test</button>
     </div>
     <p class="form-help lg-ab-order" data-ab-order>Order to A/B this funnel: <strong>1.</strong> Create A/B test &rarr; <strong>2.</strong> Start A/B test &rarr; <strong>3.</strong> Add variant (it becomes the test&#39;s second arm, split 50/50). Until a test is running the funnel keeps exactly one variant.</p>
     <p class="form-help lg-ab-add-why" id="lg-add-variant-why" data-add-variant-blocked="no-test" role="status">&#9888; <strong>Add variant is unavailable:</strong> a second variant exists only as an arm of a RUNNING A/B test, and this funnel has no test yet — press &quot;Create A/B test&quot;, then &quot;Start A/B test&quot;, then add the variant.</p>

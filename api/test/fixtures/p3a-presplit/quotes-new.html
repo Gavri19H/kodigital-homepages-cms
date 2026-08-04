@@ -604,14 +604,30 @@ if (!document.getElementById('toast-animations')) {
   function lgRevealClippedSelect(sel) {
     if (!sel || !sel.tagName || String(sel.tagName).toUpperCase() !== 'SELECT') { return; }
     var text = lgSelectedOptionText(sel);
+    var clipped = sel.getAttribute ? sel.getAttribute('data-lg-clipped') === '1' : false;
+    var own;
     if (text !== '' && lgOverflows(sel)) {
+      if (!clipped && sel.getAttribute) {
+        own = sel.getAttribute('title');
+        if (own !== null) { sel.setAttribute('data-lg-title-own', own); }
+      }
+      own = sel.getAttribute ? sel.getAttribute('data-lg-title-own') : null;
       sel.setAttribute('data-lg-clipped', '1');
-      sel.setAttribute('title', text);
+      sel.setAttribute('title', own === null || own === text ? text : own + '\n' + text);
       if (sel.style) { sel.style.textOverflow = 'ellipsis'; }
-    } else if (sel.getAttribute && sel.getAttribute('data-lg-clipped') === '1') {
+    } else if (clipped) {
+      own = sel.getAttribute('data-lg-title-own');
+      if (own === null) {
+        sel.removeAttribute('title');
+      } else {
+        sel.setAttribute('title', own);
+        sel.removeAttribute('data-lg-title-own');
+      }
       sel.removeAttribute('data-lg-clipped');
-      sel.removeAttribute('title');
-      if (sel.style) { sel.style.textOverflow = ''; }
+      if (sel.style) {
+        sel.style.textOverflow = '';
+        if (sel.getAttribute('style') === '') { sel.removeAttribute('style'); }
+      }
     }
   }
   function lgRevealClippedSelects(root) {
