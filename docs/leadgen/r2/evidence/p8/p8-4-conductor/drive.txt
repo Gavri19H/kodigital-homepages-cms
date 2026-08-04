@@ -1,0 +1,13 @@
+frame_config BEFORE apply: {"version":1,"template":"centered"}
+saved records: 6; 1:Centered card | 2:Site header + footer | 3:Header + call CTA | 4:Full background | 5:White + trust bar | 6:Minimal
+picked record 2 "Site header + footer"
+DRY RUN on 2: changes=5 replaced=[]
+confirmations:
+   - The question unit changes from a card to a bare layout.
+APPLIED: status=200 changes=5
+frame_config AFTER apply (stored leaves): 2 {"version":1,"template":"header-footer"}
+RE-APPLY dry run: changes=0 replaced=[]
+visitor before: {"frameClasses":"lg-frame lg-frame--centered","header":"lg-frame-region lg-frame-header lg-frame-header--center lg-frame-header--logo-m lg-frame-header--sticky","progressRegion":"lg-frame-region lg-frame-progress lg-frame-progress--bar lg-frame-progress--w-content lg-frame-progress--th-m lg-frame-progress--role-brand_primary lg-frame-progress--no-label","slot":"lg-frame-region lg-frame-slot lg-frame-slot--card lg-frame-slot--w-m lg-frame-slot--pad-m lg-frame-slot--off-none lg-frame-slot--t-fade lg-frame-slot--align-center","bgClass":"lg-frame-background lg-frame-bg-role-page_background lg-frame-bg-style-flat","bgPaint":"rgb(245, 247, 250)","sticky":"relative"}
+visitor after : {"frameClasses":"lg-frame lg-frame--header-footer","header":"lg-frame-region lg-frame-header lg-frame-header--left lg-frame-header--logo-m lg-frame-header--sticky","progressRegion":"lg-frame-region lg-frame-progress lg-frame-progress--bar lg-frame-progress--w-content lg-frame-progress--th-m lg-frame-progress--role-brand_primary lg-frame-progress--no-label","slot":"lg-frame-region lg-frame-slot lg-frame-slot--bare lg-frame-slot--w-m lg-frame-slot--pad-m lg-frame-slot--off-none lg-frame-slot--t-fade lg-frame-slot--align-center","bgClass":"lg-frame-background lg-frame-bg-role-page_background lg-frame-bg-style-flat","bgPaint":"rgb(245, 247, 250)","sticky":"relative"}
+page errors: none
+RESTORED frame_config: {"version":1,"template":"header-footer"}
