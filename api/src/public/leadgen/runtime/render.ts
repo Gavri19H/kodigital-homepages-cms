@@ -247,7 +247,19 @@ export function setFieldError(
   if (fieldEl !== null) {
     if (message !== null) fieldEl.classList.add(ERROR_CLASS);
     else fieldEl.classList.remove(ERROR_CLASS);
-    const input = fieldEl.querySelector("[data-lg-input]");
+    // R2 P8-5 M-3 (ADJ-P8-21): the field block IS the input on every
+    // renderTextInput shape (FreeText/Number/Email/Phone/Date/ZIP) — presets
+    // hydration() stamps data-lg-field on the <input> element itself, and an
+    // <input> is a VOID element, so a descendant-only querySelector can never
+    // reach it. Driven on the live funnel page (an empty required
+    // FreeTextQuestion + a real Continue click) the input came back
+    // aria-invalid=false while the Studio canvas painted aria-invalid="true"
+    // for the same authored section — the `.lg-input[aria-invalid="true"]`
+    // border a visitor was promised never fired. Self-first, then descendants
+    // (the wrapper shapes: address subfields, range, textarea boxes).
+    const input = fieldEl.hasAttribute("data-lg-input")
+      ? fieldEl
+      : fieldEl.querySelector("[data-lg-input]");
     if (input !== null) {
       if (message !== null) input.setAttribute("aria-invalid", "true");
       else input.removeAttribute("aria-invalid");
@@ -260,7 +272,19 @@ export function clearFieldErrors(sectionEl: Element): void {
     el.textContent = "";
     toggleHidden(el, false);
   });
-  sectionEl.querySelectorAll(`.${ERROR_CLASS}`).forEach((el) => el.classList.remove(ERROR_CLASS));
+  // R2 P8-5 G3b-1: `:not([data-lg-error-for])` — the MESSAGE SLOTS are not
+  // error-marked FIELDS, they are the chrome that reports on one. presets.ts
+  // autoErrorSlot/renderValidationError ship them with a STATIC
+  // class="lg-error lg-error-auto", so an unguarded sweep stripped `lg-error`
+  // off every slot the first time this ran and never put it back: measured on
+  // the live funnel page, the SSR slot `class="lg-error lg-error-auto"` came
+  // back `class="lg-error-auto"` after one Continue click, while the Studio
+  // canvas kept both. Any stylesheet rule keyed on `.lg-error` therefore did
+  // not apply to the live message (only the inline colour survived). The slots
+  // are already cleared, correctly, by the textContent+hidden loop above.
+  sectionEl
+    .querySelectorAll(`.${ERROR_CLASS}:not([data-lg-error-for])`)
+    .forEach((el) => el.classList.remove(ERROR_CLASS));
   sectionEl.querySelectorAll('[aria-invalid="true"]').forEach((el) => el.removeAttribute("aria-invalid"));
 }
 

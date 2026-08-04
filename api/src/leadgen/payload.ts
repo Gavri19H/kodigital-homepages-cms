@@ -643,8 +643,14 @@ function validateFreeTextConstraints(
     node["value_map"] === undefined &&
     node["valid_values"] === undefined;
   if (!isFreeTextNode) {
+    // P8-5 G5b (M5 "the rules you build are using jargon, have no actions"):
+    // same operator-visible path as the two rewrites below (validatePayloadSchema
+    // -> offers-handlers.ts fields.schema_json / ui-payload-builder.ts
+    // schema_errors renders) — in the admin UI's own field names ("Free text
+    // (no fixed answer list)" checkbox; "Value map editor" / "Valid values
+    // editor" per PAYLOAD_SCHEMA_ERROR_HINTS), not the raw prop keys.
     push(
-      `${present.join(", ")} require a free-text string answer node (source 'answer', type 'string', no value_map / valid_values)`,
+      `Max length and Pattern only apply to a plain free-text field. Turn on "Free text (no fixed answer list)" for this field, or clear its value map / valid values.`,
     );
     return;
   }
@@ -653,32 +659,47 @@ function validateFreeTextConstraints(
     maxLength !== undefined &&
     (typeof maxLength !== "number" || !Number.isInteger(maxLength) || maxLength < 1)
   ) {
-    push("free_text_max_length must be a positive integer");
+    push("Max length must be a whole number of 1 or more.");
   }
   const pattern = node["free_text_pattern"];
   if (pattern !== undefined && (typeof pattern !== "string" || !FREE_TEXT_PATTERN_SET.has(pattern))) {
-    push(`free_text_pattern must be one of ${LEADGEN_FREE_TEXT_PATTERNS.join("|")}`);
+    push(`Pattern must be one of: ${LEADGEN_FREE_TEXT_PATTERNS.join(", ")}. Pick one from the Pattern dropdown.`);
   }
   const custom = node["free_text_pattern_custom"];
   if (pattern === "custom") {
     if (typeof custom !== "string" || custom.trim() === "") {
-      push("free_text_pattern 'custom' requires free_text_pattern_custom");
+      push("Pattern is set to Custom… — enter a pattern in the Custom pattern field, or pick a different Pattern option.");
     } else if (custom.length > FREE_TEXT_CUSTOM_PATTERN_MAX_LENGTH) {
+      // P8-5 G5 (M5 "the rules you build are using jargon, have no actions"):
+      // confirmed operator-visible — this rides validatePayloadSchema's
+      // schema_errors[] straight to the admin Offer/payload builder
+      // (offers-handlers.ts's `fields.schema_json` first-blocking-error text,
+      // and ui-payload-builder.ts's Test-tool issue list / §6.11 validation
+      // panel, both render `.message` verbatim). Same operator-register
+      // phrasing as the sibling content-schema.ts fix shipped this phase
+      // ("A custom address rule's pattern must be at most 200 characters.
+      // Shorten it, or switch the rule off."), adapted to this feature — the
+      // admin UI labels this field "Custom pattern" (ui-payload-builder.ts),
+      // not an address rule.
       push(
-        `free_text_pattern_custom must be at most ${FREE_TEXT_CUSTOM_PATTERN_MAX_LENGTH} characters`,
+        `A custom pattern must be at most ${FREE_TEXT_CUSTOM_PATTERN_MAX_LENGTH} characters. Shorten it, or switch the pattern off.`,
       );
     } else if (isCatastrophicRegexShape(custom)) {
-      push("free_text_pattern_custom has a catastrophic-backtracking shape (quantified nested-quantifier or alternation group)");
+      push(
+        "This Custom pattern can hang the server on some inputs (nested repeats or piled-up alternation). Simplify it, or switch Pattern off Custom.",
+      );
     } else {
       try {
         // Compile check only — the runtime compiles its own instance.
         void new RegExp(custom);
       } catch {
-        push("free_text_pattern_custom is not a valid regular expression");
+        push("This Custom pattern isn't a valid regular expression. Fix it, or switch Pattern off Custom.");
       }
     }
   } else if (custom !== undefined) {
-    push("free_text_pattern_custom is only valid with free_text_pattern 'custom'");
+    push(
+      `A Custom pattern is set, but Pattern isn't "Custom…". Clear the Custom pattern field, or switch Pattern to Custom….`,
+    );
   }
 }
 

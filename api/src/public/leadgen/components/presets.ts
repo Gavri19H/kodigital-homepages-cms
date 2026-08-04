@@ -3074,6 +3074,13 @@ interface LeadgenAddressFieldSpec {
   mode: LeadgenAddressFieldMode;
   required: boolean;
   zip5: boolean;
+  // P8-5 G5 fix (reviewer m-4 "reduced model of the zip5 rule beside it"):
+  // mirrors runtime/validation.ts validateAddressField's OWN
+  // isRecord(validation) && typeof regex==="string" && regex!=="" test — a
+  // {regex,message} custom rule authored on this field. `validation` is
+  // either the string "zip5" or a {regex} object, never both, so this and
+  // `zip5` are mutually exclusive by construction.
+  hasCustomPattern: boolean;
 }
 
 const ADDRESS_FIELD_KINDS: readonly LeadgenAddressFieldKind[] = ["street", "city", "state", "zip", "full_address"];
@@ -3087,12 +3094,20 @@ function readAddressFieldSpecs(node: LeadgenComponentNode): LeadgenAddressFieldS
     const r = f as Record<string, unknown>;
     const kind = r["field"];
     if (typeof kind !== "string" || !ADDRESS_FIELD_KINDS.includes(kind as LeadgenAddressFieldKind)) return undefined;
+    const validationRaw = r["validation"];
+    const hasCustomPattern =
+      validationRaw !== null &&
+      typeof validationRaw === "object" &&
+      !Array.isArray(validationRaw) &&
+      typeof (validationRaw as Record<string, unknown>)["regex"] === "string" &&
+      (validationRaw as Record<string, unknown>)["regex"] !== "";
     out.push({
       field: kind as LeadgenAddressFieldKind,
       label: typeof r["label"] === "string" && r["label"].trim() !== "" ? r["label"] : undefined,
       mode: r["mode"] === "manual" ? "manual" : "autofill",
       required: r["required"] === true,
-      zip5: r["validation"] === "zip5",
+      zip5: validationRaw === "zip5",
+      hasCustomPattern,
     });
   }
   return out;
@@ -3127,10 +3142,10 @@ const ADDRESS_FIELD_DEFAULT_LABEL: Record<Exclude<LeadgenAddressFieldKind, "full
 // nothing here reads authored state, so "existing explicitly-authored field
 // sets keep their configuration" holds by construction.
 const ADDRESS_DEFAULT_FIELD_SPECS: readonly LeadgenAddressFieldSpec[] = [
-  { field: "street", mode: "autofill", required: false, zip5: false },
-  { field: "city", mode: "autofill", required: false, zip5: false },
-  { field: "state", mode: "autofill", required: false, zip5: false },
-  { field: "zip", mode: "autofill", required: false, zip5: true },
+  { field: "street", mode: "autofill", required: false, zip5: false, hasCustomPattern: false },
+  { field: "city", mode: "autofill", required: false, zip5: false, hasCustomPattern: false },
+  { field: "state", mode: "autofill", required: false, zip5: false, hasCustomPattern: false },
+  { field: "zip", mode: "autofill", required: false, zip5: true, hasCustomPattern: false },
 ];
 
 // ADJ-A2 fix (R2 P5 S5a): validateSection (runtime/validation.ts) keys a
@@ -3316,10 +3331,34 @@ function renderAddressFieldSet(
     // free-text address never advertises an autocomplete wiring that isn't
     // there. No runtime consumer reads this attribute today (grep-verified);
     // this is a truthful-DOM fix only, not a behavior change.
+    // P8-5 G5b fix (reviewer follow-up: "measure reachability... if
+    // reachable, it is the identical reduced-model defect"). MEASURED
+    // reachable: the Studio's OWN validation <select> (ui-section-studio.ts
+    // buildAddressRow) offers BOTH "ZIP (5 digits)" and "Custom pattern" for
+    // EVERY address row including full_address (no kind-gate on the option
+    // list), and content-schema.ts validateAddressFields never restricts
+    // `validation` by `field` kind either — driven through the real
+    // validateSectionContent, {field:"full_address", validation:"zip5"} and
+    // {field:"full_address", validation:{regex,message}} BOTH save with
+    // ok:true, zero errors. Pre-fix this single <input> rendered NEITHER
+    // native hint, same gap as the multi-field branch above.
+    // Only the custom-pattern half of that fix applies here, DELIBERATELY:
+    // `maxlength="200"` mirrors runtime/validation.ts's own ceiling exactly as
+    // above, safe for a whole address string. The zip5 half (`pattern=
+    // "\d{5}" maxlength="5"`) is NOT extended to full_address — a real
+    // address is never 5 digits, so that native cap would stop a visitor from
+    // typing a real address at all, an active regression, not a fix.
+    // Nonsensical-but-Studio-reachable zip5-on-full_address keeps its
+    // pre-existing (correct) JS-only enforcement — MEASURED:
+    // runtime/validation.ts validateAddressField already fails a bad value
+    // here with "Enter a valid 5-digit ZIP code." regardless of kind — and no
+    // native attribute, unchanged.
+    const formatAttrs = f.hasCustomPattern ? ` maxlength="200"` : "";
     return (
       `<div class="lg-address"${hydration(node)}${fieldSizeStyle(node, ctx)} data-provider="${esc(provider)}"${lonelyMapsEnabled ? attr("data-lg-maps", mapsConfigJson(node)) : ""}>` +
       `<input class="lg-input lg-address-input" type="text" data-lg-input` +
       ` autocomplete="street-address"${attr("placeholder", placeholder)}` +
+      formatAttrs +
       (node.required === true || f.required ? " required" : "") +
       (lonelyMapsEnabled ? ` data-address-autocomplete="true"` : "") +
       `>` +
@@ -3396,7 +3435,25 @@ function renderAddressFieldSet(
       const mapsAttr = isAutocompleteField
         ? attr("data-lg-maps", flatMapsConfigJson({ validate: addrJobs.validate, autocomplete: true }, fillsForMapsConfig))
         : "";
-      const zip5Attrs = kind === "zip" && f.zip5 ? ` inputmode="numeric" pattern="\\d{5}" maxlength="5"` : "";
+      // P8-5 G5 fix (owner D3 "the mapping... should definately be an
+      // option" / reviewer m-4 "reduced model of the zip5 rule beside it"):
+      // zip5 got a native pattern+maxlength; a {regex} custom rule got
+      // NEITHER. No native `pattern` for the author's own regex — same as
+      // every OTHER custom-regex surface in this file (a general free-text
+      // `pattern` rule never rides a native `pattern` attribute either, only
+      // `maxlength` when authored) — an unvetted author expression never runs
+      // inside the browser's OWN pattern-matching engine. `maxlength="200"`
+      // DOES mirror runtime/validation.ts validateAddressField's own 200-char
+      // ceiling — MEASURED there: past 200 chars the custom rule used to
+      // clear with zero failures (fixed alongside this); this stops a
+      // visitor from ever typing/pasting past the point that rule can even
+      // inspect, same spirit as zip5's own native cap.
+      const formatAttrs =
+        kind === "zip" && f.zip5
+          ? ` inputmode="numeric" pattern="\\d{5}" maxlength="5"`
+          : f.hasCustomPattern
+            ? ` maxlength="200"`
+            : "";
       const hasIcon = i === 0 && icon !== "";
       const inputStyleAttr = hasIcon
         ? style({ ...appearanceStyleEntries(node, design), "padding-left": "42px" })
@@ -3405,7 +3462,7 @@ function renderAddressFieldSet(
         `<input class="lg-input" type="text" data-lg-input${inputStyleAttr}` +
         `${isMultiField ? attr("id", fieldId) : ""}${attr("placeholder", label)}${attr("aria-label", label)}` +
         (isAutocompleteField ? ` autocomplete="street-address" data-address-autocomplete="true"` : "") +
-        zip5Attrs +
+        formatAttrs +
         (f.required ? " required" : "") +
         `>`;
       const boxedInput = hasIcon
