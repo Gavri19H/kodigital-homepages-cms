@@ -197,6 +197,16 @@ because P8-Charlie is empty (ADJ-P8-41).
 2. **An enumeration is only as closed as the universe it names.** Cost 4+ rounds: "all network writes" missed
    display reads; a box-fit invariant scoped to one container class missed the next container; the contract
    named 1 aria-label site, there are 5.
+   **This is systemic, not anecdotal — measure it and dispatch for it.** In the P8-5 FIX-FIRST round ALONE,
+   *four consecutive slices* each found their defect class at more sites than the finding named: F13 (1 named
+   → 4 fixture sites), G2 (fix shipped with no regression protecting it), G3 (2 named parity divergences → 3
+   more, one of them the same false-green class it had just fixed), G4 (2 named jargon sites → 2 more in its
+   own file + 1 outside). The review itself found the phase had fixed one of *two* selection badges and
+   bounded a collision check at *four of N* sources — the blocker.
+   **So put this in every dispatch from the start, not as a follow-up round:** *"Sweep your owned files for
+   this defect CLASS and report the complete list, including the sites you check and clear."* Also name the
+   axes to sweep on — the class, not the instance. Two follow-up rounds this phase existed only because the
+   brief named instances.
 3. **A fix creates the next defect.** It happened 3× in P8-3 and 3× in P8-4. Every fix round's brief must say
    "hunt for what this round introduced", and every review must too.
 4. **In-file claims are load-bearing and rot.** Four rounds each wrote a comment correcting a false claim and
