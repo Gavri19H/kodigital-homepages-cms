@@ -136,9 +136,24 @@ p3a recapture already done and **clean — 0 real changes** in every fixture (UL
    - 7 minors; three became owner rows **ADJ-P8-43/44/45** (register now 89 rows / 0 violations).
    Fix slices dispatched: **G1** `ui-section-studio.ts` (B-1, M-1, M-5) · **G2** `quotes-handlers.ts` + its
    regression test (M-2) · **G3** `render.ts`+`preview-sim.ts`+`leadgen-sections-api.test.ts` (M-3, M-4).
-   Still to dispatch: **G4** `content-schema.ts`+`leadgen-p8-r5-copy.test.ts` (m-1, m-2, m-3) · **G5**
-   `presets.ts`+`runtime/validation.ts` (m-4). **Runtime headroom is 318 bytes** — G3 and G5 both touch the
+   **G4** `content-schema.ts`+`leadgen-p8-r5-copy.test.ts` (m-1, m-2, m-3) · **G5** `presets.ts`+
+   `runtime/validation.ts`+`payload.ts` (m-4 + the payload jargon G4 flagged). G3 and G5 both rebuild the
    bundle and must never run concurrently.
+
+   **BYTE CAP is now the binding constraint.** 52,930 → **52,989** of 53,248 after G3's two rounds
+   (+59). **259 bytes left.** `presets.ts` and `payload.ts` cost nothing (SSR, not in the bundle);
+   `runtime/validation.ts` and `runtime/render.ts` do. Commit `render.ts` and
+   `runtime/engine-bundle.generated.ts` **together at a consistent build** — the verifier asserts
+   `freshness: byte-identical rebuild`, so a sha carrying one without the other is inconsistent.
+
+   **OPEN FOLLOW-UPS from this round, neither measured — do NOT fix blind:**
+   - **G3c**: `sim "validation_error"` on an authored ADDRESS still marks the GROUP. G3b's item-3 fix is
+     scoped to the required-error path (`state === "error"`) it actually measured. Live would show the ZIP
+     spec's own `validation.message`, not `PREVIEW_INVALID_MESSAGE` on the group. Same class as the two
+     parity divergences already fixed, so it is inside M6 — measure it, then fix only if it reproduces.
+     G3's warm retry is SPENT (G3b was it): this needs a FRESH lean dispatch.
+   - A freshly PATCHed section once took **>20s** to reach the served shell (G3 raised its probe settle loop
+     to 90s after a timeout). Worth knowing before anyone reads a slow drive as a product fault.
 3. Land **F13**, then a **SCOPED re-review of P8-4** covering F12 + F13 (P8-4's last verdict was FIX-FIRST —
    see the section above; it cannot merge on that).
 4. **P8-6**: dispatch its 5 slices (sites re-grounded above), gate, review.
