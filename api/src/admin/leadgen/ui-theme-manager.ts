@@ -55,6 +55,7 @@
 import type { Env } from "../../env";
 import { escapeHtml } from "../templates/layout";
 import { apiJson, leadgenPageShell, leadgenStandalonePageShell, branding, type UiContext } from "./ui";
+import { LG_CLIP_REVEAL_SCRIPT } from "./clip-reveal";
 import { parseJsonColumn } from "./offers-handlers";
 // §8.4 live canvas: an in-process self-request to the SAME existing
 // POST /sections/preview endpoint apiJson (above) already reaches for GET —
@@ -1501,7 +1502,12 @@ export async function leadgenThemeManagerPage(c: UiContext): Promise<Response> {
   </div>
 </div>`;
 
-  const scripts = THEME_MGR_SCRIPT + (embed ? TM_EMBED_SCRIPT : "");
+  // F12: the clip reveal is included by the leadgen surfaces that need it, not
+  // by the CROSS-PRODUCT admin shell (clip-reveal.ts's header has the why).
+  // Both shells below interpolate `scripts` at the end of <body>, so this is
+  // the standalone Themes manager's page-global include — it covers every
+  // select this page renders, including any added later.
+  const scripts = LG_CLIP_REVEAL_SCRIPT + THEME_MGR_SCRIPT + (embed ? TM_EMBED_SCRIPT : "");
 
   return c.html(
     embed

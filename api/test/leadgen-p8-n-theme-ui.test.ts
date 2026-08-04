@@ -64,6 +64,10 @@
 //     (renderThemesTabPanel; the REAL admin router's Themes-manager page);
 //   - the BOX comes from the REAL stylesheets and the REAL inline styles those
 //     same renders emit — parsed, never re-typed;
+// (FIX ROUND F12 later re-scoped the clip reveal out of the CROSS-PRODUCT
+// admin shell into src/admin/leadgen/clip-reveal.ts, and states the 141 -> 63
+// retirement arithmetic F10 left unstated — see "F12 BLAST RADIUS" and "F12
+// RETIREMENT LEDGER" below.)
 //   - the TEXT WIDTH comes from a per-character advance model that is
 //     CALIBRATED AGAINST REAL MEASURED PIXELS: the 29 strings the reviewer
 //     measured in the running product (docs/leadgen/r2/evidence/p8/
@@ -85,6 +89,7 @@ import { QUOTE_EDITOR_SCRIPT } from "../src/admin/leadgen/quotes-tabs/funnel";
 import { LG_QUOTES_STYLES } from "../src/admin/leadgen/quotes-tabs/shared";
 import type { PreviewSiteOption } from "../src/admin/leadgen/quotes-tabs/shared";
 import { ADMIN_SCRIPTS, ADMIN_STYLES } from "../src/admin/templates/layout";
+import { LG_CLIP_REVEAL_SCRIPT } from "../src/admin/leadgen/clip-reveal";
 import { THEME_FONT_IDS, THEME_FONT_STACKS, THEME_RECORD_FONT_NAMES, THEME_RECORD_FONT_STACKS, resolveTokens } from "../src/public/leadgen/designs/theme";
 import { DEFAULT_FUNNEL_SCOPE, funnelChromeCss } from "../src/public/leadgen/designs/default-funnel/styles";
 import { defaultFunnelDesign } from "../src/public/leadgen/designs/default-funnel/tokens";
@@ -1338,8 +1343,15 @@ interface CoveredSelect {
   fontPx: number;
 }
 
-async function coveredSelects(env: Env, themeId: string): Promise<CoveredSelect[]> {
-  const sheets = [LG_QUOTES_STYLES, ADMIN_STYLES] as const;
+async function coveredSelects(
+  env: Env,
+  themeId: string,
+  // F12: the sheet set is a parameter ONLY so the mutation leg below can feed
+  // the reverted grid rule and prove this arithmetic still fails for the
+  // regression it claims to catch. Every caller but that one passes the real
+  // sheets, and the default IS the real pair.
+  sheets: readonly string[] = [LG_QUOTES_STYLES, ADMIN_STYLES],
+): Promise<CoveredSelect[]> {
   const siteA: PreviewSiteOption[] = [
     { site_id: "s1", site_name: "R2Fix Fixture Site", badge: "Active" },
     { site_id: "s2", site_name: "Seed Local Living", badge: "Not activated yet" },
@@ -1500,14 +1512,26 @@ describeDb("N7 CLIP INVARIANT — every select on the covered surfaces shows its
 });
 
 // ---------------------------------------------------------------------------
-// THE CLIP REVEAL, EXECUTED — the REAL served ADMIN_SCRIPTS bytes run in a
-// node:vm against a select whose painted box is the one THIS FILE computes
-// from the real declarations, so neither side of the boundary is hand-built:
-// the script is the real artifact, the overflow condition is the real
-// arithmetic. FAIL-BEFORE (driven, both widths): every one of these selects
-// reported title="" and text-overflow:clip while its text was clipped.
+// THE CLIP REVEAL, EXECUTED — the REAL served LG_CLIP_REVEAL_SCRIPT bytes run
+// in a node:vm against a select whose painted box is the one THIS FILE
+// computes from the real declarations, so neither side of the boundary is
+// hand-built: the script is the real artifact, the overflow condition is the
+// real arithmetic. FAIL-BEFORE (driven, both widths): every one of these
+// selects reported title="" and text-overflow:clip while its text was clipped.
+//
+// FIX ROUND F12 — WHERE THESE BYTES LIVE, AND WHY THAT MOVED. F10 put them in
+// templates/layout.ts's ADMIN_SCRIPTS, which is the admin shell SHARED WITH
+// THE CONVERSIONS PRODUCT (one worker, several products): the leadgen fix
+// added 5,477 bytes of JavaScript to every conversions admin page and turned
+// test/conversions-admin-shell.test.ts's byte-identical legacy-shell pin red
+// (25789 vs 20312). The mechanism is unchanged and still page-global; only its
+// include site moved, to the two leadgen renderers that need it. The legs
+// below therefore execute src/admin/leadgen/clip-reveal.ts's real exported
+// bytes — same strictness, same four claims, same vm — and the blast-radius
+// block that follows pins BOTH halves of the new arrangement: absent from the
+// shared shell, present on both leadgen surfaces.
 // ---------------------------------------------------------------------------
-describe("N7 CLIP REVEAL — the real admin script hands over text a select cannot show", () => {
+describe("N7 CLIP REVEAL — the real leadgen script hands over text a select cannot show", () => {
   function runReveal(scrollW: number, clientW: number, optionText: string): Record<string, unknown> {
     const attrs: Record<string, string> = {};
     const style: Record<string, string> = {};
@@ -1538,7 +1562,7 @@ describe("N7 CLIP REVEAL — the real admin script hands over text a select cann
       body: {},
     };
     const win: Record<string, unknown> = {};
-    runInNewContext(ADMIN_SCRIPTS, {
+    runInNewContext(LG_CLIP_REVEAL_SCRIPT, {
       document: doc,
       window: win,
       setTimeout: (fn: () => void) => {
@@ -1587,6 +1611,188 @@ describe("N7 CLIP REVEAL — the real admin script hands over text a select cann
     sel.scrollWidth = 400;
     (listeners["change"] as (e: unknown) => void)({ target: r["sel"] });
     expect((r["attrs"] as Record<string, string>)["title"]).toBe("short");
+  });
+});
+
+// ---------------------------------------------------------------------------
+// F12 BLAST RADIUS — the reveal runs on the leadgen surfaces that need it and
+// changes NOTHING for any other product. `test/conversions-admin-shell.test.ts`
+// owns the other half of this claim (an adminLayout call that does not opt in
+// is byte-identical, 20312 / sha b7d6e8df…); it is READ-ONLY and unedited. The
+// legs here are the leadgen-side half: absent from the shared shell, present
+// verbatim on both leadgen surfaces, installed once.
+// ---------------------------------------------------------------------------
+describeDb("F12 — the clip reveal is leadgen-scoped: out of the cross-product shell, on both leadgen surfaces", () => {
+  it("the SHARED admin shell (templates/layout.ts ADMIN_SCRIPTS) carries no part of the reveal", () => {
+    for (const token of [
+      "lgRevealClippedSelect",
+      "lgRevealClippedSelects",
+      "data-lg-clipped",
+      "sel.scrollWidth > sel.clientWidth",
+      "lgTouchesASelect",
+    ]) {
+      expect(ADMIN_SCRIPTS, `ADMIN_SCRIPTS must not carry "${token}" — it ships on every conversions page too`).not.toContain(token);
+    }
+  });
+
+  it("the Themes rail surface emits the reveal verbatim, exactly once, and after it the tab island is still the LAST script (no vm manifest moves)", () => {
+    const html = renderThemesTabPanel(true);
+    expect(html).toContain(LG_CLIP_REVEAL_SCRIPT);
+    expect(html.split("function lgRevealClippedSelect(").length - 1, "one copy, not two").toBe(1);
+    const lastScript = html.slice(html.lastIndexOf("<script>") + "<script>".length, html.lastIndexOf("</script>"));
+    expect(lastScript, "every existing harness slices this panel's LAST script and expects the tab island").toContain("refreshPresetAvailability");
+    expect(lastScript).not.toContain("lgRevealClippedSelect");
+  });
+
+  it("EXECUTED: the standalone Themes manager page serves the reveal verbatim", async () => {
+    const { env } = newHarness();
+    const created = await json<ThemeCreateResponse>(
+      await admin.request(`${API}/themes`, jsonInit("POST", presetBody("Blast Radius Preset", "Poppins", "Lexend")), env),
+      "create preset",
+    );
+    const { html } = await getHtml(env, `/admin/leadgen/themes?theme=${created.item.id}`);
+    expect(html).toContain(LG_CLIP_REVEAL_SCRIPT);
+  });
+
+  it("the emitted body keeps the island rules: ES5 only, and NO comment bytes (rationale stays in the TypeScript, which never ships)", () => {
+    expect(LG_CLIP_REVEAL_SCRIPT).not.toMatch(/\b(?:const|let|async|class)\b|=>/);
+    expect(LG_CLIP_REVEAL_SCRIPT).not.toContain("/*");
+    expect(LG_CLIP_REVEAL_SCRIPT).not.toContain("//");
+    expect(LG_CLIP_REVEAL_SCRIPT).not.toContain("0x");
+  });
+
+  it("EXECUTED: a second include installs nothing — one listener set per page, whatever includes it", () => {
+    let added = 0;
+    const win: Record<string, unknown> = {};
+    const doc = {
+      getElementById: () => null,
+      querySelectorAll: () => [],
+      addEventListener() {
+        added += 1;
+      },
+      head: { appendChild() {} },
+      body: {},
+    };
+    const sandbox = { document: doc, window: win, setTimeout: (fn: () => void) => (fn(), 0), String, Object, Number, Boolean, JSON };
+    runInNewContext(LG_CLIP_REVEAL_SCRIPT, sandbox);
+    const afterFirst = added;
+    expect(afterFirst).toBeGreaterThan(0);
+    runInNewContext(LG_CLIP_REVEAL_SCRIPT, sandbox);
+    expect(added, "the install guard must make the second include a no-op").toBe(afterFirst);
+  });
+});
+
+// ===========================================================================
+// F12 RETIREMENT LEDGER — the arithmetic F10 did not state.
+//
+// THE NUMBERS. This file went 141 tests (gate run4/run5) -> 63 (gate run6):
+// net -78. F10's report named only what it ADDED (+2 recovery, +4 reveal). The
+// full arithmetic is 141 - 88 + 10 = 63, and the 10 added legs are the 4 clip-
+// invariant legs, the 4 clip-reveal legs and the 2 recovery legs.
+//
+// WHAT THE 88 RETIRED LEGS WERE, AND WHAT EACH CLAIMED. They were F3's TWO
+// container-scoped box invariants, both generated one leg per case:
+//   (R) 86 legs — one per <option> of the 16 rail scalar selects that live in
+//       the `.lg-scalars` grids (16 selects; 12+12+4+5+4+4+5+6+4+3+4+4+4+3+6+6
+//       = 86 options). Claim per leg: THIS option's text is narrower than THIS
+//       select's own content box, at the narrowest width the `.lg-scalars`
+//       grid can give it.
+//   (M)  2 legs — one per Themes-manager typography-grid font select
+//       (#tm-headline-font, #tm-body-font). Claim per leg: every option that
+//       select carries fits its own content box.
+//
+// WHERE EACH CLAIM IS COVERED NOW. Both claims are made by the single clip-
+// invariant leg "no product-authored string is wider than the box that shows
+// it", over 22 selects (the 16 scalars + 4 other Themes-tab controls + the 2
+// manager font selects) instead of 18 — same conservative width model, same
+// declaration-derived boxes, same narrowest-width sweep. Nothing about the
+// claims is weaker; what was lost is only per-case granularity in the failure
+// message, and TWO structural properties that the consolidation left implicit
+// and this ledger RESTORES as executed legs:
+//   1. The retired legs checked their options UNCONDITIONALLY. The clip
+//      invariant checks a select's SSR option texts only while the select is
+//      classified product-authored — a select that ever measures DATA-BEARING
+//      has its SSR texts dropped from the universe by design (that is the (B)
+//      branch: no box can bound operator data). Correct for a site picker,
+//      silent coverage loss for a scalar. Leg 1 below pins the 18 selects the
+//      retired legs covered as product-authored AND boxed, so they can never
+//      leave the checked universe unnoticed.
+//   2. The retired rail legs read their box out of the `.lg-scalars` rule, so
+//      a revert of that rule failed them by construction. Leg 2 below feeds
+//      the reverted rule (`repeat(2,1fr)`, the shape the defect shipped with)
+//      back through the SAME arithmetic and requires it to name overflows —
+//      a fail-before kept in a bottle, so the invariant can never go vacuous.
+// KNOWN RESIDUAL, stated rather than hidden: on surface S2 the data-bearing
+// differential renders the manager page against ITSELF (alt === html), so S2's
+// data-bearing detection cannot fire. That is inherited from F10 and it does
+// not weaken the retired (M) claim — alt === html means dataBearing is false,
+// so both font selects' option texts are always in the checked universe, which
+// is exactly what the 2 retired legs asserted. Leg 1 pins that outcome.
+// ===========================================================================
+describeDb("F12 RETIREMENT LEDGER — every claim the 88 consolidated legs made is still enforced", () => {
+  it("EXECUTED (restores claim 1): the 18 selects F3's two box blocks covered are all still boxed AND still product-authored, so none of their 86+22 option texts can silently leave the universe", async () => {
+    const { env } = newHarness();
+    const created = await json<ThemeCreateResponse>(
+      await admin.request(`${API}/themes`, jsonInit("POST", presetBody("Ledger Preset", "Newsreader", "Roboto Mono")), env),
+      "create preset",
+    );
+    const all = await coveredSelects(env, created.item.id);
+
+    // (R) the rail half — rebuilt STRUCTURALLY from the real markup, by the
+    // same container class F3 scoped to, never from a list of today's keys.
+    const railScalars = selectsInsideClass(renderThemesTabPanel(true), "lg-scalars");
+    expect(railScalars.length, "the `.lg-scalars` grids no longer hold the 16 selects the retired legs covered").toBe(16);
+    expect(railScalars.reduce((n, s) => n + s.options.length, 0), "the retired rail legs were one per option").toBe(86);
+
+    // (M) the manager half.
+    const { html: managerHtml } = await getHtml(env, `/admin/leadgen/themes?theme=${created.item.id}`);
+    const managerFonts = managerFontSelects(managerHtml);
+
+    const retiredUniverse: Array<{ key: string; texts: string[] }> = [
+      ...railScalars.map((s) => ({ key: attr(s.attrs, "data-theme-key") ?? "(unkeyed)", texts: s.options.map((o) => o.text) })),
+      ...managerFonts.map((s) => ({ key: attr(s.attrs, "id") ?? "(unkeyed)", texts: s.options.map((o) => o.text) })),
+    ];
+    expect(retiredUniverse.length).toBe(18);
+
+    for (const row of retiredUniverse) {
+      const covered = all.find((c) => c.key === row.key);
+      expect(covered, `${row.key} was covered by a retired leg and is not in the clip invariant's enumeration`).toBeDefined();
+      const c = covered as CoveredSelect;
+      expect(c.box, `${row.key} lost its resolvable box`).not.toBeNull();
+      expect(c.dataBearing, `${row.key} now measures data-bearing, which DROPS its option texts from the checked universe`).toBe(false);
+      for (const text of row.texts) {
+        expect(c.strings, `${row.key}: option "${text}" is no longer checked by the clip invariant`).toContain(text);
+      }
+    }
+  });
+
+  it("EXECUTED (restores claim 2): with `.lg-scalars` reverted to the shape the defect shipped with, the SAME arithmetic still names the overflows", async () => {
+    const { env } = newHarness();
+    const created = await json<ThemeCreateResponse>(
+      await admin.request(`${API}/themes`, jsonInit("POST", presetBody("Ledger Preset", "Newsreader", "Roboto Mono")), env),
+      "create preset",
+    );
+    const FIXED = ".lg-scalars{display:grid;grid-template-columns:repeat(auto-fit,minmax(220px,1fr));gap:12px}";
+    const REVERTED = ".lg-scalars{display:grid;grid-template-columns:repeat(2,1fr);gap:12px}";
+    expect(LG_QUOTES_STYLES, "the real sheet must still carry the fixed rule this leg reverts").toContain(FIXED);
+    const reverted = LG_QUOTES_STYLES.replace(FIXED, REVERTED);
+    expect(reverted, "the mutation must actually change the sheet, or this leg proves nothing").not.toBe(LG_QUOTES_STYLES);
+
+    const overflowing: string[] = [];
+    for (const c of await coveredSelects(env, created.item.id, [reverted, ADMIN_STYLES])) {
+      if (c.box === null) continue;
+      for (const text of c.strings) {
+        if (textWidthPx(text, c.fontPx) > c.box.content) overflowing.push(`${c.key}: "${text}"`);
+      }
+    }
+    // Reproduced this round: 31 named overflows, the same number F10's own
+    // evidence reported for this exact revert, the first three being
+    // typography.display "Inherit from base" / "Space Grotesk" /
+    // "Playfair Display". The count is not pinned (a label edit may legitimately move it); what is
+    // pinned is that the reverted grid FAILS, and that the failures are the
+    // rail scalars whose boxes that rule sets.
+    expect(overflowing.length, "the reverted grid rule must still be caught").toBeGreaterThan(0);
+    expect(overflowing.some((o) => o.startsWith("typography."))).toBe(true);
   });
 });
 
