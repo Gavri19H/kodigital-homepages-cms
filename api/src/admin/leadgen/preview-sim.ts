@@ -38,6 +38,11 @@
 //                question block so the message is VISIBLE.
 //   validation_success → the `.lg-valid` chrome convention (designs/
 //                default-funnel/styles.ts colors it validation.successColor).
+//   validation_error → the error markup above, but ONLY for a field that
+//                really carries a non-`required` rule, and speaking THAT
+//                rule's sentence — see leafFormatMessage (a rule-less field
+//                can only ever fail `required` live, so the canvas draws
+//                nothing on it).
 //   Message copy mirrors runtime/validation.ts verbatim.
 
 import { escapeHtml } from "../../editor/sanitize";
@@ -46,6 +51,16 @@ import type { ComponentType } from "../../public/leadgen/components/registry";
 import { flattenComponents } from "../../public/leadgen/components/content-schema";
 import type { LeadgenComponentNode } from "../../public/leadgen/components/content-schema";
 import type { DefaultFunnelDesign } from "../../public/leadgen/designs/default-funnel/tokens";
+// R2 P8-5 H3 (MAJOR-2): the leaf rule inventory below reads the REAL producer
+// and the REAL predicate instead of re-deriving either. toPublicComponent is
+// what compiles a node's props into the `client_validation` object live's
+// validateValue consumes (config-dto buildClientValidation — required,
+// valid_values, min/max/step, minLength/maxLength, pattern, pattern_preset,
+// resolved date bounds, the phone contract, error_text), and formatKindFor is
+// validation.ts's own email/phone/zip detector. Mirroring either by hand is how
+// a canvas drifts from the page it claims to preview.
+import { toPublicComponent } from "../../public/leadgen/config-dto";
+import { formatKindFor } from "../../public/leadgen/runtime/validation";
 
 // ---------------------------------------------------------------------------
 // §9.2 sim request block — typed parse
@@ -327,6 +342,108 @@ function addressFormatMessage(spec: Record<string, unknown>): string | null {
   return typeof message === "string" && message !== "" ? message : PREVIEW_INVALID_MESSAGE;
 }
 
+// ---------------------------------------------------------------------------
+// plain-leaf format rule — runtime/validation.ts validateValue mirror
+// ---------------------------------------------------------------------------
+
+// The message the FIRST non-`required` failure of ONE answer-producing leaf
+// would carry live, or NULL when the leaf carries no such rule at all.
+//
+// WHY NULL EXISTS (R2 P8-5 H3, MAJOR-2). The rule three lines above
+// addressFormatMessage — "a rule-less spec can only ever fail `required`, so
+// live can never show it a format failure, and neither may the canvas" — was
+// applied ONLY inside the address branch. Every other shape fell through to an
+// unconditional applyErrorToLeaf(PREVIEW_INVALID_MESSAGE).
+//
+// MEASURED, scripts/p8/drive-g3-canvas-live-error.mjs scenario text_validation:
+// a required FreeTextQuestion with no rule of any kind. The live visitor hit
+// Continue on the empty field first — the page painted "This field is
+// required.", so the engine demonstrably validated THIS field — then answered
+// it "!!!!! 12345 @@@@@ not a format". Live: 0 of 1 inputs marked, the
+// [data-lg-error-for] slot still `hidden` and empty, no `lg-error`, and the
+// next Continue advanced. Canvas: aria-invalid="true", `lg-error`, and a
+// VISIBLE "The value has an invalid format." — 6 of the probe's 8 parity rows
+// disagreed. The operator was being shown a state no visitor can reach.
+//
+// WHY THE LADDER IS validateValue's PUSH ORDER: engine.ts sectionPassesAt keeps
+// a `seen` set and paints only the FIRST failure per internal_field, so the
+// first rule present is the one whose sentence a visitor reads.
+function leafFormatMessage(node: LeadgenComponentNode): string | null {
+  const component = toPublicComponent(node);
+  const cv: Record<string, unknown> = component.client_validation ?? {};
+  const has = (key: string): boolean => cv[key] !== undefined && cv[key] !== null;
+
+  // validateValue's domain leg: cv.valid_values, else the projected
+  // component.valid_values (which toPublicComponent widens with the §6.5
+  // authored "Other" values). `choices` alone is NOT a domain — validateValue
+  // never reads it.
+  const domain = Array.isArray(cv["valid_values"])
+    ? (cv["valid_values"] as unknown[])
+    : Array.isArray(component.valid_values)
+      ? (component.valid_values as unknown[])
+      : null;
+
+  let message: string | null = null;
+  if (domain !== null && domain.length > 0) {
+    message = "Choose one of the offered options."; // UNMEASURED (see below)
+  } else if (has("min") || has("max") || has("step") || has("minLength") || has("maxLength")) {
+    // A rule really exists, so the canvas must keep drawing — but WHICH of
+    // validateValue's six sentences (min / max / step's nearest-values copy /
+    // min_count / max_count / "Enter a number.", or the length pair, or a
+    // DateQuestion's resolved-bound pair) live would speak depends on the
+    // VALUE, and a sim has none. This branch therefore keeps the pre-existing
+    // generic sentence unchanged. UNMEASURED: the probe authors no number,
+    // date or multi-select shape — its coverage matrix prints that cell empty.
+    message = PREVIEW_INVALID_MESSAGE;
+  } else if (has("pattern")) {
+    // MEASURED, scenario text_pattern_validation (props.pattern_preset
+    // "digits" → config-dto PATTERN_PRESET_REGEX → cv.pattern "^[0-9]+$"): a
+    // live visitor who typed "nope" read exactly this sentence, and all 8
+    // parity rows agreed. This is the contrast case that proves the null above
+    // is not over-correcting.
+    message = PREVIEW_INVALID_MESSAGE;
+  } else {
+    // validation.ts checkFormat — the rule that lives in the TYPE, not in
+    // props. formatKindFor reads only `type` + `answer_type` (its typeToken),
+    // so a minimal config carries everything it looks at.
+    const kind = formatKindFor({
+      type: component.type,
+      question_id: component.question_id,
+      answer_type: component.answer_type,
+      props: component.props,
+    });
+    if (kind === "email") {
+      // MEASURED, scenario email_validation: a live visitor who typed
+      // "not-an-email" into an EmailInputQuestion read "Enter a valid email
+      // address."; the canvas was speaking the generic sentence instead — 2 of
+      // 8 parity rows disagreed on the message alone (the markup rows agreed).
+      message = "Enter a valid email address.";
+    } else if (kind === "zip") {
+      message = "Enter a valid 5-digit ZIP code."; // UNMEASURED (see below)
+    } else if (kind === "phone") {
+      // checkFormat's phone leg speaks the COMPILED contract's message
+      // (config-dto buildPhoneContract → cv.phone.message) and falls back to
+      // the NANP default when no contract was compiled. UNMEASURED.
+      const contract = cv["phone"];
+      const authored = isRecord(contract) ? contract["message"] : undefined;
+      message =
+        typeof authored === "string" && authored !== ""
+          ? authored
+          : "Enter a valid US phone number.";
+    }
+  }
+
+  // No rule ⇒ nothing to draw. Checked BEFORE error_text on purpose:
+  // validateValue's E1-C1 override only REWRITES failures that already exist,
+  // so an authored error_text on a rule-less field still produces nothing live.
+  if (message === null) return null;
+  const errorText = cv["error_text"];
+  return typeof errorText === "string" && errorText !== "" ? errorText : message;
+}
+
+// UNMEASURED branches above are named cell by cell rather than claimed: the
+// probe's printed coverage matrix is the only statement of what was driven.
+
 // The authored per-field specs of an AddressAutocompleteQuestion, or null when
 // the node is not one / authored none. The `Array.isArray(props.fields)` gate is
 // verbatim the runtime's own (validation.ts:462) — it is what decides whether
@@ -529,7 +646,14 @@ export function applyPreviewSimMarkup(
           }
           continue;
         }
-        out = applyErrorToLeaf(out, leaf, PREVIEW_INVALID_MESSAGE, design);
+        // R2 P8-5 H3 (MAJOR-2): the SAME "no rule ⇒ live has no format failure
+        // to show, so draw nothing" rule the specs loop above applies per
+        // subfield — it was written three lines up and applied only inside the
+        // address branch, so every other shape got an unconditional generic
+        // error. See leafFormatMessage for the measurement.
+        const leafMessage = leafFormatMessage(leaf.node);
+        if (leafMessage === null) continue;
+        out = applyErrorToLeaf(out, leaf, leafMessage, design);
       }
     }
   }

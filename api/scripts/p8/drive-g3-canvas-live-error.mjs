@@ -34,6 +34,24 @@
 //              -> code "pattern", the spec's authored message, keyed to
 //              {base}_zip). The G3b address fix was scoped to the required
 //              path it drove and did NOT measure this one.
+//   text_validation / text_pattern_validation / email_validation (H3)
+//            — the {state:"validation_error"} sim on the THREE plain-leaf rule
+//              shapes, which the run that reported "0 disagreements across 5
+//              scenarios x 8 rows" could not see at all: its only
+//              validation_error scenario was the address. A fresh reviewer drove
+//              validation_error on a plain FreeTextQuestion by hand and found
+//              the canvas fabricating an error live cannot produce.
+//                text_validation         — NO rule of any kind. The only
+//                  failure validateValue can emit for it is `required`, so a
+//                  visitor who answers it AT ALL never sees a format error.
+//                text_pattern_validation — props.pattern_preset:"digits"
+//                  (config-dto PATTERN_PRESET_REGEX -> cv.pattern "^[0-9]+$"),
+//                  a rule a value really can fail -> code "pattern", the
+//                  generic copy. The contrast case: the fix must NOT silence a
+//                  ruled field.
+//                email_validation        — EmailInputQuestion, whose rule is
+//                  the built-in format family (validation.ts checkFormat ->
+//                  code "email_format") with its OWN copy, not the generic one.
 //   validation_success_text / validation_success_address (G3d)
 //            — the LAST unmeasured sim state, on the same two field shapes.
 //              CANVAS = the Studio's own "Validation success" request
@@ -113,9 +131,50 @@ const TEXT_CONTENT = JSON.stringify({
   ],
 });
 
+// H3: the same plain-leaf shape carrying a REAL rule — a "digits" pattern
+// preset, which config-dto compiles to cv.pattern "^[0-9]{1,}$"-equivalent
+// (PATTERN_PRESET_REGEX.digits = "^[0-9]+$") so a non-digit answer really does
+// fail validateValue's pattern leg live.
+const TEXT_PATTERN_CONTENT = JSON.stringify({
+  components: [
+    {
+      type: "FreeTextQuestion",
+      question_id: "g3_q_code",
+      internal_field: "g3_probe_code",
+      answer_type: "string",
+      required: true,
+      props: { placeholder: "Digits only", pattern_preset: "digits" },
+    },
+    CONTINUE,
+  ],
+});
+
+// H3: the built-in format family — validateValue never reads a prop for this
+// one, it reads the COMPONENT TYPE (validation.ts formatKindFor), and its copy
+// is its own sentence, not the generic "invalid format".
+const EMAIL_CONTENT = JSON.stringify({
+  components: [
+    {
+      type: "EmailInputQuestion",
+      question_id: "g3_q_email",
+      internal_field: "g3_probe_email",
+      answer_type: "string",
+      required: true,
+      props: { placeholder: "you@example.com" },
+    },
+    CONTINUE,
+  ],
+});
+
 // The live half of a G3d success drive: Continue on the still-empty field (the
 // engine paints its own error — proof it validated THIS field), then the
-// visitor enters a value that satisfies the rule.
+// visitor enters a value.
+//
+// H3 renamed this from `enterValid`: the G3d scenarios pass a value that
+// satisfies a rule, but text_validation passes a deliberately ugly one to a
+// field that HAS no rule — the point being that live paints nothing either way.
+// What the helper actually guarantees is the step-1 proof, so it is named for
+// that.
 const speakingNow = (page) =>
   page.evaluate(
     () =>
@@ -125,7 +184,7 @@ const speakingNow = (page) =>
         .join(" ") || "(none)",
   );
 
-const enterValid = (locate, value) => async (page) => {
+const answerAfterRequiredError = (locate, value) => async (page) => {
   await page.locator("[data-lg-section]:not([hidden]) [data-lg-continue]").first().click();
   await page.waitForTimeout(500);
   // Printed so "live marks nothing" below cannot be "the engine never looked":
@@ -149,19 +208,26 @@ const continueAndReport = async (page) => ({
   speaking: await speakingNow(page),
 });
 
+// `shape` names the AUTHORED field shape and `state` the sim — the two axes of
+// the coverage matrix printed at the end of a run. They are read, not narrated:
+// the matrix is computed from this array so a claim about coverage cannot
+// outrun the scenarios that actually ran.
 const SCENARIOS = [
   {
     name: "text",
+    shape: "text (no rule)",
     field: "g3_probe_note",
     content: TEXT_CONTENT,
   },
   {
     name: "address",
+    shape: "address (authored fields[])",
     field: "g3_probe_addr",
     content: ADDRESS_CONTENT,
   },
   {
     name: "address_validation",
+    shape: "address (authored fields[])",
     field: "g3_probe_addr",
     content: ADDRESS_CONTENT,
     // The Studio's own "Validation error" button posts exactly this (see
@@ -178,25 +244,101 @@ const SCENARIOS = [
   },
   {
     name: "validation_success_text",
+    shape: "text (no rule)",
     field: "g3_probe_note",
     content: TEXT_CONTENT,
     sim: { state: "validation_success" },
-    drive: enterValid((page) => page.locator('input[data-lg-field="g3_probe_note"]').first(), "A perfectly valid note."),
+    drive: answerAfterRequiredError(
+      (page) => page.locator('input[data-lg-field="g3_probe_note"]').first(),
+      "A perfectly valid note.",
+    ),
     click: false,
     after: continueAndReport,
   },
   {
     name: "validation_success_address",
+    shape: "address (authored fields[])",
     field: "g3_probe_addr",
     content: ADDRESS_CONTENT,
     sim: { state: "validation_success" },
-    drive: enterValid(
+    drive: answerAfterRequiredError(
       (page) => page.locator('[data-lg-field="g3_probe_addr_zip"] input[data-lg-input]').first(),
       "90210",
     ),
     click: false,
     after: continueAndReport,
   },
+  {
+    // H3 / MAJOR-2 — the pair the "0 disagreements" run could not see.
+    // The Studio's own "Validation error" button on a plain FreeTextQuestion
+    // with no rule of any kind. LIVE: Continue on the empty field first (the
+    // required error proves the engine validates THIS field), then answer it
+    // with a deliberately ugly string. validateValue has no rule to run on it,
+    // so no format failure exists and the page paints nothing — which the
+    // trailing Continue then confirms by ADVANCING.
+    name: "text_validation",
+    shape: "text (no rule)",
+    field: "g3_probe_note",
+    content: TEXT_CONTENT,
+    sim: { state: "validation_error" },
+    drive: answerAfterRequiredError(
+      (page) => page.locator('input[data-lg-field="g3_probe_note"]').first(),
+      "!!!!! 12345 @@@@@ not a format",
+    ),
+    click: false,
+    after: continueAndReport,
+  },
+  {
+    // H3 contrast case: the SAME shape carrying a real rule. A non-digit answer
+    // fails cv.pattern live -> code "pattern", generic copy. If the MAJOR-2 fix
+    // silences this too, it has over-corrected.
+    name: "text_pattern_validation",
+    shape: "text (pattern_preset digits)",
+    field: "g3_probe_code",
+    content: TEXT_PATTERN_CONTENT,
+    sim: { state: "validation_error" },
+    drive: async (page) => {
+      const input = page.locator('input[data-lg-field="g3_probe_code"]').first();
+      await input.fill("nope");
+      await input.blur();
+    },
+  },
+  {
+    // H3: a rule that lives in the TYPE, not in props, and speaks its own
+    // sentence — the row that says whether the canvas mirrors live's MESSAGE or
+    // only its markup.
+    name: "email_validation",
+    shape: "email (built-in format kind)",
+    field: "g3_probe_email",
+    content: EMAIL_CONTENT,
+    sim: { state: "validation_error" },
+    drive: async (page) => {
+      const input = page.locator('input[data-lg-field="g3_probe_email"]').first();
+      await input.fill("not-an-email");
+      await input.blur();
+    },
+  },
+];
+
+// Every §9.2 sim state (preview-sim.ts LEADGEN_PREVIEW_SIM_STATES), so the
+// matrix names the cells this probe does NOT drive as loudly as the ones it
+// does. NOT a gate: nothing here fails a run.
+const ALL_SIM_STATES = ["default", "selected", "error", "dependency", "validation_success", "validation_error"];
+
+// Answer-producing shapes in the catalog that this probe never authors. Listed
+// by hand and therefore the weakest line in the matrix — it is a floor on what
+// is uncovered, not a ceiling.
+const SHAPES_NEVER_AUTHORED = [
+  "ButtonAnswerGroup / choice groups",
+  "DropdownQuestion / SearchableDropdownQuestion",
+  "MultiChoiceCardGroup (min/max COUNT rules)",
+  "NumberInputQuestion (min/max/step)",
+  "DateQuestion (resolved ISO bounds)",
+  "PhoneInputQuestion (compiled phone contract)",
+  "ZIPInputQuestion (standalone, not the address subfield)",
+  "NameFieldsGroup (the other multi-subfield group)",
+  "QuestionGrid / container children",
+  "text with props.error_text (the authored copy override)",
 ];
 
 const j = async (u, o) => {
@@ -531,7 +673,34 @@ try {
     }
   }
   await b.close();
-  console.log(`\nTOTAL DISAGREEMENTS (${SCENARIOS.length} scenarios x ${ROWS_PER_SCENARIO} rows): ${disagreements}`);
+  console.log(
+    `\nTOTAL DISAGREEMENTS (${SCENARIOS.length} scenarios x ${ROWS_PER_SCENARIO} rows = ` +
+      `${SCENARIOS.length * ROWS_PER_SCENARIO} comparisons): ${disagreements}`,
+  );
+
+  // --- what that total does and does NOT cover ------------------------------
+  // MAJOR-2 was invisible to a run that printed "0 disagreements" because the
+  // run's universe had no validation_error x text cell. A disagreement count is
+  // only ever a statement about the cells below marked `driven`.
+  const driven = new Set(SCENARIOS.map((s) => `${s.shape}|${s.sim?.state ?? "error"}`));
+  const shapes = [...new Set(SCENARIOS.map((s) => s.shape))];
+  const pad = Math.max(...shapes.map((s) => s.length));
+  console.log(`\nCOVERAGE MATRIX — shape x sim state (${driven.size} of ${shapes.length * ALL_SIM_STATES.length} cells driven)`);
+  console.log(`${"shape".padEnd(pad)} | ${ALL_SIM_STATES.join(" | ")}`);
+  for (const shape of shapes) {
+    console.log(
+      `${shape.padEnd(pad)} | ` +
+        ALL_SIM_STATES.map((st) =>
+          (driven.has(`${shape}|${st}`) ? "driven" : "  -   ").padEnd(st.length),
+        ).join(" | "),
+    );
+  }
+  const missing = shapes.flatMap((s) =>
+    ALL_SIM_STATES.filter((st) => !driven.has(`${s}|${st}`)).map((st) => `${s} x ${st}`),
+  );
+  console.log(`NOT driven, on the shapes above (${missing.length}): ${missing.join(" · ")}`);
+  console.log(`NOT driven, shapes this probe never authors (${SHAPES_NEVER_AUTHORED.length}, x all 6 states):`);
+  for (const s of SHAPES_NEVER_AUTHORED) console.log(`  - ${s}`);
 } finally {
   await restore();
 }
