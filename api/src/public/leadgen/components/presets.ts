@@ -323,10 +323,17 @@ function autoErrorFieldFor(node: LeadgenComponentNode): string | undefined {
 // one — its internal_field is deliberately not a claim.
 //
 // Node OBJECT identity is the discriminator (flattenComponents pushes the very
-// nodes it was handed, never copies), so a node can never see its own keys as
-// foreign. Claims are read from the UNSUPPRESSED per-node derivation, so this
-// map never depends on the suppression it feeds — no recursion, one pass.
-function collectAnswerKeyClaims(
+// nodes it was handed, never copies — content-schema.ts:1014), so a node can
+// never see its own keys as foreign, and two calls over the SAME components
+// array yield the same identities. Claims are read from the UNSUPPRESSED
+// per-node derivation, so this map never depends on the suppression it feeds —
+// no recursion, one pass.
+//
+// EXPORTED (P8-5 L1) so a NON-rendering consumer that must name the key the
+// markup will actually carry — offers-handlers.ts readLinkedSectionFields, the
+// §6.2 per-offer field picker — resolves it from the SAME map the render does,
+// rather than re-deriving a second sibling rule that can drift.
+export function collectAnswerKeyClaims(
   nodes: readonly LeadgenComponentNode[],
 ): ReadonlyMap<string, readonly LeadgenComponentNode[]> {
   const map = new Map<string, LeadgenComponentNode[]>();
@@ -354,17 +361,27 @@ function collectAnswerKeyClaims(
 }
 
 // The keys some OTHER node in this section answers — everything `node` itself
-// claims is excluded, so its own targets never look taken.
+// claims is excluded, so its own targets never look taken. EXPORTED (P8-5 L1)
+// alongside collectAnswerKeyClaims: together they are the whole section context
+// m9AddressRenderedFieldName needs, available to a caller that holds a node list
+// but runs no render.
+export function foreignAnswerKeysIn(
+  claims: ReadonlyMap<string, readonly LeadgenComponentNode[]>,
+  node: LeadgenComponentNode,
+): ReadonlySet<string> {
+  const out = new Set<string>();
+  for (const [key, owners] of claims) {
+    if (owners.some((owner) => owner !== node)) out.add(key);
+  }
+  return out;
+}
+
 function foreignAnswerKeysFor(
   state: SectionRenderState | undefined,
   node: LeadgenComponentNode,
 ): ReadonlySet<string> | undefined {
   if (state === undefined) return undefined;
-  const out = new Set<string>();
-  for (const [key, owners] of state.answerKeyClaims) {
-    if (owners.some((owner) => owner !== node)) out.add(key);
-  }
-  return out;
+  return foreignAnswerKeysIn(state.answerKeyClaims, node);
 }
 
 function collectErrorBoundFields(nodes: readonly LeadgenComponentNode[]): ReadonlySet<string> {
@@ -3352,13 +3369,34 @@ function m9AddressFills(node: LeadgenComponentNode): Record<string, unknown> {
 // state answer was then dropped by normalizeAnswers instead, one silent loss
 // traded for another.
 //
-// Naming both is safe in every consumer: normalizeAnswers contributes NOTHING
-// for a field with no submitted value and no default, and the per-offer mapping
-// picker (offers-handlers.ts) is a field UNIVERSE — content-schema.ts
-// collectKnownAnswerFields, the save gate / activation preflight / rule-picker
-// universe, already lists all four `fills[slot] || {base}_{slot}` roles
-// whatever the props.fields[] rows render, so this is strictly the smaller
-// over-claim and moves the two universes toward each other.
+// Naming both is an OVER-CLAIM, and P8-5 L1 measured that it is NOT universally
+// safe. Which of the two names a box carries is DETERMINATE from the rest of the
+// section, so a caller that HAS the section must pass foreignAnswerKeys:
+//   renderSectionComponents([ADDR])       → addr_street addr_city addr_state postal_code_x
+//   renderSectionComponents([ADDR, SIB])  → addr_street addr_city addr_state addr_zip (+ SIB's postal_code_x)
+// (ADDR = internal_field "addr" + props.maps.fills.zip "postal_code_x";
+//  SIB = a FreeTextQuestion whose own internal_field IS postal_code_x. Both
+//  rows are pinned by test/leadgen-offers-api.test.ts "SRC-6B: an authored
+//  maps.fills rename is offered under the RENAMED name" and "SRC-6B: a fills
+//  rename a SIBLING already answers is offered under {base}_zip".)
+// The over-claim is tolerable ONLY where a named-but-unrecorded key costs
+// nothing: normalizeAnswers (answers.ts fieldsOf, deliberately context-free)
+// contributes NOTHING for a field with no submitted value and no default, so
+// naming both keeps whichever one the visitor actually posted; and
+// collectAnswerKeyClaims above needs the unsuppressed union by construction.
+// It is NOT tolerable where the name is shown to an operator as a fact — the
+// §6.2 per-offer picker renders each key as a pickable <option> mapped to a
+// buyer field, so offers-handlers.ts readLinkedSectionFields passes the context.
+//
+// A previous revision of this comment justified naming both by calling it
+// "strictly the smaller over-claim" than content-schema.ts
+// collectKnownAnswerFields. That was FALSE — the two sets are not nested.
+// Measured, from api/:
+//   npx tsx -e 'import {collectKnownAnswerFields} from "./src/public/leadgen/components/content-schema";console.log([...collectKnownAnswerFields([{type:"AddressAutocompleteQuestion",question_id:"q_addr",internal_field:"addr",props:{maps:{enabled:true,fills:{zip:"postal_code_x"}}}}])])'
+//   → [ 'addr', 'q_addr', 'addr_street', 'addr_city', 'addr_state', 'postal_code_x' ]
+// i.e. collectKnownAnswerFields never yields addr_zip (not even when the sibling
+// IS present and the renderer therefore emits addr_zip) — an ADJACENT gap in
+// content-schema.ts, not fixed here and not owned by this slice.
 export function leadgenAddressAnswerFields(
   node: LeadgenComponentNode,
   foreignAnswerKeys?: ReadonlySet<string>,
@@ -3391,19 +3429,26 @@ export function leadgenAddressAnswerFields(
 // "zip", or the last bare internal_fields entry — neither of which any visitor
 // has recorded since M9, so the §9 facet silently read an absent answer.)
 //
-// P8-5 H1 RESIDUAL, stated because it is real and NOT closed here: this returns
-// ONE key, so it has no room for the both-names answer leadgenAddressAnswerFields
-// gives a context-free caller. When props.maps.fills.zip targets a key a SIBLING
-// question answers AND the zip row renders, the renderer now declines that
-// rename (m9AddressRenderedFieldName) and the box carries `{base}_zip`, while
-// this still names the fill target — so the §9 ZIP facet would read the
-// sibling's answer, not the address's ZIP box. Closing it needs the section
-// context at the two call sites (answers.ts, sections-handlers.ts), both
-// outside this slice's ownership.
-export function leadgenAddressZipAnswerField(node: LeadgenComponentNode): string | null {
+// This returns ONE key, so unlike leadgenAddressAnswerFields it has no room for
+// a both-names hedge: when props.maps.fills.zip targets a key a SIBLING question
+// answers AND the zip row renders, the renderer DECLINES the rename
+// (m9AddressRenderedFieldName) and the box carries `{base}_zip`. A caller that
+// named the fill target would then read the sibling's answer, not the address's
+// ZIP box. `foreignAnswerKeys` (collectAnswerKeyClaims + foreignAnswerKeysIn)
+// closes that: pass it and this names the key the markup carries.
+//
+// P8-5 L1 threaded it at answers.ts collectMapsAuctionFields (the §9 auction
+// facet). Omitting it keeps the pre-L1 fill-target answer byte-identically, and
+// sections-handlers.ts zipFieldsOfContent (the §12.8 admin ZIP-validation
+// report) still omits it — that file is outside this slice's ownership, so its
+// collision case is REPORTED, not fixed.
+export function leadgenAddressZipAnswerField(
+  node: LeadgenComponentNode,
+  foreignAnswerKeys?: ReadonlySet<string>,
+): string | null {
   const specs = readAddressFieldSpecs(node) ?? ADDRESS_DEFAULT_FIELD_SPECS;
   if (specs.some((s) => s.field === "zip")) {
-    return m9AddressFieldName(m9AddressBase(node), m9AddressFills(node), "zip");
+    return m9AddressRenderedFieldName(m9AddressBase(node), m9AddressFills(node), "zip", foreignAnswerKeys);
   }
   if (specs.length === 1 && specs[0]?.field === "full_address") return m9AddressBase(node);
   return null;

@@ -51,6 +51,8 @@ import type { LeadgenAnswerSource } from "../admin/leadgen/db-types";
 // per-field precedence reader (presets.ts — no import cycle: presets never
 // imports this module); deriveLocationFacet is the pure facet primitive (maps.ts).
 import {
+  collectAnswerKeyClaims,
+  foreignAnswerKeysIn,
   leadgenAddressAnswerFields,
   leadgenAddressZipAnswerField,
   mapsJobsFor,
@@ -230,9 +232,22 @@ function asStringArray(value: unknown, fallback: readonly string[]): string[] {
 // readLinkedSectionFields → the §6.2 Section-field picker) was the one consumer
 // still deriving its own per-type answer, so it now calls THIS function for
 // EVERY component type — owner A.1 #6 is about "every component that include
-// more than one field", not about the address. Behaviour here is untouched: the
-// only edit in this module is the `export` keyword (here and on FieldSpec).
-export function fieldsOf(node: LeadgenComponentNode): FieldSpec[] {
+// more than one field", not about the address.
+//
+// P8-5 L1 — `foreignAnswerKeys`: the keys OTHER nodes in this node's section
+// answer (presets.ts collectAnswerKeyClaims + foreignAnswerKeysIn). Supplying it
+// makes the Address branch below name EXACTLY the key the markup carries rather
+// than hedge across both possible names. OPTIONAL, defaulting to undefined:
+// omitted, this derivation is unchanged from pre-L1, which is what
+// normalizeAnswers (the only context-free caller, below) relies on — it walks the
+// SUBMITTED envelope, where a key with no submitted value and no default
+// contributes nothing, so the hedge costs nothing there and is what stops a real
+// address answer being dropped. A caller that SHOWS a key to an operator as a
+// fact must pass it.
+export function fieldsOf(
+  node: LeadgenComponentNode,
+  foreignAnswerKeys?: ReadonlySet<string>,
+): FieldSpec[] {
   const catalog = COMPONENT_CATALOG[node.type];
   const produces = catalog?.produces ?? null;
   // Non-producing nodes (ValidationError, HelperText, chrome, affordances)
@@ -289,7 +304,7 @@ export function fieldsOf(node: LeadgenComponentNode): FieldSpec[] {
   // text input ⇒ answerType "string" (the same type the pre-M9 sub-field
   // branch used and the type content-schema/validation already assume).
   if (node.type === "AddressAutocompleteQuestion") {
-    return leadgenAddressAnswerFields(node).map((field) => ({
+    return leadgenAddressAnswerFields(node, foreignAnswerKeys).map((field) => ({
       field,
       answerType: "string" as LeadgenAnswerType,
       hasDefault: false,
@@ -473,7 +488,10 @@ export function normalizeAnswers(
 // under: ZIPInputQuestion → its own internal_field; AddressAutocompleteQuestion
 // → its `zip` sub-field (the §12.8 distinct-internal-fields default). null for
 // any other node (only ZIP/Address carry a Maps job).
-function mapsZipFieldOf(node: LeadgenComponentNode): string | null {
+function mapsZipFieldOf(
+  node: LeadgenComponentNode,
+  foreignAnswerKeys?: ReadonlySet<string>,
+): string | null {
   if (node.type === "ZIPInputQuestion") {
     return isNonEmptyString(node.internal_field) ? node.internal_field : null;
   }
@@ -481,7 +499,13 @@ function mapsZipFieldOf(node: LeadgenComponentNode): string | null {
     // R2 P5 (SRC-6 seam): the RENDERED zip field's own key (presets.ts, the
     // same resolution fieldsOf now uses) — the facet must read the key
     // normalizeAnswers actually populated, not the bare literal "zip".
-    return leadgenAddressZipAnswerField(node);
+    //
+    // P8-5 L1: with the section's foreign keys, "RENDERED" is literal. Without
+    // them, a maps.fills.zip rename onto a key a SIBLING question answers named
+    // the fill target while the renderer had declined the rename — so the §9
+    // facet read the SIBLING's answer as this address's ZIP. The caller below
+    // holds the section, so it passes the context.
+    return leadgenAddressZipAnswerField(node, foreignAnswerKeys);
   }
   return null;
 }
@@ -501,10 +525,17 @@ export interface LeadgenMapsAuctionField {
 // exactly like a top-level one.
 export function collectMapsAuctionFields(content: LeadgenSectionContent): LeadgenMapsAuctionField[] {
   const out: LeadgenMapsAuctionField[] = [];
-  const components = flattenComponents(Array.isArray(content.components) ? content.components : []);
+  const topLevel = Array.isArray(content.components) ? content.components : [];
+  const components = flattenComponents(topLevel);
+  // P8-5 L1 — the section's answer-key ownership map, built ONCE from the whole
+  // tree exactly as renderSectionComponents builds it, so mapsZipFieldOf names
+  // the ZIP key this Section's MARKUP carries (see mapsZipFieldOf above).
+  // flattenComponents pushes the very nodes it was handed, so the identities in
+  // `components` are the identities this map keys on.
+  const claims = collectAnswerKeyClaims(topLevel);
   for (const node of components) {
     if (!isRecord(node)) continue;
-    const zipField = mapsZipFieldOf(node);
+    const zipField = mapsZipFieldOf(node, foreignAnswerKeysIn(claims, node));
     if (zipField === null) continue;
     const jobs = mapsJobsFor(node);
     if (!jobs.validate && !jobs.auction) continue;
