@@ -52,7 +52,15 @@ export const DEFAULT_FRAME_TEMPLATE_ID: FrameTemplateId = "centered";
 
 export const FRAME_LOGO_SOURCES = ["site", "cms_fallback", "manual"] as const;
 export const FRAME_SIZES = ["s", "m", "l"] as const;
-export const FRAME_LOGO_ALIGNS = ["left", "center"] as const;
+// R2 P8 (§7 N12 — "Logo Alignment offers Left/Center; progress Alignment offers
+// Left/Center/Right"). The asymmetry was real and its cause was the STYLESHEET:
+// default-funnel/styles.ts declared `.lg-frame-header--left` and `--center` and
+// no `--right`, so a `right` logo could not have been honoured. That rule now
+// exists (the same one-property mirror of `--left`, on the same flex
+// `.lg-header-inner`, plus the extras band's own mirror), so the two vocabularies
+// are one vocabulary. ADDITIVE: no stored config carries `right`, so every
+// existing funnel renders byte-identically.
+export const FRAME_LOGO_ALIGNS = ["left", "center", "right"] as const;
 // Round-4 P5a (10D / B-4.7): `icon_on_track` is a REAL fifth visible style
 // (a theme-icon thumb riding the fill edge) — `numbered` stops being a fake
 // alias of `bar` (frame.ts renders distinct numbered-circle markup; styles.ts
@@ -64,7 +72,23 @@ export const FRAME_PROGRESS_STYLES = ["hidden", "bar", "dots", "numbered", "perc
 // five built-in glyphs plus the previewed site's own logo. `dot` is the default
 // and reproduces the pre-P7 plain round thumb byte-for-byte, so every stored
 // config that predates this key renders exactly as it did.
-export const FRAME_PROGRESS_ICONS = ["dot", "car", "shield", "check", "star", "site_logo"] as const;
+// R2 P8 FIX ROUND F1 (M1 + R7, the SAME owner sentence): `custom` is the
+// operator's OWN image, chosen with the media path this admin already authors
+// the header logo, the trust logos, the background image and the footer logo
+// with (mediaPickerControl / mediaFieldMarkup). It lands only because all four
+// pieces it needs land together — the enum id here, the PAINT
+// (default-funnel/styles.ts now emits the image-mark pseudo pair for
+// `.lg-frame-progress--icon-custom` exactly as it has for `--icon-site_logo`
+// since P7), the operator control (quotes-tabs/templates.ts) and the M2 sweep's
+// own universe (leadgen-r2-dead-controls-guard). An earlier attempt widened the
+// enum ALONE: the mark is selected by that class, so a `custom` id with no rule
+// behind it is a control that cannot be honoured (§4 R3) and it was correctly
+// reverted. NO renderer is invented — `custom` walks the identical
+// resolve-URL → CSS-custom-property → pseudo-pair path `site_logo` already
+// walks, with the URL coming from the operator's media pick instead of the
+// previewed site's branding, and falling back to the plain `dot` thumb whenever
+// no usable image is authored (same fail-safe, same code path).
+export const FRAME_PROGRESS_ICONS = ["dot", "car", "shield", "check", "star", "site_logo", "custom"] as const;
 export type FrameProgressIconId = (typeof FRAME_PROGRESS_ICONS)[number];
 export const FRAME_PROGRESS_POSITIONS = ["top", "under_header", "above_unit", "in_card"] as const;
 export const FRAME_PROGRESS_ALIGNS = ["left", "center", "right"] as const;
@@ -200,6 +224,12 @@ export interface FrameProgressConfig {
   // + absent from defaults (frame.ts falls back to "dot", the pre-P7 look), so
   // no stored config changes shape. Ignored by every other style.
   icon?: (typeof FRAME_PROGRESS_ICONS)[number];
+  // R2 P8 F1: the operator's own image for `icon:"custom"` — a media id, the
+  // SAME reference shape header.logo_media_id / background.image_media_id carry
+  // (resolved through mediaUrl at render time). OPTIONAL + absent from defaults
+  // and read by exactly one branch, so every stored config is unchanged; an
+  // absent/unusable ref renders the plain `dot` thumb rather than an empty mark.
+  icon_media_id?: string | null;
 }
 
 // Behaviour is fixed (§3.3): previous Section per Variant order, hidden on the
@@ -1099,6 +1129,9 @@ const FRAME_GROUP_SPECS: Record<string, FrameGroupSpec> = {
       show_label: bool,
       align: oneOf(FRAME_PROGRESS_ALIGNS), // Round-4 P5a (10D)
       icon: oneOf(FRAME_PROGRESS_ICONS), // R2 P7 — which mark rides the track
+      // R2 P8 F1 — the operator's own image behind icon:"custom". Same spec as
+      // header.logo_media_id / background.image_media_id: a media id or empty.
+      icon_media_id: { kind: "media_id_or_null" },
     },
   },
   back: {
@@ -2136,6 +2169,206 @@ export function computeTemplateSwitch(
   }
 
   return { merged: mergedConfig, confirmations };
+}
+
+// ---------------------------------------------------------------------------
+// R2 P8 M3 / R2-1 — computeTemplateApply: what "Apply to funnel…" must DO.
+//
+// MEASURED BEFORE (test/leadgen-p8-m3-apply-template.test.ts, the fail-before
+// leg): applying a saved template used to write ONLY the
+// `leadgen_funnels.frame_template_id` pointer. effectiveFrame composes
+//   FRAME_TEMPLATES[family].defaults ⊕ savedTemplate ⊕ funnel.frame_config_json
+// and the Quote Builder PUTs its WHOLE hydrated frame back on every Save
+// (quotes-tabs/funnel.ts:1675 over hydrationBase()), so the funnel column is a
+// COMPLETE config the moment a funnel has ever been saved — and a complete
+// funnel layer shadows every leaf the template carries. On a saved funnel the
+// apply moved exactly ONE leaf of the served composition: `template`, the
+// identity string no CSS rule is keyed on. The operator saw nothing change.
+//
+// The semantics chosen here are MATERIALISE, not "reorder the merge":
+//   * the template's authored leaves are WRITTEN INTO the funnel's own
+//     frame_config_json, so the visitor's page paints them AND the operator
+//     can then edit them in the builder (a template kept as a shadowing base
+//     layer would be re-shadowed by the very next Save — the failure mode
+//     quotes-tabs/funnel.ts:1834 already documents);
+//   * what is stored is what is served — no invisible layer;
+//   * leaves the template does NOT author keep the operator's value, so
+//     applying a footer-only template cannot silently wipe a header;
+//   * a template can ADD or CHANGE, never BLANK OUT: an empty/null/[] leaf in
+//     the template never erases copy, media or a list the operator authored.
+//     This is the same register §4.3's computeTemplateSwitch already uses
+//     ("OPERATOR CONTENT is PRESERVED VERBATIM — copy, media, legal links…"),
+//     applied to the saved-template path: a complete saved row carries a null
+//     `header.tagline` simply because nobody typed one INTO THE TEMPLATE, and
+//     that silence must not delete the tagline the funnel already shows. A
+//     template that genuinely carries content (the P3 footer templates, trust
+//     logos, benefit items, disclosure copy) still applies it, because those
+//     leaves are non-blank;
+//   * every leaf this replaces is RETURNED (changes + replaced_customisations
+//     + operator-language confirmations) so the confirm dialog can state the
+//     truth before the write instead of enumerating fixed promises.
+// The `frame_template_id` pointer still gets written by the caller: it is the
+// in-use guard's referrer, the board's Template chip identity and the base
+// layer for anything the funnel never authored.
+// ---------------------------------------------------------------------------
+
+// One changed leaf of the SERVED composition (effectiveFrame before → after).
+// `path` is dotted from the frame root ("section_slot.card"); an array leaf is
+// compared and reported WHOLE, mirroring mergeInto's array rule.
+export interface FrameLeafChange {
+  path: string;
+  from: unknown;
+  to: unknown;
+}
+
+export interface TemplateApplyResult {
+  // What to persist into leadgen_funnels.frame_config_json.
+  merged: StoredFrameConfig;
+  // Every leaf of the served composition this apply moves.
+  changes: FrameLeafChange[];
+  // The subset the FUNNEL ITSELF had authored to a different value — the
+  // operator's own choices this template replaces.
+  replaced_customisations: string[];
+  // Operator-language sentences, derived from `changes` (never a fixed list).
+  confirmations: string[];
+}
+
+// Flatten to leaf paths. Objects recurse; arrays are leaves (replaced whole).
+function frameLeaves(value: unknown, prefix: string, out: Map<string, unknown>): void {
+  if (isRecord(value)) {
+    for (const [key, child] of Object.entries(value)) {
+      frameLeaves(child, prefix === "" ? key : `${prefix}.${key}`, out);
+    }
+    return;
+  }
+  out.set(prefix, value);
+}
+
+function sameLeaf(a: unknown, b: unknown): boolean {
+  return JSON.stringify(a ?? null) === JSON.stringify(b ?? null);
+}
+
+// "The template says nothing here": no value, empty copy, or an empty list.
+// `false` and `0` are REAL values (a template must be able to switch a region
+// off), so only absence/emptiness counts as silence.
+function blankLeaf(value: unknown): boolean {
+  if (value === null || value === undefined) return true;
+  if (typeof value === "string") return value.trim() === "";
+  if (Array.isArray(value)) return value.length === 0;
+  return false;
+}
+
+// mergeInto, plus the one rule above: a blank template leaf never overwrites a
+// value the funnel already has. Objects still recurse (a template that speaks
+// only about footer.blocks leaves header.* alone either way).
+function mergeTemplateInto(base: Record<string, unknown>, patch: Record<string, unknown>): void {
+  for (const [key, value] of Object.entries(patch)) {
+    if (value === undefined) continue;
+    if (isRecord(value)) {
+      const current = base[key];
+      if (isRecord(current)) mergeTemplateInto(current, value);
+      else base[key] = cloneJson(value);
+      continue;
+    }
+    if (blankLeaf(value) && !blankLeaf(base[key])) continue; // silence never erases
+    base[key] = Array.isArray(value) ? cloneJson(value) : value;
+  }
+}
+
+const PROGRESS_STYLE_WORDS: Record<string, string> = {
+  hidden: "hidden",
+  bar: "a bar",
+  dots: "dots",
+  numbered: "numbered steps",
+  percent: "a percentage",
+  icon_on_track: "an icon on the track",
+};
+
+// enabled-flag lines, in the order the owner reads the page.
+const APPLY_REGION_WORDS: ReadonlyArray<readonly [string, string]> = [
+  ["header.enabled", "header"],
+  ["disclosure.enabled", "disclosure"],
+  ["trust_strip.enabled", "trust strip"],
+  ["benefit_bar.enabled", "benefit bar"],
+  ["footer.enabled", "footer"],
+];
+
+export function computeTemplateApply(
+  currentStored: StoredFrameConfig | null,
+  templateDefaults: EffectiveFrameConfig | null,
+  currentTemplateDefaults?: EffectiveFrameConfig | null,
+): TemplateApplyResult {
+  const before = effectiveFrame(currentStored, null, null, currentTemplateDefaults ?? null).frame;
+
+  // Materialise: the template's own authored leaves over the funnel's config.
+  // A null template (clearing the pointer) materialises nothing — the funnel
+  // keeps exactly what it has, and `changes` then reports what LOSING the
+  // pointer's base layer does to the served page.
+  const merged = cloneJson(currentStored ?? {}) as Record<string, unknown>;
+  if (templateDefaults !== null) {
+    mergeTemplateInto(merged, templateDefaults as unknown as Record<string, unknown>);
+    merged["version"] = 1;
+  }
+  const mergedConfig = merged as StoredFrameConfig;
+
+  const after = effectiveFrame(mergedConfig, null, null, templateDefaults ?? null).frame;
+
+  const beforeLeaves = new Map<string, unknown>();
+  const afterLeaves = new Map<string, unknown>();
+  frameLeaves(before, "", beforeLeaves);
+  frameLeaves(after, "", afterLeaves);
+  const storedLeaves = new Map<string, unknown>();
+  frameLeaves(currentStored ?? {}, "", storedLeaves);
+
+  const changes: FrameLeafChange[] = [];
+  const replaced: string[] = [];
+  for (const [path, to] of afterLeaves) {
+    const from = beforeLeaves.get(path);
+    if (sameLeaf(from, to)) continue;
+    changes.push({ path, from: from ?? null, to });
+    // The funnel had authored this leaf itself, to a different value.
+    if (storedLeaves.has(path) && !sameLeaf(storedLeaves.get(path), to)) replaced.push(path);
+  }
+  // A leaf the composition LOSES entirely (an optional group the template
+  // doesn't carry) is a change too.
+  for (const [path, from] of beforeLeaves) {
+    if (afterLeaves.has(path)) continue;
+    changes.push({ path, from, to: null });
+  }
+
+  const changed = new Map(changes.map((c) => [c.path, c]));
+  const confirmations: string[] = [];
+
+  const card = changed.get("section_slot.card");
+  if (card !== undefined) {
+    const word = (v: unknown): string => (v === "card" ? "a card" : "a bare layout");
+    confirmations.push(`The question unit changes from ${word(card.from)} to ${word(card.to)}.`);
+  }
+  const style = changed.get("progress.style");
+  if (style !== undefined) {
+    const word = (v: unknown): string => PROGRESS_STYLE_WORDS[String(v)] ?? String(v);
+    confirmations.push(`Progress changes from ${word(style.from)} to ${word(style.to)}.`);
+  }
+  for (const [path, label] of APPLY_REGION_WORDS) {
+    const flag = changed.get(path);
+    if (flag === undefined) continue;
+    confirmations.push(flag.to === true ? `A ${label} will be added.` : `The ${label} will be removed.`);
+  }
+  const bg = changed.get("background.style");
+  if (bg !== undefined) confirmations.push(`The page background changes from ${humanize(String(bg.from))} to ${humanize(String(bg.to))}.`);
+
+  // The honesty line I1 requires: an operator who customised a leaf is TOLD
+  // it is being replaced. Counted from the real diff, never a fixed promise.
+  if (replaced.length === 1) {
+    confirmations.push(`1 setting you had customised is replaced by this template.`);
+  } else if (replaced.length > 1) {
+    confirmations.push(`${replaced.length} settings you had customised are replaced by this template.`);
+  }
+  if (changes.length === 0) {
+    confirmations.push(`This template matches what the funnel already shows — nothing on the page changes.`);
+  }
+
+  return { merged: mergedConfig, changes, replaced_customisations: replaced, confirmations };
 }
 
 function humanize(key: string): string {

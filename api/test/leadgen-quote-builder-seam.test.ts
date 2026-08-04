@@ -1494,7 +1494,10 @@ describeDb("quote builder EXECUTED island — Phase D C2 LIVE activation 409 →
     const link = (chromeRow!.children as FakeNode[]).find((c) => c.tag === "a");
     expect(link, "fix link rendered").toBeDefined();
     expect(link!.attrs["href"]).toBe(`/admin/leadgen/sections/${chrome.public_id}/edit`);
-    expect(textOf(link)).toBe("Review slide");
+    // P8-4 (contract M9 item 2): the client island's problemRowNode used to
+    // label this link "Review slide". The product has no slides — same node,
+    // same exact-equality assertion, the new operator-facing word.
+    expect(textOf(link)).toBe("Edit Section");
     // the publish chip flipped to the blocked verdict with the error count
     expect(studio.byId("lg-publish-badge").attrs["data-publish-verdict"]).toBe("blocked");
 

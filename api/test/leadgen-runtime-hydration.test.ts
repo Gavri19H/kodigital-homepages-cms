@@ -757,9 +757,12 @@ describe("M5 — hydration updates the ProgressBar via hooks, never wipes the tr
 
     // Hook-targeted updates…
     expect(fill.style["width"]).toBe("50%");
-    expect(label.textContent).toBe("2 / 4");
+    // R2 P8 F1 (M1 "Label wording differs three ways"): SSR, the hook path and
+    // the fallback path all write ONE wording now — "Step N of M" — so this
+    // must never regress back to the old hydration-only "N / M" shape.
+    expect(label.textContent).toBe("Step 2 of 4");
     // …and the structure SURVIVES: the track + fill are still children — the
-    // pre-fix fallback replaced the whole subtree with textContent "2 / 4".
+    // pre-fix fallback replaced the whole subtree with textContent "Step 2 of 4".
     expect(progress.children.length).toBe(2);
     expect(track.children[0]).toBe(fill);
     expect(progress.textContent).toBe(""); // never written on the hook path
@@ -774,6 +777,8 @@ describe("M5 — hydration updates the ProgressBar via hooks, never wipes the tr
     const progress = new FakeElement("div", { "data-lg-progress": "", "data-mode": "step" });
     root.appendChild(progress);
     render.updateProgress(root as unknown as Element, 3, 5);
-    expect(progress.textContent).toBe("3 / 5");
+    // Same M1 unification as above: the textContent fallback writes the SAME
+    // "Step N of M" wording as the hook path and SSR, never "N / M".
+    expect(progress.textContent).toBe("Step 3 of 5");
   });
 });

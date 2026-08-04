@@ -415,12 +415,27 @@ function renderDefaultChip(): string {
 }
 
 
-function templateLabelFor(funnel: FunnelNode, templates: FrameTemplateItem[]): string {
+// P8-4 S4.3 (contract M10, board-chip half): the funnel's stored
+// `frame_template_id` is a numeric leadgen_frame_templates row id;
+// templateLabelFor's own `templates` param is the BUILT-IN registry (string
+// arrangement ids like "centered"/"minimal"), so a saved record's id can
+// never match it there — the chip read "Template" forever for every funnel
+// with a saved template applied. Exposed once here (mirrors themePresetIdOf
+// below) so both the SSR fallback and the chip's data attribute read the
+// SAME stringified id and can never drift from each other.
+export function frameTemplateIdOf(funnel: FunnelNode): string {
+  return funnel.frame_template_id === null || funnel.frame_template_id === undefined ? "" : String(funnel.frame_template_id);
+}
+
+// EXPORTED (mirrors mappingDotStatus above) so its pure branches — including
+// the numeric-id "always Template" defect this phase fixes at the render
+// call site below — are directly unit-testable without VM-slicing the island.
+export function templateLabelFor(funnel: FunnelNode, templates: FrameTemplateItem[]): string {
   // M5: the funnel's base template. FrameTemplateItem ids are the built-in
   // arrangement ids; a saved-record numeric id is best-effort resolved by the
   // island against the fuller record list — here the SSR shows the label if a
   // built-in matches, else a neutral "Template" the picker refines.
-  const idStr = funnel.frame_template_id === null || funnel.frame_template_id === undefined ? "" : String(funnel.frame_template_id);
+  const idStr = frameTemplateIdOf(funnel);
   const match = templates.find((t) => t.id === idStr);
   return match ? match.label : "Template";
 }
@@ -490,7 +505,7 @@ function renderFunnelColumn(
       </div>
       <div class="lg-col-meta">
         <span class="lg-pickchip" data-theme-picker data-pin="8.2-theme-picker" data-chip-funnel-public-id="${escapeHtml(funnel.public_id)}" data-chip-funnel-active-variant="${escapeHtml(funnel.active_variant_public_id ?? "")}" data-theme-preset-id="${escapeHtml(themePresetIdOf(funnel))}" role="button" tabindex="0">${escapeHtml(themeChipLabel(funnel))}</span>
-        <span class="lg-pickchip" data-template-picker data-pin="8.2-template-picker" data-chip-funnel-public-id="${escapeHtml(funnel.public_id)}" data-chip-funnel-active-variant="${escapeHtml(funnel.active_variant_public_id ?? "")}" role="button" tabindex="0">${escapeHtml(templateName)}</span>
+        <span class="lg-pickchip" data-template-picker data-pin="8.2-template-picker" data-chip-funnel-public-id="${escapeHtml(funnel.public_id)}" data-chip-funnel-active-variant="${escapeHtml(funnel.active_variant_public_id ?? "")}" data-template-id="${escapeHtml(frameTemplateIdOf(funnel))}" role="button" tabindex="0">${escapeHtml(templateName)}</span>
       </div>
       <div class="lg-col-actions">
         <span class="lg-badge-ab" data-ab-badge data-pin="4.3-ab-badge" role="button" tabindex="0">${escapeHtml(abLabel)}</span>
@@ -1163,7 +1178,13 @@ export const QUOTE_EDITOR_SCRIPT = `
   function problemFixLabel(url) {
     var u = String(url || '');
     if (u.indexOf('/admin/settings') === 0) { return 'Open site settings'; }
-    if (u.indexOf('/sections/') !== -1) { return 'Review slide'; }
+    // P8-4 S4.3/S4.4 (contract M9 item 2): "Review slide" named a concept
+    // (slides) this product does not have. "Edit Section" matches the
+    // product's own vocabulary (PROBLEM_SCOPE_LABELS.section = "Sections",
+    // shared.ts) and the SSR twin of this function, activation.ts's own
+    // problemFixLabel -- coordinated so both renders of the SAME problem say
+    // the SAME thing.
+    if (u.indexOf('/sections/') !== -1) { return 'Edit Section'; }
     if (u.indexOf('/quotes/') !== -1) { return 'Open Quote Builder'; }
     return 'Fix';
   }
@@ -4021,6 +4042,43 @@ export const QUOTE_EDITOR_SCRIPT = `
       .catch(function () { /* leave the select as-is on a transient network error */ });
   }
 
+  // P8-4 S4.3 (contract M10, board-chip half): the SAME shape as
+  // applyThemeChipNames above, applied to the Template chip's saved-record
+  // numeric id (data-template-id, set by frameTemplateIdOf/renderFunnelColumn
+  // in the TS half of this file). A chip whose id is not in the fetched
+  // items (a deleted template, or this fetch hasn't landed yet) is left on
+  // the SSR "Template" fallback (templateLabelFor) -- never reverted to a
+  // raw id.
+  function applyTemplateChipNames(items) {
+    var chips = root.querySelectorAll('[data-template-picker][data-template-id]');
+    var nameById = {};
+    var i;
+    for (i = 0; i < items.length; i++) { nameById[String(items[i].id)] = items[i].name; }
+    for (i = 0; i < chips.length; i++) {
+      var tid = chips[i].getAttribute('data-template-id') || '';
+      if (tid !== '' && Object.prototype.hasOwnProperty.call(nameById, tid)) {
+        chips[i].textContent = nameById[tid];
+      }
+    }
+  }
+
+  // Unlike the Theme preset fetch this island has no OTHER reason to already
+  // list the saved template records (the Templates tab's own loadTemplates
+  // does, but that is a SEPARATE island closure emitted for a different tab
+  // and cannot be read from here -- see the Template-chip dispatch comment
+  // above, "each a SEPARATE island closure that cannot see..."), so this is
+  // its own boot-time GET against the SAME existing frame-template-records
+  // endpoint the Templates tab already calls -- no new endpoint, just this
+  // island's own copy of the read.
+  function loadTemplateRecordNames() {
+    fetch('/api/admin/leadgen/frame-template-records', { credentials: 'same-origin', headers: { 'Accept': 'application/json' } })
+      .then(function (r) { return r.json(); })
+      .then(function (body) {
+        applyTemplateChipNames((body && body.items) || []);
+      })
+      .catch(function () { /* leave the SSR fallback on a transient network error */ });
+  }
+
   // Fork an arm, then apply the new arm's traffic split (and shrink the
   // original's to match, keeping Σ==10000) — the SAME §16.2 fork+allocation
   // mechanism "Add variant" and "A/B this theme" share (forkThenSplit below).
@@ -4308,6 +4366,9 @@ export const QUOTE_EDITOR_SCRIPT = `
   // click lands on "Apply"/"A/B this theme" before a tab-switch fires (the
   // activate('themes') hook above also refreshes it on every switch).
   loadThemePresetOptions();
+  // Board Template chips are on the FIRST tab painted (the builder itself),
+  // so this one has no tab-switch analogue to lean on -- eager at boot only.
+  loadTemplateRecordNames();
 
   (function () {
     var selects = root.querySelectorAll('[data-site-select]');
@@ -5006,7 +5067,18 @@ export const QUOTE_EDITOR_SCRIPT = `
   function addFunnel() {
     // Add with a default name (no blocking prompt); the operator renames inline
     // on the fresh column via the pinned inline-rename affordance.
-    req('POST', API + '/quotes/' + encodeURIComponent(quoteId) + '/funnels', { funnel_name: 'New funnel' }).then(function (res) {
+    // P8-4 S4.3 (contract §7 N6): every added funnel used to be the literal
+    // 'New funnel', confirmed live as indistinguishable from the last one
+    // added a moment before in both the board columns and the rule
+    // Target-funnel select (both read the SAME stored funnel_name — no other
+    // surface needs a separate fix). The ordinal below is this board's OWN
+    // current funnel count plus one, so each funnel added in a row gets a
+    // different trailing number and none of them collide, without the
+    // operator renaming any of them; an existing funnel's stored name is
+    // untouched by this path, and the inline-rename affordance still
+    // overwrites it exactly as before.
+    var ordinal = (BOARD.funnels || []).length + 1;
+    req('POST', API + '/quotes/' + encodeURIComponent(quoteId) + '/funnels', { funnel_name: 'New funnel ' + ordinal }).then(function (res) {
       if (!res.ok) { showInlineErr(null, firstFieldError(res.body)); return; }
       reloadPage();
     });

@@ -131,6 +131,14 @@ export function updateRangeDisplay(input: HTMLInputElement): void {
 export function updateProgress(root: Element, currentStep: number, totalSteps: number): void {
   const safeTotal = totalSteps > 0 ? totalSteps : 1;
   const pct = Math.max(0, Math.min(100, Math.round((currentStep / safeTotal) * 100)));
+  // R2 P8 F1 (M1 "Label wording differs three ways"): ONE step wording, used by
+  // the label a visitor reads AND by the aria-valuetext a screen reader hears —
+  // and it is the SAME sentence the server already rendered (designs/frame.ts
+  // numbered "Step 1 of N"; components/presets.ts renderProgressBar's step-mode
+  // default label, which every bar/icon_on_track mount carries). Hydration used
+  // to overwrite that with "1 / 2", so the label CHANGED shape under the visitor
+  // between first paint and the engine's first update. It no longer does.
+  const stepText = `Step ${currentStep} of ${safeTotal}`;
   root.querySelectorAll("[data-lg-progress]").forEach((el) => {
     const mode = el.getAttribute("data-mode") === "percent" ? "percent" : "step";
     el.setAttribute("aria-valuemin", "0");
@@ -144,7 +152,7 @@ export function updateProgress(root: Element, currentStep: number, totalSteps: n
     // reads "Step 1 of N" on every slide (the E3-found a11y defect). The copy
     // matches the SSR format verbatim; mounts without the attr never gain one.
     if (el.hasAttribute("aria-valuetext")) {
-      el.setAttribute("aria-valuetext", `Step ${currentStep} of ${safeTotal}`);
+      el.setAttribute("aria-valuetext", stepText);
     }
     const bar = el.querySelector("[data-lg-progress-bar]");
     if (bar !== null && bar instanceof HTMLElement) {
@@ -158,7 +166,7 @@ export function updateProgress(root: Element, currentStep: number, totalSteps: n
       else dot.removeAttribute("data-active");
     });
     const label = el.querySelector("[data-lg-progress-label]");
-    const text = mode === "percent" ? `${pct}%` : `${currentStep} / ${safeTotal}`;
+    const text = mode === "percent" ? `${pct}%` : stepText;
     if (label !== null) label.textContent = text;
     else if (bar === null) el.textContent = text;
   });

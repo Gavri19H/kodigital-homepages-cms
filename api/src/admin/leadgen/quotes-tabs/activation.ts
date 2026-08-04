@@ -25,11 +25,11 @@ function preflightCodeLabel(code: string): string {
 
 
 // The deep-link label derives from the server-provided fix_url (§14.1 copy
-// table: [Open Quote Builder] · [Review slide] · site Settings). Kept in
+// table: [Open Quote Builder] · [Edit Section] · site Settings). Kept in
 // lockstep with the island's ES5 problemFixLabel.
 export function problemFixLabel(fixUrl: string): string {
   if (fixUrl.startsWith("/admin/settings")) return "Open site settings";
-  if (fixUrl.includes("/sections/")) return "Review slide";
+  if (fixUrl.includes("/sections/")) return "Edit Section";
   if (fixUrl.includes("/quotes/")) return "Open Quote Builder";
   return "Fix";
 }
@@ -214,7 +214,7 @@ function safeId(id: string): string {
 // The audited path → control map. Every error-severity `Problem.path` the
 // activation preflight can emit is listed; `""` (a preflight block, which has
 // no path) and any unlisted path fall through to null and keep their genuine
-// cross-screen fix_link (Open Section Mapping / Review slide / site settings).
+// cross-screen fix_link (Open Section Mapping / Edit Section / site settings).
 export function publishFixTarget(path: string, fixUrl: string): PublishFixTarget | null {
   if (path === "activation.shared_page") {
     return {

@@ -23,6 +23,7 @@ import {
   DEFAULT_FRAME_TEMPLATE_ID,
   FRAME_TEMPLATES,
   FRAME_TEMPLATE_IDS,
+  computeTemplateApply,
   computeTemplateSwitch,
   effectiveFrame,
   parseSavedFrameTemplateDefaults,
@@ -316,30 +317,87 @@ export async function putFunnelThemeHandler(c: AdminContext): Promise<Response> 
 // Small static thumbnail markup per template arrangement (§4.3 "visual
 // thumbnails"): a band stack derived from the template's own defaults —
 // deterministic registry data, no free CSS (the builder styles the classes).
-function frameTemplateThumbnailHtml(def: FrameTemplateDef): string {
-  const d = def.defaults;
+// R2 P8 M10 — the SAME band stack for a BUILT-IN registry template and for a
+// SAVED (`leadgen_frame_templates`) record. It used to take a FrameTemplateDef
+// only, so a saved template had no thumbnail to show anywhere and the Templates
+// tab fell back to a 3-key text pill of raw enums. The two callers differ only
+// in where the complete config and the identity come from:
+//   * built-in  → def.defaults (already complete) + def.id + def.arrangement;
+//   * saved row → effectiveFrame(family defaults ⊕ the row's sparse frame_json)
+//     + the row's public_id, with NO arrangement prose to read.
+// The arrangement string stays an EXTRA trust/benefit trigger (not the only
+// one) so every built-in emits byte-identical markup to before, while a saved
+// row's real `enabled` flags drive its own bands.
+// R2 P8 F1 (M10, the consumer leg): the bands are derived ONCE, as DATA — a
+// class list per band plus the thumb's own root class list. `frameThumbnailHtml`
+// below serialises that data to markup for the callers that want markup; the
+// Templates tab's island builds the SAME nodes with createElement from
+// `thumbnail` (islands here are forbidden `innerHTML`, and re-deriving the bands
+// client-side from frame_json would be a SECOND reader of one shape — §4 R1's
+// exact defect). One derivation, two renderings; they cannot disagree.
+export interface FrameThumbnailData {
+  /** The thumb container's class list (background style included). */
+  root_class: string;
+  /** The identity `data-template-thumb` carries. */
+  id: string;
+  /** One class list per band span, top to bottom. */
+  bands: string[];
+}
+
+function frameThumbnailData(id: string, d: EffectiveFrameConfig, arrangement: string): FrameThumbnailData {
   const bands: string[] = [];
   if (d.disclosure.enabled && d.disclosure.location === "top_bar") {
-    bands.push('<span class="lg-tpl-band lg-tpl-disclosure"></span>');
+    bands.push("lg-tpl-band lg-tpl-disclosure");
   }
-  bands.push(`<span class="lg-tpl-band lg-tpl-logo lg-tpl-logo--${d.header.logo_align}"></span>`);
+  bands.push(`lg-tpl-band lg-tpl-logo lg-tpl-logo--${d.header.logo_align}`);
   if (d.progress.style !== "hidden") {
-    bands.push(`<span class="lg-tpl-band lg-tpl-progress lg-tpl-progress--${d.progress.style}"></span>`);
+    bands.push(`lg-tpl-band lg-tpl-progress lg-tpl-progress--${d.progress.style}`);
   }
-  bands.push(`<span class="lg-tpl-band lg-tpl-slot lg-tpl-slot--${d.section_slot.card}"></span>`);
-  if (d.trust_strip.placement === "footer" || def.arrangement.includes("trust strip")) {
-    bands.push('<span class="lg-tpl-band lg-tpl-trust"></span>');
+  bands.push(`lg-tpl-band lg-tpl-slot lg-tpl-slot--${d.section_slot.card}`);
+  if (d.trust_strip.enabled || d.trust_strip.placement === "footer" || arrangement.includes("trust strip")) {
+    bands.push("lg-tpl-band lg-tpl-trust");
   }
-  if (def.arrangement.includes("benefit bar")) {
-    bands.push('<span class="lg-tpl-band lg-tpl-benefit"></span>');
+  if (d.benefit_bar.enabled || arrangement.includes("benefit bar")) {
+    bands.push("lg-tpl-band lg-tpl-benefit");
   }
   if (d.footer.enabled) {
-    bands.push('<span class="lg-tpl-band lg-tpl-footer"></span>');
+    bands.push("lg-tpl-band lg-tpl-footer");
   }
+  return { root_class: `lg-tpl-thumb lg-tpl-thumb--${id} lg-tpl-thumb--bg-${d.background.style}`, id, bands };
+}
+
+function frameThumbnailHtml(id: string, d: EffectiveFrameConfig, arrangement: string): string {
+  const data = frameThumbnailData(id, d, arrangement);
+  const bands = data.bands.map((cls) => `<span class="${escapeHtml(cls)}"></span>`).join("");
   return (
-    `<div class="lg-tpl-thumb lg-tpl-thumb--${escapeHtml(def.id)} lg-tpl-thumb--bg-${escapeHtml(d.background.style)}"` +
-    ` data-template-thumb="${escapeHtml(def.id)}" aria-hidden="true">${bands.join("")}</div>`
+    `<div class="${escapeHtml(data.root_class)}"` +
+    ` data-template-thumb="${escapeHtml(data.id)}" aria-hidden="true">${bands}</div>`
   );
+}
+
+function frameTemplateThumbnailHtml(def: FrameTemplateDef): string {
+  return frameThumbnailHtml(def.id, def.defaults, def.arrangement);
+}
+
+// A saved record's thumbnail. The row's frame_json is a SPARSE patch (that is
+// what the Templates tab saves), so it is composed through the SAME
+// effectiveFrame every other read path uses before any band is derived — a
+// sparse row can never leave a group undefined here.
+export function savedFrameTemplateThumbnailHtml(row: LeadgenFrameTemplateRow): string {
+  const defaults = parseSavedFrameTemplateDefaults(row.frame_json);
+  const { frame } = effectiveFrame(null, null, null, defaults);
+  return frameThumbnailHtml(row.public_id, frame, "");
+}
+
+// The SAME bands, as data. R2 P8 F1 (M10): the Templates tab's island cannot
+// mount `thumbnail_html` — islands here may not use innerHTML — so the wire
+// carries the band class lists too and the island builds them with
+// createElement. Both keys come from frameThumbnailData, so the picture the
+// island paints is the picture this module composed, never a re-derivation.
+export function savedFrameTemplateThumbnail(row: LeadgenFrameTemplateRow): FrameThumbnailData {
+  const defaults = parseSavedFrameTemplateDefaults(row.frame_json);
+  const { frame } = effectiveFrame(null, null, null, defaults);
+  return frameThumbnailData(row.public_id, frame, "");
 }
 
 export function listFrameTemplatesHandler(c: AdminContext): Response {
@@ -396,6 +454,13 @@ function frameTemplateRowToApi(row: LeadgenFrameTemplateRow): Record<string, unk
     ...row,
     frame_json: parseJsonColumn(row.frame_json),
     is_default: row.is_default !== 0,
+    // R2 P8 M10: the SAME `thumbnail_html` key the built-in registry
+    // projection (listFrameTemplatesHandler) already returns, so a saved
+    // template can be shown with a real picture instead of a raw-enum pill.
+    thumbnail_html: savedFrameTemplateThumbnailHtml(row),
+    // …and its data-shaped sibling, which is what the admin island can actually
+    // mount (see savedFrameTemplateThumbnail).
+    thumbnail: savedFrameTemplateThumbnail(row),
   };
 }
 
@@ -582,31 +647,86 @@ export async function deleteFrameTemplateHandler(c: AdminContext): Promise<Respo
 }
 
 // POST /funnels/:id/apply-template — "Apply to funnel…": set the funnel's base
-// template (leadgen_funnels.frame_template_id) and bump its active variants so
-// visitors get the new layout (03 §3.1). {template_id:null} clears it (→ the
-// funnel falls back to frame_config_json.template, effectiveFrame's behavior).
+// template (leadgen_funnels.frame_template_id), MATERIALISE the template's own
+// authored leaves into the funnel's frame_config_json, and bump its active
+// variants so visitors get the new layout (03 §3.1). {template_id:null} clears
+// the pointer (→ the funnel falls back to frame_config_json.template,
+// effectiveFrame's behavior) and materialises nothing.
+//
+// R2 P8 M3 / R2-1 — WHY the write is no longer the pointer alone. The pointer
+// is only the BASE layer of effectiveFrame, and the Quote Builder re-PUTs its
+// whole hydrated frame on every Save (quotes-tabs/funnel.ts:1675), so a funnel
+// that has ever been saved carries a COMPLETE frame_config_json that shadows
+// every leaf the template holds: measured on this branch, an apply moved
+// exactly ONE leaf of the served composition (`template`, the identity string
+// no CSS is keyed on) out of 46 leaves the template disagreed on. See
+// computeTemplateApply (designs/frames.ts) for the semantics and
+// test/leadgen-p8-m3-apply-template.test.ts for the before/after counts.
+//
+// `dry_run:true` returns the SAME changes/confirmations with NO write, so the
+// Templates tab's confirm dialog can enumerate what this apply really does
+// (M3: the four sentences it used to hardcode were all false) instead of
+// promising a fixed list.
 export async function applyFrameTemplateToFunnelHandler(c: AdminContext): Promise<Response> {
   const funnel = await resolveFunnelRow(c.env.DB, c.req.param("id") ?? "");
   if (funnel === null) return c.json({ error: "Not Found" }, 404);
   const body = (await readJsonBody(c)) ?? {};
   const raw = body["template_id"] ?? body["frame_template_id"] ?? null;
   let templateId: number | null = null;
+  let templateDefaults: EffectiveFrameConfig | null = null;
   if (raw !== null && raw !== undefined && raw !== "") {
     const tpl = await resolveFrameTemplateRow(c.env.DB, String(raw));
     if (tpl === null) {
       return c.json({ error: "Validation failed", fields: { template_id: "template does not exist" } }, 400);
     }
     templateId = tpl.id;
+    templateDefaults = parseSavedFrameTemplateDefaults(tpl.frame_json);
   }
-  await c.env.DB.prepare("UPDATE leadgen_funnels SET frame_template_id = ?, updated_at = unixepoch() WHERE id = ?")
-    .bind(templateId, funnel.id)
-    .run();
+
+  const stored = parsedJsonRecord(funnel.frame_config_json) as StoredFrameConfig | null;
+  const currentDefaults = await resolveSavedFrameTemplateDefaults(c.env.DB, funnel.frame_template_id);
+  const applied = computeTemplateApply(stored, templateDefaults, currentDefaults);
+
+  const dryRun = body["dry_run"] === true || (c.req.query("dry_run") ?? "") === "1";
+  if (dryRun) {
+    return c.json({
+      funnel_id: funnel.public_id,
+      frame_template_id: templateId,
+      applied: false,
+      changes: applied.changes,
+      replaced_customisations: applied.replaced_customisations,
+      confirmations: applied.confirmations,
+    });
+  }
+
+  // The materialised config and the pointer move in ONE statement — a funnel
+  // can never be left pointing at a template whose leaves were not written.
+  // Nothing to materialise (clearing the pointer, or a template whose leaves
+  // the funnel already carries) leaves the column exactly as it was.
+  const serialized = JSON.stringify(applied.merged);
+  const materialise = templateDefaults !== null && funnel.frame_config_json !== serialized;
+  if (materialise) {
+    await c.env.DB.prepare(
+      "UPDATE leadgen_funnels SET frame_template_id = ?, frame_config_json = ?, updated_at = unixepoch() WHERE id = ?",
+    )
+      .bind(templateId, serialized, funnel.id)
+      .run();
+  } else {
+    await c.env.DB.prepare("UPDATE leadgen_funnels SET frame_template_id = ?, updated_at = unixepoch() WHERE id = ?")
+      .bind(templateId, funnel.id)
+      .run();
+  }
   const bumped = await bumpActiveVariantContentVersions(c.env.DB, funnel.id);
   const updated = await resolveFunnelRow(c.env.DB, String(funnel.id));
   return c.json({
     funnel_id: funnel.public_id,
     frame_template_id: templateId,
     bumped_variants: bumped,
+    applied: true,
+    materialised: materialise,
+    changes: applied.changes,
+    replaced_customisations: applied.replaced_customisations,
+    confirmations: applied.confirmations,
     funnel: updated,
   });
 }

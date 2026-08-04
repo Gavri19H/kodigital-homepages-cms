@@ -1340,7 +1340,10 @@ describeDb("Activation tab problems[] surfacing (14 §14.2, C2 LIVE)", () => {
     expect(html).toContain("[Move to funnel layout] in the Section Builder");
     // the fix_url deep link with the derived label
     expect(html).toContain(`href="/admin/leadgen/sections/${chromePublicId}/edit"`);
-    expect(html).toContain(">Review slide</a>");
+    // P8-4 (contract M9 item 2): the derived label used to read "Review slide".
+    // The product has no slides, so the SSR link now reads "Edit Section" —
+    // same link, same href, same strictness, one operator-facing word changed.
+    expect(html).toContain(">Edit Section</a>");
     // the head publish chip mirrors the verdict (counts include the error)
     expect(html).toMatch(/data-publish-verdict="blocked"[^>]*>Blocked \(\d+ errors?\)/);
   });

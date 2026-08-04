@@ -85,6 +85,7 @@ import {
   FRAME_PROGRESS_ALIGNS,
   FRAME_PROGRESS_ICONS,
   FRAME_PROGRESS_POSITIONS,
+  FRAME_PROGRESS_STYLES,
   FRAME_PROGRESS_WIDTHS,
   FRAME_SIZES,
   FRAME_TYPO_SIZES,
@@ -114,6 +115,24 @@ import {
 // rather than by re-typing the string.
 export const LOGO_UNREACHABLE_CANVAS_TEXT =
   "This site's logo image could not be loaded — re-upload it in Site settings.";
+
+// R2 P8 S4.2 — the ONE operator vocabulary for `progress.style`. The thumbnail
+// picker (PROGRESS_TYPE_OPTIONS below) already had these words; the island's
+// saved-template pill and the apply-confirm sentences printed the RAW enum
+// instead ("dots progress", "Progress style changes from numbered to dots.").
+// Both now interpolate this map, so a style has exactly one operator name
+// wherever this tab speaks about it. "hidden" is the Show-progress-bar toggle's
+// state, not a picker tile, so it is named here and only here.
+// Keyed off designs/frames.ts's own enum, so a new style cannot be added there
+// without this map failing to compile.
+export const PROGRESS_STYLE_LABELS: Readonly<Record<(typeof FRAME_PROGRESS_STYLES)[number], string>> = {
+  hidden: "No progress bar",
+  bar: "Bar",
+  dots: "Dots",
+  numbered: "Numbered",
+  percent: "Percent",
+  icon_on_track: "Icon on track",
+};
 
 
 // ---------------------------------------------------------------------------
@@ -146,14 +165,30 @@ function renderTplBoxBackground(): string {
 }
 
 
+// R2 P8 S4.2 — two copy defects lived in this box.
+//   * §6 M9.1: the trailing help sentence sent the operator to "the Header
+//     region on the canvas (Funnel builder tab) -> Advanced" for a manual logo
+//     override. That canvas was DELETED at the owner's request, and no admin
+//     surface writes `header.logo_media_id` any more (0 hits under src/admin
+//     outside the FOOTER logo block's own `logo_media_id` list field), so the
+//     sentence named a place AND an affordance that do not exist. Removed
+//     rather than replaced: this box offers the two sources that do exist.
+//   * §7 N12 (settled in P8 FIX ROUND F1): Alignment here offered Left/Center
+//     while Progress's Alignment offered Left/Center/Right. The cause was the
+//     STYLESHEET — default-funnel/styles.ts declared `.lg-frame-header--left`
+//     and `--center` and no `--right`, so Right could not have been honoured
+//     (§4 R3 corollary) and offering it would have been the defect, not the
+//     fix. The `--right` rule now exists (the one-property mirror of `--left`
+//     on the same flex `.lg-header-inner`, plus the extras band's mirror) and
+//     frames.ts FRAME_LOGO_ALIGNS carries "right", so the two Alignment
+//     controls now speak one vocabulary and this select offers all three.
 function renderTplBoxLogo(): string {
   return `<div class="lg-inspector-panel lg-panel-card" data-tplbox-panel="logo">
   <h3>B &middot; Logo</h3>
   <p class="form-help">The header logo &mdash; sourced from the selected preview site's branding by default.</p>
   ${frameSelect("Logo source", "header.logo_source", ["site", "cms_fallback"], { site: "Site logo (auto)", cms_fallback: "CMS fallback" })}
   ${frameSelect("Logo size", "header.logo_size", FRAME_SIZES, { s: "Small", m: "Medium", l: "Large" })}
-  ${frameSelect("Alignment", "header.logo_align", FRAME_LOGO_ALIGNS, { left: "Left", center: "Center" })}
-  <p class="form-help">For a manual logo override, open the Header region on the canvas (Funnel builder tab) &rarr; Advanced.</p>
+  ${frameSelect("Alignment", "header.logo_align", FRAME_LOGO_ALIGNS, { left: "Left", center: "Center", right: "Right" }, "Where the logo sits in the header bar.")}
 </div>`;
 }
 
@@ -476,7 +511,7 @@ function renderFooterLinkModal(): string {
 function renderFooterBlockRowTemplate(): string {
   return `<div class="lg-tplbox-row" data-footer-block-row>
     <div class="lg-list-row">
-      <select class="form-select form-select-sm" data-footer-block-type aria-label="Footer block type">${enumOptions(FRAME_FOOTER_BLOCK_TYPES, { about_paragraph: "About paragraph / company details", link_row: "Link row", disclosure: "Disclosure", logo: "Logo", address: "Address", socials: "Social links", heading: "Heading", list: "List" })}</select>
+      <select class="form-select form-select-sm" data-footer-block-type aria-label="Footer block type">${enumOptions(FRAME_FOOTER_BLOCK_TYPES, { about_paragraph: "Company details", link_row: "Link row", disclosure: "Disclosure", logo: "Logo", address: "Address", socials: "Social links", heading: "Heading", list: "List" })}</select>
       <select class="form-select form-select-sm" data-footer-block-align aria-label="Footer block alignment">${enumOptions(FRAME_ELEMENT_ALIGNS, { left: "Left", center: "Center", right: "Right" })}</select>
       <span class="lg-row-rail">
         <button type="button" class="btn btn-sm btn-outline" data-footer-block-up aria-label="Move block up">&#8593;</button>
@@ -523,6 +558,16 @@ function renderFooterBlockRowTemplate(): string {
   </div>`;
 }
 
+// R2 P8 S4.2 + FIX ROUND F1 (§7 N17): A.2 names "free text (rich toolbar)" and
+// "company details" as two of the footer's parts; the product serves both from
+// ONE block type (`about_paragraph`, which has carried the bold/italic/link
+// toolbar since P3 item 1 above). Two fixes, in order: a help line says so in
+// product words, and the OPTION LABEL — which literally read "About paragraph /
+// company details", i.e. two names for one control, the defect §7 N17 names —
+// is now the single name "Company details", the owner's own word for it and the
+// same vocabulary the box's own summary line already used. The enum VALUE
+// (`about_paragraph`) is untouched, so nothing stored changes.
+//
 // R2 P3 BLOCKER FIX (UI gap 1 of 3): this box had NO control for
 // footer.enabled, so the operator could author a complete element-J footer
 // here and still have it render NOTHING — designs/frame.ts renderFooterRegion
@@ -541,6 +586,7 @@ function renderTplBoxFooter(): string {
   return `<div class="lg-inspector-panel lg-panel-card" data-tplbox-panel="footer">
   <h3>J &middot; Footer</h3>
   <p class="form-help">Bottom-of-page blocks (company details / links / disclosure / logo / address / socials / heading / list), with their own palette, font family and sizes &mdash; independent of the main template.</p>
+  <p class="form-help">Free text and company details are the same block here &mdash; "Company details" takes rich text (bold, italic, links).</p>
   ${frameControl("Show the footer", frameCheck("Render the footer at the bottom of every funnel page", "footer.enabled"))}
   <h4>Palette &amp; typography scope</h4>
   <div class="lg-scalars">
@@ -627,7 +673,7 @@ function renderImageItemRowTemplate(): string {
 
 function renderTplBoxImages(): string {
   return `<div class="lg-inspector-panel lg-panel-card" data-tplbox-panel="images">
-  <h3>H &middot; Images</h3>
+  <h3>G &middot; Images</h3>
   <p class="form-help">Individually placed images (e.g. a persona portrait), each with its own slot, size, alignment and optional hover caption.</p>
   <div data-tplbox-list="images"></div>
   <template data-tplbox-tpl="images">${renderImageItemRowTemplate()}</template>
@@ -651,13 +697,13 @@ function renderTplBoxImages(): string {
 // DOM reach into funnel.ts's own inspector.
 // ---------------------------------------------------------------------------
 
-const PROGRESS_TYPE_OPTIONS: ReadonlyArray<{ value: string; label: string }> = [
-  { value: "bar", label: "Bar" },
-  { value: "dots", label: "Dots" },
-  { value: "numbered", label: "Numbered" },
-  { value: "percent", label: "Percent" },
-  { value: "icon_on_track", label: "Icon on track" },
-];
+// The five REAL styles, in pack order — every one of FRAME_PROGRESS_STYLES
+// except "hidden" (the Show-progress-bar toggle's state, never a tile). Labels
+// come from the ONE map above so the picker, the saved-template pill and the
+// apply-confirm sentences can never call the same style three different things.
+const PROGRESS_TYPE_OPTIONS: ReadonlyArray<{ value: string; label: string }> = FRAME_PROGRESS_STYLES.filter(
+  (s) => s !== "hidden",
+).map((value) => ({ value, label: PROGRESS_STYLE_LABELS[value] }));
 
 // A native radio input, visually hidden but focusable/tabbable, wrapped in a
 // styled `<label>` — the accessible "custom radio" pattern already proven by
@@ -717,6 +763,30 @@ function toggleControl(label: string, key: string, help?: string): string {
   </label>`;
 }
 
+// R2 P8 S4.2 — §6 M1, two of its legs land in this box:
+//   * "Marker icon" used to render for all five styles. designs/frame.ts reads
+//     `p.icon` inside ONE branch only (`if (p.style === "icon_on_track")`) — on
+//     the other four styles the select changed a stored value that nothing
+//     renders. It is now wrapped in #lg-tpl-progress-icon-row, which the island
+//     shows for `icon_on_track` alone (syncProgressIconRow).
+//   * "Show label" promised `"Step 2 of 5"`. The help now quotes exactly what
+//     is painted, because the product now paints ONE wording: designs/frame.ts
+//     SSRs `Step 1 of N` (numbered) / the ProgressBar preset's own step label
+//     (bar + icon on track), and runtime/render.ts's hydration re-stamps that
+//     SAME sentence instead of overwriting it with `N / M`.
+//
+// R2 P8 FIX ROUND F1 adds the other two M1 legs:
+//   * "Marker icon" gains the operator's OWN image (frames.ts
+//     FRAME_PROGRESS_ICONS "custom" + progress.icon_media_id), authored with
+//     mediaPickerControl — the picker this file already uses four times. Its
+//     row is shown only when the chosen mark IS an image, so the media control
+//     never sits there dead (syncProgressIconMediaRow).
+//   * "Show label" is HIDDEN for `numbered`. Measured: ON and OFF render
+//     byte-identically for that style alone, because the numbered step label IS
+//     the style (designs/frame.ts renders it unconditionally, pinned by
+//     test/leadgen-frame-progress-back.test.ts). §4 R3's corollary — "A control
+//     that cannot be honoured must not be offered" — so it is not offered
+//     there, the same treatment "Marker icon" gets on the styles that ignore it.
 function renderTplBoxProgress(): string {
   return `<div class="lg-inspector-panel lg-panel-card active" data-tplbox-panel="progress">
   <h3>I &middot; Progress</h3>
@@ -725,14 +795,16 @@ function renderTplBoxProgress(): string {
   <div class="lg-tpl2-eyebrow">Style</div>
   ${renderProgressTypePicker()}
   <p class="form-help">5 real styles (Bar/Dots/Numbered/Percent/Icon on track) &mdash; "Hidden" is the toggle below, not a 6th style.</p>
-  ${frameSelect("Marker icon", "progress.icon", FRAME_PROGRESS_ICONS, {
+  <div id="lg-tpl-progress-icon-row" class="lg-hidden">${frameSelect("Marker icon", "progress.icon", FRAME_PROGRESS_ICONS, {
     dot: "Plain dot",
     car: "Car",
     shield: "Shield",
     check: "Checkmark",
     star: "Star",
     site_logo: "This site's logo",
-  }, "The mark that travels along the track. Used by the “Icon on track” style.")}
+    custom: "My own image",
+  }, "The mark that travels along the track.")}</div>
+  <div id="lg-tpl-progress-icon-media-row" class="lg-hidden">${mediaPickerControl("Marker image", "progress.icon_media_id", "Your own image, from the Media library. Until one is chosen the marker stays a plain dot.")}</div>
 
   <label class="lg-tpl2-toggle-row">
     <span class="lg-tpl2-toggle-copy"><span class="lg-tpl2-toggle-title">Show progress bar</span></span>
@@ -749,7 +821,8 @@ function renderTplBoxProgress(): string {
   ${segmentedControl("Thickness", "progress.thickness", [["s", "Small"], ["m", "Medium"], ["l", "Large"]] as ReadonlyArray<readonly [string, string]>)}
   ${segmentedControl("Width", "progress.width", FRAME_PROGRESS_WIDTHS.map((w) => [w, w === "content" ? "Content width" : "Full width"] as readonly [string, string]))}
   ${frameControl("Color", renderRoleStrip("progress.color_role"))}
-  ${toggleControl("Show label", "progress.show_label", 'e.g. "Step 2 of 5" next to the bar')}
+  <div id="lg-tpl-progress-showlabel-row">${toggleControl("Show label", "progress.show_label", 'A visitor sees "Step 2 of 5" beside the bar, or "40%" on Percent.')}</div>
+  <p class="lg-region-note lg-hidden" id="lg-tpl-progress-numbered-note">Numbered steps always show the step label &mdash; that is what makes them numbered.</p>
   <p class="lg-region-note">Progress counts the slides of this funnel variant automatically.</p>
 </div>`;
 }
@@ -766,11 +839,16 @@ function renderTplBoxProgress(): string {
 //     progress bar" → Progress is "I", and re-lettering it would break the
 //     owner's OTHER anchor.
 // Nine tiles cannot fill A..J (ten slots), so EXACTLY ONE letter is unused no
-// matter what. The owner never said "G"; they said the footer is "J". So the
-// footer alone changes letter, every other tile keeps the letter the owner has
-// already been looking at (A-F unchanged, H Images, I Progress), and G is the
-// one letter left vacant — the unavoidable cost of contract §5.4's ONE-footer-
-// tile rule (the owner's own numbering implied a tenth tile, i.e. two footers).
+// matter what. The owner never said "G"; they said the footer is "J".
+//
+// R2 P8 FIX ROUND F1 (§7 N9 — "Element letters skip G … the owner noticed"):
+// WHICH letter is vacant is the part that was decided badly. The run used to be
+// A B C D E F H I J, so the gap fell in the middle of the contiguous block and
+// the list read like a mistake. The owner's two pins (Progress = I, A.1 #11.D;
+// Footer = J, A.2) fix the last two letters and nothing else, so the sensible
+// placement is contiguous-then-pinned: Images moves H -> G, giving
+// A B C D E F G · I · J. The gap is now forced to H by the owner's own pins,
+// which is the only place it can be without moving a letter they named.
 // The tile also MOVES to the end and renders under its own "Bottom of the page"
 // group heading, so the screen reads the way A.2 describes it: a *separate*
 // template element that comes after the others.
@@ -786,7 +864,7 @@ const TPLBOX_CARDS: ReadonlyArray<{ key: string; letter: string; label: string }
   { key: "disclosure", letter: "D", label: "Disclosure" },
   { key: "free_text", letter: "E", label: "Free text" },
   { key: "brand_logos", letter: "F", label: "Brand logos" },
-  { key: "images", letter: "H", label: "Images" },
+  { key: "images", letter: "G", label: "Images" },
   { key: "progress", letter: "I", label: "Progress" },
   { key: "footer", letter: "J", label: "Footer" },
 ];
@@ -844,12 +922,24 @@ function renderSettingsColumn(answerFields: readonly QuoteRulesRailAnswerField[]
 
 
 // ---------------------------------------------------------------------------
-// §8.3 CENTER — live canvas. Toolbar (theme switcher + "+ New theme…"
-// affordance + section picker + preview-site select) and a server-rendered
+// §8.3 CENTER — live canvas. Toolbar (theme switcher + a route to the Themes
+// tab + section picker + preview-site select) and a server-rendered
 // srcdoc iframe, populated entirely by the inline script below through the
 // ONE preview endpoint (POST /variants/:id/preview — see the top-of-file doc
 // comment for why this can't reuse funnel.ts's private `renderPreview`/
 // `schedulePreview` closures).
+//
+// R2 P8 S4.2 (§6 M9.5 / I5 — no copy names a place that does not exist): the
+// toolbar button read "+ New theme…" with title "Create a theme in the Themes
+// tab", but a theme RECORD is created only by the standalone Themes manager
+// (ui-theme-manager.ts:1471 POSTs /api/admin/leadgen/themes; the quote
+// editor's Themes tab has no create call at all — it designs THIS funnel's
+// theme and links out with "Manage all presets →"). The button's click target
+// is unchanged (it opens the Themes tab, which is where it has always gone,
+// and test/leadgen-templates-canvas-r2.test.ts:651 pins that line); only the
+// two strings that mis-described it are now true. The empty-list option in
+// populateThemeSwitcher points at the manager, matching quotes-tabs/themes.ts's
+// own "…from the Themes manager…" register.
 // ---------------------------------------------------------------------------
 
 function renderCanvas(): string {
@@ -858,7 +948,7 @@ function renderCanvas(): string {
       <select class="form-select form-select-sm" id="lg-tpl-theme-select" aria-label="Theme switcher" style="max-width:180px">
         <option value="">Current theme</option>
       </select>
-      <button type="button" class="btn btn-sm btn-outline" id="lg-tpl-theme-create" title="Create a theme in the Themes tab">+ New theme&#8230;</button>
+      <button type="button" class="btn btn-sm btn-outline" id="lg-tpl-theme-create" title="Open the Themes tab to design this funnel's theme">Themes tab &#8594;</button>
       <select class="form-select form-select-sm" id="lg-tpl-section-select" aria-label="Section picker" style="max-width:240px">
         <option value="">Loading sections&#8230;</option>
       </select>
@@ -957,6 +1047,7 @@ function renderAbTemplatesDialog(): string {
     <div class="form-group">
       <label class="form-label" for="lg-tpl-ab-template-select">New arm's template</label>
       <select class="form-select" id="lg-tpl-ab-template-select" aria-label="Template for the new arm"></select>
+      <p class="form-help" id="lg-tpl-ab-effect" role="status"></p>
     </div>
     <p class="alert alert-error lg-hidden" id="lg-tpl-ab-error" role="alert"></p>
     <div class="toolbar">
@@ -995,6 +1086,12 @@ const TPL_STYLES = `
 .lg-tpl2-tpl-chip.is-default{border-color:var(--c-primary,#1B3A5C)}
 .lg-tpl2-tpl-chip-default-badge{font-size:9px;font-weight:800;letter-spacing:.03em;text-transform:uppercase;background:var(--c-primary,#1B3A5C);color:#fff;border-radius:10px;padding:1px 6px}
 .lg-tpl2-tpl-chip button{background:none;border:0;cursor:pointer;color:var(--c-muted);font-size:11px;padding:0 2px}
+/* R2 P8 F1 (M10): the saved template's real band picture, sized for the chip.
+   The bands themselves keep the shared .lg-tpl-thumb/.lg-tpl-band vocabulary
+   (quotes-tabs/shared.ts) — only the chip-scale geometry is overridden here. */
+.lg-tpl2-tpl-chip .lg-tpl-thumb{width:24px;min-height:18px;padding:2px;gap:1px;border-radius:3px;flex:none}
+.lg-tpl2-tpl-chip .lg-tpl-band{height:2px;border-radius:1px}
+.lg-tpl2-tpl-chip .lg-tpl-slot{height:6px}
 .lg-tpl2-tpl-menu{position:absolute;top:100%;left:0;z-index:5;background:var(--c-card,#fff);border:1px solid var(--c-border);border-radius:6px;box-shadow:0 4px 14px rgba(16,24,40,.16);padding:4px;display:flex;flex-direction:column;min-width:140px;margin-top:4px}
 .lg-tpl2-tpl-menu button{display:block;width:100%;text-align:left;padding:6px 8px;font-size:12px;color:var(--c-text);white-space:nowrap}
 .lg-tpl2-tpl-menu button:hover{background:var(--c-bg,#f6f7f9)}
@@ -1083,6 +1180,13 @@ const TPL_SCRIPT = `
   // not load (see watchCanvasLogo below). Interpolated from the ONE server
   // constant so the canvas and frame.ts can never drift apart.
   var LOGO_UNREACHABLE_TEXT = ${JSON.stringify(LOGO_UNREACHABLE_CANVAS_TEXT)};
+  // R2 P8 S4.2 — the SAME operator words the Style tiles show (one vocabulary
+  // per thing), interpolated from the one server map so the pill, the
+  // apply-confirm sentences and the tiles cannot drift.
+  var PROGRESS_LABELS = ${JSON.stringify(PROGRESS_STYLE_LABELS)};
+  function progressStyleLabel(v) {
+    return (v !== null && v !== undefined && PROGRESS_LABELS[v]) ? PROGRESS_LABELS[v] : String(v);
+  }
   var boot = null;
   var templates = [];
   // R2 D5 (contract §7 D5): this quote's PER-QUOTE default template override
@@ -1390,7 +1494,8 @@ const TPL_SCRIPT = `
     if (key === null) { return; }
     if (el.type === 'radio' && !el.checked) { return; }
     setPath(myFrame, key, controlValueOf(el));
-    if (key === 'progress.style') { syncProgressToggleUi(); }
+    if (key === 'progress.style') { syncProgressToggleUi(); syncProgressIconRow(); }
+    if (key === 'progress.icon') { syncProgressIconRow(); }
     syncRadioActiveClasses();
     scheduleCanvasPreview();
   }
@@ -1838,6 +1943,11 @@ const TPL_SCRIPT = `
     if (!el || !el.closest) { return; }
     if (!el.closest('.lg-qpanel[data-panel="templates"]')) { return; }
     arraysArmed = true;
+    // The shared island (funnel.ts) repopulates every [data-frame-key] control
+    // when a tab activates or the target funnel changes, and a programmatic
+    // .checked assignment fires no 'change' — so re-derive the Marker-icon
+    // row's visibility from whatever the radios now say, on any panel activity.
+    syncProgressIconRow();
     scheduleCanvasPreview();
   }
 
@@ -1864,6 +1974,56 @@ const TPL_SCRIPT = `
     var toggle = byId('lg-tpl-progress-show-checkbox');
     var isHidden = currentProgressStyle() === 'hidden';
     if (toggle) { toggle.checked = !isHidden; }
+  }
+  // R2 P8 S4.2 (M1) — "Marker icon" only appears when it does something:
+  // designs/frame.ts reads progress.icon inside its icon_on_track branch
+  // alone. Before any radio is checked (this island runs at DOMContentLoaded;
+  // funnel.ts's shared island populates the controls on its own schedule) the
+  // boot frame's own effective style is the truth, so the row is right on the
+  // first paint too, not only after the operator touches something.
+  function styleForIconRow() {
+    var radios = progressStyleRadios();
+    var i;
+    for (i = 0; i < radios.length; i++) { if (radios[i].checked) { return radios[i].value; } }
+    var eff = (boot && boot.frame && boot.frame.effective_frame && boot.frame.effective_frame.progress)
+      ? boot.frame.effective_frame.progress.style : '';
+    return eff || '';
+  }
+  // R2 P8 F1 — every "this control would do nothing here" row of the Progress
+  // box is decided in ONE pass, by the ONE function that already owned that job
+  // (no new island symbol: the var-manifest harnesses rebuild this island from
+  // a hand-listed set of names, and a new top-level helper would be a bare
+  // ReferenceError there). The rows:
+  //   * Marker icon      — only for the icon_on_track style (designs/frame.ts
+  //                        reads progress.icon in that branch alone);
+  //   * Marker image     — only when the chosen mark IS an image (icon custom),
+  //                        so the media picker never sits there dead;
+  //   * Show label       — NOT for numbered: that style renders the step label
+  //                        unconditionally, so the switch cannot be honoured
+  //                        (section 4 R3, "a control that cannot be honoured
+  //                        must not be offered");
+  //   * numbered note    — takes the switch's place, so the operator is told
+  //                        why rather than finding a control that does nothing.
+  function syncProgressIconRow() {
+    var style = styleForIconRow();
+    var iconSel = toArray(document.querySelectorAll('[data-frame-key="progress.icon"]'));
+    var icon = (iconSel.length > 0 && iconSel[0].value) ? iconSel[0].value : '';
+    if (icon === '' && boot && boot.frame && boot.frame.effective_frame && boot.frame.effective_frame.progress) {
+      icon = boot.frame.effective_frame.progress.icon || '';
+    }
+    var rows = [
+      ['lg-tpl-progress-icon-row', style === 'icon_on_track'],
+      ['lg-tpl-progress-icon-media-row', style === 'icon_on_track' && icon === 'custom'],
+      ['lg-tpl-progress-showlabel-row', style !== 'numbered'],
+      ['lg-tpl-progress-numbered-note', style === 'numbered']
+    ];
+    var i;
+    for (i = 0; i < rows.length; i++) {
+      var row = byId(rows[i][0]);
+      if (!row) { continue; }
+      var base = row.className.replace(/\\s*lg-hidden/g, '');
+      row.className = rows[i][1] ? base : base + ' lg-hidden';
+    }
   }
   function wireProgressToggle() {
     var toggle = byId('lg-tpl-progress-show-checkbox');
@@ -1950,7 +2110,7 @@ const TPL_SCRIPT = `
         var empty = document.createElement('option');
         empty.value = '';
         empty.disabled = true;
-        empty.appendChild(text('No themes yet \\u2014 create one in the Themes tab'));
+        empty.appendChild(text('No themes yet \\u2014 create one in the Themes manager'));
         sel.appendChild(empty);
       }
     }).catch(function () { /* the "Current theme" option alone still works */ });
@@ -2010,12 +2170,46 @@ const TPL_SCRIPT = `
   }
 
   // --- saved template bar --------------------------------------------
+  // R2 P8 S4.2 (§6 M10, client leg): the saved-template pill printed the raw
+  // stored enum ("Bare layout \\u00b7 dots progress"). It now speaks the SAME
+  // words the Style tiles do (PROGRESS_LABELS) and names the footer the way
+  // every other control in this panel does. Each bit is still read straight off
+  // the template's OWN frame_json, so the pill describes the record and nothing
+  // else.
+  //
+  // R2 P8 FIX ROUND F1 — the real THUMBNAIL is consumed now. The server key
+  // thumbnail_html is pre-composed MARKUP and an island here may not use
+  // innerHTML, so frame-handlers.ts emits the DATA sibling "thumbnail"
+  // (root_class + id + bands) from the SAME frameThumbnailData the markup is
+  // serialised from, and thumbFor below builds those exact nodes with
+  // createElement. The bands are never re-derived from frame_json here: that
+  // would be a second reader of one wire shape, which is section 4 R1's own
+  // defect.
   function templateSummary(frameJson) {
     var bits = [];
     if (frameJson && frameJson.section_slot && frameJson.section_slot.card) { bits.push(frameJson.section_slot.card === 'card' ? 'Card layout' : 'Bare layout'); }
-    if (frameJson && frameJson.progress && frameJson.progress.style) { bits.push(frameJson.progress.style === 'hidden' ? 'No progress bar' : (frameJson.progress.style + ' progress')); }
-    if (frameJson && frameJson.footer && frameJson.footer.enabled === false) { bits.push('no footer'); }
+    if (frameJson && frameJson.progress && frameJson.progress.style) { bits.push(frameJson.progress.style === 'hidden' ? PROGRESS_LABELS.hidden : (progressStyleLabel(frameJson.progress.style) + ' progress')); }
+    if (frameJson && frameJson.footer && frameJson.footer.enabled === false) { bits.push('No footer'); }
     return bits.join(' \\u00b7 ');
+  }
+
+  // The saved template's picture, built from the server's band DATA. Returns
+  // null when a record predates the key, so an older payload degrades to the
+  // name pill it always had rather than an empty box.
+  function thumbFor(tpl) {
+    var data = tpl ? tpl.thumbnail : null;
+    if (!data || !data.bands || !data.bands.length) { return null; }
+    var box = document.createElement('span');
+    box.className = data.root_class || 'lg-tpl-thumb';
+    box.setAttribute('data-template-thumb', data.id || '');
+    box.setAttribute('aria-hidden', 'true');
+    var i;
+    for (i = 0; i < data.bands.length; i++) {
+      var band = document.createElement('span');
+      band.className = data.bands[i];
+      box.appendChild(band);
+    }
+    return box;
   }
 
   function closeAllTplMenus() {
@@ -2042,6 +2236,8 @@ const TPL_SCRIPT = `
         var chip = document.createElement('span');
         chip.className = 'lg-tpl2-tpl-chip' + (isThisQuoteDefault ? ' is-default' : '');
         chip.setAttribute('data-tpl-chip', tpl.public_id);
+        var thumb = thumbFor(tpl);
+        if (thumb) { chip.appendChild(thumb); }
         chip.appendChild(text(tpl.name));
         if (isThisQuoteDefault) {
           var badge = document.createElement('span');
@@ -2229,27 +2425,126 @@ const TPL_SCRIPT = `
     }
   }
   var applyChosenTemplate = null;
-  function diffSentences(candidateFrameJson) {
-    var sentences = [];
-    var cur = (boot && boot.frame && boot.frame.effective_frame) || {};
-    var cand = candidateFrameJson || {};
-    if (cur.section_slot && cand.section_slot && cur.section_slot.card !== cand.section_slot.card) {
-      sentences.push('The question unit changes from a ' + (cur.section_slot.card === 'card' ? 'card' : 'bare layout') + ' to a ' + (cand.section_slot.card === 'card' ? 'card' : 'bare layout') + '.');
+
+  // =======================================================================
+  // R2 P8 S4.2 (§6 M3 / R2-1) — what this dialog is allowed to promise.
+  //
+  // MEASURED BEFORE: the four enumerated promises were all false after apply.
+  // The dialog computed them HERE, in the client, by comparing a RESOLVED frame
+  // (boot.frame.effective_frame — every group present, every default filled)
+  // against a SPARSE saved-template patch, and reading an ABSENT key as an
+  // authored one: a template that never mentions the footer has
+  // cand.footer.enabled === undefined, which is !== true, so the operator was
+  // told "The footer will be hidden." from a key the template does not set
+  // (and progress could read "...changes from numbered to undefined."). On top
+  // of that it modelled the apply as a merge the apply did not perform.
+  //
+  // A second client-side predictor is the R1 defect class waiting to happen —
+  // producer and consumer written to different contracts. So the promises are
+  // no longer predicted here at all: the SERVER dry-runs the real apply
+  // (POST /funnels/:id/apply-template {dry_run:true} — frame-handlers.ts
+  // returns before any write) and hands back the operator-language
+  // confirmations that designs/frames.ts computeTemplateApply derives from the
+  // REAL before/after leaf diff, which is the same function, on the same
+  // inputs, that the confirm button then executes. One truth, one place.
+  // A failed dry run shows the error slot and no promises at all.
+  // =======================================================================
+  function applyLeadLine(tpl) {
+    return '"' + (tpl && tpl.name ? tpl.name : 'This template') + '" becomes this funnel\u2019s layout template.';
+  }
+  function paintConfirmList(lines) {
+    var list = byId('lg-tpl-apply-confirm-list');
+    if (!list) { return; }
+    clearChildren(list);
+    var i;
+    for (i = 0; i < lines.length; i++) {
+      var li = document.createElement('li');
+      li.appendChild(text(lines[i]));
+      list.appendChild(li);
     }
-    if (cur.footer && cand.footer && cur.footer.enabled !== cand.footer.enabled) {
-      sentences.push(cand.footer.enabled ? 'The footer will be shown.' : 'The footer will be hidden.');
+  }
+  function openApplyConfirm(tpl) {
+    var targetFunnel = targetFunnelPublicId();
+    if (!tpl || !targetFunnel) { return; }
+    fetchJson(LG_API + '/funnels/' + encodeURIComponent(targetFunnel) + '/apply-template', {
+      method: 'POST', credentials: 'same-origin',
+      headers: { 'content-type': 'application/json', Accept: 'application/json' },
+      body: JSON.stringify({ template_id: tpl.id, dry_run: true })
+    }).then(function (res) {
+      if (!res.ok || !res.body || !res.body.confirmations) {
+        showError('lg-tpl-apply-error', (res.body && res.body.error) || 'Could not preview this template.');
+        return;
+      }
+      applyChosenTemplate = tpl;
+      hideError('lg-tpl-apply-error');
+      paintConfirmList([applyLeadLine(tpl)].concat(res.body.confirmations));
+      applyDialogShowState('confirm');
+    });
+  }
+
+  // =======================================================================
+  // The A/B arm predicate — a DIFFERENT question from the one above, because
+  // an arm is resolved differently from an apply. Apply MATERIALISES the
+  // template into the funnel's own frame_config_json; an A/B arm only points
+  // variant.frame_template_id at it, and that row resolves as the BASE layer
+  // UNDER the funnel's config (quotes-handlers.ts variant.frame_template_id ??
+  // funnel.frame_template_id -> effectiveFrame's 4th argument). So a leaf the
+  // funnel's own config carries does not move on the new arm, however
+  // different the two templates are — which is why the two arms were measured
+  // byte-identical. These helpers say, before the fork, how many of the leaves
+  // THIS TEMPLATE SETS would actually move on the new arm. The count is
+  // deliberately scoped to that: a leaf the CURRENT arm's template authors and
+  // the chosen one does not is outside what this page can resolve (it would
+  // need the other template's family defaults), so the zero-case copy claims
+  // only what it can prove — that nothing this template sets would change —
+  // and never the stronger "the two arms are identical".
+  function currentEffectiveFrame() { return (boot && boot.frame && boot.frame.effective_frame) || {}; }
+  // The layers that merge ABOVE a saved template's defaults on a served arm.
+  function shadowLayers() {
+    var layers = [];
+    var stored = (boot && boot.frame && boot.frame.frame_config) || null;
+    if (isRecord(stored)) { layers.push(stored); }
+    var onBootFunnel = boot && targetFunnelPublicId() === boot.funnel_public_id;
+    var overrides = (onBootFunnel && boot) ? boot.overrides : null;
+    if (isRecord(overrides)) { layers.push(overrides); }
+    return layers;
+  }
+  function pinnedAbove(path) {
+    var layers = shadowLayers();
+    var i;
+    for (i = 0; i < layers.length; i++) { if (getPath(layers[i], path) !== undefined) { return true; } }
+    return false;
+  }
+  // Every leaf that would move on the new arm, counted. Deliberately a COUNT
+  // and not a sentence: designs/frames.ts computeTemplateApply already owns the
+  // operator register for "what changes" (the apply dialog paints its words
+  // above), and a second set of sentences here would be two wordings for one
+  // event — the drift this slice exists to remove. Walks the template's OWN
+  // leaves (records recurse; arrays and scalars are leaves, exactly how
+  // effectiveFrame's mergeInto treats them).
+  function sameLeaf(a, b) {
+    if (a === b) { return true; }
+    if (a === null || b === null || a === undefined || b === undefined) { return false; }
+    if (typeof a !== 'object' && typeof b !== 'object') { return false; }
+    return JSON.stringify(a) === JSON.stringify(b);
+  }
+  function countArmChanges(cand, prefix, acc) {
+    var cur = currentEffectiveFrame();
+    var key;
+    var path;
+    var value;
+    for (key in cand) {
+      if (!Object.prototype.hasOwnProperty.call(cand, key)) { continue; }
+      if (prefix === '' && (key === 'template' || key === 'version')) { continue; }
+      path = prefix === '' ? key : prefix + '.' + key;
+      value = cand[key];
+      if (isRecord(value)) { acc = countArmChanges(value, path, acc); continue; }
+      if (value === undefined) { continue; }
+      if (pinnedAbove(path)) { continue; }
+      if (sameLeaf(getPath(cur, path), value)) { continue; }
+      acc = acc + 1;
     }
-    if (cur.trust_strip && cand.trust_strip && cur.trust_strip.enabled !== cand.trust_strip.enabled) {
-      sentences.push(cand.trust_strip.enabled ? 'A trust strip will be added.' : "The trust strip isn't part of this template's arrangement.");
-    }
-    if (cur.benefit_bar && cand.benefit_bar && cur.benefit_bar.enabled !== cand.benefit_bar.enabled) {
-      sentences.push(cand.benefit_bar.enabled ? 'A benefit bar will be added.' : "The benefit bar isn't part of this template's arrangement.");
-    }
-    if (cur.progress && cand.progress && cur.progress.style !== cand.progress.style) {
-      sentences.push('Progress style changes from ' + cur.progress.style + ' to ' + cand.progress.style + '.');
-    }
-    if (sentences.length === 0) { sentences.push('This template keeps the same overall arrangement.'); }
-    return sentences;
+    return acc;
   }
   function renderApplyChoices() {
     var box = byId('lg-tpl-apply-choices');
@@ -2270,21 +2565,9 @@ const TPL_SCRIPT = `
         summary.appendChild(text(templateSummary(tpl.frame_json)));
         card.appendChild(name);
         card.appendChild(summary);
-        card.addEventListener('click', function () {
-          applyChosenTemplate = tpl;
-          var list = byId('lg-tpl-apply-confirm-list');
-          if (list) {
-            clearChildren(list);
-            var sentences = diffSentences(tpl.frame_json);
-            var s;
-            for (s = 0; s < sentences.length; s++) {
-              var li = document.createElement('li');
-              li.appendChild(text(sentences[s]));
-              list.appendChild(li);
-            }
-          }
-          applyDialogShowState('confirm');
-        });
+        // The confirm state is entered by the dry run's answer, never before
+        // it: a template whose preview failed must not show promises.
+        card.addEventListener('click', function () { openApplyConfirm(tpl); });
         box.appendChild(card);
       }(templates[i]));
     }
@@ -2325,25 +2608,71 @@ const TPL_SCRIPT = `
   }
 
   // --- A/B templates -----------------------------------------------------
+  // R2 P8 S4.2 (§6 M3, A/B leg): the two arms were measured byte-identical, so
+  // the operator could start a test that can never produce a result. Two
+  // separate reasons, and this island can only speak to them honestly:
+  //   * IDENTITY — nothing said which template the funnel already uses, so
+  //     picking that one forked an arm that differs in no way at all. The
+  //     board blob already carries funnel.frame_template_id (funnel.ts
+  //     boardDataBlob), so that option is now named as the current one.
+  //   * SHADOWING — an arm resolves template defaults UNDER the funnel's own
+  //     frame_config (quotes-handlers.ts variant.frame_template_id ??
+  //     funnel.frame_template_id -> effectiveFrame's base layer), so on a funnel
+  //     that has ever been saved a DIFFERENT template can still render
+  //     identically. The line below counts, with the SAME rules the apply
+  //     dialog uses, what the new arm would actually change — 0 means the two
+  //     arms would look the same, said before the fork rather than discovered
+  //     after it. The shadowing itself is the apply/resolve path's defect, not
+  //     this dialog's; it is reported, not patched here.
+  function abCurrentTemplateId() {
+    var f = boardFunnelBy(targetFunnelPublicId());
+    return (f && f.frame_template_id !== null && f.frame_template_id !== undefined) ? String(f.frame_template_id) : '';
+  }
+  function abEffectLine() {
+    var el = byId('lg-tpl-ab-effect');
+    var select = byId('lg-tpl-ab-template-select');
+    if (!el) { return; }
+    clearChildren(el);
+    var chosen = (select && select.value) ? findTemplateByDbId(select.value) : null;
+    if (!chosen) { return; }
+    if (String(chosen.id) === abCurrentTemplateId()) {
+      el.appendChild(text('This funnel already uses this template \\u2014 both arms would look the same.'));
+      return;
+    }
+    var total = countArmChanges(chosen.frame_json || {}, '', 0);
+    if (total === 0) {
+      el.appendChild(text('Nothing this template sets would change on the new arm \\u2014 this funnel\\u2019s own saved layout settings already decide those.'));
+      return;
+    }
+    el.appendChild(text('The new arm differs from the current one in ' + total + (total === 1 ? ' layout setting.' : ' layout settings.')));
+  }
+  function findTemplateByDbId(dbId) {
+    var i;
+    for (i = 0; i < templates.length; i++) { if (String(templates[i].id) === String(dbId)) { return templates[i]; } }
+    return null;
+  }
   function wireAbTemplatesDialog() {
     var openBtn = byId('lg-tpl-ab-btn');
     var dialog = byId('lg-tpl-ab-dialog');
     var cancelBtn = byId('lg-tpl-ab-cancel-btn');
     var confirmBtn = byId('lg-tpl-ab-confirm-btn');
     var select = byId('lg-tpl-ab-template-select');
+    if (select) { select.addEventListener('change', abEffectLine); }
     if (openBtn && dialog) {
       openBtn.addEventListener('click', function () {
         hideError('lg-tpl-ab-error');
         if (select) {
           clearChildren(select);
+          var currentId = abCurrentTemplateId();
           var i;
           for (i = 0; i < templates.length; i++) {
             var o = document.createElement('option');
             o.value = templates[i].id;
-            o.appendChild(text(templates[i].name));
+            o.appendChild(text(templates[i].name + (String(templates[i].id) === currentId ? ' (this funnel\\u2019s current template)' : '')));
             select.appendChild(o);
           }
         }
+        abEffectLine();
         dialog.className = dialog.className.replace(/\\s*lg-hidden/g, '');
       });
     }
@@ -2524,6 +2853,7 @@ const TPL_SCRIPT = `
     });
     wireProgressToggle();
     syncProgressToggleUi();
+    syncProgressIconRow();
     syncRadioActiveClasses();
 
     // P8-1 F1: name the target funnel + wire its picker before the first

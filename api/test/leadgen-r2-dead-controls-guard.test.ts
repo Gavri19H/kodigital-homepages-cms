@@ -966,7 +966,12 @@ function frameConfigKeys(): { keys: KeySpec[]; arrays: string[]; singles: string
         }
         continue;
       }
-      const values = vocabularyFor(field, group.typeText, true);
+      // A DECLARED probe-values override (FRAME_PROBE_CONTEXT `values`, with its
+      // written reason) wins over the generic vocabulary — for keys whose
+      // generic pair cannot put the key in use at all. This function runs after
+      // that table is initialised (see its call site below).
+      const declared = FRAME_PROBE_CONTEXT.find((c) => c.key === dotted)?.values;
+      const values = declared ?? vocabularyFor(field, group.typeText, true);
       if (values.length < 2) {
         singles.push(dotted);
         continue;
@@ -1142,12 +1147,29 @@ const FOOTER_LINK_ROW_BLOCKS = {
   },
 };
 
-const FRAME_PROBE_CONTEXT: ReadonlyArray<{ key: string; patch: Record<string, unknown>; reason: string }> = [
+// `values` (R2 P8 F1) is the second half of the SAME idea: a probe context can
+// also declare WHICH two values put the key in use, for a key whose generic
+// vocabulary cannot. It is never a shortcut to a green — the key must still
+// move the visible fingerprint between the two values named here, and the
+// reason must say why the generic pair could not have measured anything.
+const FRAME_PROBE_CONTEXT: ReadonlyArray<{
+  key: string;
+  patch: Record<string, unknown>;
+  reason: string;
+  values?: readonly unknown[];
+}> = [
   {
     key: "progress.icon",
     patch: { progress: { style: "icon_on_track" } },
     reason:
       "frame.ts:485 reads progress.icon ONLY under style==='icon_on_track'; on any other style there is no mark to move. The probe selects that style, exactly as the operator must.",
+  },
+  {
+    key: "progress.icon_media_id",
+    patch: { progress: { style: "icon_on_track", icon: "custom" } },
+    values: [null, "probe-progress-mark"],
+    reason:
+      "The operator's OWN image for the icon_on_track mark (M1/R7 — 'how do I define it????'), read by frame.ts only when the chosen mark IS 'custom', which is why the patch selects both. The GENERIC free-text pair could not measure it: PROBE_TEXTS are 'Probe alpha'/'Probe beta', and a media ref containing a space fails the CSS-url safety gate frame.ts puts every mark URL through, so BOTH values would fall back to the same plain dot. The declared pair is therefore the flip the operator actually performs — no image chosen vs a real media key — and what moves is what moves for every other mark id: the region's own mark class (…--icon-dot vs …--icon-custom), which is the class the painting rule selects on. The mark itself is a generated box, outside this predicate's frame by declaration (see the limitations banner); the driven re-measurement is the conductor's.",
   },
   {
     key: "footer.link_underline",
@@ -1439,7 +1461,11 @@ describe("R2 P8 M2/R3 sweep — the enumerated universe is source-derived and CL
         `(excluded by name: frame arrays=${FRAME_KEYS.arrays.length}, single-valued=${FRAME_KEYS.singles.length}, ` +
         `P5a element members=${FRAME_ELEMENT_MEMBERS.length})`,
     );
-    expect(ENUMERATED_TOTAL).toBe(129);
+    // R2 P8 FIX ROUND F1: 129 -> 130. The one added key is
+    // `progress.icon_media_id` (frames.ts FrameProgressConfig), the media ref
+    // behind the new `custom` mark id — enumerated, probed and required to move
+    // the visible fingerprint like every other key in this universe.
+    expect(ENUMERATED_TOTAL).toBe(130);
   });
 
   it("the probe page is a REAL funnel page — and renders none of the surfaces the mis-targeted keys hid behind", () => {

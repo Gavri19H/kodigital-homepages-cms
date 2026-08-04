@@ -2491,6 +2491,12 @@ export function funnelChromeCss(
       rule(`${scope} .lg-frame-header--static .lg-header`, { position: "static" }),
       rule(`${scope} .lg-frame-header--left .lg-header-inner`, { "justify-content": "flex-start" }),
       rule(`${scope} .lg-frame-header--center .lg-header-inner`, { "justify-content": "center" }),
+      // R2 P8 F1 (§7 N12): the missing third placement. Logo Alignment offered
+      // Left/Center while progress Alignment offered Left/Center/Right, and the
+      // reason was here — there was no `--right` rule, so `right` could not have
+      // been honoured. This is the one-property mirror of `--left` on the same
+      // flex row (frames.ts FRAME_LOGO_ALIGNS now carries "right" too).
+      rule(`${scope} .lg-frame-header--right .lg-header-inner`, { "justify-content": "flex-end" }),
       // logo sizes: m = the token values; s/l are structural steps around them.
       rule(`${scope} .lg-frame-header--logo-s .lg-logo`, { "font-size": "0.95rem" }),
       rule(`${scope} .lg-frame-header--logo-m .lg-logo`, { "font-size": header.logoFontSize }),
@@ -3189,22 +3195,31 @@ export function funnelChromeCss(
       // (3 classes) and the per-role disc rule below (3 classes, emitted LATER)
       // both write `background` SHORTHANDS that would otherwise erase the
       // image. Measured, not assumed — at 3 classes the mark painted `none`.
-      rule(`${scope} .lg-frame-region.lg-frame-progress--icon_on_track.lg-frame-progress--icon-site_logo .lg-progress-fill::after`, {
-        background: color.card,
-        width: "26px",
-        height: "26px",
-      }),
-      rule(`${scope} .lg-frame-region.lg-frame-progress--icon_on_track.lg-frame-progress--icon-site_logo .lg-progress-fill::before`, {
-        width: "18px",
-        height: "18px",
-        background: "transparent",
-        "-webkit-mask-image": "none",
-        "mask-image": "none",
-        "background-image": "var(--lg-progress-icon-url)",
-        "background-repeat": "no-repeat",
-        "background-position": "center",
-        "background-size": "contain",
-      }),
+      // R2 P8 F1 (M1/R7 — the owner's "how do I define it????"): `custom` is the
+      // operator's OWN picked image and is painted by the IDENTICAL pair, off
+      // the identical `--lg-progress-icon-url` property frame.ts already sets
+      // for site_logo. Emitting both ids from one loop is what makes the two
+      // paths one path (§4 R1: one producer, never a second reader) — the
+      // site_logo rules keep their exact declarations, order and bytes, and
+      // `custom` cannot drift away from them.
+      ...["site_logo", "custom"].flatMap((iconId) => [
+        rule(`${scope} .lg-frame-region.lg-frame-progress--icon_on_track.lg-frame-progress--icon-${iconId} .lg-progress-fill::after`, {
+          background: color.card,
+          width: "26px",
+          height: "26px",
+        }),
+        rule(`${scope} .lg-frame-region.lg-frame-progress--icon_on_track.lg-frame-progress--icon-${iconId} .lg-progress-fill::before`, {
+          width: "18px",
+          height: "18px",
+          background: "transparent",
+          "-webkit-mask-image": "none",
+          "mask-image": "none",
+          "background-image": "var(--lg-progress-icon-url)",
+          "background-repeat": "no-repeat",
+          "background-position": "center",
+          "background-size": "contain",
+        }),
+      ]),
       // percent: the fill is CANDY-STRIPED, so a visitor tells it apart from
       // the solid `bar` even before the % label is switched on (R2 P7 owner:
       // "three of the five options are identical"). The stripes ride the fill
@@ -3242,6 +3257,8 @@ export function funnelChromeCss(
       // the extras band respects logo_align (kills the hard-centered bug for a
       // left header); center headers stay centered (base rule).
       rule(`${scope} .lg-frame-header--left .lg-frame-header-extras`, { "justify-content": "flex-start" }),
+      // …and its mirror for the third placement (N12, see --right above).
+      rule(`${scope} .lg-frame-header--right .lg-frame-header-extras`, { "justify-content": "flex-end" }),
       // header_right CTA: pushed to the far side; the header becomes a
       // space-between row so the logo keeps its align and the CTA sits right.
       rule(`${scope} .lg-frame-header--has-right .lg-header-inner`, {

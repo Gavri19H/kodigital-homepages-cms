@@ -444,6 +444,21 @@ function renderProgressRegion(
   if (p.align !== undefined) classes += ` lg-frame-progress--align-${p.align}`;
   let inner: string;
   let hookAttrs = "";
+  // R2 P8 (M1, re-measured): the three align values DO emit three distinct
+  // classes, but the only rules keyed on them are `text-align:left|right`
+  // (default-funnel/styles.ts), which move the LABEL TEXT and cannot move the
+  // track — `.lg-frame-progress--w-content` centres the unit with
+  // `margin-left/right:auto`, and text-align has no effect on that block box.
+  // The band's own margins are per-instance layout, so they ride the SAME
+  // inline style attribute this region already uses for the icon URL (a rule
+  // in the shared sheet would have to fight the width-band rule's specificity
+  // for a value only this element can know). `center` keeps emitting nothing —
+  // it IS the width-band default, so every stored config renders as before.
+  const alignMargins = p.align === "left" ? "margin-left:0;margin-right:auto" : p.align === "right" ? "margin-left:auto;margin-right:0" : "";
+  // Every per-instance declaration this region needs (the icon image URL and
+  // the alignment margins) joins ONE style attribute — two `style=` attributes
+  // on one element would silently drop the second.
+  const styleDecls: string[] = [];
   if (p.style === "dots") {
     // Round-4 P5a label honesty: the label sink is hidden ONLY when !show_label
     // (dots stop force-hiding). Default (show_label false) stays byte-identical.
@@ -463,6 +478,18 @@ function renderProgressRegion(
       renderNumberedIndicator(total, 1) +
       `<div class="lg-progress-text lg-frame-progress-label" data-lg-progress-label>Step 1 of ${total}</div>`;
     hookAttrs = ` data-lg-progress data-mode="step"`;
+    // R2 P8 F1 (M1) — RULED, and the ruling is "leave this renderer alone".
+    // Re-measured: "Show label" ON and OFF render byte-identically for
+    // `numbered` alone (sha 1038b0777ceb both, 3 sections; bar/dots/percent/
+    // icon_on_track all honour the switch). The label is unconditional HERE
+    // because the numbered step label IS the style — pinned by
+    // test/leadgen-frame-progress-back.test.ts:98 ('"numbered" always shows the
+    // step label (that IS the style)'), on the DEFAULT config, where show_label
+    // is false. So a switch that removes it is a control that cannot be
+    // coherently honoured, and §4 R3's corollary says such a control must not
+    // be OFFERED: quotes-tabs/templates.ts now hides "Show label" for
+    // `numbered` exactly as it hides "Marker icon" for the non-icon styles.
+    // Nothing about this render changes; the dead control is gone from the UI.
   } else if (p.style === "percent") {
     const pct = Math.round((1 / total) * 100);
     const props: Record<string, unknown> = { mode: "percent", percent: pct };
@@ -488,17 +515,28 @@ function renderProgressRegion(
       // chosen glyph rides as a region class styles.ts paints; `site_logo`
       // additionally needs the per-site image URL, which no static rule can
       // know, so it rides as a custom property on this same region element.
+      //
+      // R2 P8 F1 (M1/R7, the SAME owner sentence) — `custom` is the operator's
+      // OWN picked image (progress.icon_media_id, resolved through the canonical
+      // mediaUrl prefixer every other media ref on this frame uses). It rides
+      // the EXACT path site_logo rides: same custom property, same pseudo pair
+      // (styles.ts emits that pair for both ids from one loop), same fail-safe.
+      // Only the URL's source differs, so there is one mark renderer, not two.
       const icon: FrameProgressIconId = p.icon ?? "dot";
       classes += ` lg-frame-progress--icon-${icon}`;
-      if (icon === "site_logo") {
-        const url = brandingMarkUrl(branding);
+      if (icon === "site_logo" || icon === "custom") {
+        const url = icon === "site_logo" ? brandingMarkUrl(branding) : cssSafeMarkUrl(mediaUrl(p.icon_media_id ?? null));
         // No resolvable mark → fall back to the plain thumb rather than emit an
-        // empty url() (a blank marker is worse than the default dot).
-        if (url === null) classes = classes.replace(" lg-frame-progress--icon-site_logo", " lg-frame-progress--icon-dot");
-        else hookAttrs += ` style="--lg-progress-icon-url:url(&quot;${escapeHtml(url)}&quot;)"`;
+        // empty url() (a blank marker is worse than the default dot). An
+        // operator who picks "My own image" and never picks the image therefore
+        // sees the pre-P7 dot, never an empty hole.
+        if (url === null) classes = classes.replace(` lg-frame-progress--icon-${icon}`, " lg-frame-progress--icon-dot");
+        else styleDecls.push(`--lg-progress-icon-url:url(&quot;${escapeHtml(url)}&quot;)`);
       }
     }
   }
+  if (alignMargins !== "") styleDecls.push(alignMargins);
+  if (styleDecls.length > 0) hookAttrs += ` style="${styleDecls.join(";")}"`;
   return region("progress", classes, inner, hookAttrs);
 }
 
@@ -509,11 +547,14 @@ function renderProgressRegion(
 // char, whitespace) disqualifies the URL outright instead of being escaped —
 // escapeHtml protects the ATTRIBUTE, this protects the STYLESHEET.
 const CSS_URL_SAFE_RE = /^(?:https?:\/\/|\/)[^"'()\\;{}<>\s]+$/;
+// R2 P8 F1: the one gate BOTH mark sources pass through, so the operator's own
+// image can never reach the stylesheet under weaker rules than the site's.
+function cssSafeMarkUrl(url: string | null): string | null {
+  return url !== null && CSS_URL_SAFE_RE.test(url) ? url : null;
+}
 function brandingMarkUrl(branding: SiteBranding | null): string | null {
   if (branding === null) return null;
-  const url = branding.logo_url;
-  if (url === null || !CSS_URL_SAFE_RE.test(url)) return null;
-  return url;
+  return cssSafeMarkUrl(branding.logo_url);
 }
 
 // 11 §11.2 back — one affordance per frame_config.back; the BackButton preset
