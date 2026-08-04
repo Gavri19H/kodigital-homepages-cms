@@ -1,0 +1,108 @@
+{
+ "rail1280": {
+  "errs": [],
+  "opts": [
+   {
+    "t": "Choose a preset…",
+    "over": 0
+   },
+   {
+    "t": "P8 Repro",
+    "over": 0
+   },
+   {
+    "t": "RV1B Arm Theme",
+    "over": 0
+   },
+   {
+    "t": "RV3C short",
+    "over": 0
+   },
+   {
+    "t": "RV3D Reveal Probe Theme With A Deliberately Long Operator Authored Name 2026",
+    "over": 229
+   },
+   {
+    "t": "RV3D Sans Probe",
+    "over": 0
+   }
+  ],
+  "after": {
+   "sel": "RV3D Reveal Probe Theme With A Deliberately Long Operator Authored Name 2026",
+   "t": "RV3D Reveal Probe Theme With A Deliberately Long Operator Authored Name 2026",
+   "c": "1",
+   "to": "ellipsis",
+   "sw": 312,
+   "cw": 312
+  }
+ },
+ "rail375": {
+  "errs": [],
+  "opts": [
+   {
+    "t": "Choose a preset…",
+    "over": 0
+   },
+   {
+    "t": "P8 Repro",
+    "over": 0
+   },
+   {
+    "t": "RV1B Arm Theme",
+    "over": 0
+   },
+   {
+    "t": "RV3C short",
+    "over": 0
+   },
+   {
+    "t": "RV3D Reveal Probe Theme With A Deliberately Long Operator Authored Name 2026",
+    "over": 229
+   },
+   {
+    "t": "RV3D Sans Probe",
+    "over": 0
+   }
+  ],
+  "after": {
+   "sel": "RV3D Reveal Probe Theme With A Deliberately Long Operator Authored Name 2026",
+   "t": "RV3D Reveal Probe Theme With A Deliberately Long Operator Authored Name 2026",
+   "c": "1",
+   "to": "ellipsis",
+   "sw": 312,
+   "cw": 312
+  }
+ },
+ "mgr1280": [
+  {
+   "t": "RV3D Reveal Probe Theme With A Deliberately Long Operator Authored Name 2026",
+   "sw": 191,
+   "cw": 191,
+   "over": 0,
+   "title": null
+  },
+  {
+   "t": "RV3D Sans Probe",
+   "sw": 116,
+   "cw": 116,
+   "over": 0,
+   "title": null
+  }
+ ],
+ "mgr375": [
+  {
+   "t": "RV3D Reveal Probe Theme With A Deliberately Long Operator Authored Name 2026",
+   "sw": 191,
+   "cw": 191,
+   "over": 0,
+   "title": null
+  },
+  {
+   "t": "RV3D Sans Probe",
+   "sw": 116,
+   "cw": 116,
+   "over": 0,
+   "title": null
+  }
+ ]
+}

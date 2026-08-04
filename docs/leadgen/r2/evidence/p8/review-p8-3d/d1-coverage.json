@@ -1,0 +1,682 @@
+[
+ {
+  "width": 1280,
+  "path": "/admin/leadgen/offers",
+  "status": 200,
+  "copies": 1,
+  "installed": "function",
+  "selects": 10,
+  "visibleSelects": 7,
+  "clipped": [],
+  "clippedNoTitle": []
+ },
+ {
+  "width": 1280,
+  "path": "/admin/leadgen/offers/new",
+  "status": 200,
+  "copies": 1,
+  "installed": "function",
+  "selects": 10,
+  "visibleSelects": 9,
+  "clipped": [],
+  "clippedNoTitle": []
+ },
+ {
+  "width": 1280,
+  "path": "/admin/leadgen/offers/lgo_01KZ27136XE7F8RCMJSRH1Q25V/edit",
+  "status": 200,
+  "copies": 1,
+  "installed": "function",
+  "selects": 15,
+  "visibleSelects": 3,
+  "clipped": [],
+  "clippedNoTitle": []
+ },
+ {
+  "width": 1280,
+  "path": "/admin/leadgen/sections",
+  "status": 200,
+  "copies": 1,
+  "installed": "function",
+  "selects": 4,
+  "visibleSelects": 4,
+  "clipped": [],
+  "clippedNoTitle": []
+ },
+ {
+  "width": 1280,
+  "path": "/admin/leadgen/sections/new",
+  "status": 200,
+  "copies": 1,
+  "installed": "function",
+  "selects": 87,
+  "visibleSelects": 7,
+  "clipped": [],
+  "clippedNoTitle": []
+ },
+ {
+  "width": 1280,
+  "path": "/admin/leadgen/sections/lgs_01KZ27DTF599M85YHNEDHS6WA0/edit",
+  "status": 200,
+  "copies": 1,
+  "installed": "function",
+  "selects": 99,
+  "visibleSelects": 20,
+  "clipped": [],
+  "clippedNoTitle": []
+ },
+ {
+  "width": 1280,
+  "path": "/admin/leadgen/themes",
+  "status": 200,
+  "copies": 1,
+  "installed": "function",
+  "selects": 2,
+  "visibleSelects": 2,
+  "clipped": [],
+  "clippedNoTitle": []
+ },
+ {
+  "width": 1280,
+  "path": "/admin/leadgen/themes?embed=1",
+  "status": 200,
+  "copies": 1,
+  "installed": "function",
+  "selects": 2,
+  "visibleSelects": 2,
+  "clipped": [],
+  "clippedNoTitle": []
+ },
+ {
+  "width": 1280,
+  "path": "/admin/leadgen/quotes",
+  "status": 200,
+  "copies": 1,
+  "installed": "function",
+  "selects": 3,
+  "visibleSelects": 3,
+  "clipped": [],
+  "clippedNoTitle": []
+ },
+ {
+  "width": 1280,
+  "path": "/admin/leadgen/quotes/new",
+  "status": 200,
+  "copies": 1,
+  "installed": "function",
+  "selects": 2,
+  "visibleSelects": 2,
+  "clipped": [],
+  "clippedNoTitle": []
+ },
+ {
+  "width": 1280,
+  "path": "/admin/leadgen/quotes/lgq_01KZ3RYKMSZX1T41NRDYZT00TF/edit",
+  "status": 200,
+  "copies": 1,
+  "installed": "function",
+  "selects": 43,
+  "visibleSelects": 1,
+  "clipped": [],
+  "clippedNoTitle": []
+ },
+ {
+  "width": 1280,
+  "path": "/admin/leadgen/auction",
+  "status": 200,
+  "copies": 1,
+  "installed": "function",
+  "selects": 3,
+  "visibleSelects": 3,
+  "clipped": [],
+  "clippedNoTitle": []
+ },
+ {
+  "width": 1280,
+  "path": "/admin/leadgen/auction/new",
+  "status": 200,
+  "copies": 1,
+  "installed": "function",
+  "selects": 2,
+  "visibleSelects": 2,
+  "clipped": [],
+  "clippedNoTitle": []
+ },
+ {
+  "width": 1280,
+  "path": "/admin/leadgen/auction/lga_01KZ27138VAQAZM90KCVPR7304/edit",
+  "status": 200,
+  "copies": 1,
+  "installed": "function",
+  "selects": 20,
+  "visibleSelects": 10,
+  "clipped": [],
+  "clippedNoTitle": []
+ },
+ {
+  "width": 1280,
+  "path": "/admin/leadgen/quotes/lgq_does_not_exist_zzz/edit",
+  "status": 404,
+  "copies": 1,
+  "installed": "function",
+  "selects": 0,
+  "visibleSelects": 0,
+  "clipped": [],
+  "clippedNoTitle": []
+ },
+ {
+  "width": 1280,
+  "path": "/admin",
+  "status": 200,
+  "copies": 0,
+  "installed": "undefined",
+  "selects": 0,
+  "visibleSelects": 0,
+  "clipped": [],
+  "clippedNoTitle": []
+ },
+ {
+  "width": 1280,
+  "path": "/admin/pages",
+  "status": 200,
+  "copies": 0,
+  "installed": "undefined",
+  "selects": 3,
+  "visibleSelects": 3,
+  "clipped": [],
+  "clippedNoTitle": []
+ },
+ {
+  "width": 1280,
+  "path": "/admin/articles",
+  "status": 200,
+  "copies": 0,
+  "installed": "undefined",
+  "selects": 7,
+  "visibleSelects": 7,
+  "clipped": [],
+  "clippedNoTitle": []
+ },
+ {
+  "width": 375,
+  "path": "/admin/leadgen/offers",
+  "status": 200,
+  "copies": 1,
+  "installed": "function",
+  "selects": 10,
+  "visibleSelects": 7,
+  "clipped": [
+   {
+    "id": null,
+    "sw": 40,
+    "cw": 40,
+    "over": 0,
+    "title": "All providers",
+    "to": "ellipsis",
+    "text": "All providers"
+   },
+   {
+    "id": null,
+    "sw": 40,
+    "cw": 40,
+    "over": 0,
+    "title": "All verticals",
+    "to": "ellipsis",
+    "text": "All verticals"
+   },
+   {
+    "id": null,
+    "sw": 40,
+    "cw": 40,
+    "over": 0,
+    "title": "All activities",
+    "to": "ellipsis",
+    "text": "All activities"
+   },
+   {
+    "id": null,
+    "sw": 40,
+    "cw": 40,
+    "over": 0,
+    "title": "All statuses",
+    "to": "ellipsis",
+    "text": "All statuses"
+   },
+   {
+    "id": null,
+    "sw": 40,
+    "cw": 40,
+    "over": 0,
+    "title": "All offer types",
+    "to": "ellipsis",
+    "text": "All offer types"
+   },
+   {
+    "id": null,
+    "sw": 40,
+    "cw": 40,
+    "over": 0,
+    "title": "Dynamic + static",
+    "to": "ellipsis",
+    "text": "Dynamic + static"
+   },
+   {
+    "id": null,
+    "sw": 40,
+    "cw": 40,
+    "over": 0,
+    "title": "Last 30 days",
+    "to": "ellipsis",
+    "text": "Last 30 days"
+   }
+  ],
+  "clippedNoTitle": []
+ },
+ {
+  "width": 375,
+  "path": "/admin/leadgen/offers/new",
+  "status": 200,
+  "copies": 1,
+  "installed": "function",
+  "selects": 10,
+  "visibleSelects": 9,
+  "clipped": [
+   {
+    "id": null,
+    "sw": 40,
+    "cw": 40,
+    "over": 0,
+    "title": "All providers",
+    "to": "ellipsis",
+    "text": "All providers"
+   },
+   {
+    "id": null,
+    "sw": 40,
+    "cw": 40,
+    "over": 0,
+    "title": "All verticals",
+    "to": "ellipsis",
+    "text": "All verticals"
+   },
+   {
+    "id": null,
+    "sw": 40,
+    "cw": 40,
+    "over": 0,
+    "title": "All activities",
+    "to": "ellipsis",
+    "text": "All activities"
+   },
+   {
+    "id": null,
+    "sw": 40,
+    "cw": 40,
+    "over": 0,
+    "title": "All statuses",
+    "to": "ellipsis",
+    "text": "All statuses"
+   },
+   {
+    "id": null,
+    "sw": 40,
+    "cw": 40,
+    "over": 0,
+    "title": "All offer types",
+    "to": "ellipsis",
+    "text": "All offer types"
+   },
+   {
+    "id": null,
+    "sw": 40,
+    "cw": 40,
+    "over": 0,
+    "title": "Dynamic + static",
+    "to": "ellipsis",
+    "text": "Dynamic + static"
+   },
+   {
+    "id": null,
+    "sw": 40,
+    "cw": 40,
+    "over": 0,
+    "title": "Last 30 days",
+    "to": "ellipsis",
+    "text": "Last 30 days"
+   }
+  ],
+  "clippedNoTitle": []
+ },
+ {
+  "width": 375,
+  "path": "/admin/leadgen/offers/lgo_01KZ27136XE7F8RCMJSRH1Q25V/edit",
+  "status": 200,
+  "copies": 1,
+  "installed": "function",
+  "selects": 15,
+  "visibleSelects": 3,
+  "clipped": [],
+  "clippedNoTitle": []
+ },
+ {
+  "width": 375,
+  "path": "/admin/leadgen/sections",
+  "status": 200,
+  "copies": 1,
+  "installed": "function",
+  "selects": 4,
+  "visibleSelects": 4,
+  "clipped": [
+   {
+    "id": null,
+    "sw": 78,
+    "cw": 78,
+    "over": 0,
+    "title": "All activities",
+    "to": "ellipsis",
+    "text": "All activities"
+   },
+   {
+    "id": null,
+    "sw": 78,
+    "cw": 78,
+    "over": 0,
+    "title": "All verticals",
+    "to": "ellipsis",
+    "text": "All verticals"
+   },
+   {
+    "id": null,
+    "sw": 78,
+    "cw": 78,
+    "over": 0,
+    "title": "All statuses",
+    "to": "ellipsis",
+    "text": "All statuses"
+   },
+   {
+    "id": null,
+    "sw": 78,
+    "cw": 78,
+    "over": 0,
+    "title": "Last 30 days",
+    "to": "ellipsis",
+    "text": "Last 30 days"
+   }
+  ],
+  "clippedNoTitle": []
+ },
+ {
+  "width": 375,
+  "path": "/admin/leadgen/sections/new",
+  "status": 200,
+  "copies": 1,
+  "installed": "function",
+  "selects": 87,
+  "visibleSelects": 7,
+  "clipped": [],
+  "clippedNoTitle": []
+ },
+ {
+  "width": 375,
+  "path": "/admin/leadgen/sections/lgs_01KZ27DTF599M85YHNEDHS6WA0/edit",
+  "status": 200,
+  "copies": 1,
+  "installed": "function",
+  "selects": 99,
+  "visibleSelects": 20,
+  "clipped": [],
+  "clippedNoTitle": []
+ },
+ {
+  "width": 375,
+  "path": "/admin/leadgen/themes",
+  "status": 200,
+  "copies": 1,
+  "installed": "function",
+  "selects": 2,
+  "visibleSelects": 2,
+  "clipped": [],
+  "clippedNoTitle": []
+ },
+ {
+  "width": 375,
+  "path": "/admin/leadgen/themes?embed=1",
+  "status": 200,
+  "copies": 1,
+  "installed": "function",
+  "selects": 2,
+  "visibleSelects": 2,
+  "clipped": [],
+  "clippedNoTitle": []
+ },
+ {
+  "width": 375,
+  "path": "/admin/leadgen/quotes",
+  "status": 200,
+  "copies": 1,
+  "installed": "function",
+  "selects": 3,
+  "visibleSelects": 3,
+  "clipped": [],
+  "clippedNoTitle": []
+ },
+ {
+  "width": 375,
+  "path": "/admin/leadgen/quotes/new",
+  "status": 200,
+  "copies": 1,
+  "installed": "function",
+  "selects": 2,
+  "visibleSelects": 2,
+  "clipped": [],
+  "clippedNoTitle": []
+ },
+ {
+  "width": 375,
+  "path": "/admin/leadgen/quotes/lgq_01KZ3RYKMSZX1T41NRDYZT00TF/edit",
+  "status": 200,
+  "copies": 1,
+  "installed": "function",
+  "selects": 43,
+  "visibleSelects": 1,
+  "clipped": [],
+  "clippedNoTitle": []
+ },
+ {
+  "width": 375,
+  "path": "/admin/leadgen/auction",
+  "status": 200,
+  "copies": 1,
+  "installed": "function",
+  "selects": 3,
+  "visibleSelects": 3,
+  "clipped": [
+   {
+    "id": null,
+    "sw": 78,
+    "cw": 78,
+    "over": 0,
+    "title": "All statuses",
+    "to": "ellipsis",
+    "text": "All statuses"
+   },
+   {
+    "id": null,
+    "sw": 78,
+    "cw": 78,
+    "over": 0,
+    "title": "Last 30 days",
+    "to": "ellipsis",
+    "text": "Last 30 days"
+   }
+  ],
+  "clippedNoTitle": []
+ },
+ {
+  "width": 375,
+  "path": "/admin/leadgen/auction/new",
+  "status": 200,
+  "copies": 1,
+  "installed": "function",
+  "selects": 2,
+  "visibleSelects": 2,
+  "clipped": [],
+  "clippedNoTitle": []
+ },
+ {
+  "width": 375,
+  "path": "/admin/leadgen/auction/lga_01KZ27138VAQAZM90KCVPR7304/edit",
+  "status": 200,
+  "copies": 1,
+  "installed": "function",
+  "selects": 20,
+  "visibleSelects": 10,
+  "clipped": [],
+  "clippedNoTitle": []
+ },
+ {
+  "width": 375,
+  "path": "/admin/leadgen/quotes/lgq_does_not_exist_zzz/edit",
+  "status": 404,
+  "copies": 1,
+  "installed": "function",
+  "selects": 0,
+  "visibleSelects": 0,
+  "clipped": [],
+  "clippedNoTitle": []
+ },
+ {
+  "width": 375,
+  "path": "/admin",
+  "status": 200,
+  "copies": 0,
+  "installed": "undefined",
+  "selects": 0,
+  "visibleSelects": 0,
+  "clipped": [],
+  "clippedNoTitle": []
+ },
+ {
+  "width": 375,
+  "path": "/admin/pages",
+  "status": 200,
+  "copies": 0,
+  "installed": "undefined",
+  "selects": 3,
+  "visibleSelects": 3,
+  "clipped": [],
+  "clippedNoTitle": []
+ },
+ {
+  "width": 375,
+  "path": "/admin/articles",
+  "status": 200,
+  "copies": 0,
+  "installed": "undefined",
+  "selects": 7,
+  "visibleSelects": 7,
+  "clipped": [
+   {
+    "id": null,
+    "sw": 127,
+    "cw": 40,
+    "over": 87,
+    "title": null,
+    "to": "",
+    "text": "R2Fix Fixture Site"
+   },
+   {
+    "id": null,
+    "sw": 87,
+    "cw": 40,
+    "over": 47,
+    "title": null,
+    "to": "",
+    "text": "All verticals"
+   },
+   {
+    "id": null,
+    "sw": 100,
+    "cw": 40,
+    "over": 60,
+    "title": null,
+    "to": "",
+    "text": "All categories"
+   },
+   {
+    "id": null,
+    "sw": 88,
+    "cw": 40,
+    "over": 48,
+    "title": null,
+    "to": "",
+    "text": "All statuses"
+   },
+   {
+    "id": null,
+    "sw": 95,
+    "cw": 40,
+    "over": 55,
+    "title": null,
+    "to": "",
+    "text": "Any featured"
+   },
+   {
+    "id": null,
+    "sw": 95,
+    "cw": 40,
+    "over": 55,
+    "title": null,
+    "to": "",
+    "text": "Any trending"
+   },
+   {
+    "id": null,
+    "sw": 104,
+    "cw": 40,
+    "over": 64,
+    "title": null,
+    "to": "",
+    "text": "Any published"
+   }
+  ],
+  "clippedNoTitle": [
+   {
+    "id": null,
+    "over": 87,
+    "text": "R2Fix Fixture Site"
+   },
+   {
+    "id": null,
+    "over": 47,
+    "text": "All verticals"
+   },
+   {
+    "id": null,
+    "over": 60,
+    "text": "All categories"
+   },
+   {
+    "id": null,
+    "over": 48,
+    "text": "All statuses"
+   },
+   {
+    "id": null,
+    "over": 55,
+    "text": "Any featured"
+   },
+   {
+    "id": null,
+    "over": 55,
+    "text": "Any trending"
+   },
+   {
+    "id": null,
+    "over": 64,
+    "text": "Any published"
+   }
+  ]
+ }
+]

@@ -1,0 +1,98 @@
+{
+ "375": {
+  "errs": [],
+  "ssr": {
+   "title": "Type — swaps the concrete stored type",
+   "clipped": null,
+   "vis": false,
+   "sw": 0,
+   "cw": 0,
+   "sel": "Headline",
+   "opts": [
+    "Headline",
+    "Subheadline",
+    "Kicker",
+    "Helper",
+    "Legal"
+   ]
+  },
+  "forced": {
+   "before": {
+    "title": "Type — swaps the concrete stored type",
+    "clipped": null,
+    "sw": 1326,
+    "cw": 1326,
+    "vis": true
+   },
+   "afterSweep": {
+    "title": "Type — swaps the concrete stored type",
+    "clipped": null,
+    "to": "",
+    "sw": 1326,
+    "cw": 1326
+   },
+   "squeezed": {
+    "title": "Headline",
+    "clipped": "1",
+    "to": "ellipsis",
+    "sw": 58,
+    "cw": 58
+   },
+   "released": {
+    "title": null,
+    "clipped": null,
+    "to": "",
+    "sw": 1326,
+    "cw": 1326
+   }
+  }
+ },
+ "1280": {
+  "errs": [],
+  "ssr": {
+   "title": "Type — swaps the concrete stored type",
+   "clipped": null,
+   "vis": false,
+   "sw": 0,
+   "cw": 0,
+   "sel": "Headline",
+   "opts": [
+    "Headline",
+    "Subheadline",
+    "Kicker",
+    "Helper",
+    "Legal"
+   ]
+  },
+  "forced": {
+   "before": {
+    "title": "Type — swaps the concrete stored type",
+    "clipped": null,
+    "sw": 292,
+    "cw": 292,
+    "vis": true
+   },
+   "afterSweep": {
+    "title": "Type — swaps the concrete stored type",
+    "clipped": null,
+    "to": "",
+    "sw": 292,
+    "cw": 292
+   },
+   "squeezed": {
+    "title": "Headline",
+    "clipped": "1",
+    "to": "ellipsis",
+    "sw": 58,
+    "cw": 58
+   },
+   "released": {
+    "title": null,
+    "clipped": null,
+    "to": "",
+    "sw": 292,
+    "cw": 292
+   }
+  }
+ }
+}

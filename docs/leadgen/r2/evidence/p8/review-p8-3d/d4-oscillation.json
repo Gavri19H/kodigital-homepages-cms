@@ -1,0 +1,438 @@
+{
+ "offers375": {
+  "errs": [],
+  "readings": 22,
+  "distinct": 1,
+  "frames": [
+   "ellipsis/All providers"
+  ],
+  "frameCount": 30,
+  "first": "provider|t=All providers|c=1|to=ellipsis\nvertical|t=All verticals|c=1|to=ellipsis\nactivity|t=All activities|c=1|to=ellipsis\nstatus|t=All statuses|c=1|to=ellipsis\noffer_type|t=All offer types|c=1|to=ellipsis\ndynamic|t=Dynamic + static|c=1|to=ellipsis\nrange|t=Last 30 days|c=1|to=ellipsis",
+  "atHover": "provider|t=All providers|c=1|to=ellipsis\nvertical|t=All verticals|c=1|to=ellipsis\nactivity|t=All activities|c=1|to=ellipsis\nstatus|t=All statuses|c=1|to=ellipsis\noffer_type|t=All offer types|c=1|to=ellipsis\ndynamic|t=Dynamic + static|c=1|to=ellipsis\nrange|t=Last 30 days|c=1|to=ellipsis",
+  "last": "provider|t=All providers|c=1|to=ellipsis\nvertical|t=All verticals|c=1|to=ellipsis\nactivity|t=All activities|c=1|to=ellipsis\nstatus|t=All statuses|c=1|to=ellipsis\noffer_type|t=All offer types|c=1|to=ellipsis\ndynamic|t=Dynamic + static|c=1|to=ellipsis\nrange|t=Last 30 days|c=1|to=ellipsis",
+  "afterSwap": "provider|t=RV3D in-place swap that is extremely long for this tiny box|c=1|to=ellipsis\nvertical|t=All verticals|c=1|to=ellipsis\nactivity|t=All activities|c=1|to=ellipsis\nstatus|t=All statuses|c=1|to=ellipsis\noffer_type|t=All offer types|c=1|to=ellipsis\ndynamic|t=Dynamic + static|c=1|to=ellipsis\nrange|t=Last 30 days|c=1|to=ellipsis",
+  "allStates": [
+   "provider|t=All providers|c=1|to=ellipsis\nvertical|t=All verticals|c=1|to=ellipsis\nactivity|t=All activities|c=1|to=ellipsis\nstatus|t=All statuses|c=1|to=ellipsis\noffer_type|t=All offer types|c=1|to=ellipsis\ndynamic|t=Dynamic + static|c=1|to=ellipsis\nrange|t=Last 30 days|c=1|to=ellipsis",
+   "provider|t=All providers|c=1|to=ellipsis\nvertical|t=All verticals|c=1|to=ellipsis\nactivity|t=All activities|c=1|to=ellipsis\nstatus|t=All statuses|c=1|to=ellipsis\noffer_type|t=All offer types|c=1|to=ellipsis\ndynamic|t=Dynamic + static|c=1|to=ellipsis\nrange|t=Last 30 days|c=1|to=ellipsis",
+   "provider|t=All providers|c=1|to=ellipsis\nvertical|t=All verticals|c=1|to=ellipsis\nactivity|t=All activities|c=1|to=ellipsis\nstatus|t=All statuses|c=1|to=ellipsis\noffer_type|t=All offer types|c=1|to=ellipsis\ndynamic|t=Dynamic + static|c=1|to=ellipsis\nrange|t=Last 30 days|c=1|to=ellipsis",
+   "provider|t=All providers|c=1|to=ellipsis\nvertical|t=All verticals|c=1|to=ellipsis\nactivity|t=All activities|c=1|to=ellipsis\nstatus|t=All statuses|c=1|to=ellipsis\noffer_type|t=All offer types|c=1|to=ellipsis\ndynamic|t=Dynamic + static|c=1|to=ellipsis\nrange|t=Last 30 days|c=1|to=ellipsis",
+   "provider|t=All providers|c=1|to=ellipsis\nvertical|t=All verticals|c=1|to=ellipsis\nactivity|t=All activities|c=1|to=ellipsis\nstatus|t=All statuses|c=1|to=ellipsis\noffer_type|t=All offer types|c=1|to=ellipsis\ndynamic|t=Dynamic + static|c=1|to=ellipsis\nrange|t=Last 30 days|c=1|to=ellipsis",
+   "provider|t=All providers|c=1|to=ellipsis\nvertical|t=All verticals|c=1|to=ellipsis\nactivity|t=All activities|c=1|to=ellipsis\nstatus|t=All statuses|c=1|to=ellipsis\noffer_type|t=All offer types|c=1|to=ellipsis\ndynamic|t=Dynamic + static|c=1|to=ellipsis\nrange|t=Last 30 days|c=1|to=ellipsis",
+   "provider|t=All providers|c=1|to=ellipsis\nvertical|t=All verticals|c=1|to=ellipsis\nactivity|t=All activities|c=1|to=ellipsis\nstatus|t=All statuses|c=1|to=ellipsis\noffer_type|t=All offer types|c=1|to=ellipsis\ndynamic|t=Dynamic + static|c=1|to=ellipsis\nrange|t=Last 30 days|c=1|to=ellipsis",
+   "provider|t=All providers|c=1|to=ellipsis\nvertical|t=All verticals|c=1|to=ellipsis\nactivity|t=All activities|c=1|to=ellipsis\nstatus|t=All statuses|c=1|to=ellipsis\noffer_type|t=All offer types|c=1|to=ellipsis\ndynamic|t=Dynamic + static|c=1|to=ellipsis\nrange|t=Last 30 days|c=1|to=ellipsis",
+   "provider|t=All providers|c=1|to=ellipsis\nvertical|t=All verticals|c=1|to=ellipsis\nactivity|t=All activities|c=1|to=ellipsis\nstatus|t=All statuses|c=1|to=ellipsis\noffer_type|t=All offer types|c=1|to=ellipsis\ndynamic|t=Dynamic + static|c=1|to=ellipsis\nrange|t=Last 30 days|c=1|to=ellipsis",
+   "provider|t=All providers|c=1|to=ellipsis\nvertical|t=All verticals|c=1|to=ellipsis\nactivity|t=All activities|c=1|to=ellipsis\nstatus|t=All statuses|c=1|to=ellipsis\noffer_type|t=All offer types|c=1|to=ellipsis\ndynamic|t=Dynamic + static|c=1|to=ellipsis\nrange|t=Last 30 days|c=1|to=ellipsis",
+   "provider|t=All providers|c=1|to=ellipsis\nvertical|t=All verticals|c=1|to=ellipsis\nactivity|t=All activities|c=1|to=ellipsis\nstatus|t=All statuses|c=1|to=ellipsis\noffer_type|t=All offer types|c=1|to=ellipsis\ndynamic|t=Dynamic + static|c=1|to=ellipsis\nrange|t=Last 30 days|c=1|to=ellipsis",
+   "provider|t=All providers|c=1|to=ellipsis\nvertical|t=All verticals|c=1|to=ellipsis\nactivity|t=All activities|c=1|to=ellipsis\nstatus|t=All statuses|c=1|to=ellipsis\noffer_type|t=All offer types|c=1|to=ellipsis\ndynamic|t=Dynamic + static|c=1|to=ellipsis\nrange|t=Last 30 days|c=1|to=ellipsis",
+   "provider|t=All providers|c=1|to=ellipsis\nvertical|t=All verticals|c=1|to=ellipsis\nactivity|t=All activities|c=1|to=ellipsis\nstatus|t=All statuses|c=1|to=ellipsis\noffer_type|t=All offer types|c=1|to=ellipsis\ndynamic|t=Dynamic + static|c=1|to=ellipsis\nrange|t=Last 30 days|c=1|to=ellipsis",
+   "provider|t=All providers|c=1|to=ellipsis\nvertical|t=All verticals|c=1|to=ellipsis\nactivity|t=All activities|c=1|to=ellipsis\nstatus|t=All statuses|c=1|to=ellipsis\noffer_type|t=All offer types|c=1|to=ellipsis\ndynamic|t=Dynamic + static|c=1|to=ellipsis\nrange|t=Last 30 days|c=1|to=ellipsis",
+   "provider|t=All providers|c=1|to=ellipsis\nvertical|t=All verticals|c=1|to=ellipsis\nactivity|t=All activities|c=1|to=ellipsis\nstatus|t=All statuses|c=1|to=ellipsis\noffer_type|t=All offer types|c=1|to=ellipsis\ndynamic|t=Dynamic + static|c=1|to=ellipsis\nrange|t=Last 30 days|c=1|to=ellipsis",
+   "provider|t=All providers|c=1|to=ellipsis\nvertical|t=All verticals|c=1|to=ellipsis\nactivity|t=All activities|c=1|to=ellipsis\nstatus|t=All statuses|c=1|to=ellipsis\noffer_type|t=All offer types|c=1|to=ellipsis\ndynamic|t=Dynamic + static|c=1|to=ellipsis\nrange|t=Last 30 days|c=1|to=ellipsis",
+   "provider|t=All providers|c=1|to=ellipsis\nvertical|t=All verticals|c=1|to=ellipsis\nactivity|t=All activities|c=1|to=ellipsis\nstatus|t=All statuses|c=1|to=ellipsis\noffer_type|t=All offer types|c=1|to=ellipsis\ndynamic|t=Dynamic + static|c=1|to=ellipsis\nrange|t=Last 30 days|c=1|to=ellipsis",
+   "provider|t=All providers|c=1|to=ellipsis\nvertical|t=All verticals|c=1|to=ellipsis\nactivity|t=All activities|c=1|to=ellipsis\nstatus|t=All statuses|c=1|to=ellipsis\noffer_type|t=All offer types|c=1|to=ellipsis\ndynamic|t=Dynamic + static|c=1|to=ellipsis\nrange|t=Last 30 days|c=1|to=ellipsis",
+   "provider|t=All providers|c=1|to=ellipsis\nvertical|t=All verticals|c=1|to=ellipsis\nactivity|t=All activities|c=1|to=ellipsis\nstatus|t=All statuses|c=1|to=ellipsis\noffer_type|t=All offer types|c=1|to=ellipsis\ndynamic|t=Dynamic + static|c=1|to=ellipsis\nrange|t=Last 30 days|c=1|to=ellipsis",
+   "provider|t=All providers|c=1|to=ellipsis\nvertical|t=All verticals|c=1|to=ellipsis\nactivity|t=All activities|c=1|to=ellipsis\nstatus|t=All statuses|c=1|to=ellipsis\noffer_type|t=All offer types|c=1|to=ellipsis\ndynamic|t=Dynamic + static|c=1|to=ellipsis\nrange|t=Last 30 days|c=1|to=ellipsis",
+   "provider|t=All providers|c=1|to=ellipsis\nvertical|t=All verticals|c=1|to=ellipsis\nactivity|t=All activities|c=1|to=ellipsis\nstatus|t=All statuses|c=1|to=ellipsis\noffer_type|t=All offer types|c=1|to=ellipsis\ndynamic|t=Dynamic + static|c=1|to=ellipsis\nrange|t=Last 30 days|c=1|to=ellipsis",
+   "provider|t=All providers|c=1|to=ellipsis\nvertical|t=All verticals|c=1|to=ellipsis\nactivity|t=All activities|c=1|to=ellipsis\nstatus|t=All statuses|c=1|to=ellipsis\noffer_type|t=All offer types|c=1|to=ellipsis\ndynamic|t=Dynamic + static|c=1|to=ellipsis\nrange|t=Last 30 days|c=1|to=ellipsis"
+  ]
+ },
+ "railSiteSelect": {
+  "errs": [],
+  "seq": [
+   {
+    "label": "load",
+    "sel": "CMS fallback branding",
+    "t": null,
+    "c": null,
+    "to": "",
+    "sw": 222,
+    "cw": 222
+   },
+   {
+    "label": "r0-long",
+    "sel": "R2Fix Fixture Site — Not activated yet",
+    "t": "R2Fix Fixture Site — Not activated yet",
+    "c": "1",
+    "to": "ellipsis",
+    "sw": 222,
+    "cw": 222
+   },
+   {
+    "label": "r0-long-sweep",
+    "sel": "R2Fix Fixture Site — Not activated yet",
+    "t": "R2Fix Fixture Site — Not activated yet",
+    "c": "1",
+    "to": "ellipsis",
+    "sw": 222,
+    "cw": 222
+   },
+   {
+    "label": "r0-long-hover",
+    "sel": "R2Fix Fixture Site — Not activated yet",
+    "t": "R2Fix Fixture Site — Not activated yet",
+    "c": "1",
+    "to": "ellipsis",
+    "sw": 222,
+    "cw": 222
+   },
+   {
+    "label": "r0-long-sweep2",
+    "sel": "R2Fix Fixture Site — Not activated yet",
+    "t": "R2Fix Fixture Site — Not activated yet",
+    "c": "1",
+    "to": "ellipsis",
+    "sw": 222,
+    "cw": 222
+   },
+   {
+    "label": "r0-short",
+    "sel": "CMS fallback branding",
+    "t": null,
+    "c": null,
+    "to": "",
+    "sw": 222,
+    "cw": 222
+   },
+   {
+    "label": "r0-short-sweep",
+    "sel": "CMS fallback branding",
+    "t": null,
+    "c": null,
+    "to": "",
+    "sw": 222,
+    "cw": 222
+   },
+   {
+    "label": "r1-long",
+    "sel": "R2Fix Fixture Site — Not activated yet",
+    "t": "R2Fix Fixture Site — Not activated yet",
+    "c": "1",
+    "to": "ellipsis",
+    "sw": 222,
+    "cw": 222
+   },
+   {
+    "label": "r1-long-sweep",
+    "sel": "R2Fix Fixture Site — Not activated yet",
+    "t": "R2Fix Fixture Site — Not activated yet",
+    "c": "1",
+    "to": "ellipsis",
+    "sw": 222,
+    "cw": 222
+   },
+   {
+    "label": "r1-long-hover",
+    "sel": "R2Fix Fixture Site — Not activated yet",
+    "t": "R2Fix Fixture Site — Not activated yet",
+    "c": "1",
+    "to": "ellipsis",
+    "sw": 222,
+    "cw": 222
+   },
+   {
+    "label": "r1-long-sweep2",
+    "sel": "R2Fix Fixture Site — Not activated yet",
+    "t": "R2Fix Fixture Site — Not activated yet",
+    "c": "1",
+    "to": "ellipsis",
+    "sw": 222,
+    "cw": 222
+   },
+   {
+    "label": "r1-short",
+    "sel": "CMS fallback branding",
+    "t": null,
+    "c": null,
+    "to": "",
+    "sw": 222,
+    "cw": 222
+   },
+   {
+    "label": "r1-short-sweep",
+    "sel": "CMS fallback branding",
+    "t": null,
+    "c": null,
+    "to": "",
+    "sw": 222,
+    "cw": 222
+   },
+   {
+    "label": "r2-long",
+    "sel": "R2Fix Fixture Site — Not activated yet",
+    "t": "R2Fix Fixture Site — Not activated yet",
+    "c": "1",
+    "to": "ellipsis",
+    "sw": 222,
+    "cw": 222
+   },
+   {
+    "label": "r2-long-sweep",
+    "sel": "R2Fix Fixture Site — Not activated yet",
+    "t": "R2Fix Fixture Site — Not activated yet",
+    "c": "1",
+    "to": "ellipsis",
+    "sw": 222,
+    "cw": 222
+   },
+   {
+    "label": "r2-long-hover",
+    "sel": "R2Fix Fixture Site — Not activated yet",
+    "t": "R2Fix Fixture Site — Not activated yet",
+    "c": "1",
+    "to": "ellipsis",
+    "sw": 222,
+    "cw": 222
+   },
+   {
+    "label": "r2-long-sweep2",
+    "sel": "R2Fix Fixture Site — Not activated yet",
+    "t": "R2Fix Fixture Site — Not activated yet",
+    "c": "1",
+    "to": "ellipsis",
+    "sw": 222,
+    "cw": 222
+   },
+   {
+    "label": "r2-short",
+    "sel": "CMS fallback branding",
+    "t": null,
+    "c": null,
+    "to": "",
+    "sw": 222,
+    "cw": 222
+   },
+   {
+    "label": "r2-short-sweep",
+    "sel": "CMS fallback branding",
+    "t": null,
+    "c": null,
+    "to": "",
+    "sw": 222,
+    "cw": 222
+   },
+   {
+    "label": "r3-long",
+    "sel": "R2Fix Fixture Site — Not activated yet",
+    "t": "R2Fix Fixture Site — Not activated yet",
+    "c": "1",
+    "to": "ellipsis",
+    "sw": 222,
+    "cw": 222
+   },
+   {
+    "label": "r3-long-sweep",
+    "sel": "R2Fix Fixture Site — Not activated yet",
+    "t": "R2Fix Fixture Site — Not activated yet",
+    "c": "1",
+    "to": "ellipsis",
+    "sw": 222,
+    "cw": 222
+   },
+   {
+    "label": "r3-long-hover",
+    "sel": "R2Fix Fixture Site — Not activated yet",
+    "t": "R2Fix Fixture Site — Not activated yet",
+    "c": "1",
+    "to": "ellipsis",
+    "sw": 222,
+    "cw": 222
+   },
+   {
+    "label": "r3-long-sweep2",
+    "sel": "R2Fix Fixture Site — Not activated yet",
+    "t": "R2Fix Fixture Site — Not activated yet",
+    "c": "1",
+    "to": "ellipsis",
+    "sw": 222,
+    "cw": 222
+   },
+   {
+    "label": "r3-short",
+    "sel": "CMS fallback branding",
+    "t": null,
+    "c": null,
+    "to": "",
+    "sw": 222,
+    "cw": 222
+   },
+   {
+    "label": "r3-short-sweep",
+    "sel": "CMS fallback branding",
+    "t": null,
+    "c": null,
+    "to": "",
+    "sw": 222,
+    "cw": 222
+   },
+   {
+    "label": "r4-long",
+    "sel": "R2Fix Fixture Site — Not activated yet",
+    "t": "R2Fix Fixture Site — Not activated yet",
+    "c": "1",
+    "to": "ellipsis",
+    "sw": 222,
+    "cw": 222
+   },
+   {
+    "label": "r4-long-sweep",
+    "sel": "R2Fix Fixture Site — Not activated yet",
+    "t": "R2Fix Fixture Site — Not activated yet",
+    "c": "1",
+    "to": "ellipsis",
+    "sw": 222,
+    "cw": 222
+   },
+   {
+    "label": "r4-long-hover",
+    "sel": "R2Fix Fixture Site — Not activated yet",
+    "t": "R2Fix Fixture Site — Not activated yet",
+    "c": "1",
+    "to": "ellipsis",
+    "sw": 222,
+    "cw": 222
+   },
+   {
+    "label": "r4-long-sweep2",
+    "sel": "R2Fix Fixture Site — Not activated yet",
+    "t": "R2Fix Fixture Site — Not activated yet",
+    "c": "1",
+    "to": "ellipsis",
+    "sw": 222,
+    "cw": 222
+   },
+   {
+    "label": "r4-short",
+    "sel": "CMS fallback branding",
+    "t": null,
+    "c": null,
+    "to": "",
+    "sw": 222,
+    "cw": 222
+   },
+   {
+    "label": "r4-short-sweep",
+    "sel": "CMS fallback branding",
+    "t": null,
+    "c": null,
+    "to": "",
+    "sw": 222,
+    "cw": 222
+   },
+   {
+    "label": "r5-long",
+    "sel": "R2Fix Fixture Site — Not activated yet",
+    "t": "R2Fix Fixture Site — Not activated yet",
+    "c": "1",
+    "to": "ellipsis",
+    "sw": 222,
+    "cw": 222
+   },
+   {
+    "label": "r5-long-sweep",
+    "sel": "R2Fix Fixture Site — Not activated yet",
+    "t": "R2Fix Fixture Site — Not activated yet",
+    "c": "1",
+    "to": "ellipsis",
+    "sw": 222,
+    "cw": 222
+   },
+   {
+    "label": "r5-long-hover",
+    "sel": "R2Fix Fixture Site — Not activated yet",
+    "t": "R2Fix Fixture Site — Not activated yet",
+    "c": "1",
+    "to": "ellipsis",
+    "sw": 222,
+    "cw": 222
+   },
+   {
+    "label": "r5-long-sweep2",
+    "sel": "R2Fix Fixture Site — Not activated yet",
+    "t": "R2Fix Fixture Site — Not activated yet",
+    "c": "1",
+    "to": "ellipsis",
+    "sw": 222,
+    "cw": 222
+   },
+   {
+    "label": "r5-short",
+    "sel": "CMS fallback branding",
+    "t": null,
+    "c": null,
+    "to": "",
+    "sw": 222,
+    "cw": 222
+   },
+   {
+    "label": "r5-short-sweep",
+    "sel": "CMS fallback branding",
+    "t": null,
+    "c": null,
+    "to": "",
+    "sw": 222,
+    "cw": 222
+   }
+  ]
+ },
+ "railTargetSelect": {
+  "load": {
+   "sel": "RV2B NULLFRAME probe — Funnel A",
+   "t": "RV2B NULLFRAME probe — Funnel A",
+   "c": "1",
+   "to": "ellipsis",
+   "sw": 198,
+   "cw": 198
+  },
+  "sweeps": {
+   "distinct": 1,
+   "sample": "{\"sel\":\"RV2B NULLFRAME probe — Funnel A\",\"t\":\"RV2B NULLFRAME probe — Funnel A\",\"c\":\"1\",\"to\":\"ellipsis\",\"sw\":198,\"cw\":198}"
+  }
+ },
+ "railResize": [
+  {
+   "label": "1280-long",
+   "sel": "R2Fix Fixture Site — Not activated yet",
+   "t": "R2Fix Fixture Site — Not activated yet",
+   "c": "1",
+   "to": "ellipsis",
+   "sw": 222,
+   "cw": 222
+  },
+  {
+   "label": "375",
+   "sel": "R2Fix Fixture Site — Not activated yet",
+   "t": "R2Fix Fixture Site — Not activated yet",
+   "c": "1",
+   "to": "ellipsis",
+   "sw": 239,
+   "cw": 239
+  },
+  {
+   "label": "1600",
+   "sel": "R2Fix Fixture Site — Not activated yet",
+   "t": null,
+   "c": null,
+   "to": "",
+   "sw": 542,
+   "cw": 542
+  },
+  {
+   "label": "375",
+   "sel": "R2Fix Fixture Site — Not activated yet",
+   "t": "R2Fix Fixture Site — Not activated yet",
+   "c": "1",
+   "to": "ellipsis",
+   "sw": 239,
+   "cw": 239
+  },
+  {
+   "label": "1280",
+   "sel": "R2Fix Fixture Site — Not activated yet",
+   "t": "R2Fix Fixture Site — Not activated yet",
+   "c": "1",
+   "to": "ellipsis",
+   "sw": 222,
+   "cw": 222
+  }
+ ]
+}
