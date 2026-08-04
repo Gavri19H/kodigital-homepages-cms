@@ -300,3 +300,12 @@ nohup npx wrangler dev --port 8901 --ip 127.0.0.1 --var DEV_BYPASS_AUTH:true --v
 ```
 Then poll in short logged steps until `curl -H "Host: 127.0.0.1" http://127.0.0.1:8901/admin/leadgen/quotes`
 returns 200. If a drive reports impossible results, check the server is alive before believing them.
+
+## Operational: one backtick can fail the WHOLE project, not just its file
+A slice put a backtick inside a comment that lives **inside an emitted island template literal**
+(`ui-section-studio.ts`), which closed the literal early. `npm run typecheck` and `npx vitest run` then failed
+**project-wide** — and the agent that noticed was working in two entirely different files. It self-cleared.
+**If every command suddenly fails and the errors point somewhere you never touched, suspect a broken template
+literal in an island file before you suspect your own change** — and check whether another slice is editing
+that file concurrently. This is why the island hazard list ("ES5 only, no backticks in emitted bodies or
+comments, no hex in island comments") is in every `ui-section-studio.ts` dispatch.
