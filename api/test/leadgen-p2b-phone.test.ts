@@ -230,11 +230,14 @@ describe("P2b A-4 — composed-conditional authoring on all three slots", () => 
         expect(err?.message).toContain("ghost_field");
       });
 
-      it("a bad `match` value → conditional_invalid naming all/any", () => {
+      it("a bad `match` value → conditional_invalid naming ALL/ANY with the fix instruction", () => {
         const r = validateSectionContent(sectionWithConditional(slot, GROUP_BAD_MATCH));
         expect(r.ok).toBe(false);
         const err = r.errors.find((e) => e.code === "conditional_invalid");
-        expect(err?.message).toContain("'all' or 'any'");
+        // M5 (jargon): the message names the operator's OWN dropdown labels
+        // ('ALL'/'ANY', not the stored 'all'/'any') and tells them what to do,
+        // per ui-rules-builder.ts:2203/:2934's "Match"/"ALL"/"ANY" labels.
+        expect(err?.message).toBe("A rule group's 'Match' must be 'ALL' or 'ANY'. Pick one of those.");
       });
 
       it("a bad inner op is caught recursively (bare-condition rules apply per inner)", () => {

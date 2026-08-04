@@ -78,9 +78,14 @@
 //     lands. preview-sim.ts:256 handles that shape explicitly, so the two
 //     diverge. This file therefore asserts only what BOTH produce for that
 //     shape (the ERROR_CLASS colour), never the border.
-//   • preview-sim fills the message slot but never removes its `hidden`
-//     attribute (measured below), so the Studio's error preview writes the
-//     copy into a hidden element.
+//
+// FIXED in P8-5 (register ADJ-P8-22) — this header used to report, and a test
+// below used to pin, that preview-sim filled the message slot without
+// removing `hidden`. That is no longer true: preview-sim's upsertErrorMessage
+// now drops `hidden` when it fills the slot (matching runtime/render.ts's
+// setFieldError, which already unhides it live), so the Studio preview no
+// longer writes the copy into a hidden element. Verified:
+// `npx vitest run test/leadgen-p8-m2-error-role.test.ts` -> 16 passed (16).
 
 import { describe, expect, it } from "vitest";
 
@@ -399,10 +404,13 @@ describe("R2 P8 M2 S3.9 — the error state markup carries what render.ts:228 se
   it("the slot the producer filled carries the required-copy the runtime shows", () => {
     expect(painted.errorHtml).toContain(`data-lg-error-for="addr"`);
     expect(painted.errorHtml).toContain(PREVIEW_REQUIRED_MESSAGE);
-    // MEASURED, reported, NOT fixed here: the producer fills the slot without
-    // removing `hidden` (runtime/render.ts's setFieldError DOES unhide it), so
-    // the Studio preview writes the copy into a hidden element.
-    expect(messageSlot(painted, "addr").attrs.has("hidden")).toBe(true);
+    // FIXED in P8-5 (register ADJ-P8-22), true now: preview-sim's
+    // upsertErrorMessage drops `hidden` when it fills the slot, matching
+    // runtime/render.ts's setFieldError (which already unhides it live), so
+    // the Studio preview no longer writes the copy into a hidden element.
+    // Verified: `npx vitest run test/leadgen-p8-m2-error-role.test.ts` -> 16
+    // passed (16), exit 0.
+    expect(messageSlot(painted, "addr").attrs.has("hidden")).toBe(false);
   });
 
   it("the finder throws for markup the page does not render (it cannot credit an absent element)", () => {
