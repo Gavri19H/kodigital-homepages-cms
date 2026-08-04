@@ -21,32 +21,51 @@
 //   NEVER a complete hydrated frame (that premise, corrected in FIX ROUND
 //   F11, was false: the builder's hydration source, `effective_frame`, only
 //   POPULATES control values, :1877-1886 — it is never the PUT body). So a
-//   funnel with two operator edits carries a two-leaf column, and because
-//   today's read-side merge already resolves `frame_template_id` into the
-//   composition regardless of materialisation, a pointer-only apply against
-//   THAT realistic column moves every OTHER comparable leaf straight to the
-//   newly-pointed template. Measured with a template disagreeing on 29
-//   comparable leaves across nine element groups: the pointer-only apply
-//   shadowed EXACTLY the two leaves the operator had genuinely customised
-//   and moved the other 27 (28 shadowed/1 honoured against this file's
-//   earlier hand-built-dump fixture — a 28→2 drop once the fixture matches
-//   what Save really writes).
+//   funnel with two operator edits carries those two leaves plus the identity
+//   pair `writeConfigValue` stamps beside every frame write (`template`,
+//   `version` — added in FIX ROUND F13), and because today's read-side merge
+//   already resolves `frame_template_id` into the composition regardless of
+//   materialisation, a pointer-only apply against THAT realistic column moves
+//   every OTHER comparable leaf straight to the newly-pointed template.
+//   RE-MEASURED in F13 (the run's own log line, after the fixture's two edits
+//   moved to leaves a control really offers — see newSavedFunnel): the
+//   template disagrees on 28 comparable leaves over ten census groups (nine
+//   element groups + the `template` identity leaf), the pointer-only apply
+//   shadowed EXACTLY the two the operator had genuinely customised, and
+//   honoured the other 26 —
+//     [S4.1 CHARACTERISATION] comparable leaves 28 · shadowed 2 · honoured 26
+//     · per group ["template 0/1","header 1/5","progress 0/5","back 0/2",
+//       "disclosure 0/3","footer 0/1","trust_strip 0/2","benefit_bar 0/3",
+//       "background 1/3","section_slot 0/3"]
+//   (The text F13 replaced carried 29 · 2 · 27 for the same class with the
+//   previous, unauthorable pair of edits, and attributed 28 shadowed / 1
+//   honoured to the hand-built-dump fixture before that. Both are quoted as
+//   this file's prior text, NOT re-measured here.)
 //
-// MINOR-3 (FIX ROUND F12) — WHAT THIS MEANS FOR THE CHARACTERISATION LEG'S
-// NAME. F11's own correction above ("moves every OTHER comparable leaf") is
-// the reason the bare pointer-only write's SERVED-PAGE outcome and the real
-// route's PASS-AFTER outcome are now the same shape on this fixture (both:
-// every leaf the template disagrees with moves, except the operator's own —
-// a 2-leaf difference in HOW that is counted, shadowed vs. stillShadowed,
-// never a difference in WHICH leaves are right). So the leg below no longer
-// demonstrates a render-axis failure — it demonstrates that the render axis
-// was never the real gap once measured against a realistic column. The real
-// fail-before/pass-after contrast this fixture change moved elsewhere in this
-// file: the confirm dialog/dry-run/`replaced_customisations` count (no route
-// at all under a raw SQL write) — "the confirm dialog's promises…" and the F4
-// F-1 describe block; the prune/preservation semantics — the F9 F-B describe
+// MINOR-3 (FIX ROUND F12), REVISED IN F13 — WHAT THIS MEANS FOR THE
+// CHARACTERISATION LEG'S NAME. F12 wrote here that the bare pointer-only
+// write's SERVED-PAGE outcome and the real route's PASS-AFTER outcome were
+// "the same shape on this fixture … a 2-leaf difference in HOW that is
+// counted, shadowed vs. stillShadowed, never a difference in WHICH leaves are
+// right". That was true only of a fixture whose two operator edits were
+// leaves NO template touches. It is FALSE of the F13 fixture, and the two
+// legs' own assertions are what falsify it: CHARACTERISATION asserts the
+// pointer-only write leaves `shadowedPaths` == ["background.image_media_id",
+// "header.logo_align"], while PASS-AFTER asserts the real route leaves
+// `stillShadowed` == []. `header.logo_align` is a leaf the template AUTHORS,
+// so the pointer-only write serves the operator's "right" where the real
+// route serves the template's "left" — a difference in WHICH leaves are
+// right, visible as two different after-shas in the two legs' render logs
+// (both start from the same before-sha). So the leg below is a genuine
+// pre-fix/post-fix render contrast again, on top of the contrasts F12 listed:
+// the confirm dialog/dry-run/`replaced_customisations` count (no route at all
+// under a raw SQL write) — "the confirm dialog's promises…" and the F4 F-1
+// describe block; the prune/preservation semantics — the F9 F-B describe
 // block, whose own header cites the literal pre-fix log; and the cross-arm
-// materialise leak — the F4 F-2 describe block.
+// materialise leak — the F4 F-2 describe block. Its NAME is left as
+// CHARACTERISATION rather than re-renamed to FAIL-BEFORE: renaming it is a
+// judgement about what the leg is FOR, which belongs to the owner of the
+// slice, not to a fixture-fidelity fix.
 import { createHash } from "node:crypto";
 import { readFileSync } from "node:fs";
 import { dirname, join } from "node:path";
@@ -325,36 +344,140 @@ function movedLeaves(before: EffectiveFrameConfig, after: EffectiveFrameConfig):
 
 // --- fixtures ----------------------------------------------------------------
 
-// A funnel THE PRODUCT'S OWN SAVE CHAIN has saved. Driven at HEAD
-// (quotes-tabs/funnel.ts, read-only here): `workingFrame` boots from the
-// STORED column, `deepClone(frameState.frame_config || {})` (:1809) — NOT
-// from `effective_frame` (that only feeds `hydrationBase()`/
-// `clientEffective()`, :1877-1886, which POPULATE control values for display
-// and are never the PUT body). Each edited control's `writeConfigValue`
-// (:1921-1933) `setPath`s exactly the ONE dotted path it owns into
-// `workingFrame`; Save then PUTs that whole (still sparse) `workingFrame`
-// back (:1696 `{ frame_config_json: workingFrame }`). So a pristine funnel
-// (frame_config_json NULL -> `workingFrame` starts `{}`) with the operator's
-// two edits below saves the funnel's OWN difference, never a full
-// projection — the same shape `operatorSets()` below (F9) already writes.
-async function newSavedFunnel(h: Harness): Promise<{ funnelPublic: string; saved: EffectiveFrameConfig }> {
-  const quote = await req(h, "POST", "/quotes", { quote_name: "Q", activity: "quote_funnel", verticals: ["life"] });
-  const funnelPublic = quote.json.funnels[0].public_id as string;
+// The operator's own picked background image, and the public URL
+// media-url.ts mediaUrl() turns that bare storage key into.
+const OPERATOR_BG_MEDIA_ID = "lg/roastc-operator-bg.png";
+const OPERATOR_BG_SRC = `src="/media/${OPERATOR_BG_MEDIA_ID}"`;
+
+// The product's own `writeConfigValue` (quotes-tabs/funnel.ts:1921-1933,
+// read-only here), mirrored statement for statement: `setPath` the ONE dotted
+// path the control owns into `workingFrame` (the loop is funnel.ts:1798-1807),
+// then stamp the identity pair the island stamps beside every frame write —
+// `template`, once, from `currentTemplateId()`, and `version = 1`.
+function writeConfigValue(workingFrame: Record<string, unknown>, currentTemplateId: string, path: string, value: unknown): void {
+  const parts = path.split(".");
+  let cur = workingFrame;
+  for (let i = 0; i < parts.length - 1; i++) {
+    const part = parts[i] as string;
+    const next = cur[part];
+    if (next === null || typeof next !== "object" || Array.isArray(next)) cur[part] = {};
+    cur = cur[part] as Record<string, unknown>;
+  }
+  cur[parts[parts.length - 1] as string] = value;
+  if (workingFrame["template"] === undefined) workingFrame["template"] = currentTemplateId;
+  workingFrame["version"] = 1;
+}
+
+// FIX ROUND F14 — THE ONE PLACE THIS FILE IS ALLOWED TO SAVE A FUNNEL LAYOUT.
+// The real builder Save, end to end: boot `workingFrame` from the STORED
+// column the projection returns (funnel.ts:1809 — never `effective_frame`),
+// run each edited control's `writeConfigValue` over it (mirrored above,
+// identity stamp included), then PUT the whole still-sparse result (:1696).
+//
+// FOUR separate sites in this file used to hand-roll that sequence, and all
+// four stamped only `version`: `newSavedFunnel` (F13 fixed that one), the F4
+// F-1 post-apply edit, `operatorSets` in the F9 block, and the F4 F-2
+// funnel-wide edit (F14 folded those three in here). The sharpest evidence
+// that this was wrong and not merely untidy: `operatorSets`'s own describe
+// block quotes a DRIVEN j12 log recording the real column as
+// {"version":1,"template":"centered","header":{"logo_align":"left"}}, while
+// the assertion 25 lines below it demanded a column with no `template` key at
+// all — the log and the test contradicted each other for four fix rounds.
+// Routing every "the operator edits X" step through ONE function is what stops
+// that class recurring: a leg can no longer invent a column shape the product
+// cannot produce.
+/* eslint-disable @typescript-eslint/no-explicit-any */
+async function operatorSaves(
+  h: Harness,
+  funnelPublic: string,
+  edits: ReadonlyArray<readonly [string, unknown]>,
+): Promise<{ status: number; json: any }> {
   const projection = await req(h, "GET", `/funnels/${funnelPublic}/frame`);
-  expect(projection.status).toBe(200);
+  expect(projection.status, `frame projection for ${funnelPublic}`).toBe(200);
   // The STORED column (`frame_config`), not the `effective_frame`
   // projection — a pristine funnel's is `{}`.
   const workingFrame = JSON.parse(JSON.stringify(projection.json.frame_config ?? {})) as Record<string, unknown>;
+  // `currentTemplateId()` verbatim (funnel.ts:1836-1840): the working frame's
+  // own stamp, else the served projection's, else 'centered'.
+  const currentTemplateId =
+    ((workingFrame["template"] as string | undefined) ||
+      (projection.json.effective_frame?.template as string | undefined) ||
+      "centered") as string;
+  for (const [path, value] of edits) writeConfigValue(workingFrame, currentTemplateId, path, value);
+  return req(h, "PUT", `/funnels/${funnelPublic}/frame`, { frame_config_json: workingFrame });
+}
+/* eslint-enable @typescript-eslint/no-explicit-any */
+
+// A funnel THE PRODUCT'S OWN SAVE CHAIN has saved, through `operatorSaves`
+// directly above (which is where the funnel.ts:1809 / writeConfigValue /
+// :1696 citations now live — the projection's `effective_frame` is never the
+// PUT body; it only feeds `hydrationBase()`/`clientEffective()`, :1877-1886).
+// So a pristine funnel (frame_config_json NULL -> `workingFrame` starts `{}`)
+// with the operator's two edits below saves the funnel's OWN difference, never
+// a full projection.
+//
+// FIX ROUND F13 — the two ways this fixture used to misdescribe that chain:
+//
+// (a) IT WROTE `version` BUT NEVER `template`, so the column was a shape no
+//     Save can produce. `writeConfigValue` stamps both (funnel.ts:1928-1929);
+//     the value a pristine funnel stamps is `currentTemplateId()`'s second
+//     fallback, `effective_frame.template` (:1838) = "centered"
+//     (frames.ts:51 DEFAULT_FRAME_TEMPLATE_ID) — the exact column the F9
+//     block's verbatim j12 log further down records at its step 2,
+//     `{"version":1,"template":"centered","header":{"logo_align":"left"}}`.
+//     The stamp changes no census number here: frames.ts:944 destructures
+//     `template`/`version` straight back out of the funnel layer before the
+//     merge, and the id stamped is the one a template-less funnel already
+//     resolved to.
+//
+// (b) ITS TWO "OPERATOR EDITS" WERE LEAVES NO OPERATOR CAN AUTHOR. MEASURED
+//     on this branch:
+//       grep -rn 'header\.tagline' src/admin  ->  0 hits
+//       grep -rn 'back\.label'     src/admin  ->  1 hit, and it is a
+//         normalisation map, not a control (quotes-tabs/funnel.ts:2016
+//         `var NOT_NULLABLE_TEXT_KEYS = { 'back.label': 1, … }`)
+//     The two used below are REAL offered controls, each measured by its own
+//     grep against src/admin:
+//       header.logo_align         quotes-tabs/templates.ts:191
+//         frameSelect("Alignment", "header.logo_align", FRAME_LOGO_ALIGNS, …)
+//       background.image_media_id quotes-tabs/templates.ts:162
+//         mediaPickerControl("Background image (optional, from the Media
+//         library)", "background.image_media_id") — which emits
+//         `data-frame-key="background.image_media_id"` via shared.ts:1146
+//         -> mediaFieldMarkup (:1137).
+//     They are also the two SHAPES the legs below read: `newSavedTemplate`
+//     AUTHORS header.logo_align ("left", differing from this operator's
+//     "right"), so exactly ONE customisation is replaced and the dialog's
+//     singular sentence stays a real assertion; and it is SILENT on
+//     background.image_media_id (the base default is `null`, frames.ts:697,
+//     and the fixture never sets it), so "silence never erases" keeps a
+//     subject — one that PAINTS, as `<img class="lg-frame-bg-img"
+//     src="/media/…">` (frame.ts renderBackgroundRegion :696, the <img> at
+//     :701).
+async function newSavedFunnel(h: Harness): Promise<{ funnelPublic: string; saved: EffectiveFrameConfig }> {
+  const quote = await req(h, "POST", "/quotes", { quote_name: "Q", activity: "quote_funnel", verticals: ["life"] });
+  const funnelPublic = quote.json.funnels[0].public_id as string;
   // The operator's own customisations, made in the builder before any template
   // is applied — these are the leaves that must not vanish silently. Each is
-  // one `writeConfigValue` `setPath` call.
-  workingFrame["header"] = { ...((workingFrame["header"] ?? {}) as Record<string, unknown>), tagline: "ROASTC operator tagline" };
-  workingFrame["back"] = { ...((workingFrame["back"] ?? {}) as Record<string, unknown>), label: "ROASTC go back" };
-  workingFrame["version"] = 1;
-  const put = await req(h, "PUT", `/funnels/${funnelPublic}/frame`, { frame_config_json: workingFrame });
+  // one control's `writeConfigValue` call, on a key that control really offers
+  // (the greps above).
+  const put = await operatorSaves(h, funnelPublic, [
+    ["header.logo_align", "right"],
+    ["background.image_media_id", OPERATOR_BG_MEDIA_ID],
+  ]);
   expect(put.status).toBe(200);
   const row = readFunnel(h, funnelPublic);
   expect(row.frame_config_json).not.toBeNull();
+  // F13 — the column this fixture claims the product's Save produces, MEASURED
+  // rather than described: the two edited paths plus the identity pair, and the
+  // stamped id is the one the j12 log records ("centered"). If this ever drifts
+  // the fixture has stopped being what its comment above says it is.
+  expect(JSON.parse(row.frame_config_json ?? "{}")).toStrictEqual({
+    header: { logo_align: "right" },
+    background: { image_media_id: OPERATOR_BG_MEDIA_ID },
+    template: "centered",
+    version: 1,
+  });
   return { funnelPublic, saved: put.json.effective_frame as EffectiveFrameConfig };
 }
 
@@ -436,20 +559,28 @@ const FRAME_CSS = funnelChromeCss(defaultFunnelDesign, DEFAULT_FUNNEL_SCOPE, { f
 // =============================================================================
 d("P8 S4.1 — M3/R2-1: applying a template changes what the page paints", () => {
   // RENAMED in FIX ROUND F12 (MINOR-3) from "FAIL-BEFORE: …". Read the
-  // MINOR-3 note above the file-top comment block first. This leg still
-  // reproduces the literal pre-M3 handler body (`pointerOnlyApply`, a bare
+  // MINOR-3 note in the file-top comment block first — F13 revised it. This
+  // leg reproduces the literal pre-M3 handler body (`pointerOnlyApply`, a bare
   // SQL pointer write, nothing else) against the SAME realistic fixture
-  // PASS-AFTER uses below — but on THIS fixture the two now differ only by
-  // how the preserved-vs-replaced count is taken (shadowed here, stillShadowed
-  // in PASS-AFTER), never by which leaves are right, so it no longer
-  // demonstrates a pre-fix DEFECT. What it still earns its place by proving:
-  // the render-axis risk M3 was worried about (a template apply silently not
-  // repainting the funnel) was already closed by the read-side merge alone,
-  // BEFORE any confirm dialog or reconcile-on-write existed — so the fixes
-  // those add (dry_run/confirmations/replaced_customisations, the prune that
-  // stops a variant's own template from being shadowed) are not protecting
-  // this leg's axis, and are instead pinned by name in "the confirm dialog's
-  // promises…" + the F4 F-1 block, the F9 F-B block, and the F4 F-2 block.
+  // PASS-AFTER uses below.
+  //
+  // F13 CORRECTION to F12's rationale for the rename: F12 wrote that the two
+  // legs "differ only by how the preserved-vs-replaced count is taken
+  // (shadowed here, stillShadowed in PASS-AFTER), never by which leaves are
+  // right". On the F13 fixture that is false, and this leg's own assertions
+  // say so: `header.logo_align` is an operator edit the template AUTHORS, so
+  // the pointer-only write below serves the operator's "right" (asserted:
+  // `shadowedPaths` contains it) where the real route serves the template's
+  // "left" (asserted in PASS-AFTER: `stillShadowed` is empty). The two legs
+  // therefore end on different served pages from the same starting page.
+  //
+  // What this leg proves either way: the read-side merge alone ALREADY
+  // repaints a funnel on a bare pointer write — the wholesale "template apply
+  // silently does nothing" risk was never the gap — while what a pointer-only
+  // write still cannot do is warn the operator, offer a dry run, or name the
+  // one setting of theirs it is about to overrule. Those are pinned by name in
+  // "the confirm dialog's promises…" + the F4 F-1 block, the F9 F-B block
+  // (prune/preservation), and the F4 F-2 block (cross-arm leak).
   it("CHARACTERISATION: the bare pointer-only write (pre-M3, reproduced verbatim) already shadows ONLY the operator's own two edits on a realistic column", async () => {
     const h = harness();
     const { funnelPublic } = await newSavedFunnel(h);
@@ -486,39 +617,54 @@ d("P8 S4.1 — M3/R2-1: applying a template changes what the page paints", () =>
       "· per group", JSON.stringify([...perGroup].map(([g, r]) => `${g} ${r.shadowed}/${r.shadowed + r.honoured}`)),
     );
 
-    // RE-MEASURED in FIX ROUND F11 against a REALISTIC saved column (see
+    // RE-MEASURED in FIX ROUND F13 against a REALISTIC saved column (see
     // newSavedFunnel's own comment — a real Save PUTs the stored column plus
-    // only the touched paths, never a complete dump). Because today's
-    // read-side merge (frames.ts effectiveFrame) already resolves
-    // `frame_template_id` into `savedTemplateDefaults` regardless of
-    // materialisation, a pointer-only write against a two-leaf column already
-    // moves every OTHER comparable leaf — only the operator's own two edits
-    // (never a template artefact) continue to win, because the funnel's own
-    // JSON always deep-merges last. This is a 28→2 drop from this file's
-    // earlier (hand-built-dump) measurement of the SAME class: comparable
-    // leaves are unchanged (the served "before" composition does not depend
-    // on how the column got there) but shadowed collapses from 28 to exactly
-    // the two genuine customisations.
+    // only the touched paths, plus the `template`/`version` identity stamp;
+    // never a complete dump). Because today's read-side merge (frames.ts
+    // effectiveFrame) already resolves `frame_template_id` into
+    // `savedTemplateDefaults` regardless of materialisation, a pointer-only
+    // write against that column already moves every OTHER comparable leaf —
+    // only the operator's own two edits (never a template artefact) continue
+    // to win, because the funnel's own JSON always deep-merges last.
+    //
+    // WHAT F13 MOVED IN THESE NUMBERS, and why: the fixture's two operator
+    // edits changed from `header.tagline` + `back.label` (no control offers
+    // either) to `header.logo_align` + `background.image_media_id` (both real
+    // controls). `comparable` counts the leaves where the template disagrees
+    // with the funnel's SERVED "before", so moving which leaves the operator
+    // authored necessarily moves it. MEASURED by the console.log directly
+    // above, this run: comparable 28 · shadowed 2 · honoured 26 (the text F13
+    // replaced carried 29 · 2 · 27 for the previous pair — quoted from this
+    // file, not re-run). `shadowed` is the invariant — it is
+    // the operator's own edits, whichever two they are. The `template` stamp
+    // itself moved nothing: frames.ts:944 destructures `template`/`version`
+    // out of the funnel layer before merging, and the stamped id is the one a
+    // template-less funnel already resolved to.
     expect(perGroup.size).toBe(10); // nine element groups + `template`
     expect(comparable).toBeGreaterThanOrEqual(25);
-    expect(shadowedPaths.sort()).toEqual(["back.label", "header.tagline"]); // the operator's own two edits, named
+    expect(shadowedPaths.sort()).toEqual(["background.image_media_id", "header.logo_align"]); // the operator's own two edits, named
     expect(shadowed).toBe(2);
     expect(honoured).toContain("template");
     expect(honoured.length).toBe(comparable - 2);
-    expect(moved).not.toContain("header.tagline"); // preserved, not moved
-    expect(moved).not.toContain("back.label"); // preserved, not moved
+    expect(moved).not.toContain("header.logo_align"); // preserved, not moved
+    expect(moved).not.toContain("background.image_media_id"); // preserved, not moved
     expect(moved.length).toBeGreaterThanOrEqual(comparable - 2);
 
-    // The rendered page: the operator's own copy survives verbatim while the
-    // template's arrangement otherwise takes over — the OPPOSITE of this
-    // file's earlier (false, hand-built-fixture) "byte-identical" claim. What
-    // a pointer-only write still does NOT do (the real gap the M3 fix
-    // closes): warn the operator, offer a dry run, or name which of their own
-    // settings survives — it simply happens to land correctly here because
-    // this fixture's funnel never customised anything the template touches.
+    // The rendered page: the operator's own picked background image still
+    // paints, while the template's arrangement otherwise takes over — the
+    // OPPOSITE of this file's earlier (false, hand-built-fixture)
+    // "byte-identical" claim. What a pointer-only write still does NOT do
+    // (the real gap the M3 fix closes): warn the operator, offer a dry run, or
+    // name which of their own settings survives. F13 correction — the line
+    // that used to stand here ("it simply happens to land correctly here
+    // because this fixture's funnel never customised anything the template
+    // touches") was false and is now measurably so: `header.logo_align` IS a
+    // leaf this template authors, and the shadow census above names it, so a
+    // pointer-only write leaves the operator's "right" on a page the operator
+    // was never told the template wanted "left".
     const renderAfter = renderOf(h, funnelPublic);
     expect(renderAfter).not.toBe(renderBefore);
-    expect(renderAfter).toContain("ROASTC operator tagline");
+    expect(renderAfter).toContain(OPERATOR_BG_SRC);
     expect(renderAfter).toContain("lg-frame-slot--bare");
     expect(renderAfter).toContain("lg-frame-trust");
     // eslint-disable-next-line no-console
@@ -545,8 +691,14 @@ d("P8 S4.1 — M3/R2-1: applying a template changes what the page paints", () =>
     // eslint-disable-next-line no-console
     console.log("[S4.1 PASS-AFTER] leaves moved", moved.length, "· groups", JSON.stringify([...groups].sort()), "· render", sha(renderBefore), "→", sha(renderAfter));
 
-    // I1: the page paints differently, proven leaf-level across >= 3 groups
-    // (measured: all nine, the exact set the FAIL-BEFORE leg found shadowed).
+    // I1: the page paints differently, proven leaf-level across >= 3 groups.
+    // F13 correction — the parenthetical that stood here, "(measured: all
+    // nine, the exact set the FAIL-BEFORE leg found shadowed)", was false in
+    // its second half: the CHARACTERISATION leg above finds exactly TWO
+    // shadowed leaves, in two groups. MEASURED here by the console.log
+    // directly above, this run: 27 leaves moved over 9 groups — back,
+    // background, benefit_bar, disclosure, footer, header, progress,
+    // section_slot, trust_strip.
     expect(renderAfter).not.toBe(renderBefore);
     expect(groups.size).toBeGreaterThanOrEqual(9);
     expect(moved.length).toBeGreaterThanOrEqual(25);
@@ -589,10 +741,14 @@ d("P8 S4.1 — M3/R2-1: applying a template changes what the page paints", () =>
     expect(renderAfter).toContain("ROASTC benefit");
     expect(renderAfter).toContain("ROASTC disclosure copy");
 
-    // I1 second half: a leaf the template does NOT author keeps the operator's
-    // own value — applying a template is not a silent wipe.
-    expect(after.header.tagline).toBe("ROASTC operator tagline");
-    expect(renderAfter).toContain("ROASTC operator tagline");
+    // I1 second half: a leaf the template is SILENT on keeps the operator's own
+    // value — applying a template is not a silent wipe. F13 note: the leaf is
+    // now the operator's own picked background image (a real control, see
+    // newSavedFunnel), and the template's silence is the base default `null`,
+    // pinned here rather than asserted in prose.
+    expect(tpl.frameJson.background.image_media_id, "the template really is silent on the operator's background image").toBeNull();
+    expect(after.background.image_media_id).toBe(OPERATOR_BG_MEDIA_ID);
+    expect(renderAfter).toContain(OPERATOR_BG_SRC);
 
     // WHAT THE COLUMN NOW HOLDS (re-minted in FIX ROUND F4, strictly stronger).
     // Before F4 this leg asserted the template's own values were COPIED into
@@ -605,8 +761,8 @@ d("P8 S4.1 — M3/R2-1: applying a template changes what the page paints", () =>
     // hydrationBase), not from the raw column. Both halves are pinned here.
     const stored = JSON.parse(readFunnel(h, funnelPublic).frame_config_json ?? "{}") as Record<string, any>;
     const storedFlat = flat(stored);
-    // …the operator's own leaves, kept:
-    expect(stored.header.tagline).toBe("ROASTC operator tagline");
+    // …the operator's own leaf the template is silent on, kept:
+    expect(stored.background.image_media_id).toBe(OPERATOR_BG_MEDIA_ID);
     // …and NOT one echo of the template's own base (the shadow F-2 lived in):
     expect(storedFlat.has("section_slot.card")).toBe(false);
     expect(storedFlat.has("progress.style")).toBe(false);
@@ -622,7 +778,7 @@ d("P8 S4.1 — M3/R2-1: applying a template changes what the page paints", () =>
     expect(projection.json.effective_frame.section_slot.card).toBe("bare");
     expect(projection.json.effective_frame.progress.style).toBe("dots");
     expect(projection.json.effective_frame.trust_strip.enabled).toBe(true);
-    expect(projection.json.effective_frame.header.tagline).toBe("ROASTC operator tagline");
+    expect(projection.json.effective_frame.background.image_media_id).toBe(OPERATOR_BG_MEDIA_ID);
   });
 
   it("the confirm dialog's promises are computed from the real diff — each one is true in the rendered page", async () => {
@@ -661,12 +817,16 @@ d("P8 S4.1 — M3/R2-1: applying a template changes what the page paints", () =>
     // against the very number that produced it, which is why it could not fail
     // while the dialog announced 28 customisations on a funnel whose operator
     // had authored two leaves. The count is now asserted against WHAT THIS
-    // FIXTURE'S OPERATOR ACTUALLY DID: newSavedFunnel authors exactly two leaves
-    // (header.tagline, back.label); the template is silent on the tagline (so it
-    // survives — asserted above) and moves back.label, so exactly ONE
-    // customisation is replaced, and the sentence is the singular one.
+    // FIXTURE'S OPERATOR ACTUALLY DID: newSavedFunnel authors exactly two
+    // leaves, each through a control the admin really offers
+    // (header.logo_align, background.image_media_id — the greps live in
+    // newSavedFunnel's comment). The template is SILENT on the background
+    // image (its value there is the base default `null`, pinned in the
+    // PASS-AFTER leg above) so that one survives, and it OVERRULES
+    // header.logo_align ("left" over the operator's "right"), so exactly ONE
+    // customisation is replaced and the sentence is the singular one.
     const replaced = dry.json.replaced_customisations as string[];
-    expect(replaced).toEqual(["back.label"]);
+    expect(replaced).toEqual(["header.logo_align"]);
     expect(confirmations).toContain("1 setting you had customised is replaced by this template.");
     expect(confirmations.join(" ")).not.toContain("settings you had customised");
     // No internal clause markers or raw enum tokens in operator copy (R5).
@@ -746,16 +906,24 @@ d("P8 S4.1 — M3/R2-1: applying a template changes what the page paints", () =>
       version: 1,
       footer: { enabled: true, blocks: [{ type: "about_paragraph", align: "left", text: "ROASTC about" }] },
     } as unknown as EffectiveFrameConfig;
+    // F14: both operator leaves are keys a control really offers —
+    // `background.image_media_id` (templates.ts:162 mediaPickerControl) and
+    // `progress.style` (templates.ts:716 + :725, the rendered radios carrying
+    // data-frame-key="progress.style"; :1955 is the island's own selector for
+    // them). The leaf
+    // that used to stand in the first slot, `header.tagline`, has 0 hits in
+    // src/admin, so calling it an operator's value was untrue of the product.
     const funnelConfig = effectiveFrame("centered").frame as unknown as StoredFrameConfig;
-    (funnelConfig as unknown as EffectiveFrameConfig).header.tagline = "ROASTC keep me";
+    (funnelConfig as unknown as EffectiveFrameConfig).background.image_media_id = OPERATOR_BG_MEDIA_ID;
     (funnelConfig as unknown as EffectiveFrameConfig).progress.style = "numbered";
 
     const applied = computeTemplateApply(funnelConfig, sparse, null);
     const after = effectiveFrame(applied.merged, null, null, sparse).frame;
     expect(after.footer.enabled).toBe(true);
-    expect(after.header.tagline).toBe("ROASTC keep me");
-    expect(after.progress.style).toBe("numbered"); // the template never spoke about progress
+    expect(after.background.image_media_id).toBe(OPERATOR_BG_MEDIA_ID); // the template never spoke about background
+    expect(after.progress.style).toBe("numbered"); // …nor about progress
     expect(applied.replaced_customisations).not.toContain("progress.style");
+    expect(applied.replaced_customisations).not.toContain("background.image_media_id");
   });
 });
 
@@ -795,16 +963,13 @@ d("P8 F4 — F-1: the customisation warning counts the OPERATOR's edits, never a
     expect((second.json.confirmations as string[]).length).toBeGreaterThan(0);
 
     // apply #2 for real, then ONE genuine operator edit through the REAL builder
-    // save (quotes-tabs/funnel.ts PUTs its workingFrame — the stored config plus
-    // the paths the operator touched).
+    // save (`operatorSaves` — the stored config plus the paths the operator
+    // touched plus the identity stamp).
     await req(h, "POST", `/funnels/${funnelPublic}/apply-template`, { template_id: t2.publicId });
-    const projection = await req(h, "GET", `/funnels/${funnelPublic}/frame`);
-    const working = JSON.parse(JSON.stringify(projection.json.frame_config ?? {})) as Record<string, unknown>;
-    const progress = (working["progress"] ?? {}) as Record<string, unknown>;
-    progress["style"] = "percent"; // the operator's own choice, after an apply
-    working["progress"] = progress;
-    working["version"] = 1;
-    const saved = await req(h, "PUT", `/funnels/${funnelPublic}/frame`, { frame_config_json: working });
+    // `progress.style` — a real offered control (templates.ts:716 + :725, the
+    // rendered radios carrying data-frame-key="progress.style"). F14 routed
+    // this write through `operatorSaves`; before, it hand-rolled the column.
+    const saved = await operatorSaves(h, funnelPublic, [["progress.style", "percent"]]);
     expect(saved.status).toBe(200);
     expect(saved.json.effective_frame.progress.style).toBe("percent");
 
@@ -822,16 +987,17 @@ d("P8 F4 — F-1: the customisation warning counts the OPERATOR's edits, never a
 
   it("an operator edit made BEFORE any template is applied is still warned about", async () => {
     const h = harness();
-    const { funnelPublic } = await newSavedFunnel(h); // authors tagline + back label
+    const { funnelPublic } = await newSavedFunnel(h); // authors header.logo_align + background.image_media_id
     const tpl = await newSavedTemplate(h, "ROASTC F1 Saved");
     const dry = await req(h, "POST", `/funnels/${funnelPublic}/apply-template`, { template_id: tpl.publicId, dry_run: true });
     const replaced = dry.json.replaced_customisations as string[];
     // eslint-disable-next-line no-console
     console.log("[F4 F-1] saved-funnel dry run · replaced", JSON.stringify(replaced));
-    // The operator authored two leaves; the template is silent on the tagline
-    // and moves the back label, so ONE customisation is replaced — not the 28
-    // the whole-frame Save's echo used to be counted as.
-    expect(replaced).toEqual(["back.label"]); // "ROASTC go back" → the template's own
+    // The operator authored two leaves; the template is silent on the picked
+    // background image and overrules the logo alignment, so ONE customisation
+    // is replaced — not the 28 the whole-frame Save's echo used to be counted
+    // as.
+    expect(replaced).toEqual(["header.logo_align"]); // the operator's "right" → the template's "left"
     expect(dry.json.confirmations).toContain("1 setting you had customised is replaced by this template.");
     // The count is the count of the operator's own leaves, not of every change.
     expect(replaced.length).toBeLessThan((dry.json.changes as unknown[]).length);
@@ -868,16 +1034,14 @@ d("P8 F4 — F-1: the customisation warning counts the OPERATOR's edits, never a
 // column, never a hand-built object.
 // =============================================================================
 d("P8 F9 — F-B: an operator's chosen value is preserved, or named — never silently dropped", () => {
-  // The product's own save: the island boots workingFrame from the STORED
-  // column (funnel.ts:1809 `deepClone(frameState.frame_config || {})`) and a
-  // control writes ONE dotted path into it (writeConfigValue → setPath), so a
-  // Save PUTs the column plus exactly what the operator touched.
+  // ONE control's edit, saved the way the product saves it. F14: this used to
+  // hand-roll the working frame and stamped only `version`, so the column it
+  // produced was a shape no Save can produce — and specifically NOT the column
+  // the driven j12 log quoted in this block's header records at step 2. It now
+  // delegates to `operatorSaves` (the single mirror of funnel.ts:1809 ->
+  // writeConfigValue -> :1696), so the log and the assertion below agree.
   async function operatorSets(h: Harness, funnelPublic: string, group: string, key: string, value: unknown): Promise<void> {
-    const projection = await req(h, "GET", `/funnels/${funnelPublic}/frame`);
-    const working = JSON.parse(JSON.stringify(projection.json.frame_config ?? {})) as Record<string, unknown>;
-    working[group] = { ...((working[group] ?? {}) as Record<string, unknown>), [key]: value };
-    working["version"] = 1;
-    const saved = await req(h, "PUT", `/funnels/${funnelPublic}/frame`, { frame_config_json: working });
+    const saved = await operatorSaves(h, funnelPublic, [[`${group}.${key}`, value]]);
     expect(saved.status, `operator save ${group}.${key}: ${JSON.stringify(saved.json)}`).toBe(200);
   }
   const column = (h: Harness, funnelPublic: string): Record<string, unknown> => {
@@ -896,7 +1060,10 @@ d("P8 F9 — F-B: an operator's chosen value is preserved, or named — never si
     // step 2 — the operator's own choice, against a base that says "center".
     expect(servedFrame(h, funnelPublic).header.logo_align).toBe("center");
     await operatorSets(h, funnelPublic, "header", "logo_align", "left");
-    expect(column(h, funnelPublic)).toStrictEqual({ version: 1, header: { logo_align: "left" } });
+    // F14: now byte-for-byte the column the j12 log in this block's header
+    // records at its step 2 — `template` included. Before F14 this assertion
+    // demanded a column with no `template` key, contradicting that log.
+    expect(column(h, funnelPublic)).toStrictEqual({ version: 1, template: "centered", header: { logo_align: "left" } });
 
     // step 3/4 — apply the template whose base ALSO says left. The served page
     // does not move, so there is nothing to warn about…
@@ -933,12 +1100,20 @@ d("P8 F9 — F-B: an operator's chosen value is preserved, or named — never si
     const t1 = await newSavedTemplate(h, "ROASTC F9 Diff One");
     const t2 = await newSavedTemplateB(h, "ROASTC F9 Diff Two");
 
-    // `header.tagline` — no built-in and neither saved record authors it, so
-    // "silence never erases" must hold across BOTH applies…
-    await operatorSets(h, funnelPublic, "header", "tagline", "ROASTC operator tagline");
-    // …and `progress.thickness` — the operator picks a value that is neither
-    // base's: t1's base says "l", t2's says the schema default "m".
+    // `background.image_media_id` — a REAL offered control (templates.ts:162
+    // mediaPickerControl) that BOTH saved records leave at the base default
+    // `null` (frames.ts:697), i.e. both are silent on it, so "silence never
+    // erases" must hold across BOTH applies. F14 replaced `header.tagline`
+    // here: it satisfied the same silence premise but has 0 hits in src/admin,
+    // so no operator could ever have set it. The silence premise is pinned
+    // below rather than asserted in prose.
+    await operatorSets(h, funnelPublic, "background", "image_media_id", OPERATOR_BG_MEDIA_ID);
+    // …and `progress.thickness` (templates.ts:821 segmentedControl) — the
+    // operator picks a value that is neither base's: t1's base says "l", t2's
+    // says the schema default "m".
     await operatorSets(h, funnelPublic, "progress", "thickness", "s");
+    expect(t1.frameJson.background.image_media_id, "t1 really is silent on the background image").toBeNull();
+    expect(t2.frameJson.background.image_media_id, "…and so is t2").toBeNull();
     expect(t1.frameJson.progress.thickness).toBe("l");
     expect(t2.frameJson.progress.thickness).toBe("m");
 
@@ -947,23 +1122,23 @@ d("P8 F9 — F-B: an operator's chosen value is preserved, or named — never si
     // eslint-disable-next-line no-console
     console.log("[F9 F-B] differs-from-every-base · replaced", JSON.stringify(replaced1));
     expect(replaced1, "the leaf this template overrules is named").toContain("progress.thickness");
-    expect(replaced1, "the leaf it says nothing about is not").not.toContain("header.tagline");
+    expect(replaced1, "the leaf it says nothing about is not").not.toContain("background.image_media_id");
     expect((dry1.json.confirmations as string[]).join(" ")).toContain("you had customised");
 
     await req(h, "POST", `/funnels/${funnelPublic}/apply-template`, { template_id: t1.publicId });
     const served = servedFrame(h, funnelPublic);
-    expect(served.header.tagline, "silence never erases the operator's copy").toBe("ROASTC operator tagline");
+    expect(served.background.image_media_id, "silence never erases the operator's own pick").toBe(OPERATOR_BG_MEDIA_ID);
     expect(served.progress.thickness, "…and the warned-about leaf really is replaced").toBe("l");
     expect(
-      ((column(h, funnelPublic)["header"] ?? {}) as Record<string, unknown>)["tagline"],
+      ((column(h, funnelPublic)["background"] ?? {}) as Record<string, unknown>)["image_media_id"],
       "the preserved leaf stays IN THE COLUMN, so the next template must warn about it too",
-    ).toBe("ROASTC operator tagline");
+    ).toBe(OPERATOR_BG_MEDIA_ID);
 
     // The next template still owes the operator the same warning for the leaf
     // it kept — the failure mode F-B described was the SECOND apply going quiet.
     const dry2 = await req(h, "POST", `/funnels/${funnelPublic}/apply-template`, { template_id: t2.publicId, dry_run: true });
-    expect((dry2.json.changes as Array<{ path: string }>).map((c) => c.path)).not.toContain("header.tagline");
-    expect(servedFrame(h, funnelPublic).header.tagline).toBe("ROASTC operator tagline");
+    expect((dry2.json.changes as Array<{ path: string }>).map((c) => c.path)).not.toContain("background.image_media_id");
+    expect(servedFrame(h, funnelPublic).background.image_media_id).toBe(OPERATOR_BG_MEDIA_ID);
   });
 
   it("an apply never WRITES a leaf of its own into the column — so a leaf found there is the operator's", async () => {
@@ -1050,12 +1225,17 @@ d("P8 F4 — F-2: a variant's own template wins for that arm, so A/B templates p
     const t2 = await newSavedTemplateB(h, "ROASTC Arm Other 2");
     await req(h, "POST", `/funnels/${funnelPublic}/apply-template`, { template_id: t1.publicId });
 
-    // The operator's own funnel-level choice, made after the apply.
-    const projection = await req(h, "GET", `/funnels/${funnelPublic}/frame`);
-    const working = JSON.parse(JSON.stringify(projection.json.frame_config ?? {})) as Record<string, unknown>;
-    working["header"] = { ...((working["header"] ?? {}) as Record<string, unknown>), tagline: "ROASTC funnel-wide tagline" };
-    working["version"] = 1;
-    expect((await req(h, "PUT", `/funnels/${funnelPublic}/frame`, { frame_config_json: working })).status).toBe(200);
+    // The operator's own funnel-level choice, made after the apply, through the
+    // real Save. F14 moved this off `header.tagline` (0 hits in src/admin, so
+    // unauthorable) and onto `header.logo_align` (templates.ts:191 frameSelect)
+    // — which makes the leg STRICTLY stronger than before: "center" is a value
+    // the arm's own template CONTENDS for (t2 authors "right", t1 "left"), so
+    // the funnel layer is now proven to win a real contest rather than an
+    // uncontested one. The "…the arm's template decides what the funnel did not
+    // author" half is unchanged, still carried by progress.style below.
+    expect(t1.frameJson.header.logo_align, "t1 contends for this leaf").toBe("left");
+    expect(t2.frameJson.header.logo_align, "…and so does the arm's own template").toBe("right");
+    expect((await operatorSaves(h, funnelPublic, [["header.logo_align", "center"]])).status).toBe(200);
 
     const experiment = await req(h, "POST", `/funnels/${funnelPublic}/experiments`, { name: "ROASTC arms 2" });
     await req(h, "POST", `/experiments/${experiment.json.public_id}/start`, {});
@@ -1064,7 +1244,7 @@ d("P8 F4 — F-2: a variant's own template wins for that arm, so A/B templates p
     await req(h, "PUT", `/variants/${armBPublic}`, { frame_template_id: t2.id });
 
     const armB = await armFrame(h, funnelPublic, armBPublic, quotePublic);
-    expect(armB.header.tagline, "the funnel's own authored leaf still applies to every arm").toBe("ROASTC funnel-wide tagline");
+    expect(armB.header.logo_align, "the funnel's own authored leaf still applies to every arm").toBe("center");
     expect(armB.progress.style, "…while the arm's template decides everything the funnel did not author").toBe("numbered");
   });
 });
