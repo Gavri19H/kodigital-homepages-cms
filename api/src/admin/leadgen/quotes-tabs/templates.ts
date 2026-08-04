@@ -823,7 +823,7 @@ function renderTplBoxProgress(): string {
   ${frameControl("Color", renderRoleStrip("progress.color_role"))}
   <div id="lg-tpl-progress-showlabel-row">${toggleControl("Show label", "progress.show_label", 'A visitor sees "Step 2 of 5" beside the bar, or "40%" on Percent.')}</div>
   <p class="lg-region-note lg-hidden" id="lg-tpl-progress-numbered-note">Numbered steps always show the step label &mdash; that is what makes them numbered.</p>
-  <p class="lg-region-note">Progress counts the slides of this funnel variant automatically.</p>
+  <p class="lg-region-note">Progress counts the sections of this funnel variant automatically.</p>
 </div>`;
 }
 
@@ -981,7 +981,7 @@ function renderTemplateBar(): string {
   // function's signature is fixed by its renderTemplatesTabPanel call site).
   // Copy mirrors quotes-tabs/shared.ts's own scopeHead sentence.
   return `<div class="lg-panel-card" id="lg-tpl-bar">
-  <div class="lg-scope-head">Editing: <strong id="lg-tpl-target-name" data-lg-target-funnel-name>this funnel</strong> · Funnel layout template · affects every slide of this funnel<select class="form-select form-select-sm" id="lg-tpl-target-select" data-lg-target-funnel aria-label="Funnel this template edits" style="margin-left:8px;max-width:200px;vertical-align:middle"></select></div>
+  <div class="lg-scope-head">Editing: <strong id="lg-tpl-target-name" data-lg-target-funnel-name>this funnel</strong> · Funnel layout template · affects every section of this funnel<select class="form-select form-select-sm" id="lg-tpl-target-select" data-lg-target-funnel aria-label="Funnel this template edits" style="margin-left:8px;max-width:200px;vertical-align:middle"></select></div>
   <div class="lg-tpl2-bar-row">
     <span class="lg-tpl2-eyebrow">Saved templates</span>
     <div id="lg-tpl-list" class="lg-tpl2-chip-row"><span class="form-help">Loading templates&#8230;</span></div>
@@ -2479,25 +2479,42 @@ const TPL_SCRIPT = `
       hideError('lg-tpl-apply-error');
       paintConfirmList([applyLeadLine(tpl)].concat(res.body.confirmations));
       applyDialogShowState('confirm');
+    }).catch(function () {
+      // R2 P8 FIX ROUND F4 (F-9): a REJECTED fetch (the visitor's laptop drops
+      // its network mid-click) resolved nothing and rendered nothing, so the
+      // card click did literally nothing — no confirm state, no message, no
+      // reason. HTTP errors were always handled (the branch above); this is the
+      // other half, in the SAME error slot, in the same words.
+      showError('lg-tpl-apply-error', 'Could not preview this template.');
     });
   }
 
   // =======================================================================
   // The A/B arm predicate — a DIFFERENT question from the one above, because
-  // an arm is resolved differently from an apply. Apply MATERIALISES the
-  // template into the funnel's own frame_config_json; an A/B arm only points
-  // variant.frame_template_id at it, and that row resolves as the BASE layer
-  // UNDER the funnel's config (quotes-handlers.ts variant.frame_template_id ??
-  // funnel.frame_template_id -> effectiveFrame's 4th argument). So a leaf the
-  // funnel's own config carries does not move on the new arm, however
-  // different the two templates are — which is why the two arms were measured
-  // byte-identical. These helpers say, before the fork, how many of the leaves
-  // THIS TEMPLATE SETS would actually move on the new arm. The count is
-  // deliberately scoped to that: a leaf the CURRENT arm's template authors and
-  // the chosen one does not is outside what this page can resolve (it would
-  // need the other template's family defaults), so the zero-case copy claims
-  // only what it can prove — that nothing this template sets would change —
-  // and never the stronger "the two arms are identical".
+  // an arm is resolved differently from an apply. An A/B arm points
+  // variant.frame_template_id at a template, and that row resolves as the BASE
+  // layer UNDER the funnel's config (resolver.ts resolveSavedFrameTemplateDefaults
+  // For: variant.frame_template_id ?? funnel.frame_template_id -> effectiveFrame's
+  // 4th argument). So a leaf the funnel's OWN config carries does not move on the
+  // new arm, however different the two templates are.
+  //
+  // R2 P8 FIX ROUND F4 (F-2) — that shadow used to cover EVERYTHING on any
+  // funnel someone had pressed "Apply to funnel…" on, because the apply copied
+  // the whole template into the funnel column: measured, every non-current
+  // template reported "Nothing this template sets would change on the new arm"
+  // and the forked arm rendered byte-identically. FIXED AT THE SOURCE, not
+  // reported here: designs/frames.ts computeTemplateApply now stores only what
+  // the funnel DIFFERS from its template by, so the column shadows only leaves
+  // the operator actually authored and an arm's own template decides the rest
+  // (driven fork→apply→render proof in test/leadgen-p8-m3-apply-template.ts's
+  // "F-2" legs). The count below is therefore a real number again on an applied
+  // funnel; the zero-case copy stays for the case it was always true of — a
+  // funnel whose OWN authored settings already decide every leaf this template
+  // sets. It is still deliberately scoped to the leaves THIS TEMPLATE SETS: a
+  // leaf the current arm's template authors and the chosen one does not is
+  // outside what this page can resolve (it would need the other template's
+  // family defaults), so the zero-case copy claims only what it can prove and
+  // never the stronger "the two arms are identical".
   function currentEffectiveFrame() { return (boot && boot.frame && boot.frame.effective_frame) || {}; }
   // The layers that merge ABOVE a saved template's defaults on a served arm.
   function shadowLayers() {
@@ -2616,14 +2633,16 @@ const TPL_SCRIPT = `
   //     board blob already carries funnel.frame_template_id (funnel.ts
   //     boardDataBlob), so that option is now named as the current one.
   //   * SHADOWING — an arm resolves template defaults UNDER the funnel's own
-  //     frame_config (quotes-handlers.ts variant.frame_template_id ??
-  //     funnel.frame_template_id -> effectiveFrame's base layer), so on a funnel
-  //     that has ever been saved a DIFFERENT template can still render
-  //     identically. The line below counts, with the SAME rules the apply
-  //     dialog uses, what the new arm would actually change — 0 means the two
-  //     arms would look the same, said before the fork rather than discovered
-  //     after it. The shadowing itself is the apply/resolve path's defect, not
-  //     this dialog's; it is reported, not patched here.
+  //     frame_config (resolver.ts variant.frame_template_id ??
+  //     funnel.frame_template_id -> effectiveFrame's base layer), so a leaf the
+  //     funnel's own config carries can still render identically on both arms.
+  //     The line below counts, with the SAME rules the apply dialog uses, what
+  //     the new arm would actually change — 0 means the two arms would look the
+  //     same, said before the fork rather than discovered after it.
+  //     R2 P8 FIX ROUND F4 (F-2): the shadowing WAS the apply path's defect and
+  //     is now FIXED there (frames.ts computeTemplateApply stores the funnel's
+  //     differences from its template, never a copy of it), so this count is a
+  //     real number on an applied funnel instead of a permanent 0.
   function abCurrentTemplateId() {
     var f = boardFunnelBy(targetFunnelPublicId());
     return (f && f.frame_template_id !== null && f.frame_template_id !== undefined) ? String(f.frame_template_id) : '';

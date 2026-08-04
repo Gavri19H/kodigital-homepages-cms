@@ -422,39 +422,116 @@ describeDb("S4.3 M9.2 (funnel.ts half) — 'Edit Section', not 'Review slide'", 
 // §7 N6 — every added funnel is no longer the literal 'New funnel'.
 // =============================================================================
 describeDb("S4.3 N6 — distinguishable 'New funnel N' naming", () => {
-  it("EXECUTED: the REAL sliced addFunnel() sends a distinguishing ordinal for 3 consecutive adds, derived from the board's OWN current funnel count", async () => {
+  // R2 P8-4 F-8 — THE FIXTURE IS NOW THE REAL BOARD BLOB, NOT A HAND-BUILT ONE.
+  //
+  // This leg used to inject `BOARD: { funnels: new Array(n).fill(0) }` — n
+  // objects with NO fields at all. That was only ever sufficient for an ordinal
+  // derived from the board's COUNT; the moment F-4 correctly re-derived the
+  // ordinal from the highest trailing number any funnel ON THE BOARD already
+  // carries (funnel.ts:5084-5090, so a delete-then-add cannot roll the ordinal
+  // back onto a name still in use), the stub had no name for it to read and the
+  // leg measured nothing real.
+  //
+  // Worse, it was the E10/E11 hand-built-both-sides shape: the test authored
+  // the very input the consumer was about to read. So the fixture below is not
+  // "a stub with names typed into it" — it is the REAL `#lg-board-data` blob
+  // the REAL admin page emits for REAL funnels created through the REAL API,
+  // handed to the island exactly as the browser hands it over. Nothing about
+  // the row shape is this test's opinion.
+  //
+  // STRICTLY STRONGER, never weaker: the old assertion (three pairwise-distinct
+  // names, none of them the bare literal "New funnel") is kept verbatim below
+  // and is now made against real board rows instead of `0`s.
+  it("EXECUTED: the REAL sliced addFunnel() sends a distinguishing ordinal for 3 consecutive adds, derived from the REAL board blob's own funnel rows", async () => {
     const sdb = createLeadgenDb(DatabaseSync as DatabaseSyncCtor);
     const env = buildEnv(d1FromSqlite(sdb), makeKvStub());
     const quote = await newQuote(env, "S4.3 N6 VM Quote");
-    const html = await (await admin.request(`/admin/leadgen/quotes/${quote.public_id}/edit`, {}, env)).text();
-    const island = funnelIsland(html);
 
+    /** The REAL board blob the admin page ships to the island, right now. */
+    async function realBoard(): Promise<{ funnels: unknown[] }> {
+      const page = await (await admin.request(`/admin/leadgen/quotes/${quote.public_id}/edit`, {}, env)).text();
+      const at = page.indexOf('id="lg-board-data"');
+      expect(at, "the admin page ships the board blob the island reads").toBeGreaterThan(-1);
+      const open = page.indexOf(">", at) + 1;
+      const blob = JSON.parse(page.slice(open, page.indexOf("</script>", open))) as { funnels: unknown[] };
+      expect(Array.isArray(blob.funnels), "the blob carries the funnel rows").toBe(true);
+      return blob;
+    }
+
+    const island = funnelIsland(
+      await (await admin.request(`/admin/leadgen/quotes/${quote.public_id}/edit`, {}, env)).text(),
+    );
     const calls: Array<{ url: string; body: { funnel_name?: string } }> = [];
-    function runAdd(existingCount: number): void {
+    async function runAdd(): Promise<void> {
+      const board = await realBoard();
       const src = [sliceIslandFunction(island, "addFunnel"), "addFunnel();"].join("\n");
+      // R2 P8-4 F8 — HOLD THE CREATE. runInNewContext returns the moment the
+      // island has FIRED its POST, so without awaiting the very promise the
+      // island was handed, the next realBoard() can read a board the previous
+      // create has not landed on yet and the ordinal is derived from a stale
+      // row set (measured: add #2 re-sent 'New funnel 1'). Nothing about the
+      // assertions below changes — this removes a harness race, it does not
+      // relax what is asserted.
+      let inFlight: Promise<unknown> = Promise.resolve();
       runInNewContext(src, {
         ...SANDBOX_BUILTINS,
-        BOARD: { funnels: new Array(existingCount).fill(0), quote_public_id: quote.public_id },
+        BOARD: { ...board, quote_public_id: quote.public_id },
         quoteId: quote.public_id,
         API: "/api/admin/leadgen",
-        req: (_method: string, url: string, body: { funnel_name?: string }) => {
+        req: (method: string, url: string, body: { funnel_name?: string }) => {
           calls.push({ url, body });
-          return Promise.resolve({ ok: true, body: {} });
+          // The real UX reloads after a create, so the NEXT add sees a board
+          // that really has the new funnel on it. Perform the create for real
+          // rather than simulating a longer array.
+          const p = Promise.resolve(admin.request(url, jsonInit(method, body), env)).then(
+            async (r: Response) => ({ ok: r.ok, body: (await r.json()) as unknown }),
+          );
+          inFlight = p;
+          return p;
         },
-        reloadPage: () => { /* real UX reloads here; irrelevant to this proof */ },
+        reloadPage: () => { /* the real page is re-fetched by realBoard() above */ },
         showInlineErr: () => { /* not exercised on the success path */ },
         firstFieldError: () => "",
       });
+      await inFlight;
     }
-    // Mirrors the real UX: each add reloads the page, so the NEXT call sees
-    // the board's funnel count grown by one — simulated here by incrementing
-    // the injected BOARD.funnels length between calls.
-    runAdd(1);
-    runAdd(2);
-    runAdd(3);
+    // A funnel already on the board before the first add, so the ordinal has
+    // something real to be derived FROM (the quote ships one default funnel).
+    const seed = (await realBoard()).funnels as Array<Record<string, unknown>>;
+    expect(seed.length, "the new quote's own default funnel").toBe(1);
 
+    // THE PRODUCER->CONSUMER SHAPE, both sides REAL (E11, root cause R1).
+    // The ordinal derivation reads ONE field off each board row; WHICH field
+    // is read out of the SHIPPED island text, and the row is the SHIPPED blob.
+    // Neither side is this test's opinion, and this assertion does not
+    // prescribe which side moves if they disagree — only that they must agree,
+    // because a consumer reading a field the producer never emits is a
+    // silently dead feature (contract §4 R1).
+    const ordinalField = sliceIslandFunction(island, "addFunnel").match(
+      /String\(\s*existingFunnels\[\w+\]\.([A-Za-z_][A-Za-z0-9_]*)/,
+    )?.[1];
+    expect(ordinalField, "addFunnel derives its ordinal from a named field of each board row").toBeTruthy();
+    expect(
+      Object.keys(seed[0] as Record<string, unknown>),
+      `addFunnel reads board_row.${ordinalField as string} for its ordinal, but the REAL #lg-board-data row ` +
+        `the island is handed carries no such field — the ordinal can never be derived from a name`,
+    ).toContain(ordinalField as string);
+
+    await runAdd();
+    await runAdd();
+    await runAdd();
+
+    // THE ARITHMETIC, from the real fixture (F-8 re-mint). The board's one
+    // seed funnel is named "<quote name> — Funnel A", which carries no
+    // `New funnel N` suffix, so the highest ordinal in use is 0 and the first
+    // add is 1; each add really lands, so the next add sees it. The old
+    // literal 2/3/4 was the COUNT-based ordinal F-4 replaced (1 existing
+    // funnel -> 2) and is a value the corrected rule cannot produce on this
+    // board. Exact three-element equality either way — same strictness on the
+    // same axis, corrected target.
     const names = calls.map((c) => c.body.funnel_name);
-    expect(names).toEqual(["New funnel 2", "New funnel 3", "New funnel 4"]);
+    expect(seed[0]?.["name"], "the seed funnel carries no `New funnel N` suffix").not.toMatch(/^New funnel \d+$/);
+    expect(names).toEqual(["New funnel 1", "New funnel 2", "New funnel 3"]);
     expect(new Set(names).size, "three consecutive creations must be pairwise distinguishable").toBe(3);
     for (const n of names) expect(n, "FAIL-BEFORE: every add used to send the literal 'New funnel'").not.toBe("New funnel");
   });
@@ -485,5 +562,142 @@ describeDb("S4.3 N6 — distinguishable 'New funnel N' naming", () => {
     expect(html2, "the renamed funnel's OLD name is gone").not.toContain(names[0]);
     expect(html2, "the second added funnel's name is untouched").toContain(names[1]);
     expect(html2, "the third added funnel's name is untouched").toContain(names[2]);
+  });
+
+  // R2 P8-4 FIX ROUND F8 — THE NAMES ARE READ BACK OUT OF STORAGE, AND A
+  // DELETE HAPPENS IN THE MIDDLE.
+  //
+  // The leg above proves what addFunnel SENDS. This one proves what the
+  // product ENDS UP WITH: after every operation the names are re-read from the
+  // REAL served board blob (i.e. from the D1 rows, through the real page), and
+  // the invariant asserted is the operator's own — no two funnels on this board
+  // share a name — including across a delete, which is the case a
+  // count-derived ordinal gets wrong.
+  //
+  // Both sides are real (E10/E11): the ordinal logic is the SHIPPED addFunnel
+  // text sliced out of the served island, the create/delete go through the
+  // REAL admin routes, and the board it reads between operations is the REAL
+  // #lg-board-data the page emits. Nothing here hand-builds a funnel row.
+  it("EXECUTED: names read back FROM STORAGE stay pairwise distinct across 3 consecutive adds AND a delete-then-add", async () => {
+    const sdb = createLeadgenDb(DatabaseSync as DatabaseSyncCtor);
+    const env = buildEnv(d1FromSqlite(sdb), makeKvStub());
+    const quote = await newQuote(env, "S4.3 N6 Storage Quote");
+
+    /** The funnel rows the REAL admin page ships to the island, right now. */
+    async function boardRows(): Promise<Array<Record<string, unknown>>> {
+      const page = await (await admin.request(`/admin/leadgen/quotes/${quote.public_id}/edit`, {}, env)).text();
+      const at = page.indexOf('id="lg-board-data"');
+      expect(at, "the admin page ships the board blob the island reads").toBeGreaterThan(-1);
+      const open = page.indexOf(">", at) + 1;
+      const blob = JSON.parse(page.slice(open, page.indexOf("</script>", open))) as {
+        funnels: Array<Record<string, unknown>>;
+      };
+      return blob.funnels;
+    }
+    /** The stored names, straight off those rows. */
+    async function storedNames(): Promise<string[]> {
+      return (await boardRows()).map((f) => String(f["name"]));
+    }
+
+    const island = funnelIsland(
+      await (await admin.request(`/admin/leadgen/quotes/${quote.public_id}/edit`, {}, env)).text(),
+    );
+    const sent: string[] = [];
+    const created: Array<{ name: string; status: number }> = [];
+    /** Run the SHIPPED addFunnel() against the CURRENT real board. */
+    async function runAdd(): Promise<void> {
+      const funnels = await boardRows();
+      const src = [sliceIslandFunction(island, "addFunnel"), "addFunnel();"].join("\n");
+      // The island fires its POST and chains .then() — so the create is still
+      // in flight when runInNewContext returns. Hold the very promise it was
+      // handed and await THAT, or the next storedNames() read races the write
+      // it is supposed to be measuring.
+      let inFlight: Promise<unknown> = Promise.resolve();
+      runInNewContext(src, {
+        ...SANDBOX_BUILTINS,
+        BOARD: { funnels, quote_public_id: quote.public_id },
+        quoteId: quote.public_id,
+        API: "/api/admin/leadgen",
+        req: (method: string, url: string, body: { funnel_name?: string }) => {
+          const name = String(body.funnel_name);
+          sent.push(name);
+          const p = Promise.resolve(admin.request(url, jsonInit(method, body), env)).then(async (r: Response) => {
+            created.push({ name, status: r.status });
+            return { ok: r.ok, body: (await r.json()) as unknown };
+          });
+          inFlight = p;
+          return p;
+        },
+        reloadPage: () => { /* the next boardRows() IS the reload */ },
+        showInlineErr: () => { /* success path only */ },
+        firstFieldError: () => "",
+      });
+      await inFlight;
+    }
+    const distinct = (ns: string[]): boolean => new Set(ns).size === ns.length;
+
+    // (1) three consecutive adds, names read back out of storage each time.
+    const seedNames = await storedNames();
+    expect(seedNames.length, "a new quote ships exactly one funnel").toBe(1);
+    await runAdd();
+    await runAdd();
+    await runAdd();
+    const afterAdds = await storedNames();
+    expect(created.map((c) => c.status), `every create returned 201 — sent ${JSON.stringify(sent)}`).toEqual([
+      201, 201, 201,
+    ]);
+    expect(
+      afterAdds.length,
+      `three adds really landed on top of the seed funnel — sent ${JSON.stringify(sent)}, ` +
+        `stored ${JSON.stringify(afterAdds)}`,
+    ).toBe(4);
+    expect(
+      afterAdds.filter((n) => /^New funnel \d+$/.test(n)).sort(),
+      `FAIL-BEFORE (measured): the shape mismatch made every add send 'New funnel 1' — ` +
+        `sent ["New funnel 1","New funnel 1","New funnel 1"], stored two funnels with the SAME name`,
+    ).toEqual(["New funnel 1", "New funnel 2", "New funnel 3"]);
+    expect(distinct(afterAdds), `stored names must be pairwise distinct: ${JSON.stringify(afterAdds)}`).toBe(true);
+
+    // (2) delete one of them for real, then add again. The ordinal is derived
+    // from the highest number STILL on the board, so it can never be rolled
+    // backwards onto a name a surviving funnel already holds.
+    const victim = (await boardRows()).find((f) => f["name"] === "New funnel 2");
+    expect(victim, "the funnel to delete is really on the board").toBeTruthy();
+    const del = await admin.request(
+      `${API}/funnels/${String(victim?.["public_id"])}`,
+      { method: "DELETE" },
+      env,
+    );
+    expect(del.status, await del.clone().text()).toBe(200);
+    const afterDelete = await storedNames();
+    expect(afterDelete, "the deleted funnel is gone from storage").not.toContain("New funnel 2");
+    expect(afterDelete.length, "…and only that one went").toBe(3);
+
+    await runAdd();
+    const afterRecreate = await storedNames();
+    expect(afterRecreate.length, "the post-delete add landed").toBe(4);
+    expect(
+      distinct(afterRecreate),
+      `delete-then-add must not reuse a name still in use: ${JSON.stringify(afterRecreate)}`,
+    ).toBe(true);
+    expect(
+      afterRecreate.filter((n) => /^New funnel \d+$/.test(n)).sort(),
+      "the new funnel takes the next free ordinal above the highest still on the board",
+    ).toEqual(["New funnel 1", "New funnel 3", "New funnel 4"]);
+
+    // Every name the island SENT across all four adds was distinct too — the
+    // storage view and the request view agree.
+    expect(sent, "four adds, four distinct names").toEqual([
+      "New funnel 1",
+      "New funnel 2",
+      "New funnel 3",
+      "New funnel 4",
+    ]);
+    // Print the measured values (the [R3 sweep] idiom): a reviewer reads the
+    // real stored names out of the run, not out of a claim.
+    console.log(
+      `[N6 storage] after 3 adds=${JSON.stringify(afterAdds)} | after delete=${JSON.stringify(afterDelete)} | ` +
+        `after delete-then-add=${JSON.stringify(afterRecreate)}`,
+    );
   });
 });

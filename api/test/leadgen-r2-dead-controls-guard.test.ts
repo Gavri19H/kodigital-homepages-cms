@@ -94,6 +94,7 @@ import {
   vocabularyOf,
   type DeclaredField as HelperDeclaredField,
   type DiffCoord,
+  type PaintedEl,
 } from "./helpers/leadgen-visible-paint";
 
 import { ROLE_META } from "../src/admin/leadgen/quotes-tabs/shared";
@@ -778,11 +779,14 @@ describe("R2 F-2 dead-control guard — the guard itself fails on a NEW dead con
 //
 // IT IS NOT A BROWSER. It measures no box, so it cannot see layout collapse,
 // a 0px-wide panel, overflow clipping or stacking order; it treats every
-// pseudo (`:hover`, `:focus-visible`, `::after`, …) as non-matching, so a key
-// alive ONLY in a hover state or a generated box reads dead here; it sees only
-// server-rendered output, never the runtime island. The live-browser half of
-// every claim here is the conductor's driven re-measurement (E6/E10), not this
-// lane.
+// pseudo-CLASS (`:hover`, `:focus-visible`, `:has()`, …) as non-matching, so a
+// key alive ONLY in a hover state reads dead here; it sees only server-rendered
+// output, never the runtime island. GENERATED CONTENT is NOT excluded — a
+// `::before`/`::after` box is painted at rest and a reviewer photographed one
+// (R2 P8-4 F-8) — so each visible element carries its resolved pseudo-ELEMENT
+// layers too, with the STATE pseudo-elements (`::selection`, …) excluded by
+// name. The live-browser half of every claim here is the conductor's driven
+// re-measurement (E6/E10), not this lane.
 // ---------------------------------------------------------------------------
 
 const THEME_FILE = path.join(SRC, "theme.ts");
@@ -1152,12 +1156,45 @@ const FOOTER_LINK_ROW_BLOCKS = {
 // vocabulary cannot. It is never a shortcut to a green — the key must still
 // move the visible fingerprint between the two values named here, and the
 // reason must say why the generic pair could not have measured anything.
+//
+// `omit` (R2 P8-4 F-8) is the third: LOGO_PROBE_OMITS, verbatim, for the frame
+// base — "a prop that is only reachable when a SIBLING prop is absent needs
+// that sibling omitted from its probe base". FRAME_PROBE_BASE pins every group
+// ON so no key can be dead merely for being switched off; for two keys that
+// pinning is itself what makes the key unmeasurable, and the omission is
+// declared here with the measurement that proves it. It is NOT an exemption:
+// the key still has to move the visible fingerprint, and it does.
 const FRAME_PROBE_CONTEXT: ReadonlyArray<{
   key: string;
-  patch: Record<string, unknown>;
+  patch?: Record<string, unknown>;
+  /** Dotted paths deleted from FRAME_PROBE_BASE before this key is probed. */
+  omit?: readonly string[];
   reason: string;
   values?: readonly unknown[];
 }> = [
+  {
+    key: "template",
+    omit: [
+      "header",
+      "progress",
+      "back",
+      "disclosure",
+      "footer",
+      "trust_strip",
+      "benefit_bar",
+      "background",
+      "section_slot",
+      "mobile",
+    ],
+    reason:
+      "`template` IS the group-DEFAULTS selector: effectiveFrame(template, patch) takes each group from the template and lets the patch override it. FRAME_PROBE_BASE pins every one of those groups, so two different templates resolve to configs that differ in the id string and nothing else — measured: all five sibling templates fingerprint-IDENTICAL to `centered` under the pinned base, 0 coordinates each. That is a property of the probe, not of the key. Omitting the pinned groups leaves `compat.allow_section_chrome` (not a template default) and measures the flip the operator actually performs on a funnel whose groups they have not overridden: measured centered -> header-footer = 42 visible coordinates, including a `.lg-secure-badge` element that appears. The omit list is asserted below to cover every EffectiveFrameConfig group, so a group added later cannot slip out of the template's reach unnoticed.",
+  },
+  {
+    key: "trust_strip.mobile",
+    omit: ["mobile.trust_strip_mobile"],
+    reason:
+      "A SIBLING control that out-ranks it in the cascade, the same precedence shape as LOGO_PROBE_OMITS' media_id-over-url. This key emits `.lg-frame-trust--{wrap|scroll}` (frame.ts:600) and its only rule is `.lg-frame-trust--scroll .lg-logo-strip` (specificity 0,2,0) inside the sole @media block; styles.ts ALSO ships `.lg-frame--m-trust-{wrap|scroll} .lg-frame-trust .lg-logo-strip` (0,3,0, later in source), emitted by frame.ts:252 whenever mobile.trust_strip_mobile is set — which FRAME_PROBE_BASE pins. Measured with the sibling pinned: 0 coordinates; with it omitted (the state of any funnel whose operator has not opened the Mobile panel): 4 coordinates — @mobile .lg-logo-strip flex-wrap wrap->nowrap, overflow-x visible->auto, justify-content center->flex-start. The SHADOWING is a real defect in a file this slice does not own and is REPORTED as one, not exempted here: two offered controls for one surface, the Mobile one silently winning.",
+  },
   {
     key: "progress.icon",
     patch: { progress: { style: "icon_on_track" } },
@@ -1348,10 +1385,22 @@ function deepMerge(into: Record<string, unknown>, patch: Record<string, unknown>
   return into;
 }
 
+/** Remove one dotted path from a probe base (the `omit` half of a context). */
+function deleteDotted(target: Record<string, unknown>, key: string): void {
+  const parts = key.split(".");
+  let node: Record<string, unknown> | undefined = target;
+  for (let i = 0; i < parts.length - 1 && node !== undefined; i++) {
+    const child: unknown = node[parts[i] as string];
+    node = typeof child === "object" && child !== null ? (child as Record<string, unknown>) : undefined;
+  }
+  if (node !== undefined) delete node[parts[parts.length - 1] as string];
+}
+
 function paintedForFrameKey(spec: KeySpec, value: unknown): SweepPage {
   const ctx = FRAME_PROBE_CONTEXT.find((c) => c.key === spec.key);
   let base = structuredClone(FRAME_PROBE_BASE);
-  if (ctx !== undefined) base = deepMerge(base, structuredClone(ctx.patch));
+  for (const path of ctx?.omit ?? []) deleteDotted(base, path);
+  if (ctx?.patch !== undefined) base = deepMerge(base, structuredClone(ctx.patch));
   if (spec.key === "template") return sweepPage({ template: value as string, frame: base });
   return sweepPage({ frame: setDotted(base, spec.key, value) });
 }
@@ -1528,6 +1577,60 @@ describe("R2 P8 M2/R3 sweep — EVERY authorable design key moves a value a visi
     expect(SWEEP_EXEMPTIONS.filter((e) => !e.key.includes(".")).map((e) => e.key)).toEqual(["spacing"]);
   });
 
+  // R2 P8-4 F-8. A probe context is NOT an exemption — the key it names is
+  // still driven and still required to paint by the FRAME CONFIG leg below.
+  // What is pinned here is that the list cannot grow silently, that every entry
+  // states its measurement, and that `template`'s omission really does cover
+  // the whole group set (a group added tomorrow must not fall outside it).
+  it("every declared PROBE CONTEXT is reasoned, PINNED, and never an exemption in disguise", () => {
+    for (const c of FRAME_PROBE_CONTEXT) {
+      // The same floor SWEEP_EXEMPTIONS carries: a reason, never a word.
+      expect(c.reason.trim().length, `probe context ${c.key} states why + what it measured`).toBeGreaterThan(120);
+      // An `omit` REMOVES a sibling from the base, so it must additionally
+      // state the measurement on BOTH sides of the omission.
+      if (c.omit !== undefined) {
+        expect(c.reason.trim().length, `omission ${c.key} states what it measured with and without`).toBeGreaterThan(
+          400,
+        );
+      }
+      expect(
+        c.patch !== undefined || c.omit !== undefined || c.values !== undefined,
+        `probe context ${c.key} declares something`,
+      ).toBe(true);
+      // Every key with a context is a key the sweep really enumerates, and it
+      // is NEVER also exempt — a key cannot be both "measured this way" and
+      // "not measured".
+      expect(
+        [...FRAME_KEYS.keys.map((k) => k.key), "template"],
+        `probe context ${c.key} names an enumerated key`,
+      ).toContain(c.key);
+      expect(SWEEP_EXEMPTIONS.map((e) => e.key)).not.toContain(c.key);
+    }
+    expect(FRAME_PROBE_CONTEXT.map((c) => c.key).sort()).toEqual([
+      "footer.link_separator",
+      "footer.link_underline",
+      "footer.palette_scope.link",
+      "header.cta.tel",
+      "progress.icon",
+      "progress.icon_media_id",
+      "template",
+      "trust_strip.mobile",
+    ]);
+    // `template` supplies the DEFAULTS of every group, so its omission must
+    // cover every group — otherwise a group added later stays pinned by the
+    // base and quietly shrinks what the template is measured on.
+    const templateOmits = FRAME_PROBE_CONTEXT.find((c) => c.key === "template")?.omit ?? [];
+    expect([...templateOmits].sort()).toEqual(frameGroupMembers().map((m) => m.name).filter((n) => n !== "compat").sort());
+    // …and the ONE group it keeps really is not a template default: compat is
+    // the save-time chrome switch, identical across every FrameTemplateDef.
+    const compatPerTemplate = new Set(
+      (vocabularyFor({ name: "template", typeText: "FrameTemplateId", optional: false }, "EffectiveFrameConfig", false) as string[]).map(
+        (id) => JSON.stringify(effectiveFrame(id as never, {} as unknown as FrameConfig).frame.compat),
+      ),
+    );
+    expect(compatPerTemplate.size, "compat is identical across every template, so keeping it pins nothing").toBe(1);
+  });
+
   // Renders + cascade-resolves one page per key per value; the vitest default
   // 5s budget is a wall-clock coin flip for this leg, so it is stated.
   it("INLINE theme_json — all 34 keys paint a visible element", { timeout: 120_000 }, () => {
@@ -1664,6 +1767,170 @@ describe("R2 P8 M2/R3 sweep — the predicate itself fails on a dead, a MIS-TARG
       html,
     });
     expect(visibleDiffAnyViewport(readByARule("#D32F2F"), readByARule("#0E7C3A")).length).toBeGreaterThan(0);
+  });
+
+  // =========================================================================
+  // R2 P8-4 — THE CLASS-CHANGE INVARIANT, PROVEN IN BOTH DIRECTIONS.
+  //
+  //   A class change counts as paint IF AND ONLY IF the changed class actually
+  //   SELECTS A RULE that alters a computed value on a visible element.
+  //
+  // F-7 proved only the first direction (class alone = nothing) and, by ALSO
+  // discarding generated content, broke the second: it named
+  // `progress.icon_media_id` dead while a fresh-context reviewer PHOTOGRAPHED
+  // its custom marker on a live visitor page
+  // (docs/leadgen/r2/evidence/p8/review-p8-4/d-visitor-icon-custom-zoom.png).
+  // Both cannot be true. So the three legs below pin BOTH directions
+  // permanently — a bare class is nothing (1), a class with a rule behind it is
+  // paint (2), and DELETING that rule while keeping the class makes the SWEEP
+  // RUNNER itself go red and NAME the key (3).
+  // =========================================================================
+  it("F-7: a class-only flip (no rule behind it) is DEAD; the SAME flip WITH a real rule behind it is ALIVE", () => {
+    const { css, html } = sweepPage({});
+    expect(html.match(/class="lg-question-card"/g)).toHaveLength(1);
+    // An ADDED modifier class (never a rename) — the element keeps every
+    // existing `.lg-question-card` declaration untouched, so the ONLY
+    // candidate difference between the two renders is the extra class token.
+    const flipped = html.replace('class="lg-question-card"', 'class="lg-question-card lg-question-card--flag"');
+    // SABOTAGE: delete the rule that would have painted the flag class — here,
+    // simply never add one. The class list differs; nothing else does.
+    const classOnly = { css, html: flipped };
+    const base = { css, html };
+    expect(
+      visibleDiffAnyViewport(base, classOnly),
+      "a bare class-list change must not, by itself, be credited as a visitor-visible change",
+    ).toEqual([]);
+    // RESTORE the paint: the SAME class flip, now with a REAL rule behind the
+    // added class (the shape a correctly-wired control has).
+    const withRule = {
+      css: withExtraRule(css, `${DEFAULT_FUNNEL_SCOPE} .lg-question-card--flag{outline:2px solid #123456}`),
+      html: flipped,
+    };
+    expect(
+      visibleDiffAnyViewport(base, withRule).length,
+      "the identical class flip IS credited once a real declaration backs it",
+    ).toBeGreaterThan(0);
+  });
+
+  // (2) at the REAL key, not a synthetic: the class flip `progress.icon_media_id`
+  // performs carries rules, so it must be ALIVE — and the rule + the value it
+  // moves are asserted by name, so "alive" can never be a bare boolean again.
+  it("F-8 (2): progress.icon_media_id's class flip IS paint — the RULE and the moved value, named", () => {
+    const spec = FRAME_KEYS.keys.find((k) => k.key === "progress.icon_media_id") as KeySpec;
+    expect(spec.values, "the declared operator flip: no image chosen vs a real media key").toEqual([
+      null,
+      "probe-progress-mark",
+    ]);
+    expect(deadUnderVisiblePaint([spec], paintedForFrameKey)).toEqual([]);
+    // The marker is a GENERATED box on `.lg-progress-fill`, which is exactly
+    // what the reviewer photographed. Name the layer, the declaration and the
+    // value — the operator's own media key, resolved through the inline
+    // `--lg-progress-icon-url` the region carries.
+    const fill = (value: unknown): PaintedEl => {
+      const page = paintedForFrameKey(spec, value);
+      const el = visiblePage(page.css, page.html).visible.find((v) => v.classes.includes("lg-progress-fill"));
+      expect(el, "the progress fill is a VISIBLE element of the probe page").toBeTruthy();
+      return el as PaintedEl;
+    };
+    const custom = fill("probe-progress-mark").pseudos.get("::before");
+    expect(custom?.get("background-image")?.value, "the operator's own image lands on the marker").toBe(
+      'url("/media/probe-progress-mark")',
+    );
+    expect(custom?.get("background-image")?.selector).toContain("lg-frame-progress--icon-custom");
+    expect(custom?.get("background-image")?.selector).toContain(".lg-progress-fill::before");
+    // …and with no image chosen the same layer carries no such declaration.
+    expect(fill(null).pseudos.get("::before")?.get("background-image")).toBeUndefined();
+  });
+
+  // (3) The other direction, at the RUNNER level. Keep the class flip exactly
+  // as the product emits it and delete every rule the changed classes select:
+  // the sweep must go red and NAME the key. This is the leg that would have
+  // caught F-7's regression from the other side.
+  it("F-8 (3): DELETE the rules a live class flip selects, keep the class — the sweep NAMES the key", () => {
+    const spec = FRAME_KEYS.keys.find((k) => k.key === "progress.icon_media_id") as KeySpec;
+    expect(deadUnderVisiblePaint([spec], paintedForFrameKey), "alive at HEAD").toEqual([]);
+    // The tokens the flip really moves, read off the REAL renders — never typed.
+    const classesOf = (value: unknown): string[] => {
+      const page = paintedForFrameKey(spec, value);
+      return (visiblePage(page.css, page.html).visible.find((v) =>
+        v.classes.some((c) => c.startsWith("lg-frame-progress--icon-")),
+      )?.classes ?? []).filter((c) => c.startsWith("lg-frame-progress--icon-"));
+    };
+    const before = classesOf(spec.values[0]);
+    const after = classesOf(spec.values[1]);
+    const moved = [...before.filter((c) => !after.includes(c)), ...after.filter((c) => !before.includes(c))];
+    expect(moved.sort(), "the flip really is a class flip").toEqual([
+      "lg-frame-progress--icon-custom",
+      "lg-frame-progress--icon-dot",
+    ]);
+    const sabotaged = (s: KeySpec, value: unknown): SweepPage => {
+      const real = paintedForFrameKey(s, value);
+      const css = real.css
+        .split("\n")
+        .filter((line) => !moved.some((token) => line.slice(0, line.indexOf("{")).includes(token)))
+        .join("\n");
+      expect(css.length, "rules really were removed from the REAL sheet").toBeLessThan(real.css.length);
+      return { css, html: real.html };
+    };
+    // The class flip SURVIVES the sabotage — only the paint behind it is gone.
+    expect(
+      classesOf(spec.values[1]).includes("lg-frame-progress--icon-custom"),
+      "the markup is untouched: the class is still flipped",
+    ).toBe(true);
+    expect(
+      deadUnderVisiblePaint([spec], sabotaged),
+      "with every rule its class selects deleted, the key must read DEAD and be NAMED",
+    ).toEqual(["progress.icon_media_id"]);
+  });
+
+  // The widening in F-8 is to GENERATED CONTENT only. STATE is still excluded,
+  // and this leg is what stops the next round from quietly letting a hover-only
+  // control count as paint.
+  it("F-8: a pseudo-CLASS (state) rule is still NOT paint, while a pseudo-ELEMENT rule is", () => {
+    const { css, html } = sweepPage({});
+    const base = { css, html };
+    const onHover = (value: string): SweepPage => ({
+      css: withExtraRule(css, `${DEFAULT_FUNNEL_SCOPE} .lg-question-card:hover{outline:2px solid ${value}}`),
+      html,
+    });
+    expect(
+      visibleDiffAnyViewport(base, onHover("#D32F2F")),
+      "a rule that only paints while the visitor hovers is not paint at rest",
+    ).toEqual([]);
+    for (const state of [":focus-visible", ":disabled", ":checked", ":has(.lg-input)"]) {
+      expect(
+        visibleDiffAnyViewport(base, {
+          css: withExtraRule(css, `${DEFAULT_FUNNEL_SCOPE} .lg-question-card${state}{outline:2px solid #D32F2F}`),
+          html,
+        }),
+        `${state} is STATE, never at-rest paint`,
+      ).toEqual([]);
+    }
+    // …and the generated box on the SAME element, at rest, IS.
+    expect(
+      visibleDiffAnyViewport(base, {
+        css: withExtraRule(css, `${DEFAULT_FUNNEL_SCOPE} .lg-question-card::after{content:"";background:#D32F2F}`),
+        html,
+      }).length,
+      "a `::after` a visitor really sees at rest IS paint",
+    ).toBeGreaterThan(0);
+    // A state PSEUDO-ELEMENT is excluded by name for the same reason `:hover`
+    // is — it paints only while the visitor is doing something.
+    expect(
+      visibleDiffAnyViewport(base, {
+        css: withExtraRule(css, `${DEFAULT_FUNNEL_SCOPE} .lg-question-card::selection{background:#D32F2F}`),
+        html,
+      }),
+      "::selection paints only during a selection",
+    ).toEqual([]);
+    // A generated box that is switched off paints nothing either.
+    expect(
+      visibleDiffAnyViewport(base, {
+        css: withExtraRule(css, `${DEFAULT_FUNNEL_SCOPE} .lg-question-card::after{content:"";display:none;background:#D32F2F}`),
+        html,
+      }),
+      "a `display:none` generated box is as dead as a hidden element",
+    ).toEqual([]);
   });
 });
 

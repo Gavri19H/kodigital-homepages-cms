@@ -6484,7 +6484,7 @@ async function computeVariantV25Problems(
               path: `section.${row.public_id}.content`,
               scope: "section",
               severity: "warning",
-              message: `Legacy override is ON for this funnel: slide ${slide} '${row.section_name}' keeps its own page chrome (${chromeTypes.join(", ")}) — it may appear twice.`,
+              message: `Legacy override is ON for this funnel: section ${slide} '${row.section_name}' keeps its own page chrome (${chromeTypes.join(", ")}) — it may appear twice.`,
               fix_url: fixSection,
             }
           : {
@@ -6493,15 +6493,18 @@ async function computeVariantV25Problems(
               severity: "error",
               // §14.1 copy pattern in full — the remedy names the Section
               // Builder's [Move to funnel layout] action (message text only;
-              // fix_url stays the [Review slide] section-edit deep link).
-              // "Slide" is LEGAL here: this copy renders on Quote-Builder
-              // activation surfaces (preflight panel / 409 problems), never
-              // on a Section-Builder page (C6 lint scope). U15 fix-round
-              // (2026-07-15): the bracketed button-name reference is updated
-              // to match ui-section-studio.ts's renamed "Move to funnel
-              // layout" button verbatim — this message must keep pointing at
-              // a button that exists.
-              message: `Slide ${slide} '${row.section_name}' contains funnel-layout elements (${chromeTypes.join(", ")}) that would render twice on the live page. Remove them ([Move to funnel layout] in the Section Builder) or enable the legacy override under Advanced.`,
+              // fix_url stays the [Edit Section] section-edit deep link).
+              // P8-4 F-3 (ADJ-P8-16, contract §6 M9): this copy used to say
+              // "Slide" on the claim it was Quote-Builder-only vocabulary
+              // exempt from the C6 "no slide anywhere" lint (never on a
+              // Section-Builder page). That exemption is REVOKED: the product
+              // has no slides on ANY surface, so the sentence now says
+              // "section" like every other row in this function. U15 fix-round
+              // (2026-07-15): the bracketed button-name reference still must
+              // match ui-section-studio.ts's renamed "Move to funnel layout"
+              // button verbatim — this message must keep pointing at a button
+              // that exists.
+              message: `Section ${slide} '${row.section_name}' contains funnel-layout elements (${chromeTypes.join(", ")}) that would render twice on the live page. Remove them ([Move to funnel layout] in the Section Builder) or enable the legacy override under Advanced.`,
               fix_url: fixSection,
             },
       );
@@ -6513,7 +6516,7 @@ async function computeVariantV25Problems(
         path: `section.${row.public_id}.progress`,
         scope: "section",
         severity: "warning",
-        message: `Slide ${slide} '${row.section_name}' renders its own progress indicator — the funnel layout already shows progress on every slide.`,
+        message: `Section ${slide} '${row.section_name}' renders its own progress indicator — the funnel layout already shows progress on every section.`,
         fix_url: fixSection,
       });
     }
@@ -6522,7 +6525,7 @@ async function computeVariantV25Problems(
         path: `section.${row.public_id}.back`,
         scope: "section",
         severity: "warning",
-        message: `Slide ${slide} '${row.section_name}' renders its own back link — the funnel layout already shows back navigation.`,
+        message: `Section ${slide} '${row.section_name}' renders its own back link — the funnel layout already shows back navigation.`,
         fix_url: fixSection,
       });
     }
@@ -6534,7 +6537,7 @@ async function computeVariantV25Problems(
         path: `section.${row.public_id}.continue`,
         scope: "section",
         severity: "warning",
-        message: `Slide ${slide} has more than one Continue button — only the first is shown.`,
+        message: `Section ${slide} has more than one Continue button — only the first is shown.`,
         fix_url: fixSection,
       });
     }
@@ -6554,7 +6557,7 @@ async function computeVariantV25Problems(
         path: `section.${row.public_id}.headline`,
         scope: "section",
         severity: "warning",
-        message: `Slide ${slide} shows no question headline.`,
+        message: `Section ${slide} shows no question headline.`,
         fix_url: fixSection,
       });
     }
@@ -6566,7 +6569,7 @@ async function computeVariantV25Problems(
         path: `section.${row.public_id}.design_overrides`,
         scope: "section",
         severity: "warning",
-        message: `Slide ${slide} uses ${hexCount} custom ${hexCount === 1 ? "color" : "colors"} — convert to theme colors.`,
+        message: `Section ${slide} uses ${hexCount} custom ${hexCount === 1 ? "color" : "colors"} — convert to theme colors.`,
         fix_url: fixSection,
       });
     }

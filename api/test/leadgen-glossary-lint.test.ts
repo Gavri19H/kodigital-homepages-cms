@@ -15,11 +15,15 @@
 //   · "slot" for placements (Section-Builder surfaces; the Quote Builder's
 //     "Section slot" region name from 03 §3.3 / 04 §4 is the ONE allowed form)
 //   · C6: the word "slide" ANYWHERE in the served Section-Builder pages
-//     (SSR copy, island JS, blobs, styles — the FULL page), while "slide"
-//     stays ALLOWED Quote-Builder vocabulary (calibration test asserts the
-//     quote editor still says it) — this SUPERSEDES the wave-1 page lint that
-//     lived in leadgen-section-studio-ui.test.ts, extended to the dedicated
-//     term matrix below without weakening (same pages, same regex, plus the
+//     (SSR copy, island JS, blobs, styles — the FULL page). P8-4/ADJ-P8-16
+//     REVOKED the old "stays ALLOWED Quote-Builder vocabulary" exemption —
+//     the product has no slides on any surface — so the calibration below no
+//     longer claims "slide" is allowed copy; it pins the SAME two
+//     historically-fragile sentences now reading "section", and keeps a
+//     scanner-fires canary on the non-copy "slide" plumbing that still
+//     remains — this SUPERSEDES the wave-1 page lint that lived in
+//     leadgen-section-studio-ui.test.ts, extended to the dedicated term
+//     matrix below without weakening (same pages, same regex, plus the
 //     quote-side calibration).
 //   · C1: the phrase "provider value" only ever adjacent to an Offer name
 //     (window check over emitted text and island source).
@@ -750,25 +754,42 @@ describeDb("15 §15.2 glossary-lint — normal-mode language over the emitted bu
     expect(violations, `Section-Builder pages say 'slide' ${violations.length}x`).toEqual([]);
   });
 
-  it("C6 calibration: the scanner really fires — 'slide' remains ALLOWED Quote-Builder vocabulary", async () => {
+  it("C6 calibration: the scanner still fires on real served bytes; Quote-Builder COPY is now clean of 'slide' too (M9/ADJ-P8-16 revoked the exemption)", async () => {
     const all = await pages();
     const quotesEdit = all.find((x) => x.label === "quotes-edit")!;
-    // RE-ANCHORED (P7 D2 fallout / R2). This used to pin /\bSlide\b/ — the
-    // capitalised all-slides stepper label ("Slide 1", island "Slide N of M").
-    // 87f64f0 deleted that stepper with the dead §4.1 canvas, so the pinned
-    // string no longer exists ANYWHERE and the calibration had stopped
-    // calibrating: a C6 scan whose control word cannot be found is a scan
-    // that can no longer fail. Re-anchored to the SAME scanner the C6 case
-    // above runs (not a second hand-written regex) over the word that IS
-    // still Quote-Builder vocabulary — the lower-case "slide"/"slides" of the
-    // live scope/progress copy — so the Section-Builder assertion keeps its
-    // teeth: this proves the pattern finds real hits when they exist.
+    // RE-ANCHORED AGAIN (P8-4 F7, ADJ-P8-16 fallout). The previous anchors —
+    // "…affects every slide and every component default…" (Themes scope-head,
+    // themes.ts) and "Progress counts the slides…" (Templates progress-note,
+    // templates.ts) — were real operator COPY the C6 ban (Section-Builder
+    // only, above) deliberately left alone. P8-4's M9 fix (contract §6 M9:
+    // "stale copy naming things that no longer exist") went beyond its five
+    // listed items and REVOKED that exemption outright — "the product has no
+    // slides on any surface" (themes.ts / shared.ts P8-4 F-3 comments) — so
+    // BOTH sentences now say "section", and neither builder's pages carry
+    // "slide" as human-facing copy any more. Do NOT restore a sentence
+    // containing "slide" to make this pass — the exemption is revoked, not
+    // stale bookkeeping.
+    //
+    // The scanner still returns hits on this page today, but ONLY from
+    // pre-existing, non-copy residue this leg does not own and this phase did
+    // not touch: the `slideList` local (funnel.ts) and the dead
+    // `.lg-slide-current` CSS hook (shared.ts) — an identifier and a
+    // stylesheet name, exactly the two categories this leg has always
+    // excluded as invalid calibration evidence. Keeping the assertion pointed
+    // at them (rather than re-labelling them as "allowed vocabulary") is what
+    // keeps the "the scanner is not vacuous" canary honest.
     const hits = [...quotesEdit.raw.matchAll(c6SlideScanner())].map((m) => m[0]);
-    expect(hits.length, "the C6 scanner finds Quote-Builder 'slide' copy").toBeGreaterThan(0);
-    // …and it is real operator COPY, not an identifier or a stylesheet name:
-    // the two live scope/progress sentences the Quote Builder still shows.
-    expect(quotesEdit.raw).toContain("affects every slide and every component default of this funnel");
-    expect(quotesEdit.raw).toContain("Progress counts the slides of this funnel variant automatically.");
+    expect(hits.length, "the C6 scanner still matches real served bytes (residual plumbing, not copy)").toBeGreaterThan(0);
+    // The two historically-fragile sentences, grep-confirmed at their new
+    // wording (themes.ts:305, templates.ts:826) — proving the M9 fix landed
+    // at both surfaces and has not regressed back to "slide".
+    expect(quotesEdit.raw).toContain("affects every section and every component default of this funnel");
+    expect(quotesEdit.raw).toContain("Progress counts the sections of this funnel variant automatically.");
+    // Equal-or-greater strictness: the SAME scanner finds NOTHING inside
+    // either replacement sentence — a clean word-swap, not a partial edit
+    // that left "slide" hiding in the same string.
+    expect([..."affects every section and every component default of this funnel".matchAll(c6SlideScanner())]).toEqual([]);
+    expect([..."Progress counts the sections of this funnel variant automatically.".matchAll(c6SlideScanner())]).toEqual([]);
   });
 
   it("raw component type identifiers never appear as normal-mode operator copy (both builders)", async () => {

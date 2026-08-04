@@ -1179,10 +1179,12 @@ export function renderOverrideSwitch(group: string, isControl: boolean): string 
 
 
 // §7.1 scope header — first element of every region inspector: "Editing:
-// Funnel layout — <Region> · affects every slide of this funnel". Trust strip
-// + benefit bar additionally carry the C7 "funnel-wide" chip.
+// Funnel layout — <Region> · affects every section of this funnel". Trust
+// strip + benefit bar additionally carry the C7 "funnel-wide" chip.
+// P8-4 F-3 (ADJ-P8-16, contract §6 M9): was "every slide of this funnel" —
+// the product has no slides on any surface.
 export function scopeHead(regionLabel: string, funnelWide: boolean): string {
-  return `<div class="lg-scope-head">Editing: <strong>Funnel layout — ${escapeHtml(regionLabel)}</strong>${funnelWide ? '<span class="lg-scope-chip">funnel-wide</span>' : ""} · affects every slide of this funnel</div>`;
+  return `<div class="lg-scope-head">Editing: <strong>Funnel layout — ${escapeHtml(regionLabel)}</strong>${funnelWide ? '<span class="lg-scope-chip">funnel-wide</span>' : ""} · affects every section of this funnel</div>`;
 }
 
 

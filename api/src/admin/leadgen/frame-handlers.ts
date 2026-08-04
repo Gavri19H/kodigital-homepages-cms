@@ -325,9 +325,21 @@ export async function putFunnelThemeHandler(c: AdminContext): Promise<Response> 
 //   * built-in  → def.defaults (already complete) + def.id + def.arrangement;
 //   * saved row → effectiveFrame(family defaults ⊕ the row's sparse frame_json)
 //     + the row's public_id, with NO arrangement prose to read.
-// The arrangement string stays an EXTRA trust/benefit trigger (not the only
-// one) so every built-in emits byte-identical markup to before, while a saved
-// row's real `enabled` flags drive its own bands.
+// R2 P8 FIX ROUND F4 (review-p8-4 F-5) — the arrangement string is NO LONGER a
+// trust/benefit trigger, and neither is `trust_strip.placement`. Both were kept
+// so the six built-ins emitted byte-identical markup to their pre-M10 selves;
+// measured on this branch, that byte-identity was three LIES:
+//   * saved row "White + trust bar" — trust_strip.enabled false, placement
+//     "footer" → the placement fired the band, and the funnel using it renders
+//     NO trust region at all (frame.ts renderTrustStripRegion: `if (!t.enabled)
+//     return ""`);
+//   * built-in `white-trust` — the same shape, from the same trigger;
+//   * built-ins `centered` (arrangement "... → trust strip → ...") and
+//     `header-cta` (arrangement "... → benefit bar → ...") — prose describing a
+//     region their own defaults switch OFF.
+// A thumbnail is a picture of what the template RENDERS, so the predicate is
+// now the renderer's own: `enabled`. Three built-in thumbnails lose a band they
+// were never entitled to; the picker CSS is untouched.
 // R2 P8 F1 (M10, the consumer leg): the bands are derived ONCE, as DATA — a
 // class list per band plus the thumb's own root class list. `frameThumbnailHtml`
 // below serialises that data to markup for the callers that want markup; the
@@ -344,7 +356,7 @@ export interface FrameThumbnailData {
   bands: string[];
 }
 
-function frameThumbnailData(id: string, d: EffectiveFrameConfig, arrangement: string): FrameThumbnailData {
+function frameThumbnailData(id: string, d: EffectiveFrameConfig): FrameThumbnailData {
   const bands: string[] = [];
   if (d.disclosure.enabled && d.disclosure.location === "top_bar") {
     bands.push("lg-tpl-band lg-tpl-disclosure");
@@ -354,10 +366,10 @@ function frameThumbnailData(id: string, d: EffectiveFrameConfig, arrangement: st
     bands.push(`lg-tpl-band lg-tpl-progress lg-tpl-progress--${d.progress.style}`);
   }
   bands.push(`lg-tpl-band lg-tpl-slot lg-tpl-slot--${d.section_slot.card}`);
-  if (d.trust_strip.enabled || d.trust_strip.placement === "footer" || arrangement.includes("trust strip")) {
+  if (d.trust_strip.enabled) {
     bands.push("lg-tpl-band lg-tpl-trust");
   }
-  if (d.benefit_bar.enabled || arrangement.includes("benefit bar")) {
+  if (d.benefit_bar.enabled) {
     bands.push("lg-tpl-band lg-tpl-benefit");
   }
   if (d.footer.enabled) {
@@ -366,8 +378,8 @@ function frameThumbnailData(id: string, d: EffectiveFrameConfig, arrangement: st
   return { root_class: `lg-tpl-thumb lg-tpl-thumb--${id} lg-tpl-thumb--bg-${d.background.style}`, id, bands };
 }
 
-function frameThumbnailHtml(id: string, d: EffectiveFrameConfig, arrangement: string): string {
-  const data = frameThumbnailData(id, d, arrangement);
+function frameThumbnailHtml(id: string, d: EffectiveFrameConfig): string {
+  const data = frameThumbnailData(id, d);
   const bands = data.bands.map((cls) => `<span class="${escapeHtml(cls)}"></span>`).join("");
   return (
     `<div class="${escapeHtml(data.root_class)}"` +
@@ -376,7 +388,7 @@ function frameThumbnailHtml(id: string, d: EffectiveFrameConfig, arrangement: st
 }
 
 function frameTemplateThumbnailHtml(def: FrameTemplateDef): string {
-  return frameThumbnailHtml(def.id, def.defaults, def.arrangement);
+  return frameThumbnailHtml(def.id, def.defaults);
 }
 
 // A saved record's thumbnail. The row's frame_json is a SPARSE patch (that is
@@ -386,7 +398,7 @@ function frameTemplateThumbnailHtml(def: FrameTemplateDef): string {
 export function savedFrameTemplateThumbnailHtml(row: LeadgenFrameTemplateRow): string {
   const defaults = parseSavedFrameTemplateDefaults(row.frame_json);
   const { frame } = effectiveFrame(null, null, null, defaults);
-  return frameThumbnailHtml(row.public_id, frame, "");
+  return frameThumbnailHtml(row.public_id, frame);
 }
 
 // The SAME bands, as data. R2 P8 F1 (M10): the Templates tab's island cannot
@@ -397,7 +409,7 @@ export function savedFrameTemplateThumbnailHtml(row: LeadgenFrameTemplateRow): s
 export function savedFrameTemplateThumbnail(row: LeadgenFrameTemplateRow): FrameThumbnailData {
   const defaults = parseSavedFrameTemplateDefaults(row.frame_json);
   const { frame } = effectiveFrame(null, null, null, defaults);
-  return frameThumbnailData(row.public_id, frame, "");
+  return frameThumbnailData(row.public_id, frame);
 }
 
 export function listFrameTemplatesHandler(c: AdminContext): Response {
@@ -647,21 +659,28 @@ export async function deleteFrameTemplateHandler(c: AdminContext): Promise<Respo
 }
 
 // POST /funnels/:id/apply-template — "Apply to funnel…": set the funnel's base
-// template (leadgen_funnels.frame_template_id), MATERIALISE the template's own
-// authored leaves into the funnel's frame_config_json, and bump its active
-// variants so visitors get the new layout (03 §3.1). {template_id:null} clears
-// the pointer (→ the funnel falls back to frame_config_json.template,
-// effectiveFrame's behavior) and materialises nothing.
+// template (leadgen_funnels.frame_template_id), RECONCILE the funnel's own
+// frame_config_json with it, and bump its active variants so visitors get the
+// new layout (03 §3.1). {template_id:null} clears the pointer (→ the funnel
+// falls back to frame_config_json.template, effectiveFrame's behavior) and
+// changes no leaf.
 //
-// R2 P8 M3 / R2-1 — WHY the write is no longer the pointer alone. The pointer
-// is only the BASE layer of effectiveFrame, and the Quote Builder re-PUTs its
-// whole hydrated frame on every Save (quotes-tabs/funnel.ts:1675), so a funnel
-// that has ever been saved carries a COMPLETE frame_config_json that shadows
-// every leaf the template holds: measured on this branch, an apply moved
-// exactly ONE leaf of the served composition (`template`, the identity string
-// no CSS is keyed on) out of 46 leaves the template disagreed on. See
-// computeTemplateApply (designs/frames.ts) for the semantics and
-// test/leadgen-p8-m3-apply-template.test.ts for the before/after counts.
+// R2 P8 M3 / R2-1 — WHY the write is not the pointer alone. The pointer is only
+// the BASE layer of effectiveFrame, and a funnel that has ever been saved
+// carries a frame_config_json that shadows the leaves it holds: measured on this
+// branch, a pointer-only apply moved exactly ONE leaf of the served composition
+// (`template`, the identity string no CSS is keyed on) out of the 29 the
+// template disagreed on.
+//
+// R2 P8 FIX ROUND F4 — and WHY that write is a RECONCILE, not a copy.
+// computeTemplateApply now materialises the template's leaves over the funnel's
+// config and then PRUNES every leaf the template's own base already gives, so
+// the column ends up holding the funnel's DIFFERENCES from its template and
+// nothing else. Same served page (the pruned leaf comes back from the base it
+// was copied from); no shadow over a variant's own frame_template_id (F-2: A/B
+// arms can differ again); and `replaced_customisations` stops counting a
+// previous apply's own writes as the operator's (F-1). See designs/frames.ts for
+// the rule and test/leadgen-p8-m3-apply-template.test.ts for the driven counts.
 //
 // `dry_run:true` returns the SAME changes/confirmations with NO write, so the
 // Templates tab's confirm dialog can enumerate what this apply really does
@@ -699,10 +718,10 @@ export async function applyFrameTemplateToFunnelHandler(c: AdminContext): Promis
     });
   }
 
-  // The materialised config and the pointer move in ONE statement — a funnel
-  // can never be left pointing at a template whose leaves were not written.
-  // Nothing to materialise (clearing the pointer, or a template whose leaves
-  // the funnel already carries) leaves the column exactly as it was.
+  // The reconciled config and the pointer move in ONE statement — a funnel can
+  // never be left pointing at a template its own column still contradicts.
+  // Nothing to reconcile (clearing the pointer, or a config already equal to
+  // what this apply computes) leaves the column exactly as it was.
   const serialized = JSON.stringify(applied.merged);
   const materialise = templateDefaults !== null && funnel.frame_config_json !== serialized;
   if (materialise) {

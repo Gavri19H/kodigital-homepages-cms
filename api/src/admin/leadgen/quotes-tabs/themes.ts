@@ -293,12 +293,16 @@ function renderThemeEditorPanel(isControl: boolean): string {
   // that changes it. Both are filled by THEMES_TAB_SCRIPT from the board's own
   // #lg-board-data funnel rows (the same list the board columns render) — this
   // function's signature is fixed by its ui-quotes.ts call site, so no server
-  // data can reach it here, and no new endpoint is introduced. The trailing
-  // sentence stays byte-identical: it is pinned operator copy
-  // (test/leadgen-glossary-lint.test.ts's quote-builder "slide" calibration).
+  // data can reach it here, and no new endpoint is introduced.
+  // P8-4 F-3 (ADJ-P8-16, contract §6 M9): the trailing sentence used to read
+  // "slide" and was pinned as intentional Quote-Builder-only vocabulary by
+  // test/leadgen-glossary-lint.test.ts's C6 calibration. That exemption is
+  // REVOKED — the product has no slides on any surface — so the sentence now
+  // says "section"; the glossary-lint calibration's `toContain` on the old
+  // wording is now stale (reported, not owned by this file).
   return `<div class="lg-panel-card" id="lg-theme-editor">
   <h3>Funnel theme</h3>
-  <div class="lg-scope-head">Editing: <strong id="lg-theme-target-name" data-lg-target-funnel-name>this funnel</strong> · Funnel theme · affects every slide and every component default of this funnel<select class="form-select form-select-sm" id="lg-theme-target-select" data-lg-target-funnel aria-label="Funnel this theme edits" style="margin-left:8px;max-width:200px;vertical-align:middle"></select></div>
+  <div class="lg-scope-head">Editing: <strong id="lg-theme-target-name" data-lg-target-funnel-name>this funnel</strong> · Funnel theme · affects every section and every component default of this funnel<select class="form-select form-select-sm" id="lg-theme-target-select" data-lg-target-funnel aria-label="Funnel this theme edits" style="margin-left:8px;max-width:200px;vertical-align:middle"></select></div>
   ${renderOverrideSwitch("theme", isControl)}
   <h3>Colors</h3>
   <div id="lg-theme-palette">${paletteRows}</div>

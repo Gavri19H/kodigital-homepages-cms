@@ -20,9 +20,12 @@
 // WHAT THIS FILE IS NOT. The visible-paint predicate is not a browser (read the
 // limitations banner in test/helpers/leadgen-visible-paint.ts): it resolves the
 // real sheet against the real markup and can say a value a visitor could see
-// moved, but it measures no box and treats a generated box (::before/::after)
-// as non-matching. The pixel half of every claim below is the conductor's
-// driven re-measurement (E6), never this lane.
+// moved, but it measures no box, and every pseudo-CLASS (`:hover`, `:has()`, …)
+// is treated as non-matching. It DOES resolve generated content
+// (`::before`/`::after`) as of R2 P8-4 F-8 — which is the only place the
+// icon_on_track mark this file is about is ever painted. The pixel half of
+// every claim below is the conductor's driven re-measurement (E6), never this
+// lane.
 
 import { describe, expect, it } from "vitest";
 import { readFileSync } from "node:fs";
@@ -49,7 +52,8 @@ import {
   savedFrameTemplateThumbnailHtml,
 } from "../src/admin/leadgen/frame-handlers";
 import { makeFakeDb, buildEnv } from "./helpers/admin-test-kit";
-import { visibleDiffCoordsAnyViewport, describeCoord } from "./helpers/leadgen-visible-paint";
+import { visibleDiffCoordsAnyViewport, describeCoord, visiblePage } from "./helpers/leadgen-visible-paint";
+import type { PaintedEl } from "./helpers/leadgen-visible-paint";
 import type { Env } from "../src/env";
 
 const HERE = dirname(fileURLToPath(import.meta.url));
@@ -213,17 +217,40 @@ describe("P8 F1 · M1/R7 — the icon_on_track mark accepts the operator's own i
     expect(decls("custom", "before")).toContain("background-image:var(--lg-progress-icon-url)");
   });
 
-  it("VISIBLE PAINT: authoring the image moves what the M2 sweep measures (the mark class the paint rule selects on)", () => {
+  // R2 P8-4 F-8 — RE-POINTED, and STRENGTHENED. This leg used to assert
+  // `diff.some(c => c.classes.includes("lg-frame-progress"))`, i.e. that the
+  // region's CLASS moved. A class is a handle a rule MAY key on, never paint in
+  // itself, and the P8-4 review proved the point from both sides: the class
+  // assertion passed while the predicate credited nothing painted, and then —
+  // once a class alone stopped counting — read 0 while a reviewer PHOTOGRAPHED
+  // the mark on a live visitor page. So the assertion below is the MARK ITSELF:
+  // the generated box on `.lg-progress-fill` that the paint rule targets, with
+  // the operator's own media reference resolved into it. Strictly stronger —
+  // the old assertion is implied by the new one and could not have failed for
+  // any reason the new one tolerates.
+  it("VISIBLE PAINT: authoring the image moves the MARK ITSELF (the ::before the paint rule targets, not a class)", () => {
     const page = (mediaId: string | null) => ({
       css: CSS,
       html: render({ progress: { style: "icon_on_track", icon: "custom", icon_media_id: mediaId } } as unknown as FrameConfig),
     });
     const diff = visibleDiffCoordsAnyViewport(page(null), page("brand-mark.png"));
     expect(diff.length, "no visitor-visible coordinate moved").toBeGreaterThan(0);
+    const marker = (mediaId: string | null): Map<string, { value: string; selector: string }> => {
+      const { css, html } = page(mediaId);
+      const fill = visiblePage(css, html).visible.find((v) => v.classes.includes("lg-progress-fill"));
+      expect(fill, "the progress fill is a VISIBLE element of the served frame").toBeTruthy();
+      return (fill as PaintedEl).pseudos.get("::before") ?? new Map();
+    };
+    // The operator's image, resolved through the /media/ prefixer, on the mark.
+    expect(marker("brand-mark.png").get("background-image")?.value).toBe('url("/media/brand-mark.png")');
+    expect(marker("brand-mark.png").get("background-image")?.selector).toContain(".lg-progress-fill::before");
+    // …and with no image authored the same layer carries no image at all.
+    expect(marker(null).get("background-image")).toBeUndefined();
+    // …and the diff really names that layer, so the sweep sees what this does.
     expect(
-      diff.some((c) => c.classes.includes("lg-frame-progress")),
+      diff.map(describeCoord).filter((d) => d.includes("lg-progress-fill") && d.includes("::before background-image")),
       diff.map(describeCoord).join(" · "),
-    ).toBe(true);
+    ).not.toEqual([]);
   });
 
   it("the operator can reach it: the Marker icon select offers the image, and the picker is the existing media path", () => {

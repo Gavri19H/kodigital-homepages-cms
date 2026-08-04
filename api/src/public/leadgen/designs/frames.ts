@@ -2210,6 +2210,48 @@ export function computeTemplateSwitch(
 // The `frame_template_id` pointer still gets written by the caller: it is the
 // in-use guard's referrer, the board's Template chip identity and the base
 // layer for anything the funnel never authored.
+//
+// R2 P8 FIX ROUND F4 — the materialise above, written as "every template leaf
+// into the funnel column", caused TWO defects of its own (review-p8-4 F-1/F-2),
+// and both have ONE cause: it stored leaves the funnel's own template ALREADY
+// supplies, turning the funnel layer into a full shadow of its own base.
+//   F-1  the confirm dialog counted `replaced_customisations` from "the funnel
+//        column carries this path", so from the SECOND apply on it announced
+//        every leaf apply #1 had written as a setting THE OPERATOR customised:
+//        driven on a pristine funnel (frame_config {}), "9 settings you had
+//        customised are replaced by this template." with zero operator edits,
+//        ever. (This branch's own fixture measured 24, then 28/28.)
+//   F-2  a variant's `frame_template_id` (the A/B-templates arm) resolves as
+//        effectiveFrame's BASE layer, UNDER the funnel column — so a funnel
+//        whose column echoed its template shadowed the arm's own template on
+//        every leaf, and the two arms rendered identically forever.
+// THE RULE, one line, fixing both: the funnel's frame_config_json holds what
+// DIFFERS from its template, never an echo of it. So this function
+//   (a) MATERIALISES as before, then PRUNES every leaf the applied template's
+//       own base composition already gives (pruneEchoedLeaves) — the served
+//       composition is leaf-identical either way (the pruned leaf is re-supplied
+//       by the very base it was copied from), the column stops shadowing, and
+//       an arm pointing at another template renders THAT template;
+//   (b) counts as a CUSTOMISATION only a leaf where the funnel column actually
+//       MOVES the composition away from its own base. An operator edit made
+//       after an apply moves it (and is warned about); a value a previous apply
+//       or a whole-frame Save merely echoed does not (and is not). The one
+//       accepted blind spot is an operator who authors exactly the value the
+//       base already gives: indistinguishable from the echo in the stored bytes,
+//       and the change itself is still announced by name in `changes` and in the
+//       sentences below.
+// Two consequences of (a), stated rather than discovered:
+//   * "silence never erases" still protects OPERATOR content (their leaves stay
+//     in the column and a blank template leaf never overwrites them), but a leaf
+//     a PREVIOUS template wrote is no longer inherited by the next one — that
+//     inheritance existed only because the previous apply had copied it into the
+//     column. An applied template is now the clean slate its name implies for
+//     everything the operator did not author.
+//   * CLEARING the pointer ({template_id:null}) drops more than it used to: the
+//     column no longer carries a copy of the template's leaves, so the funnel
+//     falls back to frame_config_json.template's family defaults plus its own
+//     authored leaves. That is what the composition always meant; `changes`
+//     already reports it leaf by leaf before the write.
 // ---------------------------------------------------------------------------
 
 // One changed leaf of the SERVED composition (effectiveFrame before → after).
@@ -2275,6 +2317,29 @@ function mergeTemplateInto(base: Record<string, unknown>, patch: Record<string, 
   }
 }
 
+// R2 P8 FIX ROUND F4 (F-1/F-2, the write half) — drop every leaf whose value
+// the BASE composition already gives, so the funnel column stores its
+// DIFFERENCES from its template and nothing else. Composition-safe by
+// construction: a leaf is removed only when the base holds the SAME value at
+// the SAME path, so effectiveFrame(pruned ⊕ base) === effectiveFrame(merged ⊕
+// base) leaf for leaf (proven end to end in the apply test's PASS-AFTER leg,
+// which reads every template leaf back out of the SERVED frame). Root
+// `template`/`version` are funnel-level identity, not composition leaves
+// (effectiveFrame strips both from this layer), so they stay.
+function pruneEchoedLeaves(node: Record<string, unknown>, prefix: string, baseLeaves: Map<string, unknown>): void {
+  for (const key of Object.keys(node)) {
+    if (prefix === "" && (key === "template" || key === "version")) continue;
+    const path = prefix === "" ? key : `${prefix}.${key}`;
+    const value = node[key];
+    if (isRecord(value)) {
+      pruneEchoedLeaves(value, path, baseLeaves);
+      if (Object.keys(value).length === 0) delete node[key];
+      continue;
+    }
+    if (baseLeaves.has(path) && sameLeaf(baseLeaves.get(path), value)) delete node[key];
+  }
+}
+
 const PROGRESS_STYLE_WORDS: Record<string, string> = {
   hidden: "hidden",
   bar: "a bar",
@@ -2282,6 +2347,34 @@ const PROGRESS_STYLE_WORDS: Record<string, string> = {
   numbered: "numbered steps",
   percent: "a percentage",
   icon_on_track: "an icon on the track",
+};
+
+// R2 P8 FIX ROUND F4 (F-8) — the apply named 4 of its 9 changes and left the
+// rest to the (then false) count. These three maps close the gap for the leaves
+// that move the page's SHAPE: which regions exist, where they sit, what the
+// question unit looks like. They speak the words the operator's own controls
+// use — progress positions are quotes-tabs/templates.ts's own Position select
+// ("Top of page" / "Under the header" / "Above the question unit" / "Inside the
+// card"), background roles are the palette's own role names (humanize).
+//
+// DELIBERATELY NOT NARRATED, and why: every other leaf (sizes, thicknesses,
+// widths, mobile modes, transitions, copy, media ids, list contents) is a
+// DIMENSION or a piece of CONTENT, not a change of shape. One sentence per leaf
+// would bury the shape changes under a page of prose for an operator who is
+// about to press Apply — and none of them is lost: every leaf, narrated or not,
+// rides `changes` (path/from/to) and is counted by the customisation line when
+// it is the operator's own. Silence here is never silence in the payload.
+const PROGRESS_POSITION_WORDS: Record<string, string> = {
+  top: "to the top of the page",
+  under_header: "under the header",
+  above_unit: "above the question unit",
+  in_card: "inside the card",
+};
+const BACK_POSITION_WORDS: Record<string, string> = {
+  under_header_left: "under the header",
+  in_card: "inside the card",
+  below_card: "below the card",
+  footer: "into the footer",
 };
 
 // enabled-flag lines, in the order the owner reads the page.
@@ -2299,6 +2392,10 @@ export function computeTemplateApply(
   currentTemplateDefaults?: EffectiveFrameConfig | null,
 ): TemplateApplyResult {
   const before = effectiveFrame(currentStored, null, null, currentTemplateDefaults ?? null).frame;
+  // What this funnel would show with NO config of its own — its CURRENT
+  // template's base. Anything the column repeats from here it did not author
+  // (F-1): it is what a previous apply, or a whole-frame Save, wrote.
+  const beforeBase = effectiveFrame(null, null, null, currentTemplateDefaults ?? null).frame;
 
   // Materialise: the template's own authored leaves over the funnel's config.
   // A null template (clearing the pointer) materialises nothing — the funnel
@@ -2308,6 +2405,11 @@ export function computeTemplateApply(
   if (templateDefaults !== null) {
     mergeTemplateInto(merged, templateDefaults as unknown as Record<string, unknown>);
     merged["version"] = 1;
+    // …then keep only what DIFFERS from the applied template's own base (F-1/
+    // F-2). Same served page, no shadow layer over a variant's own template.
+    const afterBaseLeaves = new Map<string, unknown>();
+    frameLeaves(effectiveFrame(null, null, null, templateDefaults).frame, "", afterBaseLeaves);
+    pruneEchoedLeaves(merged, "", afterBaseLeaves);
   }
   const mergedConfig = merged as StoredFrameConfig;
 
@@ -2319,6 +2421,8 @@ export function computeTemplateApply(
   frameLeaves(after, "", afterLeaves);
   const storedLeaves = new Map<string, unknown>();
   frameLeaves(currentStored ?? {}, "", storedLeaves);
+  const beforeBaseLeaves = new Map<string, unknown>();
+  frameLeaves(beforeBase, "", beforeBaseLeaves);
 
   const changes: FrameLeafChange[] = [];
   const replaced: string[] = [];
@@ -2326,8 +2430,12 @@ export function computeTemplateApply(
     const from = beforeLeaves.get(path);
     if (sameLeaf(from, to)) continue;
     changes.push({ path, from: from ?? null, to });
-    // The funnel had authored this leaf itself, to a different value.
-    if (storedLeaves.has(path) && !sameLeaf(storedLeaves.get(path), to)) replaced.push(path);
+    // The OPERATOR authored this leaf: the funnel's own column carries it AND
+    // it moves the served page away from what the funnel's own template base
+    // gives. A leaf the column merely echoes from that base was written by a
+    // previous apply (or by a whole-frame Save), not by the operator, and
+    // warning about it is the F-1 cry-wolf this round removes.
+    if (storedLeaves.has(path) && !sameLeaf(from, beforeBaseLeaves.get(path))) replaced.push(path);
   }
   // A leaf the composition LOSES entirely (an optional group the template
   // doesn't carry) is a change too.
@@ -2349,13 +2457,34 @@ export function computeTemplateApply(
     const word = (v: unknown): string => PROGRESS_STYLE_WORDS[String(v)] ?? String(v);
     confirmations.push(`Progress changes from ${word(style.from)} to ${word(style.to)}.`);
   }
+  // F-8: the four shape leaves the register used to leave to the count alone.
+  const progressPosition = changed.get("progress.position");
+  if (progressPosition !== undefined) {
+    const where = PROGRESS_POSITION_WORDS[String(progressPosition.to)];
+    if (where !== undefined) confirmations.push(`Progress moves ${where}.`);
+  }
+  const backPosition = changed.get("back.position");
+  if (backPosition !== undefined) {
+    const where = BACK_POSITION_WORDS[String(backPosition.to)];
+    if (where !== undefined) confirmations.push(`The back link moves ${where}.`);
+  }
   for (const [path, label] of APPLY_REGION_WORDS) {
     const flag = changed.get(path);
     if (flag === undefined) continue;
     confirmations.push(flag.to === true ? `A ${label} will be added.` : `The ${label} will be removed.`);
   }
+  const sticky = changed.get("header.sticky");
+  if (sticky !== undefined) {
+    confirmations.push(
+      sticky.to === true
+        ? `The header stays on screen as the visitor scrolls.`
+        : `The header scrolls away with the page.`,
+    );
+  }
   const bg = changed.get("background.style");
   if (bg !== undefined) confirmations.push(`The page background changes from ${humanize(String(bg.from))} to ${humanize(String(bg.to))}.`);
+  const bgRole = changed.get("background.role");
+  if (bgRole !== undefined) confirmations.push(`The page background colour becomes ${humanize(String(bgRole.to))}.`);
 
   // The honesty line I1 requires: an operator who customised a leaf is TOLD
   // it is being replaced. Counted from the real diff, never a fixed promise.

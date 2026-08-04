@@ -43,13 +43,26 @@
 //     (the P6 theme-editor panel defect), collapses, is clipped by an
 //     ancestor's overflow, or is painted underneath a sibling by stacking
 //     order, still counts as visible here.
-//   • STATE AND GENERATED CONTENT. Every selector carrying a pseudo (`:hover`,
-//     `:focus-visible`, `:disabled`, `:checked`, `:has()`, `::after`,
-//     `::-webkit-slider-thumb`, …) is treated as NON-MATCHING. This is
-//     deliberate and STRICT in the direction that matters: a key whose only
-//     effect is on a hover state or a generated box is NOT credited as alive.
-//     It also means such a rule is never counted as out-ranking a rule that is
-//     credited — a known, bounded over-credit window.
+//   • STATE. Every selector carrying a pseudo-CLASS (`:hover`,
+//     `:focus-visible`, `:disabled`, `:checked`, `:has()`, …) is treated as
+//     NON-MATCHING. This is deliberate and STRICT in the direction that
+//     matters: a key whose only effect is on a hover state is NOT credited as
+//     alive. It also means such a rule is never counted as out-ranking a rule
+//     that is credited — a known, bounded over-credit window. The ONE
+//     exception is `:not(<simple compound>)`, which is purely STRUCTURAL — it
+//     is statically decidable from the markup, carries no state, and excluding
+//     it made the resolver mis-read a rule the visitor really is served (see
+//     "GENERATED CONTENT" below).
+//   • GENERATED CONTENT is NOT excluded (R2 P8-4 F-8 — it used to be). A
+//     `::before` / `::after` / `::placeholder` / `::-webkit-slider-thumb` box
+//     is painted at rest and a visitor sees it: a fresh-context reviewer
+//     photographed `progress.icon_media_id`'s custom marker — which the sheet
+//     paints EXCLUSIVELY through `.lg-progress-fill::before` / `::after` —
+//     on a live visitor page. So each visible element also carries a resolved
+//     PSEUDO-ELEMENT layer per pseudo the sheet targets on it, and a
+//     declaration that moves on that layer is paint like any other. Only the
+//     STATE pseudo-elements (`::selection`, `::backdrop`, …) stay excluded,
+//     by name, for the same reason `:hover` is.
 //   • INHERITANCE and CASCADE LAYERS. Inherited properties are NOT propagated
 //     to descendants (a colour set on a parent is recorded on the parent, which
 //     is enough for a diff, but this is not a full computed style); the sheet
@@ -259,8 +272,10 @@ export function rulesFor(css: string, viewport: Viewport): Rule[] {
 // ---------------------------------------------------------------------------
 // 3. Selector matching against the parsed tree.
 //
-// Supported: type / .class / [attr] / [attr="v"] / [attr~="v"] / * compounds,
-// joined by descendant, `>` and `+`. A selector containing ANY pseudo is
+// Supported: type / .class / [attr] / [attr="v"] / [attr~="v"] / `:not(<simple
+// compound>)` / * compounds, joined by descendant, `>` and `+`, optionally
+// terminated by ONE pseudo-element (`::before`, `::after`, `::placeholder`,
+// `::-webkit-slider-thumb`, …). A selector carrying any OTHER pseudo-class is
 // rejected outright (see the limitations banner at the top of this file).
 // ---------------------------------------------------------------------------
 
@@ -273,7 +288,12 @@ function matchCompound(compound: string, el: ParsedEl): Spec | null {
   if (compound === "*") return spec;
   if (compound.startsWith("*")) {
     pos = 1;
-  } else if (!compound.startsWith(".") && !compound.startsWith("[") && !compound.startsWith("#")) {
+  } else if (
+    !compound.startsWith(".") &&
+    !compound.startsWith("[") &&
+    !compound.startsWith("#") &&
+    !compound.startsWith(":")
+  ) {
     const typeM = compound.match(/^[a-zA-Z][a-zA-Z0-9-]*/);
     if (typeM === null) return null;
     if (el.tag !== typeM[0].toLowerCase()) return null;
@@ -283,25 +303,143 @@ function matchCompound(compound: string, el: ParsedEl): Spec | null {
   while (pos < compound.length) {
     const tok = compound
       .slice(pos)
-      .match(/^(?:\.([A-Za-z0-9_-]+)|#([A-Za-z0-9_-]+)|\[([A-Za-z0-9_:.-]+)(?:([~|^$*]?=)"([^"]*)")?\])/);
+      .match(
+        /^(?::not\(([^()]*)\)|\.([A-Za-z0-9_-]+)|#([A-Za-z0-9_-]+)|\[([A-Za-z0-9_:.-]+)(?:([~|^$*]?=)"([^"]*)")?\])/,
+      );
     if (tok === null) return null;
     pos += tok[0].length;
     if (tok[1] !== undefined) {
-      if (!el.classes.has(tok[1])) return null;
-      spec[1] += 1;
+      // `:not(X)` — STRUCTURAL, not state: it matches iff X does not, and it
+      // contributes X's own specificity (CSS Selectors 4). Only a single
+      // simple compound is accepted; `splitPseudoElement` rejects anything
+      // richer before a rule ever reaches here.
+      const inner = matchCompound(tok[1], el);
+      if (inner !== null) return null;
+      const innerSpec = specOfCompoundText(tok[1]);
+      if (innerSpec === null) return null;
+      spec[0] += innerSpec[0];
+      spec[1] += innerSpec[1];
+      spec[2] += innerSpec[2];
     } else if (tok[2] !== undefined) {
-      if (el.attrs.get("id") !== tok[2]) return null;
+      if (!el.classes.has(tok[2])) return null;
+      spec[1] += 1;
+    } else if (tok[3] !== undefined) {
+      if (el.attrs.get("id") !== tok[3]) return null;
       spec[0] += 1;
     } else {
-      const name = (tok[3] as string).toLowerCase();
+      const name = (tok[4] as string).toLowerCase();
       const have = name === "class" ? [...el.classes].join(" ") : el.attrs.get(name);
       if (have === undefined) return null;
-      if (tok[4] === "=" && have !== tok[5]) return null;
-      if (tok[4] === "~=" && !String(have ?? "").split(/\s+/).includes(tok[5] as string)) return null;
+      if (tok[5] === "=" && have !== tok[6]) return null;
+      if (tok[5] === "~=" && !String(have ?? "").split(/\s+/).includes(tok[6] as string)) return null;
       spec[1] += 1;
     }
   }
   return spec;
+}
+
+/**
+ * The specificity a compound WOULD contribute, independent of any element —
+ * what `:not(X)` needs, since X's specificity counts whether or not X matched.
+ */
+function specOfCompoundText(compound: string): Spec | null {
+  const spec: Spec = [0, 0, 0];
+  let pos = 0;
+  if (compound === "*") return spec;
+  if (compound.startsWith("*")) {
+    pos = 1;
+  } else if (!compound.startsWith(".") && !compound.startsWith("[") && !compound.startsWith("#")) {
+    const typeM = compound.match(/^[a-zA-Z][a-zA-Z0-9-]*/);
+    if (typeM === null) return null;
+    spec[2] += 1;
+    pos = typeM[0].length;
+  }
+  while (pos < compound.length) {
+    const tok = compound
+      .slice(pos)
+      .match(/^(?:\.([A-Za-z0-9_-]+)|#([A-Za-z0-9_-]+)|\[([A-Za-z0-9_:.-]+)(?:(?:[~|^$*]?=)"(?:[^"]*)")?\])/);
+    if (tok === null) return null;
+    pos += tok[0].length;
+    if (tok[2] !== undefined) spec[0] += 1;
+    else spec[1] += 1;
+  }
+  return spec;
+}
+
+// ---------------------------------------------------------------------------
+// PSEUDO-ELEMENTS (R2 P8-4 F-8).
+//
+// A pseudo-ELEMENT is a box the browser paints AT REST for a real element that
+// is really in the markup — `content:""` on `.lg-progress-fill::before` IS the
+// progress marker a visitor looks at. A pseudo-CLASS is STATE. The two were
+// collapsed into one blanket `selector.includes(":") -> reject`, which is why
+// the resolver could not see the only rules `progress.icon` /
+// `progress.icon_media_id` ever move.
+//
+// STATE pseudo-elements are excluded BY NAME, for the same reason `:hover` is:
+// they paint only while the visitor is doing something.
+// ---------------------------------------------------------------------------
+
+const STATE_PSEUDO_ELEMENTS: ReadonlySet<string> = new Set([
+  "selection",
+  "backdrop",
+  "target-text",
+  "spelling-error",
+  "grammar-error",
+  "highlight",
+  "view-transition",
+]);
+
+/** Quoted attribute values masked out, so a `:` inside one is never a pseudo. */
+function maskQuoted(selector: string): string {
+  return selector.replace(/"[^"]*"/g, (m) => `"${"x".repeat(Math.max(0, m.length - 2))}"`);
+}
+
+export interface SplitSelector {
+  /** The selector with any trailing `::pseudo` removed — what matches an element. */
+  base: string;
+  /** `"::after"`, … or null when the selector targets the element itself. */
+  pseudo: string | null;
+}
+
+const SPLIT_CACHE = new Map<string, SplitSelector | null>();
+
+/**
+ * Split a rule selector into "the element it subjects" + "the pseudo-element
+ * layer it paints", or null when this resolver refuses the selector (a
+ * pseudo-CLASS other than `:not()`, a state pseudo-element, two pseudo-elements,
+ * a functional pseudo-element, or a `:not()` this matcher cannot evaluate).
+ */
+export function splitPseudoElement(selector: string): SplitSelector | null {
+  const cached = SPLIT_CACHE.get(selector);
+  if (cached !== undefined) return cached;
+  const decide = (): SplitSelector | null => {
+    const masked = maskQuoted(selector);
+    let base = selector;
+    let pseudo: string | null = null;
+    const at = masked.indexOf("::");
+    if (at >= 0) {
+      if (masked.indexOf("::", at + 2) >= 0) return null; // two pseudo-elements
+      const name = masked.slice(at + 2);
+      if (!/^-?[A-Za-z][A-Za-z-]*$/.test(name)) return null; // functional / not terminal
+      if (STATE_PSEUDO_ELEMENTS.has(name.replace(/^-[A-Za-z]+-/, ""))) return null;
+      base = selector.slice(0, at);
+      pseudo = `::${name}`;
+    }
+    // What remains must carry no pseudo-CLASS. `:not(<simple compound>)` is the
+    // single structural exception; anything with a space/comma/nesting inside
+    // the parentheses is refused rather than half-parsed.
+    const baseMasked = maskQuoted(base);
+    for (const m of baseMasked.matchAll(/:not\(([^()]*)\)/g)) {
+      if (/[\s,>+~]/.test(m[1] as string)) return null;
+    }
+    if (baseMasked.replace(/:not\([^()]*\)/g, "").includes(":")) return null;
+    if (base.trim() === "") return null;
+    return { base, pseudo };
+  };
+  const out = decide();
+  SPLIT_CACHE.set(selector, out);
+  return out;
 }
 
 /** Split a complex selector into [combinator, compound] steps, left to right. */
@@ -310,6 +448,7 @@ function selectorSteps(selector: string): Array<{ combinator: " " | ">" | "+"; c
   let combinator: " " | ">" | "+" = " ";
   let buf = "";
   let inBracket = false;
+  let depth = 0;
   const flush = (): void => {
     if (buf !== "") {
       steps.push({ combinator, compound: buf });
@@ -319,7 +458,9 @@ function selectorSteps(selector: string): Array<{ combinator: " " | ">" | "+"; c
   for (const ch of selector) {
     if (ch === "[") inBracket = true;
     if (ch === "]") inBracket = false;
-    if (!inBracket && (ch === " " || ch === ">" || ch === "+" || ch === "~")) {
+    if (ch === "(") depth += 1;
+    if (ch === ")") depth -= 1;
+    if (!inBracket && depth === 0 && (ch === " " || ch === ">" || ch === "+" || ch === "~")) {
       if (ch === "~") return null; // general sibling: not emitted by this sheet
       if (buf !== "") {
         flush();
@@ -337,9 +478,20 @@ function selectorSteps(selector: string): Array<{ combinator: " " | ">" | "+"; c
 /**
  * Specificity of `selector` IF it matches `el` in `els`, else null.
  * Right-to-left evaluation, exactly as a selector engine does it.
+ *
+ * A selector carrying a PSEUDO-ELEMENT returns null here on purpose: this is
+ * the "does this element match?" question (`classifyDiffByTarget`'s target
+ * matching), and `::after` is not the element. The cascade uses
+ * `specIfMatchesBase` with the split selector instead.
  */
 export function specIfMatches(selector: string, el: ParsedEl, els: ParsedEl[]): Spec | null {
-  if (selector.includes(":")) return null; // pseudo — see the limitations banner
+  const split = splitPseudoElement(selector);
+  if (split === null || split.pseudo !== null) return null;
+  return specIfMatchesBase(split.base, el, els);
+}
+
+/** `specIfMatches` for an already-split, pseudo-element-free base selector. */
+function specIfMatchesBase(selector: string, el: ParsedEl, els: ParsedEl[]): Spec | null {
   const steps = selectorSteps(selector);
   if (steps === null) return null;
   // Right-to-left, accumulating specificity only along a path that matches.
@@ -391,14 +543,31 @@ function better(a: Spec, oA: number, wA: number, b: Spec, oB: number, wB: number
   return oA > oB; // later source order wins the tie
 }
 
-/** Every property that wins on `el`, with the selector that won it. */
-export function computedStyle(
-  rules: Rule[],
-  el: ParsedEl,
-  els: ParsedEl[],
-): Map<string, { value: string; selector: string }> {
-  const best = new Map<string, { value: string; selector: string; spec: Spec; order: number; weight: number }>();
-  const offer = (prop: string, raw: string, selector: string, spec: Spec, order: number, inline: boolean): void => {
+export type StyleMap = Map<string, { value: string; selector: string }>;
+
+export interface ElementLayers {
+  /** What wins on the element itself. */
+  own: StyleMap;
+  /** What wins on each pseudo-ELEMENT the sheet targets on it (`"::after"` → …). */
+  pseudos: Map<string, StyleMap>;
+}
+
+/**
+ * Every property that wins on `el` AND on each of its pseudo-element layers,
+ * with the selector that won it. ONE pass over the sheet resolves all layers.
+ */
+export function computedLayers(rules: Rule[], el: ParsedEl, els: ParsedEl[]): ElementLayers {
+  type Win = { value: string; selector: string; spec: Spec; order: number; weight: number };
+  const best = new Map<string, Map<string, Win>>([["", new Map<string, Win>()]]);
+  const offer = (
+    layer: string,
+    prop: string,
+    raw: string,
+    selector: string,
+    spec: Spec,
+    order: number,
+    inline: boolean,
+  ): void => {
     const { value, important } = splitImportant(raw);
     const weight = important
       ? inline
@@ -407,23 +576,41 @@ export function computedStyle(
       : inline
         ? WEIGHT_INLINE
         : WEIGHT_RULE;
-    const cur = best.get(prop);
+    let bucket = best.get(layer);
+    if (bucket === undefined) {
+      bucket = new Map<string, Win>();
+      best.set(layer, bucket);
+    }
+    const cur = bucket.get(prop);
     if (cur === undefined || better(spec, order, weight, cur.spec, cur.order, cur.weight)) {
-      best.set(prop, { value, selector, spec, order, weight });
+      bucket.set(prop, { value, selector, spec, order, weight });
     }
   };
   for (let order = 0; order < rules.length; order++) {
     const rule = rules[order] as Rule;
     for (const sel of rule.selectors) {
-      const spec = specIfMatches(sel, el, els);
+      const split = splitPseudoElement(sel);
+      if (split === null) continue;
+      const spec = specIfMatchesBase(split.base, el, els);
       if (spec === null) continue;
-      for (const [prop, value] of rule.decls) offer(prop, value, sel, spec, order, false);
+      for (const [prop, value] of rule.decls) offer(split.pseudo ?? "", prop, value, sel, spec, order, false);
     }
   }
-  for (const [prop, value] of el.inline) offer(prop, value, "style=", [1, 0, 0], 1e9, true);
-  const out = new Map<string, { value: string; selector: string }>();
-  for (const [prop, win] of best) out.set(prop, { value: win.value, selector: win.selector });
-  return out;
+  // An inline `style=` attribute styles the ELEMENT; it cannot address a pseudo.
+  for (const [prop, value] of el.inline) offer("", prop, value, "style=", [1, 0, 0], 1e9, true);
+  const project = (bucket: Map<string, Win>): StyleMap => {
+    const out: StyleMap = new Map();
+    for (const [prop, win] of bucket) out.set(prop, { value: win.value, selector: win.selector });
+    return out;
+  };
+  const pseudos = new Map<string, StyleMap>();
+  for (const [layer, bucket] of best) if (layer !== "") pseudos.set(layer, project(bucket));
+  return { own: project(best.get("") as Map<string, Win>), pseudos };
+}
+
+/** Every property that wins on `el` itself, with the selector that won it. */
+export function computedStyle(rules: Rule[], el: ParsedEl, els: ParsedEl[]): StyleMap {
+  return computedLayers(rules, el, els).own;
 }
 
 // ---------------------------------------------------------------------------
@@ -478,6 +665,12 @@ export interface PaintedEl {
   tag: string;
   classes: string[];
   style: Map<string, { value: string; selector: string }>;
+  /**
+   * The generated boxes this element paints AT REST (`"::after"` → its winning
+   * declarations). A visitor sees these; the progress marker is nothing else
+   * (R2 P8-4 F-8). Empty for the overwhelming majority of elements.
+   */
+  pseudos: Map<string, Map<string, { value: string; selector: string }>>;
   text: string;
   attrs: Array<[string, string]>;
   /** The parsed element itself, so a caller can re-run selector matching on it. */
@@ -517,24 +710,41 @@ function pathOf(el: ParsedEl, els: ParsedEl[]): string {
 export function visiblePage(css: string, html: string, viewport: Viewport = "desktop"): VisiblePage {
   const els = parseDom(html);
   const rules = rulesFor(css, viewport);
-  const raw = els.map((el) => computedStyle(rules, el, els));
+  const raw = els.map((el) => computedLayers(rules, el, els));
   // Custom properties inherit; document order guarantees parent-before-child.
   const envs: Array<Map<string, string>> = [];
-  const styles: Array<Map<string, { value: string; selector: string }>> = [];
+  const styles: StyleMap[] = [];
+  const pseudoStyles: Array<Map<string, StyleMap>> = [];
   for (const el of els) {
     const parentEnv = el.parent === null ? new Map<string, string>() : (envs[el.parent] as Map<string, string>);
     const env = new Map(parentEnv);
-    const own = raw[el.index] as Map<string, { value: string; selector: string }>;
+    const { own, pseudos } = raw[el.index] as ElementLayers;
     for (const [prop, win] of own) {
       if (prop.startsWith("--")) env.set(prop, substituteVars(win.value, parentEnv));
     }
     envs.push(env);
-    const painted = new Map<string, { value: string; selector: string }>();
-    for (const [prop, win] of own) {
-      if (prop.startsWith("--")) continue; // a handle, never paint (see 4b)
-      painted.set(prop, { value: substituteVars(win.value, env), selector: win.selector });
+    // A pseudo-element inherits its originating element's custom properties —
+    // which is the whole route `progress.icon_media_id` travels: the region
+    // carries `style="--lg-progress-icon-url:url(…)"` and the `::before` rule
+    // reads it. Resolve the pseudo layers in the SAME env, then drop the
+    // handles from both, exactly as 4b requires.
+    const paint = (layer: StyleMap): StyleMap => {
+      const out: StyleMap = new Map();
+      for (const [prop, win] of layer) {
+        if (prop.startsWith("--")) continue; // a handle, never paint (see 4b)
+        out.set(prop, { value: substituteVars(win.value, env), selector: win.selector });
+      }
+      return out;
+    };
+    styles.push(paint(own));
+    const painted = new Map<string, StyleMap>();
+    for (const [name, layer] of pseudos) {
+      const resolved = paint(layer);
+      // A generated box switched off paints nothing, same rule as an element.
+      if (resolved.get("display")?.value === "none" || resolved.get("visibility")?.value === "hidden") continue;
+      if (resolved.size > 0) painted.set(name, resolved);
     }
-    styles.push(painted);
+    pseudoStyles.push(painted);
   }
   const selfHidden = styles.map(
     (s) => s.get("display")?.value === "none" || s.get("visibility")?.value === "hidden",
@@ -552,7 +762,8 @@ export function visiblePage(css: string, html: string, viewport: Viewport = "des
       path,
       tag: el.tag,
       classes: [...el.classes].sort(),
-      style: styles[el.index] as Map<string, { value: string; selector: string }>,
+      style: styles[el.index] as StyleMap,
+      pseudos: pseudoStyles[el.index] as Map<string, StyleMap>,
       text: el.text,
       attrs: PERCEIVABLE_ATTRS.flatMap((a): Array<[string, string]> => {
         const v = el.attrs.get(a);
@@ -561,14 +772,57 @@ export function visiblePage(css: string, html: string, viewport: Viewport = "des
       el,
     });
   }
+  // =========================================================================
+  // THE CLASS-CHANGE INVARIANT (R2 P8-4, F-7 then corrected by F-8).
+  //
+  //   A class change counts as paint IF AND ONLY IF the changed class actually
+  //   SELECTS A RULE that alters a computed value on a visible element. It
+  //   never counts on its own, and it is never discarded when it does carry a
+  //   rule.
+  //
+  // F-7 got the first half right and the second half wrong, in two moves that
+  // have to be read together:
+  //   • the class list is NOT in the fingerprint (F-7, KEPT). A class is a
+  //     HANDLE a rule MAY key on — the same footing as a `--custom-property`
+  //     (4b) — never itself a value a visitor sees. Baking the class text in
+  //     let a bare rename register as "this key paints" with nothing painted.
+  //   • but F-7 ALSO left the pseudo-element exclusion in place, so a class
+  //     whose rule paints a `::before` / `::after` resolved to nothing, and the
+  //     predicate went dead in the OTHER direction: it named
+  //     `progress.icon_media_id` dead while a reviewer PHOTOGRAPHED its custom
+  //     marker on a live visitor page (docs/leadgen/r2/evidence/p8/review-p8-4/
+  //     d-visitor-icon-custom-zoom.png). The marker's rules are
+  //     `.lg-frame-progress--icon_on_track.lg-frame-progress--icon-custom
+  //     .lg-progress-fill::after{background:#FFFFFF;width:26px;height:26px}`
+  //     and the sibling `::before` that reads `var(--lg-progress-icon-url)`.
+  //     Both cannot be true, and the photograph wins.
+  //
+  // F-8 therefore resolves the class change THROUGH THE STYLESHEET rather than
+  // treating the class text as a proxy for paint (F-7's bug) or as noise (the
+  // regression): the class stays out of the fingerprint, and the pseudo-element
+  // layers the class selects go IN. A class that selects no rule, or a rule
+  // whose declarations lose the cascade / compute to the same value (measured:
+  // `section_slot.card`'s `.lg-frame-slot--card{box-sizing:border-box}`, which
+  // the base rule already gives), still registers as nothing.
+  //
+  // `PaintedEl.classes` is UNCHANGED — every other consumer (selector matching,
+  // describeCoord, the direct `.classes.includes(...)` assertions elsewhere in
+  // this suite) keeps seeing it; only the PAINT DECISION stops resting on it.
+  // =========================================================================
+  const declsOf = (m: Map<string, { value: string; selector: string }>): string =>
+    [...m.entries()]
+      .map(([p, w]) => `${p}:${w.value}`)
+      .sort()
+      .join(";");
   const fingerprint = visible
     .map((v) => {
-      const decls = [...v.style.entries()]
-        .map(([p, w]) => `${p}:${w.value}`)
-        .sort()
-        .join(";");
       const attrs = v.attrs.map(([k, val]) => `${k}=${val}`).join(",");
-      return `${v.path}|${v.tag}.${v.classes.join(".")}|${decls}|${attrs}|${v.text}`;
+      const own = `${v.path}|${v.tag}|${declsOf(v.style)}|${attrs}|${v.text}`;
+      const generated = [...v.pseudos.entries()]
+        .sort(([a], [b]) => (a < b ? -1 : a > b ? 1 : 0))
+        .map(([name, layer]) => `\n${v.path}${name}|${declsOf(layer)}`)
+        .join("");
+      return `${own}${generated}`;
     })
     .join("\n");
   return { visible, hiddenPaths, fingerprint, els };
@@ -622,6 +876,9 @@ export function visibleDiffCoords(
   const ma = byPath(pa);
   const mb = byPath(pb);
   const out: DiffCoord[] = [];
+  // R2 P8-4 F-7: class-only coordinates are held here, never pushed straight
+  // into `out` — see the note below the loop for why.
+  const classOnly: DiffCoord[] = [];
   for (const path of new Set([...ma.keys(), ...mb.keys()])) {
     const ea = ma.get(path);
     const eb = mb.get(path);
@@ -642,11 +899,34 @@ export function visibleDiffCoords(
     }
     if (ea.text !== eb.text) out.push(at("<text>"));
     if (JSON.stringify(ea.attrs) !== JSON.stringify(eb.attrs)) out.push(at("<attrs>"));
-    if (ea.classes.join(".") !== eb.classes.join(".")) out.push(at("<classes>"));
+    if (ea.classes.join(".") !== eb.classes.join(".")) classOnly.push(at("<classes>"));
+    // The generated boxes (F-8). `prop` reads `"::after background"`, so
+    // describeCoord names the layer as well as the element it hangs off.
+    for (const name of new Set([...ea.pseudos.keys(), ...eb.pseudos.keys()])) {
+      const la = ea.pseudos.get(name);
+      const lb = eb.pseudos.get(name);
+      for (const prop of new Set([...(la?.keys() ?? []), ...(lb?.keys() ?? [])])) {
+        if (la?.get(prop)?.value !== lb?.get(prop)?.value) out.push(at(`${name} ${prop}`));
+      }
+    }
     for (const prop of new Set([...ea.style.keys(), ...eb.style.keys()])) {
       if (ea.style.get(prop)?.value !== eb.style.get(prop)?.value) out.push(at(prop));
     }
   }
+  // A class rename is reported ALONGSIDE a real diff (still useful context for
+  // describeCoord) but is never what MAKES the diff non-empty on its own: a
+  // class is a handle a rule MAY key on (4b's --custom-property logic, same
+  // idea), not a computed value in itself (F-7). If nothing else moved
+  // anywhere on the page, the class-only coordinates are dropped too, so
+  // `visibleFingerprint` ("identical to an empty diff here" by its own doc
+  // comment) and this function can never disagree.
+  //
+  // This is NOT "a class change is noise" (F-8): a class the sheet really keys
+  // a rule on lands in `out` above by the value that rule moves — on the
+  // element itself or on one of its generated boxes — and the class coordinate
+  // then rides along. Held back here is only the class whose rule does not
+  // exist, does not win, or computes to the value that was already there.
+  if (out.length > 0) out.push(...classOnly);
   return out.sort((x, y) => (coordKey(x) < coordKey(y) ? -1 : coordKey(x) > coordKey(y) ? 1 : 0));
 }
 

@@ -38,9 +38,19 @@ import {
   listFrameTemplateRecordsHandler,
   putFunnelFrameHandler,
 } from "../src/admin/leadgen/frame-handlers";
-import { createQuoteHandler } from "../src/admin/leadgen/quotes-handlers";
+import {
+  createFunnelExperimentHandler,
+  createQuoteHandler,
+  forkVariantHandler,
+  putVariantHandler,
+  startExperimentHandler,
+} from "../src/admin/leadgen/quotes-handlers";
 import { LG_QUOTES_STYLES } from "../src/admin/leadgen/quotes-tabs/shared";
 import { LG_BANNERS_MOUNT_HTML, renderQuoteFrame } from "../src/public/leadgen/designs/frame";
+import {
+  resolveEffectiveFrameOnly,
+  resolveSavedFrameTemplateDefaultsFor,
+} from "../src/public/leadgen/resolver";
 import {
   computeTemplateApply,
   effectiveFrame,
@@ -152,6 +162,14 @@ function buildApp(): Hono<{ Bindings: Env }> {
   app.post("/funnels/:id/apply-template", applyFrameTemplateToFunnelHandler);
   app.get("/frame-template-records", listFrameTemplateRecordsHandler);
   app.post("/frame-template-records", createFrameTemplateHandler);
+  // The A/B-templates flow the Templates tab drives (quotes-tabs/templates.ts
+  // wireAbTemplatesDialog: ensure a running test → fork the arm → point the new
+  // arm's frame_template_id at the chosen template), on the SAME route shapes
+  // router.ts registers.
+  app.post("/funnels/:id/experiments", createFunnelExperimentHandler);
+  app.post("/experiments/:id/start", startExperimentHandler);
+  app.post("/variants/:id/fork", forkVariantHandler);
+  app.put("/variants/:id", putVariantHandler);
   return app;
 }
 
@@ -189,9 +207,41 @@ const ROOT = {
 };
 
 interface FunnelRow { id: number; public_id: string; frame_config_json: string | null; frame_template_id: number | null }
+interface VariantRow { id: number; public_id: string; frame_overrides_json: string | null; frame_template_id: number | null }
 
 function readFunnel(h: Harness, publicId: string): FunnelRow {
   return h.sdb.prepare("SELECT id, public_id, frame_config_json, frame_template_id FROM leadgen_funnels WHERE public_id = ?").get(publicId) as FunnelRow;
+}
+
+function readVariant(h: Harness, publicId: string): VariantRow {
+  return h.sdb
+    .prepare("SELECT id, public_id, frame_overrides_json, frame_template_id FROM leadgen_funnel_variants WHERE public_id = ?")
+    .get(publicId) as VariantRow;
+}
+
+// ONE ARM's served frame, composed by the REAL runtime pair every visitor
+// request walks: resolver.ts resolveSavedFrameTemplateDefaultsFor (the M5
+// precedence `variant.frame_template_id ?? funnel.frame_template_id ??
+// per-quote default`) feeding resolver.ts resolveEffectiveFrameOnly (template
+// base ⊕ funnel frame_config_json ⊕ this arm's frame_overrides_json). Both
+// sides are the REAL rows the real admin routes wrote — nothing hand-built
+// (E10/E11).
+async function armFrame(h: Harness, funnelPublic: string, variantPublic: string, quotePublic: string): Promise<EffectiveFrameConfig> {
+  const funnel = readFunnel(h, funnelPublic);
+  const variant = readVariant(h, variantPublic);
+  const savedDefaults = await resolveSavedFrameTemplateDefaultsFor(h.env.DB, {
+    funnel: funnel as unknown as Parameters<typeof resolveSavedFrameTemplateDefaultsFor>[1]["funnel"],
+    variant: variant as unknown as Parameters<typeof resolveSavedFrameTemplateDefaultsFor>[1]["variant"],
+    quote: { public_id: quotePublic } as unknown as Parameters<typeof resolveSavedFrameTemplateDefaultsFor>[1]["quote"],
+  });
+  const frame = resolveEffectiveFrameOnly({
+    frame_config_json: funnel.frame_config_json,
+    theme_json: null,
+    frame_overrides_json: variant.frame_overrides_json,
+    saved_template_defaults: savedDefaults,
+  });
+  if (frame === null) throw new Error(`no frame resolved for arm ${variantPublic}`);
+  return frame;
 }
 
 // The SAME layers serve/resolver compose (frames.ts effectiveFrame with the
@@ -307,6 +357,35 @@ async function newSavedTemplate(h: Harness, name = "ROASTC Template"): Promise<{
   const created = await req(h, "POST", "/frame-template-records", { name, frame_json: frameJson });
   expect(created.status).toBe(201);
   return { publicId: created.json.public_id as string, id: created.json.id as number, frameJson };
+}
+
+// A SECOND saved template, of the other arrangement family, disagreeing with
+// newSavedTemplate's on every leaf the legs below read. Same real create route.
+async function newSavedTemplateB(h: Harness, name = "ROASTC Template B"): Promise<{ publicId: string; id: number; frameJson: EffectiveFrameConfig }> {
+  const frameJson = effectiveFrame("centered").frame;
+  frameJson.progress.style = "numbered";
+  frameJson.progress.position = "in_card";
+  frameJson.header.sticky = true;
+  frameJson.header.logo_align = "right";
+  frameJson.back.position = "footer";
+  frameJson.footer.enabled = false;
+  frameJson.background.style = "brand_gradient";
+  frameJson.background.role = "brand_secondary";
+  frameJson.section_slot.card = "card";
+  const created = await req(h, "POST", "/frame-template-records", { name, frame_json: frameJson });
+  expect(created.status).toBe(201);
+  return { publicId: created.json.public_id as string, id: created.json.id as number, frameJson };
+}
+
+// A funnel exactly as POST /quotes creates it: frame_config_json NULL, ZERO
+// operator edits, ever. The state F-1 was reproduced on.
+async function newPristineFunnel(h: Harness): Promise<{ quotePublic: string; funnelPublic: string; variantPublic: string }> {
+  const quote = await req(h, "POST", "/quotes", { quote_name: "Q", activity: "quote_funnel", verticals: ["life"] });
+  expect(quote.status).toBe(201);
+  const funnel = quote.json.funnels[0];
+  const row = readFunnel(h, funnel.public_id as string);
+  expect(row.frame_config_json, "a funnel nobody has saved carries no layout of its own").toBeNull();
+  return { quotePublic: quote.json.public_id as string, funnelPublic: funnel.public_id as string, variantPublic: funnel.variants[0].public_id as string };
 }
 
 // The PRE-FIX write, verbatim from frame-handlers.ts before this slice:
@@ -456,17 +535,35 @@ d("P8 S4.1 — M3/R2-1: applying a template changes what the page paints", () =>
     expect(after.header.tagline).toBe("ROASTC operator tagline");
     expect(renderAfter).toContain("ROASTC operator tagline");
 
-    // The materialised values are IN the funnel's own column, so the builder
-    // hydrates them and the operator can edit them (they are no longer hidden
-    // in a base layer the next Save would overwrite).
-    const stored = JSON.parse(readFunnel(h, funnelPublic).frame_config_json ?? "{}") as EffectiveFrameConfig;
-    expect(stored.section_slot.card).toBe("bare");
-    expect(stored.progress.style).toBe("dots");
-    expect(stored.trust_strip.enabled).toBe(true);
+    // WHAT THE COLUMN NOW HOLDS (re-minted in FIX ROUND F4, strictly stronger).
+    // Before F4 this leg asserted the template's own values were COPIED into
+    // frame_config_json (`stored.section_slot.card === "bare"`, …). That copy is
+    // exactly what shadowed a variant's own template (F-2) and what the confirm
+    // dialog then miscounted as operator customisations (F-1). The requirement
+    // it was standing in for — "the operator can see and edit these values in
+    // the builder" — is a SERVED/PROJECTION fact, so it is asserted where it is
+    // true: the builder hydrates from `effective_frame` (quotes-tabs/funnel.ts
+    // hydrationBase), not from the raw column. Both halves are pinned here.
+    const stored = JSON.parse(readFunnel(h, funnelPublic).frame_config_json ?? "{}") as Record<string, any>;
+    const storedFlat = flat(stored);
+    // …the operator's own leaves, kept:
     expect(stored.header.tagline).toBe("ROASTC operator tagline");
+    // …and NOT one echo of the template's own base (the shadow F-2 lived in):
+    expect(storedFlat.has("section_slot.card")).toBe(false);
+    expect(storedFlat.has("progress.style")).toBe(false);
+    expect(storedFlat.has("trust_strip.enabled")).toBe(false);
+    // eslint-disable-next-line no-console
+    console.log("[S4.1 PASS-AFTER] column leaves after apply", storedFlat.size, JSON.stringify([...storedFlat.keys()]));
+    // …while the SERVED composition and the builder's own hydration source both
+    // carry every one of them (the same leaves, read where they are true).
+    expect(after.section_slot.card).toBe("bare");
+    expect(after.progress.style).toBe("dots");
+    expect(after.trust_strip.enabled).toBe(true);
     const projection = await req(h, "GET", `/funnels/${funnelPublic}/frame`);
     expect(projection.json.effective_frame.section_slot.card).toBe("bare");
     expect(projection.json.effective_frame.progress.style).toBe("dots");
+    expect(projection.json.effective_frame.trust_strip.enabled).toBe(true);
+    expect(projection.json.effective_frame.header.tagline).toBe("ROASTC operator tagline");
   });
 
   it("the confirm dialog's promises are computed from the real diff — each one is true in the rendered page", async () => {
@@ -490,11 +587,29 @@ d("P8 S4.1 — M3/R2-1: applying a template changes what the page paints", () =>
     expect(confirmations).toContain("A trust strip will be added.");
     expect(confirmations).toContain("A benefit bar will be added.");
     expect(confirmations).toContain("A disclosure will be added.");
+    // R2 P8 FIX ROUND F4 / F-8: four leaves this apply moves that no sentence
+    // named — announced by nothing but the (false) count. Each one is asserted
+    // against the applied result further down.
+    expect(confirmations).toContain("The header scrolls away with the page.");
+    expect(confirmations).toContain("Progress moves above the question unit.");
+    expect(confirmations).toContain("The back link moves below the card.");
+    expect(confirmations).toContain("The page background colour becomes brand primary.");
     // The honesty line I1 requires — the operator is TOLD their own settings
     // are being replaced, with the real count.
+    //
+    // RE-MINTED in FIX ROUND F4 (F-1): this used to read
+    // `toContain(`${replaced.length} settings …`)` — the sentence checked
+    // against the very number that produced it, which is why it could not fail
+    // while the dialog announced 28 customisations on a funnel whose operator
+    // had authored two leaves. The count is now asserted against WHAT THIS
+    // FIXTURE'S OPERATOR ACTUALLY DID: newSavedFunnel authors exactly two leaves
+    // (header.tagline, back.label); the template is silent on the tagline (so it
+    // survives — asserted above) and moves back.label, so exactly ONE
+    // customisation is replaced, and the sentence is the singular one.
     const replaced = dry.json.replaced_customisations as string[];
-    expect(replaced.length).toBeGreaterThan(0);
-    expect(confirmations).toContain(`${replaced.length} settings you had customised are replaced by this template.`);
+    expect(replaced).toEqual(["back.label"]);
+    expect(confirmations).toContain("1 setting you had customised is replaced by this template.");
+    expect(confirmations.join(" ")).not.toContain("settings you had customised");
     // No internal clause markers or raw enum tokens in operator copy (R5).
     for (const line of confirmations) {
       expect(line).not.toContain("(§");
@@ -513,6 +628,13 @@ d("P8 S4.1 — M3/R2-1: applying a template changes what the page paints", () =>
     expect(renderAfter).toContain("lg-frame-trust"); // "A trust strip will be added"
     expect(renderAfter).toContain("lg-frame-benefit"); // "A benefit bar will be added"
     expect(renderAfter).toContain("lg-frame-disclosure--top_bar"); // "A disclosure will be added"
+    // F-8's four, each measured in the markup the visitor is served.
+    expect(renderBefore).toContain("lg-frame-header--sticky");
+    expect(renderAfter).toContain("lg-frame-header--static"); // "The header scrolls away with the page."
+    expect(servedFrame(h, funnelPublic).progress.position).toBe("above_unit"); // "Progress moves above the question unit."
+    expect(renderBefore).toContain("lg-frame-back--pos-in_card");
+    expect(renderAfter).toContain("lg-frame-back--pos-below_card"); // "The back link moves below the card."
+    expect(renderAfter).toContain("lg-frame-bg-role-brand_primary"); // "…colour becomes brand primary."
 
     // Every reported change is real: each `changes` row's `to` is the value
     // the SERVED composition now holds at that path.
@@ -579,6 +701,161 @@ d("P8 S4.1 — M3/R2-1: applying a template changes what the page paints", () =>
 });
 
 // =============================================================================
+// R2 P8 FIX ROUND F4 — the two defects the materialise fix introduced.
+//
+// F-1: "9 settings you had customised are replaced by this template." on a
+//      funnel whose operator has customised NOTHING — every one of the nine was
+//      written by the PREVIOUS apply. The old leg below this one covered only
+//      the FIRST apply and asserted the sentence against its own computed
+//      count, so it was structurally unable to fail. This one drives THREE
+//      consecutive applies and asserts the count against WHAT THE OPERATOR DID.
+// F-2: applying a template wrote the funnel-level layer that shadows a
+//      variant's own frame_template_id, so no forked arm could ever differ.
+d("P8 F4 — F-1: the customisation warning counts the OPERATOR's edits, never a previous apply's writes", () => {
+  it("apply #1 → apply #2 → an operator edit → apply #3: 0, 0, then exactly the one leaf the operator changed", async () => {
+    const h = harness();
+    const { funnelPublic } = await newPristineFunnel(h);
+    const t1 = await newSavedTemplate(h, "ROASTC F1 One");
+    const t2 = await newSavedTemplateB(h, "ROASTC F1 Two");
+
+    // apply #1 — nothing of the operator's exists yet.
+    const first = await req(h, "POST", `/funnels/${funnelPublic}/apply-template`, { template_id: t1.publicId });
+    expect(first.status).toBe(200);
+    expect(first.json.replaced_customisations).toEqual([]);
+
+    // apply #2, dry run — the F-1 repro, verbatim. Every leaf the funnel now
+    // carries came from apply #1; the operator has still customised nothing.
+    const second = await req(h, "POST", `/funnels/${funnelPublic}/apply-template`, { template_id: t2.publicId, dry_run: true });
+    expect(second.status).toBe(200);
+    // eslint-disable-next-line no-console
+    console.log("[F4 F-1] apply #2 dry run · changes", (second.json.changes as unknown[]).length, "· replaced", JSON.stringify(second.json.replaced_customisations));
+    expect(second.json.replaced_customisations).toEqual([]);
+    expect((second.json.confirmations as string[]).join(" ")).not.toContain("you had customised");
+    // …while still saying what DOES change: silence is not the fix.
+    expect((second.json.changes as unknown[]).length).toBeGreaterThan(0);
+    expect((second.json.confirmations as string[]).length).toBeGreaterThan(0);
+
+    // apply #2 for real, then ONE genuine operator edit through the REAL builder
+    // save (quotes-tabs/funnel.ts PUTs its workingFrame — the stored config plus
+    // the paths the operator touched).
+    await req(h, "POST", `/funnels/${funnelPublic}/apply-template`, { template_id: t2.publicId });
+    const projection = await req(h, "GET", `/funnels/${funnelPublic}/frame`);
+    const working = JSON.parse(JSON.stringify(projection.json.frame_config ?? {})) as Record<string, unknown>;
+    const progress = (working["progress"] ?? {}) as Record<string, unknown>;
+    progress["style"] = "percent"; // the operator's own choice, after an apply
+    working["progress"] = progress;
+    working["version"] = 1;
+    const saved = await req(h, "PUT", `/funnels/${funnelPublic}/frame`, { frame_config_json: working });
+    expect(saved.status).toBe(200);
+    expect(saved.json.effective_frame.progress.style).toBe("percent");
+
+    // apply #3, dry run — THAT edit, and only that edit, is the customisation.
+    const third = await req(h, "POST", `/funnels/${funnelPublic}/apply-template`, { template_id: t1.publicId, dry_run: true });
+    // eslint-disable-next-line no-console
+    console.log("[F4 F-1] apply #3 dry run (after one operator edit) · replaced", JSON.stringify(third.json.replaced_customisations));
+    expect(third.json.replaced_customisations).toEqual(["progress.style"]);
+    expect(third.json.confirmations).toContain("1 setting you had customised is replaced by this template.");
+
+    // …and applying it really does replace that edit (the sentence is true).
+    await req(h, "POST", `/funnels/${funnelPublic}/apply-template`, { template_id: t1.publicId });
+    expect(servedFrame(h, funnelPublic).progress.style).toBe("dots");
+  });
+
+  it("an operator edit made BEFORE any template is applied is still warned about", async () => {
+    const h = harness();
+    const { funnelPublic } = await newSavedFunnel(h); // authors tagline + back label
+    const tpl = await newSavedTemplate(h, "ROASTC F1 Saved");
+    const dry = await req(h, "POST", `/funnels/${funnelPublic}/apply-template`, { template_id: tpl.publicId, dry_run: true });
+    const replaced = dry.json.replaced_customisations as string[];
+    // eslint-disable-next-line no-console
+    console.log("[F4 F-1] saved-funnel dry run · replaced", JSON.stringify(replaced));
+    // The operator authored two leaves; the template is silent on the tagline
+    // and moves the back label, so ONE customisation is replaced — not the 28
+    // the whole-frame Save's echo used to be counted as.
+    expect(replaced).toEqual(["back.label"]); // "ROASTC go back" → the template's own
+    expect(dry.json.confirmations).toContain("1 setting you had customised is replaced by this template.");
+    // The count is the count of the operator's own leaves, not of every change.
+    expect(replaced.length).toBeLessThan((dry.json.changes as unknown[]).length);
+  });
+});
+
+// =============================================================================
+d("P8 F4 — F-2: a variant's own template wins for that arm, so A/B templates produce two different arms", () => {
+  it("fork an arm on an APPLIED funnel, point it at another template: the two arms render differently, leaf by leaf", async () => {
+    const h = harness();
+    const { quotePublic, funnelPublic, variantPublic } = await newPristineFunnel(h);
+    const t1 = await newSavedTemplate(h, "ROASTC Arm Base");
+    const t2 = await newSavedTemplateB(h, "ROASTC Arm Other");
+
+    // "Apply to funnel…" — the step that used to disable A/B-templating forever.
+    const applied = await req(h, "POST", `/funnels/${funnelPublic}/apply-template`, { template_id: t1.publicId });
+    expect(applied.status).toBe(200);
+
+    // The Templates tab's own A/B flow: ensure a running test → fork → set the
+    // new arm's template (quotes-tabs/templates.ts wireAbTemplatesDialog).
+    const experiment = await req(h, "POST", `/funnels/${funnelPublic}/experiments`, { name: "ROASTC arms" });
+    expect(experiment.status).toBe(201);
+    const started = await req(h, "POST", `/experiments/${experiment.json.public_id}/start`, {});
+    expect(started.status).toBe(200);
+    const fork = await req(h, "POST", `/variants/${variantPublic}/fork`, {});
+    expect(fork.status, `fork: ${JSON.stringify(fork.json)}`).toBe(201);
+    const armBPublic = fork.json.public_id as string;
+    const pointed = await req(h, "PUT", `/variants/${armBPublic}`, { frame_template_id: t2.id });
+    expect(pointed.status, `point the arm: ${JSON.stringify(pointed.json)}`).toBe(200);
+    expect(pointed.json.frame_template_id).toBe(t2.id);
+
+    // Both arms, composed by the REAL runtime resolver and rendered by the REAL
+    // renderer.
+    const armA = await armFrame(h, funnelPublic, variantPublic, quotePublic);
+    const armB = await armFrame(h, funnelPublic, armBPublic, quotePublic);
+    const htmlA = renderFrame(armA);
+    const htmlB = renderFrame(armB);
+    const moved = movedLeaves(armA, armB);
+    // eslint-disable-next-line no-console
+    console.log("[F4 F-2] arms · leaves differing", moved.length, "· render", sha(htmlA), "vs", sha(htmlB), "· sample", JSON.stringify(moved.slice(0, 8)));
+
+    expect(htmlB).not.toBe(htmlA);
+    expect(moved.length).toBeGreaterThanOrEqual(5);
+    // Each arm renders ITS OWN template, not the funnel's materialised config.
+    expect(armA.progress.style).toBe("dots");
+    expect(armB.progress.style).toBe("numbered");
+    expect(armA.section_slot.card).toBe("bare");
+    expect(armB.section_slot.card).toBe("card");
+    expect(armA.background.style).toBe("brand");
+    expect(armB.background.style).toBe("brand_gradient");
+    expect(htmlA).toContain("lg-frame-progress--dots");
+    expect(htmlB).toContain("lg-frame-progress--numbered");
+    expect(htmlA).toContain("lg-frame-slot--bare");
+    expect(htmlB).toContain("lg-frame-slot--card");
+  });
+
+  it("the funnel's OWN authored leaves still win over an arm's template — an apply is not a licence to overwrite the operator", async () => {
+    const h = harness();
+    const { quotePublic, funnelPublic, variantPublic } = await newPristineFunnel(h);
+    const t1 = await newSavedTemplate(h, "ROASTC Arm Base 2");
+    const t2 = await newSavedTemplateB(h, "ROASTC Arm Other 2");
+    await req(h, "POST", `/funnels/${funnelPublic}/apply-template`, { template_id: t1.publicId });
+
+    // The operator's own funnel-level choice, made after the apply.
+    const projection = await req(h, "GET", `/funnels/${funnelPublic}/frame`);
+    const working = JSON.parse(JSON.stringify(projection.json.frame_config ?? {})) as Record<string, unknown>;
+    working["header"] = { ...((working["header"] ?? {}) as Record<string, unknown>), tagline: "ROASTC funnel-wide tagline" };
+    working["version"] = 1;
+    expect((await req(h, "PUT", `/funnels/${funnelPublic}/frame`, { frame_config_json: working })).status).toBe(200);
+
+    const experiment = await req(h, "POST", `/funnels/${funnelPublic}/experiments`, { name: "ROASTC arms 2" });
+    await req(h, "POST", `/experiments/${experiment.json.public_id}/start`, {});
+    const fork = await req(h, "POST", `/variants/${variantPublic}/fork`, {});
+    const armBPublic = fork.json.public_id as string;
+    await req(h, "PUT", `/variants/${armBPublic}`, { frame_template_id: t2.id });
+
+    const armB = await armFrame(h, funnelPublic, armBPublic, quotePublic);
+    expect(armB.header.tagline, "the funnel's own authored leaf still applies to every arm").toBe("ROASTC funnel-wide tagline");
+    expect(armB.progress.style, "…while the arm's template decides everything the funnel did not author").toBe("numbered");
+  });
+});
+
+// =============================================================================
 d("P8 S4.1 — M10 (server half): a saved template can have a real thumbnail", () => {
   it("every saved-template read carries thumbnail_html derived from the row's OWN values", async () => {
     const h = harness();
@@ -611,6 +888,48 @@ d("P8 S4.1 — M10 (server half): a saved template can have a real thumbnail", (
     expect(others.length).toBeGreaterThanOrEqual(6);
     for (const other of others) expect(typeof other.thumbnail_html).toBe("string");
     expect(new Set((list.json.items as any[]).map((t) => t.thumbnail_html)).size).toBeGreaterThan(1);
+  });
+
+  // R2 P8 FIX ROUND F4 / F-5 — "White + trust bar" painted a trust band its own
+  // config switches OFF: frameThumbnailData fired the band on
+  // `trust_strip.placement === "footer"` (and on the built-ins' arrangement
+  // prose), while the renderer emits the region ONLY when `enabled` is true
+  // (frame.ts renderTrustStripRegion). The picture must be the paint.
+  it("a saved record's bands are the regions the REAL renderer emits — never a placement or a prose word the config disables", async () => {
+    const h = harness();
+    // The measured row, re-created through the REAL create route.
+    const whiteTrust = effectiveFrame("minimal").frame;
+    whiteTrust.trust_strip.enabled = false;
+    whiteTrust.trust_strip.placement = "footer";
+    whiteTrust.benefit_bar.enabled = false;
+    const created = await req(h, "POST", "/frame-template-records", { name: "ROASTC White + trust bar", frame_json: whiteTrust });
+    expect(created.status).toBe(201);
+    // …and one row that genuinely carries a strip, so the leg proves the band
+    // is DERIVED, not merely absent everywhere.
+    const withStrip = await newSavedTemplate(h, "ROASTC With trust");
+
+    const list = await req(h, "GET", "/frame-template-records");
+    const items = list.json.items as any[];
+    const rows: string[] = [];
+    for (const item of items) {
+      const { frame } = effectiveFrame(null, null, null, item.frame_json as EffectiveFrameConfig);
+      const html = renderFrame(frame);
+      const bandTrust = (item.thumbnail_html as string).includes("lg-tpl-trust");
+      const bandBenefit = (item.thumbnail_html as string).includes("lg-tpl-benefit");
+      const paintsTrust = html.includes('data-frame-region="trust_strip"');
+      const paintsBenefit = html.includes('data-frame-region="benefit_bar"');
+      rows.push(`${item.name}: trust band=${bandTrust}/paint=${paintsTrust} benefit band=${bandBenefit}/paint=${paintsBenefit}`);
+      expect(bandTrust, `${item.name}: trust band vs rendered region`).toBe(paintsTrust);
+      expect(bandBenefit, `${item.name}: benefit band vs rendered region`).toBe(paintsBenefit);
+      // the data twin the island mounts says the same thing
+      expect((item.thumbnail.bands as string[]).some((b) => b.includes("lg-tpl-trust"))).toBe(paintsTrust);
+    }
+    // eslint-disable-next-line no-console
+    console.log("[F4 F-5] band vs paint, per record\n  " + rows.join("\n  "));
+    const white = items.find((t) => t.public_id === created.json.public_id);
+    expect(white.thumbnail_html).not.toContain("lg-tpl-trust");
+    const strip = items.find((t) => t.public_id === withStrip.publicId);
+    expect(strip.thumbnail_html).toContain("lg-tpl-trust");
   });
 
   // R2 P8 F2 (N12 fallout): a funnel whose logo is aligned `right` must not

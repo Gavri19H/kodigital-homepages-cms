@@ -1845,14 +1845,25 @@ export const QUOTE_EDITOR_SCRIPT = `
   // the APPLIED SAVED TEMPLATE, while the server (frame-handlers.ts
   // frameProjection → frames.ts effectiveFrame, post-571e310) composes
   // 'FRAME_TEMPLATES[].defaults ⊕ savedTemplateDefaults ⊕ funnel ⊕
-  // overrides'. "Apply template" writes ONLY leadgen_funnels.frame_template_id
-  // (frame_config_json stays NULL), so for every template-seeded funnel the
-  // editor hydrated an EMPTY footer while the visitor was served the saved
-  // template's 8 blocks — and because a Save persists what the editor holds,
-  // one benign edit (e.g. "Text size") wrote 'footer.blocks: []' over a block
-  // set the operator had never seen. Silent, and unrecoverable through the UI
-  // (re-applying the template only re-stamps frame_template_id; the funnel's
-  // own frame_config_json now WINS over it in the same merge).
+  // overrides'. At the time, "Apply template" wrote ONLY
+  // leadgen_funnels.frame_template_id (frame_config_json stayed NULL), so for
+  // every template-seeded funnel the editor hydrated an EMPTY footer while the
+  // visitor was served the saved template's 8 blocks — and because a Save
+  // persists what the editor holds, one benign edit (e.g. "Text size") wrote
+  // 'footer.blocks: []' over a block set the operator had never seen. Silent,
+  // and unrecoverable through the UI, since re-applying the template only
+  // re-stamped frame_template_id while the funnel's own frame_config_json
+  // still won over it in the same merge.
+  //
+  // R2 P8 M3 changed the write itself (frame-handlers.ts
+  // applyFrameTemplateToFunnelHandler / computeTemplateApply): "Apply
+  // template" now MATERIALISES the template's values into frame_config_json,
+  // pruning the leaves the template's own base already supplies, so the
+  // column holds only the funnel's DIFFERENCE from the applied template —
+  // never NULL, never the bare pointer alone. This hydration source is
+  // unaffected by that change: the editor still composes from the server's
+  // own effective_frame rather than reconstructing the saved-template layer
+  // itself.
   //
   // The fix is to hydrate from the SERVER'S OWN COMPOSITION. 'effective_frame'
   // (the GET /funnels/:id/frame projection this island already boots with) IS
@@ -5071,13 +5082,48 @@ export const QUOTE_EDITOR_SCRIPT = `
     // 'New funnel', confirmed live as indistinguishable from the last one
     // added a moment before in both the board columns and the rule
     // Target-funnel select (both read the SAME stored funnel_name — no other
-    // surface needs a separate fix). The ordinal below is this board's OWN
-    // current funnel count plus one, so each funnel added in a row gets a
-    // different trailing number and none of them collide, without the
-    // operator renaming any of them; an existing funnel's stored name is
-    // untouched by this path, and the inline-rename affordance still
-    // overwrites it exactly as before.
-    var ordinal = (BOARD.funnels || []).length + 1;
+    // surface needs a separate fix).
+    // P8-4 F-4 (review): a board-COUNT-based ordinal collides the instant a
+    // funnel is deleted, then a new one added -- driven live: add 'New funnel
+    // 6' and 'New funnel 7', delete 'New funnel 6', click + Add funnel, and
+    // the count-based ordinal recomputed to the same 7 already on the board.
+    // The ordinal below is one more than the HIGHEST trailing number any
+    // funnel CURRENTLY on this board already carries (never the count), so a
+    // deletion can never roll it backwards onto a name still in use; an
+    // existing funnel's stored name is untouched by this path, and the
+    // inline-rename affordance still overwrites it exactly as before.
+    // P8-4 F8 - THE ORDINAL NEVER ACTUALLY MOVED: the two rounds above read
+    // .funnel_name off the BOARD blob, and the blob has no such key. The wire
+    // shape is minted ONE place (the funnels: map at :708) and it emits
+    // name: f.funnel_name - the row keys are exactly
+    // ["public_id","id","name","display_order","is_default",
+    //  "active_variant_public_id","arms","frame_template_id","settings",
+    //  "pages"]. So every read was String(undefined || ''), the regex never
+    // matched, maxOrdinal stayed 0 and THREE consecutive adds all sent
+    // 'New funnel 1' - N6, still live, under two rounds that claimed it fixed.
+    // FIXED AT THE CAUSE, one reader on the one wire key: .name, which is
+    // what every other consumer of this blob already reads (boardTargetItems
+    // below, and the drag-copy message near the end of this island). No alias
+    // is added on the emitter side - a second key for one value is how this
+    // class of defect starts.
+    // SECOND CAUSE ON THE SAME LINE, also measured: this island is a TS
+    // template literal, where an unrecognised escape collapses - the source
+    // said (\d+) and the bytes the browser received said (d+), a regex that
+    // cannot match 'New funnel 1' no matter which key it reads. So even with
+    // the key fixed, three adds still all sent 'New funnel 1'. Every other
+    // regex in this island already writes the double backslash form (see the
+    // \\s trims throughout); this one did not. Both causes are fixed here.
+    var existingFunnels = BOARD.funnels || [];
+    var maxOrdinal = 0;
+    var fi;
+    for (fi = 0; fi < existingFunnels.length; fi++) {
+      var ordinalMatch = String(existingFunnels[fi].name || '').match(/^New funnel (\\d+)$/);
+      if (ordinalMatch) {
+        var seenOrdinal = parseInt(ordinalMatch[1], 10);
+        if (seenOrdinal > maxOrdinal) { maxOrdinal = seenOrdinal; }
+      }
+    }
+    var ordinal = maxOrdinal + 1;
     req('POST', API + '/quotes/' + encodeURIComponent(quoteId) + '/funnels', { funnel_name: 'New funnel ' + ordinal }).then(function (res) {
       if (!res.ok) { showInlineErr(null, firstFieldError(res.body)); return; }
       reloadPage();
