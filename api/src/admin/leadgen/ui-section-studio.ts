@@ -9074,7 +9074,20 @@ export const SECTION_STUDIO_SCRIPT = `
           if (current === '' && takenBy[arBase + '_' + slot] === undefined) {
             opt = document.createElement('option');
             opt.value = arBase + '_' + slot;
-            opt.textContent = 'Create "' + (arBase + '_' + slot) + '"';
+            // R2 P8-5 H1 re-check: this default name is EXCLUDED from the
+            // others[] list (ownRoleNames), so the sibling annotation below
+            // never reaches it
+            // — yet a sibling question can carry that exact internal_field, and
+            // then the role's own box and that question are two visible inputs
+            // on one answer key. MEASURED (scripts/p8/probe-p85h1-tocttou.mjs
+            // stages C and D): with a sibling named the same, the served page
+            // put that key on 2 visible inputs and POST /lg/auction carried one
+            // value — IDENTICALLY with the fill stored and with no fill at all,
+            // so choosing this option is not what causes it and refusing the
+            // option would not prevent it. What the picker CAN do is stop being
+            // silent about it, so it names who already answers the key.
+            opt.textContent = 'Create "' + (arBase + '_' + slot) + '"' +
+              (ownedBy[arBase + '_' + slot] !== undefined ? ' — already answered by ' + ownedBy[arBase + '_' + slot] : '');
             sel.appendChild(opt);
           }
           for (j = 0; j < others.length; j++) {
@@ -9095,6 +9108,23 @@ export const SECTION_STUDIO_SCRIPT = `
               // it stays selected and enabled so nothing authored vanishes.)
               opt.textContent = others[j] + ' — already answered by ' + ownedBy[others[j]];
               opt.disabled = true;
+            } else if (rendersSlot[slot] === true && ownedBy[others[j]] !== undefined) {
+              // R2 P8-5 H1: the STORED value (others[j] === current — the
+              // branch above deliberately skips it so nothing authored is
+              // dropped) on a slot that now renders its own box. The rule
+              // above runs at PICK time, and the rendered-slot set is editable
+              // afterwards: a fill chosen while this slot rendered NOTHING (a
+              // legitimate external fill) becomes a rename the moment the
+              // operator adds the field row, and nothing re-reads it. MEASURED
+              // before this line (scripts/p8/probe-p85h1-tocttou.mjs stage B):
+              // the picker showed the stored sibling key as a bare, unadorned
+              // option — the Studio surfaced no problem at all while the
+              // served page carried that key on 2 visible inputs.
+              // presets.ts m9AddressRenderedFieldName now declines to apply
+              // that rename, so this says what the visitor really gets. Stays
+              // SELECTED and ENABLED: the stored value is untouched, and
+              // re-picking it is not refused.
+              opt.textContent = others[j] + ' — not applied here: ' + ownedBy[others[j]] + ' already answers it';
             } else {
               opt.textContent = others[j];
             }

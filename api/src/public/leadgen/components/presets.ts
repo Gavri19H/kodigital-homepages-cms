@@ -264,6 +264,15 @@ interface SectionRenderState {
   // authored component is the deliberate override, so there is never a double
   // slot for one field. Computed ONCE per section render from the whole tree.
   errorBoundFields: ReadonlySet<string>;
+  // R2 P8-5 H1 (contract M4 / R6-2 "fills cannot collide"): which NODE(s) in
+  // this section answer each key. The fills picker's sibling rule is evaluated
+  // at PICK time and the rendered-slot set is editable AFTERWARDS, so a fill
+  // stored while its slot rendered NO box can later rename a box that IS
+  // rendered — onto a key a sibling question already answers. The collision
+  // MATERIALISES here, in the markup, so it is resolved here: see
+  // renderAddressFieldSet's foreignAnswerKeys. Computed ONCE per section
+  // render from the whole tree, exactly like errorBoundFields above.
+  answerKeyClaims: ReadonlyMap<string, readonly LeadgenComponentNode[]>;
 }
 
 // ---------------------------------------------------------------------------
@@ -303,6 +312,61 @@ function autoErrorFieldFor(node: LeadgenComponentNode): string | undefined {
 // The internal_fields already owned by a hand-authored ValidationError node
 // anywhere in the section tree (its data-lg-error-for binding). Those fields
 // suppress their auto slot so an authored override is honored 1:1.
+// R2 P8-5 H1 — which node(s) answer each key in this section, in flatten order.
+// The SAME per-node derivation the answer space uses (own internal_field; an
+// Address's rendered role names via leadgenAddressAnswerFields; a
+// NameFieldsGroup's two part names), so "a sibling already answers this key"
+// means here exactly what it means in normalizeAnswers and in the Studio's
+// fills picker (ui-section-studio.ts ownedBy).
+//
+// A ValidationError REPORTS on a field (data-lg-error-for), it never answers
+// one — its internal_field is deliberately not a claim.
+//
+// Node OBJECT identity is the discriminator (flattenComponents pushes the very
+// nodes it was handed, never copies), so a node can never see its own keys as
+// foreign. Claims are read from the UNSUPPRESSED per-node derivation, so this
+// map never depends on the suppression it feeds — no recursion, one pass.
+function collectAnswerKeyClaims(
+  nodes: readonly LeadgenComponentNode[],
+): ReadonlyMap<string, readonly LeadgenComponentNode[]> {
+  const map = new Map<string, LeadgenComponentNode[]>();
+  const claim = (key: unknown, node: LeadgenComponentNode): void => {
+    if (typeof key !== "string" || key.trim() === "") return;
+    const k = key.trim();
+    const owners = map.get(k);
+    if (owners === undefined) map.set(k, [node]);
+    else if (!owners.includes(node)) owners.push(node);
+  };
+  for (const leaf of flattenComponents(nodes)) {
+    if (leaf === null || typeof leaf !== "object") continue;
+    if (leaf.type === "ValidationError") continue;
+    claim(leaf.internal_field, leaf);
+    if (leaf.type === "AddressAutocompleteQuestion") {
+      for (const field of leadgenAddressAnswerFields(leaf)) claim(field, leaf);
+    } else if (leaf.type === "NameFieldsGroup") {
+      const raw = leaf.props?.["fields"];
+      const parts = Array.isArray(raw) ? raw : [];
+      claim(typeof parts[0] === "string" && parts[0].trim() !== "" ? parts[0] : "first", leaf);
+      claim(typeof parts[1] === "string" && parts[1].trim() !== "" ? parts[1] : "last", leaf);
+    }
+  }
+  return map;
+}
+
+// The keys some OTHER node in this section answers — everything `node` itself
+// claims is excluded, so its own targets never look taken.
+function foreignAnswerKeysFor(
+  state: SectionRenderState | undefined,
+  node: LeadgenComponentNode,
+): ReadonlySet<string> | undefined {
+  if (state === undefined) return undefined;
+  const out = new Set<string>();
+  for (const [key, owners] of state.answerKeyClaims) {
+    if (owners.some((owner) => owner !== node)) out.add(key);
+  }
+  return out;
+}
+
 function collectErrorBoundFields(nodes: readonly LeadgenComponentNode[]): ReadonlySet<string> {
   const set = new Set<string>();
   for (const leaf of flattenComponents(nodes)) {
@@ -3200,6 +3264,40 @@ function m9AddressFieldName(
   return typeof f === "string" && f.trim() !== "" ? f.trim() : `${base}_${kind}`;
 }
 
+// R2 P8-5 H1 (contract M4 / R6-2 "fills cannot collide") — the name a RENDERED
+// slot's box actually carries, which is m9AddressFieldName above EXCEPT when
+// the rename would land on a key another node in this section already answers.
+// Then the rename is NOT APPLIED and the box keeps its own `{base}_{slot}`.
+//
+// Why here and not at the picker: the picker's sibling rule (ui-section-studio
+// .ts, gate `rendersSlot[slot] === true`) can only judge the moment of
+// CHOOSING. A fill legitimately chosen for a slot that rendered no box — the
+// external-fill feature, where the runtime writes the part into the sibling's
+// OWN input, one key one input — becomes a RENAME the instant the operator
+// adds that field row, and nothing re-reads a stored fill. Driven before this
+// resolution (scripts/p8/probe-p85h1-tocttou.mjs, stage A -> stage B): both
+// saves returned 200, the served page then carried data-lg-field="p8n_h1_town"
+// on TWO visible inputs and the real POST /lg/auction body carried ONE
+// "p8n_h1_town" value with the other input's answer gone.
+//
+// Not a gate: nothing new refuses the pick, the "+ Add field" action or the
+// save, and the stored fill is never rewritten — the operator's content is
+// exactly what they authored, it simply cannot put two visible inputs on one
+// answer key. `foreignAnswerKeys` undefined (every single-node render path:
+// per-node previews, parity tests, the studio's per-node canvas) ⇒ nothing
+// suppressed, byte-identical to every pre-H1 call.
+function m9AddressRenderedFieldName(
+  base: string,
+  fillsObj: Record<string, unknown>,
+  kind: Exclude<LeadgenAddressFieldKind, "full_address">,
+  foreignAnswerKeys: ReadonlySet<string> | undefined,
+): string {
+  const named = m9AddressFieldName(base, fillsObj, kind);
+  const own = `${base}_${kind}`;
+  if (named === own) return own;
+  return foreignAnswerKeys !== undefined && foreignAnswerKeys.has(named) ? own : named;
+}
+
 // The node-namespacing base every Address answer key hangs off:
 // internal_field, else question_id, else the literal "address". The SAME
 // precedence content-schema.ts collectKnownAnswerFields and runtime/
@@ -3237,17 +3335,49 @@ function m9AddressFills(node: LeadgenComponentNode): Record<string, unknown> {
 // Offer payload built off it. content-schema.ts collectKnownAnswerFields (the
 // save gate / activation preflight / studio rule-picker universe) already
 // spoke `{base}_{slot}`; fieldsOf was the last holdout of the dead vocabulary.
-export function leadgenAddressAnswerFields(node: LeadgenComponentNode): string[] {
+//
+// P8-5 H1 — `foreignAnswerKeys` is the SAME collision resolution the renderer
+// applies (m9AddressRenderedFieldName): pass it and this returns EXACTLY the
+// keys the markup carries.
+//
+// WITHOUT it a caller has no section context, so for a slot whose fill RENAMES
+// a rendered box there are two names the box can carry — the fill target, or
+// (when the resolution declines the rename) the role's own `{base}_{slot}` —
+// and this function cannot tell which. It therefore returns BOTH, because a
+// context-free caller that names only one of them will name the wrong one half
+// the time. MEASURED that it does: with the pre-H1 single name,
+// scripts/p8/probe-p85h1-render-normalize.mts over the REAL stored stage-B
+// content reported `RENDERED keys the server leg does NOT keep:
+// ["p8_addr_state"]` — the collision was gone from the markup and the address's
+// state answer was then dropped by normalizeAnswers instead, one silent loss
+// traded for another.
+//
+// Naming both is safe in every consumer: normalizeAnswers contributes NOTHING
+// for a field with no submitted value and no default, and the per-offer mapping
+// picker (offers-handlers.ts) is a field UNIVERSE — content-schema.ts
+// collectKnownAnswerFields, the save gate / activation preflight / rule-picker
+// universe, already lists all four `fills[slot] || {base}_{slot}` roles
+// whatever the props.fields[] rows render, so this is strictly the smaller
+// over-claim and moves the two universes toward each other.
+export function leadgenAddressAnswerFields(
+  node: LeadgenComponentNode,
+  foreignAnswerKeys?: ReadonlySet<string>,
+): string[] {
   const specs = readAddressFieldSpecs(node) ?? ADDRESS_DEFAULT_FIELD_SPECS;
   const base = m9AddressBase(node);
   const fills = m9AddressFills(node);
   const out: string[] = [];
-  for (const spec of specs) {
-    const name =
-      spec.field === "full_address"
-        ? base
-        : m9AddressFieldName(base, fills, spec.field as Exclude<LeadgenAddressFieldKind, "full_address">);
+  const add = (name: string): void => {
     if (!out.includes(name)) out.push(name);
+  };
+  for (const spec of specs) {
+    if (spec.field === "full_address") {
+      add(base);
+      continue;
+    }
+    const kind = spec.field as Exclude<LeadgenAddressFieldKind, "full_address">;
+    add(m9AddressRenderedFieldName(base, fills, kind, foreignAnswerKeys));
+    if (foreignAnswerKeys === undefined) add(`${base}_${kind}`);
   }
   return out;
 }
@@ -3260,6 +3390,16 @@ export function leadgenAddressAnswerFields(node: LeadgenComponentNode): string[]
 // no ZIP-family answer at all: null. (The pre-seam code returned the literal
 // "zip", or the last bare internal_fields entry — neither of which any visitor
 // has recorded since M9, so the §9 facet silently read an absent answer.)
+//
+// P8-5 H1 RESIDUAL, stated because it is real and NOT closed here: this returns
+// ONE key, so it has no room for the both-names answer leadgenAddressAnswerFields
+// gives a context-free caller. When props.maps.fills.zip targets a key a SIBLING
+// question answers AND the zip row renders, the renderer now declines that
+// rename (m9AddressRenderedFieldName) and the box carries `{base}_zip`, while
+// this still names the fill target — so the §9 ZIP facet would read the
+// sibling's answer, not the address's ZIP box. Closing it needs the section
+// context at the two call sites (answers.ts, sections-handlers.ts), both
+// outside this slice's ownership.
 export function leadgenAddressZipAnswerField(node: LeadgenComponentNode): string | null {
   const specs = readAddressFieldSpecs(node) ?? ADDRESS_DEFAULT_FIELD_SPECS;
   if (specs.some((s) => s.field === "zip")) {
@@ -3289,6 +3429,10 @@ function renderAddressFieldSet(
   // (SectionRenderState.errorBoundFields). Undefined on every non-section
   // path (single-node previews/tests) ⇒ nothing suppressed, byte-identical.
   errorBoundFields?: ReadonlySet<string>,
+  // P8-5 H1: the keys some OTHER node in this section answers (see
+  // m9AddressRenderedFieldName). Undefined on every non-section path ⇒
+  // nothing suppressed, byte-identical.
+  foreignAnswerKeys?: ReadonlySet<string>,
 ): string {
   const provider = propStr(node, "provider") ?? "google";
   const addressMapsRaw = node.props?.["maps"];
@@ -3399,7 +3543,7 @@ function renderAddressFieldSet(
   const fieldHtml = specs
     .map((f, i) => {
       const kind = f.field as Exclude<LeadgenAddressFieldKind, "full_address">;
-      const fieldName = m9AddressFieldName(addrBase, addrFillsObj, kind);
+      const fieldName = m9AddressRenderedFieldName(addrBase, addrFillsObj, kind, foreignAnswerKeys);
       const label = f.label ?? ADDRESS_FIELD_DEFAULT_LABEL[kind];
       // Same lg-ft-* idiom renderRangeQuestion's from_to sub-fields already
       // use (idBase + explicit for/id) — fieldName is already the unique-
@@ -3425,7 +3569,10 @@ function renderAddressFieldSet(
       if (isAutocompleteField) {
         for (const other of specs) {
           if (other === f || other.mode !== "autofill" || other.field === "full_address") continue;
-          fillsForMapsConfig[other.field] = m9AddressFieldName(addrBase, addrFillsObj, other.field as Exclude<LeadgenAddressFieldKind, "full_address">);
+          // P8-5 H1: the RESOLVED name, so the wire fill target is always the
+          // key a rendered box really carries — never a key the collision
+          // resolution just declined to put on one.
+          fillsForMapsConfig[other.field] = m9AddressRenderedFieldName(addrBase, addrFillsObj, other.field as Exclude<LeadgenAddressFieldKind, "full_address">, foreignAnswerKeys);
         }
       }
       // P8 B1/R1-1: the SAME flatMapsConfigJson producer mapsConfigJson uses
@@ -3509,6 +3656,9 @@ export function renderAddressAutocompleteQuestion(
   // P6 D1: authored-ValidationError-bound fields (see renderAddressFieldSet).
   // Omitted ⇒ nothing suppressed, byte-identical to every pre-P6 call.
   errorBoundFields?: ReadonlySet<string>,
+  // P8-5 H1: keys another node in this section answers (see
+  // m9AddressRenderedFieldName). Omitted ⇒ nothing suppressed.
+  foreignAnswerKeys?: ReadonlySet<string>,
 ): string {
   // Rework §6.10/M9 + owner D3 (R2 P5 S5a): props.fields[] present ⇒ the
   // per-field renderer using the AUTHOR's own order/labels/mode (full_address
@@ -3523,7 +3673,7 @@ export function renderAddressAutocompleteQuestion(
   const fieldSpecs = readAddressFieldSpecs(node) ?? ADDRESS_DEFAULT_FIELD_SPECS;
   // Rework §6.3: labelLine extends to Address (additive — "" when no
   // props.label).
-  return labelLine(node) + renderAddressFieldSet(node, design, ctx, slot, fieldSpecs, errorBoundFields);
+  return labelLine(node) + renderAddressFieldSet(node, design, ctx, slot, fieldSpecs, errorBoundFields, foreignAnswerKeys);
 }
 
 // ---------------------------------------------------------------------------
@@ -4599,7 +4749,7 @@ export function renderComponent(
     case "PhoneInputQuestion":
       return renderPhoneInputQuestion(node, design, state?.ctx, slot);
     case "AddressAutocompleteQuestion":
-      return renderAddressAutocompleteQuestion(node, design, state?.ctx, slot, state?.errorBoundFields);
+      return renderAddressAutocompleteQuestion(node, design, state?.ctx, slot, state?.errorBoundFields, foreignAnswerKeysFor(state, node));
     case "ZIPInputQuestion":
       return renderZIPInputQuestion(node, design, state?.ctx, slot);
     case "NameFieldsGroup":
@@ -4970,6 +5120,7 @@ export function renderSectionComponents(
     continueSeen: false,
     deferredContinue: undefined,
     errorBoundFields: collectErrorBoundFields(nodes),
+    answerKeyClaims: collectAnswerKeyClaims(nodes),
   };
   let out = renderNodes(nodes, design, depth, state);
   // R7 U12 FIX 3b (conductor ruling, 2026-07-15): the golden's white question
@@ -5032,6 +5183,7 @@ export function renderSectionComponentsVisible(
       continueSeen: false,
       deferredContinue: undefined,
       errorBoundFields: collectErrorBoundFields(nodes),
+      answerKeyClaims: collectAnswerKeyClaims(nodes),
     };
   }
   let out = renderVisibleNodes(nodes, design, visibleIds, depth, state);
