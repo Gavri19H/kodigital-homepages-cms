@@ -227,9 +227,13 @@ because P8-Charlie is empty (ADJ-P8-41).
    own file + 1 outside). The review itself found the phase had fixed one of *two* selection badges and
    bounded a collision check at *four of N* sources — the blocker.
    **So put this in every dispatch from the start, not as a follow-up round:** *"Sweep your owned files for
-   this defect CLASS and report the complete list, including the sites you check and clear."* Also name the
-   axes to sweep on — the class, not the instance. Two follow-up rounds this phase existed only because the
-   brief named instances.
+   this defect CLASS and **fix** it — not just list it — and report the sites you check and CLEAR as well as
+   the ones you change."* Name the axes to sweep on (e.g. *messages echoing a raw id* + *lowercase fragments
+   with no action*), not the instances.
+   **Say "fix", not "report".** I wrote *"fix both X sites"* in step 1 and *"sweep and report"* in step 3, and
+   the slice reasonably fixed two and listed four more — one of them **4 lines away with an identical shape**.
+   That ambiguity alone cost a whole extra round. By the seventh occurrence the pattern is not the slices'
+   judgement, it is the brief's wording.
 3. **A fix creates the next defect.** It happened 3× in P8-3 and 3× in P8-4. Every fix round's brief must say
    "hunt for what this round introduced", and every review must too.
 4. **In-file claims are load-bearing and rot.** Four rounds each wrote a comment correcting a false claim and
