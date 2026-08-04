@@ -859,7 +859,12 @@ const R2_P4_RANGE_NEW_RULES = [
   `\n${DEFAULT_FUNNEL_SCOPE} .lg-range-handle{position:absolute;left:100%;top:50%;transform:translate(-50%,-50%);width:${R2_P4_RQ.thumbSize};height:${R2_P4_RQ.thumbSize};border-radius:${defaultFunnelDesign.radius.full};background:${R2_P4_RQ.thumbBackground};border:${R2_P4_RQ.thumbBorder};box-shadow:${R2_P4_RQ.thumbShadow};box-sizing:border-box;pointer-events:none;z-index:2}`,
   `\n${DEFAULT_FUNNEL_SCOPE} .lg-range-handle-min{left:0}`,
   `\n${DEFAULT_FUNNEL_SCOPE} .lg-range-handle-max{left:100%}`,
-  `\n${DEFAULT_FUNNEL_SCOPE} .lg-range-handle-value{position:absolute;bottom:calc(100% + ${defaultFunnelDesign.spacing.sm});left:50%;transform:translateX(-50%);white-space:nowrap;font-size:0.8125rem;font-weight:700;line-height:1;padding:5px 9px;border-radius:${defaultFunnelDesign.radius.sm};background:${R2_P4_RQ.filledTrackColor};color:${defaultFunnelDesign.color.card}}`,
+  // P8 N15 (owner Image11 — docs/leadgen/r2/evidence/p8/n15/image11-reading.md):
+  // the pill's anchor flipped bottom->top (rides UNDER its handle instead of
+  // above it). Still a net-new-since-the-frozen-capture rule, so it stays in
+  // the wholesale-strip list — only its literal text is re-captured here.
+  // Nothing else in the sheet moved.
+  `\n${DEFAULT_FUNNEL_SCOPE} .lg-range-handle-value{position:absolute;top:calc(100% + ${defaultFunnelDesign.spacing.sm});left:50%;transform:translateX(-50%);white-space:nowrap;font-size:0.8125rem;font-weight:700;line-height:1;padding:5px 9px;border-radius:${defaultFunnelDesign.radius.sm};background:${R2_P4_RQ.filledTrackColor};color:${defaultFunnelDesign.color.card}}`,
   // P4 FIX-FIRST (F-2): these two NET-NEW rules' bodies changed from
   // `transform:none` to a proportional inward slide driven by engine.ts's
   // --lg-a / --lg-b, because the static anchor pushed the min pill off-card
@@ -903,7 +908,10 @@ const R2_P4_RANGE_NEW_RULES = [
   // the min pill clear of the max pill once the clamp narrows that gap below
   // 96px — CSS only, no engine change, no other rule's text touched.
   `\n${DEFAULT_FUNNEL_SCOPE} .lg-range-from-to .lg-range-fill,${DEFAULT_FUNNEL_SCOPE} .lg-range-dual .lg-range-fill{container-type:inline-size;container-name:lg-range-fill}`,
-  `\n@container lg-range-fill (max-width:96px){${DEFAULT_FUNNEL_SCOPE} .lg-range-handle-min .lg-range-handle-value{bottom:calc(100% + ${defaultFunnelDesign.spacing.sm} + ${defaultFunnelDesign.spacing.xl})}}`,
+  // P8 N15: the base anchor flipped bottom->top, so the escape direction
+  // flips with it — away from the max pill is now DOWN, not up. Still
+  // net-new-since-the-frozen-capture; only the literal text is re-captured.
+  `\n@container lg-range-fill (max-width:96px){${DEFAULT_FUNNEL_SCOPE} .lg-range-handle-min .lg-range-handle-value{top:calc(100% + ${defaultFunnelDesign.spacing.sm} + ${defaultFunnelDesign.spacing.xl})}}`,
 ];
 // The three CHANGED rules, NEW -> pre-P4 text (targeted full-rule replaces,
 // the R5_*_RULE idiom): the input became the track overlay (its thumb now
@@ -922,8 +930,12 @@ const R2_P4_RANGE_CHANGED_RULES: ReadonlyArray<readonly [string, string]> = [
     `${DEFAULT_FUNNEL_SCOPE} .lg-range-input::-moz-range-thumb{width:${R2_P4_RQ.thumbSize};height:${R2_P4_RQ.thumbSize};border-radius:${defaultFunnelDesign.radius.full};background:transparent;border:0;cursor:pointer}`,
     `${DEFAULT_FUNNEL_SCOPE} .lg-range-input::-moz-range-thumb{width:${R2_P4_RQ.thumbSize};height:${R2_P4_RQ.thumbSize};border-radius:${defaultFunnelDesign.radius.full};background:${R2_P4_RQ.thumbBackground};border:${R2_P4_RQ.thumbBorder};box-shadow:${R2_P4_RQ.thumbShadow};cursor:pointer}`,
   ],
+  // P8 N15: margin-top grew a further `+ spacing.xl * 2` term (clears the
+  // relocated-below pill AND the worst-case container-query stacked bump —
+  // see styles.ts's own comment on this rule). Only the FIRST (live-matching)
+  // element updates; the pre-P4 baseline target (second element) is untouched.
   [
-    `${DEFAULT_FUNNEL_SCOPE} .lg-range-minmax{display:flex;justify-content:space-between;color:${R2_P4_RQ.minMaxLabelColor};font-size:0.8125rem;margin-top:calc(${R2_P4_RQ.thumbSize} * 0.5)}`,
+    `${DEFAULT_FUNNEL_SCOPE} .lg-range-minmax{display:flex;justify-content:space-between;color:${R2_P4_RQ.minMaxLabelColor};font-size:0.8125rem;margin-top:calc(${R2_P4_RQ.thumbSize} * 0.5 + ${defaultFunnelDesign.spacing.xl} * 2)}`,
     `${DEFAULT_FUNNEL_SCOPE} .lg-range-minmax{display:flex;justify-content:space-between;color:${R2_P4_RQ.minMaxLabelColor};font-size:0.8125rem;margin-top:${defaultFunnelDesign.spacing.sm}}`,
   ],
 ];
