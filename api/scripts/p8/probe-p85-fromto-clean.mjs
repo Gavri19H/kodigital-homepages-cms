@@ -27,6 +27,13 @@ const MAX_SEL = '[data-lg-field="p8n_fromto_band_max"] input.lg-input';
 const RAIL_MIN_SEL = '[data-lg-field="p8n_fromto_band_min"] input.lg-range-input-dual';
 const RAIL_MAX_SEL = '[data-lg-field="p8n_fromto_band_max"] input.lg-range-input-dual';
 const ZIP_SEL = '[data-lg-field="p8_addr_zip"] input';
+// The NEIGHBOURING dual_range control (same section 4 of the r2fix funnel).
+// It shares syncDualRange with from_to, so the same lens is pointed at it: it
+// is handles-only (§6.8 "dual_range (= from_to, handles not inputs)"), so its
+// only real input path is the rail — driven here with the native keyboard rail
+// (role=slider: Arrow = one step, Home/End = the ends), never el.value=.
+const DUAL_MIN_RAIL = '[data-lg-field="p8n_dual_band_min"] input.lg-range-input-dual';
+const DUAL_MAX_RAIL = '[data-lg-field="p8n_dual_band_max"] input.lg-range-input-dual';
 
 function say(line) {
   console.log(line);
@@ -111,6 +118,49 @@ async function readBounds(page) {
   );
 }
 
+// dual_range: declared attrs + the STRUCTURAL fact that decides whether the
+// typed-value class can exist there at all (how many .lg-input boxes it has).
+async function readDualBounds(page) {
+  return page.evaluate(
+    ({ loSel, hiSel }) => {
+      const el = (sel) => document.querySelector(sel);
+      const g = (sel, attr) => el(sel)?.getAttribute(attr) ?? null;
+      const wrap = el(loSel)?.closest(".lg-range") ?? null;
+      return {
+        sliderType: wrap?.getAttribute("data-slider-type") ?? null,
+        rail_lo: { type: el(loSel)?.type ?? null, min: g(loSel, "min"), max: g(loSel, "max"), step: g(loSel, "step") },
+        rail_hi: { type: el(hiSel)?.type ?? null, min: g(hiSel, "min"), max: g(hiSel, "max"), step: g(hiSel, "step") },
+        railsInWrapper: wrap ? wrap.querySelectorAll("input.lg-range-input-dual").length : null,
+        numberBoxesInWrapper: wrap ? wrap.querySelectorAll("input.lg-input").length : null,
+      };
+    },
+    { loSel: DUAL_MIN_RAIL, hiSel: DUAL_MAX_RAIL },
+  );
+}
+
+// Real keyboard on the real rail (role=slider). No .fill(), no el.value=.
+async function driveDual(page, plan) {
+  for (const [sel, key, times] of plan) {
+    await page.focus(sel);
+    for (let i = 0; i < times; i++) {
+      await page.keyboard.press(key);
+      await page.waitForTimeout(40);
+    }
+  }
+  await page.keyboard.press("Tab"); // blur -> commit, same as the typed path
+}
+
+async function readDualState(page) {
+  return page.evaluate(
+    ({ loSel, hiSel }) => {
+      const v = (sel) => document.querySelector(sel)?.value ?? null;
+      const aria = (sel) => document.querySelector(sel)?.getAttribute("aria-valuenow") ?? null;
+      return { dualLoVal: v(loSel), dualHiVal: v(hiSel), dualLoAria: aria(loSel), dualHiAria: aria(hiSel) };
+    },
+    { loSel: DUAL_MIN_RAIL, hiSel: DUAL_MAX_RAIL },
+  );
+}
+
 async function readLiveState(page) {
   return page.evaluate(
     ({ minSel, maxSel, railMinSel, railMaxSel }) => {
@@ -134,6 +184,24 @@ const CASES = [
   { name: "min-untouched, max=40 (exact original numbers)", min: null, max: "40" },
   { name: "min-untouched, max=100000 (at declared max)", min: null, max: "100000" },
   { name: "min-untouched, max=150000 (above declared max)", min: null, max: "150000" },
+  // typed max BELOW the typed min — the one real ordering conflict.
+  { name: "conflict: min=20000 then max=100 (typed max below min)", min: "20000", max: "100" },
+  // dual_range (handles-only) driven by the KEYBOARD rail, not the number box.
+  {
+    name: "dual_range rails, no crossing (max -5 steps, min +3 steps)",
+    min: null,
+    max: null,
+    dual: [
+      [DUAL_MAX_RAIL, "ArrowLeft", 5],
+      [DUAL_MIN_RAIL, "ArrowRight", 3],
+    ],
+  },
+  {
+    name: "dual_range rails, max dragged onto min (Home = crossing)",
+    min: null,
+    max: null,
+    dual: [[DUAL_MAX_RAIL, "Home", 1]],
+  },
 ];
 
 const VIEWPORTS = [
@@ -170,11 +238,13 @@ for (const vp of VIEWPORTS) {
       if (!boundsPrinted) {
         const bounds = await readBounds(page);
         say(`DECLARED BOUNDS (from live markup): ${JSON.stringify(bounds)}`);
+        say(`DUAL_RANGE STRUCTURE + BOUNDS: ${JSON.stringify(await readDualBounds(page))}`);
         boundsPrinted = true;
       }
       if (c.min !== null) await typeClean(page, MIN_SEL, c.min);
       if (c.max !== null) await typeClean(page, MAX_SEL, c.max);
-      const live = await readLiveState(page);
+      if (c.dual !== undefined) await driveDual(page, c.dual);
+      const live = { ...(await readLiveState(page)), ...(await readDualState(page)) };
       say(`post-blur live state: ${JSON.stringify(live)}`);
 
       await page.evaluate(() => {
@@ -198,10 +268,14 @@ for (const vp of VIEWPORTS) {
         enteredMax: c.max,
         postedMin: ans ? ans["p8n_fromto_band_min"]?.value ?? "(absent)" : "(no auction captured)",
         postedMax: ans ? ans["p8n_fromto_band_max"]?.value ?? "(absent)" : "(no auction captured)",
+        postedDualMin: ans ? ans["p8n_dual_band_min"]?.value ?? "(absent)" : "(no auction captured)",
+        postedDualMax: ans ? ans["p8n_dual_band_max"]?.value ?? "(absent)" : "(no auction captured)",
         liveNumMinBox: live.numMinBox,
         liveNumMaxBox: live.numMaxBox,
         liveRailMinVal: live.railMinVal,
         liveRailMaxVal: live.railMaxVal,
+        liveDualLo: live.dualLoVal,
+        liveDualHi: live.dualHiVal,
         pageErrors: errs.slice(0, 3),
       };
       results.push(row);

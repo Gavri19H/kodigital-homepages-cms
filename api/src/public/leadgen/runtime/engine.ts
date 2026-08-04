@@ -546,13 +546,32 @@ const SEL_DIAL = ".lg-range-radial-outer";
 // synchronous handleInputEvent call.
 let typing = false;
 
-// CLAMP RULE (from_to + dual_range): the DRAGGED handle stops ONE `step` short
-// of its neighbour; the neighbour NEVER moves. So min < max always holds (no
-// crossing), and the two thumbs can never land on the same pixel — which would
-// bury the lower one under the upper one's hit area and deadlock the pair
-// (neither handle reachable again). Returns the CLAMPED value of the moved
-// control so handleInputEvent records the clamp, never the raw crossing value;
-// null = not a two-handle slider (caller falls back to updateRangeDisplay).
+// CLAMP RULE (from_to + dual_range): the MOVED control yields to its
+// neighbour, which NEVER moves — so min <= max always holds (no crossing) and
+// handleInputEvent, which records ONLY the moved control's field, can never
+// leave a moved neighbour showing a number the store and the /lg/auction body
+// do not carry. How far it yields depends on HOW it was moved (P8-5 J1):
+//
+//   RAIL (both dual_range handles, plus from_to's two rails) — the dragged
+//     handle stops ONE `step` short of its neighbour. A rail's value is always
+//     on the browser's own step grid, so one-step-short IS the no-crossing rule
+//     there, and it additionally keeps the two thumbs off the same pixel, which
+//     would bury the lower one under the upper one's hit area. Unchanged.
+//   TYPED number box (from_to only — dual_range is handles-only) — the gap is
+//     ZERO: `step` is the RAIL's granularity, never a constraint on a number a
+//     visitor typed. Measured on the live funnel (min="0" max="100000"
+//     step="5000"): the one-step gap turned a typed max of 40 into 5000 in the
+//     box AND in the POST /lg/auction body, and a typed max of 100 against a
+//     typed min of 20000 into 25000 — above the visitor's own min. Now only a
+//     REAL ordering conflict (typed max below the current min, or typed min
+//     above the current max) corrects anything, and it corrects to the
+//     neighbour's exact value — the nearest legal number, not one step past it.
+//     That correction is never silent: the box, the rail, the pill and the
+//     recorded answer all move to it together at commit (F-1 below).
+//
+// Returns the value of the moved control so handleInputEvent records what the
+// pair agreed on, never a raw crossing value; null = not a two-handle slider
+// (caller falls back to updateRangeDisplay).
 function syncDualRange(wrap: Element, moved: HTMLInputElement): string | null {
   const rail = wrap.querySelectorAll(".lg-range-input-dual") as unknown as HTMLInputElement[];
   const hi = rail[1];
@@ -567,12 +586,27 @@ function syncDualRange(wrap: Element, moved: HTMLInputElement): string | null {
   const step = attrNum(lo, "step", 1);
   const top = moved === hi || moved === num[1];
   const fit = (n: number): number => (n >= min ? (n > max ? max : n) : min);
-  let a = fit(Number(top ? lo.value : moved.value));
-  let b = fit(Number(top ? moved.value : hi.value));
+  // The neighbour's value is read from its NUMBER BOX where one exists, and
+  // only from its rail otherwise (dual_range, or a box the visitor cleared —
+  // `||` falls through on the empty string). `step` is the rail's grid and the
+  // browser enforces it: measured in Chrome, a rail with min=0/max=100000/
+  // step=5000 sanitizes an assigned 42000 to 40000 and an assigned 40 to 0,
+  // while the number box keeps both verbatim. Reading the rail back would
+  // therefore mirror 40000 into a box whose RECORDED answer is 42000 — the
+  // F-1 divergence in reverse, and on the same money path.
+  const nb = num[top ? 0 : 1];
+  const mv = fit(Number(moved.value));
+  const other = fit(Number((nb === undefined ? "" : nb.value) || (top ? lo : hi).value));
+  let a = top ? other : mv;
+  let b = top ? mv : other;
+  // The gap the moved control keeps from its neighbour (CLAMP RULE above): one
+  // `step` for a rail thumb, zero for a typed box. Identity, not `moved.type`:
+  // the two labelled boxes are the only non-rail inputs in a two-handle wrap.
+  const gap = moved === num[top ? 1 : 0] ? 0 : step;
   if (top) {
-    if (b < a + step) b = fit(a + step);
-  } else if (a > b - step) {
-    a = fit(b - step);
+    if (b < a + gap) b = fit(a + gap);
+  } else if (a > b - gap) {
+    a = fit(b - gap);
   }
   // The fill + both pills are emitted by the SAME presets.ts template literal
   // that emitted the two rails found above, so they are never absent here.
