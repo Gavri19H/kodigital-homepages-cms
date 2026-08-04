@@ -29,7 +29,7 @@
 // is outside slice S2.3's owned files — see the S2.3 report.)
 
 import { afterEach, describe, expect, it, vi } from "vitest";
-import { LgEngine, NON_ANSWER_PRODUCING_TYPES } from "../src/public/leadgen/runtime/engine";
+import { LgEngine, NON_ANSWER_PRODUCING_TYPES, syncDualRange } from "../src/public/leadgen/runtime/engine";
 import type {
   LgComponentConfig,
   LgPublicConfig,
@@ -1300,6 +1300,276 @@ describe("§6.8 from_to — the labelled number fields and the rails are ONE val
     from.value = "";
     r.fire(from);
     expect(from.value).toBe("");
+  });
+});
+
+// ---------------------------------------------------------------------------
+// §6.8 two-handle sliders — the value that reaches the buyer (P8-5 J1)
+//
+// The regression: syncDualRange's gap clamp (written for RAIL drags, so two
+// thumbs can never land on the same pixel) also ran on the from_to NUMBER BOX,
+// so `step` silently rewrote a typed answer. Measured on the live r2fix funnel
+// (min="0" max="100000" step="5000") through real per-character typing, with
+// the real POST /lg/auction body read off the wire: a typed max of 40 posted
+// 5000, and a typed max of 100 against a typed min of 20000 posted 25000.
+//
+// TWO LENSES, both below:
+//   1. ENGINE-DRIVEN (sliderRig + r.fire): the real LgEngine input handler ->
+//      syncSlider -> syncDualRange -> the RECORDED answer. This is the lens on
+//      the number that reaches /lg/auction; it is the one that matters, and it
+//      is limited by the rig's fake rail, which does NOT sanitize an assigned
+//      value onto the step grid the way a real <input type=range> does.
+//   2. RAIL-SANITIZING STAND-IN (dualRig, direct call): a smaller rig whose
+//      rails DO snap to the grid, because the fix's neighbour-read rule is only
+//      falsifiable against a snapping rail. It calls the exported function
+//      directly, so it proves the clamp arithmetic, not the recording.
+//
+// PRODUCER ANCHOR: neither rig is the producer — presets.ts is. What the server
+// really emits for from_to/dual_range is pinned against REAL renderComponent
+// output in test/leadgen-slider-anatomy-r2.test.ts ("the hooks the RUNTIME
+// queries are the hooks the SERVER emits"): two .lg-range-input-dual rails,
+// two .lg-range-handle-value pills in min-then-max order, exactly two .lg-input
+// boxes for from_to and zero for dual_range. That suite lives in the WORKER
+// tsconfig program and this file lives in the DOM-lib runtime program, so the
+// two halves cannot be asserted in one file (measured: importing presets.ts
+// here drags src/env.ts + src/leadgen/macros.ts into the ES2019/`types: []`
+// runtime program -> 10 tsc errors). NOT yet pinned there: that the rails and
+// the boxes carry the same min/max/step the rigs below model.
+//
+// The end-to-end money-path proof stays the driven product:
+// scripts/p8/probe-p85-fromto-clean.mjs (live funnel at 1280 + 375, reading the
+// real /lg/auction body).
+// ---------------------------------------------------------------------------
+
+interface RigStyle {
+  left: string;
+  width: string;
+  props: Record<string, string>;
+  setProperty(name: string, value: string): void;
+}
+
+interface RigNode {
+  value: string;
+  textContent: string;
+  style: RigStyle;
+  getAttribute(name: string): string | null;
+  setAttribute(name: string, value: string): void;
+}
+
+function rigNode(attrs: Record<string, string> = {}, value = ""): RigNode {
+  const a: Record<string, string> = { ...attrs };
+  return {
+    value,
+    textContent: "",
+    style: {
+      left: "",
+      width: "",
+      props: {},
+      setProperty(name: string, v: string): void {
+        this.props[name] = v;
+      },
+    },
+    getAttribute: (name) => (name in a ? (a[name] as string) : null),
+    setAttribute: (name, v) => {
+      a[name] = v;
+    },
+  };
+}
+
+// A <input type=range> SANITIZES an assigned value onto its step grid — the
+// behaviour the neighbour-read fix exists for. Measured in Chrome 126 (min=0
+// max=100000 step=5000): assigning "40" reads back "0", "42000" reads back
+// "40000", "60000" reads back "60000"; the sibling type=number box keeps all
+// three verbatim. The rail stand-in reproduces exactly that.
+function rigRail(min: number, max: number, step: number, value: string): RigNode {
+  const node = rigNode({ type: "range", min: `${min}`, max: `${max}`, step: `${step}` });
+  let raw = "";
+  const snap = (v: string): string => {
+    if (v === "") return "";
+    const n = Number(v);
+    const grid = min + Math.round((Math.min(Math.max(n, min), max) - min) / step) * step;
+    return `${Math.min(grid, max)}`;
+  };
+  Object.defineProperty(node, "value", {
+    get: () => raw,
+    set: (v: string) => {
+      raw = snap(v);
+    },
+    enumerable: true,
+  });
+  node.value = value;
+  return node;
+}
+
+function dualRig(opts: {
+  min: number;
+  max: number;
+  step: number;
+  lo: string;
+  hi: string;
+  boxes: boolean;
+  currency?: string;
+}): {
+  wrap: Element;
+  lo: RigNode;
+  hi: RigNode;
+  boxLo: RigNode;
+  boxHi: RigNode;
+  pills: RigNode[];
+  fill: RigNode;
+  sync: (moved: RigNode) => string | null;
+} {
+  const boxAttrs = {
+    type: "number",
+    min: `${opts.min}`,
+    max: `${opts.max}`,
+    step: `${opts.step}`,
+  };
+  const lo = rigRail(opts.min, opts.max, opts.step, opts.lo);
+  const hi = rigRail(opts.min, opts.max, opts.step, opts.hi);
+  const boxLo = rigNode(boxAttrs, opts.lo);
+  const boxHi = rigNode(boxAttrs, opts.hi);
+  const fill = rigNode();
+  const pills = [rigNode(), rigNode()];
+  const byClass: Record<string, RigNode[]> = {
+    ".lg-range-input-dual": [lo, hi],
+    ".lg-input": opts.boxes ? [boxLo, boxHi] : [],
+    ".lg-range-handle-value": pills,
+  };
+  const wrap = {
+    getAttribute: (name: string) => (name === "data-currency" ? opts.currency ?? null : null),
+    querySelector: (sel: string) => (sel === ".lg-range-fill" ? fill : null),
+    querySelectorAll: (sel: string) => byClass[sel] ?? [],
+  } as unknown as Element;
+  return {
+    wrap,
+    lo,
+    hi,
+    boxLo,
+    boxHi,
+    pills,
+    fill,
+    sync: (moved) => syncDualRange(wrap, moved as unknown as HTMLInputElement),
+  };
+}
+
+const FT_LIVE = { min: 0, max: 100000, step: 5000 }; // the live r2fix from_to
+
+describe("§6.8 from_to: the typed number the ENGINE RECORDS is the one that reaches the buyer (P8-5 J1)", () => {
+  // Lens 1 — the real engine, the real recorded answer. `answers()` is the
+  // store the /lg/auction body is built from, so a wrong number here IS a
+  // mis-billed lead. Both cases below are the two measured live defects.
+  const live = { ...FT_LIVE, slider_type: "from_to" };
+
+  it("a typed max BELOW one step is RECORDED as typed (40, never 5000)", async () => {
+    const r = await sliderRig(live);
+    const to = r.input(".lg-range-to");
+    to.value = "40";
+    r.fire(to);
+    expect(r.answers()["amount_max"]).toBe("40");
+    expect(r.answers()["amount_min"]).toBe(undefined); // the neighbour is untouched
+    expect(to.value).toBe("40");
+    expect(r.all(".lg-range-handle-value").map((p) => p.textContent)).toEqual(["0", "40"]);
+  });
+
+  it("a typed max below the typed min is RECORDED at the min itself (20000, never 25000)", async () => {
+    const r = await sliderRig(live);
+    const from = r.input(".lg-range-from");
+    const to = r.input(".lg-range-to");
+    from.value = "20000";
+    r.fire(from);
+    expect(r.answers()["amount_min"]).toBe("20000");
+    to.value = "100"; // a real ordering conflict: 100 < 20000
+    r.fire(to);
+    expect(r.answers()["amount_max"]).toBe("20000"); // the nearest legal number
+    expect(r.answers()["amount_min"]).toBe("20000");
+    // The correction is visible, so the box can never disagree with the answer.
+    expect(to.value).toBe("20000");
+    expect(r.all(".lg-range-handle-value").map((p) => p.textContent)).toEqual(["20,000", "20,000"]);
+  });
+});
+
+describe("§6.8 from_to/dual_range: the clamp arithmetic over a STEP-SNAPPING rail (P8-5 J1)", () => {
+  // Lens 2 — the direct call, whose rails snap to the grid like real ones.
+
+  it("a typed max BELOW one step keeps its own number (40 stays 40, never 5000)", () => {
+    const r = dualRig({ ...FT_LIVE, lo: "0", hi: "100000", boxes: true, currency: "$" });
+    r.boxHi.value = "40";
+    expect(r.sync(r.boxHi)).toBe("40"); // the RECORDED answer = what was typed
+    expect(r.boxHi.value).toBe("40"); // the box is not rewritten under them
+    expect(r.pills[1]?.textContent).toBe("$40");
+    expect(r.boxLo.value).toBe("0"); // the neighbour never moves
+    // The rail sanitizes 40 onto its own grid (browser-owned, measured above).
+    expect(r.hi.value).toBe("0");
+    // The fill is painted from the TYPED 40 (40/100000 rounds to 0%), not from
+    // the clamped 5000 the bug produced (which painted 5%).
+    expect(r.fill.style.left).toBe("0%");
+    expect(r.fill.style.width).toBe("0%");
+    expect(r.fill.style.props["--lg-b"]).toBe("0");
+  });
+
+  it("a typed value off the step grid is not snapped (42000 stays 42000)", () => {
+    const r = dualRig({ ...FT_LIVE, lo: "0", hi: "100000", boxes: true });
+    r.boxHi.value = "42000";
+    expect(r.sync(r.boxHi)).toBe("42000");
+    expect(r.boxHi.value).toBe("42000");
+    expect(r.pills[1]?.textContent).toBe("42,000");
+  });
+
+  it("editing the OTHER end reads the typed neighbour from its box, not its snapped rail", () => {
+    const r = dualRig({ ...FT_LIVE, lo: "0", hi: "100000", boxes: true });
+    r.boxHi.value = "42000";
+    expect(r.sync(r.boxHi)).toBe("42000");
+    expect(r.hi.value).toBe("40000"); // the rail snapped, as a real rail does
+    // Now the visitor types a min. The max side must stay 42000 everywhere:
+    // handleInputEvent records ONLY the moved field, so mirroring the rail's
+    // 40000 into the box would leave the box reading a number the /lg/auction
+    // body never carries (42000) — the F-1 divergence in reverse.
+    r.boxLo.value = "10000";
+    expect(r.sync(r.boxLo)).toBe("10000");
+    expect(r.boxHi.value).toBe("42000");
+    expect(r.pills[1]?.textContent).toBe("42,000");
+  });
+
+  it("a typed max below the typed min lands on the min itself, never one step past it", () => {
+    const r = dualRig({ ...FT_LIVE, lo: "0", hi: "100000", boxes: true, currency: "$" });
+    r.boxLo.value = "20000";
+    expect(r.sync(r.boxLo)).toBe("20000");
+    r.boxHi.value = "100"; // a real ordering conflict: 100 < 20000
+    expect(r.sync(r.boxHi)).toBe("20000"); // the nearest legal number, not 25000
+    // ...and the correction is visible on every surface at once, so the box can
+    // never disagree with the recorded answer.
+    expect(r.boxHi.value).toBe("20000");
+    expect(r.hi.value).toBe("20000");
+    expect(r.pills[1]?.textContent).toBe("$20,000");
+    expect(r.boxLo.value).toBe("20000");
+  });
+
+  it("bounds still hold: a typed value above the declared max lands on the max", () => {
+    const r = dualRig({ ...FT_LIVE, lo: "0", hi: "100000", boxes: true });
+    r.boxHi.value = "150000";
+    expect(r.sync(r.boxHi)).toBe("100000");
+    expect(r.boxHi.value).toBe("100000");
+  });
+
+  it("from_to RAIL drags keep the one-step rule (the neighbour never moves)", () => {
+    const r = dualRig({ ...FT_LIVE, lo: "0", hi: "100000", boxes: true });
+    r.hi.value = "40000";
+    expect(r.sync(r.hi)).toBe("40000");
+    r.lo.value = "90000"; // dragged past the max handle
+    expect(r.sync(r.lo)).toBe("35000"); // 40000 - one step
+    expect(r.hi.value).toBe("40000");
+  });
+
+  it("dual_range (handles-only) is untouched: values survive, crossings still clamp", () => {
+    const d = dualRig({ min: 0, max: 100, step: 1, lo: "0", hi: "100", boxes: false });
+    d.hi.value = "95";
+    expect(d.sync(d.hi)).toBe("95"); // no clamp — 95 is nowhere near the min
+    d.lo.value = "3";
+    expect(d.sync(d.lo)).toBe("3");
+    d.hi.value = "0"; // Home on the max handle = dragged onto the min
+    expect(d.sync(d.hi)).toBe("4"); // one step above the min handle (3)
+    expect(d.lo.value).toBe("3"); // the neighbour never moves
   });
 });
 

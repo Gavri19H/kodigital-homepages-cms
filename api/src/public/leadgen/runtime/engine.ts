@@ -572,7 +572,7 @@ let typing = false;
 // Returns the value of the moved control so handleInputEvent records what the
 // pair agreed on, never a raw crossing value; null = not a two-handle slider
 // (caller falls back to updateRangeDisplay).
-function syncDualRange(wrap: Element, moved: HTMLInputElement): string | null {
+export function syncDualRange(wrap: Element, moved: HTMLInputElement): string | null {
   const rail = wrap.querySelectorAll(".lg-range-input-dual") as unknown as HTMLInputElement[];
   const hi = rail[1];
   // A cleared from_to number field is left alone (never re-filled mid-typing).
