@@ -236,6 +236,11 @@ button.lg-publish-why-fix:focus-visible{outline:2px solid currentColor;outline-o
 .lg-tpl-band{display:block;height:6px;border-radius:3px;background:var(--c-border)}
 .lg-tpl-logo{width:40%;margin:0 auto}
 .lg-tpl-logo--left{margin:0}
+/* R2 P8 F2 (N12 fallout): --center needs no override (the base rule above
+   already centers), but --right was MISSING - a right-aligned funnel's
+   thumbnail silently fell through to the centered look, lying about the
+   arrangement. Mirrors --left's one-property override. */
+.lg-tpl-logo--right{margin:0 0 0 auto}
 .lg-tpl-progress{background:var(--c-primary);opacity:.5}
 .lg-tpl-slot{height:22px;background:#fff;border:1px solid var(--c-border)}
 .lg-tpl-slot--bare{background:none;border-style:dashed}
