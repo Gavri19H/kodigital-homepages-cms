@@ -1,0 +1,316 @@
+{
+ "put-A1-error": 200,
+ "A1-error-1280-page1": {
+  "qCard": {
+   "bg": "rgb(194, 24, 7)",
+   "w": 420,
+   "h": 86
+  },
+  "nQ": 5,
+  "inputs": [],
+  "nInputs": 0,
+  "answers": [],
+  "nAnswers": 0,
+  "frame": {
+   "bg": "rgb(255, 255, 255)",
+   "w": 1280,
+   "h": 900
+  },
+  "progress": [
+   {
+    "bg": "rgb(27, 58, 92)",
+    "bgImg": "none",
+    "w": 94
+   }
+  ],
+  "contMatched": 10,
+  "contVisible": 1
+ },
+ "A1-error-1280-inputs": {
+  "step": 1,
+  "st": {
+   "qCard": {
+    "bg": "rgb(194, 24, 7)",
+    "w": 420,
+    "h": 484
+   },
+   "nQ": 1,
+   "inputs": [
+    {
+     "bg": "rgb(255, 255, 255)",
+     "w": 326,
+     "h": 54
+    },
+    {
+     "bg": "rgb(255, 255, 255)",
+     "w": 326,
+     "h": 54
+    },
+    {
+     "bg": "rgb(255, 255, 255)",
+     "w": 326,
+     "h": 54
+    },
+    {
+     "bg": "rgb(255, 255, 255)",
+     "w": 326,
+     "h": 54
+    }
+   ],
+   "nInputs": 4,
+   "answers": [],
+   "nAnswers": 0,
+   "frame": {
+    "bg": "rgb(255, 255, 255)",
+    "w": 1280,
+    "h": 900
+   },
+   "progress": [
+    {
+     "bg": "rgb(27, 58, 92)",
+     "bgImg": "none",
+     "w": 182
+    }
+   ],
+   "contMatched": 10,
+   "contVisible": 1
+  }
+ },
+ "A1-error-1280-errs": [],
+ "A1-error-375-page1": {
+  "qCard": {
+   "bg": "rgb(194, 24, 7)",
+   "w": 359,
+   "h": 54
+  },
+  "nQ": 5,
+  "inputs": [],
+  "nInputs": 0,
+  "answers": [],
+  "nAnswers": 0,
+  "frame": {
+   "bg": "rgb(255, 255, 255)",
+   "w": 375,
+   "h": 900
+  },
+  "progress": [
+   {
+    "bg": "rgb(27, 58, 92)",
+    "bgImg": "none",
+    "w": 53
+   }
+  ],
+  "contMatched": 10,
+  "contVisible": 1
+ },
+ "A1-error-375-inputs": {
+  "step": 1,
+  "st": {
+   "qCard": {
+    "bg": "rgb(194, 24, 7)",
+    "w": 359,
+    "h": 452
+   },
+   "nQ": 1,
+   "inputs": [
+    {
+     "bg": "rgb(255, 255, 255)",
+     "w": 317,
+     "h": 54
+    },
+    {
+     "bg": "rgb(255, 255, 255)",
+     "w": 317,
+     "h": 54
+    },
+    {
+     "bg": "rgb(255, 255, 255)",
+     "w": 317,
+     "h": 54
+    },
+    {
+     "bg": "rgb(255, 255, 255)",
+     "w": 317,
+     "h": 54
+    }
+   ],
+   "nInputs": 4,
+   "answers": [],
+   "nAnswers": 0,
+   "frame": {
+    "bg": "rgb(255, 255, 255)",
+    "w": 375,
+    "h": 900
+   },
+   "progress": [
+    {
+     "bg": "rgb(27, 58, 92)",
+     "bgImg": "none",
+     "w": 103
+    }
+   ],
+   "contMatched": 10,
+   "contVisible": 1
+  }
+ },
+ "A1-error-375-errs": [],
+ "put-A2-success": 200,
+ "A2-success-1280-page1": {
+  "qCard": {
+   "bg": "rgb(18, 165, 148)",
+   "w": 420,
+   "h": 86
+  },
+  "nQ": 5,
+  "inputs": [],
+  "nInputs": 0,
+  "answers": [],
+  "nAnswers": 0,
+  "frame": {
+   "bg": "rgb(255, 255, 255)",
+   "w": 1280,
+   "h": 900
+  },
+  "progress": [
+   {
+    "bg": "rgb(27, 58, 92)",
+    "bgImg": "none",
+    "w": 94
+   }
+  ],
+  "contMatched": 10,
+  "contVisible": 1
+ },
+ "A2-success-1280-inputs": {
+  "step": 1,
+  "st": {
+   "qCard": {
+    "bg": "rgb(18, 165, 148)",
+    "w": 420,
+    "h": 484
+   },
+   "nQ": 1,
+   "inputs": [
+    {
+     "bg": "rgb(255, 255, 255)",
+     "w": 326,
+     "h": 54
+    },
+    {
+     "bg": "rgb(255, 255, 255)",
+     "w": 326,
+     "h": 54
+    },
+    {
+     "bg": "rgb(255, 255, 255)",
+     "w": 326,
+     "h": 54
+    },
+    {
+     "bg": "rgb(255, 255, 255)",
+     "w": 326,
+     "h": 54
+    }
+   ],
+   "nInputs": 4,
+   "answers": [],
+   "nAnswers": 0,
+   "frame": {
+    "bg": "rgb(255, 255, 255)",
+    "w": 1280,
+    "h": 900
+   },
+   "progress": [
+    {
+     "bg": "rgb(27, 58, 92)",
+     "bgImg": "none",
+     "w": 182
+    }
+   ],
+   "contMatched": 10,
+   "contVisible": 1
+  }
+ },
+ "A2-success-1280-errs": [],
+ "A2-success-375-page1": {
+  "qCard": {
+   "bg": "rgb(18, 165, 148)",
+   "w": 359,
+   "h": 54
+  },
+  "nQ": 5,
+  "inputs": [],
+  "nInputs": 0,
+  "answers": [],
+  "nAnswers": 0,
+  "frame": {
+   "bg": "rgb(255, 255, 255)",
+   "w": 375,
+   "h": 900
+  },
+  "progress": [
+   {
+    "bg": "rgb(27, 58, 92)",
+    "bgImg": "none",
+    "w": 53
+   }
+  ],
+  "contMatched": 10,
+  "contVisible": 1
+ },
+ "A2-success-375-inputs": {
+  "step": 1,
+  "st": {
+   "qCard": {
+    "bg": "rgb(18, 165, 148)",
+    "w": 359,
+    "h": 452
+   },
+   "nQ": 1,
+   "inputs": [
+    {
+     "bg": "rgb(255, 255, 255)",
+     "w": 317,
+     "h": 54
+    },
+    {
+     "bg": "rgb(255, 255, 255)",
+     "w": 317,
+     "h": 54
+    },
+    {
+     "bg": "rgb(255, 255, 255)",
+     "w": 317,
+     "h": 54
+    },
+    {
+     "bg": "rgb(255, 255, 255)",
+     "w": 317,
+     "h": 54
+    }
+   ],
+   "nInputs": 4,
+   "answers": [],
+   "nAnswers": 0,
+   "frame": {
+    "bg": "rgb(255, 255, 255)",
+    "w": 375,
+    "h": 900
+   },
+   "progress": [
+    {
+     "bg": "rgb(27, 58, 92)",
+     "bgImg": "none",
+     "w": 103
+    }
+   ],
+   "contMatched": 10,
+   "contVisible": 1
+  }
+ },
+ "A2-success-375-errs": [],
+ "restore": 200,
+ "restore-verify": {
+  "theme_id": "thm_p8-repro"
+ }
+}

@@ -1,0 +1,487 @@
+{
+ "put": {
+  "s": 200,
+  "b": "{\"theme\":{\"palette\":{\"brand_primary\":\"#FF00AA\",\"card_background\":\"#123456\",\"page_background\":\"#F5F7FA\",\"success\":\"#12A594\",\"error\":\"#C21807\",\"border\":\"#00FF00\",\"text_primary\":\"#0000FF\"},\"typography\":{\"display\":\"literata\",\"body\":\"sora\"}},\"effective_tokens\":{\"brand_primary\":\"#FF00AA\",\"brand_secondary\""
+ },
+ "rail-font-1280": {
+  "typography.display": {
+   "value": "literata",
+   "selIndex": 9,
+   "selText": "Literata (shows as default font)",
+   "selHidden": true,
+   "content": 288,
+   "selW": 191.43,
+   "over": -96.57,
+   "scrollW": 312,
+   "clientW": 312,
+   "offered": [
+    "Inherit from base",
+    "Poppins",
+    "Space Grotesk",
+    "Fraunces",
+    "Playfair Display",
+    "Manrope",
+    "DM Sans",
+    "Work Sans",
+    "Lexend"
+   ],
+   "hiddenOpts": [
+    "Literata (shows as default font)",
+    "Sora (shows as default font)",
+    "System (shows as default font)"
+   ]
+  },
+  "typography.body": {
+   "value": "sora",
+   "selIndex": 10,
+   "selText": "Sora (shows as default font)",
+   "selHidden": true,
+   "content": 288,
+   "selW": 174.31,
+   "over": -113.69,
+   "scrollW": 312,
+   "clientW": 312,
+   "offered": [
+    "Inherit from base",
+    "Poppins",
+    "Space Grotesk",
+    "Fraunces",
+    "Playfair Display",
+    "Manrope",
+    "DM Sans",
+    "Work Sans",
+    "Lexend"
+   ],
+   "hiddenOpts": [
+    "Literata (shows as default font)",
+    "Sora (shows as default font)",
+    "System (shows as default font)"
+   ]
+  }
+ },
+ "rail-font-errs-1280": [],
+ "rail-font-375": {
+  "typography.display": {
+   "value": "literata",
+   "selIndex": 9,
+   "selText": "Literata (shows as default font)",
+   "selHidden": true,
+   "content": 288,
+   "selW": 191.43,
+   "over": -96.57,
+   "scrollW": 312,
+   "clientW": 312,
+   "offered": [
+    "Inherit from base",
+    "Poppins",
+    "Space Grotesk",
+    "Fraunces",
+    "Playfair Display",
+    "Manrope",
+    "DM Sans",
+    "Work Sans",
+    "Lexend"
+   ],
+   "hiddenOpts": [
+    "Literata (shows as default font)",
+    "Sora (shows as default font)",
+    "System (shows as default font)"
+   ]
+  },
+  "typography.body": {
+   "value": "sora",
+   "selIndex": 10,
+   "selText": "Sora (shows as default font)",
+   "selHidden": true,
+   "content": 288,
+   "selW": 174.31,
+   "over": -113.69,
+   "scrollW": 312,
+   "clientW": 312,
+   "offered": [
+    "Inherit from base",
+    "Poppins",
+    "Space Grotesk",
+    "Fraunces",
+    "Playfair Display",
+    "Manrope",
+    "DM Sans",
+    "Work Sans",
+    "Lexend"
+   ],
+   "hiddenOpts": [
+    "Literata (shows as default font)",
+    "Sora (shows as default font)",
+    "System (shows as default font)"
+   ]
+  }
+ },
+ "rail-font-errs-375": [],
+ "visitor-1280": [
+  {
+   "qCard": [
+    {
+     "bg": "rgb(18, 52, 86)",
+     "bgImg": "none",
+     "color": "rgb(0, 0, 255)",
+     "border": "rgb(233, 237, 243)",
+     "ff": "Sora, system-ui, Arial, sans-serif",
+     "fs": "16px"
+    }
+   ],
+   "inputs": [],
+   "nInputs": 0,
+   "answers": [],
+   "nAnswers": 0,
+   "progress": [
+    {
+     "bg": "rgb(255, 0, 170)",
+     "bgImg": "none",
+     "color": "rgb(0, 0, 255)",
+     "border": "rgb(0, 0, 255)",
+     "ff": "Sora, system-ui, Arial, sans-serif",
+     "fs": "16px"
+    }
+   ],
+   "progressClass": "lg-frame-region lg-frame-progress lg-frame-progress--bar lg-frame-progress--w-content lg-frame-progress--th-m lg-frame-progress--role-brand_primary lg-frame-progress--no-label",
+   "continueBtn": [
+    {
+     "bg": "rgb(27, 58, 92)",
+     "bgImg": "none",
+     "color": "rgb(255, 255, 255)",
+     "border": "rgb(255, 255, 255)",
+     "ff": "Sora, system-ui, Arial, sans-serif",
+     "fs": "15px"
+    }
+   ],
+   "headline": [],
+   "contVisible": 1,
+   "contMatched": 10
+  },
+  {
+   "qCard": [
+    {
+     "bg": "rgb(18, 52, 86)",
+     "bgImg": "none",
+     "color": "rgb(0, 0, 255)",
+     "border": "rgb(233, 237, 243)",
+     "ff": "Sora, system-ui, Arial, sans-serif",
+     "fs": "16px"
+    }
+   ],
+   "inputs": [
+    {
+     "bg": "rgb(18, 52, 86)",
+     "bgImg": "none",
+     "color": "rgb(0, 0, 255)",
+     "border": "rgb(27, 58, 92)",
+     "ff": "Sora, system-ui, Arial, sans-serif",
+     "fs": "16px"
+    },
+    {
+     "bg": "rgb(18, 52, 86)",
+     "bgImg": "none",
+     "color": "rgb(0, 0, 255)",
+     "border": "rgb(0, 255, 0)",
+     "ff": "Sora, system-ui, Arial, sans-serif",
+     "fs": "16px"
+    }
+   ],
+   "nInputs": 4,
+   "answers": [],
+   "nAnswers": 0,
+   "progress": [
+    {
+     "bg": "rgb(255, 0, 170)",
+     "bgImg": "none",
+     "color": "rgb(0, 0, 255)",
+     "border": "rgb(0, 0, 255)",
+     "ff": "Sora, system-ui, Arial, sans-serif",
+     "fs": "16px"
+    }
+   ],
+   "progressClass": "lg-frame-region lg-frame-progress lg-frame-progress--bar lg-frame-progress--w-content lg-frame-progress--th-m lg-frame-progress--role-brand_primary lg-frame-progress--no-label",
+   "continueBtn": [
+    {
+     "bg": "rgb(15, 36, 64)",
+     "bgImg": "none",
+     "color": "rgb(255, 255, 255)",
+     "border": "rgb(255, 255, 255)",
+     "ff": "Sora, system-ui, Arial, sans-serif",
+     "fs": "15px"
+    }
+   ],
+   "headline": [],
+   "contVisible": 1,
+   "contMatched": 10
+  },
+  {
+   "qCard": [
+    {
+     "bg": "rgb(18, 52, 86)",
+     "bgImg": "none",
+     "color": "rgb(0, 0, 255)",
+     "border": "rgb(233, 237, 243)",
+     "ff": "Sora, system-ui, Arial, sans-serif",
+     "fs": "16px"
+    }
+   ],
+   "inputs": [],
+   "nInputs": 0,
+   "answers": [],
+   "nAnswers": 0,
+   "progress": [
+    {
+     "bg": "rgb(255, 0, 170)",
+     "bgImg": "none",
+     "color": "rgb(0, 0, 255)",
+     "border": "rgb(0, 0, 255)",
+     "ff": "Sora, system-ui, Arial, sans-serif",
+     "fs": "16px"
+    }
+   ],
+   "progressClass": "lg-frame-region lg-frame-progress lg-frame-progress--bar lg-frame-progress--w-content lg-frame-progress--th-m lg-frame-progress--role-brand_primary lg-frame-progress--no-label",
+   "continueBtn": [
+    {
+     "bg": "rgb(27, 58, 92)",
+     "bgImg": "none",
+     "color": "rgb(255, 255, 255)",
+     "border": "rgb(255, 255, 255)",
+     "ff": "Sora, system-ui, Arial, sans-serif",
+     "fs": "15px"
+    }
+   ],
+   "headline": [],
+   "contVisible": 1,
+   "contMatched": 10
+  },
+  {
+   "qCard": [
+    {
+     "bg": "rgb(18, 52, 86)",
+     "bgImg": "none",
+     "color": "rgb(0, 0, 255)",
+     "border": "rgb(233, 237, 243)",
+     "ff": "Sora, system-ui, Arial, sans-serif",
+     "fs": "16px"
+    }
+   ],
+   "inputs": [],
+   "nInputs": 0,
+   "answers": [],
+   "nAnswers": 0,
+   "progress": [
+    {
+     "bg": "rgb(255, 0, 170)",
+     "bgImg": "none",
+     "color": "rgb(0, 0, 255)",
+     "border": "rgb(0, 0, 255)",
+     "ff": "Sora, system-ui, Arial, sans-serif",
+     "fs": "16px"
+    }
+   ],
+   "progressClass": "lg-frame-region lg-frame-progress lg-frame-progress--bar lg-frame-progress--w-content lg-frame-progress--th-m lg-frame-progress--role-brand_primary lg-frame-progress--no-label",
+   "continueBtn": [
+    {
+     "bg": "rgb(15, 36, 64)",
+     "bgImg": "none",
+     "color": "rgb(255, 255, 255)",
+     "border": "rgb(255, 255, 255)",
+     "ff": "Sora, system-ui, Arial, sans-serif",
+     "fs": "15px"
+    }
+   ],
+   "headline": [],
+   "contVisible": 1,
+   "contMatched": 10
+  }
+ ],
+ "visitor-errs-1280": [],
+ "visitor-375": [
+  {
+   "qCard": [
+    {
+     "bg": "rgb(18, 52, 86)",
+     "bgImg": "none",
+     "color": "rgb(0, 0, 255)",
+     "border": "rgb(233, 237, 243)",
+     "ff": "Sora, system-ui, Arial, sans-serif",
+     "fs": "16px"
+    }
+   ],
+   "inputs": [],
+   "nInputs": 0,
+   "answers": [],
+   "nAnswers": 0,
+   "progress": [
+    {
+     "bg": "rgb(255, 0, 170)",
+     "bgImg": "none",
+     "color": "rgb(0, 0, 255)",
+     "border": "rgb(0, 0, 255)",
+     "ff": "Sora, system-ui, Arial, sans-serif",
+     "fs": "16px"
+    }
+   ],
+   "progressClass": "lg-frame-region lg-frame-progress lg-frame-progress--bar lg-frame-progress--w-content lg-frame-progress--th-m lg-frame-progress--role-brand_primary lg-frame-progress--no-label",
+   "continueBtn": [
+    {
+     "bg": "rgb(27, 58, 92)",
+     "bgImg": "none",
+     "color": "rgb(255, 255, 255)",
+     "border": "rgb(255, 255, 255)",
+     "ff": "Sora, system-ui, Arial, sans-serif",
+     "fs": "15px"
+    }
+   ],
+   "headline": [],
+   "contVisible": 1,
+   "contMatched": 10
+  },
+  {
+   "qCard": [
+    {
+     "bg": "rgb(18, 52, 86)",
+     "bgImg": "none",
+     "color": "rgb(0, 0, 255)",
+     "border": "rgb(233, 237, 243)",
+     "ff": "Sora, system-ui, Arial, sans-serif",
+     "fs": "16px"
+    }
+   ],
+   "inputs": [
+    {
+     "bg": "rgb(18, 52, 86)",
+     "bgImg": "none",
+     "color": "rgb(0, 0, 255)",
+     "border": "rgb(27, 58, 92)",
+     "ff": "Sora, system-ui, Arial, sans-serif",
+     "fs": "16px"
+    },
+    {
+     "bg": "rgb(18, 52, 86)",
+     "bgImg": "none",
+     "color": "rgb(0, 0, 255)",
+     "border": "rgb(0, 255, 0)",
+     "ff": "Sora, system-ui, Arial, sans-serif",
+     "fs": "16px"
+    }
+   ],
+   "nInputs": 4,
+   "answers": [],
+   "nAnswers": 0,
+   "progress": [
+    {
+     "bg": "rgb(255, 0, 170)",
+     "bgImg": "none",
+     "color": "rgb(0, 0, 255)",
+     "border": "rgb(0, 0, 255)",
+     "ff": "Sora, system-ui, Arial, sans-serif",
+     "fs": "16px"
+    }
+   ],
+   "progressClass": "lg-frame-region lg-frame-progress lg-frame-progress--bar lg-frame-progress--w-content lg-frame-progress--th-m lg-frame-progress--role-brand_primary lg-frame-progress--no-label",
+   "continueBtn": [
+    {
+     "bg": "rgb(27, 58, 92)",
+     "bgImg": "none",
+     "color": "rgb(255, 255, 255)",
+     "border": "rgb(255, 255, 255)",
+     "ff": "Sora, system-ui, Arial, sans-serif",
+     "fs": "15px"
+    }
+   ],
+   "headline": [],
+   "contVisible": 1,
+   "contMatched": 10
+  },
+  {
+   "qCard": [
+    {
+     "bg": "rgb(18, 52, 86)",
+     "bgImg": "none",
+     "color": "rgb(0, 0, 255)",
+     "border": "rgb(233, 237, 243)",
+     "ff": "Sora, system-ui, Arial, sans-serif",
+     "fs": "16px"
+    }
+   ],
+   "inputs": [],
+   "nInputs": 0,
+   "answers": [],
+   "nAnswers": 0,
+   "progress": [
+    {
+     "bg": "rgb(255, 0, 170)",
+     "bgImg": "none",
+     "color": "rgb(0, 0, 255)",
+     "border": "rgb(0, 0, 255)",
+     "ff": "Sora, system-ui, Arial, sans-serif",
+     "fs": "16px"
+    }
+   ],
+   "progressClass": "lg-frame-region lg-frame-progress lg-frame-progress--bar lg-frame-progress--w-content lg-frame-progress--th-m lg-frame-progress--role-brand_primary lg-frame-progress--no-label",
+   "continueBtn": [
+    {
+     "bg": "rgb(27, 58, 92)",
+     "bgImg": "none",
+     "color": "rgb(255, 255, 255)",
+     "border": "rgb(255, 255, 255)",
+     "ff": "Sora, system-ui, Arial, sans-serif",
+     "fs": "15px"
+    }
+   ],
+   "headline": [],
+   "contVisible": 1,
+   "contMatched": 10
+  },
+  {
+   "qCard": [
+    {
+     "bg": "rgb(18, 52, 86)",
+     "bgImg": "none",
+     "color": "rgb(0, 0, 255)",
+     "border": "rgb(233, 237, 243)",
+     "ff": "Sora, system-ui, Arial, sans-serif",
+     "fs": "16px"
+    }
+   ],
+   "inputs": [],
+   "nInputs": 0,
+   "answers": [],
+   "nAnswers": 0,
+   "progress": [
+    {
+     "bg": "rgb(255, 0, 170)",
+     "bgImg": "none",
+     "color": "rgb(0, 0, 255)",
+     "border": "rgb(0, 0, 255)",
+     "ff": "Sora, system-ui, Arial, sans-serif",
+     "fs": "16px"
+    }
+   ],
+   "progressClass": "lg-frame-region lg-frame-progress lg-frame-progress--bar lg-frame-progress--w-content lg-frame-progress--th-m lg-frame-progress--role-brand_primary lg-frame-progress--no-label",
+   "continueBtn": [
+    {
+     "bg": "rgb(15, 36, 64)",
+     "bgImg": "none",
+     "color": "rgb(255, 255, 255)",
+     "border": "rgb(255, 255, 255)",
+     "ff": "Sora, system-ui, Arial, sans-serif",
+     "fs": "15px"
+    }
+   ],
+   "headline": [],
+   "contVisible": 1,
+   "contMatched": 10
+  }
+ ],
+ "visitor-errs-375": [],
+ "restore": {
+  "s": 200,
+  "b": "{\"theme\":{\"theme_id\":\"thm_p8-repro\"},\"effective_tokens\":{\"brand_primary\":\"#1D9BF0\",\"brand_secondary\":\"#ee7733\",\"accent\":\"#E85D26\",\"success\":\"#0E7C3A\",\"error\":\"#D32F2F\",\"page_background\":\"#F5F7FA\",\"card_background\":\"#FFFFFF\",\"surface_wash\":\"#ee7733\",\"border\":\"#ee7733\",\"text_primary\":\"#1A1F36\",\"text_m"
+ },
+ "restore-verify": {
+  "theme_id": "thm_p8-repro"
+ }
+}
