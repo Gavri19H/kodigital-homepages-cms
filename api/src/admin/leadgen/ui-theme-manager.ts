@@ -813,6 +813,24 @@ const THEME_RECORD_FONT_SELECT_NAMES: readonly ThemeRecordFontName[] = [
 // stand over nothing — the closed control is the only place the rail can say
 // it, and the rail's 312px box shows it in full (driven, +0px at 1280 and 375
 // across all 90 options). Same sentence, two surfaces, each where it fits.
+// FIX ROUND F14 (review-p8-3d MINOR-4) — WHY THE TWO PRESENTATIONS STAY
+// DIFFERENT, since F3's own note says "do not let them drift apart again" and
+// the review is right that an operator now meets two shapes of one sentence.
+// The WORDS are identical and pinned as identical (the N20 leg in
+// test/leadgen-p8-n-theme-ui.test.ts slices the rail's parenthetical out of one
+// real render and this heading plus its caption out of the other, and requires
+// the same words). What differs is the REGISTER, and it follows from the place,
+// which is itself measured, not chosen: a standalone heading and a caption are
+// sentences of their own, so they start with a capital; the rail's is a
+// mid-string parenthetical inside an option label, so it does not. Converging
+// the presentation would mean one of two things, and both are measured shut:
+// putting the suffix back on THIS page's option text is BLOCKER-2 again (294px
+// of text in a 282px box, in the family the option names), and moving the rail
+// to an <optgroup> would stand a heading over options that are permanently
+// hidden there (its stored id is assigned client-side after hydration) — and
+// that markup lives in quotes-tabs/themes.ts, not in this file. So: one
+// vocabulary, one sentence, two registers, each forced by where the sentence
+// has to sit. If the rail ever gains a server-known stored id, converge them.
 const FONT_NOT_SERVED_NOTE = "Shows as default font";
 
 // FIX ROUND F3 (MINOR-1) — ONE FONT VOCABULARY, FINISHED.

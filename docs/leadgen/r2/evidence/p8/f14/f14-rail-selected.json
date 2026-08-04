@@ -1,0 +1,76 @@
+{
+ "375": {
+  "rows": [
+   {
+    "id": "lg-theme-site-select",
+    "found": true,
+    "revealed": {
+     "title": "Seed Local Living — Not activated yet",
+     "clipped": "1",
+     "own": null,
+     "to": "ellipsis",
+     "sel": "Seed Local Living — Not activated yet"
+    },
+    "titleIsFullOption": true,
+    "after": {
+     "title": null,
+     "clipped": null
+    }
+   },
+   {
+    "id": "lg-theme-target-select",
+    "found": true,
+    "revealed": {
+     "title": "R2C3 Bravo Extremely Long Funnel Column Name For The Truncation Audit Delta Echo",
+     "clipped": "1",
+     "own": null,
+     "to": "ellipsis",
+     "sel": "R2C3 Bravo Extremely Long Funnel Column Name For The Truncation Audit Delta Echo"
+    },
+    "titleIsFullOption": true,
+    "after": {
+     "title": null,
+     "clipped": null
+    }
+   }
+  ],
+  "errs": []
+ },
+ "1280": {
+  "rows": [
+   {
+    "id": "lg-theme-site-select",
+    "found": true,
+    "revealed": {
+     "title": "Seed Local Living — Not activated yet",
+     "clipped": "1",
+     "own": null,
+     "to": "ellipsis",
+     "sel": "Seed Local Living — Not activated yet"
+    },
+    "titleIsFullOption": true,
+    "after": {
+     "title": null,
+     "clipped": null
+    }
+   },
+   {
+    "id": "lg-theme-target-select",
+    "found": true,
+    "revealed": {
+     "title": "R2C3 Bravo Extremely Long Funnel Column Name For The Truncation Audit Delta Echo",
+     "clipped": "1",
+     "own": null,
+     "to": "ellipsis",
+     "sel": "R2C3 Bravo Extremely Long Funnel Column Name For The Truncation Audit Delta Echo"
+    },
+    "titleIsFullOption": true,
+    "after": {
+     "title": null,
+     "clipped": null
+    }
+   }
+  ],
+  "errs": []
+ }
+}

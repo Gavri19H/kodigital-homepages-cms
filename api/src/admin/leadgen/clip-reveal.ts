@@ -51,6 +51,64 @@
 // this predicate needs the unconditional forced-clip read, at two forced
 // layouts per select per sweep.
 //
+// FIX ROUND F14 (review-p8-3d MAJOR-1) — THE REVEAL DOES NOT OWN `title`.
+// F13 widened the reveal to every leadgen admin route, and two selects on
+// /admin/leadgen/sections/:id/edit already carry a tooltip the PRODUCT set:
+// ui-section-studio.ts:15594 `pathSel.title = f.path` ("§12.1: options carry
+// the field LABEL; the raw path rides the tooltip" — a promise the help copy at
+// :3263 repeats to the operator, "the raw path also rides each Field cell's
+// tooltip"), and the SSR `<select id="lg-content-type-swap" … title="Type —
+// swaps the concrete stored type">` at :2601. F13's unconditional
+// setAttribute/removeAttribute pair destroyed both.
+// FAIL-BEFORE, driven this round through the real Mapping drawer -> Map fields
+// at 375 (127.0.0.1:8901, chromium, with the F13 body put back for the run):
+// step 0 title="lead.r2fix_carrier" -> step 1, once the label clips,
+// title="Street address line one and two — text (required)" (the raw path
+// OVERWRITTEN with text the closed control already shows) -> step 2, once it
+// fits again, title=null (the raw path DELETED). 10 of 10 readings carried no
+// author text, and the withdrawn element came back as
+// `<select class="form-input" data-map-path="lead.r2fix_carrier"
+// aria-label="Offer payload field" style="">` — the title gone and an empty
+// style attribute left behind. #lg-content-type-swap reproduced it at BOTH
+// widths ("Type — swaps the concrete stored type" -> "Headline" -> null). The
+// mapping case does NOT reproduce at 1280 (394px box, the label fits), which is
+// exactly why a desktop-only pass cannot see it. WHY F13'S OWN METRIC WAS
+// BLIND: it counted `clipped-without-title`, i.e. MISSING titles; a destroyed
+// title is present and wrong.
+//
+// THE RULE NOW. This script never destroys or alters what the product itself
+// put on an element. On the first transition into the revealed state the
+// author's title — if the attribute exists at all — is stashed verbatim in
+// `data-lg-title-own`, and what the operator sees is a COMPOSITION: the
+// author's sentence first, exactly as written, then a newline, then the full
+// selected option. A composition rather than the author's text alone because
+// the two are DIFFERENT facts — the raw dotted path (or what the control does)
+// versus the text the box cut — and dropping either loses something the product
+// promised: the help copy promises the path, and a clipped control the operator
+// cannot read is the defect this whole module exists for. Author-first because
+// it keeps the product's sentence where the operator already expects it and
+// makes it recoverable by a plain prefix test as well as from the stash. When
+// the two are the same string it is written once.
+// WITHDRAWAL RESTORES, byte for byte: the stashed value goes back into the SAME
+// attribute (setAttribute on the attribute that is already there, so its
+// position in the element's attribute list is unchanged — remove-then-re-add
+// would move it to the end), both data attributes are removed, and if the style
+// attribute this script created is now empty it is removed too, so an element
+// that had none keeps no `style=""` residue. Driven after the change at 375 and
+// 1280 on both selects: 22 consecutive readings -> ONE state, 30 rAF frames ->
+// ONE state, 0 readings without the author's text, `data-lg-title-own` holding
+// the author's sentence throughout, and `sel.outerHTML` after withdrawal
+// identical to the pre-reveal capture.
+// TWO LIMITS, stated rather than implied. (1) An element that ALREADY carries
+// an inline style attribute has that attribute re-serialised by the CSSOM on
+// any style write — a property of the browser, not of this script; the
+// declarations are preserved and neither author-titled select carries one
+// (measured). (2) If another script re-titled a select WHILE the reveal is
+// showing a composed title, the stash would keep the earlier sentence as the
+// author's. No product path does that today — grep: the only author titles on a
+// leadgen <select> are set once at creation (ui-section-studio.ts:15594) or in
+// SSR (:2601), never on a live revealed element.
+//
 // WHY IT IS NOT IN templates/layout.ts. F10 put these bytes in ADMIN_SCRIPTS,
 // which is the admin shell SHARED WITH THE CONVERSIONS PRODUCT: one worker
 // serves several products, so a leadgen theme fix silently added 5,477 bytes
@@ -145,14 +203,30 @@ export const LG_CLIP_REVEAL_SCRIPT = `
   function lgRevealClippedSelect(sel) {
     if (!sel || !sel.tagName || String(sel.tagName).toUpperCase() !== 'SELECT') { return; }
     var text = lgSelectedOptionText(sel);
+    var clipped = sel.getAttribute ? sel.getAttribute('data-lg-clipped') === '1' : false;
+    var own;
     if (text !== '' && lgOverflows(sel)) {
+      if (!clipped && sel.getAttribute) {
+        own = sel.getAttribute('title');
+        if (own !== null) { sel.setAttribute('data-lg-title-own', own); }
+      }
+      own = sel.getAttribute ? sel.getAttribute('data-lg-title-own') : null;
       sel.setAttribute('data-lg-clipped', '1');
-      sel.setAttribute('title', text);
+      sel.setAttribute('title', own === null || own === text ? text : own + '\\n' + text);
       if (sel.style) { sel.style.textOverflow = 'ellipsis'; }
-    } else if (sel.getAttribute && sel.getAttribute('data-lg-clipped') === '1') {
+    } else if (clipped) {
+      own = sel.getAttribute('data-lg-title-own');
+      if (own === null) {
+        sel.removeAttribute('title');
+      } else {
+        sel.setAttribute('title', own);
+        sel.removeAttribute('data-lg-title-own');
+      }
       sel.removeAttribute('data-lg-clipped');
-      sel.removeAttribute('title');
-      if (sel.style) { sel.style.textOverflow = ''; }
+      if (sel.style) {
+        sel.style.textOverflow = '';
+        if (sel.getAttribute('style') === '') { sel.removeAttribute('style'); }
+      }
     }
   }
   function lgRevealClippedSelects(root) {

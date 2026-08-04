@@ -1,0 +1,52 @@
+{
+ "model": [
+  {
+   "text": "%%%%%%%%%%%%%%%%%%%%",
+   "bucket": "sans",
+   "real": 256.08,
+   "model": 182.28,
+   "ratio": 1.405
+  },
+  {
+   "text": "ÄÖÜÑÇÆØÅÐÞ",
+   "bucket": "sans",
+   "real": 101.22,
+   "model": 91.14,
+   "ratio": 1.111
+  },
+  {
+   "text": "QQQQQQQQQQQQQQQQQQQQ",
+   "bucket": "sans",
+   "real": 213.02,
+   "model": 211.68,
+   "ratio": 1.006
+  },
+  {
+   "text": "日本語のテキストサンプル",
+   "bucket": "mono",
+   "real": 166.61,
+   "model": 104.16,
+   "ratio": 1.6
+  },
+  {
+   "text": "Inherit from base",
+   "bucket": "sans",
+   "real": 109.66,
+   "model": 119.8,
+   "ratio": 0.915
+  },
+  {
+   "text": "Roboto Mono (shows as default font)",
+   "bucket": "mono",
+   "real": 294.06,
+   "model": 303.8,
+   "ratio": 0.968
+  }
+ ],
+ "optionCounts": {
+  "http://127.0.0.1:8901/admin/leadgen/themes": 22,
+  "http://127.0.0.1:8901/admin/leadgen/quotes/lgq_01KZ271383Y0MPV4BM2WKKCC4W/edit": 196
+ },
+ "distinctChars": " '()+-1234589ABCDEFGHIKLMNOPQRSTUVWXabcdefghiklmnopqrstuvwxy—…",
+ "nonAlnum": "  ' ( ) + - — …"
+}

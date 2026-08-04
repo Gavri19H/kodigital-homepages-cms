@@ -1,0 +1,107 @@
+{
+ "offers-375": {
+  "found": true,
+  "readings": 22,
+  "distinctReadings": 1,
+  "frames": 30,
+  "distinctFrames": 1,
+  "state": {
+   "title": "All providers",
+   "clipped": "1",
+   "own": null,
+   "to": "ellipsis"
+  },
+  "selects": 10,
+  "clippedNoTitle": 0,
+  "errs": []
+ },
+ "manager-375": {
+  "found": true,
+  "readings": 22,
+  "distinctReadings": 1,
+  "frames": 30,
+  "distinctFrames": 1,
+  "state": {
+   "title": null,
+   "clipped": null,
+   "own": null,
+   "to": ""
+  },
+  "selects": 2,
+  "boxes": [
+   {
+    "id": "tm-headline-font",
+    "sw": 282,
+    "cw": 282,
+    "over": 0,
+    "title": null
+   },
+   {
+    "id": "tm-body-font",
+    "sw": 282,
+    "cw": 282,
+    "over": 0,
+    "title": null
+   }
+  ],
+  "over": 0,
+  "clippedNoTitle": 0,
+  "errs": []
+ },
+ "manager-1280": {
+  "found": true,
+  "readings": 22,
+  "distinctReadings": 1,
+  "frames": 30,
+  "distinctFrames": 1,
+  "state": {
+   "title": null,
+   "clipped": null,
+   "own": null,
+   "to": ""
+  },
+  "selects": 2,
+  "boxes": [
+   {
+    "id": "tm-headline-font",
+    "sw": 282,
+    "cw": 282,
+    "over": 0,
+    "title": null
+   },
+   {
+    "id": "tm-body-font",
+    "sw": 282,
+    "cw": 282,
+    "over": 0,
+    "title": null
+   }
+  ],
+  "over": 0,
+  "clippedNoTitle": 0,
+  "errs": []
+ },
+ "authored-375": {
+  "authored": "lead.r2fix_carrier",
+  "readings": 22,
+  "distinctReadings": 1,
+  "frames": 30,
+  "distinctFrames": 1,
+  "missingAuthor": 0,
+  "ownLost": 0,
+  "state": {
+   "title": "lead.r2fix_carrier\nStreet address line one and two — text (required)",
+   "clipped": "1",
+   "own": "lead.r2fix_carrier",
+   "to": "ellipsis"
+  },
+  "afterRestore": {
+   "title": "lead.r2fix_carrier",
+   "clipped": null,
+   "own": null,
+   "to": ""
+  },
+  "outerIdentical": true,
+  "errs": []
+ }
+}

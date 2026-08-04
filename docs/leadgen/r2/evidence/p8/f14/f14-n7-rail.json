@@ -1,0 +1,52 @@
+{
+ "375": {
+  "selects": 21,
+  "options": 109,
+  "overCount": 2,
+  "over": [
+   {
+    "id": "lg-theme-site-select",
+    "option": "Seed Local Living — Not activated yet",
+    "over": 14,
+    "sw": 253,
+    "cw": 239
+   },
+   {
+    "id": "lg-theme-target-select",
+    "option": "R2C3 Bravo Extremely Long Funnel Column Name For The Truncation Audit Delta Echo",
+    "over": 281,
+    "sw": 479,
+    "cw": 198
+   }
+  ],
+  "clipped": [],
+  "clippedNoTitle": 0,
+  "authoredTitles": 0,
+  "errs": []
+ },
+ "1280": {
+  "selects": 21,
+  "options": 109,
+  "overCount": 2,
+  "over": [
+   {
+    "id": "lg-theme-site-select",
+    "option": "Seed Local Living — Not activated yet",
+    "over": 31,
+    "sw": 253,
+    "cw": 222
+   },
+   {
+    "id": "lg-theme-target-select",
+    "option": "R2C3 Bravo Extremely Long Funnel Column Name For The Truncation Audit Delta Echo",
+    "over": 281,
+    "sw": 479,
+    "cw": 198
+   }
+  ],
+  "clipped": [],
+  "clippedNoTitle": 0,
+  "authoredTitles": 0,
+  "errs": []
+ }
+}

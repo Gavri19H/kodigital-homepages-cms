@@ -72,10 +72,34 @@
 //     CALIBRATED AGAINST REAL MEASURED PIXELS: the 29 strings the reviewer
 //     measured in the running product (docs/leadgen/r2/evidence/p8/
 //     review-p8-3/r-n7-deep.txt, r-manager.txt, r-themes-rail.txt). The
-//     calibration is itself asserted below — the model must never UNDER-state
-//     a width the browser really produced — so the estimate is conservative by
-//     construction (it over-states every real sample by 5.6%..26.8%, i.e. it
-//     fails early, never late).
+//     calibration is itself asserted below — for every sample, in the bucket
+//     that produced it, the model must be >= the browser's own number — so the
+//     estimate is conservative over the character classes those samples
+//     contain (it over-states every real sample by 5.6%..26.8%, i.e. it fails
+//     early, never late). It is NOT conservative for every possible string:
+//     see "THE CHARACTER-CLASS LIMIT" at CALIBRATION for the measured
+//     counter-examples and for the leg that keeps this file's own arithmetic
+//     inside the calibrated repertoire.
+//
+// FIX ROUND F14 — WHAT CHANGED IN THIS FILE. NOTHING RETIRED, NOTHING
+// WEAKENED: 102 legs before, 110 after, the same 102 still asserting exactly
+// what they asserted. The 8 new ones are
+//   * 6 for review-p8-3d MAJOR-1 (the reveal destroying a product-authored
+//     `title`). They are shaped to fail on DESTRUCTION, not on absence, which
+//     is the shape F13's `clipped-without-title` metric could not have: they
+//     count readings in which the author's own sentence is missing from the
+//     element. Against the F13 body all 6 fail (measured this round: "Tests 6
+//     failed | 104 passed"); against these bytes all 6 pass. One of them takes
+//     the author title out of the REAL served /admin/leadgen/sections/new
+//     markup so neither side of that boundary is typed here (E11).
+//   * 2 for review-p8-3d MINOR-1 (the width model's false absolute): the four
+//     driven under-statements are pinned as KNOWN, and the box arithmetic is
+//     required to stay inside the character repertoire the model is calibrated
+//     on.
+// The reveal harness also grew: the inline style now REFLECTS into the style
+// attribute as chromium's CSSOM does, so the F13 residue (`style=""` left on
+// an element the product rendered without one) is visible in the node lane
+// instead of only in a drive.
 // ===========================================================================
 
 import { describe, expect, it } from "vitest";
@@ -348,9 +372,35 @@ describe("N1 — theme rail: Button/Card corners + Card shadow show design words
 //   sans  — the admin UI font and every system-ui fallback. Worst ratio
 //           1.0222 ("Inter" 29.48px in system-ui).
 // BUCKET_FACTOR is the multiplier applied to the proportional table so the
-// model still never UNDER-states a width the browser really produced, with
-// headroom over the worst ratio in each bucket; the calibration block below
-// asserts exactly that, per sample, per bucket.
+// model does not under-state a width the browser really produced for the
+// samples and character classes it is calibrated on, with headroom over the
+// worst ratio in each bucket; the calibration block below asserts exactly
+// that, per sample, per bucket.
+// THE CHARACTER-CLASS LIMIT (FIX ROUND F14, review-p8-3d MINOR-1). The
+// sentence above used to read "never UNDER-states a width the browser really
+// produced", full stop. That absolute is false and this file has been bitten
+// twice by an in-file claim wider than its evidence, so here is the measured
+// truth. The table classifies A-Z as `upper`, the listed punctuation as
+// narrow/semi/wide, and EVERYTHING ELSE as `normal` (0.62em), so it can
+// under-state in TWO ways: (a) a glyph wider than 0.62em that no list names
+// falls into the catch-all, and (b) a class is an AVERAGE, so a string made of
+// the widest members of one class can exceed it. Driven this
+// round at 14px on /admin/leadgen/themes (offscreen span, fonts settled),
+// model vs browser: "%"x20 182.28 vs 256.08 (1.405x UNDER, sans, case a);
+// "ÄÖÜÑÇÆØÅÐÞ" 91.14 vs 101.22 (1.111x — accented capitals miss the A-Z
+// class, case a); a 12-character CJK string 104.16 vs 166.61 (1.600x, mono,
+// case a); and "Q"x20 211.68 vs 213.02 (1.006x — case b: Q is the widest
+// capital and `upper` is one number for all 26, so a pathological all-Q label
+// beats it by 1.3px over 20 characters). The two in-use strings measured in
+// the same run stay conservative ("Inherit from base" 119.80 vs 109.66;
+// "Roboto Mono (shows as default font)" 303.80 vs 294.06).
+// IMPACT TODAY IS ZERO AND THAT IS ASSERTED, not assumed: the 218 real option
+// texts these two surfaces render use only alphanumerics plus space ' ( ) + -
+// — … (driven census this round; the reviewer's own 2,234-string harvest
+// across 14 routes under-stated 0 times), and the leg "the model is only ever
+// applied inside the repertoire it was calibrated on" below fails the day a
+// percent sign, an accented capital or a CJK glyph enters an offered string —
+// which is the moment this model needs re-measuring rather than trusting.
 // WHAT IT STILL CANNOT MODEL, stated rather than implied: these are THIS
 // engine's fallback metrics (chromium/macOS: the mono stack resolves to the
 // system monospace and every "self-hosted" family falls back too, because the
@@ -460,6 +510,28 @@ const CALIBRATION: ReadonlyArray<readonly [string, number, FontBucket]> = [
   ["Shows as default font", 176.44, "mono"],
   ["Inherit from base", 142.83, "mono"],
 ];
+
+// FIX ROUND F14 (MINOR-1) — THE REPERTOIRE THE MODEL IS CALIBRATED ON. Not a
+// hand-written allowlist of "characters I think are fine": it is exactly the
+// characters the model classifies explicitly (the three advance lists, the
+// ellipsis and the A-Z `upper` class), the a-z/0-9 the `normal` class was
+// fitted to, and every character that appears in a CALIBRATION string — i.e.
+// every character a real browser has already measured through this model. A
+// character outside it lands in the 0.62em catch-all with nothing behind it,
+// which is where the measured 1.006x..1.600x under-statements live.
+const MODELLED_CHARS: ReadonlySet<string> = new Set([
+  ...NARROW_CHARS,
+  ...SEMI_CHARS,
+  ...WIDE_CHARS,
+  "…",
+  ..."ABCDEFGHIJKLMNOPQRSTUVWXYZ",
+  ..."abcdefghijklmnopqrstuvwxyz",
+  ..."0123456789",
+  ...CALIBRATION.flatMap(([text]) => [...text]),
+]);
+function unmodelledCharacters(text: string): string[] {
+  return [...new Set([...text].filter((ch) => !MODELLED_CHARS.has(ch)))];
+}
 
 // --- 2. MARKUP: pull the real <select>s and their real <option>s out of -----
 // --- whatever HTML the real renderer produced. -----------------------------
@@ -572,7 +644,7 @@ function styleValue(style: string, prop: string): string {
   return decl(style, prop);
 }
 
-describe("N7 machinery — the width model may never under-state a width the real browser produced", () => {
+describe("N7 machinery — the width model does not under-state a width the real browser produced, inside the repertoire it is calibrated on", () => {
   for (const [text, measured, bucket] of CALIBRATION) {
     it(`[${bucket}] "${text}" — model >= ${measured}px measured live`, () => {
       expect(textWidthPx(text, 14, bucket)).toBeGreaterThanOrEqual(measured);
@@ -596,6 +668,36 @@ describe("N7 machinery — the width model may never under-state a width the rea
     expect(bucketOf("Newsreader,serif")).toBe("serif");
     expect(bucketOf("'Poppins',system-ui,sans-serif")).toBe("sans");
     expect(bucketOf(null)).toBe("sans");
+  });
+
+  // FIX ROUND F14 (review-p8-3d MINOR-1) — the retired absolute, kept honest.
+  // Each row is a string a real browser laid out this round (offscreen 14px
+  // span on /admin/leadgen/themes, fonts settled) beside what this model
+  // returns for it. The model is BELOW the browser for all four, which is the
+  // whole reason the comment now states a repertoire instead of "never". Three
+  // are case (a) — a glyph with no class — and are therefore caught by the
+  // repertoire leg in the CLIP INVARIANT block; the "Q" row is case (b), a
+  // pathological distribution INSIDE the A-Z class, which no repertoire check
+  // can see and which is written down here instead of implied. If a future
+  // edit widens the classes so one of these becomes conservative, this leg
+  // fails and the numbers in the comment above must be re-measured, not
+  // quietly kept.
+  it("EXECUTED: the model's stated limit is real — these four strings under-state, by the amounts driven this round", () => {
+    const cases: ReadonlyArray<readonly [string, number, FontBucket, "no class for the glyph" | "widest member of a class"]> = [
+      ["%".repeat(20), 256.08, "sans", "no class for the glyph"],
+      ["ÄÖÜÑÇÆØÅÐÞ", 101.22, "sans", "no class for the glyph"],
+      ["日本語のテキストサンプル", 166.61, "mono", "no class for the glyph"],
+      ["Q".repeat(20), 213.02, "sans", "widest member of a class"],
+    ];
+    for (const [text, real, bucket, kind] of cases) {
+      expect(textWidthPx(text, 14, bucket), `${text} is a KNOWN under-statement (${kind})`).toBeLessThan(real);
+      expect(unmodelledCharacters(text).length > 0, `${text}: ${kind}`).toBe(kind === "no class for the glyph");
+    }
+    // …and every string the product really renders through this model is
+    // inside the repertoire, so the box arithmetic never runs on case (a).
+    for (const text of ["Inherit from base", "Roboto Mono (shows as default font)", "Bigger + check badge", "Seed Local Living — Not activated yet", "Choose a preset…"]) {
+      expect(unmodelledCharacters(text), text).toEqual([]);
+    }
   });
 });
 
@@ -1669,6 +1771,40 @@ describeDb("N7 CLIP INVARIANT — every select on the covered surfaces shows its
     expect(picker.strings).toContain("Choose a preset…");
   });
 
+  // FIX ROUND F14 (review-p8-3d MINOR-1) — the box arithmetic is only ever
+  // applied inside the repertoire the model was calibrated on. The leg above
+  // compares a MODELLED width against a real box; a string built from glyphs
+  // the model has no class for is modelled 1.1x..1.6x too NARROW (measured, see
+  // the CALIBRATION comment), so a green box result for such a string would be
+  // exactly the "green over a clipped control" failure this phase keeps
+  // hitting. This does not widen the model and does not block anything in the
+  // product: it fails the TEST the day an offered string leaves the calibrated
+  // repertoire, which is the day the model needs re-measuring.
+  it("EXECUTED: every string the box arithmetic measures is inside the calibrated character repertoire", async () => {
+    const { env } = newHarness();
+    const created = await json<ThemeCreateResponse>(
+      await admin.request(`${API}/themes`, jsonInit("POST", presetBody("Clip Invariant Preset", "Newsreader", "Roboto Mono")), env),
+      "create preset",
+    );
+    const all = await coveredSelects(env, created.item.id);
+    const outside: string[] = [];
+    let checked = 0;
+    for (const c of all) {
+      if (c.box === null) continue;
+      for (const text of c.strings) {
+        checked += 1;
+        const bad = unmodelledCharacters(text);
+        if (bad.length > 0) outside.push(`${c.key}: "${text}" uses ${bad.map((ch) => `${ch} (U+${(ch.codePointAt(0) as number).toString(16).toUpperCase()})`).join(", ")}`);
+      }
+    }
+    expect(outside, "re-measure the width model against these glyphs before trusting a box result for them").toEqual([]);
+    expect(checked).toBeGreaterThanOrEqual(100);
+    // …and the check is not vacuous: the same function does reject the glyphs
+    // the browser measured this round as under-stated.
+    expect(unmodelledCharacters("100% match")).toEqual(["%"]);
+    expect(unmodelledCharacters("Ärger")).toEqual(["Ä"]);
+  });
+
   it("EXECUTED: every select that can hold OPERATOR data is covered by the clip reveal, and the reveal is on the page that renders it", async () => {
     const { env } = newHarness();
     const created = await json<ThemeCreateResponse>(
@@ -1756,14 +1892,42 @@ interface RevealHarness {
   observers: Array<{ options: Record<string, boolean>; cb: (records: unknown[]) => void }>;
   fontsReady: () => Promise<void>;
   state: () => { title: string | null; clipped: string | null; textOverflow: string };
+  // FIX ROUND F14 — the element's whole attribute map IN ORDER. JS objects keep
+  // string keys in insertion order, so this is the node-lane stand-in for
+  // `outerHTML`: it moves if a value changes, if an attribute is added or
+  // removed, AND if an attribute is removed and re-added (which in a browser
+  // moves it to the end of the tag). Its real-browser counterpart is the driven
+  // outerHTML comparison quoted in clip-reveal.ts's F14 block.
+  snapshot: () => string;
 }
 
 // A select that measures like the browser: the painted text is `optionText` in
 // the real width model, and an applied ellipsis hides the overflow from
-// scrollWidth exactly as chromium does.
-function revealHarness(clientW: number, optionText: string, bucket: FontBucket = "sans", fontPx = 14): RevealHarness {
+// scrollWidth exactly as chromium does. `authorTitle` is a tooltip THE PRODUCT
+// rendered before this script ever ran (ui-section-studio.ts:15594 / :2601 are
+// the two real ones); it is written into the attribute map first, exactly as
+// the markup does.
+function revealHarness(clientW: number, optionText: string, bucket: FontBucket = "sans", fontPx = 14, authorTitle: string | null = null): RevealHarness {
   const attrs: Record<string, string> = {};
-  const style: Record<string, string> = {};
+  if (authorTitle !== null) attrs["title"] = authorTitle;
+  // The inline style REFLECTS into the style attribute, as chromium's CSSOM
+  // does: writing a property serialises the declarations back into the
+  // attribute, and clearing the last one leaves the attribute present but
+  // EMPTY — which is how F13 left a `style=""` residue on an element that was
+  // rendered without one (driven: `… aria-label="Offer payload field"
+  // style="">` after the reveal withdrew).
+  const styleBag: Record<string, string> = {};
+  const style: Record<string, string> = Object.defineProperty({} as Record<string, string>, "textOverflow", {
+    enumerable: true,
+    get: (): string => styleBag["textOverflow"] ?? "",
+    set: (v: string): void => {
+      styleBag["textOverflow"] = v;
+      attrs["style"] = Object.entries(styleBag)
+        .filter(([, val]) => val !== "")
+        .map(([k, val]) => `${k === "textOverflow" ? "text-overflow" : k}: ${val};`)
+        .join(" ");
+    },
+  });
   const options = [{ textContent: optionText }];
   const sel = {
     tagName: "SELECT",
@@ -1842,6 +2006,7 @@ function revealHarness(clientW: number, optionText: string, bucket: FontBucket =
       await new Promise((r) => setTimeout(r, 0));
     },
     state: () => ({ title: attrs["title"] ?? null, clipped: attrs["data-lg-clipped"] ?? null, textOverflow: style["textOverflow"] ?? "" }),
+    snapshot: () => JSON.stringify(attrs),
   };
 }
 
@@ -1972,6 +2137,151 @@ describe("N7 CLIP REVEAL — the real leadgen script hands over text a select ca
     h.sel.options[0]!.textContent = "Roboto Mono (a wider family arrived)";
     await h.fontsReady();
     expect(h.state()).toEqual({ title: "Roboto Mono (a wider family arrived)", clipped: "1", textOverflow: "ellipsis" });
+  });
+
+  // ---------------------------------------------------------------------
+  // FIX ROUND F14 (review-p8-3d MAJOR-1) — THE REVEAL DOES NOT OWN `title`.
+  // F13 widened the reveal to every leadgen admin route; two selects on
+  // /admin/leadgen/sections/:id/edit already carry a tooltip the PRODUCT set
+  // (ui-section-studio.ts:15594 `pathSel.title = f.path`, promised to the
+  // operator in the help copy at :3263; and the SSR title on
+  // #lg-content-type-swap at :2601), and the reveal overwrote then deleted it.
+  // WHY NO F13 LEG COULD FAIL FOR IT: every metric in this file and in the
+  // driven runs counted `clipped-without-title`, i.e. MISSING titles. A
+  // destroyed title is PRESENT and WRONG, so it passed every count. The legs
+  // below are shaped the other way round — they count readings in which the
+  // author's own sentence is absent from the element, which is 0 only if the
+  // reveal never overwrites and never deletes it.
+  // FAIL-BEFORE (driven, both bodies against the same real element): with the
+  // F13 body restored, the real Mapping drawer at 375 went
+  // title="lead.r2fix_carrier" -> "Street address line one and two — text
+  // (required)" -> null, 10 of 10 readings without the author's text, and the
+  // withdrawn element kept a `style=""` residue; with these bytes, 0 of 52.
+  // ---------------------------------------------------------------------
+  const AUTHORED = "lead.r2fix_carrier";
+  const FIELD_LABEL = "Street address line one and two — text (required)";
+  const SHORT_LABEL = "Carrier";
+
+  it("EXECUTED: a select the PRODUCT titled keeps that sentence verbatim — the clipped text is ADDED, never substituted", () => {
+    const h = revealHarness(178, FIELD_LABEL, "sans", 14, AUTHORED);
+    const s = h.state();
+    expect(s.clipped).toBe("1");
+    expect(s.textOverflow).toBe("ellipsis");
+    // The deliberate choice, asserted rather than described: a COMPOSITION,
+    // author's sentence first and exactly as written, then the text the box
+    // cut. Both facts reach the operator; neither is silently replaced.
+    expect(s.title).toBe(`${AUTHORED}\n${FIELD_LABEL}`);
+    expect((s.title as string).startsWith(AUTHORED), "the author's sentence must lead").toBe(true);
+    expect(s.title).toContain(FIELD_LABEL);
+    // …and it is recoverable from the element itself, not only by string
+    // surgery on the composition.
+    expect(h.attrs["data-lg-title-own"]).toBe(AUTHORED);
+  });
+
+  it("EXECUTED: 6 clip/unclip cycles with the three real events interleaved DESTROY the author's sentence 0 times, and the run has exactly one clipped state and one resting state", () => {
+    const h = revealHarness(178, SHORT_LABEL, "sans", 14, AUTHORED);
+    const resting = h.snapshot();
+    expect(h.state()).toEqual({ title: AUTHORED, clipped: null, textOverflow: "" });
+    const sweep = h.win["lgRevealClippedSelects"] as (root: unknown) => void;
+    const clippedStates = new Set<string>();
+    const restStates = new Set<string>([resting]);
+    let destroyed = 0;
+    let readings = 1;
+    for (let i = 0; i < 6; i += 1) {
+      h.sel.options[0]!.textContent = FIELD_LABEL;
+      sweep(null);
+      for (const type of ["mouseover", "focusin", "change"]) (h.listeners[type] as (e: unknown) => void)({ target: h.sel });
+      readings += 1;
+      clippedStates.add(h.snapshot());
+      if (!String(h.state().title).startsWith(AUTHORED)) destroyed += 1;
+      h.sel.options[0]!.textContent = SHORT_LABEL;
+      sweep(null);
+      for (const type of ["mouseover", "focusin", "change"]) (h.listeners[type] as (e: unknown) => void)({ target: h.sel });
+      readings += 1;
+      restStates.add(h.snapshot());
+      if (h.state().title !== AUTHORED) destroyed += 1;
+    }
+    expect(destroyed, "a reading in which the product's own tooltip had been overwritten or deleted").toBe(0);
+    expect(readings).toBe(13);
+    expect(clippedStates.size, [...clippedStates].join(" | ")).toBe(1);
+    expect(restStates.size, [...restStates].join(" | ")).toBe(1);
+    expect([...restStates][0], "every resting reading is the element the product rendered").toBe(resting);
+  });
+
+  it("EXECUTED: withdrawal leaves the element exactly as the product rendered it — same attributes, same values, same order, no style residue", () => {
+    const h = revealHarness(178, SHORT_LABEL, "sans", 14, AUTHORED);
+    const rendered = JSON.stringify({ title: AUTHORED });
+    expect(h.snapshot()).toBe(rendered);
+    const sweep = h.win["lgRevealClippedSelects"] as (root: unknown) => void;
+    h.sel.options[0]!.textContent = FIELD_LABEL;
+    sweep(null);
+    // while revealed: the author's title is stashed, the composition is shown,
+    // and the title attribute keeps its ORIGINAL position in the element.
+    expect(h.snapshot()).toBe(
+      JSON.stringify({ title: `${AUTHORED}\n${FIELD_LABEL}`, "data-lg-title-own": AUTHORED, "data-lg-clipped": "1", style: "text-overflow: ellipsis;" }),
+    );
+    h.sel.options[0]!.textContent = SHORT_LABEL;
+    sweep(null);
+    expect(h.snapshot(), "the reveal's contribution must be fully reversible").toBe(rendered);
+  });
+
+  it("EXECUTED: the same reversibility for a select the product did NOT title — the reveal's own attributes go, including the style attribute it created", () => {
+    const h = revealHarness(312, "Short");
+    expect(h.snapshot(), "the product rendered a bare select").toBe("{}");
+    const sweep = h.win["lgRevealClippedSelects"] as (root: unknown) => void;
+    h.sel.options[0]!.textContent = LONG;
+    sweep(null);
+    expect(h.snapshot()).toBe(JSON.stringify({ "data-lg-clipped": "1", title: LONG, style: "text-overflow: ellipsis;" }));
+    h.sel.options[0]!.textContent = "Short";
+    sweep(null);
+    // F13 left `style=""` behind here (driven), which is a byte the product
+    // never wrote.
+    expect(h.snapshot()).toBe("{}");
+  });
+
+  it("EXECUTED: when the author's tooltip IS the clipped text, it is shown once, not twice", () => {
+    const h = revealHarness(178, FIELD_LABEL, "sans", 14, FIELD_LABEL);
+    expect(h.state().title).toBe(FIELD_LABEL);
+    expect(h.attrs["data-lg-title-own"]).toBe(FIELD_LABEL);
+  });
+});
+
+// ---------------------------------------------------------------------------
+// FIX ROUND F14 — E11: the author title under test is the one the REAL route
+// serves. The producer side is the real admin router's own markup for
+// /admin/leadgen/sections/new (the route F13 newly took responsibility for),
+// the consumer side is the real LG_CLIP_REVEAL_SCRIPT bytes; neither is typed
+// out here.
+// ---------------------------------------------------------------------------
+describeDb("F14 — the tooltip the reveal must not destroy comes from the real served page", () => {
+  it("EXECUTED: the real route serves a product-titled select, and the real reveal bytes compose that exact sentence instead of replacing it", async () => {
+    const { env } = newHarness();
+    const { status, html } = await getHtml(env, "/admin/leadgen/sections/new");
+    expect(status).toBe(200);
+
+    const titled = [...html.matchAll(/<select((?:"[^"]*"|[^>"])*?)>([\s\S]*?)<\/select>/g)]
+      .map((m) => ({ attrs: m[1] as string, body: m[2] as string }))
+      .filter((s) => attr(s.attrs, "title") !== null);
+    expect(titled.length, "the route must still render a select the product itself titled").toBeGreaterThanOrEqual(1);
+    const real = titled[0] as { attrs: string; body: string };
+    const authored = decodeEntities(attr(real.attrs, "title") as string);
+    const firstOption = decodeEntities((real.body.match(/<option[^>]*>([\s\S]*?)<\/option>/) ?? ["", ""])[1] as string);
+    expect(authored.length).toBeGreaterThan(0);
+    expect(firstOption.length).toBeGreaterThan(0);
+
+    // the OTHER real author title on this page is the island's, which the same
+    // served bytes carry (ui-section-studio.ts:15594) — named here so a rename
+    // does not quietly leave this class untested.
+    expect(html, "the mapping drawer's author title must still be set by the served island").toContain("pathSel.title = f.path");
+
+    // the REAL script, over that REAL title, in a box too narrow for the option
+    const h = revealHarness(40, firstOption, "sans", 14, authored);
+    expect(h.state().title).toBe(`${authored}\n${firstOption}`);
+    expect(h.attrs["data-lg-title-own"]).toBe(authored);
+    h.sel.clientWidth = 4000;
+    (h.win["lgRevealClippedSelects"] as (root: unknown) => void)(null);
+    expect(h.state()).toEqual({ title: authored, clipped: null, textOverflow: "" });
+    expect(h.snapshot()).toBe(JSON.stringify({ title: authored }));
   });
 });
 
@@ -2271,6 +2581,17 @@ describeDb("MINOR-1 — the rail and the Themes manager OFFER the same font voca
   // nothing and the closed control is the only place the words can appear. The
   // rail's box shows them in full: driven, +0px across all 90 rail options at
   // 1280 and 375.)
+  // FIX ROUND F14 (review-p8-3d MINOR-4) — AND WHY THE REGISTER DIFFERS, since
+  // "same words, different shapes" is what the review actually measured: the
+  // manager's is a standalone heading and a caption, which are sentences of
+  // their own and start with a capital; the rail's is a mid-string
+  // parenthetical inside an option label, which does not. That is why the
+  // comparison below normalises case — deliberately, not by accident — and why
+  // it still pins the WORDS byte-for-byte. Converging the presentation itself
+  // is measured shut in both directions (ui-theme-manager.ts's
+  // FONT_NOT_SERVED_NOTE block states the arithmetic: 294px in a 282px box one
+  // way, a heading over permanently hidden options the other), and the rail's
+  // markup is in quotes-tabs/themes.ts, which this slice does not own.
   it("EXECUTED: the not-served sentence is the SAME on both surfaces — in the rail's option text, in the manager's group heading and caption", async () => {
     const { env } = newHarness();
     const created = await json<ThemeCreateResponse>(
