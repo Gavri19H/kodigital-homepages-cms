@@ -230,6 +230,19 @@ function seedSection(sdb: SqliteDb, name: string): { id: number; public_id: stri
   return { id: row.id, public_id: publicId };
 }
 
+// M-2 regression fixture: the SAME shape as seedSection, but with an explicit
+// (non-'life') vertical — the offending row for the vertical-mismatch message
+// test below (needs a section whose vertical the quote does NOT carry).
+function seedSectionInVertical(sdb: SqliteDb, name: string, vertical: string): { id: number; public_id: string } {
+  const publicId = mintPublicId("section");
+  const content = JSON.stringify({ components: [{ type: "TwoButtonYesNo", question_id: "q1", question_key: "k", internal_field: "f", answer_type: "boolean" }] });
+  sdb.prepare(
+    "INSERT INTO leadgen_sections (public_id, section_name, activity, vertical, headline_text, content_json, continue_mode, status) VALUES (?, ?, 'quote_funnel', ?, 'H', ?, 'button', 'active')",
+  ).run(publicId, name, vertical, content);
+  const row = sdb.prepare("SELECT id FROM leadgen_sections WHERE public_id = ?").get(publicId) as { id: number };
+  return { id: row.id, public_id: publicId };
+}
+
 function seedOffer(sdb: SqliteDb): { id: number; public_id: string } {
   const publicId = mintPublicId("offer");
   sdb.prepare(
@@ -515,6 +528,45 @@ d("leadgen rework handlers (S1.4)", () => {
     const save = await req(h, "PUT", `/variants/${q.variantPublic}`, { sections: [{ section_id: s.id, position: 0 }] });
     expect(save.status).toBe(400);
     expect(Object.values(save.json.fields)).toContain("'Dup Section' is already in this funnel — a section can appear once per funnel.");
+  });
+
+  // --- M-2 (P8-5 FIX-FIRST): vertical-mismatch save error is operator-facing,
+  // not raw internals — covers BOTH call sites that share describeVerticalMismatch
+  // (resolveSectionOrder's `sections` path AND preparePages's `pages`/`slots`
+  // path), so a future edit can never let the two drift back apart unnoticed.
+  it("M-2: a section outside the quote's verticals reports the operator name + allowed verticals + an action, never a raw section ULID (both `sections` and `pages` save paths)", async () => {
+    const h = harness();
+    const q = await newQuote(h); // verticals: ["life"]
+    const off = seedSectionInVertical(h.sdb, "Auto Quote Header", "auto");
+    // Pins the SHAPE of a section public_id (lgs_ + 26 Crockford chars), not just
+    // this one minted value — a generic "not equal to this section's public_id"
+    // check would miss a DIFFERENT raw id leaking into the same message.
+    const sectionUlidShape = /lgs_[0-9A-Z]{26}/;
+
+    // --- `sections` path (resolveSectionOrder) ---
+    const viaSections = await req(h, "PUT", `/variants/${q.variantPublic}`, {
+      sections: [{ section_id: off.id, position: 0 }],
+    });
+    expect(viaSections.status, JSON.stringify(viaSections.json)).toBe(400);
+    const sectionsMsg = viaSections.json.fields["sections.0"] as string;
+    expect(sectionsMsg).toBeDefined();
+    expect(sectionsMsg).toContain("Auto Quote Header"); // the operator-given name
+    expect(sectionsMsg).not.toMatch(sectionUlidShape); // no raw ULID shape anywhere
+    expect(sectionsMsg).toContain("life"); // the quote's allowed verticals, named
+    expect(sectionsMsg).toMatch(/pick|add/i); // an action, not just a diagnosis
+
+    // --- `pages`/`slots` path (preparePages's resolveRef) — must be the SAME msg
+    const viaPages = await req(h, "PUT", `/variants/${q.variantPublic}`, {
+      pages: [{ name: null, slots: [{ kind: "fixed", section_id: off.public_id }] }],
+    });
+    expect(viaPages.status, JSON.stringify(viaPages.json)).toBe(400);
+    const pagesMsg = viaPages.json.fields["pages.0.slots.0.section_id"] as string;
+    expect(pagesMsg).toBeDefined();
+    expect(pagesMsg).toBe(sectionsMsg); // byte-identical: one shared function, not two that can drift
+    expect(pagesMsg).toContain("Auto Quote Header");
+    expect(pagesMsg).not.toMatch(sectionUlidShape);
+    expect(pagesMsg).toContain("life");
+    expect(pagesMsg).toMatch(/pick|add/i);
   });
 
   // --- §4.3-15 activation preflight matrix -----------------------------------

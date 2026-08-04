@@ -2801,6 +2801,22 @@ interface SectionOrderItem {
 // performs, over the page/slot shape instead of a flat list. The two paths
 // are mutually exclusive per save (putVariantHandler rejects a body
 // carrying both `sections` and `pages`).
+// M5 remediation (P8-5 FIX-FIRST, M-2): the section-vertical mismatch used to
+// surface the raw public_id + bare stored key on an operator-facing error
+// surface ("section lgs_01... vertical 'finance' is not one of the quote
+// verticals") — a raw ULID with no action. Name the section by the label the
+// operator gave it (section_name — the SAME field the §8.2 library cards and
+// list view show), keep "Vertical"/"Verticals" because that is the exact word
+// the section editor (renderActivityVerticalPickers) and the quote-settings
+// form (`Verticals * (select one or more)`) already use, and name the action:
+// pick a section in an allowed vertical, or widen the quote's Verticals.
+// Both call sites below share this ONE function so the message can never
+// drift between them (contract R5: reuse the register, invent no new copy).
+function describeVerticalMismatch(section: LeadgenSectionRow, allowedVerticals: Set<string>): string {
+  const allowed = [...allowedVerticals].join(", ");
+  return `'${section.section_name}' is a ${section.vertical} section, but this quote's Verticals only include ${allowed} — pick a section in one of those verticals, or add ${section.vertical} to the quote's Verticals.`;
+}
+
 async function resolveSectionOrder(
   db: D1Database,
   quote: LeadgenQuoteRow,
@@ -2838,7 +2854,7 @@ async function resolveSectionOrder(
       continue;
     }
     if (quoteVerticals.size > 0 && !quoteVerticals.has(section.vertical)) {
-      errors[`sections.${i}`] = `section ${section.public_id} vertical '${section.vertical}' is not one of the quote verticals`;
+      errors[`sections.${i}`] = describeVerticalMismatch(section, quoteVerticals);
       continue;
     }
     const posRaw = entry["position"];
@@ -3148,7 +3164,7 @@ async function preparePages(
       return null;
     }
     if (quoteVerticals.size > 0 && !quoteVerticals.has(section.vertical)) {
-      errors[path] = `section ${section.public_id} vertical '${section.vertical}' is not one of the quote verticals`;
+      errors[path] = describeVerticalMismatch(section, quoteVerticals);
       return null;
     }
     return section.id;
