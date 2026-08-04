@@ -12025,18 +12025,47 @@ export const SECTION_STUDIO_SCRIPT = `
       wrap.appendChild(styleControl.wrap);
     }
     // §7.3: value auto-suggested from the label while un-edited.
+    //
+    // R2 P8 R6-3 (owner A.1 #6/#8 -- the buyer receives what this row says).
+    // "Un-edited" now means THE BOX STILL HOLDS THE MACHINE'S OWN DERIVATION
+    // (the label's slug for 'value'; the value itself for 'analytics id'),
+    // not the old test "the box happened to be empty when the row was built".
+    // That old test could never be true for a row that arrives pre-filled --
+    // a sampleChoice row ('Option 1'/'option_1'), a stored row, or the seeded
+    // "Other" row ('Other option'/'other_option') -- so renaming the label
+    // left the ORIGINAL placeholder in the answer payload the auction sends
+    // to buyers. One rule now covers every row, with no provenance flag: the
+    // instant the operator types their OWN value (or analytics id) it stops
+    // matching the derivation and is never rewritten again.
+    // DELIBERATE, and visible: while a value IS the label's slug, renaming
+    // the label rewrites it IN FRONT OF THE OPERATOR (the Saved value cell
+    // sits next to the Label cell in the same row and updates as they type),
+    // so no stored identity changes without being on screen while it happens.
     var valueInput = inputsByField['value'];
+    var labelInput = inputsByField['label'];
+    var analyticsInput = inputsByField['analytics_id'];
     if (valueInput) {
-      valueInput.setAttribute('data-auto', valueInput.value === '' ? 'true' : 'false');
+      valueInput.setAttribute('data-auto', (valueInput.value === '' || (labelInput && valueInput.value === slugify(labelInput.value))) ? 'true' : 'false');
       valueInput.addEventListener('input', function () { this.setAttribute('data-auto', 'false'); });
     }
-    var labelInput = inputsByField['label'];
+    if (analyticsInput) {
+      analyticsInput.setAttribute('data-auto', (analyticsInput.value === '' || (valueInput && analyticsInput.value === valueInput.value)) ? 'true' : 'false');
+      analyticsInput.addEventListener('input', function () { this.setAttribute('data-auto', 'false'); });
+    }
     if (labelInput && valueInput) {
       labelInput.addEventListener('input', function () {
         if (valueInput.getAttribute('data-auto') === 'true') {
           valueInput.value = slugify(this.value);
+          if (analyticsInput && analyticsInput.getAttribute('data-auto') === 'true') { analyticsInput.value = valueInput.value; }
           collectChoices();
         }
+      });
+    }
+    // Second hop of the SAME rule: a value the operator types by hand still
+    // carries the analytics id with it for as long as THAT box is un-edited.
+    if (valueInput && analyticsInput) {
+      valueInput.addEventListener('input', function () {
+        if (analyticsInput.getAttribute('data-auto') === 'true') { analyticsInput.value = this.value; collectChoices(); }
       });
     }
     // §8.4: emoji ⊕ icon are mutually exclusive — choosing one clears the other.
@@ -12149,7 +12178,7 @@ export const SECTION_STUDIO_SCRIPT = `
     var wrap = document.createElement('div');
     wrap.className = 'lg-choice-row';
     wrap.setAttribute('data-other-row', '');
-    var i, field, cell, inp, valueInput = null, labelInput = null;
+    var i, field, cell, inp, valueInput = null, labelInput = null, analyticsInput = null;
     for (i = 0; i < OTHER_VALUE_FIELDS.length; i++) {
       field = OTHER_VALUE_FIELDS[i];
       cell = choiceCellWrap(field);
@@ -12164,17 +12193,39 @@ export const SECTION_STUDIO_SCRIPT = `
       inp.addEventListener('change', collectOther);
       if (field === 'value') { valueInput = inp; }
       if (field === 'label') { labelInput = inp; }
+      if (field === 'analytics_id') { analyticsInput = inp; }
       cell.appendChild(inp);
       wrap.appendChild(cell);
     }
     // §7.3 parity: value auto-suggested from the label while un-edited.
+    // R2 P8 R6-3: the SAME derivation rule buildChoiceRow now applies (see the
+    // long comment there) -- "un-edited" is "still holds the machine's own
+    // derivation", not "was empty at build time". This row is the one the
+    // owner's driven roast caught: toggleOtherEnabled seeds it NON-empty
+    // ('Other option' / 'other_option' / 'other_option'), so under the old
+    // emptiness test its data-auto was 'false' from the instant it existed and
+    // a rename could NEVER sync -- the literal 'other_option' was what landed
+    // in the visitor's answer payload and reached the buyer.
     if (valueInput) {
-      valueInput.setAttribute('data-auto', valueInput.value === '' ? 'true' : 'false');
+      valueInput.setAttribute('data-auto', (valueInput.value === '' || (labelInput && valueInput.value === slugify(labelInput.value))) ? 'true' : 'false');
       valueInput.addEventListener('input', function () { this.setAttribute('data-auto', 'false'); });
+    }
+    if (analyticsInput) {
+      analyticsInput.setAttribute('data-auto', (analyticsInput.value === '' || (valueInput && analyticsInput.value === valueInput.value)) ? 'true' : 'false');
+      analyticsInput.addEventListener('input', function () { this.setAttribute('data-auto', 'false'); });
     }
     if (labelInput && valueInput) {
       labelInput.addEventListener('input', function () {
-        if (valueInput.getAttribute('data-auto') === 'true') { valueInput.value = slugify(this.value); collectOther(); }
+        if (valueInput.getAttribute('data-auto') === 'true') {
+          valueInput.value = slugify(this.value);
+          if (analyticsInput && analyticsInput.getAttribute('data-auto') === 'true') { analyticsInput.value = valueInput.value; }
+          collectOther();
+        }
+      });
+    }
+    if (valueInput && analyticsInput) {
+      valueInput.addEventListener('input', function () {
+        if (analyticsInput.getAttribute('data-auto') === 'true') { analyticsInput.value = this.value; collectOther(); }
       });
     }
     var reorder = document.createElement('span');
@@ -12308,8 +12359,26 @@ export const SECTION_STUDIO_SCRIPT = `
     { field: 'state', mode: 'autofill' },
     { field: 'zip', mode: 'autofill', validation: 'zip5' }
   ];
+  // R2 P8 R6-4 (owner A.1 #6 "the mapping of what is auto-filled per field
+  // should definatly be an option"): this is now the SAME predicate the
+  // renderer computes under the SAME name -- presets.ts renderAddressFieldSet's
+  // `addressMapsEnabled = isNewMapsShape(raw) ? raw.enabled === true : true`.
+  // It answers "will the RENDERER honour mode:autofill on this node", which is
+  // NOT "is the Maps toggle ticked": a node with NO props.maps at all (the
+  // unconfigured default every fresh Address starts as) renders the 4-field
+  // composite with street driving Places autocomplete and city/state/zip as its
+  // fill targets. The old body returned false for exactly that node, so the
+  // studio withheld the Autofill option, displayed Manual on all four rows, and
+  // collectAddressFields then PERSISTED mode:'manual' x4 the moment the
+  // operator touched any unrelated control -- the studio showing one thing, the
+  // visitor getting another, and then the studio's version silently winning.
+  // isNewMapsShape's own discriminator is `typeof raw.jobs === 'object'`, so a
+  // pre-jobs flat config is treated as honouring autofill here exactly as it is
+  // there; only an explicit {jobs:...} config with enabled !== true turns it off.
   function addressMapsEnabled(node) {
-    return !!(node && node.props && node.props.maps && node.props.maps.enabled === true);
+    var raw = (node && node.props) ? node.props.maps : null;
+    var newShape = typeof raw === 'object' && raw !== null && !(raw instanceof Array) && typeof raw.jobs === 'object';
+    return newShape ? raw.enabled === true : true;
   }
   function addressFieldsOf(node) {
     if (node && node.props && node.props.fields && node.props.fields.length) { return node.props.fields; }
@@ -12381,15 +12450,28 @@ export const SECTION_STUDIO_SCRIPT = `
     modeSel.className = 'form-input';
     modeSel.setAttribute('data-address-field-mode', '');
     var manualOpt = document.createElement('option'); manualOpt.value = 'manual'; manualOpt.textContent = 'Manual'; modeSel.appendChild(manualOpt);
-    // P5 S5c (Maps honesty): "Autofill" needs BOTH this node's Maps toggle on
-    // (mapsOn) AND a REAL browser key — offering it with no key would allow
-    // the operator to author a mode that can never actually run (the field
-    // just silently behaves as Manual at runtime with no clue why). Keyless
-    // degrades the Mode select to Manual-only; populateAddressFieldSet's
-    // data-address-maps-note says so in plain words right above this table.
-    var autofillAllowed = mapsOn && mapsKeyIsConfigured();
-    if (autofillAllowed) { var autoOpt = document.createElement('option'); autoOpt.value = 'autofill'; autoOpt.textContent = 'Autofill'; modeSel.appendChild(autoOpt); }
-    modeSel.value = (fieldSpec.mode === 'autofill' && autofillAllowed) ? 'autofill' : 'manual';
+    var autoOpt = document.createElement('option'); autoOpt.value = 'autofill'; autoOpt.textContent = 'Autofill'; modeSel.appendChild(autoOpt);
+    // R2 P8 R6-4. Two rules, both now the RENDERER's:
+    //  1. What this row DISPLAYS is what presets.ts reads off it --
+    //     readAddressFieldSpecs does `mode: r.mode === 'manual' ? 'manual' :
+    //     'autofill'`, so anything that is not the literal 'manual' IS autofill
+    //     to the product. The select mirrors that read verbatim, so an
+    //     unconfigured Address shows the 4x Autofill it actually renders.
+    //  2. The option is never WITHHELD, so the select can never coerce a stored
+    //     (or defaulted) 'autofill' down to 'manual' behind the operator's
+    //     back -- which is exactly how one tick of an unrelated Required box
+    //     used to persist mode:'manual' on all four fields.
+    // When the renderer will NOT honour autofill on this node (Maps explicitly
+    // off), the option is DISABLED rather than removed unless this row already
+    // stores it: offered-but-inert is the control R3's corollary forbids, and
+    // dropping the row's own stored value is the silent rewrite R6-4 is. The
+    // Maps browser key is deliberately NOT part of this test -- a key is a
+    // deployment fact, not an authoring one, and the note under this table
+    // already states plainly that a keyless funnel keeps the config and
+    // activates it the moment a key exists.
+    var storedAutofill = fieldSpec.mode !== 'manual';
+    autoOpt.disabled = !mapsOn && !storedAutofill;
+    modeSel.value = storedAutofill ? 'autofill' : 'manual';
     modeSel.addEventListener('change', collectAddressFields);
     modeCell.appendChild(modeSel);
     wrap.appendChild(modeCell);
@@ -12399,10 +12481,49 @@ export const SECTION_STUDIO_SCRIPT = `
     valSel.setAttribute('data-address-field-validation', '');
     var noneOpt = document.createElement('option'); noneOpt.value = 'none'; noneOpt.textContent = 'None'; valSel.appendChild(noneOpt);
     var zipOpt = document.createElement('option'); zipOpt.value = 'zip5'; zipOpt.textContent = 'ZIP (5 digits)'; valSel.appendChild(zipOpt);
-    valSel.value = (fieldSpec.validation === 'zip5') ? 'zip5' : 'none';
-    valSel.addEventListener('change', collectAddressFields);
+    // R2 P8 M4 (owner A.1 #6 "if I want to auto fill only for street address
+    // and city and I want the user will insert the Zip by himself but to
+    // validate the Zip in a 5 digits zip validation?"): the third rule the
+    // product has ALWAYS been able to run and the studio never offered.
+    // runtime/validation.ts validateAddressField already applies a per-field
+    // {regex, message} (and content-schema.validateAddressFields already
+    // accepts it and rejects a bad one with a real message) -- this wires the
+    // existing capability to a control instead of inventing a second engine.
+    var customValOpt = document.createElement('option'); customValOpt.value = 'custom'; customValOpt.textContent = 'Custom pattern'; valSel.appendChild(customValOpt);
+    var storedCustom = !!(fieldSpec.validation && typeof fieldSpec.validation === 'object');
+    valSel.value = storedCustom ? 'custom' : ((fieldSpec.validation === 'zip5') ? 'zip5' : 'none');
     valCell.appendChild(valSel);
     wrap.appendChild(valCell);
+    // The custom rule's own two inputs: the pattern the answer must match and
+    // the words the visitor reads when it does not. Full-width sub-row so the
+    // four cells above keep their line. Hidden unless 'Custom pattern' is the
+    // selected rule -- no control is offered for a rule that is not in force.
+    var customWrap = document.createElement('div');
+    customWrap.className = 'studio-addr-custom';
+    customWrap.setAttribute('data-address-custom-validation', '');
+    var patCell = addrCell('Pattern the answer must match');
+    var patInp = document.createElement('input');
+    patInp.className = 'form-input studio-mono-input';
+    patInp.setAttribute('data-address-field-pattern', '');
+    patInp.setAttribute('placeholder', '^[0-9]{5}$');
+    patInp.value = storedCustom && typeof fieldSpec.validation.regex === 'string' ? fieldSpec.validation.regex : '';
+    patInp.addEventListener('input', collectAddressFields);
+    patInp.addEventListener('change', collectAddressFields);
+    patCell.appendChild(patInp);
+    customWrap.appendChild(patCell);
+    var msgCell = addrCell('What the visitor is told');
+    var msgInp = document.createElement('input');
+    msgInp.className = 'form-input';
+    msgInp.setAttribute('data-address-field-pattern-message', '');
+    msgInp.setAttribute('placeholder', 'Enter a valid 5-digit ZIP code.');
+    msgInp.value = storedCustom && typeof fieldSpec.validation.message === 'string' ? fieldSpec.validation.message : '';
+    msgInp.addEventListener('input', collectAddressFields);
+    msgInp.addEventListener('change', collectAddressFields);
+    msgCell.appendChild(msgInp);
+    customWrap.appendChild(msgCell);
+    customWrap.hidden = valSel.value !== 'custom';
+    valSel.addEventListener('change', function () { customWrap.hidden = this.value !== 'custom'; });
+    valSel.addEventListener('change', collectAddressFields);
     var reqLabel = document.createElement('label');
     reqLabel.className = 'lg-check';
     var reqCb = document.createElement('input');
@@ -12425,6 +12546,7 @@ export const SECTION_STUDIO_SCRIPT = `
     rm.appendChild(document.createTextNode('Remove'));
     rm.addEventListener('click', function () { var p = wrap.parentNode; if (p) { p.removeChild(wrap); } collectAddressFields(); renderAddressAddMenu(selectedNode()); });
     wrap.appendChild(rm);
+    wrap.appendChild(customWrap);
     return wrap;
   }
   function usedAddressKinds(listEl) {

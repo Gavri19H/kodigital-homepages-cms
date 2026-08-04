@@ -165,7 +165,8 @@ describe("PC-A8 — content-schema validation: firstIcon/lastIcon (NameFieldsGro
     const r = validateSectionContent({
       components: [{ type: "FreeTextQuestion", question_id: "q", internal_field: "f", props: { firstIcon: "user" } }],
     });
-    expect(r.errors.some((e) => e.code === "invalid_field_prop" && e.message.includes("only valid on NameFieldsGroup"))).toBe(true);
+    // Re-minted for M5: "only valid on NameFieldsGroup" rewritten to operator copy.
+    expect(r.errors.some((e) => e.code === "invalid_field_prop" && e.message.includes("is only available on a Name field"))).toBe(true);
   });
 });
 

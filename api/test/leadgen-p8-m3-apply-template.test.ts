@@ -14,8 +14,8 @@
 // written by the product's own save chain and the "after" state is read back
 // out of the row the product's own route wrote.
 //
-// THE MEASUREMENT THIS FILE PINS (fail-before, taken on this branch — see the
-// FAIL-BEFORE test below, which reproduces the pre-fix write verbatim):
+// THE MEASUREMENT THIS FILE PINS (taken on this branch — see the
+// CHARACTERISATION test below, which reproduces the pre-fix write verbatim):
 //   a real Save PUTs the STORED column (`frame_config`) plus only the paths
 //   the session actually touched (quotes-tabs/funnel.ts:1809, :1921-1933) —
 //   NEVER a complete hydrated frame (that premise, corrected in FIX ROUND
@@ -31,6 +31,22 @@
 //   and moved the other 27 (28 shadowed/1 honoured against this file's
 //   earlier hand-built-dump fixture — a 28→2 drop once the fixture matches
 //   what Save really writes).
+//
+// MINOR-3 (FIX ROUND F12) — WHAT THIS MEANS FOR THE CHARACTERISATION LEG'S
+// NAME. F11's own correction above ("moves every OTHER comparable leaf") is
+// the reason the bare pointer-only write's SERVED-PAGE outcome and the real
+// route's PASS-AFTER outcome are now the same shape on this fixture (both:
+// every leaf the template disagrees with moves, except the operator's own —
+// a 2-leaf difference in HOW that is counted, shadowed vs. stillShadowed,
+// never a difference in WHICH leaves are right). So the leg below no longer
+// demonstrates a render-axis failure — it demonstrates that the render axis
+// was never the real gap once measured against a realistic column. The real
+// fail-before/pass-after contrast this fixture change moved elsewhere in this
+// file: the confirm dialog/dry-run/`replaced_customisations` count (no route
+// at all under a raw SQL write) — "the confirm dialog's promises…" and the F4
+// F-1 describe block; the prune/preservation semantics — the F9 F-B describe
+// block, whose own header cites the literal pre-fix log; and the cross-arm
+// materialise leak — the F4 F-2 describe block.
 import { createHash } from "node:crypto";
 import { readFileSync } from "node:fs";
 import { dirname, join } from "node:path";
@@ -419,7 +435,22 @@ const FRAME_CSS = funnelChromeCss(defaultFunnelDesign, DEFAULT_FUNNEL_SCOPE, { f
 
 // =============================================================================
 d("P8 S4.1 — M3/R2-1: applying a template changes what the page paints", () => {
-  it("FAIL-BEFORE: the pointer-only write shadows ONLY the operator's own two edits — everything else it never warns about already moves", async () => {
+  // RENAMED in FIX ROUND F12 (MINOR-3) from "FAIL-BEFORE: …". Read the
+  // MINOR-3 note above the file-top comment block first. This leg still
+  // reproduces the literal pre-M3 handler body (`pointerOnlyApply`, a bare
+  // SQL pointer write, nothing else) against the SAME realistic fixture
+  // PASS-AFTER uses below — but on THIS fixture the two now differ only by
+  // how the preserved-vs-replaced count is taken (shadowed here, stillShadowed
+  // in PASS-AFTER), never by which leaves are right, so it no longer
+  // demonstrates a pre-fix DEFECT. What it still earns its place by proving:
+  // the render-axis risk M3 was worried about (a template apply silently not
+  // repainting the funnel) was already closed by the read-side merge alone,
+  // BEFORE any confirm dialog or reconcile-on-write existed — so the fixes
+  // those add (dry_run/confirmations/replaced_customisations, the prune that
+  // stops a variant's own template from being shadowed) are not protecting
+  // this leg's axis, and are instead pinned by name in "the confirm dialog's
+  // promises…" + the F4 F-1 block, the F9 F-B block, and the F4 F-2 block.
+  it("CHARACTERISATION: the bare pointer-only write (pre-M3, reproduced verbatim) already shadows ONLY the operator's own two edits on a realistic column", async () => {
     const h = harness();
     const { funnelPublic } = await newSavedFunnel(h);
     const tpl = await newSavedTemplate(h);
@@ -451,7 +482,7 @@ d("P8 S4.1 — M3/R2-1: applying a template changes what the page paints", () =>
     }
     // eslint-disable-next-line no-console
     console.log(
-      "[S4.1 FAIL-BEFORE] comparable leaves", comparable, "· shadowed", shadowed, "· honoured", honoured.length,
+      "[S4.1 CHARACTERISATION] comparable leaves", comparable, "· shadowed", shadowed, "· honoured", honoured.length,
       "· per group", JSON.stringify([...perGroup].map(([g, r]) => `${g} ${r.shadowed}/${r.shadowed + r.honoured}`)),
     );
 
@@ -491,7 +522,7 @@ d("P8 S4.1 — M3/R2-1: applying a template changes what the page paints", () =>
     expect(renderAfter).toContain("lg-frame-slot--bare");
     expect(renderAfter).toContain("lg-frame-trust");
     // eslint-disable-next-line no-console
-    console.log("[S4.1 FAIL-BEFORE] render", sha(renderBefore), "→", sha(renderAfter), "· moved leaves", moved.length, "· shadowed", JSON.stringify(shadowedPaths.sort()));
+    console.log("[S4.1 CHARACTERISATION] render", sha(renderBefore), "→", sha(renderAfter), "· moved leaves", moved.length, "· shadowed", JSON.stringify(shadowedPaths.sort()));
   });
 
   it("PASS-AFTER: the REAL apply-template route moves the page across every element group", async () => {

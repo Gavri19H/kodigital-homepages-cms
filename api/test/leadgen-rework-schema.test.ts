@@ -20,7 +20,6 @@ import {
   LEADGEN_PHONE_MASK_ERROR,
   LEADGEN_SLIDER_TYPES,
   LEADGEN_SELECTED_MARKERS,
-  LEADGEN_ADDRESS_FIELD_KINDS,
   type LeadgenComponentNode,
 } from "../src/public/leadgen/components/content-schema";
 import { toPublicComponent, expandPublicComponents } from "../src/public/leadgen/config-dto";
@@ -155,7 +154,11 @@ describe("§6.4 choice-group defaults", () => {
 
   it("rejects a default on a multi-select (MultiChoiceCardGroup has no default in v1)", () => {
     const multi = { type: "MultiChoiceCardGroup", question_id: "q", internal_field: "m", choices: [{ label: "A", value: "a", analytics_id: "a" }], props: { defaultValue: "a" } };
-    expect(errAt(section([multi]), "invalid_field_prop", "defaultValue")?.message).toContain("multi-select");
+    // Re-minted for M5 (contract §6/§4 R5): "multi-select" jargon rewritten to
+    // operator copy — pin the new message, not the old wording.
+    expect(errAt(section([multi]), "invalid_field_prop", "defaultValue")?.message).toContain(
+      "Multi-select cards have no single default answer",
+    );
   });
 });
 
@@ -181,7 +184,10 @@ describe("§6.5 authored Other values", () => {
 
   it("rejects an Other value that duplicates a base choice value (unique vs base)", () => {
     const other = { choices: [{ label: "Dup", value: "a", analytics_id: "dup" }] };
-    expect(errAt(withOther(other), "invalid_choice", "other.choices[0].value")?.message).toContain("duplicates a base");
+    // Re-minted for M5: "duplicates a base" rewritten to operator copy.
+    expect(errAt(withOther(other), "invalid_choice", "other.choices[0].value")?.message).toContain(
+      "already one of this question's answers",
+    );
   });
 
   it("rejects more than 50 Other values", () => {
@@ -205,17 +211,25 @@ describe("§6.6 selected marker", () => {
     for (const m of LEADGEN_SELECTED_MARKERS) {
       expect(okOf(section([buttons({ props: { selected_marker: m } })])), m).toBe(true);
     }
-    expect(errAt(section([buttons({ props: { selected_marker: "glow" } })]), "invalid_field_prop", "selected_marker")?.message).toContain("wash|mark");
+    // Re-minted for M5: "wash|mark" rewritten to "wash or mark" operator copy.
+    expect(errAt(section([buttons({ props: { selected_marker: "glow" } })]), "invalid_field_prop", "selected_marker")?.message).toContain(
+      "must be one of: wash or mark",
+    );
     // A text input has no selected-marker control (matrix) → reject.
     const text = { type: "FreeTextQuestion", question_id: "q", internal_field: "t", props: { selected_marker: "mark" } };
-    expect(errAt(section([text]), "invalid_field_prop", "selected_marker")?.message).toContain("only valid");
+    expect(errAt(section([text]), "invalid_field_prop", "selected_marker")?.message).toContain(
+      "has no selected-state style",
+    );
   });
 
   it("accepts a per-CHOICE marker in choice.style; rejects a bad value", () => {
     const good = buttons({ choices: [{ label: "A", value: "a", analytics_id: "a", style: { selected_marker: "mark" } }, { label: "B", value: "b", analytics_id: "b" }] });
     expect(okOf(section([good]))).toBe(true);
     const bad = buttons({ choices: [{ label: "A", value: "a", analytics_id: "a", style: { selected_marker: "bogus" } }, { label: "B", value: "b", analytics_id: "b" }] });
-    expect(errAt(section([bad]), "invalid_choice_style", "selected_marker")?.message).toContain("wash|mark");
+    // Re-minted for M5: "wash|mark" rewritten to "wash or mark" operator copy.
+    expect(errAt(section([bad]), "invalid_choice_style", "selected_marker")?.message).toContain(
+      "must be one of: wash or mark",
+    );
   });
 });
 
@@ -232,9 +246,15 @@ describe("§6.8 slider types", () => {
   });
 
   it("rejects an unknown slider_type and rejects slider_type on a non-slider type", () => {
-    expect(errAt(section([slider({ slider_type: "wheel" })]), "invalid_field_prop", "slider_type")?.message).toContain("single|dual_range");
+    // Re-minted for M5: "single|dual_range" rewritten to the full plain-English
+    // enumeration — strictly a superset check (all 5 values, not 2).
+    expect(errAt(section([slider({ slider_type: "wheel" })]), "invalid_field_prop", "slider_type")?.message).toContain(
+      "single, dual_range, stepper, from_to or radial",
+    );
     const notSlider = { type: "FreeTextQuestion", question_id: "q", internal_field: "t", props: { slider_type: "single" } };
-    expect(errAt(section([notSlider]), "invalid_field_prop", "slider_type")?.message).toContain("only valid on a Slider");
+    expect(errAt(section([notSlider]), "invalid_field_prop", "slider_type")?.message).toContain(
+      "only available on a Slider",
+    );
   });
 
   it("stepper REQUIRES a numeric step", () => {
@@ -408,12 +428,23 @@ describe("M9 address field set", () => {
 
   it("full_address may only appear ALONE", () => {
     expect(okOf(section([addr([{ field: "full_address", mode: "manual", validation: "none" }])]))).toBe(true);
-    expect(errAt(section([addr([{ field: "full_address", mode: "manual" }, { field: "zip", mode: "manual" }])]), "invalid_field_prop")?.message).toContain("full_address");
+    // Re-minted for M5: "full_address" rewritten to the operator's own field
+    // name ("Address") — pin the new wording, same "can't be combined" claim.
+    expect(errAt(section([addr([{ field: "full_address", mode: "manual" }, { field: "zip", mode: "manual" }])]), "invalid_field_prop")?.message).toContain(
+      "is the whole address, so it can't sit beside street, city, state or ZIP",
+    );
   });
 
   it("requires ≥1 field and a valid field kind / mode / validation", () => {
-    expect(errAt(section([addr([])]), "invalid_field_prop")?.message).toContain("non-empty");
-    expect(errAt(section([addr([{ field: "county", mode: "manual" }])]), "invalid_field_prop", "[0].field")?.message).toContain(LEADGEN_ADDRESS_FIELD_KINDS.join("|"));
+    // Re-minted for M5: "non-empty" rewritten to plain operator copy.
+    expect(errAt(section([addr([])]), "invalid_field_prop")?.message).toContain("needs at least one field");
+    // Re-minted for M5 (cascading discovery — this assertion never ran in the
+    // pre-fix baseline because the PRIOR expect on this line threw first): the
+    // field-kind enum now prints the operator's own field labels, not the raw
+    // LEADGEN_ADDRESS_FIELD_KINDS tokens joined by "|".
+    expect(errAt(section([addr([{ field: "county", mode: "manual" }])]), "invalid_field_prop", "[0].field")?.message).toContain(
+      "Street address, City, State, ZIP code or Address",
+    );
     expect(errAt(section([addr([{ field: "zip", mode: "sometimes" }])]), "invalid_field_prop", "[0].mode")).toBeDefined();
     expect(errAt(section([addr([{ field: "zip", mode: "manual", validation: "phone" }])]), "invalid_field_prop", "[0].validation")).toBeDefined();
   });

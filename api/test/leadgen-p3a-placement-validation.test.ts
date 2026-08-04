@@ -65,7 +65,9 @@ describe("P3a placement validation — reject (invalid_placement)", () => {
   it("non-contiguous row (id reappears after a gap) is unrenderable", () => {
     const r = validateSectionContent(content([text("a", { row: "r1" }), text("b"), text("c", { row: "r1" })]));
     expect(codesOf(r)).toContain("invalid_placement");
-    expect(r.errors.some((e) => /contiguous/.test(e.message))).toBe(true);
+    // Re-minted for M5: "contiguous" rewritten to operator copy ("a row can't
+    // be drawn with a gap in it") — pin the new wording, same split-run claim.
+    expect(r.errors.some((e) => /split into \d+ separate groups/.test(e.message))).toBe(true);
   });
 
   it("a row with 4 members exceeds the 2-3 slot model", () => {

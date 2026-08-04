@@ -1254,6 +1254,12 @@ const OPERATOR_CONTROL_LABELS: Readonly<Record<string, string>> = {
   nudge_x: "Fine-tune position (left / right)",
   nudge_y: "Fine-tune position (up / down)",
   internal_field: "Internal field",
+  // The inspector's read-only "Component id" chip and the "Analytics label"
+  // text input (ui-section-studio.ts lg-inspector-question-key/-debug-id) —
+  // reused here so a save error never prints the raw question_id/question_key
+  // stored keys at an operator (M5 residual fix).
+  question_id: "Component id",
+  question_key: "Analytics label",
   answer_type: "Answer type",
   choices: "Choices",
   text: "Text",
@@ -1735,21 +1741,33 @@ function validateContainerProps(
     const path = `${base}.props.cta`;
     const cta = props["cta"];
     if (!isRecord(cta)) {
-      push("container_prop_invalid", path, "HeaderBar props.cta must be an object {label, href|tel}");
+      push(
+        "container_prop_invalid",
+        path,
+        `The ${leadgenComponentName(type)}'s CTA needs a Label and a phone number or link. Set both, or remove the CTA.`,
+      );
     } else {
       if (!isNonEmptyString(cta["label"])) {
-        push("container_prop_invalid", `${path}.label`, "HeaderBar cta.label is required");
+        push(
+          "container_prop_invalid",
+          `${path}.label`,
+          `The ${leadgenComponentName(type)}'s CTA needs a Label. Enter the CTA's label.`,
+        );
       }
       const href = cta["href"];
       const tel = cta["tel"];
       if (!isNonEmptyString(href) && !isNonEmptyString(tel)) {
-        push("container_prop_invalid", path, "HeaderBar cta requires href or tel");
+        push(
+          "container_prop_invalid",
+          path,
+          `The ${leadgenComponentName(type)}'s CTA needs a phone number or a link. Enter one of those.`,
+        );
       }
       if (isNonEmptyString(href) && !SAFE_HREF_RE.test(href.trim())) {
         push(
           "container_prop_invalid",
           `${path}.href`,
-          "HeaderBar cta.href must be http(s)/relative/#/tel:/mailto:",
+          `The ${leadgenComponentName(type)}'s CTA link must be a web address, page anchor, or tel:/mailto: link. Fix the link.`,
         );
       }
     }
@@ -1761,31 +1779,43 @@ function validateContainerProps(
       const path = `${base}.props.trustMessages`;
       const raw = props["trustMessages"];
       if (!Array.isArray(raw) || !raw.every((m) => typeof m === "string")) {
-        push("container_prop_invalid", path, "FooterBar props.trustMessages must be an array of strings");
+        push(
+          "container_prop_invalid",
+          path,
+          "'Trust messages' must be a list of text lines. Re-enter them, one per line.",
+        );
       }
     }
     if (props["links"] !== undefined) {
       const raw = props["links"];
       if (!Array.isArray(raw)) {
-        push("container_prop_invalid", `${base}.props.links`, "FooterBar props.links must be an array");
+        push(
+          "container_prop_invalid",
+          `${base}.props.links`,
+          "'Links' must be a list of label/link pairs. Re-enter them, one per line.",
+        );
       } else {
         raw.forEach((link, li) => {
           const path = `${base}.props.links[${li}]`;
           if (!isRecord(link)) {
-            push("container_prop_invalid", path, "each FooterBar link must be an object {label, href}");
+            push(
+              "container_prop_invalid",
+              path,
+              "Each footer link needs a Label and a link. Re-enter this line as label|href.",
+            );
             return;
           }
           if (!isNonEmptyString(link["label"])) {
-            push("container_prop_invalid", `${path}.label`, "FooterBar link.label is required");
+            push("container_prop_invalid", `${path}.label`, "This footer link needs a Label. Enter the link's label.");
           }
           const href = link["href"];
           if (!isNonEmptyString(href)) {
-            push("container_prop_invalid", `${path}.href`, "FooterBar link.href is required");
+            push("container_prop_invalid", `${path}.href`, "This footer link needs a web address or link. Enter one.");
           } else if (!SAFE_HREF_RE.test(href.trim())) {
             push(
               "container_prop_invalid",
               `${path}.href`,
-              "FooterBar link.href must be http(s)/relative/#/tel:/mailto:",
+              "This footer link must be a web address, page anchor, or tel:/mailto: link. Fix the link.",
             );
           }
         });
@@ -2244,7 +2274,7 @@ function validateChoiceSize(
       push(
         "invalid_choice_style",
         path,
-        `choice.style.size must be one of ${LEADGEN_CHOICE_SIZE_PRESETS.join("|")} or {custom_px:number}`,
+        `This answer's size must be one of the ${orList(LEADGEN_CHOICE_SIZE_PRESETS)} presets, or a custom size in pixels.`,
       );
     }
     return;
@@ -2252,28 +2282,36 @@ function validateChoiceSize(
   if (isRecord(value)) {
     const keys = Object.keys(value);
     if (keys.length !== 1 || keys[0] !== "custom_px") {
-      push("invalid_choice_style", path, "a custom choice size must be exactly {custom_px:number}");
+      push(
+        "invalid_choice_style",
+        path,
+        "A custom answer size is one pixel number. Enter a single custom size, or pick a preset.",
+      );
       return;
     }
     const px = value["custom_px"];
     if (typeof px !== "number" || !Number.isFinite(px) || !Number.isInteger(px)) {
-      push("invalid_choice_style", `${path}.custom_px`, "custom_px must be an integer");
+      push(
+        "invalid_choice_style",
+        `${path}.custom_px`,
+        "A custom answer size must be a whole number of pixels. Round it to a whole number.",
+      );
     } else if (px < SIZE_HEIGHT_CUSTOM_PX_MIN || px > SIZE_HEIGHT_CUSTOM_PX_MAX) {
       push(
         "invalid_choice_style",
         `${path}.custom_px`,
-        `custom_px must be between ${SIZE_HEIGHT_CUSTOM_PX_MIN} and ${SIZE_HEIGHT_CUSTOM_PX_MAX}`,
+        `A custom answer size must be between ${SIZE_HEIGHT_CUSTOM_PX_MIN} and ${SIZE_HEIGHT_CUSTOM_PX_MAX} pixels. Enter a size in that range.`,
       );
     } else if (px % SIZE_GRID_PX !== 0) {
       push(
         "invalid_choice_style",
         `${path}.custom_px`,
-        `custom_px must be snapped to a ${SIZE_GRID_PX}px grid`,
+        `A custom answer size must be a multiple of ${SIZE_GRID_PX} pixels. Round it to the nearest ${SIZE_GRID_PX}.`,
       );
     }
     return;
   }
-  push("invalid_choice_style", path, "choice.style.size must be a preset string or {custom_px:number}");
+  push("invalid_choice_style", path, "Pick an answer size preset, or set a custom size in pixels.");
 }
 
 // A color pair (role, hex): role ∈ the 14 theme roles; hex a legacy #hex
@@ -2289,22 +2327,28 @@ function validateChoiceColorPair(
 ): void {
   const roleKey = kind === "color" ? "color_role" : "text_color_role";
   const hexKey = kind === "color" ? "color_hex" : "text_color_hex";
+  const roleLabel = leadgenControlLabel(roleKey);
+  const hexLabel = leadgenControlLabel(hexKey);
   if (role !== undefined && hex !== undefined) {
     push(
       "invalid_choice_style",
       `${base}.${hexKey}`,
-      `choice.style.${roleKey} and ${hexKey} are mutually exclusive — set exactly one (explicit precedence, never silent)`,
+      `'${roleLabel}' and '${hexLabel}' are mutually exclusive — set exactly one. Clear the other.`,
     );
   }
   if (role !== undefined && (typeof role !== "string" || !THEME_ROLE_SET.has(role))) {
     push(
       "invalid_choice_style",
       `${base}.${roleKey}`,
-      `choice.style.${roleKey} must be a theme color role (${LEADGEN_THEME_ROLES.join(", ")})`,
+      `'${roleLabel}' must be a theme color role (${LEADGEN_THEME_ROLES.join(", ")}). Pick one of those.`,
     );
   }
   if (hex !== undefined && (typeof hex !== "string" || looksLikeArbitraryCss(hex) || !LEGACY_HEX_RE.test(hex))) {
-    push("invalid_choice_style", `${base}.${hexKey}`, `choice.style.${hexKey} must be a #rrggbb hex color`);
+    push(
+      "invalid_choice_style",
+      `${base}.${hexKey}`,
+      `'${hexLabel}' must be a #rrggbb hex color. Enter a hex value like #1A2B3C.`,
+    );
   }
 }
 
@@ -2583,17 +2627,25 @@ function validateNewFieldProps(
           }
         }
         if (custom["mask"] !== undefined && typeof custom["mask"] !== "string") {
-          push("invalid_field_prop", `${base}.props.phone_format.custom.mask`, "custom.mask must be a string");
+          push(
+            "invalid_field_prop",
+            `${base}.props.phone_format.custom.mask`,
+            "The custom phone pattern's display mask must be text. Retype it, or clear it.",
+          );
         }
         if (custom["message"] !== undefined && typeof custom["message"] !== "string") {
-          push("invalid_field_prop", `${base}.props.phone_format.custom.message`, "custom.message must be a string");
+          push(
+            "invalid_field_prop",
+            `${base}.props.phone_format.custom.message`,
+            "The custom phone pattern's error message must be text. Retype it, or clear it.",
+          );
         }
       }
     } else {
       push(
         "invalid_field_prop",
         `${base}.props.phone_format`,
-        "props.phone_format must be a preset name or a {custom:{regex}} object",
+        "'Pattern preset' must be a preset name, or a custom pattern object. Pick a preset, or enter a custom pattern.",
       );
     }
   }
@@ -3314,12 +3366,12 @@ export function validateSectionContent(
   };
 
   if (!isRecord(content)) {
-    push("content_not_object", "content", "content_json must be a JSON object");
+    push("content_not_object", "content", "A Section's content must be a JSON object.");
     return { ok: false, errors, warnings };
   }
   const rawComponents = content["components"];
   if (!Array.isArray(rawComponents)) {
-    push("components_not_array", "components", "content_json.components must be an array");
+    push("components_not_array", "components", "A Section's content must list its components as an array.");
     return { ok: false, errors, warnings };
   }
   if (rawComponents.length === 0) {
@@ -3372,9 +3424,17 @@ export function validateSectionContent(
     // question_id: required + unique across the whole tree.
     const questionId = raw["question_id"];
     if (!isNonEmptyString(questionId)) {
-      push("missing_question_id", `${base}.question_id`, "question_id is required (stable id)");
+      push(
+        "missing_question_id",
+        `${base}.question_id`,
+        `'${leadgenControlLabel("question_id")}' is required. Remove and re-add this question so the studio can generate one.`,
+      );
     } else if (seenQuestionIds.has(questionId)) {
-      push("duplicate_question_id", `${base}.question_id`, `duplicate question_id '${questionId}'`);
+      push(
+        "duplicate_question_id",
+        `${base}.question_id`,
+        `Another question already has the same '${leadgenControlLabel("question_id")}' ('${questionId}') — each question needs its own. Remove and re-add one of them.`,
+      );
     } else {
       seenQuestionIds.add(questionId);
     }
@@ -3383,9 +3443,17 @@ export function validateSectionContent(
     const questionKey = raw["question_key"];
     if (questionKey !== undefined) {
       if (!isNonEmptyString(questionKey)) {
-        push("missing_required_field", `${base}.question_key`, "question_key must be a non-empty string");
+        push(
+          "missing_required_field",
+          `${base}.question_key`,
+          `'${leadgenControlLabel("question_key")}' can't be empty. Enter a value, or remove the field.`,
+        );
       } else if (seenQuestionKeys.has(questionKey)) {
-        push("duplicate_question_key", `${base}.question_key`, `duplicate question_key '${questionKey}'`);
+        push(
+          "duplicate_question_key",
+          `${base}.question_key`,
+          `Another question already uses the '${leadgenControlLabel("question_key")}' '${questionKey}' — each question needs its own. Rename one of them.`,
+        );
       } else {
         seenQuestionKeys.add(questionKey);
       }
@@ -3860,7 +3928,7 @@ export function validateSectionContent(
         push(
           "invalid_valid_values",
           `${base}.valid_values`,
-          "valid_values must be a non-empty array of primitives",
+          "'Valid values' must be a non-empty list of values. Enter at least one, or remove the field.",
         );
       }
     }
@@ -3884,7 +3952,7 @@ export function validateSectionContent(
         push(
           "answer_type_mismatch",
           `${base}.answer_type`,
-          `answer_type '${String(answerType)}' does not match catalog produces '${catalog.produces}'`,
+          `'${leadgenControlLabel("answer_type")}' must be '${catalog.produces}' for a ${leadgenComponentName(type)} — you set '${String(answerType)}'. Remove it, or change it to match.`,
         );
       }
     }
@@ -3997,20 +4065,27 @@ function validateConditional(
   }
   const when = raw["when"];
   if (!isNonEmptyString(when)) {
-    push("conditional_invalid", `${path}.when`, "conditional.when is required");
+    push(
+      "conditional_invalid",
+      `${path}.when`,
+      "The 'Show this component IF' rule needs a field to depend on. Pick a field, or remove the rule.",
+    );
   } else if (!knownFields.has(when)) {
     push(
       "conditional_unknown_field",
       `${path}.when`,
-      `conditional.when '${when}' references a field not present in this Section`,
+      `The 'Show this component IF' rule depends on '${when}', which isn't a field in this Section. Point it at a real field, or remove the rule.`,
     );
   }
+  // The enumerated raw comparison codes (eq/neq/gt/lt/gte/lte/…) are the SAME
+  // still-open jargon the contract names as N2 (ui-rules-builder.ts) — out of
+  // this fix's scope; only the "conditional.op" prefix below is fixed.
   const op = raw["op"];
   if (typeof op !== "string" || !CONDITION_OPS.has(op)) {
     push(
       "conditional_invalid",
       `${path}.op`,
-      `conditional.op must be one of ${[...CONDITION_OPS].join("|")}`,
+      `'Condition operator' must be one of: ${[...CONDITION_OPS].join("|")}. Pick one of those.`,
     );
     return;
   }

@@ -1271,9 +1271,41 @@ const ADMIN_UI_SOURCES: ReadonlyArray<{ file: string; text: string }> = adminUiF
   text: readFileSync(file, "utf8"),
 }));
 
+// R2 P8-4 FIX ROUND F12 — offeredIn was blind to a control authored
+// single-quoted. The double-quote-only scan matched every EMISSION SHAPE
+// pinned below (all of them TS template-literal HTML: `data-frame-key="${…}"`,
+// `frameSelect("Logo size", "header.logo_size", …)`, shared.ts/templates.ts's
+// own idiom) — but that is not the ONLY quoting idiom this admin plane uses.
+// quotes-tabs/funnel.ts is a DIFFERENT surface (an ES5 inline <script>, the
+// repo's own inline-script convention) and single-quotes its key literals:
+// `writeConfigValue('header.logo_source', …)` (:2035), and the
+// `NOT_NULLABLE_TEXT_KEYS` / `LIST_FIELDS` lookup tables (:2016, :2039) whose
+// OWN existence proves a `data-frame-key` bound to those paths is read at
+// runtime (`controlValueOf` is called from exactly one call site, gated on
+// `el.getAttribute('data-frame-key')`, so a single-quoted-key entry in that
+// table is dead weight unless some element really carries that key). A key
+// authored ONLY this way — including one carrying a `notOffered` exemption —
+// was invisible to the old scan: MEASURED, a fresh-context reviewer proved the
+// live consequence by adding a `data-frame-key='section_slot.padding'` control
+// to the real B · Logo inspector — it rendered, saved, served, and painted
+// nothing, while this file's `section_slot.padding` exemption and its 63/0
+// guard stayed green throughout.
+//
+// Backticks were checked and are DELIBERATELY not matched: every bare,
+// non-`${`-interpolated, dotted backtick string under src/admin/leadgen (37
+// occurrences, measured) sits inside a `//` comment — prose naming a key for a
+// human reader, e.g. `` `header.logo_media_id` `` — never a real string-literal
+// argument. Matching backticks would turn a comment's MENTION of a key into a
+// false "offered".
+function offeredInSources(keyPath: string, sources: ReadonlyArray<{ file: string; text: string }>): string[] {
+  return sources
+    .filter((s) => s.text.includes(`"${keyPath}"`) || s.text.includes(`'${keyPath}'`))
+    .map((s) => path.basename(s.file));
+}
+
 /** Every admin UI module that renders a control writing this authoring path. */
 function offeredIn(keyPath: string): string[] {
-  return ADMIN_UI_SOURCES.filter((s) => s.text.includes(`"${keyPath}"`)).map((s) => path.basename(s.file));
+  return offeredInSources(keyPath, ADMIN_UI_SOURCES);
 }
 
 // ---------------------------------------------------------------------------
@@ -1643,20 +1675,40 @@ describe("R2 P8 M2/R3 sweep — EVERY authorable design key moves a value a visi
     // back to its emitting call site (frameSelect/frameCheck/frameInput/
     // segmentedControl/toggleControl/mediaPickerControl/renderRoleStrip/
     // data-tplbox-list) — not one is a comment or a querySelector echo.
+    //
+    // R2 P8-4 FIX ROUND F12 — 25 -> 32. offeredIn was blind to a TENTH
+    // emission shape: funnel.ts's own ES5-inline-script idiom, which authors a
+    // control's key single-quoted as a plain JS object key
+    // (`NOT_NULLABLE_TEXT_KEYS = { 'back.label': 1, 'disclosure.link_label':
+    // 1, 'disclosure.text': 1, 'header.cta.label': 1 }` :2016, `LIST_FIELDS =
+    // { 'footer.links': …, 'trust_strip.logos': …, 'benefit_bar.items': … }`
+    // :2039) that a `data-frame-key`-bound control is read through
+    // (`controlValueOf`'s single call site is gated on
+    // `el.getAttribute('data-frame-key')`, so an entry in either table is
+    // provably read against a REAL control's key at runtime, never dead
+    // weight). The seven added keys were exactly as offered before this round
+    // — this is `offeredIn` seeing them for the first time, not a product
+    // change.
     expect(offeredFrameControls, `offeredIn over ${frameMemberPaths.length} dotted frame members`).toEqual([
+      "back.label",
       "background.image_media_id",
       "background.role",
       "background.style",
+      "benefit_bar.items",
       "disclosure.entries",
+      "disclosure.link_label",
+      "disclosure.text",
       "footer.blocks",
       "footer.enabled",
       "footer.link_separator",
       "footer.link_underline",
+      "footer.links",
       "footer.palette_scope.background",
       "footer.palette_scope.link",
       "footer.palette_scope.text",
       "footer.typography_scope.font_family",
       "footer.typography_scope.size",
+      "header.cta.label",
       "header.logo_align",
       "header.logo_size",
       "header.logo_source",
@@ -1669,12 +1721,18 @@ describe("R2 P8 M2/R3 sweep — EVERY authorable design key moves a value a visi
       "progress.style",
       "progress.thickness",
       "progress.width",
+      "trust_strip.logos",
     ]);
     // …and it sees a control HOWEVER the panel emits it. One key per emission
     // shape the product really uses, each proved to be emitted by that shape on
     // a real line before `offeredIn` is asked about it. THIS is the leg F9
     // lacked: eight of these nine shapes are invisible to a literal-attribute
-    // regex, and they carry 24 of the 25 keys above.
+    // regex, and they carry 24 of the 25 helper/attribute-authored keys above
+    // (the tenth shape — funnel.ts's single-quoted JS object keys, F12's find —
+    // carries the other 7 and is proved separately by the F12 sabotage below,
+    // since none of those 7 controls is emitted via frameSelect/frameCheck/
+    // frameInput/segmentedControl/toggleControl/mediaPickerControl/
+    // renderRoleStrip/data-tplbox-list/data-frame-key=" at all).
     for (const [shape, key] of [
       ["frameSelect(", "header.logo_size"],
       ["frameCheck(", "footer.enabled"],
@@ -1715,6 +1773,86 @@ describe("R2 P8 M2/R3 sweep — EVERY authorable design key moves a value a visi
     // The 59 THEME keys carry exactly one, and it is the contract's own
     // reserved-but-unrendered storage key.
     expect(SWEEP_EXEMPTIONS.filter((e) => !e.key.includes(".")).map((e) => e.key)).toEqual(["spacing"]);
+  });
+
+  // R2 P8-4 FIX ROUND F12 — MINOR-4: two narrow checks a previous rewrite
+  // dropped, restored. `sectionSlotMembers` above can only ask about the 9
+  // members FrameSectionSlotConfig ALREADY declares (it is a member-driven
+  // enumeration); it cannot see a leaf that is neither declared there NOR one
+  // of the 9 — a typo, a leaf added to a panel ahead of the interface, or a
+  // renamed field the interface forgot to drop. This leg is a RAW scan of the
+  // quoted text itself, independent of the interface: it can never miss an
+  // undeclared section_slot leaf because it never consults the interface at
+  // all. And neither leg can see the BARE group key (no leaf) — a control
+  // authored as `"section_slot"` on its own, which `offeredIn` deliberately
+  // does not check for ordinary keys (a bare word collides with unrelated
+  // string literals; see the `template` note above) but which is narrow and
+  // safe to check for THIS one exact literal.
+  it("no admin source authors an UNDECLARED section_slot leaf (a raw scan, independent of the interface)", () => {
+    const found = new Set<string>();
+    for (const s of ADMIN_UI_SOURCES) {
+      for (const m of s.text.matchAll(/["']section_slot\.([a-zA-Z_]+)["']/g)) found.add(`section_slot.${m[1]}`);
+    }
+    expect(
+      [...found].sort(),
+      "no admin source authors ANY section_slot leaf, declared or not, quoted either way",
+    ).toEqual([]);
+  });
+
+  it("no admin source authors the BARE section_slot group key (no leaf)", () => {
+    const hits = ADMIN_UI_SOURCES.filter((s) => /["']section_slot["']/.test(s.text)).map((s) => path.basename(s.file));
+    expect(hits, "no admin source authors the bare group key with no leaf").toEqual([]);
+  });
+
+  // R2 P8-4 FIX ROUND F12 — MAJOR: offeredIn was blind to a control authored
+  // single-quoted (see the comment on offeredInSources above for the full
+  // finding). Proven here by SABOTAGE, in BOTH quote styles the admin plane
+  // actually uses, against a REAL exempted key — never a synthetic name, so
+  // this is the exact "no operator control offers this key" claim the
+  // `notOffered` loop above rests on. The sabotage APPENDS one synthetic
+  // source entry to the REAL ADMIN_UI_SOURCES (every real file stays exactly
+  // as it is); nothing on the "clean" side is hand-built or altered.
+  describe("R2 P8-4 F12 — offeredIn sees a control however the source quotes its key", () => {
+    const EXEMPT_KEY = "section_slot.padding";
+    const SABOTAGE_FILE = "sabotage-inline.ts";
+    const sabotagedWith = (quotedKey: string): ReadonlyArray<{ file: string; text: string }> => [
+      ...ADMIN_UI_SOURCES,
+      { file: SABOTAGE_FILE, text: `<input data-frame-key=${quotedKey} />` },
+    ];
+
+    it("clean (no sabotage): the real admin plane offers nothing for the exempted key", () => {
+      const result = offeredInSources(EXEMPT_KEY, ADMIN_UI_SOURCES);
+      // eslint-disable-next-line no-console
+      console.log("[F12 sabotage] clean ·", EXEMPT_KEY, "->", JSON.stringify(result));
+      expect(result, "green").toEqual([]);
+    });
+
+    it("SABOTAGE, single-quoted (funnel.ts's own idiom): the injected control is SEEN, naming the file — RED", () => {
+      const result = offeredInSources(EXEMPT_KEY, sabotagedWith(`'${EXEMPT_KEY}'`));
+      // eslint-disable-next-line no-console
+      console.log("[F12 sabotage] single-quoted ·", EXEMPT_KEY, "->", JSON.stringify(result));
+      expect(
+        result,
+        "a single-quoted control for an exempted key must flip the claim red and name the file",
+      ).toEqual([SABOTAGE_FILE]);
+    });
+
+    it("SABOTAGE, double-quoted (shared.ts/templates.ts's idiom): the injected control is SEEN, naming the file — RED", () => {
+      const result = offeredInSources(EXEMPT_KEY, sabotagedWith(`"${EXEMPT_KEY}"`));
+      // eslint-disable-next-line no-console
+      console.log("[F12 sabotage] double-quoted ·", EXEMPT_KEY, "->", JSON.stringify(result));
+      expect(
+        result,
+        "a double-quoted control for an exempted key must flip the claim red and name the file",
+      ).toEqual([SABOTAGE_FILE]);
+    });
+
+    it("remove both sabotages: back to green", () => {
+      const result = offeredInSources(EXEMPT_KEY, ADMIN_UI_SOURCES);
+      // eslint-disable-next-line no-console
+      console.log("[F12 sabotage] removed ·", EXEMPT_KEY, "->", JSON.stringify(result));
+      expect(result, "green").toEqual([]);
+    });
   });
 
   // R2 P8-4 F-8. A probe context is NOT an exemption — the key it names is

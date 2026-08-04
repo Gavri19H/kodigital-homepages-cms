@@ -2670,14 +2670,23 @@ export function funnelChromeCss(
       // `section_slot.padding` / `section_slot.transition` alive, on the
       // premise that both were operator controls §4 R3 required to be
       // honoured. MEASURED, that premise is false:
-      // `grep -rn '"section_slot' src/admin` returns 0 hits — that is the
-      // WHOLE admin plane and it is the shape that catches BOTH ways a
-      // control is written (the quoted path in a `frameSelect(label,
-      // "section_slot.padding", …)` helper call AND inside a literal
-      // `data-frame-key="section_slot.padding"`); the only `section_slot`
-      // mention anywhere in admin is the saved-template summary's read of
-      // `section_slot.card` (quotes-tabs/templates.ts:2190). So the rules were
-      // product CSS for keys nobody can author, and the transition one had a
+      // `grep -rn '["\x27]section_slot' src/admin` returns 0 hits — that is
+      // the WHOLE admin plane and it is the shape that catches BOTH ways a
+      // control is written, in EITHER quote style (the quoted path in a
+      // `frameSelect(label, "section_slot.padding", …)` helper call AND
+      // inside a literal `data-frame-key="section_slot.padding"` or
+      // `data-frame-key='section_slot.padding'`). That zero-hit grep is about
+      // a QUOTED authoring path, never about the bare group name: measured,
+      // `grep -rl "section_slot" src/admin` (no quotes) returns 5 files, and
+      // `grep -rn "section_slot" src/admin` over those 5 returns 7 lines —
+      // frame-handlers.ts, sections-handlers.ts (×2, real reads feeding
+      // `continue_placement`/`continue_style_role`), ui-section-studio.ts (a
+      // comment), quotes-tabs/shared.ts (an operator-facing group label,
+      // "Section slot"), and quotes-tabs/templates.ts:2190 (the
+      // saved-template summary's read of `section_slot.card`) — property
+      // reads and prose, none of them a quoted authoring path. So the removed
+      // rules were product CSS for keys nobody can author, and the
+      // transition one had a
       // visitor-visible cost: `baseFrameDefaults.transition:"fade"` made every
       // framed page fade in over 300ms with no operator control to turn it off
       // and no `prefers-reduced-motion` guard — and, driven, it fired only on

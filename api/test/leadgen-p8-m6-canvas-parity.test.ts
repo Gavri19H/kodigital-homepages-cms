@@ -38,16 +38,16 @@
 // TEXT at test time (renderTsConst below) rather than retyped here: renaming
 // SELECTED_CLASS or dropping the aria-checked write fails this file.
 //
-// FAIL-BEFORE (this slice's changes reverted: studioCanvasDocument back to
-// renderSectionComponents, renderCanvasNow's `sim` removed, the <option> skip
-// + the option-only ghost gate removed from decorateChoiceCards, the fills
-// chip restored):
+// FAIL-BEFORE (every change of this slice reverted: studioCanvasDocument back
+// to renderSectionComponents, renderCanvasNow's `sim` removed, the <option>
+// skip + the option-only ghost gate removed from decorateChoiceCards, the
+// fills chip restored, the reach-a-hidden-question row removed):
 //   npx vitest run test/leadgen-p8-m6-canvas-parity.test.ts
-//   -> 8 failed | 3 passed (11), exit 1 — canvas selected="" vs live "true";
+//   -> 11 failed | 3 passed (14), exit 1 — canvas selected="" vs live "true";
 //      canvas aria-checked {"true":"false"} vs live {"true":"true"}; hidden
 //      question painted true vs live false; 2 option-borne remove-x; a ghost
 //      on the dropdown; no sim in the island's body; the chip present.
-// PASS-AFTER: 11 passed (11), exit 0. Raw counts in the slice report.
+// PASS-AFTER: 14 passed (14), exit 0. Raw counts in the slice report.
 
 import { describe, expect, it } from "vitest";
 import { readFileSync } from "node:fs";
@@ -57,7 +57,12 @@ import { runInNewContext } from "node:vm";
 
 import admin from "../src/admin/router";
 import type { Env } from "../src/env";
-import { studioCanvasDocument, studioTypeMeta } from "../src/admin/leadgen/ui-section-studio";
+import {
+  renderStudioCanvas,
+  studioCanvasDocument,
+  studioCanvasFrameSrcdoc,
+  studioTypeMeta,
+} from "../src/admin/leadgen/ui-section-studio";
 import { renderVariantSectionsHtml } from "../src/public/leadgen/serve";
 import type { ResolvedFunnelSection } from "../src/public/leadgen/resolver";
 import { renderSectionComponents } from "../src/public/leadgen/components/presets";
@@ -786,7 +791,87 @@ describe("M7 — the canvas offers no control it cannot honour inside a native <
 });
 
 // ---------------------------------------------------------------------------
-// 4. The fills chip is gone from the preview surface.
+// 4. A question the preview does not show is still reachable to AUTHOR —
+//    outside the preview.
+// ---------------------------------------------------------------------------
+
+/** Run the REAL updateCanvasHiddenList over the REAL canvas markup. */
+function runHiddenList(content: LeadgenSectionContent): {
+  host: MiniEl;
+  selected: string[];
+} {
+  const host = new MiniEl("div");
+  const region = miniDom(canvasSsrHtml(content));
+  const selected: string[] = [];
+  const sandbox: Record<string, unknown> = {
+    state: { content: JSON.parse(JSON.stringify(content)) as unknown },
+    studioMeta: { max_depth: 4, types: studioTypeMeta() },
+    String,
+    document: {
+      querySelector: (sel: string) => (sel === "[data-canvas-hidden]" ? host : null),
+      createElement: (t: string) => new MiniEl(t),
+      createTextNode: (t: string) => {
+        const n = new MiniEl("#text");
+        n.text = t;
+        return n;
+      },
+    },
+    selectComponent: (qid: string) => void selected.push(qid),
+  };
+  runInNewContext(
+    [
+      `function canvasRegion() { return region; }`,
+      sliceIslandFunction("trimStr"),
+      sliceIslandFunction("clearChildren"),
+      sliceIslandFunction("typeMeta"),
+      sliceIslandFunction("typeLabel"),
+      sliceIslandFunction("isContainerType"),
+      sliceIslandFunction("walkTree"),
+      sliceIslandFunction("hiddenPickHandler"),
+      sliceIslandFunction("updateCanvasHiddenList"),
+      "updateCanvasHiddenList();",
+    ].join("\n"),
+    { ...sandbox, region },
+  );
+  return { host, selected };
+}
+
+describe("M6/R4 — the withheld question stays authorable, outside the preview", () => {
+  it("the canvas panel (parent page, not the iframe) hosts the reach-it row", () => {
+    const page = renderStudioCanvas(CONTENT, DESIGN, {
+      headline_text: HEADLINE,
+      subheadline_text: null,
+    });
+    expect(page).toContain('data-canvas-hidden hidden');
+    // it is a SIBLING of the iframe inside the canvas panel, never inside the
+    // srcdoc the owner reads as the preview
+    expect(page.indexOf("data-canvas-hidden")).toBeGreaterThan(page.indexOf("lg-studio-canvas-frame"));
+    expect(
+      studioCanvasFrameSrcdoc(CONTENT, DESIGN, { headline_text: HEADLINE, subheadline_text: null }),
+    ).not.toContain("data-canvas-hidden");
+  });
+
+  it("lists exactly the question the resting render withheld, and clicking it selects that question", () => {
+    const { host, selected } = runHiddenList(CONTENT);
+    expect(host.hidden).toBe(false);
+    const picks = host.querySelectorAll("[data-canvas-hidden-pick]");
+    expect(picks.map((p) => p.getAttribute("data-canvas-hidden-pick"))).toEqual(["q_why"]);
+    expect(host.textContent).toContain("Not on the page at the start");
+    (picks[0] as MiniEl).click();
+    expect(selected).toEqual(["q_why"]);
+  });
+
+  it("stays hidden when the resting render withholds nothing", () => {
+    const flipped = JSON.parse(JSON.stringify(CONTENT)) as LeadgenSectionContent;
+    (flipped.components[0] as LeadgenComponentNode).props = { defaultValue: false };
+    const { host } = runHiddenList(flipped);
+    expect(host.querySelectorAll("[data-canvas-hidden-pick]").length).toBe(0);
+    expect(host.hidden).toBe(true);
+  });
+});
+
+// ---------------------------------------------------------------------------
+// 5. The fills chip is gone from the preview surface.
 // ---------------------------------------------------------------------------
 
 describe("M6/R4 — injected editor chrome the live page has no equivalent for", () => {
