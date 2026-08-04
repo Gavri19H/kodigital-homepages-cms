@@ -2432,7 +2432,7 @@ function renderAddressFieldSet(): string {
   return `<div class="lg-inspector-field" data-address-fieldset-block hidden>
         <div class="studio-panel-eyebrow">Fields</div>
         <button type="button" class="btn btn-sm btn-outline" data-address-preset-plain>Plain text address</button>
-        <p class="form-help">One click &#8594; a single free-text address field (full_address, manual).</p>
+        <p class="form-help">One click &#8594; one plain address box the visitor types into, with no Google lookup and no format rule.</p>
         <div data-address-rows></div>
         <button type="button" class="btn btn-sm btn-secondary" data-address-add>+ Add field</button>
         <div class="studio-addr-menu" data-address-add-menu hidden></div>
@@ -3018,7 +3018,12 @@ export function renderStudioInspector(design: FunnelDesign, sectionPublicId: str
       <label class="studio-maps-job-row"><input type="checkbox" data-maps-job="validate" /><span><span class="lg-check-label">Validate the answer</span><span class="form-help" data-maps-validate-copy></span></span></label>
       <label class="studio-maps-job-row"><input type="checkbox" data-maps-job="auction" /><span><span class="lg-check-label">Use in auction rules</span><span class="form-help">Turn the ZIP into a location the auction can target or exclude by state, city or ZIP. <a href="/admin/leadgen/auction" data-open-auction-rules>Open auction rules &#8594;</a></span></span></label>
       <p class="form-help studio-maps-degradation" data-maps-degradation-note hidden>State and city targeting need the server key — without it, only the ZIP itself is available to auction rules.</p>
-      <label class="studio-maps-job-row"><input type="checkbox" data-maps-job="autocomplete" /><span><span class="lg-check-label">Auto-complete the address</span><span class="form-help">Fill this field and the other address fields in this section (city, state, street) from the ZIP.</span></span></label>
+      <!-- R2 P8 M4: the sub-copy said "from the ZIP" on EVERY node, including an
+           Address, where the visitor types the street and Google fills the rest
+           — the reverse of what it described. populateMapsTab now writes the
+           per-mode sentence live, the same way data-maps-validate-copy already
+           does; the text below is only the pre-JS first-paint fallback. -->
+      <label class="studio-maps-job-row"><input type="checkbox" data-maps-job="autocomplete" /><span><span class="lg-check-label">Auto-complete the address</span><span class="form-help" data-maps-autocomplete-copy>As the visitor types, Google suggests real addresses and fills the matching fields in this section.</span></span></label>
       <!-- R4b (S3-7): sibling-fill picker — shown only while autocomplete is
            on. Options are populated client-side from this Section's OTHER
            internal_field values (self excluded); writes
@@ -3908,6 +3913,10 @@ export const SECTION_STUDIO_STYLES = `
 .studio-addr-row{display:flex;align-items:center;gap:6px;border:1px solid var(--c-border);border-radius:8px;padding:7px;margin-bottom:6px;flex-wrap:wrap;background:${STUDIO_COLOR.white}}
 .studio-addr-row.studio-addr-dragging{opacity:.5}
 .studio-addr-cell{display:flex;flex-direction:column;gap:2px;min-width:0}
+/* R2 P8 M4: the custom-pattern pair takes its own full line inside the row so
+   the Field/Label/Mode/Validation cells above keep theirs. */
+.studio-addr-custom{flex:1 1 100%;display:flex;gap:6px;margin-top:4px}
+.studio-addr-custom>.studio-addr-cell{flex:1 1 0}
 .studio-addr-cell-label{font-size:9px;font-weight:700;color:${STUDIO_COLOR.mutedLabel};text-transform:uppercase;letter-spacing:.03em}
 .studio-addr-handle{cursor:grab;color:${STUDIO_COLOR.muted};flex:0 0 auto}
 .studio-addr-menu{border:1px solid var(--c-border);border-radius:8px;padding:4px;margin-top:6px;background:${STUDIO_COLOR.white}}
@@ -6157,6 +6166,36 @@ export const SECTION_STUDIO_SCRIPT = `
             if (ovt !== 'string' && ovt !== 'number' && ovt !== 'boolean') { issues.push({ qid: node.question_id, message: label + ' has an "Other" value with an invalid value' }); }
             else if (otherBaseValues[String(oc.value)]) { issues.push({ qid: node.question_id, message: label + ' has an "Other" value that duplicates a base choice' }); }
             if (trimStr(oc.analytics_id) === '') { issues.push({ qid: node.question_id, message: label + ' has an "Other" value missing its analytics id' }); }
+          }
+        }
+      }
+      // R2 P8 M4 (owner A.1 #6): the custom per-address-field pattern is
+      // authored here, so an unusable one must be caught HERE — at authoring
+      // time, in the register the publish blocker speaks ("<thing> has <the
+      // problem> — <the fix>"), not as a silent no-rule at runtime
+      // (validateAddressField skips an unparseable pattern) nor as a bare 400.
+      // Mirrors content-schema.validateAddressFields' own two simple legs; the
+      // server stays authoritative on save (its catastrophic-shape leg has no
+      // twin here and keeps its own operator-voiced message).
+      if (node.props && node.props.fields && node.props.fields.length) {
+        // Local, not the module-level ADDRESS_DEFAULT_LABELS: computeIssues is
+        // sliced and run STANDALONE by the island vm-probes, so it may only
+        // reach the free names those harnesses already provide.
+        var AF_LABELS = { street: 'Street address', city: 'City', state: 'State', zip: 'ZIP code', full_address: 'Address' };
+        var afi, afSpec, afRule, afLabel;
+        for (afi = 0; afi < node.props.fields.length; afi++) {
+          afSpec = node.props.fields[afi];
+          if (!afSpec || typeof afSpec !== 'object') { continue; }
+          afRule = afSpec.validation;
+          if (!afRule || typeof afRule !== 'object') { continue; }
+          afLabel = trimStr(afSpec.label) !== '' ? trimStr(afSpec.label) : (AF_LABELS[afSpec.field] || afSpec.field);
+          if (typeof afRule.regex !== 'string' || trimStr(afRule.regex) === '') {
+            issues.push({ qid: node.question_id, message: label + '’s ' + afLabel + ' field has a custom rule with no pattern — enter the pattern, or switch that field’s rule off' });
+          } else if (afRule.regex.length > 200) {
+            issues.push({ qid: node.question_id, message: label + '’s ' + afLabel + ' field has a custom pattern longer than 200 characters — shorten it, or switch that field’s rule off' });
+          } else {
+            try { new RegExp(afRule.regex); }
+            catch (afErr) { issues.push({ qid: node.question_id, message: label + '’s ' + afLabel + ' field has a custom pattern the browser cannot read — fix the pattern, or switch that field’s rule off' }); }
           }
         }
       }
@@ -8775,6 +8814,16 @@ export const SECTION_STUDIO_SCRIPT = `
     if (toggle) { toggle.checked = enabled; }
     if (jobsBlock) { jobsBlock.hidden = !enabled; }
     if (validateCopy) { validateCopy.textContent = mapsValidateCopyFor(mode); }
+    // R2 P8 M4 — the autocomplete sub-copy, per mode. Inlined here rather than
+    // given its own helper for the reason stated in the NOTE above this
+    // section (the studioProbe harness runs this function against a fixed
+    // function allowlist this file must not require a change to).
+    var autoCopy = document.querySelector('[data-maps-autocomplete-copy]');
+    if (autoCopy) {
+      autoCopy.textContent = mode === 'address'
+        ? 'As the visitor types their street address, Google suggests real addresses and fills the rest of this address for them — pick which fields below in the Fields list.'
+        : 'Google turns the ZIP the visitor enters into a real place and fills the address fields in this section (city, state, street).';
+    }
     var jobEls = document.querySelectorAll('[data-maps-job]');
     var i, k, j, slot, sel, opt, current;
     for (i = 0; i < jobEls.length; i++) {
@@ -8813,6 +8862,23 @@ export const SECTION_STUDIO_SCRIPT = `
         }
         var cfg = mapsConfigOf(node);
         var fills = (cfg && cfg.fills && typeof cfg.fills === 'object') ? cfg.fills : {};
+        // R2 P8 R6-2 (owner A.1 #6 "every component that include more than one
+        // field- each field is potentially answering another offer field"): a
+        // fill target IS the answer key that field writes, so two slots aimed
+        // at one target is one answer key with two sources — the buyer gets
+        // whichever wrote last, and nothing said so. Below: which slot already
+        // holds each target, so the OTHER slots can neither hand it out
+        // silently nor hide that it is taken. Not a save gate (§1) — the
+        // picker just stops offering a key that is already spoken for, and
+        // names who has it.
+        var takenBy = {}, tk, tv;
+        for (tk in fills) {
+          if (Object.prototype.hasOwnProperty.call(fills, tk)) {
+            tv = fills[tk];
+            if (typeof tv === 'string' && trimStr(tv) !== '' && takenBy[tv] === undefined) { takenBy[tv] = tk; }
+          }
+        }
+        var MAPS_SLOT_LABELS = { street: 'Street', city: 'City', state: 'State', zip: 'ZIP' };
         var selects = document.querySelectorAll('[data-maps-fill-slot]');
         for (i = 0; i < selects.length; i++) {
           sel = selects[i];
@@ -8828,7 +8894,7 @@ export const SECTION_STUDIO_SCRIPT = `
           // node-namespaced name internalFieldsOf already lists as a rule source,
           // so choosing it makes the role a real, mapped, rule-visible field with
           // zero naming decisions.
-          if (current === '') {
+          if (current === '' && takenBy[arBase + '_' + slot] === undefined) {
             opt = document.createElement('option');
             opt.value = arBase + '_' + slot;
             opt.textContent = 'Create "' + (arBase + '_' + slot) + '"';
@@ -8837,7 +8903,16 @@ export const SECTION_STUDIO_SCRIPT = `
           for (j = 0; j < others.length; j++) {
             opt = document.createElement('option');
             opt.value = others[j];
-            opt.textContent = others[j];
+            // R2 P8 R6-2: a target another slot already fills is SHOWN (never
+            // quietly missing) and named, but cannot be picked — so the
+            // operator learns the key is spoken for instead of authoring two
+            // sources for one answer and finding out from a buyer.
+            if (takenBy[others[j]] !== undefined && takenBy[others[j]] !== slot) {
+              opt.textContent = others[j] + ' — already filled by ' + (MAPS_SLOT_LABELS[takenBy[others[j]]] || takenBy[others[j]]);
+              opt.disabled = true;
+            } else {
+              opt.textContent = others[j];
+            }
             if (others[j] === current) { opt.selected = true; }
             sel.appendChild(opt);
           }
@@ -12362,7 +12437,8 @@ export const SECTION_STUDIO_SCRIPT = `
   // R2 P8 R6-4 (owner A.1 #6 "the mapping of what is auto-filled per field
   // should definatly be an option"): this is now the SAME predicate the
   // renderer computes under the SAME name -- presets.ts renderAddressFieldSet's
-  // `addressMapsEnabled = isNewMapsShape(raw) ? raw.enabled === true : true`.
+  // own addressMapsEnabled reader: isNewMapsShape(raw) ? raw.enabled === true
+  // : true.
   // It answers "will the RENDERER honour mode:autofill on this node", which is
   // NOT "is the Maps toggle ticked": a node with NO props.maps at all (the
   // unconfigured default every fresh Address starts as) renders the 4-field
@@ -12372,7 +12448,7 @@ export const SECTION_STUDIO_SCRIPT = `
   // collectAddressFields then PERSISTED mode:'manual' x4 the moment the
   // operator touched any unrelated control -- the studio showing one thing, the
   // visitor getting another, and then the studio's version silently winning.
-  // isNewMapsShape's own discriminator is `typeof raw.jobs === 'object'`, so a
+  // isNewMapsShape's own discriminator is typeof raw.jobs === 'object', so a
   // pre-jobs flat config is treated as honouring autofill here exactly as it is
   // there; only an explicit {jobs:...} config with enabled !== true turns it off.
   function addressMapsEnabled(node) {
@@ -12453,9 +12529,9 @@ export const SECTION_STUDIO_SCRIPT = `
     var autoOpt = document.createElement('option'); autoOpt.value = 'autofill'; autoOpt.textContent = 'Autofill'; modeSel.appendChild(autoOpt);
     // R2 P8 R6-4. Two rules, both now the RENDERER's:
     //  1. What this row DISPLAYS is what presets.ts reads off it --
-    //     readAddressFieldSpecs does `mode: r.mode === 'manual' ? 'manual' :
-    //     'autofill'`, so anything that is not the literal 'manual' IS autofill
-    //     to the product. The select mirrors that read verbatim, so an
+    //     readAddressFieldSpecs resolves mode as: r.mode === 'manual' ?
+    //     'manual' : 'autofill'. Anything that is not the literal 'manual' IS
+    //     autofill to the product. The select mirrors that read, so an
     //     unconfigured Address shows the 4x Autofill it actually renders.
     //  2. The option is never WITHHELD, so the select can never coerce a stored
     //     (or defaulted) 'autofill' down to 'manual' behind the operator's
@@ -12621,19 +12697,24 @@ export const SECTION_STUDIO_SCRIPT = `
     renderAddressAddMenu(node);
     var menu = document.querySelector('[data-address-add-menu]');
     if (menu) { menu.hidden = true; }
-    // P5 S5c (Maps honesty): state the keyless degrade PLAINLY instead of a
-    // static disclaimer that reads the same whether the field set above is
-    // silently locked to Manual or not. Three real states, in plain words.
+    // P5 S5c (Maps honesty): state the real state PLAINLY instead of a static
+    // disclaimer that reads the same whichever state the field set is in.
+    // R2 P8 R6-4: the keyless line no longer claims "every field here stays
+    // Manual" -- that claim was only true because the Mode select used to hide
+    // the Autofill option, which is the very coercion R6-4 is. Autofill stays
+    // authorable without a key and the note now says exactly what a keyless
+    // funnel does at runtime, matching the Maps banner's own promise that the
+    // config is kept and activates the moment a key exists.
     var addrMapsOn = addressMapsEnabled(node);
     var addrKeyOk = mapsKeyIsConfigured();
     var mapsNote = document.querySelector('[data-address-maps-note]');
     if (mapsNote) {
-      if (!addrKeyOk) {
-        mapsNote.textContent = 'No Google-Maps key is configured — Autofill mode is unavailable right now, so every field here stays Manual. Add a key to enable it (the field set above still works either way).';
-      } else if (!addrMapsOn) {
-        mapsNote.textContent = 'Autofill needs Google Maps — turn it on in the Maps tab to offer it for these fields.';
+      if (!addrMapsOn) {
+        mapsNote.textContent = 'Autofill is turned off for this field on the Maps tab, so every field below is filled by the visitor. Turn Maps back on to use Autofill.';
+      } else if (!addrKeyOk) {
+        mapsNote.textContent = 'Autofill is set up below, but this site has no Google-Maps key yet, so visitors type every field themselves for now. Your choices are saved and start working the moment a key is added.';
       } else {
-        mapsNote.textContent = 'Google Maps is on for this field — pick which field(s) below use Autofill mode.';
+        mapsNote.textContent = 'Google Maps is on for this field — pick which field(s) below Google fills in, and which the visitor types.';
       }
     }
   }
@@ -12653,6 +12734,19 @@ export const SECTION_STUDIO_SCRIPT = `
       var f = { field: kindEl ? kindEl.value : 'street', mode: (modeEl && modeEl.value === 'autofill') ? 'autofill' : 'manual' };
       if (labEl && trimStr(labEl.value) !== '') { f.label = trimStr(labEl.value); }
       if (valEl && valEl.value === 'zip5') { f.validation = 'zip5'; }
+      // R2 P8 M4: the custom rule writes the SAME {regex, message} object
+      // runtime/validation.ts validateAddressField already applies and
+      // content-schema.validateAddressFields already accepts. The message is
+      // optional there (the runtime falls back to its own wording), so it is
+      // only written when the operator actually typed one -- an empty box
+      // never becomes an empty string the schema would then have to police.
+      if (valEl && valEl.value === 'custom') {
+        var patEl = rows[i].querySelector('[data-address-field-pattern]');
+        var msgEl = rows[i].querySelector('[data-address-field-pattern-message]');
+        var custom = { regex: patEl ? trimStr(patEl.value) : '' };
+        if (msgEl && trimStr(msgEl.value) !== '') { custom.message = trimStr(msgEl.value); }
+        f.validation = custom;
+      }
       if (reqEl && reqEl.checked) { f.required = true; }
       fields.push(f);
     }

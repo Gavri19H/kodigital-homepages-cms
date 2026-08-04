@@ -668,9 +668,9 @@ export async function deleteFrameTemplateHandler(c: AdminContext): Promise<Respo
 // R2 P8 M3 / R2-1 — WHY the write is not the pointer alone. The pointer is only
 // the BASE layer of effectiveFrame, and a funnel that has ever been saved
 // carries a frame_config_json that shadows the leaves it holds: measured on this
-// branch, a pointer-only apply moved exactly ONE leaf of the served composition
-// (`template`, the identity string no CSS is keyed on) out of the 29 the
-// template disagreed on.
+// branch against a realistic column (test/leadgen-p8-m3-apply-template.test.ts,
+// CHARACTERISATION leg), a pointer-only apply moved 27 of 29 comparable leaves,
+// preserving only the operator's 2 own customisations.
 //
 // R2 P8 FIX ROUND F4 — and WHY that write is a RECONCILE, not a copy.
 // computeTemplateApply materialises the template's leaves over the funnel's
