@@ -69,7 +69,27 @@ in the F9 F-B block), MINOR-4 closed (both narrow checks restored, quote-style-a
 (owns `test/leadgen-p8-m3-apply-template.test.ts` only): `newSavedFunnel` omits the `template` stamp the real
 Save always writes, and edits `header.tagline`/`back.label` — leaves NO operator can author (0 admin
 occurrences; the live 6-tab census found 18 `[data-frame-key]` controls, neither among them) — while calling
-them "the operator's own customisations". **P8-4 needs a SCOPED re-review of F12+F13 before it can merge.**
+them "the operator's own customisations". **Both are now CLOSED by F13+F14 (`4b938ef`).**
+
+I scoped F13 to `newSavedFunnel`; it fixed that and reported the **same two classes at 3 more sites**, so F14
+swept the whole file (hard-won rule 2 again — I named one site, there were four):
+- *Class A — a fabricated saved column with no `template` stamp*: 4 sites folded into one `operatorSaves`
+  mirror of `funnel.ts:1921-1933`; `:407` is now the ONLY `frame_config_json` PUT in the file. The j12 leg's
+  assertion is now byte-identical to the driven log quoted 25 lines above it, **which it had been contradicting**.
+- *Class B — an unauthorable leaf called "the operator's own customisation"*: `header.tagline` (0 hits in
+  `src/admin`) and `back.label` (a normalisation map at `funnel.ts:2016`, not a control) replaced at 4 sites
+  by `header.logo_align` and `background.image_media_id`, each proven against a real emitted control.
+- Census **re-measured, not inherited**: comparable 28 · shadowed 2 · honoured 26. The reviewer's 27/2/25 was
+  its own fixture's number; the run's wins.
+- **Conductor-verified by my own hand at `4b938ef`**: `typecheck` exit 0 / 0 errors; the M3 lane **20 passed
+  (20)**, exit 0. (I also mis-grepped `frame_config_json:` as 3 hits — `:252` is an interface field, `:281` a
+  row projection; F14's "the only PUT" was the precise claim and mine was the loose read.)
+
+**P8-4 still needs a SCOPED re-review of F12+F13+F14 before it can merge**, which must also rule on one thing
+F14 deliberately left: the `CHARACTERISATION` leg may warrant its `FAIL-BEFORE` name back, now that the two
+legs again end on **different after-shas from the same before-sha**. The label understates rather than
+overstates and its comment is accurate, so it ships pending that ruling rather than risking a fifth
+false-comment round on a rename.
 
 ### P8-5 GATE RUN 1 — done, FAILED, fix round `F3` dispatched
 Log `docs/leadgen/r2/gate-logs/p8-phase-5-run1.log`, HEAD `60e7f75`, clean tree.
