@@ -29,6 +29,9 @@ import {
   CURATED_DESIGN_OVERRIDE_KEYS,
   LEADGEN_THEME_ROLES,
   flattenComponents,
+  // The operator's own name for a style control ("Default answer-grid gap"),
+  // so a save error never prints the stored key id at a person.
+  leadgenControlLabel,
   validateSectionContent,
   type LeadgenSectionContent,
   type SectionContentError,
@@ -101,19 +104,21 @@ const SECTION_COLUMNS_MIN = 1;
 const SECTION_COLUMNS_MAX = 5;
 
 // Validate the §9.5 `palette` map into `errors` (path-precise per role).
+// The messages are read by an operator in the save banner, so they name the
+// control and end on the action — the §9.5 cite lives in this comment.
 function validateSectionPaletteOverride(value: unknown, errors: FieldErrors): void {
   if (!isRecord(value)) {
     errors["design_overrides.palette"] =
-      "palette must be an object mapping theme colour roles to a role or #hex value (§9.5)";
+      "The palette must give each theme colour role a role or a #hex colour. Set the palette again from the Design tab.";
     return;
   }
   for (const [role, entry] of Object.entries(value)) {
     if (!THEME_ROLE_SET.has(role)) {
       errors[`design_overrides.palette.${role}`] =
-        `'${role}' is not a theme colour role (§9.5). Roles are: ${LEADGEN_THEME_ROLES.join(", ")}.`;
+        `'${role}' is not a theme colour role. Use one of: ${LEADGEN_THEME_ROLES.join(", ")}.`;
     } else if (typeof entry !== "string" || (!THEME_ROLE_SET.has(entry) && !LEGACY_HEX_RE.test(entry))) {
       errors[`design_overrides.palette.${role}`] =
-        `palette.${role} must be a theme colour role (${LEADGEN_THEME_ROLES.join(", ")}) or a #hex colour (§9.5)`;
+        `The palette entry for '${role}' must be a theme colour role (${LEADGEN_THEME_ROLES.join(", ")}) or a #hex colour like #1A2B3C. Pick a role, or enter a hex value.`;
     }
   }
 }
@@ -140,10 +145,11 @@ function validateSectionLevelOverride(key: string, value: unknown, errors: Field
   // gapDefault — a fixed spacing token (the design spacing scale values), the
   // same §14.10 no-arbitrary-CSS rule the per-node gridGap value passes.
   if (typeof value !== "string" || value.trim() === "") {
-    errors["design_overrides.gapDefault"] = "gapDefault must be a spacing token string (§9.5)";
+    errors["design_overrides.gapDefault"] =
+      `'${leadgenControlLabel("gapDefault")}' must be one of the theme's spacing values. Pick one from the Design tab.`;
   } else if (CSS_ESCAPE_RE.test(value)) {
     errors["design_overrides.gapDefault"] =
-      "gapDefault must be a fixed spacing token value, not arbitrary CSS (§14.10)";
+      `'${leadgenControlLabel("gapDefault")}' must be one of the theme's spacing values, not arbitrary CSS. Pick one from the Design tab.`;
   }
 }
 
@@ -324,9 +330,13 @@ export function validateSection(raw: unknown): LeadgenSectionValidationResult {
           if (SECTION_LEVEL_OVERRIDE_KEYS.has(key)) {
             validateSectionLevelOverride(key, val, errors);
           } else if (!CURATED_OVERRIDE_KEY_SET.has(key)) {
-            errors[`design_overrides.${key}`] = `'${key}' is not a curated design-override token key (§14.8)`;
+            // §14.8 curated-key vocabulary, said in the operator's words.
+            errors[`design_overrides.${key}`] =
+              `'${key}' is not a style setting you can override. Remove it — the Design tab lists the settings this Section supports.`;
           } else if (typeof val === "string" && CSS_ESCAPE_RE.test(val)) {
-            errors[`design_overrides.${key}`] = `design_overrides.${key} must be a fixed token value, not arbitrary CSS (§14.10)`;
+            // §14.10 no arbitrary CSS.
+            errors[`design_overrides.${key}`] =
+              `'${leadgenControlLabel(key)}' must be one of the theme's values, not arbitrary CSS. Pick a value from the Design tab.`;
           }
         }
         const hasOverrideError = Object.keys(errors).some((k) => k.startsWith("design_overrides"));
@@ -435,16 +445,18 @@ export function validateMappingReferences(
       return;
     }
     if (offer.status !== "active") {
-      errors[`${base}.offer_id`] = `offer is ${offer.status} — mappings must target an active Offer (§12.4)`;
+      errors[`${base}.offer_id`] =
+        `This Offer is ${offer.status} — a mapping can only send answers to an active Offer. Pick an active Offer, or activate this one.`;
       return;
     }
     if (offer.activity !== section.activity || offer.vertical !== section.vertical) {
       errors[`${base}.offer_id`] =
-        `offer activity/vertical (${offer.activity}/${offer.vertical}) does not match the Section (${section.activity}/${section.vertical}) (§12.4)`;
+        `This Offer is for ${offer.activity} / ${offer.vertical}, which does not match the Section's ${section.activity} / ${section.vertical}. Pick an Offer for ${section.activity} / ${section.vertical}.`;
       return;
     }
     if (offer.active_schema_id === null) {
-      errors[`${base}.offer_id`] = "offer has no active payload schema to map into (§11.8)";
+      errors[`${base}.offer_id`] =
+        "This Offer has no active payload schema, so there is nothing to map answers into. Publish a payload schema on the Offer first.";
     }
   });
   return errors;

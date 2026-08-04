@@ -1135,6 +1135,207 @@ export function autoAdvanceConflictMessage(result: AutoAdvanceEligibility): stri
 }
 
 // ---------------------------------------------------------------------------
+// Operator vocabulary — the words the Section Studio already puts on screen
+// ---------------------------------------------------------------------------
+// A save error travels validateSectionContent -> sections.ts -> the API ->
+// the Section Studio's save banner (ui-section-studio renderSaveFieldErrors),
+// so every `message` below is read by a PERSON, not by a developer. The three
+// tables here are the operator's own nouns, copied VERBATIM from the controls
+// they can see:
+//   * component names  <- the studio palette labels (STUDIO_COMPONENT_META)
+//   * control labels   <- the inspector <label> text / choice-column headings
+//   * answer formats   <- the Accept dropdown labels
+// An error must never invent a second name for a control the operator can see,
+// and must never print a raw prop id ("props.selected_marker") as if it were
+// one.
+//
+// The component table is EXHAUSTIVE over ComponentType, so adding a catalog
+// type without giving the operator a name for it is a compile error here
+// rather than a raw "FooBarQuestion" leaking into a banner.
+//
+// The spec clause a rule comes from stays in this file as a `// §…` code
+// comment beside the rule — useful to a developer, meaningless to an operator.
+export const LEADGEN_COMPONENT_OPERATOR_NAMES: Readonly<Record<ComponentType, string>> = {
+  ProgressBar: "Progress bar",
+  HeaderLogo: "Header logo",
+  BackButton: "Back / Previous",
+  DisclosureLink: "Disclosure link",
+  StepIndicator: "Step indicator",
+  CategoryLabel: "Category label",
+  QuestionHeadline: "Question headline",
+  Subheadline: "Subheadline",
+  NumberRangeQuestion: "Slider",
+  ButtonAnswerGroup: "Simple answer buttons",
+  TwoButtonYesNo: "Yes / No",
+  IconCardAnswerGrid: "Icon answer cards",
+  ImageCardAnswerGrid: "Image answer cards",
+  MultiChoiceCardGroup: "Multi-select cards",
+  DropdownQuestion: "Dropdown",
+  SearchableDropdownQuestion: "Searchable dropdown",
+  QuestionGrid: "Question grid",
+  FreeTextQuestion: "Text",
+  NumberInputQuestion: "Number",
+  CurrencyInputQuestion: "Amount ($)",
+  EmailInputQuestion: "Email",
+  PhoneInputQuestion: "Phone",
+  NameFieldsGroup: "Name",
+  DateQuestion: "Date",
+  ZIPInputQuestion: "ZIP",
+  AddressAutocompleteQuestion: "Address",
+  ContinueButton: "Continue button",
+  AutoAdvanceButton: "Auto-advance",
+  ReassuranceBadge: "Reassurance badge",
+  SuccessState: "Success state",
+  SecureFormBadge: "Secure-form badge",
+  TrustBar: "Trust points",
+  LogoStrip: "Logo row",
+  HelperText: "Helper text",
+  ValidationError: "Error message line",
+  LegalNote: "Legal note",
+  TextBlock: "Text",
+  ImageBlock: "Image / Logo",
+  Stack: "Stack",
+  GridContainer: "Answer grid",
+  Columns: "Two columns",
+  CardPanel: "Question card",
+  BackgroundPanel: "Background panel",
+  Spacer: "Spacer",
+  HeaderBar: "Header bar",
+  FooterBar: "Footer bar",
+};
+
+// A CamelCase / snake_case id split into words — the floor for any id that has
+// no curated operator name yet (a type outside the catalog is separately
+// reported as unknown_component_type, so this only softens how it reads).
+function humanizeId(id: string): string {
+  const words = id
+    .replace(/([a-z0-9])([A-Z])/g, "$1 $2")
+    .replace(/_/g, " ")
+    .trim();
+  return words === "" ? id : words.charAt(0).toUpperCase() + words.slice(1);
+}
+
+export function leadgenComponentName(type: string): string {
+  return (LEADGEN_COMPONENT_OPERATOR_NAMES as Record<string, string>)[type] ?? humanizeId(type);
+}
+
+// The inspector control each authorable prop is edited by. Keys are the stored
+// prop ids; values are the studio's own <label> text.
+const OPERATOR_CONTROL_LABELS: Readonly<Record<string, string>> = {
+  label: "Label",
+  helper: "Helper text",
+  error_text: "If it's wrong, say",
+  firstHelper: "First name helper text",
+  lastHelper: "Last name helper text",
+  firstIcon: "First name leading icon",
+  lastIcon: "Last name leading icon",
+  icon: "Leading icon",
+  format: "Answer format",
+  phone_format: "Pattern preset",
+  role: "Role",
+  source: "Source",
+  required: "Required",
+  step: "Step",
+  min: "Min",
+  max: "Max",
+  slider_type: "Slider type",
+  currency_affix: "Currency symbol ($) prefix",
+  selected_marker: "Selected-state style",
+  columns: "Card columns (1–5)",
+  gridGap: "Answer-grid gap token",
+  iconColor: "Icon color",
+  rangeColor: "Range fill",
+  corners: "Corners",
+  border_color: "Border color",
+  width: "Width",
+  height: "Height",
+  align: "Align",
+  row: "Row",
+  nudge_x: "Fine-tune position (left / right)",
+  nudge_y: "Fine-tune position (up / down)",
+  internal_field: "Internal field",
+  answer_type: "Answer type",
+  choices: "Choices",
+  text: "Text",
+  placeholder: "Placeholder",
+  defaultValue: "Default answer",
+  alt: "Alt text",
+  yesStyle: "Yes button style",
+  noStyle: "No button style",
+  color_role: "Color role",
+  color_hex: "Custom color",
+  text_color_role: "Text color role",
+  text_color_hex: "Custom text color",
+  emphasis: "Emphasis",
+  size: "Size",
+  gapDefault: "Default answer-grid gap",
+  columnsDefault: "Default answer columns",
+  palette: "Palette",
+};
+
+export function leadgenControlLabel(key: string): string {
+  return OPERATOR_CONTROL_LABELS[key] ?? humanizeId(key);
+}
+
+// The per-choice columns of the answers table (ui-section-studio
+// CHOICE_FIELD_LABELS) — "Analytics ID", never a title-cased "Analytics Id".
+const OPERATOR_CHOICE_FIELD_LABELS: Readonly<Record<string, string>> = {
+  label: "Label",
+  value: "Saved value",
+  analytics_id: "Analytics ID",
+  title: "Title",
+  subtitle: "Subtitle",
+  badge: "Badge",
+  icon: "Icon",
+  emoji: "Emoji",
+  imageMediaId: "Image",
+  image_alt: "Image alt",
+  aria_label: "Screen-reader label",
+  description: "Description",
+  disabled: "Disabled",
+};
+
+export function leadgenChoiceFieldLabel(key: string): string {
+  return OPERATOR_CHOICE_FIELD_LABELS[key] ?? humanizeId(key);
+}
+
+// The Address field-set rows (ui-section-studio ADDRESS_DEFAULT_LABELS).
+const OPERATOR_ADDRESS_FIELD_LABELS: Readonly<Record<string, string>> = {
+  street: "Street address",
+  city: "City",
+  state: "State",
+  zip: "ZIP code",
+  full_address: "Address",
+};
+
+function addressFieldLabel(key: string): string {
+  return OPERATOR_ADDRESS_FIELD_LABELS[key] ?? humanizeId(key);
+}
+
+// The Accept dropdown's own words for the answer formats.
+const OPERATOR_ANSWER_FORMAT_LABELS: Readonly<Record<string, string>> = {
+  text: "Any text",
+  number: "Number",
+  currency: "Amount ($)",
+  email: "Email",
+  phone: "Phone",
+  us_zip: "ZIP code (5 digits)",
+  date: "Date",
+  street_address: "Street address",
+};
+
+function answerFormatLabel(key: string): string {
+  return OPERATOR_ANSWER_FORMAT_LABELS[key] ?? humanizeId(key);
+}
+
+// "a, b or c" — an operator reads a sentence, not a pipe-delimited enum dump.
+function orList(values: readonly string[]): string {
+  if (values.length === 0) return "";
+  if (values.length === 1) return String(values[0]);
+  return `${values.slice(0, -1).join(", ")} or ${values[values.length - 1]}`;
+}
+
+// ---------------------------------------------------------------------------
 // Typed validation errors
 // ---------------------------------------------------------------------------
 
@@ -1494,7 +1695,7 @@ function validateContainerProps(
         push(
           "container_prop_invalid",
           path,
-          `${type} props.${key} must be one of ${spec.values.join("|")} (§8.5 token enum)`,
+          `'${leadgenControlLabel(key)}' on the ${leadgenComponentName(type)} must be one of: ${orList(spec.values)}. Pick one of those.`,
         );
       }
     } else if (spec.kind === "int") {
@@ -1507,16 +1708,24 @@ function validateContainerProps(
         push(
           "container_prop_invalid",
           path,
-          `${type} props.${key} must be an integer between ${spec.min} and ${spec.max} (§8.5)`,
+          `'${leadgenControlLabel(key)}' on the ${leadgenComponentName(type)} must be a whole number from ${spec.min} to ${spec.max}. Enter a number in that range.`,
         );
       }
     } else if (spec.kind === "string") {
       if (typeof value !== "string" || value.trim() === "") {
-        push("container_prop_invalid", path, `${type} props.${key} must be a non-empty string`);
+        push(
+          "container_prop_invalid",
+          path,
+          `'${leadgenControlLabel(key)}' on the ${leadgenComponentName(type)} can't be empty. Enter a value, or clear the setting.`,
+        );
       }
     } else if (spec.kind === "boolean") {
       if (typeof value !== "boolean") {
-        push("container_prop_invalid", path, `${type} props.${key} must be a boolean`);
+        push(
+          "container_prop_invalid",
+          path,
+          `'${leadgenControlLabel(key)}' on the ${leadgenComponentName(type)} must be on or off. Toggle it.`,
+        );
       }
     }
   }
@@ -1638,7 +1847,7 @@ function validateSizeAxis(
       push(
         code,
         path,
-        `must be one of ${presetList.join("|")} or {custom_px:number} (§7.2)`,
+        `Pick one of the ${orList(presetList)} presets, or set a custom size in pixels.`,
       );
     }
     return;
@@ -1646,30 +1855,30 @@ function validateSizeAxis(
   if (isRecord(value)) {
     const keys = Object.keys(value);
     if (keys.length !== 1 || keys[0] !== "custom_px") {
-      push(code, path, "a custom size must be exactly {custom_px:number} (§7.2)");
+      push(code, path, "A custom size is one pixel number. Enter a single custom size, or pick a preset.");
       return;
     }
     const px = value["custom_px"];
     if (typeof px !== "number" || !Number.isFinite(px) || !Number.isInteger(px)) {
-      push(code, `${path}.custom_px`, "custom_px must be an integer");
+      push(code, `${path}.custom_px`, "A custom size must be a whole number of pixels. Round it to a whole number.");
       return;
     }
     if (px < min || px > max) {
       push(
         code,
         `${path}.custom_px`,
-        `custom_px must be between ${min} and ${max} (§7.1/§7.2)`,
+        `A custom size must be between ${min} and ${max} pixels. Enter a size in that range.`,
       );
     } else if (px % SIZE_GRID_PX !== 0) {
       push(
         code,
         `${path}.custom_px`,
-        `custom_px must be snapped to a ${SIZE_GRID_PX}px grid (§7.2)`,
+        `A custom size must be a multiple of ${SIZE_GRID_PX} pixels. Round it to the nearest ${SIZE_GRID_PX}.`,
       );
     }
     return;
   }
-  push(code, path, "must be a preset string or {custom_px:number} (§7.2)");
+  push(code, path, "Pick a size preset, or set a custom size in pixels.");
 }
 
 function validateSizeOverride(
@@ -1678,12 +1887,16 @@ function validateSizeOverride(
   push: (code: SectionContentErrorCode, path: string, message: string) => void,
 ): void {
   if (!isRecord(value)) {
-    push("invalid_size_override", path, "design_overrides.size must be an object {width?, height?} (§7.2)");
+    push("invalid_size_override", path, "Size is a Width and a Height. Set one of those, or clear the size.");
     return;
   }
   for (const key of Object.keys(value)) {
     if (key !== "width" && key !== "height") {
-      push("invalid_size_override", `${path}.${key}`, `unknown size key '${key}' (only width/height, §7.2)`);
+      push(
+        "invalid_size_override",
+        `${path}.${key}`,
+        `'${key}' is not a size setting — a size has only a Width and a Height. Remove '${key}'.`,
+      );
     }
   }
   if (value["width"] !== undefined) {
@@ -1727,7 +1940,7 @@ function validateDesignOverridesBag(
     push(
       "non_curated_override_key",
       `${base}.design_overrides`,
-      "design_overrides must be an object of curated token keys",
+      "Style overrides must be a set of named style settings. Clear them, then set the styles again from the Style tab.",
     );
     return;
   }
@@ -1736,7 +1949,7 @@ function validateDesignOverridesBag(
       push(
         "non_curated_override_key",
         `${base}.design_overrides.${key}`,
-        `'${key}' is not a curated design-override token key (§14.8)`,
+        `'${key}' is not a style setting you can override. Remove it — the Style tab lists the settings this component supports.`,
       );
     } else if (key === "size") {
       // v3.1 §7.2 — the one object-shaped curated key; never CSS/color
@@ -1748,7 +1961,7 @@ function validateDesignOverridesBag(
         push(
           "invalid_override_value",
           `${base}.design_overrides.corners`,
-          `design_overrides.corners must be one of: ${LEADGEN_NODE_CORNERS.join(", ")} (§8.5b)`,
+          `'Corners' must be one of: ${orList(LEADGEN_NODE_CORNERS)}. Pick one of those in the Style tab.`,
         );
       }
     } else if (key === "border_color") {
@@ -1756,7 +1969,7 @@ function validateDesignOverridesBag(
         push(
           "invalid_override_value",
           `${base}.design_overrides.border_color`,
-          `design_overrides.border_color must be one of: ${LEADGEN_NODE_BORDER_COLOR_ROLES.join(", ")} (§8.5b)`,
+          `'Border color' must be one of: ${orList(LEADGEN_NODE_BORDER_COLOR_ROLES)}. Pick one of those in the Style tab.`,
         );
       }
     } else if (key === "columns") {
@@ -1777,7 +1990,7 @@ function validateDesignOverridesBag(
       push(
         "arbitrary_css_override",
         `${base}.design_overrides.${key}`,
-        `design_overrides.${key} must be a fixed token value, not arbitrary CSS (§14.10)`,
+        `'${leadgenControlLabel(key)}' must be one of the theme's values, not arbitrary CSS. Pick a value from the Style tab.`,
       );
     } else if (COLOR_TYPED_KEY_SET.has(key) && !isValidColorOverrideValue(value)) {
       // v2.5 §9.4: a color-typed override VALUE must be a known theme
@@ -1786,7 +1999,7 @@ function validateDesignOverridesBag(
       push(
         "invalid_override_value",
         `${base}.design_overrides.${key}`,
-        `design_overrides.${key} must be a theme color role (${LEADGEN_THEME_ROLES.join(", ")}) or a legacy #hex literal (§9.4)`,
+        `'${leadgenControlLabel(key)}' must be a theme color role (${orList(LEADGEN_THEME_ROLES)}) or a #hex value like #1A2B3C. Pick a role, or enter a hex value.`,
       );
     }
   }
@@ -1822,21 +2035,25 @@ function validatePlacementLayout(
   push: (code: SectionContentErrorCode, path: string, message: string) => void,
 ): void {
   if (!isRecord(value)) {
-    push("invalid_placement", path, "layout must be an object {row?, align?, width?, nudge_x?, nudge_y?} (§R-B/D1)");
+    push(
+      "invalid_placement",
+      path,
+      "This component's position must be a set of placement settings (row, align, width, fine-tune). Reset its position on the canvas.",
+    );
     return;
   }
   if (scope === "frame") {
     push(
       "invalid_placement",
       path,
-      `${type} is a funnel-frame component — structured placement (layout) is a Section-unit concern and is not allowed on it (§R-B/D1)`,
+      `The ${leadgenComponentName(type)} belongs to the funnel frame, not to this Section, so it can't be placed on the Section canvas. Remove its position, or move the component to the Quote Builder.`,
     );
   }
   if (PLACEMENT_EXCLUDED_TYPE_SET.has(type)) {
     push(
       "invalid_placement",
       path,
-      `${type}'s position is owned by the Quote Builder's continue-placement model (§8.5b/§11.5), not by free per-node placement — structured placement (layout) is not allowed on it`,
+      `The ${leadgenComponentName(type)}'s position is set in the Quote Builder, not here. Remove its position from this Section and set it in the Quote Builder.`,
     );
   }
   for (const key of Object.keys(value)) {
@@ -1844,7 +2061,7 @@ function validatePlacementLayout(
       push(
         "invalid_placement",
         `${path}.${key}`,
-        `unknown layout key '${key}' (allowed: ${PLACEMENT_LAYOUT_KEYS.join(", ")})`,
+        `'${key}' is not a placement setting. Remove it — placement is ${orList(PLACEMENT_LAYOUT_KEYS.map(leadgenControlLabel))}.`,
       );
     }
   }
@@ -1854,7 +2071,7 @@ function validatePlacementLayout(
       push(
         "invalid_placement",
         `${path}.row`,
-        "layout.row must be a short id token matching [A-Za-z0-9_-], 1-64 chars (a stored id, never CSS)",
+        "A row name may use letters, numbers, dashes and underscores, up to 64 characters. Rename the row.",
       );
     }
   }
@@ -1864,7 +2081,7 @@ function validatePlacementLayout(
       push(
         "invalid_placement",
         `${path}.align`,
-        `layout.align must be one of ${LEADGEN_PLACEMENT_ALIGNS.join("|")}`,
+        `'Align' must be one of: ${orList(LEADGEN_PLACEMENT_ALIGNS)}. Pick one of those.`,
       );
     }
   }
@@ -1886,12 +2103,16 @@ function validatePlacementLayout(
     if (value[axis] !== undefined) {
       const n = value[axis];
       if (typeof n !== "number" || !Number.isFinite(n) || !Number.isInteger(n)) {
-        push("invalid_placement", `${path}.${axis}`, `layout.${axis} must be an integer number of pixels`);
+        push(
+          "invalid_placement",
+          `${path}.${axis}`,
+          `'${leadgenControlLabel(axis)}' must be a whole number of pixels. Enter a whole number.`,
+        );
       } else if (n < PLACEMENT_NUDGE_MIN || n > PLACEMENT_NUDGE_MAX) {
         push(
           "invalid_placement",
           `${path}.${axis}`,
-          `layout.${axis} must be between ${PLACEMENT_NUDGE_MIN} and ${PLACEMENT_NUDGE_MAX} px (§R-B bounded escape hatch)`,
+          `'${leadgenControlLabel(axis)}' must be between ${PLACEMENT_NUDGE_MIN} and ${PLACEMENT_NUDGE_MAX} pixels. Bring it back inside that range.`,
         );
       }
     }
@@ -1943,14 +2164,14 @@ function validateRowGrouping(
       push(
         "invalid_placement",
         acc.firstPath,
-        `row '${row}' members must be contiguous siblings — found ${acc.runCount} separate groups; a non-contiguous row is unrenderable (§D1)`,
+        `Row '${row}' is split into ${acc.runCount} separate groups — a row can't be drawn with a gap in it. Move its components next to each other.`,
       );
     }
     if (acc.maxLen > LEADGEN_MAX_ROW_MEMBERS) {
       push(
         "invalid_placement",
         acc.firstPath,
-        `row '${row}' has ${acc.maxLen} members — a row holds at most ${LEADGEN_MAX_ROW_MEMBERS} slots (§D1)`,
+        `Row '${row}' holds ${acc.maxLen} components — a row fits at most ${LEADGEN_MAX_ROW_MEMBERS}. Move one out of the row.`,
       );
     }
   }
@@ -1969,7 +2190,7 @@ function validateChoiceStyle(
   push: (code: SectionContentErrorCode, path: string, message: string) => void,
 ): void {
   if (!isRecord(value)) {
-    push("invalid_choice_style", path, "choice.style must be an object (§R-A per-element freedom)");
+    push("invalid_choice_style", path, "This answer's style must be a set of style settings. Reset the answer's style.");
     return;
   }
   for (const key of Object.keys(value)) {
@@ -1977,7 +2198,7 @@ function validateChoiceStyle(
       push(
         "invalid_choice_style",
         `${path}.${key}`,
-        `unknown choice.style key '${key}' (allowed: ${CHOICE_STYLE_KEYS.join(", ")})`,
+        `'${key}' is not an answer style setting. Remove it — an answer's style covers ${orList(CHOICE_STYLE_KEYS.map(leadgenControlLabel))}.`,
       );
     }
   }
@@ -1993,7 +2214,7 @@ function validateChoiceStyle(
       push(
         "invalid_choice_style",
         `${path}.emphasis`,
-        `choice.style.emphasis must be one of ${LEADGEN_CHOICE_EMPHASES.join("|")}`,
+        `An answer's 'Emphasis' must be one of: ${orList(LEADGEN_CHOICE_EMPHASES)}. Pick one of those.`,
       );
     }
   }
@@ -2003,7 +2224,7 @@ function validateChoiceStyle(
       push(
         "invalid_choice_style",
         `${path}.selected_marker`,
-        `choice.style.selected_marker must be one of ${LEADGEN_SELECTED_MARKERS.join("|")} (§6.6)`,
+        `An answer's 'Selected-state style' must be one of: ${orList(LEADGEN_SELECTED_MARKERS)}. Pick one of those.`,
       );
     }
   }
@@ -2112,7 +2333,11 @@ function validateNewFieldProps(
   for (const key of ["label", "helper", "error_text", "firstHelper", "lastHelper"] as const) {
     const value = props[key];
     if (value !== undefined && typeof value !== "string") {
-      push("invalid_field_prop", `${base}.props.${key}`, `props.${key} must be a string (§8.3)`);
+      push(
+        "invalid_field_prop",
+        `${base}.props.${key}`,
+        `'${leadgenControlLabel(key)}' must be text. Retype it, or clear the field.`,
+      );
     }
   }
   // Rework §6.3: the per-question label is capped at 120 chars (the studio's
@@ -2122,7 +2347,7 @@ function validateNewFieldProps(
     push(
       "invalid_field_prop",
       `${base}.props.label`,
-      `Question label must be ${LEADGEN_LABEL_MAX_LENGTH} characters or fewer (§6.3)`,
+      `'Question label' must be ${LEADGEN_LABEL_MAX_LENGTH} characters or fewer. Shorten it.`,
     );
   }
 
@@ -2136,7 +2361,7 @@ function validateNewFieldProps(
       push(
         "invalid_field_prop",
         `${base}.props.selected_marker`,
-        `props.selected_marker is only valid on a choice question with a selected-marker control (§6.6)`,
+        `The ${leadgenComponentName(type)} has no selected-state style. Remove it — only answer buttons and cards offer one.`,
       );
     } else if (
       typeof props["selected_marker"] !== "string" ||
@@ -2145,7 +2370,7 @@ function validateNewFieldProps(
       push(
         "invalid_field_prop",
         `${base}.props.selected_marker`,
-        `props.selected_marker must be one of ${LEADGEN_SELECTED_MARKERS.join("|")} (§6.6)`,
+        `'Selected-state style' must be one of: ${orList(LEADGEN_SELECTED_MARKERS)}. Pick one of those.`,
       );
     }
   }
@@ -2159,13 +2384,13 @@ function validateNewFieldProps(
       push(
         "invalid_field_prop",
         `${base}.props.slider_type`,
-        "props.slider_type is only valid on a Slider (NumberRangeQuestion) (§6.8)",
+        `'Slider type' is only available on a Slider. Remove it from the ${leadgenComponentName(type)}.`,
       );
     } else if (typeof props["slider_type"] !== "string" || !SLIDER_TYPE_SET.has(props["slider_type"])) {
       push(
         "invalid_field_prop",
         `${base}.props.slider_type`,
-        `props.slider_type must be one of ${LEADGEN_SLIDER_TYPES.join("|")} (§6.8)`,
+        `'Slider type' must be one of: ${orList(LEADGEN_SLIDER_TYPES)}. Pick one of those.`,
       );
     } else if (props["slider_type"] === "stepper") {
       const step = props["step"];
@@ -2173,13 +2398,17 @@ function validateNewFieldProps(
         push(
           "invalid_field_prop",
           `${base}.props.step`,
-          "a stepper slider requires a numeric props.step (§6.8)",
+          "A stepper slider needs a 'Step' number. Enter the step size.",
         );
       }
     }
   }
   if (props["currency_affix"] !== undefined && typeof props["currency_affix"] !== "boolean") {
-    push("invalid_field_prop", `${base}.props.currency_affix`, "props.currency_affix must be a boolean (§6.8)");
+    push(
+      "invalid_field_prop",
+      `${base}.props.currency_affix`,
+      "'Currency symbol ($) prefix' must be on or off. Toggle it.",
+    );
   }
 
   // Rework §6.10 (M9): the Address field-set. Valid only on
@@ -2204,7 +2433,7 @@ function validateNewFieldProps(
     push(
       "invalid_field_prop",
       `${base}.props.required`,
-      "required is a top-level node field (node.required), not props.required — the repo's existing, rendered convention (§11.3 nests it under props; this is a contract erratum, see content-schema.ts comment)",
+      "'Required' belongs on the question itself, not inside its content settings. Move it up to the question.",
     );
   }
 
@@ -2238,11 +2467,15 @@ function validateNewFieldProps(
         push(
           "invalid_field_prop",
           `${base}.props.icon`,
-          `props.icon must be one of ${LEADGEN_FIELD_LEADING_ICONS.join("|")} (§8.5b)`,
+          `'Leading icon' must be one of: ${orList(LEADGEN_FIELD_LEADING_ICONS)}. Pick one from the icon list.`,
         );
       }
     } else if (typeof props["icon"] !== "string") {
-      push("invalid_field_prop", `${base}.props.icon`, "props.icon must be a string glyph (pre-existing badge/success-state convention)");
+      push(
+        "invalid_field_prop",
+        `${base}.props.icon`,
+        "'Leading icon' must be a single icon character. Retype it, or clear it.",
+      );
     }
   }
 
@@ -2252,7 +2485,7 @@ function validateNewFieldProps(
       push(
         "invalid_field_prop",
         `${base}.props.format`,
-        `props.format must be one of ${LEADGEN_FIELD_ACCEPT_FORMATS.join("|")} (§5.6)`,
+        `'Answer format' must be one of: ${orList(LEADGEN_FIELD_ACCEPT_FORMATS.map(answerFormatLabel))}. Pick one of those.`,
       );
     }
   }
@@ -2269,14 +2502,14 @@ function validateNewFieldProps(
       push(
         "invalid_field_prop",
         `${base}.props.phone_format`,
-        "props.phone_format is only valid on a Phone field (§A-6b)",
+        `A phone pattern is only available on a Phone field. Remove it from the ${leadgenComponentName(type)}.`,
       );
     } else if (typeof pf === "string") {
       if (!PHONE_FORMAT_PRESET_SET.has(pf)) {
         push(
           "invalid_field_prop",
           `${base}.props.phone_format`,
-          `props.phone_format must be one of ${LEADGEN_PHONE_FORMAT_PRESETS.join("|")} or a {custom:{regex}} object`,
+          `'Pattern preset' must be one of: ${orList(LEADGEN_PHONE_FORMAT_PRESETS)}, or a custom pattern. Pick a preset, or enter a custom pattern.`,
         );
       }
     } else if (isRecord(pf) && pf["mask"] !== undefined) {
@@ -2288,13 +2521,21 @@ function validateNewFieldProps(
       // SAME parse into the client contract.
       const mask = pf["mask"];
       if (!isRecord(mask)) {
-        push("invalid_field_prop", `${base}.props.phone_format.mask`, "phone_format.mask must be an object {pattern}");
+        push(
+          "invalid_field_prop",
+          `${base}.props.phone_format.mask`,
+          "A phone mask needs a digit-group pattern. Enter the pattern, or clear the mask.",
+        );
       } else {
         if (parsePhoneMaskPattern(mask["pattern"]) === null) {
           push("invalid_field_prop", `${base}.props.phone_format.mask.pattern`, LEADGEN_PHONE_MASK_ERROR);
         }
         if (mask["message"] !== undefined && typeof mask["message"] !== "string") {
-          push("invalid_field_prop", `${base}.props.phone_format.mask.message`, "phone_format.mask.message must be a string");
+          push(
+            "invalid_field_prop",
+            `${base}.props.phone_format.mask.message`,
+            "The phone mask's error message must be text. Retype it, or clear it.",
+          );
         }
       }
     } else if (isRecord(pf)) {
@@ -2371,7 +2612,7 @@ function validateNewFieldProps(
       push(
         "invalid_field_prop",
         `${base}.props.step`,
-        `props.step is only valid on Number/Amount fields (§5.6/§8.6) — a ${acceptFmt} field has no step; remove it (the Accept-swap cleans this automatically)`,
+        `'Step' is only available on Number and Amount fields — a ${answerFormatLabel(acceptFmt)} field has no step. Remove it; changing the answer format clears it for you.`,
       );
     }
   }
@@ -2388,7 +2629,7 @@ function validateNewFieldProps(
         push(
           "invalid_field_prop",
           `${base}.props.${key}`,
-          `props.${key} on a Date field must be a date (YYYY-MM-DD) or a token (today, year_end, +7d, +2w, +1m) — got ${JSON.stringify(v)}`,
+          `'${leadgenControlLabel(key)}' on a Date field must be a date (YYYY-MM-DD) or one of today, year_end, +7d, +2w, +1m — you entered ${JSON.stringify(v)}. Enter a date, or one of those.`,
         );
       }
     }
@@ -2397,13 +2638,17 @@ function validateNewFieldProps(
   // role — TextBlock only (§5.3/§8.5b).
   if (props["role"] !== undefined) {
     if (type !== "TextBlock") {
-      push("invalid_field_prop", `${base}.props.role`, "props.role is only valid on TextBlock (§5.3)");
+      push(
+        "invalid_field_prop",
+        `${base}.props.role`,
+        `'Role' is only available on a Text block. Remove it from the ${leadgenComponentName(type)}.`,
+      );
     }
     if (typeof props["role"] !== "string" || !TEXT_BLOCK_ROLE_SET.has(props["role"])) {
       push(
         "invalid_field_prop",
         `${base}.props.role`,
-        `props.role must be one of ${LEADGEN_TEXT_BLOCK_ROLES.join("|")} (§8.5b)`,
+        `'Role' must be one of: ${orList(LEADGEN_TEXT_BLOCK_ROLES)}. Pick one of those.`,
       );
     }
   }
@@ -2411,13 +2656,17 @@ function validateNewFieldProps(
   // source — ImageBlock only (§5.3).
   if (props["source"] !== undefined) {
     if (type !== "ImageBlock") {
-      push("invalid_field_prop", `${base}.props.source`, "props.source is only valid on ImageBlock (§5.3)");
+      push(
+        "invalid_field_prop",
+        `${base}.props.source`,
+        `'Source' is only available on an Image / Logo block. Remove it from the ${leadgenComponentName(type)}.`,
+      );
     }
     if (typeof props["source"] !== "string" || !IMAGE_BLOCK_SOURCE_SET.has(props["source"])) {
       push(
         "invalid_field_prop",
         `${base}.props.source`,
-        `props.source must be one of ${LEADGEN_IMAGE_BLOCK_SOURCES.join("|")} (§5.3)`,
+        `'Source' must be one of: ${orList(LEADGEN_IMAGE_BLOCK_SOURCES)}. Pick one of those.`,
       );
     }
   }
@@ -2437,14 +2686,18 @@ function validateNewFieldProps(
     const v = props[key];
     if (v === undefined) continue;
     if (type !== "NameFieldsGroup") {
-      push("invalid_field_prop", `${base}.props.${key}`, `props.${key} is only valid on NameFieldsGroup (§8.5b)`);
+      push(
+        "invalid_field_prop",
+        `${base}.props.${key}`,
+        `'${leadgenControlLabel(key)}' is only available on a Name field. Remove it from the ${leadgenComponentName(type)}.`,
+      );
       continue;
     }
     if (typeof v !== "string" || !FIELD_LEADING_ICON_SET.has(v)) {
       push(
         "invalid_field_prop",
         `${base}.props.${key}`,
-        `props.${key} must be one of ${LEADGEN_FIELD_LEADING_ICONS.join("|")} (§8.5b)`,
+        `'${leadgenControlLabel(key)}' must be one of: ${orList(LEADGEN_FIELD_LEADING_ICONS)}. Pick one from the icon list.`,
       );
     }
   }
@@ -2461,7 +2714,11 @@ function validateNewFieldProps(
     if (type === "TwoButtonYesNo") {
       validateChoiceStyle(props[key], `${base}.props.${key}`, push);
     } else {
-      push("invalid_field_prop", `${base}.props.${key}`, `props.${key} is only valid on TwoButtonYesNo (§R-A)`);
+      push(
+        "invalid_field_prop",
+        `${base}.props.${key}`,
+        `'${leadgenControlLabel(key)}' is only available on a Yes / No question. Remove it from the ${leadgenComponentName(type)}.`,
+      );
     }
   }
 }
@@ -2474,10 +2731,14 @@ function validateMapsProp(
   warn: (code: SectionContentErrorCode, path: string, message: string) => void,
 ): void {
   if (!MAPS_ELIGIBLE_TYPES.has(type)) {
-    push("invalid_maps_prop", path, "props.maps is only valid on ZIPInputQuestion/AddressAutocompleteQuestion (§9)");
+    push(
+      "invalid_maps_prop",
+      path,
+      `Maps is only available on a ZIP or an Address field. Turn Maps off on the ${leadgenComponentName(type)}.`,
+    );
   }
   if (!isRecord(value)) {
-    push("invalid_maps_prop", path, "props.maps must be an object (§9.2, or the pre-existing §8.8 shape)");
+    push("invalid_maps_prop", path, "The Maps settings must be a set of Maps options. Set Maps up again from the Maps tab.");
     return;
   }
   // Conductor fix-round correction: a PRE-EXISTING, already-shipped §8.8
@@ -2499,29 +2760,45 @@ function validateMapsProp(
   // sibling-fill targets the Maps-tab picker authors (props.maps.fills.<slot>).
   const extraKeys = Object.keys(value).filter((k) => k !== "enabled" && k !== "jobs" && k !== "fills");
   for (const key of extraKeys) {
-    push("invalid_maps_prop", `${path}.${key}`, `unknown maps key '${key}' (only enabled/jobs/fills, §9.2)`);
+    push(
+      "invalid_maps_prop",
+      `${path}.${key}`,
+      `'${key}' is not a Maps setting. Remove it — Maps has an on/off switch, the jobs it does, and the fields it fills.`,
+    );
   }
   const enabled = value["enabled"];
   if (typeof enabled !== "boolean") {
-    push("invalid_maps_prop", `${path}.enabled`, "props.maps.enabled must be a boolean (§9.2)");
+    push("invalid_maps_prop", `${path}.enabled`, "Maps must be on or off. Toggle it in the Maps tab.");
   }
   const jobs = value["jobs"];
   if (!isRecord(jobs)) {
-    push("invalid_maps_prop", `${path}.jobs`, "props.maps.jobs must be an object {validate, auction, autocomplete} (§9.2)");
+    push(
+      "invalid_maps_prop",
+      `${path}.jobs`,
+      "What Maps does must be a set of jobs (validate, auction, autocomplete). Pick the jobs in the Maps tab.",
+    );
     return;
   }
   const jobExtraKeys = Object.keys(jobs).filter(
     (k) => k !== "validate" && k !== "auction" && k !== "autocomplete",
   );
   for (const key of jobExtraKeys) {
-    push("invalid_maps_prop", `${path}.jobs.${key}`, `unknown maps job '${key}' (only validate/auction/autocomplete, §9.2)`);
+    push(
+      "invalid_maps_prop",
+      `${path}.jobs.${key}`,
+      `'${key}' is not a Maps job — Maps can validate, auction, or autocomplete. Remove '${key}'.`,
+    );
   }
   let anyJobTrue = false;
   for (const key of ["validate", "auction", "autocomplete"] as const) {
     const jobValue = jobs[key];
     if (jobValue !== undefined) {
       if (typeof jobValue !== "boolean") {
-        push("invalid_maps_prop", `${path}.jobs.${key}`, `props.maps.jobs.${key} must be a boolean (§9.2)`);
+        push(
+          "invalid_maps_prop",
+          `${path}.jobs.${key}`,
+          `The Maps '${key}' job must be on or off. Toggle it in the Maps tab.`,
+        );
       } else if (jobValue) {
         anyJobTrue = true;
       }
@@ -2536,7 +2813,7 @@ function validateMapsProp(
     warn(
       "maps_no_job",
       path,
-      "maps.enabled is true but no job (validate/auction/autocomplete) is selected — it does nothing at runtime (§9.3)",
+      "Maps is on but no job is selected (validate/auction/autocomplete) — it does nothing at runtime. Pick a job or turn Maps off.",
     );
   }
   // R4b (S3-7): validate the OPTIONAL sibling-fill targets, when authored.
@@ -2565,18 +2842,30 @@ function validateMapsFills(
   push: (code: SectionContentErrorCode, path: string, message: string) => void,
 ): void {
   if (!isRecord(value)) {
-    push("invalid_maps_prop", path, "props.maps.fills must be an object {street?,city?,state?,zip?} (§9.2)");
+    push(
+      "invalid_maps_prop",
+      path,
+      "The fields Maps fills must be a set of address slots (street, city, state, ZIP). Pick them in the Maps tab.",
+    );
     return;
   }
   const slotSet: ReadonlySet<string> = new Set(MAPS_FILL_SLOTS);
   const extraKeys = Object.keys(value).filter((k) => !slotSet.has(k));
   for (const key of extraKeys) {
-    push("invalid_maps_prop", `${path}.${key}`, `unknown maps fill slot '${key}' (only street/city/state/zip, §9.2)`);
+    push(
+      "invalid_maps_prop",
+      `${path}.${key}`,
+      `'${key}' is not an address slot Maps can fill — only street, city, state and ZIP. Remove '${key}'.`,
+    );
   }
   for (const slot of MAPS_FILL_SLOTS) {
     const v = value[slot];
     if (v !== undefined && (typeof v !== "string" || v === "")) {
-      push("invalid_maps_prop", `${path}.${slot}`, `props.maps.fills.${slot} must be a non-empty string (§9.2)`);
+      push(
+        "invalid_maps_prop",
+        `${path}.${slot}`,
+        `Pick which field Maps should fill with the ${slot === "zip" ? "ZIP" : slot}, or clear that slot.`,
+      );
     } else if (typeof v === "string" && v.startsWith("__")) {
       // P2b review-round (minor-4): a fill target NAMES an internal_field —
       // same reservation as the field it targets.
@@ -2606,29 +2895,37 @@ function validateAddressFields(
   push: (code: SectionContentErrorCode, path: string, message: string) => void,
 ): void {
   if (!Array.isArray(value) || value.length === 0) {
-    push("invalid_field_prop", path, "Address props.fields must be a non-empty array (§6.10)");
+    push("invalid_field_prop", path, "An Address needs at least one field. Add a field, or use a single full-address field.");
     return;
   }
   const hasFullAddress = value.some((f) => isRecord(f) && f["field"] === "full_address");
   if (hasFullAddress && value.length > 1) {
-    push("invalid_field_prop", path, "the 'full_address' field can only be used on its own (§6.10)");
+    push(
+      "invalid_field_prop",
+      path,
+      "'Address' is the whole address, so it can't sit beside street, city, state or ZIP. Remove the other fields, or remove 'Address'.",
+    );
   }
   for (let i = 0; i < value.length; i++) {
     const fp = `${path}[${i}]`;
     const field = value[i];
     if (!isRecord(field)) {
-      push("invalid_field_prop", fp, "each address field must be an object {field, mode, validation}");
+      push(
+        "invalid_field_prop",
+        fp,
+        "Each address field needs a kind, a fill mode and a validation rule. Set it up again in the Address fields list.",
+      );
       continue;
     }
     if (typeof field["field"] !== "string" || !ADDRESS_FIELD_KIND_SET.has(field["field"])) {
       push(
         "invalid_field_prop",
         `${fp}.field`,
-        `address field must be one of ${LEADGEN_ADDRESS_FIELD_KINDS.join("|")} (§6.10)`,
+        `An address field must be one of: ${orList(LEADGEN_ADDRESS_FIELD_KINDS.map(addressFieldLabel))}. Pick one of those.`,
       );
     }
     if (field["label"] !== undefined && typeof field["label"] !== "string") {
-      push("invalid_field_prop", `${fp}.label`, "address field.label must be a string");
+      push("invalid_field_prop", `${fp}.label`, "An address field's label must be text. Retype it, or clear it.");
     }
     if (
       field["mode"] !== undefined &&
@@ -2637,11 +2934,11 @@ function validateAddressFields(
       push(
         "invalid_field_prop",
         `${fp}.mode`,
-        `address field.mode must be one of ${LEADGEN_ADDRESS_FIELD_MODES.join("|")} (§6.10)`,
+        `An address field must be filled ${orList(LEADGEN_ADDRESS_FIELD_MODES)}. Pick one of those.`,
       );
     }
     if (field["required"] !== undefined && typeof field["required"] !== "boolean") {
-      push("invalid_field_prop", `${fp}.required`, "address field.required must be a boolean");
+      push("invalid_field_prop", `${fp}.required`, "An address field's 'Required' must be on or off. Toggle it.");
     }
     const validation = field["validation"];
     if (validation === undefined) continue;
@@ -2650,13 +2947,17 @@ function validateAddressFields(
         push(
           "invalid_field_prop",
           `${fp}.validation`,
-          "address field.validation must be 'none', 'zip5', or {regex, message} (§6.10)",
+          "An address field's rule must be none, a 5-digit ZIP check, or a custom pattern. Pick one of those.",
         );
       }
     } else if (isRecord(validation)) {
       const regex = validation["regex"];
       if (!isNonEmptyString(regex)) {
-        push("invalid_field_prop", `${fp}.validation.regex`, "a custom address validation needs a non-empty regex (§6.10)");
+        push(
+          "invalid_field_prop",
+          `${fp}.validation.regex`,
+          "A custom address rule needs a pattern. Enter the pattern, or switch the rule off.",
+        );
       } else if (regex.length > FREE_TEXT_CUSTOM_PATTERN_MAX_LENGTH) {
         push(
           "invalid_field_prop",
@@ -2673,13 +2974,17 @@ function validateAddressFields(
         }
       }
       if (validation["message"] !== undefined && typeof validation["message"] !== "string") {
-        push("invalid_field_prop", `${fp}.validation.message`, "address field.validation.message must be a string");
+        push(
+          "invalid_field_prop",
+          `${fp}.validation.message`,
+          "The address rule's error message must be text. Retype it, or clear it.",
+        );
       }
     } else {
       push(
         "invalid_field_prop",
         `${fp}.validation`,
-        "address field.validation must be 'none', 'zip5', or {regex, message} (§6.10)",
+        "An address field's rule must be none, a 5-digit ZIP check, or a custom pattern. Pick one of those.",
       );
     }
   }
@@ -2707,30 +3012,30 @@ function validateOtherEditor(
     push(
       "invalid_field_prop",
       path,
-      "authored 'Other' values are only available on single-select button/card questions (§6.5)",
+      "'Other values' are only available on a single-select buttons or cards question. Remove them, or switch this question to buttons or cards.",
     );
     return;
   }
   if (!isRecord(value)) {
-    push("invalid_field_prop", path, "props.other must be an object {enabled?, label?, choices} (§6.5)");
+    push("invalid_field_prop", path, "'Other values' must be a set of values with a label. Set them up again in the Other values editor.");
     return;
   }
   if (value["enabled"] !== undefined && typeof value["enabled"] !== "boolean") {
-    push("invalid_field_prop", `${path}.enabled`, "props.other.enabled must be a boolean");
+    push("invalid_field_prop", `${path}.enabled`, "'Other values' must be on or off. Toggle it.");
   }
   if (value["label"] !== undefined && typeof value["label"] !== "string") {
-    push("invalid_field_prop", `${path}.label`, "props.other.label must be a string");
+    push("invalid_field_prop", `${path}.label`, "'Other label' must be text. Retype it, or clear it.");
   }
   const choices = value["choices"];
   if (!Array.isArray(choices) || choices.length === 0) {
-    push("invalid_field_prop", `${path}.choices`, "props.other.choices must be a non-empty array (§6.5)");
+    push("invalid_field_prop", `${path}.choices`, "'Other values' needs at least one value. Add a value, or turn Other off.");
     return;
   }
   if (choices.length > LEADGEN_OTHER_MAX_CHOICES) {
     push(
       "invalid_field_prop",
       `${path}.choices`,
-      `props.other.choices allows at most ${LEADGEN_OTHER_MAX_CHOICES} values (§6.5)`,
+      `'Other values' holds at most ${LEADGEN_OTHER_MAX_CHOICES} values. Remove some.`,
     );
   }
   const baseValues = new Set<string>(
@@ -2744,23 +3049,31 @@ function validateOtherEditor(
     const cp = `${path}.choices[${i}]`;
     const choice = choices[i];
     if (!isRecord(choice)) {
-      push("invalid_choice", cp, "each other choice must be an object");
+      push("invalid_choice", cp, "Each Other value needs a label and a saved value. Fill them in.");
       continue;
     }
     if (!isNonEmptyString(choice["label"])) {
-      push("invalid_choice", `${cp}.label`, "choice.label is required");
+      push("invalid_choice", `${cp}.label`, "'Label' is required — it is the text the visitor reads. Enter a label.");
     }
     if (!isChoicePrimitive(choice["value"])) {
-      push("invalid_choice", `${cp}.value`, "choice.value must be a string, number, or boolean");
+      push(
+        "invalid_choice",
+        `${cp}.value`,
+        "'Saved value' must be text, a number, or yes/no. Enter a value.",
+      );
     } else if (baseValues.has(String(choice["value"]))) {
       push(
         "invalid_choice",
         `${cp}.value`,
-        `other value '${String(choice["value"])}' duplicates a base choice — other values must be unique vs base (§6.5)`,
+        `The Other value '${String(choice["value"])}' is already one of this question's answers — two answers can't share a saved value. Change one of them.`,
       );
     }
     if (!isNonEmptyString(choice["analytics_id"])) {
-      push("invalid_choice", `${cp}.analytics_id`, "choice.analytics_id is required (§22 tracking)");
+      push(
+        "invalid_choice",
+        `${cp}.analytics_id`,
+        "'Analytics ID' is required — it is how this answer is reported. Enter an Analytics ID.",
+      );
     }
     if (choice["style"] !== undefined) {
       validateChoiceStyle(choice["style"], `${cp}.style`, push);
@@ -3100,7 +3413,7 @@ export function validateSectionContent(
       warn(
         "frame_scope_component",
         base,
-        `${type} is a funnel-layout component (§8.2 scope "frame") — it belongs to the funnel layout in the Quote Builder, not a Section unit`,
+        `The ${leadgenComponentName(type)} belongs to the funnel layout, not to this Section. Move it to the Quote Builder, or remove it here.`,
       );
     }
 
@@ -3117,7 +3430,7 @@ export function validateSectionContent(
         warn(
           "duplicate_continue",
           base,
-          "this Section has more than one Continue button — only the first is shown (§11.5)",
+          "This Section has more than one Continue button — only the first one is shown. Remove the extra ones.",
         );
       }
     }
@@ -3131,7 +3444,7 @@ export function validateSectionContent(
         push(
           "bind_type_mismatch",
           `${base}.bind`,
-          `bind must be one of ${LEADGEN_COMPONENT_BINDS.join("|")} (§3.4)`,
+          `The headline binding must be one of: ${orList(LEADGEN_COMPONENT_BINDS)}. Pick one of those, or remove the binding.`,
         );
       } else {
         const bind = bindRaw as LeadgenComponentBind;
@@ -3140,7 +3453,7 @@ export function validateSectionContent(
           push(
             "duplicate_bind",
             `${base}.bind`,
-            `duplicate bind '${bind}' — at most one node per bind value per Section (§3.4)`,
+            `Two components are both bound to '${bind}' — a Section has one of each. Remove the binding from one of them.`,
           );
         } else {
           seenBinds.add(bind);
@@ -3149,7 +3462,7 @@ export function validateSectionContent(
           push(
             "bind_type_mismatch",
             `${base}.bind`,
-            `bind '${bind}' is only legal on type ${expected} (§3.4)`,
+            `Only a ${leadgenComponentName(expected)} can be bound to '${bind}'. Remove the binding, or use a ${leadgenComponentName(expected)}.`,
           );
         } else {
           boundHere = true;
@@ -3157,7 +3470,7 @@ export function validateSectionContent(
             push(
               "bound_node_carries_text",
               `${base}.props.text`,
-              `a bound ${type} must not carry props.text — its text is the Section column, resolved at render (§3.4)`,
+              `A bound ${leadgenComponentName(type)} takes its text from the Section's own headline, so it can't carry its own text. Clear the text, or remove the binding.`,
             );
           }
         }
@@ -3183,7 +3496,7 @@ export function validateSectionContent(
         push(
           "container_depth_exceeded",
           base,
-          `container nesting exceeds the §8.5 maximum depth of ${LEADGEN_MAX_CONTAINER_DEPTH}`,
+          `Layouts are nested more than ${LEADGEN_MAX_CONTAINER_DEPTH} deep. Move this component up a level.`,
         );
         return;
       }
@@ -3288,7 +3601,7 @@ export function validateSectionContent(
         push(
           "container_depth_exceeded",
           base,
-          `container nesting exceeds the §8.5 maximum depth of ${LEADGEN_MAX_CONTAINER_DEPTH}`,
+          `Layouts are nested more than ${LEADGEN_MAX_CONTAINER_DEPTH} deep. Move this component up a level.`,
         );
         return;
       }
@@ -3299,7 +3612,7 @@ export function validateSectionContent(
           push(
             "container_answer_field_forbidden",
             `${base}.${key}`,
-            `${type} is a layout container — ${key} is not allowed on it (§8.5)`,
+            `The ${leadgenComponentName(type)} is a layout, not a question, so it has no '${leadgenControlLabel(key)}'. Remove it, or move it to a question inside.`,
           );
         }
       }
@@ -3323,7 +3636,7 @@ export function validateSectionContent(
           push(
             "container_prop_invalid",
             `${base}.children`,
-            `${type} children must be an array of component nodes`,
+            `The ${leadgenComponentName(type)} must hold a list of components. Add components to it, or remove it.`,
           );
         } else {
           for (let j = 0; j < children.length; j++) {
@@ -3342,7 +3655,7 @@ export function validateSectionContent(
       push(
         "children_not_allowed",
         `${base}.children`,
-        `${type} is not a layout container — children are not allowed on it (§8.5)`,
+        `The ${leadgenComponentName(type)} can't hold other components inside it. Move them out, or put them in a layout.`,
       );
     }
 
@@ -3371,7 +3684,7 @@ export function validateSectionContent(
         push(
           "duplicate_internal_field",
           `${base}.internal_field`,
-          `duplicate internal_field '${internalField}' (§8.5 unique across the Section)`,
+          `Another question in this Section already uses the Internal field '${internalField}' — each question needs its own. Rename one of them.`,
         );
       } else {
         seenInternalFields.add(internalField);
@@ -3383,7 +3696,7 @@ export function validateSectionContent(
       push(
         "missing_required_field",
         `${base}.internal_field`,
-        `${type} requires internal_field (normalized answer name)`,
+        `The ${leadgenComponentName(type)} needs an 'Internal field' — the name its answer is saved under. Enter one.`,
       );
     }
     for (const key of spec.textProps ?? []) {
@@ -3392,12 +3705,20 @@ export function validateSectionContent(
       // required-text rule is waived for it (presence is the error instead).
       if (boundHere && key === "text") continue;
       if (!isNonEmptyString(props[key])) {
-        push("missing_required_field", `${base}.props.${key}`, `${type} requires props.${key}`);
+        push(
+          "missing_required_field",
+          `${base}.props.${key}`,
+          `The ${leadgenComponentName(type)} needs '${leadgenControlLabel(key)}'. Enter it.`,
+        );
       }
     }
     for (const key of spec.numericProps ?? []) {
       if (typeof props[key] !== "number" || !Number.isFinite(props[key])) {
-        push("missing_required_field", `${base}.props.${key}`, `${type} requires numeric props.${key}`);
+        push(
+          "missing_required_field",
+          `${base}.props.${key}`,
+          `The ${leadgenComponentName(type)} needs a number in '${leadgenControlLabel(key)}'. Enter a number.`,
+        );
       }
     }
 
@@ -3405,45 +3726,69 @@ export function validateSectionContent(
     if (spec.choices === true) {
       const choices = raw["choices"];
       if (!Array.isArray(choices) || choices.length === 0) {
-        push("invalid_choice", `${base}.choices`, `${type} requires a non-empty choices array`);
+        push(
+        "invalid_choice",
+        `${base}.choices`,
+        `The ${leadgenComponentName(type)} needs at least one answer. Add an answer.`,
+      );
       } else {
         for (let c = 0; c < choices.length; c++) {
           const cp = `${base}.choices[${c}]`;
           const choice = choices[c];
           if (!isRecord(choice)) {
-            push("invalid_choice", cp, "each choice must be an object");
+            push("invalid_choice", cp, "Each answer needs a label and a saved value. Fill them in.");
             continue;
           }
           if (!isNonEmptyString(choice["label"])) {
-            push("invalid_choice", `${cp}.label`, "choice.label is required");
+            push("invalid_choice", `${cp}.label`, "'Label' is required — it is the text the visitor reads. Enter a label.");
           }
           if (!isChoicePrimitive(choice["value"])) {
-            push("invalid_choice", `${cp}.value`, "choice.value must be a string, number, or boolean");
+            push(
+        "invalid_choice",
+        `${cp}.value`,
+        "'Saved value' must be text, a number, or yes/no. Enter a value.",
+      );
           }
           if (!isNonEmptyString(choice["analytics_id"])) {
-            push("invalid_choice", `${cp}.analytics_id`, "choice.analytics_id is required (§22 tracking)");
+            push(
+        "invalid_choice",
+        `${cp}.analytics_id`,
+        "'Analytics ID' is required — it is how this answer is reported. Enter an Analytics ID.",
+      );
           }
           if (spec.choiceIcon === true && !isNonEmptyString(choice["icon"])) {
-            push("invalid_choice", `${cp}.icon`, `${type} requires a per-choice icon (§14.4)`);
+            push(
+              "invalid_choice",
+              `${cp}.icon`,
+              `Every answer on the ${leadgenComponentName(type)} needs an icon. Pick an icon for this answer.`,
+            );
           }
           if (spec.choiceImage === true && !isNonEmptyString(choice["imageMediaId"])) {
-            push("invalid_choice", `${cp}.imageMediaId`, `${type} requires a per-choice imageMediaId`);
+            push(
+              "invalid_choice",
+              `${cp}.imageMediaId`,
+              `Every answer on the ${leadgenComponentName(type)} needs an image. Pick an image for this answer.`,
+            );
           }
           // v2.5 §8.4 additive per-choice fields — typed when present.
           for (const key of ["title", "subtitle", "badge", "emoji", "image_alt", "aria_label"] as const) {
             if (choice[key] !== undefined && typeof choice[key] !== "string") {
-              push("invalid_choice", `${cp}.${key}`, `choice.${key} must be a string (§8.4)`);
+              push(
+                "invalid_choice",
+                `${cp}.${key}`,
+                `An answer's '${leadgenChoiceFieldLabel(key)}' must be text. Retype it, or clear it.`,
+              );
             }
           }
           if (choice["disabled"] !== undefined && typeof choice["disabled"] !== "boolean") {
-            push("invalid_choice", `${cp}.disabled`, "choice.disabled must be a boolean (§8.4)");
+            push("invalid_choice", `${cp}.disabled`, "An answer's 'Disabled' must be on or off. Toggle it.");
           }
           // §8.4: emoji and icon are mutually exclusive per choice.
           if (isNonEmptyString(choice["emoji"]) && isNonEmptyString(choice["icon"])) {
             push(
               "invalid_choice",
               `${cp}.emoji`,
-              "choice.emoji and choice.icon are mutually exclusive (§8.4)",
+              "An answer can show an emoji or an icon, not both. Clear one of them.",
             );
           }
           // §8.4: image_alt is REQUIRED when imageMediaId is present on an
@@ -3456,7 +3801,7 @@ export function validateSectionContent(
             push(
               "invalid_choice",
               `${cp}.image_alt`,
-              "image_alt is required when imageMediaId is present (§8.4)",
+              "'Image alt' is required once an answer has an image — it is what a screen reader says. Describe the image.",
             );
           }
           // P2a §R-A per-element theme freedom — the OPTIONAL per-choice style
@@ -3482,7 +3827,7 @@ export function validateSectionContent(
         push(
           "invalid_field_prop",
           `${base}.props.defaultValue`,
-          "a multi-select question has no single default (§6.4)",
+          "Multi-select cards have no single default answer. Remove the default.",
         );
       } else if (cap.default_kind === "choice") {
         const choiceValues = new Set<string>(
@@ -3497,7 +3842,7 @@ export function validateSectionContent(
           push(
             "invalid_choice",
             `${base}.props.defaultValue`,
-            `default '${String(dv)}' is not one of this component's choices (§6.4)`,
+            `The default answer '${String(dv)}' is not one of this question's answers. Pick one of its answers, or clear the default.`,
           );
         }
       }

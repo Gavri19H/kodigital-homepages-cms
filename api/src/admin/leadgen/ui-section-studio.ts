@@ -123,7 +123,20 @@ import {
   type LeadgenSectionContent,
   type RequiredSpec,
 } from "../../public/leadgen/components/content-schema";
-import { renderComponent, renderSectionComponents } from "../../public/leadgen/components/presets";
+import {
+  renderComponent,
+  renderSectionComponents,
+  renderSectionComponentsVisible,
+} from "../../public/leadgen/components/presets";
+// R2 P8 M6/R4 — the canvas is a PREVIEW OF THE VISITOR'S RESTING STATE, so its
+// SSR first paint composes through the SAME three producers the preview
+// endpoint (sections-handlers previewSectionHandler) already composes with:
+// normalizeAnswers seeds the authored defaults, evaluateDependencies decides
+// what is painted, applyPreviewSimMarkup writes the selection the runtime's
+// applySelectionClasses would write. See studioCanvasDocument.
+import { normalizeAnswers } from "../../leadgen/answers";
+import { evaluateDependencies } from "../../leadgen/dependencies";
+import { applyPreviewSimMarkup } from "./preview-sim";
 // v2.5 09 §9.1/§9.4/§9.5: the 14 semantic roles + the resolved role→value
 // table (swatch chips, legacy-hex Convert matching) ride the studio meta blob.
 import { FUNNEL_TOKEN_ROLES, resolveTokens } from "../../public/leadgen/designs/theme";
@@ -1130,6 +1143,62 @@ export function renderStudioLibrary(design: FunnelDesign, _content: LeadgenSecti
 // body.subheadline → the preview handler's sectionCtx). continue_mode is NOT
 // threaded here on purpose: the Build canvas keeps every authored control
 // visible/selectable; the Preview drawer owns the §11.5 composition.
+// R2 P8 M6 / R4 — THE CANVAS SHOWS WHAT THE VISITOR SEES AT REST.
+//
+// Owner (source-of-truth): "the canvas should include one section in the middle
+// so the user could see a real reference of how is design is gonna look like in
+// real life". Two R4 rows were measured against that standard — an authored
+// `defaultValue` painted UNSELECTED (aria-checked=false) and a dependency-hidden
+// question painted anyway — and BOTH are client-runtime behaviours: the swap is
+// runtime/render.ts applySelectionClasses (:92, called from engine.ts:1846 on
+// section entry) and applyComponentVisibility (:69, engine.ts:1810). The canvas
+// iframe's srcdoc carries `script-src 'none'` ON PURPOSE (see
+// studioCanvasFrameSrcdoc below), so the engine can never run there and no
+// amount of client work in this island can produce those two states.
+//
+// MECHANISM CHOSEN (root-cause doc route 1, NOT a CSP change): emit the markup
+// the engine WOULD have produced at rest — server-side, by construction. The
+// three producers below are the SAME ones POST /api/admin/leadgen/sections/
+// preview already runs for `sim.state=selected` + `sim.answers={}`
+// (sections-handlers.ts previewSectionHandler ~:1957-2011), which is exactly
+// the body renderCanvasNow now sends. So the SSR first paint and every island
+// re-render compose through one sequence, and the studio has NOT grown a second
+// rendering system:
+//   1. normalizeAnswers(content, {})  — answers.ts pass 2 applies each authored
+//      default (props.defaultValue ?? props.default — config-dto's own
+//      `default_answer` read) ONLY to a component that is actually shown,
+//      iterated to a fixpoint. This is the engine's applySectionDefaults
+//      (:1876) resting store, computed server-side.
+//   2. evaluateDependencies(nodes, answers) — the §12.3 engine; its visible set
+//      drives renderSectionComponentsVisible, so a dependency-hidden leaf is
+//      not painted at all (the runtime hides it with [hidden]; either way the
+//      visitor sees nothing there).
+//   3. applyPreviewSimMarkup(..., markSelection) — the documented
+//      applySelectionClasses mirror: lg-selected + aria-checked="true" on the
+//      answered choice, aria-checked="false" on its siblings.
+// Byte-equality between this function's output and the preview endpoint's is
+// pinned by test/leadgen-p8-m6-canvas-parity.test.ts, so the two can never
+// drift apart silently.
+function studioCanvasRestingHtml(
+  nodes: readonly LeadgenComponentNode[],
+  design: FunnelDesign,
+  ctx?: { headline_text: string; subheadline_text: string | null },
+): string {
+  const normalized = normalizeAnswers({ components: nodes as LeadgenComponentNode[] }, {});
+  const dependencies = evaluateDependencies(nodes, normalized.answers);
+  const visible = new Set(
+    dependencies.components.filter((cc) => cc.visible).map((cc) => cc.question_id),
+  );
+  const rendered = renderSectionComponentsVisible(nodes, design, visible, ctx);
+  return applyPreviewSimMarkup(rendered, nodes, design, {
+    state: "selected",
+    markSelection: true,
+    answers: normalized.answers,
+    visibleIds: visible,
+    requiredNow: new Map(dependencies.components.map((cc) => [cc.question_id, cc.required_now])),
+  });
+}
+
 export function studioCanvasDocument(
   content: LeadgenSectionContent,
   design: FunnelDesign,
@@ -1138,7 +1207,7 @@ export function studioCanvasDocument(
   const nodes = (Array.isArray(content.components) ? content.components : []).filter(
     (n): n is LeadgenComponentNode => typeof n === "object" && n !== null && typeof (n as { type?: unknown }).type === "string",
   );
-  const rendered = renderSectionComponents(nodes, design, ctx);
+  const rendered = studioCanvasRestingHtml(nodes, design, ctx);
   const css = funnelChromeCss(design, `[${FUNNEL_DESIGN_SCOPE_ATTR}="${design.id}"]`);
   return (
     `<style>${css}</style>` +
@@ -1179,8 +1248,10 @@ html,body{margin:0;padding:0;background:#fff}
 .studio-frame-badge{font-size:11px;color:#664d03;background:#fff3cd;border:1px solid #ffecb5;border-radius:6px;padding:4px 8px;margin:4px 0;display:flex;gap:6px;align-items:center;flex-wrap:wrap}
 .studio-frame-badge .btn{pointer-events:auto}
 .studio-frame-badge-note{flex-basis:100%;font-size:10px;color:#664d03}
-/* §8.8 linked-field chips */
-.studio-maps-chip{display:inline-block;font-size:10px;color:#055160;background:#cff4fc;border:1px solid #b6effb;border-radius:999px;padding:1px 8px;margin:2px 0 0;pointer-events:none;user-select:none}
+/* R2 P8 M6/R4: the §8.8 linked-field chip rule (.studio-maps-chip) is REMOVED
+   with the chip itself — the canvas paints no editor chrome the live page has
+   no equivalent for; the autofill targets are authored and displayed in the
+   inspector's Maps tab instead (applyCanvasDecoration explains the move). */
 /* §6.2 inline canvas editing + per-choice decoration: selection ring, ghost
    tile, remove, resize */
 .studio-canvas-render [contenteditable="true"]{outline:2px dashed var(--c-primary);outline-offset:2px;cursor:text}
@@ -1627,6 +1698,7 @@ export function renderStudioCanvas(
     <iframe id="lg-studio-canvas-frame" class="studio-canvas-frame" title="Section canvas" sandbox="allow-same-origin allow-scripts" data-canvas-frame-viewport="desktop" srcdoc="${escapeHtml(studioCanvasFrameSrcdoc(content, design, ctx))}"></iframe>
     ${renderFrameHintSkeleton("bottom")}
     <div class="studio-canvas-empty" data-studio-canvas-empty${empty ? "" : " hidden"}><p>No components yet.</p><p class="form-help">Add a component from the library on the left, or drag one in.</p></div>
+    <div class="studio-canvas-hidden" data-canvas-hidden hidden></div>
   </div>
 </div>`;
 }
@@ -3537,6 +3609,11 @@ export const SECTION_STUDIO_STYLES = `
    moved into SECTION_STUDIO_CANVAS_FRAME_CSS (inside the frame document). */
 .studio-canvas-frame{display:block;border:0;width:1280px;max-width:none;height:320px;margin:0 auto;background:#fff}
 .studio-canvas-empty{position:absolute;inset:0;display:flex;flex-direction:column;align-items:center;justify-content:center;color:var(--c-muted);pointer-events:none}
+/* R2 P8 M6/R4: the reach-a-hidden-question row. It sits UNDER the canvas frame
+   in the parent page (never inside the previewed iframe) — geometry only, no
+   colour of its own: the note reuses .form-help and the picks reuse the admin
+   .btn skin, so this rule introduces no new palette value. */
+.studio-canvas-hidden{display:flex;flex-wrap:wrap;align-items:center;gap:6px;margin:10px auto 0;max-width:1280px}
 /* v3.1 §6.3 frame-hint skeleton (golden 298-305/360-365): opacity/padding/
    pointer-events now ride the element's OWN inline style (byte-matching the
    golden literal — Gate 1a); user-select survives as the one property the
@@ -6511,11 +6588,24 @@ export const SECTION_STUDIO_SCRIPT = `
     var subEl = document.getElementById('lg-section-subheadline');
     // §6.1.4: the canvas viewport is SERVER-rendered (viewport param); §9.5:
     // the Section overrides ride as layer 4 so the canvas shows them live.
+    // R2 P8 M6/R4: ask the preview endpoint for the VISITOR'S RESTING STATE,
+    // not the raw full render. sim.answers = {} is the empty answer BASIS (the
+    // visitor has answered nothing yet) — the handler then seeds every authored
+    // default through normalizeAnswers, drops dependency-hidden leaves via
+    // evaluateDependencies, and (state 'selected') writes the same
+    // lg-selected / aria-checked="true" the runtime's applySelectionClasses
+    // writes on section entry. The canvas iframe runs no script (its srcdoc
+    // pins script-src 'none'), so this is the ONLY way it can show what the
+    // visitor sees; the SSR first paint composes the identical sequence in
+    // studioCanvasRestingHtml. NOTE: sim.answers MUST be present — the handler
+    // treats a null answers block as "no basis" and skips the dependency pass
+    // entirely.
     var canvasBody = {
       content_json: JSON.stringify(state.content),
       viewport: canvasViewport,
       headline: headEl ? headEl.value : '',
-      subheadline: subEl ? subEl.value : ''
+      subheadline: subEl ? subEl.value : '',
+      sim: { state: 'selected', answers: {} }
     };
     if (state.design_overrides) { canvasBody.design_overrides = state.design_overrides; }
     fetch('/api/admin/leadgen/sections/preview', {
@@ -6640,6 +6730,17 @@ export const SECTION_STUDIO_SCRIPT = `
       if (!host) { continue; }
       qid = host.getAttribute('data-question-id');
       if (typeMeta(host.getAttribute('data-component-type')).choice !== true) { continue; }
+      // R2 P8 M7 (contract §4 R3 corollary: "A control that cannot be honoured
+      // must not be offered"). THREE renderers put data-lg-choice on a NATIVE
+      // <option>: presets.ts otherSelectMarkup (:467, inside a hidden select),
+      // renderDropdownQuestion (:1932) and renderSearchableDropdownQuestion
+      // (:1988). An <option> paints no element child and routes no click to
+      // one, so all five option-borne remove-x measured 0x0 / clickable:false
+      // — chrome inside a native control, offering a removal that cannot
+      // happen. Skipped here; a dropdown choice is removed on the inspector's
+      // Choices tab (its per-row [data-choice-remove] button), the surface
+      // that has always actually worked for it.
+      if (String(card.tagName || '').toUpperCase() === 'OPTION') { continue; }
       card.setAttribute('draggable', 'true');
       if (qid === selectedQuestionId && selectedChoiceValue !== null && card.getAttribute('data-lg-choice') === String(selectedChoiceValue)) {
         card.className = card.className + ' studio-choice-selected';
@@ -6674,7 +6775,21 @@ export const SECTION_STUDIO_SCRIPT = `
       // §10 removal: the MultiQuestionGrid canvas affordance ("+ Add a
       // sub-question" strip + zero-row empty-state box) is gone with the grid
       // editor — the palette starter (§4.1) inserts independent components.
-      if (typeMeta(type).choice === true) {
+      // R2 P8 M7: "+ Add choice ghosts also render for dropdowns" — a ghost
+      // row under a native <select> whose own choices carry no canvas
+      // affordance at all (their remove-x is skipped above as unhonourable).
+      // The predicate is the RENDERED markup, never a hardcoded type list
+      // (§6.4 matrix discipline): skip the ghost only when this node HAS
+      // choices and every one of them is a native <option>. A choice node
+      // with none yet keeps its ghost — that is when the operator needs it
+      // most. Dropdown choices are added on the inspector's Choices tab
+      // (#lg-choice-add), outside the preview.
+      var nodeChoices = nodes[i].querySelectorAll('[data-lg-choice]');
+      var ghostable = nodeChoices.length === 0, nc;
+      for (nc = 0; nc < nodeChoices.length; nc++) {
+        if (String(nodeChoices[nc].tagName || '').toUpperCase() !== 'OPTION') { ghostable = true; }
+      }
+      if (typeMeta(type).choice === true && ghostable) {
         // Rework §6.1 (#1/#3/#9): the "+ Add choice" ghost is a SIBLING row
         // inserted immediately AFTER the component root (never a grid cell,
         // never inside the component's border) — left-aligned under the box,
@@ -7407,6 +7522,9 @@ export const SECTION_STUDIO_SCRIPT = `
     // this stale-cleanup set or every re-render stacks another ghost (the
     // accumulation S2.5 caught). The legacy .studio-choice-ghost stays for any
     // remaining canvas ghost usage.
+    // R2 P8 M6/R4: .studio-maps-chip stays in this CLEANUP set on purpose even
+    // though nothing creates it anymore — a page loaded before the fix (or any
+    // future re-introduction) must still be swept out of the preview.
     var stale = region.querySelectorAll('.studio-maps-chip, .studio-frame-badge, .studio-add-ghost-row, .studio-choice-ghost, .studio-choice-x, .studio-resize-handle, .studio-mapoverlay-chip, .studio-container-chip');
     var i;
     for (i = 0; i < stale.length; i++) {
@@ -7414,7 +7532,7 @@ export const SECTION_STUDIO_SCRIPT = `
     }
     clearSelectionChrome(region);
     var nodes = region.querySelectorAll('[data-question-id]');
-    var qid, base, ref, labels, chip, nodeType, chromeKind;
+    var qid, base, ref, nodeType, chromeKind;
     var selEl = null, selKind = null, selNode = null, selQid = null;
     for (i = 0; i < nodes.length; i++) {
       qid = nodes[i].getAttribute('data-question-id');
@@ -7439,19 +7557,15 @@ export const SECTION_STUDIO_SCRIPT = `
       if (typeMeta(nodeType).scope === 'frame' && keptLegacyFrameNodes[qid] !== true && nodes[i].parentNode) {
         nodes[i].parentNode.insertBefore(buildFrameBadge(qid, nodeType), nodes[i]);
       }
-      // chip: "fills: city, state" from the config's autofill keys. Inserted
-      // as a SIBLING (the ZIP node element is the <input> itself — it cannot
-      // contain children).
-      labels = ref ? mapsFillLabels(ref.node) : [];
-      if (labels.length > 0 && nodes[i].parentNode) {
-        chip = frameCreate('span');
-        chip.className = 'studio-maps-chip';
-        chip.setAttribute('data-studio-maps-chip', '');
-        chip.setAttribute('data-chip-for', qid);
-        chip.setAttribute('data-fills', labels.join(','));
-        chip.appendChild(document.createTextNode('fills: ' + labels.join(', ')));
-        nodes[i].parentNode.insertBefore(chip, nodes[i].nextSibling);
-      }
+      // R2 P8 M6/R4 — the "fills: city" chip is GONE from the canvas. It was
+      // pure editor decoration injected into the surface the owner reads as
+      // "a real reference of how is design is gonna look like in real life",
+      // and the live page has no equivalent (measured R4 row "Injected editor
+      // chrome | … fills: city chip | none"). The information it repeated is
+      // authored — and shown — where it belongs: the inspector's Maps tab
+      // autofill block ([data-maps-fills-block], one picker per slot with its
+      // own explainer), which is outside the preview. mapsFillLabels itself
+      // stays (nodeMapsEnabled reads it for legacy stored content).
       // §6.2 golden selection chrome (field 8-handles / headline / continue):
       // only the CURRENTLY selected node, and only these 3 golden kinds
       // (containers keep their existing .studio-resize-handle mechanism). CAPTURE
@@ -7476,6 +7590,57 @@ export const SECTION_STUDIO_SCRIPT = `
     else if (selKind === 'headline' || selKind === 'continue') { decorateSimpleSelection(selEl, selKind); }
     // badges/chips/handles change the document height — keep the frame sized.
     updateCanvasFrameHeight();
+    // R2 P8 M6/R4: the canvas now paints the RESTING state, so a question a
+    // dependency hides is not on it. Keep it reachable to AUTHOR — outside the
+    // previewed surface (see updateCanvasHiddenList). typeof-guarded like
+    // showCanvasPreviewError above: applyCanvasDecoration is sliced standalone
+    // into vm probes with a fixed collaborator list.
+    if (typeof updateCanvasHiddenList !== 'undefined') { updateCanvasHiddenList(); }
+  }
+  // R2 P8 M6/R4 — REACHING A QUESTION THE PREVIEW DOES NOT SHOW.
+  // The canvas is a preview of what the visitor sees at rest, so a
+  // dependency-hidden question is not painted there (the live page hides it
+  // too). That must not make it un-editable, and the answer is NOT to put
+  // editor chrome back into the preview: this list lives in the canvas PANEL,
+  // under the frame, in the parent page — never inside the iframe the owner
+  // reads as the preview. Clicking one selects it, so the inspector opens on it
+  // exactly as a canvas click would.
+  // The withheld set is DERIVED from the real render (model answer-producing
+  // nodes minus the ids the server actually painted) — the island never
+  // re-evaluates a dependency, so there is still exactly ONE dependency engine.
+  function hiddenPickHandler(qid) {
+    return function () { selectComponent(qid); };
+  }
+  function updateCanvasHiddenList() {
+    var host = document.querySelector('[data-canvas-hidden]');
+    if (!host) { return; }
+    clearChildren(host);
+    var region = canvasRegion();
+    var painted = {}, els = region ? region.querySelectorAll('[data-question-id]') : [], i;
+    for (i = 0; i < els.length; i++) { painted[els[i].getAttribute('data-question-id')] = true; }
+    var missing = [];
+    walkTree(state.content.components, 1, function (n) {
+      if (n && n.question_id && painted[n.question_id] !== true && typeMeta(n.type).produces) { missing.push(n); }
+    });
+    host.hidden = missing.length === 0;
+    if (missing.length === 0) { return; }
+    var note = document.createElement('span');
+    note.className = 'form-help';
+    note.appendChild(document.createTextNode(missing.length === 1
+      ? 'Not on the page at the start \\u2014 a rule shows this question once the visitor answers:'
+      : 'Not on the page at the start \\u2014 a rule shows these questions once the visitor answers:'));
+    host.appendChild(note);
+    var btn, text;
+    for (i = 0; i < missing.length; i++) {
+      btn = document.createElement('button');
+      btn.type = 'button';
+      btn.className = 'btn btn-sm btn-outline';
+      btn.setAttribute('data-canvas-hidden-pick', missing[i].question_id);
+      text = (missing[i].props && trimStr(missing[i].props.label) !== '') ? trimStr(missing[i].props.label) : typeLabel(missing[i].type);
+      btn.appendChild(document.createTextNode(text));
+      btn.addEventListener('click', hiddenPickHandler(missing[i].question_id));
+      host.appendChild(btn);
+    }
   }
   // PC-A6 container-select affordance: a small click-to-select label chip
   // anchored at each container's top-left. position:absolute (CSS) → it is

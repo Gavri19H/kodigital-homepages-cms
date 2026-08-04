@@ -972,9 +972,13 @@ export function funnelChromeCss(
     rule(`${scope} .lg-range-handle-min`, { left: "0" }),
     rule(`${scope} .lg-range-handle-max`, { left: "100%" }),
     // Image12/Image13: the value pill riding each handle of a two-handle track.
+    // P8 N15 (owner Image11, opened directly — docs/leadgen/r2/evidence/p8/n15/
+    // image11-reading.md): the pill sits UNDER its handle and travels with it,
+    // not above the track. `top` (not `bottom`) anchors it just below the
+    // handle's own box; horizontal centering/inward-anchoring is unchanged.
     rule(`${scope} .lg-range-handle-value`, {
       position: "absolute",
-      bottom: `calc(100% + ${spacing.sm})`,
+      top: `calc(100% + ${spacing.sm})`,
       left: "50%",
       transform: "translateX(-50%)",
       "white-space": "nowrap",
@@ -1028,13 +1032,15 @@ export function funnelChromeCss(
     // (must stay exactly as painted above — Image13 fidelity) vs clamped gap
     // 3.2–16.3px (must degrade). 96px sits ~47px inside the separated floor
     // and ~80px outside the clamped ceiling — clears both with margin. Below
-    // it, the min pill is pushed a full pill-height-plus-gap ABOVE the max
-    // pill (stacked, not collided) — both values stay readable.
+    // it, the min pill is pushed a full pill-height-plus-gap BELOW the max
+    // pill (stacked, not collided) — both values stay readable. (P8 N15: the
+    // base anchor flipped bottom->top, so the escape direction flips with it —
+    // away from the max pill is now DOWN, not up.)
     rule(`${scope} .lg-range-from-to .lg-range-fill,${scope} .lg-range-dual .lg-range-fill`, {
       "container-type": "inline-size",
       "container-name": "lg-range-fill",
     }),
-    `@container lg-range-fill (max-width:96px){${scope} .lg-range-handle-min .lg-range-handle-value{bottom:calc(100% + ${spacing.sm} + ${spacing.xl})}}`,
+    `@container lg-range-fill (max-width:96px){${scope} .lg-range-handle-min .lg-range-handle-value{top:calc(100% + ${spacing.sm} + ${spacing.xl})}}`,
     // Native range input drives recording + keyboard + role=slider semantics.
     // It is laid EXACTLY over its track: inflated by one thumb width and pulled
     // half a thumb left, so the native thumb's centre travels the track's true
@@ -1085,8 +1091,14 @@ export function funnelChromeCss(
       "justify-content": "space-between",
       color: rangeQuestion.minMaxLabelColor,
       "font-size": "0.8125rem",
-      // Clears the handle, which now overhangs the 8px track by half a thumb.
-      "margin-top": `calc(${rangeQuestion.thumbSize} * 0.5)`,
+      // P8 N15: the handle-value pill now rides BELOW its handle (was above),
+      // so this row must clear the handle overhang AND the pill AND (worst
+      // case, the container-query clamp bump above) the min pill pushed a
+      // further spacing.xl down when the two handles sit close together — a
+      // static value, so it always reserves the worst case rather than
+      // reading a per-state size no CSS selector here can see (.lg-range-minmax
+      // is a sibling of .lg-range-fill, outside its container-query subtree).
+      "margin-top": `calc(${rangeQuestion.thumbSize} * 0.5 + ${spacing.xl} * 2)`,
     }),
     // §6.8 stepper (Image10): −/＋ FLANK the readout in one centred row, each a
     // ≥44px styled target — they were tiny, unstyled and stacked far-left.
