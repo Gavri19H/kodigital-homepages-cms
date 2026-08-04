@@ -27,9 +27,35 @@ P8-4's tip before P8-4 merged). They will merge as ONE squash PR with both claus
   the client humanizer DELETED). M6 canvas parity byte-equal on all 8 protected aspects. M7 done.
   M4/R6-2/3/4 done with the **buyer payload driven** (`other_option: false` across 22 bodies).
   N14 **refuted by driving**. N15 pills under handles. N16 4-of-5; aria-labels in flight (F2).
-- **P8-6 grounded, not started.** M8 **refuted by driving** (see below) — it is OUT. Remaining: N2, N3
-  (`fieldLabel()` now `:2454`), N4 (BOTH `:1966` SSR + `:2450` island), N5, N8, N10 (exactly 2 sites:
-  `ui-quotes.ts:655`, `ab.ts:157`), N13 (`ui-payload-builder.ts:2879` vs `:2880`), N19, + write the four §9 owner rows.
+- **P8-6 grounded, not started.** M8 **refuted by driving** (see below) — it is OUT. The four §9 owner rows
+  are already WRITTEN (`OWNER-1…4`, all `BLOCKED(owner ruling)`), so P8-6 is the eight minors only.
+  **Sites RE-GROUNDED at `473b9f7`** (a scout re-verified every one; two of my earlier cites were wrong):
+  | Item | Real site | Note |
+  |---|---|---|
+  | N2 | `ui-rules-builder.ts:2206` | `lg-qr-help` div: "Operators map to eq · neq · gt · lt · gte · lte." |
+  | N3 | `ui-rules-builder.ts:2454-2458` | `fieldLabel()`; the raw-id fallback is `:2458` |
+  | N4 | `ui-rules-builder.ts:1966` SSR **+** `:2450` island | both print `String(cp.pagePosition)` 0-indexed; must change together |
+  | N5 | `quotes-tabs/ab.ts:157` | "stored as basis points, per-test Σ == 10000" |
+  | N8 | **`quotes-tabs/funnel.ts:4534-4544`** (`:4542` `window.location.reload()`) | **NOT `ab.ts`** — my earlier cite was wrong. Existing flow to reuse: `showMsg(...)` at `funnel.ts:862` |
+  | N10 | **`ui-quotes.ts:655` only** | **ONE operator-visible site, not 2.** `ab.ts:157` carries "Equal arms; no control" on N5's OWN line, so **N5+N10 must share one slice**; all other "control" hits are internal |
+  | N13 | `ui-payload-builder.ts:2879` vs `:2880` | still adjacent; `String(out)` vs `outputFormatJsonLiteral(out)` |
+  | N19 | `quotes-handlers.ts:2327` | message names NO index; the real constraints are POSITION-uniqueness (`uq_lg_vsections_variant_pos`, `uq_lg_vsections_quote_pos`, `0047_leadgen_rework_m2_shared_pages.sql:85-88`) — so "'X' is already in this funnel" misdescribes a position conflict as a section-identity one, and omits shared-page scope |
+
+  Slice map with exclusive ownership: **A** `ui-rules-builder.ts` (N2/N3/N4) · **B** `ab.ts`+`ui-quotes.ts`
+  (N5/N10) · **C** `funnel.ts` (N8) · **D** `ui-payload-builder.ts` (N13) · **E** `quotes-handlers.ts` (N19).
+
+### P8-4 IS NOT YET SHIPPED — its last review returned FIX-FIRST
+`evidence/p8/review-p8-4d/REVIEW.md` = **FIX-FIRST** (MAJOR-1, MAJOR-2, MINOR-1…5). `F12` (`bffd0d9b`)
+landed after it with **no follow-up review**. Verified by the conductor's own hand at `473b9f7`:
+MAJOR-1 closed (`offeredIn` now matches both quote styles, guard test `:1302`), MINOR-1 closed (both greps
+re-measured: quoted `section_slot` = 0, unquoted = 5 files/7 hits, matching the comment), MINOR-3 closed
+honestly (block renamed, and its "the contrast moved elsewhere" claim traces to a REAL driven FAIL-BEFORE
+in the F9 F-B block), MINOR-4 closed (both narrow checks restored, quote-style-agnostic, `:1792`/`:1802`).
+**MAJOR-2's register half is fixed but its in-file half and MINOR-2 are OPEN** → fix round **F13** dispatched
+(owns `test/leadgen-p8-m3-apply-template.test.ts` only): `newSavedFunnel` omits the `template` stamp the real
+Save always writes, and edits `header.tagline`/`back.label` — leaves NO operator can author (0 admin
+occurrences; the live 6-tab census found 18 `[data-frame-key]` controls, neither among them) — while calling
+them "the operator's own customisations". **P8-4 needs a SCOPED re-review of F12+F13 before it can merge.**
 
 ### P8-5 GATE RUN 1 — done, FAILED, fix round `F3` dispatched
 Log `docs/leadgen/r2/gate-logs/p8-phase-5-run1.log`, HEAD `60e7f75`, clean tree.
@@ -48,13 +74,31 @@ p3a recapture already done and **clean — 0 real changes** in every fixture (UL
   entries' convention; do NOT relax the census.
 
 ## Next steps, in order
-1. Land F3, commit, **re-run the P8-5 gate** → must be green at branch HEAD on a clean tree.
-2. Fresh-context **adversarial review** of P8-5 → must return SHIP **with the per-clause table**.
-3. **P8-6**: dispatch its minors (all grounded, sites above), gate, review.
-4. **CLOSE**: terminal battery (full unit + full Playwright, sharded, `PW_PORT` override; frozen suites
-   `test-ui/leadgen-visual.spec.ts` + `test-ui/leadgen-v31-gate1c-baselines.spec.ts` enumerated as
-   owner-pending expected-fails, **never rebaselined**) + owner-journey sweep + full-program review +
-   final report + 3–5 lines to `.a2z/LEARNINGS.md`.
+1. ~~Land F3, commit, re-run the P8-5 gate~~ **DONE** — run2 GREEN at `67f8798`, clean tree
+   (`typecheck 0` · 8304 passed / 0 failed / 30 skipped (8334, 499 files) · `verify:all` 0 with 0
+   UNCLASSIFIED · bundle 52,930/53,248 · register 86 rows / 0 violations · zero-drift: **0 pre-existing
+   removed**, 1 intended change, 28 new files +599, `7735 + 599 = 8334` closes).
+2. Fresh-context **adversarial review** of P8-5 → must return SHIP **with the per-clause table**. RUNNING.
+3. Land **F13**, then a **SCOPED re-review of P8-4** covering F12 + F13 (P8-4's last verdict was FIX-FIRST —
+   see the section above; it cannot merge on that).
+4. **P8-6**: dispatch its 5 slices (sites re-grounded above), gate, review.
+5. **CLOSE**: terminal battery + owner-journey sweep + full-program review + final report + 3–5 lines to
+   `.a2z/LEARNINGS.md`.
+
+### Terminal battery — measured shape, plan before you start
+`test-ui/` holds **101 `.spec.ts` files** and the config declares **chromium + firefox** projects
+(`playwright.config.ts:257-269`), so the battery is ~200 file×project runs. The suite exceeds the 600s Bash
+timeout as one run, so: **shard per file**, `PW_PORT=8931` (never 8787, never 8901 — that one is the
+mission's own dev server), sum counts across an explicitly enumerated shard set, and name any shard you skip.
+- Run **sequentially**, not in parallel: every shard drives the same dev server and the same local D1, so
+  concurrent shards contend and flake. Kill strays and fresh-seed D1 between groups.
+- **Do not re-run the whole battery at the baseline to classify failures** — that doubles a multi-hour run.
+  Run it once at HEAD, then for each failing spec re-run **only that spec** at baseline `f240788` in a
+  throwaway worktree to separate pre-existing from introduced.
+- Frozen, **never rebaselined** (owner visual-QA stops, ADJ-P8-36): `test-ui/leadgen-visual.spec.ts`,
+  `test-ui/leadgen-v31-gate1c-baselines.spec.ts` — enumerate as owner-pending expected-fails.
+- Many specs predate this program (`listicles-*`, `__p1a…`, `r0a-drag-spike`) and their baseline colour is
+  UNKNOWN. State it as unknown until measured; do not assume green.
 5. ONE squash PR to the base; then flip register rows to PASS only on SHIP.
 
 ## The gate ritual (yours alone, once per phase)
@@ -109,7 +153,13 @@ because P8-Charlie is empty (ADJ-P8-41).
 8. Implementers: no `git` at all, never start/stop servers, exclusive file ownership, ≤2–3 concurrent,
    report ≤40 lines. Island hazards: ES5 only, no backticks in emitted bodies/comments, no hex in island
    comments, several separate IIFEs, VM-manifest stubs for new island helpers.
-9. **Only a review SHIP earns PASS** in the register. Write `DEVIATES(...)` until then.
+9. **Only a review SHIP earns PASS** in the register. Write `DEVIATES(...)` until then. And check the
+   review's actual verdict line before treating a phase as shipped — P8-4's 4th review said FIX-FIRST and
+   the phase was carried forward for days as if it had shipped.
+10. **Never edit `src/` while a reviewer is driving.** One dev server serves the whole worktree, so any src
+    save hot-reloads it under the review's browser — that cost review #4 a finding (`MINOR-5`, the reviewed
+    worktree mutated mid-review, `[status-empty=yes]` no longer reproducible). Test-only and doc-only
+    rounds are safe to run concurrently; src slices wait for the verdict.
 
 ## Register
 `docs/leadgen/r2/P8-REGISTER.md` — **86 rows / 0 violations**, validate after EVERY edit. 42 ADJ rows.
