@@ -771,7 +771,10 @@ describeDb("Gate 2 strings — Themes manager (Appendix A, D1+KV)", () => {
     assertAllPresent(
       html,
       [
-        "stepper buttons · progress fill · focus ring", "highlights · recommended", "frame background",
+        // F13 (review-p8-3c MINOR-4): the FULL new roster entry — three more
+        // unconditional movers named, and the old text is a substring of it,
+        // so leaving it would have pinned nothing.
+        "stepper buttons · progress fill · focus ring · trust-row icons · list check marks", "highlights · recommended", "frame background",
         "question card · answer cards · input fields",
         "body text · input text", "reassurance · valid",
         "Components reference these roles, never fixed shades — change one here and every question in the funnel reskins.",

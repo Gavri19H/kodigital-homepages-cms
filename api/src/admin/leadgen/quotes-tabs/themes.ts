@@ -99,14 +99,12 @@ import { LOGO_UNREACHABLE_CANVAS_TEXT } from "./templates";
 // reuse it byte-identically instead of a hand-copied duplicate — see that
 // module's header for why this is a source-text export, not a runtime import.
 import { themePresetResolveSnippet } from "./theme-preset-resolve";
-// F12: the clip reveal, included by the surfaces that need it instead of by
-// the CROSS-PRODUCT admin shell (see clip-reveal.ts's own header). This panel
-// ships inside the quote-editor page, so this single include is what covers
-// the Themes rail AND the rest of the quote-editor board. It is emitted as its
-// own <script>, BEFORE the tab's island, so that every existing vm harness
-// (which slices this panel's script with lastIndexOf("<script>")) still
-// resolves to THEMES_TAB_SCRIPT and none of them needs a manifest change.
-import { LG_CLIP_REVEAL_SCRIPT } from "../clip-reveal";
+// F13 (MAJOR-2): this panel no longer includes the clip reveal itself. It
+// ships inside the quote-editor page, which — like every other leadgen admin
+// page — is built by ui.ts's leadgenPageShell, and THAT is now the single
+// include site (clip-reveal.ts's header carries the why and the numbers). The
+// panel's LAST <script> is therefore THEMES_TAB_SCRIPT again, which is what
+// every vm harness slicing this fragment with lastIndexOf("<script>") expects.
 
 
 // --- theme editor (09 §9.3) ---------------------------------------------------
@@ -1591,7 +1589,6 @@ export function renderThemesTabPanel(
     ${renderThemeCanvasPane(sites)}
     ${renderThemeRailPane(isControl)}
   </div>
-  <script>${LG_CLIP_REVEAL_SCRIPT}</script>
   <script>${THEMES_TAB_SCRIPT}</script>
 </div>`;
 }

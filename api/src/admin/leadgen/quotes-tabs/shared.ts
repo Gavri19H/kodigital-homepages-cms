@@ -552,10 +552,36 @@ export const PREFLIGHT_PASS_CHECKS: ReadonlyArray<{ id: string; label: string }>
 // converged with ui-theme-manager.ts by its I4 leg, and re-pinned as literals
 // in test/leadgen-quote-builder-ui.test.ts, test/leadgen-theme-manager-ui.test.ts
 // and test/leadgen-v31-gate2-strings.test.ts.
+//
+// FIX ROUND F13 (review-p8-3c MINOR-4 + MINOR-5) — the same rule, applied to
+// what those two sweeps still did NOT say. F11 named the movers it judged
+// operator-facing and left five UNCONDITIONAL painted declarations unnamed;
+// review #3 re-ran both sentinel sweeps through the real PUT route and listed
+// them. "Must not describe LESS than the control does" does not have an
+// implicit "unless it is small", so they are named, in the operator's own
+// words, and each new phrase gets its own audited SURFACES row:
+//   brand_primary (15 movers) + "trust-row icons"
+//       `.lg-frame-trustrow-icon{color}` — the tick/shield icons in the frame's
+//       trust row (styles.ts:2845).
+//     + "list check marks"
+//       `.lg-frame-freetext-list--check li::before{color}` (:2760) and
+//       `.lg-frame-footer2-list--check li::before{color}` (:3019) — the same
+//       check glyph in two frame regions, so ONE phrase with two audited rows.
+//   border (12 movers) + "progress steps"
+//       `.lg-frame-progress--numbered .lg-step{border:2px solid}` (:3099).
+//     + "progress track"
+//       `.lg-frame-progress--percent .lg-progress-track{box-shadow:inset}`
+//       (:3228).
+// All five are region rules a frame renders without any further opt-in (unlike
+// the `--role-*`/`--color-*` classes, which need a separate control pointed at
+// them and stay unclaimed). Measured after the change, driven at 1280 and 375:
+// every `.lg-used-by` line and every manager `sub` line wraps inside its own
+// box — scrollWidth == clientWidth on all 14 rail rows and all 14 manager rows
+// — so the longer words are not a new clip.
 // ---------------------------------------------------------------------------
 
 export const ROLE_META: ReadonlyArray<{ role: string; label: string; used_by: string }> = [
-  { role: "brand_primary", label: "Brand primary", used_by: "stepper buttons, progress fill, focus ring" },
+  { role: "brand_primary", label: "Brand primary", used_by: "stepper buttons, progress fill, focus ring, trust-row icons, list check marks" },
   { role: "brand_secondary", label: "Brand secondary", used_by: "gradients, secondary emphasis" },
   { role: "accent", label: "Accent", used_by: "category label, highlights, recommended" },
   { role: "success", label: "Success", used_by: "reassurance, valid states" },
@@ -563,7 +589,7 @@ export const ROLE_META: ReadonlyArray<{ role: string; label: string; used_by: st
   { role: "page_background", label: "Page background", used_by: "frame background" },
   { role: "card_background", label: "Card background", used_by: "question card, answer cards, input fields" },
   { role: "surface_wash", label: "Soft fill", used_by: "range-slider focus ring" },
-  { role: "border", label: "Border", used_by: "answer card/input borders" },
+  { role: "border", label: "Border", used_by: "answer card/input borders, progress steps, progress track" },
   { role: "text_primary", label: "Text", used_by: "body text, input text" },
   { role: "text_muted", label: "Muted text", used_by: "labels, disclosure text" },
   { role: "button_primary_bg", label: "Button", used_by: "Continue/CTA background" },

@@ -322,15 +322,67 @@ describe("N1 — theme rail: Button/Card corners + Card shadow show design words
 // ===========================================================================
 
 // --- 1. TEXT WIDTH: a per-character advance model, calibrated against ------
-// --- REAL measured pixels from the driven product. -------------------------
-// Buckets are ratios of the font-size, fitted (grid search) so that NO sample
-// in CALIBRATION below is under-stated.
+// --- REAL measured pixels from the driven product, PER FONT FAMILY. --------
+//
+// FIX ROUND F13 (review-p8-3c MAJOR-1) — WHY THIS GREW A FAMILY AXIS. The F3
+// model had ONE proportional table, fitted to 29 samples that were all
+// measured in the admin UI font (driven: `.form-select`'s computed
+// font-family on /admin/leadgen/quotes is `Arial`). The Themes manager's two
+// font selects are the one control in the product that PAINTS IN THE FAMILY IT
+// NAMES, and in the monospace stack the model under-stated the browser by
+// 38.9px — "Roboto Mono (shows as default font)" modelled 255.08px while
+// chromium laid out 294px in a 282px box. A green invariant over a clipped
+// control is worse than no invariant, so the model now takes the family the
+// select really declares.
+// THE NEW SAMPLES ARE DRIVEN, not derived: an offscreen 14px span on the real
+// /admin/leadgen/themes page (fonts settled via document.fonts.ready) laid out
+// each string in each real stack and reported getBoundingClientRect().width.
+// Three buckets came out of those 247 measurements:
+//   mono  — every glyph the same advance. Measured 0.60029em/char at the
+//           widest across every string in `'Roboto Mono',monospace` (294.06px
+//           / 35 chars / 14px), so MONO_ADVANCE_EM is a flat 0.62 and the
+//           proportional table is not used at all for this bucket.
+//   serif — Georgia/Times fallbacks ('Fraunces'/'Playfair Display'/'Literata'
+//           -> Georgia, 'Newsreader' -> serif). Worst measured/model ratio
+//           1.0770 ("Inter" at 31.06px vs 28.84px modelled).
+//   sans  — the admin UI font and every system-ui fallback. Worst ratio
+//           1.0222 ("Inter" 29.48px in system-ui).
+// BUCKET_FACTOR is the multiplier applied to the proportional table so the
+// model still never UNDER-states a width the browser really produced, with
+// headroom over the worst ratio in each bucket; the calibration block below
+// asserts exactly that, per sample, per bucket.
+// WHAT IT STILL CANNOT MODEL, stated rather than implied: these are THIS
+// engine's fallback metrics (chromium/macOS: the mono stack resolves to the
+// system monospace and every "self-hosted" family falls back too, because the
+// ADMIN pages vendor no @font-face — that is itself why the not-served label
+// exists). A different platform's monospace or serif can be wider than the
+// factors above, and no node-side model can know that. The engine-independent
+// half of the guarantee is the clip reveal, which measures the REAL painted
+// box in the operator's own browser (LG_CLIP_REVEAL_SCRIPT, executed below),
+// and the driven runs at 1280 and 375 are the behavioural proof (E6).
+type FontBucket = "sans" | "serif" | "mono";
 const ADVANCE = { narrow: 0.22, semi: 0.3, wide: 0.95, upper: 0.72, ellipsis: 0.95, normal: 0.62 };
 const NARROW_CHARS = "iljI|!.,;:'`";
 const SEMI_CHARS = "ftr()[]{}/\\-– ";
 const WIDE_CHARS = "mwMW—@";
+const MONO_ADVANCE_EM = 0.62;
+const BUCKET_FACTOR: Record<FontBucket, number> = { sans: 1.05, serif: 1.12, mono: 1 };
+const WIDEST_BUCKET: FontBucket = "mono";
 
-function textWidthPx(text: string, fontPx: number): number {
+// The family a declaration resolves to, by the generic/known families it
+// names — read off the REAL `font-family` declaration, never a list of
+// "the selects I think are monospace".
+function bucketOf(fontFamily: string | null): FontBucket {
+  if (fontFamily === null) return "sans";
+  const f = fontFamily.toLowerCase();
+  if (f.includes("mono")) return "mono";
+  if (f.includes("serif") && !f.includes("sans-serif")) return "serif";
+  if (/\b(georgia|times|newsreader|literata|fraunces|playfair)\b/.test(f)) return "serif";
+  return "sans";
+}
+
+function textWidthPx(text: string, fontPx: number, bucket: FontBucket = "sans"): number {
+  if (bucket === "mono") return [...text].length * MONO_ADVANCE_EM * fontPx;
   let em = 0;
   for (const ch of text) {
     if (NARROW_CHARS.includes(ch)) em += ADVANCE.narrow;
@@ -340,41 +392,73 @@ function textWidthPx(text: string, fontPx: number): number {
     else if (ch >= "A" && ch <= "Z") em += ADVANCE.upper;
     else em += ADVANCE.normal;
   }
-  return em * fontPx;
+  return em * fontPx * BUCKET_FACTOR[bucket];
 }
 
-// Every pair below is a REAL width the reviewer's driven run reported for that
-// exact string at font-size 14px, transcribed from docs/leadgen/r2/evidence/
-// p8/review-p8-3/{r-n7-deep,r-themes-rail,r-manager}.txt. The model is only
-// ever allowed to be CONSERVATIVE: >= the browser's own number.
-const CALIBRATION: ReadonlyArray<readonly [string, number]> = [
-  ["Inherit from base", 105.05],
-  ["Literata (shows as default font)", 191.43],
-  ["Sora (shows as default font)", 174.31],
-  ["System (shows as default font)", 191.41],
-  ["Bigger + check badge", 135.82],
-  ["R2Fix Fixture Site — Active", 171.15],
-  ["— choose a funnel —", 134.63],
-  ["Default Funnel Design", 138.52],
-  ["R2Fix Fixture Quote — Funnel A", 174.06],
-  ["Flat", 23.34],
-  ["Site logo (auto)", 94.94],
-  ["Small", 35.01],
-  ["Center", 42.02],
-  ["Under the header", 108.96],
-  ["Choose a preset…", 116.73],
-  ["Brand primary", 87.92],
-  ["Poppins", 52],
-  ["Space Grotesk", 94.8],
-  ["Fraunces", 59.4],
-  ["Playfair Display", 98.5],
-  ["Manrope", 57],
-  ["DM Sans", 57.4],
-  ["Work Sans", 68.8],
-  ["Lexend", 46.2],
-  ["Newsreader (shows as default font)", 229.3],
-  ["Inter (shows as default font)", 181.2],
-  ["Roboto Mono (shows as default font)", 238.2],
+// Every row below is a REAL width a driven browser reported for that exact
+// string at font-size 14px in that bucket's real stack. Rows 1-27 are the
+// reviewer's original admin-UI (Arial) measurements, transcribed from
+// docs/leadgen/r2/evidence/p8/review-p8-3/{r-n7-deep,r-themes-rail,
+// r-manager}.txt; the rows after them are F13's own per-family run described
+// above. The model is only ever allowed to be CONSERVATIVE: >= the browser's
+// own number, in the bucket that produced it.
+const CALIBRATION: ReadonlyArray<readonly [string, number, FontBucket]> = [
+  ["Inherit from base", 105.05, "sans"],
+  ["Literata (shows as default font)", 191.43, "sans"],
+  ["Sora (shows as default font)", 174.31, "sans"],
+  ["System (shows as default font)", 191.41, "sans"],
+  ["Bigger + check badge", 135.82, "sans"],
+  ["R2Fix Fixture Site — Active", 171.15, "sans"],
+  ["— choose a funnel —", 134.63, "sans"],
+  ["Default Funnel Design", 138.52, "sans"],
+  ["R2Fix Fixture Quote — Funnel A", 174.06, "sans"],
+  ["Flat", 23.34, "sans"],
+  ["Site logo (auto)", 94.94, "sans"],
+  ["Small", 35.01, "sans"],
+  ["Center", 42.02, "sans"],
+  ["Under the header", 108.96, "sans"],
+  ["Choose a preset…", 116.73, "sans"],
+  ["Brand primary", 87.92, "sans"],
+  ["Poppins", 52, "sans"],
+  ["Space Grotesk", 94.8, "sans"],
+  ["Fraunces", 59.4, "sans"],
+  ["Playfair Display", 98.5, "sans"],
+  ["Manrope", 57, "sans"],
+  ["DM Sans", 57.4, "sans"],
+  ["Work Sans", 68.8, "sans"],
+  ["Lexend", 46.2, "sans"],
+  ["Newsreader (shows as default font)", 229.3, "sans"],
+  ["Inter (shows as default font)", 181.2, "sans"],
+  ["Roboto Mono (shows as default font)", 238.2, "sans"],
+  // F13, driven this round — the same strings in the system-ui sans fallback
+  // every "self-hosted" preview stack really paints in on an admin page (the
+  // widest sans measured; Arial above is narrower).
+  ["Inter", 29.48, "sans"],
+  ["Playfair Display", 98.5, "sans"],
+  ["Space Grotesk", 94.78, "sans"],
+  ["Roboto Mono (shows as default font)", 238.25, "sans"],
+  ["Newsreader (shows as default font)", 229.31, "sans"],
+  ["Shows as default font", 139.09, "sans"],
+  // F13, driven this round — serif: 'Fraunces'/'Playfair Display'/'Literata'
+  // fall back to Georgia, 'Newsreader' to the default serif.
+  ["Inter", 31.06, "serif"],
+  ["Playfair Display", 97.91, "serif"],
+  ["Space Grotesk", 88, "serif"],
+  ["Newsreader", 73.98, "serif"],
+  ["Roboto Mono (shows as default font)", 228.61, "serif"],
+  ["Newsreader (shows as default font)", 217.72, "serif"],
+  ["Inherit from base", 107.95, "serif"],
+  // F13, driven this round — mono: the bucket that falsified the old model.
+  ["Inter", 42.02, "mono"],
+  ["Roboto Mono", 92.42, "mono"],
+  ["Playfair Display", 134.42, "mono"],
+  ["Space Grotesk", 109.22, "mono"],
+  ["Newsreader", 84.02, "mono"],
+  ["Roboto Mono (shows as default font)", 294.06, "mono"],
+  ["Newsreader (shows as default font)", 285.66, "mono"],
+  ["Inter (shows as default font)", 243.64, "mono"],
+  ["Shows as default font", 176.44, "mono"],
+  ["Inherit from base", 142.83, "mono"],
 ];
 
 // --- 2. MARKUP: pull the real <select>s and their real <option>s out of -----
@@ -489,11 +573,30 @@ function styleValue(style: string, prop: string): string {
 }
 
 describe("N7 machinery — the width model may never under-state a width the real browser produced", () => {
-  for (const [text, measured] of CALIBRATION) {
-    it(`"${text}" — model >= ${measured}px measured live`, () => {
-      expect(textWidthPx(text, 14)).toBeGreaterThanOrEqual(measured);
+  for (const [text, measured, bucket] of CALIBRATION) {
+    it(`[${bucket}] "${text}" — model >= ${measured}px measured live`, () => {
+      expect(textWidthPx(text, 14, bucket)).toBeGreaterThanOrEqual(measured);
     });
   }
+
+  // FIX ROUND F13 (MAJOR-1) — the leg that would have caught the defect: the
+  // family axis has to CHANGE the answer, and it has to change it in the
+  // direction the browser measured. Without a bucket the old model returned
+  // 255.08px for the string chromium laid out at 294.06px in the monospace
+  // stack; the same call in the mono bucket returns >= that. A future edit
+  // that collapses the buckets back to one table fails HERE, not in the
+  // product.
+  it("EXECUTED: the family axis is real — the mono bucket is wider than the default for the string that falsified the one-table model", () => {
+    const label = "Roboto Mono (shows as default font)";
+    const sansOnly = textWidthPx(label, 14, "sans");
+    const mono = textWidthPx(label, 14, "mono");
+    expect(sansOnly).toBeLessThan(294.06); // the old model's blind spot, reproduced
+    expect(mono).toBeGreaterThanOrEqual(294.06); // …and closed
+    expect(bucketOf("'Roboto Mono',monospace")).toBe("mono");
+    expect(bucketOf("Newsreader,serif")).toBe("serif");
+    expect(bucketOf("'Poppins',system-ui,sans-serif")).toBe("sans");
+    expect(bucketOf(null)).toBe("sans");
+  });
 });
 
 describe("N7 — the shared blank option is short enough not to be its own truncation", () => {
@@ -531,9 +634,10 @@ describe("N7 — the shared blank option is short enough not to be its own trunc
 //       own content box, at every width its layout can take; or
 //   (B) can hold OPERATOR data (a site, funnel, section or preset name — a
 //       length no box can bound), in which case the product must hand the
-//       operator the full text anyway: the clip-reveal in
-//       templates/layout.ts's ADMIN_SCRIPTS (title + ellipsis, driven by the
-//       element's OWN scrollWidth/clientWidth).
+//       operator the full text anyway: src/admin/leadgen/clip-reveal.ts's
+//       reveal (title + ellipsis, driven by the element's OWN
+//       scrollWidth/clientWidth, measured in a state its own styling cannot
+//       change — see the F13 block below).
 // A select is put in (B) by MEASUREMENT, not by a list: the same surface is
 // rendered twice through the real code with two different real data sets and
 // the option texts are diffed. A select whose texts move with the data is
@@ -557,11 +661,17 @@ describe("N7 — the shared blank option is short enough not to be its own trunc
 //                           preset picker = 20 controls.
 //   S2 the Themes manager — the REAL admin route /admin/leadgen/themes: both
 //                           font selects = 2 controls.
-// The REVEAL leg (B) is page-global by construction — it lives in
-// templates/layout.ts's ADMIN_SCRIPTS, which adminLayout and
-// adminStandalonePage interpolate into EVERY admin page — so it covers the
-// quote-editor board and every other admin surface, including controls added
-// tomorrow, without this file enumerating them.
+// WHERE THE REVEAL LEG (B) ACTUALLY REACHES — FIX ROUND F13 (MINOR-3),
+// RESTATED, because the previous wording had been false since F12 and it was
+// load-bearing for ~70 un-boxed selects. It is NOT in templates/layout.ts's
+// ADMIN_SCRIPTS and has not been since F12 (the block below asserts that
+// constant carries none of it — it is the CROSS-PRODUCT shell). It is
+// page-global per page, and the set of pages is exactly the pages built by
+// src/admin/leadgen/ui.ts's leadgenPageShell / leadgenStandalonePageShell —
+// i.e. EVERY leadgen admin route and no other product's, which F13 (MAJOR-2)
+// widened from F12's two hand-picked renderers. This file does not take that
+// on trust: the F13 COVERAGE block below drives the REAL admin router for the
+// real leadgen routes and requires the reveal's bytes in each served page.
 // WHAT IS DELIBERATELY NOT IN THE BOX LEG, and why (each also in
 // OUT_OF_COVERAGE below, with its measured overflow): the whole
 // /admin/leadgen/quotes/:id/edit page composes SIX tab panels from five
@@ -569,7 +679,8 @@ describe("N7 — the shared blank option is short enough not to be its own trunc
 // does not own and from inspector containers whose width no declaration in an
 // owned file pins. Putting a box under those here would be arithmetic dressed
 // as coverage — the paper-audit failure this contract names. They are covered
-// behaviourally by (B) instead, and that was DRIVEN, not assumed:
+// behaviourally by (B) instead — that page is a leadgenPageShell page, which
+// the coverage block proves by route — and that was DRIVEN, not assumed:
 // #lg-tpl-target-select (+283.77px) and #lg-tpl-section-select (+305.80px)
 // both went from title="" / text-overflow:clip to the full operator name in a
 // title plus an ellipsis, at 1280 and at 375.
@@ -1244,7 +1355,20 @@ describeDb("N20 — Themes manager: fresh-first ordering, legacy labelled and st
   // re-minted to the plain-English outcome label at the SAME strictness
   // (exact substring match on the rendered <option> text; same selected/
   // ordering claims).
-  it("a preset storing a LEGACY font (Newsreader) keeps it SELECTED, labelled '(shows as default font)', and sorted after the fresh choices", async () => {
+  // FIX ROUND F13 (BLOCKER-2) — SAME CLAIM, MEASURED PLACE. This leg used to
+  // pin the qualifier INSIDE the option text (">Newsreader (shows as default
+  // font)<"). That pin is what kept N7's own defect on screen: these two
+  // selects paint in the family they name, and in the monospace stack the
+  // string is 294px in a 282px box (driven, +12px at 1280 AND 375, title=null
+  // at load and after document.fonts.ready, the `)` cut). The CLAIM is
+  // unchanged and is asserted at FULL strength below — the stored family stays
+  // selected, sorted after the fresh eight, and the operator is still told the
+  // family is not served, in the SAME WORDS — but the words are now where they
+  // cannot be clipped: the <optgroup> heading the dropdown shows over that
+  // family, and the caption under the control. Both are read out of the REAL
+  // served page, and the leg after this one holds the old label against the
+  // real box so the regression can never come back unnoticed.
+  it("a preset storing a NOT-SERVED font (Newsreader) keeps it SELECTED, sorted after the fresh choices, and still tells the operator it shows as the default font", async () => {
     const { env } = newHarness();
     const created = await json<ThemeCreateResponse>(
       await admin.request(`${API}/themes`, jsonInit("POST", presetBody("Legacy Font Preset", "Newsreader", "Roboto Mono")), env),
@@ -1253,14 +1377,56 @@ describeDb("N20 — Themes manager: fresh-first ordering, legacy labelled and st
     const { html } = await getHtml(env, `/admin/leadgen/themes?theme=${created.item.id}`);
     const headlineBlock = fontSelectBlockById(html, "tm-headline-font");
     expect(headlineBlock).toContain('value="Newsreader" selected');
-    expect(headlineBlock).toContain(">Newsreader (shows as default font)<");
-    // fresh-first: a self-hosted family's option index precedes the legacy one.
+    // the option text is the family, and ONLY the family — nothing the box
+    // cannot show.
+    expect(headlineBlock).toContain(">Newsreader<");
+    expect(headlineBlock, "the suffix must not be back on the option text").not.toContain("(shows as default font)");
+    // …the qualifier is carried ONCE, as the heading of the group that holds
+    // the not-served families, and the stored family is inside that group.
+    const group = headlineBlock.slice(headlineBlock.indexOf("<optgroup"), headlineBlock.indexOf("</optgroup>"));
+    expect(group, "the not-served group must be present when one is stored").toContain('label="Shows as default font"');
+    expect(group).toContain('value="Newsreader" selected');
+    expect(group).toContain('value="Inter"');
+    expect(group).toContain('value="Roboto Mono"');
+    // …and again under the control, where an operator who never opens the
+    // dropdown still reads it.
+    expect(html).toContain('data-tm-font-note="tm-headline-font"');
+    expect(html.slice(html.indexOf('data-tm-font-note="tm-headline-font"'))).toContain(">Shows as default font<");
+    // fresh-first: a self-hosted family's option index precedes the group.
     expect(headlineBlock.indexOf(">Poppins<")).toBeGreaterThan(-1);
-    expect(headlineBlock.indexOf(">Poppins<")).toBeLessThan(headlineBlock.indexOf(">Newsreader (shows as default font)<"));
+    expect(headlineBlock.indexOf(">Poppins<")).toBeLessThan(headlineBlock.indexOf("<optgroup"));
 
     const bodyBlock = fontSelectBlockById(html, "tm-body-font");
     expect(bodyBlock).toContain('value="Roboto Mono" selected');
-    expect(bodyBlock).toContain(">Roboto Mono (shows as default font)<");
+    expect(bodyBlock).toContain(">Roboto Mono<");
+    expect(bodyBlock).not.toContain("(shows as default font)");
+    expect(bodyBlock.slice(bodyBlock.indexOf("<optgroup"))).toContain('label="Shows as default font"');
+    expect(html).toContain('data-tm-font-note="tm-body-font"');
+  });
+
+  it("EXECUTED (BLOCKER-2 fail-before, bottled): the OLD suffixed label does not fit the manager's REAL box in the family it names, and the NEW label does", async () => {
+    const { env } = newHarness();
+    const created = await json<ThemeCreateResponse>(
+      await admin.request(`${API}/themes`, jsonInit("POST", presetBody("Clip Fail Before Preset", "Roboto Mono", "Roboto Mono")), env),
+      "create preset",
+    );
+    const covered = await coveredSelects(env, created.item.id);
+    const headline = covered.find((c) => c.key === "tm-headline-font") as CoveredSelect;
+    expect(headline.box, "the manager font select must still resolve a box").not.toBeNull();
+    const box = (headline.box as BoxResult).content;
+    // The family axis found it: the manager paints this control in the family
+    // it names, so it is measured in the widest metric it can take.
+    expect(headline.familyMovesWithData, "the two real renders must declare different families").toBe(true);
+    expect(headline.bucket).toBe("mono");
+    // FAIL-BEFORE: F2's label, through the SAME arithmetic, over the SAME box.
+    const oldLabel = "Roboto Mono (shows as default font)";
+    expect(textWidthPx(oldLabel, headline.fontPx, headline.bucket)).toBeGreaterThan(box);
+    // PASS-AFTER: every string this control really carries now fits.
+    for (const text of headline.strings) {
+      expect(textWidthPx(text, headline.fontPx, headline.bucket), `${text} vs ${box.toFixed(2)}px`).toBeLessThanOrEqual(box);
+    }
+    expect(headline.strings).toContain("Roboto Mono");
+    expect(headline.strings.some((s) => s.includes("shows as default font"))).toBe(false);
   });
 
   it("a preset storing a FRESH self-hosted font (Poppins/Lexend) keeps it SELECTED with NO legacy suffix, and renders the SAME 8 words the rail offers", async () => {
@@ -1341,6 +1507,10 @@ interface CoveredSelect {
   strings: string[];
   dataBearing: boolean;
   fontPx: number;
+  // F13 (MAJOR-1): which font metric this control's text is really laid out
+  // in, MEASURED from the real declaration on both renders — not listed.
+  bucket: FontBucket;
+  familyMovesWithData: boolean;
 }
 
 async function coveredSelects(
@@ -1366,6 +1536,19 @@ async function coveredSelects(
   const scriptsOf = (html: string): string => [...html.matchAll(/<script[^>]*>([\s\S]*?)<\/script>/g)].map((m) => m[1] as string).join("\n");
   const railA = renderThemesTabPanel(true, siteA);
   const managerHtml = (await getHtml(env, `/admin/leadgen/themes?theme=${themeId}`)).html;
+  // FIX ROUND F13 — S2's differential is a REAL second data set now. F10/F12
+  // rendered the manager page against ITSELF (alt === html), which the
+  // retirement ledger disclosed as a residual: with one render, neither the
+  // data axis nor the family axis can move, so both were answered by default.
+  // The alt render is a SECOND theme created through the REAL POST route,
+  // storing two VENDORED families — so the manager's font selects paint in a
+  // different stack in the two renders, which is exactly how the family axis
+  // below discovers that it is data-driven.
+  const altTheme = await json<ThemeCreateResponse>(
+    await admin.request(`${API}/themes`, jsonInit("POST", presetBody("Clip Invariant Alt Preset", "Poppins", "Lexend")), env),
+    "create alt preset",
+  );
+  const managerAltHtml = (await getHtml(env, `/admin/leadgen/themes?theme=${altTheme.item.id}`)).html;
 
   const surfaces: Array<{ name: string; html: string; alt: string; script: string; fallbackFont: number }> = [
     {
@@ -1378,7 +1561,7 @@ async function coveredSelects(
     {
       name: "S2 Themes manager (/admin/leadgen/themes)",
       html: managerHtml,
-      alt: managerHtml,
+      alt: managerAltHtml,
       script: scriptsOf(managerHtml),
       fallbackFont: 14,
     },
@@ -1386,7 +1569,9 @@ async function coveredSelects(
 
   const out: CoveredSelect[] = [];
   for (const surface of surfaces) {
-    const altById = new Map(selectsWithChain(surface.alt).map((e) => [attr(e.select.attrs, "id") ?? attr(e.select.attrs, "data-theme-key") ?? "", e.select.options.map((o) => o.text).join(" ")]));
+    const keyOf = (attrs: string): string => attr(attrs, "id") ?? attr(attrs, "data-theme-key") ?? "";
+    const altById = new Map(selectsWithChain(surface.alt).map((e) => [keyOf(e.select.attrs), e.select.options.map((o) => o.text).join(" ")]));
+    const altFamilyById = new Map(selectsWithChain(surface.alt).map((e) => [keyOf(e.select.attrs), declFor(e.select.attrs, "font-family", sheets)]));
     for (const entry of selectsWithChain(surface.html)) {
       const id = attr(entry.select.attrs, "id") ?? "";
       const key = id !== "" ? id : (attr(entry.select.attrs, "data-theme-key") ?? "(unkeyed)");
@@ -1396,6 +1581,14 @@ async function coveredSelects(
       // DIFFERENT real data produced different option texts, or the real
       // island assigns a non-literal (an operator's own name) into it.
       const dataBearing = altById.get(key) !== ssrTexts.join(" ") || island.writesData;
+      // F13 (MAJOR-1): the FONT the text is laid out in, on the same terms as
+      // the data axis — from the real declaration on both renders. If the two
+      // real renders declare different families for the same control, its
+      // metric follows the operator's data, so it is checked in the widest
+      // bucket the model knows rather than in whichever family this fixture
+      // happened to store.
+      const family = declFor(entry.select.attrs, "font-family", sheets);
+      const familyMovesWithData = altFamilyById.has(key) && altFamilyById.get(key) !== family;
       out.push({
         surface: surface.name,
         key,
@@ -1406,6 +1599,8 @@ async function coveredSelects(
         strings: [...new Set([...(dataBearing ? [] : ssrTexts), ...island.literals])],
         dataBearing,
         fontPx: pxOr(declFor(entry.select.attrs, "font-size", sheets), surface.fallbackFont),
+        bucket: familyMovesWithData ? WIDEST_BUCKET : bucketOf(family),
+        familyMovesWithData,
       });
     }
   }
@@ -1451,9 +1646,9 @@ describeDb("N7 CLIP INVARIANT — every select on the covered surfaces shows its
       if (c.box === null) continue;
       for (const text of c.strings) {
         checked += 1;
-        const w = textWidthPx(text, c.fontPx);
+        const w = textWidthPx(text, c.fontPx, c.bucket);
         if (w > c.box.content) {
-          overflowing.push(`${c.key}: "${text}" ${w.toFixed(2)}px > ${c.box.content.toFixed(2)}px (anchor ${c.box.anchor} at ${c.box.at}px, ${c.surface})`);
+          overflowing.push(`${c.key}: "${text}" ${w.toFixed(2)}px [${c.bucket}] > ${c.box.content.toFixed(2)}px (anchor ${c.box.anchor} at ${c.box.at}px, ${c.surface})`);
         }
       }
     }
@@ -1516,113 +1711,290 @@ describeDb("N7 CLIP INVARIANT — every select on the covered surfaces shows its
 // in a node:vm against a select whose painted box is the one THIS FILE
 // computes from the real declarations, so neither side of the boundary is
 // hand-built: the script is the real artifact, the overflow condition is the
-// real arithmetic. FAIL-BEFORE (driven, both widths): every one of these
-// selects reported title="" and text-overflow:clip while its text was clipped.
+// real arithmetic.
 //
-// FIX ROUND F12 — WHERE THESE BYTES LIVE, AND WHY THAT MOVED. F10 put them in
-// templates/layout.ts's ADMIN_SCRIPTS, which is the admin shell SHARED WITH
-// THE CONVERSIONS PRODUCT (one worker, several products): the leadgen fix
-// added 5,477 bytes of JavaScript to every conversions admin page and turned
-// test/conversions-admin-shell.test.ts's byte-identical legacy-shell pin red
-// (25789 vs 20312). The mechanism is unchanged and still page-global; only its
-// include site moved, to the two leadgen renderers that need it. The legs
-// below therefore execute src/admin/leadgen/clip-reveal.ts's real exported
-// bytes — same strictness, same four claims, same vm — and the blast-radius
-// block that follows pins BOTH halves of the new arrangement: absent from the
-// shared shell, present on both leadgen surfaces.
+// FIX ROUND F13 — WHY THE OLD HARNESS COULD NOT FAIL FOR THE CASE THAT
+// MATTERED, AND WHAT REPLACES IT. F10/F12's `runReveal` gave the sandbox a
+// select whose `scrollWidth` was a FIXED NUMBER. The code under test writes
+// `style.textOverflow`, and on a plain object that write can never feed back
+// into `scrollWidth` — so all four "EXECUTED" legs were green while the real
+// browser oscillated: in chromium, `text-overflow: ellipsis` on a <select>
+// collapses scrollWidth to clientWidth, so the very next event read "it fits"
+// and stripped the title while the text was still clipped (driven fail-before
+// on #tm-headline-font, identical at 1280 and 375: 294/282 title=null ->
+// 282/282 title set -> 294/282 title NULL -> 282/282 title set). That is the
+// E10/E11 shape — both sides of the boundary hand-built — inside the very
+// block written to stop false greens.
+// THE HARNESS NOW MODELS THE FEEDBACK LOOP the browser really has:
+// `scrollWidth` is a GETTER over the element's own style bag — natural width
+// while text-overflow is anything but `ellipsis`, collapsed to clientWidth
+// while it is `ellipsis` — which is chromium's measured behaviour, reproduced
+// from the numbers above. The code under test can therefore perturb its own
+// measurement exactly as it does in the product, and the F12 predicate FAILS
+// these legs — verified by hand this round by putting `return sel.scrollWidth
+// > sel.clientWidth;` back as the whole of lgOverflows and re-running this
+// block: "Tests 1 failed | 8 passed", the failure being "sweep 1 changed the
+// state: expected { title: null, clipped: null, …(1) } to deeply equal
+// { …(3) }". The natural width is not a magic number either: it is textWidthPx
+// over the real option string in the real bucket.
+// WHAT THE LANE STILL CANNOT DO, stated plainly: node has no layout engine
+// (vitest environment "node", no jsdom, no-new-deps), so this models
+// chromium's rule rather than executing it. The proof that the rule is what
+// chromium does, and that the product is now stable under real hovers, is the
+// DRIVE (E6/E10) — 13 consecutive readings on /admin/leadgen/offers at 375
+// (load + 6 sweeps + 6 interleaved change/focusin/mouseover) all reporting
+// title="All providers", data-lg-clipped=1, text-overflow:ellipsis, plus 4
+// real mouse hovers with the same result.
 // ---------------------------------------------------------------------------
-describe("N7 CLIP REVEAL — the real leadgen script hands over text a select cannot show", () => {
-  function runReveal(scrollW: number, clientW: number, optionText: string): Record<string, unknown> {
-    const attrs: Record<string, string> = {};
-    const style: Record<string, string> = {};
-    const sel = {
-      tagName: "SELECT",
-      scrollWidth: scrollW,
-      clientWidth: clientW,
-      selectedIndex: 0,
-      options: [{ textContent: optionText }],
-      style,
-      setAttribute(n: string, v: string) {
-        attrs[n] = v;
-      },
-      getAttribute: (n: string) => attrs[n] ?? null,
-      removeAttribute(n: string) {
-        delete attrs[n];
-      },
+interface RevealHarness {
+  attrs: Record<string, string>;
+  style: Record<string, string>;
+  sel: { clientWidth: number; scrollWidth: number; options: Array<{ textContent: string }>; naturalWidth: number };
+  win: Record<string, unknown>;
+  listeners: Record<string, (e: unknown) => void>;
+  winListeners: Record<string, (e: unknown) => void>;
+  observers: Array<{ options: Record<string, boolean>; cb: (records: unknown[]) => void }>;
+  fontsReady: () => Promise<void>;
+  state: () => { title: string | null; clipped: string | null; textOverflow: string };
+}
+
+// A select that measures like the browser: the painted text is `optionText` in
+// the real width model, and an applied ellipsis hides the overflow from
+// scrollWidth exactly as chromium does.
+function revealHarness(clientW: number, optionText: string, bucket: FontBucket = "sans", fontPx = 14): RevealHarness {
+  const attrs: Record<string, string> = {};
+  const style: Record<string, string> = {};
+  const options = [{ textContent: optionText }];
+  const sel = {
+    tagName: "SELECT",
+    clientWidth: clientW,
+    selectedIndex: 0,
+    options,
+    style,
+    get naturalWidth(): number {
+      return Math.max(clientW, Math.ceil(textWidthPx(options[0]!.textContent, fontPx, bucket)));
+    },
+    get scrollWidth(): number {
+      return style["textOverflow"] === "ellipsis" ? clientW : this.naturalWidth;
+    },
+    setAttribute(n: string, v: string) {
+      attrs[n] = v;
+    },
+    getAttribute: (n: string) => attrs[n] ?? null,
+    removeAttribute(n: string) {
+      delete attrs[n];
+    },
+  };
+  const listeners: Record<string, (e: unknown) => void> = {};
+  const winListeners: Record<string, (e: unknown) => void> = {};
+  const observers: Array<{ options: Record<string, boolean>; cb: (records: unknown[]) => void }> = [];
+  let resolveFonts: () => void = () => {};
+  const fontsPromise = new Promise<void>((r) => {
+    resolveFonts = r;
+  });
+  const doc = {
+    getElementById: () => null,
+    querySelectorAll: () => [sel],
+    createElement: () => ({ style: {}, setAttribute() {}, appendChild() {} }),
+    addEventListener(type: string, fn: (e: unknown) => void) {
+      listeners[type] = fn;
+    },
+    head: { appendChild() {} },
+    body: {},
+    fonts: { ready: fontsPromise },
+  };
+  const win: Record<string, unknown> = {
+    addEventListener(type: string, fn: (e: unknown) => void) {
+      winListeners[type] = fn;
+    },
+  };
+  function MutationObserverStub(this: Record<string, unknown>, cb: (records: unknown[]) => void) {
+    (this as { observe: (t: unknown, o: Record<string, boolean>) => void }).observe = (_t: unknown, o: Record<string, boolean>) => {
+      observers.push({ options: o, cb });
     };
-    const listeners: Record<string, (e: unknown) => void> = {};
-    const doc = {
-      getElementById: () => null,
-      querySelectorAll: () => [sel],
-      createElement: () => ({ style: {}, setAttribute() {}, appendChild() {} }),
-      addEventListener(type: string, fn: (e: unknown) => void) {
-        listeners[type] = fn;
-      },
-      head: { appendChild() {} },
-      body: {},
-    };
-    const win: Record<string, unknown> = {};
-    runInNewContext(LG_CLIP_REVEAL_SCRIPT, {
-      document: doc,
-      window: win,
-      setTimeout: (fn: () => void) => {
-        fn();
-        return 0;
-      },
-      String,
-      Object,
-      Number,
-      Boolean,
-      JSON,
-      fetch: () => Promise.resolve({}),
-    });
-    return { attrs, style, sel, win, listeners };
   }
+  runInNewContext(LG_CLIP_REVEAL_SCRIPT, {
+    document: doc,
+    window: win,
+    MutationObserver: MutationObserverStub,
+    setTimeout: (fn: () => void) => {
+      fn();
+      return 0;
+    },
+    String,
+    Object,
+    Number,
+    Boolean,
+    JSON,
+    fetch: () => Promise.resolve({}),
+  });
+  return {
+    attrs,
+    style,
+    sel: sel as unknown as RevealHarness["sel"],
+    win,
+    listeners,
+    winListeners,
+    observers,
+    async fontsReady() {
+      resolveFonts();
+      await fontsPromise;
+      await new Promise((r) => setTimeout(r, 0));
+    },
+    state: () => ({ title: attrs["title"] ?? null, clipped: attrs["data-lg-clipped"] ?? null, textOverflow: style["textOverflow"] ?? "" }),
+  };
+}
+
+describe("N7 CLIP REVEAL — the real leadgen script hands over text a select cannot show", () => {
+  const LONG = "No presets yet — create one from the Themes manager";
 
   it("EXECUTED: a select whose own box cannot show its selected option gets that option verbatim as a title, plus an ellipsis", () => {
-    const r = runReveal(363, 312, "No presets yet — create one from the Themes manager");
-    expect((r["attrs"] as Record<string, string>)["title"]).toBe("No presets yet — create one from the Themes manager");
-    expect((r["attrs"] as Record<string, string>)["data-lg-clipped"]).toBe("1");
-    expect((r["style"] as Record<string, string>)["textOverflow"]).toBe("ellipsis");
+    const h = revealHarness(312, LONG);
+    expect(h.state()).toEqual({ title: LONG, clipped: "1", textOverflow: "ellipsis" });
   });
 
   it("EXECUTED: a select that fits is left completely alone — no title, no ellipsis, no attribute", () => {
-    const r = runReveal(312, 312, "No presets saved yet");
-    expect((r["attrs"] as Record<string, string>)["title"]).toBeUndefined();
-    expect((r["style"] as Record<string, string>)["textOverflow"]).toBeUndefined();
+    const h = revealHarness(312, "No presets saved yet");
+    expect(h.state()).toEqual({ title: null, clipped: null, textOverflow: "" });
   });
 
-  it("EXECUTED: the reveal is withdrawn when a shorter value is selected — and only ever its OWN title", () => {
-    const r = runReveal(363, 312, "Seed Local Living — Not activated yet");
-    const sel = r["sel"] as { scrollWidth: number; options: Array<{ textContent: string }> };
-    expect((r["attrs"] as Record<string, string>)["title"]).toBe("Seed Local Living — Not activated yet");
-    sel.scrollWidth = 312;
-    sel.options[0]!.textContent = "R2Fix Fixture Site — Active";
-    (r["win"] as { lgRevealClippedSelects: (root: unknown) => void }).lgRevealClippedSelects(null);
-    expect((r["attrs"] as Record<string, string>)["title"]).toBeUndefined();
-    expect((r["attrs"] as Record<string, string>)["data-lg-clipped"]).toBeUndefined();
+  // THE BLOCKER-1 REGRESSION, kept in a bottle: the reveal's own ellipsis
+  // collapses the measurement, so a mechanism that re-reads the raw
+  // scrollWidth withdraws what it just set. Run it 8 times and interleave the
+  // three real events; every reading must be the same reading.
+  it("EXECUTED: IDEMPOTENT — 8 sweeps and 6 interleaved change/focusin/mouseover events leave the SAME state, never an alternating one", () => {
+    const h = revealHarness(312, LONG);
+    const revealed = { title: LONG, clipped: "1", textOverflow: "ellipsis" };
+    const seen: Array<Record<string, unknown>> = [h.state()];
+    const sweep = h.win["lgRevealClippedSelects"] as (root: unknown) => void;
+    for (let i = 0; i < 8; i += 1) {
+      sweep(null);
+      seen.push(h.state());
+      expect(h.state(), `sweep ${i + 1} changed the state`).toEqual(revealed);
+    }
+    for (const type of ["mouseover", "focusin", "change", "mouseover", "change", "focusin"]) {
+      (h.listeners[type] as (e: unknown) => void)({ target: h.sel });
+      seen.push(h.state());
+      expect(h.state(), `event ${type} changed the state`).toEqual(revealed);
+    }
+    // …and the whole run really produced ONE distinct state (an alternating
+    // mechanism produces two).
+    expect(new Set(seen.map((s) => JSON.stringify(s))).size, JSON.stringify(seen)).toBe(1);
+    expect(seen.length).toBe(15);
+  });
+
+  it("EXECUTED: idempotent in the OTHER direction too — a fitting select stays untouched over 8 sweeps and 3 events", () => {
+    const h = revealHarness(312, "Short");
+    const sweep = h.win["lgRevealClippedSelects"] as (root: unknown) => void;
+    for (let i = 0; i < 8; i += 1) {
+      sweep(null);
+      expect(h.state()).toEqual({ title: null, clipped: null, textOverflow: "" });
+    }
+    for (const type of ["mouseover", "focusin", "change"]) {
+      (h.listeners[type] as (e: unknown) => void)({ target: h.sel });
+      expect(h.state()).toEqual({ title: null, clipped: null, textOverflow: "" });
+    }
+  });
+
+  it("EXECUTED: the reveal is withdrawn when a genuinely shorter value is selected — measured in the state its own styling cannot change", () => {
+    const h = revealHarness(312, "Seed Local Living — Not activated yet with a much longer trailing badge");
+    expect(h.state().title).toBe("Seed Local Living — Not activated yet with a much longer trailing badge");
+    h.sel.options[0]!.textContent = "R2Fix";
+    (h.win["lgRevealClippedSelects"] as (root: unknown) => void)(null);
+    expect(h.state()).toEqual({ title: null, clipped: null, textOverflow: "" });
+    // …and it stays withdrawn (the withdrawal is idempotent as well).
+    (h.win["lgRevealClippedSelects"] as (root: unknown) => void)(null);
+    expect(h.state()).toEqual({ title: null, clipped: null, textOverflow: "" });
   });
 
   it("EXECUTED: it reacts to the events an island-filled select actually produces (change / focusin / mouseover), with no timer of its own", () => {
-    const r = runReveal(312, 312, "short");
-    const listeners = r["listeners"] as Record<string, (e: unknown) => void>;
-    for (const type of ["change", "focusin", "mouseover"]) expect(typeof listeners[type], type).toBe("function");
-    const sel = r["sel"] as { scrollWidth: number };
-    sel.scrollWidth = 400;
-    (listeners["change"] as (e: unknown) => void)({ target: r["sel"] });
-    expect((r["attrs"] as Record<string, string>)["title"]).toBe("short");
+    const h = revealHarness(312, "Short");
+    for (const type of ["change", "focusin", "mouseover"]) expect(typeof h.listeners[type], type).toBe("function");
+    h.sel.options[0]!.textContent = LONG;
+    (h.listeners["change"] as (e: unknown) => void)({ target: h.sel });
+    expect(h.state()).toEqual({ title: LONG, clipped: "1", textOverflow: "ellipsis" });
+  });
+
+  // ---------------------------------------------------------------------
+  // FIX ROUND F13 (MAJOR-3) — the three transitions review #3 measured the
+  // reveal missing. Each is EXECUTED here against the real bytes, and each
+  // was re-measured in the product afterwards (numbers in the legs).
+  // ---------------------------------------------------------------------
+  it("EXECUTED (transition 1): an option's text changing IN PLACE is seen — both mutation-record shapes, childList-on-OPTION and characterData", () => {
+    const h = revealHarness(312, "Short");
+    expect(h.state().title).toBeNull();
+    const observer = h.observers[0] as { options: Record<string, boolean>; cb: (records: unknown[]) => void };
+    expect(observer.options["characterData"], "the observer must ask for characterData or a text edit is invisible").toBe(true);
+    expect(observer.options["subtree"]).toBe(true);
+
+    // (a) `option.textContent = x` — chromium delivers a CHILDLIST record
+    // targeted at the OPTION (driven: 128/128 -> 581/131 on the offers page).
+    h.sel.options[0]!.textContent = LONG;
+    observer.cb([{ type: "childList", target: { nodeName: "OPTION", parentNode: { nodeName: "SELECT" } }, addedNodes: [{ nodeName: "#text" }], removedNodes: [] }]);
+    expect(h.state()).toEqual({ title: LONG, clipped: "1", textOverflow: "ellipsis" });
+
+    // (b) `textNode.data = x` — a CHARACTERDATA record targeted at the TEXT
+    // NODE itself; neither shape implies the other.
+    const h2 = revealHarness(312, "Short");
+    h2.sel.options[0]!.textContent = LONG;
+    h2.observers[0]!.cb([{ type: "characterData", target: { nodeName: "#text", parentNode: { nodeName: "OPTION" } }, addedNodes: [], removedNodes: [] }]);
+    expect(h2.state()).toEqual({ title: LONG, clipped: "1", textOverflow: "ellipsis" });
+
+    // …and an unrelated text edit elsewhere on the page still does NOT sweep.
+    const h3 = revealHarness(312, LONG);
+    h3.attrs["title"] = "";
+    delete h3.attrs["title"];
+    h3.style["textOverflow"] = "";
+    delete h3.attrs["data-lg-clipped"];
+    h3.observers[0]!.cb([{ type: "characterData", target: { nodeName: "#text", parentNode: { nodeName: "DIV" } }, addedNodes: [], removedNodes: [] }]);
+    expect(h3.state().title, "a paragraph's text changing must not trigger a sweep").toBeNull();
+  });
+
+  it("EXECUTED (transition 2): a RESIZE that starts a clip is seen — one window listener into the same coalescing queue", () => {
+    const h = revealHarness(400, "Seed Local Living — Not activated yet");
+    expect(h.state().title, "wide enough at first").toBeNull();
+    expect(typeof h.winListeners["resize"], "the reveal must listen for resize").toBe("function");
+    h.sel.clientWidth = 180; // the same select after 1280 -> 375
+    (h.winListeners["resize"] as (e: unknown) => void)({});
+    expect(h.state()).toEqual({ title: "Seed Local Living — Not activated yet", clipped: "1", textOverflow: "ellipsis" });
+  });
+
+  it("EXECUTED (transition 3): a WEB FONT settling after the boot sweep is seen — document.fonts.ready re-measures", async () => {
+    // What is under test is the WIRING: the reveal must re-sweep when
+    // document.fonts.ready resolves. The widening itself is modelled by making
+    // the painted string wider, which is what a wider family does to the same
+    // text. (Today no admin page vendors a face — driven:
+    // document.fonts.size === 0 on /admin/leadgen/themes — so this leg is the
+    // proof that the hook exists, not a claim that it fires there now; the
+    // manager's own load-state title was BLOCKER-1's double sweep.)
+    const h = revealHarness(200, "Roboto Mono");
+    expect(h.state().title, "fits in the boot metric").toBeNull();
+    h.sel.options[0]!.textContent = "Roboto Mono (a wider family arrived)";
+    await h.fontsReady();
+    expect(h.state()).toEqual({ title: "Roboto Mono (a wider family arrived)", clipped: "1", textOverflow: "ellipsis" });
   });
 });
 
 // ---------------------------------------------------------------------------
-// F12 BLAST RADIUS — the reveal runs on the leadgen surfaces that need it and
-// changes NOTHING for any other product. `test/conversions-admin-shell.test.ts`
-// owns the other half of this claim (an adminLayout call that does not opt in
-// is byte-identical, 20312 / sha b7d6e8df…); it is READ-ONLY and unedited. The
-// legs here are the leadgen-side half: absent from the shared shell, present
-// verbatim on both leadgen surfaces, installed once.
+// F13 COVERAGE + BLAST RADIUS — the reveal runs on EVERY leadgen admin page
+// and changes NOTHING for any other product.
+// `test/conversions-admin-shell.test.ts` owns the other half of this claim (an
+// adminLayout call that does not opt in is byte-identical, 20312 / sha
+// b7d6e8df…); it is READ-ONLY and unedited.
+//
+// WHAT CHANGED FROM F12, AND WHY THE OLD LEG WAS TOO NARROW. F12 asserted the
+// bytes on TWO renderers (renderThemesTabPanel and the manager page) and the
+// register row read from that "three other leadgen pages have no reveal, and
+// none of them clips". Review #3 measured ELEVEN select-bearing leadgen routes
+// without it, three of them clipping (offers 7/10 at 375, sections 4/4,
+// auction 2/3 — and Section Studio's #lg-preview-theme by +35px at BOTH widths
+// on an operator-authored name). So the include moved up to ui.ts's two
+// leadgen shells, and the leg below stopped asserting renderer fragments: it
+// drives the REAL admin router for the real routes and requires the real
+// served bytes in each. A route added tomorrow through the same shells is
+// covered; a route that stops using them fails here.
 // ---------------------------------------------------------------------------
-describeDb("F12 — the clip reveal is leadgen-scoped: out of the cross-product shell, on both leadgen surfaces", () => {
+describeDb("F13 — the clip reveal is leadgen-scoped: out of the cross-product shell, on every leadgen page", () => {
   it("the SHARED admin shell (templates/layout.ts ADMIN_SCRIPTS) carries no part of the reveal", () => {
     for (const token of [
       "lgRevealClippedSelect",
@@ -1635,23 +2007,46 @@ describeDb("F12 — the clip reveal is leadgen-scoped: out of the cross-product 
     }
   });
 
-  it("the Themes rail surface emits the reveal verbatim, exactly once, and after it the tab island is still the LAST script (no vm manifest moves)", () => {
-    const html = renderThemesTabPanel(true);
-    expect(html).toContain(LG_CLIP_REVEAL_SCRIPT);
-    expect(html.split("function lgRevealClippedSelect(").length - 1, "one copy, not two").toBe(1);
-    const lastScript = html.slice(html.lastIndexOf("<script>") + "<script>".length, html.lastIndexOf("</script>"));
-    expect(lastScript, "every existing harness slices this panel's LAST script and expects the tab island").toContain("refreshPresetAvailability");
-    expect(lastScript).not.toContain("lgRevealClippedSelect");
-  });
-
-  it("EXECUTED: the standalone Themes manager page serves the reveal verbatim", async () => {
+  it("EXECUTED: every leadgen admin route the real router serves carries the reveal verbatim, exactly once", async () => {
     const { env } = newHarness();
     const created = await json<ThemeCreateResponse>(
       await admin.request(`${API}/themes`, jsonInit("POST", presetBody("Blast Radius Preset", "Poppins", "Lexend")), env),
       "create preset",
     );
-    const { html } = await getHtml(env, `/admin/leadgen/themes?theme=${created.item.id}`);
-    expect(html).toContain(LG_CLIP_REVEAL_SCRIPT);
+    const routes = [
+      "/admin/leadgen/offers",
+      "/admin/leadgen/offers/new",
+      "/admin/leadgen/sections",
+      "/admin/leadgen/sections/new",
+      "/admin/leadgen/quotes",
+      "/admin/leadgen/quotes/new",
+      "/admin/leadgen/auction",
+      "/admin/leadgen/auction/new",
+      `/admin/leadgen/themes?theme=${created.item.id}`,
+      `/admin/leadgen/themes?theme=${created.item.id}&embed=1`,
+    ];
+    const missing: string[] = [];
+    const doubled: string[] = [];
+    for (const route of routes) {
+      const { status, html } = await getHtml(env, route);
+      expect(status, route).toBe(200);
+      if (!html.includes(LG_CLIP_REVEAL_SCRIPT)) missing.push(route);
+      const copies = html.split("function lgRevealClippedSelect(").length - 1;
+      if (copies !== 1) doubled.push(`${route} (${copies} copies)`);
+    }
+    expect(missing, "a leadgen admin route served without the clip reveal").toEqual([]);
+    expect(doubled, "one copy per page — the shells are the single include site").toEqual([]);
+    expect(routes.length).toBe(10);
+  });
+
+  it("EXECUTED: the quote-editor page — which carries the Themes rail and 70 more selects — is one of them, with the panel itself no longer including its own copy", () => {
+    const panel = renderThemesTabPanel(true);
+    // The panel is mounted INSIDE the editor page (ui-quotes.ts:769), which is
+    // a leadgenPageShell page, so its own include would now be a second copy.
+    expect(panel).not.toContain("function lgRevealClippedSelect(");
+    const lastScript = panel.slice(panel.lastIndexOf("<script>") + "<script>".length, panel.lastIndexOf("</script>"));
+    expect(lastScript, "every existing harness slices this panel's LAST script and expects the tab island").toContain("refreshPresetAvailability");
+    expect(lastScript).not.toContain("lgRevealClippedSelect");
   });
 
   it("the emitted body keeps the island rules: ES5 only, and NO comment bytes (rationale stays in the TypeScript, which never ships)", () => {
@@ -1691,15 +2086,24 @@ describeDb("F12 — the clip reveal is leadgen-scoped: out of the cross-product 
 // invariant legs, the 4 clip-reveal legs and the 2 recovery legs.
 //
 // WHAT THE 88 RETIRED LEGS WERE, AND WHAT EACH CLAIMED. They were F3's TWO
-// container-scoped box invariants, both generated one leg per case:
-//   (R) 86 legs — one per <option> of the 16 rail scalar selects that live in
-//       the `.lg-scalars` grids (16 selects; 12+12+4+5+4+4+5+6+4+3+4+4+4+3+6+6
-//       = 86 options). Claim per leg: THIS option's text is narrower than THIS
+// container-scoped box invariants:
+//   (R) 87 legs on the rail block — 1 STRUCTURAL leg ("the rail really is the
+//       container this arithmetic describes": the `.lg-scalars` grids hold
+//       exactly the 16 scalar selects) plus 86 per-option legs, one per
+//       <option> of those 16 selects (12+12+4+5+4+4+5+6+4+3+4+4+4+3+6+6 = 86).
+//       Claim per per-option leg: THIS option's text is narrower than THIS
 //       select's own content box, at the narrowest width the `.lg-scalars`
 //       grid can give it.
-//   (M)  2 legs — one per Themes-manager typography-grid font select
-//       (#tm-headline-font, #tm-body-font). Claim per leg: every option that
-//       select carries fits its own content box.
+//   (M)  1 leg on the manager block — ONE leg that looped both typography-grid
+//       font selects (#tm-headline-font, #tm-body-font) internally. Claim:
+//       every option either select carries fits its own content box.
+//   FIX ROUND F13 (review-p8-3c MINOR-1) — the decomposition above USED TO
+//   read "(R) 86 + (M) 2". The total, 88, was right and is unchanged; the
+//   attribution was wrong in both halves, and a ledger whose whole purpose is
+//   to account for each retired claim may not miscount them. Recounted at
+//   8f57f27, the commit that retired them: the rail describe emitted 87 `it`s
+//   (the structural one is restored as Leg 1 below, which is why it must be
+//   named here), the manager describe emitted 1.
 //
 // WHERE EACH CLAIM IS COVERED NOW. Both claims are made by the single clip-
 // invariant leg "no product-authored string is wider than the box that shows
@@ -1722,12 +2126,26 @@ describeDb("F12 — the clip reveal is leadgen-scoped: out of the cross-product 
 //      the reverted rule (`repeat(2,1fr)`, the shape the defect shipped with)
 //      back through the SAME arithmetic and requires it to name overflows —
 //      a fail-before kept in a bottle, so the invariant can never go vacuous.
-// KNOWN RESIDUAL, stated rather than hidden: on surface S2 the data-bearing
-// differential renders the manager page against ITSELF (alt === html), so S2's
-// data-bearing detection cannot fire. That is inherited from F10 and it does
-// not weaken the retired (M) claim — alt === html means dataBearing is false,
-// so both font selects' option texts are always in the checked universe, which
-// is exactly what the 2 retired legs asserted. Leg 1 pins that outcome.
+//   3. FIX ROUND F13 (MINOR-2) — one claim the retired rail legs made that the
+//      consolidation genuinely DID drop: they resolved their box through the
+//      SHARED `.form-select` rule and therefore asserted
+//      `decl(formSelect,"width") === "100%"`. Nothing re-asserted it, and the
+//      replacement machinery short-circuits `claimsFullLine` on the class NAME
+//      (resolveContentBox), so if templates/layout.ts's cross-product rule
+//      ever became `width:auto` this arithmetic would keep assuming a
+//      full-line box and silently OVER-state every measurement instead of
+//      failing. Leg 3 below restores it, on the real sheet, and pins the
+//      reason.
+// PREVIOUS RESIDUAL, now CLOSED (F13): F10/F12 rendered surface S2's
+// differential against ITSELF (alt === html), so S2's data-bearing detection
+// could not fire and its answer was true by construction. coveredSelects now
+// renders the manager a SECOND time for a SECOND theme created through the
+// real POST route (two vendored families), so the differential is real on both
+// surfaces. The outcome the retired (M) claim needs is unchanged and is now
+// EARNED rather than assumed: the font selects' option texts do not move with
+// the theme, so they stay product-authored and stay in the checked universe
+// (Leg 1 pins it) — while the FONT the manager paints them in does move, which
+// is how the family axis discovers it must measure them in the widest bucket.
 // ===========================================================================
 describeDb("F12 RETIREMENT LEDGER — every claim the 88 consolidated legs made is still enforced", () => {
   it("EXECUTED (restores claim 1): the 18 selects F3's two box blocks covered are all still boxed AND still product-authored, so none of their 86+22 option texts can silently leave the universe", async () => {
@@ -1782,7 +2200,7 @@ describeDb("F12 RETIREMENT LEDGER — every claim the 88 consolidated legs made 
     for (const c of await coveredSelects(env, created.item.id, [reverted, ADMIN_STYLES])) {
       if (c.box === null) continue;
       for (const text of c.strings) {
-        if (textWidthPx(text, c.fontPx) > c.box.content) overflowing.push(`${c.key}: "${text}"`);
+        if (textWidthPx(text, c.fontPx, c.bucket) > c.box.content) overflowing.push(`${c.key}: "${text}"`);
       }
     }
     // Reproduced this round: 31 named overflows, the same number F10's own
@@ -1793,6 +2211,20 @@ describeDb("F12 RETIREMENT LEDGER — every claim the 88 consolidated legs made 
     // rail scalars whose boxes that rule sets.
     expect(overflowing.length, "the reverted grid rule must still be caught").toBeGreaterThan(0);
     expect(overflowing.some((o) => o.startsWith("typography."))).toBe(true);
+  });
+
+  it("EXECUTED (restores claim 3, MINOR-2): the SHARED .form-select rule still declares width:100%, which is the premise the box arithmetic short-circuits on", () => {
+    const formSelect = styleRule(ADMIN_STYLES, ".form-select");
+    expect(decl(formSelect, "width"), "the retired rail legs asserted this and the consolidation dropped it").toBe("100%");
+    // …and the premise is really load-bearing: resolveContentBox gives a
+    // .form-select the whole flex line BECAUSE of this declaration. If the
+    // shared rule stopped claiming the line, every box below it would be
+    // over-stated (measurements too generous = a silent green), which is the
+    // failure this leg exists to make loud.
+    const rail = renderThemesTabPanel(true);
+    const scalars = selectsInsideClass(rail, "lg-scalars");
+    expect(scalars.length).toBe(16);
+    for (const s of scalars) expect(classesOf(s.attrs), "the rail scalars are the .form-select consumers this premise covers").toContain("form-select");
   });
 });
 
@@ -1826,6 +2258,57 @@ describeDb("MINOR-1 — the rail and the Themes manager OFFER the same font voca
     // …and the two surfaces offer them in the SAME order, not merely the same
     // set (one vocabulary, one reading order).
     expect(offeredTexts(railFontSelects[0] as ParsedSelect)).toEqual(offeredTexts(managerFontSelects(managerHtml)[0] as ParsedSelect));
+  });
+
+  // FIX ROUND F13 (BLOCKER-2) — the two surfaces now say the not-served
+  // sentence in DIFFERENT PLACES, so this leg pins that they still say the
+  // SAME WORDS. Both halves are sliced out of the two REAL renders; neither is
+  // typed twice. (Why the places differ, in one line: the manager knows its
+  // stored family server-side and un-hides that option, so a group heading has
+  // something to stand over and the caption has something to describe; the
+  // rail's three not-served ids stay hidden permanently — quotes-tabs/funnel.ts
+  // assigns `.value` after hydration — so a heading there would stand over
+  // nothing and the closed control is the only place the words can appear. The
+  // rail's box shows them in full: driven, +0px across all 90 rail options at
+  // 1280 and 375.)
+  it("EXECUTED: the not-served sentence is the SAME on both surfaces — in the rail's option text, in the manager's group heading and caption", async () => {
+    const { env } = newHarness();
+    const created = await json<ThemeCreateResponse>(
+      await admin.request(`${API}/themes`, jsonInit("POST", presetBody("Converged Words Preset", "Newsreader", "Roboto Mono")), env),
+      "create preset",
+    );
+    const { html: managerHtml } = await getHtml(env, `/admin/leadgen/themes?theme=${created.item.id}`);
+    const railHtml = renderThemesTabPanel(true, []);
+
+    // the rail's words, taken from a real rendered option
+    const railOption = parseSelects(railHtml)
+      .find((s) => attr(s.attrs, "data-theme-key") === "typography.display")
+      ?.options.find((o) => o.value === "literata");
+    expect(railOption, "the rail must still carry the stored-value option").toBeDefined();
+    const railPhrase = ((railOption as ParsedOption).text.match(/\(([^)]+)\)/) ?? [])[1];
+    expect(railPhrase, `the rail option text must carry the qualifier: ${(railOption as ParsedOption).text}`).toBeDefined();
+
+    // the manager's words, taken from the real group heading and the real
+    // caption of the real page
+    const groupLabel = (managerHtml.match(/<optgroup label="([^"]+)"/) ?? [])[1];
+    expect(groupLabel, "the manager must carry a not-served group heading").toBeDefined();
+    const caption = (managerHtml.match(/data-tm-font-note="tm-headline-font"[^>]*>([^<]+)</) ?? [])[1];
+    expect(caption, "the manager must carry the caption under the control").toBeDefined();
+
+    const norm = (s: string): string => s.trim().toLowerCase();
+    expect(norm(groupLabel as string)).toBe(norm(railPhrase as string));
+    expect(norm(caption as string)).toBe(norm(railPhrase as string));
+    expect(norm(railPhrase as string)).toBe("shows as default font");
+    // …and the manager says it for the family that is really stored, not as a
+    // permanent decoration: a theme on a vendored family has neither.
+    const fresh = await json<ThemeCreateResponse>(
+      await admin.request(`${API}/themes`, jsonInit("POST", presetBody("Converged Words Fresh Preset", "Poppins", "Lexend")), env),
+      "create fresh preset",
+    );
+    const { html: freshHtml } = await getHtml(env, `/admin/leadgen/themes?theme=${fresh.item.id}`);
+    expect(freshHtml).not.toContain("<optgroup");
+    expect(freshHtml).not.toContain("data-tm-font-note");
+    expect(freshHtml).not.toContain("Shows as default font");
   });
 
   it("EXECUTED: a preset already storing a non-vendored family keeps it selectable, visible and rendering exactly as today", async () => {

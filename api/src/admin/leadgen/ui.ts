@@ -41,6 +41,12 @@ import {
   adminStandalonePage,
   escapeHtml,
 } from "../templates/layout";
+// R2 P8-3 FIX ROUND F13 (MAJOR-2) — the clip reveal's SINGLE include site.
+// It is handed to adminLayout/adminStandalonePage as this caller's own
+// `scripts`, never added to templates/layout.ts's ADMIN_SCRIPTS: those two
+// helpers also serve the CONVERSIONS product, and a shell-level include is
+// exactly what added 5,477 bytes to every conversions admin page in F10.
+import { LG_CLIP_REVEAL_SCRIPT } from "./clip-reveal";
 import {
   leadgenOffersListPage,
   leadgenOffersNewPage,
@@ -175,6 +181,14 @@ export const LEADGEN_STYLES = `
 
 // One adminLayout wrapper for every LeadGen page (title + base styles) —
 // ui-offers.ts composes page-specific styles/scripts on top.
+//
+// R2 P8-3 FIX ROUND F13 (MAJOR-2): every page built here also gets the clip
+// reveal (clip-reveal.ts's header carries the mechanism and the measurements).
+// It goes FIRST so that whatever a caller passes stays the last bytes in the
+// tag — several vm harnesses slice a page's last script and expect the page's
+// own island. Driven before this round, at 375: /admin/leadgen/offers clipped
+// 7 of 10 selects (worst +53px), /sections 4 of 4 (+11px), /auction 2 of 3
+// (+17px), all with title=null and no way to read the rest.
 export function leadgenPageShell(options: {
   activePath: string;
   userEmail?: string;
@@ -190,7 +204,7 @@ export function leadgenPageShell(options: {
     conversionsUiEnabled: options.conversionsUiEnabled,
     content: options.content,
     styles: LEADGEN_STYLES + (options.styles ?? ""),
-    scripts: options.scripts ?? "",
+    scripts: LG_CLIP_REVEAL_SCRIPT + (options.scripts ?? ""),
   });
 }
 
@@ -201,6 +215,11 @@ export function leadgenPageShell(options: {
 // leadgen-tabs/lg-num/etc. rules are harmless if unused) plus adminStandalone
 // Page's ADMIN_STYLES, so every .btn/.form-input/.badge/.alert/--c-* class
 // the studio markup depends on is still available.
+//
+// F13 (MAJOR-2): the clip reveal on the same terms as leadgenPageShell above —
+// this is the shell the Section Studio and the Themes manager's ?embed=1
+// surface use, and the studio's own #lg-preview-theme was measured clipping an
+// operator-authored theme name by +35px at 1280 AND 375 with title=null.
 export function leadgenStandalonePageShell(options: {
   content: string;
   styles?: string;
@@ -210,7 +229,7 @@ export function leadgenStandalonePageShell(options: {
     title: "LeadGen",
     content: options.content,
     styles: LEADGEN_STYLES + (options.styles ?? ""),
-    scripts: options.scripts ?? "",
+    scripts: LG_CLIP_REVEAL_SCRIPT + (options.scripts ?? ""),
   });
 }
 

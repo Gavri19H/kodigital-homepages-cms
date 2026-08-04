@@ -55,7 +55,6 @@
 import type { Env } from "../../env";
 import { escapeHtml } from "../templates/layout";
 import { apiJson, leadgenPageShell, leadgenStandalonePageShell, branding, type UiContext } from "./ui";
-import { LG_CLIP_REVEAL_SCRIPT } from "./clip-reveal";
 import { parseJsonColumn } from "./offers-handlers";
 // §8.4 live canvas: an in-process self-request to the SAME existing
 // POST /sections/preview endpoint apiJson (above) already reaches for GET —
@@ -711,7 +710,12 @@ export const ROLE_META: ReadonlyArray<{ key: ThemeRecordRoleKey; label: string; 
   // that move with this role, the only button-shaped one is
   // `.lg-range-stepper-btn`; every button a funnel actually renders follows
   // button_primary_bg. Full measurement in shared.ts's own ROLE_META comment.
-  { key: "brand_primary", label: "Brand primary", sub: "stepper buttons · progress fill · focus ring", border: false },
+  // FIX ROUND F13 (review-p8-3c MINOR-4) — "trust-row icons" and "list check
+  // marks" added, in lockstep with shared.ts's ROLE_META: review #3's sweep
+  // through the real PUT route found three unconditional painted declarations
+  // this row did not name (`.lg-frame-trustrow-icon` and the check glyph of
+  // both `--check` frame lists). Full measurement in shared.ts's own comment.
+  { key: "brand_primary", label: "Brand primary", sub: "stepper buttons · progress fill · focus ring · trust-row icons · list check marks", border: false },
   { key: "accent", label: "Accent", sub: "category label · highlights · recommended", border: false },
   { key: "page_bg", label: "Page background", sub: "frame background", border: true },
   // R2 P8-3 FIX ROUND F8 — "input fields" added, in lockstep with
@@ -743,7 +747,10 @@ export const EXTRA_ROLE_META: ReadonlyArray<{ key: ThemeRecordExtraRoleKey; labe
   // rgb(233,237,243)); the three unconditional component borders that DO move
   // are `.lg-card`, `.lg-btn.lg-btn-answer` and `.lg-input`. Full measurement
   // in shared.ts's own ROLE_META comment.
-  { key: "border", label: "Border", sub: "answer card/input borders", border: true },
+  // FIX ROUND F13 (review-p8-3c MINOR-5) — "progress steps" / "progress track"
+  // added, same lockstep, same reason: the numbered step's 2px border and the
+  // percent track's inset ring both move with this role and were unnamed.
+  { key: "border", label: "Border", sub: "answer card/input borders · progress steps · progress track", border: true },
   { key: "text_muted", label: "Muted text", sub: "labels · disclosure text", border: false },
   { key: "button_primary_bg", label: "Button", sub: "Continue/CTA background", border: false },
   { key: "button_primary_text", label: "Button text", sub: "Continue/CTA text", border: false },
@@ -780,9 +787,33 @@ const THEME_RECORD_FONT_SELECT_NAMES: readonly ThemeRecordFontName[] = [
   ...THEME_RECORD_FONT_NAMES.filter((n) => !THEME_RECORD_FONT_LEGACY_NAMES.has(n)),
   ...THEME_RECORD_FONT_NAMES.filter((n) => THEME_RECORD_FONT_LEGACY_NAMES.has(n)),
 ];
-function fontDisplayLabel(name: ThemeRecordFontName): string {
-  return THEME_RECORD_FONT_LEGACY_NAMES.has(name) ? `${name} (shows as default font)` : name;
-}
+// R2 P8-3 FIX ROUND F13 (BLOCKER-2) — THE SAME WORDS, OFF THE OPTION TEXT.
+// F2's parenthetical is what N7 then measured on this very page: these two
+// selects PAINT IN THE FAMILY THEY NAME, and in the monospace stack
+// "Roboto Mono (shows as default font)" is 294px of text in a 282px box (+12px
+// at 1280 AND 375, title=null at load and after document.fonts.ready) — the
+// closing paren cut, the chevron over the glyphs, on the manager's own default
+// theme. A 24-character suffix on the option text cannot be made to fit a box
+// this control does not control, so the suffix comes OFF the option text and
+// the SAME WORDS are carried in the two places that are not inside the box:
+//   * the <optgroup> heading over the not-served families — the idiomatic HTML
+//     place for "everything below this line has this property", written once
+//     instead of once per option, and rendered in the dropdown the operator
+//     opens (emitted only when one of those families is actually STORED, so a
+//     theme on a vendored family never gets an empty heading over its hidden
+//     options); and
+//   * a caption under the control (fontSelectRow), which is what keeps the
+//     closed select honest — today's parenthetical is the only thing that
+//     tells an operator who never opens the dropdown, and dropping it without
+//     replacement would trade a clipped truth for a hidden one.
+// The option's VALUE and the stored record are untouched (I1), and the rail
+// (quotes-tabs/themes.ts) still says the same words in its own parenthetical:
+// there, all three not-served ids stay hidden permanently because the stored
+// id is only assigned client-side after hydration, so an <optgroup> would
+// stand over nothing — the closed control is the only place the rail can say
+// it, and the rail's 312px box shows it in full (driven, +0px at 1280 and 375
+// across all 90 options). Same sentence, two surfaces, each where it fits.
+const FONT_NOT_SERVED_NOTE = "Shows as default font";
 
 // FIX ROUND F3 (MINOR-1) — ONE FONT VOCABULARY, FINISHED.
 // N20 asks for one vocabulary across this manager and the funnel-theme rail.
@@ -798,19 +829,30 @@ function fontDisplayLabel(name: ThemeRecordFontName): string {
 // quotes-tabs/themes.ts's themeFontOptions(); the offered set on the two
 // surfaces is now identical — do not let them drift apart again.
 function fontOptionsHtml(selected: ThemeRecordFontName): string {
-  return THEME_RECORD_FONT_SELECT_NAMES.map((name) => {
+  const optionFor = (name: ThemeRecordFontName): string => {
     const isSelected = name === selected;
     const notOffered = THEME_RECORD_FONT_LEGACY_NAMES.has(name) && !isSelected ? " hidden" : "";
-    return `<option value="${escapeHtml(name)}"${isSelected ? " selected" : ""}${notOffered}>${escapeHtml(fontDisplayLabel(name))}</option>`;
-  }).join("");
+    return `<option value="${escapeHtml(name)}"${isSelected ? " selected" : ""}${notOffered}>${escapeHtml(name)}</option>`;
+  };
+  const offered = THEME_RECORD_FONT_SELECT_NAMES.filter((n) => !THEME_RECORD_FONT_LEGACY_NAMES.has(n)).map(optionFor).join("");
+  const notServed = THEME_RECORD_FONT_SELECT_NAMES.filter((n) => THEME_RECORD_FONT_LEGACY_NAMES.has(n)).map(optionFor).join("");
+  return THEME_RECORD_FONT_LEGACY_NAMES.has(selected)
+    ? `${offered}<optgroup label="${escapeHtml(FONT_NOT_SERVED_NOTE)}">${notServed}</optgroup>`
+    : offered + notServed;
 }
 
 function fontSelectRow(id: string, label: string, current: ThemeRecordFontName, themeId: string): string {
+  // The caption rides OUTSIDE the select's box (a wrapping div in the grid
+  // cell, ~308px wide against 110px of text at 11.5px), so unlike the suffix
+  // it replaces it cannot be clipped by the control it describes.
+  const note = THEME_RECORD_FONT_LEGACY_NAMES.has(current)
+    ? `<div data-tm-font-note="${escapeHtml(id)}" style="font-size:11.5px;color:${TM_COLOR.subtitle};margin-top:5px">${escapeHtml(FONT_NOT_SERVED_NOTE)}</div>`
+    : "";
   return `<div><div style="font-size:12px;font-weight:600;color:${TM_COLOR.fieldLabel};margin-bottom:5px">${escapeHtml(label)}</div>
           <div class="tm-font-select-wrap" style="position:relative;display:flex;align-items:center;justify-content:space-between;padding:9px 12px;border:1px solid ${TM_COLOR.lineControl};border-radius:8px">
             <select id="${id}" data-theme-id="${escapeHtml(themeId)}" style="appearance:none;-webkit-appearance:none;border:0;background:transparent;outline:none;font-family:${TM_FONT_PREVIEW_STACK[current]};font-size:14px;color:${TM_COLOR.fontPreview};width:100%;cursor:pointer">${fontOptionsHtml(current)}</select>
             <svg width="12" height="12" viewBox="0 0 24 24" fill="none" style="pointer-events:none;flex:0 0 auto"><path d="M6 9l6 6 6-6" stroke="${TM_COLOR.chevron}" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"/></svg>
-          </div>
+          </div>${note}
         </div>`;
 }
 
@@ -1502,12 +1544,14 @@ export async function leadgenThemeManagerPage(c: UiContext): Promise<Response> {
   </div>
 </div>`;
 
-  // F12: the clip reveal is included by the leadgen surfaces that need it, not
-  // by the CROSS-PRODUCT admin shell (clip-reveal.ts's header has the why).
-  // Both shells below interpolate `scripts` at the end of <body>, so this is
-  // the standalone Themes manager's page-global include — it covers every
-  // select this page renders, including any added later.
-  const scripts = LG_CLIP_REVEAL_SCRIPT + THEME_MGR_SCRIPT + (embed ? TM_EMBED_SCRIPT : "");
+  // F13 (MAJOR-2): the clip reveal's include moved UP, out of this page and
+  // out of quotes-tabs/themes.ts, into the two leadgen shells below — one
+  // include site for every leadgen admin page instead of two hand-picked
+  // surfaces (ui.ts's leadgenPageShell / leadgenStandalonePageShell; the why
+  // and the driven numbers are in clip-reveal.ts's header). Both shells still
+  // interpolate `scripts` at the end of <body>, so this page's own island runs
+  // after it exactly as before, and neither shell touches templates/layout.ts.
+  const scripts = THEME_MGR_SCRIPT + (embed ? TM_EMBED_SCRIPT : "");
 
   return c.html(
     embed

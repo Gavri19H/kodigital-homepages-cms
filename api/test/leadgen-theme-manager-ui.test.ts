@@ -547,7 +547,15 @@ describeDb("GET /admin/leadgen/themes — full page (§10.2/§10.3, Appendix A)"
     const { sdb, env } = newHarness();
     await seedFixture(sdb, env);
     const { html } = await getHtml(env, "/admin/leadgen/themes");
-    expect(html).toContain("stepper buttons · progress fill · focus ring");
+    // R2 P8-3 FIX ROUND F13 (review-p8-3c MINOR-4) — three more real movers
+    // named (`.lg-frame-trustrow-icon` + the check glyph of both `--check`
+    // frame lists). The SAME substring trap as item 7: the old text still
+    // matches inside the new sublabel, so this pin carries the FULL new one.
+    expect(html).toContain("stepper buttons · progress fill · focus ring · trust-row icons · list check marks");
+    // F13 (MINOR-5) — `border` is an EXTRA_ROLE_META sublabel and now names
+    // the two progress surfaces it really paints; pinned here too, so the
+    // manager's own copy of the words cannot drift from the rail's.
+    expect(html).toContain("answer card/input borders · progress steps · progress track");
     expect(html).toContain("highlights · recommended");
     expect(html).toContain("frame background");
     expect(html).toContain("question card · answer cards · input fields");

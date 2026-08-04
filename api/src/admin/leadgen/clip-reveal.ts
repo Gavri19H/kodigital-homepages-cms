@@ -1,4 +1,5 @@
-// R2 P8-3 FIX ROUND F12 — THE CLIP REVEAL, SCOPED TO LEADGEN.
+// R2 P8-3 FIX ROUND F13 — THE CLIP REVEAL, SCOPED TO LEADGEN, MEASURED IN A
+// STATE ITS OWN STYLING CANNOT CHANGE.
 //
 // WHAT IT IS. A select element paints its selected option inside whatever box
 // the layout gives it and clips the overflow silently: no ellipsis, no
@@ -21,6 +22,35 @@
 // the text already fits, and it is not a gate — it blocks nothing and
 // validates nothing.
 //
+// WHY THE PREDICATE MEASURES IN A FORCED `clip` STATE (FIX ROUND F13,
+// BLOCKER-1). Setting `text-overflow: ellipsis` on a <select> makes Chromium
+// report scrollWidth == clientWidth for that element: the ellipsis IS the
+// element's way of fitting the text, so the overflow it was measuring
+// disappears. F12's predicate was the bare `scrollWidth > clientWidth` in
+// whatever state the element happened to be in, so the reveal's own styling
+// falsified the condition the reveal tests. Driven on this build
+// (127.0.0.1:8901, chromium, #tm-headline-font, identical at 1280 and 375):
+// load 294/282 title=null -> sweep 282/282 title set -> sweep 294/282 title
+// NULL -> sweep 282/282 title set. Every second `change`/`focusin`/`mouseover`
+// stripped the title and the ellipsis while the text was still clipped.
+// lgOverflows below closes it: a POSITIVE reading needs no repair (an ellipsis
+// can only ever hide overflow, never invent it), and the only reading that can
+// be a lie — "no overflow" on an element THIS SCRIPT has already styled — is
+// re-taken with `text-overflow: clip` forced inline for the duration of the
+// read and the previous value put straight back, inside one synchronous task,
+// so nothing paints in between. The state therefore depends only on the
+// element's natural (un-ellipsised) overflow, which the reveal cannot change,
+// and running it any number of times in any order converges to that one state.
+// The extra pair of forced layouts happens ONLY for an already-revealed select
+// that reports it now fits, never for the page-load sweep (driven: 92 selects
+// on /admin/leadgen/sections/new, one clean measurement pass).
+// THE ONE CASE IT CANNOT SEE, stated rather than implied: if a STYLESHEET (not
+// this script) ever set `text-overflow: ellipsis` on a select, the very first
+// reading would already be collapsed and no title would be offered. No served
+// sheet does (grep: no `select` rule carries text-overflow); if one ever does,
+// this predicate needs the unconditional forced-clip read, at two forced
+// layouts per select per sweep.
+//
 // WHY IT IS NOT IN templates/layout.ts. F10 put these bytes in ADMIN_SCRIPTS,
 // which is the admin shell SHARED WITH THE CONVERSIONS PRODUCT: one worker
 // serves several products, so a leadgen theme fix silently added 5,477 bytes
@@ -28,14 +58,25 @@
 // test/conversions-admin-shell.test.ts's byte-identical legacy-shell pin red.
 // This module is the same mechanism with the blast radius removed: adminLayout
 // output for a caller that does not opt in is byte-identical to before the
-// phase, and the leadgen surfaces that need the reveal include it themselves —
-//   * quotes-tabs/themes.ts's renderThemesTabPanel, which ships inside the
-//     quote-editor page, so ONE include covers the Themes rail AND the whole
-//     quote-editor board; and
-//   * ui-theme-manager.ts, for the standalone Themes manager page.
-// Both includes are page-global by construction (a document-level sweep,
-// document-level listeners and one MutationObserver over document.body), which
-// is the property that made F10 choose this design and it survives the move.
+// phase, and the leadgen surfaces that need the reveal include it themselves.
+// FIX ROUND F13 (MAJOR-2) — there is now exactly ONE include site for all of
+// them: src/admin/leadgen/ui.ts's leadgenPageShell and its chromeless sibling
+// leadgenStandalonePageShell, the two wrappers EVERY leadgen admin page is
+// built from. Review #3 measured that F12's two per-renderer includes left
+// ELEVEN select-bearing leadgen routes without the reveal, and that they clip:
+// driven at 375 before this round, /admin/leadgen/offers 7 of 10 selects
+// (worst +53px), /sections 4 of 4 (worst +11px), /auction 2 of 3 (worst
+// +17px). Moving the include up to the two shells covers those routes, the
+// quote-editor board, the Themes rail (which ships inside that page) and the
+// standalone Themes manager with one copy each, and it still never enters the
+// cross-product shell: adminLayout/adminStandalonePage receive these bytes
+// only through the leadgen wrappers' own `scripts` argument, so a conversions
+// page is byte-identical to before the phase (driven after this round: /admin
+// and /admin/pages carry 0 copies and window.lgRevealClippedSelects is
+// undefined there).
+// It is page-global by construction (a document-level sweep, document-level
+// listeners and one MutationObserver over document.body), which is the
+// property that made F10 choose this design and it survives both moves.
 //
 // WHY THERE IS NO COMMENT INSIDE THE EMITTED SCRIPT BODY. Island bytes are
 // served to the browser and string scanners (jargon, hex, glossary) read them;
@@ -53,6 +94,37 @@
 // hot path of pages that mutate heavily for other reasons. DOMContentLoaded
 // gives the first full-page sweep regardless of where in the document the
 // include sits. No polling, no timer of its own.
+//
+// THE THREE TRANSITIONS FIX ROUND F13 ADDS (MAJOR-3), each measured missing:
+//   * an option's TEXT changing in place (#lg-theme-hex-role went 290/290 ->
+//     531/290 with title still null): the observer now also takes
+//     characterData records, and lgTouchesASelect accepts a record whose
+//     target — or whose target's parent — is a SELECT/OPTION/OPTGROUP. BOTH
+//     shapes are needed and neither implies the other: `option.textContent =
+//     x` is a CHILDLIST record targeted at the OPTION (it swaps the text node,
+//     driven: 128/128 -> 581/131), while `textNode.data = x` is a
+//     CHARACTERDATA record targeted at the text node itself. Still O(1) per
+//     record — a nodeName test and one parent hop, no tree walk — and still
+//     one coalesced sweep.
+//   * a RESIZE that starts a clip (#lg-theme-site-select 253/222, title null
+//     after 375 -> 1280): one window `resize` listener into the same queue,
+//     so a burst of resize events costs one sweep.
+//   * a WEB FONT arriving after the boot sweep and widening the text:
+//     document.fonts.ready re-sweeps once, when the page's fonts have settled.
+//     STATED PRECISELY, because review #3 read this as the cause of the
+//     manager's missing load-state title and the measurement says otherwise:
+//     no admin page vendors an @font-face today (driven on
+//     /admin/leadgen/themes: document.fonts.size === 0, status "loaded"), so
+//     the two font selects paint the SYSTEM fallback for the family they name
+//     — which is exactly what their "shows as default font" note says. The
+//     measured cause of the null title at load was BLOCKER-1's double sweep:
+//     the boot sweep set the title and the DOMContentLoaded sweep read the
+//     collapsed scrollWidth and withdrew it. This leg is wired anyway because
+//     the transition is real the moment any leadgen admin page serves a face,
+//     and it costs one coalesced sweep.
+// All three are guarded: an engine (or a vm harness) without MutationObserver,
+// without window.addEventListener or without document.fonts still installs and
+// still runs every other leg.
 export const LG_CLIP_REVEAL_SCRIPT = `
 (function () {
   if (window.lgRevealClippedSelects) { return; }
@@ -61,10 +133,19 @@ export const LG_CLIP_REVEAL_SCRIPT = `
     if (typeof idx !== 'number' || idx < 0 || !sel.options || !sel.options[idx]) { return ''; }
     return sel.options[idx].textContent || '';
   }
+  function lgOverflows(sel) {
+    if (sel.scrollWidth > sel.clientWidth) { return true; }
+    if (!sel.getAttribute || sel.getAttribute('data-lg-clipped') !== '1' || !sel.style) { return false; }
+    var prev = sel.style.textOverflow;
+    sel.style.textOverflow = 'clip';
+    var over = sel.scrollWidth > sel.clientWidth;
+    sel.style.textOverflow = prev;
+    return over;
+  }
   function lgRevealClippedSelect(sel) {
     if (!sel || !sel.tagName || String(sel.tagName).toUpperCase() !== 'SELECT') { return; }
     var text = lgSelectedOptionText(sel);
-    if (sel.scrollWidth > sel.clientWidth && text !== '') {
+    if (text !== '' && lgOverflows(sel)) {
       sel.setAttribute('data-lg-clipped', '1');
       sel.setAttribute('title', text);
       if (sel.style) { sel.style.textOverflow = 'ellipsis'; }
@@ -106,8 +187,14 @@ export const LG_CLIP_REVEAL_SCRIPT = `
       lgRevealClippedSelects(document);
     }, 0);
   }
+  function lgIsSelectPart(node) {
+    if (!node || !node.nodeName) { return false; }
+    var name = node.nodeName;
+    return name === 'SELECT' || name === 'OPTION' || name === 'OPTGROUP';
+  }
   function lgTouchesASelect(rec) {
-    if (rec.target && rec.target.nodeName === 'SELECT') { return true; }
+    if (lgIsSelectPart(rec.target)) { return true; }
+    if (rec.target && lgIsSelectPart(rec.target.parentNode)) { return true; }
     var lists = [rec.addedNodes, rec.removedNodes];
     var l, i, node;
     for (l = 0; l < lists.length; l++) {
@@ -126,9 +213,13 @@ export const LG_CLIP_REVEAL_SCRIPT = `
       for (i = 0; i < records.length; i++) {
         if (lgTouchesASelect(records[i])) { lgQueueReveal(); return; }
       }
-    }).observe(document.body, { childList: true, subtree: true });
+    }).observe(document.body, { childList: true, subtree: true, characterData: true });
   }
   document.addEventListener('DOMContentLoaded', lgQueueReveal);
+  if (window.addEventListener) { window.addEventListener('resize', lgQueueReveal); }
+  if (document.fonts && document.fonts.ready && document.fonts.ready.then) {
+    document.fonts.ready.then(lgQueueReveal);
+  }
   lgRevealClippedSelects(document);
 }());
 `;

@@ -811,7 +811,15 @@ describeDb("Quote Builder frame studio — theme editor (09 §9.3)", () => {
     // (15 moving declarations) confirms `.lg-range-stepper-btn` is the only
     // button-shaped consumer this role has. NOT WEAKENED — the pin is the same
     // full-line literal, one word longer.
-    expect(html).toContain("Used by: stepper buttons, progress fill, focus ring");
+    // R2 P8-3 FIX ROUND F13 (review-p8-3c MINOR-4) — the same class of
+    // correction, one round on: review #3's sweep through the real PUT route
+    // found THREE more unconditional painted declarations this line did not
+    // name (`.lg-frame-trustrow-icon`, and the check glyph of both `--check`
+    // frame lists), so the words were still describing LESS than the control
+    // does. THE SUBSTRING TRAP AGAIN: the old literal still matches inside the
+    // new one, so this pin carries the FULL new line — a `toContain` left at
+    // the old text would pass either way and pin nothing.
+    expect(html).toContain("Used by: stepper buttons, progress fill, focus ring, trust-row icons, list check marks");
     // F11, the SAME class on a second role: `border` said "card/input
     // borders", and "card" reads as the QUESTION card in this very rail (see
     // card_background's own row). Driven, `.lg-question-card` stayed
@@ -821,7 +829,10 @@ describeDb("Quote Builder frame studio — theme editor (09 §9.3)", () => {
     // line had none before F11), the sibling of the brand_primary line above:
     // test/leadgen-p8-m2-role-usedby.test.ts's I3 leg reads the same ROLE_META
     // it asserts against, so a hard copy is what makes a silent revert fail.
-    expect(html).toContain("Used by: answer card/input borders");
+    // F13 (review-p8-3c MINOR-5), same treatment on this role: the numbered
+    // progress step's 2px ring and the percent track's inset ring both move
+    // with `border` and were unnamed. FULL new line, same substring reason.
+    expect(html).toContain("Used by: answer card/input borders, progress steps, progress track");
     expect(html).toContain("data-role-source");
     expect(html).toContain(">Base design</span>");
   });

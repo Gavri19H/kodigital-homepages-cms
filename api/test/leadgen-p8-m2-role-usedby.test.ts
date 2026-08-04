@@ -205,6 +205,16 @@ const SURFACES: Surface[] = [
     property: "background",
     render: (v) => `${v}!important`,
   },
+  // FIX ROUND F13 (review-p8-3c MINOR-4) — the three unconditional movers the
+  // F11 sweep left unnamed. Same rule as F8/F11 ("the words must not describe
+  // LESS than the control does"), same proof shape: each new phrase gets its
+  // own row here, so I2's sentinel sweep has to show it moving A -> B in the
+  // REAL generated stylesheet or the phrase cannot stand.
+  { role: "brand_primary", phrase: "trust-row icons", selector: `${SCOPE} .lg-frame-trustrow-icon`, property: "color", render: (v) => v },
+  // ONE phrase, TWO real surfaces: the same check glyph is emitted by the
+  // free-text list (:2760) and the footer list (:3019).
+  { role: "brand_primary", phrase: "list check marks", selector: `${SCOPE} .lg-frame-freetext-list--check li::before`, property: "color", render: (v) => v },
+  { role: "brand_primary", phrase: "list check marks", selector: `${SCOPE} .lg-frame-footer2-list--check li::before`, property: "color", render: (v) => v },
 
   // brand_secondary — :2480 the operator-selectable "brand_gradient" frame
   // background style (frames.ts FRAME_BACKGROUND_STYLES, produced at
@@ -286,6 +296,13 @@ const SURFACES: Surface[] = [
   { role: "border", phrase: "answer card/input borders", selector: `${SCOPE} .lg-card`, property: "border-color", render: (v) => `var(--lg-field-border, ${v})` },
   { role: "border", phrase: "answer card/input borders", selector: `${SCOPE} .lg-btn.lg-btn-answer`, property: "border-color", render: (v) => `var(--lg-field-border, ${v})` },
   { role: "border", phrase: "answer card/input borders", selector: `${SCOPE} .lg-input`, property: "border-color", render: (v) => `var(--lg-field-border, ${v})` },
+  // FIX ROUND F13 (review-p8-3c MINOR-5) — the two unconditional progress
+  // surfaces the F11 sweep left unnamed: the numbered step's ring (:3099) and
+  // the percent track's inset ring (:3228). Both are plain region rules — no
+  // `--role-*` opt-in — so they paint for every frame that shows that
+  // progress style.
+  { role: "border", phrase: "progress steps", selector: `${SCOPE} .lg-frame-progress--numbered .lg-step`, property: "border", render: (v) => `2px solid ${v}` },
+  { role: "border", phrase: "progress track", selector: `${SCOPE} .lg-frame-progress--percent .lg-progress-track`, property: "box-shadow", render: (v) => `inset 0 0 0 1px ${v}` },
 
   // text_primary (S3.11 fix) — :499 the scope root's own cascading text
   // colour (page.textColor's DEFAULT reach — "body text") and :1814 `.lg-input`
