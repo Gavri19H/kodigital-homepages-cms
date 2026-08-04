@@ -112,7 +112,33 @@ p3a recapture already done and **clean — 0 real changes** in every fixture (UL
    (`typecheck 0` · 8304 passed / 0 failed / 30 skipped (8334, 499 files) · `verify:all` 0 with 0
    UNCLASSIFIED · bundle 52,930/53,248 · register 86 rows / 0 violations · zero-drift: **0 pre-existing
    removed**, 1 intended change, 28 new files +599, `7735 + 599 = 8334` closes).
-2. Fresh-context **adversarial review** of P8-5 → must return SHIP **with the per-clause table**. RUNNING.
+2. ~~Fresh-context adversarial review of P8-5~~ **DONE — verdict FIX-FIRST.** Full transcript +
+   58 driven artifacts: `evidence/p8/review-p8-5/REVIEW.md` (the reviewer was barred from authoring report
+   files, so the conductor transcribed it; it exists nowhere else). It audited the gate log independently and
+   **found no arithmetic problem**; M7 and N14 are PERFECT (N14's refutation confirmed, not re-filed), N15
+   matches the pin across 12 driven states, and M6's core mechanism genuinely works. What failed:
+   - **B-1 BLOCKER (inside M4/R6-2, money path):** the `fills` picker collides onto a sibling question's
+     answer key. Save = HTTP 200, banner hidden. On the real `POST /lg/auction` the visitor's typed City
+     value is **gone** — one key, two sources, last writer wins. `takenBy` (`ui-section-studio.ts:8880-8895`)
+     dedupes only across the four fill slots. The picker's own "already filled by City" hint proves the phase
+     knew the class and bounded the universe too narrowly.
+   - **M-1 (inside N16):** symptom 1 is NOT fixed — the type badge still occludes the grid label by 62×13px
+     of a 16px label, identically at 1280 and 375. The phase moved the *container* chip and left the *type*
+     badge: one of two selection badges.
+   - **M-2/M-3/M-4:** three register rows allocated to P8-5 were **never opened** — `quotes-handlers.ts`,
+     `runtime/render.ts`, `preview-sim.ts` are byte-untouched. M-4 also exposes a **false green**:
+     `test/leadgen-sections-api.test.ts:1098` asserts a *"visible required message"* with a substring check a
+     `hidden` element satisfies.
+   - **M-5:** the Section Studio **cannot be saved at 375** (topbar wraps under its fixed 56px height, opaque
+     `.studio-settings` paints over the button; a real mouse click issues 0 PATCHes, a programmatic one
+     works — which is why no test caught it). Pre-existing (`e460ab63`), but it is why three of the phase's
+     own 375 claims have no evidence.
+   - 7 minors; three became owner rows **ADJ-P8-43/44/45** (register now 89 rows / 0 violations).
+   Fix slices dispatched: **G1** `ui-section-studio.ts` (B-1, M-1, M-5) · **G2** `quotes-handlers.ts` + its
+   regression test (M-2) · **G3** `render.ts`+`preview-sim.ts`+`leadgen-sections-api.test.ts` (M-3, M-4).
+   Still to dispatch: **G4** `content-schema.ts`+`leadgen-p8-r5-copy.test.ts` (m-1, m-2, m-3) · **G5**
+   `presets.ts`+`runtime/validation.ts` (m-4). **Runtime headroom is 318 bytes** — G3 and G5 both touch the
+   bundle and must never run concurrently.
 3. Land **F13**, then a **SCOPED re-review of P8-4** covering F12 + F13 (P8-4's last verdict was FIX-FIRST —
    see the section above; it cannot merge on that).
 4. **P8-6**: dispatch its 5 slices (sites re-grounded above), gate, review.
