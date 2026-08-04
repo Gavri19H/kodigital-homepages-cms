@@ -1318,6 +1318,20 @@ function addressFieldLabel(key: string): string {
   return OPERATOR_ADDRESS_FIELD_LABELS[key] ?? humanizeId(key);
 }
 
+// The Maps tab's three job checkboxes (ui-section-studio.ts studio-maps-job-row
+// labels, grep-verified: "Validate the answer" / "Use in auction rules" /
+// "Auto-complete the address") — a save error must name these, never the
+// stored job keys (validate/auction/autocomplete) underneath them.
+const OPERATOR_MAPS_JOB_LABELS: Readonly<Record<string, string>> = {
+  validate: "Validate the answer",
+  auction: "Use in auction rules",
+  autocomplete: "Auto-complete the address",
+};
+
+function mapsJobLabel(key: string): string {
+  return OPERATOR_MAPS_JOB_LABELS[key] ?? humanizeId(key);
+}
+
 // The Accept dropdown's own words for the answer formats.
 const OPERATOR_ANSWER_FORMAT_LABELS: Readonly<Record<string, string>> = {
   text: "Any text",
@@ -2593,7 +2607,7 @@ function validateNewFieldProps(
         push(
           "invalid_field_prop",
           `${base}.props.phone_format`,
-          "a custom phone format needs {custom:{regex}} — a non-empty pattern string",
+          "A custom phone rule needs a pattern. Enter the pattern, or switch the rule off.",
         );
       } else {
         // P2b review-round (MAJOR-1, money path): a custom phone regex is
@@ -2607,7 +2621,7 @@ function validateNewFieldProps(
           push(
             "invalid_field_prop",
             `${base}.props.phone_format.custom.regex`,
-            `the custom phone pattern must be at most ${FREE_TEXT_CUSTOM_PATTERN_MAX_LENGTH} characters`,
+            `A custom phone rule's pattern must be at most ${FREE_TEXT_CUSTOM_PATTERN_MAX_LENGTH} characters. Shorten it, or switch the rule off.`,
           );
         } else if (isCatastrophicRegexShape(regex)) {
           push(
@@ -2622,7 +2636,7 @@ function validateNewFieldProps(
             push(
               "invalid_field_prop",
               `${base}.props.phone_format.custom.regex`,
-              "the custom phone pattern isn't a valid regular expression",
+              "A custom phone rule's pattern isn't something the browser can read. Fix the pattern, or switch the rule off.",
             );
           }
         }
@@ -2827,7 +2841,7 @@ function validateMapsProp(
     push(
       "invalid_maps_prop",
       `${path}.jobs`,
-      "What Maps does must be a set of jobs (validate, auction, autocomplete). Pick the jobs in the Maps tab.",
+      `What Maps does must be a set of jobs (${orList((["validate", "auction", "autocomplete"] as const).map((jobKey) => `'${mapsJobLabel(jobKey)}'`))}). Pick the jobs in the Maps tab.`,
     );
     return;
   }
@@ -2838,7 +2852,7 @@ function validateMapsProp(
     push(
       "invalid_maps_prop",
       `${path}.jobs.${key}`,
-      `'${key}' is not a Maps job — Maps can validate, auction, or autocomplete. Remove '${key}'.`,
+      `'${key}' is not a Maps job (${orList((["validate", "auction", "autocomplete"] as const).map((jobKey) => `'${mapsJobLabel(jobKey)}'`))}). Remove '${key}'.`,
     );
   }
   let anyJobTrue = false;
@@ -2849,7 +2863,7 @@ function validateMapsProp(
         push(
           "invalid_maps_prop",
           `${path}.jobs.${key}`,
-          `The Maps '${key}' job must be on or off. Toggle it in the Maps tab.`,
+          `'${mapsJobLabel(key)}' must be on or off. Toggle it in the Maps tab.`,
         );
       } else if (jobValue) {
         anyJobTrue = true;
@@ -2865,7 +2879,7 @@ function validateMapsProp(
     warn(
       "maps_no_job",
       path,
-      "Maps is on but no job is selected (validate/auction/autocomplete) — it does nothing at runtime. Pick a job or turn Maps off.",
+      "Maps is on but no job is selected ('Validate the answer', 'Use in auction rules' or 'Auto-complete the address') — it does nothing at runtime. Pick a job or turn Maps off.",
     );
   }
   // R4b (S3-7): validate the OPTIONAL sibling-fill targets, when authored.
@@ -3014,7 +3028,7 @@ function validateAddressFields(
         push(
           "invalid_field_prop",
           `${fp}.validation.regex`,
-          `the custom pattern must be at most ${FREE_TEXT_CUSTOM_PATTERN_MAX_LENGTH} characters`,
+          `A custom address rule's pattern must be at most ${FREE_TEXT_CUSTOM_PATTERN_MAX_LENGTH} characters. Shorten it, or switch the rule off.`,
         );
       } else if (isCatastrophicRegexShape(regex)) {
         push("invalid_field_prop", `${fp}.validation.regex`, "This pattern could freeze visitors' browsers — simplify it");
@@ -3022,7 +3036,11 @@ function validateAddressFields(
         try {
           new RegExp(regex);
         } catch {
-          push("invalid_field_prop", `${fp}.validation.regex`, "the custom address pattern isn't a valid regular expression");
+          push(
+            "invalid_field_prop",
+            `${fp}.validation.regex`,
+            "A custom address rule's pattern isn't something the browser can read. Fix the pattern, or switch the rule off.",
+          );
         }
       }
       if (validation["message"] !== undefined && typeof validation["message"] !== "string") {
@@ -3221,7 +3239,7 @@ const QUESTION_GRID_FORBIDDEN_NODE_FIELDS: readonly [string, string][] = [
   ["choices", "answer choices belong to the question that offers them, never to the container"],
   ["answer_type", "the container emits no answer — each question inside it emits its own"],
   ["valid_values", "an answer domain belongs to the question that owns it, never to the container"],
-  ["required", "'required' is per question — each question carries its own rule"],
+  ["required", "'Required' is per question — each question carries its own rule"],
 ];
 
 // props-level "dead parts" the owner named explicitly. Key -> the reason,
@@ -3320,7 +3338,7 @@ function validateQuestionGridDependencies(
           push(
             "question_grid_conditional_cycle",
             `${childPath(i)}.conditional.when`,
-            `these questions depend on each other in a loop (${chain.map((n) => labelOf[n]).join(" -> ")}) — none of them could ever show`,
+            `These questions depend on each other in a loop (${chain.map((n) => labelOf[n]).join(" -> ")}) — none of them could ever show. Point one of them at a different question to break the loop.`,
           );
         }
       } else if (state[dep] === 0) {
@@ -3375,7 +3393,7 @@ export function validateSectionContent(
     return { ok: false, errors, warnings };
   }
   if (rawComponents.length === 0) {
-    push("components_empty", "components", "a Section requires at least one component");
+    push("components_empty", "components", "A Section requires at least one component. Add one from the library.");
     return { ok: false, errors, warnings };
   }
 
@@ -3401,7 +3419,7 @@ export function validateSectionContent(
   // Pass 2: per-node validation, recursive over container children.
   const validateNode = (raw: unknown, base: string, depth: number): void => {
     if (!isRecord(raw)) {
-      push("node_not_object", base, "each component must be a JSON object");
+      push("node_not_object", base, "This isn't a component. Remove it, or add one from the library.");
       return;
     }
 
@@ -3409,10 +3427,15 @@ export function validateSectionContent(
     // catalog cannot be placed).
     const type = raw["type"];
     if (!isKnownComponentType(type)) {
+      // `type` is `unknown` here (a malformed import can put anything in this
+      // slot) — humanizeId (via leadgenComponentName's own fallback) needs a
+      // string, so a non-string value falls back to JSON.stringify exactly
+      // like it did before this fix, never a runtime throw.
+      const typeLabel = typeof type === "string" ? `'${humanizeId(type)}'` : JSON.stringify(type);
       push(
         "unknown_component_type",
         `${base}.type`,
-        `unknown component type ${JSON.stringify(type)} — not in the component catalog`,
+        `${typeLabel} isn't a component this build recognizes. Remove it, or replace it with one from the library.`,
       );
       return; // no further per-type checks possible without a known type
     }
@@ -3574,10 +3597,13 @@ export function validateSectionContent(
       // shared Answer format, no 'sub questions', no shared default.
       for (const [key, reason] of QUESTION_GRID_FORBIDDEN_NODE_FIELDS) {
         if (raw[key] !== undefined) {
+          // `reason` is already the full operator sentence (see the table's
+          // own comment: "phrased in the owner's own model") — no need to
+          // prefix it with the raw stored key.
           push(
             "question_grid_shared_field_forbidden",
             `${base}.${key}`,
-            `a question group has no '${key}' of its own — ${reason}`,
+            `${reason.charAt(0).toUpperCase()}${reason.slice(1)}.`,
           );
         }
       }
@@ -3586,7 +3612,7 @@ export function validateSectionContent(
           push(
             "question_grid_shared_field_forbidden",
             `${base}.props.${key}`,
-            `a question group has no shared '${key}' — ${reason}`,
+            `${reason.charAt(0).toUpperCase()}${reason.slice(1)}.`,
           );
         }
       }
@@ -3612,7 +3638,7 @@ export function validateSectionContent(
           push(
             "question_grid_child_invalid",
             `${base}.children`,
-            "a question group's children must be a list of question components",
+            "A question group's children must be a list of question components. Remove the group, or set it up again.",
           );
         } else {
           for (let j = 0; j < gridChildren.length; j++) {
@@ -3633,13 +3659,13 @@ export function validateSectionContent(
                 push(
                   "question_grid_child_invalid",
                   `${childPath}.type`,
-                  "a question group cannot contain another question group — its children are the questions",
+                  "A question group cannot contain another question group — its children are the questions. Move the inner group's questions up a level, or remove it.",
                 );
               } else if (childCategory !== "question") {
                 push(
                   "question_grid_child_invalid",
                   `${childPath}.type`,
-                  `only question components can live inside a question group — ${childType} is a ${childCategory} component`,
+                  `A question group can only hold questions. Remove the ${leadgenComponentName(childType)}, or move it outside the group.`,
                 );
               }
             }
@@ -4040,7 +4066,7 @@ function validateConditional(
   push: (code: SectionContentErrorCode, path: string, message: string) => void,
 ): void {
   if (!isRecord(raw)) {
-    push("conditional_invalid", path, "conditional must be an object {when, op, value}");
+    push("conditional_invalid", path, "The 'Show this component IF' rule must be set up correctly. Remove it, or set it up again.");
     return;
   }
   // Round-4 A-4 (P2a composed groups): a group is detected STRUCTURALLY by an
@@ -4055,7 +4081,7 @@ function validateConditional(
   if (Array.isArray(raw["conditions"])) {
     const match = raw["match"];
     if (match !== undefined && match !== "all" && match !== "any") {
-      push("conditional_invalid", `${path}.match`, "condition group 'match' must be 'all' or 'any'");
+      push("conditional_invalid", `${path}.match`, "A rule group's 'Match' must be 'ALL' or 'ANY'. Pick one of those.");
     }
     const conditions = raw["conditions"];
     for (let i = 0; i < conditions.length; i++) {
@@ -4090,10 +4116,18 @@ function validateConditional(
     return;
   }
   if (op === "range" && (typeof raw["from"] !== "number" || typeof raw["to"] !== "number")) {
-    push("conditional_invalid", path, "range conditional requires numeric from + to");
+    push(
+      "conditional_invalid",
+      path,
+      "The Condition operator 'range' needs numeric values for both 'from' and 'to'. Enter both, or pick a different Condition operator.",
+    );
   }
   if ((op === "in" || op === "not_in") && !Array.isArray(raw["values"])) {
-    push("conditional_invalid", path, `${op} conditional requires a values array`);
+    push(
+      "conditional_invalid",
+      path,
+      `The Condition operator '${op}' needs a list of values. Enter at least one value, or pick a different Condition operator.`,
+    );
   }
 }
 

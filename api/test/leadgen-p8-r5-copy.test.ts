@@ -16,12 +16,15 @@
 //         producer is the shipped validator.
 //
 //   R5-B  SOURCE-DERIVED. The set of user-visible save-error surfaces is
-//         COMPUTED, not listed: start at the save entry point
-//         (src/leadgen/sections.ts), walk its static relative-import closure,
-//         keep every module that emits a save message (a push()/warn() typed
-//         error or an `errors[...] =` assignment), and assert that no message
-//         in any of them carries a clause reference. A new emitter module, or
-//         a new clause reference inside an existing one, fails this test
+//         COMPUTED, not listed: start at every operator-visible ENTRY POINT —
+//         the section-content save path (src/leadgen/sections.ts) PLUS the
+//         Quotes admin surfaces a P8 review found emitting outside it
+//         (quotes-handlers.ts, the funnel/activation/ab/themes tabs, and the
+//         rules builder) — walk each one's static relative-import closure,
+//         keep every module that emits a message (a push()/warn() typed error
+//         or an `errors[...] =` assignment), and assert that no message in
+//         any of them carries a clause reference. A new emitter module, or a
+//         new clause reference inside an existing one, fails this test
 //         without anyone remembering to update a list.
 import { readFileSync, existsSync } from "node:fs";
 import { dirname, join, normalize, relative } from "node:path";
@@ -37,6 +40,20 @@ import { validateSectionContent } from "../src/public/leadgen/components/content
 const TEST_DIR = dirname(fileURLToPath(import.meta.url));
 const API_DIR = dirname(TEST_DIR);
 const SAVE_ENTRY = join(API_DIR, "src/leadgen/sections.ts");
+
+// R5-B's universe (below): every operator-visible emitter, not just the
+// section-content save path. A fresh-context review drove the product and
+// found a jargon message (m-2) OUTSIDE the sections.ts closure, on the
+// Quotes admin surfaces — so those surfaces are now roots too.
+const ENTRY_POINTS: readonly string[] = [
+  SAVE_ENTRY,
+  join(API_DIR, "src/admin/leadgen/quotes-handlers.ts"),
+  join(API_DIR, "src/admin/leadgen/quotes-tabs/funnel.ts"),
+  join(API_DIR, "src/admin/leadgen/quotes-tabs/activation.ts"),
+  join(API_DIR, "src/admin/leadgen/ui-rules-builder.ts"),
+  join(API_DIR, "src/admin/leadgen/quotes-tabs/ab.ts"),
+  join(API_DIR, "src/admin/leadgen/quotes-tabs/themes.ts"),
+];
 
 // ---------------------------------------------------------------------------
 // R5-A — drive the real validators, assert on the real messages
@@ -196,10 +213,222 @@ describe("P8 R5 — save errors speak the operator's language (contract §6 M5 /
     const verdict = validateSectionContent(brokenContent(), "button");
     const mapsNoJob = verdict.warnings.find((w) => w.code === "maps_no_job");
     expect(mapsNoJob, "the §9.3 maps_no_job warning fires").toBeDefined();
-    // quotes-handlers' variant-level twin already said this in plain words —
-    // the save-time message says the SAME thing, ending on the same action.
+    // The Maps tab's three checkboxes read "Validate the answer", "Use in
+    // auction rules" and "Auto-complete the address" (ui-section-studio.ts
+    // studio-maps-job-row labels) — the save-time warning names those, not
+    // the stored job keys (validate/auction/autocomplete).
     expect(mapsNoJob?.message).toBe(
-      "Maps is on but no job is selected (validate/auction/autocomplete) — it does nothing at runtime. Pick a job or turn Maps off.",
+      "Maps is on but no job is selected ('Validate the answer', 'Use in auction rules' or 'Auto-complete the address') — it does nothing at runtime. Pick a job or turn Maps off.",
+    );
+  });
+
+  it("R5-A: the Address custom-pattern length/invalid-regex messages reuse the shipped register of language", () => {
+    // Both conditions driven through the real save-time validator — neither
+    // was exercised by brokenContent()'s Address fixture (that one hits the
+    // string-preset branch, not the {regex} object branch), so this closes
+    // the gap a fresh-context review found (m-1).
+    const tooLong = validateSectionContent(
+      {
+        components: [
+          {
+            type: "AddressAutocompleteQuestion",
+            internal_field: "addr2",
+            props: { fields: [{ field: "street", validation: { regex: "a".repeat(201) } }] },
+          },
+        ],
+      },
+      "button",
+    );
+    const lengthMsg = tooLong.errors.find((e) => e.path.endsWith("validation.regex"))?.message;
+    expect(lengthMsg).toBe(
+      "A custom address rule's pattern must be at most 200 characters. Shorten it, or switch the rule off.",
+    );
+
+    const badRegex = validateSectionContent(
+      {
+        components: [
+          {
+            type: "AddressAutocompleteQuestion",
+            internal_field: "addr3",
+            props: { fields: [{ field: "street", validation: { regex: "(unterminated" } }] },
+          },
+        ],
+      },
+      "button",
+    );
+    const regexMsg = badRegex.errors.find((e) => e.path.endsWith("validation.regex"))?.message;
+    expect(regexMsg).toBe(
+      "A custom address rule's pattern isn't something the browser can read. Fix the pattern, or switch the rule off.",
+    );
+  });
+
+  it("R5-A: the phone custom-pattern messages (needs-pattern / length / invalid-regex) reuse the shipped register", () => {
+    const phoneOf = (customPhoneFormat: unknown) =>
+      validateSectionContent(
+        { components: [{ type: "FreeTextQuestion", internal_field: "ph", props: { format: "phone", phone_format: customPhoneFormat } }] },
+        "button",
+      );
+
+    const noPattern = phoneOf({ custom: {} });
+    expect(noPattern.errors.find((e) => e.path.endsWith("phone_format"))?.message).toBe(
+      "A custom phone rule needs a pattern. Enter the pattern, or switch the rule off.",
+    );
+
+    const tooLong = phoneOf({ custom: { regex: "a".repeat(201) } });
+    expect(tooLong.errors.find((e) => e.path.endsWith("phone_format.custom.regex"))?.message).toBe(
+      "A custom phone rule's pattern must be at most 200 characters. Shorten it, or switch the rule off.",
+    );
+
+    const badRegex = phoneOf({ custom: { regex: "(unterminated" } });
+    expect(badRegex.errors.find((e) => e.path.endsWith("phone_format.custom.regex"))?.message).toBe(
+      "A custom phone rule's pattern isn't something the browser can read. Fix the pattern, or switch the rule off.",
+    );
+  });
+
+  it("R5-A: the G4b sweep (Maps job-set shape, malformed component tree, question-group rules, conditional shape) reuses the shipped register", () => {
+    // Maps: jobs isn't a record at all.
+    const mapsShape = validateSectionContent(
+      { components: [{ type: "ZIPInputQuestion", internal_field: "z1", props: { maps: { enabled: true, jobs: "nope" } } }] },
+      "button",
+    );
+    expect(mapsShape.errors.find((e) => e.path.endsWith(".jobs") && !e.path.endsWith(".jobs.validate"))?.message).toBe(
+      "What Maps does must be a set of jobs ('Validate the answer', 'Use in auction rules' or 'Auto-complete the address'). Pick the jobs in the Maps tab.",
+    );
+
+    // Maps: an unrecognized job key, and a known job key with a bad value.
+    const mapsJobs = validateSectionContent(
+      {
+        components: [
+          { type: "ZIPInputQuestion", internal_field: "z2", props: { maps: { enabled: true, jobs: { validate: "yes", teleport: true } } } },
+        ],
+      },
+      "button",
+    );
+    expect(mapsJobs.errors.find((e) => e.path.endsWith(".jobs.teleport"))?.message).toBe(
+      "'teleport' is not a Maps job ('Validate the answer', 'Use in auction rules' or 'Auto-complete the address'). Remove 'teleport'.",
+    );
+    expect(mapsJobs.errors.find((e) => e.path.endsWith(".jobs.validate"))?.message).toBe(
+      "'Validate the answer' must be on or off. Toggle it in the Maps tab.",
+    );
+
+    // The component tree: not-an-object, an unknown string type, a non-string type.
+    const tree = validateSectionContent(
+      { components: ["not-a-component", { type: "TotallyMadeUpWidget" }, { type: 42 }] },
+      "button",
+    );
+    expect(tree.errors.find((e) => e.code === "node_not_object")?.message).toBe(
+      "This isn't a component. Remove it, or add one from the library.",
+    );
+    expect(tree.errors.find((e) => e.path === "components[1].type")?.message).toBe(
+      "'Totally Made Up Widget' isn't a component this build recognizes. Remove it, or replace it with one from the library.",
+    );
+    expect(tree.errors.find((e) => e.path === "components[2].type")?.message).toBe(
+      "42 isn't a component this build recognizes. Remove it, or replace it with one from the library.",
+    );
+
+    // Empty components array.
+    const empty = validateSectionContent({ components: [] }, "button");
+    expect(empty.errors.find((e) => e.code === "components_empty")?.message).toBe(
+      "A Section requires at least one component. Add one from the library.",
+    );
+
+    // QuestionGrid: a forbidden node field, a forbidden shared prop, and
+    // non-array children.
+    const grid = validateSectionContent(
+      {
+        components: [
+          {
+            type: "QuestionGrid",
+            question_id: "qg1",
+            internal_field: "shouldnt_be_here",
+            props: { label: "shared label" },
+            children: "nope",
+          },
+        ],
+      },
+      "button",
+    );
+    expect(
+      grid.errors.find((e) => e.code === "question_grid_shared_field_forbidden" && e.path.endsWith(".internal_field"))
+        ?.message,
+    ).toBe("The container answers no field of its own — each question inside it answers another field.");
+    expect(
+      grid.errors.find((e) => e.code === "question_grid_shared_field_forbidden" && e.path.endsWith(".props.label"))
+        ?.message,
+    ).toBe("There is no 'Main question' — each question carries its own label.");
+    expect(grid.errors.find((e) => e.code === "question_grid_child_invalid")?.message).toBe(
+      "A question group's children must be a list of question components. Remove the group, or set it up again.",
+    );
+
+    // QuestionGrid: a nested group, and a non-question child.
+    const nested = validateSectionContent(
+      {
+        components: [
+          {
+            type: "QuestionGrid",
+            question_id: "qg2",
+            children: [{ type: "QuestionGrid", question_id: "inner", children: [] }, { type: "Spacer" }],
+          },
+        ],
+      },
+      "button",
+    );
+    expect(nested.errors.find((e) => e.path === "components[0].children[0].type")?.message).toBe(
+      "A question group cannot contain another question group — its children are the questions. Move the inner group's questions up a level, or remove it.",
+    );
+    expect(nested.errors.find((e) => e.path === "components[0].children[1].type")?.message).toBe(
+      "A question group can only hold questions. Remove the Spacer, or move it outside the group.",
+    );
+
+    // QuestionGrid: a conditional cycle between two sibling questions.
+    const cycle = validateSectionContent(
+      {
+        components: [
+          {
+            type: "QuestionGrid",
+            question_id: "qg3",
+            children: [
+              { type: "TwoButtonYesNo", question_id: "qa", internal_field: "fa", conditional: { when: "fb", op: "eq", value: true } },
+              { type: "TwoButtonYesNo", question_id: "qb", internal_field: "fb", conditional: { when: "fa", op: "eq", value: true } },
+            ],
+          },
+        ],
+      },
+      "button",
+    );
+    const cycleMsg = cycle.errors.find((e) => e.code === "question_grid_conditional_cycle")?.message;
+    expect(cycleMsg).toContain("depend on each other in a loop");
+    expect(cycleMsg).toContain("Point one of them at a different question to break the loop.");
+
+    // continue_visible_when: malformed conditional shapes.
+    const filler = { type: "QuestionHeadline", props: { text: "Hi" } };
+    const shapeBad = validateSectionContent({ components: [filler], continue_visible_when: "nope" }, "button");
+    expect(shapeBad.errors.find((e) => e.path === "continue_visible_when")?.message).toBe(
+      "The 'Show this component IF' rule must be set up correctly. Remove it, or set it up again.",
+    );
+
+    const matchBad = validateSectionContent(
+      { components: [filler], continue_visible_when: { conditions: [{ when: "x", op: "eq", value: 1 }], match: "nope" } },
+      "button",
+    );
+    expect(matchBad.errors.find((e) => e.path === "continue_visible_when.match")?.message).toBe(
+      "A rule group's 'Match' must be 'ALL' or 'ANY'. Pick one of those.",
+    );
+
+    const rangeBad = validateSectionContent(
+      { components: [filler], continue_visible_when: { when: "x", op: "range", from: "not-a-number", to: 5 } },
+      "button",
+    );
+    expect(rangeBad.errors.find((e) => e.path === "continue_visible_when")?.message).toBe(
+      "The Condition operator 'range' needs numeric values for both 'from' and 'to'. Enter both, or pick a different Condition operator.",
+    );
+
+    const valuesBad = validateSectionContent(
+      { components: [filler], continue_visible_when: { when: "x", op: "in", values: "not-an-array" } },
+      "button",
+    );
+    expect(valuesBad.errors.find((e) => e.path === "continue_visible_when")?.message).toBe(
+      "The Condition operator 'in' needs a list of values. Enter at least one value, or pick a different Condition operator.",
     );
   });
 
@@ -307,7 +536,7 @@ describe("P8 R5 — save errors speak the operator's language (contract §6 M5 /
   // R5-B — the surfaces are derived from source, not listed
   // -------------------------------------------------------------------------
 
-  it("R5-B: no save-path module can introduce a clause reference into operator copy", () => {
+  it("R5-B: no operator-visible module (save path + Quotes admin surfaces) can introduce a clause reference into operator copy", () => {
     // Strip block comments and line comments (a `//` outside a string) — the
     // spec cite is WELCOME in a comment, that is where a developer reads it.
     const stripComments = (text: string): string => {
@@ -346,9 +575,9 @@ describe("P8 R5 — save errors speak the operator's language (contract §6 M5 /
       return null;
     };
 
-    // The static relative-import closure of the save entry point.
+    // The static relative-import closure of EVERY entry point, unioned.
     const closure = new Set<string>();
-    const stack = [SAVE_ENTRY];
+    const stack = [...ENTRY_POINTS];
     while (stack.length > 0) {
       const file = stack.pop() as string;
       if (closure.has(file)) continue;
@@ -359,7 +588,7 @@ describe("P8 R5 — save errors speak the operator's language (contract §6 M5 /
         if (resolved !== null && !closure.has(resolved)) stack.push(resolved);
       }
     }
-    expect(closure.size, "the save entry point's import closure").toBeGreaterThan(10);
+    expect(closure.size, "the entry points' combined import closure").toBeGreaterThan(10);
 
     // Of those, the ones that actually EMIT a save message.
     const emitters: string[] = [];

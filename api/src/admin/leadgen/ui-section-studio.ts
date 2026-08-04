@@ -864,7 +864,27 @@ export function renderStudioTopBar(
   // editable) · status pill · Mapping k/n badge · issues chip · Save ·
   // Archive. Activity/Vertical moved to the §4.2 question strip — SAME
   // element ids there, so collectSection + the dirty watcher are unaffected.
-  return `<div class="studio-topbar" data-studio-topbar style="display:flex;align-items:center;gap:14px;height:${STUDIO_GEOMETRY.topBarHeight}px;padding:0 18px;background:${STUDIO_COLOR.white};border-bottom:1px solid ${STUDIO_COLOR.linePanel};flex-wrap:wrap">
+  // R2 P8-5 M-5: the bar declared `flex-wrap:wrap` AND a FIXED
+  // height:56px. At 375 its content really does wrap — measured
+  // scrollHeight 186 inside a 56px box — so the three wrapped rows spilled
+  // out of the bar and the next sibling (.studio-settings, opaque #F7F9FB)
+  // painted over them. #lg-section-save was still laid out at (199,135,
+  // 70x33) with disabled:false and pointer-events:auto, but
+  // document.elementFromPoint at its own centre returned the settings row
+  // and a REAL mouse click issued 0 PATCH requests (a programmatic .click()
+  // issued one) — the Studio could not be saved at 375, silently. min-height
+  // lets the bar own the rows it wraps; at >=1280 the content is one row so
+  // the box is still exactly 56px and the golden look is unchanged. This is
+  // the SAME format-not-fake-value fix the canvas toolbar already carries for
+  // the identical cause (min-height:46px, documented in
+  // leadgen-v31-gate3-geometry.test.ts). MEASURED after, by
+  // scripts/p8/probe-p85g1.mjs: at 1280 the topbar box is still exactly 56
+  // (elementFromPoint = BUTTON.studio-btn-save, 1 PATCH — unchanged); at 375
+  // it is 186.5 instead of a 56px box holding 186px of rows, elementFromPoint
+  // at the save button's centre returns the save button, and the real mouse
+  // click issues 1 PATCH. The padding stays 0 18px on purpose — a 6px
+  // vertical padding grew the desktop bar to 67px and lost the golden 56.
+  return `<div class="studio-topbar" data-studio-topbar style="display:flex;align-items:center;gap:14px;min-height:${STUDIO_GEOMETRY.topBarHeight}px;padding:0 18px;background:${STUDIO_COLOR.white};border-bottom:1px solid ${STUDIO_COLOR.linePanel};flex-wrap:wrap">
   <a href="/admin/leadgen/sections" class="studio-back" style="display:flex;align-items:center;gap:7px;padding:7px 11px 7px 8px;border:1px solid ${STUDIO_COLOR.lineControl};border-radius:${STUDIO_RADIUS.control}px;cursor:pointer;color:${STUDIO_COLOR.text2Strong};font-weight:600;font-size:13px;text-decoration:none">
     <svg width="15" height="15" viewBox="0 0 24 24" fill="none"><path d="M14 6l-6 6 6 6" stroke="${STUDIO_COLOR.muted}" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/></svg>
     Sections
@@ -7436,6 +7456,73 @@ export const SECTION_STUDIO_SCRIPT = `
     // alignment contract holds for all of them; only the RESIZE affordance
     // is type-gated).
     var sizeConsuming = !!(node && isSizeConsumingType(node.type));
+    // R2 P8-5 M-1 (contract N16: "selection badges occlude grid question 1's
+    // label"). The badge row below is anchored to the FIELD box, whose top
+    // excludes the question's own <span class="lg-label"> — presets.ts renders
+    // that label as the field's PRECEDING sibling with about 4px of clearance,
+    // so the golden oy-28 row lands squarely on the operator's own words.
+    // MEASURED before this fix, identically at 1280 and 375: the "Yes / No"
+    // tag box y 191-212 over label "Are you insured?" y 199-215 (overlap
+    // 62.2px x 13px of a 16px-tall label), and the "Phone" tag y 382-403 over
+    // label "Phone" y 390-406 — so it was never grid-specific, it hit every
+    // labelled field. An earlier round moved the CONTAINER chip clear
+    // (.studio-container-chip top:0 -> -18px, :1245) and left this row where
+    // it was; that chip is the second badge in the same band and is why this
+    // one cannot simply be raised by a fixed amount (above the label at
+    // y 171-192 it would have covered the chip at y 181-197 instead).
+    //
+    // So the row is MEASURED into the nearest clear band instead of guessed:
+    // start at the golden offset and, while the band intersects something the
+    // chrome must not paint over (a rendered .lg-label, or a container chip),
+    // climb to just above the highest thing it hits. Bounded to 4 climbs. A
+    // field with nothing above it keeps the golden oy-28 row exactly, so
+    // this changes NO placement that was already clear.
+    // MEASURED after, by scripts/p8/probe-p85g1.mjs at 1280 AND 375: the
+    // "Yes / No" tag y 156-177 (label 199-215, container chip 181-197 — both
+    // clear), the "Phone" tag y 365-386 (label 390-406 — clear), and on a node
+    // carrying design_overrides.size.width.custom_px the Custom badge rides
+    // the same measured row (tag y 26-47, badge y 26-46, overlap none). The
+    // other two selection badges were measured unchanged and already clear:
+    // decorateSimpleSelection's tag (continue y 790-812; headline y 39-60 with
+    // the headline text at 69-105) and the container chip. Every read is
+    // guarded:
+    // decorateFieldSelection is vm-sliced against a minimal fake DOM
+    // (leadgen-r2-canvas.test.ts) whose elements have no ownerDocument and
+    // whose document has no querySelectorAll — there the loop finds nothing
+    // and the golden offset stands.
+    var BADGE_ROW_H = 21; // measured height of the 11px/4px-padded tag
+    var badgeTop = oy - 28;
+    var protRects = [];
+    var pDoc = (el && el.ownerDocument) ? el.ownerDocument : null;
+    if (pDoc && typeof pDoc.querySelectorAll === 'function' && wrap.getBoundingClientRect) {
+      var protEls = pDoc.querySelectorAll('.lg-label,.studio-container-chip');
+      var pi, pEl, pr;
+      for (pi = 0; pi < protEls.length; pi++) {
+        pEl = protEls[pi];
+        if (!pEl.getBoundingClientRect || !(pEl.offsetWidth || pEl.offsetHeight)) { continue; }
+        pr = pEl.getBoundingClientRect();
+        if (pr.width <= 0 || pr.height <= 0) { continue; }
+        // wrap-relative, the same coordinate space ox/oy live in
+        protRects.push({ top: pr.top - wr.top, bottom: pr.top + pr.height - wr.top, left: pr.left - wr.left, right: pr.left + pr.width - wr.left });
+      }
+    }
+    var climb, bandTop, bandBottom, hitTop, pj, rr;
+    for (climb = 0; climb < 4 && protRects.length > 0; climb++) {
+      bandTop = badgeTop;
+      bandBottom = badgeTop + BADGE_ROW_H;
+      hitTop = null;
+      for (pj = 0; pj < protRects.length; pj++) {
+        rr = protRects[pj];
+        // The badge's own width is not known until it is in the document, so
+        // the horizontal test uses the FIELD's span as the conservative proxy
+        // (the badge is always anchored inside it).
+        if (rr.bottom > bandTop && rr.top < bandBottom && rr.right > ox && rr.left < ox + ow) {
+          if (hitTop === null || rr.top < hitTop) { hitTop = rr.top; }
+        }
+      }
+      if (hitTop === null) { break; }
+      badgeTop = hitTop - 4 - BADGE_ROW_H;
+    }
     var outline = frameCreate('div');
     outline.setAttribute('data-selection-chrome', '1');
     // The outline's border-box is COINCIDENT with the field box (measured), so
@@ -7475,7 +7562,7 @@ export const SECTION_STUDIO_SCRIPT = `
     // OTHER field-chrome type keeps the tag inert (pointer-events:none) —
     // their body IS the grab surface via the delegated onFieldMoveMouseDown.
     var isChoiceBearing = !!(node && typeMeta(node.type).choice === true);
-    tag.style.cssText = 'position:absolute;top:' + (oy - 28) + 'px;left:' + ox + 'px;' + 'background:#1B3A5C;color:#fff;font-size:11px;font-weight:600;padding:4px 9px;border-radius:6px 6px 6px 0;white-space:nowrap;' + (isChoiceBearing ? 'pointer-events:auto;cursor:move' : 'pointer-events:none');
+    tag.style.cssText = 'position:absolute;top:' + badgeTop + 'px;left:' + ox + 'px;' + 'background:#1B3A5C;color:#fff;font-size:11px;font-weight:600;padding:4px 9px;border-radius:6px 6px 6px 0;white-space:nowrap;' + (isChoiceBearing ? 'pointer-events:auto;cursor:move' : 'pointer-events:none');
     if (isChoiceBearing) {
       // a STABLE, semantic locator for the move-arming path above (over a
       // DOM-order-dependent one) — real-gesture specs target this directly.
@@ -7513,7 +7600,10 @@ export const SECTION_STUDIO_SCRIPT = `
     if (sizeConsuming && (customPxW !== null || customPxH !== null)) {
       var badge = frameCreate('div');
       badge.setAttribute('data-selection-chrome', '1');
-      badge.style.cssText = 'position:absolute;top:' + (oy - 28) + 'px;left:' + (ox + ow) + 'px;transform:translateX(-100%);' + 'background:#1B3A5C;color:#fff;font-size:10.5px;font-weight:700;padding:4px 8px;border-radius:6px 6px 0 6px;pointer-events:none;white-space:nowrap';
+      // M-1: the Custom badge shares the name tag's row, so it rides the SAME
+      // measured badgeTop — otherwise raising one badge off the label would
+      // have left the other one sitting on it.
+      badge.style.cssText = 'position:absolute;top:' + badgeTop + 'px;left:' + (ox + ow) + 'px;transform:translateX(-100%);' + 'background:#1B3A5C;color:#fff;font-size:10.5px;font-weight:700;padding:4px 8px;border-radius:6px 6px 0 6px;pointer-events:none;white-space:nowrap';
       badge.appendChild(document.createTextNode('≈ ' + (customPxW !== null ? customPxW : customPxH) + ' px · custom'));
       wrap.appendChild(badge);
     }
@@ -8892,6 +8982,79 @@ export const SECTION_STUDIO_SCRIPT = `
             if (typeof tv === 'string' && trimStr(tv) !== '' && takenBy[tv] === undefined) { takenBy[tv] = tk; }
           }
         }
+        // R2 P8-5 B-1 (contract R6-2, verbatim: "The 'fills' picker renames a
+        // sub-field's own key and can collide. ... The picker deliberately
+        // offers exactly the siblings that collide."). The takenBy map above
+        // bounded the collision universe at the FOUR slots. It is wider than
+        // that: for a slot this Address actually RENDERS, props.maps.fills
+        // .<slot> RENAMES that visible box's own data-lg-field (presets.ts
+        // m9AddressFieldName), so aiming it at a key another question already
+        // answers puts TWO visible inputs on ONE answer key and the buyer
+        // keeps whichever wrote last. Driven on the real Studio before this
+        // fix: City -> a sibling FreeTextQuestion's key "town_field" was
+        // offered enabled, saved 200 with no problem, stored
+        // props.maps.fills={"city":"town_field"} and rendered
+        // data-lg-field="town_field" TWICE while addr_city disappeared from
+        // the markup entirely.
+        //
+        // So those siblings get exactly the treatment a slot-taken key already
+        // gets — SHOWN, NAMED, not claimable — with the universe widened from
+        // the four slots to the section, as far as the collision reaches and
+        // no further. This is NOT a save gate (§1): nothing new blocks a save,
+        // and a target ALREADY stored still shows as stored and stays
+        // selected, so no authored value is silently dropped.
+        //
+        // A slot this Address does NOT render is untouched: there is no rename
+        // there, the runtime just writes the resolved part into the sibling's
+        // own box (runtime/maps.ts fillTarget), one key with one input — that
+        // is the feature, and it stays freely selectable.
+        var rendersSlot = { street: true, city: true, state: true, zip: true };
+        var pfSpecs = (node && node.props && Array.isArray(node.props.fields)) ? node.props.fields : null;
+        if (pfSpecs) {
+          // props.fields[] absent means the renderer's own default 4-field
+          // spec (presets.ts ADDRESS_DEFAULT_FIELD_SPECS); authored means
+          // exactly the rows authored, and a lone full_address renders no
+          // per-slot box at all.
+          rendersSlot = { street: false, city: false, state: false, zip: false };
+          for (i = 0; i < pfSpecs.length; i++) {
+            if (pfSpecs[i] && typeof pfSpecs[i].field === 'string' && rendersSlot[pfSpecs[i].field] !== undefined) { rendersSlot[pfSpecs[i].field] = true; }
+          }
+        }
+        // Which OTHER node in this Section already answers each key, and what
+        // the operator calls it. Same derivation internalFieldsOf uses for the
+        // section's answer space (own internal_field; an Address's four role
+        // names; a NameFieldsGroup's two part names) — repeated inline here for
+        // the SAME reason stated in the NOTE above this section, and skipping
+        // THIS node so its own current targets never look self-taken.
+        var ownedBy = {};
+        walkTree(state.content.components, 1, function (n) {
+          if (n === node) { return; }
+          // The owner's authored "Field label (only you see this)" if it has
+          // one. With none there is nothing truthful to name — the raw key
+          // echoed back at itself ("town_field — already answered by
+          // town_field") says nothing, and the bare type name ("Text") names
+          // the wrong thing — so it says "another question" instead.
+          var oLabel = (n.props && typeof n.props.label === 'string' && trimStr(n.props.label) !== '') ? trimStr(n.props.label) : 'another question';
+          var oClaim = function (key) {
+            if (key && trimStr(key) !== '' && ownedBy[trimStr(key)] === undefined) { ownedBy[trimStr(key)] = oLabel; }
+          };
+          if (n.internal_field) { oClaim(n.internal_field); }
+          if (n.type === 'AddressAutocompleteQuestion') {
+            var obRoles = ['street', 'city', 'state', 'zip'];
+            var obMaps = n.props && n.props.maps;
+            var obFills = (obMaps && typeof obMaps === 'object' && obMaps.fills && typeof obMaps.fills === 'object') ? obMaps.fills : {};
+            var obBase = (n.internal_field && trimStr(n.internal_field) !== '') ? trimStr(n.internal_field) : (n.question_id || 'address');
+            var obi;
+            for (obi = 0; obi < obRoles.length; obi++) {
+              oClaim((typeof obFills[obRoles[obi]] === 'string' && trimStr(obFills[obRoles[obi]]) !== '') ? trimStr(obFills[obRoles[obi]]) : (obBase + '_' + obRoles[obi]));
+            }
+          }
+          if (n.type === 'NameFieldsGroup') {
+            var obF = (n.props && Array.isArray(n.props.fields)) ? n.props.fields : [];
+            oClaim((typeof obF[0] === 'string' && trimStr(obF[0]) !== '') ? trimStr(obF[0]) : 'first');
+            oClaim((typeof obF[1] === 'string' && trimStr(obF[1]) !== '') ? trimStr(obF[1]) : 'last');
+          }
+        });
         var MAPS_SLOT_LABELS = { street: 'Street', city: 'City', state: 'State', zip: 'ZIP' };
         var selects = document.querySelectorAll('[data-maps-fill-slot]');
         for (i = 0; i < selects.length; i++) {
@@ -8923,6 +9086,14 @@ export const SECTION_STUDIO_SCRIPT = `
             // sources for one answer and finding out from a buyer.
             if (takenBy[others[j]] !== undefined && takenBy[others[j]] !== slot) {
               opt.textContent = others[j] + ' — already filled by ' + (MAPS_SLOT_LABELS[takenBy[others[j]]] || takenBy[others[j]]);
+              opt.disabled = true;
+            } else if (rendersSlot[slot] === true && ownedBy[others[j]] !== undefined && others[j] !== current) {
+              // R2 P8-5 B-1: this slot renders its OWN box, so picking a key
+              // another question already answers would put that key on two
+              // visible inputs. Shown and named, never claimable. (A value
+              // already stored here is the others[j] !== current case above:
+              // it stays selected and enabled so nothing authored vanishes.)
+              opt.textContent = others[j] + ' — already answered by ' + ownedBy[others[j]];
               opt.disabled = true;
             } else {
               opt.textContent = others[j];

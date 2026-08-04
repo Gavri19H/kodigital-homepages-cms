@@ -838,10 +838,104 @@ describeDb("P8 S5.2b — address identity (R6-2 / R6-3 / R6-4 / M4)", () => {
     expect(inStreet.disabled, "the slot that owns it keeps it").toBe(false);
     expect(inStreet.selected).toBe(true);
 
+    // P8-5 B-1 — RE-FOUNDED, not weakened. This loop used to assert that
+    // `town_field` stayed selectable in city/state/zip under the label "can
+    // still take an unclaimed field". That premise is false about this very
+    // fixture: `town_field` is q_town's own internal_field (:803) — a SIBLING
+    // QUESTION's answer key, not an unclaimed one. The old assertion conflated
+    // "not claimed by another FILL SLOT" with "unclaimed", which is exactly the
+    // bounded universe contract R6-2 reports as the defect ("The fills picker
+    // renames a sub-field's own key and can collide ... The picker deliberately
+    // offers exactly the siblings that collide"). Driven on the real Studio at
+    // 1280 with the old code: picking City -> a sibling's key saved 200 with no
+    // problem and rendered data-lg-field="town_field" on TWO visible inputs
+    // while the Address's own addr_city key vanished from the markup.
+    //
+    // This Address authors no props.fields, so it renders the renderer's
+    // default 4-field spec — city/state/zip each render their OWN box, and
+    // props.maps.fills.<slot> RENAMES that box's data-lg-field. So a sibling's
+    // key gets the SAME treatment the test already requires of `note_field`
+    // above: shown, disabled, and named.
     for (const s of ["city", "state", "zip"]) {
-      const free = optionsOf(slots[s]!).find((o) => o.value === "town_field")!;
-      expect(free.disabled, `${s} can still take an unclaimed field`).toBe(false);
-      expect(free.textContent).toBe("town_field");
+      const sibling = optionsOf(slots[s]!).find((o) => o.value === "town_field")!;
+      expect(sibling, `${s} still SHOWS the sibling's key, never quietly missing`).toBeDefined();
+      expect(sibling.disabled, `${s} renders its own box, so a sibling's key cannot be claimed there too`).toBe(true);
+      expect(sibling.textContent, "and it says who already answers it").toBe(
+        // q_town authors no props.label, so there is no truthful name to give.
+        "town_field — already answered by another question",
+      );
     }
+
+    // The intent the old loop was reaching for — a free key must stay
+    // available — re-founded on a key that really is unclaimed: the slot's own
+    // node-namespaced default, which no sibling question owns.
+    for (const s of ["city", "state", "zip"]) {
+      const free = optionsOf(slots[s]!).find((o) => o.value === `home_address_${s}`)!;
+      expect(free, `${s} still offers a key nothing else answers`).toBeDefined();
+      expect(free.disabled, `${s} can still take a genuinely unclaimed key`).toBe(false);
+      expect(free.textContent).toBe(`Create "home_address_${s}"`);
+    }
+  });
+
+  it("the sibling-fill feature itself survives: a slot this Address does NOT render still offers the sibling's key, because nothing is renamed there", async () => {
+    // P8-5 B-1 boundary. props.maps.fills.<slot> only renames a box this
+    // Address actually renders. With props.fields authoring street ALONE there
+    // is no city box of its own, so fills.city is a pure EXTERNAL target: the
+    // runtime writes the resolved city into the sibling's own input
+    // (runtime/maps.ts fillTarget) — one answer key, one visible input, no
+    // collision. Driven on the real Studio: this exact shape picked
+    // `town_field` for City, saved props.maps.fills={"city":"town_field"} and
+    // rendered {"town_field":1,"addr":1,"addr_street":1} — no duplicate key.
+    const env = newHarness();
+    const content = {
+      components: [
+        {
+          type: "AddressAutocompleteQuestion",
+          question_id: "q_addr",
+          internal_field: "home_address",
+          answer_type: "object",
+          props: {
+            fields: [{ field: "street", mode: "autofill", required: false, zip5: false }],
+            maps: { enabled: true, jobs: { validate: false, auction: false, autocomplete: true } },
+          },
+        },
+        { type: "FreeTextQuestion", question_id: "q_town", internal_field: "town_field", answer_type: "string", props: { label: "Town" } },
+      ],
+    };
+    const section = await createSection(env, content);
+    const page = await studioPage(env, section.public_id);
+    const slots: Record<string, FakeEl> = {};
+    for (const s of ["street", "city", "state", "zip"]) {
+      slots[s] = makeEl("select");
+      slots[s]!.setAttribute("data-maps-fill-slot", s);
+    }
+    const routes: Record<string, FakeEl> = {
+      "[data-maps-enabled-toggle]": makeEl("input"),
+      "[data-maps-jobs-block]": makeEl("div"),
+      "[data-maps-zero-job-banner]": makeEl("div"),
+      "[data-maps-validate-copy]": makeEl("span"),
+      "[data-maps-autocomplete-copy]": makeEl("span"),
+      "[data-maps-degradation-note]": makeEl("p"),
+      "[data-maps-fills-block]": makeEl("div"),
+    };
+    const probe = islandProbe(islandOf(page), metaOf(page), content, routes);
+    (probe.sandbox.document as { querySelectorAll: (s: string) => FakeEl[] }).querySelectorAll = (sel: string): FakeEl[] => {
+      if (sel === "[data-maps-fill-slot]") return ["street", "city", "state", "zip"].map((s) => slots[s]!);
+      if (sel === "[data-maps-job]") return [];
+      return routes[sel] ? [routes[sel]!] : [];
+    };
+    probe.sandbox.selectedQuestionId = "q_addr";
+    probe.run("populateMapsTab(selectedNode(), typeMeta(selectedNode().type))");
+
+    for (const s of ["city", "state", "zip"]) {
+      const external = optionsOf(slots[s]!).find((o) => o.value === "town_field")!;
+      expect(external, `${s} is not rendered by this Address, so the sibling stays on offer`).toBeDefined();
+      expect(external.disabled, `${s} writes into the sibling's OWN box — nothing is renamed, nothing collides`).toBe(false);
+      expect(external.textContent).toBe("town_field");
+    }
+    // …and the one slot it DOES render still refuses the sibling's key.
+    const inStreet = optionsOf(slots["street"]!).find((o) => o.value === "town_field")!;
+    expect(inStreet.disabled, "street renders its own box, so there the same key is refused").toBe(true);
+    expect(inStreet.textContent).toBe("town_field — already answered by Town");
   });
 });
