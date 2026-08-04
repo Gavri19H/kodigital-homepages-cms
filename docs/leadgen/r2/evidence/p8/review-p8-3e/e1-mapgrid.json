@@ -1,0 +1,254 @@
+{
+ "375": {
+  "W": 375,
+  "errs": [],
+  "tabFound": true,
+  "pre": {
+   "path": "<select class=\"form-input\" data-map-path=\"lead.r2fix_carrier\" aria-label=\"Offer payload field\" title=\"lead.r2fix_carrier\"><option value=\"lead.r2fix_carrier\">Rv3e probe primary insured mailing street address line two — text (required)</option></select>",
+   "question": "<select class=\"form-input\" data-map-question=\"lead.r2fix_carrier\" aria-label=\"Mapped question\"><option value=\"\">— not mapped —</option><option value=\"__create__\">+ Create question for this field</option><option value=\"p8_addr\">p8_addr</option><option value=\"p8_addr_street\">p8_addr_street</option><option value=\"p8_addr_city\">p8_addr_city</option><option value=\"p8_addr_state\">p8_addr_state</option><option value=\"p8_addr_zip\">p8_addr_zip</option></select>",
+   "pTitle": "lead.r2fix_carrier",
+   "pStyle": null,
+   "hasReveal": "function"
+  },
+  "clipped": {
+   "path": {
+    "outer": "<select class=\"form-input\" data-map-path=\"lead.r2fix_carrier\" aria-label=\"Offer payload field\" title=\"lead.r2fix_carrier\nRv3e probe primary insured mailing street address line two — text (required)\" data-lg-title-own=\"lead.r2fix_carrier\" data-lg-clipped=\"1\" style=\"text-overflow: ellipsis;\"><option value=\"lead.r2fix_carrier\">Rv3e probe primary insured mailing street address line two — text (required)</option></select>",
+    "title": "lead.r2fix_carrier\nRv3e probe primary insured mailing street address line two — text (required)",
+    "clipped": "1",
+    "own": "lead.r2fix_carrier",
+    "style": "text-overflow: ellipsis;",
+    "to": "ellipsis",
+    "cw": 178,
+    "sw": 178,
+    "sel": "Rv3e probe primary insured mailing street address line two — text (required)"
+   },
+   "question": {
+    "outer": "<select class=\"form-input\" data-map-question=\"lead.r2fix_carrier\" aria-label=\"Mapped question\"><option value=\"\">— not mapped —</option><option value=\"__create__\">+ Create question for this field</option><option value=\"p8_addr\">p8_addr</option><option value=\"p8_addr_street\">p8_addr_street</option><option value=\"p8_addr_city\">p8_addr_city</option><option value=\"p8_addr_state\">p8_addr_state</option><option value=\"p8_addr_zip\">p8_addr_zip</option></select>",
+    "title": null,
+    "clipped": null,
+    "own": null,
+    "style": null,
+    "to": "",
+    "cw": 178,
+    "sw": 178,
+    "sel": "— not mapped —"
+   }
+  },
+  "withdrawn": {
+   "path": {
+    "outer": "<select class=\"form-input\" data-map-path=\"lead.r2fix_carrier\" aria-label=\"Offer payload field\" title=\"lead.r2fix_carrier\"><option value=\"lead.r2fix_carrier\">Rv3e probe primary insured mailing street address line two — text (required)</option></select>",
+    "title": "lead.r2fix_carrier",
+    "clipped": null,
+    "own": null,
+    "style": null,
+    "to": "",
+    "cw": 620,
+    "sw": 620,
+    "sel": "Rv3e probe primary insured mailing street address line two — text (required)"
+   },
+   "question": {
+    "outer": "<select class=\"form-input\" data-map-question=\"lead.r2fix_carrier\" aria-label=\"Mapped question\"><option value=\"\">— not mapped —</option><option value=\"__create__\">+ Create question for this field</option><option value=\"p8_addr\">p8_addr</option><option value=\"p8_addr_street\">p8_addr_street</option><option value=\"p8_addr_city\">p8_addr_city</option><option value=\"p8_addr_state\">p8_addr_state</option><option value=\"p8_addr_zip\">p8_addr_zip</option></select>",
+    "title": null,
+    "clipped": null,
+    "own": null,
+    "style": null,
+    "to": "",
+    "cw": 620,
+    "sw": 620,
+    "sel": "— not mapped —"
+   }
+  },
+  "reclipped": {
+   "path": {
+    "outer": "<select class=\"form-input\" data-map-path=\"lead.r2fix_carrier\" aria-label=\"Offer payload field\" title=\"lead.r2fix_carrier\nRv3e probe primary insured mailing street address line two — text (required)\" data-lg-title-own=\"lead.r2fix_carrier\" data-lg-clipped=\"1\" style=\"text-overflow: ellipsis;\"><option value=\"lead.r2fix_carrier\">Rv3e probe primary insured mailing street address line two — text (required)</option></select>",
+    "title": "lead.r2fix_carrier\nRv3e probe primary insured mailing street address line two — text (required)",
+    "clipped": "1",
+    "own": "lead.r2fix_carrier",
+    "style": "text-overflow: ellipsis;",
+    "to": "ellipsis",
+    "cw": 178,
+    "sw": 178,
+    "sel": "Rv3e probe primary insured mailing street address line two — text (required)"
+   },
+   "question": {
+    "outer": "<select class=\"form-input\" data-map-question=\"lead.r2fix_carrier\" aria-label=\"Mapped question\"><option value=\"\">— not mapped —</option><option value=\"__create__\">+ Create question for this field</option><option value=\"p8_addr\">p8_addr</option><option value=\"p8_addr_street\">p8_addr_street</option><option value=\"p8_addr_city\">p8_addr_city</option><option value=\"p8_addr_state\">p8_addr_state</option><option value=\"p8_addr_zip\">p8_addr_zip</option></select>",
+    "title": null,
+    "clipped": null,
+    "own": null,
+    "style": null,
+    "to": "",
+    "cw": 178,
+    "sw": 178,
+    "sel": "— not mapped —"
+   }
+  },
+  "identity": {
+   "pathIdentical": true,
+   "questionIdentical": true,
+   "preHTML": "<select class=\"form-input\" data-map-path=\"lead.r2fix_carrier\" aria-label=\"Offer payload field\" title=\"lead.r2fix_carrier\"><option value=\"lead.r2fix_carrier\">Rv3e probe primary insured mailing street address line two — text (required)</option></select>",
+   "postHTML": "<select class=\"form-input\" data-map-path=\"lead.r2fix_carrier\" aria-label=\"Offer payload field\" title=\"lead.r2fix_carrier\"><option value=\"lead.r2fix_carrier\">Rv3e probe primary insured mailing street address line two — text (required)</option></select>",
+   "preQ": "<select class=\"form-input\" data-map-question=\"lead.r2fix_carrier\" aria-label=\"Mapped question\"><option value=\"\">— not mapped —</option><option value=\"__create__\">+ Create question for this field</option><option value=\"p8_addr\">p8_addr</option><option value=\"p8_addr_street\">p8_addr_street</option><option value=\"p8_addr_city\">p8_addr_city</option><option value=\"p8_addr_state\">p8_addr_state</option><option value=\"p8_addr_zip\">p8_addr_zip</option></select>",
+   "postQ": "<select class=\"form-input\" data-map-question=\"lead.r2fix_carrier\" aria-label=\"Mapped question\"><option value=\"\">— not mapped —</option><option value=\"__create__\">+ Create question for this field</option><option value=\"p8_addr\">p8_addr</option><option value=\"p8_addr_street\">p8_addr_street</option><option value=\"p8_addr_city\">p8_addr_city</option><option value=\"p8_addr_state\">p8_addr_state</option><option value=\"p8_addr_zip\">p8_addr_zip</option></select>"
+  },
+  "idem": {
+   "readings": 17,
+   "distinct": [
+    "[\"lead.r2fix_carrier\\nRv3e probe primary insured mailing street address line two — text (required)\",\"1\",\"lead.r2fix_carrier\",\"ellipsis\",\"text-overflow: ellipsis;\"]"
+   ],
+   "rafDistinct": [
+    "[\"lead.r2fix_carrier\\nRv3e probe primary insured mailing street address line two — text (required)\",\"1\",\"lead.r2fix_carrier\",\"ellipsis\",\"text-overflow: ellipsis;\"]"
+   ],
+   "stashLost": 0
+  },
+  "afterRealHover": {
+   "path": {
+    "outer": "<select class=\"form-input\" data-map-path=\"lead.r2fix_carrier\" aria-label=\"Offer payload field\" title=\"lead.r2fix_carrier\nRv3e probe primary insured mailing street address line two — text (required)\" data-lg-title-own=\"lead.r2fix_carrier\" data-lg-clipped=\"1\" style=\"text-overflow: ellipsis;\"><option value=\"lead.r2fix_carrier\">Rv3e probe primary insured mailing street address line two — text (required)</option></select>",
+    "title": "lead.r2fix_carrier\nRv3e probe primary insured mailing street address line two — text (required)",
+    "clipped": "1",
+    "own": "lead.r2fix_carrier",
+    "style": "text-overflow: ellipsis;",
+    "to": "ellipsis",
+    "cw": 178,
+    "sw": 178,
+    "sel": "Rv3e probe primary insured mailing street address line two — text (required)"
+   },
+   "question": {
+    "outer": "<select class=\"form-input\" data-map-question=\"lead.r2fix_carrier\" aria-label=\"Mapped question\"><option value=\"\">— not mapped —</option><option value=\"__create__\">+ Create question for this field</option><option value=\"p8_addr\">p8_addr</option><option value=\"p8_addr_street\">p8_addr_street</option><option value=\"p8_addr_city\">p8_addr_city</option><option value=\"p8_addr_state\">p8_addr_state</option><option value=\"p8_addr_zip\">p8_addr_zip</option></select>",
+    "title": null,
+    "clipped": null,
+    "own": null,
+    "style": null,
+    "to": "",
+    "cw": 178,
+    "sw": 178,
+    "sel": "— not mapped —"
+   }
+  }
+ },
+ "1280": {
+  "W": 1280,
+  "errs": [],
+  "tabFound": true,
+  "pre": {
+   "path": "<select class=\"form-input\" data-map-path=\"lead.r2fix_carrier\" aria-label=\"Offer payload field\" title=\"lead.r2fix_carrier\"><option value=\"lead.r2fix_carrier\">Rv3e probe primary insured mailing street address line two — text (required)</option></select>",
+   "question": "<select class=\"form-input\" data-map-question=\"lead.r2fix_carrier\" aria-label=\"Mapped question\"><option value=\"\">— not mapped —</option><option value=\"__create__\">+ Create question for this field</option><option value=\"p8_addr\">p8_addr</option><option value=\"p8_addr_street\">p8_addr_street</option><option value=\"p8_addr_city\">p8_addr_city</option><option value=\"p8_addr_state\">p8_addr_state</option><option value=\"p8_addr_zip\">p8_addr_zip</option></select>",
+   "pTitle": "lead.r2fix_carrier",
+   "pStyle": null,
+   "hasReveal": "function"
+  },
+  "clipped": {
+   "path": {
+    "outer": "<select class=\"form-input\" data-map-path=\"lead.r2fix_carrier\" aria-label=\"Offer payload field\" title=\"lead.r2fix_carrier\nRv3e probe primary insured mailing street address line two — text (required)\" data-lg-title-own=\"lead.r2fix_carrier\" data-lg-clipped=\"1\" style=\"text-overflow: ellipsis;\"><option value=\"lead.r2fix_carrier\">Rv3e probe primary insured mailing street address line two — text (required)</option></select>",
+    "title": "lead.r2fix_carrier\nRv3e probe primary insured mailing street address line two — text (required)",
+    "clipped": "1",
+    "own": "lead.r2fix_carrier",
+    "style": "text-overflow: ellipsis;",
+    "to": "ellipsis",
+    "cw": 394,
+    "sw": 394,
+    "sel": "Rv3e probe primary insured mailing street address line two — text (required)"
+   },
+   "question": {
+    "outer": "<select class=\"form-input\" data-map-question=\"lead.r2fix_carrier\" aria-label=\"Mapped question\"><option value=\"\">— not mapped —</option><option value=\"__create__\">+ Create question for this field</option><option value=\"p8_addr\">p8_addr</option><option value=\"p8_addr_street\">p8_addr_street</option><option value=\"p8_addr_city\">p8_addr_city</option><option value=\"p8_addr_state\">p8_addr_state</option><option value=\"p8_addr_zip\">p8_addr_zip</option></select>",
+    "title": null,
+    "clipped": null,
+    "own": null,
+    "style": null,
+    "to": "",
+    "cw": 394,
+    "sw": 394,
+    "sel": "— not mapped —"
+   }
+  },
+  "withdrawn": {
+   "path": {
+    "outer": "<select class=\"form-input\" data-map-path=\"lead.r2fix_carrier\" aria-label=\"Offer payload field\" title=\"lead.r2fix_carrier\"><option value=\"lead.r2fix_carrier\">Rv3e probe primary insured mailing street address line two — text (required)</option></select>",
+    "title": "lead.r2fix_carrier",
+    "clipped": null,
+    "own": null,
+    "style": null,
+    "to": "",
+    "cw": 620,
+    "sw": 620,
+    "sel": "Rv3e probe primary insured mailing street address line two — text (required)"
+   },
+   "question": {
+    "outer": "<select class=\"form-input\" data-map-question=\"lead.r2fix_carrier\" aria-label=\"Mapped question\"><option value=\"\">— not mapped —</option><option value=\"__create__\">+ Create question for this field</option><option value=\"p8_addr\">p8_addr</option><option value=\"p8_addr_street\">p8_addr_street</option><option value=\"p8_addr_city\">p8_addr_city</option><option value=\"p8_addr_state\">p8_addr_state</option><option value=\"p8_addr_zip\">p8_addr_zip</option></select>",
+    "title": null,
+    "clipped": null,
+    "own": null,
+    "style": null,
+    "to": "",
+    "cw": 620,
+    "sw": 620,
+    "sel": "— not mapped —"
+   }
+  },
+  "reclipped": {
+   "path": {
+    "outer": "<select class=\"form-input\" data-map-path=\"lead.r2fix_carrier\" aria-label=\"Offer payload field\" title=\"lead.r2fix_carrier\nRv3e probe primary insured mailing street address line two — text (required)\" data-lg-title-own=\"lead.r2fix_carrier\" data-lg-clipped=\"1\" style=\"text-overflow: ellipsis;\"><option value=\"lead.r2fix_carrier\">Rv3e probe primary insured mailing street address line two — text (required)</option></select>",
+    "title": "lead.r2fix_carrier\nRv3e probe primary insured mailing street address line two — text (required)",
+    "clipped": "1",
+    "own": "lead.r2fix_carrier",
+    "style": "text-overflow: ellipsis;",
+    "to": "ellipsis",
+    "cw": 394,
+    "sw": 394,
+    "sel": "Rv3e probe primary insured mailing street address line two — text (required)"
+   },
+   "question": {
+    "outer": "<select class=\"form-input\" data-map-question=\"lead.r2fix_carrier\" aria-label=\"Mapped question\"><option value=\"\">— not mapped —</option><option value=\"__create__\">+ Create question for this field</option><option value=\"p8_addr\">p8_addr</option><option value=\"p8_addr_street\">p8_addr_street</option><option value=\"p8_addr_city\">p8_addr_city</option><option value=\"p8_addr_state\">p8_addr_state</option><option value=\"p8_addr_zip\">p8_addr_zip</option></select>",
+    "title": null,
+    "clipped": null,
+    "own": null,
+    "style": null,
+    "to": "",
+    "cw": 394,
+    "sw": 394,
+    "sel": "— not mapped —"
+   }
+  },
+  "identity": {
+   "pathIdentical": true,
+   "questionIdentical": true,
+   "preHTML": "<select class=\"form-input\" data-map-path=\"lead.r2fix_carrier\" aria-label=\"Offer payload field\" title=\"lead.r2fix_carrier\"><option value=\"lead.r2fix_carrier\">Rv3e probe primary insured mailing street address line two — text (required)</option></select>",
+   "postHTML": "<select class=\"form-input\" data-map-path=\"lead.r2fix_carrier\" aria-label=\"Offer payload field\" title=\"lead.r2fix_carrier\"><option value=\"lead.r2fix_carrier\">Rv3e probe primary insured mailing street address line two — text (required)</option></select>",
+   "preQ": "<select class=\"form-input\" data-map-question=\"lead.r2fix_carrier\" aria-label=\"Mapped question\"><option value=\"\">— not mapped —</option><option value=\"__create__\">+ Create question for this field</option><option value=\"p8_addr\">p8_addr</option><option value=\"p8_addr_street\">p8_addr_street</option><option value=\"p8_addr_city\">p8_addr_city</option><option value=\"p8_addr_state\">p8_addr_state</option><option value=\"p8_addr_zip\">p8_addr_zip</option></select>",
+   "postQ": "<select class=\"form-input\" data-map-question=\"lead.r2fix_carrier\" aria-label=\"Mapped question\"><option value=\"\">— not mapped —</option><option value=\"__create__\">+ Create question for this field</option><option value=\"p8_addr\">p8_addr</option><option value=\"p8_addr_street\">p8_addr_street</option><option value=\"p8_addr_city\">p8_addr_city</option><option value=\"p8_addr_state\">p8_addr_state</option><option value=\"p8_addr_zip\">p8_addr_zip</option></select>"
+  },
+  "idem": {
+   "readings": 17,
+   "distinct": [
+    "[\"lead.r2fix_carrier\\nRv3e probe primary insured mailing street address line two — text (required)\",\"1\",\"lead.r2fix_carrier\",\"ellipsis\",\"text-overflow: ellipsis;\"]"
+   ],
+   "rafDistinct": [
+    "[\"lead.r2fix_carrier\\nRv3e probe primary insured mailing street address line two — text (required)\",\"1\",\"lead.r2fix_carrier\",\"ellipsis\",\"text-overflow: ellipsis;\"]"
+   ],
+   "stashLost": 0
+  },
+  "afterRealHover": {
+   "path": {
+    "outer": "<select class=\"form-input\" data-map-path=\"lead.r2fix_carrier\" aria-label=\"Offer payload field\" title=\"lead.r2fix_carrier\nRv3e probe primary insured mailing street address line two — text (required)\" data-lg-title-own=\"lead.r2fix_carrier\" data-lg-clipped=\"1\" style=\"text-overflow: ellipsis;\"><option value=\"lead.r2fix_carrier\">Rv3e probe primary insured mailing street address line two — text (required)</option></select>",
+    "title": "lead.r2fix_carrier\nRv3e probe primary insured mailing street address line two — text (required)",
+    "clipped": "1",
+    "own": "lead.r2fix_carrier",
+    "style": "text-overflow: ellipsis;",
+    "to": "ellipsis",
+    "cw": 394,
+    "sw": 394,
+    "sel": "Rv3e probe primary insured mailing street address line two — text (required)"
+   },
+   "question": {
+    "outer": "<select class=\"form-input\" data-map-question=\"lead.r2fix_carrier\" aria-label=\"Mapped question\"><option value=\"\">— not mapped —</option><option value=\"__create__\">+ Create question for this field</option><option value=\"p8_addr\">p8_addr</option><option value=\"p8_addr_street\">p8_addr_street</option><option value=\"p8_addr_city\">p8_addr_city</option><option value=\"p8_addr_state\">p8_addr_state</option><option value=\"p8_addr_zip\">p8_addr_zip</option></select>",
+    "title": null,
+    "clipped": null,
+    "own": null,
+    "style": null,
+    "to": "",
+    "cw": 394,
+    "sw": 394,
+    "sel": "— not mapped —"
+   }
+  }
+ }
+}

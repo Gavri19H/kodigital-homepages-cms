@@ -27,7 +27,27 @@ verify:all 0 · runtime 52,762 ≤ 53,248.
       (static it() blocks are +16 with zero removals; the 5 touched files match baseline per-file exactly).
       Per-file baseline map captured for an exact diff at the post-fix gate run.
 - [ ] P8-2 Blockers II (B4, B5, M9.3)
-- [ ] P8-3 Theme keys honoured (M2, N1, N7, N11, N18, N20 + 80-key sweep)
+- [x] **P8-3 Theme keys honoured — SHIP (review #5, 0 blockers / 0 majors / 4 unreachable-or-scope minors)**
+      Merged after 9 gate runs, 8 p3a recaptures (every differing line classified), 5 adversarial reviews.
+      Final gate: typecheck 0 · 8156 passed / 0 failed / 30 skipped (8186, 487 files) · verify:all 0 · bundle 52,938/53,248 · register 73 rows / 0 violations · zero-drift 0 removed, 1 intended change, 7724+462=8186.
+      Clause verdicts: M2 PASS · N1 PASS · N7 PASS · N11 PASS · N20 PASS · **N18 INCONCLUSIVE** (no logo on the fixture, so no E10 visible-element proof — check_register's R3 caught the conductor trying to PASS it on stylesheet bytes).
+      Original: P8-3 Theme keys honoured (M2, N1, N7, N11, N18, N20 + 80-key sweep) — branch `leadgen-r2-p8-3` off base `6649879`
+      **Conductor reproduction FIRST** (contract numbers are from an older sha and two have already been
+      falsified): all six R3 claims re-measured by hand through the real PUT route, reading
+      getComputedStyle on the first VISIBLE match — every claim reproduces, two of them STRONGER
+      (radius/border_role targets match ZERO nodes, not 0×0; scales.shadow is dead not PARTIAL).
+      Evidence `evidence/p8/m2/repro-before.{md,txt}`, probe `api/scripts/p8/repro-m2-inline.mjs`.
+      ONE CAUSE under four of six: `.lg-question-card` reads a frozen literal token block
+      (tokens.ts:79 → styles.ts:569-574) that no theme layer writes, while the whole `card_defaults`
+      group resolves onto `.lg-card-panel`/`.lg-disclosure-panel` — components no driven page renders.
+      Slices ran as 12, not the planned 3 — each new one answered a defect the previous one MEASURED:
+      S3.1 emitter+tokens+N18 · S3.2 theme-UI minors · S3.4 the 34-key sweep instrument · S3.3 guard
+      (129 keys, re-predicated) · S3.5 N1's 4th control (found unallocated by a scout) · S3.6 the 2
+      palette defects the sweep found · S3.7 the false-choice design select at its producer · S3.8
+      reach the 5 unmeasurable states · S3.9 the error role · S3.10 accent + 2 unreachable rules ·
+      S3.11 role "Used by" text · S3.12 the last hardcoded sweep verdict.
+      **Final inline sweep: 34/34 ALIVE, 0 DEAD, 0 MIS-TARGETED, 0 UNMEASURABLE** (3 identical runs).
+      NOTE: S3.11 changes admin markup, so p3a needs a SECOND recapture before the gate.
 - [ ] P8-4 Templates (M3, M1, M10, M9.1/.2/.4/.5, R7, N6, N9, N12, N17)
 - [ ] P8-5 Studio truth (M5, M6, M7, M4, R6-2/3/4, N14, N15, N16, REQ-R5)
 - [ ] P8-6 Sweep & surface (M8, N2–N5, N8, N10, N13, N19, OWNER rows)
@@ -51,6 +71,28 @@ verify:all 0 · runtime 52,762 ≤ 53,248.
 | P8-1 | F2 B-3 autofill root (opus) | opus | 162,838 | 1607s | autofill enters via the real keystroke path; unseen-ZIP money-path defect gone; bundle 52,948→52,674 |
 | P8-1 | F1 B-2 identity root (opus) | opus | 269,030 | 1760s | hash-persisted target + named headers + pickers; found a THIRD wrong-funnel write path (Save chain) |
 | P8-1 | F4 street-content (sonnet) | sonnet | 204,798 | 1158s | composite street gets street-only; found 2 new tests had ENCODED the bug; bundle 52,938 |
+| P8-3 | scout: guard + key inventory | haiku | 78,838 | 120s | guard calls the REAL producers (worth extending); vitest env node, NO jsdom/CSS parser, no-new-deps → hand cascade resolver is the only route |
+| P8-3 | scout: minors N1/N7/N11/N18/N20 | haiku | 103,344 | 173s | all sites grounded; N1's 4th control is in funnel.ts (NOT the theme files) — caught an unallocated item |
+| P8-3 | S3.1 theme emitter + N18 (opus) | opus | 209,845 | 1024s | code-complete; spec 11 failed → 21 passed; bundle unchanged 52,938; 0 pins re-minted; 2 residuals surfaced |
+| P8-3 | S3.2 theme-UI minors (sonnet) | sonnet | 291,657 | 1330s | code-complete; 12/12; N7 fixed at the STRING (cause is in unowned files) — conductor must measure the rendered width |
+| P8-3 | S3.4 34-key inline sweep (sonnet) | sonnet | 251,595 | 1404s | instrument built + run: 34/34 keys, source-enumerated, count matches the contract; ALIVE 27 / DEAD 1 / MIS-TARGETED 1 / UNMEASURABLE 5; found 2 defects the contract missed |
+| P8-3 | S3.6 palette.success + palette.card_background (opus) | opus | 113,736 | 607s | WIRED success to 3 enumerated real surfaces (not removed); card role now paints the card; precedence pinned both ways; 12 failed → 20 passed; blast radius 582 passed |
+| P8-3 | S3.5 N1 base-design label (sonnet) | sonnet | 166,514 | 948s | **falsified the conductor's own brief premise on evidence** — the registry registers ONE design object under both keys, so it labelled honestly instead of inventing a visual split; 3 failed → 10 passed |
+| P8-3 | S3.8 reach the 5 unmeasurable states (sonnet) | sonnet | 339,724 | 2217s | 4 of 5 resolved by AUTHORING the state through real operator routes; found `.lg-tscard[data-error]` has NO producer; flagged the probe's hardcoded palette.success verdict |
+| P8-3 | S3.9 error role (opus) | opus | 188,927 | 1310s | error role wired to the state render.ts really produces; 6 failed → 16 passed; STOPPED on the dead rules rather than weaken unowned tests; corrected the conductor's accent premise |
+| P8-3 | S3.10 accent role + dead data-error rules (opus) | opus | 164,805 | 934s | accent wired to the surfaces its own "Used by" names; both unreachable rules re-pointed; 2 fixtures re-minted; the 2 assertions made STRICTER (selector+value+not.toContain); 11 failed → 154 passed |
+| P8-3 | S3.12 measure every sweep row (sonnet) | sonnet | 285,169 | 1919s | audited all 34 rows for hardcoded verdicts (exactly 1); **final sweep 34/34 ALIVE, 0/0/0**, stable across 3 runs; falsified its own brief's aria-invalid route empirically; fixture restore verified by GET |
+| P8-3 | F1 8 gate failures (opus) | opus | 131,580 | 747s | all 8 judged product-correct with per-case evidence; proved the byte-pin was NOT a leak (1 differing line of 397); avoided the vacuous-matcher trap |
+| P8-3 | F2 jargon label (sonnet) | sonnet | 132,224 | 700s | '(legacy)' → '(shows as default font)' on BOTH surfaces; jargon gate TOTAL 0 |
+| P8-3 | REVIEW #1 (opus, fresh) | opus | 330,991 | 2122s | **FIX-FIRST** — 1 blocker, 3 majors, 11 minors; re-drove B3 + B5 (both PERFECT); confirmed every gate count, F1's 8 pin updates, p3a×3, security clean |
+| P8-3 | S3.3 guard extend + re-predicate (opus) | opus | 266,106 | 1984s | 129 keys enumerated from source (34+25+66+4; the 34+25 reconciles to R3's 59); 4 exemptions all "no control offers this", exact-set pinned; ZERO dead-and-offered; sabotage red-proof 7 failed → restore → 47 passed |
+
+Two near-identical names that are DIFFERENT keys — do not conflate them in review:
+`ThemeJson.spacing` (theme.ts:566, offered as the rail's "Spacing" control at themes.ts:255, ALIVE via
+applySpacingScale theme.ts:1244) vs `ThemeRecord.spacing` (theme.ts:1008, dead BUT offered by no UI —
+conductor-verified: ui-theme-manager.ts has no density control — so exempt, not an R3 breach). P8-1's
+"spacing DEAD" finding was the second one. Same hazard: `palette.card_background` vs
+`card_defaults.background_role` (S3.4's own flag).
 
 ## Environment notes
 
@@ -61,6 +103,72 @@ live fetches need Host: r2fix.e2e.test + Chrome UA. Playwright drives override P
 Fixture: quote lgq_01KZ271383Y0MPV4BM2WKKCC4W; funnels A lgf_…JE5 (default, theme thm_p8-repro),
 B lgf_…SAVM, C "P8-Charlie" lgf_…G30E, D lgf_…BQ7X; sections: shared=1, buttons=2, address=5
 (P8 Address Repro v3, position 0 of funnel A); site r2fix.e2e.test.
+
+## R3's actual root cause (confirmed independently by two slices, on two authoring axes)
+
+**The base design freezes COPIES of role/scale values into component token slots, so a theme that
+writes the role leaves the painted component untouched.** `questionCard.{background,border,
+borderRadius,boxShadow}` are frozen literals shadowing `color.card` / `content.cardRadius` /
+`cardPanel.border` / `design.shadow.*`; `successState.*`, `reassuranceBadge.*`,
+`trustBar.iconColor` and `validation.successColor` are frozen `#0E7C3A` copies of `color.success`.
+Every "dead" and "mis-targeted" theme key in R3 is an instance: the key wrote the role, the role
+was never read, and the only selectors that DID read it belong to components no driven page
+renders (`.lg-card-panel`, `.lg-disclosure-panel`). The contract's own framing — "dead controls"
+— named the symptom; the cause is one shadowing pattern in the token layer.
+Closure argument: the class is bounded by the 34 authorable inline keys, all 34 of which the
+sweep measures — a frozen copy no authorable key targets is not an R3 breach.
+
+Frozen suites live in `api/test-ui/` (Playwright, `playwright.config.ts:231 testDir:'./test-ui'`),
+NOT in `api/test/` — so `npm test` never runs them and they are a CLOSE-phase concern:
+`test-ui/leadgen-visual.spec.ts`, `test-ui/leadgen-v31-gate1c-baselines.spec.ts`
+(screenshots under `test-ui/__screenshots__/`). Never rebaseline either one.
+
+## ROOT-CAUSE PASS — required by the loop after 2 non-converging FIX-FIRST rounds
+
+**The pattern, three instances:** a fix writes a longer operator-facing string into a box nobody
+measured. (1) F2's `(legacy)` reintroduced the owner's jargon complaint — caught by verify:all.
+(2) F2's 29-35 char font labels re-created N7's truncation — caught by review #1. (3) F5's
+zero-preset placeholder replaced a string that FIT (218.67px) with one overflowing by +59.05px,
+clipping the very destination name the fix existed to add — caught by review #2.
+
+**Method failure, and it is the conductor's.** Each round fixed the reported instance and added a
+test bounded by the CONTAINER the instance lived in. F3 built a genuine box-fit invariant — over
+`.lg-scalars`. F5's new string renders in `.lg-preset-apply-row`, outside that class, so the
+invariant could not see it. That is the SAME lesson already written in this file two rounds earlier
+("an enumeration is only as closed as the universe it names"), now committed at the TEST level: I
+accepted universes named by container class instead of by the surface the operator looks at.
+
+**Why tier escalation does not apply literally:** the heavy slices already run Opus 5, the top of the
+ladder. The escalation is therefore in METHOD, not model — round 3 gets ONE universal invariant
+(every operator-facing control on the surface fits its box at 1280 AND 375, derived from the rendered
+markup, never from a container allowlist) instead of another per-instance fix.
+
+**Second conductor error this round:** F3 justified its 375 layout in prose ("the row is ~343px …
+this one takes the full 343px") and I accepted it without driving 375 myself. The product falsifies
+it: the manager's centre pane is 56.0px with 5.3% of the font select visible, and the `minmax(320px,1fr)`
+floor pins the track. A slice's geometric reasoning is a lead, not a measurement.
+
+## Review #1 (P8-3): the two findings that indict the CONDUCTOR's method, not a slice
+
+**BLOCKER-1 — I measured the wrong universe, again.** N7's clause is "no select shows a truncated
+version of its own value". I measured each select's *currently displayed* value — which on a fresh
+load is always the default "Inherit from base" (105.05px in a 125px box, fits). I never enumerated
+the OTHER options. Fix round F2 then wrote 29-35 character font labels, and the review measured
+"Literata (shows as default font)" at 191.43px in that same 125px box (+66.43px), rendering
+"Literata (shows as ⌄". The phase RE-CREATED the defect it was fixing, and my own evidence file had
+already warned that the string fix left the cause (the 2-column grid) untouched — I wrote the warning
+and then did not act on it. Same shape as the P8-1 lesson: an enumeration is only as closed as the
+universe it names, and "the value on screen right now" is not the same universe as "any value the
+operator can select".
+
+**MAJOR-1 — my sweep's ALIVE verdict hid a mis-target.** `card_defaults.background_role` writes the
+component slot AND re-points the global `card_background` role token. My sweep measured the card and
+the input and called it ALIVE; the review measured `.lg-frame-background` and found flipping the
+control floods the whole 1280x900 viewport and turns all four inputs teal-on-teal, silently
+overriding the operator's own palette swatch in the same rail. A verdict of ALIVE proves the key
+paints SOMETHING; it does not prove the key paints ONLY what its label claims. The guard has the same
+hole (MINOR-2): its predicate is "some visible computed value changed", so it closes R3's DEAD branch
+and leaves the MIS-TARGETED branch unguarded — it calls this very key ALIVE.
 
 ## Root-cause pass: why the SAME class surfaced four times (required after 2 non-converging FIX-FIRST rounds)
 

@@ -1,0 +1,162 @@
+{
+ "375": {
+  "errs": [],
+  "mapping": {
+   "opened": true,
+   "authored": "lead.r2fix_carrier",
+   "shortLabel": "R2fix carrier — text (required)",
+   "step0": {
+    "title": "lead.r2fix_carrier",
+    "clipped": null,
+    "own": null,
+    "to": "",
+    "cw": 178,
+    "sw": 178,
+    "styleAttr": null
+   },
+   "step1": {
+    "title": "lead.r2fix_carrier\nStreet address line one and two — text (required)",
+    "clipped": "1",
+    "own": "lead.r2fix_carrier",
+    "to": "ellipsis",
+    "cw": 178,
+    "sw": 178,
+    "styleAttr": "text-overflow: ellipsis;"
+   },
+   "step2": {
+    "title": "lead.r2fix_carrier",
+    "clipped": null,
+    "own": null,
+    "to": "",
+    "cw": 178,
+    "sw": 178,
+    "styleAttr": null
+   },
+   "outerIdentical": true,
+   "outerBefore": "<select class=\"form-input\" data-map-path=\"lead.r2fix_carrier\" aria-label=\"Offer payload field\" title=\"lead.r2fix_carrier\"><option value=\"lead.r2fix_carrier\">R2fix carrier — text (required)</option></select>",
+   "outerAfter": "<select class=\"form-input\" data-map-path=\"lead.r2fix_carrier\" aria-label=\"Offer payload field\" title=\"lead.r2fix_carrier\"><option value=\"lead.r2fix_carrier\">R2fix carrier — text (required)</option></select>",
+   "readings": 10,
+   "distinctClipped": [
+    "{\"t\":\"lead.r2fix_carrier\\nStreet address line one and two — text (required)\",\"c\":\"1\",\"to\":\"ellipsis\",\"own\":\"lead.r2fix_carrier\"}"
+   ],
+   "distinctRest": [
+    "{\"t\":\"lead.r2fix_carrier\",\"c\":null,\"to\":\"\",\"own\":null}"
+   ],
+   "authorTextMissing": 0
+  },
+  "swap": {
+   "found": true,
+   "authored": "Type — swaps the concrete stored type",
+   "before": {
+    "title": "Type — swaps the concrete stored type",
+    "clipped": null,
+    "own": null,
+    "to": "",
+    "sw": 1326,
+    "cw": 1326,
+    "styleAttr": null
+   },
+   "squeezed": {
+    "title": "Type — swaps the concrete stored type\nHeadline",
+    "clipped": "1",
+    "own": "Type — swaps the concrete stored type",
+    "to": "ellipsis",
+    "sw": 56,
+    "cw": 56,
+    "styleAttr": "width: 58px; text-overflow: ellipsis;"
+   },
+   "released": {
+    "title": "Type — swaps the concrete stored type",
+    "clipped": null,
+    "own": null,
+    "to": "",
+    "sw": 1326,
+    "cw": 1326,
+    "styleAttr": null
+   },
+   "outerBefore": "<select id=\"lg-content-type-swap\" class=\"form-input\" data-text-role=\"\" aria-label=\"Type\" title=\"Type — swaps the concrete stored type\"><option value=\"QuestionHeadline\">Headline</option><option value=\"Subheadline\">Subheadline</option><option value=\"CategoryLabel\">Kicker</option><option value=\"HelperText\">Helper</option><option value=\"LegalNote\">Legal</option></select>",
+   "outerAfterStyle": "<select id=\"lg-content-type-swap\" class=\"form-input\" data-text-role=\"\" aria-label=\"Type\" title=\"Type — swaps the concrete stored type\"><option value=\"QuestionHeadline\">Headline</option><option value=\"Subheadline\">Subheadline</option><option value=\"CategoryLabel\">Kicker</option><option value=\"HelperText\">Helper</option><option value=\"LegalNote\">Legal</option></select>",
+   "outerIdentical": true
+  }
+ },
+ "1280": {
+  "errs": [],
+  "mapping": {
+   "opened": true,
+   "authored": "lead.r2fix_carrier",
+   "shortLabel": "R2fix carrier — text (required)",
+   "step0": {
+    "title": "lead.r2fix_carrier",
+    "clipped": null,
+    "own": null,
+    "to": "",
+    "cw": 394,
+    "sw": 394,
+    "styleAttr": null
+   },
+   "step1": {
+    "title": "lead.r2fix_carrier",
+    "clipped": null,
+    "own": null,
+    "to": "",
+    "cw": 394,
+    "sw": 394,
+    "styleAttr": null
+   },
+   "step2": {
+    "title": "lead.r2fix_carrier",
+    "clipped": null,
+    "own": null,
+    "to": "",
+    "cw": 394,
+    "sw": 394,
+    "styleAttr": null
+   },
+   "outerIdentical": true,
+   "outerBefore": "<select class=\"form-input\" data-map-path=\"lead.r2fix_carrier\" aria-label=\"Offer payload field\" title=\"lead.r2fix_carrier\"><option value=\"lead.r2fix_carrier\">R2fix carrier — text (required)</option></select>",
+   "outerAfter": "<select class=\"form-input\" data-map-path=\"lead.r2fix_carrier\" aria-label=\"Offer payload field\" title=\"lead.r2fix_carrier\"><option value=\"lead.r2fix_carrier\">R2fix carrier — text (required)</option></select>",
+   "readings": 10,
+   "distinctClipped": [
+    "{\"t\":\"lead.r2fix_carrier\",\"c\":null,\"to\":\"\",\"own\":null}"
+   ],
+   "distinctRest": [
+    "{\"t\":\"lead.r2fix_carrier\",\"c\":null,\"to\":\"\",\"own\":null}"
+   ],
+   "authorTextMissing": 0
+  },
+  "swap": {
+   "found": true,
+   "authored": "Type — swaps the concrete stored type",
+   "before": {
+    "title": "Type — swaps the concrete stored type",
+    "clipped": null,
+    "own": null,
+    "to": "",
+    "sw": 292,
+    "cw": 292,
+    "styleAttr": null
+   },
+   "squeezed": {
+    "title": "Type — swaps the concrete stored type\nHeadline",
+    "clipped": "1",
+    "own": "Type — swaps the concrete stored type",
+    "to": "ellipsis",
+    "sw": 56,
+    "cw": 56,
+    "styleAttr": "width: 58px; text-overflow: ellipsis;"
+   },
+   "released": {
+    "title": "Type — swaps the concrete stored type",
+    "clipped": null,
+    "own": null,
+    "to": "",
+    "sw": 292,
+    "cw": 292,
+    "styleAttr": null
+   },
+   "outerBefore": "<select id=\"lg-content-type-swap\" class=\"form-input\" data-text-role=\"\" aria-label=\"Type\" title=\"Type — swaps the concrete stored type\"><option value=\"QuestionHeadline\">Headline</option><option value=\"Subheadline\">Subheadline</option><option value=\"CategoryLabel\">Kicker</option><option value=\"HelperText\">Helper</option><option value=\"LegalNote\">Legal</option></select>",
+   "outerAfterStyle": "<select id=\"lg-content-type-swap\" class=\"form-input\" data-text-role=\"\" aria-label=\"Type\" title=\"Type — swaps the concrete stored type\"><option value=\"QuestionHeadline\">Headline</option><option value=\"Subheadline\">Subheadline</option><option value=\"CategoryLabel\">Kicker</option><option value=\"HelperText\">Helper</option><option value=\"LegalNote\">Legal</option></select>",
+   "outerIdentical": true
+  }
+ }
+}

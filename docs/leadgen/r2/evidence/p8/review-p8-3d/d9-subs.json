@@ -1,0 +1,218 @@
+[
+ {
+  "width": 1280,
+  "res": [
+   {
+    "s": "stepper buttons · progress fill · focus ring · trust-row icons · list check marks",
+    "found": true,
+    "sw": 89,
+    "cw": 89,
+    "over": 0,
+    "h": 82.5
+   },
+   {
+    "s": "highlights · recommended",
+    "found": false
+   },
+   {
+    "s": "frame background",
+    "found": true,
+    "sw": 89,
+    "cw": 89,
+    "over": 0,
+    "h": 33
+   },
+   {
+    "s": "question card · answer cards · input fields",
+    "found": true,
+    "sw": 89,
+    "cw": 89,
+    "over": 0,
+    "h": 49.5
+   },
+   {
+    "s": "body text · input text",
+    "found": true,
+    "sw": 89,
+    "cw": 89,
+    "over": 0,
+    "h": 33
+   },
+   {
+    "s": "reassurance · valid states",
+    "found": true,
+    "sw": 89,
+    "cw": 89,
+    "over": 0,
+    "h": 33
+   },
+   {
+    "s": "gradients · secondary emphasis",
+    "found": true,
+    "sw": 89,
+    "cw": 89,
+    "over": 0,
+    "h": 49.5
+   },
+   {
+    "s": "range-slider focus ring",
+    "found": true,
+    "sw": 89,
+    "cw": 89,
+    "over": 0,
+    "h": 33
+   },
+   {
+    "s": "answer card/input borders · progress steps · progress track",
+    "found": true,
+    "sw": 89,
+    "cw": 89,
+    "over": 0,
+    "h": 82.5
+   },
+   {
+    "s": "labels · disclosure text",
+    "found": true,
+    "sw": 89,
+    "cw": 89,
+    "over": 0,
+    "h": 33
+   },
+   {
+    "s": "Continue/CTA background",
+    "found": true,
+    "sw": 89,
+    "cw": 89,
+    "over": 0,
+    "h": 33
+   },
+   {
+    "s": "Continue/CTA text",
+    "found": true,
+    "sw": 89,
+    "cw": 89,
+    "over": 0,
+    "h": 33
+   },
+   {
+    "s": "benefit bar · disclosure bar",
+    "found": true,
+    "sw": 89,
+    "cw": 89,
+    "over": 0,
+    "h": 33
+   }
+  ],
+  "usedBy": 0,
+  "docSW": 1280,
+  "iw": 1280
+ },
+ {
+  "width": 375,
+  "res": [
+   {
+    "s": "stepper buttons · progress fill · focus ring · trust-row icons · list check marks",
+    "found": true,
+    "sw": 87,
+    "cw": 87,
+    "over": 0,
+    "h": 82.5
+   },
+   {
+    "s": "highlights · recommended",
+    "found": false
+   },
+   {
+    "s": "frame background",
+    "found": true,
+    "sw": 87,
+    "cw": 87,
+    "over": 0,
+    "h": 33
+   },
+   {
+    "s": "question card · answer cards · input fields",
+    "found": true,
+    "sw": 87,
+    "cw": 87,
+    "over": 0,
+    "h": 49.5
+   },
+   {
+    "s": "body text · input text",
+    "found": true,
+    "sw": 87,
+    "cw": 87,
+    "over": 0,
+    "h": 33
+   },
+   {
+    "s": "reassurance · valid states",
+    "found": true,
+    "sw": 87,
+    "cw": 87,
+    "over": 0,
+    "h": 33
+   },
+   {
+    "s": "gradients · secondary emphasis",
+    "found": true,
+    "sw": 87,
+    "cw": 87,
+    "over": 0,
+    "h": 49.5
+   },
+   {
+    "s": "range-slider focus ring",
+    "found": true,
+    "sw": 87,
+    "cw": 87,
+    "over": 0,
+    "h": 33
+   },
+   {
+    "s": "answer card/input borders · progress steps · progress track",
+    "found": true,
+    "sw": 87,
+    "cw": 87,
+    "over": 0,
+    "h": 82.5
+   },
+   {
+    "s": "labels · disclosure text",
+    "found": true,
+    "sw": 87,
+    "cw": 87,
+    "over": 0,
+    "h": 33
+   },
+   {
+    "s": "Continue/CTA background",
+    "found": true,
+    "sw": 87,
+    "cw": 87,
+    "over": 0,
+    "h": 33
+   },
+   {
+    "s": "Continue/CTA text",
+    "found": true,
+    "sw": 87,
+    "cw": 87,
+    "over": 0,
+    "h": 33
+   },
+   {
+    "s": "benefit bar · disclosure bar",
+    "found": true,
+    "sw": 87,
+    "cw": 87,
+    "over": 0,
+    "h": 33
+   }
+  ],
+  "usedBy": 0,
+  "docSW": 375,
+  "iw": 375
+ }
+]

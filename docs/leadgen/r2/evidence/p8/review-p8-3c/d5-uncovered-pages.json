@@ -1,0 +1,297 @@
+{
+ "quotes-list@1280": {
+  "visSel": 3,
+  "totalOpts": 11,
+  "clipping": 0,
+  "out": [],
+  "reveal": "undefined"
+ },
+ "quotes-new@1280": {
+  "visSel": 2,
+  "totalOpts": 6,
+  "clipping": 0,
+  "out": [],
+  "reveal": "undefined"
+ },
+ "sections-list@1280": {
+  "visSel": 4,
+  "totalOpts": 13,
+  "clipping": 0,
+  "out": [],
+  "reveal": "undefined"
+ },
+ "section-editor@1280": {
+  "visSel": 20,
+  "totalOpts": 159,
+  "clipping": 1,
+  "out": [
+   {
+    "id": "lg-preview-theme",
+    "cw": 128,
+    "worst": {
+     "t": "RV3C Clip Audit Theme 8f21",
+     "d": 35
+    },
+    "n": 1,
+    "title": null,
+    "revealed": null
+   }
+  ],
+  "reveal": "undefined"
+ },
+ "offers-list@1280": {
+  "visSel": 7,
+  "totalOpts": 24,
+  "clipping": 0,
+  "out": [],
+  "reveal": "undefined"
+ },
+ "auction-editor@1280": {
+  "visSel": 10,
+  "totalOpts": 26,
+  "clipping": 0,
+  "out": [],
+  "reveal": "undefined"
+ },
+ "conversions-admin@1280": {
+  "visSel": 0,
+  "totalOpts": 0,
+  "clipping": 0,
+  "out": [],
+  "reveal": "undefined"
+ },
+ "conversions-pages@1280": {
+  "visSel": 3,
+  "totalOpts": 17,
+  "clipping": 1,
+  "out": [
+   {
+    "id": "site_id",
+    "cw": 145,
+    "worst": {
+     "t": "Global only (templates)",
+     "d": 15
+    },
+    "n": 1,
+    "title": null,
+    "revealed": null
+   }
+  ],
+  "reveal": "undefined"
+ },
+ "quotes-list@375": {
+  "visSel": 3,
+  "totalOpts": 11,
+  "clipping": 1,
+  "out": [
+   {
+    "id": "activity",
+    "cw": 107,
+    "worst": {
+     "t": "auto-insurance",
+     "d": 2
+    },
+    "n": 1,
+    "title": null,
+    "revealed": null
+   }
+  ],
+  "reveal": "undefined"
+ },
+ "quotes-new@375": {
+  "visSel": 2,
+  "totalOpts": 6,
+  "clipping": 0,
+  "out": [],
+  "reveal": "undefined"
+ },
+ "sections-list@375": {
+  "visSel": 4,
+  "totalOpts": 13,
+  "clipping": 4,
+  "out": [
+   {
+    "id": "activity",
+    "cw": 78,
+    "worst": {
+     "t": "auto-insurance",
+     "d": 31
+    },
+    "n": 3,
+    "title": null,
+    "revealed": null
+   },
+   {
+    "id": "vertical",
+    "cw": 78,
+    "worst": {
+     "t": "r2fix_vertical",
+     "d": 17
+    },
+    "n": 2,
+    "title": null,
+    "revealed": null
+   },
+   {
+    "id": "status",
+    "cw": 78,
+    "worst": {
+     "t": "All statuses",
+     "d": 10
+    },
+    "n": 1,
+    "title": null,
+    "revealed": null
+   },
+   {
+    "id": "range",
+    "cw": 78,
+    "worst": {
+     "t": "Last 30 days",
+     "d": 17
+    },
+    "n": 3,
+    "title": null,
+    "revealed": null
+   }
+  ],
+  "reveal": "undefined"
+ },
+ "section-editor@375": {
+  "visSel": 20,
+  "totalOpts": 159,
+  "clipping": 1,
+  "out": [
+   {
+    "id": "lg-preview-theme",
+    "cw": 128,
+    "worst": {
+     "t": "RV3C Clip Audit Theme 8f21",
+     "d": 35
+    },
+    "n": 1,
+    "title": null,
+    "revealed": null
+   }
+  ],
+  "reveal": "undefined"
+ },
+ "offers-list@375": {
+  "visSel": 7,
+  "totalOpts": 24,
+  "clipping": 7,
+  "out": [
+   {
+    "id": "provider",
+    "cw": 40,
+    "worst": {
+     "t": "All providers",
+     "d": 53
+    },
+    "n": 2,
+    "title": null,
+    "revealed": null
+   },
+   {
+    "id": "vertical",
+    "cw": 40,
+    "worst": {
+     "t": "r2fix_vertical",
+     "d": 55
+    },
+    "n": 3,
+    "title": null,
+    "revealed": null
+   },
+   {
+    "id": "activity",
+    "cw": 40,
+    "worst": {
+     "t": "auto-insurance",
+     "d": 69
+    },
+    "n": 3,
+    "title": null,
+    "revealed": null
+   },
+   {
+    "id": "status",
+    "cw": 40,
+    "worst": {
+     "t": "All statuses",
+     "d": 48
+    },
+    "n": 4,
+    "title": null,
+    "revealed": null
+   },
+   {
+    "id": "offer_type",
+    "cw": 40,
+    "worst": {
+     "t": "All offer types",
+     "d": 61
+    },
+    "n": 4,
+    "title": null,
+    "revealed": null
+   },
+   {
+    "id": "dynamic",
+    "cw": 40,
+    "worst": {
+     "t": "Dynamic + static",
+     "d": 79
+    },
+    "n": 3,
+    "title": null,
+    "revealed": null
+   },
+   {
+    "id": "range",
+    "cw": 40,
+    "worst": {
+     "t": "Last 30 days",
+     "d": 55
+    },
+    "n": 4,
+    "title": null,
+    "revealed": null
+   }
+  ],
+  "reveal": "undefined"
+ },
+ "auction-editor@375": {
+  "visSel": 10,
+  "totalOpts": 26,
+  "clipping": 0,
+  "out": [],
+  "reveal": "undefined"
+ },
+ "conversions-admin@375": {
+  "visSel": 0,
+  "totalOpts": 0,
+  "clipping": 0,
+  "out": [],
+  "reveal": "undefined"
+ },
+ "conversions-pages@375": {
+  "visSel": 3,
+  "totalOpts": 17,
+  "clipping": 1,
+  "out": [
+   {
+    "id": "site_id",
+    "cw": 107,
+    "worst": {
+     "t": "Global only (templates)",
+     "d": 53
+    },
+    "n": 3,
+    "title": null,
+    "revealed": null
+   }
+  ],
+  "reveal": "undefined"
+ }
+}

@@ -1,0 +1,150 @@
+{
+ "375": {
+  "rows": {
+   "rows": [
+    {
+     "id": "lg-theme-site-select",
+     "found": true,
+     "vis": true,
+     "pre": {
+      "outer": "<select id=\"lg-theme-site-select\" class=\"form-select\" data-site-select=\"\" aria-label=\"Preview site\"><option value=\"\">CMS fallback branding</option><option value=\"st_cad9f863eb2444a1\" data-badge=\"Active\">R2Fix Fixture Site — Active</option><option value=\"st_seedlocal01\" data-badge=\"Not activated yet\">Seed Local Living — Not activated yet</option></select>",
+      "title": null,
+      "style": null
+     },
+     "revealed": {
+      "title": "Seed Local Living — Not activated yet",
+      "clipped": "1",
+      "own": null,
+      "to": "ellipsis",
+      "sel": "Seed Local Living — Not activated yet",
+      "cw": 239
+     },
+     "titleIsFullOption": true,
+     "after": {
+      "outer": "<select id=\"lg-theme-site-select\" class=\"form-select\" data-site-select=\"\" aria-label=\"Preview site\"><option value=\"\">CMS fallback branding</option><option value=\"st_cad9f863eb2444a1\" data-badge=\"Active\">R2Fix Fixture Site — Active</option><option value=\"st_seedlocal01\" data-badge=\"Not activated yet\">Seed Local Living — Not activated yet</option></select>",
+      "title": null,
+      "clipped": null,
+      "own": null,
+      "style": null
+     },
+     "identical": true
+    },
+    {
+     "id": "lg-theme-target-select",
+     "found": true,
+     "vis": true,
+     "pre": {
+      "outer": "<select class=\"form-select form-select-sm\" id=\"lg-theme-target-select\" data-lg-target-funnel=\"\" aria-label=\"Funnel this theme edits\" style=\"margin-left:8px;max-width:200px;vertical-align:middle\"><option value=\"lgf_01KZ271383F5X1SQ3DXTXKNJE5\">R2Fix Fixture Quote — Funnel A</option><option value=\"lgf_01KZ279RVPT0Z7SX8GE81KSAVM\">R2C3 Bravo Extremely Long Funnel Column Name For The Truncation Audit Delta Echo</option><option value=\"lgf_01KZ279RW7CMXCDT9JF8WJG30E\">P8-Charlie</option><option value=\"lgf_01KZ279RWTSZB5054A8Q9WBQ7X\">P8-Delta</option><option value=\"lgf_01KZ3ANG2WX5WQBY7SB9GFCNMT\">P8-Echo-themeless</option></select>",
+      "title": null,
+      "style": "margin-left:8px;max-width:200px;vertical-align:middle"
+     },
+     "revealed": {
+      "title": "R2C3 Bravo Extremely Long Funnel Column Name For The Truncation Audit Delta Echo",
+      "clipped": "1",
+      "own": null,
+      "to": "ellipsis",
+      "sel": "R2C3 Bravo Extremely Long Funnel Column Name For The Truncation Audit Delta Echo",
+      "cw": 198
+     },
+     "titleIsFullOption": true,
+     "after": {
+      "outer": "<select class=\"form-select form-select-sm\" id=\"lg-theme-target-select\" data-lg-target-funnel=\"\" aria-label=\"Funnel this theme edits\" style=\"margin-left: 8px; max-width: 200px; vertical-align: middle;\"><option value=\"lgf_01KZ271383F5X1SQ3DXTXKNJE5\">R2Fix Fixture Quote — Funnel A</option><option value=\"lgf_01KZ279RVPT0Z7SX8GE81KSAVM\">R2C3 Bravo Extremely Long Funnel Column Name For The Truncation Audit Delta Echo</option><option value=\"lgf_01KZ279RW7CMXCDT9JF8WJG30E\">P8-Charlie</option><option value=\"lgf_01KZ279RWTSZB5054A8Q9WBQ7X\">P8-Delta</option><option value=\"lgf_01KZ3ANG2WX5WQBY7SB9GFCNMT\">P8-Echo-themeless</option></select>",
+      "title": null,
+      "clipped": null,
+      "own": null,
+      "style": "margin-left: 8px; max-width: 200px; vertical-align: middle;"
+     },
+     "identical": false
+    }
+   ],
+   "options": 115,
+   "over": [
+    {
+     "id": "lg-theme-site-select",
+     "option": "Seed Local Living — Not activated yet",
+     "over": 14
+    },
+    {
+     "id": "lg-theme-target-select",
+     "option": "R2C3 Bravo Extremely Long Funnel Column Name For The Truncation Audit Delta Echo",
+     "over": 281
+    }
+   ]
+  },
+  "errs": []
+ },
+ "1280": {
+  "rows": {
+   "rows": [
+    {
+     "id": "lg-theme-site-select",
+     "found": true,
+     "vis": true,
+     "pre": {
+      "outer": "<select id=\"lg-theme-site-select\" class=\"form-select\" data-site-select=\"\" aria-label=\"Preview site\"><option value=\"\">CMS fallback branding</option><option value=\"st_cad9f863eb2444a1\" data-badge=\"Active\">R2Fix Fixture Site — Active</option><option value=\"st_seedlocal01\" data-badge=\"Not activated yet\">Seed Local Living — Not activated yet</option></select>",
+      "title": null,
+      "style": null
+     },
+     "revealed": {
+      "title": "Seed Local Living — Not activated yet",
+      "clipped": "1",
+      "own": null,
+      "to": "ellipsis",
+      "sel": "Seed Local Living — Not activated yet",
+      "cw": 222
+     },
+     "titleIsFullOption": true,
+     "after": {
+      "outer": "<select id=\"lg-theme-site-select\" class=\"form-select\" data-site-select=\"\" aria-label=\"Preview site\"><option value=\"\">CMS fallback branding</option><option value=\"st_cad9f863eb2444a1\" data-badge=\"Active\">R2Fix Fixture Site — Active</option><option value=\"st_seedlocal01\" data-badge=\"Not activated yet\">Seed Local Living — Not activated yet</option></select>",
+      "title": null,
+      "clipped": null,
+      "own": null,
+      "style": null
+     },
+     "identical": true
+    },
+    {
+     "id": "lg-theme-target-select",
+     "found": true,
+     "vis": true,
+     "pre": {
+      "outer": "<select class=\"form-select form-select-sm\" id=\"lg-theme-target-select\" data-lg-target-funnel=\"\" aria-label=\"Funnel this theme edits\" style=\"margin-left:8px;max-width:200px;vertical-align:middle\"><option value=\"lgf_01KZ271383F5X1SQ3DXTXKNJE5\">R2Fix Fixture Quote — Funnel A</option><option value=\"lgf_01KZ279RVPT0Z7SX8GE81KSAVM\">R2C3 Bravo Extremely Long Funnel Column Name For The Truncation Audit Delta Echo</option><option value=\"lgf_01KZ279RW7CMXCDT9JF8WJG30E\">P8-Charlie</option><option value=\"lgf_01KZ279RWTSZB5054A8Q9WBQ7X\">P8-Delta</option><option value=\"lgf_01KZ3ANG2WX5WQBY7SB9GFCNMT\">P8-Echo-themeless</option></select>",
+      "title": null,
+      "style": "margin-left:8px;max-width:200px;vertical-align:middle"
+     },
+     "revealed": {
+      "title": "R2C3 Bravo Extremely Long Funnel Column Name For The Truncation Audit Delta Echo",
+      "clipped": "1",
+      "own": null,
+      "to": "ellipsis",
+      "sel": "R2C3 Bravo Extremely Long Funnel Column Name For The Truncation Audit Delta Echo",
+      "cw": 198
+     },
+     "titleIsFullOption": true,
+     "after": {
+      "outer": "<select class=\"form-select form-select-sm\" id=\"lg-theme-target-select\" data-lg-target-funnel=\"\" aria-label=\"Funnel this theme edits\" style=\"margin-left: 8px; max-width: 200px; vertical-align: middle;\"><option value=\"lgf_01KZ271383F5X1SQ3DXTXKNJE5\">R2Fix Fixture Quote — Funnel A</option><option value=\"lgf_01KZ279RVPT0Z7SX8GE81KSAVM\">R2C3 Bravo Extremely Long Funnel Column Name For The Truncation Audit Delta Echo</option><option value=\"lgf_01KZ279RW7CMXCDT9JF8WJG30E\">P8-Charlie</option><option value=\"lgf_01KZ279RWTSZB5054A8Q9WBQ7X\">P8-Delta</option><option value=\"lgf_01KZ3ANG2WX5WQBY7SB9GFCNMT\">P8-Echo-themeless</option></select>",
+      "title": null,
+      "clipped": null,
+      "own": null,
+      "style": "margin-left: 8px; max-width: 200px; vertical-align: middle;"
+     },
+     "identical": false
+    }
+   ],
+   "options": 115,
+   "over": [
+    {
+     "id": "lg-theme-site-select",
+     "option": "Seed Local Living — Not activated yet",
+     "over": 31
+    },
+    {
+     "id": "lg-theme-target-select",
+     "option": "R2C3 Bravo Extremely Long Funnel Column Name For The Truncation Audit Delta Echo",
+     "over": 281
+    }
+   ]
+  },
+  "errs": []
+ }
+}

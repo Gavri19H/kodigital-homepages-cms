@@ -725,11 +725,58 @@ describeDb("Gate 2 strings — Themes manager (Appendix A, D1+KV)", () => {
       "themes CENTER editor",
     );
     // role sublabels (Appendix A remainder)
+    //
+    // R2 P8-3 M2/S3.11 RE-MINT of four of these six. PRECEDENCE:
+    // docs/leadgen/r2/P8-DEFECT-CONTRACT.md wins over the v3.1 Appendix A string
+    // list, and its §4 R3 corollary ("a control that cannot be honoured must not
+    // be offered") makes a pinned sublabel that names a surface the role does not
+    // paint a pin encoding a defect. The per-string verdicts (which of the four
+    // were FALSE vs merely divergent, with the token literals that prove it) are
+    // written out once, in full, at the sibling leg
+    // test/leadgen-theme-manager-ui.test.ts "role sublabels + role note + size-
+    // language note render verbatim (Appendix A)" — this Appendix-A roster is
+    // kept in lockstep with it rather than restating the evidence. Source of
+    // truth for what each role really paints:
+    // test/leadgen-p8-m2-role-usedby.test.ts (real resolveTokens +
+    // funnelChromeCss, no hand-built side). Two of the six ("highlights ·
+    // recommended", "reassurance · valid") were audited as still true and are
+    // unchanged.
+    //
+    // R2 P8-3 FIX ROUND F7 (review MINOR-4) — brand_primary's roster entry
+    // restored to "buttons · progress fill · focus ring". The M2/S3.11
+    // sibling-leg reasoning above over-corrected: brand_primary's own frozen
+    // progress.fillColor token never moves, but a separate CSS rule
+    // (default-funnel/styles.ts:2553-2558) paints `.lg-progress-fill`
+    // background directly from the role with `!important`, bypassing that
+    // frozen token — the rendered fill DOES move with brand_primary (F3's
+    // sweep; pinned at test/leadgen-p8-m2-role-usedby.test.ts's I2 leg).
+    //
+    // R2 P8-3 FIX ROUND F8 (MINOR-4 corollary, one more role) — card's roster
+    // entry widened to "question card · answer cards · input fields": its
+    // token (color.card) is ALSO `.lg-input`'s resting background
+    // (default-funnel/styles.ts:1845). Full per-string evidence in the
+    // sibling leg's F8 addendum (test/leadgen-theme-manager-ui.test.ts).
+    //
+    // R2 P8-3 FIX ROUND F11 (review-p8-3b MINOR-3) — brand_primary's roster
+    // entry corrected to "stepper buttons · progress fill · focus ring". The
+    // bare noun "buttons" was FALSE for every button a funnel renders (driven:
+    // brand_primary #FF00AA left the Continue button at rgb(27,58,92); buttons
+    // follow button_primary_bg), and F11's exhaustive sentinel sweep of the
+    // REAL generated stylesheet finds `.lg-range-stepper-btn` as this role's
+    // only button-shaped consumer. Full per-string evidence in the sibling leg
+    // (test/leadgen-theme-manager-ui.test.ts, item 7). NOT WEAKENED — and note
+    // the SUBSTRING TRAP this roster had to escape: the old entry still matches
+    // inside the new sublabel, so leaving it would have kept passing while
+    // pinning nothing; the roster carries the FULL new string.
     assertAllPresent(
       html,
       [
-        "buttons · progress · selected", "highlights · recommended", "behind the card", "question surface",
-        "headings &amp; body", "reassurance · valid",
+        // F13 (review-p8-3c MINOR-4): the FULL new roster entry — three more
+        // unconditional movers named, and the old text is a substring of it,
+        // so leaving it would have pinned nothing.
+        "stepper buttons · progress fill · focus ring · trust-row icons · list check marks", "highlights · recommended", "frame background",
+        "question card · answer cards · input fields",
+        "body text · input text", "reassurance · valid",
         "Components reference these roles, never fixed shades — change one here and every question in the funnel reskins.",
       ],
       "themes role sublabels + note",

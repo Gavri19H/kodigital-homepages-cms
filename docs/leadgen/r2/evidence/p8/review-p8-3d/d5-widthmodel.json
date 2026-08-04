@@ -1,0 +1,326 @@
+{
+ "total": 254,
+ "under": 32,
+ "bad": [
+  {
+   "text": "日本語のテーマ名前です",
+   "stackName": "mono",
+   "ff": "'Roboto Mono',monospace",
+   "fs": 14,
+   "w": 154.984375,
+   "bucket": "mono",
+   "model": 95.48,
+   "ratio": 1.6232129765395893
+  },
+  {
+   "text": "日本語のテーマ名前です",
+   "stackName": "monoUi",
+   "ff": "ui-monospace,SFMono-Regular,Menlo,monospace",
+   "fs": 14,
+   "w": 154.984375,
+   "bucket": "mono",
+   "model": 95.48,
+   "ratio": 1.6232129765395893
+  },
+  {
+   "text": "日本語のテーマ名前です",
+   "stackName": "arial",
+   "ff": "Arial",
+   "fs": 14,
+   "w": 154.984375,
+   "bucket": "sans",
+   "model": 100.254,
+   "ratio": 1.5459171205138946
+  },
+  {
+   "text": "日本語のテーマ名前です",
+   "stackName": "adminSans",
+   "ff": "-apple-system,BlinkMacSystemFont,\"Segoe UI\",Roboto,sans-serif",
+   "fs": 14,
+   "w": 153.140625,
+   "bucket": "sans",
+   "model": 100.254,
+   "ratio": 1.5275263331138906
+  },
+  {
+   "text": "日本語のテーマ名前です",
+   "stackName": "systemui",
+   "ff": "system-ui,Arial,sans-serif",
+   "fs": 14,
+   "w": 153.140625,
+   "bucket": "sans",
+   "model": 100.254,
+   "ratio": 1.5275263331138906
+  },
+  {
+   "text": "日本語のテーマ名前です",
+   "stackName": "lexend",
+   "ff": "Lexend,system-ui,Arial,sans-serif",
+   "fs": 14,
+   "w": 153.140625,
+   "bucket": "sans",
+   "model": 100.254,
+   "ratio": 1.5275263331138906
+  },
+  {
+   "text": "日本語のテーマ名前です",
+   "stackName": "georgia",
+   "ff": "'Playfair Display',Georgia,'Times New Roman',serif",
+   "fs": 14,
+   "w": 154,
+   "bucket": "serif",
+   "model": 106.93760000000002,
+   "ratio": 1.4400921658986172
+  },
+  {
+   "text": "日本語のテーマ名前です",
+   "stackName": "serif",
+   "ff": "'Newsreader',Georgia,serif",
+   "fs": 14,
+   "w": 154,
+   "bucket": "serif",
+   "model": 106.93760000000002,
+   "ratio": 1.4400921658986172
+  },
+  {
+   "text": "%%%%%%%%%%%%%%%%%%%%",
+   "stackName": "adminSans",
+   "ff": "-apple-system,BlinkMacSystemFont,\"Segoe UI\",Roboto,sans-serif",
+   "fs": 14,
+   "w": 256.078125,
+   "bucket": "sans",
+   "model": 182.27999999999994,
+   "ratio": 1.4048613396971696
+  },
+  {
+   "text": "%%%%%%%%%%%%%%%%%%%%",
+   "stackName": "systemui",
+   "ff": "system-ui,Arial,sans-serif",
+   "fs": 14,
+   "w": 256.078125,
+   "bucket": "sans",
+   "model": 182.27999999999994,
+   "ratio": 1.4048613396971696
+  },
+  {
+   "text": "%%%%%%%%%%%%%%%%%%%%",
+   "stackName": "lexend",
+   "ff": "Lexend,system-ui,Arial,sans-serif",
+   "fs": 14,
+   "w": 256.078125,
+   "bucket": "sans",
+   "model": 182.27999999999994,
+   "ratio": 1.4048613396971696
+  },
+  {
+   "text": "%%%%%%%%%%%%%%%%%%%%",
+   "stackName": "arial",
+   "ff": "Arial",
+   "fs": 14,
+   "w": 248.96875,
+   "bucket": "sans",
+   "model": 182.27999999999994,
+   "ratio": 1.3658588435374155
+  },
+  {
+   "text": "%%%%%%%%%%%%%%%%%%%%",
+   "stackName": "georgia",
+   "ff": "'Playfair Display',Georgia,'Times New Roman',serif",
+   "fs": 14,
+   "w": 228.875,
+   "bucket": "serif",
+   "model": 194.43199999999996,
+   "ratio": 1.1771467659644506
+  },
+  {
+   "text": "%%%%%%%%%%%%%%%%%%%%",
+   "stackName": "serif",
+   "ff": "'Newsreader',Georgia,serif",
+   "fs": 14,
+   "w": 228.875,
+   "bucket": "serif",
+   "model": 194.43199999999996,
+   "ratio": 1.1771467659644506
+  },
+  {
+   "text": "ÄÖÜÑÇÆØÅÐÞ",
+   "stackName": "arial",
+   "ff": "Arial",
+   "fs": 14,
+   "w": 104.234375,
+   "bucket": "sans",
+   "model": 91.14,
+   "ratio": 1.1436731950844854
+  },
+  {
+   "text": "ÄÖÜÑÇÆØÅÐÞ",
+   "stackName": "adminSans",
+   "ff": "-apple-system,BlinkMacSystemFont,\"Segoe UI\",Roboto,sans-serif",
+   "fs": 14,
+   "w": 101.21875,
+   "bucket": "sans",
+   "model": 91.14,
+   "ratio": 1.110585363177529
+  },
+  {
+   "text": "ÄÖÜÑÇÆØÅÐÞ",
+   "stackName": "systemui",
+   "ff": "system-ui,Arial,sans-serif",
+   "fs": 14,
+   "w": 101.21875,
+   "bucket": "sans",
+   "model": 91.14,
+   "ratio": 1.110585363177529
+  },
+  {
+   "text": "ÄÖÜÑÇÆØÅÐÞ",
+   "stackName": "lexend",
+   "ff": "Lexend,system-ui,Arial,sans-serif",
+   "fs": 14,
+   "w": 101.21875,
+   "bucket": "sans",
+   "model": 91.14,
+   "ratio": 1.110585363177529
+  },
+  {
+   "text": "–—…",
+   "stackName": "arial",
+   "ff": "Arial",
+   "fs": 14,
+   "w": 35.796875,
+   "bucket": "sans",
+   "model": 32.34,
+   "ratio": 1.1068916202844774
+  },
+  {
+   "text": "&&&&&&&&&&&&&&&&&&&&",
+   "stackName": "adminSans",
+   "ff": "-apple-system,BlinkMacSystemFont,\"Segoe UI\",Roboto,sans-serif",
+   "fs": 14,
+   "w": 196.203125,
+   "bucket": "sans",
+   "model": 182.27999999999994,
+   "ratio": 1.0763831742374372
+  },
+  {
+   "text": "&&&&&&&&&&&&&&&&&&&&",
+   "stackName": "systemui",
+   "ff": "system-ui,Arial,sans-serif",
+   "fs": 14,
+   "w": 196.203125,
+   "bucket": "sans",
+   "model": 182.27999999999994,
+   "ratio": 1.0763831742374372
+  },
+  {
+   "text": "&&&&&&&&&&&&&&&&&&&&",
+   "stackName": "lexend",
+   "ff": "Lexend,system-ui,Arial,sans-serif",
+   "fs": 14,
+   "w": 196.203125,
+   "bucket": "sans",
+   "model": 182.27999999999994,
+   "ratio": 1.0763831742374372
+  },
+  {
+   "text": "ÄÖÜÑÇÆØÅÐÞ",
+   "stackName": "georgia",
+   "ff": "'Playfair Display',Georgia,'Times New Roman',serif",
+   "fs": 14,
+   "w": 102.625,
+   "bucket": "serif",
+   "model": 97.21600000000001,
+   "ratio": 1.0556389894667544
+  },
+  {
+   "text": "ÄÖÜÑÇÆØÅÐÞ",
+   "stackName": "serif",
+   "ff": "'Newsreader',Georgia,serif",
+   "fs": 14,
+   "w": 102.625,
+   "bucket": "serif",
+   "model": 97.21600000000001,
+   "ratio": 1.0556389894667544
+  },
+  {
+   "text": "QQQQQQQQQQQQQQQQQQQQ",
+   "stackName": "arial",
+   "ff": "Arial",
+   "fs": 14,
+   "w": 217.796875,
+   "bucket": "sans",
+   "model": 211.68000000000006,
+   "ratio": 1.0288968017762659
+  },
+  {
+   "text": "&&&&&&&&&&&&&&&&&&&&",
+   "stackName": "arial",
+   "ff": "Arial",
+   "fs": 14,
+   "w": 186.765625,
+   "bucket": "sans",
+   "model": 182.27999999999994,
+   "ratio": 1.0246084320825108
+  },
+  {
+   "text": "&&&&&&&&&&&&&&&&&&&&",
+   "stackName": "georgia",
+   "ff": "'Playfair Display',Georgia,'Times New Roman',serif",
+   "fs": 14,
+   "w": 198.9375,
+   "bucket": "serif",
+   "model": 194.43199999999996,
+   "ratio": 1.023172625905201
+  },
+  {
+   "text": "&&&&&&&&&&&&&&&&&&&&",
+   "stackName": "serif",
+   "ff": "'Newsreader',Georgia,serif",
+   "fs": 14,
+   "w": 198.9375,
+   "bucket": "serif",
+   "model": 194.43199999999996,
+   "ratio": 1.023172625905201
+  },
+  {
+   "text": "@@@@@@@@@@@@@@@@@@@@",
+   "stackName": "arial",
+   "ff": "Arial",
+   "fs": 14,
+   "w": 284.25,
+   "bucket": "sans",
+   "model": 279.2999999999999,
+   "ratio": 1.0177228786251347
+  },
+  {
+   "text": "QQQQQQQQQQQQQQQQQQQQ",
+   "stackName": "adminSans",
+   "ff": "-apple-system,BlinkMacSystemFont,\"Segoe UI\",Roboto,sans-serif",
+   "fs": 14,
+   "w": 213.015625,
+   "bucket": "sans",
+   "model": 211.68000000000006,
+   "ratio": 1.00630964191232
+  },
+  {
+   "text": "QQQQQQQQQQQQQQQQQQQQ",
+   "stackName": "systemui",
+   "ff": "system-ui,Arial,sans-serif",
+   "fs": 14,
+   "w": 213.015625,
+   "bucket": "sans",
+   "model": 211.68000000000006,
+   "ratio": 1.00630964191232
+  },
+  {
+   "text": "QQQQQQQQQQQQQQQQQQQQ",
+   "stackName": "lexend",
+   "ff": "Lexend,system-ui,Arial,sans-serif",
+   "fs": 14,
+   "w": 213.015625,
+   "bucket": "sans",
+   "model": 211.68000000000006,
+   "ratio": 1.00630964191232
+  }
+ ]
+}

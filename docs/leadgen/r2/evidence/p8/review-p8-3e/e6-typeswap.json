@@ -1,0 +1,46 @@
+{
+ "375": {
+  "selectedAfterAdd": null,
+  "tabs": [
+   "content",
+   "style",
+   "rules",
+   "maps",
+   "offers"
+  ],
+  "state": {
+   "found": true,
+   "vis": false,
+   "cw": 0,
+   "sw": 0,
+   "title": "Type — swaps the concrete stored type",
+   "own": null,
+   "clipped": null,
+   "style": null,
+   "sel": "Headline"
+  },
+  "errs": []
+ },
+ "1280": {
+  "selectedAfterAdd": null,
+  "tabs": [
+   "content",
+   "style",
+   "rules",
+   "maps",
+   "offers"
+  ],
+  "state": {
+   "found": true,
+   "vis": false,
+   "cw": 0,
+   "sw": 0,
+   "title": "Type — swaps the concrete stored type",
+   "own": null,
+   "clipped": null,
+   "style": null,
+   "sel": "Headline"
+  },
+  "errs": []
+ }
+}

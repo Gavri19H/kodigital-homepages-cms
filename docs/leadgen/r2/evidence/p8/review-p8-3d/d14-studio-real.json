@@ -1,0 +1,32 @@
+{
+ "375": {
+  "errs": [],
+  "candidates": 0,
+  "shown": false,
+  "state": {
+   "vis": false,
+   "sw": 0,
+   "cw": 0,
+   "title": "Type — swaps the concrete stored type",
+   "clipped": null,
+   "to": "",
+   "sel": "Headline",
+   "wrapHidden": true
+  }
+ },
+ "1280": {
+  "errs": [],
+  "candidates": 0,
+  "shown": false,
+  "state": {
+   "vis": false,
+   "sw": 0,
+   "cw": 0,
+   "title": "Type — swaps the concrete stored type",
+   "clipped": null,
+   "to": "",
+   "sel": "Headline",
+   "wrapHidden": true
+  }
+ }
+}

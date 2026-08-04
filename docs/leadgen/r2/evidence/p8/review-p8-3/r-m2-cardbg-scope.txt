@@ -1,0 +1,24 @@
+
+=== card_defaults.background_role="error"  (palette.page_background is pinned #F5F7FA, card_background #FFFFFF in BOTH arms) ===
+   #lg-funnel-root -> {"_vis":true,"_w":1264,"_h":900,"_m":1,"_v":1,"backgroundColor":"rgb(245, 247, 250)"}
+   body -> {"_vis":true,"_w":1264,"_h":900,"_m":1,"_v":1,"backgroundColor":"rgba(0, 0, 0, 0)"}
+   .lg-frame-background -> {"_vis":true,"_w":1280,"_h":900,"_m":1,"_v":1,"backgroundColor":"rgb(194, 24, 7)"}
+   .lg-question-card -> {"_vis":true,"_w":420,"_h":484,"_m":10,"_v":1,"backgroundColor":"rgb(194, 24, 7)"}
+   input.lg-input -> {"_vis":true,"_w":326,"_h":54,"_m":4,"_v":4,"backgroundColor":"rgb(194, 24, 7)"}
+   .lg-frame-footer -> {"_vis":true,"_w":1264,"_h":64,"_m":1,"_v":1,"backgroundColor":"rgba(0, 0, 0, 0)"}
+
+=== card_defaults.background_role="success"  (palette.page_background is pinned #F5F7FA, card_background #FFFFFF in BOTH arms) ===
+   #lg-funnel-root -> {"_vis":true,"_w":1264,"_h":900,"_m":1,"_v":1,"backgroundColor":"rgb(245, 247, 250)"}
+   body -> {"_vis":true,"_w":1264,"_h":900,"_m":1,"_v":1,"backgroundColor":"rgba(0, 0, 0, 0)"}
+   .lg-frame-background -> {"_vis":true,"_w":1280,"_h":900,"_m":1,"_v":1,"backgroundColor":"rgb(18, 165, 148)"}
+   .lg-question-card -> {"_vis":true,"_w":420,"_h":484,"_m":10,"_v":1,"backgroundColor":"rgb(18, 165, 148)"}
+   input.lg-input -> {"_vis":true,"_w":326,"_h":54,"_m":4,"_v":4,"backgroundColor":"rgb(18, 165, 148)"}
+   .lg-frame-footer -> {"_vis":true,"_w":1264,"_h":64,"_m":1,"_v":1,"backgroundColor":"rgba(0, 0, 0, 0)"}
+
+=== CONTROL: palette only, no card_defaults ===
+   #lg-funnel-root -> {"_vis":true,"_w":1264,"_h":900,"_m":1,"_v":1,"backgroundColor":"rgb(245, 247, 250)"}
+   body -> {"_vis":true,"_w":1264,"_h":900,"_m":1,"_v":1,"backgroundColor":"rgba(0, 0, 0, 0)"}
+   .lg-frame-background -> {"_vis":true,"_w":1280,"_h":900,"_m":1,"_v":1,"backgroundColor":"rgb(255, 255, 255)"}
+   .lg-question-card -> {"_vis":true,"_w":420,"_h":484,"_m":10,"_v":1,"backgroundColor":"rgb(255, 255, 255)"}
+   input.lg-input -> {"_vis":true,"_w":326,"_h":54,"_m":4,"_v":4,"backgroundColor":"rgb(255, 255, 255)"}
+RESTORED {"theme_id":"thm_p8-repro"}

@@ -465,15 +465,101 @@ describeDb("GET /admin/leadgen/themes — full page (§10.2/§10.3, Appendix A)"
     expect(html).not.toContain("Cozy");
   });
 
+  // R2 P8-3 M2/S3.11 RE-MINT — four of these six sublabels changed. PRECEDENCE:
+  // P8-DEFECT-CONTRACT.md wins over v3.1's Appendix A string list, and its §4 R3
+  // corollary is "a control that cannot be honoured must not be offered", so a
+  // pinned sublabel naming a surface the role provably does not paint is a pin
+  // encoding a defect. Verdict PER STRING (source of truth: the real
+  // resolveTokens+funnelChromeCss audit in test/leadgen-p8-m2-role-usedby.test.ts,
+  // plus the token literals cited below from designs/default-funnel/tokens.ts and
+  // designs/theme.ts ROLE_TO_BASE_TOKEN):
+  //
+  //  1. brand_primary "buttons · progress · selected" -> "buttons · focus ring".
+  //     THE OLD TEXT WAS FALSE. brand_primary writes exactly ONE token,
+  //     `color.primary` (theme.ts:90). `progress.fillColor` is the frozen
+  //     literal "linear-gradient(90deg,#1B3A5C,#2A5080)" and
+  //     `iconCard.selectedBorderColor` is the frozen literal "#1B3A5C" (the
+  //     SAME hex as color.primary by coincidence, not by wiring) — no applier
+  //     ever rewrites either, so authoring this role moved neither surface.
+  //     R2 P8-3 FIX ROUND F7 (review MINOR-4) — "progress" was OVER-corrected
+  //     above: the frozen progress.fillColor token never moves, but a
+  //     SEPARATE rule (default-funnel/styles.ts:2553-2558) paints
+  //     `.lg-progress-fill` background directly from the brand_primary role
+  //     with `!important`, bypassing that frozen token — the rendered fill
+  //     DOES move. Restored to "buttons · progress fill · focus ring";
+  //     measured by F3's sweep, pinned at test/leadgen-p8-m2-role-
+  //     usedby.test.ts's I2 leg.
+  //  2. accent "highlights · recommended" — UNCHANGED, still true, still pinned.
+  //  3. page_bg "behind the card" -> "frame background". THE OLD TEXT WAS NOT
+  //     FALSE: page_background paints the scope root's own background-color,
+  //     which is indeed behind the card. This one is a CONVERGENCE re-mint, not
+  //     a lie correction — the manager and the funnel-theme rail must not
+  //     describe the same role with different words, which
+  //     leadgen-p8-m2-role-usedby.test.ts I4 now pins; "frame background" is
+  //     the rail's (audited) wording for the same surface.
+  //  4. card "question surface" -> "question card · answer cards". The old text
+  //     was true but INCOMPLETE: card_background also paints
+  //     `.lg-btn.lg-btn-answer`'s resting background, not only
+  //     `.lg-question-card`. Same I4 convergence; strictly more of the truth.
+  //     R2 P8-3 FIX ROUND F8 (MINOR-4 corollary, one more role) — STILL
+  //     INCOMPLETE after the re-mint above: card_background's token
+  //     (color.card) is ALSO `.lg-input`'s resting background (default-funnel/
+  //     styles.ts:1845), which neither "question card" nor "answer cards"
+  //     names. Widened to "question card · answer cards · input fields" —
+  //     measured by the label->target sweep's own residual (test/leadgen-r2-
+  //     dead-controls-guard.test.ts LABEL_TARGET_RESIDUALS), now CLOSED
+  //     (the label covers the paint) rather than exempted.
+  //  5. text "headings &amp; body" -> "body text · input text". THE OLD TEXT WAS
+  //     HALF FALSE: text_primary writes only `page.textColor` ("#1A1F36");
+  //     `headline.color` is a DIFFERENT frozen literal ("#16324f") that no
+  //     applier rewrites, so "headings" never moved with this role.
+  //  6. success "reassurance · valid" — UNCHANGED, still true, still pinned.
+  //
+  // NOT WEAKENED: the four re-minted strings are pinned as the FULL sublabel
+  // text (previously three of them were partial substrings), so this leg now
+  // constrains more bytes than it did before. F8 extends the same discipline:
+  // "question card · answer cards · input fields" pins the FULL sublabel, not
+  // the old "question card · answer cards" prefix (which would still silently
+  // match — never rely on a stale substring to keep passing).
+  //
+  //  7. R2 P8-3 FIX ROUND F11 (review-p8-3b MINOR-3) — brand_primary's leading
+  //     noun corrected once more: "buttons" -> "stepper buttons". THE OLD WORD
+  //     WAS FALSE for every button a funnel renders: F10 drove
+  //     palette.brand_primary = #FF00AA and the Continue button stayed
+  //     rgb(27,58,92) (buttons follow button_primary_bg) while the progress
+  //     fill moved to rgb(255,0,170). F11's exhaustive sentinel sweep of the
+  //     REAL resolveTokens+funnelChromeCss pair — the 15 declarations that move
+  //     when only this role is authored — finds exactly one button-shaped
+  //     consumer, `.lg-range-stepper-btn`, the +/- keys of the slider type the
+  //     operator himself picks as "Stepper" (ui-section-studio.ts:2325).
+  //     PRECEDENCE unchanged: the contract's §4 R3 corollary beats Appendix A's
+  //     older string. And this was a SUBSTRING TRAP — "buttons · progress fill
+  //     · focus ring" still matches inside "stepper buttons · …", so this pin
+  //     went to the FULL new sublabel; a `toContain` left at the old text would
+  //     have passed either way and pinned nothing.
+  //     The sibling role corrected in the same round, `border`
+  //     ("card/input borders" -> "answer card/input borders"), is an EXTRA_ROLE
+  //     _META sublabel, outside this Appendix-A roster; its independent literal
+  //     pin lives in test/leadgen-quote-builder-ui.test.ts beside the rail's
+  //     brand_primary line, and both words are audited against the real
+  //     stylesheet in test/leadgen-p8-m2-role-usedby.test.ts.
   it("role sublabels + role note + size-language note render verbatim (Appendix A)", async () => {
     const { sdb, env } = newHarness();
     await seedFixture(sdb, env);
     const { html } = await getHtml(env, "/admin/leadgen/themes");
-    expect(html).toContain("buttons · progress · selected");
+    // R2 P8-3 FIX ROUND F13 (review-p8-3c MINOR-4) — three more real movers
+    // named (`.lg-frame-trustrow-icon` + the check glyph of both `--check`
+    // frame lists). The SAME substring trap as item 7: the old text still
+    // matches inside the new sublabel, so this pin carries the FULL new one.
+    expect(html).toContain("stepper buttons · progress fill · focus ring · trust-row icons · list check marks");
+    // F13 (MINOR-5) — `border` is an EXTRA_ROLE_META sublabel and now names
+    // the two progress surfaces it really paints; pinned here too, so the
+    // manager's own copy of the words cannot drift from the rail's.
+    expect(html).toContain("answer card/input borders · progress steps · progress track");
     expect(html).toContain("highlights · recommended");
-    expect(html).toContain("behind the card");
-    expect(html).toContain("question surface");
-    expect(html).toContain("headings &amp; body");
+    expect(html).toContain("frame background");
+    expect(html).toContain("question card · answer cards · input fields");
+    expect(html).toContain("body text · input text");
     expect(html).toContain("reassurance · valid");
     expect(html).toContain(
       "Components reference these roles, never fixed shades — change one here and every question in the funnel reskins.",

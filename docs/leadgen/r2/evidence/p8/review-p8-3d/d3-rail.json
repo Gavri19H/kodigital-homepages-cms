@@ -1,0 +1,2870 @@
+[
+ {
+  "width": 1280,
+  "errs": [],
+  "out": [
+   {
+    "id": "lg-theme-site-select",
+    "vis": true,
+    "cw": 222,
+    "ff": "Arial",
+    "fs": "14px",
+    "selText": "CMS fallback branding",
+    "title": null,
+    "clipped": null,
+    "nopts": 3,
+    "nOver": 2,
+    "maxOver": 31,
+    "worst": {
+     "i": 1,
+     "text": "R2Fix Fixture Site — Not activated yet",
+     "hidden": false,
+     "sw": 253,
+     "cw": 222,
+     "over": 31
+    },
+    "opts": [
+     {
+      "i": 0,
+      "text": "CMS fallback branding",
+      "hidden": false,
+      "sw": 222,
+      "cw": 222,
+      "over": 0
+     },
+     {
+      "i": 1,
+      "text": "R2Fix Fixture Site — Not activated yet",
+      "hidden": false,
+      "sw": 253,
+      "cw": 222,
+      "over": 31
+     },
+     {
+      "i": 2,
+      "text": "Seed Local Living — Not activated yet",
+      "hidden": false,
+      "sw": 253,
+      "cw": 222,
+      "over": 31
+     }
+    ]
+   },
+   {
+    "id": "lg-theme-target-select",
+    "vis": true,
+    "cw": 198,
+    "ff": "Arial",
+    "fs": "12px",
+    "selText": "RV2B NULLFRAME probe — Funnel A",
+    "title": "RV2B NULLFRAME probe — Funnel A",
+    "clipped": "1",
+    "nopts": 1,
+    "nOver": 1,
+    "maxOver": 19,
+    "worst": {
+     "i": 0,
+     "text": "RV2B NULLFRAME probe — Funnel A",
+     "hidden": false,
+     "sw": 217,
+     "cw": 198,
+     "over": 19
+    },
+    "opts": [
+     {
+      "i": 0,
+      "text": "RV2B NULLFRAME probe — Funnel A",
+      "hidden": false,
+      "sw": 217,
+      "cw": 198,
+      "over": 19
+     }
+    ]
+   },
+   {
+    "id": null,
+    "vis": true,
+    "cw": 312,
+    "ff": "Arial",
+    "fs": "14px",
+    "selText": "Inherit from base",
+    "title": null,
+    "clipped": null,
+    "nopts": 12,
+    "nOver": 0,
+    "maxOver": 0,
+    "worst": {
+     "i": 0,
+     "text": "Inherit from base",
+     "hidden": false,
+     "sw": 312,
+     "cw": 312,
+     "over": 0
+    },
+    "opts": [
+     {
+      "i": 0,
+      "text": "Inherit from base",
+      "hidden": false,
+      "sw": 312,
+      "cw": 312,
+      "over": 0
+     },
+     {
+      "i": 1,
+      "text": "Poppins",
+      "hidden": false,
+      "sw": 312,
+      "cw": 312,
+      "over": 0
+     },
+     {
+      "i": 2,
+      "text": "Space Grotesk",
+      "hidden": false,
+      "sw": 312,
+      "cw": 312,
+      "over": 0
+     },
+     {
+      "i": 3,
+      "text": "Fraunces",
+      "hidden": false,
+      "sw": 312,
+      "cw": 312,
+      "over": 0
+     },
+     {
+      "i": 4,
+      "text": "Playfair Display",
+      "hidden": false,
+      "sw": 312,
+      "cw": 312,
+      "over": 0
+     },
+     {
+      "i": 5,
+      "text": "Manrope",
+      "hidden": false,
+      "sw": 312,
+      "cw": 312,
+      "over": 0
+     },
+     {
+      "i": 6,
+      "text": "DM Sans",
+      "hidden": false,
+      "sw": 312,
+      "cw": 312,
+      "over": 0
+     },
+     {
+      "i": 7,
+      "text": "Work Sans",
+      "hidden": false,
+      "sw": 312,
+      "cw": 312,
+      "over": 0
+     },
+     {
+      "i": 8,
+      "text": "Lexend",
+      "hidden": false,
+      "sw": 312,
+      "cw": 312,
+      "over": 0
+     },
+     {
+      "i": 9,
+      "text": "Literata (shows as default font)",
+      "hidden": true,
+      "sw": 312,
+      "cw": 312,
+      "over": 0
+     },
+     {
+      "i": 10,
+      "text": "Sora (shows as default font)",
+      "hidden": true,
+      "sw": 312,
+      "cw": 312,
+      "over": 0
+     },
+     {
+      "i": 11,
+      "text": "System (shows as default font)",
+      "hidden": true,
+      "sw": 312,
+      "cw": 312,
+      "over": 0
+     }
+    ]
+   },
+   {
+    "id": null,
+    "vis": true,
+    "cw": 312,
+    "ff": "Arial",
+    "fs": "14px",
+    "selText": "Inherit from base",
+    "title": null,
+    "clipped": null,
+    "nopts": 12,
+    "nOver": 0,
+    "maxOver": 0,
+    "worst": {
+     "i": 0,
+     "text": "Inherit from base",
+     "hidden": false,
+     "sw": 312,
+     "cw": 312,
+     "over": 0
+    },
+    "opts": [
+     {
+      "i": 0,
+      "text": "Inherit from base",
+      "hidden": false,
+      "sw": 312,
+      "cw": 312,
+      "over": 0
+     },
+     {
+      "i": 1,
+      "text": "Poppins",
+      "hidden": false,
+      "sw": 312,
+      "cw": 312,
+      "over": 0
+     },
+     {
+      "i": 2,
+      "text": "Space Grotesk",
+      "hidden": false,
+      "sw": 312,
+      "cw": 312,
+      "over": 0
+     },
+     {
+      "i": 3,
+      "text": "Fraunces",
+      "hidden": false,
+      "sw": 312,
+      "cw": 312,
+      "over": 0
+     },
+     {
+      "i": 4,
+      "text": "Playfair Display",
+      "hidden": false,
+      "sw": 312,
+      "cw": 312,
+      "over": 0
+     },
+     {
+      "i": 5,
+      "text": "Manrope",
+      "hidden": false,
+      "sw": 312,
+      "cw": 312,
+      "over": 0
+     },
+     {
+      "i": 6,
+      "text": "DM Sans",
+      "hidden": false,
+      "sw": 312,
+      "cw": 312,
+      "over": 0
+     },
+     {
+      "i": 7,
+      "text": "Work Sans",
+      "hidden": false,
+      "sw": 312,
+      "cw": 312,
+      "over": 0
+     },
+     {
+      "i": 8,
+      "text": "Lexend",
+      "hidden": false,
+      "sw": 312,
+      "cw": 312,
+      "over": 0
+     },
+     {
+      "i": 9,
+      "text": "Literata (shows as default font)",
+      "hidden": true,
+      "sw": 312,
+      "cw": 312,
+      "over": 0
+     },
+     {
+      "i": 10,
+      "text": "Sora (shows as default font)",
+      "hidden": true,
+      "sw": 312,
+      "cw": 312,
+      "over": 0
+     },
+     {
+      "i": 11,
+      "text": "System (shows as default font)",
+      "hidden": true,
+      "sw": 312,
+      "cw": 312,
+      "over": 0
+     }
+    ]
+   },
+   {
+    "id": null,
+    "vis": true,
+    "cw": 312,
+    "ff": "Arial",
+    "fs": "14px",
+    "selText": "Inherit from base",
+    "title": null,
+    "clipped": null,
+    "nopts": 4,
+    "nOver": 0,
+    "maxOver": 0,
+    "worst": {
+     "i": 0,
+     "text": "Inherit from base",
+     "hidden": false,
+     "sw": 312,
+     "cw": 312,
+     "over": 0
+    },
+    "opts": [
+     {
+      "i": 0,
+      "text": "Inherit from base",
+      "hidden": false,
+      "sw": 312,
+      "cw": 312,
+      "over": 0
+     },
+     {
+      "i": 1,
+      "text": "Small",
+      "hidden": false,
+      "sw": 312,
+      "cw": 312,
+      "over": 0
+     },
+     {
+      "i": 2,
+      "text": "Medium",
+      "hidden": false,
+      "sw": 312,
+      "cw": 312,
+      "over": 0
+     },
+     {
+      "i": 3,
+      "text": "Large",
+      "hidden": false,
+      "sw": 312,
+      "cw": 312,
+      "over": 0
+     }
+    ]
+   },
+   {
+    "id": null,
+    "vis": true,
+    "cw": 312,
+    "ff": "Arial",
+    "fs": "14px",
+    "selText": "Inherit from base",
+    "title": null,
+    "clipped": null,
+    "nopts": 5,
+    "nOver": 0,
+    "maxOver": 0,
+    "worst": {
+     "i": 0,
+     "text": "Inherit from base",
+     "hidden": false,
+     "sw": 312,
+     "cw": 312,
+     "over": 0
+    },
+    "opts": [
+     {
+      "i": 0,
+      "text": "Inherit from base",
+      "hidden": false,
+      "sw": 312,
+      "cw": 312,
+      "over": 0
+     },
+     {
+      "i": 1,
+      "text": "Base",
+      "hidden": false,
+      "sw": 312,
+      "cw": 312,
+      "over": 0
+     },
+     {
+      "i": 2,
+      "text": "Large",
+      "hidden": false,
+      "sw": 312,
+      "cw": 312,
+      "over": 0
+     },
+     {
+      "i": 3,
+      "text": "X-Large",
+      "hidden": false,
+      "sw": 312,
+      "cw": 312,
+      "over": 0
+     },
+     {
+      "i": 4,
+      "text": "XX-Large",
+      "hidden": false,
+      "sw": 312,
+      "cw": 312,
+      "over": 0
+     }
+    ]
+   },
+   {
+    "id": null,
+    "vis": true,
+    "cw": 312,
+    "ff": "Arial",
+    "fs": "14px",
+    "selText": "Inherit from base",
+    "title": null,
+    "clipped": null,
+    "nopts": 4,
+    "nOver": 0,
+    "maxOver": 0,
+    "worst": {
+     "i": 0,
+     "text": "Inherit from base",
+     "hidden": false,
+     "sw": 312,
+     "cw": 312,
+     "over": 0
+    },
+    "opts": [
+     {
+      "i": 0,
+      "text": "Inherit from base",
+      "hidden": false,
+      "sw": 312,
+      "cw": 312,
+      "over": 0
+     },
+     {
+      "i": 1,
+      "text": "Compact",
+      "hidden": false,
+      "sw": 312,
+      "cw": 312,
+      "over": 0
+     },
+     {
+      "i": 2,
+      "text": "Regular",
+      "hidden": false,
+      "sw": 312,
+      "cw": 312,
+      "over": 0
+     },
+     {
+      "i": 3,
+      "text": "Roomy",
+      "hidden": false,
+      "sw": 312,
+      "cw": 312,
+      "over": 0
+     }
+    ]
+   },
+   {
+    "id": null,
+    "vis": true,
+    "cw": 312,
+    "ff": "Arial",
+    "fs": "14px",
+    "selText": "Inherit from base",
+    "title": null,
+    "clipped": null,
+    "nopts": 4,
+    "nOver": 0,
+    "maxOver": 0,
+    "worst": {
+     "i": 0,
+     "text": "Inherit from base",
+     "hidden": false,
+     "sw": 312,
+     "cw": 312,
+     "over": 0
+    },
+    "opts": [
+     {
+      "i": 0,
+      "text": "Inherit from base",
+      "hidden": false,
+      "sw": 312,
+      "cw": 312,
+      "over": 0
+     },
+     {
+      "i": 1,
+      "text": "Sharp",
+      "hidden": false,
+      "sw": 312,
+      "cw": 312,
+      "over": 0
+     },
+     {
+      "i": 2,
+      "text": "Soft",
+      "hidden": false,
+      "sw": 312,
+      "cw": 312,
+      "over": 0
+     },
+     {
+      "i": 3,
+      "text": "Round",
+      "hidden": false,
+      "sw": 312,
+      "cw": 312,
+      "over": 0
+     }
+    ]
+   },
+   {
+    "id": null,
+    "vis": true,
+    "cw": 312,
+    "ff": "Arial",
+    "fs": "14px",
+    "selText": "Inherit from base",
+    "title": null,
+    "clipped": null,
+    "nopts": 5,
+    "nOver": 0,
+    "maxOver": 0,
+    "worst": {
+     "i": 0,
+     "text": "Inherit from base",
+     "hidden": false,
+     "sw": 312,
+     "cw": 312,
+     "over": 0
+    },
+    "opts": [
+     {
+      "i": 0,
+      "text": "Inherit from base",
+      "hidden": false,
+      "sw": 312,
+      "cw": 312,
+      "over": 0
+     },
+     {
+      "i": 1,
+      "text": "None",
+      "hidden": false,
+      "sw": 312,
+      "cw": 312,
+      "over": 0
+     },
+     {
+      "i": 2,
+      "text": "Low",
+      "hidden": false,
+      "sw": 312,
+      "cw": 312,
+      "over": 0
+     },
+     {
+      "i": 3,
+      "text": "Mid",
+      "hidden": false,
+      "sw": 312,
+      "cw": 312,
+      "over": 0
+     },
+     {
+      "i": 4,
+      "text": "High",
+      "hidden": false,
+      "sw": 312,
+      "cw": 312,
+      "over": 0
+     }
+    ]
+   },
+   {
+    "id": null,
+    "vis": true,
+    "cw": 312,
+    "ff": "Arial",
+    "fs": "14px",
+    "selText": "Inherit from base",
+    "title": null,
+    "clipped": null,
+    "nopts": 6,
+    "nOver": 0,
+    "maxOver": 0,
+    "worst": {
+     "i": 0,
+     "text": "Inherit from base",
+     "hidden": false,
+     "sw": 312,
+     "cw": 312,
+     "over": 0
+    },
+    "opts": [
+     {
+      "i": 0,
+      "text": "Inherit from base",
+      "hidden": false,
+      "sw": 312,
+      "cw": 312,
+      "over": 0
+     },
+     {
+      "i": 1,
+      "text": "Small",
+      "hidden": false,
+      "sw": 312,
+      "cw": 312,
+      "over": 0
+     },
+     {
+      "i": 2,
+      "text": "Medium",
+      "hidden": false,
+      "sw": 312,
+      "cw": 312,
+      "over": 0
+     },
+     {
+      "i": 3,
+      "text": "Large",
+      "hidden": false,
+      "sw": 312,
+      "cw": 312,
+      "over": 0
+     },
+     {
+      "i": 4,
+      "text": "Extra large",
+      "hidden": false,
+      "sw": 312,
+      "cw": 312,
+      "over": 0
+     },
+     {
+      "i": 5,
+      "text": "Fully round",
+      "hidden": false,
+      "sw": 312,
+      "cw": 312,
+      "over": 0
+     }
+    ]
+   },
+   {
+    "id": null,
+    "vis": true,
+    "cw": 312,
+    "ff": "Arial",
+    "fs": "14px",
+    "selText": "Inherit from base",
+    "title": null,
+    "clipped": null,
+    "nopts": 4,
+    "nOver": 0,
+    "maxOver": 0,
+    "worst": {
+     "i": 0,
+     "text": "Inherit from base",
+     "hidden": false,
+     "sw": 312,
+     "cw": 312,
+     "over": 0
+    },
+    "opts": [
+     {
+      "i": 0,
+      "text": "Inherit from base",
+      "hidden": false,
+      "sw": 312,
+      "cw": 312,
+      "over": 0
+     },
+     {
+      "i": 1,
+      "text": "Small",
+      "hidden": false,
+      "sw": 312,
+      "cw": 312,
+      "over": 0
+     },
+     {
+      "i": 2,
+      "text": "Medium",
+      "hidden": false,
+      "sw": 312,
+      "cw": 312,
+      "over": 0
+     },
+     {
+      "i": 3,
+      "text": "Large",
+      "hidden": false,
+      "sw": 312,
+      "cw": 312,
+      "over": 0
+     }
+    ]
+   },
+   {
+    "id": null,
+    "vis": true,
+    "cw": 312,
+    "ff": "Arial",
+    "fs": "14px",
+    "selText": "Inherit from base",
+    "title": null,
+    "clipped": null,
+    "nopts": 3,
+    "nOver": 0,
+    "maxOver": 0,
+    "worst": {
+     "i": 0,
+     "text": "Inherit from base",
+     "hidden": false,
+     "sw": 312,
+     "cw": 312,
+     "over": 0
+    },
+    "opts": [
+     {
+      "i": 0,
+      "text": "Inherit from base",
+      "hidden": false,
+      "sw": 312,
+      "cw": 312,
+      "over": 0
+     },
+     {
+      "i": 1,
+      "text": "As written",
+      "hidden": false,
+      "sw": 312,
+      "cw": 312,
+      "over": 0
+     },
+     {
+      "i": 2,
+      "text": "UPPERCASE",
+      "hidden": false,
+      "sw": 312,
+      "cw": 312,
+      "over": 0
+     }
+    ]
+   },
+   {
+    "id": null,
+    "vis": true,
+    "cw": 312,
+    "ff": "Arial",
+    "fs": "14px",
+    "selText": "Inherit from base",
+    "title": null,
+    "clipped": null,
+    "nopts": 4,
+    "nOver": 0,
+    "maxOver": 0,
+    "worst": {
+     "i": 0,
+     "text": "Inherit from base",
+     "hidden": false,
+     "sw": 312,
+     "cw": 312,
+     "over": 0
+    },
+    "opts": [
+     {
+      "i": 0,
+      "text": "Inherit from base",
+      "hidden": false,
+      "sw": 312,
+      "cw": 312,
+      "over": 0
+     },
+     {
+      "i": 1,
+      "text": "Small",
+      "hidden": false,
+      "sw": 312,
+      "cw": 312,
+      "over": 0
+     },
+     {
+      "i": 2,
+      "text": "Medium",
+      "hidden": false,
+      "sw": 312,
+      "cw": 312,
+      "over": 0
+     },
+     {
+      "i": 3,
+      "text": "Large",
+      "hidden": false,
+      "sw": 312,
+      "cw": 312,
+      "over": 0
+     }
+    ]
+   },
+   {
+    "id": null,
+    "vis": true,
+    "cw": 312,
+    "ff": "Arial",
+    "fs": "14px",
+    "selText": "Inherit from base",
+    "title": null,
+    "clipped": null,
+    "nopts": 4,
+    "nOver": 0,
+    "maxOver": 0,
+    "worst": {
+     "i": 0,
+     "text": "Inherit from base",
+     "hidden": false,
+     "sw": 312,
+     "cw": 312,
+     "over": 0
+    },
+    "opts": [
+     {
+      "i": 0,
+      "text": "Inherit from base",
+      "hidden": false,
+      "sw": 312,
+      "cw": 312,
+      "over": 0
+     },
+     {
+      "i": 1,
+      "text": "Solid (default)",
+      "hidden": false,
+      "sw": 312,
+      "cw": 312,
+      "over": 0
+     },
+     {
+      "i": 2,
+      "text": "Outline",
+      "hidden": false,
+      "sw": 312,
+      "cw": 312,
+      "over": 0
+     },
+     {
+      "i": 3,
+      "text": "Soft pill + shadow",
+      "hidden": false,
+      "sw": 312,
+      "cw": 312,
+      "over": 0
+     }
+    ]
+   },
+   {
+    "id": null,
+    "vis": true,
+    "cw": 312,
+    "ff": "Arial",
+    "fs": "14px",
+    "selText": "Inherit from base",
+    "title": null,
+    "clipped": null,
+    "nopts": 4,
+    "nOver": 0,
+    "maxOver": 0,
+    "worst": {
+     "i": 0,
+     "text": "Inherit from base",
+     "hidden": false,
+     "sw": 312,
+     "cw": 312,
+     "over": 0
+    },
+    "opts": [
+     {
+      "i": 0,
+      "text": "Inherit from base",
+      "hidden": false,
+      "sw": 312,
+      "cw": 312,
+      "over": 0
+     },
+     {
+      "i": 1,
+      "text": "Grid (default)",
+      "hidden": false,
+      "sw": 312,
+      "cw": 312,
+      "over": 0
+     },
+     {
+      "i": 2,
+      "text": "Single-column list",
+      "hidden": false,
+      "sw": 312,
+      "cw": 312,
+      "over": 0
+     },
+     {
+      "i": 3,
+      "text": "Full-width cards",
+      "hidden": false,
+      "sw": 312,
+      "cw": 312,
+      "over": 0
+     }
+    ]
+   },
+   {
+    "id": null,
+    "vis": true,
+    "cw": 312,
+    "ff": "Arial",
+    "fs": "14px",
+    "selText": "Inherit from base",
+    "title": null,
+    "clipped": null,
+    "nopts": 3,
+    "nOver": 0,
+    "maxOver": 0,
+    "worst": {
+     "i": 0,
+     "text": "Inherit from base",
+     "hidden": false,
+     "sw": 312,
+     "cw": 312,
+     "over": 0
+    },
+    "opts": [
+     {
+      "i": 0,
+      "text": "Inherit from base",
+      "hidden": false,
+      "sw": 312,
+      "cw": 312,
+      "over": 0
+     },
+     {
+      "i": 1,
+      "text": "Soft wash (default)",
+      "hidden": false,
+      "sw": 312,
+      "cw": 312,
+      "over": 0
+     },
+     {
+      "i": 2,
+      "text": "Bigger + check badge",
+      "hidden": false,
+      "sw": 312,
+      "cw": 312,
+      "over": 0
+     }
+    ]
+   },
+   {
+    "id": null,
+    "vis": true,
+    "cw": 312,
+    "ff": "Arial",
+    "fs": "14px",
+    "selText": "Inherit from base",
+    "title": null,
+    "clipped": null,
+    "nopts": 6,
+    "nOver": 0,
+    "maxOver": 0,
+    "worst": {
+     "i": 0,
+     "text": "Inherit from base",
+     "hidden": false,
+     "sw": 312,
+     "cw": 312,
+     "over": 0
+    },
+    "opts": [
+     {
+      "i": 0,
+      "text": "Inherit from base",
+      "hidden": false,
+      "sw": 312,
+      "cw": 312,
+      "over": 0
+     },
+     {
+      "i": 1,
+      "text": "Small",
+      "hidden": false,
+      "sw": 312,
+      "cw": 312,
+      "over": 0
+     },
+     {
+      "i": 2,
+      "text": "Medium",
+      "hidden": false,
+      "sw": 312,
+      "cw": 312,
+      "over": 0
+     },
+     {
+      "i": 3,
+      "text": "Large",
+      "hidden": false,
+      "sw": 312,
+      "cw": 312,
+      "over": 0
+     },
+     {
+      "i": 4,
+      "text": "Extra large",
+      "hidden": false,
+      "sw": 312,
+      "cw": 312,
+      "over": 0
+     },
+     {
+      "i": 5,
+      "text": "Fully round",
+      "hidden": false,
+      "sw": 312,
+      "cw": 312,
+      "over": 0
+     }
+    ]
+   },
+   {
+    "id": null,
+    "vis": true,
+    "cw": 312,
+    "ff": "Arial",
+    "fs": "14px",
+    "selText": "Inherit from base",
+    "title": null,
+    "clipped": null,
+    "nopts": 6,
+    "nOver": 0,
+    "maxOver": 0,
+    "worst": {
+     "i": 0,
+     "text": "Inherit from base",
+     "hidden": false,
+     "sw": 312,
+     "cw": 312,
+     "over": 0
+    },
+    "opts": [
+     {
+      "i": 0,
+      "text": "Inherit from base",
+      "hidden": false,
+      "sw": 312,
+      "cw": 312,
+      "over": 0
+     },
+     {
+      "i": 1,
+      "text": "None",
+      "hidden": false,
+      "sw": 312,
+      "cw": 312,
+      "over": 0
+     },
+     {
+      "i": 2,
+      "text": "Small",
+      "hidden": false,
+      "sw": 312,
+      "cw": 312,
+      "over": 0
+     },
+     {
+      "i": 3,
+      "text": "Medium",
+      "hidden": false,
+      "sw": 312,
+      "cw": 312,
+      "over": 0
+     },
+     {
+      "i": 4,
+      "text": "Large",
+      "hidden": false,
+      "sw": 312,
+      "cw": 312,
+      "over": 0
+     },
+     {
+      "i": 5,
+      "text": "Extra large",
+      "hidden": false,
+      "sw": 312,
+      "cw": 312,
+      "over": 0
+     }
+    ]
+   },
+   {
+    "id": "lg-theme-hex-role",
+    "vis": true,
+    "cw": 290,
+    "ff": "Arial",
+    "fs": "14px",
+    "selText": "Brand primary",
+    "title": null,
+    "clipped": null,
+    "nopts": 14,
+    "nOver": 0,
+    "maxOver": 0,
+    "worst": {
+     "i": 0,
+     "text": "Brand primary",
+     "hidden": false,
+     "sw": 290,
+     "cw": 290,
+     "over": 0
+    },
+    "opts": [
+     {
+      "i": 0,
+      "text": "Brand primary",
+      "hidden": false,
+      "sw": 290,
+      "cw": 290,
+      "over": 0
+     },
+     {
+      "i": 1,
+      "text": "Brand secondary",
+      "hidden": false,
+      "sw": 290,
+      "cw": 290,
+      "over": 0
+     },
+     {
+      "i": 2,
+      "text": "Accent",
+      "hidden": false,
+      "sw": 290,
+      "cw": 290,
+      "over": 0
+     },
+     {
+      "i": 3,
+      "text": "Success",
+      "hidden": false,
+      "sw": 290,
+      "cw": 290,
+      "over": 0
+     },
+     {
+      "i": 4,
+      "text": "Error",
+      "hidden": false,
+      "sw": 290,
+      "cw": 290,
+      "over": 0
+     },
+     {
+      "i": 5,
+      "text": "Page background",
+      "hidden": false,
+      "sw": 290,
+      "cw": 290,
+      "over": 0
+     },
+     {
+      "i": 6,
+      "text": "Card background",
+      "hidden": false,
+      "sw": 290,
+      "cw": 290,
+      "over": 0
+     },
+     {
+      "i": 7,
+      "text": "Soft fill",
+      "hidden": false,
+      "sw": 290,
+      "cw": 290,
+      "over": 0
+     },
+     {
+      "i": 8,
+      "text": "Border",
+      "hidden": false,
+      "sw": 290,
+      "cw": 290,
+      "over": 0
+     },
+     {
+      "i": 9,
+      "text": "Text",
+      "hidden": false,
+      "sw": 290,
+      "cw": 290,
+      "over": 0
+     },
+     {
+      "i": 10,
+      "text": "Muted text",
+      "hidden": false,
+      "sw": 290,
+      "cw": 290,
+      "over": 0
+     },
+     {
+      "i": 11,
+      "text": "Button",
+      "hidden": false,
+      "sw": 290,
+      "cw": 290,
+      "over": 0
+     },
+     {
+      "i": 12,
+      "text": "Button text",
+      "hidden": false,
+      "sw": 290,
+      "cw": 290,
+      "over": 0
+     },
+     {
+      "i": 13,
+      "text": "Secondary button",
+      "hidden": false,
+      "sw": 290,
+      "cw": 290,
+      "over": 0
+     }
+    ]
+   },
+   {
+    "id": "lg-theme-preset-select",
+    "vis": true,
+    "cw": 312,
+    "ff": "Arial",
+    "fs": "14px",
+    "selText": "Choose a preset…",
+    "title": null,
+    "clipped": null,
+    "nopts": 6,
+    "nOver": 0,
+    "maxOver": 0,
+    "worst": {
+     "i": 0,
+     "text": "Choose a preset…",
+     "hidden": false,
+     "sw": 312,
+     "cw": 312,
+     "over": 0
+    },
+    "opts": [
+     {
+      "i": 0,
+      "text": "Choose a preset…",
+      "hidden": false,
+      "sw": 312,
+      "cw": 312,
+      "over": 0
+     },
+     {
+      "i": 1,
+      "text": "P8 Repro",
+      "hidden": false,
+      "sw": 312,
+      "cw": 312,
+      "over": 0
+     },
+     {
+      "i": 2,
+      "text": "RV1B Arm Theme",
+      "hidden": false,
+      "sw": 312,
+      "cw": 312,
+      "over": 0
+     },
+     {
+      "i": 3,
+      "text": "RV3C short",
+      "hidden": false,
+      "sw": 312,
+      "cw": 312,
+      "over": 0
+     },
+     {
+      "i": 4,
+      "text": "RV3D Mono Probe",
+      "hidden": false,
+      "sw": 312,
+      "cw": 312,
+      "over": 0
+     },
+     {
+      "i": 5,
+      "text": "RV3D Sans Probe",
+      "hidden": false,
+      "sw": 312,
+      "cw": 312,
+      "over": 0
+     }
+    ]
+   }
+  ],
+  "usedBy": [
+   {
+    "t": "Used by: stepper buttons, progress fill, focus ring, trust-row icons, list check marks",
+    "sw": 0,
+    "cw": 0,
+    "over": 0
+   },
+   {
+    "t": "Used by: gradients, secondary emphasis",
+    "sw": 0,
+    "cw": 0,
+    "over": 0
+   },
+   {
+    "t": "Used by: category label, highlights, recommended",
+    "sw": 0,
+    "cw": 0,
+    "over": 0
+   },
+   {
+    "t": "Used by: reassurance, valid states",
+    "sw": 0,
+    "cw": 0,
+    "over": 0
+   },
+   {
+    "t": "Used by: validation errors",
+    "sw": 0,
+    "cw": 0,
+    "over": 0
+   },
+   {
+    "t": "Used by: frame background",
+    "sw": 0,
+    "cw": 0,
+    "over": 0
+   },
+   {
+    "t": "Used by: question card, answer cards, input fields",
+    "sw": 0,
+    "cw": 0,
+    "over": 0
+   },
+   {
+    "t": "Used by: range-slider focus ring",
+    "sw": 0,
+    "cw": 0,
+    "over": 0
+   },
+   {
+    "t": "Used by: answer card/input borders, progress steps, progress track",
+    "sw": 0,
+    "cw": 0,
+    "over": 0
+   },
+   {
+    "t": "Used by: body text, input text",
+    "sw": 0,
+    "cw": 0,
+    "over": 0
+   },
+   {
+    "t": "Used by: labels, disclosure text",
+    "sw": 0,
+    "cw": 0,
+    "over": 0
+   },
+   {
+    "t": "Used by: Continue/CTA background",
+    "sw": 0,
+    "cw": 0,
+    "over": 0
+   },
+   {
+    "t": "Used by: Continue/CTA text",
+    "sw": 0,
+    "cw": 0,
+    "over": 0
+   },
+   {
+    "t": "Used by: benefit bar, disclosure bar",
+    "sw": 0,
+    "cw": 0,
+    "over": 0
+   }
+  ],
+  "docSW": 1280,
+  "iw": 1280
+ },
+ {
+  "width": 375,
+  "errs": [],
+  "out": [
+   {
+    "id": "lg-theme-site-select",
+    "vis": true,
+    "cw": 239,
+    "ff": "Arial",
+    "fs": "14px",
+    "selText": "CMS fallback branding",
+    "title": null,
+    "clipped": null,
+    "nopts": 3,
+    "nOver": 2,
+    "maxOver": 14,
+    "worst": {
+     "i": 1,
+     "text": "R2Fix Fixture Site — Not activated yet",
+     "hidden": false,
+     "sw": 253,
+     "cw": 239,
+     "over": 14
+    },
+    "opts": [
+     {
+      "i": 0,
+      "text": "CMS fallback branding",
+      "hidden": false,
+      "sw": 239,
+      "cw": 239,
+      "over": 0
+     },
+     {
+      "i": 1,
+      "text": "R2Fix Fixture Site — Not activated yet",
+      "hidden": false,
+      "sw": 253,
+      "cw": 239,
+      "over": 14
+     },
+     {
+      "i": 2,
+      "text": "Seed Local Living — Not activated yet",
+      "hidden": false,
+      "sw": 253,
+      "cw": 239,
+      "over": 14
+     }
+    ]
+   },
+   {
+    "id": "lg-theme-target-select",
+    "vis": true,
+    "cw": 198,
+    "ff": "Arial",
+    "fs": "12px",
+    "selText": "RV2B NULLFRAME probe — Funnel A",
+    "title": "RV2B NULLFRAME probe — Funnel A",
+    "clipped": "1",
+    "nopts": 1,
+    "nOver": 1,
+    "maxOver": 19,
+    "worst": {
+     "i": 0,
+     "text": "RV2B NULLFRAME probe — Funnel A",
+     "hidden": false,
+     "sw": 217,
+     "cw": 198,
+     "over": 19
+    },
+    "opts": [
+     {
+      "i": 0,
+      "text": "RV2B NULLFRAME probe — Funnel A",
+      "hidden": false,
+      "sw": 217,
+      "cw": 198,
+      "over": 19
+     }
+    ]
+   },
+   {
+    "id": null,
+    "vis": true,
+    "cw": 312,
+    "ff": "Arial",
+    "fs": "14px",
+    "selText": "Inherit from base",
+    "title": null,
+    "clipped": null,
+    "nopts": 12,
+    "nOver": 0,
+    "maxOver": 0,
+    "worst": {
+     "i": 0,
+     "text": "Inherit from base",
+     "hidden": false,
+     "sw": 312,
+     "cw": 312,
+     "over": 0
+    },
+    "opts": [
+     {
+      "i": 0,
+      "text": "Inherit from base",
+      "hidden": false,
+      "sw": 312,
+      "cw": 312,
+      "over": 0
+     },
+     {
+      "i": 1,
+      "text": "Poppins",
+      "hidden": false,
+      "sw": 312,
+      "cw": 312,
+      "over": 0
+     },
+     {
+      "i": 2,
+      "text": "Space Grotesk",
+      "hidden": false,
+      "sw": 312,
+      "cw": 312,
+      "over": 0
+     },
+     {
+      "i": 3,
+      "text": "Fraunces",
+      "hidden": false,
+      "sw": 312,
+      "cw": 312,
+      "over": 0
+     },
+     {
+      "i": 4,
+      "text": "Playfair Display",
+      "hidden": false,
+      "sw": 312,
+      "cw": 312,
+      "over": 0
+     },
+     {
+      "i": 5,
+      "text": "Manrope",
+      "hidden": false,
+      "sw": 312,
+      "cw": 312,
+      "over": 0
+     },
+     {
+      "i": 6,
+      "text": "DM Sans",
+      "hidden": false,
+      "sw": 312,
+      "cw": 312,
+      "over": 0
+     },
+     {
+      "i": 7,
+      "text": "Work Sans",
+      "hidden": false,
+      "sw": 312,
+      "cw": 312,
+      "over": 0
+     },
+     {
+      "i": 8,
+      "text": "Lexend",
+      "hidden": false,
+      "sw": 312,
+      "cw": 312,
+      "over": 0
+     },
+     {
+      "i": 9,
+      "text": "Literata (shows as default font)",
+      "hidden": true,
+      "sw": 312,
+      "cw": 312,
+      "over": 0
+     },
+     {
+      "i": 10,
+      "text": "Sora (shows as default font)",
+      "hidden": true,
+      "sw": 312,
+      "cw": 312,
+      "over": 0
+     },
+     {
+      "i": 11,
+      "text": "System (shows as default font)",
+      "hidden": true,
+      "sw": 312,
+      "cw": 312,
+      "over": 0
+     }
+    ]
+   },
+   {
+    "id": null,
+    "vis": true,
+    "cw": 312,
+    "ff": "Arial",
+    "fs": "14px",
+    "selText": "Inherit from base",
+    "title": null,
+    "clipped": null,
+    "nopts": 12,
+    "nOver": 0,
+    "maxOver": 0,
+    "worst": {
+     "i": 0,
+     "text": "Inherit from base",
+     "hidden": false,
+     "sw": 312,
+     "cw": 312,
+     "over": 0
+    },
+    "opts": [
+     {
+      "i": 0,
+      "text": "Inherit from base",
+      "hidden": false,
+      "sw": 312,
+      "cw": 312,
+      "over": 0
+     },
+     {
+      "i": 1,
+      "text": "Poppins",
+      "hidden": false,
+      "sw": 312,
+      "cw": 312,
+      "over": 0
+     },
+     {
+      "i": 2,
+      "text": "Space Grotesk",
+      "hidden": false,
+      "sw": 312,
+      "cw": 312,
+      "over": 0
+     },
+     {
+      "i": 3,
+      "text": "Fraunces",
+      "hidden": false,
+      "sw": 312,
+      "cw": 312,
+      "over": 0
+     },
+     {
+      "i": 4,
+      "text": "Playfair Display",
+      "hidden": false,
+      "sw": 312,
+      "cw": 312,
+      "over": 0
+     },
+     {
+      "i": 5,
+      "text": "Manrope",
+      "hidden": false,
+      "sw": 312,
+      "cw": 312,
+      "over": 0
+     },
+     {
+      "i": 6,
+      "text": "DM Sans",
+      "hidden": false,
+      "sw": 312,
+      "cw": 312,
+      "over": 0
+     },
+     {
+      "i": 7,
+      "text": "Work Sans",
+      "hidden": false,
+      "sw": 312,
+      "cw": 312,
+      "over": 0
+     },
+     {
+      "i": 8,
+      "text": "Lexend",
+      "hidden": false,
+      "sw": 312,
+      "cw": 312,
+      "over": 0
+     },
+     {
+      "i": 9,
+      "text": "Literata (shows as default font)",
+      "hidden": true,
+      "sw": 312,
+      "cw": 312,
+      "over": 0
+     },
+     {
+      "i": 10,
+      "text": "Sora (shows as default font)",
+      "hidden": true,
+      "sw": 312,
+      "cw": 312,
+      "over": 0
+     },
+     {
+      "i": 11,
+      "text": "System (shows as default font)",
+      "hidden": true,
+      "sw": 312,
+      "cw": 312,
+      "over": 0
+     }
+    ]
+   },
+   {
+    "id": null,
+    "vis": true,
+    "cw": 312,
+    "ff": "Arial",
+    "fs": "14px",
+    "selText": "Inherit from base",
+    "title": null,
+    "clipped": null,
+    "nopts": 4,
+    "nOver": 0,
+    "maxOver": 0,
+    "worst": {
+     "i": 0,
+     "text": "Inherit from base",
+     "hidden": false,
+     "sw": 312,
+     "cw": 312,
+     "over": 0
+    },
+    "opts": [
+     {
+      "i": 0,
+      "text": "Inherit from base",
+      "hidden": false,
+      "sw": 312,
+      "cw": 312,
+      "over": 0
+     },
+     {
+      "i": 1,
+      "text": "Small",
+      "hidden": false,
+      "sw": 312,
+      "cw": 312,
+      "over": 0
+     },
+     {
+      "i": 2,
+      "text": "Medium",
+      "hidden": false,
+      "sw": 312,
+      "cw": 312,
+      "over": 0
+     },
+     {
+      "i": 3,
+      "text": "Large",
+      "hidden": false,
+      "sw": 312,
+      "cw": 312,
+      "over": 0
+     }
+    ]
+   },
+   {
+    "id": null,
+    "vis": true,
+    "cw": 312,
+    "ff": "Arial",
+    "fs": "14px",
+    "selText": "Inherit from base",
+    "title": null,
+    "clipped": null,
+    "nopts": 5,
+    "nOver": 0,
+    "maxOver": 0,
+    "worst": {
+     "i": 0,
+     "text": "Inherit from base",
+     "hidden": false,
+     "sw": 312,
+     "cw": 312,
+     "over": 0
+    },
+    "opts": [
+     {
+      "i": 0,
+      "text": "Inherit from base",
+      "hidden": false,
+      "sw": 312,
+      "cw": 312,
+      "over": 0
+     },
+     {
+      "i": 1,
+      "text": "Base",
+      "hidden": false,
+      "sw": 312,
+      "cw": 312,
+      "over": 0
+     },
+     {
+      "i": 2,
+      "text": "Large",
+      "hidden": false,
+      "sw": 312,
+      "cw": 312,
+      "over": 0
+     },
+     {
+      "i": 3,
+      "text": "X-Large",
+      "hidden": false,
+      "sw": 312,
+      "cw": 312,
+      "over": 0
+     },
+     {
+      "i": 4,
+      "text": "XX-Large",
+      "hidden": false,
+      "sw": 312,
+      "cw": 312,
+      "over": 0
+     }
+    ]
+   },
+   {
+    "id": null,
+    "vis": true,
+    "cw": 312,
+    "ff": "Arial",
+    "fs": "14px",
+    "selText": "Inherit from base",
+    "title": null,
+    "clipped": null,
+    "nopts": 4,
+    "nOver": 0,
+    "maxOver": 0,
+    "worst": {
+     "i": 0,
+     "text": "Inherit from base",
+     "hidden": false,
+     "sw": 312,
+     "cw": 312,
+     "over": 0
+    },
+    "opts": [
+     {
+      "i": 0,
+      "text": "Inherit from base",
+      "hidden": false,
+      "sw": 312,
+      "cw": 312,
+      "over": 0
+     },
+     {
+      "i": 1,
+      "text": "Compact",
+      "hidden": false,
+      "sw": 312,
+      "cw": 312,
+      "over": 0
+     },
+     {
+      "i": 2,
+      "text": "Regular",
+      "hidden": false,
+      "sw": 312,
+      "cw": 312,
+      "over": 0
+     },
+     {
+      "i": 3,
+      "text": "Roomy",
+      "hidden": false,
+      "sw": 312,
+      "cw": 312,
+      "over": 0
+     }
+    ]
+   },
+   {
+    "id": null,
+    "vis": true,
+    "cw": 312,
+    "ff": "Arial",
+    "fs": "14px",
+    "selText": "Inherit from base",
+    "title": null,
+    "clipped": null,
+    "nopts": 4,
+    "nOver": 0,
+    "maxOver": 0,
+    "worst": {
+     "i": 0,
+     "text": "Inherit from base",
+     "hidden": false,
+     "sw": 312,
+     "cw": 312,
+     "over": 0
+    },
+    "opts": [
+     {
+      "i": 0,
+      "text": "Inherit from base",
+      "hidden": false,
+      "sw": 312,
+      "cw": 312,
+      "over": 0
+     },
+     {
+      "i": 1,
+      "text": "Sharp",
+      "hidden": false,
+      "sw": 312,
+      "cw": 312,
+      "over": 0
+     },
+     {
+      "i": 2,
+      "text": "Soft",
+      "hidden": false,
+      "sw": 312,
+      "cw": 312,
+      "over": 0
+     },
+     {
+      "i": 3,
+      "text": "Round",
+      "hidden": false,
+      "sw": 312,
+      "cw": 312,
+      "over": 0
+     }
+    ]
+   },
+   {
+    "id": null,
+    "vis": true,
+    "cw": 312,
+    "ff": "Arial",
+    "fs": "14px",
+    "selText": "Inherit from base",
+    "title": null,
+    "clipped": null,
+    "nopts": 5,
+    "nOver": 0,
+    "maxOver": 0,
+    "worst": {
+     "i": 0,
+     "text": "Inherit from base",
+     "hidden": false,
+     "sw": 312,
+     "cw": 312,
+     "over": 0
+    },
+    "opts": [
+     {
+      "i": 0,
+      "text": "Inherit from base",
+      "hidden": false,
+      "sw": 312,
+      "cw": 312,
+      "over": 0
+     },
+     {
+      "i": 1,
+      "text": "None",
+      "hidden": false,
+      "sw": 312,
+      "cw": 312,
+      "over": 0
+     },
+     {
+      "i": 2,
+      "text": "Low",
+      "hidden": false,
+      "sw": 312,
+      "cw": 312,
+      "over": 0
+     },
+     {
+      "i": 3,
+      "text": "Mid",
+      "hidden": false,
+      "sw": 312,
+      "cw": 312,
+      "over": 0
+     },
+     {
+      "i": 4,
+      "text": "High",
+      "hidden": false,
+      "sw": 312,
+      "cw": 312,
+      "over": 0
+     }
+    ]
+   },
+   {
+    "id": null,
+    "vis": true,
+    "cw": 312,
+    "ff": "Arial",
+    "fs": "14px",
+    "selText": "Inherit from base",
+    "title": null,
+    "clipped": null,
+    "nopts": 6,
+    "nOver": 0,
+    "maxOver": 0,
+    "worst": {
+     "i": 0,
+     "text": "Inherit from base",
+     "hidden": false,
+     "sw": 312,
+     "cw": 312,
+     "over": 0
+    },
+    "opts": [
+     {
+      "i": 0,
+      "text": "Inherit from base",
+      "hidden": false,
+      "sw": 312,
+      "cw": 312,
+      "over": 0
+     },
+     {
+      "i": 1,
+      "text": "Small",
+      "hidden": false,
+      "sw": 312,
+      "cw": 312,
+      "over": 0
+     },
+     {
+      "i": 2,
+      "text": "Medium",
+      "hidden": false,
+      "sw": 312,
+      "cw": 312,
+      "over": 0
+     },
+     {
+      "i": 3,
+      "text": "Large",
+      "hidden": false,
+      "sw": 312,
+      "cw": 312,
+      "over": 0
+     },
+     {
+      "i": 4,
+      "text": "Extra large",
+      "hidden": false,
+      "sw": 312,
+      "cw": 312,
+      "over": 0
+     },
+     {
+      "i": 5,
+      "text": "Fully round",
+      "hidden": false,
+      "sw": 312,
+      "cw": 312,
+      "over": 0
+     }
+    ]
+   },
+   {
+    "id": null,
+    "vis": true,
+    "cw": 312,
+    "ff": "Arial",
+    "fs": "14px",
+    "selText": "Inherit from base",
+    "title": null,
+    "clipped": null,
+    "nopts": 4,
+    "nOver": 0,
+    "maxOver": 0,
+    "worst": {
+     "i": 0,
+     "text": "Inherit from base",
+     "hidden": false,
+     "sw": 312,
+     "cw": 312,
+     "over": 0
+    },
+    "opts": [
+     {
+      "i": 0,
+      "text": "Inherit from base",
+      "hidden": false,
+      "sw": 312,
+      "cw": 312,
+      "over": 0
+     },
+     {
+      "i": 1,
+      "text": "Small",
+      "hidden": false,
+      "sw": 312,
+      "cw": 312,
+      "over": 0
+     },
+     {
+      "i": 2,
+      "text": "Medium",
+      "hidden": false,
+      "sw": 312,
+      "cw": 312,
+      "over": 0
+     },
+     {
+      "i": 3,
+      "text": "Large",
+      "hidden": false,
+      "sw": 312,
+      "cw": 312,
+      "over": 0
+     }
+    ]
+   },
+   {
+    "id": null,
+    "vis": true,
+    "cw": 312,
+    "ff": "Arial",
+    "fs": "14px",
+    "selText": "Inherit from base",
+    "title": null,
+    "clipped": null,
+    "nopts": 3,
+    "nOver": 0,
+    "maxOver": 0,
+    "worst": {
+     "i": 0,
+     "text": "Inherit from base",
+     "hidden": false,
+     "sw": 312,
+     "cw": 312,
+     "over": 0
+    },
+    "opts": [
+     {
+      "i": 0,
+      "text": "Inherit from base",
+      "hidden": false,
+      "sw": 312,
+      "cw": 312,
+      "over": 0
+     },
+     {
+      "i": 1,
+      "text": "As written",
+      "hidden": false,
+      "sw": 312,
+      "cw": 312,
+      "over": 0
+     },
+     {
+      "i": 2,
+      "text": "UPPERCASE",
+      "hidden": false,
+      "sw": 312,
+      "cw": 312,
+      "over": 0
+     }
+    ]
+   },
+   {
+    "id": null,
+    "vis": true,
+    "cw": 312,
+    "ff": "Arial",
+    "fs": "14px",
+    "selText": "Inherit from base",
+    "title": null,
+    "clipped": null,
+    "nopts": 4,
+    "nOver": 0,
+    "maxOver": 0,
+    "worst": {
+     "i": 0,
+     "text": "Inherit from base",
+     "hidden": false,
+     "sw": 312,
+     "cw": 312,
+     "over": 0
+    },
+    "opts": [
+     {
+      "i": 0,
+      "text": "Inherit from base",
+      "hidden": false,
+      "sw": 312,
+      "cw": 312,
+      "over": 0
+     },
+     {
+      "i": 1,
+      "text": "Small",
+      "hidden": false,
+      "sw": 312,
+      "cw": 312,
+      "over": 0
+     },
+     {
+      "i": 2,
+      "text": "Medium",
+      "hidden": false,
+      "sw": 312,
+      "cw": 312,
+      "over": 0
+     },
+     {
+      "i": 3,
+      "text": "Large",
+      "hidden": false,
+      "sw": 312,
+      "cw": 312,
+      "over": 0
+     }
+    ]
+   },
+   {
+    "id": null,
+    "vis": true,
+    "cw": 312,
+    "ff": "Arial",
+    "fs": "14px",
+    "selText": "Inherit from base",
+    "title": null,
+    "clipped": null,
+    "nopts": 4,
+    "nOver": 0,
+    "maxOver": 0,
+    "worst": {
+     "i": 0,
+     "text": "Inherit from base",
+     "hidden": false,
+     "sw": 312,
+     "cw": 312,
+     "over": 0
+    },
+    "opts": [
+     {
+      "i": 0,
+      "text": "Inherit from base",
+      "hidden": false,
+      "sw": 312,
+      "cw": 312,
+      "over": 0
+     },
+     {
+      "i": 1,
+      "text": "Solid (default)",
+      "hidden": false,
+      "sw": 312,
+      "cw": 312,
+      "over": 0
+     },
+     {
+      "i": 2,
+      "text": "Outline",
+      "hidden": false,
+      "sw": 312,
+      "cw": 312,
+      "over": 0
+     },
+     {
+      "i": 3,
+      "text": "Soft pill + shadow",
+      "hidden": false,
+      "sw": 312,
+      "cw": 312,
+      "over": 0
+     }
+    ]
+   },
+   {
+    "id": null,
+    "vis": true,
+    "cw": 312,
+    "ff": "Arial",
+    "fs": "14px",
+    "selText": "Inherit from base",
+    "title": null,
+    "clipped": null,
+    "nopts": 4,
+    "nOver": 0,
+    "maxOver": 0,
+    "worst": {
+     "i": 0,
+     "text": "Inherit from base",
+     "hidden": false,
+     "sw": 312,
+     "cw": 312,
+     "over": 0
+    },
+    "opts": [
+     {
+      "i": 0,
+      "text": "Inherit from base",
+      "hidden": false,
+      "sw": 312,
+      "cw": 312,
+      "over": 0
+     },
+     {
+      "i": 1,
+      "text": "Grid (default)",
+      "hidden": false,
+      "sw": 312,
+      "cw": 312,
+      "over": 0
+     },
+     {
+      "i": 2,
+      "text": "Single-column list",
+      "hidden": false,
+      "sw": 312,
+      "cw": 312,
+      "over": 0
+     },
+     {
+      "i": 3,
+      "text": "Full-width cards",
+      "hidden": false,
+      "sw": 312,
+      "cw": 312,
+      "over": 0
+     }
+    ]
+   },
+   {
+    "id": null,
+    "vis": true,
+    "cw": 312,
+    "ff": "Arial",
+    "fs": "14px",
+    "selText": "Inherit from base",
+    "title": null,
+    "clipped": null,
+    "nopts": 3,
+    "nOver": 0,
+    "maxOver": 0,
+    "worst": {
+     "i": 0,
+     "text": "Inherit from base",
+     "hidden": false,
+     "sw": 312,
+     "cw": 312,
+     "over": 0
+    },
+    "opts": [
+     {
+      "i": 0,
+      "text": "Inherit from base",
+      "hidden": false,
+      "sw": 312,
+      "cw": 312,
+      "over": 0
+     },
+     {
+      "i": 1,
+      "text": "Soft wash (default)",
+      "hidden": false,
+      "sw": 312,
+      "cw": 312,
+      "over": 0
+     },
+     {
+      "i": 2,
+      "text": "Bigger + check badge",
+      "hidden": false,
+      "sw": 312,
+      "cw": 312,
+      "over": 0
+     }
+    ]
+   },
+   {
+    "id": null,
+    "vis": true,
+    "cw": 312,
+    "ff": "Arial",
+    "fs": "14px",
+    "selText": "Inherit from base",
+    "title": null,
+    "clipped": null,
+    "nopts": 6,
+    "nOver": 0,
+    "maxOver": 0,
+    "worst": {
+     "i": 0,
+     "text": "Inherit from base",
+     "hidden": false,
+     "sw": 312,
+     "cw": 312,
+     "over": 0
+    },
+    "opts": [
+     {
+      "i": 0,
+      "text": "Inherit from base",
+      "hidden": false,
+      "sw": 312,
+      "cw": 312,
+      "over": 0
+     },
+     {
+      "i": 1,
+      "text": "Small",
+      "hidden": false,
+      "sw": 312,
+      "cw": 312,
+      "over": 0
+     },
+     {
+      "i": 2,
+      "text": "Medium",
+      "hidden": false,
+      "sw": 312,
+      "cw": 312,
+      "over": 0
+     },
+     {
+      "i": 3,
+      "text": "Large",
+      "hidden": false,
+      "sw": 312,
+      "cw": 312,
+      "over": 0
+     },
+     {
+      "i": 4,
+      "text": "Extra large",
+      "hidden": false,
+      "sw": 312,
+      "cw": 312,
+      "over": 0
+     },
+     {
+      "i": 5,
+      "text": "Fully round",
+      "hidden": false,
+      "sw": 312,
+      "cw": 312,
+      "over": 0
+     }
+    ]
+   },
+   {
+    "id": null,
+    "vis": true,
+    "cw": 312,
+    "ff": "Arial",
+    "fs": "14px",
+    "selText": "Inherit from base",
+    "title": null,
+    "clipped": null,
+    "nopts": 6,
+    "nOver": 0,
+    "maxOver": 0,
+    "worst": {
+     "i": 0,
+     "text": "Inherit from base",
+     "hidden": false,
+     "sw": 312,
+     "cw": 312,
+     "over": 0
+    },
+    "opts": [
+     {
+      "i": 0,
+      "text": "Inherit from base",
+      "hidden": false,
+      "sw": 312,
+      "cw": 312,
+      "over": 0
+     },
+     {
+      "i": 1,
+      "text": "None",
+      "hidden": false,
+      "sw": 312,
+      "cw": 312,
+      "over": 0
+     },
+     {
+      "i": 2,
+      "text": "Small",
+      "hidden": false,
+      "sw": 312,
+      "cw": 312,
+      "over": 0
+     },
+     {
+      "i": 3,
+      "text": "Medium",
+      "hidden": false,
+      "sw": 312,
+      "cw": 312,
+      "over": 0
+     },
+     {
+      "i": 4,
+      "text": "Large",
+      "hidden": false,
+      "sw": 312,
+      "cw": 312,
+      "over": 0
+     },
+     {
+      "i": 5,
+      "text": "Extra large",
+      "hidden": false,
+      "sw": 312,
+      "cw": 312,
+      "over": 0
+     }
+    ]
+   },
+   {
+    "id": "lg-theme-hex-role",
+    "vis": true,
+    "cw": 290,
+    "ff": "Arial",
+    "fs": "14px",
+    "selText": "Brand primary",
+    "title": null,
+    "clipped": null,
+    "nopts": 14,
+    "nOver": 0,
+    "maxOver": 0,
+    "worst": {
+     "i": 0,
+     "text": "Brand primary",
+     "hidden": false,
+     "sw": 290,
+     "cw": 290,
+     "over": 0
+    },
+    "opts": [
+     {
+      "i": 0,
+      "text": "Brand primary",
+      "hidden": false,
+      "sw": 290,
+      "cw": 290,
+      "over": 0
+     },
+     {
+      "i": 1,
+      "text": "Brand secondary",
+      "hidden": false,
+      "sw": 290,
+      "cw": 290,
+      "over": 0
+     },
+     {
+      "i": 2,
+      "text": "Accent",
+      "hidden": false,
+      "sw": 290,
+      "cw": 290,
+      "over": 0
+     },
+     {
+      "i": 3,
+      "text": "Success",
+      "hidden": false,
+      "sw": 290,
+      "cw": 290,
+      "over": 0
+     },
+     {
+      "i": 4,
+      "text": "Error",
+      "hidden": false,
+      "sw": 290,
+      "cw": 290,
+      "over": 0
+     },
+     {
+      "i": 5,
+      "text": "Page background",
+      "hidden": false,
+      "sw": 290,
+      "cw": 290,
+      "over": 0
+     },
+     {
+      "i": 6,
+      "text": "Card background",
+      "hidden": false,
+      "sw": 290,
+      "cw": 290,
+      "over": 0
+     },
+     {
+      "i": 7,
+      "text": "Soft fill",
+      "hidden": false,
+      "sw": 290,
+      "cw": 290,
+      "over": 0
+     },
+     {
+      "i": 8,
+      "text": "Border",
+      "hidden": false,
+      "sw": 290,
+      "cw": 290,
+      "over": 0
+     },
+     {
+      "i": 9,
+      "text": "Text",
+      "hidden": false,
+      "sw": 290,
+      "cw": 290,
+      "over": 0
+     },
+     {
+      "i": 10,
+      "text": "Muted text",
+      "hidden": false,
+      "sw": 290,
+      "cw": 290,
+      "over": 0
+     },
+     {
+      "i": 11,
+      "text": "Button",
+      "hidden": false,
+      "sw": 290,
+      "cw": 290,
+      "over": 0
+     },
+     {
+      "i": 12,
+      "text": "Button text",
+      "hidden": false,
+      "sw": 290,
+      "cw": 290,
+      "over": 0
+     },
+     {
+      "i": 13,
+      "text": "Secondary button",
+      "hidden": false,
+      "sw": 290,
+      "cw": 290,
+      "over": 0
+     }
+    ]
+   },
+   {
+    "id": "lg-theme-preset-select",
+    "vis": true,
+    "cw": 312,
+    "ff": "Arial",
+    "fs": "14px",
+    "selText": "Choose a preset…",
+    "title": null,
+    "clipped": null,
+    "nopts": 6,
+    "nOver": 0,
+    "maxOver": 0,
+    "worst": {
+     "i": 0,
+     "text": "Choose a preset…",
+     "hidden": false,
+     "sw": 312,
+     "cw": 312,
+     "over": 0
+    },
+    "opts": [
+     {
+      "i": 0,
+      "text": "Choose a preset…",
+      "hidden": false,
+      "sw": 312,
+      "cw": 312,
+      "over": 0
+     },
+     {
+      "i": 1,
+      "text": "P8 Repro",
+      "hidden": false,
+      "sw": 312,
+      "cw": 312,
+      "over": 0
+     },
+     {
+      "i": 2,
+      "text": "RV1B Arm Theme",
+      "hidden": false,
+      "sw": 312,
+      "cw": 312,
+      "over": 0
+     },
+     {
+      "i": 3,
+      "text": "RV3C short",
+      "hidden": false,
+      "sw": 312,
+      "cw": 312,
+      "over": 0
+     },
+     {
+      "i": 4,
+      "text": "RV3D Mono Probe",
+      "hidden": false,
+      "sw": 312,
+      "cw": 312,
+      "over": 0
+     },
+     {
+      "i": 5,
+      "text": "RV3D Sans Probe",
+      "hidden": false,
+      "sw": 312,
+      "cw": 312,
+      "over": 0
+     }
+    ]
+   }
+  ],
+  "usedBy": [
+   {
+    "t": "Used by: stepper buttons, progress fill, focus ring, trust-row icons, list check marks",
+    "sw": 0,
+    "cw": 0,
+    "over": 0
+   },
+   {
+    "t": "Used by: gradients, secondary emphasis",
+    "sw": 0,
+    "cw": 0,
+    "over": 0
+   },
+   {
+    "t": "Used by: category label, highlights, recommended",
+    "sw": 0,
+    "cw": 0,
+    "over": 0
+   },
+   {
+    "t": "Used by: reassurance, valid states",
+    "sw": 0,
+    "cw": 0,
+    "over": 0
+   },
+   {
+    "t": "Used by: validation errors",
+    "sw": 0,
+    "cw": 0,
+    "over": 0
+   },
+   {
+    "t": "Used by: frame background",
+    "sw": 0,
+    "cw": 0,
+    "over": 0
+   },
+   {
+    "t": "Used by: question card, answer cards, input fields",
+    "sw": 0,
+    "cw": 0,
+    "over": 0
+   },
+   {
+    "t": "Used by: range-slider focus ring",
+    "sw": 0,
+    "cw": 0,
+    "over": 0
+   },
+   {
+    "t": "Used by: answer card/input borders, progress steps, progress track",
+    "sw": 0,
+    "cw": 0,
+    "over": 0
+   },
+   {
+    "t": "Used by: body text, input text",
+    "sw": 0,
+    "cw": 0,
+    "over": 0
+   },
+   {
+    "t": "Used by: labels, disclosure text",
+    "sw": 0,
+    "cw": 0,
+    "over": 0
+   },
+   {
+    "t": "Used by: Continue/CTA background",
+    "sw": 0,
+    "cw": 0,
+    "over": 0
+   },
+   {
+    "t": "Used by: Continue/CTA text",
+    "sw": 0,
+    "cw": 0,
+    "over": 0
+   },
+   {
+    "t": "Used by: benefit bar, disclosure bar",
+    "sw": 0,
+    "cw": 0,
+    "over": 0
+   }
+  ],
+  "docSW": 375,
+  "iw": 375
+ }
+]

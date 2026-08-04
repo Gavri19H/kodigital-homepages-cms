@@ -1,0 +1,116 @@
+[
+ {
+  "width": 1280,
+  "errs": [],
+  "consoleErrors": [],
+  "steps": [
+   {
+    "i": 0,
+    "h1": "Which carrier do you want a quote from?",
+    "btn": "Go",
+    "docSW": 1280,
+    "iw": 1280,
+    "sels": [],
+    "reveal": "undefined"
+   },
+   {
+    "i": 1,
+    "h1": "Which carrier do you want a quote from?",
+    "btn": "Continue",
+    "docSW": 1280,
+    "iw": 1280,
+    "sels": [],
+    "reveal": "undefined"
+   },
+   {
+    "i": 2,
+    "h1": "Which carrier do you want a quote from?",
+    "btn": "Continue RVW2D 8842",
+    "docSW": 1280,
+    "iw": 1280,
+    "sels": [],
+    "reveal": "undefined"
+   },
+   {
+    "i": 3,
+    "h1": "Which carrier do you want a quote from?",
+    "btn": "Continue R2C3",
+    "docSW": 1280,
+    "iw": 1280,
+    "sels": [],
+    "reveal": "undefined"
+   },
+   {
+    "i": 4,
+    "h1": "Which carrier do you want a quote from?",
+    "btn": "Continue",
+    "docSW": 1280,
+    "iw": 1280,
+    "sels": [],
+    "reveal": "undefined"
+   }
+  ],
+  "themed": {
+   "sentinelBrand": 20,
+   "sentinelBorder": 15,
+   "sheets": 2
+  }
+ },
+ {
+  "width": 375,
+  "errs": [],
+  "consoleErrors": [],
+  "steps": [
+   {
+    "i": 0,
+    "h1": "Which carrier do you want a quote from?",
+    "btn": "Go",
+    "docSW": 375,
+    "iw": 375,
+    "sels": [],
+    "reveal": "undefined"
+   },
+   {
+    "i": 1,
+    "h1": "Which carrier do you want a quote from?",
+    "btn": "Continue",
+    "docSW": 375,
+    "iw": 375,
+    "sels": [],
+    "reveal": "undefined"
+   },
+   {
+    "i": 2,
+    "h1": "Which carrier do you want a quote from?",
+    "btn": "Continue RVW2D 8842",
+    "docSW": 375,
+    "iw": 375,
+    "sels": [],
+    "reveal": "undefined"
+   },
+   {
+    "i": 3,
+    "h1": "Which carrier do you want a quote from?",
+    "btn": "Continue R2C3",
+    "docSW": 375,
+    "iw": 375,
+    "sels": [],
+    "reveal": "undefined"
+   },
+   {
+    "i": 4,
+    "h1": "Which carrier do you want a quote from?",
+    "btn": "Continue",
+    "docSW": 375,
+    "iw": 375,
+    "sels": [],
+    "reveal": "undefined"
+   }
+  ],
+  "themed": {
+   "sentinelBrand": 20,
+   "sentinelBorder": 15,
+   "sheets": 2
+  }
+ }
+]

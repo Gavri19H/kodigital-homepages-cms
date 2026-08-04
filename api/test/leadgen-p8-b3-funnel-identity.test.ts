@@ -25,8 +25,11 @@
 //       here per this repo's stated per-file harness convention — see
 //       src/scripts/capture-p3a-presplit.ts's header).
 //   (c) the Theme chip's label reflects the funnel's OWN stored theme_json
-//       (null -> "Default", inline -> "Custom", {theme_id} -> the id — no
-//       preset-name lookup is threaded to the board; a named gap).
+//       (null -> "Default", inline -> "Custom", {theme_id} -> the SSR-only
+//       neutral fallback word "Theme", NEVER the raw id — no preset-name
+//       catalog is threaded into SSR; see the F9 note below the S1.6
+//       paragraph for the current split of what this leg proves vs. what
+//       driving proves).
 //
 // P8-1 S1.6 (B3/R6-1, second leg — extends the above): the Template chip's
 // identity-carry now has a consumer. quotes-tabs/funnel.ts's Template-chip
@@ -44,15 +47,24 @@
 //        that fires unprompted at boot, no dialog-click simulation needed);
 //        the other two call sites route through these SAME two resolver
 //        functions by construction.
-// The Theme chip's label (part (c) below) still falls back to the raw
-// {theme_id} — re-investigated for S1.6: no SSR-side theme-preset catalog is
-// threaded into renderBuilderPanel/renderFunnelColumn (only `templates:
-// FrameTemplateItem[]` is, for the Template chip), and the one client-side
-// fetch of GET /api/admin/leadgen/themes left in quotes-tabs/funnel.ts
-// (loadThemePresetOptions) targets #lg-theme-preset-select, an id with no
-// SSR markup anywhere in this file (adjacent dead code, unrelated to this
-// slice, not touched) — so no reachable name source exists without adding a
-// new fetch/endpoint, which is out of scope for a label.
+// P8-3 F9 — UPDATE ON PART (c). The paragraph immediately above described the
+// S1.6-era state: the Theme chip's {theme_id} case fell back to the raw KV
+// id, and part (c)'s assertion below used to pin that as an accepted "named
+// gap". A fresh-context adversarial review of P8-3 filed the raw id on an
+// operator-facing chip as MINOR-5 (screenshot: the chip read
+// "thm_p8-repro"). A sibling slice (F5) fixed it in quotes-tabs/funnel.ts:
+// SSR's themeChipLabel now falls back to the neutral word "Theme" (mirroring
+// templateLabelFor's own "Template" fallback immediately above it in that
+// file) and NEVER the raw id — the raw id is still threaded down, but only
+// as the non-visible `data-theme-preset-id` DATA ATTRIBUTE, so that
+// funnel.ts's OWN client-side applyThemeChipNames can rename the chip to the
+// preset's real name once its eager GET /api/admin/leadgen/themes fetch
+// resolves (the SAME fetch loadThemePresetOptions already performs for the
+// preset <select> — no new request). Part (c)'s test below now asserts what
+// the SSR bytes actually are (the neutral fallback word) PLUS the negative
+// that the raw id never renders as the chip's text — it does NOT drive the
+// client-side rename to the preset's real name; that is an island/live claim
+// covered by driving (E6), not this SSR-only leg.
 
 import { describe, expect, it } from "vitest";
 import { readFileSync } from "node:fs";
@@ -400,7 +412,7 @@ async function seedThreeFunnelBoard(env: Env): Promise<ThreeFunnelFixture> {
   );
   const presetId = await createPreset(env, "Ocean Blue");
   // Funnel A: theme_json stays NULL (no PUT at all) -> chip label "Default".
-  await putFunnelTheme(env, funnelB.public_id, { theme_id: presetId }); // -> chip label falls back to the raw id (no name threaded to the board)
+  await putFunnelTheme(env, funnelB.public_id, { theme_id: presetId }); // -> SSR chip label = neutral "Theme" fallback (R2 P8-3 F9); real-name substitution is client-side, not exercised by this SSR-only fixture
   await putFunnelTheme(env, funnelC.public_id, { palette: { brand_primary: "#112233" } }); // inline -> chip label "Custom"
 
   return {
@@ -463,7 +475,7 @@ describeDb("P8 B3 (contract R6-1) — part (a): rendered Theme/Template chips ca
     sdb.close();
   });
 
-  it("the Theme chip's label reflects the funnel's OWN stored theme_json: null -> Default, inline -> Custom, {theme_id} -> the id", async () => {
+  it("the Theme chip's label reflects the funnel's OWN stored theme_json: null -> Default, inline -> Custom, {theme_id} -> the SSR neutral fallback word, NEVER the raw id", async () => {
     const { sdb, env } = newHarness();
     const fx = await seedThreeFunnelBoard(env);
     const html = await (await admin.request(`/admin/leadgen/quotes/${fx.quotePublicId}/edit`, {}, env)).text();
@@ -471,7 +483,18 @@ describeDb("P8 B3 (contract R6-1) — part (a): rendered Theme/Template chips ca
     const colA = sliceColumn(html, fx.funnelA);
     expect(colA, "no theme set -> Default").toMatch(/data-theme-picker[\s\S]{0,400}>Default<\/span>/);
     const colB = sliceColumn(html, fx.funnelB);
-    expect(colB, "theme_id preset pointer -> the raw id (no name threaded to the board — named gap)").toMatch(
+    // R2 P8-3 F9: this is an SSR-only render (a bare admin.request, no island
+    // boot), so it proves the SSR fallback word ONLY, plus the negative that
+    // the raw preset id never leaks into it (Sec4 R3 corollary: "a control
+    // that cannot be honoured must not be offered" — SSR cannot resolve the
+    // preset's real name synchronously, so it must not print the id either).
+    // The REAL name ("Ocean Blue") is substituted CLIENT-SIDE by funnel.ts's
+    // applyThemeChipNames, from the data-theme-preset-id attribute plus the
+    // SAME GET /api/admin/leadgen/themes catalog fetch loadThemePresetOptions
+    // already performs — a live/island claim this SSR-only leg does not
+    // drive (covered by driving, E6, not here).
+    expect(colB, "theme_id preset pointer -> the SSR neutral fallback word").toMatch(/data-theme-picker[\s\S]{0,400}>Theme<\/span>/);
+    expect(colB, "the raw preset id must NEVER render as the chip's visible text").not.toMatch(
       new RegExp(`data-theme-picker[\\s\\S]{0,400}>${fx.presetId}</span>`),
     );
     const colC = sliceColumn(html, fx.funnelC);
@@ -725,6 +748,42 @@ function plainTabClicks(page: PageState, tabs: readonly string[]): void {
 // legitimately fetches while resolving).
 const themeCallsOf = (island: IslandHandle): Array<{ url: string }> => island.calls.filter((c) => c.url.includes("/funnels/") && c.url.endsWith("/theme"));
 
+// R2 P8-3 (F1) — the WRONG-TARGET net used by the two legs below, which assert
+// "EVERY theme call targets funnel X / NO call targets funnel Y".
+//
+// WHICH SIDE WAS WRONG: the MATCHER, not the island. Both legs used to filter
+// `url.includes("/theme") && !url.includes("preview")`. `"/theme"` is a
+// PREFIX of `"/themes"`, so that predicate also caught the preset-catalog read
+// `GET /api/admin/leadgen/themes` (themes.ts:1366 refreshPresetAvailability),
+// a collection endpoint that is not funnel-scoped and carries no target at
+// all — `.every(url contains "/funnels/<A>/theme")` therefore went false on a
+// call that has nothing to target. MEASURED on the failing leg: the island
+// issues 4 calls — `…/sections?status=active&page_size=200`,
+// `…/themes`, and the funnel-scoped GET+PUT pair `…/funnels/<A>/theme` ×2,
+// both already on the RIGHT funnel. The B3 behaviour is intact.
+//
+// WHY THIS PREDICATE AND NOT `themeCallsOf` ABOVE. Narrowing these two legs to
+// `themeCallsOf`'s `/funnels/ + endsWith("/theme")` would ALSO pass, but it
+// would silently drop coverage: a theme write on any NON-funnel-scoped path
+// (e.g. a future `/variants/:id/theme`) would fall outside the filter and the
+// "every call targets X" assertion would go vacuously true on it. So this
+// EXCLUDES the preset plane precisely instead of narrowing to funnels.
+// COVERAGE, old vs new, over the complete `/theme`-bearing admin route set
+// (router.ts:218-222 + :334-335 — `/themes`, `/themes/:id`, `/funnels/:id/theme`;
+// grep confirms NO `/variants/:id/theme` route exists at this HEAD):
+//   * `/funnels/:id/theme` (GET+PUT)      — matched by BOTH old and new.
+//   * any other `…/theme` shape, present  — matched by BOTH old and new
+//     or future, that carries a target      (this is the coverage narrowing
+//                                            to `/funnels/` would have lost).
+//   * `…/preview…`                        — excluded by BOTH (unchanged).
+//   * `/themes` and `/themes/:id`         — the preset plane; excluded by the
+//                                            NEW predicate only. That is the
+//                                            whole fix, and it removes zero
+//                                            target-bearing calls.
+const PRESET_PLANE_URL = /\/themes(?:\/|$|\?)/;
+const themeTargetCallsOf = (island: IslandHandle): Array<{ url: string }> =>
+  island.calls.filter((c) => c.url.includes("/theme") && !c.url.includes("preview") && !PRESET_PLANE_URL.test(c.url));
+
 describeDb("P8 B3 (contract R6-1) — part (b): the Themes island targets the chip-carried funnel when present, the editor-default otherwise", () => {
   it("no carried context: GET+PUT still target the editor-default funnel (today's behaviour, unchanged)", async () => {
     const { sdb, env } = newHarness();
@@ -735,7 +794,7 @@ describeDb("P8 B3 (contract R6-1) — part (b): the Themes island targets the ch
     fireRadiusEdit(island);
     await island.settle();
 
-    const themeCalls = island.calls.filter((c) => c.url.includes("/theme") && !c.url.includes("preview"));
+    const themeCalls = themeTargetCallsOf(island);
     expect(themeCalls.length, "GET+PUT count to /theme").toBeGreaterThan(0);
     expect(themeCalls.every((c) => c.url.includes(`/funnels/${fx.funnelA}/theme`)), "every /theme call targets funnel A").toBe(true);
     expect(themeCalls.some((c) => c.url.includes(fx.funnelC)), "no call targets funnel C").toBe(false);
@@ -759,7 +818,7 @@ describeDb("P8 B3 (contract R6-1) — part (b): the Themes island targets the ch
     fireRadiusEdit(island);
     await island.settle();
 
-    const themeCalls = island.calls.filter((c) => c.url.includes("/theme") && !c.url.includes("preview"));
+    const themeCalls = themeTargetCallsOf(island);
     expect(themeCalls.length, "GET+PUT count to /theme").toBeGreaterThan(0);
     expect(themeCalls.every((c) => c.url.includes(`/funnels/${fx.funnelC}/theme`)), "every /theme call targets the CARRIED funnel C").toBe(true);
     expect(themeCalls.some((c) => c.url.includes(fx.funnelA)), "no call targets the editor-default funnel A").toBe(false);

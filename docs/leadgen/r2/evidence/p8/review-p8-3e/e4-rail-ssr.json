@@ -1,0 +1,214 @@
+{
+ "rail-1280": {
+  "rows": [
+   {
+    "id": "lg-theme-site-select",
+    "found": true,
+    "preTitle": null,
+    "preOuterStyle": null,
+    "revealed": {
+     "title": null,
+     "clipped": null,
+     "own": null,
+     "to": "",
+     "sel": "Seed Local Living — Not activated yet"
+    },
+    "titleIsFullOption": false,
+    "after": {
+     "title": null,
+     "clipped": null,
+     "own": null,
+     "style": null
+    }
+   },
+   {
+    "id": "lg-theme-target-select",
+    "found": true,
+    "preTitle": null,
+    "preOuterStyle": "margin-left:8px;max-width:200px;vertical-align:middle",
+    "revealed": {
+     "title": null,
+     "clipped": null,
+     "own": null,
+     "to": "",
+     "sel": "R2C3 Bravo Extremely Long Funnel Column Name For The Truncation Audit Delta Echo"
+    },
+    "titleIsFullOption": false,
+    "after": {
+     "title": null,
+     "clipped": null,
+     "own": null,
+     "style": "margin-left:8px;max-width:200px;vertical-align:middle"
+    }
+   }
+  ],
+  "errs": []
+ },
+ "rail-375": {
+  "rows": [
+   {
+    "id": "lg-theme-site-select",
+    "found": true,
+    "preTitle": null,
+    "preOuterStyle": null,
+    "revealed": {
+     "title": null,
+     "clipped": null,
+     "own": null,
+     "to": "",
+     "sel": "Seed Local Living — Not activated yet"
+    },
+    "titleIsFullOption": false,
+    "after": {
+     "title": null,
+     "clipped": null,
+     "own": null,
+     "style": null
+    }
+   },
+   {
+    "id": "lg-theme-target-select",
+    "found": true,
+    "preTitle": null,
+    "preOuterStyle": "margin-left:8px;max-width:200px;vertical-align:middle",
+    "revealed": {
+     "title": null,
+     "clipped": null,
+     "own": null,
+     "to": "",
+     "sel": "R2C3 Bravo Extremely Long Funnel Column Name For The Truncation Audit Delta Echo"
+    },
+    "titleIsFullOption": false,
+    "after": {
+     "title": null,
+     "clipped": null,
+     "own": null,
+     "style": "margin-left:8px;max-width:200px;vertical-align:middle"
+    }
+   }
+  ],
+  "errs": []
+ },
+ "typeswap-1280": {
+  "tileTypes": [
+   "FreeTextQuestion",
+   "ButtonAnswerGroup",
+   "IconCardAnswerGrid",
+   "ContinueButton",
+   "ButtonAnswerGroup",
+   "IconCardAnswerGrid",
+   "TwoButtonYesNo",
+   "DropdownQuestion",
+   "MultiChoiceCardGroup",
+   "QuestionGrid",
+   "FreeTextQuestion",
+   "NumberInputQuestion",
+   "CurrencyInputQuestion",
+   "DateQuestion",
+   "NumberRangeQuestion",
+   "Stack",
+   "PhoneInputQuestion",
+   "AddressAutocompleteQuestion",
+   "TextBlock",
+   "ImageBlock",
+   "Spacer",
+   "CardPanel",
+   "Columns",
+   "GridContainer",
+   "Spacer"
+  ],
+  "state": {
+   "found": true,
+   "vis": false,
+   "cw": 0,
+   "sw": 0,
+   "title": "Type — swaps the concrete stored type",
+   "own": null,
+   "clipped": null,
+   "style": null,
+   "sel": "Headline",
+   "outer": "<select id=\"lg-content-type-swap\" class=\"form-input\" data-text-role=\"\" aria-label=\"Type\" title=\"Type — swaps the concrete stored type\"><option value=\"QuestionHeadline\">Headline</option><option value=\"Subheadline\">Subheadline</option><option value=\"CategoryLabel\">Kicker</option><option value=\"HelperText\">Helper</option><option value=\"LegalNote\">Legal</option></select>"
+  },
+  "errs": []
+ },
+ "typeswap-375": {
+  "tileTypes": [
+   "FreeTextQuestion",
+   "ButtonAnswerGroup",
+   "IconCardAnswerGrid",
+   "ContinueButton",
+   "ButtonAnswerGroup",
+   "IconCardAnswerGrid",
+   "TwoButtonYesNo",
+   "DropdownQuestion",
+   "MultiChoiceCardGroup",
+   "QuestionGrid",
+   "FreeTextQuestion",
+   "NumberInputQuestion",
+   "CurrencyInputQuestion",
+   "DateQuestion",
+   "NumberRangeQuestion",
+   "Stack",
+   "PhoneInputQuestion",
+   "AddressAutocompleteQuestion",
+   "TextBlock",
+   "ImageBlock",
+   "Spacer",
+   "CardPanel",
+   "Columns",
+   "GridContainer",
+   "Spacer"
+  ],
+  "state": {
+   "found": true,
+   "vis": false,
+   "cw": 0,
+   "sw": 0,
+   "title": "Type — swaps the concrete stored type",
+   "own": null,
+   "clipped": null,
+   "style": null,
+   "sel": "Headline",
+   "outer": "<select id=\"lg-content-type-swap\" class=\"form-input\" data-text-role=\"\" aria-label=\"Type\" title=\"Type — swaps the concrete stored type\"><option value=\"QuestionHeadline\">Headline</option><option value=\"Subheadline\">Subheadline</option><option value=\"CategoryLabel\">Kicker</option><option value=\"HelperText\">Helper</option><option value=\"LegalNote\">Legal</option></select>"
+  },
+  "errs": []
+ },
+ "copies": {
+  "/admin/leadgen/offers": {
+   "scriptTagsWithIsland": 1,
+   "installed": "function",
+   "islandBytes": [
+    48582
+   ]
+  },
+  "/admin/leadgen/sections/lgs_01KZ27DTF599M85YHNEDHS6WA0/edit": {
+   "scriptTagsWithIsland": 1,
+   "installed": "function",
+   "islandBytes": [
+    677169
+   ]
+  },
+  "/admin/leadgen/themes": {
+   "scriptTagsWithIsland": 1,
+   "installed": "function",
+   "islandBytes": [
+    16821
+   ]
+  },
+  "/admin": {
+   "scriptTagsWithIsland": 0,
+   "installed": "undefined",
+   "islandBytes": []
+  },
+  "/admin/pages": {
+   "scriptTagsWithIsland": 0,
+   "installed": "undefined",
+   "islandBytes": []
+  },
+  "/admin/articles": {
+   "scriptTagsWithIsland": 0,
+   "installed": "undefined",
+   "islandBytes": []
+  }
+ }
+}

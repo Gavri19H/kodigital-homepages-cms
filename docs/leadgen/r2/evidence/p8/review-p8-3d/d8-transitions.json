@@ -1,0 +1,147 @@
+{
+ "characterData": {
+  "before": {
+   "t": null,
+   "c": null,
+   "sw": 282,
+   "cw": 282
+  },
+  "afterCD": {
+   "t": "RV3D characterData mutation string long enough to overflow this control for sure indeed",
+   "c": "1",
+   "to": "ellipsis",
+   "sw": 282,
+   "cw": 282
+  },
+  "afterShort": {
+   "t": null,
+   "c": null,
+   "to": ""
+  }
+ },
+ "managerSubs": {
+  "n": 11,
+  "over": 0,
+  "worst": {
+   "t": "one look & feel per funnel · A/B-testable in a quote",
+   "sw": 295,
+   "cw": 295,
+   "over": 0
+  },
+  "all": [
+   {
+    "t": "one look & feel per funnel · A/B-testable in a quote",
+    "sw": 295,
+    "cw": 295,
+    "over": 0
+   },
+   {
+    "t": "LIVE · A",
+    "sw": 56,
+    "cw": 56,
+    "over": 0
+   },
+   {
+    "t": "stepper buttons · progress fill · focus ring · trust-row icons · list check marks",
+    "sw": 89,
+    "cw": 89,
+    "over": 0
+   },
+   {
+    "t": "category label · highlights · recommended",
+    "sw": 89,
+    "cw": 89,
+    "over": 0
+   },
+   {
+    "t": "question card · answer cards · input fields",
+    "sw": 89,
+    "cw": 89,
+    "over": 0
+   },
+   {
+    "t": "body text · input text",
+    "sw": 89,
+    "cw": 89,
+    "over": 0
+   },
+   {
+    "t": "reassurance · valid states",
+    "sw": 89,
+    "cw": 89,
+    "over": 0
+   },
+   {
+    "t": "gradients · secondary emphasis",
+    "sw": 89,
+    "cw": 89,
+    "over": 0
+   },
+   {
+    "t": "answer card/input borders · progress steps · progress track",
+    "sw": 89,
+    "cw": 89,
+    "over": 0
+   },
+   {
+    "t": "labels · disclosure text",
+    "sw": 89,
+    "cw": 89,
+    "over": 0
+   },
+   {
+    "t": "benefit bar · disclosure bar",
+    "sw": 89,
+    "cw": 89,
+    "over": 0
+   }
+  ]
+ },
+ "tabRoundTrip": [
+  {
+   "l": "themes-tab",
+   "t": "RV2B NULLFRAME probe — Funnel A",
+   "c": "1",
+   "to": "ellipsis",
+   "vis": true,
+   "sw": 198,
+   "cw": 198
+  },
+  {
+   "l": "builder-tab",
+   "t": "RV2B NULLFRAME probe — Funnel A",
+   "c": "1",
+   "to": "ellipsis",
+   "vis": false,
+   "sw": 0,
+   "cw": 0
+  },
+  {
+   "l": "builder-tab-after-sweep",
+   "t": null,
+   "c": null,
+   "to": "",
+   "vis": false,
+   "sw": 0,
+   "cw": 0
+  },
+  {
+   "l": "back-to-themes",
+   "t": "RV2B NULLFRAME probe — Funnel A",
+   "c": "1",
+   "to": "ellipsis",
+   "vis": true,
+   "sw": 198,
+   "cw": 198
+  },
+  {
+   "l": "back-after-sweep",
+   "t": "RV2B NULLFRAME probe — Funnel A",
+   "c": "1",
+   "to": "ellipsis",
+   "vis": true,
+   "sw": 198,
+   "cw": 198
+  }
+ ]
+}

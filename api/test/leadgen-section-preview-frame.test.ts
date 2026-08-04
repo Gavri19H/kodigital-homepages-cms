@@ -954,6 +954,42 @@ const R2_P5_ADDRESS_LABEL_RULES = [
   `\n${DEFAULT_FUNNEL_SCOPE} select.lg-other-select{grid-column:1 / -1}`,
 ];
 
+// R2 P8-3 S3.10 (contract R3 corollary, "a control that cannot be honoured
+// must not be offered") — the icon-card error rule was RE-POINTED, not
+// re-valued. WHY THIS IS A RE-MINT AND NOT A LEAK, measured, not asserted:
+//   * THE PIN'S CLAIM IS INTACT. The pin says "absent -> byte-identical": a
+//     funnel with NO theme authored renders exactly as before. Dumping
+//     `cssMinusAll` against this fixture's `preview.css` and diffing the whole
+//     17,5xx-char sheet gives exactly ONE differing line out of 397 (the line
+//     below) — 17,561 -> 17,552 chars. In particular the OTHER P8-3 change to
+//     this area (the question-card box properties becoming theme-writable)
+//     produces ZERO delta here: every `.lg-question-card` rule in the
+//     unthemed sheet is byte-identical to the capture. So nothing from P8-3
+//     leaked into the untheme default; only this selector's TEXT moved.
+//   * THE OLD SELECTOR WAS DEAD. `[data-error="true"]` has no producer
+//     anywhere in the visitor runtime (0 occurrences of `data-error` in the
+//     emitted sheet after this change, and no writer in
+//     src/public/leadgen/**). The class the real runtime writes is
+//     ERROR_CLASS = "lg-error" (runtime/render.ts:20, added at :240 to the
+//     owning `[data-lg-field]` block, removed at :241/:255), with the
+//     `.lg-card` buttons as its descendants — so `.lg-error .lg-card` is the
+//     state that actually occurs. Same specificity class (scope attr + 2) and
+//     same source position as the selector it replaces (styles.ts:1728-1737),
+//     so the hover/selected/disabled cascade order is unchanged.
+//   * VALUE UNCHANGED: `border-color:#D32F2F` on both sides — this is a
+//     selector re-point, not a repaint.
+// Mechanism: a targeted full-rule NEW -> OLD replace, the same reverse-map
+// idiom R2_P4_RANGE_CHANGED_RULES / F2_CARD_GRID_TRACKS_* use for "an EXISTING
+// rule's text changed" (a wholesale strip would silently forgive the rule
+// disappearing altogether). The pin keeps ALL of its remaining force: any
+// other byte of this sheet still fails it.
+const P8_S310_ERROR_SELECTOR_REPOINT: ReadonlyArray<readonly [string, string]> = [
+  [
+    `${DEFAULT_FUNNEL_SCOPE} .lg-error .lg-card{border-color:${defaultFunnelDesign.iconCard.errorBorderColor}}`,
+    `${DEFAULT_FUNNEL_SCOPE} .lg-card[data-error="true"]{border-color:${defaultFunnelDesign.iconCard.errorBorderColor}}`,
+  ],
+];
+
 // Legacy plain body: unbound headline + icon grid + ONE continue — a realistic
 // v2.4 body carrying NONE of the additive params.
 const LEGACY_PLAIN_CONTENT = {
@@ -1148,8 +1184,14 @@ function assertPinnedResponse(actualText: string, fixtureText: string): void {
     (s, r) => s.split(r).join(""),
     cssMinusRangeChanged,
   );
-  expect(
+  // R2 P8-3 S3.10: reverse-map the ONE re-pointed selector (see
+  // P8_S310_ERROR_SELECTOR_REPOINT's own comment) back to its pre-change text.
+  const cssMinusRepoint = P8_S310_ERROR_SELECTOR_REPOINT.reduce(
+    (s, [next, prev]) => s.split(next).join(prev),
     cssMinusAll,
+  );
+  expect(
+    cssMinusRepoint,
     "preview.css modulo the DEV-57 + DEV-68 moved rules + the R5 state-safe-border + R5 D11 typography rule bodies + the P1a layout system + the P3a structured-placement (.lg-el/.lg-el-row) rules + the Round-4 P1b studio/preview affordances (ghost/address-composite/mqg-empty) + the R2 P4 §6.8 slider anatomy rules + the R2 P5 F7 address-field-label/Other-select rules",
   ).toBe(expectedPreview["css"]);
   // and the live producer still owns the string (the sections-api :863 idiom).

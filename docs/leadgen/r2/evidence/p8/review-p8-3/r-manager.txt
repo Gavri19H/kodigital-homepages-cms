@@ -1,0 +1,46 @@
+
+===== THEMES MANAGER @1280 =====  url=http://127.0.0.1:8901/admin/leadgen/themes
+  [VIS] id=tm-headline-font label="" w=107 content=107 sel="Inter (shows as default font)"
+      OPTS ["Poppins","Space Grotesk","Fraunces","Playfair Display","Manrope","DM Sans","Work Sans","Lexend","Newsreader (shows as default font)","Inter (shows as default font)","Roboto Mono (shows as default font)"]
+      OVERFLOW "Newsreader (shows as default font)" textW=229.3 over=+122.3
+      OVERFLOW "Inter (shows as default font)" textW=181.2 over=+74.2
+      OVERFLOW "Roboto Mono (shows as default font)" textW=238.2 over=+131.2
+  [VIS] id=tm-body-font label="" w=107 content=107 sel="Inter (shows as default font)"
+      OPTS ["Poppins","Space Grotesk","Fraunces","Playfair Display","Manrope","DM Sans","Work Sans","Lexend","Newsreader (shows as default font)","Inter (shows as default font)","Roboto Mono (shows as default font)"]
+      OVERFLOW "Newsreader (shows as default font)" textW=229.3 over=+122.3
+      OVERFLOW "Inter (shows as default font)" textW=181.2 over=+74.2
+      OVERFLOW "Roboto Mono (shows as default font)" textW=238.2 over=+131.2
+  JARGON/RAW HITS: []
+  ROLE TILES: []
+  errors: []
+
+===== THEMES MANAGER @375 =====  url=http://127.0.0.1:8901/admin/leadgen/themes
+  [VIS] id=tm-headline-font label="" w=14 content=14 sel="Inter (shows as default font)"
+      OPTS ["Poppins","Space Grotesk","Fraunces","Playfair Display","Manrope","DM Sans","Work Sans","Lexend","Newsreader (shows as default font)","Inter (shows as default font)","Roboto Mono (shows as default font)"]
+      OVERFLOW "Poppins" textW=52 over=+37.9
+      OVERFLOW "Space Grotesk" textW=94.8 over=+80.7
+      OVERFLOW "Fraunces" textW=59.4 over=+45.3
+      OVERFLOW "Playfair Display" textW=98.5 over=+84.5
+      OVERFLOW "Manrope" textW=57 over=+43
+      OVERFLOW "DM Sans" textW=57.4 over=+43.4
+      OVERFLOW "Work Sans" textW=68.8 over=+54.8
+      OVERFLOW "Lexend" textW=46.2 over=+32.2
+      OVERFLOW "Newsreader (shows as default font)" textW=229.3 over=+215.3
+      OVERFLOW "Inter (shows as default font)" textW=181.2 over=+167.1
+      OVERFLOW "Roboto Mono (shows as default font)" textW=238.2 over=+224.2
+  [hid] id=tm-body-font label="" w=0 content=0 sel="Inter (shows as default font)"
+      OPTS ["Poppins","Space Grotesk","Fraunces","Playfair Display","Manrope","DM Sans","Work Sans","Lexend","Newsreader (shows as default font)","Inter (shows as default font)","Roboto Mono (shows as default font)"]
+      OVERFLOW(hidden) "Poppins" textW=52 over=+52
+      OVERFLOW(hidden) "Space Grotesk" textW=94.8 over=+94.8
+      OVERFLOW(hidden) "Fraunces" textW=59.4 over=+59.4
+      OVERFLOW(hidden) "Playfair Display" textW=98.5 over=+98.5
+      OVERFLOW(hidden) "Manrope" textW=57 over=+57
+      OVERFLOW(hidden) "DM Sans" textW=57.4 over=+57.4
+      OVERFLOW(hidden) "Work Sans" textW=68.8 over=+68.8
+      OVERFLOW(hidden) "Lexend" textW=46.2 over=+46.2
+      OVERFLOW(hidden) "Newsreader (shows as default font)" textW=229.3 over=+229.3
+      OVERFLOW(hidden) "Inter (shows as default font)" textW=181.2 over=+181.2
+      OVERFLOW(hidden) "Roboto Mono (shows as default font)" textW=238.2 over=+238.2
+  JARGON/RAW HITS: []
+  ROLE TILES: []
+  errors: []

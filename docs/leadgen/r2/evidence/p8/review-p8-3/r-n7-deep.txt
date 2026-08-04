@@ -1,0 +1,49 @@
+
+===== N7 DEEP @1280 =====
+  key=typography.display w=151 content=125 appearance=auto overflowingOptions=3
+      OVERFLOW "Literata (shows as default font)" textW=191.43 over=+66.43px
+      OVERFLOW "Sora (shows as default font)" textW=174.31 over=+49.31px
+      OVERFLOW "System (shows as default font)" textW=191.41 over=+66.41px
+  key=typography.body w=151 content=125 appearance=auto overflowingOptions=3
+      OVERFLOW "Literata (shows as default font)" textW=191.43 over=+66.43px
+      OVERFLOW "Sora (shows as default font)" textW=174.31 over=+49.31px
+      OVERFLOW "System (shows as default font)" textW=191.41 over=+66.41px
+  key=typography.size w=151 content=125 appearance=auto overflowingOptions=0
+  key=typography.display_size w=151 content=125 appearance=auto overflowingOptions=0
+  key=scales.spacing w=151 content=125 appearance=auto overflowingOptions=0
+  key=scales.radius w=151 content=125 appearance=auto overflowingOptions=0
+  key=scales.shadow w=151 content=125 appearance=auto overflowingOptions=0
+  key=button_defaults.radius w=151 content=125 appearance=auto overflowingOptions=0
+  key=button_defaults.min_height w=151 content=125 appearance=auto overflowingOptions=0
+  key=button_defaults.casing w=151 content=125 appearance=auto overflowingOptions=0
+  key=field_defaults.min_height w=151 content=125 appearance=auto overflowingOptions=0
+  key=button_defaults.fill w=151 content=125 appearance=auto overflowingOptions=0
+  key=button_defaults.layout w=151 content=125 appearance=auto overflowingOptions=0
+  key=button_defaults.selected w=151 content=125 appearance=auto overflowingOptions=1
+      OVERFLOW "Bigger + check badge" textW=135.82 over=+10.82px
+  key=card_defaults.radius w=151 content=125 appearance=auto overflowingOptions=0
+  key=card_defaults.shadow w=151 content=125 appearance=auto overflowingOptions=0
+  theme selects visible=16; selects with >=1 overflowing option=3
+  WORST OPTION SET (display only, no change event): {"key":"typography.display","idx":9,"opt":"Literata (shows as default font)","over":66.43359375}
+  select overflow probe: {"scrollW":207,"clientW":149,"title":"","ellipsis":"clip"}
+
+===== N7 DEEP @375 =====
+  key=typography.display w=314 content=288 appearance=auto overflowingOptions=0
+  key=typography.body w=314 content=288 appearance=auto overflowingOptions=0
+  key=typography.size w=314 content=288 appearance=auto overflowingOptions=0
+  key=typography.display_size w=314 content=288 appearance=auto overflowingOptions=0
+  key=scales.spacing w=314 content=288 appearance=auto overflowingOptions=0
+  key=scales.radius w=314 content=288 appearance=auto overflowingOptions=0
+  key=scales.shadow w=314 content=288 appearance=auto overflowingOptions=0
+  key=button_defaults.radius w=314 content=288 appearance=auto overflowingOptions=0
+  key=button_defaults.min_height w=314 content=288 appearance=auto overflowingOptions=0
+  key=button_defaults.casing w=314 content=288 appearance=auto overflowingOptions=0
+  key=field_defaults.min_height w=314 content=288 appearance=auto overflowingOptions=0
+  key=button_defaults.fill w=314 content=288 appearance=auto overflowingOptions=0
+  key=button_defaults.layout w=314 content=288 appearance=auto overflowingOptions=0
+  key=button_defaults.selected w=314 content=288 appearance=auto overflowingOptions=0
+  key=card_defaults.radius w=314 content=288 appearance=auto overflowingOptions=0
+  key=card_defaults.shadow w=314 content=288 appearance=auto overflowingOptions=0
+  theme selects visible=16; selects with >=1 overflowing option=0
+  WORST OPTION SET (display only, no change event): {"key":"typography.display","idx":9,"opt":"Literata (shows as default font)","over":-96.56640625}
+  select overflow probe: {"scrollW":312,"clientW":312,"title":"","ellipsis":"clip"}

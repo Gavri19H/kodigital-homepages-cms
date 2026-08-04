@@ -1,0 +1,754 @@
+{
+ "tpl-picks-1280": [
+  "background",
+  "logo",
+  "cta",
+  "disclosure",
+  "free_text",
+  "brand_logos",
+  "images",
+  "progress",
+  "footer"
+ ],
+ "tpl-panels-1280": {
+  "background": {
+   "grids": [],
+   "over": [
+    {
+     "id": "lg-tpl-target-select",
+     "inScalars": false,
+     "boxW": 200,
+     "content": 186,
+     "worst": "R2C3 Bravo Extremely Long Funnel Column Name For The Truncation Audit Delta Echo",
+     "over": 283.77,
+     "sel": "R2Fix Fixture Quote — Funnel A",
+     "selOver": -11.94
+    },
+    {
+     "id": "lg-tpl-section-select",
+     "inScalars": false,
+     "boxW": 240,
+     "content": 226,
+     "worst": "R2C3 Extremely Long Operator Facing Section Name For The Truncation Audit Alpha Bravo Charlie",
+     "over": 305.8,
+     "sel": "R2Fix Fixture Shared Continue",
+     "selOver": -61.26
+    }
+   ],
+   "nSel": 6,
+   "docW": 1280,
+   "innerW": 1280
+  },
+  "logo": {
+   "grids": [],
+   "over": [
+    {
+     "id": "lg-tpl-target-select",
+     "inScalars": false,
+     "boxW": 200,
+     "content": 186,
+     "worst": "R2C3 Bravo Extremely Long Funnel Column Name For The Truncation Audit Delta Echo",
+     "over": 283.77,
+     "sel": "R2Fix Fixture Quote — Funnel A",
+     "selOver": -11.94
+    },
+    {
+     "id": "lg-tpl-section-select",
+     "inScalars": false,
+     "boxW": 240,
+     "content": 226,
+     "worst": "R2C3 Extremely Long Operator Facing Section Name For The Truncation Audit Alpha Bravo Charlie",
+     "over": 305.8,
+     "sel": "R2Fix Fixture Shared Continue",
+     "selOver": -61.26
+    }
+   ],
+   "nSel": 8,
+   "docW": 1280,
+   "innerW": 1280
+  },
+  "cta": {
+   "grids": [],
+   "over": [
+    {
+     "id": "lg-tpl-target-select",
+     "inScalars": false,
+     "boxW": 200,
+     "content": 186,
+     "worst": "R2C3 Bravo Extremely Long Funnel Column Name For The Truncation Audit Delta Echo",
+     "over": 283.77,
+     "sel": "R2Fix Fixture Quote — Funnel A",
+     "selOver": -11.94
+    },
+    {
+     "id": "lg-tpl-section-select",
+     "inScalars": false,
+     "boxW": 240,
+     "content": 226,
+     "worst": "R2C3 Extremely Long Operator Facing Section Name For The Truncation Audit Alpha Bravo Charlie",
+     "over": 305.8,
+     "sel": "R2Fix Fixture Shared Continue",
+     "selOver": -61.26
+    }
+   ],
+   "nSel": 5,
+   "docW": 1280,
+   "innerW": 1280
+  },
+  "disclosure": {
+   "grids": [],
+   "over": [
+    {
+     "id": "lg-tpl-target-select",
+     "inScalars": false,
+     "boxW": 200,
+     "content": 186,
+     "worst": "R2C3 Bravo Extremely Long Funnel Column Name For The Truncation Audit Delta Echo",
+     "over": 283.77,
+     "sel": "R2Fix Fixture Quote — Funnel A",
+     "selOver": -11.94
+    },
+    {
+     "id": "lg-tpl-section-select",
+     "inScalars": false,
+     "boxW": 240,
+     "content": 226,
+     "worst": "R2C3 Extremely Long Operator Facing Section Name For The Truncation Audit Alpha Bravo Charlie",
+     "over": 305.8,
+     "sel": "R2Fix Fixture Shared Continue",
+     "selOver": -61.26
+    }
+   ],
+   "nSel": 5,
+   "docW": 1280,
+   "innerW": 1280
+  },
+  "free_text": {
+   "grids": [],
+   "over": [
+    {
+     "id": "lg-tpl-target-select",
+     "inScalars": false,
+     "boxW": 200,
+     "content": 186,
+     "worst": "R2C3 Bravo Extremely Long Funnel Column Name For The Truncation Audit Delta Echo",
+     "over": 283.77,
+     "sel": "R2Fix Fixture Quote — Funnel A",
+     "selOver": -11.94
+    },
+    {
+     "id": "lg-tpl-section-select",
+     "inScalars": false,
+     "boxW": 240,
+     "content": 226,
+     "worst": "R2C3 Extremely Long Operator Facing Section Name For The Truncation Audit Alpha Bravo Charlie",
+     "over": 305.8,
+     "sel": "R2Fix Fixture Shared Continue",
+     "selOver": -61.26
+    }
+   ],
+   "nSel": 5,
+   "docW": 1280,
+   "innerW": 1280
+  },
+  "brand_logos": {
+   "grids": [
+    {
+     "w": 318,
+     "cols": "318px",
+     "kids": 3
+    }
+   ],
+   "over": [
+    {
+     "id": "lg-tpl-target-select",
+     "inScalars": false,
+     "boxW": 200,
+     "content": 186,
+     "worst": "R2C3 Bravo Extremely Long Funnel Column Name For The Truncation Audit Delta Echo",
+     "over": 283.77,
+     "sel": "R2Fix Fixture Quote — Funnel A",
+     "selOver": -11.94
+    },
+    {
+     "id": "lg-tpl-section-select",
+     "inScalars": false,
+     "boxW": 240,
+     "content": 226,
+     "worst": "R2C3 Extremely Long Operator Facing Section Name For The Truncation Audit Alpha Bravo Charlie",
+     "over": 305.8,
+     "sel": "R2Fix Fixture Shared Continue",
+     "selOver": -61.26
+    }
+   ],
+   "nSel": 9,
+   "docW": 1280,
+   "innerW": 1280
+  },
+  "images": {
+   "grids": [],
+   "over": [
+    {
+     "id": "lg-tpl-target-select",
+     "inScalars": false,
+     "boxW": 200,
+     "content": 186,
+     "worst": "R2C3 Bravo Extremely Long Funnel Column Name For The Truncation Audit Delta Echo",
+     "over": 283.77,
+     "sel": "R2Fix Fixture Quote — Funnel A",
+     "selOver": -11.94
+    },
+    {
+     "id": "lg-tpl-section-select",
+     "inScalars": false,
+     "boxW": 240,
+     "content": 226,
+     "worst": "R2C3 Extremely Long Operator Facing Section Name For The Truncation Audit Alpha Bravo Charlie",
+     "over": 305.8,
+     "sel": "R2Fix Fixture Shared Continue",
+     "selOver": -61.26
+    }
+   ],
+   "nSel": 5,
+   "docW": 1280,
+   "innerW": 1280
+  },
+  "progress": {
+   "grids": [],
+   "over": [
+    {
+     "id": "lg-tpl-target-select",
+     "inScalars": false,
+     "boxW": 200,
+     "content": 186,
+     "worst": "R2C3 Bravo Extremely Long Funnel Column Name For The Truncation Audit Delta Echo",
+     "over": 283.77,
+     "sel": "R2Fix Fixture Quote — Funnel A",
+     "selOver": -11.94
+    },
+    {
+     "id": "lg-tpl-section-select",
+     "inScalars": false,
+     "boxW": 240,
+     "content": 226,
+     "worst": "R2C3 Extremely Long Operator Facing Section Name For The Truncation Audit Alpha Bravo Charlie",
+     "over": 305.8,
+     "sel": "R2Fix Fixture Shared Continue",
+     "selOver": -61.26
+    }
+   ],
+   "nSel": 7,
+   "docW": 1280,
+   "innerW": 1280
+  },
+  "footer": {
+   "grids": [
+    {
+     "w": 318,
+     "cols": "318px",
+     "kids": 3
+    }
+   ],
+   "over": [
+    {
+     "id": "lg-tpl-target-select",
+     "inScalars": false,
+     "boxW": 200,
+     "content": 186,
+     "worst": "R2C3 Bravo Extremely Long Funnel Column Name For The Truncation Audit Delta Echo",
+     "over": 283.77,
+     "sel": "R2Fix Fixture Quote — Funnel A",
+     "selOver": -11.94
+    },
+    {
+     "id": "lg-tpl-section-select",
+     "inScalars": false,
+     "boxW": 240,
+     "content": 226,
+     "worst": "R2C3 Extremely Long Operator Facing Section Name For The Truncation Audit Alpha Bravo Charlie",
+     "over": 305.8,
+     "sel": "R2Fix Fixture Shared Continue",
+     "selOver": -61.26
+    }
+   ],
+   "nSel": 7,
+   "docW": 1280,
+   "innerW": 1280
+  }
+ },
+ "tpl-picks-375": [
+  "background",
+  "logo",
+  "cta",
+  "disclosure",
+  "free_text",
+  "brand_logos",
+  "images",
+  "progress",
+  "footer"
+ ],
+ "tpl-panels-375": {
+  "background": {
+   "grids": [],
+   "over": [
+    {
+     "id": "lg-site-select",
+     "inScalars": false,
+     "boxW": 260.1,
+     "content": 234.11,
+     "worst": "Seed Local Living — Not activated yet",
+     "over": 2.47,
+     "sel": "R2Fix Fixture Site — Active",
+     "selOver": -62.96
+    },
+    {
+     "id": "lg-tpl-target-select",
+     "inScalars": false,
+     "boxW": 200,
+     "content": 186,
+     "worst": "R2C3 Bravo Extremely Long Funnel Column Name For The Truncation Audit Delta Echo",
+     "over": 283.77,
+     "sel": "R2Fix Fixture Quote — Funnel A",
+     "selOver": -11.94
+    },
+    {
+     "id": "lg-tpl-section-select",
+     "inScalars": false,
+     "boxW": 240,
+     "content": 226,
+     "worst": "R2C3 Extremely Long Operator Facing Section Name For The Truncation Audit Alpha Bravo Charlie",
+     "over": 305.8,
+     "sel": "R2Fix Fixture Shared Continue",
+     "selOver": -61.26
+    }
+   ],
+   "nSel": 6,
+   "docW": 375,
+   "innerW": 375
+  },
+  "logo": {
+   "grids": [],
+   "over": [
+    {
+     "id": "lg-site-select",
+     "inScalars": false,
+     "boxW": 260.1,
+     "content": 234.11,
+     "worst": "Seed Local Living — Not activated yet",
+     "over": 2.47,
+     "sel": "R2Fix Fixture Site — Active",
+     "selOver": -62.96
+    },
+    {
+     "id": "lg-tpl-target-select",
+     "inScalars": false,
+     "boxW": 200,
+     "content": 186,
+     "worst": "R2C3 Bravo Extremely Long Funnel Column Name For The Truncation Audit Delta Echo",
+     "over": 283.77,
+     "sel": "R2Fix Fixture Quote — Funnel A",
+     "selOver": -11.94
+    },
+    {
+     "id": "lg-tpl-section-select",
+     "inScalars": false,
+     "boxW": 240,
+     "content": 226,
+     "worst": "R2C3 Extremely Long Operator Facing Section Name For The Truncation Audit Alpha Bravo Charlie",
+     "over": 305.8,
+     "sel": "R2Fix Fixture Shared Continue",
+     "selOver": -61.26
+    }
+   ],
+   "nSel": 8,
+   "docW": 375,
+   "innerW": 375
+  },
+  "cta": {
+   "grids": [],
+   "over": [
+    {
+     "id": "lg-site-select",
+     "inScalars": false,
+     "boxW": 260.1,
+     "content": 234.11,
+     "worst": "Seed Local Living — Not activated yet",
+     "over": 2.47,
+     "sel": "R2Fix Fixture Site — Active",
+     "selOver": -62.96
+    },
+    {
+     "id": "lg-tpl-target-select",
+     "inScalars": false,
+     "boxW": 200,
+     "content": 186,
+     "worst": "R2C3 Bravo Extremely Long Funnel Column Name For The Truncation Audit Delta Echo",
+     "over": 283.77,
+     "sel": "R2Fix Fixture Quote — Funnel A",
+     "selOver": -11.94
+    },
+    {
+     "id": "lg-tpl-section-select",
+     "inScalars": false,
+     "boxW": 240,
+     "content": 226,
+     "worst": "R2C3 Extremely Long Operator Facing Section Name For The Truncation Audit Alpha Bravo Charlie",
+     "over": 305.8,
+     "sel": "R2Fix Fixture Shared Continue",
+     "selOver": -61.26
+    }
+   ],
+   "nSel": 5,
+   "docW": 375,
+   "innerW": 375
+  },
+  "disclosure": {
+   "grids": [],
+   "over": [
+    {
+     "id": "lg-site-select",
+     "inScalars": false,
+     "boxW": 260.1,
+     "content": 234.11,
+     "worst": "Seed Local Living — Not activated yet",
+     "over": 2.47,
+     "sel": "R2Fix Fixture Site — Active",
+     "selOver": -62.96
+    },
+    {
+     "id": "lg-tpl-target-select",
+     "inScalars": false,
+     "boxW": 200,
+     "content": 186,
+     "worst": "R2C3 Bravo Extremely Long Funnel Column Name For The Truncation Audit Delta Echo",
+     "over": 283.77,
+     "sel": "R2Fix Fixture Quote — Funnel A",
+     "selOver": -11.94
+    },
+    {
+     "id": "lg-tpl-section-select",
+     "inScalars": false,
+     "boxW": 240,
+     "content": 226,
+     "worst": "R2C3 Extremely Long Operator Facing Section Name For The Truncation Audit Alpha Bravo Charlie",
+     "over": 305.8,
+     "sel": "R2Fix Fixture Shared Continue",
+     "selOver": -61.26
+    }
+   ],
+   "nSel": 5,
+   "docW": 375,
+   "innerW": 375
+  },
+  "free_text": {
+   "grids": [],
+   "over": [
+    {
+     "id": "lg-site-select",
+     "inScalars": false,
+     "boxW": 260.1,
+     "content": 234.11,
+     "worst": "Seed Local Living — Not activated yet",
+     "over": 2.47,
+     "sel": "R2Fix Fixture Site — Active",
+     "selOver": -62.96
+    },
+    {
+     "id": "lg-tpl-target-select",
+     "inScalars": false,
+     "boxW": 200,
+     "content": 186,
+     "worst": "R2C3 Bravo Extremely Long Funnel Column Name For The Truncation Audit Delta Echo",
+     "over": 283.77,
+     "sel": "R2Fix Fixture Quote — Funnel A",
+     "selOver": -11.94
+    },
+    {
+     "id": "lg-tpl-section-select",
+     "inScalars": false,
+     "boxW": 240,
+     "content": 226,
+     "worst": "R2C3 Extremely Long Operator Facing Section Name For The Truncation Audit Alpha Bravo Charlie",
+     "over": 305.8,
+     "sel": "R2Fix Fixture Shared Continue",
+     "selOver": -61.26
+    }
+   ],
+   "nSel": 5,
+   "docW": 375,
+   "innerW": 375
+  },
+  "brand_logos": {
+   "grids": [
+    {
+     "w": 317,
+     "cols": "317px",
+     "kids": 3
+    }
+   ],
+   "over": [
+    {
+     "id": "lg-site-select",
+     "inScalars": false,
+     "boxW": 260.1,
+     "content": 234.11,
+     "worst": "Seed Local Living — Not activated yet",
+     "over": 2.47,
+     "sel": "R2Fix Fixture Site — Active",
+     "selOver": -62.96
+    },
+    {
+     "id": "lg-tpl-target-select",
+     "inScalars": false,
+     "boxW": 200,
+     "content": 186,
+     "worst": "R2C3 Bravo Extremely Long Funnel Column Name For The Truncation Audit Delta Echo",
+     "over": 283.77,
+     "sel": "R2Fix Fixture Quote — Funnel A",
+     "selOver": -11.94
+    },
+    {
+     "id": "lg-tpl-section-select",
+     "inScalars": false,
+     "boxW": 240,
+     "content": 226,
+     "worst": "R2C3 Extremely Long Operator Facing Section Name For The Truncation Audit Alpha Bravo Charlie",
+     "over": 305.8,
+     "sel": "R2Fix Fixture Shared Continue",
+     "selOver": -61.26
+    }
+   ],
+   "nSel": 9,
+   "docW": 375,
+   "innerW": 375
+  },
+  "images": {
+   "grids": [],
+   "over": [
+    {
+     "id": "lg-site-select",
+     "inScalars": false,
+     "boxW": 260.1,
+     "content": 234.11,
+     "worst": "Seed Local Living — Not activated yet",
+     "over": 2.47,
+     "sel": "R2Fix Fixture Site — Active",
+     "selOver": -62.96
+    },
+    {
+     "id": "lg-tpl-target-select",
+     "inScalars": false,
+     "boxW": 200,
+     "content": 186,
+     "worst": "R2C3 Bravo Extremely Long Funnel Column Name For The Truncation Audit Delta Echo",
+     "over": 283.77,
+     "sel": "R2Fix Fixture Quote — Funnel A",
+     "selOver": -11.94
+    },
+    {
+     "id": "lg-tpl-section-select",
+     "inScalars": false,
+     "boxW": 240,
+     "content": 226,
+     "worst": "R2C3 Extremely Long Operator Facing Section Name For The Truncation Audit Alpha Bravo Charlie",
+     "over": 305.8,
+     "sel": "R2Fix Fixture Shared Continue",
+     "selOver": -61.26
+    }
+   ],
+   "nSel": 5,
+   "docW": 375,
+   "innerW": 375
+  },
+  "progress": {
+   "grids": [],
+   "over": [
+    {
+     "id": "lg-site-select",
+     "inScalars": false,
+     "boxW": 260.1,
+     "content": 234.11,
+     "worst": "Seed Local Living — Not activated yet",
+     "over": 2.47,
+     "sel": "R2Fix Fixture Site — Active",
+     "selOver": -62.96
+    },
+    {
+     "id": "lg-tpl-target-select",
+     "inScalars": false,
+     "boxW": 200,
+     "content": 186,
+     "worst": "R2C3 Bravo Extremely Long Funnel Column Name For The Truncation Audit Delta Echo",
+     "over": 283.77,
+     "sel": "R2Fix Fixture Quote — Funnel A",
+     "selOver": -11.94
+    },
+    {
+     "id": "lg-tpl-section-select",
+     "inScalars": false,
+     "boxW": 240,
+     "content": 226,
+     "worst": "R2C3 Extremely Long Operator Facing Section Name For The Truncation Audit Alpha Bravo Charlie",
+     "over": 305.8,
+     "sel": "R2Fix Fixture Shared Continue",
+     "selOver": -61.26
+    }
+   ],
+   "nSel": 7,
+   "docW": 375,
+   "innerW": 375
+  },
+  "footer": {
+   "grids": [
+    {
+     "w": 317,
+     "cols": "317px",
+     "kids": 3
+    }
+   ],
+   "over": [
+    {
+     "id": "lg-site-select",
+     "inScalars": false,
+     "boxW": 260.1,
+     "content": 234.11,
+     "worst": "Seed Local Living — Not activated yet",
+     "over": 2.47,
+     "sel": "R2Fix Fixture Site — Active",
+     "selOver": -62.96
+    },
+    {
+     "id": "lg-tpl-target-select",
+     "inScalars": false,
+     "boxW": 200,
+     "content": 186,
+     "worst": "R2C3 Bravo Extremely Long Funnel Column Name For The Truncation Audit Delta Echo",
+     "over": 283.77,
+     "sel": "R2Fix Fixture Quote — Funnel A",
+     "selOver": -11.94
+    },
+    {
+     "id": "lg-tpl-section-select",
+     "inScalars": false,
+     "boxW": 240,
+     "content": 226,
+     "worst": "R2C3 Extremely Long Operator Facing Section Name For The Truncation Audit Alpha Bravo Charlie",
+     "over": 305.8,
+     "sel": "R2Fix Fixture Shared Continue",
+     "selOver": -61.26
+    }
+   ],
+   "nSel": 7,
+   "docW": 375,
+   "innerW": 375
+  }
+ },
+ "auctions-1280": {
+  "status": 200,
+  "grids": [
+   {
+    "w": 932,
+    "cols": "460px 460px",
+    "kids": 2
+   },
+   {
+    "w": 932,
+    "cols": "460px 460px",
+    "kids": 2
+   },
+   {
+    "w": 932,
+    "cols": "460px 460px",
+    "kids": 2
+   },
+   {
+    "w": 932,
+    "cols": "460px 460px",
+    "kids": 2
+   },
+   {
+    "w": 932,
+    "cols": "460px 460px",
+    "kids": 2
+   },
+   {
+    "w": 932,
+    "cols": "460px 460px",
+    "kids": 2
+   },
+   {
+    "w": 932,
+    "cols": "460px 460px",
+    "kids": 2
+   },
+   {
+    "w": 932,
+    "cols": "460px 460px",
+    "kids": 2
+   },
+   {
+    "w": 932,
+    "cols": "460px 460px",
+    "kids": 2
+   }
+  ],
+  "over": [],
+  "nSel": 10,
+  "docW": 1280,
+  "innerW": 1280
+ },
+ "auctions-375": {
+  "status": 200,
+  "grids": [
+   {
+    "w": 293,
+    "cols": "293px",
+    "kids": 2
+   },
+   {
+    "w": 293,
+    "cols": "293px",
+    "kids": 2
+   },
+   {
+    "w": 293,
+    "cols": "293px",
+    "kids": 2
+   },
+   {
+    "w": 293,
+    "cols": "293px",
+    "kids": 2
+   },
+   {
+    "w": 293,
+    "cols": "293px",
+    "kids": 2
+   },
+   {
+    "w": 293,
+    "cols": "293px",
+    "kids": 2
+   },
+   {
+    "w": 293,
+    "cols": "293px",
+    "kids": 2
+   },
+   {
+    "w": 293,
+    "cols": "293px",
+    "kids": 2
+   },
+   {
+    "w": 293,
+    "cols": "293px",
+    "kids": 2
+   }
+  ],
+  "over": [],
+  "nSel": 10,
+  "docW": 375,
+  "innerW": 375
+ }
+}

@@ -1,0 +1,48 @@
+{
+ "375": {
+  "errs": [],
+  "r": {
+   "rawPath": "lead.r2fix_carrier",
+   "step0_beforeAnyClip": {
+    "title": "lead.r2fix_carrier",
+    "clipped": null,
+    "cw": 178
+   },
+   "step1_afterClip": {
+    "title": "Street address line one and two — text (required)",
+    "clipped": "1",
+    "to": "ellipsis",
+    "cw": 178
+   },
+   "step2_afterStopClipping": {
+    "title": null,
+    "clipped": null,
+    "to": ""
+   },
+   "rawPathLost": true
+  }
+ },
+ "1280": {
+  "errs": [],
+  "r": {
+   "rawPath": "lead.r2fix_carrier",
+   "step0_beforeAnyClip": {
+    "title": "lead.r2fix_carrier",
+    "clipped": null,
+    "cw": 394
+   },
+   "step1_afterClip": {
+    "title": "lead.r2fix_carrier",
+    "clipped": null,
+    "to": "",
+    "cw": 394
+   },
+   "step2_afterStopClipping": {
+    "title": "lead.r2fix_carrier",
+    "clipped": null,
+    "to": ""
+   },
+   "rawPathLost": false
+  }
+ }
+}

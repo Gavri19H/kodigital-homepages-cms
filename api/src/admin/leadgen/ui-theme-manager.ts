@@ -683,13 +683,48 @@ function renderLeftList(
 // CENTER — editor (golden :661-701, contract §10.4)
 // ---------------------------------------------------------------------------
 
-const ROLE_META: ReadonlyArray<{ key: ThemeRecordRoleKey; label: string; sub: string; border: boolean }> = [
-  { key: "brand_primary", label: "Brand primary", sub: "buttons · progress · selected", border: false },
-  { key: "accent", label: "Accent", sub: "highlights · recommended", border: false },
-  { key: "page_bg", label: "Page background", sub: "behind the card", border: true },
-  { key: "card", label: "Card", sub: "question surface", border: true },
-  { key: "text", label: "Text", sub: "headings & body", border: false },
-  { key: "success", label: "Success", sub: "reassurance · valid", border: false },
+// R2 P8 M2 / S3.11: converged VERBATIM (word-for-word, comma vs "·" only)
+// with quotes-tabs/shared.ts's ROLE_META for every role both files describe —
+// the rail and this manager must never describe the same role differently
+// (test/leadgen-p8-m2-role-usedby.test.ts pins the convergence). brand_primary
+// and text also correct two now-fixed false claims — see shared.ts's own
+// ROLE_META comment for the full per-role evidence (frozen, unwired copies:
+// progress.fillColor / iconCard.selectedBorderColor / header.logoColor for
+// brand_primary; headline.color / page.textSecondaryColor for text).
+// Exported (S3.11): so test/leadgen-p8-m2-role-usedby.test.ts can pin this
+// table's words against the REAL rail (shared.ts's ROLE_META) and the REAL
+// generated stylesheet without a second, hand-copied fixture — no rendering
+// behaviour changes (renderCenterEditor's own `ROLE_META.map(...)` call is
+// unchanged).
+export const ROLE_META: ReadonlyArray<{ key: ThemeRecordRoleKey; label: string; sub: string; border: boolean }> = [
+  // FIX ROUND F3 (MINOR-4) — "progress fill" restored in lockstep with
+  // shared.ts's ROLE_META (same evidence: frames.ts:645 defaults every frame's
+  // progress to the brand_primary role and default-funnel/styles.ts:2553-2558
+  // paints `.lg-frame-progress--role-brand_primary .lg-progress-fill` from it).
+  // FIX ROUND F11 (review-p8-3b MINOR-3, the correction F10 measured but could
+  // not land) — "buttons" -> "stepper buttons", in lockstep with
+  // quotes-tabs/shared.ts's ROLE_META (I4 of
+  // test/leadgen-p8-m2-role-usedby.test.ts requires the two tables to read the
+  // SAME words, so they move together). Evidence: an exhaustive sentinel sweep
+  // of the REAL resolveTokens+funnelChromeCss pair — of the 15 declarations
+  // that move with this role, the only button-shaped one is
+  // `.lg-range-stepper-btn`; every button a funnel actually renders follows
+  // button_primary_bg. Full measurement in shared.ts's own ROLE_META comment.
+  // FIX ROUND F13 (review-p8-3c MINOR-4) — "trust-row icons" and "list check
+  // marks" added, in lockstep with shared.ts's ROLE_META: review #3's sweep
+  // through the real PUT route found three unconditional painted declarations
+  // this row did not name (`.lg-frame-trustrow-icon` and the check glyph of
+  // both `--check` frame lists). Full measurement in shared.ts's own comment.
+  { key: "brand_primary", label: "Brand primary", sub: "stepper buttons · progress fill · focus ring · trust-row icons · list check marks", border: false },
+  { key: "accent", label: "Accent", sub: "category label · highlights · recommended", border: false },
+  { key: "page_bg", label: "Page background", sub: "frame background", border: true },
+  // R2 P8-3 FIX ROUND F8 — "input fields" added, in lockstep with
+  // shared.ts's ROLE_META (same evidence: color.card is ALSO `.lg-input`'s
+  // resting background, default-funnel/styles.ts:1845 — see shared.ts's own
+  // ROLE_META comment for the full measurement).
+  { key: "card", label: "Card", sub: "question card · answer cards · input fields", border: true },
+  { key: "text", label: "Text", sub: "body text · input text", border: false },
+  { key: "success", label: "Success", sub: "reassurance · valid states", border: false },
 ];
 
 // P6b round 2 (deliverable 3 — "presets carry+expose the v2 axes"): the 7
@@ -700,28 +735,142 @@ const ROLE_META: ReadonlyArray<{ key: ThemeRecordRoleKey; label: string; sub: st
 // human name in both editors. All 7 are OPTIONAL (a preset may set some/all/
 // none) — renderCenterEditor below falls back to a neutral placeholder swatch
 // for any unset key (safeHex's existing undefined-input handling).
-const EXTRA_ROLE_META: ReadonlyArray<{ key: ThemeRecordExtraRoleKey; label: string; sub: string; border: boolean }> = [
+// S3.11: surface_wash/text_muted/button_secondary_bg corrected in lockstep
+// with shared.ts's ROLE_META (same evidence, same replacement words) — see
+// this file's own ROLE_META comment above for the pointer.
+export const EXTRA_ROLE_META: ReadonlyArray<{ key: ThemeRecordExtraRoleKey; label: string; sub: string; border: boolean }> = [
   { key: "brand_secondary", label: "Brand secondary", sub: "gradients · secondary emphasis", border: false },
-  { key: "surface_wash", label: "Soft fill", sub: "selected fills · quiet panels", border: false },
-  { key: "border", label: "Border", sub: "card/input borders", border: true },
-  { key: "text_muted", label: "Muted text", sub: "subheadlines · helper · meta", border: false },
+  { key: "surface_wash", label: "Soft fill", sub: "range-slider focus ring", border: false },
+  // FIX ROUND F11 — "card/input borders" -> "answer card/input borders", in
+  // lockstep with shared.ts's ROLE_META. The bare noun "card" read as the
+  // QUESTION card (which this role provably does not paint: driven, it stayed
+  // rgb(233,237,243)); the three unconditional component borders that DO move
+  // are `.lg-card`, `.lg-btn.lg-btn-answer` and `.lg-input`. Full measurement
+  // in shared.ts's own ROLE_META comment.
+  // FIX ROUND F13 (review-p8-3c MINOR-5) — "progress steps" / "progress track"
+  // added, same lockstep, same reason: the numbered step's 2px border and the
+  // percent track's inset ring both move with this role and were unnamed.
+  { key: "border", label: "Border", sub: "answer card/input borders · progress steps · progress track", border: true },
+  { key: "text_muted", label: "Muted text", sub: "labels · disclosure text", border: false },
   { key: "button_primary_bg", label: "Button", sub: "Continue/CTA background", border: false },
   { key: "button_primary_text", label: "Button text", sub: "Continue/CTA text", border: false },
-  { key: "button_secondary_bg", label: "Secondary button", sub: "back button-style · quiet buttons", border: false },
+  { key: "button_secondary_bg", label: "Secondary button", sub: "benefit bar · disclosure bar", border: false },
 ];
 
+// R2 P8-3 N20 — THEME_RECORD_FONT_NAMES's original 3 (Newsreader/Inter/Roboto
+// Mono) are NOT self-hosted (theme.ts's own THEME_RECORD_FONT_STACKS doc
+// comment; fonts.generated.ts's LEADGEN_SELF_HOSTED_FONT_FAMILIES is the 8
+// that follow, and only the 8 the renderer actually vendors a @font-face
+// for) — the SAME "back-compat, not self-hosted" set the funnel-theme rail
+// (quotes-tabs/themes.ts THEME_FONT_LABELS) also demotes. They keep their
+// EXACT enum values (a preset already storing one renders byte-identically —
+// same THEME_RECORD_FONT_STACKS lookup, untouched) but sort after the 8 real
+// choices.
+// FIX ROUND F2 — the first pass labelled these "(legacy)", which is
+// engineering vocabulary printed to a marketer; the product's own
+// jargon-scan gate correctly rejected it (owner verbatim: "the rules you
+// build are using jargon" / "theme is only design language!!!! colors,
+// fonts, sizes"). Replaced with a plain-English OUTCOME label: because none
+// of these 3 families is vendored a @font-face (confirmed above), a visitor
+// whose device does not already have that exact family installed sees the
+// generic stack THEME_RECORD_FONT_STACKS falls to instead (Georgia/
+// system-ui/monospace) — the label says what will happen, not why. Same
+// wording, same mechanism, on the rail (quotes-tabs/themes.ts
+// THEME_FONT_LABELS) — the two were deliberately converged; do not let them
+// drift apart again.
+const THEME_RECORD_FONT_LEGACY_NAMES: ReadonlySet<ThemeRecordFontName> = new Set(["Newsreader", "Inter", "Roboto Mono"]);
+// Fresh (self-hosted) choices first, unavailable-labelled last — DISPLAY
+// ORDER only; every name THEME_RECORD_FONT_NAMES carries is still present
+// and still the exact PATCH value (I1: values never change, only what is
+// displayed).
+const THEME_RECORD_FONT_SELECT_NAMES: readonly ThemeRecordFontName[] = [
+  ...THEME_RECORD_FONT_NAMES.filter((n) => !THEME_RECORD_FONT_LEGACY_NAMES.has(n)),
+  ...THEME_RECORD_FONT_NAMES.filter((n) => THEME_RECORD_FONT_LEGACY_NAMES.has(n)),
+];
+// R2 P8-3 FIX ROUND F13 (BLOCKER-2) — THE SAME WORDS, OFF THE OPTION TEXT.
+// F2's parenthetical is what N7 then measured on this very page: these two
+// selects PAINT IN THE FAMILY THEY NAME, and in the monospace stack
+// "Roboto Mono (shows as default font)" is 294px of text in a 282px box (+12px
+// at 1280 AND 375, title=null at load and after document.fonts.ready) — the
+// closing paren cut, the chevron over the glyphs, on the manager's own default
+// theme. A 24-character suffix on the option text cannot be made to fit a box
+// this control does not control, so the suffix comes OFF the option text and
+// the SAME WORDS are carried in the two places that are not inside the box:
+//   * the <optgroup> heading over the not-served families — the idiomatic HTML
+//     place for "everything below this line has this property", written once
+//     instead of once per option, and rendered in the dropdown the operator
+//     opens (emitted only when one of those families is actually STORED, so a
+//     theme on a vendored family never gets an empty heading over its hidden
+//     options); and
+//   * a caption under the control (fontSelectRow), which is what keeps the
+//     closed select honest — today's parenthetical is the only thing that
+//     tells an operator who never opens the dropdown, and dropping it without
+//     replacement would trade a clipped truth for a hidden one.
+// The option's VALUE and the stored record are untouched (I1), and the rail
+// (quotes-tabs/themes.ts) still says the same words in its own parenthetical:
+// there, all three not-served ids stay hidden permanently because the stored
+// id is only assigned client-side after hydration, so an <optgroup> would
+// stand over nothing — the closed control is the only place the rail can say
+// it, and the rail's 312px box shows it in full (driven, +0px at 1280 and 375
+// across all 90 options). Same sentence, two surfaces, each where it fits.
+// FIX ROUND F14 (review-p8-3d MINOR-4) — WHY THE TWO PRESENTATIONS STAY
+// DIFFERENT, since F3's own note says "do not let them drift apart again" and
+// the review is right that an operator now meets two shapes of one sentence.
+// The WORDS are identical and pinned as identical (the N20 leg in
+// test/leadgen-p8-n-theme-ui.test.ts slices the rail's parenthetical out of one
+// real render and this heading plus its caption out of the other, and requires
+// the same words). What differs is the REGISTER, and it follows from the place,
+// which is itself measured, not chosen: a standalone heading and a caption are
+// sentences of their own, so they start with a capital; the rail's is a
+// mid-string parenthetical inside an option label, so it does not. Converging
+// the presentation would mean one of two things, and both are measured shut:
+// putting the suffix back on THIS page's option text is BLOCKER-2 again (294px
+// of text in a 282px box, in the family the option names), and moving the rail
+// to an <optgroup> would stand a heading over options that are permanently
+// hidden there (its stored id is assigned client-side after hydration) — and
+// that markup lives in quotes-tabs/themes.ts, not in this file. So: one
+// vocabulary, one sentence, two registers, each forced by where the sentence
+// has to sit. If the rail ever gains a server-known stored id, converge them.
+const FONT_NOT_SERVED_NOTE = "Shows as default font";
+
+// FIX ROUND F3 (MINOR-1) — ONE FONT VOCABULARY, FINISHED.
+// N20 asks for one vocabulary across this manager and the funnel-theme rail.
+// F2 converged 8 of 11 names and the reviewer measured the rest still split:
+// this page OFFERED Newsreader/Inter/Roboto Mono, the rail OFFERED Literata/
+// Sora/System — six families on one surface and not the other, and none of
+// the six is vendored (fonts.generated.ts), so picking one afresh cannot be
+// honoured (contract §4 R3 corollary). The three are therefore no longer
+// OFFERED — `hidden` keeps them out of the dropdown a human opens — while the
+// one that is ALREADY STORED is un-hidden, stays `selected`, keeps its exact
+// enum value and renders through the untouched THEME_RECORD_FONT_STACKS
+// lookup, byte-identically to today. Same mechanism, same words, in
+// quotes-tabs/themes.ts's themeFontOptions(); the offered set on the two
+// surfaces is now identical — do not let them drift apart again.
 function fontOptionsHtml(selected: ThemeRecordFontName): string {
-  return THEME_RECORD_FONT_NAMES.map(
-    (name) => `<option value="${escapeHtml(name)}"${name === selected ? " selected" : ""}>${escapeHtml(name)}</option>`,
-  ).join("");
+  const optionFor = (name: ThemeRecordFontName): string => {
+    const isSelected = name === selected;
+    const notOffered = THEME_RECORD_FONT_LEGACY_NAMES.has(name) && !isSelected ? " hidden" : "";
+    return `<option value="${escapeHtml(name)}"${isSelected ? " selected" : ""}${notOffered}>${escapeHtml(name)}</option>`;
+  };
+  const offered = THEME_RECORD_FONT_SELECT_NAMES.filter((n) => !THEME_RECORD_FONT_LEGACY_NAMES.has(n)).map(optionFor).join("");
+  const notServed = THEME_RECORD_FONT_SELECT_NAMES.filter((n) => THEME_RECORD_FONT_LEGACY_NAMES.has(n)).map(optionFor).join("");
+  return THEME_RECORD_FONT_LEGACY_NAMES.has(selected)
+    ? `${offered}<optgroup label="${escapeHtml(FONT_NOT_SERVED_NOTE)}">${notServed}</optgroup>`
+    : offered + notServed;
 }
 
 function fontSelectRow(id: string, label: string, current: ThemeRecordFontName, themeId: string): string {
+  // The caption rides OUTSIDE the select's box (a wrapping div in the grid
+  // cell, ~308px wide against 110px of text at 11.5px), so unlike the suffix
+  // it replaces it cannot be clipped by the control it describes.
+  const note = THEME_RECORD_FONT_LEGACY_NAMES.has(current)
+    ? `<div data-tm-font-note="${escapeHtml(id)}" style="font-size:11.5px;color:${TM_COLOR.subtitle};margin-top:5px">${escapeHtml(FONT_NOT_SERVED_NOTE)}</div>`
+    : "";
   return `<div><div style="font-size:12px;font-weight:600;color:${TM_COLOR.fieldLabel};margin-bottom:5px">${escapeHtml(label)}</div>
           <div class="tm-font-select-wrap" style="position:relative;display:flex;align-items:center;justify-content:space-between;padding:9px 12px;border:1px solid ${TM_COLOR.lineControl};border-radius:8px">
             <select id="${id}" data-theme-id="${escapeHtml(themeId)}" style="appearance:none;-webkit-appearance:none;border:0;background:transparent;outline:none;font-family:${TM_FONT_PREVIEW_STACK[current]};font-size:14px;color:${TM_COLOR.fontPreview};width:100%;cursor:pointer">${fontOptionsHtml(current)}</select>
             <svg width="12" height="12" viewBox="0 0 24 24" fill="none" style="pointer-events:none;flex:0 0 auto"><path d="M6 9l6 6 6-6" stroke="${TM_COLOR.chevron}" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"/></svg>
-          </div>
+          </div>${note}
         </div>`;
 }
 
@@ -810,6 +959,54 @@ function advancedHexRow(topGroup: "roles" | "extra_roles", key: string, hex: str
   return `<div style="display:flex;align-items:center;justify-content:space-between;padding:8px 0"><span style="font-size:12px;color:${TM_COLOR.segInactiveText}">${escapeHtml(key)}</span><input data-tm-hex data-top="${topGroup}" data-role="${key}" data-theme-id="${escapeHtml(themeId)}" value="${escapeHtml(hex)}" spellcheck="false" style="font-family:'Roboto Mono',monospace;font-size:11.5px;color:${TM_COLOR.monoTextStrong};background:${TM_COLOR.monoBg};padding:2px 8px;border-radius:5px;border:1px solid transparent;width:88px;text-align:right" /></div>`;
 }
 
+// R2 P8-3 FIX ROUND F3 (BLOCKER-1) — THE FONT SELECT'S BOX, NOT ITS LABEL.
+// Two edits below, both in this function's markup (kept out here in TS so the
+// served bytes carry none of it):
+//
+// 1. data-pin="8.4-editor-controls" — min-width:0 -> min-width:300px.
+//    FAIL-BEFORE (reviewer, driven at 375): min-width:0 let this column shrink
+//    without limit instead of letting its flex line WRAP, so it measured ~118px
+//    and squeezed #tm-headline-font to a 14.00px content box (every option
+//    overflowed, even "Poppins" at 52px) while #tm-body-font collapsed to w=0
+//    and vanished. A real shrink floor makes the row wrap instead of grinding
+//    both columns down. 1280 IS UNCHANGED: hypothetical sizes 300 + 26 (gap) +
+//    340 (the flex:0 1 340px preview column) = 666 still fit the 670px row the
+//    reviewer measured (304 + 26 + 340), and this column still grows to that
+//    same 304px.
+//    CORRECTION, FIX ROUND F10 — this comment used to continue "At 375 the row
+//    is ~343px, 666 > 343, so the two columns stack and this one takes the
+//    full 343px." THAT SENTENCE WAS FALSE and the product falsified it: the
+//    row it describes is inside the CENTRE PANE, and at 375 that pane measured
+//    56.0px (clientWidth 56, scrollWidth 348), because .tm-body was a nowrap
+//    row with two unshrinkable 300/320 rails. So this column did take a full
+//    line — a 300px line starting at x=345, 270px outside a 375 viewport, with
+//    its two font selects 6% visible. The stacking that makes the sentence
+//    true had to be added one level up (.tm-body's flex-wrap, THEME_MGR_STYLES
+//    below); at 375 the centre pane is now the full 341px line and this column
+//    takes 300..341 of it, on screen. Never re-argue a width in prose here:
+//    the numbers above and below are driven measurements of this page.
+//
+// 2. data-pin="8.4-typography-grid" — 1fr 1fr -> repeat(auto-fit,minmax(320px,
+//    1fr)). FAIL-BEFORE (reviewer, driven at 1280): 1fr 1fr gave each font
+//    select a 107.00px content box, so the select truncated its OWN selected
+//    value — "Inter (shows as default font)" 181.2px (+74.2), "Roboto Mono (…)"
+//    238.2px (+131.2), "Newsreader (…)" 229.3px (+122.3). Same mechanism as the
+//    rail's .lg-scalars (quotes-tabs/shared.ts): auto-fit plus a minmax floor,
+//    so a column that cannot seat two full-size cells becomes ONE full-width
+//    cell instead of halving the box.
+//    ARITHMETIC: a cell loses 24 (wrap padding) + 2 (wrap border) + 12
+//    (chevron) = 38px to chrome, and the widest label this select can ever
+//    show is a STORED non-vendored family — "Roboto Mono (shows as default
+//    font)", 238.2px measured / 255.1px by the test's conservative model — so
+//    a cell must clear ~293px. The 320px floor does: one column below 654px
+//    (worst case = this column's own 300px floor -> 262.00px of content), two
+//    320px columns at or above it (-> 282.00px). At 1280 the column is 304px,
+//    so the two selects stack and each box is 266.00px. The 220px floor tried
+//    first was NOT enough and the spec caught it: at a 454px column it went
+//    2-up with 182.00px boxes and all three stored-family labels overflowed.
+//    test/leadgen-p8-n-theme-ui.test.ts recomputes this from THESE inline
+//    styles for every option of both selects at every column width, so a
+//    revert to 1fr 1fr (or to min-width:0, or a narrower floor) fails there.
 function renderCenterEditor(theme: ThemeRecord, matches: VariantThemeUsage[], canvasHtml: string): string {
   const colorRows = ROLE_META.map(
     (meta) =>
@@ -866,9 +1063,9 @@ function renderCenterEditor(theme: ThemeRecord, matches: VariantThemeUsage[], ca
   // its designed 340px wherever there is room. No media query: the trigger
   // is this column's OWN width, so the ?embed=1 standalone shell (no admin
   // nav) degrades on the same rule.
-  return `<div style="flex:1 1 auto;overflow-y:auto;padding:24px 28px;min-width:0">
+  return `<div data-pin="8.4-center-pane" style="flex:1 1 348px;overflow-y:auto;padding:24px 28px;min-width:0">
     <div style="display:flex;flex-wrap:wrap;gap:26px;align-items:flex-start">
-    <div style="flex:1 1 240px;min-width:0" data-pin="8.4-editor-controls">
+    <div style="flex:1 1 240px;min-width:300px" data-pin="8.4-editor-controls">
       <div style="display:flex;align-items:center;gap:13px;margin-bottom:5px">
         ${bigSwatch(theme.roles.brand_primary, false)}
         <!-- R4a E3-NEW-6: the server already supports PATCH {name}
@@ -897,7 +1094,7 @@ function renderCenterEditor(theme: ThemeRecord, matches: VariantThemeUsage[], ca
       </div>
 
       <div style="font-size:11px;font-weight:800;letter-spacing:1.1px;text-transform:uppercase;color:${TM_COLOR.sectionEyebrow};margin-bottom:13px">Typography</div>
-      <div style="display:grid;grid-template-columns:1fr 1fr;gap:14px;margin-bottom:14px">
+      <div data-pin="8.4-typography-grid" style="display:grid;grid-template-columns:repeat(auto-fit,minmax(320px,1fr));gap:14px;margin-bottom:14px">
         ${fontSelectRow("tm-headline-font", "Headline font", theme.typography.headline_font, theme.id)}
         ${fontSelectRow("tm-body-font", "Body font", theme.typography.body_font, theme.id)}
       </div>
@@ -1070,7 +1267,27 @@ export const THEME_MGR_STYLES = `
    that bound; the per-column overflow-y:auto is what actually makes the
    list (and the other 2 columns) scroll internally instead.  */
 .tm-shell{position:relative;display:flex;flex-direction:column;min-height:0;height:calc(100vh - 108px);border-radius:14px;overflow:hidden;border:1px solid #C4CCD9;background:${TM_COLOR.appBg}}
-.tm-body{flex:1 1 auto;display:flex;min-height:640px}
+/* R2 P8-3 FIX ROUND F10 (review-p8-3b MAJOR-1) -- THE THREE COLUMNS MUST BE
+   ABLE TO STACK. This row was nowrap with two unshrinkable rails
+   (flex:0 0 300px / flex:0 0 320px), so the whole deficit landed on the
+   centre column. MEASURED on the real page (chromium, 127.0.0.1:8901) BEFORE
+   this change: at 375 .tm-body is 341px wide with scrollWidth 676, the centre
+   editor pane computes to 56px, [data-pin="8.4-editor-controls"] sits at
+   x=345 w=300 (right edge 645, 270px past the viewport), #tm-headline-font
+   and #tm-body-font are 282px with 6% of their width inside the viewport,
+   and the right rail (x=373) is entirely off-screen -- while
+   document.scrollWidth == innerWidth, so nothing on screen says so.
+   flex-wrap lets the line break instead, keyed on the row's OWN width (the
+   real constraint: the admin sidebar is present at 1280 and gone at 375, so
+   no viewport media query describes it correctly). overflow-y:auto is what
+   makes the stacked columns reachable: .tm-shell is overflow:hidden with a
+   fixed height, and each column's own overflow-y:auto is inert once the
+   columns are lines rather than side-by-side items.
+   1280 IS UNCHANGED and that is arithmetic from the measured numbers, not
+   prose: .tm-body is 980px there, the hypothetical row is 300 + 348 + 320 =
+   968 <= 980 so it stays ONE line, and the centre still grows into all the
+   free space -> 360px, the same 360px measured before this change. */
+.tm-body{flex:1 1 auto;display:flex;flex-wrap:wrap;overflow-y:auto;min-height:640px}
 `;
 
 // ---------------------------------------------------------------------------
@@ -1330,7 +1547,7 @@ export async function leadgenThemeManagerPage(c: UiContext): Promise<Response> {
   const centerHtml =
     selected !== null
       ? renderCenterEditor(selected, usageForTheme(usage, selected.id), canvasHtml)
-      : `<div style="flex:1 1 auto;padding:28px;color:${TM_COLOR.footerText};font-size:13px">Create a theme to get started.</div>`;
+      : `<div data-pin="8.4-center-pane" style="flex:1 1 348px;padding:28px;color:${TM_COLOR.footerText};font-size:13px">Create a theme to get started.</div>`;
   const rightHtml =
     selected !== null
       ? renderRightPanel(selected.id, usage, themesById)
@@ -1345,6 +1562,13 @@ export async function leadgenThemeManagerPage(c: UiContext): Promise<Response> {
   </div>
 </div>`;
 
+  // F13 (MAJOR-2): the clip reveal's include moved UP, out of this page and
+  // out of quotes-tabs/themes.ts, into the two leadgen shells below — one
+  // include site for every leadgen admin page instead of two hand-picked
+  // surfaces (ui.ts's leadgenPageShell / leadgenStandalonePageShell; the why
+  // and the driven numbers are in clip-reveal.ts's header). Both shells still
+  // interpolate `scripts` at the end of <body>, so this page's own island runs
+  // after it exactly as before, and neither shell touches templates/layout.ts.
   const scripts = THEME_MGR_SCRIPT + (embed ? TM_EMBED_SCRIPT : "");
 
   return c.html(

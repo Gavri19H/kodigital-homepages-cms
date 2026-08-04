@@ -37,6 +37,10 @@ import {
   FRAME_TRUST_PLACEMENTS,
 } from "../../../public/leadgen/designs/frames";
 import { FUNNEL_TOKEN_ROLES } from "../../../public/leadgen/designs/theme";
+// S3.7: resolves a stored funnel_design_id (canonical or alias) to the
+// distinct design it renders — used only to mark the correct <option>
+// selected; the visitor-facing resolution path is untouched (I1/I2).
+import { getFunnelDesign } from "../../../public/leadgen/designs/registry";
 import { ENTRY_KNOWN_SLOT_FIELDS } from "../../../public/leadgen/resolver";
 // R2 P2 tail (item 2): the preset-resolve algorithm quotes-tabs/themes.ts's
 // THEMES_TAB_SCRIPT already uses (MINOR-1) — extracted to a shared module so
@@ -427,16 +431,34 @@ function templateLabelFor(funnel: FunnelNode, templates: FrameTemplateItem[]): s
 // best HONEST label from what the board's FunnelNode already carries
 // (theme_json) -- no new endpoint/join threaded in (R1 scope discipline):
 // null -> "Default"; an inline override (no theme_id key) -> "Custom"; a
-// {theme_id} preset pointer -> the record's own name IF the board's data
-// already carried it -- it doesn't (no preset catalog is threaded into
-// renderBuilderPanel/renderFunnelColumn), reported to the conductor as the
-// named gap -- so this falls back to the raw id, per the contract's own
-// stated fallback ("the record's name if already available ... else the id").
-function themeChipLabel(funnel: FunnelNode): string {
+// {theme_id} preset pointer -> the record's own name.
+//
+// R2 P8-3 F5 MINOR-5 (review-p8-3): the pointer case used to fall back to
+// the raw KV id (funnel A's chip read "thm_p8-repro" instead of "P8 Repro")
+// because no preset catalog is threaded into renderBuilderPanel/render-
+// FunnelColumn -- SSR is synchronous, and threading one in here would be
+// "adding a request" (this is a name lookup, not new scope). N1 (contract
+// Sec7: "Raw tokens as visible labels") makes that raw id non-negotiable
+// this phase, so the SSR fallback below is a neutral word -- "Theme",
+// mirroring templateLabelFor's own "Template" fallback immediately above --
+// never the id (Sec4 R3 corollary: a control that cannot yet honour a real
+// name must not print a database key instead). The REAL name resolves
+// client-side, from the SAME /api/admin/leadgen/themes catalog fetch the
+// island already performs eagerly at boot for the preset <select>
+// (loadThemePresetOptions below) -- no new request. themePresetIdOf exposes
+// the raw id ONLY as a data attribute (renderFunnelColumn) so that boot-time
+// fetch can find and rename this exact chip once the catalog resolves; an
+// unmatched id (deleted preset, or the fetch hasn't landed yet) keeps this
+// honest "Theme" word rather than reverting to the id.
+function themePresetIdOf(funnel: FunnelNode): string {
   const themeJson = funnel.theme_json;
-  if (themeJson === null || themeJson === undefined) { return "Default"; }
-  const themeId = typeof themeJson["theme_id"] === "string" ? (themeJson["theme_id"] as string) : "";
-  return themeId !== "" ? themeId : "Custom";
+  if (themeJson === null || themeJson === undefined) { return ""; }
+  return typeof themeJson["theme_id"] === "string" ? (themeJson["theme_id"] as string) : "";
+}
+
+function themeChipLabel(funnel: FunnelNode): string {
+  if (funnel.theme_json === null || funnel.theme_json === undefined) { return "Default"; }
+  return themePresetIdOf(funnel) !== "" ? "Theme" : "Custom";
 }
 
 
@@ -467,7 +489,7 @@ function renderFunnelColumn(
         <span class="lg-kebab-btn lg-funnel-kebab" data-funnel-kebab data-chip-menu="funnel" role="button" tabindex="0" aria-label="Funnel options">${BOARD_ICON.kebab}</span>
       </div>
       <div class="lg-col-meta">
-        <span class="lg-pickchip" data-theme-picker data-pin="8.2-theme-picker" data-chip-funnel-public-id="${escapeHtml(funnel.public_id)}" data-chip-funnel-active-variant="${escapeHtml(funnel.active_variant_public_id ?? "")}" role="button" tabindex="0">${escapeHtml(themeChipLabel(funnel))}</span>
+        <span class="lg-pickchip" data-theme-picker data-pin="8.2-theme-picker" data-chip-funnel-public-id="${escapeHtml(funnel.public_id)}" data-chip-funnel-active-variant="${escapeHtml(funnel.active_variant_public_id ?? "")}" data-theme-preset-id="${escapeHtml(themePresetIdOf(funnel))}" role="button" tabindex="0">${escapeHtml(themeChipLabel(funnel))}</span>
         <span class="lg-pickchip" data-template-picker data-pin="8.2-template-picker" data-chip-funnel-public-id="${escapeHtml(funnel.public_id)}" data-chip-funnel-active-variant="${escapeHtml(funnel.active_variant_public_id ?? "")}" role="button" tabindex="0">${escapeHtml(templateName)}</span>
       </div>
       <div class="lg-col-actions">
@@ -528,13 +550,26 @@ function renderBoardMenus(): string {
 // so the controls carry real current values on first paint. Provenance:
 // 5ccf40e:quotes-tabs/funnel.ts (renderStructurePanel <details id=lg-funnel-
 // settings>) / 4c9b534:ui-quotes.ts.
+// R2 P8-3 N1, 4th control (S3.5 fixed the raw-id label; S3.7 — §4 R3
+// corollary "a control that cannot be honoured must not be offered" — fixes
+// the deeper defect: FUNNEL_DESIGNS registers ONE distinct design under TWO
+// keys ("default" alias + canonical "default-funnel"), so offering one
+// <option> per registry key offered the operator two choices that do the
+// identical thing, which is not a choice (I1). listFunnelDesignOptions
+// (quotes-handlers.ts) now dedupes to one entry per DISTINCT design and is
+// the single source of `label` (I3) — this function only renders `d.label`
+// as delivered. The `selected` check resolves `current`'s stored id through
+// getFunnelDesign (the SAME resolver the visitor-facing path uses) so a
+// funnel storing the alias ("default") still shows the canonical entry
+// selected — a non-empty, correct state (I2) — instead of matching nothing.
 function renderFunnelSettingsDialog(
   designs: Array<{ id: string; label: string }>,
   auctions: AuctionListItem[],
   current: VariantNode | null,
 ): string {
+  const currentDesignId = current !== null ? getFunnelDesign(current.funnel_design_id).id : null;
   const designOptions = designs
-    .map((d) => `<option value="${escapeHtml(d.id)}"${current !== null && d.id === current.funnel_design_id ? " selected" : ""}>${escapeHtml(d.label)}</option>`)
+    .map((d) => `<option value="${escapeHtml(d.id)}"${currentDesignId === d.id ? " selected" : ""}>${escapeHtml(d.label)}</option>`)
     .join("");
   const auctionOptions = [`<option value="">— none —</option>`]
     .concat(
@@ -763,6 +798,31 @@ export function renderBuilderPanel(
 // path ships one without the other. The guard test asserts both halves of
 // that fact from the exported production strings, so a future edit that
 // breaks it fails loudly instead of leaving a dead "Load pages…" button.
+//
+// R2 P8-3 FIX ROUND F10 (review-p8-3b BLOCKER-1) — loadThemePresetOptions's
+// ZERO-PRESET PLACEHOLDER: THE STRING MUST FIT THE BOX IT IS WRITTEN INTO.
+// The history of that one line, every number measured on the running product
+// (chromium, 127.0.0.1:8901, both widths):
+//   F5 wrote 'No presets yet -- create one below' (218.67px, it fit). Contract
+//   §6 M9.4 is right that "below" names nothing, so F5 replaced it with
+//   'No presets yet -- create one from the Themes manager' — 347.05px into
+//   #lg-theme-preset-select, whose content box is 288.00px at 1280 AND 375
+//   (228.00px at the rail's own declared min-width). Driven: scrollWidth 363 >
+//   clientWidth 312, text-overflow clip, no title, so the operator read
+//   "No presets yet -- create one from the Theme(v)" — the destination the fix
+//   existed to add was the exact part that got clipped. Now 'No presets yet'
+//   (100.50px by the test's conservative model, inside 228.00px).
+// The destination is NOT dropped, it moves to the element that can hold it:
+// the N11 help line rendered directly ABOVE this row (quotes-tabs/themes.ts
+// PRESET_ZERO_HELP — "No presets saved yet — save one from the Themes manager,
+// then it can be applied here.") is a wrapping <p>, painted as a blocked state
+// in exactly this state, beside the panel's own "Manage all presets" link.
+// test/leadgen-p8-n-theme-ui.test.ts's clip invariant reads THIS literal back
+// out of the served island bytes and measures it against this select's real
+// box, so a longer replacement fails there instead of on a reviewer's screen.
+// Everything above is here in TS on purpose: the template literal below is
+// served verbatim to the browser and string scanners read those bytes, so a
+// narrative quoting the old copy inside the island is itself a defect.
 // ---------------------------------------------------------------------------
 
 export const QUOTE_EDITOR_SCRIPT = `
@@ -3897,6 +3957,25 @@ export const QUOTE_EDITOR_SCRIPT = `
   // reason to know about (it has no "current funnel" context).
   // ==========================================================================
 
+  // R2 P8-3 F5 MINOR-5 (review-p8-3): rename every board Theme chip pointing
+  // at a preset this fetch just resolved -- the SAME catalog GET
+  // loadThemePresetOptions below already performs for the <select> (no new
+  // request). A chip whose preset id is not in the fetched items (a deleted
+  // preset, or this fetch hasn't landed yet) is left on the SSR "Theme"
+  // fallback (themeChipLabel above) -- never reverted to a raw id.
+  function applyThemeChipNames(items) {
+    var chips = root.querySelectorAll('[data-theme-picker][data-theme-preset-id]');
+    var nameById = {};
+    var i;
+    for (i = 0; i < items.length; i++) { nameById[items[i].id] = items[i].name; }
+    for (i = 0; i < chips.length; i++) {
+      var pid = chips[i].getAttribute('data-theme-preset-id') || '';
+      if (pid !== '' && Object.prototype.hasOwnProperty.call(nameById, pid)) {
+        chips[i].textContent = nameById[pid];
+      }
+    }
+  }
+
   function loadThemePresetOptions() {
     var sel = byId('lg-theme-preset-select');
     if (!sel) { return; }
@@ -3920,10 +3999,15 @@ export const QUOTE_EDITOR_SCRIPT = `
         // resolve time preserves whatever the operator has chosen by then.
         var keep = sel.value;
         var items = (body && body.items) || [];
+        applyThemeChipNames(items);
         clearChildren(sel);
         var placeholder = document.createElement('option');
         placeholder.value = '';
-        placeholder.textContent = items.length === 0 ? 'No presets yet \\u2014 create one below' : 'Choose a preset\\u2026';
+        // F10 BLOCKER-1: keep this literal SHORT -- it is painted inside
+        // #lg-theme-preset-select. Rationale + measurements are in the TS
+        // comment above QUOTE_EDITOR_SCRIPT (deliberately not here: every
+        // byte of this island is served, and string scanners read it).
+        placeholder.textContent = items.length === 0 ? 'No presets yet' : 'Choose a preset\\u2026';
         sel.appendChild(placeholder);
         var i;
         for (i = 0; i < items.length; i++) {
@@ -4996,7 +5080,12 @@ export const QUOTE_EDITOR_SCRIPT = `
     var hl = fsById('lg-lander-headline'); if (hl) { hl.value = s.lander_headline || ''; }
     var sub = fsById('lg-lander-sub'); if (sub) { sub.value = s.lander_subheadline || ''; }
     var hero = fsById('lg-lander-hero'); if (hero) { hero.value = s.lander_hero_media_url || ''; }
-    var des = fsById('lg-funnel-design'); if (des) { des.value = s.funnel_design_id || ''; }
+    var des = fsById('lg-funnel-design');
+    if (des) {
+      var fid = s.funnel_design_id || '';
+      des.value = fid;
+      if (des.value !== fid) { des.selectedIndex = 0; }
+    }
     var auc = fsById('lg-auction-id'); if (auc) { auc.value = (s.auction_id === null || s.auction_id === undefined) ? '' : String(s.auction_id); }
     show(fsettingsEl);
   }

@@ -1,0 +1,46 @@
+created section HTTP 201 id=37 public_id=lgs_01KZ4V61VT3B6EECCYRC1VC19Q name="RVW3-MSDSGMO2 REVIEW DROP PROBE"
+placed BEFORE: 14
+
+== B5 DRAG: "RVW3-MSDSGMO2 REVIEW DROP PROBE
+    r2fix_ac" -> column 5/5 "P8-Echo-themeless"  card={"x":291,"y":566.375,"width":183,"height":89.5} target={"x":1415,"y":784.59375,"width":216,"height":560} viewportW=1280
+geometry: {
+ "fully": 2,
+ "total": 5,
+ "scrollLeft": 0,
+ "docOverflow": 0,
+ "cols": [
+  {
+   "n": "R2Fix Fixture Quote — ",
+   "x": 503,
+   "w": 216
+  },
+  {
+   "n": "R2C3 Bravo Extremely L",
+   "x": 731,
+   "w": 216
+  },
+  {
+   "n": "P8-Charlie",
+   "x": 959,
+   "w": 216
+  },
+  {
+   "n": "P8-Delta",
+   "x": 1187,
+   "w": 216
+  },
+  {
+   "n": "P8-Echo-themeless",
+   "x": 1415,
+   "w": 216
+  }
+ ]
+}
+scrollLeft while hovering the right edge: 880
+last column box after any auto-scroll: {"x":535,"y":784.59375,"width":216,"height":560}
+visible reasons/alerts after drop: []
+placed AFTER: 15   MY section landed in: [["P8-Echo-themeless","RVW3-MSDSGMO2 REVIEW DROP PROBE",350]]
+errors: []
+cleanup page lgpg_01KZ4V6C4ZBY7J0HG6ACH151Z2 -> 404 {"error":"Not Found","path":"/api/admin/leadgen/pages/lgpg_01KZ4V6C4ZBY7J0HG6ACH151Z2"}
+cleanup DELETE section lgs_01KZ4V61VT3B6EECCYRC1VC19Q -> 409 {"error":"This section is used by quotes — archive it instead","usage":{"variants":[{"quote_id":1,"quote_public_id":"lgq_01KZ271383Y0MPV4BM2
+placed FINAL: 15  mine remaining: 1

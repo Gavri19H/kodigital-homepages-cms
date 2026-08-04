@@ -1,0 +1,85 @@
+
+== N1 Base visual design @1280 (opened=FORCED-SHOW) ==
+   {"label":"Base visual design","opts":[{"t":"Default Funnel Design","v":"default-funnel","sel":true}],"vis":true,"w":424}
+
+== N1 Base visual design @375 (opened=FORCED-SHOW) ==
+   {"label":"Base visual design","opts":[{"t":"Default Funnel Design","v":"default-funnel","sel":true}],"vis":true,"w":291}
+
+== N11 created my own preset: HTTP 201 id=thm_rev3-msds8s7k-review-preset name="REV3-MSDS8S7K Review Preset"
+
+== N11 ZERO-PRESET (GET /themes intercepted -> {"items":[]}) @1280 ==
+   {
+ "apply": {
+  "disabled": true,
+  "title": "No presets saved yet — create one from the Themes manager first.",
+  "vis": true,
+  "opacity": "1",
+  "cursor": "pointer"
+ },
+ "ab": {
+  "disabled": true,
+  "title": "No presets saved yet — create one from the Themes manager first.",
+  "vis": true,
+  "opacity": "1",
+  "cursor": "pointer"
+ },
+ "help": "No presets saved yet — save one from the Themes manager, then it can be applied here.",
+ "presetOpts": [
+  "No presets yet — create one below"
+ ]
+}
+
+== N11 REAL (3 presets exist) @1280 ==
+   {
+ "applyDisabled": false,
+ "applyTitle": "",
+ "abDisabled": false,
+ "abTitle": "Fork this variant with the picked preset as its theme, then set the traffic split",
+ "help": "Save the current look as a reusable preset from the Themes manager, then apply or delete any preset there. Presets are shared across every funnel.",
+ "opts": [
+  "Choose a preset…",
+  "P8 Repro",
+  "RV1B Arm Theme",
+  "REV3-MSDS8S7K Review Preset"
+ ]
+}
+   APPLY CLICKED -> funnel E theme now = null   (expected {"theme_id":"thm_rev3-msds8s7k-review-preset"})
+
+== N11 ZERO-PRESET (GET /themes intercepted -> {"items":[]}) @375 ==
+   {
+ "apply": {
+  "disabled": true,
+  "title": "No presets saved yet — create one from the Themes manager first.",
+  "vis": true,
+  "opacity": "1",
+  "cursor": "pointer"
+ },
+ "ab": {
+  "disabled": true,
+  "title": "No presets saved yet — create one from the Themes manager first.",
+  "vis": true,
+  "opacity": "1",
+  "cursor": "pointer"
+ },
+ "help": "No presets saved yet — save one from the Themes manager, then it can be applied here.",
+ "presetOpts": [
+  "No presets yet — create one below"
+ ]
+}
+
+== N11 REAL (3 presets exist) @375 ==
+   {
+ "applyDisabled": false,
+ "applyTitle": "",
+ "abDisabled": false,
+ "abTitle": "Fork this variant with the picked preset as its theme, then set the traffic split",
+ "help": "Save the current look as a reusable preset from the Themes manager, then apply or delete any preset there. Presets are shared across every funnel.",
+ "opts": [
+  "Choose a preset…",
+  "P8 Repro",
+  "RV1B Arm Theme",
+  "REV3-MSDS8S7K Review Preset"
+ ]
+}
+cleanup DELETE thm_rev3-msds8s7k-review-preset -> 409 {"error":"This theme is used by 1 funnel (R2C3 Bravo Extremely Long Funnel Column Name For The Truncation Audit Delta Echo) — assign them a different theme firs
+RESTORED funnel E theme=null ; presets now=["P8 Repro","RV1B Arm Theme","REV3-MSDS8S7K Review Preset"]

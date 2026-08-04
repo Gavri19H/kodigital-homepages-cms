@@ -775,7 +775,64 @@ describeDb("Quote Builder frame studio — theme editor (09 §9.3)", () => {
       expect(html, `reset ${role}`).toContain(`data-role-reset="${role}"`);
     }
     expect((html.match(/data-theme-role="/g) ?? []).length).toBe(14);
-    expect(html).toContain("Used by: buttons, progress fill, selected borders, logo text");
+    // R2 P8-3 M2/S3.11 RE-MINT. THE OLD PIN WAS ENCODING A DEFECT, not
+    // describing behaviour: brand_primary writes exactly ONE token,
+    // `color.primary` (designs/theme.ts:90 ROLE_TO_BASE_TOKEN), so three of the
+    // four phrases it advertised never moved when the operator authored the
+    // role — `progress.fillColor` is the frozen literal
+    // "linear-gradient(90deg,#1B3A5C,#2A5080)", `iconCard.selectedBorderColor`
+    // and `header.logoColor` are frozen "#1B3A5C" literals that merely share
+    // color.primary's default hex by coincidence (designs/default-funnel/
+    // tokens.ts). Contract §4 R3 corollary: "a control that cannot be honoured
+    // must not be offered" — a role whose own help text names surfaces it does
+    // not paint is offering exactly that. The two surviving phrases are the two
+    // real, direct `color.primary` reads, both proven to move A->B through the
+    // REAL resolveTokens+funnelChromeCss pair in
+    // test/leadgen-p8-m2-role-usedby.test.ts (the stepper button's rest colour
+    // and the card/answer-button focus ring). This HARD-CODED pin is deliberately
+    // kept rather than deferred to that file's I3 leg, which reads the same
+    // ROLE_META array it asserts against; this one is the independent copy.
+    //
+    // R2 P8-3 FIX ROUND F7 (review MINOR-4) — "progress fill" restored. The
+    // paragraph above over-counted: `progress.fillColor` (the JS token) is
+    // still frozen, but default-funnel/styles.ts:2553-2558 paints
+    // `.lg-frame-progress--role-brand_primary .lg-progress-fill{background:
+    // …!important}` directly from the role, bypassing that frozen token — so
+    // the rendered fill DOES move with brand_primary (F3's sweep; pinned at
+    // test/leadgen-p8-m2-role-usedby.test.ts's I2 leg). Three phrases survive
+    // now, not two — only "selected borders"/"logo text" stay out, measured
+    // frozen.
+    //
+    // R2 P8-3 FIX ROUND F11 (review-p8-3b MINOR-3) — the bare noun "buttons"
+    // is gone: "stepper buttons". F10 drove palette.brand_primary = #FF00AA
+    // and the Continue button stayed rgb(27,58,92) while the progress fill
+    // moved, so the word promised the operator the opposite of what the swatch
+    // does; F11's exhaustive sentinel sweep of the REAL generated stylesheet
+    // (15 moving declarations) confirms `.lg-range-stepper-btn` is the only
+    // button-shaped consumer this role has. NOT WEAKENED — the pin is the same
+    // full-line literal, one word longer.
+    // R2 P8-3 FIX ROUND F13 (review-p8-3c MINOR-4) — the same class of
+    // correction, one round on: review #3's sweep through the real PUT route
+    // found THREE more unconditional painted declarations this line did not
+    // name (`.lg-frame-trustrow-icon`, and the check glyph of both `--check`
+    // frame lists), so the words were still describing LESS than the control
+    // does. THE SUBSTRING TRAP AGAIN: the old literal still matches inside the
+    // new one, so this pin carries the FULL new line — a `toContain` left at
+    // the old text would pass either way and pin nothing.
+    expect(html).toContain("Used by: stepper buttons, progress fill, focus ring, trust-row icons, list check marks");
+    // F11, the SAME class on a second role: `border` said "card/input
+    // borders", and "card" reads as the QUESTION card in this very rail (see
+    // card_background's own row). Driven, `.lg-question-card` stayed
+    // rgb(233,237,243) while the answer-card and input borders moved; the
+    // sweep's unconditional movers are `.lg-card`, `.lg-btn.lg-btn-answer` and
+    // `.lg-input`. This is a NEW independent hard-coded pin (the rail's border
+    // line had none before F11), the sibling of the brand_primary line above:
+    // test/leadgen-p8-m2-role-usedby.test.ts's I3 leg reads the same ROLE_META
+    // it asserts against, so a hard copy is what makes a silent revert fail.
+    // F13 (review-p8-3c MINOR-5), same treatment on this role: the numbered
+    // progress step's 2px ring and the percent track's inset ring both move
+    // with `border` and were unnamed. FULL new line, same substring reason.
+    expect(html).toContain("Used by: answer card/input borders, progress steps, progress track");
     expect(html).toContain("data-role-source");
     expect(html).toContain(">Base design</span>");
   });
@@ -796,7 +853,32 @@ describeDb("Quote Builder frame studio — theme editor (09 §9.3)", () => {
     ]) {
       expect(html, `theme strip ${strip}`).toContain(`data-role-strip="${strip}"`);
     }
-    expect(html).toContain(">Literata</option>");
+    // THE CLAIM THIS LEG MAKES (unchanged): every curated closed set renders a
+    // HUMAN label, never its raw enum id. R2 P8-3 N20 RE-MINT of the font case
+    // only: `literata` still renders a human label. FIX ROUND F2: that label
+    // was "Literata (legacy)" — engineering vocabulary printed to a marketer,
+    // which jargon-scan.mjs's gate correctly rejected on the identical wording
+    // in the sibling Themes manager (owner verbatim: "the rules you build are
+    // using jargon" / "theme is only design language!!!! colors, fonts,
+    // sizes") — re-minted to "Literata (shows as default font)", a
+    // plain-English OUTCOME label (no vendored @font-face, so an operator's
+    // device without that exact family paints the generic fallback stack
+    // instead). THE PRODUCT IS RIGHT HERE, not the old pin —
+    // literata/sora/system are the three ids the renderer does NOT vendor a
+    // @font-face for (designs/fonts.generated.ts
+    // LEADGEN_SELF_HOSTED_FONT_FAMILIES is exactly the OTHER 8: Poppins, Space
+    // Grotesk, Fraunces, Playfair Display, Manrope, DM Sans, Work Sans,
+    // Lexend), so a fresh pick of one does not reliably paint as chosen. N20
+    // labels them rather than removing them (their enum VALUES are untouched,
+    // so a funnel already storing one still round-trips byte-identically) —
+    // §1's no-hardening boundary: a label, not a gate; the option stays
+    // selectable. The full new behaviour (8 fresh ids sorted before all 3
+    // legacy ids, every id still a selectable value, a stored legacy id still
+    // rendered SELECTED) is covered by test/leadgen-p8-n-theme-ui.test.ts:287
+    // and :445 — this leg keeps only its own "human label, not the raw id"
+    // claim, and the added negative below is what makes that claim explicit.
+    expect(html).toContain(">Literata (shows as default font)</option>");
+    expect(html).not.toContain(">literata</option>");
     expect(html).toContain(">Roomy</option>");
     expect(html).toContain(">Round</option>");
   });

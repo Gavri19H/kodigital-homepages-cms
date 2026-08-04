@@ -1,0 +1,38 @@
+{
+ "edge": {
+  "errs": [],
+  "mutateDuringQueue": {
+   "before": {
+    "t": "All providers",
+    "c": "1"
+   },
+   "mid": {
+    "t": "MUTATED DURING THE QUEUED SWEEP — a very long string indeed",
+    "c": "1",
+    "to": "ellipsis"
+   },
+   "after": {
+    "t": "MUTATED DURING THE QUEUED SWEEP — a very long string indeed",
+    "c": "1",
+    "to": "ellipsis"
+   },
+   "stable": true
+  },
+  "resizeBurst": {
+   "distinct": 1,
+   "settled": "provider|1|ellipsis|true,vertical|1|ellipsis|true,activity|1|ellipsis|true,status|1|ellipsis|true,offer_type|1|ellipsis|true,dynamic|1|ellipsis|true,range|1|ellipsis|true"
+  },
+  "emptyText": {
+   "emptied": {
+    "t": null,
+    "c": null,
+    "to": ""
+   },
+   "restored": {
+    "t": "MUTATED DURING THE QUEUED SWEEP — a very long string indeed",
+    "c": "1",
+    "to": "ellipsis"
+   }
+  }
+ }
+}
