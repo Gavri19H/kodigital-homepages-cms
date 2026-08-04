@@ -16,13 +16,21 @@
 //
 // THE MEASUREMENT THIS FILE PINS (fail-before, taken on this branch — see the
 // FAIL-BEFORE test below, which reproduces the pre-fix write verbatim):
-//   a funnel that has ever been saved carries a COMPLETE frame_config_json
-//   (the builder PUTs its whole hydrated frame, quotes-tabs/funnel.ts:1675),
-//   and a complete funnel layer shadows every leaf a template carries. With a
-//   template that disagreed on 46 leaves across nine element groups, the
-//   pointer-only apply moved exactly ONE leaf of the served composition —
-//   `template`, the identity string no CSS rule is keyed on — and the rendered
-//   page was BYTE-IDENTICAL before and after the apply.
+//   a real Save PUTs the STORED column (`frame_config`) plus only the paths
+//   the session actually touched (quotes-tabs/funnel.ts:1809, :1921-1933) —
+//   NEVER a complete hydrated frame (that premise, corrected in FIX ROUND
+//   F11, was false: the builder's hydration source, `effective_frame`, only
+//   POPULATES control values, :1877-1886 — it is never the PUT body). So a
+//   funnel with two operator edits carries a two-leaf column, and because
+//   today's read-side merge already resolves `frame_template_id` into the
+//   composition regardless of materialisation, a pointer-only apply against
+//   THAT realistic column moves every OTHER comparable leaf straight to the
+//   newly-pointed template. Measured with a template disagreeing on 29
+//   comparable leaves across nine element groups: the pointer-only apply
+//   shadowed EXACTLY the two leaves the operator had genuinely customised
+//   and moved the other 27 (28 shadowed/1 honoured against this file's
+//   earlier hand-built-dump fixture — a 28→2 drop once the fixture matches
+//   what Save really writes).
 import { createHash } from "node:crypto";
 import { readFileSync } from "node:fs";
 import { dirname, join } from "node:path";
@@ -301,25 +309,37 @@ function movedLeaves(before: EffectiveFrameConfig, after: EffectiveFrameConfig):
 
 // --- fixtures ----------------------------------------------------------------
 
-// A funnel THE PRODUCT'S OWN SAVE CHAIN has saved: hydrate from the server's
-// `effective_frame` projection (quotes-tabs/funnel.ts hydrationBase) and PUT
-// that whole object back as frame_config_json (funnel.ts:1675). This is what
-// makes the stored column complete, which is what shadowed the template.
+// A funnel THE PRODUCT'S OWN SAVE CHAIN has saved. Driven at HEAD
+// (quotes-tabs/funnel.ts, read-only here): `workingFrame` boots from the
+// STORED column, `deepClone(frameState.frame_config || {})` (:1809) — NOT
+// from `effective_frame` (that only feeds `hydrationBase()`/
+// `clientEffective()`, :1877-1886, which POPULATE control values for display
+// and are never the PUT body). Each edited control's `writeConfigValue`
+// (:1921-1933) `setPath`s exactly the ONE dotted path it owns into
+// `workingFrame`; Save then PUTs that whole (still sparse) `workingFrame`
+// back (:1696 `{ frame_config_json: workingFrame }`). So a pristine funnel
+// (frame_config_json NULL -> `workingFrame` starts `{}`) with the operator's
+// two edits below saves the funnel's OWN difference, never a full
+// projection — the same shape `operatorSets()` below (F9) already writes.
 async function newSavedFunnel(h: Harness): Promise<{ funnelPublic: string; saved: EffectiveFrameConfig }> {
   const quote = await req(h, "POST", "/quotes", { quote_name: "Q", activity: "quote_funnel", verticals: ["life"] });
   const funnelPublic = quote.json.funnels[0].public_id as string;
   const projection = await req(h, "GET", `/funnels/${funnelPublic}/frame`);
   expect(projection.status).toBe(200);
-  const workingFrame = projection.json.effective_frame as EffectiveFrameConfig;
+  // The STORED column (`frame_config`), not the `effective_frame`
+  // projection — a pristine funnel's is `{}`.
+  const workingFrame = JSON.parse(JSON.stringify(projection.json.frame_config ?? {})) as Record<string, unknown>;
   // The operator's own customisations, made in the builder before any template
-  // is applied — these are the leaves that must not vanish silently.
-  workingFrame.header.tagline = "ROASTC operator tagline";
-  workingFrame.back.label = "ROASTC go back";
+  // is applied — these are the leaves that must not vanish silently. Each is
+  // one `writeConfigValue` `setPath` call.
+  workingFrame["header"] = { ...((workingFrame["header"] ?? {}) as Record<string, unknown>), tagline: "ROASTC operator tagline" };
+  workingFrame["back"] = { ...((workingFrame["back"] ?? {}) as Record<string, unknown>), label: "ROASTC go back" };
+  workingFrame["version"] = 1;
   const put = await req(h, "PUT", `/funnels/${funnelPublic}/frame`, { frame_config_json: workingFrame });
   expect(put.status).toBe(200);
   const row = readFunnel(h, funnelPublic);
   expect(row.frame_config_json).not.toBeNull();
-  return { funnelPublic, saved: workingFrame };
+  return { funnelPublic, saved: put.json.effective_frame as EffectiveFrameConfig };
 }
 
 // A saved template record written by the REAL create route: the working frame
@@ -399,7 +419,7 @@ const FRAME_CSS = funnelChromeCss(defaultFunnelDesign, DEFAULT_FUNNEL_SCOPE, { f
 
 // =============================================================================
 d("P8 S4.1 — M3/R2-1: applying a template changes what the page paints", () => {
-  it("FAIL-BEFORE: the pointer-only write moves ONE leaf (`template`) — nothing but the identity token", async () => {
+  it("FAIL-BEFORE: the pointer-only write shadows ONLY the operator's own two edits — everything else it never warns about already moves", async () => {
     const h = harness();
     const { funnelPublic } = await newSavedFunnel(h);
     const tpl = await newSavedTemplate(h);
@@ -419,13 +439,14 @@ d("P8 S4.1 — M3/R2-1: applying a template changes what the page paints", () =>
     let comparable = 0;
     let shadowed = 0;
     const honoured: string[] = [];
+    const shadowedPaths: string[] = [];
     const fAfter = flat(after);
     for (const [path, templateValue] of fTpl) {
       if (!fFunnel.has(path) || same(fFunnel.get(path), templateValue)) continue;
       comparable++;
       const group = path.includes(".") ? path.slice(0, path.indexOf(".")) : path;
       const rec = perGroup.get(group) ?? { shadowed: 0, honoured: 0 };
-      if (same(fAfter.get(path), templateValue)) { rec.honoured++; honoured.push(path); } else { rec.shadowed++; shadowed++; }
+      if (same(fAfter.get(path), templateValue)) { rec.honoured++; honoured.push(path); } else { rec.shadowed++; shadowed++; shadowedPaths.push(path); }
       perGroup.set(group, rec);
     }
     // eslint-disable-next-line no-console
@@ -434,36 +455,43 @@ d("P8 S4.1 — M3/R2-1: applying a template changes what the page paints", () =>
       "· per group", JSON.stringify([...perGroup].map(([g, r]) => `${g} ${r.shadowed}/${r.shadowed + r.honoured}`)),
     );
 
-    // The contract's class, re-measured on this branch with a template that
-    // disagrees across all nine element groups: EVERY leaf it carries is
-    // shadowed by the funnel's own saved config except `template` itself — the
-    // identity string no CSS rule is keyed on — and the visitor's page does not
-    // move a byte. (Contract v3 measured 45/46 with its own fixture; this
-    // fixture's own census is printed above and asserted structurally here, so
-    // the pin survives an unrelated default change.)
+    // RE-MEASURED in FIX ROUND F11 against a REALISTIC saved column (see
+    // newSavedFunnel's own comment — a real Save PUTs the stored column plus
+    // only the touched paths, never a complete dump). Because today's
+    // read-side merge (frames.ts effectiveFrame) already resolves
+    // `frame_template_id` into `savedTemplateDefaults` regardless of
+    // materialisation, a pointer-only write against a two-leaf column already
+    // moves every OTHER comparable leaf — only the operator's own two edits
+    // (never a template artefact) continue to win, because the funnel's own
+    // JSON always deep-merges last. This is a 28→2 drop from this file's
+    // earlier (hand-built-dump) measurement of the SAME class: comparable
+    // leaves are unchanged (the served "before" composition does not depend
+    // on how the column got there) but shadowed collapses from 28 to exactly
+    // the two genuine customisations.
     expect(perGroup.size).toBe(10); // nine element groups + `template`
     expect(comparable).toBeGreaterThanOrEqual(25);
-    expect(honoured).toEqual(["template"]);
-    expect(shadowed).toBe(comparable - 1);
-    expect(moved).toEqual(["template"]);
+    expect(shadowedPaths.sort()).toEqual(["back.label", "header.tagline"]); // the operator's own two edits, named
+    expect(shadowed).toBe(2);
+    expect(honoured).toContain("template");
+    expect(honoured.length).toBe(comparable - 2);
+    expect(moved).not.toContain("header.tagline"); // preserved, not moved
+    expect(moved).not.toContain("back.label"); // preserved, not moved
+    expect(moved.length).toBeGreaterThanOrEqual(comparable - 2);
 
-    // The rendered page: the ONLY thing that moved is that identity token —
-    // the root `.lg-frame--<id>` class, `data-frame-template`, and the header
-    // region's NAME, which frame.ts keys off the same string
-    // (TEMPLATE_HEADER_REGION:212). No layout, no region set, no colour, no
-    // copy: with the identity token normalised away the two pages are
-    // byte-identical, which is exactly the owner-visible "nothing happened".
+    // The rendered page: the operator's own copy survives verbatim while the
+    // template's arrangement otherwise takes over — the OPPOSITE of this
+    // file's earlier (false, hand-built-fixture) "byte-identical" claim. What
+    // a pointer-only write still does NOT do (the real gap the M3 fix
+    // closes): warn the operator, offer a dry run, or name which of their own
+    // settings survives — it simply happens to land correctly here because
+    // this fixture's funnel never customised anything the template touches.
     const renderAfter = renderOf(h, funnelPublic);
-    const withoutIdentity = (html: string): string =>
-      html
-        .replace(/lg-frame--[a-z-]+"/, 'lg-frame--TPL"')
-        .replace(/data-frame-template="[^"]*"/, 'data-frame-template="TPL"')
-        .split('data-frame-region="header"').join('data-frame-region="HEAD"')
-        .split('data-frame-region="logo"').join('data-frame-region="HEAD"');
     expect(renderAfter).not.toBe(renderBefore);
-    expect(withoutIdentity(renderAfter)).toBe(withoutIdentity(renderBefore));
+    expect(renderAfter).toContain("ROASTC operator tagline");
+    expect(renderAfter).toContain("lg-frame-slot--bare");
+    expect(renderAfter).toContain("lg-frame-trust");
     // eslint-disable-next-line no-console
-    console.log("[S4.1 FAIL-BEFORE] render", sha(renderBefore), "→", sha(renderAfter), "· identical once the identity token is normalised:", withoutIdentity(renderAfter) === withoutIdentity(renderBefore));
+    console.log("[S4.1 FAIL-BEFORE] render", sha(renderBefore), "→", sha(renderAfter), "· moved leaves", moved.length, "· shadowed", JSON.stringify(shadowedPaths.sort()));
   });
 
   it("PASS-AFTER: the REAL apply-template route moves the page across every element group", async () => {

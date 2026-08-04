@@ -1328,23 +1328,28 @@ const SWEEP_EXEMPTIONS: readonly Exemption[] = [
   // premise that §4 R3 required them honoured. R3's rule has TWO branches
   // ("…governs a measurable painted value on a visible element, OR is removed
   // from the UI"), and MEASURED these two are on the second branch: the whole
-  // admin plane contains ZERO `data-frame-key="section_slot` attributes — the
-  // pinnedNoSectionSlotControl assertion below re-measures that on every run,
-  // so the claim cannot rot. F8's rules are reverted in
+  // admin plane offers ZERO section_slot controls. F8's rules are reverted in
   // designs/default-funnel/styles.ts; the transition one also shipped a 300ms
   // fade to every framed page (baseFrameDefaults.transition:"fade") that no
   // operator could switch off.
+  //
+  // R2 P8-4 FIX ROUND F10 — the claim above is re-measured on every run by the
+  // `notOffered` loop in "every exemption carries a written reason…" below,
+  // through `offeredIn`, which resolves a control in EVERY shape the panels
+  // emit (helper call or literal `data-frame-key` attribute). F9's own safety
+  // net scanned for the literal attribute only and was blind to 24 of the 25
+  // offered frame keys — see the measured breakdown at that assertion.
   {
     key: "section_slot.padding",
     notOffered: true,
     reason:
-      "NOT OFFERED, so R3's second branch applies: `grep -rn 'data-frame-key=\"section_slot' src` returns 0 hits — no panel renders a slot-padding control, no built-in FrameTemplateDef sets the key away from its `m` default, and the saved-template editor can only capture a funnel frame the controls wrote. The stored field is real (frames.ts FrameSectionSlotConfig) and frame.ts emits `--pad-{s,m,l}` unconditionally, but nothing in this sheet reads those classes, so the key paints nothing — which is honest for a key with no control. What would prove it: any `data-frame-key=\"section_slot.padding\"` control (the assertion below then goes red), at which point this exemption must be deleted and the three padding rules F9 reverted must return.",
+      "NOT OFFERED, so R3's second branch applies: `grep -rn '\"section_slot' src/admin` returns 0 hits — that is the WHOLE admin plane and it is the shape that catches BOTH ways a control is written (the quoted path in a `frameSelect(label, \"section_slot.padding\", …)` helper call AND inside a literal `data-frame-key=\"section_slot.padding\"`). No panel renders a slot-padding control, no built-in FrameTemplateDef sets the key away from its `m` default, and the saved-template editor can only capture a funnel frame the controls wrote. The stored field is real (frames.ts FrameSectionSlotConfig) and frame.ts emits `--pad-{s,m,l}` unconditionally, but nothing in this sheet reads those classes, so the key paints nothing — which is honest for a key with no control. What would prove it: ANY control writing this key in any of those shapes — the notOffered loop and the section_slot leg below both go red naming it — at which point this exemption must be deleted and the three padding rules F9 reverted must return.",
   },
   {
     key: "section_slot.transition",
     notOffered: true,
     reason:
-      "NOT OFFERED, so R3's second branch applies: the same zero-hit `data-frame-key=\"section_slot` grep, and no built-in template overrides `baseFrameDefaults.transition:\"fade\"`. F8 honoured it with `@keyframes lg-slot-fade` on `.lg-frame-slot--t-fade .lg-content`; driven, that animation fired only on FIRST PAINT (opacity 0.376@80ms -> 1@900ms) and never on a section change (0 animations, opacity 1 at +30/60/120/250/400ms), because the mount element is never re-created — so it did not even do what the key's name says, while giving every framed page a 300ms load animation with no control and no prefers-reduced-motion guard. Reverted. What would prove it: a real section-swap transition PLUS a control writing this key — then this exemption must be deleted, and any animation must carry a motion-preference guard.",
+      "NOT OFFERED, so R3's second branch applies: the same zero-hit `grep -rn '\"section_slot' src/admin` (helper-call and literal-attribute shapes both), and no built-in template overrides `baseFrameDefaults.transition:\"fade\"`. F8 honoured it with `@keyframes lg-slot-fade` on `.lg-frame-slot--t-fade .lg-content`; driven, that animation fired only on FIRST PAINT (opacity 0.376@80ms -> 1@900ms) and never on a section change (0 animations, opacity 1 at +30/60/120/250/400ms), because the mount element is never re-created — so it did not even do what the key's name says, while giving every framed page a 300ms load animation with no control and no prefers-reduced-motion guard. Reverted. What would prove it: a real section-swap transition PLUS a control writing this key — then this exemption must be deleted, and any animation must carry a motion-preference guard.",
   },
 ];
 
@@ -1592,22 +1597,117 @@ describe("R2 P8 M2/R3 sweep — EVERY authorable design key moves a value a visi
       "section_slot.transition",
       "spacing",
     ]);
-    // F9: the two new entries make ONE measured claim — the admin plane has no
-    // section_slot control at all — and `offeredIn`'s quoted-path scan cannot
-    // see a `data-frame-key` attribute, so the claim is re-measured HERE, at
-    // the shape the frame panels really use. This is the zero-hit grep the two
-    // reasons cite, executed. Add a slot control and both exemptions go red.
-    const sectionSlotControls = ADMIN_UI_SOURCES.flatMap((s) =>
-      [...s.text.matchAll(/data-frame-key="(section_slot[^"]*)"/g)].map((m) => `${path.basename(s.file)}::${m[1] as string}`),
+    // R2 P8-4 FIX ROUND F10 — HOW the `notOffered` loop above is kept HONEST,
+    // and why F9's own safety net could not do it.
+    //
+    // F9 re-measured "no section_slot control exists" with a literal
+    // /data-frame-key="([^"]+)"/ scan over this corpus, on the premise that
+    // `offeredIn`'s quoted-path scan "cannot see a data-frame-key attribute".
+    // BOTH halves were false, MEASURED on this branch:
+    //   * that regex returns NINE strings, of which FIVE are the
+    //     un-interpolated `${escapeHtml(key)}` inside the HELPERS themselves
+    //     (quotes-tabs/shared.ts:1115/1120/1125 = frameCheck/frameSelect/
+    //     frameInput, templates.ts:743/760 = segmentedControl/toggleControl),
+    //     TWO are island querySelector literals (templates.ts:1955/2009), and
+    //     only TWO are a real emission (`progress.style`, templates.ts:716/725).
+    //     So its sanity guard `anyFrameControls.length > 5` — the leg meant to
+    //     prove the empty result was a measurement — passed ONLY by counting
+    //     the five non-keys;
+    //   * 24 of the 25 offered frame keys are NOT written as a literal
+    //     `data-frame-key` attribute at all — they are helper calls
+    //     (`frameSelect("Logo size", "header.logo_size", …)`), role strips or
+    //     `data-tplbox-*` lists — so it could not see them.
+    //     `frameSelect(…, "section_slot.padding", …)` added tomorrow would have
+    //     shipped a live dead control under a green assertion: DRIVEN, that
+    //     sabotage left F9's `sectionSlotControls` at [] and its sanity guard at
+    //     9 > 5, both green, while the loop above went red naming the key.
+    // `offeredIn` sees BOTH shapes, because the quoted path is present in the
+    // helper call site AND inside `data-frame-key="progress.style"`. It is what
+    // the notOffered loop above already uses, so THAT loop is the enforcement;
+    // what is pinned below is that it really resolves frame controls, per
+    // emission shape — a measurement, not a dead scan.
+    //
+    // `template` is the one non-dotted frame member and it is excluded on a
+    // measurement, not on taste: `offeredIn("template")` answers ["ab.ts"] from
+    // `key === "template"` (ab.ts:28, a diff-loop comparison) and
+    // `parts.push("template")` (ab.ts:46, a chip label) — neither is a control.
+    // A bare word collides with ordinary string literals, so the scan is only
+    // trusted on the dotted `group.leaf` shape every exempted key here has.
+    const frameMemberPaths = [...FRAME_KEYS.keys.map((k) => k.key), ...FRAME_KEYS.arrays, ...FRAME_KEYS.singles].filter(
+      (k) => k.includes("."),
     );
-    expect(sectionSlotControls, "no admin control writes ANY section_slot key").toEqual([]);
-    // …and the SAME scan finds the frame controls that DO exist, so the empty
-    // result above is a measurement and not a broken regex.
-    const anyFrameControls = ADMIN_UI_SOURCES.flatMap((s) =>
-      [...s.text.matchAll(/data-frame-key="([^"]+)"/g)].map((m) => m[1] as string),
-    );
-    expect(anyFrameControls.length, "the data-frame-key scan really finds controls").toBeGreaterThan(5);
-    expect(anyFrameControls, "…including the live one R3 names").toContain("progress.style");
+    expect(frameMemberPaths.length, "every dotted frame member is scanned, not a subset").toBe(73);
+    const offeredFrameControls = frameMemberPaths.filter((k) => offeredIn(k).length > 0).sort();
+    // The MEASURED set, pinned WHOLE rather than as a floor somebody chose: a
+    // control added, renamed or deleted moves this list. Every entry was read
+    // back to its emitting call site (frameSelect/frameCheck/frameInput/
+    // segmentedControl/toggleControl/mediaPickerControl/renderRoleStrip/
+    // data-tplbox-list) — not one is a comment or a querySelector echo.
+    expect(offeredFrameControls, `offeredIn over ${frameMemberPaths.length} dotted frame members`).toEqual([
+      "background.image_media_id",
+      "background.role",
+      "background.style",
+      "disclosure.entries",
+      "footer.blocks",
+      "footer.enabled",
+      "footer.link_separator",
+      "footer.link_underline",
+      "footer.palette_scope.background",
+      "footer.palette_scope.link",
+      "footer.palette_scope.text",
+      "footer.typography_scope.font_family",
+      "footer.typography_scope.size",
+      "header.logo_align",
+      "header.logo_size",
+      "header.logo_source",
+      "progress.align",
+      "progress.color_role",
+      "progress.icon",
+      "progress.icon_media_id",
+      "progress.position",
+      "progress.show_label",
+      "progress.style",
+      "progress.thickness",
+      "progress.width",
+    ]);
+    // …and it sees a control HOWEVER the panel emits it. One key per emission
+    // shape the product really uses, each proved to be emitted by that shape on
+    // a real line before `offeredIn` is asked about it. THIS is the leg F9
+    // lacked: eight of these nine shapes are invisible to a literal-attribute
+    // regex, and they carry 24 of the 25 keys above.
+    for (const [shape, key] of [
+      ["frameSelect(", "header.logo_size"],
+      ["frameCheck(", "footer.enabled"],
+      ["frameInput(", "footer.link_separator"],
+      ["segmentedControl(", "progress.thickness"],
+      ["toggleControl(", "progress.show_label"],
+      ["mediaPickerControl(", "background.image_media_id"],
+      ["renderRoleStrip(", "footer.palette_scope.link"],
+      ["data-tplbox-list=", "footer.blocks"],
+      ['data-frame-key="', "progress.style"],
+    ] as ReadonlyArray<readonly [string, string]>) {
+      const emitted = ADMIN_UI_SOURCES.flatMap((s) =>
+        s.text
+          .split("\n")
+          .flatMap((line, i) => (line.includes(shape) && line.includes(`"${key}"`) ? [`${path.basename(s.file)}:${i + 1}`] : [])),
+      );
+      expect(emitted.length, `the admin UI really emits ${key} via ${shape}`).toBeGreaterThan(0);
+      expect(offeredIn(key), `…and offeredIn SEES the ${shape} shape (${emitted.join(", ")})`).not.toEqual([]);
+      expect(offeredFrameControls, `…so ${key} lands in the offered set`).toContain(key);
+    }
+    // THE CLAIM THE TWO section_slot EXEMPTIONS REST ON, re-measured over the
+    // WHOLE FrameSectionSlotConfig member set (all 9, not just the 2 exempted):
+    // the admin plane offers no slot control at all. This is the zero-hit grep
+    // the two reasons cite (`grep -rn '"section_slot' src/admin`), executed
+    // through the scan that resolves every emission shape above. Add a slot
+    // control in ANY of them and this goes red naming the key — and so does the
+    // notOffered loop at the top of this test.
+    const sectionSlotMembers = frameMemberPaths.filter((k) => k.startsWith("section_slot."));
+    expect(sectionSlotMembers.length, "the slot group's members are really being scanned").toBe(9);
+    expect(
+      sectionSlotMembers.filter((k) => offeredIn(k).length > 0),
+      "no admin control offers ANY section_slot key",
+    ).toEqual([]);
     // …and every single one of them makes the SAME claim: no operator control
     // offers this key. Not one is "offered, but this harness cannot prove it" —
     // that shape would be a dead control wearing an exemption.

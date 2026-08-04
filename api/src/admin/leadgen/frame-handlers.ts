@@ -673,14 +673,26 @@ export async function deleteFrameTemplateHandler(c: AdminContext): Promise<Respo
 // template disagreed on.
 //
 // R2 P8 FIX ROUND F4 — and WHY that write is a RECONCILE, not a copy.
-// computeTemplateApply now materialises the template's leaves over the funnel's
-// config and then PRUNES every leaf the template's own base already gives, so
-// the column ends up holding the funnel's DIFFERENCES from its template and
-// nothing else. Same served page (the pruned leaf comes back from the base it
+// computeTemplateApply materialises the template's leaves over the funnel's
+// config and then PRUNES the echoes, so the column stops being a full shadow of
+// its own base. Same served page (the pruned leaf comes back from the base it
 // was copied from); no shadow over a variant's own frame_template_id (F-2: A/B
 // arms can differ again); and `replaced_customisations` stops counting a
 // previous apply's own writes as the operator's (F-1). See designs/frames.ts for
 // the rule and test/leadgen-p8-m3-apply-template.test.ts for the driven counts.
+//
+// R2 P8-4 FIX ROUND F9 amended that prune, and this note with it. F4 wrote
+// "PRUNES every leaf the template's own base already gives" and that is no
+// longer what happens: pruning by agreement-with-the-base DELETED
+// OPERATOR-AUTHORED VALUES (review-p8-4b F-B, driven — a column holding the
+// operator's own `header.logo_align:"left"` lost the leaf to a template whose
+// base also said "left", with `replaced_customisations:[]`). The prune now
+// drops only what THIS apply materialised, plus an echo the column already
+// carried; a leaf the operator authored and this apply does not move is KEPT
+// even when the incoming base agrees with it. So the column holds the funnel's
+// differences from its template PLUS the operator's own authored leaves — see
+// the F9 invariant in designs/frames.ts ("a value the operator chose is never
+// silently discarded — preserved in the column, or named in the warning").
 //
 // `dry_run:true` returns the SAME changes/confirmations with NO write, so the
 // Templates tab's confirm dialog can enumerate what this apply really does

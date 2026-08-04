@@ -2658,10 +2658,13 @@ export function funnelChromeCss(
       // `section_slot.padding` / `section_slot.transition` alive, on the
       // premise that both were operator controls §4 R3 required to be
       // honoured. MEASURED, that premise is false:
-      // `grep -rn 'data-frame-key="section_slot' src` returns 0 hits — NO
-      // admin surface writes either key (the only `section_slot` mention in
-      // the whole admin plane is the saved-template summary's read of
-      // `section_slot.card`, quotes-tabs/templates.ts:2190). So the rules were
+      // `grep -rn '"section_slot' src/admin` returns 0 hits — that is the
+      // WHOLE admin plane and it is the shape that catches BOTH ways a
+      // control is written (the quoted path in a `frameSelect(label,
+      // "section_slot.padding", …)` helper call AND inside a literal
+      // `data-frame-key="section_slot.padding"`); the only `section_slot`
+      // mention anywhere in admin is the saved-template summary's read of
+      // `section_slot.card` (quotes-tabs/templates.ts:2190). So the rules were
       // product CSS for keys nobody can author, and the transition one had a
       // visitor-visible cost: `baseFrameDefaults.transition:"fade"` made every
       // framed page fade in over 300ms with no operator control to turn it off

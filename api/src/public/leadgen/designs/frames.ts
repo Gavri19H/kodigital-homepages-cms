@@ -2178,12 +2178,26 @@ export function computeTemplateSwitch(
 // leg): applying a saved template used to write ONLY the
 // `leadgen_funnels.frame_template_id` pointer. effectiveFrame composes
 //   FRAME_TEMPLATES[family].defaults ⊕ savedTemplate ⊕ funnel.frame_config_json
-// and the Quote Builder PUTs its WHOLE hydrated frame back on every Save
+// so the funnel column shadows the template on EVERY LEAF IT HOLDS, and a
+// pointer-only apply can only ever move the leaves it does NOT hold. On the
+// fail-before fixture — a column carrying the whole composition — the apply
+// moved exactly ONE leaf of the served page: `template`, the identity string no
+// CSS rule is keyed on. The operator saw nothing change.
+//
+// R2 P8-4 FIX ROUND F10 — HOW a column gets that full, corrected. This note used
+// to read "the Quote Builder PUTs its WHOLE hydrated frame back on every Save
 // (quotes-tabs/funnel.ts:1675 over hydrationBase()), so the funnel column is a
-// COMPLETE config the moment a funnel has ever been saved — and a complete
-// funnel layer shadows every leaf the template carries. On a saved funnel the
-// apply moved exactly ONE leaf of the served composition: `template`, the
-// identity string no CSS rule is keyed on. The operator saw nothing change.
+// COMPLETE config the moment a funnel has ever been saved". DRIVEN, that is
+// false — and it contradicted the F9 note below that the current prune rule
+// rests on. A Save PUTs `workingFrame`, which is
+// `deepClone(frameState.frame_config || {})` (quotes-tabs/funnel.ts:1809 — the
+// STORED column) plus the paths this session touched: a real Save was observed
+// PUTting exactly `{"version":1,"template":"centered","header":{"logo_align":
+// "left"}}`, the stored column plus the one touched path. `hydrationBase()`
+// feeds clientEffective(), which POPULATES control values; it is never the
+// payload. So the column grows leaf by leaf with what the operator touches —
+// which is precisely why the F9 invariant below must tell an operator-authored
+// leaf apart from an echo instead of pruning by agreement-with-the-base.
 //
 // The semantics chosen here are MATERIALISE, not "reorder the merge":
 //   * the template's authored leaves are WRITTEN INTO the funnel's own
