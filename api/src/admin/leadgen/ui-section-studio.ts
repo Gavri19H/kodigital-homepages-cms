@@ -1242,7 +1242,7 @@ html,body{margin:0;padding:0;background:#fff}
 /* PC-A6 container-select affordance: a small click-to-select label chip
    anchored (position:absolute, so it is NEVER a flex/grid item — the P1c
    decoration lesson) at a container's top-left; faint until hover/selection. */
-.studio-canvas-render .studio-container-chip{position:absolute;top:0;left:0;z-index:6;font-size:10px;font-weight:600;line-height:1;padding:3px 7px;border-radius:5px 0 5px 0;background:var(--c-primary);color:#fff;cursor:pointer;pointer-events:auto;opacity:.5;white-space:nowrap;user-select:none}
+.studio-canvas-render .studio-container-chip{position:absolute;top:-18px;left:0;z-index:6;font-size:10px;font-weight:600;line-height:1;padding:3px 7px;border-radius:5px 5px 0 0;background:var(--c-primary);color:#fff;cursor:pointer;pointer-events:auto;opacity:.5;white-space:nowrap;user-select:none}
 .studio-canvas-render .studio-container-chip:hover,.studio-canvas-render .studio-container-chip-selected{opacity:1}
 /* §5.4 amber page-frame badge on legacy frame-scope canvas nodes */
 .studio-frame-badge{font-size:11px;color:#664d03;background:#fff3cd;border:1px solid #ffecb5;border-radius:6px;padding:4px 8px;margin:4px 0;display:flex;gap:6px;align-items:center;flex-wrap:wrap}
@@ -7489,7 +7489,16 @@ export const SECTION_STUDIO_SCRIPT = `
     // operator name, the SAME label the inspector scope header uses
     // (typeLabel/STUDIO_TYPE_META), so the canvas tag never lies about what's
     // selected (adversarial review M2).
-    tag.appendChild(document.createTextNode(node && acceptFormatOfNode(node) ? 'Short text field' : typeLabel(node ? node.type : '')));
+    // N16 (contract §7): Phone and Address are technically two of the 8
+    // Accept-swap types (still swappable — untouched below), but each has its
+    // OWN operator-meaningful capability the generic "Short text field" label
+    // hides (Phone's mask, Address's field-set/Maps autofill) — measured live:
+    // both always titled "Short text field", making an authored Address/Phone
+    // field un-findable by its real name. STUDIO_TYPE_META already carries
+    // real labels for both ("Phone"/"Address") — only these two are excluded
+    // from the shared label; the other 6 (ZIP included — pinned by existing
+    // specs) are unchanged.
+    tag.appendChild(document.createTextNode(node && acceptFormatOfNode(node) && node.type !== 'PhoneInputQuestion' && node.type !== 'AddressAutocompleteQuestion' ? 'Short text field' : typeLabel(node ? node.type : '')));
     wrap.appendChild(tag);
     // R2 S1-4: the custom badge covers EITHER axis (width takes precedence when
     // both are custom; the inspector's two chips disambiguate). Format is the
@@ -7779,7 +7788,12 @@ export const SECTION_STUDIO_SCRIPT = `
     // 8-value Accept-swap family — the SAME special-case decorateFieldSelection
     // already applies to the canvas name-tag (its own comment names this
     // exact parity goal); every other field type keeps its own catalog label.
-    if (scopeState === 'component' && node) { return acceptFormatOfNode(node) ? 'Short text field' : typeLabel(node.type); }
+    // N16: Phone and Address are excluded from the shared label (the SAME
+    // parity exclusion as decorateFieldSelection's canvas tag, and for the
+    // SAME reason — measured live: "Editing: Short text field" hid a real
+    // Phone/Address selection from the operator). ZIP and the rest of the
+    // family are unchanged (pinned by existing specs).
+    if (scopeState === 'component' && node) { return (acceptFormatOfNode(node) && node.type !== 'PhoneInputQuestion' && node.type !== 'AddressAutocompleteQuestion') ? 'Short text field' : typeLabel(node.type); }
     return 'This Section (question unit)';
   }
   // §8.1 "what it is" one-line description. Three rows are contract-ASSERTED
@@ -13314,7 +13328,15 @@ export const SECTION_STUDIO_SCRIPT = `
     var badge = region ? region.querySelector('[data-frame-badge="' + qid + '"]') : null;
     if (!badge) { return; }
     var oldPicker = badge.querySelector('[data-funnel-picker]');
-    if (oldPicker) { badge.removeChild(oldPicker); return; }
+    // N16 (contract §7): this checked the child EXISTS but not that badge is
+    // its actual parent (of 16 removeChild sites in this file, this was the
+    // one unguarded — every other site uses oldPicker.parentNode.removeChild
+    // idiom below, which can never throw NotFoundError regardless of DOM
+    // shape). querySelector finds any DESCENDANT, not only a direct child, so
+    // a badge rebuilt/re-inserted between the picker's creation and this
+    // toggle (or two elements momentarily sharing one data-frame-badge qid)
+    // could resolve a badge that is no longer oldPicker's real parent.
+    if (oldPicker) { if (oldPicker.parentNode) { oldPicker.parentNode.removeChild(oldPicker); } return; }
     var picker = document.createElement('span');
     picker.className = 'studio-funnel-picker';
     picker.setAttribute('data-funnel-picker', qid);
@@ -16774,6 +16796,30 @@ export const SECTION_STUDIO_SCRIPT = `
     head.setAttribute('data-save-problems-summary', '');
     head.appendChild(document.createTextNode('Saved \\u2014 with ' + problems.length + ' thing' + (problems.length === 1 ? '' : 's') + ' worth checking:'));
     box.appendChild(head);
+    // P8 S5.2c (contract §6 M5 / owner: "the rules you build are using
+    // jargon"): row identity — the SAME plain-data lookup renderSaveFieldErrors
+    // uses below, duplicated LOCAL (not a shared helper) rather than calling
+    // typeLabel/trimStr, because this function is vm-probe-sliced STANDALONE
+    // elsewhere in this island's own test suite with a FIXED collaborator
+    // list (componentByProblemPath only) — a new cross-function dependency
+    // would ReferenceError there for a concern outside what it tests. NEVER
+    // invents a name: only real data already on the resolved node/choice,
+    // never Title-Cased, never guessed.
+    function rowContextLabel(rawPath) {
+      var p = String(rawPath || '');
+      var node = componentByProblemPath(p);
+      if (!node) { return ''; }
+      var choiceMatch = p.match(/choices\\[(\\d+)\\]/);
+      if (choiceMatch && node.choices) {
+        var choice = node.choices[Number(choiceMatch[1])];
+        if (choice) {
+          var choiceName = (choice.label !== undefined && String(choice.label) !== '') ? String(choice.label) : (choice.value !== undefined ? String(choice.value) : 'choice ' + (Number(choiceMatch[1]) + 1));
+          return choiceName + ': ';
+        }
+      }
+      var name = (node.props && node.props.label !== undefined && String(node.props.label) !== '') ? String(node.props.label) : (node.internal_field || node.type);
+      return name + ': ';
+    }
     var list = document.createElement('ul');
     var i, li, btn;
     for (i = 0; i < problems.length; i++) {
@@ -16783,7 +16829,13 @@ export const SECTION_STUDIO_SCRIPT = `
       btn.type = 'button';
       btn.className = 'studio-link-btn';
       btn.setAttribute('data-save-problem-path', String(problems[i].path || ''));
-      btn.appendChild(document.createTextNode(String(problems[i].message || '')));
+      // P8 S5.2c: the warning path is now as honest as the error path below
+      // — the RAW server message, un-transformed (measured live: it already
+      // reads clean, e.g. "Maps is on but no job is selected \\u2014 it does
+      // nothing at runtime. Pick a job or turn Maps off.") — plus the row's
+      // own identity prefixed, so two rows sharing one generic sentence
+      // (e.g. two frame-scope components) read as different rows.
+      btn.appendChild(document.createTextNode(rowContextLabel(problems[i].path) + String(problems[i].message || '')));
       btn.addEventListener('click', saveProblemFocusHandler(problems[i].path));
       li.appendChild(btn);
       list.appendChild(li);
@@ -16808,35 +16860,45 @@ export const SECTION_STUDIO_SCRIPT = `
     box.hidden = false;
     var head = document.createElement('p');
     head.setAttribute('data-save-problems-summary', '');
-    head.appendChild(document.createTextNode('Save failed \\u2014 ' + fieldProblems.length + ' field' + (fieldProblems.length === 1 ? '' : 's') + ' need attention:'));
+    // N16: the noun pluralizes ("field"/"fields") — the verb must too.
+    head.appendChild(document.createTextNode('Save failed \\u2014 ' + fieldProblems.length + ' field' + (fieldProblems.length === 1 ? ' needs' : 's need') + ' attention:'));
     box.appendChild(head);
-    // Round-4 A-8 (P1a, deliverable 7): map raw field ids to operator words at
-    // PAINT time — a display map with a snake_case to Title Case fallback, plus
-    // substitution of any raw id embedded inside the server message string, so a
-    // problem reads "Section name is required", never the raw "section_name is
-    // required" (operator #8, Part C P-9). Kept LOCAL because this function is
-    // vm-probe-sliced standalone. Server leg lands in P1c; this paints clean copy
-    // from whatever raw ids the server currently sends.
-    var SAVE_FIELD_DISPLAY = { section_name: 'Section name', headline_text: 'Headline', subheadline_text: 'Subheadline', activity: 'Activity', vertical: 'Vertical' };
-    function fieldDisplayName(id) {
-      var s = String(id);
-      if (SAVE_FIELD_DISPLAY[s]) { return SAVE_FIELD_DISPLAY[s]; }
-      var parts = s.split('_'), out = [], ti, tp;
-      for (ti = 0; ti < parts.length; ti++) { tp = parts[ti]; if (tp === '') { continue; } out.push(tp.charAt(0).toUpperCase() + tp.slice(1)); }
-      return out.length ? out.join(' ') : s;
-    }
-    function humanizeFieldMessage(msg, ownKey) {
-      var s = String(msg);
-      // Whole-word replace the specific field id first (covers single-word ids
-      // like "activity" the multi-part snake pass below would not catch)…
-      if (ownKey && /^[a-z][a-z0-9_]*$/.test(ownKey)) {
-        s = s.replace(new RegExp('(^|[^A-Za-z0-9_])' + ownKey + '(?![A-Za-z0-9_])', 'g'), function (m, a) { return a + fieldDisplayName(ownKey); });
+    // P8 S5.2c (contract §6 M5 / owner: "the rules you build are using
+    // jargon"): measured LIVE against the real save route (curl POST
+    // .../sections with a duplicated internal_field) that content-schema.ts /
+    // sections.ts already speak the operator's language AND already quote the
+    // raw VALUE un-mangled — e.g. "Another question in this Section already
+    // uses the Internal field 'ks_nm' — each question needs its own. Rename
+    // one of them." The retired humanizeFieldMessage Title-Cased ANY
+    // snake_case-looking token found ANYWHERE in the message text — unable to
+    // tell an identifier from an operator-typed VALUE, it mangled the value
+    // too ('ks_nm' -> 'Ks Nm', a field that does not exist — the exact defect
+    // named in the contract). Per "measure what actually arrives before
+    // deciding": the safest fix is to STOP transforming the message body and
+    // print exactly what the real validator sent, matching the (already
+    // untransformed) warning path in renderSaveProblems above.
+    // Row identity — duplicated LOCAL (not a shared helper, matching
+    // renderSaveProblems's own copy above) so each stays independently
+    // sliceable per this island's vm-probe convention. NEVER invents a name:
+    // only real data already on the resolved node/choice.
+    function rowContextLabel(rawPath) {
+      var p = String(rawPath || '');
+      if (p.indexOf('content.') === 0) { p = p.slice('content.'.length); }
+      var node = componentByProblemPath(p);
+      if (!node) { return ''; }
+      var choiceMatch = p.match(/choices\\[(\\d+)\\]/);
+      if (choiceMatch && node.choices) {
+        var choice = node.choices[Number(choiceMatch[1])];
+        if (choice) {
+          var choiceName = (choice.label !== undefined && String(choice.label) !== '') ? String(choice.label) : (choice.value !== undefined ? String(choice.value) : 'choice ' + (Number(choiceMatch[1]) + 1));
+          return choiceName + ': ';
+        }
       }
-      // …then any remaining multi-part snake_case id embedded in the message.
-      return s.replace(/[a-z][a-z0-9]*(?:_[a-z0-9]+)+/g, function (tok) { return fieldDisplayName(tok); });
+      var name = (node.props && node.props.label !== undefined && String(node.props.label) !== '') ? String(node.props.label) : (node.internal_field || node.type);
+      return name + ': ';
     }
     var list = document.createElement('ul');
-    var i, li, btn, msgKey;
+    var i, li, btn;
     for (i = 0; i < fieldProblems.length; i++) {
       if (!fieldProblems[i]) { continue; }
       li = document.createElement('li');
@@ -16844,8 +16906,7 @@ export const SECTION_STUDIO_SCRIPT = `
       btn.type = 'button';
       btn.className = 'studio-link-btn';
       btn.setAttribute('data-save-problem-path', String(fieldProblems[i].path || ''));
-      msgKey = String(fieldProblems[i].path || '').replace(/^.*\\./, '');
-      btn.appendChild(document.createTextNode(humanizeFieldMessage(String(fieldProblems[i].message || ''), msgKey)));
+      btn.appendChild(document.createTextNode(rowContextLabel(fieldProblems[i].path) + String(fieldProblems[i].message || '')));
       btn.addEventListener('click', saveProblemFocusHandler(fieldProblems[i].path));
       li.appendChild(btn);
       list.appendChild(li);

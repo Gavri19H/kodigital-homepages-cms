@@ -429,7 +429,12 @@ describeDb("R4a E3-NEW-2/E2-NEW-10 — computeIssues mirrors more server codes",
     const key = Object.keys(body.fields).find((k) => k.includes("requiredWhen"));
     expect(key, JSON.stringify(body.fields)).toBeTruthy();
     expect(key).toBe("content.components[0].props.requiredWhen.when");
-    expect(body.fields[key as string]).toContain("references a field not present in this Section");
+    // P8-5 F2: content-schema.ts's validateConditional message was rewritten
+    // into the operator's voice for contract M5 (old wording was "references
+    // a field not present in this Section") — re-pinned to the REAL text
+    // (content-schema.ts:4077) so nobody restores the old wording just to
+    // make this pass.
+    expect(body.fields[key as string]).toContain("depends on 'ghost_field', which isn't a field in this Section");
     // A KNOWN field passes clean (fail-before regression guard: this must
     // never become a false positive).
     const validContent = {

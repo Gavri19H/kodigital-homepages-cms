@@ -157,10 +157,13 @@ function validateSectionLevelOverride(key: string, value: unknown, errors: Field
 // save-error MESSAGES read as plain operator language, never the raw field id
 // verbatim ("section_name is required" -> "Section name is required"). The
 // `fields` object's KEYS stay the raw ids unchanged (the studio maps/links by
-// key, P1a) -- only the human-readable message text changes. Mirrors the
-// client-side SAVE_FIELD_DISPLAY fallback (ui-section-studio.ts
-// renderSaveFieldErrors) so the server-authoritative text and the client's
-// paint-time fallback agree.
+// key, P1a) -- only the human-readable message text changes. P8-5 F2
+// (verified against ui-section-studio.ts): the client's renderSaveFieldErrors
+// no longer runs a display-name/humanizer fallback of its own — it prints
+// this message text verbatim, prefixed only with a row-identity label built
+// from the resolved node's/choice's own real data (props.label /
+// internal_field / type, or a choice's label/value). This map is what turns
+// the raw id into that text in the first place.
 const FIELD_DISPLAY_NAMES: Readonly<Record<string, string>> = {
   section_name: "Section name",
   activity: "Activity",

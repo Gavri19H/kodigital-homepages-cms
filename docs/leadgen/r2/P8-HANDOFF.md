@@ -92,11 +92,15 @@ because P8-Charlie is empty (ADJ-P8-41).
 5. **The instrument is wrong as often as the product.** The paint predicate was wrong in BOTH directions
    (class-only credited, then class-only discarded; the real answer was resolving pseudo-elements); `offeredIn`
    was blind to single quotes; my own drive sampled `.lg-question-card` for a signal it can't carry.
-6. **Never `git add -A`** (a Maps key leaked to a public repo that way). Stage explicit paths.
-7. Implementers: no `git` at all, never start/stop servers, exclusive file ownership, ≤2–3 concurrent,
+6. **`presets.ts` is NOT in the runtime bundle** — I told slices it was, repeatedly, and it is false.
+   `RUNTIME_ENTRY = runtime/engine.ts` (`scripts/build-leadgen-runtime.ts:39`); no `runtime/*.ts` imports
+   `components/presets`; a 5-site edit rebuilt byte-identical. The byte gate ran clean without covering it.
+   `presets.ts` is the server-side SSR renderer. The cap DOES bind `runtime/engine.ts` and `runtime/render.ts`.
+7. **Never `git add -A`** (a Maps key leaked to a public repo that way). Stage explicit paths.
+8. Implementers: no `git` at all, never start/stop servers, exclusive file ownership, ≤2–3 concurrent,
    report ≤40 lines. Island hazards: ES5 only, no backticks in emitted bodies/comments, no hex in island
    comments, several separate IIFEs, VM-manifest stubs for new island helpers.
-8. **Only a review SHIP earns PASS** in the register. Write `DEVIATES(...)` until then.
+9. **Only a review SHIP earns PASS** in the register. Write `DEVIATES(...)` until then.
 
 ## Register
 `docs/leadgen/r2/P8-REGISTER.md` — **86 rows / 0 violations**, validate after EVERY edit. 42 ADJ rows.

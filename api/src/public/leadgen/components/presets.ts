@@ -1050,7 +1050,12 @@ function renderRange(
     `<input class="lg-range-input" type="range" role="slider" data-lg-input` +
     ` min="${min}" max="${max}" step="${step}" value="${value}"` +
     ` aria-valuemin="${min}" aria-valuemax="${max}" aria-valuenow="${value}"` +
-    attr("aria-label", propStr(node, "ariaLabel") ?? node.internal_field) +
+    // N16: the raw internal_field id is a screen-reader-only fallback of
+    // last resort. The visible per-field caption (props.label, the SAME
+    // source labelLine paints as `.lg-label`) is what a sighted visitor
+    // reads — a screen-reader visitor gets that BEFORE the stored id, so an
+    // unauthored ariaLabel no longer surfaces raw jargon like "ks_nm".
+    attr("aria-label", propStr(node, "ariaLabel") ?? propStr(node, "label") ?? node.internal_field) +
     attr("data-internal-field", node.internal_field) +
     `>` +
     `</div>` +
@@ -1135,7 +1140,12 @@ function renderStepperRange(
     `<input class="lg-range-input" type="range" role="slider" data-lg-input` +
     ` min="${min}" max="${max}" step="${step}" value="${value}"` +
     ` aria-valuemin="${min}" aria-valuemax="${max}" aria-valuenow="${value}"` +
-    attr("aria-label", propStr(node, "ariaLabel") ?? node.internal_field) +
+    // N16: the raw internal_field id is a screen-reader-only fallback of
+    // last resort. The visible per-field caption (props.label, the SAME
+    // source labelLine paints as `.lg-label`) is what a sighted visitor
+    // reads — a screen-reader visitor gets that BEFORE the stored id, so an
+    // unauthored ariaLabel no longer surfaces raw jargon like "ks_nm".
+    attr("aria-label", propStr(node, "ariaLabel") ?? propStr(node, "label") ?? node.internal_field) +
     attr("data-internal-field", node.internal_field) +
     `>` +
     `</div>` +
@@ -1261,7 +1271,12 @@ function renderRadialRange(
     `<input class="lg-range-input lg-range-radial-input" type="range" role="slider" data-lg-input` +
     ` min="${min}" max="${max}" step="${step}" value="${value}"` +
     ` aria-valuemin="${min}" aria-valuemax="${max}" aria-valuenow="${value}"` +
-    attr("aria-label", propStr(node, "ariaLabel") ?? node.internal_field) +
+    // N16: the raw internal_field id is a screen-reader-only fallback of
+    // last resort. The visible per-field caption (props.label, the SAME
+    // source labelLine paints as `.lg-label`) is what a sighted visitor
+    // reads — a screen-reader visitor gets that BEFORE the stored id, so an
+    // unauthored ariaLabel no longer surfaces raw jargon like "ks_nm".
+    attr("aria-label", propStr(node, "ariaLabel") ?? propStr(node, "label") ?? node.internal_field) +
     attr("data-internal-field", node.internal_field) +
     `>` +
     slot +
@@ -2826,7 +2841,11 @@ export function renderNumberInputQuestion(
       attr("data-min", propNum(node, "min")) +
       attr("data-max", propNum(node, "max")) +
       attr("data-step", propNum(node, "step")) +
-      attr("aria-label", propStr(node, "ariaLabel") ?? node.internal_field),
+      // N16: fall back to the visible props.label (labelLine's own source,
+      // rendered above this input by renderTextInput) before the raw
+      // internal_field id, so an unauthored ariaLabel still reaches a
+      // screen reader as the same caption a sighted visitor reads.
+      attr("aria-label", propStr(node, "ariaLabel") ?? propStr(node, "label") ?? node.internal_field),
     ctx,
     slot,
   );
@@ -2862,7 +2881,12 @@ export function renderCurrencyInputQuestion(
     attr("data-min", propNum(node, "min")) +
     attr("data-max", propNum(node, "max")) +
     attr("data-currency", currency) +
-    attr("aria-label", propStr(node, "ariaLabel") ?? node.internal_field) +
+    // N16: the raw internal_field id is a screen-reader-only fallback of
+    // last resort. The visible per-field caption (props.label, the SAME
+    // source labelLine paints as `.lg-label`) is what a sighted visitor
+    // reads — a screen-reader visitor gets that BEFORE the stored id, so an
+    // unauthored ariaLabel no longer surfaces raw jargon like "ks_nm".
+    attr("aria-label", propStr(node, "ariaLabel") ?? propStr(node, "label") ?? node.internal_field) +
     (node.required === true ? " required" : "") +
     `>` +
     // CONDUCTOR FIX (P4b regression): the auto error slot nests as the LAST
