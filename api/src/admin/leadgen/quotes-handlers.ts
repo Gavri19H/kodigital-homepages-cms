@@ -904,7 +904,7 @@ async function buildRoutingRuleFields(
     else if (parsed === null) targetOfferId = null;
     else {
       const ex = await db.prepare("SELECT id FROM leadgen_offers WHERE id = ? LIMIT 1").bind(parsed).first<{ id: number }>();
-      if (!ex) errors["target_offer_id"] = `offer ${parsed} does not exist`;
+      if (!ex) errors["target_offer_id"] = describeMissingReference("Offer");
       else targetOfferId = parsed;
     }
   }
@@ -1611,7 +1611,7 @@ export async function patchQuoteHandler(c: AdminContext): Promise<Response> {
       const ex = await c.env.DB.prepare("SELECT id FROM leadgen_frame_templates WHERE id = ? LIMIT 1")
         .bind(parsed)
         .first<{ id: number }>();
-      if (!ex) errors["default_template_id"] = `frame template ${parsed} does not exist`;
+      if (!ex) errors["default_template_id"] = describeMissingReference("Template");
       else { defaultTemplateAction = { kind: "set", frameTemplateId: parsed }; touched = true; }
     }
   }
@@ -2326,6 +2326,17 @@ export async function setQuoteDefaultFunnelHandler(c: AdminContext): Promise<Res
 const A4_SECTION_DUP = (section: string): string =>
   `'${section}' is already in this funnel — a section can appear once per funnel.`;
 
+// M5 remediation (P8-5 FIX-FIRST round 2, H2b): the 3 nameOf() fallbacks below
+// (sharedPageUniquenessErrors, variantSaveUniquenessErrors, and the activation
+// preflight's own copy of this same check) used to paper over a name-lookup
+// miss with the raw numeric DB row id, substituted straight into
+// A4_SECTION_DUP's quotes as if it were a name ("'section 42' is already in
+// this funnel..."). That is WORSE than a ULID: a bare number in that slot
+// reads as a quantity, not an id. The case is an orphaned reference (the row
+// this id once named no longer resolves — e.g. deleted between read and
+// check) — say that, not the number.
+const ORPHANED_SECTION_LABEL = "a section that no longer exists";
+
 // Pure core: given the shared page's section ids and ONE funnel-variant's
 // section ids, return one A-4 message per section id that appears more than
 // once in their UNION (an internal repeat, or a section shared+funnel both).
@@ -2647,7 +2658,7 @@ async function sharedPageUniquenessErrors(
     }
   }
   const nameMap = await sectionNameMap(db, [...involved]);
-  const nameOf = (id: number): string => nameMap.get(id) ?? `section ${id}`;
+  const nameOf = (id: number): string => nameMap.get(id) ?? ORPHANED_SECTION_LABEL;
   const seen = new Set<string>();
   // internal dup within the shared page itself
   for (const m of sectionUniquenessMessages(prospectiveSharedIds, [], nameOf)) {
@@ -2677,7 +2688,7 @@ async function variantSaveUniquenessErrors(
     const sharedIds = await sharedPageSectionIds(db, quote.id);
     const involved = new Set<number>([...sharedIds, ...prospectiveVariantIds]);
     const nameMap = await sectionNameMap(db, [...involved]);
-    const nameOf = (id: number): string => nameMap.get(id) ?? `section ${id}`;
+    const nameOf = (id: number): string => nameMap.get(id) ?? ORPHANED_SECTION_LABEL;
     const seen = new Set<string>();
     for (const m of sectionUniquenessMessages(sharedIds, prospectiveVariantIds, nameOf)) {
       if (!seen.has(m)) { seen.add(m); errors[`sections.${seen.size}`] = m; }
@@ -2817,6 +2828,62 @@ function describeVerticalMismatch(section: LeadgenSectionRow, allowedVerticals: 
   return `'${section.section_name}' is a ${section.vertical} section, but this quote's Verticals only include ${allowed} — pick a section in one of those verticals, or add ${section.vertical} to the quote's Verticals.`;
 }
 
+// M5 remediation (P8-5 FIX-FIRST round 2, MAJOR-1): the sibling activity-
+// mismatch check sits THREE LINES above each describeVerticalMismatch call
+// site and runs FIRST, short-circuiting it — so for a section whose activity
+// (not just vertical) doesn't match the quote, the operator was still getting
+// the raw-ULID/bare-key message ("section lgs_01... activity 'x' does not
+// match the quote activity 'y'") the vertical fix never reached. Same
+// register as describeVerticalMismatch (contract R5: reuse, invent no new
+// copy) — name the section by section_name, keep "Activity" because that is
+// the exact word the sections list column ("Activity / Vertical"), the
+// section editor (renderActivityVerticalPickers's "Activity" label), and the
+// quote-settings/new-quote form ("Activity *") already use, and name the
+// action: pick a section under the quote's Activity, or change the quote's
+// Activity to match. Both call sites below share this ONE function so the
+// message can never drift between them.
+function describeActivityMismatch(section: LeadgenSectionRow, quoteActivity: string): string {
+  return `'${section.section_name}' is a ${section.activity} section, but this quote's Activity is ${quoteActivity} — pick a section under ${quoteActivity}, or change the quote's Activity to ${section.activity}.`;
+}
+
+// M5 remediation (P8-5 FIX-FIRST round 2, H2b): the inactive-section check
+// sits 4 lines above describeActivityMismatch/describeVerticalMismatch and
+// shared their exact old defect — a raw public_id with no action. "active"/
+// "archived" is already the operator's own word (ui.ts's statusBadge renders
+// section.status verbatim as the Sections list's status pill), so only the
+// id needs replacing (section_name) and an action needs naming: reactivate
+// it — the EXACT verb ui-sections.ts's kebab-menu button and confirm dialog
+// ("Reactivate this Section?") use — or pick a different active section.
+function describeInactiveSection(section: LeadgenSectionRow): string {
+  return `'${section.section_name}' is ${section.status} — only active sections can be ordered; reactivate it from the Sections list, or pick a different active section.`;
+}
+
+// M5 remediation (P8-5 FIX-FIRST round 2, H2b): "unknown section ${ref}"
+// belongs to the same class (no action named) even though — unlike the
+// public_id/numeric-id leaks above — echoing `ref` here is defensible: it is
+// exactly what the caller submitted, and there is no section row left to
+// name. Keep the echo, add the action.
+function describeUnknownSectionRef(ref: string): string {
+  return `no section matches '${ref}' — check the Sections list and pick an existing section.`;
+}
+
+// M5 remediation (P8-5 FIX-FIRST round 2, H2b): every "<label> ${id} does not
+// exist" FK-existence check in this file (Offer/Auction/Template targets)
+// shares the SAME shape as the section-order checks above — a raw internal
+// database row id with no action. None of these ids are ever typed by the
+// operator: Offer (ui-rules-builder.ts's "Redirect to offer" field / "Offer"
+// segment label), Auction (quotes-tabs/funnel.ts's `for="lg-auction-id">
+// Auction<`), and Template (quotes-tabs/templates.ts's Template pickers, the
+// Templates tab) are all NAME dropdowns — the id is only the selected
+// option's value attribute. Once the referenced row is gone there is no name
+// left to show, so say that plainly and name the action (the list is stale —
+// refresh and pick again) instead of echoing the number. (target_section_id
+// is NOT part of this register — see the two sites below that keep its old
+// text, with the dead-path evidence.)
+function describeMissingReference(label: string): string {
+  return `the selected ${label} no longer exists — refresh the page and pick another ${label}.`;
+}
+
 async function resolveSectionOrder(
   db: D1Database,
   quote: LeadgenQuoteRow,
@@ -2842,15 +2909,15 @@ async function resolveSectionOrder(
     }
     const section = await resolveRowSection(db, String(ref));
     if (section === null) {
-      errors[`sections.${i}`] = `unknown section ${String(ref)}`;
+      errors[`sections.${i}`] = describeUnknownSectionRef(String(ref));
       continue;
     }
     if (section.status !== "active") {
-      errors[`sections.${i}`] = `section ${section.public_id} is ${section.status} — only active sections can be ordered`;
+      errors[`sections.${i}`] = describeInactiveSection(section);
       continue;
     }
     if (section.activity !== quote.activity) {
-      errors[`sections.${i}`] = `section ${section.public_id} activity '${section.activity}' does not match the quote activity '${quote.activity}'`;
+      errors[`sections.${i}`] = describeActivityMismatch(section, quote.activity);
       continue;
     }
     if (quoteVerticals.size > 0 && !quoteVerticals.has(section.vertical)) {
@@ -3152,15 +3219,15 @@ async function preparePages(
     }
     const section = await resolveRowSection(db, String(ref));
     if (section === null) {
-      errors[path] = `unknown section ${String(ref)}`;
+      errors[path] = describeUnknownSectionRef(String(ref));
       return null;
     }
     if (section.status !== "active") {
-      errors[path] = `section ${section.public_id} is ${section.status} — only active sections can be ordered`;
+      errors[path] = describeInactiveSection(section);
       return null;
     }
     if (section.activity !== quote.activity) {
-      errors[path] = `section ${section.public_id} activity '${section.activity}' does not match the quote activity '${quote.activity}'`;
+      errors[path] = describeActivityMismatch(section, quote.activity);
       return null;
     }
     if (quoteVerticals.size > 0 && !quoteVerticals.has(section.vertical)) {
@@ -3531,7 +3598,7 @@ export async function putVariantHandler(c: AdminContext): Promise<Response> {
       // §15 "optional FK picker" — the auction is created in P9; here we only
       // verify the referenced leadgen_auctions row exists.
       const exists = await c.env.DB.prepare("SELECT id FROM leadgen_auctions WHERE id = ? LIMIT 1").bind(parsed).first<{ id: number }>();
-      if (!exists) errors["auction_id"] = `auction ${parsed} does not exist`;
+      if (!exists) errors["auction_id"] = describeMissingReference("Auction");
       else auctionId = parsed;
     }
   }
@@ -3552,7 +3619,7 @@ export async function putVariantHandler(c: AdminContext): Promise<Response> {
     else if (parsed === null) frameTemplateId = null;
     else {
       const ex = await c.env.DB.prepare("SELECT id FROM leadgen_frame_templates WHERE id = ? LIMIT 1").bind(parsed).first<{ id: number }>();
-      if (!ex) errors["frame_template_id"] = `frame template ${parsed} does not exist`;
+      if (!ex) errors["frame_template_id"] = describeMissingReference("Template");
       else frameTemplateId = parsed;
     }
   }
@@ -3633,7 +3700,14 @@ export async function putVariantHandler(c: AdminContext): Promise<Response> {
             path: "frame_overrides.theme_id",
             scope: "theme",
             severity: "error",
-            message: `Theme '${themeIdPart}' does not exist.`,
+            // H2b: same register as describeMissingReference's other 7 call
+            // sites — themeIdPart is a raw system id (thm_…, per
+            // quotes-tabs/theme-preset-resolve.ts's own {"theme_id":"thm_..."}
+            // shape), never typed by the operator (a Theme picker's value
+            // attribute), and this Problem[] reaches the operator the SAME
+            // way auction_id/frame_template_id do (saveFailureText's
+            // `res.body.problems` branch).
+            message: describeMissingReference("Theme"),
           });
         }
       }
@@ -3706,8 +3780,15 @@ export async function putVariantHandler(c: AdminContext): Promise<Response> {
       const sectionIds = Array.from(new Set(preparedRules.map((r) => r.targetSectionId).filter((v): v is number => v !== null)));
       for (const oid of offerIds) {
         const ex = await c.env.DB.prepare("SELECT id FROM leadgen_offers WHERE id = ? LIMIT 1").bind(oid).first<{ id: number }>();
-        if (!ex) errors[`rules.target_offer_id.${oid}`] = `offer ${oid} does not exist`;
+        if (!ex) errors[`rules.target_offer_id.${oid}`] = describeMissingReference("Offer");
       }
+      // target_section_id is NOT part of the describeMissingReference register
+      // (H2b): the 3 removed rule types (route_funnel_variant/skip_section/
+      // show_section) were the only ones that ever set it, and grep across
+      // every client that builds a rule payload (ui-rules-builder.ts,
+      // ui-quotes.ts, quotes-tabs/funnel.ts) is 0 hits for target_section_id —
+      // no live UI control can submit a non-null value, so this branch cannot
+      // fire through the admin UI today. Left as-is (no string nobody reads).
       for (const sid of sectionIds) {
         const ex = await c.env.DB.prepare("SELECT id FROM leadgen_sections WHERE id = ? LIMIT 1").bind(sid).first<{ id: number }>();
         if (!ex) errors[`rules.target_section_id.${sid}`] = `section ${sid} does not exist`;
@@ -4216,8 +4297,10 @@ async function ruleTargetFkErrors(db: D1Database, rule: PreparedRule): Promise<F
   const errors: FieldErrors = {};
   if (rule.targetOfferId !== null) {
     const ex = await db.prepare("SELECT id FROM leadgen_offers WHERE id = ? LIMIT 1").bind(rule.targetOfferId).first<{ id: number }>();
-    if (!ex) errors["target_offer_id"] = `offer ${rule.targetOfferId} does not exist`;
+    if (!ex) errors["target_offer_id"] = describeMissingReference("Offer");
   }
+  // target_section_id: same H2b non-register decision as prepareRules' own
+  // FK-existence loop above — 0 live UI producer (grep evidence there).
   if (rule.targetSectionId !== null) {
     const ex = await db.prepare("SELECT id FROM leadgen_sections WHERE id = ? LIMIT 1").bind(rule.targetSectionId).first<{ id: number }>();
     if (!ex) errors["target_section_id"] = `section ${rule.targetSectionId} does not exist`;
@@ -5826,7 +5909,12 @@ async function computeVariantPreflightBlocks(
         offer_id: "",
         offer_name: "",
         code: "auction_config_invalid",
-        fields: [`auction_id ${variant.auction_id} does not exist`],
+        // H2b: this block's `fields` array renders as literal, joined text on
+        // the Activation tab's preflight card (quotes-tabs/activation.ts's
+        // renderPreflightBlockCard: `parts.push(...fields.join(", "))`) — a
+        // 9th operator-visible site the named list of 7 didn't include, found
+        // sweeping this same function for the class. Same register.
+        fields: [describeMissingReference("Auction")],
         fix_links: {},
       });
     } else {
@@ -5979,7 +6067,7 @@ async function computeReworkActivationProblems(db: D1Database, quote: LeadgenQuo
 
     // §4.3-13 uniqueness holds (shared ∪ each active funnel-variant plan).
     const nameMap = await sectionNameMap(db, [...involved]);
-    const nameOf = (id: number): string => nameMap.get(id) ?? `section ${id}`;
+    const nameOf = (id: number): string => nameMap.get(id) ?? ORPHANED_SECTION_LABEL;
     const seen = new Set<string>();
     const scopes = perVariant.length > 0 ? perVariant : [[]];
     for (const ids of scopes) {

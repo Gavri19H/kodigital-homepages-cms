@@ -243,6 +243,21 @@ function seedSectionInVertical(sdb: SqliteDb, name: string, vertical: string): {
   return { id: row.id, public_id: publicId };
 }
 
+// M5 remediation (P8-5 FIX-FIRST round 2, MAJOR-1) regression fixture: the
+// SAME shape as seedSectionInVertical, but varying ACTIVITY instead (vertical
+// stays 'life', matching newQuote's allowed vertical) — isolates the
+// activity-mismatch path from the vertical one so the fixture cannot trip
+// BOTH checks at once.
+function seedSectionInActivity(sdb: SqliteDb, name: string, activity: string): { id: number; public_id: string } {
+  const publicId = mintPublicId("section");
+  const content = JSON.stringify({ components: [{ type: "TwoButtonYesNo", question_id: "q1", question_key: "k", internal_field: "f", answer_type: "boolean" }] });
+  sdb.prepare(
+    "INSERT INTO leadgen_sections (public_id, section_name, activity, vertical, headline_text, content_json, continue_mode, status) VALUES (?, ?, ?, 'life', 'H', ?, 'button', 'active')",
+  ).run(publicId, name, activity, content);
+  const row = sdb.prepare("SELECT id FROM leadgen_sections WHERE public_id = ?").get(publicId) as { id: number };
+  return { id: row.id, public_id: publicId };
+}
+
 function seedOffer(sdb: SqliteDb): { id: number; public_id: string } {
   const publicId = mintPublicId("offer");
   sdb.prepare(
@@ -567,6 +582,106 @@ d("leadgen rework handlers (S1.4)", () => {
     expect(pagesMsg).not.toMatch(sectionUlidShape);
     expect(pagesMsg).toContain("life");
     expect(pagesMsg).toMatch(/pick|add/i);
+  });
+
+  // --- M-2b (P8-5 FIX-FIRST round 2, MAJOR-1): the sibling activity-mismatch
+  // message — three lines above each describeVerticalMismatch call site and
+  // evaluated FIRST — must carry the SAME operator-facing shape (name, no raw
+  // ULID, an action) or it short-circuits the M-2 fix above before an
+  // operator ever sees it. Covers BOTH call sites that share
+  // describeActivityMismatch (resolveSectionOrder's `sections` path AND
+  // preparePages's `pages` path).
+  it("M-2b: a section outside the quote's activity reports the operator name + both activities + an action, never a raw section ULID (both `sections` and `pages` save paths)", async () => {
+    const h = harness();
+    const q = await newQuote(h); // activity: "quote_funnel"
+    const off = seedSectionInActivity(h.sdb, "Roof Quote Header", "roof_quote");
+    const sectionUlidShape = /lgs_[0-9A-Z]{26}/;
+
+    // --- `sections` path (resolveSectionOrder) ---
+    const viaSections = await req(h, "PUT", `/variants/${q.variantPublic}`, {
+      sections: [{ section_id: off.id, position: 0 }],
+    });
+    expect(viaSections.status, JSON.stringify(viaSections.json)).toBe(400);
+    const sectionsMsg = viaSections.json.fields["sections.0"] as string;
+    expect(sectionsMsg).toBeDefined();
+    expect(sectionsMsg).toContain("Roof Quote Header"); // the operator-given name
+    expect(sectionsMsg).not.toMatch(sectionUlidShape); // no raw ULID shape anywhere
+    expect(sectionsMsg).toContain("roof_quote"); // the section's activity, named
+    expect(sectionsMsg).toContain("quote_funnel"); // the quote's activity, named
+    expect(sectionsMsg).toMatch(/pick|change/i); // an action, not just a diagnosis
+
+    // --- `pages`/`slots` path (preparePages's resolveRef) — must be the SAME msg
+    const viaPages = await req(h, "PUT", `/variants/${q.variantPublic}`, {
+      pages: [{ name: null, slots: [{ kind: "fixed", section_id: off.public_id }] }],
+    });
+    expect(viaPages.status, JSON.stringify(viaPages.json)).toBe(400);
+    const pagesMsg = viaPages.json.fields["pages.0.slots.0.section_id"] as string;
+    expect(pagesMsg).toBeDefined();
+    expect(pagesMsg).toBe(sectionsMsg); // byte-identical: one shared function, not two that can drift
+    expect(pagesMsg).toContain("Roof Quote Header");
+    expect(pagesMsg).not.toMatch(sectionUlidShape);
+    expect(pagesMsg).toContain("roof_quote");
+    expect(pagesMsg).toContain("quote_funnel");
+    expect(pagesMsg).toMatch(/pick|change/i);
+  });
+
+  // --- H2b (P8-5 FIX-FIRST round 2): the sweep the coordinator asked to be
+  // FIXED, not just reported — the inactive-section check (describeInactiveSection)
+  // sits 4 lines from the M-2/M-2b checks above and shared their exact old
+  // defect (raw public_id, no action). Pins the SHAPE (no ULID anywhere), not
+  // just this fixture's instance, matching M-2's own convention.
+  it("H2b: an archived section reports the operator name + status + an action, never a raw section ULID (both `sections` and `pages` save paths)", async () => {
+    const h = harness();
+    const q = await newQuote(h);
+    const archived = seedSection(h.sdb, "Retired Header");
+    h.sdb.prepare("UPDATE leadgen_sections SET status = 'archived' WHERE public_id = ?").run(archived.public_id);
+    const sectionUlidShape = /lgs_[0-9A-Z]{26}/;
+
+    const viaSections = await req(h, "PUT", `/variants/${q.variantPublic}`, {
+      sections: [{ section_id: archived.id, position: 0 }],
+    });
+    expect(viaSections.status, JSON.stringify(viaSections.json)).toBe(400);
+    const sectionsMsg = viaSections.json.fields["sections.0"] as string;
+    expect(sectionsMsg).toBeDefined();
+    expect(sectionsMsg).toContain("Retired Header"); // the operator-given name
+    expect(sectionsMsg).not.toMatch(sectionUlidShape); // no raw ULID shape anywhere
+    expect(sectionsMsg).toContain("archived"); // the status, in the operator's own word
+    expect(sectionsMsg).toMatch(/reactivate|pick/i); // an action, not just a diagnosis
+
+    const viaPages = await req(h, "PUT", `/variants/${q.variantPublic}`, {
+      pages: [{ name: null, slots: [{ kind: "fixed", section_id: archived.public_id }] }],
+    });
+    expect(viaPages.status, JSON.stringify(viaPages.json)).toBe(400);
+    const pagesMsg = viaPages.json.fields["pages.0.slots.0.section_id"] as string;
+    expect(pagesMsg).toBeDefined();
+    expect(pagesMsg).toBe(sectionsMsg); // byte-identical: one shared function
+    expect(pagesMsg).toContain("Retired Header");
+    expect(pagesMsg).not.toMatch(sectionUlidShape);
+    expect(pagesMsg).toContain("archived");
+    expect(pagesMsg).toMatch(/reactivate|pick/i);
+  });
+
+  // --- H2b (P8-5 FIX-FIRST round 2): the "<label> ${id} does not exist"
+  // FK-existence family (describeMissingReference) — pinned through the
+  // simplest reachable site, a variant rule whose target_offer_id references
+  // a row that was never created. Asserts the NUMERIC-ID SHAPE is absent (no
+  // digit at all), not just that this fixture's specific id is missing —
+  // matching the coordinator's "shape, not the instance" standard.
+  it("H2b: a routing rule targeting a nonexistent Offer id reports an action, never the raw numeric id", async () => {
+    const h = harness();
+    const q = await newQuote(h);
+    const missingOfferId = 999999;
+    const res = await req(h, "POST", `/variants/${q.variantPublic}/rules`, {
+      rule_type: "redirect_direct_offer",
+      target_offer_id: missingOfferId,
+      conditions_json: { groups: [] },
+    });
+    expect(res.status, JSON.stringify(res.json)).toBe(400);
+    const msg = res.json.fields.target_offer_id as string;
+    expect(msg).toBeDefined();
+    expect(msg).not.toMatch(/\d/); // the numeric-id SHAPE is absent — no digit anywhere
+    expect(msg).toContain("Offer"); // the operator's own word for the target kind
+    expect(msg).toMatch(/refresh|pick/i); // an action, not just a diagnosis
   });
 
   // --- §4.3-15 activation preflight matrix -----------------------------------
