@@ -30,9 +30,12 @@
 //   error      → runtime/render.ts setFieldError: the [data-lg-field] block
 //                gains ERROR_CLASS ("lg-error"), its [data-lg-input] gains
 //                aria-invalid="true", and the [data-lg-error-for] slot shows
-//                the message. When the author placed no ValidationError slot,
-//                a slot in renderValidationError's exact shape is injected
-//                after the question block so the message is VISIBLE.
+//                the message — SHOWN, i.e. the `hidden` attribute presets.ts
+//                autoErrorSlot renders it with is REMOVED (render.ts:243
+//                toggleHidden), which upsertErrorMessage below now mirrors.
+//                When the author placed no ValidationError slot, a slot in
+//                renderValidationError's exact shape is injected after the
+//                question block so the message is VISIBLE.
 //   validation_success → the `.lg-valid` chrome convention (designs/
 //                default-funnel/styles.ts colors it validation.successColor).
 //   Message copy mirrors runtime/validation.ts verbatim.
@@ -206,6 +209,18 @@ function setTagAttr(tag: string, name: string, value: string): string {
   return `${tag.slice(0, tag.length - 1)} ${name}="${value}">`;
 }
 
+// Drop a BOOLEAN attribute (fixed literal, never author data) from ONE
+// opening-tag string. Quoted attribute VALUES are masked out first so a
+// `name` token sitting inside an author value (a placeholder, a style, an
+// internal_field) can never be mistaken for the attribute itself — the same
+// "every attribute is double-quoted" property the header relies on.
+function dropBooleanTagAttr(tag: string, name: string): string {
+  const masked = tag.replace(/"[^"]*"/g, (q) => " ".repeat(q.length));
+  const hit = masked.match(new RegExp(`\\s${name}(?=[\\s>/])`));
+  if (hit === null || hit.index === undefined) return tag;
+  return tag.slice(0, hit.index) + tag.slice(hit.index + hit[0].length);
+}
+
 // ---------------------------------------------------------------------------
 // per-question slice transforms
 // ---------------------------------------------------------------------------
@@ -269,9 +284,72 @@ function markValidInSlice(slice: string): string {
   return addClassToTag(slice.slice(0, rootEnd + 1), "lg-valid") + slice.slice(rootEnd + 1);
 }
 
+// ---------------------------------------------------------------------------
+// authored-address per-subfield rule — runtime/validation.ts mirror (read-only)
+// ---------------------------------------------------------------------------
+
+// validation.ts addressFieldKey: the answer key ONE authored address field spec
+// records under — props.maps.fills.<kind> override, else `{base}_{kind}`, and a
+// `full_address` spec records under the base itself. Base = internal_field ??
+// question_id (validation.ts addressBase; presets.ts renderAddressFieldSet uses
+// the same ladder for the data-lg-field it stamps on each subfield wrapper).
+function addressFieldKey(node: LeadgenComponentNode, kind: string): string {
+  const own = typeof node.internal_field === "string" ? node.internal_field.trim() : "";
+  const base = own !== "" ? own : node.question_id;
+  if (kind === "full_address") return base;
+  const maps = (node.props ?? {})["maps"];
+  const fills = isRecord(maps) ? maps["fills"] : undefined;
+  const override = isRecord(fills) ? fills[kind] : undefined;
+  return typeof override === "string" && override.trim() !== "" ? override.trim() : `${base}_${kind}`;
+}
+
 // Message copy — runtime/validation.ts verbatim (parity, never invented copy).
 export const PREVIEW_REQUIRED_MESSAGE = "This field is required.";
 export const PREVIEW_INVALID_MESSAGE = "The value has an invalid format.";
+
+// validation.ts validateAddressField's FORMAT leg, read-only mirror: the
+// message a present-but-bad value produces for ONE authored spec, or null when
+// the spec carries no format rule at all (a rule-less spec can only ever fail
+// `required` — the sim "error" path — so live can never show it a format
+// failure, and neither may the canvas).
+//   validation:"zip5"                → the zip5 copy, verbatim
+//   validation:{regex,message}       → the AUTHOR'S message, else the generic
+// (validateAddressField's third branch, "Enter at most 200 characters.", is
+// keyed to the VALUE's length; a sim has no value, so the representative
+// failure for a rule is its pattern failure.)
+function addressFormatMessage(spec: Record<string, unknown>): string | null {
+  const validation = spec["validation"];
+  if (validation === "zip5") return "Enter a valid 5-digit ZIP code.";
+  if (!isRecord(validation)) return null;
+  const regex = validation["regex"];
+  if (typeof regex !== "string" || regex === "") return null;
+  const message = validation["message"];
+  return typeof message === "string" && message !== "" ? message : PREVIEW_INVALID_MESSAGE;
+}
+
+// The authored per-field specs of an AddressAutocompleteQuestion, or null when
+// the node is not one / authored none. The `Array.isArray(props.fields)` gate is
+// verbatim the runtime's own (validation.ts:462) — it is what decides whether
+// the visitor gets PER-SUBFIELD failures or the whole-group one.
+function addressFieldSpecs(
+  node: LeadgenComponentNode,
+): Array<{ key: string; required: boolean; formatMessage: string | null }> | null {
+  if (node.type !== "AddressAutocompleteQuestion") return null;
+  const specs = (node.props ?? {})["fields"];
+  if (!Array.isArray(specs)) return null;
+  const out: Array<{ key: string; required: boolean; formatMessage: string | null }> = [];
+  for (const spec of specs) {
+    if (!isRecord(spec)) continue;
+    const kind = spec["field"];
+    if (typeof kind !== "string") continue;
+    out.push({
+      key: addressFieldKey(node, kind),
+      required: spec["required"] === true,
+      formatMessage: addressFormatMessage(spec),
+    });
+  }
+  return out;
+}
 
 // Fill the field's authored [data-lg-error-for] slot (setFieldError textContent
 // leg) or, when the author placed none, inject a slot in renderValidationError's
@@ -289,7 +367,16 @@ function upsertErrorMessage(
     const openEnd = html.indexOf(">", slot.start) + 1;
     const closeStart = html.lastIndexOf("<", slot.end - 1);
     if (openEnd > 0 && closeStart >= openEnd) {
-      return html.slice(0, openEnd) + escapeHtml(message) + html.slice(closeStart);
+      // R2 P8-5 M-4 (ADJ-P8-22): presets.ts autoErrorSlot renders the slot
+      // `hidden` and EMPTY; setFieldError's second leg (render.ts:243
+      // `toggleHidden(slot, message !== null)`) removes that attribute when it
+      // fills the text. This mirror only ever filled the text, so — driven on
+      // the real preview route — the canvas returned the message inside a
+      // still-`hidden` <p> while the live page's own <p> had no `hidden` at
+      // all: the operator was shown an error state with no error sentence.
+      // Dropping the attribute is the exact mirror of removeAttribute.
+      const open = dropBooleanTagAttr(html.slice(slot.start, openEnd), "hidden");
+      return html.slice(0, slot.start) + open + escapeHtml(message) + html.slice(closeStart);
     }
   }
   const injected =
@@ -380,6 +467,24 @@ export function applyPreviewSimMarkup(
   //    `required` + isAnswered legs) get the full setFieldError markup.
   if (opts.state === "error") {
     for (const leaf of leaves) {
+      // R2 P8-5 G3b-3: an AUTHORED address (props.fields[]) validates PER
+      // SUBFIELD live — validation.ts:460-472 loops the specs, keys each
+      // failure to addressFieldKey(spec.field) and `continue`s past the
+      // group. Driven on the live funnel page with an empty required-ZIP
+      // address, the visitor got ONE marked input and the message in the
+      // [data-lg-error-for="{base}_zip"] slot; this mirror was marking the
+      // GROUP instead — all 4 inputs aria-invalid, `lg-error` on the fieldset,
+      // the message in the group slot, and the ZIP slot the visitor actually
+      // reads left empty and hidden. The canvas was showing an error state the
+      // live page cannot produce, and hiding the one it does.
+      const specs = addressFieldSpecs(leaf.node);
+      if (specs !== null) {
+        for (const spec of specs) {
+          if (!spec.required || isAnsweredValue(opts.answers[spec.key])) continue;
+          out = applyErrorToField(out, spec.key, PREVIEW_REQUIRED_MESSAGE, design);
+        }
+        continue;
+      }
       if (leaf.field === "") continue;
       const requiredNow = opts.requiredNow?.get(leaf.questionId) ?? leaf.node.required === true;
       if (!requiredNow || isAnsweredValue(opts.answers[leaf.field])) continue;
@@ -401,12 +506,53 @@ export function applyPreviewSimMarkup(
           markValidInSlice(out.slice(span.start, span.end)) +
           out.slice(span.end);
       } else {
+        // R2 P8-5 G3c: the validation_error twin of the G3b-3 required fix,
+        // and MEASURED the same way (scripts/p8 drive-g3-canvas-live-error.mjs,
+        // scenario address_validation — 5 of 7 parity rows disagreed before
+        // this). An AUTHORED address (props.fields[]) format-fails PER SUBFIELD
+        // live: validation.ts validateAddressField runs each spec's OWN rule
+        // and keys the failure to addressFieldKey(spec.field), so the visitor
+        // who typed "123" into the ZIP got the ZIP wrapper marked (1 of 4
+        // inputs, lg-error on [data-lg-field="{base}_zip"]) and read the ZIP
+        // spec's OWN authored sentence in the {base}_zip slot. This mirror was
+        // instead lighting the whole GROUP — 4 of 4 inputs, lg-error on the
+        // fieldset, and the generic "The value has an invalid format." in the
+        // group slot that live leaves `hidden` and empty.
+        const specs = addressFieldSpecs(leaf.node);
+        if (specs !== null) {
+          for (const spec of specs) {
+            // No format rule ⇒ live has no format failure to show for this
+            // subfield (its only failure mode is `required`). Nothing is drawn
+            // rather than a state the visitor can never reach.
+            if (spec.formatMessage === null) continue;
+            out = applyErrorToField(out, spec.key, spec.formatMessage, design);
+          }
+          continue;
+        }
         out = applyErrorToLeaf(out, leaf, PREVIEW_INVALID_MESSAGE, design);
       }
     }
   }
 
   return out;
+}
+
+// One SUBFIELD's error treatment — setFieldError's exact two targets when the
+// runtime keys a failure to a sub-field: the [data-lg-field="{field}"] wrapper
+// (presets.ts renderAddressFieldSet stamps one per authored spec) and that
+// field's own message slot. Same body as applyErrorToLeaf, sliced by field
+// instead of by question.
+function applyErrorToField(
+  html: string,
+  field: string,
+  message: string,
+  design: DefaultFunnelDesign,
+): string {
+  const span = elementSpan(html, `data-lg-field="${escapeHtml(field)}"`);
+  if (span === null) return html;
+  const slice = markErrorInSlice(html.slice(span.start, span.end));
+  const next = html.slice(0, span.start) + slice + html.slice(span.end);
+  return upsertErrorMessage(next, field, message, span.start + slice.length, design);
 }
 
 // One leaf's full error treatment: slice markup + the visible message.

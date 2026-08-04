@@ -944,6 +944,34 @@ const STACK_DEP_CONTENT = {
   ],
 };
 
+// An AUTHORED address (props.fields[]) — the shape runtime/validation.ts
+// validateSection routes PER SUBFIELD (its `Array.isArray(props.fields)` gate),
+// with one subfield carrying a custom format rule and its own message. Drives
+// the G3c canvas-vs-live parity pin below.
+const ADDR_CONTENT = {
+  components: [
+    {
+      type: "AddressAutocompleteQuestion",
+      question_id: "q_addr",
+      internal_field: "addr",
+      required: true,
+      props: {
+        fields: [
+          { field: "street", mode: "autofill" },
+          { field: "city", mode: "autofill" },
+          { field: "state", mode: "autofill" },
+          {
+            field: "zip",
+            mode: "manual",
+            required: true,
+            validation: { regex: "^[0-9]{5}(-[0-9]{4})?$", message: "Enter a ZIP like 90210 or 90210-1234." },
+          },
+        ],
+      },
+    },
+  ],
+};
+
 interface ParamPreviewBody {
   preview: {
     css: string;
@@ -972,6 +1000,47 @@ function choiceTag(html: string, value: string): string {
   const m = html.match(new RegExp(`<(?:button|option)[^>]*data-lg-choice="${value}"[^>]*>`));
   expect(m, `choice tag for ${value} present`).not.toBeNull();
   return m![0];
+}
+
+// The [data-lg-error-for="{field}"] slot AS AN ELEMENT: its opening tag, the
+// text INSIDE it, and whether it is switched off.
+//
+// R2 P8-5 M-4 (ADJ-P8-22): presets.ts autoErrorSlot renders every slot
+// `hidden` and EMPTY, and the live page un-hides it (runtime/render.ts
+// setFieldError -> toggleHidden). So "the message appears somewhere in the
+// preview bytes" is compatible with the operator seeing nothing at all — a
+// document-wide `toContain(message)` cannot fail on a hidden slot. Reading the
+// slot element itself can.
+function errorSlot(html: string, field: string): { open: string; text: string; hidden: boolean } {
+  const m = html.match(new RegExp(`<p([^>]*)data-lg-error-for="${field}"([^>]*)>([^<]*)</p>`));
+  expect(m, `error slot for ${field} present`).not.toBeNull();
+  const open = `<p${m![1]}data-lg-error-for="${field}"${m![2]}>`;
+  return { open, text: m![3] as string, hidden: / hidden[ >]/.test(open) };
+}
+
+// The opening tag of the [data-lg-field="{field}"] block (the element the
+// runtime's setFieldError resolves and puts ERROR_CLASS on).
+function fieldBlockTag(html: string, field: string): string {
+  const m = html.match(new RegExp(`<[a-z]+[^>]*data-lg-field="${field}"[^>]*>`));
+  expect(m, `field block for ${field} present`).not.toBeNull();
+  return m![0];
+}
+
+// Every [data-lg-input] in the markup, tagged with the field of the nearest
+// PRECEDING [data-lg-field] — presets renderAddressFieldSet emits one flat
+// `<span data-lg-field="{key}"> label · input · slot </span>` per authored
+// spec, so nearest-preceding is exact. This is WHICH input is marked, which a
+// count alone (or a document-wide substring) cannot say.
+function inputsByField(html: string): Array<{ field: string; invalid: boolean }> {
+  const out: Array<{ field: string; invalid: boolean }> = [];
+  let field = "";
+  for (const m of html.matchAll(
+    /data-lg-field="([^"]*)"|<(?:input|select|textarea)\b[^>]*data-lg-input[^>]*>/g,
+  )) {
+    if (m[1] !== undefined) field = m[1];
+    else out.push({ field, invalid: /\baria-invalid="true"/.test(m[0]) });
+  }
+  return out;
 }
 
 describeDb("POST /sections/preview — §9.2 (E5) parameterization", () => {
@@ -1108,9 +1177,21 @@ describeDb("POST /sections/preview — §9.2 (E5) parameterization", () => {
     expect(input).not.toBeNull();
     expect(input![0]).toContain('aria-invalid="true"');
     expect(input![0]).toContain("lg-error");
-    // the message is VISIBLE in the markup (runtime/validation.ts copy, verbatim)
-    expect(body.preview.desktop).toContain('data-lg-error-for="insurer"');
-    expect(body.preview.desktop).toContain("This field is required.");
+    // The message is VISIBLE: it sits INSIDE the [data-lg-error-for] slot AND
+    // that slot is not switched off. (runtime/validation.ts copy, verbatim.)
+    //
+    // BEFORE this round these two lines read
+    //     expect(body.preview.desktop).toContain('data-lg-error-for="insurer"');
+    //     expect(body.preview.desktop).toContain("This field is required.");
+    // — a document-wide substring pair that a `hidden` slot satisfies. It was
+    // green while the endpoint really was returning
+    //     <p class="lg-error lg-error-auto" ... hidden ...>This field is
+    //     required.</p>
+    // (measured on the real route, P8-5 slice G3). The slot-level read below
+    // is what fails on that markup.
+    const slot = errorSlot(body.preview.desktop, "insurer");
+    expect(slot.text).toBe("This field is required.");
+    expect(slot.hidden, `the required message must not be hidden: ${slot.open}`).toBe(false);
     // the answered boolean question is NOT error-marked
     expect(body.preview.desktop).not.toMatch(/<div[^>]*data-lg-field="insured"[^>]*aria-invalid/);
   });
@@ -1138,9 +1219,78 @@ describeDb("POST /sections/preview — §9.2 (E5) parameterization", () => {
     expect(badInput).not.toBeNull();
     expect(badInput![0]).toContain('aria-invalid="true"');
     expect(badInput![0]).toContain("lg-error");
-    expect(bad.body.preview.desktop).toContain("The value has an invalid format.");
+    // Same slot-level read as the sim "error" case above, for the same reason.
+    // BEFORE this round the line was
+    //     expect(bad.body.preview.desktop).toContain("The value has an invalid format.");
+    // — a document-wide substring that a still-`hidden` slot satisfies.
+    const badSlot = errorSlot(bad.body.preview.desktop, "insurer");
+    expect(badSlot.text).toBe("The value has an invalid format.");
+    expect(badSlot.hidden, `the invalid-format message must not be hidden: ${badSlot.open}`).toBe(false);
     // the two states are visibly different markup
     expect(bad.body.preview.desktop).not.toBe(ok.body.preview.desktop);
+  });
+
+  it('sim "validation_error" on an AUTHORED address marks the RULED subfield with its own message, never the group', async () => {
+    const { env } = newHarness();
+    const { status, body } = await postPreview(env, {
+      content_json: JSON.stringify(ADDR_CONTENT),
+      sim: { state: "validation_error" },
+    });
+    expect(status).toBe(200);
+    expect(body.preview.sim_state).toBe("validation_error");
+    const html = body.preview.desktop;
+
+    // MEASURED on the real product (scripts/p8/drive-g3-canvas-live-error.mjs,
+    // scenario address_validation): a visitor who types "123" into this ZIP and
+    // hits Continue gets ONE marked input (the ZIP), `lg-error` on
+    // [data-lg-field="addr_zip"], the ZIP spec's OWN sentence in the addr_zip
+    // slot, and the GROUP slot left empty + `hidden`. Before the G3c fix the
+    // canvas painted the opposite on all four counts (4/4 inputs marked,
+    // lg-error on the fieldset, the generic message in the group slot) — 5 of
+    // the probe's 7 parity rows disagreed.
+    //
+    // Slot-level reads with the `hidden` check, NOT document-wide toContain:
+    // the group slot below still CONTAINS the empty string, and the pre-fix
+    // markup still contained the author's sentence nowhere a visitor reads.
+    const zipSlot = errorSlot(html, "addr_zip");
+    expect(zipSlot.text).toBe("Enter a ZIP like 90210 or 90210-1234.");
+    expect(zipSlot.hidden, `the ZIP rule's message must not be hidden: ${zipSlot.open}`).toBe(false);
+
+    const groupSlot = errorSlot(html, "addr");
+    expect(groupSlot.text).toBe("");
+    expect(groupSlot.hidden, `the group slot must stay switched off: ${groupSlot.open}`).toBe(true);
+
+    // WHICH input carries aria-invalid — exactly the ruled one.
+    expect(inputsByField(html)).toEqual([
+      { field: "addr_street", invalid: false },
+      { field: "addr_city", invalid: false },
+      { field: "addr_state", invalid: false },
+      { field: "addr_zip", invalid: true },
+    ]);
+    // ERROR_CLASS lands on the subfield wrapper, not the fieldset.
+    expect(fieldBlockTag(html, "addr_zip")).toContain("lg-error");
+    expect(fieldBlockTag(html, "addr")).not.toContain("lg-error");
+  });
+
+  it('sim "validation_error" on a zip5-ruled address subfield speaks validation.ts\'s zip5 copy', async () => {
+    const { env } = newHarness();
+    const content = {
+      components: [
+        {
+          ...ADDR_CONTENT.components[0],
+          props: { fields: [{ field: "zip", mode: "manual", required: true, validation: "zip5" }] },
+        },
+      ],
+    };
+    const { status, body } = await postPreview(env, {
+      content_json: JSON.stringify(content),
+      sim: { state: "validation_error" },
+    });
+    expect(status).toBe(200);
+    // runtime/validation.ts validateAddressField's zip5 branch copy, verbatim.
+    const slot = errorSlot(body.preview.desktop, "addr_zip");
+    expect(slot.text).toBe("Enter a valid 5-digit ZIP code.");
+    expect(slot.hidden, `the zip5 message must not be hidden: ${slot.open}`).toBe(false);
   });
 
   it('sim "dependency" via sim.answers drops the hidden LEAF while the container WRAPPER survives', async () => {
