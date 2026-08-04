@@ -464,7 +464,7 @@ button.lg-publish-why-fix:focus-visible{outline:2px solid currentColor;outline-o
   <div class="table-wrapper">
     <table class="table table--sticky-edges leadgen-quotes-list" aria-label="Quotes list" data-lg-analytics data-analytics-from="2026-07-06" data-analytics-to="2026-08-04">
       <thead><tr><th scope="col">Name</th><th scope="col">Activity</th><th scope="col">Verticals</th><th scope="col" class="lg-num">Variants</th><th scope="col">A/B status</th><th scope="col" class="lg-num">Active sites</th><th scope="col" class="lg-num">Visits</th><th scope="col" class="lg-num">Completion rate</th><th scope="col" class="lg-num">Avg RPS</th><th scope="col" class="lg-num">Unfilled rate</th><th scope="col" class="lg-num">Revenue</th><th scope="col">Actions</th></tr></thead>
-      <tbody><tr data-entity-id="lgq_01KZ56Q5KTQNT91BVTZAYRWQM4" data-entity-name="&lt;img src=x onerror=alert(1)&gt;">
+      <tbody><tr data-entity-id="lgq_01KZ587VSWK2VNC5K8K0QKZQRQ" data-entity-name="&lt;img src=x onerror=alert(1)&gt;">
   <td>&lt;img src=x onerror=alert(1)&gt;</td>
   <td>quote_funnel</td>
   <td>life, health</td>
@@ -477,14 +477,14 @@ button.lg-publish-why-fix:focus-visible{outline:2px solid currentColor;outline-o
   <td class="lg-num" data-metric="unfilled_rate"><span class="skel" aria-hidden="true"></span></td>
   <td class="lg-num" data-metric="revenue"><span class="skel" aria-hidden="true"></span></td>
   <td><div class="table-actions">
-    <a href="/admin/leadgen/quotes/lgq_01KZ56Q5KTQNT91BVTZAYRWQM4/edit" class="btn btn-sm btn-secondary">Edit</a>
-    <div class="lg-kebab" data-kebab><button type="button" class="btn btn-sm btn-outline lg-kebab-btn" data-kebab-toggle data-kebab-target="lg-kebab-menu-1" aria-haspopup="true" aria-expanded="false" aria-label="More actions for &amp;lt;img src=x onerror=alert(1)&amp;gt;">&#8942;</button><div class="lg-kebab-menu" id="lg-kebab-menu-1" data-kebab-menu hidden role="menu"><button type="button" class="lg-kebab-item" role="menuitem" data-quote-duplicate="lgq_01KZ56Q5KTQNT91BVTZAYRWQM4" data-entity-name="&lt;img src=x onerror=alert(1)&gt;">Duplicate</button>
-    <button type="button" class="lg-kebab-item" role="menuitem" data-quote-usage="lgq_01KZ56Q5KTQNT91BVTZAYRWQM4" aria-expanded="false">Usage</button>
-    <button type="button" class="lg-kebab-item lg-kebab-danger" role="menuitem" data-quote-archive="lgq_01KZ56Q5KTQNT91BVTZAYRWQM4" data-entity-name="&lt;img src=x onerror=alert(1)&gt;">Archive</button>
-    <button type="button" class="lg-kebab-item lg-kebab-danger" role="menuitem" data-quote-delete="lgq_01KZ56Q5KTQNT91BVTZAYRWQM4" data-entity-name="&lt;img src=x onerror=alert(1)&gt;">Delete</button></div></div>
+    <a href="/admin/leadgen/quotes/lgq_01KZ587VSWK2VNC5K8K0QKZQRQ/edit" class="btn btn-sm btn-secondary">Edit</a>
+    <div class="lg-kebab" data-kebab><button type="button" class="btn btn-sm btn-outline lg-kebab-btn" data-kebab-toggle data-kebab-target="lg-kebab-menu-1" aria-haspopup="true" aria-expanded="false" aria-label="More actions for &amp;lt;img src=x onerror=alert(1)&amp;gt;">&#8942;</button><div class="lg-kebab-menu" id="lg-kebab-menu-1" data-kebab-menu hidden role="menu"><button type="button" class="lg-kebab-item" role="menuitem" data-quote-duplicate="lgq_01KZ587VSWK2VNC5K8K0QKZQRQ" data-entity-name="&lt;img src=x onerror=alert(1)&gt;">Duplicate</button>
+    <button type="button" class="lg-kebab-item" role="menuitem" data-quote-usage="lgq_01KZ587VSWK2VNC5K8K0QKZQRQ" aria-expanded="false">Usage</button>
+    <button type="button" class="lg-kebab-item lg-kebab-danger" role="menuitem" data-quote-archive="lgq_01KZ587VSWK2VNC5K8K0QKZQRQ" data-entity-name="&lt;img src=x onerror=alert(1)&gt;">Archive</button>
+    <button type="button" class="lg-kebab-item lg-kebab-danger" role="menuitem" data-quote-delete="lgq_01KZ587VSWK2VNC5K8K0QKZQRQ" data-entity-name="&lt;img src=x onerror=alert(1)&gt;">Delete</button></div></div>
   </div></td>
 </tr>
-<tr class="lg-usage-row" data-quote-usage-row="lgq_01KZ56Q5KTQNT91BVTZAYRWQM4" hidden>
+<tr class="lg-usage-row" data-quote-usage-row="lgq_01KZ587VSWK2VNC5K8K0QKZQRQ" hidden>
   <td colspan="12"><div class="lg-usage-panel" data-quote-usage-panel role="status" aria-live="polite"></div></td>
 </tr></tbody>
     </table>
@@ -590,124 +590,6 @@ if (!document.getElementById('toast-animations')) {
   toastStyle.textContent = '@keyframes toastSlideIn{from{transform:translateX(100%);opacity:0}to{transform:translateX(0);opacity:1}}@keyframes toastSlideOut{from{transform:translateX(0);opacity:1}to{transform:translateX(100%);opacity:0}}';
   document.head.appendChild(toastStyle);
 }
-
-/* -------------------------------------------------------------------------
-   R2 P8-3 FIX ROUND F10 -- THE CLIP REVEAL. One mechanism for the whole
-   admin, because three consecutive fix rounds each wrote a longer operator
-   string into a box nobody measured.
-
-   A select element paints its selected option inside whatever box the layout
-   gives it and CLIPS the overflow silently: no ellipsis, no tooltip, no
-   scroll. (No angle-bracketed tag names in this comment on purpose -- it is
-   served inline, and markup scanners read these bytes.)
-   Measured on this build (driven, 127.0.0.1:8901, chromium):
-     #lg-theme-preset-select  347.05px of text in a 288.00px box (+59.05 at
-                              1280 AND 375), scrollWidth 363 > clientWidth 312
-     #lg-theme-site-select    236.58 in 197.88 (+38.70 at 1280, +21.70 at 375)
-     #lg-theme-target-select  469.77 in 186.00 (+283.77)
-     #lg-tpl-section-select   531.80 in 226.00 (+305.80)
-   and every one of them reported title="" -- the operator had NO way to read
-   the rest.
-
-   Where the text is product copy the fix is to make the copy fit (that is a
-   per-string job and its regression is test/leadgen-p8-n-theme-ui.test.ts's
-   clip invariant). Where the text is the operator's OWN data -- a site name, a
-   funnel name, a section name, a saved preset name -- no box can be
-   guaranteed wide enough, so the honest close is to hand them the full text:
-   a title carrying the selected option verbatim, plus an ellipsis so the
-   clipping is visible rather than a word cut mid-glyph.
-
-   It is SELF-MEASURING (scrollWidth vs clientWidth of the real painted box),
-   so it needs no list of controls, no list of strings and no container class:
-   a select added tomorrow, on any admin page, in any container, is covered on
-   the same terms. It adds nothing when the text already fits, and it is not a
-   gate -- it blocks nothing and validates nothing.
-   ------------------------------------------------------------------------- */
-function lgSelectedOptionText(sel) {
-  var idx = sel.selectedIndex;
-  if (typeof idx !== 'number' || idx < 0 || !sel.options || !sel.options[idx]) { return ''; }
-  return sel.options[idx].textContent || '';
-}
-function lgRevealClippedSelect(sel) {
-  if (!sel || !sel.tagName || String(sel.tagName).toUpperCase() !== 'SELECT') { return; }
-  var text = lgSelectedOptionText(sel);
-  if (sel.scrollWidth > sel.clientWidth && text !== '') {
-    sel.setAttribute('data-lg-clipped', '1');
-    sel.setAttribute('title', text);
-    if (sel.style) { sel.style.textOverflow = 'ellipsis'; }
-  } else if (sel.getAttribute && sel.getAttribute('data-lg-clipped') === '1') {
-    /* only ever withdraws the title THIS helper put there, so an authored
-       title on some other control is never eaten. */
-    sel.removeAttribute('data-lg-clipped');
-    sel.removeAttribute('title');
-    if (sel.style) { sel.style.textOverflow = ''; }
-  }
-}
-function lgRevealClippedSelects(root) {
-  var scope = root && root.querySelectorAll ? root : document;
-  var all = scope.querySelectorAll ? scope.querySelectorAll('select') : [];
-  var i;
-  for (i = 0; i < all.length; i++) { lgRevealClippedSelect(all[i]); }
-}
-window.lgRevealClippedSelect = lgRevealClippedSelect;
-window.lgRevealClippedSelects = lgRevealClippedSelects;
-
-function lgSelectOfEvent(target) {
-  var el = target;
-  while (el && el.tagName) {
-    if (String(el.tagName).toUpperCase() === 'SELECT') { return el; }
-    el = el.parentNode;
-  }
-  return null;
-}
-function lgOnSelectEvent(e) {
-  var sel = lgSelectOfEvent(e.target);
-  if (sel) { lgRevealClippedSelect(sel); }
-}
-/* change: the operator picked a longer entry. focusin/mouseover: the moment
-   before a tooltip could be shown, so a select an island filled after load is
-   current by the time it is read. No polling, no timer. */
-document.addEventListener('change', lgOnSelectEvent, true);
-document.addEventListener('focusin', lgOnSelectEvent, true);
-document.addEventListener('mouseover', lgOnSelectEvent, true);
-
-/* An island that REPOPULATES a select (the theme-preset picker, the funnel
-   picker, the section picker) changes the painted text without any user
-   event. The observer reacts to exactly that -- option churn -- and is idle
-   otherwise; the O(1) nodeName test keeps it off the hot path of pages that
-   mutate heavily for other reasons. */
-var lgRevealQueued = false;
-function lgQueueReveal() {
-  if (lgRevealQueued) { return; }
-  lgRevealQueued = true;
-  setTimeout(function () {
-    lgRevealQueued = false;
-    lgRevealClippedSelects(document);
-  }, 0);
-}
-function lgTouchesASelect(rec) {
-  if (rec.target && rec.target.nodeName === 'SELECT') { return true; }
-  var lists = [rec.addedNodes, rec.removedNodes];
-  var l, i, node;
-  for (l = 0; l < lists.length; l++) {
-    for (i = 0; lists[l] && i < lists[l].length; i++) {
-      node = lists[l][i];
-      if (!node || !node.nodeName) { continue; }
-      if (node.nodeName === 'SELECT' || node.nodeName === 'OPTION') { return true; }
-      if (node.getElementsByTagName && node.getElementsByTagName('select').length > 0) { return true; }
-    }
-  }
-  return false;
-}
-if (typeof MutationObserver === 'function' && document.body) {
-  new MutationObserver(function (records) {
-    var i;
-    for (i = 0; i < records.length; i++) {
-      if (lgTouchesASelect(records[i])) { lgQueueReveal(); return; }
-    }
-  }).observe(document.body, { childList: true, subtree: true });
-}
-lgRevealClippedSelects(document);
 
 (function () {
   function resetMenuPosition(menu) {
