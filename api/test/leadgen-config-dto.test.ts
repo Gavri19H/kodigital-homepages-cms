@@ -6,7 +6,23 @@
 // appear — even when the source section nodes carry forbidden keys.
 
 import { describe, expect, it } from "vitest";
-import { buildPublicConfig, computeSectionOrderHash, parseSectionContinueVisibleWhen } from "../src/public/leadgen/config-dto";
+import {
+  buildPublicConfig,
+  computeSectionOrderHash,
+  parseSectionContinueVisibleWhen,
+  projectSectionComponents,
+  type PublicSectionComponent,
+} from "../src/public/leadgen/config-dto";
+// R2 P8-5 X1 producer→consumer regression (see its describe block): the REAL
+// renderer supplies the ground-truth key set, the REAL runtime validator is the
+// consumer. runtime/validation.ts is a DOM-FREE runtime core, so it enters this
+// worker tsconfig program cleanly (the same import test/leadgen-p4b-required-
+// groups.test.ts and test/leadgen-sections-api.test.ts already make).
+import { renderSectionComponents } from "../src/public/leadgen/components/presets";
+import { defaultFunnelDesign } from "../src/public/leadgen/designs/default-funnel/tokens";
+import { validateSection } from "../src/public/leadgen/runtime/validation";
+import type { LgComponentConfig } from "../src/public/leadgen/runtime/state";
+import type { LeadgenComponentNode } from "../src/public/leadgen/components/content-schema";
 import type {
   ResolvedActivatedFunnel,
   ResolvedFunnelSection,
@@ -577,5 +593,164 @@ describe("buildPublicConfig — P4c continue_visible_when projects onto PublicSe
     const resolved = buildResolved();
     const config = buildPublicConfig(resolved, getFunnelDesign(resolved.variant.funnel_design_id));
     expect(Object.prototype.hasOwnProperty.call(config.sections[0] ?? {}, "continue_visible_when")).toBe(false);
+  });
+});
+
+// ---------------------------------------------------------------------------
+// R2 P8-5 X1 — a props.maps.fills rename the RENDERER DECLINES must never reach
+// the runtime under the authored name.
+// ---------------------------------------------------------------------------
+//
+// presets.ts m9AddressRenderedFieldName refuses to put an Address box on a key
+// another node in the same section already answers, so the ZIP box keeps
+// `{base}_zip`. toPublicComponent passed props verbatim, so the compiled client
+// config still carried the authored target and runtime/validation.ts
+// addressFieldKey validated the SIBLING'S free text as the address's ZIP.
+// Driven, before the producer fix:
+//   validateSection(compiled, {l1_addr_zip:"94043", pcx:"not-a-zip"})
+//     → [{"code":"zip_format", …, "internal_field":"pcx"}]
+// A visitor who typed a VALID ZIP was blocked and could not continue, and
+// `l1_addr_zip` — the box they typed into — was checked in neither direction.
+//
+// E10/E11: every side here is the real artifact. The REAL renderer
+// (renderSectionComponents) supplies the ground-truth key set the markup
+// carries, the REAL producer (projectSectionComponents) compiles the client
+// config, and the REAL consumer (runtime/validation.validateSection) runs over
+// that compiled config. No config and no markup is hand-built on either side.
+describe("projectSectionComponents — P8-5 X1 resolved props.maps.fills (renderer→config→runtime)", () => {
+  const address = (): LeadgenComponentNode =>
+    ({
+      type: "AddressAutocompleteQuestion",
+      question_id: "l1_addr",
+      internal_field: "l1_addr",
+      props: {
+        fields: [
+          { field: "street", required: false },
+          { field: "zip", validation: "zip5", required: true },
+        ],
+        maps: { fills: { zip: "pcx" } },
+      },
+    }) as unknown as LeadgenComponentNode;
+  const sibling = (): LeadgenComponentNode =>
+    ({
+      type: "FreeTextQuestion",
+      question_id: "q_pcx",
+      internal_field: "pcx",
+      answer_type: "text",
+      props: {},
+    }) as unknown as LeadgenComponentNode;
+
+  // The keys the REAL markup stamps on the Address's per-subfield boxes, in
+  // render order (renderAddressFieldSet's [data-lg-field] wrappers).
+  function addressBoxKeys(nodes: readonly LeadgenComponentNode[]): string[] {
+    const html = renderSectionComponents(nodes, defaultFunnelDesign);
+    return [
+      ...html.matchAll(/<span class="lg-address-field-wrap"[^>]*data-lg-field="([^"]+)"/g),
+    ].map((m) => m[1] ?? "");
+  }
+
+  function fillsOf(component: PublicSectionComponent | undefined): unknown {
+    const maps = (component?.props ?? {})["maps"];
+    return maps !== null && typeof maps === "object"
+      ? (maps as Record<string, unknown>)["fills"]
+      : undefined;
+  }
+
+  // The REAL client validator over the REAL compiled config, every component
+  // visible (a visitor looking at the section).
+  function validate(
+    compiled: readonly PublicSectionComponent[],
+    answers: Record<string, unknown>,
+  ): unknown[] {
+    return validateSection(
+      compiled as unknown as LgComponentConfig[],
+      answers,
+      compiled.map((c) => ({ question_id: c.question_id, visible: true, required_now: false })),
+    );
+  }
+
+  const ZIP_FAILURE = (field: string): Record<string, unknown> => ({
+    code: "zip_format",
+    message: "Enter a valid 5-digit ZIP code.",
+    question_id: "l1_addr",
+    internal_field: field,
+  });
+
+  it("RENDERER ground truth: the rename is DECLINED — the ZIP box carries l1_addr_zip and pcx is the SIBLING'S own box", () => {
+    expect(addressBoxKeys([address(), sibling()])).toEqual(["l1_addr_street", "l1_addr_zip"]);
+    const html = renderSectionComponents([address(), sibling()], defaultFunnelDesign);
+    expect(html).toContain('data-lg-field="pcx"');
+  });
+
+  it("the COMPILED config carries the RESOLVED fill target — rewritten, never dropped", () => {
+    const compiled = projectSectionComponents([address(), sibling()]);
+    // rewritten to the key the markup carries…
+    expect(fillsOf(compiled[0])).toEqual({ zip: "l1_addr_zip" });
+    // …and STILL PRESENT: runtime/maps.ts reads the same object as its Places
+    // fill target (renderAddressFieldSet feeds it into data-lg-maps), so
+    // dropping the entry would silently disable ZIP autofill.
+    expect(Object.keys(fillsOf(compiled[0]) as Record<string, unknown>)).toEqual(["zip"]);
+  });
+
+  it("the BLOCKED VISITOR is unblocked: a VALID ZIP in the real ZIP box produces NO failure", () => {
+    const compiled = projectSectionComponents([address(), sibling()]);
+    // Before the producer fix this returned the sibling-keyed zip_format
+    // failure above and Continue stayed blocked.
+    expect(validate(compiled, { l1_addr_zip: "94043", pcx: "not-a-zip" })).toEqual([]);
+  });
+
+  it("the ZIP check STILL BITES: a malformed ZIP fails, keyed to the box the visitor typed in", () => {
+    const compiled = projectSectionComponents([address(), sibling()]);
+    expect(validate(compiled, { l1_addr_zip: "9404", pcx: "not-a-zip" })).toEqual([
+      ZIP_FAILURE("l1_addr_zip"),
+    ]);
+    // and the sibling's free text is NOT the address's ZIP in either direction:
+    // a malformed real ZIP with a well-formed sibling still fails.
+    expect(validate(compiled, { l1_addr_zip: "9404", pcx: "94043" })).toEqual([
+      ZIP_FAILURE("l1_addr_zip"),
+    ]);
+  });
+
+  it("CONTROL — a LEGAL rename (no sibling claims the key) is honoured EXACTLY as authored, in both directions", () => {
+    const solo = [address()];
+    expect(addressBoxKeys(solo)).toEqual(["l1_addr_street", "pcx"]);
+    const compiled = projectSectionComponents(solo);
+    expect(fillsOf(compiled[0])).toEqual({ zip: "pcx" });
+    expect(validate(compiled, { pcx: "94043" })).toEqual([]);
+    expect(validate(compiled, { pcx: "9404" })).toEqual([ZIP_FAILURE("pcx")]);
+  });
+
+  it("CLASS INVARIANT: the compiled fill target for a rendered slot is always a key the MARKUP carries", () => {
+    for (const nodes of [[address(), sibling()], [address()]]) {
+      const target = (fillsOf(projectSectionComponents(nodes)[0]) as { zip?: string }).zip;
+      expect(addressBoxKeys(nodes)).toContain(target);
+    }
+  });
+
+  it("the claims are SECTION-WIDE: a sibling nested in a layout container still declines the rename", () => {
+    const nested = [
+      { type: "Stack", question_id: "s1", props: {}, children: [address()] },
+      sibling(),
+    ] as unknown as LeadgenComponentNode[];
+    const compiled = projectSectionComponents(nested);
+    expect(fillsOf(compiled[0])).toEqual({ zip: "l1_addr_zip" });
+    expect(validate(compiled, { l1_addr_zip: "94043", pcx: "not-a-zip" })).toEqual([]);
+  });
+
+  it("the AUTHORED node is never mutated — the resolution builds a new props object", () => {
+    const node = address();
+    projectSectionComponents([node, sibling()]);
+    expect((node.props as Record<string, unknown>)["maps"]).toEqual({ fills: { zip: "pcx" } });
+  });
+
+  it("a component with no maps config keeps its props object BY REFERENCE (byte-identical DTO)", () => {
+    const plain = {
+      type: "FreeTextQuestion",
+      question_id: "q_plain",
+      internal_field: "plain",
+      props: { placeholder: "Your name" },
+    } as unknown as LeadgenComponentNode;
+    const compiled = projectSectionComponents([plain]);
+    expect(compiled[0]?.props).toBe(plain.props);
   });
 });
