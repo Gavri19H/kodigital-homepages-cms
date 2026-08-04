@@ -42,7 +42,21 @@ P8-4's tip before P8-4 merged). They will merge as ONE squash PR with both claus
   | N19 | `quotes-handlers.ts:2327` (`A4_SECTION_DUP`) | **Fully grounded by the conductor.** (a) *Wording*: rule A-4's scope is `{shared page ∪ any single funnel}` (comment `:2324-2325`), but the message says only *"already in this funnel"* — so a section sitting on the SHARED page is reported as being in the funnel. (b) *Index*: `:2654/:2659/:2683` key errors as `` `sections.${seen.size}` `` — a **dedupe counter**, not a position — while `:2819` keys the same `sections.N` namespace by the real array index `i`. Same key, two meanings. (c) **3 tests pin the exact string** and must be updated with before/after stated, never relaxed to a substring: `test/leadgen-rework-handlers.test.ts:517` + **`:766` (the shared-page collision — this is N19's own FAIL-BEFORE)**, `test/leadgen-p2-tail.test.ts:348,:372`. So slice **E owns `quotes-handlers.ts` + both of those test files.** |
 
   Slice map with exclusive ownership: **A** `ui-rules-builder.ts` (N2/N3/N4) · **B** `ab.ts`+`ui-quotes.ts`
-  (N5/N10) · **C** `funnel.ts` (N8) · **D** `ui-payload-builder.ts` (N13) · **E** `quotes-handlers.ts` (N19).
+  (N5/N10) · **C** `funnel.ts` (N8) · **D** `ui-payload-builder.ts` (N13) · **E** `quotes-handlers.ts`
+  + `test/leadgen-rework-handlers.test.ts` + `test/leadgen-p2-tail.test.ts` (N19).
+
+  **Three pinned-test traps, measured by the conductor before dispatch:**
+  1. **A p3a recapture is MANDATORY for P8-6.** All three copy strings live in the byte-pin fixtures —
+     `"Operators map to eq"` (N2) in `editor-full.html` + `editor-panel-builder.html`; `"basis points"` (N5)
+     and `"Equal arms; no control"` (N10) in `editor-panel-ab.html` + `editor-full.html`. Recapture and
+     **classify every differing line**; one unexplained line stops the phase.
+  2. **N5 has TWO `ab.ts` hits, not one** — and a third for `"basis points"` in
+     `src/public/listicle/ab-hash.ts`, which is the **listicles** product: **out of contract, do not touch.**
+  3. **N10's `"Equal arms; no control"` is pinned by a Playwright gesture spec**
+     (`test-ui/leadgen-rework-acceptance-routing.gesture.spec.ts`, runs on BOTH engines) — update it with
+     before/after stated. And `"control variant"` occurs in `ui-quotes.ts`, `frame-handlers.ts` AND
+     `quotes-tabs/themes.ts`; a scout judged only `ui-quotes.ts:655` operator-visible, so the slice must
+     **re-verify each of the three by its own hand** rather than inherit that judgement (hard-won rule 2).
 
 ### P8-4 IS NOT YET SHIPPED — its last review returned FIX-FIRST
 `evidence/p8/review-p8-4d/REVIEW.md` = **FIX-FIRST** (MAJOR-1, MAJOR-2, MINOR-1…5). `F12` (`bffd0d9b`)
