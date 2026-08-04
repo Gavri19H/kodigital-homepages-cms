@@ -2652,76 +2652,29 @@ export function funnelChromeCss(
         "border-radius": "0",
         "box-shadow": "none",
       }),
-      // R2 P8-4 FIX ROUND F8 — `section_slot.padding` IS HONOURED NOW (§4 R3).
-      //
-      // FAIL-BEFORE: `--pad-{s,m,l}` is emitted unconditionally by frame.ts:724
-      // and had ZERO rules in this sheet (the U12 note above records their
-      // removal), so all three steps painted the same page.
-      //
-      // WHAT IT MOVES, AND WHY HERE. The slot's padding is the breathing room
-      // between the slot edge and the section unit, so it is the BLOCK padding
-      // of the slot's own content mount — `<main class="lg-content"
-      // data-lg-mount>`, the element renderSlotRegion (frame.ts:727) creates
-      // for the swapped sections. The INLINE axis is deliberately untouched:
-      // `.lg-question-card` cancels exactly `content.paddingDesktop` /
-      // `paddingMobile` with negative margins (:588/:596) so it can use the
-      // column's full border-box width, and moving the horizontal padding
-      // under it is precisely the 13px off-center defect that note records.
-      //
-      // THE LADDER IS THE SPACING SCALE, with the MIDDLE step pinned to the
-      // container's EXISTING value, so the default (`padding:"m"` in
-      // baseFrameDefaults and in all six templates — frames.ts:703) computes
-      // byte-identically to today and only s / l deviate:
-      //   desktop  s spacing.md 1rem | m content.paddingDesktop 1.5rem (= spacing.lg, today) | l spacing.xl 2rem
-      //   mobile   s spacing.sm .5rem | m content.paddingMobile 1rem (= spacing.md, today)   | l spacing.lg 1.5rem
-      // The mobile companions are REQUIRED, not decoration: these desktop
-      // rules are (0,3,0) and the mobile `.lg-content{padding:1rem}` override
-      // (:556) is (0,1,0), so without a same-specificity companion inside the
-      // media block the desktop step would win at 375 too and every framed
-      // page would silently gain the desktop inset on mobile.
-      rule(`${scope} .lg-frame-slot--pad-s .lg-content`, {
-        "padding-top": spacing.md,
-        "padding-bottom": spacing.md,
-      }),
-      rule(`${scope} .lg-frame-slot--pad-m .lg-content`, {
-        "padding-top": content.paddingDesktop,
-        "padding-bottom": content.paddingDesktop,
-      }),
-      rule(`${scope} .lg-frame-slot--pad-l .lg-content`, {
-        "padding-top": spacing.xl,
-        "padding-bottom": spacing.xl,
-      }),
-      // R2 P8-4 FIX ROUND F8 — `section_slot.transition` IS HONOURED NOW (§4 R3).
-      //
-      // FAIL-BEFORE: `--t-{fade,none}` is emitted unconditionally by
-      // frame.ts:725 and had ZERO rules, so "fade" and "none" were the same
-      // page.
-      //
-      // "fade" now really fades: the slot's content mount animates in over
-      // `transitions.stepFadeInMs` — the design token literally named for this
-      // (tokens.ts:159, "step fade in"), whose only previous appearance was
-      // the `--lg-transition-step` custom property at :532 that NOTHING read.
-      // "none" keeps the absence of that animation, which is what the word
-      // means; it gets no `animation:none` counter-rule, because restating an
-      // initial value is exactly the no-op-duplicate shape that made
-      // `--card` above read DEAD.
-      //
-      // AT REST THE PAGE IS UNCHANGED. The animation has no fill mode, so the
-      // settled page is byte-identical to today's; only the arrival differs.
-      // NOT wrapped in `prefers-reduced-motion`: this sheet is pinned to
-      // EXACTLY ONE @media block (leadgen-frame-render.test.ts:530), and the
-      // sheet's pre-existing `lg-spin` animation (:1300) carries no such guard
-      // either — a motion-preference axis for the whole sheet is a separate
-      // concern, not this key's.
-      // ONE self-contained line, like the sibling `lg-spin` at :1304 — the
-      // sheet's readers (and test/helpers/leadgen-visible-paint.ts's parser,
-      // which rejects a line on its leading `@`) require that shape, and it
-      // rides inside the frameRegions gate so the frameless base sheet stays
-      // the byte-stable prefix leadgen-frame-render.test.ts:526 pins.
-      `@keyframes lg-slot-fade{from{opacity:0}to{opacity:1}}`,
-      rule(`${scope} .lg-frame-slot--t-fade .lg-content`, {
-        animation: `lg-slot-fade ${transitions.stepFadeInMs}ms ease-out`,
-      }),
+      // R2 P8-4 FIX ROUND F9 — F8's `--pad-{s,m,l}` and `--t-{fade,none}` rules
+      // (6 declarations + an `@keyframes lg-slot-fade`) WERE HERE AND ARE
+      // REVERTED. F8 wrote them to make the M2 sweep call
+      // `section_slot.padding` / `section_slot.transition` alive, on the
+      // premise that both were operator controls §4 R3 required to be
+      // honoured. MEASURED, that premise is false:
+      // `grep -rn 'data-frame-key="section_slot' src` returns 0 hits — NO
+      // admin surface writes either key (the only `section_slot` mention in
+      // the whole admin plane is the saved-template summary's read of
+      // `section_slot.card`, quotes-tabs/templates.ts:2190). So the rules were
+      // product CSS for keys nobody can author, and the transition one had a
+      // visitor-visible cost: `baseFrameDefaults.transition:"fade"` made every
+      // framed page fade in over 300ms with no operator control to turn it off
+      // and no `prefers-reduced-motion` guard — and, driven, it fired only on
+      // first paint, never on the section change its name promises.
+      // Both keys are now declared in the sweep's SWEEP_EXEMPTIONS
+      // (test/leadgen-r2-dead-controls-guard.test.ts) under R3's OWN second
+      // branch — "…or is removed from the UI" — with that zero-hit grep as the
+      // reason. `section_slot.card`'s `--bare` rule above STAYS: that one IS
+      // offered (templates.ts:2190 prints "Card layout" / "Bare layout"), so
+      // R3 requires it to be honoured. If an operator control for padding or
+      // transition is ever added, the exemption goes red and the rules — and a
+      // motion-preference guard for the animation — must come back WITH it.
       rule(`${scope} .lg-frame-slot--off-s`, { "margin-top": spacing.xl }),
       rule(`${scope} .lg-frame-slot--off-m`, { "margin-top": spacing.xxl }),
       // ---- trust strip / benefit bar ------------------------------------------
@@ -3409,26 +3362,10 @@ export function funnelChromeCss(
     // frame mobile behaviors (§3.3 footer.hide_on_mobile + mobile.hide_footer;
     // trust_strip.mobile scroll/hide) — same single media query.
     mobile.push(
-      // R2 P8-4 FIX ROUND F8 — the `section_slot.padding` mobile ladder. See
-      // the desktop rules' note at the section-slot block above: these are
-      // the same-specificity (0,3,0) companions WITHOUT which the desktop
-      // step would out-rank the (0,1,0) mobile `.lg-content{padding:1rem}`
-      // override (:556) and force the desktop inset onto every framed page at
-      // 375. `m` is `content.paddingMobile`, i.e. today's value exactly, so
-      // the default frame is unmoved; s / l are the neighbouring steps of the
-      // same `spacing` scale.
-      rule(`${scope} .lg-frame-slot--pad-s .lg-content`, {
-        "padding-top": spacing.sm,
-        "padding-bottom": spacing.sm,
-      }),
-      rule(`${scope} .lg-frame-slot--pad-m .lg-content`, {
-        "padding-top": content.paddingMobile,
-        "padding-bottom": content.paddingMobile,
-      }),
-      rule(`${scope} .lg-frame-slot--pad-l .lg-content`, {
-        "padding-top": spacing.lg,
-        "padding-bottom": spacing.lg,
-      }),
+      // R2 P8-4 FIX ROUND F9 — F8's mobile `--pad-{s,m,l}` companions were here
+      // and are REVERTED with their desktop originals (see the section-slot
+      // block above: no operator control writes `section_slot.padding`, so the
+      // key is a declared sweep exemption, not product CSS).
       rule(`${scope} .lg-frame-footer--m-hide`, { display: "none" }),
       rule(`${scope} .lg-frame-trust--hide`, { display: "none" }),
       rule(`${scope} .lg-frame-trust--scroll .lg-logo-strip`, {

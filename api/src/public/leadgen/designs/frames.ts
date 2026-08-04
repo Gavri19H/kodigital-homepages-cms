@@ -2232,14 +2232,54 @@ export function computeTemplateSwitch(
 //       composition is leaf-identical either way (the pruned leaf is re-supplied
 //       by the very base it was copied from), the column stops shadowing, and
 //       an arm pointing at another template renders THAT template;
-//   (b) counts as a CUSTOMISATION only a leaf where the funnel column actually
-//       MOVES the composition away from its own base. An operator edit made
-//       after an apply moves it (and is warned about); a value a previous apply
-//       or a whole-frame Save merely echoed does not (and is not). The one
-//       accepted blind spot is an operator who authors exactly the value the
-//       base already gives: indistinguishable from the echo in the stored bytes,
-//       and the change itself is still announced by name in `changes` and in the
-//       sentences below.
+//   (b) counts as a CUSTOMISATION only a leaf the OPERATOR authored — see the
+//       F9 note below for how that is decided, and for the claim this line used
+//       to make and could not keep.
+//
+// R2 P8-4 FIX ROUND F9 — the prune above DELETED OPERATOR-AUTHORED VALUES
+// (review-p8-4b F-B, driven): with the funnel column at
+// `{"version":1,"template":"centered","header":{"logo_align":"left"}}` — the
+// operator's own pick against a base that says "center" — applying a template
+// whose base ALSO says "left" removed the leaf (column became
+// `{"version":1,"template":"header-footer"}`) with `replaced_customisations:[]`
+// and no `changes` entry; applying a THIRD template then flipped the logo back
+// to "center" with `replaced_customisations:[]` and not one sentence naming it.
+// F4's own mitigation claim — "the change itself is still announced by name in
+// `changes` and in the sentences below" — WAS FALSE and is deleted here:
+// `changes` is a payload field the dialog does not paint, and `confirmations`
+// narrates ~8 leaf shapes, none of them the logo. So the operator's value was
+// destroyed with no signal on either apply.
+//
+// THE INVARIANT, and how the two halves below keep it:
+//   A VALUE THE OPERATOR CHOSE IS NEVER SILENTLY DISCARDED — it is either
+//   PRESERVED in the column, or NAMED in the warning before the write.
+//   * PRESERVED: the prune now keeps an authored leaf the apply does not move,
+//     even when the incoming template's base happens to agree with it. Only
+//     leaves this apply MATERIALISED (or an echo the column already carried)
+//     are dropped, so the served page is still leaf-identical either way and
+//     F-2 still holds — the column carries no shadow of its own template.
+//   * NAMED: an authored leaf the template does overrule is in `changes` AND in
+//     `replaced_customisations`, which is what the honesty sentence counts.
+// WHICH LEAVES ARE THE OPERATOR'S (`authoredLeaves`), and why it is two-branch:
+//   * A column this code has touched can only ever hold the operator's own
+//     leaves: an apply writes NO leaf of its own (every materialised leaf is
+//     re-supplied by the base and pruned), and the product's only other writer
+//     is the Quote Builder, which boots `workingFrame` from the STORED column
+//     (quotes-tabs/funnel.ts:1809) and adds exactly the dotted path a control
+//     wrote. So for such a column, PRESENCE IS AUTHORSHIP — which is the bit
+//     the value test could not recover once a preserved leaf coincided with the
+//     new base (the third step of the drive above).
+//   * A WHOLESALE column — one that carries EVERY leaf of its own base, the
+//     shape a client PUTting a whole hydrated frame produces — cannot attribute
+//     its leaves to anybody, so there the F4 value test still decides: authored
+//     means "moves the composition away from its own base". This is what keeps
+//     F-1 fixed for that shape (28 echoed leaves must not be announced as 28
+//     customisations), and the accepted blind spot is unchanged and now
+//     STATED PLAINLY: on a wholesale column, an operator who authored exactly
+//     the base's own value is indistinguishable from the echo, and that leaf is
+//     not counted. It is not silently destroyed either — a leaf equal to the
+//     base changes nothing about the served page, and the moment a template
+//     moves it, the move itself is in `changes`.
 // Two consequences of (a), stated rather than discovered:
 //   * "silence never erases" still protects OPERATOR content (their leaves stay
 //     in the column and a blank template leaf never overwrites them), but a leaf
@@ -2326,18 +2366,61 @@ function mergeTemplateInto(base: Record<string, unknown>, patch: Record<string, 
 // which reads every template leaf back out of the SERVED frame). Root
 // `template`/`version` are funnel-level identity, not composition leaves
 // (effectiveFrame strips both from this layer), so they stay.
-function pruneEchoedLeaves(node: Record<string, unknown>, prefix: string, baseLeaves: Map<string, unknown>): void {
+//
+// R2 P8-4 FIX ROUND F9 (F-B) — `keep` is the operator's veto. A leaf the
+// operator authored and this apply does NOT move is kept even though the base
+// agrees with it, so the column never loses the record of a choice somebody
+// made. Still composition-safe for the same reason in reverse: the kept leaf
+// holds exactly the value the base would have supplied, so the served page is
+// leaf-identical, and it is one leaf, not a shadow of the whole template.
+function pruneEchoedLeaves(
+  node: Record<string, unknown>,
+  prefix: string,
+  baseLeaves: Map<string, unknown>,
+  keep: (path: string, value: unknown) => boolean,
+): void {
   for (const key of Object.keys(node)) {
     if (prefix === "" && (key === "template" || key === "version")) continue;
     const path = prefix === "" ? key : `${prefix}.${key}`;
     const value = node[key];
     if (isRecord(value)) {
-      pruneEchoedLeaves(value, path, baseLeaves);
+      pruneEchoedLeaves(value, path, baseLeaves, keep);
       if (Object.keys(value).length === 0) delete node[key];
       continue;
     }
+    if (keep(path, value)) continue;
     if (baseLeaves.has(path) && sameLeaf(baseLeaves.get(path), value)) delete node[key];
   }
+}
+
+// The leaves of `stored` the OPERATOR authored — the F9 two-branch rule the
+// header note states. A `null` return would be indistinguishable from "nothing
+// authored", so the two branches are both explicit sets.
+function authoredLeaves(
+  storedLeaves: Map<string, unknown>,
+  beforeBaseLeaves: Map<string, unknown>,
+): Map<string, unknown> {
+  // WHOLESALE = the column carries every leaf its own base gives. Nothing in
+  // this product writes that (an apply writes no leaf; the builder writes the
+  // column plus the paths a control touched) — it is the shape a client PUTting
+  // a whole hydrated frame produces, and there no leaf is attributable, so the
+  // F4 value test decides.
+  let wholesale = beforeBaseLeaves.size > 0;
+  for (const path of beforeBaseLeaves.keys()) {
+    if (!storedLeaves.has(path)) {
+      wholesale = false;
+      break;
+    }
+  }
+  const out = new Map<string, unknown>();
+  for (const [path, value] of storedLeaves) {
+    // Funnel-level identity, never a customisation: `template` is the family
+    // the apply is changing on purpose and `version` is the schema stamp.
+    if (path === "template" || path === "version") continue;
+    if (wholesale && sameLeaf(value, beforeBaseLeaves.get(path))) continue;
+    out.set(path, value);
+  }
+  return out;
 }
 
 const PROGRESS_STYLE_WORDS: Record<string, string> = {
@@ -2393,9 +2476,18 @@ export function computeTemplateApply(
 ): TemplateApplyResult {
   const before = effectiveFrame(currentStored, null, null, currentTemplateDefaults ?? null).frame;
   // What this funnel would show with NO config of its own — its CURRENT
-  // template's base. Anything the column repeats from here it did not author
-  // (F-1): it is what a previous apply, or a whole-frame Save, wrote.
+  // template's base. On a WHOLESALE column (F9) this is the only signal left
+  // for what the operator did NOT author; on every column the product itself
+  // writes, presence in the column is the signal.
   const beforeBase = effectiveFrame(null, null, null, currentTemplateDefaults ?? null).frame;
+
+  // The operator's own leaves, decided BEFORE anything is materialised over
+  // them (F9): they drive both the prune's veto and the customisation count.
+  const storedLeaves = new Map<string, unknown>();
+  frameLeaves(currentStored ?? {}, "", storedLeaves);
+  const beforeBaseLeaves = new Map<string, unknown>();
+  frameLeaves(beforeBase, "", beforeBaseLeaves);
+  const authored = authoredLeaves(storedLeaves, beforeBaseLeaves);
 
   // Materialise: the template's own authored leaves over the funnel's config.
   // A null template (clearing the pointer) materialises nothing — the funnel
@@ -2406,10 +2498,11 @@ export function computeTemplateApply(
     mergeTemplateInto(merged, templateDefaults as unknown as Record<string, unknown>);
     merged["version"] = 1;
     // …then keep only what DIFFERS from the applied template's own base (F-1/
-    // F-2). Same served page, no shadow layer over a variant's own template.
+    // F-2), PLUS the operator's own untouched leaves (F9). Same served page, no
+    // shadow layer over a variant's own template.
     const afterBaseLeaves = new Map<string, unknown>();
     frameLeaves(effectiveFrame(null, null, null, templateDefaults).frame, "", afterBaseLeaves);
-    pruneEchoedLeaves(merged, "", afterBaseLeaves);
+    pruneEchoedLeaves(merged, "", afterBaseLeaves, (path, value) => authored.has(path) && sameLeaf(authored.get(path), value));
   }
   const mergedConfig = merged as StoredFrameConfig;
 
@@ -2419,10 +2512,6 @@ export function computeTemplateApply(
   const afterLeaves = new Map<string, unknown>();
   frameLeaves(before, "", beforeLeaves);
   frameLeaves(after, "", afterLeaves);
-  const storedLeaves = new Map<string, unknown>();
-  frameLeaves(currentStored ?? {}, "", storedLeaves);
-  const beforeBaseLeaves = new Map<string, unknown>();
-  frameLeaves(beforeBase, "", beforeBaseLeaves);
 
   const changes: FrameLeafChange[] = [];
   const replaced: string[] = [];
@@ -2430,12 +2519,11 @@ export function computeTemplateApply(
     const from = beforeLeaves.get(path);
     if (sameLeaf(from, to)) continue;
     changes.push({ path, from: from ?? null, to });
-    // The OPERATOR authored this leaf: the funnel's own column carries it AND
-    // it moves the served page away from what the funnel's own template base
-    // gives. A leaf the column merely echoes from that base was written by a
-    // previous apply (or by a whole-frame Save), not by the operator, and
-    // warning about it is the F-1 cry-wolf this round removes.
-    if (storedLeaves.has(path) && !sameLeaf(from, beforeBaseLeaves.get(path))) replaced.push(path);
+    // The OPERATOR authored this leaf (authoredLeaves above), and this template
+    // moves it: that is exactly what the honesty sentence must count. A leaf a
+    // whole-frame PUT merely echoed from the base is not attributable to the
+    // operator and is not counted — the F-1 cry-wolf F4 removed.
+    if (authored.has(path)) replaced.push(path);
   }
   // A leaf the composition LOSES entirely (an optional group the template
   // doesn't carry) is a change too.

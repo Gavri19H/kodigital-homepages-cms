@@ -780,6 +780,161 @@ d("P8 F4 — F-1: the customisation warning counts the OPERATOR's edits, never a
 });
 
 // =============================================================================
+// R2 P8-4 FIX ROUND F9 — F-B: THE PRUNE DELETED THE OPERATOR'S OWN VALUES.
+//
+// THE INVARIANT THESE LEGS PIN: a value the operator chose is never silently
+// discarded — it is either PRESERVED in the funnel column, or NAMED in the
+// warning the confirm dialog shows before the write.
+//
+// FAIL-BEFORE (fresh-context reviewer, driven API-only against the running
+// instance — docs/leadgen/r2/evidence/p8/review-p8-4b/REVIEW.md, `j12` log,
+// reproduced verbatim):
+//   2 operator sets header.logo_align = "left"  -> column {"version":1,"template":"centered","header":{"logo_align":"left"}}
+//   3 apply "Site header + footer" (base = left) DRY: replaced=[]  header.logo_align in changes? false
+//   4 after apply                              -> column {"version":1,"template":"header-footer"}   <- the operator's leaf is GONE
+//   5 apply "Centered card" DRY: replaced=[]   changes=[{path:"header.logo_align",from:"left",to:"center"}]
+//                                               sentences mentioning the logo: []
+//   6 FINAL logo_align = center                (the operator chose left)
+// F4's pruneEchoedLeaves dropped ANY leaf equal to the newly-applied template's
+// base, and its own comment claimed the loss was "still announced by name in
+// `changes` and in the sentences below" — measured false: `changes` is not shown
+// to the operator and `confirmations` narrates only ~8 leaf shapes, none of them
+// the logo. So the leaf vanished at step 4 and the value flipped at step 6 with
+// no signal anywhere.
+//
+// The scenario below is that log, step for step, through the REAL routes: the
+// operator's edit goes in the way quotes-tabs/funnel.ts really saves it
+// (workingFrame = the stored column + the ONE path the control wrote, PUT to
+// /funnels/:id/frame), and every read is the SERVED composition or the stored
+// column, never a hand-built object.
+// =============================================================================
+d("P8 F9 — F-B: an operator's chosen value is preserved, or named — never silently dropped", () => {
+  // The product's own save: the island boots workingFrame from the STORED
+  // column (funnel.ts:1809 `deepClone(frameState.frame_config || {})`) and a
+  // control writes ONE dotted path into it (writeConfigValue → setPath), so a
+  // Save PUTs the column plus exactly what the operator touched.
+  async function operatorSets(h: Harness, funnelPublic: string, group: string, key: string, value: unknown): Promise<void> {
+    const projection = await req(h, "GET", `/funnels/${funnelPublic}/frame`);
+    const working = JSON.parse(JSON.stringify(projection.json.frame_config ?? {})) as Record<string, unknown>;
+    working[group] = { ...((working[group] ?? {}) as Record<string, unknown>), [key]: value };
+    working["version"] = 1;
+    const saved = await req(h, "PUT", `/funnels/${funnelPublic}/frame`, { frame_config_json: working });
+    expect(saved.status, `operator save ${group}.${key}: ${JSON.stringify(saved.json)}`).toBe(200);
+  }
+  const column = (h: Harness, funnelPublic: string): Record<string, unknown> => {
+    const raw = readFunnel(h, funnelPublic).frame_config_json;
+    return raw === null ? {} : (JSON.parse(raw) as Record<string, unknown>);
+  };
+
+  it("the j12 scenario, step for step: the leaf the operator chose survives the apply that agrees with it, and is NAMED by the apply that overrules it", async () => {
+    const h = harness();
+    const { funnelPublic } = await newPristineFunnel(h);
+    const agrees = await newSavedTemplate(h, "ROASTC F9 Agrees"); // header.logo_align = "left"
+    const overrules = await newSavedTemplateB(h, "ROASTC F9 Overrules"); // header.logo_align = "right"
+    expect(agrees.frameJson.header.logo_align, "the fixture really agrees with the operator").toBe("left");
+    expect(overrules.frameJson.header.logo_align, "…and the other really disagrees").toBe("right");
+
+    // step 2 — the operator's own choice, against a base that says "center".
+    expect(servedFrame(h, funnelPublic).header.logo_align).toBe("center");
+    await operatorSets(h, funnelPublic, "header", "logo_align", "left");
+    expect(column(h, funnelPublic)).toStrictEqual({ version: 1, header: { logo_align: "left" } });
+
+    // step 3/4 — apply the template whose base ALSO says left. The served page
+    // does not move, so there is nothing to warn about…
+    const dryAgrees = await req(h, "POST", `/funnels/${funnelPublic}/apply-template`, { template_id: agrees.publicId, dry_run: true });
+    expect(dryAgrees.status).toBe(200);
+    expect((dryAgrees.json.changes as Array<{ path: string }>).map((c) => c.path)).not.toContain("header.logo_align");
+    await req(h, "POST", `/funnels/${funnelPublic}/apply-template`, { template_id: agrees.publicId });
+    // …and PRESERVATION is what makes that silence honest: the leaf is still
+    // the operator's, in the column, not absorbed into the template.
+    const afterAgrees = column(h, funnelPublic);
+    // eslint-disable-next-line no-console
+    console.log("[F9 F-B] column after the agreeing apply", JSON.stringify(afterAgrees));
+    expect((afterAgrees["header"] as Record<string, unknown> | undefined)?.["logo_align"], "the operator's leaf is PRESERVED").toBe("left");
+    expect(servedFrame(h, funnelPublic).header.logo_align).toBe("left");
+
+    // step 5 — the template that overrules it MUST say so, by name and in the
+    // sentence the dialog paints.
+    const dryOverrules = await req(h, "POST", `/funnels/${funnelPublic}/apply-template`, { template_id: overrules.publicId, dry_run: true });
+    const replaced = dryOverrules.json.replaced_customisations as string[];
+    // eslint-disable-next-line no-console
+    console.log("[F9 F-B] overruling apply · replaced", JSON.stringify(replaced), "· confirmations", JSON.stringify(dryOverrules.json.confirmations));
+    expect(replaced, "the operator's own leaf is counted as a customisation").toContain("header.logo_align");
+    expect((dryOverrules.json.confirmations as string[]).join(" "), "…and the dialog says so").toContain("you had customised");
+    expect((dryOverrules.json.changes as Array<{ path: string }>).map((c) => c.path)).toContain("header.logo_align");
+
+    // step 6 — the template really does win, which is why step 5 had to warn.
+    await req(h, "POST", `/funnels/${funnelPublic}/apply-template`, { template_id: overrules.publicId });
+    expect(servedFrame(h, funnelPublic).header.logo_align).toBe("right");
+  });
+
+  it("a value that differs from EVERY template base: preserved when the template is silent, named when it is not", async () => {
+    const h = harness();
+    const { funnelPublic } = await newPristineFunnel(h);
+    const t1 = await newSavedTemplate(h, "ROASTC F9 Diff One");
+    const t2 = await newSavedTemplateB(h, "ROASTC F9 Diff Two");
+
+    // `header.tagline` — no built-in and neither saved record authors it, so
+    // "silence never erases" must hold across BOTH applies…
+    await operatorSets(h, funnelPublic, "header", "tagline", "ROASTC operator tagline");
+    // …and `progress.thickness` — the operator picks a value that is neither
+    // base's: t1's base says "l", t2's says the schema default "m".
+    await operatorSets(h, funnelPublic, "progress", "thickness", "s");
+    expect(t1.frameJson.progress.thickness).toBe("l");
+    expect(t2.frameJson.progress.thickness).toBe("m");
+
+    const dry1 = await req(h, "POST", `/funnels/${funnelPublic}/apply-template`, { template_id: t1.publicId, dry_run: true });
+    const replaced1 = dry1.json.replaced_customisations as string[];
+    // eslint-disable-next-line no-console
+    console.log("[F9 F-B] differs-from-every-base · replaced", JSON.stringify(replaced1));
+    expect(replaced1, "the leaf this template overrules is named").toContain("progress.thickness");
+    expect(replaced1, "the leaf it says nothing about is not").not.toContain("header.tagline");
+    expect((dry1.json.confirmations as string[]).join(" ")).toContain("you had customised");
+
+    await req(h, "POST", `/funnels/${funnelPublic}/apply-template`, { template_id: t1.publicId });
+    const served = servedFrame(h, funnelPublic);
+    expect(served.header.tagline, "silence never erases the operator's copy").toBe("ROASTC operator tagline");
+    expect(served.progress.thickness, "…and the warned-about leaf really is replaced").toBe("l");
+    expect(
+      ((column(h, funnelPublic)["header"] ?? {}) as Record<string, unknown>)["tagline"],
+      "the preserved leaf stays IN THE COLUMN, so the next template must warn about it too",
+    ).toBe("ROASTC operator tagline");
+
+    // The next template still owes the operator the same warning for the leaf
+    // it kept — the failure mode F-B described was the SECOND apply going quiet.
+    const dry2 = await req(h, "POST", `/funnels/${funnelPublic}/apply-template`, { template_id: t2.publicId, dry_run: true });
+    expect((dry2.json.changes as Array<{ path: string }>).map((c) => c.path)).not.toContain("header.tagline");
+    expect(servedFrame(h, funnelPublic).header.tagline).toBe("ROASTC operator tagline");
+  });
+
+  it("an apply never WRITES a leaf of its own into the column — so a leaf found there is the operator's", async () => {
+    const h = harness();
+    const { funnelPublic } = await newPristineFunnel(h);
+    const t1 = await newSavedTemplate(h, "ROASTC F9 Sub One");
+    const t2 = await newSavedTemplateB(h, "ROASTC F9 Sub Two");
+    const nonIdentityLeaves = (): string[] =>
+      [...flat(column(h, funnelPublic)).keys()].filter((k) => k !== "template" && k !== "version").sort();
+
+    await req(h, "POST", `/funnels/${funnelPublic}/apply-template`, { template_id: t1.publicId });
+    // eslint-disable-next-line no-console
+    console.log("[F9 F-B] column leaves after apply #1 on a pristine funnel", JSON.stringify(nonIdentityLeaves()));
+    expect(nonIdentityLeaves(), "apply #1 materialises nothing the base already gives").toEqual([]);
+
+    await operatorSets(h, funnelPublic, "progress", "style", "percent");
+    const before = nonIdentityLeaves();
+    expect(before).toEqual(["progress.style"]);
+
+    // Applying twice more can only SHRINK that set (the operator authored
+    // nothing new); it can never grow, which is what makes "present in the
+    // column" mean "the operator chose it".
+    await req(h, "POST", `/funnels/${funnelPublic}/apply-template`, { template_id: t2.publicId });
+    for (const leaf of nonIdentityLeaves()) expect(before, `apply #2 invented ${leaf}`).toContain(leaf);
+    await req(h, "POST", `/funnels/${funnelPublic}/apply-template`, { template_id: t1.publicId });
+    for (const leaf of nonIdentityLeaves()) expect(before, `apply #3 invented ${leaf}`).toContain(leaf);
+  });
+});
+
+// =============================================================================
 d("P8 F4 — F-2: a variant's own template wins for that arm, so A/B templates produce two different arms", () => {
   it("fork an arm on an APPLIED funnel, point it at another template: the two arms render differently, leaf by leaf", async () => {
     const h = harness();
