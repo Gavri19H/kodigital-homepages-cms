@@ -34,10 +34,26 @@
 //              -> code "pattern", the spec's authored message, keyed to
 //              {base}_zip). The G3b address fix was scoped to the required
 //              path it drove and did NOT measure this one.
+//   validation_success_text / validation_success_address (G3d)
+//            — the LAST unmeasured sim state, on the same two field shapes.
+//              CANVAS = the Studio's own "Validation success" request
+//              ({state:"validation_success"}, no answers — the sample-answers
+//              textarea is empty unless the operator fills it). LIVE = a real
+//              visitor who FIRST hits Continue on the empty field (so the
+//              engine's own validation demonstrably ran on this field and
+//              painted its error) and THEN enters a value that SATISFIES the
+//              rule ("A perfectly valid note." / ZIP "90210"), which is the
+//              product moment the sim is named after. Both scenarios drive
+//              Continue themselves (`click:false`) and then, AFTER the
+//              measurement, click Continue once more (`after`) to prove the
+//              value really passes validateSection rather than merely looking
+//              unmarked.
 //
 // Per scenario: `sim` is the canvas request's sim block (default the required
-// path's {state:"error"}) and `drive` is what the live visitor does before
-// Continue (default: nothing — an empty required question).
+// path's {state:"error"}), `drive` is what the live visitor does before
+// Continue (default: nothing — an empty required question), `click` false
+// suppresses the loop's own Continue click (the drive owns it), and `after`
+// runs post-measurement and returns one diagnostic line.
 //
 // The section is restored to its stored baseline in a finally block.
 //
@@ -80,23 +96,64 @@ const ADDRESS_CONTENT = JSON.stringify({
   ],
 });
 
+// The plain-leaf contrast shape: the field block IS the <input> (presets
+// hydration stamps data-lg-question AND data-lg-field on it). Shared by the
+// "text" error scenario and the G3d success scenario.
+const TEXT_CONTENT = JSON.stringify({
+  components: [
+    {
+      type: "FreeTextQuestion",
+      question_id: "g3_q_note",
+      internal_field: "g3_probe_note",
+      answer_type: "string",
+      required: true,
+      props: { placeholder: "Anything we should know?" },
+    },
+    CONTINUE,
+  ],
+});
+
+// The live half of a G3d success drive: Continue on the still-empty field (the
+// engine paints its own error — proof it validated THIS field), then the
+// visitor enters a value that satisfies the rule.
+const speakingNow = (page) =>
+  page.evaluate(
+    () =>
+      [...document.querySelectorAll("[data-lg-error-for]")]
+        .filter((n) => !n.hasAttribute("hidden") && (n.textContent ?? "") !== "")
+        .map((n) => `${n.getAttribute("data-lg-error-for")}=${JSON.stringify(n.textContent)}`)
+        .join(" ") || "(none)",
+  );
+
+const enterValid = (locate, value) => async (page) => {
+  await page.locator("[data-lg-section]:not([hidden]) [data-lg-continue]").first().click();
+  await page.waitForTimeout(500);
+  // Printed so "live marks nothing" below cannot be "the engine never looked":
+  // step 1 must show the live page's OWN validation speaking.
+  console.log(`DRIVE step 1 — Continue on the EMPTY field, live speaking slots: ${await speakingNow(page)}`);
+  const input = locate(page);
+  await input.fill(value);
+  await input.blur();
+  await page.waitForTimeout(300);
+  console.log(`DRIVE step 2 — after entering ${JSON.stringify(value)}, live speaking slots: ${await speakingNow(page)}`);
+};
+
+// Post-measurement: one more Continue. A value that really satisfies the rule
+// makes validateSection return zero failures, so no slot speaks.
+const continueAndReport = async (page) => ({
+  ...(await page.evaluate(() => ({
+    visibleSections: document.querySelectorAll("[data-lg-section]:not([hidden])").length,
+    visibleSectionId:
+      document.querySelector("[data-lg-section]:not([hidden])")?.getAttribute("data-lg-section") ?? "(none)",
+  }))),
+  speaking: await speakingNow(page),
+});
+
 const SCENARIOS = [
   {
     name: "text",
     field: "g3_probe_note",
-    content: JSON.stringify({
-      components: [
-        {
-          type: "FreeTextQuestion",
-          question_id: "g3_q_note",
-          internal_field: "g3_probe_note",
-          answer_type: "string",
-          required: true,
-          props: { placeholder: "Anything we should know?" },
-        },
-        CONTINUE,
-      ],
-    }),
+    content: TEXT_CONTENT,
   },
   {
     name: "address",
@@ -118,6 +175,27 @@ const SCENARIOS = [
       await zip.fill("123");
       await zip.blur();
     },
+  },
+  {
+    name: "validation_success_text",
+    field: "g3_probe_note",
+    content: TEXT_CONTENT,
+    sim: { state: "validation_success" },
+    drive: enterValid((page) => page.locator('input[data-lg-field="g3_probe_note"]').first(), "A perfectly valid note."),
+    click: false,
+    after: continueAndReport,
+  },
+  {
+    name: "validation_success_address",
+    field: "g3_probe_addr",
+    content: ADDRESS_CONTENT,
+    sim: { state: "validation_success" },
+    drive: enterValid(
+      (page) => page.locator('[data-lg-field="g3_probe_addr_zip"] input[data-lg-input]').first(),
+      "90210",
+    ),
+    click: false,
+    after: continueAndReport,
   },
 ];
 
@@ -225,8 +303,23 @@ const canvasFacts = (html, field) => {
           marked: ins.filter((t) => /\baria-invalid="true"/.test(t)).length,
           total: ins.length,
           err: /\bclass="[^"]*\blg-error\b/.test(open),
+          // G3d: the success chrome preview-sim.ts markValidInSlice paints.
+          valid: /\bclass="[^"]*\blg-valid\b/.test(open),
         };
       }),
+    // G3d: EVERY element carrying the `.lg-valid` success class, in document
+    // order, identified by its question/field. Document-scoped on purpose —
+    // markValidInSlice marks the [data-lg-question] element, which for a group
+    // question is not the same element as any one [data-lg-field] subfield.
+    validEls: [...html.matchAll(/<[a-zA-Z][a-zA-Z0-9-]*\b[^>]*>/g)]
+      .map((m) => m[0])
+      .filter((t) => /\bclass="[^"]*\blg-valid\b[^"]*"/.test(t))
+      .map(
+        (t) =>
+          `${t.match(/^<([a-zA-Z0-9-]+)/)?.[1] ?? "?"}[q=${t.match(/data-lg-question="([^"]*)"/)?.[1] ?? "-"}|f=${
+            t.match(/data-lg-field="([^"]*)"/)?.[1] ?? "-"
+          }]`,
+      ),
   };
 };
 
@@ -276,8 +369,18 @@ const liveFacts = (field) =>
             marked: ins.filter((x) => x.getAttribute("aria-invalid") === "true").length,
             total: ins.length,
             err: n.classList.contains("lg-error"),
+            valid: n.classList.contains("lg-valid"),
           };
         }),
+      // G3d — the canvasFacts.validEls mirror (see its comment).
+      validEls: [...document.querySelectorAll(".lg-valid")].map(
+        (n) =>
+          `${n.tagName.toLowerCase()}[q=${n.getAttribute("data-lg-question") ?? "-"}|f=${
+            n.getAttribute("data-lg-field") ?? "-"
+          }]`,
+      ),
+      visibleSectionId:
+        document.querySelector("[data-lg-section]:not([hidden])")?.getAttribute("data-lg-section") ?? "(none)",
       stillOnPage1: document.querySelectorAll("[data-lg-section]:not([hidden])").length === 1,
     };
   })(field);
@@ -294,7 +397,7 @@ const restore = async () => {
 };
 
 let disagreements = 0;
-const ROWS_PER_SCENARIO = 7;
+const ROWS_PER_SCENARIO = 8;
 try {
   const b = await chromium.launch({ args: ["--host-resolver-rules=MAP r2fix.e2e.test 127.0.0.1"] });
   for (const sc of SCENARIOS) {
@@ -330,10 +433,18 @@ try {
     await p.goto(`http://r2fix.e2e.test:8901/lg/r2fix?_cb=${Date.now()}`, { waitUntil: "domcontentloaded" });
     await p.waitForSelector(`[data-lg-field="${sc.field}"]`, { timeout: 15000 });
     if (sc.drive !== undefined) await sc.drive(p);
-    await p.locator("[data-lg-section]:not([hidden]) [data-lg-continue]").first().click();
-    await p.waitForTimeout(600);
+    if (sc.click !== false) {
+      await p.locator("[data-lg-section]:not([hidden]) [data-lg-continue]").first().click();
+      await p.waitForTimeout(600);
+    }
     const live = await p.evaluate(liveFacts, sc.field);
     await p.screenshot({ path: `${SHOT_DIR}/g3b-live-error-${sc.name}-1280.png` });
+    let post = null;
+    if (sc.after !== undefined) {
+      await p.locator("[data-lg-section]:not([hidden]) [data-lg-continue]").first().click();
+      await p.waitForTimeout(900);
+      post = await sc.after(p);
+    }
     await p.close();
     console.log(`LIVE: pageerrors=${errs.length ? errs.slice(0, 2).join(" | ") : "none"}`);
 
@@ -347,7 +458,9 @@ try {
         .map((s) => `${s.field}=${JSON.stringify(s.text)}${s.hidden ? "(hidden)" : ""}`)
         .join(" ") || "(none)";
     const blockList = (list) =>
-      list.map((b) => `${b.field}:${b.marked}/${b.total}${b.err ? ":lg-error" : ""}`).join(" ") || "(none)";
+      list
+        .map((b) => `${b.field}:${b.marked}/${b.total}${b.err ? ":lg-error" : ""}${b.valid ? ":lg-valid" : ""}`)
+        .join(" ") || "(none)";
     const rows = [
       ['M-3   field block aria-invalid="true"', String(canvas.ariaInvalid), String(live.ariaInvalid)],
       ["M-4   error slot carries `hidden`", String(canvas.slotHidden), String(live.slotHidden)],
@@ -360,6 +473,11 @@ try {
       ],
       ["G3c-1 speaking slot(s) field=text", speaking(canvas.slots), speaking(live.slots)],
       ["G3c-2 per-block marked/total:class", blockList(canvas.blocks), blockList(live.blocks)],
+      [
+        "G3d-1 elements carrying `lg-valid`",
+        canvas.validEls.join(" ") || "(none)",
+        live.validEls.join(" ") || "(none)",
+      ],
     ];
     console.log("\naspect | canvas | live | agree");
     console.log("---|---|---|---");
@@ -404,6 +522,13 @@ try {
     console.log(`canvas slot  tag: ${canvas.slotTag.slice(0, 170)}`);
     console.log(`live   slot  tag: ${live.slotTag.slice(0, 170)} (display: ${live.slotDisplay})`);
     console.log(`live still on page 1 (Continue was blocked): ${live.stillOnPage1}`);
+    if (post !== null) {
+      console.log(
+        `POST-MEASUREMENT Continue with the valid answer: visible sections=${post.visibleSections}` +
+          ` · visible section ${live.visibleSectionId} -> ${post.visibleSectionId}` +
+          ` · speaking error slots=${post.speaking}`,
+      );
+    }
   }
   await b.close();
   console.log(`\nTOTAL DISAGREEMENTS (${SCENARIOS.length} scenarios x ${ROWS_PER_SCENARIO} rows): ${disagreements}`);

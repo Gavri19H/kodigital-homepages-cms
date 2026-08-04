@@ -1293,6 +1293,49 @@ describeDb("POST /sections/preview — §9.2 (E5) parameterization", () => {
     expect(slot.hidden, `the zip5 message must not be hidden: ${slot.open}`).toBe(false);
   });
 
+  it('sim "validation_success" on an AUTHORED address marks NO input and leaves every message slot switched off', async () => {
+    const { env } = newHarness();
+    const { status, body } = await postPreview(env, {
+      content_json: JSON.stringify(ADDR_CONTENT),
+      sim: { state: "validation_success" },
+    });
+    expect(status).toBe(200);
+    expect(body.preview.sim_state).toBe("validation_success");
+    const html = body.preview.desktop;
+
+    // MEASURED on the real product (scripts/p8/drive-g3-canvas-live-error.mjs,
+    // scenario validation_success_address — the last of the six §9.2 sim states
+    // to be driven). A live visitor who is first shown the required error and
+    // then types a ZIP that SATISFIES the rule ("90210") ends up with 0 of 4
+    // inputs marked, `lg-error` on no block, and all five slots — the four
+    // authored subfields and the group — `hidden` and empty, because the
+    // engine's input handler calls setFieldError(field, null). This is the
+    // half of validation_success the canvas already mirrors and it had no
+    // coverage at all: every existing validation_success assertion is on the
+    // FreeText shape (DEP_CONTENT), where the field block IS the input.
+    //
+    // The half the canvas does NOT mirror is deliberately NOT asserted here:
+    // the canvas paints `lg-valid` on the address's group <div>, and the live
+    // runtime paints that class on no element ever (the only two emitters of
+    // `lg-valid` in src/ are preview-sim.ts markValidInSlice and the CSS rule
+    // in designs/default-funnel/styles.ts). Pinning the canvas-only placement
+    // would freeze a measured divergence; it is reported, not asserted.
+    for (const field of ["addr", "addr_street", "addr_city", "addr_state", "addr_zip"]) {
+      const slot = errorSlot(html, field);
+      expect(slot.text, `the ${field} slot must stay empty`).toBe("");
+      expect(slot.hidden, `the ${field} slot must stay switched off: ${slot.open}`).toBe(true);
+    }
+    // WHICH inputs are marked — none of them, subfield by subfield.
+    expect(inputsByField(html)).toEqual([
+      { field: "addr_street", invalid: false },
+      { field: "addr_city", invalid: false },
+      { field: "addr_state", invalid: false },
+      { field: "addr_zip", invalid: false },
+    ]);
+    expect(fieldBlockTag(html, "addr")).not.toContain("lg-error");
+    expect(fieldBlockTag(html, "addr_zip")).not.toContain("lg-error");
+  });
+
   it('sim "dependency" via sim.answers drops the hidden LEAF while the container WRAPPER survives', async () => {
     const { env } = newHarness();
     const { status, body } = await postPreview(env, {
