@@ -119,6 +119,31 @@ NOT in `api/test/` — so `npm test` never runs them and they are a CLOSE-phase 
 `test-ui/leadgen-visual.spec.ts`, `test-ui/leadgen-v31-gate1c-baselines.spec.ts`
 (screenshots under `test-ui/__screenshots__/`). Never rebaseline either one.
 
+## ROOT-CAUSE PASS — required by the loop after 2 non-converging FIX-FIRST rounds
+
+**The pattern, three instances:** a fix writes a longer operator-facing string into a box nobody
+measured. (1) F2's `(legacy)` reintroduced the owner's jargon complaint — caught by verify:all.
+(2) F2's 29-35 char font labels re-created N7's truncation — caught by review #1. (3) F5's
+zero-preset placeholder replaced a string that FIT (218.67px) with one overflowing by +59.05px,
+clipping the very destination name the fix existed to add — caught by review #2.
+
+**Method failure, and it is the conductor's.** Each round fixed the reported instance and added a
+test bounded by the CONTAINER the instance lived in. F3 built a genuine box-fit invariant — over
+`.lg-scalars`. F5's new string renders in `.lg-preset-apply-row`, outside that class, so the
+invariant could not see it. That is the SAME lesson already written in this file two rounds earlier
+("an enumeration is only as closed as the universe it names"), now committed at the TEST level: I
+accepted universes named by container class instead of by the surface the operator looks at.
+
+**Why tier escalation does not apply literally:** the heavy slices already run Opus 5, the top of the
+ladder. The escalation is therefore in METHOD, not model — round 3 gets ONE universal invariant
+(every operator-facing control on the surface fits its box at 1280 AND 375, derived from the rendered
+markup, never from a container allowlist) instead of another per-instance fix.
+
+**Second conductor error this round:** F3 justified its 375 layout in prose ("the row is ~343px …
+this one takes the full 343px") and I accepted it without driving 375 myself. The product falsifies
+it: the manager's centre pane is 56.0px with 5.3% of the font select visible, and the `minmax(320px,1fr)`
+floor pins the track. A slice's geometric reasoning is a lead, not a measurement.
+
 ## Review #1 (P8-3): the two findings that indict the CONDUCTOR's method, not a slice
 
 **BLOCKER-1 — I measured the wrong universe, again.** N7's clause is "no select shows a truncated
