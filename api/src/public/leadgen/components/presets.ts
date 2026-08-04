@@ -3440,8 +3440,8 @@ export function leadgenAddressAnswerFields(
 // P8-5 L1 threaded it at answers.ts collectMapsAuctionFields (the §9 auction
 // facet). Omitting it keeps the pre-L1 fill-target answer byte-identically, and
 // sections-handlers.ts zipFieldsOfContent (the §12.8 admin ZIP-validation
-// report) still omits it — that file is outside this slice's ownership, so its
-// collision case is REPORTED, not fixed.
+// report) now threads it at line 2792 via collectAnswerKeyClaims, resolving the
+// collision case (`grep -n "collectAnswerKeyClaims" src/admin/leadgen/sections-handlers.ts` → line 2792).
 export function leadgenAddressZipAnswerField(
   node: LeadgenComponentNode,
   foreignAnswerKeys?: ReadonlySet<string>,
