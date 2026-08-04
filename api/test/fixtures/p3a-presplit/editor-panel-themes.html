@@ -32,7 +32,7 @@
   <h3>Colors</h3>
   <div id="lg-theme-palette"><div class="lg-theme-role-row" data-theme-role="brand_primary">
     <span class="lg-theme-swatch" data-role-swatch aria-hidden="true"></span>
-    <span class="lg-grow"><strong>Brand primary</strong><br /><span class="lg-used-by">Used by: stepper buttons, progress fill, focus ring</span></span>
+    <span class="lg-grow"><strong>Brand primary</strong><br /><span class="lg-used-by">Used by: stepper buttons, progress fill, focus ring, trust-row icons, list check marks</span></span>
     <span class="lg-inherit-tag" data-role-source>Base design</span>
     <details class="lg-theme-edit"><summary class="form-help">Edit</summary>
       <p class="form-help">Suggested from this design&#8217;s base value:</p>
@@ -120,7 +120,7 @@
     </details>
   </div><div class="lg-theme-role-row" data-theme-role="border">
     <span class="lg-theme-swatch" data-role-swatch aria-hidden="true"></span>
-    <span class="lg-grow"><strong>Border</strong><br /><span class="lg-used-by">Used by: answer card/input borders</span></span>
+    <span class="lg-grow"><strong>Border</strong><br /><span class="lg-used-by">Used by: answer card/input borders, progress steps, progress track</span></span>
     <span class="lg-inherit-tag" data-role-source>Base design</span>
     <details class="lg-theme-edit"><summary class="form-help">Edit</summary>
       <p class="form-help">Suggested from this design&#8217;s base value:</p>
@@ -247,85 +247,6 @@
 </div>
   </div>
   </div>
-  <script>
-(function () {
-  if (window.lgRevealClippedSelects) { return; }
-  function lgSelectedOptionText(sel) {
-    var idx = sel.selectedIndex;
-    if (typeof idx !== 'number' || idx < 0 || !sel.options || !sel.options[idx]) { return ''; }
-    return sel.options[idx].textContent || '';
-  }
-  function lgRevealClippedSelect(sel) {
-    if (!sel || !sel.tagName || String(sel.tagName).toUpperCase() !== 'SELECT') { return; }
-    var text = lgSelectedOptionText(sel);
-    if (sel.scrollWidth > sel.clientWidth && text !== '') {
-      sel.setAttribute('data-lg-clipped', '1');
-      sel.setAttribute('title', text);
-      if (sel.style) { sel.style.textOverflow = 'ellipsis'; }
-    } else if (sel.getAttribute && sel.getAttribute('data-lg-clipped') === '1') {
-      sel.removeAttribute('data-lg-clipped');
-      sel.removeAttribute('title');
-      if (sel.style) { sel.style.textOverflow = ''; }
-    }
-  }
-  function lgRevealClippedSelects(root) {
-    var scope = root && root.querySelectorAll ? root : document;
-    var all = scope.querySelectorAll ? scope.querySelectorAll('select') : [];
-    var i;
-    for (i = 0; i < all.length; i++) { lgRevealClippedSelect(all[i]); }
-  }
-  window.lgRevealClippedSelect = lgRevealClippedSelect;
-  window.lgRevealClippedSelects = lgRevealClippedSelects;
-  function lgSelectOfEvent(target) {
-    var el = target;
-    while (el && el.tagName) {
-      if (String(el.tagName).toUpperCase() === 'SELECT') { return el; }
-      el = el.parentNode;
-    }
-    return null;
-  }
-  function lgOnSelectEvent(e) {
-    var sel = lgSelectOfEvent(e.target);
-    if (sel) { lgRevealClippedSelect(sel); }
-  }
-  document.addEventListener('change', lgOnSelectEvent, true);
-  document.addEventListener('focusin', lgOnSelectEvent, true);
-  document.addEventListener('mouseover', lgOnSelectEvent, true);
-  var lgRevealQueued = false;
-  function lgQueueReveal() {
-    if (lgRevealQueued) { return; }
-    lgRevealQueued = true;
-    setTimeout(function () {
-      lgRevealQueued = false;
-      lgRevealClippedSelects(document);
-    }, 0);
-  }
-  function lgTouchesASelect(rec) {
-    if (rec.target && rec.target.nodeName === 'SELECT') { return true; }
-    var lists = [rec.addedNodes, rec.removedNodes];
-    var l, i, node;
-    for (l = 0; l < lists.length; l++) {
-      for (i = 0; lists[l] && i < lists[l].length; i++) {
-        node = lists[l][i];
-        if (!node || !node.nodeName) { continue; }
-        if (node.nodeName === 'SELECT' || node.nodeName === 'OPTION') { return true; }
-        if (node.getElementsByTagName && node.getElementsByTagName('select').length > 0) { return true; }
-      }
-    }
-    return false;
-  }
-  if (typeof MutationObserver === 'function' && document.body) {
-    new MutationObserver(function (records) {
-      var i;
-      for (i = 0; i < records.length; i++) {
-        if (lgTouchesASelect(records[i])) { lgQueueReveal(); return; }
-      }
-    }).observe(document.body, { childList: true, subtree: true });
-  }
-  document.addEventListener('DOMContentLoaded', lgQueueReveal);
-  lgRevealClippedSelects(document);
-}());
-</script>
   <script>
 (function () {
   'use strict';

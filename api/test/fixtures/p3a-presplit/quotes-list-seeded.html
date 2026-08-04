@@ -464,7 +464,7 @@ button.lg-publish-why-fix:focus-visible{outline:2px solid currentColor;outline-o
   <div class="table-wrapper">
     <table class="table table--sticky-edges leadgen-quotes-list" aria-label="Quotes list" data-lg-analytics data-analytics-from="2026-07-06" data-analytics-to="2026-08-04">
       <thead><tr><th scope="col">Name</th><th scope="col">Activity</th><th scope="col">Verticals</th><th scope="col" class="lg-num">Variants</th><th scope="col">A/B status</th><th scope="col" class="lg-num">Active sites</th><th scope="col" class="lg-num">Visits</th><th scope="col" class="lg-num">Completion rate</th><th scope="col" class="lg-num">Avg RPS</th><th scope="col" class="lg-num">Unfilled rate</th><th scope="col" class="lg-num">Revenue</th><th scope="col">Actions</th></tr></thead>
-      <tbody><tr data-entity-id="lgq_01KZ587VSWK2VNC5K8K0QKZQRQ" data-entity-name="&lt;img src=x onerror=alert(1)&gt;">
+      <tbody><tr data-entity-id="lgq_01KZ5CR9AJTTH69E9T6GTFC5X4" data-entity-name="&lt;img src=x onerror=alert(1)&gt;">
   <td>&lt;img src=x onerror=alert(1)&gt;</td>
   <td>quote_funnel</td>
   <td>life, health</td>
@@ -477,14 +477,14 @@ button.lg-publish-why-fix:focus-visible{outline:2px solid currentColor;outline-o
   <td class="lg-num" data-metric="unfilled_rate"><span class="skel" aria-hidden="true"></span></td>
   <td class="lg-num" data-metric="revenue"><span class="skel" aria-hidden="true"></span></td>
   <td><div class="table-actions">
-    <a href="/admin/leadgen/quotes/lgq_01KZ587VSWK2VNC5K8K0QKZQRQ/edit" class="btn btn-sm btn-secondary">Edit</a>
-    <div class="lg-kebab" data-kebab><button type="button" class="btn btn-sm btn-outline lg-kebab-btn" data-kebab-toggle data-kebab-target="lg-kebab-menu-1" aria-haspopup="true" aria-expanded="false" aria-label="More actions for &amp;lt;img src=x onerror=alert(1)&amp;gt;">&#8942;</button><div class="lg-kebab-menu" id="lg-kebab-menu-1" data-kebab-menu hidden role="menu"><button type="button" class="lg-kebab-item" role="menuitem" data-quote-duplicate="lgq_01KZ587VSWK2VNC5K8K0QKZQRQ" data-entity-name="&lt;img src=x onerror=alert(1)&gt;">Duplicate</button>
-    <button type="button" class="lg-kebab-item" role="menuitem" data-quote-usage="lgq_01KZ587VSWK2VNC5K8K0QKZQRQ" aria-expanded="false">Usage</button>
-    <button type="button" class="lg-kebab-item lg-kebab-danger" role="menuitem" data-quote-archive="lgq_01KZ587VSWK2VNC5K8K0QKZQRQ" data-entity-name="&lt;img src=x onerror=alert(1)&gt;">Archive</button>
-    <button type="button" class="lg-kebab-item lg-kebab-danger" role="menuitem" data-quote-delete="lgq_01KZ587VSWK2VNC5K8K0QKZQRQ" data-entity-name="&lt;img src=x onerror=alert(1)&gt;">Delete</button></div></div>
+    <a href="/admin/leadgen/quotes/lgq_01KZ5CR9AJTTH69E9T6GTFC5X4/edit" class="btn btn-sm btn-secondary">Edit</a>
+    <div class="lg-kebab" data-kebab><button type="button" class="btn btn-sm btn-outline lg-kebab-btn" data-kebab-toggle data-kebab-target="lg-kebab-menu-1" aria-haspopup="true" aria-expanded="false" aria-label="More actions for &amp;lt;img src=x onerror=alert(1)&amp;gt;">&#8942;</button><div class="lg-kebab-menu" id="lg-kebab-menu-1" data-kebab-menu hidden role="menu"><button type="button" class="lg-kebab-item" role="menuitem" data-quote-duplicate="lgq_01KZ5CR9AJTTH69E9T6GTFC5X4" data-entity-name="&lt;img src=x onerror=alert(1)&gt;">Duplicate</button>
+    <button type="button" class="lg-kebab-item" role="menuitem" data-quote-usage="lgq_01KZ5CR9AJTTH69E9T6GTFC5X4" aria-expanded="false">Usage</button>
+    <button type="button" class="lg-kebab-item lg-kebab-danger" role="menuitem" data-quote-archive="lgq_01KZ5CR9AJTTH69E9T6GTFC5X4" data-entity-name="&lt;img src=x onerror=alert(1)&gt;">Archive</button>
+    <button type="button" class="lg-kebab-item lg-kebab-danger" role="menuitem" data-quote-delete="lgq_01KZ5CR9AJTTH69E9T6GTFC5X4" data-entity-name="&lt;img src=x onerror=alert(1)&gt;">Delete</button></div></div>
   </div></td>
 </tr>
-<tr class="lg-usage-row" data-quote-usage-row="lgq_01KZ587VSWK2VNC5K8K0QKZQRQ" hidden>
+<tr class="lg-usage-row" data-quote-usage-row="lgq_01KZ5CR9AJTTH69E9T6GTFC5X4" hidden>
   <td colspan="12"><div class="lg-usage-panel" data-quote-usage-panel role="status" aria-live="polite"></div></td>
 </tr></tbody>
     </table>
@@ -590,6 +590,103 @@ if (!document.getElementById('toast-animations')) {
   toastStyle.textContent = '@keyframes toastSlideIn{from{transform:translateX(100%);opacity:0}to{transform:translateX(0);opacity:1}}@keyframes toastSlideOut{from{transform:translateX(0);opacity:1}to{transform:translateX(100%);opacity:0}}';
   document.head.appendChild(toastStyle);
 }
+
+(function () {
+  if (window.lgRevealClippedSelects) { return; }
+  function lgSelectedOptionText(sel) {
+    var idx = sel.selectedIndex;
+    if (typeof idx !== 'number' || idx < 0 || !sel.options || !sel.options[idx]) { return ''; }
+    return sel.options[idx].textContent || '';
+  }
+  function lgOverflows(sel) {
+    if (sel.scrollWidth > sel.clientWidth) { return true; }
+    if (!sel.getAttribute || sel.getAttribute('data-lg-clipped') !== '1' || !sel.style) { return false; }
+    var prev = sel.style.textOverflow;
+    sel.style.textOverflow = 'clip';
+    var over = sel.scrollWidth > sel.clientWidth;
+    sel.style.textOverflow = prev;
+    return over;
+  }
+  function lgRevealClippedSelect(sel) {
+    if (!sel || !sel.tagName || String(sel.tagName).toUpperCase() !== 'SELECT') { return; }
+    var text = lgSelectedOptionText(sel);
+    if (text !== '' && lgOverflows(sel)) {
+      sel.setAttribute('data-lg-clipped', '1');
+      sel.setAttribute('title', text);
+      if (sel.style) { sel.style.textOverflow = 'ellipsis'; }
+    } else if (sel.getAttribute && sel.getAttribute('data-lg-clipped') === '1') {
+      sel.removeAttribute('data-lg-clipped');
+      sel.removeAttribute('title');
+      if (sel.style) { sel.style.textOverflow = ''; }
+    }
+  }
+  function lgRevealClippedSelects(root) {
+    var scope = root && root.querySelectorAll ? root : document;
+    var all = scope.querySelectorAll ? scope.querySelectorAll('select') : [];
+    var i;
+    for (i = 0; i < all.length; i++) { lgRevealClippedSelect(all[i]); }
+  }
+  window.lgRevealClippedSelect = lgRevealClippedSelect;
+  window.lgRevealClippedSelects = lgRevealClippedSelects;
+  function lgSelectOfEvent(target) {
+    var el = target;
+    while (el && el.tagName) {
+      if (String(el.tagName).toUpperCase() === 'SELECT') { return el; }
+      el = el.parentNode;
+    }
+    return null;
+  }
+  function lgOnSelectEvent(e) {
+    var sel = lgSelectOfEvent(e.target);
+    if (sel) { lgRevealClippedSelect(sel); }
+  }
+  document.addEventListener('change', lgOnSelectEvent, true);
+  document.addEventListener('focusin', lgOnSelectEvent, true);
+  document.addEventListener('mouseover', lgOnSelectEvent, true);
+  var lgRevealQueued = false;
+  function lgQueueReveal() {
+    if (lgRevealQueued) { return; }
+    lgRevealQueued = true;
+    setTimeout(function () {
+      lgRevealQueued = false;
+      lgRevealClippedSelects(document);
+    }, 0);
+  }
+  function lgIsSelectPart(node) {
+    if (!node || !node.nodeName) { return false; }
+    var name = node.nodeName;
+    return name === 'SELECT' || name === 'OPTION' || name === 'OPTGROUP';
+  }
+  function lgTouchesASelect(rec) {
+    if (lgIsSelectPart(rec.target)) { return true; }
+    if (rec.target && lgIsSelectPart(rec.target.parentNode)) { return true; }
+    var lists = [rec.addedNodes, rec.removedNodes];
+    var l, i, node;
+    for (l = 0; l < lists.length; l++) {
+      for (i = 0; lists[l] && i < lists[l].length; i++) {
+        node = lists[l][i];
+        if (!node || !node.nodeName) { continue; }
+        if (node.nodeName === 'SELECT' || node.nodeName === 'OPTION') { return true; }
+        if (node.getElementsByTagName && node.getElementsByTagName('select').length > 0) { return true; }
+      }
+    }
+    return false;
+  }
+  if (typeof MutationObserver === 'function' && document.body) {
+    new MutationObserver(function (records) {
+      var i;
+      for (i = 0; i < records.length; i++) {
+        if (lgTouchesASelect(records[i])) { lgQueueReveal(); return; }
+      }
+    }).observe(document.body, { childList: true, subtree: true, characterData: true });
+  }
+  document.addEventListener('DOMContentLoaded', lgQueueReveal);
+  if (window.addEventListener) { window.addEventListener('resize', lgQueueReveal); }
+  if (document.fonts && document.fonts.ready && document.fonts.ready.then) {
+    document.fonts.ready.then(lgQueueReveal);
+  }
+  lgRevealClippedSelects(document);
+}());
 
 (function () {
   function resetMenuPosition(menu) {
