@@ -50,6 +50,14 @@ import { COMPONENT_CATALOG } from "../../public/leadgen/components/registry";
 import type { ComponentType } from "../../public/leadgen/components/registry";
 import { flattenComponents } from "../../public/leadgen/components/content-schema";
 import type { LeadgenComponentNode } from "../../public/leadgen/components/content-schema";
+// R2 P8-5 W1: the section context m9AddressRenderedFieldName needs, exported
+// (P8-5 L1) for exactly this kind of non-rendering consumer — which answer keys
+// this section's OTHER nodes already claim, so a props.maps.fills rename that
+// the RENDERER declined is not re-applied by a mirror that never saw the render.
+import {
+  collectAnswerKeyClaims,
+  foreignAnswerKeysIn,
+} from "../../public/leadgen/components/presets";
 import type { DefaultFunnelDesign } from "../../public/leadgen/designs/default-funnel/tokens";
 // R2 P8-5 H3 (MAJOR-2): the leaf rule inventory below reads the REAL producer
 // and the REAL predicate instead of re-deriving either. toPublicComponent is
@@ -303,19 +311,48 @@ function markValidInSlice(slice: string): string {
 // authored-address per-subfield rule — runtime/validation.ts mirror (read-only)
 // ---------------------------------------------------------------------------
 
-// validation.ts addressFieldKey: the answer key ONE authored address field spec
-// records under — props.maps.fills.<kind> override, else `{base}_{kind}`, and a
-// `full_address` spec records under the base itself. Base = internal_field ??
-// question_id (validation.ts addressBase; presets.ts renderAddressFieldSet uses
-// the same ladder for the data-lg-field it stamps on each subfield wrapper).
-function addressFieldKey(node: LeadgenComponentNode, kind: string): string {
+// The answer key ONE authored address field spec's box CARRIES — props.maps
+// .fills.<kind> override, else `{base}_{kind}`, and a `full_address` spec under
+// the base itself. Base = internal_field ?? question_id (validation.ts
+// addressBase; presets.ts renderAddressFieldSet uses the same ladder for the
+// data-lg-field it stamps on each subfield wrapper).
+//
+// R2 P8-5 W1 — `foreign` (the keys this section's OTHER nodes claim) makes this
+// presets.ts m9AddressRenderedFieldName, not the context-free m9AddressFieldName
+// it used to be: a fills rename onto a key another node already answers is
+// DECLINED by the renderer and the box keeps `{base}_{kind}`. Every consumer of
+// this function feeds applyErrorToField, which resolves `[data-lg-field="<key>"]`
+// inside the REAL rendered markup — so re-applying a declined rename aimed the
+// canvas's error chrome at the SIBLING QUESTION'S input.
+//
+// MEASURED before this change (scripts/p8/probe-p85w1-zipkey.mts, real
+// renderSectionComponents over one Address `l1_addr` with
+// props.maps.fills={"zip":"pcx"} plus a sibling FreeText whose internal_field is
+// "pcx"): the rendered input keys are ["l1_addr_street","l1_addr_zip","pcx"] —
+// the ZIP box carries `l1_addr_zip`, and `pcx` is the sibling's own box.
+//
+// NOTE, live is NOT yet in agreement: runtime/validation.ts addressFieldKey
+// still reads the RAW `props.maps.fills` that config-dto.ts toPublicComponent
+// copies verbatim into the client config, so the same probe shows live's
+// validateSection keying its zip_format failure to "pcx". Carrying the section
+// claims into the runtime measured +499 bytes against 124 free (53623 vs the
+// 53248 cap), so the resolution belongs in the producer (config-dto) — reported,
+// not fixed here.
+function addressFieldKey(
+  node: LeadgenComponentNode,
+  kind: string,
+  foreign: ReadonlySet<string>,
+): string {
   const own = typeof node.internal_field === "string" ? node.internal_field.trim() : "";
   const base = own !== "" ? own : node.question_id;
   if (kind === "full_address") return base;
   const maps = (node.props ?? {})["maps"];
   const fills = isRecord(maps) ? maps["fills"] : undefined;
   const override = isRecord(fills) ? fills[kind] : undefined;
-  return typeof override === "string" && override.trim() !== "" ? override.trim() : `${base}_${kind}`;
+  const slot = `${base}_${kind}`;
+  const named =
+    typeof override === "string" && override.trim() !== "" ? override.trim() : slot;
+  return named !== slot && foreign.has(named) ? slot : named;
 }
 
 // Message copy — runtime/validation.ts verbatim (parity, never invented copy).
@@ -450,6 +487,7 @@ function leafFormatMessage(node: LeadgenComponentNode): string | null {
 // the visitor gets PER-SUBFIELD failures or the whole-group one.
 function addressFieldSpecs(
   node: LeadgenComponentNode,
+  foreign: ReadonlySet<string>,
 ): Array<{ key: string; required: boolean; formatMessage: string | null }> | null {
   if (node.type !== "AddressAutocompleteQuestion") return null;
   const specs = (node.props ?? {})["fields"];
@@ -460,7 +498,7 @@ function addressFieldSpecs(
     const kind = spec["field"];
     if (typeof kind !== "string") continue;
     out.push({
-      key: addressFieldKey(node, kind),
+      key: addressFieldKey(node, kind, foreign),
       required: spec["required"] === true,
       formatMessage: addressFormatMessage(spec),
     });
@@ -563,6 +601,14 @@ export function applyPreviewSimMarkup(
 ): string {
   const leaves = simLeaves(nodes, opts.visibleIds);
   const answered = leaves.filter((l) => l.field !== "" && isAnsweredValue(opts.answers[l.field]));
+  // R2 P8-5 W1 — the section's answer-key claim map, built ONCE from the SAME
+  // node array simLeaves flattened. collectAnswerKeyClaims discriminates by node
+  // OBJECT IDENTITY and flattenComponents pushes the very nodes it was handed
+  // (never copies), so `leaf.node` is the same object the map holds and a node
+  // can never see its own keys as foreign.
+  const answerKeyClaims = collectAnswerKeyClaims(nodes);
+  const foreignFor = (node: LeadgenComponentNode): ReadonlySet<string> =>
+    foreignAnswerKeysIn(answerKeyClaims, node);
 
   let out = html;
 
@@ -594,7 +640,7 @@ export function applyPreviewSimMarkup(
       // the message in the group slot, and the ZIP slot the visitor actually
       // reads left empty and hidden. The canvas was showing an error state the
       // live page cannot produce, and hiding the one it does.
-      const specs = addressFieldSpecs(leaf.node);
+      const specs = addressFieldSpecs(leaf.node, foreignFor(leaf.node));
       if (specs !== null) {
         for (const spec of specs) {
           if (!spec.required || isAnsweredValue(opts.answers[spec.key])) continue;
@@ -635,7 +681,7 @@ export function applyPreviewSimMarkup(
         // instead lighting the whole GROUP — 4 of 4 inputs, lg-error on the
         // fieldset, and the generic "The value has an invalid format." in the
         // group slot that live leaves `hidden` and empty.
-        const specs = addressFieldSpecs(leaf.node);
+        const specs = addressFieldSpecs(leaf.node, foreignFor(leaf.node));
         if (specs !== null) {
           for (const spec of specs) {
             // No format rule ⇒ live has no format failure to show for this
