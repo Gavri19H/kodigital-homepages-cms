@@ -23,6 +23,8 @@ import {
   type LeadgenComponentNode,
 } from "../src/public/leadgen/components/content-schema";
 import { toPublicComponent, expandPublicComponents } from "../src/public/leadgen/config-dto";
+import { renderSectionComponents } from "../src/public/leadgen/components/presets";
+import { defaultFunnelDesign } from "../src/public/leadgen/designs/default-funnel/tokens";
 import { COMPONENT_CATALOG, COMPONENT_CAPABILITIES } from "../src/public/leadgen/components/registry";
 import { normalizeAnswers } from "../src/leadgen/answers";
 import { validateValue } from "../src/public/leadgen/runtime/validation";
@@ -486,5 +488,106 @@ describe("§6 seam — legacy tolerance + fail-safe on unknown types", () => {
       const projected = expandPublicComponents(node);
       expect(Array.isArray(projected), type).toBe(true);
     }
+  });
+});
+
+// ===========================================================================
+// R2 P8-6 Q3 — the field universe names the key the MARKUP actually carries
+// ===========================================================================
+// The renderer DECLINES a props.maps.fills.<slot> rename whose target another
+// question in the same section already answers (presets.ts
+// m9AddressRenderedFieldName): the address's ZIP box keeps `{base}_zip` so two
+// boxes can never post the same key. collectKnownAnswerFields did not know
+// that, so the rules rail's answer_fields blob listed the fill target and NOT
+// `addr_zip` — the key every visitor's ZIP box actually posts. A rule forced
+// onto the real key stored checkpoint_page: null and the rail warned "This rule
+// can never apply", about a field every visitor answers.
+//
+// The expectation side is the REAL markup: the [data-lg-field] keys
+// renderSectionComponents stamps on the address's own boxes (E11 — never a
+// hand-built expectation facing a hand-built input). BOTH directions are
+// pinned, because naming both candidate names instead would charge the address
+// a phantom key — the P8-5 payload-builder defect.
+describe("R2 P8-6 Q3 — collectKnownAnswerFields == the Address keys the markup carries", () => {
+  const ADDR: Node = {
+    type: "AddressAutocompleteQuestion",
+    question_id: "q_addr",
+    internal_field: "addr",
+    props: { maps: { enabled: true, fills: { zip: "postal_code_x" } } },
+  };
+  // A sibling that ANSWERS `postal_code_x` (so the renderer declines the
+  // rename) while contributing that bare name to the universe from NOWHERE
+  // else: a dual_range slider's own base is deliberately excluded from the
+  // universe (the §6.8 parity pinned above — only {base}_min/{base}_max). So
+  // `postal_code_x` showing up in the universe can ONLY be the address
+  // over-claiming it, which is exactly the phantom a both-names hedge creates.
+  const ZIP_SIBLING: Node = {
+    type: "NumberRangeQuestion",
+    question_id: "q_pcx",
+    internal_field: "postal_code_x",
+    answer_type: "object",
+    props: { min: 0, max: 100, slider_type: "dual_range" },
+  };
+
+  // The keys the REAL markup stamps on the ADDRESS's own subfield boxes
+  // (renderAddressFieldSet's [data-lg-field] wrappers), in render order.
+  const addressBoxKeys = (nodes: Node[]): string[] =>
+    [
+      ...renderSectionComponents(
+        nodes as unknown as LeadgenComponentNode[],
+        defaultFunnelDesign,
+      ).matchAll(/<span class="lg-address-field-wrap"[^>]*data-lg-field="([^"]+)"/g),
+    ].map((m) => m[1] ?? "");
+
+  it("WITHOUT a colliding sibling the LEGAL rename is the known key (and {base}_zip is not invented)", () => {
+    const rendered = addressBoxKeys([ADDR]);
+    expect(rendered).toContain("postal_code_x"); // renderer honored the rename
+    expect(rendered).not.toContain("addr_zip");
+    const universe = collectKnownAnswerFields([ADDR]);
+    expect(rendered.filter((k) => !universe.has(k))).toEqual([]);
+    expect(universe.has("addr_zip")).toBe(false);
+  });
+
+  it("WITH a colliding sibling the RENDERED {base}_zip is a known field", () => {
+    const rendered = addressBoxKeys([ADDR, ZIP_SIBLING]);
+    expect(rendered).toContain("addr_zip"); // renderer declined the rename
+    expect(rendered).not.toContain("postal_code_x");
+    const universe = collectKnownAnswerFields([ADDR, ZIP_SIBLING]);
+    expect(rendered.filter((k) => !universe.has(k))).toEqual([]);
+  });
+
+  it("WITH a colliding sibling the fill target is NOT ALSO charged to the address (no phantom key)", () => {
+    const universe = collectKnownAnswerFields([ADDR, ZIP_SIBLING]);
+    expect(universe.has("postal_code_x")).toBe(false);
+    expect([...universe].filter((k) => k.startsWith("addr_")).sort()).toEqual([
+      "addr_city",
+      "addr_state",
+      "addr_street",
+      "addr_zip",
+    ]);
+  });
+
+  it("SWEEP: the grid's inner dependency gate resolves a child Address against the WHOLE section", () => {
+    // validateQuestionGridDependencies enumerates each child's OWN fields. With
+    // no section around that child, the address was credited with the fill
+    // target, so a group sibling's rule on the key the box REALLY carries was
+    // rejected as "not another question in this group" — the same class, at the
+    // save gate.
+    const content = {
+      components: [
+        {
+          type: "QuestionGrid",
+          question_id: "qg",
+          props: { gap: "m" },
+          children: [
+            ADDR,
+            ZIP_SIBLING,
+            { ...buttons(), question_id: "q_dep", internal_field: "dep", conditional: { when: "addr_zip", op: "eq", value: "12345" } },
+          ],
+        },
+        { type: "ContinueButton", question_id: "q_continue", props: { label: "Continue" } },
+      ],
+    };
+    expect(validateSectionContent(content).errors.map((e) => `${e.code} ${e.path}`)).toEqual([]);
   });
 });

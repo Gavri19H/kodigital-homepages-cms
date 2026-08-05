@@ -2953,8 +2953,11 @@ function validateMapsFills(
 // pre-M9 (the seam). The compiled DTO carries props.fields[] verbatim (config-
 // dto passthrough) so the S2.3 runtime validateSection applies the per-field
 // rules; the field-NAME universe (collectKnownAnswerFields / answers.ts
-// fieldsOf) is UNCHANGED — it still derives from internal_fields/maps.fills, so
-// this metadata never shifts the answer space (the M9 migration invariant).
+// fieldsOf) is UNCHANGED — it still derives from internal_fields/maps.fills
+// (P8-6 Q3: plus the keys the section's OTHER questions answer, which is what
+// decides whether a maps.fills rename survives — see addressRenderedRoleName),
+// never from props.fields[], so this metadata never shifts the answer space
+// (the M9 migration invariant).
 function validateAddressFields(
   value: unknown,
   path: string,
@@ -3273,17 +3276,29 @@ const QUESTION_GRID_FORBIDDEN_PROPS: Readonly<Record<string, string>> = {
 // is resolved with collectKnownAnswerFields (the SAME enumerator the whole-tree
 // universe uses), so a dual-range slider's _min/_max, an Address role and a
 // NameFields sub-field are all legal triggers inside a grid too.
+//
+// R2 P8-6 Q3: per-CHILD enumeration, but resolved against the WHOLE section
+// (`foreignAnswerKeysFor`, built once in Pass 1 over rawComponents). A grid
+// child's own field list is otherwise derived with no section around it, so an
+// Address child whose props.maps.fills.<slot> rename collides with any other
+// question — inside the grid or outside it — would be attributed the fill
+// target while its box actually posts `{base}_{slot}`, and a sibling rule
+// pointing at the REAL key would be rejected as "not another question in this
+// group" (same operator-visible class as the rules-rail gap this fixes).
 function validateQuestionGridDependencies(
   children: readonly unknown[],
   childPath: (index: number) => string,
   push: (code: SectionContentErrorCode, path: string, message: string) => void,
+  foreignAnswerKeysFor: LeadgenForeignAnswerKeyLookup,
 ): void {
   const fieldOwner = new Map<string, number>();
   const ownFields: Array<ReadonlySet<string>> = [];
   const labelOf: string[] = [];
   for (let i = 0; i < children.length; i++) {
     const child = children[i];
-    const fields = isRecord(child) ? collectKnownAnswerFields([child]) : new Set<string>();
+    const fields = isRecord(child)
+      ? knownAnswerFieldsIn([child], foreignAnswerKeysFor)
+      : new Set<string>();
     ownFields.push(fields);
     labelOf.push(
       isRecord(child) && isNonEmptyString(child["question_id"]) ? child["question_id"] : `#${i + 1}`,
@@ -3406,7 +3421,11 @@ export function validateSectionContent(
   // (quotes-handlers.ts computeVariantPreflightBlocks) consumes, so save-time
   // validation and activation-time validation can never disagree on which fields
   // exist (Round-4 P7: one collector, no activation-only "missing field" hole).
-  const knownFields = collectKnownAnswerFields(rawComponents);
+  // R2 P8-6 Q3: ONE section-context lookup for the whole validation — the
+  // universe below and every per-child grid enumeration resolve an Address
+  // role's rename collision against the SAME section the renderer sees.
+  const foreignAnswerKeysFor = collectForeignAnswerKeyLookup(rawComponents);
+  const knownFields = knownAnswerFieldsIn(rawComponents, foreignAnswerKeysFor);
 
   const seenQuestionIds = new Set<string>();
   const seenQuestionKeys = new Set<string>();
@@ -3680,6 +3699,7 @@ export function validateSectionContent(
             gridChildren,
             (j) => `${base}.children[${j}]`,
             push,
+            foreignAnswerKeysFor,
           );
         }
       }
@@ -4135,6 +4155,123 @@ function validateConditional(
 // Round-4 P7 — THE shared answer-field enumerator + conditional-reference reader
 // ---------------------------------------------------------------------------
 //
+// R2 P8-6 Q3 — an Address role's answer key is a property of the SECTION, not
+// of the Address node alone. The renderer DECLINES a props.maps.fills.<slot>
+// rename whose target another question in the same section already answers
+// (presets.ts m9AddressRenderedFieldName): the box keeps the role's own
+// `{base}_{slot}` so the two questions cannot post the same key. The helpers
+// below read that resolution out instead of re-deciding it.
+//
+// MEASURED before this fix, on [ADDR(internal_field "addr", question_id
+// "q_addr", props.maps.fills.zip "postal_code_x"), SIB(internal_field
+// "postal_code_x")], from api/ via npx tsx:
+//   renderSectionComponents  data-lg-field: addr addr_city addr_state addr_street addr_zip postal_code_x
+//   collectKnownAnswerFields:              addr addr_city addr_state addr_street postal_code_x q_addr q_pcx
+// — `addr_zip`, the key every visitor's ZIP box posts, was NOT in the universe,
+// so a rule the operator forced onto it stored checkpoint_page: null and the
+// rules rail warned "This rule can never apply". Naming BOTH names instead
+// would charge the address a phantom `postal_code_x` (the P8-5 payload-builder
+// defect): each role carries exactly ONE key, and the section decides which.
+const ADDRESS_ANSWER_SLOTS = ["street", "city", "state", "zip"] as const;
+
+// `${internal_field || question_id || 'address'}` — the same precedence
+// presets.ts m9AddressBase and runtime/validation.ts addressBase use.
+function addressAnswerBase(raw: Record<string, unknown>): string {
+  const ifRaw = raw["internal_field"];
+  if (typeof ifRaw === "string" && ifRaw.trim() !== "") return ifRaw.trim();
+  return isNonEmptyString(raw["question_id"]) ? raw["question_id"] : "address";
+}
+
+function addressFillTargets(raw: Record<string, unknown>): Record<string, unknown> {
+  const props = isRecord(raw["props"]) ? raw["props"] : {};
+  const maps = isRecord(props["maps"]) ? props["maps"] : {};
+  return isRecord(maps["fills"]) ? maps["fills"] : {};
+}
+
+// One role's authored rename target, or "" when the author named none.
+function addressFillTargetFor(fills: Record<string, unknown>, slot: string): string {
+  const f = fills[slot];
+  return typeof f === "string" && f.trim() !== "" ? f.trim() : "";
+}
+
+// The key ONE Address role's box actually carries, given the keys the OTHER
+// questions of the section answer: presets.ts m9AddressRenderedFieldName.
+function addressRenderedRoleName(
+  base: string,
+  fills: Record<string, unknown>,
+  slot: string,
+  foreignAnswerKeys: ReadonlySet<string>,
+): string {
+  const own = `${base}_${slot}`;
+  const named = addressFillTargetFor(fills, slot) || own;
+  if (named === own) return own;
+  return foreignAnswerKeys.has(named) ? own : named;
+}
+
+// props.fields[0]/[1], default 'first'/'last'.
+function nameGroupPartNames(raw: Record<string, unknown>): [string, string] {
+  const props = isRecord(raw["props"]) ? raw["props"] : {};
+  const parts = Array.isArray(props["fields"]) ? props["fields"] : [];
+  return [
+    typeof parts[0] === "string" && parts[0].trim() !== "" ? parts[0].trim() : "first",
+    typeof parts[1] === "string" && parts[1].trim() !== "" ? parts[1].trim() : "last",
+  ];
+}
+
+// "Which keys does a node OTHER than this one answer?" — the section context
+// addressRenderedRoleName needs, over the SAME leaf set (flattenComponents) and
+// the SAME per-node derivation presets.ts collectAnswerKeyClaims uses at render
+// time, so the universe and the markup cannot disagree:
+//   * node OBJECT identity is the discriminator (flattenComponents pushes the
+//     very nodes it was handed), so a node never sees its own keys as foreign;
+//   * a ValidationError REPORTS on a field, it never answers one;
+//   * claims are the UNSUPPRESSED union — BOTH a rename's target and the role's
+//     own `{base}_{slot}` — because the suppression decision is what they feed.
+// Returned as a lookup so a per-child caller (validateQuestionGridDependencies)
+// can resolve one node against the WHOLE section rather than against itself.
+export type LeadgenForeignAnswerKeyLookup = (node: object) => ReadonlySet<string>;
+
+export function collectForeignAnswerKeyLookup(
+  components: readonly unknown[],
+): LeadgenForeignAnswerKeyLookup {
+  const owners = new Map<string, object[]>();
+  const claim = (key: unknown, node: object): void => {
+    if (typeof key !== "string" || key.trim() === "") return;
+    const k = key.trim();
+    const list = owners.get(k);
+    if (list === undefined) owners.set(k, [node]);
+    else if (!list.includes(node)) list.push(node);
+  };
+  for (const leaf of flattenComponents(components as readonly LeadgenComponentNode[])) {
+    if (!isRecord(leaf)) continue;
+    if (leaf["type"] === "ValidationError") continue;
+    claim(leaf["internal_field"], leaf);
+    if (leaf["type"] === "AddressAutocompleteQuestion") {
+      const base = addressAnswerBase(leaf);
+      const fills = addressFillTargets(leaf);
+      for (const slot of ADDRESS_ANSWER_SLOTS) {
+        claim(`${base}_${slot}`, leaf);
+        claim(addressFillTargetFor(fills, slot), leaf);
+      }
+    } else if (leaf["type"] === "NameFieldsGroup") {
+      const [first, last] = nameGroupPartNames(leaf);
+      claim(first, leaf);
+      claim(last, leaf);
+    }
+  }
+  const cache = new Map<object, ReadonlySet<string>>();
+  return (node: object): ReadonlySet<string> => {
+    const hit = cache.get(node);
+    if (hit !== undefined) return hit;
+    const out = new Set<string>();
+    for (const [key, list] of owners) {
+      if (list.some((owner) => owner !== node)) out.add(key);
+    }
+    cache.set(node, out);
+    return out;
+  };
+}
+
 // collectKnownAnswerFields is THE one field-set collector every server-side
 // dependency gate consumes: save-time validateSectionContent (Pass 1 above) AND
 // activation-time computeVariantPreflightBlocks (quotes-handlers.ts) both call
@@ -4142,9 +4279,11 @@ function validateConditional(
 // tree — every node's top-level internal_field / question_key / question_id,
 // PLUS the MULTI-SUBFIELD classes that carry NO single internal_field yet each
 // name a real answer a rule can reference:
-//   * AddressAutocompleteQuestion — its four role sub-fields (a configured
-//     props.maps.fills.<slot> wins, else the node-namespaced
-//     `${internal_field || question_id || 'address'}_<slot>`);
+//   * AddressAutocompleteQuestion — its four role sub-fields, each resolved the
+//     way the RENDERER resolves it: a configured props.maps.fills.<slot> wins
+//     UNLESS another question in this section already answers that key, in which
+//     case the box (and so this universe) keeps the node-namespaced
+//     `${internal_field || question_id || 'address'}_<slot>`;
 //   * NameFieldsGroup — its first/last field names (props.fields[0]/[1], default
 //     'first'/'last');
 //   * a dual_range / from_to NumberRangeQuestion — its {base}_min / {base}_max.
@@ -4154,6 +4293,16 @@ function validateConditional(
 // the activation-only "Address/Name row is a missing field" 409). Depth-
 // capped like every other tree walk (terminates on cyclic / over-deep junk).
 export function collectKnownAnswerFields(components: readonly unknown[]): Set<string> {
+  return knownAnswerFieldsIn(components, collectForeignAnswerKeyLookup(components));
+}
+
+// The same enumerator with the section context supplied from OUTSIDE, for a
+// caller that must enumerate ONE node's own fields (a grid child) while still
+// resolving its Address roles against the whole section.
+function knownAnswerFieldsIn(
+  components: readonly unknown[],
+  foreignAnswerKeysFor: LeadgenForeignAnswerKeyLookup,
+): Set<string> {
   const knownFields = new Set<string>();
   const walk = (nodes: readonly unknown[], depth: number): void => {
     for (const raw of nodes) {
@@ -4180,31 +4329,23 @@ export function collectKnownAnswerFields(components: readonly unknown[]): Set<st
       // rule can reference. Register them so a saved conditional whose `when`
       // names an Address role or a Name field passes validateConditional (no
       // conditional_unknown_field 400) — and, per Round-4 P7, so the activation
-      // preflight recognizes them too. A configured props.maps.fills.<slot> wins,
-      // else the node is namespaced `${internal_field || question_id ||
-      // 'address'}_<slot>` (P1a default-seeds an Address's internal_field to
-      // 'address', so its four roles default to address_street/_city/_state/_zip).
+      // preflight recognizes them too. A configured props.maps.fills.<slot> wins
+      // UNLESS a sibling question already answers that key (then the renderer
+      // declines the rename and the box keeps its own name — see
+      // addressRenderedRoleName), else the node is namespaced `${internal_field
+      // || question_id || 'address'}_<slot>` (P1a default-seeds an Address's
+      // internal_field to 'address', so its four roles default to
+      // address_street/_city/_state/_zip).
       if (raw["type"] === "AddressAutocompleteQuestion") {
-        const ifRaw = raw["internal_field"];
-        const base =
-          typeof ifRaw === "string" && ifRaw.trim() !== ""
-            ? ifRaw.trim()
-            : isNonEmptyString(raw["question_id"])
-              ? raw["question_id"]
-              : "address";
-        const aProps = isRecord(raw["props"]) ? raw["props"] : {};
-        const aMaps = isRecord(aProps["maps"]) ? aProps["maps"] : {};
-        const aFills = isRecord(aMaps["fills"]) ? aMaps["fills"] : {};
-        for (const slot of ["street", "city", "state", "zip"] as const) {
-          const f = aFills[slot];
-          knownFields.add(typeof f === "string" && f.trim() !== "" ? f.trim() : `${base}_${slot}`);
+        const base = addressAnswerBase(raw);
+        const fills = addressFillTargets(raw);
+        const foreign = foreignAnswerKeysFor(raw);
+        for (const slot of ADDRESS_ANSWER_SLOTS) {
+          knownFields.add(addressRenderedRoleName(base, fills, slot, foreign));
         }
       }
       if (raw["type"] === "NameFieldsGroup") {
-        const nProps = isRecord(raw["props"]) ? raw["props"] : {};
-        const nFields = Array.isArray(nProps["fields"]) ? nProps["fields"] : [];
-        const first = typeof nFields[0] === "string" && nFields[0].trim() !== "" ? nFields[0].trim() : "first";
-        const last = typeof nFields[1] === "string" && nFields[1].trim() !== "" ? nFields[1].trim() : "last";
+        const [first, last] = nameGroupPartNames(raw);
         knownFields.add(first);
         knownFields.add(last);
       }
