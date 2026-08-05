@@ -555,8 +555,7 @@ let typing = false;
 //   RAIL (both dual_range handles, plus from_to's two rails) — the dragged
 //     handle stops ONE `step` short of its neighbour. A rail's value is always
 //     on the browser's own step grid, so one-step-short IS the no-crossing rule
-//     there, and it additionally keeps the two thumbs off the same pixel, which
-//     would bury the lower one under the upper one's hit area. Unchanged.
+//     there. Unchanged.
 //   TYPED number box (from_to only — dual_range is handles-only) — the gap is
 //     ZERO: `step` is the RAIL's granularity, never a constraint on a number a
 //     visitor typed. Measured on the live funnel (min="0" max="100000"
@@ -568,6 +567,17 @@ let typing = false;
 //     neighbour's exact value — the nearest legal number, not one step past it.
 //     That correction is never silent: the box, the rail, the pill and the
 //     recorded answer all move to it together at commit (F-1 below).
+//
+// A ZERO gap DOES put the two thumbs on one pixel, and one `step` of gap is
+// often narrower than a thumb anyway (28px), so the one-step rule never bought
+// pointer separation either: measured on the live funnel, a typed max of 40
+// leaves both rails reading 0 with both handle boxes at x=463..491, and before
+// P8-6 Q4 a real drag started on the MIN handle moved the MAX (40 -> 50000 on
+// the wire) because the two rails tie on z-index and DOM order gave the press
+// to the max. Pointer separation is NOT this function's job and never was: the
+// track is partitioned between the two rails at the midpoint of --lg-a/--lg-b
+// (styles.ts clips the max rail's hit area), which is why those two properties
+// are published on the WRAP below rather than on the fill.
 //
 // Returns the value of the moved control so handleInputEvent records what the
 // pair agreed on, never a raw crossing value; null = not a two-handle slider
@@ -623,8 +633,16 @@ export function syncDualRange(wrap: Element, moved: HTMLInputElement): string | 
   // ran to x=393 at a 375 viewport). Same already-computed percentages, no new
   // geometry; unset (server render, both handles at the rails) the CSS
   // fallbacks 0/100 reproduce the at-rest anchoring byte-for-byte.
-  fs.setProperty("--lg-a", `${pa}`);
-  fs.setProperty("--lg-b", `${pb}`);
+  //
+  // P8-6 Q4: written on the WRAP, not on the fill. The pills are inside the
+  // fill so they still inherit these unchanged, and the two RAILS — siblings
+  // of the fill, which therefore could never see a property set on it — now
+  // inherit them too. styles.ts partitions the max rail's hit area at the
+  // midpoint of the two so a press on a stacked pair of thumbs reaches the
+  // handle the visitor aimed at (see the CLAMP RULE note above).
+  const ws = (wrap as HTMLElement).style;
+  ws.setProperty("--lg-a", `${pa}`);
+  ws.setProperty("--lg-b", `${pb}`);
   // One pass per side (0 = min/left, 1 = max/right): the rail carries the
   // clamped value + aria; from_to's labelled number field mirrors it (R2 P4
   // FIX-FIRST F-1: never mirroring left the box reading a number that never

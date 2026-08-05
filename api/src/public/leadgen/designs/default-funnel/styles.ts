@@ -1021,10 +1021,18 @@ export function funnelChromeCss(
       transform: "translateX(calc((100 - var(--lg-b,100)) * 1%))",
     }),
     // P4 cleanup (S4b pin-fidelity finding): the INWARD anchor above is what
-    // keeps Image13's SEPARATED pins on-card — but engine.ts's clamp rule
-    // (syncDualRange) can land the two handles one `step` apart, and both
-    // pills still reach inward toward each other, colliding
-    // (p4_fromto-1280-clamped.png). `.lg-range-fill`'s own box already IS the
+    // keeps Image13's SEPARATED pins on-card — but the two handles can land
+    // close enough that both pills still reach inward toward each other and
+    // collide (p4_fromto-1280-clamped.png). A rail drag lands them one `step`
+    // apart; a TYPED value lands them on the SAME pixel (P8-5 J1 made the
+    // typed gap zero, which is correct — `step` is the rail's granularity, not
+    // a constraint on a typed number — and 40 of 0..100000 is 0% just like the
+    // min). Measured on the live funnel at 375 with a typed max of 40: both
+    // handle boxes at x=15..43, fill width 0, and the min pill DID drop below
+    // the max pill (min pill y-centre 289.4 vs max 257.4, documentElement
+    // .scrollWidth 375 == innerWidth 375, no overflow) — the escape below
+    // still fires at a zero gap, which is the widest case it must cover.
+    // `.lg-range-fill`'s own box already IS the
     // live pixel gap between the two handles (engine.ts writes its left/width
     // from both inputs every drag) — a container query on that box reacts to
     // the SAME already-written value with ZERO new runtime bytes; no engine.ts
@@ -1086,6 +1094,39 @@ export function funnelChromeCss(
     rule(`${scope} .lg-range-input-dual`, { "pointer-events": "none" }),
     rule(`${scope} .lg-range-input-dual::-webkit-slider-thumb`, { "pointer-events": "auto" }),
     rule(`${scope} .lg-range-input-dual::-moz-range-thumb`, { "pointer-events": "auto" }),
+    // P8-6 Q4 — "only the thumbs grabbable" is not enough when the two thumbs
+    // land on the SAME pixel. Both rails carry z-index 3, so the hit test then
+    // falls to DOM order and the MAX rail (presets.ts emits it second) eats
+    // every press. Measured on the live r2fix funnel at 1280 (from_to, min=0
+    // max=100000 step=5000): a typed max of 40 leaves both rails reading "0"
+    // and both handle boxes at x=463..491,w=28 — one blob — and a real pointer
+    // drag STARTED ON THE MIN HANDLE (down at 477, up at 640) moved the MAX:
+    // box, rail and the POST /lg/auction body all went 40 -> 50000. Grabbing
+    // the max handle at the same pixel did exactly the same thing, so one of
+    // the two handles was unreachable.
+    //
+    // Fix: partition the track between the two rails at the MIDPOINT of their
+    // handles. Only the max rail needs the clip — everything left of the
+    // boundary is then the min rail's alone (it is underneath, so it wins only
+    // where the max is clipped away), and everything right of it stays the max
+    // rail's (it is on top there). clip-path clips HIT TESTING as well as
+    // paint and is not layout, so the value<->pixel mapping and the captured
+    // drag are both untouched: once grabbed, a thumb still travels the whole
+    // track. The boundary is (--lg-a + --lg-b)/2 — the two handle percentages
+    // engine.ts already computes for the fill and the pills, now published on
+    // the .lg-range wrap so these rails (siblings of .lg-range-fill) inherit
+    // them; no new runtime state, no new engine geometry. The rail box is the
+    // track inflated by one thumb and pulled half a thumb left (.lg-range-input
+    // above), so track 0% sits at thumbSize/2 in the rail's own box and 100%
+    // of the track is (100% - thumbSize) of it. Unset (server render) the
+    // 0/100 fallbacks put the boundary at the track's centre, with the max
+    // handle at 100% and the min at 0% — each entirely inside its own half.
+    // MEASURED AFTER, same drive: down at 470 (the min half of the blob) moves
+    // the MIN and the typed max stays 40 on the wire; down at 484 (the max
+    // half) moves the MAX. Separated handles (20000/60000) are unchanged.
+    rule(`${scope} .lg-range-track > span + span > .lg-range-input-dual`, {
+      "clip-path": `inset(0 0 0 calc(${rangeQuestion.thumbSize} / 2 + (var(--lg-a,0) + var(--lg-b,100)) * (100% - ${rangeQuestion.thumbSize}) / 200))`,
+    }),
     rule(`${scope} .lg-range-minmax`, {
       display: "flex",
       "justify-content": "space-between",

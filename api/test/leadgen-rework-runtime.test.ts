@@ -1356,19 +1356,23 @@ interface RigNode {
   setAttribute(name: string, value: string): void;
 }
 
+function rigStyle(): RigStyle {
+  return {
+    left: "",
+    width: "",
+    props: {},
+    setProperty(name: string, v: string): void {
+      this.props[name] = v;
+    },
+  };
+}
+
 function rigNode(attrs: Record<string, string> = {}, value = ""): RigNode {
   const a: Record<string, string> = { ...attrs };
   return {
     value,
     textContent: "",
-    style: {
-      left: "",
-      width: "",
-      props: {},
-      setProperty(name: string, v: string): void {
-        this.props[name] = v;
-      },
-    },
+    style: rigStyle(),
     getAttribute: (name) => (name in a ? (a[name] as string) : null),
     setAttribute: (name, v) => {
       a[name] = v;
@@ -1411,6 +1415,7 @@ function dualRig(opts: {
   currency?: string;
 }): {
   wrap: Element;
+  wrapStyle: RigStyle;
   lo: RigNode;
   hi: RigNode;
   boxLo: RigNode;
@@ -1436,13 +1441,19 @@ function dualRig(opts: {
     ".lg-input": opts.boxes ? [boxLo, boxHi] : [],
     ".lg-range-handle-value": pills,
   };
+  // The WRAP carries a style too: P8-6 Q4 moved --lg-a/--lg-b here (the rails
+  // are siblings of .lg-range-fill and could never inherit a property set on
+  // it — see the hit-partition note in engine.ts/styles.ts).
+  const wrapStyle = rigStyle();
   const wrap = {
+    style: wrapStyle,
     getAttribute: (name: string) => (name === "data-currency" ? opts.currency ?? null : null),
     querySelector: (sel: string) => (sel === ".lg-range-fill" ? fill : null),
     querySelectorAll: (sel: string) => byClass[sel] ?? [],
   } as unknown as Element;
   return {
     wrap,
+    wrapStyle,
     lo,
     hi,
     boxLo,
@@ -1487,6 +1498,27 @@ describe("§6.8 from_to: the typed number the ENGINE RECORDS is the one that rea
     expect(to.value).toBe("20000");
     expect(r.all(".lg-range-handle-value").map((p) => p.textContent)).toEqual(["20,000", "20,000"]);
   });
+
+  // P8-6 Q4 — through the REAL engine and the REAL server markup: the element
+  // the handle percentages land on must CONTAIN both rails, or the max rail's
+  // hit-partition boundary (styles.ts, var(--lg-a)/var(--lg-b)) resolves to
+  // its 0/100 fallbacks and the pointer routing the typed value depends on is
+  // silently dead. .lg-range-fill is a SIBLING of the rails; the wrap is not.
+  it("Q4: the engine writes the handle percentages on the element that CONTAINS both rails", async () => {
+    const r = await sliderRig(live);
+    const to = r.input(".lg-range-to");
+    to.value = "40";
+    r.fire(to);
+    const wrap = r.q(".lg-range-from-to");
+    expect(wrap.querySelectorAll(".lg-range-input-dual").length).toBe(2);
+    expect(wrap.style.getPropertyValue("--lg-a")).toBe("0");
+    expect(wrap.style.getPropertyValue("--lg-b")).toBe("0");
+    // The fill holds neither — it cannot reach a sibling.
+    expect(r.q(".lg-range-fill").style.getPropertyValue("--lg-a")).toBe("");
+    expect(r.q(".lg-range-fill").style.getPropertyValue("--lg-b")).toBe("");
+    // ...and the typed 40 is still the recorded answer (the P8-5 J1 fix).
+    expect(r.answers()["amount_max"]).toBe("40");
+  });
 });
 
 describe("§6.8 from_to/dual_range: the clamp arithmetic over a STEP-SNAPPING rail (P8-5 J1)", () => {
@@ -1505,7 +1537,7 @@ describe("§6.8 from_to/dual_range: the clamp arithmetic over a STEP-SNAPPING ra
     // the clamped 5000 the bug produced (which painted 5%).
     expect(r.fill.style.left).toBe("0%");
     expect(r.fill.style.width).toBe("0%");
-    expect(r.fill.style.props["--lg-b"]).toBe("0");
+    expect(r.wrapStyle.props["--lg-b"]).toBe("0"); // published on the wrap (Q4)
   });
 
   it("a typed value off the step grid is not snapped (42000 stays 42000)", () => {
@@ -1559,6 +1591,62 @@ describe("§6.8 from_to/dual_range: the clamp arithmetic over a STEP-SNAPPING ra
     r.lo.value = "90000"; // dragged past the max handle
     expect(r.sync(r.lo)).toBe("35000"); // 40000 - one step
     expect(r.hi.value).toBe("40000");
+  });
+
+  // -------------------------------------------------------------------------
+  // P8-6 Q4 — the consequence the typed-value fix left behind.
+  //
+  // With the gap at zero a typed max BELOW one step leaves both RAILS reading
+  // the same number (the rail snaps 40 -> 0 on a step=5000 grid) and both
+  // handles on the same pixel. Both rails carry z-index 3, so the pointer hit
+  // test fell to DOM order and the MAX rail (emitted second) ate every press.
+  // DRIVEN on the live r2fix funnel at 1280 BEFORE the fix: typed max 40, both
+  // handle boxes at x=463..491 w=28, mouse down at 477 (the MIN handle) and up
+  // at 640 -> the max box, the max rail and the POST /lg/auction body all went
+  // 40 -> 50000. Down on the MAX handle at the same pixel did the same thing,
+  // so exactly one of the two handles was reachable.
+  //
+  // The fix partitions the track between the rails at the MIDPOINT of the two
+  // handles: styles.ts clips the max rail's hit area to the half nearer it, so
+  // the min rail owns everything to the left. The midpoint is (a+b)/2 of the
+  // two percentages this function already computes — and the ONLY engine-side
+  // requirement is WHERE they are published: on the .lg-range WRAP, which is
+  // an ancestor of both rails, never on .lg-range-fill, which is their
+  // SIBLING (a custom property inherits down, never sideways). That contract
+  // is what these two pin; the hit test itself is not expressible in a
+  // layout-free fake DOM and is proven by the live drive above (AFTER, same
+  // drive: down at 470 records the MIN and the wire still carries max=40;
+  // down at 484 moves the MAX; separated handles unchanged).
+  // -------------------------------------------------------------------------
+
+  it("Q4: the two handle percentages are published on the WRAP (the rails' ancestor), not on the fill", () => {
+    const r = dualRig({ ...FT_LIVE, lo: "0", hi: "100000", boxes: true });
+    r.boxLo.value = "20000";
+    expect(r.sync(r.boxLo)).toBe("20000");
+    // The boundary CSS reads var(--lg-a)/var(--lg-b) off an ancestor of the
+    // rails. The fill is not one, so a property left there routes no pointer.
+    expect(r.wrapStyle.props["--lg-a"]).toBe("20");
+    expect(r.wrapStyle.props["--lg-b"]).toBe("100");
+    expect(r.fill.style.props["--lg-a"]).toBe(undefined);
+    expect(r.fill.style.props["--lg-b"]).toBe(undefined);
+    // The fill's own geometry is unchanged — this moved the custom properties
+    // only, never the painted span.
+    expect(r.fill.style.left).toBe("20%");
+    expect(r.fill.style.width).toBe("80%");
+  });
+
+  it("Q4: a typed max below one step publishes a=b, the collided state the partition exists for", () => {
+    const r = dualRig({ ...FT_LIVE, lo: "0", hi: "100000", boxes: true });
+    r.boxHi.value = "40";
+    expect(r.sync(r.boxHi)).toBe("40");
+    // 40 of 0..100000 rounds to 0% and the min is already at 0% — the two
+    // handles are ON THE SAME PIXEL, so the midpoint boundary sits exactly on
+    // them and each rail keeps one half of the shared thumb.
+    expect(r.wrapStyle.props["--lg-a"]).toBe("0");
+    expect(r.wrapStyle.props["--lg-b"]).toBe("0");
+    expect(r.lo.value).toBe(r.hi.value); // both rails snapped to the same grid slot
+    // ...and the typed answer is untouched by any of it.
+    expect(r.boxHi.value).toBe("40");
   });
 
   it("dual_range (handles-only) is untouched: values survive, crossings still clamp", () => {
