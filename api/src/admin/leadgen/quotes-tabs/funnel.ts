@@ -4688,7 +4688,11 @@ export const QUOTE_EDITOR_SCRIPT = `
       }).then(function (r) { return r.json().then(function (j) { return { ok: r.ok, body: j }; }); }).then(function (res) {
         if (!resultEl) { return; }
         if (res.ok && res.body && res.body.variant) {
-          resultEl.textContent = 'Session "' + sid + '" maps to variant ' + res.body.variant.variant_label + ' (' + res.body.variant.funnel_variant_id + '), bucket ' + res.body.assignment_bucket + ' of 10000.';
+          // P8-6 Q2 class sweep: the parenthetical repeated the raw
+          // funnel_variant_id (lgn_…) right next to the variant's own
+          // operator-facing variant_label — drop it, the label already names
+          // the thing the operator picked.
+          resultEl.textContent = 'Session "' + sid + '" maps to variant ' + res.body.variant.variant_label + ', bucket ' + res.body.assignment_bucket + ' of 10000.';
         } else {
           resultEl.textContent = (res.body && res.body.error) ? res.body.error : 'Preview failed.';
         }
@@ -4698,6 +4702,17 @@ export const QUOTE_EDITOR_SCRIPT = `
   });
 
   // --- activation (per-site PUT/DELETE) -------------------------------------
+  // P8-6 Q2 class sweep: the row's own painted lg-check label already
+  // carries the operator-visible name (activation.ts's renderActivationPanel
+  // emits the escaped site_name there, right beside the checkbox) — reuse
+  // that already-painted text instead of re-deriving it, so a confirmation
+  // names the site the operator sees, never the raw site_id ("st_...") they
+  // never do. Falls back to the id only if a row somehow carries no label at
+  // all (defensive; activation.ts always renders one).
+  function siteRowName(row) {
+    var label = row.querySelector('.lg-check');
+    return label ? String(label.textContent || '').replace(/\\s+/g, ' ').trim() : '';
+  }
   var activationList = byId('lg-activation-list');
   if (activationList) {
     activationList.addEventListener('click', function (ev) {
@@ -4707,6 +4722,7 @@ export const QUOTE_EDITOR_SCRIPT = `
       while (row && row.getAttribute && !row.hasAttribute('data-site-id')) { row = row.parentNode; }
       if (!row || !row.getAttribute) { return; }
       var siteId = row.getAttribute('data-site-id');
+      var siteName = siteRowName(row) || siteId;
       if (el.hasAttribute('data-save-activation')) {
         var enabled = row.querySelector('[data-site-enabled]').checked;
         var slugEl = row.querySelector('[data-site-slug]');
@@ -4719,7 +4735,7 @@ export const QUOTE_EDITOR_SCRIPT = `
           return r.json().then(function (j) { return { ok: r.ok, status: r.status, body: j }; });
         }).then(function (res) {
           if (res.ok) {
-            showMsg('lg-quote-ok', 'Activation saved for ' + siteId);
+            showMsg('lg-quote-ok', 'Activation saved for ' + siteName);
             // 05 5.2: the activation PUT recomputes the verdict — keep the
             // preflight panel + badge in sync with the authoritative state.
             if (res.body && res.body.activation_preflight) { renderPreflight(res.body.activation_preflight); }
@@ -4751,14 +4767,14 @@ export const QUOTE_EDITOR_SCRIPT = `
         }).then(function (res) {
           if (!res.ok) {
             el.disabled = false;
-            showMsg('lg-quote-error', (res.body && res.body.error) ? res.body.error : 'Could not deactivate ' + siteId + '.');
+            showMsg('lg-quote-error', (res.body && res.body.error) ? res.body.error : 'Could not deactivate ' + siteName + '.');
             return;
           }
-          flashAfterReload('lg-quote-ok', 'Deactivated for ' + siteId + '.');
+          flashAfterReload('lg-quote-ok', 'Deactivated for ' + siteName + '.');
           window.location.reload();
         }).catch(function (err) {
           el.disabled = false;
-          showMsg('lg-quote-error', (err && err.message) ? err.message : 'Network error while deactivating ' + siteId + '.');
+          showMsg('lg-quote-error', (err && err.message) ? err.message : 'Network error while deactivating ' + siteName + '.');
         });
       }
     });

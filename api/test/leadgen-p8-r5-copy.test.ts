@@ -29,12 +29,14 @@
 import { readFileSync, existsSync } from "node:fs";
 import { dirname, join, normalize, relative } from "node:path";
 import { fileURLToPath } from "node:url";
+import { runInNewContext } from "node:vm";
 
 import { describe, expect, it } from "vitest";
 
 import { validateMappingReferences, validateSection } from "../src/leadgen/sections";
 import type { LeadgenAnswerMapEdge, OfferSchemaInfo } from "../src/leadgen/sections";
 import { validateSectionContent } from "../src/public/leadgen/components/content-schema";
+import { QUOTE_EDITOR_SCRIPT } from "../src/admin/leadgen/quotes-tabs/funnel";
 
 // __file__-relative, never a hardcoded workspace path.
 const TEST_DIR = dirname(fileURLToPath(import.meta.url));
@@ -82,6 +84,16 @@ const RAW_ID_IN_COPY: readonly RegExp[] = [
   /\berror_text\b/,
   /\bvalid_values\b/,
   /\bfull_address\b/,
+  // P8-6 Q2: a raw stored-id VALUE shape, as opposed to a schema KEY name
+  // above — e.g. st_cad9f863eb2444a1 (site), lgq_… (quote), lgf_… (funnel),
+  // lgs_… (section), lgn_… (funnel variant). Deliberately NOT an enumerated
+  // prefix list (an enumerated list is exactly the class the R5-B walk below
+  // replaced with a derived one) — a live drive found "Deactivated for
+  // st_cad9f863eb2444a1." on the Activation tab with no `st_` shape anywhere
+  // in this predicate, so the check stayed green through the leak. Any short
+  // lowercase prefix + "_" + 6-or-more alphanumeric characters reads as a
+  // stored id to an operator, never as English prose.
+  /\b[a-z]{2,4}_[a-z0-9]{6,}\b/i,
 ];
 
 function assertOperatorCopy(messages: readonly string[], where: string): void {
@@ -621,5 +633,282 @@ describe("P8 R5 — save errors speak the operator's language (contract §6 M5 /
     const entry = readFileSync(SAVE_ENTRY, "utf8");
     expect(entry).toContain('from "../public/leadgen/components/content-schema"');
     expect(entry).toContain("validateSectionContent");
+  });
+});
+
+// ===========================================================================
+// P8-6 Q2 — the Activation tab's OWN confirmations (neither R5-A nor R5-B's
+// walk reaches these: they never pass through validateSection at all). A
+// fix-first review drove Deactivate on a card that already painted the
+// site's real name and got "Deactivated for st_cad9f863eb2444a1." back — the
+// exact raw-id-in-copy class this file exists to catch, on a surface the R5
+// walk above cannot see. DRIVEN, matching R5-A's own discipline: the REAL
+// served QUOTE_EDITOR_SCRIPT runs in a VM against a hand-built DOM that
+// mirrors activation.ts's actual row markup (a .lg-check label carrying the
+// escaped site_name beside the checkbox) — nothing here hand-builds the
+// confirmation text itself.
+// ===========================================================================
+
+interface Q2Node {
+  tagName: string;
+  textContent: string;
+  className: string;
+  disabled: boolean;
+  checked: boolean;
+  value: string;
+  hidden: boolean;
+  parentNode: Q2Node | null;
+  children: Q2Node[];
+  attrs: Map<string, string>;
+  listeners: Map<string, Array<(ev: Record<string, unknown>) => void>>;
+  getAttribute(k: string): string | null;
+  setAttribute(k: string, v: string): void;
+  hasAttribute(k: string): boolean;
+  removeAttribute(k: string): void;
+  appendChild(c: Q2Node): Q2Node;
+  addEventListener(t: string, fn: (ev: Record<string, unknown>) => void): void;
+  removeEventListener(): void;
+  querySelector(sel: string): Q2Node | null;
+  querySelectorAll(sel: string): Q2Node[];
+  fire(type: string, ev?: Record<string, unknown>): void;
+}
+
+function q2Matches(n: Q2Node, sel: string): boolean {
+  if (sel.startsWith("[") && sel.endsWith("]")) return n.attrs.has(sel.slice(1, -1));
+  if (sel.startsWith(".")) return n.className.split(/\s+/).indexOf(sel.slice(1)) !== -1;
+  return false;
+}
+
+function q2FindAll(n: Q2Node, sel: string, out: Q2Node[]): Q2Node[] {
+  for (const c of n.children) {
+    if (q2Matches(c, sel)) out.push(c);
+    q2FindAll(c, sel, out);
+  }
+  return out;
+}
+
+function q2Node(tag: string): Q2Node {
+  const attrs = new Map<string, string>();
+  const listeners = new Map<string, Array<(ev: Record<string, unknown>) => void>>();
+  const children: Q2Node[] = [];
+  const node: Q2Node = {
+    tagName: tag.toUpperCase(),
+    textContent: "",
+    className: "",
+    disabled: false,
+    checked: false,
+    value: "",
+    hidden: false,
+    parentNode: null,
+    children,
+    attrs,
+    listeners,
+    getAttribute: (k) => (attrs.has(k) ? (attrs.get(k) as string) : null),
+    setAttribute: (k, v) => void attrs.set(k, String(v)),
+    hasAttribute: (k) => attrs.has(k),
+    removeAttribute: (k) => void attrs.delete(k),
+    appendChild(c) {
+      c.parentNode = node;
+      children.push(c);
+      return c;
+    },
+    addEventListener: (t, fn) => void listeners.set(t, [...(listeners.get(t) ?? []), fn]),
+    removeEventListener: () => {},
+    querySelector(sel) {
+      return q2FindAll(node, sel, [])[0] ?? null;
+    },
+    querySelectorAll(sel) {
+      return q2FindAll(node, sel, []);
+    },
+    fire(type, ev) {
+      for (const fn of listeners.get(type) ?? []) fn({ target: node, preventDefault() {}, stopPropagation() {}, ...ev });
+    },
+  };
+  return node;
+}
+
+const Q2_SITE_ID = "st_cad9f863eb2444a1";
+const Q2_SITE_NAME = "R2Fix Fixture Site";
+const Q2_FLASH_KEY = "lg-quote-flash";
+
+interface Q2Reply {
+  ok: boolean;
+  status: number;
+  body: unknown;
+  reject?: boolean;
+}
+
+interface Q2Boot {
+  activationList: Q2Node;
+  deactivateBtn: Q2Node;
+  saveBtn: Q2Node;
+  ok: Q2Node;
+  err: Q2Node;
+  store: Record<string, string>;
+  reloads: () => number;
+  flush: () => Promise<void>;
+}
+
+function q2Boot(reply: Q2Reply): Q2Boot {
+  const root = q2Node("div");
+  root.setAttribute("data-quote-public-id", "lgq_q2fixture");
+  const ok = q2Node("div");
+  ok.hidden = true;
+  const err = q2Node("div");
+  err.hidden = true;
+
+  const activationList = q2Node("div");
+  const row = q2Node("div");
+  row.className = "lg-activation-row";
+  row.setAttribute("data-site-id", Q2_SITE_ID);
+  const label = q2Node("label");
+  label.className = "lg-check";
+  const checkbox = q2Node("input");
+  checkbox.setAttribute("data-site-enabled", "");
+  checkbox.checked = true;
+  label.appendChild(checkbox);
+  // Mirrors activation.ts's renderActivationPanel exactly: the checkbox,
+  // then a literal space, then the escaped site_name — textContent is the
+  // sum a real browser would compute from that markup.
+  label.textContent = " " + Q2_SITE_NAME;
+  row.appendChild(label);
+  const slugInput = q2Node("input");
+  slugInput.setAttribute("data-site-slug", "");
+  row.appendChild(slugInput);
+  const saveBtn = q2Node("button");
+  saveBtn.setAttribute("data-save-activation", "");
+  row.appendChild(saveBtn);
+  const deactivateBtn = q2Node("button");
+  deactivateBtn.setAttribute("data-deactivate", "");
+  row.appendChild(deactivateBtn);
+  activationList.appendChild(row);
+
+  const registry: Record<string, Q2Node> = {
+    "lg-quote-editor": root,
+    "lg-quote-ok": ok,
+    "lg-quote-error": err,
+    "lg-activation-list": activationList,
+  };
+  const store: Record<string, string> = {};
+  let reloads = 0;
+
+  const doc = {
+    readyState: "complete",
+    getElementById: (id: string): Q2Node | null => registry[id] ?? null,
+    querySelector: (): null => null,
+    querySelectorAll: (): Q2Node[] => [],
+    createElement: (tag: string): Q2Node => q2Node(tag),
+    createTextNode: (t: string): Q2Node => {
+      const n = q2Node("#text");
+      n.textContent = String(t);
+      return n;
+    },
+    addEventListener: (): void => {},
+    removeEventListener: (): void => {},
+    dispatchEvent: (): boolean => true,
+  };
+
+  const win = {
+    sessionStorage: {
+      getItem: (k: string): string | null => (Object.prototype.hasOwnProperty.call(store, k) ? store[k]! : null),
+      setItem: (k: string, v: string): void => void (store[k] = String(v)),
+      removeItem: (k: string): void => void delete store[k],
+    },
+    localStorage: { getItem: (): null => null, setItem: (): void => {}, removeItem: (): void => {} },
+    location: {
+      href: "/admin/leadgen/quotes/lgq_q2fixture/edit",
+      search: "",
+      pathname: "/admin/leadgen/quotes/lgq_q2fixture/edit",
+      reload: (): void => void (reloads += 1),
+    },
+    history: { replaceState: (): void => {} },
+    addEventListener: (): void => {},
+    removeEventListener: (): void => {},
+    dispatchEvent: (): boolean => true,
+  };
+
+  const fetchStub = (): Promise<unknown> => {
+    if (reply.reject === true) return Promise.reject(new Error(""));
+    return Promise.resolve({
+      ok: reply.ok,
+      status: reply.status,
+      json: (): Promise<unknown> =>
+        reply.body === undefined ? Promise.reject(new Error("not json")) : Promise.resolve(reply.body),
+    });
+  };
+
+  const sandbox: Record<string, unknown> = {
+    window: win,
+    document: doc,
+    fetch: fetchStub,
+    console: { log() {}, warn() {}, error() {} },
+    FormData: class {
+      append(): void {}
+    },
+    CustomEvent: class {
+      type: string;
+      detail: unknown;
+      constructor(type: string, init?: { detail?: unknown }) {
+        this.type = type;
+        this.detail = init?.detail;
+      }
+    },
+  };
+  sandbox["globalThis"] = sandbox;
+  // PARSES then RUNS the REAL served island — a boot throw fails the test.
+  runInNewContext(QUOTE_EDITOR_SCRIPT, sandbox);
+
+  return {
+    activationList,
+    deactivateBtn,
+    saveBtn,
+    ok,
+    err,
+    store,
+    reloads: () => reloads,
+    flush: async () => {
+      for (let i = 0; i < 12; i += 1) await Promise.resolve();
+    },
+  };
+}
+
+describe("P8-6 Q2 — the Activation tab confirmations name the site the operator sees, not its site_id", () => {
+  it("DEACTIVATE success parks the site's real name, never the raw site_id (widened predicate catches it)", async () => {
+    const b = q2Boot({ ok: true, status: 204, body: undefined });
+    b.activationList.fire("click", { target: b.deactivateBtn });
+    await b.flush();
+    expect(b.reloads(), "a successful deactivate reloads").toBe(1);
+    const parked = b.store[Q2_FLASH_KEY] ?? "";
+    const cut = parked.indexOf("|");
+    const message = cut >= 0 ? parked.slice(cut + 1) : parked;
+    expect(message).toBe("Deactivated for " + Q2_SITE_NAME + ".");
+    expect(message.indexOf(Q2_SITE_ID), "the raw site_id must not leak into the confirmation").toBe(-1);
+    assertOperatorCopy([message], "Q2 deactivate success");
+  });
+
+  it("DEACTIVATE refusal (no server reason) names the site, never the raw site_id", async () => {
+    const b = q2Boot({ ok: false, status: 500, body: {} });
+    b.activationList.fire("click", { target: b.deactivateBtn });
+    await b.flush();
+    expect(b.reloads(), "a refusal must not reload").toBe(0);
+    expect(b.err.textContent).toBe("Could not deactivate " + Q2_SITE_NAME + ".");
+    assertOperatorCopy([b.err.textContent], "Q2 deactivate refusal");
+  });
+
+  it("DEACTIVATE network error (no error message) names the site, never the raw site_id", async () => {
+    const b = q2Boot({ ok: true, status: 200, body: {}, reject: true });
+    b.activationList.fire("click", { target: b.deactivateBtn });
+    await b.flush();
+    expect(b.reloads(), "a network error must not reload").toBe(0);
+    expect(b.err.textContent).toBe("Network error while deactivating " + Q2_SITE_NAME + ".");
+    assertOperatorCopy([b.err.textContent], "Q2 deactivate network error");
+  });
+
+  it("SAVE ACTIVATION success names the site, never the raw site_id", async () => {
+    const b = q2Boot({ ok: true, status: 200, body: {} });
+    b.activationList.fire("click", { target: b.saveBtn });
+    await b.flush();
+    expect(b.ok.textContent).toBe("Activation saved for " + Q2_SITE_NAME);
+    assertOperatorCopy([b.ok.textContent], "Q2 save activation success");
   });
 });
