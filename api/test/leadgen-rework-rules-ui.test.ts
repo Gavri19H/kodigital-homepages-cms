@@ -211,7 +211,10 @@ interface QuoteRulesApi {
     shared: string[],
     funnels: { name: string; pages: { position: number; fields: string[] }[] }[],
   ): IslandCheckpoint;
-  checkpointLabelOf(cp: IslandCheckpoint): string;
+  checkpointLabelOf(
+    cp: IslandCheckpoint,
+    funnels?: { name: string; pages: { position: number; fields: string[] }[] }[],
+  ): string;
   conditionFieldsOf(conditions: unknown): string[];
 }
 function islandApi(): QuoteRulesApi {
@@ -348,7 +351,11 @@ describe("P3b quote-rules rail — the island is strict ES5 + mirrors deriveRule
       const truth = deriveRuleCheckpoint(c.fields, new Set(SHARED_FIELDS), tsFunnels());
       expect(mirror.plane, c.fields.join(",")).toBe(truth.plane);
       expect(mirror.plane, c.fields.join(",")).toBe(c.plane);
-      expect(api.checkpointLabelOf(mirror), c.fields.join(",")).toBe(c.label);
+      // N4: checkpointLabelOf now derives the board's own page ORDINAL (index
+      // in the funnel's own pages array + 1), same as deriveCheckpoint above,
+      // so it needs the SAME explicit funnels list (real card/modal call
+      // sites default to the closure's own `funnels` — see ui-rules-builder.ts).
+      expect(api.checkpointLabelOf(mirror, islandFunnels()), c.fields.join(",")).toBe(c.label);
       if (c.label === "In a funnel") {
         expect(mirror.unreachable).toBe(true);
         expect(truth.unreachable).toBe(true);
