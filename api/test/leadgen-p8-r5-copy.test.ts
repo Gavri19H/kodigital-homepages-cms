@@ -36,6 +36,7 @@ import { describe, expect, it } from "vitest";
 import { validateMappingReferences, validateSection } from "../src/leadgen/sections";
 import type { LeadgenAnswerMapEdge, OfferSchemaInfo } from "../src/leadgen/sections";
 import {
+  CURATED_DESIGN_OVERRIDE_KEYS,
   LEADGEN_THEME_ROLES,
   validateSectionContent,
 } from "../src/public/leadgen/components/content-schema";
@@ -120,12 +121,73 @@ const RAW_ID_IN_COPY: readonly RegExp[] = [
   /\b[a-z]{2,7}(?:_[a-z0-9]{2,}){1,}\b/i,
 ];
 
+// ---------------------------------------------------------------------------
+// P8-6 S4 — TWO NAMED EXEMPTIONS for the echoed-unrecognised-input shape.
+//
+// The RAW_ID_IN_COPY sweep above (P8-6 S3's widened bounds) is right to catch
+// a REAL leak — a stored key the product HAS a curated label for, shown raw
+// instead of that label (e.g. 'brand_primary' instead of 'Brand primary').
+// It also, unavoidably, catches these two: the OPERATOR'S OWN unrecognised
+// design_overrides key echoed back verbatim because there is no curated
+// label to substitute — 'bogus_key' names nothing in
+// CURATED_DESIGN_OVERRIDE_KEYS (content-schema.ts) on either surface, so
+// leadgenControlLabel(key) has nothing to look up. Echoing the operator's own
+// input is the most useful thing the message can do here — the same
+// reasoning earlier slices already applied to "unknown section 'X'" and
+// "unknown offer id N". The predicate cannot tell the two shapes apart by
+// regex ('bogus_key' and 'button_primary_bg' look alike), so the fix is these
+// two named exemptions, never a looser pattern — RAW_ID_IN_COPY itself is
+// untouched.
+//
+// Exempted by the EXACT full message text (never a value-substring pattern
+// that could absorb a future, different site), one row per real call site:
+//   • sections.ts (Section-level design_overrides_json, "Design tab" wording)
+//   • content-schema.ts validateDesignOverridesBag (node-level, "Style tab")
+//
+// Falsifiable, not a silent parking spot, in BOTH directions:
+//   • if 'bogus_key' is ever added to CURATED_DESIGN_OVERRIDE_KEYS, the "no
+//     label exists" premise breaks and the check below goes red — the
+//     exemption must then be deleted (the message would no longer emit this
+//     way at all);
+//   • if RAW_ID_IN_COPY is ever narrowed so it stops matching this exact
+//     message, the exemption is dead weight and the check below goes red
+//     naming it — the same "stale entry" failure verify:all already enforces
+//     for golden files.
+// ---------------------------------------------------------------------------
+interface CopyEchoExemption {
+  /** The exact operator-facing message this exemption covers — never a pattern. */
+  message: string;
+  /** The unrecognised value the message echoes back. */
+  value: string;
+  reason: string;
+}
+
+const COPY_ECHO_EXEMPTIONS: readonly CopyEchoExemption[] = [
+  {
+    message:
+      "'bogus_key' is not a style setting you can override. Remove it — the Design tab lists the settings this Section supports.",
+    value: "bogus_key",
+    reason:
+      "Section-level design_overrides_json (sections.ts) rejects an unrecognised key by echoing it back — 'bogus_key' names nothing in CURATED_DESIGN_OVERRIDE_KEYS, so there is no operator-facing label to substitute for it. Echoing the operator's own input is the most useful thing the message can do; it is not a stored-id leak because no curated id exists for this value at all.",
+  },
+  {
+    message:
+      "'bogus_key' is not a style setting you can override. Remove it — the Style tab lists the settings this component supports.",
+    value: "bogus_key",
+    reason:
+      "The node-level design_overrides bag (content-schema.ts validateDesignOverridesBag) rejects the same unrecognised key the same way, on the Style tab. Same value, same absent-label reason as the Design-tab entry above — kept as its own named row because it is a distinct call site with its own message text, never a pattern that could silently cover a future third site.",
+  },
+];
+
+const COPY_ECHO_EXEMPT_MESSAGES = new Set(COPY_ECHO_EXEMPTIONS.map((e) => e.message));
+
 function assertOperatorCopy(messages: readonly string[], where: string): void {
   expect(messages.length, `${where}: the drive must actually produce messages`).toBeGreaterThan(0);
   for (const message of messages) {
     expect(CLAUSE_REF.test(message), `${where}: clause reference in operator copy — ${message}`).toBe(
       false,
     );
+    if (COPY_ECHO_EXEMPT_MESSAGES.has(message)) continue;
     for (const raw of RAW_ID_IN_COPY) {
       expect(raw.test(message), `${where}: raw stored id ${String(raw)} in operator copy — ${message}`).toBe(
         false,
@@ -235,6 +297,35 @@ function brokenContent(): unknown {
 }
 
 describe("P8 R5 — save errors speak the operator's language (contract §6 M5 / §4 R5)", () => {
+  it("P8-6 S4: the two echoed-unrecognised-key exemptions are pinned, reasoned and load-bearing", () => {
+    for (const e of COPY_ECHO_EXEMPTIONS) {
+      expect(e.reason.trim().length, `exemption '${e.value}' states why no label exists`).toBeGreaterThan(80);
+      // Falsifiable direction 1: if `value` is ever curated, the "no label
+      // exists" premise breaks — this must go red, and the exemption must
+      // then be deleted (a curated key gets a real leadgenControlLabel, so
+      // this exact message can no longer be emitted for it).
+      expect(
+        (CURATED_DESIGN_OVERRIDE_KEYS as readonly string[]).includes(e.value),
+        `exemption value '${e.value}' must NOT be a curated key — a curated key has a label and any raw leak of it is real`,
+      ).toBe(false);
+      // Falsifiable direction 2: if RAW_ID_IN_COPY is ever narrowed so it no
+      // longer matches this exact message, the exemption is dead weight —
+      // this must go red naming it, the same way verify:all fails a stale
+      // golden entry.
+      expect(
+        RAW_ID_IN_COPY.some((raw) => raw.test(e.message)),
+        `exemption '${e.value}' is no longer necessary — RAW_ID_IN_COPY stopped matching its message; delete this entry`,
+      ).toBe(true);
+    }
+    // Pinned by exact equality: a THIRD entry cannot be added silently, and
+    // this file's own describe-block comment ("verify the exemptions are the
+    // only two") is enforced here, not just asserted in prose.
+    expect(COPY_ECHO_EXEMPTIONS.map((e) => e.message)).toEqual([
+      "'bogus_key' is not a style setting you can override. Remove it — the Design tab lists the settings this Section supports.",
+      "'bogus_key' is not a style setting you can override. Remove it — the Style tab lists the settings this component supports.",
+    ]);
+  });
+
   it("R5-A: validateSectionContent's real messages carry no clause reference and no raw stored id", () => {
     const verdict = validateSectionContent(brokenContent(), "button");
     expect(verdict.ok, "the drive must really fail validation").toBe(false);
