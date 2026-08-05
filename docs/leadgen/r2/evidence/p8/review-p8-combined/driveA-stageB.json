@@ -1,0 +1,134 @@
+{
+ "375": {
+  "census": {
+   "counts": {},
+   "dupes": []
+  },
+  "auctions": [
+   {
+    "funnel_attempt_id": "att_01KZ8PQFEHVV284TVCF3EF3R0X",
+    "signed_config_token": "v2.eyJmdW5uZWxfdmFyaWFudF9pZCI6Imxnbl8wMUtaMjcxMzgzU0tLU0ZGV0cyM04xWEdaSyIsInNlY3Rpb25fb3JkZXJfaGFzaCI6ImU0OTk2NzBkYWVmNDEzMTM0NTI0NTBhY2RjYjQyMzdjOWNlNmIyYTdhYTA2MTZhMzg4NDYxOTVmNTYzYTRkYmEiLCJjb250ZW50X3ZlcnNpb24iOjEyNjAsImZ1bm5lbF9hdHRlbXB0X2lkIjoiYXR0XzAxS1o4UFFGRUhWVjI4NFRWQ0YzRUYzUjBYIiwic2Vzc2lvbl9pZCI6IjQ2M2U3ZjJkLTRiNWItNGRjMS1iZTE0LWQ3MDU1N2Y4NTQ2MyIsImFuc3dlcl9tYXBwaW5nX2hhc2giOiJhMGQyYzVlZGZkOGVhMzU3N2NhNGNiN2ZhMTkxZjcwYjQ5ZTRmNTg3ZGQwZGY0OWVmZWJhNzk1N2YzMmIyNGM1IiwiYXVjdGlvbl9jb25maWdfdmVyc2lvbiI6IjEiLCJsYW5kaW5nX3VybCI6Imh0dHA6Ly9yMmZpeC5lMmUudGVzdDo4OTAxL2xnL3IyZml4P19jYj0xNzg1OTI0OTI2ODczLTM3NSIsInBhZ2VfcGxhbl9oYXNoIjoiYTdhM2Y2MzlkOWVjZDA5YjA2MWI2MWRlMTMzMTJmYWM2OGU1NmQxMjJiZWZiNmMwZGM0NmY5MzRkYzEwN2Q1MiJ9.Z3EfGqzzFaA8-SFyVx4ZvkKbWeiSICNb0T63LKrrBOo",
+    "funnel_variant_id": "lgn_01KZ271383SKKSFFWG23N1XGZK",
+    "content_version": 1260,
+    "section_order_hash": "e499670daef41313452450acdcb4237c9ce6b2a7aa0616a38846195f563a4dba",
+    "answers": {
+     "p8n_cr_addr_street": {
+      "value": "CR 1-0",
+      "answer_source": "user_selected"
+     },
+     "p8n_cr_addr_city": {
+      "value": "CR 1-1",
+      "answer_source": "user_selected"
+     },
+     "p8n_cr_addr_state": {
+      "value": "CA",
+      "answer_source": "user_selected"
+     },
+     "p8n_cr_town": {
+      "value": "CR-SIBLING-TOWN",
+      "answer_source": "user_selected"
+     },
+     "p8n_radial_age": {
+      "value": "34",
+      "answer_source": "user_selected"
+     },
+     "p8n_dual_band_min": {
+      "value": "50",
+      "answer_source": "user_selected"
+     },
+     "p8n_dual_band_max": {
+      "value": "51",
+      "answer_source": "user_selected"
+     },
+     "p8n_fromto_band_min": {
+      "value": "39",
+      "answer_source": "user_selected"
+     },
+     "p8n_fromto_band_max": {
+      "value": "40",
+      "answer_source": "user_selected"
+     },
+     "r2fix_carrier": {
+      "value": "acme_insurance",
+      "answer_source": "user_selected"
+     }
+    },
+    "answer_mapping_versions": {
+     "lgs_01KZ27138G80K46S7XBWKGA764": "0",
+     "lgs_01KZ27DTF599M85YHNEDHS6WA0": "0",
+     "lgs_01KZ40SFCREDS4RQG1K41ZY79C": "0",
+     "lgs_01KZ3VM2Q8CP5QY2600EQ15ZK5": "0",
+     "lgs_01KZ27138PM85JRC4D64B9JXYH": "11",
+     "lgs_01KZ44NAW4AJE78F20MJZCTAP4": "0"
+    },
+    "session_id": "463e7f2d-4b5b-4dc1-be14-d70557f85463",
+    "page_view_id": "01KZ8PQFE945VFPAQ8R8HHF8NK"
+   }
+  ],
+  "blocked": null
+ },
+ "1280": {
+  "census": {
+   "counts": {},
+   "dupes": []
+  },
+  "auctions": [
+   {
+    "funnel_attempt_id": "att_01KZ8PPY34Y32K24SN2NV2C1P6",
+    "signed_config_token": "v2.eyJmdW5uZWxfdmFyaWFudF9pZCI6Imxnbl8wMUtaMjcxMzgzU0tLU0ZGV0cyM04xWEdaSyIsInNlY3Rpb25fb3JkZXJfaGFzaCI6ImU0OTk2NzBkYWVmNDEzMTM0NTI0NTBhY2RjYjQyMzdjOWNlNmIyYTdhYTA2MTZhMzg4NDYxOTVmNTYzYTRkYmEiLCJjb250ZW50X3ZlcnNpb24iOjEyNjAsImZ1bm5lbF9hdHRlbXB0X2lkIjoiYXR0XzAxS1o4UFBZMzRZMzJLMjRTTjJOVjJDMVA2Iiwic2Vzc2lvbl9pZCI6IjExZjYxOWY0LTcyMWItNDJhNy1hOTE0LTIxNGY3Yjc0ZDE5OSIsImFuc3dlcl9tYXBwaW5nX2hhc2giOiJhMGQyYzVlZGZkOGVhMzU3N2NhNGNiN2ZhMTkxZjcwYjQ5ZTRmNTg3ZGQwZGY0OWVmZWJhNzk1N2YzMmIyNGM1IiwiYXVjdGlvbl9jb25maWdfdmVyc2lvbiI6IjEiLCJsYW5kaW5nX3VybCI6Imh0dHA6Ly9yMmZpeC5lMmUudGVzdDo4OTAxL2xnL3IyZml4P19jYj0xNzg1OTI0OTA5MDMwLTEyODAiLCJwYWdlX3BsYW5faGFzaCI6ImE3YTNmNjM5ZDllY2QwOWIwNjFiNjFkZTEzMzEyZmFjNjhlNTZkMTIyYmVmYjZjMGRjNDZmOTM0ZGMxMDdkNTIifQ.uZycHas1CrlJTw7nR5p9-1hHnk3g21FuTF6l1khbIFw",
+    "funnel_variant_id": "lgn_01KZ271383SKKSFFWG23N1XGZK",
+    "content_version": 1260,
+    "section_order_hash": "e1fc5b6284d0dc2e18f18c9b125e65d519f15ae8fa7631e52862f72f7b3ee612",
+    "answers": {
+     "p8n_cr_addr_street": {
+      "value": "CR 1-0",
+      "answer_source": "user_selected"
+     },
+     "p8n_cr_addr_city": {
+      "value": "CR 1-1",
+      "answer_source": "user_selected"
+     },
+     "p8n_cr_town": {
+      "value": "CR-SIBLING-TOWN",
+      "answer_source": "user_selected"
+     },
+     "p8n_radial_age": {
+      "value": "33",
+      "answer_source": "user_selected"
+     },
+     "p8n_dual_band_min": {
+      "value": "50",
+      "answer_source": "user_selected"
+     },
+     "p8n_dual_band_max": {
+      "value": "51",
+      "answer_source": "user_selected"
+     },
+     "p8n_fromto_band_min": {
+      "value": "38",
+      "answer_source": "user_selected"
+     },
+     "p8n_fromto_band_max": {
+      "value": "39",
+      "answer_source": "user_selected"
+     },
+     "r2fix_carrier": {
+      "value": "acme_insurance",
+      "answer_source": "user_selected"
+     }
+    },
+    "answer_mapping_versions": {
+     "lgs_01KZ27138G80K46S7XBWKGA764": "0",
+     "lgs_01KZ27DTF599M85YHNEDHS6WA0": "0",
+     "lgs_01KZ40SFCREDS4RQG1K41ZY79C": "0",
+     "lgs_01KZ3VM2Q8CP5QY2600EQ15ZK5": "0",
+     "lgs_01KZ27138PM85JRC4D64B9JXYH": "11",
+     "lgs_01KZ44NAW4AJE78F20MJZCTAP4": "0"
+    },
+    "session_id": "11f619f4-721b-42a7-a914-214f7b74d199",
+    "page_view_id": "01KZ8PPY2QH09F9G1P5AGJKSMA"
+   }
+  ],
+  "blocked": null
+ }
+}
