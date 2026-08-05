@@ -1525,7 +1525,12 @@ interface Boot {
   flush: () => Promise<void>;
 }
 
-function bootQuoteEditor(store: Record<string, string>): Boot {
+// P8-6 Q6: `siteName` models activation.ts's REAL row shape — every real row
+// renders a `<label class="lg-check">…SITE NAME</label>` beside the checkbox
+// (renderActivationPanel, quotes-tabs/activation.ts) — so the default fixture
+// carries one. Pass `siteName: null` to build the (defensive-only, never
+// real) labelless row the id-fallback test needs.
+function bootQuoteEditor(store: Record<string, string>, opts?: { siteName?: string | null }): Boot {
   const root = el("div", "lg-quote-editor");
   root.setAttribute("data-quote-public-id", "lgq_flash");
   root.setAttribute("data-variant-public-id", "lgv_flash");
@@ -1540,6 +1545,19 @@ function bootQuoteEditor(store: Record<string, string>): Boot {
   const activationList = el("div", "lg-activation-list");
   const siteRow = el("div");
   siteRow.setAttribute("data-site-id", "site-1");
+  // The real name-bearing label (activation.ts: `<label class="lg-check">`,
+  // rendered BEFORE the row's action buttons) — the fake DOM's querySelector
+  // matches a selector string against a child's OWN attribute keys (see
+  // el()'s querySelector above), so ".lg-check" is set as a literal attribute
+  // name, mirroring how "[data-site-enabled]"/"[data-site-slug]" are matched
+  // elsewhere in this same rig.
+  const siteName = opts && "siteName" in opts ? opts.siteName : "Site One";
+  if (siteName !== null && siteName !== undefined) {
+    const nameLabel = el("label");
+    nameLabel.setAttribute(".lg-check", "");
+    nameLabel.textContent = siteName;
+    siteRow.appendChild(nameLabel);
+  }
   const deactivateBtn = el("button");
   deactivateBtn.setAttribute("data-deactivate", "");
   siteRow.appendChild(deactivateBtn);
@@ -1851,7 +1869,7 @@ describeDb("P8-6 N8 class sweep — the five siblings park a confirmation too", 
     expect(b2.presetBtn.disabled, "retryable").toBe(false);
   });
 
-  it("DEACTIVATE SITE (the money path) parks its own line; a refusal does NOT look like a success", async () => {
+  it("DEACTIVATE SITE (the money path) parks its own line NAMING THE SITE (from the row's real lg-check label, not its raw id); a refusal does NOT look like a success", async () => {
     const store: Record<string, string> = {};
     const b = bootQuoteEditor(store);
     b.reply({ ok: true, status: 204, body: undefined }); // a 204 has no JSON body
@@ -1861,9 +1879,12 @@ describeDb("P8-6 N8 class sweep — the five siblings park a confirmation too", 
       { method: "DELETE", url: "/api/admin/leadgen/quotes/lgq_flash/activation/site-1" },
     ]);
     expect(b.reloads()).toBe(1);
-    expect(store[FLASH_KEY]).toBe("lg-quote-ok|Deactivated for site-1.");
+    // P8-6 Q6: pins the NAME, resolved from the row's real lg-check label —
+    // this is the site the operator recognizes, never the raw site_id they
+    // never see. A dedicated case right below pins the id-fallback instead.
+    expect(store[FLASH_KEY]).toBe("lg-quote-ok|Deactivated for Site One.");
     const after = bootQuoteEditor(store);
-    expect(after.ok.textContent).toBe("Deactivated for site-1.");
+    expect(after.ok.textContent).toBe("Deactivated for Site One.");
 
     const b2 = bootQuoteEditor({});
     b2.reply({ ok: false, status: 409, body: { error: "This site is still serving the Quote." } });
@@ -1872,6 +1893,26 @@ describeDb("P8-6 N8 class sweep — the five siblings park a confirmation too", 
     expect(b2.reloads(), "a refused deactivation must NOT reload").toBe(0);
     expect(b2.err.textContent).toBe("This site is still serving the Quote.");
     expect(b2.deactivateBtn.disabled, "retryable").toBe(false);
+  });
+
+  // P8-6 Q6: the previous test's fixture had NO name-bearing label at all, so
+  // its "Deactivated for site-1." assertion was passing by exercising the
+  // DEFENSIVE id-fallback (siteRowName(row) || siteId in funnel.ts), not the
+  // name resolution the fix is meant to cover — real rows always render a
+  // label (activation.ts), so that fallback is never hit in production. This
+  // case builds that (otherwise-unreachable) labelless row ON PURPOSE to pin
+  // the fallback deliberately, so its passing means something different from
+  // the case above: "the id-fallback still degrades gracefully if a row ever
+  // carries no label," not "names resolve correctly."
+  it("DEACTIVATE SITE: a row with no name label at all falls back to the raw site id (defensive only — activation.ts always renders a label)", async () => {
+    const store: Record<string, string> = {};
+    const b = bootQuoteEditor(store, { siteName: null });
+    b.reply({ ok: true, status: 204, body: undefined });
+    b.deactivateBtn.parentNode!.parentNode!.fire("click", { target: b.deactivateBtn });
+    await b.flush();
+    expect(store[FLASH_KEY]).toBe("lg-quote-ok|Deactivated for site-1.");
+    const after = bootQuoteEditor(store, { siteName: null });
+    expect(after.ok.textContent).toBe("Deactivated for site-1.");
   });
 
   it("a storage-denied browser degrades to silence instead of throwing (both halves wrapped)", async () => {

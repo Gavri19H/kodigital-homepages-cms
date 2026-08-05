@@ -94,6 +94,47 @@ const SECTION_LEVEL_OVERRIDE_KEYS: ReadonlySet<string> = new Set([
   "gapDefault",
 ]);
 const THEME_ROLE_SET: ReadonlySet<string> = new Set(LEADGEN_THEME_ROLES);
+// P8-6 Q6 (M5 jargon sweep): the palette messages below used to dump the raw
+// LEADGEN_THEME_ROLES storage keys at the operator ("brand_primary, accent,
+// page_background, …") — the same "Analytics ID" class M5 exists to remove.
+// The operator's own words for these 14 keys already live in
+// quotes-tabs/shared.ts's ROLE_META (converged VERBATIM with
+// ui-theme-manager.ts's ROLE_META for every role both describe) — but both
+// live under src/admin/leadgen/** (the admin/UI layer), while this module is
+// PURE domain logic several admin files import FROM (sections-handlers.ts,
+// ui-sections.ts, quotes-handlers.ts, …); importing a label table back from
+// admin would invert that direction. ui-theme-manager.ts's own ROLE_META was
+// checked first as the anchor names it, but it keys 3 of these roles
+// differently (page_bg/card/text vs. this vocabulary's
+// page_background/card_background/text_primary) and has no "error" role at
+// all, so it cannot label all 14 correctly — it names a different, reduced
+// key-set. shared.ts's ROLE_META covers the full 14 1:1, so its labels are
+// copied here as plain data (the same local-copy idiom as FIELD_DISPLAY_NAMES
+// below) rather than importing across the layer boundary.
+const THEME_ROLE_LABELS: Readonly<Record<string, string>> = {
+  brand_primary: "Brand primary",
+  brand_secondary: "Brand secondary",
+  accent: "Accent",
+  success: "Success",
+  error: "Error",
+  page_background: "Page background",
+  card_background: "Card background",
+  surface_wash: "Soft fill",
+  border: "Border",
+  text_primary: "Text",
+  text_muted: "Muted text",
+  button_primary_bg: "Button",
+  button_primary_text: "Button text",
+  button_secondary_bg: "Secondary button",
+};
+
+function themeRoleLabel(role: string): string {
+  return THEME_ROLE_LABELS[role] ?? role;
+}
+
+function themeRoleLabelList(): string {
+  return LEADGEN_THEME_ROLES.map(themeRoleLabel).join(", ");
+}
 // MUST stay byte-identical to LEGACY_HEX_RE in content-schema.ts (§9.4 value
 // vocabulary: known role OR raw #hex literal).
 const LEGACY_HEX_RE = /^#[0-9a-fA-F]{3,8}$/;
@@ -115,10 +156,10 @@ function validateSectionPaletteOverride(value: unknown, errors: FieldErrors): vo
   for (const [role, entry] of Object.entries(value)) {
     if (!THEME_ROLE_SET.has(role)) {
       errors[`design_overrides.palette.${role}`] =
-        `'${role}' is not a theme colour role. Use one of: ${LEADGEN_THEME_ROLES.join(", ")}.`;
+        `'${role}' is not a theme colour role. Use one of: ${themeRoleLabelList()}.`;
     } else if (typeof entry !== "string" || (!THEME_ROLE_SET.has(entry) && !LEGACY_HEX_RE.test(entry))) {
       errors[`design_overrides.palette.${role}`] =
-        `The palette entry for '${role}' must be a theme colour role (${LEADGEN_THEME_ROLES.join(", ")}) or a #hex colour like #1A2B3C. Pick a role, or enter a hex value.`;
+        `The palette entry for '${role}' must be a theme colour role (${themeRoleLabelList()}) or a #hex colour like #1A2B3C. Pick a role, or enter a hex value.`;
     }
   }
 }
@@ -164,6 +205,17 @@ function validateSectionLevelOverride(key: string, value: unknown, errors: Field
 // from the resolved node's/choice's own real data (props.label /
 // internal_field / type, or a choice's label/value). This map is what turns
 // the raw id into that text in the first place.
+// P8-6 Q6 class sweep: continue_mode's error used to name its two choices by
+// their raw wire ids ("button|auto_advance") — "auto_advance" is jargon no
+// operator sees; ui-section-studio.ts's Behavior segmented control (and its
+// read-only strip mirror) label the same two values "Wait for Continue" /
+// "Go to next" everywhere they render. Mirrored verbatim so a save error
+// names the same two choices the operator actually picks from.
+const CONTINUE_MODE_LABELS: Readonly<Record<LeadgenContinueMode, string>> = {
+  button: "Wait for Continue",
+  auto_advance: "Go to next",
+};
+
 const FIELD_DISPLAY_NAMES: Readonly<Record<string, string>> = {
   section_name: "Section name",
   activity: "Activity",
@@ -288,7 +340,9 @@ export function validateSection(raw: unknown): LeadgenSectionValidationResult {
   if (raw["continue_mode"] !== undefined && raw["continue_mode"] !== null) {
     const cm = raw["continue_mode"];
     if (cm === "button" || cm === "auto_advance") continueMode = cm;
-    else errors["continue_mode"] = `${FIELD_DISPLAY_NAMES.continue_mode} must be one of button|auto_advance`;
+    else
+      errors["continue_mode"] =
+        `${FIELD_DISPLAY_NAMES.continue_mode} must be one of ${CONTINUE_MODE_LABELS.button} or ${CONTINUE_MODE_LABELS.auto_advance}`;
   }
 
   // address_validation_enabled (§12.8) toggle, default false.
