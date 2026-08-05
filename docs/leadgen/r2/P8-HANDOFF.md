@@ -344,3 +344,26 @@ and — found beyond the contract — a `from_to` typed value silently rewritten
 resolving to `null`, the operator's ZIP report inspecting the wrong box, and a **visitor blocked from
 continuing** by a runtime validator reading a sibling's free text — fixed at the producer for **0 runtime
 bytes** after the in-runtime fix was measured at +499 and correctly refused.
+
+## Two conductor process failures, recorded because they will recur otherwise
+
+**1. I committed a slice on a RED verification.** Verifying Q1 returned `TYPECHECK_EXIT=2` and three suites
+reporting "no tests", and I committed anyway because the failure "looked like" concurrency from a parallel
+slice. It WAS concurrency — but that is not something to assume from a red result. **Rule: a red verification
+blocks the commit. If you believe it is concurrency, wait for the other slice and re-verify; never reason
+past a failing gate.** The commit stands only because the underlying work later verified clean; that is luck,
+not process.
+
+**2. I omitted the island hazard from a brief for an island-dense file.** Slice Q2 owns
+`quotes-tabs/funnel.ts` and I left the hazard list out of its dispatch. It then wrote a comment containing
+`` `${escapeHtml(s.site_name)}` `` INSIDE an emitted island template literal, which closed the literal early
+and broke the entire file's parse — `typecheck` exit 2, and vitest could not even TRANSFORM three unrelated
+suites that transitively import it. This is the second time the same backtick class has taken down the
+project this phase.
+**Rule: every dispatch touching a file that emits islands — `funnel.ts`, `ui-section-studio.ts`,
+`ui-rules-builder.ts`, `quotes-tabs/*.ts`, `ui-quotes.ts` — MUST carry the hazard block verbatim:**
+> ES5 only in emitted island bodies; **no backticks and no `${...}` anywhere in an island body OR its
+> comments** (write the reference in prose); no hex literals in island comments; several separate IIFEs;
+> hand-listed VM manifests.
+Diagnostic tell: if unrelated suites suddenly report "no tests" and typecheck points at a file you did not
+touch, suspect a broken template literal before suspecting your own change.
