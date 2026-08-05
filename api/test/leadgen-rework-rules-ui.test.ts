@@ -33,10 +33,12 @@ import { dirname, join } from "node:path";
 import {
   QR_ENTRY_FIELD_OPTIONS,
   QUOTE_RULES_SCRIPT,
+  RULES_BUILDER_OPS,
   renderQuoteRulesRail,
   type QuoteRulesRailData,
   type QuoteRulesRailRule,
 } from "../src/admin/leadgen/ui-rules-builder";
+import { escapeHtml } from "../src/admin/templates/layout";
 // NOTE: renderRelocatedFunnelRulesPanel (ui-auctions.ts) is deliberately NOT
 // imported directly here. Bisection proved that a DIRECT top-level import of
 // ui-auctions.ts, combined with this file's OWN `admin` router import below,
@@ -318,6 +320,27 @@ describe("P3b quote-rules rail — SSR structure", () => {
     expect(html).toContain("×1"); // multiplier
     expect(html).toContain("Redirect 100% → Kissterra"); // redirect target by name
     expect(html).toContain("Coverage type is Liability"); // answer-field label mapping
+  });
+
+  // P8-6 fix: N2 replaced the helper's stored-code text with the picker's own
+  // words, but hand-transcribed only 6 of the 11 RULES_BUILDER_OPS operators
+  // (missing range/in/not_in/is_empty/not_empty) and hand-grouped the 9
+  // QR_ENTRY_FIELD_OPTIONS source fields. This pins the relationship so the
+  // conditions helper can never again show a smaller vocabulary than
+  // #lg-qr-cond-mount's own field/operator pickers render — every label in
+  // both single-source arrays must appear in the helper text.
+  it("conditions helper lists every RULES_BUILDER_OPS operator and QR_ENTRY_FIELD_OPTIONS source (drift pin)", () => {
+    const html = renderQuoteRulesRail(railData([RULE_ENTRY]));
+    const helpMatch = html.match(/<div class="lg-qr-help">Sources:[^]*?<\/div>/);
+    expect(helpMatch).not.toBeNull();
+    const helpText = helpMatch![0];
+    expect(RULES_BUILDER_OPS.length).toBe(11);
+    for (const op of RULES_BUILDER_OPS) {
+      expect(helpText, `operator "${op.ui}" missing from conditions helper`).toContain(escapeHtml(op.label));
+    }
+    for (const f of QR_ENTRY_FIELD_OPTIONS) {
+      expect(helpText, `source field "${f.internal_field}" missing from conditions helper`).toContain(f.label);
+    }
   });
 });
 

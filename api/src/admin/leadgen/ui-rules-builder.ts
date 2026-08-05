@@ -2196,6 +2196,24 @@ function renderQuoteRuleActions(data: QuoteRulesRailData): string {
   );
 }
 
+// The conditions helper sentence — derived from the SAME single-source arrays
+// #lg-qr-cond-mount's embedded field/operator pickers render from
+// (QR_ENTRY_FIELD_OPTIONS :1908, RULES_BUILDER_OPS :110/renderOpSelect :609)
+// so this summary can never drift from what the picker actually offers again
+// (the bug this replaces: a hand-transcribed 6-of-11 operator list went stale
+// the moment a 7th+ operator — range/in/not_in/is_empty/not_empty — existed).
+// Fields are joined with the same "·" separator as everything else in this
+// sentence (dropping the old ad-hoc "UTM Source/Medium/Campaign/Content"
+// slash-grouping) — one separator convention, zero manual regrouping to keep
+// in sync. Operator labels are reused VERBATIM from RULES_BUILDER_OPS,
+// including the "(=)"-style symbols renderOpSelect itself renders, so the
+// helper always reads identically to the dropdown beside it.
+function renderConditionsHelpText(): string {
+  const sources = QR_ENTRY_FIELD_OPTIONS.map((f) => escapeHtml(f.label)).join(" · ");
+  const ops = RULES_BUILDER_OPS.map((op) => escapeHtml(op.label)).join(" · ");
+  return `Sources: answer fields (by name) · ${sources}. Operators: ${ops}.`;
+}
+
 // The single modal DOM instance (pack 8.2-rule-modal / restyle of Image42).
 function renderQuoteRuleModal(data: QuoteRulesRailData): string {
   return (
@@ -2223,7 +2241,7 @@ function renderQuoteRuleModal(data: QuoteRulesRailData): string {
     `<div class="lg-qr-seg" data-pin="8.2-anyall" data-qr-matchmode><span class="lg-qr-segitem active" data-qr-match="all" role="button" tabindex="0">Match ALL</span><span class="lg-qr-segitem" data-qr-match="any" role="button" tabindex="0">Match ANY</span></div></div>` +
     `<div id="lg-qr-cond-mount"></div>` +
     `<input type="hidden" data-qr-cond-out />` +
-    `<div class="lg-qr-help">Sources: answer fields (by name) · UTM Source/Medium/Campaign/Content · Device · OS · State · Hour · Weekday. Operators: is · is not · greater than · less than · at least · at most.</div>` +
+    `<div class="lg-qr-help">${renderConditionsHelpText()}</div>` +
     `</div>` +
     // actions
     renderQuoteRuleActions(data) +
