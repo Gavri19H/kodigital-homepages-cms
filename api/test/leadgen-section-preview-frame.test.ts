@@ -1002,6 +1002,23 @@ const P8_S310_ERROR_SELECTOR_REPOINT: ReadonlyArray<readonly [string, string]> =
   ],
 ];
 
+// R2 P8-6 (from_to max-rail hit-area partition): styles.ts:1127 adds ONE
+// NET-NEW rule clipping the MAX rail's hit area at the midpoint of the two
+// handles. WHY IT EXISTS: both dual rails span the whole track at z-index 3,
+// so when the handles coincide DOM order gave every press to the max rail —
+// measured on the live r2fix funnel at 1280, a typed max of 40 was destroyed
+// by a drag started on the MIN handle and `POST /lg/auction` carried
+// max=50000 instead of the operator's 40. clip-path clips HIT TESTING as well
+// as paint and is not layout, so the value<->pixel mapping is untouched.
+// SAFE FOR THIS PIN: it is net-new since the frozen capture and this fixture
+// carries no slider node at all, so it is a sheet-level delta only — same
+// wholesale-strip idiom and same token interpolation (R2_P4_RQ.thumbSize) as
+// R2_P4_RANGE_NEW_RULES above, kept in lockstep with styles.ts (a drift in
+// either fails here). Nothing ELSE in the sheet moved.
+const P8_S6_RANGE_MAX_RAIL_CLIP_RULE = [
+  `\n${DEFAULT_FUNNEL_SCOPE} .lg-range-track > span + span > .lg-range-input-dual{clip-path:inset(0 0 0 calc(${R2_P4_RQ.thumbSize} / 2 + (var(--lg-a,0) + var(--lg-b,100)) * (100% - ${R2_P4_RQ.thumbSize}) / 200))}`,
+];
+
 // Legacy plain body: unbound headline + icon grid + ONE continue — a realistic
 // v2.4 body carrying NONE of the additive params.
 const LEGACY_PLAIN_CONTENT = {
@@ -1202,9 +1219,16 @@ function assertPinnedResponse(actualText: string, fixtureText: string): void {
     (s, [next, prev]) => s.split(next).join(prev),
     cssMinusAll,
   );
-  expect(
+  // R2 P8-6: strip the ONE net-new max-rail hit-area clip rule (see
+  // P8_S6_RANGE_MAX_RAIL_CLIP_RULE's own comment above — the only base-sheet
+  // delta this slice adds).
+  const cssMinusRailClip = P8_S6_RANGE_MAX_RAIL_CLIP_RULE.reduce(
+    (s, r) => s.split(r).join(""),
     cssMinusRepoint,
-    "preview.css modulo the DEV-57 + DEV-68 moved rules + the R5 state-safe-border + R5 D11 typography rule bodies + the P1a layout system + the P3a structured-placement (.lg-el/.lg-el-row) rules + the Round-4 P1b studio/preview affordances (ghost/address-composite/mqg-empty) + the R2 P4 §6.8 slider anatomy rules + the R2 P5 F7 address-field-label/Other-select rules",
+  );
+  expect(
+    cssMinusRailClip,
+    "preview.css modulo the DEV-57 + DEV-68 moved rules + the R5 state-safe-border + R5 D11 typography rule bodies + the P1a layout system + the P3a structured-placement (.lg-el/.lg-el-row) rules + the Round-4 P1b studio/preview affordances (ghost/address-composite/mqg-empty) + the R2 P4 §6.8 slider anatomy rules + the R2 P5 F7 address-field-label/Other-select rules + the R2 P8-6 from_to max-rail hit-area clip rule",
   ).toBe(expectedPreview["css"]);
   // and the live producer still owns the string (the sections-api :863 idiom).
   expect(actualPreview["css"]).toBe(funnelChromeCss(getFunnelDesign(null)));

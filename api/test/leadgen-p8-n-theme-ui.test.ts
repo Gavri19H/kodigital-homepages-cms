@@ -596,14 +596,40 @@ function selectsInsideClass(html: string, className: string): ParsedSelect[] {
 }
 
 // --- 3. CSS: read the boxes out of the real sheets / real inline styles ----
-function styleRule(sheet: string, selector: string): string {
+// PERFORMANCE ONLY (P8-6 gate run 3) — NO SEMANTIC CHANGE. styleRule used to
+// re-flatten the sheet (a full ~80KB string copy) and re-scan it end-to-end on
+// EVERY lookup, and declFor calls it once per class per sheet inside a
+// try/catch; one coveredSelects() sweep therefore ran it thousands of times
+// over the two real sheets. That put the N7 CLIP INVARIANT and F12 RETIREMENT
+// LEDGER legs at 4.1-4.7s against vitest's 5000ms default, so they TIMED OUT
+// under gate load while passing in isolation. The parse is now memoised per
+// sheet. The index keeps the FIRST rule that lists a selector, which is
+// exactly what the old loop's first `return` did, and an absent selector still
+// throws the same Error — so every caller sees identical values. Keyed by
+// sheet CONTENT, never by position, so the F12 claim-2 leg's REVERTED sheet
+// gets its own index instead of reusing the real sheet's (a stale hit there
+// would silently defeat that leg's fail-before bottle).
+const STYLE_RULE_INDEX = new Map<string, Map<string, string>>();
+function styleRuleIndex(sheet: string): Map<string, string> {
+  const cached = STYLE_RULE_INDEX.get(sheet);
+  if (cached !== undefined) return cached;
   // strip @media preludes so the brace pairs of the inner rules balance
   const flat = sheet.replace(/@media[^{]*\{/g, "");
+  const index = new Map<string, string>();
   for (const m of flat.matchAll(/([^{}]+)\{([^{}]*)\}/g)) {
-    const selectors = (m[1] as string).split(",").map((s) => s.trim());
-    if (selectors.includes(selector)) return (m[2] as string).trim();
+    const block = (m[2] as string).trim();
+    for (const selector of (m[1] as string).split(",")) {
+      const key = selector.trim();
+      if (!index.has(key)) index.set(key, block);
+    }
   }
-  throw new Error(`selector not found in the real stylesheet: ${selector}`);
+  STYLE_RULE_INDEX.set(sheet, index);
+  return index;
+}
+function styleRule(sheet: string, selector: string): string {
+  const block = styleRuleIndex(sheet).get(selector);
+  if (block === undefined) throw new Error(`selector not found in the real stylesheet: ${selector}`);
+  return block;
 }
 function decl(block: string, prop: string): string {
   for (const part of block.split(";")) {
