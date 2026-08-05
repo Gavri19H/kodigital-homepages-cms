@@ -120,6 +120,41 @@ import { defaultFunnelDesign } from "../src/public/leadgen/designs/default-funne
 import { LEADGEN_SELF_HOSTED_FONT_FAMILIES } from "../src/public/leadgen/designs/fonts.generated";
 import type { Env } from "../src/env";
 
+// P8-6 slice V1 — WHY THE LEGS BELOW THAT CALL coveredSelects() NAME AN
+// EXPLICIT PER-TEST TIMEOUT INSTEAD OF RELYING ON vitest's 5000ms DEFAULT.
+// The conductor's authoritative full-suite gate went red on ONE leg here
+// (F12 RETIREMENT LEDGER's "restores claim 1") with "Test timed out in
+// 5000ms", re-run in isolation immediately after at 110/110 — a LOAD-
+// DEPENDENT flake, not a regression. MEASURED THIS ROUND, before any change:
+// the 8 legs that call coveredSelects() (the box-arithmetic sweep over the
+// two live surfaces) were 652-1169ms alone, and 1.4-3.6s under a synthetic
+// 24-way CPU-bound contention rig (`node -e "while(true){}"` x24 on this
+// 12-core box, i.e. 2x oversubscription) — everything else in this file
+// stayed under 90ms even at that contention level. THIS ROUND ALSO MADE THE
+// WORK ITSELF CHEAPER, not just more patient: resolveContentBox's per-pixel
+// sweep (up to ~1200 steps per select) used to redo a whole hop's
+// declaration lookups AND, for a flex hop, its ENTIRE sibling scan
+// (topLevelChildren -> sliceAnyElement -> per-sibling textWidthPx) on every
+// single step, even though none of that depends on the sweep's own width —
+// see resolveHop's comment above resolveContentBox. Hoisting the width-
+// independent half out of the sweep (same arithmetic, same order, same
+// answer — 110/110 unchanged before/after) took the same 8 legs to
+// 16-91ms alone and a WORST OF 250ms under the identical 24-way rig (3
+// consecutive runs, 110/110 each). That is roughly a 60-150x margin under
+// synthetic 2x-core contention, which is why 5000ms would almost certainly
+// no longer be crossed even without this timeout — but the conductor's own
+// full-suite rig is bigger and noisier than 24 busy loops on one dev box,
+// and "probably enough headroom now" is exactly the kind of claim this file
+// keeps not trusting from itself elsewhere. The budget below is therefore an
+// INSTRUMENT correction on top of the real fix, not a substitute for it: it
+// changes NOTHING about what any leg asserts or how strictly, only how long
+// vitest waits before calling contention a failure. It is applied ONLY to
+// the 8 legs that were ever measured heavy — every other leg keeps the
+// 5000ms default, so a genuine future regression in a currently-cheap leg
+// still fails loudly and quickly instead of being silently absorbed by a
+// blanket bump.
+const HEAVY_LEG_TIMEOUT_MS = 15_000;
+
 // --- node:sqlite harness (repo pattern — duplicated per test file, e.g. ---
 // --- test/leadgen-theme-manager-ui.test.ts, leadgen-p2-fixfirst-r2.test.ts)
 
@@ -971,6 +1006,80 @@ interface BoxResult {
   at: number;
   anchor: string;
 }
+// PERFORMANCE ONLY (P8-6 slice V1) — NO SEMANTIC CHANGE. Everything a "hop"
+// needs (its own chrome, its grid spec, its flex siblings' widths…) is a pure
+// function of that element's OWN attrs/markup and `sheets` — NONE of it reads
+// `anchorW`/`width` — except the two spots marked below, which genuinely do
+// and stay inside the sweep. The sweep below used to recompute a hop's WHOLE
+// declaration lookup (chromeX/grid/gap/display, and for a flex hop the entire
+// sibling scan: topLevelChildren -> sliceAnyElement -> per-sibling
+// textWidthPx) on EVERY one of up to ~1200 anchorW steps, for every select —
+// measured this round at 21 of 22 selects needing the sweep, 4501 total
+// iterations, ~800ms of a ~810ms resolveContentBox total (profiled with
+// console.time around the loop, reverted before commit). Hoisting the
+// width-INDEPENDENT half to run ONCE per hop turns that into O(chain) once
+// plus O(range) of only integer arithmetic, and cannot change which anchorW
+// is picked as worst: `resolveHop` computes byte-for-byte the same values the
+// old inline code computed for a given (el, sheets, html), in the same order,
+// and the sweep still recomputes the two genuinely width-dependent pieces
+// (columnCount's `width` argument; `mineHypo` in the claims-full-line branch,
+// and the `alone` comparisons that read it) fresh on every step.
+interface ResolvedHop {
+  chromeX: number;
+  grid: string | null;
+  gap: number;
+  isFlex: boolean;
+  wraps: boolean;
+  siblingW: number;
+  gapsTotal: number;
+  mineBasis: number | null;
+  claimsFullLine: boolean;
+  mineTextWidth: number;
+  nextHypo: number;
+}
+function resolveHop(html: string, entry: { at: number }, el: RawEl, sheets: readonly string[]): ResolvedHop {
+  const grid = declFor(el.attrs, "grid-template-columns", sheets);
+  const gap = pxOr(declFor(el.attrs, "gap", sheets), 0);
+  const isFlex = grid === null && (declFor(el.attrs, "display", sheets) ?? "").indexOf("flex") > -1;
+  let wraps = false;
+  let siblingW = 0;
+  let gapsTotal = 0;
+  let mineBasis: number | null = null;
+  let claimsFullLine = false;
+  let mineTextWidth = 0;
+  let nextHypo = 0;
+  if (isFlex) {
+    const kids = topLevelChildren(sliceAnyElement(html, el.start), el.start);
+    wraps = (declFor(el.attrs, "flex-wrap", sheets) ?? "nowrap") === "wrap";
+    const mineIdx = kids.findIndex((k) => entry.at >= k.from && entry.at < k.to);
+    const others = kids.filter((_k, n) => n !== mineIdx);
+    for (const k of others) {
+      const basis = flexBasisPx(k.attrs, sheets);
+      const maxW = declFor(k.attrs, "max-width", sheets);
+      const wAttr = attr(k.attrs, "width"); // svg/img chevrons and icons
+      if (basis !== null) siblingW += basis;
+      else if (maxW !== null && /px/.test(maxW)) siblingW += px(maxW);
+      else if (wAttr !== null && /^\d+$/.test(wAttr)) siblingW += Number(wAttr) + chromeX(k.attrs, sheets);
+      else siblingW += textWidthPx(visibleText(k.html), fontPxOf(k.attrs, sheets, 14)) + chromeX(k.attrs, sheets);
+    }
+    gapsTotal = gap * Math.max(0, kids.length - 1);
+    // The line-break decision needs MY OWN hypothetical width too, not
+    // just the siblings': a child declared width:100% (every .form-select)
+    // already claims the whole line, which is exactly why the browser puts
+    // it alone on one and gives it the full width — .lg-list-row measured
+    // 292px of a 292px line, .lg-preset-apply-row 314 of 314. Comparing
+    // siblings alone said "it shares", and under-stated both boxes by more
+    // than half.
+    const mineEl = mineIdx === -1 ? null : (kids[mineIdx] as { attrs: string; html: string });
+    mineBasis = mineEl === null ? null : flexBasisPx(mineEl.attrs, sheets);
+    claimsFullLine = mineEl !== null && (declFor(mineEl.attrs, "width", sheets) === "100%" || /class="[^"]*\bform-select\b/.test(mineEl.html) || mineEl.html.startsWith("<select"));
+    mineTextWidth = textWidthPx(visibleText(mineEl?.html ?? ""), fontPxOf(mineEl?.attrs ?? "", sheets, 14));
+    const nextOther = others.length > 0 ? (others[0] as { attrs: string; html: string }) : null;
+    nextHypo = nextOther === null ? 0 : (flexBasisPx(nextOther.attrs, sheets) ?? textWidthPx(visibleText(nextOther.html), fontPxOf(nextOther.attrs, sheets, 14)) + chromeX(nextOther.attrs, sheets));
+  }
+  return { chromeX: chromeX(el.attrs, sheets), grid, gap, isFlex, wraps, siblingW, gapsTotal, mineBasis, claimsFullLine, mineTextWidth, nextHypo };
+}
+
 function resolveContentBox(html: string, entry: { select: ParsedSelect; chain: RawEl[]; at: number }, sheets: readonly string[]): BoxResult | null {
   let anchorIdx = -1;
   for (let i = entry.chain.length - 1; i >= 0; i -= 1) {
@@ -996,52 +1105,23 @@ function resolveContentBox(html: string, entry: { select: ParsedSelect; chain: R
   const anchorMax = pxOr(declFor(anchor.attrs, "max-width", sheets), Math.max(anchorMin, 1200));
   if (anchorMin <= 0) return null;
 
+  const hops: ResolvedHop[] = [];
+  for (let i = anchorIdx; i < entry.chain.length; i += 1) hops.push(resolveHop(html, entry, entry.chain[i] as RawEl, sheets));
+
   let worst: BoxResult | null = null;
   for (let anchorW = anchorMin; anchorW <= anchorMax; anchorW += 1) {
     let width = anchorW;
-    for (let i = anchorIdx; i < entry.chain.length; i += 1) {
-      const el = entry.chain[i] as RawEl;
-      width -= chromeX(el.attrs, sheets);
-      const grid = declFor(el.attrs, "grid-template-columns", sheets);
-      const gap = pxOr(declFor(el.attrs, "gap", sheets), 0);
-      if (grid !== null) {
-        const cols = columnCount(grid, width, gap);
-        width = (width - gap * (cols - 1)) / cols;
+    for (const hop of hops) {
+      width -= hop.chromeX;
+      if (hop.grid !== null) {
+        const cols = columnCount(hop.grid, width, hop.gap);
+        width = (width - hop.gap * (cols - 1)) / cols;
         continue;
       }
-      if ((declFor(el.attrs, "display", sheets) ?? "").indexOf("flex") > -1) {
-        const kids = topLevelChildren(sliceAnyElement(html, el.start), el.start);
-        const wraps = (declFor(el.attrs, "flex-wrap", sheets) ?? "nowrap") === "wrap";
-        const mineIdx = kids.findIndex((k) => entry.at >= k.from && entry.at < k.to);
-        const others = kids.filter((_k, n) => n !== mineIdx);
-        let siblingW = 0;
-        for (const k of others) {
-          const basis = flexBasisPx(k.attrs, sheets);
-          const maxW = declFor(k.attrs, "max-width", sheets);
-          const wAttr = attr(k.attrs, "width"); // svg/img chevrons and icons
-          if (basis !== null) siblingW += basis;
-          else if (maxW !== null && /px/.test(maxW)) siblingW += px(maxW);
-          else if (wAttr !== null && /^\d+$/.test(wAttr)) siblingW += Number(wAttr) + chromeX(k.attrs, sheets);
-          else siblingW += textWidthPx(visibleText(k.html), fontPxOf(k.attrs, sheets, 14)) + chromeX(k.attrs, sheets);
-        }
-        const gaps = gap * Math.max(0, kids.length - 1);
-        // The line-break decision needs MY OWN hypothetical width too, not
-        // just the siblings': a child declared width:100% (every .form-select)
-        // already claims the whole line, which is exactly why the browser puts
-        // it alone on one and gives it the full width — .lg-list-row measured
-        // 292px of a 292px line, .lg-preset-apply-row 314 of 314. Comparing
-        // siblings alone said "it shares", and under-stated both boxes by more
-        // than half.
-        const mineEl = mineIdx === -1 ? null : (kids[mineIdx] as { attrs: string; html: string });
-        const mineBasis = mineEl === null ? null : flexBasisPx(mineEl.attrs, sheets);
-        const claimsFullLine =
-          mineEl !== null && (declFor(mineEl.attrs, "width", sheets) === "100%" || /class="[^"]*\bform-select\b/.test(mineEl.html) || mineEl.html.startsWith("<select"));
-        const mineHypo = mineBasis !== null ? mineBasis : claimsFullLine ? width : textWidthPx(visibleText(mineEl?.html ?? ""), fontPxOf(mineEl?.attrs ?? "", sheets, 14));
-        const nextOther = others.length > 0 ? (others[0] as { attrs: string; html: string }) : null;
-        const nextHypo =
-          nextOther === null ? 0 : (flexBasisPx(nextOther.attrs, sheets) ?? textWidthPx(visibleText(nextOther.html), fontPxOf(nextOther.attrs, sheets, 14)) + chromeX(nextOther.attrs, sheets));
-        const alone = wraps && (mineHypo >= width || mineHypo + gap + nextHypo > width);
-        width = alone ? width : width - siblingW - gaps;
+      if (hop.isFlex) {
+        const mineHypo = hop.mineBasis !== null ? hop.mineBasis : hop.claimsFullLine ? width : hop.mineTextWidth;
+        const alone = hop.wraps && (mineHypo >= width || mineHypo + hop.gap + hop.nextHypo > width);
+        width = alone ? width : width - hop.siblingW - hop.gapsTotal;
         continue;
       }
     }
@@ -1555,7 +1635,7 @@ describeDb("N20 — Themes manager: fresh-first ordering, legacy labelled and st
     }
     expect(headline.strings).toContain("Roboto Mono");
     expect(headline.strings.some((s) => s.includes("shows as default font"))).toBe(false);
-  });
+  }, HEAVY_LEG_TIMEOUT_MS);
 
   it("a preset storing a FRESH self-hosted font (Poppins/Lexend) keeps it SELECTED with NO legacy suffix, and renders the SAME 8 words the rail offers", async () => {
     const { env } = newHarness();
@@ -1758,7 +1838,7 @@ describeDb("N7 CLIP INVARIANT — every select on the covered surfaces shows its
       unplaced.filter((u) => !excused.has(u.split(" ")[0] as string)),
       "a select on a covered surface has no resolvable box: give it one, or add it to OUT_OF_COVERAGE with a written reason",
     ).toEqual([]);
-  });
+  }, HEAVY_LEG_TIMEOUT_MS);
 
   it("EXECUTED: no product-authored string is wider than the box that shows it, at the narrowest width its layout can take", async () => {
     const { env } = newHarness();
@@ -1795,7 +1875,7 @@ describeDb("N7 CLIP INVARIANT — every select on the covered surfaces shows its
     const picker = all.find((c) => c.key === "lg-theme-preset-select") as CoveredSelect;
     expect(picker.strings, "funnel.ts's zero-state literal must reach this check").toContain("No presets yet");
     expect(picker.strings).toContain("Choose a preset…");
-  });
+  }, HEAVY_LEG_TIMEOUT_MS);
 
   // FIX ROUND F14 (review-p8-3d MINOR-1) — the box arithmetic is only ever
   // applied inside the repertoire the model was calibrated on. The leg above
@@ -1829,7 +1909,7 @@ describeDb("N7 CLIP INVARIANT — every select on the covered surfaces shows its
     // the browser measured this round as under-stated.
     expect(unmodelledCharacters("100% match")).toEqual(["%"]);
     expect(unmodelledCharacters("Ärger")).toEqual(["Ä"]);
-  });
+  }, HEAVY_LEG_TIMEOUT_MS);
 
   it("EXECUTED: every select that can hold OPERATOR data is covered by the clip reveal, and the reveal is on the page that renders it", async () => {
     const { env } = newHarness();
@@ -1849,7 +1929,7 @@ describeDb("N7 CLIP INVARIANT — every select on the covered surfaces shows its
     const { html } = await getHtml(env, `/admin/leadgen/themes?theme=${created.item.id}`);
     expect(html).toContain("function lgRevealClippedSelect(");
     expect(html).toContain("sel.scrollWidth > sel.clientWidth");
-  });
+  }, HEAVY_LEG_TIMEOUT_MS);
 
   it("the OUT_OF_COVERAGE list is honest: every excused select is really unplaceable or really outside the covered surfaces", async () => {
     const { env } = newHarness();
@@ -1865,7 +1945,7 @@ describeDb("N7 CLIP INVARIANT — every select on the covered surfaces shows its
       // must be REMOVED from the list, not left standing.
       expect(hit === undefined || hit.box === null, `${row.id} is now resolvable — delete its OUT_OF_COVERAGE row`).toBe(true);
     }
-  });
+  }, HEAVY_LEG_TIMEOUT_MS);
 });
 
 // ---------------------------------------------------------------------------
@@ -2518,7 +2598,7 @@ describeDb("F12 RETIREMENT LEDGER — every claim the 88 consolidated legs made 
         expect(c.strings, `${row.key}: option "${text}" is no longer checked by the clip invariant`).toContain(text);
       }
     }
-  });
+  }, HEAVY_LEG_TIMEOUT_MS);
 
   it("EXECUTED (restores claim 2): with `.lg-scalars` reverted to the shape the defect shipped with, the SAME arithmetic still names the overflows", async () => {
     const { env } = newHarness();
@@ -2547,7 +2627,7 @@ describeDb("F12 RETIREMENT LEDGER — every claim the 88 consolidated legs made 
     // rail scalars whose boxes that rule sets.
     expect(overflowing.length, "the reverted grid rule must still be caught").toBeGreaterThan(0);
     expect(overflowing.some((o) => o.startsWith("typography."))).toBe(true);
-  });
+  }, HEAVY_LEG_TIMEOUT_MS);
 
   it("EXECUTED (restores claim 3, MINOR-2): the SHARED .form-select rule still declares width:100%, which is the premise the box arithmetic short-circuits on", () => {
     const formSelect = styleRule(ADMIN_STYLES, ".form-select");
