@@ -50,11 +50,12 @@ function variantVariesLine(primary: VariantNode | null, variant: VariantNode): s
 }
 
 
-// A/B panel (§8.5) — per-variant percent allocation (stored as basis points), a
-// live Σ indicator, the test lifecycle (create / start / stop), per-arm
-// delete, and an assignment preview. Scoped to the SELECTED variant's funnel
-// (its arms). No control label anywhere; the funnel's single active variant
-// with no running test is just its one arm.
+// A/B panel (§8.5) — per-variant percent allocation (stored server-side as an
+// integer scaled ×100, so 10000 == 100%), a live Σ indicator, the test
+// lifecycle (create / start / stop), per-arm delete, and an assignment
+// preview. Scoped to the SELECTED variant's funnel (its arms). No control
+// label anywhere; the funnel's single active variant with no running test is
+// just its one arm.
 export function renderAbPanel(structure: StructureBody, selected: VariantNode): string {
   const funnel =
     structure.funnels.find((f) => f.funnel_id === selected.funnel_id) ?? structure.funnels[0] ?? null;
@@ -154,7 +155,7 @@ export function renderAbPanel(structure: StructureBody, selected: VariantNode): 
   return `<div class="lg-qpanel" data-panel="ab">
   <div class="card">
     <h3>Traffic allocation</h3>
-    <p class="form-help">Test this funnel against variants of itself — a different template, theme, sections, or rules. Add a variant, change what you want on it, then split the traffic below (must sum to <strong>100%</strong>; stored as basis points, per-test Σ == 10000) before a test can start. Equal arms; no control.</p>
+    <p class="form-help">Test this funnel against variants of itself — a different template, theme, sections, or rules. Add a variant, change what you want on it, then split the traffic below (must sum to <strong>100%</strong>) before a test can start. Every variant is treated the same — none of them is a baseline.</p>
     <div id="lg-ab-variant-list" class="lg-alloc-list">${allocRows || `<p class="form-help">No variants.</p>`}</div>
     <p class="lg-alloc-summary">Σ = <strong data-alloc-sum>&mdash;</strong> <span data-alloc-sum-note class="form-help"></span></p>
     <div class="toolbar">
