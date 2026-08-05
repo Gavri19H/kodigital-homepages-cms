@@ -67,6 +67,42 @@ export function isFunnelTokenRole(value: unknown): value is FunnelTokenRole {
   return typeof value === "string" && ROLE_SET.has(value);
 }
 
+// P8-6 Q7 (M5 jargon sweep, owner verbatim: "the rules you build are using
+// jargon"): the operator's own labels for these 14 roles, converged VERBATIM
+// with quotes-tabs/shared.ts's ROLE_META and sections.ts's THEME_ROLE_LABELS
+// (see that file's P8-6 Q6 comment for why a label map is kept as local data
+// beside its role vocabulary rather than importing across the admin/domain
+// layer boundary — this module is PURE, same as that one). Unlike sections.ts
+// — which cannot reuse a label table without inverting its domain->admin
+// boundary — THIS module is where FUNNEL_TOKEN_ROLES is itself DEFINED, and
+// both frames.ts and content-schema.ts already import FUNNEL_TOKEN_ROLES from
+// here; exporting the label map from the same place gives every consumer ONE
+// canonical source instead of a third divergent local copy.
+export const FUNNEL_TOKEN_ROLE_LABELS: Readonly<Record<FunnelTokenRole, string>> = {
+  brand_primary: "Brand primary",
+  brand_secondary: "Brand secondary",
+  accent: "Accent",
+  success: "Success",
+  error: "Error",
+  page_background: "Page background",
+  card_background: "Card background",
+  surface_wash: "Soft fill",
+  border: "Border",
+  text_primary: "Text",
+  text_muted: "Muted text",
+  button_primary_bg: "Button",
+  button_primary_text: "Button text",
+  button_secondary_bg: "Secondary button",
+};
+
+export function funnelTokenRoleLabel(role: string): string {
+  return FUNNEL_TOKEN_ROLE_LABELS[role as FunnelTokenRole] ?? role;
+}
+
+export function funnelTokenRoleLabelList(): string {
+  return FUNNEL_TOKEN_ROLES.map(funnelTokenRoleLabel).join(", ");
+}
+
 // Every `group.key` path into a FunnelDesign whose leaf is a string token.
 // Computed from the design TYPE, so ROLE_TO_BASE_TOKEN below can only name
 // paths that actually exist on every registered design (the registry types
@@ -2233,6 +2269,101 @@ export const THEME_CARD_DEFAULT_FIELDS = {
   shadow: "shadow_step",
 } as const satisfies Record<keyof ThemeCardDefaults, DefaultsFieldKind>;
 
+// P8-6 Q7 (M5 jargon sweep, "close the raw-key-dump class for good"): every
+// closed vocabulary below is picked from a LABELLED control in the funnel
+// theme rail (quotes-tabs/themes.ts) — the abbreviated/underscored STORAGE
+// value ("sm", "space_grotesk", "wash") is never what the operator reads on
+// screen. These maps and labelList() serve validateTheme, i.e. the INLINE
+// theme_json shape that rail authors.
+//
+// WHY THEY ARE DECLARED HERE AND NOT IMPORTED (P8-6 Q10 re-measurement; the
+// note this replaces said they were kept "local for the same reason
+// FUNNEL_TOKEN_ROLE_LABELS above is local", which read as if that map were
+// unexported — it is `export const` at the top of this file and admin imports
+// it. The layer half was right, the description was not):
+//   • DIRECTION. This module is the lowest of the three layers involved —
+//     designs/frames.ts imports it, and so do the admin theme surfaces.
+//     Importing a label table back FROM admin would invert that; exporting
+//     these DOWNWARD would not. So the boundary is not the blocker.
+//   • THE COPIES ARE MOSTLY NOT COPIES. Measured against the three files that
+//     hold the "second copy": only THREE tables are word-for-word identical
+//     (labelList() itself, duplicated in designs/frames.ts; RADIUS_STEP +
+//     SHADOW_STEP in quotes-tabs/themes.ts). The rest deliberately DIFFER
+//     because each converges with ITS OWN control, and sharing one table
+//     would silently change operator copy on one of the two surfaces:
+//       - fonts: the rail appends "(shows as default font)" to the 3
+//         non-self-hosted ids; this file's sentence names the family only.
+//       - button fill/layout/selected + s/m/l heights: themes-handlers.ts
+//         (the ThemeRecord validator for the Themes MANAGER page) says
+//         "Solid" / "Grid" / "Wash" / "S, M, L"; the rail's own controls say
+//         "Solid (default)" / "Grid (default)" / "Soft wash (default)" /
+//         "Small, Medium, Large", which is what these maps must echo.
+//     themes-handlers.ts's join is also a different function (choiceList,
+//     "a, b or c") from labelList's (", ").
+// Collapsing the three real duplicates means editing frames.ts /
+// quotes-tabs/themes.ts, so it is a change to THOSE files, not this one.
+//
+// THEME_SPACING_SCALES / THEME_RADIUS_SCALES / THEME_SHADOW_SCALES and
+// THEME_FIELD_MIN_HEIGHTS are DELIBERATELY left alone below — their admin
+// labels differ from the stored value by capitalisation only
+// (compact -> "Compact", small -> "Small"), which already reads as plain
+// English in a sentence, not jargon.
+const THEME_FONT_LABELS: Readonly<Record<ThemeFontId, string>> = {
+  literata: "Literata",
+  sora: "Sora",
+  system: "System",
+  poppins: "Poppins",
+  space_grotesk: "Space Grotesk",
+  fraunces: "Fraunces",
+  playfair: "Playfair Display",
+  manrope: "Manrope",
+  dm_sans: "DM Sans",
+  work_sans: "Work Sans",
+  lexend: "Lexend",
+};
+// Shared by typography.size (THEME_SIZE_SCALES) and the button/field
+// min_height defaults (THEME_BUTTON_MIN_HEIGHTS) — both s/m/l.
+const THEME_HEIGHT_LABELS: Readonly<Record<string, string>> = { s: "Small", m: "Medium", l: "Large" };
+const THEME_DISPLAY_SIZE_LABELS: Readonly<Record<string, string>> = {
+  m: "Base",
+  l: "Large",
+  xl: "X-Large",
+  xxl: "XX-Large",
+};
+const THEME_RADIUS_STEP_LABELS: Readonly<Record<string, string>> = {
+  sm: "Small",
+  md: "Medium",
+  lg: "Large",
+  xl: "Extra large",
+  full: "Fully round",
+};
+const THEME_SHADOW_STEP_LABELS: Readonly<Record<string, string>> = {
+  none: "None",
+  sm: "Small",
+  md: "Medium",
+  lg: "Large",
+  xl: "Extra large",
+};
+const THEME_BUTTON_STYLE_LABELS: Readonly<Record<string, string>> = {
+  fill: "Solid (default)",
+  outline: "Outline",
+  soft: "Soft pill + shadow",
+};
+const THEME_BUTTON_LAYOUT_LABELS: Readonly<Record<string, string>> = {
+  grid: "Grid (default)",
+  list: "Single-column list",
+  card: "Full-width cards",
+};
+const THEME_BUTTON_SELECTED_LABELS: Readonly<Record<string, string>> = {
+  wash: "Soft wash (default)",
+  mark: "Bigger + check badge",
+};
+const THEME_BUTTON_CASING_LABELS: Readonly<Record<string, string>> = { none: "As written", upper: "UPPERCASE" };
+
+function labelList(values: readonly string[], labels: Readonly<Record<string, string>>): string {
+  return values.map((v) => labels[v] ?? v).join(", ");
+}
+
 export function validateTheme(raw: unknown): ThemeValidation {
   const problems: Problem[] = [];
   const push = (severity: ProblemSeverity, path: string, message: string): void => {
@@ -2288,7 +2419,7 @@ export function validateTheme(raw: unknown): ThemeValidation {
           push(
             "error",
             path,
-            `'${key}' isn't a theme colour role. Roles are: ${FUNNEL_TOKEN_ROLES.join(", ")}.`,
+            `'${key}' isn't a theme colour role. Roles are: ${funnelTokenRoleLabelList()}.`,
           );
           continue;
         }
@@ -2307,7 +2438,7 @@ export function validateTheme(raw: unknown): ThemeValidation {
           push(
             "error",
             path,
-            `Palette colours must be a theme colour role (${FUNNEL_TOKEN_ROLES.join(", ")}) or a hex colour.`,
+            `Palette colours must be a theme colour role (${funnelTokenRoleLabelList()}) or a hex colour.`,
           );
         }
       }
@@ -2331,13 +2462,17 @@ export function validateTheme(raw: unknown): ThemeValidation {
           push(
             "error",
             `theme.typography.${key}`,
-            `The ${key} font must be one of the curated fonts: ${THEME_FONT_IDS.join(", ")}.`,
+            `The ${key} font must be one of the curated fonts: ${labelList(THEME_FONT_IDS, THEME_FONT_LABELS)}.`,
           );
         }
       }
       const size = typography["size"];
       if (size !== undefined && !(THEME_SIZE_SCALES as readonly string[]).includes(size as string)) {
-        push("error", "theme.typography.size", `The text size scale must be one of: ${THEME_SIZE_SCALES.join(", ")}.`);
+        push(
+          "error",
+          "theme.typography.size",
+          `The text size scale must be one of: ${labelList(THEME_SIZE_SCALES, THEME_HEIGHT_LABELS)}.`,
+        );
       }
       // P6 (deliverable 2): the display headline ramp is a closed enum.
       const displaySize = typography["display_size"];
@@ -2348,7 +2483,7 @@ export function validateTheme(raw: unknown): ThemeValidation {
         push(
           "error",
           "theme.typography.display_size",
-          `The display size scale must be one of: ${THEME_DISPLAY_SIZE_SCALES.join(", ")}.`,
+          `The display size scale must be one of: ${labelList(THEME_DISPLAY_SIZE_SCALES, THEME_DISPLAY_SIZE_LABELS)}.`,
         );
       }
     }
@@ -2438,20 +2573,20 @@ function validateComponentDefaults(
         push(
           "error",
           path,
-          `The ${label} ${human} must be a theme colour role: ${FUNNEL_TOKEN_ROLES.join(", ")}.`,
+          `The ${label} ${human} must be a theme colour role: ${funnelTokenRoleLabelList()}.`,
         );
       }
     } else if (kind === "radius_step") {
       if (!(THEME_RADIUS_STEPS as readonly string[]).includes(value as string)) {
-        push("error", path, `The ${label} ${human} must be one of: ${THEME_RADIUS_STEPS.join(", ")}.`);
+        push("error", path, `The ${label} ${human} must be one of: ${labelList(THEME_RADIUS_STEPS, THEME_RADIUS_STEP_LABELS)}.`);
       }
     } else if (kind === "shadow_step") {
       if (!(THEME_SHADOW_STEPS as readonly string[]).includes(value as string)) {
-        push("error", path, `The ${label} ${human} must be one of: ${THEME_SHADOW_STEPS.join(", ")}.`);
+        push("error", path, `The ${label} ${human} must be one of: ${labelList(THEME_SHADOW_STEPS, THEME_SHADOW_STEP_LABELS)}.`);
       }
     } else if (kind === "min_height") {
       if (!(THEME_BUTTON_MIN_HEIGHTS as readonly string[]).includes(value as string)) {
-        push("error", path, `The ${label} ${human} must be one of: ${THEME_BUTTON_MIN_HEIGHTS.join(", ")}.`);
+        push("error", path, `The ${label} ${human} must be one of: ${labelList(THEME_BUTTON_MIN_HEIGHTS, THEME_HEIGHT_LABELS)}.`);
       }
     } else if (kind === "field_min_height") {
       if (!(THEME_FIELD_MIN_HEIGHTS as readonly string[]).includes(value as string)) {
@@ -2459,19 +2594,19 @@ function validateComponentDefaults(
       }
     } else if (kind === "btn_fill") {
       if (!(THEME_BUTTON_STYLES as readonly string[]).includes(value as string)) {
-        push("error", path, `The ${label} ${human} must be one of: ${THEME_BUTTON_STYLES.join(", ")}.`);
+        push("error", path, `The ${label} ${human} must be one of: ${labelList(THEME_BUTTON_STYLES, THEME_BUTTON_STYLE_LABELS)}.`);
       }
     } else if (kind === "btn_layout") {
       if (!(THEME_BUTTON_LAYOUTS as readonly string[]).includes(value as string)) {
-        push("error", path, `The ${label} ${human} must be one of: ${THEME_BUTTON_LAYOUTS.join(", ")}.`);
+        push("error", path, `The ${label} ${human} must be one of: ${labelList(THEME_BUTTON_LAYOUTS, THEME_BUTTON_LAYOUT_LABELS)}.`);
       }
     } else if (kind === "btn_selected") {
       if (!(THEME_BUTTON_SELECTED_STYLES as readonly string[]).includes(value as string)) {
-        push("error", path, `The ${label} ${human} must be one of: ${THEME_BUTTON_SELECTED_STYLES.join(", ")}.`);
+        push("error", path, `The ${label} ${human} must be one of: ${labelList(THEME_BUTTON_SELECTED_STYLES, THEME_BUTTON_SELECTED_LABELS)}.`);
       }
     } else {
       if (!(THEME_BUTTON_CASINGS as readonly string[]).includes(value as string)) {
-        push("error", path, `The ${label} ${human} must be one of: ${THEME_BUTTON_CASINGS.join(", ")}.`);
+        push("error", path, `The ${label} ${human} must be one of: ${labelList(THEME_BUTTON_CASINGS, THEME_BUTTON_CASING_LABELS)}.`);
       }
     }
   }

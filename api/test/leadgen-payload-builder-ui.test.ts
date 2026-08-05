@@ -1022,6 +1022,9 @@ interface OutputFormatIsland {
   outputFormatKindOf(node: Record<string, unknown>): string;
   applyOutputFormat(node: Record<string, unknown>, kind: string): void;
   outputFormatPreviewValue(node: Record<string, unknown>, raw: unknown): unknown;
+  // P8-6 N13 — the two functions that PAINT the chip (not just compute a value)
+  outputFormatJsonLiteral(v: unknown): string;
+  updateOutputFormatPreview(bodyEl: FakeEl, node: Record<string, unknown>): void;
 }
 
 // The REAL served island functions, sliced out of the REAL rendered page.
@@ -1039,6 +1042,8 @@ function outputFormatIsland(html: string): { island: OutputFormatIsland; source:
     "clientRunOutputFormat",
     "clientCoerceToType",
     "outputFormatPreviewValue",
+    "outputFormatJsonLiteral",
+    "updateOutputFormatPreview",
   ];
   const source = names.map((n) => sliceIslandFunction(script!, n)).join("\n");
   const island = runInNewContext(
@@ -1047,11 +1052,54 @@ function outputFormatIsland(html: string): { island: OutputFormatIsland; source:
       isOutputFormatNode: isOutputFormatNode,
       outputFormatKindOf: outputFormatKindOf,
       applyOutputFormat: applyOutputFormat,
-      outputFormatPreviewValue: outputFormatPreviewValue
+      outputFormatPreviewValue: outputFormatPreviewValue,
+      outputFormatJsonLiteral: outputFormatJsonLiteral,
+      updateOutputFormatPreview: updateOutputFormatPreview
     })`,
     {},
   ) as OutputFormatIsland;
   return { island, source };
+}
+
+// P8-6 N13 — the "Output preview" panel skeleton updateOutputFormatPreview
+// reads: the sample box it takes the raw answer from, the preview chip, the
+// "Sent to the provider as:" JSON chip, and the invalid note it toggles. The
+// four markers are the SSR page's own (asserted against the served HTML in the
+// test below, so this skeleton can never drift into a private dialect).
+const OUTPUT_FORMAT_MARKERS = [
+  "data-pb-outputformat-sample",
+  "data-pb-outputformat-preview",
+  "data-pb-outputformat-json",
+  "data-pb-outputformat-invalid-note",
+];
+function outputFormatPanelDom(sample: string): FakeEl {
+  const bodyEl = fakeElement("div");
+  const sampleEl = fakeElement("input");
+  sampleEl.setAttribute("data-pb-outputformat-sample", "");
+  sampleEl.value = sample;
+  const preview = fakeElement("span");
+  preview.setAttribute("data-pb-outputformat-preview", "");
+  const jsonChip = fakeElement("span");
+  jsonChip.setAttribute("data-pb-outputformat-json", "");
+  const invalidNote = fakeElement("p");
+  invalidNote.setAttribute("data-pb-outputformat-invalid-note", "");
+  invalidNote.hidden = true;
+  for (const el of [sampleEl, preview, jsonChip, invalidNote]) bodyEl.appendChild(el);
+  return bodyEl;
+}
+// What the two chips read after the REAL island function paints them.
+function paintOutputFormat(
+  island: OutputFormatIsland,
+  node: Record<string, unknown>,
+  sample: string,
+): { preview: string; json: string; invalidHidden: boolean } {
+  const bodyEl = outputFormatPanelDom(sample);
+  island.updateOutputFormatPreview(bodyEl, node);
+  return {
+    preview: bodyEl.querySelector("[data-pb-outputformat-preview]")!.textContent,
+    json: bodyEl.querySelector("[data-pb-outputformat-json]")!.textContent,
+    invalidHidden: bodyEl.querySelector("[data-pb-outputformat-invalid-note]")!.hidden,
+  };
 }
 
 // One answer node, exactly as the builder stores it, fed to the REAL runtime.
@@ -1228,6 +1276,117 @@ describeDb("payload builder P5 F1 (SRC-7B / owner #7B + #6-second) — the outpu
     // and a type/format disagreement is a BLOCKING issue, never "✓ No issues"
     expect(html).toContain("output format sends");
     expect(html).toContain("transform_invalid");
+  });
+
+  // -------------------------------------------------------------------------
+  // P8-6 N13 — the chip prints JSON BYTES, so shape is readable off the screen
+  // -------------------------------------------------------------------------
+  //
+  // The chip used to format with String(out). String(170000) and
+  // String("170000") are the SAME five digits, so the panel that exists to
+  // answer "does the buyer get a number or a string?" answered it identically
+  // for both — the one question ruling D9 turns on. Any test that only checks a
+  // number (or only checks the digits) passes under BOTH implementations and
+  // proves nothing; these drive the REAL served updateOutputFormatPreview and
+  // read the two chips it paints, and every expected string is compared to
+  // JSON.stringify of what the REAL buildPayload emits for the same node.
+
+  it("N13: 170000 as a number paints 170000, as a string paints \"170000\" — the chips DIFFER (String() made them identical)", async () => {
+    const { html } = await richEditorPage();
+    const { island } = outputFormatIsland(html);
+    // the fake panel above carries the served page's OWN four markers
+    const panelStart = html.indexOf('<div data-pb-panel="outputformat"');
+    const panel = html.slice(panelStart, html.indexOf('<div data-pb-panel="object"', panelStart));
+    expect(panelStart, "output-format panel markup").toBeGreaterThan(-1);
+    for (const marker of OUTPUT_FORMAT_MARKERS) expect(panel, marker).toContain(marker);
+
+    const sent = (node: Record<string, unknown>): unknown =>
+      ((realPayload(node, "170000")["lead"] ?? {}) as Record<string, unknown>)["amt"];
+
+    const numberNode: Record<string, unknown> = { type: "number" };
+    island.applyOutputFormat(numberNode, "toNumber");
+    const asNumber = paintOutputFormat(island, numberNode, "170000");
+
+    const stringNode: Record<string, unknown> = { type: "number" };
+    island.applyOutputFormat(stringNode, "toString");
+    const asString = paintOutputFormat(island, stringNode, "170000");
+
+    const currencyNode: Record<string, unknown> = { type: "number" };
+    island.applyOutputFormat(currencyNode, "formatCurrency");
+    const asCurrency = paintOutputFormat(island, currencyNode, "170000");
+
+    // THE discrimination: same five digits in, two different chips out.
+    expect(asNumber.json).toBe("170000");
+    expect(asString.json).toBe('"170000"');
+    expect(asNumber.json).not.toBe(asString.json);
+    expect(asCurrency.json).toBe('"$170,000"');
+
+    // …and the preview line carries the same bytes after its arrow.
+    expect(asNumber.preview).toBe("170000 → 170000");
+    expect(asString.preview).toBe('170000 → "170000"');
+    expect(asCurrency.preview).toBe('170000 → "$170,000"');
+    for (const painted of [asNumber, asString, asCurrency]) expect(painted.invalidHidden).toBe(true);
+
+    // E11 — one REAL side: the chip's bytes ARE the JSON bytes the provider
+    // receives from the real buildPayload for the very same stored node.
+    expect(sent(numberNode)).toBe(170000);
+    expect(sent(stringNode)).toBe("170000");
+    expect(sent(currencyNode)).toBe("$170,000");
+    expect(asNumber.json).toBe(JSON.stringify(sent(numberNode)));
+    expect(asString.json).toBe(JSON.stringify(sent(stringNode)));
+    expect(asCurrency.json).toBe(JSON.stringify(sent(currencyNode)));
+  });
+
+  it("N13: the invalid → fallback leg quotes too — fallback \"0\" paints \"0\", fallback 0 paints 0, none paints (field omitted)", async () => {
+    const { html } = await richEditorPage();
+    const { island } = outputFormatIsland(html);
+    // "abc" cannot become a number: outputFormatPreviewValue returns undefined
+    // and the panel switches to its fallback branch.
+    const base = (): Record<string, unknown> => {
+      const n: Record<string, unknown> = { type: "number" };
+      island.applyOutputFormat(n, "toNumber");
+      return n;
+    };
+    const sentFallback = (node: Record<string, unknown>): unknown =>
+      ((realPayload(node, "abc")["lead"] ?? {}) as Record<string, unknown>)["amt"];
+
+    const strFb = { ...base(), fallback: "0" };
+    const numFb = { ...base(), fallback: 0 };
+    const noFb = base();
+
+    const paintedStr = paintOutputFormat(island, strFb, "abc");
+    const paintedNum = paintOutputFormat(island, numFb, "abc");
+    const paintedNone = paintOutputFormat(island, noFb, "abc");
+
+    expect(paintedStr.json).toBe('"0"');
+    expect(paintedNum.json).toBe("0");
+    expect(paintedStr.json).not.toBe(paintedNum.json);
+    expect(paintedNone.json).toBe("(field omitted)");
+
+    expect(paintedStr.preview).toBe('invalid → fallback ("0")');
+    expect(paintedNum.preview).toBe("invalid → fallback (0)");
+    expect(paintedNone.preview).toBe("invalid → fallback (field omitted)");
+    // the branch really is the invalid one: the note is SHOWN, not hidden
+    for (const painted of [paintedStr, paintedNum, paintedNone]) expect(painted.invalidHidden).toBe(false);
+
+    // E11 — payload.ts returns a fallback VERBATIM (no re-coercion), so the
+    // string fallback really does reach the provider quoted on a number node.
+    expect(sentFallback(strFb)).toBe("0");
+    expect(sentFallback(numFb)).toBe(0);
+    expect(sentFallback(noFb)).toBeUndefined();
+    expect(paintedStr.json).toBe(JSON.stringify(sentFallback(strFb)));
+    expect(paintedNum.json).toBe(JSON.stringify(sentFallback(numFb)));
+  });
+
+  it("N13: an empty sample box claims nothing (both chips read the em dash, note hidden)", async () => {
+    const { html } = await richEditorPage();
+    const { island } = outputFormatIsland(html);
+    const node: Record<string, unknown> = { type: "number" };
+    island.applyOutputFormat(node, "toString");
+    const painted = paintOutputFormat(island, node, "");
+    expect(painted.preview).toBe("—");
+    expect(painted.json).toBe("—");
+    expect(painted.invalidHidden).toBe(true);
   });
 });
 

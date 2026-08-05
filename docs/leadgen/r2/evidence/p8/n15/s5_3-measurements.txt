@@ -1,0 +1,33 @@
+R2 P8 S5.3 — driven-product measurements (2026-08-04T14:15:22.550Z)
+AUTHOR (radial + dual_range + from_to) -> HTTP 200
+  re-save activation (best-effort, mints a fresh lg-shell key) -> HTTP 409
+  ADJACENT: activation re-save blocked -> {"error":"quote_activation_blocked","quote_id":"lgq_01KZ271383Y0MPV4BM2WKKCC4W","funnel_id":"lgf_01KZ271383F5X1SQ3DXTXKNJE5","funnel_variant_id":"lgn_01KZ271383SKKSFFWG23N1XGZK","blocks":[],"problems":[{"path":"frame.header.logo_source","scope":"frame","severity":"warning","message":"Site 'R2Fix Fix
+SSR converged in 34ms (1 poll(s)): the authored radial/dual_range/from_to
+N14 @1280 scenario A (centred): box=(552.0,411.9,176.0x176.0) tap=(695.9,444.0) scrollY 429->429 expected=13 recorded=13
+N14 @1280 scenario B setup: box=(552.0,733.9,176.0x176.0) viewportH=1000 (bottom off-screen if y+h > viewportH)
+N14 @1280 scenario B (partly off-screen): tap=(695.9,766.0) scrollY 107->107 expected=13 recorded=13
+N14 @1280 VERDICT: A MATCH; B MATCH; scroll shifted in B: false
+N14 @375 scenario A (centred): box=(117.5,379.9,140.0x140.0) tap=(230.6,406.7) scrollY 142->142 expected=13 recorded=13
+N14 @375 scenario B setup: box=(117.5,431.9,140.0x140.0) viewportH=900 (bottom off-screen if y+h > viewportH)
+N14 @375 scenario B (partly off-screen): tap=(230.6,458.7) scrollY 90->90 expected=13 recorded=13
+N14 @375 VERDICT: A MATCH; B MATCH; scroll shifted in B: false
+N15 p8n_dual @1280 REST: track y=449.9 h=8.0 handles minY=439.9 maxY=439.9 pills y=[472.9,472.9] h=[23.0,23.0] minmaxY=535.9 texts=[0 , 100]
+N15 p8n_dual @1280 SEPARATED (30/70): values=[30,70] pills=[30 , 70] pillY=[472.9,472.9] handlesY=[439.9,439.9] minmaxY=535.9
+N15 p8n_dual @1280 CLAMPED: values=[69,70] pillY=[504.9,472.9] h=[23.0,23.0] minmaxY=535.9
+N15 p8n_dual @1280 CLAMPED pill boxes: min=(667.7,504.9,33.6x23.0) max=(692.7,472.9,33.6x23.0) overlapV=-9.0 overlapH=8.7
+N15 p8n_dual @1280 overflow check: scrollWidth=1280 innerWidth=1280
+N15 p8n_fromto @1280 REST: track y=411.9 h=8.0 handles minY=401.9 maxY=401.9 pills y=[434.9,434.9] h=[23.0,23.0] minmaxY=497.9 texts=[$0 , $100,000]
+N15 p8n_fromto @1280 SEPARATED (30/70): values=[30000,70000] pills=[$30,000 , $70,000] pillY=[434.9,434.9] handlesY=[401.9,401.9] minmaxY=497.9
+N15 p8n_fromto @1280 CLAMPED: values=[65000,70000] pillY=[466.9,434.9] h=[23.0,23.0] minmaxY=497.9
+N15 p8n_fromto @1280 CLAMPED pill boxes: min=(630.7,466.9,72.6x23.0) max=(665.4,434.9,72.6x23.0) overlapV=-9.0 overlapH=37.9
+N15 p8n_fromto @1280 overflow check: scrollWidth=1280 innerWidth=1280
+N15 p8n_dual @375 REST: track y=399.9 h=8.0 handles minY=389.9 maxY=389.9 pills y=[422.9,422.9] h=[23.0,23.0] minmaxY=485.9 texts=[0 , 100]
+N15 p8n_dual @375 SEPARATED (30/70): values=[30,70] pills=[30 , 70] pillY=[422.9,422.9] handlesY=[389.9,389.9] minmaxY=485.9
+N15 p8n_dual @375 CLAMPED: values=[69,70] pillY=[454.9,422.9] h=[23.0,23.0] minmaxY=485.9
+N15 p8n_dual @375 CLAMPED pill boxes: min=(213.5,454.9,33.6x23.0) max=(238.3,422.9,33.6x23.0) overlapV=-9.0 overlapH=8.8
+N15 p8n_dual @375 overflow check: scrollWidth=375 innerWidth=375
+N15 p8n_fromto @375 REST: track y=355.9 h=8.0 handles minY=345.9 maxY=345.9 pills y=[378.9,378.9] h=[23.0,23.0] minmaxY=441.9 texts=[$0 , $100,000]
+N15 p8n_fromto @375 SEPARATED (30/70): values=[30000,70000] pills=[$30,000 , $70,000] pillY=[378.9,378.9] handlesY=[345.9,345.9] minmaxY=441.9
+N15 p8n_fromto @375 CLAMPED: values=[65000,70000] pillY=[410.9,378.9] h=[23.0,23.0] minmaxY=441.9
+N15 p8n_fromto @375 CLAMPED pill boxes: min=(176.9,410.9,72.6x23.0) max=(211.1,378.9,72.6x23.0) overlapV=-9.0 overlapH=38.4
+N15 p8n_fromto @375 overflow check: scrollWidth=375 innerWidth=375

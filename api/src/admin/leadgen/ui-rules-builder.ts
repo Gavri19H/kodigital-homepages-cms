@@ -1958,12 +1958,28 @@ function qrCheckpointFunnels(funnels: readonly QuoteRulesRailFunnel[]): RuleChec
 // The read-only checkpoint label (§4.3-3, pack 4.3-3-checkpoint). Unreachable
 // (§4.3-3c / A-6): the pure derivation returns no representative funnel, so the
 // label reads "In a funnel" and the A-6 warning is shown alongside.
-function qrCheckpointLabel(cp: RuleCheckpoint): string {
+// N4 — the board's OWN numbering (quotes-tabs/funnel.ts renderBoardPageCard:
+// "Page " + (index + 1), the page's ARRAY INDEX in this funnel's own pages)
+// for the checkpoint's representative page — NEVER the raw `position` number
+// verbatim. `position` is an opaque per-funnel key (dense 0-based today only
+// because the caller recomputes it from that same pages array — ui-quotes.ts
+// funnelPageFieldSets), so a funnel's own FIRST page carries position 0 and
+// printing it raw read "page 0" where the board calls that same card "Page 1".
+// Looking the page back up BY POSITION inside its funnel's own pages array
+// (in board order) and using ITS INDEX + 1 agrees with the board regardless of
+// whether `position` stays dense.
+function qrPageOrdinal(cp: RuleCheckpoint, data: QuoteRulesRailData): number {
+  const funnel = data.funnels.find((f) => f.name === cp.funnelName);
+  const idx = funnel === undefined ? -1 : funnel.pages.findIndex((p) => p.position === cp.pagePosition);
+  return (idx >= 0 ? idx : (cp.pagePosition ?? 0)) + 1;
+}
+
+function qrCheckpointLabel(cp: RuleCheckpoint, data: QuoteRulesRailData): string {
   if (cp.plane === "entry") return "Entry";
   if (cp.plane === "shared") return "Shared page";
   if (cp.unreachable === true) return "In a funnel";
   const name = cp.funnelName !== null && cp.funnelName !== undefined ? cp.funnelName : "a funnel";
-  return "In funnel " + name + " — page " + String(cp.pagePosition);
+  return "In funnel " + name + " — page " + String(qrPageOrdinal(cp, data));
 }
 
 function qrDeriveCheckpoint(rule: QuoteRulesRailRule, data: QuoteRulesRailData): RuleCheckpoint {
@@ -1991,7 +2007,11 @@ const QR_OP_WORDS: Record<string, string> = {
 function qrFieldLabel(field: string, data: QuoteRulesRailData): string {
   for (const e of QR_ENTRY_FIELD_OPTIONS) if (e.internal_field === field) return e.label;
   for (const a of data.answer_fields) if (a.internal_field === field) return a.label;
-  return field;
+  // N3 (owner A.1 #11C "using jargon") — a condition field id that resolves to
+  // no known label (the question was renamed/removed after the rule was
+  // authored) used to print the raw internal id verbatim. Name what it is, in
+  // the operator's own words, never the storage key (§12.4).
+  return "(removed field)";
 }
 
 // ADJ-N8 — the rail's answer-field choice map for one field (the entry-known
@@ -2079,7 +2099,7 @@ function qrMatchWord(rule: QuoteRulesRailRule): string {
 
 function renderQuoteRuleCard(rule: QuoteRulesRailRule, data: QuoteRulesRailData): string {
   const cp = qrDeriveCheckpoint(rule, data);
-  const cpLabel = qrCheckpointLabel(cp);
+  const cpLabel = qrCheckpointLabel(cp, data);
   const unreachable = cp.unreachable === true;
   const isDisabled = rule.status === "disabled";
   const name = rule.rule_name !== null && rule.rule_name.trim() !== "" ? rule.rule_name : "(unnamed rule)";
@@ -2176,6 +2196,24 @@ function renderQuoteRuleActions(data: QuoteRulesRailData): string {
   );
 }
 
+// The conditions helper sentence — derived from the SAME single-source arrays
+// #lg-qr-cond-mount's embedded field/operator pickers render from
+// (QR_ENTRY_FIELD_OPTIONS :1908, RULES_BUILDER_OPS :110/renderOpSelect :609)
+// so this summary can never drift from what the picker actually offers again
+// (the bug this replaces: a hand-transcribed 6-of-11 operator list went stale
+// the moment a 7th+ operator — range/in/not_in/is_empty/not_empty — existed).
+// Fields are joined with the same "·" separator as everything else in this
+// sentence (dropping the old ad-hoc "UTM Source/Medium/Campaign/Content"
+// slash-grouping) — one separator convention, zero manual regrouping to keep
+// in sync. Operator labels are reused VERBATIM from RULES_BUILDER_OPS,
+// including the "(=)"-style symbols renderOpSelect itself renders, so the
+// helper always reads identically to the dropdown beside it.
+function renderConditionsHelpText(): string {
+  const sources = QR_ENTRY_FIELD_OPTIONS.map((f) => escapeHtml(f.label)).join(" · ");
+  const ops = RULES_BUILDER_OPS.map((op) => escapeHtml(op.label)).join(" · ");
+  return `Sources: answer fields (by name) · ${sources}. Operators: ${ops}.`;
+}
+
 // The single modal DOM instance (pack 8.2-rule-modal / restyle of Image42).
 function renderQuoteRuleModal(data: QuoteRulesRailData): string {
   return (
@@ -2203,7 +2241,7 @@ function renderQuoteRuleModal(data: QuoteRulesRailData): string {
     `<div class="lg-qr-seg" data-pin="8.2-anyall" data-qr-matchmode><span class="lg-qr-segitem active" data-qr-match="all" role="button" tabindex="0">Match ALL</span><span class="lg-qr-segitem" data-qr-match="any" role="button" tabindex="0">Match ANY</span></div></div>` +
     `<div id="lg-qr-cond-mount"></div>` +
     `<input type="hidden" data-qr-cond-out />` +
-    `<div class="lg-qr-help">Sources: answer fields (by name) · UTM Source/Medium/Campaign/Content · Device · OS · State · Hour · Weekday. Operators map to eq · neq · gt · lt · gte · lte.</div>` +
+    `<div class="lg-qr-help">${renderConditionsHelpText()}</div>` +
     `</div>` +
     // actions
     renderQuoteRuleActions(data) +
@@ -2443,11 +2481,30 @@ export const QUOTE_RULES_SCRIPT = `(function () {
     return { plane: 'in_funnel', unreachable: true };
   }
   function deriveCheckpoint(conditionFields) { return deriveCheckpointPure(conditionFields, sharedFields, funnels); }
-  function checkpointLabelOf(cp) {
+  // N4 (mirror of qrPageOrdinal) — the board's OWN numbering (quotes-tabs/
+  // funnel.ts: "Page " + (index + 1), the ARRAY INDEX in this funnel's own
+  // pages) for the checkpoint's representative page. Looks the page back up
+  // BY POSITION inside its funnel's own pages array and uses ITS INDEX + 1 so
+  // this agrees with the board even if the position field is not dense.
+  // funnelsArg defaults to the closure's own funnels var (real card/modal call
+  // sites below never pass it); deriveCheckpointPure's exposed-for-test twin
+  // takes an explicit funnels list, so this does too.
+  function pageOrdinalOf(cp, funnelsArg) {
+    var list = funnelsArg || funnels;
+    var i, j, funnel, idx;
+    funnel = null;
+    for (i = 0; i < list.length; i++) { if (list[i].name === cp.funnelName) { funnel = list[i]; break; } }
+    idx = -1;
+    if (funnel) {
+      for (j = 0; j < funnel.pages.length; j++) { if (funnel.pages[j].position === cp.pagePosition) { idx = j; break; } }
+    }
+    return (idx >= 0 ? idx : (cp.pagePosition || 0)) + 1;
+  }
+  function checkpointLabelOf(cp, funnelsArg) {
     if (cp.plane === 'entry') { return 'Entry'; }
     if (cp.plane === 'shared') { return 'Shared page'; }
     if (cp.unreachable === true) { return 'In a funnel'; }
-    return 'In funnel ' + (cp.funnelName || 'a funnel') + ' \\u2014 page ' + String(cp.pagePosition);
+    return 'In funnel ' + (cp.funnelName || 'a funnel') + ' \\u2014 page ' + String(pageOrdinalOf(cp, funnelsArg));
   }
 
   // ---- labels + summaries (mirror the SSR helpers) --------------------------
@@ -2455,7 +2512,7 @@ export const QUOTE_RULES_SCRIPT = `(function () {
     var i;
     for (i = 0; i < entryFields.length; i++) { if (entryFields[i].internal_field === field) { return entryFields[i].label; } }
     for (i = 0; i < answerFields.length; i++) { if (answerFields[i].internal_field === field) { return answerFields[i].label; } }
-    return field;
+    return '(removed field)';
   }
   function opWord(op) {
     var m = { eq: 'is', neq: 'is not', gt: 'greater than', lt: 'less than', gte: 'at least', lte: 'at most', range: 'between', 'in': 'in', not_in: 'not in' };

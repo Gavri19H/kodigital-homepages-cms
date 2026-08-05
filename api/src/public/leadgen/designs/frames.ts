@@ -22,7 +22,7 @@
 //     (shape-checked here; its meaning and KV lookup belong to the theme /
 //     handler layers).
 
-import { FUNNEL_TOKEN_ROLES, isFunnelTokenRole, THEME_RECORD_FONT_NAMES } from "./theme";
+import { funnelTokenRoleLabelList, isFunnelTokenRole, THEME_RECORD_FONT_NAMES } from "./theme";
 import type { FunnelTokenRole, Problem, ProblemSeverity, VariantThemeOverrides } from "./theme";
 import { sanitizeFrameInlineHtml } from "../../../lib/inline-sanitizer";
 
@@ -52,7 +52,15 @@ export const DEFAULT_FRAME_TEMPLATE_ID: FrameTemplateId = "centered";
 
 export const FRAME_LOGO_SOURCES = ["site", "cms_fallback", "manual"] as const;
 export const FRAME_SIZES = ["s", "m", "l"] as const;
-export const FRAME_LOGO_ALIGNS = ["left", "center"] as const;
+// R2 P8 (§7 N12 — "Logo Alignment offers Left/Center; progress Alignment offers
+// Left/Center/Right"). The asymmetry was real and its cause was the STYLESHEET:
+// default-funnel/styles.ts declared `.lg-frame-header--left` and `--center` and
+// no `--right`, so a `right` logo could not have been honoured. That rule now
+// exists (the same one-property mirror of `--left`, on the same flex
+// `.lg-header-inner`, plus the extras band's own mirror), so the two vocabularies
+// are one vocabulary. ADDITIVE: no stored config carries `right`, so every
+// existing funnel renders byte-identically.
+export const FRAME_LOGO_ALIGNS = ["left", "center", "right"] as const;
 // Round-4 P5a (10D / B-4.7): `icon_on_track` is a REAL fifth visible style
 // (a theme-icon thumb riding the fill edge) — `numbered` stops being a fake
 // alias of `bar` (frame.ts renders distinct numbered-circle markup; styles.ts
@@ -64,7 +72,23 @@ export const FRAME_PROGRESS_STYLES = ["hidden", "bar", "dots", "numbered", "perc
 // five built-in glyphs plus the previewed site's own logo. `dot` is the default
 // and reproduces the pre-P7 plain round thumb byte-for-byte, so every stored
 // config that predates this key renders exactly as it did.
-export const FRAME_PROGRESS_ICONS = ["dot", "car", "shield", "check", "star", "site_logo"] as const;
+// R2 P8 FIX ROUND F1 (M1 + R7, the SAME owner sentence): `custom` is the
+// operator's OWN image, chosen with the media path this admin already authors
+// the header logo, the trust logos, the background image and the footer logo
+// with (mediaPickerControl / mediaFieldMarkup). It lands only because all four
+// pieces it needs land together — the enum id here, the PAINT
+// (default-funnel/styles.ts now emits the image-mark pseudo pair for
+// `.lg-frame-progress--icon-custom` exactly as it has for `--icon-site_logo`
+// since P7), the operator control (quotes-tabs/templates.ts) and the M2 sweep's
+// own universe (leadgen-r2-dead-controls-guard). An earlier attempt widened the
+// enum ALONE: the mark is selected by that class, so a `custom` id with no rule
+// behind it is a control that cannot be honoured (§4 R3) and it was correctly
+// reverted. NO renderer is invented — `custom` walks the identical
+// resolve-URL → CSS-custom-property → pseudo-pair path `site_logo` already
+// walks, with the URL coming from the operator's media pick instead of the
+// previewed site's branding, and falling back to the plain `dot` thumb whenever
+// no usable image is authored (same fail-safe, same code path).
+export const FRAME_PROGRESS_ICONS = ["dot", "car", "shield", "check", "star", "site_logo", "custom"] as const;
 export type FrameProgressIconId = (typeof FRAME_PROGRESS_ICONS)[number];
 export const FRAME_PROGRESS_POSITIONS = ["top", "under_header", "above_unit", "in_card"] as const;
 export const FRAME_PROGRESS_ALIGNS = ["left", "center", "right"] as const;
@@ -200,6 +224,12 @@ export interface FrameProgressConfig {
   // + absent from defaults (frame.ts falls back to "dot", the pre-P7 look), so
   // no stored config changes shape. Ignored by every other style.
   icon?: (typeof FRAME_PROGRESS_ICONS)[number];
+  // R2 P8 F1: the operator's own image for `icon:"custom"` — a media id, the
+  // SAME reference shape header.logo_media_id / background.image_media_id carry
+  // (resolved through mediaUrl at render time). OPTIONAL + absent from defaults
+  // and read by exactly one branch, so every stored config is unchanged; an
+  // absent/unusable ref renders the plain `dot` thumb rather than an empty mark.
+  icon_media_id?: string | null;
 }
 
 // Behaviour is fixed (§3.3): previous Section per Variant order, hidden on the
@@ -1099,6 +1129,9 @@ const FRAME_GROUP_SPECS: Record<string, FrameGroupSpec> = {
       show_label: bool,
       align: oneOf(FRAME_PROGRESS_ALIGNS), // Round-4 P5a (10D)
       icon: oneOf(FRAME_PROGRESS_ICONS), // R2 P7 — which mark rides the track
+      // R2 P8 F1 — the operator's own image behind icon:"custom". Same spec as
+      // header.logo_media_id / background.image_media_id: a media id or empty.
+      icon_media_id: { kind: "media_id_or_null" },
     },
   },
   back: {
@@ -1228,6 +1261,175 @@ function inEnum(value: unknown, values: readonly string[]): boolean {
   return typeof value === "string" && values.includes(value);
 }
 
+// P8-6 Q7 (M5 jargon sweep, "close the raw-key-dump class for good"):
+// converged VERBATIM with quotes-tabs/templates.ts's own enumOptions()/
+// frameSelect() label maps for these controls — kept as local data for the
+// same PURE-module reason theme.ts's FUNNEL_TOKEN_ROLE_LABELS is local
+// (several admin files import validateFrameConfig FROM this module).
+// FRAME_ELEMENT_ALIGNS / FRAME_DISCLOSURE_V2_LOCATIONS /
+// FRAME_FREE_TEXT_BLOCK_TYPES / FRAME_BRAND_LOGO_LAYOUTS are DELIBERATELY
+// excluded — the admin labels for those differ from the stored value by
+// capitalisation only, which already reads as plain English, not jargon.
+function labelList(values: readonly string[], labels: Readonly<Record<string, string>>): string {
+  return values.map((v) => labels[v] ?? v).join(", ");
+}
+const FRAME_PAGE_TARGET_MODE_LABELS: Readonly<Record<string, string>> = {
+  all: "Every page",
+  first: "First page only",
+  range: "A page range",
+  list: "Specific pages",
+};
+const FRAME_TYPO_SIZE_LABELS: Readonly<Record<string, string>> = {
+  s: "Small",
+  m: "Medium",
+  l: "Large",
+  xl: "Extra large",
+};
+const FRAME_SIZE_LABELS: Readonly<Record<string, string>> = { s: "Small", m: "Medium", l: "Large" };
+const FRAME_DISCLOSURE_MODE_LABELS: Readonly<Record<string, string>> = {
+  full: "Always shown",
+  hover: "Hover / focus trigger",
+};
+const FRAME_FOOTER_BLOCK_TYPE_LABELS: Readonly<Record<string, string>> = {
+  about_paragraph: "Company details",
+  link_row: "Link row",
+  disclosure: "Disclosure",
+  logo: "Logo",
+  address: "Address",
+  socials: "Social links",
+  heading: "Heading",
+  list: "List",
+};
+const FRAME_FREE_TEXT_LIST_STYLE_LABELS: Readonly<Record<string, string>> = {
+  unordered: "Bulleted",
+  ordered: "Numbered",
+  check: "Checklist",
+};
+const FRAME_FOOTER_LINKS_SOURCE_LABELS: Readonly<Record<string, string>> = {
+  site: "The site's own logo",
+  manual: "Manual (choose an image or paste a URL)",
+};
+const FRAME_FOOTER_LINK_ROW_SOURCE_LABELS: Readonly<Record<string, string>> = {
+  site: "From site settings (legal links)",
+  manual: "Manual list",
+  picked: "From Pages (operator-picked)",
+};
+const FRAME_FREE_TEXT_SLOT_LABELS: Readonly<Record<string, string>> = {
+  above_section: "Above the section",
+  below_section: "Below the section",
+  above_header: "Above the header",
+  below_footer: "Below the footer",
+};
+const FRAME_CTA_SLOT_LABELS: Readonly<Record<string, string>> = {
+  header_right: "Header (right)",
+  under_header: "Under the header",
+  section_bottom: "Bottom of the section",
+  footer: "Footer",
+};
+
+// ---------------------------------------------------------------------------
+// P8-6 Q8 — THE ENUM SEAM.
+//
+// Every closed vocabulary declared with `oneOf()` in FRAME_GROUP_SPECS above
+// reaches the operator through exactly ONE sentence: the `case "enum"` arm of
+// validateField, which used to end in `spec.values.join(", ")` — a raw dump of
+// the STORED ids ("icon_on_track, under_header, brand_gradient"). Instead of
+// rewriting ~26 call sites, that ONE arm now asks this ONE registry whether the
+// vocabulary it was handed has operator words, and renders them when it does.
+//
+// Keyed by the vocabulary ARRAY ITSELF: `oneOf` stores the `as const` array by
+// reference, so ONE row here covers EVERY field that reuses that vocabulary
+// (FRAME_SIZES alone is 4 fields), and a future vocabulary becomes readable by
+// adding one row — never by touching the message. Keying by array rather than
+// by value is also what makes it SAFE: the same stored id means different
+// things in different vocabularies ("full" is Full width on a progress bar and
+// "site" is a different source for a logo than for legal links), so a global
+// value->label table would mislabel; a per-vocabulary table cannot.
+//
+// NOT A GATE (§1): an unregistered vocabulary is NOT an error and never
+// throws. `?? v` per value (labelList) and the `undefined` branch per
+// vocabulary keep today's exact sentence for everything unlabelled — the
+// stored value is the honest answer where no operator control names it.
+//
+// Registered ONLY where a REAL operator control was read, cited per row, and
+// converged VERBATIM with it — kept as local data for the same PURE-module
+// reason as the label maps above (several admin files import
+// validateFrameConfig FROM here, so importing labels back from admin would
+// invert the boundary). Vocabularies whose control differs from the stored
+// value by CAPITALISATION only (FRAME_LOGO_ALIGNS / FRAME_PROGRESS_ALIGNS /
+// FRAME_SLOT_ALIGNS -> Left/Center/Right) are DELIBERATELY absent, the same
+// rule the label maps above already follow: that already reads as plain
+// English in a sentence, and is not the jargon class.
+const FRAME_PROGRESS_STYLE_LABELS: Readonly<Record<string, string>> = {
+  // quotes-tabs/templates.ts PROGRESS_STYLE_LABELS (the one map its picker,
+  // saved-template pill and apply-confirm sentences all read from).
+  hidden: "No progress bar",
+  bar: "Bar",
+  dots: "Dots",
+  numbered: "Numbered",
+  percent: "Percent",
+  icon_on_track: "Icon on track",
+};
+const FRAME_PROGRESS_ICON_LABELS: Readonly<Record<string, string>> = {
+  // quotes-tabs/templates.ts frameSelect("Marker icon", "progress.icon", …).
+  dot: "Plain dot",
+  car: "Car",
+  shield: "Shield",
+  check: "Checkmark",
+  star: "Star",
+  site_logo: "This site's logo",
+  custom: "My own image",
+};
+const FRAME_PROGRESS_POSITION_LABELS: Readonly<Record<string, string>> = {
+  // quotes-tabs/templates.ts frameSelect("Position", "progress.position", …).
+  top: "Top of page",
+  under_header: "Under the header",
+  above_unit: "Above the question unit",
+  in_card: "Inside the card",
+};
+const FRAME_PROGRESS_WIDTH_LABELS: Readonly<Record<string, string>> = {
+  // quotes-tabs/templates.ts segmentedControl("Width", "progress.width", …).
+  content: "Content width",
+  full: "Full width",
+};
+const FRAME_BACKGROUND_STYLE_LABELS: Readonly<Record<string, string>> = {
+  // quotes-tabs/templates.ts frameSelect("Style", "background.style", …).
+  flat: "Flat",
+  brand: "Brand",
+  brand_gradient: "Brand gradient",
+};
+const FRAME_LOGO_SOURCE_LABELS: Readonly<Record<string, string>> = {
+  // quotes-tabs/templates.ts frameSelect("Logo source", "header.logo_source",
+  // …). PARTIAL BY DESIGN: that control offers only site + cms_fallback, so
+  // the third stored value ("manual") has no operator wording to converge with
+  // and falls through labelList's `?? v` — already a plain English word.
+  site: "Site logo (auto)",
+  cms_fallback: "CMS fallback",
+};
+
+const FRAME_ENUM_LABELS: ReadonlyMap<readonly string[], Readonly<Record<string, string>>> = new Map<
+  readonly string[],
+  Readonly<Record<string, string>>
+>([
+  [FRAME_PROGRESS_STYLES, FRAME_PROGRESS_STYLE_LABELS],
+  [FRAME_PROGRESS_ICONS, FRAME_PROGRESS_ICON_LABELS],
+  [FRAME_PROGRESS_POSITIONS, FRAME_PROGRESS_POSITION_LABELS],
+  [FRAME_PROGRESS_WIDTHS, FRAME_PROGRESS_WIDTH_LABELS],
+  [FRAME_BACKGROUND_STYLES, FRAME_BACKGROUND_STYLE_LABELS],
+  [FRAME_LOGO_SOURCES, FRAME_LOGO_SOURCE_LABELS],
+  // FRAME_SIZES / FRAME_TYPO_SIZES: the s/m/l(/xl) maps already converged with
+  // templates.ts above — registering them here is what makes the GENERIC arm
+  // say what validateFrameTypography already says.
+  [FRAME_SIZES, FRAME_SIZE_LABELS],
+  [FRAME_TYPO_SIZES, FRAME_TYPO_SIZE_LABELS],
+]);
+
+// The one lookup. Unlabelled vocabulary -> today's exact `join(", ")`.
+function frameEnumList(values: readonly string[]): string {
+  const labels = FRAME_ENUM_LABELS.get(values);
+  return labels === undefined ? values.join(", ") : labelList(values, labels);
+}
+
 // Shared page-target validator (10E/10F/10G).
 function validateFramePageTarget(value: unknown, path: string, push: FramePush): void {
   if (!isRecord(value)) {
@@ -1235,7 +1437,7 @@ function validateFramePageTarget(value: unknown, path: string, push: FramePush):
     return;
   }
   if (!inEnum(value["mode"], FRAME_PAGE_TARGET_MODES)) {
-    push("error", `${path}.mode`, `Page targeting must be one of: ${FRAME_PAGE_TARGET_MODES.join(", ")}.`);
+    push("error", `${path}.mode`, `Page targeting must be one of: ${labelList(FRAME_PAGE_TARGET_MODES, FRAME_PAGE_TARGET_MODE_LABELS)}.`);
   }
   if (value["mode"] === "range") {
     if (typeof value["from"] !== "number" || typeof value["to"] !== "number") {
@@ -1257,10 +1459,10 @@ function validateFrameTypography(value: unknown, path: string, push: FramePush):
     return;
   }
   if (value["size"] !== undefined && !inEnum(value["size"], FRAME_TYPO_SIZES)) {
-    push("error", `${path}.size`, `The text size must be one of: ${FRAME_TYPO_SIZES.join(", ")}.`);
+    push("error", `${path}.size`, `The text size must be one of: ${labelList(FRAME_TYPO_SIZES, FRAME_TYPO_SIZE_LABELS)}.`);
   }
   if (value["color"] !== undefined && !isFunnelTokenRole(value["color"])) {
-    push("error", `${path}.color`, `The text colour must be a theme colour role: ${FUNNEL_TOKEN_ROLES.join(", ")}.`);
+    push("error", `${path}.color`, `The text colour must be a theme colour role: ${funnelTokenRoleLabelList()}.`);
   }
   if (value["align"] !== undefined && !inEnum(value["align"], FRAME_ELEMENT_ALIGNS)) {
     push("error", `${path}.align`, `Alignment must be one of: ${FRAME_ELEMENT_ALIGNS.join(", ")}.`);
@@ -1310,7 +1512,7 @@ function validateDisclosureEntries(value: unknown, path: string, _label: string,
       push("error", `${p}.text`, "A disclosure entry needs its text.");
     }
     if (!inEnum(entry["mode"], FRAME_DISCLOSURE_MODES)) {
-      push("error", `${p}.mode`, `A disclosure entry mode must be one of: ${FRAME_DISCLOSURE_MODES.join(", ")}.`);
+      push("error", `${p}.mode`, `A disclosure entry mode must be one of: ${labelList(FRAME_DISCLOSURE_MODES, FRAME_DISCLOSURE_MODE_LABELS)}.`);
     }
     if (entry["align"] !== undefined && !inEnum(entry["align"], FRAME_ELEMENT_ALIGNS)) {
       push("error", `${p}.align`, `A disclosure entry alignment must be one of: ${FRAME_ELEMENT_ALIGNS.join(", ")}.`);
@@ -1334,7 +1536,7 @@ function validateFooterBlocks(value: unknown, path: string, _label: string, push
       return;
     }
     if (!inEnum(block["type"], FRAME_FOOTER_BLOCK_TYPES)) {
-      push("error", `${p}.type`, `A footer block type must be one of: ${FRAME_FOOTER_BLOCK_TYPES.join(", ")}.`);
+      push("error", `${p}.type`, `A footer block type must be one of: ${labelList(FRAME_FOOTER_BLOCK_TYPES, FRAME_FOOTER_BLOCK_TYPE_LABELS)}.`);
     }
     if (block["text"] !== undefined && typeof block["text"] !== "string") {
       push("error", `${p}.text`, "A footer block's text must be plain text.");
@@ -1359,14 +1561,14 @@ function validateFooterBlocks(value: unknown, path: string, _label: string, push
         );
       }
       if (block["list_style"] !== undefined && !inEnum(block["list_style"], FRAME_FREE_TEXT_LIST_STYLES)) {
-        push("error", `${p}.list_style`, `A footer list style must be one of: ${FRAME_FREE_TEXT_LIST_STYLES.join(", ")}.`);
+        push("error", `${p}.list_style`, `A footer list style must be one of: ${labelList(FRAME_FREE_TEXT_LIST_STYLES, FRAME_FREE_TEXT_LIST_STYLE_LABELS)}.`);
       }
     }
     // "logo" type — site branding (default) or a manual media/URL override.
     // Reuses FRAME_FOOTER_LINKS_SOURCES's site|manual enum (see the interface
     // comment) and the SAME SAFE_HREF_RE gate every other footer href uses.
     if (block["logo_source"] !== undefined && !inEnum(block["logo_source"], FRAME_FOOTER_LINKS_SOURCES)) {
-      push("error", `${p}.logo_source`, `A footer logo source must be one of: ${FRAME_FOOTER_LINKS_SOURCES.join(", ")}.`);
+      push("error", `${p}.logo_source`, `A footer logo source must be one of: ${labelList(FRAME_FOOTER_LINKS_SOURCES, FRAME_FOOTER_LINKS_SOURCE_LABELS)}.`);
     }
     if (block["logo_media_id"] !== undefined && block["logo_media_id"] !== null && typeof block["logo_media_id"] !== "string") {
       push("error", `${p}.logo_media_id`, "A footer logo media reference must be plain text, or empty.");
@@ -1382,7 +1584,7 @@ function validateFooterBlocks(value: unknown, path: string, _label: string, push
     // logo_source above) intentionally still checks FRAME_FOOTER_LINKS_SOURCES
     // (site|manual only — "picked" has no meaning there).
     if (block["links_source"] !== undefined && !inEnum(block["links_source"], FRAME_FOOTER_LINK_ROW_SOURCES)) {
-      push("error", `${p}.links_source`, `A footer link source must be one of: ${FRAME_FOOTER_LINK_ROW_SOURCES.join(", ")}.`);
+      push("error", `${p}.links_source`, `A footer link source must be one of: ${labelList(FRAME_FOOTER_LINK_ROW_SOURCES, FRAME_FOOTER_LINK_ROW_SOURCE_LABELS)}.`);
     }
     if (block["links"] !== undefined) {
       if (!Array.isArray(block["links"])) {
@@ -1464,7 +1666,7 @@ function validateFreeText(value: unknown, push: FramePush): void {
     }
     if (!isNonEmptyString(entry["id"])) push("error", `${p}.id`, "A free-text element needs an id.");
     if (!inEnum(entry["slot"], FRAME_FREE_TEXT_SLOTS)) {
-      push("error", `${p}.slot`, `A free-text slot must be one of: ${FRAME_FREE_TEXT_SLOTS.join(", ")}.`);
+      push("error", `${p}.slot`, `A free-text slot must be one of: ${labelList(FRAME_FREE_TEXT_SLOTS, FRAME_FREE_TEXT_SLOT_LABELS)}.`);
     }
     if (!Array.isArray(entry["blocks"]) || entry["blocks"].length === 0) {
       push("error", `${p}.blocks`, "A free-text element needs at least one text block.");
@@ -1499,7 +1701,7 @@ function validateFreeText(value: unknown, push: FramePush): void {
             );
           }
           if (b["style"] !== undefined && !inEnum(b["style"], FRAME_FREE_TEXT_LIST_STYLES)) {
-            push("error", `${bp}.style`, `A list style must be one of: ${FRAME_FREE_TEXT_LIST_STYLES.join(", ")}.`);
+            push("error", `${bp}.style`, `A list style must be one of: ${labelList(FRAME_FREE_TEXT_LIST_STYLES, FRAME_FREE_TEXT_LIST_STYLE_LABELS)}.`);
           }
         }
       });
@@ -1539,12 +1741,12 @@ function validateBrandLogos(value: unknown, push: FramePush): void {
       }
       if (!isNonEmptyString(item["alt"])) push("error", `${p}.alt`, "A brand logo needs alt text.");
       if (item["size"] !== undefined && !inEnum(item["size"], FRAME_SIZES)) {
-        push("error", `${p}.size`, `A brand-logo size must be one of: ${FRAME_SIZES.join(", ")}.`);
+        push("error", `${p}.size`, `A brand-logo size must be one of: ${labelList(FRAME_SIZES, FRAME_SIZE_LABELS)}.`);
       }
     });
   }
   if (value["slot"] !== undefined && !inEnum(value["slot"], FRAME_FREE_TEXT_SLOTS)) {
-    push("error", `${base}.slot`, `The brand-logos slot must be one of: ${FRAME_FREE_TEXT_SLOTS.join(", ")}.`);
+    push("error", `${base}.slot`, `The brand-logos slot must be one of: ${labelList(FRAME_FREE_TEXT_SLOTS, FRAME_FREE_TEXT_SLOT_LABELS)}.`);
   }
   if (value["align"] !== undefined && !inEnum(value["align"], FRAME_ELEMENT_ALIGNS)) {
     push("error", `${base}.align`, `The brand-logos alignment must be one of: ${FRAME_ELEMENT_ALIGNS.join(", ")}.`);
@@ -1566,7 +1768,7 @@ function validateCtaSlots(value: unknown, push: FramePush): void {
       return;
     }
     if (!inEnum(slot["slot"], FRAME_CTA_SLOTS)) {
-      push("error", `${p}.slot`, `A CTA slot must be one of: ${FRAME_CTA_SLOTS.join(", ")}.`);
+      push("error", `${p}.slot`, `A CTA slot must be one of: ${labelList(FRAME_CTA_SLOTS, FRAME_CTA_SLOT_LABELS)}.`);
     }
     if (typeof slot["label"] !== "string") push("error", `${p}.label`, "A CTA slot needs a label.");
     const tel = isNonEmptyString(slot["tel"]);
@@ -1619,7 +1821,7 @@ function validateTrustRows(value: unknown, push: FramePush): void {
       push("error", `${p}.align`, `A trust-row alignment must be one of: ${FRAME_ELEMENT_ALIGNS.join(", ")}.`);
     }
     if (row["slot"] !== undefined && !inEnum(row["slot"], FRAME_FREE_TEXT_SLOTS)) {
-      push("error", `${p}.slot`, `A trust-row slot must be one of: ${FRAME_FREE_TEXT_SLOTS.join(", ")}.`);
+      push("error", `${p}.slot`, `A trust-row slot must be one of: ${labelList(FRAME_FREE_TEXT_SLOTS, FRAME_FREE_TEXT_SLOT_LABELS)}.`);
     }
     if (row["pages"] !== undefined) validateFramePageTarget(row["pages"], `${p}.pages`, push);
   });
@@ -1647,10 +1849,10 @@ function validateImages(value: unknown, push: FramePush): void {
     }
     if (!isNonEmptyString(item["alt"])) push("error", `${p}.alt`, "An image needs alt text.");
     if (!inEnum(item["slot"], FRAME_FREE_TEXT_SLOTS)) {
-      push("error", `${p}.slot`, `An image slot must be one of: ${FRAME_FREE_TEXT_SLOTS.join(", ")}.`);
+      push("error", `${p}.slot`, `An image slot must be one of: ${labelList(FRAME_FREE_TEXT_SLOTS, FRAME_FREE_TEXT_SLOT_LABELS)}.`);
     }
     if (item["size"] !== undefined && !inEnum(item["size"], FRAME_SIZES)) {
-      push("error", `${p}.size`, `An image size must be one of: ${FRAME_SIZES.join(", ")}.`);
+      push("error", `${p}.size`, `An image size must be one of: ${labelList(FRAME_SIZES, FRAME_SIZE_LABELS)}.`);
     }
     if (item["align"] !== undefined && !inEnum(item["align"], FRAME_ELEMENT_ALIGNS)) {
       push("error", `${p}.align`, `An image alignment must be one of: ${FRAME_ELEMENT_ALIGNS.join(", ")}.`);
@@ -1835,7 +2037,7 @@ function validateField(
           push(
             "error",
             itemPath,
-            `Each ${spec.itemLabel} must be an entry with ${fieldNames.join(" + ")}.`,
+            `Each ${spec.itemLabel} must be an entry with ${fieldNames.map(humanize).join(" + ")}.`,
           );
           continue;
         }
@@ -1856,7 +2058,8 @@ function validateField(
       return;
     case "enum":
       if (typeof value !== "string" || !spec.values.includes(value)) {
-        push("error", path, `The ${label} setting must be one of: ${spec.values.join(", ")}.`);
+        // P8-6 Q8: the ONE place every oneOf() vocabulary is spoken aloud.
+        push("error", path, `The ${label} setting must be one of: ${frameEnumList(spec.values)}.`);
       }
       return;
     case "text":
@@ -1885,7 +2088,7 @@ function validateField(
         push(
           "error",
           path,
-          `The ${label} setting must be a theme colour role: ${FUNNEL_TOKEN_ROLES.join(", ")}.`,
+          `The ${label} setting must be a theme colour role: ${funnelTokenRoleLabelList()}.`,
         );
       }
       return;
@@ -2136,6 +2339,437 @@ export function computeTemplateSwitch(
   }
 
   return { merged: mergedConfig, confirmations };
+}
+
+// ---------------------------------------------------------------------------
+// R2 P8 M3 / R2-1 — computeTemplateApply: what "Apply to funnel…" must DO.
+//
+// MEASURED BEFORE (test/leadgen-p8-m3-apply-template.test.ts, the fail-before
+// leg): applying a saved template used to write ONLY the
+// `leadgen_funnels.frame_template_id` pointer. effectiveFrame composes
+//   FRAME_TEMPLATES[family].defaults ⊕ savedTemplate ⊕ funnel.frame_config_json
+// so the funnel column shadows the template on EVERY LEAF IT HOLDS, and a
+// pointer-only apply can only ever move the leaves it does NOT hold. On the
+// fail-before fixture — a column carrying the whole composition — the apply
+// moved exactly ONE leaf of the served page: `template`, the identity string no
+// CSS rule is keyed on. The operator saw nothing change.
+//
+// R2 P8-4 FIX ROUND F10 — HOW a column gets that full, corrected. This note used
+// to read "the Quote Builder PUTs its WHOLE hydrated frame back on every Save
+// (quotes-tabs/funnel.ts:1675 over hydrationBase()), so the funnel column is a
+// COMPLETE config the moment a funnel has ever been saved". DRIVEN, that is
+// false — and it contradicted the F9 note below that the current prune rule
+// rests on. A Save PUTs `workingFrame`, which is
+// `deepClone(frameState.frame_config || {})` (quotes-tabs/funnel.ts:1809 — the
+// STORED column) plus the paths this session touched: a real Save was observed
+// PUTting exactly `{"version":1,"template":"centered","header":{"logo_align":
+// "left"}}`, the stored column plus the one touched path. `hydrationBase()`
+// feeds clientEffective(), which POPULATES control values; it is never the
+// payload. So the column grows leaf by leaf with what the operator touches —
+// which is precisely why the F9 invariant below must tell an operator-authored
+// leaf apart from an echo instead of pruning by agreement-with-the-base.
+//
+// The semantics chosen here are MATERIALISE, not "reorder the merge":
+//   * the template's authored leaves are WRITTEN INTO the funnel's own
+//     frame_config_json, so the visitor's page paints them AND the operator
+//     can then edit them in the builder (a template kept as a shadowing base
+//     layer would be re-shadowed by the very next Save — the failure mode
+//     quotes-tabs/funnel.ts:1834 already documents);
+//   * what is stored is what is served — no invisible layer;
+//   * leaves the template does NOT author keep the operator's value, so
+//     applying a footer-only template cannot silently wipe a header;
+//   * a template can ADD or CHANGE, never BLANK OUT: an empty/null/[] leaf in
+//     the template never erases copy, media or a list the operator authored.
+//     This is the same register §4.3's computeTemplateSwitch already uses
+//     ("OPERATOR CONTENT is PRESERVED VERBATIM — copy, media, legal links…"),
+//     applied to the saved-template path: a complete saved row carries a null
+//     `header.tagline` simply because nobody typed one INTO THE TEMPLATE, and
+//     that silence must not delete the tagline the funnel already shows. A
+//     template that genuinely carries content (the P3 footer templates, trust
+//     logos, benefit items, disclosure copy) still applies it, because those
+//     leaves are non-blank;
+//   * every leaf this replaces is RETURNED (changes + replaced_customisations
+//     + operator-language confirmations) so the confirm dialog can state the
+//     truth before the write instead of enumerating fixed promises.
+// The `frame_template_id` pointer still gets written by the caller: it is the
+// in-use guard's referrer, the board's Template chip identity and the base
+// layer for anything the funnel never authored.
+//
+// R2 P8 FIX ROUND F4 — the materialise above, written as "every template leaf
+// into the funnel column", caused TWO defects of its own (review-p8-4 F-1/F-2),
+// and both have ONE cause: it stored leaves the funnel's own template ALREADY
+// supplies, turning the funnel layer into a full shadow of its own base.
+//   F-1  the confirm dialog counted `replaced_customisations` from "the funnel
+//        column carries this path", so from the SECOND apply on it announced
+//        every leaf apply #1 had written as a setting THE OPERATOR customised:
+//        driven on a pristine funnel (frame_config {}), "9 settings you had
+//        customised are replaced by this template." with zero operator edits,
+//        ever. (This branch's own fixture measured 24, then 28/28.)
+//   F-2  a variant's `frame_template_id` (the A/B-templates arm) resolves as
+//        effectiveFrame's BASE layer, UNDER the funnel column — so a funnel
+//        whose column echoed its template shadowed the arm's own template on
+//        every leaf, and the two arms rendered identically forever.
+// THE RULE, one line, fixing both: the funnel's frame_config_json holds what
+// DIFFERS from its template, never an echo of it. So this function
+//   (a) MATERIALISES as before, then PRUNES every leaf the applied template's
+//       own base composition already gives (pruneEchoedLeaves) — the served
+//       composition is leaf-identical either way (the pruned leaf is re-supplied
+//       by the very base it was copied from), the column stops shadowing, and
+//       an arm pointing at another template renders THAT template;
+//   (b) counts as a CUSTOMISATION only a leaf the OPERATOR authored — see the
+//       F9 note below for how that is decided, and for the claim this line used
+//       to make and could not keep.
+//
+// R2 P8-4 FIX ROUND F9 — the prune above DELETED OPERATOR-AUTHORED VALUES
+// (review-p8-4b F-B, driven): with the funnel column at
+// `{"version":1,"template":"centered","header":{"logo_align":"left"}}` — the
+// operator's own pick against a base that says "center" — applying a template
+// whose base ALSO says "left" removed the leaf (column became
+// `{"version":1,"template":"header-footer"}`) with `replaced_customisations:[]`
+// and no `changes` entry; applying a THIRD template then flipped the logo back
+// to "center" with `replaced_customisations:[]` and not one sentence naming it.
+// F4's own mitigation claim — "the change itself is still announced by name in
+// `changes` and in the sentences below" — WAS FALSE and is deleted here:
+// `changes` is a payload field the dialog does not paint, and `confirmations`
+// narrates ~8 leaf shapes, none of them the logo. So the operator's value was
+// destroyed with no signal on either apply.
+//
+// THE INVARIANT, and how the two halves below keep it:
+//   A VALUE THE OPERATOR CHOSE IS NEVER SILENTLY DISCARDED — it is either
+//   PRESERVED in the column, or NAMED in the warning before the write.
+//   * PRESERVED: the prune now keeps an authored leaf the apply does not move,
+//     even when the incoming template's base happens to agree with it. Only
+//     leaves this apply MATERIALISED (or an echo the column already carried)
+//     are dropped, so the served page is still leaf-identical either way and
+//     F-2 still holds — the column carries no shadow of its own template.
+//   * NAMED: an authored leaf the template does overrule is in `changes` AND in
+//     `replaced_customisations`, which is what the honesty sentence counts.
+// WHICH LEAVES ARE THE OPERATOR'S (`authoredLeaves`), and why it is two-branch:
+//   * A column this code has touched can only ever hold the operator's own
+//     leaves: an apply writes NO leaf of its own (every materialised leaf is
+//     re-supplied by the base and pruned), and the product's only other writer
+//     is the Quote Builder, which boots `workingFrame` from the STORED column
+//     (quotes-tabs/funnel.ts:1809) and adds exactly the dotted path a control
+//     wrote. So for such a column, PRESENCE IS AUTHORSHIP — which is the bit
+//     the value test could not recover once a preserved leaf coincided with the
+//     new base (the third step of the drive above).
+//   * A WHOLESALE column — one that carries EVERY leaf of its own base, the
+//     shape a client PUTting a whole hydrated frame produces — cannot attribute
+//     its leaves to anybody, so there the F4 value test still decides: authored
+//     means "moves the composition away from its own base". This is what keeps
+//     F-1 fixed for that shape (28 echoed leaves must not be announced as 28
+//     customisations), and the accepted blind spot is unchanged and now
+//     STATED PLAINLY: on a wholesale column, an operator who authored exactly
+//     the base's own value is indistinguishable from the echo, and that leaf is
+//     not counted. It is not silently destroyed either — a leaf equal to the
+//     base changes nothing about the served page, and the moment a template
+//     moves it, the move itself is in `changes`.
+// Two consequences of (a), stated rather than discovered:
+//   * "silence never erases" still protects OPERATOR content (their leaves stay
+//     in the column and a blank template leaf never overwrites them), but a leaf
+//     a PREVIOUS template wrote is no longer inherited by the next one — that
+//     inheritance existed only because the previous apply had copied it into the
+//     column. An applied template is now the clean slate its name implies for
+//     everything the operator did not author.
+//   * CLEARING the pointer ({template_id:null}) drops more than it used to: the
+//     column no longer carries a copy of the template's leaves, so the funnel
+//     falls back to frame_config_json.template's family defaults plus its own
+//     authored leaves. That is what the composition always meant; `changes`
+//     already reports it leaf by leaf before the write.
+// ---------------------------------------------------------------------------
+
+// One changed leaf of the SERVED composition (effectiveFrame before → after).
+// `path` is dotted from the frame root ("section_slot.card"); an array leaf is
+// compared and reported WHOLE, mirroring mergeInto's array rule.
+export interface FrameLeafChange {
+  path: string;
+  from: unknown;
+  to: unknown;
+}
+
+export interface TemplateApplyResult {
+  // What to persist into leadgen_funnels.frame_config_json.
+  merged: StoredFrameConfig;
+  // Every leaf of the served composition this apply moves.
+  changes: FrameLeafChange[];
+  // The subset the FUNNEL ITSELF had authored to a different value — the
+  // operator's own choices this template replaces.
+  replaced_customisations: string[];
+  // Operator-language sentences, derived from `changes` (never a fixed list).
+  confirmations: string[];
+}
+
+// Flatten to leaf paths. Objects recurse; arrays are leaves (replaced whole).
+function frameLeaves(value: unknown, prefix: string, out: Map<string, unknown>): void {
+  if (isRecord(value)) {
+    for (const [key, child] of Object.entries(value)) {
+      frameLeaves(child, prefix === "" ? key : `${prefix}.${key}`, out);
+    }
+    return;
+  }
+  out.set(prefix, value);
+}
+
+function sameLeaf(a: unknown, b: unknown): boolean {
+  return JSON.stringify(a ?? null) === JSON.stringify(b ?? null);
+}
+
+// "The template says nothing here": no value, empty copy, or an empty list.
+// `false` and `0` are REAL values (a template must be able to switch a region
+// off), so only absence/emptiness counts as silence.
+function blankLeaf(value: unknown): boolean {
+  if (value === null || value === undefined) return true;
+  if (typeof value === "string") return value.trim() === "";
+  if (Array.isArray(value)) return value.length === 0;
+  return false;
+}
+
+// mergeInto, plus the one rule above: a blank template leaf never overwrites a
+// value the funnel already has. Objects still recurse (a template that speaks
+// only about footer.blocks leaves header.* alone either way).
+function mergeTemplateInto(base: Record<string, unknown>, patch: Record<string, unknown>): void {
+  for (const [key, value] of Object.entries(patch)) {
+    if (value === undefined) continue;
+    if (isRecord(value)) {
+      const current = base[key];
+      if (isRecord(current)) mergeTemplateInto(current, value);
+      else base[key] = cloneJson(value);
+      continue;
+    }
+    if (blankLeaf(value) && !blankLeaf(base[key])) continue; // silence never erases
+    base[key] = Array.isArray(value) ? cloneJson(value) : value;
+  }
+}
+
+// R2 P8 FIX ROUND F4 (F-1/F-2, the write half) — drop every leaf whose value
+// the BASE composition already gives, so the funnel column stores its
+// DIFFERENCES from its template and nothing else. Composition-safe by
+// construction: a leaf is removed only when the base holds the SAME value at
+// the SAME path, so effectiveFrame(pruned ⊕ base) === effectiveFrame(merged ⊕
+// base) leaf for leaf (proven end to end in the apply test's PASS-AFTER leg,
+// which reads every template leaf back out of the SERVED frame). Root
+// `template`/`version` are funnel-level identity, not composition leaves
+// (effectiveFrame strips both from this layer), so they stay.
+//
+// R2 P8-4 FIX ROUND F9 (F-B) — `keep` is the operator's veto. A leaf the
+// operator authored and this apply does NOT move is kept even though the base
+// agrees with it, so the column never loses the record of a choice somebody
+// made. Still composition-safe for the same reason in reverse: the kept leaf
+// holds exactly the value the base would have supplied, so the served page is
+// leaf-identical, and it is one leaf, not a shadow of the whole template.
+function pruneEchoedLeaves(
+  node: Record<string, unknown>,
+  prefix: string,
+  baseLeaves: Map<string, unknown>,
+  keep: (path: string, value: unknown) => boolean,
+): void {
+  for (const key of Object.keys(node)) {
+    if (prefix === "" && (key === "template" || key === "version")) continue;
+    const path = prefix === "" ? key : `${prefix}.${key}`;
+    const value = node[key];
+    if (isRecord(value)) {
+      pruneEchoedLeaves(value, path, baseLeaves, keep);
+      if (Object.keys(value).length === 0) delete node[key];
+      continue;
+    }
+    if (keep(path, value)) continue;
+    if (baseLeaves.has(path) && sameLeaf(baseLeaves.get(path), value)) delete node[key];
+  }
+}
+
+// The leaves of `stored` the OPERATOR authored — the F9 two-branch rule the
+// header note states. A `null` return would be indistinguishable from "nothing
+// authored", so the two branches are both explicit sets.
+function authoredLeaves(
+  storedLeaves: Map<string, unknown>,
+  beforeBaseLeaves: Map<string, unknown>,
+): Map<string, unknown> {
+  // WHOLESALE = the column carries every leaf its own base gives. Nothing in
+  // this product writes that (an apply writes no leaf; the builder writes the
+  // column plus the paths a control touched) — it is the shape a client PUTting
+  // a whole hydrated frame produces, and there no leaf is attributable, so the
+  // F4 value test decides.
+  let wholesale = beforeBaseLeaves.size > 0;
+  for (const path of beforeBaseLeaves.keys()) {
+    if (!storedLeaves.has(path)) {
+      wholesale = false;
+      break;
+    }
+  }
+  const out = new Map<string, unknown>();
+  for (const [path, value] of storedLeaves) {
+    // Funnel-level identity, never a customisation: `template` is the family
+    // the apply is changing on purpose and `version` is the schema stamp.
+    if (path === "template" || path === "version") continue;
+    if (wholesale && sameLeaf(value, beforeBaseLeaves.get(path))) continue;
+    out.set(path, value);
+  }
+  return out;
+}
+
+const PROGRESS_STYLE_WORDS: Record<string, string> = {
+  hidden: "hidden",
+  bar: "a bar",
+  dots: "dots",
+  numbered: "numbered steps",
+  percent: "a percentage",
+  icon_on_track: "an icon on the track",
+};
+
+// R2 P8 FIX ROUND F4 (F-8) — the apply named 4 of its 9 changes and left the
+// rest to the (then false) count. These three maps close the gap for the leaves
+// that move the page's SHAPE: which regions exist, where they sit, what the
+// question unit looks like. They speak the words the operator's own controls
+// use — progress positions are quotes-tabs/templates.ts's own Position select
+// ("Top of page" / "Under the header" / "Above the question unit" / "Inside the
+// card"), background roles are the palette's own role names (humanize).
+//
+// DELIBERATELY NOT NARRATED, and why: every other leaf (sizes, thicknesses,
+// widths, mobile modes, transitions, copy, media ids, list contents) is a
+// DIMENSION or a piece of CONTENT, not a change of shape. One sentence per leaf
+// would bury the shape changes under a page of prose for an operator who is
+// about to press Apply — and none of them is lost: every leaf, narrated or not,
+// rides `changes` (path/from/to) and is counted by the customisation line when
+// it is the operator's own. Silence here is never silence in the payload.
+const PROGRESS_POSITION_WORDS: Record<string, string> = {
+  top: "to the top of the page",
+  under_header: "under the header",
+  above_unit: "above the question unit",
+  in_card: "inside the card",
+};
+const BACK_POSITION_WORDS: Record<string, string> = {
+  under_header_left: "under the header",
+  in_card: "inside the card",
+  below_card: "below the card",
+  footer: "into the footer",
+};
+
+// enabled-flag lines, in the order the owner reads the page.
+const APPLY_REGION_WORDS: ReadonlyArray<readonly [string, string]> = [
+  ["header.enabled", "header"],
+  ["disclosure.enabled", "disclosure"],
+  ["trust_strip.enabled", "trust strip"],
+  ["benefit_bar.enabled", "benefit bar"],
+  ["footer.enabled", "footer"],
+];
+
+export function computeTemplateApply(
+  currentStored: StoredFrameConfig | null,
+  templateDefaults: EffectiveFrameConfig | null,
+  currentTemplateDefaults?: EffectiveFrameConfig | null,
+): TemplateApplyResult {
+  const before = effectiveFrame(currentStored, null, null, currentTemplateDefaults ?? null).frame;
+  // What this funnel would show with NO config of its own — its CURRENT
+  // template's base. On a WHOLESALE column (F9) this is the only signal left
+  // for what the operator did NOT author; on every column the product itself
+  // writes, presence in the column is the signal.
+  const beforeBase = effectiveFrame(null, null, null, currentTemplateDefaults ?? null).frame;
+
+  // The operator's own leaves, decided BEFORE anything is materialised over
+  // them (F9): they drive both the prune's veto and the customisation count.
+  const storedLeaves = new Map<string, unknown>();
+  frameLeaves(currentStored ?? {}, "", storedLeaves);
+  const beforeBaseLeaves = new Map<string, unknown>();
+  frameLeaves(beforeBase, "", beforeBaseLeaves);
+  const authored = authoredLeaves(storedLeaves, beforeBaseLeaves);
+
+  // Materialise: the template's own authored leaves over the funnel's config.
+  // A null template (clearing the pointer) materialises nothing — the funnel
+  // keeps exactly what it has, and `changes` then reports what LOSING the
+  // pointer's base layer does to the served page.
+  const merged = cloneJson(currentStored ?? {}) as Record<string, unknown>;
+  if (templateDefaults !== null) {
+    mergeTemplateInto(merged, templateDefaults as unknown as Record<string, unknown>);
+    merged["version"] = 1;
+    // …then keep only what DIFFERS from the applied template's own base (F-1/
+    // F-2), PLUS the operator's own untouched leaves (F9). Same served page, no
+    // shadow layer over a variant's own template.
+    const afterBaseLeaves = new Map<string, unknown>();
+    frameLeaves(effectiveFrame(null, null, null, templateDefaults).frame, "", afterBaseLeaves);
+    pruneEchoedLeaves(merged, "", afterBaseLeaves, (path, value) => authored.has(path) && sameLeaf(authored.get(path), value));
+  }
+  const mergedConfig = merged as StoredFrameConfig;
+
+  const after = effectiveFrame(mergedConfig, null, null, templateDefaults ?? null).frame;
+
+  const beforeLeaves = new Map<string, unknown>();
+  const afterLeaves = new Map<string, unknown>();
+  frameLeaves(before, "", beforeLeaves);
+  frameLeaves(after, "", afterLeaves);
+
+  const changes: FrameLeafChange[] = [];
+  const replaced: string[] = [];
+  for (const [path, to] of afterLeaves) {
+    const from = beforeLeaves.get(path);
+    if (sameLeaf(from, to)) continue;
+    changes.push({ path, from: from ?? null, to });
+    // The OPERATOR authored this leaf (authoredLeaves above), and this template
+    // moves it: that is exactly what the honesty sentence must count. A leaf a
+    // whole-frame PUT merely echoed from the base is not attributable to the
+    // operator and is not counted — the F-1 cry-wolf F4 removed.
+    if (authored.has(path)) replaced.push(path);
+  }
+  // A leaf the composition LOSES entirely (an optional group the template
+  // doesn't carry) is a change too.
+  for (const [path, from] of beforeLeaves) {
+    if (afterLeaves.has(path)) continue;
+    changes.push({ path, from, to: null });
+  }
+
+  const changed = new Map(changes.map((c) => [c.path, c]));
+  const confirmations: string[] = [];
+
+  const card = changed.get("section_slot.card");
+  if (card !== undefined) {
+    const word = (v: unknown): string => (v === "card" ? "a card" : "a bare layout");
+    confirmations.push(`The question unit changes from ${word(card.from)} to ${word(card.to)}.`);
+  }
+  const style = changed.get("progress.style");
+  if (style !== undefined) {
+    const word = (v: unknown): string => PROGRESS_STYLE_WORDS[String(v)] ?? String(v);
+    confirmations.push(`Progress changes from ${word(style.from)} to ${word(style.to)}.`);
+  }
+  // F-8: the four shape leaves the register used to leave to the count alone.
+  const progressPosition = changed.get("progress.position");
+  if (progressPosition !== undefined) {
+    const where = PROGRESS_POSITION_WORDS[String(progressPosition.to)];
+    if (where !== undefined) confirmations.push(`Progress moves ${where}.`);
+  }
+  const backPosition = changed.get("back.position");
+  if (backPosition !== undefined) {
+    const where = BACK_POSITION_WORDS[String(backPosition.to)];
+    if (where !== undefined) confirmations.push(`The back link moves ${where}.`);
+  }
+  for (const [path, label] of APPLY_REGION_WORDS) {
+    const flag = changed.get(path);
+    if (flag === undefined) continue;
+    confirmations.push(flag.to === true ? `A ${label} will be added.` : `The ${label} will be removed.`);
+  }
+  const sticky = changed.get("header.sticky");
+  if (sticky !== undefined) {
+    confirmations.push(
+      sticky.to === true
+        ? `The header stays on screen as the visitor scrolls.`
+        : `The header scrolls away with the page.`,
+    );
+  }
+  const bg = changed.get("background.style");
+  if (bg !== undefined) confirmations.push(`The page background changes from ${humanize(String(bg.from))} to ${humanize(String(bg.to))}.`);
+  const bgRole = changed.get("background.role");
+  if (bgRole !== undefined) confirmations.push(`The page background colour becomes ${humanize(String(bgRole.to))}.`);
+
+  // The honesty line I1 requires: an operator who customised a leaf is TOLD
+  // it is being replaced. Counted from the real diff, never a fixed promise.
+  if (replaced.length === 1) {
+    confirmations.push(`1 setting you had customised is replaced by this template.`);
+  } else if (replaced.length > 1) {
+    confirmations.push(`${replaced.length} settings you had customised are replaced by this template.`);
+  }
+  if (changes.length === 0) {
+    confirmations.push(`This template matches what the funnel already shows — nothing on the page changes.`);
+  }
+
+  return { merged: mergedConfig, changes, replaced_customisations: replaced, confirmations };
 }
 
 function humanize(key: string): string {

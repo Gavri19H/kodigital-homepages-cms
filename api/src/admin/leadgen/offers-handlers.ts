@@ -50,6 +50,15 @@ import { flattenComponents, type LeadgenComponentNode } from "../../public/leadg
 // never per-type re-derived) so the §6.2 picker cannot drift from the keys the
 // visitor actually records, for EVERY component type.
 import { fieldsOf as leadgenAnswerFieldsOf } from "../../leadgen/answers";
+// P8-5 L1: the renderer's OWN section-context pair — which node answers which
+// key (collectAnswerKeyClaims) and therefore which keys are foreign to a given
+// node (foreignAnswerKeysIn). Passing them to the derivation above resolves a
+// maps.fills rename exactly as renderSectionComponents resolves it, so this
+// picker offers the key the markup will carry and never both candidates.
+import {
+  collectAnswerKeyClaims,
+  foreignAnswerKeysIn,
+} from "../../public/leadgen/components/presets";
 import {
   LEADGEN_BID_SOURCES,
   LEADGEN_CAP_COUNT_BY,
@@ -420,7 +429,21 @@ export async function readLinkedSectionFields(
     // flattens to itself so a container-free Section's projection (order +
     // fields) is unchanged. The per-node isRecord guard + `seen` dedupe below
     // are preserved unchanged.
-    for (const raw of flattenComponents(parsed["components"] as unknown as LeadgenComponentNode[]) as unknown[]) {
+    const topLevel = parsed["components"] as unknown as LeadgenComponentNode[];
+    // P8-5 L1 — the section's answer-key ownership map, computed ONCE per
+    // section from the whole tree, exactly the shape (and the exact function)
+    // renderSectionComponents computes once per render. It is what turns each
+    // entry below from "one of the names this node MIGHT record under" into
+    // "the name it WILL record under": a props.maps.fills.<slot> rename onto a
+    // key a SIBLING question already answers is DECLINED by the renderer
+    // (presets.ts m9AddressRenderedFieldName), so the box carries
+    // `{base}_{slot}` instead. Without this context the projection listed BOTH
+    // names, and §4 R3's corollary forbids that here: this list is not an
+    // internal universe, it is the §6.2 picker's <option> set — an operator maps
+    // the key they pick to a buyer field, and a key no box records is a buyer
+    // field empty forever and a §6.10 condition that can never fire.
+    const answerKeyClaims = collectAnswerKeyClaims(topLevel);
+    for (const raw of flattenComponents(topLevel) as unknown[]) {
       if (!isRecord(raw)) continue;
       // The node's own key, used ONLY to tell a DERIVED sub-field apart from
       // the scalar base below. A node may carry none (NameFieldsGroup) — the
@@ -469,7 +492,10 @@ export async function readLinkedSectionFields(
       // derivation's "string" (it is one text input), not the catalog's
       // "object". Each entry's answer_type is the derivation's, falling back to
       // the catalog only for a node carrying an empty one.
-      for (const spec of leadgenAnswerFieldsOf(raw as unknown as LeadgenComponentNode)) {
+      for (const spec of leadgenAnswerFieldsOf(
+        raw as unknown as LeadgenComponentNode,
+        foreignAnswerKeysIn(answerKeyClaims, raw as unknown as LeadgenComponentNode),
+      )) {
         if (seen.has(spec.field)) continue;
         seen.add(spec.field);
         // A DERIVED sub-field carries no enum domain of its own ⇒ 0 choices.

@@ -30,6 +30,7 @@
 
 import { describe, expect, it } from "vitest";
 import { execFileSync } from "node:child_process";
+import { runInNewContext } from "node:vm";
 import { mkdtempSync, readFileSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { fileURLToPath } from "node:url";
@@ -38,6 +39,7 @@ import admin from "../src/admin/router";
 import type { Env } from "../src/env";
 import { mintPublicId } from "../src/leadgen/ids";
 import { BENEFIT_BAR_ICONS } from "../src/admin/leadgen/ui-quotes";
+import { QUOTE_EDITOR_SCRIPT } from "../src/admin/leadgen/quotes-tabs/funnel";
 
 // --- node:sqlite harness (repo pattern) --------------------------------------
 
@@ -1340,7 +1342,10 @@ describeDb("Activation tab problems[] surfacing (14 §14.2, C2 LIVE)", () => {
     expect(html).toContain("[Move to funnel layout] in the Section Builder");
     // the fix_url deep link with the derived label
     expect(html).toContain(`href="/admin/leadgen/sections/${chromePublicId}/edit"`);
-    expect(html).toContain(">Review slide</a>");
+    // P8-4 (contract M9 item 2): the derived label used to read "Review slide".
+    // The product has no slides, so the SSR link now reads "Edit Section" —
+    // same link, same href, same strictness, one operator-facing word changed.
+    expect(html).toContain(">Edit Section</a>");
     // the head publish chip mirrors the verdict (counts include the error)
     expect(html).toMatch(/data-publish-verdict="blocked"[^>]*>Blocked \(\d+ errors?\)/);
   });
@@ -1387,5 +1392,549 @@ describeDb("Quote Builder canvas mobile = real 375 iframe [RETIRED: §8.2/§10, 
     const { html } = await harness();
     expect(html).not.toMatch(/<iframe id="lg-preview-iframe"/);
     expect(html).not.toContain('data-viewport-btn="mobile"');
+  });
+});
+
+// ===========================================================================
+// P8-6 N8 — the confirmation that SURVIVES window.location.reload()
+// ===========================================================================
+//
+// Six controls on this page finish by reloading the page. Painting a message
+// and then reloading throws the message away, so each one PARKS its outcome in
+// sessionStorage (flashAfterReload) and the island's LAST boot statement
+// (drainFlash) paints it into #lg-quote-ok / #lg-quote-error on the page that
+// comes back. The three properties that make that a mechanism rather than a
+// hope, and which nothing else in the suite exercised:
+//
+//   (1) the parked marker SURVIVES the reload and paints on the NEXT boot
+//       (the message is NOT painted on the outgoing page);
+//   (2) it is ONE-SHOT — a plain refresh after that paints nothing;
+//   (3) a non-2xx response does NOT reload, parks nothing, paints the server's
+//       own reason, and RE-ENABLES the control that was disabled on click.
+//
+// The rig below runs the REAL served QUOTE_EDITOR_SCRIPT in a VM against a
+// minimal fake DOM. A "reload" = a fresh document + fresh window booting the
+// same script against the SAME sessionStorage backing store, which is exactly
+// what the browser does. The interactive gestures themselves live in the
+// Playwright specs; what is pinned here is the storage-crossing state machine,
+// which no browser test can observe across a real navigation without this
+// same marker.
+
+type Listener = (ev: unknown) => void;
+
+interface FakeEl {
+  id: string;
+  tagName: string;
+  hidden: boolean;
+  disabled: boolean;
+  checked: boolean;
+  value: string;
+  textContent: string;
+  parentNode: FakeEl | null;
+  attrs: Map<string, string>;
+  listeners: Map<string, Listener[]>;
+  children: FakeEl[];
+  style: Record<string, string>;
+  getAttribute(k: string): string | null;
+  setAttribute(k: string, v: string): void;
+  hasAttribute(k: string): boolean;
+  removeAttribute(k: string): void;
+  addEventListener(t: string, fn: Listener): void;
+  removeEventListener(t: string, fn: Listener): void;
+  appendChild(c: FakeEl): FakeEl;
+  removeChild(c: FakeEl): FakeEl;
+  querySelector(sel: string): FakeEl | null;
+  querySelectorAll(sel: string): FakeEl[];
+  fire(type: string, ev?: Record<string, unknown>): void;
+}
+
+function el(tag: string, id?: string): FakeEl {
+  const attrs = new Map<string, string>();
+  const listeners = new Map<string, Listener[]>();
+  const children: FakeEl[] = [];
+  const node: FakeEl = {
+    id: id ?? "",
+    tagName: tag.toUpperCase(),
+    hidden: false,
+    disabled: false,
+    checked: false,
+    value: "",
+    textContent: "",
+    parentNode: null,
+    attrs,
+    listeners,
+    children,
+    style: {},
+    getAttribute: (k) => (attrs.has(k) ? attrs.get(k)! : null),
+    setAttribute: (k, v) => void attrs.set(k, String(v)),
+    hasAttribute: (k) => attrs.has(k),
+    removeAttribute: (k) => void attrs.delete(k),
+    addEventListener: (t, fn) => void listeners.set(t, [...(listeners.get(t) ?? []), fn]),
+    removeEventListener: (t, fn) => void listeners.set(t, (listeners.get(t) ?? []).filter((f) => f !== fn)),
+    appendChild(c) {
+      c.parentNode = node;
+      children.push(c);
+      return c;
+    },
+    removeChild(c) {
+      const i = children.indexOf(c);
+      if (i !== -1) children.splice(i, 1);
+      return c;
+    },
+    querySelector(sel) {
+      const attr = sel.replace(/^\[|\]$/g, "");
+      for (const c of children) if (c.attrs.has(attr)) return c;
+      return null;
+    },
+    querySelectorAll() {
+      return [];
+    },
+    fire(type, ev) {
+      for (const fn of listeners.get(type) ?? []) fn({ target: node, preventDefault() {}, stopPropagation() {}, ...ev });
+    },
+  };
+  return node;
+}
+
+interface FetchCall {
+  url: string;
+  method: string;
+}
+interface FakeResponse {
+  ok: boolean;
+  status: number;
+  body: unknown;
+  reject?: boolean;
+}
+
+// One page load of the REAL island: fresh DOM + fresh window, the storage
+// object handed in (so a "reload" reuses it, exactly like the browser tab).
+interface Boot {
+  ok: FakeEl;
+  err: FakeEl;
+  createBtn: FakeEl;
+  presetBtn: FakeEl;
+  activationList: FakeEl;
+  siteRow: FakeEl;
+  deactivateBtn: FakeEl;
+  reloads: () => number;
+  hrefs: () => string[];
+  calls: () => FetchCall[];
+  reply: (r: FakeResponse) => void;
+  docClick: (target: FakeEl) => void;
+  flush: () => Promise<void>;
+}
+
+// P8-6 Q6: `siteName` models activation.ts's REAL row shape — every real row
+// renders a `<label class="lg-check">…SITE NAME</label>` beside the checkbox
+// (renderActivationPanel, quotes-tabs/activation.ts) — so the default fixture
+// carries one. Pass `siteName: null` to build the (defensive-only, never
+// real) labelless row the id-fallback test needs.
+function bootQuoteEditor(store: Record<string, string>, opts?: { siteName?: string | null }): Boot {
+  const root = el("div", "lg-quote-editor");
+  root.setAttribute("data-quote-public-id", "lgq_flash");
+  root.setAttribute("data-variant-public-id", "lgv_flash");
+  const ok = el("div", "lg-quote-ok");
+  ok.hidden = true;
+  const err = el("div", "lg-quote-error");
+  err.hidden = true;
+  const createBtn = el("button", "lg-create-experiment");
+  const presetBtn = el("button", "lg-theme-preset-apply");
+  const presetSel = el("select", "lg-theme-preset-select");
+  presetSel.value = "thm_sunrise";
+  const activationList = el("div", "lg-activation-list");
+  const siteRow = el("div");
+  siteRow.setAttribute("data-site-id", "site-1");
+  // The real name-bearing label (activation.ts: `<label class="lg-check">`,
+  // rendered BEFORE the row's action buttons) — the fake DOM's querySelector
+  // matches a selector string against a child's OWN attribute keys (see
+  // el()'s querySelector above), so ".lg-check" is set as a literal attribute
+  // name, mirroring how "[data-site-enabled]"/"[data-site-slug]" are matched
+  // elsewhere in this same rig.
+  const siteName = opts && "siteName" in opts ? opts.siteName : "Site One";
+  if (siteName !== null && siteName !== undefined) {
+    const nameLabel = el("label");
+    nameLabel.setAttribute(".lg-check", "");
+    nameLabel.textContent = siteName;
+    siteRow.appendChild(nameLabel);
+  }
+  const deactivateBtn = el("button");
+  deactivateBtn.setAttribute("data-deactivate", "");
+  siteRow.appendChild(deactivateBtn);
+  activationList.appendChild(siteRow);
+
+  const registry: Record<string, FakeEl> = {
+    "lg-quote-editor": root,
+    "lg-quote-ok": ok,
+    "lg-quote-error": err,
+    "lg-create-experiment": createBtn,
+    "lg-theme-preset-apply": presetBtn,
+    "lg-theme-preset-select": presetSel,
+    "lg-activation-list": activationList,
+  };
+
+  const docListeners = new Map<string, Listener[]>();
+  const calls: FetchCall[] = [];
+  const hrefs: string[] = [];
+  let reloads = 0;
+  let next: FakeResponse = { ok: true, status: 200, body: {} };
+
+  const doc = {
+    readyState: "complete",
+    getElementById: (id: string): FakeEl | null => registry[id] ?? null,
+    querySelector: (): null => null,
+    querySelectorAll: (): FakeEl[] => [],
+    createElement: (tag: string): FakeEl => el(tag),
+    createTextNode: (t: string): FakeEl => {
+      const n = el("#text");
+      n.textContent = String(t);
+      return n;
+    },
+    addEventListener: (t: string, fn: Listener): void => void docListeners.set(t, [...(docListeners.get(t) ?? []), fn]),
+    removeEventListener: (): void => {},
+    dispatchEvent: (): boolean => true,
+  };
+
+  const win = {
+    sessionStorage: {
+      getItem: (k: string): string | null => (Object.prototype.hasOwnProperty.call(store, k) ? store[k]! : null),
+      setItem: (k: string, v: string): void => void (store[k] = String(v)),
+      removeItem: (k: string): void => void delete store[k],
+    },
+    localStorage: { getItem: (): null => null, setItem: (): void => {}, removeItem: (): void => {} },
+    location: {
+      get href(): string {
+        return "/admin/leadgen/quotes/lgq_flash/edit";
+      },
+      set href(v: string) {
+        hrefs.push(v);
+      },
+      search: "",
+      pathname: "/admin/leadgen/quotes/lgq_flash/edit",
+      reload: (): void => void (reloads += 1),
+    },
+    history: { replaceState: (): void => {} },
+    addEventListener: (): void => {},
+    removeEventListener: (): void => {},
+    dispatchEvent: (): boolean => true,
+  };
+
+  const fetchStub = (url: string, init?: { method?: string }): Promise<unknown> => {
+    calls.push({ url: String(url), method: init?.method ?? "GET" });
+    const r = next;
+    if (r.reject === true) return Promise.reject(new Error("Failed to fetch"));
+    return Promise.resolve({
+      ok: r.ok,
+      status: r.status,
+      json: (): Promise<unknown> =>
+        r.body === undefined ? Promise.reject(new Error("not json")) : Promise.resolve(r.body),
+      text: (): Promise<string> => Promise.resolve(JSON.stringify(r.body ?? null)),
+    });
+  };
+
+  const sandbox: Record<string, unknown> = {
+    window: win,
+    document: doc,
+    fetch: fetchStub,
+    console: { log() {}, warn() {}, error() {} },
+    FormData: class {
+      append(): void {}
+    },
+    CustomEvent: class {
+      type: string;
+      detail: unknown;
+      constructor(type: string, init?: { detail?: unknown }) {
+        this.type = type;
+        this.detail = init?.detail;
+      }
+    },
+  };
+  sandbox["globalThis"] = sandbox;
+  // PARSES then RUNS the REAL served island — a boot throw fails the test.
+  runInNewContext(QUOTE_EDITOR_SCRIPT, sandbox);
+
+  return {
+    ok,
+    err,
+    createBtn,
+    presetBtn,
+    activationList,
+    siteRow,
+    deactivateBtn,
+    reloads: () => reloads,
+    hrefs: () => hrefs,
+    calls: () => calls,
+    reply: (r) => void (next = r),
+    docClick: (target) => {
+      for (const fn of docListeners.get("click") ?? []) fn({ target, preventDefault() {}, stopPropagation() {} });
+    },
+    // drain the promise chains the handlers build (no timers are involved)
+    flush: async () => {
+      for (let i = 0; i < 12; i += 1) await Promise.resolve();
+    },
+  };
+}
+
+const FLASH_KEY = "lg-quote-flash";
+const CREATED_MSG = "A/B test created. It is not running yet - press Start A/B test.";
+
+describeDb("P8-6 N8 — the create-confirmation survives the reload, once", () => {
+  // The rig above addresses three ids. They are the SERVED page's own — pinned
+  // here so a rename in ui-quotes.ts cannot leave the rig passing against a
+  // dialect nothing renders (drainFlash would then paint into nothing).
+  it("the rig's slots are the real editor page's slots", async () => {
+    const { html } = await harness();
+    expect(html).toContain('id="lg-quote-editor"');
+    expect(html).toContain('id="lg-quote-ok"');
+    expect(html).toContain('id="lg-quote-error"');
+    // …and drainFlash only ever writes into those two slot ids
+    expect(QUOTE_EDITOR_SCRIPT).toContain(
+      "if (slot !== 'lg-quote-ok' && slot !== 'lg-quote-error') { return; }",
+    );
+  });
+
+  it("SUCCESS: the outcome is PARKED (not painted here), the page reloads, and the NEXT boot paints it", async () => {
+    const store: Record<string, string> = {};
+    const b1 = bootQuoteEditor(store);
+    // a clean first load says nothing
+    expect(b1.ok.hidden).toBe(true);
+    expect(b1.ok.textContent).toBe("");
+
+    b1.reply({ ok: true, status: 201, body: { public_id: "lge_1" } });
+    b1.createBtn.fire("click");
+    expect(b1.createBtn.disabled, "disabled on click").toBe(true);
+    await b1.flush();
+
+    // (the island also issues read-only GETs at boot — the click's own write)
+    expect(b1.calls().filter((c) => c.method !== "GET")).toEqual([
+      { method: "POST", url: "/api/admin/leadgen/quotes/lgq_flash/experiments" },
+    ]);
+    expect(b1.reloads(), "the page reloads on success").toBe(1);
+    // the message is PARKED, not painted onto the page that is going away
+    expect(store[FLASH_KEY]).toBe("lg-quote-ok|" + CREATED_MSG);
+    expect(b1.ok.hidden, "not painted on the outgoing page").toBe(true);
+    expect(b1.ok.textContent).toBe("");
+
+    // …the reload: a NEW document + NEW window, the SAME tab storage
+    const b2 = bootQuoteEditor(store);
+    expect(b2.ok.hidden, "painted after the reload").toBe(false);
+    expect(b2.ok.textContent).toBe(CREATED_MSG);
+    expect(b2.err.hidden).toBe(true);
+  });
+
+  it("ONE-SHOT: a plain refresh after the confirmation shows nothing (the marker is drained, not re-read)", async () => {
+    const store: Record<string, string> = {};
+    const b1 = bootQuoteEditor(store);
+    b1.reply({ ok: true, status: 201, body: { public_id: "lge_1" } });
+    b1.createBtn.fire("click");
+    await b1.flush();
+
+    const b2 = bootQuoteEditor(store);
+    expect(b2.ok.textContent).toBe(CREATED_MSG);
+    expect(Object.prototype.hasOwnProperty.call(store, FLASH_KEY), "marker consumed").toBe(false);
+
+    const b3 = bootQuoteEditor(store); // a plain F5
+    expect(b3.ok.hidden, "silent on the next refresh").toBe(true);
+    expect(b3.ok.textContent).toBe("");
+    expect(b3.err.hidden).toBe(true);
+  });
+
+  it("FAILURE: a 409 does NOT reload, parks nothing, shows the server's reason, and RE-ENABLES the button", async () => {
+    const store: Record<string, string> = {};
+    const b = bootQuoteEditor(store);
+    b.reply({ ok: false, status: 409, body: { error: "An A/B test already exists for this Quote." } });
+    b.createBtn.fire("click");
+    expect(b.createBtn.disabled).toBe(true);
+    await b.flush();
+
+    expect(b.reloads(), "no reload on refusal").toBe(0);
+    expect(store[FLASH_KEY], "nothing parked").toBeUndefined();
+    expect(b.err.hidden).toBe(false);
+    expect(b.err.textContent).toBe("An A/B test already exists for this Quote.");
+    expect(b.ok.hidden, "no success line").toBe(true);
+    expect(b.createBtn.disabled, "retryable").toBe(false);
+
+    // …and the refusal really is one-shot too: the next boot says nothing.
+    const after = bootQuoteEditor(store);
+    expect(after.ok.hidden).toBe(true);
+    expect(after.err.hidden).toBe(true);
+  });
+
+  it("FAILURE with a non-JSON body (a 500 error page) still reads as the refusal it is", async () => {
+    const store: Record<string, string> = {};
+    const b = bootQuoteEditor(store);
+    b.reply({ ok: false, status: 500, body: undefined });
+    b.createBtn.fire("click");
+    await b.flush();
+    expect(b.reloads()).toBe(0);
+    expect(b.err.hidden).toBe(false);
+    expect(b.err.textContent).toBe("Could not create the A/B test. Nothing was changed - try again.");
+    expect(b.createBtn.disabled).toBe(false);
+  });
+
+  it("NETWORK ERROR: the .catch re-enables the button instead of leaving it dead", async () => {
+    const store: Record<string, string> = {};
+    const b = bootQuoteEditor(store);
+    b.reply({ ok: false, status: 0, body: null, reject: true });
+    b.createBtn.fire("click");
+    await b.flush();
+    expect(b.reloads()).toBe(0);
+    expect(store[FLASH_KEY]).toBeUndefined();
+    expect(b.err.hidden).toBe(false);
+    expect(b.err.textContent).toBe("Failed to fetch");
+    expect(b.createBtn.disabled, "retryable after a network error").toBe(false);
+  });
+});
+
+describeDb("P8-6 N8 class sweep — the five siblings park a confirmation too", () => {
+  // Each row: the control, the success message it parks, and the refusal copy.
+  it("START / STOP park their own line and paint it on the next boot; a refusal re-enables the control", async () => {
+    const rows = [
+      { attr: "data-start-experiment", id: "lge_1", msg: "A/B test started.", refusal: "Start failed" },
+      {
+        attr: "data-stop-experiment",
+        id: "lge_1",
+        msg: "A/B test stopped.",
+        refusal: "Could not stop the A/B test - it is still running.",
+      },
+    ];
+    for (const row of rows) {
+      const store: Record<string, string> = {};
+      const b = bootQuoteEditor(store);
+      const btn = el("button");
+      btn.setAttribute(row.attr, row.id);
+      b.reply({ ok: true, status: 200, body: {} });
+      b.docClick(btn);
+      await b.flush();
+      expect(b.reloads(), row.attr).toBe(1);
+      expect(store[FLASH_KEY], row.attr).toBe("lg-quote-ok|" + row.msg);
+      const after = bootQuoteEditor(store);
+      expect(after.ok.textContent, row.attr).toBe(row.msg);
+      expect(after.ok.hidden, row.attr).toBe(false);
+
+      // refusal leg: no reload, nothing parked, the control comes back
+      const store2: Record<string, string> = {};
+      const b2 = bootQuoteEditor(store2);
+      const btn2 = el("button");
+      btn2.setAttribute(row.attr, row.id);
+      b2.reply({ ok: false, status: 409, body: {} });
+      b2.docClick(btn2);
+      await b2.flush();
+      expect(b2.reloads(), row.attr + " refusal").toBe(0);
+      expect(store2[FLASH_KEY], row.attr + " refusal").toBeUndefined();
+      expect(b2.err.textContent, row.attr + " refusal").toBe(row.refusal);
+      expect(btn2.disabled, row.attr + " refusal re-enables").toBe(false);
+    }
+  });
+
+  it("FORK: success navigates to the new variant (the destination IS the confirmation); a refusal SPEAKS", async () => {
+    const store: Record<string, string> = {};
+    const b = bootQuoteEditor(store);
+    const btn = el("button");
+    btn.setAttribute("data-fork-variant", "lgv_flash");
+    b.reply({ ok: true, status: 201, body: { public_id: "lgv_new" } });
+    b.docClick(btn);
+    await b.flush();
+    expect(b.hrefs()).toEqual(["/admin/leadgen/quotes/lgq_flash/edit?variant=lgv_new"]);
+    expect(b.reloads()).toBe(0);
+
+    const b2 = bootQuoteEditor({});
+    const btn2 = el("button");
+    btn2.setAttribute("data-fork-variant", "lgv_flash");
+    b2.reply({ ok: false, status: 422, body: { error: "This variant cannot be duplicated." } });
+    b2.docClick(btn2);
+    await b2.flush();
+    expect(b2.hrefs(), "a refused fork must not navigate").toEqual([]);
+    expect(b2.err.hidden).toBe(false);
+    expect(b2.err.textContent).toBe("This variant cannot be duplicated.");
+  });
+
+  it("APPLY PRESET parks \"Preset applied.\"; a refusal re-enables the Apply button", async () => {
+    const store: Record<string, string> = {};
+    const b = bootQuoteEditor(store);
+    b.reply({ ok: true, status: 200, body: {} });
+    b.presetBtn.fire("click");
+    await b.flush();
+    expect(b.reloads()).toBe(1);
+    expect(store[FLASH_KEY]).toBe("lg-quote-ok|Preset applied.");
+    const after = bootQuoteEditor(store);
+    expect(after.ok.textContent).toBe("Preset applied.");
+
+    const b2 = bootQuoteEditor({});
+    b2.reply({ ok: false, status: 400, body: { error: "That preset no longer exists." } });
+    b2.presetBtn.fire("click");
+    await b2.flush();
+    expect(b2.reloads()).toBe(0);
+    expect(b2.err.textContent).toBe("That preset no longer exists.");
+    expect(b2.presetBtn.disabled, "retryable").toBe(false);
+  });
+
+  it("DEACTIVATE SITE (the money path) parks its own line NAMING THE SITE (from the row's real lg-check label, not its raw id); a refusal does NOT look like a success", async () => {
+    const store: Record<string, string> = {};
+    const b = bootQuoteEditor(store);
+    b.reply({ ok: true, status: 204, body: undefined }); // a 204 has no JSON body
+    b.deactivateBtn.parentNode!.parentNode!.fire("click", { target: b.deactivateBtn });
+    await b.flush();
+    expect(b.calls().filter((c) => c.method !== "GET")).toEqual([
+      { method: "DELETE", url: "/api/admin/leadgen/quotes/lgq_flash/activation/site-1" },
+    ]);
+    expect(b.reloads()).toBe(1);
+    // P8-6 Q6: pins the NAME, resolved from the row's real lg-check label —
+    // this is the site the operator recognizes, never the raw site_id they
+    // never see. A dedicated case right below pins the id-fallback instead.
+    expect(store[FLASH_KEY]).toBe("lg-quote-ok|Deactivated for Site One.");
+    const after = bootQuoteEditor(store);
+    expect(after.ok.textContent).toBe("Deactivated for Site One.");
+
+    const b2 = bootQuoteEditor({});
+    b2.reply({ ok: false, status: 409, body: { error: "This site is still serving the Quote." } });
+    b2.deactivateBtn.parentNode!.parentNode!.fire("click", { target: b2.deactivateBtn });
+    await b2.flush();
+    expect(b2.reloads(), "a refused deactivation must NOT reload").toBe(0);
+    expect(b2.err.textContent).toBe("This site is still serving the Quote.");
+    expect(b2.deactivateBtn.disabled, "retryable").toBe(false);
+  });
+
+  // P8-6 Q6: the previous test's fixture had NO name-bearing label at all, so
+  // its "Deactivated for site-1." assertion was passing by exercising the
+  // DEFENSIVE id-fallback (siteRowName(row) || siteId in funnel.ts), not the
+  // name resolution the fix is meant to cover — real rows always render a
+  // label (activation.ts), so that fallback is never hit in production. This
+  // case builds that (otherwise-unreachable) labelless row ON PURPOSE to pin
+  // the fallback deliberately, so its passing means something different from
+  // the case above: "the id-fallback still degrades gracefully if a row ever
+  // carries no label," not "names resolve correctly."
+  it("DEACTIVATE SITE: a row with no name label at all falls back to the raw site id (defensive only — activation.ts always renders a label)", async () => {
+    const store: Record<string, string> = {};
+    const b = bootQuoteEditor(store, { siteName: null });
+    b.reply({ ok: true, status: 204, body: undefined });
+    b.deactivateBtn.parentNode!.parentNode!.fire("click", { target: b.deactivateBtn });
+    await b.flush();
+    expect(store[FLASH_KEY]).toBe("lg-quote-ok|Deactivated for site-1.");
+    const after = bootQuoteEditor(store, { siteName: null });
+    expect(after.ok.textContent).toBe("Deactivated for site-1.");
+  });
+
+  it("a storage-denied browser degrades to silence instead of throwing (both halves wrapped)", async () => {
+    // sessionStorage that throws on every access — the studio precedent's
+    // degradation contract: no confirmation, but no broken page either.
+    const store = {} as Record<string, string>;
+    Object.defineProperty(store, FLASH_KEY, {
+      get() {
+        throw new Error("denied");
+      },
+      set() {
+        throw new Error("denied");
+      },
+      enumerable: true,
+      configurable: true,
+    });
+    const b = bootQuoteEditor(store);
+    b.reply({ ok: true, status: 201, body: {} });
+    b.createBtn.fire("click");
+    await b.flush();
+    expect(b.reloads(), "the reload still happens").toBe(1);
+    const after = bootQuoteEditor(store);
+    expect(after.ok.hidden, "silent, not broken").toBe(true);
   });
 });

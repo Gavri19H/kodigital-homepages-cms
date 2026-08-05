@@ -972,9 +972,13 @@ export function funnelChromeCss(
     rule(`${scope} .lg-range-handle-min`, { left: "0" }),
     rule(`${scope} .lg-range-handle-max`, { left: "100%" }),
     // Image12/Image13: the value pill riding each handle of a two-handle track.
+    // P8 N15 (owner Image11, opened directly — docs/leadgen/r2/evidence/p8/n15/
+    // image11-reading.md): the pill sits UNDER its handle and travels with it,
+    // not above the track. `top` (not `bottom`) anchors it just below the
+    // handle's own box; horizontal centering/inward-anchoring is unchanged.
     rule(`${scope} .lg-range-handle-value`, {
       position: "absolute",
-      bottom: `calc(100% + ${spacing.sm})`,
+      top: `calc(100% + ${spacing.sm})`,
       left: "50%",
       transform: "translateX(-50%)",
       "white-space": "nowrap",
@@ -1017,10 +1021,18 @@ export function funnelChromeCss(
       transform: "translateX(calc((100 - var(--lg-b,100)) * 1%))",
     }),
     // P4 cleanup (S4b pin-fidelity finding): the INWARD anchor above is what
-    // keeps Image13's SEPARATED pins on-card — but engine.ts's clamp rule
-    // (syncDualRange) can land the two handles one `step` apart, and both
-    // pills still reach inward toward each other, colliding
-    // (p4_fromto-1280-clamped.png). `.lg-range-fill`'s own box already IS the
+    // keeps Image13's SEPARATED pins on-card — but the two handles can land
+    // close enough that both pills still reach inward toward each other and
+    // collide (p4_fromto-1280-clamped.png). A rail drag lands them one `step`
+    // apart; a TYPED value lands them on the SAME pixel (P8-5 J1 made the
+    // typed gap zero, which is correct — `step` is the rail's granularity, not
+    // a constraint on a typed number — and 40 of 0..100000 is 0% just like the
+    // min). Measured on the live funnel at 375 with a typed max of 40: both
+    // handle boxes at x=15..43, fill width 0, and the min pill DID drop below
+    // the max pill (min pill y-centre 289.4 vs max 257.4, documentElement
+    // .scrollWidth 375 == innerWidth 375, no overflow) — the escape below
+    // still fires at a zero gap, which is the widest case it must cover.
+    // `.lg-range-fill`'s own box already IS the
     // live pixel gap between the two handles (engine.ts writes its left/width
     // from both inputs every drag) — a container query on that box reacts to
     // the SAME already-written value with ZERO new runtime bytes; no engine.ts
@@ -1028,13 +1040,15 @@ export function funnelChromeCss(
     // (must stay exactly as painted above — Image13 fidelity) vs clamped gap
     // 3.2–16.3px (must degrade). 96px sits ~47px inside the separated floor
     // and ~80px outside the clamped ceiling — clears both with margin. Below
-    // it, the min pill is pushed a full pill-height-plus-gap ABOVE the max
-    // pill (stacked, not collided) — both values stay readable.
+    // it, the min pill is pushed a full pill-height-plus-gap BELOW the max
+    // pill (stacked, not collided) — both values stay readable. (P8 N15: the
+    // base anchor flipped bottom->top, so the escape direction flips with it —
+    // away from the max pill is now DOWN, not up.)
     rule(`${scope} .lg-range-from-to .lg-range-fill,${scope} .lg-range-dual .lg-range-fill`, {
       "container-type": "inline-size",
       "container-name": "lg-range-fill",
     }),
-    `@container lg-range-fill (max-width:96px){${scope} .lg-range-handle-min .lg-range-handle-value{bottom:calc(100% + ${spacing.sm} + ${spacing.xl})}}`,
+    `@container lg-range-fill (max-width:96px){${scope} .lg-range-handle-min .lg-range-handle-value{top:calc(100% + ${spacing.sm} + ${spacing.xl})}}`,
     // Native range input drives recording + keyboard + role=slider semantics.
     // It is laid EXACTLY over its track: inflated by one thumb width and pulled
     // half a thumb left, so the native thumb's centre travels the track's true
@@ -1080,13 +1094,122 @@ export function funnelChromeCss(
     rule(`${scope} .lg-range-input-dual`, { "pointer-events": "none" }),
     rule(`${scope} .lg-range-input-dual::-webkit-slider-thumb`, { "pointer-events": "auto" }),
     rule(`${scope} .lg-range-input-dual::-moz-range-thumb`, { "pointer-events": "auto" }),
+    // P8-6 Q4/S2 — "only the thumbs grabbable" is not enough when the two
+    // thumbs land on the SAME pixel. Both rails carry z-index 3, so the hit
+    // test then falls to DOM order and the MAX rail (presets.ts emits it
+    // second) eats every press.
+    //
+    // The BEFORE/Q4-fix numbers immediately below (coincident pair, a typed
+    // max of 40, both rails at min=0) were driven on the live r2fix funnel at
+    // ONE press point, quoted here so the next reader cannot move it: the min
+    // handle's OWN CENTRE, hMin.cx — x=477 at 1280, x=29 at 375. That is NOT
+    // the press point for every case in this file: hMin.cx moves with the min
+    // value, so the separated-pair (F1-F4) and min=20000 rows further down
+    // press at x=542.2 (1280) / x=92.4 (375) instead — both press points are
+    // in the committed docs/leadgen/r2/evidence/p8/s2/after-fixedpoint.log.
+    // BEFORE: a typed max of 40 leaves both rails reading "0" and both handle
+    // boxes at x=463..491 w=28 — one blob — and a real drag from 477 to the
+    // track's 50% moved the MAX: box, rail and the POST /lg/auction body all
+    // went 40 -> 50000 (375, press 29: identical).
+    //
+    // Q4's first attempt partitioned the track at the MIDPOINT of the two
+    // handles, and the note that stood here claimed "down at 470 ... the typed
+    // max stays 40". That was measured 7px LEFT of the coordinate the defect
+    // was measured at — an instrument slip, not a fix. At 477 the wire still
+    // carried max=50000, because when the handles COINCIDE the midpoint IS the
+    // shared handle's centre, so the max rail still owned the exact pixel a
+    // visitor aims at. At coincidence there is no pixel-based answer at all:
+    // the two thumbs are one circle. The circle therefore gets ONE owner.
+    //
+    // Fix: the boundary is the midpoint OR the MIN thumb's own right edge,
+    // whichever is further right. Separated by more than a thumb the midpoint
+    // wins and nothing changes (the midpoint IS the nearest-thumb rule).
+    // Overlapping, the min keeps its whole 28px circle and the max keeps the
+    // part of its own that sticks out to the right. Coincident, the min owns
+    // the circle outright — and that is the safe owner, because the clamp in
+    // engine.ts then pins the min against its neighbour and the press records
+    // NOTHING, where a max-rail press can only replace a precisely typed max
+    // with a value off the step grid. The max is not stranded: it keeps the
+    // keyboard (clip-path routes pointers, not focus), it has its own labelled
+    // number box, and its circle reappears as soon as the two values differ.
+    // Rejected: routing by drag DIRECTION (right = max, left = min), which is
+    // the physically correct disambiguation but is unreachable — a native
+    // range captures the pointer and commits on pointerdown, so the direction
+    // is only known once the drag belongs to the wrong input; and its right
+    // branch does the very thing this fix removes. Rejected: putting the min
+    // rail on top, which just mirrors the bug onto the max.
+    //
+    // Only the max rail needs the clip — everything left of the boundary is
+    // then the min rail's alone (it is underneath, so it wins only where the
+    // max is clipped away), and everything right of it stays the max rail's
+    // (it is on top there). clip-path clips HIT TESTING as well as paint and
+    // is not layout, so the value<->pixel mapping and the captured drag are
+    // both untouched: once grabbed, a thumb still travels the whole track.
+    // --lg-a/--lg-b are the two handle percentages engine.ts already computes
+    // for the fill and the pills, published on the .lg-range wrap so these
+    // rails (siblings of .lg-range-fill) inherit them; no new runtime state,
+    // no new engine geometry. The rail box is the track inflated by one thumb
+    // and pulled half a thumb left (.lg-range-input above), so track 0% sits
+    // at thumbSize/2 in the rail's own box and 100% of the track is
+    // (100% - thumbSize) of it; the min thumb's right edge is therefore
+    // thumbSize/2 past the min handle. Unset (server render) the 0/100
+    // fallbacks keep the midpoint arm on top — boundary at the track's centre,
+    // max handle at 100%, min at 0%, each entirely inside its own half.
+    //
+    // MEASURED AFTER, at the SAME press point as the BEFORE numbers above —
+    // hMin.cx, x=477 at 1280 and x=29 at 375, never 470 — by
+    // scripts/p8/probe-s2-fixedpoint.mjs's 20-step/50ms drag (its own header
+    // explains why the speed matters). CORRECTION (P8-6 T2): this note used
+    // to claim all 22 rows were viewport-identical; that was dictated from a
+    // faster 10-step/20ms drag whose own committed log — one run, at
+    // docs/leadgen/r2/evidence/p8/s2/after-fixedpoint.log — actually shows
+    // F2 below differing by viewport (a too-fast drag under-reporting at
+    // 1280, not the product). The "(5/5)" / "3 of those 5" tally once quoted
+    // here for a slower-drag re-run series has NO committed log in this repo
+    // — the only committed logs are the OLD fast-drag run above and
+    // docs/leadgen/r2/evidence/p8/review-p8-ship/ship-s2-fcases-3runs.log (2
+    // logged F1-F4-only runs, both landing F2 identical at both viewports) —
+    // so the exact run count is UNMEASURED. What IS on record: the flaking
+    // rows across that history were F3, F1, F3 (F3 twice, not a different row
+    // each time), and this slice's own fresh 3-run check of F1-F4 just now
+    // (session-only, not committed) found 1 clean run, then F2 swallowed at
+    // 1280 on the next run, then F4 swallowed at 1280 on the run after that —
+    // so "never F2" is false, and the swallow is not confined to F1/F3
+    // either. Re-run the probe yourself before trusting any single
+    // viewport-disagreeing row against this note.
+    // POST /lg/auction, before -> after:
+    //   typed max=40, drag RIGHT  max 50000 -> 40      LEFT  max 40 (unchanged)
+    //   20000/20000, drag LEFT    max 25000 -> 20000, and the MIN moves to 5000
+    //   20000/20000, drag RIGHT   20000/20000 — see the limitation below
+    //   typed max=100 under min=20000 -> 20000/20000 (the exact neighbour),
+    //   declared max 100000 -> 100000, above-max 200000 -> 100000, and the
+    //   separated 20000/60000 drags, confirmed identical at both viewports
+    //   above, land at (min 40000 / min 5000 / max 90000 / max 70000).
+    //
+    // THE LIMITATION, stated plainly: on a COINCIDENT pair a rightward drag
+    // now records NOTHING. The min owns the circle, and the no-crossing clamp
+    // pins the min against its neighbour, so the gesture is inert. That is the
+    // deliberate trade, not drag parity — it is strictly better than the two
+    // measured alternatives at that pixel (destroying a typed 40 into 50000,
+    // and a LEFTWARD drag pushing a typed 20000 up to 25000), and the max is
+    // still raised from its own labelled box or the keyboard, but a visitor
+    // who expects to drag a degenerate band open will find that it does not.
+    rule(`${scope} .lg-range-track > span + span > .lg-range-input-dual`, {
+      "clip-path": `inset(0 0 0 calc(${rangeQuestion.thumbSize} / 2 + max((var(--lg-a,0) + var(--lg-b,100)) * (100% - ${rangeQuestion.thumbSize}) / 200, ${rangeQuestion.thumbSize} / 2 + var(--lg-a,0) * (100% - ${rangeQuestion.thumbSize}) / 100)))`,
+    }),
     rule(`${scope} .lg-range-minmax`, {
       display: "flex",
       "justify-content": "space-between",
       color: rangeQuestion.minMaxLabelColor,
       "font-size": "0.8125rem",
-      // Clears the handle, which now overhangs the 8px track by half a thumb.
-      "margin-top": `calc(${rangeQuestion.thumbSize} * 0.5)`,
+      // P8 N15: the handle-value pill now rides BELOW its handle (was above),
+      // so this row must clear the handle overhang AND the pill AND (worst
+      // case, the container-query clamp bump above) the min pill pushed a
+      // further spacing.xl down when the two handles sit close together — a
+      // static value, so it always reserves the worst case rather than
+      // reading a per-state size no CSS selector here can see (.lg-range-minmax
+      // is a sibling of .lg-range-fill, outside its container-query subtree).
+      "margin-top": `calc(${rangeQuestion.thumbSize} * 0.5 + ${spacing.xl} * 2)`,
     }),
     // §6.8 stepper (Image10): −/＋ FLANK the readout in one centred row, each a
     // ≥44px styled target — they were tiny, unstyled and stacked far-left.
@@ -2491,6 +2614,12 @@ export function funnelChromeCss(
       rule(`${scope} .lg-frame-header--static .lg-header`, { position: "static" }),
       rule(`${scope} .lg-frame-header--left .lg-header-inner`, { "justify-content": "flex-start" }),
       rule(`${scope} .lg-frame-header--center .lg-header-inner`, { "justify-content": "center" }),
+      // R2 P8 F1 (§7 N12): the missing third placement. Logo Alignment offered
+      // Left/Center while progress Alignment offered Left/Center/Right, and the
+      // reason was here — there was no `--right` rule, so `right` could not have
+      // been honoured. This is the one-property mirror of `--left` on the same
+      // flex row (frames.ts FRAME_LOGO_ALIGNS now carries "right" too).
+      rule(`${scope} .lg-frame-header--right .lg-header-inner`, { "justify-content": "flex-end" }),
       // logo sizes: m = the token values; s/l are structural steps around them.
       rule(`${scope} .lg-frame-header--logo-s .lg-logo`, { "font-size": "0.95rem" }),
       rule(`${scope} .lg-frame-header--logo-m .lg-logo`, { "font-size": header.logoFontSize }),
@@ -2603,6 +2732,84 @@ export function funnelChromeCss(
       // test references them; their only job was card-interior padding, now
       // owned entirely by `.lg-question-card`'s own golden-exact padding).
       rule(`${scope} .lg-frame-slot--card`, { "box-sizing": "border-box" }),
+      // R2 P8-4 FIX ROUND F8 — `section_slot.card` IS HONOURED NOW (contract
+      // §4 R3: "A control that cannot be honoured must not be offered").
+      //
+      // FAIL-BEFORE: the sweep (leadgen-r2-dead-controls-guard.test.ts, FRAME
+      // CONFIG leg) named `section_slot.card` DEAD — flipping card <-> bare
+      // moved ZERO visible coordinates, because `--card` above is a no-op
+      // duplicate of the base `.lg-frame-slot{box-sizing:border-box}` and
+      // `--bare` had NO RULE AT ALL. The operator IS offered the choice:
+      // quotes-tabs/templates.ts:2190 prints "Card layout" / "Bare layout" on
+      // the saved-template summary, and THREE of the six shipped frame
+      // templates ship `section_slot.card:"bare"` with an arrangement line
+      // that says "bare slot" (frames.ts: header-footer, white-trust,
+      // minimal). They all painted a white card anyway.
+      //
+      // THE FIX, and why it is on `--bare` and NOT on `--card`. The U12
+      // ruling above ("no double card, both directions") stands untouched:
+      // `--card` still paints nothing of its own, so card mode is EXACTLY the
+      // one `.lg-question-card` it has always been — the default template's
+      // bytes do not move. Bare mode is the branch that had nothing behind
+      // it, so bare mode is where the difference is made: the unit card's
+      // SURFACE is removed and the section sits directly on the frame's own
+      // background. Every value is the removal of a `questionCard` token
+      // (background / border / borderRadius / boxShadow, tokens.ts:83) — no
+      // new number is invented.
+      //
+      // SURFACE ONLY, DELIBERATELY. `border-color:transparent` rather than
+      // `border:0`, and the card's padding + its negative-margin cancellation
+      // (base sheet, :581) are LEFT ALONE, so bare and card lay out
+      // identically to the pixel and a mode switch never reflows the funnel
+      // or re-opens the U11b/U12 13px off-center geometry. What changes is
+      // only what a visitor SEES: white box + 1px border + 16px corners +
+      // drop shadow, versus none of them.
+      //
+      // Specificity: (0,3,0) over the base card rule's (0,2,0), so it also
+      // beats a theme that wrote `questionCard.background` via
+      // `card_defaults.background_role` (theme.ts:1499) — "bare" means bare
+      // whatever colour the theme picked for cards.
+      rule(`${scope} .lg-frame-slot--bare .lg-question-card`, {
+        background: "transparent",
+        "border-color": "transparent",
+        "border-radius": "0",
+        "box-shadow": "none",
+      }),
+      // R2 P8-4 FIX ROUND F9 — F8's `--pad-{s,m,l}` and `--t-{fade,none}` rules
+      // (6 declarations + an `@keyframes lg-slot-fade`) WERE HERE AND ARE
+      // REVERTED. F8 wrote them to make the M2 sweep call
+      // `section_slot.padding` / `section_slot.transition` alive, on the
+      // premise that both were operator controls §4 R3 required to be
+      // honoured. MEASURED, that premise is false:
+      // `grep -rn '["\x27]section_slot' src/admin` returns 0 hits — that is
+      // the WHOLE admin plane and it is the shape that catches BOTH ways a
+      // control is written, in EITHER quote style (the quoted path in a
+      // `frameSelect(label, "section_slot.padding", …)` helper call AND
+      // inside a literal `data-frame-key="section_slot.padding"` or
+      // `data-frame-key='section_slot.padding'`). That zero-hit grep is about
+      // a QUOTED authoring path, never about the bare group name: measured,
+      // `grep -rl "section_slot" src/admin` (no quotes) returns 5 files, and
+      // `grep -rn "section_slot" src/admin` over those 5 returns 7 lines —
+      // frame-handlers.ts, sections-handlers.ts (×2, real reads feeding
+      // `continue_placement`/`continue_style_role`), ui-section-studio.ts (a
+      // comment), quotes-tabs/shared.ts (an operator-facing group label,
+      // "Section slot"), and quotes-tabs/templates.ts:2190 (the
+      // saved-template summary's read of `section_slot.card`) — property
+      // reads and prose, none of them a quoted authoring path. So the removed
+      // rules were product CSS for keys nobody can author, and the
+      // transition one had a
+      // visitor-visible cost: `baseFrameDefaults.transition:"fade"` made every
+      // framed page fade in over 300ms with no operator control to turn it off
+      // and no `prefers-reduced-motion` guard — and, driven, it fired only on
+      // first paint, never on the section change its name promises.
+      // Both keys are now declared in the sweep's SWEEP_EXEMPTIONS
+      // (test/leadgen-r2-dead-controls-guard.test.ts) under R3's OWN second
+      // branch — "…or is removed from the UI" — with that zero-hit grep as the
+      // reason. `section_slot.card`'s `--bare` rule above STAYS: that one IS
+      // offered (templates.ts:2190 prints "Card layout" / "Bare layout"), so
+      // R3 requires it to be honoured. If an operator control for padding or
+      // transition is ever added, the exemption goes red and the rules — and a
+      // motion-preference guard for the animation — must come back WITH it.
       rule(`${scope} .lg-frame-slot--off-s`, { "margin-top": spacing.xl }),
       rule(`${scope} .lg-frame-slot--off-m`, { "margin-top": spacing.xxl }),
       // ---- trust strip / benefit bar ------------------------------------------
@@ -3189,22 +3396,31 @@ export function funnelChromeCss(
       // (3 classes) and the per-role disc rule below (3 classes, emitted LATER)
       // both write `background` SHORTHANDS that would otherwise erase the
       // image. Measured, not assumed — at 3 classes the mark painted `none`.
-      rule(`${scope} .lg-frame-region.lg-frame-progress--icon_on_track.lg-frame-progress--icon-site_logo .lg-progress-fill::after`, {
-        background: color.card,
-        width: "26px",
-        height: "26px",
-      }),
-      rule(`${scope} .lg-frame-region.lg-frame-progress--icon_on_track.lg-frame-progress--icon-site_logo .lg-progress-fill::before`, {
-        width: "18px",
-        height: "18px",
-        background: "transparent",
-        "-webkit-mask-image": "none",
-        "mask-image": "none",
-        "background-image": "var(--lg-progress-icon-url)",
-        "background-repeat": "no-repeat",
-        "background-position": "center",
-        "background-size": "contain",
-      }),
+      // R2 P8 F1 (M1/R7 — the owner's "how do I define it????"): `custom` is the
+      // operator's OWN picked image and is painted by the IDENTICAL pair, off
+      // the identical `--lg-progress-icon-url` property frame.ts already sets
+      // for site_logo. Emitting both ids from one loop is what makes the two
+      // paths one path (§4 R1: one producer, never a second reader) — the
+      // site_logo rules keep their exact declarations, order and bytes, and
+      // `custom` cannot drift away from them.
+      ...["site_logo", "custom"].flatMap((iconId) => [
+        rule(`${scope} .lg-frame-region.lg-frame-progress--icon_on_track.lg-frame-progress--icon-${iconId} .lg-progress-fill::after`, {
+          background: color.card,
+          width: "26px",
+          height: "26px",
+        }),
+        rule(`${scope} .lg-frame-region.lg-frame-progress--icon_on_track.lg-frame-progress--icon-${iconId} .lg-progress-fill::before`, {
+          width: "18px",
+          height: "18px",
+          background: "transparent",
+          "-webkit-mask-image": "none",
+          "mask-image": "none",
+          "background-image": "var(--lg-progress-icon-url)",
+          "background-repeat": "no-repeat",
+          "background-position": "center",
+          "background-size": "contain",
+        }),
+      ]),
       // percent: the fill is CANDY-STRIPED, so a visitor tells it apart from
       // the solid `bar` even before the % label is switched on (R2 P7 owner:
       // "three of the five options are identical"). The stripes ride the fill
@@ -3242,6 +3458,8 @@ export function funnelChromeCss(
       // the extras band respects logo_align (kills the hard-centered bug for a
       // left header); center headers stay centered (base rule).
       rule(`${scope} .lg-frame-header--left .lg-frame-header-extras`, { "justify-content": "flex-start" }),
+      // …and its mirror for the third placement (N12, see --right above).
+      rule(`${scope} .lg-frame-header--right .lg-frame-header-extras`, { "justify-content": "flex-end" }),
       // header_right CTA: pushed to the far side; the header becomes a
       // space-between row so the logo keeps its align and the CTA sits right.
       rule(`${scope} .lg-frame-header--has-right .lg-header-inner`, {
@@ -3279,6 +3497,10 @@ export function funnelChromeCss(
     // frame mobile behaviors (§3.3 footer.hide_on_mobile + mobile.hide_footer;
     // trust_strip.mobile scroll/hide) — same single media query.
     mobile.push(
+      // R2 P8-4 FIX ROUND F9 — F8's mobile `--pad-{s,m,l}` companions were here
+      // and are REVERTED with their desktop originals (see the section-slot
+      // block above: no operator control writes `section_slot.padding`, so the
+      // key is a declared sweep exemption, not product CSS).
       rule(`${scope} .lg-frame-footer--m-hide`, { display: "none" }),
       rule(`${scope} .lg-frame-trust--hide`, { display: "none" }),
       rule(`${scope} .lg-frame-trust--scroll .lg-logo-strip`, {

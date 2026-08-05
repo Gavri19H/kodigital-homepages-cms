@@ -18,24 +18,16 @@
 
 import { escapeHtml } from "../../templates/layout";
 import { LEADGEN_ELIGIBILITY_REASON_LABELS } from "../ui-offers";
-import {
-  FRAME_BACKGROUND_STYLES,
-  FRAME_BACK_POSITIONS,
-  FRAME_BACK_STYLES,
-  FRAME_DISCLOSURE_LOCATIONS,
-  FRAME_FOOTER_SHOW_ON,
-  FRAME_LOGO_ALIGNS,
-  FRAME_PROGRESS_ALIGNS,
-  FRAME_PROGRESS_POSITIONS,
-  FRAME_PROGRESS_STYLES,
-  FRAME_PROGRESS_WIDTHS,
-  FRAME_SIZES,
-  FRAME_SLOT_CARDS,
-  FRAME_SLOT_OFFSETS,
-  FRAME_SLOT_TRANSITIONS,
-  FRAME_TRUST_MOBILE_MODES,
-  FRAME_TRUST_PLACEMENTS,
-} from "../../../public/leadgen/designs/frames";
+// P8-6 Q9: the 16-symbol FRAME_* import that used to sit here was entirely
+// DEAD — every one of FRAME_BACKGROUND_STYLES, FRAME_BACK_POSITIONS,
+// FRAME_BACK_STYLES, FRAME_DISCLOSURE_LOCATIONS, FRAME_FOOTER_SHOW_ON,
+// FRAME_LOGO_ALIGNS, FRAME_PROGRESS_ALIGNS, FRAME_PROGRESS_POSITIONS,
+// FRAME_PROGRESS_STYLES, FRAME_PROGRESS_WIDTHS, FRAME_SIZES,
+// FRAME_SLOT_CARDS, FRAME_SLOT_OFFSETS, FRAME_SLOT_TRANSITIONS,
+// FRAME_TRUST_MOBILE_MODES and FRAME_TRUST_PLACEMENTS occurred exactly once in
+// this file, on its own import line. The frame vocabularies this tab actually
+// renders come through the frame-studio modules; tsconfig has no
+// noUnusedLocals, which is why the compile never said so.
 import { FUNNEL_TOKEN_ROLES } from "../../../public/leadgen/designs/theme";
 // S3.7: resolves a stored funnel_design_id (canonical or alias) to the
 // distinct design it renders — used only to mark the correct <option>
@@ -415,12 +407,27 @@ function renderDefaultChip(): string {
 }
 
 
-function templateLabelFor(funnel: FunnelNode, templates: FrameTemplateItem[]): string {
+// P8-4 S4.3 (contract M10, board-chip half): the funnel's stored
+// `frame_template_id` is a numeric leadgen_frame_templates row id;
+// templateLabelFor's own `templates` param is the BUILT-IN registry (string
+// arrangement ids like "centered"/"minimal"), so a saved record's id can
+// never match it there — the chip read "Template" forever for every funnel
+// with a saved template applied. Exposed once here (mirrors themePresetIdOf
+// below) so both the SSR fallback and the chip's data attribute read the
+// SAME stringified id and can never drift from each other.
+export function frameTemplateIdOf(funnel: FunnelNode): string {
+  return funnel.frame_template_id === null || funnel.frame_template_id === undefined ? "" : String(funnel.frame_template_id);
+}
+
+// EXPORTED (mirrors mappingDotStatus above) so its pure branches — including
+// the numeric-id "always Template" defect this phase fixes at the render
+// call site below — are directly unit-testable without VM-slicing the island.
+export function templateLabelFor(funnel: FunnelNode, templates: FrameTemplateItem[]): string {
   // M5: the funnel's base template. FrameTemplateItem ids are the built-in
   // arrangement ids; a saved-record numeric id is best-effort resolved by the
   // island against the fuller record list — here the SSR shows the label if a
   // built-in matches, else a neutral "Template" the picker refines.
-  const idStr = funnel.frame_template_id === null || funnel.frame_template_id === undefined ? "" : String(funnel.frame_template_id);
+  const idStr = frameTemplateIdOf(funnel);
   const match = templates.find((t) => t.id === idStr);
   return match ? match.label : "Template";
 }
@@ -490,7 +497,7 @@ function renderFunnelColumn(
       </div>
       <div class="lg-col-meta">
         <span class="lg-pickchip" data-theme-picker data-pin="8.2-theme-picker" data-chip-funnel-public-id="${escapeHtml(funnel.public_id)}" data-chip-funnel-active-variant="${escapeHtml(funnel.active_variant_public_id ?? "")}" data-theme-preset-id="${escapeHtml(themePresetIdOf(funnel))}" role="button" tabindex="0">${escapeHtml(themeChipLabel(funnel))}</span>
-        <span class="lg-pickchip" data-template-picker data-pin="8.2-template-picker" data-chip-funnel-public-id="${escapeHtml(funnel.public_id)}" data-chip-funnel-active-variant="${escapeHtml(funnel.active_variant_public_id ?? "")}" role="button" tabindex="0">${escapeHtml(templateName)}</span>
+        <span class="lg-pickchip" data-template-picker data-pin="8.2-template-picker" data-chip-funnel-public-id="${escapeHtml(funnel.public_id)}" data-chip-funnel-active-variant="${escapeHtml(funnel.active_variant_public_id ?? "")}" data-template-id="${escapeHtml(frameTemplateIdOf(funnel))}" role="button" tabindex="0">${escapeHtml(templateName)}</span>
       </div>
       <div class="lg-col-actions">
         <span class="lg-badge-ab" data-ab-badge data-pin="4.3-ab-badge" role="button" tabindex="0">${escapeHtml(abLabel)}</span>
@@ -847,6 +854,43 @@ export const QUOTE_EDITOR_SCRIPT = `
   function showMsg(id, text) { var el = byId(id); if (el) { el.textContent = text; el.hidden = false; } }
   function hideMsg(id) { var el = byId(id); if (el) { el.hidden = true; } }
 
+  /* --- P8-6 N8: a confirmation that SURVIVES window.location.reload() -------
+     showMsg paints textContent into a node on THIS document. A handler that
+     paints and then reloads throws its own message away a tick later, so the
+     operator sees nothing at all: measured on the Create A/B test button, the
+     text was in the node and gone before it could be read. Anything that
+     reloads therefore PARKS its outcome first and drainFlash() paints it once,
+     after the fresh page has booted.
+     Why sessionStorage: it is scoped to THIS tab, so a second editor tab can
+     never steal or duplicate the one-shot line, and it survives exactly the
+     navigation we are doing. localStorage (the ui-section-studio.ts callout
+     precedent) is cross-tab and would. A URL query param survives too but
+     re-announces on every later refresh unless it is scrubbed with
+     history.replaceState, so it is not one-shot.
+     Why reload at all: the A/B panel is server-rendered from /structure
+     (quotes-tabs/ab.ts) - the created test, its arms and its allocations exist
+     only in the next render, so painting a panel client-side would invent a
+     second source of truth. FAILURES do not reload and do not depend on
+     storage: they paint in place and re-enable their button.
+     Storage access is wrapped exactly like the studio precedent, so a
+     storage-denied browser degrades to the old silence instead of throwing. */
+  var FLASH_KEY = 'lg-quote-flash';
+  function flashAfterReload(id, text) {
+    try { window.sessionStorage.setItem(FLASH_KEY, id + '|' + text); } catch (eFlashSet) {}
+  }
+  function drainFlash() {
+    var raw = '';
+    try {
+      raw = window.sessionStorage.getItem(FLASH_KEY) || '';
+      window.sessionStorage.removeItem(FLASH_KEY);
+    } catch (eFlashGet) { raw = ''; }
+    var cut = raw.indexOf('|');
+    if (cut < 1) { return; }
+    var slot = raw.substring(0, cut);
+    if (slot !== 'lg-quote-ok' && slot !== 'lg-quote-error') { return; }
+    showMsg(slot, raw.substring(cut + 1));
+  }
+
   // --- 05 5.2 activation-preflight panel (server-verdict-driven re-render) --
   // The SAME operator copy the SSR panel renders; rebuilt after variant save,
   // after an activation PUT, and from the activation 409 report body. DOM is
@@ -1163,7 +1207,13 @@ export const QUOTE_EDITOR_SCRIPT = `
   function problemFixLabel(url) {
     var u = String(url || '');
     if (u.indexOf('/admin/settings') === 0) { return 'Open site settings'; }
-    if (u.indexOf('/sections/') !== -1) { return 'Review slide'; }
+    // P8-4 S4.3/S4.4 (contract M9 item 2): "Review slide" named a concept
+    // (slides) this product does not have. "Edit Section" matches the
+    // product's own vocabulary (PROBLEM_SCOPE_LABELS.section = "Sections",
+    // shared.ts) and the SSR twin of this function, activation.ts's own
+    // problemFixLabel -- coordinated so both renders of the SAME problem say
+    // the SAME thing.
+    if (u.indexOf('/sections/') !== -1) { return 'Edit Section'; }
     if (u.indexOf('/quotes/') !== -1) { return 'Open Quote Builder'; }
     return 'Fix';
   }
@@ -1824,14 +1874,25 @@ export const QUOTE_EDITOR_SCRIPT = `
   // the APPLIED SAVED TEMPLATE, while the server (frame-handlers.ts
   // frameProjection → frames.ts effectiveFrame, post-571e310) composes
   // 'FRAME_TEMPLATES[].defaults ⊕ savedTemplateDefaults ⊕ funnel ⊕
-  // overrides'. "Apply template" writes ONLY leadgen_funnels.frame_template_id
-  // (frame_config_json stays NULL), so for every template-seeded funnel the
-  // editor hydrated an EMPTY footer while the visitor was served the saved
-  // template's 8 blocks — and because a Save persists what the editor holds,
-  // one benign edit (e.g. "Text size") wrote 'footer.blocks: []' over a block
-  // set the operator had never seen. Silent, and unrecoverable through the UI
-  // (re-applying the template only re-stamps frame_template_id; the funnel's
-  // own frame_config_json now WINS over it in the same merge).
+  // overrides'. At the time, "Apply template" wrote ONLY
+  // leadgen_funnels.frame_template_id (frame_config_json stayed NULL), so for
+  // every template-seeded funnel the editor hydrated an EMPTY footer while the
+  // visitor was served the saved template's 8 blocks — and because a Save
+  // persists what the editor holds, one benign edit (e.g. "Text size") wrote
+  // 'footer.blocks: []' over a block set the operator had never seen. Silent,
+  // and unrecoverable through the UI, since re-applying the template only
+  // re-stamped frame_template_id while the funnel's own frame_config_json
+  // still won over it in the same merge.
+  //
+  // R2 P8 M3 changed the write itself (frame-handlers.ts
+  // applyFrameTemplateToFunnelHandler / computeTemplateApply): "Apply
+  // template" now MATERIALISES the template's values into frame_config_json,
+  // pruning the leaves the template's own base already supplies, so the
+  // column holds only the funnel's DIFFERENCE from the applied template —
+  // never NULL, never the bare pointer alone. This hydration source is
+  // unaffected by that change: the editor still composes from the server's
+  // own effective_frame rather than reconstructing the saved-template layer
+  // itself.
   //
   // The fix is to hydrate from the SERVER'S OWN COMPOSITION. 'effective_frame'
   // (the GET /funnels/:id/frame projection this island already boots with) IS
@@ -4021,6 +4082,43 @@ export const QUOTE_EDITOR_SCRIPT = `
       .catch(function () { /* leave the select as-is on a transient network error */ });
   }
 
+  // P8-4 S4.3 (contract M10, board-chip half): the SAME shape as
+  // applyThemeChipNames above, applied to the Template chip's saved-record
+  // numeric id (data-template-id, set by frameTemplateIdOf/renderFunnelColumn
+  // in the TS half of this file). A chip whose id is not in the fetched
+  // items (a deleted template, or this fetch hasn't landed yet) is left on
+  // the SSR "Template" fallback (templateLabelFor) -- never reverted to a
+  // raw id.
+  function applyTemplateChipNames(items) {
+    var chips = root.querySelectorAll('[data-template-picker][data-template-id]');
+    var nameById = {};
+    var i;
+    for (i = 0; i < items.length; i++) { nameById[String(items[i].id)] = items[i].name; }
+    for (i = 0; i < chips.length; i++) {
+      var tid = chips[i].getAttribute('data-template-id') || '';
+      if (tid !== '' && Object.prototype.hasOwnProperty.call(nameById, tid)) {
+        chips[i].textContent = nameById[tid];
+      }
+    }
+  }
+
+  // Unlike the Theme preset fetch this island has no OTHER reason to already
+  // list the saved template records (the Templates tab's own loadTemplates
+  // does, but that is a SEPARATE island closure emitted for a different tab
+  // and cannot be read from here -- see the Template-chip dispatch comment
+  // above, "each a SEPARATE island closure that cannot see..."), so this is
+  // its own boot-time GET against the SAME existing frame-template-records
+  // endpoint the Templates tab already calls -- no new endpoint, just this
+  // island's own copy of the read.
+  function loadTemplateRecordNames() {
+    fetch('/api/admin/leadgen/frame-template-records', { credentials: 'same-origin', headers: { 'Accept': 'application/json' } })
+      .then(function (r) { return r.json(); })
+      .then(function (body) {
+        applyTemplateChipNames((body && body.items) || []);
+      })
+      .catch(function () { /* leave the SSR fallback on a transient network error */ });
+  }
+
   // Fork an arm, then apply the new arm's traffic split (and shrink the
   // original's to match, keeping Σ==10000) — the SAME §16.2 fork+allocation
   // mechanism "Add variant" and "A/B this theme" share (forkThenSplit below).
@@ -4268,7 +4366,9 @@ export const QUOTE_EDITOR_SCRIPT = `
               body: JSON.stringify({ theme_json: { theme_id: themeId } })
             });
         req.then(function (r) { return r.json().then(function (j) { return { ok: r.ok, body: j }; }); }).then(function (res) {
-          if (res.ok) { window.location.reload(); return; }
+          // P8-6 N8 class sweep: r.ok was already read here, but the SUCCESS
+          // path still reloaded with nothing said.
+          if (res.ok) { flashAfterReload('lg-quote-ok', 'Preset applied.'); window.location.reload(); return; }
           applyBtn.disabled = false;
           showMsg('lg-quote-error', (res.body && res.body.error) ? res.body.error : 'Apply failed.');
         }).catch(function () {
@@ -4308,6 +4408,9 @@ export const QUOTE_EDITOR_SCRIPT = `
   // click lands on "Apply"/"A/B this theme" before a tab-switch fires (the
   // activate('themes') hook above also refreshes it on every switch).
   loadThemePresetOptions();
+  // Board Template chips are on the FIRST tab painted (the builder itself),
+  // so this one has no tab-switch analogue to lean on -- eager at boot only.
+  loadTemplateRecordNames();
 
   (function () {
     var selects = root.querySelectorAll('[data-site-select]');
@@ -4461,13 +4564,38 @@ export const QUOTE_EDITOR_SCRIPT = `
 
   var createExpBtn = byId('lg-create-experiment');
   if (createExpBtn) {
+    // P8-6 N8: this handler used to read
+    //   .then(function (r) { return r.json(); }).then(function () { reload(); })
+    // which told the operator NOTHING in either direction: a success reloaded
+    // with no confirmation (the test IS created), and a REFUSAL reloaded
+    // identically while leaving this button disabled, so the same click looked
+    // the same whether it worked or not and could not be retried.
     createExpBtn.addEventListener('click', function () {
       createExpBtn.disabled = true;
+      hideMsg('lg-quote-error'); hideMsg('lg-quote-ok');
       fetch('/api/admin/leadgen/quotes/' + encodeURIComponent(quotePublicId) + '/experiments', {
         method: 'POST', credentials: 'same-origin',
         headers: { 'content-type': 'application/json', 'Accept': 'application/json' },
         body: JSON.stringify({})
-      }).then(function (r) { return r.json(); }).then(function () { window.location.reload(); });
+      }).then(function (r) {
+        // a bodiless or non-JSON refusal (a 500 error page) must still read as
+        // the refusal it is, not fall through to the network-error branch.
+        return r.json().then(function (j) { return { ok: r.ok, body: j }; }, function () { return { ok: r.ok, body: null }; });
+      }).then(function (res) {
+        if (!res.ok) {
+          createExpBtn.disabled = false;
+          showMsg('lg-quote-error', (res.body && res.body.error) ? res.body.error : 'Could not create the A/B test. Nothing was changed - try again.');
+          return;
+        }
+        // the A/B panel's own order line is Create -> Start -> Add variant, so
+        // the next step this names is Start (measured on the settled page:
+        // the panel comes back reading "draft - rev 1" with a Start button).
+        flashAfterReload('lg-quote-ok', 'A/B test created. It is not running yet - press Start A/B test.');
+        window.location.reload();
+      }).catch(function (err) {
+        createExpBtn.disabled = false;
+        showMsg('lg-quote-error', (err && err.message) ? err.message : 'Network error while creating the A/B test.');
+      });
     });
   }
 
@@ -4477,10 +4605,22 @@ export const QUOTE_EDITOR_SCRIPT = `
 
     var forkId = el.getAttribute('data-fork-variant');
     if (forkId) {
+      // P8-6 N8 class sweep: same shape as the create button - r.ok was never
+      // read, so a refused fork simply did nothing (no navigation, no message,
+      // no error) and the click looked ignored.
       fetch('/api/admin/leadgen/variants/' + encodeURIComponent(forkId) + '/fork', {
         method: 'POST', credentials: 'same-origin', headers: { 'Accept': 'application/json' }
-      }).then(function (r) { return r.json(); }).then(function (body) {
-        if (body && body.public_id) { window.location.href = '/admin/leadgen/quotes/' + encodeURIComponent(quotePublicId) + '/edit?variant=' + encodeURIComponent(body.public_id); }
+      }).then(function (r) {
+        return r.json().then(function (j) { return { ok: r.ok, body: j }; }, function () { return { ok: r.ok, body: null }; });
+      }).then(function (res) {
+        if (res.ok && res.body && res.body.public_id) {
+          // the destination page IS the confirmation here: a different variant.
+          window.location.href = '/admin/leadgen/quotes/' + encodeURIComponent(quotePublicId) + '/edit?variant=' + encodeURIComponent(res.body.public_id);
+          return;
+        }
+        showMsg('lg-quote-error', (res.body && res.body.error) ? res.body.error : 'Could not duplicate this variant.');
+      }).catch(function (err) {
+        showMsg('lg-quote-error', (err && err.message) ? err.message : 'Network error while duplicating this variant.');
       });
       return;
     }
@@ -4490,20 +4630,42 @@ export const QUOTE_EDITOR_SCRIPT = `
       el.disabled = true;
       fetch('/api/admin/leadgen/experiments/' + encodeURIComponent(startId) + '/start', {
         method: 'POST', credentials: 'same-origin', headers: { 'Accept': 'application/json' }
-      }).then(function (r) { return r.json().then(function (j) { return { ok: r.ok, body: j }; }); }).then(function (res) {
+      }).then(function (r) { return r.json().then(function (j) { return { ok: r.ok, body: j }; }, function () { return { ok: r.ok, body: null }; }); }).then(function (res) {
         el.disabled = false;
-        if (res.ok) { window.location.reload(); }
+        // P8-6 N8 class sweep: the refusal branch already spoke; the SUCCESS
+        // branch reloaded silently, and a network error never reached either
+        // (no .catch) so the button stayed disabled forever.
+        if (res.ok) { flashAfterReload('lg-quote-ok', 'A/B test started.'); window.location.reload(); }
         else { showMsg('lg-quote-error', (res.body && res.body.fields && res.body.fields.traffic_allocation_bp) ? res.body.fields.traffic_allocation_bp : ((res.body && res.body.error) ? res.body.error : 'Start failed')); }
+      }).catch(function (err) {
+        el.disabled = false;
+        showMsg('lg-quote-error', (err && err.message) ? err.message : 'Network error while starting the A/B test.');
       });
       return;
     }
 
     var stopId = el.getAttribute('data-stop-experiment');
     if (stopId) {
+      // P8-6 N8 class sweep: identical fire-and-forget reload to the create
+      // button - a refused stop reloaded like a successful one, still running,
+      // with this button left disabled.
       el.disabled = true;
       fetch('/api/admin/leadgen/experiments/' + encodeURIComponent(stopId) + '/stop', {
         method: 'POST', credentials: 'same-origin', headers: { 'Accept': 'application/json' }
-      }).then(function () { window.location.reload(); });
+      }).then(function (r) {
+        return r.json().then(function (j) { return { ok: r.ok, body: j }; }, function () { return { ok: r.ok, body: null }; });
+      }).then(function (res) {
+        if (!res.ok) {
+          el.disabled = false;
+          showMsg('lg-quote-error', (res.body && res.body.error) ? res.body.error : 'Could not stop the A/B test - it is still running.');
+          return;
+        }
+        flashAfterReload('lg-quote-ok', 'A/B test stopped.');
+        window.location.reload();
+      }).catch(function (err) {
+        el.disabled = false;
+        showMsg('lg-quote-error', (err && err.message) ? err.message : 'Network error while stopping the A/B test.');
+      });
       return;
     }
 
@@ -4518,7 +4680,11 @@ export const QUOTE_EDITOR_SCRIPT = `
       }).then(function (r) { return r.json().then(function (j) { return { ok: r.ok, body: j }; }); }).then(function (res) {
         if (!resultEl) { return; }
         if (res.ok && res.body && res.body.variant) {
-          resultEl.textContent = 'Session "' + sid + '" maps to variant ' + res.body.variant.variant_label + ' (' + res.body.variant.funnel_variant_id + '), bucket ' + res.body.assignment_bucket + ' of 10000.';
+          // P8-6 Q2 class sweep: the parenthetical repeated the raw
+          // funnel_variant_id (lgn_…) right next to the variant's own
+          // operator-facing variant_label — drop it, the label already names
+          // the thing the operator picked.
+          resultEl.textContent = 'Session "' + sid + '" maps to variant ' + res.body.variant.variant_label + ', bucket ' + res.body.assignment_bucket + ' of 10000.';
         } else {
           resultEl.textContent = (res.body && res.body.error) ? res.body.error : 'Preview failed.';
         }
@@ -4528,6 +4694,17 @@ export const QUOTE_EDITOR_SCRIPT = `
   });
 
   // --- activation (per-site PUT/DELETE) -------------------------------------
+  // P8-6 Q2 class sweep: the row's own painted lg-check label already
+  // carries the operator-visible name (activation.ts's renderActivationPanel
+  // emits the escaped site_name there, right beside the checkbox) — reuse
+  // that already-painted text instead of re-deriving it, so a confirmation
+  // names the site the operator sees, never the raw site_id ("st_...") they
+  // never do. Falls back to the id only if a row somehow carries no label at
+  // all (defensive; activation.ts always renders one).
+  function siteRowName(row) {
+    var label = row.querySelector('.lg-check');
+    return label ? String(label.textContent || '').replace(/\\s+/g, ' ').trim() : '';
+  }
   var activationList = byId('lg-activation-list');
   if (activationList) {
     activationList.addEventListener('click', function (ev) {
@@ -4537,6 +4714,7 @@ export const QUOTE_EDITOR_SCRIPT = `
       while (row && row.getAttribute && !row.hasAttribute('data-site-id')) { row = row.parentNode; }
       if (!row || !row.getAttribute) { return; }
       var siteId = row.getAttribute('data-site-id');
+      var siteName = siteRowName(row) || siteId;
       if (el.hasAttribute('data-save-activation')) {
         var enabled = row.querySelector('[data-site-enabled]').checked;
         var slugEl = row.querySelector('[data-site-slug]');
@@ -4549,7 +4727,7 @@ export const QUOTE_EDITOR_SCRIPT = `
           return r.json().then(function (j) { return { ok: r.ok, status: r.status, body: j }; });
         }).then(function (res) {
           if (res.ok) {
-            showMsg('lg-quote-ok', 'Activation saved for ' + siteId);
+            showMsg('lg-quote-ok', 'Activation saved for ' + siteName);
             // 05 5.2: the activation PUT recomputes the verdict — keep the
             // preflight panel + badge in sync with the authoritative state.
             if (res.body && res.body.activation_preflight) { renderPreflight(res.body.activation_preflight); }
@@ -4568,9 +4746,28 @@ export const QUOTE_EDITOR_SCRIPT = `
         return;
       }
       if (el.hasAttribute('data-deactivate')) {
+        // P8-6 N8 class sweep: third fire-and-forget reload. Its sibling (the
+        // PUT above) reports both outcomes; this DELETE reported neither, so a
+        // refused deactivation looked exactly like a successful one - on the
+        // money path (the site keeps serving the Quote).
+        el.disabled = true;
         fetch('/api/admin/leadgen/quotes/' + encodeURIComponent(quotePublicId) + '/activation/' + encodeURIComponent(siteId), {
           method: 'DELETE', credentials: 'same-origin', headers: { 'Accept': 'application/json' }
-        }).then(function () { window.location.reload(); });
+        }).then(function (r) {
+          // a 204/empty body is a SUCCESS, not a parse failure.
+          return r.json().then(function (j) { return { ok: r.ok, body: j }; }, function () { return { ok: r.ok, body: null }; });
+        }).then(function (res) {
+          if (!res.ok) {
+            el.disabled = false;
+            showMsg('lg-quote-error', (res.body && res.body.error) ? res.body.error : 'Could not deactivate ' + siteName + '.');
+            return;
+          }
+          flashAfterReload('lg-quote-ok', 'Deactivated for ' + siteName + '.');
+          window.location.reload();
+        }).catch(function (err) {
+          el.disabled = false;
+          showMsg('lg-quote-error', (err && err.message) ? err.message : 'Network error while deactivating ' + siteName + '.');
+        });
       }
     });
   }
@@ -4735,6 +4932,11 @@ export const QUOTE_EDITOR_SCRIPT = `
   window.addEventListener('beforeunload', function (e) {
     if (dirty || variantDirty || allocDirty || frameDirty || themeDirty || overridesDirty) { e.preventDefault(); e.returnValue = ''; return ''; }
   });
+
+  // P8-6 N8: paint the parked outcome of whatever action caused THIS load.
+  // Last statement of the island's boot, so no later boot step can hide the
+  // alert slot after it has been filled.
+  drainFlash();
 }());
 
 /* ======================================================================== */
@@ -5006,7 +5208,53 @@ export const QUOTE_EDITOR_SCRIPT = `
   function addFunnel() {
     // Add with a default name (no blocking prompt); the operator renames inline
     // on the fresh column via the pinned inline-rename affordance.
-    req('POST', API + '/quotes/' + encodeURIComponent(quoteId) + '/funnels', { funnel_name: 'New funnel' }).then(function (res) {
+    // P8-4 S4.3 (contract §7 N6): every added funnel used to be the literal
+    // 'New funnel', confirmed live as indistinguishable from the last one
+    // added a moment before in both the board columns and the rule
+    // Target-funnel select (both read the SAME stored funnel_name — no other
+    // surface needs a separate fix).
+    // P8-4 F-4 (review): a board-COUNT-based ordinal collides the instant a
+    // funnel is deleted, then a new one added -- driven live: add 'New funnel
+    // 6' and 'New funnel 7', delete 'New funnel 6', click + Add funnel, and
+    // the count-based ordinal recomputed to the same 7 already on the board.
+    // The ordinal below is one more than the HIGHEST trailing number any
+    // funnel CURRENTLY on this board already carries (never the count), so a
+    // deletion can never roll it backwards onto a name still in use; an
+    // existing funnel's stored name is untouched by this path, and the
+    // inline-rename affordance still overwrites it exactly as before.
+    // P8-4 F8 - THE ORDINAL NEVER ACTUALLY MOVED: the two rounds above read
+    // .funnel_name off the BOARD blob, and the blob has no such key. The wire
+    // shape is minted ONE place (the funnels: map at :708) and it emits
+    // name: f.funnel_name - the row keys are exactly
+    // ["public_id","id","name","display_order","is_default",
+    //  "active_variant_public_id","arms","frame_template_id","settings",
+    //  "pages"]. So every read was String(undefined || ''), the regex never
+    // matched, maxOrdinal stayed 0 and THREE consecutive adds all sent
+    // 'New funnel 1' - N6, still live, under two rounds that claimed it fixed.
+    // FIXED AT THE CAUSE, one reader on the one wire key: .name, which is
+    // what every other consumer of this blob already reads (boardTargetItems
+    // below, and the drag-copy message near the end of this island). No alias
+    // is added on the emitter side - a second key for one value is how this
+    // class of defect starts.
+    // SECOND CAUSE ON THE SAME LINE, also measured: this island is a TS
+    // template literal, where an unrecognised escape collapses - the source
+    // said (\d+) and the bytes the browser received said (d+), a regex that
+    // cannot match 'New funnel 1' no matter which key it reads. So even with
+    // the key fixed, three adds still all sent 'New funnel 1'. Every other
+    // regex in this island already writes the double backslash form (see the
+    // \\s trims throughout); this one did not. Both causes are fixed here.
+    var existingFunnels = BOARD.funnels || [];
+    var maxOrdinal = 0;
+    var fi;
+    for (fi = 0; fi < existingFunnels.length; fi++) {
+      var ordinalMatch = String(existingFunnels[fi].name || '').match(/^New funnel (\\d+)$/);
+      if (ordinalMatch) {
+        var seenOrdinal = parseInt(ordinalMatch[1], 10);
+        if (seenOrdinal > maxOrdinal) { maxOrdinal = seenOrdinal; }
+      }
+    }
+    var ordinal = maxOrdinal + 1;
+    req('POST', API + '/quotes/' + encodeURIComponent(quoteId) + '/funnels', { funnel_name: 'New funnel ' + ordinal }).then(function (res) {
       if (!res.ok) { showInlineErr(null, firstFieldError(res.body)); return; }
       reloadPage();
     });

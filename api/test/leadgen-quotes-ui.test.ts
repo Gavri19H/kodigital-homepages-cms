@@ -764,3 +764,490 @@ describeDb("Quotes Activation preflight panel (05 §5.2)", () => {
     }
   });
 });
+
+// ---------------------------------------------------------------------------
+// R2 P8-6 FIX-FIRST S1 — the rules rail's field universe == the page
+// ---------------------------------------------------------------------------
+//
+// THE DEFECT. The rail told an operator "This rule can never apply" about a
+// field every visitor answers. Its universe came from a hand-rolled walk
+// (node.internal_field + ONE level of node.children[].internal_field) that
+// expanded no Address role, no NameFieldsGroup part and no slider _min/_max —
+// so a plain Address's four boxes, a name group's two, and a dual slider's two
+// were invisible to BOTH halves of the rail (the picker's options AND the
+// per-page field sets the checkpoint derivation resolves against). MEASURED
+// before the fix, api/, npx tsx over the REAL renderer + the REAL rail:
+//   Address plain (internal_field p8_addr): recordable p8_addr_street/_city/
+//     _state/_zip — rail offered ["p8_addr"] (a wrapper hydration attribute
+//     that records nothing);
+//   Address + fills.zip colliding with a sibling: rail offered
+//     ["p8n_rr2m3_addr","postal_code_x"], all four roles missing;
+//   dual_range slider (base budget): recordable budget_min/budget_max — rail
+//     offered ["budget"];  NameFieldsGroup: rail offered NOTHING.
+// The CLEAN CONTROL was as broken as the collision case: this was never an
+// Address-collision edge, it was the whole multi-field/nesting class.
+//
+// HOW THIS AVOIDS E10/E11. One side of every assertion below is the REAL
+// artifact: renderSectionComponents' own markup (the same function that
+// produces the served content_html), never a hand-written key list. The other
+// side is the REAL rail (quoteRailAnswerFields / sectionFieldsByPublicId, the
+// exact functions the quote-editor GET handler calls). The expected key set is
+// EXTRACTED from the markup by mirroring engine.ts handleInputEvent's own
+// resolution — for each [data-lg-input], the innermost enclosing
+// [data-lg-field], else the data-name-field → props.fields[idx] bridge — so a
+// key nothing records can never be "expected", and a key a box records can
+// never be missed. vitest's environment is "node" (vitest.config.ts) and
+// jsdom/happy-dom are NOT installed (no-new-deps), hence the textual mirror of
+// closest() rather than a DOM.
+//
+// SABOTAGE-PROVEN RED (recorded, api/): reverting sectionAnswerFieldEntries to
+// the pre-fix walk (own internal_field + ONE level of children) fails ALL 8 —
+// "Tests  8 failed | 1 passed" → "8 failed", e.g. `rail must offer every
+// recordable key of Address (plain — the clean control): expected [ 'p8_addr' ]
+// to deeply equal [ 'p8_addr_city', …(3) ]`, `… NameFieldsGroup: expected [] to
+// deeply equal [ 'family', 'given' ]`, `… Slider (dual_range): expected
+// [ 'budget' ] to deeply equal [ 'budget_max', 'budget_min' ]` — and the
+// checkpoint case red with `{plane:'in_funnel', unreachable:true}` (literally
+// the "This rule can never apply" state) instead of page 0.
+
+import { renderSectionComponents } from "../src/public/leadgen/components/presets";
+import { defaultFunnelDesign } from "../src/public/leadgen/designs/default-funnel/tokens";
+import { deriveRuleCheckpoint } from "../src/leadgen/rule-checkpoint";
+import { quoteRailAnswerFields, sectionFieldsByPublicId } from "../src/admin/leadgen/ui-quotes";
+import type { AvailableSection } from "../src/admin/leadgen/quotes-tabs/shared";
+import {
+  leadgenControlLabel,
+  type LeadgenComponentNode,
+} from "../src/public/leadgen/components/content-schema";
+import { runInNewContext } from "node:vm";
+import { SECTION_STUDIO_SCRIPT, studioTypeMeta } from "../src/admin/leadgen/ui-section-studio";
+
+// engine.ts handleInputEvent, read off the markup: the answer key each visitor
+// input records. Nothing here derives a key — every key is one the RENDERER
+// printed (or, for a name slot, the authored props.fields entry the engine's
+// data-name-field bridge maps that slot to).
+function recordableKeysOf(components: readonly unknown[]): string[] {
+  const html = renderSectionComponents(
+    components as readonly LeadgenComponentNode[],
+    defaultFunnelDesign,
+    { continue_mode: "button" } as never,
+  );
+  const namePartsByQuestion = new Map<string, string[]>();
+  const walk = (nodes: readonly unknown[]): void => {
+    for (const n of nodes as Array<Record<string, unknown>>) {
+      if (n === null || typeof n !== "object") continue;
+      const props = (n["props"] ?? {}) as Record<string, unknown>;
+      if (n["type"] === "NameFieldsGroup") {
+        namePartsByQuestion.set(
+          String(n["question_id"] ?? ""),
+          Array.isArray(props["fields"]) ? (props["fields"] as string[]) : ["first", "last"],
+        );
+      }
+      if (Array.isArray(n["children"])) walk(n["children"] as unknown[]);
+    }
+  };
+  walk(components);
+  const out: string[] = [];
+  let enclosingField = "";
+  let enclosingQuestion = "";
+  for (const tag of html.matchAll(/<[a-z]+[^>]*>/g)) {
+    const t = tag[0];
+    const q = t.match(/data-lg-question="([^"]+)"/);
+    if (q) enclosingQuestion = q[1] as string;
+    const f = t.match(/data-lg-field="([^"]+)"/);
+    if (f) enclosingField = f[1] as string;
+    if (!/data-lg-input/.test(t)) continue;
+    const slot = t.match(/data-name-field="([^"]+)"/);
+    let key = f ? (f[1] as string) : enclosingField;
+    if (slot) {
+      const parts = namePartsByQuestion.get(enclosingQuestion) ?? ["first", "last"];
+      key = parts[slot[1] === "first" ? 0 : 1] ?? (slot[1] as string);
+    }
+    if (key !== "" && !out.includes(key)) out.push(key);
+  }
+  return out.sort();
+}
+
+// T1 — the STUDIO's own answer-field labelling, as the page ships it. The
+// island function is SLICED out of SECTION_STUDIO_SCRIPT (never re-typed) and
+// run in node:vm with its five in-island collaborators sliced beside it and its
+// two globals supplied (`studioMeta.types` = studioTypeMeta(), the same blob the
+// page hydrates from #lg-studio-meta; `state.content` = the components). Any
+// edit to the Studio's role words changes THIS oracle, so the rail cannot drift
+// from it silently.
+function sliceIslandFn(script: string, name: string): string {
+  const start = script.indexOf(`function ${name}(`);
+  if (start < 0) throw new Error(`island function ${name} not found: ${name}`);
+  let depth = 0;
+  for (let i = script.indexOf("{", start); i < script.length; i += 1) {
+    if (script[i] === "{") depth += 1;
+    else if (script[i] === "}" && (depth -= 1) === 0) return script.slice(start, i + 1);
+  }
+  throw new Error(`unbalanced braces slicing ${name}`);
+}
+function studioSectionFieldLabels(
+  components: readonly unknown[],
+  fields: readonly string[],
+  headline = "",
+): Record<string, string> {
+  const src = ["trimStr", "typeMeta", "isContainerType", "typeLabel", "walkTree", "sectionFieldLabels"]
+    .map((n) => sliceIslandFn(SECTION_STUDIO_SCRIPT, n))
+    .join("\n");
+  const ctx: Record<string, unknown> = {
+    studioMeta: { max_depth: 4, types: studioTypeMeta() },
+    state: { content: { components } },
+    fields,
+    headline,
+    out: null,
+  };
+  runInNewContext(`${src}\nout = sectionFieldLabels(fields, headline);`, ctx);
+  return ctx["out"] as Record<string, string>;
+}
+
+function railSection(components: readonly unknown[]): AvailableSection {
+  return {
+    id: 1,
+    public_id: "lgs_s1",
+    section_name: "S",
+    activity: "auto",
+    vertical: "insurance",
+    status: "active",
+    content_json: { components },
+  } as AvailableSection;
+}
+
+const S1_ADDRESS_PLAIN = {
+  type: "AddressAutocompleteQuestion",
+  question_id: "q_addr",
+  internal_field: "p8_addr",
+  props: { label: "Where do you live?", maps: { enabled: true } },
+};
+const S1_ADDRESS_COLLIDE = {
+  type: "AddressAutocompleteQuestion",
+  question_id: "q_addr2",
+  internal_field: "p8n_rr2m3_addr",
+  props: { label: "Property address", maps: { enabled: true, fills: { zip: "postal_code_x" } } },
+};
+const S1_ZIP_SIBLING = {
+  type: "FreeTextQuestion",
+  question_id: "q_pcx",
+  internal_field: "postal_code_x",
+  props: { label: "ZIP" },
+};
+const S1_NAME_GROUP = {
+  type: "NameFieldsGroup",
+  question_id: "q_name",
+  props: { label: "Your name", fields: ["given", "family"] },
+};
+const S1_DUAL_SLIDER = {
+  type: "NumberRangeQuestion",
+  question_id: "q_budget",
+  internal_field: "budget",
+  props: { label: "Budget", slider_type: "dual_range", min: 0, max: 100 },
+};
+// TWO §8.5 containers deep — the old walk descended exactly one level, so this
+// question was invisible to the rail even though the renderer emits its input.
+const S1_NESTED = {
+  type: "Stack",
+  question_id: "q_stack",
+  props: {},
+  children: [
+    {
+      type: "CardPanel",
+      question_id: "q_panel",
+      props: {},
+      children: [
+        { type: "FreeTextQuestion", question_id: "q_deep", internal_field: "deep_field", props: { label: "Deep" } },
+      ],
+    },
+  ],
+};
+
+describe("R2 P8-6 S1 — the quote rules rail offers exactly the keys the page records", () => {
+  const shapes: Array<[string, unknown[]]> = [
+    ["Address (plain — the clean control)", [S1_ADDRESS_PLAIN]],
+    ["Address (fills.zip collides with a sibling)", [S1_ADDRESS_COLLIDE, S1_ZIP_SIBLING]],
+    ["NameFieldsGroup", [S1_NAME_GROUP]],
+    ["Slider (dual_range)", [S1_DUAL_SLIDER]],
+    ["a question nested two containers deep", [S1_NESTED]],
+    ["all of them in one section", [S1_ADDRESS_PLAIN, S1_NAME_GROUP, S1_DUAL_SLIDER, S1_NESTED]],
+  ];
+
+  for (const [name, components] of shapes) {
+    it(`rail universe == rendered keys: ${name}`, () => {
+      const recordable = recordableKeysOf(components);
+      // the shape must actually RENDER inputs, or the row proves nothing
+      expect(recordable.length, `${name} renders at least one answer input`).toBeGreaterThan(0);
+      const picker = quoteRailAnswerFields([railSection(components)])
+        .map((f) => f.internal_field)
+        .sort();
+      const pageMap = (sectionFieldsByPublicId([railSection(components)]).get("lgs_s1") ?? [])
+        .slice()
+        .sort();
+      expect(picker, `rail must offer every recordable key of ${name}`).toEqual(recordable);
+      // BOTH halves of the rail, or the picker offers a field the checkpoint
+      // derivation then calls unreachable ("This rule can never apply").
+      expect(pageMap, `rail per-page field map must match the picker for ${name}`).toEqual(recordable);
+    });
+  }
+
+  it("an Address role a rule targets resolves to a real checkpoint page, not 'can never apply'", () => {
+    // The §8.2 rail's own decision function over the rail's own per-page sets.
+    const components = [S1_ADDRESS_COLLIDE, S1_ZIP_SIBLING];
+    const fields = sectionFieldsByPublicId([railSection(components)]).get("lgs_s1") ?? [];
+    const zipKey = recordableKeysOf(components).find((k) => k.endsWith("_zip"));
+    expect(zipKey, "the address renders a ZIP box").toBe("p8n_rr2m3_addr_zip");
+    const checkpoint = deriveRuleCheckpoint([zipKey as string], new Set<string>(), [
+      { id: 43, publicId: "lgf_s1", name: "Funnel A", pages: [{ position: 0, fields: new Set(fields) }] },
+    ]);
+    expect(checkpoint).toEqual({
+      plane: "in_funnel",
+      funnelId: 43,
+      funnelPublicId: "lgf_s1",
+      funnelName: "Funnel A",
+      pagePosition: 0,
+    });
+  });
+
+  // --- T1: the label guard, RE-FOUNDED ------------------------------------
+  //
+  // The S1 version of this row claimed "never a bare storage id" and could not
+  // see one. It drove S1_NAME_GROUP's ["given","family"] — the ONE pair whose
+  // RAW KEYS humanize into role-looking words ("Given"/"Family") — so the
+  // string-slice label passed on a string that only LOOKED like a role; its
+  // guard excluded exactly two hardcoded prefixes ("p8_addr_", "budget_"), so
+  // any key outside them was invisible; and it never drove S1_ADDRESS_COLLIDE
+  // even though the 6-shape universe above does. MEASURED leaks it passed over
+  // (npx tsx over quoteRailAnswerFields, api/, pre-fix):
+  //   NameFieldsGroup props.fields ["p8n_t1_nm_a","p8n_t1_nm_b"]
+  //     → "S · Your name — P8n t1 nm a" / "— P8n t1 nm b"
+  //   Address internal_field "addr" + props.maps.fills.zip "p8n_t1_postal"
+  //     → "S · Where do you live? — P8n t1 postal"
+  //   a producing question with no authored props.label
+  //     → "S · p8n_t1_plain"  (the raw key WAS the option text)
+  //
+  // Re-founded on three legs that a string-slice cannot satisfy:
+  //   (1) exact labels for keys that do NOT humanize into their role's word —
+  //       including the ["given","family"] pair, which must now read
+  //       "First"/"Last" (the ROLE), not "Given"/"Family" (the KEY);
+  //   (2) an all-opaque universe where NO key's humanization is any role word,
+  //       so "label must not carry the key, raw or humanized" is decidable for
+  //       every field with no hardcoded prefix list;
+  //   (3) the Studio's OWN island function, sliced out of the shipped
+  //       SECTION_STUDIO_SCRIPT and run in node:vm, as the oracle for the role
+  //       word — the two surfaces name the same field or this goes red.
+  //
+  // SCOPE (P8-6 ship review, finding 2): every NameFieldsGroup fixture below
+  // is a 2-field group (["p8n_t1_nm_a","p8n_t1_nm_b"], ["given","family"], or
+  // the no-props.fields default) — none is the 3+-field NameFieldsGroup
+  // finding 1 found collapsing into duplicate labels, and the two rows below
+  // only assert recordableKeysOf(...).length > 0 (some key renders), never
+  // rail-universe == rendered-keys the way the shapes loop above does. Both
+  // titles are qualified accordingly; not fixed here (tracked: ADJ-P8-54).
+  //
+  // SABOTAGE-PROVEN RED (executed, api/, npx vitest run
+  // test/leadgen-quotes-ui.test.ts). Restoring BOTH S1 behaviours — the
+  // string-slice body of derivedSubFieldLabel (`const tail = own !== "" &&
+  // field.startsWith(own+"_") ? field.slice(own.length+1) : field; return
+  // parent + " — " + leadgenControlLabel(tail);`) AND the raw-key label
+  // fallback (`questionLabelOf(leaf) ?? spec.field`) — "Tests  3 failed | 28
+  // passed (31)", all three of these rows and nothing else:
+  //   `Address (plain — the clean control): expected [ …(4) ] to deeply equal
+  //    [ …(4) ]`  (its "— Zip" against the Studio's "— ZIP")
+  //   `no rail label may carry the humanized storage key P8n t1 postal
+  //    (p8n_t1_postal): expected 'S · Where do you live? — P8n t1 postal' not
+  //    to contain 'P8n t1 postal'`
+  //   `the Studio says "ZIP" for p8n_t1_postal: expected 'P8n t1 postal' to be
+  //    "ZIP"`
+  // The raw-key fallback ALONE (leg 3 of the class sweep) is red on its own —
+  // "Tests  2 failed | 29 passed (31)": `a producing question with no authored
+  // label: expected [ 'S · p8n_t1_plain' ] to deeply equal [ 'S · Text' ]` and
+  // `no rail label may carry the storage key p8n_t1_plain (p8n_t1_plain)`.
+
+  // Opaque keys: nothing here humanizes into "First"/"Last"/"Street"/"ZIP"/…
+  const T1_NAME_OPAQUE = {
+    type: "NameFieldsGroup",
+    question_id: "q_t1_name",
+    props: { label: "Your name", fields: ["p8n_t1_nm_a", "p8n_t1_nm_b"] },
+  };
+  const T1_NAME_DEFAULT = {
+    type: "NameFieldsGroup",
+    question_id: "q_t1_name_d",
+    props: { label: "Your name" },
+  };
+  // The real Studio Maps tab authors this (ui-section-studio.ts:3202-3211): a
+  // fills.zip rename onto a key that is NOT `{base}_zip` and that no sibling
+  // claims, so the renderer KEEPS the rename and the box carries it.
+  const T1_ADDR_RENAME = {
+    type: "AddressAutocompleteQuestion",
+    question_id: "q_t1_addr",
+    internal_field: "p8n_t1_home",
+    props: { label: "Where do you live?", maps: { enabled: true, fills: { zip: "p8n_t1_postal" } } },
+  };
+  const T1_UNLABELLED = {
+    type: "FreeTextQuestion",
+    question_id: "q_t1_raw",
+    internal_field: "p8n_t1_plain",
+    props: {},
+  };
+  const T1_SLIDER_OPAQUE = {
+    type: "NumberRangeQuestion",
+    question_id: "q_t1_band",
+    internal_field: "p8n_t1_band",
+    props: { label: "Percent band", slider_type: "dual_range", min: 0, max: 100 },
+  };
+
+  it("a derived sub-field reads its ROLE's word, for every 2-field NameFieldsGroup/Address/Slider shape here (no 3+-field NameFieldsGroup — ADJ-P8-54)", () => {
+    const rows: Array<[string, unknown[], string[]]> = [
+      [
+        "Address (plain — the clean control)",
+        [S1_ADDRESS_PLAIN],
+        [
+          "S · Where do you live? — Street",
+          "S · Where do you live? — City",
+          "S · Where do you live? — State",
+          "S · Where do you live? — ZIP",
+        ],
+      ],
+      [
+        "Address (fills.zip RENAMES the rendered box)",
+        [T1_ADDR_RENAME],
+        [
+          "S · Where do you live? — Street",
+          "S · Where do you live? — City",
+          "S · Where do you live? — State",
+          "S · Where do you live? — ZIP",
+        ],
+      ],
+      [
+        "Address (fills.zip collides with a sibling ⇒ rename declined)",
+        [S1_ADDRESS_COLLIDE, S1_ZIP_SIBLING],
+        [
+          "S · Property address — Street",
+          "S · Property address — City",
+          "S · Property address — State",
+          "S · Property address — ZIP",
+          "S · ZIP",
+        ],
+      ],
+      [
+        "NameFieldsGroup (opaque part keys)",
+        [T1_NAME_OPAQUE],
+        ["S · Your name — First", "S · Your name — Last"],
+      ],
+      [
+        // The key looks like a role and is NOT one: the role is the SLOT
+        // (props.fields[0]/[1]), which is why "given" reads "First".
+        "NameFieldsGroup (role-looking keys given/family)",
+        [S1_NAME_GROUP],
+        ["S · Your name — First", "S · Your name — Last"],
+      ],
+      [
+        // Finding 3: the PRODUCT default is ["first","last"] (answers.ts:329),
+        // not given/family — measured here, not asserted from a comment.
+        "NameFieldsGroup (no props.fields ⇒ the product default)",
+        [T1_NAME_DEFAULT],
+        ["S · Your name — First", "S · Your name — Last"],
+      ],
+      [
+        "Slider (dual_range)",
+        [T1_SLIDER_OPAQUE],
+        ["S · Percent band — Min", "S · Percent band — Max"],
+      ],
+      [
+        // NOT a derived sub-field, and DELIBERATELY still its raw key (owner
+        // ruling, T1): with no authored words the id is the only thing telling
+        // two same-type questions apart while this rail has no " (2)"
+        // de-collision. Asserted at its ruled value so the exception is
+        // visible, never hidden by dropping the fixture.
+        "a producing question with no authored label (RULED: keeps its id)",
+        [T1_UNLABELLED],
+        ["S · p8n_t1_plain"],
+      ],
+    ];
+    for (const [name, components, expected] of rows) {
+      // the shape must actually RENDER inputs, or the row proves nothing
+      expect(recordableKeysOf(components).length, `${name} renders at least one answer input`).toBeGreaterThan(0);
+      expect(
+        quoteRailAnswerFields([railSection(components)]).map((f) => f.label),
+        name,
+      ).toEqual(expected);
+    }
+  });
+
+  // T1 CARVE-OUT — the ONE field this universe exempts, named so it cannot be
+  // exempted by accident. A question with NO authored props.label is not a
+  // derived sub-field: it has no owning question's words to borrow and no role,
+  // so the rail prints its id. That is an owner RULING, not a leak — its
+  // PRECONDITION is that this rail has no " (2)" de-collision (the Studio's
+  // sectionFieldLabels has one; driven, its picker reads "Address — ZIP (2)"
+  // for a second address in one section while the rail shows no suffix), so
+  // the id is the only thing telling two label-less same-type questions apart.
+  // DELETE THIS CARVE-OUT when that numbering lands — the assertion below is
+  // red in BOTH directions, so the day the fallback stops printing the id this
+  // test fails and forces the deletion rather than silently over-exempting.
+  const T1_ID_FALLBACK_FIELD = "p8n_t1_plain";
+
+  it("no DERIVED sub-field label carries a storage key — raw or humanized — over an all-opaque universe of ≤2-field shapes (checks the keys recordableKeysOf finds, not rail-universe == rendered — ADJ-P8-54)", () => {
+    const components = [T1_ADDR_RENAME, T1_NAME_OPAQUE, T1_SLIDER_OPAQUE, T1_UNLABELLED];
+    // REAL keys off the REAL markup (same extraction as the universe rows).
+    const keys = recordableKeysOf(components);
+    expect(keys.length, "the opaque universe renders inputs").toBeGreaterThan(0);
+    const rail = quoteRailAnswerFields([railSection(components)]);
+    for (const f of rail) {
+      if (f.internal_field === T1_ID_FALLBACK_FIELD) continue; // the named carve-out
+      for (const key of keys) {
+        // leadgenControlLabel(key) IS content-schema humanizeId for any key
+        // with no curated operator word — i.e. EXACTLY the string the old
+        // slice printed. Every key here is opaque, so no role word can
+        // collide with one and this needs no prefix allowlist.
+        expect(f.label, `no rail label may carry the storage key ${key} (${f.internal_field})`).not.toContain(key);
+        expect(
+          f.label,
+          `no rail label may carry the humanized storage key ${leadgenControlLabel(key)} (${f.internal_field})`,
+        ).not.toContain(leadgenControlLabel(key));
+      }
+    }
+    // The carve-out, falsifiable the OTHER way: it must still be NEEDED. If the
+    // label-less fallback ever stops printing the id, this goes red and the
+    // exemption above has to be deleted with it.
+    expect(
+      rail.find((f) => f.internal_field === T1_ID_FALLBACK_FIELD)?.label,
+      "the carve-out is still needed — the label-less field still falls back to its id",
+    ).toBe("S · p8n_t1_plain");
+  });
+
+  it("the rail's role word IS the Studio's role word for the same field", () => {
+    // The oracle is the SHIPPED island source, sliced (never re-typed) out of
+    // SECTION_STUDIO_SCRIPT and run in node:vm — the same technique the studio
+    // behavior tests use. The rail cannot call it for real (it is browser ES5
+    // reading client `state.content`; a server-side rail builder depending on
+    // the studio's runtime would invert the layer), so this test is the seam
+    // that keeps the two surfaces saying one thing.
+    const roleOf = (s: string): string | null => {
+      const i = s.lastIndexOf(" — ");
+      return i < 0 ? null : s.slice(i + 3);
+    };
+    // One shape per section: the Studio de-collides two same-worded questions
+    // with its own " (2)" suffix (sectionFieldLabels' counts/seen pass) and the
+    // rail has no such numbering, so mixing two Name groups into one section
+    // would compare the numbering, not the role.
+    let compared = 0;
+    for (const components of [[T1_ADDR_RENAME], [T1_NAME_OPAQUE], [S1_NAME_GROUP], [S1_ADDRESS_PLAIN]]) {
+      const rail = quoteRailAnswerFields([railSection(components)]);
+      const studio = studioSectionFieldLabels(
+        components,
+        rail.map((f) => f.internal_field),
+      );
+      for (const f of rail) {
+        const theirs = roleOf(studio[f.internal_field] ?? "");
+        // The Studio has no role vocabulary for a slider's _min/_max (no branch
+        // in sectionFieldLabels), so only the shapes it DOES speak are compared.
+        if (theirs === null) continue;
+        compared += 1;
+        expect(roleOf(f.label), `the Studio says "${theirs}" for ${f.internal_field}`).toBe(theirs);
+      }
+    }
+    expect(compared, "the Studio structurally labelled the address + name sub-fields").toBe(12);
+  });
+});

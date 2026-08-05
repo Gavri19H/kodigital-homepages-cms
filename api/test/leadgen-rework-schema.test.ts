@@ -20,10 +20,11 @@ import {
   LEADGEN_PHONE_MASK_ERROR,
   LEADGEN_SLIDER_TYPES,
   LEADGEN_SELECTED_MARKERS,
-  LEADGEN_ADDRESS_FIELD_KINDS,
   type LeadgenComponentNode,
 } from "../src/public/leadgen/components/content-schema";
 import { toPublicComponent, expandPublicComponents } from "../src/public/leadgen/config-dto";
+import { renderSectionComponents } from "../src/public/leadgen/components/presets";
+import { defaultFunnelDesign } from "../src/public/leadgen/designs/default-funnel/tokens";
 import { COMPONENT_CATALOG, COMPONENT_CAPABILITIES } from "../src/public/leadgen/components/registry";
 import { normalizeAnswers } from "../src/leadgen/answers";
 import { validateValue } from "../src/public/leadgen/runtime/validation";
@@ -155,7 +156,11 @@ describe("§6.4 choice-group defaults", () => {
 
   it("rejects a default on a multi-select (MultiChoiceCardGroup has no default in v1)", () => {
     const multi = { type: "MultiChoiceCardGroup", question_id: "q", internal_field: "m", choices: [{ label: "A", value: "a", analytics_id: "a" }], props: { defaultValue: "a" } };
-    expect(errAt(section([multi]), "invalid_field_prop", "defaultValue")?.message).toContain("multi-select");
+    // Re-minted for M5 (contract §6/§4 R5): "multi-select" jargon rewritten to
+    // operator copy — pin the new message, not the old wording.
+    expect(errAt(section([multi]), "invalid_field_prop", "defaultValue")?.message).toContain(
+      "Multi-select cards have no single default answer",
+    );
   });
 });
 
@@ -181,7 +186,10 @@ describe("§6.5 authored Other values", () => {
 
   it("rejects an Other value that duplicates a base choice value (unique vs base)", () => {
     const other = { choices: [{ label: "Dup", value: "a", analytics_id: "dup" }] };
-    expect(errAt(withOther(other), "invalid_choice", "other.choices[0].value")?.message).toContain("duplicates a base");
+    // Re-minted for M5: "duplicates a base" rewritten to operator copy.
+    expect(errAt(withOther(other), "invalid_choice", "other.choices[0].value")?.message).toContain(
+      "already one of this question's answers",
+    );
   });
 
   it("rejects more than 50 Other values", () => {
@@ -205,17 +213,25 @@ describe("§6.6 selected marker", () => {
     for (const m of LEADGEN_SELECTED_MARKERS) {
       expect(okOf(section([buttons({ props: { selected_marker: m } })])), m).toBe(true);
     }
-    expect(errAt(section([buttons({ props: { selected_marker: "glow" } })]), "invalid_field_prop", "selected_marker")?.message).toContain("wash|mark");
+    // Re-minted for M5: "wash|mark" rewritten to "wash or mark" operator copy.
+    expect(errAt(section([buttons({ props: { selected_marker: "glow" } })]), "invalid_field_prop", "selected_marker")?.message).toContain(
+      "must be one of: wash or mark",
+    );
     // A text input has no selected-marker control (matrix) → reject.
     const text = { type: "FreeTextQuestion", question_id: "q", internal_field: "t", props: { selected_marker: "mark" } };
-    expect(errAt(section([text]), "invalid_field_prop", "selected_marker")?.message).toContain("only valid");
+    expect(errAt(section([text]), "invalid_field_prop", "selected_marker")?.message).toContain(
+      "has no selected-state style",
+    );
   });
 
   it("accepts a per-CHOICE marker in choice.style; rejects a bad value", () => {
     const good = buttons({ choices: [{ label: "A", value: "a", analytics_id: "a", style: { selected_marker: "mark" } }, { label: "B", value: "b", analytics_id: "b" }] });
     expect(okOf(section([good]))).toBe(true);
     const bad = buttons({ choices: [{ label: "A", value: "a", analytics_id: "a", style: { selected_marker: "bogus" } }, { label: "B", value: "b", analytics_id: "b" }] });
-    expect(errAt(section([bad]), "invalid_choice_style", "selected_marker")?.message).toContain("wash|mark");
+    // Re-minted for M5: "wash|mark" rewritten to "wash or mark" operator copy.
+    expect(errAt(section([bad]), "invalid_choice_style", "selected_marker")?.message).toContain(
+      "must be one of: wash or mark",
+    );
   });
 });
 
@@ -232,9 +248,20 @@ describe("§6.8 slider types", () => {
   });
 
   it("rejects an unknown slider_type and rejects slider_type on a non-slider type", () => {
-    expect(errAt(section([slider({ slider_type: "wheel" })]), "invalid_field_prop", "slider_type")?.message).toContain("single|dual_range");
+    // P8-6 Q8 re-pin. WAS: .toContain("single, dual_range, stepper, from_to or
+    // radial") — the raw stored ids, which the M5 rewrite replaced with the
+    // slider-type picker's OWN card labels. STRONGER now: the entire sentence
+    // (labels, "or" joiner and the "Pick one of those." tail) is pinned rather
+    // than one substring of it, plus a ban on the underscored raw id.
+    const badSlider = errAt(section([slider({ slider_type: "wheel" })]), "invalid_field_prop", "slider_type");
+    expect(badSlider?.message).toBe(
+      "'Slider type' must be one of: Single, Dual range, Stepper, From / To or Radial. Pick one of those.",
+    );
+    expect(badSlider?.message).not.toContain("dual_range");
     const notSlider = { type: "FreeTextQuestion", question_id: "q", internal_field: "t", props: { slider_type: "single" } };
-    expect(errAt(section([notSlider]), "invalid_field_prop", "slider_type")?.message).toContain("only valid on a Slider");
+    expect(errAt(section([notSlider]), "invalid_field_prop", "slider_type")?.message).toContain(
+      "only available on a Slider",
+    );
   });
 
   it("stepper REQUIRES a numeric step", () => {
@@ -408,12 +435,23 @@ describe("M9 address field set", () => {
 
   it("full_address may only appear ALONE", () => {
     expect(okOf(section([addr([{ field: "full_address", mode: "manual", validation: "none" }])]))).toBe(true);
-    expect(errAt(section([addr([{ field: "full_address", mode: "manual" }, { field: "zip", mode: "manual" }])]), "invalid_field_prop")?.message).toContain("full_address");
+    // Re-minted for M5: "full_address" rewritten to the operator's own field
+    // name ("Address") — pin the new wording, same "can't be combined" claim.
+    expect(errAt(section([addr([{ field: "full_address", mode: "manual" }, { field: "zip", mode: "manual" }])]), "invalid_field_prop")?.message).toContain(
+      "is the whole address, so it can't sit beside street, city, state or ZIP",
+    );
   });
 
   it("requires ≥1 field and a valid field kind / mode / validation", () => {
-    expect(errAt(section([addr([])]), "invalid_field_prop")?.message).toContain("non-empty");
-    expect(errAt(section([addr([{ field: "county", mode: "manual" }])]), "invalid_field_prop", "[0].field")?.message).toContain(LEADGEN_ADDRESS_FIELD_KINDS.join("|"));
+    // Re-minted for M5: "non-empty" rewritten to plain operator copy.
+    expect(errAt(section([addr([])]), "invalid_field_prop")?.message).toContain("needs at least one field");
+    // Re-minted for M5 (cascading discovery — this assertion never ran in the
+    // pre-fix baseline because the PRIOR expect on this line threw first): the
+    // field-kind enum now prints the operator's own field labels, not the raw
+    // LEADGEN_ADDRESS_FIELD_KINDS tokens joined by "|".
+    expect(errAt(section([addr([{ field: "county", mode: "manual" }])]), "invalid_field_prop", "[0].field")?.message).toContain(
+      "Street address, City, State, ZIP code or Address",
+    );
     expect(errAt(section([addr([{ field: "zip", mode: "sometimes" }])]), "invalid_field_prop", "[0].mode")).toBeDefined();
     expect(errAt(section([addr([{ field: "zip", mode: "manual", validation: "phone" }])]), "invalid_field_prop", "[0].validation")).toBeDefined();
   });
@@ -455,5 +493,106 @@ describe("§6 seam — legacy tolerance + fail-safe on unknown types", () => {
       const projected = expandPublicComponents(node);
       expect(Array.isArray(projected), type).toBe(true);
     }
+  });
+});
+
+// ===========================================================================
+// R2 P8-6 Q3 — the field universe names the key the MARKUP actually carries
+// ===========================================================================
+// The renderer DECLINES a props.maps.fills.<slot> rename whose target another
+// question in the same section already answers (presets.ts
+// m9AddressRenderedFieldName): the address's ZIP box keeps `{base}_zip` so two
+// boxes can never post the same key. collectKnownAnswerFields did not know
+// that, so the rules rail's answer_fields blob listed the fill target and NOT
+// `addr_zip` — the key every visitor's ZIP box actually posts. A rule forced
+// onto the real key stored checkpoint_page: null and the rail warned "This rule
+// can never apply", about a field every visitor answers.
+//
+// The expectation side is the REAL markup: the [data-lg-field] keys
+// renderSectionComponents stamps on the address's own boxes (E11 — never a
+// hand-built expectation facing a hand-built input). BOTH directions are
+// pinned, because naming both candidate names instead would charge the address
+// a phantom key — the P8-5 payload-builder defect.
+describe("R2 P8-6 Q3 — collectKnownAnswerFields == the Address keys the markup carries", () => {
+  const ADDR: Node = {
+    type: "AddressAutocompleteQuestion",
+    question_id: "q_addr",
+    internal_field: "addr",
+    props: { maps: { enabled: true, fills: { zip: "postal_code_x" } } },
+  };
+  // A sibling that ANSWERS `postal_code_x` (so the renderer declines the
+  // rename) while contributing that bare name to the universe from NOWHERE
+  // else: a dual_range slider's own base is deliberately excluded from the
+  // universe (the §6.8 parity pinned above — only {base}_min/{base}_max). So
+  // `postal_code_x` showing up in the universe can ONLY be the address
+  // over-claiming it, which is exactly the phantom a both-names hedge creates.
+  const ZIP_SIBLING: Node = {
+    type: "NumberRangeQuestion",
+    question_id: "q_pcx",
+    internal_field: "postal_code_x",
+    answer_type: "object",
+    props: { min: 0, max: 100, slider_type: "dual_range" },
+  };
+
+  // The keys the REAL markup stamps on the ADDRESS's own subfield boxes
+  // (renderAddressFieldSet's [data-lg-field] wrappers), in render order.
+  const addressBoxKeys = (nodes: Node[]): string[] =>
+    [
+      ...renderSectionComponents(
+        nodes as unknown as LeadgenComponentNode[],
+        defaultFunnelDesign,
+      ).matchAll(/<span class="lg-address-field-wrap"[^>]*data-lg-field="([^"]+)"/g),
+    ].map((m) => m[1] ?? "");
+
+  it("WITHOUT a colliding sibling the LEGAL rename is the known key (and {base}_zip is not invented)", () => {
+    const rendered = addressBoxKeys([ADDR]);
+    expect(rendered).toContain("postal_code_x"); // renderer honored the rename
+    expect(rendered).not.toContain("addr_zip");
+    const universe = collectKnownAnswerFields([ADDR]);
+    expect(rendered.filter((k) => !universe.has(k))).toEqual([]);
+    expect(universe.has("addr_zip")).toBe(false);
+  });
+
+  it("WITH a colliding sibling the RENDERED {base}_zip is a known field", () => {
+    const rendered = addressBoxKeys([ADDR, ZIP_SIBLING]);
+    expect(rendered).toContain("addr_zip"); // renderer declined the rename
+    expect(rendered).not.toContain("postal_code_x");
+    const universe = collectKnownAnswerFields([ADDR, ZIP_SIBLING]);
+    expect(rendered.filter((k) => !universe.has(k))).toEqual([]);
+  });
+
+  it("WITH a colliding sibling the fill target is NOT ALSO charged to the address (no phantom key)", () => {
+    const universe = collectKnownAnswerFields([ADDR, ZIP_SIBLING]);
+    expect(universe.has("postal_code_x")).toBe(false);
+    expect([...universe].filter((k) => k.startsWith("addr_")).sort()).toEqual([
+      "addr_city",
+      "addr_state",
+      "addr_street",
+      "addr_zip",
+    ]);
+  });
+
+  it("SWEEP: the grid's inner dependency gate resolves a child Address against the WHOLE section", () => {
+    // validateQuestionGridDependencies enumerates each child's OWN fields. With
+    // no section around that child, the address was credited with the fill
+    // target, so a group sibling's rule on the key the box REALLY carries was
+    // rejected as "not another question in this group" — the same class, at the
+    // save gate.
+    const content = {
+      components: [
+        {
+          type: "QuestionGrid",
+          question_id: "qg",
+          props: { gap: "m" },
+          children: [
+            ADDR,
+            ZIP_SIBLING,
+            { ...buttons(), question_id: "q_dep", internal_field: "dep", conditional: { when: "addr_zip", op: "eq", value: "12345" } },
+          ],
+        },
+        { type: "ContinueButton", question_id: "q_continue", props: { label: "Continue" } },
+      ],
+    };
+    expect(validateSectionContent(content).errors.map((e) => `${e.code} ${e.path}`)).toEqual([]);
   });
 });

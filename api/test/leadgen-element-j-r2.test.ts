@@ -95,7 +95,16 @@ describe("R2 P3 element J — TPLBOX_CARDS stays a single footer entry (contract
   // the footer element "J" and calls it a "seperate template element"; A.1
   // item 11.D names the progress bar "I". Both owner letters hold, the footer
   // is LAST, and A–F keep the letters the owner's other references use.
-  it("the footer tile is lettered J, sits LAST, and neither A–F nor I·Progress moved", () => {
+  //
+  // R2 P8 FIX ROUND F1 re-pins this sequence, at the SAME strictness (still an
+  // exact ordered toEqual over every rendered tile, no assertion removed), for
+  // §7 N9: "Element letters skip G … the owner noticed". Nine tiles cannot fill
+  // ten letters, and the owner's two pins (Progress I, Footer J) fix the last
+  // two, so exactly one letter is necessarily vacant. It used to be G, i.e. a
+  // hole inside the contiguous block; Images moves H -> G so the run is
+  // contiguous to G and the vacancy is forced to H by the owner's own pins —
+  // the only vacancy that moves no letter the owner named.
+  it("the footer tile is lettered J, sits LAST, the run is contiguous to G, and neither A–F nor I·Progress moved", () => {
     const panel = renderTemplatesTabPanel(true, []);
     const tiles = [...panel.matchAll(/lg-tplbox-card-letter">([A-Z])<\/span>\s*<span>([^<]+)</g)].map(
       (m) => `${m[1]}:${m[2]}`,
@@ -107,13 +116,19 @@ describe("R2 P3 element J — TPLBOX_CARDS stays a single footer entry (contract
       "D:Disclosure",
       "E:Free text",
       "F:Brand logos",
-      "H:Images",
+      "G:Images",
       "I:Progress",
       "J:Footer",
     ]);
-    // the footer's own editor heading agrees with its tile letter
+    // …and the vacancy is H, exactly one letter, between the contiguous block
+    // and the owner's two pinned letters.
+    expect(tiles.map((t) => t.split(":")[0])).not.toContain("H");
+    // the footer's own editor heading agrees with its tile letter, and so does
+    // the tile whose letter moved
     expect(panel).toContain("<h3>J &middot; Footer</h3>");
     expect(panel).not.toContain("<h3>G &middot; Footer</h3>");
+    expect(panel).toContain("<h3>G &middot; Images</h3>");
+    expect(panel).not.toContain("<h3>H &middot; Images</h3>");
     // A.2's "seperate template element" is separate ON THE SCREEN too: its own
     // group, below the in-page elements.
     expect(panel).toContain('id="lg-tplbox-grid-separate"');
@@ -145,8 +160,16 @@ describe("R2 P3 element J — anatomy: rich-text toolbar + heading/list types + 
     expect(panel).toContain('data-footer-block-items');
   });
 
-  it("about_paragraph is relabeled to name the owner's company-details example, same enum value", () => {
-    expect(panel).toContain("About paragraph / company details");
+  // R2 P8 FIX ROUND F1 (§7 N17) re-pins this label, at the SAME strictness (the
+  // same toContain over the same rendered panel, plus a NEW assertion the old
+  // pin did not make): the label literally read "About paragraph / company
+  // details" — two names for ONE control, which is the defect N17 names. It is
+  // now the single name the owner used, and the enum VALUE is unchanged, so
+  // nothing stored moves.
+  it("about_paragraph is offered under ONE name — the owner's company-details wording, same enum value", () => {
+    expect(panel).toContain('<option value="about_paragraph">Company details</option>');
+    expect(panel).not.toContain("About paragraph / company details");
+    expect(FRAME_FOOTER_BLOCK_TYPES).toContain("about_paragraph");
   });
 
   it("an independent font-family control exists, distinct from the main template, offering the closed theme font vocabulary", () => {
@@ -487,7 +510,9 @@ describe("R2 P7 — the publish chip STATES its blocking reasons next to the cou
     expect(reasons[0]?.text).toBe(
       "Section: ZIP · Offer: NextInsure · Missing required provider fields: current_insurance.carrier",
     );
-    expect(renderPublishBadge(withBlock)).toContain("Review slide");
+    // P8-4 (contract M9 item 2): the fix link used to read "Review slide" —
+    // this product has no slides. Same assertion, same surface, new wording.
+    expect(renderPublishBadge(withBlock)).toContain("Edit Section");
   });
 
   it("the ES5 island mirrors the SSR structure (so a live re-render cannot strand stale reasons)", () => {
@@ -598,7 +623,10 @@ describe("R2 P7 FIX-FIRST — every blocking reason points at the control that c
     expect((html.match(/data-publish-fix-sel=/g) ?? []).length).toBe(AUDIT.length - 1);
   });
 
-  it("a genuine cross-screen fix keeps its link (Review slide / Open site settings)", () => {
+  // P8-4 (contract M9 item 2): "Review slide" named a concept this product does
+  // not have; the link now reads "Edit Section". Same link, same href, same
+  // strictness — only the operator-facing word changed.
+  it("a genuine cross-screen fix keeps its link (Edit Section / Open site settings)", () => {
     const html =
       renderPublishBadge(
         pf([
@@ -607,7 +635,8 @@ describe("R2 P7 FIX-FIRST — every blocking reason points at the control that c
         ]),
       ) ?? "";
     expect(html).toContain('href="/admin/leadgen/sections/lgs_1/edit"');
-    expect(html).toContain(">Review slide<");
+    expect(html).toContain(">Edit Section<");
+    expect(html).not.toContain(">Review slide<");
     expect(html).toContain(">Open site settings<");
   });
 

@@ -94,6 +94,7 @@ import {
   vocabularyOf,
   type DeclaredField as HelperDeclaredField,
   type DiffCoord,
+  type PaintedEl,
 } from "./helpers/leadgen-visible-paint";
 
 import { ROLE_META } from "../src/admin/leadgen/quotes-tabs/shared";
@@ -778,11 +779,14 @@ describe("R2 F-2 dead-control guard — the guard itself fails on a NEW dead con
 //
 // IT IS NOT A BROWSER. It measures no box, so it cannot see layout collapse,
 // a 0px-wide panel, overflow clipping or stacking order; it treats every
-// pseudo (`:hover`, `:focus-visible`, `::after`, …) as non-matching, so a key
-// alive ONLY in a hover state or a generated box reads dead here; it sees only
-// server-rendered output, never the runtime island. The live-browser half of
-// every claim here is the conductor's driven re-measurement (E6/E10), not this
-// lane.
+// pseudo-CLASS (`:hover`, `:focus-visible`, `:has()`, …) as non-matching, so a
+// key alive ONLY in a hover state reads dead here; it sees only server-rendered
+// output, never the runtime island. GENERATED CONTENT is NOT excluded — a
+// `::before`/`::after` box is painted at rest and a reviewer photographed one
+// (R2 P8-4 F-8) — so each visible element carries its resolved pseudo-ELEMENT
+// layers too, with the STATE pseudo-elements (`::selection`, …) excluded by
+// name. The live-browser half of every claim here is the conductor's driven
+// re-measurement (E6/E10), not this lane.
 // ---------------------------------------------------------------------------
 
 const THEME_FILE = path.join(SRC, "theme.ts");
@@ -966,7 +970,12 @@ function frameConfigKeys(): { keys: KeySpec[]; arrays: string[]; singles: string
         }
         continue;
       }
-      const values = vocabularyFor(field, group.typeText, true);
+      // A DECLARED probe-values override (FRAME_PROBE_CONTEXT `values`, with its
+      // written reason) wins over the generic vocabulary — for keys whose
+      // generic pair cannot put the key in use at all. This function runs after
+      // that table is initialised (see its call site below).
+      const declared = FRAME_PROBE_CONTEXT.find((c) => c.key === dotted)?.values;
+      const values = declared ?? vocabularyFor(field, group.typeText, true);
       if (values.length < 2) {
         singles.push(dotted);
         continue;
@@ -1142,12 +1151,62 @@ const FOOTER_LINK_ROW_BLOCKS = {
   },
 };
 
-const FRAME_PROBE_CONTEXT: ReadonlyArray<{ key: string; patch: Record<string, unknown>; reason: string }> = [
+// `values` (R2 P8 F1) is the second half of the SAME idea: a probe context can
+// also declare WHICH two values put the key in use, for a key whose generic
+// vocabulary cannot. It is never a shortcut to a green — the key must still
+// move the visible fingerprint between the two values named here, and the
+// reason must say why the generic pair could not have measured anything.
+//
+// `omit` (R2 P8-4 F-8) is the third: LOGO_PROBE_OMITS, verbatim, for the frame
+// base — "a prop that is only reachable when a SIBLING prop is absent needs
+// that sibling omitted from its probe base". FRAME_PROBE_BASE pins every group
+// ON so no key can be dead merely for being switched off; for two keys that
+// pinning is itself what makes the key unmeasurable, and the omission is
+// declared here with the measurement that proves it. It is NOT an exemption:
+// the key still has to move the visible fingerprint, and it does.
+const FRAME_PROBE_CONTEXT: ReadonlyArray<{
+  key: string;
+  patch?: Record<string, unknown>;
+  /** Dotted paths deleted from FRAME_PROBE_BASE before this key is probed. */
+  omit?: readonly string[];
+  reason: string;
+  values?: readonly unknown[];
+}> = [
+  {
+    key: "template",
+    omit: [
+      "header",
+      "progress",
+      "back",
+      "disclosure",
+      "footer",
+      "trust_strip",
+      "benefit_bar",
+      "background",
+      "section_slot",
+      "mobile",
+    ],
+    reason:
+      "`template` IS the group-DEFAULTS selector: effectiveFrame(template, patch) takes each group from the template and lets the patch override it. FRAME_PROBE_BASE pins every one of those groups, so two different templates resolve to configs that differ in the id string and nothing else — measured: all five sibling templates fingerprint-IDENTICAL to `centered` under the pinned base, 0 coordinates each. That is a property of the probe, not of the key. Omitting the pinned groups leaves `compat.allow_section_chrome` (not a template default) and measures the flip the operator actually performs on a funnel whose groups they have not overridden: measured centered -> header-footer = 42 visible coordinates, including a `.lg-secure-badge` element that appears. The omit list is asserted below to cover every EffectiveFrameConfig group, so a group added later cannot slip out of the template's reach unnoticed.",
+  },
+  {
+    key: "trust_strip.mobile",
+    omit: ["mobile.trust_strip_mobile"],
+    reason:
+      "A SIBLING control that out-ranks it in the cascade, the same precedence shape as LOGO_PROBE_OMITS' media_id-over-url. This key emits `.lg-frame-trust--{wrap|scroll}` (frame.ts:600) and its only rule is `.lg-frame-trust--scroll .lg-logo-strip` (specificity 0,2,0) inside the sole @media block; styles.ts ALSO ships `.lg-frame--m-trust-{wrap|scroll} .lg-frame-trust .lg-logo-strip` (0,3,0, later in source), emitted by frame.ts:252 whenever mobile.trust_strip_mobile is set — which FRAME_PROBE_BASE pins. Measured with the sibling pinned: 0 coordinates; with it omitted (the state of any funnel whose operator has not opened the Mobile panel): 4 coordinates — @mobile .lg-logo-strip flex-wrap wrap->nowrap, overflow-x visible->auto, justify-content center->flex-start. The SHADOWING is a real defect in a file this slice does not own and is REPORTED as one, not exempted here: two offered controls for one surface, the Mobile one silently winning.",
+  },
   {
     key: "progress.icon",
     patch: { progress: { style: "icon_on_track" } },
     reason:
       "frame.ts:485 reads progress.icon ONLY under style==='icon_on_track'; on any other style there is no mark to move. The probe selects that style, exactly as the operator must.",
+  },
+  {
+    key: "progress.icon_media_id",
+    patch: { progress: { style: "icon_on_track", icon: "custom" } },
+    values: [null, "probe-progress-mark"],
+    reason:
+      "The operator's OWN image for the icon_on_track mark (M1/R7 — 'how do I define it????'), read by frame.ts only when the chosen mark IS 'custom', which is why the patch selects both. The GENERIC free-text pair could not measure it: PROBE_TEXTS are 'Probe alpha'/'Probe beta', and a media ref containing a space fails the CSS-url safety gate frame.ts puts every mark URL through, so BOTH values would fall back to the same plain dot. The declared pair is therefore the flip the operator actually performs — no image chosen vs a real media key — and what moves is what moves for every other mark id: the region's own mark class (…--icon-dot vs …--icon-custom), which is the class the painting rule selects on. The mark itself is a generated box, outside this predicate's frame by declaration (see the limitations banner); the driven re-measurement is the conductor's.",
   },
   {
     key: "footer.link_underline",
@@ -1212,9 +1271,41 @@ const ADMIN_UI_SOURCES: ReadonlyArray<{ file: string; text: string }> = adminUiF
   text: readFileSync(file, "utf8"),
 }));
 
+// R2 P8-4 FIX ROUND F12 — offeredIn was blind to a control authored
+// single-quoted. The double-quote-only scan matched every EMISSION SHAPE
+// pinned below (all of them TS template-literal HTML: `data-frame-key="${…}"`,
+// `frameSelect("Logo size", "header.logo_size", …)`, shared.ts/templates.ts's
+// own idiom) — but that is not the ONLY quoting idiom this admin plane uses.
+// quotes-tabs/funnel.ts is a DIFFERENT surface (an ES5 inline <script>, the
+// repo's own inline-script convention) and single-quotes its key literals:
+// `writeConfigValue('header.logo_source', …)` (:2035), and the
+// `NOT_NULLABLE_TEXT_KEYS` / `LIST_FIELDS` lookup tables (:2016, :2039) whose
+// OWN existence proves a `data-frame-key` bound to those paths is read at
+// runtime (`controlValueOf` is called from exactly one call site, gated on
+// `el.getAttribute('data-frame-key')`, so a single-quoted-key entry in that
+// table is dead weight unless some element really carries that key). A key
+// authored ONLY this way — including one carrying a `notOffered` exemption —
+// was invisible to the old scan: MEASURED, a fresh-context reviewer proved the
+// live consequence by adding a `data-frame-key='section_slot.padding'` control
+// to the real B · Logo inspector — it rendered, saved, served, and painted
+// nothing, while this file's `section_slot.padding` exemption and its 63/0
+// guard stayed green throughout.
+//
+// Backticks were checked and are DELIBERATELY not matched: every bare,
+// non-`${`-interpolated, dotted backtick string under src/admin/leadgen (37
+// occurrences, measured) sits inside a `//` comment — prose naming a key for a
+// human reader, e.g. `` `header.logo_media_id` `` — never a real string-literal
+// argument. Matching backticks would turn a comment's MENTION of a key into a
+// false "offered".
+function offeredInSources(keyPath: string, sources: ReadonlyArray<{ file: string; text: string }>): string[] {
+  return sources
+    .filter((s) => s.text.includes(`"${keyPath}"`) || s.text.includes(`'${keyPath}'`))
+    .map((s) => path.basename(s.file));
+}
+
 /** Every admin UI module that renders a control writing this authoring path. */
 function offeredIn(keyPath: string): string[] {
-  return ADMIN_UI_SOURCES.filter((s) => s.text.includes(`"${keyPath}"`)).map((s) => path.basename(s.file));
+  return offeredInSources(keyPath, ADMIN_UI_SOURCES);
 }
 
 // ---------------------------------------------------------------------------
@@ -1264,6 +1355,33 @@ const SWEEP_EXEMPTIONS: readonly Exemption[] = [
     notOffered: true,
     reason:
       "NEITHER painted NOR offered: a repo-wide search finds no reader outside designs/frames.ts (its own default + validator) and no admin control writes it. It is a stored field with no consumer, which satisfies R3 only because it is absent from the UI. What would prove it otherwise: any renderer or handler reading frame.section_slot.allow_section_card — the moment one exists this exemption must be deleted and the key must paint.",
+  },
+  // R2 P8-4 FIX ROUND F9 — the two keys F8 wrote product CSS for, on the wrong
+  // premise that §4 R3 required them honoured. R3's rule has TWO branches
+  // ("…governs a measurable painted value on a visible element, OR is removed
+  // from the UI"), and MEASURED these two are on the second branch: the whole
+  // admin plane offers ZERO section_slot controls. F8's rules are reverted in
+  // designs/default-funnel/styles.ts; the transition one also shipped a 300ms
+  // fade to every framed page (baseFrameDefaults.transition:"fade") that no
+  // operator could switch off.
+  //
+  // R2 P8-4 FIX ROUND F10 — the claim above is re-measured on every run by the
+  // `notOffered` loop in "every exemption carries a written reason…" below,
+  // through `offeredIn`, which resolves a control in EVERY shape the panels
+  // emit (helper call or literal `data-frame-key` attribute). F9's own safety
+  // net scanned for the literal attribute only and was blind to 24 of the 25
+  // offered frame keys — see the measured breakdown at that assertion.
+  {
+    key: "section_slot.padding",
+    notOffered: true,
+    reason:
+      "NOT OFFERED, so R3's second branch applies: `grep -rn '\"section_slot' src/admin` returns 0 hits — that is the WHOLE admin plane and it is the shape that catches BOTH ways a control is written (the quoted path in a `frameSelect(label, \"section_slot.padding\", …)` helper call AND inside a literal `data-frame-key=\"section_slot.padding\"`). No panel renders a slot-padding control, no built-in FrameTemplateDef sets the key away from its `m` default, and the saved-template editor can only capture a funnel frame the controls wrote. The stored field is real (frames.ts FrameSectionSlotConfig) and frame.ts emits `--pad-{s,m,l}` unconditionally, but nothing in this sheet reads those classes, so the key paints nothing — which is honest for a key with no control. What would prove it: ANY control writing this key in any of those shapes — the notOffered loop and the section_slot leg below both go red naming it — at which point this exemption must be deleted and the three padding rules F9 reverted must return.",
+  },
+  {
+    key: "section_slot.transition",
+    notOffered: true,
+    reason:
+      "NOT OFFERED, so R3's second branch applies: the same zero-hit `grep -rn '\"section_slot' src/admin` (helper-call and literal-attribute shapes both), and no built-in template overrides `baseFrameDefaults.transition:\"fade\"`. F8 honoured it with `@keyframes lg-slot-fade` on `.lg-frame-slot--t-fade .lg-content`; driven, that animation fired only on FIRST PAINT (opacity 0.376@80ms -> 1@900ms) and never on a section change (0 animations, opacity 1 at +30/60/120/250/400ms), because the mount element is never re-created — so it did not even do what the key's name says, while giving every framed page a 300ms load animation with no control and no prefers-reduced-motion guard. Reverted. What would prove it: a real section-swap transition PLUS a control writing this key — then this exemption must be deleted, and any animation must carry a motion-preference guard.",
   },
 ];
 
@@ -1326,10 +1444,22 @@ function deepMerge(into: Record<string, unknown>, patch: Record<string, unknown>
   return into;
 }
 
+/** Remove one dotted path from a probe base (the `omit` half of a context). */
+function deleteDotted(target: Record<string, unknown>, key: string): void {
+  const parts = key.split(".");
+  let node: Record<string, unknown> | undefined = target;
+  for (let i = 0; i < parts.length - 1 && node !== undefined; i++) {
+    const child: unknown = node[parts[i] as string];
+    node = typeof child === "object" && child !== null ? (child as Record<string, unknown>) : undefined;
+  }
+  if (node !== undefined) delete node[parts[parts.length - 1] as string];
+}
+
 function paintedForFrameKey(spec: KeySpec, value: unknown): SweepPage {
   const ctx = FRAME_PROBE_CONTEXT.find((c) => c.key === spec.key);
   let base = structuredClone(FRAME_PROBE_BASE);
-  if (ctx !== undefined) base = deepMerge(base, structuredClone(ctx.patch));
+  for (const path of ctx?.omit ?? []) deleteDotted(base, path);
+  if (ctx?.patch !== undefined) base = deepMerge(base, structuredClone(ctx.patch));
   if (spec.key === "template") return sweepPage({ template: value as string, frame: base });
   return sweepPage({ frame: setDotted(base, spec.key, value) });
 }
@@ -1439,7 +1569,11 @@ describe("R2 P8 M2/R3 sweep — the enumerated universe is source-derived and CL
         `(excluded by name: frame arrays=${FRAME_KEYS.arrays.length}, single-valued=${FRAME_KEYS.singles.length}, ` +
         `P5a element members=${FRAME_ELEMENT_MEMBERS.length})`,
     );
-    expect(ENUMERATED_TOTAL).toBe(129);
+    // R2 P8 FIX ROUND F1: 129 -> 130. The one added key is
+    // `progress.icon_media_id` (frames.ts FrameProgressConfig), the media ref
+    // behind the new `custom` mark id — enumerated, probed and required to move
+    // the visible fingerprint like every other key in this universe.
+    expect(ENUMERATED_TOTAL).toBe(130);
   });
 
   it("the probe page is a REAL funnel page — and renders none of the surfaces the mis-targeted keys hid behind", () => {
@@ -1491,8 +1625,147 @@ describe("R2 P8 M2/R3 sweep — EVERY authorable design key moves a value a visi
       "back.history_fallback",
       "compat.allow_section_chrome",
       "section_slot.allow_section_card",
+      "section_slot.padding",
+      "section_slot.transition",
       "spacing",
     ]);
+    // R2 P8-4 FIX ROUND F10 — HOW the `notOffered` loop above is kept HONEST,
+    // and why F9's own safety net could not do it.
+    //
+    // F9 re-measured "no section_slot control exists" with a literal
+    // /data-frame-key="([^"]+)"/ scan over this corpus, on the premise that
+    // `offeredIn`'s quoted-path scan "cannot see a data-frame-key attribute".
+    // BOTH halves were false, MEASURED on this branch:
+    //   * that regex returns NINE strings, of which FIVE are the
+    //     un-interpolated `${escapeHtml(key)}` inside the HELPERS themselves
+    //     (quotes-tabs/shared.ts:1115/1120/1125 = frameCheck/frameSelect/
+    //     frameInput, templates.ts:743/760 = segmentedControl/toggleControl),
+    //     TWO are island querySelector literals (templates.ts:1955/2009), and
+    //     only TWO are a real emission (`progress.style`, templates.ts:716/725).
+    //     So its sanity guard `anyFrameControls.length > 5` — the leg meant to
+    //     prove the empty result was a measurement — passed ONLY by counting
+    //     the five non-keys;
+    //   * 24 of the 25 offered frame keys are NOT written as a literal
+    //     `data-frame-key` attribute at all — they are helper calls
+    //     (`frameSelect("Logo size", "header.logo_size", …)`), role strips or
+    //     `data-tplbox-*` lists — so it could not see them.
+    //     `frameSelect(…, "section_slot.padding", …)` added tomorrow would have
+    //     shipped a live dead control under a green assertion: DRIVEN, that
+    //     sabotage left F9's `sectionSlotControls` at [] and its sanity guard at
+    //     9 > 5, both green, while the loop above went red naming the key.
+    // `offeredIn` sees BOTH shapes, because the quoted path is present in the
+    // helper call site AND inside `data-frame-key="progress.style"`. It is what
+    // the notOffered loop above already uses, so THAT loop is the enforcement;
+    // what is pinned below is that it really resolves frame controls, per
+    // emission shape — a measurement, not a dead scan.
+    //
+    // `template` is the one non-dotted frame member and it is excluded on a
+    // measurement, not on taste: `offeredIn("template")` answers ["ab.ts"] from
+    // `key === "template"` (ab.ts:28, a diff-loop comparison) and
+    // `parts.push("template")` (ab.ts:46, a chip label) — neither is a control.
+    // A bare word collides with ordinary string literals, so the scan is only
+    // trusted on the dotted `group.leaf` shape every exempted key here has.
+    const frameMemberPaths = [...FRAME_KEYS.keys.map((k) => k.key), ...FRAME_KEYS.arrays, ...FRAME_KEYS.singles].filter(
+      (k) => k.includes("."),
+    );
+    expect(frameMemberPaths.length, "every dotted frame member is scanned, not a subset").toBe(73);
+    const offeredFrameControls = frameMemberPaths.filter((k) => offeredIn(k).length > 0).sort();
+    // The MEASURED set, pinned WHOLE rather than as a floor somebody chose: a
+    // control added, renamed or deleted moves this list. Every entry was read
+    // back to its emitting call site (frameSelect/frameCheck/frameInput/
+    // segmentedControl/toggleControl/mediaPickerControl/renderRoleStrip/
+    // data-tplbox-list) — not one is a comment or a querySelector echo.
+    //
+    // R2 P8-4 FIX ROUND F12 — 25 -> 32. offeredIn was blind to a TENTH
+    // emission shape: funnel.ts's own ES5-inline-script idiom, which authors a
+    // control's key single-quoted as a plain JS object key
+    // (`NOT_NULLABLE_TEXT_KEYS = { 'back.label': 1, 'disclosure.link_label':
+    // 1, 'disclosure.text': 1, 'header.cta.label': 1 }` :2016, `LIST_FIELDS =
+    // { 'footer.links': …, 'trust_strip.logos': …, 'benefit_bar.items': … }`
+    // :2039) that a `data-frame-key`-bound control is read through
+    // (`controlValueOf`'s single call site is gated on
+    // `el.getAttribute('data-frame-key')`, so an entry in either table is
+    // provably read against a REAL control's key at runtime, never dead
+    // weight). The seven added keys were exactly as offered before this round
+    // — this is `offeredIn` seeing them for the first time, not a product
+    // change.
+    expect(offeredFrameControls, `offeredIn over ${frameMemberPaths.length} dotted frame members`).toEqual([
+      "back.label",
+      "background.image_media_id",
+      "background.role",
+      "background.style",
+      "benefit_bar.items",
+      "disclosure.entries",
+      "disclosure.link_label",
+      "disclosure.text",
+      "footer.blocks",
+      "footer.enabled",
+      "footer.link_separator",
+      "footer.link_underline",
+      "footer.links",
+      "footer.palette_scope.background",
+      "footer.palette_scope.link",
+      "footer.palette_scope.text",
+      "footer.typography_scope.font_family",
+      "footer.typography_scope.size",
+      "header.cta.label",
+      "header.logo_align",
+      "header.logo_size",
+      "header.logo_source",
+      "progress.align",
+      "progress.color_role",
+      "progress.icon",
+      "progress.icon_media_id",
+      "progress.position",
+      "progress.show_label",
+      "progress.style",
+      "progress.thickness",
+      "progress.width",
+      "trust_strip.logos",
+    ]);
+    // …and it sees a control HOWEVER the panel emits it. One key per emission
+    // shape the product really uses, each proved to be emitted by that shape on
+    // a real line before `offeredIn` is asked about it. THIS is the leg F9
+    // lacked: eight of these nine shapes are invisible to a literal-attribute
+    // regex, and they carry 24 of the 25 helper/attribute-authored keys above
+    // (the tenth shape — funnel.ts's single-quoted JS object keys, F12's find —
+    // carries the other 7 and is proved separately by the F12 sabotage below,
+    // since none of those 7 controls is emitted via frameSelect/frameCheck/
+    // frameInput/segmentedControl/toggleControl/mediaPickerControl/
+    // renderRoleStrip/data-tplbox-list/data-frame-key=" at all).
+    for (const [shape, key] of [
+      ["frameSelect(", "header.logo_size"],
+      ["frameCheck(", "footer.enabled"],
+      ["frameInput(", "footer.link_separator"],
+      ["segmentedControl(", "progress.thickness"],
+      ["toggleControl(", "progress.show_label"],
+      ["mediaPickerControl(", "background.image_media_id"],
+      ["renderRoleStrip(", "footer.palette_scope.link"],
+      ["data-tplbox-list=", "footer.blocks"],
+      ['data-frame-key="', "progress.style"],
+    ] as ReadonlyArray<readonly [string, string]>) {
+      const emitted = ADMIN_UI_SOURCES.flatMap((s) =>
+        s.text
+          .split("\n")
+          .flatMap((line, i) => (line.includes(shape) && line.includes(`"${key}"`) ? [`${path.basename(s.file)}:${i + 1}`] : [])),
+      );
+      expect(emitted.length, `the admin UI really emits ${key} via ${shape}`).toBeGreaterThan(0);
+      expect(offeredIn(key), `…and offeredIn SEES the ${shape} shape (${emitted.join(", ")})`).not.toEqual([]);
+      expect(offeredFrameControls, `…so ${key} lands in the offered set`).toContain(key);
+    }
+    // THE CLAIM THE TWO section_slot EXEMPTIONS REST ON, re-measured over the
+    // WHOLE FrameSectionSlotConfig member set (all 9, not just the 2 exempted):
+    // the admin plane offers no slot control at all. This is the zero-hit grep
+    // the two reasons cite (`grep -rn '"section_slot' src/admin`), executed
+    // through the scan that resolves every emission shape above. Add a slot
+    // control in ANY of them and this goes red naming the key — and so does the
+    // notOffered loop at the top of this test.
+    const sectionSlotMembers = frameMemberPaths.filter((k) => k.startsWith("section_slot."));
+    expect(sectionSlotMembers.length, "the slot group's members are really being scanned").toBe(9);
+    expect(
+      sectionSlotMembers.filter((k) => offeredIn(k).length > 0),
+      "no admin control offers ANY section_slot key",
+    ).toEqual([]);
     // …and every single one of them makes the SAME claim: no operator control
     // offers this key. Not one is "offered, but this harness cannot prove it" —
     // that shape would be a dead control wearing an exemption.
@@ -1500,6 +1773,140 @@ describe("R2 P8 M2/R3 sweep — EVERY authorable design key moves a value a visi
     // The 59 THEME keys carry exactly one, and it is the contract's own
     // reserved-but-unrendered storage key.
     expect(SWEEP_EXEMPTIONS.filter((e) => !e.key.includes(".")).map((e) => e.key)).toEqual(["spacing"]);
+  });
+
+  // R2 P8-4 FIX ROUND F12 — MINOR-4: two narrow checks a previous rewrite
+  // dropped, restored. `sectionSlotMembers` above can only ask about the 9
+  // members FrameSectionSlotConfig ALREADY declares (it is a member-driven
+  // enumeration); it cannot see a leaf that is neither declared there NOR one
+  // of the 9 — a typo, a leaf added to a panel ahead of the interface, or a
+  // renamed field the interface forgot to drop. This leg is a RAW scan of the
+  // quoted text itself, independent of the interface: it can never miss an
+  // undeclared section_slot leaf because it never consults the interface at
+  // all. And neither leg can see the BARE group key (no leaf) — a control
+  // authored as `"section_slot"` on its own, which `offeredIn` deliberately
+  // does not check for ordinary keys (a bare word collides with unrelated
+  // string literals; see the `template` note above) but which is narrow and
+  // safe to check for THIS one exact literal.
+  it("no admin source authors an UNDECLARED section_slot leaf (a raw scan, independent of the interface)", () => {
+    const found = new Set<string>();
+    for (const s of ADMIN_UI_SOURCES) {
+      for (const m of s.text.matchAll(/["']section_slot\.([a-zA-Z_]+)["']/g)) found.add(`section_slot.${m[1]}`);
+    }
+    expect(
+      [...found].sort(),
+      "no admin source authors ANY section_slot leaf, declared or not, quoted either way",
+    ).toEqual([]);
+  });
+
+  it("no admin source authors the BARE section_slot group key (no leaf)", () => {
+    const hits = ADMIN_UI_SOURCES.filter((s) => /["']section_slot["']/.test(s.text)).map((s) => path.basename(s.file));
+    expect(hits, "no admin source authors the bare group key with no leaf").toEqual([]);
+  });
+
+  // R2 P8-4 FIX ROUND F12 — MAJOR: offeredIn was blind to a control authored
+  // single-quoted (see the comment on offeredInSources above for the full
+  // finding). Proven here by SABOTAGE, in BOTH quote styles the admin plane
+  // actually uses, against a REAL exempted key — never a synthetic name, so
+  // this is the exact "no operator control offers this key" claim the
+  // `notOffered` loop above rests on. The sabotage APPENDS one synthetic
+  // source entry to the REAL ADMIN_UI_SOURCES (every real file stays exactly
+  // as it is); nothing on the "clean" side is hand-built or altered.
+  describe("R2 P8-4 F12 — offeredIn sees a control however the source quotes its key", () => {
+    const EXEMPT_KEY = "section_slot.padding";
+    const SABOTAGE_FILE = "sabotage-inline.ts";
+    const sabotagedWith = (quotedKey: string): ReadonlyArray<{ file: string; text: string }> => [
+      ...ADMIN_UI_SOURCES,
+      { file: SABOTAGE_FILE, text: `<input data-frame-key=${quotedKey} />` },
+    ];
+
+    it("clean (no sabotage): the real admin plane offers nothing for the exempted key", () => {
+      const result = offeredInSources(EXEMPT_KEY, ADMIN_UI_SOURCES);
+      // eslint-disable-next-line no-console
+      console.log("[F12 sabotage] clean ·", EXEMPT_KEY, "->", JSON.stringify(result));
+      expect(result, "green").toEqual([]);
+    });
+
+    it("SABOTAGE, single-quoted (funnel.ts's own idiom): the injected control is SEEN, naming the file — RED", () => {
+      const result = offeredInSources(EXEMPT_KEY, sabotagedWith(`'${EXEMPT_KEY}'`));
+      // eslint-disable-next-line no-console
+      console.log("[F12 sabotage] single-quoted ·", EXEMPT_KEY, "->", JSON.stringify(result));
+      expect(
+        result,
+        "a single-quoted control for an exempted key must flip the claim red and name the file",
+      ).toEqual([SABOTAGE_FILE]);
+    });
+
+    it("SABOTAGE, double-quoted (shared.ts/templates.ts's idiom): the injected control is SEEN, naming the file — RED", () => {
+      const result = offeredInSources(EXEMPT_KEY, sabotagedWith(`"${EXEMPT_KEY}"`));
+      // eslint-disable-next-line no-console
+      console.log("[F12 sabotage] double-quoted ·", EXEMPT_KEY, "->", JSON.stringify(result));
+      expect(
+        result,
+        "a double-quoted control for an exempted key must flip the claim red and name the file",
+      ).toEqual([SABOTAGE_FILE]);
+    });
+
+    it("remove both sabotages: back to green", () => {
+      const result = offeredInSources(EXEMPT_KEY, ADMIN_UI_SOURCES);
+      // eslint-disable-next-line no-console
+      console.log("[F12 sabotage] removed ·", EXEMPT_KEY, "->", JSON.stringify(result));
+      expect(result, "green").toEqual([]);
+    });
+  });
+
+  // R2 P8-4 F-8. A probe context is NOT an exemption — the key it names is
+  // still driven and still required to paint by the FRAME CONFIG leg below.
+  // What is pinned here is that the list cannot grow silently, that every entry
+  // states its measurement, and that `template`'s omission really does cover
+  // the whole group set (a group added tomorrow must not fall outside it).
+  it("every declared PROBE CONTEXT is reasoned, PINNED, and never an exemption in disguise", () => {
+    for (const c of FRAME_PROBE_CONTEXT) {
+      // The same floor SWEEP_EXEMPTIONS carries: a reason, never a word.
+      expect(c.reason.trim().length, `probe context ${c.key} states why + what it measured`).toBeGreaterThan(120);
+      // An `omit` REMOVES a sibling from the base, so it must additionally
+      // state the measurement on BOTH sides of the omission.
+      if (c.omit !== undefined) {
+        expect(c.reason.trim().length, `omission ${c.key} states what it measured with and without`).toBeGreaterThan(
+          400,
+        );
+      }
+      expect(
+        c.patch !== undefined || c.omit !== undefined || c.values !== undefined,
+        `probe context ${c.key} declares something`,
+      ).toBe(true);
+      // Every key with a context is a key the sweep really enumerates, and it
+      // is NEVER also exempt — a key cannot be both "measured this way" and
+      // "not measured".
+      expect(
+        [...FRAME_KEYS.keys.map((k) => k.key), "template"],
+        `probe context ${c.key} names an enumerated key`,
+      ).toContain(c.key);
+      expect(SWEEP_EXEMPTIONS.map((e) => e.key)).not.toContain(c.key);
+    }
+    expect(FRAME_PROBE_CONTEXT.map((c) => c.key).sort()).toEqual([
+      "footer.link_separator",
+      "footer.link_underline",
+      "footer.palette_scope.link",
+      "header.cta.tel",
+      "progress.icon",
+      "progress.icon_media_id",
+      "template",
+      "trust_strip.mobile",
+    ]);
+    // `template` supplies the DEFAULTS of every group, so its omission must
+    // cover every group — otherwise a group added later stays pinned by the
+    // base and quietly shrinks what the template is measured on.
+    const templateOmits = FRAME_PROBE_CONTEXT.find((c) => c.key === "template")?.omit ?? [];
+    expect([...templateOmits].sort()).toEqual(frameGroupMembers().map((m) => m.name).filter((n) => n !== "compat").sort());
+    // …and the ONE group it keeps really is not a template default: compat is
+    // the save-time chrome switch, identical across every FrameTemplateDef.
+    const compatPerTemplate = new Set(
+      (vocabularyFor({ name: "template", typeText: "FrameTemplateId", optional: false }, "EffectiveFrameConfig", false) as string[]).map(
+        (id) => JSON.stringify(effectiveFrame(id as never, {} as unknown as FrameConfig).frame.compat),
+      ),
+    );
+    expect(compatPerTemplate.size, "compat is identical across every template, so keeping it pins nothing").toBe(1);
   });
 
   // Renders + cascade-resolves one page per key per value; the vitest default
@@ -1638,6 +2045,170 @@ describe("R2 P8 M2/R3 sweep — the predicate itself fails on a dead, a MIS-TARG
       html,
     });
     expect(visibleDiffAnyViewport(readByARule("#D32F2F"), readByARule("#0E7C3A")).length).toBeGreaterThan(0);
+  });
+
+  // =========================================================================
+  // R2 P8-4 — THE CLASS-CHANGE INVARIANT, PROVEN IN BOTH DIRECTIONS.
+  //
+  //   A class change counts as paint IF AND ONLY IF the changed class actually
+  //   SELECTS A RULE that alters a computed value on a visible element.
+  //
+  // F-7 proved only the first direction (class alone = nothing) and, by ALSO
+  // discarding generated content, broke the second: it named
+  // `progress.icon_media_id` dead while a fresh-context reviewer PHOTOGRAPHED
+  // its custom marker on a live visitor page
+  // (docs/leadgen/r2/evidence/p8/review-p8-4/d-visitor-icon-custom-zoom.png).
+  // Both cannot be true. So the three legs below pin BOTH directions
+  // permanently — a bare class is nothing (1), a class with a rule behind it is
+  // paint (2), and DELETING that rule while keeping the class makes the SWEEP
+  // RUNNER itself go red and NAME the key (3).
+  // =========================================================================
+  it("F-7: a class-only flip (no rule behind it) is DEAD; the SAME flip WITH a real rule behind it is ALIVE", () => {
+    const { css, html } = sweepPage({});
+    expect(html.match(/class="lg-question-card"/g)).toHaveLength(1);
+    // An ADDED modifier class (never a rename) — the element keeps every
+    // existing `.lg-question-card` declaration untouched, so the ONLY
+    // candidate difference between the two renders is the extra class token.
+    const flipped = html.replace('class="lg-question-card"', 'class="lg-question-card lg-question-card--flag"');
+    // SABOTAGE: delete the rule that would have painted the flag class — here,
+    // simply never add one. The class list differs; nothing else does.
+    const classOnly = { css, html: flipped };
+    const base = { css, html };
+    expect(
+      visibleDiffAnyViewport(base, classOnly),
+      "a bare class-list change must not, by itself, be credited as a visitor-visible change",
+    ).toEqual([]);
+    // RESTORE the paint: the SAME class flip, now with a REAL rule behind the
+    // added class (the shape a correctly-wired control has).
+    const withRule = {
+      css: withExtraRule(css, `${DEFAULT_FUNNEL_SCOPE} .lg-question-card--flag{outline:2px solid #123456}`),
+      html: flipped,
+    };
+    expect(
+      visibleDiffAnyViewport(base, withRule).length,
+      "the identical class flip IS credited once a real declaration backs it",
+    ).toBeGreaterThan(0);
+  });
+
+  // (2) at the REAL key, not a synthetic: the class flip `progress.icon_media_id`
+  // performs carries rules, so it must be ALIVE — and the rule + the value it
+  // moves are asserted by name, so "alive" can never be a bare boolean again.
+  it("F-8 (2): progress.icon_media_id's class flip IS paint — the RULE and the moved value, named", () => {
+    const spec = FRAME_KEYS.keys.find((k) => k.key === "progress.icon_media_id") as KeySpec;
+    expect(spec.values, "the declared operator flip: no image chosen vs a real media key").toEqual([
+      null,
+      "probe-progress-mark",
+    ]);
+    expect(deadUnderVisiblePaint([spec], paintedForFrameKey)).toEqual([]);
+    // The marker is a GENERATED box on `.lg-progress-fill`, which is exactly
+    // what the reviewer photographed. Name the layer, the declaration and the
+    // value — the operator's own media key, resolved through the inline
+    // `--lg-progress-icon-url` the region carries.
+    const fill = (value: unknown): PaintedEl => {
+      const page = paintedForFrameKey(spec, value);
+      const el = visiblePage(page.css, page.html).visible.find((v) => v.classes.includes("lg-progress-fill"));
+      expect(el, "the progress fill is a VISIBLE element of the probe page").toBeTruthy();
+      return el as PaintedEl;
+    };
+    const custom = fill("probe-progress-mark").pseudos.get("::before");
+    expect(custom?.get("background-image")?.value, "the operator's own image lands on the marker").toBe(
+      'url("/media/probe-progress-mark")',
+    );
+    expect(custom?.get("background-image")?.selector).toContain("lg-frame-progress--icon-custom");
+    expect(custom?.get("background-image")?.selector).toContain(".lg-progress-fill::before");
+    // …and with no image chosen the same layer carries no such declaration.
+    expect(fill(null).pseudos.get("::before")?.get("background-image")).toBeUndefined();
+  });
+
+  // (3) The other direction, at the RUNNER level. Keep the class flip exactly
+  // as the product emits it and delete every rule the changed classes select:
+  // the sweep must go red and NAME the key. This is the leg that would have
+  // caught F-7's regression from the other side.
+  it("F-8 (3): DELETE the rules a live class flip selects, keep the class — the sweep NAMES the key", () => {
+    const spec = FRAME_KEYS.keys.find((k) => k.key === "progress.icon_media_id") as KeySpec;
+    expect(deadUnderVisiblePaint([spec], paintedForFrameKey), "alive at HEAD").toEqual([]);
+    // The tokens the flip really moves, read off the REAL renders — never typed.
+    const classesOf = (value: unknown): string[] => {
+      const page = paintedForFrameKey(spec, value);
+      return (visiblePage(page.css, page.html).visible.find((v) =>
+        v.classes.some((c) => c.startsWith("lg-frame-progress--icon-")),
+      )?.classes ?? []).filter((c) => c.startsWith("lg-frame-progress--icon-"));
+    };
+    const before = classesOf(spec.values[0]);
+    const after = classesOf(spec.values[1]);
+    const moved = [...before.filter((c) => !after.includes(c)), ...after.filter((c) => !before.includes(c))];
+    expect(moved.sort(), "the flip really is a class flip").toEqual([
+      "lg-frame-progress--icon-custom",
+      "lg-frame-progress--icon-dot",
+    ]);
+    const sabotaged = (s: KeySpec, value: unknown): SweepPage => {
+      const real = paintedForFrameKey(s, value);
+      const css = real.css
+        .split("\n")
+        .filter((line) => !moved.some((token) => line.slice(0, line.indexOf("{")).includes(token)))
+        .join("\n");
+      expect(css.length, "rules really were removed from the REAL sheet").toBeLessThan(real.css.length);
+      return { css, html: real.html };
+    };
+    // The class flip SURVIVES the sabotage — only the paint behind it is gone.
+    expect(
+      classesOf(spec.values[1]).includes("lg-frame-progress--icon-custom"),
+      "the markup is untouched: the class is still flipped",
+    ).toBe(true);
+    expect(
+      deadUnderVisiblePaint([spec], sabotaged),
+      "with every rule its class selects deleted, the key must read DEAD and be NAMED",
+    ).toEqual(["progress.icon_media_id"]);
+  });
+
+  // The widening in F-8 is to GENERATED CONTENT only. STATE is still excluded,
+  // and this leg is what stops the next round from quietly letting a hover-only
+  // control count as paint.
+  it("F-8: a pseudo-CLASS (state) rule is still NOT paint, while a pseudo-ELEMENT rule is", () => {
+    const { css, html } = sweepPage({});
+    const base = { css, html };
+    const onHover = (value: string): SweepPage => ({
+      css: withExtraRule(css, `${DEFAULT_FUNNEL_SCOPE} .lg-question-card:hover{outline:2px solid ${value}}`),
+      html,
+    });
+    expect(
+      visibleDiffAnyViewport(base, onHover("#D32F2F")),
+      "a rule that only paints while the visitor hovers is not paint at rest",
+    ).toEqual([]);
+    for (const state of [":focus-visible", ":disabled", ":checked", ":has(.lg-input)"]) {
+      expect(
+        visibleDiffAnyViewport(base, {
+          css: withExtraRule(css, `${DEFAULT_FUNNEL_SCOPE} .lg-question-card${state}{outline:2px solid #D32F2F}`),
+          html,
+        }),
+        `${state} is STATE, never at-rest paint`,
+      ).toEqual([]);
+    }
+    // …and the generated box on the SAME element, at rest, IS.
+    expect(
+      visibleDiffAnyViewport(base, {
+        css: withExtraRule(css, `${DEFAULT_FUNNEL_SCOPE} .lg-question-card::after{content:"";background:#D32F2F}`),
+        html,
+      }).length,
+      "a `::after` a visitor really sees at rest IS paint",
+    ).toBeGreaterThan(0);
+    // A state PSEUDO-ELEMENT is excluded by name for the same reason `:hover`
+    // is — it paints only while the visitor is doing something.
+    expect(
+      visibleDiffAnyViewport(base, {
+        css: withExtraRule(css, `${DEFAULT_FUNNEL_SCOPE} .lg-question-card::selection{background:#D32F2F}`),
+        html,
+      }),
+      "::selection paints only during a selection",
+    ).toEqual([]);
+    // A generated box that is switched off paints nothing either.
+    expect(
+      visibleDiffAnyViewport(base, {
+        css: withExtraRule(css, `${DEFAULT_FUNNEL_SCOPE} .lg-question-card::after{content:"";display:none;background:#D32F2F}`),
+        html,
+      }),
+      "a `display:none` generated box is as dead as a hidden element",
+    ).toEqual([]);
   });
 });
 

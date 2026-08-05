@@ -74,11 +74,15 @@ import {
   THEME_RECORD_BUTTON_SIZES,
   THEME_RECORD_CORNERS,
   THEME_RECORD_EXTRA_ROLE_KEYS,
+  THEME_RECORD_EXTRA_ROLE_TO_TOKEN_ROLE,
   THEME_RECORD_FIELD_HEIGHTS,
   THEME_RECORD_FONT_NAMES,
   THEME_RECORD_FONT_STACKS,
   THEME_RECORD_ROLE_KEYS,
+  THEME_RECORD_ROLE_TO_TOKEN_ROLE,
+  funnelTokenRoleLabel,
   winningThemeId,
+  type FunnelTokenRole,
   type ThemeButtonLayout,
   type ThemeButtonSelectedStyle,
   type ThemeButtonStyle,
@@ -950,13 +954,62 @@ function segmentedControl<T extends string>(
   return `<div style="display:flex;background:${TM_COLOR.segBg};border-radius:8px;padding:2px">${segs}</div>`;
 }
 
+// P8-6 Q10 — WHAT THE ADVANCED ROW IS CALLED ON SCREEN.
+//
+// advancedHexRow used to print escapeHtml(key) as the row's visible label, so
+// the operator read "brand_primary", "page_bg", "card", "text",
+// "surface_wash", "button_primary_bg" down 14 rows — while the Colors pane
+// directly above, on the SAME page, named those same roles "Brand primary",
+// "Page background", "Card", "Text", "Soft fill", "Button".
+//
+// MEASURED coverage before renaming anything (this page's own tables):
+//   • ROLE_META has SIX entries for the SEVEN THEME_RECORD_ROLE_KEYS — `error`
+//     has no swatch row of its own, so this table alone cannot label all 14.
+//   • EXTRA_ROLE_META covers all seven THEME_RECORD_EXTRA_ROLE_KEYS.
+// So the pane's own tables answer 13 of 14, and they are the RIGHT answer for
+// those 13 (one page must not name one role two ways).
+//
+// The 14th, `error`, resolves through the role BRIDGES theme.ts already
+// exports (THEME_RECORD_ROLE_TO_TOKEN_ROLE / …EXTRA_ROLE_TO_TOKEN_ROLE) onto
+// FUNNEL_TOKEN_ROLE_LABELS — "Error", the name every other surface uses for
+// it, and the same source themes-handlers.ts cites for this exact key. Derived
+// rather than hand-listed, so a role added to either key array is labelled
+// without a second edit here.
+//
+// A key that matches NOTHING keeps its key (funnelTokenRoleLabel's own `?? v`
+// plus the `undefined` branch below) — no invented word, no throw.
+//
+// The STORED key is untouched: `data-role` still carries it and
+// THEME_MGR_SCRIPT still reads data-role, so the PATCH body is byte-identical.
+function advancedRoleLabel(topGroup: "roles" | "extra_roles", key: string): string {
+  const fromPane =
+    topGroup === "roles"
+      ? ROLE_META.find((meta) => meta.key === key)
+      : EXTRA_ROLE_META.find((meta) => meta.key === key);
+  if (fromPane !== undefined) return fromPane.label;
+  const tokenRole: FunnelTokenRole | undefined =
+    topGroup === "roles"
+      ? THEME_RECORD_ROLE_TO_TOKEN_ROLE[key as ThemeRecordRoleKey]
+      : THEME_RECORD_EXTRA_ROLE_TO_TOKEN_ROLE[key as ThemeRecordExtraRoleKey];
+  return tokenRole === undefined ? key : funnelTokenRoleLabel(tokenRole);
+}
+
 // P6b round 2: `topGroup` mirrors segmentedControl's — "roles" for the
 // original 7 (existing call site now passes it explicitly, same resulting
 // `{roles:{<key>:<hex>}}` PATCH body as before), "extra_roles" for the 7 new
 // ones (a SEPARATE optional group, never merged into the required 7-key
 // `roles`).
-function advancedHexRow(topGroup: "roles" | "extra_roles", key: string, hex: string, themeId: string): string {
-  return `<div style="display:flex;align-items:center;justify-content:space-between;padding:8px 0"><span style="font-size:12px;color:${TM_COLOR.segInactiveText}">${escapeHtml(key)}</span><input data-tm-hex data-top="${topGroup}" data-role="${key}" data-theme-id="${escapeHtml(themeId)}" value="${escapeHtml(hex)}" spellcheck="false" style="font-family:'Roboto Mono',monospace;font-size:11.5px;color:${TM_COLOR.monoTextStrong};background:${TM_COLOR.monoBg};padding:2px 8px;border-radius:5px;border:1px solid transparent;width:88px;text-align:right" /></div>`;
+// EXPORTED (P8-6 Q10) for the same reason ROLE_META above is: so
+// test/leadgen-p8-r5-copy.test.ts can drive the REAL row renderer instead of
+// hand-copying its markup into a fixture. No rendering behaviour rides on the
+// export — renderCenterEditor's two call sites are unchanged.
+export function advancedHexRow(
+  topGroup: "roles" | "extra_roles",
+  key: string,
+  hex: string,
+  themeId: string,
+): string {
+  return `<div style="display:flex;align-items:center;justify-content:space-between;padding:8px 0"><span style="font-size:12px;color:${TM_COLOR.segInactiveText}">${escapeHtml(advancedRoleLabel(topGroup, key))}</span><input data-tm-hex data-top="${topGroup}" data-role="${key}" data-theme-id="${escapeHtml(themeId)}" value="${escapeHtml(hex)}" spellcheck="false" style="font-family:'Roboto Mono',monospace;font-size:11.5px;color:${TM_COLOR.monoTextStrong};background:${TM_COLOR.monoBg};padding:2px 8px;border-radius:5px;border:1px solid transparent;width:88px;text-align:right" /></div>`;
 }
 
 // R2 P8-3 FIX ROUND F3 (BLOCKER-1) — THE FONT SELECT'S BOX, NOT ITS LABEL.

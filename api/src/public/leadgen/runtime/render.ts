@@ -131,6 +131,14 @@ export function updateRangeDisplay(input: HTMLInputElement): void {
 export function updateProgress(root: Element, currentStep: number, totalSteps: number): void {
   const safeTotal = totalSteps > 0 ? totalSteps : 1;
   const pct = Math.max(0, Math.min(100, Math.round((currentStep / safeTotal) * 100)));
+  // R2 P8 F1 (M1 "Label wording differs three ways"): ONE step wording, used by
+  // the label a visitor reads AND by the aria-valuetext a screen reader hears —
+  // and it is the SAME sentence the server already rendered (designs/frame.ts
+  // numbered "Step 1 of N"; components/presets.ts renderProgressBar's step-mode
+  // default label, which every bar/icon_on_track mount carries). Hydration used
+  // to overwrite that with "1 / 2", so the label CHANGED shape under the visitor
+  // between first paint and the engine's first update. It no longer does.
+  const stepText = `Step ${currentStep} of ${safeTotal}`;
   root.querySelectorAll("[data-lg-progress]").forEach((el) => {
     const mode = el.getAttribute("data-mode") === "percent" ? "percent" : "step";
     el.setAttribute("aria-valuemin", "0");
@@ -144,7 +152,7 @@ export function updateProgress(root: Element, currentStep: number, totalSteps: n
     // reads "Step 1 of N" on every slide (the E3-found a11y defect). The copy
     // matches the SSR format verbatim; mounts without the attr never gain one.
     if (el.hasAttribute("aria-valuetext")) {
-      el.setAttribute("aria-valuetext", `Step ${currentStep} of ${safeTotal}`);
+      el.setAttribute("aria-valuetext", stepText);
     }
     const bar = el.querySelector("[data-lg-progress-bar]");
     if (bar !== null && bar instanceof HTMLElement) {
@@ -158,7 +166,7 @@ export function updateProgress(root: Element, currentStep: number, totalSteps: n
       else dot.removeAttribute("data-active");
     });
     const label = el.querySelector("[data-lg-progress-label]");
-    const text = mode === "percent" ? `${pct}%` : `${currentStep} / ${safeTotal}`;
+    const text = mode === "percent" ? `${pct}%` : stepText;
     if (label !== null) label.textContent = text;
     else if (bar === null) el.textContent = text;
   });
@@ -239,7 +247,19 @@ export function setFieldError(
   if (fieldEl !== null) {
     if (message !== null) fieldEl.classList.add(ERROR_CLASS);
     else fieldEl.classList.remove(ERROR_CLASS);
-    const input = fieldEl.querySelector("[data-lg-input]");
+    // R2 P8-5 M-3 (ADJ-P8-21): the field block IS the input on every
+    // renderTextInput shape (FreeText/Number/Email/Phone/Date/ZIP) — presets
+    // hydration() stamps data-lg-field on the <input> element itself, and an
+    // <input> is a VOID element, so a descendant-only querySelector can never
+    // reach it. Driven on the live funnel page (an empty required
+    // FreeTextQuestion + a real Continue click) the input came back
+    // aria-invalid=false while the Studio canvas painted aria-invalid="true"
+    // for the same authored section — the `.lg-input[aria-invalid="true"]`
+    // border a visitor was promised never fired. Self-first, then descendants
+    // (the wrapper shapes: address subfields, range, textarea boxes).
+    const input = fieldEl.hasAttribute("data-lg-input")
+      ? fieldEl
+      : fieldEl.querySelector("[data-lg-input]");
     if (input !== null) {
       if (message !== null) input.setAttribute("aria-invalid", "true");
       else input.removeAttribute("aria-invalid");
@@ -252,7 +272,19 @@ export function clearFieldErrors(sectionEl: Element): void {
     el.textContent = "";
     toggleHidden(el, false);
   });
-  sectionEl.querySelectorAll(`.${ERROR_CLASS}`).forEach((el) => el.classList.remove(ERROR_CLASS));
+  // R2 P8-5 G3b-1: `:not([data-lg-error-for])` — the MESSAGE SLOTS are not
+  // error-marked FIELDS, they are the chrome that reports on one. presets.ts
+  // autoErrorSlot/renderValidationError ship them with a STATIC
+  // class="lg-error lg-error-auto", so an unguarded sweep stripped `lg-error`
+  // off every slot the first time this ran and never put it back: measured on
+  // the live funnel page, the SSR slot `class="lg-error lg-error-auto"` came
+  // back `class="lg-error-auto"` after one Continue click, while the Studio
+  // canvas kept both. Any stylesheet rule keyed on `.lg-error` therefore did
+  // not apply to the live message (only the inline colour survived). The slots
+  // are already cleared, correctly, by the textContent+hidden loop above.
+  sectionEl
+    .querySelectorAll(`.${ERROR_CLASS}:not([data-lg-error-for])`)
+    .forEach((el) => el.classList.remove(ERROR_CLASS));
   sectionEl.querySelectorAll('[aria-invalid="true"]').forEach((el) => el.removeAttribute("aria-invalid"));
 }
 

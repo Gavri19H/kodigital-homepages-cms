@@ -67,6 +67,12 @@
       "note": "Palette/library rail shell — not flagged (S4-A groups only flag specific sub-regions elsewhere, not the library rail itself)."
     },
     {
+      "id": "src/admin/leadgen/ui-section-studio.ts::studioCanvasRestingHtml",
+      "golden": true,
+      "register": "R2 P8 M6 / R4",
+      "note": "P8-5 extraction: computes the SAME at-rest markup studioCanvasDocument assembles (normalizeAnswers defaults + evaluateDependencies visibility + applyPreviewSimMarkup selection state), pulled into its own named function so the canvas shows what the visitor sees at rest without growing a second rendering system. Shared plumbing for the ALREADY-classified canvas surface (studioCanvasDocument/studioCanvasFrameSrcdoc immediately below) — not an independent visual region of its own. Byte-parity with the live preview endpoint is pinned by test/leadgen-p8-m6-canvas-parity.test.ts, not this gate."
+    },
+    {
       "id": "src/admin/leadgen/ui-section-studio.ts::studioCanvasDocument",
       "golden": true,
       "register": null,

@@ -441,7 +441,7 @@ describe("validateSection — humanized save-error messages (A-8/P-9)", () => {
       "Image must be an object or JSON string",
     );
     expect(validateSection({ ...base, continue_mode: "bogus" }).errors.continue_mode).toBe(
-      "Continue mode must be one of button|auto_advance",
+      "Continue mode must be one of Wait for Continue or Go to next",
     );
     expect(validateSection({ ...base, address_validation_enabled: "yes" }).errors.address_validation_enabled).toBe(
       "Address validation must be a boolean",

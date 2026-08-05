@@ -32,7 +32,12 @@ import type { FunnelDesign } from "./designs/registry";
 import type { EffectiveFunnelDesign } from "./designs/theme";
 import type { LeadgenAssignmentReason } from "./ab-hash";
 import { sha256Hex } from "./auction/parse";
-import { type LeadgenSectionDesignOverrides } from "./components/presets";
+import {
+  collectAnswerKeyClaims,
+  foreignAnswerKeysIn,
+  leadgenAddressAnswerFields,
+  type LeadgenSectionDesignOverrides,
+} from "./components/presets";
 // §8.5 layout containers: the config projects the canonical FLATTENED
 // component list — layout containers are a server-side rendering concern and
 // never appear in /lg/config (the client engine keeps consuming a flat list;
@@ -514,6 +519,106 @@ export function expandPublicComponents(node: LeadgenComponentNode): PublicSectio
   return [toPublicComponent(node)];
 }
 
+// R2 P8-5 X1 — the compiled config carries the RESOLVED props.maps.fills.
+//
+// presets.ts m9AddressRenderedFieldName DECLINES a props.maps.fills rename that
+// would land an Address's box on a key another node in the same section already
+// answers: that box keeps its own `{base}_{kind}`. toPublicComponent passes
+// `node.props` verbatim, so the compiled client config kept the AUTHORED target
+// — and runtime/validation.ts addressFieldKey, the only reader of
+// props.maps.fills inside the compiled config, then keyed the address's
+// per-subfield checks to the SIBLING'S answer.
+//
+// MEASURED before this resolution (scripts/p8/probe-p85w1-zipkey.mts — one
+// Address `l1_addr` with props.maps.fills={"zip":"pcx"}, plus a sibling
+// FreeTextQuestion whose internal_field IS "pcx"; re-run 2026-08-05):
+//   1. RENDERED input keys: ["l1_addr_street","l1_addr_zip","pcx"]
+//   2. COMPILED props.maps: {"fills":{"zip":"pcx"}}
+//   3. validateSection(compiled, {l1_addr_zip:"94043", pcx:"not-a-zip"})
+//        → [{"code":"zip_format",…,"internal_field":"pcx"}]
+// A visitor who typed a VALID ZIP into the real ZIP box was blocked on the
+// sibling's free text, and `l1_addr_zip` was checked in neither direction.
+//
+// REWRITTEN, never dropped: props.maps.fills is ALSO the Places fill mapping
+// (renderAddressFieldSet feeds the same object into the wire `data-lg-maps`
+// runtime/maps.ts parses), so rewriting keeps one source of truth for every
+// consumer where dropping would silently disable autofill. A fills entry for a
+// slot this Address renders NO box for (the external-fill case, where the fill
+// lands in a SIBLING'S own input) is left exactly as authored.
+//
+// Neither half of the rule is re-implemented here — both are read out of the
+// renderer's own exported resolution, `leadgenAddressAnswerFields`:
+//   · WHEN a rename is declined — `foreign.has(target)` is verbatim
+//     m9AddressRenderedFieldName's own predicate, over the SAME claims map
+//     (collectAnswerKeyClaims) renderSectionComponents builds for the render;
+//   · WHICH key replaces it — `{base}_{kind}`, where `base` is asked of the
+//     seam (a lone `full_address` spec resolves to exactly the bare base) rather
+//     than re-deriving the internal_field ?? question_id ?? "address" ladder a
+//     fourth time; and the rewrite only applies when that key is one the markup
+//     ACTUALLY carries, which is what makes the external-fill case a no-op.
+const NO_FOREIGN_ANSWER_KEYS: ReadonlySet<string> = new Set<string>();
+const BASE_PROBE_FIELDS: ReadonlyArray<{ field: string }> = [{ field: "full_address" }];
+
+function resolvedFillsProps(
+  node: LeadgenComponentNode,
+  foreign: ReadonlySet<string>,
+): Record<string, unknown> | undefined {
+  if (node === null || typeof node !== "object") return undefined;
+  if (node.type !== "AddressAutocompleteQuestion") return undefined;
+  const props = node.props;
+  if (props === null || typeof props !== "object") return undefined;
+  const maps = props["maps"];
+  if (maps === null || typeof maps !== "object" || Array.isArray(maps)) return undefined;
+  const mapsObj = maps as Record<string, unknown>;
+  const fills = mapsObj["fills"];
+  if (fills === null || typeof fills !== "object" || Array.isArray(fills)) return undefined;
+  const fillsObj = fills as Record<string, unknown>;
+
+  // The keys the MARKUP carries for this Address, and its namespacing base —
+  // both from the renderer's own resolution (see the comment above).
+  const rendered = leadgenAddressAnswerFields(node, foreign);
+  const base = leadgenAddressAnswerFields(
+    { ...node, props: { ...props, fields: BASE_PROBE_FIELDS } },
+    NO_FOREIGN_ANSWER_KEYS,
+  )[0];
+  if (base === undefined || base === "") return undefined;
+
+  const nextFills: Record<string, unknown> = {};
+  let changed = false;
+  for (const [kind, target] of Object.entries(fillsObj)) {
+    const named = typeof target === "string" ? target.trim() : "";
+    const own = `${base}_${kind}`;
+    if (named !== "" && named !== own && foreign.has(named) && rendered.includes(own)) {
+      nextFills[kind] = own;
+      changed = true;
+    } else {
+      nextFills[kind] = target;
+    }
+  }
+  if (!changed) return undefined;
+  return { ...props, maps: { ...mapsObj, fills: nextFills } };
+}
+
+// toPublicComponent WITH the section context — the projection every /lg/config
+// component goes through. Identical to toPublicComponent except that an
+// Address's props.maps.fills is the resolved one (above). A new object is always
+// built for a changed node; the authored content_json node is never mutated.
+function projectInSection(
+  node: LeadgenComponentNode,
+  claims: ReadonlyMap<string, readonly LeadgenComponentNode[]>,
+): PublicSectionComponent {
+  const component = toPublicComponent(node);
+  const resolvedProps = resolvedFillsProps(node, foreignAnswerKeysIn(claims, node));
+  if (resolvedProps !== undefined) component.props = resolvedProps;
+  // A question grid's children are independent nodes carrying their own claims
+  // (collectAnswerKeyClaims flattens them as leaves), so they need the section
+  // context too — toPublicComponent built them context-free.
+  if (component.children !== undefined && Array.isArray(node.children)) {
+    component.children = node.children.map((child) => projectInSection(child, claims));
+  }
+  return component;
+}
+
 // R2 P1 §① — THE section-content projection for /lg/config. It replaces the
 // bare `flattenComponents(...).flatMap(expandPublicComponents)` because the two
 // container families project DIFFERENTLY:
@@ -534,12 +639,18 @@ export function projectSectionComponents(
   components: readonly LeadgenComponentNode[],
 ): PublicSectionComponent[] {
   const out: PublicSectionComponent[] = [];
+  // P8-5 X1: the WHOLE section's answer-key claims, computed once — the SAME
+  // map presets.ts builds for the render (collectAnswerKeyClaims over the same
+  // node objects), so config and markup resolve every fills rename identically.
+  // expandPublicComponents is a 1:1 projection (§10/M6), so projectInSection is
+  // that same single projection plus the section context.
+  const claims = collectAnswerKeyClaims(components);
   const walk = (nodes: readonly LeadgenComponentNode[], depth: number): void => {
     for (const node of nodes) {
       const type =
         typeof node === "object" && node !== null ? (node as { type?: unknown }).type : undefined;
       if (isQuestionGridType(type)) {
-        out.push(...expandPublicComponents(node));
+        out.push(projectInSection(node, claims));
         continue;
       }
       if (isLayoutContainerType(type)) {
@@ -548,7 +659,7 @@ export function projectSectionComponents(
         if (Array.isArray(children)) walk(children as LeadgenComponentNode[], depth + 1);
         continue;
       }
-      out.push(...expandPublicComponents(node));
+      out.push(projectInSection(node, claims));
     }
   };
   walk(components, 1);

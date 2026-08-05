@@ -123,7 +123,20 @@ import {
   type LeadgenSectionContent,
   type RequiredSpec,
 } from "../../public/leadgen/components/content-schema";
-import { renderComponent, renderSectionComponents } from "../../public/leadgen/components/presets";
+import {
+  renderComponent,
+  renderSectionComponents,
+  renderSectionComponentsVisible,
+} from "../../public/leadgen/components/presets";
+// R2 P8 M6/R4 — the canvas is a PREVIEW OF THE VISITOR'S RESTING STATE, so its
+// SSR first paint composes through the SAME three producers the preview
+// endpoint (sections-handlers previewSectionHandler) already composes with:
+// normalizeAnswers seeds the authored defaults, evaluateDependencies decides
+// what is painted, applyPreviewSimMarkup writes the selection the runtime's
+// applySelectionClasses would write. See studioCanvasDocument.
+import { normalizeAnswers } from "../../leadgen/answers";
+import { evaluateDependencies } from "../../leadgen/dependencies";
+import { applyPreviewSimMarkup } from "./preview-sim";
 // v2.5 09 §9.1/§9.4/§9.5: the 14 semantic roles + the resolved role→value
 // table (swatch chips, legacy-hex Convert matching) ride the studio meta blob.
 import { FUNNEL_TOKEN_ROLES, resolveTokens } from "../../public/leadgen/designs/theme";
@@ -851,7 +864,27 @@ export function renderStudioTopBar(
   // editable) · status pill · Mapping k/n badge · issues chip · Save ·
   // Archive. Activity/Vertical moved to the §4.2 question strip — SAME
   // element ids there, so collectSection + the dirty watcher are unaffected.
-  return `<div class="studio-topbar" data-studio-topbar style="display:flex;align-items:center;gap:14px;height:${STUDIO_GEOMETRY.topBarHeight}px;padding:0 18px;background:${STUDIO_COLOR.white};border-bottom:1px solid ${STUDIO_COLOR.linePanel};flex-wrap:wrap">
+  // R2 P8-5 M-5: the bar declared `flex-wrap:wrap` AND a FIXED
+  // height:56px. At 375 its content really does wrap — measured
+  // scrollHeight 186 inside a 56px box — so the three wrapped rows spilled
+  // out of the bar and the next sibling (.studio-settings, opaque #F7F9FB)
+  // painted over them. #lg-section-save was still laid out at (199,135,
+  // 70x33) with disabled:false and pointer-events:auto, but
+  // document.elementFromPoint at its own centre returned the settings row
+  // and a REAL mouse click issued 0 PATCH requests (a programmatic .click()
+  // issued one) — the Studio could not be saved at 375, silently. min-height
+  // lets the bar own the rows it wraps; at >=1280 the content is one row so
+  // the box is still exactly 56px and the golden look is unchanged. This is
+  // the SAME format-not-fake-value fix the canvas toolbar already carries for
+  // the identical cause (min-height:46px, documented in
+  // leadgen-v31-gate3-geometry.test.ts). MEASURED after, by
+  // scripts/p8/probe-p85g1.mjs: at 1280 the topbar box is still exactly 56
+  // (elementFromPoint = BUTTON.studio-btn-save, 1 PATCH — unchanged); at 375
+  // it is 186.5 instead of a 56px box holding 186px of rows, elementFromPoint
+  // at the save button's centre returns the save button, and the real mouse
+  // click issues 1 PATCH. The padding stays 0 18px on purpose — a 6px
+  // vertical padding grew the desktop bar to 67px and lost the golden 56.
+  return `<div class="studio-topbar" data-studio-topbar style="display:flex;align-items:center;gap:14px;min-height:${STUDIO_GEOMETRY.topBarHeight}px;padding:0 18px;background:${STUDIO_COLOR.white};border-bottom:1px solid ${STUDIO_COLOR.linePanel};flex-wrap:wrap">
   <a href="/admin/leadgen/sections" class="studio-back" style="display:flex;align-items:center;gap:7px;padding:7px 11px 7px 8px;border:1px solid ${STUDIO_COLOR.lineControl};border-radius:${STUDIO_RADIUS.control}px;cursor:pointer;color:${STUDIO_COLOR.text2Strong};font-weight:600;font-size:13px;text-decoration:none">
     <svg width="15" height="15" viewBox="0 0 24 24" fill="none"><path d="M14 6l-6 6 6 6" stroke="${STUDIO_COLOR.muted}" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/></svg>
     Sections
@@ -1130,6 +1163,62 @@ export function renderStudioLibrary(design: FunnelDesign, _content: LeadgenSecti
 // body.subheadline → the preview handler's sectionCtx). continue_mode is NOT
 // threaded here on purpose: the Build canvas keeps every authored control
 // visible/selectable; the Preview drawer owns the §11.5 composition.
+// R2 P8 M6 / R4 — THE CANVAS SHOWS WHAT THE VISITOR SEES AT REST.
+//
+// Owner (source-of-truth): "the canvas should include one section in the middle
+// so the user could see a real reference of how is design is gonna look like in
+// real life". Two R4 rows were measured against that standard — an authored
+// `defaultValue` painted UNSELECTED (aria-checked=false) and a dependency-hidden
+// question painted anyway — and BOTH are client-runtime behaviours: the swap is
+// runtime/render.ts applySelectionClasses (:92, called from engine.ts:1846 on
+// section entry) and applyComponentVisibility (:69, engine.ts:1810). The canvas
+// iframe's srcdoc carries `script-src 'none'` ON PURPOSE (see
+// studioCanvasFrameSrcdoc below), so the engine can never run there and no
+// amount of client work in this island can produce those two states.
+//
+// MECHANISM CHOSEN (root-cause doc route 1, NOT a CSP change): emit the markup
+// the engine WOULD have produced at rest — server-side, by construction. The
+// three producers below are the SAME ones POST /api/admin/leadgen/sections/
+// preview already runs for `sim.state=selected` + `sim.answers={}`
+// (sections-handlers.ts previewSectionHandler ~:1957-2011), which is exactly
+// the body renderCanvasNow now sends. So the SSR first paint and every island
+// re-render compose through one sequence, and the studio has NOT grown a second
+// rendering system:
+//   1. normalizeAnswers(content, {})  — answers.ts pass 2 applies each authored
+//      default (props.defaultValue ?? props.default — config-dto's own
+//      `default_answer` read) ONLY to a component that is actually shown,
+//      iterated to a fixpoint. This is the engine's applySectionDefaults
+//      (:1876) resting store, computed server-side.
+//   2. evaluateDependencies(nodes, answers) — the §12.3 engine; its visible set
+//      drives renderSectionComponentsVisible, so a dependency-hidden leaf is
+//      not painted at all (the runtime hides it with [hidden]; either way the
+//      visitor sees nothing there).
+//   3. applyPreviewSimMarkup(..., markSelection) — the documented
+//      applySelectionClasses mirror: lg-selected + aria-checked="true" on the
+//      answered choice, aria-checked="false" on its siblings.
+// Byte-equality between this function's output and the preview endpoint's is
+// pinned by test/leadgen-p8-m6-canvas-parity.test.ts, so the two can never
+// drift apart silently.
+function studioCanvasRestingHtml(
+  nodes: readonly LeadgenComponentNode[],
+  design: FunnelDesign,
+  ctx?: { headline_text: string; subheadline_text: string | null },
+): string {
+  const normalized = normalizeAnswers({ components: nodes as LeadgenComponentNode[] }, {});
+  const dependencies = evaluateDependencies(nodes, normalized.answers);
+  const visible = new Set(
+    dependencies.components.filter((cc) => cc.visible).map((cc) => cc.question_id),
+  );
+  const rendered = renderSectionComponentsVisible(nodes, design, visible, ctx);
+  return applyPreviewSimMarkup(rendered, nodes, design, {
+    state: "selected",
+    markSelection: true,
+    answers: normalized.answers,
+    visibleIds: visible,
+    requiredNow: new Map(dependencies.components.map((cc) => [cc.question_id, cc.required_now])),
+  });
+}
+
 export function studioCanvasDocument(
   content: LeadgenSectionContent,
   design: FunnelDesign,
@@ -1138,7 +1227,7 @@ export function studioCanvasDocument(
   const nodes = (Array.isArray(content.components) ? content.components : []).filter(
     (n): n is LeadgenComponentNode => typeof n === "object" && n !== null && typeof (n as { type?: unknown }).type === "string",
   );
-  const rendered = renderSectionComponents(nodes, design, ctx);
+  const rendered = studioCanvasRestingHtml(nodes, design, ctx);
   const css = funnelChromeCss(design, `[${FUNNEL_DESIGN_SCOPE_ATTR}="${design.id}"]`);
   return (
     `<style>${css}</style>` +
@@ -1173,14 +1262,16 @@ html,body{margin:0;padding:0;background:#fff}
 /* PC-A6 container-select affordance: a small click-to-select label chip
    anchored (position:absolute, so it is NEVER a flex/grid item — the P1c
    decoration lesson) at a container's top-left; faint until hover/selection. */
-.studio-canvas-render .studio-container-chip{position:absolute;top:0;left:0;z-index:6;font-size:10px;font-weight:600;line-height:1;padding:3px 7px;border-radius:5px 0 5px 0;background:var(--c-primary);color:#fff;cursor:pointer;pointer-events:auto;opacity:.5;white-space:nowrap;user-select:none}
+.studio-canvas-render .studio-container-chip{position:absolute;top:-18px;left:0;z-index:6;font-size:10px;font-weight:600;line-height:1;padding:3px 7px;border-radius:5px 5px 0 0;background:var(--c-primary);color:#fff;cursor:pointer;pointer-events:auto;opacity:.5;white-space:nowrap;user-select:none}
 .studio-canvas-render .studio-container-chip:hover,.studio-canvas-render .studio-container-chip-selected{opacity:1}
 /* §5.4 amber page-frame badge on legacy frame-scope canvas nodes */
 .studio-frame-badge{font-size:11px;color:#664d03;background:#fff3cd;border:1px solid #ffecb5;border-radius:6px;padding:4px 8px;margin:4px 0;display:flex;gap:6px;align-items:center;flex-wrap:wrap}
 .studio-frame-badge .btn{pointer-events:auto}
 .studio-frame-badge-note{flex-basis:100%;font-size:10px;color:#664d03}
-/* §8.8 linked-field chips */
-.studio-maps-chip{display:inline-block;font-size:10px;color:#055160;background:#cff4fc;border:1px solid #b6effb;border-radius:999px;padding:1px 8px;margin:2px 0 0;pointer-events:none;user-select:none}
+/* R2 P8 M6/R4: the §8.8 linked-field chip rule (.studio-maps-chip) is REMOVED
+   with the chip itself — the canvas paints no editor chrome the live page has
+   no equivalent for; the autofill targets are authored and displayed in the
+   inspector's Maps tab instead (applyCanvasDecoration explains the move). */
 /* §6.2 inline canvas editing + per-choice decoration: selection ring, ghost
    tile, remove, resize */
 .studio-canvas-render [contenteditable="true"]{outline:2px dashed var(--c-primary);outline-offset:2px;cursor:text}
@@ -1627,6 +1718,7 @@ export function renderStudioCanvas(
     <iframe id="lg-studio-canvas-frame" class="studio-canvas-frame" title="Section canvas" sandbox="allow-same-origin allow-scripts" data-canvas-frame-viewport="desktop" srcdoc="${escapeHtml(studioCanvasFrameSrcdoc(content, design, ctx))}"></iframe>
     ${renderFrameHintSkeleton("bottom")}
     <div class="studio-canvas-empty" data-studio-canvas-empty${empty ? "" : " hidden"}><p>No components yet.</p><p class="form-help">Add a component from the library on the left, or drag one in.</p></div>
+    <div class="studio-canvas-hidden" data-canvas-hidden hidden></div>
   </div>
 </div>`;
 }
@@ -1878,15 +1970,143 @@ interface ContainerControl {
   label: string;
   kind: "enum" | "int" | "bool" | "text" | "lines";
   values?: readonly (string | number)[];
+  // P8-6 Q9 (owner M5 "using jargon") — the operator WORDS for this control's
+  // stored values. The option VALUE is still the stored token (the collect
+  // path and content-schema are untouched); only the text the operator reads
+  // changes. Absent ⇒ the option text stays the stored token, which is only
+  // correct where the token IS already the operator's word.
+  valueLabels?: Readonly<Record<string, string>>;
 }
+
+// ---------------------------------------------------------------------------
+// P8-6 Q9 — THE CONTAINER-CONTROL VALUE WORDS.
+//
+// These dropdowns were the ROOT of the raw-token class: every one of them
+// rendered options(control.values), so the operator's own picker read "xs",
+// "wash", "ghost", "md". content-schema.ts's CONTAINER_ENUM_LABELS seam (Q8)
+// was left deliberately empty for exactly that reason — there was no operator
+// wording anywhere for the validator sentence to converge with.
+//
+// Each map is typed against the imported const array, so adding a token to a
+// vocabulary fails the compile here rather than silently shipping a raw one.
+// Every word below was read off the RENDERER or the design token file that
+// consumes the token, not invented:
+//   • gap/spacer size  — default-funnel/tokens.ts stack.gapXs..gapXl and
+//     spacer.sizeXs..sizeXl are a monotonic 0.25rem→2rem ramp: a size ramp,
+//     nothing more. ONE map serves all four props that share the vocabulary.
+//   • stack direction  — presets.ts renderStack sets flex-direction column vs
+//     row, and default-funnel/styles.ts collapses "horizontal" BACK to column
+//     inside the mobile query: the mobile behaviour is invisible on screen
+//     today, so the label states it.
+//   • stack align      — align-items on the CROSS axis, which flips with
+//     direction, so no left/right/top/bottom word can be true for both; only
+//     "stretch" gets a real rename (it fills the cross axis).
+//   • grid sizing      — styles.ts .lg-grid-container is repeat(N, minmax(0,
+//     1fr)) by default and repeat(N, auto) + justify-content:center under
+//     data-sizing="auto".
+//   • column ratios    — styles.ts grid-template-columns 1fr 1fr / 3fr 2fr /
+//     2fr 3fr / 7fr 3fr; the tail names which side is wider.
+//   • panel colours    — reuse the product's OWN role words (theme.ts
+//     FUNNEL_TOKEN_ROLE_LABELS / STUDIO_ROLE_LABELS above: card_background =
+//     "Card background", page_background = "Page background", surface_wash =
+//     "Soft fill", brand_primary = "Brand primary"). "ghost" has no role of
+//     its own; tokens.ts makes it the LIGHTER of the two tints (#F2F6FA vs
+//     the wash #E8EEF4), hence "Faint fill".
+//   • spacer variant   — presets.ts renderSpacer: "line" is the same
+//     token-sized block with a centred rule; "gap" is empty.
+// ---------------------------------------------------------------------------
+const GAP_SIZE_LABELS: Record<(typeof LEADGEN_GAP_TOKENS)[number], string> = {
+  xs: "Extra small",
+  s: "Small",
+  m: "Medium",
+  l: "Large",
+  xl: "Extra large",
+};
+const STACK_DIRECTION_LABELS: Record<(typeof LEADGEN_STACK_DIRECTIONS)[number], string> = {
+  vertical: "Top to bottom",
+  horizontal: "Side by side (stacks on mobile)",
+};
+const STACK_ALIGN_LABELS: Record<(typeof LEADGEN_STACK_ALIGNS)[number], string> = {
+  start: "Start",
+  center: "Center",
+  end: "End",
+  stretch: "Stretch to fill",
+};
+const GRID_SIZING_LABELS: Record<(typeof LEADGEN_GRID_SIZINGS)[number], string> = {
+  auto: "Fit each card to its content",
+  equal: "Equal-width columns",
+};
+const COLUMN_RATIO_LABELS: Record<(typeof LEADGEN_COLUMN_RATIOS)[number], string> = {
+  "50/50": "50/50 — even halves",
+  "60/40": "60/40 — wider left",
+  "40/60": "40/60 — wider right",
+  "70/30": "70/30 — much wider left",
+};
+const COLUMN_MOBILE_LABELS: Record<(typeof LEADGEN_COLUMN_MOBILE_MODES)[number], string> = {
+  stack: "Stack into one column",
+  keep: "Keep side by side",
+};
+const PANEL_WIDTH_LABELS: Record<(typeof LEADGEN_PANEL_WIDTHS)[number], string> = {
+  s: "Small",
+  m: "Medium",
+  l: "Large",
+  full: "Full width",
+};
+const PANEL_BACKGROUND_LABELS: Record<(typeof LEADGEN_PANEL_BACKGROUNDS)[number], string> = {
+  card: "Card background",
+  wash: "Soft fill",
+  ghost: "Faint fill",
+  transparent: "Transparent",
+};
+const PANEL_SHADOW_LABELS: Record<(typeof LEADGEN_PANEL_SHADOWS)[number], string> = {
+  none: "None",
+  sm: "Small",
+  md: "Medium",
+  lg: "Large",
+  xl: "Extra large",
+};
+const PANEL_RADIUS_LABELS: Record<(typeof LEADGEN_PANEL_RADII)[number], string> = {
+  sm: "Small",
+  md: "Medium",
+  lg: "Large",
+  xl: "Extra large",
+};
+const PANEL_PADDING_LABELS: Record<(typeof LEADGEN_PANEL_PADDINGS)[number], string> = {
+  s: "Small",
+  m: "Medium",
+  l: "Large",
+};
+const BG_PANEL_BACKGROUND_LABELS: Record<(typeof LEADGEN_BG_PANEL_BACKGROUNDS)[number], string> = {
+  card: "Card background",
+  wash: "Soft fill",
+  ghost: "Faint fill",
+  page: "Page background",
+  primary: "Brand primary",
+};
+const BG_PANEL_GRADIENT_LABELS: Record<(typeof LEADGEN_BG_PANEL_GRADIENTS)[number], string> = {
+  primary: "Brand primary",
+  accent: "Accent",
+  wash: "Soft fill",
+};
+const SPACER_VARIANT_LABELS: Record<(typeof LEADGEN_SPACER_VARIANTS)[number], string> = {
+  gap: "Empty space",
+  line: "Divider line",
+};
+// TrustBar layout is an INLINE vocabulary (no shared const) — presets.ts
+// renderTrustBar: "stacked" stacks the items, anything else lays them out
+// horizontally.
+const TRUST_BAR_LAYOUT_LABELS: Readonly<Record<string, string>> = {
+  horizontal: "Side by side",
+  stacked: "One per line",
+};
 
 const CONTAINER_PROP_CONTROLS: ReadonlyArray<{ type: string; controls: readonly ContainerControl[] }> = [
   {
     type: "Stack",
     controls: [
-      { key: "direction", label: "Direction", kind: "enum", values: LEADGEN_STACK_DIRECTIONS },
-      { key: "gap", label: "Gap token", kind: "enum", values: LEADGEN_GAP_TOKENS },
-      { key: "align", label: "Align", kind: "enum", values: LEADGEN_STACK_ALIGNS },
+      { key: "direction", label: "Direction", kind: "enum", values: LEADGEN_STACK_DIRECTIONS, valueLabels: STACK_DIRECTION_LABELS },
+      { key: "gap", label: "Space between items", kind: "enum", values: LEADGEN_GAP_TOKENS, valueLabels: GAP_SIZE_LABELS },
+      { key: "align", label: "Align", kind: "enum", values: LEADGEN_STACK_ALIGNS, valueLabels: STACK_ALIGN_LABELS },
     ],
   },
   {
@@ -1895,44 +2115,44 @@ const CONTAINER_PROP_CONTROLS: ReadonlyArray<{ type: string; controls: readonly 
       { key: "columnsDesktop", label: "Columns (desktop)", kind: "int", values: [2, 3, 4, 5] },
       { key: "columnsTablet", label: "Columns (tablet)", kind: "int", values: [1, 2, 3, 4] },
       { key: "columnsMobile", label: "Columns (mobile)", kind: "int", values: [1, 2] },
-      { key: "gap", label: "Gap token", kind: "enum", values: LEADGEN_GAP_TOKENS },
-      { key: "sizing", label: "Card sizing", kind: "enum", values: LEADGEN_GRID_SIZINGS },
+      { key: "gap", label: "Space between cards", kind: "enum", values: LEADGEN_GAP_TOKENS, valueLabels: GAP_SIZE_LABELS },
+      { key: "sizing", label: "Card sizing", kind: "enum", values: LEADGEN_GRID_SIZINGS, valueLabels: GRID_SIZING_LABELS },
     ],
   },
   {
     type: "Columns",
     controls: [
-      { key: "ratio", label: "Ratio preset", kind: "enum", values: LEADGEN_COLUMN_RATIOS },
-      { key: "mobile", label: "Mobile stacking", kind: "enum", values: LEADGEN_COLUMN_MOBILE_MODES },
+      { key: "ratio", label: "Column split", kind: "enum", values: LEADGEN_COLUMN_RATIOS, valueLabels: COLUMN_RATIO_LABELS },
+      { key: "mobile", label: "On mobile", kind: "enum", values: LEADGEN_COLUMN_MOBILE_MODES, valueLabels: COLUMN_MOBILE_LABELS },
     ],
   },
   {
     type: "CardPanel",
     controls: [
-      { key: "width", label: "Width preset", kind: "enum", values: LEADGEN_PANEL_WIDTHS },
-      { key: "background", label: "Background token", kind: "enum", values: LEADGEN_PANEL_BACKGROUNDS },
-      { key: "shadow", label: "Shadow token", kind: "enum", values: LEADGEN_PANEL_SHADOWS },
-      { key: "radius", label: "Radius token", kind: "enum", values: LEADGEN_PANEL_RADII },
-      { key: "padding", label: "Padding token", kind: "enum", values: LEADGEN_PANEL_PADDINGS },
+      { key: "width", label: "Width", kind: "enum", values: LEADGEN_PANEL_WIDTHS, valueLabels: PANEL_WIDTH_LABELS },
+      { key: "background", label: "Background", kind: "enum", values: LEADGEN_PANEL_BACKGROUNDS, valueLabels: PANEL_BACKGROUND_LABELS },
+      { key: "shadow", label: "Shadow", kind: "enum", values: LEADGEN_PANEL_SHADOWS, valueLabels: PANEL_SHADOW_LABELS },
+      { key: "radius", label: "Corner rounding", kind: "enum", values: LEADGEN_PANEL_RADII, valueLabels: PANEL_RADIUS_LABELS },
+      { key: "padding", label: "Inner spacing", kind: "enum", values: LEADGEN_PANEL_PADDINGS, valueLabels: PANEL_PADDING_LABELS },
     ],
   },
   {
     type: "BackgroundPanel",
     controls: [
-      { key: "background", label: "Background token", kind: "enum", values: LEADGEN_BG_PANEL_BACKGROUNDS },
-      { key: "gradient", label: "Gradient token", kind: "enum", values: LEADGEN_BG_PANEL_GRADIENTS },
+      { key: "background", label: "Background", kind: "enum", values: LEADGEN_BG_PANEL_BACKGROUNDS, valueLabels: BG_PANEL_BACKGROUND_LABELS },
+      { key: "gradient", label: "Gradient", kind: "enum", values: LEADGEN_BG_PANEL_GRADIENTS, valueLabels: BG_PANEL_GRADIENT_LABELS },
       { key: "imageMediaId", label: "Image media id", kind: "text" },
     ],
   },
   {
     type: "Spacer",
     controls: [
-      { key: "size", label: "Size token", kind: "enum", values: LEADGEN_GAP_TOKENS },
+      { key: "size", label: "Height", kind: "enum", values: LEADGEN_GAP_TOKENS, valueLabels: GAP_SIZE_LABELS },
       // v3.1 R3b E2-NEW-9 (main): renderSpacer has ALWAYS rendered the "line"
       // variant correctly (a horizontal divider) — only authoring it was
       // missing. Gap is the default (absent/unknown value renders the plain
       // spacer, unchanged).
-      { key: "variant", label: "Style", kind: "enum", values: LEADGEN_SPACER_VARIANTS },
+      { key: "variant", label: "Style", kind: "enum", values: LEADGEN_SPACER_VARIANTS, valueLabels: SPACER_VARIANT_LABELS },
     ],
   },
   {
@@ -1964,7 +2184,7 @@ const CONTAINER_PROP_CONTROLS: ReadonlyArray<{ type: string; controls: readonly 
       // "label|href" line idiom, here "icon|text" (icon optional).
       { key: "items", label: "Items (icon|text per line)", kind: "lines" },
       // renderTrustBar: layout === "stacked" stacks; anything else horizontal.
-      { key: "layout", label: "Layout", kind: "enum", values: ["horizontal", "stacked"] },
+      { key: "layout", label: "Layout", kind: "enum", values: ["horizontal", "stacked"], valueLabels: TRUST_BAR_LAYOUT_LABELS },
     ],
   },
   {
@@ -1990,7 +2210,9 @@ const CONTAINER_PROP_CONTROLS: ReadonlyArray<{ type: string; controls: readonly 
   // Appended LAST so no existing group's document order shifts.
   {
     type: "QuestionGrid",
-    controls: [{ key: "gap", label: "Space between questions", kind: "enum", values: LEADGEN_GAP_TOKENS }],
+    controls: [
+      { key: "gap", label: "Space between questions", kind: "enum", values: LEADGEN_GAP_TOKENS, valueLabels: GAP_SIZE_LABELS },
+    ],
   },
 ];
 
@@ -2007,9 +2229,16 @@ function renderContainerControl(type: string, control: ContainerControl): string
     return `<div class="form-group lg-inspector-field"><label class="lg-check"><input type="checkbox" id="${escapeHtml(id)}" data-container-prop="${escapeHtml(control.key)}" /> ${escapeHtml(control.label)}</label></div>`;
   }
   if (control.kind === "enum" || (control.kind === "int" && control.values !== undefined)) {
+    // P8-6 Q9: the option VALUE stays the stored token (collect path and
+    // content-schema untouched); the option TEXT is the operator's word
+    // whenever the vocabulary has one. Numeric vocabularies (column counts)
+    // carry no map and keep the number as its own text.
+    const vals = control.values ?? [];
+    const words = control.valueLabels;
+    const texts = words === undefined ? undefined : vals.map((v) => words[String(v)] ?? String(v));
     return `<div class="form-group lg-inspector-field">
   <label class="form-label" for="${escapeHtml(id)}">${escapeHtml(control.label)}</label>
-  <select id="${escapeHtml(id)}" class="form-input" data-container-prop="${escapeHtml(control.key)}" data-container-kind="${control.kind}"><option value="">default</option>${options(control.values ?? [])}</select>
+  <select id="${escapeHtml(id)}" class="form-input" data-container-prop="${escapeHtml(control.key)}" data-container-kind="${control.kind}"><option value="">default</option>${options(vals, texts)}</select>
 </div>`;
   }
   if (control.kind === "int") {
@@ -2116,7 +2345,7 @@ function renderStyleContinueBlock(opOptions: string): string {
         </div>
         <select class="form-input" data-inspector-continuecond="when" aria-label="Continue depends on field"><option value="">— always visible —</option></select>
         <select class="form-input" data-inspector-continuecond="op" aria-label="Continue condition operator">${opOptions}</select>
-        <select class="form-input" data-inspector-continuecond="value-bool" aria-label="Continue boolean value" hidden><option value="true">true</option><option value="false">false</option></select>
+        <select class="form-input" data-inspector-continuecond="value-bool" aria-label="Continue boolean value" hidden><option value="true">Yes</option><option value="false">No</option></select>
         <select class="form-input" data-inspector-continuecond="value-enum" aria-label="Continue choice value" hidden></select>
         <input class="form-input" type="text" data-inspector-continuecond="value" placeholder="value" aria-label="Continue condition value" />
         <input class="form-input" type="number" data-inspector-continuecond="from" placeholder="from" aria-label="Continue range from" hidden />
@@ -2224,7 +2453,7 @@ function renderShowIfControls(opOptions: string): string {
       </div>
       <select class="form-input" data-inspector-cond="when" aria-label="Depends on field"><option value="">— always visible —</option></select>
       <select class="form-input" data-inspector-cond="op" aria-label="Condition operator">${opOptions}</select>
-      <select class="form-input" data-inspector-cond="value-bool" aria-label="Boolean value" hidden><option value="true">true</option><option value="false">false</option></select>
+      <select class="form-input" data-inspector-cond="value-bool" aria-label="Boolean value" hidden><option value="true">Yes</option><option value="false">No</option></select>
       <select class="form-input" data-inspector-cond="value-enum" aria-label="Choice value" hidden></select>
       <input class="form-input" type="text" data-inspector-cond="value" placeholder="value" aria-label="Condition value" />
       <input class="form-input" type="number" data-inspector-cond="from" placeholder="from" aria-label="Range from" hidden />
@@ -2249,7 +2478,7 @@ function renderRequiredWhenControls(opOptions: string): string {
       </div>
       <select class="form-input" data-inspector-reqcond="when" aria-label="Required when field"><option value="">— only when marked Required —</option></select>
       <select class="form-input" data-inspector-reqcond="op" aria-label="Required-when operator">${opOptions}</select>
-      <select class="form-input" data-inspector-reqcond="value-bool" aria-label="Required-when boolean value" hidden><option value="true">true</option><option value="false">false</option></select>
+      <select class="form-input" data-inspector-reqcond="value-bool" aria-label="Required-when boolean value" hidden><option value="true">Yes</option><option value="false">No</option></select>
       <select class="form-input" data-inspector-reqcond="value-enum" aria-label="Required-when choice value" hidden></select>
       <input class="form-input" type="text" data-inspector-reqcond="value" placeholder="value" aria-label="Required-when value" />
       <input class="form-input" type="number" data-inspector-reqcond="from" placeholder="from" aria-label="Required-when range from" hidden />
@@ -2360,7 +2589,7 @@ function renderAddressFieldSet(): string {
   return `<div class="lg-inspector-field" data-address-fieldset-block hidden>
         <div class="studio-panel-eyebrow">Fields</div>
         <button type="button" class="btn btn-sm btn-outline" data-address-preset-plain>Plain text address</button>
-        <p class="form-help">One click &#8594; a single free-text address field (full_address, manual).</p>
+        <p class="form-help">One click &#8594; one plain address box the visitor types into, with no Google lookup and no format rule.</p>
         <div data-address-rows></div>
         <button type="button" class="btn btn-sm btn-secondary" data-address-add>+ Add field</button>
         <div class="studio-addr-menu" data-address-add-menu hidden></div>
@@ -2388,7 +2617,21 @@ export function renderStudioInspector(design: FunnelDesign, sectionPublicId: str
     CONDITION_OP_OPTIONS,
     CONDITION_OP_OPTIONS.map((c) => CONDITION_OP_LABELS[c] ?? c),
   );
-  const patternOptions = options(PATTERN_PRESETS);
+  // P8-6 Q9 (owner M5): the preset picker used to render its four STORED
+  // tokens ("none/letters/digits/custom"). The words come from what each one
+  // actually compiles to in config-dto.ts PATTERN_PRESET_REGEX (letters =
+  // ^[A-Za-z ]+$, digits = ^[0-9]+$); "custom" points at the regex box that
+  // sits directly beneath this select and is revealed only for that choice.
+  // NOTE the wording of the last one: "Custom pattern" is the guard string
+  // leadgen-rework-studio.test.ts uses to prove the DELETED phone
+  // country-preset trio's raw-regex path is gone (L-196). That guard is
+  // correct and stays untouched — this live control says "Custom rule".
+  const patternOptions = options(PATTERN_PRESETS, [
+    "No pattern",
+    "Letters and spaces only",
+    "Numbers only",
+    "Custom rule (set below)",
+  ]);
   // PC-5/PC-A5 (P4b): the DateQuestion Min/Max bound picker — a dynamic-token
   // dropdown (resolved to a concrete date server-side at config build) plus a
   // "Custom date…" choice that reveals the native date input. Shown for Date
@@ -2670,9 +2913,9 @@ export function renderStudioInspector(design: FunnelDesign, sectionPublicId: str
         <input id="lg-vprop-maxLen" class="form-input" data-inspector-vprop="maxLen" />
       </div>
       <div class="form-group lg-inspector-field" data-vprop="pattern" hidden>
-        <label class="form-label" for="lg-vprop-pattern">Pattern preset</label>
+        <label class="form-label" for="lg-vprop-pattern">Value pattern</label>
         <select id="lg-vprop-pattern" class="form-input" data-inspector-vprop="pattern_preset">${patternOptions}</select>
-        <input class="form-input" type="text" data-inspector-vprop="pattern" placeholder="custom regex (custom preset only)" hidden />
+        <input class="form-input" type="text" data-inspector-vprop="pattern" placeholder="Regular expression — used only with Custom rule" hidden />
       </div>
       <div class="form-group lg-inspector-field" data-vprop-error-wrap hidden>
         <label class="form-label" for="lg-vprop-error">If it&#8217;s wrong, say</label>
@@ -2946,7 +3189,12 @@ export function renderStudioInspector(design: FunnelDesign, sectionPublicId: str
       <label class="studio-maps-job-row"><input type="checkbox" data-maps-job="validate" /><span><span class="lg-check-label">Validate the answer</span><span class="form-help" data-maps-validate-copy></span></span></label>
       <label class="studio-maps-job-row"><input type="checkbox" data-maps-job="auction" /><span><span class="lg-check-label">Use in auction rules</span><span class="form-help">Turn the ZIP into a location the auction can target or exclude by state, city or ZIP. <a href="/admin/leadgen/auction" data-open-auction-rules>Open auction rules &#8594;</a></span></span></label>
       <p class="form-help studio-maps-degradation" data-maps-degradation-note hidden>State and city targeting need the server key — without it, only the ZIP itself is available to auction rules.</p>
-      <label class="studio-maps-job-row"><input type="checkbox" data-maps-job="autocomplete" /><span><span class="lg-check-label">Auto-complete the address</span><span class="form-help">Fill this field and the other address fields in this section (city, state, street) from the ZIP.</span></span></label>
+      <!-- R2 P8 M4: the sub-copy said "from the ZIP" on EVERY node, including an
+           Address, where the visitor types the street and Google fills the rest
+           — the reverse of what it described. populateMapsTab now writes the
+           per-mode sentence live, the same way data-maps-validate-copy already
+           does; the text below is only the pre-JS first-paint fallback. -->
+      <label class="studio-maps-job-row"><input type="checkbox" data-maps-job="autocomplete" /><span><span class="lg-check-label">Auto-complete the address</span><span class="form-help" data-maps-autocomplete-copy>As the visitor types, Google suggests real addresses and fills the matching fields in this section.</span></span></label>
       <!-- R4b (S3-7): sibling-fill picker — shown only while autocomplete is
            on. Options are populated client-side from this Section's OTHER
            internal_field values (self excluded); writes
@@ -3125,7 +3373,10 @@ function renderSectionOverridesPanel(): string {
   </div>
   <div class="form-group lg-inspector-field">
     <label class="form-label" for="lg-section-gap-default">Default answer-grid gap</label>
-    <select id="lg-section-gap-default" class="form-input" data-section-gap-default><option value="">Inherited</option>${options(LEADGEN_GAP_TOKENS)}</select>
+    <select id="lg-section-gap-default" class="form-input" data-section-gap-default><option value="">Inherited</option>${options(
+      LEADGEN_GAP_TOKENS,
+      LEADGEN_GAP_TOKENS.map((v) => GAP_SIZE_LABELS[v]),
+    )}</select>
   </div>
 </div>`;
 }
@@ -3537,6 +3788,11 @@ export const SECTION_STUDIO_STYLES = `
    moved into SECTION_STUDIO_CANVAS_FRAME_CSS (inside the frame document). */
 .studio-canvas-frame{display:block;border:0;width:1280px;max-width:none;height:320px;margin:0 auto;background:#fff}
 .studio-canvas-empty{position:absolute;inset:0;display:flex;flex-direction:column;align-items:center;justify-content:center;color:var(--c-muted);pointer-events:none}
+/* R2 P8 M6/R4: the reach-a-hidden-question row. It sits UNDER the canvas frame
+   in the parent page (never inside the previewed iframe) — geometry only, no
+   colour of its own: the note reuses .form-help and the picks reuse the admin
+   .btn skin, so this rule introduces no new palette value. */
+.studio-canvas-hidden{display:flex;flex-wrap:wrap;align-items:center;gap:6px;margin:10px auto 0;max-width:1280px}
 /* v3.1 §6.3 frame-hint skeleton (golden 298-305/360-365): opacity/padding/
    pointer-events now ride the element's OWN inline style (byte-matching the
    golden literal — Gate 1a); user-select survives as the one property the
@@ -3831,6 +4087,10 @@ export const SECTION_STUDIO_STYLES = `
 .studio-addr-row{display:flex;align-items:center;gap:6px;border:1px solid var(--c-border);border-radius:8px;padding:7px;margin-bottom:6px;flex-wrap:wrap;background:${STUDIO_COLOR.white}}
 .studio-addr-row.studio-addr-dragging{opacity:.5}
 .studio-addr-cell{display:flex;flex-direction:column;gap:2px;min-width:0}
+/* R2 P8 M4: the custom-pattern pair takes its own full line inside the row so
+   the Field/Label/Mode/Validation cells above keep theirs. */
+.studio-addr-custom{flex:1 1 100%;display:flex;gap:6px;margin-top:4px}
+.studio-addr-custom>.studio-addr-cell{flex:1 1 0}
 .studio-addr-cell-label{font-size:9px;font-weight:700;color:${STUDIO_COLOR.mutedLabel};text-transform:uppercase;letter-spacing:.03em}
 .studio-addr-handle{cursor:grab;color:${STUDIO_COLOR.muted};flex:0 0 auto}
 .studio-addr-menu{border:1px solid var(--c-border);border-radius:8px;padding:4px;margin-top:6px;background:${STUDIO_COLOR.white}}
@@ -6083,6 +6343,36 @@ export const SECTION_STUDIO_SCRIPT = `
           }
         }
       }
+      // R2 P8 M4 (owner A.1 #6): the custom per-address-field pattern is
+      // authored here, so an unusable one must be caught HERE — at authoring
+      // time, in the register the publish blocker speaks ("<thing> has <the
+      // problem> — <the fix>"), not as a silent no-rule at runtime
+      // (validateAddressField skips an unparseable pattern) nor as a bare 400.
+      // Mirrors content-schema.validateAddressFields' own two simple legs; the
+      // server stays authoritative on save (its catastrophic-shape leg has no
+      // twin here and keeps its own operator-voiced message).
+      if (node.props && node.props.fields && node.props.fields.length) {
+        // Local, not the module-level ADDRESS_DEFAULT_LABELS: computeIssues is
+        // sliced and run STANDALONE by the island vm-probes, so it may only
+        // reach the free names those harnesses already provide.
+        var AF_LABELS = { street: 'Street address', city: 'City', state: 'State', zip: 'ZIP code', full_address: 'Address' };
+        var afi, afSpec, afRule, afLabel;
+        for (afi = 0; afi < node.props.fields.length; afi++) {
+          afSpec = node.props.fields[afi];
+          if (!afSpec || typeof afSpec !== 'object') { continue; }
+          afRule = afSpec.validation;
+          if (!afRule || typeof afRule !== 'object') { continue; }
+          afLabel = trimStr(afSpec.label) !== '' ? trimStr(afSpec.label) : (AF_LABELS[afSpec.field] || afSpec.field);
+          if (typeof afRule.regex !== 'string' || trimStr(afRule.regex) === '') {
+            issues.push({ qid: node.question_id, message: label + '’s ' + afLabel + ' field has a custom rule with no pattern — enter the pattern, or switch that field’s rule off' });
+          } else if (afRule.regex.length > 200) {
+            issues.push({ qid: node.question_id, message: label + '’s ' + afLabel + ' field has a custom pattern longer than 200 characters — shorten it, or switch that field’s rule off' });
+          } else {
+            try { new RegExp(afRule.regex); }
+            catch (afErr) { issues.push({ qid: node.question_id, message: label + '’s ' + afLabel + ' field has a custom pattern the browser cannot read — fix the pattern, or switch that field’s rule off' }); }
+          }
+        }
+      }
       var i, k, props = node.props || {};
       var tp = req.text_props || [];
       for (i = 0; i < tp.length; i++) {
@@ -6511,11 +6801,24 @@ export const SECTION_STUDIO_SCRIPT = `
     var subEl = document.getElementById('lg-section-subheadline');
     // §6.1.4: the canvas viewport is SERVER-rendered (viewport param); §9.5:
     // the Section overrides ride as layer 4 so the canvas shows them live.
+    // R2 P8 M6/R4: ask the preview endpoint for the VISITOR'S RESTING STATE,
+    // not the raw full render. sim.answers = {} is the empty answer BASIS (the
+    // visitor has answered nothing yet) — the handler then seeds every authored
+    // default through normalizeAnswers, drops dependency-hidden leaves via
+    // evaluateDependencies, and (state 'selected') writes the same
+    // lg-selected / aria-checked="true" the runtime's applySelectionClasses
+    // writes on section entry. The canvas iframe runs no script (its srcdoc
+    // pins script-src 'none'), so this is the ONLY way it can show what the
+    // visitor sees; the SSR first paint composes the identical sequence in
+    // studioCanvasRestingHtml. NOTE: sim.answers MUST be present — the handler
+    // treats a null answers block as "no basis" and skips the dependency pass
+    // entirely.
     var canvasBody = {
       content_json: JSON.stringify(state.content),
       viewport: canvasViewport,
       headline: headEl ? headEl.value : '',
-      subheadline: subEl ? subEl.value : ''
+      subheadline: subEl ? subEl.value : '',
+      sim: { state: 'selected', answers: {} }
     };
     if (state.design_overrides) { canvasBody.design_overrides = state.design_overrides; }
     fetch('/api/admin/leadgen/sections/preview', {
@@ -6640,6 +6943,17 @@ export const SECTION_STUDIO_SCRIPT = `
       if (!host) { continue; }
       qid = host.getAttribute('data-question-id');
       if (typeMeta(host.getAttribute('data-component-type')).choice !== true) { continue; }
+      // R2 P8 M7 (contract §4 R3 corollary: "A control that cannot be honoured
+      // must not be offered"). THREE renderers put data-lg-choice on a NATIVE
+      // <option>: presets.ts otherSelectMarkup (:467, inside a hidden select),
+      // renderDropdownQuestion (:1932) and renderSearchableDropdownQuestion
+      // (:1988). An <option> paints no element child and routes no click to
+      // one, so all five option-borne remove-x measured 0x0 / clickable:false
+      // — chrome inside a native control, offering a removal that cannot
+      // happen. Skipped here; a dropdown choice is removed on the inspector's
+      // Choices tab (its per-row [data-choice-remove] button), the surface
+      // that has always actually worked for it.
+      if (String(card.tagName || '').toUpperCase() === 'OPTION') { continue; }
       card.setAttribute('draggable', 'true');
       if (qid === selectedQuestionId && selectedChoiceValue !== null && card.getAttribute('data-lg-choice') === String(selectedChoiceValue)) {
         card.className = card.className + ' studio-choice-selected';
@@ -6674,7 +6988,21 @@ export const SECTION_STUDIO_SCRIPT = `
       // §10 removal: the MultiQuestionGrid canvas affordance ("+ Add a
       // sub-question" strip + zero-row empty-state box) is gone with the grid
       // editor — the palette starter (§4.1) inserts independent components.
-      if (typeMeta(type).choice === true) {
+      // R2 P8 M7: "+ Add choice ghosts also render for dropdowns" — a ghost
+      // row under a native <select> whose own choices carry no canvas
+      // affordance at all (their remove-x is skipped above as unhonourable).
+      // The predicate is the RENDERED markup, never a hardcoded type list
+      // (§6.4 matrix discipline): skip the ghost only when this node HAS
+      // choices and every one of them is a native <option>. A choice node
+      // with none yet keeps its ghost — that is when the operator needs it
+      // most. Dropdown choices are added on the inspector's Choices tab
+      // (#lg-choice-add), outside the preview.
+      var nodeChoices = nodes[i].querySelectorAll('[data-lg-choice]');
+      var ghostable = nodeChoices.length === 0, nc;
+      for (nc = 0; nc < nodeChoices.length; nc++) {
+        if (String(nodeChoices[nc].tagName || '').toUpperCase() !== 'OPTION') { ghostable = true; }
+      }
+      if (typeMeta(type).choice === true && ghostable) {
         // Rework §6.1 (#1/#3/#9): the "+ Add choice" ghost is a SIBLING row
         // inserted immediately AFTER the component root (never a grid cell,
         // never inside the component's border) — left-aligned under the box,
@@ -7282,6 +7610,73 @@ export const SECTION_STUDIO_SCRIPT = `
     // alignment contract holds for all of them; only the RESIZE affordance
     // is type-gated).
     var sizeConsuming = !!(node && isSizeConsumingType(node.type));
+    // R2 P8-5 M-1 (contract N16: "selection badges occlude grid question 1's
+    // label"). The badge row below is anchored to the FIELD box, whose top
+    // excludes the question's own <span class="lg-label"> — presets.ts renders
+    // that label as the field's PRECEDING sibling with about 4px of clearance,
+    // so the golden oy-28 row lands squarely on the operator's own words.
+    // MEASURED before this fix, identically at 1280 and 375: the "Yes / No"
+    // tag box y 191-212 over label "Are you insured?" y 199-215 (overlap
+    // 62.2px x 13px of a 16px-tall label), and the "Phone" tag y 382-403 over
+    // label "Phone" y 390-406 — so it was never grid-specific, it hit every
+    // labelled field. An earlier round moved the CONTAINER chip clear
+    // (.studio-container-chip top:0 -> -18px, :1245) and left this row where
+    // it was; that chip is the second badge in the same band and is why this
+    // one cannot simply be raised by a fixed amount (above the label at
+    // y 171-192 it would have covered the chip at y 181-197 instead).
+    //
+    // So the row is MEASURED into the nearest clear band instead of guessed:
+    // start at the golden offset and, while the band intersects something the
+    // chrome must not paint over (a rendered .lg-label, or a container chip),
+    // climb to just above the highest thing it hits. Bounded to 4 climbs. A
+    // field with nothing above it keeps the golden oy-28 row exactly, so
+    // this changes NO placement that was already clear.
+    // MEASURED after, by scripts/p8/probe-p85g1.mjs at 1280 AND 375: the
+    // "Yes / No" tag y 156-177 (label 199-215, container chip 181-197 — both
+    // clear), the "Phone" tag y 365-386 (label 390-406 — clear), and on a node
+    // carrying design_overrides.size.width.custom_px the Custom badge rides
+    // the same measured row (tag y 26-47, badge y 26-46, overlap none). The
+    // other two selection badges were measured unchanged and already clear:
+    // decorateSimpleSelection's tag (continue y 790-812; headline y 39-60 with
+    // the headline text at 69-105) and the container chip. Every read is
+    // guarded:
+    // decorateFieldSelection is vm-sliced against a minimal fake DOM
+    // (leadgen-r2-canvas.test.ts) whose elements have no ownerDocument and
+    // whose document has no querySelectorAll — there the loop finds nothing
+    // and the golden offset stands.
+    var BADGE_ROW_H = 21; // measured height of the 11px/4px-padded tag
+    var badgeTop = oy - 28;
+    var protRects = [];
+    var pDoc = (el && el.ownerDocument) ? el.ownerDocument : null;
+    if (pDoc && typeof pDoc.querySelectorAll === 'function' && wrap.getBoundingClientRect) {
+      var protEls = pDoc.querySelectorAll('.lg-label,.studio-container-chip');
+      var pi, pEl, pr;
+      for (pi = 0; pi < protEls.length; pi++) {
+        pEl = protEls[pi];
+        if (!pEl.getBoundingClientRect || !(pEl.offsetWidth || pEl.offsetHeight)) { continue; }
+        pr = pEl.getBoundingClientRect();
+        if (pr.width <= 0 || pr.height <= 0) { continue; }
+        // wrap-relative, the same coordinate space ox/oy live in
+        protRects.push({ top: pr.top - wr.top, bottom: pr.top + pr.height - wr.top, left: pr.left - wr.left, right: pr.left + pr.width - wr.left });
+      }
+    }
+    var climb, bandTop, bandBottom, hitTop, pj, rr;
+    for (climb = 0; climb < 4 && protRects.length > 0; climb++) {
+      bandTop = badgeTop;
+      bandBottom = badgeTop + BADGE_ROW_H;
+      hitTop = null;
+      for (pj = 0; pj < protRects.length; pj++) {
+        rr = protRects[pj];
+        // The badge's own width is not known until it is in the document, so
+        // the horizontal test uses the FIELD's span as the conservative proxy
+        // (the badge is always anchored inside it).
+        if (rr.bottom > bandTop && rr.top < bandBottom && rr.right > ox && rr.left < ox + ow) {
+          if (hitTop === null || rr.top < hitTop) { hitTop = rr.top; }
+        }
+      }
+      if (hitTop === null) { break; }
+      badgeTop = hitTop - 4 - BADGE_ROW_H;
+    }
     var outline = frameCreate('div');
     outline.setAttribute('data-selection-chrome', '1');
     // The outline's border-box is COINCIDENT with the field box (measured), so
@@ -7321,7 +7716,7 @@ export const SECTION_STUDIO_SCRIPT = `
     // OTHER field-chrome type keeps the tag inert (pointer-events:none) —
     // their body IS the grab surface via the delegated onFieldMoveMouseDown.
     var isChoiceBearing = !!(node && typeMeta(node.type).choice === true);
-    tag.style.cssText = 'position:absolute;top:' + (oy - 28) + 'px;left:' + ox + 'px;' + 'background:#1B3A5C;color:#fff;font-size:11px;font-weight:600;padding:4px 9px;border-radius:6px 6px 6px 0;white-space:nowrap;' + (isChoiceBearing ? 'pointer-events:auto;cursor:move' : 'pointer-events:none');
+    tag.style.cssText = 'position:absolute;top:' + badgeTop + 'px;left:' + ox + 'px;' + 'background:#1B3A5C;color:#fff;font-size:11px;font-weight:600;padding:4px 9px;border-radius:6px 6px 6px 0;white-space:nowrap;' + (isChoiceBearing ? 'pointer-events:auto;cursor:move' : 'pointer-events:none');
     if (isChoiceBearing) {
       // a STABLE, semantic locator for the move-arming path above (over a
       // DOM-order-dependent one) — real-gesture specs target this directly.
@@ -7335,7 +7730,16 @@ export const SECTION_STUDIO_SCRIPT = `
     // operator name, the SAME label the inspector scope header uses
     // (typeLabel/STUDIO_TYPE_META), so the canvas tag never lies about what's
     // selected (adversarial review M2).
-    tag.appendChild(document.createTextNode(node && acceptFormatOfNode(node) ? 'Short text field' : typeLabel(node ? node.type : '')));
+    // N16 (contract §7): Phone and Address are technically two of the 8
+    // Accept-swap types (still swappable — untouched below), but each has its
+    // OWN operator-meaningful capability the generic "Short text field" label
+    // hides (Phone's mask, Address's field-set/Maps autofill) — measured live:
+    // both always titled "Short text field", making an authored Address/Phone
+    // field un-findable by its real name. STUDIO_TYPE_META already carries
+    // real labels for both ("Phone"/"Address") — only these two are excluded
+    // from the shared label; the other 6 (ZIP included — pinned by existing
+    // specs) are unchanged.
+    tag.appendChild(document.createTextNode(node && acceptFormatOfNode(node) && node.type !== 'PhoneInputQuestion' && node.type !== 'AddressAutocompleteQuestion' ? 'Short text field' : typeLabel(node ? node.type : '')));
     wrap.appendChild(tag);
     // R2 S1-4: the custom badge covers EITHER axis (width takes precedence when
     // both are custom; the inspector's two chips disambiguate). Format is the
@@ -7350,7 +7754,10 @@ export const SECTION_STUDIO_SCRIPT = `
     if (sizeConsuming && (customPxW !== null || customPxH !== null)) {
       var badge = frameCreate('div');
       badge.setAttribute('data-selection-chrome', '1');
-      badge.style.cssText = 'position:absolute;top:' + (oy - 28) + 'px;left:' + (ox + ow) + 'px;transform:translateX(-100%);' + 'background:#1B3A5C;color:#fff;font-size:10.5px;font-weight:700;padding:4px 8px;border-radius:6px 6px 0 6px;pointer-events:none;white-space:nowrap';
+      // M-1: the Custom badge shares the name tag's row, so it rides the SAME
+      // measured badgeTop — otherwise raising one badge off the label would
+      // have left the other one sitting on it.
+      badge.style.cssText = 'position:absolute;top:' + badgeTop + 'px;left:' + (ox + ow) + 'px;transform:translateX(-100%);' + 'background:#1B3A5C;color:#fff;font-size:10.5px;font-weight:700;padding:4px 8px;border-radius:6px 6px 0 6px;pointer-events:none;white-space:nowrap';
       badge.appendChild(document.createTextNode('≈ ' + (customPxW !== null ? customPxW : customPxH) + ' px · custom'));
       wrap.appendChild(badge);
     }
@@ -7407,6 +7814,9 @@ export const SECTION_STUDIO_SCRIPT = `
     // this stale-cleanup set or every re-render stacks another ghost (the
     // accumulation S2.5 caught). The legacy .studio-choice-ghost stays for any
     // remaining canvas ghost usage.
+    // R2 P8 M6/R4: .studio-maps-chip stays in this CLEANUP set on purpose even
+    // though nothing creates it anymore — a page loaded before the fix (or any
+    // future re-introduction) must still be swept out of the preview.
     var stale = region.querySelectorAll('.studio-maps-chip, .studio-frame-badge, .studio-add-ghost-row, .studio-choice-ghost, .studio-choice-x, .studio-resize-handle, .studio-mapoverlay-chip, .studio-container-chip');
     var i;
     for (i = 0; i < stale.length; i++) {
@@ -7414,7 +7824,7 @@ export const SECTION_STUDIO_SCRIPT = `
     }
     clearSelectionChrome(region);
     var nodes = region.querySelectorAll('[data-question-id]');
-    var qid, base, ref, labels, chip, nodeType, chromeKind;
+    var qid, base, ref, nodeType, chromeKind;
     var selEl = null, selKind = null, selNode = null, selQid = null;
     for (i = 0; i < nodes.length; i++) {
       qid = nodes[i].getAttribute('data-question-id');
@@ -7439,19 +7849,15 @@ export const SECTION_STUDIO_SCRIPT = `
       if (typeMeta(nodeType).scope === 'frame' && keptLegacyFrameNodes[qid] !== true && nodes[i].parentNode) {
         nodes[i].parentNode.insertBefore(buildFrameBadge(qid, nodeType), nodes[i]);
       }
-      // chip: "fills: city, state" from the config's autofill keys. Inserted
-      // as a SIBLING (the ZIP node element is the <input> itself — it cannot
-      // contain children).
-      labels = ref ? mapsFillLabels(ref.node) : [];
-      if (labels.length > 0 && nodes[i].parentNode) {
-        chip = frameCreate('span');
-        chip.className = 'studio-maps-chip';
-        chip.setAttribute('data-studio-maps-chip', '');
-        chip.setAttribute('data-chip-for', qid);
-        chip.setAttribute('data-fills', labels.join(','));
-        chip.appendChild(document.createTextNode('fills: ' + labels.join(', ')));
-        nodes[i].parentNode.insertBefore(chip, nodes[i].nextSibling);
-      }
+      // R2 P8 M6/R4 — the "fills: city" chip is GONE from the canvas. It was
+      // pure editor decoration injected into the surface the owner reads as
+      // "a real reference of how is design is gonna look like in real life",
+      // and the live page has no equivalent (measured R4 row "Injected editor
+      // chrome | … fills: city chip | none"). The information it repeated is
+      // authored — and shown — where it belongs: the inspector's Maps tab
+      // autofill block ([data-maps-fills-block], one picker per slot with its
+      // own explainer), which is outside the preview. mapsFillLabels itself
+      // stays (nodeMapsEnabled reads it for legacy stored content).
       // §6.2 golden selection chrome (field 8-handles / headline / continue):
       // only the CURRENTLY selected node, and only these 3 golden kinds
       // (containers keep their existing .studio-resize-handle mechanism). CAPTURE
@@ -7476,6 +7882,57 @@ export const SECTION_STUDIO_SCRIPT = `
     else if (selKind === 'headline' || selKind === 'continue') { decorateSimpleSelection(selEl, selKind); }
     // badges/chips/handles change the document height — keep the frame sized.
     updateCanvasFrameHeight();
+    // R2 P8 M6/R4: the canvas now paints the RESTING state, so a question a
+    // dependency hides is not on it. Keep it reachable to AUTHOR — outside the
+    // previewed surface (see updateCanvasHiddenList). typeof-guarded like
+    // showCanvasPreviewError above: applyCanvasDecoration is sliced standalone
+    // into vm probes with a fixed collaborator list.
+    if (typeof updateCanvasHiddenList !== 'undefined') { updateCanvasHiddenList(); }
+  }
+  // R2 P8 M6/R4 — REACHING A QUESTION THE PREVIEW DOES NOT SHOW.
+  // The canvas is a preview of what the visitor sees at rest, so a
+  // dependency-hidden question is not painted there (the live page hides it
+  // too). That must not make it un-editable, and the answer is NOT to put
+  // editor chrome back into the preview: this list lives in the canvas PANEL,
+  // under the frame, in the parent page — never inside the iframe the owner
+  // reads as the preview. Clicking one selects it, so the inspector opens on it
+  // exactly as a canvas click would.
+  // The withheld set is DERIVED from the real render (model answer-producing
+  // nodes minus the ids the server actually painted) — the island never
+  // re-evaluates a dependency, so there is still exactly ONE dependency engine.
+  function hiddenPickHandler(qid) {
+    return function () { selectComponent(qid); };
+  }
+  function updateCanvasHiddenList() {
+    var host = document.querySelector('[data-canvas-hidden]');
+    if (!host) { return; }
+    clearChildren(host);
+    var region = canvasRegion();
+    var painted = {}, els = region ? region.querySelectorAll('[data-question-id]') : [], i;
+    for (i = 0; i < els.length; i++) { painted[els[i].getAttribute('data-question-id')] = true; }
+    var missing = [];
+    walkTree(state.content.components, 1, function (n) {
+      if (n && n.question_id && painted[n.question_id] !== true && typeMeta(n.type).produces) { missing.push(n); }
+    });
+    host.hidden = missing.length === 0;
+    if (missing.length === 0) { return; }
+    var note = document.createElement('span');
+    note.className = 'form-help';
+    note.appendChild(document.createTextNode(missing.length === 1
+      ? 'Not on the page at the start \\u2014 a rule shows this question once the visitor answers:'
+      : 'Not on the page at the start \\u2014 a rule shows these questions once the visitor answers:'));
+    host.appendChild(note);
+    var btn, text;
+    for (i = 0; i < missing.length; i++) {
+      btn = document.createElement('button');
+      btn.type = 'button';
+      btn.className = 'btn btn-sm btn-outline';
+      btn.setAttribute('data-canvas-hidden-pick', missing[i].question_id);
+      text = (missing[i].props && trimStr(missing[i].props.label) !== '') ? trimStr(missing[i].props.label) : typeLabel(missing[i].type);
+      btn.appendChild(document.createTextNode(text));
+      btn.addEventListener('click', hiddenPickHandler(missing[i].question_id));
+      host.appendChild(btn);
+    }
   }
   // PC-A6 container-select affordance: a small click-to-select label chip
   // anchored at each container's top-left. position:absolute (CSS) → it is
@@ -7575,7 +8032,12 @@ export const SECTION_STUDIO_SCRIPT = `
     // 8-value Accept-swap family — the SAME special-case decorateFieldSelection
     // already applies to the canvas name-tag (its own comment names this
     // exact parity goal); every other field type keeps its own catalog label.
-    if (scopeState === 'component' && node) { return acceptFormatOfNode(node) ? 'Short text field' : typeLabel(node.type); }
+    // N16: Phone and Address are excluded from the shared label (the SAME
+    // parity exclusion as decorateFieldSelection's canvas tag, and for the
+    // SAME reason — measured live: "Editing: Short text field" hid a real
+    // Phone/Address selection from the operator). ZIP and the rest of the
+    // family are unchanged (pinned by existing specs).
+    if (scopeState === 'component' && node) { return (acceptFormatOfNode(node) && node.type !== 'PhoneInputQuestion' && node.type !== 'AddressAutocompleteQuestion') ? 'Short text field' : typeLabel(node.type); }
     return 'This Section (question unit)';
   }
   // §8.1 "what it is" one-line description. Three rows are contract-ASSERTED
@@ -8610,6 +9072,16 @@ export const SECTION_STUDIO_SCRIPT = `
     if (toggle) { toggle.checked = enabled; }
     if (jobsBlock) { jobsBlock.hidden = !enabled; }
     if (validateCopy) { validateCopy.textContent = mapsValidateCopyFor(mode); }
+    // R2 P8 M4 — the autocomplete sub-copy, per mode. Inlined here rather than
+    // given its own helper for the reason stated in the NOTE above this
+    // section (the studioProbe harness runs this function against a fixed
+    // function allowlist this file must not require a change to).
+    var autoCopy = document.querySelector('[data-maps-autocomplete-copy]');
+    if (autoCopy) {
+      autoCopy.textContent = mode === 'address'
+        ? 'As the visitor types their street address, Google suggests real addresses and fills the rest of this address for them — pick which fields below in the Fields list.'
+        : 'Google turns the ZIP the visitor enters into a real place and fills the address fields in this section (city, state, street).';
+    }
     var jobEls = document.querySelectorAll('[data-maps-job]');
     var i, k, j, slot, sel, opt, current;
     for (i = 0; i < jobEls.length; i++) {
@@ -8648,6 +9120,96 @@ export const SECTION_STUDIO_SCRIPT = `
         }
         var cfg = mapsConfigOf(node);
         var fills = (cfg && cfg.fills && typeof cfg.fills === 'object') ? cfg.fills : {};
+        // R2 P8 R6-2 (owner A.1 #6 "every component that include more than one
+        // field- each field is potentially answering another offer field"): a
+        // fill target IS the answer key that field writes, so two slots aimed
+        // at one target is one answer key with two sources — the buyer gets
+        // whichever wrote last, and nothing said so. Below: which slot already
+        // holds each target, so the OTHER slots can neither hand it out
+        // silently nor hide that it is taken. Not a save gate (§1) — the
+        // picker just stops offering a key that is already spoken for, and
+        // names who has it.
+        var takenBy = {}, tk, tv;
+        for (tk in fills) {
+          if (Object.prototype.hasOwnProperty.call(fills, tk)) {
+            tv = fills[tk];
+            if (typeof tv === 'string' && trimStr(tv) !== '' && takenBy[tv] === undefined) { takenBy[tv] = tk; }
+          }
+        }
+        // R2 P8-5 B-1 (contract R6-2, verbatim: "The 'fills' picker renames a
+        // sub-field's own key and can collide. ... The picker deliberately
+        // offers exactly the siblings that collide."). The takenBy map above
+        // bounded the collision universe at the FOUR slots. It is wider than
+        // that: for a slot this Address actually RENDERS, props.maps.fills
+        // .<slot> RENAMES that visible box's own data-lg-field (presets.ts
+        // m9AddressFieldName), so aiming it at a key another question already
+        // answers puts TWO visible inputs on ONE answer key and the buyer
+        // keeps whichever wrote last. Driven on the real Studio before this
+        // fix: City -> a sibling FreeTextQuestion's key "town_field" was
+        // offered enabled, saved 200 with no problem, stored
+        // props.maps.fills={"city":"town_field"} and rendered
+        // data-lg-field="town_field" TWICE while addr_city disappeared from
+        // the markup entirely.
+        //
+        // So those siblings get exactly the treatment a slot-taken key already
+        // gets — SHOWN, NAMED, not claimable — with the universe widened from
+        // the four slots to the section, as far as the collision reaches and
+        // no further. This is NOT a save gate (§1): nothing new blocks a save,
+        // and a target ALREADY stored still shows as stored and stays
+        // selected, so no authored value is silently dropped.
+        //
+        // A slot this Address does NOT render is untouched: there is no rename
+        // there, the runtime just writes the resolved part into the sibling's
+        // own box (runtime/maps.ts fillTarget), one key with one input — that
+        // is the feature, and it stays freely selectable.
+        var rendersSlot = { street: true, city: true, state: true, zip: true };
+        var pfSpecs = (node && node.props && Array.isArray(node.props.fields)) ? node.props.fields : null;
+        if (pfSpecs) {
+          // props.fields[] absent means the renderer's own default 4-field
+          // spec (presets.ts ADDRESS_DEFAULT_FIELD_SPECS); authored means
+          // exactly the rows authored, and a lone full_address renders no
+          // per-slot box at all.
+          rendersSlot = { street: false, city: false, state: false, zip: false };
+          for (i = 0; i < pfSpecs.length; i++) {
+            if (pfSpecs[i] && typeof pfSpecs[i].field === 'string' && rendersSlot[pfSpecs[i].field] !== undefined) { rendersSlot[pfSpecs[i].field] = true; }
+          }
+        }
+        // Which OTHER node in this Section already answers each key, and what
+        // the operator calls it. Same derivation internalFieldsOf uses for the
+        // section's answer space (own internal_field; an Address's four role
+        // names; a NameFieldsGroup's two part names) — repeated inline here for
+        // the SAME reason stated in the NOTE above this section, and skipping
+        // THIS node so its own current targets never look self-taken.
+        var ownedBy = {};
+        walkTree(state.content.components, 1, function (n) {
+          if (n === node) { return; }
+          // The owner's authored "Field label (only you see this)" if it has
+          // one. With none there is nothing truthful to name — the raw key
+          // echoed back at itself ("town_field — already answered by
+          // town_field") says nothing, and the bare type name ("Text") names
+          // the wrong thing — so it says "another question" instead.
+          var oLabel = (n.props && typeof n.props.label === 'string' && trimStr(n.props.label) !== '') ? trimStr(n.props.label) : 'another question';
+          var oClaim = function (key) {
+            if (key && trimStr(key) !== '' && ownedBy[trimStr(key)] === undefined) { ownedBy[trimStr(key)] = oLabel; }
+          };
+          if (n.internal_field) { oClaim(n.internal_field); }
+          if (n.type === 'AddressAutocompleteQuestion') {
+            var obRoles = ['street', 'city', 'state', 'zip'];
+            var obMaps = n.props && n.props.maps;
+            var obFills = (obMaps && typeof obMaps === 'object' && obMaps.fills && typeof obMaps.fills === 'object') ? obMaps.fills : {};
+            var obBase = (n.internal_field && trimStr(n.internal_field) !== '') ? trimStr(n.internal_field) : (n.question_id || 'address');
+            var obi;
+            for (obi = 0; obi < obRoles.length; obi++) {
+              oClaim((typeof obFills[obRoles[obi]] === 'string' && trimStr(obFills[obRoles[obi]]) !== '') ? trimStr(obFills[obRoles[obi]]) : (obBase + '_' + obRoles[obi]));
+            }
+          }
+          if (n.type === 'NameFieldsGroup') {
+            var obF = (n.props && Array.isArray(n.props.fields)) ? n.props.fields : [];
+            oClaim((typeof obF[0] === 'string' && trimStr(obF[0]) !== '') ? trimStr(obF[0]) : 'first');
+            oClaim((typeof obF[1] === 'string' && trimStr(obF[1]) !== '') ? trimStr(obF[1]) : 'last');
+          }
+        });
+        var MAPS_SLOT_LABELS = { street: 'Street', city: 'City', state: 'State', zip: 'ZIP' };
         var selects = document.querySelectorAll('[data-maps-fill-slot]');
         for (i = 0; i < selects.length; i++) {
           sel = selects[i];
@@ -8663,16 +9225,63 @@ export const SECTION_STUDIO_SCRIPT = `
           // node-namespaced name internalFieldsOf already lists as a rule source,
           // so choosing it makes the role a real, mapped, rule-visible field with
           // zero naming decisions.
-          if (current === '') {
+          if (current === '' && takenBy[arBase + '_' + slot] === undefined) {
             opt = document.createElement('option');
             opt.value = arBase + '_' + slot;
-            opt.textContent = 'Create "' + (arBase + '_' + slot) + '"';
+            // R2 P8-5 H1 re-check: this default name is EXCLUDED from the
+            // others[] list (ownRoleNames), so the sibling annotation below
+            // never reaches it
+            // — yet a sibling question can carry that exact internal_field, and
+            // then the role's own box and that question are two visible inputs
+            // on one answer key. MEASURED (scripts/p8/probe-p85h1-tocttou.mjs
+            // stages C and D): with a sibling named the same, the served page
+            // put that key on 2 visible inputs and POST /lg/auction carried one
+            // value — IDENTICALLY with the fill stored and with no fill at all,
+            // so choosing this option is not what causes it and refusing the
+            // option would not prevent it. What the picker CAN do is stop being
+            // silent about it, so it names who already answers the key.
+            opt.textContent = 'Create "' + (arBase + '_' + slot) + '"' +
+              (ownedBy[arBase + '_' + slot] !== undefined ? ' — already answered by ' + ownedBy[arBase + '_' + slot] : '');
             sel.appendChild(opt);
           }
           for (j = 0; j < others.length; j++) {
             opt = document.createElement('option');
             opt.value = others[j];
-            opt.textContent = others[j];
+            // R2 P8 R6-2: a target another slot already fills is SHOWN (never
+            // quietly missing) and named, but cannot be picked — so the
+            // operator learns the key is spoken for instead of authoring two
+            // sources for one answer and finding out from a buyer.
+            if (takenBy[others[j]] !== undefined && takenBy[others[j]] !== slot) {
+              opt.textContent = others[j] + ' — already filled by ' + (MAPS_SLOT_LABELS[takenBy[others[j]]] || takenBy[others[j]]);
+              opt.disabled = true;
+            } else if (rendersSlot[slot] === true && ownedBy[others[j]] !== undefined && others[j] !== current) {
+              // R2 P8-5 B-1: this slot renders its OWN box, so picking a key
+              // another question already answers would put that key on two
+              // visible inputs. Shown and named, never claimable. (A value
+              // already stored here is the others[j] !== current case above:
+              // it stays selected and enabled so nothing authored vanishes.)
+              opt.textContent = others[j] + ' — already answered by ' + ownedBy[others[j]];
+              opt.disabled = true;
+            } else if (rendersSlot[slot] === true && ownedBy[others[j]] !== undefined) {
+              // R2 P8-5 H1: the STORED value (others[j] === current — the
+              // branch above deliberately skips it so nothing authored is
+              // dropped) on a slot that now renders its own box. The rule
+              // above runs at PICK time, and the rendered-slot set is editable
+              // afterwards: a fill chosen while this slot rendered NOTHING (a
+              // legitimate external fill) becomes a rename the moment the
+              // operator adds the field row, and nothing re-reads it. MEASURED
+              // before this line (scripts/p8/probe-p85h1-tocttou.mjs stage B):
+              // the picker showed the stored sibling key as a bare, unadorned
+              // option — the Studio surfaced no problem at all while the
+              // served page carried that key on 2 visible inputs.
+              // presets.ts m9AddressRenderedFieldName now declines to apply
+              // that rename, so this says what the visitor really gets. Stays
+              // SELECTED and ENABLED: the stored value is untouched, and
+              // re-picking it is not refused.
+              opt.textContent = others[j] + ' — not applied here: ' + ownedBy[others[j]] + ' already answers it';
+            } else {
+              opt.textContent = others[j];
+            }
             if (others[j] === current) { opt.selected = true; }
             sel.appendChild(opt);
           }
@@ -9772,8 +10381,11 @@ export const SECTION_STUDIO_SCRIPT = `
     boolSel.setAttribute('data-inspector-' + prefixAttr, 'value-bool');
     boolSel.setAttribute('aria-label', 'Boolean value');
     boolSel.hidden = true;
-    appendOption(boolSel, 'true', 'true');
-    appendOption(boolSel, 'false', 'false');
+    // Q9: the picker STORES true/false and READS Yes/No, matching the
+    // question-grid dependency editor's own boolean picker (appendOption
+    // boolSel yesLabel-or-Yes further down this island).
+    appendOption(boolSel, 'true', 'Yes');
+    appendOption(boolSel, 'false', 'No');
     row.appendChild(boolSel);
     var enumSel = document.createElement('select');
     enumSel.className = 'form-input';
@@ -11860,18 +12472,47 @@ export const SECTION_STUDIO_SCRIPT = `
       wrap.appendChild(styleControl.wrap);
     }
     // §7.3: value auto-suggested from the label while un-edited.
+    //
+    // R2 P8 R6-3 (owner A.1 #6/#8 -- the buyer receives what this row says).
+    // "Un-edited" now means THE BOX STILL HOLDS THE MACHINE'S OWN DERIVATION
+    // (the label's slug for 'value'; the value itself for 'analytics id'),
+    // not the old test "the box happened to be empty when the row was built".
+    // That old test could never be true for a row that arrives pre-filled --
+    // a sampleChoice row ('Option 1'/'option_1'), a stored row, or the seeded
+    // "Other" row ('Other option'/'other_option') -- so renaming the label
+    // left the ORIGINAL placeholder in the answer payload the auction sends
+    // to buyers. One rule now covers every row, with no provenance flag: the
+    // instant the operator types their OWN value (or analytics id) it stops
+    // matching the derivation and is never rewritten again.
+    // DELIBERATE, and visible: while a value IS the label's slug, renaming
+    // the label rewrites it IN FRONT OF THE OPERATOR (the Saved value cell
+    // sits next to the Label cell in the same row and updates as they type),
+    // so no stored identity changes without being on screen while it happens.
     var valueInput = inputsByField['value'];
+    var labelInput = inputsByField['label'];
+    var analyticsInput = inputsByField['analytics_id'];
     if (valueInput) {
-      valueInput.setAttribute('data-auto', valueInput.value === '' ? 'true' : 'false');
+      valueInput.setAttribute('data-auto', (valueInput.value === '' || (labelInput && valueInput.value === slugify(labelInput.value))) ? 'true' : 'false');
       valueInput.addEventListener('input', function () { this.setAttribute('data-auto', 'false'); });
     }
-    var labelInput = inputsByField['label'];
+    if (analyticsInput) {
+      analyticsInput.setAttribute('data-auto', (analyticsInput.value === '' || (valueInput && analyticsInput.value === valueInput.value)) ? 'true' : 'false');
+      analyticsInput.addEventListener('input', function () { this.setAttribute('data-auto', 'false'); });
+    }
     if (labelInput && valueInput) {
       labelInput.addEventListener('input', function () {
         if (valueInput.getAttribute('data-auto') === 'true') {
           valueInput.value = slugify(this.value);
+          if (analyticsInput && analyticsInput.getAttribute('data-auto') === 'true') { analyticsInput.value = valueInput.value; }
           collectChoices();
         }
+      });
+    }
+    // Second hop of the SAME rule: a value the operator types by hand still
+    // carries the analytics id with it for as long as THAT box is un-edited.
+    if (valueInput && analyticsInput) {
+      valueInput.addEventListener('input', function () {
+        if (analyticsInput.getAttribute('data-auto') === 'true') { analyticsInput.value = this.value; collectChoices(); }
       });
     }
     // §8.4: emoji ⊕ icon are mutually exclusive — choosing one clears the other.
@@ -11984,7 +12625,7 @@ export const SECTION_STUDIO_SCRIPT = `
     var wrap = document.createElement('div');
     wrap.className = 'lg-choice-row';
     wrap.setAttribute('data-other-row', '');
-    var i, field, cell, inp, valueInput = null, labelInput = null;
+    var i, field, cell, inp, valueInput = null, labelInput = null, analyticsInput = null;
     for (i = 0; i < OTHER_VALUE_FIELDS.length; i++) {
       field = OTHER_VALUE_FIELDS[i];
       cell = choiceCellWrap(field);
@@ -11999,17 +12640,39 @@ export const SECTION_STUDIO_SCRIPT = `
       inp.addEventListener('change', collectOther);
       if (field === 'value') { valueInput = inp; }
       if (field === 'label') { labelInput = inp; }
+      if (field === 'analytics_id') { analyticsInput = inp; }
       cell.appendChild(inp);
       wrap.appendChild(cell);
     }
     // §7.3 parity: value auto-suggested from the label while un-edited.
+    // R2 P8 R6-3: the SAME derivation rule buildChoiceRow now applies (see the
+    // long comment there) -- "un-edited" is "still holds the machine's own
+    // derivation", not "was empty at build time". This row is the one the
+    // owner's driven roast caught: toggleOtherEnabled seeds it NON-empty
+    // ('Other option' / 'other_option' / 'other_option'), so under the old
+    // emptiness test its data-auto was 'false' from the instant it existed and
+    // a rename could NEVER sync -- the literal 'other_option' was what landed
+    // in the visitor's answer payload and reached the buyer.
     if (valueInput) {
-      valueInput.setAttribute('data-auto', valueInput.value === '' ? 'true' : 'false');
+      valueInput.setAttribute('data-auto', (valueInput.value === '' || (labelInput && valueInput.value === slugify(labelInput.value))) ? 'true' : 'false');
       valueInput.addEventListener('input', function () { this.setAttribute('data-auto', 'false'); });
+    }
+    if (analyticsInput) {
+      analyticsInput.setAttribute('data-auto', (analyticsInput.value === '' || (valueInput && analyticsInput.value === valueInput.value)) ? 'true' : 'false');
+      analyticsInput.addEventListener('input', function () { this.setAttribute('data-auto', 'false'); });
     }
     if (labelInput && valueInput) {
       labelInput.addEventListener('input', function () {
-        if (valueInput.getAttribute('data-auto') === 'true') { valueInput.value = slugify(this.value); collectOther(); }
+        if (valueInput.getAttribute('data-auto') === 'true') {
+          valueInput.value = slugify(this.value);
+          if (analyticsInput && analyticsInput.getAttribute('data-auto') === 'true') { analyticsInput.value = valueInput.value; }
+          collectOther();
+        }
+      });
+    }
+    if (valueInput && analyticsInput) {
+      valueInput.addEventListener('input', function () {
+        if (analyticsInput.getAttribute('data-auto') === 'true') { analyticsInput.value = this.value; collectOther(); }
       });
     }
     var reorder = document.createElement('span');
@@ -12143,8 +12806,27 @@ export const SECTION_STUDIO_SCRIPT = `
     { field: 'state', mode: 'autofill' },
     { field: 'zip', mode: 'autofill', validation: 'zip5' }
   ];
+  // R2 P8 R6-4 (owner A.1 #6 "the mapping of what is auto-filled per field
+  // should definatly be an option"): this is now the SAME predicate the
+  // renderer computes under the SAME name -- presets.ts renderAddressFieldSet's
+  // own addressMapsEnabled reader: isNewMapsShape(raw) ? raw.enabled === true
+  // : true.
+  // It answers "will the RENDERER honour mode:autofill on this node", which is
+  // NOT "is the Maps toggle ticked": a node with NO props.maps at all (the
+  // unconfigured default every fresh Address starts as) renders the 4-field
+  // composite with street driving Places autocomplete and city/state/zip as its
+  // fill targets. The old body returned false for exactly that node, so the
+  // studio withheld the Autofill option, displayed Manual on all four rows, and
+  // collectAddressFields then PERSISTED mode:'manual' x4 the moment the
+  // operator touched any unrelated control -- the studio showing one thing, the
+  // visitor getting another, and then the studio's version silently winning.
+  // isNewMapsShape's own discriminator is typeof raw.jobs === 'object', so a
+  // pre-jobs flat config is treated as honouring autofill here exactly as it is
+  // there; only an explicit {jobs:...} config with enabled !== true turns it off.
   function addressMapsEnabled(node) {
-    return !!(node && node.props && node.props.maps && node.props.maps.enabled === true);
+    var raw = (node && node.props) ? node.props.maps : null;
+    var newShape = typeof raw === 'object' && raw !== null && !(raw instanceof Array) && typeof raw.jobs === 'object';
+    return newShape ? raw.enabled === true : true;
   }
   function addressFieldsOf(node) {
     if (node && node.props && node.props.fields && node.props.fields.length) { return node.props.fields; }
@@ -12216,15 +12898,28 @@ export const SECTION_STUDIO_SCRIPT = `
     modeSel.className = 'form-input';
     modeSel.setAttribute('data-address-field-mode', '');
     var manualOpt = document.createElement('option'); manualOpt.value = 'manual'; manualOpt.textContent = 'Manual'; modeSel.appendChild(manualOpt);
-    // P5 S5c (Maps honesty): "Autofill" needs BOTH this node's Maps toggle on
-    // (mapsOn) AND a REAL browser key — offering it with no key would allow
-    // the operator to author a mode that can never actually run (the field
-    // just silently behaves as Manual at runtime with no clue why). Keyless
-    // degrades the Mode select to Manual-only; populateAddressFieldSet's
-    // data-address-maps-note says so in plain words right above this table.
-    var autofillAllowed = mapsOn && mapsKeyIsConfigured();
-    if (autofillAllowed) { var autoOpt = document.createElement('option'); autoOpt.value = 'autofill'; autoOpt.textContent = 'Autofill'; modeSel.appendChild(autoOpt); }
-    modeSel.value = (fieldSpec.mode === 'autofill' && autofillAllowed) ? 'autofill' : 'manual';
+    var autoOpt = document.createElement('option'); autoOpt.value = 'autofill'; autoOpt.textContent = 'Autofill'; modeSel.appendChild(autoOpt);
+    // R2 P8 R6-4. Two rules, both now the RENDERER's:
+    //  1. What this row DISPLAYS is what presets.ts reads off it --
+    //     readAddressFieldSpecs resolves mode as: r.mode === 'manual' ?
+    //     'manual' : 'autofill'. Anything that is not the literal 'manual' IS
+    //     autofill to the product. The select mirrors that read, so an
+    //     unconfigured Address shows the 4x Autofill it actually renders.
+    //  2. The option is never WITHHELD, so the select can never coerce a stored
+    //     (or defaulted) 'autofill' down to 'manual' behind the operator's
+    //     back -- which is exactly how one tick of an unrelated Required box
+    //     used to persist mode:'manual' on all four fields.
+    // When the renderer will NOT honour autofill on this node (Maps explicitly
+    // off), the option is DISABLED rather than removed unless this row already
+    // stores it: offered-but-inert is the control R3's corollary forbids, and
+    // dropping the row's own stored value is the silent rewrite R6-4 is. The
+    // Maps browser key is deliberately NOT part of this test -- a key is a
+    // deployment fact, not an authoring one, and the note under this table
+    // already states plainly that a keyless funnel keeps the config and
+    // activates it the moment a key exists.
+    var storedAutofill = fieldSpec.mode !== 'manual';
+    autoOpt.disabled = !mapsOn && !storedAutofill;
+    modeSel.value = storedAutofill ? 'autofill' : 'manual';
     modeSel.addEventListener('change', collectAddressFields);
     modeCell.appendChild(modeSel);
     wrap.appendChild(modeCell);
@@ -12234,10 +12929,49 @@ export const SECTION_STUDIO_SCRIPT = `
     valSel.setAttribute('data-address-field-validation', '');
     var noneOpt = document.createElement('option'); noneOpt.value = 'none'; noneOpt.textContent = 'None'; valSel.appendChild(noneOpt);
     var zipOpt = document.createElement('option'); zipOpt.value = 'zip5'; zipOpt.textContent = 'ZIP (5 digits)'; valSel.appendChild(zipOpt);
-    valSel.value = (fieldSpec.validation === 'zip5') ? 'zip5' : 'none';
-    valSel.addEventListener('change', collectAddressFields);
+    // R2 P8 M4 (owner A.1 #6 "if I want to auto fill only for street address
+    // and city and I want the user will insert the Zip by himself but to
+    // validate the Zip in a 5 digits zip validation?"): the third rule the
+    // product has ALWAYS been able to run and the studio never offered.
+    // runtime/validation.ts validateAddressField already applies a per-field
+    // {regex, message} (and content-schema.validateAddressFields already
+    // accepts it and rejects a bad one with a real message) -- this wires the
+    // existing capability to a control instead of inventing a second engine.
+    var customValOpt = document.createElement('option'); customValOpt.value = 'custom'; customValOpt.textContent = 'Custom pattern'; valSel.appendChild(customValOpt);
+    var storedCustom = !!(fieldSpec.validation && typeof fieldSpec.validation === 'object');
+    valSel.value = storedCustom ? 'custom' : ((fieldSpec.validation === 'zip5') ? 'zip5' : 'none');
     valCell.appendChild(valSel);
     wrap.appendChild(valCell);
+    // The custom rule's own two inputs: the pattern the answer must match and
+    // the words the visitor reads when it does not. Full-width sub-row so the
+    // four cells above keep their line. Hidden unless 'Custom pattern' is the
+    // selected rule -- no control is offered for a rule that is not in force.
+    var customWrap = document.createElement('div');
+    customWrap.className = 'studio-addr-custom';
+    customWrap.setAttribute('data-address-custom-validation', '');
+    var patCell = addrCell('Pattern the answer must match');
+    var patInp = document.createElement('input');
+    patInp.className = 'form-input studio-mono-input';
+    patInp.setAttribute('data-address-field-pattern', '');
+    patInp.setAttribute('placeholder', '^[0-9]{5}$');
+    patInp.value = storedCustom && typeof fieldSpec.validation.regex === 'string' ? fieldSpec.validation.regex : '';
+    patInp.addEventListener('input', collectAddressFields);
+    patInp.addEventListener('change', collectAddressFields);
+    patCell.appendChild(patInp);
+    customWrap.appendChild(patCell);
+    var msgCell = addrCell('What the visitor is told');
+    var msgInp = document.createElement('input');
+    msgInp.className = 'form-input';
+    msgInp.setAttribute('data-address-field-pattern-message', '');
+    msgInp.setAttribute('placeholder', 'Enter a valid 5-digit ZIP code.');
+    msgInp.value = storedCustom && typeof fieldSpec.validation.message === 'string' ? fieldSpec.validation.message : '';
+    msgInp.addEventListener('input', collectAddressFields);
+    msgInp.addEventListener('change', collectAddressFields);
+    msgCell.appendChild(msgInp);
+    customWrap.appendChild(msgCell);
+    customWrap.hidden = valSel.value !== 'custom';
+    valSel.addEventListener('change', function () { customWrap.hidden = this.value !== 'custom'; });
+    valSel.addEventListener('change', collectAddressFields);
     var reqLabel = document.createElement('label');
     reqLabel.className = 'lg-check';
     var reqCb = document.createElement('input');
@@ -12260,6 +12994,7 @@ export const SECTION_STUDIO_SCRIPT = `
     rm.appendChild(document.createTextNode('Remove'));
     rm.addEventListener('click', function () { var p = wrap.parentNode; if (p) { p.removeChild(wrap); } collectAddressFields(); renderAddressAddMenu(selectedNode()); });
     wrap.appendChild(rm);
+    wrap.appendChild(customWrap);
     return wrap;
   }
   function usedAddressKinds(listEl) {
@@ -12334,19 +13069,24 @@ export const SECTION_STUDIO_SCRIPT = `
     renderAddressAddMenu(node);
     var menu = document.querySelector('[data-address-add-menu]');
     if (menu) { menu.hidden = true; }
-    // P5 S5c (Maps honesty): state the keyless degrade PLAINLY instead of a
-    // static disclaimer that reads the same whether the field set above is
-    // silently locked to Manual or not. Three real states, in plain words.
+    // P5 S5c (Maps honesty): state the real state PLAINLY instead of a static
+    // disclaimer that reads the same whichever state the field set is in.
+    // R2 P8 R6-4: the keyless line no longer claims "every field here stays
+    // Manual" -- that claim was only true because the Mode select used to hide
+    // the Autofill option, which is the very coercion R6-4 is. Autofill stays
+    // authorable without a key and the note now says exactly what a keyless
+    // funnel does at runtime, matching the Maps banner's own promise that the
+    // config is kept and activates the moment a key exists.
     var addrMapsOn = addressMapsEnabled(node);
     var addrKeyOk = mapsKeyIsConfigured();
     var mapsNote = document.querySelector('[data-address-maps-note]');
     if (mapsNote) {
-      if (!addrKeyOk) {
-        mapsNote.textContent = 'No Google-Maps key is configured — Autofill mode is unavailable right now, so every field here stays Manual. Add a key to enable it (the field set above still works either way).';
-      } else if (!addrMapsOn) {
-        mapsNote.textContent = 'Autofill needs Google Maps — turn it on in the Maps tab to offer it for these fields.';
+      if (!addrMapsOn) {
+        mapsNote.textContent = 'Autofill is turned off for this field on the Maps tab, so every field below is filled by the visitor. Turn Maps back on to use Autofill.';
+      } else if (!addrKeyOk) {
+        mapsNote.textContent = 'Autofill is set up below, but this site has no Google-Maps key yet, so visitors type every field themselves for now. Your choices are saved and start working the moment a key is added.';
       } else {
-        mapsNote.textContent = 'Google Maps is on for this field — pick which field(s) below use Autofill mode.';
+        mapsNote.textContent = 'Google Maps is on for this field — pick which field(s) below Google fills in, and which the visitor types.';
       }
     }
   }
@@ -12366,6 +13106,19 @@ export const SECTION_STUDIO_SCRIPT = `
       var f = { field: kindEl ? kindEl.value : 'street', mode: (modeEl && modeEl.value === 'autofill') ? 'autofill' : 'manual' };
       if (labEl && trimStr(labEl.value) !== '') { f.label = trimStr(labEl.value); }
       if (valEl && valEl.value === 'zip5') { f.validation = 'zip5'; }
+      // R2 P8 M4: the custom rule writes the SAME {regex, message} object
+      // runtime/validation.ts validateAddressField already applies and
+      // content-schema.validateAddressFields already accepts. The message is
+      // optional there (the runtime falls back to its own wording), so it is
+      // only written when the operator actually typed one -- an empty box
+      // never becomes an empty string the schema would then have to police.
+      if (valEl && valEl.value === 'custom') {
+        var patEl = rows[i].querySelector('[data-address-field-pattern]');
+        var msgEl = rows[i].querySelector('[data-address-field-pattern-message]');
+        var custom = { regex: patEl ? trimStr(patEl.value) : '' };
+        if (msgEl && trimStr(msgEl.value) !== '') { custom.message = trimStr(msgEl.value); }
+        f.validation = custom;
+      }
       if (reqEl && reqEl.checked) { f.required = true; }
       fields.push(f);
     }
@@ -12933,7 +13686,15 @@ export const SECTION_STUDIO_SCRIPT = `
     var badge = region ? region.querySelector('[data-frame-badge="' + qid + '"]') : null;
     if (!badge) { return; }
     var oldPicker = badge.querySelector('[data-funnel-picker]');
-    if (oldPicker) { badge.removeChild(oldPicker); return; }
+    // N16 (contract §7): this checked the child EXISTS but not that badge is
+    // its actual parent (of 16 removeChild sites in this file, this was the
+    // one unguarded — every other site uses oldPicker.parentNode.removeChild
+    // idiom below, which can never throw NotFoundError regardless of DOM
+    // shape). querySelector finds any DESCENDANT, not only a direct child, so
+    // a badge rebuilt/re-inserted between the picker's creation and this
+    // toggle (or two elements momentarily sharing one data-frame-badge qid)
+    // could resolve a badge that is no longer oldPicker's real parent.
+    if (oldPicker) { if (oldPicker.parentNode) { oldPicker.parentNode.removeChild(oldPicker); } return; }
     var picker = document.createElement('span');
     picker.className = 'studio-funnel-picker';
     picker.setAttribute('data-funnel-picker', qid);
@@ -16393,6 +17154,30 @@ export const SECTION_STUDIO_SCRIPT = `
     head.setAttribute('data-save-problems-summary', '');
     head.appendChild(document.createTextNode('Saved \\u2014 with ' + problems.length + ' thing' + (problems.length === 1 ? '' : 's') + ' worth checking:'));
     box.appendChild(head);
+    // P8 S5.2c (contract §6 M5 / owner: "the rules you build are using
+    // jargon"): row identity — the SAME plain-data lookup renderSaveFieldErrors
+    // uses below, duplicated LOCAL (not a shared helper) rather than calling
+    // typeLabel/trimStr, because this function is vm-probe-sliced STANDALONE
+    // elsewhere in this island's own test suite with a FIXED collaborator
+    // list (componentByProblemPath only) — a new cross-function dependency
+    // would ReferenceError there for a concern outside what it tests. NEVER
+    // invents a name: only real data already on the resolved node/choice,
+    // never Title-Cased, never guessed.
+    function rowContextLabel(rawPath) {
+      var p = String(rawPath || '');
+      var node = componentByProblemPath(p);
+      if (!node) { return ''; }
+      var choiceMatch = p.match(/choices\\[(\\d+)\\]/);
+      if (choiceMatch && node.choices) {
+        var choice = node.choices[Number(choiceMatch[1])];
+        if (choice) {
+          var choiceName = (choice.label !== undefined && String(choice.label) !== '') ? String(choice.label) : (choice.value !== undefined ? String(choice.value) : 'choice ' + (Number(choiceMatch[1]) + 1));
+          return choiceName + ': ';
+        }
+      }
+      var name = (node.props && node.props.label !== undefined && String(node.props.label) !== '') ? String(node.props.label) : (node.internal_field || node.type);
+      return name + ': ';
+    }
     var list = document.createElement('ul');
     var i, li, btn;
     for (i = 0; i < problems.length; i++) {
@@ -16402,7 +17187,13 @@ export const SECTION_STUDIO_SCRIPT = `
       btn.type = 'button';
       btn.className = 'studio-link-btn';
       btn.setAttribute('data-save-problem-path', String(problems[i].path || ''));
-      btn.appendChild(document.createTextNode(String(problems[i].message || '')));
+      // P8 S5.2c: the warning path is now as honest as the error path below
+      // — the RAW server message, un-transformed (measured live: it already
+      // reads clean, e.g. "Maps is on but no job is selected \\u2014 it does
+      // nothing at runtime. Pick a job or turn Maps off.") — plus the row's
+      // own identity prefixed, so two rows sharing one generic sentence
+      // (e.g. two frame-scope components) read as different rows.
+      btn.appendChild(document.createTextNode(rowContextLabel(problems[i].path) + String(problems[i].message || '')));
       btn.addEventListener('click', saveProblemFocusHandler(problems[i].path));
       li.appendChild(btn);
       list.appendChild(li);
@@ -16427,35 +17218,45 @@ export const SECTION_STUDIO_SCRIPT = `
     box.hidden = false;
     var head = document.createElement('p');
     head.setAttribute('data-save-problems-summary', '');
-    head.appendChild(document.createTextNode('Save failed \\u2014 ' + fieldProblems.length + ' field' + (fieldProblems.length === 1 ? '' : 's') + ' need attention:'));
+    // N16: the noun pluralizes ("field"/"fields") — the verb must too.
+    head.appendChild(document.createTextNode('Save failed \\u2014 ' + fieldProblems.length + ' field' + (fieldProblems.length === 1 ? ' needs' : 's need') + ' attention:'));
     box.appendChild(head);
-    // Round-4 A-8 (P1a, deliverable 7): map raw field ids to operator words at
-    // PAINT time — a display map with a snake_case to Title Case fallback, plus
-    // substitution of any raw id embedded inside the server message string, so a
-    // problem reads "Section name is required", never the raw "section_name is
-    // required" (operator #8, Part C P-9). Kept LOCAL because this function is
-    // vm-probe-sliced standalone. Server leg lands in P1c; this paints clean copy
-    // from whatever raw ids the server currently sends.
-    var SAVE_FIELD_DISPLAY = { section_name: 'Section name', headline_text: 'Headline', subheadline_text: 'Subheadline', activity: 'Activity', vertical: 'Vertical' };
-    function fieldDisplayName(id) {
-      var s = String(id);
-      if (SAVE_FIELD_DISPLAY[s]) { return SAVE_FIELD_DISPLAY[s]; }
-      var parts = s.split('_'), out = [], ti, tp;
-      for (ti = 0; ti < parts.length; ti++) { tp = parts[ti]; if (tp === '') { continue; } out.push(tp.charAt(0).toUpperCase() + tp.slice(1)); }
-      return out.length ? out.join(' ') : s;
-    }
-    function humanizeFieldMessage(msg, ownKey) {
-      var s = String(msg);
-      // Whole-word replace the specific field id first (covers single-word ids
-      // like "activity" the multi-part snake pass below would not catch)…
-      if (ownKey && /^[a-z][a-z0-9_]*$/.test(ownKey)) {
-        s = s.replace(new RegExp('(^|[^A-Za-z0-9_])' + ownKey + '(?![A-Za-z0-9_])', 'g'), function (m, a) { return a + fieldDisplayName(ownKey); });
+    // P8 S5.2c (contract §6 M5 / owner: "the rules you build are using
+    // jargon"): measured LIVE against the real save route (curl POST
+    // .../sections with a duplicated internal_field) that content-schema.ts /
+    // sections.ts already speak the operator's language AND already quote the
+    // raw VALUE un-mangled — e.g. "Another question in this Section already
+    // uses the Internal field 'ks_nm' — each question needs its own. Rename
+    // one of them." The retired humanizeFieldMessage Title-Cased ANY
+    // snake_case-looking token found ANYWHERE in the message text — unable to
+    // tell an identifier from an operator-typed VALUE, it mangled the value
+    // too ('ks_nm' -> 'Ks Nm', a field that does not exist — the exact defect
+    // named in the contract). Per "measure what actually arrives before
+    // deciding": the safest fix is to STOP transforming the message body and
+    // print exactly what the real validator sent, matching the (already
+    // untransformed) warning path in renderSaveProblems above.
+    // Row identity — duplicated LOCAL (not a shared helper, matching
+    // renderSaveProblems's own copy above) so each stays independently
+    // sliceable per this island's vm-probe convention. NEVER invents a name:
+    // only real data already on the resolved node/choice.
+    function rowContextLabel(rawPath) {
+      var p = String(rawPath || '');
+      if (p.indexOf('content.') === 0) { p = p.slice('content.'.length); }
+      var node = componentByProblemPath(p);
+      if (!node) { return ''; }
+      var choiceMatch = p.match(/choices\\[(\\d+)\\]/);
+      if (choiceMatch && node.choices) {
+        var choice = node.choices[Number(choiceMatch[1])];
+        if (choice) {
+          var choiceName = (choice.label !== undefined && String(choice.label) !== '') ? String(choice.label) : (choice.value !== undefined ? String(choice.value) : 'choice ' + (Number(choiceMatch[1]) + 1));
+          return choiceName + ': ';
+        }
       }
-      // …then any remaining multi-part snake_case id embedded in the message.
-      return s.replace(/[a-z][a-z0-9]*(?:_[a-z0-9]+)+/g, function (tok) { return fieldDisplayName(tok); });
+      var name = (node.props && node.props.label !== undefined && String(node.props.label) !== '') ? String(node.props.label) : (node.internal_field || node.type);
+      return name + ': ';
     }
     var list = document.createElement('ul');
-    var i, li, btn, msgKey;
+    var i, li, btn;
     for (i = 0; i < fieldProblems.length; i++) {
       if (!fieldProblems[i]) { continue; }
       li = document.createElement('li');
@@ -16463,8 +17264,7 @@ export const SECTION_STUDIO_SCRIPT = `
       btn.type = 'button';
       btn.className = 'studio-link-btn';
       btn.setAttribute('data-save-problem-path', String(fieldProblems[i].path || ''));
-      msgKey = String(fieldProblems[i].path || '').replace(/^.*\\./, '');
-      btn.appendChild(document.createTextNode(humanizeFieldMessage(String(fieldProblems[i].message || ''), msgKey)));
+      btn.appendChild(document.createTextNode(rowContextLabel(fieldProblems[i].path) + String(fieldProblems[i].message || '')));
       btn.addEventListener('click', saveProblemFocusHandler(fieldProblems[i].path));
       li.appendChild(btn);
       list.appendChild(li);

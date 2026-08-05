@@ -859,7 +859,12 @@ const R2_P4_RANGE_NEW_RULES = [
   `\n${DEFAULT_FUNNEL_SCOPE} .lg-range-handle{position:absolute;left:100%;top:50%;transform:translate(-50%,-50%);width:${R2_P4_RQ.thumbSize};height:${R2_P4_RQ.thumbSize};border-radius:${defaultFunnelDesign.radius.full};background:${R2_P4_RQ.thumbBackground};border:${R2_P4_RQ.thumbBorder};box-shadow:${R2_P4_RQ.thumbShadow};box-sizing:border-box;pointer-events:none;z-index:2}`,
   `\n${DEFAULT_FUNNEL_SCOPE} .lg-range-handle-min{left:0}`,
   `\n${DEFAULT_FUNNEL_SCOPE} .lg-range-handle-max{left:100%}`,
-  `\n${DEFAULT_FUNNEL_SCOPE} .lg-range-handle-value{position:absolute;bottom:calc(100% + ${defaultFunnelDesign.spacing.sm});left:50%;transform:translateX(-50%);white-space:nowrap;font-size:0.8125rem;font-weight:700;line-height:1;padding:5px 9px;border-radius:${defaultFunnelDesign.radius.sm};background:${R2_P4_RQ.filledTrackColor};color:${defaultFunnelDesign.color.card}}`,
+  // P8 N15 (owner Image11 — docs/leadgen/r2/evidence/p8/n15/image11-reading.md):
+  // the pill's anchor flipped bottom->top (rides UNDER its handle instead of
+  // above it). Still a net-new-since-the-frozen-capture rule, so it stays in
+  // the wholesale-strip list — only its literal text is re-captured here.
+  // Nothing else in the sheet moved.
+  `\n${DEFAULT_FUNNEL_SCOPE} .lg-range-handle-value{position:absolute;top:calc(100% + ${defaultFunnelDesign.spacing.sm});left:50%;transform:translateX(-50%);white-space:nowrap;font-size:0.8125rem;font-weight:700;line-height:1;padding:5px 9px;border-radius:${defaultFunnelDesign.radius.sm};background:${R2_P4_RQ.filledTrackColor};color:${defaultFunnelDesign.color.card}}`,
   // P4 FIX-FIRST (F-2): these two NET-NEW rules' bodies changed from
   // `transform:none` to a proportional inward slide driven by engine.ts's
   // --lg-a / --lg-b, because the static anchor pushed the min pill off-card
@@ -903,7 +908,10 @@ const R2_P4_RANGE_NEW_RULES = [
   // the min pill clear of the max pill once the clamp narrows that gap below
   // 96px — CSS only, no engine change, no other rule's text touched.
   `\n${DEFAULT_FUNNEL_SCOPE} .lg-range-from-to .lg-range-fill,${DEFAULT_FUNNEL_SCOPE} .lg-range-dual .lg-range-fill{container-type:inline-size;container-name:lg-range-fill}`,
-  `\n@container lg-range-fill (max-width:96px){${DEFAULT_FUNNEL_SCOPE} .lg-range-handle-min .lg-range-handle-value{bottom:calc(100% + ${defaultFunnelDesign.spacing.sm} + ${defaultFunnelDesign.spacing.xl})}}`,
+  // P8 N15: the base anchor flipped bottom->top, so the escape direction
+  // flips with it — away from the max pill is now DOWN, not up. Still
+  // net-new-since-the-frozen-capture; only the literal text is re-captured.
+  `\n@container lg-range-fill (max-width:96px){${DEFAULT_FUNNEL_SCOPE} .lg-range-handle-min .lg-range-handle-value{top:calc(100% + ${defaultFunnelDesign.spacing.sm} + ${defaultFunnelDesign.spacing.xl})}}`,
 ];
 // The three CHANGED rules, NEW -> pre-P4 text (targeted full-rule replaces,
 // the R5_*_RULE idiom): the input became the track overlay (its thumb now
@@ -922,8 +930,12 @@ const R2_P4_RANGE_CHANGED_RULES: ReadonlyArray<readonly [string, string]> = [
     `${DEFAULT_FUNNEL_SCOPE} .lg-range-input::-moz-range-thumb{width:${R2_P4_RQ.thumbSize};height:${R2_P4_RQ.thumbSize};border-radius:${defaultFunnelDesign.radius.full};background:transparent;border:0;cursor:pointer}`,
     `${DEFAULT_FUNNEL_SCOPE} .lg-range-input::-moz-range-thumb{width:${R2_P4_RQ.thumbSize};height:${R2_P4_RQ.thumbSize};border-radius:${defaultFunnelDesign.radius.full};background:${R2_P4_RQ.thumbBackground};border:${R2_P4_RQ.thumbBorder};box-shadow:${R2_P4_RQ.thumbShadow};cursor:pointer}`,
   ],
+  // P8 N15: margin-top grew a further `+ spacing.xl * 2` term (clears the
+  // relocated-below pill AND the worst-case container-query stacked bump —
+  // see styles.ts's own comment on this rule). Only the FIRST (live-matching)
+  // element updates; the pre-P4 baseline target (second element) is untouched.
   [
-    `${DEFAULT_FUNNEL_SCOPE} .lg-range-minmax{display:flex;justify-content:space-between;color:${R2_P4_RQ.minMaxLabelColor};font-size:0.8125rem;margin-top:calc(${R2_P4_RQ.thumbSize} * 0.5)}`,
+    `${DEFAULT_FUNNEL_SCOPE} .lg-range-minmax{display:flex;justify-content:space-between;color:${R2_P4_RQ.minMaxLabelColor};font-size:0.8125rem;margin-top:calc(${R2_P4_RQ.thumbSize} * 0.5 + ${defaultFunnelDesign.spacing.xl} * 2)}`,
     `${DEFAULT_FUNNEL_SCOPE} .lg-range-minmax{display:flex;justify-content:space-between;color:${R2_P4_RQ.minMaxLabelColor};font-size:0.8125rem;margin-top:${defaultFunnelDesign.spacing.sm}}`,
   ],
 ];
@@ -988,6 +1000,27 @@ const P8_S310_ERROR_SELECTOR_REPOINT: ReadonlyArray<readonly [string, string]> =
     `${DEFAULT_FUNNEL_SCOPE} .lg-error .lg-card{border-color:${defaultFunnelDesign.iconCard.errorBorderColor}}`,
     `${DEFAULT_FUNNEL_SCOPE} .lg-card[data-error="true"]{border-color:${defaultFunnelDesign.iconCard.errorBorderColor}}`,
   ],
+];
+
+// R2 P8-6 (from_to max-rail hit-area partition): styles.ts adds ONE NET-NEW
+// rule clipping the MAX rail's hit area. WHY IT EXISTS: both dual rails span
+// the whole track at z-index 3, so when the handles coincide DOM order gave
+// every press to the max rail — driven on the live r2fix funnel with the
+// press at the min handle's own centre (x=477 at 1280, x=29 at 375), a typed
+// max of 40 was destroyed and `POST /lg/auction` carried max=50000 instead of
+// the operator's 40. clip-path clips HIT TESTING as well as paint and is not
+// layout, so the value<->pixel mapping is untouched. P8-6 S2 corrected the
+// boundary from the plain MIDPOINT of the two handles — which at coincidence
+// IS the shared handle's centre, so that press still posted 50000 — to the
+// midpoint OR the min thumb's right edge, whichever is further right: a
+// coincident pair is one circle and it belongs to the min alone.
+// SAFE FOR THIS PIN: it is net-new since the frozen capture and this fixture
+// carries no slider node at all, so it is a sheet-level delta only — same
+// wholesale-strip idiom and same token interpolation (R2_P4_RQ.thumbSize) as
+// R2_P4_RANGE_NEW_RULES above, kept in lockstep with styles.ts (a drift in
+// either fails here). Still exactly ONE rule; nothing ELSE in the sheet moved.
+const P8_S6_RANGE_MAX_RAIL_CLIP_RULE = [
+  `\n${DEFAULT_FUNNEL_SCOPE} .lg-range-track > span + span > .lg-range-input-dual{clip-path:inset(0 0 0 calc(${R2_P4_RQ.thumbSize} / 2 + max((var(--lg-a,0) + var(--lg-b,100)) * (100% - ${R2_P4_RQ.thumbSize}) / 200, ${R2_P4_RQ.thumbSize} / 2 + var(--lg-a,0) * (100% - ${R2_P4_RQ.thumbSize}) / 100)))}`,
 ];
 
 // Legacy plain body: unbound headline + icon grid + ONE continue — a realistic
@@ -1190,9 +1223,16 @@ function assertPinnedResponse(actualText: string, fixtureText: string): void {
     (s, [next, prev]) => s.split(next).join(prev),
     cssMinusAll,
   );
-  expect(
+  // R2 P8-6: strip the ONE net-new max-rail hit-area clip rule (see
+  // P8_S6_RANGE_MAX_RAIL_CLIP_RULE's own comment above — the only base-sheet
+  // delta this slice adds).
+  const cssMinusRailClip = P8_S6_RANGE_MAX_RAIL_CLIP_RULE.reduce(
+    (s, r) => s.split(r).join(""),
     cssMinusRepoint,
-    "preview.css modulo the DEV-57 + DEV-68 moved rules + the R5 state-safe-border + R5 D11 typography rule bodies + the P1a layout system + the P3a structured-placement (.lg-el/.lg-el-row) rules + the Round-4 P1b studio/preview affordances (ghost/address-composite/mqg-empty) + the R2 P4 §6.8 slider anatomy rules + the R2 P5 F7 address-field-label/Other-select rules",
+  );
+  expect(
+    cssMinusRailClip,
+    "preview.css modulo the DEV-57 + DEV-68 moved rules + the R5 state-safe-border + R5 D11 typography rule bodies + the P1a layout system + the P3a structured-placement (.lg-el/.lg-el-row) rules + the Round-4 P1b studio/preview affordances (ghost/address-composite/mqg-empty) + the R2 P4 §6.8 slider anatomy rules + the R2 P5 F7 address-field-label/Other-select rules + the R2 P8-6 from_to max-rail hit-area clip rule",
   ).toBe(expectedPreview["css"]);
   // and the live producer still owns the string (the sections-api :863 idiom).
   expect(actualPreview["css"]).toBe(funnelChromeCss(getFunnelDesign(null)));

@@ -53,6 +53,28 @@ verify:all 0 · runtime 52,762 ≤ 53,248.
 - [ ] P8-6 Sweep & surface (M8, N2–N5, N8, N10, N13, N19, OWNER rows)
 - [ ] CLOSE (terminal battery + owner-journey sweep + full-program review + report)
 
+## P8-4 conductor rulings (made before the fix round, so slices do not re-litigate them)
+
+**R1 — `show_label` on `numbered`: remove the control, do not make it work.** S4.1 re-measured ON==OFF
+(`1038b0777ceb` both) and found the one-line fix contradicts `test/leadgen-frame-progress-back.test.ts:98`
+*"numbered always shows the step label (that IS the style)"* on the DEFAULT config. Both routes end the
+ON==OFF defect the contract names. I rule for the R3 corollary: if the step label is what makes `numbered`
+numbered, a switch that removes it is a control that cannot be coherently honoured, so it must not be
+offered for that style. This also matches the Marker-icon treatment (render only for `icon_on_track`) and
+leaves a deliberate existing test's intent intact instead of re-minting a pin to suit us.
+
+**R2 — the custom progress icon ships in ONE dispatch or not at all.** S4.1 built `icon:"custom"` +
+`progress.icon_media_id`, then the M2 guard independently reported it moves nothing a visitor can see
+because the two painted rules belong in `default-funnel/styles.ts` (unowned), and it reverted rather than
+offer a dead control. Correct. The enum (`frames.ts`), the CSS (`default-funnel/styles.ts`), the guard's
+universe/probe (`leadgen-r2-dead-controls-guard.test.ts`, ENUMERATED_TOTAL 129→130) and the admin control
+(`quotes-tabs/templates.ts`) must land together — a partial landing is an R3 breach in either direction.
+
+**R3 — the contract's M1 render numbers are partly stale, and the re-measurement stands.** Alignment
+L/C/R already emitted 3 distinct markups (contract: one render); position `under_header`==`above_unit`
+only when the band between them is empty, and differs with a back link present. What was actually dead
+was alignment's PAINT. Recorded so the review does not chase the contract's original wording.
+
 ## Dispatch cost log
 
 | Phase | Dispatch | Model | Tokens | Duration | Outcome |

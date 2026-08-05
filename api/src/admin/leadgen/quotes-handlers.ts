@@ -904,7 +904,7 @@ async function buildRoutingRuleFields(
     else if (parsed === null) targetOfferId = null;
     else {
       const ex = await db.prepare("SELECT id FROM leadgen_offers WHERE id = ? LIMIT 1").bind(parsed).first<{ id: number }>();
-      if (!ex) errors["target_offer_id"] = `offer ${parsed} does not exist`;
+      if (!ex) errors["target_offer_id"] = describeMissingReference("Offer");
       else targetOfferId = parsed;
     }
   }
@@ -1611,7 +1611,7 @@ export async function patchQuoteHandler(c: AdminContext): Promise<Response> {
       const ex = await c.env.DB.prepare("SELECT id FROM leadgen_frame_templates WHERE id = ? LIMIT 1")
         .bind(parsed)
         .first<{ id: number }>();
-      if (!ex) errors["default_template_id"] = `frame template ${parsed} does not exist`;
+      if (!ex) errors["default_template_id"] = describeMissingReference("Template");
       else { defaultTemplateAction = { kind: "set", frameTemplateId: parsed }; touched = true; }
     }
   }
@@ -2323,22 +2323,134 @@ export async function setQuoteDefaultFunnelHandler(c: AdminContext): Promise<Res
 
 // A-4 (verbatim, CI-asserted): a section id may appear at most once within
 // {shared page ∪ any single funnel's plan}.
-const A4_SECTION_DUP = (section: string): string =>
-  `'${section}' is already in this funnel — a section can appear once per funnel.`;
+//
+// N19 (P8-6): ONE sentence used to describe that whole union — "'X' is already
+// in this funnel" — so a section sitting on the quote-owned SHARED page was
+// reported as already being IN a funnel the operator had just left EMPTY. The
+// rule is sanctioned; the sentence named the wrong surface, sending the
+// operator to hunt a chip that is not in that column. Two sentences now, one
+// per side of the union. The shared one reuses the board's OWN words for that
+// surface, quoted from quotes-tabs/funnel.ts (grep them, not line numbers —
+// that file moves): the column title `title="Shared first page">Shared first
+// page`, the same string as the drop pick-list entry `label: 'Shared first
+// page'`, plus that column's own explanation of why the page counts against
+// every funnel, `Every visitor sees this first — entry rules only pre-select
+// the funnel.` So the message and the thing it points at read the same.
+//
+// Q1 (P8-6 FIX-FIRST): N19 picked its sentence from "is the id in the SHARED
+// list?", and on a shared-page save the shared list is the one being SUBMITTED
+// — so a section that actually sits in a funnel came back as "already on the
+// Shared first page", the same wrongness pointing the other way (driven:
+// PUT /quotes/:id/shared-page {slots:[shared, X]} with X in Funnel A). The
+// deciding question is not which list an id is in but WHICH SURFACE ALREADY
+// HOLDS IT: on a save that is always the surface the operator is NOT editing;
+// at the activation preflight neither surface is being edited, both copies are
+// already saved, and the honest answer is BOTH. And "this funnel" only has an
+// antecedent when the operator is standing in that funnel (the variant PUT) —
+// from the Shared column or a quote-level publish report it names nothing, so
+// those paths name the funnel by the board's own column title (funnel.ts
+// `data-funnel-name ... title="${escapeHtml(funnel.funnel_name)}"`), the same
+// funnel_name the sibling publish blocker already says out loud ("Funnel 'X'
+// needs at least one page with a section.").
+const A4_SECTION_DUP_SHARED = (section: string): string =>
+  `'${section}' is already on the Shared first page — every visitor sees that page first, so a section can appear once per funnel.`;
+const A4_SECTION_DUP_FUNNEL = (section: string, funnelPhrase: string): string =>
+  `'${section}' is already in ${funnelPhrase} — a section can appear once per funnel.`;
+const A4_SECTION_DUP_BOTH = (section: string, funnelPhrase: string): string =>
+  `'${section}' is on the Shared first page and in ${funnelPhrase} — a section can appear once per funnel.`;
+
+// Where the union being checked sits, so a message can name the real surface.
+interface A4Scope {
+  // The surface whose plan the operator is SAVING — the one side of a
+  // cross-surface collision that is only PROSPECTIVE, so the message must
+  // attribute the existing copy to the OTHER side. `null` = neither (the
+  // activation preflight re-checks two already-saved surfaces).
+  readonly saving: "shared" | "funnel" | null;
+  // The funnel whose plan `variantIds` is, named as the board's column titles
+  // it; `null` when the operator is standing in that funnel (variant PUT) or
+  // when no funnel is in scope at all (`variantIds` empty) — then "this funnel".
+  readonly funnelName: string | null;
+}
+const a4FunnelPhrase = (scope: A4Scope): string =>
+  scope.funnelName === null ? "this funnel" : `the funnel '${scope.funnelName}'`;
+
+// M5 remediation (P8-5 FIX-FIRST round 2, H2b): the 3 nameOf() fallbacks below
+// (sharedPageUniquenessErrors, variantSaveUniquenessErrors, and the activation
+// preflight's own copy of this same check) used to paper over a name-lookup
+// miss with the raw numeric DB row id, substituted straight into the A-4
+// message's quotes as if it were a name ("'section 42' is already in this
+// funnel..."). That is WORSE than a ULID: a bare number in that slot
+// reads as a quantity, not an id. The case is an orphaned reference (the row
+// this id once named no longer resolves — e.g. deleted between read and
+// check) — say that, not the number.
+const ORPHANED_SECTION_LABEL = "a section that no longer exists";
 
 // Pure core: given the shared page's section ids and ONE funnel-variant's
 // section ids, return one A-4 message per section id that appears more than
 // once in their UNION (an internal repeat, or a section shared+funnel both).
+// Q1: the message names the surface that ALREADY holds the section —
+//   * a repeat inside ONE list  → that list's own surface;
+//   * a cross-surface collision → the surface `scope.saving` is NOT (both
+//     surfaces, when nothing is being saved and both copies are real).
 function sectionUniquenessMessages(
   sharedIds: readonly number[],
   variantIds: readonly number[],
   nameOf: (id: number) => string,
+  scope: A4Scope,
 ): string[] {
-  const counts = new Map<number, number>();
-  for (const id of [...sharedIds, ...variantIds]) counts.set(id, (counts.get(id) ?? 0) + 1);
+  const tally = (ids: readonly number[]): Map<number, number> => {
+    const m = new Map<number, number>();
+    for (const id of ids) m.set(id, (m.get(id) ?? 0) + 1);
+    return m;
+  };
+  const sharedCounts = tally(sharedIds);
+  const variantCounts = tally(variantIds);
   const out: string[] = [];
-  for (const [id, n] of counts) if (n > 1) out.push(A4_SECTION_DUP(nameOf(id)));
+  const done = new Set<number>();
+  for (const id of [...sharedIds, ...variantIds]) {
+    if (done.has(id)) continue;
+    done.add(id);
+    const inShared = sharedCounts.get(id) ?? 0;
+    const inVariant = variantCounts.get(id) ?? 0;
+    if (inShared + inVariant <= 1) continue;
+    const name = nameOf(id);
+    if (inShared > 0 && inVariant > 0) {
+      // Cross-surface: the copy that is NOT the one being saved is the one the
+      // operator has to go find.
+      if (scope.saving === "shared") out.push(A4_SECTION_DUP_FUNNEL(name, a4FunnelPhrase(scope)));
+      else if (scope.saving === "funnel") out.push(A4_SECTION_DUP_SHARED(name));
+      else out.push(A4_SECTION_DUP_BOTH(name, a4FunnelPhrase(scope)));
+    } else if (inShared > 0) {
+      out.push(A4_SECTION_DUP_SHARED(name));
+    } else {
+      out.push(A4_SECTION_DUP_FUNNEL(name, a4FunnelPhrase(scope)));
+    }
+  }
   return out;
+}
+
+// N19 (P8-6) — the field key. The three A-4 save-time call sites keyed their
+// errors `sections.${seen.size}`: the running count of DISTINCT messages, a
+// 1-based dedupe counter wearing the costume of `sections.<arrayIndex>`, which
+// is what resolveSectionOrder (this file, the `sections.${i}` block) means by
+// that key — the 0-based index of the offending entry in the operator's array.
+// One namespace, two meanings: the first uniqueness error on a plan whose only
+// entry is index 0 came back as `sections.1`. It can also never BE an index on
+// the `pages`/`slots` save path, where the prospective ids are a flatMap over
+// slots and the payload has no `sections` array at all. The two shapes never
+// legitimately co-occur (both shared-page handlers return on
+// resolveSectionOrder's errors before uniqueness runs; the variant PUT runs
+// uniqueness only while the error map is still empty), so the fix is to stop
+// minting a fake index rather than to invent an index for a path that has
+// none: `sections.uniqueness.<n>` is a plain 1-based ordinal over the distinct
+// A-4 messages and cannot be read as an array position. Nothing binds a row by
+// this key — every board caller renders the first VALUE (funnel.ts
+// firstFieldError) and the other save paths stringify the whole map. One mint
+// for all three sites so they cannot drift apart again.
+function addUniquenessError(errors: FieldErrors, seen: Set<string>, message: string): void {
+  if (seen.has(message)) return;
+  seen.add(message);
+  errors[`sections.uniqueness.${seen.size}`] = message;
 }
 
 // section_id → section_name for the involved ids (batched, ≤80 per IN chunk per
@@ -2637,26 +2749,28 @@ async function sharedPageUniquenessErrors(
   const errors: FieldErrors = {};
   const funnels = await readQuoteFunnels(db, quote.id);
   const involved = new Set<number>(prospectiveSharedIds);
-  const perVariant: number[][] = [];
+  // Q1: carry each plan's OWNING FUNNEL, not just its ids — from the Shared
+  // column the operator needs the funnel's name to find the other copy.
+  const perVariant: Array<{ funnelName: string; ids: number[] }> = [];
   for (const f of funnels) {
     if (f.status !== "active") continue;
     for (const v of await readActiveFunnelVariants(db, f.id)) {
       const ids = await variantSectionIds(db, v.id);
-      perVariant.push(ids);
+      perVariant.push({ funnelName: f.funnel_name, ids });
       for (const id of ids) involved.add(id);
     }
   }
   const nameMap = await sectionNameMap(db, [...involved]);
-  const nameOf = (id: number): string => nameMap.get(id) ?? `section ${id}`;
+  const nameOf = (id: number): string => nameMap.get(id) ?? ORPHANED_SECTION_LABEL;
   const seen = new Set<string>();
-  // internal dup within the shared page itself
-  for (const m of sectionUniquenessMessages(prospectiveSharedIds, [], nameOf)) {
-    if (!seen.has(m)) { seen.add(m); errors[`sections.${seen.size}`] = m; }
+  // internal dup within the shared page itself (no funnel in scope)
+  for (const m of sectionUniquenessMessages(prospectiveSharedIds, [], nameOf, { saving: "shared", funnelName: null })) {
+    addUniquenessError(errors, seen, m);
   }
   // shared ∪ each funnel-variant plan
-  for (const ids of perVariant) {
-    for (const m of sectionUniquenessMessages(prospectiveSharedIds, ids, nameOf)) {
-      if (!seen.has(m)) { seen.add(m); errors[`sections.${seen.size}`] = m; }
+  for (const { funnelName, ids } of perVariant) {
+    for (const m of sectionUniquenessMessages(prospectiveSharedIds, ids, nameOf, { saving: "shared", funnelName })) {
+      addUniquenessError(errors, seen, m);
     }
   }
   return errors;
@@ -2677,10 +2791,13 @@ async function variantSaveUniquenessErrors(
     const sharedIds = await sharedPageSectionIds(db, quote.id);
     const involved = new Set<number>([...sharedIds, ...prospectiveVariantIds]);
     const nameMap = await sectionNameMap(db, [...involved]);
-    const nameOf = (id: number): string => nameMap.get(id) ?? `section ${id}`;
+    const nameOf = (id: number): string => nameMap.get(id) ?? ORPHANED_SECTION_LABEL;
     const seen = new Set<string>();
-    for (const m of sectionUniquenessMessages(sharedIds, prospectiveVariantIds, nameOf)) {
-      if (!seen.has(m)) { seen.add(m); errors[`sections.${seen.size}`] = m; }
+    // Q1: the operator IS standing in this funnel (the variant PUT), so a
+    // cross-surface collision points at the shared page and an internal repeat
+    // says "this funnel" — the only path where that phrase has an antecedent.
+    for (const m of sectionUniquenessMessages(sharedIds, prospectiveVariantIds, nameOf, { saving: "funnel", funnelName: null })) {
+      addUniquenessError(errors, seen, m);
     }
   } catch {
     return {};
@@ -2801,6 +2918,93 @@ interface SectionOrderItem {
 // performs, over the page/slot shape instead of a flat list. The two paths
 // are mutually exclusive per save (putVariantHandler rejects a body
 // carrying both `sections` and `pages`).
+// M5 remediation (P8-5 FIX-FIRST, M-2): the section-vertical mismatch used to
+// surface the raw public_id + bare stored key on an operator-facing error
+// surface ("section lgs_01... vertical 'finance' is not one of the quote
+// verticals") — a raw ULID with no action. Name the section by the label the
+// operator gave it (section_name — the SAME field the §8.2 library cards and
+// list view show), keep "Vertical"/"Verticals" because that is the exact word
+// the section editor (renderActivityVerticalPickers) and the quote-settings
+// form (`Verticals * (select one or more)`) already use, and name the action:
+// pick a section in an allowed vertical, or widen the quote's Verticals.
+// Both call sites below share this ONE function so the message can never
+// drift between them (contract R5: reuse the register, invent no new copy).
+//
+// Q1 (P8-6 FIX-FIRST, MINOR): this read "is a ${section.vertical} section" —
+// "is a auto section" for the commonest value in the fixtures. There is no
+// article to compute: Activity and Vertical are OPERATOR-AUTHORED free text
+// (ui-section-studio.ts's "+ New activity…" / "+ New vertical…" allow-create),
+// so the value can begin with any letter and any sound ("an hour-1 lead", "a
+// u-verse offer") — a leading-vowel rule would be wrong for a knowable share
+// of real inputs and there is no closed registry to look the word up in. The
+// fix is therefore to stop requiring an article: name the field the way the
+// section editor's own pickers do (renderActivityVerticalPickers: "Activity",
+// "Vertical"), which is also how the sibling in this register already reads
+// ("'X' is archived — …", no article).
+function describeVerticalMismatch(section: LeadgenSectionRow, allowedVerticals: Set<string>): string {
+  const allowed = [...allowedVerticals].join(", ");
+  return `'${section.section_name}' is in the ${section.vertical} Vertical, but this quote's Verticals only include ${allowed} — pick a section in one of those verticals, or add ${section.vertical} to the quote's Verticals.`;
+}
+
+// M5 remediation (P8-5 FIX-FIRST round 2, MAJOR-1): the sibling activity-
+// mismatch check sits THREE LINES above each describeVerticalMismatch call
+// site and runs FIRST, short-circuiting it — so for a section whose activity
+// (not just vertical) doesn't match the quote, the operator was still getting
+// the raw-ULID/bare-key message ("section lgs_01... activity 'x' does not
+// match the quote activity 'y'") the vertical fix never reached. Same
+// register as describeVerticalMismatch (contract R5: reuse, invent no new
+// copy) — name the section by section_name, keep "Activity" because that is
+// the exact word the sections list column ("Activity / Vertical"), the
+// section editor (renderActivityVerticalPickers's "Activity" label), and the
+// quote-settings/new-quote form ("Activity *") already use, and name the
+// action: pick a section under the quote's Activity, or change the quote's
+// Activity to match. Both call sites below share this ONE function so the
+// message can never drift between them.
+// (Q1 MINOR: "is a ${section.activity} section" carried the same broken article
+// as describeVerticalMismatch above — see that note for why the article is
+// removed rather than computed.)
+function describeActivityMismatch(section: LeadgenSectionRow, quoteActivity: string): string {
+  return `'${section.section_name}' is under the ${section.activity} Activity, but this quote's Activity is ${quoteActivity} — pick a section under ${quoteActivity}, or change the quote's Activity to ${section.activity}.`;
+}
+
+// M5 remediation (P8-5 FIX-FIRST round 2, H2b): the inactive-section check
+// sits 4 lines above describeActivityMismatch/describeVerticalMismatch and
+// shared their exact old defect — a raw public_id with no action. "active"/
+// "archived" is already the operator's own word (ui.ts's statusBadge renders
+// section.status verbatim as the Sections list's status pill), so only the
+// id needs replacing (section_name) and an action needs naming: reactivate
+// it — the EXACT verb ui-sections.ts's kebab-menu button and confirm dialog
+// ("Reactivate this Section?") use — or pick a different active section.
+function describeInactiveSection(section: LeadgenSectionRow): string {
+  return `'${section.section_name}' is ${section.status} — only active sections can be ordered; reactivate it from the Sections list, or pick a different active section.`;
+}
+
+// M5 remediation (P8-5 FIX-FIRST round 2, H2b): "unknown section ${ref}"
+// belongs to the same class (no action named) even though — unlike the
+// public_id/numeric-id leaks above — echoing `ref` here is defensible: it is
+// exactly what the caller submitted, and there is no section row left to
+// name. Keep the echo, add the action.
+function describeUnknownSectionRef(ref: string): string {
+  return `no section matches '${ref}' — check the Sections list and pick an existing section.`;
+}
+
+// M5 remediation (P8-5 FIX-FIRST round 2, H2b): every "<label> ${id} does not
+// exist" FK-existence check in this file (Offer/Auction/Template targets)
+// shares the SAME shape as the section-order checks above — a raw internal
+// database row id with no action. None of these ids are ever typed by the
+// operator: Offer (ui-rules-builder.ts's "Redirect to offer" field / "Offer"
+// segment label), Auction (quotes-tabs/funnel.ts's `for="lg-auction-id">
+// Auction<`), and Template (quotes-tabs/templates.ts's Template pickers, the
+// Templates tab) are all NAME dropdowns — the id is only the selected
+// option's value attribute. Once the referenced row is gone there is no name
+// left to show, so say that plainly and name the action (the list is stale —
+// refresh and pick again) instead of echoing the number. (target_section_id
+// is NOT part of this register — see the two sites below that keep its old
+// text, with the dead-path evidence.)
+function describeMissingReference(label: string): string {
+  return `the selected ${label} no longer exists — refresh the page and pick another ${label}.`;
+}
+
 async function resolveSectionOrder(
   db: D1Database,
   quote: LeadgenQuoteRow,
@@ -2826,19 +3030,19 @@ async function resolveSectionOrder(
     }
     const section = await resolveRowSection(db, String(ref));
     if (section === null) {
-      errors[`sections.${i}`] = `unknown section ${String(ref)}`;
+      errors[`sections.${i}`] = describeUnknownSectionRef(String(ref));
       continue;
     }
     if (section.status !== "active") {
-      errors[`sections.${i}`] = `section ${section.public_id} is ${section.status} — only active sections can be ordered`;
+      errors[`sections.${i}`] = describeInactiveSection(section);
       continue;
     }
     if (section.activity !== quote.activity) {
-      errors[`sections.${i}`] = `section ${section.public_id} activity '${section.activity}' does not match the quote activity '${quote.activity}'`;
+      errors[`sections.${i}`] = describeActivityMismatch(section, quote.activity);
       continue;
     }
     if (quoteVerticals.size > 0 && !quoteVerticals.has(section.vertical)) {
-      errors[`sections.${i}`] = `section ${section.public_id} vertical '${section.vertical}' is not one of the quote verticals`;
+      errors[`sections.${i}`] = describeVerticalMismatch(section, quoteVerticals);
       continue;
     }
     const posRaw = entry["position"];
@@ -3136,19 +3340,19 @@ async function preparePages(
     }
     const section = await resolveRowSection(db, String(ref));
     if (section === null) {
-      errors[path] = `unknown section ${String(ref)}`;
+      errors[path] = describeUnknownSectionRef(String(ref));
       return null;
     }
     if (section.status !== "active") {
-      errors[path] = `section ${section.public_id} is ${section.status} — only active sections can be ordered`;
+      errors[path] = describeInactiveSection(section);
       return null;
     }
     if (section.activity !== quote.activity) {
-      errors[path] = `section ${section.public_id} activity '${section.activity}' does not match the quote activity '${quote.activity}'`;
+      errors[path] = describeActivityMismatch(section, quote.activity);
       return null;
     }
     if (quoteVerticals.size > 0 && !quoteVerticals.has(section.vertical)) {
-      errors[path] = `section ${section.public_id} vertical '${section.vertical}' is not one of the quote verticals`;
+      errors[path] = describeVerticalMismatch(section, quoteVerticals);
       return null;
     }
     return section.id;
@@ -3515,7 +3719,7 @@ export async function putVariantHandler(c: AdminContext): Promise<Response> {
       // §15 "optional FK picker" — the auction is created in P9; here we only
       // verify the referenced leadgen_auctions row exists.
       const exists = await c.env.DB.prepare("SELECT id FROM leadgen_auctions WHERE id = ? LIMIT 1").bind(parsed).first<{ id: number }>();
-      if (!exists) errors["auction_id"] = `auction ${parsed} does not exist`;
+      if (!exists) errors["auction_id"] = describeMissingReference("Auction");
       else auctionId = parsed;
     }
   }
@@ -3536,7 +3740,7 @@ export async function putVariantHandler(c: AdminContext): Promise<Response> {
     else if (parsed === null) frameTemplateId = null;
     else {
       const ex = await c.env.DB.prepare("SELECT id FROM leadgen_frame_templates WHERE id = ? LIMIT 1").bind(parsed).first<{ id: number }>();
-      if (!ex) errors["frame_template_id"] = `frame template ${parsed} does not exist`;
+      if (!ex) errors["frame_template_id"] = describeMissingReference("Template");
       else frameTemplateId = parsed;
     }
   }
@@ -3617,7 +3821,14 @@ export async function putVariantHandler(c: AdminContext): Promise<Response> {
             path: "frame_overrides.theme_id",
             scope: "theme",
             severity: "error",
-            message: `Theme '${themeIdPart}' does not exist.`,
+            // H2b: same register as describeMissingReference's other 7 call
+            // sites — themeIdPart is a raw system id (thm_…, per
+            // quotes-tabs/theme-preset-resolve.ts's own {"theme_id":"thm_..."}
+            // shape), never typed by the operator (a Theme picker's value
+            // attribute), and this Problem[] reaches the operator the SAME
+            // way auction_id/frame_template_id do (saveFailureText's
+            // `res.body.problems` branch).
+            message: describeMissingReference("Theme"),
           });
         }
       }
@@ -3690,8 +3901,15 @@ export async function putVariantHandler(c: AdminContext): Promise<Response> {
       const sectionIds = Array.from(new Set(preparedRules.map((r) => r.targetSectionId).filter((v): v is number => v !== null)));
       for (const oid of offerIds) {
         const ex = await c.env.DB.prepare("SELECT id FROM leadgen_offers WHERE id = ? LIMIT 1").bind(oid).first<{ id: number }>();
-        if (!ex) errors[`rules.target_offer_id.${oid}`] = `offer ${oid} does not exist`;
+        if (!ex) errors[`rules.target_offer_id.${oid}`] = describeMissingReference("Offer");
       }
+      // target_section_id is NOT part of the describeMissingReference register
+      // (H2b): the 3 removed rule types (route_funnel_variant/skip_section/
+      // show_section) were the only ones that ever set it, and grep across
+      // every client that builds a rule payload (ui-rules-builder.ts,
+      // ui-quotes.ts, quotes-tabs/funnel.ts) is 0 hits for target_section_id —
+      // no live UI control can submit a non-null value, so this branch cannot
+      // fire through the admin UI today. Left as-is (no string nobody reads).
       for (const sid of sectionIds) {
         const ex = await c.env.DB.prepare("SELECT id FROM leadgen_sections WHERE id = ? LIMIT 1").bind(sid).first<{ id: number }>();
         if (!ex) errors[`rules.target_section_id.${sid}`] = `section ${sid} does not exist`;
@@ -4200,8 +4418,10 @@ async function ruleTargetFkErrors(db: D1Database, rule: PreparedRule): Promise<F
   const errors: FieldErrors = {};
   if (rule.targetOfferId !== null) {
     const ex = await db.prepare("SELECT id FROM leadgen_offers WHERE id = ? LIMIT 1").bind(rule.targetOfferId).first<{ id: number }>();
-    if (!ex) errors["target_offer_id"] = `offer ${rule.targetOfferId} does not exist`;
+    if (!ex) errors["target_offer_id"] = describeMissingReference("Offer");
   }
+  // target_section_id: same H2b non-register decision as prepareRules' own
+  // FK-existence loop above — 0 live UI producer (grep evidence there).
   if (rule.targetSectionId !== null) {
     const ex = await db.prepare("SELECT id FROM leadgen_sections WHERE id = ? LIMIT 1").bind(rule.targetSectionId).first<{ id: number }>();
     if (!ex) errors["target_section_id"] = `section ${rule.targetSectionId} does not exist`;
@@ -5810,7 +6030,12 @@ async function computeVariantPreflightBlocks(
         offer_id: "",
         offer_name: "",
         code: "auction_config_invalid",
-        fields: [`auction_id ${variant.auction_id} does not exist`],
+        // H2b: this block's `fields` array renders as literal, joined text on
+        // the Activation tab's preflight card (quotes-tabs/activation.ts's
+        // renderPreflightBlockCard: `parts.push(...fields.join(", "))`) — a
+        // 9th operator-visible site the named list of 7 didn't include, found
+        // sweeping this same function for the class. Same register.
+        fields: [describeMissingReference("Auction")],
         fix_links: {},
       });
     } else {
@@ -5935,14 +6160,14 @@ async function computeReworkActivationProblems(db: D1Database, quote: LeadgenQuo
     }
 
     // every active funnel has ≥1 page with ≥1 section (its active variant).
-    const perVariant: number[][] = [];
+    const perVariant: Array<{ funnelName: string; ids: number[] }> = [];
     const involved = new Set<number>(sharedIds);
     for (const f of activeFunnels) {
       const variants = await readActiveFunnelVariants(db, f.id);
       let hasSections = false;
       for (const v of variants) {
         const ids = await variantSectionIds(db, v.id);
-        perVariant.push(ids);
+        perVariant.push({ funnelName: f.funnel_name, ids });
         for (const id of ids) involved.add(id);
         if (ids.length > 0) hasSections = true;
       }
@@ -5963,11 +6188,17 @@ async function computeReworkActivationProblems(db: D1Database, quote: LeadgenQuo
 
     // §4.3-13 uniqueness holds (shared ∪ each active funnel-variant plan).
     const nameMap = await sectionNameMap(db, [...involved]);
-    const nameOf = (id: number): string => nameMap.get(id) ?? `section ${id}`;
+    const nameOf = (id: number): string => nameMap.get(id) ?? ORPHANED_SECTION_LABEL;
     const seen = new Set<string>();
-    const scopes = perVariant.length > 0 ? perVariant : [[]];
-    for (const ids of scopes) {
-      for (const m of sectionUniquenessMessages(sharedIds, ids, nameOf)) {
+    // Q1: nothing is being SAVED here — this re-checks two already-saved
+    // surfaces, so a cross-surface collision really is on both and the sentence
+    // says both (the report's own doctrine: "either copy can go, so there are
+    // two candidate controls, not one" — quotes-tabs/activation.ts). The funnel
+    // is named because a quote-level publish report has no "this funnel".
+    const scopes: Array<{ funnelName: string | null; ids: number[] }> =
+      perVariant.length > 0 ? perVariant : [{ funnelName: null, ids: [] }];
+    for (const { funnelName, ids } of scopes) {
+      for (const m of sectionUniquenessMessages(sharedIds, ids, nameOf, { saving: null, funnelName })) {
         if (!seen.has(m)) {
           seen.add(m);
           out.push(mk("activation.section_uniqueness", m));
@@ -6484,7 +6715,7 @@ async function computeVariantV25Problems(
               path: `section.${row.public_id}.content`,
               scope: "section",
               severity: "warning",
-              message: `Legacy override is ON for this funnel: slide ${slide} '${row.section_name}' keeps its own page chrome (${chromeTypes.join(", ")}) — it may appear twice.`,
+              message: `Legacy override is ON for this funnel: section ${slide} '${row.section_name}' keeps its own page chrome (${chromeTypes.join(", ")}) — it may appear twice.`,
               fix_url: fixSection,
             }
           : {
@@ -6493,15 +6724,18 @@ async function computeVariantV25Problems(
               severity: "error",
               // §14.1 copy pattern in full — the remedy names the Section
               // Builder's [Move to funnel layout] action (message text only;
-              // fix_url stays the [Review slide] section-edit deep link).
-              // "Slide" is LEGAL here: this copy renders on Quote-Builder
-              // activation surfaces (preflight panel / 409 problems), never
-              // on a Section-Builder page (C6 lint scope). U15 fix-round
-              // (2026-07-15): the bracketed button-name reference is updated
-              // to match ui-section-studio.ts's renamed "Move to funnel
-              // layout" button verbatim — this message must keep pointing at
-              // a button that exists.
-              message: `Slide ${slide} '${row.section_name}' contains funnel-layout elements (${chromeTypes.join(", ")}) that would render twice on the live page. Remove them ([Move to funnel layout] in the Section Builder) or enable the legacy override under Advanced.`,
+              // fix_url stays the [Edit Section] section-edit deep link).
+              // P8-4 F-3 (ADJ-P8-16, contract §6 M9): this copy used to say
+              // "Slide" on the claim it was Quote-Builder-only vocabulary
+              // exempt from the C6 "no slide anywhere" lint (never on a
+              // Section-Builder page). That exemption is REVOKED: the product
+              // has no slides on ANY surface, so the sentence now says
+              // "section" like every other row in this function. U15 fix-round
+              // (2026-07-15): the bracketed button-name reference still must
+              // match ui-section-studio.ts's renamed "Move to funnel layout"
+              // button verbatim — this message must keep pointing at a button
+              // that exists.
+              message: `Section ${slide} '${row.section_name}' contains funnel-layout elements (${chromeTypes.join(", ")}) that would render twice on the live page. Remove them ([Move to funnel layout] in the Section Builder) or enable the legacy override under Advanced.`,
               fix_url: fixSection,
             },
       );
@@ -6513,7 +6747,7 @@ async function computeVariantV25Problems(
         path: `section.${row.public_id}.progress`,
         scope: "section",
         severity: "warning",
-        message: `Slide ${slide} '${row.section_name}' renders its own progress indicator — the funnel layout already shows progress on every slide.`,
+        message: `Section ${slide} '${row.section_name}' renders its own progress indicator — the funnel layout already shows progress on every section.`,
         fix_url: fixSection,
       });
     }
@@ -6522,7 +6756,7 @@ async function computeVariantV25Problems(
         path: `section.${row.public_id}.back`,
         scope: "section",
         severity: "warning",
-        message: `Slide ${slide} '${row.section_name}' renders its own back link — the funnel layout already shows back navigation.`,
+        message: `Section ${slide} '${row.section_name}' renders its own back link — the funnel layout already shows back navigation.`,
         fix_url: fixSection,
       });
     }
@@ -6534,7 +6768,7 @@ async function computeVariantV25Problems(
         path: `section.${row.public_id}.continue`,
         scope: "section",
         severity: "warning",
-        message: `Slide ${slide} has more than one Continue button — only the first is shown.`,
+        message: `Section ${slide} has more than one Continue button — only the first is shown.`,
         fix_url: fixSection,
       });
     }
@@ -6554,7 +6788,7 @@ async function computeVariantV25Problems(
         path: `section.${row.public_id}.headline`,
         scope: "section",
         severity: "warning",
-        message: `Slide ${slide} shows no question headline.`,
+        message: `Section ${slide} shows no question headline.`,
         fix_url: fixSection,
       });
     }
@@ -6566,7 +6800,7 @@ async function computeVariantV25Problems(
         path: `section.${row.public_id}.design_overrides`,
         scope: "section",
         severity: "warning",
-        message: `Slide ${slide} uses ${hexCount} custom ${hexCount === 1 ? "color" : "colors"} — convert to theme colors.`,
+        message: `Section ${slide} uses ${hexCount} custom ${hexCount === 1 ? "color" : "colors"} — convert to theme colors.`,
         fix_url: fixSection,
       });
     }

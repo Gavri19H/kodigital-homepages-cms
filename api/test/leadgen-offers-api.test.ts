@@ -1306,6 +1306,41 @@ describeDb("GET /offers/:id builder_context.linked_fields — §8.5 nested quest
     expect(names).not.toContain("addr_zip");
   });
 
+  // P8-5 L1 — the OTHER half of the same fact. The H1 collision resolution
+  // (presets.ts m9AddressRenderedFieldName) DECLINES a fills rename that would
+  // land on a key a sibling question already answers, so the very same Address
+  // node records `addr_zip` here and `postal_code_x` in the test above. Which
+  // one is determinate from the stored Section, so the picker must offer that
+  // one and NEVER both: every entry in this list is an <option> the operator
+  // maps to a buyer field, and a key no box records is a buyer field empty
+  // forever (§4 R3 — a control that cannot be honoured must not be offered).
+  it("SRC-6B: a fills rename a SIBLING already answers is offered under {base}_zip", async () => {
+    const { sdb, env } = newHarness();
+    const offer = await createOffer(env);
+    seedSectionLinked(sdb, offer.id, "Addr Renamed Collides", [
+      ADDR_NODE({ maps: { enabled: true, fills: { zip: "postal_code_x" } } }),
+      {
+        type: "FreeTextQuestion",
+        question_id: "q_pc",
+        internal_field: "postal_code_x",
+        answer_type: "string",
+      },
+    ]);
+    const names = (await linkedFields(env, offer.id)).map((f) => f.internal_field);
+    // the address's zip box keeps its own name; the SIBLING owns postal_code_x
+    expect(names).toEqual([
+      "addr_street",
+      "addr_city",
+      "addr_state",
+      "addr_zip",
+      "postal_code_x",
+    ]);
+    // exactly one entry per rendered box — postal_code_x is listed ONCE, and it
+    // belongs to the sibling FreeText, not to the Address.
+    expect(names.filter((n) => n === "postal_code_x")).toHaveLength(1);
+    expect(names.filter((n) => n.startsWith("addr_"))).toHaveLength(4);
+  });
+
   it("SRC-6B: a full_address-alone Address still projects ONE entry under the base key", async () => {
     const { sdb, env } = newHarness();
     const offer = await createOffer(env);

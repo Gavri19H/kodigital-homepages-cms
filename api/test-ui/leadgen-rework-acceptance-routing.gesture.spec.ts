@@ -273,7 +273,7 @@ test.describe("#11C — builder structure, board authoring & rules (admin, both 
     const panel = page.locator('[data-panel="ab"]');
     await expect(panel).toBeVisible();
     // equal-arms / no-control doctrine is stated verbatim + two arms render.
-    await expect(panel).toContainText("Equal arms; no control");
+    await expect(panel).toContainText("Every variant is treated the same — none of them is a baseline");
     await expect(panel.locator("[data-variant]")).toHaveCount(2);
     // arms are labelled A/B — no "(control)" label anywhere (the removed control vocabulary).
     await expect(panel.getByText(/\(control\)/i)).toHaveCount(0);

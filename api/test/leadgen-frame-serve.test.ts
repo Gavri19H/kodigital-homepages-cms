@@ -593,8 +593,9 @@ describeDb("no-duplicate-headline-storage (15 §15.1 + 03 §3.4)", () => {
     // The handler maps the typed code onto its {error, fields} shape: the
     // bound_node_carries_text failure rides the node's props.text path.
     const badBody = (await badRes.json()) as { fields: Record<string, string> };
+    // Re-minted for M5: "must not carry props.text" rewritten to operator copy.
     expect(badBody.fields["content.components[0].props.text"]).toContain(
-      "must not carry props.text",
+      "so it can't carry its own text",
     );
     // And the stored content is untouched by the rejected save.
     const after = h.sdb

@@ -4440,8 +4440,10 @@ describeDb("v2.5 §5.2 EXECUTED — binding model (vm-probe of the served code)"
     expect(issues.some((i) => i.qid === "q_icon" && /missing its icon/.test(i.message)), JSON.stringify(issues)).toBe(true);
     expect(issues.some((i) => i.qid === "q_image" && /missing its image/.test(i.message)), JSON.stringify(issues)).toBe(true);
     const serverErrors = validateSectionContent(probe.sandbox.state.content).errors;
-    expect(serverErrors.some((e) => e.code === "invalid_choice" && /requires a per-choice icon/.test(e.message))).toBe(true);
-    expect(serverErrors.some((e) => e.code === "invalid_choice" && /requires a per-choice imageMediaId/.test(e.message))).toBe(true);
+    // Re-minted for M5: "requires a per-choice icon/imageMediaId" rewritten to
+    // operator copy ("needs an icon"/"needs an image").
+    expect(serverErrors.some((e) => e.code === "invalid_choice" && /needs an icon/.test(e.message))).toBe(true);
+    expect(serverErrors.some((e) => e.code === "invalid_choice" && /needs an image/.test(e.message))).toBe(true);
   });
 
   it("the legacy link banner renders BOTH cases from the live model and its buttons run the real link handlers", async () => {
@@ -4972,7 +4974,8 @@ describeDb("v2.5 A6 — image_fit is a COMPONENT prop on ImageCardAnswerGrid", (
       code: "container_prop_invalid",
       path: "components[0].props.image_fit",
     });
-    expect(bad.errors[0]!.message).toContain("cover|contain");
+    // Re-minted for M5: "cover|contain" rewritten to "cover or contain" operator copy.
+    expect(bad.errors[0]!.message).toContain("must be one of: cover or contain");
   });
 
   it("preset: the component prop drives object-fit for EVERY card; a legacy per-choice value stays the fallback; the component prop WINS", () => {

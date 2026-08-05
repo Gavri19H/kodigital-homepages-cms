@@ -392,7 +392,20 @@ function dualSliderFields(component: LgComponentConfig): [string, string] | null
 // §6.10: one address field's own rule — required first, then the format rule
 // (none / zip5 / {regex,message}). A bad custom regex degrades to "no rule"
 // (never a runtime throw), the same defensive idiom validateValue's pattern leg
-// uses; the ≤200 length floor mirrors the phone contract's cheap guard.
+// uses. The 200-char floor gates the REGEX WORK ONLY — .test() never runs on
+// an over-long value, so a hostile authored pattern can never backtrack over
+// unbounded visitor input (ReDoS defense, the phone leg's own ≤40-char floor
+// above uses the same idiom).
+//
+// P8-5 G5 fix — MEASURED (tsx, real validateSection, no mocks): the pre-fix
+// version skipped the WHOLE branch past 200 chars, so a 201-char answer
+// against a digits-only custom rule cleared with ZERO failures (a 200-char
+// answer, and a 150-char answer, both correctly failed). That's a silent
+// PASS, not a safety trade-off — the phone leg this claimed to "mirror"
+// actually fails CLOSED past its own floor (`ok` starts false, only flips
+// true on a passing test — see checkFormat's phone branch). This now does
+// the same: the regex still never runs past 200 chars, but over-length is a
+// real "too long" failure, never a silent accept.
 function validateAddressField(
   spec: Record<string, unknown>,
   value: unknown,
@@ -410,20 +423,24 @@ function validateAddressField(
     }
   } else if (isRecord(validation)) {
     const regex = validation["regex"];
-    if (typeof regex === "string" && regex !== "" && text.length <= 200) {
-      try {
-        if (!new RegExp(regex).test(text)) {
-          const message = validation["message"];
-          out.push({
-            code: "pattern",
-            message:
-              typeof message === "string" && message !== ""
-                ? message
-                : "The value has an invalid format.",
-          });
+    if (typeof regex === "string" && regex !== "") {
+      if (text.length > 200) {
+        out.push({ code: "max_length", message: "Enter at most 200 characters." });
+      } else {
+        try {
+          if (!new RegExp(regex).test(text)) {
+            const message = validation["message"];
+            out.push({
+              code: "pattern",
+              message:
+                typeof message === "string" && message !== ""
+                  ? message
+                  : "The value has an invalid format.",
+            });
+          }
+        } catch {
+          /* unparseable authored regex → rule skipped */
         }
-      } catch {
-        /* unparseable authored regex → rule skipped */
       }
     }
   }

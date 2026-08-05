@@ -71,6 +71,104 @@ function isRecord(value: unknown): value is Record<string, unknown> {
 
 const HEX_RE = /^#(?:[0-9a-f]{3}|[0-9a-f]{6})$/i;
 
+// ---------------------------------------------------------------------------
+// P8-6 Q9 — OPERATOR WORDS FOR THIS VALIDATOR'S MESSAGES (owner M5: "the rules
+// you build are using jargon, have no actions").
+//
+// Every message below used to name the STORAGE PATH and dump the STORED tokens
+// ("typography.headline_font must be one of: ...", "controls.corners must be
+// one of: sharp, rounded, pill"). The error KEYS are unchanged — the Themes
+// manager maps them back to fields — only the human sentence changed.
+//
+// The words are NOT invented: each one is the label the operator actually
+// reads on the Themes manager screen (ui-theme-manager.ts ROLE_META /
+// EXTRA_ROLE_META / FIELD_HEIGHT_OPTS / BUTTON_SIZE_OPTS / CORNERS_OPTS /
+// DISPLAY_SIZE_OPTS / BUTTON_FILL_OPTS / BUTTON_LAYOUT_OPTS /
+// BUTTON_SELECTED_OPTS and the pane eyebrows "Colors", "Typography",
+// "Buttons & inputs", "Button style"). They are duplicated here rather than
+// imported for the SAME reason theme.ts keeps its own local label tables: this
+// module is the admin CRUD boundary and must not take a UI-module import edge.
+// The Record<...> types below lockstep the keys with theme.ts, so a new role
+// or a new field fails the compile here instead of shipping a raw one.
+//
+// Two vocabularies are DELIBERATELY left as their stored values, because the
+// stored value IS the word the operator reads on screen:
+//   • THEME_RECORD_FONT_NAMES — "Newsreader", "Inter", "Playfair Display":
+//     real family names, and the Typography font selects show exactly these.
+//     Verified against theme.ts THEME_RECORD_FONT_NAMES. The fix here was the
+//     SENTENCE around them, not the names.
+//   • THEME_RECORD_FIELD_HEIGHTS / THEME_RECORD_CORNERS — small/medium/large
+//     and sharp/rounded/pill differ from the on-screen segments by
+//     capitalisation only, so they are title-cased, not renamed.
+// ---------------------------------------------------------------------------
+const ROLE_WORDS: Readonly<Record<ThemeRecordRoleKey, string>> = {
+  brand_primary: "Brand primary",
+  accent: "Accent",
+  page_bg: "Page background",
+  card: "Card",
+  text: "Text",
+  success: "Success",
+  // No row of its own in the Colors pane; "Error" is the name every other
+  // surface uses for this role (theme.ts FUNNEL_TOKEN_ROLE_LABELS.error).
+  error: "Error",
+};
+const EXTRA_ROLE_WORDS: Readonly<Record<ThemeRecordExtraRoleKey, string>> = {
+  brand_secondary: "Brand secondary",
+  surface_wash: "Soft fill",
+  border: "Border",
+  text_muted: "Muted text",
+  button_primary_bg: "Button",
+  button_primary_text: "Button text",
+  button_secondary_bg: "Secondary button",
+};
+const DISPLAY_SIZE_WORDS: Readonly<Record<string, string>> = {
+  m: "Base",
+  l: "Large",
+  xl: "X-Large",
+  xxl: "XX-Large",
+};
+const FIELD_HEIGHT_WORDS: Readonly<Record<string, string>> = {
+  small: "Small",
+  medium: "Medium",
+  large: "Large",
+};
+const BUTTON_SIZE_WORDS: Readonly<Record<string, string>> = { s: "S", m: "M", l: "L" };
+const CORNERS_WORDS: Readonly<Record<string, string>> = {
+  sharp: "Sharp",
+  rounded: "Rounded",
+  pill: "Pill",
+};
+const BUTTON_FILL_WORDS: Readonly<Record<string, string>> = {
+  fill: "Solid",
+  outline: "Outline",
+  soft: "Soft",
+};
+const BUTTON_LAYOUT_WORDS: Readonly<Record<string, string>> = {
+  grid: "Grid",
+  list: "List",
+  card: "Card",
+};
+const BUTTON_SELECTED_WORDS: Readonly<Record<string, string>> = { wash: "Wash", mark: "Mark" };
+
+// "a, b or c" — the operator reads a choice list, not a comma-joined dump.
+function choiceList(values: readonly string[], words?: Readonly<Record<string, string>>): string {
+  const said = words === undefined ? values.slice() : values.map((v) => words[v] ?? v);
+  if (said.length < 2) return said.join("");
+  return `${said.slice(0, -1).join(", ")} or ${said[said.length - 1]}`;
+}
+
+// The one message shape: what it is called, what it must be, what to do.
+function mustBeOneOf(
+  label: string,
+  values: readonly string[],
+  where: string,
+  words?: Readonly<Record<string, string>>,
+): string {
+  return `'${label}' must be ${choiceList(values, words)}. Pick one of those under ${where}.`;
+}
+
+const HEX_ACTION = "Pick a colour, or type a hex value like #1B3A5C.";
+
 // Validate a create/update BODY (id is assigned/kept separately — never part
 // of the body). Every recognised group is REQUIRED on create; updateThemeHandler
 // pre-merges the current record's groups first (mergeThemeBody) so a caller
@@ -84,27 +182,28 @@ function validateThemeBody(raw: unknown): { value: Omit<ThemeRecord, "id"> | nul
 
   const name = raw["name"];
   if (typeof name !== "string" || name.trim() === "") {
-    errors["name"] = "name is required";
+    errors["name"] = "Give this theme a name.";
   } else if (name.length > THEME_NAME_MAX) {
-    errors["name"] = `name must be ${THEME_NAME_MAX} characters or fewer`;
+    errors["name"] = `The theme name must be ${THEME_NAME_MAX} characters or fewer. Shorten it.`;
   }
 
   const roles = raw["roles"];
   const outRoles = {} as Record<ThemeRecordRoleKey, string>;
   if (!isRecord(roles)) {
-    errors["roles"] = "roles must be a group of colours";
+    errors["roles"] = "Colors is missing. Set a colour for every role under Colors.";
   } else {
     for (const key of THEME_RECORD_ROLE_KEYS) {
       const v = roles[key];
       if (typeof v !== "string" || !HEX_RE.test(v)) {
-        errors[`roles.${key}`] = `roles.${key} must be a hex colour like #1B3A5C`;
+        errors[`roles.${key}`] = `'${ROLE_WORDS[key]}' needs a colour. ${HEX_ACTION}`;
       } else {
         outRoles[key] = v;
       }
     }
     for (const key of Object.keys(roles)) {
       if (!(THEME_RECORD_ROLE_KEYS as readonly string[]).includes(key)) {
-        errors[`roles.${key}`] = `'${key}' isn't a recognised theme role`;
+        errors[`roles.${key}`] =
+          `'${key}' isn't one of this theme's colour roles. Under Colors the roles are ${choiceList(THEME_RECORD_ROLE_KEYS, ROLE_WORDS)} — remove it, or use one of those.`;
       }
     }
   }
@@ -130,17 +229,19 @@ function validateThemeBody(raw: unknown): { value: Omit<ThemeRecord, "id"> | nul
   let outExtraRoles: ThemeRecordExtraRoles | undefined;
   if (extraRolesRaw !== undefined) {
     if (!isRecord(extraRolesRaw)) {
-      errors["extra_roles"] = "extra_roles must be a group of colours";
+      errors["extra_roles"] = "More roles is missing. Set a colour for each extra role under Colors.";
     } else {
       const built: ThemeRecordExtraRoles = {};
       for (const key of Object.keys(extraRolesRaw)) {
         if (!(THEME_RECORD_EXTRA_ROLE_KEYS as readonly string[]).includes(key)) {
-          errors[`extra_roles.${key}`] = `'${key}' isn't a recognised theme role`;
+          errors[`extra_roles.${key}`] =
+            `'${key}' isn't one of this theme's extra colour roles. Under More roles they are ${choiceList(THEME_RECORD_EXTRA_ROLE_KEYS, EXTRA_ROLE_WORDS)} — remove it, or use one of those.`;
           continue;
         }
         const v = extraRolesRaw[key];
         if (typeof v !== "string" || !HEX_RE.test(v)) {
-          errors[`extra_roles.${key}`] = `extra_roles.${key} must be a hex colour like #1B3A5C`;
+          errors[`extra_roles.${key}`] =
+            `'${EXTRA_ROLE_WORDS[key as ThemeRecordExtraRoleKey]}' needs a colour. ${HEX_ACTION}`;
         } else {
           built[key as ThemeRecordExtraRoleKey] = v;
         }
@@ -152,7 +253,7 @@ function validateThemeBody(raw: unknown): { value: Omit<ThemeRecord, "id"> | nul
   const typography = raw["typography"];
   let outTypography: ThemeRecord["typography"] | null = null;
   if (!isRecord(typography)) {
-    errors["typography"] = "typography must be a group of settings";
+    errors["typography"] = "Typography is missing. Set the fonts and text size under Typography.";
   } else {
     // P0 stored-XSS fix (adversarial review BLOCKER-1): headline_font/
     // body_font are a CLOSED whitelist, not "any non-empty string" — this is
@@ -164,16 +265,17 @@ function validateThemeBody(raw: unknown): { value: Omit<ThemeRecord, "id"> | nul
     const headline = typography["headline_font"];
     const body = typography["body_font"];
     const basePx = typography["base_px"];
+    // The font NAMES are already display names ("Newsreader", "Playfair
+    // Display") and the Typography font selects show exactly these strings —
+    // so this pair only needed its SENTENCE de-jargoned, not its values.
     if (!isThemeRecordFontName(headline)) {
-      errors["typography.headline_font"] =
-        `typography.headline_font must be one of: ${THEME_RECORD_FONT_NAMES.join(", ")}`;
+      errors["typography.headline_font"] = mustBeOneOf("Headline font", THEME_RECORD_FONT_NAMES, "Typography");
     }
     if (!isThemeRecordFontName(body)) {
-      errors["typography.body_font"] =
-        `typography.body_font must be one of: ${THEME_RECORD_FONT_NAMES.join(", ")}`;
+      errors["typography.body_font"] = mustBeOneOf("Body font", THEME_RECORD_FONT_NAMES, "Typography");
     }
     if (typeof basePx !== "number" || !Number.isFinite(basePx) || basePx < 10 || basePx > 24) {
-      errors["typography.base_px"] = "typography.base_px must be a number between 10 and 24";
+      errors["typography.base_px"] = "The base text size must be a number between 10 and 24. Set it under Typography.";
     }
     // P6b round 2 — the P6a-widened OPTIONAL display-ramp field (mirrors the
     // inline theme_json.typography.display_size axis exactly, same enum).
@@ -183,7 +285,12 @@ function validateThemeBody(raw: unknown): { value: Omit<ThemeRecord, "id"> | nul
     let outDisplaySize: ThemeDisplaySizeScale | undefined;
     if (displaySizeRaw !== undefined) {
       if (typeof displaySizeRaw !== "string" || !(THEME_DISPLAY_SIZE_SCALES as readonly string[]).includes(displaySizeRaw)) {
-        errors["typography.display_size"] = `typography.display_size must be one of: ${THEME_DISPLAY_SIZE_SCALES.join(", ")}`;
+        errors["typography.display_size"] = mustBeOneOf(
+          "Display size",
+          THEME_DISPLAY_SIZE_SCALES,
+          "Typography",
+          DISPLAY_SIZE_WORDS,
+        );
       } else {
         outDisplaySize = displaySizeRaw as ThemeDisplaySizeScale;
       }
@@ -204,7 +311,7 @@ function validateThemeBody(raw: unknown): { value: Omit<ThemeRecord, "id"> | nul
   const controls = raw["controls"];
   let outControls: ThemeRecord["controls"] | null = null;
   if (!isRecord(controls)) {
-    errors["controls"] = "controls must be a group of settings";
+    errors["controls"] = "Buttons & inputs is missing. Set the field height, button size and corners there.";
   } else {
     const fieldHeight = controls["field_height"];
     const buttonSize = controls["button_size"];
@@ -212,14 +319,25 @@ function validateThemeBody(raw: unknown): { value: Omit<ThemeRecord, "id"> | nul
     const fieldHeightOk = (THEME_RECORD_FIELD_HEIGHTS as readonly string[]).includes(fieldHeight as string);
     const buttonSizeOk = (THEME_RECORD_BUTTON_SIZES as readonly string[]).includes(buttonSize as string);
     const cornersOk = (THEME_RECORD_CORNERS as readonly string[]).includes(corners as string);
+    const buttonsPane = "Buttons & inputs";
     if (!fieldHeightOk) {
-      errors["controls.field_height"] = `controls.field_height must be one of: ${THEME_RECORD_FIELD_HEIGHTS.join(", ")}`;
+      errors["controls.field_height"] = mustBeOneOf(
+        "Field height",
+        THEME_RECORD_FIELD_HEIGHTS,
+        buttonsPane,
+        FIELD_HEIGHT_WORDS,
+      );
     }
     if (!buttonSizeOk) {
-      errors["controls.button_size"] = `controls.button_size must be one of: ${THEME_RECORD_BUTTON_SIZES.join(", ")}`;
+      errors["controls.button_size"] = mustBeOneOf(
+        "Button size",
+        THEME_RECORD_BUTTON_SIZES,
+        buttonsPane,
+        BUTTON_SIZE_WORDS,
+      );
     }
     if (!cornersOk) {
-      errors["controls.corners"] = `controls.corners must be one of: ${THEME_RECORD_CORNERS.join(", ")}`;
+      errors["controls.corners"] = mustBeOneOf("Corners", THEME_RECORD_CORNERS, buttonsPane, CORNERS_WORDS);
     }
     if (fieldHeightOk && buttonSizeOk && cornersOk) {
       outControls = {
@@ -233,7 +351,7 @@ function validateThemeBody(raw: unknown): { value: Omit<ThemeRecord, "id"> | nul
   let spacing: string | undefined;
   if (raw["spacing"] !== undefined) {
     if (typeof raw["spacing"] !== "string") {
-      errors["spacing"] = "spacing must be a string";
+      errors["spacing"] = "Spacing must be text. Remove it, or send the spacing scale's name.";
     } else {
       spacing = raw["spacing"];
     }
@@ -249,19 +367,20 @@ function validateThemeBody(raw: unknown): { value: Omit<ThemeRecord, "id"> | nul
   let outButtonStyle: ThemeRecordButtonStyle | undefined;
   if (buttonStyleRaw !== undefined) {
     if (!isRecord(buttonStyleRaw)) {
-      errors["button_style"] = "button_style must be a group of settings";
+      errors["button_style"] = "Button style is missing. Set the fill, answer layout and selected style there.";
     } else {
       const BUTTON_STYLE_KEYS = ["fill", "layout", "selected"] as const;
       for (const key of Object.keys(buttonStyleRaw)) {
         if (!(BUTTON_STYLE_KEYS as readonly string[]).includes(key)) {
-          errors[`button_style.${key}`] = `'${key}' isn't a recognised button style setting`;
+          errors[`button_style.${key}`] =
+            `'${key}' isn't a Button style setting. The settings are Fill, Answer layout or Selected style — remove it, or use one of those.`;
         }
       }
       const built: ThemeRecordButtonStyle = {};
       const fill = buttonStyleRaw["fill"];
       if (fill !== undefined) {
         if (typeof fill !== "string" || !(THEME_BUTTON_STYLES as readonly string[]).includes(fill)) {
-          errors["button_style.fill"] = `button_style.fill must be one of: ${THEME_BUTTON_STYLES.join(", ")}`;
+          errors["button_style.fill"] = mustBeOneOf("Fill", THEME_BUTTON_STYLES, "Button style", BUTTON_FILL_WORDS);
         } else {
           built.fill = fill as (typeof THEME_BUTTON_STYLES)[number];
         }
@@ -269,7 +388,12 @@ function validateThemeBody(raw: unknown): { value: Omit<ThemeRecord, "id"> | nul
       const layout = buttonStyleRaw["layout"];
       if (layout !== undefined) {
         if (typeof layout !== "string" || !(THEME_BUTTON_LAYOUTS as readonly string[]).includes(layout)) {
-          errors["button_style.layout"] = `button_style.layout must be one of: ${THEME_BUTTON_LAYOUTS.join(", ")}`;
+          errors["button_style.layout"] = mustBeOneOf(
+            "Answer layout",
+            THEME_BUTTON_LAYOUTS,
+            "Button style",
+            BUTTON_LAYOUT_WORDS,
+          );
         } else {
           built.layout = layout as (typeof THEME_BUTTON_LAYOUTS)[number];
         }
@@ -277,8 +401,12 @@ function validateThemeBody(raw: unknown): { value: Omit<ThemeRecord, "id"> | nul
       const selected = buttonStyleRaw["selected"];
       if (selected !== undefined) {
         if (typeof selected !== "string" || !(THEME_BUTTON_SELECTED_STYLES as readonly string[]).includes(selected)) {
-          errors["button_style.selected"] =
-            `button_style.selected must be one of: ${THEME_BUTTON_SELECTED_STYLES.join(", ")}`;
+          errors["button_style.selected"] = mustBeOneOf(
+            "Selected style",
+            THEME_BUTTON_SELECTED_STYLES,
+            "Button style",
+            BUTTON_SELECTED_WORDS,
+          );
         } else {
           built.selected = selected as (typeof THEME_BUTTON_SELECTED_STYLES)[number];
         }

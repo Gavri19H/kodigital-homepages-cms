@@ -20,6 +20,8 @@
 import { getFunnelDesign } from "../../public/leadgen/designs/registry";
 import type { FunnelDesign } from "../../public/leadgen/designs/registry";
 import {
+  collectAnswerKeyClaims,
+  foreignAnswerKeysIn,
   hasFieldMapsConfig,
   leadgenAddressZipAnswerField,
   mapsJobsFor,
@@ -2783,6 +2785,11 @@ function zipFieldsOfContent(
     seen.add(field);
     out.push({ field, node });
   };
+  // P8-5 L1b — which node in this Section answers which key, built ONCE from the
+  // whole tree by the renderer's own function. flattenComponents pushes the very
+  // nodes it was handed (content-schema.ts:1014), so the identities below are the
+  // identities this map keys on.
+  const answerKeyClaims = collectAnswerKeyClaims(content.components);
   // §8.5: probe the flattened projection — the SAME leaf universe
   // normalizeAnswers walks — so a nested ZIP/Address component is found.
   for (const node of flattenComponents(content.components)) {
@@ -2799,7 +2806,20 @@ function zipFieldsOfContent(
       // internal_field, else the bare props.internal_fields entries) named
       // keys no renderer has emitted since M9 — an authored Address's ZIP was
       // never validated here at all.
-      const zipField = leadgenAddressZipAnswerField(node);
+      //
+      // P8-5 L1b — with the Section's foreign keys, "the ZIP key the VISITOR
+      // records" is literal. Without them, a props.maps.fills.zip rename onto a
+      // key a SIBLING question answers named the fill target even though the
+      // renderer had DECLINED that rename, so this report checked the sibling's
+      // answer and never looked at the address's ZIP box at all. DRIVEN through
+      // POST /sections/:id/validate-payload on a Section whose Address renames
+      // its zip box to a sibling's key "pcx" (answers: l1_addr_zip "94043",
+      // pcx "not-a-zip"):
+      //   before  zip_fields ["pcx"]          malformed ["pcx"]  has_malformed true
+      //   after   zip_fields ["l1_addr_zip"]  malformed []       has_malformed false
+      // i.e. it used to raise a false alarm on a free-text field that is not a
+      // ZIP field at all while giving the real ZIP box zero coverage.
+      const zipField = leadgenAddressZipAnswerField(node, foreignAnswerKeysIn(answerKeyClaims, node));
       if (zipField !== null) push(zipField, node);
     }
   }

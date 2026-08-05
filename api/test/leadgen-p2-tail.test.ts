@@ -343,9 +343,14 @@ describeDb("R2 P2 tail — item 1: the A/B-slot dialog stays open on a rejected 
     const ctx = {
       save(put: Record<string, unknown>, onError: (m: string) => void) {
         savedPut = put;
-        // What the real funnel-scope / shared-scope save does on the §4.3-13
-        // uniqueness 400 (variantSaveUniquenessErrors's own field message).
-        onError("'Mobile Landing' is already in this funnel — a section can appear once per funnel.");
+        // What the real shared-scope save does on the §4.3-13 uniqueness 400.
+        // The arms below are BOTH 'Mobile Landing' on the SHARED page, so the
+        // server message is sharedPageUniquenessErrors's shared-page sentence
+        // (N19, P8-6: the shared surface is named "Shared first page" — it is
+        // not "this funnel"), rendered verbatim by the dialog.
+        onError(
+          "'Mobile Landing' is already on the Shared first page — every visitor sees that page first, so a section can appear once per funnel.",
+        );
       },
     };
 
@@ -369,7 +374,9 @@ describeDb("R2 P2 tail — item 1: the A/B-slot dialog stays open on a rejected 
     expect(savedPut, "the save was actually attempted").not.toBeNull();
     expect((savedPut as unknown as { kind: string }).kind).toBe("ab");
     expect(closes.length, "FAIL-BEFORE: the dialog closed BEFORE the save ran, so the rejection landed behind it").toBe(0);
-    expect(errorEl.textContent).toBe("'Mobile Landing' is already in this funnel — a section can appear once per funnel.");
+    expect(errorEl.textContent).toBe(
+      "'Mobile Landing' is already on the Shared first page — every visitor sees that page first, so a section can appear once per funnel.",
+    );
     expect(errorEl.className).not.toContain("lg-hidden");
   });
 });

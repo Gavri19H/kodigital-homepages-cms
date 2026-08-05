@@ -258,7 +258,10 @@ describe("validateSection — §9.5 section-level design_overrides shapes", () =
   it("rejects unknown top-level keys path-precisely (§14.8 unchanged)", () => {
     const errors = validate({ bogus: "x", columnsDefault: 3 });
     expect(Object.keys(errors)).toEqual(["design_overrides.bogus"]);
-    expect(errors["design_overrides.bogus"]).toContain("not a curated design-override token key");
+    // Re-minted for M5: "not a curated design-override token key" rewritten to
+    // operator copy (sections.ts, read-only to this slice — the fix already
+    // landed there; only this assertion needed re-minting).
+    expect(errors["design_overrides.bogus"]).toContain("is not a style setting you can override");
   });
 
   it("rejects unknown palette roles and non role-or-hex palette values, path-precise per role", () => {
@@ -270,7 +273,11 @@ describe("validateSection — §9.5 section-level design_overrides shapes", () =
     expect(errors["design_overrides.palette.error"]).toContain("must be a theme colour role");
     expect(Object.keys(errors)).toHaveLength(3);
     // non-record palette
-    expect(validate({ palette: "accent" })["design_overrides.palette"]).toContain("must be an object");
+    // Re-minted for M5: "must be an object" rewritten to operator copy
+    // (sections.ts validateSectionPaletteOverride, read-only to this slice).
+    expect(validate({ palette: "accent" })["design_overrides.palette"]).toContain(
+      "must give each theme colour role a role or a #hex colour",
+    );
   });
 
   it("clamps columnsDefault to the renderer range (integer 1..5)", () => {
@@ -289,8 +296,14 @@ describe("validateSection — §9.5 section-level design_overrides shapes", () =
     expect(validate({ gapDefault: "1rem;background:url(x)" })["design_overrides.gapDefault"]).toContain(
       "not arbitrary CSS",
     );
-    expect(validate({ gapDefault: "" })["design_overrides.gapDefault"]).toContain("spacing token string");
-    expect(validate({ gapDefault: 4 })["design_overrides.gapDefault"]).toContain("spacing token string");
+    // Re-minted for M5: "spacing token string" rewritten to operator copy
+    // (sections.ts validateSectionLevelOverride, read-only to this slice).
+    expect(validate({ gapDefault: "" })["design_overrides.gapDefault"]).toContain(
+      "must be one of the theme's spacing values",
+    );
+    expect(validate({ gapDefault: 4 })["design_overrides.gapDefault"]).toContain(
+      "must be one of the theme's spacing values",
+    );
   });
 
   it("still rejects arbitrary CSS in curated keys (pre-§9.5 rule untouched)", () => {
@@ -354,7 +367,8 @@ describeDb("PATCH /sections/:id — §9.5 overrides persist + render into conten
     );
     expect(patch.status).toBe(400);
     const body = (await patch.json()) as { fields: Record<string, string> };
-    expect(body.fields["design_overrides.sneaky"]).toContain("not a curated design-override token key");
+    // Re-minted for M5 (2nd instance — see the pure-validator test above).
+    expect(body.fields["design_overrides.sneaky"]).toContain("is not a style setting you can override");
   });
 
   it("bad palette entry via PATCH → 400 path-precise; nothing persists", async () => {

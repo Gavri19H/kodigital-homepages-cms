@@ -15,11 +15,15 @@
 //   · "slot" for placements (Section-Builder surfaces; the Quote Builder's
 //     "Section slot" region name from 03 §3.3 / 04 §4 is the ONE allowed form)
 //   · C6: the word "slide" ANYWHERE in the served Section-Builder pages
-//     (SSR copy, island JS, blobs, styles — the FULL page), while "slide"
-//     stays ALLOWED Quote-Builder vocabulary (calibration test asserts the
-//     quote editor still says it) — this SUPERSEDES the wave-1 page lint that
-//     lived in leadgen-section-studio-ui.test.ts, extended to the dedicated
-//     term matrix below without weakening (same pages, same regex, plus the
+//     (SSR copy, island JS, blobs, styles — the FULL page). P8-4/ADJ-P8-16
+//     REVOKED the old "stays ALLOWED Quote-Builder vocabulary" exemption —
+//     the product has no slides on any surface — so the calibration below no
+//     longer claims "slide" is allowed copy; it pins the SAME two
+//     historically-fragile sentences now reading "section", and keeps a
+//     scanner-fires canary on the non-copy "slide" plumbing that still
+//     remains — this SUPERSEDES the wave-1 page lint that lived in
+//     leadgen-section-studio-ui.test.ts, extended to the dedicated term
+//     matrix below without weakening (same pages, same regex, plus the
 //     quote-side calibration).
 //   · C1: the phrase "provider value" only ever adjacent to an Offer name
 //     (window check over emitted text and island source).
@@ -750,25 +754,80 @@ describeDb("15 §15.2 glossary-lint — normal-mode language over the emitted bu
     expect(violations, `Section-Builder pages say 'slide' ${violations.length}x`).toEqual([]);
   });
 
-  it("C6 calibration: the scanner really fires — 'slide' remains ALLOWED Quote-Builder vocabulary", async () => {
+  it("C6 (Quote Builder): no operator-facing 'slide' survives, and the scanner that says so is not vacuous", async () => {
     const all = await pages();
     const quotesEdit = all.find((x) => x.label === "quotes-edit")!;
-    // RE-ANCHORED (P7 D2 fallout / R2). This used to pin /\bSlide\b/ — the
-    // capitalised all-slides stepper label ("Slide 1", island "Slide N of M").
-    // 87f64f0 deleted that stepper with the dead §4.1 canvas, so the pinned
-    // string no longer exists ANYWHERE and the calibration had stopped
-    // calibrating: a C6 scan whose control word cannot be found is a scan
-    // that can no longer fail. Re-anchored to the SAME scanner the C6 case
-    // above runs (not a second hand-written regex) over the word that IS
-    // still Quote-Builder vocabulary — the lower-case "slide"/"slides" of the
-    // live scope/progress copy — so the Section-Builder assertion keeps its
-    // teeth: this proves the pattern finds real hits when they exist.
-    const hits = [...quotesEdit.raw.matchAll(c6SlideScanner())].map((m) => m[0]);
-    expect(hits.length, "the C6 scanner finds Quote-Builder 'slide' copy").toBeGreaterThan(0);
-    // …and it is real operator COPY, not an identifier or a stylesheet name:
-    // the two live scope/progress sentences the Quote Builder still shows.
-    expect(quotesEdit.raw).toContain("affects every slide and every component default of this funnel");
-    expect(quotesEdit.raw).toContain("Progress counts the slides of this funnel variant automatically.");
+    // THE CALIBRATION PREMISE IS GONE, STATED PLAINLY (P8-4 F9, review F-F).
+    // This leg used to prove "the scanner really fires" by pointing it at two
+    // live operator sentences on this page — "…affects every slide and every
+    // component default…" (Themes scope-head) and "Progress counts the
+    // slides…" (Templates progress-note). P8-4's M9 fix revoked that
+    // exemption and rewrote BOTH to "section", so there is no longer ANY
+    // operator copy on this page for the scanner to find. F7 then re-anchored
+    // the canary on `hits.length > 0` over the whole raw page — but the only
+    // remaining hits are the `slideList` local (funnel.ts), the dead
+    // `.lg-slide-current` CSS hook (shared.ts) and Conversions' `toastSlideIn`:
+    // an identifier and stylesheet names, which are the two categories THIS
+    // LEG ITSELF declares invalid calibration evidence. That canary was
+    // therefore circular, and it would have gone false-red the day anyone
+    // renamed the local. It is replaced by the two narrower things that ARE
+    // still true and ARE falsifiable. Do NOT restore a sentence containing
+    // "slide" to make a canary pass — the exemption is revoked.
+    //
+    // (1) THE SCANNER IS NOT VACUOUS — proven against a string this test
+    // builds, which is the only honest way left to calibrate a term the
+    // product no longer says. Both the singular and the plural the removed
+    // copy used are matched, and the "slider" carve-out still carves.
+    expect([..."affects every slide and every component default".matchAll(c6SlideScanner())].length).toBe(1);
+    expect([..."Progress counts the slides of this funnel".matchAll(c6SlideScanner())].length).toBe(1);
+    expect([..."Used by: range-slider focus ring".matchAll(c6SlideScanner())]).toEqual([]);
+
+    // (2) THE PRODUCT CLAIM, on every surface that can REACH an operator —
+    // visible text, operator-facing attributes, and the shipped islands' own
+    // string literals (the surface ES5 island copy arrives on). Deliberately
+    // NOT the raw bytes: raw also carries the islands' SOURCE COMMENTS — three
+    // of them discuss this very ban — plus the `slideList` local, the dead
+    // `.lg-slide-current` hook and Conversions' `toastSlideIn`, none of which a
+    // human can read. The old `hits.length > 0` canary was measuring exactly
+    // that residue. This is the assertion with teeth instead: put "slide" back
+    // into any label, help note, placeholder, title or island literal on this
+    // page and it goes red.
+    // stringLiterals() is a character scanner with no comment awareness, so a
+    // quoted phrase inside a `//` line reads as a literal — funnel.ts:1181's
+    // own note about this very fix ("…(contract M9 item 2): \"Review slide\"
+    // named a concept…") is the one such case on this page. A source comment
+    // cannot reach an operator, so the literal corpus is taken from the island
+    // source with whole-line comments removed; anything a `var x = "…"` really
+    // holds is still scanned.
+    const codeOnly = (src: string): string =>
+      src.split("\n").filter((line) => !line.trim().startsWith("//")).join("\n");
+    const codeLiterals = stringLiterals(quotesEdit.islands.map(codeOnly));
+    const copyHits = [
+      ...[...quotesEdit.visible.matchAll(c6SlideScanner())].map((m) => `visible-text :: ${m[0]}`),
+      ...quotesEdit.attrs.flatMap((a) => [...a.value.matchAll(c6SlideScanner())].map((m) => `${a.attr} :: ${m[0]}`)),
+      ...codeLiterals.flatMap((lit) => [...lit.text.matchAll(c6SlideScanner())].map((m) => `island-literal :: ${m[0]}`)),
+    ];
+    expect(copyHits, `Quote-Builder operator copy says 'slide' ${copyHits.length}x`).toEqual([]);
+    // …and those three surfaces are non-empty, so the zero above is a
+    // measurement and not an empty corpus. The comment strip removes comments,
+    // not literals: the code-only corpus keeps essentially the whole set.
+    expect(quotesEdit.visible.length).toBeGreaterThan(400);
+    expect(quotesEdit.attrs.length).toBeGreaterThan(5);
+    expect(codeLiterals.length).toBeGreaterThan(100);
+    expect(quotesEdit.literals.length - codeLiterals.length, "the strip drops comment-borne pseudo-literals only").toBeLessThan(
+      Math.floor(quotesEdit.literals.length / 10),
+    );
+
+    // The two historically-fragile sentences, at their new wording
+    // (themes.ts:305, templates.ts:826) — proving the M9 fix landed at both
+    // surfaces and has not regressed back to "slide".
+    expect(quotesEdit.raw).toContain("affects every section and every component default of this funnel");
+    expect(quotesEdit.raw).toContain("Progress counts the sections of this funnel variant automatically.");
+    // Equal-or-greater strictness: the SAME scanner finds NOTHING inside
+    // either replacement sentence — a clean word-swap, not a partial edit
+    // that left "slide" hiding in the same string.
+    expect([..."affects every section and every component default of this funnel".matchAll(c6SlideScanner())]).toEqual([]);
+    expect([..."Progress counts the sections of this funnel variant automatically.".matchAll(c6SlideScanner())]).toEqual([]);
   });
 
   it("raw component type identifiers never appear as normal-mode operator copy (both builders)", async () => {

@@ -236,6 +236,11 @@ button.lg-publish-why-fix:focus-visible{outline:2px solid currentColor;outline-o
 .lg-tpl-band{display:block;height:6px;border-radius:3px;background:var(--c-border)}
 .lg-tpl-logo{width:40%;margin:0 auto}
 .lg-tpl-logo--left{margin:0}
+/* R2 P8 F2 (N12 fallout): --center needs no override (the base rule above
+   already centers), but --right was MISSING - a right-aligned funnel's
+   thumbnail silently fell through to the centered look, lying about the
+   arrangement. Mirrors --left's one-property override. */
+.lg-tpl-logo--right{margin:0 0 0 auto}
 .lg-tpl-progress{background:var(--c-primary);opacity:.5}
 .lg-tpl-slot{height:22px;background:#fff;border:1px solid var(--c-border)}
 .lg-tpl-slot--bare{background:none;border-style:dashed}
@@ -450,7 +455,7 @@ button.lg-publish-why-fix:focus-visible{outline:2px solid currentColor;outline-o
         <div class="header-actions"></div>
       </header>
       <div class="admin-content"><nav class="leadgen-tabs" aria-label="LeadGen sections"><a href="/admin/leadgen/offers" class="leadgen-tab">Offers</a><a href="/admin/leadgen/sections" class="leadgen-tab">Sections</a><a href="/admin/leadgen/quotes" class="leadgen-tab active" aria-current="page">Quotes</a><a href="/admin/leadgen/auction" class="leadgen-tab">Auction</a></nav>
-<div id="lg-quote-editor" data-quote-id="1" data-quote-public-id="lgq_01KZ5GWP0HE2A3Y6HGDZD5G77E" data-variant-public-id="lgn_01KZ5GWP0H53GJJGPSR982F0PQ" data-variant-funnel-id="lgf_01KZ5GWP0HD90PV9AF4SRBBTC7" data-variant-funnel-variant-id="lgn_01KZ5GWP0H53GJJGPSR982F0PQ" data-funnel-public-id="lgf_01KZ5GWP0HD90PV9AF4SRBBTC7">
+<div id="lg-quote-editor" data-quote-id="1" data-quote-public-id="lgq_01KZ92AQ0W941B10PW7PRAS5S5" data-variant-public-id="lgn_01KZ92AQ0WSSF2ZPWZKN82TGDS" data-variant-funnel-id="lgf_01KZ92AQ0W0WCR27YHK5QF6VHE" data-variant-funnel-variant-id="lgn_01KZ92AQ0WSSF2ZPWZKN82TGDS" data-funnel-public-id="lgf_01KZ92AQ0W0WCR27YHK5QF6VHE">
   <div class="lg-editor-head">
     <a href="/admin/leadgen/quotes" class="btn btn-outline">&#8592; Quotes</a>
     <h2 class="lg-editor-title" id="lg-quote-title">&lt;b&gt;Quote&lt;/b&gt;</h2>
@@ -470,7 +475,7 @@ button.lg-publish-why-fix:focus-visible{outline:2px solid currentColor;outline-o
     <button type="button" id="lg-publish-goto" class="btn btn-secondary" data-goto-tab="activation">Publish&#8230;</button>
   </div>
   <details class="lg-advanced"><summary>Advanced</summary>
-    <p class="form-help">Reference id: <code class="lg-editor-pubid">lgq_01KZ5GWP0HE2A3Y6HGDZD5G77E</code></p>
+    <p class="form-help">Reference id: <code class="lg-editor-pubid">lgq_01KZ92AQ0W941B10PW7PRAS5S5</code></p>
   </details>
   <p id="lg-quote-error" class="alert alert-error" hidden role="alert"></p>
   <p id="lg-quote-ok" class="alert alert-success" hidden role="status"></p>
@@ -492,10 +497,10 @@ button.lg-publish-why-fix:focus-visible{outline:2px solid currentColor;outline-o
       <div class="lg-lib-filters" data-lib-filters><button type="button" class="lg-filter-pill active" data-lib-filter="">All</button><button type="button" class="lg-filter-pill" data-lib-filter="health">health</button><button type="button" class="lg-filter-pill" data-lib-filter="life">life</button></div>
     </div>
     <div class="lg-lib-list" data-lib-list>
-      <div class="lg-lib-card in-current" data-lib-card data-section-public-id="lgs_01KZ5GWP0J57J9DXDC62F6BFTB" data-section-name="Second" data-vertical-key="health" data-activity-key="quote_funnel" data-pin="8.2-library-card" role="button" tabindex="0" aria-label="Add section Second to a page">
+      <div class="lg-lib-card in-current" data-lib-card data-section-public-id="lgs_01KZ92AQ0XZPFA6H7WC6H83NH6" data-section-name="Second" data-vertical-key="health" data-activity-key="quote_funnel" data-pin="8.2-library-card" role="button" tabindex="0" aria-label="Add section Second to a page">
     <div class="lg-lc-top"><span class="lg-grip" data-lib-grip aria-hidden="true"><svg width="12" height="16" viewBox="0 0 12 16" fill="currentColor" aria-hidden="true"><circle cx="3" cy="3" r="1.4"/><circle cx="9" cy="3" r="1.4"/><circle cx="3" cy="8" r="1.4"/><circle cx="9" cy="8" r="1.4"/><circle cx="3" cy="13" r="1.4"/><circle cx="9" cy="13" r="1.4"/></svg></span><span class="lg-lc-name" title="Second">Second</span></div>
     <div class="lg-lc-meta"><span class="lg-chip-activity">quote_funnel · health</span><span class="lg-chip-inuse-here" data-pin="8.2-library-inuse-badge">In this funnel</span></div>
-  </div><div class="lg-lib-card in-current" data-lib-card data-section-public-id="lgs_01KZ5GWP0JN5ZYWEEZXSQBSRJC" data-section-name="&lt;i&gt;First&lt;/i&gt;" data-vertical-key="life" data-activity-key="quote_funnel" data-pin="8.2-library-card" role="button" tabindex="0" aria-label="Add section &lt;i&gt;First&lt;/i&gt; to a page">
+  </div><div class="lg-lib-card in-current" data-lib-card data-section-public-id="lgs_01KZ92AQ0X998A0KJDV4Y1Q7QS" data-section-name="&lt;i&gt;First&lt;/i&gt;" data-vertical-key="life" data-activity-key="quote_funnel" data-pin="8.2-library-card" role="button" tabindex="0" aria-label="Add section &lt;i&gt;First&lt;/i&gt; to a page">
     <div class="lg-lc-top"><span class="lg-grip" data-lib-grip aria-hidden="true"><svg width="12" height="16" viewBox="0 0 12 16" fill="currentColor" aria-hidden="true"><circle cx="3" cy="3" r="1.4"/><circle cx="9" cy="3" r="1.4"/><circle cx="3" cy="8" r="1.4"/><circle cx="9" cy="8" r="1.4"/><circle cx="3" cy="13" r="1.4"/><circle cx="9" cy="13" r="1.4"/></svg></span><span class="lg-lc-name" title="&lt;i&gt;First&lt;/i&gt;">&lt;i&gt;First&lt;/i&gt;</span></div>
     <div class="lg-lc-meta"><span class="lg-chip-activity">quote_funnel · life</span><span class="lg-chip-inuse-here" data-pin="8.2-library-inuse-badge">In this funnel</span></div>
   </div>
@@ -519,7 +524,7 @@ button.lg-publish-why-fix:focus-visible{outline:2px solid currentColor;outline-o
   </div>
       <div class="lg-board" data-board data-pin="8.2-board">
         <div class="lg-board-cols" data-board-cols>
-          <div class="lg-col lg-col-funnel is-default" data-funnel-col data-funnel-public-id="lgf_01KZ5GWP0HD90PV9AF4SRBBTC7" data-funnel-id="1" data-funnel-active-variant="lgn_01KZ5GWP0H53GJJGPSR982F0PQ" data-pin="8.2-funnel-column">
+          <div class="lg-col lg-col-funnel is-default" data-funnel-col data-funnel-public-id="lgf_01KZ92AQ0W0WCR27YHK5QF6VHE" data-funnel-id="1" data-funnel-active-variant="lgn_01KZ92AQ0WSSF2ZPWZKN82TGDS" data-pin="8.2-funnel-column">
     <div class="lg-col-head" data-pin="8.2-funnel-header">
       <div class="lg-col-title-row">
         <span class="lg-col-title" data-funnel-name data-pin="8.2-inline-rename" tabindex="0" role="textbox" aria-label="Funnel name (click to rename)" title="&lt;b&gt;Quote&lt;/b&gt; — Funnel A">&lt;b&gt;Quote&lt;/b&gt; — Funnel A</span>
@@ -527,34 +532,34 @@ button.lg-publish-why-fix:focus-visible{outline:2px solid currentColor;outline-o
         <span class="lg-kebab-btn lg-funnel-kebab" data-funnel-kebab data-chip-menu="funnel" role="button" tabindex="0" aria-label="Funnel options"><svg width="16" height="16" viewBox="0 0 24 24" fill="currentColor" aria-hidden="true"><circle cx="12" cy="5" r="1.7"/><circle cx="12" cy="12" r="1.7"/><circle cx="12" cy="19" r="1.7"/></svg></span>
       </div>
       <div class="lg-col-meta">
-        <span class="lg-pickchip" data-theme-picker data-pin="8.2-theme-picker" data-chip-funnel-public-id="lgf_01KZ5GWP0HD90PV9AF4SRBBTC7" data-chip-funnel-active-variant="lgn_01KZ5GWP0H53GJJGPSR982F0PQ" data-theme-preset-id="" role="button" tabindex="0">Default</span>
-        <span class="lg-pickchip" data-template-picker data-pin="8.2-template-picker" data-chip-funnel-public-id="lgf_01KZ5GWP0HD90PV9AF4SRBBTC7" data-chip-funnel-active-variant="lgn_01KZ5GWP0H53GJJGPSR982F0PQ" role="button" tabindex="0">Template</span>
+        <span class="lg-pickchip" data-theme-picker data-pin="8.2-theme-picker" data-chip-funnel-public-id="lgf_01KZ92AQ0W0WCR27YHK5QF6VHE" data-chip-funnel-active-variant="lgn_01KZ92AQ0WSSF2ZPWZKN82TGDS" data-theme-preset-id="" role="button" tabindex="0">Default</span>
+        <span class="lg-pickchip" data-template-picker data-pin="8.2-template-picker" data-chip-funnel-public-id="lgf_01KZ92AQ0W0WCR27YHK5QF6VHE" data-chip-funnel-active-variant="lgn_01KZ92AQ0WSSF2ZPWZKN82TGDS" data-template-id="" role="button" tabindex="0">Template</span>
       </div>
       <div class="lg-col-actions">
         <span class="lg-badge-ab" data-ab-badge data-pin="4.3-ab-badge" role="button" tabindex="0">A/B</span>
         <span class="lg-btn-ghost lg-col-preview" data-preview data-pin="8.2-preview" role="button" tabindex="0">Preview<svg width="12" height="12" viewBox="0 0 24 24" fill="none" aria-hidden="true"><path d="M7 17L17 7M9 7h8v8" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"/></svg></span>
       </div>
     </div>
-    <div class="lg-col-body" data-funnel-body><div class="lg-page-card" data-page-card data-page-public-id="lgpg_01KZ5GWP0KQAMXFPCH89ZHJPQ5" data-page-index="0" data-pin="8.2-page-card">
+    <div class="lg-col-body" data-funnel-body><div class="lg-page-card" data-page-card data-page-public-id="lgpg_01KZ92AQ0Y1XE7QN09A41T9A7M" data-page-index="0" data-pin="8.2-page-card">
     <div class="lg-page-head">
       <span class="lg-grip lg-page-grip" data-page-grip aria-hidden="true"><svg width="12" height="16" viewBox="0 0 12 16" fill="currentColor" aria-hidden="true"><circle cx="3" cy="3" r="1.4"/><circle cx="9" cy="3" r="1.4"/><circle cx="3" cy="8" r="1.4"/><circle cx="9" cy="8" r="1.4"/><circle cx="3" cy="13" r="1.4"/><circle cx="9" cy="13" r="1.4"/></svg></span>
       <span class="lg-page-num">Page 1</span>
       <span class="lg-kebab-btn lg-page-kebab" data-page-kebab data-chip-menu="page" role="button" tabindex="0" aria-label="Page options"><svg width="16" height="16" viewBox="0 0 24 24" fill="currentColor" aria-hidden="true"><circle cx="12" cy="5" r="1.7"/><circle cx="12" cy="12" r="1.7"/><circle cx="12" cy="19" r="1.7"/></svg></span>
     </div>
-    <div class="lg-chip-list" data-chip-list><div class="lg-sec-chip" data-sec-chip data-chip-scope="funnel" data-section-public-id="lgs_01KZ5GWP0JN5ZYWEEZXSQBSRJC" data-slot-id="1" data-slot-kind="fixed">
+    <div class="lg-chip-list" data-chip-list><div class="lg-sec-chip" data-sec-chip data-chip-scope="funnel" data-section-public-id="lgs_01KZ92AQ0X998A0KJDV4Y1Q7QS" data-slot-id="1" data-slot-kind="fixed">
     <span class="lg-grip lg-chip-grip" data-chip-grip aria-hidden="true"><svg width="12" height="16" viewBox="0 0 12 16" fill="currentColor" aria-hidden="true"><circle cx="3" cy="3" r="1.4"/><circle cx="9" cy="3" r="1.4"/><circle cx="3" cy="8" r="1.4"/><circle cx="9" cy="8" r="1.4"/><circle cx="3" cy="13" r="1.4"/><circle cx="9" cy="13" r="1.4"/></svg></span>
     <span class="lg-map-dot" data-mapping-status="none" title="No Offers selected yet"></span>
     <span class="lg-sc-name" title="&lt;i&gt;First&lt;/i&gt;">&lt;i&gt;First&lt;/i&gt;</span>
     <span class="lg-kebab-btn lg-chip-kebab" data-chip-kebab data-chip-menu="funnel-chip" role="button" tabindex="0" aria-label="Section options"><svg width="16" height="16" viewBox="0 0 24 24" fill="currentColor" aria-hidden="true"><circle cx="12" cy="5" r="1.7"/><circle cx="12" cy="12" r="1.7"/><circle cx="12" cy="19" r="1.7"/></svg></span>
   </div></div>
     <span class="lg-add-section" data-add-section role="button" tabindex="0"><svg width="13" height="13" viewBox="0 0 24 24" fill="none" aria-hidden="true"><path d="M12 5v14M5 12h14" stroke="currentColor" stroke-width="2.2" stroke-linecap="round"/></svg> ＋ section</span>
-  </div><div class="lg-page-card" data-page-card data-page-public-id="lgpg_01KZ5GWP0KGFR6YFSD8JEVJ33T" data-page-index="1" data-pin="8.2-page-card">
+  </div><div class="lg-page-card" data-page-card data-page-public-id="lgpg_01KZ92AQ0YTMN9H1FDCZVPBYF9" data-page-index="1" data-pin="8.2-page-card">
     <div class="lg-page-head">
       <span class="lg-grip lg-page-grip" data-page-grip aria-hidden="true"><svg width="12" height="16" viewBox="0 0 12 16" fill="currentColor" aria-hidden="true"><circle cx="3" cy="3" r="1.4"/><circle cx="9" cy="3" r="1.4"/><circle cx="3" cy="8" r="1.4"/><circle cx="9" cy="8" r="1.4"/><circle cx="3" cy="13" r="1.4"/><circle cx="9" cy="13" r="1.4"/></svg></span>
       <span class="lg-page-num">Page 2</span>
       <span class="lg-kebab-btn lg-page-kebab" data-page-kebab data-chip-menu="page" role="button" tabindex="0" aria-label="Page options"><svg width="16" height="16" viewBox="0 0 24 24" fill="currentColor" aria-hidden="true"><circle cx="12" cy="5" r="1.7"/><circle cx="12" cy="12" r="1.7"/><circle cx="12" cy="19" r="1.7"/></svg></span>
     </div>
-    <div class="lg-chip-list" data-chip-list><div class="lg-sec-chip" data-sec-chip data-chip-scope="funnel" data-section-public-id="lgs_01KZ5GWP0J57J9DXDC62F6BFTB" data-slot-id="2" data-slot-kind="fixed">
+    <div class="lg-chip-list" data-chip-list><div class="lg-sec-chip" data-sec-chip data-chip-scope="funnel" data-section-public-id="lgs_01KZ92AQ0XZPFA6H7WC6H83NH6" data-slot-id="2" data-slot-kind="fixed">
     <span class="lg-grip lg-chip-grip" data-chip-grip aria-hidden="true"><svg width="12" height="16" viewBox="0 0 12 16" fill="currentColor" aria-hidden="true"><circle cx="3" cy="3" r="1.4"/><circle cx="9" cy="3" r="1.4"/><circle cx="3" cy="8" r="1.4"/><circle cx="9" cy="8" r="1.4"/><circle cx="3" cy="13" r="1.4"/><circle cx="9" cy="13" r="1.4"/></svg></span>
     <span class="lg-map-dot" data-mapping-status="none" title="No Offers selected yet"></span>
     <span class="lg-sc-name" title="Second">Second</span>
@@ -572,7 +577,7 @@ button.lg-publish-why-fix:focus-visible{outline:2px solid currentColor;outline-o
       </div>
     </div>
     <div class="lg-board-right" data-rules-rail>
-      <div class="lg-qr-rail" id="lg-qr-rail" data-pin="8.2-rules-rail" data-quote-public-id="lgq_01KZ5GWP0HE2A3Y6HGDZD5G77E"><style>
+      <div class="lg-qr-rail" id="lg-qr-rail" data-pin="8.2-rules-rail" data-quote-public-id="lgq_01KZ92AQ0W941B10PW7PRAS5S5"><style>
 .lg-qr-rail{display:flex;flex-direction:column;min-height:0}
 .lg-qr-head{padding:16px 16px 12px;border-bottom:1px solid rgba(20,32,54,.08)}
 .lg-qr-title{font-size:14px;font-weight:800;color:#14233a;margin-bottom:6px}
@@ -652,7 +657,7 @@ button.lg-publish-why-fix:focus-visible{outline:2px solid currentColor;outline-o
 .lg-qr-sentence{font-size:12px;color:#374966;background:#f7f9fb;border-radius:8px;padding:10px 12px;line-height:1.5}
 .lg-qr-sentlab{font-size:9.5px;font-weight:800;letter-spacing:.4px;text-transform:uppercase;color:#8894a8;display:block;margin-bottom:4px}
 .lg-qr-modal-foot{display:flex;justify-content:flex-end;gap:10px;padding-top:14px}
-</style><div class="lg-qr-head"><div class="lg-qr-title">Routing rules</div><div class="lg-qr-desc">Rules decide which funnel a visitor sees, and can tag the lead, set the FB multiplier, or redirect. Lowest priority number wins when more than one matches.</div></div><div class="lg-qr-colhead"><span class="lg-qr-cprio">Priority</span><span class="lg-qr-cname">Name · Checkpoint · Conditions · Actions · Status</span></div><div class="lg-qr-list" id="lg-qr-list" data-pin="8.2-rules-table"><div data-qr-cards></div><div class="lg-qr-newbtn" data-pin="8.2-new-rule-btn" role="button" tabindex="0" data-qr-new>+ New rule</div></div><div class="lg-qr-overlay" id="lg-qr-modal" data-pin="8.2-rule-modal" role="dialog" aria-modal="true" aria-label="Routing rule" hidden><div class="lg-qr-modal card"><div class="lg-qr-modal-head"><h3 id="lg-qr-modal-title">New routing rule</h3><span class="lg-qr-x" role="button" tabindex="0" data-qr-cancel aria-label="Close">✖</span></div><div class="lg-qr-modal-body"><div class="lg-qr-fieldblock" data-pin="8.2-rule-name"><label class="lg-qr-label" for="lg-qr-name">Rule name<span class="lg-qr-req">*</span> <span class="lg-qr-opt">· up to 80 characters</span></label><input class="form-input" id="lg-qr-name" type="text" maxlength="80" data-qr-modal-name /></div><div class="lg-qr-grid2"><div data-pin="4.3-3-checkpoint"><label class="lg-qr-label">Checkpoint <span class="lg-qr-opt">· read-only</span></label><div class="lg-qr-readonly" data-qr-modal-checkpoint>Entry</div><div class="lg-qr-help">Derived from the conditions — where this rule can first apply.</div><div class="lg-qr-callout warn" data-qr-modal-a6 data-pin="A-6-inline" hidden><span class="lg-qr-warnico" aria-hidden="true">⚠</span><span>This rule can never apply before a visitor enters a funnel that asks these questions.</span></div></div><div data-pin="8.2-rule-priority"><label class="lg-qr-label" for="lg-qr-priority">Priority</label><input class="form-input" id="lg-qr-priority" type="number" min="1" max="100" step="1" value="100" data-qr-modal-priority /><div class="lg-qr-help">1 = highest priority, 100 = lowest.</div></div></div><div class="lg-qr-cardblock" data-pin="8.2-rule-conditions"><div class="lg-qr-cbhead"><span class="lg-qr-cbtitle">Conditions</span><div class="lg-qr-seg" data-pin="8.2-anyall" data-qr-matchmode><span class="lg-qr-segitem active" data-qr-match="all" role="button" tabindex="0">Match ALL</span><span class="lg-qr-segitem" data-qr-match="any" role="button" tabindex="0">Match ANY</span></div></div><div id="lg-qr-cond-mount"></div><input type="hidden" data-qr-cond-out /><div class="lg-qr-help">Sources: answer fields (by name) · UTM Source/Medium/Campaign/Content · Device · OS · State · Hour · Weekday. Operators map to eq · neq · gt · lt · gte · lte.</div></div><div data-pin="4.3-9-actions"><div class="lg-qr-actions-head"><span class="lg-qr-cbtitle">Actions</span> <span class="lg-qr-opt">· pick at least one</span></div><div class="lg-qr-arow" data-pin="action-target-funnel" data-qr-action="target_funnel"><span class="lg-qr-swi on" role="switch" tabindex="0" aria-checked="true" data-qr-action-toggle><span class="lg-qr-knob"></span></span><div class="lg-qr-amain"><div class="lg-qr-aname">Target funnel</div><div class="lg-qr-adesc">Serve this funnel to matching visitors.</div><select class="form-select" data-qr-target-funnel aria-label="Target funnel"><option value="">— choose a funnel —</option><option value="lgf_01KZ5GWP0HD90PV9AF4SRBBTC7" data-funnel-id="1">&lt;b&gt;Quote&lt;/b&gt; — Funnel A (Default)</option></select></div></div><div class="lg-qr-arow" data-pin="action-feed-name" data-qr-action="feed_name"><span class="lg-qr-swi on" role="switch" tabindex="0" aria-checked="true" data-qr-action-toggle><span class="lg-qr-knob"></span></span><div class="lg-qr-amain"><div class="lg-qr-aname">Feed name</div><div class="lg-qr-adesc">Tag matching leads for analytics &amp; offer routing.</div><input class="form-input" type="text" list="lg-qr-feeds" data-qr-feed-name aria-label="Feed name" /><datalist id="lg-qr-feeds"></datalist><div class="lg-qr-help" data-qr-feed-help>No feed names used yet.</div></div></div><div class="lg-qr-arow" data-pin="action-fb-multiplier" data-qr-action="value_multiplier"><span class="lg-qr-swi on" role="switch" tabindex="0" aria-checked="true" data-qr-action-toggle><span class="lg-qr-knob"></span></span><div class="lg-qr-amain"><div class="lg-qr-aname">FB multiplier</div><div class="lg-qr-adesc">Replaces the base S2S multiplier for this conversion.</div><input class="form-input" type="number" step="any" min="0" data-qr-multiplier aria-label="FB multiplier" style="max-width:140px" /></div></div><div class="lg-qr-arow" data-pin="action-redirect-pct" data-qr-action="redirect_pct"><span class="lg-qr-swi on" role="switch" tabindex="0" aria-checked="true" data-qr-action-toggle><span class="lg-qr-knob"></span></span><div class="lg-qr-amain"><div class="lg-qr-aname">Redirect %</div><div class="lg-qr-adesc">0 = no redirect. Share of matching sessions sent to the target instead of our funnel; the rest continue with the other actions.</div><input class="form-input" type="number" step="any" min="0" max="100" data-qr-redirect-pct aria-label="Redirect percent" style="max-width:140px" /></div></div><div class="lg-qr-arow" data-pin="action-redirect-target" data-qr-action="redirect_target"><span class="lg-qr-swi on" role="switch" tabindex="0" aria-checked="true" data-qr-action-toggle><span class="lg-qr-knob"></span></span><div class="lg-qr-amain"><div class="lg-qr-aname">Redirect target</div><div class="lg-qr-adesc">Where redirected sessions go — an offer, or an allowlisted URL.</div><div class="lg-qr-seg" data-qr-target-mode><span class="lg-qr-segitem active" data-qr-mode="offer" role="button" tabindex="0">Offer</span><span class="lg-qr-segitem" data-qr-mode="url" role="button" tabindex="0">Allowlisted URL</span></div><select class="form-select" data-qr-target-offer aria-label="Redirect offer"><option value="">— choose an offer —</option></select><div data-qr-url-wrap hidden><input class="form-input" type="text" data-qr-redirect-url aria-label="Allowlisted redirect URL" placeholder="https://…" /><div class="lg-qr-help">Only hosts on the site allowlist can be entered here.</div></div></div></div></div><div class="lg-qr-errmsg" data-pin="A-11-validation" data-qr-action-error hidden><span class="lg-qr-warnico" aria-hidden="true">⚠</span>Pick at least one action for this rule.</div><p class="alert alert-error lg-qr-error" data-qr-modal-error role="alert" hidden></p><div class="lg-qr-sentence" data-pin="8.2-rule-sentence"><span class="lg-qr-sentlab">In plain language</span> <span data-qr-sentence></span></div></div><div class="lg-qr-modal-foot"><span class="btn btn-outline" role="button" tabindex="0" data-qr-cancel>Cancel</span><span class="btn btn-primary" role="button" tabindex="0" data-qr-save>Save rule</span></div></div></div><script id="lg-qr-data" type="application/json">{"quote_public_id":"lgq_01KZ5GWP0HE2A3Y6HGDZD5G77E","rules":[],"funnels":[{"id":1,"public_id":"lgf_01KZ5GWP0HD90PV9AF4SRBBTC7","name":"\u003cb>Quote\u003c/b> — Funnel A","is_default":true,"pages":[{"position":0,"fields":["f"]},{"position":1,"fields":["f"]}]}],"default_funnel_id":1,"shared_page_fields":[],"answer_fields":[{"internal_field":"f","label":"Second · f"}],"entry_fields":[{"internal_field":"utm_source","label":"UTM Source"},{"internal_field":"utm_medium","label":"UTM Medium"},{"internal_field":"utm_campaign","label":"UTM Campaign"},{"internal_field":"utm_content","label":"UTM Content"},{"internal_field":"device","label":"Device"},{"internal_field":"os","label":"OS"},{"internal_field":"state","label":"State"},{"internal_field":"hour","label":"Hour"},{"internal_field":"weekday","label":"Weekday"}],"offers":[],"feed_values":[]}</script></div>
+</style><div class="lg-qr-head"><div class="lg-qr-title">Routing rules</div><div class="lg-qr-desc">Rules decide which funnel a visitor sees, and can tag the lead, set the FB multiplier, or redirect. Lowest priority number wins when more than one matches.</div></div><div class="lg-qr-colhead"><span class="lg-qr-cprio">Priority</span><span class="lg-qr-cname">Name · Checkpoint · Conditions · Actions · Status</span></div><div class="lg-qr-list" id="lg-qr-list" data-pin="8.2-rules-table"><div data-qr-cards></div><div class="lg-qr-newbtn" data-pin="8.2-new-rule-btn" role="button" tabindex="0" data-qr-new>+ New rule</div></div><div class="lg-qr-overlay" id="lg-qr-modal" data-pin="8.2-rule-modal" role="dialog" aria-modal="true" aria-label="Routing rule" hidden><div class="lg-qr-modal card"><div class="lg-qr-modal-head"><h3 id="lg-qr-modal-title">New routing rule</h3><span class="lg-qr-x" role="button" tabindex="0" data-qr-cancel aria-label="Close">✖</span></div><div class="lg-qr-modal-body"><div class="lg-qr-fieldblock" data-pin="8.2-rule-name"><label class="lg-qr-label" for="lg-qr-name">Rule name<span class="lg-qr-req">*</span> <span class="lg-qr-opt">· up to 80 characters</span></label><input class="form-input" id="lg-qr-name" type="text" maxlength="80" data-qr-modal-name /></div><div class="lg-qr-grid2"><div data-pin="4.3-3-checkpoint"><label class="lg-qr-label">Checkpoint <span class="lg-qr-opt">· read-only</span></label><div class="lg-qr-readonly" data-qr-modal-checkpoint>Entry</div><div class="lg-qr-help">Derived from the conditions — where this rule can first apply.</div><div class="lg-qr-callout warn" data-qr-modal-a6 data-pin="A-6-inline" hidden><span class="lg-qr-warnico" aria-hidden="true">⚠</span><span>This rule can never apply before a visitor enters a funnel that asks these questions.</span></div></div><div data-pin="8.2-rule-priority"><label class="lg-qr-label" for="lg-qr-priority">Priority</label><input class="form-input" id="lg-qr-priority" type="number" min="1" max="100" step="1" value="100" data-qr-modal-priority /><div class="lg-qr-help">1 = highest priority, 100 = lowest.</div></div></div><div class="lg-qr-cardblock" data-pin="8.2-rule-conditions"><div class="lg-qr-cbhead"><span class="lg-qr-cbtitle">Conditions</span><div class="lg-qr-seg" data-pin="8.2-anyall" data-qr-matchmode><span class="lg-qr-segitem active" data-qr-match="all" role="button" tabindex="0">Match ALL</span><span class="lg-qr-segitem" data-qr-match="any" role="button" tabindex="0">Match ANY</span></div></div><div id="lg-qr-cond-mount"></div><input type="hidden" data-qr-cond-out /><div class="lg-qr-help">Sources: answer fields (by name) · UTM Source · UTM Medium · UTM Campaign · UTM Content · Device · OS · State · Hour · Weekday. Operators: is (=) · is not (≠) · greater than (&gt;) · less than (&lt;) · at least (≥) · at most (≤) · between · in list · not in list · is empty · is not empty.</div></div><div data-pin="4.3-9-actions"><div class="lg-qr-actions-head"><span class="lg-qr-cbtitle">Actions</span> <span class="lg-qr-opt">· pick at least one</span></div><div class="lg-qr-arow" data-pin="action-target-funnel" data-qr-action="target_funnel"><span class="lg-qr-swi on" role="switch" tabindex="0" aria-checked="true" data-qr-action-toggle><span class="lg-qr-knob"></span></span><div class="lg-qr-amain"><div class="lg-qr-aname">Target funnel</div><div class="lg-qr-adesc">Serve this funnel to matching visitors.</div><select class="form-select" data-qr-target-funnel aria-label="Target funnel"><option value="">— choose a funnel —</option><option value="lgf_01KZ92AQ0W0WCR27YHK5QF6VHE" data-funnel-id="1">&lt;b&gt;Quote&lt;/b&gt; — Funnel A (Default)</option></select></div></div><div class="lg-qr-arow" data-pin="action-feed-name" data-qr-action="feed_name"><span class="lg-qr-swi on" role="switch" tabindex="0" aria-checked="true" data-qr-action-toggle><span class="lg-qr-knob"></span></span><div class="lg-qr-amain"><div class="lg-qr-aname">Feed name</div><div class="lg-qr-adesc">Tag matching leads for analytics &amp; offer routing.</div><input class="form-input" type="text" list="lg-qr-feeds" data-qr-feed-name aria-label="Feed name" /><datalist id="lg-qr-feeds"></datalist><div class="lg-qr-help" data-qr-feed-help>No feed names used yet.</div></div></div><div class="lg-qr-arow" data-pin="action-fb-multiplier" data-qr-action="value_multiplier"><span class="lg-qr-swi on" role="switch" tabindex="0" aria-checked="true" data-qr-action-toggle><span class="lg-qr-knob"></span></span><div class="lg-qr-amain"><div class="lg-qr-aname">FB multiplier</div><div class="lg-qr-adesc">Replaces the base S2S multiplier for this conversion.</div><input class="form-input" type="number" step="any" min="0" data-qr-multiplier aria-label="FB multiplier" style="max-width:140px" /></div></div><div class="lg-qr-arow" data-pin="action-redirect-pct" data-qr-action="redirect_pct"><span class="lg-qr-swi on" role="switch" tabindex="0" aria-checked="true" data-qr-action-toggle><span class="lg-qr-knob"></span></span><div class="lg-qr-amain"><div class="lg-qr-aname">Redirect %</div><div class="lg-qr-adesc">0 = no redirect. Share of matching sessions sent to the target instead of our funnel; the rest continue with the other actions.</div><input class="form-input" type="number" step="any" min="0" max="100" data-qr-redirect-pct aria-label="Redirect percent" style="max-width:140px" /></div></div><div class="lg-qr-arow" data-pin="action-redirect-target" data-qr-action="redirect_target"><span class="lg-qr-swi on" role="switch" tabindex="0" aria-checked="true" data-qr-action-toggle><span class="lg-qr-knob"></span></span><div class="lg-qr-amain"><div class="lg-qr-aname">Redirect target</div><div class="lg-qr-adesc">Where redirected sessions go — an offer, or an allowlisted URL.</div><div class="lg-qr-seg" data-qr-target-mode><span class="lg-qr-segitem active" data-qr-mode="offer" role="button" tabindex="0">Offer</span><span class="lg-qr-segitem" data-qr-mode="url" role="button" tabindex="0">Allowlisted URL</span></div><select class="form-select" data-qr-target-offer aria-label="Redirect offer"><option value="">— choose an offer —</option></select><div data-qr-url-wrap hidden><input class="form-input" type="text" data-qr-redirect-url aria-label="Allowlisted redirect URL" placeholder="https://…" /><div class="lg-qr-help">Only hosts on the site allowlist can be entered here.</div></div></div></div></div><div class="lg-qr-errmsg" data-pin="A-11-validation" data-qr-action-error hidden><span class="lg-qr-warnico" aria-hidden="true">⚠</span>Pick at least one action for this rule.</div><p class="alert alert-error lg-qr-error" data-qr-modal-error role="alert" hidden></p><div class="lg-qr-sentence" data-pin="8.2-rule-sentence"><span class="lg-qr-sentlab">In plain language</span> <span data-qr-sentence></span></div></div><div class="lg-qr-modal-foot"><span class="btn btn-outline" role="button" tabindex="0" data-qr-cancel>Cancel</span><span class="btn btn-primary" role="button" tabindex="0" data-qr-save>Save rule</span></div></div></div><script id="lg-qr-data" type="application/json">{"quote_public_id":"lgq_01KZ92AQ0W941B10PW7PRAS5S5","rules":[],"funnels":[{"id":1,"public_id":"lgf_01KZ92AQ0W0WCR27YHK5QF6VHE","name":"\u003cb>Quote\u003c/b> — Funnel A","is_default":true,"pages":[{"position":0,"fields":["f"]},{"position":1,"fields":["f"]}]}],"default_funnel_id":1,"shared_page_fields":[],"answer_fields":[{"internal_field":"f","label":"Second · f"}],"entry_fields":[{"internal_field":"utm_source","label":"UTM Source"},{"internal_field":"utm_medium","label":"UTM Medium"},{"internal_field":"utm_campaign","label":"UTM Campaign"},{"internal_field":"utm_content","label":"UTM Content"},{"internal_field":"device","label":"Device"},{"internal_field":"os","label":"OS"},{"internal_field":"state","label":"State"},{"internal_field":"hour","label":"Hour"},{"internal_field":"weekday","label":"Weekday"}],"offers":[],"feed_values":[]}</script></div>
     </div>
   </div>
   <div class="lg-board-menus" data-board-menus>
@@ -669,7 +674,7 @@ button.lg-publish-why-fix:focus-visible{outline:2px solid currentColor;outline-o
     </div>
   </div>
   <div class="lg-template-menu lg-hidden" data-template-menu role="menu"></div>
-  <div class="lg-board-guard lg-hidden" data-funnel-settings role="dialog" aria-modal="true" aria-labelledby="lg-funnel-settings-title" data-settings-variant="lgn_01KZ5GWP0H53GJJGPSR982F0PQ">
+  <div class="lg-board-guard lg-hidden" data-funnel-settings role="dialog" aria-modal="true" aria-labelledby="lg-funnel-settings-title" data-settings-variant="lgn_01KZ92AQ0WSSF2ZPWZKN82TGDS">
     <div class="lg-board-guard-panel">
       <div class="lg-board-guard-head"><h3 id="lg-funnel-settings-title">Funnel settings</h3></div>
       <div class="lg-fsettings-body">
@@ -722,7 +727,7 @@ button.lg-publish-why-fix:focus-visible{outline:2px solid currentColor;outline-o
       </div>
     </div>
   </div>
-  <script type="application/json" id="lg-board-data">{"quote_public_id":"lgq_01KZ5GWP0HE2A3Y6HGDZD5G77E","default_funnel_id":1,"shared_page_id":null,"shared_sections":[],"shared_slots":[],"funnels":[{"public_id":"lgf_01KZ5GWP0HD90PV9AF4SRBBTC7","id":1,"name":"\u003cb>Quote\u003c/b> — Funnel A","display_order":1,"is_default":true,"active_variant_public_id":"lgn_01KZ5GWP0H53GJJGPSR982F0PQ","arms":1,"frame_template_id":null,"settings":{"variant_public_id":"lgn_01KZ5GWP0H53GJJGPSR982F0PQ","lander_enabled":false,"lander_headline":"","lander_subheadline":"","lander_hero_media_url":"","funnel_design_id":"default","auction_id":null},"pages":[{"page_id":"lgpg_01KZ5GWP0KQAMXFPCH89ZHJPQ5","slots":[{"slot_id":1,"kind":"fixed","section_ids":["lgs_01KZ5GWP0JN5ZYWEEZXSQBSRJC"],"allocations":null,"rules":null}]},{"page_id":"lgpg_01KZ5GWP0KGFR6YFSD8JEVJ33T","slots":[{"slot_id":2,"kind":"fixed","section_ids":["lgs_01KZ5GWP0J57J9DXDC62F6BFTB"],"allocations":null,"rules":null}]}]}],"sections":[{"public_id":"lgs_01KZ5GWP0J57J9DXDC62F6BFTB","name":"Second","activity":"quote_funnel","vertical":"health"},{"public_id":"lgs_01KZ5GWP0JN5ZYWEEZXSQBSRJC","name":"\u003ci>First\u003c/i>","activity":"quote_funnel","vertical":"life"}],"templates":[{"id":"centered","label":"Centered card"},{"id":"header-footer","label":"Site header + footer"},{"id":"header-cta","label":"Header + call CTA"},{"id":"full-background","label":"Full background"},{"id":"white-trust","label":"White + trust bar"},{"id":"minimal","label":"Minimal"}]}</script>
+  <script type="application/json" id="lg-board-data">{"quote_public_id":"lgq_01KZ92AQ0W941B10PW7PRAS5S5","default_funnel_id":1,"shared_page_id":null,"shared_sections":[],"shared_slots":[],"funnels":[{"public_id":"lgf_01KZ92AQ0W0WCR27YHK5QF6VHE","id":1,"name":"\u003cb>Quote\u003c/b> — Funnel A","display_order":1,"is_default":true,"active_variant_public_id":"lgn_01KZ92AQ0WSSF2ZPWZKN82TGDS","arms":1,"frame_template_id":null,"settings":{"variant_public_id":"lgn_01KZ92AQ0WSSF2ZPWZKN82TGDS","lander_enabled":false,"lander_headline":"","lander_subheadline":"","lander_hero_media_url":"","funnel_design_id":"default","auction_id":null},"pages":[{"page_id":"lgpg_01KZ92AQ0Y1XE7QN09A41T9A7M","slots":[{"slot_id":1,"kind":"fixed","section_ids":["lgs_01KZ92AQ0X998A0KJDV4Y1Q7QS"],"allocations":null,"rules":null}]},{"page_id":"lgpg_01KZ92AQ0YTMN9H1FDCZVPBYF9","slots":[{"slot_id":2,"kind":"fixed","section_ids":["lgs_01KZ92AQ0XZPFA6H7WC6H83NH6"],"allocations":null,"rules":null}]}]}],"sections":[{"public_id":"lgs_01KZ92AQ0XZPFA6H7WC6H83NH6","name":"Second","activity":"quote_funnel","vertical":"health"},{"public_id":"lgs_01KZ92AQ0X998A0KJDV4Y1Q7QS","name":"\u003ci>First\u003c/i>","activity":"quote_funnel","vertical":"life"}],"templates":[{"id":"centered","label":"Centered card"},{"id":"header-footer","label":"Site header + footer"},{"id":"header-cta","label":"Header + call CTA"},{"id":"full-background","label":"Full background"},{"id":"white-trust","label":"White + trust bar"},{"id":"minimal","label":"Minimal"}]}</script>
 </div>
   <div class="lg-qpanel" data-panel="templates">
   <style>
@@ -742,6 +747,12 @@ button.lg-publish-why-fix:focus-visible{outline:2px solid currentColor;outline-o
 .lg-tpl2-tpl-chip.is-default{border-color:var(--c-primary,#1B3A5C)}
 .lg-tpl2-tpl-chip-default-badge{font-size:9px;font-weight:800;letter-spacing:.03em;text-transform:uppercase;background:var(--c-primary,#1B3A5C);color:#fff;border-radius:10px;padding:1px 6px}
 .lg-tpl2-tpl-chip button{background:none;border:0;cursor:pointer;color:var(--c-muted);font-size:11px;padding:0 2px}
+/* R2 P8 F1 (M10): the saved template's real band picture, sized for the chip.
+   The bands themselves keep the shared .lg-tpl-thumb/.lg-tpl-band vocabulary
+   (quotes-tabs/shared.ts) — only the chip-scale geometry is overridden here. */
+.lg-tpl2-tpl-chip .lg-tpl-thumb{width:24px;min-height:18px;padding:2px;gap:1px;border-radius:3px;flex:none}
+.lg-tpl2-tpl-chip .lg-tpl-band{height:2px;border-radius:1px}
+.lg-tpl2-tpl-chip .lg-tpl-slot{height:6px}
 .lg-tpl2-tpl-menu{position:absolute;top:100%;left:0;z-index:5;background:var(--c-card,#fff);border:1px solid var(--c-border);border-radius:6px;box-shadow:0 4px 14px rgba(16,24,40,.16);padding:4px;display:flex;flex-direction:column;min-width:140px;margin-top:4px}
 .lg-tpl2-tpl-menu button{display:block;width:100%;text-align:left;padding:6px 8px;font-size:12px;color:var(--c-text);white-space:nowrap}
 .lg-tpl2-tpl-menu button:hover{background:var(--c-bg,#f6f7f9)}
@@ -799,7 +810,7 @@ button.lg-publish-why-fix:focus-visible{outline:2px solid currentColor;outline-o
 .lg-hidden{display:none}
 </style>
   <div class="lg-panel-card" id="lg-tpl-bar">
-  <div class="lg-scope-head">Editing: <strong id="lg-tpl-target-name" data-lg-target-funnel-name>this funnel</strong> · Funnel layout template · affects every slide of this funnel<select class="form-select form-select-sm" id="lg-tpl-target-select" data-lg-target-funnel aria-label="Funnel this template edits" style="margin-left:8px;max-width:200px;vertical-align:middle"></select></div>
+  <div class="lg-scope-head">Editing: <strong id="lg-tpl-target-name" data-lg-target-funnel-name>this funnel</strong> · Funnel layout template · affects every section of this funnel<select class="form-select form-select-sm" id="lg-tpl-target-select" data-lg-target-funnel aria-label="Funnel this template edits" style="margin-left:8px;max-width:200px;vertical-align:middle"></select></div>
   <div class="lg-tpl2-bar-row">
     <span class="lg-tpl2-eyebrow">Saved templates</span>
     <div id="lg-tpl-list" class="lg-tpl2-chip-row"><span class="form-help">Loading templates&#8230;</span></div>
@@ -838,7 +849,7 @@ button.lg-publish-why-fix:focus-visible{outline:2px solid currentColor;outline-o
     <span class="lg-tplbox-card-letter">F</span>
     <span>Brand logos</span>
   </button><button type="button" class="lg-tplbox-card" data-tplbox-pick="images">
-    <span class="lg-tplbox-card-letter">H</span>
+    <span class="lg-tplbox-card-letter">G</span>
     <span>Images</span>
   </button><button type="button" class="lg-tplbox-card selected" data-tplbox-pick="progress">
     <span class="lg-tplbox-card-letter">I</span>
@@ -856,7 +867,7 @@ button.lg-publish-why-fix:focus-visible{outline:2px solid currentColor;outline-o
       <select class="form-select form-select-sm" id="lg-tpl-theme-select" aria-label="Theme switcher" style="max-width:180px">
         <option value="">Current theme</option>
       </select>
-      <button type="button" class="btn btn-sm btn-outline" id="lg-tpl-theme-create" title="Create a theme in the Themes tab">+ New theme&#8230;</button>
+      <button type="button" class="btn btn-sm btn-outline" id="lg-tpl-theme-create" title="Open the Themes tab to design this funnel's theme">Themes tab &#8594;</button>
       <select class="form-select form-select-sm" id="lg-tpl-section-select" aria-label="Section picker" style="max-width:240px">
         <option value="">Loading sections&#8230;</option>
       </select>
@@ -888,8 +899,7 @@ button.lg-publish-why-fix:focus-visible{outline:2px solid currentColor;outline-o
   <p class="form-help">The header logo &mdash; sourced from the selected preview site's branding by default.</p>
   <div class="form-group"><label class="form-label">Logo source</label><select class="form-select" data-frame-key="header.logo_source"><option value="site">Site logo (auto)</option><option value="cms_fallback">CMS fallback</option></select></div>
   <div class="form-group"><label class="form-label">Logo size</label><select class="form-select" data-frame-key="header.logo_size"><option value="s">Small</option><option value="m">Medium</option><option value="l">Large</option></select></div>
-  <div class="form-group"><label class="form-label">Alignment</label><select class="form-select" data-frame-key="header.logo_align"><option value="left">Left</option><option value="center">Center</option></select></div>
-  <p class="form-help">For a manual logo override, open the Header region on the canvas (Funnel builder tab) &rarr; Advanced.</p>
+  <div class="form-group"><label class="form-label">Alignment</label><select class="form-select" data-frame-key="header.logo_align"><option value="left">Left</option><option value="center">Center</option><option value="right">Right</option></select><p class="form-help">Where the logo sits in the header bar.</p></div>
 </div>
     <div class="lg-inspector-panel lg-panel-card" data-tplbox-panel="cta">
   <h3>C &middot; Phone / URL</h3>
@@ -1029,7 +1039,7 @@ button.lg-publish-why-fix:focus-visible{outline:2px solid currentColor;outline-o
   <p class="form-help lg-hidden" data-bl-upload-error role="alert"></p>
 </div>
     <div class="lg-inspector-panel lg-panel-card" data-tplbox-panel="images">
-  <h3>H &middot; Images</h3>
+  <h3>G &middot; Images</h3>
   <p class="form-help">Individually placed images (e.g. a persona portrait), each with its own slot, size, alignment and optional hover caption.</p>
   <div data-tplbox-list="images"></div>
   <template data-tplbox-tpl="images"><div class="lg-tplbox-row" data-img-item-row>
@@ -1106,7 +1116,13 @@ button.lg-publish-why-fix:focus-visible{outline:2px solid currentColor;outline-o
       <span class="lg-tpl2-ptype-label">Icon on track</span>
     </label></div><input type="radio" id="lg-tpl-progress-hidden-radio" name="lg-progress-style" value="hidden" data-frame-key="progress.style" data-frame-radio="1" class="lg-tpl2-visually-hidden" aria-hidden="true" tabindex="-1" />
   <p class="form-help">5 real styles (Bar/Dots/Numbered/Percent/Icon on track) &mdash; "Hidden" is the toggle below, not a 6th style.</p>
-  <div class="form-group"><label class="form-label">Marker icon</label><select class="form-select" data-frame-key="progress.icon"><option value="dot">Plain dot</option><option value="car">Car</option><option value="shield">Shield</option><option value="check">Checkmark</option><option value="star">Star</option><option value="site_logo">This site&#39;s logo</option></select><p class="form-help">The mark that travels along the track. Used by the “Icon on track” style.</p></div>
+  <div id="lg-tpl-progress-icon-row" class="lg-hidden"><div class="form-group"><label class="form-label">Marker icon</label><select class="form-select" data-frame-key="progress.icon"><option value="dot">Plain dot</option><option value="car">Car</option><option value="shield">Shield</option><option value="check">Checkmark</option><option value="star">Star</option><option value="site_logo">This site&#39;s logo</option><option value="custom">My own image</option></select><p class="form-help">The mark that travels along the track.</p></div></div>
+  <div id="lg-tpl-progress-icon-media-row" class="lg-hidden"><div class="form-group"><label class="form-label">Marker image</label><span class="lg-media-field" data-media-field>
+    <input type="hidden" data-frame-key="progress.icon_media_id" aria-label="Marker image" />
+    <img class="lg-media-thumb lg-hidden" data-media-thumb alt="" />
+    <button type="button" class="btn btn-sm btn-secondary" data-media-choose aria-label="Choose Marker image from the Media library">Choose&#8230;</button>
+    <button type="button" class="btn btn-sm btn-outline lg-hidden" data-media-clear aria-label="Clear Marker image">Clear</button>
+  </span><p class="form-help">Your own image, from the Media library. Until one is chosen the marker stays a plain dot.</p></div></div>
 
   <label class="lg-tpl2-toggle-row">
     <span class="lg-tpl2-toggle-copy"><span class="lg-tpl2-toggle-title">Show progress bar</span></span>
@@ -1123,21 +1139,23 @@ button.lg-publish-why-fix:focus-visible{outline:2px solid currentColor;outline-o
   <div class="form-group"><label class="form-label">Thickness</label><div class="lg-tpl2-seg" role="radiogroup" aria-label="Thickness"><label class="lg-tpl2-seg-item"><input type="radio" name="lg-tpl-seg-progress-thickness" value="s" data-frame-key="progress.thickness" data-frame-radio="1" /><span>Small</span></label><label class="lg-tpl2-seg-item"><input type="radio" name="lg-tpl-seg-progress-thickness" value="m" data-frame-key="progress.thickness" data-frame-radio="1" /><span>Medium</span></label><label class="lg-tpl2-seg-item"><input type="radio" name="lg-tpl-seg-progress-thickness" value="l" data-frame-key="progress.thickness" data-frame-radio="1" /><span>Large</span></label></div></div>
   <div class="form-group"><label class="form-label">Width</label><div class="lg-tpl2-seg" role="radiogroup" aria-label="Width"><label class="lg-tpl2-seg-item"><input type="radio" name="lg-tpl-seg-progress-width" value="content" data-frame-key="progress.width" data-frame-radio="1" /><span>Content width</span></label><label class="lg-tpl2-seg-item"><input type="radio" name="lg-tpl-seg-progress-width" value="full" data-frame-key="progress.width" data-frame-radio="1" /><span>Full width</span></label></div></div>
   <div class="form-group"><label class="form-label">Color</label><div class="lg-role-strip" data-role-strip="progress.color_role"><button type="button" class="lg-role-swatch" data-role-pick="brand_primary" data-role-pick-for="progress.color_role" title="Brand primary" aria-label="Brand primary"></button><button type="button" class="lg-role-swatch" data-role-pick="brand_secondary" data-role-pick-for="progress.color_role" title="Brand secondary" aria-label="Brand secondary"></button><button type="button" class="lg-role-swatch" data-role-pick="accent" data-role-pick-for="progress.color_role" title="Accent" aria-label="Accent"></button><button type="button" class="lg-role-swatch" data-role-pick="success" data-role-pick-for="progress.color_role" title="Success" aria-label="Success"></button><button type="button" class="lg-role-swatch" data-role-pick="error" data-role-pick-for="progress.color_role" title="Error" aria-label="Error"></button><button type="button" class="lg-role-swatch" data-role-pick="page_background" data-role-pick-for="progress.color_role" title="Page background" aria-label="Page background"></button><button type="button" class="lg-role-swatch" data-role-pick="card_background" data-role-pick-for="progress.color_role" title="Card background" aria-label="Card background"></button><button type="button" class="lg-role-swatch" data-role-pick="surface_wash" data-role-pick-for="progress.color_role" title="Soft fill" aria-label="Soft fill"></button><button type="button" class="lg-role-swatch" data-role-pick="border" data-role-pick-for="progress.color_role" title="Border" aria-label="Border"></button><button type="button" class="lg-role-swatch" data-role-pick="text_primary" data-role-pick-for="progress.color_role" title="Text" aria-label="Text"></button><button type="button" class="lg-role-swatch" data-role-pick="text_muted" data-role-pick-for="progress.color_role" title="Muted text" aria-label="Muted text"></button><button type="button" class="lg-role-swatch" data-role-pick="button_primary_bg" data-role-pick-for="progress.color_role" title="Button" aria-label="Button"></button><button type="button" class="lg-role-swatch" data-role-pick="button_primary_text" data-role-pick-for="progress.color_role" title="Button text" aria-label="Button text"></button><button type="button" class="lg-role-swatch" data-role-pick="button_secondary_bg" data-role-pick-for="progress.color_role" title="Secondary button" aria-label="Secondary button"></button></div></div>
-  <label class="lg-tpl2-toggle-row">
+  <div id="lg-tpl-progress-showlabel-row"><label class="lg-tpl2-toggle-row">
     <span class="lg-tpl2-toggle-copy">
       <span class="lg-tpl2-toggle-title">Show label</span>
-      <span class="lg-tpl2-toggle-help">e.g. &quot;Step 2 of 5&quot; next to the bar</span>
+      <span class="lg-tpl2-toggle-help">A visitor sees &quot;Step 2 of 5&quot; beside the bar, or &quot;40%&quot; on Percent.</span>
     </span>
     <span class="lg-tpl2-switch">
       <input type="checkbox" data-frame-key="progress.show_label" class="lg-tpl2-switch-input" />
       <span class="lg-tpl2-switch-track" aria-hidden="true"><span class="lg-tpl2-switch-knob"></span></span>
     </span>
-  </label>
-  <p class="lg-region-note">Progress counts the slides of this funnel variant automatically.</p>
+  </label></div>
+  <p class="lg-region-note lg-hidden" id="lg-tpl-progress-numbered-note">Numbered steps always show the step label &mdash; that is what makes them numbered.</p>
+  <p class="lg-region-note">Progress counts the sections of this funnel variant automatically.</p>
 </div>
     <div class="lg-inspector-panel lg-panel-card" data-tplbox-panel="footer">
   <h3>J &middot; Footer</h3>
   <p class="form-help">Bottom-of-page blocks (company details / links / disclosure / logo / address / socials / heading / list), with their own palette, font family and sizes &mdash; independent of the main template.</p>
+  <p class="form-help">Free text and company details are the same block here &mdash; "Company details" takes rich text (bold, italic, links).</p>
   <div class="form-group"><label class="form-label">Show the footer</label><label class="lg-check"><input type="checkbox" data-frame-key="footer.enabled" /> Render the footer at the bottom of every funnel page</label></div>
   <h4>Palette &amp; typography scope</h4>
   <div class="lg-scalars">
@@ -1154,7 +1172,7 @@ button.lg-publish-why-fix:focus-visible{outline:2px solid currentColor;outline-o
   <div data-tplbox-list="footer.blocks"></div>
   <template data-tplbox-tpl="footer.blocks"><div class="lg-tplbox-row" data-footer-block-row>
     <div class="lg-list-row">
-      <select class="form-select form-select-sm" data-footer-block-type aria-label="Footer block type"><option value="about_paragraph">About paragraph / company details</option><option value="link_row">Link row</option><option value="disclosure">Disclosure</option><option value="logo">Logo</option><option value="address">Address</option><option value="socials">Social links</option><option value="heading">Heading</option><option value="list">List</option></select>
+      <select class="form-select form-select-sm" data-footer-block-type aria-label="Footer block type"><option value="about_paragraph">Company details</option><option value="link_row">Link row</option><option value="disclosure">Disclosure</option><option value="logo">Logo</option><option value="address">Address</option><option value="socials">Social links</option><option value="heading">Heading</option><option value="list">List</option></select>
       <select class="form-select form-select-sm" data-footer-block-align aria-label="Footer block alignment"><option value="left">Left</option><option value="center">Center</option><option value="right">Right</option></select>
       <span class="lg-row-rail">
         <button type="button" class="btn btn-sm btn-outline" data-footer-block-up aria-label="Move block up">&#8593;</button>
@@ -1246,6 +1264,7 @@ button.lg-publish-why-fix:focus-visible{outline:2px solid currentColor;outline-o
     <div class="form-group">
       <label class="form-label" for="lg-tpl-ab-template-select">New arm's template</label>
       <select class="form-select" id="lg-tpl-ab-template-select" aria-label="Template for the new arm"></select>
+      <p class="form-help" id="lg-tpl-ab-effect" role="status"></p>
     </div>
     <p class="alert alert-error lg-hidden" id="lg-tpl-ab-error" role="alert"></p>
     <div class="toolbar">
@@ -1279,6 +1298,13 @@ button.lg-publish-why-fix:focus-visible{outline:2px solid currentColor;outline-o
   // not load (see watchCanvasLogo below). Interpolated from the ONE server
   // constant so the canvas and frame.ts can never drift apart.
   var LOGO_UNREACHABLE_TEXT = "This site's logo image could not be loaded — re-upload it in Site settings.";
+  // R2 P8 S4.2 — the SAME operator words the Style tiles show (one vocabulary
+  // per thing), interpolated from the one server map so the pill, the
+  // apply-confirm sentences and the tiles cannot drift.
+  var PROGRESS_LABELS = {"hidden":"No progress bar","bar":"Bar","dots":"Dots","numbered":"Numbered","percent":"Percent","icon_on_track":"Icon on track"};
+  function progressStyleLabel(v) {
+    return (v !== null && v !== undefined && PROGRESS_LABELS[v]) ? PROGRESS_LABELS[v] : String(v);
+  }
   var boot = null;
   var templates = [];
   // R2 D5 (contract §7 D5): this quote's PER-QUOTE default template override
@@ -1586,7 +1612,8 @@ button.lg-publish-why-fix:focus-visible{outline:2px solid currentColor;outline-o
     if (key === null) { return; }
     if (el.type === 'radio' && !el.checked) { return; }
     setPath(myFrame, key, controlValueOf(el));
-    if (key === 'progress.style') { syncProgressToggleUi(); }
+    if (key === 'progress.style') { syncProgressToggleUi(); syncProgressIconRow(); }
+    if (key === 'progress.icon') { syncProgressIconRow(); }
     syncRadioActiveClasses();
     scheduleCanvasPreview();
   }
@@ -2034,6 +2061,11 @@ button.lg-publish-why-fix:focus-visible{outline:2px solid currentColor;outline-o
     if (!el || !el.closest) { return; }
     if (!el.closest('.lg-qpanel[data-panel="templates"]')) { return; }
     arraysArmed = true;
+    // The shared island (funnel.ts) repopulates every [data-frame-key] control
+    // when a tab activates or the target funnel changes, and a programmatic
+    // .checked assignment fires no 'change' — so re-derive the Marker-icon
+    // row's visibility from whatever the radios now say, on any panel activity.
+    syncProgressIconRow();
     scheduleCanvasPreview();
   }
 
@@ -2060,6 +2092,56 @@ button.lg-publish-why-fix:focus-visible{outline:2px solid currentColor;outline-o
     var toggle = byId('lg-tpl-progress-show-checkbox');
     var isHidden = currentProgressStyle() === 'hidden';
     if (toggle) { toggle.checked = !isHidden; }
+  }
+  // R2 P8 S4.2 (M1) — "Marker icon" only appears when it does something:
+  // designs/frame.ts reads progress.icon inside its icon_on_track branch
+  // alone. Before any radio is checked (this island runs at DOMContentLoaded;
+  // funnel.ts's shared island populates the controls on its own schedule) the
+  // boot frame's own effective style is the truth, so the row is right on the
+  // first paint too, not only after the operator touches something.
+  function styleForIconRow() {
+    var radios = progressStyleRadios();
+    var i;
+    for (i = 0; i < radios.length; i++) { if (radios[i].checked) { return radios[i].value; } }
+    var eff = (boot && boot.frame && boot.frame.effective_frame && boot.frame.effective_frame.progress)
+      ? boot.frame.effective_frame.progress.style : '';
+    return eff || '';
+  }
+  // R2 P8 F1 — every "this control would do nothing here" row of the Progress
+  // box is decided in ONE pass, by the ONE function that already owned that job
+  // (no new island symbol: the var-manifest harnesses rebuild this island from
+  // a hand-listed set of names, and a new top-level helper would be a bare
+  // ReferenceError there). The rows:
+  //   * Marker icon      — only for the icon_on_track style (designs/frame.ts
+  //                        reads progress.icon in that branch alone);
+  //   * Marker image     — only when the chosen mark IS an image (icon custom),
+  //                        so the media picker never sits there dead;
+  //   * Show label       — NOT for numbered: that style renders the step label
+  //                        unconditionally, so the switch cannot be honoured
+  //                        (section 4 R3, "a control that cannot be honoured
+  //                        must not be offered");
+  //   * numbered note    — takes the switch's place, so the operator is told
+  //                        why rather than finding a control that does nothing.
+  function syncProgressIconRow() {
+    var style = styleForIconRow();
+    var iconSel = toArray(document.querySelectorAll('[data-frame-key="progress.icon"]'));
+    var icon = (iconSel.length > 0 && iconSel[0].value) ? iconSel[0].value : '';
+    if (icon === '' && boot && boot.frame && boot.frame.effective_frame && boot.frame.effective_frame.progress) {
+      icon = boot.frame.effective_frame.progress.icon || '';
+    }
+    var rows = [
+      ['lg-tpl-progress-icon-row', style === 'icon_on_track'],
+      ['lg-tpl-progress-icon-media-row', style === 'icon_on_track' && icon === 'custom'],
+      ['lg-tpl-progress-showlabel-row', style !== 'numbered'],
+      ['lg-tpl-progress-numbered-note', style === 'numbered']
+    ];
+    var i;
+    for (i = 0; i < rows.length; i++) {
+      var row = byId(rows[i][0]);
+      if (!row) { continue; }
+      var base = row.className.replace(/\s*lg-hidden/g, '');
+      row.className = rows[i][1] ? base : base + ' lg-hidden';
+    }
   }
   function wireProgressToggle() {
     var toggle = byId('lg-tpl-progress-show-checkbox');
@@ -2146,7 +2228,7 @@ button.lg-publish-why-fix:focus-visible{outline:2px solid currentColor;outline-o
         var empty = document.createElement('option');
         empty.value = '';
         empty.disabled = true;
-        empty.appendChild(text('No themes yet \u2014 create one in the Themes tab'));
+        empty.appendChild(text('No themes yet \u2014 create one in the Themes manager'));
         sel.appendChild(empty);
       }
     }).catch(function () { /* the "Current theme" option alone still works */ });
@@ -2206,12 +2288,46 @@ button.lg-publish-why-fix:focus-visible{outline:2px solid currentColor;outline-o
   }
 
   // --- saved template bar --------------------------------------------
+  // R2 P8 S4.2 (§6 M10, client leg): the saved-template pill printed the raw
+  // stored enum ("Bare layout \u00b7 dots progress"). It now speaks the SAME
+  // words the Style tiles do (PROGRESS_LABELS) and names the footer the way
+  // every other control in this panel does. Each bit is still read straight off
+  // the template's OWN frame_json, so the pill describes the record and nothing
+  // else.
+  //
+  // R2 P8 FIX ROUND F1 — the real THUMBNAIL is consumed now. The server key
+  // thumbnail_html is pre-composed MARKUP and an island here may not use
+  // innerHTML, so frame-handlers.ts emits the DATA sibling "thumbnail"
+  // (root_class + id + bands) from the SAME frameThumbnailData the markup is
+  // serialised from, and thumbFor below builds those exact nodes with
+  // createElement. The bands are never re-derived from frame_json here: that
+  // would be a second reader of one wire shape, which is section 4 R1's own
+  // defect.
   function templateSummary(frameJson) {
     var bits = [];
     if (frameJson && frameJson.section_slot && frameJson.section_slot.card) { bits.push(frameJson.section_slot.card === 'card' ? 'Card layout' : 'Bare layout'); }
-    if (frameJson && frameJson.progress && frameJson.progress.style) { bits.push(frameJson.progress.style === 'hidden' ? 'No progress bar' : (frameJson.progress.style + ' progress')); }
-    if (frameJson && frameJson.footer && frameJson.footer.enabled === false) { bits.push('no footer'); }
+    if (frameJson && frameJson.progress && frameJson.progress.style) { bits.push(frameJson.progress.style === 'hidden' ? PROGRESS_LABELS.hidden : (progressStyleLabel(frameJson.progress.style) + ' progress')); }
+    if (frameJson && frameJson.footer && frameJson.footer.enabled === false) { bits.push('No footer'); }
     return bits.join(' \u00b7 ');
+  }
+
+  // The saved template's picture, built from the server's band DATA. Returns
+  // null when a record predates the key, so an older payload degrades to the
+  // name pill it always had rather than an empty box.
+  function thumbFor(tpl) {
+    var data = tpl ? tpl.thumbnail : null;
+    if (!data || !data.bands || !data.bands.length) { return null; }
+    var box = document.createElement('span');
+    box.className = data.root_class || 'lg-tpl-thumb';
+    box.setAttribute('data-template-thumb', data.id || '');
+    box.setAttribute('aria-hidden', 'true');
+    var i;
+    for (i = 0; i < data.bands.length; i++) {
+      var band = document.createElement('span');
+      band.className = data.bands[i];
+      box.appendChild(band);
+    }
+    return box;
   }
 
   function closeAllTplMenus() {
@@ -2238,6 +2354,8 @@ button.lg-publish-why-fix:focus-visible{outline:2px solid currentColor;outline-o
         var chip = document.createElement('span');
         chip.className = 'lg-tpl2-tpl-chip' + (isThisQuoteDefault ? ' is-default' : '');
         chip.setAttribute('data-tpl-chip', tpl.public_id);
+        var thumb = thumbFor(tpl);
+        if (thumb) { chip.appendChild(thumb); }
         chip.appendChild(text(tpl.name));
         if (isThisQuoteDefault) {
           var badge = document.createElement('span');
@@ -2425,27 +2543,143 @@ button.lg-publish-why-fix:focus-visible{outline:2px solid currentColor;outline-o
     }
   }
   var applyChosenTemplate = null;
-  function diffSentences(candidateFrameJson) {
-    var sentences = [];
-    var cur = (boot && boot.frame && boot.frame.effective_frame) || {};
-    var cand = candidateFrameJson || {};
-    if (cur.section_slot && cand.section_slot && cur.section_slot.card !== cand.section_slot.card) {
-      sentences.push('The question unit changes from a ' + (cur.section_slot.card === 'card' ? 'card' : 'bare layout') + ' to a ' + (cand.section_slot.card === 'card' ? 'card' : 'bare layout') + '.');
+
+  // =======================================================================
+  // R2 P8 S4.2 (§6 M3 / R2-1) — what this dialog is allowed to promise.
+  //
+  // MEASURED BEFORE: the four enumerated promises were all false after apply.
+  // The dialog computed them HERE, in the client, by comparing a RESOLVED frame
+  // (boot.frame.effective_frame — every group present, every default filled)
+  // against a SPARSE saved-template patch, and reading an ABSENT key as an
+  // authored one: a template that never mentions the footer has
+  // cand.footer.enabled === undefined, which is !== true, so the operator was
+  // told "The footer will be hidden." from a key the template does not set
+  // (and progress could read "...changes from numbered to undefined."). On top
+  // of that it modelled the apply as a merge the apply did not perform.
+  //
+  // A second client-side predictor is the R1 defect class waiting to happen —
+  // producer and consumer written to different contracts. So the promises are
+  // no longer predicted here at all: the SERVER dry-runs the real apply
+  // (POST /funnels/:id/apply-template {dry_run:true} — frame-handlers.ts
+  // returns before any write) and hands back the operator-language
+  // confirmations that designs/frames.ts computeTemplateApply derives from the
+  // REAL before/after leaf diff, which is the same function, on the same
+  // inputs, that the confirm button then executes. One truth, one place.
+  // A failed dry run shows the error slot and no promises at all.
+  // =======================================================================
+  function applyLeadLine(tpl) {
+    return '"' + (tpl && tpl.name ? tpl.name : 'This template') + '" becomes this funnel’s layout template.';
+  }
+  function paintConfirmList(lines) {
+    var list = byId('lg-tpl-apply-confirm-list');
+    if (!list) { return; }
+    clearChildren(list);
+    var i;
+    for (i = 0; i < lines.length; i++) {
+      var li = document.createElement('li');
+      li.appendChild(text(lines[i]));
+      list.appendChild(li);
     }
-    if (cur.footer && cand.footer && cur.footer.enabled !== cand.footer.enabled) {
-      sentences.push(cand.footer.enabled ? 'The footer will be shown.' : 'The footer will be hidden.');
+  }
+  function openApplyConfirm(tpl) {
+    var targetFunnel = targetFunnelPublicId();
+    if (!tpl || !targetFunnel) { return; }
+    fetchJson(LG_API + '/funnels/' + encodeURIComponent(targetFunnel) + '/apply-template', {
+      method: 'POST', credentials: 'same-origin',
+      headers: { 'content-type': 'application/json', Accept: 'application/json' },
+      body: JSON.stringify({ template_id: tpl.id, dry_run: true })
+    }).then(function (res) {
+      if (!res.ok || !res.body || !res.body.confirmations) {
+        showError('lg-tpl-apply-error', (res.body && res.body.error) || 'Could not preview this template.');
+        return;
+      }
+      applyChosenTemplate = tpl;
+      hideError('lg-tpl-apply-error');
+      paintConfirmList([applyLeadLine(tpl)].concat(res.body.confirmations));
+      applyDialogShowState('confirm');
+    }).catch(function () {
+      // R2 P8 FIX ROUND F4 (F-9): a REJECTED fetch (the visitor's laptop drops
+      // its network mid-click) resolved nothing and rendered nothing, so the
+      // card click did literally nothing — no confirm state, no message, no
+      // reason. HTTP errors were always handled (the branch above); this is the
+      // other half, in the SAME error slot, in the same words.
+      showError('lg-tpl-apply-error', 'Could not preview this template.');
+    });
+  }
+
+  // =======================================================================
+  // The A/B arm predicate — a DIFFERENT question from the one above, because
+  // an arm is resolved differently from an apply. An A/B arm points
+  // variant.frame_template_id at a template, and that row resolves as the BASE
+  // layer UNDER the funnel's config (resolver.ts resolveSavedFrameTemplateDefaults
+  // For: variant.frame_template_id ?? funnel.frame_template_id -> effectiveFrame's
+  // 4th argument). So a leaf the funnel's OWN config carries does not move on the
+  // new arm, however different the two templates are.
+  //
+  // R2 P8 FIX ROUND F4 (F-2) — that shadow used to cover EVERYTHING on any
+  // funnel someone had pressed "Apply to funnel…" on, because the apply copied
+  // the whole template into the funnel column: measured, every non-current
+  // template reported "Nothing this template sets would change on the new arm"
+  // and the forked arm rendered byte-identically. FIXED AT THE SOURCE, not
+  // reported here: designs/frames.ts computeTemplateApply now stores only what
+  // the funnel DIFFERS from its template by, so the column shadows only leaves
+  // the operator actually authored and an arm's own template decides the rest
+  // (driven fork→apply→render proof in test/leadgen-p8-m3-apply-template.ts's
+  // "F-2" legs). The count below is therefore a real number again on an applied
+  // funnel; the zero-case copy stays for the case it was always true of — a
+  // funnel whose OWN authored settings already decide every leaf this template
+  // sets. It is still deliberately scoped to the leaves THIS TEMPLATE SETS: a
+  // leaf the current arm's template authors and the chosen one does not is
+  // outside what this page can resolve (it would need the other template's
+  // family defaults), so the zero-case copy claims only what it can prove and
+  // never the stronger "the two arms are identical".
+  function currentEffectiveFrame() { return (boot && boot.frame && boot.frame.effective_frame) || {}; }
+  // The layers that merge ABOVE a saved template's defaults on a served arm.
+  function shadowLayers() {
+    var layers = [];
+    var stored = (boot && boot.frame && boot.frame.frame_config) || null;
+    if (isRecord(stored)) { layers.push(stored); }
+    var onBootFunnel = boot && targetFunnelPublicId() === boot.funnel_public_id;
+    var overrides = (onBootFunnel && boot) ? boot.overrides : null;
+    if (isRecord(overrides)) { layers.push(overrides); }
+    return layers;
+  }
+  function pinnedAbove(path) {
+    var layers = shadowLayers();
+    var i;
+    for (i = 0; i < layers.length; i++) { if (getPath(layers[i], path) !== undefined) { return true; } }
+    return false;
+  }
+  // Every leaf that would move on the new arm, counted. Deliberately a COUNT
+  // and not a sentence: designs/frames.ts computeTemplateApply already owns the
+  // operator register for "what changes" (the apply dialog paints its words
+  // above), and a second set of sentences here would be two wordings for one
+  // event — the drift this slice exists to remove. Walks the template's OWN
+  // leaves (records recurse; arrays and scalars are leaves, exactly how
+  // effectiveFrame's mergeInto treats them).
+  function sameLeaf(a, b) {
+    if (a === b) { return true; }
+    if (a === null || b === null || a === undefined || b === undefined) { return false; }
+    if (typeof a !== 'object' && typeof b !== 'object') { return false; }
+    return JSON.stringify(a) === JSON.stringify(b);
+  }
+  function countArmChanges(cand, prefix, acc) {
+    var cur = currentEffectiveFrame();
+    var key;
+    var path;
+    var value;
+    for (key in cand) {
+      if (!Object.prototype.hasOwnProperty.call(cand, key)) { continue; }
+      if (prefix === '' && (key === 'template' || key === 'version')) { continue; }
+      path = prefix === '' ? key : prefix + '.' + key;
+      value = cand[key];
+      if (isRecord(value)) { acc = countArmChanges(value, path, acc); continue; }
+      if (value === undefined) { continue; }
+      if (pinnedAbove(path)) { continue; }
+      if (sameLeaf(getPath(cur, path), value)) { continue; }
+      acc = acc + 1;
     }
-    if (cur.trust_strip && cand.trust_strip && cur.trust_strip.enabled !== cand.trust_strip.enabled) {
-      sentences.push(cand.trust_strip.enabled ? 'A trust strip will be added.' : "The trust strip isn't part of this template's arrangement.");
-    }
-    if (cur.benefit_bar && cand.benefit_bar && cur.benefit_bar.enabled !== cand.benefit_bar.enabled) {
-      sentences.push(cand.benefit_bar.enabled ? 'A benefit bar will be added.' : "The benefit bar isn't part of this template's arrangement.");
-    }
-    if (cur.progress && cand.progress && cur.progress.style !== cand.progress.style) {
-      sentences.push('Progress style changes from ' + cur.progress.style + ' to ' + cand.progress.style + '.');
-    }
-    if (sentences.length === 0) { sentences.push('This template keeps the same overall arrangement.'); }
-    return sentences;
+    return acc;
   }
   function renderApplyChoices() {
     var box = byId('lg-tpl-apply-choices');
@@ -2466,21 +2700,9 @@ button.lg-publish-why-fix:focus-visible{outline:2px solid currentColor;outline-o
         summary.appendChild(text(templateSummary(tpl.frame_json)));
         card.appendChild(name);
         card.appendChild(summary);
-        card.addEventListener('click', function () {
-          applyChosenTemplate = tpl;
-          var list = byId('lg-tpl-apply-confirm-list');
-          if (list) {
-            clearChildren(list);
-            var sentences = diffSentences(tpl.frame_json);
-            var s;
-            for (s = 0; s < sentences.length; s++) {
-              var li = document.createElement('li');
-              li.appendChild(text(sentences[s]));
-              list.appendChild(li);
-            }
-          }
-          applyDialogShowState('confirm');
-        });
+        // The confirm state is entered by the dry run's answer, never before
+        // it: a template whose preview failed must not show promises.
+        card.addEventListener('click', function () { openApplyConfirm(tpl); });
         box.appendChild(card);
       }(templates[i]));
     }
@@ -2521,25 +2743,73 @@ button.lg-publish-why-fix:focus-visible{outline:2px solid currentColor;outline-o
   }
 
   // --- A/B templates -----------------------------------------------------
+  // R2 P8 S4.2 (§6 M3, A/B leg): the two arms were measured byte-identical, so
+  // the operator could start a test that can never produce a result. Two
+  // separate reasons, and this island can only speak to them honestly:
+  //   * IDENTITY — nothing said which template the funnel already uses, so
+  //     picking that one forked an arm that differs in no way at all. The
+  //     board blob already carries funnel.frame_template_id (funnel.ts
+  //     boardDataBlob), so that option is now named as the current one.
+  //   * SHADOWING — an arm resolves template defaults UNDER the funnel's own
+  //     frame_config (resolver.ts variant.frame_template_id ??
+  //     funnel.frame_template_id -> effectiveFrame's base layer), so a leaf the
+  //     funnel's own config carries can still render identically on both arms.
+  //     The line below counts, with the SAME rules the apply dialog uses, what
+  //     the new arm would actually change — 0 means the two arms would look the
+  //     same, said before the fork rather than discovered after it.
+  //     R2 P8 FIX ROUND F4 (F-2): the shadowing WAS the apply path's defect and
+  //     is now FIXED there (frames.ts computeTemplateApply stores the funnel's
+  //     differences from its template, never a copy of it), so this count is a
+  //     real number on an applied funnel instead of a permanent 0.
+  function abCurrentTemplateId() {
+    var f = boardFunnelBy(targetFunnelPublicId());
+    return (f && f.frame_template_id !== null && f.frame_template_id !== undefined) ? String(f.frame_template_id) : '';
+  }
+  function abEffectLine() {
+    var el = byId('lg-tpl-ab-effect');
+    var select = byId('lg-tpl-ab-template-select');
+    if (!el) { return; }
+    clearChildren(el);
+    var chosen = (select && select.value) ? findTemplateByDbId(select.value) : null;
+    if (!chosen) { return; }
+    if (String(chosen.id) === abCurrentTemplateId()) {
+      el.appendChild(text('This funnel already uses this template \u2014 both arms would look the same.'));
+      return;
+    }
+    var total = countArmChanges(chosen.frame_json || {}, '', 0);
+    if (total === 0) {
+      el.appendChild(text('Nothing this template sets would change on the new arm \u2014 this funnel\u2019s own saved layout settings already decide those.'));
+      return;
+    }
+    el.appendChild(text('The new arm differs from the current one in ' + total + (total === 1 ? ' layout setting.' : ' layout settings.')));
+  }
+  function findTemplateByDbId(dbId) {
+    var i;
+    for (i = 0; i < templates.length; i++) { if (String(templates[i].id) === String(dbId)) { return templates[i]; } }
+    return null;
+  }
   function wireAbTemplatesDialog() {
     var openBtn = byId('lg-tpl-ab-btn');
     var dialog = byId('lg-tpl-ab-dialog');
     var cancelBtn = byId('lg-tpl-ab-cancel-btn');
     var confirmBtn = byId('lg-tpl-ab-confirm-btn');
     var select = byId('lg-tpl-ab-template-select');
+    if (select) { select.addEventListener('change', abEffectLine); }
     if (openBtn && dialog) {
       openBtn.addEventListener('click', function () {
         hideError('lg-tpl-ab-error');
         if (select) {
           clearChildren(select);
+          var currentId = abCurrentTemplateId();
           var i;
           for (i = 0; i < templates.length; i++) {
             var o = document.createElement('option');
             o.value = templates[i].id;
-            o.appendChild(text(templates[i].name));
+            o.appendChild(text(templates[i].name + (String(templates[i].id) === currentId ? ' (this funnel\u2019s current template)' : '')));
             select.appendChild(o);
           }
         }
+        abEffectLine();
         dialog.className = dialog.className.replace(/\s*lg-hidden/g, '');
       });
     }
@@ -2720,6 +2990,7 @@ button.lg-publish-why-fix:focus-visible{outline:2px solid currentColor;outline-o
     });
     wireProgressToggle();
     syncProgressToggleUi();
+    syncProgressIconRow();
     syncRadioActiveClasses();
 
     // P8-1 F1: name the target funnel + wire its picker before the first
@@ -2779,7 +3050,7 @@ button.lg-publish-why-fix:focus-visible{outline:2px solid currentColor;outline-o
     <div class="lg-theme-rail" id="lg-theme-rail" data-pin="r2-theme-rail" style="flex:0 1 340px;min-width:280px;max-width:380px">
     <div id="lg-themes-panel-mount"><div class="lg-panel-card" id="lg-theme-editor">
   <h3>Funnel theme</h3>
-  <div class="lg-scope-head">Editing: <strong id="lg-theme-target-name" data-lg-target-funnel-name>this funnel</strong> · Funnel theme · affects every slide and every component default of this funnel<select class="form-select form-select-sm" id="lg-theme-target-select" data-lg-target-funnel aria-label="Funnel this theme edits" style="margin-left:8px;max-width:200px;vertical-align:middle"></select></div>
+  <div class="lg-scope-head">Editing: <strong id="lg-theme-target-name" data-lg-target-funnel-name>this funnel</strong> · Funnel theme · affects every section and every component default of this funnel<select class="form-select form-select-sm" id="lg-theme-target-select" data-lg-target-funnel aria-label="Funnel this theme edits" style="margin-left:8px;max-width:200px;vertical-align:middle"></select></div>
   
   <h3>Colors</h3>
   <div id="lg-theme-palette"><div class="lg-theme-role-row" data-theme-role="brand_primary">
@@ -4179,22 +4450,22 @@ button.lg-publish-why-fix:focus-visible{outline:2px solid currentColor;outline-o
   <div class="lg-qpanel" data-panel="ab">
   <div class="card">
     <h3>Traffic allocation</h3>
-    <p class="form-help">Test this funnel against variants of itself — a different template, theme, sections, or rules. Add a variant, change what you want on it, then split the traffic below (must sum to <strong>100%</strong>; stored as basis points, per-test Σ == 10000) before a test can start. Equal arms; no control.</p>
-    <div id="lg-ab-variant-list" class="lg-alloc-list"><div class="lg-alloc-row" data-variant="lgn_01KZ5GWP0H53GJJGPSR982F0PQ">
+    <p class="form-help">Test this funnel against variants of itself — a different template, theme, sections, or rules. Add a variant, change what you want on it, then split the traffic below (must sum to <strong>100%</strong>) before a test can start. Every variant is treated the same — none of them is a baseline.</p>
+    <div id="lg-ab-variant-list" class="lg-alloc-list"><div class="lg-alloc-row" data-variant="lgn_01KZ92AQ0WSSF2ZPWZKN82TGDS">
     <span class="lg-alloc-label"><strong>A</strong></span>
     <label class="lg-alloc-pct"><input type="number" class="form-input lg-alloc-input" data-alloc-input
-      data-variant-id="lgn_01KZ5GWP0H53GJJGPSR982F0PQ" data-variant-label="A"
+      data-variant-id="lgn_01KZ92AQ0WSSF2ZPWZKN82TGDS" data-variant-label="A"
       min="0" max="100" step="0.01" value="100" /> %</label>
-    <p class="form-help" data-arm-overrides="lgn_01KZ5GWP0H53GJJGPSR982F0PQ">Same layout as funnel (no overrides)</p>
-    <p class="form-help" data-arm-varies="lgn_01KZ5GWP0H53GJJGPSR982F0PQ">Base variant</p>
+    <p class="form-help" data-arm-overrides="lgn_01KZ92AQ0WSSF2ZPWZKN82TGDS">Same layout as funnel (no overrides)</p>
+    <p class="form-help" data-arm-varies="lgn_01KZ92AQ0WSSF2ZPWZKN82TGDS">Base variant</p>
     
-    <p class="form-help lg-hidden" data-delete-variant-err="lgn_01KZ5GWP0H53GJJGPSR982F0PQ" role="alert"></p>
+    <p class="form-help lg-hidden" data-delete-variant-err="lgn_01KZ92AQ0WSSF2ZPWZKN82TGDS" role="alert"></p>
   </div></div>
     <p class="lg-alloc-summary">Σ = <strong data-alloc-sum>&mdash;</strong> <span data-alloc-sum-note class="form-help"></span></p>
     <div class="toolbar">
       <button type="button" id="lg-save-allocations" class="btn btn-primary">Save allocations</button>
       <button type="button" id="lg-add-variant" class="btn btn-secondary" data-add-variant-state="no-test" disabled aria-disabled="true" aria-describedby="lg-add-variant-why" title="a second variant exists only as an arm of a RUNNING A/B test, and this funnel has no test yet — press &quot;Create A/B test&quot;, then &quot;Start A/B test&quot;, then add the variant.">Add variant&#8230;</button>
-      <button type="button" id="lg-create-experiment" class="btn btn-secondary" data-quote-public-id="lgq_01KZ5GWP0HE2A3Y6HGDZD5G77E">Create A/B test</button>
+      <button type="button" id="lg-create-experiment" class="btn btn-secondary" data-quote-public-id="lgq_01KZ92AQ0W941B10PW7PRAS5S5">Create A/B test</button>
     </div>
     <p class="form-help lg-ab-order" data-ab-order>Order to A/B this funnel: <strong>1.</strong> Create A/B test &rarr; <strong>2.</strong> Start A/B test &rarr; <strong>3.</strong> Add variant (it becomes the test&#39;s second arm, split 50/50). Until a test is running the funnel keeps exactly one variant.</p>
     <p class="form-help lg-ab-add-why" id="lg-add-variant-why" data-add-variant-blocked="no-test" role="status">&#9888; <strong>Add variant is unavailable:</strong> a second variant exists only as an arm of a RUNNING A/B test, and this funnel has no test yet — press &quot;Create A/B test&quot;, then &quot;Start A/B test&quot;, then add the variant.</p>
@@ -4204,7 +4475,7 @@ button.lg-publish-why-fix:focus-visible{outline:2px solid currentColor;outline-o
   <div class="lg-qpanel" data-panel="activation">
   <div class="card">
     <h3>Activation preflight</h3>
-    <div id="lg-preflight-panel" data-preflight-state="blocked"><p class="lg-preflight-blocked-title">Cannot activate this Quote.</p><div id="lg-preflight-problems" data-problem-count="1"><div class="lg-problem-group" data-problem-scope="section"><h4 class="lg-problem-group-title">Sections</h4><div class="lg-problem-row" data-problem-severity="error" data-problem-path="activation.shared_page"><span class="lg-problem-chip" data-severity="error">Error</span><span class="lg-problem-msg">The shared first page needs at least one section.</span><a class="btn btn-sm btn-secondary" href="/admin/leadgen/quotes/lgq_01KZ5GWP0HE2A3Y6HGDZD5G77E/edit">Open Quote Builder</a></div></div></div></div>
+    <div id="lg-preflight-panel" data-preflight-state="blocked"><p class="lg-preflight-blocked-title">Cannot activate this Quote.</p><div id="lg-preflight-problems" data-problem-count="1"><div class="lg-problem-group" data-problem-scope="section"><h4 class="lg-problem-group-title">Sections</h4><div class="lg-problem-row" data-problem-severity="error" data-problem-path="activation.shared_page"><span class="lg-problem-chip" data-severity="error">Error</span><span class="lg-problem-msg">The shared first page needs at least one section.</span><a class="btn btn-sm btn-secondary" href="/admin/leadgen/quotes/lgq_01KZ92AQ0W941B10PW7PRAS5S5/edit">Open Quote Builder</a></div></div></div></div>
   </div>
   <div class="card">
     <h3>Site activation</h3>
@@ -4253,7 +4524,7 @@ button.lg-publish-why-fix:focus-visible{outline:2px solid currentColor;outline-o
     <div class="lg-media-grid" id="lg-media-picker-grid"></div>
   </div>
 </div>
-  <script type="application/json" id="lg-quote-data">{"quote_public_id":"lgq_01KZ5GWP0HE2A3Y6HGDZD5G77E","quote_id":"lgq_01KZ5GWP0HE2A3Y6HGDZD5G77E","activity":"quote_funnel","selected_variant":"lgn_01KZ5GWP0H53GJJGPSR982F0PQ","selected_variant_is_control":true,"funnel_public_id":"lgf_01KZ5GWP0HD90PV9AF4SRBBTC7","sections":[{"public_id":"lgs_01KZ5GWP0JN5ZYWEEZXSQBSRJC","name":"\u003ci>First\u003c/i>"},{"public_id":"lgs_01KZ5GWP0J57J9DXDC62F6BFTB","name":"Second"}],"frame":{"frame_config":null,"effective_frame":{"version":1,"template":"centered","compat":{"allow_section_chrome":false},"header":{"enabled":true,"logo_source":"site","logo_media_id":null,"logo_size":"m","logo_align":"center","tagline":null,"secure_badge":{"enabled":false,"text":null},"cta":{"enabled":false,"label":"","href":null,"tel":null},"disclosure_link":false,"sticky":true},"progress":{"style":"bar","position":"under_header","thickness":"m","width":"content","color_role":"brand_primary","show_label":false},"back":{"style":"text","position":"in_card","label":"Back","history_fallback":true},"disclosure":{"enabled":false,"location":"footer","link_label":"Advertising Disclosure","text":""},"footer":{"enabled":true,"show_on":"all","links_source":"site","links":[],"trust_text":null,"description":null,"show_logo":false,"hide_on_mobile":false},"trust_strip":{"enabled":false,"source":"manual","logos":[],"placement":"below_unit","mobile":"wrap"},"benefit_bar":{"enabled":false,"items":[],"placement":"below_unit"},"background":{"role":"page_background","image_media_id":null,"style":"flat"},"section_slot":{"max_width":"m","align":"center","card":"card","padding":"m","offset_y":"none","allow_section_card":true,"transition":"fade","continue_placement":"inside_unit","continue_style_role":"button_primary"},"mobile":{}},"template_defaults":{"version":1,"template":"centered","compat":{"allow_section_chrome":false},"header":{"enabled":true,"logo_source":"site","logo_media_id":null,"logo_size":"m","logo_align":"center","tagline":null,"secure_badge":{"enabled":false,"text":null},"cta":{"enabled":false,"label":"","href":null,"tel":null},"disclosure_link":false,"sticky":true},"progress":{"style":"bar","position":"under_header","thickness":"m","width":"content","color_role":"brand_primary","show_label":false},"back":{"style":"text","position":"in_card","label":"Back","history_fallback":true},"disclosure":{"enabled":false,"location":"footer","link_label":"Advertising Disclosure","text":""},"footer":{"enabled":true,"show_on":"all","links_source":"site","links":[],"trust_text":null,"description":null,"show_logo":false,"hide_on_mobile":false},"trust_strip":{"enabled":false,"source":"manual","logos":[],"placement":"below_unit","mobile":"wrap"},"benefit_bar":{"enabled":false,"items":[],"placement":"below_unit"},"background":{"role":"page_background","image_media_id":null,"style":"flat"},"section_slot":{"max_width":"m","align":"center","card":"card","padding":"m","offset_y":"none","allow_section_card":true,"transition":"fade","continue_placement":"inside_unit","continue_style_role":"button_primary"},"mobile":{}},"problems":[]},"theme":{"theme":null,"effective_tokens":{"brand_primary":"#1B3A5C","brand_secondary":"#2A5080","accent":"#E85D26","success":"#0E7C3A","error":"#D32F2F","page_background":"#F5F7FA","card_background":"#FFFFFF","surface_wash":"#E8EEF4","border":"#D2D9E5","text_primary":"#1A1F36","text_muted":"#4A5568","button_primary_bg":"#1B3A5C","button_primary_text":"#FFFFFF","button_secondary_bg":"#F2F6FA"},"problems":[]},"base_tokens":{"brand_primary":"#1B3A5C","brand_secondary":"#2A5080","accent":"#E85D26","success":"#0E7C3A","error":"#D32F2F","page_background":"#F5F7FA","card_background":"#FFFFFF","surface_wash":"#E8EEF4","border":"#D2D9E5","text_primary":"#1A1F36","text_muted":"#4A5568","button_primary_bg":"#1B3A5C","button_primary_text":"#FFFFFF","button_secondary_bg":"#F2F6FA"},"templates":[{"id":"centered","label":"Centered card","defaults":{"version":1,"template":"centered","compat":{"allow_section_chrome":false},"header":{"enabled":true,"logo_source":"site","logo_media_id":null,"logo_size":"m","logo_align":"center","tagline":null,"secure_badge":{"enabled":false,"text":null},"cta":{"enabled":false,"label":"","href":null,"tel":null},"disclosure_link":false,"sticky":true},"progress":{"style":"bar","position":"under_header","thickness":"m","width":"content","color_role":"brand_primary","show_label":false},"back":{"style":"text","position":"in_card","label":"Back","history_fallback":true},"disclosure":{"enabled":false,"location":"footer","link_label":"Advertising Disclosure","text":""},"footer":{"enabled":true,"show_on":"all","links_source":"site","links":[],"trust_text":null,"description":null,"show_logo":false,"hide_on_mobile":false},"trust_strip":{"enabled":false,"source":"manual","logos":[],"placement":"below_unit","mobile":"wrap"},"benefit_bar":{"enabled":false,"items":[],"placement":"below_unit"},"background":{"role":"page_background","image_media_id":null,"style":"flat"},"section_slot":{"max_width":"m","align":"center","card":"card","padding":"m","offset_y":"none","allow_section_card":true,"transition":"fade","continue_placement":"inside_unit","continue_style_role":"button_primary"},"mobile":{}}},{"id":"header-footer","label":"Site header + footer","defaults":{"version":1,"template":"header-footer","compat":{"allow_section_chrome":false},"header":{"enabled":true,"logo_source":"site","logo_media_id":null,"logo_size":"m","logo_align":"left","tagline":null,"secure_badge":{"enabled":true,"text":null},"cta":{"enabled":false,"label":"","href":null,"tel":null},"disclosure_link":false,"sticky":true},"progress":{"style":"bar","position":"under_header","thickness":"m","width":"content","color_role":"brand_primary","show_label":false},"back":{"style":"text","position":"in_card","label":"Back","history_fallback":true},"disclosure":{"enabled":false,"location":"footer","link_label":"Advertising Disclosure","text":""},"footer":{"enabled":true,"show_on":"all","links_source":"site","links":[],"trust_text":null,"description":null,"show_logo":true,"hide_on_mobile":false},"trust_strip":{"enabled":false,"source":"manual","logos":[],"placement":"below_unit","mobile":"wrap"},"benefit_bar":{"enabled":false,"items":[],"placement":"below_unit"},"background":{"role":"page_background","image_media_id":null,"style":"flat"},"section_slot":{"max_width":"m","align":"center","card":"bare","padding":"m","offset_y":"none","allow_section_card":true,"transition":"fade","continue_placement":"inside_unit","continue_style_role":"button_primary"},"mobile":{}}},{"id":"header-cta","label":"Header + call CTA","defaults":{"version":1,"template":"header-cta","compat":{"allow_section_chrome":false},"header":{"enabled":true,"logo_source":"site","logo_media_id":null,"logo_size":"m","logo_align":"center","tagline":null,"secure_badge":{"enabled":false,"text":null},"cta":{"enabled":false,"label":"","href":null,"tel":null},"disclosure_link":false,"sticky":true},"progress":{"style":"bar","position":"under_header","thickness":"m","width":"content","color_role":"brand_primary","show_label":false},"back":{"style":"text","position":"below_card","label":"Back","history_fallback":true},"disclosure":{"enabled":true,"location":"top_bar","link_label":"Advertising Disclosure","text":""},"footer":{"enabled":true,"show_on":"all","links_source":"site","links":[],"trust_text":null,"description":null,"show_logo":false,"hide_on_mobile":false},"trust_strip":{"enabled":false,"source":"manual","logos":[],"placement":"below_unit","mobile":"wrap"},"benefit_bar":{"enabled":false,"items":[],"placement":"below_unit"},"background":{"role":"page_background","image_media_id":null,"style":"flat"},"section_slot":{"max_width":"m","align":"center","card":"card","padding":"m","offset_y":"none","allow_section_card":true,"transition":"fade","continue_placement":"inside_unit","continue_style_role":"button_primary"},"mobile":{}}},{"id":"full-background","label":"Full background","defaults":{"version":1,"template":"full-background","compat":{"allow_section_chrome":false},"header":{"enabled":true,"logo_source":"site","logo_media_id":null,"logo_size":"m","logo_align":"center","tagline":null,"secure_badge":{"enabled":false,"text":null},"cta":{"enabled":false,"label":"","href":null,"tel":null},"disclosure_link":false,"sticky":false},"progress":{"style":"dots","position":"above_unit","thickness":"m","width":"content","color_role":"brand_primary","show_label":false},"back":{"style":"text","position":"in_card","label":"Back","history_fallback":true},"disclosure":{"enabled":false,"location":"footer","link_label":"Advertising Disclosure","text":""},"footer":{"enabled":true,"show_on":"all","links_source":"site","links":[],"trust_text":null,"description":null,"show_logo":false,"hide_on_mobile":false},"trust_strip":{"enabled":false,"source":"manual","logos":[],"placement":"below_unit","mobile":"wrap"},"benefit_bar":{"enabled":false,"items":[],"placement":"below_unit"},"background":{"role":"brand_primary","image_media_id":null,"style":"brand"},"section_slot":{"max_width":"m","align":"center","card":"card","padding":"m","offset_y":"none","allow_section_card":true,"transition":"fade","continue_placement":"inside_unit","continue_style_role":"button_primary"},"mobile":{}}},{"id":"white-trust","label":"White + trust bar","defaults":{"version":1,"template":"white-trust","compat":{"allow_section_chrome":false},"header":{"enabled":true,"logo_source":"site","logo_media_id":null,"logo_size":"s","logo_align":"center","tagline":null,"secure_badge":{"enabled":false,"text":null},"cta":{"enabled":false,"label":"","href":null,"tel":null},"disclosure_link":false,"sticky":false},"progress":{"style":"bar","position":"under_header","thickness":"m","width":"content","color_role":"brand_primary","show_label":false},"back":{"style":"text","position":"in_card","label":"Back","history_fallback":true},"disclosure":{"enabled":false,"location":"footer","link_label":"Advertising Disclosure","text":""},"footer":{"enabled":true,"show_on":"all","links_source":"site","links":[],"trust_text":null,"description":null,"show_logo":false,"hide_on_mobile":false},"trust_strip":{"enabled":false,"source":"manual","logos":[],"placement":"footer","mobile":"wrap"},"benefit_bar":{"enabled":false,"items":[],"placement":"below_unit"},"background":{"role":"card_background","image_media_id":null,"style":"flat"},"section_slot":{"max_width":"m","align":"center","card":"bare","padding":"m","offset_y":"none","allow_section_card":true,"transition":"fade","continue_placement":"inside_unit","continue_style_role":"button_primary"},"mobile":{}}},{"id":"minimal","label":"Minimal","defaults":{"version":1,"template":"minimal","compat":{"allow_section_chrome":false},"header":{"enabled":true,"logo_source":"site","logo_media_id":null,"logo_size":"m","logo_align":"center","tagline":null,"secure_badge":{"enabled":false,"text":null},"cta":{"enabled":false,"label":"","href":null,"tel":null},"disclosure_link":false,"sticky":true},"progress":{"style":"bar","position":"under_header","thickness":"m","width":"content","color_role":"brand_primary","show_label":false},"back":{"style":"text","position":"under_header_left","label":"Back","history_fallback":true},"disclosure":{"enabled":false,"location":"footer","link_label":"Advertising Disclosure","text":""},"footer":{"enabled":false,"show_on":"all","links_source":"site","links":[],"trust_text":null,"description":null,"show_logo":false,"hide_on_mobile":false},"trust_strip":{"enabled":false,"source":"manual","logos":[],"placement":"below_unit","mobile":"wrap"},"benefit_bar":{"enabled":false,"items":[],"placement":"below_unit"},"background":{"role":"page_background","image_media_id":null,"style":"flat"},"section_slot":{"max_width":"m","align":"center","card":"bare","padding":"m","offset_y":"none","allow_section_card":true,"transition":"fade","continue_placement":"inside_unit","continue_style_role":"button_primary"},"mobile":{}}}],"sites":[{"site_id":"site-1","site_name":"Site One","badge":"Not activated yet"}],"overrides":null,"preflight":{"ok":true,"quote_id":"lgq_01KZ5GWP0HE2A3Y6HGDZD5G77E","funnel_id":"lgf_01KZ5GWP0HD90PV9AF4SRBBTC7","funnel_variant_id":"lgn_01KZ5GWP0H53GJJGPSR982F0PQ","blocks":[],"computed_at":1785818142742,"problems":[{"path":"activation.shared_page","scope":"section","severity":"error","message":"The shared first page needs at least one section.","fix_url":"/admin/leadgen/quotes/lgq_01KZ5GWP0HE2A3Y6HGDZD5G77E/edit"}]}}</script>
+  <script type="application/json" id="lg-quote-data">{"quote_public_id":"lgq_01KZ92AQ0W941B10PW7PRAS5S5","quote_id":"lgq_01KZ92AQ0W941B10PW7PRAS5S5","activity":"quote_funnel","selected_variant":"lgn_01KZ92AQ0WSSF2ZPWZKN82TGDS","selected_variant_is_control":true,"funnel_public_id":"lgf_01KZ92AQ0W0WCR27YHK5QF6VHE","sections":[{"public_id":"lgs_01KZ92AQ0X998A0KJDV4Y1Q7QS","name":"\u003ci>First\u003c/i>"},{"public_id":"lgs_01KZ92AQ0XZPFA6H7WC6H83NH6","name":"Second"}],"frame":{"frame_config":null,"effective_frame":{"version":1,"template":"centered","compat":{"allow_section_chrome":false},"header":{"enabled":true,"logo_source":"site","logo_media_id":null,"logo_size":"m","logo_align":"center","tagline":null,"secure_badge":{"enabled":false,"text":null},"cta":{"enabled":false,"label":"","href":null,"tel":null},"disclosure_link":false,"sticky":true},"progress":{"style":"bar","position":"under_header","thickness":"m","width":"content","color_role":"brand_primary","show_label":false},"back":{"style":"text","position":"in_card","label":"Back","history_fallback":true},"disclosure":{"enabled":false,"location":"footer","link_label":"Advertising Disclosure","text":""},"footer":{"enabled":true,"show_on":"all","links_source":"site","links":[],"trust_text":null,"description":null,"show_logo":false,"hide_on_mobile":false},"trust_strip":{"enabled":false,"source":"manual","logos":[],"placement":"below_unit","mobile":"wrap"},"benefit_bar":{"enabled":false,"items":[],"placement":"below_unit"},"background":{"role":"page_background","image_media_id":null,"style":"flat"},"section_slot":{"max_width":"m","align":"center","card":"card","padding":"m","offset_y":"none","allow_section_card":true,"transition":"fade","continue_placement":"inside_unit","continue_style_role":"button_primary"},"mobile":{}},"template_defaults":{"version":1,"template":"centered","compat":{"allow_section_chrome":false},"header":{"enabled":true,"logo_source":"site","logo_media_id":null,"logo_size":"m","logo_align":"center","tagline":null,"secure_badge":{"enabled":false,"text":null},"cta":{"enabled":false,"label":"","href":null,"tel":null},"disclosure_link":false,"sticky":true},"progress":{"style":"bar","position":"under_header","thickness":"m","width":"content","color_role":"brand_primary","show_label":false},"back":{"style":"text","position":"in_card","label":"Back","history_fallback":true},"disclosure":{"enabled":false,"location":"footer","link_label":"Advertising Disclosure","text":""},"footer":{"enabled":true,"show_on":"all","links_source":"site","links":[],"trust_text":null,"description":null,"show_logo":false,"hide_on_mobile":false},"trust_strip":{"enabled":false,"source":"manual","logos":[],"placement":"below_unit","mobile":"wrap"},"benefit_bar":{"enabled":false,"items":[],"placement":"below_unit"},"background":{"role":"page_background","image_media_id":null,"style":"flat"},"section_slot":{"max_width":"m","align":"center","card":"card","padding":"m","offset_y":"none","allow_section_card":true,"transition":"fade","continue_placement":"inside_unit","continue_style_role":"button_primary"},"mobile":{}},"problems":[]},"theme":{"theme":null,"effective_tokens":{"brand_primary":"#1B3A5C","brand_secondary":"#2A5080","accent":"#E85D26","success":"#0E7C3A","error":"#D32F2F","page_background":"#F5F7FA","card_background":"#FFFFFF","surface_wash":"#E8EEF4","border":"#D2D9E5","text_primary":"#1A1F36","text_muted":"#4A5568","button_primary_bg":"#1B3A5C","button_primary_text":"#FFFFFF","button_secondary_bg":"#F2F6FA"},"problems":[]},"base_tokens":{"brand_primary":"#1B3A5C","brand_secondary":"#2A5080","accent":"#E85D26","success":"#0E7C3A","error":"#D32F2F","page_background":"#F5F7FA","card_background":"#FFFFFF","surface_wash":"#E8EEF4","border":"#D2D9E5","text_primary":"#1A1F36","text_muted":"#4A5568","button_primary_bg":"#1B3A5C","button_primary_text":"#FFFFFF","button_secondary_bg":"#F2F6FA"},"templates":[{"id":"centered","label":"Centered card","defaults":{"version":1,"template":"centered","compat":{"allow_section_chrome":false},"header":{"enabled":true,"logo_source":"site","logo_media_id":null,"logo_size":"m","logo_align":"center","tagline":null,"secure_badge":{"enabled":false,"text":null},"cta":{"enabled":false,"label":"","href":null,"tel":null},"disclosure_link":false,"sticky":true},"progress":{"style":"bar","position":"under_header","thickness":"m","width":"content","color_role":"brand_primary","show_label":false},"back":{"style":"text","position":"in_card","label":"Back","history_fallback":true},"disclosure":{"enabled":false,"location":"footer","link_label":"Advertising Disclosure","text":""},"footer":{"enabled":true,"show_on":"all","links_source":"site","links":[],"trust_text":null,"description":null,"show_logo":false,"hide_on_mobile":false},"trust_strip":{"enabled":false,"source":"manual","logos":[],"placement":"below_unit","mobile":"wrap"},"benefit_bar":{"enabled":false,"items":[],"placement":"below_unit"},"background":{"role":"page_background","image_media_id":null,"style":"flat"},"section_slot":{"max_width":"m","align":"center","card":"card","padding":"m","offset_y":"none","allow_section_card":true,"transition":"fade","continue_placement":"inside_unit","continue_style_role":"button_primary"},"mobile":{}}},{"id":"header-footer","label":"Site header + footer","defaults":{"version":1,"template":"header-footer","compat":{"allow_section_chrome":false},"header":{"enabled":true,"logo_source":"site","logo_media_id":null,"logo_size":"m","logo_align":"left","tagline":null,"secure_badge":{"enabled":true,"text":null},"cta":{"enabled":false,"label":"","href":null,"tel":null},"disclosure_link":false,"sticky":true},"progress":{"style":"bar","position":"under_header","thickness":"m","width":"content","color_role":"brand_primary","show_label":false},"back":{"style":"text","position":"in_card","label":"Back","history_fallback":true},"disclosure":{"enabled":false,"location":"footer","link_label":"Advertising Disclosure","text":""},"footer":{"enabled":true,"show_on":"all","links_source":"site","links":[],"trust_text":null,"description":null,"show_logo":true,"hide_on_mobile":false},"trust_strip":{"enabled":false,"source":"manual","logos":[],"placement":"below_unit","mobile":"wrap"},"benefit_bar":{"enabled":false,"items":[],"placement":"below_unit"},"background":{"role":"page_background","image_media_id":null,"style":"flat"},"section_slot":{"max_width":"m","align":"center","card":"bare","padding":"m","offset_y":"none","allow_section_card":true,"transition":"fade","continue_placement":"inside_unit","continue_style_role":"button_primary"},"mobile":{}}},{"id":"header-cta","label":"Header + call CTA","defaults":{"version":1,"template":"header-cta","compat":{"allow_section_chrome":false},"header":{"enabled":true,"logo_source":"site","logo_media_id":null,"logo_size":"m","logo_align":"center","tagline":null,"secure_badge":{"enabled":false,"text":null},"cta":{"enabled":false,"label":"","href":null,"tel":null},"disclosure_link":false,"sticky":true},"progress":{"style":"bar","position":"under_header","thickness":"m","width":"content","color_role":"brand_primary","show_label":false},"back":{"style":"text","position":"below_card","label":"Back","history_fallback":true},"disclosure":{"enabled":true,"location":"top_bar","link_label":"Advertising Disclosure","text":""},"footer":{"enabled":true,"show_on":"all","links_source":"site","links":[],"trust_text":null,"description":null,"show_logo":false,"hide_on_mobile":false},"trust_strip":{"enabled":false,"source":"manual","logos":[],"placement":"below_unit","mobile":"wrap"},"benefit_bar":{"enabled":false,"items":[],"placement":"below_unit"},"background":{"role":"page_background","image_media_id":null,"style":"flat"},"section_slot":{"max_width":"m","align":"center","card":"card","padding":"m","offset_y":"none","allow_section_card":true,"transition":"fade","continue_placement":"inside_unit","continue_style_role":"button_primary"},"mobile":{}}},{"id":"full-background","label":"Full background","defaults":{"version":1,"template":"full-background","compat":{"allow_section_chrome":false},"header":{"enabled":true,"logo_source":"site","logo_media_id":null,"logo_size":"m","logo_align":"center","tagline":null,"secure_badge":{"enabled":false,"text":null},"cta":{"enabled":false,"label":"","href":null,"tel":null},"disclosure_link":false,"sticky":false},"progress":{"style":"dots","position":"above_unit","thickness":"m","width":"content","color_role":"brand_primary","show_label":false},"back":{"style":"text","position":"in_card","label":"Back","history_fallback":true},"disclosure":{"enabled":false,"location":"footer","link_label":"Advertising Disclosure","text":""},"footer":{"enabled":true,"show_on":"all","links_source":"site","links":[],"trust_text":null,"description":null,"show_logo":false,"hide_on_mobile":false},"trust_strip":{"enabled":false,"source":"manual","logos":[],"placement":"below_unit","mobile":"wrap"},"benefit_bar":{"enabled":false,"items":[],"placement":"below_unit"},"background":{"role":"brand_primary","image_media_id":null,"style":"brand"},"section_slot":{"max_width":"m","align":"center","card":"card","padding":"m","offset_y":"none","allow_section_card":true,"transition":"fade","continue_placement":"inside_unit","continue_style_role":"button_primary"},"mobile":{}}},{"id":"white-trust","label":"White + trust bar","defaults":{"version":1,"template":"white-trust","compat":{"allow_section_chrome":false},"header":{"enabled":true,"logo_source":"site","logo_media_id":null,"logo_size":"s","logo_align":"center","tagline":null,"secure_badge":{"enabled":false,"text":null},"cta":{"enabled":false,"label":"","href":null,"tel":null},"disclosure_link":false,"sticky":false},"progress":{"style":"bar","position":"under_header","thickness":"m","width":"content","color_role":"brand_primary","show_label":false},"back":{"style":"text","position":"in_card","label":"Back","history_fallback":true},"disclosure":{"enabled":false,"location":"footer","link_label":"Advertising Disclosure","text":""},"footer":{"enabled":true,"show_on":"all","links_source":"site","links":[],"trust_text":null,"description":null,"show_logo":false,"hide_on_mobile":false},"trust_strip":{"enabled":false,"source":"manual","logos":[],"placement":"footer","mobile":"wrap"},"benefit_bar":{"enabled":false,"items":[],"placement":"below_unit"},"background":{"role":"card_background","image_media_id":null,"style":"flat"},"section_slot":{"max_width":"m","align":"center","card":"bare","padding":"m","offset_y":"none","allow_section_card":true,"transition":"fade","continue_placement":"inside_unit","continue_style_role":"button_primary"},"mobile":{}}},{"id":"minimal","label":"Minimal","defaults":{"version":1,"template":"minimal","compat":{"allow_section_chrome":false},"header":{"enabled":true,"logo_source":"site","logo_media_id":null,"logo_size":"m","logo_align":"center","tagline":null,"secure_badge":{"enabled":false,"text":null},"cta":{"enabled":false,"label":"","href":null,"tel":null},"disclosure_link":false,"sticky":true},"progress":{"style":"bar","position":"under_header","thickness":"m","width":"content","color_role":"brand_primary","show_label":false},"back":{"style":"text","position":"under_header_left","label":"Back","history_fallback":true},"disclosure":{"enabled":false,"location":"footer","link_label":"Advertising Disclosure","text":""},"footer":{"enabled":false,"show_on":"all","links_source":"site","links":[],"trust_text":null,"description":null,"show_logo":false,"hide_on_mobile":false},"trust_strip":{"enabled":false,"source":"manual","logos":[],"placement":"below_unit","mobile":"wrap"},"benefit_bar":{"enabled":false,"items":[],"placement":"below_unit"},"background":{"role":"page_background","image_media_id":null,"style":"flat"},"section_slot":{"max_width":"m","align":"center","card":"bare","padding":"m","offset_y":"none","allow_section_card":true,"transition":"fade","continue_placement":"inside_unit","continue_style_role":"button_primary"},"mobile":{}}}],"sites":[{"site_id":"site-1","site_name":"Site One","badge":"Not activated yet"}],"overrides":null,"preflight":{"ok":true,"quote_id":"lgq_01KZ92AQ0W941B10PW7PRAS5S5","funnel_id":"lgf_01KZ92AQ0W0WCR27YHK5QF6VHE","funnel_variant_id":"lgn_01KZ92AQ0WSSF2ZPWZKN82TGDS","blocks":[],"computed_at":1785937091618,"problems":[{"path":"activation.shared_page","scope":"section","severity":"error","message":"The shared first page needs at least one section.","fix_url":"/admin/leadgen/quotes/lgq_01KZ92AQ0W941B10PW7PRAS5S5/edit"}]}}</script>
 </div></div>
     </main>
   </div>
@@ -4488,6 +4759,43 @@ if (!document.getElementById('toast-animations')) {
   function byId(id) { return document.getElementById(id); }
   function showMsg(id, text) { var el = byId(id); if (el) { el.textContent = text; el.hidden = false; } }
   function hideMsg(id) { var el = byId(id); if (el) { el.hidden = true; } }
+
+  /* --- P8-6 N8: a confirmation that SURVIVES window.location.reload() -------
+     showMsg paints textContent into a node on THIS document. A handler that
+     paints and then reloads throws its own message away a tick later, so the
+     operator sees nothing at all: measured on the Create A/B test button, the
+     text was in the node and gone before it could be read. Anything that
+     reloads therefore PARKS its outcome first and drainFlash() paints it once,
+     after the fresh page has booted.
+     Why sessionStorage: it is scoped to THIS tab, so a second editor tab can
+     never steal or duplicate the one-shot line, and it survives exactly the
+     navigation we are doing. localStorage (the ui-section-studio.ts callout
+     precedent) is cross-tab and would. A URL query param survives too but
+     re-announces on every later refresh unless it is scrubbed with
+     history.replaceState, so it is not one-shot.
+     Why reload at all: the A/B panel is server-rendered from /structure
+     (quotes-tabs/ab.ts) - the created test, its arms and its allocations exist
+     only in the next render, so painting a panel client-side would invent a
+     second source of truth. FAILURES do not reload and do not depend on
+     storage: they paint in place and re-enable their button.
+     Storage access is wrapped exactly like the studio precedent, so a
+     storage-denied browser degrades to the old silence instead of throwing. */
+  var FLASH_KEY = 'lg-quote-flash';
+  function flashAfterReload(id, text) {
+    try { window.sessionStorage.setItem(FLASH_KEY, id + '|' + text); } catch (eFlashSet) {}
+  }
+  function drainFlash() {
+    var raw = '';
+    try {
+      raw = window.sessionStorage.getItem(FLASH_KEY) || '';
+      window.sessionStorage.removeItem(FLASH_KEY);
+    } catch (eFlashGet) { raw = ''; }
+    var cut = raw.indexOf('|');
+    if (cut < 1) { return; }
+    var slot = raw.substring(0, cut);
+    if (slot !== 'lg-quote-ok' && slot !== 'lg-quote-error') { return; }
+    showMsg(slot, raw.substring(cut + 1));
+  }
 
   // --- 05 5.2 activation-preflight panel (server-verdict-driven re-render) --
   // The SAME operator copy the SSR panel renders; rebuilt after variant save,
@@ -4805,7 +5113,13 @@ if (!document.getElementById('toast-animations')) {
   function problemFixLabel(url) {
     var u = String(url || '');
     if (u.indexOf('/admin/settings') === 0) { return 'Open site settings'; }
-    if (u.indexOf('/sections/') !== -1) { return 'Review slide'; }
+    // P8-4 S4.3/S4.4 (contract M9 item 2): "Review slide" named a concept
+    // (slides) this product does not have. "Edit Section" matches the
+    // product's own vocabulary (PROBLEM_SCOPE_LABELS.section = "Sections",
+    // shared.ts) and the SSR twin of this function, activation.ts's own
+    // problemFixLabel -- coordinated so both renders of the SAME problem say
+    // the SAME thing.
+    if (u.indexOf('/sections/') !== -1) { return 'Edit Section'; }
     if (u.indexOf('/quotes/') !== -1) { return 'Open Quote Builder'; }
     return 'Fix';
   }
@@ -5597,14 +5911,25 @@ if (!document.getElementById('toast-animations')) {
   // the APPLIED SAVED TEMPLATE, while the server (frame-handlers.ts
   // frameProjection → frames.ts effectiveFrame, post-571e310) composes
   // 'FRAME_TEMPLATES[].defaults ⊕ savedTemplateDefaults ⊕ funnel ⊕
-  // overrides'. "Apply template" writes ONLY leadgen_funnels.frame_template_id
-  // (frame_config_json stays NULL), so for every template-seeded funnel the
-  // editor hydrated an EMPTY footer while the visitor was served the saved
-  // template's 8 blocks — and because a Save persists what the editor holds,
-  // one benign edit (e.g. "Text size") wrote 'footer.blocks: []' over a block
-  // set the operator had never seen. Silent, and unrecoverable through the UI
-  // (re-applying the template only re-stamps frame_template_id; the funnel's
-  // own frame_config_json now WINS over it in the same merge).
+  // overrides'. At the time, "Apply template" wrote ONLY
+  // leadgen_funnels.frame_template_id (frame_config_json stayed NULL), so for
+  // every template-seeded funnel the editor hydrated an EMPTY footer while the
+  // visitor was served the saved template's 8 blocks — and because a Save
+  // persists what the editor holds, one benign edit (e.g. "Text size") wrote
+  // 'footer.blocks: []' over a block set the operator had never seen. Silent,
+  // and unrecoverable through the UI, since re-applying the template only
+  // re-stamped frame_template_id while the funnel's own frame_config_json
+  // still won over it in the same merge.
+  //
+  // R2 P8 M3 changed the write itself (frame-handlers.ts
+  // applyFrameTemplateToFunnelHandler / computeTemplateApply): "Apply
+  // template" now MATERIALISES the template's values into frame_config_json,
+  // pruning the leaves the template's own base already supplies, so the
+  // column holds only the funnel's DIFFERENCE from the applied template —
+  // never NULL, never the bare pointer alone. This hydration source is
+  // unaffected by that change: the editor still composes from the server's
+  // own effective_frame rather than reconstructing the saved-template layer
+  // itself.
   //
   // The fix is to hydrate from the SERVER'S OWN COMPOSITION. 'effective_frame'
   // (the GET /funnels/:id/frame projection this island already boots with) IS
@@ -7794,6 +8119,43 @@ if (!document.getElementById('toast-animations')) {
       .catch(function () { /* leave the select as-is on a transient network error */ });
   }
 
+  // P8-4 S4.3 (contract M10, board-chip half): the SAME shape as
+  // applyThemeChipNames above, applied to the Template chip's saved-record
+  // numeric id (data-template-id, set by frameTemplateIdOf/renderFunnelColumn
+  // in the TS half of this file). A chip whose id is not in the fetched
+  // items (a deleted template, or this fetch hasn't landed yet) is left on
+  // the SSR "Template" fallback (templateLabelFor) -- never reverted to a
+  // raw id.
+  function applyTemplateChipNames(items) {
+    var chips = root.querySelectorAll('[data-template-picker][data-template-id]');
+    var nameById = {};
+    var i;
+    for (i = 0; i < items.length; i++) { nameById[String(items[i].id)] = items[i].name; }
+    for (i = 0; i < chips.length; i++) {
+      var tid = chips[i].getAttribute('data-template-id') || '';
+      if (tid !== '' && Object.prototype.hasOwnProperty.call(nameById, tid)) {
+        chips[i].textContent = nameById[tid];
+      }
+    }
+  }
+
+  // Unlike the Theme preset fetch this island has no OTHER reason to already
+  // list the saved template records (the Templates tab's own loadTemplates
+  // does, but that is a SEPARATE island closure emitted for a different tab
+  // and cannot be read from here -- see the Template-chip dispatch comment
+  // above, "each a SEPARATE island closure that cannot see..."), so this is
+  // its own boot-time GET against the SAME existing frame-template-records
+  // endpoint the Templates tab already calls -- no new endpoint, just this
+  // island's own copy of the read.
+  function loadTemplateRecordNames() {
+    fetch('/api/admin/leadgen/frame-template-records', { credentials: 'same-origin', headers: { 'Accept': 'application/json' } })
+      .then(function (r) { return r.json(); })
+      .then(function (body) {
+        applyTemplateChipNames((body && body.items) || []);
+      })
+      .catch(function () { /* leave the SSR fallback on a transient network error */ });
+  }
+
   // Fork an arm, then apply the new arm's traffic split (and shrink the
   // original's to match, keeping Σ==10000) — the SAME §16.2 fork+allocation
   // mechanism "Add variant" and "A/B this theme" share (forkThenSplit below).
@@ -8041,7 +8403,9 @@ if (!document.getElementById('toast-animations')) {
               body: JSON.stringify({ theme_json: { theme_id: themeId } })
             });
         req.then(function (r) { return r.json().then(function (j) { return { ok: r.ok, body: j }; }); }).then(function (res) {
-          if (res.ok) { window.location.reload(); return; }
+          // P8-6 N8 class sweep: r.ok was already read here, but the SUCCESS
+          // path still reloaded with nothing said.
+          if (res.ok) { flashAfterReload('lg-quote-ok', 'Preset applied.'); window.location.reload(); return; }
           applyBtn.disabled = false;
           showMsg('lg-quote-error', (res.body && res.body.error) ? res.body.error : 'Apply failed.');
         }).catch(function () {
@@ -8081,6 +8445,9 @@ if (!document.getElementById('toast-animations')) {
   // click lands on "Apply"/"A/B this theme" before a tab-switch fires (the
   // activate('themes') hook above also refreshes it on every switch).
   loadThemePresetOptions();
+  // Board Template chips are on the FIRST tab painted (the builder itself),
+  // so this one has no tab-switch analogue to lean on -- eager at boot only.
+  loadTemplateRecordNames();
 
   (function () {
     var selects = root.querySelectorAll('[data-site-select]');
@@ -8234,13 +8601,38 @@ if (!document.getElementById('toast-animations')) {
 
   var createExpBtn = byId('lg-create-experiment');
   if (createExpBtn) {
+    // P8-6 N8: this handler used to read
+    //   .then(function (r) { return r.json(); }).then(function () { reload(); })
+    // which told the operator NOTHING in either direction: a success reloaded
+    // with no confirmation (the test IS created), and a REFUSAL reloaded
+    // identically while leaving this button disabled, so the same click looked
+    // the same whether it worked or not and could not be retried.
     createExpBtn.addEventListener('click', function () {
       createExpBtn.disabled = true;
+      hideMsg('lg-quote-error'); hideMsg('lg-quote-ok');
       fetch('/api/admin/leadgen/quotes/' + encodeURIComponent(quotePublicId) + '/experiments', {
         method: 'POST', credentials: 'same-origin',
         headers: { 'content-type': 'application/json', 'Accept': 'application/json' },
         body: JSON.stringify({})
-      }).then(function (r) { return r.json(); }).then(function () { window.location.reload(); });
+      }).then(function (r) {
+        // a bodiless or non-JSON refusal (a 500 error page) must still read as
+        // the refusal it is, not fall through to the network-error branch.
+        return r.json().then(function (j) { return { ok: r.ok, body: j }; }, function () { return { ok: r.ok, body: null }; });
+      }).then(function (res) {
+        if (!res.ok) {
+          createExpBtn.disabled = false;
+          showMsg('lg-quote-error', (res.body && res.body.error) ? res.body.error : 'Could not create the A/B test. Nothing was changed - try again.');
+          return;
+        }
+        // the A/B panel's own order line is Create -> Start -> Add variant, so
+        // the next step this names is Start (measured on the settled page:
+        // the panel comes back reading "draft - rev 1" with a Start button).
+        flashAfterReload('lg-quote-ok', 'A/B test created. It is not running yet - press Start A/B test.');
+        window.location.reload();
+      }).catch(function (err) {
+        createExpBtn.disabled = false;
+        showMsg('lg-quote-error', (err && err.message) ? err.message : 'Network error while creating the A/B test.');
+      });
     });
   }
 
@@ -8250,10 +8642,22 @@ if (!document.getElementById('toast-animations')) {
 
     var forkId = el.getAttribute('data-fork-variant');
     if (forkId) {
+      // P8-6 N8 class sweep: same shape as the create button - r.ok was never
+      // read, so a refused fork simply did nothing (no navigation, no message,
+      // no error) and the click looked ignored.
       fetch('/api/admin/leadgen/variants/' + encodeURIComponent(forkId) + '/fork', {
         method: 'POST', credentials: 'same-origin', headers: { 'Accept': 'application/json' }
-      }).then(function (r) { return r.json(); }).then(function (body) {
-        if (body && body.public_id) { window.location.href = '/admin/leadgen/quotes/' + encodeURIComponent(quotePublicId) + '/edit?variant=' + encodeURIComponent(body.public_id); }
+      }).then(function (r) {
+        return r.json().then(function (j) { return { ok: r.ok, body: j }; }, function () { return { ok: r.ok, body: null }; });
+      }).then(function (res) {
+        if (res.ok && res.body && res.body.public_id) {
+          // the destination page IS the confirmation here: a different variant.
+          window.location.href = '/admin/leadgen/quotes/' + encodeURIComponent(quotePublicId) + '/edit?variant=' + encodeURIComponent(res.body.public_id);
+          return;
+        }
+        showMsg('lg-quote-error', (res.body && res.body.error) ? res.body.error : 'Could not duplicate this variant.');
+      }).catch(function (err) {
+        showMsg('lg-quote-error', (err && err.message) ? err.message : 'Network error while duplicating this variant.');
       });
       return;
     }
@@ -8263,20 +8667,42 @@ if (!document.getElementById('toast-animations')) {
       el.disabled = true;
       fetch('/api/admin/leadgen/experiments/' + encodeURIComponent(startId) + '/start', {
         method: 'POST', credentials: 'same-origin', headers: { 'Accept': 'application/json' }
-      }).then(function (r) { return r.json().then(function (j) { return { ok: r.ok, body: j }; }); }).then(function (res) {
+      }).then(function (r) { return r.json().then(function (j) { return { ok: r.ok, body: j }; }, function () { return { ok: r.ok, body: null }; }); }).then(function (res) {
         el.disabled = false;
-        if (res.ok) { window.location.reload(); }
+        // P8-6 N8 class sweep: the refusal branch already spoke; the SUCCESS
+        // branch reloaded silently, and a network error never reached either
+        // (no .catch) so the button stayed disabled forever.
+        if (res.ok) { flashAfterReload('lg-quote-ok', 'A/B test started.'); window.location.reload(); }
         else { showMsg('lg-quote-error', (res.body && res.body.fields && res.body.fields.traffic_allocation_bp) ? res.body.fields.traffic_allocation_bp : ((res.body && res.body.error) ? res.body.error : 'Start failed')); }
+      }).catch(function (err) {
+        el.disabled = false;
+        showMsg('lg-quote-error', (err && err.message) ? err.message : 'Network error while starting the A/B test.');
       });
       return;
     }
 
     var stopId = el.getAttribute('data-stop-experiment');
     if (stopId) {
+      // P8-6 N8 class sweep: identical fire-and-forget reload to the create
+      // button - a refused stop reloaded like a successful one, still running,
+      // with this button left disabled.
       el.disabled = true;
       fetch('/api/admin/leadgen/experiments/' + encodeURIComponent(stopId) + '/stop', {
         method: 'POST', credentials: 'same-origin', headers: { 'Accept': 'application/json' }
-      }).then(function () { window.location.reload(); });
+      }).then(function (r) {
+        return r.json().then(function (j) { return { ok: r.ok, body: j }; }, function () { return { ok: r.ok, body: null }; });
+      }).then(function (res) {
+        if (!res.ok) {
+          el.disabled = false;
+          showMsg('lg-quote-error', (res.body && res.body.error) ? res.body.error : 'Could not stop the A/B test - it is still running.');
+          return;
+        }
+        flashAfterReload('lg-quote-ok', 'A/B test stopped.');
+        window.location.reload();
+      }).catch(function (err) {
+        el.disabled = false;
+        showMsg('lg-quote-error', (err && err.message) ? err.message : 'Network error while stopping the A/B test.');
+      });
       return;
     }
 
@@ -8291,7 +8717,11 @@ if (!document.getElementById('toast-animations')) {
       }).then(function (r) { return r.json().then(function (j) { return { ok: r.ok, body: j }; }); }).then(function (res) {
         if (!resultEl) { return; }
         if (res.ok && res.body && res.body.variant) {
-          resultEl.textContent = 'Session "' + sid + '" maps to variant ' + res.body.variant.variant_label + ' (' + res.body.variant.funnel_variant_id + '), bucket ' + res.body.assignment_bucket + ' of 10000.';
+          // P8-6 Q2 class sweep: the parenthetical repeated the raw
+          // funnel_variant_id (lgn_…) right next to the variant's own
+          // operator-facing variant_label — drop it, the label already names
+          // the thing the operator picked.
+          resultEl.textContent = 'Session "' + sid + '" maps to variant ' + res.body.variant.variant_label + ', bucket ' + res.body.assignment_bucket + ' of 10000.';
         } else {
           resultEl.textContent = (res.body && res.body.error) ? res.body.error : 'Preview failed.';
         }
@@ -8301,6 +8731,17 @@ if (!document.getElementById('toast-animations')) {
   });
 
   // --- activation (per-site PUT/DELETE) -------------------------------------
+  // P8-6 Q2 class sweep: the row's own painted lg-check label already
+  // carries the operator-visible name (activation.ts's renderActivationPanel
+  // emits the escaped site_name there, right beside the checkbox) — reuse
+  // that already-painted text instead of re-deriving it, so a confirmation
+  // names the site the operator sees, never the raw site_id ("st_...") they
+  // never do. Falls back to the id only if a row somehow carries no label at
+  // all (defensive; activation.ts always renders one).
+  function siteRowName(row) {
+    var label = row.querySelector('.lg-check');
+    return label ? String(label.textContent || '').replace(/\s+/g, ' ').trim() : '';
+  }
   var activationList = byId('lg-activation-list');
   if (activationList) {
     activationList.addEventListener('click', function (ev) {
@@ -8310,6 +8751,7 @@ if (!document.getElementById('toast-animations')) {
       while (row && row.getAttribute && !row.hasAttribute('data-site-id')) { row = row.parentNode; }
       if (!row || !row.getAttribute) { return; }
       var siteId = row.getAttribute('data-site-id');
+      var siteName = siteRowName(row) || siteId;
       if (el.hasAttribute('data-save-activation')) {
         var enabled = row.querySelector('[data-site-enabled]').checked;
         var slugEl = row.querySelector('[data-site-slug]');
@@ -8322,7 +8764,7 @@ if (!document.getElementById('toast-animations')) {
           return r.json().then(function (j) { return { ok: r.ok, status: r.status, body: j }; });
         }).then(function (res) {
           if (res.ok) {
-            showMsg('lg-quote-ok', 'Activation saved for ' + siteId);
+            showMsg('lg-quote-ok', 'Activation saved for ' + siteName);
             // 05 5.2: the activation PUT recomputes the verdict — keep the
             // preflight panel + badge in sync with the authoritative state.
             if (res.body && res.body.activation_preflight) { renderPreflight(res.body.activation_preflight); }
@@ -8341,9 +8783,28 @@ if (!document.getElementById('toast-animations')) {
         return;
       }
       if (el.hasAttribute('data-deactivate')) {
+        // P8-6 N8 class sweep: third fire-and-forget reload. Its sibling (the
+        // PUT above) reports both outcomes; this DELETE reported neither, so a
+        // refused deactivation looked exactly like a successful one - on the
+        // money path (the site keeps serving the Quote).
+        el.disabled = true;
         fetch('/api/admin/leadgen/quotes/' + encodeURIComponent(quotePublicId) + '/activation/' + encodeURIComponent(siteId), {
           method: 'DELETE', credentials: 'same-origin', headers: { 'Accept': 'application/json' }
-        }).then(function () { window.location.reload(); });
+        }).then(function (r) {
+          // a 204/empty body is a SUCCESS, not a parse failure.
+          return r.json().then(function (j) { return { ok: r.ok, body: j }; }, function () { return { ok: r.ok, body: null }; });
+        }).then(function (res) {
+          if (!res.ok) {
+            el.disabled = false;
+            showMsg('lg-quote-error', (res.body && res.body.error) ? res.body.error : 'Could not deactivate ' + siteName + '.');
+            return;
+          }
+          flashAfterReload('lg-quote-ok', 'Deactivated for ' + siteName + '.');
+          window.location.reload();
+        }).catch(function (err) {
+          el.disabled = false;
+          showMsg('lg-quote-error', (err && err.message) ? err.message : 'Network error while deactivating ' + siteName + '.');
+        });
       }
     });
   }
@@ -8508,6 +8969,11 @@ if (!document.getElementById('toast-animations')) {
   window.addEventListener('beforeunload', function (e) {
     if (dirty || variantDirty || allocDirty || frameDirty || themeDirty || overridesDirty) { e.preventDefault(); e.returnValue = ''; return ''; }
   });
+
+  // P8-6 N8: paint the parked outcome of whatever action caused THIS load.
+  // Last statement of the island's boot, so no later boot step can hide the
+  // alert slot after it has been filled.
+  drainFlash();
 }());
 
 /* ======================================================================== */
@@ -8779,7 +9245,53 @@ if (!document.getElementById('toast-animations')) {
   function addFunnel() {
     // Add with a default name (no blocking prompt); the operator renames inline
     // on the fresh column via the pinned inline-rename affordance.
-    req('POST', API + '/quotes/' + encodeURIComponent(quoteId) + '/funnels', { funnel_name: 'New funnel' }).then(function (res) {
+    // P8-4 S4.3 (contract §7 N6): every added funnel used to be the literal
+    // 'New funnel', confirmed live as indistinguishable from the last one
+    // added a moment before in both the board columns and the rule
+    // Target-funnel select (both read the SAME stored funnel_name — no other
+    // surface needs a separate fix).
+    // P8-4 F-4 (review): a board-COUNT-based ordinal collides the instant a
+    // funnel is deleted, then a new one added -- driven live: add 'New funnel
+    // 6' and 'New funnel 7', delete 'New funnel 6', click + Add funnel, and
+    // the count-based ordinal recomputed to the same 7 already on the board.
+    // The ordinal below is one more than the HIGHEST trailing number any
+    // funnel CURRENTLY on this board already carries (never the count), so a
+    // deletion can never roll it backwards onto a name still in use; an
+    // existing funnel's stored name is untouched by this path, and the
+    // inline-rename affordance still overwrites it exactly as before.
+    // P8-4 F8 - THE ORDINAL NEVER ACTUALLY MOVED: the two rounds above read
+    // .funnel_name off the BOARD blob, and the blob has no such key. The wire
+    // shape is minted ONE place (the funnels: map at :708) and it emits
+    // name: f.funnel_name - the row keys are exactly
+    // ["public_id","id","name","display_order","is_default",
+    //  "active_variant_public_id","arms","frame_template_id","settings",
+    //  "pages"]. So every read was String(undefined || ''), the regex never
+    // matched, maxOrdinal stayed 0 and THREE consecutive adds all sent
+    // 'New funnel 1' - N6, still live, under two rounds that claimed it fixed.
+    // FIXED AT THE CAUSE, one reader on the one wire key: .name, which is
+    // what every other consumer of this blob already reads (boardTargetItems
+    // below, and the drag-copy message near the end of this island). No alias
+    // is added on the emitter side - a second key for one value is how this
+    // class of defect starts.
+    // SECOND CAUSE ON THE SAME LINE, also measured: this island is a TS
+    // template literal, where an unrecognised escape collapses - the source
+    // said (d+) and the bytes the browser received said (d+), a regex that
+    // cannot match 'New funnel 1' no matter which key it reads. So even with
+    // the key fixed, three adds still all sent 'New funnel 1'. Every other
+    // regex in this island already writes the double backslash form (see the
+    // \s trims throughout); this one did not. Both causes are fixed here.
+    var existingFunnels = BOARD.funnels || [];
+    var maxOrdinal = 0;
+    var fi;
+    for (fi = 0; fi < existingFunnels.length; fi++) {
+      var ordinalMatch = String(existingFunnels[fi].name || '').match(/^New funnel (\d+)$/);
+      if (ordinalMatch) {
+        var seenOrdinal = parseInt(ordinalMatch[1], 10);
+        if (seenOrdinal > maxOrdinal) { maxOrdinal = seenOrdinal; }
+      }
+    }
+    var ordinal = maxOrdinal + 1;
+    req('POST', API + '/quotes/' + encodeURIComponent(quoteId) + '/funnels', { funnel_name: 'New funnel ' + ordinal }).then(function (res) {
       if (!res.ok) { showInlineErr(null, firstFieldError(res.body)); return; }
       reloadPage();
     });
@@ -11014,11 +11526,30 @@ if (!document.getElementById('toast-animations')) {
     return { plane: 'in_funnel', unreachable: true };
   }
   function deriveCheckpoint(conditionFields) { return deriveCheckpointPure(conditionFields, sharedFields, funnels); }
-  function checkpointLabelOf(cp) {
+  // N4 (mirror of qrPageOrdinal) — the board's OWN numbering (quotes-tabs/
+  // funnel.ts: "Page " + (index + 1), the ARRAY INDEX in this funnel's own
+  // pages) for the checkpoint's representative page. Looks the page back up
+  // BY POSITION inside its funnel's own pages array and uses ITS INDEX + 1 so
+  // this agrees with the board even if the position field is not dense.
+  // funnelsArg defaults to the closure's own funnels var (real card/modal call
+  // sites below never pass it); deriveCheckpointPure's exposed-for-test twin
+  // takes an explicit funnels list, so this does too.
+  function pageOrdinalOf(cp, funnelsArg) {
+    var list = funnelsArg || funnels;
+    var i, j, funnel, idx;
+    funnel = null;
+    for (i = 0; i < list.length; i++) { if (list[i].name === cp.funnelName) { funnel = list[i]; break; } }
+    idx = -1;
+    if (funnel) {
+      for (j = 0; j < funnel.pages.length; j++) { if (funnel.pages[j].position === cp.pagePosition) { idx = j; break; } }
+    }
+    return (idx >= 0 ? idx : (cp.pagePosition || 0)) + 1;
+  }
+  function checkpointLabelOf(cp, funnelsArg) {
     if (cp.plane === 'entry') { return 'Entry'; }
     if (cp.plane === 'shared') { return 'Shared page'; }
     if (cp.unreachable === true) { return 'In a funnel'; }
-    return 'In funnel ' + (cp.funnelName || 'a funnel') + ' \u2014 page ' + String(cp.pagePosition);
+    return 'In funnel ' + (cp.funnelName || 'a funnel') + ' \u2014 page ' + String(pageOrdinalOf(cp, funnelsArg));
   }
 
   // ---- labels + summaries (mirror the SSR helpers) --------------------------
@@ -11026,7 +11557,7 @@ if (!document.getElementById('toast-animations')) {
     var i;
     for (i = 0; i < entryFields.length; i++) { if (entryFields[i].internal_field === field) { return entryFields[i].label; } }
     for (i = 0; i < answerFields.length; i++) { if (answerFields[i].internal_field === field) { return answerFields[i].label; } }
-    return field;
+    return '(removed field)';
   }
   function opWord(op) {
     var m = { eq: 'is', neq: 'is not', gt: 'greater than', lt: 'less than', gte: 'at least', lte: 'at most', range: 'between', 'in': 'in', not_in: 'not in' };

@@ -29,6 +29,9 @@ import {
   CURATED_DESIGN_OVERRIDE_KEYS,
   LEADGEN_THEME_ROLES,
   flattenComponents,
+  // The operator's own name for a style control ("Default answer-grid gap"),
+  // so a save error never prints the stored key id at a person.
+  leadgenControlLabel,
   validateSectionContent,
   type LeadgenSectionContent,
   type SectionContentError,
@@ -91,6 +94,47 @@ const SECTION_LEVEL_OVERRIDE_KEYS: ReadonlySet<string> = new Set([
   "gapDefault",
 ]);
 const THEME_ROLE_SET: ReadonlySet<string> = new Set(LEADGEN_THEME_ROLES);
+// P8-6 Q6 (M5 jargon sweep): the palette messages below used to dump the raw
+// LEADGEN_THEME_ROLES storage keys at the operator ("brand_primary, accent,
+// page_background, …") — the same "Analytics ID" class M5 exists to remove.
+// The operator's own words for these 14 keys already live in
+// quotes-tabs/shared.ts's ROLE_META (converged VERBATIM with
+// ui-theme-manager.ts's ROLE_META for every role both describe) — but both
+// live under src/admin/leadgen/** (the admin/UI layer), while this module is
+// PURE domain logic several admin files import FROM (sections-handlers.ts,
+// ui-sections.ts, quotes-handlers.ts, …); importing a label table back from
+// admin would invert that direction. ui-theme-manager.ts's own ROLE_META was
+// checked first as the anchor names it, but it keys 3 of these roles
+// differently (page_bg/card/text vs. this vocabulary's
+// page_background/card_background/text_primary) and has no "error" role at
+// all, so it cannot label all 14 correctly — it names a different, reduced
+// key-set. shared.ts's ROLE_META covers the full 14 1:1, so its labels are
+// copied here as plain data (the same local-copy idiom as FIELD_DISPLAY_NAMES
+// below) rather than importing across the layer boundary.
+const THEME_ROLE_LABELS: Readonly<Record<string, string>> = {
+  brand_primary: "Brand primary",
+  brand_secondary: "Brand secondary",
+  accent: "Accent",
+  success: "Success",
+  error: "Error",
+  page_background: "Page background",
+  card_background: "Card background",
+  surface_wash: "Soft fill",
+  border: "Border",
+  text_primary: "Text",
+  text_muted: "Muted text",
+  button_primary_bg: "Button",
+  button_primary_text: "Button text",
+  button_secondary_bg: "Secondary button",
+};
+
+function themeRoleLabel(role: string): string {
+  return THEME_ROLE_LABELS[role] ?? role;
+}
+
+function themeRoleLabelList(): string {
+  return LEADGEN_THEME_ROLES.map(themeRoleLabel).join(", ");
+}
 // MUST stay byte-identical to LEGACY_HEX_RE in content-schema.ts (§9.4 value
 // vocabulary: known role OR raw #hex literal).
 const LEGACY_HEX_RE = /^#[0-9a-fA-F]{3,8}$/;
@@ -101,19 +145,24 @@ const SECTION_COLUMNS_MIN = 1;
 const SECTION_COLUMNS_MAX = 5;
 
 // Validate the §9.5 `palette` map into `errors` (path-precise per role).
+// The messages are read by an operator in the save banner, so they name the
+// control and end on the action — the §9.5 cite lives in this comment.
 function validateSectionPaletteOverride(value: unknown, errors: FieldErrors): void {
   if (!isRecord(value)) {
     errors["design_overrides.palette"] =
-      "palette must be an object mapping theme colour roles to a role or #hex value (§9.5)";
+      "The palette must give each theme colour role a role or a #hex colour. Set the palette again from the Design tab.";
     return;
   }
   for (const [role, entry] of Object.entries(value)) {
     if (!THEME_ROLE_SET.has(role)) {
       errors[`design_overrides.palette.${role}`] =
-        `'${role}' is not a theme colour role (§9.5). Roles are: ${LEADGEN_THEME_ROLES.join(", ")}.`;
+        `'${role}' is not a theme colour role. Use one of: ${themeRoleLabelList()}.`;
     } else if (typeof entry !== "string" || (!THEME_ROLE_SET.has(entry) && !LEGACY_HEX_RE.test(entry))) {
+      // `role` is a confirmed THEME_ROLE_SET member here (the `if` above only
+      // falls through on a KNOWN role), so themeRoleLabel(role) always
+      // resolves to its operator label — never the bare "?? role" fallback.
       errors[`design_overrides.palette.${role}`] =
-        `palette.${role} must be a theme colour role (${LEADGEN_THEME_ROLES.join(", ")}) or a #hex colour (§9.5)`;
+        `The palette entry for '${themeRoleLabel(role)}' must be a theme colour role (${themeRoleLabelList()}) or a #hex colour like #1A2B3C. Pick a role, or enter a hex value.`;
     }
   }
 }
@@ -140,10 +189,11 @@ function validateSectionLevelOverride(key: string, value: unknown, errors: Field
   // gapDefault — a fixed spacing token (the design spacing scale values), the
   // same §14.10 no-arbitrary-CSS rule the per-node gridGap value passes.
   if (typeof value !== "string" || value.trim() === "") {
-    errors["design_overrides.gapDefault"] = "gapDefault must be a spacing token string (§9.5)";
+    errors["design_overrides.gapDefault"] =
+      `'${leadgenControlLabel("gapDefault")}' must be one of the theme's spacing values. Pick one from the Design tab.`;
   } else if (CSS_ESCAPE_RE.test(value)) {
     errors["design_overrides.gapDefault"] =
-      "gapDefault must be a fixed spacing token value, not arbitrary CSS (§14.10)";
+      `'${leadgenControlLabel("gapDefault")}' must be one of the theme's spacing values, not arbitrary CSS. Pick one from the Design tab.`;
   }
 }
 
@@ -151,10 +201,24 @@ function validateSectionLevelOverride(key: string, value: unknown, errors: Field
 // save-error MESSAGES read as plain operator language, never the raw field id
 // verbatim ("section_name is required" -> "Section name is required"). The
 // `fields` object's KEYS stay the raw ids unchanged (the studio maps/links by
-// key, P1a) -- only the human-readable message text changes. Mirrors the
-// client-side SAVE_FIELD_DISPLAY fallback (ui-section-studio.ts
-// renderSaveFieldErrors) so the server-authoritative text and the client's
-// paint-time fallback agree.
+// key, P1a) -- only the human-readable message text changes. P8-5 F2
+// (verified against ui-section-studio.ts): the client's renderSaveFieldErrors
+// no longer runs a display-name/humanizer fallback of its own — it prints
+// this message text verbatim, prefixed only with a row-identity label built
+// from the resolved node's/choice's own real data (props.label /
+// internal_field / type, or a choice's label/value). This map is what turns
+// the raw id into that text in the first place.
+// P8-6 Q6 class sweep: continue_mode's error used to name its two choices by
+// their raw wire ids ("button|auto_advance") — "auto_advance" is jargon no
+// operator sees; ui-section-studio.ts's Behavior segmented control (and its
+// read-only strip mirror) label the same two values "Wait for Continue" /
+// "Go to next" everywhere they render. Mirrored verbatim so a save error
+// names the same two choices the operator actually picks from.
+const CONTINUE_MODE_LABELS: Readonly<Record<LeadgenContinueMode, string>> = {
+  button: "Wait for Continue",
+  auto_advance: "Go to next",
+};
+
 const FIELD_DISPLAY_NAMES: Readonly<Record<string, string>> = {
   section_name: "Section name",
   activity: "Activity",
@@ -279,7 +343,9 @@ export function validateSection(raw: unknown): LeadgenSectionValidationResult {
   if (raw["continue_mode"] !== undefined && raw["continue_mode"] !== null) {
     const cm = raw["continue_mode"];
     if (cm === "button" || cm === "auto_advance") continueMode = cm;
-    else errors["continue_mode"] = `${FIELD_DISPLAY_NAMES.continue_mode} must be one of button|auto_advance`;
+    else
+      errors["continue_mode"] =
+        `${FIELD_DISPLAY_NAMES.continue_mode} must be one of ${CONTINUE_MODE_LABELS.button} or ${CONTINUE_MODE_LABELS.auto_advance}`;
   }
 
   // address_validation_enabled (§12.8) toggle, default false.
@@ -324,9 +390,13 @@ export function validateSection(raw: unknown): LeadgenSectionValidationResult {
           if (SECTION_LEVEL_OVERRIDE_KEYS.has(key)) {
             validateSectionLevelOverride(key, val, errors);
           } else if (!CURATED_OVERRIDE_KEY_SET.has(key)) {
-            errors[`design_overrides.${key}`] = `'${key}' is not a curated design-override token key (§14.8)`;
+            // §14.8 curated-key vocabulary, said in the operator's words.
+            errors[`design_overrides.${key}`] =
+              `'${key}' is not a style setting you can override. Remove it — the Design tab lists the settings this Section supports.`;
           } else if (typeof val === "string" && CSS_ESCAPE_RE.test(val)) {
-            errors[`design_overrides.${key}`] = `design_overrides.${key} must be a fixed token value, not arbitrary CSS (§14.10)`;
+            // §14.10 no arbitrary CSS.
+            errors[`design_overrides.${key}`] =
+              `'${leadgenControlLabel(key)}' must be one of the theme's values, not arbitrary CSS. Pick a value from the Design tab.`;
           }
         }
         const hasOverrideError = Object.keys(errors).some((k) => k.startsWith("design_overrides"));
@@ -435,16 +505,18 @@ export function validateMappingReferences(
       return;
     }
     if (offer.status !== "active") {
-      errors[`${base}.offer_id`] = `offer is ${offer.status} — mappings must target an active Offer (§12.4)`;
+      errors[`${base}.offer_id`] =
+        `This Offer is ${offer.status} — a mapping can only send answers to an active Offer. Pick an active Offer, or activate this one.`;
       return;
     }
     if (offer.activity !== section.activity || offer.vertical !== section.vertical) {
       errors[`${base}.offer_id`] =
-        `offer activity/vertical (${offer.activity}/${offer.vertical}) does not match the Section (${section.activity}/${section.vertical}) (§12.4)`;
+        `This Offer is for ${offer.activity} / ${offer.vertical}, which does not match the Section's ${section.activity} / ${section.vertical}. Pick an Offer for ${section.activity} / ${section.vertical}.`;
       return;
     }
     if (offer.active_schema_id === null) {
-      errors[`${base}.offer_id`] = "offer has no active payload schema to map into (§11.8)";
+      errors[`${base}.offer_id`] =
+        "This Offer has no active payload schema, so there is nothing to map answers into. Publish a payload schema on the Offer first.";
     }
   });
   return errors;

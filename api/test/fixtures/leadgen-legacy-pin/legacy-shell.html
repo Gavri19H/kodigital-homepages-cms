@@ -34,11 +34,11 @@
 [data-funnel-design="default-funnel"] .lg-range-handle{position:absolute;left:100%;top:50%;transform:translate(-50%,-50%);width:28px;height:28px;border-radius:9999px;background:#1B3A5C;border:3px solid #FFFFFF;box-shadow:0 2px 8px rgba(27,58,92,.25);box-sizing:border-box;pointer-events:none;z-index:2}
 [data-funnel-design="default-funnel"] .lg-range-handle-min{left:0}
 [data-funnel-design="default-funnel"] .lg-range-handle-max{left:100%}
-[data-funnel-design="default-funnel"] .lg-range-handle-value{position:absolute;bottom:calc(100% + 0.5rem);left:50%;transform:translateX(-50%);white-space:nowrap;font-size:0.8125rem;font-weight:700;line-height:1;padding:5px 9px;border-radius:6px;background:#1B3A5C;color:#FFFFFF}
+[data-funnel-design="default-funnel"] .lg-range-handle-value{position:absolute;top:calc(100% + 0.5rem);left:50%;transform:translateX(-50%);white-space:nowrap;font-size:0.8125rem;font-weight:700;line-height:1;padding:5px 9px;border-radius:6px;background:#1B3A5C;color:#FFFFFF}
 [data-funnel-design="default-funnel"] .lg-range-handle-min .lg-range-handle-value{left:0;transform:translateX(calc(var(--lg-a,0) * -1%))}
 [data-funnel-design="default-funnel"] .lg-range-handle-max .lg-range-handle-value{left:auto;right:0;transform:translateX(calc((100 - var(--lg-b,100)) * 1%))}
 [data-funnel-design="default-funnel"] .lg-range-from-to .lg-range-fill,[data-funnel-design="default-funnel"] .lg-range-dual .lg-range-fill{container-type:inline-size;container-name:lg-range-fill}
-@container lg-range-fill (max-width:96px){[data-funnel-design="default-funnel"] .lg-range-handle-min .lg-range-handle-value{bottom:calc(100% + 0.5rem + 2rem)}}
+@container lg-range-fill (max-width:96px){[data-funnel-design="default-funnel"] .lg-range-handle-min .lg-range-handle-value{top:calc(100% + 0.5rem + 2rem)}}
 [data-funnel-design="default-funnel"] .lg-range-input{-webkit-appearance:none;appearance:none;position:absolute;top:50%;left:calc(28px * -0.5);width:calc(100% + 28px);height:44px;transform:translateY(-50%);background:transparent;margin:0;z-index:3}
 [data-funnel-design="default-funnel"] .lg-range-input::-webkit-slider-runnable-track{background:transparent}
 [data-funnel-design="default-funnel"] .lg-range-input::-moz-range-track{background:transparent}
@@ -47,7 +47,8 @@
 [data-funnel-design="default-funnel"] .lg-range-input-dual{pointer-events:none}
 [data-funnel-design="default-funnel"] .lg-range-input-dual::-webkit-slider-thumb{pointer-events:auto}
 [data-funnel-design="default-funnel"] .lg-range-input-dual::-moz-range-thumb{pointer-events:auto}
-[data-funnel-design="default-funnel"] .lg-range-minmax{display:flex;justify-content:space-between;color:#718096;font-size:0.8125rem;margin-top:calc(28px * 0.5)}
+[data-funnel-design="default-funnel"] .lg-range-track > span + span > .lg-range-input-dual{clip-path:inset(0 0 0 calc(28px / 2 + max((var(--lg-a,0) + var(--lg-b,100)) * (100% - 28px) / 200, 28px / 2 + var(--lg-a,0) * (100% - 28px) / 100)))}
+[data-funnel-design="default-funnel"] .lg-range-minmax{display:flex;justify-content:space-between;color:#718096;font-size:0.8125rem;margin-top:calc(28px * 0.5 + 2rem * 2)}
 [data-funnel-design="default-funnel"] .lg-range-stepper-row{display:flex;align-items:center;justify-content:center;gap:1rem;margin:1rem 0}
 [data-funnel-design="default-funnel"] .lg-range-stepper-row .lg-range-value{margin:0}
 [data-funnel-design="default-funnel"] .lg-range-stepper-btn{display:inline-flex;align-items:center;justify-content:center;width:48px;height:48px;flex-shrink:0;border-radius:10px;border:2px solid #1B3A5C;background:#FFFFFF;color:#1B3A5C;font-size:1.5rem;line-height:1;font-weight:600;cursor:pointer;transition:background-color 200ms}
