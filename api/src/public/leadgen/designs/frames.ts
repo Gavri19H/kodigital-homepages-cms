@@ -22,7 +22,7 @@
 //     (shape-checked here; its meaning and KV lookup belong to the theme /
 //     handler layers).
 
-import { FUNNEL_TOKEN_ROLES, isFunnelTokenRole, THEME_RECORD_FONT_NAMES } from "./theme";
+import { funnelTokenRoleLabelList, isFunnelTokenRole, THEME_RECORD_FONT_NAMES } from "./theme";
 import type { FunnelTokenRole, Problem, ProblemSeverity, VariantThemeOverrides } from "./theme";
 import { sanitizeFrameInlineHtml } from "../../../lib/inline-sanitizer";
 
@@ -1261,6 +1261,72 @@ function inEnum(value: unknown, values: readonly string[]): boolean {
   return typeof value === "string" && values.includes(value);
 }
 
+// P8-6 Q7 (M5 jargon sweep, "close the raw-key-dump class for good"):
+// converged VERBATIM with quotes-tabs/templates.ts's own enumOptions()/
+// frameSelect() label maps for these controls — kept as local data for the
+// same PURE-module reason theme.ts's FUNNEL_TOKEN_ROLE_LABELS is local
+// (several admin files import validateFrameConfig FROM this module).
+// FRAME_ELEMENT_ALIGNS / FRAME_DISCLOSURE_V2_LOCATIONS /
+// FRAME_FREE_TEXT_BLOCK_TYPES / FRAME_BRAND_LOGO_LAYOUTS are DELIBERATELY
+// excluded — the admin labels for those differ from the stored value by
+// capitalisation only, which already reads as plain English, not jargon.
+function labelList(values: readonly string[], labels: Readonly<Record<string, string>>): string {
+  return values.map((v) => labels[v] ?? v).join(", ");
+}
+const FRAME_PAGE_TARGET_MODE_LABELS: Readonly<Record<string, string>> = {
+  all: "Every page",
+  first: "First page only",
+  range: "A page range",
+  list: "Specific pages",
+};
+const FRAME_TYPO_SIZE_LABELS: Readonly<Record<string, string>> = {
+  s: "Small",
+  m: "Medium",
+  l: "Large",
+  xl: "Extra large",
+};
+const FRAME_SIZE_LABELS: Readonly<Record<string, string>> = { s: "Small", m: "Medium", l: "Large" };
+const FRAME_DISCLOSURE_MODE_LABELS: Readonly<Record<string, string>> = {
+  full: "Always shown",
+  hover: "Hover / focus trigger",
+};
+const FRAME_FOOTER_BLOCK_TYPE_LABELS: Readonly<Record<string, string>> = {
+  about_paragraph: "Company details",
+  link_row: "Link row",
+  disclosure: "Disclosure",
+  logo: "Logo",
+  address: "Address",
+  socials: "Social links",
+  heading: "Heading",
+  list: "List",
+};
+const FRAME_FREE_TEXT_LIST_STYLE_LABELS: Readonly<Record<string, string>> = {
+  unordered: "Bulleted",
+  ordered: "Numbered",
+  check: "Checklist",
+};
+const FRAME_FOOTER_LINKS_SOURCE_LABELS: Readonly<Record<string, string>> = {
+  site: "The site's own logo",
+  manual: "Manual (choose an image or paste a URL)",
+};
+const FRAME_FOOTER_LINK_ROW_SOURCE_LABELS: Readonly<Record<string, string>> = {
+  site: "From site settings (legal links)",
+  manual: "Manual list",
+  picked: "From Pages (operator-picked)",
+};
+const FRAME_FREE_TEXT_SLOT_LABELS: Readonly<Record<string, string>> = {
+  above_section: "Above the section",
+  below_section: "Below the section",
+  above_header: "Above the header",
+  below_footer: "Below the footer",
+};
+const FRAME_CTA_SLOT_LABELS: Readonly<Record<string, string>> = {
+  header_right: "Header (right)",
+  under_header: "Under the header",
+  section_bottom: "Bottom of the section",
+  footer: "Footer",
+};
+
 // Shared page-target validator (10E/10F/10G).
 function validateFramePageTarget(value: unknown, path: string, push: FramePush): void {
   if (!isRecord(value)) {
@@ -1268,7 +1334,7 @@ function validateFramePageTarget(value: unknown, path: string, push: FramePush):
     return;
   }
   if (!inEnum(value["mode"], FRAME_PAGE_TARGET_MODES)) {
-    push("error", `${path}.mode`, `Page targeting must be one of: ${FRAME_PAGE_TARGET_MODES.join(", ")}.`);
+    push("error", `${path}.mode`, `Page targeting must be one of: ${labelList(FRAME_PAGE_TARGET_MODES, FRAME_PAGE_TARGET_MODE_LABELS)}.`);
   }
   if (value["mode"] === "range") {
     if (typeof value["from"] !== "number" || typeof value["to"] !== "number") {
@@ -1290,10 +1356,10 @@ function validateFrameTypography(value: unknown, path: string, push: FramePush):
     return;
   }
   if (value["size"] !== undefined && !inEnum(value["size"], FRAME_TYPO_SIZES)) {
-    push("error", `${path}.size`, `The text size must be one of: ${FRAME_TYPO_SIZES.join(", ")}.`);
+    push("error", `${path}.size`, `The text size must be one of: ${labelList(FRAME_TYPO_SIZES, FRAME_TYPO_SIZE_LABELS)}.`);
   }
   if (value["color"] !== undefined && !isFunnelTokenRole(value["color"])) {
-    push("error", `${path}.color`, `The text colour must be a theme colour role: ${FUNNEL_TOKEN_ROLES.join(", ")}.`);
+    push("error", `${path}.color`, `The text colour must be a theme colour role: ${funnelTokenRoleLabelList()}.`);
   }
   if (value["align"] !== undefined && !inEnum(value["align"], FRAME_ELEMENT_ALIGNS)) {
     push("error", `${path}.align`, `Alignment must be one of: ${FRAME_ELEMENT_ALIGNS.join(", ")}.`);
@@ -1343,7 +1409,7 @@ function validateDisclosureEntries(value: unknown, path: string, _label: string,
       push("error", `${p}.text`, "A disclosure entry needs its text.");
     }
     if (!inEnum(entry["mode"], FRAME_DISCLOSURE_MODES)) {
-      push("error", `${p}.mode`, `A disclosure entry mode must be one of: ${FRAME_DISCLOSURE_MODES.join(", ")}.`);
+      push("error", `${p}.mode`, `A disclosure entry mode must be one of: ${labelList(FRAME_DISCLOSURE_MODES, FRAME_DISCLOSURE_MODE_LABELS)}.`);
     }
     if (entry["align"] !== undefined && !inEnum(entry["align"], FRAME_ELEMENT_ALIGNS)) {
       push("error", `${p}.align`, `A disclosure entry alignment must be one of: ${FRAME_ELEMENT_ALIGNS.join(", ")}.`);
@@ -1367,7 +1433,7 @@ function validateFooterBlocks(value: unknown, path: string, _label: string, push
       return;
     }
     if (!inEnum(block["type"], FRAME_FOOTER_BLOCK_TYPES)) {
-      push("error", `${p}.type`, `A footer block type must be one of: ${FRAME_FOOTER_BLOCK_TYPES.join(", ")}.`);
+      push("error", `${p}.type`, `A footer block type must be one of: ${labelList(FRAME_FOOTER_BLOCK_TYPES, FRAME_FOOTER_BLOCK_TYPE_LABELS)}.`);
     }
     if (block["text"] !== undefined && typeof block["text"] !== "string") {
       push("error", `${p}.text`, "A footer block's text must be plain text.");
@@ -1392,14 +1458,14 @@ function validateFooterBlocks(value: unknown, path: string, _label: string, push
         );
       }
       if (block["list_style"] !== undefined && !inEnum(block["list_style"], FRAME_FREE_TEXT_LIST_STYLES)) {
-        push("error", `${p}.list_style`, `A footer list style must be one of: ${FRAME_FREE_TEXT_LIST_STYLES.join(", ")}.`);
+        push("error", `${p}.list_style`, `A footer list style must be one of: ${labelList(FRAME_FREE_TEXT_LIST_STYLES, FRAME_FREE_TEXT_LIST_STYLE_LABELS)}.`);
       }
     }
     // "logo" type — site branding (default) or a manual media/URL override.
     // Reuses FRAME_FOOTER_LINKS_SOURCES's site|manual enum (see the interface
     // comment) and the SAME SAFE_HREF_RE gate every other footer href uses.
     if (block["logo_source"] !== undefined && !inEnum(block["logo_source"], FRAME_FOOTER_LINKS_SOURCES)) {
-      push("error", `${p}.logo_source`, `A footer logo source must be one of: ${FRAME_FOOTER_LINKS_SOURCES.join(", ")}.`);
+      push("error", `${p}.logo_source`, `A footer logo source must be one of: ${labelList(FRAME_FOOTER_LINKS_SOURCES, FRAME_FOOTER_LINKS_SOURCE_LABELS)}.`);
     }
     if (block["logo_media_id"] !== undefined && block["logo_media_id"] !== null && typeof block["logo_media_id"] !== "string") {
       push("error", `${p}.logo_media_id`, "A footer logo media reference must be plain text, or empty.");
@@ -1415,7 +1481,7 @@ function validateFooterBlocks(value: unknown, path: string, _label: string, push
     // logo_source above) intentionally still checks FRAME_FOOTER_LINKS_SOURCES
     // (site|manual only — "picked" has no meaning there).
     if (block["links_source"] !== undefined && !inEnum(block["links_source"], FRAME_FOOTER_LINK_ROW_SOURCES)) {
-      push("error", `${p}.links_source`, `A footer link source must be one of: ${FRAME_FOOTER_LINK_ROW_SOURCES.join(", ")}.`);
+      push("error", `${p}.links_source`, `A footer link source must be one of: ${labelList(FRAME_FOOTER_LINK_ROW_SOURCES, FRAME_FOOTER_LINK_ROW_SOURCE_LABELS)}.`);
     }
     if (block["links"] !== undefined) {
       if (!Array.isArray(block["links"])) {
@@ -1497,7 +1563,7 @@ function validateFreeText(value: unknown, push: FramePush): void {
     }
     if (!isNonEmptyString(entry["id"])) push("error", `${p}.id`, "A free-text element needs an id.");
     if (!inEnum(entry["slot"], FRAME_FREE_TEXT_SLOTS)) {
-      push("error", `${p}.slot`, `A free-text slot must be one of: ${FRAME_FREE_TEXT_SLOTS.join(", ")}.`);
+      push("error", `${p}.slot`, `A free-text slot must be one of: ${labelList(FRAME_FREE_TEXT_SLOTS, FRAME_FREE_TEXT_SLOT_LABELS)}.`);
     }
     if (!Array.isArray(entry["blocks"]) || entry["blocks"].length === 0) {
       push("error", `${p}.blocks`, "A free-text element needs at least one text block.");
@@ -1532,7 +1598,7 @@ function validateFreeText(value: unknown, push: FramePush): void {
             );
           }
           if (b["style"] !== undefined && !inEnum(b["style"], FRAME_FREE_TEXT_LIST_STYLES)) {
-            push("error", `${bp}.style`, `A list style must be one of: ${FRAME_FREE_TEXT_LIST_STYLES.join(", ")}.`);
+            push("error", `${bp}.style`, `A list style must be one of: ${labelList(FRAME_FREE_TEXT_LIST_STYLES, FRAME_FREE_TEXT_LIST_STYLE_LABELS)}.`);
           }
         }
       });
@@ -1572,12 +1638,12 @@ function validateBrandLogos(value: unknown, push: FramePush): void {
       }
       if (!isNonEmptyString(item["alt"])) push("error", `${p}.alt`, "A brand logo needs alt text.");
       if (item["size"] !== undefined && !inEnum(item["size"], FRAME_SIZES)) {
-        push("error", `${p}.size`, `A brand-logo size must be one of: ${FRAME_SIZES.join(", ")}.`);
+        push("error", `${p}.size`, `A brand-logo size must be one of: ${labelList(FRAME_SIZES, FRAME_SIZE_LABELS)}.`);
       }
     });
   }
   if (value["slot"] !== undefined && !inEnum(value["slot"], FRAME_FREE_TEXT_SLOTS)) {
-    push("error", `${base}.slot`, `The brand-logos slot must be one of: ${FRAME_FREE_TEXT_SLOTS.join(", ")}.`);
+    push("error", `${base}.slot`, `The brand-logos slot must be one of: ${labelList(FRAME_FREE_TEXT_SLOTS, FRAME_FREE_TEXT_SLOT_LABELS)}.`);
   }
   if (value["align"] !== undefined && !inEnum(value["align"], FRAME_ELEMENT_ALIGNS)) {
     push("error", `${base}.align`, `The brand-logos alignment must be one of: ${FRAME_ELEMENT_ALIGNS.join(", ")}.`);
@@ -1599,7 +1665,7 @@ function validateCtaSlots(value: unknown, push: FramePush): void {
       return;
     }
     if (!inEnum(slot["slot"], FRAME_CTA_SLOTS)) {
-      push("error", `${p}.slot`, `A CTA slot must be one of: ${FRAME_CTA_SLOTS.join(", ")}.`);
+      push("error", `${p}.slot`, `A CTA slot must be one of: ${labelList(FRAME_CTA_SLOTS, FRAME_CTA_SLOT_LABELS)}.`);
     }
     if (typeof slot["label"] !== "string") push("error", `${p}.label`, "A CTA slot needs a label.");
     const tel = isNonEmptyString(slot["tel"]);
@@ -1652,7 +1718,7 @@ function validateTrustRows(value: unknown, push: FramePush): void {
       push("error", `${p}.align`, `A trust-row alignment must be one of: ${FRAME_ELEMENT_ALIGNS.join(", ")}.`);
     }
     if (row["slot"] !== undefined && !inEnum(row["slot"], FRAME_FREE_TEXT_SLOTS)) {
-      push("error", `${p}.slot`, `A trust-row slot must be one of: ${FRAME_FREE_TEXT_SLOTS.join(", ")}.`);
+      push("error", `${p}.slot`, `A trust-row slot must be one of: ${labelList(FRAME_FREE_TEXT_SLOTS, FRAME_FREE_TEXT_SLOT_LABELS)}.`);
     }
     if (row["pages"] !== undefined) validateFramePageTarget(row["pages"], `${p}.pages`, push);
   });
@@ -1680,10 +1746,10 @@ function validateImages(value: unknown, push: FramePush): void {
     }
     if (!isNonEmptyString(item["alt"])) push("error", `${p}.alt`, "An image needs alt text.");
     if (!inEnum(item["slot"], FRAME_FREE_TEXT_SLOTS)) {
-      push("error", `${p}.slot`, `An image slot must be one of: ${FRAME_FREE_TEXT_SLOTS.join(", ")}.`);
+      push("error", `${p}.slot`, `An image slot must be one of: ${labelList(FRAME_FREE_TEXT_SLOTS, FRAME_FREE_TEXT_SLOT_LABELS)}.`);
     }
     if (item["size"] !== undefined && !inEnum(item["size"], FRAME_SIZES)) {
-      push("error", `${p}.size`, `An image size must be one of: ${FRAME_SIZES.join(", ")}.`);
+      push("error", `${p}.size`, `An image size must be one of: ${labelList(FRAME_SIZES, FRAME_SIZE_LABELS)}.`);
     }
     if (item["align"] !== undefined && !inEnum(item["align"], FRAME_ELEMENT_ALIGNS)) {
       push("error", `${p}.align`, `An image alignment must be one of: ${FRAME_ELEMENT_ALIGNS.join(", ")}.`);
@@ -1868,7 +1934,7 @@ function validateField(
           push(
             "error",
             itemPath,
-            `Each ${spec.itemLabel} must be an entry with ${fieldNames.join(" + ")}.`,
+            `Each ${spec.itemLabel} must be an entry with ${fieldNames.map(humanize).join(" + ")}.`,
           );
           continue;
         }
@@ -1918,7 +1984,7 @@ function validateField(
         push(
           "error",
           path,
-          `The ${label} setting must be a theme colour role: ${FUNNEL_TOKEN_ROLES.join(", ")}.`,
+          `The ${label} setting must be a theme colour role: ${funnelTokenRoleLabelList()}.`,
         );
       }
       return;

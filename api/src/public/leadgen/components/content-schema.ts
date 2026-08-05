@@ -13,7 +13,7 @@
 // against Offers (answer→payload mapping) are a Stage-B/handler concern —
 // this validator is content-internal only.
 
-import { FUNNEL_TOKEN_ROLES } from "../designs/theme";
+import { FUNNEL_TOKEN_ROLES, funnelTokenRoleLabel } from "../designs/theme";
 import { COMPONENT_CATALOG, COMPONENT_CAPABILITIES } from "./registry";
 import type { ComponentType, ComponentScope, ComponentCapabilitySpec } from "./registry";
 import type { LeadgenConditionOp, LeadgenContinueMode } from "../../../admin/leadgen/db-types";
@@ -1348,6 +1348,72 @@ function answerFormatLabel(key: string): string {
   return OPERATOR_ANSWER_FORMAT_LABELS[key] ?? humanizeId(key);
 }
 
+// P8-6 Q7 (M5 jargon sweep): the studio's per-node "Selected-state style"
+// override (ui-section-studio.ts data-set-selected-marker, grep-verified) and
+// its size-preset chips (CHOICE_SIZE_PRESET_LABELS_UI) show these stored
+// values with capitalisation only ("Wash"/"Mark", "S"/"M"/"L") — plain
+// English already, not the jargon class, so LEADGEN_SELECTED_MARKERS and
+// LEADGEN_CHOICE_SIZE_PRESETS are left as plain .join()/orList() below. Same
+// for LEADGEN_NODE_CORNERS/LEADGEN_NODE_BORDER_COLOR_ROLES/
+// LEADGEN_PLACEMENT_ALIGNS/LEADGEN_CHOICE_EMPHASES — already common English
+// words. LEADGEN_PHONE_FORMAT_PRESETS (nanp/e164_intl/il) is legacy-only:
+// ui-section-studio.ts's §6.9 phone mask builder never authors a preset
+// string anymore (only {mask}), so no current control names them.
+
+// The slider-type picker's own cards (ui-section-studio.ts CARDS, §6.x).
+const OPERATOR_SLIDER_TYPE_LABELS: Readonly<Record<string, string>> = {
+  single: "Single",
+  dual_range: "Dual range",
+  stepper: "Stepper",
+  from_to: "From / To",
+  radial: "Radial",
+};
+
+function sliderTypeLabel(key: string): string {
+  return OPERATOR_SLIDER_TYPE_LABELS[key] ?? humanizeId(key);
+}
+
+// The Image block's own Source toggle (ui-section-studio.ts data-set-imageblock-source).
+const OPERATOR_IMAGE_BLOCK_SOURCE_LABELS: Readonly<Record<string, string>> = {
+  media: "Image from library",
+  auto_logo: "Site logo",
+};
+
+function imageBlockSourceLabel(key: string): string {
+  return OPERATOR_IMAGE_BLOCK_SOURCE_LABELS[key] ?? humanizeId(key);
+}
+
+// The Text block's own Role select (ui-section-studio.ts TEXT_BLOCK_ROLE_LABELS
+// — converged verbatim; kept as local data here for the same PURE-module
+// reason as the other label maps in this file: content-schema.ts is domain
+// logic several admin files import FROM).
+const OPERATOR_TEXT_BLOCK_ROLE_LABELS: Readonly<Record<string, string>> = {
+  heading: "Heading",
+  body: "Body",
+  category_label: "Category label",
+  helper: "Helper",
+  legal: "Legal",
+  reassurance: "Reassurance",
+  secure_badge: "Secure badge",
+};
+
+function textBlockRoleLabel(key: string): string {
+  return OPERATOR_TEXT_BLOCK_ROLE_LABELS[key] ?? humanizeId(key);
+}
+
+// The Headline/Subheadline bind is set by the studio when those two
+// component types are added (never authored from a raw-value picker) — a
+// mismatch here means corrupted content, not an operator's own choice, but
+// the two values still read as their component's own name in the studio.
+const OPERATOR_COMPONENT_BIND_LABELS: Readonly<Record<string, string>> = {
+  section_headline: "Headline",
+  section_subheadline: "Subheadline",
+};
+
+function componentBindLabel(key: string): string {
+  return OPERATOR_COMPONENT_BIND_LABELS[key] ?? humanizeId(key);
+}
+
 // "a, b or c" — an operator reads a sentence, not a pipe-delimited enum dump.
 function orList(values: readonly string[]): string {
   if (values.length === 0) return "";
@@ -2040,10 +2106,14 @@ function validateDesignOverridesBag(
       // v2.5 §9.4: a color-typed override VALUE must be a known theme
       // role (09 §9.1) or a legacy raw `#hex` literal (tolerated —
       // existing stored content). Never any other string/scalar.
+      // P8-6 Q7 (M5 jargon sweep): this used to dump the raw
+      // LEADGEN_THEME_ROLES storage keys ("brand_primary, ...") — labelled
+      // via theme.ts's funnelTokenRoleLabel (the canonical map; see its
+      // comment for why it lives there rather than a fourth local copy).
       push(
         "invalid_override_value",
         `${base}.design_overrides.${key}`,
-        `'${leadgenControlLabel(key)}' must be a theme color role (${orList(LEADGEN_THEME_ROLES)}) or a #hex value like #1A2B3C. Pick a role, or enter a hex value.`,
+        `'${leadgenControlLabel(key)}' must be a theme color role (${orList(LEADGEN_THEME_ROLES.map(funnelTokenRoleLabel))}) or a #hex value like #1A2B3C. Pick a role, or enter a hex value.`,
       );
     }
   }
@@ -2351,10 +2421,12 @@ function validateChoiceColorPair(
     );
   }
   if (role !== undefined && (typeof role !== "string" || !THEME_ROLE_SET.has(role))) {
+    // P8-6 Q7 (M5 jargon sweep): labelled the same way as the
+    // design_overrides color-role message above (funnelTokenRoleLabel).
     push(
       "invalid_choice_style",
       `${base}.${roleKey}`,
-      `'${roleLabel}' must be a theme color role (${LEADGEN_THEME_ROLES.join(", ")}). Pick one of those.`,
+      `'${roleLabel}' must be a theme color role (${orList(LEADGEN_THEME_ROLES.map(funnelTokenRoleLabel))}). Pick one of those.`,
     );
   }
   if (hex !== undefined && (typeof hex !== "string" || looksLikeArbitraryCss(hex) || !LEGACY_HEX_RE.test(hex))) {
@@ -2448,7 +2520,7 @@ function validateNewFieldProps(
       push(
         "invalid_field_prop",
         `${base}.props.slider_type`,
-        `'Slider type' must be one of: ${orList(LEADGEN_SLIDER_TYPES)}. Pick one of those.`,
+        `'Slider type' must be one of: ${orList(LEADGEN_SLIDER_TYPES.map(sliderTypeLabel))}. Pick one of those.`,
       );
     } else if (props["slider_type"] === "stepper") {
       const step = props["step"];
@@ -2714,7 +2786,7 @@ function validateNewFieldProps(
       push(
         "invalid_field_prop",
         `${base}.props.role`,
-        `'Role' must be one of: ${orList(LEADGEN_TEXT_BLOCK_ROLES)}. Pick one of those.`,
+        `'Role' must be one of: ${orList(LEADGEN_TEXT_BLOCK_ROLES.map(textBlockRoleLabel))}. Pick one of those.`,
       );
     }
   }
@@ -2732,7 +2804,7 @@ function validateNewFieldProps(
       push(
         "invalid_field_prop",
         `${base}.props.source`,
-        `'Source' must be one of: ${orList(LEADGEN_IMAGE_BLOCK_SOURCES)}. Pick one of those.`,
+        `'Source' must be one of: ${orList(LEADGEN_IMAGE_BLOCK_SOURCES.map(imageBlockSourceLabel))}. Pick one of those.`,
       );
     }
   }
@@ -3554,7 +3626,7 @@ export function validateSectionContent(
         push(
           "bind_type_mismatch",
           `${base}.bind`,
-          `The headline binding must be one of: ${orList(LEADGEN_COMPONENT_BINDS)}. Pick one of those, or remove the binding.`,
+          `The headline binding must be one of: ${orList(LEADGEN_COMPONENT_BINDS.map(componentBindLabel))}. Pick one of those, or remove the binding.`,
         );
       } else {
         const bind = bindRaw as LeadgenComponentBind;
