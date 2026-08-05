@@ -2335,13 +2335,44 @@ export async function setQuoteDefaultFunnelHandler(c: AdminContext): Promise<Res
 // page`, the same string as the drop pick-list entry `label: 'Shared first
 // page'`, plus that column's own explanation of why the page counts against
 // every funnel, `Every visitor sees this first — entry rules only pre-select
-// the funnel.` So the message and the thing it points at read the same. The
-// in-funnel sentence is unchanged: for a genuine repeat inside one funnel's
-// plan it was always accurate.
+// the funnel.` So the message and the thing it points at read the same.
+//
+// Q1 (P8-6 FIX-FIRST): N19 picked its sentence from "is the id in the SHARED
+// list?", and on a shared-page save the shared list is the one being SUBMITTED
+// — so a section that actually sits in a funnel came back as "already on the
+// Shared first page", the same wrongness pointing the other way (driven:
+// PUT /quotes/:id/shared-page {slots:[shared, X]} with X in Funnel A). The
+// deciding question is not which list an id is in but WHICH SURFACE ALREADY
+// HOLDS IT: on a save that is always the surface the operator is NOT editing;
+// at the activation preflight neither surface is being edited, both copies are
+// already saved, and the honest answer is BOTH. And "this funnel" only has an
+// antecedent when the operator is standing in that funnel (the variant PUT) —
+// from the Shared column or a quote-level publish report it names nothing, so
+// those paths name the funnel by the board's own column title (funnel.ts
+// `data-funnel-name ... title="${escapeHtml(funnel.funnel_name)}"`), the same
+// funnel_name the sibling publish blocker already says out loud ("Funnel 'X'
+// needs at least one page with a section.").
 const A4_SECTION_DUP_SHARED = (section: string): string =>
   `'${section}' is already on the Shared first page — every visitor sees that page first, so a section can appear once per funnel.`;
-const A4_SECTION_DUP_FUNNEL = (section: string): string =>
-  `'${section}' is already in this funnel — a section can appear once per funnel.`;
+const A4_SECTION_DUP_FUNNEL = (section: string, funnelPhrase: string): string =>
+  `'${section}' is already in ${funnelPhrase} — a section can appear once per funnel.`;
+const A4_SECTION_DUP_BOTH = (section: string, funnelPhrase: string): string =>
+  `'${section}' is on the Shared first page and in ${funnelPhrase} — a section can appear once per funnel.`;
+
+// Where the union being checked sits, so a message can name the real surface.
+interface A4Scope {
+  // The surface whose plan the operator is SAVING — the one side of a
+  // cross-surface collision that is only PROSPECTIVE, so the message must
+  // attribute the existing copy to the OTHER side. `null` = neither (the
+  // activation preflight re-checks two already-saved surfaces).
+  readonly saving: "shared" | "funnel" | null;
+  // The funnel whose plan `variantIds` is, named as the board's column titles
+  // it; `null` when the operator is standing in that funnel (variant PUT) or
+  // when no funnel is in scope at all (`variantIds` empty) — then "this funnel".
+  readonly funnelName: string | null;
+}
+const a4FunnelPhrase = (scope: A4Scope): string =>
+  scope.funnelName === null ? "this funnel" : `the funnel '${scope.funnelName}'`;
 
 // M5 remediation (P8-5 FIX-FIRST round 2, H2b): the 3 nameOf() fallbacks below
 // (sharedPageUniquenessErrors, variantSaveUniquenessErrors, and the activation
@@ -2357,24 +2388,43 @@ const ORPHANED_SECTION_LABEL = "a section that no longer exists";
 // Pure core: given the shared page's section ids and ONE funnel-variant's
 // section ids, return one A-4 message per section id that appears more than
 // once in their UNION (an internal repeat, or a section shared+funnel both).
-// N19: the message says WHICH side of the union already holds it — if the id
-// is in the shared list at all (a shared∩funnel collision, or the shared list
-// repeating itself) the section is on the Shared first page; otherwise the
-// repeat is inside this one funnel's own plan.
+// Q1: the message names the surface that ALREADY holds the section —
+//   * a repeat inside ONE list  → that list's own surface;
+//   * a cross-surface collision → the surface `scope.saving` is NOT (both
+//     surfaces, when nothing is being saved and both copies are real).
 function sectionUniquenessMessages(
   sharedIds: readonly number[],
   variantIds: readonly number[],
   nameOf: (id: number) => string,
+  scope: A4Scope,
 ): string[] {
-  const sharedCounts = new Map<number, number>();
-  for (const id of sharedIds) sharedCounts.set(id, (sharedCounts.get(id) ?? 0) + 1);
-  const counts = new Map<number, number>();
-  for (const id of [...sharedIds, ...variantIds]) counts.set(id, (counts.get(id) ?? 0) + 1);
+  const tally = (ids: readonly number[]): Map<number, number> => {
+    const m = new Map<number, number>();
+    for (const id of ids) m.set(id, (m.get(id) ?? 0) + 1);
+    return m;
+  };
+  const sharedCounts = tally(sharedIds);
+  const variantCounts = tally(variantIds);
   const out: string[] = [];
-  for (const [id, n] of counts) {
-    if (n <= 1) continue;
-    const onSharedPage = (sharedCounts.get(id) ?? 0) > 0;
-    out.push(onSharedPage ? A4_SECTION_DUP_SHARED(nameOf(id)) : A4_SECTION_DUP_FUNNEL(nameOf(id)));
+  const done = new Set<number>();
+  for (const id of [...sharedIds, ...variantIds]) {
+    if (done.has(id)) continue;
+    done.add(id);
+    const inShared = sharedCounts.get(id) ?? 0;
+    const inVariant = variantCounts.get(id) ?? 0;
+    if (inShared + inVariant <= 1) continue;
+    const name = nameOf(id);
+    if (inShared > 0 && inVariant > 0) {
+      // Cross-surface: the copy that is NOT the one being saved is the one the
+      // operator has to go find.
+      if (scope.saving === "shared") out.push(A4_SECTION_DUP_FUNNEL(name, a4FunnelPhrase(scope)));
+      else if (scope.saving === "funnel") out.push(A4_SECTION_DUP_SHARED(name));
+      else out.push(A4_SECTION_DUP_BOTH(name, a4FunnelPhrase(scope)));
+    } else if (inShared > 0) {
+      out.push(A4_SECTION_DUP_SHARED(name));
+    } else {
+      out.push(A4_SECTION_DUP_FUNNEL(name, a4FunnelPhrase(scope)));
+    }
   }
   return out;
 }
@@ -2699,25 +2749,27 @@ async function sharedPageUniquenessErrors(
   const errors: FieldErrors = {};
   const funnels = await readQuoteFunnels(db, quote.id);
   const involved = new Set<number>(prospectiveSharedIds);
-  const perVariant: number[][] = [];
+  // Q1: carry each plan's OWNING FUNNEL, not just its ids — from the Shared
+  // column the operator needs the funnel's name to find the other copy.
+  const perVariant: Array<{ funnelName: string; ids: number[] }> = [];
   for (const f of funnels) {
     if (f.status !== "active") continue;
     for (const v of await readActiveFunnelVariants(db, f.id)) {
       const ids = await variantSectionIds(db, v.id);
-      perVariant.push(ids);
+      perVariant.push({ funnelName: f.funnel_name, ids });
       for (const id of ids) involved.add(id);
     }
   }
   const nameMap = await sectionNameMap(db, [...involved]);
   const nameOf = (id: number): string => nameMap.get(id) ?? ORPHANED_SECTION_LABEL;
   const seen = new Set<string>();
-  // internal dup within the shared page itself
-  for (const m of sectionUniquenessMessages(prospectiveSharedIds, [], nameOf)) {
+  // internal dup within the shared page itself (no funnel in scope)
+  for (const m of sectionUniquenessMessages(prospectiveSharedIds, [], nameOf, { saving: "shared", funnelName: null })) {
     addUniquenessError(errors, seen, m);
   }
   // shared ∪ each funnel-variant plan
-  for (const ids of perVariant) {
-    for (const m of sectionUniquenessMessages(prospectiveSharedIds, ids, nameOf)) {
+  for (const { funnelName, ids } of perVariant) {
+    for (const m of sectionUniquenessMessages(prospectiveSharedIds, ids, nameOf, { saving: "shared", funnelName })) {
       addUniquenessError(errors, seen, m);
     }
   }
@@ -2741,7 +2793,10 @@ async function variantSaveUniquenessErrors(
     const nameMap = await sectionNameMap(db, [...involved]);
     const nameOf = (id: number): string => nameMap.get(id) ?? ORPHANED_SECTION_LABEL;
     const seen = new Set<string>();
-    for (const m of sectionUniquenessMessages(sharedIds, prospectiveVariantIds, nameOf)) {
+    // Q1: the operator IS standing in this funnel (the variant PUT), so a
+    // cross-surface collision points at the shared page and an internal repeat
+    // says "this funnel" — the only path where that phrase has an antecedent.
+    for (const m of sectionUniquenessMessages(sharedIds, prospectiveVariantIds, nameOf, { saving: "funnel", funnelName: null })) {
       addUniquenessError(errors, seen, m);
     }
   } catch {
@@ -2874,9 +2929,21 @@ interface SectionOrderItem {
 // pick a section in an allowed vertical, or widen the quote's Verticals.
 // Both call sites below share this ONE function so the message can never
 // drift between them (contract R5: reuse the register, invent no new copy).
+//
+// Q1 (P8-6 FIX-FIRST, MINOR): this read "is a ${section.vertical} section" —
+// "is a auto section" for the commonest value in the fixtures. There is no
+// article to compute: Activity and Vertical are OPERATOR-AUTHORED free text
+// (ui-section-studio.ts's "+ New activity…" / "+ New vertical…" allow-create),
+// so the value can begin with any letter and any sound ("an hour-1 lead", "a
+// u-verse offer") — a leading-vowel rule would be wrong for a knowable share
+// of real inputs and there is no closed registry to look the word up in. The
+// fix is therefore to stop requiring an article: name the field the way the
+// section editor's own pickers do (renderActivityVerticalPickers: "Activity",
+// "Vertical"), which is also how the sibling in this register already reads
+// ("'X' is archived — …", no article).
 function describeVerticalMismatch(section: LeadgenSectionRow, allowedVerticals: Set<string>): string {
   const allowed = [...allowedVerticals].join(", ");
-  return `'${section.section_name}' is a ${section.vertical} section, but this quote's Verticals only include ${allowed} — pick a section in one of those verticals, or add ${section.vertical} to the quote's Verticals.`;
+  return `'${section.section_name}' is in the ${section.vertical} Vertical, but this quote's Verticals only include ${allowed} — pick a section in one of those verticals, or add ${section.vertical} to the quote's Verticals.`;
 }
 
 // M5 remediation (P8-5 FIX-FIRST round 2, MAJOR-1): the sibling activity-
@@ -2893,8 +2960,11 @@ function describeVerticalMismatch(section: LeadgenSectionRow, allowedVerticals: 
 // action: pick a section under the quote's Activity, or change the quote's
 // Activity to match. Both call sites below share this ONE function so the
 // message can never drift between them.
+// (Q1 MINOR: "is a ${section.activity} section" carried the same broken article
+// as describeVerticalMismatch above — see that note for why the article is
+// removed rather than computed.)
 function describeActivityMismatch(section: LeadgenSectionRow, quoteActivity: string): string {
-  return `'${section.section_name}' is a ${section.activity} section, but this quote's Activity is ${quoteActivity} — pick a section under ${quoteActivity}, or change the quote's Activity to ${section.activity}.`;
+  return `'${section.section_name}' is under the ${section.activity} Activity, but this quote's Activity is ${quoteActivity} — pick a section under ${quoteActivity}, or change the quote's Activity to ${section.activity}.`;
 }
 
 // M5 remediation (P8-5 FIX-FIRST round 2, H2b): the inactive-section check
@@ -6090,14 +6160,14 @@ async function computeReworkActivationProblems(db: D1Database, quote: LeadgenQuo
     }
 
     // every active funnel has ≥1 page with ≥1 section (its active variant).
-    const perVariant: number[][] = [];
+    const perVariant: Array<{ funnelName: string; ids: number[] }> = [];
     const involved = new Set<number>(sharedIds);
     for (const f of activeFunnels) {
       const variants = await readActiveFunnelVariants(db, f.id);
       let hasSections = false;
       for (const v of variants) {
         const ids = await variantSectionIds(db, v.id);
-        perVariant.push(ids);
+        perVariant.push({ funnelName: f.funnel_name, ids });
         for (const id of ids) involved.add(id);
         if (ids.length > 0) hasSections = true;
       }
@@ -6120,9 +6190,15 @@ async function computeReworkActivationProblems(db: D1Database, quote: LeadgenQuo
     const nameMap = await sectionNameMap(db, [...involved]);
     const nameOf = (id: number): string => nameMap.get(id) ?? ORPHANED_SECTION_LABEL;
     const seen = new Set<string>();
-    const scopes = perVariant.length > 0 ? perVariant : [[]];
-    for (const ids of scopes) {
-      for (const m of sectionUniquenessMessages(sharedIds, ids, nameOf)) {
+    // Q1: nothing is being SAVED here — this re-checks two already-saved
+    // surfaces, so a cross-surface collision really is on both and the sentence
+    // says both (the report's own doctrine: "either copy can go, so there are
+    // two candidate controls, not one" — quotes-tabs/activation.ts). The funnel
+    // is named because a quote-level publish report has no "this funnel".
+    const scopes: Array<{ funnelName: string | null; ids: number[] }> =
+      perVariant.length > 0 ? perVariant : [{ funnelName: null, ids: [] }];
+    for (const { funnelName, ids } of scopes) {
+      for (const m of sectionUniquenessMessages(sharedIds, ids, nameOf, { saving: null, funnelName })) {
         if (!seen.has(m)) {
           seen.add(m);
           out.push(mk("activation.section_uniqueness", m));

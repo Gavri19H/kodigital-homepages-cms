@@ -556,6 +556,175 @@ d("leadgen rework handlers (S1.4)", () => {
     expect(Object.keys(save.json.fields)).toEqual(["sections.uniqueness.1"]);
   });
 
+  // Q1 (P8-6 FIX-FIRST): N19's sentence was chosen by "is the id in the SHARED
+  // list?", and on a shared-page save the shared list is the one being
+  // SUBMITTED — so the refusal claimed a section was "already on the Shared
+  // first page" while it actually sat in a FUNNEL, inverting the very defect
+  // N19 existed to remove. Driven repro before the fix (live :8901):
+  //   PUT /quotes/lgq_01KZ271383Y0MPV4BM2WKKCC4W/shared-page
+  //     {"slots":[<shared>, <RVW2D Delta …>]}
+  //   → "'RVW2D Delta Unique Drop Probe 8842' is already on the Shared first
+  //      page …"  while GET /shared-page showed that section in Funnel A.
+  // The test above only ever drove the other direction, which is why it stayed
+  // green. Every A-4 CALL SITE is enumerated below (grep
+  // sectionUniquenessMessages / sharedPageUniquenessErrors /
+  // variantSaveUniquenessErrors in quotes-handlers.ts — 5, not the 4 save
+  // paths alone): each one now names the surface the section is ACTUALLY on.
+  const A4_FUNNEL_A = "Q — Funnel A"; // the funnel createQuote seeds for quote "Q"
+
+  it("A-4 site 1/5 — POST /quotes/:id/shared-page (`sections`, create): the copy is in a FUNNEL, so the refusal names that funnel, never the not-yet-existing Shared page", async () => {
+    const h = harness();
+    const q = await newQuote(h);
+    const s = seedSection(h.sdb, "Funnel Only Section");
+    expect((await req(h, "PUT", `/variants/${q.variantPublic}`, { sections: [{ section_id: s.id, position: 0 }] })).status).toBe(200);
+    const create = await req(h, "POST", `/quotes/${q.quotePublic}/shared-page`, { sections: [{ section_id: s.id, position: 0 }] });
+    expect(create.status, JSON.stringify(create.json)).toBe(400);
+    expect(Object.values(create.json.fields)).toContain(
+      `'Funnel Only Section' is already in the funnel '${A4_FUNNEL_A}' — a section can appear once per funnel.`,
+    );
+    // FAIL-BEFORE: the old sentence sent the operator to a Shared column that
+    // does not even exist on this path — the page is created by THIS call.
+    expect(JSON.stringify(create.json.fields)).not.toContain("on the Shared first page");
+    expect((await req(h, "GET", `/quotes/${q.quotePublic}/shared-page`)).json.shared_page).toBeNull();
+  });
+
+  it("A-4 site 2/5 — PUT /quotes/:id/shared-page (`sections`): names the funnel that holds the other copy, and names EVERY such funnel", async () => {
+    const h = harness();
+    const q = await newQuote(h);
+    const anchor = seedSection(h.sdb, "Anchor");
+    const s = seedSection(h.sdb, "Two Funnel Section");
+    await req(h, "POST", `/quotes/${q.quotePublic}/shared-page`, { sections: [{ section_id: anchor.id, position: 0 }] });
+    // a SECOND funnel also holding the section — the operator has two places to go
+    const f2 = await req(h, "POST", `/quotes/${q.quotePublic}/funnels`, { funnel_name: "Second Funnel" });
+    const v2 = f2.json.variants[0].public_id as string;
+    expect((await req(h, "PUT", `/variants/${q.variantPublic}`, { sections: [{ section_id: s.id, position: 0 }] })).status).toBe(200);
+    expect((await req(h, "PUT", `/variants/${v2}`, { sections: [{ section_id: s.id, position: 0 }] })).status).toBe(200);
+
+    const save = await req(h, "PUT", `/quotes/${q.quotePublic}/shared-page`, {
+      sections: [{ section_id: anchor.id, position: 0 }, { section_id: s.id, position: 1 }],
+    });
+    expect(save.status, JSON.stringify(save.json)).toBe(400);
+    const msgs = Object.values(save.json.fields) as string[];
+    expect(msgs).toContain(`'Two Funnel Section' is already in the funnel '${A4_FUNNEL_A}' — a section can appear once per funnel.`);
+    expect(msgs).toContain("'Two Funnel Section' is already in the funnel 'Second Funnel' — a section can appear once per funnel.");
+    expect(JSON.stringify(save.json.fields)).not.toContain("on the Shared first page");
+    // and the save really was refused: the shared page still holds only Anchor
+    const after = await req(h, "GET", `/quotes/${q.quotePublic}/shared-page`);
+    expect(after.json.shared_page.sections.map((x: { section_name: string }) => x.section_name)).toEqual(["Anchor"]);
+  });
+
+  it("A-4 site 3/5 — PUT /quotes/:id/shared-page (`slots`, the reviewer's driven shape): same funnel-named refusal, and the slot save is rejected", async () => {
+    const h = harness();
+    const q = await newQuote(h);
+    const anchor = seedSection(h.sdb, "Anchor");
+    const s = seedSection(h.sdb, "Slot Drop Section");
+    await req(h, "POST", `/quotes/${q.quotePublic}/shared-page`, { sections: [{ section_id: anchor.id, position: 0 }] });
+    expect((await req(h, "PUT", `/variants/${q.variantPublic}`, { sections: [{ section_id: s.id, position: 0 }] })).status).toBe(200);
+
+    const save = await req(h, "PUT", `/quotes/${q.quotePublic}/shared-page`, {
+      slots: [{ kind: "fixed", section_id: anchor.public_id }, { kind: "fixed", section_id: s.public_id }],
+    });
+    expect(save.status, JSON.stringify(save.json)).toBe(400);
+    expect(Object.values(save.json.fields)).toContain(
+      `'Slot Drop Section' is already in the funnel '${A4_FUNNEL_A}' — a section can appear once per funnel.`,
+    );
+    expect(JSON.stringify(save.json.fields)).not.toContain("on the Shared first page");
+    const after = await req(h, "GET", `/quotes/${q.quotePublic}/shared-page`);
+    expect(after.json.shared_page.sections.map((x: { section_name: string }) => x.section_name)).toEqual(["Anchor"]);
+  });
+
+  it("A-4 site 3/5 (unchanged side) — a shared save that repeats a section WITHIN ITS OWN list still names the Shared first page", async () => {
+    const h = harness();
+    const q = await newQuote(h);
+    const s = seedSection(h.sdb, "Twice On Shared");
+    const save = await req(h, "PUT", `/quotes/${q.quotePublic}/shared-page`, {
+      slots: [{ kind: "fixed", section_id: s.public_id }, { kind: "fixed", section_id: s.public_id }],
+    });
+    expect(save.status, JSON.stringify(save.json)).toBe(400);
+    expect(Object.values(save.json.fields)).toEqual([
+      "'Twice On Shared' is already on the Shared first page — every visitor sees that page first, so a section can appear once per funnel.",
+    ]);
+  });
+
+  it("A-4 site 4/5 — PUT /variants/:id: the `pages` shape refuses like `sections` (Shared first page), and a repeat inside the submitted plan says 'this funnel' — the ONE path where that phrase has an antecedent", async () => {
+    const h = harness();
+    const q = await newQuote(h);
+    const shared = seedSection(h.sdb, "On Shared");
+    const own = seedSection(h.sdb, "Own Section");
+    await req(h, "POST", `/quotes/${q.quotePublic}/shared-page`, { sections: [{ section_id: shared.id, position: 0 }] });
+
+    // (a) cross-surface, via the `pages`/slots shape (not just flat `sections`)
+    const viaPages = await req(h, "PUT", `/variants/${q.variantPublic}`, {
+      pages: [{ name: null, slots: [{ kind: "fixed", section_id: shared.public_id }] }],
+    });
+    expect(viaPages.status, JSON.stringify(viaPages.json)).toBe(400);
+    expect(Object.values(viaPages.json.fields)).toContain(
+      "'On Shared' is already on the Shared first page — every visitor sees that page first, so a section can appear once per funnel.",
+    );
+    expect(JSON.stringify(viaPages.json.fields)).not.toContain("in the funnel");
+
+    // (b) internal repeat inside the funnel's OWN submitted plan → "this funnel"
+    const internal = await req(h, "PUT", `/variants/${q.variantPublic}`, {
+      sections: [{ section_id: own.id, position: 0 }, { section_id: own.id, position: 1 }],
+    });
+    expect(internal.status, JSON.stringify(internal.json)).toBe(400);
+    expect(Object.values(internal.json.fields)).toContain(
+      "'Own Section' is already in this funnel — a section can appear once per funnel.",
+    );
+    expect(JSON.stringify(internal.json.fields)).not.toContain("Shared first page");
+  });
+
+  it("A-4 site 5/5 — the activation preflight re-check: NOTHING is being saved, both copies are real, so the block names BOTH surfaces (and the funnel by name — a quote-level report has no 'this funnel')", async () => {
+    const h = harness();
+    const q = await newQuote(h);
+    const s = seedSection(h.sdb, "Both Surfaces");
+    await req(h, "POST", `/quotes/${q.quotePublic}/shared-page`, { sections: [{ section_id: s.id, position: 0 }] });
+    // The save paths REFUSE this state, so reach it the only way it occurs in
+    // the wild — rows that predate the guard, written straight to the table.
+    const vid = (h.sdb.prepare("SELECT id FROM leadgen_funnel_variants WHERE public_id = ?").get(q.variantPublic) as { id: number }).id;
+    h.sdb.prepare("INSERT INTO leadgen_funnel_variant_sections (variant_id, section_id, position) VALUES (?, ?, 0)").run(vid, s.id);
+
+    const panel = await req(h, "GET", `/quotes/${q.quotePublic}/activation`);
+    expect(panel.status).toBe(200);
+    const problems = panel.json.activation_preflight.problems as Array<{ path: string; message: string }>;
+    const uniq = problems.filter((p) => p.path === "activation.section_uniqueness");
+    expect(uniq.map((p) => p.message)).toEqual([
+      `'Both Surfaces' is on the Shared first page and in the funnel '${A4_FUNNEL_A}' — a section can appear once per funnel.`,
+    ]);
+    // FAIL-BEFORE: half the truth ("…already on the Shared first page") left the
+    // operator with no way to find the other copy the report is blocking on.
+    expect(JSON.stringify(uniq)).toContain(A4_FUNNEL_A);
+  });
+
+  // Q1 MINOR: Activity/Vertical are operator-authored free text, so "is a
+  // ${value} section" produced "is a auto section" / "is a insurance section".
+  // No article can be computed for arbitrary operator words, so the sentences
+  // no longer take one — asserted for a vowel-initial AND a consonant-initial
+  // value on BOTH messages, so a re-introduced article fails here.
+  it("Q1 MINOR: the activity/vertical mismatch messages are grammatical for ANY operator-authored value (no 'a auto' / 'a insurance')", async () => {
+    const h = harness();
+    const q = await newQuote(h); // activity 'quote_funnel', verticals ['life']
+    const cases: Array<{ name: string; vertical?: string; activity?: string; token: string }> = [
+      { name: "Vowel Vertical", vertical: "auto", token: "auto" },
+      { name: "Consonant Vertical", vertical: "finance", token: "finance" },
+      { name: "Vowel Activity", activity: "insurance", token: "insurance" },
+      { name: "Consonant Activity", activity: "mortgage", token: "mortgage" },
+    ];
+    for (const c of cases) {
+      const sec = c.vertical !== undefined
+        ? seedSectionInVertical(h.sdb, c.name, c.vertical)
+        : seedSectionInActivity(h.sdb, c.name, c.activity as string);
+      const res = await req(h, "PUT", `/variants/${q.variantPublic}`, { sections: [{ section_id: sec.id, position: 0 }] });
+      expect(res.status, JSON.stringify(res.json)).toBe(400);
+      const msg = res.json.fields["sections.0"] as string;
+      expect(msg, c.name).toContain(c.name); // still the operator's own section name
+      expect(msg, c.name).toContain(c.token); // still names the offending value
+      expect(msg, c.name).not.toMatch(/\ba an?\b|\ban a\b/); // no doubled article
+      expect(msg, `${c.name}: broken article`).not.toContain(`a ${c.token}`);
+      expect(msg, `${c.name}: broken article`).not.toContain(`an ${c.token}`);
+    }
+  });
+
   // --- M-2 (P8-5 FIX-FIRST): vertical-mismatch save error is operator-facing,
   // not raw internals — covers BOTH call sites that share describeVerticalMismatch
   // (resolveSectionOrder's `sections` path AND preparePages's `pages`/`slots`
