@@ -382,6 +382,142 @@ describe("P3b quote-rules rail — the island is strict ES5 + mirrors deriveRule
   });
 });
 
+// ---------------------------------------------------------------------------
+// P8-6 N4 — the checkpoint page number is the BOARD's ordinal, never `position`
+// ---------------------------------------------------------------------------
+//
+// Why the FUNNELS fixture above cannot prove this: its positions are 1,2 — dense
+// AND 1-based, so the stored `position`, `position + 1` and the board ordinal
+// (array index + 1) all collide on the same digits and every implementation
+// reads "page 2". The trap the fix exists for is a funnel whose `position`
+// values are SPARSE: `position` is an opaque per-funnel key, and the board
+// (quotes-tabs/funnel.ts renderBoardPageCard) numbers its cards "Page " +
+// (index + 1) regardless of it. So a rule whose checkpoint lands on the THIRD
+// card must read "page 3" whatever number is stored on that page.
+//
+// This fixture discriminates all three candidate implementations:
+//   stored position     -> 0 / 5 / 9
+//   position + 1        -> 1 / 6 / 10
+//   board ordinal (fix) -> 1 / 2 / 3   <- the only one the board agrees with
+
+const SPARSE_FUNNELS = [
+  {
+    id: 7,
+    public_id: "lgf_sparse",
+    name: "Sparse Funnel",
+    is_default: true,
+    // a funnel whose pages were reordered/deleted over its life: the array is
+    // board order, the numbers are whatever survived.
+    pages: [
+      { position: 0, fields: ["sp_first"] },
+      { position: 5, fields: ["sp_middle"] },
+      { position: 9, fields: ["sp_last"] },
+    ],
+  },
+];
+const SPARSE_ANSWER_FIELDS = [
+  { internal_field: "sp_first", label: "First answer" },
+  { internal_field: "sp_middle", label: "Middle answer" },
+  { internal_field: "sp_last", label: "Last answer" },
+];
+
+function sparseRule(field: string, priority: number): QuoteRulesRailRule {
+  return {
+    public_id: "lgqr_sparse_" + field,
+    rule_name: "Rule on " + field,
+    priority,
+    status: "active",
+    match_mode: "all",
+    conditions_json: conds(field, "eq", "x"),
+    target_funnel_id: 7,
+    feed_name: "short",
+    value_multiplier: null,
+    redirect_pct: null,
+    target_offer_id: null,
+    redirect_url: null,
+    redirect_url_allowlisted: false,
+  };
+}
+
+function sparseRailData(): QuoteRulesRailData {
+  return {
+    quote_public_id: "lgq_sparse",
+    rules: [sparseRule("sp_first", 1), sparseRule("sp_middle", 2), sparseRule("sp_last", 3)],
+    funnels: SPARSE_FUNNELS,
+    default_funnel_id: 7,
+    shared_page_fields: [],
+    answer_fields: SPARSE_ANSWER_FIELDS,
+    offers: OFFERS,
+    feed_values: ["long_pii", "short", "medium"],
+  };
+}
+
+function sparseIslandFunnels(): { name: string; pages: { position: number; fields: string[] }[] }[] {
+  return SPARSE_FUNNELS.map((f) => ({
+    name: f.name,
+    pages: f.pages.map((p) => ({ position: p.position, fields: p.fields.slice() })),
+  }));
+}
+function sparseTsFunnels(): RuleCheckpointFunnel[] {
+  return SPARSE_FUNNELS.map((f) => ({
+    id: f.id,
+    publicId: f.public_id,
+    name: f.name,
+    pages: f.pages.map((p) => ({ position: p.position, fields: new Set(p.fields) })),
+  }));
+}
+
+describe("P8-6 N4 — sparse page positions: the checkpoint prints the BOARD ordinal", () => {
+  it("SSR: pages stored at position 0/5/9 render as page 1/2/3", () => {
+    const html = renderQuoteRulesRail(sparseRailData());
+    expect(cardCheckpoints(html)).toEqual([
+      "In funnel Sparse Funnel — page 1",
+      "In funnel Sparse Funnel — page 2",
+      "In funnel Sparse Funnel — page 3",
+    ]);
+  });
+
+  it("island mirror: the SAME 1/2/3, off the SAME sparse funnel list", () => {
+    const api = islandApi();
+    const expected = ["page 1", "page 2", "page 3"];
+    const fields = ["sp_first", "sp_middle", "sp_last"];
+    for (let i = 0; i < fields.length; i += 1) {
+      const cp = api.deriveCheckpoint([fields[i]!], [], sparseIslandFunnels());
+      expect(cp.plane, fields[i]).toBe("in_funnel");
+      expect(api.checkpointLabelOf(cp, sparseIslandFunnels()), fields[i]).toBe(
+        "In funnel Sparse Funnel — " + expected[i],
+      );
+    }
+  });
+
+  // The discriminator, stated as an assertion: the checkpoint the derivation
+  // hands to the label carries the RAW stored position, and the label prints a
+  // DIFFERENT number. `pagePosition` (0/5/9) and `pagePosition + 1` (1/6/10) are
+  // both structurally excluded here, not merely coincidentally equal.
+  it("the label number is NOT the checkpoint's pagePosition and NOT pagePosition + 1", () => {
+    const api = islandApi();
+    const rows: Array<{ field: string; position: number; ordinal: number }> = [
+      { field: "sp_first", position: 0, ordinal: 1 },
+      { field: "sp_middle", position: 5, ordinal: 2 },
+      { field: "sp_last", position: 9, ordinal: 3 },
+    ];
+    const printed: number[] = [];
+    for (const row of rows) {
+      const truth = deriveRuleCheckpoint([row.field], new Set<string>(), sparseTsFunnels());
+      const mirror = api.deriveCheckpoint([row.field], [], sparseIslandFunnels());
+      // the SHARED derivation and the island mirror both carry the raw position
+      expect(truth.pagePosition, row.field).toBe(row.position);
+      expect(mirror.pagePosition, row.field).toBe(row.position);
+      // …and the rendered label prints the board ordinal instead
+      const label = api.checkpointLabelOf(mirror, sparseIslandFunnels());
+      printed.push(Number(label.slice(label.lastIndexOf(" ") + 1)));
+    }
+    expect(printed).toEqual(rows.map((r) => r.ordinal)); //  1,2,3 — the board
+    expect(printed).not.toEqual(rows.map((r) => r.position)); // 0,5,9 — raw position
+    expect(printed).not.toEqual(rows.map((r) => r.position + 1)); // 1,6,10 — position + 1
+  });
+});
+
 describe("P3b §13-D5 (pure SSR) — the relocated editor's static shell + quote-rules-rail exclusion", () => {
   const FOUR_TYPES = ["eligibility", "disqualification", "auction_entry", "redirect_direct_offer"];
 
