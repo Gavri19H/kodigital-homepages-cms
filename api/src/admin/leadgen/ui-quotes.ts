@@ -45,11 +45,18 @@ import { loadVariantPages, type ResolvedFunnelPage } from "../../public/leadgen/
 // section context that makes its Address branch name the key the MARKUP
 // carries; flattenComponents is the shared container/QuestionGrid descent.
 import { fieldsOf as leadgenAnswerFieldsOf } from "../../leadgen/answers";
-import { collectAnswerKeyClaims, foreignAnswerKeysIn } from "../../public/leadgen/components/presets";
+import {
+  collectAnswerKeyClaims,
+  foreignAnswerKeysIn,
+  // T1: the renderer's OWN per-role address key resolution — probed one role at
+  // a time to recover which role a derived key answers (derivedFieldRole).
+  leadgenAddressAnswerFields,
+} from "../../public/leadgen/components/presets";
 import {
   flattenComponents,
   leadgenComponentName,
   leadgenControlLabel,
+  LEADGEN_ADDRESS_FIELD_KINDS,
   type LeadgenComponentNode,
 } from "../../public/leadgen/components/content-schema";
 import {
@@ -996,7 +1003,8 @@ interface QuoteRulesRailRuleWire {
 // — raw ids in an operator sentence (§12.4 "raw storage keys never surface").
 // `props.label` is the question's OWN words (the same source the studio's grid
 // rows and dependency sentences read); a question that has none falls back to
-// its field id, so the rail is never blank.
+// its field id, so the rail is never blank (T1: DELIBERATE — see the fallback
+// itself, in quoteRailAnswerFields).
 // R2 P7 (register ADJ-N8) — the OTHER half of the same sentence. MINOR-1 fixed
 // the FIELD side; the VALUE side kept printing the stored choice slug, so the
 // card read "… is excellent_rvw7q3" — literally the jargon owner A.1 #11C
@@ -1043,18 +1051,138 @@ function questionChoicesOf(node: unknown): RulesBuilderFieldChoice[] {
   }
   return out;
 }
-// R2 P8-6 FIX-FIRST S1 — a DERIVED sub-field has no node of its own, so it has
-// no props.label to read: its operator words are the OWNING question's own
-// words (falling back to that question's operator-facing type name, never a
-// storage id — §12.4) plus the role, humanized off the key the derivation
-// produced (leadgenControlLabel: "min" → "Min", "zip" → "Zip"). The role suffix
-// is TEXT arithmetic on a key this function is HANDED — it never decides which
-// keys exist. "Where do you live? — Zip", "Budget — Max", "Your name — Given".
-function derivedSubFieldLabel(node: LeadgenComponentNode, own: string, field: string): string {
+// R2 P8-6 FIX-FIRST T1 — the ROLE's word, never the key's.
+//
+// S1 built this suffix by TEXT ARITHMETIC on the derived key (strip a leading
+// `{own}_`, humanize what is left). That is only ever right by coincidence: the
+// key a derivation produces is not required to be `{own}_{role}`, and when it
+// is not, the whole raw storage id became the operator's word — exactly the
+// §12.4 leak the S1 label work existed to close. MEASURED before this fix
+// (npx tsx over quoteRailAnswerFields, api/):
+//   NameFieldsGroup props.fields ["p8n_mg_first","p8n_mg_last"]
+//     → "Your name — P8n mg first" / "— P8n mg last"   (whole key, humanized)
+//   Address internal_field "addr" + props.maps.fills.zip "p8n_mg_postal"
+//     (authorable from the real Studio Maps tab, ui-section-studio.ts:3202-3211)
+//     → "Where do you live? — P8n mg postal"
+//   Address internal_field "p8n_mg" + the same fill → "— Postal"
+// and the Studio names those same three keys "Name — First", "Name — Last",
+// "Address — ZIP" (ui-section-studio.ts:5596-5615), so the rail and the Studio
+// disagreed about one field.
+//
+// The role is NOT re-derived here from key shape: it is recovered by asking the
+// SAME canonical derivation that minted the key which role it belongs to.
+// leadgenAddressAnswerFields IS renderAddressAutocompleteQuestion's own
+// resolution (props.maps.fills.<slot> override, the P8-5 H1 sibling-collision
+// decline, `{base}_{slot}` otherwise), so probing it ONE role at a time — the
+// same node, the same base, the same fills, the same foreignAnswerKeys, a
+// single-entry fields[] — returns exactly the name that role's box carries in
+// the real render. NameFieldsGroup parts are props.fields[0]/[1] (answers.ts
+// asStringArray's own filter + its ["first","last"] fallback; the renderer emits
+// data-name-field="first"/"last" and collectAnswerKeyClaims claims those two
+// only), and a dual_range/from_to slider is `{base}_min`/`{base}_max`.
+//
+// SEAM (owner ask "reuse the Studio's labelling, not a fourth copy"): the
+// Studio's sectionFieldLabels is ES5 BROWSER-ISLAND source living inside
+// SECTION_STUDIO_SCRIPT — it reads client `state.content` through the island's
+// own walkTree/typeLabel/trimStr. A server-side rail builder cannot call it
+// without inverting the layer (server depending on the studio's browser
+// runtime), and hoisting it into a shared module means editing
+// ui-section-studio.ts, which this slice does not own. So the ROLE WORDS below
+// are one copy of the Studio's own literals, pinned byte-for-byte to the island
+// source by test/leadgen-quotes-ui.test.ts ("the rail's role words ARE the
+// Studio's role words") — the two cannot drift silently. Everything with an
+// exported operator word already (min/max → leadgenControlLabel, the parent's
+// type name → leadgenComponentName) reuses it instead of re-listing it.
+const DERIVED_ROLE_WORDS: Readonly<Record<string, string>> = {
+  // ui-section-studio.ts:5597 slRoles
+  street: "Street",
+  city: "City",
+  state: "State",
+  zip: "ZIP",
+  // ui-section-studio.ts:5612-5613
+  first: "First",
+  last: "Last",
+};
+
+// The key ONE address role's box carries — leadgenAddressAnswerFields with a
+// single-role fields[], so the resolution (and its collision decline) is the
+// renderer's, not a copy. m9AddressRenderedFieldName reads base/fills/kind/
+// foreign only, never the sibling specs, so a one-role probe is exact.
+function addressRoleKey(
+  node: LeadgenComponentNode,
+  kind: string,
+  foreign: ReadonlySet<string>,
+): string | undefined {
+  const probe = {
+    ...node,
+    props: { ...(node.props ?? {}), fields: [{ field: kind }] },
+  } as LeadgenComponentNode;
+  return leadgenAddressAnswerFields(probe, foreign)[0];
+}
+
+// Which role of its owning question this derived key answers, or null when the
+// question type has no role vocabulary for it.
+function derivedFieldRole(
+  node: LeadgenComponentNode,
+  own: string,
+  field: string,
+  foreign: ReadonlySet<string>,
+): string | null {
+  if (node.type === "AddressAutocompleteQuestion") {
+    // LAST match wins, matching the Studio's own slRoles loop (it assigns
+    // without breaking), so a fill that lands two roles on one key reads the
+    // same word in both surfaces. full_address is judged after the slots — it
+    // is the whole-address composite, not a role, and the Studio's loop has no
+    // entry for it either.
+    let role: string | null = null;
+    for (const kind of LEADGEN_ADDRESS_FIELD_KINDS) {
+      if (kind === "full_address") continue;
+      if (addressRoleKey(node, kind, foreign) === field) role = kind;
+    }
+    if (role !== null) return role;
+    return addressRoleKey(node, "full_address", foreign) === field ? "full_address" : null;
+  }
+  if (node.type === "NameFieldsGroup") {
+    const raw = node.props?.["fields"];
+    const authored = Array.isArray(raw)
+      ? raw.filter((v): v is string => typeof v === "string" && v.trim() !== "")
+      : [];
+    const parts = authored.length > 0 ? authored : ["first", "last"];
+    if (field === parts[0]) return "first";
+    if (field === parts[1]) return "last";
+    return null;
+  }
+  if (node.type === "NumberRangeQuestion" && own !== "") {
+    if (field === own + "_min") return "min";
+    if (field === own + "_max") return "max";
+  }
+  return null;
+}
+
+// A DERIVED sub-field has no node of its own, so it has no props.label to read:
+// its operator words are the OWNING question's own words (falling back to that
+// question's operator-facing type name, never a storage id — §12.4) plus the
+// ROLE's word. "Where do you live? — ZIP", "Percent band — Max",
+// "Your name — First".
+//
+// Two suffix-less cases, both deliberate: a lone `full_address` composite IS
+// the whole question (its one key holds the entire address, so the question's
+// own words already name it exactly), and a key whose role the derivation does
+// not recognise falls back to the parent's words ALONE. The old fallback —
+// humanizing the raw key — is the leak this function exists to prevent, so
+// "unknown role" must degrade to a less specific TRUE label, never to a
+// storage id.
+function derivedSubFieldLabel(
+  node: LeadgenComponentNode,
+  own: string,
+  field: string,
+  foreign: ReadonlySet<string>,
+): string {
   const parent =
     questionLabelOf(node) ?? leadgenComponentName(typeof node.type === "string" ? node.type : "");
-  const tail = own !== "" && field.startsWith(own + "_") ? field.slice(own.length + 1) : field;
-  return parent + " — " + leadgenControlLabel(tail);
+  const role = derivedFieldRole(node, own, field, foreign);
+  if (role === null || role === "full_address") return parent;
+  return parent + " — " + (DERIVED_ROLE_WORDS[role] ?? leadgenControlLabel(role));
 }
 
 // ONE section's answer-field universe, in tree order — THE keys a visitor
@@ -1111,7 +1239,12 @@ function sectionAnswerFieldEntries(components: readonly unknown[]): SectionField
   for (const leaf of flattenComponents(nodes)) {
     if (leaf === null || typeof leaf !== "object") continue;
     const own = typeof leaf.internal_field === "string" ? leaf.internal_field : "";
-    for (const spec of leadgenAnswerFieldsOf(leaf, foreignAnswerKeysIn(claims, leaf))) {
+    // ONE section-context set per leaf: the derivation reads it to name the key
+    // the markup carries, and derivedSubFieldLabel reads the SAME one to ask
+    // which role that key belongs to (a second, differently-built set could
+    // resolve a collision the other way and re-open the disagreement).
+    const foreign = foreignAnswerKeysIn(claims, leaf);
+    for (const spec of leadgenAnswerFieldsOf(leaf, foreign)) {
       if (spec.field === "") continue;
       out.push(
         spec.field === own
@@ -1120,7 +1253,7 @@ function sectionAnswerFieldEntries(components: readonly unknown[]): SectionField
               internal_field: spec.field,
               // A derived sub-field carries no enum domain of its own ⇒ no
               // choices (the ADJ-N8 value side has nothing to resolve).
-              label: derivedSubFieldLabel(leaf, own, spec.field),
+              label: derivedSubFieldLabel(leaf, own, spec.field, foreign),
               choices: [],
             },
       );
@@ -1162,6 +1295,22 @@ export function quoteRailAnswerFields(available: readonly AvailableSection[]): Q
       // ADJ-N8: the value side rides with the field side — `choices` is the
       // authored value→label map for a choice question, absent for every
       // free-text/number field (which keeps rendering its value verbatim).
+      //
+      // T1, DELIBERATE — the `?? entry.internal_field` below STAYS. A question
+      // with NO authored props.label reaches the picker as its raw key
+      // ("S · p8n_t1_plain", measured), and swapping that for the question's
+      // operator type name was tried and REVERTED: measured, the rail has no
+      // de-collision numbering (the Studio's sectionFieldLabels adds " (2)" to
+      // a repeated base — driven, its picker shows "Address — ZIP (2)" for a
+      // second address in one section, and this rail shows no such suffix), so
+      // two label-less same-type questions in one section would both read
+      // "S · Yes / No" — one unique key traded for two options an operator
+      // cannot tell apart. While there is no de-collision here, the id IS the
+      // only disambiguator, so it stays until that numbering lands. This is
+      // the ONLY surface where the rail prints a storage key, and only when
+      // the question carries no words of its own; a DERIVED sub-field never
+      // does (derivedSubFieldLabel, above, always has the owning question's
+      // words plus the role).
       fields.push(
         entry.choices.length > 0
           ? {
