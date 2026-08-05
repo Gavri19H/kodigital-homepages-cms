@@ -322,3 +322,25 @@ unaffected — it runs the whole suite with a bare `npx vitest run` — which is
 lane, is authoritative.
 **Rule: whenever a lane names specific files, count the `Test Files N passed` figure against the number of
 files you named.** A mismatch is a broken command, not a pass. Put that instruction in the dispatch.
+
+## Sequencing decision (2026-08-05): P8-6 runs BEFORE the review, and they share ONE review
+P8-5's second fix wave and P8-6 now get a **single combined adversarial review**. Reasons, both real:
+1. P8-4+P8-5+P8-6 already ship as ONE squash PR, so one review matching the PR is the honest unit.
+2. A reviewer drives the shared `wrangler dev`, and ANY `src/` save hot-reloads it under their browser —
+   that already cost a review a finding (`MINOR-5`). Serialising review-then-slices was adding a full
+   idle review cycle per phase. Running the slices first and reviewing once removes it.
+The cost is a bigger review scope; the brief must therefore enumerate BOTH waves' clauses explicitly.
+
+## Where P8-5 ended (gate run 7 GREEN at `f074da37`)
+`typecheck 0` · **8336 passed / 0 failed / 30 skipped (8366, 499 files)** · `verify:all` 0 ·
+bundle **53,124 / 53,248 (124 free)** · register **96 rows / 0 violations** · p3a **0 real lines** ·
+zero-drift **0 pre-existing removed**, +71 all additions, `7763 + 603 = 8366`.
+
+Wave 2 (after review #2's FIX-FIRST) closed, all driven: the `fills` time-of-check hole (a pick for an
+unrendered slot + "Add field" re-opened the collision), the activity-mismatch ULID that short-circuited
+BEFORE the already-fixed vertical message, the canvas fabricating a `validation_error` on rule-less text,
+and — found beyond the contract — a `from_to` typed value silently rewritten before the buyer saw it
+(ADJ-P8-51), a payload builder offering an address key the page never renders, the auction ZIP facet
+resolving to `null`, the operator's ZIP report inspecting the wrong box, and a **visitor blocked from
+continuing** by a runtime validator reading a sibling's free text — fixed at the producer for **0 runtime
+bytes** after the in-runtime fix was measured at +499 and correctly refused.
