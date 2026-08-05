@@ -196,8 +196,17 @@ describe("frame-config-serialization — enum violations produce path-precise pr
     expect(problems).toHaveLength(1);
     const problem = problems[0];
     expect(problem).toMatchObject({ path: "frame.progress.style", scope: "frame", severity: "error" });
-    for (const allowed of ["hidden", "bar", "dots", "numbered", "percent"]) {
-      expect(problem?.message).toContain(allowed);
+    // P8-6 Q8 re-pin. WAS: a loop asserting the message contained each of the
+    // 5 raw stored ids ("hidden", "bar", …) — which is exactly the raw-key dump
+    // M5 removes, so the old loop PINNED THE DEFECT. Now the whole sentence is
+    // pinned verbatim (STRONGER: word order, punctuation and the 6th value
+    // "Icon on track" are all covered, where the loop checked 5 substrings in
+    // any order), plus an explicit ban on the raw ids coming back.
+    expect(problem?.message).toBe(
+      "The progress 'style' setting must be one of: No progress bar, Bar, Dots, Numbered, Percent, Icon on track.",
+    );
+    for (const rawId of ["hidden", "icon_on_track", "under_header"]) {
+      expect(problem?.message, `raw stored id ${rawId} must not reach the operator`).not.toContain(rawId);
     }
   });
 
@@ -205,7 +214,16 @@ describe("frame-config-serialization — enum violations produce path-precise pr
     const bad = validateFrameConfig({ progress: { color_role: "hotpink" } });
     expect(bad.config).toBeNull();
     expect(bad.problems[0]?.path).toBe("frame.progress.color_role");
-    expect(bad.problems[0]?.message).toContain("brand_primary");
+    // P8-6 Q8 re-pin. WAS: .toContain("brand_primary") — the raw role id, which
+    // the M5 rewrite replaced with the operator's own "Brand primary". STRONGER
+    // now: the full sentence (all 14 role labels, in order) plus a ban on the
+    // raw id, instead of one substring.
+    expect(bad.problems[0]?.message).toBe(
+      "The progress 'color role' setting must be a theme colour role: Brand primary, Brand secondary, Accent, " +
+        "Success, Error, Page background, Card background, Soft fill, Border, Text, Muted text, Button, " +
+        "Button text, Secondary button.",
+    );
+    expect(bad.problems[0]?.message).not.toContain("brand_primary");
 
     expect(validateFrameConfig({ progress: { color_role: "accent" } }).problems).toEqual([]);
     const badBg = validateFrameConfig({ background: { role: "#FF0000" } });

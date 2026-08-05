@@ -248,11 +248,16 @@ describe("§6.8 slider types", () => {
   });
 
   it("rejects an unknown slider_type and rejects slider_type on a non-slider type", () => {
-    // Re-minted for M5: "single|dual_range" rewritten to the full plain-English
-    // enumeration — strictly a superset check (all 5 values, not 2).
-    expect(errAt(section([slider({ slider_type: "wheel" })]), "invalid_field_prop", "slider_type")?.message).toContain(
-      "single, dual_range, stepper, from_to or radial",
+    // P8-6 Q8 re-pin. WAS: .toContain("single, dual_range, stepper, from_to or
+    // radial") — the raw stored ids, which the M5 rewrite replaced with the
+    // slider-type picker's OWN card labels. STRONGER now: the entire sentence
+    // (labels, "or" joiner and the "Pick one of those." tail) is pinned rather
+    // than one substring of it, plus a ban on the underscored raw id.
+    const badSlider = errAt(section([slider({ slider_type: "wheel" })]), "invalid_field_prop", "slider_type");
+    expect(badSlider?.message).toBe(
+      "'Slider type' must be one of: Single, Dual range, Stepper, From / To or Radial. Pick one of those.",
     );
+    expect(badSlider?.message).not.toContain("dual_range");
     const notSlider = { type: "FreeTextQuestion", question_id: "q", internal_field: "t", props: { slider_type: "single" } };
     expect(errAt(section([notSlider]), "invalid_field_prop", "slider_type")?.message).toContain(
       "only available on a Slider",

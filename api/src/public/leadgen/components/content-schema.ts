@@ -1696,6 +1696,68 @@ type ContainerPropSpec = EnumPropSpec | IntPropSpec | StringPropSpec | BooleanPr
 const enumSpec = (values: readonly string[]): EnumPropSpec => ({ kind: "enum", values });
 const intSpec = (min: number, max: number): IntPropSpec => ({ kind: "int", min, max });
 
+// ---------------------------------------------------------------------------
+// P8-6 Q8 — THE CONTAINER-PROP ENUM SEAM (the twin of designs/frames.ts's
+// FRAME_ENUM_LABELS; same shape, same rules, so both raw-key paths in this
+// product now have ONE lookup each instead of ~40 call sites).
+//
+// Every vocabulary declared with `enumSpec()` in CONTAINER_PROP_SPECS below
+// reaches the operator through exactly ONE sentence: the `spec.kind === "enum"`
+// arm of validateContainerProps, which used to end in `orList(spec.values)` —
+// a raw dump of the STORED tokens ("xs, s, m, l or xl"). That arm now asks this
+// ONE registry for operator words first.
+//
+// Keyed by the vocabulary ARRAY ITSELF (enumSpec stores the `as const` array by
+// reference), so ONE row covers every prop that reuses it (LEADGEN_GAP_TOKENS
+// is 4 props) and cannot mislabel a token that means something else in another
+// vocabulary ("card" is a CardPanel background AND a BackgroundPanel one; "sm"
+// is a radius AND a shadow).
+//
+// NOT A GATE (§1): an unregistered vocabulary is NOT an error and never throws
+// — it renders today's exact sentence.
+//
+// DELIBERATELY EMPTY TODAY, and that is the honest answer, not an oversight.
+// All 15 vocabularies below were traced to their REAL operator control and
+// every one of them shows the STORED VALUE ITSELF: ui-section-studio.ts's
+// CONTAINER_PROP_CONTROLS rows (L1975+) render `options(control.values)`, i.e.
+// `<option value="wash">wash</option>` — the control has a labelled FIELD
+// ("Background token") but no labelled VALUES, so there is no operator wording
+// to converge with and inventing one here would put a word in the message that
+// the operator never sees on screen. The seam is still the win: each of these
+// is now ONE row away from reading properly, the day its control gets labels.
+//
+// The 15, and what their control shows:
+//   LEADGEN_GAP_TOKENS (xs/s/m/l/xl)        raw — Stack/Grid "Gap token", Spacer "Size token"
+//   LEADGEN_PANEL_SHADOWS (none/sm/md/lg/xl) raw — CardPanel "Shadow token"
+//   LEADGEN_PANEL_RADII (sm/md/lg/xl)        raw — CardPanel "Radius token"
+//   LEADGEN_PANEL_WIDTHS (s/m/l/full)        raw — CardPanel "Width preset"
+//   LEADGEN_PANEL_PADDINGS (s/m/l)           raw — CardPanel "Padding token"
+//   LEADGEN_PANEL_BACKGROUNDS (card/wash/ghost/transparent)   raw — "Background token"
+//   LEADGEN_BG_PANEL_BACKGROUNDS (card/wash/ghost/page/primary) raw — "Background token"
+//   LEADGEN_BG_PANEL_GRADIENTS (primary/accent/wash)          raw — "Gradient token"
+//   LEADGEN_GRID_SIZINGS (auto/equal)        raw — GridContainer "Card sizing"
+//   LEADGEN_COLUMN_RATIOS (50/50…70/30)      raw — Columns "Ratio preset"; already reads as English
+//   LEADGEN_COLUMN_MOBILE_MODES (stack/keep) raw — Columns "Mobile stacking"; already English
+//   LEADGEN_STACK_DIRECTIONS (vertical/horizontal) raw — Stack "Direction"; already English
+//   LEADGEN_STACK_ALIGNS (start/center/end/stretch) raw — Stack "Align"; already English
+//   LEADGEN_SPACER_VARIANTS (gap/line)       raw — Spacer "Style"; already English
+//   LEADGEN_IMAGE_FIT_MODES (cover/contain)  its control (renderImageFitControl)
+//     IS labelled, but as "Cover — fill the card, may crop": the head word
+//     differs from the stored value by CAPITALISATION only, the same exclusion
+//     the label maps in theme.ts/frames.ts already apply, and splicing the
+//     explanatory tail into a "must be one of:" list would read worse, not
+//     better.
+const CONTAINER_ENUM_LABELS: ReadonlyMap<readonly string[], Readonly<Record<string, string>>> = new Map<
+  readonly string[],
+  Readonly<Record<string, string>>
+>();
+
+// The one lookup. Unlabelled vocabulary -> today's exact `orList(values)`.
+function containerEnumList(values: readonly string[]): string {
+  const labels = CONTAINER_ENUM_LABELS.get(values);
+  return orList(labels === undefined ? values : values.map((v) => labels[v] ?? v));
+}
+
 // The per-type §8.5 prop tables (containers + the 3 layout leaves) PLUS the
 // A6 ImageCardAnswerGrid `image_fit` component prop (05 §5.5) — the
 // non-container walk applies the same optional-prop enum validation for any
@@ -1781,7 +1843,8 @@ function validateContainerProps(
         push(
           "container_prop_invalid",
           path,
-          `'${leadgenControlLabel(key)}' on the ${leadgenComponentName(type)} must be one of: ${orList(spec.values)}. Pick one of those.`,
+          // P8-6 Q8: the ONE place every enumSpec() vocabulary is spoken aloud.
+          `'${leadgenControlLabel(key)}' on the ${leadgenComponentName(type)} must be one of: ${containerEnumList(spec.values)}. Pick one of those.`,
         );
       }
     } else if (spec.kind === "int") {

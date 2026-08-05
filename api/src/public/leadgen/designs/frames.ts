@@ -1327,6 +1327,109 @@ const FRAME_CTA_SLOT_LABELS: Readonly<Record<string, string>> = {
   footer: "Footer",
 };
 
+// ---------------------------------------------------------------------------
+// P8-6 Q8 — THE ENUM SEAM.
+//
+// Every closed vocabulary declared with `oneOf()` in FRAME_GROUP_SPECS above
+// reaches the operator through exactly ONE sentence: the `case "enum"` arm of
+// validateField, which used to end in `spec.values.join(", ")` — a raw dump of
+// the STORED ids ("icon_on_track, under_header, brand_gradient"). Instead of
+// rewriting ~26 call sites, that ONE arm now asks this ONE registry whether the
+// vocabulary it was handed has operator words, and renders them when it does.
+//
+// Keyed by the vocabulary ARRAY ITSELF: `oneOf` stores the `as const` array by
+// reference, so ONE row here covers EVERY field that reuses that vocabulary
+// (FRAME_SIZES alone is 4 fields), and a future vocabulary becomes readable by
+// adding one row — never by touching the message. Keying by array rather than
+// by value is also what makes it SAFE: the same stored id means different
+// things in different vocabularies ("full" is Full width on a progress bar and
+// "site" is a different source for a logo than for legal links), so a global
+// value->label table would mislabel; a per-vocabulary table cannot.
+//
+// NOT A GATE (§1): an unregistered vocabulary is NOT an error and never
+// throws. `?? v` per value (labelList) and the `undefined` branch per
+// vocabulary keep today's exact sentence for everything unlabelled — the
+// stored value is the honest answer where no operator control names it.
+//
+// Registered ONLY where a REAL operator control was read, cited per row, and
+// converged VERBATIM with it — kept as local data for the same PURE-module
+// reason as the label maps above (several admin files import
+// validateFrameConfig FROM here, so importing labels back from admin would
+// invert the boundary). Vocabularies whose control differs from the stored
+// value by CAPITALISATION only (FRAME_LOGO_ALIGNS / FRAME_PROGRESS_ALIGNS /
+// FRAME_SLOT_ALIGNS -> Left/Center/Right) are DELIBERATELY absent, the same
+// rule the label maps above already follow: that already reads as plain
+// English in a sentence, and is not the jargon class.
+const FRAME_PROGRESS_STYLE_LABELS: Readonly<Record<string, string>> = {
+  // quotes-tabs/templates.ts PROGRESS_STYLE_LABELS (the one map its picker,
+  // saved-template pill and apply-confirm sentences all read from).
+  hidden: "No progress bar",
+  bar: "Bar",
+  dots: "Dots",
+  numbered: "Numbered",
+  percent: "Percent",
+  icon_on_track: "Icon on track",
+};
+const FRAME_PROGRESS_ICON_LABELS: Readonly<Record<string, string>> = {
+  // quotes-tabs/templates.ts frameSelect("Marker icon", "progress.icon", …).
+  dot: "Plain dot",
+  car: "Car",
+  shield: "Shield",
+  check: "Checkmark",
+  star: "Star",
+  site_logo: "This site's logo",
+  custom: "My own image",
+};
+const FRAME_PROGRESS_POSITION_LABELS: Readonly<Record<string, string>> = {
+  // quotes-tabs/templates.ts frameSelect("Position", "progress.position", …).
+  top: "Top of page",
+  under_header: "Under the header",
+  above_unit: "Above the question unit",
+  in_card: "Inside the card",
+};
+const FRAME_PROGRESS_WIDTH_LABELS: Readonly<Record<string, string>> = {
+  // quotes-tabs/templates.ts segmentedControl("Width", "progress.width", …).
+  content: "Content width",
+  full: "Full width",
+};
+const FRAME_BACKGROUND_STYLE_LABELS: Readonly<Record<string, string>> = {
+  // quotes-tabs/templates.ts frameSelect("Style", "background.style", …).
+  flat: "Flat",
+  brand: "Brand",
+  brand_gradient: "Brand gradient",
+};
+const FRAME_LOGO_SOURCE_LABELS: Readonly<Record<string, string>> = {
+  // quotes-tabs/templates.ts frameSelect("Logo source", "header.logo_source",
+  // …). PARTIAL BY DESIGN: that control offers only site + cms_fallback, so
+  // the third stored value ("manual") has no operator wording to converge with
+  // and falls through labelList's `?? v` — already a plain English word.
+  site: "Site logo (auto)",
+  cms_fallback: "CMS fallback",
+};
+
+const FRAME_ENUM_LABELS: ReadonlyMap<readonly string[], Readonly<Record<string, string>>> = new Map<
+  readonly string[],
+  Readonly<Record<string, string>>
+>([
+  [FRAME_PROGRESS_STYLES, FRAME_PROGRESS_STYLE_LABELS],
+  [FRAME_PROGRESS_ICONS, FRAME_PROGRESS_ICON_LABELS],
+  [FRAME_PROGRESS_POSITIONS, FRAME_PROGRESS_POSITION_LABELS],
+  [FRAME_PROGRESS_WIDTHS, FRAME_PROGRESS_WIDTH_LABELS],
+  [FRAME_BACKGROUND_STYLES, FRAME_BACKGROUND_STYLE_LABELS],
+  [FRAME_LOGO_SOURCES, FRAME_LOGO_SOURCE_LABELS],
+  // FRAME_SIZES / FRAME_TYPO_SIZES: the s/m/l(/xl) maps already converged with
+  // templates.ts above — registering them here is what makes the GENERIC arm
+  // say what validateFrameTypography already says.
+  [FRAME_SIZES, FRAME_SIZE_LABELS],
+  [FRAME_TYPO_SIZES, FRAME_TYPO_SIZE_LABELS],
+]);
+
+// The one lookup. Unlabelled vocabulary -> today's exact `join(", ")`.
+function frameEnumList(values: readonly string[]): string {
+  const labels = FRAME_ENUM_LABELS.get(values);
+  return labels === undefined ? values.join(", ") : labelList(values, labels);
+}
+
 // Shared page-target validator (10E/10F/10G).
 function validateFramePageTarget(value: unknown, path: string, push: FramePush): void {
   if (!isRecord(value)) {
@@ -1955,7 +2058,8 @@ function validateField(
       return;
     case "enum":
       if (typeof value !== "string" || !spec.values.includes(value)) {
-        push("error", path, `The ${label} setting must be one of: ${spec.values.join(", ")}.`);
+        // P8-6 Q8: the ONE place every oneOf() vocabulary is spoken aloud.
+        push("error", path, `The ${label} setting must be one of: ${frameEnumList(spec.values)}.`);
       }
       return;
     case "text":
