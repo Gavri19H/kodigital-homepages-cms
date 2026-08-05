@@ -535,14 +535,25 @@ d("leadgen rework handlers (S1.4)", () => {
   });
 
   // --- §4.3-13 uniqueness (A-4 verbatim) at save AND activation --------------
-  it("A-4: a section on the shared page AND a funnel is rejected at variant save (verbatim)", async () => {
+  // N19 (P8-6): the funnel here is EMPTY — the section is on the quote's SHARED
+  // page — so the refusal must name the Shared first page, not "this funnel"
+  // (the operator would go looking for a section that is not there). The rule
+  // is unchanged; only the surface it names. And the field key must not mint a
+  // fake array index: `sections.<n>` is resolveSectionOrder's 0-based index of
+  // the offending entry, so a uniqueness error keys its own ordinal namespace.
+  it("A-4: a section on the shared page AND a funnel is rejected at variant save, naming the SHARED FIRST PAGE (verbatim)", async () => {
     const h = harness();
     const q = await newQuote(h);
     const s = seedSection(h.sdb, "Dup Section");
     await req(h, "POST", `/quotes/${q.quotePublic}/shared-page`, { sections: [{ section_id: s.id, position: 0 }] });
     const save = await req(h, "PUT", `/variants/${q.variantPublic}`, { sections: [{ section_id: s.id, position: 0 }] });
     expect(save.status).toBe(400);
-    expect(Object.values(save.json.fields)).toContain("'Dup Section' is already in this funnel — a section can appear once per funnel.");
+    expect(Object.values(save.json.fields)).toContain(
+      "'Dup Section' is already on the Shared first page — every visitor sees that page first, so a section can appear once per funnel.",
+    );
+    // the funnel is empty, so the message must NOT claim the section is in it
+    expect(JSON.stringify(save.json.fields)).not.toContain("is already in this funnel");
+    expect(Object.keys(save.json.fields)).toEqual(["sections.uniqueness.1"]);
   });
 
   // --- M-2 (P8-5 FIX-FIRST): vertical-mismatch save error is operator-facing,
@@ -930,7 +941,9 @@ d("leadgen rework handlers (S1.4)", () => {
     await req(h, "POST", `/quotes/${q.quotePublic}/shared-page`, { sections: [{ section_id: sharedSec.id, position: 0 }] });
     const collision = await req(h, "PUT", `/variants/${forkedPublic}`, { sections: [{ section_id: sharedSec.id, position: 0 }] });
     expect(collision.status).toBe(400);
-    expect(Object.values(collision.json.fields)).toContain(`'Shared' is already in this funnel — a section can appear once per funnel.`);
+    expect(Object.values(collision.json.fields)).toContain(
+      `'Shared' is already on the Shared first page — every visitor sees that page first, so a section can appear once per funnel.`,
+    );
     // a NON-colliding section saves fine on the forked arm.
     const noCollision = await req(h, "PUT", `/variants/${forkedPublic}`, { sections: [{ section_id: collidingSec.id, position: 0 }] });
     expect(noCollision.status).toBe(200);

@@ -2323,15 +2323,32 @@ export async function setQuoteDefaultFunnelHandler(c: AdminContext): Promise<Res
 
 // A-4 (verbatim, CI-asserted): a section id may appear at most once within
 // {shared page ∪ any single funnel's plan}.
-const A4_SECTION_DUP = (section: string): string =>
+//
+// N19 (P8-6): ONE sentence used to describe that whole union — "'X' is already
+// in this funnel" — so a section sitting on the quote-owned SHARED page was
+// reported as already being IN a funnel the operator had just left EMPTY. The
+// rule is sanctioned; the sentence named the wrong surface, sending the
+// operator to hunt a chip that is not in that column. Two sentences now, one
+// per side of the union. The shared one reuses the board's OWN words for that
+// surface, quoted from quotes-tabs/funnel.ts (grep them, not line numbers —
+// that file moves): the column title `title="Shared first page">Shared first
+// page`, the same string as the drop pick-list entry `label: 'Shared first
+// page'`, plus that column's own explanation of why the page counts against
+// every funnel, `Every visitor sees this first — entry rules only pre-select
+// the funnel.` So the message and the thing it points at read the same. The
+// in-funnel sentence is unchanged: for a genuine repeat inside one funnel's
+// plan it was always accurate.
+const A4_SECTION_DUP_SHARED = (section: string): string =>
+  `'${section}' is already on the Shared first page — every visitor sees that page first, so a section can appear once per funnel.`;
+const A4_SECTION_DUP_FUNNEL = (section: string): string =>
   `'${section}' is already in this funnel — a section can appear once per funnel.`;
 
 // M5 remediation (P8-5 FIX-FIRST round 2, H2b): the 3 nameOf() fallbacks below
 // (sharedPageUniquenessErrors, variantSaveUniquenessErrors, and the activation
 // preflight's own copy of this same check) used to paper over a name-lookup
-// miss with the raw numeric DB row id, substituted straight into
-// A4_SECTION_DUP's quotes as if it were a name ("'section 42' is already in
-// this funnel..."). That is WORSE than a ULID: a bare number in that slot
+// miss with the raw numeric DB row id, substituted straight into the A-4
+// message's quotes as if it were a name ("'section 42' is already in this
+// funnel..."). That is WORSE than a ULID: a bare number in that slot
 // reads as a quantity, not an id. The case is an orphaned reference (the row
 // this id once named no longer resolves — e.g. deleted between read and
 // check) — say that, not the number.
@@ -2340,16 +2357,50 @@ const ORPHANED_SECTION_LABEL = "a section that no longer exists";
 // Pure core: given the shared page's section ids and ONE funnel-variant's
 // section ids, return one A-4 message per section id that appears more than
 // once in their UNION (an internal repeat, or a section shared+funnel both).
+// N19: the message says WHICH side of the union already holds it — if the id
+// is in the shared list at all (a shared∩funnel collision, or the shared list
+// repeating itself) the section is on the Shared first page; otherwise the
+// repeat is inside this one funnel's own plan.
 function sectionUniquenessMessages(
   sharedIds: readonly number[],
   variantIds: readonly number[],
   nameOf: (id: number) => string,
 ): string[] {
+  const sharedCounts = new Map<number, number>();
+  for (const id of sharedIds) sharedCounts.set(id, (sharedCounts.get(id) ?? 0) + 1);
   const counts = new Map<number, number>();
   for (const id of [...sharedIds, ...variantIds]) counts.set(id, (counts.get(id) ?? 0) + 1);
   const out: string[] = [];
-  for (const [id, n] of counts) if (n > 1) out.push(A4_SECTION_DUP(nameOf(id)));
+  for (const [id, n] of counts) {
+    if (n <= 1) continue;
+    const onSharedPage = (sharedCounts.get(id) ?? 0) > 0;
+    out.push(onSharedPage ? A4_SECTION_DUP_SHARED(nameOf(id)) : A4_SECTION_DUP_FUNNEL(nameOf(id)));
+  }
   return out;
+}
+
+// N19 (P8-6) — the field key. The three A-4 save-time call sites keyed their
+// errors `sections.${seen.size}`: the running count of DISTINCT messages, a
+// 1-based dedupe counter wearing the costume of `sections.<arrayIndex>`, which
+// is what resolveSectionOrder (this file, the `sections.${i}` block) means by
+// that key — the 0-based index of the offending entry in the operator's array.
+// One namespace, two meanings: the first uniqueness error on a plan whose only
+// entry is index 0 came back as `sections.1`. It can also never BE an index on
+// the `pages`/`slots` save path, where the prospective ids are a flatMap over
+// slots and the payload has no `sections` array at all. The two shapes never
+// legitimately co-occur (both shared-page handlers return on
+// resolveSectionOrder's errors before uniqueness runs; the variant PUT runs
+// uniqueness only while the error map is still empty), so the fix is to stop
+// minting a fake index rather than to invent an index for a path that has
+// none: `sections.uniqueness.<n>` is a plain 1-based ordinal over the distinct
+// A-4 messages and cannot be read as an array position. Nothing binds a row by
+// this key — every board caller renders the first VALUE (funnel.ts
+// firstFieldError) and the other save paths stringify the whole map. One mint
+// for all three sites so they cannot drift apart again.
+function addUniquenessError(errors: FieldErrors, seen: Set<string>, message: string): void {
+  if (seen.has(message)) return;
+  seen.add(message);
+  errors[`sections.uniqueness.${seen.size}`] = message;
 }
 
 // section_id → section_name for the involved ids (batched, ≤80 per IN chunk per
@@ -2662,12 +2713,12 @@ async function sharedPageUniquenessErrors(
   const seen = new Set<string>();
   // internal dup within the shared page itself
   for (const m of sectionUniquenessMessages(prospectiveSharedIds, [], nameOf)) {
-    if (!seen.has(m)) { seen.add(m); errors[`sections.${seen.size}`] = m; }
+    addUniquenessError(errors, seen, m);
   }
   // shared ∪ each funnel-variant plan
   for (const ids of perVariant) {
     for (const m of sectionUniquenessMessages(prospectiveSharedIds, ids, nameOf)) {
-      if (!seen.has(m)) { seen.add(m); errors[`sections.${seen.size}`] = m; }
+      addUniquenessError(errors, seen, m);
     }
   }
   return errors;
@@ -2691,7 +2742,7 @@ async function variantSaveUniquenessErrors(
     const nameOf = (id: number): string => nameMap.get(id) ?? ORPHANED_SECTION_LABEL;
     const seen = new Set<string>();
     for (const m of sectionUniquenessMessages(sharedIds, prospectiveVariantIds, nameOf)) {
-      if (!seen.has(m)) { seen.add(m); errors[`sections.${seen.size}`] = m; }
+      addUniquenessError(errors, seen, m);
     }
   } catch {
     return {};
