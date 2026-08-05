@@ -1,0 +1,164 @@
+=== P8 TERMINAL BATTERY — at the MERGED base ===
+date: 2026-08-05T17:40:27Z
+branch: reconcile/conversions-x-leadgen-r2  HEAD: cddb77a0989315ed1789a866d21d315cb4c55408
+[status-empty=yes]
+
+--- (1) full unit suite ---
+> tsc --noEmit
+
+TYPECHECK_EXIT=0
+ ↓ test/conversions-service-proxy.test.ts (18 tests | 18 skipped)
+
+ Test Files  497 passed | 2 skipped (499)
+      Tests  8409 passed | 30 skipped (8439)
+   Start at  20:40:34
+   Duration  240.39s (transform 18.20s, setup 0ms, import 86.46s, tests 89.65s, environment 36ms)
+
+JSON report written to /private/tmp/claude-501/-Users-guyhaikov-a2z-workspaces/264c07a0-6cb9-4ecd-bcad-a675a304f020/scratchpad/terminal-unit.json
+VITEST_EXIT=0
+[UNCLASSIFIED — needs an allowlist entry] 0 block(s)
+
+mode: --strict (exit 1 if any UNCLASSIFIED block OR any stale golden:false entry exists)
+VERIFY_ALL_EXIT=0
+  freshness: OK (byte-identical rebuild)
+  size: OK (53181 bytes, 99.9% of budget)
+  types: OK (tsc -p tsconfig.runtime.json)
+verify:leadgen-runtime PASS
+RUNTIME_EXIT=0
+
+=== (2) COMPARABLE 30-SPEC CLASSIFICATION RUNS — appended 2026-08-05T20:37:53Z ===
+(first classification run of 2026-08-05 killed by machine restart; scratchpad logs lost;
+ re-executed with durable logs. Protocol per side: fresh D1 + seed:leadgen-fixture, isolated port,
+ 30 specs alphabetical, one playwright invocation per spec. Raw per-spec logs: /Users/guyhaikov/a2z-workspaces/p8-close-rerun/{base,head}/)
+
+--- side=base (f2407886, kodigital-cms-p8-baseline-wt, PW_PORT=8941) header+totals ---
+=== P8 CLOSE comparable run — side=base ===
+date: 2026-08-05T19:45:19Z
+worktree: /Users/guyhaikov/a2z-workspaces/kodigital-cms-p8-baseline-wt
+HEAD: f2407886211f10d3462d98e9d52536d370310d96
+porcelain: 74 dirty paths
+PW_PORT=8941
+D1 reset exit: 0
+poll 1: 000
+=== SIDE base COMPLETE 2026-08-05T19:52:40Z ===
+TOTALS base: passed=254 failed=12 skipped=2 specs=30
+
+--- side=head (5bdb8975 == product cddb77a0, PW_PORT=8951) header+totals ---
+=== P8 CLOSE comparable run — side=head ===
+date: 2026-08-05T19:52:40Z
+worktree: /Users/guyhaikov/a2z-workspaces/kodigital-cms-leadgen-r2-wt
+HEAD: 5bdb89753af8d7bddfd4d4ee58b13e4565971b7b
+porcelain: 205 dirty paths
+PW_PORT=8951
+D1 reset exit: 0
+poll 1: 000
+=== SIDE head COMPLETE 2026-08-05T20:02:13Z ===
+TOTALS head: passed=208 failed=51 skipped=2 specs=30
+
+--- base/summary.tsv ---
+__p1b-render.spec.ts	PRESENT	6	0	0	0
+__p2c-studio.spec.ts	PRESENT	7	0	0	0
+__p5a-frame.spec.ts	PRESENT	10	0	0	0
+__p6b-theme-mgr.spec.ts	PRESENT	8	0	0	0
+__r2-dead-controls-drive.spec.ts	PRESENT	0	2	0	1
+__r2-logo-progress-drive.spec.ts	PRESENT	4	0	0	0
+forensic-live-probe.spec.ts	PRESENT	25	1	0	1
+leadgen-canvas-interactions.gesture.spec.ts	PRESENT	8	2	0	1
+leadgen-operator-acceptance.gesture.spec.ts	PRESENT	24	0	0	0
+leadgen-patterns-v25.spec.ts	PRESENT	10	0	0	0
+leadgen-quote-builder.spec.ts	PRESENT	10	0	0	0
+leadgen-r2p1-fixround-smoke.spec.ts	PRESENT	2	0	0	0
+leadgen-r2p4-fixfirst-drive.spec.ts	PRESENT	3	0	0	0
+leadgen-r2p4-fixround2-drive.spec.ts	PRESENT	5	0	0	0
+leadgen-r2p4-slider-drive.spec.ts	PRESENT	6	0	0	0
+leadgen-r2p5-s5c-drive.spec.ts	PRESENT	4	0	0	0
+leadgen-r2p6-f1-preset-corners-drive.spec.ts	PRESENT	3	0	0	0
+leadgen-r2p6-f1b-preset-corners-survive-rail-edit-drive.spec.ts	PRESENT	2	0	0	0
+leadgen-r2p6-themefix-drive.spec.ts	PRESENT	6	0	0	0
+leadgen-r2p7-f3-fork-survival-drive.spec.ts	PRESENT	3	0	0	0
+leadgen-r2p7-owner-drive.spec.ts	PRESENT	7	0	0	0
+leadgen-r6-activation-preflight.spec.ts	PRESENT	1	0	0	0
+leadgen-rework-acceptance-builder.gesture.spec.ts	PRESENT	23	1	0	1
+leadgen-rework-acceptance-routing.gesture.spec.ts	PRESENT	34	0	0	0
+leadgen-rework-p4-templates.gesture.spec.ts	PRESENT	8	0	0	0
+leadgen-rework-p4-themes.gesture.spec.ts	PRESENT	8	2	2	1
+leadgen-studio-patterns.spec.ts	PRESENT	19	0	0	0
+leadgen-v31-gate1c-baselines.spec.ts	PRESENT	0	1	0	1
+leadgen-visual.spec.ts	PRESENT	8	2	0	1
+listicles-manual-qa.spec.ts	PRESENT	0	1	0	1
+
+--- head/summary.tsv ---
+__p1b-render.spec.ts	PRESENT	6	0	0	0
+__p2c-studio.spec.ts	PRESENT	4	3	0	1
+__p5a-frame.spec.ts	PRESENT	9	1	0	1
+__p6b-theme-mgr.spec.ts	PRESENT	7	1	0	1
+__r2-dead-controls-drive.spec.ts	PRESENT	0	2	0	1
+__r2-logo-progress-drive.spec.ts	PRESENT	3	1	0	1
+forensic-live-probe.spec.ts	PRESENT	25	1	0	1
+leadgen-canvas-interactions.gesture.spec.ts	PRESENT	8	2	0	1
+leadgen-operator-acceptance.gesture.spec.ts	PRESENT	22	2	0	1
+leadgen-patterns-v25.spec.ts	PRESENT	4	6	0	1
+leadgen-quote-builder.spec.ts	PRESENT	3	1	0	1
+leadgen-r2p1-fixround-smoke.spec.ts	PRESENT	2	0	0	0
+leadgen-r2p4-fixfirst-drive.spec.ts	PRESENT	0	1	0	1
+leadgen-r2p4-fixround2-drive.spec.ts	PRESENT	0	1	0	1
+leadgen-r2p4-slider-drive.spec.ts	PRESENT	0	1	0	1
+leadgen-r2p5-s5c-drive.spec.ts	PRESENT	2	2	0	1
+leadgen-r2p6-f1-preset-corners-drive.spec.ts	PRESENT	1	2	0	1
+leadgen-r2p6-f1b-preset-corners-survive-rail-edit-drive.spec.ts	PRESENT	0	2	0	1
+leadgen-r2p6-themefix-drive.spec.ts	PRESENT	5	1	0	1
+leadgen-r2p7-f3-fork-survival-drive.spec.ts	PRESENT	1	2	0	1
+leadgen-r2p7-owner-drive.spec.ts	PRESENT	6	1	0	1
+leadgen-r6-activation-preflight.spec.ts	PRESENT	0	1	0	1
+leadgen-rework-acceptance-builder.gesture.spec.ts	PRESENT	18	6	0	1
+leadgen-rework-acceptance-routing.gesture.spec.ts	PRESENT	33	1	0	1
+leadgen-rework-p4-templates.gesture.spec.ts	PRESENT	5	3	0	1
+leadgen-rework-p4-themes.gesture.spec.ts	PRESENT	8	2	2	1
+leadgen-studio-patterns.spec.ts	PRESENT	17	2	0	1
+leadgen-v31-gate1c-baselines.spec.ts	PRESENT	0	1	0	1
+leadgen-visual.spec.ts	PRESENT	8	2	0	1
+listicles-manual-qa.spec.ts	PRESENT	11	0	0	0
+
+--- classification (classify.py) ---
+
+=== FROZEN: 2 ===
+  leadgen-v31-gate1c-baselines.spec.ts               head(f=1,p=0) base(f=1,p=0) yday(h=1,b=1)
+  leadgen-visual.spec.ts                             head(f=2,p=8) base(f=2,p=8) yday(h=2,b=2)
+
+=== PASS-AT-HEAD: 3 ===
+  __p1b-render.spec.ts                               head(f=0,p=6) base(f=0,p=6) yday(h=1,b=0)
+  leadgen-r2p1-fixround-smoke.spec.ts                head(f=0,p=2) base(f=0,p=2) yday(h=1,b=0)
+  listicles-manual-qa.spec.ts                        head(f=0,p=11) base(f=1,p=0) yday(h=1,b=1)
+
+=== PRE-EXISTING: 5 ===
+  __r2-dead-controls-drive.spec.ts                   head(f=2,p=0) base(f=2,p=0) yday(h=2,b=2)
+  forensic-live-probe.spec.ts                        head(f=1,p=25) base(f=1,p=25) yday(h=1,b=1)
+  leadgen-canvas-interactions.gesture.spec.ts        head(f=2,p=8) base(f=2,p=8) yday(h=2,b=7)
+  leadgen-rework-acceptance-builder.gesture.spec.ts  head(f=6,p=18) base(f=1,p=23) yday(h=12,b=0)
+  leadgen-rework-p4-themes.gesture.spec.ts           head(f=2,p=8) base(f=2,p=8) yday(h=2,b=2)
+
+=== FLAKY-BASE: 2 ===
+  leadgen-operator-acceptance.gesture.spec.ts        head(f=2,p=22) base(f=0,p=24) yday(h=2,b=2)
+  leadgen-quote-builder.spec.ts                      head(f=1,p=3) base(f=0,p=10) yday(h=1,b=1)
+
+=== INTRODUCED: 18 ===
+  __p2c-studio.spec.ts                               head(f=3,p=4) base(f=0,p=7) yday(h=3,b=0)
+  __p5a-frame.spec.ts                                head(f=1,p=9) base(f=0,p=10) yday(h=1,b=0)
+  __p6b-theme-mgr.spec.ts                            head(f=1,p=7) base(f=0,p=8) yday(h=1,b=0)
+  __r2-logo-progress-drive.spec.ts                   head(f=1,p=3) base(f=0,p=4) yday(h=1,b=0)
+  leadgen-patterns-v25.spec.ts                       head(f=6,p=4) base(f=0,p=10) yday(h=6,b=0)
+  leadgen-r2p4-fixfirst-drive.spec.ts                head(f=1,p=0) base(f=0,p=3) yday(h=1,b=0)
+  leadgen-r2p4-fixround2-drive.spec.ts               head(f=1,p=0) base(f=0,p=5) yday(h=1,b=0)
+  leadgen-r2p4-slider-drive.spec.ts                  head(f=1,p=0) base(f=0,p=6) yday(h=1,b=0)
+  leadgen-r2p5-s5c-drive.spec.ts                     head(f=2,p=2) base(f=0,p=4) yday(h=2,b=0)
+  leadgen-r2p6-f1-preset-corners-drive.spec.ts       head(f=2,p=1) base(f=0,p=3) yday(h=2,b=0)
+  leadgen-r2p6-f1b-preset-corners-survive-rail-edit-drive.spec.ts head(f=2,p=0) base(f=0,p=2) yday(h=2,b=0)
+  leadgen-r2p6-themefix-drive.spec.ts                head(f=1,p=5) base(f=0,p=6) yday(h=1,b=0)
+  leadgen-r2p7-f3-fork-survival-drive.spec.ts        head(f=2,p=1) base(f=0,p=3) yday(h=2,b=0)
+  leadgen-r2p7-owner-drive.spec.ts                   head(f=1,p=6) base(f=0,p=7) yday(h=1,b=0)
+  leadgen-r6-activation-preflight.spec.ts            head(f=1,p=0) base(f=0,p=1) yday(h=1,b=0)
+  leadgen-rework-acceptance-routing.gesture.spec.ts  head(f=1,p=33) base(f=0,p=34) yday(h=1,b=0)
+  leadgen-rework-p4-templates.gesture.spec.ts        head(f=3,p=5) base(f=0,p=8) yday(h=2,b=0)
+  leadgen-studio-patterns.spec.ts                    head(f=2,p=17) base(f=0,p=19) yday(h=2,b=0)
+
+TOTAL failures  head-30: 51   base-30: 12

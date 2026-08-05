@@ -537,15 +537,54 @@ function referencesThemeId(raw: string | null, themeId: string): boolean {
   }
 }
 
+// D1's SQLite caps a LIKE/GLOB PATTERN at 50 bytes
+// (SQLITE_LIMIT_LIKE_PATTERN_LENGTH). Measured against this worker's own DB
+// binding via PATCH /themes/:id: a 50-byte pattern → 200, a 51-byte pattern →
+// "D1_ERROR: LIKE or GLOB pattern too complex: SQLITE_ERROR".
+const D1_LIKE_PATTERN_MAX_BYTES = 50;
+const THEME_ID_DISCRIMINATOR = '%"theme_id":"';
+
+function utf8Bytes(value: string): number {
+  return new TextEncoder().encode(value).byteLength;
+}
+
+// The candidate-narrowing LIKE pattern, BOUNDED BY CONSTRUCTION.
+//
+// The old needle was `%"theme_id":"${themeId}"%` — its length scaled with the
+// OPERATOR-CHOSEN theme name (mintThemeId slugifies the name into the id), so
+// every theme whose id reached 36 chars produced a 51-byte pattern and the
+// scan THREW. Pre-P8 that throw was swallowed by scheduleThemeInvalidate's
+// empty fire-and-forget catch (theme invalidation was silently DEAD for
+// long-named themes); P8-1 awaited the same scan for the content_version bump,
+// so it began 500ing the PATCH.
+//
+// Truncating the id side can only WIDEN the candidate set, never narrow it:
+// any row containing `"theme_id":"<id>"` also contains any prefix of it. Every
+// candidate is still decided EXACTLY by referencesThemeId, so two ids sharing
+// a truncated prefix (thm_<36 chars> vs thm_<36 chars>-2) cannot yield a false
+// positive. Theme ids are slugified to [a-z0-9-] (no LIKE wildcards); a stray
+// wildcard could only widen the candidate set, which the exact check absorbs.
+function themeIdCandidatePattern(themeId: string): string {
+  const exact = `${THEME_ID_DISCRIMINATOR}${themeId}"%`;
+  if (utf8Bytes(exact) <= D1_LIKE_PATTERN_MAX_BYTES) return exact;
+  let head = themeId;
+  while (head !== "" && utf8Bytes(`${THEME_ID_DISCRIMINATOR}${head}%`) > D1_LIKE_PATTERN_MAX_BYTES) {
+    head = head.slice(0, -1);
+  }
+  return `${THEME_ID_DISCRIMINATOR}${head}%`;
+}
+
 // §10.5 "Used by is computed by scanning funnels/variants for the theme_id
 // — no back-reference stored": every DISTINCT funnel whose OWN theme_json
 // carries this theme_id, OR that has a variant whose frame_overrides_json
 // does (variant-level A/B override) — either makes that funnel's cached
 // surface stale on a theme content edit. A SQL LIKE narrows to candidates
-// (bound parameter — d1-database-safety, never string-interpolated); each
-// candidate is then verified exactly via referencesThemeId.
+// (bound parameter — d1-database-safety, never string-interpolated; and
+// length-bounded per themeIdCandidatePattern, never scaling with the id or
+// the row's JSON); each candidate is then verified exactly via
+// referencesThemeId.
 async function findFunnelsReferencingTheme(db: D1Database, themeId: string): Promise<AffectedFunnel[]> {
-  const needle = `%"theme_id":"${themeId}"%`;
+  const needle = themeIdCandidatePattern(themeId);
   const byFunnel = await db
     .prepare("SELECT id, public_id, quote_id, funnel_name, theme_json FROM leadgen_funnels WHERE theme_json LIKE ?")
     .bind(needle)
@@ -609,7 +648,16 @@ async function invalidateThemeAcrossFunnels(env: Env, db: D1Database, themeId: s
 // rides waitUntil, fail-open, never blocks or breaks the admin PATCH.
 function scheduleThemeInvalidate(c: AdminContext, themeId: string): void {
   safeExecutionCtx(c).waitUntil(
-    invalidateThemeAcrossFunnels(c.env, c.env.DB, themeId).catch(() => {}),
+    invalidateThemeAcrossFunnels(c.env, c.env.DB, themeId).catch((err: unknown) => {
+      // Contained to the invalidation it belongs to — the PATCH response is
+      // already on the wire, so this can never surface as a 500 — but NEVER
+      // silent: the empty `catch(() => {})` this replaces is exactly what hid
+      // the LIKE-pattern-limit failure above for the whole life of the
+      // feature (long-named themes never invalidated, no trace anywhere).
+      console.error(
+        `leadgen theme invalidate failed theme_id=${themeId}: ${err instanceof Error ? err.message : String(err)}`,
+      );
+    }),
   );
 }
 
@@ -665,6 +713,7 @@ export async function updateThemeHandler(c: AdminContext): Promise<Response> {
   // guards already apply (frame-handlers.ts / quotes-handlers.ts).
   const changed = JSON.stringify(current) !== JSON.stringify(record);
   const next = { ...existing, [id]: record };
+  let warning: string | null = null;
   await writeThemeRecords(c.env.CACHE, next);
   if (changed) {
     // B2 fix (P8 defect contract R2-2): a theme-record PATCH never bumped
@@ -676,11 +725,26 @@ export async function updateThemeHandler(c: AdminContext): Promise<Response> {
     // fire-and-forget, because the response's downstream visitor requests
     // depend on the write having landed first (d1-database-safety: await
     // business-critical writes a downstream SELECT depends on).
-    const affected = await findFunnelsReferencingTheme(c.env.DB, id);
-    await Promise.all(affected.map((funnel) => bumpActiveVariantContentVersions(c.env.DB, funnel.funnel_id)));
+    //
+    // Contained, not swallowed: the theme record itself is ALREADY persisted
+    // above, so a failure in the downstream propagation must not turn a
+    // successful save into a 500 the operator can only reproduce (that is the
+    // shape this slice fixed). It is surfaced instead — logged AND named in
+    // the 200 body as cache_refresh_warning — so a propagation failure is
+    // visible by design rather than by accident.
+    try {
+      const affected = await findFunnelsReferencingTheme(c.env.DB, id);
+      await Promise.all(affected.map((funnel) => bumpActiveVariantContentVersions(c.env.DB, funnel.funnel_id)));
+    } catch (err: unknown) {
+      const message = err instanceof Error ? err.message : String(err);
+      console.error(`leadgen theme content-version bump failed theme_id=${id}: ${message}`);
+      warning = `Theme saved, but refreshing the live funnels that use it did not complete (${message}). They may keep serving the previous values until their next save.`;
+    }
     scheduleThemeInvalidate(c, id);
   }
-  return c.json({ item: record, items: Object.values(next) });
+  const payload: Record<string, unknown> = { item: record, items: Object.values(next) };
+  if (warning !== null) payload["cache_refresh_warning"] = warning;
+  return c.json(payload);
 }
 
 // ---------------------------------------------------------------------------

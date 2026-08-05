@@ -794,8 +794,43 @@ test.describe("LeadGen v2.5.1 §8.7 patterns A–E — UI-built fixtures (15 §1
       [trustA.storage_key, "Carrier A"],
       [trustB.storage_key, "Carrier B"],
     ]);
+    // R2 P8-4 F9 re-mint (companion to the footer.links_source citation
+    // below) — `trust_strip.enabled` undergoes the SAME materialise+prune.
+    // Centered's own saved-template row sets `trust_strip.enabled:false`
+    // (migrations/0049_leadgen_rework_m4_m5_defaults_templates.sql, id 1) — a
+    // documented, reviewed characteristic (frame-handlers.ts:328-339, "R2 P8
+    // FIX ROUND F4 (review-p8-4 F-5)": "built-ins `centered` (arrangement
+    // '... trust strip ...') ... prose describing a region their own
+    // defaults switch OFF"). Confirmed live: `replaced_customisations`
+    // includes "trust_strip.enabled",
+    // `changes:[{"path":"trust_strip.enabled","from":true,"to":false}]`.
+    expect(trust["enabled"], "stored column prunes the leaf once it agrees with Centered's own base (frames.ts pruneEchoedLeaves)").toBeUndefined();
+    expect(
+      (effective["trust_strip"] as Record<string, unknown>)["enabled"],
+      "served truth: Centered's own trust_strip.enabled default (false) legitimately replaces the operator's prior enabled pick",
+    ).toBe(false);
     const footer = stored["footer"] as Record<string, unknown>;
-    expect(footer["links_source"]).toBe("manual");
+    // P8 CLOSE re-mint (was `expect(footer["links_source"]).toBe("manual")`):
+    // Apply-to-funnel legitimately overwrites+prunes this leaf, reviewed and
+    // shipped in R2 P8-4 F9 — computeTemplateApply's materialise (mergeTemplate
+    // Into, frames.ts:2530-2542) writes the Centered saved-template row's own
+    // `footer.links_source:"site"` (migrations/0049…sql, id 1) over the
+    // operator's "manual" because "site" is non-blank, then pruneEchoedLeaves
+    // (frames.ts:2560-2578) drops the now-redundant stored leaf because it
+    // agrees with Centered's own base — NOT silent: it is a NAMED
+    // `replaced_customisations` entry, exactly the case
+    // docs/leadgen/r2/evidence/p8/review-p8-4c/REVIEW.md row A1-A3 drove and
+    // verdicted PERFECT ("footer.links_source correctly named"). Reproduced
+    // live on this branch: `POST …/apply-template {template_id:<Centered's
+    // public_id>}` → `replaced_customisations:["footer.links_source"]`,
+    // `changes:[{"path":"footer.links_source","from":"manual","to":"site"}]`,
+    // and the immediate `GET …/frame` re-read has no `footer.links_source` key
+    // in `frame_config` while `effective_frame.footer.links_source` is "site".
+    expect(footer["links_source"], "stored column prunes the leaf once it agrees with Centered's own base (frames.ts pruneEchoedLeaves)").toBeUndefined();
+    expect(
+      (effective["footer"] as Record<string, unknown>)["links_source"],
+      "served truth: Centered's own footer.links_source default (site) legitimately replaces the operator's prior manual pick, named in replaced_customisations",
+    ).toBe("site");
     expect((footer["links"] as Array<Record<string, unknown>>).map((l) => [l["label"], l["href"]])).toEqual([
       ["Privacy", "/privacy"],
       ["Terms", "/terms"],
@@ -836,8 +871,25 @@ test.describe("LeadGen v2.5.1 §8.7 patterns A–E — UI-built fixtures (15 §1
       `authored columnsDesktop=2 applies (got '${gridStyle.columns}')`,
     ).toBe(2);
     expect(parseFloat(gridStyle.gap), `authored gap token applies (got '${gridStyle.gap}')`).toBeGreaterThan(0);
-    await expect(page.locator('[data-frame-region="trust_strip"] img.lg-logo-strip-img')).toHaveCount(2);
-    await expect(page.locator('[data-frame-region="footer"] .lg-footerbar-link')).toHaveCount(2);
+    // Trust strip region omits its wrapper entirely when disabled
+    // (frame.ts's `if (!t.enabled) return ""`) — Centered's own reviewed
+    // default (see the trust_strip.enabled citation above), so 0 real
+    // elements, not the 2 authored logos (which stay stored, inert).
+    await expect(page.locator('[data-frame-region="trust_strip"] img.lg-logo-strip-img')).toHaveCount(0);
+    // footer.links_source:"site" (see the citation above) renders the SITE's
+    // own legal_links (frame.ts:680), not the operator's authored `links`
+    // array — asserted against the SAME real producer frame.ts consumes
+    // (GET /sites/:id/branding, E11's "one real side"), not a hand-built
+    // literal.
+    const brandingRes = await page.request.get(`/api/admin/leadgen/sites/${site.id}/branding`);
+    const branding = (await brandingRes.json()) as { legal_links: Array<{ label: string; href: string }> };
+    expect(branding.legal_links.length, "this site's real legal_links is non-empty (or the comparison below is vacuous)").toBeGreaterThan(0);
+    const footerLinks = page.locator('[data-frame-region="footer"] .lg-footerbar-link');
+    await expect(footerLinks).toHaveCount(branding.legal_links.length);
+    const renderedLinks = await footerLinks.evaluateAll((els) =>
+      els.map((el) => [el.textContent?.trim() ?? "", el.getAttribute("href") ?? ""]),
+    );
+    expect(renderedLinks).toEqual(branding.legal_links.map((l) => [l.label, l.href]));
     await expect(page.locator('[data-frame-region="footer"] .lg-footerbar-trust-item')).toHaveCount(1);
     await shootLivePatternPair(page, livePages.A, "pattern-a");
 

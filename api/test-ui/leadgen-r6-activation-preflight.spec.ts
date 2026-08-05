@@ -76,9 +76,14 @@ test('SEAM 2 (browser) — a maps_no_job BLOCK renders the preflight panel + a f
   await expect(problemRow, 'the maps_no_job problem row renders in the panel').toBeVisible();
   await expect(problemRow.locator('.lg-problem-chip[data-severity="error"]')).toHaveText('Error');
   await expect(problemRow, 'the operator-facing copy explains the no-job state').toContainText('no job selected');
-  // The fix link is the Review-slide deep link INTO the section's Maps surface
-  // (the #mapping anchor — SECTION_MAPPING_LINK). This is the wired seam.
-  const fixLink = problemRow.locator('a', { hasText: 'Review slide' });
+  // The fix link's label comes from quotes-tabs/activation.ts problemFixLabel
+  // (re-exported by ui-quotes.ts, ONE source for SSR + the fetched panel
+  // refresh — no ES5 duplicate) — a fix_url containing "/sections/" renders
+  // "Edit Section", not "Review slide" (MEASURED live; quotes-handlers.ts:6727
+  // names the same convention "[Edit Section]"). The deep link ITSELF (the
+  // #mapping anchor — SECTION_MAPPING_LINK) is the wired seam under test here;
+  // re-minted to the shipped label.
+  const fixLink = problemRow.locator('a', { hasText: 'Edit Section' });
   await expect(fixLink, 'the fix link renders').toBeVisible();
   await expect(fixLink).toHaveAttribute('href', `/admin/leadgen/sections/${section.public_id}/edit#mapping`);
   await page.screenshot({ path: `${SHOT}/leadgen-r6-seam2-maps-no-job-blocked.png` });

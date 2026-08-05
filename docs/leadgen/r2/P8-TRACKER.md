@@ -7,7 +7,7 @@ verify:all 0 · runtime 52,762 ≤ 53,248.
 
 ## Phases
 
-- [ ] P8-1 Blockers I (B2, B3, B1, ThemeRecord re-verify) — branch `leadgen-r2-p8-1`
+- [x] **P8-1 Blockers I — MERGED `0f54aeba`** (B2, B3, B1, ThemeRecord re-verify) — branch `leadgen-r2-p8-1`
       Review #1 @ 43e7219 (Opus 5, fresh context, drove all journeys): **FIX-FIRST** — 3 blockers, 5 majors, 5 minors.
       B-1 branch HEAD red + gate log's green run was NOT HEAD (conductor error: the suite was re-run after the
       pin-fix commit but NOT after the cross-IIFE fix commit, which also left the p3a byte-pin stale).
@@ -26,7 +26,7 @@ verify:all 0 · runtime 52,762 ≤ 53,248.
       (471 files)** — the contract's number is correct, so one PRE-EXISTING test stopped registering at HEAD
       (static it() blocks are +16 with zero removals; the 5 touched files match baseline per-file exactly).
       Per-file baseline map captured for an exact diff at the post-fix gate run.
-- [ ] P8-2 Blockers II (B4, B5, M9.3)
+- [x] **P8-2 Blockers II — MERGED `543a3926`** (B4, B5, M9.3)
 - [x] **P8-3 Theme keys honoured — SHIP (review #5, 0 blockers / 0 majors / 4 unreachable-or-scope minors)**
       Merged after 9 gate runs, 8 p3a recaptures (every differing line classified), 5 adversarial reviews.
       Final gate: typecheck 0 · 8156 passed / 0 failed / 30 skipped (8186, 487 files) · verify:all 0 · bundle 52,938/53,248 · register 73 rows / 0 violations · zero-drift 0 removed, 1 intended change, 7724+462=8186.
@@ -48,10 +48,23 @@ verify:all 0 · runtime 52,762 ≤ 53,248.
       S3.11 role "Used by" text · S3.12 the last hardcoded sweep verdict.
       **Final inline sweep: 34/34 ALIVE, 0 DEAD, 0 MIS-TARGETED, 0 UNMEASURABLE** (3 identical runs).
       NOTE: S3.11 changes admin markup, so p3a needs a SECOND recapture before the gate.
-- [ ] P8-4 Templates (M3, M1, M10, M9.1/.2/.4/.5, R7, N6, N9, N12, N17)
-- [ ] P8-5 Studio truth (M5, M6, M7, M4, R6-2/3/4, N14, N15, N16, REQ-R5)
-- [ ] P8-6 Sweep & surface (M8, N2–N5, N8, N10, N13, N19, OWNER rows)
+- [x] **P8-4 Templates — MERGED `cddb77a0` (PR #141, squash with P8-5/P8-6)** (M3, M1, M10, M9.1/.2/.4/.5, R7, N6, N9, N12, N17)
+- [x] **P8-5 Studio truth — MERGED `cddb77a0` (PR #141)** (M5, M6, M7, M4, R6-2/3/4, N14, N15, N16, REQ-R5)
+- [x] **P8-6 Sweep & surface — MERGED `cddb77a0` (PR #141)** (M8, N2–N5, N8, N10, N13, N19, OWNER rows)
+      P8-4/5/6 review chain ended **SHIP** (`evidence/p8/review-p8-ship/REVIEW.md`) after FIX-FIRST rounds
+      (`review-p8-4..4d`, `review-p8-5..5b`, `review-p8-combined`, `review-p8-final`, `review-p8-merge`).
 - [ ] CLOSE (terminal battery + owner-journey sweep + full-program review + report)
+      2026-08-05: machine restart killed the first terminal-battery classification mid-run; state recovered
+      from the tracker/register/git + the session transcript. Comparable 30-spec re-run at BOTH shas
+      (fresh D1+seed, isolated ports, alphabetical, per-spec playwright): baseline 12 failures / HEAD-30
+      51 failures. Verdict vs the polluted 101-run: 3 of 21 "introduced" were state-pollution artifacts
+      (green in the clean HEAD run), 18 reproduce clean = REAL browser-level drift the unit-only phase
+      gates never saw. Root-caused so far: `PATCH /themes/:id` 500s with D1 "LIKE or GLOB pattern too
+      complex" (spans ≥4 specs; W1 Opus dispatch); footer `links_source` dropped on frame round-trip while
+      `ui-section-studio.ts:4894` still writes it (W2a); the rest are stale pins on deliberately-shipped
+      P8 behaviour (apply-template `dry_run` preview, jargon-sweep copy, `custom` icon enum, G3c
+      per-subfield validation parity) — each re-mint must cite the shipped P8 evidence.
+      Comparable-run logs: `/Users/guyhaikov/a2z-workspaces/p8-close-rerun/{base,head}/` (durable).
 
 ## P8-4 conductor rulings (made before the fix round, so slices do not re-litigate them)
 

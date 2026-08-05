@@ -59,6 +59,45 @@ function runSql(sdb: SqliteDb, sql: string): void {
   (sdb["exec"] as (s: string) => void)(sql);
 }
 
+// --- D1 fidelity: the LIKE/GLOB pattern-length limit -----------------------
+// D1's SQLite caps a LIKE/GLOB PATTERN at 50 bytes
+// (SQLITE_LIMIT_LIKE_PATTERN_LENGTH) and throws
+// "D1_ERROR: LIKE or GLOB pattern too complex: SQLITE_ERROR" above it.
+// node:sqlite carries the 50_000-byte DEFAULT, so a bare node:sqlite harness
+// CANNOT see the class of bug this file now guards. The boundary emulated here
+// was MEASURED through the real worker's own DB binding (wrangler dev,
+// PATCH /api/admin/leadgen/themes/:id): theme id 35 chars → 50-byte pattern →
+// 200; theme id 36 chars → 51-byte pattern → 500 + that D1_ERROR in the log.
+const D1_LIKE_PATTERN_MAX_BYTES = 50;
+
+// Ordinals (0-based) of the `?` placeholders that sit in a LIKE/GLOB PATTERN
+// position — only those are length-limited by SQLite; ordinary value binds are
+// not.
+function likePatternBindIndexes(sql: string): number[] {
+  const indexes: number[] = [];
+  let ordinal = 0;
+  for (let i = 0; i < sql.length; i += 1) {
+    if (sql[i] !== "?") continue;
+    const before = sql.slice(0, i).replace(/\s+$/, "");
+    if (/\b(LIKE|GLOB)$/i.test(before)) indexes.push(ordinal);
+    ordinal += 1;
+  }
+  return indexes;
+}
+
+function enforceD1LikePatternLimit(sql: string, binds: readonly unknown[]): void {
+  for (const index of likePatternBindIndexes(sql)) {
+    const value = binds[index];
+    if (typeof value !== "string") continue;
+    const bytes = new TextEncoder().encode(value).byteLength;
+    if (bytes > D1_LIKE_PATTERN_MAX_BYTES) {
+      throw new Error(
+        `D1_ERROR: LIKE or GLOB pattern too complex: SQLITE_ERROR (pattern was ${bytes} bytes, D1 allows ${D1_LIKE_PATTERN_MAX_BYTES})`,
+      );
+    }
+  }
+}
+
 function d1FromSqlite(sdb: SqliteDb): D1Database {
   const db = {
     prepare(sql: string) {
@@ -69,14 +108,17 @@ function d1FromSqlite(sdb: SqliteDb): D1Database {
           return stmt;
         },
         async first<T = unknown>(): Promise<T | null> {
+          enforceD1LikePatternLimit(sql, binds); // D1 rejects at execution, not at bind
           const r = sdb.prepare(sql).get(...binds);
           return (r ?? null) as T | null;
         },
         async all<T = unknown>() {
+          enforceD1LikePatternLimit(sql, binds);
           const rows = sdb.prepare(sql).all(...binds);
           return { results: rows as T[], success: true, meta: {} };
         },
         async run() {
+          enforceD1LikePatternLimit(sql, binds);
           const r = sdb.prepare(sql).run(...binds) as {
             changes?: number;
             lastInsertRowid?: number | bigint;
@@ -248,12 +290,20 @@ const THEME_BODY = {
   controls: { field_height: "medium", button_size: "m", corners: "rounded" },
 };
 
-async function createTheme(env: Env): Promise<ThemeRecord> {
-  const res = await admin.request(`${API}/themes`, jsonInit("POST", THEME_BODY), env);
+async function createTheme(env: Env, name?: string): Promise<ThemeRecord> {
+  const body = name === undefined ? THEME_BODY : { ...THEME_BODY, name };
+  const res = await admin.request(`${API}/themes`, jsonInit("POST", body), env);
   expect(res.status, `create theme: ${await res.clone().text()}`).toBe(201);
-  const body = (await res.json()) as { item: ThemeRecord };
-  return body.item;
+  const parsed = (await res.json()) as { item: ThemeRecord };
+  return parsed.item;
 }
+
+// A theme name of the shape the acceptance specs actually author — a label plus
+// a `${Date.now()}${rand}` uniquifier (__p6b-theme-mgr.spec.ts:516-517,
+// leadgen-r2p7-f3-fork-survival-drive.spec.ts) — which mintThemeId slugifies
+// into a 36-char id. Fixed digits here (not Date.now()) so the id length is
+// deterministic; 16 digits is exactly what Date.now()+3 random digits yields.
+const LONG_THEME_NAME = "P6b Rich Preset 1785960866888990";
 
 function readContentVersion(sdb: SqliteDb, variantPublicId: string): number {
   return (
@@ -305,6 +355,108 @@ describeDb("B2 (P8 defect contract R2-2): theme-record PATCH invalidates served 
         otherAfter,
         "isolation leg: a funnel whose theme_json does NOT reference the patched theme must NOT be bumped",
       ).toBe(otherBefore);
+    },
+  );
+
+  // W1 (P8 CLOSE round) — the regression the terminal browser battery caught:
+  // PATCH /themes/:id 500'd with "D1_ERROR: LIKE or GLOB pattern too complex"
+  // for every theme whose minted id reached 36 chars, because the candidate
+  // scan's LIKE pattern `%"theme_id":"<id>"%` grew past D1's 50-byte
+  // pattern limit. It is the SAME scan the case above exercises — that case
+  // stays green because its theme name ("B2 Repro Theme") mints a SHORT id.
+  it(
+    "a LONG operator-named theme (the 36-char id the acceptance specs mint) still PATCHes 200 and " +
+      "bumps its funnel — the candidate LIKE pattern stays inside D1's 50-byte limit",
+    async () => {
+      const h = newHarness();
+      const referencing = await createQuoteFunnel(h.env, "W1 Long Theme Funnel");
+      const other = await createQuoteFunnel(h.env, "W1 Unrelated Funnel");
+      const theme = await createTheme(h.env, LONG_THEME_NAME);
+      expect(theme.id.length, `minted id must be long enough to trip the old needle: ${theme.id}`).toBe(36);
+      // Pre-fix needle length, for the record: 13 ('%"theme_id":"') + 36 + 2 = 51 > 50.
+
+      const assignRes = await admin.request(
+        `${API}/funnels/${referencing.funnelPublicId}/theme`,
+        jsonInit("PUT", { theme_json: { theme_id: theme.id } }),
+        h.env,
+      );
+      expect(assignRes.status, `assign long-id theme: ${await assignRes.clone().text()}`).toBe(200);
+
+      const before = readContentVersion(h.sdb, referencing.variantPublicId);
+      const otherBefore = readContentVersion(h.sdb, other.variantPublicId);
+
+      const patchRes = await admin.request(
+        `${API}/themes/${theme.id}`,
+        jsonInit("PATCH", {
+          typography: { headline_font: "Poppins", display_size: "xxl" },
+          button_style: { fill: "soft" },
+        }),
+        h.env,
+      );
+      const patchBody = await patchRes.clone().text();
+      expect(patchRes.status, `patch long-id theme: ${patchBody}`).toBe(200);
+      // The route may never paper over a failed propagation with a silent 200.
+      expect(patchBody, "no cache_refresh_warning: the bump itself must have succeeded").not.toContain(
+        "cache_refresh_warning",
+      );
+
+      expect(
+        readContentVersion(h.sdb, referencing.variantPublicId),
+        "W1: the long-id theme's funnel must be bumped exactly like a short-id theme's",
+      ).toBeGreaterThan(before);
+      expect(
+        readContentVersion(h.sdb, other.variantPublicId),
+        "isolation leg (long id): an unrelated funnel must NOT be bumped",
+      ).toBe(otherBefore);
+    },
+  );
+
+  // What the W1 fix itself could have introduced: the bounded pattern TRUNCATES
+  // the id, so two ids sharing a 36-byte prefix (thm_<slug> and thm_<slug>-2,
+  // what mintThemeId produces for a duplicate name) now both come back as SQL
+  // candidates. referencesThemeId's exact parse must still decide, or a theme
+  // edit would bump the WRONG funnel.
+  it(
+    "two long theme ids sharing the truncated prefix (thm_<slug> vs thm_<slug>-2) do not cross-bump: " +
+      "the exact-parse check still decides which funnel is affected",
+    async () => {
+      const h = newHarness();
+      const funnelA = await createQuoteFunnel(h.env, "W1 Prefix Collision A");
+      const funnelB = await createQuoteFunnel(h.env, "W1 Prefix Collision B");
+      const themeA = await createTheme(h.env, LONG_THEME_NAME);
+      const themeB = await createTheme(h.env, LONG_THEME_NAME); // same name → id + "-2"
+      expect(themeB.id, "mintThemeId must produce the prefix-colliding sibling").toBe(`${themeA.id}-2`);
+
+      for (const [funnel, theme] of [
+        [funnelA, themeA],
+        [funnelB, themeB],
+      ] as const) {
+        const res = await admin.request(
+          `${API}/funnels/${funnel.funnelPublicId}/theme`,
+          jsonInit("PUT", { theme_json: { theme_id: theme.id } }),
+          h.env,
+        );
+        expect(res.status, `assign ${theme.id}: ${await res.clone().text()}`).toBe(200);
+      }
+
+      const beforeA = readContentVersion(h.sdb, funnelA.variantPublicId);
+      const beforeB = readContentVersion(h.sdb, funnelB.variantPublicId);
+
+      const patchRes = await admin.request(
+        `${API}/themes/${themeA.id}`,
+        jsonInit("PATCH", { roles: { brand_primary: "#445566" } }),
+        h.env,
+      );
+      expect(patchRes.status, `patch themeA: ${await patchRes.clone().text()}`).toBe(200);
+
+      expect(
+        readContentVersion(h.sdb, funnelA.variantPublicId),
+        "the patched theme's own funnel must bump",
+      ).toBeGreaterThan(beforeA);
+      expect(
+        readContentVersion(h.sdb, funnelB.variantPublicId),
+        "the prefix-sibling theme's funnel must NOT bump (substring candidate, exact-parse reject)",
+      ).toBe(beforeB);
     },
   );
 });

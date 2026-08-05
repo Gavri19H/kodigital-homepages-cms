@@ -146,7 +146,14 @@ test.describe("Finding 1 — A.2 sub-clauses, driven on the footer tile", () => 
     );
     note(`[A.2-3/4] footer block types = ${JSON.stringify(types)}`);
     expect(types.some((t) => t.startsWith("logo="))).toBe(true);
-    expect(types.some((t) => t.includes("company details"))).toBe(true);
+    // R2 P8 stale-pin re-mint: at this test's own baseline the option label
+    // was "About paragraph / company details" (lowercase, matched by this
+    // check); R2 P8 S4.2 FIX ROUND F1 (§7 N17) — commit cddb77a0 —
+    // deliberately renamed it to the single, Title-Case name "Company
+    // details" (docs/leadgen/r2/evidence/p8/review-p8-4/REVIEW.md finding
+    // N17, PERFECT: "one option, 'Company details'"), so a case-sensitive
+    // lowercase substring check no longer matches. templates.ts:514.
+    expect(types.some((t) => t.includes("Company details"))).toBe(true);
     // Logo: site-or-manual source + media/url/alt fields
     await row.locator("[data-footer-block-type]").selectOption("logo");
     const src = row.locator("[data-footer-block-logosource]");

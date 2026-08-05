@@ -296,7 +296,13 @@ test.describe.serial("LeadGen v2.5 Quote Builder frame studio — §15.3 rows", 
     await openEditor(page);
     await openTemplatesTab(page);
     const panel = await openTplBox(page, "progress");
-    await expect(panel).toContainText("Progress counts the slides of this funnel variant automatically.");
+    // R2 P8-4 stale-pin re-mint: "slides" was deliberately purged from every
+    // operator-facing surface (review-p8-4b/REVIEW.md F-3, PERFECT verdict —
+    // owner quote "I clearly defined the difference between pages and
+    // sections"; same review's test-pin audit names this EXACT string as the
+    // old anchor: "'Progress counts the slides…'" vs "the new wording").
+    // Shipped copy: quotes-tabs/templates.ts:826.
+    await expect(panel).toContainText("Progress counts the sections of this funnel variant automatically.");
 
     // dots → the live canvas re-renders the StepIndicator preset
     await panel.locator('input[data-frame-key="progress.style"][value="dots"]').check();
@@ -348,14 +354,37 @@ test.describe.serial("LeadGen v2.5 Quote Builder frame studio — §15.3 rows", 
     for (const [i, value] of optionValues.entries()) {
       const slide = i + 1;
       await sectionSelect.selectOption(value);
-      // footer (manual links + trust text) rides EVERY composed page
+      // footer (manual links + trust text) rides EVERY composed page.
+      // CAVEAT surfaced, not fixed here (reported to the conductor): row ②'s
+      // Apply also flips this funnel's footer.links_source "manual"→"site"
+      // (same mechanism as the disclosure/trust_strip citation below), so the
+      // rendered link is really site branding's own "Privacy policy" page —
+      // this `hasText: "Privacy"` substring still matches it, coincidentally,
+      // not the operator-authored "Privacy"/"/privacy" link.
       await expect(frame.locator("[data-frame-region='footer']"), `footer on slide ${slide}`).toBeVisible({ timeout: 20_000 });
       await expect(frame.locator("[data-frame-region='footer'] a.lg-footerbar-link", { hasText: "Privacy" }), `privacy link on slide ${slide}`).toBeVisible();
       await expect(frame.locator("[data-frame-region='footer']"), `trust text on slide ${slide}`).toContainText("Licensed advisor network");
-      await expect(frame.locator("[data-frame-region='disclosure']").first(), `disclosure on slide ${slide}`).toBeVisible();
-      await expect(frame.locator("[data-frame-region='disclosure']").first(), `disclosure label on slide ${slide}`).toContainText("Advertising Disclosure");
-      await expect(frame.locator("[data-frame-region='trust_strip']"), `trust strip on slide ${slide}`).toBeVisible();
-      await expect(frame.locator("[data-frame-region='trust_strip'] img.lg-logo-strip-img"), `trust logos on slide ${slide}`).toHaveCount(2);
+      // R2 P8 CLOSE re-mint (same confirmed mechanism as leadgen-patterns-v25.
+      // spec.ts's footer.links_source citation): row ② (above) applies the
+      // "Centered card" saved template to this SAME shared funnel via the real
+      // Apply-to-funnel flow, and Centered's own saved-template row sets
+      // disclosure.enabled:false (migrations/0049_leadgen_rework_m4_m5_
+      // defaults_templates.sql id 1) — non-blank, so computeTemplateApply's
+      // materialise (frames.ts mergeTemplateInto) legitimately overwrites the
+      // seeded disclosure.enabled:true/location:"top_bar" with Centered's own
+      // false/"footer", NAMED in replaced_customisations (curled live:
+      // `replaced_customisations:["disclosure.enabled","disclosure.location",
+      // "footer.links_source"]`), then pruneEchoedLeaves drops the
+      // now-redundant stored leaves. The disclosure region therefore no
+      // longer renders at all post-row-②, on every slide.
+      await expect(frame.locator("[data-frame-region='disclosure']"), `disclosure on slide ${slide}`).toHaveCount(0);
+      // Same Apply, same mechanism: Centered's saved-template row also sets
+      // trust_strip.enabled:false (non-blank), legitimately overwriting the
+      // seeded trust_strip.enabled:true (curled live:
+      // `replaced_customisations` includes "trust_strip.enabled",
+      // `changes` shows true→false) — the region is entirely absent, not
+      // just missing its logos.
+      await expect(frame.locator("[data-frame-region='trust_strip']"), `trust strip on slide ${slide}`).toHaveCount(0);
       await expect(frame.locator("[data-frame-region='section_slot']"), `slot on slide ${slide}`).toBeVisible();
     }
     await page.screenshot({ path: `${SHOT_DIR}/leadgen-b-05-chrome-on-every-slide.png` });
@@ -372,13 +401,25 @@ test.describe.serial("LeadGen v2.5 Quote Builder frame studio — §15.3 rows", 
     await expect(page.locator("#lg-tpl-apply-dialog")).toBeVisible();
     await page.locator("[data-apply-choice]", { hasText: "Minimal" }).click();
 
-    // the confirmation NAMES the regions that change — quotes-tabs/
-    // templates.ts's diffSentences() wording (verified against source this
-    // phase; DIFFERENT phrasing than the retired canvas generator's
-    // "isn't part of 'minimal'" style sentences).
+    // R2 P8 S4.2 re-mint: the dialog no longer predicts these lines
+    // client-side (own comment at quotes-tabs/templates.ts:2427-2441 —
+    // MEASURED BEFORE the rewrite, the client predictor read an absent key
+    // as authored and told the operator "The footer will be hidden." from a
+    // key the template never sets). It now paints the SERVER's dry-run
+    // confirmations verbatim — designs/frames.ts computeTemplateApply's real
+    // before/after leaf diff, ONE function, on the same inputs the confirm
+    // button then executes. MEASURED live (error-context DOM dump, this
+    // spec): the shipped sentences for an on->off region flag come from
+    // APPLY_REGION_WORDS (frames.ts:2648-2653) + the region-flag loop
+    // (frames.ts:2743-2746): `The ${label} will be removed.` — "The footer
+    // will be removed." / "The trust strip will be removed." (labels
+    // "footer" / "trust strip", not the Title-Case "Footer"/"Trust strip"
+    // the retired computeTemplateSwitch/regionKeptPhrase pair used — that
+    // pair is present in this same file but is NOT what this dialog wires to
+    // any more). Re-minted to the shipped sentence shape.
     const confirmList = page.locator("#lg-tpl-apply-confirm-list li");
-    await expect(confirmList.filter({ hasText: /footer will be hidden/i })).toHaveCount(1);
-    await expect(confirmList.filter({ hasText: /trust strip isn't part of this template's arrangement/i })).toHaveCount(1);
+    await expect(confirmList.filter({ hasText: /The footer will be removed\./i })).toHaveCount(1);
+    await expect(confirmList.filter({ hasText: /The trust strip will be removed\./i })).toHaveCount(1);
     await page.screenshot({ path: `${SHOT_DIR}/leadgen-b-06-switch-confirm-preview.png` });
 
     // preview-BEFORE-apply: nothing persisted yet

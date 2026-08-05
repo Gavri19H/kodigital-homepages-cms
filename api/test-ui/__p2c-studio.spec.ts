@@ -80,6 +80,29 @@ function canvas(page: Page) {
   return page.frameLocator("#lg-studio-canvas-frame").locator("#lg-studio-canvas-render");
 }
 
+// R2 P8 M6/R4 (ui-section-studio.ts:7888-7930, updateCanvasHiddenList /
+// hiddenPickHandler): the canvas paints only the RESTING state (no simulated
+// answers — normalizeAnswers is called with `{}`), so a component gated by a
+// conditional whose conditions are not met by an EMPTY answer set renders
+// NOTHING inside `#lg-studio-canvas-render` — MEASURED live: a section
+// seeded with an authored 2-condition group never shows the gated Dropdown
+// in the iframe, on first load OR after a reload. This is deliberate, not a
+// regression: the shipped, documented alternative lives in the PARENT page,
+// outside the iframe — a "Not on the page at the start..." list renders one
+// `[data-canvas-hidden-pick="<question_id>"]` button per gated-and-hidden
+// question, and clicking it calls the SAME `selectComponent(qid)` a canvas
+// click would (own in-file comment: "exactly as a canvas click would").
+// Try the real canvas click first (the common, unconditional-node path every
+// other spec in this file still exercises); fall back to the hidden-pick
+// button when the node is gated and its conditions are currently unmet.
+async function selectDropdownQuestion(page: Page, questionId: string): Promise<void> {
+  try {
+    await canvas(page).locator('[data-component-type="DropdownQuestion"]').click({ timeout: 3_000 });
+  } catch {
+    await page.locator(`[data-canvas-hidden-pick="${questionId}"]`).click();
+  }
+}
+
 async function saveStudio(page: Page): Promise<void> {
   await Promise.all([page.waitForEvent("load"), page.locator("#lg-section-save").click()]);
 }
@@ -252,7 +275,10 @@ test.describe("P2c AC-1 — ANY/ALL group builder: author a 2-condition ALL grou
 
     // Reload round-trip: the clean save already hard-navigated back here.
     await expect(page.locator("#lg-section-name")).toBeVisible();
-    await canvas(page).locator('[data-component-type="DropdownQuestion"]').click();
+    // The persisted 2-condition ALL group is unmet by the canvas's empty
+    // resting-state answers, so the Dropdown no longer paints in the iframe
+    // (see selectDropdownQuestion) — reselect it via the shipped hidden-pick.
+    await selectDropdownQuestion(page, "q_dd");
     await page.locator('[data-studio-inspector-tab="rules"]').click();
     await expect(page.locator('[data-inspector-cond="when"]')).toHaveCount(2);
     await expect(page.locator('[data-inspector-cond="when"]').nth(0)).toHaveValue("insured");
@@ -318,7 +344,10 @@ test.describe("P2c AC-2 — flip an authored group to ANY via a real click; pers
       ),
     });
     await openEdit(page, section.public_id);
-    await canvas(page).locator('[data-component-type="DropdownQuestion"]').click();
+    // Seeded WITH the 2-condition ALL group already active — unmet by the
+    // canvas's empty resting-state answers, so the Dropdown never paints in
+    // the iframe on this first load either (see selectDropdownQuestion).
+    await selectDropdownQuestion(page, "q_dd");
     await page.locator('[data-studio-inspector-tab="rules"]').click();
 
     await expect(page.locator("[data-rules-match-group]")).toBeVisible();
@@ -480,7 +509,9 @@ test.describe("P2c AC-4 — legacy bare conditional: single row, untouched save 
     expect(beforeDd?.["conditional"]).toEqual(BARE_CONDITIONAL);
 
     await openEdit(page, section.public_id);
-    await canvas(page).locator('[data-component-type="DropdownQuestion"]').click();
+    // Seeded WITH the bare conditional already active — unmet by the
+    // canvas's empty resting-state answers (see selectDropdownQuestion).
+    await selectDropdownQuestion(page, "q_dd");
     await page.locator('[data-studio-inspector-tab="rules"]').click();
 
     // Exactly ONE row — no extra rows, the ANY/ALL toggle stays collapsed.

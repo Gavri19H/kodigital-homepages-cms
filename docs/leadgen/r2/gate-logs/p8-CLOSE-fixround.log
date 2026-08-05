@@ -1,0 +1,285 @@
+=== P8 CLOSE FIX-ROUND GATE — conductor authoritative run ===
+date: 2026-08-05T23:15:21Z
+HEAD: 5bdb89753af8d7bddfd4d4ee58b13e4565971b7b
+working tree (the CLOSE fix round, gated pre-commit):
+ M api/src/admin/leadgen/themes-handlers.ts
+ M api/src/admin/leadgen/ui-theme-manager.ts
+ M api/test-ui/__p2c-studio.spec.ts
+ M api/test-ui/__r2-logo-progress-drive.spec.ts
+ M api/test-ui/__screenshots__/leadgen-v25/pattern-a-desktop.png
+ M api/test-ui/__screenshots__/leadgen-v25/pattern-a-mobile.png
+ M api/test-ui/leadgen-operator-acceptance.gesture.spec.ts
+ M api/test-ui/leadgen-patterns-v25.spec.ts
+ M api/test-ui/leadgen-quote-builder.spec.ts
+ M api/test-ui/leadgen-r2p5-s5c-drive.spec.ts
+ M api/test-ui/leadgen-r2p7-owner-drive.spec.ts
+ M api/test-ui/leadgen-r6-activation-preflight.spec.ts
+ M api/test-ui/leadgen-rework-acceptance-builder.gesture.spec.ts
+ M api/test-ui/leadgen-rework-p4-templates.gesture.spec.ts
+ M api/test-ui/leadgen-studio-patterns.spec.ts
+ M api/test/leadgen-p8-b2-invalidate.test.ts
+ M docs/leadgen/r2/P8-REGISTER.md
+ M docs/leadgen/r2/P8-TRACKER.md
+ M docs/leadgen/r2/evidence/p3/fixround/d2-two-site-hrefs.txt
+ M docs/leadgen/r2/evidence/p4/fix2/matrix.txt
+ M docs/leadgen/r2/evidence/p4/fixfirst/measurements.txt
+ M docs/leadgen/r2/evidence/p4/pack/drag-dual_range.webm
+ M docs/leadgen/r2/evidence/p4/pack/drag-from_to.webm
+ M docs/leadgen/r2/evidence/p4/pack/drag-radial.webm
+ M docs/leadgen/r2/evidence/p4/pack/drag-single.webm
+ M docs/leadgen/r2/evidence/p4/pack/drag-stepper.webm
+ M docs/leadgen/r2/evidence/p4/s4a/all-five-1280.png
+ M docs/leadgen/r2/evidence/p4/s4a/dual_range-1280.png
+ M docs/leadgen/r2/evidence/p4/s4a/from_to-1280.png
+ M docs/leadgen/r2/evidence/p4/s4a/single-1280.png
+ M docs/leadgen/r2/evidence/p4/s4a/stepper-1280.png
+ M docs/leadgen/r2/evidence/p4/s4b/all-five-1280-driven.png
+ M docs/leadgen/r2/evidence/p4/s4b/all-five-375-driven.png
+ M docs/leadgen/r2/evidence/p4/s4b/measurements.txt
+ M docs/leadgen/r2/evidence/p4/s4b/p4_dual-1280-clamped.png
+ M docs/leadgen/r2/evidence/p4/s4b/p4_dual-1280-separated.png
+ M docs/leadgen/r2/evidence/p4/s4b/p4_dual-375-clamped.png
+ M docs/leadgen/r2/evidence/p4/s4b/p4_dual-375-separated.png
+ M docs/leadgen/r2/evidence/p4/s4b/p4_fromto-1280-clamped.png
+ M docs/leadgen/r2/evidence/p4/s4b/p4_fromto-1280-separated.png
+ M docs/leadgen/r2/evidence/p4/s4b/p4_fromto-375-clamped.png
+ M docs/leadgen/r2/evidence/p4/s4b/p4_fromto-375-separated.png
+ M docs/leadgen/r2/evidence/p4/s4b/radial-1280-after-drag.png
+ M docs/leadgen/r2/evidence/p4/s4b/radial-1280-after-keys.png
+ M docs/leadgen/r2/evidence/p4/s4b/radial-375-after-drag.png
+ M docs/leadgen/r2/evidence/p4/s4b/radial-375-after-keys.png
+ M docs/leadgen/r2/evidence/p4/s4b/single-1280-after-drag.png
+ M docs/leadgen/r2/evidence/p4/s4b/single-375-after-drag.png
+ M docs/leadgen/r2/evidence/p4/s4b/stepper-1280-after-drag.png
+ M docs/leadgen/r2/evidence/p4/s4b/stepper-375-after-drag.png
+ M docs/leadgen/r2/evidence/p4/thumbnails/stepper-render-1280.png
+ M docs/leadgen/r2/evidence/p4/thumbnails/thumbnails-1280.png
+ M docs/leadgen/r2/evidence/p5/f8/answer-picker-options.txt
+ M docs/leadgen/r2/evidence/p5/f8/answer-picker-subfield-selected-1400.png
+ M docs/leadgen/r2/evidence/p5/f9/answer-picker-options.txt
+ M docs/leadgen/r2/evidence/p5/f9/answer-picker-slider-subfield-selected-1400.png
+ M docs/leadgen/r2/evidence/p5/f9/driven-slider-payloads.json
+ M docs/leadgen/r2/evidence/p5/f9/saved-mapping-flagged-unresolvable-1400.png
+ M docs/leadgen/r2/evidence/p5/f9/saved-mapping-flagged.txt
+ M docs/leadgen/r2/evidence/p5/s5b/composite-drive-1280.png
+ M docs/leadgen/r2/evidence/p5/s5b/drive-log.txt
+ M docs/leadgen/r2/evidence/p5/s5b/freetext-drive-1280.png
+ M docs/leadgen/r2/evidence/p5/s5b/from-to-slider-drive-1280.png
+ M docs/leadgen/r2/evidence/p5/s5b/output-format-control-authored-1400.png
+ M docs/leadgen/r2/evidence/p5/s5b/street-only-drive-1280.png
+ M docs/leadgen/r2/evidence/p5/s5c/1-keyless-degrade-1280.png
+ M docs/leadgen/r2/evidence/p5/s5c/1-keyless-degrade-375.png
+ M docs/leadgen/r2/evidence/p5/s5c/2-a9-job-risk-banner-1280.png
+ M docs/leadgen/r2/evidence/p5/s5c/4-output-format-currency-1280.png
+ M docs/leadgen/r2/evidence/p6/d11c/11c-a-order-after-drag-1280.png
+ M docs/leadgen/r2/evidence/p6/d11c/11c-a-order-after-drag-375.png
+ M docs/leadgen/r2/evidence/p6/d11c/11c-a-order-after-menu-1280.png
+ M docs/leadgen/r2/evidence/p6/d11c/11c-a-order-after-menu-375.png
+ M docs/leadgen/r2/evidence/p6/d11c/11c-a-order-before-1280.png
+ M docs/leadgen/r2/evidence/p6/d11c/11c-a-order-before-375.png
+ M docs/leadgen/r2/evidence/p6/d11c/11c-b-ca-slot-rule-dialog-1280.png
+ M docs/leadgen/r2/evidence/p6/d11c/11c-b-ca-slot-rule-dialog-375.png
+ M docs/leadgen/r2/evidence/p6/d11c/11c-b-funnel-slot-ab-dialog-1280.png
+ M docs/leadgen/r2/evidence/p6/d11c/11c-b-funnel-slot-ab-dialog-375.png
+ M docs/leadgen/r2/evidence/p6/d11c/11c-b-multi-section-page-1280.png
+ M docs/leadgen/r2/evidence/p6/d11c/11c-b-multi-section-page-375.png
+ M docs/leadgen/r2/evidence/p6/d11c/11c-b-slots-authored-1280.png
+ M docs/leadgen/r2/evidence/p6/d11c/11c-b-slots-authored-375.png
+ M docs/leadgen/r2/evidence/p6/d11c/11c-c-experiment-running-1280.png
+ M docs/leadgen/r2/evidence/p6/d11c/11c-c-experiment-running-375.png
+ M docs/leadgen/r2/evidence/p6/d11c/11c-c-live-arm-A-1280.png
+ M docs/leadgen/r2/evidence/p6/d11c/11c-c-live-arm-B-1280.png
+ M docs/leadgen/r2/evidence/p6/d11c/11c-c-two-arms-authored-1280.png
+ M docs/leadgen/r2/evidence/p6/d11c/11c-c-two-arms-authored-375.png
+ M docs/leadgen/r2/evidence/p6/d11c/11c-d-funnel-A-theme-authored-1280.png
+ M docs/leadgen/r2/evidence/p6/d11c/11c-d-funnel-A-theme-authored-375.png
+ M docs/leadgen/r2/evidence/p6/d11c/11c-d-funnel-B-theme-authored-1280.png
+ M docs/leadgen/r2/evidence/p6/d11c/11c-d-funnel-B-theme-authored-375.png
+ M docs/leadgen/r2/evidence/p6/d11c/11c-d-live-funnel-A-1280.png
+ M docs/leadgen/r2/evidence/p6/d11c/11c-d-live-funnel-A-375.png
+ M docs/leadgen/r2/evidence/p6/d11c/11c-d-theme-picker-per-funnel-1280.png
+ M docs/leadgen/r2/evidence/p6/d11c/11c-d-theme-picker-per-funnel-375.png
+ M docs/leadgen/r2/evidence/p6/d11c/11c-r-two-planes-in-rail-1280.png
+ M docs/leadgen/r2/evidence/p6/d11c/11c-r-two-planes-in-rail-375.png
+ M docs/leadgen/r2/evidence/p6/d11c/anatomy-board-1280.png
+ M docs/leadgen/r2/evidence/p6/d11c/anatomy-board-375.png
+ M docs/leadgen/r2/evidence/p6/d11c/measurements.txt
+ M docs/leadgen/r2/evidence/p6/d11c/n02-shared-first-page-column-1280.png
+ M docs/leadgen/r2/evidence/p6/d11c/n02-shared-first-page-column-375.png
+ M docs/leadgen/r2/evidence/p6/d11c/n03-live-shared-arm-A-1280.png
+ M docs/leadgen/r2/evidence/p6/d11c/n03-live-shared-arm-B-1280.png
+ M docs/leadgen/r2/evidence/p6/d11c/n03-live-shared-arm-B-375.png
+ M docs/leadgen/r2/evidence/p6/d11c/n03-shared-page-ab-dialog-1280.png
+ M docs/leadgen/r2/evidence/p6/d11c/n03-shared-page-ab-dialog-375.png
+ M docs/leadgen/r2/evidence/p6/d11c/n03-shared-page-ab-saved-1280.png
+ M docs/leadgen/r2/evidence/p6/d11c/n03-shared-page-ab-saved-375.png
+ M docs/leadgen/r2/evidence/p6/d11c/n08-same-page-twice-refused-1280.png
+ M docs/leadgen/r2/evidence/p6/d11c/n08-same-page-twice-refused-375.png
+ M docs/leadgen/r2/evidence/p6/d11c/n09-rail-and-six-funnels-1280.png
+ M docs/leadgen/r2/evidence/p6/d11c/n09-rail-and-six-funnels-375.png
+ M docs/leadgen/r2/evidence/p6/d11c/n09-rail-in-box-1280.png
+ M docs/leadgen/r2/evidence/p6/d11c/n09-rail-in-box-1600.png
+ M docs/leadgen/r2/evidence/p6/d11c/n09-rail-in-box-1640.png
+ M docs/leadgen/r2/evidence/p6/d11c/n09-rail-in-box-1680.png
+ M docs/leadgen/r2/evidence/p6/d11c/n09-rail-in-box-375.png
+ M docs/leadgen/r2/evidence/p6/d11c/n09-six-funnels-scrolled-1600.png
+ M docs/leadgen/r2/evidence/p6/d11c/n09-six-funnels-scrolled-1640.png
+ M docs/leadgen/r2/evidence/p6/d11c/n09-six-funnels-scrolled-1680.png
+ M docs/leadgen/r2/evidence/p6/d11c/n11-modal-plain-language-1280.png
+ M docs/leadgen/r2/evidence/p6/d11c/n11-modal-plain-language-375.png
+ M docs/leadgen/r2/evidence/p6/d11c/n11-saved-rule-card-1280.png
+ M docs/leadgen/r2/evidence/p6/d11c/n11-saved-rule-card-375.png
+ M docs/leadgen/r2/evidence/p6/d11c/n12-rule-builder-modal-1280.png
+ M docs/leadgen/r2/evidence/p6/d11d/measurements.txt
+ M docs/leadgen/r2/evidence/p6/d11d/n01-a-three-templates-saved-1280.png
+ M docs/leadgen/r2/evidence/p6/d11d/n01-a-three-templates-saved-375.png
+ M docs/leadgen/r2/evidence/p6/d11d/n01-b-apply-preset-confirm-1280.png
+ M docs/leadgen/r2/evidence/p6/d11d/n01-b-apply-preset-confirm-375.png
+ M docs/leadgen/r2/evidence/p6/d11d/n01-b-preset-applied-1280.png
+ M docs/leadgen/r2/evidence/p6/d11d/n01-b-preset-applied-375.png
+ M docs/leadgen/r2/evidence/p6/d11d/n01-b-presets-listed-in-other-quote-1280.png
+ M docs/leadgen/r2/evidence/p6/d11d/n01-b-presets-listed-in-other-quote-375.png
+ M docs/leadgen/r2/evidence/p6/d11d/n02-ab-two-templates-1280.png
+ M docs/leadgen/r2/evidence/p6/d11d/n02-ab-two-templates-375.png
+ M docs/leadgen/r2/evidence/p6/d11d/n02-default-defined-1280.png
+ M docs/leadgen/r2/evidence/p6/d11d/n02-default-defined-375.png
+ M docs/leadgen/r2/evidence/p6/d11d/n02-live-arm-A-quote-default-1280.png
+ M docs/leadgen/r2/evidence/p6/d11d/n02-live-arm-A-quote-default-375.png
+ M docs/leadgen/r2/evidence/p6/d11d/n02-live-arm-B-ab-alt-1280.png
+ M docs/leadgen/r2/evidence/p6/d11d/n02-live-arm-B-ab-alt-375.png
+ M docs/leadgen/r2/evidence/p6/d11d/n03-canvas-real-section-middle-1280.png
+ M docs/leadgen/r2/evidence/p6/d11d/n03-canvas-real-section-middle-375.png
+ M docs/leadgen/r2/evidence/p6/d11d/n03-empty-funnel-frame-edit-rerender-1280.png
+ M docs/leadgen/r2/evidence/p6/d11d/n03-empty-funnel-frame-edit-rerender-375.png
+ M docs/leadgen/r2/evidence/p6/d11d/n03-empty-funnel-sample-in-real-frame-1280.png
+ M docs/leadgen/r2/evidence/p6/d11d/n03-empty-funnel-sample-in-real-frame-375.png
+ M docs/leadgen/r2/evidence/p6/d11d/n04-theme-A-midnight-1280.png
+ M docs/leadgen/r2/evidence/p6/d11d/n04-theme-A-midnight-375.png
+ M docs/leadgen/r2/evidence/p6/d11d/n04-theme-B-ember-1280.png
+ M docs/leadgen/r2/evidence/p6/d11d/n04-theme-B-ember-375.png
+ M docs/leadgen/r2/evidence/p6/f1-followup/measurements.txt
+ M docs/leadgen/r2/evidence/p6/f1-followup/pill-1-preset-applied-1280.png
+ M docs/leadgen/r2/evidence/p6/f1-followup/pill-1-preset-applied-375.png
+ M docs/leadgen/r2/evidence/p6/f1-followup/sharp-1-preset-applied-1280.png
+ M docs/leadgen/r2/evidence/p6/f1-followup/sharp-1-preset-applied-375.png
+ M docs/leadgen/r2/evidence/p6/f1-preset-corners/a-preset-pill-1280.png
+ M docs/leadgen/r2/evidence/p6/f1-preset-corners/a-preset-pill-375.png
+ M docs/leadgen/r2/evidence/p6/f1-preset-corners/a-preset-rounded-1280.png
+ M docs/leadgen/r2/evidence/p6/f1-preset-corners/a-preset-rounded-375.png
+ M docs/leadgen/r2/evidence/p6/f1-preset-corners/a-preset-sharp-1280.png
+ M docs/leadgen/r2/evidence/p6/f1-preset-corners/a-preset-sharp-375.png
+ M docs/leadgen/r2/evidence/p6/f1-preset-corners/b-inline-round-1280.png
+ M docs/leadgen/r2/evidence/p6/f1-preset-corners/b-inline-round-375.png
+ M docs/leadgen/r2/evidence/p6/f1-preset-corners/b-inline-sharp-1280.png
+ M docs/leadgen/r2/evidence/p6/f1-preset-corners/b-inline-sharp-375.png
+ M docs/leadgen/r2/evidence/p6/f1-preset-corners/measurements.txt
+ M docs/leadgen/r2/evidence/p6/fixes3/e1-arms-frozen-1280.png
+ M docs/leadgen/r2/evidence/p6/fixes3/e1-arms-frozen-375.png
+ M docs/leadgen/r2/evidence/p6/fixes3/e1-blocked-no-test-1280.png
+ M docs/leadgen/r2/evidence/p6/fixes3/e1-blocked-no-test-375.png
+ M docs/leadgen/r2/evidence/p6/fixes3/e1-blocked-not-running-1280.png
+ M docs/leadgen/r2/evidence/p6/fixes3/e1-blocked-not-running-375.png
+ M docs/leadgen/r2/evidence/p6/fixes3/e1-forked-two-arms-1280.png
+ M docs/leadgen/r2/evidence/p6/fixes3/e1-forked-two-arms-375.png
+ M docs/leadgen/r2/evidence/p6/fixes3/e1-ready-running-test-1280.png
+ M docs/leadgen/r2/evidence/p6/fixes3/e1-ready-running-test-375.png
+ M docs/leadgen/r2/evidence/p6/fixes3/e2-live-radius-sharp-1280.png
+ M docs/leadgen/r2/evidence/p6/fixes3/e2-live-radius-sharp-375.png
+ M docs/leadgen/r2/evidence/p6/fixes3/measurements.txt
+ M docs/leadgen/r2/evidence/p6/themefix/themes-editor-1280.png
+ M docs/leadgen/r2/evidence/p6/themefix/themes-editor-1366.png
+ M docs/leadgen/r2/evidence/p6/themefix/themes-editor-1440.png
+ M docs/leadgen/r2/evidence/p6/themefix/themes-editor-1600.png
+ M docs/leadgen/r2/evidence/p6/themefix/themes-editor-375.png
+ M docs/leadgen/r2/evidence/p7-owner/after-f1-elements-list-1280.png
+ M docs/leadgen/r2/evidence/p7-owner/after-f1-elements-list-375.png
+ M docs/leadgen/r2/evidence/p7-owner/after-f1-freetext-toolbar-1280.png
+ M docs/leadgen/r2/evidence/p7-owner/after-f1-freetext-toolbar-375.png
+ M docs/leadgen/r2/evidence/p7-owner/after-f1-legal-picker-1280.png
+ M docs/leadgen/r2/evidence/p7-owner/after-f1-legal-picker-375.png
+ M docs/leadgen/r2/evidence/p7-owner/after-f1-logo-block-1280.png
+ M docs/leadgen/r2/evidence/p7-owner/after-f1-logo-block-375.png
+ M docs/leadgen/r2/evidence/p7-owner/after-f2-publish-chip-1280.png
+ M docs/leadgen/r2/evidence/p7-owner/after-f2-publish-chip-375.png
+ M docs/leadgen/r2/evidence/p7-owner/fork-survival/a-after-fork-1280.png
+ M docs/leadgen/r2/evidence/p7-owner/fork-survival/a-after-fork-375.png
+ M docs/leadgen/r2/evidence/p7-owner/fork-survival/a-before-fork-1280.png
+ M docs/leadgen/r2/evidence/p7-owner/fork-survival/a-before-fork-375.png
+ M docs/leadgen/r2/evidence/p7-owner/fork-survival/b-field-large-1280.png
+ M docs/leadgen/r2/evidence/p7-owner/fork-survival/b-field-large-375.png
+ M docs/leadgen/r2/evidence/p7-owner/fork-survival/b-field-medium-1280.png
+ M docs/leadgen/r2/evidence/p7-owner/fork-survival/b-field-medium-375.png
+ M docs/leadgen/r2/evidence/p7-owner/fork-survival/b-field-small-1280.png
+ M docs/leadgen/r2/evidence/p7-owner/fork-survival/b-field-small-375.png
+ M docs/leadgen/r2/evidence/p7-owner/fork-survival/measurements.txt
+ M docs/leadgen/r2/evidence/p7-owner/logo-progress-copy/d1-logo-unactivated-1280.png
+ M docs/leadgen/r2/evidence/p7-owner/logo-progress-copy/d1-logo-unreachable-1280.png
+ M docs/leadgen/r2/evidence/p7-owner/logo-progress-copy/d1-logo-unreachable-375.png
+ M docs/leadgen/r2/evidence/p7-owner/logo-progress-copy/d2-icon-dot-1280.png
+ M docs/leadgen/r2/evidence/p7-owner/logo-progress-copy/d2-numbered-1280.png
+ M docs/leadgen/r2/evidence/p7-owner/logo-progress-copy/d2-numbered-375.png
+ M docs/leadgen/r2/evidence/p7-owner/logo-progress-copy/d2-picker-thumbnails-1280.png
+ M docs/leadgen/r2/evidence/p7-owner/logo-progress-copy/d2-picker-thumbnails-375.png
+ M docs/leadgen/r2/evidence/p7-owner/measurements.txt
+ M docs/leadgen/r2/evidence/p8/n15/p8n_dual-1280-clamped.png
+ M docs/leadgen/r2/evidence/p8/n15/p8n_dual-1280-rest.png
+ M docs/leadgen/r2/evidence/p8/n15/p8n_dual-1280-separated.png
+ M docs/leadgen/r2/evidence/p8/n15/p8n_dual-375-clamped.png
+ M docs/leadgen/r2/evidence/p8/n15/p8n_dual-375-rest.png
+ M docs/leadgen/r2/evidence/p8/n15/p8n_dual-375-separated.png
+ M docs/leadgen/r2/evidence/p8/n15/p8n_fromto-1280-clamped.png
+ M docs/leadgen/r2/evidence/p8/n15/p8n_fromto-1280-rest.png
+ M docs/leadgen/r2/evidence/p8/n15/p8n_fromto-1280-separated.png
+ M docs/leadgen/r2/evidence/p8/n15/p8n_fromto-375-clamped.png
+ M docs/leadgen/r2/evidence/p8/n15/p8n_fromto-375-rest.png
+ M docs/leadgen/r2/evidence/p8/n15/p8n_fromto-375-separated.png
+ M docs/leadgen/r2/evidence/p8/n15/s5_3-measurements.txt
+?? docs/leadgen/r2/evidence/p8/close/
+
+--- (1) typecheck ---
+> kodigital-homepages-cms-api@0.1.0 typecheck
+> tsc --noEmit
+
+TYPECHECK_EXIT=0
+
+--- (2) full unit suite ---
+ ✓ test/llms-txt.test.ts (2 tests) 2ms
+ ✓ test/conversions-dashboard-revenue-authority.test.ts (1 test) 2ms
+ ✓ test/admin-dashboard-template.test.ts (1 test) 2ms
+ ✓ test/conversions-provider-configuration-entrypoint.test.ts (2 tests | 1 skipped) 2ms
+ ↓ test/conversions-provider-configuration-authority.test.ts (7 tests | 7 skipped)
+ ↓ test/conversions-service-proxy.test.ts (18 tests | 18 skipped)
+
+ Test Files  497 passed | 2 skipped (499)
+      Tests  8411 passed | 30 skipped (8441)
+   Start at  02:15:27
+   Duration  163.99s (transform 4.36s, setup 0ms, import 47.78s, tests 72.70s, environment 23ms)
+
+VITEST_EXIT=0
+
+--- (3) verify:all ---
+  src/admin/leadgen/ui-sections.ts:669-674  renderSectionEditorChrome  (S4-A10)
+    -> R5 census split (extracted from sectionEditorHtml, which used to carry this MIXED-in): the 'New Section' pubid label (new-section state only) + the 2 error/warning alert surfaces. Golden's static mockup depicts no new/unsaved/error state, so this has no golden position — accepted, functionally necessary, non-golden extension, now its own classifiable block per the split.
+
+[UNCLASSIFIED — needs an allowlist entry] 0 block(s)
+
+mode: --strict (exit 1 if any UNCLASSIFIED block OR any stale golden:false entry exists)
+VERIFY_ALL_EXIT=0
+
+--- (4) verify:leadgen-runtime ---
+
+  freshness: OK (byte-identical rebuild)
+  size: OK (53181 bytes, 99.9% of budget)
+  types: OK (tsc -p tsconfig.runtime.json)
+verify:leadgen-runtime PASS
+RUNTIME_EXIT=0
+
+--- (5) check_register ---
+rows checked: 106
+R1 violations: 0
+R2 violations: 0
+R3 violations: 0
+R4 violations: 0
+R5 violations: 0
+TOTAL violations: 0
+REGISTER_EXIT=0

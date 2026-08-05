@@ -374,16 +374,31 @@ test.describe("LeadGen Rework P4 — Templates tab (contract §8.3)", () => {
     const applyDialog = page.locator("#lg-tpl-apply-dialog");
     await expect(applyDialog).toBeVisible();
     await expect(applyDialog.locator('[data-apply-state="choose"]')).toBeVisible();
-    let applyRequestFired = false;
+    // R2 P8-4 stale-pin re-mint (docs/leadgen/r2/evidence/p8/close/
+    // battery-classification.md: "apply-template {dry_run:true} preview
+    // interception (#11D + p4-templates)") — choosing a template card
+    // deliberately POSTs /apply-template {dry_run:true} to fetch the confirm
+    // dialog's real preview (templates.ts:2445-2469, "the SERVER dry-runs the
+    // real apply... A failed dry run shows the error slot and no promises at
+    // all"); the REAL apply is a SEPARATE fetch with no `dry_run` key, fired
+    // ONLY by the confirm button (templates.ts:2615-2618). Cancel calls
+    // neither (closeDialog() is a pure DOM toggle, templates.ts:2607-2608),
+    // so ANY `/apply-template` URL (the old predicate) always fires on the
+    // choose-time dry run — the correct, strict failure condition is a
+    // non-dry-run POST specifically.
+    let realApplyFired = false;
     page.on("request", (r) => {
-      if (r.url().includes("/apply-template")) applyRequestFired = true;
+      if (r.url().includes("/apply-template") && r.method() === "POST") {
+        const body = r.postDataJSON() as { dry_run?: boolean } | null;
+        if (body?.dry_run !== true) realApplyFired = true;
+      }
     });
     await page.locator(`[data-apply-choice="${target.public_id}"]`).click();
     await expect(applyDialog.locator('[data-apply-state="confirm"]')).toBeVisible({ timeout: 10_000 });
     await expect(applyDialog.locator("#lg-tpl-apply-confirm-list li").first()).toBeVisible();
     await page.locator("#lg-tpl-apply-cancel-btn").click();
     await expect(applyDialog).toBeHidden();
-    expect(applyRequestFired, "Cancel must never call apply-template").toBe(false);
+    expect(realApplyFired, "Cancel must never call a REAL (non-dry-run) apply-template").toBe(false);
     const afterCancel = await json<{ effective_frame: { template: string } }>(
       await apiCtx.get(`${LG_API}/funnels/${seed.funnelPublicId}/frame`),
       "frame after cancel",

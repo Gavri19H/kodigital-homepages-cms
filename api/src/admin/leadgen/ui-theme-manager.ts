@@ -1105,12 +1105,22 @@ function renderCenterEditor(theme: ThemeRecord, matches: VariantThemeUsage[], ca
   //
   // Degrade chosen: keep the §8.4 side-by-side anatomy WHEREVER IT FITS and
   // wrap to a stack where it does not. flex-wrap breaks a line on the items'
-  // HYPOTHETICAL (un-shrunk) sizes, so the editor's basis is the explicit
-  // "how much room does BESIDE require" knob: 240 + 26 gap + 340 canvas =
-  // 606px of centre-inner. At 1600 the centre's inner width is 624px ⇒ one
-  // line, editor 258 / canvas 340 — byte-for-byte today's anatomy. Below
-  // ~1582 viewport the canvas wraps UNDER the controls (DOM order kept) and
-  // the editor takes the full line instead of collapsing. The canvas is now
+  // HYPOTHETICAL (un-shrunk) sizes — CSS clamps that hypothetical size to the
+  // item's OWN min-width first, so the real "how much room does BESIDE
+  // require" knob is the min-width below, not the bare flex-basis (a P8-CLOSE
+  // fix-round finding: this comment's prior arithmetic used the flex-basis,
+  // 240, giving a 606px threshold that undercounted the min-width floor —
+  // MEASURED live, the row never actually went side-by-side at 1280/1366/
+  // 1440/1600 with that floor at 300, since 300 + 26 gap + 340 canvas = 666
+  // exceeds even the 624px centre-inner width 1600 itself measures). The
+  // floor is now 258 (this function's OWN documented 1600 split, unchanged):
+  // 258 + 26 gap + 340 canvas = 624px of centre-inner, matching 1600 exactly.
+  // At 1600 the centre's inner width is 624px ⇒ one line, editor 258 / canvas
+  // 340. Below ~1600 viewport the canvas wraps UNDER the controls (DOM order
+  // kept) and the editor takes the full line instead of collapsing — this
+  // floor is never actually binding once wrapped (a wrapped, line-alone
+  // editor's grown width is exactly the centre-inner width, always ≥ the
+  // floor whenever the row is wide enough to need one). The canvas is now
   // flex:0 1 (shrink allowed, grow still 0) with min-width:0 so on its own
   // line it fits a narrow column instead of overflowing it, while keeping
   // its designed 340px wherever there is room. No media query: the trigger
@@ -1118,7 +1128,7 @@ function renderCenterEditor(theme: ThemeRecord, matches: VariantThemeUsage[], ca
   // nav) degrades on the same rule.
   return `<div data-pin="8.4-center-pane" style="flex:1 1 348px;overflow-y:auto;padding:24px 28px;min-width:0">
     <div style="display:flex;flex-wrap:wrap;gap:26px;align-items:flex-start">
-    <div style="flex:1 1 240px;min-width:300px" data-pin="8.4-editor-controls">
+    <div style="flex:1 1 240px;min-width:258px" data-pin="8.4-editor-controls">
       <div style="display:flex;align-items:center;gap:13px;margin-bottom:5px">
         ${bigSwatch(theme.roles.brand_primary, false)}
         <!-- R4a E3-NEW-6: the server already supports PATCH {name}

@@ -380,7 +380,15 @@ test("D2 · the operator chooses WHICH icon, and the choice reaches the live vis
   const iconSelect = page.locator('[data-tplbox-panel="progress"] select[data-frame-key="progress.icon"]');
   await expect(iconSelect, "the I·Progress panel carries a marker-icon control").toHaveCount(1);
   const options = await iconSelect.locator("option").evaluateAll((os) => os.map((o) => (o as HTMLOptionElement).value));
-  expect(options).toEqual(["dot", "car", "shield", "check", "star", "site_logo"]);
+  // R2 P8-4 conductor ruling R2 (2026-08-05): FRAME_PROGRESS_ICONS grew a
+  // 7th value, "custom" — an operator's OWN uploaded image behind
+  // icon:"custom" (frames.ts:91 FRAME_PROGRESS_ICONS, ":227/1132 the R2 P8 F1
+  // media-id plumbing; frame.ts:527 `icon === "site_logo" || icon ===
+  // "custom"`; styles.ts:3406 the shared CSS for both). The enum + CSS +
+  // guard (129->130) + this admin control landed together per the shipped
+  // ruling — re-minted to the shipped enum, still an exact element-order
+  // match, not a superset/contains check.
+  expect(options).toEqual(["dot", "car", "shield", "check", "star", "site_logo", "custom"]);
 
   // Two different choices must PAINT differently on the live page.
   const painted: Record<string, string> = {};

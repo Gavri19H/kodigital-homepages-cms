@@ -873,7 +873,15 @@ test.describe("Operator acceptance — the 12 live journeys (register §A PC-1..
       },
     });
     expect(badStep.status(), "step on a text field must be rejected").toBe(400);
-    expect(await badStep.text(), "the rejection says step is numeric-only").toContain("step is only valid on Number");
+    // Register §A PC-7 owner sentence ("step must not linger on text") pins
+    // the 400 BEHAVIOUR; the wording was jargon-swept — MEASURED live source,
+    // content-schema.ts:2911: "'Step' is only available on Number and Amount
+    // fields — a {format} field has no step. Remove it; changing the answer
+    // format clears it for you." Re-minted to the stable, format-independent
+    // core of the shipped message.
+    expect(await badStep.text(), "the rejection says step is numeric-only").toContain(
+      "is only available on Number and Amount fields",
+    );
 
     if (
       !liveLegChromiumOnly(
