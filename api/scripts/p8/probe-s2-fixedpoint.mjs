@@ -4,6 +4,27 @@
 // press point is ALWAYS the min handle's own centre (hMin.cx) -- never
 // cx-7 -- and it is printed on every row so before/after are comparable.
 // Usage: node probe-s2-fixedpoint.mjs <label> [viewportCsv] [caseCsv]
+//
+// FLAKINESS WARNING (T2): the synthetic drag below is 20 steps of
+// `mouse.move` with a 50ms wait between each -- do not shorten this. An
+// earlier 10-step/20ms version under-reported at 1280 only: case F2
+// (separated 20000/60000, drag MIN LEFT to 5%) recorded postedMin unchanged
+// at 20000 with the fast drag, but the browser's pointer capture legitimately
+// DOES lower it to 5000 at 1280 once the drag is slow enough -- confirmed
+// stable across 5 direct runs (F2 identical at both viewports every time,
+// see styles.ts comment for the table). A too-fast drag is an INSTRUMENT
+// bug, not a product bug.
+//
+// RESIDUAL, NOT FULLY ELIMINATED: even at 20 steps/50ms, 3 of those same 5
+// runs each showed ONE OTHER separated-pair row (F1 or F3, never the same
+// one twice, never F2) record NO movement at 1280 while 375 moved -- i.e.
+// the drag was still occasionally swallowed at 1280, just far less often
+// and no longer pinned to one case. Tried adding a 100ms settle right after
+// mouse.down() before moving to fix this -- made it WORSE (regressed F2/H
+// in the very next run) -- reverted, do not re-add it without re-measuring
+// 5+ runs. If a future run shows ANY row disagreeing by viewport, re-run
+// the probe 3-5x before concluding it's a product regression; suspect this
+// timing first, not engine.ts.
 import { chromium } from "playwright";
 const HOST = "r2fix.e2e.test", PORT = "8901", SLUG = "r2fix";
 const UA = "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/126.0.0.0 Safari/537.36";
@@ -68,7 +89,7 @@ try {
           press = h.cx;
           const to = g.track.x + g.track.w * frac;
           await p.mouse.move(press, h.cy); await p.mouse.down();
-          for (let i = 1; i <= 10; i++) { await p.mouse.move(press + (to - press) * i / 10, h.cy, { steps: 1 }); await p.waitForTimeout(20); }
+          for (let i = 1; i <= 20; i++) { await p.mouse.move(press + (to - press) * i / 20, h.cy, { steps: 1 }); await p.waitForTimeout(50); }
           await p.mouse.up(); await p.waitForTimeout(250);
         }
         const st1 = await state(p);

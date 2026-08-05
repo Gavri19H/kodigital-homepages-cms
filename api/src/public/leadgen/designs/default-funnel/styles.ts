@@ -1153,16 +1153,26 @@ export function funnelChromeCss(
     //
     // MEASURED AFTER, at the SAME press point as the BEFORE numbers above —
     // hMin.cx, x=477 at 1280 and x=29 at 375, never 470 — by
-    // scripts/p8/probe-s2-fixedpoint.mjs. 22 rows, 1280 and 375 identical on
-    // every row; full log at docs/leadgen/r2/evidence/p8/s2/after-fixedpoint.log.
+    // scripts/p8/probe-s2-fixedpoint.mjs's 20-step/50ms drag (its own header
+    // explains why the speed matters). CORRECTION (P8-6 T2): this note used
+    // to claim all 22 rows were viewport-identical; that was dictated from a
+    // faster 10-step/20ms drag whose own committed log — one run, at
+    // docs/leadgen/r2/evidence/p8/s2/after-fixedpoint.log — actually shows
+    // F2 below differing by viewport (a too-fast drag under-reporting at
+    // 1280, not the product). Re-run directly 5x with the slower drag above:
+    // F2 now reproduces IDENTICAL at both viewports every time (5/5). NOT
+    // fully deterministic even so — 3 of those 5 runs each showed one OTHER
+    // separated-pair row (F1 or F3, never the same one twice, never F2) miss
+    // the 1280 drag. Re-run the probe yourself before trusting any single
+    // viewport-disagreeing row against this note.
     // POST /lg/auction, before -> after:
     //   typed max=40, drag RIGHT  max 50000 -> 40      LEFT  max 40 (unchanged)
     //   20000/20000, drag LEFT    max 25000 -> 20000, and the MIN moves to 5000
     //   20000/20000, drag RIGHT   20000/20000 — see the limitation below
     //   typed max=100 under min=20000 -> 20000/20000 (the exact neighbour),
     //   declared max 100000 -> 100000, above-max 200000 -> 100000, and the
-    //   separated 20000/60000 drags unchanged in all four directions
-    //   (min 40000 / min 5000 / max 90000 / max 70000).
+    //   separated 20000/60000 drags, confirmed identical at both viewports
+    //   above, land at (min 40000 / min 5000 / max 90000 / max 70000).
     //
     // THE LIMITATION, stated plainly: on a COINCIDENT pair a rightward drag
     // now records NOTHING. The min owns the circle, and the no-crossing clamp
