@@ -36,6 +36,22 @@ import {
 import { listFunnelDesignOptions } from "./quotes-handlers";
 import { type Paging } from "./router";
 import { loadVariantPages, type ResolvedFunnelPage } from "../../public/leadgen/resolver";
+// R2 P8-6 FIX-FIRST S1 — the rules rail's answer-field universe is derived, not
+// re-implemented (see sectionAnswerFieldEntries). `fieldsOf` is THE canonical
+// per-node answer-key derivation (leadgen/answers.ts — normalizeAnswers' own,
+// and the §6.2 per-offer picker's since P8-5 L1: offers-handlers.ts imports it
+// under this same alias, so this is an established admin→leadgen seam, not a
+// new layer crossing); collectAnswerKeyClaims + foreignAnswerKeysIn supply the
+// section context that makes its Address branch name the key the MARKUP
+// carries; flattenComponents is the shared container/QuestionGrid descent.
+import { fieldsOf as leadgenAnswerFieldsOf } from "../../leadgen/answers";
+import { collectAnswerKeyClaims, foreignAnswerKeysIn } from "../../public/leadgen/components/presets";
+import {
+  flattenComponents,
+  leadgenComponentName,
+  leadgenControlLabel,
+  type LeadgenComponentNode,
+} from "../../public/leadgen/components/content-schema";
 import {
   RULES_BUILDER_SCRIPT,
   // P3b follow-up (§8.2 RIGHT rail, S3b.2's MOUNT CONTRACT): the composer
@@ -1027,88 +1043,163 @@ function questionChoicesOf(node: unknown): RulesBuilderFieldChoice[] {
   }
   return out;
 }
-function internalFieldEntriesOf(node: unknown): SectionFieldEntry[] {
-  if (node === null || typeof node !== "object") return [];
+// R2 P8-6 FIX-FIRST S1 — a DERIVED sub-field has no node of its own, so it has
+// no props.label to read: its operator words are the OWNING question's own
+// words (falling back to that question's operator-facing type name, never a
+// storage id — §12.4) plus the role, humanized off the key the derivation
+// produced (leadgenControlLabel: "min" → "Min", "zip" → "Zip"). The role suffix
+// is TEXT arithmetic on a key this function is HANDED — it never decides which
+// keys exist. "Where do you live? — Zip", "Budget — Max", "Your name — Given".
+function derivedSubFieldLabel(node: LeadgenComponentNode, own: string, field: string): string {
+  const parent =
+    questionLabelOf(node) ?? leadgenComponentName(typeof node.type === "string" ? node.type : "");
+  const tail = own !== "" && field.startsWith(own + "_") ? field.slice(own.length + 1) : field;
+  return parent + " — " + leadgenControlLabel(tail);
+}
+
+// ONE section's answer-field universe, in tree order — THE keys a visitor
+// actually records, so a rule the operator writes against any of them CAN fire.
+//
+// R2 P8-6 FIX-FIRST S1 — this replaces a hand-rolled "node.internal_field +
+// one level of node.children[].internal_field" walk that was the rail's whole
+// universe. MEASURED before the fix (npx tsx over renderSectionComponents vs
+// quoteRailAnswerFields/sectionFieldsByPublicId, api/):
+//   Address (plain, internal_field p8_addr)   rendered p8_addr_street/_city/
+//     /_state/_zip on the four [data-lg-field] input wraps — rail offered ONLY
+//     ["p8_addr"] (the wrapper's hydration attribute, which records nothing);
+//   Address + a props.maps.fills.zip collision  rail offered ONLY
+//     ["p8n_rr2m3_addr","postal_code_x"], missing all four rendered roles —
+//     so the ZIP every visitor answers read "(removed field)" / "This rule can
+//     never apply" in the rail;
+//   dual_range slider (base budget)            rendered budget_min/budget_max,
+//     rail offered ONLY ["budget"];
+//   NameFieldsGroup                            rail offered NOTHING (the group
+//     carries no internal_field of its own);
+//   a question nested two containers deep      rail offered NOTHING (the old
+//     walk descended exactly one level).
+// The clean control was as broken as the collision case — this was never an
+// Address-collision edge, it was the whole multi-field/nesting class.
+//
+// The derivation is NOT re-implemented here. `fieldsOf` (leadgen/answers.ts) is
+// the ONE canonical "which answer keys will the visitor record for this node",
+// the same function normalizeAnswers runs over the submitted envelope and the
+// same one the §6.2 per-offer picker calls (offers-handlers.ts
+// readLinkedSectionFields) — its own comment names "the field universe, rules
+// pickers and per-offer mapping" as its reach, and this rail IS that rules
+// picker. It expands an Address into the keys the RENDERER emits, a
+// NameFieldsGroup into props.fields[0]/[1] (what engine.ts handleInputEvent's
+// data-name-field bridge records), a dual_range/from_to slider into
+// {base}_min/{base}_max, and returns NOTHING for a non-producing node (a
+// ValidationError REFERENCES a field, it never answers one).
+// `collectAnswerKeyClaims` + `foreignAnswerKeysIn` (presets.ts) supply the
+// section context that makes the Address branch name the ONE key the markup
+// carries instead of hedging across both — a props.maps.fills.<slot> rename
+// onto a key a SIBLING already answers is DECLINED by the renderer, so the box
+// keeps {base}_{slot}. flattenComponents is the same descent every other
+// field-universe consumer uses (containers to depth, QuestionGrid children —
+// R2 P1 §① — never the container itself).
+//
+// Consequences, deliberate and matching the §6.2 picker's own P8-5 L1 ruling:
+// an Address's BASE key and a dual slider's BASE key are no longer offered.
+// Neither records an answer (both are wrapper hydration attributes — measured
+// above), so a rule written against one could never fire; offering it is the
+// over-claim that produced the "can never apply" report in the first place.
+function sectionAnswerFieldEntries(components: readonly unknown[]): SectionFieldEntry[] {
+  const nodes = components as readonly LeadgenComponentNode[];
+  const claims = collectAnswerKeyClaims(nodes);
   const out: SectionFieldEntry[] = [];
-  const own = (node as { internal_field?: unknown }).internal_field;
-  if (typeof own === "string" && own !== "")
-    out.push({ internal_field: own, label: questionLabelOf(node), choices: questionChoicesOf(node) });
-  const children = (node as { children?: unknown }).children;
-  if (Array.isArray(children)) {
-    for (const child of children) {
-      if (child === null || typeof child !== "object") continue;
-      const f = (child as { internal_field?: unknown }).internal_field;
-      if (typeof f === "string" && f !== "")
-        out.push({ internal_field: f, label: questionLabelOf(child), choices: questionChoicesOf(child) });
+  for (const leaf of flattenComponents(nodes)) {
+    if (leaf === null || typeof leaf !== "object") continue;
+    const own = typeof leaf.internal_field === "string" ? leaf.internal_field : "";
+    for (const spec of leadgenAnswerFieldsOf(leaf, foreignAnswerKeysIn(claims, leaf))) {
+      if (spec.field === "") continue;
+      out.push(
+        spec.field === own
+          ? { internal_field: spec.field, label: questionLabelOf(leaf), choices: questionChoicesOf(leaf) }
+          : {
+              internal_field: spec.field,
+              // A derived sub-field carries no enum domain of its own ⇒ no
+              // choices (the ADJ-N8 value side has nothing to resolve).
+              label: derivedSubFieldLabel(leaf, own, spec.field),
+              choices: [],
+            },
+      );
     }
   }
   return out;
 }
-function internalFieldsOf(node: unknown): string[] {
-  return internalFieldEntriesOf(node).map((e) => e.internal_field);
+
+// The `components` array of one section's stored content_json, or [] for any
+// shape that is not one. ONE reader for both universes below (it was written
+// out twice, which is how two callers of the same walk drift apart).
+function sectionComponentsOf(section: AvailableSection): unknown[] {
+  const content = section.content_json;
+  return content !== null &&
+    typeof content === "object" &&
+    Array.isArray((content as { components?: unknown }).components)
+    ? (content as { components: unknown[] }).components
+    : [];
 }
 
 // The quote's rules-rail answer-field picker data (§8.2 RIGHT rail, B3
-// rules-builder): every DISTINCT internal_field across the activity's
-// available sections' content_json components (incl. a QuestionGrid's own
-// children — R2 P1 §①), first-section-wins labeled. Extracted to its own
-// function (was inline in the quote-editor GET handler) so it is
-// unit-testable without the full request/response wiring.
+// rules-builder): every DISTINCT answer key a visitor can record across the
+// activity's available sections' content_json components (a QuestionGrid's own
+// children — R2 P1 §① — a container's nested questions, and every multi-field
+// question's sub-fields: sectionAnswerFieldEntries above), first-section-wins
+// labeled. Extracted to its own function (was inline in the quote-editor GET
+// handler) so it is unit-testable without the full request/response wiring.
 export function quoteRailAnswerFields(available: readonly AvailableSection[]): QuoteRulesRailAnswerField[] {
   const fieldSeen = new Set<string>();
   const fields: QuoteRulesRailAnswerField[] = [];
   for (const section of available) {
-    const content = section.content_json;
-    const components =
-      content !== null && typeof content === "object" && Array.isArray((content as { components?: unknown }).components)
-        ? (content as { components: unknown[] }).components
-        : [];
-    for (const node of components) {
-      for (const entry of internalFieldEntriesOf(node)) {
-        if (fieldSeen.has(entry.internal_field)) continue;
-        fieldSeen.add(entry.internal_field);
-        // MINOR 1: the operator's own question words, never the storage id —
-        // this string IS the rule card's subject (qrFieldLabel returns it
-        // verbatim) and the picker's option text. Section-qualified, because
-        // two sections may ask the same question.
-        // ADJ-N8: the value side rides with the field side — `choices` is the
-        // authored value→label map for a choice question, absent for every
-        // free-text/number field (which keeps rendering its value verbatim).
-        fields.push(
-          entry.choices.length > 0
-            ? {
-                internal_field: entry.internal_field,
-                label: `${section.section_name} · ${entry.label ?? entry.internal_field}`,
-                choices: entry.choices,
-              }
-            : {
-                internal_field: entry.internal_field,
-                label: `${section.section_name} · ${entry.label ?? entry.internal_field}`,
-              },
-        );
-      }
+    for (const entry of sectionAnswerFieldEntries(sectionComponentsOf(section))) {
+      if (fieldSeen.has(entry.internal_field)) continue;
+      fieldSeen.add(entry.internal_field);
+      // MINOR 1: the operator's own question words, never the storage id —
+      // this string IS the rule card's subject (qrFieldLabel returns it
+      // verbatim) and the picker's option text. Section-qualified, because
+      // two sections may ask the same question.
+      // ADJ-N8: the value side rides with the field side — `choices` is the
+      // authored value→label map for a choice question, absent for every
+      // free-text/number field (which keeps rendering its value verbatim).
+      fields.push(
+        entry.choices.length > 0
+          ? {
+              internal_field: entry.internal_field,
+              label: `${section.section_name} · ${entry.label ?? entry.internal_field}`,
+              choices: entry.choices,
+            }
+          : {
+              internal_field: entry.internal_field,
+              label: `${section.section_name} · ${entry.label ?? entry.internal_field}`,
+            },
+      );
     }
   }
   return fields;
 }
 
-// The SAME content_json → internal_field walk buildFieldPageMap performs,
-// factored so the rail's per-funnel per-page fields AND its shared-page-fields
-// projection can share ONE pass over `available` instead of a third
-// hand-rolled copy of the same extraction.
+// Each available section's answer-field universe, keyed by public_id — the
+// per-page field sets the rail's checkpoint derivation (funnelPageFieldSets →
+// rule-checkpoint.ts deriveRuleCheckpoint) resolves "which page collects this
+// field?" against, so a field missing HERE is what makes the rail tell an
+// operator "This rule can never apply" about a field every visitor answers.
+// Factored so the rail's per-funnel per-page fields AND its shared-page-fields
+// projection share ONE pass over `available` instead of a third hand-rolled
+// copy of the extraction.
+//
+// R2 P8-6 FIX-FIRST S1: the universe is sectionAnswerFieldEntries' (above) —
+// the SAME one the picker offers, so the two halves of the rail cannot
+// disagree about which fields exist. (The prior comment here claimed parity
+// with a `buildFieldPageMap`; no such function exists anywhere in src/ or
+// test/ — a rotted in-file claim, removed rather than re-asserted.)
 export function sectionFieldsByPublicId(available: readonly AvailableSection[]): Map<string, string[]> {
   const sectionFields = new Map<string, string[]>();
   for (const s of available) {
-    const content = s.content_json;
-    const components =
-      content !== null && typeof content === "object" && Array.isArray((content as { components?: unknown }).components)
-        ? ((content as { components: unknown[] }).components)
-        : [];
-    const names: string[] = [];
-    for (const node of components) {
-      names.push(...internalFieldsOf(node));
-    }
-    sectionFields.set(s.public_id, names);
+    sectionFields.set(
+      s.public_id,
+      sectionAnswerFieldEntries(sectionComponentsOf(s)).map((e) => e.internal_field),
+    );
   }
   return sectionFields;
 }
@@ -1117,7 +1208,7 @@ export function sectionFieldsByPublicId(available: readonly AvailableSection[]):
 // shape, rule-checkpoint.ts deriveRuleCheckpoint — QUOTE_RULES_SCRIPT mirrors
 // it 1:1 client-side). Unions EVERY slot's candidate sections per page (fixed/
 // ab/ruled alike — a page "could" collect a field if ANY resolution collects
-// it), matching buildFieldPageMap's own refs union for the flat per-variant map.
+// it).
 function funnelPageFieldSets(
   pages: readonly BoardPage[] | undefined,
   sectionFields: Map<string, string[]>,

@@ -764,3 +764,228 @@ describeDb("Quotes Activation preflight panel (05 §5.2)", () => {
     }
   });
 });
+
+// ---------------------------------------------------------------------------
+// R2 P8-6 FIX-FIRST S1 — the rules rail's field universe == the page
+// ---------------------------------------------------------------------------
+//
+// THE DEFECT. The rail told an operator "This rule can never apply" about a
+// field every visitor answers. Its universe came from a hand-rolled walk
+// (node.internal_field + ONE level of node.children[].internal_field) that
+// expanded no Address role, no NameFieldsGroup part and no slider _min/_max —
+// so a plain Address's four boxes, a name group's two, and a dual slider's two
+// were invisible to BOTH halves of the rail (the picker's options AND the
+// per-page field sets the checkpoint derivation resolves against). MEASURED
+// before the fix, api/, npx tsx over the REAL renderer + the REAL rail:
+//   Address plain (internal_field p8_addr): recordable p8_addr_street/_city/
+//     _state/_zip — rail offered ["p8_addr"] (a wrapper hydration attribute
+//     that records nothing);
+//   Address + fills.zip colliding with a sibling: rail offered
+//     ["p8n_rr2m3_addr","postal_code_x"], all four roles missing;
+//   dual_range slider (base budget): recordable budget_min/budget_max — rail
+//     offered ["budget"];  NameFieldsGroup: rail offered NOTHING.
+// The CLEAN CONTROL was as broken as the collision case: this was never an
+// Address-collision edge, it was the whole multi-field/nesting class.
+//
+// HOW THIS AVOIDS E10/E11. One side of every assertion below is the REAL
+// artifact: renderSectionComponents' own markup (the same function that
+// produces the served content_html), never a hand-written key list. The other
+// side is the REAL rail (quoteRailAnswerFields / sectionFieldsByPublicId, the
+// exact functions the quote-editor GET handler calls). The expected key set is
+// EXTRACTED from the markup by mirroring engine.ts handleInputEvent's own
+// resolution — for each [data-lg-input], the innermost enclosing
+// [data-lg-field], else the data-name-field → props.fields[idx] bridge — so a
+// key nothing records can never be "expected", and a key a box records can
+// never be missed. vitest's environment is "node" (vitest.config.ts) and
+// jsdom/happy-dom are NOT installed (no-new-deps), hence the textual mirror of
+// closest() rather than a DOM.
+//
+// SABOTAGE-PROVEN RED (recorded, api/): reverting sectionAnswerFieldEntries to
+// the pre-fix walk (own internal_field + ONE level of children) fails ALL 8 —
+// "Tests  8 failed | 1 passed" → "8 failed", e.g. `rail must offer every
+// recordable key of Address (plain — the clean control): expected [ 'p8_addr' ]
+// to deeply equal [ 'p8_addr_city', …(3) ]`, `… NameFieldsGroup: expected [] to
+// deeply equal [ 'family', 'given' ]`, `… Slider (dual_range): expected
+// [ 'budget' ] to deeply equal [ 'budget_max', 'budget_min' ]` — and the
+// checkpoint case red with `{plane:'in_funnel', unreachable:true}` (literally
+// the "This rule can never apply" state) instead of page 0.
+
+import { renderSectionComponents } from "../src/public/leadgen/components/presets";
+import { defaultFunnelDesign } from "../src/public/leadgen/designs/default-funnel/tokens";
+import { deriveRuleCheckpoint } from "../src/leadgen/rule-checkpoint";
+import { quoteRailAnswerFields, sectionFieldsByPublicId } from "../src/admin/leadgen/ui-quotes";
+import type { AvailableSection } from "../src/admin/leadgen/quotes-tabs/shared";
+import type { LeadgenComponentNode } from "../src/public/leadgen/components/content-schema";
+
+// engine.ts handleInputEvent, read off the markup: the answer key each visitor
+// input records. Nothing here derives a key — every key is one the RENDERER
+// printed (or, for a name slot, the authored props.fields entry the engine's
+// data-name-field bridge maps that slot to).
+function recordableKeysOf(components: readonly unknown[]): string[] {
+  const html = renderSectionComponents(
+    components as readonly LeadgenComponentNode[],
+    defaultFunnelDesign,
+    { continue_mode: "button" } as never,
+  );
+  const namePartsByQuestion = new Map<string, string[]>();
+  const walk = (nodes: readonly unknown[]): void => {
+    for (const n of nodes as Array<Record<string, unknown>>) {
+      if (n === null || typeof n !== "object") continue;
+      const props = (n["props"] ?? {}) as Record<string, unknown>;
+      if (n["type"] === "NameFieldsGroup") {
+        namePartsByQuestion.set(
+          String(n["question_id"] ?? ""),
+          Array.isArray(props["fields"]) ? (props["fields"] as string[]) : ["first", "last"],
+        );
+      }
+      if (Array.isArray(n["children"])) walk(n["children"] as unknown[]);
+    }
+  };
+  walk(components);
+  const out: string[] = [];
+  let enclosingField = "";
+  let enclosingQuestion = "";
+  for (const tag of html.matchAll(/<[a-z]+[^>]*>/g)) {
+    const t = tag[0];
+    const q = t.match(/data-lg-question="([^"]+)"/);
+    if (q) enclosingQuestion = q[1] as string;
+    const f = t.match(/data-lg-field="([^"]+)"/);
+    if (f) enclosingField = f[1] as string;
+    if (!/data-lg-input/.test(t)) continue;
+    const slot = t.match(/data-name-field="([^"]+)"/);
+    let key = f ? (f[1] as string) : enclosingField;
+    if (slot) {
+      const parts = namePartsByQuestion.get(enclosingQuestion) ?? ["first", "last"];
+      key = parts[slot[1] === "first" ? 0 : 1] ?? (slot[1] as string);
+    }
+    if (key !== "" && !out.includes(key)) out.push(key);
+  }
+  return out.sort();
+}
+
+function railSection(components: readonly unknown[]): AvailableSection {
+  return {
+    id: 1,
+    public_id: "lgs_s1",
+    section_name: "S",
+    activity: "auto",
+    vertical: "insurance",
+    status: "active",
+    content_json: { components },
+  } as AvailableSection;
+}
+
+const S1_ADDRESS_PLAIN = {
+  type: "AddressAutocompleteQuestion",
+  question_id: "q_addr",
+  internal_field: "p8_addr",
+  props: { label: "Where do you live?", maps: { enabled: true } },
+};
+const S1_ADDRESS_COLLIDE = {
+  type: "AddressAutocompleteQuestion",
+  question_id: "q_addr2",
+  internal_field: "p8n_rr2m3_addr",
+  props: { label: "Property address", maps: { enabled: true, fills: { zip: "postal_code_x" } } },
+};
+const S1_ZIP_SIBLING = {
+  type: "FreeTextQuestion",
+  question_id: "q_pcx",
+  internal_field: "postal_code_x",
+  props: { label: "ZIP" },
+};
+const S1_NAME_GROUP = {
+  type: "NameFieldsGroup",
+  question_id: "q_name",
+  props: { label: "Your name", fields: ["given", "family"] },
+};
+const S1_DUAL_SLIDER = {
+  type: "NumberRangeQuestion",
+  question_id: "q_budget",
+  internal_field: "budget",
+  props: { label: "Budget", slider_type: "dual_range", min: 0, max: 100 },
+};
+// TWO §8.5 containers deep — the old walk descended exactly one level, so this
+// question was invisible to the rail even though the renderer emits its input.
+const S1_NESTED = {
+  type: "Stack",
+  question_id: "q_stack",
+  props: {},
+  children: [
+    {
+      type: "CardPanel",
+      question_id: "q_panel",
+      props: {},
+      children: [
+        { type: "FreeTextQuestion", question_id: "q_deep", internal_field: "deep_field", props: { label: "Deep" } },
+      ],
+    },
+  ],
+};
+
+describe("R2 P8-6 S1 — the quote rules rail offers exactly the keys the page records", () => {
+  const shapes: Array<[string, unknown[]]> = [
+    ["Address (plain — the clean control)", [S1_ADDRESS_PLAIN]],
+    ["Address (fills.zip collides with a sibling)", [S1_ADDRESS_COLLIDE, S1_ZIP_SIBLING]],
+    ["NameFieldsGroup", [S1_NAME_GROUP]],
+    ["Slider (dual_range)", [S1_DUAL_SLIDER]],
+    ["a question nested two containers deep", [S1_NESTED]],
+    ["all of them in one section", [S1_ADDRESS_PLAIN, S1_NAME_GROUP, S1_DUAL_SLIDER, S1_NESTED]],
+  ];
+
+  for (const [name, components] of shapes) {
+    it(`rail universe == rendered keys: ${name}`, () => {
+      const recordable = recordableKeysOf(components);
+      // the shape must actually RENDER inputs, or the row proves nothing
+      expect(recordable.length, `${name} renders at least one answer input`).toBeGreaterThan(0);
+      const picker = quoteRailAnswerFields([railSection(components)])
+        .map((f) => f.internal_field)
+        .sort();
+      const pageMap = (sectionFieldsByPublicId([railSection(components)]).get("lgs_s1") ?? [])
+        .slice()
+        .sort();
+      expect(picker, `rail must offer every recordable key of ${name}`).toEqual(recordable);
+      // BOTH halves of the rail, or the picker offers a field the checkpoint
+      // derivation then calls unreachable ("This rule can never apply").
+      expect(pageMap, `rail per-page field map must match the picker for ${name}`).toEqual(recordable);
+    });
+  }
+
+  it("an Address role a rule targets resolves to a real checkpoint page, not 'can never apply'", () => {
+    // The §8.2 rail's own decision function over the rail's own per-page sets.
+    const components = [S1_ADDRESS_COLLIDE, S1_ZIP_SIBLING];
+    const fields = sectionFieldsByPublicId([railSection(components)]).get("lgs_s1") ?? [];
+    const zipKey = recordableKeysOf(components).find((k) => k.endsWith("_zip"));
+    expect(zipKey, "the address renders a ZIP box").toBe("p8n_rr2m3_addr_zip");
+    const checkpoint = deriveRuleCheckpoint([zipKey as string], new Set<string>(), [
+      { id: 43, publicId: "lgf_s1", name: "Funnel A", pages: [{ position: 0, fields: new Set(fields) }] },
+    ]);
+    expect(checkpoint).toEqual({
+      plane: "in_funnel",
+      funnelId: 43,
+      funnelPublicId: "lgf_s1",
+      funnelName: "Funnel A",
+      pagePosition: 0,
+    });
+  });
+
+  it("every offered field reads in the operator's own words — never a bare storage id", () => {
+    const labels = quoteRailAnswerFields([
+      railSection([S1_ADDRESS_PLAIN, S1_NAME_GROUP, S1_DUAL_SLIDER]),
+    ]).map((f) => f.label);
+    expect(labels).toEqual([
+      "S · Where do you live? — Street",
+      "S · Where do you live? — City",
+      "S · Where do you live? — State",
+      "S · Where do you live? — Zip",
+      "S · Your name — Given",
+      "S · Your name — Family",
+      "S · Budget — Min",
+      "S · Budget — Max",
+    ]);
+    // §12.4: the raw key never IS the operator's word for a derived sub-field.
+    for (const label of labels) {
+      expect(label).not.toContain("p8_addr_");
+      expect(label).not.toContain("budget_");
+    }
+  });
+});
