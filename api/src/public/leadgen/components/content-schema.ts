@@ -1716,41 +1716,136 @@ const intSpec = (min: number, max: number): IntPropSpec => ({ kind: "int", min, 
 // NOT A GATE (§1): an unregistered vocabulary is NOT an error and never throws
 // — it renders today's exact sentence.
 //
-// DELIBERATELY EMPTY TODAY, and that is the honest answer, not an oversight.
-// All 15 vocabularies below were traced to their REAL operator control and
-// every one of them shows the STORED VALUE ITSELF: ui-section-studio.ts's
-// CONTAINER_PROP_CONTROLS rows (L1975+) render `options(control.values)`, i.e.
-// `<option value="wash">wash</option>` — the control has a labelled FIELD
-// ("Background token") but no labelled VALUES, so there is no operator wording
-// to converge with and inventing one here would put a word in the message that
-// the operator never sees on screen. The seam is still the win: each of these
-// is now ONE row away from reading properly, the day its control gets labels.
+// P8-6 Q10 — FILLED. (This block used to justify an EMPTY map with "every one
+// of the 15 controls shows the STORED VALUE ITSELF … there is no operator
+// wording to converge with". That reason EXPIRED: Q9 gave
+// ui-section-studio.ts's CONTAINER_PROP_CONTROLS a `valueLabels` map per
+// vocabulary, so the picker that authors each prop now reads "Soft fill" while
+// this sentence still said "wash". The justification is corrected rather than
+// left standing, because a false in-file reason is what kept the seam dead.)
 //
-// The 15, and what their control shows:
-//   LEADGEN_GAP_TOKENS (xs/s/m/l/xl)        raw — Stack/Grid "Gap token", Spacer "Size token"
-//   LEADGEN_PANEL_SHADOWS (none/sm/md/lg/xl) raw — CardPanel "Shadow token"
-//   LEADGEN_PANEL_RADII (sm/md/lg/xl)        raw — CardPanel "Radius token"
-//   LEADGEN_PANEL_WIDTHS (s/m/l/full)        raw — CardPanel "Width preset"
-//   LEADGEN_PANEL_PADDINGS (s/m/l)           raw — CardPanel "Padding token"
-//   LEADGEN_PANEL_BACKGROUNDS (card/wash/ghost/transparent)   raw — "Background token"
-//   LEADGEN_BG_PANEL_BACKGROUNDS (card/wash/ghost/page/primary) raw — "Background token"
-//   LEADGEN_BG_PANEL_GRADIENTS (primary/accent/wash)          raw — "Gradient token"
-//   LEADGEN_GRID_SIZINGS (auto/equal)        raw — GridContainer "Card sizing"
-//   LEADGEN_COLUMN_RATIOS (50/50…70/30)      raw — Columns "Ratio preset"; already reads as English
-//   LEADGEN_COLUMN_MOBILE_MODES (stack/keep) raw — Columns "Mobile stacking"; already English
-//   LEADGEN_STACK_DIRECTIONS (vertical/horizontal) raw — Stack "Direction"; already English
-//   LEADGEN_STACK_ALIGNS (start/center/end/stretch) raw — Stack "Align"; already English
-//   LEADGEN_SPACER_VARIANTS (gap/line)       raw — Spacer "Style"; already English
-//   LEADGEN_IMAGE_FIT_MODES (cover/contain)  its control (renderImageFitControl)
-//     IS labelled, but as "Cover — fill the card, may crop": the head word
-//     differs from the stored value by CAPITALISATION only, the same exclusion
-//     the label maps in theme.ts/frames.ts already apply, and splicing the
-//     explanatory tail into a "must be one of:" list would read worse, not
-//     better.
+// 14 of the 15 vocabularies are registered below. The words are the SAME ones
+// the operator picks from — converged VERBATIM with ui-section-studio.ts's Q9
+// maps (GAP_SIZE_LABELS, STACK_DIRECTION_LABELS, STACK_ALIGN_LABELS,
+// GRID_SIZING_LABELS, COLUMN_RATIO_LABELS, COLUMN_MOBILE_LABELS,
+// PANEL_WIDTH_LABELS, PANEL_BACKGROUND_LABELS, PANEL_SHADOW_LABELS,
+// PANEL_RADIUS_LABELS, PANEL_PADDING_LABELS, BG_PANEL_BACKGROUND_LABELS,
+// BG_PANEL_GRADIENT_LABELS, SPACER_VARIANT_LABELS). Declared HERE and not
+// imported from there: this module is the PUBLIC, lower layer — the studio
+// imports these vocabularies FROM this file, so reaching back into admin would
+// invert the boundary. The convergence is pinned by driving both sides in
+// test/leadgen-p8-r5-copy.test.ts (Q10-A) rather than by an import.
+//
+// Each map is typed against its own `as const` array, so ADDING a token to a
+// vocabulary is a compile error here until it is given a word — the same
+// discipline the studio's maps use.
+//
+// THE 15th, LEADGEN_IMAGE_FIT_MODES, IS DELIBERATELY LEFT OUT and keeps the
+// `orList(values)` fallback ("cover or contain"). Its control
+// (renderImageFitControl) IS labelled, but as "Cover — fill the card, may
+// crop": the head word differs from the stored value by CAPITALISATION only —
+// the same exclusion the label maps in theme.ts/frames.ts already apply — and
+// splicing the explanatory tail into a "must be one of:" list would read
+// worse, not better. Pinned as a decision in Q10-A, not left silent.
+const GAP_TOKEN_LABELS: Record<(typeof LEADGEN_GAP_TOKENS)[number], string> = {
+  xs: "Extra small",
+  s: "Small",
+  m: "Medium",
+  l: "Large",
+  xl: "Extra large",
+};
+const STACK_DIRECTION_LABELS: Record<(typeof LEADGEN_STACK_DIRECTIONS)[number], string> = {
+  vertical: "Top to bottom",
+  horizontal: "Side by side (stacks on mobile)",
+};
+const STACK_ALIGN_LABELS: Record<(typeof LEADGEN_STACK_ALIGNS)[number], string> = {
+  start: "Start",
+  center: "Center",
+  end: "End",
+  stretch: "Stretch to fill",
+};
+const GRID_SIZING_LABELS: Record<(typeof LEADGEN_GRID_SIZINGS)[number], string> = {
+  auto: "Fit each card to its content",
+  equal: "Equal-width columns",
+};
+const COLUMN_RATIO_LABELS: Record<(typeof LEADGEN_COLUMN_RATIOS)[number], string> = {
+  "50/50": "50/50 — even halves",
+  "60/40": "60/40 — wider left",
+  "40/60": "40/60 — wider right",
+  "70/30": "70/30 — much wider left",
+};
+const COLUMN_MOBILE_LABELS: Record<(typeof LEADGEN_COLUMN_MOBILE_MODES)[number], string> = {
+  stack: "Stack into one column",
+  keep: "Keep side by side",
+};
+const PANEL_WIDTH_LABELS: Record<(typeof LEADGEN_PANEL_WIDTHS)[number], string> = {
+  s: "Small",
+  m: "Medium",
+  l: "Large",
+  full: "Full width",
+};
+const PANEL_BACKGROUND_LABELS: Record<(typeof LEADGEN_PANEL_BACKGROUNDS)[number], string> = {
+  card: "Card background",
+  wash: "Soft fill",
+  ghost: "Faint fill",
+  transparent: "Transparent",
+};
+const PANEL_SHADOW_LABELS: Record<(typeof LEADGEN_PANEL_SHADOWS)[number], string> = {
+  none: "None",
+  sm: "Small",
+  md: "Medium",
+  lg: "Large",
+  xl: "Extra large",
+};
+const PANEL_RADIUS_LABELS: Record<(typeof LEADGEN_PANEL_RADII)[number], string> = {
+  sm: "Small",
+  md: "Medium",
+  lg: "Large",
+  xl: "Extra large",
+};
+const PANEL_PADDING_LABELS: Record<(typeof LEADGEN_PANEL_PADDINGS)[number], string> = {
+  s: "Small",
+  m: "Medium",
+  l: "Large",
+};
+const BG_PANEL_BACKGROUND_LABELS: Record<(typeof LEADGEN_BG_PANEL_BACKGROUNDS)[number], string> = {
+  card: "Card background",
+  wash: "Soft fill",
+  ghost: "Faint fill",
+  page: "Page background",
+  primary: "Brand primary",
+};
+const BG_PANEL_GRADIENT_LABELS: Record<(typeof LEADGEN_BG_PANEL_GRADIENTS)[number], string> = {
+  primary: "Brand primary",
+  accent: "Accent",
+  wash: "Soft fill",
+};
+const SPACER_VARIANT_LABELS: Record<(typeof LEADGEN_SPACER_VARIANTS)[number], string> = {
+  gap: "Empty space",
+  line: "Divider line",
+};
+
 const CONTAINER_ENUM_LABELS: ReadonlyMap<readonly string[], Readonly<Record<string, string>>> = new Map<
   readonly string[],
   Readonly<Record<string, string>>
->();
+>([
+  // ONE row covers every prop that reuses the vocabulary — LEADGEN_GAP_TOKENS
+  // is Stack.gap, GridContainer.gap, Spacer.size and QuestionGrid.gap.
+  [LEADGEN_GAP_TOKENS, GAP_TOKEN_LABELS],
+  [LEADGEN_STACK_DIRECTIONS, STACK_DIRECTION_LABELS],
+  [LEADGEN_STACK_ALIGNS, STACK_ALIGN_LABELS],
+  [LEADGEN_GRID_SIZINGS, GRID_SIZING_LABELS],
+  [LEADGEN_COLUMN_RATIOS, COLUMN_RATIO_LABELS],
+  [LEADGEN_COLUMN_MOBILE_MODES, COLUMN_MOBILE_LABELS],
+  [LEADGEN_PANEL_WIDTHS, PANEL_WIDTH_LABELS],
+  [LEADGEN_PANEL_BACKGROUNDS, PANEL_BACKGROUND_LABELS],
+  [LEADGEN_PANEL_SHADOWS, PANEL_SHADOW_LABELS],
+  [LEADGEN_PANEL_RADII, PANEL_RADIUS_LABELS],
+  [LEADGEN_PANEL_PADDINGS, PANEL_PADDING_LABELS],
+  [LEADGEN_BG_PANEL_BACKGROUNDS, BG_PANEL_BACKGROUND_LABELS],
+  [LEADGEN_BG_PANEL_GRADIENTS, BG_PANEL_GRADIENT_LABELS],
+  [LEADGEN_SPACER_VARIANTS, SPACER_VARIANT_LABELS],
+]);
 
 // The one lookup. Unlabelled vocabulary -> today's exact `orList(values)`.
 function containerEnumList(values: readonly string[]): string {

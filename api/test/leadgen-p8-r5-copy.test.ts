@@ -37,6 +37,16 @@ import { validateMappingReferences, validateSection } from "../src/leadgen/secti
 import type { LeadgenAnswerMapEdge, OfferSchemaInfo } from "../src/leadgen/sections";
 import { validateSectionContent } from "../src/public/leadgen/components/content-schema";
 import { QUOTE_EDITOR_SCRIPT } from "../src/admin/leadgen/quotes-tabs/funnel";
+import {
+  EXTRA_ROLE_META,
+  ROLE_META,
+  advancedHexRow,
+} from "../src/admin/leadgen/ui-theme-manager";
+import {
+  FUNNEL_TOKEN_ROLE_LABELS,
+  THEME_RECORD_EXTRA_ROLE_KEYS,
+  THEME_RECORD_ROLE_KEYS,
+} from "../src/public/leadgen/designs/theme";
 
 // __file__-relative, never a hardcoded workspace path.
 const TEST_DIR = dirname(fileURLToPath(import.meta.url));
@@ -910,5 +920,247 @@ describe("P8-6 Q2 — the Activation tab confirmations name the site the operato
     await b.flush();
     expect(b.ok.textContent).toBe("Activation saved for " + Q2_SITE_NAME);
     assertOperatorCopy([b.ok.textContent], "Q2 save activation success");
+  });
+});
+
+// ===========================================================================
+// P8-6 Q10 — the two raw-token surfaces left half-landed by Q8/Q9.
+//
+// Q10-A: the CONTAINER-PROP ENUM SENTENCE. Q8 built content-schema.ts's
+// CONTAINER_ENUM_LABELS seam but left the Map EMPTY because, at that moment,
+// the Section Studio's own dropdowns rendered options(control.values) — there
+// was no operator wording to converge with. Q9 then LABELLED those dropdowns
+// (ui-section-studio.ts CONTAINER_PROP_CONTROLS `valueLabels`), so the reason
+// for the emptiness expired: the picker said "Soft fill" while the save error
+// for the same prop still said "wash". These assertions are DRIVEN — the real
+// validateSectionContent produces every sentence below.
+//
+// Q10-B: the THEMES MANAGER's ADVANCED PANE. advancedHexRow rendered
+// escapeHtml(key) as the row's visible label, so 14 rows read "brand_primary",
+// "page_bg", "button_primary_bg" on screen while the Colors pane six inches
+// above named the SAME roles "Brand primary", "Page background", "Button".
+// ===========================================================================
+
+// The list portion of the ONE sentence validateContainerProps emits for an
+// enum prop: "'<control>' on the <Component> must be one of: <LIST>. Pick one
+// of those." Returns the LIST so the assertion pins the vocabulary's wording
+// without re-typing the control/component halves.
+function containerEnumSentenceList(node: unknown, pathSuffix: string): string {
+  const verdict = validateSectionContent({ components: [node] }, "button");
+  const problem = verdict.errors.find(
+    (e) => e.code === "container_prop_invalid" && e.path.endsWith(pathSuffix),
+  );
+  expect(problem, `the drive must really emit container_prop_invalid for ${pathSuffix}`).toBeDefined();
+  const message = problem?.message ?? "";
+  const marker = "must be one of: ";
+  const cut = message.indexOf(marker);
+  expect(cut, `the message must carry the choice list — ${message}`).toBeGreaterThan(-1);
+  return message.slice(cut + marker.length).replace(/\. Pick one of those\.$/, "");
+}
+
+describe("P8-6 Q10-A — a container-prop save error speaks the words the Studio's own picker shows", () => {
+  // Each row: the driven node, the prop path, and the sentence the operator
+  // must read. The right-hand words are the SAME ones ui-section-studio.ts's
+  // Q9 valueLabels maps put in the dropdown that authors this prop.
+  const CASES: ReadonlyArray<{ what: string; node: unknown; path: string; list: string }> = [
+    {
+      what: "Stack gap (the vocabulary 4 props share)",
+      node: { type: "Stack", props: { gap: "enormous" } },
+      path: ".props.gap",
+      list: "Extra small, Small, Medium, Large or Extra large",
+    },
+    {
+      what: "Stack direction",
+      node: { type: "Stack", props: { direction: "sideways" } },
+      path: ".props.direction",
+      list: "Top to bottom or Side by side (stacks on mobile)",
+    },
+    {
+      what: "Stack align",
+      node: { type: "Stack", props: { align: "middlish" } },
+      path: ".props.align",
+      list: "Start, Center, End or Stretch to fill",
+    },
+    {
+      what: "GridContainer sizing",
+      node: { type: "GridContainer", props: { sizing: "magic" } },
+      path: ".props.sizing",
+      list: "Fit each card to its content or Equal-width columns",
+    },
+    {
+      what: "Columns ratio",
+      node: { type: "Columns", props: { ratio: "80/20" } },
+      path: ".props.ratio",
+      list: "50/50 — even halves, 60/40 — wider left, 40/60 — wider right or 70/30 — much wider left",
+    },
+    {
+      what: "Columns mobile",
+      node: { type: "Columns", props: { mobile: "float" } },
+      path: ".props.mobile",
+      list: "Stack into one column or Keep side by side",
+    },
+    {
+      what: "CardPanel width",
+      node: { type: "CardPanel", props: { width: "huge" } },
+      path: ".props.width",
+      list: "Small, Medium, Large or Full width",
+    },
+    {
+      what: "CardPanel background",
+      node: { type: "CardPanel", props: { background: "chartreuse" } },
+      path: ".props.background",
+      list: "Card background, Soft fill, Faint fill or Transparent",
+    },
+    {
+      what: "CardPanel shadow",
+      node: { type: "CardPanel", props: { shadow: "spooky" } },
+      path: ".props.shadow",
+      list: "None, Small, Medium, Large or Extra large",
+    },
+    {
+      what: "CardPanel radius",
+      node: { type: "CardPanel", props: { radius: "spiky" } },
+      path: ".props.radius",
+      list: "Small, Medium, Large or Extra large",
+    },
+    {
+      what: "CardPanel padding",
+      node: { type: "CardPanel", props: { padding: "enormous" } },
+      path: ".props.padding",
+      list: "Small, Medium or Large",
+    },
+    {
+      what: "BackgroundPanel background",
+      node: { type: "BackgroundPanel", props: { background: "plaid" } },
+      path: ".props.background",
+      list: "Card background, Soft fill, Faint fill, Page background or Brand primary",
+    },
+    {
+      what: "BackgroundPanel gradient",
+      node: { type: "BackgroundPanel", props: { gradient: "rainbow" } },
+      path: ".props.gradient",
+      list: "Brand primary, Accent or Soft fill",
+    },
+    {
+      what: "Spacer variant",
+      node: { type: "Spacer", props: { variant: "squiggle" } },
+      path: ".props.variant",
+      list: "Empty space or Divider line",
+    },
+  ];
+
+  for (const c of CASES) {
+    it(`${c.what} reads in operator words, not stored tokens`, () => {
+      expect(containerEnumSentenceList(c.node, c.path)).toBe(c.list);
+    });
+  }
+
+  it("every registered vocabulary is spoken — no driven sentence still dumps a bare token list", () => {
+    // The class-level assertion: across all 14 cases, no sentence may consist
+    // of the abbreviated storage tokens the operator never sees on screen.
+    const TOKEN_DUMPS = [
+      "xs, s, m, l or xl",
+      "vertical or horizontal",
+      "start, center, end or stretch",
+      "auto or equal",
+      "stack or keep",
+      "s, m, l or full",
+      "card, wash, ghost or transparent",
+      "none, sm, md, lg or xl",
+      "sm, md, lg or xl",
+      "s, m or l",
+      "card, wash, ghost, page or primary",
+      "primary, accent or wash",
+      "gap or line",
+    ];
+    const spoken = CASES.map((c) => containerEnumSentenceList(c.node, c.path));
+    expect(spoken.length, "vocabularies driven through the real validator").toBe(14);
+    const dumps = spoken.filter((s) => TOKEN_DUMPS.includes(s));
+    expect(dumps, `raw token dump(s) still reaching the operator: ${dumps.join(" | ")}`).toEqual([]);
+  });
+
+  it("image_fit stays on the fallback ON PURPOSE — its control's words are the value plus an explanation", () => {
+    // The 15th vocabulary. renderImageFitControl DOES label its options, but
+    // as "Cover — fill the card, may crop": the head word differs from the
+    // stored value by CAPITALISATION only (the exclusion theme.ts/frames.ts
+    // label maps already apply) and splicing the explanatory tail into a
+    // "must be one of:" list would read worse, not better. Pinned so the
+    // exclusion is a decision on the record, not an oversight — and so
+    // test/leadgen-section-studio-ui.test.ts's own pin on this sentence
+    // cannot be broken from here by accident.
+    expect(
+      containerEnumSentenceList(
+        { type: "ImageCardAnswerGrid", internal_field: "pick", props: { image_fit: "squash" } },
+        ".props.image_fit",
+      ),
+    ).toBe("cover or contain");
+  });
+});
+
+describe("P8-6 Q10-B — the Themes manager's Advanced pane names each role, never its storage key", () => {
+  // DRIVEN through the shipped renderer: advancedHexRow is the ONE function
+  // renderCenterEditor maps over THEME_RECORD_ROLE_KEYS and
+  // THEME_RECORD_EXTRA_ROLE_KEYS to build all 14 rows, so these are the real
+  // rows the page serves — nothing here hand-builds the markup.
+  const LABEL_SPAN = /<span[^>]*>([^<]*)<\/span>/;
+  const visibleLabel = (row: string): string => {
+    const m = row.match(LABEL_SPAN);
+    expect(m, `the row must carry a visible label span — ${row}`).not.toBeNull();
+    return m?.[1] ?? "";
+  };
+
+  it("all 14 rows show a word, and not one of them shows its raw role key", () => {
+    const rows = [
+      ...THEME_RECORD_ROLE_KEYS.map((key) => ({ key, row: advancedHexRow("roles", key, "#123456", "t1") })),
+      ...THEME_RECORD_EXTRA_ROLE_KEYS.map((key) => ({
+        key,
+        row: advancedHexRow("extra_roles", key, "#123456", "t1"),
+      })),
+    ];
+    expect(rows.length, "Advanced hex rows the editor renders").toBe(14);
+    const rawKeyRows = rows.filter((r) => visibleLabel(r.row) === r.key);
+    expect(rawKeyRows.map((r) => r.key), "row(s) still showing the storage key on screen").toEqual([]);
+  });
+
+  it("the words are the SAME page's own Colors-pane words, role for role", () => {
+    // The manager must not name one role two ways on one screen: the Advanced
+    // row and the Colors swatch above it read off the same table.
+    for (const meta of ROLE_META) {
+      expect(visibleLabel(advancedHexRow("roles", meta.key, "#123456", "t1"))).toBe(meta.label);
+    }
+    for (const meta of EXTRA_ROLE_META) {
+      expect(visibleLabel(advancedHexRow("extra_roles", meta.key, "#123456", "t1"))).toBe(meta.label);
+    }
+  });
+
+  it("`error` — the one role with no Colors-pane row — borrows the name every other surface uses", () => {
+    // ROLE_META has 6 entries for 7 THEME_RECORD_ROLE_KEYS: `error` has no
+    // swatch row of its own. It is not left raw — it falls through to
+    // theme.ts's FUNNEL_TOKEN_ROLE_LABELS, the same source themes-handlers.ts
+    // already cites for this exact key.
+    expect(ROLE_META.map((m) => m.key)).not.toContain("error");
+    expect(visibleLabel(advancedHexRow("roles", "error", "#B42318", "t1"))).toBe(
+      FUNNEL_TOKEN_ROLE_LABELS.error,
+    );
+    expect(FUNNEL_TOKEN_ROLE_LABELS.error).toBe("Error");
+  });
+
+  it("a few labels pinned literally, so a table-to-table tautology cannot pass this file", () => {
+    expect(visibleLabel(advancedHexRow("roles", "page_bg", "#FFFFFF", "t1"))).toBe("Page background");
+    expect(visibleLabel(advancedHexRow("roles", "brand_primary", "#1B3A5C", "t1"))).toBe("Brand primary");
+    expect(visibleLabel(advancedHexRow("extra_roles", "button_primary_bg", "#1B3A5C", "t1"))).toBe("Button");
+    expect(visibleLabel(advancedHexRow("extra_roles", "surface_wash", "#E8EEF4", "t1"))).toBe("Soft fill");
+  });
+
+  it("the STORED key still rides the row (the PATCH path is untouched) and an unknown role keeps its key", () => {
+    const row = advancedHexRow("roles", "page_bg", "#FFFFFF", "t1");
+    // THEME_MGR_SCRIPT reads data-role, never the label — the collect path is
+    // byte-identical to before this change.
+    expect(row).toContain('data-role="page_bg"');
+    expect(row).toContain('data-top="roles"');
+    // No label anywhere ⇒ keep the key, never invent a word.
+    expect(visibleLabel(advancedHexRow("roles", "totally_made_up" as never, "#000000", "t1"))).toBe(
+      "totally_made_up",
+    );
   });
 });

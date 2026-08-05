@@ -2270,13 +2270,39 @@ export const THEME_CARD_DEFAULT_FIELDS = {
 } as const satisfies Record<keyof ThemeCardDefaults, DefaultsFieldKind>;
 
 // P8-6 Q7 (M5 jargon sweep, "close the raw-key-dump class for good"): every
-// closed vocabulary below is picked from a LABELLED control in the Themes
-// manager (quotes-tabs/themes.ts) — the abbreviated/underscored STORAGE
+// closed vocabulary below is picked from a LABELLED control in the funnel
+// theme rail (quotes-tabs/themes.ts) — the abbreviated/underscored STORAGE
 // value ("sm", "space_grotesk", "wash") is never what the operator reads on
-// screen. Converged VERBATIM with that file's own label maps (kept as local
-// data here for the same reason FUNNEL_TOKEN_ROLE_LABELS above is local —
-// this module is PURE and several admin files import validateTheme FROM it,
-// so importing a label table back from admin would invert the boundary).
+// screen. These maps and labelList() serve validateTheme, i.e. the INLINE
+// theme_json shape that rail authors.
+//
+// WHY THEY ARE DECLARED HERE AND NOT IMPORTED (P8-6 Q10 re-measurement; the
+// note this replaces said they were kept "local for the same reason
+// FUNNEL_TOKEN_ROLE_LABELS above is local", which read as if that map were
+// unexported — it is `export const` at the top of this file and admin imports
+// it. The layer half was right, the description was not):
+//   • DIRECTION. This module is the lowest of the three layers involved —
+//     designs/frames.ts imports it, and so do the admin theme surfaces.
+//     Importing a label table back FROM admin would invert that; exporting
+//     these DOWNWARD would not. So the boundary is not the blocker.
+//   • THE COPIES ARE MOSTLY NOT COPIES. Measured against the three files that
+//     hold the "second copy": only THREE tables are word-for-word identical
+//     (labelList() itself, duplicated in designs/frames.ts; RADIUS_STEP +
+//     SHADOW_STEP in quotes-tabs/themes.ts). The rest deliberately DIFFER
+//     because each converges with ITS OWN control, and sharing one table
+//     would silently change operator copy on one of the two surfaces:
+//       - fonts: the rail appends "(shows as default font)" to the 3
+//         non-self-hosted ids; this file's sentence names the family only.
+//       - button fill/layout/selected + s/m/l heights: themes-handlers.ts
+//         (the ThemeRecord validator for the Themes MANAGER page) says
+//         "Solid" / "Grid" / "Wash" / "S, M, L"; the rail's own controls say
+//         "Solid (default)" / "Grid (default)" / "Soft wash (default)" /
+//         "Small, Medium, Large", which is what these maps must echo.
+//     themes-handlers.ts's join is also a different function (choiceList,
+//     "a, b or c") from labelList's (", ").
+// Collapsing the three real duplicates means editing frames.ts /
+// quotes-tabs/themes.ts, so it is a change to THOSE files, not this one.
+//
 // THEME_SPACING_SCALES / THEME_RADIUS_SCALES / THEME_SHADOW_SCALES and
 // THEME_FIELD_MIN_HEIGHTS are DELIBERATELY left alone below — their admin
 // labels differ from the stored value by capitalisation only
