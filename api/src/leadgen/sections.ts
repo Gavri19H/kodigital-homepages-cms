@@ -158,8 +158,11 @@ function validateSectionPaletteOverride(value: unknown, errors: FieldErrors): vo
       errors[`design_overrides.palette.${role}`] =
         `'${role}' is not a theme colour role. Use one of: ${themeRoleLabelList()}.`;
     } else if (typeof entry !== "string" || (!THEME_ROLE_SET.has(entry) && !LEGACY_HEX_RE.test(entry))) {
+      // `role` is a confirmed THEME_ROLE_SET member here (the `if` above only
+      // falls through on a KNOWN role), so themeRoleLabel(role) always
+      // resolves to its operator label — never the bare "?? role" fallback.
       errors[`design_overrides.palette.${role}`] =
-        `The palette entry for '${role}' must be a theme colour role (${themeRoleLabelList()}) or a #hex colour like #1A2B3C. Pick a role, or enter a hex value.`;
+        `The palette entry for '${themeRoleLabel(role)}' must be a theme colour role (${themeRoleLabelList()}) or a #hex colour like #1A2B3C. Pick a role, or enter a hex value.`;
     }
   }
 }

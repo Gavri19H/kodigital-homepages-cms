@@ -35,7 +35,10 @@ import { describe, expect, it } from "vitest";
 
 import { validateMappingReferences, validateSection } from "../src/leadgen/sections";
 import type { LeadgenAnswerMapEdge, OfferSchemaInfo } from "../src/leadgen/sections";
-import { validateSectionContent } from "../src/public/leadgen/components/content-schema";
+import {
+  LEADGEN_THEME_ROLES,
+  validateSectionContent,
+} from "../src/public/leadgen/components/content-schema";
 import { QUOTE_EDITOR_SCRIPT } from "../src/admin/leadgen/quotes-tabs/funnel";
 import {
   EXTRA_ROLE_META,
@@ -100,10 +103,21 @@ const RAW_ID_IN_COPY: readonly RegExp[] = [
   // prefix list (an enumerated list is exactly the class the R5-B walk below
   // replaced with a derived one) — a live drive found "Deactivated for
   // st_cad9f863eb2444a1." on the Activation tab with no `st_` shape anywhere
-  // in this predicate, so the check stayed green through the leak. Any short
-  // lowercase prefix + "_" + 6-or-more alphanumeric characters reads as a
-  // stored id to an operator, never as English prose.
-  /\b[a-z]{2,4}_[a-z0-9]{6,}\b/i,
+  // in this predicate, so the check stayed green through the leak.
+  //
+  // P8-6 S3: widened AGAIN — a live drive found "The palette entry for
+  // 'brand_primary' must be…", and the {2,4}/{6,} bounds above cannot match
+  // it (or 'surface_wash', or 'button_primary_bg'): "brand"/"surface" exceed
+  // the 4-letter prefix cap, "wash" undershoots the 6-char suffix floor, and
+  // "button_primary_bg" has TWO underscores so no single [a-z0-9]{6,} run
+  // (which excludes "_") can span it. The product's own 14 theme-role ids
+  // (brand_primary … button_secondary_bg) are the concrete evidence for the
+  // new bounds: prefix up to 7 letters ("surface"/"button"), one-or-more
+  // "_"+2-or-more-char groups (so a multi-underscore id matches as a whole).
+  // Any short lowercase prefix + one-or-more "_"+short-alnum groups reads as
+  // a stored id to an operator, never as English prose — English copy in
+  // this codebase does not use underscores at all.
+  /\b[a-z]{2,7}(?:_[a-z0-9]{2,}){1,}\b/i,
 ];
 
 function assertOperatorCopy(messages: readonly string[], where: string): void {
@@ -479,6 +493,10 @@ describe("P8 R5 — save errors speak the operator's language (contract §6 M5 /
   });
 
   it("R5-A: validateSection's real save errors (the whole save payload) carry no clause reference", () => {
+    // P8-6 S3: 'accent' alone cannot expose a raw-role leak — it is the only
+    // one of the 14 LEADGEN_THEME_ROLES with no underscore, so it reads as
+    // plain English whether humanized or not. Every role gets a bad entry so
+    // no future 15th role can hide behind that one shape.
     const result = validateSection({
       section_name: "R5 drive",
       activity: "auto",
@@ -491,12 +509,28 @@ describe("P8 R5 — save errors speak the operator's language (contract §6 M5 /
         bogus_key: "x",
         gapDefault: "calc(1rem + 2px)",
         iconColor: "url(javascript:1)",
-        palette: { hotpink: "#FF00FF", accent: "not-a-role" },
+        palette: {
+          hotpink: "#FF00FF",
+          ...Object.fromEntries(LEADGEN_THEME_ROLES.map((role) => [role, "not-a-role"])),
+        },
       }),
     });
     expect(result.value, "the drive must really block the save").toBeNull();
     const messages = Object.values(result.errors);
     expect(messages.length, "save errors produced by the real validator").toBeGreaterThan(25);
+    // A discriminating per-role check, independent of the RAW_ID_IN_COPY
+    // regex sweep below: the raw (lowercase, underscore-joined) role id must
+    // never appear verbatim in its own "palette entry" message — only its
+    // capitalized THEME_ROLE_LABELS label may. Catches every role, including
+    // the ones (accent/success/error/border) no regex shape can catch.
+    for (const role of LEADGEN_THEME_ROLES) {
+      const roleMessage = result.errors[`design_overrides.palette.${role}`];
+      expect(roleMessage, `a palette entry error for role '${role}'`).toBeDefined();
+      expect(
+        (roleMessage as string).indexOf(role),
+        `raw stored role id '${role}' leaked verbatim into: ${roleMessage}`,
+      ).toBe(-1);
+    }
     assertOperatorCopy(messages, "validateSection");
   });
 
