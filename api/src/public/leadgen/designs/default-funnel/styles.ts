@@ -1151,22 +1151,27 @@ export function funnelChromeCss(
     // fallbacks keep the midpoint arm on top — boundary at the track's centre,
     // max handle at 100%, min at 0%, each entirely inside its own half.
     //
-    // AFTER: NOT YET DRIVEN. The wrangler dev instance on :8901 died before
-    // the after-run and this slice may not start one, so there is deliberately
-    // no "measured after" line here — writing the predicted one is precisely
-    // the error this comment block exists to correct. What IS proven so far is
-    // unit-level: test/leadgen-rework-runtime.test.ts pins the boundary read
-    // out of THIS rule at the driven geometry (a=b=0 -> boundary 491, the
-    // circle's right edge, so x=477 is the min's) and the clamp the press is
-    // then handed to; both go red when this expression is reverted to the
-    // plain midpoint. The outstanding proof, at the SAME press point, is:
-    //   node scripts/p8/probe-q4-thumb-drag.mjs   (presses hMin.cx = 477)
-    // expecting POST /lg/auction to carry max="40" for a typed 40 after a
-    // rightward drag, both stay 20000 for a 20000/20000 pair dragged right,
-    // the MIN at 5000 with max 20000 for that pair dragged left, and the
-    // separated 20000/60000 drags unchanged in all four directions at 1280
-    // and 375. BEFORE, at that same 477/29: 40 -> 50000 on the wire; the
-    // 20000 pair -> max 90000 dragging right and max 25000 dragging LEFT.
+    // MEASURED AFTER, at the SAME press point as the BEFORE numbers above —
+    // hMin.cx, x=477 at 1280 and x=29 at 375, never 470 — by
+    // scripts/p8/probe-s2-fixedpoint.mjs. 22 rows, 1280 and 375 identical on
+    // every row; full log at docs/leadgen/r2/evidence/p8/s2/after-fixedpoint.log.
+    // POST /lg/auction, before -> after:
+    //   typed max=40, drag RIGHT  max 50000 -> 40      LEFT  max 40 (unchanged)
+    //   20000/20000, drag LEFT    max 25000 -> 20000, and the MIN moves to 5000
+    //   20000/20000, drag RIGHT   20000/20000 — see the limitation below
+    //   typed max=100 under min=20000 -> 20000/20000 (the exact neighbour),
+    //   declared max 100000 -> 100000, above-max 200000 -> 100000, and the
+    //   separated 20000/60000 drags unchanged in all four directions
+    //   (min 40000 / min 5000 / max 90000 / max 70000).
+    //
+    // THE LIMITATION, stated plainly: on a COINCIDENT pair a rightward drag
+    // now records NOTHING. The min owns the circle, and the no-crossing clamp
+    // pins the min against its neighbour, so the gesture is inert. That is the
+    // deliberate trade, not drag parity — it is strictly better than the two
+    // measured alternatives at that pixel (destroying a typed 40 into 50000,
+    // and a LEFTWARD drag pushing a typed 20000 up to 25000), and the max is
+    // still raised from its own labelled box or the keyboard, but a visitor
+    // who expects to drag a degenerate band open will find that it does not.
     rule(`${scope} .lg-range-track > span + span > .lg-range-input-dual`, {
       "clip-path": `inset(0 0 0 calc(${rangeQuestion.thumbSize} / 2 + max((var(--lg-a,0) + var(--lg-b,100)) * (100% - ${rangeQuestion.thumbSize}) / 200, ${rangeQuestion.thumbSize} / 2 + var(--lg-a,0) * (100% - ${rangeQuestion.thumbSize}) / 100)))`,
     }),
