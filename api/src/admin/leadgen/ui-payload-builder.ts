@@ -2848,10 +2848,13 @@ export const PAYLOAD_BUILDER_SCRIPT = `
     return clientCoerceToType(v, node.type || 'string');
   }
   // The exact JSON bytes the provider receives (quotes included) — the shape
-  // half of the truth the operator needs: "170000" is NOT 170000.
+  // half of the truth the operator needs: "170000" is NOT 170000. JSON.stringify
+  // matches String() byte-for-byte for every finite number/boolean this control
+  // ever resolves (both use the same ToString), so widening the non-string leg
+  // to JSON.stringify changes nothing for those — it only stops a §6.9
+  // computed-value-ref fallback object from rendering as "[object Object]".
   function outputFormatJsonLiteral(v) {
-    if (typeof v === 'string') { return JSON.stringify(v); }
-    return String(v);
+    return JSON.stringify(v);
   }
   function updateOutputFormatPreview(bodyEl, node) {
     var sampleEl = bodyEl.querySelector('[data-pb-outputformat-sample]');
@@ -2869,14 +2872,14 @@ export const PAYLOAD_BUILDER_SCRIPT = `
     }
     var out = outputFormatPreviewValue(node, raw);
     if (out === undefined) {
-      var fb = node.fallback !== undefined ? ' (' + displayScalar(node.fallback) + ')' : ' (field omitted)';
+      var fb = node.fallback !== undefined ? ' (' + outputFormatJsonLiteral(node.fallback) + ')' : ' (field omitted)';
       preview.textContent = 'invalid \\u2192 fallback' + fb;
       if (jsonChip) { jsonChip.textContent = node.fallback !== undefined ? outputFormatJsonLiteral(node.fallback) : '(field omitted)'; }
       if (invalidNote) { invalidNote.hidden = false; }
       return;
     }
     if (invalidNote) { invalidNote.hidden = true; }
-    preview.textContent = raw + ' \\u2192 ' + String(out);
+    preview.textContent = raw + ' \\u2192 ' + outputFormatJsonLiteral(out);
     if (jsonChip) { jsonChip.textContent = outputFormatJsonLiteral(out); }
   }
   function fillOutputFormatPanel(bodyEl, node) {
