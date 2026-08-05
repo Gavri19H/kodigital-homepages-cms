@@ -862,6 +862,43 @@ export const QUOTE_EDITOR_SCRIPT = `
   function showMsg(id, text) { var el = byId(id); if (el) { el.textContent = text; el.hidden = false; } }
   function hideMsg(id) { var el = byId(id); if (el) { el.hidden = true; } }
 
+  /* --- P8-6 N8: a confirmation that SURVIVES window.location.reload() -------
+     showMsg paints textContent into a node on THIS document. A handler that
+     paints and then reloads throws its own message away a tick later, so the
+     operator sees nothing at all: measured on the Create A/B test button, the
+     text was in the node and gone before it could be read. Anything that
+     reloads therefore PARKS its outcome first and drainFlash() paints it once,
+     after the fresh page has booted.
+     Why sessionStorage: it is scoped to THIS tab, so a second editor tab can
+     never steal or duplicate the one-shot line, and it survives exactly the
+     navigation we are doing. localStorage (the ui-section-studio.ts callout
+     precedent) is cross-tab and would. A URL query param survives too but
+     re-announces on every later refresh unless it is scrubbed with
+     history.replaceState, so it is not one-shot.
+     Why reload at all: the A/B panel is server-rendered from /structure
+     (quotes-tabs/ab.ts) - the created test, its arms and its allocations exist
+     only in the next render, so painting a panel client-side would invent a
+     second source of truth. FAILURES do not reload and do not depend on
+     storage: they paint in place and re-enable their button.
+     Storage access is wrapped exactly like the studio precedent, so a
+     storage-denied browser degrades to the old silence instead of throwing. */
+  var FLASH_KEY = 'lg-quote-flash';
+  function flashAfterReload(id, text) {
+    try { window.sessionStorage.setItem(FLASH_KEY, id + '|' + text); } catch (eFlashSet) {}
+  }
+  function drainFlash() {
+    var raw = '';
+    try {
+      raw = window.sessionStorage.getItem(FLASH_KEY) || '';
+      window.sessionStorage.removeItem(FLASH_KEY);
+    } catch (eFlashGet) { raw = ''; }
+    var cut = raw.indexOf('|');
+    if (cut < 1) { return; }
+    var slot = raw.substring(0, cut);
+    if (slot !== 'lg-quote-ok' && slot !== 'lg-quote-error') { return; }
+    showMsg(slot, raw.substring(cut + 1));
+  }
+
   // --- 05 5.2 activation-preflight panel (server-verdict-driven re-render) --
   // The SAME operator copy the SSR panel renders; rebuilt after variant save,
   // after an activation PUT, and from the activation 409 report body. DOM is
@@ -4337,7 +4374,9 @@ export const QUOTE_EDITOR_SCRIPT = `
               body: JSON.stringify({ theme_json: { theme_id: themeId } })
             });
         req.then(function (r) { return r.json().then(function (j) { return { ok: r.ok, body: j }; }); }).then(function (res) {
-          if (res.ok) { window.location.reload(); return; }
+          // P8-6 N8 class sweep: r.ok was already read here, but the SUCCESS
+          // path still reloaded with nothing said.
+          if (res.ok) { flashAfterReload('lg-quote-ok', 'Preset applied.'); window.location.reload(); return; }
           applyBtn.disabled = false;
           showMsg('lg-quote-error', (res.body && res.body.error) ? res.body.error : 'Apply failed.');
         }).catch(function () {
@@ -4533,13 +4572,38 @@ export const QUOTE_EDITOR_SCRIPT = `
 
   var createExpBtn = byId('lg-create-experiment');
   if (createExpBtn) {
+    // P8-6 N8: this handler used to read
+    //   .then(function (r) { return r.json(); }).then(function () { reload(); })
+    // which told the operator NOTHING in either direction: a success reloaded
+    // with no confirmation (the test IS created), and a REFUSAL reloaded
+    // identically while leaving this button disabled, so the same click looked
+    // the same whether it worked or not and could not be retried.
     createExpBtn.addEventListener('click', function () {
       createExpBtn.disabled = true;
+      hideMsg('lg-quote-error'); hideMsg('lg-quote-ok');
       fetch('/api/admin/leadgen/quotes/' + encodeURIComponent(quotePublicId) + '/experiments', {
         method: 'POST', credentials: 'same-origin',
         headers: { 'content-type': 'application/json', 'Accept': 'application/json' },
         body: JSON.stringify({})
-      }).then(function (r) { return r.json(); }).then(function () { window.location.reload(); });
+      }).then(function (r) {
+        // a bodiless or non-JSON refusal (a 500 error page) must still read as
+        // the refusal it is, not fall through to the network-error branch.
+        return r.json().then(function (j) { return { ok: r.ok, body: j }; }, function () { return { ok: r.ok, body: null }; });
+      }).then(function (res) {
+        if (!res.ok) {
+          createExpBtn.disabled = false;
+          showMsg('lg-quote-error', (res.body && res.body.error) ? res.body.error : 'Could not create the A/B test. Nothing was changed - try again.');
+          return;
+        }
+        // the A/B panel's own order line is Create -> Start -> Add variant, so
+        // the next step this names is Start (measured on the settled page:
+        // the panel comes back reading "draft - rev 1" with a Start button).
+        flashAfterReload('lg-quote-ok', 'A/B test created. It is not running yet - press Start A/B test.');
+        window.location.reload();
+      }).catch(function (err) {
+        createExpBtn.disabled = false;
+        showMsg('lg-quote-error', (err && err.message) ? err.message : 'Network error while creating the A/B test.');
+      });
     });
   }
 
@@ -4549,10 +4613,22 @@ export const QUOTE_EDITOR_SCRIPT = `
 
     var forkId = el.getAttribute('data-fork-variant');
     if (forkId) {
+      // P8-6 N8 class sweep: same shape as the create button - r.ok was never
+      // read, so a refused fork simply did nothing (no navigation, no message,
+      // no error) and the click looked ignored.
       fetch('/api/admin/leadgen/variants/' + encodeURIComponent(forkId) + '/fork', {
         method: 'POST', credentials: 'same-origin', headers: { 'Accept': 'application/json' }
-      }).then(function (r) { return r.json(); }).then(function (body) {
-        if (body && body.public_id) { window.location.href = '/admin/leadgen/quotes/' + encodeURIComponent(quotePublicId) + '/edit?variant=' + encodeURIComponent(body.public_id); }
+      }).then(function (r) {
+        return r.json().then(function (j) { return { ok: r.ok, body: j }; }, function () { return { ok: r.ok, body: null }; });
+      }).then(function (res) {
+        if (res.ok && res.body && res.body.public_id) {
+          // the destination page IS the confirmation here: a different variant.
+          window.location.href = '/admin/leadgen/quotes/' + encodeURIComponent(quotePublicId) + '/edit?variant=' + encodeURIComponent(res.body.public_id);
+          return;
+        }
+        showMsg('lg-quote-error', (res.body && res.body.error) ? res.body.error : 'Could not duplicate this variant.');
+      }).catch(function (err) {
+        showMsg('lg-quote-error', (err && err.message) ? err.message : 'Network error while duplicating this variant.');
       });
       return;
     }
@@ -4562,20 +4638,42 @@ export const QUOTE_EDITOR_SCRIPT = `
       el.disabled = true;
       fetch('/api/admin/leadgen/experiments/' + encodeURIComponent(startId) + '/start', {
         method: 'POST', credentials: 'same-origin', headers: { 'Accept': 'application/json' }
-      }).then(function (r) { return r.json().then(function (j) { return { ok: r.ok, body: j }; }); }).then(function (res) {
+      }).then(function (r) { return r.json().then(function (j) { return { ok: r.ok, body: j }; }, function () { return { ok: r.ok, body: null }; }); }).then(function (res) {
         el.disabled = false;
-        if (res.ok) { window.location.reload(); }
+        // P8-6 N8 class sweep: the refusal branch already spoke; the SUCCESS
+        // branch reloaded silently, and a network error never reached either
+        // (no .catch) so the button stayed disabled forever.
+        if (res.ok) { flashAfterReload('lg-quote-ok', 'A/B test started.'); window.location.reload(); }
         else { showMsg('lg-quote-error', (res.body && res.body.fields && res.body.fields.traffic_allocation_bp) ? res.body.fields.traffic_allocation_bp : ((res.body && res.body.error) ? res.body.error : 'Start failed')); }
+      }).catch(function (err) {
+        el.disabled = false;
+        showMsg('lg-quote-error', (err && err.message) ? err.message : 'Network error while starting the A/B test.');
       });
       return;
     }
 
     var stopId = el.getAttribute('data-stop-experiment');
     if (stopId) {
+      // P8-6 N8 class sweep: identical fire-and-forget reload to the create
+      // button - a refused stop reloaded like a successful one, still running,
+      // with this button left disabled.
       el.disabled = true;
       fetch('/api/admin/leadgen/experiments/' + encodeURIComponent(stopId) + '/stop', {
         method: 'POST', credentials: 'same-origin', headers: { 'Accept': 'application/json' }
-      }).then(function () { window.location.reload(); });
+      }).then(function (r) {
+        return r.json().then(function (j) { return { ok: r.ok, body: j }; }, function () { return { ok: r.ok, body: null }; });
+      }).then(function (res) {
+        if (!res.ok) {
+          el.disabled = false;
+          showMsg('lg-quote-error', (res.body && res.body.error) ? res.body.error : 'Could not stop the A/B test - it is still running.');
+          return;
+        }
+        flashAfterReload('lg-quote-ok', 'A/B test stopped.');
+        window.location.reload();
+      }).catch(function (err) {
+        el.disabled = false;
+        showMsg('lg-quote-error', (err && err.message) ? err.message : 'Network error while stopping the A/B test.');
+      });
       return;
     }
 
@@ -4640,9 +4738,28 @@ export const QUOTE_EDITOR_SCRIPT = `
         return;
       }
       if (el.hasAttribute('data-deactivate')) {
+        // P8-6 N8 class sweep: third fire-and-forget reload. Its sibling (the
+        // PUT above) reports both outcomes; this DELETE reported neither, so a
+        // refused deactivation looked exactly like a successful one - on the
+        // money path (the site keeps serving the Quote).
+        el.disabled = true;
         fetch('/api/admin/leadgen/quotes/' + encodeURIComponent(quotePublicId) + '/activation/' + encodeURIComponent(siteId), {
           method: 'DELETE', credentials: 'same-origin', headers: { 'Accept': 'application/json' }
-        }).then(function () { window.location.reload(); });
+        }).then(function (r) {
+          // a 204/empty body is a SUCCESS, not a parse failure.
+          return r.json().then(function (j) { return { ok: r.ok, body: j }; }, function () { return { ok: r.ok, body: null }; });
+        }).then(function (res) {
+          if (!res.ok) {
+            el.disabled = false;
+            showMsg('lg-quote-error', (res.body && res.body.error) ? res.body.error : 'Could not deactivate ' + siteId + '.');
+            return;
+          }
+          flashAfterReload('lg-quote-ok', 'Deactivated for ' + siteId + '.');
+          window.location.reload();
+        }).catch(function (err) {
+          el.disabled = false;
+          showMsg('lg-quote-error', (err && err.message) ? err.message : 'Network error while deactivating ' + siteId + '.');
+        });
       }
     });
   }
@@ -4807,6 +4924,11 @@ export const QUOTE_EDITOR_SCRIPT = `
   window.addEventListener('beforeunload', function (e) {
     if (dirty || variantDirty || allocDirty || frameDirty || themeDirty || overridesDirty) { e.preventDefault(); e.returnValue = ''; return ''; }
   });
+
+  // P8-6 N8: paint the parked outcome of whatever action caused THIS load.
+  // Last statement of the island's boot, so no later boot step can hide the
+  // alert slot after it has been filled.
+  drainFlash();
 }());
 
 /* ======================================================================== */
