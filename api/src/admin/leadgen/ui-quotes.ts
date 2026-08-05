@@ -1088,9 +1088,13 @@ function questionChoicesOf(node: unknown): RulesBuilderFieldChoice[] {
 // without inverting the layer (server depending on the studio's browser
 // runtime), and hoisting it into a shared module means editing
 // ui-section-studio.ts, which this slice does not own. So the ROLE WORDS below
-// are one copy of the Studio's own literals, pinned byte-for-byte to the island
-// source by test/leadgen-quotes-ui.test.ts ("the rail's role words ARE the
-// Studio's role words") — the two cannot drift silently. Everything with an
+// are one copy of the Studio's own literals, pinned to the island source by
+// test/leadgen-quotes-ui.test.ts's "the rail's role word IS the Studio's role
+// word for the same field" — that test slices the SAME shipped island source
+// into node:vm and asserts the derived role word (the text after " — ") on
+// the rail's label matches the Studio's, across 12 sub-fields in 4 component
+// shapes — a behavioral check of the role word, not a byte-for-byte diff of
+// the whole label or file. The two cannot drift silently. Everything with an
 // exported operator word already (min/max → leadgenControlLabel, the parent's
 // type name → leadgenComponentName) reuses it instead of re-listing it.
 const DERIVED_ROLE_WORDS: Readonly<Record<string, string>> = {

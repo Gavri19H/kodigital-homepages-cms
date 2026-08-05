@@ -1037,6 +1037,14 @@ describe("R2 P8-6 S1 — the quote rules rail offers exactly the keys the page r
   //       SECTION_STUDIO_SCRIPT and run in node:vm, as the oracle for the role
   //       word — the two surfaces name the same field or this goes red.
   //
+  // SCOPE (P8-6 ship review, finding 2): every NameFieldsGroup fixture below
+  // is a 2-field group (["p8n_t1_nm_a","p8n_t1_nm_b"], ["given","family"], or
+  // the no-props.fields default) — none is the 3+-field NameFieldsGroup
+  // finding 1 found collapsing into duplicate labels, and the two rows below
+  // only assert recordableKeysOf(...).length > 0 (some key renders), never
+  // rail-universe == rendered-keys the way the shapes loop above does. Both
+  // titles are qualified accordingly; not fixed here (tracked: ADJ-P8-54).
+  //
   // SABOTAGE-PROVEN RED (executed, api/, npx vitest run
   // test/leadgen-quotes-ui.test.ts). Restoring BOTH S1 behaviours — the
   // string-slice body of derivedSubFieldLabel (`const tail = own !== "" &&
@@ -1089,7 +1097,7 @@ describe("R2 P8-6 S1 — the quote rules rail offers exactly the keys the page r
     props: { label: "Percent band", slider_type: "dual_range", min: 0, max: 100 },
   };
 
-  it("a derived sub-field reads its ROLE's word, for every multi-field shape", () => {
+  it("a derived sub-field reads its ROLE's word, for every 2-field NameFieldsGroup/Address/Slider shape here (no 3+-field NameFieldsGroup — ADJ-P8-54)", () => {
     const rows: Array<[string, unknown[], string[]]> = [
       [
         "Address (plain — the clean control)",
@@ -1180,7 +1188,7 @@ describe("R2 P8-6 S1 — the quote rules rail offers exactly the keys the page r
   // test fails and forces the deletion rather than silently over-exempting.
   const T1_ID_FALLBACK_FIELD = "p8n_t1_plain";
 
-  it("no DERIVED sub-field label carries a storage key — raw or humanized — over an all-opaque universe", () => {
+  it("no DERIVED sub-field label carries a storage key — raw or humanized — over an all-opaque universe of ≤2-field shapes (checks the keys recordableKeysOf finds, not rail-universe == rendered — ADJ-P8-54)", () => {
     const components = [T1_ADDR_RENAME, T1_NAME_OPAQUE, T1_SLIDER_OPAQUE, T1_UNLABELLED];
     // REAL keys off the REAL markup (same extraction as the universe rows).
     const keys = recordableKeysOf(components);

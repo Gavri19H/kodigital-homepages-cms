@@ -10,21 +10,25 @@
 // earlier 10-step/20ms version under-reported at 1280 only: case F2
 // (separated 20000/60000, drag MIN LEFT to 5%) recorded postedMin unchanged
 // at 20000 with the fast drag, but the browser's pointer capture legitimately
-// DOES lower it to 5000 at 1280 once the drag is slow enough -- confirmed
-// stable across 5 direct runs (F2 identical at both viewports every time,
-// see styles.ts comment for the table). A too-fast drag is an INSTRUMENT
-// bug, not a product bug.
+// DOES lower it to 5000 at 1280 once the drag is slow enough. A too-fast
+// drag is an INSTRUMENT bug, not a product bug (see styles.ts comment for
+// the before/after table).
 //
-// RESIDUAL, NOT FULLY ELIMINATED: even at 20 steps/50ms, 3 of those same 5
-// runs each showed ONE OTHER separated-pair row (F1 or F3, never the same
-// one twice, never F2) record NO movement at 1280 while 375 moved -- i.e.
-// the drag was still occasionally swallowed at 1280, just far less often
-// and no longer pinned to one case. Tried adding a 100ms settle right after
-// mouse.down() before moving to fix this -- made it WORSE (regressed F2/H
-// in the very next run) -- reverted, do not re-add it without re-measuring
-// 5+ runs. If a future run shows ANY row disagreeing by viewport, re-run
-// the probe 3-5x before concluding it's a product regression; suspect this
-// timing first, not engine.ts.
+// RESIDUAL, NOT FULLY ELIMINATED: the "5 direct runs" / "3 of those 5" tally
+// once quoted here for a slower-drag re-run series has NO committed log in
+// this repo -- treat the exact run count as UNMEASURED. What IS on record:
+// the flaking rows across that history were F3, F1, F3 (F3 twice, not a
+// different row each time), and this slice's own fresh 3-run check of F1-F4
+// just now (session-only, not committed) found 1 clean run, then F2
+// swallowed at 1280 on the next run, then F4 swallowed at 1280 on the run
+// after that -- so "never F2" is false and the swallow is not confined to
+// F1/F3 either: the drag is still occasionally swallowed at 1280, just far
+// less often and no longer pinned to one case. Tried adding a 100ms settle
+// right after mouse.down() before moving to fix this -- made it WORSE
+// (regressed F2/H in the very next run) -- reverted, do not re-add it
+// without re-measuring 5+ runs. If a future run shows ANY row disagreeing by
+// viewport, re-run the probe 3-5x before concluding it's a product
+// regression; suspect this timing first, not engine.ts.
 import { chromium } from "playwright";
 const HOST = "r2fix.e2e.test", PORT = "8901", SLUG = "r2fix";
 const UA = "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/126.0.0.0 Safari/537.36";

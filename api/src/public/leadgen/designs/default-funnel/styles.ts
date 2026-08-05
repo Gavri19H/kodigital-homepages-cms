@@ -1099,13 +1099,18 @@ export function funnelChromeCss(
     // test then falls to DOM order and the MAX rail (presets.ts emits it
     // second) eats every press.
     //
-    // EVERY number below was driven on the live r2fix funnel (from_to, min=0
-    // max=100000 step=5000) at ONE press point, quoted here so the next reader
-    // cannot move it: the min handle's OWN CENTRE, hMin.cx — x=477 at 1280,
-    // x=29 at 375. BEFORE: a typed max of 40 leaves both rails reading "0" and
-    // both handle boxes at x=463..491 w=28 — one blob — and a real drag from
-    // 477 to the track's 50% moved the MAX: box, rail and the POST /lg/auction
-    // body all went 40 -> 50000 (375, press 29: identical).
+    // The BEFORE/Q4-fix numbers immediately below (coincident pair, a typed
+    // max of 40, both rails at min=0) were driven on the live r2fix funnel at
+    // ONE press point, quoted here so the next reader cannot move it: the min
+    // handle's OWN CENTRE, hMin.cx — x=477 at 1280, x=29 at 375. That is NOT
+    // the press point for every case in this file: hMin.cx moves with the min
+    // value, so the separated-pair (F1-F4) and min=20000 rows further down
+    // press at x=542.2 (1280) / x=92.4 (375) instead — both press points are
+    // in the committed docs/leadgen/r2/evidence/p8/s2/after-fixedpoint.log.
+    // BEFORE: a typed max of 40 leaves both rails reading "0" and both handle
+    // boxes at x=463..491 w=28 — one blob — and a real drag from 477 to the
+    // track's 50% moved the MAX: box, rail and the POST /lg/auction body all
+    // went 40 -> 50000 (375, press 29: identical).
     //
     // Q4's first attempt partitioned the track at the MIDPOINT of the two
     // handles, and the note that stood here claimed "down at 470 ... the typed
@@ -1159,11 +1164,18 @@ export function funnelChromeCss(
     // faster 10-step/20ms drag whose own committed log — one run, at
     // docs/leadgen/r2/evidence/p8/s2/after-fixedpoint.log — actually shows
     // F2 below differing by viewport (a too-fast drag under-reporting at
-    // 1280, not the product). Re-run directly 5x with the slower drag above:
-    // F2 now reproduces IDENTICAL at both viewports every time (5/5). NOT
-    // fully deterministic even so — 3 of those 5 runs each showed one OTHER
-    // separated-pair row (F1 or F3, never the same one twice, never F2) miss
-    // the 1280 drag. Re-run the probe yourself before trusting any single
+    // 1280, not the product). The "(5/5)" / "3 of those 5" tally once quoted
+    // here for a slower-drag re-run series has NO committed log in this repo
+    // — the only committed logs are the OLD fast-drag run above and
+    // docs/leadgen/r2/evidence/p8/review-p8-ship/ship-s2-fcases-3runs.log (2
+    // logged F1-F4-only runs, both landing F2 identical at both viewports) —
+    // so the exact run count is UNMEASURED. What IS on record: the flaking
+    // rows across that history were F3, F1, F3 (F3 twice, not a different row
+    // each time), and this slice's own fresh 3-run check of F1-F4 just now
+    // (session-only, not committed) found 1 clean run, then F2 swallowed at
+    // 1280 on the next run, then F4 swallowed at 1280 on the run after that —
+    // so "never F2" is false, and the swallow is not confined to F1/F3
+    // either. Re-run the probe yourself before trusting any single
     // viewport-disagreeing row against this note.
     // POST /lg/auction, before -> after:
     //   typed max=40, drag RIGHT  max 50000 -> 40      LEFT  max 40 (unchanged)
