@@ -555,7 +555,10 @@ let typing = false;
 //   RAIL (both dual_range handles, plus from_to's two rails) — the dragged
 //     handle stops ONE `step` short of its neighbour. A rail's value is always
 //     on the browser's own step grid, so one-step-short IS the no-crossing rule
-//     there. Unchanged.
+//     there. P8-6 S2 narrows it to exactly that: a handle CROSSING its
+//     neighbour stops a step short, a handle already SITTING on its neighbour
+//     (only reachable through a zero-gap typed commit) stays put instead of
+//     being shoved a step away from a number the visitor typed. See `gap`.
 //   TYPED number box (from_to only — dual_range is handles-only) — the gap is
 //     ZERO: `step` is the RAIL's granularity, never a constraint on a number a
 //     visitor typed. Measured on the live funnel (min="0" max="100000"
@@ -576,8 +579,13 @@ let typing = false;
 // the wire) because the two rails tie on z-index and DOM order gave the press
 // to the max. Pointer separation is NOT this function's job and never was: the
 // track is partitioned between the two rails at the midpoint of --lg-a/--lg-b
-// (styles.ts clips the max rail's hit area), which is why those two properties
-// are published on the WRAP below rather than on the fill.
+// OR the min thumb's right edge, whichever is further right, so a COINCIDENT
+// pair — one circle, no pixel-based answer — belongs to the min alone
+// (styles.ts clips the max rail's hit area; P8-6 S2 corrects Q4's plain
+// midpoint, which at coincidence still handed the shared centre to the max).
+// That is why those two properties are published on the WRAP below rather
+// than on the fill. What IS this function's job is making the press the min
+// then receives harmless — see `gap`.
 //
 // Returns the value of the moved control so handleInputEvent records what the
 // pair agreed on, never a raw crossing value; null = not a two-handle slider
@@ -612,7 +620,23 @@ export function syncDualRange(wrap: Element, moved: HTMLInputElement): string | 
   // The gap the moved control keeps from its neighbour (CLAMP RULE above): one
   // `step` for a rail thumb, zero for a typed box. Identity, not `moved.type`:
   // the two labelled boxes are the only non-rail inputs in a two-handle wrap.
-  const gap = moved === num[top ? 1 : 0] ? 0 : step;
+  //
+  // P8-6 S2: also zero when the moved control ALREADY SITS ON its neighbour.
+  // One step short is a NO-CROSSING rule, never a repulsion rule, and `own` —
+  // the moved side's own labelled box, which carries its last committed value
+  // — is what says which it is. Driven on the live from_to with the two
+  // handles coincident at 20000 (the state the ordering correction itself
+  // produces) and the press on the shared circle: without this, a drag with
+  // the clamp behind it moved the control the visitor was NOT dragging away
+  // from the value they typed: DRIVEN, a leftward drag on that circle posted
+  // max=25000 for a typed 20000. Once the circle belongs to the min
+  // (styles.ts) the same hole faces the other way — with this line reverted,
+  // a rightward drag on the min returns 15000 for a typed 20000 (the sabotage
+  // red on the S2 test). With it, a drag the neighbour fully absorbs records
+  // nothing at all. A genuine crossing is untouched: `own` still reads the far
+  // side, so a min dragged up through a max of 40000 still parks at 35000.
+  const own = num[top ? 1 : 0];
+  const gap = moved === own || (own !== undefined && Number(own.value) === other) ? 0 : step;
   if (top) {
     if (b < a + gap) b = fit(a + gap);
   } else if (a > b - gap) {

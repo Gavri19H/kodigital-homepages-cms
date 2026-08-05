@@ -47,7 +47,7 @@
 [data-funnel-design="default-funnel"] .lg-range-input-dual{pointer-events:none}
 [data-funnel-design="default-funnel"] .lg-range-input-dual::-webkit-slider-thumb{pointer-events:auto}
 [data-funnel-design="default-funnel"] .lg-range-input-dual::-moz-range-thumb{pointer-events:auto}
-[data-funnel-design="default-funnel"] .lg-range-track > span + span > .lg-range-input-dual{clip-path:inset(0 0 0 calc(28px / 2 + (var(--lg-a,0) + var(--lg-b,100)) * (100% - 28px) / 200))}
+[data-funnel-design="default-funnel"] .lg-range-track > span + span > .lg-range-input-dual{clip-path:inset(0 0 0 calc(28px / 2 + max((var(--lg-a,0) + var(--lg-b,100)) * (100% - 28px) / 200, 28px / 2 + var(--lg-a,0) * (100% - 28px) / 100)))}
 [data-funnel-design="default-funnel"] .lg-range-minmax{display:flex;justify-content:space-between;color:#718096;font-size:0.8125rem;margin-top:calc(28px * 0.5 + 2rem * 2)}
 [data-funnel-design="default-funnel"] .lg-range-stepper-row{display:flex;align-items:center;justify-content:center;gap:1rem;margin:1rem 0}
 [data-funnel-design="default-funnel"] .lg-range-stepper-row .lg-range-value{margin:0}

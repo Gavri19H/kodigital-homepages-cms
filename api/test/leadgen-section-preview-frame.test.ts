@@ -1002,21 +1002,25 @@ const P8_S310_ERROR_SELECTOR_REPOINT: ReadonlyArray<readonly [string, string]> =
   ],
 ];
 
-// R2 P8-6 (from_to max-rail hit-area partition): styles.ts:1127 adds ONE
-// NET-NEW rule clipping the MAX rail's hit area at the midpoint of the two
-// handles. WHY IT EXISTS: both dual rails span the whole track at z-index 3,
-// so when the handles coincide DOM order gave every press to the max rail —
-// measured on the live r2fix funnel at 1280, a typed max of 40 was destroyed
-// by a drag started on the MIN handle and `POST /lg/auction` carried
-// max=50000 instead of the operator's 40. clip-path clips HIT TESTING as well
-// as paint and is not layout, so the value<->pixel mapping is untouched.
+// R2 P8-6 (from_to max-rail hit-area partition): styles.ts adds ONE NET-NEW
+// rule clipping the MAX rail's hit area. WHY IT EXISTS: both dual rails span
+// the whole track at z-index 3, so when the handles coincide DOM order gave
+// every press to the max rail — driven on the live r2fix funnel with the
+// press at the min handle's own centre (x=477 at 1280, x=29 at 375), a typed
+// max of 40 was destroyed and `POST /lg/auction` carried max=50000 instead of
+// the operator's 40. clip-path clips HIT TESTING as well as paint and is not
+// layout, so the value<->pixel mapping is untouched. P8-6 S2 corrected the
+// boundary from the plain MIDPOINT of the two handles — which at coincidence
+// IS the shared handle's centre, so that press still posted 50000 — to the
+// midpoint OR the min thumb's right edge, whichever is further right: a
+// coincident pair is one circle and it belongs to the min alone.
 // SAFE FOR THIS PIN: it is net-new since the frozen capture and this fixture
 // carries no slider node at all, so it is a sheet-level delta only — same
 // wholesale-strip idiom and same token interpolation (R2_P4_RQ.thumbSize) as
 // R2_P4_RANGE_NEW_RULES above, kept in lockstep with styles.ts (a drift in
-// either fails here). Nothing ELSE in the sheet moved.
+// either fails here). Still exactly ONE rule; nothing ELSE in the sheet moved.
 const P8_S6_RANGE_MAX_RAIL_CLIP_RULE = [
-  `\n${DEFAULT_FUNNEL_SCOPE} .lg-range-track > span + span > .lg-range-input-dual{clip-path:inset(0 0 0 calc(${R2_P4_RQ.thumbSize} / 2 + (var(--lg-a,0) + var(--lg-b,100)) * (100% - ${R2_P4_RQ.thumbSize}) / 200))}`,
+  `\n${DEFAULT_FUNNEL_SCOPE} .lg-range-track > span + span > .lg-range-input-dual{clip-path:inset(0 0 0 calc(${R2_P4_RQ.thumbSize} / 2 + max((var(--lg-a,0) + var(--lg-b,100)) * (100% - ${R2_P4_RQ.thumbSize}) / 200, ${R2_P4_RQ.thumbSize} / 2 + var(--lg-a,0) * (100% - ${R2_P4_RQ.thumbSize}) / 100)))}`,
 ];
 
 // Legacy plain body: unbound headline + icon grid + ONE continue — a realistic

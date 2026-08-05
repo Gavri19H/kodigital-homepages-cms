@@ -1094,38 +1094,81 @@ export function funnelChromeCss(
     rule(`${scope} .lg-range-input-dual`, { "pointer-events": "none" }),
     rule(`${scope} .lg-range-input-dual::-webkit-slider-thumb`, { "pointer-events": "auto" }),
     rule(`${scope} .lg-range-input-dual::-moz-range-thumb`, { "pointer-events": "auto" }),
-    // P8-6 Q4 — "only the thumbs grabbable" is not enough when the two thumbs
-    // land on the SAME pixel. Both rails carry z-index 3, so the hit test then
-    // falls to DOM order and the MAX rail (presets.ts emits it second) eats
-    // every press. Measured on the live r2fix funnel at 1280 (from_to, min=0
-    // max=100000 step=5000): a typed max of 40 leaves both rails reading "0"
-    // and both handle boxes at x=463..491,w=28 — one blob — and a real pointer
-    // drag STARTED ON THE MIN HANDLE (down at 477, up at 640) moved the MAX:
-    // box, rail and the POST /lg/auction body all went 40 -> 50000. Grabbing
-    // the max handle at the same pixel did exactly the same thing, so one of
-    // the two handles was unreachable.
+    // P8-6 Q4/S2 — "only the thumbs grabbable" is not enough when the two
+    // thumbs land on the SAME pixel. Both rails carry z-index 3, so the hit
+    // test then falls to DOM order and the MAX rail (presets.ts emits it
+    // second) eats every press.
     //
-    // Fix: partition the track between the two rails at the MIDPOINT of their
-    // handles. Only the max rail needs the clip — everything left of the
-    // boundary is then the min rail's alone (it is underneath, so it wins only
-    // where the max is clipped away), and everything right of it stays the max
-    // rail's (it is on top there). clip-path clips HIT TESTING as well as
-    // paint and is not layout, so the value<->pixel mapping and the captured
-    // drag are both untouched: once grabbed, a thumb still travels the whole
-    // track. The boundary is (--lg-a + --lg-b)/2 — the two handle percentages
-    // engine.ts already computes for the fill and the pills, now published on
-    // the .lg-range wrap so these rails (siblings of .lg-range-fill) inherit
-    // them; no new runtime state, no new engine geometry. The rail box is the
-    // track inflated by one thumb and pulled half a thumb left (.lg-range-input
-    // above), so track 0% sits at thumbSize/2 in the rail's own box and 100%
-    // of the track is (100% - thumbSize) of it. Unset (server render) the
-    // 0/100 fallbacks put the boundary at the track's centre, with the max
-    // handle at 100% and the min at 0% — each entirely inside its own half.
-    // MEASURED AFTER, same drive: down at 470 (the min half of the blob) moves
-    // the MIN and the typed max stays 40 on the wire; down at 484 (the max
-    // half) moves the MAX. Separated handles (20000/60000) are unchanged.
+    // EVERY number below was driven on the live r2fix funnel (from_to, min=0
+    // max=100000 step=5000) at ONE press point, quoted here so the next reader
+    // cannot move it: the min handle's OWN CENTRE, hMin.cx — x=477 at 1280,
+    // x=29 at 375. BEFORE: a typed max of 40 leaves both rails reading "0" and
+    // both handle boxes at x=463..491 w=28 — one blob — and a real drag from
+    // 477 to the track's 50% moved the MAX: box, rail and the POST /lg/auction
+    // body all went 40 -> 50000 (375, press 29: identical).
+    //
+    // Q4's first attempt partitioned the track at the MIDPOINT of the two
+    // handles, and the note that stood here claimed "down at 470 ... the typed
+    // max stays 40". That was measured 7px LEFT of the coordinate the defect
+    // was measured at — an instrument slip, not a fix. At 477 the wire still
+    // carried max=50000, because when the handles COINCIDE the midpoint IS the
+    // shared handle's centre, so the max rail still owned the exact pixel a
+    // visitor aims at. At coincidence there is no pixel-based answer at all:
+    // the two thumbs are one circle. The circle therefore gets ONE owner.
+    //
+    // Fix: the boundary is the midpoint OR the MIN thumb's own right edge,
+    // whichever is further right. Separated by more than a thumb the midpoint
+    // wins and nothing changes (the midpoint IS the nearest-thumb rule).
+    // Overlapping, the min keeps its whole 28px circle and the max keeps the
+    // part of its own that sticks out to the right. Coincident, the min owns
+    // the circle outright — and that is the safe owner, because the clamp in
+    // engine.ts then pins the min against its neighbour and the press records
+    // NOTHING, where a max-rail press can only replace a precisely typed max
+    // with a value off the step grid. The max is not stranded: it keeps the
+    // keyboard (clip-path routes pointers, not focus), it has its own labelled
+    // number box, and its circle reappears as soon as the two values differ.
+    // Rejected: routing by drag DIRECTION (right = max, left = min), which is
+    // the physically correct disambiguation but is unreachable — a native
+    // range captures the pointer and commits on pointerdown, so the direction
+    // is only known once the drag belongs to the wrong input; and its right
+    // branch does the very thing this fix removes. Rejected: putting the min
+    // rail on top, which just mirrors the bug onto the max.
+    //
+    // Only the max rail needs the clip — everything left of the boundary is
+    // then the min rail's alone (it is underneath, so it wins only where the
+    // max is clipped away), and everything right of it stays the max rail's
+    // (it is on top there). clip-path clips HIT TESTING as well as paint and
+    // is not layout, so the value<->pixel mapping and the captured drag are
+    // both untouched: once grabbed, a thumb still travels the whole track.
+    // --lg-a/--lg-b are the two handle percentages engine.ts already computes
+    // for the fill and the pills, published on the .lg-range wrap so these
+    // rails (siblings of .lg-range-fill) inherit them; no new runtime state,
+    // no new engine geometry. The rail box is the track inflated by one thumb
+    // and pulled half a thumb left (.lg-range-input above), so track 0% sits
+    // at thumbSize/2 in the rail's own box and 100% of the track is
+    // (100% - thumbSize) of it; the min thumb's right edge is therefore
+    // thumbSize/2 past the min handle. Unset (server render) the 0/100
+    // fallbacks keep the midpoint arm on top — boundary at the track's centre,
+    // max handle at 100%, min at 0%, each entirely inside its own half.
+    //
+    // AFTER: NOT YET DRIVEN. The wrangler dev instance on :8901 died before
+    // the after-run and this slice may not start one, so there is deliberately
+    // no "measured after" line here — writing the predicted one is precisely
+    // the error this comment block exists to correct. What IS proven so far is
+    // unit-level: test/leadgen-rework-runtime.test.ts pins the boundary read
+    // out of THIS rule at the driven geometry (a=b=0 -> boundary 491, the
+    // circle's right edge, so x=477 is the min's) and the clamp the press is
+    // then handed to; both go red when this expression is reverted to the
+    // plain midpoint. The outstanding proof, at the SAME press point, is:
+    //   node scripts/p8/probe-q4-thumb-drag.mjs   (presses hMin.cx = 477)
+    // expecting POST /lg/auction to carry max="40" for a typed 40 after a
+    // rightward drag, both stay 20000 for a 20000/20000 pair dragged right,
+    // the MIN at 5000 with max 20000 for that pair dragged left, and the
+    // separated 20000/60000 drags unchanged in all four directions at 1280
+    // and 375. BEFORE, at that same 477/29: 40 -> 50000 on the wire; the
+    // 20000 pair -> max 90000 dragging right and max 25000 dragging LEFT.
     rule(`${scope} .lg-range-track > span + span > .lg-range-input-dual`, {
-      "clip-path": `inset(0 0 0 calc(${rangeQuestion.thumbSize} / 2 + (var(--lg-a,0) + var(--lg-b,100)) * (100% - ${rangeQuestion.thumbSize}) / 200))`,
+      "clip-path": `inset(0 0 0 calc(${rangeQuestion.thumbSize} / 2 + max((var(--lg-a,0) + var(--lg-b,100)) * (100% - ${rangeQuestion.thumbSize}) / 200, ${rangeQuestion.thumbSize} / 2 + var(--lg-a,0) * (100% - ${rangeQuestion.thumbSize}) / 100)))`,
     }),
     rule(`${scope} .lg-range-minmax`, {
       display: "flex",

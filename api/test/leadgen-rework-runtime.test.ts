@@ -40,6 +40,11 @@ import type {
 // alongside the engine — safe to import HERE (never into engine.ts itself,
 // which would blow the byte cap with its ~27KB of catalog/capability text).
 import { COMPONENT_CATALOG } from "../src/public/leadgen/components/registry";
+// P8-6 S2: the max rail's hit-partition is read out of the SHIPPED stylesheet
+// (pure token→string builders, no DOM and no worker types — safe under the
+// same tsconfig split as the runtime modules above).
+import { funnelChromeCss } from "../src/public/leadgen/designs/default-funnel/styles";
+import { defaultFunnelDesign } from "../src/public/leadgen/designs/default-funnel/tokens";
 
 // ---------------------------------------------------------------------------
 // Fake DOM (only the surface the engine/render touch) — the r1 harness plus
@@ -1600,23 +1605,24 @@ describe("§6.8 from_to/dual_range: the clamp arithmetic over a STEP-SNAPPING ra
   // the same number (the rail snaps 40 -> 0 on a step=5000 grid) and both
   // handles on the same pixel. Both rails carry z-index 3, so the pointer hit
   // test fell to DOM order and the MAX rail (emitted second) ate every press.
-  // DRIVEN on the live r2fix funnel at 1280 BEFORE the fix: typed max 40, both
-  // handle boxes at x=463..491 w=28, mouse down at 477 (the MIN handle) and up
-  // at 640 -> the max box, the max rail and the POST /lg/auction body all went
-  // 40 -> 50000. Down on the MAX handle at the same pixel did the same thing,
-  // so exactly one of the two handles was reachable.
+  // DRIVEN on the live r2fix funnel BEFORE the fix, press point = the min
+  // handle's OWN CENTRE (x=477 at 1280, x=29 at 375): typed max 40, both
+  // handle boxes at x=463..491 w=28, mouse down at 477 and up at the track's
+  // 50% -> the max box, the max rail and the POST /lg/auction body all went
+  // 40 -> 50000.
   //
-  // The fix partitions the track between the rails at the MIDPOINT of the two
-  // handles: styles.ts clips the max rail's hit area to the half nearer it, so
-  // the min rail owns everything to the left. The midpoint is (a+b)/2 of the
-  // two percentages this function already computes — and the ONLY engine-side
-  // requirement is WHERE they are published: on the .lg-range WRAP, which is
-  // an ancestor of both rails, never on .lg-range-fill, which is their
-  // SIBLING (a custom property inherits down, never sideways). That contract
-  // is what these two pin; the hit test itself is not expressible in a
-  // layout-free fake DOM and is proven by the live drive above (AFTER, same
-  // drive: down at 470 records the MIN and the wire still carries max=40;
-  // down at 484 moves the MAX; separated handles unchanged).
+  // Q4 partitioned the track at the MIDPOINT of the two handles and recorded
+  // its "after" here as "down at 470 ... the wire still carries max=40". That
+  // press point had moved 7px LEFT of the one the defect was measured at. At
+  // 477 the wire still carried 50000, because at coincidence the midpoint IS
+  // the shared handle's centre. P8-6 S2 moves the boundary to the midpoint OR
+  // the min thumb's right edge, whichever is further right, so a coincident
+  // pair is one circle with ONE owner: the min. The two tests below pin the
+  // engine-side contract (WHERE the percentages are published: on the
+  // .lg-range WRAP, an ancestor of both rails, never on .lg-range-fill, which
+  // is their SIBLING — a custom property inherits down, never sideways); the
+  // S2 block after them pins the partition and the clamp it hands the press
+  // to, evaluated from the SHIPPED rule at the DRIVEN geometry.
   // -------------------------------------------------------------------------
 
   it("Q4: the two handle percentages are published on the WRAP (the rails' ancestor), not on the fill", () => {
@@ -1640,13 +1646,177 @@ describe("§6.8 from_to/dual_range: the clamp arithmetic over a STEP-SNAPPING ra
     r.boxHi.value = "40";
     expect(r.sync(r.boxHi)).toBe("40");
     // 40 of 0..100000 rounds to 0% and the min is already at 0% — the two
-    // handles are ON THE SAME PIXEL, so the midpoint boundary sits exactly on
-    // them and each rail keeps one half of the shared thumb.
+    // handles are ON THE SAME PIXEL. That is the state with no pixel-based
+    // answer: the S2 partition below hands the whole shared circle to the min.
     expect(r.wrapStyle.props["--lg-a"]).toBe("0");
     expect(r.wrapStyle.props["--lg-b"]).toBe("0");
     expect(r.lo.value).toBe(r.hi.value); // both rails snapped to the same grid slot
     // ...and the typed answer is untouched by any of it.
     expect(r.boxHi.value).toBe("40");
+  });
+
+  // -------------------------------------------------------------------------
+  // P8-6 S2 — the INTERACTION, not where the properties land.
+  //
+  // Q4's two tests above pin only that --lg-a/--lg-b reach an ancestor of the
+  // rails. That could never fail on a wrong BOUNDARY, which is why a partition
+  // that still gave the shared centre to the max rail passed them. These pin
+  // the boundary itself, read out of the stylesheet the product actually
+  // serves (funnelChromeCss over the real tokens — never a copy of the
+  // expression), evaluated at the geometry the live drive MEASURED at 1280:
+  // the from_to track runs x=477..803 and each handle box is 28px, so the rail
+  // box — the track inflated by one thumb and pulled half a thumb left — is
+  // x=463..817. Feeding those numbers back through the real rule reproduces
+  // the driven handle centres exactly (a=b=0 -> 477; a=b=20 -> 542.2;
+  // a=20,b=60 -> 542.2 and 672.6), which is what ties this arithmetic to the
+  // drive. The press point is derived FROM the handle percentage, so there is
+  // no free pixel to slide: the 7px slip that made Q4 look complete (measuring
+  // the "after" at 470 instead of the handle's own 477) cannot be repeated
+  // here without changing handleCx, and 477 is the assertion that fails under
+  // the plain midpoint.
+  // -------------------------------------------------------------------------
+  const RAIL_X = 463; // the max rail's border box, live-measured at 1280
+  const RAIL_W = 354;
+  const THUMB = 28; // rangeQuestion.thumbSize
+  const TRACK_X = RAIL_X + THUMB / 2; // 477 — the track's own 0%
+  const TRACK_W = RAIL_W - THUMB; // 326
+  const handleCx = (pct: number): number => TRACK_X + (pct / 100) * TRACK_W;
+
+  // The ONE max-rail clip the real sheet emits, as shipped.
+  function maxRailClipExpr(): string {
+    const hits = funnelChromeCss(defaultFunnelDesign)
+      .split("\n")
+      .filter((l) => l.includes(".lg-range-track > span + span > .lg-range-input-dual"));
+    expect(hits).toHaveLength(1);
+    const line = hits.join(""); // exactly one, asserted above
+    const open = "inset(0 0 0 ";
+    const at = line.indexOf(open);
+    expect(at).toBeGreaterThan(-1);
+    return line.slice(at + open.length, -2); // drop the trailing ")}"
+  }
+
+  // Resolve that CSS math to a pixel offset inside the rail box. `%` resolves
+  // against clip-path's reference box (the rail), `px` is already px, and the
+  // only functions in the grammar are calc() and max().
+  function clipLeftPx(expr: string, a: number, b: number): number {
+    const src = expr
+      .split("var(--lg-a,0)")
+      .join(`${a}`)
+      .split("var(--lg-b,100)")
+      .join(`${b}`)
+      .replace(/([\d.]+)%/g, (_m, n: string) => `${(Number(n) / 100) * RAIL_W}`)
+      .replace(/([\d.]+)px/g, "$1")
+      .split("calc")
+      .join("")
+      .replace(/\s+/g, "");
+    let i = 0;
+    function atom(): number {
+      if (src.startsWith("max(", i)) {
+        i += 4;
+        const x = sum();
+        i += 1; // ,
+        const y = sum();
+        i += 1; // )
+        return Math.max(x, y);
+      }
+      if (src[i] === "(") {
+        i += 1;
+        const v = sum();
+        i += 1; // )
+        return v;
+      }
+      const m = src.slice(i).match(/^-?[\d.]+/);
+      if (m === null) throw new Error(`unparsable css math at ${i}: ${src}`);
+      i += m[0].length;
+      return Number(m[0]);
+    }
+    function prod(): number {
+      let v = atom();
+      while (src[i] === "*" || src[i] === "/") {
+        const op = src[i++];
+        const r = atom();
+        v = op === "*" ? v * r : v / r;
+      }
+      return v;
+    }
+    function sum(): number {
+      let v = prod();
+      while (src[i] === "+" || src[i] === "-") {
+        const op = src[i++];
+        const r = prod();
+        v = op === "+" ? v + r : v - r;
+      }
+      return v;
+    }
+    const out = sum();
+    expect(i).toBe(src.length); // the whole expression was consumed
+    return out;
+  }
+
+  // Viewport x of the first pixel the MAX rail can be hit at.
+  const boundaryX = (a: number, b: number): number => RAIL_X + clipLeftPx(maxRailClipExpr(), a, b);
+  // Which rail a press inside the handles resolves to (the max rail is on top
+  // wherever it is not clipped away; the min rail is underneath).
+  const railAt = (x: number, a: number, b: number): "min" | "max" => (x < boundaryX(a, b) ? "min" : "max");
+
+  it("S2: the shared circle of a COINCIDENT pair belongs to the MIN rail, centre included", () => {
+    // The exact pixel the pre-fix drive pressed, derived from the percentage.
+    expect(handleCx(0)).toBe(477);
+    // The boundary is the circle's RIGHT edge, not its centre: 477 + 28/2.
+    expect(boundaryX(0, 0)).toBe(491);
+    expect(railAt(477, 0, 0)).toBe("min"); // the plain midpoint answered "max"
+    // ...and the same at the coincidence the ordering correction itself makes.
+    expect(handleCx(20)).toBeCloseTo(542.2, 1);
+    expect(boundaryX(20, 20)).toBeCloseTo(556.2, 1);
+    expect(railAt(542.2, 20, 20)).toBe("min");
+    // 470 — Q4's moved press point — reads "min" under the MIDPOINT too, so a
+    // probe pressed there could not see the defect. It is not the assertion.
+    expect(railAt(470, 0, 0)).toBe("min");
+  });
+
+  it("S2: separated handles keep the nearest-thumb midpoint, and the server render is unmoved", () => {
+    const mid = (handleCx(20) + handleCx(60)) / 2;
+    expect(boundaryX(20, 60)).toBeCloseTo(mid, 1); // 607.4
+    expect(railAt(handleCx(20), 20, 60)).toBe("min");
+    expect(railAt(handleCx(60), 20, 60)).toBe("max");
+    // Properties unset (server render): the 0/100 fallbacks, track centre.
+    expect(boundaryX(0, 100)).toBeCloseTo(TRACK_X + TRACK_W / 2, 1);
+    // Overlapping but distinct: the min keeps its whole circle, the max keeps
+    // the part of its own that sticks out past it — never nothing.
+    expect(boundaryX(0, 5)).toBeCloseTo(handleCx(0) + THUMB / 2, 1);
+    expect(boundaryX(0, 5)).toBeLessThan(handleCx(5) + THUMB / 2);
+  });
+
+  it("S2: the press the partition routes to the MIN records NOTHING — a typed 40 reaches the buyer", () => {
+    const r = dualRig({ ...FT_LIVE, lo: "0", hi: "100000", boxes: true });
+    r.boxHi.value = "40";
+    expect(r.sync(r.boxHi)).toBe("40");
+    expect(railAt(handleCx(0), 0, 0)).toBe("min"); // where the press lands
+    r.lo.value = "50000"; // dragged from 477 to the track's 50%
+    expect(r.sync(r.lo)).toBe("0"); // the no-crossing clamp absorbs it whole
+    expect(r.boxHi.value).toBe("40"); // the typed max is untouched
+    expect(r.boxLo.value).toBe("0");
+    expect(r.hi.value).toBe("0");
+  });
+
+  it("S2: a rail already SITTING on its neighbour is never shoved a step off a typed number", () => {
+    const r = dualRig({ ...FT_LIVE, lo: "0", hi: "100000", boxes: true });
+    r.boxLo.value = "20000";
+    expect(r.sync(r.boxLo)).toBe("20000");
+    r.boxHi.value = "100"; // a real ordering conflict -> the min's exact value
+    expect(r.sync(r.boxHi)).toBe("20000");
+    expect(r.wrapStyle.props["--lg-a"]).toBe("20");
+    expect(r.wrapStyle.props["--lg-b"]).toBe("20"); // coincident at 20%
+    expect(railAt(handleCx(20), 20, 20)).toBe("min");
+    // RIGHTWARD on the circle: the min cannot legally move, so nothing does.
+    r.lo.value = "90000";
+    expect(r.sync(r.lo)).toBe("20000"); // NOT 15000 — a step BELOW its own value
+    expect(r.boxLo.value).toBe("20000");
+    expect(r.boxHi.value).toBe("20000");
+    // LEFTWARD on the circle: the min is the thumb that can move, and does.
+    r.lo.value = "5000";
+    expect(r.sync(r.lo)).toBe("5000");
+    expect(r.boxHi.value).toBe("20000"); // the neighbour still never moves
   });
 
   it("dual_range (handles-only) is untouched: values survive, crossings still clamp", () => {
