@@ -1970,15 +1970,143 @@ interface ContainerControl {
   label: string;
   kind: "enum" | "int" | "bool" | "text" | "lines";
   values?: readonly (string | number)[];
+  // P8-6 Q9 (owner M5 "using jargon") — the operator WORDS for this control's
+  // stored values. The option VALUE is still the stored token (the collect
+  // path and content-schema are untouched); only the text the operator reads
+  // changes. Absent ⇒ the option text stays the stored token, which is only
+  // correct where the token IS already the operator's word.
+  valueLabels?: Readonly<Record<string, string>>;
 }
+
+// ---------------------------------------------------------------------------
+// P8-6 Q9 — THE CONTAINER-CONTROL VALUE WORDS.
+//
+// These dropdowns were the ROOT of the raw-token class: every one of them
+// rendered options(control.values), so the operator's own picker read "xs",
+// "wash", "ghost", "md". content-schema.ts's CONTAINER_ENUM_LABELS seam (Q8)
+// was left deliberately empty for exactly that reason — there was no operator
+// wording anywhere for the validator sentence to converge with.
+//
+// Each map is typed against the imported const array, so adding a token to a
+// vocabulary fails the compile here rather than silently shipping a raw one.
+// Every word below was read off the RENDERER or the design token file that
+// consumes the token, not invented:
+//   • gap/spacer size  — default-funnel/tokens.ts stack.gapXs..gapXl and
+//     spacer.sizeXs..sizeXl are a monotonic 0.25rem→2rem ramp: a size ramp,
+//     nothing more. ONE map serves all four props that share the vocabulary.
+//   • stack direction  — presets.ts renderStack sets flex-direction column vs
+//     row, and default-funnel/styles.ts collapses "horizontal" BACK to column
+//     inside the mobile query: the mobile behaviour is invisible on screen
+//     today, so the label states it.
+//   • stack align      — align-items on the CROSS axis, which flips with
+//     direction, so no left/right/top/bottom word can be true for both; only
+//     "stretch" gets a real rename (it fills the cross axis).
+//   • grid sizing      — styles.ts .lg-grid-container is repeat(N, minmax(0,
+//     1fr)) by default and repeat(N, auto) + justify-content:center under
+//     data-sizing="auto".
+//   • column ratios    — styles.ts grid-template-columns 1fr 1fr / 3fr 2fr /
+//     2fr 3fr / 7fr 3fr; the tail names which side is wider.
+//   • panel colours    — reuse the product's OWN role words (theme.ts
+//     FUNNEL_TOKEN_ROLE_LABELS / STUDIO_ROLE_LABELS above: card_background =
+//     "Card background", page_background = "Page background", surface_wash =
+//     "Soft fill", brand_primary = "Brand primary"). "ghost" has no role of
+//     its own; tokens.ts makes it the LIGHTER of the two tints (#F2F6FA vs
+//     the wash #E8EEF4), hence "Faint fill".
+//   • spacer variant   — presets.ts renderSpacer: "line" is the same
+//     token-sized block with a centred rule; "gap" is empty.
+// ---------------------------------------------------------------------------
+const GAP_SIZE_LABELS: Record<(typeof LEADGEN_GAP_TOKENS)[number], string> = {
+  xs: "Extra small",
+  s: "Small",
+  m: "Medium",
+  l: "Large",
+  xl: "Extra large",
+};
+const STACK_DIRECTION_LABELS: Record<(typeof LEADGEN_STACK_DIRECTIONS)[number], string> = {
+  vertical: "Top to bottom",
+  horizontal: "Side by side (stacks on mobile)",
+};
+const STACK_ALIGN_LABELS: Record<(typeof LEADGEN_STACK_ALIGNS)[number], string> = {
+  start: "Start",
+  center: "Center",
+  end: "End",
+  stretch: "Stretch to fill",
+};
+const GRID_SIZING_LABELS: Record<(typeof LEADGEN_GRID_SIZINGS)[number], string> = {
+  auto: "Fit each card to its content",
+  equal: "Equal-width columns",
+};
+const COLUMN_RATIO_LABELS: Record<(typeof LEADGEN_COLUMN_RATIOS)[number], string> = {
+  "50/50": "50/50 — even halves",
+  "60/40": "60/40 — wider left",
+  "40/60": "40/60 — wider right",
+  "70/30": "70/30 — much wider left",
+};
+const COLUMN_MOBILE_LABELS: Record<(typeof LEADGEN_COLUMN_MOBILE_MODES)[number], string> = {
+  stack: "Stack into one column",
+  keep: "Keep side by side",
+};
+const PANEL_WIDTH_LABELS: Record<(typeof LEADGEN_PANEL_WIDTHS)[number], string> = {
+  s: "Small",
+  m: "Medium",
+  l: "Large",
+  full: "Full width",
+};
+const PANEL_BACKGROUND_LABELS: Record<(typeof LEADGEN_PANEL_BACKGROUNDS)[number], string> = {
+  card: "Card background",
+  wash: "Soft fill",
+  ghost: "Faint fill",
+  transparent: "Transparent",
+};
+const PANEL_SHADOW_LABELS: Record<(typeof LEADGEN_PANEL_SHADOWS)[number], string> = {
+  none: "None",
+  sm: "Small",
+  md: "Medium",
+  lg: "Large",
+  xl: "Extra large",
+};
+const PANEL_RADIUS_LABELS: Record<(typeof LEADGEN_PANEL_RADII)[number], string> = {
+  sm: "Small",
+  md: "Medium",
+  lg: "Large",
+  xl: "Extra large",
+};
+const PANEL_PADDING_LABELS: Record<(typeof LEADGEN_PANEL_PADDINGS)[number], string> = {
+  s: "Small",
+  m: "Medium",
+  l: "Large",
+};
+const BG_PANEL_BACKGROUND_LABELS: Record<(typeof LEADGEN_BG_PANEL_BACKGROUNDS)[number], string> = {
+  card: "Card background",
+  wash: "Soft fill",
+  ghost: "Faint fill",
+  page: "Page background",
+  primary: "Brand primary",
+};
+const BG_PANEL_GRADIENT_LABELS: Record<(typeof LEADGEN_BG_PANEL_GRADIENTS)[number], string> = {
+  primary: "Brand primary",
+  accent: "Accent",
+  wash: "Soft fill",
+};
+const SPACER_VARIANT_LABELS: Record<(typeof LEADGEN_SPACER_VARIANTS)[number], string> = {
+  gap: "Empty space",
+  line: "Divider line",
+};
+// TrustBar layout is an INLINE vocabulary (no shared const) — presets.ts
+// renderTrustBar: "stacked" stacks the items, anything else lays them out
+// horizontally.
+const TRUST_BAR_LAYOUT_LABELS: Readonly<Record<string, string>> = {
+  horizontal: "Side by side",
+  stacked: "One per line",
+};
 
 const CONTAINER_PROP_CONTROLS: ReadonlyArray<{ type: string; controls: readonly ContainerControl[] }> = [
   {
     type: "Stack",
     controls: [
-      { key: "direction", label: "Direction", kind: "enum", values: LEADGEN_STACK_DIRECTIONS },
-      { key: "gap", label: "Gap token", kind: "enum", values: LEADGEN_GAP_TOKENS },
-      { key: "align", label: "Align", kind: "enum", values: LEADGEN_STACK_ALIGNS },
+      { key: "direction", label: "Direction", kind: "enum", values: LEADGEN_STACK_DIRECTIONS, valueLabels: STACK_DIRECTION_LABELS },
+      { key: "gap", label: "Space between items", kind: "enum", values: LEADGEN_GAP_TOKENS, valueLabels: GAP_SIZE_LABELS },
+      { key: "align", label: "Align", kind: "enum", values: LEADGEN_STACK_ALIGNS, valueLabels: STACK_ALIGN_LABELS },
     ],
   },
   {
@@ -1987,44 +2115,44 @@ const CONTAINER_PROP_CONTROLS: ReadonlyArray<{ type: string; controls: readonly 
       { key: "columnsDesktop", label: "Columns (desktop)", kind: "int", values: [2, 3, 4, 5] },
       { key: "columnsTablet", label: "Columns (tablet)", kind: "int", values: [1, 2, 3, 4] },
       { key: "columnsMobile", label: "Columns (mobile)", kind: "int", values: [1, 2] },
-      { key: "gap", label: "Gap token", kind: "enum", values: LEADGEN_GAP_TOKENS },
-      { key: "sizing", label: "Card sizing", kind: "enum", values: LEADGEN_GRID_SIZINGS },
+      { key: "gap", label: "Space between cards", kind: "enum", values: LEADGEN_GAP_TOKENS, valueLabels: GAP_SIZE_LABELS },
+      { key: "sizing", label: "Card sizing", kind: "enum", values: LEADGEN_GRID_SIZINGS, valueLabels: GRID_SIZING_LABELS },
     ],
   },
   {
     type: "Columns",
     controls: [
-      { key: "ratio", label: "Ratio preset", kind: "enum", values: LEADGEN_COLUMN_RATIOS },
-      { key: "mobile", label: "Mobile stacking", kind: "enum", values: LEADGEN_COLUMN_MOBILE_MODES },
+      { key: "ratio", label: "Column split", kind: "enum", values: LEADGEN_COLUMN_RATIOS, valueLabels: COLUMN_RATIO_LABELS },
+      { key: "mobile", label: "On mobile", kind: "enum", values: LEADGEN_COLUMN_MOBILE_MODES, valueLabels: COLUMN_MOBILE_LABELS },
     ],
   },
   {
     type: "CardPanel",
     controls: [
-      { key: "width", label: "Width preset", kind: "enum", values: LEADGEN_PANEL_WIDTHS },
-      { key: "background", label: "Background token", kind: "enum", values: LEADGEN_PANEL_BACKGROUNDS },
-      { key: "shadow", label: "Shadow token", kind: "enum", values: LEADGEN_PANEL_SHADOWS },
-      { key: "radius", label: "Radius token", kind: "enum", values: LEADGEN_PANEL_RADII },
-      { key: "padding", label: "Padding token", kind: "enum", values: LEADGEN_PANEL_PADDINGS },
+      { key: "width", label: "Width", kind: "enum", values: LEADGEN_PANEL_WIDTHS, valueLabels: PANEL_WIDTH_LABELS },
+      { key: "background", label: "Background", kind: "enum", values: LEADGEN_PANEL_BACKGROUNDS, valueLabels: PANEL_BACKGROUND_LABELS },
+      { key: "shadow", label: "Shadow", kind: "enum", values: LEADGEN_PANEL_SHADOWS, valueLabels: PANEL_SHADOW_LABELS },
+      { key: "radius", label: "Corner rounding", kind: "enum", values: LEADGEN_PANEL_RADII, valueLabels: PANEL_RADIUS_LABELS },
+      { key: "padding", label: "Inner spacing", kind: "enum", values: LEADGEN_PANEL_PADDINGS, valueLabels: PANEL_PADDING_LABELS },
     ],
   },
   {
     type: "BackgroundPanel",
     controls: [
-      { key: "background", label: "Background token", kind: "enum", values: LEADGEN_BG_PANEL_BACKGROUNDS },
-      { key: "gradient", label: "Gradient token", kind: "enum", values: LEADGEN_BG_PANEL_GRADIENTS },
+      { key: "background", label: "Background", kind: "enum", values: LEADGEN_BG_PANEL_BACKGROUNDS, valueLabels: BG_PANEL_BACKGROUND_LABELS },
+      { key: "gradient", label: "Gradient", kind: "enum", values: LEADGEN_BG_PANEL_GRADIENTS, valueLabels: BG_PANEL_GRADIENT_LABELS },
       { key: "imageMediaId", label: "Image media id", kind: "text" },
     ],
   },
   {
     type: "Spacer",
     controls: [
-      { key: "size", label: "Size token", kind: "enum", values: LEADGEN_GAP_TOKENS },
+      { key: "size", label: "Height", kind: "enum", values: LEADGEN_GAP_TOKENS, valueLabels: GAP_SIZE_LABELS },
       // v3.1 R3b E2-NEW-9 (main): renderSpacer has ALWAYS rendered the "line"
       // variant correctly (a horizontal divider) — only authoring it was
       // missing. Gap is the default (absent/unknown value renders the plain
       // spacer, unchanged).
-      { key: "variant", label: "Style", kind: "enum", values: LEADGEN_SPACER_VARIANTS },
+      { key: "variant", label: "Style", kind: "enum", values: LEADGEN_SPACER_VARIANTS, valueLabels: SPACER_VARIANT_LABELS },
     ],
   },
   {
@@ -2056,7 +2184,7 @@ const CONTAINER_PROP_CONTROLS: ReadonlyArray<{ type: string; controls: readonly 
       // "label|href" line idiom, here "icon|text" (icon optional).
       { key: "items", label: "Items (icon|text per line)", kind: "lines" },
       // renderTrustBar: layout === "stacked" stacks; anything else horizontal.
-      { key: "layout", label: "Layout", kind: "enum", values: ["horizontal", "stacked"] },
+      { key: "layout", label: "Layout", kind: "enum", values: ["horizontal", "stacked"], valueLabels: TRUST_BAR_LAYOUT_LABELS },
     ],
   },
   {
@@ -2082,7 +2210,9 @@ const CONTAINER_PROP_CONTROLS: ReadonlyArray<{ type: string; controls: readonly 
   // Appended LAST so no existing group's document order shifts.
   {
     type: "QuestionGrid",
-    controls: [{ key: "gap", label: "Space between questions", kind: "enum", values: LEADGEN_GAP_TOKENS }],
+    controls: [
+      { key: "gap", label: "Space between questions", kind: "enum", values: LEADGEN_GAP_TOKENS, valueLabels: GAP_SIZE_LABELS },
+    ],
   },
 ];
 
@@ -2099,9 +2229,16 @@ function renderContainerControl(type: string, control: ContainerControl): string
     return `<div class="form-group lg-inspector-field"><label class="lg-check"><input type="checkbox" id="${escapeHtml(id)}" data-container-prop="${escapeHtml(control.key)}" /> ${escapeHtml(control.label)}</label></div>`;
   }
   if (control.kind === "enum" || (control.kind === "int" && control.values !== undefined)) {
+    // P8-6 Q9: the option VALUE stays the stored token (collect path and
+    // content-schema untouched); the option TEXT is the operator's word
+    // whenever the vocabulary has one. Numeric vocabularies (column counts)
+    // carry no map and keep the number as its own text.
+    const vals = control.values ?? [];
+    const words = control.valueLabels;
+    const texts = words === undefined ? undefined : vals.map((v) => words[String(v)] ?? String(v));
     return `<div class="form-group lg-inspector-field">
   <label class="form-label" for="${escapeHtml(id)}">${escapeHtml(control.label)}</label>
-  <select id="${escapeHtml(id)}" class="form-input" data-container-prop="${escapeHtml(control.key)}" data-container-kind="${control.kind}"><option value="">default</option>${options(control.values ?? [])}</select>
+  <select id="${escapeHtml(id)}" class="form-input" data-container-prop="${escapeHtml(control.key)}" data-container-kind="${control.kind}"><option value="">default</option>${options(vals, texts)}</select>
 </div>`;
   }
   if (control.kind === "int") {
@@ -2208,7 +2345,7 @@ function renderStyleContinueBlock(opOptions: string): string {
         </div>
         <select class="form-input" data-inspector-continuecond="when" aria-label="Continue depends on field"><option value="">— always visible —</option></select>
         <select class="form-input" data-inspector-continuecond="op" aria-label="Continue condition operator">${opOptions}</select>
-        <select class="form-input" data-inspector-continuecond="value-bool" aria-label="Continue boolean value" hidden><option value="true">true</option><option value="false">false</option></select>
+        <select class="form-input" data-inspector-continuecond="value-bool" aria-label="Continue boolean value" hidden><option value="true">Yes</option><option value="false">No</option></select>
         <select class="form-input" data-inspector-continuecond="value-enum" aria-label="Continue choice value" hidden></select>
         <input class="form-input" type="text" data-inspector-continuecond="value" placeholder="value" aria-label="Continue condition value" />
         <input class="form-input" type="number" data-inspector-continuecond="from" placeholder="from" aria-label="Continue range from" hidden />
@@ -2316,7 +2453,7 @@ function renderShowIfControls(opOptions: string): string {
       </div>
       <select class="form-input" data-inspector-cond="when" aria-label="Depends on field"><option value="">— always visible —</option></select>
       <select class="form-input" data-inspector-cond="op" aria-label="Condition operator">${opOptions}</select>
-      <select class="form-input" data-inspector-cond="value-bool" aria-label="Boolean value" hidden><option value="true">true</option><option value="false">false</option></select>
+      <select class="form-input" data-inspector-cond="value-bool" aria-label="Boolean value" hidden><option value="true">Yes</option><option value="false">No</option></select>
       <select class="form-input" data-inspector-cond="value-enum" aria-label="Choice value" hidden></select>
       <input class="form-input" type="text" data-inspector-cond="value" placeholder="value" aria-label="Condition value" />
       <input class="form-input" type="number" data-inspector-cond="from" placeholder="from" aria-label="Range from" hidden />
@@ -2341,7 +2478,7 @@ function renderRequiredWhenControls(opOptions: string): string {
       </div>
       <select class="form-input" data-inspector-reqcond="when" aria-label="Required when field"><option value="">— only when marked Required —</option></select>
       <select class="form-input" data-inspector-reqcond="op" aria-label="Required-when operator">${opOptions}</select>
-      <select class="form-input" data-inspector-reqcond="value-bool" aria-label="Required-when boolean value" hidden><option value="true">true</option><option value="false">false</option></select>
+      <select class="form-input" data-inspector-reqcond="value-bool" aria-label="Required-when boolean value" hidden><option value="true">Yes</option><option value="false">No</option></select>
       <select class="form-input" data-inspector-reqcond="value-enum" aria-label="Required-when choice value" hidden></select>
       <input class="form-input" type="text" data-inspector-reqcond="value" placeholder="value" aria-label="Required-when value" />
       <input class="form-input" type="number" data-inspector-reqcond="from" placeholder="from" aria-label="Required-when range from" hidden />
@@ -2480,7 +2617,21 @@ export function renderStudioInspector(design: FunnelDesign, sectionPublicId: str
     CONDITION_OP_OPTIONS,
     CONDITION_OP_OPTIONS.map((c) => CONDITION_OP_LABELS[c] ?? c),
   );
-  const patternOptions = options(PATTERN_PRESETS);
+  // P8-6 Q9 (owner M5): the preset picker used to render its four STORED
+  // tokens ("none/letters/digits/custom"). The words come from what each one
+  // actually compiles to in config-dto.ts PATTERN_PRESET_REGEX (letters =
+  // ^[A-Za-z ]+$, digits = ^[0-9]+$); "custom" points at the regex box that
+  // sits directly beneath this select and is revealed only for that choice.
+  // NOTE the wording of the last one: "Custom pattern" is the guard string
+  // leadgen-rework-studio.test.ts uses to prove the DELETED phone
+  // country-preset trio's raw-regex path is gone (L-196). That guard is
+  // correct and stays untouched — this live control says "Custom rule".
+  const patternOptions = options(PATTERN_PRESETS, [
+    "No pattern",
+    "Letters and spaces only",
+    "Numbers only",
+    "Custom rule (set below)",
+  ]);
   // PC-5/PC-A5 (P4b): the DateQuestion Min/Max bound picker — a dynamic-token
   // dropdown (resolved to a concrete date server-side at config build) plus a
   // "Custom date…" choice that reveals the native date input. Shown for Date
@@ -2762,9 +2913,9 @@ export function renderStudioInspector(design: FunnelDesign, sectionPublicId: str
         <input id="lg-vprop-maxLen" class="form-input" data-inspector-vprop="maxLen" />
       </div>
       <div class="form-group lg-inspector-field" data-vprop="pattern" hidden>
-        <label class="form-label" for="lg-vprop-pattern">Pattern preset</label>
+        <label class="form-label" for="lg-vprop-pattern">Value pattern</label>
         <select id="lg-vprop-pattern" class="form-input" data-inspector-vprop="pattern_preset">${patternOptions}</select>
-        <input class="form-input" type="text" data-inspector-vprop="pattern" placeholder="custom regex (custom preset only)" hidden />
+        <input class="form-input" type="text" data-inspector-vprop="pattern" placeholder="Regular expression — used only with Custom rule" hidden />
       </div>
       <div class="form-group lg-inspector-field" data-vprop-error-wrap hidden>
         <label class="form-label" for="lg-vprop-error">If it&#8217;s wrong, say</label>
@@ -3222,7 +3373,10 @@ function renderSectionOverridesPanel(): string {
   </div>
   <div class="form-group lg-inspector-field">
     <label class="form-label" for="lg-section-gap-default">Default answer-grid gap</label>
-    <select id="lg-section-gap-default" class="form-input" data-section-gap-default><option value="">Inherited</option>${options(LEADGEN_GAP_TOKENS)}</select>
+    <select id="lg-section-gap-default" class="form-input" data-section-gap-default><option value="">Inherited</option>${options(
+      LEADGEN_GAP_TOKENS,
+      LEADGEN_GAP_TOKENS.map((v) => GAP_SIZE_LABELS[v]),
+    )}</select>
   </div>
 </div>`;
 }
@@ -10227,8 +10381,11 @@ export const SECTION_STUDIO_SCRIPT = `
     boolSel.setAttribute('data-inspector-' + prefixAttr, 'value-bool');
     boolSel.setAttribute('aria-label', 'Boolean value');
     boolSel.hidden = true;
-    appendOption(boolSel, 'true', 'true');
-    appendOption(boolSel, 'false', 'false');
+    // Q9: the picker STORES true/false and READS Yes/No, matching the
+    // question-grid dependency editor's own boolean picker (appendOption
+    // boolSel yesLabel-or-Yes further down this island).
+    appendOption(boolSel, 'true', 'Yes');
+    appendOption(boolSel, 'false', 'No');
     row.appendChild(boolSel);
     var enumSel = document.createElement('select');
     enumSel.className = 'form-input';

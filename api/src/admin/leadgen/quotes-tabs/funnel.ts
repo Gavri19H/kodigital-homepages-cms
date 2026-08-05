@@ -18,24 +18,16 @@
 
 import { escapeHtml } from "../../templates/layout";
 import { LEADGEN_ELIGIBILITY_REASON_LABELS } from "../ui-offers";
-import {
-  FRAME_BACKGROUND_STYLES,
-  FRAME_BACK_POSITIONS,
-  FRAME_BACK_STYLES,
-  FRAME_DISCLOSURE_LOCATIONS,
-  FRAME_FOOTER_SHOW_ON,
-  FRAME_LOGO_ALIGNS,
-  FRAME_PROGRESS_ALIGNS,
-  FRAME_PROGRESS_POSITIONS,
-  FRAME_PROGRESS_STYLES,
-  FRAME_PROGRESS_WIDTHS,
-  FRAME_SIZES,
-  FRAME_SLOT_CARDS,
-  FRAME_SLOT_OFFSETS,
-  FRAME_SLOT_TRANSITIONS,
-  FRAME_TRUST_MOBILE_MODES,
-  FRAME_TRUST_PLACEMENTS,
-} from "../../../public/leadgen/designs/frames";
+// P8-6 Q9: the 16-symbol FRAME_* import that used to sit here was entirely
+// DEAD — every one of FRAME_BACKGROUND_STYLES, FRAME_BACK_POSITIONS,
+// FRAME_BACK_STYLES, FRAME_DISCLOSURE_LOCATIONS, FRAME_FOOTER_SHOW_ON,
+// FRAME_LOGO_ALIGNS, FRAME_PROGRESS_ALIGNS, FRAME_PROGRESS_POSITIONS,
+// FRAME_PROGRESS_STYLES, FRAME_PROGRESS_WIDTHS, FRAME_SIZES,
+// FRAME_SLOT_CARDS, FRAME_SLOT_OFFSETS, FRAME_SLOT_TRANSITIONS,
+// FRAME_TRUST_MOBILE_MODES and FRAME_TRUST_PLACEMENTS occurred exactly once in
+// this file, on its own import line. The frame vocabularies this tab actually
+// renders come through the frame-studio modules; tsconfig has no
+// noUnusedLocals, which is why the compile never said so.
 import { FUNNEL_TOKEN_ROLES } from "../../../public/leadgen/designs/theme";
 // S3.7: resolves a stored funnel_design_id (canonical or alias) to the
 // distinct design it renders — used only to mark the correct <option>
