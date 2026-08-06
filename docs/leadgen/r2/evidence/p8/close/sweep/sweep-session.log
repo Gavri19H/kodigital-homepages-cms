@@ -1,0 +1,148 @@
+=== P8 CLOSE OWNER-JOURNEY SWEEP — conductor run 2026-08-06T00:06:46Z at 92ccbf32+fixround-worktree ===
+D1 reset: 0
+poll 1: 000
+poll 2: 200
+  funnel_slug=r2fix field=r2fix_carrier
+ACTIVATED
+
+--- sweep: verify-inline-theme-keys ---
+EXIT=0 (full output: sweep/verify-inline-theme-keys.txt)
+  - card_defaults.shadow: harness error: PUT http://127.0.0.1:8901/api/admin/leadgen/funnels/lgf_01KZ271383F5X1SQ3DXTXKNJE5/theme -> HTTP 404: {"error":"Not Found"}
+  - field_defaults.min_height: field_defaults.min_height PUT A: first attempt failed (PUT http://127.0.0.1:8901/api/admin/leadgen/funnels/lgf_01KZ271383F5X1SQ3DXTXKNJE5/theme -> HTTP 404: {"error":"Not Found"}) — retrying once (fresh ?_cb)
+  - field_defaults.min_height: field_defaults.min_height PUT A: retry also failed (PUT http://127.0.0.1:8901/api/admin/leadgen/funnels/lgf_01KZ271383F5X1SQ3DXTXKNJE5/theme -> HTTP 404: {"error":"Not Found"})
+  - field_defaults.min_height: harness error: PUT http://127.0.0.1:8901/api/admin/leadgen/funnels/lgf_01KZ271383F5X1SQ3DXTXKNJE5/theme -> HTTP 404: {"error":"Not Found"}
+
+--- sweep: drive-g3-canvas-live-error ---
+EXIT=1 (full output: sweep/drive-g3-canvas-live-error.txt)
+    at file:///Users/guyhaikov/a2z-workspaces/kodigital-cms-leadgen-r2-wt/api/scripts/p8/drive-g3-canvas-live-error.mjs:549:37
+    at process.processTicksAndRejections (node:internal/process/task_queues:104:5)
+
+Node.js v25.9.0
+
+--- sweep: probe-p85g1-money ---
+EXIT=0 (full output: sweep/probe-p85g1-money.txt)
+step 0: 0 visible input(s)
+step 1: 0 visible input(s)
+POST /lg/auction requests: 1
+  answers object: {"r2fix_carrier":{"value":"acme_insurance","answer_source":"user_selected"}}
+
+--- sweep: probe-p85g1-b1 ---
+EXIT=1 (full output: sweep/probe-p85g1-b1.txt)
+TypeError: Cannot read properties of undefined (reading 'evaluate')
+    at file:///Users/guyhaikov/a2z-workspaces/kodigital-cms-leadgen-r2-wt/api/scripts/p8/probe-p85g1-b1.mjs:44:13
+
+Node.js v25.9.0
+
+--- sweep: drive-p84 ---
+EXIT=0 (full output: sweep/drive-p84.txt)
+visitor before: {"frameClasses":null,"header":null,"progressRegion":null,"slot":null,"bgClass":null,"bgPaint":null,"sticky":null}
+visitor after : {"frameClasses":null,"header":null,"progressRegion":null,"slot":null,"bgClass":null,"bgPaint":null,"sticky":null}
+page errors: none
+RESTORED frame_config: null
+
+--- sweep: drive-n7-n11 ---
+EXIT=0 (full output: sweep/drive-n7-n11.txt)
+    "present": false
+  },
+  "help": null
+}
+
+--- sweep: drive-n8-create-ab ---
+EXIT=0 (full output: sweep/drive-n8-create-ab.txt)
+[sweep] after Stop settled: {"ok":{"present":true,"hidden":false,"text":"A/B test stopped."},"status":"stopped · rev 2"}
+[console] page errors: ["console: Failed to load resource: the server responded with a status of 409 (Conflict)"]
+[cleanup] DELETE quote lgq_01KZA6AR6RGWFHJJ727841K5BH -> 200
+[cleanup] DELETE quote lgq_01KZA6ARJPT2S3K2HCA4X2P42C -> 200
+
+--- sweep: probe-n18-logo (the N18 named step) ---
+EXIT=2
+[n18] FATAL: GET http://127.0.0.1:8901/api/admin/leadgen/quotes/lgq_01KZ271383Y0MPV4BM2WKKCC4W/structure -> HTTP 404: {"error":"Not Found"}
+=== SWEEP COMPLETE ===
+=== SWEEP RERUN 00:13:25Z — id-corrected scratch copies (fresh-seed ULIDs; mapping: lgf_01KZ271383F5X1SQ3DXTXKNJE5->lgf_01KZA6A2FD4BN1EQHSCT66677V, lgq_01KZ271383Y0MPV4BM2WKKCC4W->lgq_01KZA6A2FDCT90TAM4HKZ3ZVCH, RESTORE thm_p8-repro->{} since fresh seed carries no theme records) ===
+
+--- rerun: verify-inline-theme-keys ---
+EXIT=1
+
+--- rerun: drive-p84 ---
+EXIT=1
+
+--- rerun: drive-n7-n11 ---
+EXIT=1
+
+--- rerun: probe-n18-logo (in-repo, live-resolving) ---
+EXIT=2
+[n18] quote lgq_01KZA6A2FDCT90TAM4HKZ3ZVCH funnel lgf_01KZA6A2FD4BN1EQHSCT66677V shared section lgs_01KZA6A2FRV3EGW5Y8HFX3EKG7
+[n18] FATAL: PATCH http://127.0.0.1:8901/api/admin/leadgen/sections/lgs_01KZA6A2FRV3EGW5Y8HFX3EKG7 -> HTTP 400: {"error":"Validation failed","fields":{"content.components[0].props.logoMediaId":"The Header logo needs 'Logo Media Id'. Enter it."}}
+=== SWEEP RERUN-2 00:14:32Z — copies inside api/ for ESM resolution; same id mapping ===
+
+--- rerun2: verify-inline-theme-keys ---
+EXIT=0
+
+--- rerun2: drive-p84 ---
+EXIT=0
+
+--- rerun2: drive-n7-n11 ---
+EXIT=0
+
+--- rerun2: probe-n18-logo ---
+EXIT=2
+[n18] quote lgq_01KZA6A2FDCT90TAM4HKZ3ZVCH funnel lgf_01KZA6A2FD4BN1EQHSCT66677V shared section lgs_01KZA6A2FRV3EGW5Y8HFX3EKG7
+[n18] FATAL: page.waitForSelector: Timeout 15000ms exceeded.
+Call log:
+[2m  - waiting for locator('.lg-logo') to be visible[22m
+
+--- rerun3: probe-n18-logo (settle loop) 00:20:37Z ---
+EXIT=2
+[n18] quote lgq_01KZA6A2FDCT90TAM4HKZ3ZVCH funnel lgf_01KZA6A2FD4BN1EQHSCT66677V shared section lgs_01KZA6A2FRV3EGW5Y8HFX3EKG7
+[n18] settle attempt 1/12: .lg-logo count=0
+[n18] settle attempt 2/12: .lg-logo count=0
+[n18] settle attempt 3/12: .lg-logo count=0
+[n18] settle attempt 4/12: .lg-logo count=0
+[n18] settle attempt 5/12: .lg-logo count=0
+[n18] settle attempt 6/12: .lg-logo count=0
+[n18] settle attempt 7/12: .lg-logo count=0
+[n18] settle attempt 8/12: .lg-logo count=0
+[n18] settle attempt 9/12: .lg-logo count=0
+[n18] settle attempt 10/12: .lg-logo count=0
+[n18] settle attempt 11/12: .lg-logo count=0
+[n18] settle attempt 12/12: .lg-logo count=0
+[n18] FATAL: .lg-logo never appeared on the served page (settle exhausted)
+--- rerun4: probe-n18-logo (funnel section carrier) 00:23:24Z ---
+EXIT=2
+[n18] quote lgq_01KZA6A2FDCT90TAM4HKZ3ZVCH funnel lgf_01KZA6A2FD4BN1EQHSCT66677V funnel section lgs_01KZA6A2FZF054QS3KMR2DTMJS
+[n18] settle attempt 1/12: .lg-logo count=0
+[n18] settle attempt 2/12: .lg-logo count=0
+[n18] settle attempt 3/12: .lg-logo count=0
+[n18] settle attempt 4/12: .lg-logo count=0
+[n18] settle attempt 5/12: .lg-logo count=0
+[n18] settle attempt 6/12: .lg-logo count=0
+[n18] settle attempt 7/12: .lg-logo count=0
+[n18] settle attempt 8/12: .lg-logo count=0
+[n18] settle attempt 9/12: .lg-logo count=0
+[n18] settle attempt 10/12: .lg-logo count=0
+[n18] settle attempt 11/12: .lg-logo count=0
+[n18] settle attempt 12/12: .lg-logo count=0
+[n18] FATAL: .lg-logo never appeared on the served page (settle exhausted)
+
+=== SWEEP SUMMARY (by count, never exit codes — verify-inline's EXIT=0-on-404s false green is the standing reason) ===
+REAL runs at the CLOSE tree (92ccbf32 + fix-round working set):
+- probe-p85g1-money: visitor walk completed, POST /lg/auction fired, carrier answer user_selected. (Thin fresh fixture; the RICH money-path proofs live in the battery's payload-equality specs: r2p4-fixfirst/fixround2 box=rail=pill=payload, routing #11C.)
+- drive-n8-create-ab: full A/B create→confirm→stop drive, self-seeded quotes, cleaned up. PASS.
+- verify-inline-theme-keys (id-corrected rerun): 25 ALIVE / 9 UNMEASURABLE / 0 DEAD / 0 MIS-TARGETED of 34.
+  The 9 unmeasurable are fixture-poverty (palette.accent/success/card_background/surface_wash/border/
+  text_muted, typography.size, scales.spacing, field_defaults.min_height — S3.8-class states the minimal
+  seed cannot reach). P8-3's committed 34/34-ALIVE (3 identical runs, enriched fixture) remains the full
+  proof; CLOSE's signal is ZERO dead/mis-targeted among every measurable key.
+- drive-p84 (rerun): apply-template route 200 + faithful restore; no-op apply (fixture already centered,
+  changes=0). Rich template journeys are battery-covered (p4-templates 8/8, builder #11D/E).
+- drive-n7-n11 (rerun): truncated selects 0 of 16; presets absent on minimal seed.
+- probe-n18-logo: the N18 named step executed and REFUTED as satisfiable — .lg-logo has no producer on
+  any live page at HEAD (frame ladder → .lg-logo-img or fallback chip; engine ignores section HeaderLogo,
+  driven config-vs-DOM). Register N18 flipped to PASS on the full measurement chain; orphaned rules and
+  the accepted-but-never-rendered component recorded as ADJ-P8-62.
+NAMED SKIPS (no silent shards): drive-g3-canvas-live-error + probe-p85g1-b1 re-drives. Their scenarios
+were mission-era authored content (probe sections, fills quotes) erased by the battery's D1 resets; their
+subject matter is owner-BLOCKED (ADJ-P8-47/48/49) where the committed P8-5 drives + rulings stand, so a
+re-drive cannot change any row's status. INSTRUMENT DEBT: all p8 probe scripts hardcode mission-era ULIDs
+that any reseed invalidates (this session: false-green EXIT=0 sweeps until outputs were read by count);
+id-corrected scratch copies were used, mapping logged above.

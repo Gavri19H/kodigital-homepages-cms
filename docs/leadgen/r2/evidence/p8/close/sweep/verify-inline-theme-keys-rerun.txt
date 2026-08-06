@@ -1,0 +1,310 @@
+WARNING: preflight GET http://127.0.0.1:8901/lg/r2fix -> HTTP 404 (continuing)
+# P8-3 S3.4 — 34-key INLINE theme_json sweep, 2026-08-06T00:14:32.528Z
+funnel lgf_01KZA6A2FD4BN1EQHSCT66677V  ·  write path PUT /funnels/:id/theme (FULL theme_json)  ·  page /lg/r2fix (fresh ?_cb per load)
+enumeration: 14 palette + 4 typography + 3 scales + 8 button_defaults + 4 card_defaults + 1 field_defaults = 34 keys
+
+## palette.brand_primary   [ALIVE]
+   label: Brand primary — quotes-tabs/shared.ts:458 ROLE_META, used_by "buttons, progress fill, selected borders, logo text"
+   target: .lg-progress-fill background-color (color.primary -> frame progress fill, styles.ts .lg-frame-progress--role-brand_primary rule)
+   arm A ("#123456"): backgroundColor=rgb(18, 52, 86)   [_vis:true 276x8  matched:1 visible:1]
+   arm B ("#ee7733"): backgroundColor=rgb(238, 119, 51)   [_vis:true 276x8  matched:1 visible:1]
+
+## palette.brand_secondary   [ALIVE]
+   label: Brand secondary — quotes-tabs/shared.ts:459 ROLE_META, used_by "gradients, secondary emphasis"
+   target: .lg-frame-background.lg-frame-bg-style-brand_gradient background-image (AUTHORED: PUT /funnels/:id/frame {background:{style:"brand_gradient"}}; styles.ts "linear-gradient(160deg,brand_primary,brand_secondary)")
+   arm A ("#123456"): backgroundImage=linear-gradient(160deg, rgb(29, 155, 240), rgb(18, 52, 86))   [_vis:true 1280x900  matched:1 visible:1]
+   arm B ("#ee7733"): backgroundImage=linear-gradient(160deg, rgb(29, 155, 240), rgb(238, 119, 51))   [_vis:true 1280x900  matched:1 visible:1]
+   harness notes:
+     - frame.background patched to {"style":"brand_gradient"} (prior frame_config_json: null)
+     - frame restored to {} ({} stands in for the original null — PUT /frame requires an object; mergeInto(frame,{}) is a no-op so the EFFECTIVE frame is unchanged)
+
+## palette.accent   [UNMEASURABLE]
+   label: Accent — quotes-tabs/shared.ts:460 ROLE_META, used_by "category label, highlights, recommended"
+   target: .lg-category color (LABEL "category label" — quotes-tabs/shared.ts:460 ROLE_META; AUTHORED: POST /sections + PUT /variants/:id inserting a CategoryLabel section; applyAccentRole -> design.categoryLabel.color, presets.ts renderCategoryLabel)
+   arm A ("#123456"): 0=n  1=/  2=a   [_vis:undefined undefinedxundefined  matched:undefined visible:undefined]
+   arm B ("#ee7733"): 0=n  1=/  2=a   [_vis:undefined undefinedxundefined  matched:undefined visible:undefined]
+   SECONDARY (bonus, non-decision): #lg-addr-p8_addr_street border-top-color (AUTHORED: PATCH /sections/:id design_overrides.border_color="accent" on the p8_addr node -> --lg-field-border custom property, presets.ts nodeBorderColorValue/appearanceStyleEntries; the PRE-existing per-node override mechanism, independent of applyAccentRole — bonus corroboration only)
+     secondary A: ABSENT (selector matched 0 nodes)
+     secondary B: ABSENT (selector matched 0 nodes)
+   harness notes:
+     - palette.accent setup failed: p8_addr node not found in the fixture's address section
+     - section 2 content_json restored byte-exact
+
+## palette.success   [UNMEASURABLE]
+   label: Success — quotes-tabs/shared.ts:461 ROLE_META, used_by "reassurance, valid states"
+   target: .lg-badge-icon color (LABEL "reassurance" — quotes-tabs/shared.ts:461 ROLE_META; AUTHORED: POST /sections + PUT /variants/:id inserting a ReassuranceBadge section; applySuccessRole -> design.reassuranceBadge.iconColor, presets.ts renderReassuranceBadge)
+   arm A ("#00ff00"): color=rgb(0, 255, 0)   [_vis:false 0x0  matched:1 visible:0]
+   arm B ("#003300"): color=rgb(0, 51, 0)   [_vis:false 0x0  matched:1 visible:0]
+   harness notes:
+     - created temp section 3 (ReassuranceBadge) and inserted at position 1 of variant lgn_01KZA6A2FDEV0HH1V1Y2EP1HW7
+     - variant lgn_01KZA6A2FDEV0HH1V1Y2EP1HW7 section order restored to original [{"section_id":2}]
+     - temp section 3 deleted
+
+## palette.error   [ALIVE]
+   label: Error — quotes-tabs/shared.ts:462 ROLE_META, used_by "validation errors"
+   target: DRIVEN: [data-lg-error-for="r2fix_carrier"] color, after a Continue click on the carrier ButtonAnswerGroup with NO choice selected (engine.ts handleContinue/sectionPassesAt -> render.ts:228 setFieldError, the real required-validation producer, unhides the slot and inline-styles it with validation.errorTextColor); styles.ts .lg-error{color:validation.errorTextColor}, same token applyErrorRole writes
+   arm A ("#ff0000"): color=rgb(255, 0, 0)   [_vis:true 64x51  matched:1 visible:1]
+   arm B ("#330000"): color=rgb(51, 0, 0)   [_vis:true 64x51  matched:1 visible:1]
+   SECONDARY (bonus, non-decision): .lg-input[aria-invalid="true"] border-top-color (bonus corroboration, EXPECTED ABSENT: this fixture has no required question backed by a bare <input data-lg-input> — driven and confirmed, not assumed; input.errorBorderColor is a real consumer, styles.ts .lg-input[aria-invalid="true"]{border-color:input.errorBorderColor}, just unreachable on THIS fixture's current structure without authoring a new section)
+     secondary A: ABSENT (selector matched 0 nodes)
+     secondary B: ABSENT (selector matched 0 nodes)
+
+## palette.page_background   [ALIVE]
+   label: Page background — quotes-tabs/shared.ts:463 ROLE_META, used_by "frame background"
+   target: #lg-funnel-root background-color (page.backgroundColor, scope-root rule)
+   arm A ("#123456"): backgroundColor=rgb(18, 52, 86)   [_vis:true 1264x900  matched:1 visible:1]
+   arm B ("#ee7733"): backgroundColor=rgb(238, 119, 51)   [_vis:true 1264x900  matched:1 visible:1]
+
+## palette.card_background   [UNMEASURABLE]
+   label: Card background — quotes-tabs/shared.ts:464 ROLE_META, used_by "question card, answer cards"
+   target: #lg-addr-p8_addr_street background-color (color.card -> .lg-input background, styles.ts:1828)
+   arm A ("#123456"): ABSENT (selector matched 0 nodes)
+   arm B ("#ee7733"): ABSENT (selector matched 0 nodes)
+   LABEL IMPLIES: .lg-question-card background-color (LABEL 'card' implies THIS element — styles.ts:570 questionCard.background, a SEPARATE token the plain palette.card_background write does NOT touch; unlike card_defaults.background_role, below, which now also writes it)
+     implied A: backgroundColor=rgb(18, 52, 86)   [_vis:true 420x403  matched:2 visible:1]
+     implied B: backgroundColor=rgb(238, 119, 51)   [_vis:true 420x403  matched:2 visible:1]
+   SECONDARY (bonus, non-decision): .lg-btn-answer background-color (carrier page, first choice; var(--lg-answer-bg, color.card) fallback, styles.ts:1392)
+     secondary A: backgroundColor=rgb(18, 52, 86)   [_vis:true 151x66  matched:3 visible:3]
+     secondary B: backgroundColor=rgb(238, 119, 51)   [_vis:true 151x66  matched:3 visible:3]
+
+## palette.surface_wash   [UNMEASURABLE]
+   label: Soft fill — quotes-tabs/shared.ts:465 ROLE_META, used_by "selected fills, quiet panels"
+   target: AUTHORED: .lg-range-radial-outer box-shadow while .lg-range-radial-input is REAL-focused (a NumberRangeQuestion radial section inserted via PUT /variants/:id sections); styles.ts .lg-range-radial:focus-within .lg-range-radial-outer{box-shadow:0 0 0 3px color.primaryWash}
+   arm A ("#123456"): boxShadow=none   [_vis:false 0x0  matched:1 visible:0]
+   arm B ("#ee7733"): boxShadow=none   [_vis:false 0x0  matched:1 visible:0]
+   harness notes:
+     - created temp section 4 (NumberRangeQuestion radial) and inserted at position 1 of variant lgn_01KZA6A2FDEV0HH1V1Y2EP1HW7
+     - variant lgn_01KZA6A2FDEV0HH1V1Y2EP1HW7 section order restored to original [{"section_id":2}]
+     - temp section 4 deleted
+
+## palette.border   [UNMEASURABLE]
+   label: Border — quotes-tabs/shared.ts:466 ROLE_META, used_by "card/input borders"
+   target: #lg-addr-p8_addr_street border-top-color (unoverridden fallback var(--lg-field-border, color.border), styles.ts:1816)
+   arm A ("#123456"): ABSENT (selector matched 0 nodes)
+   arm B ("#ee7733"): ABSENT (selector matched 0 nodes)
+
+## palette.text_primary   [ALIVE]
+   label: Text — quotes-tabs/shared.ts:467 ROLE_META, used_by "headlines, labels"
+   target: #lg-funnel-root color (page.textColor, scope-root rule)
+   arm A ("#111111"): color=rgb(17, 17, 17)   [_vis:true 1264x900  matched:1 visible:1]
+   arm B ("#eeeeee"): color=rgb(238, 238, 238)   [_vis:true 1264x900  matched:1 visible:1]
+
+## palette.text_muted   [UNMEASURABLE]
+   label: Muted text — quotes-tabs/shared.ts:468 ROLE_META, used_by "subheadlines, helper, meta"
+   target: .lg-address-field-label color (page.textSecondaryColor, styles.ts:1794)
+   arm A ("#123456"): ABSENT (selector matched 0 nodes)
+   arm B ("#ee7733"): ABSENT (selector matched 0 nodes)
+
+## palette.button_primary_bg   [ALIVE]
+   label: Button — quotes-tabs/shared.ts:469 ROLE_META, used_by "Continue/CTA background"
+   target: .lg-continue background-color (primaryButton.background, shared .lg-btn base rule, styles.ts:1228)
+   arm A ("#123456"): backgroundColor=rgb(18, 52, 86)   [_vis:true 320x52  matched:2 visible:1]
+   arm B ("#ee7733"): backgroundColor=rgb(238, 119, 51)   [_vis:true 320x52  matched:2 visible:1]
+
+## palette.button_primary_text   [ALIVE]
+   label: Button text — quotes-tabs/shared.ts:470 ROLE_META, used_by "Continue/CTA text"
+   target: .lg-continue color (primaryButton.color, shared .lg-btn base rule, styles.ts:1229)
+   arm A ("#123456"): color=rgb(18, 52, 86)   [_vis:true 320x52  matched:2 visible:1]
+   arm B ("#eeeeee"): color=rgb(238, 238, 238)   [_vis:true 320x52  matched:2 visible:1]
+
+## palette.button_secondary_bg   [ALIVE]
+   label: Secondary button — quotes-tabs/shared.ts:471 ROLE_META, used_by "back button-style, quiet buttons"
+   target: .lg-frame-benefit background-color (AUTHORED: PUT /funnels/:id/frame {benefit_bar:{enabled:true,items:[...],placement:"below_unit"}}; styles.ts .lg-frame-benefit{background:color.primaryGhost})
+   arm A ("#123456"): backgroundColor=rgb(18, 52, 86)   [_vis:true 1264x64  matched:1 visible:1]
+   arm B ("#ee7733"): backgroundColor=rgb(238, 119, 51)   [_vis:true 1264x64  matched:1 visible:1]
+   harness notes:
+     - frame.benefit_bar patched to {"enabled":true,"items":[{"icon":"circle-check","text":"Fast & free"}],"placement":"below_unit"} (prior frame_config_json: {})
+     - frame restored to {}
+
+## typography.display   [ALIVE]
+   label: Display font (headlines) — quotes-tabs/themes.ts:207
+   target: .lg-headline font-family (applyDisplayFont -> design.headline.fontFamily, THEME_FONT_STACKS[displayId])
+   arm A ("literata"): fontFamily=Literata, Georgia, serif   [_vis:true 326x107  matched:1 visible:1]
+   arm B ("playfair"): fontFamily="Playfair Display", Georgia, "Times New Roman", serif   [_vis:true 326x71  matched:1 visible:1]
+
+## typography.body   [ALIVE]
+   label: Body font (paragraphs) — quotes-tabs/themes.ts:208
+   target: #lg-funnel-root font-family (applyBodyFont -> design.page.fontFamily)
+   arm A ("sora"): fontFamily=Sora, system-ui, Arial, sans-serif   [_vis:true 1264x900  matched:1 visible:1]
+   arm B ("work_sans"): fontFamily="Work Sans", system-ui, Arial, sans-serif   [_vis:true 1264x900  matched:1 visible:1]
+
+## typography.size   [UNMEASURABLE]
+   label: Body text size — quotes-tabs/themes.ts:209 (panel copy: "Body sets paragraphs, labels and inputs")
+   target: .lg-address-field-label font-size (subheadline.fontSize, scaleFontSizes(THEME_SIZE_FACTORS[size]) touches every *FontSize* token, styles.ts:1793)
+   arm A ("s"): ABSENT (selector matched 0 nodes)
+   arm B ("l"): ABSENT (selector matched 0 nodes)
+
+## typography.display_size   [ALIVE]
+   label: Display size — quotes-tabs/themes.ts:210
+   target: .lg-headline font-size (scaleDisplayFontSizes -> headline.fontSizeDesktop, DISPLAY_FONTSIZE_PATHS)
+   arm A ("m"): fontSize=31px   [_vis:true 326x71  matched:1 visible:1]
+   arm B ("xxl"): fontSize=71.3px   [_vis:true 326x410  matched:1 visible:1]
+
+## scales.spacing   [UNMEASURABLE]
+   label: Spacing — quotes-tabs/themes.ts:214
+   target: .lg-address-field-label margin-bottom (design.spacing.xs, applySpacingScale -> scaleCssLength, styles.ts:1795 — a direct SPACING_KEYS consumer)
+   arm A ("compact"): ABSENT (selector matched 0 nodes)
+   arm B ("roomy"): ABSENT (selector matched 0 nodes)
+
+## scales.radius   [ALIVE]
+   label: Corners — quotes-tabs/themes.ts:215
+   target: .lg-question-card border-radius (applyRadiusScale -> design.questionCard.borderRadius, theme.ts:1704 — P6 fixes3/E2 component-radius bridge)
+   arm A ("sharp"): borderRadius=10px   [_vis:true 420x164  matched:2 visible:1]
+   arm B ("round"): borderRadius=20px   [_vis:true 420x164  matched:2 visible:1]
+
+## scales.shadow   [ALIVE]
+   label: Shadows — quotes-tabs/themes.ts:216
+   target: .lg-question-card box-shadow (applyShadowScale -> design.questionCard.boxShadow, theme.ts:1770-1791 — R2 P8 M2 component-shadow bridge; PRE-fix this reached only the emitted --lg-shadow-* vars, per that function's own doc comment)
+   arm A ("none"): boxShadow=none   [_vis:true 420x164  matched:2 visible:1]
+   arm B ("high"): boxShadow=rgba(27, 58, 92, 0.1) 0px 16px 48px 0px   [_vis:true 420x164  matched:2 visible:1]
+   SECONDARY (bonus, non-decision): .lg-disclosure-panel box-shadow (shadow.xl, styles.ts ~2639 — the disclosure MODAL panel, hidden until toggled; bonus corroboration only)
+     secondary A: ABSENT (selector matched 0 nodes)
+     secondary B: ABSENT (selector matched 0 nodes)
+
+## button_defaults.background_role   [ALIVE]
+   label: Button background — quotes-tabs/themes.ts:219 (frameControl + renderRoleStrip)
+   target: .lg-continue background-color (design.primaryButton.background = roles[bd.background_role], theme.ts:1312)
+   arm A ("error"): backgroundColor=rgb(211, 47, 47)   [_vis:true 320x52  matched:2 visible:1]
+   arm B ("success"): backgroundColor=rgb(14, 124, 58)   [_vis:true 320x52  matched:2 visible:1]
+
+## button_defaults.text_role   [ALIVE]
+   label: Button text — quotes-tabs/themes.ts:220 (frameControl + renderRoleStrip)
+   target: .lg-continue color (design.primaryButton.color = roles[bd.text_role], theme.ts:1313)
+   arm A ("error"): color=rgb(211, 47, 47)   [_vis:true 320x52  matched:2 visible:1]
+   arm B ("success"): color=rgb(14, 124, 58)   [_vis:true 320x52  matched:2 visible:1]
+
+## button_defaults.radius   [ALIVE]
+   label: Button corners — quotes-tabs/themes.ts:222
+   target: .lg-continue border-radius (design.primaryButton.borderRadius = design.radius[bd.radius], theme.ts:1314, shared .lg-btn base rule)
+   arm A ("sm"): borderRadius=6px   [_vis:true 320x52  matched:2 visible:1]
+   arm B ("full"): borderRadius=9999px   [_vis:true 320x52  matched:2 visible:1]
+   SECONDARY (bonus, non-decision): .lg-btn-answer border-radius (same shared .lg-btn base rule — expected to move identically; bonus corroboration)
+     secondary A: borderRadius=6px   [_vis:true 151x66  matched:3 visible:3]
+     secondary B: borderRadius=9999px   [_vis:true 151x66  matched:3 visible:3]
+
+## button_defaults.min_height   [ALIVE]
+   label: Button height — quotes-tabs/themes.ts:223
+   target: .lg-continue min-height (design.primaryButton.minHeight = BUTTON_MIN_HEIGHT_CSS[bd.min_height], theme.ts:1315)
+   arm A ("s"): minHeight=44px   [_vis:true 320x45  matched:2 visible:1]
+   arm B ("l"): minHeight=60px   [_vis:true 320x60  matched:2 visible:1]
+
+## button_defaults.casing   [ALIVE]
+   label: Button casing — quotes-tabs/themes.ts:224
+   target: .lg-continue text-transform (R2 P8 M2 fix: readButtonCasing(design) -> `.lg-btn{text-transform:uppercase}`, styles.ts:2412-2413 — PRE-fix this read EffectiveButtonDefaults.text_transform, which had zero CSS consumers)
+   arm A ("none"): textTransform=none   [_vis:true 320x52  matched:2 visible:1]
+   arm B ("upper"): textTransform=uppercase   [_vis:true 320x52  matched:2 visible:1]
+
+## button_defaults.fill   [ALIVE]
+   label: Fill — quotes-tabs/themes.ts:233
+   target: .lg-btn-answer border-radius (readButtonStyle stash; fill="soft" sets radius.full via .lg-answer-group[data-btn-fill="soft"] .lg-btn-answer, styles.ts:170-173)
+   arm A ("outline"): borderRadius=10px   [_vis:true 151x66  matched:3 visible:3]
+   arm B ("soft"): borderRadius=9999px   [_vis:true 151x66  matched:3 visible:3]
+
+## button_defaults.layout   [ALIVE]
+   label: Answer layout — quotes-tabs/themes.ts:234
+   target: .lg-answer-group grid-template-columns (layout="list" forces 1fr via .lg-answer-group[data-btn-layout="list"], styles.ts:187)
+   arm A ("grid"): gridTemplateColumns=63.5px 63.5px 63.5px 63.5px   [_vis:true 326x159  matched:1 visible:1]
+   arm B ("list"): gridTemplateColumns=148.281px 64.8594px 64.8594px   [_vis:true 326x275  matched:1 visible:1]
+
+## button_defaults.selected   [ALIVE]
+   label: Selected style — quotes-tabs/themes.ts:235
+   target: count(.lg-answer-group .lg-check-hollow) (selected="mark" unconditionally renders a hollow+badge span pair per choice, presets.ts selectedMarkerMarkup)
+   arm A ("wash"): count=0
+   arm B ("mark"): count=3
+
+## card_defaults.background_role   [ALIVE]
+   label: Card background — quotes-tabs/themes.ts:238 (frameControl + renderRoleStrip)
+   target: .lg-question-card background-color (R2 P8 M2: design.questionCard.background = roles[cd.background_role], theme.ts:1382)
+   arm A ("error"): backgroundColor=rgb(211, 47, 47)   [_vis:true 420x164  matched:2 visible:1]
+   arm B ("success"): backgroundColor=rgb(14, 124, 58)   [_vis:true 420x164  matched:2 visible:1]
+   SECONDARY (bonus, non-decision): #lg-addr-p8_addr_street background-color (pre-existing write design.color.card, theme.ts:1381 — kept for back-compat; bonus corroboration)
+     secondary A: ABSENT (selector matched 0 nodes)
+     secondary B: ABSENT (selector matched 0 nodes)
+
+## card_defaults.border_role   [ALIVE]
+   label: Card border — quotes-tabs/themes.ts:239 (frameControl + renderRoleStrip)
+   target: .lg-question-card border-top-color (R2 P8 M2: design.questionCard.border = `1px solid ${roles[cd.border_role]}`, theme.ts:1395)
+   arm A ("error"): borderTopColor=rgb(211, 47, 47)   [_vis:true 420x164  matched:2 visible:1]
+   arm B ("success"): borderTopColor=rgb(14, 124, 58)   [_vis:true 420x164  matched:2 visible:1]
+   SECONDARY (bonus, non-decision): .lg-card-panel border-top-color (pre-existing write design.cardPanel.border, theme.ts:1392, styles.ts:2002 — CardPanel container this fixture's sections never render, styles.ts:639 comment; bonus corroboration, expected ABSENT)
+     secondary A: ABSENT (selector matched 0 nodes)
+     secondary B: ABSENT (selector matched 0 nodes)
+
+## card_defaults.radius   [ALIVE]
+   label: Card corners — quotes-tabs/themes.ts:241
+   target: .lg-question-card border-radius (R2 P8 M2: design.questionCard.borderRadius = design.radius[cd.radius], theme.ts:1389)
+   arm A ("sm"): borderRadius=6px   [_vis:true 420x164  matched:2 visible:1]
+   arm B ("full"): borderRadius=9999px   [_vis:true 420x164  matched:2 visible:1]
+   SECONDARY (bonus, non-decision): .lg-disclosure-panel border-radius (pre-existing write design.content.cardRadius, theme.ts:1385 — disclosure MODAL panel, hidden until toggled; bonus corroboration)
+     secondary A: ABSENT (selector matched 0 nodes)
+     secondary B: ABSENT (selector matched 0 nodes)
+
+## card_defaults.shadow   [ALIVE]
+   label: Card shadow — quotes-tabs/themes.ts:242
+   target: .lg-question-card box-shadow (R2 P8 M2: design.questionCard.boxShadow = shadowStepValue(baseDesign, cd.shadow), theme.ts:1407-1408 — explicit step wins over scales.shadow by design, theme.ts:1397-1406)
+   arm A ("none"): boxShadow=none   [_vis:true 420x164  matched:2 visible:1]
+   arm B ("xl"): boxShadow=rgba(27, 58, 92, 0.1) 0px 16px 48px 0px   [_vis:true 420x164  matched:2 visible:1]
+   SECONDARY (bonus, non-decision): .lg-disclosure-panel box-shadow (shadow.xl scale token, not this key's own consumer; bonus corroboration only)
+     secondary A: ABSENT (selector matched 0 nodes)
+     secondary B: ABSENT (selector matched 0 nodes)
+
+## field_defaults.min_height   [UNMEASURABLE]
+   label: Field height — quotes-tabs/themes.ts:228
+   target: #lg-addr-p8_addr_street min-height (applyFieldHeightStep -> design.input.minHeight, theme.ts:1422-1426, styles.ts:1827 — SAME applier ThemeRecord's controls.field_height uses)
+   arm A ("small"): ABSENT (selector matched 0 nodes)
+   arm B ("large"): ABSENT (selector matched 0 nodes)
+
+restored funnel theme to {}
+
+| key | values flipped | verdict | basis |
+|---|---|---|---|
+| palette.brand_primary | "#123456" -> "#ee7733" | ALIVE | .lg-progress-fill background-color (color.primary -> frame progress fill, styles.ts .lg-frame-progress--role-brand_primary rule) |
+| palette.brand_secondary | "#123456" -> "#ee7733" | ALIVE | .lg-frame-background.lg-frame-bg-style-brand_gradient background-image (AUTHORED: PUT /funnels/:id/frame {background:{style:"brand_gradient"}}; styles.ts "linear-gradient(160deg,brand_primary,brand_secondary)") |
+| palette.accent | "#123456" -> "#ee7733" | UNMEASURABLE | .lg-category color (LABEL "category label" — quotes-tabs/shared.ts:460 ROLE_META; AUTHORED: POST /sections + PUT /variants/:id inserting a CategoryLabel section; applyAccentRole -> design.categoryLabel.color, presets.ts renderCategoryLabel) |
+| palette.success | "#00ff00" -> "#003300" | UNMEASURABLE | .lg-badge-icon color (LABEL "reassurance" — quotes-tabs/shared.ts:461 ROLE_META; AUTHORED: POST /sections + PUT /variants/:id inserting a ReassuranceBadge section; applySuccessRole -> design.reassuranceBadge.iconColor, presets.ts renderReassuranceBadge) |
+| palette.error | "#ff0000" -> "#330000" | ALIVE | DRIVEN: [data-lg-error-for="r2fix_carrier"] color, after a Continue click on the carrier ButtonAnswerGroup with NO choice selected (engine.ts handleContinue/sectionPassesAt -> render.ts:228 setFieldError, the real required-validation producer, unhides the slot and inline-styles it with validation.errorTextColor); styles.ts .lg-error{color:validation.errorTextColor}, same token applyErrorRole writes |
+| palette.page_background | "#123456" -> "#ee7733" | ALIVE | #lg-funnel-root background-color (page.backgroundColor, scope-root rule) |
+| palette.card_background | "#123456" -> "#ee7733" | UNMEASURABLE | #lg-addr-p8_addr_street background-color (color.card -> .lg-input background, styles.ts:1828) |
+| palette.surface_wash | "#123456" -> "#ee7733" | UNMEASURABLE | AUTHORED: .lg-range-radial-outer box-shadow while .lg-range-radial-input is REAL-focused (a NumberRangeQuestion radial section inserted via PUT /variants/:id sections); styles.ts .lg-range-radial:focus-within .lg-range-radial-outer{box-shadow:0 0 0 3px color.primaryWash} |
+| palette.border | "#123456" -> "#ee7733" | UNMEASURABLE | #lg-addr-p8_addr_street border-top-color (unoverridden fallback var(--lg-field-border, color.border), styles.ts:1816) |
+| palette.text_primary | "#111111" -> "#eeeeee" | ALIVE | #lg-funnel-root color (page.textColor, scope-root rule) |
+| palette.text_muted | "#123456" -> "#ee7733" | UNMEASURABLE | .lg-address-field-label color (page.textSecondaryColor, styles.ts:1794) |
+| palette.button_primary_bg | "#123456" -> "#ee7733" | ALIVE | .lg-continue background-color (primaryButton.background, shared .lg-btn base rule, styles.ts:1228) |
+| palette.button_primary_text | "#123456" -> "#eeeeee" | ALIVE | .lg-continue color (primaryButton.color, shared .lg-btn base rule, styles.ts:1229) |
+| palette.button_secondary_bg | "#123456" -> "#ee7733" | ALIVE | .lg-frame-benefit background-color (AUTHORED: PUT /funnels/:id/frame {benefit_bar:{enabled:true,items:[...],placement:"below_unit"}}; styles.ts .lg-frame-benefit{background:color.primaryGhost}) |
+| typography.display | "literata" -> "playfair" | ALIVE | .lg-headline font-family (applyDisplayFont -> design.headline.fontFamily, THEME_FONT_STACKS[displayId]) |
+| typography.body | "sora" -> "work_sans" | ALIVE | #lg-funnel-root font-family (applyBodyFont -> design.page.fontFamily) |
+| typography.size | "s" -> "l" | UNMEASURABLE | .lg-address-field-label font-size (subheadline.fontSize, scaleFontSizes(THEME_SIZE_FACTORS[size]) touches every *FontSize* token, styles.ts:1793) |
+| typography.display_size | "m" -> "xxl" | ALIVE | .lg-headline font-size (scaleDisplayFontSizes -> headline.fontSizeDesktop, DISPLAY_FONTSIZE_PATHS) |
+| scales.spacing | "compact" -> "roomy" | UNMEASURABLE | .lg-address-field-label margin-bottom (design.spacing.xs, applySpacingScale -> scaleCssLength, styles.ts:1795 — a direct SPACING_KEYS consumer) |
+| scales.radius | "sharp" -> "round" | ALIVE | .lg-question-card border-radius (applyRadiusScale -> design.questionCard.borderRadius, theme.ts:1704 — P6 fixes3/E2 component-radius bridge) |
+| scales.shadow | "none" -> "high" | ALIVE | .lg-question-card box-shadow (applyShadowScale -> design.questionCard.boxShadow, theme.ts:1770-1791 — R2 P8 M2 component-shadow bridge; PRE-fix this reached only the emitted --lg-shadow-* vars, per that function's own doc comment) |
+| button_defaults.background_role | "error" -> "success" | ALIVE | .lg-continue background-color (design.primaryButton.background = roles[bd.background_role], theme.ts:1312) |
+| button_defaults.text_role | "error" -> "success" | ALIVE | .lg-continue color (design.primaryButton.color = roles[bd.text_role], theme.ts:1313) |
+| button_defaults.radius | "sm" -> "full" | ALIVE | .lg-continue border-radius (design.primaryButton.borderRadius = design.radius[bd.radius], theme.ts:1314, shared .lg-btn base rule) |
+| button_defaults.min_height | "s" -> "l" | ALIVE | .lg-continue min-height (design.primaryButton.minHeight = BUTTON_MIN_HEIGHT_CSS[bd.min_height], theme.ts:1315) |
+| button_defaults.casing | "none" -> "upper" | ALIVE | .lg-continue text-transform (R2 P8 M2 fix: readButtonCasing(design) -> `.lg-btn{text-transform:uppercase}`, styles.ts:2412-2413 — PRE-fix this read EffectiveButtonDefaults.text_transform, which had zero CSS consumers) |
+| button_defaults.fill | "outline" -> "soft" | ALIVE | .lg-btn-answer border-radius (readButtonStyle stash; fill="soft" sets radius.full via .lg-answer-group[data-btn-fill="soft"] .lg-btn-answer, styles.ts:170-173) |
+| button_defaults.layout | "grid" -> "list" | ALIVE | .lg-answer-group grid-template-columns (layout="list" forces 1fr via .lg-answer-group[data-btn-layout="list"], styles.ts:187) |
+| button_defaults.selected | "wash" -> "mark" | ALIVE | count(.lg-answer-group .lg-check-hollow) (selected="mark" unconditionally renders a hollow+badge span pair per choice, presets.ts selectedMarkerMarkup) |
+| card_defaults.background_role | "error" -> "success" | ALIVE | .lg-question-card background-color (R2 P8 M2: design.questionCard.background = roles[cd.background_role], theme.ts:1382) |
+| card_defaults.border_role | "error" -> "success" | ALIVE | .lg-question-card border-top-color (R2 P8 M2: design.questionCard.border = `1px solid ${roles[cd.border_role]}`, theme.ts:1395) |
+| card_defaults.radius | "sm" -> "full" | ALIVE | .lg-question-card border-radius (R2 P8 M2: design.questionCard.borderRadius = design.radius[cd.radius], theme.ts:1389) |
+| card_defaults.shadow | "none" -> "xl" | ALIVE | .lg-question-card box-shadow (R2 P8 M2: design.questionCard.boxShadow = shadowStepValue(baseDesign, cd.shadow), theme.ts:1407-1408 — explicit step wins over scales.shadow by design, theme.ts:1397-1406) |
+| field_defaults.min_height | "small" -> "large" | UNMEASURABLE | #lg-addr-p8_addr_street min-height (applyFieldHeightStep -> design.input.minHeight, theme.ts:1422-1426, styles.ts:1827 — SAME applier ThemeRecord's controls.field_height uses) |
+
+TOTALS: 34 keys swept — ALIVE 25, DEAD 0, MIS-TARGETED 0, UNMEASURABLE 9.
+
+Harness notes (retries / flakes) — repeated above inline, collected here too:
+  - palette.brand_secondary: frame.background patched to {"style":"brand_gradient"} (prior frame_config_json: null)
+  - palette.brand_secondary: frame restored to {} ({} stands in for the original null — PUT /frame requires an object; mergeInto(frame,{}) is a no-op so the EFFECTIVE frame is unchanged)
+  - palette.accent: palette.accent setup failed: p8_addr node not found in the fixture's address section
+  - palette.accent: section 2 content_json restored byte-exact
+  - palette.success: created temp section 3 (ReassuranceBadge) and inserted at position 1 of variant lgn_01KZA6A2FDEV0HH1V1Y2EP1HW7
+  - palette.success: variant lgn_01KZA6A2FDEV0HH1V1Y2EP1HW7 section order restored to original [{"section_id":2}]
+  - palette.success: temp section 3 deleted
+  - palette.surface_wash: created temp section 4 (NumberRangeQuestion radial) and inserted at position 1 of variant lgn_01KZA6A2FDEV0HH1V1Y2EP1HW7
+  - palette.surface_wash: variant lgn_01KZA6A2FDEV0HH1V1Y2EP1HW7 section order restored to original [{"section_id":2}]
+  - palette.surface_wash: temp section 4 deleted
+  - palette.button_secondary_bg: frame.benefit_bar patched to {"enabled":true,"items":[{"icon":"circle-check","text":"Fast & free"}],"placement":"below_unit"} (prior frame_config_json: {})
+  - palette.button_secondary_bg: frame restored to {}

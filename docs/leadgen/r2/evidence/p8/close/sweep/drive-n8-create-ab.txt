@@ -1,0 +1,28 @@
+[setup] quote lgq_01KZA6AR6RGWFHJJ727841K5BH created (P8-6 N8 drive A)
+  [poll boot-A] attempt 1/6: {"done":true,"ok":{"present":true,"hidden":true,"text":""},"err":{"present":true,"hidden":true,"text":""},"createBtn":{"present":true,"disabled":false},"status":null,"activeTab":"A/B","stamp":null}
+[fail-before] painted BEFORE reload: {"text":"NAIVE PRE-RELOAD MESSAGE: A/B test created.","hidden":false,"visible":true}
+  [poll fail-before-after-reload] attempt 1/6: {"done":true,"ok":{"present":true,"hidden":true,"text":""},"err":{"present":true,"hidden":true,"text":""},"createBtn":{"present":true,"disabled":false},"status":null,"activeTab":"A/B","stamp":null}
+[fail-before] AFTER reload the operator reads: {"present":true,"hidden":true,"text":""}
+[success] clicking #lg-create-experiment ...
+  [poll success-after-settle] attempt 1/12: {"done":true,"ok":{"present":true,"hidden":false,"text":"A/B test created. It is not running yet - press Start A/B test."},"err":{"present":true,"hidden":true,"text":""},"createBtn":{"present":false},"status":"draft · rev 1","activeTab":"A/B","stamp":null}
+[success] AFTER the page settled: {"done":true,"ok":{"present":true,"hidden":false,"text":"A/B test created. It is not running yet - press Start A/B test."},"err":{"present":true,"hidden":true,"text":""},"createBtn":{"present":false},"status":"draft · rev 1","activeTab":"A/B","stamp":null}
+[success] #lg-quote-ok bounding box: {"x":274,"y":369,"width":982,"height":47}
+  [poll success-second-load] attempt 1/4: {"done":true,"ok":{"present":true,"hidden":true,"text":""},"err":{"present":true,"hidden":true,"text":""},"createBtn":{"present":false},"status":"draft · rev 1","activeTab":"A/B","stamp":null}
+[success] after a PLAIN refresh (one-shot check): {"present":true,"hidden":true,"text":""}
+[setup] quote lgq_01KZA6ARJPT2S3K2HCA4X2P42C created (P8-6 N8 drive B)
+  [poll boot-B] attempt 1/6: {"done":true,"ok":{"present":true,"hidden":true,"text":""},"err":{"present":true,"hidden":true,"text":""},"createBtn":{"present":true,"disabled":false},"status":null,"activeTab":"A/B","stamp":null}
+[failure] clicking #lg-create-experiment with the route forced to 409 ...
+  [poll failure-after-click] attempt 1/8: {"done":false,"err":{"hidden":true,"text":""},"createBtn":{"present":true,"disabled":true},"stamp":"no-reload-marker"}
+  [poll failure-after-click] attempt 2/8: {"done":true,"err":{"hidden":false,"text":"another experiment already exists on this funnel"},"createBtn":{"present":true,"disabled":false},"stamp":"no-reload-marker"}
+[failure] operator reads: {"done":true,"err":{"hidden":false,"text":"another experiment already exists on this funnel"},"createBtn":{"present":true,"disabled":false},"stamp":"no-reload-marker"}
+  [poll failure-retry] attempt 1/10: {"done":true,"ok":{"present":true,"hidden":false,"text":"A/B test created. It is not running yet - press Start A/B test."},"err":{"present":true,"hidden":true,"text":""},"createBtn":{"present":false},"status":"draft · rev 1","activeTab":"A/B","stamp":null}
+[failure] retry fired a POST? true | after settle: {"present":true,"hidden":false,"text":"A/B test created. It is not running yet - press Start A/B test."}
+[sweep] clicking Start A/B test ...
+  [poll sweep-start] attempt 1/10: {"done":true,"ok":{"present":true,"hidden":false,"text":"A/B test started."},"err":{"present":true,"hidden":true,"text":""},"createBtn":{"present":false},"status":"Running · rev 2","activeTab":"A/B","stamp":null}
+[sweep] after Start settled: {"ok":{"present":true,"hidden":false,"text":"A/B test started."},"status":"Running · rev 2"}
+[sweep] clicking Stop A/B test ...
+  [poll sweep-stop] attempt 1/10: {"done":true,"ok":{"present":true,"hidden":false,"text":"A/B test stopped."},"err":{"present":true,"hidden":true,"text":""},"createBtn":{"present":false},"status":"stopped · rev 2","activeTab":"A/B","stamp":null}
+[sweep] after Stop settled: {"ok":{"present":true,"hidden":false,"text":"A/B test stopped."},"status":"stopped · rev 2"}
+[console] page errors: ["console: Failed to load resource: the server responded with a status of 409 (Conflict)"]
+[cleanup] DELETE quote lgq_01KZA6AR6RGWFHJJ727841K5BH -> 200
+[cleanup] DELETE quote lgq_01KZA6ARJPT2S3K2HCA4X2P42C -> 200

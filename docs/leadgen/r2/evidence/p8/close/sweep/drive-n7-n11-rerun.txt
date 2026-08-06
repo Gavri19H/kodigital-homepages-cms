@@ -1,0 +1,41 @@
+# P8-3 N7 / N11 conductor drive — 1280, real admin editor
+presets present: 0
+page errors: none
+
+## N7 — truncation of each visible theme select's OWN displayed value
+key                              label                              text  content box   verdict
+typography.display               Inherit from base                  105.05     288   314   fits
+typography.body                  Inherit from base                  105.05     288   314   fits
+typography.size                  Inherit from base                  105.05     288   314   fits
+typography.display_size          Inherit from base                  105.05     288   314   fits
+scales.spacing                   Inherit from base                  105.05     288   314   fits
+scales.radius                    Inherit from base                  105.05     288   314   fits
+scales.shadow                    Inherit from base                  105.05     288   314   fits
+button_defaults.radius           Inherit from base                  105.05     288   314   fits
+button_defaults.min_height       Inherit from base                  105.05     288   314   fits
+button_defaults.casing           Inherit from base                  105.05     288   314   fits
+field_defaults.min_height        Inherit from base                  105.05     288   314   fits
+button_defaults.fill             Inherit from base                  105.05     288   314   fits
+button_defaults.layout           Inherit from base                  105.05     288   314   fits
+button_defaults.selected         Inherit from base                  105.05     288   314   fits
+card_defaults.radius             Inherit from base                  105.05     288   314   fits
+card_defaults.shadow             Inherit from base                  105.05     288   314   fits
+
+truncated selects: 0 of 16
+
+## N11 — preset actions with presets PRESENT
+{
+  "apply": {
+    "present": true,
+    "disabled": true,
+    "title": "No presets saved yet — create one from the Themes manager first.",
+    "text": "Apply to this funnel"
+  },
+  "ab": {
+    "present": true,
+    "disabled": true,
+    "title": "No presets saved yet — create one from the Themes manager first.",
+    "text": "A/B this theme"
+  },
+  "help": "No presets saved yet — save one from the Themes manager, then it can be applied here."
+}

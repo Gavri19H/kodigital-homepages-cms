@@ -1,0 +1,503 @@
+WARNING: preflight GET http://127.0.0.1:8901/lg/r2fix -> HTTP 404 (continuing)
+# P8-3 S3.4 — 34-key INLINE theme_json sweep, 2026-08-06T00:06:59.749Z
+funnel lgf_01KZ271383F5X1SQ3DXTXKNJE5  ·  write path PUT /funnels/:id/theme (FULL theme_json)  ·  page /lg/r2fix (fresh ?_cb per load)
+enumeration: 14 palette + 4 typography + 3 scales + 8 button_defaults + 4 card_defaults + 1 field_defaults = 34 keys
+
+## palette.brand_primary   [UNMEASURABLE]
+   label: Brand primary — quotes-tabs/shared.ts:458 ROLE_META, used_by "buttons, progress fill, selected borders, logo text"
+   target: .lg-progress-fill background-color (color.primary -> frame progress fill, styles.ts .lg-frame-progress--role-brand_primary rule)
+   arm A ("#123456"): 0=n  1=/  2=a   [_vis:undefined undefinedxundefined  matched:undefined visible:undefined]
+   arm B ("#ee7733"): 0=n  1=/  2=a   [_vis:undefined undefinedxundefined  matched:undefined visible:undefined]
+   harness notes:
+     - palette.brand_primary PUT A: first attempt failed (PUT http://127.0.0.1:8901/api/admin/leadgen/funnels/lgf_01KZ271383F5X1SQ3DXTXKNJE5/theme -> HTTP 404: {"error":"Not Found"}) — retrying once (fresh ?_cb)
+     - palette.brand_primary PUT A: retry also failed (PUT http://127.0.0.1:8901/api/admin/leadgen/funnels/lgf_01KZ271383F5X1SQ3DXTXKNJE5/theme -> HTTP 404: {"error":"Not Found"})
+     - harness error: PUT http://127.0.0.1:8901/api/admin/leadgen/funnels/lgf_01KZ271383F5X1SQ3DXTXKNJE5/theme -> HTTP 404: {"error":"Not Found"}
+
+## palette.brand_secondary   [UNMEASURABLE]
+   label: Brand secondary — quotes-tabs/shared.ts:459 ROLE_META, used_by "gradients, secondary emphasis"
+   target: .lg-frame-background.lg-frame-bg-style-brand_gradient background-image (AUTHORED: PUT /funnels/:id/frame {background:{style:"brand_gradient"}}; styles.ts "linear-gradient(160deg,brand_primary,brand_secondary)")
+   arm A ("#123456"): 0=n  1=/  2=a   [_vis:undefined undefinedxundefined  matched:undefined visible:undefined]
+   arm B ("#ee7733"): 0=n  1=/  2=a   [_vis:undefined undefinedxundefined  matched:undefined visible:undefined]
+   harness notes:
+     - palette.brand_secondary setup failed: GET http://127.0.0.1:8901/api/admin/leadgen/funnels/lgf_01KZ271383F5X1SQ3DXTXKNJE5/frame -> HTTP 404: {"error":"Not Found"}
+     - palette.brand_secondary teardown failed: PUT http://127.0.0.1:8901/api/admin/leadgen/funnels/lgf_01KZ271383F5X1SQ3DXTXKNJE5/frame -> HTTP 404: {"error":"Not Found"}
+
+## palette.accent   [UNMEASURABLE]
+   label: Accent — quotes-tabs/shared.ts:460 ROLE_META, used_by "category label, highlights, recommended"
+   target: .lg-category color (LABEL "category label" — quotes-tabs/shared.ts:460 ROLE_META; AUTHORED: POST /sections + PUT /variants/:id inserting a CategoryLabel section; applyAccentRole -> design.categoryLabel.color, presets.ts renderCategoryLabel)
+   arm A ("#123456"): 0=n  1=/  2=a   [_vis:undefined undefinedxundefined  matched:undefined visible:undefined]
+   arm B ("#ee7733"): 0=n  1=/  2=a   [_vis:undefined undefinedxundefined  matched:undefined visible:undefined]
+   SECONDARY (bonus, non-decision): #lg-addr-p8_addr_street border-top-color (AUTHORED: PATCH /sections/:id design_overrides.border_color="accent" on the p8_addr node -> --lg-field-border custom property, presets.ts nodeBorderColorValue/appearanceStyleEntries; the PRE-existing per-node override mechanism, independent of applyAccentRole — bonus corroboration only)
+     secondary A: ABSENT (selector matched 0 nodes)
+     secondary B: ABSENT (selector matched 0 nodes)
+   harness notes:
+     - palette.accent setup failed: GET http://127.0.0.1:8901/api/admin/leadgen/funnels/lgf_01KZ271383F5X1SQ3DXTXKNJE5 -> HTTP 404: {"error":"Not Found"}
+
+## palette.success   [UNMEASURABLE]
+   label: Success — quotes-tabs/shared.ts:461 ROLE_META, used_by "reassurance, valid states"
+   target: .lg-badge-icon color (LABEL "reassurance" — quotes-tabs/shared.ts:461 ROLE_META; AUTHORED: POST /sections + PUT /variants/:id inserting a ReassuranceBadge section; applySuccessRole -> design.reassuranceBadge.iconColor, presets.ts renderReassuranceBadge)
+   arm A ("#00ff00"): 0=n  1=/  2=a   [_vis:undefined undefinedxundefined  matched:undefined visible:undefined]
+   arm B ("#003300"): 0=n  1=/  2=a   [_vis:undefined undefinedxundefined  matched:undefined visible:undefined]
+   harness notes:
+     - palette.success setup failed: GET http://127.0.0.1:8901/api/admin/leadgen/funnels/lgf_01KZ271383F5X1SQ3DXTXKNJE5 -> HTTP 404: {"error":"Not Found"}
+
+## palette.error   [UNMEASURABLE]
+   label: Error — quotes-tabs/shared.ts:462 ROLE_META, used_by "validation errors"
+   target: DRIVEN: [data-lg-error-for="r2fix_carrier"] color, after a Continue click on the carrier ButtonAnswerGroup with NO choice selected (engine.ts handleContinue/sectionPassesAt -> render.ts:228 setFieldError, the real required-validation producer, unhides the slot and inline-styles it with validation.errorTextColor); styles.ts .lg-error{color:validation.errorTextColor}, same token applyErrorRole writes
+   arm A ("#ff0000"): 0=n  1=/  2=a   [_vis:undefined undefinedxundefined  matched:undefined visible:undefined]
+   arm B ("#330000"): 0=n  1=/  2=a   [_vis:undefined undefinedxundefined  matched:undefined visible:undefined]
+   SECONDARY (bonus, non-decision): .lg-input[aria-invalid="true"] border-top-color (bonus corroboration, EXPECTED ABSENT: this fixture has no required question backed by a bare <input data-lg-input> — driven and confirmed, not assumed; input.errorBorderColor is a real consumer, styles.ts .lg-input[aria-invalid="true"]{border-color:input.errorBorderColor}, just unreachable on THIS fixture's current structure without authoring a new section)
+     secondary A: ABSENT (selector matched 0 nodes)
+     secondary B: ABSENT (selector matched 0 nodes)
+   harness notes:
+     - palette.error PUT A: first attempt failed (PUT http://127.0.0.1:8901/api/admin/leadgen/funnels/lgf_01KZ271383F5X1SQ3DXTXKNJE5/theme -> HTTP 404: {"error":"Not Found"}) — retrying once (fresh ?_cb)
+     - palette.error PUT A: retry also failed (PUT http://127.0.0.1:8901/api/admin/leadgen/funnels/lgf_01KZ271383F5X1SQ3DXTXKNJE5/theme -> HTTP 404: {"error":"Not Found"})
+     - harness error: PUT http://127.0.0.1:8901/api/admin/leadgen/funnels/lgf_01KZ271383F5X1SQ3DXTXKNJE5/theme -> HTTP 404: {"error":"Not Found"}
+
+## palette.page_background   [UNMEASURABLE]
+   label: Page background — quotes-tabs/shared.ts:463 ROLE_META, used_by "frame background"
+   target: #lg-funnel-root background-color (page.backgroundColor, scope-root rule)
+   arm A ("#123456"): 0=n  1=/  2=a   [_vis:undefined undefinedxundefined  matched:undefined visible:undefined]
+   arm B ("#ee7733"): 0=n  1=/  2=a   [_vis:undefined undefinedxundefined  matched:undefined visible:undefined]
+   harness notes:
+     - palette.page_background PUT A: first attempt failed (PUT http://127.0.0.1:8901/api/admin/leadgen/funnels/lgf_01KZ271383F5X1SQ3DXTXKNJE5/theme -> HTTP 404: {"error":"Not Found"}) — retrying once (fresh ?_cb)
+     - palette.page_background PUT A: retry also failed (PUT http://127.0.0.1:8901/api/admin/leadgen/funnels/lgf_01KZ271383F5X1SQ3DXTXKNJE5/theme -> HTTP 404: {"error":"Not Found"})
+     - harness error: PUT http://127.0.0.1:8901/api/admin/leadgen/funnels/lgf_01KZ271383F5X1SQ3DXTXKNJE5/theme -> HTTP 404: {"error":"Not Found"}
+
+## palette.card_background   [UNMEASURABLE]
+   label: Card background — quotes-tabs/shared.ts:464 ROLE_META, used_by "question card, answer cards"
+   target: #lg-addr-p8_addr_street background-color (color.card -> .lg-input background, styles.ts:1828)
+   arm A ("#123456"): 0=n  1=/  2=a   [_vis:undefined undefinedxundefined  matched:undefined visible:undefined]
+   arm B ("#ee7733"): 0=n  1=/  2=a   [_vis:undefined undefinedxundefined  matched:undefined visible:undefined]
+   LABEL IMPLIES: .lg-question-card background-color (LABEL 'card' implies THIS element — styles.ts:570 questionCard.background, a SEPARATE token the plain palette.card_background write does NOT touch; unlike card_defaults.background_role, below, which now also writes it)
+     implied A: ABSENT (selector matched 0 nodes)
+     implied B: ABSENT (selector matched 0 nodes)
+   SECONDARY (bonus, non-decision): .lg-btn-answer background-color (carrier page, first choice; var(--lg-answer-bg, color.card) fallback, styles.ts:1392)
+     secondary A: ABSENT (selector matched 0 nodes)
+     secondary B: ABSENT (selector matched 0 nodes)
+   harness notes:
+     - palette.card_background PUT A: first attempt failed (PUT http://127.0.0.1:8901/api/admin/leadgen/funnels/lgf_01KZ271383F5X1SQ3DXTXKNJE5/theme -> HTTP 404: {"error":"Not Found"}) — retrying once (fresh ?_cb)
+     - palette.card_background PUT A: retry also failed (PUT http://127.0.0.1:8901/api/admin/leadgen/funnels/lgf_01KZ271383F5X1SQ3DXTXKNJE5/theme -> HTTP 404: {"error":"Not Found"})
+     - harness error: PUT http://127.0.0.1:8901/api/admin/leadgen/funnels/lgf_01KZ271383F5X1SQ3DXTXKNJE5/theme -> HTTP 404: {"error":"Not Found"}
+
+## palette.surface_wash   [UNMEASURABLE]
+   label: Soft fill — quotes-tabs/shared.ts:465 ROLE_META, used_by "selected fills, quiet panels"
+   target: AUTHORED: .lg-range-radial-outer box-shadow while .lg-range-radial-input is REAL-focused (a NumberRangeQuestion radial section inserted via PUT /variants/:id sections); styles.ts .lg-range-radial:focus-within .lg-range-radial-outer{box-shadow:0 0 0 3px color.primaryWash}
+   arm A ("#123456"): 0=n  1=/  2=a   [_vis:undefined undefinedxundefined  matched:undefined visible:undefined]
+   arm B ("#ee7733"): 0=n  1=/  2=a   [_vis:undefined undefinedxundefined  matched:undefined visible:undefined]
+   harness notes:
+     - palette.surface_wash setup failed: GET http://127.0.0.1:8901/api/admin/leadgen/funnels/lgf_01KZ271383F5X1SQ3DXTXKNJE5 -> HTTP 404: {"error":"Not Found"}
+
+## palette.border   [UNMEASURABLE]
+   label: Border — quotes-tabs/shared.ts:466 ROLE_META, used_by "card/input borders"
+   target: #lg-addr-p8_addr_street border-top-color (unoverridden fallback var(--lg-field-border, color.border), styles.ts:1816)
+   arm A ("#123456"): 0=n  1=/  2=a   [_vis:undefined undefinedxundefined  matched:undefined visible:undefined]
+   arm B ("#ee7733"): 0=n  1=/  2=a   [_vis:undefined undefinedxundefined  matched:undefined visible:undefined]
+   harness notes:
+     - palette.border PUT A: first attempt failed (PUT http://127.0.0.1:8901/api/admin/leadgen/funnels/lgf_01KZ271383F5X1SQ3DXTXKNJE5/theme -> HTTP 404: {"error":"Not Found"}) — retrying once (fresh ?_cb)
+     - palette.border PUT A: retry also failed (PUT http://127.0.0.1:8901/api/admin/leadgen/funnels/lgf_01KZ271383F5X1SQ3DXTXKNJE5/theme -> HTTP 404: {"error":"Not Found"})
+     - harness error: PUT http://127.0.0.1:8901/api/admin/leadgen/funnels/lgf_01KZ271383F5X1SQ3DXTXKNJE5/theme -> HTTP 404: {"error":"Not Found"}
+
+## palette.text_primary   [UNMEASURABLE]
+   label: Text — quotes-tabs/shared.ts:467 ROLE_META, used_by "headlines, labels"
+   target: #lg-funnel-root color (page.textColor, scope-root rule)
+   arm A ("#111111"): 0=n  1=/  2=a   [_vis:undefined undefinedxundefined  matched:undefined visible:undefined]
+   arm B ("#eeeeee"): 0=n  1=/  2=a   [_vis:undefined undefinedxundefined  matched:undefined visible:undefined]
+   harness notes:
+     - palette.text_primary PUT A: first attempt failed (PUT http://127.0.0.1:8901/api/admin/leadgen/funnels/lgf_01KZ271383F5X1SQ3DXTXKNJE5/theme -> HTTP 404: {"error":"Not Found"}) — retrying once (fresh ?_cb)
+     - palette.text_primary PUT A: retry also failed (PUT http://127.0.0.1:8901/api/admin/leadgen/funnels/lgf_01KZ271383F5X1SQ3DXTXKNJE5/theme -> HTTP 404: {"error":"Not Found"})
+     - harness error: PUT http://127.0.0.1:8901/api/admin/leadgen/funnels/lgf_01KZ271383F5X1SQ3DXTXKNJE5/theme -> HTTP 404: {"error":"Not Found"}
+
+## palette.text_muted   [UNMEASURABLE]
+   label: Muted text — quotes-tabs/shared.ts:468 ROLE_META, used_by "subheadlines, helper, meta"
+   target: .lg-address-field-label color (page.textSecondaryColor, styles.ts:1794)
+   arm A ("#123456"): 0=n  1=/  2=a   [_vis:undefined undefinedxundefined  matched:undefined visible:undefined]
+   arm B ("#ee7733"): 0=n  1=/  2=a   [_vis:undefined undefinedxundefined  matched:undefined visible:undefined]
+   harness notes:
+     - palette.text_muted PUT A: first attempt failed (PUT http://127.0.0.1:8901/api/admin/leadgen/funnels/lgf_01KZ271383F5X1SQ3DXTXKNJE5/theme -> HTTP 404: {"error":"Not Found"}) — retrying once (fresh ?_cb)
+     - palette.text_muted PUT A: retry also failed (PUT http://127.0.0.1:8901/api/admin/leadgen/funnels/lgf_01KZ271383F5X1SQ3DXTXKNJE5/theme -> HTTP 404: {"error":"Not Found"})
+     - harness error: PUT http://127.0.0.1:8901/api/admin/leadgen/funnels/lgf_01KZ271383F5X1SQ3DXTXKNJE5/theme -> HTTP 404: {"error":"Not Found"}
+
+## palette.button_primary_bg   [UNMEASURABLE]
+   label: Button — quotes-tabs/shared.ts:469 ROLE_META, used_by "Continue/CTA background"
+   target: .lg-continue background-color (primaryButton.background, shared .lg-btn base rule, styles.ts:1228)
+   arm A ("#123456"): 0=n  1=/  2=a   [_vis:undefined undefinedxundefined  matched:undefined visible:undefined]
+   arm B ("#ee7733"): 0=n  1=/  2=a   [_vis:undefined undefinedxundefined  matched:undefined visible:undefined]
+   harness notes:
+     - palette.button_primary_bg PUT A: first attempt failed (PUT http://127.0.0.1:8901/api/admin/leadgen/funnels/lgf_01KZ271383F5X1SQ3DXTXKNJE5/theme -> HTTP 404: {"error":"Not Found"}) — retrying once (fresh ?_cb)
+     - palette.button_primary_bg PUT A: retry also failed (PUT http://127.0.0.1:8901/api/admin/leadgen/funnels/lgf_01KZ271383F5X1SQ3DXTXKNJE5/theme -> HTTP 404: {"error":"Not Found"})
+     - harness error: PUT http://127.0.0.1:8901/api/admin/leadgen/funnels/lgf_01KZ271383F5X1SQ3DXTXKNJE5/theme -> HTTP 404: {"error":"Not Found"}
+
+## palette.button_primary_text   [UNMEASURABLE]
+   label: Button text — quotes-tabs/shared.ts:470 ROLE_META, used_by "Continue/CTA text"
+   target: .lg-continue color (primaryButton.color, shared .lg-btn base rule, styles.ts:1229)
+   arm A ("#123456"): 0=n  1=/  2=a   [_vis:undefined undefinedxundefined  matched:undefined visible:undefined]
+   arm B ("#eeeeee"): 0=n  1=/  2=a   [_vis:undefined undefinedxundefined  matched:undefined visible:undefined]
+   harness notes:
+     - palette.button_primary_text PUT A: first attempt failed (PUT http://127.0.0.1:8901/api/admin/leadgen/funnels/lgf_01KZ271383F5X1SQ3DXTXKNJE5/theme -> HTTP 404: {"error":"Not Found"}) — retrying once (fresh ?_cb)
+     - palette.button_primary_text PUT A: retry also failed (PUT http://127.0.0.1:8901/api/admin/leadgen/funnels/lgf_01KZ271383F5X1SQ3DXTXKNJE5/theme -> HTTP 404: {"error":"Not Found"})
+     - harness error: PUT http://127.0.0.1:8901/api/admin/leadgen/funnels/lgf_01KZ271383F5X1SQ3DXTXKNJE5/theme -> HTTP 404: {"error":"Not Found"}
+
+## palette.button_secondary_bg   [UNMEASURABLE]
+   label: Secondary button — quotes-tabs/shared.ts:471 ROLE_META, used_by "back button-style, quiet buttons"
+   target: .lg-frame-benefit background-color (AUTHORED: PUT /funnels/:id/frame {benefit_bar:{enabled:true,items:[...],placement:"below_unit"}}; styles.ts .lg-frame-benefit{background:color.primaryGhost})
+   arm A ("#123456"): 0=n  1=/  2=a   [_vis:undefined undefinedxundefined  matched:undefined visible:undefined]
+   arm B ("#ee7733"): 0=n  1=/  2=a   [_vis:undefined undefinedxundefined  matched:undefined visible:undefined]
+   harness notes:
+     - palette.button_secondary_bg setup failed: GET http://127.0.0.1:8901/api/admin/leadgen/funnels/lgf_01KZ271383F5X1SQ3DXTXKNJE5/frame -> HTTP 404: {"error":"Not Found"}
+     - palette.button_secondary_bg teardown failed: PUT http://127.0.0.1:8901/api/admin/leadgen/funnels/lgf_01KZ271383F5X1SQ3DXTXKNJE5/frame -> HTTP 404: {"error":"Not Found"}
+
+## typography.display   [UNMEASURABLE]
+   label: Display font (headlines) — quotes-tabs/themes.ts:207
+   target: .lg-headline font-family (applyDisplayFont -> design.headline.fontFamily, THEME_FONT_STACKS[displayId])
+   arm A ("literata"): 0=n  1=/  2=a   [_vis:undefined undefinedxundefined  matched:undefined visible:undefined]
+   arm B ("playfair"): 0=n  1=/  2=a   [_vis:undefined undefinedxundefined  matched:undefined visible:undefined]
+   harness notes:
+     - typography.display PUT A: first attempt failed (PUT http://127.0.0.1:8901/api/admin/leadgen/funnels/lgf_01KZ271383F5X1SQ3DXTXKNJE5/theme -> HTTP 404: {"error":"Not Found"}) — retrying once (fresh ?_cb)
+     - typography.display PUT A: retry also failed (PUT http://127.0.0.1:8901/api/admin/leadgen/funnels/lgf_01KZ271383F5X1SQ3DXTXKNJE5/theme -> HTTP 404: {"error":"Not Found"})
+     - harness error: PUT http://127.0.0.1:8901/api/admin/leadgen/funnels/lgf_01KZ271383F5X1SQ3DXTXKNJE5/theme -> HTTP 404: {"error":"Not Found"}
+
+## typography.body   [UNMEASURABLE]
+   label: Body font (paragraphs) — quotes-tabs/themes.ts:208
+   target: #lg-funnel-root font-family (applyBodyFont -> design.page.fontFamily)
+   arm A ("sora"): 0=n  1=/  2=a   [_vis:undefined undefinedxundefined  matched:undefined visible:undefined]
+   arm B ("work_sans"): 0=n  1=/  2=a   [_vis:undefined undefinedxundefined  matched:undefined visible:undefined]
+   harness notes:
+     - typography.body PUT A: first attempt failed (PUT http://127.0.0.1:8901/api/admin/leadgen/funnels/lgf_01KZ271383F5X1SQ3DXTXKNJE5/theme -> HTTP 404: {"error":"Not Found"}) — retrying once (fresh ?_cb)
+     - typography.body PUT A: retry also failed (PUT http://127.0.0.1:8901/api/admin/leadgen/funnels/lgf_01KZ271383F5X1SQ3DXTXKNJE5/theme -> HTTP 404: {"error":"Not Found"})
+     - harness error: PUT http://127.0.0.1:8901/api/admin/leadgen/funnels/lgf_01KZ271383F5X1SQ3DXTXKNJE5/theme -> HTTP 404: {"error":"Not Found"}
+
+## typography.size   [UNMEASURABLE]
+   label: Body text size — quotes-tabs/themes.ts:209 (panel copy: "Body sets paragraphs, labels and inputs")
+   target: .lg-address-field-label font-size (subheadline.fontSize, scaleFontSizes(THEME_SIZE_FACTORS[size]) touches every *FontSize* token, styles.ts:1793)
+   arm A ("s"): 0=n  1=/  2=a   [_vis:undefined undefinedxundefined  matched:undefined visible:undefined]
+   arm B ("l"): 0=n  1=/  2=a   [_vis:undefined undefinedxundefined  matched:undefined visible:undefined]
+   harness notes:
+     - typography.size PUT A: first attempt failed (PUT http://127.0.0.1:8901/api/admin/leadgen/funnels/lgf_01KZ271383F5X1SQ3DXTXKNJE5/theme -> HTTP 404: {"error":"Not Found"}) — retrying once (fresh ?_cb)
+     - typography.size PUT A: retry also failed (PUT http://127.0.0.1:8901/api/admin/leadgen/funnels/lgf_01KZ271383F5X1SQ3DXTXKNJE5/theme -> HTTP 404: {"error":"Not Found"})
+     - harness error: PUT http://127.0.0.1:8901/api/admin/leadgen/funnels/lgf_01KZ271383F5X1SQ3DXTXKNJE5/theme -> HTTP 404: {"error":"Not Found"}
+
+## typography.display_size   [UNMEASURABLE]
+   label: Display size — quotes-tabs/themes.ts:210
+   target: .lg-headline font-size (scaleDisplayFontSizes -> headline.fontSizeDesktop, DISPLAY_FONTSIZE_PATHS)
+   arm A ("m"): 0=n  1=/  2=a   [_vis:undefined undefinedxundefined  matched:undefined visible:undefined]
+   arm B ("xxl"): 0=n  1=/  2=a   [_vis:undefined undefinedxundefined  matched:undefined visible:undefined]
+   harness notes:
+     - typography.display_size PUT A: first attempt failed (PUT http://127.0.0.1:8901/api/admin/leadgen/funnels/lgf_01KZ271383F5X1SQ3DXTXKNJE5/theme -> HTTP 404: {"error":"Not Found"}) — retrying once (fresh ?_cb)
+     - typography.display_size PUT A: retry also failed (PUT http://127.0.0.1:8901/api/admin/leadgen/funnels/lgf_01KZ271383F5X1SQ3DXTXKNJE5/theme -> HTTP 404: {"error":"Not Found"})
+     - harness error: PUT http://127.0.0.1:8901/api/admin/leadgen/funnels/lgf_01KZ271383F5X1SQ3DXTXKNJE5/theme -> HTTP 404: {"error":"Not Found"}
+
+## scales.spacing   [UNMEASURABLE]
+   label: Spacing — quotes-tabs/themes.ts:214
+   target: .lg-address-field-label margin-bottom (design.spacing.xs, applySpacingScale -> scaleCssLength, styles.ts:1795 — a direct SPACING_KEYS consumer)
+   arm A ("compact"): 0=n  1=/  2=a   [_vis:undefined undefinedxundefined  matched:undefined visible:undefined]
+   arm B ("roomy"): 0=n  1=/  2=a   [_vis:undefined undefinedxundefined  matched:undefined visible:undefined]
+   harness notes:
+     - scales.spacing PUT A: first attempt failed (PUT http://127.0.0.1:8901/api/admin/leadgen/funnels/lgf_01KZ271383F5X1SQ3DXTXKNJE5/theme -> HTTP 404: {"error":"Not Found"}) — retrying once (fresh ?_cb)
+     - scales.spacing PUT A: retry also failed (PUT http://127.0.0.1:8901/api/admin/leadgen/funnels/lgf_01KZ271383F5X1SQ3DXTXKNJE5/theme -> HTTP 404: {"error":"Not Found"})
+     - harness error: PUT http://127.0.0.1:8901/api/admin/leadgen/funnels/lgf_01KZ271383F5X1SQ3DXTXKNJE5/theme -> HTTP 404: {"error":"Not Found"}
+
+## scales.radius   [UNMEASURABLE]
+   label: Corners — quotes-tabs/themes.ts:215
+   target: .lg-question-card border-radius (applyRadiusScale -> design.questionCard.borderRadius, theme.ts:1704 — P6 fixes3/E2 component-radius bridge)
+   arm A ("sharp"): 0=n  1=/  2=a   [_vis:undefined undefinedxundefined  matched:undefined visible:undefined]
+   arm B ("round"): 0=n  1=/  2=a   [_vis:undefined undefinedxundefined  matched:undefined visible:undefined]
+   harness notes:
+     - scales.radius PUT A: first attempt failed (PUT http://127.0.0.1:8901/api/admin/leadgen/funnels/lgf_01KZ271383F5X1SQ3DXTXKNJE5/theme -> HTTP 404: {"error":"Not Found"}) — retrying once (fresh ?_cb)
+     - scales.radius PUT A: retry also failed (PUT http://127.0.0.1:8901/api/admin/leadgen/funnels/lgf_01KZ271383F5X1SQ3DXTXKNJE5/theme -> HTTP 404: {"error":"Not Found"})
+     - harness error: PUT http://127.0.0.1:8901/api/admin/leadgen/funnels/lgf_01KZ271383F5X1SQ3DXTXKNJE5/theme -> HTTP 404: {"error":"Not Found"}
+
+## scales.shadow   [UNMEASURABLE]
+   label: Shadows — quotes-tabs/themes.ts:216
+   target: .lg-question-card box-shadow (applyShadowScale -> design.questionCard.boxShadow, theme.ts:1770-1791 — R2 P8 M2 component-shadow bridge; PRE-fix this reached only the emitted --lg-shadow-* vars, per that function's own doc comment)
+   arm A ("none"): 0=n  1=/  2=a   [_vis:undefined undefinedxundefined  matched:undefined visible:undefined]
+   arm B ("high"): 0=n  1=/  2=a   [_vis:undefined undefinedxundefined  matched:undefined visible:undefined]
+   SECONDARY (bonus, non-decision): .lg-disclosure-panel box-shadow (shadow.xl, styles.ts ~2639 — the disclosure MODAL panel, hidden until toggled; bonus corroboration only)
+     secondary A: ABSENT (selector matched 0 nodes)
+     secondary B: ABSENT (selector matched 0 nodes)
+   harness notes:
+     - scales.shadow PUT A: first attempt failed (PUT http://127.0.0.1:8901/api/admin/leadgen/funnels/lgf_01KZ271383F5X1SQ3DXTXKNJE5/theme -> HTTP 404: {"error":"Not Found"}) — retrying once (fresh ?_cb)
+     - scales.shadow PUT A: retry also failed (PUT http://127.0.0.1:8901/api/admin/leadgen/funnels/lgf_01KZ271383F5X1SQ3DXTXKNJE5/theme -> HTTP 404: {"error":"Not Found"})
+     - harness error: PUT http://127.0.0.1:8901/api/admin/leadgen/funnels/lgf_01KZ271383F5X1SQ3DXTXKNJE5/theme -> HTTP 404: {"error":"Not Found"}
+
+## button_defaults.background_role   [UNMEASURABLE]
+   label: Button background — quotes-tabs/themes.ts:219 (frameControl + renderRoleStrip)
+   target: .lg-continue background-color (design.primaryButton.background = roles[bd.background_role], theme.ts:1312)
+   arm A ("error"): 0=n  1=/  2=a   [_vis:undefined undefinedxundefined  matched:undefined visible:undefined]
+   arm B ("success"): 0=n  1=/  2=a   [_vis:undefined undefinedxundefined  matched:undefined visible:undefined]
+   harness notes:
+     - button_defaults.background_role PUT A: first attempt failed (PUT http://127.0.0.1:8901/api/admin/leadgen/funnels/lgf_01KZ271383F5X1SQ3DXTXKNJE5/theme -> HTTP 404: {"error":"Not Found"}) — retrying once (fresh ?_cb)
+     - button_defaults.background_role PUT A: retry also failed (PUT http://127.0.0.1:8901/api/admin/leadgen/funnels/lgf_01KZ271383F5X1SQ3DXTXKNJE5/theme -> HTTP 404: {"error":"Not Found"})
+     - harness error: PUT http://127.0.0.1:8901/api/admin/leadgen/funnels/lgf_01KZ271383F5X1SQ3DXTXKNJE5/theme -> HTTP 404: {"error":"Not Found"}
+
+## button_defaults.text_role   [UNMEASURABLE]
+   label: Button text — quotes-tabs/themes.ts:220 (frameControl + renderRoleStrip)
+   target: .lg-continue color (design.primaryButton.color = roles[bd.text_role], theme.ts:1313)
+   arm A ("error"): 0=n  1=/  2=a   [_vis:undefined undefinedxundefined  matched:undefined visible:undefined]
+   arm B ("success"): 0=n  1=/  2=a   [_vis:undefined undefinedxundefined  matched:undefined visible:undefined]
+   harness notes:
+     - button_defaults.text_role PUT A: first attempt failed (PUT http://127.0.0.1:8901/api/admin/leadgen/funnels/lgf_01KZ271383F5X1SQ3DXTXKNJE5/theme -> HTTP 404: {"error":"Not Found"}) — retrying once (fresh ?_cb)
+     - button_defaults.text_role PUT A: retry also failed (PUT http://127.0.0.1:8901/api/admin/leadgen/funnels/lgf_01KZ271383F5X1SQ3DXTXKNJE5/theme -> HTTP 404: {"error":"Not Found"})
+     - harness error: PUT http://127.0.0.1:8901/api/admin/leadgen/funnels/lgf_01KZ271383F5X1SQ3DXTXKNJE5/theme -> HTTP 404: {"error":"Not Found"}
+
+## button_defaults.radius   [UNMEASURABLE]
+   label: Button corners — quotes-tabs/themes.ts:222
+   target: .lg-continue border-radius (design.primaryButton.borderRadius = design.radius[bd.radius], theme.ts:1314, shared .lg-btn base rule)
+   arm A ("sm"): 0=n  1=/  2=a   [_vis:undefined undefinedxundefined  matched:undefined visible:undefined]
+   arm B ("full"): 0=n  1=/  2=a   [_vis:undefined undefinedxundefined  matched:undefined visible:undefined]
+   SECONDARY (bonus, non-decision): .lg-btn-answer border-radius (same shared .lg-btn base rule — expected to move identically; bonus corroboration)
+     secondary A: ABSENT (selector matched 0 nodes)
+     secondary B: ABSENT (selector matched 0 nodes)
+   harness notes:
+     - button_defaults.radius PUT A: first attempt failed (PUT http://127.0.0.1:8901/api/admin/leadgen/funnels/lgf_01KZ271383F5X1SQ3DXTXKNJE5/theme -> HTTP 404: {"error":"Not Found"}) — retrying once (fresh ?_cb)
+     - button_defaults.radius PUT A: retry also failed (PUT http://127.0.0.1:8901/api/admin/leadgen/funnels/lgf_01KZ271383F5X1SQ3DXTXKNJE5/theme -> HTTP 404: {"error":"Not Found"})
+     - harness error: PUT http://127.0.0.1:8901/api/admin/leadgen/funnels/lgf_01KZ271383F5X1SQ3DXTXKNJE5/theme -> HTTP 404: {"error":"Not Found"}
+
+## button_defaults.min_height   [UNMEASURABLE]
+   label: Button height — quotes-tabs/themes.ts:223
+   target: .lg-continue min-height (design.primaryButton.minHeight = BUTTON_MIN_HEIGHT_CSS[bd.min_height], theme.ts:1315)
+   arm A ("s"): 0=n  1=/  2=a   [_vis:undefined undefinedxundefined  matched:undefined visible:undefined]
+   arm B ("l"): 0=n  1=/  2=a   [_vis:undefined undefinedxundefined  matched:undefined visible:undefined]
+   harness notes:
+     - button_defaults.min_height PUT A: first attempt failed (PUT http://127.0.0.1:8901/api/admin/leadgen/funnels/lgf_01KZ271383F5X1SQ3DXTXKNJE5/theme -> HTTP 404: {"error":"Not Found"}) — retrying once (fresh ?_cb)
+     - button_defaults.min_height PUT A: retry also failed (PUT http://127.0.0.1:8901/api/admin/leadgen/funnels/lgf_01KZ271383F5X1SQ3DXTXKNJE5/theme -> HTTP 404: {"error":"Not Found"})
+     - harness error: PUT http://127.0.0.1:8901/api/admin/leadgen/funnels/lgf_01KZ271383F5X1SQ3DXTXKNJE5/theme -> HTTP 404: {"error":"Not Found"}
+
+## button_defaults.casing   [UNMEASURABLE]
+   label: Button casing — quotes-tabs/themes.ts:224
+   target: .lg-continue text-transform (R2 P8 M2 fix: readButtonCasing(design) -> `.lg-btn{text-transform:uppercase}`, styles.ts:2412-2413 — PRE-fix this read EffectiveButtonDefaults.text_transform, which had zero CSS consumers)
+   arm A ("none"): 0=n  1=/  2=a   [_vis:undefined undefinedxundefined  matched:undefined visible:undefined]
+   arm B ("upper"): 0=n  1=/  2=a   [_vis:undefined undefinedxundefined  matched:undefined visible:undefined]
+   harness notes:
+     - button_defaults.casing PUT A: first attempt failed (PUT http://127.0.0.1:8901/api/admin/leadgen/funnels/lgf_01KZ271383F5X1SQ3DXTXKNJE5/theme -> HTTP 404: {"error":"Not Found"}) — retrying once (fresh ?_cb)
+     - button_defaults.casing PUT A: retry also failed (PUT http://127.0.0.1:8901/api/admin/leadgen/funnels/lgf_01KZ271383F5X1SQ3DXTXKNJE5/theme -> HTTP 404: {"error":"Not Found"})
+     - harness error: PUT http://127.0.0.1:8901/api/admin/leadgen/funnels/lgf_01KZ271383F5X1SQ3DXTXKNJE5/theme -> HTTP 404: {"error":"Not Found"}
+
+## button_defaults.fill   [UNMEASURABLE]
+   label: Fill — quotes-tabs/themes.ts:233
+   target: .lg-btn-answer border-radius (readButtonStyle stash; fill="soft" sets radius.full via .lg-answer-group[data-btn-fill="soft"] .lg-btn-answer, styles.ts:170-173)
+   arm A ("outline"): 0=n  1=/  2=a   [_vis:undefined undefinedxundefined  matched:undefined visible:undefined]
+   arm B ("soft"): 0=n  1=/  2=a   [_vis:undefined undefinedxundefined  matched:undefined visible:undefined]
+   harness notes:
+     - button_defaults.fill PUT A: first attempt failed (PUT http://127.0.0.1:8901/api/admin/leadgen/funnels/lgf_01KZ271383F5X1SQ3DXTXKNJE5/theme -> HTTP 404: {"error":"Not Found"}) — retrying once (fresh ?_cb)
+     - button_defaults.fill PUT A: retry also failed (PUT http://127.0.0.1:8901/api/admin/leadgen/funnels/lgf_01KZ271383F5X1SQ3DXTXKNJE5/theme -> HTTP 404: {"error":"Not Found"})
+     - harness error: PUT http://127.0.0.1:8901/api/admin/leadgen/funnels/lgf_01KZ271383F5X1SQ3DXTXKNJE5/theme -> HTTP 404: {"error":"Not Found"}
+
+## button_defaults.layout   [UNMEASURABLE]
+   label: Answer layout — quotes-tabs/themes.ts:234
+   target: .lg-answer-group grid-template-columns (layout="list" forces 1fr via .lg-answer-group[data-btn-layout="list"], styles.ts:187)
+   arm A ("grid"): 0=n  1=/  2=a   [_vis:undefined undefinedxundefined  matched:undefined visible:undefined]
+   arm B ("list"): 0=n  1=/  2=a   [_vis:undefined undefinedxundefined  matched:undefined visible:undefined]
+   harness notes:
+     - button_defaults.layout PUT A: first attempt failed (PUT http://127.0.0.1:8901/api/admin/leadgen/funnels/lgf_01KZ271383F5X1SQ3DXTXKNJE5/theme -> HTTP 404: {"error":"Not Found"}) — retrying once (fresh ?_cb)
+     - button_defaults.layout PUT A: retry also failed (PUT http://127.0.0.1:8901/api/admin/leadgen/funnels/lgf_01KZ271383F5X1SQ3DXTXKNJE5/theme -> HTTP 404: {"error":"Not Found"})
+     - harness error: PUT http://127.0.0.1:8901/api/admin/leadgen/funnels/lgf_01KZ271383F5X1SQ3DXTXKNJE5/theme -> HTTP 404: {"error":"Not Found"}
+
+## button_defaults.selected   [UNMEASURABLE]
+   label: Selected style — quotes-tabs/themes.ts:235
+   target: count(.lg-answer-group .lg-check-hollow) (selected="mark" unconditionally renders a hollow+badge span pair per choice, presets.ts selectedMarkerMarkup)
+   arm A ("wash"): 0=n  1=/  2=a   [_vis:undefined undefinedxundefined  matched:undefined visible:undefined]
+   arm B ("mark"): 0=n  1=/  2=a   [_vis:undefined undefinedxundefined  matched:undefined visible:undefined]
+   harness notes:
+     - button_defaults.selected PUT A: first attempt failed (PUT http://127.0.0.1:8901/api/admin/leadgen/funnels/lgf_01KZ271383F5X1SQ3DXTXKNJE5/theme -> HTTP 404: {"error":"Not Found"}) — retrying once (fresh ?_cb)
+     - button_defaults.selected PUT A: retry also failed (PUT http://127.0.0.1:8901/api/admin/leadgen/funnels/lgf_01KZ271383F5X1SQ3DXTXKNJE5/theme -> HTTP 404: {"error":"Not Found"})
+     - harness error: PUT http://127.0.0.1:8901/api/admin/leadgen/funnels/lgf_01KZ271383F5X1SQ3DXTXKNJE5/theme -> HTTP 404: {"error":"Not Found"}
+
+## card_defaults.background_role   [UNMEASURABLE]
+   label: Card background — quotes-tabs/themes.ts:238 (frameControl + renderRoleStrip)
+   target: .lg-question-card background-color (R2 P8 M2: design.questionCard.background = roles[cd.background_role], theme.ts:1382)
+   arm A ("error"): 0=n  1=/  2=a   [_vis:undefined undefinedxundefined  matched:undefined visible:undefined]
+   arm B ("success"): 0=n  1=/  2=a   [_vis:undefined undefinedxundefined  matched:undefined visible:undefined]
+   SECONDARY (bonus, non-decision): #lg-addr-p8_addr_street background-color (pre-existing write design.color.card, theme.ts:1381 — kept for back-compat; bonus corroboration)
+     secondary A: ABSENT (selector matched 0 nodes)
+     secondary B: ABSENT (selector matched 0 nodes)
+   harness notes:
+     - card_defaults.background_role PUT A: first attempt failed (PUT http://127.0.0.1:8901/api/admin/leadgen/funnels/lgf_01KZ271383F5X1SQ3DXTXKNJE5/theme -> HTTP 404: {"error":"Not Found"}) — retrying once (fresh ?_cb)
+     - card_defaults.background_role PUT A: retry also failed (PUT http://127.0.0.1:8901/api/admin/leadgen/funnels/lgf_01KZ271383F5X1SQ3DXTXKNJE5/theme -> HTTP 404: {"error":"Not Found"})
+     - harness error: PUT http://127.0.0.1:8901/api/admin/leadgen/funnels/lgf_01KZ271383F5X1SQ3DXTXKNJE5/theme -> HTTP 404: {"error":"Not Found"}
+
+## card_defaults.border_role   [UNMEASURABLE]
+   label: Card border — quotes-tabs/themes.ts:239 (frameControl + renderRoleStrip)
+   target: .lg-question-card border-top-color (R2 P8 M2: design.questionCard.border = `1px solid ${roles[cd.border_role]}`, theme.ts:1395)
+   arm A ("error"): 0=n  1=/  2=a   [_vis:undefined undefinedxundefined  matched:undefined visible:undefined]
+   arm B ("success"): 0=n  1=/  2=a   [_vis:undefined undefinedxundefined  matched:undefined visible:undefined]
+   SECONDARY (bonus, non-decision): .lg-card-panel border-top-color (pre-existing write design.cardPanel.border, theme.ts:1392, styles.ts:2002 — CardPanel container this fixture's sections never render, styles.ts:639 comment; bonus corroboration, expected ABSENT)
+     secondary A: ABSENT (selector matched 0 nodes)
+     secondary B: ABSENT (selector matched 0 nodes)
+   harness notes:
+     - card_defaults.border_role PUT A: first attempt failed (PUT http://127.0.0.1:8901/api/admin/leadgen/funnels/lgf_01KZ271383F5X1SQ3DXTXKNJE5/theme -> HTTP 404: {"error":"Not Found"}) — retrying once (fresh ?_cb)
+     - card_defaults.border_role PUT A: retry also failed (PUT http://127.0.0.1:8901/api/admin/leadgen/funnels/lgf_01KZ271383F5X1SQ3DXTXKNJE5/theme -> HTTP 404: {"error":"Not Found"})
+     - harness error: PUT http://127.0.0.1:8901/api/admin/leadgen/funnels/lgf_01KZ271383F5X1SQ3DXTXKNJE5/theme -> HTTP 404: {"error":"Not Found"}
+
+## card_defaults.radius   [UNMEASURABLE]
+   label: Card corners — quotes-tabs/themes.ts:241
+   target: .lg-question-card border-radius (R2 P8 M2: design.questionCard.borderRadius = design.radius[cd.radius], theme.ts:1389)
+   arm A ("sm"): 0=n  1=/  2=a   [_vis:undefined undefinedxundefined  matched:undefined visible:undefined]
+   arm B ("full"): 0=n  1=/  2=a   [_vis:undefined undefinedxundefined  matched:undefined visible:undefined]
+   SECONDARY (bonus, non-decision): .lg-disclosure-panel border-radius (pre-existing write design.content.cardRadius, theme.ts:1385 — disclosure MODAL panel, hidden until toggled; bonus corroboration)
+     secondary A: ABSENT (selector matched 0 nodes)
+     secondary B: ABSENT (selector matched 0 nodes)
+   harness notes:
+     - card_defaults.radius PUT A: first attempt failed (PUT http://127.0.0.1:8901/api/admin/leadgen/funnels/lgf_01KZ271383F5X1SQ3DXTXKNJE5/theme -> HTTP 404: {"error":"Not Found"}) — retrying once (fresh ?_cb)
+     - card_defaults.radius PUT A: retry also failed (PUT http://127.0.0.1:8901/api/admin/leadgen/funnels/lgf_01KZ271383F5X1SQ3DXTXKNJE5/theme -> HTTP 404: {"error":"Not Found"})
+     - harness error: PUT http://127.0.0.1:8901/api/admin/leadgen/funnels/lgf_01KZ271383F5X1SQ3DXTXKNJE5/theme -> HTTP 404: {"error":"Not Found"}
+
+## card_defaults.shadow   [UNMEASURABLE]
+   label: Card shadow — quotes-tabs/themes.ts:242
+   target: .lg-question-card box-shadow (R2 P8 M2: design.questionCard.boxShadow = shadowStepValue(baseDesign, cd.shadow), theme.ts:1407-1408 — explicit step wins over scales.shadow by design, theme.ts:1397-1406)
+   arm A ("none"): 0=n  1=/  2=a   [_vis:undefined undefinedxundefined  matched:undefined visible:undefined]
+   arm B ("xl"): 0=n  1=/  2=a   [_vis:undefined undefinedxundefined  matched:undefined visible:undefined]
+   SECONDARY (bonus, non-decision): .lg-disclosure-panel box-shadow (shadow.xl scale token, not this key's own consumer; bonus corroboration only)
+     secondary A: ABSENT (selector matched 0 nodes)
+     secondary B: ABSENT (selector matched 0 nodes)
+   harness notes:
+     - card_defaults.shadow PUT A: first attempt failed (PUT http://127.0.0.1:8901/api/admin/leadgen/funnels/lgf_01KZ271383F5X1SQ3DXTXKNJE5/theme -> HTTP 404: {"error":"Not Found"}) — retrying once (fresh ?_cb)
+     - card_defaults.shadow PUT A: retry also failed (PUT http://127.0.0.1:8901/api/admin/leadgen/funnels/lgf_01KZ271383F5X1SQ3DXTXKNJE5/theme -> HTTP 404: {"error":"Not Found"})
+     - harness error: PUT http://127.0.0.1:8901/api/admin/leadgen/funnels/lgf_01KZ271383F5X1SQ3DXTXKNJE5/theme -> HTTP 404: {"error":"Not Found"}
+
+## field_defaults.min_height   [UNMEASURABLE]
+   label: Field height — quotes-tabs/themes.ts:228
+   target: #lg-addr-p8_addr_street min-height (applyFieldHeightStep -> design.input.minHeight, theme.ts:1422-1426, styles.ts:1827 — SAME applier ThemeRecord's controls.field_height uses)
+   arm A ("small"): 0=n  1=/  2=a   [_vis:undefined undefinedxundefined  matched:undefined visible:undefined]
+   arm B ("large"): 0=n  1=/  2=a   [_vis:undefined undefinedxundefined  matched:undefined visible:undefined]
+   harness notes:
+     - field_defaults.min_height PUT A: first attempt failed (PUT http://127.0.0.1:8901/api/admin/leadgen/funnels/lgf_01KZ271383F5X1SQ3DXTXKNJE5/theme -> HTTP 404: {"error":"Not Found"}) — retrying once (fresh ?_cb)
+     - field_defaults.min_height PUT A: retry also failed (PUT http://127.0.0.1:8901/api/admin/leadgen/funnels/lgf_01KZ271383F5X1SQ3DXTXKNJE5/theme -> HTTP 404: {"error":"Not Found"})
+     - harness error: PUT http://127.0.0.1:8901/api/admin/leadgen/funnels/lgf_01KZ271383F5X1SQ3DXTXKNJE5/theme -> HTTP 404: {"error":"Not Found"}
+
+WARNING: restore PUT failed: PUT http://127.0.0.1:8901/api/admin/leadgen/funnels/lgf_01KZ271383F5X1SQ3DXTXKNJE5/theme -> HTTP 404: {"error":"Not Found"}
+
+| key | values flipped | verdict | basis |
+|---|---|---|---|
+| palette.brand_primary | "#123456" -> "#ee7733" | UNMEASURABLE | .lg-progress-fill background-color (color.primary -> frame progress fill, styles.ts .lg-frame-progress--role-brand_primary rule) |
+| palette.brand_secondary | "#123456" -> "#ee7733" | UNMEASURABLE | .lg-frame-background.lg-frame-bg-style-brand_gradient background-image (AUTHORED: PUT /funnels/:id/frame {background:{style:"brand_gradient"}}; styles.ts "linear-gradient(160deg,brand_primary,brand_secondary)") |
+| palette.accent | "#123456" -> "#ee7733" | UNMEASURABLE | .lg-category color (LABEL "category label" — quotes-tabs/shared.ts:460 ROLE_META; AUTHORED: POST /sections + PUT /variants/:id inserting a CategoryLabel section; applyAccentRole -> design.categoryLabel.color, presets.ts renderCategoryLabel) |
+| palette.success | "#00ff00" -> "#003300" | UNMEASURABLE | .lg-badge-icon color (LABEL "reassurance" — quotes-tabs/shared.ts:461 ROLE_META; AUTHORED: POST /sections + PUT /variants/:id inserting a ReassuranceBadge section; applySuccessRole -> design.reassuranceBadge.iconColor, presets.ts renderReassuranceBadge) |
+| palette.error | "#ff0000" -> "#330000" | UNMEASURABLE | DRIVEN: [data-lg-error-for="r2fix_carrier"] color, after a Continue click on the carrier ButtonAnswerGroup with NO choice selected (engine.ts handleContinue/sectionPassesAt -> render.ts:228 setFieldError, the real required-validation producer, unhides the slot and inline-styles it with validation.errorTextColor); styles.ts .lg-error{color:validation.errorTextColor}, same token applyErrorRole writes |
+| palette.page_background | "#123456" -> "#ee7733" | UNMEASURABLE | #lg-funnel-root background-color (page.backgroundColor, scope-root rule) |
+| palette.card_background | "#123456" -> "#ee7733" | UNMEASURABLE | #lg-addr-p8_addr_street background-color (color.card -> .lg-input background, styles.ts:1828) |
+| palette.surface_wash | "#123456" -> "#ee7733" | UNMEASURABLE | AUTHORED: .lg-range-radial-outer box-shadow while .lg-range-radial-input is REAL-focused (a NumberRangeQuestion radial section inserted via PUT /variants/:id sections); styles.ts .lg-range-radial:focus-within .lg-range-radial-outer{box-shadow:0 0 0 3px color.primaryWash} |
+| palette.border | "#123456" -> "#ee7733" | UNMEASURABLE | #lg-addr-p8_addr_street border-top-color (unoverridden fallback var(--lg-field-border, color.border), styles.ts:1816) |
+| palette.text_primary | "#111111" -> "#eeeeee" | UNMEASURABLE | #lg-funnel-root color (page.textColor, scope-root rule) |
+| palette.text_muted | "#123456" -> "#ee7733" | UNMEASURABLE | .lg-address-field-label color (page.textSecondaryColor, styles.ts:1794) |
+| palette.button_primary_bg | "#123456" -> "#ee7733" | UNMEASURABLE | .lg-continue background-color (primaryButton.background, shared .lg-btn base rule, styles.ts:1228) |
+| palette.button_primary_text | "#123456" -> "#eeeeee" | UNMEASURABLE | .lg-continue color (primaryButton.color, shared .lg-btn base rule, styles.ts:1229) |
+| palette.button_secondary_bg | "#123456" -> "#ee7733" | UNMEASURABLE | .lg-frame-benefit background-color (AUTHORED: PUT /funnels/:id/frame {benefit_bar:{enabled:true,items:[...],placement:"below_unit"}}; styles.ts .lg-frame-benefit{background:color.primaryGhost}) |
+| typography.display | "literata" -> "playfair" | UNMEASURABLE | .lg-headline font-family (applyDisplayFont -> design.headline.fontFamily, THEME_FONT_STACKS[displayId]) |
+| typography.body | "sora" -> "work_sans" | UNMEASURABLE | #lg-funnel-root font-family (applyBodyFont -> design.page.fontFamily) |
+| typography.size | "s" -> "l" | UNMEASURABLE | .lg-address-field-label font-size (subheadline.fontSize, scaleFontSizes(THEME_SIZE_FACTORS[size]) touches every *FontSize* token, styles.ts:1793) |
+| typography.display_size | "m" -> "xxl" | UNMEASURABLE | .lg-headline font-size (scaleDisplayFontSizes -> headline.fontSizeDesktop, DISPLAY_FONTSIZE_PATHS) |
+| scales.spacing | "compact" -> "roomy" | UNMEASURABLE | .lg-address-field-label margin-bottom (design.spacing.xs, applySpacingScale -> scaleCssLength, styles.ts:1795 — a direct SPACING_KEYS consumer) |
+| scales.radius | "sharp" -> "round" | UNMEASURABLE | .lg-question-card border-radius (applyRadiusScale -> design.questionCard.borderRadius, theme.ts:1704 — P6 fixes3/E2 component-radius bridge) |
+| scales.shadow | "none" -> "high" | UNMEASURABLE | .lg-question-card box-shadow (applyShadowScale -> design.questionCard.boxShadow, theme.ts:1770-1791 — R2 P8 M2 component-shadow bridge; PRE-fix this reached only the emitted --lg-shadow-* vars, per that function's own doc comment) |
+| button_defaults.background_role | "error" -> "success" | UNMEASURABLE | .lg-continue background-color (design.primaryButton.background = roles[bd.background_role], theme.ts:1312) |
+| button_defaults.text_role | "error" -> "success" | UNMEASURABLE | .lg-continue color (design.primaryButton.color = roles[bd.text_role], theme.ts:1313) |
+| button_defaults.radius | "sm" -> "full" | UNMEASURABLE | .lg-continue border-radius (design.primaryButton.borderRadius = design.radius[bd.radius], theme.ts:1314, shared .lg-btn base rule) |
+| button_defaults.min_height | "s" -> "l" | UNMEASURABLE | .lg-continue min-height (design.primaryButton.minHeight = BUTTON_MIN_HEIGHT_CSS[bd.min_height], theme.ts:1315) |
+| button_defaults.casing | "none" -> "upper" | UNMEASURABLE | .lg-continue text-transform (R2 P8 M2 fix: readButtonCasing(design) -> `.lg-btn{text-transform:uppercase}`, styles.ts:2412-2413 — PRE-fix this read EffectiveButtonDefaults.text_transform, which had zero CSS consumers) |
+| button_defaults.fill | "outline" -> "soft" | UNMEASURABLE | .lg-btn-answer border-radius (readButtonStyle stash; fill="soft" sets radius.full via .lg-answer-group[data-btn-fill="soft"] .lg-btn-answer, styles.ts:170-173) |
+| button_defaults.layout | "grid" -> "list" | UNMEASURABLE | .lg-answer-group grid-template-columns (layout="list" forces 1fr via .lg-answer-group[data-btn-layout="list"], styles.ts:187) |
+| button_defaults.selected | "wash" -> "mark" | UNMEASURABLE | count(.lg-answer-group .lg-check-hollow) (selected="mark" unconditionally renders a hollow+badge span pair per choice, presets.ts selectedMarkerMarkup) |
+| card_defaults.background_role | "error" -> "success" | UNMEASURABLE | .lg-question-card background-color (R2 P8 M2: design.questionCard.background = roles[cd.background_role], theme.ts:1382) |
+| card_defaults.border_role | "error" -> "success" | UNMEASURABLE | .lg-question-card border-top-color (R2 P8 M2: design.questionCard.border = `1px solid ${roles[cd.border_role]}`, theme.ts:1395) |
+| card_defaults.radius | "sm" -> "full" | UNMEASURABLE | .lg-question-card border-radius (R2 P8 M2: design.questionCard.borderRadius = design.radius[cd.radius], theme.ts:1389) |
+| card_defaults.shadow | "none" -> "xl" | UNMEASURABLE | .lg-question-card box-shadow (R2 P8 M2: design.questionCard.boxShadow = shadowStepValue(baseDesign, cd.shadow), theme.ts:1407-1408 — explicit step wins over scales.shadow by design, theme.ts:1397-1406) |
+| field_defaults.min_height | "small" -> "large" | UNMEASURABLE | #lg-addr-p8_addr_street min-height (applyFieldHeightStep -> design.input.minHeight, theme.ts:1422-1426, styles.ts:1827 — SAME applier ThemeRecord's controls.field_height uses) |
+
+TOTALS: 34 keys swept — ALIVE 0, DEAD 0, MIS-TARGETED 0, UNMEASURABLE 34.
+
+Harness notes (retries / flakes) — repeated above inline, collected here too:
+  - palette.brand_primary: palette.brand_primary PUT A: first attempt failed (PUT http://127.0.0.1:8901/api/admin/leadgen/funnels/lgf_01KZ271383F5X1SQ3DXTXKNJE5/theme -> HTTP 404: {"error":"Not Found"}) — retrying once (fresh ?_cb)
+  - palette.brand_primary: palette.brand_primary PUT A: retry also failed (PUT http://127.0.0.1:8901/api/admin/leadgen/funnels/lgf_01KZ271383F5X1SQ3DXTXKNJE5/theme -> HTTP 404: {"error":"Not Found"})
+  - palette.brand_primary: harness error: PUT http://127.0.0.1:8901/api/admin/leadgen/funnels/lgf_01KZ271383F5X1SQ3DXTXKNJE5/theme -> HTTP 404: {"error":"Not Found"}
+  - palette.brand_secondary: palette.brand_secondary setup failed: GET http://127.0.0.1:8901/api/admin/leadgen/funnels/lgf_01KZ271383F5X1SQ3DXTXKNJE5/frame -> HTTP 404: {"error":"Not Found"}
+  - palette.brand_secondary: palette.brand_secondary teardown failed: PUT http://127.0.0.1:8901/api/admin/leadgen/funnels/lgf_01KZ271383F5X1SQ3DXTXKNJE5/frame -> HTTP 404: {"error":"Not Found"}
+  - palette.accent: palette.accent setup failed: GET http://127.0.0.1:8901/api/admin/leadgen/funnels/lgf_01KZ271383F5X1SQ3DXTXKNJE5 -> HTTP 404: {"error":"Not Found"}
+  - palette.success: palette.success setup failed: GET http://127.0.0.1:8901/api/admin/leadgen/funnels/lgf_01KZ271383F5X1SQ3DXTXKNJE5 -> HTTP 404: {"error":"Not Found"}
+  - palette.error: palette.error PUT A: first attempt failed (PUT http://127.0.0.1:8901/api/admin/leadgen/funnels/lgf_01KZ271383F5X1SQ3DXTXKNJE5/theme -> HTTP 404: {"error":"Not Found"}) — retrying once (fresh ?_cb)
+  - palette.error: palette.error PUT A: retry also failed (PUT http://127.0.0.1:8901/api/admin/leadgen/funnels/lgf_01KZ271383F5X1SQ3DXTXKNJE5/theme -> HTTP 404: {"error":"Not Found"})
+  - palette.error: harness error: PUT http://127.0.0.1:8901/api/admin/leadgen/funnels/lgf_01KZ271383F5X1SQ3DXTXKNJE5/theme -> HTTP 404: {"error":"Not Found"}
+  - palette.page_background: palette.page_background PUT A: first attempt failed (PUT http://127.0.0.1:8901/api/admin/leadgen/funnels/lgf_01KZ271383F5X1SQ3DXTXKNJE5/theme -> HTTP 404: {"error":"Not Found"}) — retrying once (fresh ?_cb)
+  - palette.page_background: palette.page_background PUT A: retry also failed (PUT http://127.0.0.1:8901/api/admin/leadgen/funnels/lgf_01KZ271383F5X1SQ3DXTXKNJE5/theme -> HTTP 404: {"error":"Not Found"})
+  - palette.page_background: harness error: PUT http://127.0.0.1:8901/api/admin/leadgen/funnels/lgf_01KZ271383F5X1SQ3DXTXKNJE5/theme -> HTTP 404: {"error":"Not Found"}
+  - palette.card_background: palette.card_background PUT A: first attempt failed (PUT http://127.0.0.1:8901/api/admin/leadgen/funnels/lgf_01KZ271383F5X1SQ3DXTXKNJE5/theme -> HTTP 404: {"error":"Not Found"}) — retrying once (fresh ?_cb)
+  - palette.card_background: palette.card_background PUT A: retry also failed (PUT http://127.0.0.1:8901/api/admin/leadgen/funnels/lgf_01KZ271383F5X1SQ3DXTXKNJE5/theme -> HTTP 404: {"error":"Not Found"})
+  - palette.card_background: harness error: PUT http://127.0.0.1:8901/api/admin/leadgen/funnels/lgf_01KZ271383F5X1SQ3DXTXKNJE5/theme -> HTTP 404: {"error":"Not Found"}
+  - palette.surface_wash: palette.surface_wash setup failed: GET http://127.0.0.1:8901/api/admin/leadgen/funnels/lgf_01KZ271383F5X1SQ3DXTXKNJE5 -> HTTP 404: {"error":"Not Found"}
+  - palette.border: palette.border PUT A: first attempt failed (PUT http://127.0.0.1:8901/api/admin/leadgen/funnels/lgf_01KZ271383F5X1SQ3DXTXKNJE5/theme -> HTTP 404: {"error":"Not Found"}) — retrying once (fresh ?_cb)
+  - palette.border: palette.border PUT A: retry also failed (PUT http://127.0.0.1:8901/api/admin/leadgen/funnels/lgf_01KZ271383F5X1SQ3DXTXKNJE5/theme -> HTTP 404: {"error":"Not Found"})
+  - palette.border: harness error: PUT http://127.0.0.1:8901/api/admin/leadgen/funnels/lgf_01KZ271383F5X1SQ3DXTXKNJE5/theme -> HTTP 404: {"error":"Not Found"}
+  - palette.text_primary: palette.text_primary PUT A: first attempt failed (PUT http://127.0.0.1:8901/api/admin/leadgen/funnels/lgf_01KZ271383F5X1SQ3DXTXKNJE5/theme -> HTTP 404: {"error":"Not Found"}) — retrying once (fresh ?_cb)
+  - palette.text_primary: palette.text_primary PUT A: retry also failed (PUT http://127.0.0.1:8901/api/admin/leadgen/funnels/lgf_01KZ271383F5X1SQ3DXTXKNJE5/theme -> HTTP 404: {"error":"Not Found"})
+  - palette.text_primary: harness error: PUT http://127.0.0.1:8901/api/admin/leadgen/funnels/lgf_01KZ271383F5X1SQ3DXTXKNJE5/theme -> HTTP 404: {"error":"Not Found"}
+  - palette.text_muted: palette.text_muted PUT A: first attempt failed (PUT http://127.0.0.1:8901/api/admin/leadgen/funnels/lgf_01KZ271383F5X1SQ3DXTXKNJE5/theme -> HTTP 404: {"error":"Not Found"}) — retrying once (fresh ?_cb)
+  - palette.text_muted: palette.text_muted PUT A: retry also failed (PUT http://127.0.0.1:8901/api/admin/leadgen/funnels/lgf_01KZ271383F5X1SQ3DXTXKNJE5/theme -> HTTP 404: {"error":"Not Found"})
+  - palette.text_muted: harness error: PUT http://127.0.0.1:8901/api/admin/leadgen/funnels/lgf_01KZ271383F5X1SQ3DXTXKNJE5/theme -> HTTP 404: {"error":"Not Found"}
+  - palette.button_primary_bg: palette.button_primary_bg PUT A: first attempt failed (PUT http://127.0.0.1:8901/api/admin/leadgen/funnels/lgf_01KZ271383F5X1SQ3DXTXKNJE5/theme -> HTTP 404: {"error":"Not Found"}) — retrying once (fresh ?_cb)
+  - palette.button_primary_bg: palette.button_primary_bg PUT A: retry also failed (PUT http://127.0.0.1:8901/api/admin/leadgen/funnels/lgf_01KZ271383F5X1SQ3DXTXKNJE5/theme -> HTTP 404: {"error":"Not Found"})
+  - palette.button_primary_bg: harness error: PUT http://127.0.0.1:8901/api/admin/leadgen/funnels/lgf_01KZ271383F5X1SQ3DXTXKNJE5/theme -> HTTP 404: {"error":"Not Found"}
+  - palette.button_primary_text: palette.button_primary_text PUT A: first attempt failed (PUT http://127.0.0.1:8901/api/admin/leadgen/funnels/lgf_01KZ271383F5X1SQ3DXTXKNJE5/theme -> HTTP 404: {"error":"Not Found"}) — retrying once (fresh ?_cb)
+  - palette.button_primary_text: palette.button_primary_text PUT A: retry also failed (PUT http://127.0.0.1:8901/api/admin/leadgen/funnels/lgf_01KZ271383F5X1SQ3DXTXKNJE5/theme -> HTTP 404: {"error":"Not Found"})
+  - palette.button_primary_text: harness error: PUT http://127.0.0.1:8901/api/admin/leadgen/funnels/lgf_01KZ271383F5X1SQ3DXTXKNJE5/theme -> HTTP 404: {"error":"Not Found"}
+  - palette.button_secondary_bg: palette.button_secondary_bg setup failed: GET http://127.0.0.1:8901/api/admin/leadgen/funnels/lgf_01KZ271383F5X1SQ3DXTXKNJE5/frame -> HTTP 404: {"error":"Not Found"}
+  - palette.button_secondary_bg: palette.button_secondary_bg teardown failed: PUT http://127.0.0.1:8901/api/admin/leadgen/funnels/lgf_01KZ271383F5X1SQ3DXTXKNJE5/frame -> HTTP 404: {"error":"Not Found"}
+  - typography.display: typography.display PUT A: first attempt failed (PUT http://127.0.0.1:8901/api/admin/leadgen/funnels/lgf_01KZ271383F5X1SQ3DXTXKNJE5/theme -> HTTP 404: {"error":"Not Found"}) — retrying once (fresh ?_cb)
+  - typography.display: typography.display PUT A: retry also failed (PUT http://127.0.0.1:8901/api/admin/leadgen/funnels/lgf_01KZ271383F5X1SQ3DXTXKNJE5/theme -> HTTP 404: {"error":"Not Found"})
+  - typography.display: harness error: PUT http://127.0.0.1:8901/api/admin/leadgen/funnels/lgf_01KZ271383F5X1SQ3DXTXKNJE5/theme -> HTTP 404: {"error":"Not Found"}
+  - typography.body: typography.body PUT A: first attempt failed (PUT http://127.0.0.1:8901/api/admin/leadgen/funnels/lgf_01KZ271383F5X1SQ3DXTXKNJE5/theme -> HTTP 404: {"error":"Not Found"}) — retrying once (fresh ?_cb)
+  - typography.body: typography.body PUT A: retry also failed (PUT http://127.0.0.1:8901/api/admin/leadgen/funnels/lgf_01KZ271383F5X1SQ3DXTXKNJE5/theme -> HTTP 404: {"error":"Not Found"})
+  - typography.body: harness error: PUT http://127.0.0.1:8901/api/admin/leadgen/funnels/lgf_01KZ271383F5X1SQ3DXTXKNJE5/theme -> HTTP 404: {"error":"Not Found"}
+  - typography.size: typography.size PUT A: first attempt failed (PUT http://127.0.0.1:8901/api/admin/leadgen/funnels/lgf_01KZ271383F5X1SQ3DXTXKNJE5/theme -> HTTP 404: {"error":"Not Found"}) — retrying once (fresh ?_cb)
+  - typography.size: typography.size PUT A: retry also failed (PUT http://127.0.0.1:8901/api/admin/leadgen/funnels/lgf_01KZ271383F5X1SQ3DXTXKNJE5/theme -> HTTP 404: {"error":"Not Found"})
+  - typography.size: harness error: PUT http://127.0.0.1:8901/api/admin/leadgen/funnels/lgf_01KZ271383F5X1SQ3DXTXKNJE5/theme -> HTTP 404: {"error":"Not Found"}
+  - typography.display_size: typography.display_size PUT A: first attempt failed (PUT http://127.0.0.1:8901/api/admin/leadgen/funnels/lgf_01KZ271383F5X1SQ3DXTXKNJE5/theme -> HTTP 404: {"error":"Not Found"}) — retrying once (fresh ?_cb)
+  - typography.display_size: typography.display_size PUT A: retry also failed (PUT http://127.0.0.1:8901/api/admin/leadgen/funnels/lgf_01KZ271383F5X1SQ3DXTXKNJE5/theme -> HTTP 404: {"error":"Not Found"})
+  - typography.display_size: harness error: PUT http://127.0.0.1:8901/api/admin/leadgen/funnels/lgf_01KZ271383F5X1SQ3DXTXKNJE5/theme -> HTTP 404: {"error":"Not Found"}
+  - scales.spacing: scales.spacing PUT A: first attempt failed (PUT http://127.0.0.1:8901/api/admin/leadgen/funnels/lgf_01KZ271383F5X1SQ3DXTXKNJE5/theme -> HTTP 404: {"error":"Not Found"}) — retrying once (fresh ?_cb)
+  - scales.spacing: scales.spacing PUT A: retry also failed (PUT http://127.0.0.1:8901/api/admin/leadgen/funnels/lgf_01KZ271383F5X1SQ3DXTXKNJE5/theme -> HTTP 404: {"error":"Not Found"})
+  - scales.spacing: harness error: PUT http://127.0.0.1:8901/api/admin/leadgen/funnels/lgf_01KZ271383F5X1SQ3DXTXKNJE5/theme -> HTTP 404: {"error":"Not Found"}
+  - scales.radius: scales.radius PUT A: first attempt failed (PUT http://127.0.0.1:8901/api/admin/leadgen/funnels/lgf_01KZ271383F5X1SQ3DXTXKNJE5/theme -> HTTP 404: {"error":"Not Found"}) — retrying once (fresh ?_cb)
+  - scales.radius: scales.radius PUT A: retry also failed (PUT http://127.0.0.1:8901/api/admin/leadgen/funnels/lgf_01KZ271383F5X1SQ3DXTXKNJE5/theme -> HTTP 404: {"error":"Not Found"})
+  - scales.radius: harness error: PUT http://127.0.0.1:8901/api/admin/leadgen/funnels/lgf_01KZ271383F5X1SQ3DXTXKNJE5/theme -> HTTP 404: {"error":"Not Found"}
+  - scales.shadow: scales.shadow PUT A: first attempt failed (PUT http://127.0.0.1:8901/api/admin/leadgen/funnels/lgf_01KZ271383F5X1SQ3DXTXKNJE5/theme -> HTTP 404: {"error":"Not Found"}) — retrying once (fresh ?_cb)
+  - scales.shadow: scales.shadow PUT A: retry also failed (PUT http://127.0.0.1:8901/api/admin/leadgen/funnels/lgf_01KZ271383F5X1SQ3DXTXKNJE5/theme -> HTTP 404: {"error":"Not Found"})
+  - scales.shadow: harness error: PUT http://127.0.0.1:8901/api/admin/leadgen/funnels/lgf_01KZ271383F5X1SQ3DXTXKNJE5/theme -> HTTP 404: {"error":"Not Found"}
+  - button_defaults.background_role: button_defaults.background_role PUT A: first attempt failed (PUT http://127.0.0.1:8901/api/admin/leadgen/funnels/lgf_01KZ271383F5X1SQ3DXTXKNJE5/theme -> HTTP 404: {"error":"Not Found"}) — retrying once (fresh ?_cb)
+  - button_defaults.background_role: button_defaults.background_role PUT A: retry also failed (PUT http://127.0.0.1:8901/api/admin/leadgen/funnels/lgf_01KZ271383F5X1SQ3DXTXKNJE5/theme -> HTTP 404: {"error":"Not Found"})
+  - button_defaults.background_role: harness error: PUT http://127.0.0.1:8901/api/admin/leadgen/funnels/lgf_01KZ271383F5X1SQ3DXTXKNJE5/theme -> HTTP 404: {"error":"Not Found"}
+  - button_defaults.text_role: button_defaults.text_role PUT A: first attempt failed (PUT http://127.0.0.1:8901/api/admin/leadgen/funnels/lgf_01KZ271383F5X1SQ3DXTXKNJE5/theme -> HTTP 404: {"error":"Not Found"}) — retrying once (fresh ?_cb)
+  - button_defaults.text_role: button_defaults.text_role PUT A: retry also failed (PUT http://127.0.0.1:8901/api/admin/leadgen/funnels/lgf_01KZ271383F5X1SQ3DXTXKNJE5/theme -> HTTP 404: {"error":"Not Found"})
+  - button_defaults.text_role: harness error: PUT http://127.0.0.1:8901/api/admin/leadgen/funnels/lgf_01KZ271383F5X1SQ3DXTXKNJE5/theme -> HTTP 404: {"error":"Not Found"}
+  - button_defaults.radius: button_defaults.radius PUT A: first attempt failed (PUT http://127.0.0.1:8901/api/admin/leadgen/funnels/lgf_01KZ271383F5X1SQ3DXTXKNJE5/theme -> HTTP 404: {"error":"Not Found"}) — retrying once (fresh ?_cb)
+  - button_defaults.radius: button_defaults.radius PUT A: retry also failed (PUT http://127.0.0.1:8901/api/admin/leadgen/funnels/lgf_01KZ271383F5X1SQ3DXTXKNJE5/theme -> HTTP 404: {"error":"Not Found"})
+  - button_defaults.radius: harness error: PUT http://127.0.0.1:8901/api/admin/leadgen/funnels/lgf_01KZ271383F5X1SQ3DXTXKNJE5/theme -> HTTP 404: {"error":"Not Found"}
+  - button_defaults.min_height: button_defaults.min_height PUT A: first attempt failed (PUT http://127.0.0.1:8901/api/admin/leadgen/funnels/lgf_01KZ271383F5X1SQ3DXTXKNJE5/theme -> HTTP 404: {"error":"Not Found"}) — retrying once (fresh ?_cb)
+  - button_defaults.min_height: button_defaults.min_height PUT A: retry also failed (PUT http://127.0.0.1:8901/api/admin/leadgen/funnels/lgf_01KZ271383F5X1SQ3DXTXKNJE5/theme -> HTTP 404: {"error":"Not Found"})
+  - button_defaults.min_height: harness error: PUT http://127.0.0.1:8901/api/admin/leadgen/funnels/lgf_01KZ271383F5X1SQ3DXTXKNJE5/theme -> HTTP 404: {"error":"Not Found"}
+  - button_defaults.casing: button_defaults.casing PUT A: first attempt failed (PUT http://127.0.0.1:8901/api/admin/leadgen/funnels/lgf_01KZ271383F5X1SQ3DXTXKNJE5/theme -> HTTP 404: {"error":"Not Found"}) — retrying once (fresh ?_cb)
+  - button_defaults.casing: button_defaults.casing PUT A: retry also failed (PUT http://127.0.0.1:8901/api/admin/leadgen/funnels/lgf_01KZ271383F5X1SQ3DXTXKNJE5/theme -> HTTP 404: {"error":"Not Found"})
+  - button_defaults.casing: harness error: PUT http://127.0.0.1:8901/api/admin/leadgen/funnels/lgf_01KZ271383F5X1SQ3DXTXKNJE5/theme -> HTTP 404: {"error":"Not Found"}
+  - button_defaults.fill: button_defaults.fill PUT A: first attempt failed (PUT http://127.0.0.1:8901/api/admin/leadgen/funnels/lgf_01KZ271383F5X1SQ3DXTXKNJE5/theme -> HTTP 404: {"error":"Not Found"}) — retrying once (fresh ?_cb)
+  - button_defaults.fill: button_defaults.fill PUT A: retry also failed (PUT http://127.0.0.1:8901/api/admin/leadgen/funnels/lgf_01KZ271383F5X1SQ3DXTXKNJE5/theme -> HTTP 404: {"error":"Not Found"})
+  - button_defaults.fill: harness error: PUT http://127.0.0.1:8901/api/admin/leadgen/funnels/lgf_01KZ271383F5X1SQ3DXTXKNJE5/theme -> HTTP 404: {"error":"Not Found"}
+  - button_defaults.layout: button_defaults.layout PUT A: first attempt failed (PUT http://127.0.0.1:8901/api/admin/leadgen/funnels/lgf_01KZ271383F5X1SQ3DXTXKNJE5/theme -> HTTP 404: {"error":"Not Found"}) — retrying once (fresh ?_cb)
+  - button_defaults.layout: button_defaults.layout PUT A: retry also failed (PUT http://127.0.0.1:8901/api/admin/leadgen/funnels/lgf_01KZ271383F5X1SQ3DXTXKNJE5/theme -> HTTP 404: {"error":"Not Found"})
+  - button_defaults.layout: harness error: PUT http://127.0.0.1:8901/api/admin/leadgen/funnels/lgf_01KZ271383F5X1SQ3DXTXKNJE5/theme -> HTTP 404: {"error":"Not Found"}
+  - button_defaults.selected: button_defaults.selected PUT A: first attempt failed (PUT http://127.0.0.1:8901/api/admin/leadgen/funnels/lgf_01KZ271383F5X1SQ3DXTXKNJE5/theme -> HTTP 404: {"error":"Not Found"}) — retrying once (fresh ?_cb)
+  - button_defaults.selected: button_defaults.selected PUT A: retry also failed (PUT http://127.0.0.1:8901/api/admin/leadgen/funnels/lgf_01KZ271383F5X1SQ3DXTXKNJE5/theme -> HTTP 404: {"error":"Not Found"})
+  - button_defaults.selected: harness error: PUT http://127.0.0.1:8901/api/admin/leadgen/funnels/lgf_01KZ271383F5X1SQ3DXTXKNJE5/theme -> HTTP 404: {"error":"Not Found"}
+  - card_defaults.background_role: card_defaults.background_role PUT A: first attempt failed (PUT http://127.0.0.1:8901/api/admin/leadgen/funnels/lgf_01KZ271383F5X1SQ3DXTXKNJE5/theme -> HTTP 404: {"error":"Not Found"}) — retrying once (fresh ?_cb)
+  - card_defaults.background_role: card_defaults.background_role PUT A: retry also failed (PUT http://127.0.0.1:8901/api/admin/leadgen/funnels/lgf_01KZ271383F5X1SQ3DXTXKNJE5/theme -> HTTP 404: {"error":"Not Found"})
+  - card_defaults.background_role: harness error: PUT http://127.0.0.1:8901/api/admin/leadgen/funnels/lgf_01KZ271383F5X1SQ3DXTXKNJE5/theme -> HTTP 404: {"error":"Not Found"}
+  - card_defaults.border_role: card_defaults.border_role PUT A: first attempt failed (PUT http://127.0.0.1:8901/api/admin/leadgen/funnels/lgf_01KZ271383F5X1SQ3DXTXKNJE5/theme -> HTTP 404: {"error":"Not Found"}) — retrying once (fresh ?_cb)
+  - card_defaults.border_role: card_defaults.border_role PUT A: retry also failed (PUT http://127.0.0.1:8901/api/admin/leadgen/funnels/lgf_01KZ271383F5X1SQ3DXTXKNJE5/theme -> HTTP 404: {"error":"Not Found"})
+  - card_defaults.border_role: harness error: PUT http://127.0.0.1:8901/api/admin/leadgen/funnels/lgf_01KZ271383F5X1SQ3DXTXKNJE5/theme -> HTTP 404: {"error":"Not Found"}
+  - card_defaults.radius: card_defaults.radius PUT A: first attempt failed (PUT http://127.0.0.1:8901/api/admin/leadgen/funnels/lgf_01KZ271383F5X1SQ3DXTXKNJE5/theme -> HTTP 404: {"error":"Not Found"}) — retrying once (fresh ?_cb)
+  - card_defaults.radius: card_defaults.radius PUT A: retry also failed (PUT http://127.0.0.1:8901/api/admin/leadgen/funnels/lgf_01KZ271383F5X1SQ3DXTXKNJE5/theme -> HTTP 404: {"error":"Not Found"})
+  - card_defaults.radius: harness error: PUT http://127.0.0.1:8901/api/admin/leadgen/funnels/lgf_01KZ271383F5X1SQ3DXTXKNJE5/theme -> HTTP 404: {"error":"Not Found"}
+  - card_defaults.shadow: card_defaults.shadow PUT A: first attempt failed (PUT http://127.0.0.1:8901/api/admin/leadgen/funnels/lgf_01KZ271383F5X1SQ3DXTXKNJE5/theme -> HTTP 404: {"error":"Not Found"}) — retrying once (fresh ?_cb)
+  - card_defaults.shadow: card_defaults.shadow PUT A: retry also failed (PUT http://127.0.0.1:8901/api/admin/leadgen/funnels/lgf_01KZ271383F5X1SQ3DXTXKNJE5/theme -> HTTP 404: {"error":"Not Found"})
+  - card_defaults.shadow: harness error: PUT http://127.0.0.1:8901/api/admin/leadgen/funnels/lgf_01KZ271383F5X1SQ3DXTXKNJE5/theme -> HTTP 404: {"error":"Not Found"}
+  - field_defaults.min_height: field_defaults.min_height PUT A: first attempt failed (PUT http://127.0.0.1:8901/api/admin/leadgen/funnels/lgf_01KZ271383F5X1SQ3DXTXKNJE5/theme -> HTTP 404: {"error":"Not Found"}) — retrying once (fresh ?_cb)
+  - field_defaults.min_height: field_defaults.min_height PUT A: retry also failed (PUT http://127.0.0.1:8901/api/admin/leadgen/funnels/lgf_01KZ271383F5X1SQ3DXTXKNJE5/theme -> HTTP 404: {"error":"Not Found"})
+  - field_defaults.min_height: harness error: PUT http://127.0.0.1:8901/api/admin/leadgen/funnels/lgf_01KZ271383F5X1SQ3DXTXKNJE5/theme -> HTTP 404: {"error":"Not Found"}

@@ -121,6 +121,10 @@ was alignment's PAINT. Recorded so the review does not chase the contract's orig
 | P8-3 | F2 jargon label (sonnet) | sonnet | 132,224 | 700s | '(legacy)' → '(shows as default font)' on BOTH surfaces; jargon gate TOTAL 0 |
 | P8-3 | REVIEW #1 (opus, fresh) | opus | 330,991 | 2122s | **FIX-FIRST** — 1 blocker, 3 majors, 11 minors; re-drove B3 + B5 (both PERFECT); confirmed every gate count, F1's 8 pin updates, p3a×3, security clean |
 | P8-3 | S3.3 guard extend + re-predicate (opus) | opus | 266,106 | 1984s | 129 keys enumerated from source (34+25+66+4; the 34+25 reconciles to R3's 59); 4 exemptions all "no control offers this", exact-set pinned; ZERO dead-and-offered; sabotage red-proof 7 failed → restore → 47 passed |
+| CLOSE | W1 theme-PATCH 500 root fix (opus) | opus | 114,403 | 1047s | D1 50-byte LIKE cap; fix + 3 unit cases; re-greened 4 specs; sweep live-proved 4 more 500-able list routes (ADJ-P8-56) |
+| CLOSE | W2a templates/footer cluster (sonnet) | sonnet | 415,334 | 3960s | REFUTED the conductor's links_source product-bug lead by measurement; 5 spec files re-minted w/ citations; page-A pixel diff STOPPED for ruling |
+| CLOSE | W2b copy/studio cluster (sonnet) | sonnet | 589,183 | 5397s | PRODUCT fix ui-theme-manager §8.4 side-by-side (never engaged 1280–1600); 7 spec re-mints; pattern-A baselines regenerated per conductor ruling; ADJ-P8-36 conflict correctly STOPPED |
+| CLOSE | W2c from_to/slider trio (sonnet) | sonnet | 177,846 | 1219s | 3 stale pins re-minted to shipped J1/M5 semantics; box=rail=pill=payload equality kept strict; 14/14 |
 
 Two near-identical names that are DIFFERENT keys — do not conflate them in review:
 `ThemeJson.spacing` (theme.ts:566, offered as the rail's "Spacing" control at themes.ts:255, ALIVE via

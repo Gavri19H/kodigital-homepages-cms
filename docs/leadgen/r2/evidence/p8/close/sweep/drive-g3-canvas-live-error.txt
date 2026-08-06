@@ -1,0 +1,13 @@
+
+================ SCENARIO text (g3_probe_note) ================
+AUTHOR: PATCH lgs_01KZ27138G80K46S7XBWKGA764 -> 404
+RESTORE: status=404 content_json=undefined
+file:///Users/guyhaikov/a2z-workspaces/kodigital-cms-leadgen-r2-wt/api/scripts/p8/drive-g3-canvas-live-error.mjs:549
+    if (wrote.status !== 200) throw new Error(`author failed: ${JSON.stringify(wrote.body).slice(0, 300)}`);
+                                    ^
+
+Error: author failed: {"error":"Not Found"}
+    at file:///Users/guyhaikov/a2z-workspaces/kodigital-cms-leadgen-r2-wt/api/scripts/p8/drive-g3-canvas-live-error.mjs:549:37
+    at process.processTicksAndRejections (node:internal/process/task_queues:104:5)
+
+Node.js v25.9.0

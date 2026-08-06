@@ -221,26 +221,32 @@ async function dragTo(page: Page, from: { x: number; y: number }, to: { x: numbe
 // exactly that instant: round 1's box-mirroring on every `input` was itself the
 // N-1 regression ("syncDualRange rewrote the box under the caret on every
 // `input`, which committed the one-step anti-deadlock clamp into that box and
-// made most intended numbers unreachable ('6' -> '40000' -> '400000' -> max)"),
-// so engine.ts's `typing` flag now leaves ONLY the box under the caret alone and
-// reconciles it on `change` (blur/Enter), while "every other surface — rails,
-// aria, pills, fill, and the RECORDED answer — still carries the clamped value
-// on every keystroke, so a mid-typing submit can never bill an unclamped
-// number". The superseding acceptance is leadgen-r2p4-fixround2-drive.spec.ts's
-// N-1 matrix (both fields x both viewports x type-up/type-down/clear-and-retype/
-// paste/out-of-order, plus the provider-row payload), whose expectAgreement() is
-// commented "F-1's guarantee at commit" and whose payload case 2 is this very
-// out-of-order drive.
+// made most intended numbers unreachable ('6' -> '40000' -> '400000' -> max)").
 //
-// Own-hand measurement of the pre-change failure (c1-before-fixfirst.log): with
-// To=40000 and 90000 typed into From, box=[90000,40000] BUT rails=[35000,40000],
-// pills=[$35,000 , $40,000] and the /lg/auction payload p4ff_price_band_min=35000
-// — the divergence was confined to the box under the caret, and the money path
-// already carried the number the rails and pills were showing. So the check
-// below now asserts BOTH halves and is strictly stronger than the one it
-// replaces: (i) mid-typing, the rails and pills ALREADY read the clamp (nothing
-// unseen can be billed if the visitor submits right then), and (ii) at COMMIT
-// the box, its rail, its pill and the /lg/auction payload are one number.
+// P8 (ADJ-P8-51 / slice J1, docs/leadgen/r2/P8-REGISTER.md) went further and
+// REMOVED the FIX-FIRST-2 "every keystroke bakes in the one-step anti-deadlock
+// clamp" behaviour this comment used to describe: "a TYPED out-of-order value
+// is NEVER silently rewritten" for values that do not actually invert order,
+// and a GENUINE ordering conflict (this test's case: From typed above the
+// committed To) now corrects — at commit — to the NEIGHBOUR's EXACT value, not
+// a step-separated grid number (P8-REGISTER ADJ-P8-51: "a genuine ordering
+// conflict corrects to the neighbour's EXACT value … instead of the grid
+// number"). Own-hand re-measurement at HEAD (this spec, silenced-assertion
+// probe run): mid-typing (caret still in From, before blur) box=[90000,40000]
+// rails=[40000,40000] pills=[$40,000 , $40,000] — the rail/pill already read
+// the COINCIDENT value (40000, matching To exactly — the native
+// `<input type=range>`'s own min/max sanitisation, not a code-level gap clamp),
+// never the old 35000 one-step figure. At COMMIT (blur): box=[40000,40000]
+// rails=[40000,40000] pills=[$40,000 , $40,000], and the real `POST /lg/auction`
+// carries `p4ff_price_band_min:{"value":"40000"}` — box, rail, pill and payload
+// are one number (40000), which is the money-path guarantee this test exists
+// to gate; only the NUMBER changed (35000 -> 40000), never the equality.
+// The superseding acceptance is leadgen-r2p4-fixround2-drive.spec.ts's N-1
+// matrix (both fields x both viewports x type-up/type-down/clear-and-retype/
+// paste/out-of-order, plus the provider-row payload), whose expectAgreement()
+// is commented "F-1's guarantee at commit" and whose payload case 2 is this
+// very out-of-order drive (re-minted alongside this file to the same 40000
+// coincidence truth).
 // ---------------------------------------------------------------------------
 test("F-1: a typed out-of-order From is never silently replaced — at commit the box and the /lg/auction payload carry the same number", async ({
   page,
@@ -262,20 +268,24 @@ test("F-1: a typed out-of-order From is never silently replaced — at commit th
   await page.waitForTimeout(250);
 
   // (i) MID-TYPING (the caret is still in the From box; fill() dispatches
-  // `input`, never `change`). FIX-FIRST-2 / N-1 exempts ONLY the box under the
-  // caret here; every other surface — rails, aria, pills, fill and the RECORDED
-  // answer — already carries the clamp, which is what makes a mid-typing submit
-  // safe. Asserted below as the safety invariant, not merely logged.
+  // `input`, never `change`). P8-5/J1 removed the FIX-FIRST-2 gap clamp, so
+  // mid-typing the rail/pill carry the COINCIDENT value (matching To exactly —
+  // native range-input min/max sanitisation), never a subtracted step. Nothing
+  // unseen can still be billed if the visitor submits right then, because the
+  // coincident value IS what rail/pill/recorded-answer already show.
   const typingBoxFrom = await from.inputValue();
   const typingRails = [await rails.nth(0).inputValue(), await rails.nth(1).inputValue()];
   const typingPills = await pills.allTextContents();
   say(
     `F-1 mid-typing (caret in From): box=[${typingBoxFrom},${await to.inputValue()}] rails=[${typingRails.join(",")}] pills=[${typingPills.join(" , ")}]`,
   );
-  expect(Number(typingRails[0]), "mid-typing, the rail ALREADY carries the clamp").toBe(TO_VALUE - STEP);
-  expect(typingPills[0], "mid-typing, the pill ALREADY reads the clamp — nothing unseen can be billed").toBe(
-    `$${(TO_VALUE - STEP).toLocaleString("en-US")}`,
+  expect(Number(typingRails[0]), "mid-typing, the rail ALREADY carries the coincident value (P8-5: no gap clamp)").toBe(
+    TO_VALUE,
   );
+  expect(
+    typingPills[0],
+    "mid-typing, the pill ALREADY reads the coincident value — nothing unseen can be billed",
+  ).toBe(`$${TO_VALUE.toLocaleString("en-US")}`);
 
   // (ii) COMMIT — the real visitor gesture that ends the edit (blur; Enter is
   // the same `change`). This is where F-1's guarantee is defined and observable.
@@ -298,9 +308,12 @@ test("F-1: a typed out-of-order From is never silently replaced — at commit th
   const payloadMin = String(post!.answers[FT_MIN_FIELD]?.value);
   say(`F-1 VERDICT: box="${boxFrom}" vs payload ${FT_MIN_FIELD}=${payloadMin} vs rail=${railV[0]} vs pill=${pillV[0]}`);
 
-  // The clamp itself is CORRECT and must stay (anti-deadlock, one step short).
-  expect(Number(railV[0]), "the one-step clamp still holds").toBe(TO_VALUE - STEP);
-  // The defect: the screen and the payload disagreed — asserted at COMMIT.
+  // The genuine ordering conflict (From typed ABOVE the committed To) now
+  // corrects to the NEIGHBOUR's EXACT value at commit (P8-5/J1 coincidence,
+  // not the old FIX-FIRST-2 one-step-short grid clamp).
+  expect(Number(railV[0]), "the genuine ordering conflict corrects to the neighbour's exact value").toBe(TO_VALUE);
+  // The defect this test guards: the screen and the payload must never
+  // disagree — asserted at COMMIT.
   expect(boxFrom, "the From box shows the number that was actually recorded").toBe(payloadMin);
   expect(boxFrom, "the From box agrees with its own rail").toBe(railV[0]);
   expect(pillV[0], "the min pill agrees with the box").toBe(`$${Number(boxFrom).toLocaleString("en-US")}`);

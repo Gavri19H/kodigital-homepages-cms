@@ -2,7 +2,7 @@
 
 **Contract:** `docs/leadgen/r2/P8-DEFECT-CONTRACT.md` (5 blockers, 10 majors, 20 minors, 4 owner decisions)
 **Base / merge target:** `reconcile/conversions-x-leadgen-r2`
-**Status:** all six phases merged. **Nothing deployed** — deploy, secrets and production data remain yours.
+**Status:** all six phases merged; the CLOSE terminal round (this report's §7) lives on branch `leadgen-r2-p8-close`, squash-merged to the base only on the full-program review's SHIP. **Nothing deployed** — deploy, secrets and production data remain yours.
 
 | Phase | Items | PR | Merged sha |
 |---|---|---|---|
@@ -95,14 +95,78 @@ The ones that need you most:
 
 Four adversarial review cycles ran on P8-5/P8-6. **Every one found real defects, including in the previous cycle's fixes** — which is the argument for the drive-first review existing at all.
 
+**CLOSE added four more conductor errors to this ledger, each caught by the process, none by me first:** (1) §7 of this report was committed before the battery it described had finished — the restart then proved how dangerous that sequencing is. (2) The conductor's own confirmation batch seeded once and ran seven specs sequentially — the exact pollution mistake the comparable protocol exists to prevent; re-done per-spec. (3) The first owner-journey sweep read exit codes: three instruments exited 0 while measuring nothing (every PUT 404-ing on reseed-invalidated fixture ids) — caught only by reading outputs by count, the rule the mission already had. (4) The slider-trio spec cluster fell between two dispatch scopes and was caught by the re-measured battery, not by the conductor's plan. A fifth entry for symmetry: the conductor's `links_source` product-bug lead was refuted by the dispatched slice's measurement — the dispatch structure worked as designed.
+
 ---
 
 ## 6. Cost
 
 Per-dispatch token and duration figures were not captured systematically into the tracker as the loop requires — an omission, stated rather than reconstructed. What is measurable: **~45 implementer dispatches and 8 adversarial reviews** across P8-4/5/6, with the jargon class alone consuming ten slices for roughly seventy sites.
 
+CLOSE's dispatches WERE captured (tracker cost table): W1 opus 114,403 tok / 17 min · W2a sonnet 415,334 / 66 min · W2b sonnet 589,183 / 90 min · W2c sonnet 177,846 / 20 min — ~1.30M subagent tokens for the fix round, plus the conductor's battery/sweep machine time (~3.5h wall, mostly unattended).
+
 ---
 
-## 7. Terminal battery
+## 7. Terminal battery — measured, classified, fixed, and re-measured
 
-See `docs/leadgen/r2/gate-logs/p8-TERMINAL-battery.log`. The full unit suite re-ran green at the merged base. The Playwright battery covers all **101 specs across both engine projects**, sharded per file; the two frozen suites (`leadgen-visual`, `leadgen-v31-gate1c-baselines`) are enumerated as **owner-pending expected-fails and were never rebaselined**.
+*(This section replaces the one committed at `5bdb8975`, which described the battery's shape
+before its results existed — a sequencing error, §5.)* Full raw logs:
+`gate-logs/p8-TERMINAL-battery.log` (unit + comparable classification + confirmations),
+`gate-logs/p8-CLOSE-fixround.log` (the fix-round gate), `evidence/p8/close/` (classification,
+per-fix evidence, sweep session).
+
+**What the battery found.** The first 101-spec Playwright run at the merged base measured
+**733 passed / 59 failed / 24 skipped** — 30 specs with failures. A comparable re-run of those
+30 at BOTH shas under identical clean conditions (fresh D1 + seed, isolated port, per-spec
+invocations — re-executed after a machine restart destroyed the first attempt) classified them:
+2 frozen owner suites, 3 state-pollution artifacts (one of them a spec P8 *fixed*), 5
+pre-existing, 2 flaky-at-baseline, and **18 genuinely introduced** — real browser-level drift
+from three phases whose gates ran the unit suite only.
+
+**What CLOSE did about it** (branch `leadgen-r2-p8-close`, commit `92ccbf32` + this round):
+- **Two product regressions fixed at root**: `PATCH /themes/:id` 500'd on theme ids ≥36 chars
+  (D1 caps LIKE patterns at 50 bytes; at baseline the same throw was **silently swallowed** —
+  theme invalidation had been dead for long-named themes with no trace) — bounded pattern +
+  surfaced failures + 3 unit regression cases; and the themes-manager §8.4 side-by-side
+  anatomy, which never engaged at ANY width 1280–1600 (a min-width wrap-threshold error).
+- **~15 stale pins re-minted, each citing the deliberately-shipped P8 behaviour it now pins**
+  (apply-template `dry_run` preview, jargon-swept copy, the `custom` icon enum, G3c
+  per-subfield validation parity, `from_to` typed-value semantics, footer
+  `replaced_customisations`, N17 renames, pattern-A baselines regenerated on a conductor
+  ruling with the diff triple preserved).
+- **Nothing silently deferred**: residuals became register rows — ADJ-P8-56 (four list routes
+  500 on ≥49-char search, same LIKE class, live-proven), ADJ-P8-57/58/59/60/61 (spec debt:
+  baseline-overwriting capture, fixture-404 drive spec, firefox drag class, pre-P8 Card leg,
+  quote-builder order dependency), ADJ-P8-62 (orphaned logo rules + a schema-accepted
+  component the engine never renders), plus CLOSE addenda on B2 and ADJ-P8-36 (the two
+  preset-corner specs are expected-fail pending that ruling).
+
+**The re-measured battery at the fixed tree**: **784 passed / 20 failed / 24 skipped over
+101 specs** — and every one of the 20 is attributed: frozen 2 specs (3f, never rebaselined),
+ADJ-P8-36 expected-fail (4f), ADJ-P8-58 fixture-404s (2f), ADJ-P8-59 firefox drags (3f),
+ADJ-P8-61 in-file order dependency (1f), 4 in-sequence artifacts that each pass under the
+clean isolated protocol, conductor-confirmed one by one (4f — the battery accumulates D1
+state across 101 specs by design; the per-spec clean protocol is the truth instrument for
+any red), and the `from_to`/slider trio (3f) — a cluster the conductor's dispatch plan had
+MISSED, caught by this re-measured battery, re-minted by W2c to the shipped P8-5 semantics
+and conductor-confirmed 3/5/6 green.
+Unit suite at the fix round: **8411 passed / 0 failed / 30 skipped (8441, 499 files)**,
+typecheck 0, verify:all 0, runtime bundle byte-identical 53,181, register **107 rows /
+0 violations**.
+
+**Owner-journey sweep** (`evidence/p8/close/sweep/sweep-session.log`, verdicts by count,
+never exit codes): money-path walk fired the real `POST /lg/auction`; the A/B create→stop
+journey drove clean; the 34-key theme instrument reports **0 DEAD / 0 MIS-TARGETED** across
+every measurable key (25 ALIVE; 9 unmeasurable on the minimal fresh fixture — their
+enriched-fixture 34/34 proof stands in the P8-3 evidence); template apply + N7 truncation
+(0 of 16) re-driven; the G3/B1 re-drives are NAMED SKIPS (owner-BLOCKED subject matter,
+mission-era scenarios erased by reseeds); and **N18's INCONCLUSIVE was resolved by executing
+its named step** — which refuted the step as satisfiable and thereby completed the proof
+(no `.lg-logo` producer exists on any live page; the bleed target is extinct; ADJ-P8-62
+records the orphaned rules).
+
+**The process lesson, stated plainly**: the per-phase gate ritual ran the unit suite only.
+Three phases of copy and behaviour changes shipped with green unit gates while the browser
+truth drifted, and the entire drift surfaced at once in the terminal battery. If this loop
+runs again, the phase ritual needs a scoped browser lane (the specs named by the phase's own
+clauses), not just vitest.
