@@ -1,0 +1,2 @@
+DELETE my theme: {"status":200,"body":"{\"ok\":true,\"id\":\"thm_rr-audit-theme-qzx7\",\"items\":[]}"}
+EMPTY STATE @1280: {"tmBodyW":980,"cols":[{"y":141,"x":275,"w":300},{"y":141,"x":575,"w":360},{"y":141,"x":935,"w":320}],"allBeside":true,"text":"YOUR THEMES\nNo themes yet — use New theme to create one.\nA/B testing: assign different themes to two variants of the same funnel to see which converts better.\nC","scrollWidth":1280,"innerWidth":1280}

@@ -1158,8 +1158,10 @@ function renderCenterEditor(theme: ThemeRecord, matches: VariantThemeUsage[], ca
   //   layout) in a 1238px shell — the mock draws NO admin nav — and splits it
   //   300 list | 618 centre (inner 574 = editor 208 + 26 gap + canvas 340) |
   //   320 A/B. On the REAL page the admin nav takes 250px and .admin-content
-  //   24px a side, so at a 1280 viewport .tm-body measures 980, not 1238: the
-  //   mock's four columns need 1194 and only 980 exist. Four columns at 1280
+  //   24px a side, so at a 1280 viewport .tm-body measures 980, not 1238: four
+  //   columns here need 300 + 680 + 320 = 1300 of .tm-body (the mock's own
+  //   1194 omits this pane's 56px of padding, which the 680 below accounts
+  //   for) and only 980 exist. Four columns at 1280
   //   are therefore arithmetically impossible HERE, and the pin that must
   //   survive is the one the pack's own header states — "a live real-section
   //   canvas beside the editor" with "rail widths (300/320) ... kept exactly
@@ -1189,11 +1191,17 @@ function renderCenterEditor(theme: ThemeRecord, matches: VariantThemeUsage[], ca
   //   widths (N7, widest "Playfair Display" 98.49px in a 282px box).
   //
   //   THE TRADE, STATED: between 1280 and 1599 the A/B panel is no longer
-  //   BESIDE the editor (measured: four columns would fit only from a 1194px
-  //   .tm-body, i.e. ~1494 viewport, and only by shrinking the editor to the
-  //   mock's 208 — under the 258 floor N7 was fixed at). One uniform anatomy
-  //   with the editor never below its own floor was chosen over a ~100px band
-  //   of four columns. No media query: the trigger is .tm-body's OWN width,
+  //   BESIDE the editor. The threshold is .tm-body 1300 = a 1600 viewport,
+  //   DRIVEN both ways: at 1494/1500/1550/1574 (.tm-body 1194..1274) the rail
+  //   lands at y1778 while list and centre sit at y141 — NOT beside — and only
+  //   at 1600 (.tm-body 1300) do all four share the line. An earlier version of
+  //   this comment claimed "four columns fit from a 1194px .tm-body, i.e. ~1494
+  //   viewport": FALSE, and false for the reason this file keeps re-learning —
+  //   it reused the mock's 1194 and dropped this pane's own 56px of padding.
+  //   Keeping four columns below 1600 would need the editor at the mock's 208,
+  //   under the 258 floor N7 was fixed at, so one uniform anatomy with the
+  //   editor never below its own floor was chosen instead. No media query:
+  //   the trigger is .tm-body's OWN width,
   //   so the ?embed=1 standalone shell (no admin nav) degrades on the same
   //   rule — it simply reaches the four-column line sooner.
   return `<div data-pin="8.4-center-pane" style="flex:1 1 680px;overflow-y:auto;padding:24px 28px;min-width:0">

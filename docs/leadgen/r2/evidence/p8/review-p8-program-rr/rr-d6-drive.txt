@@ -1,0 +1,10 @@
+BEFORE corners segs: {"segs":[{"group":"corners","value":"sharp","top":"controls","aria":null,"style":"normal","bg":"rgba(0, 0, 0, 0)"},{"group":"corners","value":"rounded","top":"controls","aria":null,"style":"bold","bg":"rgb(255, 255, 255)"},{"group":"corners","value":"pill","top":"controls","aria":null,"style":"normal","bg":"rgba(0, 0, 0, 0)"}],"errHidden":true,"errText":"","navCount":0}
+pill count=1
+PATCH RESP 200 body[0:300]={"item":{"id":"thm_rr-audit-theme-qzx7","name":"RR Audit Theme QZX7","roles":{"brand_primary":"#7A1FA2","accent":"#2E6BB0","page_bg":"#FFFFFF","card":"#F5F5F5","text":"#1A1F36","success":"#0E7C3A","error":"#B23A2C"},"typography":{"headline_font":"Newsreader","body_font":"Inter","base_px":16},"contro
+AFTER corners segs: {"segs":[{"value":"sharp","bg":"rgba(0, 0, 0, 0)","color":"rgb(107, 116, 134)"},{"value":"rounded","bg":"rgba(0, 0, 0, 0)","color":"rgb(107, 116, 134)"},{"value":"pill","bg":"rgb(255, 255, 255)","color":"rgb(27, 58, 92)"}],"errHidden":true,"errText":"","errDisplay":"none","url":"http://127.0.0.1:8901/admin/leadgen/themes?theme=thm_rr-audit-theme-qzx7&_cb=X"}
+PATCHes: [{"url":"http://127.0.0.1:8901/api/admin/leadgen/themes/thm_rr-audit-theme-qzx7","body":"{\"controls\":{\"corners\":\"pill\"}}"}]
+NAVIGATIONS after click: ["http://127.0.0.1:8901/admin/leadgen/themes?theme=thm_rr-audit-theme-qzx7&_cb=X"]
+RELOAD HAPPENED: true
+SERVER RECORD controls: {"field_height":"medium","button_size":"m","corners":"pill"}
+PATCH RESP 400 body[0:300]={"error":"Validation failed","fields":{"name":"The theme name must be 80 characters or fewer. Shorten it."}}
+#tm-error SURFACE PROOF (real 4xx via name input): {"text":"Validation failed","hidden":false,"display":"block","role":"alert","box":{"x":17,"y":133,"w":341,"h":35},"visible":true}

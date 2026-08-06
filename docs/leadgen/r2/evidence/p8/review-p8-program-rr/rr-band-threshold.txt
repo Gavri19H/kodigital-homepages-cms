@@ -1,0 +1,5 @@
+vp 1494: tm-body=1194 4-columns-beside=false canvas-beside=true editorW=472 cols=[{"y":141,"x":275,"w":300},{"y":141,"x":575,"w":894},{"y":1778,"x":275,"w":320}]
+vp 1500: tm-body=1200 4-columns-beside=false canvas-beside=true editorW=478 cols=[{"y":141,"x":275,"w":300},{"y":141,"x":575,"w":900},{"y":1778,"x":275,"w":320}]
+vp 1550: tm-body=1250 4-columns-beside=false canvas-beside=true editorW=528 cols=[{"y":141,"x":275,"w":300},{"y":141,"x":575,"w":950},{"y":1762,"x":275,"w":320}]
+vp 1574: tm-body=1274 4-columns-beside=false canvas-beside=true editorW=552 cols=[{"y":141,"x":275,"w":300},{"y":141,"x":575,"w":974},{"y":1727,"x":275,"w":320}]
+vp 1600: tm-body=1300 4-columns-beside=true canvas-beside=true editorW=258 cols=[{"y":141,"x":275,"w":300},{"y":141,"x":575,"w":680},{"y":141,"x":1255,"w":320}]

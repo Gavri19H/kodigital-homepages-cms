@@ -1,0 +1,232 @@
+
+=== WIDTH 1280 ===
+{
+ "tmBody": {
+  "x": 275,
+  "y": 141,
+  "w": 980,
+  "h": 734,
+  "right": 1255,
+  "bottom": 875
+ },
+ "centerPane": {
+  "x": 575,
+  "y": 141,
+  "w": 680,
+  "h": 2102,
+  "right": 1255,
+  "bottom": 2243
+ },
+ "editor": {
+  "x": 603,
+  "y": 165,
+  "w": 258,
+  "h": 2054,
+  "right": 861,
+  "bottom": 2219
+ },
+ "canvas": {
+  "x": 887,
+  "y": 165,
+  "w": 340,
+  "h": 411,
+  "right": 1227,
+  "bottom": 576
+ },
+ "canvasFrame": {
+  "x": 887,
+  "y": 190,
+  "w": 340,
+  "h": 360,
+  "right": 1227,
+  "bottom": 550
+ },
+ "outerCols": [
+  {
+   "pin": "?",
+   "x": 275,
+   "y": 141,
+   "w": 300
+  },
+  {
+   "pin": "8.4-center-pane",
+   "x": 575,
+   "y": 141,
+   "w": 680
+  },
+  {
+   "pin": "?",
+   "x": 275,
+   "y": 2243,
+   "w": 320
+  }
+ ],
+ "scrollWidth": 1280,
+ "innerWidth": 1280,
+ "tmBodyScrollH": 2204,
+ "tmBodyClientH": 734,
+ "themeName": null
+}
+BESIDE? sameRow(y equal)=true  canvas.x>=editor.right=true  dy=0  canvasW=340 editorW=258
+scrollWidth=1280 innerWidth=1280 equal=true
+SELECTS:
+  {"id":"tm-headline-font","visible":true,"boxW":282,"contentW":282,"displayed":"Newsreader","displayedW":66.85,"fits":true,"widest":"Playfair Display","widestW":91.37,"widestFits":true,"font":"14px"}
+  {"id":"tm-body-font","visible":true,"boxW":282,"contentW":282,"displayed":"Inter","displayedW":29.48,"fits":true,"widest":"Playfair Display","widestW":98.49,"widestFits":true,"font":"14px"}
+N7 displayed-value overflow count = 0
+N7 widest-option overflow count = 0
+A/B RAIL REACHABILITY: {"kidCount":3,"lastPin":"","beforeY":2243,"beforeX":275,"beforeW":320,"afterY":773,"scrollTop":1470,"viewportH":900,"inViewAfter":true}
+
+=== WIDTH 1600 ===
+{
+ "tmBody": {
+  "x": 275,
+  "y": 141,
+  "w": 1300,
+  "h": 734,
+  "right": 1575,
+  "bottom": 875
+ },
+ "centerPane": {
+  "x": 575,
+  "y": 141,
+  "w": 680,
+  "h": 2102,
+  "right": 1255,
+  "bottom": 2243
+ },
+ "editor": {
+  "x": 603,
+  "y": 165,
+  "w": 258,
+  "h": 2054,
+  "right": 861,
+  "bottom": 2219
+ },
+ "canvas": {
+  "x": 887,
+  "y": 165,
+  "w": 340,
+  "h": 411,
+  "right": 1227,
+  "bottom": 576
+ },
+ "canvasFrame": {
+  "x": 887,
+  "y": 190,
+  "w": 340,
+  "h": 360,
+  "right": 1227,
+  "bottom": 550
+ },
+ "outerCols": [
+  {
+   "pin": "?",
+   "x": 275,
+   "y": 141,
+   "w": 300
+  },
+  {
+   "pin": "8.4-center-pane",
+   "x": 575,
+   "y": 141,
+   "w": 680
+  },
+  {
+   "pin": "?",
+   "x": 1255,
+   "y": 141,
+   "w": 320
+  }
+ ],
+ "scrollWidth": 1600,
+ "innerWidth": 1600,
+ "tmBodyScrollH": 2102,
+ "tmBodyClientH": 734,
+ "themeName": null
+}
+BESIDE? sameRow(y equal)=true  canvas.x>=editor.right=true  dy=0  canvasW=340 editorW=258
+scrollWidth=1600 innerWidth=1600 equal=true
+SELECTS:
+  {"id":"tm-headline-font","visible":true,"boxW":282,"contentW":282,"displayed":"Newsreader","displayedW":66.85,"fits":true,"widest":"Playfair Display","widestW":91.37,"widestFits":true,"font":"14px"}
+  {"id":"tm-body-font","visible":true,"boxW":282,"contentW":282,"displayed":"Inter","displayedW":29.48,"fits":true,"widest":"Playfair Display","widestW":98.49,"widestFits":true,"font":"14px"}
+N7 displayed-value overflow count = 0
+N7 widest-option overflow count = 0
+
+=== WIDTH 375 ===
+{
+ "tmBody": {
+  "x": 17,
+  "y": 133,
+  "w": 341,
+  "h": 734,
+  "right": 358,
+  "bottom": 867
+ },
+ "centerPane": {
+  "x": 17,
+  "y": 355,
+  "w": 341,
+  "h": 2462,
+  "right": 358,
+  "bottom": 2817
+ },
+ "editor": {
+  "x": 45,
+  "y": 379,
+  "w": 285,
+  "h": 1977,
+  "right": 330,
+  "bottom": 2355
+ },
+ "canvas": {
+  "x": 45,
+  "y": 2381,
+  "w": 285,
+  "h": 411,
+  "right": 330,
+  "bottom": 2793
+ },
+ "canvasFrame": {
+  "x": 45,
+  "y": 2406,
+  "w": 285,
+  "h": 360,
+  "right": 330,
+  "bottom": 2766
+ },
+ "outerCols": [
+  {
+   "pin": "?",
+   "x": 17,
+   "y": 133,
+   "w": 300
+  },
+  {
+   "pin": "8.4-center-pane",
+   "x": 17,
+   "y": 355,
+   "w": 341
+  },
+  {
+   "pin": "?",
+   "x": 17,
+   "y": 2817,
+   "w": 320
+  }
+ ],
+ "scrollWidth": 375,
+ "innerWidth": 375,
+ "tmBodyScrollH": 2786,
+ "tmBodyClientH": 734,
+ "themeName": null
+}
+BESIDE? sameRow(y equal)=false  canvas.x>=editor.right=false  dy=2002  canvasW=285 editorW=285
+scrollWidth=375 innerWidth=375 equal=true
+SELECTS:
+  {"id":"tm-headline-font","visible":true,"boxW":282,"contentW":282,"displayed":"Newsreader","displayedW":66.85,"fits":true,"widest":"Playfair Display","widestW":91.37,"widestFits":true,"font":"14px"}
+  {"id":"tm-body-font","visible":true,"boxW":282,"contentW":282,"displayed":"Inter","displayedW":29.48,"fits":true,"widest":"Playfair Display","widestW":98.49,"widestFits":true,"font":"14px"}
+N7 displayed-value overflow count = 0
+N7 widest-option overflow count = 0
+
+CONSOLE ERRORS: []
+375 TOP BAR: {"btn":{"x":291,"right":382,"w":90},"bar":{"x":17,"right":358,"w":341,"scrollW":365,"clientW":341},"shellRight":359,"innerWidth":375,"docScrollW":375}
