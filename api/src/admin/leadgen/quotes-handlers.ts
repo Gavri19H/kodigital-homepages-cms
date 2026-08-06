@@ -5462,27 +5462,39 @@ export async function quoteStructureHandler(c: AdminContext): Promise<Response> 
   if (quote === null) return c.json({ error: "Not Found" }, 404);
 
   const funnels = await readQuoteFunnels(c.env.DB, quote.id);
-  const funnelTree: Record<string, unknown>[] = [];
-  for (const funnel of funnels) {
-    const variants = await readFunnelVariants(c.env.DB, funnel.id);
-    const variantTree: Record<string, unknown>[] = [];
-    for (const variant of variants) {
-      const sections = await readVariantSections(c.env.DB, variant.id);
-      const rules = await readVariantRules(c.env.DB, variant.id);
+  // PERFORMANCE (owner-reported ~10 s per funnel-builder action): this endpoint
+  // measured 2.4 s of the editor page's 8.5-8.9 s in production, for 18 D1
+  // queries and almost no CPU — it awaited each read one at a time, per funnel
+  // and then per variant, so the page paid the SUM of every round trip.
+  // The reads now overlap; `Promise.all` over `.map` preserves array order, so
+  // the emitted tree is identical (verified by byte-comparing this endpoint's
+  // whole JSON body before/after).
+  const funnelTree: Record<string, unknown>[] = await Promise.all(
+    funnels.map(async (funnel) => {
+    const [variants, abTests] = await Promise.all([
+      readFunnelVariants(c.env.DB, funnel.id),
+      readFunnelAbTests(c.env.DB, funnel.id),
+    ]);
+    const variantTree: Record<string, unknown>[] = await Promise.all(
+      variants.map(async (variant) => {
+      const [sections, rules] = await Promise.all([
+        readVariantSections(c.env.DB, variant.id),
+        readVariantRules(c.env.DB, variant.id),
+      ]);
       // G4 identity proof: assemble a proven-distinct triple through the
       // Stage-A branded constructors (funnel_id ≠ funnel_variant_id, never
       // aliased). Throws only if the two ever collide — they cannot.
       const identity = resolveFunnelIdentity(quote.public_id, funnel.public_id, variant.public_id);
-      variantTree.push({
+      return {
         ...variantRowToApi(variant),
         funnel_id: identity.funnel_id as string,
         funnel_variant_id: identity.funnel_variant_id as string,
         sections,
         rules: rules.map(ruleRowToApi),
         auction_entry_position: auctionEntryPosition(sections),
-      });
-    }
-    const abTests = await readFunnelAbTests(c.env.DB, funnel.id);
+      };
+      }),
+    );
     // P3b (§8.2 board): the funnel column renders the ACTIVE variant's PAGES as
     // section-chip cards. With no running test a funnel has exactly one active
     // variant (M1 replacement semantics); the deterministic primary is the
@@ -5491,7 +5503,7 @@ export async function quoteStructureHandler(c: AdminContext): Promise<Response> 
     // untouched, so every pre-P3b consumer reads exactly what it always did.
     const activeVariants = await readActiveFunnelVariants(c.env.DB, funnel.id);
     const primaryActive = activeVariants[0] ?? variants[0] ?? null;
-    funnelTree.push({
+    return {
       ...funnelRowToApi(funnel),
       funnel_id: toFunnelId(funnel.public_id) as string,
       variants: variantTree,
@@ -5500,8 +5512,9 @@ export async function quoteStructureHandler(c: AdminContext): Promise<Response> 
       ab_tests: abTests.map(abTestRowToApi),
       active_variant_public_id: primaryActive?.public_id ?? null,
       active_variant_pages: primaryActive === null ? [] : await readVariantPagesApi(c.env.DB, primaryActive.id),
-    });
-  }
+    };
+    }),
+  );
 
   // P3b follow-up (§8.2 board, DEV-59 parity): batch-attach each page-slot
   // candidate's mapping_status — ONE query across every funnel's pages rather
@@ -6085,38 +6098,74 @@ export async function computeQuoteActivationPreflight(
   const blocks: QuoteActivationBlock[] = [];
   const problems: Problem[] = [];
   const siteId = opts?.site_id ?? null;
-  for (const funnel of funnels) {
-    if (funnel.status !== "active") continue;
-    const variants = await readActiveFunnelVariants(db, funnel.id);
-    // v2.5 14 §14.1: the additive problems projection (funnel-level rows once,
-    // variant-level rows per active variant). NEVER touches `blocks`/`ok`
-    // (the historical report inputs); the activation PUT gates on blocks OR
-    // error-severity problems (C2 LIVE, Phase D).
-    // M5: no variant is in scope yet at this point (the loop below iterates
-    // them) — precedence collapses to funnel.frame_template_id alone.
-    const savedFrameDefaults = await loadSavedFrameTemplateDefaults(db, funnel.frame_template_id, quote.public_id);
-    const funnelState = readFunnelV25State(funnel, savedFrameDefaults);
-    problems.push(...(await computeFunnelV25Problems(db, quote, funnel, funnelState, siteId)));
-    for (const variant of variants) {
-      const variantBlocks = await computeVariantPreflightBlocks(db, variant);
-      if (variantBlocks.length > 0 && firstVariantId === "") {
-        firstFunnelId = funnel.public_id;
-        firstVariantId = variant.public_id;
+
+  // PERFORMANCE (owner-reported ~10 s per funnel-builder action). This preflight
+  // is the single most expensive thing the quote editor renders: measured in
+  // production it is 4.5-4.9 s of the page's 8.5-8.9 s, for 24 D1 queries and
+  // ~20 ms of CPU. Every query is a round trip (~30-100 ms measured), and these
+  // loops awaited them one at a time, per funnel and then per variant, so the
+  // cost was the SUM of every hop.
+  //
+  // The READS now overlap; the ASSEMBLY below is still strictly sequential in
+  // the original order, so `blocks`, `problems`, `firstFunnelId` and
+  // `firstVariantId` come out exactly as before (verified by byte-comparing this
+  // endpoint's whole JSON body before/after). Nothing about WHAT is checked
+  // changes — only how long the page waits for it.
+  const activeFunnels = funnels.filter((f) => f.status === "active");
+  const [perFunnel, reworkProblems] = await Promise.all([
+    Promise.all(
+      activeFunnels.map(async (funnel) => {
+        // M5: no variant is in scope yet — precedence collapses to
+        // funnel.frame_template_id alone.
+        const [variants, savedFrameDefaults] = await Promise.all([
+          readActiveFunnelVariants(db, funnel.id),
+          loadSavedFrameTemplateDefaults(db, funnel.frame_template_id, quote.public_id),
+        ]);
+        const funnelState = readFunnelV25State(funnel, savedFrameDefaults);
+        // v2.5 14 §14.1: the additive problems projection (funnel-level rows
+        // once, variant-level rows per active variant). NEVER touches
+        // `blocks`/`ok` (the historical report inputs); the activation PUT gates
+        // on blocks OR error-severity problems (C2 LIVE, Phase D).
+        const [funnelProblems, perVariant] = await Promise.all([
+          computeFunnelV25Problems(db, quote, funnel, funnelState, siteId),
+          Promise.all(
+            variants.map(async (variant) => {
+              const [variantBlocks, variantProblems] = await Promise.all([
+                computeVariantPreflightBlocks(db, variant),
+                computeVariantV25Problems(db, quote, funnel, funnelState, variant),
+              ]);
+              return { variant, variantBlocks, variantProblems };
+            }),
+          ),
+        ]);
+        return { funnel, variants, funnelProblems, perVariant };
+      }),
+    ),
+    // Rework §4.3-15: the additional activation checks (default funnel, shared
+    // page, per-funnel sections, enabled-rule targets, §4.3-13 uniqueness) ride
+    // as error-severity problems so the PUT gate blocks on them (same as the
+    // existing §14.1 error problems). A legacy quote (no shared page / no
+    // default funnel) REPORTS the missing pieces here rather than 500ing
+    // (L-192 seam). Independent of the per-funnel work above, so it overlaps it.
+    computeReworkActivationProblems(db, quote),
+  ]);
+
+  for (const entry of perFunnel) {
+    problems.push(...entry.funnelProblems);
+    for (const v of entry.perVariant) {
+      if (v.variantBlocks.length > 0 && firstVariantId === "") {
+        firstFunnelId = entry.funnel.public_id;
+        firstVariantId = v.variant.public_id;
       }
-      blocks.push(...variantBlocks);
-      problems.push(...(await computeVariantV25Problems(db, quote, funnel, funnelState, variant)));
+      blocks.push(...v.variantBlocks);
+      problems.push(...v.variantProblems);
     }
-    if (firstFunnelId === "" && variants.length > 0) {
-      firstFunnelId = funnel.public_id;
-      firstVariantId = variants[0]?.public_id ?? "";
+    if (firstFunnelId === "" && entry.variants.length > 0) {
+      firstFunnelId = entry.funnel.public_id;
+      firstVariantId = entry.variants[0]?.public_id ?? "";
     }
   }
-  // Rework §4.3-15: the additional activation checks (default funnel, shared
-  // page, per-funnel sections, enabled-rule targets, §4.3-13 uniqueness) ride as
-  // error-severity problems so the PUT gate blocks on them (same as the existing
-  // §14.1 error problems). A legacy quote (no shared page / no default funnel)
-  // REPORTS the missing pieces here rather than 500ing (L-192 seam).
-  problems.push(...(await computeReworkActivationProblems(db, quote)));
+  problems.push(...reworkProblems);
   return {
     ok: blocks.length === 0,
     quote_id: quote.public_id,
