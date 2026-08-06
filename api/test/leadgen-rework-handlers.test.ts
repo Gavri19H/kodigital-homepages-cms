@@ -1594,6 +1594,51 @@ d("empty pages are authorable (§4.3-15, S5.3)", () => {
     expect(msgs2.some((m: string) => m.includes("needs at least one page with a section"))).toBe(false);
   });
 
+  it("with every section on the Shared first page, the funnel blocker names the ONE reachable next step (owner deadlock 2026-08-06)", async () => {
+    const h = harness();
+    const q = await newQuote(h);
+    const only = seedSection(h.sdb, "The Only Section");
+    // The operator's real state: their one section is on the Shared first page
+    // (which the sibling blocker REQUIRES to be non-empty), funnel still empty.
+    const shared = await req(h, "PUT", `/quotes/${q.quotePublic}/shared-page`, {
+      slots: [{ kind: "fixed", section_id: only.public_id }],
+    });
+    expect(shared.status, JSON.stringify(shared.json)).toBe(200);
+    const pf = await req(h, "GET", `/quotes/${q.quotePublic}/activation`);
+    const msgs = (pf.json.activation_preflight?.problems ?? []).map((p: { message: string }) => p.message);
+    const blocker = msgs.find((m: string) => m.includes("needs at least one page with a section"));
+    expect(blocker, JSON.stringify(msgs)).toBeDefined();
+    // It must say the section has to be the funnel's OWN and not one already on
+    // the shared page — otherwise the operator retries the only section they
+    // have and the PUT refuses it, which is the circle they were stuck in.
+    expect(blocker).toContain("of its own");
+    expect(blocker).toContain("not already on the Shared first page");
+    // And the refusal that closed the circle is still enforced, verbatim.
+    const retry = await req(h, "PUT", `/variants/${q.variantPublic}`, {
+      sections: [{ section_id: only.public_id }],
+    });
+    expect(retry.status).toBe(400);
+    expect(JSON.stringify(retry.json)).toContain("already on the Shared first page");
+    // Following the message's instruction clears the block for real.
+    const other = seedSection(h.sdb, "A Different Section");
+    const ok = await req(h, "PUT", `/variants/${q.variantPublic}`, {
+      sections: [{ section_id: other.public_id }],
+    });
+    expect(ok.status, JSON.stringify(ok.json)).toBe(200);
+    const pf2 = await req(h, "GET", `/quotes/${q.quotePublic}/activation`);
+    const msgs2 = (pf2.json.activation_preflight?.problems ?? []).map((p: { message: string }) => p.message);
+    expect(msgs2.some((m: string) => m.includes("needs at least one page with a section"))).toBe(false);
+  });
+
+  it("with the shared page ALSO empty, the funnel blocker keeps its plain wording (no shared-page advice to give)", async () => {
+    const h = harness();
+    const q = await newQuote(h);
+    const pf = await req(h, "GET", `/quotes/${q.quotePublic}/activation`);
+    const msgs = (pf.json.activation_preflight?.problems ?? []).map((p: { message: string }) => p.message);
+    expect(msgs.some((m: string) => m.endsWith("needs at least one page with a section."))).toBe(true);
+    expect(msgs.some((m: string) => m.includes("The shared first page needs at least one section."))).toBe(true);
+  });
+
   it("a non-array slots value is still rejected (only [] is legal, not a non-array)", async () => {
     const h = harness();
     const q = await newQuote(h);
