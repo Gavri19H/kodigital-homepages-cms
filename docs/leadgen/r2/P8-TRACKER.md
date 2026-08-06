@@ -53,7 +53,7 @@ verify:all 0 · runtime 52,762 ≤ 53,248.
 - [x] **P8-6 Sweep & surface — MERGED `cddb77a0` (PR #141)** (M8, N2–N5, N8, N10, N13, N19, OWNER rows)
       P8-4/5/6 review chain ended **SHIP** (`evidence/p8/review-p8-ship/REVIEW.md`) after FIX-FIRST rounds
       (`review-p8-4..4d`, `review-p8-5..5b`, `review-p8-combined`, `review-p8-final`, `review-p8-merge`).
-- [x] **CLOSE — COMPLETE (branch `leadgen-r2-p8-close` tip `e6b3253c`, squash-merged to the base on the final SHIP)**
+- [x] **CLOSE — COMPLETE & MERGED `21c617da` (PR #142; branch tip `d329fd22`)**
       (terminal battery + owner-journey sweep + full-program review + report)
       Review chain: full-program review (Opus, fresh) **FIX-FIRST 1 BL / 6 MJ / 6 MN** → fix round
       (F-A product slice + conductor register/doc pass + W-fixes) → scoped re-review **FIX-FIRST
