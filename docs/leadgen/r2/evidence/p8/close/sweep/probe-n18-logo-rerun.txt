@@ -1,0 +1,14 @@
+[n18] quote lgq_01KZA6A2FDCT90TAM4HKZ3ZVCH funnel lgf_01KZA6A2FD4BN1EQHSCT66677V funnel section lgs_01KZA6A2FZF054QS3KMR2DTMJS
+[n18] settle attempt 1/12: .lg-logo count=0
+[n18] settle attempt 2/12: .lg-logo count=0
+[n18] settle attempt 3/12: .lg-logo count=0
+[n18] settle attempt 4/12: .lg-logo count=0
+[n18] settle attempt 5/12: .lg-logo count=0
+[n18] settle attempt 6/12: .lg-logo count=0
+[n18] settle attempt 7/12: .lg-logo count=0
+[n18] settle attempt 8/12: .lg-logo count=0
+[n18] settle attempt 9/12: .lg-logo count=0
+[n18] settle attempt 10/12: .lg-logo count=0
+[n18] settle attempt 11/12: .lg-logo count=0
+[n18] settle attempt 12/12: .lg-logo count=0
+[n18] FATAL: .lg-logo never appeared on the served page (settle exhausted)

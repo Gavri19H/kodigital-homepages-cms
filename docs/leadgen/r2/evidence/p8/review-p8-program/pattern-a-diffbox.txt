@@ -1,0 +1,8 @@
+<stdin>:12: DeprecationWarning: Image.Image.getdata is deprecated and will be removed in Pillow 14 (2027-10-15). Use get_flattened_data instead.
+<stdin>:12: DeprecationWarning: Image.Image.getdata is deprecated and will be removed in Pillow 14 (2027-10-15). Use get_flattened_data instead.
+[desktop] committed-old size=(1280, 916) new size=(1280, 916)
+  diff bbox=(8, 555, 1272, 676)  changed_pixels=47512  (4.052% of image)
+  diff band: y 555..676 of 916  (x 8..1272)
+[mobile] committed-old size=(375, 816) new size=(375, 816)
+  diff bbox=(8, 473, 367, 594)  changed_pixels=15828  (5.173% of image)
+  diff band: y 473..594 of 816  (x 8..367)

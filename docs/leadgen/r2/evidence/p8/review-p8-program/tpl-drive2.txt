@@ -1,0 +1,29 @@
+BEFORE: frame_config= null  tpl_id= undefined
+ELEMENT LETTERS: ["A","B","C","D","E","F","G","I","J","A"]
+node:internal/modules/run_main:107
+    triggerUncaughtException(
+    ^
+
+locator.click: Timeout 30000ms exceeded.
+Call log:
+[2m  - waiting for locator('button,a').filter({ hasText: /^Apply to funnel/i }).first()[22m
+[2m    - locator resolved to <button type="button" id="lg-tpl-apply-btn" class="btn btn-secondary btn-sm">Apply to funnel…</button>[22m
+[2m  - attempting click action[22m
+[2m    2 × waiting for element to be visible, enabled and stable[22m
+[2m      - element is not visible[22m
+[2m    - retrying click action[22m
+[2m    - waiting 20ms[22m
+[2m    2 × waiting for element to be visible, enabled and stable[22m
+[2m      - element is not visible[22m
+[2m    - retrying click action[22m
+[2m      - waiting 100ms[22m
+[2m    58 × waiting for element to be visible, enabled and stable[22m
+[2m       - element is not visible[22m
+[2m     - retrying click action[22m
+[2m       - waiting 500ms[22m
+
+    at /private/tmp/claude-501/-Users-guyhaikov-a2z-workspaces/09f7e6a2-8f7b-4b0f-ac0d-bec9ce3202d8/scratchpad/templates2.mjs:16:78 {
+  name: 'TimeoutError'
+}
+
+Node.js v25.9.0

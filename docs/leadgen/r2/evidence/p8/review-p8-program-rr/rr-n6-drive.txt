@@ -1,0 +1,13 @@
+start funnels: ["R2Fix Fixture Quote — Funnel A"]
+add-funnel candidates=1
+after add #1: ["R2Fix Fixture Quote — Funnel A","New funnel 1"]
+after add #2: ["R2Fix Fixture Quote — Funnel A","New funnel 1","New funnel 2"]
+DELETE leg: {"deleted":"New funnel 2","id":"lgf_01KZAEADV25X5MMSEA0D79M67X","status":404,"body":"{\"error\":\"Not Found\",\"path\":\"/api/admin/leadgen/quotes/1/funnels/lgf_01KZAEADV25X5MMSEA0D79M67X\"}"}
+after delete: ["R2Fix Fixture Quote — Funnel A","New funnel 1","New funnel 2"]
+after delete-then-add: ["R2Fix Fixture Quote — Funnel A","New funnel 1","New funnel 2","New funnel 3"]
+DUPLICATE LIVE NAMES: []  count=0
+before: ["R2Fix Fixture Quote — Funnel A=lgf_01KZADKYF22444Q8AVT0000V4T","New funnel 1=lgf_01KZAEAB0VPACDYV5G96YARVAH","New funnel 2=lgf_01KZAEADV25X5MMSEA0D79M67X","New funnel 3=lgf_01KZAEAK44JHRXZ1S75AFFQYX6"]
+DELETE: {"deleted":"New funnel 3","id":"lgf_01KZAEAK44JHRXZ1S75AFFQYX6","status":200,"body":"{\"ok\":true,\"id\":4,\"public_id\":\"lgf_01KZAEAK44JHRXZ1S75AFFQYX6\",\"deleted\":true}"}
+after delete: ["R2Fix Fixture Quote — Funnel A=lgf_01KZADKYF22444Q8AVT0000V4T","New funnel 1=lgf_01KZAEAB0VPACDYV5G96YARVAH","New funnel 2=lgf_01KZAEADV25X5MMSEA0D79M67X"]
+after delete-then-add: ["R2Fix Fixture Quote — Funnel A=lgf_01KZADKYF22444Q8AVT0000V4T","New funnel 1=lgf_01KZAEAB0VPACDYV5G96YARVAH","New funnel 2=lgf_01KZAEADV25X5MMSEA0D79M67X","New funnel 3=lgf_01KZAEBMZ7V734XB7HGKYHA9N0"]
+DUPLICATE LIVE NAMES: [] count=0

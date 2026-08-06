@@ -1,0 +1,10 @@
+[1A[2K[16/24] [firefox] › test-ui/leadgen-rework-acceptance-builder.gesture.spec.ts:243:3 › #11D — Templates tab › #11D create → save → REUSE one template across TWO quotes (both funnels reference it)
+[1A[2K[17/24] [firefox] › test-ui/leadgen-rework-acceptance-builder.gesture.spec.ts:298:3 › #11D — Templates tab › #11D 'Set as this quote's default' is a single atomic PER-QUOTE swap (D5) — the default-template mechanism
+[1A[2K[18/24] [firefox] › test-ui/leadgen-rework-acceptance-builder.gesture.spec.ts:338:3 › #11D — Templates tab › #11D default template seeds a funnel created via the real '+ Add funnel' gesture (create-time stamp + rendered effect)
+[1A[2K[19/24] [firefox] › test-ui/leadgen-rework-acceptance-builder.gesture.spec.ts:363:3 › #11D — Templates tab › #11D Apply to funnel: preview-before-apply + region-naming confirm; Cancel leaves the funnel untouched
+[1A[2K[20/24] [firefox] › test-ui/leadgen-rework-acceptance-builder.gesture.spec.ts:417:3 › #11D — Templates tab › #11D A/B templates: forks the variant into an arm with a DIFFERENT frame_template_id (variant-level override)
+[1A[2K[21/24] [firefox] › test-ui/leadgen-rework-acceptance-builder.gesture.spec.ts:440:3 › #11D — Templates tab › #11D layout = elements-left / live-canvas-middle / settings-right; section picker + theme switch re-render; no-sections fixture
+[1A[2K[22/24] [firefox] › test-ui/leadgen-rework-acceptance-builder.gesture.spec.ts:512:3 › #11D — Templates tab › #11D progress box I offers the 5 types, each re-rendering its design in the canvas
+[1A[2K[23/24] [firefox] › test-ui/leadgen-rework-acceptance-builder.gesture.spec.ts:600:3 › #11E — Themes tab live sample › #11E the live sample updates with an edit: flipping Selected → Mark renders the real ✓-in-selected markup
+[1A[2K[24/24] [firefox] › test-ui/leadgen-rework-acceptance-builder.gesture.spec.ts:657:3 › #11E — Themes tab live sample › #11E title+subtitle full-width cards render live and are selectable (Answer layout → Card)
+[1A[2K  24 passed (16.0s)

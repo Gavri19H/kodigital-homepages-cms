@@ -1,0 +1,16 @@
+STEP1 create theme name len= 59
+  create status= 201
+  minted id = thm_program-review-long-theme-name-for-the-d1-like-cap-msgse8jx len = 63 ≥36chars: true
+STEP2 bind theme to funnel via PUT /funnels/:id/theme
+  bind status= 200 
+  stored theme_json = {"theme_id":"thm_program-review-long-theme-name-for-the-d1-like-cap-msgse8jx"}  content_version = 3
+STEP3 visitor BEFORE patch
+   {"status":404,"primaryVar":null,"bytes":21,"counts":{"#112233":0,"#AB1234":0,"#ab1234":0}}
+STEP4 PATCH theme brand_primary #112233 -> #AB1234  (NO activation save)
+  patch status = 200
+  cache_refresh_warning present: false 
+  content_version after patch = 4
+STEP5 ONE fresh ?_cb visitor fetch AFTER patch (no activation save)
+   {"status":404,"primaryVar":null,"bytes":21,"counts":{"#112233":0,"#AB1234":0,"#ab1234":0}}
+RESULT: {"theme_id":"thm_program-review-long-theme-name-for-the-d1-like-cap-msgse8jx","id_len":63,"patch_status":200,"before_primary":null,"after_primary":null,"before_old_count":0,"after_old_count":0,"before_new_count":0,"after_new_count":0,"cv_before":3,"cv_after":4}
+THEME_ID_FOR_UI=thm_program-review-long-theme-name-for-the-d1-like-cap-msgse8jx

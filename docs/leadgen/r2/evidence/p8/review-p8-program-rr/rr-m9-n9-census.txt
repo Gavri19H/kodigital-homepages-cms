@@ -1,0 +1,7 @@
+Templates tab candidates=1
+URL after tab click: http://127.0.0.1:8901/admin/leadgen/quotes/1/edit?_cb=X#tab=templates
+visible text nodes: 109
+SLIDE/SLIDES hits (M9): []
+single-letter nodes (N9): ["A","B","C","D","E","F","G","I","J"]
+letter-prefixed nodes: ["I · Progress","A visitor sees \"Step 2 of 5\" beside the bar, or \"40%\" on Percent."]
+"(§" hits: []

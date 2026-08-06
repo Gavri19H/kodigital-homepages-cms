@@ -1484,10 +1484,15 @@ test.describe('LeadGen Studio §8.12 — remaining flows (v2.5.1)', () => {
     await shootPreview(page, 'flow-zip-error-sim.png');
 
     // §9.2 validation_error sim: the invalid-format message
+    // R2 P8-5 G3c (preview-sim.ts leafFormatMessage :488-489, formatKindFor
+    // "zip" leg): a bare ZIPInputQuestion now speaks its OWN type-specific
+    // sentence, not the generic one — MEASURED against the live runtime's
+    // OWN message, byte-identical (runtime/validation.ts:206/422
+    // `{code:"zip_format", message:"Enter a valid 5-digit ZIP code."}`).
     await markPreviewStale(page);
     await page.locator('[data-sim-state="validation_error"]').click();
     await waitFreshPreview(page, 'desktop');
-    await expect(f.locator('[data-lg-error-for="zip"]')).toHaveText('The value has an invalid format.');
+    await expect(f.locator('[data-lg-error-for="zip"]')).toHaveText('Enter a valid 5-digit ZIP code.');
   });
 
   test('personal-details slide: Name + Email + Phone via the "Contact" tile (§5.6: one tile, a 3-node Stack)', async ({ page }) => {
@@ -1810,7 +1815,28 @@ test.describe('LeadGen Studio §8.12 — remaining flows (v2.5.1)', () => {
     expect(byState['dependency']).not.toContain('This field is required.');
     expect(byState['validation_success']).toContain('lg-valid');
     expect(byState['default']).not.toContain('lg-valid');
-    expect(byState['validation_error']).toContain('The value has an invalid format.');
+    // R2 P8-5 G3c/H3 (preview-sim.ts leafFormatMessage, :694-733; MEASURED via
+    // this spec, 2026-08-06): this section's two components are NEITHER
+    // format-checkable (TwoButtonYesNo/DropdownQuestion never match
+    // formatKindFor's email/phone/zip tokens) NOR domain-checkable — a plain
+    // authored `choices` list alone never compiles into
+    // `client_validation.valid_values` (config-dto.ts:461-472 sets it only
+    // from an explicit node.valid_values or an authored "Other" widening),
+    // BYTE-IDENTICAL to the real runtime's own domain gate
+    // (runtime/validation.ts:254-257) — the mirror and the live funnel agree
+    // there is no format rule to draw here, so H3's "nothing is drawn rather
+    // than a state the visitor can never reach" is the CORRECT painted
+    // result, not a regression. The generic "invalid format" sentence this
+    // test used to pin was the PRE-G3c over-broad behaviour the fix
+    // deliberately removed for exactly this shape.
+    //
+    // The state's real, measured distinguishing behaviour is the now-MET
+    // dependency: 'default' renders q_insurer HIDDEN (no answer supplied,
+    // unmet-but-not-filtered), 'validation_error' supplies
+    // currently_insured:true so the same element un-hides — same as
+    // 'selected'/'validation_success', which supply the same answer.
+    expect(byState['default']).toContain('data-lg-field="insurer" data-lg-input="" hidden=""');
+    expect(byState['validation_error']).not.toContain('data-lg-field="insurer" data-lg-input="" hidden=""');
     expect(byState['error']).not.toContain('The value has an invalid format.');
 
     // and the six documents are pairwise DIFFERENT (visibly differ, §8.12)

@@ -1,0 +1,354 @@
+
+=== 1280 editor clipping census ===
+{
+ "editorRight": 861,
+ "editorW": 258,
+ "clippedCount": 8,
+ "clipped": [
+  {
+   "tag": "DIV",
+   "txt": "Brand primarystepper buttons · progress fill · focus ring · ",
+   "scrollW": 277,
+   "clientW": 258,
+   "over": 19,
+   "ovf": "visible/clip",
+   "x": 603,
+   "w": 258
+  },
+  {
+   "tag": "DIV",
+   "txt": "Brand secondarygradients · secondary emphasis\n        Soft f",
+   "scrollW": 270,
+   "clientW": 258,
+   "over": 12,
+   "ovf": "visible/clip",
+   "x": 603,
+   "w": 258
+  },
+  {
+   "tag": "DIV",
+   "txt": "Headline font\n          \n            PoppinsSpace GroteskFra",
+   "scrollW": 320,
+   "clientW": 258,
+   "over": 62,
+   "ovf": "visible/clip",
+   "x": 603,
+   "w": 258
+  },
+  {
+   "tag": "DIV",
+   "txt": "Display sizeBaseLargeX-LargeXX-Large",
+   "scrollW": 180,
+   "clientW": 129,
+   "over": 51,
+   "ovf": "visible/clip",
+   "x": 603,
+   "w": 129
+  },
+  {
+   "tag": "DIV",
+   "txt": "BaseLargeX-LargeXX-Large",
+   "scrollW": 180,
+   "clientW": 129,
+   "over": 51,
+   "ovf": "visible/clip",
+   "x": 603,
+   "w": 129
+  },
+  {
+   "tag": "DIV",
+   "txt": "CornersSharpRoundedPill",
+   "scrollW": 144,
+   "clientW": 129,
+   "over": 15,
+   "ovf": "visible/clip",
+   "x": 603,
+   "w": 129
+  },
+  {
+   "tag": "DIV",
+   "txt": "SharpRoundedPill",
+   "scrollW": 144,
+   "clientW": 129,
+   "over": 15,
+   "ovf": "visible/clip",
+   "x": 603,
+   "w": 129
+  },
+  {
+   "tag": "DIV",
+   "txt": "FillSolidOutlineSoft\n        Answer layoutGridListCard",
+   "scrollW": 269,
+   "clientW": 258,
+   "over": 11,
+   "ovf": "visible/clip",
+   "x": 603,
+   "w": 258
+  }
+ ],
+ "bleedCount": 38,
+ "bleed": [
+  {
+   "tag": "DIV",
+   "txt": "Accentcategory label · highlights · recommended",
+   "right": 880,
+   "edRight": 861,
+   "over": 19
+  },
+  {
+   "tag": "DIV",
+   "txt": "Accentcategory label · highlights · recommended",
+   "right": 880,
+   "edRight": 861,
+   "over": 19
+  },
+  {
+   "tag": "DIV",
+   "txt": "Accent",
+   "right": 880,
+   "edRight": 861,
+   "over": 19
+  },
+  {
+   "tag": "DIV",
+   "txt": "category label · highlights · recommended",
+   "right": 880,
+   "edRight": 861,
+   "over": 19
+  },
+  {
+   "tag": "DIV",
+   "txt": "Cardquestion card · answer cards · input fields",
+   "right": 880,
+   "edRight": 861,
+   "over": 19
+  },
+  {
+   "tag": "DIV",
+   "txt": "Cardquestion card · answer cards · input fields",
+   "right": 880,
+   "edRight": 861,
+   "over": 19
+  },
+  {
+   "tag": "DIV",
+   "txt": "Card",
+   "right": 880,
+   "edRight": 861,
+   "over": 19
+  },
+  {
+   "tag": "DIV",
+   "txt": "question card · answer cards · input fields",
+   "right": 880,
+   "edRight": 861,
+   "over": 19
+  },
+  {
+   "tag": "DIV",
+   "txt": "Successreassurance · valid states",
+   "right": 880,
+   "edRight": 861,
+   "over": 19
+  },
+  {
+   "tag": "DIV",
+   "txt": "Successreassurance · valid states",
+   "right": 880,
+   "edRight": 861,
+   "over": 19
+  },
+  {
+   "tag": "DIV",
+   "txt": "Success",
+   "right": 880,
+   "edRight": 861,
+   "over": 19
+  },
+  {
+   "tag": "DIV",
+   "txt": "reassurance · valid states",
+   "right": 880,
+   "edRight": 861,
+   "over": 19
+  }
+ ],
+ "headInfo": []
+}
+
+=== 1600 editor clipping census ===
+{
+ "editorRight": 861,
+ "editorW": 258,
+ "clippedCount": 8,
+ "clipped": [
+  {
+   "tag": "DIV",
+   "txt": "Brand primarystepper buttons · progress fill · focus ring · ",
+   "scrollW": 277,
+   "clientW": 258,
+   "over": 19,
+   "ovf": "visible/clip",
+   "x": 603,
+   "w": 258
+  },
+  {
+   "tag": "DIV",
+   "txt": "Brand secondarygradients · secondary emphasis\n        Soft f",
+   "scrollW": 270,
+   "clientW": 258,
+   "over": 12,
+   "ovf": "visible/clip",
+   "x": 603,
+   "w": 258
+  },
+  {
+   "tag": "DIV",
+   "txt": "Headline font\n          \n            PoppinsSpace GroteskFra",
+   "scrollW": 320,
+   "clientW": 258,
+   "over": 62,
+   "ovf": "visible/clip",
+   "x": 603,
+   "w": 258
+  },
+  {
+   "tag": "DIV",
+   "txt": "Display sizeBaseLargeX-LargeXX-Large",
+   "scrollW": 180,
+   "clientW": 129,
+   "over": 51,
+   "ovf": "visible/clip",
+   "x": 603,
+   "w": 129
+  },
+  {
+   "tag": "DIV",
+   "txt": "BaseLargeX-LargeXX-Large",
+   "scrollW": 180,
+   "clientW": 129,
+   "over": 51,
+   "ovf": "visible/clip",
+   "x": 603,
+   "w": 129
+  },
+  {
+   "tag": "DIV",
+   "txt": "CornersSharpRoundedPill",
+   "scrollW": 144,
+   "clientW": 129,
+   "over": 15,
+   "ovf": "visible/clip",
+   "x": 603,
+   "w": 129
+  },
+  {
+   "tag": "DIV",
+   "txt": "SharpRoundedPill",
+   "scrollW": 144,
+   "clientW": 129,
+   "over": 15,
+   "ovf": "visible/clip",
+   "x": 603,
+   "w": 129
+  },
+  {
+   "tag": "DIV",
+   "txt": "FillSolidOutlineSoft\n        Answer layoutGridListCard",
+   "scrollW": 269,
+   "clientW": 258,
+   "over": 11,
+   "ovf": "visible/clip",
+   "x": 603,
+   "w": 258
+  }
+ ],
+ "bleedCount": 38,
+ "bleed": [
+  {
+   "tag": "DIV",
+   "txt": "Accentcategory label · highlights · recommended",
+   "right": 880,
+   "edRight": 861,
+   "over": 19
+  },
+  {
+   "tag": "DIV",
+   "txt": "Accentcategory label · highlights · recommended",
+   "right": 880,
+   "edRight": 861,
+   "over": 19
+  },
+  {
+   "tag": "DIV",
+   "txt": "Accent",
+   "right": 880,
+   "edRight": 861,
+   "over": 19
+  },
+  {
+   "tag": "DIV",
+   "txt": "category label · highlights · recommended",
+   "right": 880,
+   "edRight": 861,
+   "over": 19
+  },
+  {
+   "tag": "DIV",
+   "txt": "Cardquestion card · answer cards · input fields",
+   "right": 880,
+   "edRight": 861,
+   "over": 19
+  },
+  {
+   "tag": "DIV",
+   "txt": "Cardquestion card · answer cards · input fields",
+   "right": 880,
+   "edRight": 861,
+   "over": 19
+  },
+  {
+   "tag": "DIV",
+   "txt": "Card",
+   "right": 880,
+   "edRight": 861,
+   "over": 19
+  },
+  {
+   "tag": "DIV",
+   "txt": "question card · answer cards · input fields",
+   "right": 880,
+   "edRight": 861,
+   "over": 19
+  },
+  {
+   "tag": "DIV",
+   "txt": "Successreassurance · valid states",
+   "right": 880,
+   "edRight": 861,
+   "over": 19
+  },
+  {
+   "tag": "DIV",
+   "txt": "Successreassurance · valid states",
+   "right": 880,
+   "edRight": 861,
+   "over": 19
+  },
+  {
+   "tag": "DIV",
+   "txt": "Success",
+   "right": 880,
+   "edRight": 861,
+   "over": 19
+  },
+  {
+   "tag": "DIV",
+   "txt": "reassurance · valid states",
+   "right": 880,
+   "edRight": 861,
+   "over": 19
+  }
+ ],
+ "headInfo": []
+}

@@ -144,7 +144,7 @@ async function passSharedPage(page: Page): Promise<void> {
 // unforced state) + the per-field Mode select degrades to Manual-only.
 // ===========================================================================
 test.describe("S5C #1 — Maps keyless-degrade honesty", () => {
-  test("no Maps key locally -> the field-set note says so PLAINLY and the Mode select offers Manual only (both screenshotted)", async ({ page, request }) => {
+  test("no Maps key locally -> the field-set note says so PLAINLY and the Mode select still offers the renderer's real Autofill default (R6-4, both screenshotted)", async ({ page, request }) => {
     const s = await createStudioSection(request, `S5C keyless ${uniq}`, [
       { type: "AddressAutocompleteQuestion", question_id: "q_addr", internal_field: "addr" },
     ]);
@@ -155,18 +155,37 @@ test.describe("S5C #1 — Maps keyless-degrade honesty", () => {
     const note = page.locator("[data-address-maps-note]");
     await expect(note).toBeVisible();
     // D8: locally there is no browser key -> the plain, honest keyless copy.
-    await expect(note).toContainText("No Google-Maps key is configured");
-    await expect(note).toContainText("stays Manual");
+    // R2 P8-6 jargon sweep (~70 sites; review-p8-5b/ + review-p8-ship/, jargon
+    // gate TOTAL 0 in verify:all) rewrote this note's exact sentence —
+    // MEASURED live at ui-section-studio.ts:13087. Re-minted to the shipped
+    // copy, same two claims (no key configured / falls back to manual entry).
+    await expect(note).toContainText("this site has no Google-Maps key yet");
+    await expect(note).toContainText("visitors type every field themselves for now");
 
-    // The Mode select for street/city/state/zip offers Manual ONLY (no
-    // Autofill option) — never silently locked with no explanation.
+    // R2 P8 R6-4 (owner A.1 #6, cited verbatim in-file at
+    // ui-section-studio.ts:12796-12922; P8-REGISTER.md M4 row, DEVIATES
+    // evidence: "studio shows 4x Manual for renderer default 4x autofill"):
+    // the pre-R6-4 premise this test pinned — a keyless site locks every row
+    // to Manual-only — was ITSELF the defect R6-4 fixed. The Mode select now
+    // mirrors what the RENDERER actually honours (presets.ts
+    // readAddressFieldSpecs: anything not the literal 'manual' IS autofill),
+    // and the studio's own comment is explicit that "the Maps browser key is
+    // deliberately NOT part of this test — a key is a deployment fact, not an
+    // authoring one." An unconfigured Address (no props.maps at all, this
+    // fixture's exact shape) defaults every row to Autofill, enabled and
+    // selected, matching ADDRESS_DEFAULT_FIELDS — MEASURED live:
+    // options=["Manual","Autofill"], the "autofill" option carries no
+    // `disabled` attribute, and the select's value is "autofill".
     const modeSelects = page.locator("[data-address-field-mode]");
     await expect(modeSelects.first()).toBeVisible();
     const count = await modeSelects.count();
     expect(count).toBeGreaterThan(0);
     for (let i = 0; i < count; i++) {
       const options = await modeSelects.nth(i).locator("option").allTextContents();
-      expect(options, `field ${i} mode options`).toEqual(["Manual"]);
+      expect(options, `field ${i} mode options`).toEqual(["Manual", "Autofill"]);
+      const autoOpt = modeSelects.nth(i).locator('option[value="autofill"]');
+      await expect(autoOpt, `field ${i} Autofill option is offered, never withheld`).not.toHaveAttribute("disabled", "");
+      await expect(modeSelects.nth(i), `field ${i} defaults to the renderer's real autofill default`).toHaveValue("autofill");
     }
 
     // Scroll the honest keyless note itself into frame (centered, so it
@@ -319,7 +338,13 @@ test.describe("S5C #4 — output-format control (currency / number / string)", (
     const sample = page.locator("[data-pb-outputformat-sample]");
     await sample.fill("170000");
     await outputFormat.selectOption("formatCurrency");
-    await expect(page.locator("[data-pb-outputformat-preview]")).toHaveText("170000 → $170,000");
+    // ui-payload-builder.ts updateOutputFormatPreview/outputFormatJsonLiteral
+    // (:2854-2879): the preview deliberately shows the EXACT JSON bytes the
+    // provider receives, quotes included — "the shape half of the truth the
+    // operator needs: '170000' is NOT 170000" (own in-file comment). The
+    // owner's own D9 shape (commit cd4ccc8, SRC-7B) is quoted the same way:
+    // `170000 -> "$170,000"`. Re-minted to the shipped (quoted-string) output.
+    await expect(page.locator("[data-pb-outputformat-preview]")).toHaveText('170000 → "$170,000"');
     await page.screenshot({ path: `${EVIDENCE_DIR}/4-output-format-currency-1280.png` });
 
     const [saveRes] = await Promise.all([

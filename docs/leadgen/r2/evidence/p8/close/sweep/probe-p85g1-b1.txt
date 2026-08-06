@@ -1,0 +1,8 @@
+file:///Users/guyhaikov/a2z-workspaces/kodigital-cms-leadgen-r2-wt/api/scripts/p8/probe-p85g1-b1.mjs:44
+await frame.evaluate(() => {
+            ^
+
+TypeError: Cannot read properties of undefined (reading 'evaluate')
+    at file:///Users/guyhaikov/a2z-workspaces/kodigital-cms-leadgen-r2-wt/api/scripts/p8/probe-p85g1-b1.mjs:44:13
+
+Node.js v25.9.0

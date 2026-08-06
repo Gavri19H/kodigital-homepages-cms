@@ -1,0 +1,18 @@
+
+[1A[2KSSR converged in 16ms (1 poll(s)): currency OFF
+
+[1A[2KAUTHOR five sliders (currency_affix=true) -> HTTP 200
+
+[1A[2K  re-save activation (mints a fresh lg-shell key) -> HTTP 200
+
+[1A[2KSSR converged in 12ms (1 poll(s)): currency ON
+
+[1A[2KCURRENCY TOGGLE: save OFF=HTTP 200 readout="37" captions=[0 , 100] | save ON=HTTP 200 readout="$37" captions=[$0 , $100]
+
+[1A[2K[6/6] [chromium] › test-ui/leadgen-r2p4-slider-drive.spec.ts:534:1 › P4 cleanup: the value pills stack instead of colliding when clamped; Image13 fidelity holds separated
+[1A[2K[chromium] › test-ui/leadgen-r2p4-slider-drive.spec.ts:534:1 › P4 cleanup: the value pills stack instead of colliding when clamped; Image13 fidelity holds separated
+P4 CLEANUP separated: minPill={"x":484.17578125,"y":426.640625,"width":73.296875,"height":23} maxPill={"x":701.2625122070312,"y":426.640625,"width":72.75,"height":23} minBottom=-31px maxBottom=-31px overlap=false
+
+[1A[2KP4 CLEANUP clamped: minPill={"x":656.90234375,"y":458.640625,"width":73.828125,"height":23} maxPill={"x":701.2625122070312,"y":426.640625,"width":72.75,"height":23} minBottom=-63px overlap=false
+
+[1A[2K  6 passed (15.3s)

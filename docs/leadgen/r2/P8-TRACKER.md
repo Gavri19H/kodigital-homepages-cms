@@ -7,7 +7,7 @@ verify:all 0 · runtime 52,762 ≤ 53,248.
 
 ## Phases
 
-- [ ] P8-1 Blockers I (B2, B3, B1, ThemeRecord re-verify) — branch `leadgen-r2-p8-1`
+- [x] **P8-1 Blockers I — MERGED `0f54aeba`** (B2, B3, B1, ThemeRecord re-verify) — branch `leadgen-r2-p8-1`
       Review #1 @ 43e7219 (Opus 5, fresh context, drove all journeys): **FIX-FIRST** — 3 blockers, 5 majors, 5 minors.
       B-1 branch HEAD red + gate log's green run was NOT HEAD (conductor error: the suite was re-run after the
       pin-fix commit but NOT after the cross-IIFE fix commit, which also left the p3a byte-pin stale).
@@ -26,7 +26,7 @@ verify:all 0 · runtime 52,762 ≤ 53,248.
       (471 files)** — the contract's number is correct, so one PRE-EXISTING test stopped registering at HEAD
       (static it() blocks are +16 with zero removals; the 5 touched files match baseline per-file exactly).
       Per-file baseline map captured for an exact diff at the post-fix gate run.
-- [ ] P8-2 Blockers II (B4, B5, M9.3)
+- [x] **P8-2 Blockers II — MERGED `543a3926`** (B4, B5, M9.3)
 - [x] **P8-3 Theme keys honoured — SHIP (review #5, 0 blockers / 0 majors / 4 unreachable-or-scope minors)**
       Merged after 9 gate runs, 8 p3a recaptures (every differing line classified), 5 adversarial reviews.
       Final gate: typecheck 0 · 8156 passed / 0 failed / 30 skipped (8186, 487 files) · verify:all 0 · bundle 52,938/53,248 · register 73 rows / 0 violations · zero-drift 0 removed, 1 intended change, 7724+462=8186.
@@ -48,10 +48,33 @@ verify:all 0 · runtime 52,762 ≤ 53,248.
       S3.11 role "Used by" text · S3.12 the last hardcoded sweep verdict.
       **Final inline sweep: 34/34 ALIVE, 0 DEAD, 0 MIS-TARGETED, 0 UNMEASURABLE** (3 identical runs).
       NOTE: S3.11 changes admin markup, so p3a needs a SECOND recapture before the gate.
-- [ ] P8-4 Templates (M3, M1, M10, M9.1/.2/.4/.5, R7, N6, N9, N12, N17)
-- [ ] P8-5 Studio truth (M5, M6, M7, M4, R6-2/3/4, N14, N15, N16, REQ-R5)
-- [ ] P8-6 Sweep & surface (M8, N2–N5, N8, N10, N13, N19, OWNER rows)
-- [ ] CLOSE (terminal battery + owner-journey sweep + full-program review + report)
+- [x] **P8-4 Templates — MERGED `cddb77a0` (PR #141, squash with P8-5/P8-6)** (M3, M1, M10, M9.1/.2/.4/.5, R7, N6, N9, N12, N17)
+- [x] **P8-5 Studio truth — MERGED `cddb77a0` (PR #141)** (M5, M6, M7, M4, R6-2/3/4, N14, N15, N16, REQ-R5)
+- [x] **P8-6 Sweep & surface — MERGED `cddb77a0` (PR #141)** (M8, N2–N5, N8, N10, N13, N19, OWNER rows)
+      P8-4/5/6 review chain ended **SHIP** (`evidence/p8/review-p8-ship/REVIEW.md`) after FIX-FIRST rounds
+      (`review-p8-4..4d`, `review-p8-5..5b`, `review-p8-combined`, `review-p8-final`, `review-p8-merge`).
+- [x] **CLOSE — COMPLETE (branch `leadgen-r2-p8-close` tip `e6b3253c`, squash-merged to the base on the final SHIP)**
+      (terminal battery + owner-journey sweep + full-program review + report)
+      Review chain: full-program review (Opus, fresh) **FIX-FIRST 1 BL / 6 MJ / 6 MN** → fix round
+      (F-A product slice + conductor register/doc pass + W-fixes) → scoped re-review **FIX-FIRST
+      0 BL / 4 MJ (all mechanical, product driven PERFECT)** → round-4 repairs → final verification
+      **SHIP** (all six repairs verified by independent hand; residual nits named in ADJ-P8-65).
+      Terminal truth: unit 8419/0/30 (8449, 500 files) · browser battery 784/20/24 with every red
+      attributed · register 110 rows / 0 violations / all PASS+DEVIATES evidenced · owner-journey
+      sweep by count · N18 resolved on the reviewer's driven step · owner packet = the BLOCKED rows
+      (incl. new ADJ-P8-56..65) + B1-GOOGLE's cutover step + pattern-a bless (ADJ-P8-63) +
+      ADJ-P8-36's ruling (also settles the two expected-fail preset-corner specs).
+      2026-08-05: machine restart killed the first terminal-battery classification mid-run; state recovered
+      from the tracker/register/git + the session transcript. Comparable 30-spec re-run at BOTH shas
+      (fresh D1+seed, isolated ports, alphabetical, per-spec playwright): baseline 12 failures / HEAD-30
+      51 failures. Verdict vs the polluted 101-run: 3 of 21 "introduced" were state-pollution artifacts
+      (green in the clean HEAD run), 18 reproduce clean = REAL browser-level drift the unit-only phase
+      gates never saw. Root-caused so far: `PATCH /themes/:id` 500s with D1 "LIKE or GLOB pattern too
+      complex" (spans ≥4 specs; W1 Opus dispatch); footer `links_source` dropped on frame round-trip while
+      `ui-section-studio.ts:4894` still writes it (W2a); the rest are stale pins on deliberately-shipped
+      P8 behaviour (apply-template `dry_run` preview, jargon-sweep copy, `custom` icon enum, G3c
+      per-subfield validation parity) — each re-mint must cite the shipped P8 evidence.
+      Comparable-run logs: `/Users/guyhaikov/a2z-workspaces/p8-close-rerun/{base,head}/` (durable).
 
 ## P8-4 conductor rulings (made before the fix round, so slices do not re-litigate them)
 
@@ -108,6 +131,13 @@ was alignment's PAINT. Recorded so the review does not chase the contract's orig
 | P8-3 | F2 jargon label (sonnet) | sonnet | 132,224 | 700s | '(legacy)' → '(shows as default font)' on BOTH surfaces; jargon gate TOTAL 0 |
 | P8-3 | REVIEW #1 (opus, fresh) | opus | 330,991 | 2122s | **FIX-FIRST** — 1 blocker, 3 majors, 11 minors; re-drove B3 + B5 (both PERFECT); confirmed every gate count, F1's 8 pin updates, p3a×3, security clean |
 | P8-3 | S3.3 guard extend + re-predicate (opus) | opus | 266,106 | 1984s | 129 keys enumerated from source (34+25+66+4; the 34+25 reconciles to R3's 59); 4 exemptions all "no control offers this", exact-set pinned; ZERO dead-and-offered; sabotage red-proof 7 failed → restore → 47 passed |
+| CLOSE | W1 theme-PATCH 500 root fix (opus) | opus | 114,403 | 1047s | D1 50-byte LIKE cap; fix + 3 unit cases; re-greened 4 specs; sweep live-proved 4 more 500-able list routes (ADJ-P8-56) |
+| CLOSE | W2a templates/footer cluster (sonnet) | sonnet | 415,334 | 3960s | REFUTED the conductor's links_source product-bug lead by measurement; 5 spec files re-minted w/ citations; page-A pixel diff STOPPED for ruling |
+| CLOSE | W2b copy/studio cluster (sonnet) | sonnet | 589,183 | 5397s | PRODUCT fix ui-theme-manager §8.4 side-by-side (never engaged 1280–1600); 7 spec re-mints; pattern-A baselines regenerated per conductor ruling; ADJ-P8-36 conflict correctly STOPPED |
+| CLOSE | W2c from_to/slider trio (sonnet) | sonnet | 177,846 | 1219s | 3 stale pins re-minted to shipped J1/M5 semantics; box=rail=pill=payload equality kept strict; 14/14 |
+| CLOSE | FULL-PROGRAM REVIEW (opus, fresh) | opus | 352,465 | 2920s | **FIX-FIRST — 1 blocker, 6 majors, 6 minors**; refuted the conductor's N18 reasoning by producing a live .lg-logo and executing the owner's step on it; recomputed the classification; found the register's 22 unflipped rows (BL-1), the §8.4 1280 gap, the unconsumed warning, the pattern-a authority overstep |
+| CLOSE | scout: 22-row verdict citations (sonnet) | sonnet | 207,671 | 997s | citation map for the BL-1 write-back incl. the review-corpus chronology correction (combined→final→merge→ship); flagged M9 as genuinely partial and N6's unverified F-4 leg |
+| CLOSE | F-A §8.4 1280 + warning consumer (opus) | opus | 227,693 | 1968s | side-by-side delivered at 1024–1600 (owner mock width incl.), 375/N7 intact, four-at-1280 proven impossible (nav 250px), trade stated in-file; comment rot swept; cache_refresh_warning wired to #tm-error; 3f→8p, blast 140/140, spec 7×4 |
 
 Two near-identical names that are DIFFERENT keys — do not conflate them in review:
 `ThemeJson.spacing` (theme.ts:566, offered as the rail's "Spacing" control at themes.ts:255, ALIVE via

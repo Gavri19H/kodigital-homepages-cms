@@ -1,0 +1,44 @@
+=== ADJ-P8-56 spot-verify: GET /offers?search=<47 chars> then <49 chars> ===
+  offers search len=47 -> HTTP 200  body={"items":[],"paging":{"page":1,"page_size":25,"total":0,"has_next":false,"has_prev":false}
+  offers search len=49 -> HTTP 500  body={"error":"Internal Server Error"}
+  offers search len=60 -> HTTP 500  body={"error":"Internal Server Error"}
+=== the other three named routes ===
+  auctions search len=49 -> HTTP 500  body={"error":"Internal Server Error"}
+  sections search len=49 -> HTTP 500  body={"error":"Internal Server Error"}
+  quotes search len=49 -> HTTP 500  body={"error":"Internal Server Error"}
+=== and the theme PATCH that CLOSE fixed (49+ char id) — already 200 above; re-assert DELETE on a long id (ADJ-P8-27 class) ===
+  DELETE long-id theme -> HTTP 409
+{"error":"This theme is used by 1 funnel (R2Fix Fixture Quote — Funnel A) — assign them a different theme first, then delete this one.","usage":{"funnels":[{"public_id":"lgf_01KZA7YXK10NK813Q32P1Q
+=== create UNUSED long-named theme (name len 88) ===
+curl: (2) no URL specified
+curl: try 'curl --help' or 'curl --manual' for more information
+Traceback (most recent call last):
+  File "<string>", line 1, in <module>
+    import json;print(json.load(open('/tmp/nt.json'))['item']['id'])
+                                ~~~~^^^^^^^^^^^^^^^^
+FileNotFoundError: [Errno 2] No such file or directory: '/tmp/nt.json'
+  id=  len=0
+=== PATCH-that-changes-something on the long id ===
+  PATCH HTTP=404
+=== DELETE the unused long id ===
+  DELETE HTTP=404
+{"error":"Not Found","path":"/api/admin/leadgen/themes/"}
+=== create UNUSED long-named theme ===
+  POST HTTP=400
+Traceback (most recent call last):
+  File "<string>", line 1, in <module>
+    import json;print(json.load(open('/tmp/nt.json'))['item']['id'])
+                      ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~^^^^^^^^
+KeyError: 'item'
+  id=  len=0
+=== PATCH-that-changes-something ===
+  PATCH HTTP=404
+=== DELETE ===
+  DELETE HTTP=404
+{"error":"Not Found","path":"/api/admin/leadgen/themes/"}
+NAME_LEN 73
+  POST HTTP=201
+  id=thm_unused-long-theme-adj-p8-27-retest-deliberately-long-operator-name-977930  idlen=77
+  PATCH(change) HTTP=200
+  DELETE(unused) HTTP=200
+{"ok":true,"id":"thm_unused-long-theme-adj-p8-27-retest-deliberately-long-operator-name-977930","items":[{"id":"thm_prog

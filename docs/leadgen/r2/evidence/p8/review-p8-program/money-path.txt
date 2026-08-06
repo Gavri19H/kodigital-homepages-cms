@@ -1,0 +1,30 @@
+[1280] slider step: {"boxes":[{"f":"","lbl":"From ($)","v":"0","min":"0","max":"100000","step":"5000"},{"f":"","lbl":"To ($)","v":"100000","min":"0","max":"100000","step":"5000"}],"rails":[{"f":"","lbl":"From","v":"0","min":"0","max":"100000","step":"5000"},{"f":"","lbl":"To","v":"100000","min":"0","max":"100000","step":"5000"}],"headline":"Which carrier do you want a quote from?"}
+[1280] typed "40" into "To ($)": value before blur=4000000 after blur=100000
+[1280] pills: []
+[1280] auction POSTs: 0
+[1280] pageerrors= 0 []
+[375] slider step: {"boxes":[{"f":"","lbl":"From ($)","v":"0","min":"0","max":"100000","step":"5000"},{"f":"","lbl":"To ($)","v":"100000","min":"0","max":"100000","step":"5000"}],"rails":[{"f":"","lbl":"From","v":"0","min":"0","max":"100000","step":"5000"},{"f":"","lbl":"To","v":"100000","min":"0","max":"100000","step":"5000"}],"headline":"Which carrier do you want a quote from?"}
+[375] typed "40" into "To ($)": value before blur=4000000 after blur=100000
+[375] pills: []
+[375] auction POSTs: 0
+[375] pageerrors= 0 []
+[1280] number boxes=0 toIdx=-1
+node:internal/modules/run_main:107
+    triggerUncaughtException(
+    ^
+
+locator.click: Timeout 30000ms exceeded.
+Call log:
+[2m  - waiting for locator('input[type=number]:visible').last()[22m
+
+    at /private/tmp/claude-501/-Users-guyhaikov-a2z-workspaces/09f7e6a2-8f7b-4b0f-ac0d-bec9ce3202d8/scratchpad/money2.mjs:24:10 {
+  name: 'TimeoutError'
+}
+
+Node.js v25.9.0
+[1280] STEP2 typed 40 into To -> cleared="" preBlur="40" postBlur="40" rails=[{"l":"From","v":"0"},{"l":"To","v":"0"}] pills=[]
+[1280] auction POSTs=0
+[1280] pageerrors= 0 []
+[375] STEP2 typed 40 into To -> cleared="" preBlur="40" postBlur="40" rails=[{"l":"From","v":"0"},{"l":"To","v":"0"}] pills=[]
+[375] auction POSTs=0
+[375] pageerrors= 0 []

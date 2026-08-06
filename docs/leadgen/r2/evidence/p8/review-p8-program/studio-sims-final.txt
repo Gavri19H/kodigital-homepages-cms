@@ -1,0 +1,10 @@
+[1280] sim button box: {"w":55,"h":25}
+[1280] error: previewPOSTs=1 {"shownErrors":[],"invalidFields":[],"validTargets":[]}
+[1280] validation_error: previewPOSTs=1 {"shownErrors":[],"invalidFields":[],"validTargets":[]}
+[1280] validation_success: previewPOSTs=1 {"shownErrors":[],"invalidFields":[],"validTargets":[]}
+[1280] pageerrors= 0 []
+[375] sim button box: {"w":55,"h":25}
+[375] error: previewPOSTs=1 {"shownErrors":[],"invalidFields":[],"validTargets":[]}
+[375] validation_error: previewPOSTs=1 {"shownErrors":[],"invalidFields":[],"validTargets":[]}
+[375] validation_success: previewPOSTs=1 {"shownErrors":[],"invalidFields":[],"validTargets":[]}
+[375] pageerrors= 0 []

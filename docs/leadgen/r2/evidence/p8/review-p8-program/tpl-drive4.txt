@@ -1,0 +1,29 @@
+BEFORE frame_config= null tpl_id= undefined
+apply btn visible: true
+PICKER ROWS: [{"t":"Centered cardCard layout · Bar progress","id":"","ds":"{\"applyChoice\":\"lgft_27C8599CAD3F5F588CE15E3855\"}"},{"t":"Site header + footerBare layout · Bar progress","id":"","ds":"{\"applyChoice\":\"lgft_10AC18A85185DF737340B7F01B\"}"},{"t":"Header + call CTACard layout · Bar progress","id":"","ds":"{\"applyChoice\":\"lgft_92537B2E5694CE5BD400C3A25B\"}"},{"t":"Full backgroundCard layout · Dots progress","id":"","ds":"{\"applyChoice\":\"lgft_4FF870535354BE315643FB802D\"}"},{"t":"White + trust barBare layout · Bar progress","id":"","ds":"{\"applyChoice\":\"lgft_F2D10A251504B4E38421194D44\"}"},{"t":"MinimalBare layout · Bar progress · No footer","id":"","ds":"{\"applyChoice\":\"lgft_A0CE6724D4D08E0C6464EE7DCD\"}"},{"t":"Cancel","id":"lg-tpl-apply-cancel-btn","ds":"{}"}]
+wt count: 1
+CONFIRM: {
+ "visible": true,
+ "lines": [
+  "\"White + trust bar\" becomes this funnel’s layout template.",
+  "The question unit changes from a card to a bare layout.",
+  "The header scrolls away with the page.",
+  "The page background colour becomes card background."
+ ],
+ "err": null
+}
+APPLY REQS: [
+ {
+  "m": "POST",
+  "body": "{\"template_id\":5,\"dry_run\":true}"
+ }
+]
+APPLY RES: [
+ {
+  "s": 200,
+  "b": "{\"funnel_id\":\"lgf_01KZA7YXK10NK813Q32P1Q9WQ6\",\"frame_template_id\":5,\"applied\":false,\"changes\":[{\"path\":\"template\",\"from\":\"centered\",\"to\":\"white-trust\"},{\"path\":\"header.logo_size\",\"from\":\"m\",\"to\":\"s\"},{\"path\":\"header.sticky\",\"from\":true,\"to\":false},{\"path\":\"trust_strip.placement\",\"from\":\"below_unit\",\"to\":\"footer\"},{\"path\":\"background.role\",\"from\":\"page_background\",\"to\":\"card_background\"},{\"path\":\"section_slot.card\",\"from\":\"card\",\"to\":\"bare\"}],\"replaced_customisations\":[],\"confirmations\":[\"The question unit changes from a card to a bare layout.\",\"The header scrolls away with the page.\",\"The page background colour becomes card background.\"]}"
+ }
+]
+cancelled: true AFTER-CANCEL frame_config= null tpl_id= undefined
+CANCEL-UNTOUCHED: true
+errs: 0 []

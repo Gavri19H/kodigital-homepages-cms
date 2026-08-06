@@ -230,7 +230,22 @@ function wrapFor(page: Page, qid: string): Locator {
 // 40px of top margin (pill clearance) and the label sits above the wrapper's
 // border box, so an element-only shot would cut exactly the anatomy under
 // review. Clamped to the viewport.
+//
+// Own-hand measurement at HEAD (this spec's TEMP-PROBE run, 1280x1000): with
+// all five §6.8 sliders stacked on one page and NOTHING scrolling between
+// blocks, the wrapper's un-scrolled bounding box grows with each slider —
+// single y=132.6, stepper y=344.6, from_to y=624.6, dual_range y=930.6,
+// radial y=1084.6 — so radial's `clip.y` (1022.6) falls past the 1000px
+// viewport `page.screenshot` (non-fullPage) actually captures, throwing
+// "Clipped area is either empty or outside the resulting image". This is a
+// stale clip against the shipped P8-5 slider markup's added vertical anatomy
+// (J1 handle/geometry work grew the stack), not a fixed pixel constant to
+// chase — so the fix is structural: scroll the element into view (as every
+// other geometry helper in this drive already does) BEFORE reading its box,
+// making the clip always relative to what is actually on screen.
 async function shot(page: Page, l: Locator, path: string): Promise<void> {
+  await l.evaluate((el) => (el as Element).scrollIntoView({ block: "center" }));
+  await page.waitForTimeout(150);
   const b = await l.boundingBox();
   if (b === null) throw new Error(`no box for ${path}`);
   const vp = page.viewportSize() ?? { width: 1280, height: 1000 };

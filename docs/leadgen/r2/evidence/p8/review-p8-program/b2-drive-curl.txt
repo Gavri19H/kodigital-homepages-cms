@@ -1,0 +1,33 @@
+== B2 leg: served page state after the FIRST patch (#AB1234) ==
+  bytes=   84954  --lg-primary=--lg-primary:#AB1234  ab1234_count=18  112233_count=0
+== cv before 2nd patch ==
+  content_version = 4
+== PATCH #2: brand_primary -> #3D9970 (no activation save) ==
+
+  HTTP=200
+  cache_refresh_warning: ABSENT (good)
+== cv after 2nd patch ==
+  content_version = 5
+== ONE fresh ?_cb visitor fetch AFTER patch#2 ==
+  bytes=   84954  --lg-primary=--lg-primary:#3D9970  3D9970_count=18  AB1234_count=0
+node:internal/modules/package_json_reader:301
+  throw new ERR_MODULE_NOT_FOUND(packageName, fileURLToPath(base), null);
+        ^
+
+Error [ERR_MODULE_NOT_FOUND]: Cannot find package 'playwright' imported from /private/tmp/claude-501/-Users-guyhaikov-a2z-workspaces/09f7e6a2-8f7b-4b0f-ac0d-bec9ce3202d8/scratchpad/shot.mjs
+    at Object.getPackageJSONURL (node:internal/modules/package_json_reader:301:9)
+    at packageResolve (node:internal/modules/esm/resolve:764:81)
+    at moduleResolve (node:internal/modules/esm/resolve:855:18)
+    at defaultResolve (node:internal/modules/esm/resolve:988:11)
+    at #cachedDefaultResolve (node:internal/modules/esm/loader:697:20)
+    at #resolveAndMaybeBlockOnLoaderThread (node:internal/modules/esm/loader:714:38)
+    at ModuleLoader.resolveSync (node:internal/modules/esm/loader:746:52)
+    at #resolve (node:internal/modules/esm/loader:679:17)
+    at ModuleLoader.getOrCreateModuleJob (node:internal/modules/esm/loader:599:35)
+    at ModuleJob.syncLink (node:internal/modules/esm/module_job:162:33) {
+  code: 'ERR_MODULE_NOT_FOUND'
+}
+
+Node.js v25.9.0
+VIEW 1280 {"primaryVar":"","btnSel":"lg-back","btnBg":"rgba(0, 0, 0, 0)","btnBorder":"rgb(113, 128, 150)","scrollW":1280,"innerW":1280,"logoCount":0,"logoImgCount":0,"fallbackChip":0,"headerClass":null} pageerrors= 0 []
+VIEW 375 {"primaryVar":"","btnSel":"lg-back","btnBg":"rgba(0, 0, 0, 0)","btnBorder":"rgb(113, 128, 150)","scrollW":375,"innerW":375,"logoCount":0,"logoImgCount":0,"fallbackChip":0,"headerClass":null} pageerrors= 0 []

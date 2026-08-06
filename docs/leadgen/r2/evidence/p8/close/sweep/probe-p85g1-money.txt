@@ -1,0 +1,6 @@
+
+=== P8-5 G1 MONEY-PATH PROBE (before) /lg/r2fix ===
+step 0: 0 visible input(s)
+step 1: 0 visible input(s)
+POST /lg/auction requests: 1
+  answers object: {"r2fix_carrier":{"value":"acme_insurance","answer_source":"user_selected"}}

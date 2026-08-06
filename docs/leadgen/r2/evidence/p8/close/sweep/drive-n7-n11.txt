@@ -1,0 +1,19 @@
+# P8-3 N7 / N11 conductor drive — 1280, real admin editor
+presets present: 0
+page errors: ["console: Failed to load resource: the server responded with a status of 404 (Not Found)"]
+
+## N7 — truncation of each visible theme select's OWN displayed value
+key                              label                              text  content box   verdict
+
+truncated selects: 0 of 0
+
+## N11 — preset actions with presets PRESENT
+{
+  "apply": {
+    "present": false
+  },
+  "ab": {
+    "present": false
+  },
+  "help": null
+}

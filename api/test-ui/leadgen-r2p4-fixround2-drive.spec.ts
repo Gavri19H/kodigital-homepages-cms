@@ -375,15 +375,25 @@ for (const width of [1280, 375]) {
     expectAgreement(g, 25000, 80000, "G From paste");
 
     // --- final OUT-OF-ORDER values: F-1's own guarantee, still held ---------
-    // To below From -> the whole surface must show the one-step clamp, and the
-    // box may NOT keep showing a number that never left the browser.
-    say(` H. To final out-of-order 5000 (below From=25000) -> one-step clamp`);
+    // To below From -> the whole surface must show ONE agreed number, and the
+    // box may NOT keep showing a number that never left the browser. P8-5/J1
+    // removed the FIX-FIRST-2 one-step-short grid clamp this used to pin
+    // (25000/30000): a GENUINE ordering conflict now corrects — at commit — to
+    // the NEIGHBOUR's EXACT value (P8-REGISTER ADJ-P8-51: "a genuine ordering
+    // conflict corrects to the neighbour's EXACT value … instead of the grid
+    // number"). Measured at HEAD (this spec's own silenced-assertion probe,
+    // both viewports): box/rail/pill all converge on 25000 (From's value),
+    // not 30000 — pinned exactly as measured, box == rail == pill.
+    say(` H. To final out-of-order 5000 (below From=25000) -> coincides with From`);
     const h = await retype(page, to, "5000", "H");
-    expectAgreement(h, 25000, 25000 + STEP, "H To out-of-order");
-    // From above To -> same, from the other side.
-    say(` I. From final out-of-order 90000 (above To=30000) -> one-step clamp`);
+    expectAgreement(h, 25000, 25000, "H To out-of-order");
+    // From above To -> same, from the other side. H already left To at 25000
+    // (not the old 30000), so the precondition here is From=25000/To=25000 —
+    // typing 90000 into From is still a genuine inversion against To=25000,
+    // and measured at HEAD it corrects to the same coincident 25000/25000.
+    say(` I. From final out-of-order 90000 (above To=25000, post-H) -> coincides with To`);
     const i = await retype(page, from, "90000", "I");
-    expectAgreement(i, 30000 - STEP, 30000, "I From out-of-order");
+    expectAgreement(i, 25000, 25000, "I From out-of-order");
 
     // --- an OFF-GRID committed value (not a multiple of `step`) -------------
     // Kept in the matrix because it is the one commit shape where a surface
@@ -464,8 +474,13 @@ test("N-1 payload: the two decisive cases bill the number the visitor committed"
   expect(row1.payload[`${FIELD}_min`], "case 1 bills the typed From").toBe(35000);
   expect(row1.payload[`${FIELD}_max`], "case 1 bills the typed To (N-1 billed 100000)").toBe(60000);
 
-  // Case 2 (F-1's own guarantee): a final out-of-order value bills the CLAMP,
-  // and the box the visitor is looking at shows that same clamp.
+  // Case 2 (F-1's own guarantee): a final out-of-order value bills the
+  // NEIGHBOUR'S EXACT VALUE (P8-5/J1 coincidence, not the old FIX-FIRST-2
+  // one-step-short grid clamp — P8-REGISTER ADJ-P8-51), and the box the
+  // visitor is looking at shows that same coincident number. Measured at HEAD
+  // (this spec's own silenced-assertion probe): committed snap =
+  // {from:"35000",to:"35000",railLo:"35000",railHi:"35000",pillMin/Max:"$35,000"}
+  // — box, rail and pill all converge on 35000 (From's value), not 40000.
   const page2 = await page.context().newPage();
   await openFunnel(page2, 1280);
   const w2 = wrapFor(page2);
@@ -474,14 +489,14 @@ test("N-1 payload: the two decisive cases bill the number the visitor committed"
   say(`\n=== N-1 payload case 2: From 35000 typed, To 20000 typed (out of order) ===`);
   await retype(page2, w2.locator(".lg-range-from"), "35000", "P2a");
   const c2 = await retype(page2, w2.locator(".lg-range-to"), "20000", "P2b");
-  expectAgreement(c2, 35000, 35000 + STEP, "payload case 2 pre-submit");
+  expectAgreement(c2, 35000, 35000, "payload case 2 pre-submit");
   await page2.locator('[data-lg-choice="acme_insurance"]').first().click();
   await page2.locator("[data-lg-continue]:visible").first().click();
   await page2.waitForTimeout(3000);
   const row2 = readProviderRow();
   say(`case 2 provider row id=${row2.id} payload=${JSON.stringify(row2.payload)}`);
   expect(row2.payload[`${FIELD}_min`]).toBe(35000);
-  expect(row2.payload[`${FIELD}_max`], "case 2 bills the clamp the box shows").toBe(35000 + STEP);
+  expect(row2.payload[`${FIELD}_max`], "case 2 bills the coincident value the box shows").toBe(35000);
 });
 
 // ---------------------------------------------------------------------------

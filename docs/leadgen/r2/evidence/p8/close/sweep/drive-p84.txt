@@ -1,0 +1,12 @@
+frame_config BEFORE apply: null
+saved records: 6; 1:Centered card | 2:Site header + footer | 3:Header + call CTA | 4:Full background | 5:White + trust bar | 6:Minimal
+picked record 1 "Centered card"
+DRY RUN on 1: changes=? replaced=null
+confirmations:
+APPLIED: status=404 changes=?
+frame_config AFTER apply (stored leaves): 0 {}
+RE-APPLY dry run: changes=undefined replaced=undefined
+visitor before: {"frameClasses":null,"header":null,"progressRegion":null,"slot":null,"bgClass":null,"bgPaint":null,"sticky":null}
+visitor after : {"frameClasses":null,"header":null,"progressRegion":null,"slot":null,"bgClass":null,"bgPaint":null,"sticky":null}
+page errors: none
+RESTORED frame_config: null
