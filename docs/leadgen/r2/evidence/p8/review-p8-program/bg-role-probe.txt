@@ -1,0 +1,40 @@
+  "html": {
+   "bg": "rgba(0, 0, 0, 0)",
+   "cls": ""
+  },
+  "body": {
+   "bg": "rgba(0, 0, 0, 0)",
+   "cls": ""
+  },
+  "[data-funnel-design]": {
+   "bg": "rgb(255, 255, 255)",
+   "cls": "lg-frame lg-frame--white-trust"
+  },
+  ".lg-frame": {
+   "bg": "rgb(255, 255, 255)",
+   "cls": "lg-frame lg-frame--white-trust"
+  },
+  ".lg-frame-background": {
+   "bg": "rgb(245, 245, 245)",
+   "cls": "lg-frame-background lg-frame-bg-role-card_background lg-fram"
+  },
+  ".lg-frame-region": {
+   "bg": "rgba(0, 0, 0, 0)",
+   "cls": "lg-frame-region lg-frame-header lg-frame-header--center lg-f"
+  },
+  ".lg-question-card": {
+   "bg": "rgba(0, 0, 0, 0)",
+   "cls": "lg-question-card"
+  }
+ },
+ "bgRulesSample": [],
+ "hasFrameBgVar": false,
+ "frameBgDecls": [
+  ".lg-frame-header-extras{background:#FFFFFF;",
+  ".lg-frame-header-cta{display:inline-block;background:#1B3A5C;",
+  ".lg-frame-back--button .lg-back{background:#F5F5F5;",
+  ".lg-frame-slot--bare .lg-question-card{background:transparent;",
+  ".lg-frame-benefit{background:#F2F6FA;",
+  ".lg-frame-footer-disclosure{background:#F2F6FA;"
+ ]
+}

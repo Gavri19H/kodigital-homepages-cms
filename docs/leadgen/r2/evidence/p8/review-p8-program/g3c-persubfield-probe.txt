@@ -1,0 +1,34 @@
+===== error =====
+  aria-invalid=true: 1
+    invalid: rvw_note | ph: -
+  lg-valid: 0
+  error <p>: 6
+     HIDDEN  <p class="lg-error lg-error-auto" role="alert" aria-live="polite" hidden data-lg-error-for="rvw_addr_street" style="color:#D32F2F"></p>
+     HIDDEN  <p class="lg-error lg-error-auto" role="alert" aria-live="polite" hidden data-lg-error-for="rvw_addr_city" style="color:#D32F2F"></p>
+     HIDDEN  <p class="lg-error lg-error-auto" role="alert" aria-live="polite" hidden data-lg-error-for="rvw_addr_state" style="color:#D32F2F"></p>
+     HIDDEN  <p class="lg-error lg-error-auto" role="alert" aria-live="polite" hidden data-lg-error-for="rvw_addr_zip" style="color:#D32F2F"></p>
+     HIDDEN  <p class="lg-error lg-error-auto" role="alert" aria-live="polite" hidden data-lg-error-for="rvw_addr" style="color:#D32F2F"></p>
+     SHOWN   <p class="lg-error lg-error-auto" role="alert" aria-live="polite" data-lg-error-for="rvw_note" style="color:#D32F2F">This field is required.</p>
+===== validation_error =====
+  aria-invalid=true: 1
+    invalid: - | ph: ZIP
+  lg-valid: 0
+  error <p>: 6
+     HIDDEN  <p class="lg-error lg-error-auto" role="alert" aria-live="polite" hidden data-lg-error-for="rvw_addr_street" style="color:#D32F2F"></p>
+     HIDDEN  <p class="lg-error lg-error-auto" role="alert" aria-live="polite" hidden data-lg-error-for="rvw_addr_city" style="color:#D32F2F"></p>
+     HIDDEN  <p class="lg-error lg-error-auto" role="alert" aria-live="polite" hidden data-lg-error-for="rvw_addr_state" style="color:#D32F2F"></p>
+     SHOWN   <p class="lg-error lg-error-auto" role="alert" aria-live="polite" data-lg-error-for="rvw_addr_zip" style="color:#D32F2F">Enter a valid 5-digit ZIP code.</p>
+     HIDDEN  <p class="lg-error lg-error-auto" role="alert" aria-live="polite" hidden data-lg-error-for="rvw_addr" style="color:#D32F2F"></p>
+     HIDDEN  <p class="lg-error lg-error-auto" role="alert" aria-live="polite" hidden data-lg-error-for="rvw_note" style="color:#D32F2F"></p>
+===== validation_success =====
+  aria-invalid=true: 0
+  lg-valid: 2
+    lg-valid on: <div class="lg-address lg-address-fieldset lg-valid" data-component-type="AddressAutocompleteQuestion" data-question-id=
+    lg-valid on: <input class="lg-input lg-valid" type="text" data-component-type="FreeTextQuestion" data-question-id="rvw_note" data-que
+  error <p>: 6
+     HIDDEN  <p class="lg-error lg-error-auto" role="alert" aria-live="polite" hidden data-lg-error-for="rvw_addr_street" style="color:#D32F2F"></p>
+     HIDDEN  <p class="lg-error lg-error-auto" role="alert" aria-live="polite" hidden data-lg-error-for="rvw_addr_city" style="color:#D32F2F"></p>
+     HIDDEN  <p class="lg-error lg-error-auto" role="alert" aria-live="polite" hidden data-lg-error-for="rvw_addr_state" style="color:#D32F2F"></p>
+     HIDDEN  <p class="lg-error lg-error-auto" role="alert" aria-live="polite" hidden data-lg-error-for="rvw_addr_zip" style="color:#D32F2F"></p>
+     HIDDEN  <p class="lg-error lg-error-auto" role="alert" aria-live="polite" hidden data-lg-error-for="rvw_addr" style="color:#D32F2F"></p>
+     HIDDEN  <p class="lg-error lg-error-auto" role="alert" aria-live="polite" hidden data-lg-error-for="rvw_note" style="color:#D32F2F"></p>

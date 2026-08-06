@@ -1,0 +1,56 @@
+comparable BASE30: specs=30 passed=254 failed=12 skipped=2 specs_with_failures=8
+comparable HEAD30: specs=30 passed=208 failed=51 skipped=2 specs_with_failures=27
+FULL-BATTERY(head, fixed tree): specs=101 passed=784 failed=20 skipped=24 specs_with_failures=15
+
+PER-SPEC comparable classification (base_fail -> head_fail):
+  __p1b-render.spec.ts                                           base=0 head=0  
+  __p2c-studio.spec.ts                                           base=0 head=3  INTRODUCED
+  __p5a-frame.spec.ts                                            base=0 head=1  INTRODUCED
+  __p6b-theme-mgr.spec.ts                                        base=0 head=1  INTRODUCED
+  __r2-dead-controls-drive.spec.ts                               base=2 head=2  PRE-EXISTING(both red)
+  __r2-logo-progress-drive.spec.ts                               base=0 head=1  INTRODUCED
+  forensic-live-probe.spec.ts                                    base=1 head=1  PRE-EXISTING(both red)
+  leadgen-canvas-interactions.gesture.spec.ts                    base=2 head=2  PRE-EXISTING(both red)
+  leadgen-operator-acceptance.gesture.spec.ts                    base=0 head=2  INTRODUCED
+  leadgen-patterns-v25.spec.ts                                   base=0 head=6  INTRODUCED
+  leadgen-quote-builder.spec.ts                                  base=0 head=1  INTRODUCED
+  leadgen-r2p1-fixround-smoke.spec.ts                            base=0 head=0  
+  leadgen-r2p4-fixfirst-drive.spec.ts                            base=0 head=1  INTRODUCED
+  leadgen-r2p4-fixround2-drive.spec.ts                           base=0 head=1  INTRODUCED
+  leadgen-r2p4-slider-drive.spec.ts                              base=0 head=1  INTRODUCED
+  leadgen-r2p5-s5c-drive.spec.ts                                 base=0 head=2  INTRODUCED
+  leadgen-r2p6-f1-preset-corners-drive.spec.ts                   base=0 head=2  INTRODUCED
+  leadgen-r2p6-f1b-preset-corners-survive-rail-edit-drive.spec.ts base=0 head=2  INTRODUCED
+  leadgen-r2p6-themefix-drive.spec.ts                            base=0 head=1  INTRODUCED
+  leadgen-r2p7-f3-fork-survival-drive.spec.ts                    base=0 head=2  INTRODUCED
+  leadgen-r2p7-owner-drive.spec.ts                               base=0 head=1  INTRODUCED
+  leadgen-r6-activation-preflight.spec.ts                        base=0 head=1  INTRODUCED
+  leadgen-rework-acceptance-builder.gesture.spec.ts              base=1 head=6  PRE-EXISTING(both red)
+  leadgen-rework-acceptance-routing.gesture.spec.ts              base=0 head=1  INTRODUCED
+  leadgen-rework-p4-templates.gesture.spec.ts                    base=0 head=3  INTRODUCED
+  leadgen-rework-p4-themes.gesture.spec.ts                       base=2 head=2  PRE-EXISTING(both red)
+  leadgen-studio-patterns.spec.ts                                base=0 head=2  INTRODUCED
+  leadgen-v31-gate1c-baselines.spec.ts                           base=1 head=1  PRE-EXISTING(both red)
+  leadgen-visual.spec.ts                                         base=2 head=2  PRE-EXISTING(both red)
+  listicles-manual-qa.spec.ts                                    base=1 head=0  FIXED-BY-P8
+
+COUNTS: introduced_specs=20 introduced_failures=35
+        both-red_specs=7 base_failures=11 head_failures=16
+        fixed_specs=1 base_failures=1
+
+FULL-BATTERY specs with failures (the 20):
+  __r2-dead-controls-drive.spec.ts                               passed=0 failed=2 skipped=0 status=1
+  __r2-logo-progress-drive.spec.ts                               passed=0 failed=1 skipped=0 status=1
+  forensic-live-probe.spec.ts                                    passed=25 failed=1 skipped=0 status=1
+  leadgen-canvas-interactions.gesture.spec.ts                    passed=8 failed=2 skipped=0 status=1
+  leadgen-quote-builder.spec.ts                                  passed=5 failed=1 skipped=0 status=1
+  leadgen-r2p1-fixround-smoke.spec.ts                            passed=1 failed=1 skipped=0 status=1
+  leadgen-r2p4-fixfirst-drive.spec.ts                            passed=0 failed=1 skipped=0 status=1
+  leadgen-r2p4-fixround2-drive.spec.ts                           passed=0 failed=1 skipped=0 status=1
+  leadgen-r2p4-slider-drive.spec.ts                              passed=0 failed=1 skipped=0 status=1
+  leadgen-r2p6-f1-preset-corners-drive.spec.ts                   passed=1 failed=2 skipped=0 status=1
+  leadgen-r2p6-f1b-preset-corners-survive-rail-edit-drive.spec.ts passed=0 failed=2 skipped=0 status=1
+  leadgen-rework-acceptance-builder.gesture.spec.ts              passed=23 failed=1 skipped=0 status=1
+  leadgen-rework-p3b-board.gesture.spec.ts                       passed=31 failed=1 skipped=0 status=1
+  leadgen-v31-gate1c-baselines.spec.ts                           passed=0 failed=1 skipped=0 status=1
+  leadgen-visual.spec.ts                                         passed=8 failed=2 skipped=0 status=1

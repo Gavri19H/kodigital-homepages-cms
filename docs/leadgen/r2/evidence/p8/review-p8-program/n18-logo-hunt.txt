@@ -1,0 +1,46 @@
+== PATCH section adding ImageBlock source=auto_logo siteName=KO-REVIEW-LOGO-MARK ==
+  HTTP=200
+{"id":2,"public_id":"lgs_01KZA7YXKPR111E64DAP5FF2VY","section_name":"R2Fix Fixture Carrier Buttons","activity":"r2fix_activity","vertical":"r2fix_vertical","headline_text":"Which carrier do you want a quote from?","subheadline_text":null,"image_json":null,"content_json":{"components":[{"type":"QuestionHeadline","question_id":"r2fix_q_head","props":{"text":"Which carrier do you want a quote from?"}
+== force propagation: theme PATCH (bumps content_version) ==
+  HTTP=200
+  poll#1 span.lg-logo=1  lg-image-block-logo=1  siteNameText=2  bytes=   86517
+  poll#2 span.lg-logo=1  lg-image-block-logo=1  siteNameText=2  bytes=   86517
+  poll#3 span.lg-logo=1  lg-image-block-logo=1  siteNameText=2  bytes=   86517
+  poll#4 span.lg-logo=1  lg-image-block-logo=1  siteNameText=2  bytes=   86517
+  poll#5 span.lg-logo=1  lg-image-block-logo=1  siteNameText=2  bytes=   86517
+  poll#6 span.lg-logo=1  lg-image-block-logo=1  siteNameText=2  bytes=   86517
+== header logo-size class + the three bleed rules present? ==
+lg-frame-header--logo-l
+lg-frame-header--logo-m
+lg-frame-header--logo-s
+.lg-frame-header--logo-s .lg-logo{font-size:0.95rem}
+.lg-frame-header--logo-m .lg-logo{font-size:1.1rem}
+.lg-frame-header--logo-l .lg-logo{font-size:1.35rem}
+patch display_size=xxl -> |200
+XXL @1280: {"logoCount":1,"text":"KO-REVIEW-LOGO-MARKXZ","fontSize":"17.6px","visible":false,"box":{"x":0,"y":0,"w":0,"h":0},"inHeaderLogoScope":false,"matchesBleedSelector":false,"headerCls":"lg-frame-region lg-frame-header lg-frame-header--center lg-frame-header--logo-s lg-frame-header--static","headlineFont":"71.3px","headlineText":"Which carrier do you want a quote from?"}
+XXL @375: {"logoCount":1,"text":"KO-REVIEW-LOGO-MARKXZ","fontSize":"17.6px","visible":false,"box":{"x":0,"y":0,"w":0,"h":0},"inHeaderLogoScope":false,"matchesBleedSelector":false,"headerCls":"lg-frame-region lg-frame-header lg-frame-header--center lg-frame-header--logo-s lg-frame-header--static","headlineFont":"50.592px","headlineText":"Which carrier do you want a quote from?"}
+patch display_size=m -> |200
+M   @1280: {"logoCount":1,"text":"KO-REVIEW-LOGO-MARKXZ","fontSize":"17.6px","visible":false,"box":{"x":0,"y":0,"w":0,"h":0},"inHeaderLogoScope":false,"matchesBleedSelector":false,"headerCls":"lg-frame-region lg-frame-header lg-frame-header--center lg-frame-header--logo-s lg-frame-header--static","headlineFont":"31px","headlineText":"Which carrier do you want a quote from?"}
+M   @375: {"logoCount":1,"text":"KO-REVIEW-LOGO-MARKXZ","fontSize":"17.6px","visible":false,"box":{"x":0,"y":0,"w":0,"h":0},"inHeaderLogoScope":false,"matchesBleedSelector":false,"headerCls":"lg-frame-region lg-frame-header lg-frame-header--center lg-frame-header--logo-s lg-frame-header--static","headlineFont":"22px","headlineText":"Which carrier do you want a quote from?"}
+=== 700 chars before the span ===
+tinue" data-loading="false">
+<span class="lg-btn-spinner" aria-hidden="true">
+</span>
+<span class="lg-btn-label">Continue</span>
+</button>
+</div>
+</section>
+<section data-lg-section data-lg-section-id="lgs_01KZA7YXKPR111E64DAP5FF2VY" data-lg-index="1" data-screen-label="02 · Which carrier do you want a quote from?" hidden>
+<div class="lg-question-card">
+<h1 class="lg-headline" data-component-type="QuestionHeadline" data-question-id="r2fix_q_head" style="font-family:&#39;Newsreader&#39;,Georgia,serif;color:#16324f">Which carrier do you want a quote from?</h1>
+<div class="lg-image-block lg-image-block-logo" data-component-type="ImageBlock" data-question-id="rvw_logo_probe" data-source="auto_logo">
+<span class="lg-logo" style="color:#1B3A5C;font-family:&#39;Newsreader&#39;,Georgia,serif">KO-REVIEW-LOGO-MARK<span class="lg-logo-accent" style="color:#445566">XZ</span>
+</span>
+</div>
+<div class="lg-answer-group" role="radiogroup" data-component-type="ButtonAnswerGro
+ds=m -> |200
+STEP2 ds=m @1280: {"logoCount":1,"text":"KO-REVIEW-LOGO-MARKXZ","fontSize":"17.6px","box":{"x":477,"y":326,"w":271,"h":20},"visible":true,"secHidden":false,"headline":"31px"}
+STEP2 ds=m @375: {"logoCount":1,"text":"KO-REVIEW-LOGO-MARKXZ","fontSize":"17.6px","box":{"x":29,"y":240,"w":271,"h":20},"visible":true,"secHidden":false,"headline":"22px"}
+ds=xxl -> |200
+STEP2 ds=xxl @1280: {"logoCount":1,"text":"KO-REVIEW-LOGO-MARKXZ","fontSize":"17.6px","box":{"x":477,"y":711,"w":271,"h":20},"visible":true,"secHidden":false,"headline":"71.3px"}
+STEP2 ds=xxl @375: {"logoCount":1,"text":"KO-REVIEW-LOGO-MARKXZ","fontSize":"17.6px","box":{"x":29,"y":480,"w":271,"h":20},"visible":true,"secHidden":false,"headline":"50.592px"}

@@ -125,6 +125,9 @@ was alignment's PAINT. Recorded so the review does not chase the contract's orig
 | CLOSE | W2a templates/footer cluster (sonnet) | sonnet | 415,334 | 3960s | REFUTED the conductor's links_source product-bug lead by measurement; 5 spec files re-minted w/ citations; page-A pixel diff STOPPED for ruling |
 | CLOSE | W2b copy/studio cluster (sonnet) | sonnet | 589,183 | 5397s | PRODUCT fix ui-theme-manager §8.4 side-by-side (never engaged 1280–1600); 7 spec re-mints; pattern-A baselines regenerated per conductor ruling; ADJ-P8-36 conflict correctly STOPPED |
 | CLOSE | W2c from_to/slider trio (sonnet) | sonnet | 177,846 | 1219s | 3 stale pins re-minted to shipped J1/M5 semantics; box=rail=pill=payload equality kept strict; 14/14 |
+| CLOSE | FULL-PROGRAM REVIEW (opus, fresh) | opus | 352,465 | 2920s | **FIX-FIRST — 1 blocker, 6 majors, 6 minors**; refuted the conductor's N18 reasoning by producing a live .lg-logo and executing the owner's step on it; recomputed the classification; found the register's 22 unflipped rows (BL-1), the §8.4 1280 gap, the unconsumed warning, the pattern-a authority overstep |
+| CLOSE | scout: 22-row verdict citations (sonnet) | sonnet | 207,671 | 997s | citation map for the BL-1 write-back incl. the review-corpus chronology correction (combined→final→merge→ship); flagged M9 as genuinely partial and N6's unverified F-4 leg |
+| CLOSE | F-A §8.4 1280 + warning consumer (opus) | opus | 227,693 | 1968s | side-by-side delivered at 1024–1600 (owner mock width incl.), 375/N7 intact, four-at-1280 proven impossible (nav 250px), trade stated in-file; comment rot swept; cache_refresh_warning wired to #tm-error; 3f→8p, blast 140/140, spec 7×4 |
 
 Two near-identical names that are DIFFERENT keys — do not conflate them in review:
 `ThemeJson.spacing` (theme.ts:566, offered as the rail's "Spacing" control at themes.ts:255, ALIVE via

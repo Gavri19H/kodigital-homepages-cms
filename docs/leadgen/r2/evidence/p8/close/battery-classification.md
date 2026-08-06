@@ -27,12 +27,21 @@ TOTAL failures — head-30: **51**, base-30: **12**.
 - PASS-AT-HEAD 3 — the 101-run's red was state pollution for `__p1b-render` and
   `leadgen-r2p1-fixround-smoke`; `listicles-manual-qa` is red at BASE and green at HEAD
   (P8 fixed it)
-- PRE-EXISTING 5 (red at baseline too; three distinct roots — see ADJ-P8-58/59/60)
-- FLAKY-BASE 2 (`leadgen-operator-acceptance` PC-7, `leadgen-quote-builder` ④ — base colour
-  differs between yesterday's and today's baseline runs)
-- **INTRODUCED 18** — green at baseline in BOTH baseline runs, red at HEAD under clean
-  conditions. Real browser-level drift: the per-phase gates ran the unit suite only, so
-  three phases of copy/behaviour changes shipped without any browser-level check.
+- PRE-EXISTING 5 (red at baseline too; three distinct roots — see ADJ-P8-58/59/60. The
+  program review's D-11 correction applies to one of these: `acceptance-builder` is honestly
+  MIXED — 1 base failure vs 6 at head, i.e. a net-introduced cluster inside a base-flaky
+  spec; it was fully fixed by W2a and confirmed 24/24 either way)
+- FLAKY-BASE 2 (`leadgen-operator-acceptance` PC-7, `leadgen-quote-builder` ④). PROGRAM-REVIEW
+  CORRECTION (D-11): this category rested on the DESTROYED prior session's baseline run (the
+  `yday` column), which no committed log substantiates. By the committed TSVs alone both are
+  INTRODUCED — the honest committed-evidence count is therefore **20 specs / 35 failures
+  introduced**, with the yday memory retained here only as unverifiable context. The
+  practical outcome is unchanged: both were re-minted with citations (PC-7 by W2b, ④ by W2a)
+  and confirmed green.
+- **INTRODUCED 18 by the two-baseline-runs criterion; 20 by committed evidence alone (see
+  above)** — green at baseline, red at HEAD under clean conditions. Real browser-level
+  drift: the per-phase gates ran the unit suite only, so three phases of copy/behaviour
+  changes shipped without any browser-level check.
 
 ## Root map of the 18 (conductor-verified before dispatch)
 - `PATCH /api/admin/leadgen/themes/:id` 500 — D1 LIKE pattern-length regression

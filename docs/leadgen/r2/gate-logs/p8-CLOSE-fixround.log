@@ -283,3 +283,52 @@ R4 violations: 0
 R5 violations: 0
 TOTAL violations: 0
 REGISTER_EXIT=0
+
+=== (2) POST-REVIEW FIX-ROUND GATE — conductor authoritative run 2026-08-06T02:03:40Z ===
+HEAD: 1dbf1783fc2a776973634bfc93720eac0ca1406a + the review fix round (working set below); committed next as the round-3 commit:
+ M api/src/admin/leadgen/ui-theme-manager.ts
+M  api/test-ui/__screenshots__/leadgen-v25/pattern-a-desktop.png
+M  api/test-ui/__screenshots__/leadgen-v25/pattern-a-mobile.png
+ M api/test-ui/leadgen-r2p6-themefix-drive.spec.ts
+ M docs/leadgen/r2/P8-FINAL-REPORT.md
+ M docs/leadgen/r2/P8-REGISTER.md
+ M docs/leadgen/r2/P8-TRACKER.md
+ M docs/leadgen/r2/evidence/p8/close/battery-classification.md
+ M docs/leadgen/r2/gate-logs/p8-CLOSE-fixround.log
+ M docs/leadgen/r2/gate-logs/p8-TERMINAL-battery.log
+(untracked: test/leadgen-p8-close-fa.test.ts + evidence/p8/review-p8-program/ — committed with this round)
+
+--- (1) typecheck ---
+> tsc --noEmit
+
+TYPECHECK_EXIT=0
+
+--- (2) full unit suite ---
+
+ Test Files  498 passed | 2 skipped (500)
+      Tests  8419 passed | 30 skipped (8449)
+   Start at  05:03:46
+   Duration  167.87s (transform 4.72s, setup 0ms, import 48.57s, tests 75.79s, environment 23ms)
+
+VITEST_EXIT=0
+
+--- (3) verify:all ---
+[UNCLASSIFIED — needs an allowlist entry] 0 block(s)
+
+mode: --strict (exit 1 if any UNCLASSIFIED block OR any stale golden:false entry exists)
+VERIFY_ALL_EXIT=0
+
+--- (4) verify:leadgen-runtime ---
+  freshness: OK (byte-identical rebuild)
+  size: OK (53181 bytes, 99.9% of budget)
+  types: OK (tsc -p tsconfig.runtime.json)
+verify:leadgen-runtime PASS
+RUNTIME_EXIT=0
+
+--- (5) check_register + terminal DEVIATES-empty-evidence check ---
+R4 violations: 0
+R5 violations: 0
+TOTAL violations: 2
+REGISTER_EXIT=0
+TERMINAL_DEVIATES_EMPTY_EVIDENCE=0
+GATE ADDENDUM 02:08:03Z: the run above captured REGISTER TOTAL=2 (two cwd-fragile repo-relative screenshot citations) — both artifacts copied INTO evidence/p8/close/ and re-cited; check_register now: rows 109 / TOTAL violations 0 (absolute paths, cwd-independent). Note the run's REGISTER_EXIT=0 was the PIPELINE's exit (tail), not the checker's — the checker's own count line is authoritative: it read 2 then, 0 now.

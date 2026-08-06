@@ -865,8 +865,11 @@ function fontOptionsHtml(selected: ThemeRecordFontName): string {
 
 function fontSelectRow(id: string, label: string, current: ThemeRecordFontName, themeId: string): string {
   // The caption rides OUTSIDE the select's box (a wrapping div in the grid
-  // cell, ~308px wide against 110px of text at 11.5px), so unlike the suffix
-  // it replaces it cannot be clipped by the control it describes.
+  // cell), so unlike the suffix it replaces it cannot be clipped by the
+  // control it describes. Re-measured in P8-CLOSE F-A at 1600/1280/375: the
+  // cell is 320px (the grid's own track floor) and the caption box is 320px
+  // against 117.55px of text at 11.5px — it fits at every width, with or
+  // without the §8.4 side-by-side row.
   const note = THEME_RECORD_FONT_LEGACY_NAMES.has(current)
     ? `<div data-tm-font-note="${escapeHtml(id)}" style="font-size:11.5px;color:${TM_COLOR.subtitle};margin-top:5px">${escapeHtml(FONT_NOT_SERVED_NOTE)}</div>`
     : "";
@@ -1016,16 +1019,15 @@ export function advancedHexRow(
 // Two edits below, both in this function's markup (kept out here in TS so the
 // served bytes carry none of it):
 //
-// 1. data-pin="8.4-editor-controls" — min-width:0 -> min-width:300px.
+// 1. data-pin="8.4-editor-controls" — min-width:0 -> a real shrink floor,
+//    258px TODAY (F3 set 300; P8-CLOSE lowered it to 258, the §8.4 split's own
+//    editor width — see renderCenterEditor's block below for that derivation).
 //    FAIL-BEFORE (reviewer, driven at 375): min-width:0 let this column shrink
 //    without limit instead of letting its flex line WRAP, so it measured ~118px
 //    and squeezed #tm-headline-font to a 14.00px content box (every option
 //    overflowed, even "Poppins" at 52px) while #tm-body-font collapsed to w=0
 //    and vanished. A real shrink floor makes the row wrap instead of grinding
-//    both columns down. 1280 IS UNCHANGED: hypothetical sizes 300 + 26 (gap) +
-//    340 (the flex:0 1 340px preview column) = 666 still fit the 670px row the
-//    reviewer measured (304 + 26 + 340), and this column still grows to that
-//    same 304px.
+//    both columns down.
 //    CORRECTION, FIX ROUND F10 — this comment used to continue "At 375 the row
 //    is ~343px, 666 > 343, so the two columns stack and this one takes the
 //    full 343px." THAT SENTENCE WAS FALSE and the product falsified it: the
@@ -1035,9 +1037,19 @@ export function advancedHexRow(
 //    line — a 300px line starting at x=345, 270px outside a 375 viewport, with
 //    its two font selects 6% visible. The stacking that makes the sentence
 //    true had to be added one level up (.tm-body's flex-wrap, THEME_MGR_STYLES
-//    below); at 375 the centre pane is now the full 341px line and this column
-//    takes 300..341 of it, on screen. Never re-argue a width in prose here:
-//    the numbers above and below are driven measurements of this page.
+//    below).
+//    SECOND CORRECTION, P8-CLOSE SLICE F-A (review-p8-program D-3) — the
+//    sentence deleted here read "1280 IS UNCHANGED: hypothetical sizes 300 +
+//    26 (gap) + 340 (the flex:0 1 340px preview column) = 666 still fit the
+//    670px row the reviewer measured (304 + 26 + 340), and this column still
+//    grows to that same 304px." IT WAS FALSE TWICE OVER: there was never a
+//    670px row (the centre-inner row at 1280 measured 304, and that 304 IS
+//    this column AFTER the canvas wrapped out of the line — the sentence added
+//    the wrapped width to the widths it wrapped out of), and 666 fits nothing
+//    inside 304. Driven now, with the §8.4 anatomy restored at 1280: the
+//    centre-inner row is 624px and this column measures 258 (1600: 258 too;
+//    375: 285, its own line). Never re-argue a width in prose here: every
+//    number above and below is a driven measurement of this page.
 //
 // 2. data-pin="8.4-typography-grid" — 1fr 1fr -> repeat(auto-fit,minmax(320px,
 //    1fr)). FAIL-BEFORE (reviewer, driven at 1280): 1fr 1fr gave each font
@@ -1048,18 +1060,37 @@ export function advancedHexRow(
 //    so a column that cannot seat two full-size cells becomes ONE full-width
 //    cell instead of halving the box.
 //    ARITHMETIC: a cell loses 24 (wrap padding) + 2 (wrap border) + 12
-//    (chevron) = 38px to chrome, and the widest label this select can ever
-//    show is a STORED non-vendored family — "Roboto Mono (shows as default
-//    font)", 238.2px measured / 255.1px by the test's conservative model — so
-//    a cell must clear ~293px. The 320px floor does: one column below 654px
-//    (worst case = this column's own 300px floor -> 262.00px of content), two
-//    320px columns at or above it (-> 282.00px). At 1280 the column is 304px,
-//    so the two selects stack and each box is 266.00px. The 220px floor tried
-//    first was NOT enough and the spec caught it: at a 454px column it went
-//    2-up with 182.00px boxes and all three stored-family labels overflowed.
+//    (chevron) = 38px to chrome. When F3 wrote this block the option text
+//    still carried the "(shows as default font)" suffix, so the widest label
+//    was 238.2px and a cell had to clear ~293px; F3's own MINOR-1 edit then
+//    moved that suffix OUT of the option text into the caption above, and the
+//    widest label an option can show today is a bare family name.
+//    RE-MEASURED, P8-CLOSE SLICE F-A (driven at 1600 / 1280 / 375, both font
+//    selects, all 18 offered options): the widest is "Playfair Display" at
+//    98.49px, and the select's content box is 282.00px at EVERY one of those
+//    widths — 18/18 fit with 183.51px of headroom. 282 is constant because
+//    `minmax(320px,1fr)` is a FLOOR, not a range this container can squeeze:
+//    the grid is ONE 320px track whether its container measures 258 (the
+//    §8.4 side-by-side editor column at 1280 and 1600), 285 (375) or wider,
+//    and 320 - 38 = 282. The prior sentence here claimed 262.00px at a 300px
+//    container and 266.00px at 304 — both FALSE for that reason (they assumed
+//    the track shrinks with the container). The same fact has a cost worth
+//    knowing: at a 258px container the 320px track BLEEDS 62px past this
+//    column's right edge (measured: wrap x603..923 vs column right 861). It
+//    is invisible today — the selects sit 719px BELOW the canvas column's
+//    bottom edge, so elementFromPoint at the wrap's right edge and at its
+//    chevron both hit the wrap itself, never a canvas pixel, at 1280 and 1600
+//    — but it is real, and the honest cure (`minmax(min(320px,100%),1fr)`)
+//    CANNOT be applied without editing test/leadgen-p8-n-theme-ui.test.ts:
+//    its columnCount() only parses `repeat(auto-fit,minmax(<n>px` and THROWS
+//    on anything else (leadgen-p8-n-theme-ui.test.ts:690-698).
+//    The 220px floor tried first was NOT enough for the THEN-suffixed labels
+//    and the spec caught it: at a 454px column it went 2-up with 182.00px
+//    boxes and all three stored-family labels overflowed.
 //    test/leadgen-p8-n-theme-ui.test.ts recomputes this from THESE inline
-//    styles for every option of both selects at every column width, so a
-//    revert to 1fr 1fr (or to min-width:0, or a narrower floor) fails there.
+//    styles for every option of both selects at every column width from this
+//    column's own min-width floor upward, so a revert to 1fr 1fr (or to
+//    min-width:0, or a narrower floor) fails there.
 function renderCenterEditor(theme: ThemeRecord, matches: VariantThemeUsage[], canvasHtml: string): string {
   const colorRows = ROLE_META.map(
     (meta) =>
@@ -1090,43 +1121,82 @@ function renderCenterEditor(theme: ThemeRecord, matches: VariantThemeUsage[], ca
 
   // §8.4: editor controls (LEFT-of-center) beside the live canvas (RIGHT-of-
   // center) — pack regions 8.4-editor-controls / 8.4-live-canvas, both
-  // nested INSIDE the SAME outer flex:1 1 auto CENTER column (rails stay
-  // 300/320, unchanged — only this column's OWN internal layout gains a
-  // second child). All EXISTING editor content below is UNCHANGED.
+  // nested INSIDE the SAME outer CENTER column (rails stay 300/320,
+  // unchanged — only this column's OWN internal layout gains a second
+  // child). All EXISTING editor content below is UNCHANGED.
   //
   // R2 P6 (measured layout defect, owner clause ③): this row had NO
   // flex-wrap and an UNSHRINKABLE flex:0 0 340px canvas, so on any viewport
   // where the centre column's inner width fell below <editor>+26+340 the
   // flexible editor child absorbed the entire deficit and computed to
   // width 0 — every §10.3/§10.4 control it holds was hidden. Measured on
-  // the real page BEFORE this change (rails 300+320 + the admin nav's
-  // 300px): editor width 0px @1280, 24px @1366, 98px @1440 — i.e. broken on
-  // every ordinary laptop; only ≥~1650 rendered.
+  // the real page BEFORE that change: editor width 0px @1280, 24px @1366,
+  // 98px @1440 — i.e. broken on every ordinary laptop; only ≥~1650 rendered.
+  // P6 fixed the collapse by letting the INNER row wrap (canvas under the
+  // controls) with the canvas at flex:0 1 340px + min-width:0, so a wrapped
+  // canvas fits a narrow column instead of overflowing it while keeping its
+  // designed 340px wherever there is room.
   //
-  // Degrade chosen: keep the §8.4 side-by-side anatomy WHEREVER IT FITS and
-  // wrap to a stack where it does not. flex-wrap breaks a line on the items'
-  // HYPOTHETICAL (un-shrunk) sizes — CSS clamps that hypothetical size to the
-  // item's OWN min-width first, so the real "how much room does BESIDE
-  // require" knob is the min-width below, not the bare flex-basis (a P8-CLOSE
-  // fix-round finding: this comment's prior arithmetic used the flex-basis,
-  // 240, giving a 606px threshold that undercounted the min-width floor —
-  // MEASURED live, the row never actually went side-by-side at 1280/1366/
-  // 1440/1600 with that floor at 300, since 300 + 26 gap + 340 canvas = 666
-  // exceeds even the 624px centre-inner width 1600 itself measures). The
-  // floor is now 258 (this function's OWN documented 1600 split, unchanged):
-  // 258 + 26 gap + 340 canvas = 624px of centre-inner, matching 1600 exactly.
-  // At 1600 the centre's inner width is 624px ⇒ one line, editor 258 / canvas
-  // 340. Below ~1600 viewport the canvas wraps UNDER the controls (DOM order
-  // kept) and the editor takes the full line instead of collapsing — this
-  // floor is never actually binding once wrapped (a wrapped, line-alone
-  // editor's grown width is exactly the centre-inner width, always ≥ the
-  // floor whenever the row is wide enough to need one). The canvas is now
-  // flex:0 1 (shrink allowed, grow still 0) with min-width:0 so on its own
-  // line it fits a narrow column instead of overflowing it, while keeping
-  // its designed 340px wherever there is room. No media query: the trigger
-  // is this column's OWN width, so the ?embed=1 standalone shell (no admin
-  // nav) degrades on the same rule.
-  return `<div data-pin="8.4-center-pane" style="flex:1 1 348px;overflow-y:auto;padding:24px 28px;min-width:0">
+  // R2 P8-CLOSE SLICE F-A (review-p8-program D-2) — "BESIDE" NOW HOLDS AT
+  // 1280, THE OWNER'S OWN MOCK WIDTH. Every number here is a
+  // getBoundingClientRect measured on THIS page (chromium, wrangler dev on
+  // 127.0.0.1:8951, a theme open), never arithmetic in prose:
+  //
+  //   WHY THE PRIOR FIX ONLY EVER CURED ≥1600. The knob it moved was the
+  //   inner row's floor (editor min-width 300 -> 258, so 258 + 26 gap + 340
+  //   canvas = the 624px centre-inner that a 1600 viewport measures). But the
+  //   width that starved the anatomy comes from the OUTER row: .tm-body hands
+  //   this column what is left after the two pinned rails, and it sized
+  //   itself by a 348px basis. Measured at HEAD 1dbf1783: 1600 -> centre 680
+  //   (inner 624), editor x603 y165 w258, canvas x887 y165 w340 = BESIDE;
+  //   1280 -> centre 360 (inner 304), editor w304 at y165 but canvas w304 at
+  //   y2104, i.e. 1939px BELOW the controls. An operator picking a colour at
+  //   1280 saw no live preview at all without a ~2000px scroll.
+  //
+  //   WHAT 1280 PHYSICALLY HAS. The design pack renders its 1280 mock
+  //   (docs/leadgen/rework/design-pack/themes.html, PIN 8.4-themes-tab-
+  //   layout) in a 1238px shell — the mock draws NO admin nav — and splits it
+  //   300 list | 618 centre (inner 574 = editor 208 + 26 gap + canvas 340) |
+  //   320 A/B. On the REAL page the admin nav takes 250px and .admin-content
+  //   24px a side, so at a 1280 viewport .tm-body measures 980, not 1238: the
+  //   mock's four columns need 1194 and only 980 exist. Four columns at 1280
+  //   are therefore arithmetically impossible HERE, and the pin that must
+  //   survive is the one the pack's own header states — "a live real-section
+  //   canvas beside the editor" with "rail widths (300/320) ... kept exactly
+  //   as built".
+  //
+  //   THE KNOB IS THIS COLUMN'S BASIS, because that is what .tm-body's
+  //   flex-wrap breaks lines on. 680 is not chosen, it is the sum of the four
+  //   declarations below: 258 (the editor's own shrink floor) + 26 (the row
+  //   gap) + 340 (the canvas's designed width) + 56 (this pane's 28px-a-side
+  //   padding). So this column can never be handed less room than BESIDE
+  //   costs: where a line cannot seat 300 + 680 + 320 = 1300, .tm-body wraps
+  //   the LAST rail (the A/B panel, DOM order kept) underneath instead of
+  //   shaving the centre. test/leadgen-p8-close-fa.test.ts pins that identity
+  //   against these four real declarations, so a future edit to any one of
+  //   them cannot silently break the sum.
+  //
+  //   PASS-AFTER, measured at eight widths (fresh load AND theme-opened, same
+  //   numbers on both): editor.y == canvas.y and canvas.w == 340 at 1600
+  //   (editor 258, rail still beside at y141), 1500 (editor 478), 1440 (418),
+  //   1366 (344), 1280 (258, editor x603 y165 / canvas x887 y165, dy=0),
+  //   1200 (478) and 1024 (302) — the A/B rail wrapping below at every width
+  //   under 1600 (1280: x275 y2243 w320, reachable: .tm-body scrollTop 1470
+  //   brings it into the viewport). 1600 is BYTE-IDENTICAL to HEAD. 375 is
+  //   untouched: all three columns stacked, editor 285 / canvas 285 at
+  //   dy=2003, document.scrollWidth == innerWidth == 375. The two font
+  //   selects fit every one of their 18 offered option labels at all eight
+  //   widths (N7, widest "Playfair Display" 98.49px in a 282px box).
+  //
+  //   THE TRADE, STATED: between 1280 and 1599 the A/B panel is no longer
+  //   BESIDE the editor (measured: four columns would fit only from a 1194px
+  //   .tm-body, i.e. ~1494 viewport, and only by shrinking the editor to the
+  //   mock's 208 — under the 258 floor N7 was fixed at). One uniform anatomy
+  //   with the editor never below its own floor was chosen over a ~100px band
+  //   of four columns. No media query: the trigger is .tm-body's OWN width,
+  //   so the ?embed=1 standalone shell (no admin nav) degrades on the same
+  //   rule — it simply reaches the four-column line sooner.
+  return `<div data-pin="8.4-center-pane" style="flex:1 1 680px;overflow-y:auto;padding:24px 28px;min-width:0">
     <div style="display:flex;flex-wrap:wrap;gap:26px;align-items:flex-start">
     <div style="flex:1 1 240px;min-width:258px" data-pin="8.4-editor-controls">
       <div style="display:flex;align-items:center;gap:13px;margin-bottom:5px">
@@ -1303,6 +1373,32 @@ function renderRightPanel(
 // mirroring ui-section-studio.ts's SECTION_STUDIO_STYLES convention)
 // ---------------------------------------------------------------------------
 
+// WHAT WRAPS AT WHICH WIDTH — P8-CLOSE SLICE F-A (review-p8-program D-2).
+// .tm-body is the OUTER row (list / centre / A/B rail). Its flex-wrap breaks
+// lines on the items' hypothetical sizes: 300 (list) + the centre pane's basis
+// + 320 (A/B rail). renderCenterEditor derives that basis as 680 = 258 editor
+// floor + 26 gap + 340 canvas + 56 padding, i.e. exactly what the §8.4
+// "canvas beside the editor" anatomy costs, so the centre can never be handed
+// less room than "beside" needs. Driven on the real page (chromium, wrangler
+// dev; a theme open; identical numbers on a fresh load and after opening a
+// theme through the list rail):
+//   .tm-body 1300 (1600 viewport) -> ONE line, all three columns beside each
+//     other; centre 680 -> inner 624 -> editor x603 y165 w258 / canvas x887
+//     y165 w340. BYTE-IDENTICAL to HEAD 1dbf1783.
+//   .tm-body 980 (1280 viewport) -> 1300 > 980, so the LAST item (the A/B
+//     rail) takes its own line at x275 y2243 w320; the list stays beside the
+//     centre, which grows to 980 - 300 = 680 -> the SAME 624px inner row and
+//     the SAME 258/340 split as 1600. Before this fix the centre was 360
+//     (inner 304) and the canvas wrapped to y2104, 1939px BELOW the editor.
+//   .tm-body 1200/1140/1066 (1500/1440/1366) -> rail below, centre 900/840/766
+//     -> editor 478/418/344, canvas 340, still beside.
+//   .tm-body 900/724 (1200/1024) -> the centre no longer fits beside the 300px
+//     list either, so it takes a full line and gets more room still (editor
+//     478/302, canvas 340, beside).
+//   .tm-body 341 (375) -> all three columns stack, exactly as before (editor
+//     285, canvas 285 at dy 2003, document.scrollWidth == innerWidth == 375).
+// Every wrapped column is reached by .tm-body's own overflow-y:auto (driven at
+// 1280: scrollTop 1470 brings the A/B rail into the viewport).
 export const THEME_MGR_STYLES = `
 .tm-back:hover{background:${TM_COLOR.backHover};border-color:${TM_COLOR.backHoverBorder}}
 .tm-new-theme:hover{background:${TM_COLOR.navyHover}}
@@ -1346,10 +1442,13 @@ export const THEME_MGR_STYLES = `
    makes the stacked columns reachable: .tm-shell is overflow:hidden with a
    fixed height, and each column's own overflow-y:auto is inert once the
    columns are lines rather than side-by-side items.
-   1280 IS UNCHANGED and that is arithmetic from the measured numbers, not
-   prose: .tm-body is 980px there, the hypothetical row is 300 + 348 + 320 =
-   968 <= 980 so it stays ONE line, and the centre still grows into all the
-   free space -> 360px, the same 360px measured before this change. */
+   WHAT WRAPS AT WHICH WIDTH: the paragraph that used to close this comment
+   ("1280 IS UNCHANGED ... 300 + 348 + 320 = 968 <= 980 so it stays ONE line")
+   was true of the centre pane's OLD 348px basis and is false of its current
+   680 — P8-CLOSE slice F-A moved the line-break threshold on purpose. The
+   replacement, with the driven per-width numbers, is the TS comment above this
+   constant (search "WHAT WRAPS AT WHICH WIDTH") so the served bytes stay lean.
+   */
 .tm-body{flex:1 1 auto;display:flex;flex-wrap:wrap;overflow-y:auto;min-height:640px}
 `;
 
@@ -1372,6 +1471,24 @@ export const THEME_MGR_SCRIPT = `
     else { el.textContent = ''; el.hidden = true; el.style.display = 'none'; }
   }
 
+  // P8 CLOSE F-A (review-p8-program D-6) — THE 200 BODY IS READ NOW.
+  // themes-handlers.ts:746 puts cache_refresh_warning in an OTHERWISE
+  // SUCCESSFUL 200 when the theme saved but the funnel content_version bump
+  // that makes live funnels pick it up did not: "Theme saved, but refreshing
+  // the live funnels that use it did not complete (<the error>). They may keep
+  // serving the previous values until their next save." This branch used to be
+  // 'if (res.ok) { window.location.reload(); return null; }' -- it never read
+  // the body, so that sentence had ZERO consumers and the operator was
+  // silently reloaded past a real propagation failure (the exact silent-
+  // failure shape the handler-side fix was written to end).
+  // The surface is this file's OWN and ONLY notice surface: showError() ->
+  // #tm-error, the role="alert" banner renderTopBar already emits, which every
+  // other failure in this island uses. A reload would DESTROY it (this island
+  // has no post-reload message mechanism -- no sessionStorage, no flash
+  // param), so a warning REPLACES the reload: the alert stays on screen and
+  // the operator continues from there (their edit is already saved; re-saving
+  // or reloading themselves retries the propagation). A warning-free 200
+  // reloads exactly as before, byte-identically.
   function patchTheme(themeId, body) {
     showError('');
     fetch('/api/admin/leadgen/themes/' + encodeURIComponent(themeId), {
@@ -1379,7 +1496,14 @@ export const THEME_MGR_SCRIPT = `
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify(body)
     }).then(function (res) {
-      if (res.ok) { window.location.reload(); return null; }
+      if (res.ok) {
+        return (res.json ? res.json() : Promise.resolve(null)).catch(function () { return null; }).then(function (data) {
+          var warning = data ? data.cache_refresh_warning : null;
+          if (warning) { showError(warning); return null; }
+          window.location.reload();
+          return null;
+        });
+      }
       return res.json().catch(function () { return null; }).then(function (data) {
         var msg = (data && data.error) ? data.error : ('Save failed (HTTP ' + res.status + ')');
         throw new Error(msg);
@@ -1607,6 +1731,13 @@ export async function leadgenThemeManagerPage(c: UiContext): Promise<Response> {
     canvasHtml = renderCanvasFrame(preview, seed.isFixture);
   }
 
+  // P8-CLOSE SLICE F-A: the EMPTY-state centre keeps the 348px basis on
+  // purpose while renderCenterEditor's carries 680. 680 is derived from what
+  // "editor BESIDE canvas" costs (258 + 26 + 340 + 56 padding) and this pane
+  // has neither child — one sentence, no §8.4 row — so widening it would only
+  // wrap the A/B rail underneath a page that has nothing to preview. Driven
+  // at 1280: with no themes the three columns stay beside each other
+  // (list 300 / centre 360 / rail 320 across .tm-body's 980).
   const centerHtml =
     selected !== null
       ? renderCenterEditor(selected, usageForTheme(usage, selected.id), canvasHtml)

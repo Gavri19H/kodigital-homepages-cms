@@ -29,7 +29,7 @@ P8-4/5/6 shipped as **one squash PR**. That is a deviation from one-PR-per-phase
 | p3a byte pins | recaptured from a clean base; **0 unexplained lines** |
 | zero-drift vs `f240788` | **0 pre-existing tests removed**; 11 files changed, **every one an addition**; `7810 + 629 = 8439` |
 
-**Nothing was rebaselined, retired, weakened or skipped to make a gate pass.** The `+118` pre-existing delta is entirely new regression coverage. `api/test-ui/__screenshots__/**` is untouched.
+**Nothing was retired, weakened or skipped to make a gate pass.** The `+118` pre-existing delta is entirely new regression coverage. The two frozen owner suites' baselines are byte-identical throughout (diff-verified by the program review). One baseline event happened at CLOSE and was corrected on review: pattern-a `{desktop,mobile}` was regenerated on a conductor ruling, which the full-program review flagged as an owner-authority act (the identical act on pattern-b is ADJ-P8-36's, "yours alone") — the regeneration was REVERTED to your committed baselines and routed to you as ADJ-P8-63; the §15.4-A test is expected-fail until you bless or reject the diff (confined to the footer band — the reviewed P8-4 template-apply mechanism; diff triple preserved in `evidence/p8/close/pattern-a/`).
 
 Gate logs: `docs/leadgen/r2/gate-logs/p8-phase-*.log`, each stamped with its sha and a clean `git status`.
 
@@ -120,8 +120,11 @@ per-fix evidence, sweep session).
 30 at BOTH shas under identical clean conditions (fresh D1 + seed, isolated port, per-spec
 invocations — re-executed after a machine restart destroyed the first attempt) classified them:
 2 frozen owner suites, 3 state-pollution artifacts (one of them a spec P8 *fixed*), 5
-pre-existing, 2 flaky-at-baseline, and **18 genuinely introduced** — real browser-level drift
-from three phases whose gates ran the unit suite only.
+pre-existing (one honestly MIXED — a net-introduced cluster inside a base-flaky spec), and
+**18 genuinely introduced by the two-baseline-runs criterion — 20 specs / 35 failures by the
+committed evidence alone** (the program review's D-11 correction: the flaky-at-baseline label
+for two specs rested on a destroyed prior run; both were re-minted and confirmed green
+regardless) — real browser-level drift from three phases whose gates ran the unit suite only.
 
 **What CLOSE did about it** (branch `leadgen-r2-p8-close`, commit `92ccbf32` + this round):
 - **Two product regressions fixed at root**: `PATCH /themes/:id` 500'd on theme ids ≥36 chars

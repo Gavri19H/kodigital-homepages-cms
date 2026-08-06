@@ -1,0 +1,6 @@
+VISITOR BEFORE 1280: {"card":true,"cardBg":"rgba(0, 0, 0, 0)","cardRadius":"0px","cardShadow":"none","header":false,"headerPos":null,"headerCls":null,"bodyBg":"rgba(0, 0, 0, 0)","frameCls":"lg-frame lg-frame--minimal","frameBg":"rgb(255, 255, 255)"}
+switch btn visible: true
+AFTER-CONFIRM tpl_id= undefined  frame_config keys= ["version","template"]
+APPLY REQS: ["{\"template_id\":5,\"dry_run\":true}","{\"template_id\":5}"]
+VISITOR AFTER 1280: {"card":true,"cardBg":"rgba(0, 0, 0, 0)","cardRadius":"0px","cardShadow":"none","header":true,"headerPos":"relative","headerCls":"lg-frame-region lg-frame-header lg-frame-header--center lg-frame-header--logo-s lg-frame-header--static","bodyBg":"rgba(0, 0, 0, 0)","frameCls":"lg-frame lg-frame--white-trust","frameBg":"rgb(255, 255, 255)"}
+VISITOR AFTER 375: {"card":true,"cardBg":"rgba(0, 0, 0, 0)","cardRadius":"0px","cardShadow":"none","header":true,"headerPos":"relative","headerCls":"lg-frame-region lg-frame-header lg-frame-header--center lg-frame-header--logo-s lg-frame-header--static","bodyBg":"rgba(0, 0, 0, 0)","frameCls":"lg-frame lg-frame--white-trust","frameBg":"rgb(255, 255, 255)"}

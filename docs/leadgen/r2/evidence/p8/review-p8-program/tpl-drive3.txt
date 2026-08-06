@@ -1,0 +1,16 @@
+BEFORE frame_config= null tpl_id= undefined
+apply btn count: 1 visible: false
+after scroll visible: false
+DIALOG STATE: {
+ "dlgId": "lg-tpl-apply-dialog",
+ "dlgVisible": false,
+ "dlgText": "\n  \n    \n      Funnel layout template\n      Your copy, images and colors are kept. Layout comes from the template. Nothing changes until you confirm.\n      Centered cardCard layout · Bar progressSite header + footerBare layout · Bar progressHeader + call CTACard layout · Bar progressFull backgroundCard layout · Dots progressWhite + trust barBare layout · Bar progressMinimalBare layout · Bar progress · No footer\n    \n    \n      Before you switch\n      \n      \n        Switch template\n        Back\n      \n    \n    \n    Cancel\n  \n",
+ "choices": []
+}
+chose: null
+CONFIRM LIST: {
+ "visible": false,
+ "lines": []
+}
+APPLY REQUESTS: []
+pageerrors: 0 []

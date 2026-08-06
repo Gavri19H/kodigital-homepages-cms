@@ -1,0 +1,8 @@
+[1A[2K[26/32] [firefox] › test-ui/leadgen-rework-p3b-board.gesture.spec.ts:270:3 › P3b Funnel-builder board — live journeys (§8.2) › dropping a duplicate section onto its own funnel renders the server's A-4 message inline (no duplicate chip)
+[1A[2K[27/32] [firefox] › test-ui/leadgen-rework-p3b-board.gesture.spec.ts:301:3 › P3b Funnel-builder board — live journeys (§8.2) › funnel kebab -> Funnel settings: edit headline + toggle lander, save, persists across reload
+[1A[2K[28/32] [firefox] › test-ui/leadgen-rework-p3b-board.gesture.spec.ts:335:3 › P3b Funnel-builder board — live journeys (§8.2) › S5.3 item 1 — '+ Add page' on a fresh funnel persists an empty page across reload (was HTTP 400)
+[1A[2K[29/32] [firefox] › test-ui/leadgen-rework-p3b-board.gesture.spec.ts:351:3 › P3b Funnel-builder board — live journeys (§8.2) › S5.3 item 2 — funnel-page '+ section' popover stays open, picks a section, persists across reload
+[1A[2K[30/32] [firefox] › test-ui/leadgen-rework-p3b-board.gesture.spec.ts:375:3 › P3b Funnel-builder board — live journeys (§8.2) › S5.3 item 3 — author an A/B slot on the shared page via the chip menu; chip shows kind; composed route serves one allocation
+[1A[2K[31/32] [firefox] › test-ui/leadgen-rework-p3b-board.gesture.spec.ts:413:3 › P3b Funnel-builder board — live journeys (§8.2) › S5.3 item 4a — menu 'Move down' rolls a chip across the page boundary (persists across reload)
+[1A[2K[32/32] [firefox] › test-ui/leadgen-rework-p3b-board.gesture.spec.ts:432:3 › P3b Funnel-builder board — live journeys (§8.2) › S5.3 item 4b — dragging a chip from page 1 to page 2 within a funnel moves it (persists across reload)
+[1A[2K  32 passed (17.2s)

@@ -1,0 +1,17 @@
+initial previews: 1
+
+--- error: count=1 visible=false
+node:internal/modules/run_main:107
+    triggerUncaughtException(
+    ^
+
+locator.click: Element is not visible
+Call log:
+[2m  - waiting for locator('[data-sim-state="error"]').first()[22m
+[2m    - locator resolved to <button type="button" aria-pressed="false" data-sim-state="error" class="btn btn-sm btn-outline">Error</button>[22m
+[2m  - attempting click action[22m
+[2m    - scrolling into view if needed[22m
+
+    at /private/tmp/claude-501/-Users-guyhaikov-a2z-workspaces/09f7e6a2-8f7b-4b0f-ac0d-bec9ce3202d8/scratchpad/studio2.mjs:17:21
+
+Node.js v25.9.0
