@@ -53,7 +53,17 @@ verify:all 0 · runtime 52,762 ≤ 53,248.
 - [x] **P8-6 Sweep & surface — MERGED `cddb77a0` (PR #141)** (M8, N2–N5, N8, N10, N13, N19, OWNER rows)
       P8-4/5/6 review chain ended **SHIP** (`evidence/p8/review-p8-ship/REVIEW.md`) after FIX-FIRST rounds
       (`review-p8-4..4d`, `review-p8-5..5b`, `review-p8-combined`, `review-p8-final`, `review-p8-merge`).
-- [ ] CLOSE (terminal battery + owner-journey sweep + full-program review + report)
+- [x] **CLOSE — COMPLETE (branch `leadgen-r2-p8-close` tip `e6b3253c`, squash-merged to the base on the final SHIP)**
+      (terminal battery + owner-journey sweep + full-program review + report)
+      Review chain: full-program review (Opus, fresh) **FIX-FIRST 1 BL / 6 MJ / 6 MN** → fix round
+      (F-A product slice + conductor register/doc pass + W-fixes) → scoped re-review **FIX-FIRST
+      0 BL / 4 MJ (all mechanical, product driven PERFECT)** → round-4 repairs → final verification
+      **SHIP** (all six repairs verified by independent hand; residual nits named in ADJ-P8-65).
+      Terminal truth: unit 8419/0/30 (8449, 500 files) · browser battery 784/20/24 with every red
+      attributed · register 110 rows / 0 violations / all PASS+DEVIATES evidenced · owner-journey
+      sweep by count · N18 resolved on the reviewer's driven step · owner packet = the BLOCKED rows
+      (incl. new ADJ-P8-56..65) + B1-GOOGLE's cutover step + pattern-a bless (ADJ-P8-63) +
+      ADJ-P8-36's ruling (also settles the two expected-fail preset-corner specs).
       2026-08-05: machine restart killed the first terminal-battery classification mid-run; state recovered
       from the tracker/register/git + the session transcript. Comparable 30-spec re-run at BOTH shas
       (fresh D1+seed, isolated ports, alphabetical, per-spec playwright): baseline 12 failures / HEAD-30
