@@ -833,11 +833,31 @@ function quoteNotFoundPage(brand: LeadgenBranding): string {
 }
 
 
+// TEMPORARY PRODUCTION DIAGNOSTICS (owner-reported: every funnel-builder action
+// takes ~10 s). Local timings are useless here — local D1 is in-process, so this
+// page renders in 15 ms on a laptop and ~5-7 s in production for ~50 ms of CPU.
+// A first attempt (issuing the independent reads concurrently) was deployed and
+// MEASURED NOT to help (4867 ms -> 6901 ms median), which falsified the
+// "the reads will overlap" assumption. So this build only MEASURES: it logs how
+// long each read actually takes in production, plus whether the isolate was cold
+// (a cold start on this bundle measured 1.1-2.3 s on a warm-vs-cold curl pair).
+// Logging only — no behaviour change. Remove once the numbers name the cause.
+let ISOLATE_WARM = false;
+
 export async function leadgenQuoteEditorPage(c: UiContext): Promise<Response> {
+  const t0 = Date.now();
+  const wasCold = !ISOLATE_WARM;
+  ISOLATE_WARM = true;
+  const marks: string[] = [];
+  const timed = async <T>(label: string, run: () => Promise<T>): Promise<T> => {
+    const s = Date.now();
+    const out = await run();
+    marks.push(`${label}=${Date.now() - s}`);
+    return out;
+  };
   const idParam = c.req.param("id") ?? "";
-  const structureRes = await apiJson<StructureBody>(
-    c.env,
-    `/api/admin/leadgen/quotes/${encodeURIComponent(idParam)}/structure`,
+  const structureRes = await timed("structure", () =>
+    apiJson<StructureBody>(c.env, `/api/admin/leadgen/quotes/${encodeURIComponent(idParam)}/structure`),
   );
   if (!structureRes.ok) return c.html(quoteNotFoundPage(branding(c)), 404);
   const structure = structureRes.body;
@@ -852,10 +872,22 @@ export async function leadgenQuoteEditorPage(c: UiContext): Promise<Response> {
   // one-fixed-slot-per-section wrap (so a pre-page-model or freshly section-
   // saved variant still renders as ordered single-section pages that round-
   // trip byte-identically). See buildPageNodes.
-  selected.pages = buildPageNodes(await loadVariantPages(c.env.DB, selected.id));
+  selected.pages = buildPageNodes(await timed("variantPages", () => loadVariantPages(c.env.DB, selected.id)));
 
   const activity = structure.quote.activity;
   const encodedQuote = encodeURIComponent(structure.quote.public_id);
+  const sectionsRes = await timed("sections", () =>
+    apiJson<ListBody<AvailableSection>>(
+      c.env,
+      `/api/admin/leadgen/sections?activity=${encodeURIComponent(activity)}&status=active&page_size=200`,
+    ),
+  );
+  const auctionsRes = await timed("auctions", () =>
+    apiJson<ListBody<AuctionListItem>>(c.env, `/api/admin/leadgen/auctions?page_size=200`),
+  );
+  const activationRes = await timed("activation", () =>
+    apiJson<ActivationBody>(c.env, `/api/admin/leadgen/quotes/${encodedQuote}/activation`),
+  );
 
   // --- v2.5 §4.1 studio state (same in-process API the browser XHRs hit) ----
   const funnelPublicId =
@@ -863,43 +895,15 @@ export async function leadgenQuoteEditorPage(c: UiContext): Promise<Response> {
     structure.funnels[0]?.public_id ??
     "";
   const encodedFunnel = encodeURIComponent(funnelPublicId);
-
-  // These eight reads are INDEPENDENT of each other — every one only needs the
-  // structure (already resolved above) for its quote/funnel id. They used to be
-  // eight sequential `await`s, and since each is itself a chain of D1 round
-  // trips, the page paid the SUM of all of them: measured 4.9 s median / 8.2 s
-  // p95 in production for 41 ms of CPU, i.e. essentially all waiting. The funnel
-  // board reloads this page after every add-section / add-page, so the operator
-  // paid that per action. Issued together, the page waits for the SLOWEST read
-  // instead of the total, and the per-request read cache (installed on this
-  // route in ui.ts) collapses the rows they fetch in common — including
-  // concurrent duplicates, which share one in-flight promise.
-  // Nothing about the RESULTS changes: same reads, same values, same order of
-  // use below; the rendered page is byte-identical (verified by normalising the
-  // per-render nonce and diffing the whole document).
-  //
-  // NOT done here, deliberately: a per-request D1 read cache to also DEDUPE the
-  // rows these reads have in common. It was built, measured (58 -> 41 round
-  // trips, byte-identical page) and then REMOVED, because wrapping the D1
-  // binding in a Proxy broke `db.batch()` on the save path with
-  // "batch is not a function" — the native binding does not tolerate a facade.
-  // Deduping belongs in the loaders themselves, not around the binding.
-  const [sectionsRes, auctionsRes, activationRes, frameRes, themeRes, templatesRes, offersRes, routingRulesRes] =
-    await Promise.all([
-      apiJson<ListBody<AvailableSection>>(
-        c.env,
-        `/api/admin/leadgen/sections?activity=${encodeURIComponent(activity)}&status=active&page_size=200`,
-      ),
-      apiJson<ListBody<AuctionListItem>>(c.env, `/api/admin/leadgen/auctions?page_size=200`),
-      apiJson<ActivationBody>(c.env, `/api/admin/leadgen/quotes/${encodedQuote}/activation`),
-      apiJson<FrameGetBody>(c.env, `/api/admin/leadgen/funnels/${encodedFunnel}/frame`),
-      apiJson<ThemeGetBody>(c.env, `/api/admin/leadgen/funnels/${encodedFunnel}/theme`),
-      apiJson<{ items: FrameTemplateItem[] }>(c.env, "/api/admin/leadgen/frame-templates"),
-      apiJson<ListBody<OfferListItem>>(c.env, "/api/admin/leadgen/offers?page_size=200"),
-      // P3b follow-up (§8.2 RIGHT rail) — the quote's routing rules, for
-      // QuoteRulesRailData (S3b.2's renderQuoteRulesRail input, assembled below).
-      apiJson<{ items: QuoteRulesRailRuleWire[] }>(c.env, `/api/admin/leadgen/quotes/${encodedQuote}/routing-rules`),
-    ]);
+  const frameRes = await timed("frame", () => apiJson<FrameGetBody>(c.env, `/api/admin/leadgen/funnels/${encodedFunnel}/frame`));
+  const themeRes = await timed("theme", () => apiJson<ThemeGetBody>(c.env, `/api/admin/leadgen/funnels/${encodedFunnel}/theme`));
+  const templatesRes = await timed("templates", () => apiJson<{ items: FrameTemplateItem[] }>(c.env, "/api/admin/leadgen/frame-templates"));
+  const offersRes = await timed("offers", () => apiJson<ListBody<OfferListItem>>(c.env, "/api/admin/leadgen/offers?page_size=200"));
+  // P3b follow-up (§8.2 RIGHT rail) — the quote's routing rules, for
+  // QuoteRulesRailData (S3b.2's renderQuoteRulesRail input, assembled below).
+  const routingRulesRes = await timed("routingRules", () =>
+    apiJson<{ items: QuoteRulesRailRuleWire[] }>(c.env, `/api/admin/leadgen/quotes/${encodedQuote}/routing-rules`),
+  );
 
   // B3 rules-builder data: this variant's rules + the internal fields of the
   // activity's Sections (from their content_json components) + Offers.
@@ -959,8 +963,12 @@ export async function leadgenQuoteEditorPage(c: UiContext): Promise<Response> {
     feed_values: Array.from(new Set(quoteRoutingRules.map((r) => r.feed_name).filter((v): v is string => typeof v === "string" && v !== ""))).sort(),
   };
 
-  return c.html(
-    quoteEditorHtml(
+  // TEMPORARY DIAGNOSTICS: one line per render, read back from Workers Logs.
+  // `cold` distinguishes isolate startup (measured 1.1-2.3 s on this bundle)
+  // from the reads themselves; each `label=ms` is that read's real production
+  // cost. `render` is the string building that follows (CPU, ~50 ms measured).
+  const renderStart = Date.now();
+  const html = quoteEditorHtml(
       structure,
       selected,
       listFunnelDesignOptions(),
@@ -974,8 +982,10 @@ export async function leadgenQuoteEditorPage(c: UiContext): Promise<Response> {
       railData,
       branding(c),
       typeof c.env.OPENAI_API_KEY === "string" && c.env.OPENAI_API_KEY !== "",
-    ),
   );
+  marks.push(`render=${Date.now() - renderStart}`);
+  console.log(`[EDITORPERF] cold=${wasCold} total=${Date.now() - t0} ${marks.join(" ")} bytes=${html.length}`);
+  return c.html(html);
 }
 
 
