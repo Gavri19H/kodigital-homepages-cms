@@ -6172,7 +6172,24 @@ async function computeReworkActivationProblems(db: D1Database, quote: LeadgenQuo
         if (ids.length > 0) hasSections = true;
       }
       if (variants.length === 0 || !hasSections) {
-        out.push(mk(`activation.funnel.${f.public_id}`, `Funnel '${f.funnel_name}' needs at least one page with a section.`));
+        // Owner-reported deadlock (2026-08-06): with every section sitting on
+        // the Shared first page, this blocker said "needs at least one page
+        // with a section" and its fix link said "Add a section to this funnel"
+        // — but the section PUT then refused the only section there was
+        // ("already on the Shared first page … once per funnel"), so the
+        // operator was sent in a circle with no reachable next step. The gate
+        // itself is RIGHT: driven with it relaxed, a funnel whose only content
+        // is the shared page leaves the visitor on a BLANK page after Continue
+        // (the auction fires, nothing renders). So the requirement stands and
+        // the message now states it: a funnel needs a section of its OWN.
+        out.push(
+          mk(
+            `activation.funnel.${f.public_id}`,
+            sharedIds.length > 0
+              ? `Funnel '${f.funnel_name}' needs at least one page with a section of its own — one that is not already on the Shared first page, because every visitor sees that page first and a section can appear once per funnel.`
+              : `Funnel '${f.funnel_name}' needs at least one page with a section.`,
+          ),
+        );
       }
     }
 
