@@ -2580,8 +2580,6 @@ export async function createSharedPageHandler(c: AdminContext): Promise<Response
     const resolved = await resolveSectionOrder(c.env.DB, quote, body["sections"]);
     if (Object.keys(resolved.errors).length > 0) return c.json({ error: "Validation failed", fields: resolved.errors }, 400);
     sectionItems = resolved.items;
-    const uniq = await sharedPageUniquenessErrors(c.env.DB, quote, sectionItems.map((s) => s.section_id));
-    if (Object.keys(uniq).length > 0) return c.json({ error: "Validation failed", fields: uniq }, 400);
   }
 
   const pagePublicId = mintPublicId("funnel_page");
@@ -2632,8 +2630,6 @@ export async function updateSharedPageHandler(c: AdminContext): Promise<Response
     const resolved = await resolveSectionOrder(c.env.DB, quote, body["sections"]);
     if (Object.keys(resolved.errors).length > 0) return c.json({ error: "Validation failed", fields: resolved.errors }, 400);
     sectionItems = resolved.items;
-    const uniq = await sharedPageUniquenessErrors(c.env.DB, quote, sectionItems.map((s) => s.section_id));
-    if (Object.keys(uniq).length > 0) return c.json({ error: "Validation failed", fields: uniq }, 400);
   } else if (slotsProvided) {
     // Reuse the variant page/slot validator over the ONE shared page (§4.3-1):
     // fixed/ruled/ab shape checks, ruled default-required + entry-known field
@@ -2644,9 +2640,6 @@ export async function updateSharedPageHandler(c: AdminContext): Promise<Response
     const prep = await preparePages(c.env.DB, quote, [{ name: name ?? existing?.name ?? null, slots: body["slots"] }], oldShared);
     if (Object.keys(prep.errors).length > 0) return c.json({ error: "Validation failed", fields: prep.errors }, 400);
     preparedSharedSlots = prep.pages[0]?.slots ?? [];
-    const prospectiveIds = preparedSharedSlots.flatMap((s) => s.candidateSectionIds);
-    const uniq = await sharedPageUniquenessErrors(c.env.DB, quote, prospectiveIds);
-    if (Object.keys(uniq).length > 0) return c.json({ error: "Validation failed", fields: uniq }, 400);
   }
 
   const statements: D1PreparedStatement[] = [];
@@ -3875,16 +3868,19 @@ export async function putVariantHandler(c: AdminContext): Promise<Response> {
     preparedPages = prep.pages;
   }
 
-  // --- §4.3-13 section uniqueness (save-time) -------------------------------
-  // The prospective plan for THIS variant (from either the `sections` list or
-  // the `pages` slots) must not repeat a section within itself nor collide with
-  // the quote's shared page — Appendix A-4 verbatim. Only when the plan changed.
-  if ((sectionsProvided || pagesProvided) && Object.keys(errors).length === 0) {
-    const prospectiveIds = sectionsProvided
-      ? sectionItems.map((s) => s.section_id)
-      : preparedPages.flatMap((p) => p.slots.flatMap((slot) => slot.candidateSectionIds));
-    Object.assign(errors, await variantSaveUniquenessErrors(c.env.DB, owner.quote, prospectiveIds));
-  }
+  // OWNER RULING (2026-08-09) — section uniqueness is NOT enforced any more.
+  // The rule was "a section can appear once per funnel". The owner's words:
+  // "if I put 3 sections in the same page - to not allowed to use one of them
+  // is absurd, if for a certain user we showed in this page one section, and
+  // didn't showed the remain two sections due to rule or AB test, we may want
+  // to show them in another page." A page slot holds CANDIDATES chosen at serve
+  // time by rules/A-B, so a section listed twice in a funnel is not two
+  // showings - it is one showing in each of two mutually-exclusive branches.
+  // Refusing the save made legitimate authoring impossible AND wedged the
+  // builder (the board keeps a refused section in its unsaved model). Storage
+  // allows it: the only uniqueness the schema has is (variant_id, position) /
+  // (quote_id, position), never section_id.
+
 
   // --- funnel rules (§15.5 replace-set) -------------------------------------
   const rulesProvided = body["rules"] !== undefined;
@@ -6231,14 +6227,12 @@ async function computeReworkActivationProblems(db: D1Database, quote: LeadgenQuo
         // is the shared page leaves the visitor on a BLANK page after Continue
         // (the auction fires, nothing renders). So the requirement stands and
         // the message now states it: a funnel needs a section of its OWN.
-        out.push(
-          mk(
-            `activation.funnel.${f.public_id}`,
-            sharedIds.length > 0
-              ? `Funnel '${f.funnel_name}' needs at least one page with a section of its own — one that is not already on the Shared first page, because every visitor sees that page first and a section can appear once per funnel.`
-              : `Funnel '${f.funnel_name}' needs at least one page with a section.`,
-          ),
-        );
+        // The advice this used to carry ("one that is not already on the Shared
+        // first page") described the once-per-funnel rule, which the owner
+        // retired on 2026-08-09 — reusing the shared page's section inside the
+        // funnel is now a legal way to satisfy this gate, so the sentence must
+        // not send the operator looking for a different section.
+        out.push(mk(`activation.funnel.${f.public_id}`, `Funnel '${f.funnel_name}' needs at least one page with a section.`));
       }
     }
 
@@ -6252,25 +6246,10 @@ async function computeReworkActivationProblems(db: D1Database, quote: LeadgenQuo
       }
     }
 
-    // §4.3-13 uniqueness holds (shared ∪ each active funnel-variant plan).
-    const nameMap = await sectionNameMap(db, [...involved]);
-    const nameOf = (id: number): string => nameMap.get(id) ?? ORPHANED_SECTION_LABEL;
-    const seen = new Set<string>();
-    // Q1: nothing is being SAVED here — this re-checks two already-saved
-    // surfaces, so a cross-surface collision really is on both and the sentence
-    // says both (the report's own doctrine: "either copy can go, so there are
-    // two candidate controls, not one" — quotes-tabs/activation.ts). The funnel
-    // is named because a quote-level publish report has no "this funnel".
-    const scopes: Array<{ funnelName: string | null; ids: number[] }> =
-      perVariant.length > 0 ? perVariant : [{ funnelName: null, ids: [] }];
-    for (const { funnelName, ids } of scopes) {
-      for (const m of sectionUniquenessMessages(sharedIds, ids, nameOf, { saving: null, funnelName })) {
-        if (!seen.has(m)) {
-          seen.add(m);
-          out.push(mk("activation.section_uniqueness", m));
-        }
-      }
-    }
+    // §4.3-13 uniqueness is NOT re-checked here — see the OWNER RULING
+    // (2026-08-09) recorded at the variant PUT: a section may appear more than
+    // once because slot candidates are chosen per visitor by rules/A-B, so
+    // publishing must not block on a repeat either.
   } catch {
     return [];
   }

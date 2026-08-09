@@ -99,6 +99,7 @@ import {
   quoteDataBlob,
   renderMediaPickerModal,
 } from "./quotes-tabs/shared";
+import { withRequestReadCache } from "./request-read-cache";
 import { renderBuilderPanel, QUOTE_EDITOR_SCRIPT } from "./quotes-tabs/funnel";
 import { renderTemplatesTabPanel } from "./quotes-tabs/templates";
 import { renderThemesTabPanel } from "./quotes-tabs/themes";
@@ -840,6 +841,17 @@ function quoteNotFoundPage(brand: LeadgenBranding): string {
 let ISOLATE_WARM = false;
 
 export async function leadgenQuoteEditorPage(c: UiContext): Promise<Response> {
+  // This page renders by fanning out to nine internal API sub-requests that all
+  // share this request's `env` and each re-resolve the same rows — measured 57
+  // D1 round trips per render, the same statements 4-8x over, which in
+  // production is 8.5-8.9 s of pure waiting. Give THIS request (and therefore
+  // its sub-requests) a read cache, on a SHALLOW COPY of env so nothing leaks
+  // between requests. See request-read-cache.ts for the write-invalidation,
+  // cloning and batch-unwrapping rules.
+  const baseEnv = c.env as unknown as { DB?: D1Database };
+  if (baseEnv.DB !== undefined) {
+    (c as unknown as { env: unknown }).env = { ...c.env, DB: withRequestReadCache(baseEnv.DB) };
+  }
   const t0 = Date.now();
   const wasCold = !ISOLATE_WARM;
   ISOLATE_WARM = true;
