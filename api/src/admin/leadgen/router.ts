@@ -140,6 +140,7 @@ import {
   updateSharedPageHandler,
   updateVariantRuleHandler,
 } from "./quotes-handlers";
+import { withRequestReadCache } from "./request-read-cache";
 import {
   auctionAnalyticsHandler,
   auctionSimulateHandler,
@@ -319,7 +320,20 @@ routes.delete("/variants/:id/rules/:rule_id", deleteVariantRuleHandler);
 // convention above) so duplicateRuleHandler reads BOTH ids unambiguously via
 // c.req.param.
 routes.post("/variants/:variant_id/rules/:rule_id/duplicate", duplicateRuleHandler);
-routes.put("/variants/:id", putVariantHandler);
+// The save the funnel board issues for every add-section / add-page. Measured in
+// production: 4.1 s wall for 15 ms of CPU - pure waiting on D1 round trips - and
+// its own reads resolve the SAME rows repeatedly (sections/quotes/funnels/
+// variants each x4 across validation, write prep, the advisory preflight and the
+// response detail). The per-request read cache collapses those duplicates; it
+// CLEARS on the write, so everything read after the save is fresh, and it hands
+// db.batch() the REAL statements (see request-read-cache.ts).
+routes.put("/variants/:id", async (c) => {
+  const db = (c.env as { DB?: D1Database }).DB;
+  if (db !== undefined) {
+    (c as unknown as { env: unknown }).env = { ...c.env, DB: withRequestReadCache(db) };
+  }
+  return putVariantHandler(c);
+});
 // AC #11C ("delete-variant exists") — conductor extension round 2.
 routes.delete("/variants/:id", deleteVariantHandler);
 

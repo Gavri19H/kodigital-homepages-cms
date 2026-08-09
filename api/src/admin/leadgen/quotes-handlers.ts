@@ -1197,12 +1197,17 @@ async function variantDetailJson(
   db: D1Database,
   variant: LeadgenFunnelVariantRow,
 ): Promise<Record<string, unknown>> {
-  const sections = await readVariantSections(db, variant.id);
-  const rules = await readVariantRules(db, variant.id);
-  // Round-4 P3a: the page/slot tree rides alongside the existing flat
-  // `sections` projection (untouched — legacy single-page-per-section
-  // callers read EXACTLY what they always have).
-  const pages = await readVariantPagesApi(db, variant.id);
+  // Three independent reads — they used to be three sequential awaits, and on
+  // the save path (which the funnel board issues for every add-section /
+  // add-page) each one is a network round trip in production. Same reads, same
+  // values; the page/slot tree still rides alongside the flat `sections`
+  // projection (untouched — legacy single-page-per-section callers read EXACTLY
+  // what they always have; Round-4 P3a).
+  const [sections, rules, pages] = await Promise.all([
+    readVariantSections(db, variant.id),
+    readVariantRules(db, variant.id),
+    readVariantPagesApi(db, variant.id),
+  ]);
   return {
     ...variantRowToApi(variant),
     sections,
@@ -4076,8 +4081,15 @@ export async function putVariantHandler(c: AdminContext): Promise<Response> {
   scheduleVariantPublishInvalidate(c, variant);
   // R5 (05 §5.2a): every variant save RECOMPUTES + stores the activation
   // preflight verdict (advisory copy; the activation PUT recomputes its own).
-  const preflight = await storeVariantPreflight(c, updated, owner.quote);
-  const detail = await variantDetailJson(c.env.DB, updated);
+// The advisory preflight verdict and the response detail are INDEPENDENT reads
+  // of the just-written state (the detail never reads the stored verdict), so
+  // they run together instead of one after the other. The board consumes
+  // activation_preflight from this response to repaint the publish banner
+  // (quotes-tabs/funnel.ts renderPreflight), so it stays in the response.
+  const [preflight, detail] = await Promise.all([
+    storeVariantPreflight(c, updated, owner.quote),
+    variantDetailJson(c.env.DB, updated),
+  ]);
   // v2.5 §3.6 (additive): overrides warnings persist WITH the save and ride
   // the success body so the builder can surface them.
   if (overridesProvided && overridesProblems.length > 0) {
