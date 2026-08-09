@@ -46,6 +46,13 @@ import {
   // composeResolvedBundle (resolver.ts) uses to find a footer's picked
   // legal-links leg before resolveSiteBranding.
   resolveEffectiveFrameOnly,
+  // Structure-endpoint latency (see the BATCHED page loading block in
+  // resolver.ts): the same page/slot/candidate rows for MANY variants at once,
+  // with the waves exposed so this file can overlap them.
+  composeVariantPages,
+  loadRealPageRowsBatched,
+  loadRealCandidateRowsBatched,
+  loadRealSlotRows,
 } from "../../public/leadgen/resolver";
 import type { WaitUntilContext } from "../../wait-until-context";
 import {
@@ -1328,6 +1335,40 @@ async function readQuoteFunnels(db: D1Database, quoteId: number): Promise<Leadge
   return result.results ?? [];
 }
 
+// Every variant / A/B test of a QUOTE, reached through its funnels in one hop.
+//
+// The structure endpoint used to read the funnel list first and only then ask
+// for variants (and then A/B tests) — three round trips deep before any real
+// work started. Joining through leadgen_funnels means these need only the quote
+// id, so all three fire together. `SELECT v.*` / `SELECT t.*` project exactly
+// the owning table's columns, and the ORDER BY is the per-funnel readers'
+// ORDER BY verbatim (readFunnelVariants: variant_label ASC, id ASC; the A/B
+// list: id DESC) — grouping by funnel_id afterwards preserves each funnel's
+// relative order, so the emitted tree is unchanged.
+async function readQuoteFunnelVariants(db: D1Database, quoteId: number): Promise<LeadgenFunnelVariantRow[]> {
+  const result = await db
+    .prepare(
+      `SELECT v.* FROM leadgen_funnel_variants v
+       JOIN leadgen_funnels f ON f.id = v.funnel_id
+       WHERE f.quote_id = ? ORDER BY v.variant_label ASC, v.id ASC`,
+    )
+    .bind(quoteId)
+    .all<LeadgenFunnelVariantRow>();
+  return result.results ?? [];
+}
+
+async function readQuoteFunnelAbTests(db: D1Database, quoteId: number): Promise<LeadgenFunnelAbTestRow[]> {
+  const result = await db
+    .prepare(
+      `SELECT t.* FROM leadgen_funnel_ab_tests t
+       JOIN leadgen_funnels f ON f.id = t.funnel_id
+       WHERE f.quote_id = ? ORDER BY t.id DESC`,
+    )
+    .bind(quoteId)
+    .all<LeadgenFunnelAbTestRow>();
+  return result.results ?? [];
+}
+
 // R2 D5 (contract §7 D5): the quote's per-quote default template override
 // (leadgen_quote_default_template, migration 0055) resolved to its PUBLIC id,
 // or null when the quote has no override row (the global is_default stays the
@@ -2542,16 +2583,23 @@ async function readSharedPageSections(db: D1Database, quoteId: number): Promise<
 }
 
 async function sharedPageJson(db: D1Database, quote: LeadgenQuoteRow): Promise<Record<string, unknown> | null> {
-  const page = await readSharedPageRow(db, quote.id);
+  // The three reads below are independent — each needs only the quote id — and
+  // used to be three sequential awaits. In production that is three network
+  // round trips (~100 ms each) on a path the quote editor waits for; overlapped
+  // they cost one. Same reads, same values: `page === null` still short-circuits
+  // to null below, it just does so after the other two have already resolved.
+  const [page, sections, resolvedShared] = await Promise.all([
+    readSharedPageRow(db, quote.id),
+    readSharedPageSections(db, quote.id),
+    loadSharedPages(db, quote.id),
+  ]);
   if (page === null) return null;
-  const sections = await readSharedPageSections(db, quote.id);
   // Rework §8.2 (S5.3): the shared page's SLOTS in the SAME BoardPageSlot shape
   // the funnel columns use (pageToApi), resolved through the SAME loader the
   // runtime serves (loadSharedPages) so kind / A-B allocations / slot rules match
   // exactly what the visitor gets — this powers the board's shared-chip menu
   // editors ("A/B this slot" / "Slot rule"). The flat `sections` list stays for
   // pre-slot consumers (rules-rail field derivation, uniqueness probes).
-  const resolvedShared = await loadSharedPages(db, quote.id);
   const slots = resolvedShared.length > 0 ? (pageToApi(resolvedShared[0]!).slots as Record<string, unknown>[]) : [];
   // Attach each candidate's Offer-mapping dot + strip the internal
   // section_num_id carrier (the SAME batch quoteStructureHandler runs for funnel
@@ -5469,46 +5517,43 @@ export async function quoteStructureHandler(c: AdminContext): Promise<Response> 
   const quote = await resolveQuoteRow(c.env.DB, c.req.param("id") ?? "");
   if (quote === null) return c.json({ error: "Not Found" }, 404);
 
-  const funnels = await readQuoteFunnels(c.env.DB, quote.id);
   // PERFORMANCE (owner-reported ~10 s per funnel-builder action): this endpoint
   // measured 2.4 s of the editor page's 8.5-8.9 s in production, for 18 D1
   // queries and almost no CPU — it awaited each read one at a time, per funnel
   // and then per variant, so the page paid the SUM of every round trip.
   //
-  // ROUND 2 (measured by driving the owner's real quote in production: 2 funnels,
-  // 16 pages, this endpoint 1,438 ms and, once the preflight came off the
-  // critical path, the thing the page waits for): the per-funnel reads are now
-  // set reads. Variants and A/B tests for ALL funnels come back in two
-  // statements instead of one per funnel, and the ACTIVE set is a filter of the
-  // rows already in hand rather than a third query per funnel. Same rows, same
-  // ORDER BY, same per-funnel grouping. Ids are bound parameters, chunked at 80
-  // per statement (d1-database-safety: the 100-binding ceiling).
-  const funnelIds = funnels.map((f) => f.id);
-  const idChunks: number[][] = [];
-  for (let i = 0; i < funnelIds.length; i += 80) idChunks.push(funnelIds.slice(i, i + 80));
-  const [variantRows, abTestRows] = await Promise.all([
-    Promise.all(
-      idChunks.map(async (ids) =>
-        (
-          await c.env.DB.prepare(
-            `SELECT * FROM leadgen_funnel_variants WHERE funnel_id IN (${ids.map(() => "?").join(",")}) ORDER BY variant_label ASC, id ASC`,
-          )
-            .bind(...ids)
-            .all<LeadgenFunnelVariantRow>()
-        ).results ?? [],
-      ),
-    ).then((parts) => parts.flat()),
-    Promise.all(
-      idChunks.map(async (ids) =>
-        (
-          await c.env.DB.prepare(
-            `SELECT * FROM leadgen_funnel_ab_tests WHERE funnel_id IN (${ids.map(() => "?").join(",")}) ORDER BY id DESC`,
-          )
-            .bind(...ids)
-            .all<LeadgenFunnelAbTestRow>()
-        ).results ?? [],
-      ),
-    ).then((parts) => parts.flat()),
+  // ROUND 3 — what the first two rounds MISSED. Round 2 turned the per-funnel
+  // reads into set reads and moved this endpoint by 25 ms (1,421 -> 1,396 ms
+  // server-side, measured on the owner's real quote in production). Fewer
+  // QUERIES was never the lever: the owner's quote is 2 funnels / 16 pages, a
+  // dataset small enough that execution time is noise. DEPTH is the lever. On
+  // the same page load the cheapest single-hop endpoints each cost ~107 ms —
+  // that constant is the network round trip to D1 — and this handler was ~14
+  // hops deep end to end:
+  //     quote -> funnels -> variants -> sections/rules -> pages -> slots
+  //           -> candidates -> mapping status -> THEN the whole shared-page
+  //           chain (row -> sections -> pages -> slots -> candidates -> status)
+  // 14 x ~100 ms is the 1,396 ms that was measured. So this round removes hops
+  // instead of queries, in three ways:
+  //   1. The shared-page branch needs only the quote — it now runs CONCURRENTLY
+  //      with the funnel branch instead of after it (~6 hops off the critical
+  //      path).
+  //   2. Variants and A/B tests join through leadgen_funnels, so they need only
+  //      the quote id and start alongside the funnel list instead of after it.
+  //   3. Pages and candidates are batched across every active variant and, since
+  //      candidates key off the variant alone, they load in the SAME wave as
+  //      pages/sections/rules; slots (which need page ids) and the mapping-status
+  //      batch then share the last wave.
+  // Result: 4 waves rather than ~14 sequential hops. Every read is the same SQL
+  // against the same rows in the same order, so the response is byte-identical —
+  // diffed whole-body before/after against the same database.
+  //
+  // Kicked off FIRST and awaited last: nothing in the funnel tree depends on it.
+  const sharedPagePromise = sharedPageJson(c.env.DB, quote);
+  const [funnels, variantRows, abTestRows] = await Promise.all([
+    readQuoteFunnels(c.env.DB, quote.id),
+    readQuoteFunnelVariants(c.env.DB, quote.id),
+    readQuoteFunnelAbTests(c.env.DB, quote.id),
   ]);
   const variantsByFunnel = new Map<number, LeadgenFunnelVariantRow[]>();
   for (const v of variantRows) {
@@ -5522,19 +5567,84 @@ export async function quoteStructureHandler(c: AdminContext): Promise<Response> 
     list.push(ab);
     abTestsByFunnel.set(ab.funnel_id, list);
   }
-  // The reads now overlap; `Promise.all` over `.map` preserves array order, so
-  // the emitted tree is identical (verified by byte-comparing this endpoint's
-  // whole JSON body before/after).
-  const funnelTree: Record<string, unknown>[] = await Promise.all(
-    funnels.map(async (funnel) => {
+  // P3b (§8.2 board): the funnel column renders the ACTIVE variant's PAGES as
+  // section-chip cards. With no running test a funnel has exactly one active
+  // variant (M1 replacement semantics); the deterministic primary is the
+  // variant_label-ASC head of the active set — the SAME pick
+  // readActiveFunnelVariants made, now taken from the rows already in hand.
+  const primaryActiveByFunnel = new Map<number, LeadgenFunnelVariantRow | null>();
+  for (const funnel of funnels) {
+    const variants = variantsByFunnel.get(funnel.id) ?? [];
+    primaryActiveByFunnel.set(funnel.id, variants.filter((v) => v.status === "active")[0] ?? variants[0] ?? null);
+  }
+  const boardVariantIds = funnels
+    .map((f) => primaryActiveByFunnel.get(f.id)?.id)
+    .filter((id): id is number => typeof id === "number");
+
+  // WAVE 2 — every per-variant read of the whole quote in ONE wave: sections and
+  // rules for every variant, plus the board variants' page rows and slot
+  // candidates. Candidates key off the variant alone, so unlike the per-variant
+  // loader they do not wait behind pages.
+  const [sectionsByVariant, rulesByVariant, pageRowsByVariant, candidatesByVariant] = await Promise.all([
+    Promise.all(variantRows.map((v) => readVariantSections(c.env.DB, v.id))).then(
+      (lists) => new Map(variantRows.map((v, i) => [v.id, lists[i] ?? []])),
+    ),
+    Promise.all(variantRows.map((v) => readVariantRules(c.env.DB, v.id))).then(
+      (lists) => new Map(variantRows.map((v, i) => [v.id, lists[i] ?? []])),
+    ),
+    loadRealPageRowsBatched(c.env.DB, boardVariantIds),
+    loadRealCandidateRowsBatched(c.env.DB, boardVariantIds),
+  ]);
+
+  // A board variant with no real page rows predates the page model and resolves
+  // through the legacy synthetic wrap — readVariantPagesApi owns that shape.
+  // Production data has real pages; this stays empty there.
+  const legacyVariantIds = boardVariantIds.filter((id) => (pageRowsByVariant.get(id) ?? []).length === 0);
+
+  const boardPageIds: number[] = [];
+  for (const id of boardVariantIds) for (const page of pageRowsByVariant.get(id) ?? []) boardPageIds.push(page.id);
+  // The mapping-status batch keyed off the COMPOSED pages before, which meant
+  // waiting for slots. Candidate rows carry their section id directly, so the
+  // ids are known a wave earlier. A candidate whose slot row is gone would add
+  // an id the composed walk never had — a wider map, never a different value,
+  // because attachMappingStatusToPages only ever looks up ids it finds in the
+  // tree it is walking.
+  const candidateSectionIds: number[] = [];
+  for (const id of boardVariantIds) {
+    for (const list of (candidatesByVariant.get(id) ?? new Map()).values()) {
+      for (const cand of list) candidateSectionIds.push(cand.section.id);
+    }
+  }
+
+  // WAVE 3 — slots (the only read that needed page ids), the mapping-status
+  // batch, the legacy stragglers, and the shared-page branch that has been
+  // running alongside this whole time.
+  const [slotsByPage, statusMap, legacyPageLists, sharedPage] = await Promise.all([
+    loadRealSlotRows(c.env.DB, boardPageIds),
+    sectionMappingStatusMap(c.env.DB, candidateSectionIds),
+    Promise.all(legacyVariantIds.map((id) => readVariantPagesApi(c.env.DB, id))),
+    sharedPagePromise,
+  ]);
+
+  const pagesApiByVariant = new Map<number, Record<string, unknown>[]>();
+  legacyVariantIds.forEach((id, i) => pagesApiByVariant.set(id, legacyPageLists[i] ?? []));
+  for (const id of boardVariantIds) {
+    if (pagesApiByVariant.has(id)) continue;
+    pagesApiByVariant.set(
+      id,
+      composeVariantPages(pageRowsByVariant.get(id) ?? [], slotsByPage, candidatesByVariant.get(id) ?? new Map()).map(
+        pageToApi,
+      ),
+    );
+  }
+
+  // Every read is done; the tree assembles synchronously in the funnels' order.
+  const funnelTree: Record<string, unknown>[] = funnels.map((funnel) => {
     const variants = variantsByFunnel.get(funnel.id) ?? [];
     const abTests = abTestsByFunnel.get(funnel.id) ?? [];
-    const variantTree: Record<string, unknown>[] = await Promise.all(
-      variants.map(async (variant) => {
-      const [sections, rules] = await Promise.all([
-        readVariantSections(c.env.DB, variant.id),
-        readVariantRules(c.env.DB, variant.id),
-      ]);
+    const variantTree: Record<string, unknown>[] = variants.map((variant) => {
+      const sections = sectionsByVariant.get(variant.id) ?? [];
+      const rules = rulesByVariant.get(variant.id) ?? [];
       // G4 identity proof: assemble a proven-distinct triple through the
       // Stage-A branded constructors (funnel_id ≠ funnel_variant_id, never
       // aliased). Throws only if the two ever collide — they cannot.
@@ -5547,16 +5657,11 @@ export async function quoteStructureHandler(c: AdminContext): Promise<Response> 
         rules: rules.map(ruleRowToApi),
         auction_entry_position: auctionEntryPosition(sections),
       };
-      }),
-    );
-    // P3b (§8.2 board): the funnel column renders the ACTIVE variant's PAGES as
-    // section-chip cards. With no running test a funnel has exactly one active
-    // variant (M1 replacement semantics); the deterministic primary is the
-    // variant_label-ASC head of readActiveFunnelVariants. `active_variant_pages`
-    // is ADDITIVE — the flat per-variant `sections` projection above is
-    // untouched, so every pre-P3b consumer reads exactly what it always did.
-    const activeVariants = variants.filter((v) => v.status === "active");
-    const primaryActive = activeVariants[0] ?? variants[0] ?? null;
+    });
+    // `active_variant_pages` is ADDITIVE — the flat per-variant `sections`
+    // projection above is untouched, so every pre-P3b consumer reads exactly
+    // what it always did.
+    const primaryActive = primaryActiveByFunnel.get(funnel.id) ?? null;
     return {
       ...funnelRowToApi(funnel),
       funnel_id: toFunnelId(funnel.public_id) as string,
@@ -5565,21 +5670,18 @@ export async function quoteStructureHandler(c: AdminContext): Promise<Response> 
       // drives the A/B tab's start/stop + the §16.2 assignment preview.
       ab_tests: abTests.map(abTestRowToApi),
       active_variant_public_id: primaryActive?.public_id ?? null,
-      active_variant_pages: primaryActive === null ? [] : await readVariantPagesApi(c.env.DB, primaryActive.id),
+      active_variant_pages: primaryActive === null ? [] : (pagesApiByVariant.get(primaryActive.id) ?? []),
     };
-    }),
-  );
+  });
 
-  // P3b follow-up (§8.2 board, DEV-59 parity): batch-attach each page-slot
-  // candidate's mapping_status — ONE query across every funnel's pages rather
-  // than N+1 — then strip the internal section_num_id carrier pageToApi added.
+  // P3b follow-up (§8.2 board, DEV-59 parity): attach each page-slot candidate's
+  // mapping_status from the batch above, then strip the internal section_num_id
+  // carrier pageToApi added. In memory — the query already happened in wave 3.
   const allPages: Record<string, unknown>[] = [];
   for (const f of funnelTree) {
     const pages = (f as { active_variant_pages?: unknown }).active_variant_pages;
     if (Array.isArray(pages)) allPages.push(...(pages as Record<string, unknown>[]));
   }
-  const candidateIds = collectCandidateSectionIds(allPages);
-  const statusMap = await sectionMappingStatusMap(c.env.DB, candidateIds);
   attachMappingStatusToPages(allPages, statusMap);
 
   return c.json({
@@ -5587,7 +5689,8 @@ export async function quoteStructureHandler(c: AdminContext): Promise<Response> 
     funnels: funnelTree,
     // P3b (§4.3-1 / §8.2 board): the quote-owned shared first page (or null) —
     // ADDITIVE top-level key the pinned "Shared first page" column renders.
-    shared_page: await sharedPageJson(c.env.DB, quote),
+    // Resolved in wave 3; it loaded alongside the funnel tree, not after it.
+    shared_page: sharedPage,
   });
 }
 
