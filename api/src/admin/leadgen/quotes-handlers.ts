@@ -3366,6 +3366,67 @@ function slotContentKey(rulesJson: string | null, abAllocationsJson: string | nu
 // ONLY to carry forward a slot's revision when its rules/allocations are
 // byte-unchanged at the same (page, slot) coordinate — any content change,
 // added/removed slot, or reordering bumps it (a fresh, clean re-bucket).
+// Collects every `*section_id` value anywhere in a pages payload. Deliberately
+// tolerant and shape-agnostic: it is only a prefetch hint (see preparePages),
+// so over-collecting costs nothing and under-collecting costs one extra read.
+function collectSectionRefStrings(node: unknown, out: Set<string>): void {
+  if (Array.isArray(node)) {
+    for (const item of node) collectSectionRefStrings(item, out);
+    return;
+  }
+  if (!isRecord(node)) return;
+  for (const [key, value] of Object.entries(node)) {
+    if (key.endsWith("section_id") && (typeof value === "string" || typeof value === "number")) {
+      const s = String(value);
+      if (s !== "") out.add(s);
+    } else {
+      collectSectionRefStrings(value, out);
+    }
+  }
+}
+
+// Resolves those refs in one wave per id KIND, keyed by the original ref string
+// so callers look up with exactly what the payload carried. Section refs are
+// dual-id (numeric row id or public id), which is why they split into two
+// statements — the same split resolveRowSection makes one ref at a time.
+async function prefetchSectionRefs(db: D1Database, raw: unknown): Promise<Map<string, LeadgenSectionRow>> {
+  const out = new Map<string, LeadgenSectionRow>();
+  const refs = new Set<string>();
+  collectSectionRefStrings(raw, refs);
+  if (refs.size === 0) return out;
+
+  const byNumericId = new Map<number, string>();
+  const byPublicId = new Map<string, string>();
+  for (const ref of refs) {
+    const selector = idSelector("section", ref);
+    if (selector === null) continue; // malformed — resolveRowSection reports it
+    if (selector.column === "id") byNumericId.set(Number(selector.value), ref);
+    else byPublicId.set(String(selector.value), ref);
+  }
+
+  const loadChunked = async <K extends string | number>(
+    column: "id" | "public_id",
+    keys: Map<K, string>,
+  ): Promise<void> => {
+    const list = [...keys.keys()];
+    for (let i = 0; i < list.length; i += 80) {
+      const chunk = list.slice(i, i + 80);
+      if (chunk.length === 0) continue;
+      const rows = await db
+        .prepare(`SELECT * FROM leadgen_sections WHERE ${column} IN (${chunk.map(() => "?").join(",")})`)
+        .bind(...chunk)
+        .all<LeadgenSectionRow>();
+      for (const row of rows.results ?? []) {
+        const ref = keys.get((column === "id" ? row.id : row.public_id) as K);
+        if (ref !== undefined) out.set(ref, row);
+      }
+    }
+  };
+
+  await Promise.all([loadChunked("id", byNumericId), loadChunked("public_id", byPublicId)]);
+  return out;
+}
+
 async function preparePages(
   db: D1Database,
   quote: LeadgenQuoteRow,
@@ -3379,12 +3440,20 @@ async function preparePages(
   }
   const quoteVerticals = new Set(parseStringArray(quote.verticals_json));
 
+  // Every section this payload references, resolved in ONE wave rather than one
+  // round trip per slot (16 of the save's 95 waves on a 16-page variant, and it
+  // grew with the page count — the reason a big quote felt so much worse than a
+  // small one). The pre-scan is a HINT ONLY: resolveRef still falls back to a
+  // live read for anything the walker did not collect, so no correctness here
+  // depends on the walker being exhaustive, and the checks below are unchanged.
+  const prefetchedSections = await prefetchSectionRefs(db, raw);
+
   const resolveRef = async (ref: unknown, path: string): Promise<number | null> => {
     if (ref === undefined || ref === null || ref === "") {
       errors[path] = "section_id is required";
       return null;
     }
-    const section = await resolveRowSection(db, String(ref));
+    const section = prefetchedSections.get(String(ref)) ?? (await resolveRowSection(db, String(ref)));
     if (section === null) {
       errors[path] = describeUnknownSectionRef(String(ref));
       return null;
@@ -5998,6 +6067,111 @@ function schemaInfoFromJson(schemaJson: string | null): {
 // Compute the §5.2 preflight for ONE variant. Every check calls the existing
 // machinery; blocks carry per-section/per-offer identity + typed code +
 // fields[] + fix links (the normative report shape).
+interface SectionContentRow {
+  id: number;
+  public_id: string;
+  section_name: string;
+  content_json: string;
+}
+
+// Section content rows for MANY sections in ONE round trip.
+//
+// SAVE LATENCY (owner-reported "adding a page takes 5-10 seconds"): the save
+// path was traced with a fixed cost charged per D1 round trip, on a variant the
+// size of the owner's real one (16 pages). It made 102 queries in 95 SEQUENTIAL
+// waves, and 78 of those waves were four separate per-section loops that each
+// awaited one section at a time. In production every hop is a network round
+// trip (~100 ms measured), and the loops scale with the page count — which is
+// exactly why a big quote felt so much worse than a small one. Batched by id
+// (chunked <= 80 per statement, d1-database-safety's 100-binding ceiling), each
+// loop becomes one wave instead of N.
+async function readSectionContentRows(
+  db: D1Database,
+  sectionIds: readonly number[],
+): Promise<Map<number, SectionContentRow>> {
+  const out = new Map<number, SectionContentRow>();
+  const unique = [...new Set(sectionIds)];
+  for (let i = 0; i < unique.length; i += 80) {
+    const chunk = unique.slice(i, i + 80);
+    if (chunk.length === 0) continue;
+    const rows = await db
+      .prepare(
+        `SELECT id, public_id, section_name, content_json FROM leadgen_sections WHERE id IN (${chunk.map(() => "?").join(",")})`,
+      )
+      .bind(...chunk)
+      .all<SectionContentRow>();
+    for (const r of rows.results ?? []) out.set(r.id, r);
+  }
+  return out;
+}
+
+interface SectionAnswerMapRow {
+  question_id: string;
+  question_key: string;
+  internal_field: string;
+  answer_type: string;
+  offer_id: number;
+  offer_payload_field_path: string;
+  provider_expected_type: string;
+  output_value_map_json: string | null;
+  transform_json: string | null;
+  required_for_offer: number;
+  default_value: string | null;
+  fallback_value: string | null;
+}
+
+// Stored answer-map rows for MANY sections, grouped by section. `section_id` is
+// selected only as the grouping key — the row objects handed to callers carry
+// exactly the columns the per-section `SELECT *` returned.
+async function readAnswerMapRowsBySection(
+  db: D1Database,
+  sectionIds: readonly number[],
+): Promise<Map<number, SectionAnswerMapRow[]>> {
+  const out = new Map<number, SectionAnswerMapRow[]>();
+  const unique = [...new Set(sectionIds)];
+  for (let i = 0; i < unique.length; i += 80) {
+    const chunk = unique.slice(i, i + 80);
+    if (chunk.length === 0) continue;
+    const rows = await db
+      .prepare(
+        `SELECT * FROM leadgen_section_answer_maps WHERE section_id IN (${chunk.map(() => "?").join(",")})`,
+      )
+      .bind(...chunk)
+      .all<SectionAnswerMapRow & { section_id: number }>();
+    for (const r of rows.results ?? []) {
+      const list = out.get(r.section_id);
+      if (list === undefined) out.set(r.section_id, [r]);
+      else list.push(r);
+    }
+  }
+  return out;
+}
+
+// Selected offer ids for MANY sections, grouped by section.
+async function readSelectedOfferIdsBySection(
+  db: D1Database,
+  sectionIds: readonly number[],
+): Promise<Map<number, Set<number>>> {
+  const out = new Map<number, Set<number>>();
+  const unique = [...new Set(sectionIds)];
+  for (let i = 0; i < unique.length; i += 80) {
+    const chunk = unique.slice(i, i + 80);
+    if (chunk.length === 0) continue;
+    const rows = await db
+      .prepare(
+        `SELECT section_id, offer_id FROM leadgen_section_available_offers WHERE section_id IN (${chunk.map(() => "?").join(",")}) AND selected = 1`,
+      )
+      .bind(...chunk)
+      .all<{ section_id: number; offer_id: number }>();
+    for (const r of rows.results ?? []) {
+      const set = out.get(r.section_id);
+      if (set === undefined) out.set(r.section_id, new Set([r.offer_id]));
+      else set.add(r.offer_id);
+    }
+  }
+  return out;
+}
+
 async function computeVariantPreflightBlocks(
   db: D1Database,
   variant: LeadgenFunnelVariantRow,
@@ -6007,20 +6181,11 @@ async function computeVariantPreflightBlocks(
   const activeSections = sections.filter((s) => s.status === "active");
 
   // The variant-wide internal-field set (dependency targets must exist).
-  interface SectionContentRow {
-    id: number;
-    public_id: string;
-    section_name: string;
-    content_json: string;
-  }
-  const contentRows = new Map<number, SectionContentRow>();
-  for (const s of activeSections) {
-    const row = await db
-      .prepare("SELECT id, public_id, section_name, content_json FROM leadgen_sections WHERE id = ? LIMIT 1")
-      .bind(s.section_id)
-      .first<SectionContentRow>();
-    if (row !== null) contentRows.set(s.section_id, row);
-  }
+  // Same rows as the per-section reads this replaces (a missing section is
+  // simply absent from the map, exactly as `row === null` skipped it before);
+  // only Sets and id-keyed Maps are built from it, so result order is not
+  // observable.
+  const contentRows = await readSectionContentRows(db, activeSections.map((s) => s.section_id));
   const knownFields = new Set<string>();
   const componentsBySection = new Map<number, Record<string, unknown>[]>();
   for (const [sectionId, row] of contentRows) {
@@ -6050,6 +6215,18 @@ async function computeVariantPreflightBlocks(
     // sections (the variant-wide field space).
     for (const f of collectKnownAnswerFields(topLevel)) knownFields.add(f);
   }
+
+  // The same two reads the per-section loop below used to issue one section at
+  // a time (2 x N sequential round trips — 32 of the save's 95 waves on a
+  // 16-page variant). Fetched for every active section in one wave each and
+  // grouped by section_id; the loop's own logic is unchanged, it just reads
+  // from these maps. Same rows, same ORDER BY-free semantics (both were
+  // unordered .all() reads feeding Sets).
+  const activeSectionIds = activeSections.map((s) => s.section_id);
+  const [mapRowsBySection, selectedOffersBySection] = await Promise.all([
+    readAnswerMapRowsBySection(db, activeSectionIds),
+    readSelectedOfferIdsBySection(db, activeSectionIds),
+  ]);
 
   for (const s of activeSections) {
     const content = contentRows.get(s.section_id);
@@ -6083,30 +6260,12 @@ async function computeVariantPreflightBlocks(
       }
     }
 
-    // Stored mapping rows + selected offers for THIS section.
-    const mapRows = await db
-      .prepare("SELECT * FROM leadgen_section_answer_maps WHERE section_id = ?")
-      .bind(s.section_id)
-      .all<{
-        question_id: string;
-        question_key: string;
-        internal_field: string;
-        answer_type: string;
-        offer_id: number;
-        offer_payload_field_path: string;
-        provider_expected_type: string;
-        output_value_map_json: string | null;
-        transform_json: string | null;
-        required_for_offer: number;
-        default_value: string | null;
-        fallback_value: string | null;
-      }>();
-    const selectedRows = await db
-      .prepare("SELECT offer_id FROM leadgen_section_available_offers WHERE section_id = ? AND selected = 1")
-      .bind(s.section_id)
-      .all<{ offer_id: number }>();
-    const selectedOfferIds = new Set((selectedRows.results ?? []).map((r) => r.offer_id));
-    const mappedOfferIds = new Set((mapRows.results ?? []).map((r) => r.offer_id));
+    // Stored mapping rows + selected offers for THIS section (from the two
+    // batched reads above — same rows the per-section queries returned).
+    const mapRowsResults = mapRowsBySection.get(s.section_id) ?? [];
+    const mapRows = { results: mapRowsResults };
+    const selectedOfferIds = selectedOffersBySection.get(s.section_id) ?? new Set<number>();
+    const mappedOfferIds = new Set(mapRowsResults.map((r) => r.offer_id));
     const offerIds = [...new Set([...selectedOfferIds, ...mappedOfferIds])];
     if (offerIds.length === 0) continue;
 
@@ -6791,12 +6950,18 @@ async function computeMapsNoJobProblems(
 ): Promise<Problem[]> {
   const problems: Problem[] = [];
   const orderedRefs = await readVariantSections(db, variant.id);
+  // One wave for every active section's content row instead of one round trip
+  // each (16 of the save's 95 waves on a 16-page variant). The loop below still
+  // walks orderedRefs in order, so `problems` is emitted in the same sequence;
+  // a section with no row is absent from the map exactly as `row === null`
+  // skipped it before.
+  const contentById = await readSectionContentRows(
+    db,
+    orderedRefs.filter((r) => r.status === "active").map((r) => r.section_id),
+  );
   for (const ref of orderedRefs) {
     if (ref.status !== "active") continue;
-    const row = await db
-      .prepare("SELECT public_id, section_name, content_json FROM leadgen_sections WHERE id = ? LIMIT 1")
-      .bind(ref.section_id)
-      .first<{ public_id: string; section_name: string; content_json: string }>();
+    const row = contentById.get(ref.section_id) ?? null;
     if (row === null) continue;
     const parsed = parseJsonColumn(row.content_json);
     const topLevel = isRecord(parsed) && Array.isArray(parsed["components"]) ? (parsed["components"] as unknown[]) : [];
