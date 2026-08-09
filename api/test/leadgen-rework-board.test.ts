@@ -133,6 +133,63 @@ interface QuoteDetail {
   funnels: Array<{ public_id: string; funnel_name: string; variants: Array<{ public_id: string }> }>;
 }
 
+// Owner-reported trap (2026-08-09): the Section library is fetched by ACTIVITY,
+// but a save is validated against activity AND vertical — so a Home-vertical
+// section was offered inside a Car quote, the PUT refused it, and because the
+// board keeps the rejected section in its unsaved model EVERY later save
+// (including "+ Add page") resent it and failed the same way until a reload.
+// The library must offer only what the save will accept.
+describeDb("Section library offers only sections this quote can actually use", () => {
+  it("a section in a vertical the quote does not carry is NOT offered, and the save would refuse it", async () => {
+    const sdb = createLeadgenDb(DatabaseSync as DatabaseSyncCtor);
+    const env = buildEnv(d1FromSqlite(sdb));
+    const carSection = seedSection(sdb, "CAR Credit Score", "car");
+    const homeSection = seedSection(sdb, "HOME Roof Age", "home");
+
+    const cq = await admin.request(
+      `${API}/quotes`,
+      jsonInit("POST", { quote_name: "Car only", activity: "quote_funnel", verticals: ["car"] }),
+      env,
+    );
+    expect(cq.status, `create quote: ${await cq.clone().text()}`).toBe(201);
+    const quote = (await cq.json()) as QuoteDetail;
+    const variant = quote.funnels[0]!.variants[0]!.public_id;
+
+    const page = await (await admin.request(`/admin/leadgen/quotes/${quote.public_id}/edit`, {}, env)).text();
+    expect(page).toContain("CAR Credit Score");
+    // FAIL-BEFORE: this section WAS listed (measured 5 occurrences in the real
+    // rendered page) and clicking it wedged the builder.
+    expect(page).not.toContain("HOME Roof Age");
+
+    // ...and the reason it must not be offered: the save refuses it by vertical.
+    const put = await admin.request(
+      `${API}/variants/${variant}`,
+      jsonInit("PUT", { pages: [{ name: null, slots: [{ kind: "fixed", section_id: homeSection.public_id }] }] }),
+      env,
+    );
+    expect(put.status).toBe(400);
+    expect(JSON.stringify(await put.json())).toContain("Vertical");
+    void carSection;
+  });
+
+  it("a quote with NO verticals recorded still sees the whole activity list (fail open, never an empty library)", async () => {
+    const sdb = createLeadgenDb(DatabaseSync as DatabaseSyncCtor);
+    const env = buildEnv(d1FromSqlite(sdb));
+    seedSection(sdb, "CAR Credit Score", "car");
+    seedSection(sdb, "HOME Roof Age", "home");
+    const cq = await admin.request(
+      `${API}/quotes`,
+      jsonInit("POST", { quote_name: "No verticals", activity: "quote_funnel", verticals: ["car"] }),
+      env,
+    );
+    const quote = (await cq.json()) as QuoteDetail;
+    sdb.prepare("UPDATE leadgen_quotes SET verticals_json = ? WHERE public_id = ?").run("[]", quote.public_id);
+    const page = await (await admin.request(`/admin/leadgen/quotes/${quote.public_id}/edit`, {}, env)).text();
+    expect(page).toContain("CAR Credit Score");
+    expect(page).toContain("HOME Roof Age");
+  });
+});
+
 describeDb("P3b board SSR — real /structure projection -> renderBuilderPanel (§8.2)", () => {
   let html = "";
   let funnelAPublic = "";

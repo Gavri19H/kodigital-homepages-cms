@@ -915,7 +915,24 @@ export async function leadgenQuoteEditorPage(c: UiContext): Promise<Response> {
 
   // B3 rules-builder data: this variant's rules + the internal fields of the
   // activity's Sections (from their content_json components) + Offers.
-  const available = sectionsRes.ok ? sectionsRes.body.items : [];
+  // Owner-reported trap (2026-08-09): the library offered sections this quote
+  // can NEVER use, and clicking one wedged the builder. The list is fetched by
+  // ACTIVITY, but a save is validated against activity AND vertical, so in an
+  // "Insurance" quote whose vertical is Car, every Home-vertical section was
+  // offered and then refused by PUT /variants/:id with "'X' is in the home
+  // Vertical, but this quote's Verticals only include car". Worse, the board
+  // keeps the rejected section in its unsaved model, so EVERY later save —
+  // including "+ Add page" — resent it and failed the same way, until a reload.
+  // Offer only what the save will accept. Fail OPEN: a quote with no verticals
+  // recorded keeps the whole activity list rather than showing an empty library.
+  const quoteVerticals = new Set(
+    (structure.quote.verticals_json ?? []).filter((v): v is string => typeof v === "string" && v !== ""),
+  );
+  const availableAll = sectionsRes.ok ? sectionsRes.body.items : [];
+  const available =
+    quoteVerticals.size === 0
+      ? availableAll
+      : availableAll.filter((s) => typeof s.vertical !== "string" || s.vertical === "" || quoteVerticals.has(s.vertical));
   const fields = quoteRailAnswerFields(available);
   // §10/S5.1: `fields` (QuoteRulesRailAnswerField[]) is threaded directly —
   // it used to ride inside a `RoutingBuilderData` wrapper object whose OTHER
