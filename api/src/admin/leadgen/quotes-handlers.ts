@@ -5474,15 +5474,61 @@ export async function quoteStructureHandler(c: AdminContext): Promise<Response> 
   // measured 2.4 s of the editor page's 8.5-8.9 s in production, for 18 D1
   // queries and almost no CPU — it awaited each read one at a time, per funnel
   // and then per variant, so the page paid the SUM of every round trip.
+  //
+  // ROUND 2 (measured by driving the owner's real quote in production: 2 funnels,
+  // 16 pages, this endpoint 1,438 ms and, once the preflight came off the
+  // critical path, the thing the page waits for): the per-funnel reads are now
+  // set reads. Variants and A/B tests for ALL funnels come back in two
+  // statements instead of one per funnel, and the ACTIVE set is a filter of the
+  // rows already in hand rather than a third query per funnel. Same rows, same
+  // ORDER BY, same per-funnel grouping. Ids are bound parameters, chunked at 80
+  // per statement (d1-database-safety: the 100-binding ceiling).
+  const funnelIds = funnels.map((f) => f.id);
+  const idChunks: number[][] = [];
+  for (let i = 0; i < funnelIds.length; i += 80) idChunks.push(funnelIds.slice(i, i + 80));
+  const [variantRows, abTestRows] = await Promise.all([
+    Promise.all(
+      idChunks.map(async (ids) =>
+        (
+          await c.env.DB.prepare(
+            `SELECT * FROM leadgen_funnel_variants WHERE funnel_id IN (${ids.map(() => "?").join(",")}) ORDER BY variant_label ASC, id ASC`,
+          )
+            .bind(...ids)
+            .all<LeadgenFunnelVariantRow>()
+        ).results ?? [],
+      ),
+    ).then((parts) => parts.flat()),
+    Promise.all(
+      idChunks.map(async (ids) =>
+        (
+          await c.env.DB.prepare(
+            `SELECT * FROM leadgen_funnel_ab_tests WHERE funnel_id IN (${ids.map(() => "?").join(",")}) ORDER BY id DESC`,
+          )
+            .bind(...ids)
+            .all<LeadgenFunnelAbTestRow>()
+        ).results ?? [],
+      ),
+    ).then((parts) => parts.flat()),
+  ]);
+  const variantsByFunnel = new Map<number, LeadgenFunnelVariantRow[]>();
+  for (const v of variantRows) {
+    const list = variantsByFunnel.get(v.funnel_id) ?? [];
+    list.push(v);
+    variantsByFunnel.set(v.funnel_id, list);
+  }
+  const abTestsByFunnel = new Map<number, LeadgenFunnelAbTestRow[]>();
+  for (const ab of abTestRows) {
+    const list = abTestsByFunnel.get(ab.funnel_id) ?? [];
+    list.push(ab);
+    abTestsByFunnel.set(ab.funnel_id, list);
+  }
   // The reads now overlap; `Promise.all` over `.map` preserves array order, so
   // the emitted tree is identical (verified by byte-comparing this endpoint's
   // whole JSON body before/after).
   const funnelTree: Record<string, unknown>[] = await Promise.all(
     funnels.map(async (funnel) => {
-    const [variants, abTests] = await Promise.all([
-      readFunnelVariants(c.env.DB, funnel.id),
-      readFunnelAbTests(c.env.DB, funnel.id),
-    ]);
+    const variants = variantsByFunnel.get(funnel.id) ?? [];
+    const abTests = abTestsByFunnel.get(funnel.id) ?? [];
     const variantTree: Record<string, unknown>[] = await Promise.all(
       variants.map(async (variant) => {
       const [sections, rules] = await Promise.all([
@@ -5509,7 +5555,7 @@ export async function quoteStructureHandler(c: AdminContext): Promise<Response> 
     // variant_label-ASC head of readActiveFunnelVariants. `active_variant_pages`
     // is ADDITIVE — the flat per-variant `sections` projection above is
     // untouched, so every pre-P3b consumer reads exactly what it always did.
-    const activeVariants = await readActiveFunnelVariants(c.env.DB, funnel.id);
+    const activeVariants = variants.filter((v) => v.status === "active");
     const primaryActive = activeVariants[0] ?? variants[0] ?? null;
     return {
       ...funnelRowToApi(funnel),
