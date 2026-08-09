@@ -156,7 +156,18 @@ describe("P8-1 F1 (contract R6-1) — chip clicks set a PERSISTED target funnel;
   });
 
   it("a plain top-bar tab-button click activates the tab and DROPS NOTHING — no code path clears the target funnel", () => {
-    expect(QUOTE_EDITOR_SCRIPT).toContain("tabs[ti].addEventListener('click', function () { activate(this.getAttribute('data-tab')); });");
+    // The handler gained leaveBoardIfStale (the board now repaints in place
+    // after a save instead of reloading the document, so the first switch AWAY
+    // from the board has to become a real reload rather than reveal a panel
+    // rendered before the edit). It still DROPS NOTHING: it either returns or
+    // reloads, and a reload carries the hash — which is where both the tab and
+    // the target funnel live — so the invariant this test guards is unchanged.
+    expect(QUOTE_EDITOR_SCRIPT).toContain(
+      "tabs[ti].addEventListener('click', function () { activate(this.getAttribute('data-tab')); leaveBoardIfStale(this.getAttribute('data-tab')); });",
+    );
+    // ...and the added call provably cannot clear the target: its whole body is
+    // a stale-flag check plus location.reload().
+    expect(QUOTE_EDITOR_SCRIPT).toContain("function leaveBoardIfStale(target) {");
     // Round 1's clear, in every shape it could return as — measured over
     // CODE ONLY (splitTopLevelCodeScopes blanks comment/string content), so a
     // comment naming the retired mechanism can never satisfy or fail this.
