@@ -2527,6 +2527,33 @@ async function sharedPageSectionIds(db: D1Database, quoteId: number): Promise<nu
 }
 
 // A variant's section ids, in position order.
+// Section ids for MANY variants in one round trip, grouped by variant. Same
+// columns and same "position ASC, id ASC" order as variantSectionIds below, so
+// each variant's list is byte-for-byte what the per-variant read returned.
+async function variantSectionIdsBatched(
+  db: D1Database,
+  variantIds: readonly number[],
+): Promise<Map<number, number[]>> {
+  const out = new Map<number, number[]>();
+  const unique = [...new Set(variantIds)];
+  for (let i = 0; i < unique.length; i += 80) {
+    const chunk = unique.slice(i, i + 80);
+    if (chunk.length === 0) continue;
+    const rows = await db
+      .prepare(
+        `SELECT variant_id, section_id FROM leadgen_funnel_variant_sections WHERE variant_id IN (${chunk.map(() => "?").join(",")}) ORDER BY position ASC, id ASC`,
+      )
+      .bind(...chunk)
+      .all<{ variant_id: number; section_id: number }>();
+    for (const r of rows.results ?? []) {
+      const list = out.get(r.variant_id);
+      if (list === undefined) out.set(r.variant_id, [r.section_id]);
+      else list.push(r.section_id);
+    }
+  }
+  return out;
+}
+
 async function variantSectionIds(db: D1Database, variantId: number): Promise<number[]> {
   const rows = await db
     .prepare("SELECT section_id FROM leadgen_funnel_variant_sections WHERE variant_id = ? ORDER BY position ASC, id ASC")
@@ -6534,9 +6561,40 @@ async function computeReworkActivationProblems(db: D1Database, quote: LeadgenQuo
   const fix = QUOTE_BUILDER_LINK(quote.public_id);
   const mk = (path: string, message: string): Problem => ({ path, scope: "section", severity: "error", message, fix_url: fix });
   try {
-    const funnels = await readQuoteFunnels(db, quote.id);
+    // SAVE LATENCY: this whole block used to be a chain of single reads —
+    // funnels, then the shared-page section ids, then the shared-page row, then
+    // one read per active funnel for its variants, then one per variant for its
+    // section ids, then the routing rules. Measured on the owner's real quote
+    // that tail was seven sequential waves of the save's eighteen, and the
+    // per-funnel/per-variant parts grew with the quote. Every one of these needs
+    // only the quote id or ids already in hand, so they collapse into two waves.
+    // Same rows, same ORDER BY, same iteration order below — only the waiting
+    // changes.
+    const [funnels, sharedIds, sharedPage, allVariants, rules] = await Promise.all([
+      readQuoteFunnels(db, quote.id),
+      sharedPageSectionIds(db, quote.id), // probes leadgen_funnel_variant_sections.quote_id (rework-only)
+      readSharedPageRow(db, quote.id),
+      // Joined through leadgen_funnels, so it needs only the quote id — and it
+      // carries the SAME "variant_label ASC, id ASC" order readActiveFunnelVariants
+      // used, so filtering to status='active' and grouping by funnel reproduces
+      // that reader's result per funnel exactly.
+      readQuoteFunnelVariants(db, quote.id),
+      readQuoteRoutingRules(db, quote.id),
+    ]);
     const activeFunnels = funnels.filter((f) => f.status === "active");
-    const sharedIds = await sharedPageSectionIds(db, quote.id); // probes leadgen_funnel_variant_sections.quote_id (rework-only)
+    const activeVariantsByFunnel = new Map<number, LeadgenFunnelVariantRow[]>();
+    for (const v of allVariants) {
+      if (v.status !== "active") continue;
+      const list = activeVariantsByFunnel.get(v.funnel_id);
+      if (list === undefined) activeVariantsByFunnel.set(v.funnel_id, [v]);
+      else list.push(v);
+    }
+    // ...and every active variant's section ids in ONE read rather than one per
+    // variant.
+    const sectionIdsByVariant = await variantSectionIdsBatched(
+      db,
+      activeFunnels.flatMap((f) => (activeVariantsByFunnel.get(f.id) ?? []).map((v) => v.id)),
+    );
 
     // default funnel set + active (§4.3-15 / §4.3-7).
     const defId = quote.default_funnel_id;
@@ -6550,7 +6608,6 @@ async function computeReworkActivationProblems(db: D1Database, quote: LeadgenQuo
     }
 
     // shared page exists with ≥1 section.
-    const sharedPage = await readSharedPageRow(db, quote.id);
     if (sharedPage === null || sharedIds.length === 0) {
       out.push(mk("activation.shared_page", "The shared first page needs at least one section."));
     }
@@ -6559,10 +6616,10 @@ async function computeReworkActivationProblems(db: D1Database, quote: LeadgenQuo
     const perVariant: Array<{ funnelName: string; ids: number[] }> = [];
     const involved = new Set<number>(sharedIds);
     for (const f of activeFunnels) {
-      const variants = await readActiveFunnelVariants(db, f.id);
+      const variants = activeVariantsByFunnel.get(f.id) ?? [];
       let hasSections = false;
       for (const v of variants) {
-        const ids = await variantSectionIds(db, v.id);
+        const ids = sectionIdsByVariant.get(v.id) ?? [];
         perVariant.push({ funnelName: f.funnel_name, ids });
         for (const id of ids) involved.add(id);
         if (ids.length > 0) hasSections = true;
@@ -6587,8 +6644,7 @@ async function computeReworkActivationProblems(db: D1Database, quote: LeadgenQuo
       }
     }
 
-    // every ENABLED rule's target funnel is active.
-    const rules = await readQuoteRoutingRules(db, quote.id);
+    // every ENABLED rule's target funnel is active (read in the wave above).
     for (const r of rules) {
       if (r.status !== "active" || r.target_funnel_id === null) continue;
       const tf = funnels.find((f) => f.id === r.target_funnel_id) ?? null;
