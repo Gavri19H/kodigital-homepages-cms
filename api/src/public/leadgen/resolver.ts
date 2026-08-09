@@ -525,14 +525,20 @@ async function loadRealPageRows(
   return result.results ?? [];
 }
 
-async function loadRealSlotRows(
+// One page's slot row as stored (the JSON columns still unparsed).
+export interface VariantPageSlotRow {
+  id: number;
+  position: number;
+  slot_revision: number;
+  rules_json: string | null;
+  ab_allocations_json: string | null;
+}
+
+export async function loadRealSlotRows(
   db: D1Database,
   pageIds: readonly number[],
-): Promise<Map<number, { id: number; position: number; slot_revision: number; rules_json: string | null; ab_allocations_json: string | null }[]>> {
-  const byPage = new Map<
-    number,
-    { id: number; position: number; slot_revision: number; rules_json: string | null; ab_allocations_json: string | null }[]
-  >();
+): Promise<Map<number, VariantPageSlotRow[]>> {
+  const byPage = new Map<number, VariantPageSlotRow[]>();
   if (pageIds.length === 0) return byPage;
   // Chunked IN(?) <= 80 (D1 100-binding rule).
   for (let i = 0; i < pageIds.length; i += 80) {
@@ -636,7 +642,53 @@ export async function loadVariantPages(
   );
   const candidatesBySlot = await loadRealCandidateRows(db, variantId);
 
-  return realPages.map((p) => ({
+  return composeVariantPages(realPages, slotsByPage, candidatesBySlot);
+}
+
+// ---------------------------------------------------------------------------
+// BATCHED page loading — the admin builder's read path
+//
+// loadVariantPages above resolves ONE variant in three SEQUENTIAL round trips
+// (pages -> slots -> candidates). The quote editor's structure endpoint needs
+// the pages of every funnel's active variant, so per-variant loading made the
+// page pay that chain once per funnel, stacked on top of the quote/funnel/
+// variant chain before it.
+//
+// DEPTH is the cost, not row volume. Measured on the owner's real quote in
+// production (2 funnels, 16 pages — a tiny dataset): the structure endpoint
+// took 1,396 ms server-side for ~8 sequential D1 hops, while the cheapest
+// single-hop endpoints on the same page each took ~107 ms. That ~100 ms floor
+// is the network round trip to D1; at this row count query execution is noise.
+//
+// These primitives load the same rows for MANY variants at once AND expose the
+// waves separately, so the caller can overlap them:
+//   wave A: loadRealPageRowsBatched || loadRealCandidateRowsBatched
+//   wave B: loadRealSlotRows        (needs wave A's page ids)
+// then composeVariantPages assembles in memory. Same columns, same ORDER BY,
+// same grouping as the per-variant path — so the emitted tree is byte-identical
+// (verified by diffing the endpoint's whole JSON body before/after against the
+// same database).
+//
+// The PUBLIC runtime resolver deliberately keeps using loadVariantPages: it
+// resolves exactly one variant, so batching would buy it nothing.
+// ---------------------------------------------------------------------------
+
+export interface VariantPageRow {
+  id: number;
+  public_id: string;
+  position: number;
+  name: string | null;
+}
+
+// Assembles pages -> slots -> candidates in memory. Extracted verbatim from
+// loadVariantPages (which now calls it) so the batched path cannot drift from
+// the single-variant path: one composition, two loaders.
+export function composeVariantPages(
+  pageRows: readonly VariantPageRow[],
+  slotsByPage: Map<number, VariantPageSlotRow[]>,
+  candidatesBySlot: Map<number, ResolvedPageSlotCandidate[]>,
+): ResolvedFunnelPage[] {
+  return pageRows.map((p) => ({
     id: p.id,
     public_id: p.public_id,
     position: p.position,
@@ -650,6 +702,84 @@ export async function loadVariantPages(
       candidates: candidatesBySlot.get(s.id) ?? [],
     })),
   }));
+}
+
+// Real page rows for MANY variants — one statement per 80 ids instead of one
+// per variant. Every requested variant gets an entry (empty when it has no
+// real pages, which is how the caller detects the synthetic-fallback shape).
+export async function loadRealPageRowsBatched(
+  db: D1Database,
+  variantIds: readonly number[],
+): Promise<Map<number, VariantPageRow[]>> {
+  const byVariant = new Map<number, VariantPageRow[]>();
+  for (const id of variantIds) byVariant.set(id, []);
+  if (variantIds.length === 0) return byVariant;
+  // Chunked IN(?) <= 80 (D1 100-binding rule).
+  for (let i = 0; i < variantIds.length; i += 80) {
+    const chunk = variantIds.slice(i, i + 80);
+    const marks = chunk.map(() => "?").join(",");
+    const result = await db
+      .prepare(
+        `SELECT id, public_id, position, name, variant_id FROM leadgen_funnel_pages
+         WHERE variant_id IN (${marks}) ORDER BY position ASC`,
+      )
+      .bind(...chunk)
+      .all<VariantPageRow & { variant_id: number }>();
+    for (const row of result.results ?? []) {
+      const { variant_id, ...page } = row;
+      const list = byVariant.get(variant_id);
+      if (list === undefined) byVariant.set(variant_id, [page]);
+      else list.push(page);
+    }
+  }
+  return byVariant;
+}
+
+// Candidate rows for MANY variants, keyed variant -> slot -> candidates. Same
+// projection and ORDER BY as loadRealCandidateRows; the extra variant_id column
+// is the grouping key and is stripped back off each section row.
+export async function loadRealCandidateRowsBatched(
+  db: D1Database,
+  variantIds: readonly number[],
+): Promise<Map<number, Map<number, ResolvedPageSlotCandidate[]>>> {
+  const byVariant = new Map<number, Map<number, ResolvedPageSlotCandidate[]>>();
+  for (const id of variantIds) byVariant.set(id, new Map());
+  if (variantIds.length === 0) return byVariant;
+  for (let i = 0; i < variantIds.length; i += 80) {
+    const chunk = variantIds.slice(i, i + 80);
+    const marks = chunk.map(() => "?").join(",");
+    const result = await db
+      .prepare(
+        `SELECT fvs.id AS variant_section_id, fvs.slot_id AS slot_id, fvs.variant_id AS owner_variant_id,
+                s.id AS id, s.public_id AS public_id, s.section_name AS section_name,
+                s.activity AS activity, s.vertical AS vertical, s.headline_text AS headline_text,
+                s.subheadline_text AS subheadline_text, s.image_json AS image_json,
+                s.content_json AS content_json, s.content_html AS content_html,
+                s.continue_mode AS continue_mode, s.design_overrides_json AS design_overrides_json,
+                s.address_validation_enabled AS address_validation_enabled,
+                s.section_mapping_version AS section_mapping_version, s.content_version AS content_version,
+                s.status AS status, s.created_by AS created_by, s.created_at AS created_at,
+                s.updated_at AS updated_at
+         FROM leadgen_funnel_variant_sections fvs
+         JOIN leadgen_sections s ON s.id = fvs.section_id
+         WHERE fvs.variant_id IN (${marks}) AND fvs.slot_id IS NOT NULL
+         ORDER BY fvs.id ASC`,
+      )
+      .bind(...chunk)
+      .all<LeadgenSectionRow & { variant_section_id: number; slot_id: number; owner_variant_id: number }>();
+    for (const r of result.results ?? []) {
+      const { variant_section_id, slot_id, owner_variant_id, ...section } = r;
+      let bySlot = byVariant.get(owner_variant_id);
+      if (bySlot === undefined) {
+        bySlot = new Map();
+        byVariant.set(owner_variant_id, bySlot);
+      }
+      const list = bySlot.get(slot_id) ?? [];
+      list.push({ variant_section_id, section: section as LeadgenSectionRow });
+      bySlot.set(slot_id, list);
+    }
+  }
+  return byVariant;
 }
 
 // ---------------------------------------------------------------------------
