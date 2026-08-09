@@ -5080,14 +5080,39 @@ export const QUOTE_EDITOR_SCRIPT = `
     }
     return out;
   }
-  function saveFunnel(funnel, nearEl) {
+  function saveFunnel(funnel, nearEl, rollbackPages) {
     var variantPub = funnel.active_variant_public_id;
     if (!variantPub) { showInlineErr(nearEl, 'This funnel has no active variant to save into.'); return; }
+    // Owner-reported wedge (2026-08-09): "after I clicked on one home insurance
+    // section mistakenly I can't add sections and pages at all". Every board
+    // mutation edits this in-memory plan FIRST and then saves it. When the save
+    // was refused (e.g. a section outside the quote's verticals) the refused
+    // edit STAYED in the plan, so the next action - "+ Add page", any other
+    // section - resent it and got the SAME refusal forever, and only a page
+    // reload cleared it.
+    // rollbackPages is the caller's PRE-MUTATION plan (JSON). It has to come
+    // from the caller: by the time this function runs, the edit is already in
+    // funnel.pages, so a snapshot taken here would restore the polluted plan
+    // and fix nothing. Callers that do not pass one keep the old behaviour.
+    // (No backticks anywhere in this island - it lives inside a TS template
+    // literal, so one backtick here ends the string and breaks the whole page.)
+    var snapshot = typeof rollbackPages === 'string' ? rollbackPages : null;
     req('PUT', API + '/variants/' + encodeURIComponent(variantPub), { pages: funnelPagesToPut(funnel) }).then(function (res) {
       // P8-2 MAJOR-1 sibling: a rejected save never reloads either, so a
       // 'lib' drop that resolved a target but failed here must not leave the
       // one-shot click guard armed for the next genuine tap to eat.
-      if (!res.ok) { suppressNextLibClick = false; showInlineErr(nearEl, firstFieldError(res.body)); return; }
+      if (!res.ok) {
+        suppressNextLibClick = false;
+        // The board paints from the SERVER (reloadPage on success); a refused
+        // save never touched the DOM, so restoring the model is the whole fix -
+        // there is no client-side re-render to run, and calling one would be a
+        // reference error.
+        if (snapshot !== null) {
+          try { funnel.pages = JSON.parse(snapshot); } catch (e) { /* keep the live plan if the snapshot cannot be restored */ }
+        }
+        showInlineErr(nearEl, firstFieldError(res.body));
+        return;
+      }
       reloadPage();
     });
   }
@@ -5592,26 +5617,30 @@ export const QUOTE_EDITOR_SCRIPT = `
     var pi = Number(pageCard.getAttribute('data-page-index'));
     var to = dir === 'up' ? pi - 1 : pi + 1;
     if (pi < 0 || to < 0 || to >= f.model.pages.length) { return; }
+    var beforeMove = JSON.stringify(f.model.pages);
     var tmp = f.model.pages[pi]; f.model.pages[pi] = f.model.pages[to]; f.model.pages[to] = tmp;
-    saveFunnel(f.model, pageCard);
+    saveFunnel(f.model, pageCard, beforeMove);
   }
   function deletePage(pageCard) {
     var f = funnelOfEl(pageCard); if (!f || !f.model) { return; }
     var pi = Number(pageCard.getAttribute('data-page-index'));
     if (pi < 0 || pi >= f.model.pages.length) { return; }
+    var beforeDelete = JSON.stringify(f.model.pages);
     f.model.pages.splice(pi, 1);
-    saveFunnel(f.model, pageCard);
+    saveFunnel(f.model, pageCard, beforeDelete);
   }
   function addPage(funnelCol) {
     var f = funnelOfEl(funnelCol); if (!f || !f.model) { return; }
+    var before = JSON.stringify(f.model.pages);
     f.model.pages.push({ page_id: '', slots: [] });
-    saveFunnel(f.model, funnelCol);
+    saveFunnel(f.model, funnelCol, before);
   }
   function addSectionToFunnelPage(funnelModel, pageIndex, sectionPublicId, nearEl) {
+    var before = JSON.stringify(funnelModel.pages);
     var page = funnelModel.pages[pageIndex];
     if (!page) { funnelModel.pages.push({ page_id: '', slots: [] }); page = funnelModel.pages[funnelModel.pages.length - 1]; }
     page.slots.push({ slot_id: -1, kind: 'fixed', section_ids: [sectionPublicId], allocations: null, rules: null });
-    saveFunnel(funnelModel, nearEl);
+    saveFunnel(funnelModel, nearEl, before);
   }
   function addSectionToShared(sectionPublicId, nearEl) {
     var put = sharedSlotsToPut();
