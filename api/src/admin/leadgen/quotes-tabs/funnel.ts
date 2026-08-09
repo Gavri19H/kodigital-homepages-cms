@@ -1441,7 +1441,21 @@ export const QUOTE_EDITOR_SCRIPT = `
     // Themes -> Activation -> Themes silently retargeted the editor-selected
     // funnel and the owner's theme edit landed on the wrong one. activate()
     // persists the tab; the funnel param it preserves survives the trip.
-    tabs[ti].addEventListener('click', function () { activate(this.getAttribute('data-tab')); });
+    tabs[ti].addEventListener('click', function () { activate(this.getAttribute('data-tab')); leaveBoardIfStale(this.getAttribute('data-tab')); });
+  }
+  // The board island repaints the builder panel in place after a save instead
+  // of reloading the document (refreshBoard, below). That leaves the OTHER tab
+  // panels showing the state they were server-rendered with, and a board edit
+  // can change what they say — the publish verdict most obviously. So the first
+  // switch away from the board after such a repaint is turned into a real
+  // reload: activate() has already persisted the tab in the hash, so the page
+  // comes back on the tab the operator asked for, freshly rendered. Staying on
+  // the board — the common case, and the one that was slow — costs nothing.
+  function leaveBoardIfStale(target) {
+    if (!window.__lgPanelsStale) { return; }
+    if (target === 'builder') { return; }
+    window.__lgPanelsStale = false;
+    window.location.reload();
   }
   // P8-1 F1: honour the persisted location on load, so a reload while editing
   // a funnel's theme comes back to that tab (the funnel param is read by the
@@ -1475,6 +1489,7 @@ export const QUOTE_EDITOR_SCRIPT = `
     if (el && el.getAttribute) {
       var target = el.getAttribute('data-goto-tab');
       activate(target);
+      leaveBoardIfStale(target);
     }
   });
   // R2 P7 FIX-FIRST (owner, D1): a blocking reason's button reveals the control
@@ -4976,7 +4991,85 @@ export const QUOTE_EDITOR_SCRIPT = `
   var RULED_SENTENCE_JOIN = ${JSON.stringify(RULED_SENTENCE_JOIN)};
   var RULED_SENTENCE_OTHERWISE = ${JSON.stringify(RULED_SENTENCE_OTHERWISE)};
 
-  function reloadPage() { window.location.reload(); }
+  // Repaint the board WITHOUT reloading the document.
+  //
+  // OWNER, 2026-08-09: "still *very* slow, and it bouncing up to the top after
+  // adding section/page. This is not unique case! this is a normal cms."
+  // Both halves of that were one bug: every mutation ended in
+  // window.location.reload(). An add-section cost the save PLUS a full page
+  // load — all six tab panels re-rendered server-side (~830 KB), 567 KB of
+  // inline script re-parsed, every island re-booted — and the scroll position
+  // reset to the top, which is the bounce. Measured: ~1.24 s of the ~2.5 s the
+  // operator waited, on top of a save that had already finished.
+  //
+  // The board is server-rendered and has no client-side renderer, so the fresh
+  // markup still comes from the server — but only the builder PANEL node is
+  // swapped in, the document is never torn down, and the scroll offsets are
+  // restored.
+  //
+  // Why the swap is safe here: every board handler is DELEGATED on document
+  // or on the editor root, both OUTSIDE the swapped panel, so they
+  // keep firing against the new nodes. The few element references captured at
+  // boot ARE inside it, so rebindBoardRefs() re-resolves them — they are
+  // IIFE-scope vars, so re-assigning updates every closure that captured
+  // them. Anything unexpected (no panel in the response, a network failure)
+  // falls back to the old full reload rather than leaving a half-painted board.
+  //
+  // The response is parsed with DOMParser and grafted with importNode — the
+  // inert document never runs script, and no markup is assigned as a string.
+  function rebindBoardRefs() {
+    board = document.querySelector('[data-board]');
+    shell = document.querySelector('.lg-board-shell');
+    dataEl = document.getElementById('lg-board-data');
+    try { BOARD = JSON.parse((dataEl && (dataEl.textContent || dataEl.innerText)) || '{}'); } catch (eRe) { BOARD = {}; }
+    menusRoot = document.querySelector('[data-board-menus]');
+    fsettingsEl = document.querySelector('[data-funnel-settings]');
+    abDialog = document.querySelector('[data-shared-ab-dialog]');
+    ruledDialog = document.querySelector('[data-shared-ruled-dialog]');
+    searchInput = document.querySelector('[data-lib-search]');
+  }
+  function refreshBoard() {
+    var panel = document.querySelector('[data-panel="builder"]');
+    var scroller = document.querySelector('[data-board]');
+    if (!panel || !panel.parentNode || typeof DOMParser === 'undefined') { window.location.reload(); return; }
+    var sx = scroller ? scroller.scrollLeft : 0;
+    var sy = scroller ? scroller.scrollTop : 0;
+    var wy = window.pageYOffset || document.documentElement.scrollTop || 0;
+    fetch(window.location.href, { credentials: 'same-origin', headers: { 'Accept': 'text/html' } })
+      .then(function (r) { return r.ok ? r.text() : null; })
+      .then(function (html) {
+        if (html === null) { window.location.reload(); return; }
+        var doc = new DOMParser().parseFromString(html, 'text/html');
+        var fresh = doc.querySelector('[data-panel="builder"]');
+        if (!fresh) { window.location.reload(); return; }
+        panel.parentNode.replaceChild(document.importNode(fresh, true), panel);
+        rebindBoardRefs();
+        // Restore the scroll offsets TWICE. The immediate set is what the
+        // operator sees; the second, after the browser has laid the new markup
+        // out, is what makes it stick — set too early, the scroller's content is
+        // not yet its final width and the browser CLAMPS the value to the old
+        // maximum (measured: asked for 48, kept 25, on a board that had just
+        // grown a column).
+        var restore = function () {
+          var ns = document.querySelector('[data-board]');
+          if (ns) { ns.scrollLeft = sx; ns.scrollTop = sy; }
+          window.scrollTo(0, wy);
+        };
+        restore();
+        if (typeof window.requestAnimationFrame === 'function') { window.requestAnimationFrame(restore); }
+        else { window.setTimeout(restore, 0); }
+        // The OTHER tab panels (Activation, A/B, Themes, …) still show the
+        // state they were rendered with, and a board edit can change what they
+        // say — the publish verdict most obviously. Rather than paint a stale
+        // panel, flag it: the tab strip turns a switch away from the board into
+        // a real reload (activate() persists the tab in the hash, so the reload
+        // lands on the tab that was asked for). Correctness for the tabs the
+        // operator visits occasionally; speed for the board they work in.
+        window.__lgPanelsStale = true;
+      })
+      .catch(function () { window.location.reload(); });
+  }
+  function reloadPage() { refreshBoard(); }
   function req(method, url, body) {
     return fetch(url, {
       method: method, credentials: 'same-origin',
@@ -5929,17 +6022,37 @@ export const QUOTE_EDITOR_SCRIPT = `
     var ctx = ruledCtx; closeSharedRuledEditor();
     ctx.save({ kind: 'fixed', section_id: keep });
   }
-  // Live Σ recompute as A/B arm percentages are typed.
-  if (abDialog) { abDialog.addEventListener('input', function (ev) { if (ev.target && ev.target.getAttribute && ev.target.getAttribute('data-ab-arm-pct') !== null) { updateAbSum(); } }); }
-  // R2 P2 tail (item 1): live sentence — same idiom as the ruled dialog's
-  // refreshRuledSentence below (recomputed on both 'input' and 'change',
-  // unconditionally; arm section selects fire 'change', pct inputs fire
-  // 'input'). Add/remove-arm mutate the DOM without firing either event, so
+  // Live Σ recompute as A/B arm percentages are typed, plus the live sentence.
+  //
+  // R2 P2 tail (item 1): the sentence is recomputed on both 'input' and
+  // 'change', unconditionally (arm section selects fire 'change', pct inputs
+  // fire 'input'). Add/remove-arm mutate the DOM without firing either event, so
   // resplitAbEqually (above) calls refreshAbSentence directly too.
-  if (abDialog) {
-    abDialog.addEventListener('input', refreshAbSentence);
-    abDialog.addEventListener('change', refreshAbSentence);
+  //
+  // BOUND ON document, NOT ON THE DIALOG. refreshBoard() replaces the builder
+  // panel's HTML in place (no page reload — see its comment), which detaches
+  // every node inside it. A listener attached directly to the dialog would die
+  // with the swap and the Σ / sentence would silently stop updating. document
+  // lives OUTSIDE the swapped panel, so delegating from there survives every
+  // refresh; the guard is the same "is this event inside the dialog" test the
+  // direct binding got for free.
+  function insideAbDialog(node) {
+    var el = node;
+    while (el && el.getAttribute) {
+      if (el.getAttribute('data-shared-ab-dialog') !== null) { return true; }
+      el = el.parentNode;
+    }
+    return false;
   }
+  document.addEventListener('input', function (ev) {
+    if (!insideAbDialog(ev.target)) { return; }
+    if (ev.target && ev.target.getAttribute && ev.target.getAttribute('data-ab-arm-pct') !== null) { updateAbSum(); }
+    refreshAbSentence();
+  });
+  document.addEventListener('change', function (ev) {
+    if (!insideAbDialog(ev.target)) { return; }
+    refreshAbSentence();
+  });
   // R2 P2 FIX-FIRST (MINOR-4): live sentence — recomputed as the operator
   // types a value or switches a field/op/section (both event kinds; selects
   // fire 'change', the text input fires 'input').
