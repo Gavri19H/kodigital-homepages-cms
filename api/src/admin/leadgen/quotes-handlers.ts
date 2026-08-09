@@ -5734,6 +5734,37 @@ export async function quoteActivationHandler(c: AdminContext): Promise<Response>
 
   // R5 (05 §5.2 — additive): the quote-level activation preflight verdict the
   // Phase-2 Activation-tab panel renders (PASS state = ok:true, blocks:[]).
+  //
+  // PERFORMANCE (owner-reported ~10 s per funnel-builder action): recomputing
+  // this verdict costs 23 D1 round trips - measured, the single most expensive
+  // thing the quote editor renders, and the board reloads the whole page after
+  // every add-section / add-page. Every variant save already RECOMPUTES and
+  // STORES the verdict in KV (storeVariantPreflight), and the board repaints the
+  // banner from that save's response, so the stored copy is current for every
+  // action the operator takes on this page.
+  // `?preflight=stored` therefore serves the stored verdict (one KV read) and
+  // falls back to a full compute when nothing is stored yet. It is ADVISORY
+  // only: PUT /quotes/:id/activation/:site_id recomputes from scratch, so a
+  // stale banner can never let a broken quote publish.
+  const wantStored = (c.req.query("preflight") ?? "") === "stored";
+  const variantHint = (c.req.query("variant") ?? "").trim();
+  if (wantStored && variantHint !== "") {
+    // Anything that is not a usable stored verdict falls through to the real
+    // computation: no KV binding at all (the unit harness has none - this threw
+    // "c.env.CACHE.get is not a function" and took five Activation-panel tests
+    // with it), a miss, or an unparseable value. The fast path is an
+    // optimisation, never a behaviour change.
+    try {
+      const kv = (c.env as { CACHE?: { get?: (k: string) => Promise<string | null> } }).CACHE;
+      const raw = typeof kv?.get === "function" ? await kv.get(preflightKvKey(variantHint)) : null;
+      if (raw !== null && raw !== undefined) {
+        const stored = JSON.parse(raw) as QuoteActivationPreflight;
+        return c.json({ quote_id: quote.public_id, sites, activation_preflight: stored });
+      }
+    } catch {
+      // fall through to the real computation
+    }
+  }
   const activation_preflight = await computeQuoteActivationPreflight(c.env.DB, quote);
   return c.json({ quote_id: quote.public_id, sites, activation_preflight });
 }
