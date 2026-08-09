@@ -915,7 +915,7 @@ export async function leadgenQuoteEditorPage(c: UiContext): Promise<Response> {
     await Promise.all([
       timed("sections", () => apiJson<ListBody<AvailableSection>>(c.env, `/api/admin/leadgen/sections?activity=${encodeURIComponent(activity)}&status=active&page_size=200`)),
       timed("auctions", () => apiJson<ListBody<AuctionListItem>>(c.env, `/api/admin/leadgen/auctions?page_size=200`)),
-      timed("activation", () => apiJson<ActivationBody>(c.env, `/api/admin/leadgen/quotes/${encodedQuote}/activation`)),
+      timed("activation", () => apiJson<ActivationBody>(c.env, `/api/admin/leadgen/quotes/${encodedQuote}/activation?preflight=stored&variant=${encodeURIComponent(selected.public_id)}`)),
       timed("frame", () => apiJson<FrameGetBody>(c.env, `/api/admin/leadgen/funnels/${encodedFunnel}/frame`)),
       timed("theme", () => apiJson<ThemeGetBody>(c.env, `/api/admin/leadgen/funnels/${encodedFunnel}/theme`)),
       timed("templates", () => apiJson<{ items: FrameTemplateItem[] }>(c.env, "/api/admin/leadgen/frame-templates")),
