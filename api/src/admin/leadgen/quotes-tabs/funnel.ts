@@ -5035,6 +5035,35 @@ export const QUOTE_EDITOR_SCRIPT = `
     var sx = scroller ? scroller.scrollLeft : 0;
     var sy = scroller ? scroller.scrollTop : 0;
     var wy = window.pageYOffset || document.documentElement.scrollTop || 0;
+    // The scroll position that actually matters is INSIDE each column.
+    //
+    // OWNER, after the first attempt at this: "it still bounce to top after
+    // adding page". Measured on the real 21-page funnel: the document itself
+    // does not scroll at all (scrollHeight === clientHeight), so restoring
+    // window scroll restored nothing. Each funnel column is its own scroller
+    // (.lg-col-body, 1,982 px of travel on that funnel), it lives INSIDE the
+    // panel this function replaces, and a fresh node starts at 0 -- so the
+    // operator working on page 15 was thrown back to page 1 on every add. The
+    // first version of this fix looked correct only because every measurement
+    // happened to be taken at scrollTop 0.
+    //
+    // Keyed by the owning funnel's public id so a column keeps ITS own offset
+    // even if the column order changes, with the ordinal as a fallback.
+    var colKeyOf = function (bodyEl, ordinal) {
+      var anc = bodyEl;
+      while (anc && anc.getAttribute) {
+        var id = anc.getAttribute('data-funnel-public-id');
+        if (id) { return 'f:' + id; }
+        anc = anc.parentNode;
+      }
+      return 'i:' + ordinal;
+    };
+    var colScroll = {};
+    var oldBodies = document.querySelectorAll('[data-funnel-body]');
+    var obi;
+    for (obi = 0; obi < oldBodies.length; obi++) {
+      colScroll[colKeyOf(oldBodies[obi], obi)] = oldBodies[obi].scrollTop;
+    }
     fetch(window.location.href, { credentials: 'same-origin', headers: { 'Accept': 'text/html' } })
       .then(function (r) { return r.ok ? r.text() : null; })
       .then(function (html) {
@@ -5054,6 +5083,12 @@ export const QUOTE_EDITOR_SCRIPT = `
           var ns = document.querySelector('[data-board]');
           if (ns) { ns.scrollLeft = sx; ns.scrollTop = sy; }
           window.scrollTo(0, wy);
+          var newBodies = document.querySelectorAll('[data-funnel-body]');
+          var nbi;
+          for (nbi = 0; nbi < newBodies.length; nbi++) {
+            var key = colKeyOf(newBodies[nbi], nbi);
+            if (Object.prototype.hasOwnProperty.call(colScroll, key)) { newBodies[nbi].scrollTop = colScroll[key]; }
+          }
         };
         restore();
         if (typeof window.requestAnimationFrame === 'function') { window.requestAnimationFrame(restore); }
