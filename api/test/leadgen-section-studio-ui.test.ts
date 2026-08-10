@@ -3990,8 +3990,8 @@ describeDb("P4 authoring gaps — TrustBar/LogoStrip/StepIndicator inspectors", 
     expect(validateSectionContent(probe.sandbox.state.content).errors).toEqual([]);
 
     const rendered = renderComponent(node as unknown as LeadgenComponentNode, defaultFunnelDesign);
-    expect(rendered).toContain('src="media_1" alt="Acme"');
-    expect(rendered).toContain('src="media_2" alt=""');
+    expect(rendered).toContain('src="/media/media_1" alt="Acme"'); // /media/ prefix: see leadgen-card-image-media-url
+    expect(rendered).toContain('src="/media/media_2" alt=""');
     expect(probe.run("linesValue('logos', findRef('q_logos').node.props.logos)")).toBe("media_1|Acme\nmedia_2");
     // an alt-less line without mediaId is dropped (mediaId required)
     probe.sandbox["__badLogos"] = propInput("logos", "lines", "|orphan alt", "textarea");
@@ -4914,6 +4914,36 @@ describeDb("v2.5 A5 — image-grid samples always carry image_alt", () => {
     }
     // the REAL validator accepts the palette-authored grid…
     expect(validateSectionContent(probe.sandbox.state.content).errors).toEqual([]);
+    // ADDED 2026-08-10 while fixing the owner's card-image defect: A5's rule is
+    // BIDIRECTIONAL and only half of it was pinned. An image without an alt is
+    // refused (below), AND a choice with no image at all is refused too ("Every
+    // answer on the Image answer cards needs an image") — which is exactly why
+    // the scaffold above must seed a key, and why making that seed honest is an
+    // authoring-contract change rather than a bug fix.
+    const imageNoAlt = validateSectionContent({
+      components: [
+        {
+          type: "ImageCardAnswerGrid",
+          question_id: "g_alt",
+          internal_field: "make",
+          choices: [{ label: "Cadillac", value: "c", analytics_id: "c", imageMediaId: "2026/08/10/k.png" }],
+        },
+      ],
+    });
+    expect(imageNoAlt.errors.map((e) => e.path)).toEqual(["components[0].choices[0].image_alt"]);
+    const noImageAtAll = validateSectionContent({
+      components: [
+        {
+          type: "ImageCardAnswerGrid",
+          question_id: "g_noimg",
+          internal_field: "make",
+          choices: [{ label: "Cadillac", value: "c", analytics_id: "c" }],
+        },
+      ],
+    });
+    expect(noImageAtAll.errors.map((e) => e.path)).toEqual(["components[0].choices[0].imageMediaId"]);
+    // the picker is what turns a chosen key into a save-legal pair
+    expect(studioIsland(html)).toContain("c.image_alt = c.label || storageKey");
     // …and the REAL save path persists it (the A5 repro: this PATCH failed
     // save validation while the samples lacked image_alt)
     const patch = await admin.request(

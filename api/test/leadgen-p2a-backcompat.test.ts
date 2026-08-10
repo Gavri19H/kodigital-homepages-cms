@@ -45,6 +45,18 @@
 // property) ever changed. Every other key in the fixture is unaffected (all
 // exact-fit shapes — no partial row, so §6.7/F1/F2 never execute their new
 // code paths at all) and remains genuinely pre-P2a.
+//
+// SECOND EXCEPTION (2026-08-10, owner "image issue in the cards"): the
+// `ImageCardAnswerGrid` key was regenerated ONCE, by a fresh live
+// renderComponent capture (the same discipline as above — never hand-edited),
+// because a stored media reference now reaches `src=` through mediaUrl(). The
+// pre-P2a bytes it was frozen from carried the BARE storage key, which the
+// browser resolved against the current page and 404'd — the fixture was pinning
+// a broken image. The delta was verified to be PREFIX-ONLY before writing:
+// normalising `src="/media/` back to `src="` reproduced the frozen value byte
+// for byte, so `src="media-a"` → `src="/media/media-a"` and `src="media-b"` →
+// `src="/media/media-b"` are the whole diff (1 changed line). Every other key
+// is untouched.
 import { describe, expect, it } from "vitest";
 import { readFileSync } from "node:fs";
 import { fileURLToPath } from "node:url";

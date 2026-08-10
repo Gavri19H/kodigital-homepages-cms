@@ -5740,11 +5740,34 @@ export const SECTION_STUDIO_SCRIPT = `
     if (req.choice_icon) { c.icon = '\\u2605'; }
     // A5: image_alt ALWAYS rides imageMediaId — §8.4 requires it on an
     // ImageCardAnswerGrid choice, so an alt-less sample would fail save.
+    //
+    // KNOWN COST, surfaced for the owner rather than changed here (2026-08-10,
+    // alongside his "image issue in the cards"): "media_option_" + n is a key
+    // NOTHING ever stored, so a scaffolded card shows a broken image until the
+    // operator picks a real one. Removing the seed looks obvious and is wrong —
+    // content-schema REFUSES the save outright ("Every answer on the Image answer
+    // cards needs an image. Pick an image for this answer."), so a seedless
+    // scaffold is unsaveable the moment it is added and breaks the studio's
+    // add-from-library invariant (measured). Making the placeholder honest means
+    // moving that requirement to publish time, or scaffolding an empty grid —
+    // an authoring-contract decision, not a bug fix.
     if (req.choice_image) { c.imageMediaId = 'media_option_' + n; c.image_alt = c.label; }
     return c;
   }
   function defaultTextFor(type, key) {
     if (key === 'html' || key === 'panelHtml') { return 'Copy for ' + type; }
+    // ADJACENT, NOT FIXED — surfaced for the owner instead, with the reason.
+    // 'media_logo' is a key nothing ever stored, so a freshly added HeaderLogo
+    // renders a broken image until the operator replaces it: the same class as
+    // the card defect. But unlike a card's image, HeaderLogo's logoMediaId is a
+    // REQUIRED field in the content schema ("The Header logo needs 'Logo Media
+    // Id'. Enter it." — content-schema REQUIRED_FIELDS), so seeding '' makes the
+    // node invalid the moment it is added and breaks the studio's own
+    // add-from-library invariant (measured: leadgen-section-studio-ui
+    // "add-from-library appends a validateSectionContent-CLEAN node" fails).
+    // Doing it properly means turning that required prop into a "pick a logo"
+    // prompt — a validation-contract change, not a bug fix. Left as-is pending
+    // the owner's call.
     if (key === 'logoMediaId') { return 'media_logo'; }
     return 'New ' + type + ' text';
   }
@@ -12105,8 +12128,16 @@ export const SECTION_STUDIO_SCRIPT = `
       },
     };
   }
+  // OWNER DEFECT (2026-08-10, "image issue in the cards" — the broken thumb next
+  // to Choose…): the stored value is a BARE storage key, so assigning it to
+  // img.src resolved it against the editor's own path
+  // (/admin/leadgen/sections/lgs_…/2026/08/10/<uuid>.png) and 404'd. mediaSrc is
+  // the prefixer this island already applies to the media PICKER's grid a few
+  // hundred lines below — the picker's thumbs loaded while this one broke, off
+  // the identical key. Same reader, same rule now.
   function setChoiceThumb(img, url) {
-    if (url && trimStr(url) !== '') { img.src = url; img.hidden = false; }
+    var href = mediaSrc(url);
+    if (href !== '') { img.src = href; img.hidden = false; }
     else { img.removeAttribute('src'); img.hidden = true; }
   }
   // v3.1 R3 S2-5(d): the image cell shows a THUMBNAIL next to Choose… (the media
@@ -13188,7 +13219,8 @@ export const SECTION_STUDIO_SCRIPT = `
       c = { label: label, value: value, analytics_id: value };
       if (req && req.choice_icon) { c.icon = '\\u2605'; }
       // A5: pasted image-grid choices carry image_alt next to imageMediaId
-      // (§8.4 requirement — see sampleChoice).
+      // (§8.4 requirement — see sampleChoice, including the KNOWN COST note on
+      // why the seeded key stays until the owner rules on the save requirement).
       if (req && req.choice_image) { c.imageMediaId = 'media_' + value; c.image_alt = label; }
       out.push(c);
     }

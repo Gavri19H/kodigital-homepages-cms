@@ -61,11 +61,11 @@ const SNAPSHOT_IMAGE_LEGACY =
   ` data-lg-question="q_make" data-lg-field="car_make" style="--lg-cols:2;gap:0.5rem">` +
   `<button type="button" class="lg-card" role="radio" aria-checked="false" data-value="toyota"` +
   ` data-lg-choice="toyota" data-analytics-id="mk_toyota">` +
-  `<img class="lg-card-img" src="med_toyota" alt="Toyota" loading="lazy">` +
+  `<img class="lg-card-img" src="/media/med_toyota" alt="Toyota" loading="lazy">` +
   `<span class="lg-card-title">Toyota</span></button>` +
   `<button type="button" class="lg-card" role="radio" aria-checked="false" data-value="honda"` +
   ` data-lg-choice="honda" data-analytics-id="mk_honda">` +
-  `<img class="lg-card-img" src="med_honda" alt="Honda" loading="lazy">` +
+  `<img class="lg-card-img" src="/media/med_honda" alt="Honda" loading="lazy">` +
   `<span class="lg-card-title">Honda</span>` +
   `<span class="lg-card-desc">Reliable pick</span></button></div>`;
 
@@ -121,7 +121,7 @@ describe("image-card-choice-data — full-depth choice renders image/alt/title/s
   const html = renderComponent(imageGrid([full]), DESIGN);
 
   it("renders the image with the authored alt (image_alt beats the label fallback)", () => {
-    expect(html).toContain(`<img class="lg-card-img" src="med_toyota" alt="Toyota logo"`);
+    expect(html).toContain(`<img class="lg-card-img" src="/media/med_toyota" alt="Toyota logo"`);
     expect(html).not.toContain(`alt="Toyota"`);
   });
 
@@ -229,7 +229,7 @@ describe("image-card-choice-data — emoji renders where the icon would (§8.4)"
       ]),
       DESIGN,
     );
-    expect(html).toContain(`<img class="lg-card-img" src="med_audi"`);
+    expect(html).toContain(`<img class="lg-card-img" src="/media/med_audi"`);
     expect(html).not.toContain("🚗");
   });
 });

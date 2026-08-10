@@ -213,7 +213,7 @@ describe("v3.1 §5.3 — ImageBlock source=auto_logo matches the existing auto-s
     };
     const html = renderComponent(node, DESIGN);
     expect(html).toContain('data-source="media"');
-    expect(html).toContain('src="media_123"');
+    expect(html).toContain('src="/media/media_123"'); // /media/ prefix: see leadgen-card-image-media-url
     expect(html).toContain('alt="Acme logo"');
   });
 
