@@ -61,6 +61,10 @@ function sandbox(ok: boolean): {
     sliceIslandFunction(island, "ancestorWithAttr"),
     sliceIslandFunction(island, "paintProvisionalPage"),
     sliceIslandFunction(island, "dropProvisional"),
+    // ...and the pair that makes a DELETE instant: the card is hidden on click
+    // and put back if the server refuses.
+    sliceIslandFunction(island, "hideProvisionally"),
+    sliceIslandFunction(island, "unhideProvisional"),
   ].join("\n");
 
   const calls: SaveCall[] = [];
