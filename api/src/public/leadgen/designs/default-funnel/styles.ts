@@ -3345,17 +3345,84 @@ export function funnelChromeCss(
       // the glyph on top of it; BOTH ride the fill's right edge, so the engine's
       // existing `fill.style.width` write is what makes the mark travel to the
       // visitor's position — no runtime JS is added for this.
+      //
+      // OWNER DEFECT (2026-08-10, "it is invisible! It should be proportional to
+      // the progress bar size and color like in this example") — ONE cause,
+      // MEASURED on production bytes:
+      //   CLIPPED. The mark is a pseudo of `.lg-progress-fill`, which lives
+      //   inside `.lg-progress-track` — and the track carries `overflow:hidden`
+      //   (it clips the fill's corners into the rounded track). The
+      //   `overflow:visible` above is on the FILL, so it never mattered: the
+      //   clipping ancestor is the TRACK. A 22px disc inside an 8px track lost
+      //   14px of its 22px height (36.4% survived) as a bare horizontal band —
+      //   no round edge, and the card-coloured RING that separates the mark from
+      //   the bar was cropped away with it. What was left was the bar's own
+      //   colour at the bar's own height: more bar. Hence "invisible".
+      // So: the track stops clipping FOR THIS STYLE ONLY (the fill carries its
+      // own border-radius, so the rounded look is unchanged), the mark is sized
+      // off the operator's thickness instead of a fixed 22px, and the region
+      // reserves the overhang — vertically so the mark cannot collide with the
+      // step label, horizontally so a mark at 0%/100% cannot push the document
+      // wider than the viewport (E6).
+      //
+      // NOT part of the defect, stated so nobody re-derives it: the disc's COLOUR
+      // was already the bar's colour. `.lg-frame-progress--role-*` (emitted for
+      // every config — color_role always has a value) overrides both the fill and
+      // the disc from the same role token, and a probe at shipped HEAD resolved
+      // disc == bar for brand_primary/accent/button_primary_bg alike. The base
+      // declaration below moves from `primaryDark` to the progress fill token
+      // only so the always-overridden default AGREES with the override instead of
+      // contradicting it; it changes no reachable pixel today.
+      // "Proportional to the progress bar size" = ONE formula off the thickness
+      // the operator picked — marker = track + 2×overhang — so the mark always
+      // grows with the bar (s 4→20, m 8→24, l 12→28) and always stands 8px clear
+      // of it on every side. `--lg-progress-overhang` is single-sourced here and
+      // read THREE times (the marker size, the track's margin, the wrapper's end
+      // padding), so those three can never drift apart. frame.ts always emits a
+      // th-* class (p.thickness is a required enum), so every marker is derived —
+      // there is no un-sized fallback path to keep in sync.
+      rule(`${scope} .lg-frame-progress--icon_on_track`, { "--lg-progress-overhang": "8px" }),
+      rule(`${scope} .lg-frame-progress--icon_on_track.lg-frame-progress--th-s`, {
+        "--lg-progress-marker": "calc(4px + var(--lg-progress-overhang) * 2)",
+      }),
+      rule(`${scope} .lg-frame-progress--icon_on_track.lg-frame-progress--th-m`, {
+        "--lg-progress-marker": `calc(${progress.height} + var(--lg-progress-overhang) * 2)`,
+      }),
+      rule(`${scope} .lg-frame-progress--icon_on_track.lg-frame-progress--th-l`, {
+        "--lg-progress-marker": "calc(12px + var(--lg-progress-overhang) * 2)",
+      }),
+      // ends: half a marker of room at 0% and 100% so the mark is never cropped
+      // by the region edge and can never widen the document (E6).
+      rule(`${scope} .lg-frame-progress--icon_on_track .lg-progress`, {
+        padding: "0 calc(var(--lg-progress-marker) / 2)",
+      }),
+      // top/bottom: the overhang as the TRACK's own margin, not the wrapper's
+      // padding — the step label is the track's next sibling, so a margin pushes
+      // the label clear of the mark, while padding on the wrapper would have left
+      // the mark overlapping the label (measured: 4px into it).
+      rule(`${scope} .lg-frame-progress--icon_on_track .lg-progress-track`, {
+        overflow: "visible",
+        margin: "var(--lg-progress-overhang) 0",
+      }),
+      // …and the label keeps its OWN 4px of breathing room below the mark. Its
+      // margin-top collapses with the track's margin-bottom, so at a bare 4px the
+      // overhang swallowed it whole and the mark's lowest pixel landed exactly on
+      // the label's line box (measured: a 0px gap). Adding the overhang to it is
+      // what makes the 4px survive the collapse.
+      rule(`${scope} .lg-frame-progress--icon_on_track .lg-progress-text`, {
+        "margin-top": `calc(var(--lg-progress-overhang) + ${spacing.xs})`,
+      }),
       rule(`${scope} .lg-frame-progress--icon_on_track .lg-progress-fill`, { position: "relative", overflow: "visible" }),
       rule(`${scope} .lg-frame-progress--icon_on_track .lg-progress-fill::after`, {
         content: '""',
         position: "absolute",
         right: "0",
         top: "50%",
-        width: "22px",
-        height: "22px",
+        width: "var(--lg-progress-marker)",
+        height: "var(--lg-progress-marker)",
         transform: "translate(50%,-50%)",
         "border-radius": "50%",
-        background: color.primaryDark,
+        background: progress.fillColor,
         border: `2px solid ${color.card}`,
         "box-shadow": shadow.sm,
         "z-index": "1",
@@ -3369,8 +3436,10 @@ export function funnelChromeCss(
           position: "absolute",
           right: "0",
           top: "50%",
-          width: "13px",
-          height: "13px",
+          // 55% of the disc — the glyph scales with the mark instead of staying
+          // a fixed 13px that would swallow a small mark and float in a large one.
+          width: "calc(var(--lg-progress-marker) * 0.55)",
+          height: "calc(var(--lg-progress-marker) * 0.55)",
           transform: "translate(50%,-50%)",
           "z-index": "2",
           background: color.card,
@@ -3406,12 +3475,12 @@ export function funnelChromeCss(
       ...["site_logo", "custom"].flatMap((iconId) => [
         rule(`${scope} .lg-frame-region.lg-frame-progress--icon_on_track.lg-frame-progress--icon-${iconId} .lg-progress-fill::after`, {
           background: color.card,
-          width: "26px",
-          height: "26px",
         }),
         rule(`${scope} .lg-frame-region.lg-frame-progress--icon_on_track.lg-frame-progress--icon-${iconId} .lg-progress-fill::before`, {
-          width: "18px",
-          height: "18px",
+          // a real image gets more of the chip than a mask glyph does (a logo is
+          // wide, not a 24×24 square), but stays inside the ring.
+          width: "calc(var(--lg-progress-marker) * 0.7)",
+          height: "calc(var(--lg-progress-marker) * 0.7)",
           background: "transparent",
           "-webkit-mask-image": "none",
           "mask-image": "none",
