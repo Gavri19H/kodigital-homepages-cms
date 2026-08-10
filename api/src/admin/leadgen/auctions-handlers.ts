@@ -23,6 +23,7 @@ import { conditionsHash } from "../../leadgen/auction-rules";
 import type { LeadgenCarrierMatch } from "../../leadgen/auction-rules";
 import { evaluateDynamicOffersEligibility } from "../../leadgen/validation";
 import { resolveAllowedOutboundSecretReference } from "../../env";
+import { offerApiTokenSealed } from "../../leadgen/offer-api-token";
 import { buildPayload } from "../../leadgen/payload";
 import { redactPii, REDACTED_VALUE } from "../../leadgen/redact";
 import { buildLeadgenRuntimeContext } from "../../leadgen/runtime-context";
@@ -1756,6 +1757,7 @@ export async function auctionSimulateHandler(c: AdminContext): Promise<Response>
       `SELECT o.public_id AS offer_public_id, o.offer_name AS offer_name,
               o.api_token_placement AS api_token_placement, o.request_execution_mode AS request_execution_mode,
               o.api_token_secret_ref AS api_token_secret_ref,
+              o.api_token_cipher AS api_token_cipher, o.api_token_key_id AS api_token_key_id,
               s.public_id AS parser_id, s.schema_json,
               s.carrier_parse_json, s.carrier_parse_version, pl.placement_id AS ext_placement
        FROM leadgen_offers o
@@ -1771,6 +1773,8 @@ export async function auctionSimulateHandler(c: AdminContext): Promise<Response>
         api_token_placement: string | null;
         request_execution_mode: string | null;
         api_token_secret_ref: string | null;
+        api_token_cipher: string | null;
+        api_token_key_id: string | null;
         parser_id: string | null;
         schema_json: string | null;
         carrier_parse_json: string | null;
@@ -1805,9 +1809,12 @@ export async function auctionSimulateHandler(c: AdminContext): Promise<Response>
             typeof r.api_token_secret_ref === "string" && r.api_token_secret_ref.trim() !== ""
               ? r.api_token_secret_ref.trim()
               : null;
+          // 0056: a VAULTED token counts exactly like a resolvable reference —
+          // presence + a bound key source, no decrypt (this is a mask decision,
+          // not a request). The vault wins, mirroring fetch.ts's order.
           const tokenResolution =
             secretRef === null ? null : resolveAllowedOutboundSecretReference(c.env, secretRef);
-          const tokenResolvable = tokenResolution?.ok === true;
+          const tokenResolvable = offerApiTokenSealed(c.env, r) || tokenResolution?.ok === true;
           // EXACT payload: answers + this offer's macros/computed + its
           // provider-facing placement (source:"placement"). redactPii masks any
           // PII in the resolved fields before return.

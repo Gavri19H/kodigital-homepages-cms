@@ -2590,7 +2590,13 @@ const LG_EDITOR_SCRIPT = `
       request_execution_mode: (form.querySelector('[name="request_execution_mode"]:checked') || { value: 'server' }).value,
       api_token_placement: trimmedOrNull('api_token_placement'),
       api_token_param_name: trimmedOrNull('api_token_param_name'),
-      api_token_secret_ref: trimmedOrNull('api_token_secret_ref'),
+      // 0056 API token. Blank means LEAVE THE SAVED TOKEN ALONE (an ordinary
+      // save must never wipe a working credential); removal is the explicit
+      // checkbox. api_token_secret_ref is deliberately NOT collected any more:
+      // the field is gone from the UI, and sending null would silently clear a
+      // legacy reference on every save.
+      api_token_value: trimmedOrNull('api_token_value'),
+      api_token_clear: !!(form.querySelector('[name="api_token_clear"]') || {}).checked,
       cap_enabled: capEnabled,
       cap_amount: capEnabled ? numberOrNull('cap_amount', true) : null,
       cap_timezone: capEnabled ? trimmedOrNull('cap_timezone') : null,

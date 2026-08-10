@@ -35,6 +35,9 @@
 import type { Env, OutboundSecretReferenceFailureCode } from "../../../env";
 import { resolveAllowedOutboundSecretReference } from "../../../env";
 import { ulid } from "../../../leadgen/ids";
+// 0056: the operator-pasted token, sealed in D1. Preferred over the legacy
+// wrangler-secret reference, which no admin screen asks for any more.
+import { offerApiTokenFailureMessage, resolveOfferApiToken } from "../../../leadgen/offer-api-token";
 import { resolveMacros } from "../../../leadgen/macros";
 import { buildPayload, type LeadgenPayloadSchema } from "../../../leadgen/payload";
 import {
@@ -86,6 +89,9 @@ export interface LeadgenFetchNote {
     | "secret_infrastructure_reference"
     | "secret_prefix_required"
     | "secret_mode_invalid"
+    // 0056: the offer carries a VAULTED token that could not be opened (key
+    // rotated away / malformed row). Fails CLOSED — never a tokenless request.
+    | "token_vault_unreadable"
     | "token_param_name_missing"
     | "token_node_missing";
   header_name?: string;
@@ -250,7 +256,32 @@ export async function fetchProvider(
   // binding on such a row still fails closed rather than producing a tokenless
   // server fetch.
   let tokenValue: string | undefined;
-  if (secretRef !== null) {
+  // 0056 resolution ORDER: the vaulted token the operator pasted wins; the
+  // legacy secret reference is consulted only when no token is stored. A vault
+  // failure never silently degrades to the legacy path — it fails closed.
+  const vaulted = await resolveOfferApiToken(env, offer);
+  if (vaulted.kind === "failed") {
+    secretResolutionFailed = true;
+    notes.push({
+      scope: "token",
+      code: "token_vault_unreadable",
+      message: offerApiTokenFailureMessage(vaulted.code),
+    });
+  } else if (vaulted.kind === "stored") {
+    if (!serverMode) {
+      secretResolutionFailed = true;
+      notes.push({
+        scope: "token",
+        code: "secret_mode_invalid",
+        message: "client-mode offers may not store an API token",
+      });
+    } else {
+      tokenValue = vaulted.value;
+      // Feeds the redaction set: the pasted token is masked in every log leg
+      // exactly like a wrangler-resolved one.
+      resolvedSecretValues.add(vaulted.value);
+    }
+  } else if (secretRef !== null) {
     const resolution = resolveAllowedOutboundSecretReference(env, secretRef);
     if (!resolution.ok) {
       secretResolutionFailed = true;

@@ -86,6 +86,12 @@ const LEADGEN_MIGRATIONS = [
   "0051_leadgen_rework_m7_slider_collapse.sql",
   "0052_leadgen_rework_m9_address_fields.sql",
   "0053_leadgen_rework_m12_othergroup_retirement.sql",
+  "0054_leadgen_analytics_routing_dims.sql",
+  "0055_leadgen_quote_default_template.sql",
+  // 0056: the payload-preview token gate reads the offer API-token vault
+  // columns, so this harness must carry them (a hardcoded list is why the
+  // schema went stale twice already — the newest suites scan migrations/).
+  "0056_leadgen_offer_api_token_vault.sql",
 ] as const;
 
 function createLeadgenDb(DatabaseSync: DatabaseSyncCtor): SqliteDb {

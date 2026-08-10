@@ -201,6 +201,14 @@ export interface LeadgenOfferRow {
   api_token_secret_ref: string | null;
   api_token_placement: LeadgenApiTokenPlacement | null;
   api_token_param_name: string | null;
+  // Offer API-token vault (0056). The operator pastes the token; it is sealed
+  // before it reaches D1 (src/leadgen/offer-api-token.ts). `api_token_cipher`
+  // and `api_token_key_id` are Worker-only — offerRowToApi strips both and
+  // projects `api_token_present` instead, so no response or page ever carries
+  // the ciphertext.
+  api_token_cipher: string | null;
+  api_token_key_id: string | null;
+  api_token_updated_at: number | null;
   active_payload_schema_id: number | null;
   cap_enabled: number;
   cap_amount: number | null;
@@ -238,6 +246,10 @@ export interface LeadgenOfferApi {
   api_token_secret_ref: string | null;
   api_token_placement: LeadgenApiTokenPlacement | null;
   api_token_param_name: string | null;
+  // The ONLY two token facts the admin API projects: whether a token is stored
+  // and when it was last pasted. The ciphertext and its key id never appear.
+  api_token_present: boolean;
+  api_token_updated_at: number | null;
   active_payload_schema_id: number | null;
   cap_enabled: boolean;
   cap_amount: number | null;
