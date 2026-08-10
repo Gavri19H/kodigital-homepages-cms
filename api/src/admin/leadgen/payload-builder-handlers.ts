@@ -42,6 +42,7 @@ import {
   type OutboundSecretReferenceFailureCode,
 } from "../../env";
 import { ulid } from "../../leadgen/ids";
+import { offerApiTokenFailureMessage, resolveOfferApiToken } from "../../leadgen/offer-api-token";
 import { resolveMacros } from "../../leadgen/macros";
 import {
   buildPayload,
@@ -99,6 +100,9 @@ export interface LeadgenTestNote {
     | "secret_infrastructure_reference"
     | "secret_prefix_required"
     | "secret_mode_invalid"
+    // 0056 parity with the runtime note set (fetch.ts): a stored token that
+    // cannot be opened is a typed failure, never a tokenless test request.
+    | "token_vault_unreadable"
     | "token_param_name_missing"
     | "token_node_missing";
   header_name?: string;
@@ -382,7 +386,28 @@ export async function testOfferHandler(c: AdminContext): Promise<Response> {
   let secretResolutionFailed = false;
   const resolvedSecretValues = new Set<string>();
   let tokenValue: string | undefined;
-  if (secretRef !== null) {
+  // 0056: the Test tool must use the SAME token the runtime would — the pasted
+  // one first, the legacy reference only when nothing is stored. Without this
+  // the operator pastes a token, presses Test, and tests a tokenless request.
+  const vaulted = await resolveOfferApiToken(c.env, offer);
+  if (vaulted.kind === "failed") {
+    secretResolutionFailed = true;
+    notes.push({
+      scope: "token",
+      code: "token_vault_unreadable",
+      message: offerApiTokenFailureMessage(vaulted.code),
+    });
+  } else if (vaulted.kind === "stored" && !serverMode) {
+    secretResolutionFailed = true;
+    notes.push({
+      scope: "token",
+      code: "secret_mode_invalid",
+      message: "client-mode offers may not store an API token",
+    });
+  } else if (vaulted.kind === "stored") {
+    tokenValue = vaulted.value;
+    resolvedSecretValues.add(vaulted.value);
+  } else if (secretRef !== null) {
     const resolution = resolveAllowedOutboundSecretReference(c.env, secretRef);
     if (resolution.ok && !serverMode) {
       secretResolutionFailed = true;

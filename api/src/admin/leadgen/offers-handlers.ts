@@ -35,6 +35,13 @@ import {
   type OutboundSecretReferenceFailureCode,
 } from "../../env";
 import { isPublicId, mintPublicId, type PublicIdKind } from "../../leadgen/ids";
+// The offer API-token vault: the operator pastes a token, we seal it here and
+// store only ciphertext. Nothing in this module ever reads a token back out.
+import {
+  OFFER_API_TOKEN_VALUE_MAX,
+  offerApiTokenVaultAvailable,
+  sealOfferApiToken,
+} from "../../leadgen/offer-api-token";
 import { readCapStatus, capExceeded } from "../../leadgen/caps";
 import { validateBannerUrlTemplate, normalizeTemplate, findUnknownMacros } from "../../leadgen/macros";
 import {
@@ -238,10 +245,18 @@ export async function resolveOfferRow(
 }
 
 export function offerRowToApi(row: LeadgenOfferRow): LeadgenOfferApi {
+  // The vault columns are DELETED from the projection, not merely omitted from
+  // the type: `...row` would otherwise carry the ciphertext into every offer
+  // response (and from there into the editor page). Only presence + the paste
+  // timestamp are operator-visible.
+  const { api_token_cipher, api_token_key_id, ...rest } = row;
   return {
-    ...row,
+    ...rest,
     calls_provider_api: row.calls_provider_api !== 0,
     cap_enabled: row.cap_enabled !== 0,
+    api_token_present: typeof api_token_cipher === "string" && api_token_cipher.trim() !== ""
+      && (api_token_key_id === "lgok1" || api_token_key_id === "lgok2"),
+    api_token_updated_at: row.api_token_updated_at ?? null,
   };
 }
 
@@ -1270,6 +1285,45 @@ export async function patchOfferHandler(c: AdminContext): Promise<Response> {
       }
     }
   }
+  // --- the pasted API token (0056 vault) ---------------------------------
+  // Field semantics, chosen so an ordinary Request-tab save can never destroy a
+  // working credential:
+  //   api_token_value absent / ""  → the stored token is UNCHANGED
+  //   api_token_value "<token>"    → sealed and replaces whatever was stored
+  //   api_token_clear true         → the stored token is removed
+  // The plaintext exists only inside this block: it is sealed into
+  // `api_token_cipher` and never logged, echoed, or written anywhere else.
+  const clearToken = body["api_token_clear"] === true;
+  const pastedToken = typeof body["api_token_value"] === "string" ? body["api_token_value"].trim() : "";
+  if (body["api_token_clear"] !== undefined && typeof body["api_token_clear"] !== "boolean") {
+    errors["api_token_clear"] = "api_token_clear must be a boolean";
+  } else if (body["api_token_value"] !== undefined && body["api_token_value"] !== null
+      && typeof body["api_token_value"] !== "string") {
+    errors["api_token_value"] = "api_token_value must be a string";
+  } else if (clearToken && pastedToken !== "") {
+    errors["api_token_value"] = "cannot save and remove the API token in one request";
+  } else if (clearToken) {
+    updates.set("api_token_cipher", null);
+    updates.set("api_token_key_id", null);
+    updates.set("api_token_updated_at", null);
+  } else if (pastedToken !== "") {
+    if (pastedToken.length > OFFER_API_TOKEN_VALUE_MAX) {
+      errors["api_token_value"] = `api_token_value must be at most ${OFFER_API_TOKEN_VALUE_MAX} characters`;
+    } else if (!offerApiTokenVaultAvailable(c.env)) {
+      // Fail CLOSED: never fall back to storing a token in plaintext.
+      errors["api_token_value"] = "token storage is unavailable in this environment";
+    } else {
+      const sealed = await sealOfferApiToken(c.env, pastedToken);
+      if (!sealed.ok) {
+        errors["api_token_value"] = "the API token could not be stored securely";
+      } else {
+        updates.set("api_token_cipher", sealed.cipher);
+        updates.set("api_token_key_id", sealed.keyId);
+        updates.set("api_token_updated_at", Math.floor(Date.now() / 1000));
+      }
+    }
+  }
+
   if (headerInputs !== null) {
     const existingSecretRefs = new Set(
       (await readOfferHeaders(c.env.DB, existing.id))
@@ -1287,11 +1341,17 @@ export async function patchOfferHandler(c: AdminContext): Promise<Response> {
     });
   }
 
+  // The two write-only token inputs are accepted body keys but NOT columns —
+  // the vault columns themselves stay out of OFFER_PATCH_COLUMNS, so a client
+  // that tries to PATCH api_token_cipher/api_token_key_id directly is rejected
+  // here as an unknown field.
   const unknownScalars = Object.keys(body).filter(
     (key) =>
       key !== "headers" &&
       key !== "region_rules" &&
       key !== "placements" &&
+      key !== "api_token_value" &&
+      key !== "api_token_clear" &&
       !(OFFER_PATCH_COLUMNS as readonly string[]).includes(key),
   );
   for (const key of unknownScalars) errors[key] = `${key} is not an updatable field`;
@@ -1301,6 +1361,8 @@ export async function patchOfferHandler(c: AdminContext): Promise<Response> {
     body["headers"] !== undefined ||
     body["region_rules"] !== undefined ||
     body["placements"] !== undefined ||
+    body["api_token_value"] !== undefined ||
+    body["api_token_clear"] !== undefined ||
     (OFFER_PATCH_COLUMNS as readonly string[]).some((key) => body[key] !== undefined);
   if (!providedAnything && unknownScalars.length === 0) {
     return c.json({ error: "No updatable fields provided" }, 400);
@@ -1337,12 +1399,14 @@ export async function patchOfferHandler(c: AdminContext): Promise<Response> {
             header_name: row.header_name,
             value_kind: row.value_kind,
           }));
+    const mergedCipher = mergedField(existing, updates, "api_token_cipher");
     const clientErrors = validateClientModeConstraints(
       {
         request_execution_mode: mergedExecutionMode,
         api_token_secret_ref: mergedField(existing, updates, "api_token_secret_ref"),
         endpoint_production: mergedField(existing, updates, "endpoint_production"),
         endpoint_staging: mergedField(existing, updates, "endpoint_staging"),
+        api_token_stored: typeof mergedCipher === "string" && mergedCipher.trim() !== "",
       },
       effectiveHeaders,
     );

@@ -352,6 +352,13 @@ export interface LeadgenClientModeOfferInput {
   api_token_secret_ref: string | null;
   endpoint_production: string | null;
   endpoint_staging: string | null;
+  /**
+   * 0056: true when the offer carries a VAULTED token (api_token_cipher). A
+   * client-mode offer runs in the browser, so a stored token is exactly as
+   * forbidden as a secret reference — omitted defaults to false so existing
+   * callers keep their meaning.
+   */
+  api_token_stored?: boolean;
 }
 
 export interface LeadgenClientModeHeaderInput {
@@ -363,6 +370,7 @@ export interface LeadgenClientModeHeaderInput {
 // may ever reach it (09 §30.2 "Client-mode Offers reference no secret at
 // all"). Violations are SAVE errors, not warnings:
 //   * api_token_secret_ref must be absent;
+//   * no VAULTED api token may be stored (0056);
 //   * no header may use value_kind='secret_ref';
 //   * endpoints must be https (browser-safe scheme).
 // Server-mode Offers (the default) skip all three checks.
@@ -376,6 +384,9 @@ export function validateClientModeConstraints(
   if (trimmedString(offer.api_token_secret_ref) !== null) {
     errors["api_token_secret_ref"] =
       "client-mode Offers may not reference an api_token_secret_ref";
+  }
+  if (offer.api_token_stored === true) {
+    errors["api_token_value"] = "client-mode Offers may not store an API token";
   }
   headers.forEach((header, index) => {
     if (header.value_kind === "secret_ref") {

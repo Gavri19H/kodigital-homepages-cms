@@ -57,6 +57,11 @@ function makeOffer(overrides: Partial<LeadgenOfferRow> = {}): LeadgenOfferRow {
     endpoint_production: "https://api.provider.example.com/quotes",
     endpoint_staging: "https://staging.provider.example.com/quotes",
     api_token_secret_ref: "OFFER_TOKEN_TEST_PROVIDER",
+    // 0056 vault columns: empty here so this suite keeps exercising the LEGACY
+    // secret-reference path (the vault has its own suite).
+    api_token_cipher: null,
+    api_token_key_id: null,
+    api_token_updated_at: null,
     api_token_placement: "header",
     api_token_param_name: "X-Api-Token",
     active_payload_schema_id: 10,

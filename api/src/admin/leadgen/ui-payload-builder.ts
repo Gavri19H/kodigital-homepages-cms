@@ -942,6 +942,8 @@ export function renderPayloadPanel(props: PayloadPanelProps): string {
     offer: {
       public_id: offer.public_id,
       api_token_secret_ref: offer.api_token_secret_ref,
+      // 0056: presence only — the ciphertext never reaches a page.
+      api_token_present: offer.api_token_present === true,
       api_token_placement: offer.api_token_placement,
       placements: (offer.placements ?? []).map((p) => ({
         public_id: p.public_id,
@@ -1036,8 +1038,19 @@ export function renderPayloadPanel(props: PayloadPanelProps): string {
 // the v2.4 §6 rebuild; kept exactly as shipped)
 // ---------------------------------------------------------------------------
 
+// Never send an operator to Wrangler: the API token belongs in the API token
+// field below, which stores it encrypted and can place it in a header itself
+// (placement = header + the header name). `secret_ref` remains only for the
+// pre-0056 rows that already reference a deployed binding by name.
 const HEADER_KIND_HELP =
-  "static = sent verbatim · macro = canonical-macro template · secret_ref = a wrangler secret NAME (the value is resolved server-side and never displayed)";
+  "static = sent verbatim · macro = canonical-macro template · for a provider API key use the API token field below (never a static header) — secret_ref is a legacy deployed-binding name";
+
+// The one token fact the editor may show: when it was last pasted.
+function tokenSavedWhen(updatedAt: number | null): string {
+  if (typeof updatedAt !== "number" || !Number.isFinite(updatedAt) || updatedAt <= 0) return "";
+  const iso = new Date(updatedAt * 1000).toISOString().slice(0, 10);
+  return ` (${iso})`;
+}
 
 function renderHeaderRow(header: LeadgenOfferHeaderApi | null): string {
   const name = header !== null ? escapeHtml(header.header_name) : "";
@@ -1107,11 +1120,23 @@ export function renderRequestPanel(
       ${fieldError("api_token_param_name")}
     </div>
     <div class="form-group">
-      <label for="lg-token-secret" class="form-label">Token secret ref (wrangler secret name)</label>
-      <input id="lg-token-secret" name="api_token_secret_ref" type="text" class="form-input" placeholder="PROVIDER_API_TOKEN" value="${escapeHtml(offer.api_token_secret_ref ?? "")}" />
-      <span class="form-help">The secret NAME only — values live in Wrangler secrets and are never displayed. Client-mode offers cannot use secret tokens.</span>
-      ${fieldError("api_token_secret_ref")}
+      <label for="lg-token-value" class="form-label">API token</label>
+      <input id="lg-token-value" name="api_token_value" type="password" class="form-input" autocomplete="off" spellcheck="false" placeholder="${offer.api_token_present ? "Paste a new token to replace the saved one" : "Paste the token the provider gave you"}" value="" />
+      <span class="form-help">${
+        offer.api_token_present
+          ? `A token is saved${tokenSavedWhen(offer.api_token_updated_at)} — encrypted, never shown again. Leave this blank to keep it; paste a new one to replace it.`
+          : "Pasted here and nowhere else: the token is encrypted before it is stored and only the server can read it. Client-mode offers cannot use a token."
+      }</span>
+      ${fieldError("api_token_value")}
     </div>
+    ${
+      offer.api_token_present
+        ? `<div class="form-group">
+      <label class="form-label lg-checkbox"><input id="lg-token-clear" name="api_token_clear" type="checkbox" value="1" /> Remove the saved token</label>
+      ${fieldError("api_token_clear")}
+    </div>`
+        : ""
+    }
   </div>
   <template id="lg-header-template">${renderHeaderRow(null)}</template>
 </section>`;
@@ -3472,9 +3497,9 @@ export const PAYLOAD_BUILDER_SCRIPT = `
     // token note
     var tokenNote = bodyEl.querySelector('[data-pb-token-note]');
     if (tokenNote) {
-      tokenNote.textContent = offerMeta.api_token_secret_ref
-        ? 'Token ref: ' + offerMeta.api_token_secret_ref + ' \\u2014 the value resolves server-side and is always masked.'
-        : 'No token secret is configured yet \\u2014 set the token secret ref in the Request tab.';
+      tokenNote.textContent = (offerMeta.api_token_present || offerMeta.api_token_secret_ref)
+        ? 'An API token is saved \\u2014 it is injected server-side and always masked here.'
+        : 'No API token is saved yet \\u2014 paste it in the Request tab.';
     }
     // panels
     applyEditorVisibility(bodyEl, node);
