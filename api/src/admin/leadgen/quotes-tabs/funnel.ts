@@ -5238,6 +5238,11 @@ export const QUOTE_EDITOR_SCRIPT = `
         if (snapshot !== null) {
           try { funnel.pages = JSON.parse(snapshot); } catch (e) { /* keep the live plan if the snapshot cannot be restored */ }
         }
+        // A provisional card painted for this action never became real. This runs
+        // AFTER the model restore above on purpose: that restore is what
+        // un-wedges the board (the 2026-08-09 owner wedge), so no DOM work may
+        // ever be able to pre-empt it.
+        dropProvisional(ancestorWithAttr(nearEl, 'data-funnel-col'));
         showInlineErr(nearEl, firstFieldError(res.body));
         return;
       }
@@ -5757,10 +5762,88 @@ export const QUOTE_EDITOR_SCRIPT = `
     f.model.pages.splice(pi, 1);
     saveFunnel(f.model, pageCard, beforeDelete);
   }
+  // Paint the new page card IMMEDIATELY, before the save is even sent.
+  //
+  // OWNER: "this should take miliseconds! not 3.1 second!!!" Correct, and no
+  // amount of shaving the save gets there: the click was WAITING on the server
+  // (a ~2 s save, then a board refetch) before anything appeared. The wait has
+  // to be removed, not shortened.
+  //
+  // A newly added page is always EMPTY, so its card is a fixed shape rather
+  // than a general render -- head (grip, number, kebab), an empty chip list,
+  // and the add-section control. That makes an honest client-side paint small.
+  // The icons are CLONED from a card already on the board, so nothing here has
+  // to know their markup and no HTML is assigned as a string. When a funnel has
+  // no cards yet there is nothing to clone from and the glyphs are simply
+  // omitted -- the authoritative render replaces this node moments later.
+  //
+  // It carries data-provisional so the refused-save path can take it back out;
+  // on success refreshBoard replaces the whole panel with the server's render,
+  // and this node goes with it.
+  // The nearest enclosing element carrying that attribute (the island's own
+  // idiom -- no closest(), which nothing else here relies on).
+  function ancestorWithAttr(node, attr) {
+    var el = node;
+    while (el && el.getAttribute) {
+      if (el.getAttribute(attr) !== null) { return el; }
+      el = el.parentNode;
+    }
+    return null;
+  }
+  function paintProvisionalPage(clickedEl, pageNumber) {
+    // addPage is handed the CONTROL that was clicked, not the column, so the
+    // column has to be resolved the same way funnelOfEl resolves it. Looking
+    // the children up on the control itself silently found nothing, which is
+    // exactly how the first version of this paint did nothing at all.
+    var funnelCol = ancestorWithAttr(clickedEl, 'data-funnel-col');
+    if (!funnelCol) { return null; }
+    var body = funnelCol.querySelector('[data-funnel-body]');
+    var addCtl = funnelCol.querySelector('[data-add-page]');
+    if (!body || !addCtl) { return null; }
+    var sample = funnelCol.querySelector('[data-page-card]');
+    var card = document.createElement('div');
+    card.className = 'lg-page-card';
+    card.setAttribute('data-page-card', '');
+    card.setAttribute('data-provisional', '1');
+    card.setAttribute('data-page-index', String(pageNumber - 1));
+    var head = document.createElement('div');
+    head.className = 'lg-page-head';
+    var grip = sample ? sample.querySelector('[data-page-grip]') : null;
+    if (grip) { head.appendChild(grip.cloneNode(true)); }
+    var num = document.createElement('span');
+    num.className = 'lg-page-num';
+    num.appendChild(document.createTextNode('Page ' + pageNumber));
+    head.appendChild(num);
+    var keb = sample ? sample.querySelector('[data-page-kebab]') : null;
+    if (keb) { head.appendChild(keb.cloneNode(true)); }
+    card.appendChild(head);
+    var chips = document.createElement('div');
+    chips.className = 'lg-chip-list';
+    chips.setAttribute('data-chip-list', '');
+    card.appendChild(chips);
+    var addSec = sample ? sample.querySelector('[data-add-section]') : null;
+    if (addSec) { card.appendChild(addSec.cloneNode(true)); }
+    addCtl.parentNode.insertBefore(card, addCtl);
+    return card;
+  }
+
+  // Drop every provisional node in this column (a refused save never happened).
+  function dropProvisional(nearEl) {
+    var scope = nearEl && nearEl.querySelectorAll ? nearEl : (typeof document === 'undefined' ? null : document);
+    if (!scope || !scope.querySelectorAll) { return; }
+    var nodes = scope.querySelectorAll('[data-provisional]');
+    var i;
+    for (i = 0; i < nodes.length; i++) {
+      if (nodes[i].parentNode) { nodes[i].parentNode.removeChild(nodes[i]); }
+    }
+  }
+
   function addPage(funnelCol) {
     var f = funnelOfEl(funnelCol); if (!f || !f.model) { return; }
     var before = JSON.stringify(f.model.pages);
     f.model.pages.push({ page_id: '', slots: [] });
+    // The operator sees the page NOW; the save settles behind them.
+    paintProvisionalPage(funnelCol, f.model.pages.length);
     saveFunnel(f.model, funnelCol, before);
   }
   function addSectionToFunnelPage(funnelModel, pageIndex, sectionPublicId, nearEl) {

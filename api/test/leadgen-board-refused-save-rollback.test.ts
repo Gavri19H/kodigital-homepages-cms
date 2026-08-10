@@ -53,6 +53,14 @@ function sandbox(ok: boolean): {
     sliceIslandFunction(island, "saveFunnel"),
     sliceIslandFunction(island, "addSectionToFunnelPage"),
     sliceIslandFunction(island, "addPage"),
+    // addPage now paints the new card immediately (so the click is not waiting
+    // on the ~2 s save) and a refused save takes that node back out. Both are
+    // part of the behaviour under test, so both come along -- and this sandbox
+    // has no `document`, which is exactly the environment that proves they stay
+    // out of the model rollback's way.
+    sliceIslandFunction(island, "ancestorWithAttr"),
+    sliceIslandFunction(island, "paintProvisionalPage"),
+    sliceIslandFunction(island, "dropProvisional"),
   ].join("\n");
 
   const calls: SaveCall[] = [];
