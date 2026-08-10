@@ -90,6 +90,20 @@ import {
 import { selectedMarkRules } from "../designs/default-funnel/styles";
 import type { FunnelTokenRole, ThemeRecordControls } from "../designs/theme";
 import type { LeadgenContinueMode } from "../../../admin/leadgen/db-types";
+// OWNER DEFECT (2026-08-10, "image issue in the cards"): D1 stores the BARE R2
+// storage key (media.storage_key) and the blob is served at GET /media/<key>.
+// Every media ref below used to be interpolated into `src=` verbatim, so a real
+// operator-picked image resolved against the CURRENT PAGE's path
+// (/admin/leadgen/sections/lgs_…/2026/08/10/<uuid>.png) and 404'd — measured,
+// with the media picker's own grid loading the SAME key correctly beside it
+// because the picker alone applies the prefix. mediaUrl() is the repo's single
+// answer to exactly this class (read its header — the public view models had
+// this bug and were fixed there); leadgen's renderer never adopted it. It is
+// IDEMPOTENT: a value already rooted ("/…") or absolute (http/https/data) comes
+// back unchanged, so every already-resolved caller keeps byte-identical output,
+// and it returns null for empty/whitespace, which is what lets each site below
+// fall back to its no-image branch instead of emitting a broken src="".
+import { mediaUrl } from "../../view-models/media-url";
 
 // ---------------------------------------------------------------------------
 // small helpers
@@ -921,7 +935,7 @@ export function renderHeaderLogo(node: LeadgenComponentNode, design: DefaultFunn
   const accent = propStr(node, "accent");
   const inner =
     logoUrl !== undefined && logoUrl !== ""
-      ? `<img class="lg-logo-img" src="${esc(logoUrl)}" alt="${esc(siteName)}" decoding="async"${style({ "max-height": design.header.logoFontSize })}>`
+      ? `<img class="lg-logo-img" src="${esc(mediaUrl(logoUrl))}" alt="${esc(siteName)}" decoding="async"${style({ "max-height": design.header.logoFontSize })}>`
       : `<span class="lg-logo"${style({ color: design.header.logoColor, "font-family": design.header.logoFontFamily })}>${esc(siteName)}` +
         (accent !== undefined
           ? `<span class="lg-logo-accent"${style({ color: design.header.logoAccentColor })}>${esc(accent)}</span>`
@@ -1728,7 +1742,19 @@ function renderCardGrid(
       const inner = known ? leadgenIconSvg(glyph as string, 48) : esc(glyph);
       return `<span class="lg-card-icon"${style({ color: iconColor })} aria-hidden="true">${inner}</span>`;
     };
-    const hasImage = typeof c.imageMediaId === "string" && c.imageMediaId !== "";
+    // The card's image, resolved to its public address. TWO defects died here
+    // (owner 2026-08-10, "image issue in the cards"):
+    //   1. the bare storage key went into `src=` verbatim → 404 (see the
+    //      mediaUrl import note);
+    //   2. `hasImage` was a bare non-empty-string test and the icon fallback
+    //      below required an EMOJI to exist, so an image card whose choice had
+    //      neither image nor emoji fell through to the <img> branch and emitted
+    //      `src=""` — a guaranteed broken image, measured in the studio canvas
+    //      on a freshly added card. Resolving through mediaUrl makes "is there
+    //      an image" and "what is its address" the SAME question, so the
+    //      fallback can no longer be reached with an unusable src.
+    const imageHref = mediaUrl(typeof c.imageMediaId === "string" ? c.imageMediaId : null);
+    const hasImage = imageHref !== null;
     // §8.4/A6 image fit (cover|contain — the 05 §5.5 grid control): the
     // COMPONENT prop (nodeFit above) is canonical; a legacy PER-CHOICE
     // image_fit read DEFENSIVELY off the raw choice (the defensive raw-node
@@ -1740,9 +1766,9 @@ function renderCardGrid(
     const fit = nodeFit ?? choiceFit;
     const media =
       kind === "image"
-        ? !hasImage && emoji !== undefined
-          ? iconSlot(emoji)
-          : `<img class="lg-card-img" src="${esc(c.imageMediaId)}"` +
+        ? !hasImage
+          ? iconSlot(emoji ?? c.icon)
+          : `<img class="lg-card-img" src="${esc(imageHref)}"` +
             ` alt="${esc(typeof c.image_alt === "string" && c.image_alt !== "" ? c.image_alt : c.label)}"` +
             style({ "object-fit": fit }) +
             ` loading="lazy">`
@@ -3969,7 +3995,7 @@ export function renderLogoStrip(node: LeadgenComponentNode, _design: DefaultFunn
     .map(
       (logo) =>
         `<img class="lg-logo-strip-img${logo.size === undefined ? "" : ` lg-logo-strip-img--${logo.size}`}"` +
-        ` src="${esc(logo.mediaId)}" alt="${esc(logo.alt)}" loading="lazy">`,
+        ` src="${esc(mediaUrl(logo.mediaId))}" alt="${esc(logo.alt)}" loading="lazy">`,
     )
     .join("");
   return `<div class="lg-logo-strip"${hydration(node)}>${logos}</div>`;
@@ -4222,7 +4248,7 @@ function renderImageBlockAutoLogo(node: LeadgenComponentNode, design: DefaultFun
   }
   const inner =
     logoUrl !== undefined && logoUrl !== ""
-      ? `<img class="lg-logo-img" src="${esc(logoUrl)}" alt="${esc(siteName ?? "")}" decoding="async"${style({ "max-height": design.header.logoFontSize })}>`
+      ? `<img class="lg-logo-img" src="${esc(mediaUrl(logoUrl))}" alt="${esc(siteName ?? "")}" decoding="async"${style({ "max-height": design.header.logoFontSize })}>`
       : `<span class="lg-logo"${style({ color: design.header.logoColor, "font-family": design.header.logoFontFamily })}>${esc(siteName ?? "")}` +
         (accent !== undefined
           ? `<span class="lg-logo-accent"${style({ color: design.header.logoAccentColor })}>${esc(accent)}</span>`
@@ -4250,7 +4276,7 @@ function renderImageBlockMedia(node: LeadgenComponentNode, design: DefaultFunnel
   }
   return (
     `<div class="lg-image-block"${hydration(node)} data-source="media">` +
-    `<img class="lg-image-block-img" src="${esc(mediaId)}" alt="${esc(alt)}" loading="lazy">` +
+    `<img class="lg-image-block-img" src="${esc(mediaUrl(mediaId))}" alt="${esc(alt)}" loading="lazy">` +
     `</div>`
   );
 }
@@ -4494,7 +4520,7 @@ export function renderBackgroundPanel(
   const imageMediaId = propStr(node, "imageMediaId");
   const image =
     imageMediaId !== undefined && imageMediaId !== ""
-      ? `<img class="lg-bg-panel-img" src="${esc(imageMediaId)}" alt="" aria-hidden="true" loading="lazy">`
+      ? `<img class="lg-bg-panel-img" src="${esc(mediaUrl(imageMediaId))}" alt="" aria-hidden="true" loading="lazy">`
       : "";
   return (
     `<div class="lg-bg-panel"${hydration(node)}${style({ background })}>` +
@@ -4635,7 +4661,7 @@ export function renderHeaderBar(node: LeadgenComponentNode, design: DefaultFunne
   const logoMediaId = propStr(node, "logoMediaId");
   const logo =
     logoMediaId !== undefined && logoMediaId !== ""
-      ? `<img class="lg-headerbar-logo" src="${esc(logoMediaId)}" alt="${esc(propStr(node, "logoAlt") ?? "")}" decoding="async">`
+      ? `<img class="lg-headerbar-logo" src="${esc(mediaUrl(logoMediaId))}" alt="${esc(propStr(node, "logoAlt") ?? "")}" decoding="async">`
       : "";
   const backLabel = propStr(node, "backLabel") ?? "Back";
   const back = propBool(node, "back")
