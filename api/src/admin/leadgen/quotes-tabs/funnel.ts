@@ -5242,7 +5242,9 @@ export const QUOTE_EDITOR_SCRIPT = `
         // AFTER the model restore above on purpose: that restore is what
         // un-wedges the board (the 2026-08-09 owner wedge), so no DOM work may
         // ever be able to pre-empt it.
-        dropProvisional(ancestorWithAttr(nearEl, 'data-funnel-col'));
+        var refusedCol = ancestorWithAttr(nearEl, 'data-funnel-col');
+        dropProvisional(refusedCol);
+        unhideProvisional(refusedCol);
         showInlineErr(nearEl, firstFieldError(res.body));
         return;
       }
@@ -5760,6 +5762,15 @@ export const QUOTE_EDITOR_SCRIPT = `
     if (pi < 0 || pi >= f.model.pages.length) { return; }
     var beforeDelete = JSON.stringify(f.model.pages);
     f.model.pages.splice(pi, 1);
+    // OWNER: "I deleted page and this is still quite slow". Add-page paints
+    // instantly (paintProvisionalPage) but every other mutation still WAITED on
+    // the ~2 s save before the board changed. A delete needs no render at all --
+    // the card is already here, it just has to go. Hidden rather than removed so
+    // a refused save can put it straight back; a successful one is replaced
+    // wholesale by the server's render moments later. The remaining cards keep
+    // their old "Page N" labels for that moment, which the server render then
+    // corrects.
+    hideProvisionally(pageCard);
     saveFunnel(f.model, pageCard, beforeDelete);
   }
   // Paint the new page card IMMEDIATELY, before the save is even sent.
@@ -5827,6 +5838,23 @@ export const QUOTE_EDITOR_SCRIPT = `
     return card;
   }
 
+  // Hide a node the operator has just removed, before the save confirms it.
+  function hideProvisionally(el) {
+    if (!el || !el.setAttribute || !el.style) { return; }
+    el.setAttribute('data-provisional-hidden', '1');
+    el.style.display = 'none';
+  }
+  // Put back everything a refused save had provisionally hidden.
+  function unhideProvisional(nearEl) {
+    var scope = nearEl && nearEl.querySelectorAll ? nearEl : (typeof document === 'undefined' ? null : document);
+    if (!scope || !scope.querySelectorAll) { return; }
+    var nodes = scope.querySelectorAll('[data-provisional-hidden]');
+    var i;
+    for (i = 0; i < nodes.length; i++) {
+      nodes[i].removeAttribute('data-provisional-hidden');
+      nodes[i].style.display = '';
+    }
+  }
   // Drop every provisional node in this column (a refused save never happened).
   function dropProvisional(nearEl) {
     var scope = nearEl && nearEl.querySelectorAll ? nearEl : (typeof document === 'undefined' ? null : document);
