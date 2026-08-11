@@ -167,7 +167,7 @@ function toCurrencyNumber(raw: unknown): number | undefined {
 
 // R2 P5 F9 (SRC-6B): EXPORTED (export surface only — the shape is unchanged).
 // `fieldsOf` below is THE answer-space derivation, and the §6.2 per-offer field
-// picker (offers-handlers readLinkedSectionFields) now consumes it directly, so
+// picker (offers-handlers readAnswerFieldUniverse) now consumes it directly, so
 // this spec is part of that consumer's type surface.
 export interface FieldSpec {
   field: string;
@@ -229,7 +229,7 @@ function asStringArray(value: unknown, fallback: readonly string[]): string[] {
 // node", and the comment on the dual-slider branch below states its own reach
 // verbatim: the sub-fields exist "so the field universe, rules pickers and
 // per-offer mapping see them". The per-offer mapping (offers-handlers
-// readLinkedSectionFields → the §6.2 Section-field picker) was the one consumer
+// readAnswerFieldUniverse → the §6.2 answer-field picker) was the one consumer
 // still deriving its own per-type answer, so it now calls THIS function for
 // EVERY component type — owner A.1 #6 is about "every component that include
 // more than one field", not about the address.

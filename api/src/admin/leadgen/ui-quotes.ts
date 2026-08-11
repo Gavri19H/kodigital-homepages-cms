@@ -1300,7 +1300,7 @@ function derivedSubFieldLabel(
 // the ONE canonical "which answer keys will the visitor record for this node",
 // the same function normalizeAnswers runs over the submitted envelope and the
 // same one the §6.2 per-offer picker calls (offers-handlers.ts
-// readLinkedSectionFields) — its own comment names "the field universe, rules
+// readAnswerFieldUniverse) — its own comment names "the field universe, rules
 // pickers and per-offer mapping" as its reach, and this rail IS that rules
 // picker. It expands an Address into the keys the RENDERER emits, a
 // NameFieldsGroup into props.fields[0]/[1] (what engine.ts handleInputEvent's

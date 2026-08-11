@@ -1137,14 +1137,14 @@ describeDb("GET /offers/:id/usage — sections + auctions joins", () => {
   });
 });
 
-// --- builder_context.linked_fields (§8.5 flatten — Phase-4 audit FINDING 2) --------------
+// --- builder_context.answer_fields (§8.5 flatten — Phase-4 audit FINDING 2) --------------
 
-// readLinkedSectionFields feeds the §6.2 Section-field picker, the condition
+// readAnswerFieldUniverse feeds the §6.2 answer-field picker, the condition
 // `when` source list, and the sample-answer enum metadata. It MUST walk the
 // canonical flattenComponents projection so a question nested inside a §8.5
 // layout container still surfaces. Exercised end-to-end through GET /offers/:id
-// → builder_context.linked_fields (the real producer→projection→response path).
-describeDb("GET /offers/:id builder_context.linked_fields — §8.5 nested questions", () => {
+// → builder_context.answer_fields (the real producer→projection→response path).
+describeDb("GET /offers/:id builder_context.answer_fields — §8.5 nested questions", () => {
   interface LinkedField {
     internal_field: string;
     answer_type: string;
@@ -1152,15 +1152,23 @@ describeDb("GET /offers/:id builder_context.linked_fields — §8.5 nested quest
     section_public_id: string;
   }
 
-  function seedSectionLinked(sdb: SqliteDb, offerId: number, name: string, components: unknown[]): void {
+  function seedSection(
+    sdb: SqliteDb,
+    name: string,
+    components: unknown[],
+    status: "active" | "archived" = "active",
+  ): number {
     const publicId = mintPublicId("section");
     sdb
       .prepare(
-        "INSERT INTO leadgen_sections (public_id, section_name, activity, vertical, headline_text, content_json) VALUES (?, ?, 'quote_funnel', 'life', 'H', ?)",
+        "INSERT INTO leadgen_sections (public_id, section_name, activity, vertical, headline_text, content_json, status) VALUES (?, ?, 'quote_funnel', 'life', 'H', ?, ?)",
       )
-      .run(publicId, name, JSON.stringify({ components }));
-    const sectionId = (sdb.prepare("SELECT id FROM leadgen_sections WHERE public_id = ?").get(publicId) as { id: number })
-      .id;
+      .run(publicId, name, JSON.stringify({ components }), status);
+    return (sdb.prepare("SELECT id FROM leadgen_sections WHERE public_id = ?").get(publicId) as { id: number }).id;
+  }
+
+  function seedSectionLinked(sdb: SqliteDb, offerId: number, name: string, components: unknown[]): void {
+    const sectionId = seedSection(sdb, name, components);
     sdb
       .prepare(
         "INSERT INTO leadgen_section_available_offers (section_id, offer_id, selected, mapping_state) VALUES (?, ?, 1, 'complete')",
@@ -1168,14 +1176,83 @@ describeDb("GET /offers/:id builder_context.linked_fields — §8.5 nested quest
       .run(sectionId, offerId);
   }
 
-  async function linkedFields(env: Env, offerId: number): Promise<LinkedField[]> {
+  async function answerFields(env: Env, offerId: number): Promise<LinkedField[]> {
     const res = await admin.request(`${API}/offers/${offerId}`, {}, env);
     expect(res.status, `GET offer: ${await res.clone().text()}`).toBe(200);
-    const body = (await res.json()) as { builder_context: { linked_fields: LinkedField[] } };
-    return body.builder_context.linked_fields;
+    const body = (await res.json()) as { builder_context: { answer_fields: LinkedField[] } };
+    return body.builder_context.answer_fields;
   }
 
-  it("a question NESTED inside a layout container surfaces in linked_fields (pre-fix: dropped)", async () => {
+  // --- OWNER RULING 2026-08-11: the payload maps to a FIELD, never to a Section --
+  //
+  // Verbatim: "in the funnel itself we are mapping for each question the field
+  // that should be filled by the user's answer. you made it mandatory to map the
+  // section that is answering the field in the payload which makes no sense! we
+  // are doing the opposite, we are mapping questions with the right field and not
+  // the fields with sections!"
+  //
+  // The universe was scoped by leadgen_section_available_offers (Section↔Offer),
+  // a table with ZERO rows in production ⇒ an EMPTY picker on every Offer and a
+  // panel that told the operator to go link Sections first. These two pin the new
+  // contract: declaring a question is enough; linking is not a precondition.
+  it("an UNLINKED active Section's fields ARE in answer_fields — no Offer↔Section link needed (pre-fix: empty)", async () => {
+    const { sdb, env } = newHarness();
+    const offer = await createOffer(env);
+    seedSection(sdb, "Unlinked Sec", [
+      { type: "FreeTextQuestion", question_id: "q_zip", internal_field: "zip", answer_type: "string" },
+      {
+        type: "DropdownQuestion",
+        question_id: "q_own",
+        internal_field: "ownership",
+        answer_type: "enum",
+        choices: [
+          { value: "own", label: "Own" },
+          { value: "rent", label: "Rent" },
+        ],
+      },
+    ]);
+    // zero rows in the Section↔Offer table — the relationship the panel used to demand
+    expect(
+      (sdb.prepare("SELECT COUNT(*) AS n FROM leadgen_section_available_offers").get() as { n: number }).n,
+    ).toBe(0);
+    const fields = await answerFields(env, offer.id);
+    expect(fields.map((f) => f.internal_field)).toEqual(["zip", "ownership"]);
+    expect(fields.find((f) => f.internal_field === "ownership")?.choice_count).toBe(2);
+  });
+
+  it("an ARCHIVED Section contributes nothing (it can never be placed in a funnel)", async () => {
+    const { sdb, env } = newHarness();
+    const offer = await createOffer(env);
+    seedSection(sdb, "Live Sec", [
+      { type: "FreeTextQuestion", question_id: "q_live", internal_field: "live_field", answer_type: "string" },
+    ]);
+    seedSection(
+      sdb,
+      "Old Sec",
+      [{ type: "FreeTextQuestion", question_id: "q_dead", internal_field: "archived_field", answer_type: "string" }],
+      "archived",
+    );
+    const names = (await answerFields(env, offer.id)).map((f) => f.internal_field);
+    expect(names).toEqual(["live_field"]);
+  });
+
+  it("the SAME field name declared by two Sections keeps both rows — the picker names who asks it", async () => {
+    const { sdb, env } = newHarness();
+    const offer = await createOffer(env);
+    seedSection(sdb, "Auto Sec", [
+      { type: "FreeTextQuestion", question_id: "q_a", internal_field: "credit_score", answer_type: "string" },
+    ]);
+    seedSection(sdb, "Home Sec", [
+      { type: "FreeTextQuestion", question_id: "q_b", internal_field: "credit_score", answer_type: "string" },
+    ]);
+    const rows = await answerFields(env, offer.id);
+    expect(rows.map((f) => f.internal_field)).toEqual(["credit_score", "credit_score"]);
+    // ordered by section_name ASC — deterministic grouping for the picker
+    expect(rows.map((f) => f.section_public_id)).toHaveLength(2);
+    expect(new Set(rows.map((f) => f.section_public_id)).size).toBe(2);
+  });
+
+  it("a question NESTED inside a layout container surfaces in answer_fields (pre-fix: dropped)", async () => {
     const { sdb, env } = newHarness();
     const offer = await createOffer(env);
     // a flat top-level sibling + a question nested one level inside a Stack.
@@ -1190,7 +1267,7 @@ describeDb("GET /offers/:id builder_context.linked_fields — §8.5 nested quest
         ],
       },
     ]);
-    const names = (await linkedFields(env, offer.id)).map((f) => f.internal_field);
+    const names = (await answerFields(env, offer.id)).map((f) => f.internal_field);
     // the nested field IS present (pre-fix it was absent — the top-level-only
     // walk never descended into the Stack) AND the flatten is depth-first.
     expect(names, "nested field must surface").toContain("nested_in_stack");
@@ -1226,7 +1303,7 @@ describeDb("GET /offers/:id builder_context.linked_fields — §8.5 nested quest
         ],
       },
     ]);
-    const fields = await linkedFields(env, offer.id);
+    const fields = await answerFields(env, offer.id);
     expect(fields.map((f) => f.internal_field)).toEqual(["deep_choice"]);
     expect(fields[0]!.answer_type).toBe("enum");
     expect(fields[0]!.choice_count).toBe(2);
@@ -1245,7 +1322,7 @@ describeDb("GET /offers/:id builder_context.linked_fields — §8.5 nested quest
         choices: [{ value: "x", label: "X" }],
       },
     ]);
-    const fields = await linkedFields(env, offer.id);
+    const fields = await answerFields(env, offer.id);
     expect(fields.map((f) => f.internal_field)).toEqual(["field_a", "field_b"]);
     expect(fields.map((f) => f.answer_type)).toEqual(["string", "enum"]);
     expect(fields.map((f) => f.choice_count)).toEqual([0, 1]);
@@ -1277,7 +1354,7 @@ describeDb("GET /offers/:id builder_context.linked_fields — §8.5 nested quest
       { type: "FreeTextQuestion", question_id: "q_a", internal_field: "field_a", answer_type: "string" },
       ADDR_NODE({}),
     ]);
-    const fields = await linkedFields(env, offer.id);
+    const fields = await answerFields(env, offer.id);
     expect(fields.map((f) => f.internal_field)).toEqual([
       "field_a",
       "addr_street",
@@ -1301,7 +1378,7 @@ describeDb("GET /offers/:id builder_context.linked_fields — §8.5 nested quest
     seedSectionLinked(sdb, offer.id, "Addr Renamed", [
       ADDR_NODE({ maps: { enabled: true, fills: { zip: "postal_code_x" } } }),
     ]);
-    const names = (await linkedFields(env, offer.id)).map((f) => f.internal_field);
+    const names = (await answerFields(env, offer.id)).map((f) => f.internal_field);
     expect(names).toEqual(["addr_street", "addr_city", "addr_state", "postal_code_x"]);
     expect(names).not.toContain("addr_zip");
   });
@@ -1326,7 +1403,7 @@ describeDb("GET /offers/:id builder_context.linked_fields — §8.5 nested quest
         answer_type: "string",
       },
     ]);
-    const names = (await linkedFields(env, offer.id)).map((f) => f.internal_field);
+    const names = (await answerFields(env, offer.id)).map((f) => f.internal_field);
     // the address's zip box keeps its own name; the SIBLING owns postal_code_x
     expect(names).toEqual([
       "addr_street",
@@ -1347,7 +1424,7 @@ describeDb("GET /offers/:id builder_context.linked_fields — §8.5 nested quest
     seedSectionLinked(sdb, offer.id, "Addr Free Text", [
       ADDR_NODE({ fields: [{ field: "full_address", label: "Your address", mode: "autofill" }] }),
     ]);
-    const fields = await linkedFields(env, offer.id);
+    const fields = await answerFields(env, offer.id);
     expect(fields.map((f) => f.internal_field)).toEqual(["addr"]);
     // R2 P5 F9 — the DERIVATION's type, not the catalog's. fieldsOf types this
     // key "string" (a lone full_address is ONE text input, and the value the
@@ -1363,7 +1440,7 @@ describeDb("GET /offers/:id builder_context.linked_fields — §8.5 nested quest
     seedSectionLinked(sdb, offer.id, "Addr Street Only", [
       ADDR_NODE({ fields: [{ field: "street", label: "Street", mode: "manual" }] }),
     ]);
-    const fields = await linkedFields(env, offer.id);
+    const fields = await answerFields(env, offer.id);
     expect(fields.map((f) => f.internal_field)).toEqual(["addr_street"]);
     expect(fields[0]!.answer_type).toBe("string");
   });
@@ -1381,7 +1458,7 @@ describeDb("GET /offers/:id builder_context.linked_fields — §8.5 nested quest
         props: { slider_type: "stepper" },
       },
     ]);
-    const fields = await linkedFields(env, offer.id);
+    const fields = await answerFields(env, offer.id);
     expect(fields.map((f) => f.internal_field)).toEqual(["zip_only", "coverage"]);
     expect(fields.map((f) => f.answer_type)).toEqual(["string", "number"]);
   });
@@ -1411,7 +1488,7 @@ describeDb("GET /offers/:id builder_context.linked_fields — §8.5 nested quest
       // picker must NOT hand that type to the sub-fields.
       { ...SLIDER("from_to"), answer_type: "object" },
     ]);
-    const fields = await linkedFields(env, offer.id);
+    const fields = await answerFields(env, offer.id);
     expect(fields.map((f) => f.internal_field)).toEqual(["field_a", "loan_min", "loan_max"]);
     expect(fields.map((f) => f.internal_field)).not.toContain("loan");
     const subs = fields.filter((f) => f.internal_field.startsWith("loan_"));
@@ -1423,7 +1500,7 @@ describeDb("GET /offers/:id builder_context.linked_fields — §8.5 nested quest
     const { sdb, env } = newHarness();
     const offer = await createOffer(env);
     seedSectionLinked(sdb, offer.id, "DualRange Sec", [{ ...SLIDER("dual_range"), answer_type: "object" }]);
-    const fields = await linkedFields(env, offer.id);
+    const fields = await answerFields(env, offer.id);
     expect(fields.map((f) => f.internal_field)).toEqual(["loan_min", "loan_max"]);
     // the node's own authored answer_type ("object", the §6.8 carve-out) never
     // reaches the sub-fields — each one is a number.
@@ -1435,7 +1512,7 @@ describeDb("GET /offers/:id builder_context.linked_fields — §8.5 nested quest
       const { sdb, env } = newHarness();
       const offer = await createOffer(env);
       seedSectionLinked(sdb, offer.id, `${sliderType} Sec`, [SLIDER(sliderType)]);
-      const fields = await linkedFields(env, offer.id);
+      const fields = await answerFields(env, offer.id);
       expect(fields.map((f) => f.internal_field), sliderType).toEqual(["loan"]);
       expect(fields[0]!.answer_type, sliderType).toBe("number");
       // the scalar entry keeps the node's own props (the sample-answer
@@ -1451,7 +1528,7 @@ describeDb("GET /offers/:id builder_context.linked_fields — §8.5 nested quest
       { type: "NameFieldsGroup", question_id: "q_name", props: { fields: ["given", "family"] } },
       { type: "FreeTextQuestion", question_id: "q_b", internal_field: "field_b", answer_type: "string" },
     ]);
-    const fields = await linkedFields(env, offer.id);
+    const fields = await answerFields(env, offer.id);
     // pre-fix the whole component was SKIPPED (no internal_field ⇒ `continue`),
     // so neither name key could be picked in the §6.2 picker.
     expect(fields.map((f) => f.internal_field)).toEqual(["given", "family", "field_b"]);
@@ -1470,7 +1547,7 @@ describeDb("GET /offers/:id builder_context.linked_fields — §8.5 nested quest
       { type: "ValidationError", question_id: "q_err", internal_field: "err_only" },
       { type: "HelperText", question_id: "q_help", internal_field: "help_only", props: { text: "hi" } },
     ]);
-    const fields = await linkedFields(env, offer.id);
+    const fields = await answerFields(env, offer.id);
     expect(fields.map((f) => f.internal_field)).toEqual(["field_a"]);
   });
 });

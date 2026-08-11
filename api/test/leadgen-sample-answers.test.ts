@@ -528,6 +528,38 @@ describeDb("POST /offers/:id/payload/sample-answers — B4 generation (06 §6.12
 
 // --- B4 draft persistence -------------------------------------------------------
 
+// OWNER RULING 2026-08-11 — the Test tab's sample answers read the SAME answer
+// field universe as the §6.2 picker (readAnswerFieldUniverse). That universe used
+// to be scoped by leadgen_section_available_offers, so with the (production-wide)
+// zero rows in that table the generator saw NO Section metadata: an enum answer
+// generated as a free-text box with a "Sample text" value. A question declaring
+// the field is now enough — no Offer↔Section link.
+describeDb("POST /offers/:id/payload/sample-answers — the universe needs no Offer↔Section link", () => {
+  it("an UNLINKED Section's enum choices still type the sample answer (pre-fix: plain text)", async () => {
+    const h = await harnessWithOffer();
+    linkSectionWithComponents(h);
+    // drop the inverted link the panel used to demand — the Section stays active
+    h.sdb.prepare("DELETE FROM leadgen_section_available_offers").run();
+    expect(
+      (h.sdb.prepare("SELECT COUNT(*) AS n FROM leadgen_section_available_offers").get() as { n: number }).n,
+    ).toBe(0);
+    await activateSchema(h, sampleFixtureSchema());
+
+    const { status, body } = await generate(h);
+    expect(status).toBe(200);
+    const carrier = body.fields.find((f) => f.internal_field === "carrier");
+    expect(carrier?.kind).toBe("enum");
+    expect(carrier?.options).toEqual([
+      { value: "acme", label: "Acme" },
+      { value: "globex", label: "Globex" },
+    ]);
+    expect(carrier?.sample).toBe("acme");
+    // and the typed non-enum kinds still come off the component types
+    expect(body.fields.find((f) => f.internal_field === "email")?.sample).toBe("sample@example.com");
+    expect(body.fields.find((f) => f.internal_field === "age")?.sample).toBe(18);
+  });
+});
+
 describeDb("PUT + POST /offers/:id/payload/sample-answers — per-Offer KV draft", () => {
   it("PUT persists {answers} under lg-testdraft:<lgo_> and POST merges the draft over generated", async () => {
     const h = await harnessWithOffer();
@@ -803,7 +835,7 @@ describeDb("GET /offers/:id — additive builder_context projection", () => {
     const body = (await res.json()) as {
       builder_context: {
         active_schema: { id: number; public_id: string; version: number; nodes: Array<Record<string, unknown>> } | null;
-        linked_fields: Array<Record<string, unknown>>;
+        answer_fields: Array<Record<string, unknown>>;
       };
     };
     const ctx = body.builder_context;
@@ -826,8 +858,8 @@ describeDb("GET /offers/:id — additive builder_context projection", () => {
 
     // linked-field inventory: EXACTLY the pinned 6 keys per row (F-1 added
     // choices — the Section choices feeding the §6.10 typed condition inputs)
-    expect(ctx.linked_fields.length).toBeGreaterThan(0);
-    for (const row of ctx.linked_fields) {
+    expect(ctx.answer_fields.length).toBeGreaterThan(0);
+    for (const row of ctx.answer_fields) {
       expect(Object.keys(row).sort()).toEqual([
         "answer_type",
         "choice_count",
@@ -839,7 +871,7 @@ describeDb("GET /offers/:id — additive builder_context projection", () => {
       expect(row["section_public_id"]).toBe("lgs_sampletest01");
       expect(row["section_name"]).toBe("Life Basics");
     }
-    const byField = new Map(ctx.linked_fields.map((r) => [r["internal_field"], r]));
+    const byField = new Map(ctx.answer_fields.map((r) => [r["internal_field"], r]));
     expect(byField.get("carrier")?.["answer_type"]).toBe("enum");
     expect(byField.get("carrier")?.["choice_count"]).toBe(2);
     expect(byField.get("carrier")?.["choices"]).toEqual([
@@ -853,13 +885,13 @@ describeDb("GET /offers/:id — additive builder_context projection", () => {
     expect(byField.get("zip")?.["answer_type"]).toBe("string");
   });
 
-  it("an offer with no active schema and no linked Sections: active_schema null, linked_fields []", async () => {
+  it("an offer with no active schema and NO Sections at all: active_schema null, answer_fields []", async () => {
     const h = await harnessWithOffer();
     const res = await admin.request(`${API}/offers/${h.offerId}`, { method: "GET" }, h.env);
     const body = (await res.json()) as {
-      builder_context: { active_schema: unknown; linked_fields: unknown[] };
+      builder_context: { active_schema: unknown; answer_fields: unknown[] };
     };
     expect(body.builder_context.active_schema).toBeNull();
-    expect(body.builder_context.linked_fields).toEqual([]);
+    expect(body.builder_context.answer_fields).toEqual([]);
   });
 });

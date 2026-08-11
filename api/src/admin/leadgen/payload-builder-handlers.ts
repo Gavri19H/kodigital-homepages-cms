@@ -69,11 +69,11 @@ import type { LeadgenOfferPayloadSchemaRow, LeadgenOfferRow } from "./db-types";
 import {
   readOfferHeaders,
   readJsonBody,
-  readLinkedSectionFields,
+  readAnswerFieldUniverse,
   resolveOfferRow,
   parseJsonColumn,
   type AdminContext,
-  type LeadgenLinkedSectionField,
+  type LeadgenAnswerFieldEntry,
 } from "./offers-handlers";
 
 // Bounded outbound timeout for the ADMIN test request (larger than the
@@ -761,7 +761,7 @@ export async function testOfferHandler(c: AdminContext): Promise<Response> {
 // ---------------------------------------------------------------------------
 //
 // Generation reads the ACTIVE schema's `source:"answer"` nodes + the linked-
-// Section component inventory (readLinkedSectionFields — the same loader the
+// Section component inventory (readAnswerFieldUniverse — the same loader the
 // offer GET's builder_context projects) and emits one form field per
 // internal_field with a §6.12.1-heuristic sample:
 //   enums    → the FIRST valid value (options from the Section's choices,
@@ -847,7 +847,7 @@ function isoDateUtcMinusYears(ms: number, years: number): string {
 // node's valid_values (the domain when no map re-writes values).
 function sampleOptionsFor(
   node: LeadgenPayloadNode,
-  field: LeadgenLinkedSectionField | undefined,
+  field: LeadgenAnswerFieldEntry | undefined,
 ): LeadgenSampleAnswerOption[] {
   if (field !== undefined && field.choices.length > 0) return field.choices;
   if (node.value_map !== undefined) {
@@ -869,7 +869,7 @@ function sampleOptionsFor(
 // Precedence: boolean → enum → date → zip → address → number → text.
 function classifySampleField(
   node: LeadgenPayloadNode,
-  field: LeadgenLinkedSectionField | undefined,
+  field: LeadgenAnswerFieldEntry | undefined,
   now: number,
 ): { kind: LeadgenSampleAnswerKind; options?: LeadgenSampleAnswerOption[]; sample: unknown } {
   const name = node.internal_field ?? "";
@@ -956,9 +956,9 @@ export async function generateSampleAnswersHandler(c: AdminContext): Promise<Res
   }
   const schema = parsedSchema as unknown as LeadgenPayloadSchema;
 
-  const linkedFields = await readLinkedSectionFields(c.env.DB, offer.id);
-  const fieldByInternal = new Map<string, LeadgenLinkedSectionField>();
-  for (const field of linkedFields) {
+  const answerFields = await readAnswerFieldUniverse(c.env.DB);
+  const fieldByInternal = new Map<string, LeadgenAnswerFieldEntry>();
+  for (const field of answerFields) {
     if (!fieldByInternal.has(field.internal_field)) fieldByInternal.set(field.internal_field, field);
   }
 

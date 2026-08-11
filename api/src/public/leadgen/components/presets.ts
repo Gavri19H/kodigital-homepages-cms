@@ -344,7 +344,7 @@ function autoErrorFieldFor(node: LeadgenComponentNode): string | undefined {
 // no recursion, one pass.
 //
 // EXPORTED (P8-5 L1) so a NON-rendering consumer that must name the key the
-// markup will actually carry — offers-handlers.ts readLinkedSectionFields, the
+// markup will actually carry — offers-handlers.ts readAnswerFieldUniverse, the
 // §6.2 per-offer field picker — resolves it from the SAME map the render does,
 // rather than re-deriving a second sibling rule that can drift.
 export function collectAnswerKeyClaims(
@@ -3478,7 +3478,7 @@ function m9AddressFills(node: LeadgenComponentNode): Record<string, unknown> {
 // collectAnswerKeyClaims above needs the unsuppressed union by construction.
 // It is NOT tolerable where the name is shown to an operator as a fact — the
 // §6.2 per-offer picker renders each key as a pickable <option> mapped to a
-// buyer field, so offers-handlers.ts readLinkedSectionFields passes the context.
+// buyer field, so offers-handlers.ts readAnswerFieldUniverse passes the context.
 //
 // A previous revision of this comment justified naming both by calling it
 // "strictly the smaller over-claim" than content-schema.ts
