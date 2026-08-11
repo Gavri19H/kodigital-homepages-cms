@@ -365,7 +365,7 @@ async function postSchema(
   return ((await res.json()) as { id: number }).id;
 }
 
-// Link a Section carrying answer components → builder_context.linked_fields
+// Seed a Section carrying answer components → builder_context.answer_fields
 // (offers-handlers.readLinkedSectionFields parses content_json.components).
 //
 // R2 P5 F10 (defect 2): the four component types are REAL COMPONENT_CATALOG
@@ -1513,6 +1513,9 @@ interface FakeEl {
   placeholder?: string;
   textContent: string;
   readonly firstChild: FakeEl | null;
+  // real-DOM parity: childNodes is every node, children only elements. The
+  // §6.2 picker builder counts childNodes on an <optgroup> before appending it.
+  readonly childNodes: FakeEl[];
   appendChild(c: FakeEl): FakeEl;
   removeChild(c: FakeEl): FakeEl;
   setAttribute(k: string, v: string): void;
@@ -1537,11 +1540,25 @@ function fakeElement(tag: string): FakeEl {
     get firstChild() {
       return children.length > 0 ? children[0]! : null;
     },
+    get childNodes() {
+      return children;
+    },
     appendChild(c) {
       children.push(c);
-      // real <select> semantics: appending a selected <option> sets the value
-      if (node.tagName === "SELECT" && c.tagName === "OPTION" && c.selected === true) {
-        node.value = c.value;
+      // real <select> semantics: appending a selected <option> sets the value —
+      // including one nested in an <optgroup> (how the §6.2 answer picker groups
+      // its fields by the Section that asks them).
+      if (node.tagName === "SELECT") {
+        if (c.tagName === "OPTION" && c.selected === true) {
+          node.value = c.value;
+        } else if (c.tagName === "OPTGROUP") {
+          for (const o of c.children) {
+            if (o.tagName === "OPTION" && o.selected === true) {
+              node.value = o.value;
+              break;
+            }
+          }
+        }
       }
       return c;
     },
@@ -1643,7 +1660,7 @@ interface ConditionIsland {
   condChipRemove(node: Record<string, unknown>, idx: number): void;
 }
 
-function conditionIsland(html: string, linkedFields: Array<Record<string, unknown>>): ConditionIsland {
+function conditionIsland(html: string, answerFields: Array<Record<string, unknown>>): ConditionIsland {
   const script = extractScripts(html).find((s) => s.includes("data-pb-condition-rows"));
   expect(script, "payload-builder island script present").toBeDefined();
   const source = [
@@ -1651,7 +1668,7 @@ function conditionIsland(html: string, linkedFields: Array<Record<string, unknow
     "clearChildren",
     "el",
     "displayScalar",
-    "linkedByInternal",
+    "answerFieldByName",
     "conditionFieldOptions",
     "condChoiceTypedValue",
     "condChoiceMeta",
@@ -1666,7 +1683,7 @@ function conditionIsland(html: string, linkedFields: Array<Record<string, unknow
     .join("\n");
   const sandbox = {
     document: { createElement: fakeElement, createTextNode: fakeTextNode },
-    linkedFields,
+    answerFields,
     items: [] as unknown[],
   };
   return runInNewContext(
@@ -2484,7 +2501,7 @@ describe("payload builder — the linked-Section fixture is content the product 
 });
 
 describeDb("payload builder — bootstrap islands", () => {
-  it("lg-payload-data round-trips: schema, computed options, hints, offer + builder_context.linked_fields", async () => {
+  it("lg-payload-data round-trips: schema, computed options, hints, offer + builder_context.answer_fields", async () => {
     const { html } = await richEditorPage();
     const data = island(html, "lg-payload-data") as {
       active_schema: { version: number; schema: { root: { children: unknown[] } } };
@@ -2492,7 +2509,7 @@ describeDb("payload builder — bootstrap islands", () => {
       computed_options: Array<{ key: string; label: string; description: string; example: string; output_type: string }>;
       builder_context: {
         active_schema: { version: number; nodes: unknown[] } | null;
-        linked_fields: Array<Record<string, unknown>>;
+        answer_fields: Array<Record<string, unknown>>;
       };
       offer: { placements: Array<{ public_id: string; is_default: boolean }> };
     };
@@ -2504,9 +2521,9 @@ describeDb("payload builder — bootstrap islands", () => {
       expect(c.label, `computed ${c.key} label`).toBeTruthy();
       expect(c.example, `computed ${c.key} example`).toBeTruthy();
     }
-    // builder_context (LANDED shape): active_schema.nodes + linked_fields
+    // builder_context (LANDED shape): active_schema.nodes + answer_fields
     expect(data.builder_context.active_schema?.nodes).toHaveLength(RICH_SCHEMA.root.children.length);
-    const fields = data.builder_context.linked_fields;
+    const fields = data.builder_context.answer_fields;
     // R2 P5 F10 (defect 2): EXACT, not ">= 4" — each of the four REAL catalog
     // components in the linked Section projects exactly one answer field, in
     // content order, with the answer_type the catalog `produces`.
@@ -2522,7 +2539,7 @@ describeDb("payload builder — bootstrap islands", () => {
     expect(homeowner!["answer_type"]).toBe("enum");
     expect(homeowner!["choice_count"]).toBe(3);
     // The island projection is DELIBERATELY narrowed (offerBuilderContext):
-    // readLinkedSectionFields also carries component_type + props, which the
+    // readAnswerFieldUniverse also carries component_type + props, which the
     // island does not need and does not ship.
     expect(Object.keys(homeowner!).sort()).toEqual([
       "answer_type",
@@ -2634,3 +2651,178 @@ describeDb("payload builder — ES5-only inline scripts", () => {
   });
 });
 
+
+// --- §6.2 the ANSWER FIELD control — OWNER RULING 2026-08-11 ------------------
+//
+// Verbatim: "in the funnel itself we are mapping for each question the field
+// that should be filled by the user's answer. you made it mandatory to map the
+// section that is answering the field in the payload which makes no sense! we
+// are doing the opposite, we are mapping questions with the right field and not
+// the fields with sections!"
+//
+// A payload field points at a FIELD NAME. The panel used to be labelled
+// "Section field *", searched "Section fields", and hid its typed box behind
+// "the picker appears once Sections are linked" — an instruction to go build the
+// inverted Offer↔Section link (a table with zero rows in production) before a
+// single answer could be mapped. These pin the panel's new anatomy + behavior.
+
+interface AnswerPickerIsland {
+  fillAnswerPicker(bodyEl: FakeEl, node: Record<string, unknown>, filter?: string): void;
+}
+
+function answerPanelDom(): FakeEl {
+  const bodyEl = fakeElement("div");
+  const search = fakeElement("input");
+  search.setAttribute("data-pb-answer-search", "");
+  const picker = fakeElement("select");
+  picker.setAttribute("data-pb-answer-picker", "");
+  const manual = fakeElement("input");
+  manual.setAttribute("data-pb-answer-manual", "");
+  const meta = fakeElement("p");
+  meta.setAttribute("data-pb-answer-meta", "");
+  bodyEl.appendChild(search);
+  bodyEl.appendChild(picker);
+  bodyEl.appendChild(manual);
+  bodyEl.appendChild(meta);
+  return bodyEl;
+}
+
+function answerPickerIsland(
+  html: string,
+  answerFields: Array<Record<string, unknown>>,
+): AnswerPickerIsland {
+  const script = extractScripts(html).find((s) => s.includes("function fillAnswerPicker("));
+  expect(script, "answer-picker island script present").toBeDefined();
+  const source = ["trimStr", "clearChildren", "el", "answerFieldByName", "fillAnswerPicker"]
+    .map((n) => sliceIslandFunction(script!, n))
+    .join("\n");
+  const sandbox = {
+    document: { createElement: fakeElement, createTextNode: fakeTextNode },
+    answerFields,
+  };
+  return runInNewContext(
+    `${source}\n({ fillAnswerPicker: fillAnswerPicker })`,
+    sandbox,
+  ) as AnswerPickerIsland;
+}
+
+// el() builds an <option> by appending a TEXT NODE (never textContent=), so the
+// option's label reads off its first child — the fake DOM mirrors the real one.
+function optionText(node: FakeEl): string {
+  return node.firstChild === null ? node.textContent : node.firstChild.textContent;
+}
+
+const UNIVERSE: Array<Record<string, unknown>> = [
+  { internal_field: "credit_score", section_name: "Auto Basics", answer_type: "enum", choice_count: 3 },
+  { internal_field: "zip", section_name: "Auto Basics", answer_type: "string", choice_count: 0 },
+  { internal_field: "credit_score", section_name: "Home Basics", answer_type: "enum", choice_count: 3 },
+];
+
+describeDb("payload builder — §6.2 answer field, not Section mapping", () => {
+  it("the panel is an ANSWER FIELD with an always-live typed box — no Section mapping, no 'link Sections' instruction", async () => {
+    const { html } = await richEditorPage();
+    const panel = html.slice(
+      html.indexOf('<div data-pb-panel="answer"'),
+      html.indexOf('<div data-pb-panel="static"'),
+    );
+    expect(panel.length).toBeGreaterThan(0);
+    expect(panel).toContain("Answer field *");
+    expect(panel).not.toContain("Section field");
+    // the typed box ships VISIBLE (pre-fix: `hidden`, revealed only when no
+    // Section was linked) — its own tag carries no hidden attribute
+    const manualTag = panel.slice(panel.indexOf("data-pb-answer-manual"));
+    expect(manualTag.slice(0, manualTag.indexOf("/>"))).not.toContain("hidden");
+    expect(panel).toContain("type the field name a question fills");
+    // the whole page never tells the operator to link Sections to the Offer
+    expect(html).not.toContain("No Sections are linked");
+    expect(html).not.toContain("the picker appears once Sections are linked");
+    expect(html).not.toContain("internal_field (no Sections linked yet)");
+    // the source picker names the funnel question, not the Section
+    expect(html).toContain("Answer from a funnel question");
+    // Jump lands on the first VISIBLE control, so an empty universe reaches the
+    // typed box instead of pulsing a hidden <select>
+    expect(html).toContain("'[data-pb-answer-picker],[data-pb-answer-manual]'");
+  });
+
+  it("NO question declares a field yet: the typed box is live and the meta says to type the name (pre-fix: 'link Sections first')", async () => {
+    const { html } = await richEditorPage();
+    const island = answerPickerIsland(html, []);
+    const dom = answerPanelDom();
+    island.fillAnswerPicker(dom, {});
+    expect(dom.querySelector("[data-pb-answer-manual]")!.hidden).toBe(false);
+    expect(dom.querySelector("[data-pb-answer-picker]")!.hidden).toBe(true);
+    expect(dom.querySelector("[data-pb-answer-search]")!.hidden).toBe(true);
+    const meta = dom.querySelector("[data-pb-answer-meta]")!.textContent;
+    expect(meta).toContain("No funnel question declares an answer field yet");
+    expect(meta).toContain("type the field name");
+    expect(meta).not.toContain("linked");
+  });
+
+  it("with a universe: picker AND typed box are both live; options group by the Section that asks the field", async () => {
+    const { html } = await richEditorPage();
+    const island = answerPickerIsland(html, UNIVERSE);
+    const dom = answerPanelDom();
+    island.fillAnswerPicker(dom, { internal_field: "zip" });
+    const picker = dom.querySelector("[data-pb-answer-picker]")!;
+    expect(picker.hidden).toBe(false);
+    expect(dom.querySelector("[data-pb-answer-manual]")!.hidden).toBe(false);
+    expect(dom.querySelector("[data-pb-answer-manual]")!.value).toBe("zip");
+    // blank prompt + one optgroup per declaring Section
+    expect(optionText(picker.children[0]!)).toContain("Choose an answer field");
+    const groups = picker.children.filter((c) => c.tagName === "OPTGROUP");
+    expect(groups.map((g) => (g as unknown as { label: string }).label)).toEqual([
+      "Auto Basics",
+      "Home Basics",
+    ]);
+    expect(groups[0]!.children.map((o) => o.value)).toEqual(["credit_score", "zip"]);
+    expect(optionText(groups[0]!.children[1]!)).toBe("zip (string)");
+    expect(optionText(groups[0]!.children[0]!)).toBe("credit_score (enum, 3 choices)");
+    expect(picker.value).toBe("zip");
+    // Section identity is INFORMATION under the control, never a requirement
+    expect(dom.querySelector("[data-pb-answer-meta]")!.textContent).toBe(
+      "Asked by Section “Auto Basics” · string",
+    );
+  });
+
+  it("a field TWO Sections ask says so; a field NO question declares is still selectable and kept", async () => {
+    const { html } = await richEditorPage();
+    const island = answerPickerIsland(html, UNIVERSE);
+
+    const shared = answerPanelDom();
+    island.fillAnswerPicker(shared, { internal_field: "credit_score" });
+    expect(shared.querySelector("[data-pb-answer-meta]")!.textContent).toBe(
+      "Asked by Section “Auto Basics” · enum · 3 choices · also asked by 1 other Section",
+    );
+
+    const unknownField = answerPanelDom();
+    island.fillAnswerPicker(unknownField, { internal_field: "universal_leadid" });
+    const picker = unknownField.querySelector("[data-pb-answer-picker]")!;
+    const last = picker.children[picker.children.length - 1]!;
+    expect(last.value).toBe("universal_leadid");
+    expect(optionText(last)).toBe("universal_leadid (no question declares it yet)");
+    expect(picker.value).toBe("universal_leadid");
+    expect(unknownField.querySelector("[data-pb-answer-manual]")!.value).toBe("universal_leadid");
+    expect(unknownField.querySelector("[data-pb-answer-meta]")!.textContent).toBe(
+      "Mapped to universal_leadid — no question declares it yet.",
+    );
+  });
+
+  it("the search term narrows the options (field name OR Section name)", async () => {
+    const { html } = await richEditorPage();
+    const island = answerPickerIsland(html, UNIVERSE);
+    const byField = answerPanelDom();
+    island.fillAnswerPicker(byField, {}, "zip");
+    const groups = byField
+      .querySelector("[data-pb-answer-picker]")!
+      .children.filter((c) => c.tagName === "OPTGROUP");
+    expect(groups).toHaveLength(1);
+    expect(groups[0]!.children.map((o) => o.value)).toEqual(["zip"]);
+
+    const bySection = answerPanelDom();
+    island.fillAnswerPicker(bySection, {}, "home");
+    const homeGroups = bySection
+      .querySelector("[data-pb-answer-picker]")!
+      .children.filter((c) => c.tagName === "OPTGROUP");
+    expect(homeGroups.map((g) => (g as unknown as { label: string }).label)).toEqual(["Home Basics"]);
+  });
+});

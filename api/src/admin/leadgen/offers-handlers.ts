@@ -372,16 +372,15 @@ async function offerLastTestAt(db: D1Database, offerPublicId: string): Promise<s
 // fix-contract v2.4 12 Phase-2: the ADDITIVE `builder_context` projection the
 // rebuilt payload-builder UI reads off the Offer GET — the ACTIVE schema's
 // parsed node list (per-node `source` included, §6.2 grouped source picker)
-// plus the linked-Section internal-field inventory feeding the §6.2 "User
-// answer" picker and the §6.10 condition-field dropdown.
+// plus the ANSWER-FIELD UNIVERSE feeding the §6.2 "User answer" picker and the
+// §6.10 condition-field dropdown.
 // ---------------------------------------------------------------------------
 
-// One answer-emitting component of a Section linked to the Offer (via
-// leadgen_section_available_offers). The pinned builder_context row projects
-// {internal_field, section_public_id, section_name, answer_type,
+// One answer key a funnel question records. The pinned builder_context row
+// projects {internal_field, section_public_id, section_name, answer_type,
 // choice_count}; the extra component fields feed the B4 sample-answer
 // generator (payload-builder-handlers.ts) so both surfaces read ONE loader.
-export interface LeadgenLinkedSectionField {
+export interface LeadgenAnswerFieldEntry {
   internal_field: string;
   section_public_id: string;
   section_name: string;
@@ -396,49 +395,60 @@ function isChoicePrimitive(value: unknown): value is string | number | boolean {
   return typeof value === "string" || typeof value === "number" || typeof value === "boolean";
 }
 
-// Enumerate the answer fields of every Section linked to the Offer: parse each
-// linked Section's content_json and project EVERY component through the ONE
-// canonical answer-space derivation (answers.ts fieldsOf — see the SRC-6B block
-// below), so each component contributes exactly the answer keys the visitor
-// will record: the two {base}_min/{base}_max numbers of a dual_range/from_to
-// slider, an Address's sub-fields, a NameFieldsGroup's first/last, the scalar
-// internal_field of every other question — and NOTHING for a non-producing
-// node. answer_type is the derivation's own type, falling back to the catalog's
-// `produces` only when a node carries an empty one.
-// ONE query via the join (a single bound param — no IN() list, trivially
-// inside the 100-binding limit); rows ordered by section_name for a
-// deterministic picker; per-Section duplicate internal_fields keep the first.
+// The ANSWER-FIELD UNIVERSE: every answer key a funnel question records, from
+// EVERY active Section — parse each Section's content_json and project EVERY
+// component through the ONE canonical answer-space derivation (answers.ts
+// fieldsOf — see the SRC-6B block below), so each component contributes exactly
+// the answer keys the visitor will record: the two {base}_min/{base}_max
+// numbers of a dual_range/from_to slider, an Address's sub-fields, a
+// NameFieldsGroup's first/last, the scalar internal_field of every other
+// question — and NOTHING for a non-producing node. answer_type is the
+// derivation's own type, falling back to the catalog's `produces` only when a
+// node carries an empty one. ONE query, no bound params; rows ordered by
+// section_name for a deterministic picker; per-Section duplicate
+// internal_fields keep the first (the SAME key declared by two Sections keeps
+// both rows — the picker groups by Section and says who declares what).
 //
-// Rework M2 reader sweep (examined, unchanged): this join goes through
-// leadgen_section_available_offers (the Section↔Offer mapping relationship)
-// straight to leadgen_sections — it never touches
-// leadgen_funnel_variant_sections/variant_id at all, so it already sees every
-// linked Section's fields regardless of WHERE (or whether) that Section is
-// placed — a shared-page Section's fields surface here exactly like a
-// variant-page Section's, with no code change needed.
-export async function readLinkedSectionFields(
+// OWNER RULING 2026-08-11 (verbatim): "in the funnel itself we are mapping for
+// each question the field that should be filled by the user's answer. you made
+// it mandatory to map the section that is answering the field in the payload
+// which makes no sense! we are doing the opposite, we are mapping questions
+// with the right field and not the fields with sections!"
+//
+// So the universe is NOT scoped by the Offer↔Section relationship
+// (leadgen_section_available_offers) any more. That join was the defect: the
+// table had ZERO rows product-wide, so the §6.2 answer picker was EMPTY for
+// every Offer and the panel told the operator to go link Sections to the Offer
+// — the inverted direction — before he could map a single answer. A payload
+// field references a FIELD NAME (the one a question declares in the Section
+// studio's "Field name" input); which Section happens to ask it is INFORMATION
+// the picker shows, never a precondition.
+//
+// Nor is it scoped by vertical/activity: those are free-text on both sides and
+// already disagree in production (the ADT offer is "Home Security"/"Leadgen"
+// while its Sections are "Home"/"Insurance"), so scoping would re-create the
+// same empty-picker dead end. Volume is bounded by the Section inventory (33
+// active Sections ⇒ ~35 keys in production today) and the picker is searchable.
+export async function readAnswerFieldUniverse(
   db: D1Database,
-  offerId: number,
-): Promise<LeadgenLinkedSectionField[]> {
+): Promise<LeadgenAnswerFieldEntry[]> {
   const sections = await db
     .prepare(
       `SELECT s.public_id, s.section_name, s.content_json
-       FROM leadgen_section_available_offers sao
-       JOIN leadgen_sections s ON s.id = sao.section_id
-       WHERE sao.offer_id = ?
+       FROM leadgen_sections s
+       WHERE s.status = 'active'
        ORDER BY s.section_name ASC, s.id ASC`,
     )
-    .bind(offerId)
     .all<{ public_id: string; section_name: string; content_json: string }>();
 
-  const out: LeadgenLinkedSectionField[] = [];
+  const out: LeadgenAnswerFieldEntry[] = [];
   for (const section of sections.results ?? []) {
     const parsed = parseJsonColumn(section.content_json);
     if (!isRecord(parsed) || !Array.isArray(parsed["components"])) continue;
     const seen = new Set<string>();
     // §8.5: iterate the canonical FLATTENED projection so a question nested
     // inside a layout container (Stack/CardPanel/…) still contributes its
-    // internal_field to the §6.2 Section-field picker, the condition `when`
+    // internal_field to the §6.2 answer-field picker, the condition `when`
     // source list, and the sample-answer enum metadata. flattenComponents is
     // THE shared consumer path (content-schema.ts §8.5); flat legacy content
     // flattens to itself so a container-free Section's projection (order +
@@ -571,10 +581,10 @@ async function offerBuilderContext(
       };
     }
   }
-  const linkedFields = await readLinkedSectionFields(db, row.id);
+  const answerFields = await readAnswerFieldUniverse(db);
   return {
     active_schema: activeSchema,
-    linked_fields: linkedFields.map((f) => ({
+    answer_fields: answerFields.map((f) => ({
       internal_field: f.internal_field,
       section_public_id: f.section_public_id,
       section_name: f.section_name,
@@ -582,7 +592,7 @@ async function offerBuilderContext(
       choice_count: f.choice_count,
       // §6.10 (F-1): the field's Section choices ({label, value}) ride the
       // projection so the condition-value input can render a typed dropdown /
-      // chips entry for enum fields. Additive — readLinkedSectionFields
+      // chips entry for enum fields. Additive — readAnswerFieldUniverse
       // already collected them; the projection just stopped dropping them.
       choices: f.choices,
     })),

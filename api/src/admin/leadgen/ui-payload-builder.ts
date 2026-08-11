@@ -171,8 +171,8 @@ export const PAYLOAD_SOURCE_GROUPS: ReadonlyArray<PayloadSourceGroup> = [
     members: [
       {
         value: "answer",
-        label: "Answer from a Section field",
-        help: "A visitor's answer — pick the Section field below; its internal value feeds this payload field.",
+        label: "Answer from a funnel question",
+        help: "A visitor's answer — pick the answer field below (the field a question fills, named in the Section studio); its value feeds this payload field.",
       },
     ],
   },
@@ -354,7 +354,7 @@ export const PAYLOAD_SCHEMA_ERROR_HINTS: Readonly<Record<string, string>> = {
   enum_valid_values_required: "A choice-list field needs at least one valid value — add them in the Valid values editor.",
   valid_values_invalid: "Valid values must be a list — re-add them in the Valid values editor.",
   enum_value_violation: "The default/fallback/static value must be one of the field's valid values.",
-  answer_missing_internal_field: "Pick which Section answer feeds this field.",
+  answer_missing_internal_field: "Pick (or type) the answer field that fills this payload field.",
   value_map_invalid: "The value map must be a set of internal → provider rows — re-open the Value map editor.",
   transform_invalid:
     "The transform is not a supported pipeline for this field — re-pick the Output format (it sets the transform and the sent type together), or fix it in the Advanced drawer.",
@@ -435,10 +435,15 @@ export interface PayloadBuilderSchemaInfo {
 }
 
 // The additive Offer-GET builder_context (offers-handlers.ts
-// offerBuilderContext — LANDED shape): linked_fields feed the §6.2
+// offerBuilderContext — LANDED shape): answer_fields feed the §6.2
 // User-answer picker, the §6.10 condition field dropdown and the §6.1
 // rename impact warning; active_schema.nodes mirror the stored children.
-export interface PayloadBuilderLinkedField {
+//
+// answer_fields is the ANSWER-FIELD UNIVERSE — every field a funnel question
+// declares, from every active Section. It was `linked_fields` (only Sections
+// linked to THIS Offer), which made the picker empty for every Offer in
+// production; see readAnswerFieldUniverse for the owner ruling.
+export interface PayloadBuilderAnswerField {
   internal_field: string;
   section_public_id: string;
   section_name: string;
@@ -457,7 +462,7 @@ export interface PayloadBuilderContext {
     version: number;
     nodes: unknown[];
   } | null;
-  linked_fields?: PayloadBuilderLinkedField[];
+  answer_fields?: PayloadBuilderAnswerField[];
 }
 
 export interface PayloadEligibilityVerdict {
@@ -567,10 +572,10 @@ function renderEditorTemplate(): string {
     </div>
 
     <div data-pb-panel="answer" hidden>
-      <label class="form-label">Section field *</label>
-      <input type="search" class="form-input" data-pb-answer-search placeholder="Search Section fields…" aria-label="Search Section fields" />
-      <select class="form-select" data-pb-answer-picker aria-label="Section answer field"></select>
-      <input type="text" class="form-input" data-pb-answer-manual placeholder="internal_field (no Sections linked yet)" aria-label="Internal field name" hidden />
+      <label class="form-label">Answer field *</label>
+      <input type="search" class="form-input" data-pb-answer-search placeholder="Search answer fields…" aria-label="Search answer fields" />
+      <select class="form-select" data-pb-answer-picker aria-label="Answer field"></select>
+      <input type="text" class="form-input" data-pb-answer-manual placeholder="…or type the field name a question fills, e.g. zip" aria-label="Answer field name" />
       <p class="form-help" data-pb-answer-meta></p>
     </div>
 
@@ -722,7 +727,7 @@ function renderEditorTemplate(): string {
         <input type="text" class="form-input" data-pb-array-static-input placeholder="Type an item and press Enter" aria-label="Add list item" />
       </div>
       <div data-pb-array-panel="multi_answer" hidden>
-        <p class="form-help">The multi-select answer's values are sent as the list. Pick the Section field in the Source panel above (source = User answer).</p>
+        <p class="form-help">The multi-select answer's values are sent as the list. Pick the answer field in the Source panel above (source = User answer).</p>
       </div>
       <div data-pb-array-panel="repeated_group" hidden>
         <p class="form-help">Item objects ride as children in the tree (item 1, item 2, &#8230;) — each item's fields map to their own answers (e.g. driver_1_age, driver_2_age).</p>
@@ -1505,7 +1510,7 @@ export const PAYLOAD_BUILDER_SCRIPT = `
   var bootstrap = readIsland('lg-payload-data') || {};
   var testBootstrap = readIsland('lg-test-data') || {};
   var builderContext = bootstrap.builder_context || {};
-  var linkedFields = builderContext.linked_fields || [];
+  var answerFields = builderContext.answer_fields || [];
   var computedOptions = bootstrap.computed_options || [];
   var errorHints = bootstrap.error_hints || {};
   var blockingCodes = bootstrap.blocking_codes || [];
@@ -1638,10 +1643,10 @@ export const PAYLOAD_BUILDER_SCRIPT = `
     if (!c) { return undefined; }
     return c.output_type === 'number' ? Number(c.example) : c.example;
   }
-  function linkedByInternal(internal) {
+  function answerFieldByName(internal) {
     var i;
-    for (i = 0; i < linkedFields.length; i++) {
-      if (linkedFields[i].internal_field === internal) { return linkedFields[i]; }
+    for (i = 0; i < answerFields.length; i++) {
+      if (answerFields[i].internal_field === internal) { return answerFields[i]; }
     }
     return null;
   }
@@ -1900,7 +1905,7 @@ export const PAYLOAD_BUILDER_SCRIPT = `
         errors.push({ code: 'enum_valid_values_required', path: path, message: 'a choice-list field needs valid values' });
       }
       if (node.source === 'answer' && trimStr(node.internal_field) === '') {
-        errors.push({ code: 'answer_missing_internal_field', path: path, message: 'pick which answer feeds this field' });
+        errors.push({ code: 'answer_missing_internal_field', path: path, message: 'pick or type the answer field that fills it' });
       }
       if (node.source === 'static' && node.value === undefined) {
         errors.push({ code: 'static_missing_value', path: path, message: 'type the static value to send' });
@@ -2061,7 +2066,10 @@ export const PAYLOAD_BUILDER_SCRIPT = `
 
   // Control focus map for Jump: error code -> the editor hook to flag.
   var JUMP_CONTROL = {
-    answer_missing_internal_field: '[data-pb-answer-picker]',
+    // Selector LISTS are allowed: jumpToIssue flags the first VISIBLE match, so
+    // an answer field with no universe to pick from lands on the typed box
+    // instead of pulsing a hidden <select> (the dead end the operator hit).
+    answer_missing_internal_field: '[data-pb-answer-picker],[data-pb-answer-manual]',
     static_missing_value: '[data-pb-static="text"]',
     computed_missing_key: '[data-pb-source-select]',
     computed_unknown_key: '[data-pb-source-select]',
@@ -2112,7 +2120,15 @@ export const PAYLOAD_BUILDER_SCRIPT = `
         msg.textContent = (entry.message || '') + (hint ? ' \\u2014 ' + hint : '');
       }
       var sel = JUMP_CONTROL[entry.code];
-      var control = sel ? body.querySelector(sel) : null;
+      var control = null;
+      if (sel) {
+        var cands = body.querySelectorAll(sel);
+        var ci;
+        for (ci = 0; ci < cands.length; ci++) {
+          if (!cands[ci].hidden) { control = cands[ci]; break; }
+        }
+        if (control === null && cands.length > 0) { control = cands[0]; }
+      }
       if (control) {
         control.classList.add('lg-pb-pulse');
         if (control.focus) { try { control.focus(); } catch (e) { /* non-focusable */ } }
@@ -2445,7 +2461,7 @@ export const PAYLOAD_BUILDER_SCRIPT = `
     return moved;
   }
   // §6.1 rename: rewrite descendants atomically + the mapped-fields impact
-  // warning listing affected Section mappings (builder_context.linked_fields).
+  // warning listing affected answer mappings (builder_context.answer_fields).
   function renameSelected(newName, impactBox) {
     var isImplicit = selectedRef && selectedRef.kind === 'implicit';
     var oldPath = isImplicit ? selectedRef.path : itemByUid(selectedRef.uid).node.path;
@@ -2467,7 +2483,7 @@ export const PAYLOAD_BUILDER_SCRIPT = `
     for (i = 0; i < moved.length; i++) {
       node = moved[i].node;
       if (node.source === 'answer' && trimStr(node.internal_field) !== '') {
-        lf = linkedByInternal(node.internal_field);
+        lf = answerFieldByName(node.internal_field);
         mapped.push(node.internal_field + (lf ? ' (Section: ' + lf.section_name + ')' : ''));
       }
     }
@@ -2594,30 +2610,39 @@ export const PAYLOAD_BUILDER_SCRIPT = `
     try { return JSON.stringify(v); } catch (e) { return String(v); }
   }
 
+  // The §6.2 answer-field control. A payload field points at a FIELD NAME —
+  // the one a question declares in the Section studio ("Field name") — so the
+  // picker offers the whole answer-field universe and the typed box is ALWAYS
+  // live beside it: an operator authoring a payload before (or without) the
+  // question types the name, and nothing about Sections is ever a precondition.
+  // Which Section asks the field is shown as INFORMATION under the control.
   function fillAnswerPicker(bodyEl, node, filter) {
     var picker = bodyEl.querySelector('[data-pb-answer-picker]');
     var manual = bodyEl.querySelector('[data-pb-answer-manual]');
+    var search = bodyEl.querySelector('[data-pb-answer-search]');
     var meta = bodyEl.querySelector('[data-pb-answer-meta]');
     if (!picker) { return; }
     clearChildren(picker);
     var term = (filter || '').toLowerCase();
     var current = trimStr(node.internal_field);
-    if (linkedFields.length === 0) {
+    // The typed box is never hidden — it is the always-open route to a name.
+    if (manual) { manual.hidden = false; manual.value = current; }
+    if (answerFields.length === 0) {
       picker.hidden = true;
-      if (manual) { manual.hidden = false; manual.value = current; }
-      if (meta) { meta.textContent = 'No Sections are linked to this Offer yet \\u2014 type the internal field name; the picker appears once Sections are linked.'; }
+      if (search) { search.hidden = true; }
+      if (meta) { meta.textContent = 'No funnel question declares an answer field yet \\u2014 type the field name the question will fill (Sections \\u2192 the question\\u2019s Field name).'; }
       return;
     }
     picker.hidden = false;
-    if (manual) { manual.hidden = true; }
-    var blank = el('option', null, 'Choose a Section field\\u2026');
+    if (search) { search.hidden = false; }
+    var blank = el('option', null, 'Choose an answer field\\u2026');
     blank.value = '';
     picker.appendChild(blank);
     var groups = {};
     var order = [];
     var i, f, key;
-    for (i = 0; i < linkedFields.length; i++) {
-      f = linkedFields[i];
+    for (i = 0; i < answerFields.length; i++) {
+      f = answerFields[i];
       key = f.section_name;
       if (!groups[key]) { groups[key] = []; order.push(key); }
       groups[key].push(f);
@@ -2639,16 +2664,22 @@ export const PAYLOAD_BUILDER_SCRIPT = `
       if (og.childNodes.length > 0) { picker.appendChild(og); }
     }
     if (current !== '' && !matchedCurrent) {
-      var extra = el('option', null, current + ' (not on a linked Section)');
+      var extra = el('option', null, current + ' (no question declares it yet)');
       extra.value = current;
       extra.selected = true;
       picker.appendChild(extra);
     }
     if (meta) {
-      var lf = linkedByInternal(current);
+      var lf = answerFieldByName(current);
+      var alsoIn = 0;
+      if (lf) {
+        for (i = 0; i < answerFields.length; i++) {
+          if (answerFields[i].internal_field === current && answerFields[i].section_name !== lf.section_name) { alsoIn++; }
+        }
+      }
       meta.textContent = lf
-        ? 'From Section \\u201c' + lf.section_name + '\\u201d \\u00b7 ' + lf.answer_type + (lf.choice_count > 0 ? ' \\u00b7 ' + lf.choice_count + ' choices' : '')
-        : (current !== '' ? 'Mapped to ' + current : 'Searchable \\u2014 grouped by Section, with answer type + choice count.');
+        ? 'Asked by Section \\u201c' + lf.section_name + '\\u201d \\u00b7 ' + lf.answer_type + (lf.choice_count > 0 ? ' \\u00b7 ' + lf.choice_count + ' choices' : '') + (alsoIn > 0 ? ' \\u00b7 also asked by ' + alsoIn + ' other Section' + (alsoIn === 1 ? '' : 's') : '')
+        : (current !== '' ? 'Mapped to ' + current + ' \\u2014 no question declares it yet.' : 'Every field the funnel\\u2019s questions declare \\u2014 searchable, grouped by the Section that asks it. Not there yet? Type the name.');
     }
   }
 
@@ -3031,10 +3062,10 @@ export const PAYLOAD_BUILDER_SCRIPT = `
     var out = [];
     var seenF = {};
     var i;
-    for (i = 0; i < linkedFields.length; i++) {
-      if (!seenF[linkedFields[i].internal_field]) {
-        seenF[linkedFields[i].internal_field] = 1;
-        out.push({ value: linkedFields[i].internal_field, label: linkedFields[i].internal_field + ' (' + linkedFields[i].section_name + ')', answer_type: linkedFields[i].answer_type, choices: linkedFields[i].choices || [] });
+    for (i = 0; i < answerFields.length; i++) {
+      if (!seenF[answerFields[i].internal_field]) {
+        seenF[answerFields[i].internal_field] = 1;
+        out.push({ value: answerFields[i].internal_field, label: answerFields[i].internal_field + ' (' + answerFields[i].section_name + ')', answer_type: answerFields[i].answer_type, choices: answerFields[i].choices || [] });
       }
     }
     for (i = 0; i < items.length; i++) {
@@ -3050,7 +3081,7 @@ export const PAYLOAD_BUILDER_SCRIPT = `
   // choice's TYPED value (string/number/boolean) so the stored condition
   // value === the runtime answer value (conditionalMet compares with ===).
   function condChoiceTypedValue(when, raw) {
-    var lf = linkedByInternal(when);
+    var lf = answerFieldByName(when);
     var i;
     if (lf && lf.choices) {
       for (i = 0; i < lf.choices.length; i++) {
@@ -3084,7 +3115,7 @@ export const PAYLOAD_BUILDER_SCRIPT = `
       // (conditionalMet: values.includes(actual), strict equality) can never
       // match "25" against the numeric answer 25. Non-numeric tokens keep
       // the string; chip display is unchanged either way.
-      var lf = linkedByInternal(cond.when);
+      var lf = answerFieldByName(cond.when);
       var num = Number(raw);
       if (lf && (lf.answer_type === 'number' || lf.answer_type === 'currency') && isFinite(num)) {
         typed = num;
