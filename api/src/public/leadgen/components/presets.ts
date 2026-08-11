@@ -2267,6 +2267,30 @@ function flatMapsConfigJson(jobs: { validate: boolean; autocomplete: boolean }, 
   return JSON.stringify(config);
 }
 
+// Force the browser autocomplete job OFF in an already-built data-lg-maps value,
+// leaving every other key exactly as it was (owner ruling 2026-08-11 — a ZIP box
+// is never a Places anchor; see renderZIPInputQuestion). Parsing and re-emitting
+// keeps `validate`, the nested `fills`, and any legacy verbatim keys intact;
+// `enable_autocomplete` is overwritten in place when present, so key order is
+// preserved too. A value that somehow fails to parse is returned unchanged rather
+// than dropped — an unreadable config already decodes to autocomplete:false in
+// parseMapsConfig, so the ruling still holds.
+function withAutocompleteOff(configJson: string): string {
+  let parsed: unknown;
+  try {
+    parsed = JSON.parse(configJson);
+  } catch {
+    return configJson;
+  }
+  if (parsed === null || typeof parsed !== "object" || Array.isArray(parsed)) return configJson;
+  const obj = parsed as Record<string, unknown>;
+  obj["enable_autocomplete"] = false;
+  // the legacy spelling parseMapsConfig also reads (`autocomplete: true`) must not
+  // sneak the widget back in through the other door
+  if ("autocomplete" in obj) obj["autocomplete"] = false;
+  return JSON.stringify(obj);
+}
+
 function mapsConfigJson(node: LeadgenComponentNode): string {
   const raw = node.props?.["maps"];
   if (isNewMapsShape(raw)) {
@@ -3092,13 +3116,39 @@ export function renderZIPInputQuestion(
     : typeof mapsRaw === "object" && mapsRaw !== null
       ? true
       : googleValidate;
+  // OWNER RULING (2026-08-11): "zip is only validation and not auto complete
+  // (how do you want to auto complete zip????)". A ZIPInputQuestion IS a 5-digit
+  // box, so its browser config can NEVER enable Places — whatever is authored.
+  //
+  // This was reachable and live: the section "ZIP"
+  // (lgs_01KX38786BCDCBC1P44R9ZYQVR) stores the legacy flat shape
+  // {"validate_zip":true,"enable_autocomplete":true}, and mapsConfigJson
+  // serializes a flat shape VERBATIM (§12 no-regression) — so
+  // `enable_autocomplete:true` reached parseMapsConfig and bound Google's widget
+  // to a ZIP input, the same defect the owner hit on the composite path
+  // (insurissimo: `disabled` after one keystroke). The sibling fix there was the
+  // anchor rule in renderAddressFieldSet; this is the same rule for the
+  // single-purpose ZIP component, and it cannot be authored around.
+  //
+  // The SERVER-side jobs are untouched: mapsJobsFor reads props.maps directly
+  // (serve-auction.ts applyMapsAuctionLegs / collectMapsAuctionFields), never
+  // this attribute, so ZIP→country/state enrichment for rules and routing keeps
+  // working exactly as authored. What dies here is only the browser widget — and
+  // with autocomplete false, runtime mapsFieldsNeedSdk stops loading the Maps SDK
+  // for ZIP-only pages at all.
+  // Surgical: take the config this node would have emitted and force the ONE key
+  // off, so everything else survives byte-for-byte — the authored `validate`, the
+  // nested `fills` slots (S3-7), and any legacy verbatim keys (§12). My first
+  // attempt rebuilt the config from scratch instead and silently dropped the
+  // fills; three round-trip tests caught it.
+  const zipMapsConfig = withAutocompleteOff(mapsConfigJson(node));
   return renderTextInput(
     node,
     design,
     "text",
     ` inputmode="numeric" pattern="\\d{5}" maxlength="5"` +
       (googleValidate ? ` data-validate="google"` : "") +
-      (mapsEnabled ? attr("data-lg-maps", mapsConfigJson(node)) : ""),
+      (mapsEnabled ? attr("data-lg-maps", zipMapsConfig) : ""),
     ctx,
     slot,
   );

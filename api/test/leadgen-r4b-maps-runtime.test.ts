@@ -850,7 +850,16 @@ describeDb("R4b S3-7 — fills authoring round trip (real PATCH → GET → rend
     // translation the R4b facet suite pins in isolation.
     const rendered = renderComponent(zipNode!, defaultFunnelDesign);
     const wire = decodeMapsAttr(rendered);
-    expect(wire).toEqual({ enable_autocomplete: true, validate: false, fills: { city: "city_field" } });
+    // enable_autocomplete is FALSE since the 2026-08-11 owner ruling ("zip is
+    // only validation and not auto complete") — a ZIP box is never a Places
+    // anchor, so renderZIPInputQuestion forces that one key off. This test's
+    // subject is unchanged and still asserted below: the authored FILLS survive
+    // PATCH → GET → render and stay shape-parity with what parseMapsConfig reads.
+    // Honest consequence: on a ZIP node those fills are now inert in the BROWSER
+    // (nothing binds Places there to resolve a place from); ZIP → city/state is
+    // the server-side leg's job (serve-auction.ts applyMapsAuctionLegs), which
+    // reads props.maps directly and is untouched by this.
+    expect(wire).toEqual({ enable_autocomplete: false, validate: false, fills: { city: "city_field" } });
     expect(fillsAsRuntimeReads(wire)).toEqual({ city: "city_field" });
   });
 
