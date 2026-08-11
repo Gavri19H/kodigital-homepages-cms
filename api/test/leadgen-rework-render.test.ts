@@ -857,9 +857,62 @@ describe("§6.10 / M9 — address renders per props.fields[]", () => {
       },
     } as LeadgenComponentNode;
     const html = renderComponent(node, DESIGN);
-    // the AUTOFILL field (zip) drives the map; the MANUAL field (street) never does
-    expect(html).toMatch(/data-lg-field="addr_zip"[^>]*data-lg-maps/);
+    // This test's invariant — a MANUAL field never drives the map — holds, and
+    // now holds absolutely: with street manual and zip never anchorable, NOTHING
+    // in this set carries data-lg-maps.
     expect(html).not.toMatch(/data-lg-field="addr_street"[^>]*data-lg-maps/);
+    // UPDATED 2026-08-11 (owner: "zip is only validation and not auto complete
+    // (how do you want to auto complete zip????)"). This assertion used to read
+    // `toMatch(/addr_zip[^>]*data-lg-maps/)` — it pinned the ZIP box as the Places
+    // anchor, which is exactly how Google's widget came to be bound to a 5-digit
+    // field and, on a referrer rejection, disabled the first field of a live
+    // funnel. A ZIP is a fill TARGET, never an anchor.
+    expect(html).not.toMatch(/data-lg-field="addr_zip"[^>]*data-lg-maps/);
+    expect(html).not.toContain("data-address-autocomplete");
+  });
+
+  it("the Places anchor is the STREET line — a zip/city/state box never drives it (owner 2026-08-11)", () => {
+    const node = {
+      type: "AddressAutocompleteQuestion",
+      question_id: "q",
+      internal_field: "addr",
+      props: {
+        maps: { enabled: true, jobs: { validate: false, auction: false, autocomplete: true } },
+        fields: [
+          { field: "street", mode: "autofill" },
+          { field: "city", mode: "autofill" },
+          { field: "zip", mode: "autofill", validation: "zip5" },
+        ],
+      },
+    } as unknown as LeadgenComponentNode;
+    const html = renderComponent(node, DESIGN);
+    // the street line anchors it — there IS something to complete from "12 Mai…"
+    expect(html).toMatch(/data-lg-field="addr_street"[^>]*data-lg-maps/);
+    // …and the parts Places FILLS never advertise a widget of their own
+    expect(html).not.toMatch(/data-lg-field="addr_city"[^>]*data-lg-maps/);
+    expect(html).not.toMatch(/data-lg-field="addr_zip"[^>]*data-lg-maps/);
+  });
+
+  it("a ZIP-ONLY address section binds NO Google widget at all (the insurissimo defect)", () => {
+    // The owner's live "Home Insurance zip" section, verbatim from production:
+    // one sub-field, zip, mode autofill, validation zip5. It used to make the ZIP
+    // box the Places anchor; Google then rejected the referrer on the first
+    // keystroke and DISABLED the field.
+    const node = {
+      type: "AddressAutocompleteQuestion",
+      question_id: "q_addr",
+      internal_field: "address",
+      props: { fields: [{ field: "zip", mode: "autofill", validation: "zip5" }], icon: "map-pin" },
+    } as unknown as LeadgenComponentNode;
+    const html = renderComponent(node, DESIGN);
+    expect(html).not.toContain("data-lg-maps");
+    expect(html).not.toContain("data-address-autocomplete");
+    // …and with no [data-lg-maps] field on the page the engine never even loads
+    // the Maps SDK (runtime/maps.ts mapsFieldsNeedSdk).
+    // The 5-digit validation is OURS and is untouched:
+    expect(html).toContain('pattern="\\d{5}"');
+    expect(html).toContain('maxlength="5"');
+    expect(html).toContain('inputmode="numeric"');
   });
 
   it("Maps off/keyless (existing graceful path): fields still render as plain, functional, typeable inputs — no renderer branching required", () => {
