@@ -614,6 +614,74 @@ describeDb("R4b MAJOR-F1 — auction-only field geocode gating (serve-auction.ts
     );
   });
 
+  // OWNER RULING (2026-08-11, option 3): "the usage of the Google maps for Zip
+  // only section is in validation of the zip country for rules and routings" —
+  // enable the AUCTION job (facet enrichment for routing) and NOT validate (no
+  // rejection semantics, so a malformed ZIP is never dropped).
+  //
+  // The probes above all use a ZIPInputQuestion whose answer key is literally
+  // "zip". The owner's LIVE section is a different shape: an
+  // AddressAutocompleteQuestion with internal_field "address" and ONE sub-field
+  // {field:"zip"}, so the ZIP answer lands under the COMPOSITE key
+  // "address_zip". If mapsZipFieldOf resolved the bare "address" (or "zip")
+  // there, the facet would silently never enrich and the routing rules he wants
+  // would never fire — a false-green of exactly the kind this file exists to
+  // catch. This pins his shape end to end, through the real auction route.
+  it("OWNER'S LIVE SHAPE: composite address with a single zip sub-field + auction job → the facet enriches (state rule fires)", async () => {
+    const h = newHarness({ serverKey: true });
+    seedZipCache(h, "90210", "Beverly Hills", "CA");
+    const { variantId } = await seedFunnel(h, "f1a-addr", {
+      components: [
+        {
+          type: "AddressAutocompleteQuestion",
+          question_id: "q_addr",
+          internal_field: "address",
+          answer_type: "object",
+          props: {
+            maps: newMaps({ auction: true }), // AUCTION ONLY — validate false
+            fields: [{ field: "zip", mode: "manual", validation: "zip5" }],
+            icon: "map-pin",
+          },
+        },
+      ],
+      rules: [disqualify("state", "eq", "CA")],
+    });
+    const r = await submitAnswers(h.env, variantId, { address_zip: envelope("90210") });
+    expect(r.status, JSON.stringify(r.json)).toBe(200);
+    expect(
+      r.json["status"],
+      "the composite ZIP key (address_zip) must reach the facet and enrich it with state=CA",
+    ).toBe("disqualified");
+  });
+
+  it("OWNER'S LIVE SHAPE: a malformed ZIP is NEVER dropped (auction job carries no rejection semantics)", async () => {
+    const h = newHarness({ serverKey: true });
+    const { variantId } = await seedFunnel(h, "f1a-addr2", {
+      components: [
+        {
+          type: "AddressAutocompleteQuestion",
+          question_id: "q_addr",
+          internal_field: "address",
+          answer_type: "object",
+          props: {
+            maps: newMaps({ auction: true }),
+            fields: [{ field: "zip", mode: "manual", validation: "zip5" }],
+          },
+        },
+      ],
+      // the file's own presence-proxy idiom: fires iff the answer SURVIVED
+      // normalization (my first attempt used an is_present operator that never
+      // fires for any value — it measured the probe, not the code).
+      rules: [disqualify("address_zip", "neq", "__never__")],
+    });
+    const r = await submitAnswers(h.env, variantId, { address_zip: envelope("1234") });
+    expect(r.status, JSON.stringify(r.json)).toBe(200);
+    expect(
+      r.json["status"],
+      "option 3: the auction job adds NO rejection semantics — a 4-digit ZIP survives",
+    ).toBe("disqualified");
+  });
+
   it("auction-only + NO server key → ZIP-only facet, unchanged (existing §9.3 degradation stays green)", async () => {
     const h = newHarness(); // no server key
     seedZipCache(h, "90210", "Beverly Hills", "CA"); // present but unreachable without a key
