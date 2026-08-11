@@ -1023,6 +1023,19 @@ const P8_S6_RANGE_MAX_RAIL_CLIP_RULE = [
   `\n${DEFAULT_FUNNEL_SCOPE} .lg-range-track > span + span > .lg-range-input-dual{clip-path:inset(0 0 0 calc(${R2_P4_RQ.thumbSize} / 2 + max((var(--lg-a,0) + var(--lg-b,100)) * (100% - ${R2_P4_RQ.thumbSize}) / 200, ${R2_P4_RQ.thumbSize} / 2 + var(--lg-a,0) * (100% - ${R2_P4_RQ.thumbSize}) / 100)))}`,
 ];
 
+// OWNER RULING (2026-08-11, "a freshly added card or logo still shows a broken
+// image until you pick one"): the ONE net-new base-sheet rule for the labelled
+// image slot a not-yet-picked card renders (presets.ts paints
+// <span class="lg-card-img-placeholder">Image</span> for MEDIA_PENDING_REF).
+// SAFE FOR THIS PIN: net-new since the frozen capture, and this fixture's icon
+// grid carries no image choice at all, so it is a sheet-level delta only — same
+// wholesale-strip idiom as P8_S6_RANGE_MAX_RAIL_CLIP_RULE above, kept in lockstep
+// with styles.ts (a drift in either fails here). Exactly ONE rule; nothing else
+// in the sheet moved.
+const R2_CARD_IMG_PLACEHOLDER_RULE = [
+  `\n${DEFAULT_FUNNEL_SCOPE} .lg-card-img-placeholder{display:inline-flex;align-items:center;justify-content:center;min-height:32px;padding:0 0.5rem;border:1px dashed #D2D9E5;border-radius:6px;color:#718096;font-size:0.75rem;line-height:1}`,
+];
+
 // Legacy plain body: unbound headline + icon grid + ONE continue — a realistic
 // v2.4 body carrying NONE of the additive params.
 const LEGACY_PLAIN_CONTENT = {
@@ -1230,9 +1243,15 @@ function assertPinnedResponse(actualText: string, fixtureText: string): void {
     (s, r) => s.split(r).join(""),
     cssMinusRepoint,
   );
-  expect(
+  // 2026-08-11: strip the ONE net-new not-picked-yet card-image slot rule (see
+  // R2_CARD_IMG_PLACEHOLDER_RULE's own comment above).
+  const cssMinusCardPlaceholder = R2_CARD_IMG_PLACEHOLDER_RULE.reduce(
+    (s, r) => s.split(r).join(""),
     cssMinusRailClip,
-    "preview.css modulo the DEV-57 + DEV-68 moved rules + the R5 state-safe-border + R5 D11 typography rule bodies + the P1a layout system + the P3a structured-placement (.lg-el/.lg-el-row) rules + the Round-4 P1b studio/preview affordances (ghost/address-composite/mqg-empty) + the R2 P4 §6.8 slider anatomy rules + the R2 P5 F7 address-field-label/Other-select rules + the R2 P8-6 from_to max-rail hit-area clip rule",
+  );
+  expect(
+    cssMinusCardPlaceholder,
+    "preview.css modulo the DEV-57 + DEV-68 moved rules + the R5 state-safe-border + R5 D11 typography rule bodies + the P1a layout system + the P3a structured-placement (.lg-el/.lg-el-row) rules + the Round-4 P1b studio/preview affordances (ghost/address-composite/mqg-empty) + the R2 P4 §6.8 slider anatomy rules + the R2 P5 F7 address-field-label/Other-select rules + the R2 P8-6 from_to max-rail hit-area clip rule + the not-picked-yet card-image slot rule",
   ).toBe(expectedPreview["css"]);
   // and the live producer still owns the string (the sections-api :863 idiom).
   expect(actualPreview["css"]).toBe(funnelChromeCss(getFunnelDesign(null)));

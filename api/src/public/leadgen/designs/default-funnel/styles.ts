@@ -1885,6 +1885,25 @@ export function funnelChromeCss(
       width: "auto",
       "object-fit": "contain",
     }),
+    // OWNER RULING (2026-08-11): a card whose image has not been PICKED YET shows
+    // an honest labelled slot, never a broken image. The studio must seed
+    // something (content-schema requires a non-empty imageMediaId on an image
+    // card), so it seeds MEDIA_PENDING_REF and this is what that renders as — the
+    // same treatment ImageBlock's own placeholder already had
+    // (.lg-image-block-placeholder). Sized to the image slot it stands in for, so
+    // the card keeps its shape and the operator sees exactly where the picture goes.
+    rule(`${scope} .lg-card-img-placeholder`, {
+      display: "inline-flex",
+      "align-items": "center",
+      "justify-content": "center",
+      "min-height": "32px",
+      padding: `0 ${spacing.sm}`,
+      border: `1px dashed ${color.border}`,
+      "border-radius": radius.sm,
+      color: page.textLightColor,
+      "font-size": "0.75rem",
+      "line-height": "1",
+    }),
     // ---- v2.5 choice-depth base rules (08 §8.4, DEV-57 Phase-C move) --------
     // .lg-card-subtitle / .lg-card-badge style ONLY the new-choice-field
     // markup (no legacy content emits those classes), but the MARKUP is

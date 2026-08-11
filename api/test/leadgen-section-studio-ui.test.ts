@@ -29,6 +29,7 @@ import admin from "../src/admin/router";
 import type { Env } from "../src/env";
 import { COMPONENT_CATALOG, type ComponentType } from "../src/public/leadgen/components/registry";
 import { validateSectionContent, flattenComponents } from "../src/public/leadgen/components/content-schema";
+import { MEDIA_PENDING_REF } from "../src/public/view-models/media-url";
 import type { LeadgenComponentNode } from "../src/public/leadgen/components/content-schema";
 import { STUDIO_LIBRARY_GROUPS } from "../src/admin/leadgen/ui-section-studio";
 // D2 seam imports: the island's live mapping decode must agree with the REAL
@@ -4962,9 +4963,14 @@ describeDb("v2.5 A5 — image-grid samples always carry image_alt", () => {
     const parsed = probe.run(`parseBulkChoices('Toyota|toyota\\nHonda', { choice_image: true })`) as Array<
       Record<string, unknown>
     >;
+    // UPDATED 2026-08-11 (owner approved): a pasted image-card choice is seeded
+    // with the recognisable not-picked-yet ref instead of a fake key like
+    // "media_toyota". It is still a save-legal image+alt pair (the tree below is
+    // asserted validator-clean); the difference is that presets.ts renders it as a
+    // labelled "Image" slot rather than 20 broken images the operator never authored.
     expect(parsed).toEqual([
-      { label: "Toyota", value: "toyota", analytics_id: "toyota", imageMediaId: "media_toyota", image_alt: "Toyota" },
-      { label: "Honda", value: "honda", analytics_id: "honda", imageMediaId: "media_honda", image_alt: "Honda" },
+      { label: "Toyota", value: "toyota", analytics_id: "toyota", imageMediaId: MEDIA_PENDING_REF, image_alt: "Toyota" },
+      { label: "Honda", value: "honda", analytics_id: "honda", imageMediaId: MEDIA_PENDING_REF, image_alt: "Honda" },
     ]);
     const content = {
       components: [{ type: "ImageCardAnswerGrid", question_id: "g1", internal_field: "make", choices: parsed }],
@@ -6490,7 +6496,7 @@ describeDb("wave 2 — §5.5 choice depth + §6.2 inline editing + §7.3 raw JSO
     expect(island).toContain("node.type !== 'NumberRangeQuestion'"); // §10: the ONE slider type gates the range note
   });
 
-  it("v3.1 §5.6 EXECUTED: Cards style (Icon/Image/Plain) + the Accept-swap rule are pure round-trip TYPE swaps preserving internal_field/choices; §6.8 slider type/currency are PROPS (never a node.type flip)", async () => {
+  it("v3.1 §5.6 EXECUTED: Cards style (Icon/Image/Plain) + the Accept-swap rule round-trip preserving internal_field/choices, SEEDING what the new type requires; §6.8 slider type/currency are PROPS (never a node.type flip)", async () => {
     const { env } = newHarness();
     const section = await createSection(env);
     const html = await studioPage(env, section.public_id);
@@ -6511,6 +6517,13 @@ describeDb("wave 2 — §5.5 choice depth + §6.2 inline editing + §7.3 raw JSO
         sliceIslandArray(island, "CARD_STYLE_FAMILY"),
         sliceIslandFunction(island, "cardStyleOf"),
         sliceIslandFunction(island, "setCardStyle"),
+        // setCardStyle now seeds the fields the NEW type requires — the helper has
+        // to be in the sandbox or the sliced caller throws (it is in the same IIFE
+        // in the shipped island; this file's slice list is the harness, not the
+        // product).
+        sliceIslandFunction(island, "seedChoiceRequirements"),
+        sliceIslandFunction(island, "typeMeta"),
+        sliceIslandFunction(island, "trimStr"),
         sliceIslandFunction(island, "acceptFormatOfNode"),
         sliceIslandFunction(island, "setAcceptFormat"),
       ].join("\n"),
@@ -6522,6 +6535,26 @@ describeDb("wave 2 — §5.5 choice depth + §6.2 inline editing + §7.3 raw JSO
     expect(probe.run("setCardStyle(findRef('c1').node, 'plain')")).toBe(true);
     expect(probe.run("findRef('c1').node.type")).toBe("ButtonAnswerGroup");
     expect(probe.run("findRef('c1').node.choices[0].label")).toBe("Toyota"); // never dropped
+    expect(probe.run("setCardStyle(findRef('c1').node, 'icon')")).toBe(true);
+    expect(probe.run("findRef('c1').node.type")).toBe("IconCardAnswerGrid");
+    // ADDED 2026-08-11 (owner approved): the swap SEEDS what the new type requires.
+    // Before this, "Cards → Image" retyped the node and left every choice without
+    // an image, so content-schema refused the whole Section ("Every answer on the
+    // Image answer cards needs an image") — the grid was UNSAVEABLE the moment the
+    // operator picked the Image style, measured in the studio. The seed is the
+    // not-picked-yet ref, which presets.ts paints as a labelled "Image" slot; the
+    // operator's own values are never overwritten.
+    expect(probe.run("setCardStyle(findRef('c1').node, 'image')")).toBe(true);
+    expect(probe.run("findRef('c1').node.choices[0].imageMediaId")).toBe("__pending__");
+    expect(probe.run("findRef('c1').node.choices[0].image_alt")).toBe("Toyota");
+    expect(probe.run("findRef('c1').node.choices[0].label")).toBe("Toyota");
+    // …and an authored image is left alone on a later swap through the family
+    probe.run("findRef('c1').node.choices[0].imageMediaId = '2026/08/10/real.png'");
+    probe.run("setCardStyle(findRef('c1').node, 'icon')");
+    probe.run("setCardStyle(findRef('c1').node, 'image')");
+    expect(probe.run("findRef('c1').node.choices[0].imageMediaId")).toBe("2026/08/10/real.png");
+    // leave the node back on `icon` so the same-style no-op assertions below still
+    // describe what they say they do
     expect(probe.run("setCardStyle(findRef('c1').node, 'icon')")).toBe(true);
     expect(probe.run("findRef('c1').node.type")).toBe("IconCardAnswerGrid");
     // a same-style set is a documented no-op (not a spurious history entry)
