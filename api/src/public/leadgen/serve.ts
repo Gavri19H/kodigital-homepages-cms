@@ -348,6 +348,70 @@ function ga4HeadSnippet(measurementId: string | null): string {
   );
 }
 
+// OWNER DEFECT (2026-08-11, live insurissimo funnel): "The Zip box behave weird,
+// it shows these signs after typing the first character and doesn't allow you to
+// type the 2nd. The only option is to paste a 5 digit number into it."
+//
+// MEASURED on the live page: after ONE keystroke the ZIP input read
+// `disabled: true` and activeElement fell back to BODY, and the element carried
+//   class="… gm-err-autocomplete"
+//   style="background-image:url(…/api-3/images/icon_error.png)"  ← tiles = the "signs"
+//   placeholder="Oops! Something went wrong."
+// with `Google Maps JavaScript API error: RefererNotAllowedMapError` logged. None
+// of it is ours (this repo never sets `disabled` on a leadgen field): it is
+// GOOGLE's auth-failure handling reaching into the input we handed its
+// Autocomplete widget and switching it OFF. A paste still worked because one paste
+// delivers all five digits in a single event — hence "the only option is to paste".
+//
+// runtime/maps.ts already degrades gracefully when the SDK is ABSENT or fails to
+// LOAD. The third case — it loads fine and then REJECTS the key — had no answer,
+// and that is the one that disables the FIRST field of an address funnel and stops
+// every visitor. So: whatever we hand to Google we take back. `gm_authFailure` is
+// Google's documented hook (RefererNotAllowed / InvalidKey / OverQuota all call
+// it), and it rides HERE rather than in the runtime bundle for two reasons: this
+// function is already the one place that decides to involve Google at all (no key
+// or no address field ⇒ neither the key nor this guard is emitted), and the bundle
+// sits at 99.9% of a byte budget whose ceiling is an OWNER decision (D1) that is
+// not mine to raise.
+//
+// The snapshot restores the field EXACTLY when it runs in time, and the
+// unconditional part (enable, drop Google's class and background) leaves a WORKING
+// field even if it does not — a visitor can always type their ZIP.
+// `f` remembers the enhanced field the visitor was last typing in. Google's
+// disable BLURS it, so re-enabling alone leaves the caret nowhere and the next
+// keystroke goes to the document — measured live: the field was clean and usable
+// but the visitor's 2nd and 3rd characters still vanished until they clicked back
+// in. Refocus is therefore part of the repair, not a nicety. It is applied ONLY
+// when focus was orphaned (activeElement fell back to body/null), so it can never
+// steal focus from wherever the visitor has legitimately moved on to.
+// Exported so the regression spec can EXECUTE the shipped string rather than a
+// copy of it (test/leadgen-maps-auth-guard.test.ts); the served-bytes half —
+// that this actually reaches the page, and only when a key does — is asserted in
+// test/leadgen-runtime-api.test.ts next to the key-splice tests.
+export const MAPS_AUTH_GUARD_JS =
+  "(function(){var s=[],f=null;function snap(){" +
+  "var n=document.querySelectorAll('[data-lg-maps] [data-lg-input]'),i,e;" +
+  // `f` is seeded from the ALREADY-focused element as well as from later focus
+  // events: an address funnel's first field is autofocused on load, and calling
+  // focus() on an already-focused input fires no focus event — so a listener
+  // alone left `f` null in the single most common case (measured live: the field
+  // was restored but the caret was not, and the visitor's next keystrokes still
+  // went to the document).
+  "for(i=0;i<n.length;i++){e=n[i];s.push([e,e.getAttribute('style'),e.placeholder,e.className]);" +
+  "if(document.activeElement===e){f=e;}" +
+  "e.addEventListener('focus',function(){f=this;});}}" +
+  "if(document.readyState==='loading'){document.addEventListener('DOMContentLoaded',snap);}else{snap();}" +
+  "window.gm_authFailure=function(){" +
+  "var n=document.querySelectorAll('[data-lg-maps] [data-lg-input]'),i,j,e,r,a;" +
+  "for(i=0;i<n.length;i++){e=n[i];e.disabled=false;" +
+  "e.classList.remove('gm-err-autocomplete');e.style.backgroundImage='';" +
+  "for(j=0;j<s.length;j++){r=s[j];if(r[0]===e){" +
+  "if(r[1]===null){e.removeAttribute('style');}else{e.setAttribute('style',r[1]);}" +
+  "e.placeholder=r[2];e.className=r[3];}}}" +
+  "a=document.activeElement;" +
+  "if(f&&(!a||a===document.body)){try{f.focus();f.setSelectionRange(f.value.length,f.value.length);}catch(x){}}" +
+  "};})();";
+
 // Splice the per-request browser Maps key onto the RESPONSE body only. The
 // `pristine` shell (the exact bytes cached + ETag'd) carries only the sentinel;
 // the key global is set before the bootstrap runs. No address section OR no key
@@ -357,7 +421,7 @@ function injectMapsKey(pristine: string, resolved: ResolvedActivatedFunnel, env:
   if (funnelNeedsMapsKey(resolved)) {
     const key = resolveBrowserMapsKey(env);
     if (key !== null) {
-      script = `<script>window.__LG_MAPS_KEY__=${jsStringLiteral(key)};</script>`;
+      script = `<script>window.__LG_MAPS_KEY__=${jsStringLiteral(key)};${MAPS_AUTH_GUARD_JS}</script>`;
     }
   }
   // Function replacement (not a string): String.prototype.replace expands `$`

@@ -696,6 +696,12 @@ describeDb("§30.2 / §30.4 — the browser Maps key + signing secret never leak
     // per-request injection: the RESPONSE carries the browser key global.
     expect(html).toContain("window.__LG_MAPS_KEY__");
     expect(html).toContain(MAPS_BROWSER_KEY);
+    // …and the auth-failure guard rides WITH the key (owner ZIP defect
+    // 2026-08-11: Google's own error handler disabled the ZIP input after the
+    // first keystroke — see test/leadgen-maps-auth-guard.test.ts for the
+    // mechanism and the executed repair).
+    expect(html).toContain("window.gm_authFailure=");
+    expect(html).toContain("e.disabled=false");
     // the signing secret NEVER appears in the shell.
     expect(html).not.toContain(CONFIG_SIGNING_KEY);
 
@@ -721,6 +727,9 @@ describeDb("§30.2 / §30.4 — the browser Maps key + signing secret never leak
     const html = await (await get(env, "/lg/life")).text();
     expect(html).not.toContain("window.__LG_MAPS_KEY__");
     expect(html).not.toContain(MAPS_BROWSER_KEY);
+    // no third party involved ⇒ no third-party guard either: it costs bytes only
+    // on pages that actually hand an input to Google.
+    expect(html).not.toContain("gm_authFailure");
   });
 });
 
