@@ -14,6 +14,36 @@
 const MEDIA_PREFIX = "/media/";
 
 /**
+ * "The operator has not picked an image yet" — a real, code-owned value rather
+ * than a fake storage key (owner ruling 2026-08-11).
+ *
+ * WHY IT EXISTS. content-schema REQUIRES a non-empty imageMediaId on an image
+ * card ("Every answer on the Image answer cards needs an image") and a non-empty
+ * logoMediaId on a HeaderLogo, so a scaffolded card/logo cannot simply carry
+ * nothing — a seedless scaffold is unsaveable the moment it is added. The studio
+ * therefore used to invent keys: "media_option_3", "media_" + value,
+ * "media_logo". Nothing ever stored those, so a freshly added card or logo
+ * rendered a BROKEN IMAGE until the operator happened to pick a real one.
+ *
+ * This value keeps the save legal AND is recognisable, so a renderer can paint an
+ * honest labelled placeholder ("Image" / "Site logo") in the slot instead. It can
+ * never collide with a real reference: R2 storage keys are date-pathed
+ * ("2026/08/02/<uuid>.png"), and rooted/absolute/data URLs all start with "/",
+ * "http" or "data:".
+ *
+ * mediaUrl() deliberately still ADDRESSES it (→ "/media/__pending__") rather than
+ * returning null: every call site here does `esc(mediaUrl(x))`, and esc(null) is
+ * "", which would emit `src=""` — a broken image by another name. Callers guard
+ * with isPendingMediaRef BEFORE they reach for a URL.
+ */
+export const MEDIA_PENDING_REF = "__pending__";
+
+/** Whether a stored media reference means "not chosen yet" (never an address). */
+export function isPendingMediaRef(ref: string | null | undefined): boolean {
+  return typeof ref === "string" && ref.trim() === MEDIA_PENDING_REF;
+}
+
+/**
  * Resolve a stored media reference to its public /media/ web address.
  *
  *  - null / undefined / empty            -> null  (no "/media/null", no broken <img>)

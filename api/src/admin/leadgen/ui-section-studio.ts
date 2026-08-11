@@ -135,6 +135,12 @@ import {
 // what is painted, applyPreviewSimMarkup writes the selection the runtime's
 // applySelectionClasses would write. See studioCanvasDocument.
 import { normalizeAnswers } from "../../leadgen/answers";
+// OWNER RULING (2026-08-11): a freshly added card/logo must show a labelled
+// placeholder, not a broken image. The studio has to seed SOMETHING (content-schema
+// requires a non-empty imageMediaId on an image card and logoMediaId on a
+// HeaderLogo), so it seeds this recognisable sentinel instead of inventing a fake
+// storage key. presets.ts paints it as "Image" / "Logo"; see media-url.ts.
+import { MEDIA_PENDING_REF } from "../../public/view-models/media-url";
 import { evaluateDependencies } from "../../leadgen/dependencies";
 import { applyPreviewSimMarkup } from "./preview-sim";
 // v2.5 09 §9.1/§9.4/§9.5: the 14 semantic roles + the resolved role→value
@@ -5116,8 +5122,34 @@ export const SECTION_STUDIO_SCRIPT = `
     if (CARD_STYLE_FAMILY.indexOf(node.type) === -1) { return false; }
     if (node.type === target) { return false; }
     node.type = target;
+    // The retype changes what each CHOICE is required to carry, and used to leave
+    // the choices untouched — so "Cards → Image" produced a grid whose every
+    // choice was missing its image and the whole Section became UNSAVEABLE
+    // ("Every answer on the Image answer cards needs an image"), measured. The
+    // mirror held for Image → Icon ("needs an icon"). Seed whatever the NEW type
+    // requires and a choice lacks, exactly as sampleChoice does on the palette
+    // path: a not-picked-yet image renders as a labelled slot (presets.ts), and the
+    // studio's own advisory still asks the operator for the real one.
+    seedChoiceRequirements(node);
     afterModelChange();
     return true;
+  }
+
+  // Give every choice the fields its component type REQUIRES but which it does not
+  // have yet. Idempotent, and it never overwrites an authored value.
+  function seedChoiceRequirements(node) {
+    if (!node || !node.choices || !node.choices.length) { return; }
+    var req = typeMeta(node.type).required || {};
+    var i, c;
+    for (i = 0; i < node.choices.length; i++) {
+      c = node.choices[i];
+      if (!c || typeof c !== 'object') { continue; }
+      if (req.choice_icon === true && trimStr(c.icon) === '') { c.icon = '\\u2605'; }
+      if (req.choice_image === true && trimStr(c.imageMediaId) === '') {
+        c.imageMediaId = '${MEDIA_PENDING_REF}';
+        if (trimStr(c.image_alt) === '') { c.image_alt = c.label || 'Image'; }
+      }
+    }
   }
 
   // §10 removal: toggleSliderFormat (the "Format $" type-flip Number<->Currency)
@@ -5751,7 +5783,7 @@ export const SECTION_STUDIO_SCRIPT = `
     // add-from-library invariant (measured). Making the placeholder honest means
     // moving that requirement to publish time, or scaffolding an empty grid —
     // an authoring-contract decision, not a bug fix.
-    if (req.choice_image) { c.imageMediaId = 'media_option_' + n; c.image_alt = c.label; }
+    if (req.choice_image) { c.imageMediaId = '${MEDIA_PENDING_REF}'; c.image_alt = c.label; }
     return c;
   }
   function defaultTextFor(type, key) {
@@ -5768,7 +5800,7 @@ export const SECTION_STUDIO_SCRIPT = `
     // Doing it properly means turning that required prop into a "pick a logo"
     // prompt — a validation-contract change, not a bug fix. Left as-is pending
     // the owner's call.
-    if (key === 'logoMediaId') { return 'media_logo'; }
+    if (key === 'logoMediaId') { return '${MEDIA_PENDING_REF}'; }
     return 'New ' + type + ' text';
   }
   function makeNode(type) {
@@ -12136,7 +12168,9 @@ export const SECTION_STUDIO_SCRIPT = `
   // hundred lines below — the picker's thumbs loaded while this one broke, off
   // the identical key. Same reader, same rule now.
   function setChoiceThumb(img, url) {
-    var href = mediaSrc(url);
+    // a not-picked-yet ref is not an address: no thumbnail, never a request for
+    // /media/__pending__ (which would be the broken thumb all over again).
+    var href = trimStr(url) === '${MEDIA_PENDING_REF}' ? '' : mediaSrc(url);
     if (href !== '') { img.src = href; img.hidden = false; }
     else { img.removeAttribute('src'); img.hidden = true; }
   }
@@ -12149,6 +12183,11 @@ export const SECTION_STUDIO_SCRIPT = `
     input.setAttribute('aria-label', 'Image');
     input.setAttribute('placeholder', CHOICE_FIELD_PLACEHOLDERS.imageMediaId);
     var v = (choice && typeof choice.imageMediaId === 'string') ? choice.imageMediaId : '';
+    // The operator must never be shown the sentinel as if it were their value:
+    // a not-picked-yet card presents an EMPTY Image box (and the canvas shows the
+    // labelled placeholder). collectChoices re-emits the sentinel on save, so an
+    // untouched scaffold stays save-legal exactly as it was with the old fake key.
+    if (trimStr(v) === '${MEDIA_PENDING_REF}') { v = ''; }
     input.value = v;
     var thumb = document.createElement('img');
     thumb.className = 'lg-choice-thumb';
@@ -13164,6 +13203,7 @@ export const SECTION_STUDIO_SCRIPT = `
     var c = choiceContainer();
     if (!c) { return; }
     var rows = c.querySelectorAll('[data-choice-row]');
+    var choiceReq = typeMeta(node.type).required || {};
     var choices = [], i, j, inputs, choice, f, v;
     for (i = 0; i < rows.length; i++) {
       inputs = rows[i].querySelectorAll('[data-choice-field]');
@@ -13187,6 +13227,17 @@ export const SECTION_STUDIO_SCRIPT = `
       // §8.4 disabled rides a checkbox (boolean — set only when true).
       var disabledCb = rows[i].querySelector('[data-choice-disabled]');
       if (disabledCb && disabledCb.checked) { choice.disabled = true; }
+      // An image-card choice with no picked image keeps the not-picked-yet
+      // sentinel rather than dropping the field: content-schema REQUIRES a
+      // non-empty imageMediaId here, so dropping it would make an untouched
+      // scaffold unsaveable — a regression on the old fake-key behaviour. The
+      // studio's own advisory (has a choice missing its image) is what asks the
+      // operator for a real one. image_alt rides it for the same §8.4 reason
+      // applyMediaPick sets it.
+      if (choiceReq.choice_image === true && trimStr(choice.imageMediaId) === '') {
+        choice.imageMediaId = '${MEDIA_PENDING_REF}';
+        if (trimStr(choice.image_alt) === '') { choice.image_alt = choice.label || 'Image'; }
+      }
       choices.push(choice);
     }
     if (choices.length > 0) { node.choices = choices; } else { delete node.choices; }
@@ -13221,7 +13272,7 @@ export const SECTION_STUDIO_SCRIPT = `
       // A5: pasted image-grid choices carry image_alt next to imageMediaId
       // (§8.4 requirement — see sampleChoice, including the KNOWN COST note on
       // why the seeded key stays until the owner rules on the save requirement).
-      if (req && req.choice_image) { c.imageMediaId = 'media_' + value; c.image_alt = label; }
+      if (req && req.choice_image) { c.imageMediaId = '${MEDIA_PENDING_REF}'; c.image_alt = label; }
       out.push(c);
     }
     return out;

@@ -103,7 +103,7 @@ import type { LeadgenContinueMode } from "../../../admin/leadgen/db-types";
 // back unchanged, so every already-resolved caller keeps byte-identical output,
 // and it returns null for empty/whitespace, which is what lets each site below
 // fall back to its no-image branch instead of emitting a broken src="".
-import { mediaUrl } from "../../view-models/media-url";
+import { mediaUrl, isPendingMediaRef } from "../../view-models/media-url";
 
 // ---------------------------------------------------------------------------
 // small helpers
@@ -1755,6 +1755,14 @@ function renderCardGrid(
     //      fallback can no longer be reached with an unusable src.
     const imageHref = mediaUrl(typeof c.imageMediaId === "string" ? c.imageMediaId : null);
     const hasImage = imageHref !== null;
+    // OWNER RULING (2026-08-11): "a freshly added card … still shows a broken
+    // image until you pick one" → render a labelled slot instead. The studio has
+    // to seed SOMETHING (content-schema requires a non-empty imageMediaId here, so
+    // a seedless scaffold is unsaveable), and it now seeds the recognisable
+    // MEDIA_PENDING_REF instead of a fake key like "media_option_3". Checked
+    // BEFORE any URL is built: mediaUrl still addresses the sentinel, and
+    // esc(null) would be "" — i.e. src="", a broken image by another name.
+    const imagePending = isPendingMediaRef(c.imageMediaId as string | null | undefined);
     // §8.4/A6 image fit (cover|contain — the 05 §5.5 grid control): the
     // COMPONENT prop (nodeFit above) is canonical; a legacy PER-CHOICE
     // image_fit read DEFENSIVELY off the raw choice (the defensive raw-node
@@ -1766,7 +1774,9 @@ function renderCardGrid(
     const fit = nodeFit ?? choiceFit;
     const media =
       kind === "image"
-        ? !hasImage
+        ? imagePending
+          ? `<span class="lg-card-img-placeholder" aria-hidden="true">Image</span>`
+          : !hasImage
           ? iconSlot(emoji ?? c.icon)
           : `<img class="lg-card-img" src="${esc(imageHref)}"` +
             ` alt="${esc(typeof c.image_alt === "string" && c.image_alt !== "" ? c.image_alt : c.label)}"` +
@@ -4060,7 +4070,10 @@ function logoStripLogos(node: LeadgenComponentNode): Array<{ mediaId: string; al
     if (typeof logo !== "object" || logo === null || Array.isArray(logo)) continue;
     const r = logo as Record<string, unknown>;
     const mediaId = typeof r["mediaId"] === "string" ? r["mediaId"] : "";
-    if (mediaId === "") continue;
+    // a row with no picked image is skipped, and "not picked yet" counts as no
+    // picked image — a strip row is picker-authored so this should be unreachable,
+    // but no path may turn the sentinel into a /media/ request.
+    if (mediaId === "" || isPendingMediaRef(mediaId)) continue;
     const size = typeof r["size"] === "string" && LOGO_STRIP_SIZES.has(r["size"]) ? r["size"] : undefined;
     out.push({ mediaId, alt: typeof r["alt"] === "string" ? r["alt"] : "", size });
   }
@@ -4341,7 +4354,11 @@ function renderImageBlockAutoLogo(node: LeadgenComponentNode, design: DefaultFun
 function renderImageBlockMedia(node: LeadgenComponentNode, design: DefaultFunnelDesign): string {
   const mediaId = propStr(node, "logoMediaId");
   const alt = propStr(node, "alt") ?? "";
-  if (mediaId === undefined || mediaId === "") {
+  // OWNER RULING (2026-08-11): a logo slot the operator has not filled yet takes
+  // this SAME labelled placeholder rather than a broken image. The studio seeds
+  // MEDIA_PENDING_REF (it must seed something — logoMediaId is a required field),
+  // so "not picked yet" and "empty" are one branch from here on.
+  if (mediaId === undefined || mediaId === "" || isPendingMediaRef(mediaId)) {
     // v3.1 R3b deliverable 4: an honest labeled placeholder (same token-only
     // treatment as the auto_logo branch above) instead of an invisible box —
     // the operator sees exactly where a chosen image will render.
@@ -4596,7 +4613,7 @@ export function renderBackgroundPanel(
   const background = gradient ?? bgPanelBackgroundValue(design, propStr(node, "background"));
   const imageMediaId = propStr(node, "imageMediaId");
   const image =
-    imageMediaId !== undefined && imageMediaId !== ""
+    imageMediaId !== undefined && imageMediaId !== "" && !isPendingMediaRef(imageMediaId)
       ? `<img class="lg-bg-panel-img" src="${esc(mediaUrl(imageMediaId))}" alt="" aria-hidden="true" loading="lazy">`
       : "";
   return (
@@ -4736,8 +4753,14 @@ export function renderSpacer(node: LeadgenComponentNode, design: DefaultFunnelDe
 // data-lg-back hook (03 §3.3) exactly like the BackButton chrome component.
 export function renderHeaderBar(node: LeadgenComponentNode, design: DefaultFunnelDesign): string {
   const logoMediaId = propStr(node, "logoMediaId");
-  const logo =
-    logoMediaId !== undefined && logoMediaId !== ""
+  // OWNER RULING (2026-08-11): "not picked yet" (MEDIA_PENDING_REF, what the
+  // studio seeds for a freshly added header) shows a labelled slot; a genuinely
+  // ABSENT logo still renders nothing at all, exactly as before.
+  const logo = isPendingMediaRef(logoMediaId)
+    ? `<span class="lg-image-block-placeholder lg-headerbar-logo-placeholder" data-placeholder="true"` +
+      style({ border: design.input.border, color: design.page.textLightColor }) +
+      `>Logo</span>`
+    : logoMediaId !== undefined && logoMediaId !== ""
       ? `<img class="lg-headerbar-logo" src="${esc(mediaUrl(logoMediaId))}" alt="${esc(propStr(node, "logoAlt") ?? "")}" decoding="async">`
       : "";
   const backLabel = propStr(node, "backLabel") ?? "Back";

@@ -45,7 +45,7 @@ import { fileURLToPath } from "node:url";
 
 import { renderComponent } from "../src/public/leadgen/components/presets";
 import { defaultFunnelDesign } from "../src/public/leadgen/designs/default-funnel/tokens";
-import { mediaUrl } from "../src/public/view-models/media-url";
+import { mediaUrl, MEDIA_PENDING_REF } from "../src/public/view-models/media-url";
 import { SECTION_STUDIO_SCRIPT } from "../src/admin/leadgen/ui-section-studio";
 
 const DESIGN = defaultFunnelDesign;
@@ -226,31 +226,54 @@ describe("studio island: the panel thumbnail and the invented media ids", () => 
     expect(sandbox["out"]).toBe(mediaUrl(KEY));
   });
 
-  // The seeded placeholder keys are STILL THERE, on purpose, and this test says
-  // why so the next reader does not "obviously" delete them (I tried; it broke
-  // the studio, measured):
-  //   · sampleChoice   → imageMediaId = "media_option_" + n
-  //   · parseBulkChoices → imageMediaId = "media_" + value
-  //   · defaultTextFor → 'media_logo' for a HeaderLogo
-  // Each is a key nothing ever stored, so a SCAFFOLDED card/logo still shows a
-  // broken image until the operator picks a real one. Removing them is refused by
-  // the content schema, which requires the field at SAVE time — an image card
-  // choice with no image is "Every answer on the Image answer cards needs an
-  // image", and a HeaderLogo with no logo is "The Header logo needs 'Logo Media
-  // Id'". A seedless scaffold is therefore unsaveable the moment it is added.
-  // Making the placeholder honest = moving that requirement to publish time, or
-  // scaffolding an empty grid: an authoring-contract decision for the owner, not
-  // something to smuggle into a rendering fix.
-  it("the scaffold placeholders are still seeded, and the schema is why", () => {
+  // RESOLVED 2026-08-11 (owner: "go for it"). The scaffold still has to seed
+  // SOMETHING — content-schema requires a non-empty imageMediaId on an image card
+  // and logoMediaId on a HeaderLogo, so a seedless scaffold is unsaveable the
+  // moment it is added (I tried removing them; it broke the studio's
+  // add-from-library invariant, measured). What changed is WHAT it seeds: a fake
+  // storage key ("media_option_3", "media_" + value, "media_logo") that could only
+  // ever render as a BROKEN IMAGE is now MEDIA_PENDING_REF, which presets.ts paints
+  // as a labelled slot ("Image" / "Logo"). Same save-legality, honest pixels, and
+  // the save requirement did NOT move.
+  it("the scaffold seeds the recognisable not-picked-yet ref, never a fake key", () => {
     const sandbox: Record<string, unknown> = {};
     runInNewContext(
       `${sliceFn(source, "sampleChoice")}\nvar out = sampleChoice({ choice_image: true, choice_icon: false }, 3);`,
       sandbox,
     );
     const sample = sandbox["out"] as Record<string, unknown>;
-    expect(sample["imageMediaId"], "the seed stays until the save requirement moves").toBe("media_option_3");
-    // …and it is a save-LEGAL pair (image + alt), which is the whole reason it exists.
+    expect(sample["imageMediaId"], "a scaffolded card is PENDING, not a fake key").toBe(MEDIA_PENDING_REF);
+    // …still a save-LEGAL pair (image + alt), which is why the seed exists at all.
     expect(sample["image_alt"]).toBe("Option 3");
-    expect(source).toContain("return 'media_logo'");
+    // the invented shapes are gone from the served island entirely
+    expect(source).not.toContain("'media_option_' + n");
+    expect(source).not.toContain("'media_' + value");
+    expect(source).not.toContain("return 'media_logo'");
+  });
+
+  it("a not-picked-yet card renders a LABELLED SLOT, never an <img>", () => {
+    const html = render(cardNode([{ label: "Option 3", value: "o3", analytics_id: "o3", imageMediaId: MEDIA_PENDING_REF, image_alt: "Option 3" }]));
+    expect(imgs(html), "no <img> for an image nobody has picked").toEqual([]);
+    expect(html).toContain("lg-card-img-placeholder");
+    expect(html).toContain(">Image<");
+    // and never a request for the sentinel
+    expect(html).not.toContain("__pending__");
+    expect(html).not.toContain("/media/__pending__");
+  });
+
+  it("the panel thumbnail stays EMPTY for a not-picked-yet ref (no /media/__pending__)", () => {
+    const sandbox: Record<string, unknown> = {};
+    runInNewContext(
+      [
+        sliceFn(source, "mediaSrc"),
+        sliceFn(source, "trimStr"),
+        sliceFn(source, "setChoiceThumb"),
+        "var img = { src: 'x', hidden: false, removeAttribute: function () { this.src = null; } };",
+        `setChoiceThumb(img, ${JSON.stringify(MEDIA_PENDING_REF)});`,
+        "var out = { src: img.src, hidden: img.hidden };",
+      ].join("\n"),
+      sandbox,
+    );
+    expect(sandbox["out"]).toEqual({ src: null, hidden: true });
   });
 });
