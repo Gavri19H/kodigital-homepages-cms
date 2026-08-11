@@ -7,7 +7,7 @@
 import { describe, expect, it } from "vitest";
 import {
   applyTransformPipeline,
-  buildPayload,
+  buildPayload as buildPayloadRaw,
   cleanObject,
   FREE_TEXT_CUSTOM_PATTERN_MAX_LENGTH,
   inferSchemaFromExample,
@@ -22,6 +22,20 @@ import {
   type LeadgenPayloadNode,
   type LeadgenPayloadSchema,
 } from "../src/leadgen/payload";
+import { withLiftedBindings } from "./helpers/leadgen-answer-bindings";
+
+// OWNER RULING 2026-08-12 — a payload node carries no binding of its own; the
+// Section row does (leadgen_section_answer_maps → ctx.answer_bindings). The
+// build cases below author the pre-ruling node shorthand and their SUBJECT is
+// the pipeline, so the shim lifts each node's pivot onto the real binding route
+// with every expectation unchanged. See test/helpers/leadgen-answer-bindings.ts.
+function buildPayload(
+  schema: Parameters<typeof buildPayloadRaw>[0],
+  ctx: Parameters<typeof buildPayloadRaw>[1],
+): ReturnType<typeof buildPayloadRaw> {
+  return buildPayloadRaw(...withLiftedBindings(schema, ctx));
+}
+
 
 // The 04 §11.5 normative example schema (verbatim node shapes).
 function normativeSchema(): LeadgenPayloadSchema {
@@ -36,7 +50,10 @@ function normativeSchema(): LeadgenPayloadSchema {
           type: "boolean",
           required: true,
           source: "answer",
-          internal_field: "homeowner",
+          // OWNER RULING 2026-08-12 — "homeowner" (and its true/false map) are
+          // the SECTION mapping row's; the node declares only that an answer
+          // fills this field. The build test below supplies them as the runtime
+          // does, through ctx.answer_bindings.
           value_map: { true: true, false: false },
         },
         { path: "meta.click_id", name: "click_id", type: "string", source: "macro", macro: "click_id" },
@@ -168,7 +185,6 @@ describe("validatePayloadSchema — §11.5 shape", () => {
         name: "e",
         type: "enum",
         source: "answer",
-        internal_field: "x",
         valid_values: ["a", "b"],
         default: "zzz",
       },
@@ -183,14 +199,19 @@ describe("validatePayloadSchema — §11.5 shape", () => {
 
   it("enforces per-source integrity rules", () => {
     const bad = schemaWith([
-      { path: "a", name: "a", type: "string", source: "answer" }, // no internal_field
       { path: "b", name: "b", type: "string", source: "static" }, // no value
       { path: "c", name: "c", type: "string", source: "computed" }, // no computed key
       { path: "d", name: "d", type: "string", source: "macro" }, // no macro
       { path: "e", name: "e", type: "string", source: "macro", macro: "not_a_macro" },
     ]);
     const codes = validatePayloadSchema(bad).errors.map((e) => e.code);
-    expect(codes).toContain("answer_missing_internal_field");
+    // source:"answer" left this matrix on 2026-08-12: it needs nothing beyond
+    // itself — the question that fills it is the Section tab's row, so there is
+    // no per-node pivot that can be missing.
+    expect(
+      validatePayloadSchema(schemaWith([{ path: "z", name: "z", type: "string", source: "answer" }]))
+        .errors,
+    ).toEqual([]);
     expect(codes).toContain("static_missing_value");
     expect(codes).toContain("computed_missing_key");
     expect(codes).toContain("macro_missing_name");
@@ -204,7 +225,6 @@ describe("validatePayloadSchema — §11.5 shape", () => {
         name: "a",
         type: "string",
         source: "answer",
-        internal_field: "x",
         value_map: "nope" as unknown as Record<string, unknown>,
       },
       {
@@ -212,7 +232,6 @@ describe("validatePayloadSchema — §11.5 shape", () => {
         name: "b",
         type: "string",
         source: "answer",
-        internal_field: "x",
         transform: [{ kind: "reverse" } as never],
       },
       {
@@ -220,7 +239,6 @@ describe("validatePayloadSchema — §11.5 shape", () => {
         name: "c",
         type: "string",
         source: "answer",
-        internal_field: "x",
         transform: [{ kind: "mapEnum" } as never],
       },
       {
@@ -228,7 +246,6 @@ describe("validatePayloadSchema — §11.5 shape", () => {
         name: "d",
         type: "string",
         source: "answer",
-        internal_field: "x",
         transform: [{ kind: "formatDate" } as never],
       },
     ]);
@@ -265,7 +282,6 @@ describe("validatePayloadSchema — §11.5 shape", () => {
       name: "carrier",
       type: "string",
       source: "answer",
-      internal_field: "carrier",
       ...extra,
     });
 
@@ -325,11 +341,12 @@ describe("validatePayloadSchema — §11.5 shape", () => {
       ]);
       const withoutDisplay = schemaWith([answerNode({ value_map: { acme: "ACM", globex: "GLX" } })]);
       const answers = { carrier: "globex" }; // a SECONDARY (Other-panel) value
-      expect(buildPayload(withDisplay, ctx({ answers }))).toEqual(
-        buildPayload(withoutDisplay, ctx({ answers })),
-      );
+      // The pivot rides the SECTION binding (owner ruling 2026-08-12) — the
+      // node declares the field, the mapping row says which answer fills it.
+      const bound = ctx({ answers, answer_bindings: { carrier: [{ internal_field: "carrier" }] } });
+      expect(buildPayload(withDisplay, bound)).toEqual(buildPayload(withoutDisplay, bound));
       // §6.4: the secondary selection emits its REAL provider output value.
-      expect(buildPayload(withDisplay, ctx({ answers }))).toEqual({ carrier: "GLX" });
+      expect(buildPayload(withDisplay, bound)).toEqual({ carrier: "GLX" });
     });
 
     it("§6.4 never-literal-'Other': the string 'Other' is sent ONLY when a mapping row outputs it", () => {
@@ -339,14 +356,15 @@ describe("validatePayloadSchema — §11.5 shape", () => {
           choiceDisplay: { mainValues: ["acme"], otherGroupEnabled: true, otherGroupLabel: "Other" },
         }),
       ]);
+      // The pivot comes from the SECTION mapping row (owner ruling 2026-08-12).
+      const bind = (carrier: string): LeadgenPayloadBuildContext =>
+        ctx({ answers: { carrier }, answer_bindings: { carrier: [{ internal_field: "carrier" }] } });
       // Selecting a secondary REAL value → its REAL output, never the label.
-      expect(buildPayload(schema, ctx({ answers: { carrier: "acme" } }))).toEqual({ carrier: "ACM" });
+      expect(buildPayload(schema, bind("acme"))).toEqual({ carrier: "ACM" });
       // Only an explicit mapping row whose provider output IS "Other" emits it.
-      expect(buildPayload(schema, ctx({ answers: { carrier: "other_carrier" } }))).toEqual({
-        carrier: "Other",
-      });
+      expect(buildPayload(schema, bind("other_carrier"))).toEqual({ carrier: "Other" });
       // The Other-group LABEL is not an answer value: a map miss → fallback path (absent here → dropped).
-      expect(buildPayload(schema, ctx({ answers: { carrier: "Other" } }))).toEqual({});
+      expect(buildPayload(schema, bind("Other"))).toEqual({});
     });
   });
 
@@ -358,7 +376,6 @@ describe("validatePayloadSchema — §11.5 shape", () => {
           name: "carrier",
           type: "string",
           source: "answer",
-          internal_field: "carrier",
           value_map: { acme: "ACM", globex: "GLX" },
           choiceDisplay: choiceDisplay as LeadgenPayloadNode["choiceDisplay"],
           ...extra,
@@ -399,7 +416,6 @@ describe("validatePayloadSchema — §11.5 shape", () => {
           name: "notes",
           type: "string",
           source: "answer",
-          internal_field: "notes",
           choiceDisplay: { mainValues: ["anything"] },
         },
       ]);
@@ -433,6 +449,9 @@ describe("validatePayloadSchema — §11.5 shape", () => {
       expect([...LEADGEN_PAYLOAD_WARNING_ERROR_CODES]).toEqual([
         "enum_value_violation",
         "choice_display_invalid",
+        // 2026-08-12: a node-authored pivot is IGNORED (the Section row binds),
+        // so it is advisory — visible in the §6.11 panel, never a save blocker.
+        "answer_legacy_binding_ignored",
       ]);
       for (const code of LEADGEN_PAYLOAD_WARNING_ERROR_CODES) {
         expect(LEADGEN_PAYLOAD_BLOCKING_ERROR_CODES).not.toContain(code);
@@ -464,7 +483,6 @@ describe("validatePayloadSchema — §11.5 shape", () => {
           name: "tier",
           type: "enum",
           source: "answer",
-          internal_field: "tier",
           valid_values: ["gold", "silver"],
           default: "zzz", // enum_value_violation — warning class
           choiceDisplay: { mainValues: ["ghost"] }, // choice_display_invalid — warning class
@@ -485,7 +503,6 @@ describe("validatePayloadSchema — §11.5 shape", () => {
           name: "tier",
           type: "enum",
           source: "answer",
-          internal_field: "tier",
           valid_values: ["gold"],
           default: "zzz",
         },
@@ -545,7 +562,6 @@ describe("validatePayloadSchema — §11.5 shape", () => {
       name: "first_name",
       type: "string",
       source: "answer",
-      internal_field: "first_name",
       ...extra,
     });
     const codesOf = (schema: LeadgenPayloadSchema): string[] =>
@@ -680,7 +696,6 @@ describe("validatePayloadSchema — §11.5 shape", () => {
       name: "sent_at",
       type: "string",
       source: "answer",
-      internal_field: "sent_at",
       ...extra,
     });
     const codesOf = (schema: LeadgenPayloadSchema): string[] =>
@@ -733,7 +748,7 @@ describe("validatePayloadSchema — §11.5 shape", () => {
 
     it("literal defaults stay literals: non-ref objects and looseJson strings raise no computed errors", () => {
       const literalObject = schemaWith([
-        { path: "o", name: "o", type: "object", source: "answer", internal_field: "o", default: { a: 1 } },
+        { path: "o", name: "o", type: "object", source: "answer", default: { a: 1 } },
       ]);
       expect(codesOf(literalObject)).toEqual([]);
       const looseString = schemaWith([answerNode({ default: "18" })]);
@@ -755,6 +770,9 @@ describe("buildPayload — §11.5 source kinds", () => {
   it("builds the normative example end-to-end (answer + macro + token)", () => {
     const payload = buildPayload(normativeSchema(), {
       answers: { homeowner: "true" },
+      // The §11.5 answer node is filled by the SECTION mapping row, exactly as
+      // the auction supplies it (owner ruling 2026-08-12).
+      answer_bindings: { "data.home_own": [{ internal_field: "homeowner" }] },
       macros: { click_id: "clk_1" },
       token: {
         value: "secret-token",

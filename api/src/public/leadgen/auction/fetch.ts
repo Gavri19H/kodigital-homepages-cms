@@ -39,7 +39,11 @@ import { ulid } from "../../../leadgen/ids";
 // wrangler-secret reference, which no admin screen asks for any more.
 import { offerApiTokenFailureMessage, resolveOfferApiToken } from "../../../leadgen/offer-api-token";
 import { resolveMacros } from "../../../leadgen/macros";
-import { buildPayload, type LeadgenPayloadSchema } from "../../../leadgen/payload";
+import {
+  buildPayload,
+  type LeadgenAnswerBinding,
+  type LeadgenPayloadSchema,
+} from "../../../leadgen/payload";
 import {
   REDACTED_VALUE,
   maskPaths,
@@ -160,6 +164,11 @@ export interface FetchProviderResult {
 // (§18.1).
 export interface FetchProviderContext {
   answers: Readonly<Record<string, unknown>>;
+  // The Section-owned question→field bindings for THIS Offer, keyed by payload
+  // field path (owner ruling 2026-08-12 — see leadgen/answer-bindings.ts). A
+  // source:"answer" field with no binding resolves absent; the engine always
+  // supplies the map (possibly empty), it is optional only for legacy harnesses.
+  answer_bindings?: Readonly<Record<string, readonly LeadgenAnswerBinding[]>>;
   macros?: Readonly<Record<string, string>>;
   computed?: Readonly<Record<string, unknown>>;
   // The Offer in scope (04 §4.5) — buildPayload's source:"placement" resolves
@@ -308,6 +317,7 @@ export async function fetchProvider(
   // --- build payload (04 §11.5 — token node injected only for payload placement + server mode)
   const payload = buildPayload(payloadSchema, {
     answers: ctx.answers,
+    ...(ctx.answer_bindings !== undefined ? { answer_bindings: ctx.answer_bindings } : {}),
     macros: macroValues,
     ...(ctx.computed !== undefined ? { computed: ctx.computed } : {}),
     ...(ctx.offer !== undefined ? { offer: ctx.offer } : {}),

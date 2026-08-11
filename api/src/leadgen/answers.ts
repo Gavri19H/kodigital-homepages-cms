@@ -26,6 +26,7 @@
 import {
   applyTransformPipeline,
   buildPayload,
+  type LeadgenAnswerBinding,
   LEADGEN_PAYLOAD_NODE_TYPES,
   type LeadgenPayloadNode,
   type LeadgenPayloadNodeType,
@@ -606,29 +607,42 @@ export function providerNodeType(providerExpectedType: string): LeadgenPayloadNo
     : "string";
 }
 
-// Turn one answer-map edge into a source:"answer" payload node. The dotted
-// field path implies nesting exactly as the §11.5 normative schema shape does.
+// One answer-map edge, split down the OWNERSHIP line the owner drew on
+// 2026-08-12: "there should be only one source of truth and this is the section
+// tab and not the payload."
+//
+//   answerMappingToNode    → the PROVIDER CONTRACT half: which field exists, its
+//                            dotted path (nesting exactly as the §11.5 normative
+//                            shape), JSON key, type, required, enum domain.
+//   answerMappingToBinding → the QUESTION half: which answer fills it and that
+//                            answer's per-Offer value map / output format /
+//                            default / fallback.
+//
+// A node NEVER carries the binding half — payload.ts bindAnswerNode supplies it
+// from ctx.answer_bindings, so there is exactly one place a binding can come
+// from whether the schema was authored in the payload builder or derived here.
 export function answerMappingToNode(mapping: LeadgenAnswerMapping): LeadgenPayloadNode {
   const segments = mapping.offer_payload_field_path.split(".");
   const name = segments[segments.length - 1] ?? mapping.offer_payload_field_path;
-  const map = isRecord(mapping.output_value_map) ? mapping.output_value_map : undefined;
-  const transform =
-    Array.isArray(mapping.value_transform) && mapping.value_transform.length > 0
-      ? mapping.value_transform
-      : undefined;
   return {
     path: mapping.offer_payload_field_path,
     name,
     type: providerNodeType(mapping.provider_expected_type),
     required: mapping.required_for_offer === true,
     valid_values: Array.isArray(mapping.valid_values) ? mapping.valid_values : undefined,
-    default: mapping.default_value,
-    fallback: mapping.fallback_value,
     source: "answer",
-    internal_field: mapping.internal_field,
-    value_map: map,
-    transform,
   };
+}
+
+export function answerMappingToBinding(mapping: LeadgenAnswerMapping): LeadgenAnswerBinding {
+  const binding: LeadgenAnswerBinding = { internal_field: mapping.internal_field };
+  if (isRecord(mapping.output_value_map)) binding.value_map = mapping.output_value_map;
+  if (Array.isArray(mapping.value_transform) && mapping.value_transform.length > 0) {
+    binding.transform = mapping.value_transform;
+  }
+  if (mapping.default_value !== undefined) binding.default = mapping.default_value;
+  if (mapping.fallback_value !== undefined) binding.fallback = mapping.fallback_value;
+  return binding;
 }
 
 // Build ONE Offer's provider payload from its answer-map edges + the
@@ -644,7 +658,15 @@ export function buildOfferPayload(
     version: 1,
     root: { type: "object", children: mappings.map(answerMappingToNode) },
   };
-  return buildPayload(schema, { answers: normalizedAnswers });
+  // The edges' question half rides the CONTEXT, exactly as the live auction
+  // supplies it from the Section rows (answer-bindings.ts) — same one route.
+  const answer_bindings: Record<string, LeadgenAnswerBinding[]> = {};
+  for (const mapping of mappings) {
+    const list = answer_bindings[mapping.offer_payload_field_path] ?? [];
+    list.push(answerMappingToBinding(mapping));
+    answer_bindings[mapping.offer_payload_field_path] = list;
+  }
+  return buildPayload(schema, { answers: normalizedAnswers, answer_bindings });
 }
 
 // Convenience end-to-end: raw UI answers + one Offer's maps → that Offer's

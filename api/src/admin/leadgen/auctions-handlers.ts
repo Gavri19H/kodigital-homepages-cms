@@ -26,6 +26,7 @@ import { resolveAllowedOutboundSecretReference } from "../../env";
 import { offerApiTokenSealed } from "../../leadgen/offer-api-token";
 import { buildPayload } from "../../leadgen/payload";
 import { redactPii, REDACTED_VALUE } from "../../leadgen/redact";
+import { readAnswerBindings } from "../../leadgen/answer-bindings";
 import { buildLeadgenRuntimeContext } from "../../leadgen/runtime-context";
 import { validateBannerFieldMap } from "../../public/leadgen/designs/banner-default/styles";
 import { loadAuctionBundle, runAuction } from "../../public/leadgen/auction/engine";
@@ -1754,7 +1755,7 @@ export async function auctionSimulateHandler(c: AdminContext): Promise<Response>
     // offer's participating placement in THIS auction so the preview matches
     // what the engine actually sends.
     const rows = await c.env.DB.prepare(
-      `SELECT o.public_id AS offer_public_id, o.offer_name AS offer_name,
+      `SELECT o.id AS offer_row_id, o.public_id AS offer_public_id, o.offer_name AS offer_name,
               o.api_token_placement AS api_token_placement, o.request_execution_mode AS request_execution_mode,
               o.api_token_secret_ref AS api_token_secret_ref,
               o.api_token_cipher AS api_token_cipher, o.api_token_key_id AS api_token_key_id,
@@ -1768,6 +1769,7 @@ export async function auctionSimulateHandler(c: AdminContext): Promise<Response>
     )
       .bind(auction.id, ...ids)
       .all<{
+        offer_row_id: number;
         offer_public_id: string;
         offer_name: string | null;
         api_token_placement: string | null;
@@ -1781,6 +1783,15 @@ export async function auctionSimulateHandler(c: AdminContext): Promise<Response>
         carrier_parse_version: number | null;
         ext_placement: string | null;
       }>();
+    // The Section tab's question→field bindings for this chunk's Offers (owner
+    // ruling 2026-08-12 — the ONE binding source; without them a source:"answer"
+    // field previews absent, exactly as the live engine would send it). Every
+    // Section that maps the Offer counts here: a dry run has no lead, so it shows
+    // what production would send once those Sections are in the funnel.
+    const previewBindings = await readAnswerBindings(
+      c.env.DB,
+      (rows.results ?? []).map((r) => r.offer_row_id),
+    );
     for (const r of rows.results ?? []) {
       const placementForOffer = placementByOffer.get(r.offer_public_id) ?? "";
       // PROVIDER-FACING external placement id (04 §4.5) — never the lgpl_ public id.
@@ -1821,6 +1832,7 @@ export async function auctionSimulateHandler(c: AdminContext): Promise<Response>
           payloadPreview = redactPii(
             buildPayload(parsedSchema, {
               answers: sampleAnswers,
+              answer_bindings: previewBindings.get(r.offer_row_id) ?? {},
               macros: offerCtx.macros,
               computed: offerCtx.computed,
               offer: { offer_id: r.offer_public_id, placement_id: externalPlacement },

@@ -17,12 +17,25 @@
 import { describe, expect, it } from "vitest";
 import {
   applyTransformPipeline,
-  buildPayload,
+  buildPayload as buildPayloadRaw,
   validatePayloadSchema,
   type LeadgenPayloadNode,
   type LeadgenPayloadSchema,
 } from "../src/leadgen/payload";
 import { validateSectionContent } from "../src/public/leadgen/components/content-schema";
+import { withLiftedBindings } from "./helpers/leadgen-answer-bindings";
+// OWNER RULING 2026-08-12 — a payload node carries no binding of its own; the
+// Section row does (leadgen_section_answer_maps → ctx.answer_bindings). These
+// cases author the pre-ruling node shorthand and their SUBJECT is the build
+// pipeline, so the shim lifts that shorthand onto the real binding route with
+// every expectation unchanged. See test/helpers/leadgen-answer-bindings.ts.
+function buildPayload(
+  schema: Parameters<typeof buildPayloadRaw>[0],
+  ctx: Parameters<typeof buildPayloadRaw>[1],
+): ReturnType<typeof buildPayloadRaw> {
+  return buildPayloadRaw(...withLiftedBindings(schema, ctx));
+}
+
 
 function schemaWith(nodes: LeadgenPayloadNode[]): LeadgenPayloadSchema {
   return { version: 1, root: { type: "object", children: nodes } };

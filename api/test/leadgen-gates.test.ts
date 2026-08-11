@@ -1561,3 +1561,129 @@ describeDb("computeAttemptBindingExtras — deterministic + auction-version awar
     expect(again.signed_config_token.startsWith("v2.")).toBe(true);
   });
 });
+
+// ===========================================================================
+// THE MONEY PATH — a payload field is filled by the SECTION's mapping row and
+// by nothing else (owner ruling 2026-08-12, verbatim):
+//
+//   "there should be only one source of truth and this is the section tab and
+//    not the payload. in the payload we declare that the source is answer, and
+//    then in the sections we show all the fields of all the offers that
+//    relevant to the activity **and** vertical and we should map it **only**
+//    over there."
+//
+// Driven through the LIVE /lg/auction route with a real minted attempt, and
+// asserted on the bytes the provider actually receives.
+// ===========================================================================
+
+describeDb("live auction — the Section mapping fills the payload, the payload cannot", () => {
+  const LANDING = "https://one.example.com/lg/bind";
+  // Two answer fields. NEITHER declares a pivot; one gets a Section mapping,
+  // the other carries the PRE-RULING hand-typed internal_field and must stay
+  // empty forever.
+  const ANSWER_SCHEMA = JSON.stringify({
+    version: 1,
+    root: {
+      type: "object",
+      children: [
+        { path: "mapped", name: "mapped", type: "string", source: "answer" },
+        {
+          path: "typed_in_payload",
+          name: "typed_in_payload",
+          type: "string",
+          source: "answer",
+          internal_field: "f", // the same answer the mapped field uses
+        },
+        { path: "plc", name: "plc", type: "string", source: "placement" },
+      ],
+    },
+  });
+
+  it("the mapped field arrives (through the row's value map); a payload-authored internal_field sends NOTHING", async () => {
+    const { sdb, env } = newHarness();
+    const { variantId, sectionId } = await seedActivatedFunnel(env, sdb, "bindmp");
+    const seeded = seedDynamicAuctionForVariant(sdb, variantId, { schemaJson: ANSWER_SCHEMA });
+    const schema = sdb
+      .prepare("SELECT id, public_id FROM leadgen_offer_payload_schemas WHERE offer_id = ?")
+      .get(seeded.offerId) as { id: number; public_id: string };
+    // THE binding: the Section's question `f` fills `mapped`, formatted for
+    // THIS Offer by the row's own value map.
+    sdb
+      .prepare(
+        `INSERT INTO leadgen_section_answer_maps
+           (public_id, section_id, question_id, question_key, internal_field, answer_type, offer_id,
+            payload_schema_id, payload_schema_public_id, offer_payload_field_path, provider_expected_type,
+            output_value_map_json, mapping_status, validation_status)
+         VALUES (?, ?, 'q1', 'k', 'f', 'boolean', ?, ?, ?, 'mapped', 'string', ?, 'complete', 'ok')`,
+      )
+      .run(
+        mintPublicId("answer_field_map"),
+        sectionId,
+        seeded.offerId,
+        schema.id,
+        schema.public_id,
+        JSON.stringify({ true: "YES", false: "NO" }),
+      );
+
+    const attempt = await mintLiveAttempt(env, variantId, LANDING);
+    const bodies: Array<Record<string, unknown>> = [];
+    vi.stubGlobal("fetch", async (_url: RequestInfo | URL, init?: RequestInit): Promise<Response> => {
+      bodies.push(JSON.parse(String(init?.body ?? "{}")) as Record<string, unknown>);
+      return new Response(
+        JSON.stringify({ carriers: [{ name: "Acme", bid: 12, url: "https://acme.example/c", logo: "https://a.example/l.png" }] }),
+        { status: 200 },
+      );
+    });
+
+    const res = await reqTenant(
+      env,
+      "/lg/auction",
+      jsonInit("POST", {
+        funnel_variant_id: variantId,
+        funnel_attempt_id: attempt.funnel_attempt_id,
+        section_order_hash: attempt.section_order_hash,
+        signed_config_token: attempt.signed_config_token,
+        session_id: attempt.session_id,
+        page_view_id: "pv-bind",
+        answers: { f: { value: true, answer_source: "user_selected" } },
+      }),
+    );
+    expect(res.status, `auction: ${await res.clone().text()}`).toBe(200);
+    expect(bodies).toHaveLength(1);
+    // the Section row bound it AND formatted it
+    expect(bodies[0]!["mapped"]).toBe("YES");
+    // the payload-authored pivot resolved NOTHING — cleanObject dropped the field
+    expect(Object.prototype.hasOwnProperty.call(bodies[0]!, "typed_in_payload")).toBe(false);
+  });
+
+  it("with NO Section mapping the answer field is absent — the same answer, nothing sent", async () => {
+    const { sdb, env } = newHarness();
+    const { variantId } = await seedActivatedFunnel(env, sdb, "bindnone");
+    seedDynamicAuctionForVariant(sdb, variantId, { schemaJson: ANSWER_SCHEMA });
+    const attempt = await mintLiveAttempt(env, variantId, LANDING);
+    const bodies: Array<Record<string, unknown>> = [];
+    vi.stubGlobal("fetch", async (_url: RequestInfo | URL, init?: RequestInit): Promise<Response> => {
+      bodies.push(JSON.parse(String(init?.body ?? "{}")) as Record<string, unknown>);
+      return new Response(JSON.stringify({ carriers: [] }), { status: 200 });
+    });
+    const res = await reqTenant(
+      env,
+      "/lg/auction",
+      jsonInit("POST", {
+        funnel_variant_id: variantId,
+        funnel_attempt_id: attempt.funnel_attempt_id,
+        section_order_hash: attempt.section_order_hash,
+        signed_config_token: attempt.signed_config_token,
+        session_id: attempt.session_id,
+        page_view_id: "pv-nobind",
+        answers: { f: { value: true, answer_source: "user_selected" } },
+      }),
+    );
+    expect(res.status, `auction: ${await res.clone().text()}`).toBe(200);
+    expect(bodies).toHaveLength(1);
+    expect(Object.prototype.hasOwnProperty.call(bodies[0]!, "mapped")).toBe(false);
+    expect(Object.prototype.hasOwnProperty.call(bodies[0]!, "typed_in_payload")).toBe(false);
+    // the non-answer field still rides — only the answer legs went quiet
+    expect(typeof bodies[0]!["plc"]).toBe("string");
+  });
+});

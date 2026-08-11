@@ -172,7 +172,7 @@ export const PAYLOAD_SOURCE_GROUPS: ReadonlyArray<PayloadSourceGroup> = [
       {
         value: "answer",
         label: "Answer from a funnel question",
-        help: "A visitor's answer — pick the answer field below (the field a question fills, named in the Section studio); its value feeds this payload field.",
+        help: "A visitor's answer fills this field. WHICH question fills it is set in the Section tab (Sections → the Section's Offers tab), the one place answer mapping lives — this only declares the source.",
       },
     ],
   },
@@ -354,7 +354,9 @@ export const PAYLOAD_SCHEMA_ERROR_HINTS: Readonly<Record<string, string>> = {
   enum_valid_values_required: "A choice-list field needs at least one valid value — add them in the Valid values editor.",
   valid_values_invalid: "Valid values must be a list — re-add them in the Valid values editor.",
   enum_value_violation: "The default/fallback/static value must be one of the field's valid values.",
-  answer_missing_internal_field: "Pick (or type) the answer field that fills this payload field.",
+  answer_not_mapped: "No question maps this field yet — map it in the Section's Offers tab (Sections → the Section that asks it).",
+  answer_legacy_binding_ignored:
+    "This field still stores a hand-typed internal_field from before mapping moved to the Section tab. It does nothing — the Section's mapping decides which question fills the field.",
   value_map_invalid: "The value map must be a set of internal → provider rows — re-open the Value map editor.",
   transform_invalid:
     "The transform is not a supported pipeline for this field — re-pick the Output format (it sets the transform and the sent type together), or fix it in the Advanced drawer.",
@@ -572,10 +574,8 @@ function renderEditorTemplate(): string {
     </div>
 
     <div data-pb-panel="answer" hidden>
-      <label class="form-label">Answer field *</label>
-      <input type="search" class="form-input" data-pb-answer-search placeholder="Search answer fields…" aria-label="Search answer fields" />
-      <select class="form-select" data-pb-answer-picker aria-label="Answer field"></select>
-      <input type="text" class="form-input" data-pb-answer-manual placeholder="…or type the field name a question fills, e.g. zip" aria-label="Answer field name" />
+      <label class="form-label">Filled by a funnel question</label>
+      <div data-pb-answer-mapped></div>
       <p class="form-help" data-pb-answer-meta></p>
     </div>
 
@@ -727,7 +727,7 @@ function renderEditorTemplate(): string {
         <input type="text" class="form-input" data-pb-array-static-input placeholder="Type an item and press Enter" aria-label="Add list item" />
       </div>
       <div data-pb-array-panel="multi_answer" hidden>
-        <p class="form-help">The multi-select answer's values are sent as the list. Pick the answer field in the Source panel above (source = User answer).</p>
+        <p class="form-help">The multi-select answer's values are sent as the list. Which question fills it is mapped in the Section tab.</p>
       </div>
       <div data-pb-array-panel="repeated_group" hidden>
         <p class="form-help">Item objects ride as children in the tree (item 1, item 2, &#8230;) — each item's fields map to their own answers (e.g. driver_1_age, driver_2_age).</p>
@@ -1511,6 +1511,9 @@ export const PAYLOAD_BUILDER_SCRIPT = `
   var testBootstrap = readIsland('lg-test-data') || {};
   var builderContext = bootstrap.builder_context || {};
   var answerFields = builderContext.answer_fields || [];
+  // WHO fills each answer field — the Section tab's rows. The payload builder
+  // renders them; it never writes them (owner ruling 2026-08-12).
+  var answerMappings = builderContext.answer_mappings || [];
   var computedOptions = bootstrap.computed_options || [];
   var errorHints = bootstrap.error_hints || {};
   var blockingCodes = bootstrap.blocking_codes || [];
@@ -1642,6 +1645,16 @@ export const PAYLOAD_BUILDER_SCRIPT = `
     var c = computedByKey(key);
     if (!c) { return undefined; }
     return c.output_type === 'number' ? Number(c.example) : c.example;
+  }
+  // The Section-owned mapping rows for one payload path (builder_context
+  // answer_mappings — read-only here by construction).
+  function mappingsForPath(path) {
+    var out = [];
+    var i;
+    for (i = 0; i < answerMappings.length; i++) {
+      if (answerMappings[i].path === path) { out.push(answerMappings[i]); }
+    }
+    return out;
   }
   function answerFieldByName(internal) {
     var i;
@@ -1904,8 +1917,12 @@ export const PAYLOAD_BUILDER_SCRIPT = `
       if (node.type === 'enum' && (Object.prototype.toString.call(node.valid_values) !== '[object Array]' || node.valid_values.length === 0)) {
         errors.push({ code: 'enum_valid_values_required', path: path, message: 'a choice-list field needs valid values' });
       }
-      if (node.source === 'answer' && trimStr(node.internal_field) === '') {
-        errors.push({ code: 'answer_missing_internal_field', path: path, message: 'pick or type the answer field that fills it' });
+      // The check is now "does a Section map it?" — never "did you type a field
+      // name here?" (owner ruling 2026-08-12). Advisory, not blocking: authoring
+      // the Offer's payload BEFORE the funnel maps it is a legitimate order of
+      // work, and the Section tab is where the gap gets closed.
+      if (node.source === 'answer' && mappingsForPath(path).length === 0) {
+        errors.push({ code: 'answer_not_mapped', path: path, message: 'no question maps this field yet \u2014 it will be sent empty' });
       }
       if (node.source === 'static' && node.value === undefined) {
         errors.push({ code: 'static_missing_value', path: path, message: 'type the static value to send' });
@@ -2069,7 +2086,7 @@ export const PAYLOAD_BUILDER_SCRIPT = `
     // Selector LISTS are allowed: jumpToIssue flags the first VISIBLE match, so
     // an answer field with no universe to pick from lands on the typed box
     // instead of pulsing a hidden <select> (the dead end the operator hit).
-    answer_missing_internal_field: '[data-pb-answer-picker],[data-pb-answer-manual]',
+    answer_not_mapped: '[data-pb-answer-mapped]',
     static_missing_value: '[data-pb-static="text"]',
     computed_missing_key: '[data-pb-source-select]',
     computed_unknown_key: '[data-pb-source-select]',
@@ -2462,6 +2479,19 @@ export const PAYLOAD_BUILDER_SCRIPT = `
   }
   // §6.1 rename: rewrite descendants atomically + the mapped-fields impact
   // warning listing affected answer mappings (builder_context.answer_fields).
+  // Renames since the last save. A Section mapping binds a payload field BY PATH
+  // (owner ruling 2026-08-12), so a rename must take its mappings with it: the
+  // save carries this list and the server moves the rows. Coalesced — renaming
+  // a to b then b to c sends a to c, never two hops applied in order.
+  var renameLog = [];
+  function logRename(from, to) {
+    var i;
+    if (from === to) { return; }
+    for (i = 0; i < renameLog.length; i++) {
+      if (renameLog[i].to === from) { renameLog[i].to = to; return; }
+    }
+    renameLog.push({ from: from, to: to });
+  }
   function renameSelected(newName, impactBox) {
     var isImplicit = selectedRef && selectedRef.kind === 'implicit';
     var oldPath = isImplicit ? selectedRef.path : itemByUid(selectedRef.uid).node.path;
@@ -2477,14 +2507,18 @@ export const PAYLOAD_BUILDER_SCRIPT = `
       return;
     }
     var moved = renamePrefix(oldPath, newPath);
+    logRename(oldPath, newPath);
     if (isImplicit) { selectedRef = { kind: 'implicit', path: newPath }; }
     var mapped = [];
     var i, node, lf;
     for (i = 0; i < moved.length; i++) {
       node = moved[i].node;
-      if (node.source === 'answer' && trimStr(node.internal_field) !== '') {
-        lf = answerFieldByName(node.internal_field);
-        mapped.push(node.internal_field + (lf ? ' (Section: ' + lf.section_name + ')' : ''));
+      if (node.source === 'answer') {
+        var rows = mappingsForPath(node.path);
+        var mi;
+        for (mi = 0; mi < rows.length; mi++) {
+          mapped.push(rows[mi].question_key + ' (Section: ' + rows[mi].section_name + ')');
+        }
       }
     }
     renderAll();
@@ -2492,7 +2526,8 @@ export const PAYLOAD_BUILDER_SCRIPT = `
     if (box && mapped.length > 0) {
       box.hidden = false;
       box.textContent = 'Renamed ' + oldPath + ' \\u2192 ' + newPath + '. ' + mapped.length +
-        ' mapped field' + (mapped.length === 1 ? '' : 's') + ' moved with it: ' + mapped.join(', ') + '.';
+        ' Section mapping' + (mapped.length === 1 ? '' : 's') + ' follow' + (mapped.length === 1 ? 's' : '') +
+        ' it on save: ' + mapped.join(', ') + '.';
     } else if (box && moved.length > 1) {
       box.hidden = false;
       box.textContent = 'Renamed ' + oldPath + ' \\u2192 ' + newPath + ' (' + moved.length + ' fields updated).';
@@ -2610,76 +2645,41 @@ export const PAYLOAD_BUILDER_SCRIPT = `
     try { return JSON.stringify(v); } catch (e) { return String(v); }
   }
 
-  // The §6.2 answer-field control. A payload field points at a FIELD NAME —
-  // the one a question declares in the Section studio ("Field name") — so the
-  // picker offers the whole answer-field universe and the typed box is ALWAYS
-  // live beside it: an operator authoring a payload before (or without) the
-  // question types the name, and nothing about Sections is ever a precondition.
-  // Which Section asks the field is shown as INFORMATION under the control.
-  function fillAnswerPicker(bodyEl, node, filter) {
-    var picker = bodyEl.querySelector('[data-pb-answer-picker]');
-    var manual = bodyEl.querySelector('[data-pb-answer-manual]');
-    var search = bodyEl.querySelector('[data-pb-answer-search]');
+  // The §6.2 answer control is READ-ONLY (owner ruling 2026-08-12): a payload
+  // field DECLARES that an answer fills it; which question does is the Section
+  // tab's mapping row, and this card is that row rendered back. Nothing here
+  // writes — there is exactly one place to map, and it is not this one.
+  function fillAnswerSummary(bodyEl, node) {
+    var box = bodyEl.querySelector('[data-pb-answer-mapped]');
     var meta = bodyEl.querySelector('[data-pb-answer-meta]');
-    if (!picker) { return; }
-    clearChildren(picker);
-    var term = (filter || '').toLowerCase();
-    var current = trimStr(node.internal_field);
-    // The typed box is never hidden — it is the always-open route to a name.
-    if (manual) { manual.hidden = false; manual.value = current; }
-    if (answerFields.length === 0) {
-      picker.hidden = true;
-      if (search) { search.hidden = true; }
-      if (meta) { meta.textContent = 'No funnel question declares an answer field yet \\u2014 type the field name the question will fill (Sections \\u2192 the question\\u2019s Field name).'; }
+    if (!box) { return; }
+    clearChildren(box);
+    var rows = mappingsForPath(node.path);
+    var i, row, line, link;
+    if (rows.length === 0) {
+      box.appendChild(el('p', 'alert alert-warning', 'No question maps this field yet \u2014 nothing will be sent for it. Map it in the Section that asks the question: Sections \u2192 open the Section \u2192 Offers tab.'));
+      if (meta) { meta.textContent = 'Only Sections whose activity + vertical match this Offer can map it.'; }
       return;
     }
-    picker.hidden = false;
-    if (search) { search.hidden = false; }
-    var blank = el('option', null, 'Choose an answer field\\u2026');
-    blank.value = '';
-    picker.appendChild(blank);
-    var groups = {};
-    var order = [];
-    var i, f, key;
-    for (i = 0; i < answerFields.length; i++) {
-      f = answerFields[i];
-      key = f.section_name;
-      if (!groups[key]) { groups[key] = []; order.push(key); }
-      groups[key].push(f);
-    }
-    var matchedCurrent = false;
-    for (i = 0; i < order.length; i++) {
-      var og = document.createElement('optgroup');
-      og.label = order[i];
-      var j, opt, labelText;
-      for (j = 0; j < groups[order[i]].length; j++) {
-        f = groups[order[i]][j];
-        labelText = f.internal_field + ' (' + f.answer_type + (f.choice_count > 0 ? ', ' + f.choice_count + ' choices' : '') + ')';
-        if (term !== '' && (f.internal_field + ' ' + order[i]).toLowerCase().indexOf(term) === -1) { continue; }
-        opt = el('option', null, labelText);
-        opt.value = f.internal_field;
-        if (f.internal_field === current) { opt.selected = true; matchedCurrent = true; }
-        og.appendChild(opt);
-      }
-      if (og.childNodes.length > 0) { picker.appendChild(og); }
-    }
-    if (current !== '' && !matchedCurrent) {
-      var extra = el('option', null, current + ' (no question declares it yet)');
-      extra.value = current;
-      extra.selected = true;
-      picker.appendChild(extra);
+    for (i = 0; i < rows.length; i++) {
+      row = rows[i];
+      line = el('p', 'form-help');
+      line.appendChild(document.createTextNode(
+        row.question_key + ' \u00b7 ' + row.answer_type +
+        (row.has_value_map ? ' \u00b7 value map' : '') +
+        (row.has_transform ? ' \u00b7 output format' : '') +
+        (row.mapping_status !== 'complete' ? ' \u00b7 ' + row.mapping_status : '') +
+        ' \u2014 asked by '
+      ));
+      link = el('a', null, row.section_name);
+      link.href = '/admin/leadgen/sections/' + encodeURIComponent(row.section_public_id) + '/edit#offers';
+      line.appendChild(link);
+      box.appendChild(line);
     }
     if (meta) {
-      var lf = answerFieldByName(current);
-      var alsoIn = 0;
-      if (lf) {
-        for (i = 0; i < answerFields.length; i++) {
-          if (answerFields[i].internal_field === current && answerFields[i].section_name !== lf.section_name) { alsoIn++; }
-        }
-      }
-      meta.textContent = lf
-        ? 'Asked by Section \\u201c' + lf.section_name + '\\u201d \\u00b7 ' + lf.answer_type + (lf.choice_count > 0 ? ' \\u00b7 ' + lf.choice_count + ' choices' : '') + (alsoIn > 0 ? ' \\u00b7 also asked by ' + alsoIn + ' other Section' + (alsoIn === 1 ? '' : 's') : '')
-        : (current !== '' ? 'Mapped to ' + current + ' \\u2014 no question declares it yet.' : 'Every field the funnel\\u2019s questions declare \\u2014 searchable, grouped by the Section that asks it. Not there yet? Type the name.');
+      meta.textContent = rows.length === 1
+        ? 'Mapped in the Section tab \u2014 edit it there (value map, output format, default and fallback come with it).'
+        : rows.length + ' Sections map this field \u2014 whichever one the visitor answered fills it.';
     }
   }
 
@@ -3407,6 +3407,13 @@ export const PAYLOAD_BUILDER_SCRIPT = `
     show(bodyEl, '[data-pb-panel="static"]', node.source === 'static' && dtype !== 'object' && dtype !== 'array');
     show(bodyEl, '[data-pb-panel="token"]', node.source === 'token');
     show(bodyEl, '[data-pb-panel="freetext"]', isAnswer && dtype === 'string');
+    // SCOPE NOTE (owner ruling 2026-08-12). What moved to the Section tab is the
+    // BINDING — which question fills this field. The per-Offer FORMAT of that
+    // answer (value map, output format, default, fallback) is authored here and
+    // nowhere else: the Section studio's own \u201cOpen value map\u201d link points AT
+    // this panel, so hiding it would delete the only surface that has it. A
+    // Section mapping row that carries a format still WINS at build time
+    // (payload.ts bindAnswerNode) — these are its fallback, never a rival pivot.
     show(bodyEl, '[data-pb-panel="valuemap"]', isAnswer && !freeText && (dtype === 'string' || dtype === 'enum' || dtype === 'number'));
     show(bodyEl, '[data-pb-panel="validvalues"]', isAnswer && !freeText && (dtype === 'string' || dtype === 'enum' || dtype === 'number'));
     show(bodyEl, '[data-pb-panel="date"]', dtype === 'date');
@@ -3534,7 +3541,7 @@ export const PAYLOAD_BUILDER_SCRIPT = `
     }
     // panels
     applyEditorVisibility(bodyEl, node);
-    fillAnswerPicker(bodyEl, node, '');
+    fillAnswerSummary(bodyEl, node);
     var dtype2 = displayTypeOf(node);
     if (node.source === 'static' && dtype2 !== 'object' && dtype2 !== 'array') {
       var kinds = ['text', 'number', 'boolean', 'date'];
@@ -3676,6 +3683,9 @@ export const PAYLOAD_BUILDER_SCRIPT = `
     else if (encoded === 'token') { node.source = 'token'; node.type = 'string'; delete node.value_map; delete node.transform; delete node.valid_values; }
     else if (encoded.indexOf('macro:') === 0) { node.source = 'macro'; node.macro = encoded.slice(6); }
     else if (encoded.indexOf('computed:') === 0) { node.source = 'computed'; node.computed = encoded.slice(9); }
+    // A node that becomes an answer sheds only its PIVOT (owner ruling
+    // 2026-08-12: which question fills it is the Section tab's row). Its format
+    // authoring stays — see applyEditorVisibility's scope note.
     if (node.source === 'answer' && displayTypeOf(node) === 'boolean' && node.value_map === undefined) {
       node.value_map = { 'true': true, 'false': false };
     }
@@ -3713,13 +3723,6 @@ export const PAYLOAD_BUILDER_SCRIPT = `
         return;
       }
       if (t.getAttribute('data-pb-source-select') !== null) { setSource(item, t.value); return; }
-      if (t.getAttribute('data-pb-answer-picker') !== null || t.getAttribute('data-pb-answer-manual') !== null) {
-        var iv = trimStr(t.value);
-        if (iv === '') { delete node.internal_field; } else { node.internal_field = iv; }
-        renderEditor();
-        afterModelChange();
-        return;
-      }
       if (t.getAttribute('data-pb-static') !== null) {
         node.value = typedStaticValue(node, t.value, t.getAttribute('data-pb-static'));
         afterModelChange();
@@ -3879,10 +3882,6 @@ export const PAYLOAD_BUILDER_SCRIPT = `
       var t = e.target;
       var item = selectedItem();
       if (!t || !t.getAttribute || !item) { return; }
-      if (t.getAttribute('data-pb-answer-search') !== null) {
-        fillAnswerPicker(editorEl, item.node, t.value);
-        return;
-      }
       if (t.getAttribute('data-pb-date-sample') !== null) { updateDatePreview(editorEl, item.node); }
       // P5 S5c (SRC-7B) — preview-only, no model write (mirrors the date
       // sample input above).
@@ -4595,11 +4594,12 @@ export const PAYLOAD_BUILDER_SCRIPT = `
       }
       saveBtn.disabled = true;
       saveBtn.classList.add('lg-saving');
-      getJson('POST', apiBase + '/payload-schemas', { schema_json: buildSchemaJson() }).then(function (res) {
+      getJson('POST', apiBase + '/payload-schemas', { schema_json: buildSchemaJson(), renamed_paths: renameLog }).then(function (res) {
         saveBtn.disabled = false;
         saveBtn.classList.remove('lg-saving');
         if (res.ok && res.body && res.body.version) {
           activeVersion = res.body.version;
+          renameLog = []; // the server moved the mapping rows with this version
           if (metaEl) { metaEl.textContent = 'Active schema: v' + res.body.version + ' (' + (res.body.source || 'manual') + ')'; }
           renderServerOutcome(res.body);
           sampleFieldsCache = null; // regenerate the Test form off the new version

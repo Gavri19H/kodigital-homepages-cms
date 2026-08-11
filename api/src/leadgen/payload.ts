@@ -251,7 +251,7 @@ export type LeadgenPayloadSchemaErrorCode =
   | "enum_valid_values_required"
   | "valid_values_invalid"
   | "enum_value_violation"
-  | "answer_missing_internal_field"
+  | "answer_legacy_binding_ignored"
   | "value_map_invalid"
   | "transform_invalid"
   | "static_missing_value"
@@ -297,7 +297,11 @@ export interface LeadgenPayloadSchemaError {
 //   valid_values_invalid         BLOCKING type — the declared domain is not a list
 //   enum_value_violation         WARNING advisory — authored default/fallback/value escapes the declared
 //                                domain; the schema still builds (runtime domain check governs)
-//   answer_missing_internal_field BLOCKING structural — an answer node without its pivot cannot resolve
+//   answer_legacy_binding_ignored WARNING advisory — OWNER RULING 2026-08-12: the question→field
+//                                binding is the SECTION tab's alone (leadgen_section_answer_maps), so a
+//                                stored internal_field / value_map / transform / default / fallback on an
+//                                answer node is IGNORED at build time. Surfaced (never silent) so an
+//                                operator can see legacy authoring that no longer does anything.
 //   value_map_invalid            BLOCKING type — value_map must be an object to look up
 //   transform_invalid            BLOCKING unknown-key — unknown/malformed transform step in the pipeline
 //   static_missing_value         BLOCKING structural — a static node without a value resolves to nothing
@@ -317,6 +321,7 @@ export interface LeadgenPayloadSchemaError {
 export const LEADGEN_PAYLOAD_WARNING_ERROR_CODES = [
   "enum_value_violation",
   "choice_display_invalid",
+  "answer_legacy_binding_ignored",
 ] as const satisfies readonly LeadgenPayloadSchemaErrorCode[];
 
 export const LEADGEN_PAYLOAD_BLOCKING_ERROR_CODES = [
@@ -333,7 +338,6 @@ export const LEADGEN_PAYLOAD_BLOCKING_ERROR_CODES = [
   "source_invalid",
   "enum_valid_values_required",
   "valid_values_invalid",
-  "answer_missing_internal_field",
   "value_map_invalid",
   "transform_invalid",
   "static_missing_value",
@@ -858,11 +862,25 @@ export function validatePayloadSchema(raw: unknown): LeadgenPayloadSchemaValidat
 
     // Per-source integrity rules.
     if (nodeSource === "answer") {
-      if (typeof node["internal_field"] !== "string" || node["internal_field"].trim() === "") {
+      // OWNER RULING 2026-08-12 (verbatim): "there should be only one source of
+      // truth and this is the section tab and not the payload. in the payload we
+      // declare that the source is answer, and then in the sections we show all
+      // the fields of all the offers that relevant to the activity and vertical
+      // and we should map it only over there."
+      //
+      // So source:"answer" is COMPLETE on its own — it declares "a visitor's
+      // answer fills this field" and nothing more. Which question fills it (and
+      // that question's per-Offer value map / transform / default / fallback) is
+      // the leadgen_section_answer_maps row, resolved at build time through
+      // ctx.answer_bindings. A node carrying the pre-ruling authoring is not an
+      // error (28 stored schemas predate the ruling) but it does NOTHING, so it
+      // warns rather than passing silently.
+      if (node["internal_field"] !== undefined) {
         errors.push({
-          code: "answer_missing_internal_field",
+          code: "answer_legacy_binding_ignored",
           path,
-          message: "source 'answer' requires internal_field",
+          message:
+            "internal_field on an answer field is ignored — which question fills it is the Section tab's mapping",
         });
       }
       if (node["value_map"] !== undefined && !isRecord(node["value_map"])) {
@@ -1165,9 +1183,30 @@ export interface LeadgenPayloadTokenContext {
   request_execution_mode: LeadgenRequestExecutionMode;
 }
 
+// The per-Offer question→field binding, read from the SECTION tab's mapping
+// rows (leadgen_section_answer_maps) — the ONE source of truth for what fills a
+// source:"answer" payload field (owner ruling 2026-08-12). Built from a row by
+// answers.ts answerMappingToBinding, so this and the §12.11 node construction
+// can never drift.
+export interface LeadgenAnswerBinding {
+  internal_field: string;
+  value_map?: Record<string, unknown>;
+  transform?: readonly LeadgenTransformStep[];
+  default?: unknown;
+  fallback?: unknown;
+}
+
 export interface LeadgenPayloadBuildContext {
   // Internal normalized answers (05 §12.7 pivot): internal_field → value.
   answers: Readonly<Record<string, unknown>>;
+  // Section-owned bindings keyed by the payload field PATH (the stable field
+  // identity — a row pinned to an older payload_schema_id still binds its path;
+  // the pin is admin staleness display only). Several Sections MAY map one path
+  // (two Sections asking the same thing): the list is in the lead's Section
+  // order and the first binding whose answer is PRESENT wins, else the first.
+  // No bindings for a path ⇒ the field resolves ABSENT (its default applies,
+  // then cleanObject drops it) — never a fallback to stored node authoring.
+  answer_bindings?: Readonly<Record<string, readonly LeadgenAnswerBinding[]>>;
   // Canonical macro runtime values (macros.ts registry names).
   macros?: Readonly<Record<string, string>>;
   // Server-derived computed values, keyed by the node's `computed` key.
@@ -1539,12 +1578,49 @@ function resolveDefaultOrFallback(slotValue: unknown, ctx: LeadgenPayloadBuildCo
 
 // Build the provider payload for one Offer (04 §11.5 runtime build). Pure
 // and synchronous — secrets/macros/answers arrive pre-resolved in ctx.
+// Overlay the SECTION-owned binding onto one source:"answer" node — the single
+// place the question→field truth enters the build (owner ruling 2026-08-12).
+//
+// THE PIVOT IS THE MAPPING'S, ALWAYS. A node's own internal_field is dropped
+// before anything reads it: with no Section row the field resolves absent (its
+// default applies, then cleanObject drops it), so a payload field can never be
+// filled by a binding authored anywhere but the Section tab.
+//
+// The node keeps what the PROVIDER CONTRACT owns (path, name, type, required,
+// valid_values enum domain, conditional, free-text constraints). The mapping row
+// carries the per-Offer FORMAT of that question's answer (value map / output
+// format / default / fallback) and overrides the node whenever it declares one;
+// where it declares none, a legacy node-authored format still applies. That is
+// back-compat, not a second place to author: the payload builder no longer
+// offers those controls on an answer field (ui-payload-builder
+// applyEditorVisibility), so new formats can only be authored in the Section.
+function bindAnswerNode(
+  node: LeadgenPayloadNode,
+  ctx: LeadgenPayloadBuildContext,
+): LeadgenPayloadNode {
+  const bindings = ctx.answer_bindings?.[node.path] ?? [];
+  const chosen =
+    bindings.find((b) => ctx.answers[b.internal_field] !== undefined) ?? bindings[0];
+  const bound: LeadgenPayloadNode = { ...node };
+  delete bound.internal_field;
+  if (chosen === undefined) return bound;
+  bound.internal_field = chosen.internal_field;
+  if (chosen.value_map !== undefined) bound.value_map = chosen.value_map;
+  if (chosen.transform !== undefined) bound.transform = [...chosen.transform];
+  if (chosen.default !== undefined) bound.default = chosen.default;
+  if (chosen.fallback !== undefined) bound.fallback = chosen.fallback;
+  return bound;
+}
+
 export function buildPayload(
   schema: LeadgenPayloadSchema,
   ctx: LeadgenPayloadBuildContext,
 ): Record<string, unknown> {
   const out: Record<string, unknown> = {};
-  for (const node of schema.root.children) {
+  for (const child of schema.root.children) {
+    // The EFFECTIVE node: an answer field is bound from the Section mapping
+    // before anything else reads it (the conditional gate included).
+    const node = child.source === "answer" ? bindAnswerNode(child, ctx) : child;
     if (node.conditional !== undefined && !conditionalMet(node.conditional, ctx.answers)) {
       continue; // unmet conditional ⇒ node dropped (§11.5)
     }

@@ -221,8 +221,10 @@ function jsonInit(method: string, body: unknown): RequestInit {
 // a static field (and, when asked, the token node for payload placement).
 function testSchema(withTokenNode: boolean): Record<string, unknown> {
   const children: Array<Record<string, unknown>> = [
-    { path: "contact.email", name: "email", type: "string", required: true, source: "answer", internal_field: "email" },
-    { path: "contact.zip", name: "zip", type: "string", source: "answer", internal_field: "zip" },
+    // OWNER RULING 2026-08-12 — an answer field DECLARES its source and nothing
+    // more; which question fills it is the Section mapping row seeded below.
+    { path: "contact.email", name: "email", type: "string", required: true, source: "answer" },
+    { path: "contact.zip", name: "zip", type: "string", source: "answer" },
     { path: "meta.offer", name: "offer", type: "string", source: "macro", macro: "offer_id" },
     { path: "plan", name: "plan", type: "string", source: "static", value: "gold" },
   ];
@@ -230,6 +232,54 @@ function testSchema(withTokenNode: boolean): Record<string, unknown> {
     children.push({ path: "auth.api_token", name: "api_token", type: "string", source: "token" });
   }
   return { version: 1, root: { type: "object", children } };
+}
+
+// A Section that asks the schema's answer fields, with one
+// leadgen_section_answer_maps row per field — the ONLY thing that binds a
+// question to a payload field (owner ruling 2026-08-12).
+function seedAnswerMaps(
+  sdb: SqliteDb,
+  offerId: number,
+  schemaId: number,
+  fields: ReadonlyArray<{ internal_field: string; path: string; type: string }>,
+): void {
+  sdb
+    .prepare(
+      "INSERT OR IGNORE INTO leadgen_sections (public_id, section_name, activity, vertical, headline_text, content_json) VALUES (?, ?, 'quote_funnel', 'life', 'H', '{\"components\":[]}')",
+    )
+    .run("lgs_testtool01", "Test Tool Section");
+  const sectionId = (
+    sdb.prepare("SELECT id FROM leadgen_sections WHERE public_id = ?").get("lgs_testtool01") as {
+      id: number;
+    }
+  ).id;
+  const schemaPublicId = (
+    sdb.prepare("SELECT public_id FROM leadgen_offer_payload_schemas WHERE id = ?").get(schemaId) as {
+      public_id: string;
+    }
+  ).public_id;
+  fields.forEach((field, index) => {
+    sdb
+      .prepare(
+        `INSERT INTO leadgen_section_answer_maps
+           (public_id, section_id, question_id, question_key, internal_field, answer_type, offer_id,
+            payload_schema_id, payload_schema_public_id, offer_payload_field_path, provider_expected_type,
+            mapping_status, validation_status)
+         VALUES (?, ?, ?, ?, ?, 'string', ?, ?, ?, ?, ?, 'complete', 'ok')`,
+      )
+      .run(
+        `lgm_${field.internal_field}${index}`,
+        sectionId,
+        `q_${field.internal_field}`,
+        field.internal_field,
+        field.internal_field,
+        offerId,
+        schemaId,
+        schemaPublicId,
+        field.path,
+        field.type,
+      );
+  });
 }
 
 const CARRIER_PARSE = {
@@ -311,6 +361,14 @@ async function setupOffer(
   );
   expect(schemaRes.status).toBe(201);
   const schema = (await schemaRes.json()) as { id: number };
+
+  // The ONE binding surface (owner ruling 2026-08-12): a Section whose questions
+  // fill contact.email / contact.zip. The Test tool reads these rows through the
+  // same loader the auction uses, so what it builds is what production sends.
+  seedAnswerMaps(sdb, offer.id, schema.id, [
+    { internal_field: "email", path: "contact.email", type: "string" },
+    { internal_field: "zip", path: "contact.zip", type: "string" },
+  ]);
 
   return { sdb, env, puts, offerId: offer.id, offerPublicId: offer.public_id, schemaId: schema.id };
 }
@@ -1081,6 +1139,10 @@ describeDb("POST /offers/:id/test — B7 pre-test validity gate (05 §5.5)", () 
         },
       }),
     );
+    // the tier question maps to the tier field — the ONE binding surface
+    seedAnswerMaps(h.sdb, h.offerId, h.schemaId, [
+      { internal_field: "tier", path: "tier", type: "enum" },
+    ]);
     const calls = stubFetch(() => new Response(JSON.stringify(PROVIDER_BODY), { status: 200 }));
     const { status, body } = await runTest(h, { environment: "staging", sample_answers: { tier: "basic" } });
     expect(status).toBe(200);

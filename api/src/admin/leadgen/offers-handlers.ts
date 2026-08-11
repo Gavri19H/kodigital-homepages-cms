@@ -546,6 +546,107 @@ export async function readAnswerFieldUniverse(
   return out;
 }
 
+// The Section-owned bindings for ONE Offer, projected for the payload builder's
+// READ-ONLY "filled from Sections" card (owner ruling 2026-08-12: the payload
+// builder shows who fills a field, it never authors it). Keyed by the payload
+// field path — the same identity payload.ts bindAnswerNode resolves through.
+export interface LeadgenOfferAnswerMappingRow {
+  path: string;
+  section_public_id: string;
+  section_name: string;
+  question_key: string;
+  internal_field: string;
+  answer_type: string;
+  has_value_map: boolean;
+  has_transform: boolean;
+  mapping_status: string;
+}
+
+export async function readOfferAnswerMappings(
+  db: D1Database,
+  offerId: number,
+): Promise<LeadgenOfferAnswerMappingRow[]> {
+  const res = await db
+    .prepare(
+      `SELECT m.offer_payload_field_path AS path, s.public_id AS section_public_id,
+              s.section_name AS section_name, m.question_key AS question_key,
+              m.internal_field AS internal_field, m.answer_type AS answer_type,
+              m.output_value_map_json AS output_value_map_json, m.transform_json AS transform_json,
+              m.mapping_status AS mapping_status
+         FROM leadgen_section_answer_maps m
+         JOIN leadgen_sections s ON s.id = m.section_id
+        WHERE m.offer_id = ?
+        ORDER BY s.section_name ASC, m.id ASC`,
+    )
+    .bind(offerId)
+    .all<{
+      path: string;
+      section_public_id: string;
+      section_name: string;
+      question_key: string;
+      internal_field: string;
+      answer_type: string;
+      output_value_map_json: string | null;
+      transform_json: string | null;
+      mapping_status: string;
+    }>();
+  return (res.results ?? []).map((r) => ({
+    path: r.path,
+    section_public_id: r.section_public_id,
+    section_name: r.section_name,
+    question_key: r.question_key,
+    internal_field: r.internal_field,
+    answer_type: r.answer_type,
+    has_value_map: r.output_value_map_json !== null && r.output_value_map_json.trim() !== "",
+    has_transform: r.transform_json !== null && r.transform_json.trim() !== "",
+    mapping_status: r.mapping_status,
+  }));
+}
+
+// Follow a payload-field rename with its Section mappings: exact path match +
+// dotted-prefix descendants, per rename, in ONE batch. Returns how many rows
+// moved (0 when the body carries no renames). Deliberately tolerant — a
+// malformed entry is skipped, never a 400: the schema version is already saved
+// and losing the rewrite must not lose the save.
+async function rewriteAnswerMapPaths(
+  db: D1Database,
+  offerId: number,
+  raw: unknown,
+): Promise<number> {
+  if (!Array.isArray(raw) || raw.length === 0) return 0;
+  const statements = [];
+  for (const entry of raw) {
+    if (!isRecord(entry)) continue;
+    const from = typeof entry["from"] === "string" ? entry["from"].trim() : "";
+    const to = typeof entry["to"] === "string" ? entry["to"].trim() : "";
+    if (from === "" || to === "" || from === to) continue;
+    statements.push(
+      db
+        .prepare(
+          `UPDATE leadgen_section_answer_maps
+              SET offer_payload_field_path = ?
+            WHERE offer_id = ? AND offer_payload_field_path = ?`,
+        )
+        .bind(to, offerId, from),
+      db
+        .prepare(
+          `UPDATE leadgen_section_answer_maps
+              SET offer_payload_field_path = ? || substr(offer_payload_field_path, ?)
+            WHERE offer_id = ? AND offer_payload_field_path LIKE ? ESCAPE '\\'`,
+        )
+        .bind(to, from.length + 1, offerId, `${escapeLike(from)}.%`),
+    );
+  }
+  if (statements.length === 0) return 0;
+  const results = await db.batch(statements);
+  let moved = 0;
+  for (const r of results) {
+    const changes = (r.meta as { changes?: number } | undefined)?.changes;
+    if (typeof changes === "number") moved += changes;
+  }
+  return moved;
+}
+
 // The ACTIVE schema's parsed node list (defensive: an unreadable stored
 // schema yields nodes:[] — the B7 gates own error surfacing, this projection
 // only feeds the tree/editor).
@@ -582,8 +683,14 @@ async function offerBuilderContext(
     }
   }
   const answerFields = await readAnswerFieldUniverse(db);
+  // answer_mappings = WHO fills each answer field (the Section tab's rows, the
+  // one binding truth). answer_fields stays for the §6.10 condition `when`
+  // picker ONLY — a condition is a predicate over the answer space, not a
+  // binding, so offering the field universe there creates no second truth.
+  const answerMappings = await readOfferAnswerMappings(db, row.id);
   return {
     active_schema: activeSchema,
+    answer_mappings: answerMappings,
     answer_fields: answerFields.map((f) => ({
       internal_field: f.internal_field,
       section_public_id: f.section_public_id,
@@ -2472,9 +2579,15 @@ export async function createPayloadSchemaHandler(c: AdminContext): Promise<Respo
     "manual",
   );
   if (created === null) return c.json({ error: "Insert failed" }, 500);
+  // A Section mapping binds a payload field BY PATH (owner ruling 2026-08-12 —
+  // see leadgen/answer-bindings.ts), so renaming a field here would orphan every
+  // question that maps it and the field would silently go empty on the money
+  // path. The builder sends the session's renames with the save; the rows follow
+  // the field. Prefix-aware: renaming a GROUP moves its children's mappings too.
+  const remapped = await rewriteAnswerMapPaths(c.env.DB, row.id, body["renamed_paths"]);
   // Additive B7 field: ALWAYS present (empty when clean) so the §6.11 panel
   // footer reads one stable shape.
-  return c.json({ ...schemaRowToApi(created), warnings }, 201);
+  return c.json({ ...schemaRowToApi(created), warnings, remapped_answer_maps: remapped }, 201);
 }
 
 // §11.2 automatic generation: paste an example provider payload → inferred
