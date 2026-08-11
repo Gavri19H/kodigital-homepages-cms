@@ -1116,12 +1116,34 @@ describe("v3.1 §9.3 — Maps job-based precedence (NEW shape wins over legacy)"
     expect(html).not.toContain("data-validate=");
   });
 
-  it("ZIP: jobs.autocomplete=true → data-lg-maps carries enable_autocomplete:true (translated to the runtime's flat wire key)", () => {
+  // INVERTED 2026-08-11 by owner ruling: "zip is only validation and not auto
+  // complete (how do you want to auto complete zip????)". This used to assert
+  // that authoring jobs.autocomplete=true on a ZIP reached the browser as
+  // enable_autocomplete:true — i.e. it PINNED Places being bound to a 5-digit
+  // box, which is how Google's auth-failure handler came to disable the first
+  // field of a live funnel (insurissimo, measured). A ZIP component can no longer
+  // be talked into it from any authoring surface.
+  it("ZIP: jobs.autocomplete=true is REFUSED — a ZIP box is never a Places anchor", () => {
     const html = renderComponent(
       zipNode({ maps: { enabled: true, jobs: { validate: false, auction: false, autocomplete: true } } }),
       DESIGN,
     );
-    expect(html).toContain("&quot;enable_autocomplete&quot;:true");
+    expect(html).toContain("&quot;enable_autocomplete&quot;:false");
+    expect(html).not.toContain("&quot;enable_autocomplete&quot;:true");
+    // the field is still a ZIP field, with OUR validation
+    expect(html).toContain('pattern="\\d{5}"');
+  });
+
+  it("ZIP: the SERVER-side jobs are untouched by that refusal (validate still rides the wire)", () => {
+    // the browser widget is what dies; ZIP→country/state for rules and routing is
+    // a server-side leg reading props.maps directly (serve-auction.ts), and the
+    // authored validate flag still reaches the attribute it always did.
+    const html = renderComponent(
+      zipNode({ maps: { enabled: true, jobs: { validate: true, auction: true, autocomplete: true } } }),
+      DESIGN,
+    );
+    expect(html).toContain("&quot;validate&quot;:true");
+    expect(html).toContain("&quot;enable_autocomplete&quot;:false");
   });
 
   it("Address: maps.enabled=false now actually turns Maps OFF (pre-v3.1 it was unconditional)", () => {
