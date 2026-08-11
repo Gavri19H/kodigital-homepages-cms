@@ -3255,6 +3255,12 @@ const ADDRESS_DEFAULT_FIELD_SPECS: readonly LeadgenAddressFieldSpec[] = [
   { field: "zip", mode: "autofill", required: false, zip5: true, hasCustomPattern: false },
 ];
 
+// The only address parts a Places prediction can be ANCHORED on: a street line,
+// or one box holding the whole address. city/state/zip are fill TARGETS — Places
+// writes INTO them from a resolved place; it is never asked to complete them.
+// See the owner ruling quoted at the autocompleteIndex site below.
+const ADDRESS_AUTOCOMPLETE_ANCHORS: ReadonlySet<string> = new Set(["street", "full_address"]);
+
 // ADJ-A2 fix (R2 P5 S5a): validateSection (runtime/validation.ts) keys a
 // fields[]-authored (or now-default) Address's required/zip5/custom-format
 // failure to THIS field's OWN resolved name (addressFieldKey there —
@@ -3582,9 +3588,30 @@ function renderAddressFieldSet(
       fieldHelperLine(node)
     );
   }
-  // Which field drives the Places autocomplete: the FIRST autofill-mode,
-  // non-full_address field, only when the master Maps toggle allows it.
-  const autocompleteIndex = addressMapsEnabled ? specs.findIndex((f) => f.mode === "autofill") : -1;
+  // Which field drives the Places autocomplete: the FIRST autofill-mode field
+  // there is something to COMPLETE — the street line, or the single
+  // full_address box — and only when the master Maps toggle allows it.
+  //
+  // OWNER RULING (2026-08-11): "zip is only validation and not auto complete
+  // (how do you want to auto complete zip????) … the usage of the Google maps
+  // for Zip only section is in validation of the zip country for rules and
+  // routings!" — and, from the R2 source of truth: "I want the user will insert
+  // the Zip by himself but to validate the Zip in a 5 digits zip validation".
+  //
+  // Before this, the rule was "the first autofill-mode field", full stop. On a
+  // ZIP-ONLY set that made the ZIP BOX ITSELF the Places anchor — which is how
+  // Google's widget came to be bound to a 5-digit field, and therefore how a
+  // referrer rejection got to disable the first field of a live funnel (measured
+  // on insurissimo: `disabled` after one keystroke; see the guard in serve.ts).
+  // A ZIP/city/state box is a FILL TARGET, never an anchor: there is nothing to
+  // predict from two digits of a postcode. With no anchor, no field carries
+  // data-lg-maps, so mapsFieldsNeedSdk stays false and the page never loads the
+  // Maps SDK at all — one less third-party script on every visit. The 5-digit
+  // validation is untouched: it is ours (pattern/maxlength + runtime
+  // validateAddressField), and never came from Google.
+  const autocompleteIndex = addressMapsEnabled
+    ? specs.findIndex((f) => f.mode === "autofill" && ADDRESS_AUTOCOMPLETE_ANCHORS.has(f.field))
+    : -1;
   // R2 P5 S5a: the §8.1 leading icon + the §11.5/§12 Style-tab corners/
   // border-color overrides (MAJOR-1) were only ever wired on the single-
   // input legacy renderer this function's caller now also replaces for the
