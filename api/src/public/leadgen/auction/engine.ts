@@ -46,6 +46,10 @@ import {
 import { computeSectionOrderHash } from "../config-dto";
 import type { ResolvedActivatedFunnel } from "../resolver";
 import { normalizeAnswers, type LeadgenRawAnswers } from "../../../leadgen/answers";
+import {
+  readAnswerBindings,
+  type LeadgenOfferAnswerBindings,
+} from "../../../leadgen/answer-bindings";
 import type { LeadgenSectionContent } from "../components/content-schema";
 import {
   conditionsMatch,
@@ -1267,6 +1271,19 @@ export async function runAuction(
   // Each request carries ITS Offer's canonical runtime context (04 §4.7.1):
   // macros + computed + the offer/placement slice from THE builder.
   const dynamicCandidates = candidates.filter((b) => callsProvider(b.offer));
+  // The question→field bindings for THIS lead: the Section tab's mapping rows
+  // for the Sections the lead actually passed through, in funnel order (owner
+  // ruling 2026-08-12 — the payload node no longer carries its own pivot, so
+  // without these an answer field resolves absent). ONE query for the whole
+  // candidate set; skipped entirely when no dynamic Offer will POST.
+  const answerBindings =
+    dynamicCandidates.length === 0
+      ? new Map<number, LeadgenOfferAnswerBindings>()
+      : await readAnswerBindings(
+          env.DB,
+          dynamicCandidates.map((b) => b.offer.id),
+          input.resolved.sections.map((rs) => rs.section.id),
+        );
   const requests: ParallelProviderRequest[] = dynamicCandidates.flatMap((b) => {
     // R4 invariant: an eligible dynamic Offer HAS a valid schema. The guard is
     // defensive only — it can never fabricate an empty schema to POST.
@@ -1279,6 +1296,7 @@ export async function runAuction(
         payloadSchema: b.payload_schema,
         ctx: {
           answers: normalizedAnswers,
+          answer_bindings: answerBindings.get(b.offer.id) ?? {},
           macros: ctx.macros,
           computed: ctx.computed,
           offer: ctx.offer,

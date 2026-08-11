@@ -6,6 +6,7 @@
 
 import { describe, expect, it } from "vitest";
 import {
+  answerMappingToBinding,
   answerMappingToNode,
   buildOfferPayload,
   generateOfferPayload,
@@ -251,7 +252,11 @@ describe("buildOfferPayload — transform + coercion branches (§12.11 order)", 
     expect(run({}, {})).toEqual({});
   });
 
-  it("answerMappingToNode maps the edge into a source:'answer' node", () => {
+  // OWNER RULING 2026-08-12 — the edge splits along the ownership line: the NODE
+  // is the provider contract (which field, path, key, type), the BINDING is the
+  // question half (which answer + its per-Offer map/format/default/fallback).
+  // A node carrying the question half would be a second place to bind.
+  it("answerMappingToNode maps the edge into the source:'answer' node — contract half ONLY", () => {
     const node = answerMappingToNode(
       mapping({ provider_expected_type: "number", offer_payload_field_path: "a.b.c", output_value_map: { true: 1 } }),
     );
@@ -259,7 +264,28 @@ describe("buildOfferPayload — transform + coercion branches (§12.11 order)", 
     expect(node.path).toBe("a.b.c");
     expect(node.name).toBe("c");
     expect(node.type).toBe("number");
-    expect(node.value_map).toEqual({ true: 1 });
+    expect(node.value_map).toBeUndefined();
+    expect(node.internal_field).toBeUndefined();
+    expect(node.transform).toBeUndefined();
+  });
+
+  it("answerMappingToBinding carries the question half — pivot + per-Offer map/format/default/fallback", () => {
+    const binding = answerMappingToBinding(
+      mapping({
+        internal_field: "f",
+        output_value_map: { true: 1 },
+        value_transform: [{ kind: "toString" }],
+        default_value: "D",
+        fallback_value: "F",
+      }),
+    );
+    expect(binding).toEqual({
+      internal_field: "f",
+      value_map: { true: 1 },
+      transform: [{ kind: "toString" }],
+      default: "D",
+      fallback: "F",
+    });
   });
 
   it("providerNodeType coerces an unknown provider type to string", () => {

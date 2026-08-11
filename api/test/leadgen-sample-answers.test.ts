@@ -296,7 +296,12 @@ async function activateSchema(h: Harness, schema: Record<string, unknown>): Prom
     h.env,
   );
   expect(res.status).toBe(201);
-  return ((await res.json()) as { id: number }).id;
+  const id = ((await res.json()) as { id: number }).id;
+  // OWNER RULING 2026-08-12 — the Test tab's form and payload both come from the
+  // SECTION's mapping rows, so the fixture Section maps this schema's answer
+  // fields as soon as the version exists (mirrors the studio's Offers tab save).
+  mapQuestionsToOffer(h, SAMPLE_FIXTURE_EDGES);
+  return id;
 }
 
 // Linked Section fixture: one component per kind-driving type. Inserted
@@ -332,6 +337,74 @@ function linkSectionWithComponents(h: Harness): void {
     .prepare("INSERT INTO leadgen_section_available_offers (section_id, offer_id, selected) VALUES (?, ?, 1)")
     .run(section.id, h.offerId);
 }
+
+// The Section tab's question→field mapping rows — the ONE thing that binds a
+// question to a payload field (owner ruling 2026-08-12), and therefore the ONLY
+// reason a field appears in the Test tab's sample-answer form.
+function mapQuestionsToOffer(
+  h: Harness,
+  edges: ReadonlyArray<{ internal_field: string; path: string; type: string }>,
+): void {
+  // A Section that maps the Offer always exists — with its questions' metadata
+  // when linkSectionWithComponents seeded it, otherwise bare (the schema-only
+  // heuristics case: mapped, but no component metadata to type the sample from).
+  h.sdb
+    .prepare(
+      "INSERT OR IGNORE INTO leadgen_sections (public_id, section_name, activity, vertical, headline_text, content_json) VALUES (?, ?, 'quote_funnel', 'life', 'H', '{\"components\":[]}')",
+    )
+    .run("lgs_sampletest01", "Life Basics");
+  const section = h.sdb.prepare("SELECT id FROM leadgen_sections WHERE public_id = ?").get("lgs_sampletest01") as
+    | { id: number }
+    | undefined;
+  if (section === undefined) return;
+  const schema = h.sdb
+    .prepare(
+      "SELECT id, public_id FROM leadgen_offer_payload_schemas WHERE offer_id = ? ORDER BY id DESC LIMIT 1",
+    )
+    .get(h.offerId) as { id: number; public_id: string } | undefined;
+  if (schema === undefined) return;
+  edges.forEach((edge, index) => {
+    h.sdb
+      .prepare(
+        `INSERT INTO leadgen_section_answer_maps
+           (public_id, section_id, question_id, question_key, internal_field, answer_type, offer_id,
+            payload_schema_id, payload_schema_public_id, offer_payload_field_path, provider_expected_type,
+            mapping_status, validation_status)
+         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'complete', 'ok')`,
+      )
+      .run(
+        `lgm_sample${index}`,
+        section.id,
+        `q-${edge.internal_field}`,
+        edge.internal_field,
+        edge.internal_field,
+        edge.type,
+        h.offerId,
+        schema.id,
+        schema.public_id,
+        edge.path,
+        edge.type,
+      );
+  });
+}
+
+// Every answer field of sampleFixtureSchema, mapped from the fixture Section.
+const SAMPLE_FIXTURE_EDGES = [
+  { internal_field: "email", path: "contact.email", type: "string" },
+  { internal_field: "zip", path: "contact.zip", type: "string" },
+  { internal_field: "street_address", path: "contact.street", type: "string" },
+  { internal_field: "dob", path: "applicant.dob", type: "string" },
+  { internal_field: "homeowner", path: "applicant.homeowner", type: "boolean" },
+  { internal_field: "carrier", path: "applicant.carrier", type: "string" },
+  { internal_field: "age", path: "applicant.age", type: "number" },
+  { internal_field: "policy_start_date", path: "policy.start_date", type: "string" },
+  { internal_field: "phone", path: "applicant.phone", type: "string" },
+  { internal_field: "notes", path: "notes", type: "string" },
+  { internal_field: "tier", path: "tier", type: "enum" },
+  // ONE question feeding TWO payload paths — the dedupe leg
+  { internal_field: "shared_field", path: "shared.a", type: "string" },
+  { internal_field: "shared_field", path: "shared.b", type: "string" },
+] as const;
 
 interface SampleField {
   internal_field: string;
@@ -703,7 +776,7 @@ describeDb("POST /offers/:id/payload-schemas — B7 blocking vs warning save mat
       jsonInit("POST", {
         schema_json: schemaOf([
           {
-            path: "tier", name: "tier", type: "enum", source: "answer", internal_field: "tier",
+            path: "tier", name: "tier", type: "enum", source: "answer",
             valid_values: ["basic", "premium"],
             default: "zzz", // enum_value_violation (warning)
             choiceDisplay: { mainValues: ["ghost"] }, // choice_display_invalid (warning)
@@ -749,7 +822,7 @@ describeDb("POST /offers/:id/payload-schemas — B7 blocking vs warning save mat
       jsonInit("POST", {
         schema_json: schemaOf([
           {
-            path: "carrier", name: "carrier", type: "string", source: "answer", internal_field: "carrier",
+            path: "carrier", name: "carrier", type: "string", source: "answer",
             value_map: { acme: "ACM", globex: "GLX" },
             choiceDisplay: { mainValues: ["acme"], otherGroupEnabled: true, otherGroupLabel: "Other", searchableOther: true },
           },
@@ -795,7 +868,7 @@ describeDb("§6.14 storage-format regression — load → re-save is byte-equiva
         children: [
           {
             path: "data.home_own", name: "home_own", type: "boolean", required: true,
-            source: "answer", internal_field: "homeowner", value_map: { true: true, false: false },
+            source: "answer", value_map: { true: true, false: false },
           },
           { path: "meta.click_id", name: "click_id", type: "string", source: "macro", macro: "click_id" },
           { path: "plan", name: "plan", type: "string", source: "static", value: "gold" },
@@ -811,7 +884,7 @@ describeDb("§6.14 storage-format regression — load → re-save is byte-equiva
         type: "object",
         children: [
           {
-            path: "carrier", name: "carrier", type: "string", source: "answer", internal_field: "carrier",
+            path: "carrier", name: "carrier", type: "string", source: "answer",
             value_map: { acme: "ACM", globex: "GLX" },
             choiceDisplay: { mainValues: ["acme"], otherGroupEnabled: true, otherGroupLabel: "Other", searchableOther: false },
           },

@@ -65,6 +65,7 @@ import {
 } from "../../leadgen/redact";
 import { parseProviderResponse } from "../../public/leadgen/auction/parse";
 import { safeErrorCode, safeErrorName } from "../../safety/safe-error";
+import { readAnswerBindings } from "../../leadgen/answer-bindings";
 import type { LeadgenOfferPayloadSchemaRow, LeadgenOfferRow } from "./db-types";
 import {
   readOfferHeaders,
@@ -431,8 +432,16 @@ export async function testOfferHandler(c: AdminContext): Promise<Response> {
     }
   }
 
+  // The Section tab's question→field bindings for this Offer — the ONE binding
+  // source (owner ruling 2026-08-12). Every Section that maps this Offer counts:
+  // a Test run has no lead, so it proves what production will send for whichever
+  // Section asked the question. Without a binding a source:"answer" field is
+  // absent here exactly as it would be live — the Test tab can no longer show a
+  // field the runtime would drop.
+  const testBindings = await readAnswerBindings(c.env.DB, [offer.id]);
   const payload = buildPayload(schema, {
     answers: sampleAnswers,
+    answer_bindings: testBindings.get(offer.id) ?? {},
     macros: macroValues,
     // §4.7.2 parity: computed + the offer/placement slice come from the SAME
     // simulated context — an identical simulated context therefore yields the
@@ -961,6 +970,13 @@ export async function generateSampleAnswersHandler(c: AdminContext): Promise<Res
   for (const field of answerFields) {
     if (!fieldByInternal.has(field.internal_field)) fieldByInternal.set(field.internal_field, field);
   }
+  // WHICH answers this Offer's payload actually consumes — the Section tab's
+  // mapping rows, the same ones buildPayload resolves through (owner ruling
+  // 2026-08-12). The form therefore asks for exactly the answers that will be
+  // sent: an unmapped answer field contributes NO input, because it contributes
+  // no payload value either.
+  const bindings = await readAnswerBindings(c.env.DB, [offer.id]);
+  const bindingsByPath = bindings.get(offer.id) ?? {};
 
   // One form field per internal_field, in SCHEMA order (mirrors the tree).
   // The first node carrying the field provides label/kind/source_path;
@@ -970,27 +986,29 @@ export async function generateSampleAnswersHandler(c: AdminContext): Promise<Res
   const byInternal = new Map<string, LeadgenSampleAnswerField>();
   for (const node of schema.root.children) {
     if (node.source !== "answer") continue;
-    const internalField = node.internal_field;
-    if (typeof internalField !== "string" || internalField === "") continue;
-    const existing = byInternal.get(internalField);
-    if (existing !== undefined) {
-      if (node.required === true) existing.required = true;
-      continue;
+    for (const binding of bindingsByPath[node.path] ?? []) {
+      const internalField = binding.internal_field;
+      if (internalField === "") continue;
+      const existing = byInternal.get(internalField);
+      if (existing !== undefined) {
+        if (node.required === true) existing.required = true;
+        continue;
+      }
+      const linked = fieldByInternal.get(internalField);
+      const classified = classifySampleField(node, linked, now);
+      const entry: LeadgenSampleAnswerField = {
+        internal_field: internalField,
+        label:
+          typeof node.label === "string" && node.label.trim() !== "" ? node.label : internalField,
+        kind: classified.kind,
+        ...(classified.options !== undefined ? { options: classified.options } : {}),
+        sample: classified.sample,
+        required: node.required === true,
+        source_path: node.path,
+      };
+      byInternal.set(internalField, entry);
+      fields.push(entry);
     }
-    const linked = fieldByInternal.get(internalField);
-    const classified = classifySampleField(node, linked, now);
-    const entry: LeadgenSampleAnswerField = {
-      internal_field: internalField,
-      label:
-        typeof node.label === "string" && node.label.trim() !== "" ? node.label : internalField,
-      kind: classified.kind,
-      ...(classified.options !== undefined ? { options: classified.options } : {}),
-      sample: classified.sample,
-      required: node.required === true,
-      source_path: node.path,
-    };
-    byInternal.set(internalField, entry);
-    fields.push(entry);
   }
 
   // Draft merge (BY KNOWN FIELD — see module note).

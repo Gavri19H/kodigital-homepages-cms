@@ -558,8 +558,13 @@ describeDb("payload builder §6.1 — three-pane shell", () => {
   it("rename impact warning + descendant rewrite hooks ride the island script", async () => {
     const { html } = await richEditorPage();
     expect(html).toContain("data-pb-rename-impact");
-    expect(html).toContain("mapped field");
     expect(html).toContain("renamePrefix");
+    // A Section mapping binds a payload field BY PATH (owner ruling
+    // 2026-08-12), so the warning names the mappings that follow the rename and
+    // the save carries the rename list that actually moves their rows.
+    expect(html).toContain("Section mapping");
+    expect(html).toContain("renamed_paths: renameLog");
+    expect(html).toContain("function logRename(");
   });
 
   it("§6.1 last-Test chip SSRs `passed <ts>` / `failed <ts>` from the additive last_test_at", async () => {
@@ -1103,15 +1108,21 @@ function paintOutputFormat(
 }
 
 // One answer node, exactly as the builder stores it, fed to the REAL runtime.
+// OWNER RULING 2026-08-12 — the PIVOT ("amount") is the Section mapping row's,
+// supplied through ctx.answer_bindings exactly as the auction supplies it; the
+// node keeps the output FORMAT this panel authors. Both halves, one build.
 function realPayload(node: Record<string, unknown>, answer: unknown): Record<string, unknown> {
   const schema = {
     version: 1,
     root: {
       type: "object",
-      children: [{ path: "lead.amt", name: "amt", source: "answer", internal_field: "amount", ...node }],
+      children: [{ path: "lead.amt", name: "amt", source: "answer", ...node }],
     },
   } as unknown as LeadgenPayloadSchema;
-  return buildPayload(schema, { answers: { amount: answer } });
+  return buildPayload(schema, {
+    answers: { amount: answer },
+    answer_bindings: { "lead.amt": [{ internal_field: "amount" }] },
+  });
 }
 
 describeDb("payload builder P5 F1 (SRC-7B / owner #7B + #6-second) — the output format writes type AND transform", () => {
@@ -2652,177 +2663,145 @@ describeDb("payload builder — ES5-only inline scripts", () => {
 });
 
 
-// --- §6.2 the ANSWER FIELD control — OWNER RULING 2026-08-11 ------------------
+// --- §6.2 the ANSWER FIELD control — OWNER RULING 2026-08-12 -----------------
 //
-// Verbatim: "in the funnel itself we are mapping for each question the field
-// that should be filled by the user's answer. you made it mandatory to map the
-// section that is answering the field in the payload which makes no sense! we
-// are doing the opposite, we are mapping questions with the right field and not
-// the fields with sections!"
+// Verbatim: "if a question could map a field in the section and field could be
+// mapped as well in the payload you are literally creating a conflict which I
+// have never asked for. there should be only one source of truth and this is the
+// section tab and not the payload. in the payload we declare that the source is
+// answer, and then in the sections we show all the fields of all the offers that
+// relevant to the activity **and** vertical and we should map it **only** over
+// there."
 //
-// A payload field points at a FIELD NAME. The panel used to be labelled
-// "Section field *", searched "Section fields", and hid its typed box behind
-// "the picker appears once Sections are linked" — an instruction to go build the
-// inverted Offer↔Section link (a table with zero rows in production) before a
-// single answer could be mapped. These pin the panel's new anatomy + behavior.
+// So the payload builder's answer control is READ-ONLY: it names the Section
+// that asks the question, and offers no way to bind one. (The BUILD-side proof —
+// that a payload field resolves through the Section row and through nothing else
+// — lives in leadgen-answer-bindings.test.ts.)
 
-interface AnswerPickerIsland {
-  fillAnswerPicker(bodyEl: FakeEl, node: Record<string, unknown>, filter?: string): void;
+interface AnswerSummaryIsland {
+  fillAnswerSummary(bodyEl: FakeEl, node: Record<string, unknown>): void;
 }
 
 function answerPanelDom(): FakeEl {
   const bodyEl = fakeElement("div");
-  const search = fakeElement("input");
-  search.setAttribute("data-pb-answer-search", "");
-  const picker = fakeElement("select");
-  picker.setAttribute("data-pb-answer-picker", "");
-  const manual = fakeElement("input");
-  manual.setAttribute("data-pb-answer-manual", "");
+  const mapped = fakeElement("div");
+  mapped.setAttribute("data-pb-answer-mapped", "");
   const meta = fakeElement("p");
   meta.setAttribute("data-pb-answer-meta", "");
-  bodyEl.appendChild(search);
-  bodyEl.appendChild(picker);
-  bodyEl.appendChild(manual);
+  bodyEl.appendChild(mapped);
   bodyEl.appendChild(meta);
   return bodyEl;
 }
 
-function answerPickerIsland(
+function answerSummaryIsland(
   html: string,
-  answerFields: Array<Record<string, unknown>>,
-): AnswerPickerIsland {
-  const script = extractScripts(html).find((s) => s.includes("function fillAnswerPicker("));
-  expect(script, "answer-picker island script present").toBeDefined();
-  const source = ["trimStr", "clearChildren", "el", "answerFieldByName", "fillAnswerPicker"]
+  answerMappings: Array<Record<string, unknown>>,
+): AnswerSummaryIsland {
+  const script = extractScripts(html).find((s) => s.includes("function fillAnswerSummary("));
+  expect(script, "answer-summary island script present").toBeDefined();
+  const source = ["clearChildren", "el", "mappingsForPath", "fillAnswerSummary"]
     .map((n) => sliceIslandFunction(script!, n))
     .join("\n");
   const sandbox = {
     document: { createElement: fakeElement, createTextNode: fakeTextNode },
-    answerFields,
+    answerMappings,
   };
   return runInNewContext(
-    `${source}\n({ fillAnswerPicker: fillAnswerPicker })`,
+    `${source}\n({ fillAnswerSummary: fillAnswerSummary })`,
     sandbox,
-  ) as AnswerPickerIsland;
+  ) as AnswerSummaryIsland;
 }
 
-// el() builds an <option> by appending a TEXT NODE (never textContent=), so the
-// option's label reads off its first child — the fake DOM mirrors the real one.
-function optionText(node: FakeEl): string {
-  return node.firstChild === null ? node.textContent : node.firstChild.textContent;
-}
-
-const UNIVERSE: Array<Record<string, unknown>> = [
-  { internal_field: "credit_score", section_name: "Auto Basics", answer_type: "enum", choice_count: 3 },
-  { internal_field: "zip", section_name: "Auto Basics", answer_type: "string", choice_count: 0 },
-  { internal_field: "credit_score", section_name: "Home Basics", answer_type: "enum", choice_count: 3 },
+const MAPPINGS: Array<Record<string, unknown>> = [
+  {
+    path: "lead.credit",
+    section_public_id: "lgs_auto01",
+    section_name: "Auto Basics",
+    question_key: "credit_score",
+    internal_field: "credit_score",
+    answer_type: "enum",
+    has_value_map: true,
+    has_transform: false,
+    mapping_status: "complete",
+  },
+  {
+    path: "lead.credit",
+    section_public_id: "lgs_home01",
+    section_name: "Home Basics",
+    question_key: "credit_score",
+    internal_field: "credit_score",
+    answer_type: "enum",
+    has_value_map: false,
+    has_transform: true,
+    mapping_status: "complete",
+  },
 ];
 
-describeDb("payload builder — §6.2 answer field, not Section mapping", () => {
-  it("the panel is an ANSWER FIELD with an always-live typed box — no Section mapping, no 'link Sections' instruction", async () => {
+describeDb("payload builder — §6.2 the payload DECLARES, the Section MAPS", () => {
+  it("the panel offers no way to bind a question — no picker, no typed field, no search", async () => {
     const { html } = await richEditorPage();
     const panel = html.slice(
       html.indexOf('<div data-pb-panel="answer"'),
       html.indexOf('<div data-pb-panel="static"'),
     );
     expect(panel.length).toBeGreaterThan(0);
-    expect(panel).toContain("Answer field *");
-    expect(panel).not.toContain("Section field");
-    // the typed box ships VISIBLE (pre-fix: `hidden`, revealed only when no
-    // Section was linked) — its own tag carries no hidden attribute
-    const manualTag = panel.slice(panel.indexOf("data-pb-answer-manual"));
-    expect(manualTag.slice(0, manualTag.indexOf("/>"))).not.toContain("hidden");
-    expect(panel).toContain("type the field name a question fills");
-    // the whole page never tells the operator to link Sections to the Offer
-    expect(html).not.toContain("No Sections are linked");
-    expect(html).not.toContain("the picker appears once Sections are linked");
-    expect(html).not.toContain("internal_field (no Sections linked yet)");
-    // the source picker names the funnel question, not the Section
-    expect(html).toContain("Answer from a funnel question");
-    // Jump lands on the first VISIBLE control, so an empty universe reaches the
-    // typed box instead of pulsing a hidden <select>
-    expect(html).toContain("'[data-pb-answer-picker],[data-pb-answer-manual]'");
+    expect(panel).toContain("Filled by a funnel question");
+    expect(panel).toContain("data-pb-answer-mapped");
+    // every authoring hook is GONE from the payload side
+    expect(panel).not.toContain("data-pb-answer-picker");
+    expect(panel).not.toContain("data-pb-answer-manual");
+    expect(panel).not.toContain("data-pb-answer-search");
+    expect(panel).not.toContain("Answer field *");
+    // and the source help names the ONE place mapping happens
+    expect(html).toContain("WHICH question fills it is set in the Section tab");
+    // the island no longer writes internal_field from any control
+    const island = extractScripts(html).find((s) => s.includes("function fillAnswerSummary("))!;
+    expect(island).not.toContain("node.internal_field =");
   });
 
-  it("NO question declares a field yet: the typed box is live and the meta says to type the name (pre-fix: 'link Sections first')", async () => {
+  it("a mapped field names the Section that asks it, and links there", async () => {
     const { html } = await richEditorPage();
-    const island = answerPickerIsland(html, []);
+    const island = answerSummaryIsland(html, [MAPPINGS[0]!]);
     const dom = answerPanelDom();
-    island.fillAnswerPicker(dom, {});
-    expect(dom.querySelector("[data-pb-answer-manual]")!.hidden).toBe(false);
-    expect(dom.querySelector("[data-pb-answer-picker]")!.hidden).toBe(true);
-    expect(dom.querySelector("[data-pb-answer-search]")!.hidden).toBe(true);
-    const meta = dom.querySelector("[data-pb-answer-meta]")!.textContent;
-    expect(meta).toContain("No funnel question declares an answer field yet");
-    expect(meta).toContain("type the field name");
-    expect(meta).not.toContain("linked");
+    island.fillAnswerSummary(dom, { path: "lead.credit" });
+    const box = dom.querySelector("[data-pb-answer-mapped]")!;
+    expect(box.children).toHaveLength(1);
+    const line = box.children[0]!;
+    const link = line.children.find((c) => c.tagName === "A")!;
+    expect(link.firstChild!.textContent).toBe("Auto Basics");
+    expect((link as unknown as { href: string }).href).toBe(
+      "/admin/leadgen/sections/lgs_auto01/edit#offers",
+    );
+    expect(line.firstChild!.textContent).toBe("credit_score · enum · value map — asked by ");
+    expect(dom.querySelector("[data-pb-answer-meta]")!.textContent).toContain(
+      "Mapped in the Section tab",
+    );
   });
 
-  it("with a universe: picker AND typed box are both live; options group by the Section that asks the field", async () => {
+  it("an UNMAPPED field says so plainly — it would be sent empty", async () => {
     const { html } = await richEditorPage();
-    const island = answerPickerIsland(html, UNIVERSE);
+    const island = answerSummaryIsland(html, MAPPINGS);
     const dom = answerPanelDom();
-    island.fillAnswerPicker(dom, { internal_field: "zip" });
-    const picker = dom.querySelector("[data-pb-answer-picker]")!;
-    expect(picker.hidden).toBe(false);
-    expect(dom.querySelector("[data-pb-answer-manual]")!.hidden).toBe(false);
-    expect(dom.querySelector("[data-pb-answer-manual]")!.value).toBe("zip");
-    // blank prompt + one optgroup per declaring Section
-    expect(optionText(picker.children[0]!)).toContain("Choose an answer field");
-    const groups = picker.children.filter((c) => c.tagName === "OPTGROUP");
-    expect(groups.map((g) => (g as unknown as { label: string }).label)).toEqual([
-      "Auto Basics",
-      "Home Basics",
-    ]);
-    expect(groups[0]!.children.map((o) => o.value)).toEqual(["credit_score", "zip"]);
-    expect(optionText(groups[0]!.children[1]!)).toBe("zip (string)");
-    expect(optionText(groups[0]!.children[0]!)).toBe("credit_score (enum, 3 choices)");
-    expect(picker.value).toBe("zip");
-    // Section identity is INFORMATION under the control, never a requirement
+    island.fillAnswerSummary(dom, { path: "lead.unmapped" });
+    const warn = dom.querySelector("[data-pb-answer-mapped]")!.children[0]!;
+    expect(warn.className).toContain("alert-warning");
+    expect(warn.firstChild!.textContent).toContain("No question maps this field yet");
+    expect(warn.firstChild!.textContent).toContain("Offers tab");
+    expect(dom.querySelector("[data-pb-answer-meta]")!.textContent).toContain(
+      "activity + vertical",
+    );
+  });
+
+  it("two Sections mapping one field are both named — whichever the visitor answered fills it", async () => {
+    const { html } = await richEditorPage();
+    const island = answerSummaryIsland(html, MAPPINGS);
+    const dom = answerPanelDom();
+    island.fillAnswerSummary(dom, { path: "lead.credit" });
+    const lines = dom.querySelector("[data-pb-answer-mapped]")!.children;
+    expect(lines).toHaveLength(2);
+    expect(lines[1]!.firstChild!.textContent).toContain("output format");
     expect(dom.querySelector("[data-pb-answer-meta]")!.textContent).toBe(
-      "Asked by Section “Auto Basics” · string",
+      "2 Sections map this field — whichever one the visitor answered fills it.",
     );
-  });
-
-  it("a field TWO Sections ask says so; a field NO question declares is still selectable and kept", async () => {
-    const { html } = await richEditorPage();
-    const island = answerPickerIsland(html, UNIVERSE);
-
-    const shared = answerPanelDom();
-    island.fillAnswerPicker(shared, { internal_field: "credit_score" });
-    expect(shared.querySelector("[data-pb-answer-meta]")!.textContent).toBe(
-      "Asked by Section “Auto Basics” · enum · 3 choices · also asked by 1 other Section",
-    );
-
-    const unknownField = answerPanelDom();
-    island.fillAnswerPicker(unknownField, { internal_field: "universal_leadid" });
-    const picker = unknownField.querySelector("[data-pb-answer-picker]")!;
-    const last = picker.children[picker.children.length - 1]!;
-    expect(last.value).toBe("universal_leadid");
-    expect(optionText(last)).toBe("universal_leadid (no question declares it yet)");
-    expect(picker.value).toBe("universal_leadid");
-    expect(unknownField.querySelector("[data-pb-answer-manual]")!.value).toBe("universal_leadid");
-    expect(unknownField.querySelector("[data-pb-answer-meta]")!.textContent).toBe(
-      "Mapped to universal_leadid — no question declares it yet.",
-    );
-  });
-
-  it("the search term narrows the options (field name OR Section name)", async () => {
-    const { html } = await richEditorPage();
-    const island = answerPickerIsland(html, UNIVERSE);
-    const byField = answerPanelDom();
-    island.fillAnswerPicker(byField, {}, "zip");
-    const groups = byField
-      .querySelector("[data-pb-answer-picker]")!
-      .children.filter((c) => c.tagName === "OPTGROUP");
-    expect(groups).toHaveLength(1);
-    expect(groups[0]!.children.map((o) => o.value)).toEqual(["zip"]);
-
-    const bySection = answerPanelDom();
-    island.fillAnswerPicker(bySection, {}, "home");
-    const homeGroups = bySection
-      .querySelector("[data-pb-answer-picker]")!
-      .children.filter((c) => c.tagName === "OPTGROUP");
-    expect(homeGroups.map((g) => (g as unknown as { label: string }).label)).toEqual(["Home Basics"]);
   });
 });
