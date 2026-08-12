@@ -2497,7 +2497,9 @@ describeDb("section studio EXECUTED island — §8.7 mapping model (E2) + REAL s
     }
   });
 
-  it("PORTED §12.11 cell copy: mapStateNote emits the grid's exact per-state operator vocabulary", async () => {
+  // OWNER RULING 2026-08-12: these lines sit under the field picker an operator
+  // uses, so they say what to DO — no schema public ids, no "coercible".
+  it("mapStateNote speaks plain operator words for every state — no ids, no jargon", async () => {
     const { env } = newHarness();
     const section = await createSection(env, { content_json: JSON.stringify(MAPPABLE_CONTENT) });
     const html = await studioPage(env, section.public_id);
@@ -2512,13 +2514,19 @@ describeDb("section studio EXECUTED island — §8.7 mapping model (E2) + REAL s
     const probe = mappingProbe(html, MAPPABLE_CONTENT, { activity: "a", vertical: "v", offers: [offer] });
     const field = `answerFieldOf(offerById(7), 'data.insured')`;
     expect(probe.run(`mapStateNote('complete', ${field}, offerById(7), null)`)).toBe("complete");
-    expect(probe.run(`mapStateNote('missing_required', ${field}, offerById(7), null)`)).toBe("map required field");
-    expect(
-      probe.run(`mapStateNote('type_mismatch', ${field}, offerById(7), { answer_type: 'string' })`),
-    ).toBe("answer type string not coercible to boolean");
-    expect(probe.run(`mapStateNote('orphaned', null, offerById(7), null)`)).toBe(
-      "Offer field no longer exists in schema lgp_00000000000000000000000001",
+    expect(probe.run(`mapStateNote('missing_required', ${field}, offerById(7), null)`)).toBe(
+      "this buyer needs this field — pick it above",
     );
+    const mismatch = String(
+      probe.run(`mapStateNote('type_mismatch', ${field}, offerById(7), { answer_type: 'string' })`),
+    );
+    expect(mismatch).toBe(
+      "this answer is text and the buyer wants yes or no — pick another field or set a value map on the Offer",
+    );
+    expect(mismatch).not.toContain("coercible");
+    const orphaned = String(probe.run(`mapStateNote('orphaned', null, offerById(7), null)`));
+    expect(orphaned).toBe("the buyer field this was mapped to no longer exists — pick one above");
+    expect(orphaned).not.toContain("lgp_"); // never a schema id in operator copy
     expect(probe.run(`mapStateNote('unmapped', ${field}, offerById(7), null)`)).toBe("required — not mapped");
   });
 
