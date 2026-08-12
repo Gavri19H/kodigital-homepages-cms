@@ -15913,16 +15913,20 @@ export const SECTION_STUDIO_SCRIPT = `
     if (name === 'selected') { return 'selected / not started'; }
     return name;
   }
-  // The §12.11 per-state operator copy (ported from the old builder's mapping
-  // grid — the exact vocabulary the sections-ui tests pinned).
+  // The per-state operator copy. PLAIN WORDS — this line sits under the field
+  // picker an operator uses, so it says what to DO, never a schema id or the
+  // word "coercible" (owner: "why the dropdown in the bottom including
+  // jargon???" — the same rule applies to every string beside it).
   function mapStateNote(stateName, field, offer, edge) {
     if (stateName === 'complete') { return 'complete'; }
-    if (stateName === 'missing_required') { return 'map required field'; }
+    if (stateName === 'missing_required') { return 'this buyer needs this field \\u2014 pick it above'; }
     if (stateName === 'type_mismatch') {
-      return 'answer type ' + (edge && edge.answer_type ? edge.answer_type + ' ' : '') + 'not coercible to ' + (field ? field.type : edge && edge.provider_expected_type);
+      return 'this answer is ' + plainTypeWords({ type: (edge && edge.answer_type) || 'string' }) +
+        ' and the buyer wants ' + plainTypeWords(field || { type: (edge && edge.provider_expected_type) || 'string' }) +
+        ' \\u2014 pick another field or set a value map on the Offer';
     }
     if (stateName === 'orphaned') {
-      return 'Offer field no longer exists in schema' + (offer && offer.payload_schema_public_id ? ' ' + offer.payload_schema_public_id : '');
+      return 'the buyer field this was mapped to no longer exists \\u2014 pick one above';
     }
     return field && field.required === true ? 'required \\u2014 not mapped' : 'not mapped';
   }
