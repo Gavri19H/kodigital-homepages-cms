@@ -2466,30 +2466,26 @@ async function createSchemaVersion(
   carrierParseJson: string | null | undefined,
   source: LeadgenPayloadSchemaSource,
 ): Promise<LeadgenOfferPayloadSchemaRow | null> {
+  // FIVE sequential D1 round trips became FOUR (owner incident 2026-08-12: one
+  // save took 30.4s of wall clock on 7ms of CPU — the worker was WAITING on D1,
+  // so every extra round trip is another chance to wait). The carry-forward
+  // parse pair and the next version number now read in ONE statement.
   let parseJson: string | null = carrierParseJson === undefined ? null : carrierParseJson;
   let parseVersion = 1;
-  if (carrierParseJson === undefined) {
-    const activeId = offer.active_payload_schema_id;
-    if (activeId !== null && activeId !== undefined) {
-      const active = await db
-        .prepare(
-          "SELECT carrier_parse_json, carrier_parse_version FROM leadgen_offer_payload_schemas WHERE id = ? LIMIT 1",
-        )
-        .bind(activeId)
-        .first<{ carrier_parse_json: string | null; carrier_parse_version: number | null }>();
-      if (active !== null) {
-        parseJson = active.carrier_parse_json;
-        parseVersion = Number(active.carrier_parse_version ?? 1);
-      }
-    }
-  }
-  const nextRow = await db
+  const activeId = offer.active_payload_schema_id;
+  const pre = await db
     .prepare(
-      "SELECT COALESCE(MAX(version), 0) + 1 AS v FROM leadgen_offer_payload_schemas WHERE offer_id = ?",
+      `SELECT (SELECT COALESCE(MAX(version), 0) + 1 FROM leadgen_offer_payload_schemas WHERE offer_id = ?) AS v,
+              (SELECT carrier_parse_json FROM leadgen_offer_payload_schemas WHERE id = ?) AS active_parse_json,
+              (SELECT carrier_parse_version FROM leadgen_offer_payload_schemas WHERE id = ?) AS active_parse_version`,
     )
-    .bind(offer.id)
-    .first<{ v: number }>();
-  const version = Number(nextRow?.v ?? 1);
+    .bind(offer.id, activeId ?? -1, activeId ?? -1)
+    .first<{ v: number | null; active_parse_json: string | null; active_parse_version: number | null }>();
+  if (carrierParseJson === undefined && activeId !== null && activeId !== undefined) {
+    parseJson = pre?.active_parse_json ?? null;
+    parseVersion = Number(pre?.active_parse_version ?? 1);
+  }
+  const version = Number(pre?.v ?? 1);
   const publicId = mintPublicId("payload_schema_version");
   const schemaText = JSON.stringify({ ...rawSchema, version });
   await db.batch([

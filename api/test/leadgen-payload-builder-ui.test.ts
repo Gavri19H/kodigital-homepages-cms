@@ -2886,3 +2886,88 @@ describeDb("payload builder — a note is not an error, and Save saves the tree"
     expect(saveBlock).toContain("payload schema NOT saved");
   });
 });
+
+// --- a lost response is not a failed write (owner incident 2026-08-12) --------
+//
+// His save took 30.4s of wall clock on 7ms of CPU (the worker waiting on D1),
+// the browser gave up, the panel said "not saved" — and v16 HAD been written, so
+// he saved the same schema again and got v17. A slow or lost RESPONSE now makes
+// the island ASK the server what the active version is and report the truth.
+
+interface LostResponseIsland {
+  verifyAfterLostResponse(versionBefore: number, finish: (ok: boolean) => void): void;
+}
+
+function lostResponseIsland(
+  html: string,
+  serverVersion: number | null,
+): { island: LostResponseIsland; toasts: string[]; errors: Array<Record<string, unknown>>; state: Record<string, unknown> } {
+  const script = extractScripts(html).find((s) => s.includes("function verifyAfterLostResponse("))!;
+  const source = sliceIslandFunction(script, "verifyAfterLostResponse");
+  const toasts: string[] = [];
+  const state: Record<string, unknown> = { activeVersion: 15, renameLog: [{ from: "a", to: "b" }], savedSchemaJson: "STALE" };
+  const errors: Array<Record<string, unknown>> = [];
+  const sandbox = {
+    apiBase: "/api/admin/leadgen/offers/lgo_x",
+    metaEl: { textContent: "" },
+    buildSchemaJson: () => ({ version: 1, root: { type: "object", children: [] } }),
+    refreshValidation: () => ({ blocking: [], warnings: [] }),
+    window: { showToast: (m: string) => toasts.push(m) },
+    getJson: (_m: string, _u: string) =>
+      Promise.resolve({
+        ok: true,
+        status: 200,
+        body: { builder_context: { active_schema: serverVersion === null ? null : { version: serverVersion } } },
+      }),
+    get activeVersion() { return state["activeVersion"]; },
+    set activeVersion(v: unknown) { state["activeVersion"] = v; },
+    get renameLog() { return state["renameLog"]; },
+    set renameLog(v: unknown) { state["renameLog"] = v; },
+    get savedSchemaJson() { return state["savedSchemaJson"]; },
+    set savedSchemaJson(v: unknown) { state["savedSchemaJson"] = v; },
+    get serverErrors() { return errors; },
+    set serverErrors(v: Array<Record<string, unknown>>) { errors.length = 0; for (const e of v) errors.push(e); },
+  };
+  const island = runInNewContext(
+    `${source}\n({ verifyAfterLostResponse: verifyAfterLostResponse })`,
+    sandbox,
+  ) as LostResponseIsland;
+  return { island, toasts, errors, state };
+}
+
+describeDb("payload builder — a lost response is verified, never called a failure", () => {
+  it("the version ADVANCED ⇒ it reports the save that actually landed and tells him NOT to save again", async () => {
+    const { html } = await richEditorPage();
+    const { island, toasts, errors, state } = lostResponseIsland(html, 16);
+    const ok = await new Promise<boolean>((resolve) => island.verifyAfterLostResponse(15, resolve));
+    expect(ok).toBe(true);
+    expect(toasts.join(" ")).toContain("Saved as v16");
+    expect(toasts.join(" ")).toContain("Do NOT save again");
+    expect(errors).toEqual([]); // no phantom failure in the panel
+    expect(state["activeVersion"]).toBe(16);
+    expect(state["renameLog"]).toEqual([]); // the server applied them with that version
+    expect(state["savedSchemaJson"]).not.toBe("STALE"); // the tree counts as saved
+  });
+
+  it("the version did NOT move ⇒ an honest failure that keeps his edits and says to retry", async () => {
+    const { html } = await richEditorPage();
+    const { island, toasts, errors, state } = lostResponseIsland(html, 15);
+    const ok = await new Promise<boolean>((resolve) => island.verifyAfterLostResponse(15, resolve));
+    expect(ok).toBe(false);
+    expect(errors[0]?.["code"]).toBe("save_timeout");
+    expect(String(errors[0]?.["message"])).toContain("nothing was written");
+    expect(String(errors[0]?.["message"])).toContain("still here");
+    expect(toasts.join(" ")).toContain("Not saved");
+    expect(state["activeVersion"]).toBe(15); // untouched
+    expect(state["savedSchemaJson"]).toBe("STALE"); // still dirty, so Save stays armed
+  });
+
+  it("the save is bounded and every exit routes through the verify, never through a guess", async () => {
+    const { html } = await richEditorPage();
+    const script = extractScripts(html).find((s) => s.includes("function saveSchemaVersion("))!;
+    expect(script).toContain("var SAVE_TIMEOUT_MS = 20000");
+    expect(script).toContain("verifyAfterLostResponse(versionBefore, finish)");
+    // the old blind message is gone from the catch leg
+    expect(script).not.toContain("Network error \\u2014 the schema was not saved.");
+  });
+});
