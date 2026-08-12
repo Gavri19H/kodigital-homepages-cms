@@ -279,7 +279,17 @@ function schemaFieldInfo(schemaJson: string | null): {
       const type = node["type"];
       if (typeof path !== "string" || typeof type !== "string" || !PAYLOAD_NODE_TYPES.has(type)) continue;
       fieldTypes.set(path, type as LeadgenPayloadNodeType);
-      if (node["required"] === true) requiredFieldPaths.push(path);
+      // OWNER DEFECT 2026-08-12: "a user mapped field per offer for a certain
+      // question and got this error" — the Section showed every mapping complete
+      // and the banner still read "Blocked from publish · 4 required mappings
+      // missing". This line was why: it counted EVERY required node, including
+      // static / macro / computed / token ones. Those are filled by the payload
+      // itself, no question can ever map them, so they demanded mappings that
+      // could never exist and blocked publish forever. A required field is a
+      // required MAPPING only when its source is "answer" — the same rule the
+      // studio's own per-Offer counter always used (offerLiveState reads
+      // answer_fields), which is why the two disagreed.
+      if (node["required"] === true && node["source"] === "answer") requiredFieldPaths.push(path);
     }
   }
   return { fieldTypes, requiredFieldPaths };

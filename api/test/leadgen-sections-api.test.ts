@@ -15,6 +15,7 @@ import { readFileSync } from "node:fs";
 import { fileURLToPath } from "node:url";
 import { dirname, join } from "node:path";
 import admin from "../src/admin/router";
+import { mappingSummaryOf } from "../src/admin/leadgen/ui-sections";
 import type { Env } from "../src/env";
 import { isPublicId, mintPublicId } from "../src/leadgen/ids";
 // §9.2 preview-parameterization pins: the byte-identical legacy pin rebuilds
@@ -332,6 +333,62 @@ describeDb("POST /sections — create + §12.1 derived rebuild", () => {
       .prepare("SELECT offer_id, mapping_state, required_fields_total, required_fields_mapped FROM leadgen_section_available_offers WHERE section_id = ?")
       .all(section.id) as Array<{ offer_id: number; mapping_state: string; required_fields_total: number; required_fields_mapped: number }>;
     expect(avail).toEqual([{ offer_id: offer.id, mapping_state: "complete", required_fields_total: 1, required_fields_mapped: 1 }]);
+  });
+
+  // OWNER DEFECT 2026-08-12: "a user mapped field per offer for a certain
+  // question and got this error" — every row read complete and the Section still
+  // said "Blocked from publish · 4 required mappings missing". The required
+  // counter walked EVERY required node, so an Offer's required static / macro /
+  // token fields (which no question can ever map — the payload fills them
+  // itself) demanded mappings that could not exist. A required MAPPING is a
+  // required ANSWER field, which is also what the studio's own per-Offer counter
+  // always showed; the two disagreed and the server's number won.
+  it("required STATIC/MACRO/TOKEN fields are not required MAPPINGS — a fully-mapped Section is publishable", async () => {
+    const { sdb, env } = newHarness();
+    const offer = await createOffer(env);
+    const res = await admin.request(
+      `${API}/offers/${offer.id}/payload-schemas`,
+      jsonInit("POST", {
+        schema_json: {
+          version: 1,
+          root: {
+            type: "object",
+            children: [
+              // the ONE field a question can fill
+              { path: "data.insured", name: "insured", type: "boolean", required: true, source: "answer" },
+              // four required fields the PAYLOAD fills — the ones that used to
+              // read as "4 required mappings missing", forever
+              { path: "api_key", name: "api_key", type: "string", required: true, source: "static", value: "k" },
+              { path: "ip", name: "ip", type: "string", required: true, source: "macro", macro: "ip" },
+              { path: "plc", name: "plc", type: "string", required: true, source: "placement" },
+              { path: "ts", name: "ts", type: "number", required: true, source: "computed", computed: "request_timestamp" },
+            ],
+          },
+        },
+      }),
+      env,
+    );
+    expect(res.status, `post schema: ${await res.clone().text()}`).toBe(201);
+
+    const section = await createSection(env, sectionBody({ answer_maps: [mapEdge(offer.id)] }));
+    // 1 required mapping, 1 mapped ⇒ complete, and NOTHING missing
+    expect(section.available_offers[0]?.required_fields_total).toBe(1);
+    expect(section.available_offers[0]?.required_fields_mapped).toBe(1);
+    expect(section.available_offers[0]?.mapping_state).toBe("complete");
+    const avail = sdb
+      .prepare("SELECT required_fields_total, required_fields_mapped, mapping_state FROM leadgen_section_available_offers WHERE section_id = ?")
+      .all(section.id) as Array<{ required_fields_total: number; required_fields_mapped: number; mapping_state: string }>;
+    expect(avail).toEqual([{ required_fields_total: 1, required_fields_mapped: 1, mapping_state: "complete" }]);
+    // the studio banner reads off exactly these numbers (mappingSummaryOf)
+    expect(
+      mappingSummaryOf(
+        section.available_offers as unknown as Parameters<typeof mappingSummaryOf>[0],
+        section.answer_maps as unknown as Parameters<typeof mappingSummaryOf>[1],
+      ),
+    ).toMatchObject({
+      publishable: true,
+      required_missing_total: 0,
+    });
   });
 
   it("rejects a Section missing a §12.1 required field", async () => {

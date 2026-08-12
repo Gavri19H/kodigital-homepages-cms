@@ -360,7 +360,7 @@ describeDb("leadgen section editor (03 §9.3 / 05 §12–§14)", () => {
     expect(html).toContain("1 mapping edge on this Section");
     expect(html).toContain("data-studio-mapping-table");
     expect(html).toContain("data-studio-offers-empty"); // the E9 slot
-    expect(html).toContain("data-studio-map-grid");
+    expect(html).toContain("data-studio-inspector-mapping");
     // the mapping edges ride the state blob (pass-through to save)
     const data = extractJsonBlob(html, "lg-section-data");
     const maps = data["answer_maps"] as Array<Record<string, unknown>>;

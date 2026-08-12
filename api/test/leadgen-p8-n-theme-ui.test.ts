@@ -2249,7 +2249,7 @@ describe("N7 CLIP REVEAL — the real leadgen script hands over text a select ca
   // FIX ROUND F14 (review-p8-3d MAJOR-1) — THE REVEAL DOES NOT OWN `title`.
   // F13 widened the reveal to every leadgen admin route; two selects on
   // /admin/leadgen/sections/:id/edit already carry a tooltip the PRODUCT set
-  // (ui-section-studio.ts:15594 `pathSel.title = f.path`, promised to the
+  // (ui-section-studio.ts `sel.title` on the inspector's field picker, promised to the
   // operator in the help copy at :3263; and the SSR title on
   // #lg-content-type-swap at :2601), and the reveal overwrote then deleted it.
   // WHY NO F13 LEG COULD FAIL FOR IT: every metric in this file and in the
@@ -2376,9 +2376,10 @@ describeDb("F14 — the tooltip the reveal must not destroy comes from the real 
     expect(firstOption.length).toBeGreaterThan(0);
 
     // the OTHER real author title on this page is the island's, which the same
-    // served bytes carry (ui-section-studio.ts:15594) — named here so a rename
-    // does not quietly leave this class untested.
-    expect(html, "the mapping drawer's author title must still be set by the served island").toContain("pathSel.title = f.path");
+    // served bytes carry (the inspector field picker's sel.title — the mapping
+    // drawer's own picker was removed by the 2026-08-12 owner ruling) — named
+    // here so a rename does not quietly leave this class untested.
+    expect(html, "the mapping drawer's author title must still be set by the served island").toContain("sel.title = current === '' ?");
 
     // the REAL script, over that REAL title, in a box too narrow for the option
     const h = revealHarness(40, firstOption, "sans", 14, authored);
