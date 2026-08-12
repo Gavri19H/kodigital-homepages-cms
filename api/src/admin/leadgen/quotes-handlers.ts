@@ -6085,7 +6085,11 @@ function schemaInfoFromJson(schemaJson: string | null): {
       const type = typeof node["type"] === "string" ? node["type"] : "";
       if (path === "" || type === "") continue;
       fieldTypes.set(path, type as LeadgenPayloadNodeType);
-      if (node["required"] === true) requiredFieldPaths.push(path);
+      // Same rule as sections-handlers schemaFieldInfo (owner defect
+      // 2026-08-12): only an ANSWER-sourced required field is a required
+      // MAPPING. A required static/macro/token field is the payload's own
+      // business and must never block a Quote from publishing.
+      if (node["required"] === true && node["source"] === "answer") requiredFieldPaths.push(path);
     }
   }
   return { fieldTypes, requiredFieldPaths };
