@@ -1383,6 +1383,7 @@ export const PAYLOAD_BUILDER_STYLES = `
 .lg-pb-badge-required{color:#9a3412;border-color:#fdba74;background:#fff7ed}
 .lg-pb-badge-mapped{color:#166534;border-color:#86efac;background:#f0fdf4}
 .lg-pb-badge-error{color:#991b1b;border-color:#fca5a5;background:#fef2f2}
+.lg-pb-badge-note{color:#854d0e;border-color:#fde68a;background:#fffbeb}
 .lg-pb-badge-adv{color:#6b21a8;border-color:#d8b4fe;background:#faf5ff}
 .lg-pb-node-actions{display:none;gap:2px}
 .lg-pb-node:hover .lg-pb-node-actions,.lg-pb-node.lg-pb-selected .lg-pb-node-actions{display:inline-flex}
@@ -2059,7 +2060,12 @@ export const PAYLOAD_BUILDER_SCRIPT = `
       clearChildren(summaryBox);
       if (entries.length === 0) {
         summaryBox.className = 'form-help';
-        summaryBox.appendChild(document.createTextNode('\\u2713 No issues \\u2014 the schema looks good.'));
+        var noteCount = (warningsList || []).length;
+        summaryBox.appendChild(document.createTextNode(
+          noteCount === 0
+            ? '\\u2713 No issues \\u2014 the schema looks good.'
+            : '\\u2713 Nothing blocks the save \\u2014 ' + noteCount + ' note' + (noteCount === 1 ? '' : 's') + ' below.'
+        ));
       } else {
         summaryBox.className = 'form-error';
         summaryBox.appendChild(document.createTextNode('Schema has ' + entries.length + ' issue' + (entries.length === 1 ? '' : 's') + '.'));
@@ -2197,11 +2203,22 @@ export const PAYLOAD_BUILDER_SCRIPT = `
     }
     return false;
   }
+  // The red row chip means "this field BLOCKS the save". Warning-class findings
+  // (an advisory note like answer_not_mapped) are NOT errors and must not paint
+  // it — the operator read a yellow note as a failure, which is exactly what it
+  // looked like next to a red error badge.
   function errorPathSet() {
-    var issues = allIssues();
+    var blocking = splitBlocking(allIssues()).blocking;
     var out = {};
     var i;
-    for (i = 0; i < issues.length; i++) { if (issues[i].path) { out[issues[i].path] = 1; } }
+    for (i = 0; i < blocking.length; i++) { if (blocking[i].path) { out[blocking[i].path] = 1; } }
+    return out;
+  }
+  function notePathSet() {
+    var warnings = splitBlocking(allIssues()).warnings;
+    var out = {};
+    var i;
+    for (i = 0; i < warnings.length; i++) { if (warnings[i].path) { out[warnings[i].path] = 1; } }
     return out;
   }
   function renderTree() {
@@ -2210,6 +2227,7 @@ export const PAYLOAD_BUILDER_SCRIPT = `
     var model = buildTreeModel();
     var term = searchTerm.toLowerCase();
     var errPaths = errorPathSet();
+    var notePaths = notePathSet();
     var i;
     function renderEntry(entry, parentBox, parentIsArray) {
       if (term !== '' && !subtreeHasMatch(entry, term)) { return; }
@@ -2247,6 +2265,7 @@ export const PAYLOAD_BUILDER_SCRIPT = `
         row.appendChild(el('span', 'lg-pb-badge lg-pb-badge-mapped', 'mapped'));
       }
       if (errPaths[entry.path]) { row.appendChild(el('span', 'lg-pb-badge lg-pb-badge-error', 'error')); }
+      else if (notePaths[entry.path]) { row.appendChild(el('span', 'lg-pb-badge lg-pb-badge-note', 'note')); }
       if (entry.uid !== null && (advReasons[entry.uid] || []).length > 0) {
         row.appendChild(el('span', 'lg-pb-badge lg-pb-badge-adv', 'adv'));
       }
@@ -3611,6 +3630,16 @@ export const PAYLOAD_BUILDER_SCRIPT = `
     if (drawer && advOpen[item.uid]) { drawer.open = true; }
   }
 
+  // Unsaved payload-tree edits. The offer editor's own Save (ui-offers.ts) used
+  // to PATCH the offer and RELOAD the page, which threw away everything the
+  // operator had just built here — he changed a field's Source, pressed the
+  // Save he could see, and got bounced back to a page with no change on it.
+  // The bridge below lets that button finish the job instead.
+  // The last SAVED shape. Dirtiness is a comparison, never a flag someone has to
+  // remember to set — a dozen mutators call renderAll() directly (setSource, the
+  // type flip, drags, deletes), and the ONE the operator used was the one a flag
+  // would have missed.
+  var savedSchemaJson = null;
   function afterModelChange() {
     renderTree();
     refreshPreview();
@@ -4584,42 +4613,58 @@ export const PAYLOAD_BUILDER_SCRIPT = `
     renderTree();
   }
   var saveBtn = document.getElementById('lg-schema-save');
-  if (saveBtn && builderActive) {
-    saveBtn.addEventListener('click', function () {
-      serverErrors = [];
-      var split = refreshValidation();
-      if (split.blocking.length > 0) {
-        if (window.showToast) { window.showToast('Save is blocked \\u2014 fix the ' + split.blocking.length + ' schema issue' + (split.blocking.length === 1 ? '' : 's') + ' first', 'error'); }
+  function saveSchemaVersion(done) {
+    function finish(ok) { if (typeof done === 'function') { done(ok); } }
+    serverErrors = [];
+    var split = refreshValidation();
+    if (split.blocking.length > 0) {
+      if (window.showToast) { window.showToast('Save is blocked \\u2014 fix the ' + split.blocking.length + ' schema issue' + (split.blocking.length === 1 ? '' : 's') + ' first', 'error'); }
+      finish(false);
+      return;
+    }
+    if (saveBtn) { saveBtn.disabled = true; saveBtn.classList.add('lg-saving'); }
+    getJson('POST', apiBase + '/payload-schemas', { schema_json: buildSchemaJson(), renamed_paths: renameLog }).then(function (res) {
+      if (saveBtn) { saveBtn.disabled = false; saveBtn.classList.remove('lg-saving'); }
+      if (res.ok && res.body && res.body.version) {
+        activeVersion = res.body.version;
+        renameLog = []; // the server moved the mapping rows with this version
+        savedSchemaJson = JSON.stringify(buildSchemaJson());
+        if (metaEl) { metaEl.textContent = 'Active schema: v' + res.body.version + ' (' + (res.body.source || 'manual') + ')'; }
+        renderServerOutcome(res.body);
+        sampleFieldsCache = null; // regenerate the Test form off the new version
+        if (window.showToast) { window.showToast('Payload schema v' + res.body.version + ' saved', 'success'); }
+        refreshPreview();
+        finish(true);
         return;
       }
-      saveBtn.disabled = true;
-      saveBtn.classList.add('lg-saving');
-      getJson('POST', apiBase + '/payload-schemas', { schema_json: buildSchemaJson(), renamed_paths: renameLog }).then(function (res) {
-        saveBtn.disabled = false;
-        saveBtn.classList.remove('lg-saving');
-        if (res.ok && res.body && res.body.version) {
-          activeVersion = res.body.version;
-          renameLog = []; // the server moved the mapping rows with this version
-          if (metaEl) { metaEl.textContent = 'Active schema: v' + res.body.version + ' (' + (res.body.source || 'manual') + ')'; }
-          renderServerOutcome(res.body);
-          sampleFieldsCache = null; // regenerate the Test form off the new version
-          if (window.showToast) { window.showToast('Payload schema v' + res.body.version + ' saved', 'success'); }
-          refreshPreview();
-          return;
-        }
-        renderServerOutcome(res.body);
-        if (serverErrors.length === 0 && res.body && res.body.error) {
-          serverErrors = [{ code: 'save_failed', path: '', message: res.body.error }];
-          refreshValidation();
-        }
-        if (window.showToast) { window.showToast('Schema not saved \\u2014 fix validation errors', 'error'); }
-      }).catch(function () {
-        saveBtn.disabled = false;
-        saveBtn.classList.remove('lg-saving');
-        serverErrors = [{ code: 'network_error', path: '', message: 'Network error \\u2014 the schema was not saved.' }];
+      renderServerOutcome(res.body);
+      if (serverErrors.length === 0 && res.body && res.body.error) {
+        serverErrors = [{ code: 'save_failed', path: '', message: res.body.error }];
         refreshValidation();
-      });
+      }
+      if (window.showToast) { window.showToast('Schema not saved \\u2014 fix validation errors', 'error'); }
+      finish(false);
+    }).catch(function () {
+      if (saveBtn) { saveBtn.disabled = false; saveBtn.classList.remove('lg-saving'); }
+      serverErrors = [{ code: 'network_error', path: '', message: 'Network error \\u2014 the schema was not saved.' }];
+      refreshValidation();
+      finish(false);
     });
+  }
+  if (saveBtn && builderActive) {
+    saveBtn.addEventListener('click', function () { saveSchemaVersion(null); });
+  }
+  // The bridge the offer editor's Save uses: it saves the payload tree too, and
+  // only reloads once this has landed (ui-offers.ts). One visible Save, one
+  // save — the payload builder is no longer a separate thing to remember.
+  if (builderActive) {
+    window.lgPayloadBuilder = {
+      dirty: function () {
+        if (savedSchemaJson === null) { return false; }
+        return JSON.stringify(buildSchemaJson()) !== savedSchemaJson;
+      },
+      save: function (done) { saveSchemaVersion(done); }
+    };
   }
   var copyBtn = document.getElementById('lg-schema-copy');
   if (copyBtn && builderActive) {
@@ -5352,6 +5397,7 @@ export const PAYLOAD_BUILDER_SCRIPT = `
       loadItemsFromChildren(initialSchema.root.children, bootstrap.active_schema.version || 0);
     }
     renderAll();
+    savedSchemaJson = JSON.stringify(buildSchemaJson());
   }
   if (testForm) { loadTestForm(); }
   void testBootstrap;

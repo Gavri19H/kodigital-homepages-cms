@@ -2805,3 +2805,84 @@ describeDb("payload builder — §6.2 the payload DECLARES, the Section MAPS", (
     );
   });
 });
+
+// --- the two defects the owner hit on 2026-08-12 ------------------------------
+//
+// Verbatim: "I defined a certain field as 'answer from a funnel question' and
+// then I imidietly got this error and when I am saving I bounced from the page
+// and field isn't saved!!!! and when Im trying to map the question, no field is
+// available!!!!!"
+//
+//   1. the tree row painted a red `error` chip for a WARNING-class note, so an
+//      advisory ("no question maps this yet") read as a failure;
+//   2. the offer editor's own Save PATCHed the offer and RELOADED the page,
+//      discarding every unsaved Payload-builder edit — the field never reached
+//      the schema, so the Section had no answer field to map either.
+
+describeDb("payload builder — a note is not an error, and Save saves the tree", () => {
+  it("a WARNING-class finding paints the amber `note` chip; only BLOCKING paints `error`", async () => {
+    const { html } = await richEditorPage();
+    const script = extractScripts(html).find((s) => s.includes("function errorPathSet("))!;
+    // the red chip is computed from the BLOCKING split, never from allIssues()
+    expect(script).toContain("splitBlocking(allIssues()).blocking");
+    expect(script).toContain("function notePathSet(");
+    expect(script).toContain("splitBlocking(allIssues()).warnings");
+    expect(script).toContain("lg-pb-badge-note', 'note'");
+    // and the summary no longer claims "No issues" while notes are listed
+    expect(script).toContain("Nothing blocks the save");
+    expect(html).toContain(".lg-pb-badge-note{");
+  });
+
+  it("BEHAVIOR: the same finding routes to `note` when it is warning-class and to `error` when it blocks", async () => {
+    const { html } = await richEditorPage();
+    const script = extractScripts(html).find((s) => s.includes("function errorPathSet("))!;
+    const source = ["splitBlocking", "errorPathSet", "notePathSet"]
+      .map((n) => sliceIslandFunction(script, n))
+      .join("\n");
+    const probe = (blockingCodes: string[]): { err: string[]; note: string[] } => {
+      const sandbox = {
+        blockingSet: Object.fromEntries(blockingCodes.map((c) => [c, 1])),
+        allIssues: () => [
+          { code: "answer_not_mapped", path: "lead.zip", message: "" },
+          { code: "static_missing_value", path: "lead.plan", message: "" },
+        ],
+      };
+      const island = runInNewContext(
+        `${source}\n({ errorPathSet: errorPathSet, notePathSet: notePathSet })`,
+        sandbox,
+      ) as { errorPathSet(): Record<string, number>; notePathSet(): Record<string, number> };
+      return { err: Object.keys(island.errorPathSet()), note: Object.keys(island.notePathSet()) };
+    };
+    // the server's blocking list carries static_missing_value and NOT the note
+    expect(probe(["static_missing_value"])).toEqual({ err: ["lead.plan"], note: ["lead.zip"] });
+    // and if a code ever becomes blocking, the SAME row flips to the red chip
+    expect(probe(["static_missing_value", "answer_not_mapped"])).toEqual({
+      err: ["lead.zip", "lead.plan"],
+      note: [],
+    });
+  });
+
+  it("the builder exposes dirty()/save() so the offer's Save persists the payload tree, and dirty() is a SHAPE comparison", async () => {
+    const { html } = await richEditorPage();
+    const script = extractScripts(html).find((s) => s.includes("window.lgPayloadBuilder"))!;
+    expect(script).toContain("function saveSchemaVersion(");
+    // dirtiness compares the built shape to the last SAVED shape — a flag would
+    // have missed setSource(), the one mutator the operator actually used.
+    expect(script).toContain("JSON.stringify(buildSchemaJson()) !== savedSchemaJson");
+    expect(script).toContain("savedSchemaJson = JSON.stringify(buildSchemaJson())");
+    expect(script).toContain("save: function (done) { saveSchemaVersion(done); }");
+  });
+
+  it("the offer editor's Save saves the payload schema FIRST and only then reloads", async () => {
+    const { html } = await richEditorPage();
+    const script = extractScripts(html).find((s) => s.includes("lg-editor-save"))!;
+    expect(script).toContain("window.lgPayloadBuilder");
+    expect(script).toContain("pb.dirty()");
+    // the reload lives INSIDE the payload-save callback, never before it
+    const saveBlock = script.slice(script.indexOf("pb.dirty()"), script.indexOf("pb.dirty()") + 700);
+    expect(saveBlock).toContain("pb.save(function (ok)");
+    expect(saveBlock).toContain("window.location.reload()");
+    // a FAILED payload save keeps the page (and the operator's work) intact
+    expect(saveBlock).toContain("payload schema NOT saved");
+  });
+});

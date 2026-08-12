@@ -2670,6 +2670,26 @@ const LG_EDITOR_SCRIPT = `
           dirty = false;
           setStatus('Saved');
           window.showToast('Offer saved', 'success');
+          // THE PAYLOAD TREE GOES WITH IT. This handler used to PATCH the offer
+          // and reload — and the reload discarded every unsaved edit in the
+          // Payload builder below (the operator changed a field's Source, hit
+          // the Save he could see, and landed on a reloaded page with his change
+          // gone). Now: if the builder has unsaved work, it is saved first and
+          // the reload waits for it. A payload save that FAILS keeps the page
+          // exactly as it is, so nothing is lost and the reason is on screen.
+          var pb = window.lgPayloadBuilder;
+          if (pb && pb.dirty()) {
+            setStatus('Saving payload schema\\u2026');
+            pb.save(function (ok) {
+              if (!ok) {
+                setStatus('Offer saved \\u2014 payload schema NOT saved (see the Payload tab)');
+                return;
+              }
+              setStatus('Saved');
+              window.setTimeout(function () { window.location.reload(); }, 600);
+            });
+            return;
+          }
           window.setTimeout(function () { window.location.reload(); }, 600);
           return;
         }
