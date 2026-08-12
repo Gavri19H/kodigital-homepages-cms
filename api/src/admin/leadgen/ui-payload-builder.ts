@@ -355,6 +355,8 @@ export const PAYLOAD_SCHEMA_ERROR_HINTS: Readonly<Record<string, string>> = {
   valid_values_invalid: "Valid values must be a list — re-add them in the Valid values editor.",
   enum_value_violation: "The default/fallback/static value must be one of the field's valid values.",
   answer_not_mapped: "No question maps this field yet — map it in the Section's Offers tab (Sections → the Section that asks it).",
+  save_timeout:
+    "The save did not answer in time. Nothing here is lost — the panel says whether a version was written; only press Save again if it says nothing was.",
   answer_legacy_binding_ignored:
     "This field still stores a hand-typed internal_field from before mapping moved to the Section tab. It does nothing — the Section's mapping decides which question fills the field.",
   value_map_invalid: "The value map must be a set of internal → provider rows — re-open the Value map editor.",
@@ -4613,6 +4615,39 @@ export const PAYLOAD_BUILDER_SCRIPT = `
     renderTree();
   }
   var saveBtn = document.getElementById('lg-schema-save');
+  // OWNER INCIDENT 2026-08-12: a save took 30.4s of wall clock on 7ms of CPU (the
+  // worker was WAITING on D1), the browser gave up, the panel said "not saved" —
+  // and the version HAD been written. He saved the same schema twice.
+  //
+  // A lost or slow RESPONSE is not a failed WRITE. When the request does not come
+  // back cleanly we now ASK the server what the active version is and say what
+  // actually happened, instead of guessing "failed".
+  var SAVE_TIMEOUT_MS = 20000;
+  function verifyAfterLostResponse(versionBefore, finish) {
+    getJson('GET', apiBase).then(function (res) {
+      var ctx = res && res.body && res.body.builder_context;
+      var landed = ctx && ctx.active_schema ? ctx.active_schema.version : null;
+      if (landed !== null && landed > versionBefore) {
+        activeVersion = landed;
+        renameLog = [];
+        savedSchemaJson = JSON.stringify(buildSchemaJson());
+        if (metaEl) { metaEl.textContent = 'Active schema: v' + landed + ' (manual)'; }
+        serverErrors = [];
+        refreshValidation();
+        if (window.showToast) { window.showToast('Saved as v' + landed + ' \\u2014 the response was slow, so this was verified against the server. Do NOT save again.', 'success'); }
+        finish(true);
+        return;
+      }
+      serverErrors = [{ code: 'save_timeout', path: '', message: 'The save did not come back in time AND no new version exists \\u2014 nothing was written. Your edits are still here; press Save again.' }];
+      refreshValidation();
+      if (window.showToast) { window.showToast('Not saved \\u2014 the server did not respond in time', 'error'); }
+      finish(false);
+    }).catch(function () {
+      serverErrors = [{ code: 'save_timeout', path: '', message: 'The save did not come back in time and the check could not reach the server \\u2014 reload this page to see whether it landed before saving again.' }];
+      refreshValidation();
+      finish(false);
+    });
+  }
   function saveSchemaVersion(done) {
     function finish(ok) { if (typeof done === 'function') { done(ok); } }
     serverErrors = [];
@@ -4623,7 +4658,18 @@ export const PAYLOAD_BUILDER_SCRIPT = `
       return;
     }
     if (saveBtn) { saveBtn.disabled = true; saveBtn.classList.add('lg-saving'); }
+    var versionBefore = activeVersion;
+    var settled = false;
+    var timer = window.setTimeout(function () {
+      if (settled) { return; }
+      settled = true;
+      if (saveBtn) { saveBtn.disabled = false; saveBtn.classList.remove('lg-saving'); }
+      verifyAfterLostResponse(versionBefore, finish);
+    }, SAVE_TIMEOUT_MS);
     getJson('POST', apiBase + '/payload-schemas', { schema_json: buildSchemaJson(), renamed_paths: renameLog }).then(function (res) {
+      if (settled) { return; }
+      settled = true;
+      window.clearTimeout(timer);
       if (saveBtn) { saveBtn.disabled = false; saveBtn.classList.remove('lg-saving'); }
       if (res.ok && res.body && res.body.version) {
         activeVersion = res.body.version;
@@ -4645,10 +4691,12 @@ export const PAYLOAD_BUILDER_SCRIPT = `
       if (window.showToast) { window.showToast('Schema not saved \\u2014 fix validation errors', 'error'); }
       finish(false);
     }).catch(function () {
+      if (settled) { return; }
+      settled = true;
+      window.clearTimeout(timer);
       if (saveBtn) { saveBtn.disabled = false; saveBtn.classList.remove('lg-saving'); }
-      serverErrors = [{ code: 'network_error', path: '', message: 'Network error \\u2014 the schema was not saved.' }];
-      refreshValidation();
-      finish(false);
+      // Do NOT claim "not saved" — the request may have reached D1 and written.
+      verifyAfterLostResponse(versionBefore, finish);
     });
   }
   if (saveBtn && builderActive) {
