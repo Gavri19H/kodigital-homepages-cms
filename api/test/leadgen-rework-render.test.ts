@@ -456,6 +456,128 @@ describe("§6.6 — ✓-in-selected marker resolution order", () => {
     expect(sheet).toContain(".lg-btn-answer.lg-selected .lg-check-badge");
     expect(sheet).toMatch(/\.lg-check-badge[^{]*\{display:inline-flex\}$/m);
   });
+
+  // -------------------------------------------------------------------------
+  // OWNER REPORT 2026-08-18 (verbatim): "In the 'Leadgen' --> 'Sections' menu,
+  // this feature doesn't work for 'multi-select card' element (it's supposed to
+  // add a leading circle + ✓ inside it as marked in the screenshot)."
+  //
+  // Measured on his OWN stored node (production section 40 "Home Security
+  // Features" — props.selected_marker:"mark", saved the moment he clicked it),
+  // rendered under his OWN theme (theme_json IS NULL on all 15 funnels):
+  //   1. renderMultiChoiceCardGroup was the ONE answer family that never read
+  //      the prop — no data-card-select stamp, no marker span. A plain no-op.
+  //   2. the card family was excluded from the demand-driven CSS hatch the
+  //      button family got, so the single-select grids' <span class=
+  //      "lg-card-check">✓</span> shipped with ZERO rules on an un-themed
+  //      funnel: a bare inline ✓ on EVERY card, resting and selected alike.
+  // -------------------------------------------------------------------------
+
+  const multiNode = (
+    props: Record<string, unknown>,
+    choiceStyles: (Record<string, unknown> | undefined)[] = [],
+  ): LeadgenComponentNode =>
+    ({
+      type: "MultiChoiceCardGroup",
+      question_id: "q_msyflduv_153f",
+      internal_field: "field_msyflduv_153f",
+      answer_type: "array",
+      choices: [
+        { label: "Cameras", value: "cameras", analytics_id: "cameras", style: choiceStyles[0] },
+        { label: "Motion sensors", value: "motion_sensors", analytics_id: "motion_sensors", style: choiceStyles[1] },
+      ],
+      props,
+    }) as unknown as LeadgenComponentNode;
+
+  it("MultiChoiceCardGroup: props.selected_marker:'mark' paints a LEADING circle + ✓ on every card", () => {
+    const html = renderComponent(multiNode({ selected_marker: "mark" }), DESIGN);
+    // the CSS gate attribute, on the card grid root this family stamps.
+    expect(html).toContain('data-card-select="mark"');
+    // both spans on both cards — the server cannot know client selection, so
+    // CSS alone decides which of the pair paints (same contract as buttons).
+    expect((html.match(/lg-check-hollow/g) ?? []).length).toBe(2);
+    expect((html.match(/lg-check-badge/g) ?? []).length).toBe(2);
+    // LEADING: the pair opens inside its own card BEFORE the title — the
+    // owner's word, and what puts the marker in the grid's first column.
+    expect(html).toMatch(
+      /<button [^>]*data-lg-choice="cameras"[^>]*><span class="lg-check-hollow"[^>]*><\/span><span class="lg-check-badge"[^>]*>.*?<\/span><span class="lg-card-title">Cameras</,
+    );
+  });
+
+  it("MultiChoiceCardGroup: per-choice style.selected_marker overrides the node value (same chain as every sibling)", () => {
+    const html = renderComponent(
+      multiNode({ selected_marker: "mark" }, [{ selected_marker: "wash" }, undefined]),
+      DESIGN,
+    );
+    expect((html.match(/lg-check-badge/g) ?? []).length).toBe(1);
+    expect(html).toContain('data-card-select="mark"'); // gate opens for the ONE
+  });
+
+  it("MultiChoiceCardGroup: no marker authored ⇒ no marker markup, no stamp (byte-identical to pre-fix)", () => {
+    const html = renderComponent(multiNode({}), DESIGN);
+    expect(html).not.toContain("lg-check-hollow");
+    expect(html).not.toContain("lg-check-badge");
+    expect(html).not.toContain("data-card-select");
+  });
+
+  it("the author-opted CARD ✓ is STYLED on the default design — the card family's own demand-driven rules", () => {
+    const html = renderSectionComponents([multiNode({ selected_marker: "mark" })], DESIGN);
+    expect(html).toContain("<style>");
+    // resting ring + hidden filled disc, the P0 pack's own 17/19px sizes.
+    expect(html).toMatch(/\.lg-card-multi \.lg-check-hollow\{width:17px;height:17px/);
+    expect(html).toMatch(/\.lg-card-multi \.lg-check-badge\{display:none;width:19px;height:19px/);
+    expect(html).toContain(`background:${DESIGN.color.primary}`); // the disc
+    expect(html).toContain('stroke="#fff"'); // the ✓, reversed out of the disc
+    // LEADING placement: the ring is PINNED to the card's content edge, so the
+    // rings line up down a stacked list instead of each row centering its own
+    // pair (measured ragged at 554/529/510/521px when they were flow items).
+    expect(html).toMatch(
+      /\.lg-check-hollow,[^{]*\.lg-check-badge\{position:absolute;left:1rem;top:50%;transform:translateY\(-50%\)\}/,
+    );
+    // …with a mirrored gutter, so a short label keeps the centering it has now.
+    expect(html).toMatch(/\.lg-card-multi\{padding-left:calc\(1rem \+ 19px \+ 0\.5rem\);padding-right:calc\(/);
+    // the selected-state swap (3-selector list, so match the rule shape).
+    expect(html).toMatch(
+      /\.lg-card-grid\[data-card-select="mark"\] \.lg-card-multi\.lg-selected \.lg-check-badge[^{]*\{display:flex\}/,
+    );
+    expect(html).toMatch(
+      /\.lg-card-grid\[data-card-select="mark"\] \.lg-card-multi\.lg-selected \.lg-check-hollow[^{]*\{display:none\}/,
+    );
+  });
+
+  it("the SINGLE-select grids' corner ✓ is styled on the default design too (it shipped ruleless)", () => {
+    const node: LeadgenComponentNode = {
+      type: "IconCardAnswerGrid",
+      question_id: "q",
+      internal_field: "f",
+      choices: [{ label: "A", value: "a", analytics_id: "a", icon: "x" }],
+      props: { selected_marker: "mark" },
+    } as unknown as LeadgenComponentNode;
+    const html = renderSectionComponents([node], DESIGN);
+    expect(html).toContain('class="lg-card-check"');
+    // the rule that HIDES it until selected — absent before, which is exactly
+    // why the bare ✓ sat on every card.
+    expect(html).toMatch(/\.lg-card-grid\[data-card-select="mark"\] \.lg-card-check\{[^}]*display:none/);
+    expect(html).toMatch(
+      /\.lg-card-grid\[data-card-select="mark"\] \.lg-card\.lg-selected \.lg-card-check[^{]*\{display:flex\}/,
+    );
+  });
+
+  it("BYTE-SAFE: a card section that never opts in adds NOTHING (no style block, no marker, no stamp)", () => {
+    const html = renderSectionComponents([multiNode({})], DESIGN);
+    expect(html).not.toContain("<style");
+    expect(html).not.toContain("lg-check-");
+    expect(html).not.toContain("data-card-select");
+    // and the chrome sheet stays clean — the theme gate is untouched.
+    expect(funnelChromeCss(DESIGN)).not.toContain("lg-card-multi");
+  });
+
+  it("a mark THEME ships the card rules in its own sheet and the section adds NO duplicate block", () => {
+    const design = effDesign({ button_defaults: { selected: "mark" } });
+    expect(css(design)).toMatch(/\.lg-card-multi \.lg-check-hollow\{width:17px/);
+    const html = renderSectionComponents([multiNode({ selected_marker: "mark" })], design as never);
+    expect(html).not.toContain("<style");
+  });
 });
 
 // ---------------------------------------------------------------------------

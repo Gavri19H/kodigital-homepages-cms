@@ -87,7 +87,7 @@ import {
 // author-opted case ONLY (selectedMarkStyleBlock below). Import direction is
 // presets → designs (the same direction as the tokens/theme imports above);
 // styles.ts imports nothing from this module, so no cycle is introduced.
-import { selectedMarkRules } from "../designs/default-funnel/styles";
+import { selectedMarkCardRules, selectedMarkRules } from "../designs/default-funnel/styles";
 import type { FunnelTokenRole, ThemeRecordControls } from "../designs/theme";
 import type { LeadgenContinueMode } from "../../../admin/leadgen/db-types";
 // OWNER DEFECT (2026-08-10, "image issue in the cards"): D1 stores the BARE R2
@@ -658,24 +658,42 @@ function selectedMarkerMarkup(marker: LeadgenSelectedMarker): string {
 // imported from styles.ts (selectedMarkRules) — one definition, no drift —
 // and are self-scoping: they match only elements this renderer stamped with
 // `[data-card-select="mark"]`.
-function nodeResolvesMark(node: LeadgenComponentNode, design: DefaultFunnelDesign): boolean {
-  // Mirrors each renderer's OWN `anyMark` computation 1:1 (renderButtonAnswerGroup
-  // / renderTwoButtonYesNo) — the two families that stamp data-card-select on a
-  // `.lg-answer-group` root, which is what these rules key on. (The card family
-  // stamps it on `.lg-card-grid` and paints a different marker element,
-  // `.lg-card-check`; it is untouched here.)
-  if (node.type === "ButtonAnswerGroup") {
-    return choiceList(node).some((c) => resolveSelectedMarker(node, c.style, design) === "mark");
-  }
+// Which ROOT a node's marker rules key on — the two families stamp
+// data-card-select on different roots and paint different marker elements, so
+// each needs its own rule set:
+//   "button" — `.lg-answer-group` + the hollow/badge pair (selectedMarkRules);
+//   "card"   — `.lg-card-grid` + the single-select corner ✓ badge and the
+//              multi-select leading circle (selectedMarkCardRules).
+// null = this node resolves no mark at all. Mirrors each renderer's OWN
+// `anyMark` computation 1:1.
+function nodeMarkFamily(
+  node: LeadgenComponentNode,
+  design: DefaultFunnelDesign,
+): "button" | "card" | null {
+  const anyChoiceMarks = (): boolean =>
+    choiceList(node).some((c) => resolveSelectedMarker(node, c.style, design) === "mark");
+  if (node.type === "ButtonAnswerGroup") return anyChoiceMarks() ? "button" : null;
   if (node.type === "TwoButtonYesNo") {
     const yesStyle = node.props?.["yesStyle"] as LeadgenChoiceStyle | undefined;
     const noStyle = node.props?.["noStyle"] as LeadgenChoiceStyle | undefined;
-    return (
+    const marks =
       resolveSelectedMarker(node, yesStyle, design) === "mark" ||
-      resolveSelectedMarker(node, noStyle, design) === "mark"
-    );
+      resolveSelectedMarker(node, noStyle, design) === "mark";
+    return marks ? "button" : null;
   }
-  return false;
+  // OWNER REPORT 2026-08-18 — the card family was excluded here, so an author
+  // who opted a node in without a mark theme got marker markup with NO rules
+  // behind it: the single-select grids' bare inline ✓ on every card, and (once
+  // renderMultiChoiceCardGroup started emitting them, above) unstyled circle
+  // spans. Both families reach the hatch now.
+  if (
+    node.type === "IconCardAnswerGrid" ||
+    node.type === "ImageCardAnswerGrid" ||
+    node.type === "MultiChoiceCardGroup"
+  ) {
+    return anyChoiceMarks() ? "card" : null;
+  }
+  return null;
 }
 
 function selectedMarkStyleBlock(
@@ -686,13 +704,20 @@ function selectedMarkStyleBlock(
   if (readButtonStyle(design)?.selected === "mark") return "";
   // flattenComponents descends into layout containers AND question grids, so a
   // grid child that opts in is found exactly like a top-level node.
-  const opted = flattenComponents(nodes).some(
-    (n) => typeof n === "object" && n !== null && nodeResolvesMark(n, design),
+  const families = new Set(
+    flattenComponents(nodes)
+      .map((n) => (typeof n === "object" && n !== null ? nodeMarkFamily(n, design) : null))
+      .filter((f): f is "button" | "card" => f !== null),
   );
-  if (!opted) return "";
+  if (families.size === 0) return "";
   // Self-scoping (no design-scope prefix): these selectors only ever match the
-  // marker spans this renderer emits inside a stamped answer group.
-  return `<style>${selectedMarkRules("", design).join("")}</style>`;
+  // marker elements this renderer emits inside a stamped answer group / card
+  // grid. Only the families actually present pay any bytes.
+  const rules = [
+    ...(families.has("button") ? selectedMarkRules("", design) : []),
+    ...(families.has("card") ? selectedMarkCardRules("", design) : []),
+  ];
+  return `<style>${rules.join("")}</style>`;
 }
 
 // LeadGen Rework §8.4 gap round (2026-07-23): the theme "Answer layout:
@@ -1937,6 +1962,17 @@ export function renderMultiChoiceCardGroup(
     2,
     choices.length,
   );
+  // §6.6 marker, resolved choice > node > theme PER CARD — the SAME line every
+  // sibling answer family already carried (renderCardGrid / the button group /
+  // YesNo). OWNER REPORT 2026-08-18: "this feature doesn't work for
+  // 'multi-select card' element (it's supposed to add a leading circle + ✓
+  // inside it)". It didn't, because this renderer was the one answer family
+  // that never read the prop: no resolution, no stamp, no marker span, so the
+  // Style panel's "Mark" wrote props.selected_marker (his production section 40
+  // has carried it since he clicked) and NOTHING consumed it. The leading
+  // circle + ✓ these spans become is styles.ts selectedMarkCardRules.
+  const markerResolutions = choices.map((c) => resolveSelectedMarker(node, c.style, design));
+  const anyMark = markerResolutions.some((m) => m === "mark");
   const card = (c: LeadgenChoice, index: number): string => {
     const titleText = typeof c.title === "string" && c.title !== "" ? c.title : c.label;
     const desc =
@@ -1954,7 +1990,9 @@ export function renderMultiChoiceCardGroup(
       // 03 §3.3: data-lg-choice mirrors the choice's REAL stored value.
       attr("data-lg-choice", c.value) +
       attr("data-analytics-id", c.analytics_id) +
-      `><span class="lg-card-title">${esc(titleText)}</span>${desc}</button>`
+      // LEADING (before the title) — the pack's own order, and what makes the
+      // grid's first column the marker's.
+      `>${selectedMarkerMarkup(markerResolutions[index] ?? "wash")}<span class="lg-card-title">${esc(titleText)}</span>${desc}</button>`
     );
   };
   // §6.5 matrix: MultiChoiceCardGroup (multi-select) has NO Other editor — the
@@ -1963,7 +2001,7 @@ export function renderMultiChoiceCardGroup(
   const cards = choices.map(card).join("");
   return (
     labelLine(node) +
-    `<div class="lg-card-grid lg-multi" role="group"${hydration(node)}${choiceHeightsAttr(anyChoiceHasHeight(choices))}` +
+    `<div class="lg-card-grid lg-multi" role="group"${hydration(node)}${choiceHeightsAttr(anyChoiceHasHeight(choices))}${attr("data-card-select", anyMark ? "mark" : undefined)}` +
     // P1a (register PC-1): honor the authored `columns` (killing the pre-P1a
     // hardcoded "2" that IGNORED the key) + `gridGap`, mirroring renderCardGrid's
     // §9.5 layer-4 resolution — per-node override wins over Section
