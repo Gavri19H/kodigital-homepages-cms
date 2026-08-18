@@ -444,31 +444,38 @@ export function selectedMarkCardRules(
     // ---- multi-select cards: the LEADING circle ----------------------------
     // Base `.lg-card` is a CENTERED COLUMN flex (icon over title over
     // subtitle), so a marker dropped in as a plain child would stack ABOVE the
-    // label instead of leading it. It is PINNED to the card's content edge
-    // rather than made a flex/grid item, for two measured reasons:
-    //   • multi-select cards stack (his own node is a 4-card column at width
-    //     S). Centering the [ring + label] pair the way the pack's side-by-side
-    //     button chips do lets each row center independently, so the rings come
-    //     out ragged down the stack — measured at 554/529/510/521px before this
-    //     rule. Pinned, they line up in ONE column like every checkbox list;
-    //   • the label keeps the exact centering it has today — this change ADDS a
-    //     ring, it does not re-align anyone's text.
-    // A pinned marker also leaves the title/subtitle stack untouched, so a card
-    // WITH a subtitle keeps its two lines. `.lg-card{position:relative}` (base
-    // sheet, the .lg-card-badge companion) is what it anchors to, and only the
-    // ONE visible marker paints — its twin is display:none.
-    rule(marker, {
-      position: "absolute",
-      left: spacing.md,
-      top: "50%",
-      transform: "translateY(-50%)",
-    }),
-    // …and the gutter the pinned ring needs, mirrored on the right so a short
-    // label stays optically centered in the card exactly as it is today: the
-    // ring's own inset + its 19px box + the pack's 8px gap.
+    // label instead of leading it. TWO COLUMNS — a ring column that sizes
+    // itself, a text column that takes everything left — because the ring's
+    // footprint must come out of the card's own arithmetic, not a constant:
+    //   • `justify-content:normal` defeats the base rule's `center`, which is
+    //     what would otherwise let every row center its own [ring + label] pair
+    //     independently and leave the rings ragged down a stacked list
+    //     (measured 554/529/510/521px). Left-aligning the ring COLUMN lines
+    //     them up like every checkbox list, at any card width;
+    //   • the label keeps its centering — the text cell inherits the base
+    //     `text-align:center`, so a short label still centers, now inside the
+    //     space the ring didn't take. This ADDS a ring; it re-aligns nobody's
+    //     text;
+    //   • and nothing has to be reserved by hand. A pinned marker plus a
+    //     hand-computed gutter cost his OWN live cards 51px of label width
+    //     (measured 112px → 61px in the 148px cards his 2-across Home Security
+    //     question renders), which wrapped "Glass break sensors" onto a third
+    //     line. `auto 1fr` spends exactly the ring's width and no more, and it
+    //     cannot collide the way a bare overlay does (measured: text ran under
+    //     the ring at every label longer than "Cameras").
+    // The marker spans both rows, so a card WITH a subtitle keeps its two-line
+    // stack instead of dragging the subtitle onto the title's line, and only the
+    // ONE visible marker occupies the cell — its twin is display:none, which
+    // removes it from layout entirely.
     rule(g(".lg-card-multi"), {
-      "padding-left": `calc(${spacing.md} + 19px + ${spacing.sm})`,
-      "padding-right": `calc(${spacing.md} + 19px + ${spacing.sm})`,
+      display: "grid",
+      "grid-template-columns": "auto 1fr",
+      "justify-content": "normal",
+      "column-gap": spacing.sm,
+    }),
+    rule(marker, { "grid-column": "1", "grid-row": "1 / -1", "align-self": "center" }),
+    rule(`${g(".lg-card-multi .lg-card-title")},${g(".lg-card-multi .lg-card-desc")}`, {
+      "grid-column": "2",
     }),
     // resting: the 17px hollow ring. selectedMarkRules' own values.
     rule(g(".lg-card-multi .lg-check-hollow"), {

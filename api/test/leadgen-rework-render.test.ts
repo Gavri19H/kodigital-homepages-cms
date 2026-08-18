@@ -528,14 +528,21 @@ describe("§6.6 — ✓-in-selected marker resolution order", () => {
     expect(html).toMatch(/\.lg-card-multi \.lg-check-badge\{display:none;width:19px;height:19px/);
     expect(html).toContain(`background:${DESIGN.color.primary}`); // the disc
     expect(html).toContain('stroke="#fff"'); // the ✓, reversed out of the disc
-    // LEADING placement: the ring is PINNED to the card's content edge, so the
-    // rings line up down a stacked list instead of each row centering its own
-    // pair (measured ragged at 554/529/510/521px when they were flow items).
+    // LEADING placement: a self-sizing ring column + a text column that takes
+    // the rest. justify-content:normal is load-bearing — it defeats the base
+    // rule's `center`, which would let each row center its own pair and leave
+    // the rings ragged down a stack (measured 554/529/510/521px).
     expect(html).toMatch(
-      /\.lg-check-hollow,[^{]*\.lg-check-badge\{position:absolute;left:1rem;top:50%;transform:translateY\(-50%\)\}/,
+      /\.lg-card-multi\{display:grid;grid-template-columns:auto 1fr;justify-content:normal;column-gap:0\.5rem\}/,
     );
-    // …with a mirrored gutter, so a short label keeps the centering it has now.
-    expect(html).toMatch(/\.lg-card-multi\{padding-left:calc\(1rem \+ 19px \+ 0\.5rem\);padding-right:calc\(/);
+    expect(html).toMatch(
+      /\.lg-check-hollow,[^{]*\.lg-check-badge\{grid-column:1;grid-row:1 \/ -1;align-self:center\}/,
+    );
+    expect(html).toMatch(/\.lg-card-title,[^{]*\.lg-card-desc\{grid-column:2\}/);
+    // The ring's footprint comes out of the card's own arithmetic — NOT a
+    // hand-computed gutter, which cost his live 148px cards 51px of label width
+    // (112px → 61px). Nothing may override the card's padding.
+    expect(html).not.toContain("padding-left:calc(");
     // the selected-state swap (3-selector list, so match the rule shape).
     expect(html).toMatch(
       /\.lg-card-grid\[data-card-select="mark"\] \.lg-card-multi\.lg-selected \.lg-check-badge[^{]*\{display:flex\}/,
