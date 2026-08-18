@@ -346,28 +346,12 @@ function pushButtonStyleRules(
         `${g(".lg-card.lg-selected")},${g('.lg-card[aria-checked="true"]')},${g('.lg-card[data-selected="true"]')}`,
         { "border-width": "3px", transform: "scale(1.03)" },
       ),
-      // check badge sits top-LEFT (the .lg-card-badge occupies top-right), so a
-      // card carrying both a badge and a mark-selection never overlaps.
-      rule(g(".lg-card-check"), {
-        position: "absolute",
-        top: spacing.xs,
-        left: spacing.xs,
-        display: "none",
-        "align-items": "center",
-        "justify-content": "center",
-        width: "22px",
-        height: "22px",
-        "border-radius": radius.full,
-        background: color.primary,
-        color: color.card,
-        "font-size": "0.75rem",
-        "font-weight": "700",
-        "line-height": "1",
-      }),
-      rule(
-        `${g(".lg-card.lg-selected .lg-card-check")},${g('.lg-card[aria-checked="true"] .lg-card-check')},${g('.lg-card[data-selected="true"] .lg-card-check')}`,
-        { display: "flex" },
-      ),
+      // The MARKER rules themselves (the single-select grids' corner ✓ badge +
+      // the multi-select cards' leading circle) live in selectedMarkCardRules —
+      // ONE definition shared with the author-opted, no-mark-theme case
+      // presets.ts serves demand-driven, exactly as selectedMarkRules already
+      // does for the button/YesNo family.
+      ...selectedMarkCardRules(scope, design),
     );
 
     // Rework §6.6 (S2.2 follow-up, coordinator-directed 2026-07-22): the SAME
@@ -391,6 +375,123 @@ function pushButtonStyleRules(
     // funnel that never opts in.
     out.push(...selectedMarkRules(scope, design));
   }
+}
+
+// The §6.6 mark rules for the CARD family — the corner ✓ badge the
+// single-select icon/image grids paint (extracted VERBATIM from the theme
+// branch above) PLUS the multi-select cards' leading circle. Same contract
+// selectedMarkRules holds for buttons: ONE definition, shared by the theme
+// branch and by presets.ts's demand-driven block, so the two can never drift.
+//
+// OWNER REPORT 2026-08-18 (verbatim): "In the 'Leadgen' --> 'Sections' menu,
+// this feature doesn't work for 'multi-select card' element (it's supposed to
+// add a leading circle + ✓ inside it as marked in the screenshot)."
+//
+// TWO measured holes, both closed here + in presets.ts. Probe: his stored node
+// (production section 40, props.selected_marker:"mark" — the click DID save)
+// rendered under his own theme (theme_json IS NULL on all 15 funnels, so
+// readButtonStyle is undefined and this whole theme branch never runs):
+//   1. renderMultiChoiceCardGroup never read the prop AT ALL — no
+//      data-card-select stamp, no marker span, so Mark was a plain no-op on
+//      multi-select cards. presets.ts now resolves it per card exactly like
+//      every sibling family, and the leading-circle rules below paint it.
+//   2. these rules were emitted ONLY inside the theme branch, so an author who
+//      opted a node in WITHOUT a mark theme got the single-select grid's
+//      `<span class="lg-card-check">✓</span>` with ZERO rules — an unstyled
+//      inline ✓ sitting on EVERY card, resting and selected alike. The
+//      button/YesNo family already had the escape hatch; the card family never
+//      got one. Exporting these makes the hatch reachable for cards too.
+//
+// Anatomy is the owner's OWN design pack, not invented: studio-panels.html
+// data-pin 6.6-visitor-selected paints the marker as a LEADING flex item
+// (17px hollow ring → 19px filled disc, 8px gap, pair centered as a unit) —
+// see selectedMarkRules below, whose sizes/colors these reuse verbatim.
+export function selectedMarkCardRules(
+  scope: string,
+  design: DefaultFunnelDesign | EffectiveFunnelDesign,
+): string[] {
+  const { color, radius, spacing } = design;
+  const g = (leaf: string): string =>
+    `${scope === "" ? "" : `${scope} `}.lg-card-grid[data-card-select="mark"] ${leaf}`;
+  // The 3-selector triplet every §6.6 rule keys on: the runtime's
+  // SELECTED_CLASS (render.ts applySelectionClasses) plus the aria-checked /
+  // data-selected mirrors the SSR + preview-sim layer over it
+  // (preview-sim.ts markSelectionInSlice).
+  const sel = (item: string, leaf: string): string =>
+    `${g(`${item}.lg-selected ${leaf}`)},${g(`${item}[aria-checked="true"] ${leaf}`)},${g(`${item}[data-selected="true"] ${leaf}`)}`;
+  const marker = `${g(".lg-card-multi .lg-check-hollow")},${g(".lg-card-multi .lg-check-badge")}`;
+  return [
+    // check badge sits top-LEFT (the .lg-card-badge occupies top-right), so a
+    // card carrying both a badge and a mark-selection never overlaps.
+    rule(g(".lg-card-check"), {
+      position: "absolute",
+      top: spacing.xs,
+      left: spacing.xs,
+      display: "none",
+      "align-items": "center",
+      "justify-content": "center",
+      width: "22px",
+      height: "22px",
+      "border-radius": radius.full,
+      background: color.primary,
+      color: color.card,
+      "font-size": "0.75rem",
+      "font-weight": "700",
+      "line-height": "1",
+    }),
+    rule(sel(".lg-card", ".lg-card-check"), { display: "flex" }),
+
+    // ---- multi-select cards: the LEADING circle ----------------------------
+    // Base `.lg-card` is a CENTERED COLUMN flex (icon over title over
+    // subtitle), so a marker dropped in as a plain child would stack ABOVE the
+    // label instead of leading it. It is PINNED to the card's content edge
+    // rather than made a flex/grid item, for two measured reasons:
+    //   • multi-select cards stack (his own node is a 4-card column at width
+    //     S). Centering the [ring + label] pair the way the pack's side-by-side
+    //     button chips do lets each row center independently, so the rings come
+    //     out ragged down the stack — measured at 554/529/510/521px before this
+    //     rule. Pinned, they line up in ONE column like every checkbox list;
+    //   • the label keeps the exact centering it has today — this change ADDS a
+    //     ring, it does not re-align anyone's text.
+    // A pinned marker also leaves the title/subtitle stack untouched, so a card
+    // WITH a subtitle keeps its two lines. `.lg-card{position:relative}` (base
+    // sheet, the .lg-card-badge companion) is what it anchors to, and only the
+    // ONE visible marker paints — its twin is display:none.
+    rule(marker, {
+      position: "absolute",
+      left: spacing.md,
+      top: "50%",
+      transform: "translateY(-50%)",
+    }),
+    // …and the gutter the pinned ring needs, mirrored on the right so a short
+    // label stays optically centered in the card exactly as it is today: the
+    // ring's own inset + its 19px box + the pack's 8px gap.
+    rule(g(".lg-card-multi"), {
+      "padding-left": `calc(${spacing.md} + 19px + ${spacing.sm})`,
+      "padding-right": `calc(${spacing.md} + 19px + ${spacing.sm})`,
+    }),
+    // resting: the 17px hollow ring. selectedMarkRules' own values.
+    rule(g(".lg-card-multi .lg-check-hollow"), {
+      width: "17px",
+      height: "17px",
+      "border-radius": radius.full,
+      border: `1.6px solid ${color.border}`,
+    }),
+    // the filled 19px disc — in the markup on every card, hidden until that
+    // card is selected. This disc carries the ✓'s contrast (white stroke).
+    rule(g(".lg-card-multi .lg-check-badge"), {
+      display: "none",
+      width: "19px",
+      height: "19px",
+      "border-radius": radius.full,
+      background: color.primary,
+      "align-items": "center",
+      "justify-content": "center",
+    }),
+    // selected: swap which of the pair paints.
+    rule(sel(".lg-card-multi", ".lg-check-hollow"), { display: "none" }),
+    rule(sel(".lg-card-multi", ".lg-check-badge"), { display: "flex" }),
+  ];
 }
 
 // The 4 §6.6 mark rules for the button/YesNo family. Extracted VERBATIM from
