@@ -3112,14 +3112,51 @@ export function funnelChromeCss(
         "justify-content": "center",
         gap: spacing.lg,
       }),
-      rule(`${scope} .lg-frame-brand-logos--row .lg-logo-strip`, { "flex-wrap": "nowrap", "overflow-x": "auto" }),
+      // The ROW arm WRAPS. It used to be `flex-wrap:nowrap; overflow-x:auto`,
+      // which hid logos at every width between the mobile breakpoint and the
+      // point his four fit: measured on his live funnel at a 500px viewport,
+      // content was 473px inside a 421px strip, so Fundera sat at left:-20 and
+      // AmONE ran to right:505 — and they were UNREACHABLE, not merely
+      // scrolled: the base rule's `justify-content:center` on an overflowing
+      // nowrap row pushes the leading items outside the scrollable area, where
+      // no amount of scrolling reaches them. Same "out of screen" report he
+      // filed, just above the media query he happened to screenshot. Wrapping
+      // keeps every logo on screen at EVERY width (measured: 0 off-screen,
+      // nothing unreachable), and still renders one clean row whenever the
+      // logos fit — which is the only thing "row" ever meant here. A strip that
+      // scrolls ON PURPOSE has its own opt-in class (.lg-frame-trust--scroll).
+      rule(`${scope} .lg-frame-brand-logos--row .lg-logo-strip`, {
+        "flex-wrap": "wrap",
+        "overflow-x": "visible",
+      }),
+      // OWNER REPORT 2026-08-18 (verbatim): "added logos and it isn't
+      // orgenized properly in mobile and also out of screen".
+      //
+      // minmax(0,1fr) — NOT the bare `1fr` this carried. `1fr` is
+      // minmax(AUTO,1fr), so a track whose logo is intrinsically wider than its
+      // equal share refuses to shrink, and the row grows past its own
+      // container. Measured on his live business-loans funnel at 375px: three
+      // tracks resolved to 112.5px + 149.3px + 96px = 358px (+32px of gap)
+      // inside a 296px strip, which pushed his first logo to left:-15px and ran
+      // the third out to right:375px — off both edges of the screen. Zeroing
+      // the track minimum is what lets the cells divide the space they actually
+      // have; the max-width rule below is what makes the LOGO respect its cell.
+      // place-items centers each logo in its own cell (his reference pack shot).
       rule(`${scope} .lg-frame-brand-logos--grid .lg-logo-strip`, {
         display: "grid",
-        "grid-template-columns": "repeat(4,1fr)",
+        "grid-template-columns": "repeat(4,minmax(0,1fr))",
+        "place-items": "center",
       }),
       rule(`${scope} .lg-frame-brand-logos .lg-logo-strip-img`, {
         "max-height": logoStrip.logoMaxHeight,
         width: "auto",
+        // The other half of the same defect: the strip constrained logo HEIGHT
+        // and left width entirely unbounded (measured `max-width: none` on all
+        // four of his logos), so a wide logo overflowed its cell no matter how
+        // the tracks were sized. Every logo the operator uploads is now bounded
+        // by the box it sits in, at every breakpoint and in both layouts —
+        // width:auto keeps the aspect ratio, so nothing is squashed.
+        "max-width": "100%",
       }),
       // R2 F-2 — THE ELEMENT-F PER-LOGO SIZE LADDER (FrameBrandLogoItem.size,
       // FRAME_SIZES s/m/l). The admin has always offered "Logo size" per logo
@@ -3705,11 +3742,31 @@ export function funnelChromeCss(
         "justify-content": "flex-start",
       }),
       // Round-4 P5a (10F): desktop ROW → mobile GRID preset. A row strip
-      // reflows to a 3-up grid at the breakpoint (Image21/22 reference).
+      // reflows to a grid at the breakpoint (Image21/22 reference).
+      //
+      // OWNER REPORT 2026-08-18: TWO-up, not three. At 375px a 3-up grid gives
+      // each logo ~96px, which is narrower than several real partner logos (his
+      // Lendzi mark measured 149px intrinsic), and 4 logos across 3 columns
+      // leaves the 4th stranded alone on a second row — the "isn't orgenized
+      // properly" half of his report, visible in his own screenshot as `mONE`
+      // sitting by itself under three cramped logos. Two columns divide his four
+      // evenly, and give each logo ~150px instead of ~96px. His reference shot
+      // (InsurePrimo carriers) is a 2-up grid for exactly this reason.
+      // minmax(0,…) + the max-width rule above are what keep a wide logo inside
+      // its cell instead of shoving the row off-screen.
       rule(`${scope} .lg-frame-brand-logos--row .lg-logo-strip`, {
         display: "grid",
-        "grid-template-columns": "repeat(3,1fr)",
+        "grid-template-columns": "repeat(2,minmax(0,1fr))",
+        "place-items": "center",
         "overflow-x": "visible",
+        gap: spacing.md,
+      }),
+      // …and the same at the breakpoint for a strip the operator authored as
+      // Layout=Grid. That arm had NO mobile rule at all, so it kept its desktop
+      // FOUR columns at 375px (~62px per logo) — the identical overflow, one
+      // dropdown value away from the report he actually filed.
+      rule(`${scope} .lg-frame-brand-logos--grid .lg-logo-strip`, {
+        "grid-template-columns": "repeat(2,minmax(0,1fr))",
         gap: spacing.md,
       }),
       // header_right stacks under the logo on mobile (no cramped row).
