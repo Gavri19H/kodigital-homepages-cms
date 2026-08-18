@@ -471,6 +471,98 @@ describe("P5a 10F brand logos", () => {
     // mobile reflow: a row strip becomes a grid inside the media query.
     expect(FRAME_CSS).toContain(".lg-frame-brand-logos--row .lg-logo-strip");
   });
+
+  // -------------------------------------------------------------------------
+  // OWNER REPORT 2026-08-18 (verbatim): "added logos and it isn't orgenized
+  // properly in mobile and also out of screen".
+  //
+  // Measured on his live business-loans funnel at 375px, four real partner
+  // logos, Layout=Row: the mobile 3-up grid's tracks resolved to 112.5px +
+  // 149.3px + 96px = 358px (+32px gap) inside a 296px strip, so his first logo
+  // sat at left:-15px and his third ran out to right:375px — off BOTH screen
+  // edges — while the fourth was stranded alone on a second row. Two causes,
+  // both pinned below: bare `1fr` tracks (= minmax(AUTO,1fr)) that refuse to
+  // shrink under a wide logo, and logos with no width bound at all
+  // (`max-width: none` measured on all four).
+  //
+  // These assertions are the REGRESSION net; the visual proof is the driven
+  // page (Playwright at 375/1280, every logo inside the viewport).
+  // -------------------------------------------------------------------------
+
+  // The mobile half of the sheet — the rules that only apply at the breakpoint.
+  const mobileBlock = (): string => {
+    const at = FRAME_CSS.indexOf("@media");
+    expect(at).toBeGreaterThan(-1);
+    return FRAME_CSS.slice(at);
+  };
+  const desktopBlock = (): string => FRAME_CSS.slice(0, FRAME_CSS.indexOf("@media"));
+
+  it("a logo can never be wider than the cell it sits in (the 'out of screen' cause)", () => {
+    // Height was bounded; width was not. width:auto keeps the aspect ratio.
+    expect(FRAME_CSS).toMatch(
+      /\.lg-frame-brand-logos \.lg-logo-strip-img\{[^}]*max-width:100%/,
+    );
+    expect(FRAME_CSS).toMatch(/\.lg-frame-brand-logos \.lg-logo-strip-img\{[^}]*width:auto/);
+  });
+
+  it("EVERY brand-logos grid track is minmax(0,1fr) — a bare 1fr cannot shrink", () => {
+    const gridRules = FRAME_CSS.split("}")
+      .filter((r) => r.includes("lg-frame-brand-logos") && r.includes("grid-template-columns"));
+    expect(gridRules.length).toBeGreaterThan(0);
+    for (const r of gridRules) {
+      expect(r).toContain("minmax(0,1fr)");
+      // the defect shape: repeat(N,1fr) with no minmax floor.
+      expect(r).not.toMatch(/repeat\(\d+,1fr\)/);
+    }
+  });
+
+  it("mobile reflows a ROW strip to TWO columns — three cramped his real logos and orphaned the 4th", () => {
+    expect(mobileBlock()).toMatch(
+      /\.lg-frame-brand-logos--row \.lg-logo-strip\{[^}]*grid-template-columns:repeat\(2,minmax\(0,1fr\)\)/,
+    );
+  });
+
+  it("the ROW arm WRAPS — nowrap+overflow-x:auto made logos unreachable between the breakpoints", () => {
+    // At a 500px viewport (above the media query) his content was 473px inside a
+    // 421px strip. With nowrap, the base `justify-content:center` pushed the
+    // leading logos OUTSIDE the scrollable area — measured left:-20, and no
+    // scroll position could reach them.
+    expect(desktopBlock()).toMatch(
+      /\.lg-frame-brand-logos--row \.lg-logo-strip\{[^}]*flex-wrap:wrap/,
+    );
+    expect(desktopBlock()).not.toMatch(
+      /\.lg-frame-brand-logos--row \.lg-logo-strip\{[^}]*flex-wrap:nowrap/,
+    );
+    expect(desktopBlock()).not.toMatch(
+      /\.lg-frame-brand-logos--row \.lg-logo-strip\{[^}]*overflow-x:auto/,
+    );
+    // the DELIBERATE horizontal-scroll strip keeps its own opt-in class.
+    expect(FRAME_CSS).toMatch(/\.lg-frame-trust--scroll \.lg-logo-strip\{[^}]*overflow-x:auto/);
+  });
+
+  it("mobile ALSO re-columns a GRID strip — that arm had no mobile rule, so it kept 4 columns at 375px", () => {
+    expect(mobileBlock()).toMatch(
+      /\.lg-frame-brand-logos--grid \.lg-logo-strip\{[^}]*grid-template-columns:repeat\(2,minmax\(0,1fr\)\)/,
+    );
+    // desktop keeps its four-up.
+    expect(desktopBlock()).toMatch(
+      /\.lg-frame-brand-logos--grid \.lg-logo-strip\{[^}]*grid-template-columns:repeat\(4,minmax\(0,1fr\)\)/,
+    );
+  });
+
+  it("each logo is centered in its own cell (his reference pack is an even, centered grid)", () => {
+    expect(desktopBlock()).toMatch(
+      /\.lg-frame-brand-logos--grid \.lg-logo-strip\{[^}]*place-items:center/,
+    );
+    expect(mobileBlock()).toMatch(
+      /\.lg-frame-brand-logos--row \.lg-logo-strip\{[^}]*place-items:center/,
+    );
+  });
+
+  it("BYTE-SAFE: none of this reaches a section-scoped sheet (frameRegions off)", () => {
+    const sectionOnly = funnelChromeCss(defaultFunnelDesign, DEFAULT_FUNNEL_SCOPE);
+    expect(sectionOnly).not.toContain("lg-frame-brand-logos");
+  });
 });
 
 // ---------------------------------------------------------------------------
