@@ -987,7 +987,13 @@ export function funnelChromeCss(
       // BOTH of these suppress the browser's disclosure triangle: the standard
       // property and WebKit's own pseudo-element below. Without them the
       // operator's label would grow a marker it never had as a button.
-      display: "inline",
+      //
+      // DO NOT add `display:` here. A first cut set `display:inline`, which
+      // takes the summary out of its list-item box and BREAKS the details
+      // widget: measured on the deployed page, a CLOSED disclosure still laid
+      // its panel out (display block, 141x43, offsetParent non-null) so the
+      // legal text spilled under the link on every visitor's screen. Marker
+      // suppression needs `list-style` and the WebKit pseudo-element ONLY.
       "list-style": "none",
     }),
     rule(`${scope} .lg-disclosure::-webkit-details-marker`, { display: "none" }),
