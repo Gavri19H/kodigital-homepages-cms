@@ -349,7 +349,16 @@ const KIND_PROBE = {
   btn_fill: "outline",
   btn_layout: "list",
   btn_selected: "mark",
-} as const satisfies Record<ComponentDefaultKind, string>;
+  // OWNER 2026-08-23 — the px axes. Each probe is a real, in-range value the
+  // validator accepts (asserted below), deliberately DIFFERENT from the base
+  // design's own value so the census measures a real move.
+  px_min_height: 72,
+  px_padding: 24,
+  px_border_width: 3,
+  px_radius: 20,
+  px_gap: 28,
+  px_margin: 32,
+} as const satisfies Record<ComponentDefaultKind, string | number>;
 
 function roleTokensOf(theme: ThemeJson): Record<FunnelTokenRole, string> {
   const design = resolveTokens(BASE, theme).design;
@@ -389,6 +398,12 @@ describe("R2 P8 F4 I3 — which controls re-point a GLOBAL role token (census, p
       "card_defaults.border_role": [],
       "card_defaults.radius": [],
       "card_defaults.shadow": [],
+      // OWNER 2026-08-23 — the four LAYOUT px axes write questionCard/cardPanel
+      // slots only, so they re-point no global role either.
+      "card_defaults.margin_px": [],
+      "card_defaults.padding_px": [],
+      "card_defaults.border_width_px": [],
+      "card_defaults.radius_px": [],
     });
   });
 
@@ -402,6 +417,14 @@ describe("R2 P8 F4 I3 — which controls re-point a GLOBAL role token (census, p
     expect(Object.fromEntries(buttonRows)).toEqual({
       "button_defaults.background_role": ["button_primary_bg"],
       "button_defaults.text_role": ["button_primary_text"],
+      // OWNER 2026-08-23 — the five COMPONENT px axes write the button/field/
+      // answer-card box slots only, so they join neither residual: measured
+      // [] each, i.e. no global role re-pointed.
+      "button_defaults.min_height_px": [],
+      "button_defaults.padding_px": [],
+      "button_defaults.border_width_px": [],
+      "button_defaults.radius_px": [],
+      "button_defaults.gap_px": [],
       "button_defaults.radius": [],
       "button_defaults.min_height": [],
       "button_defaults.casing": [],

@@ -207,10 +207,20 @@
     <div class="form-group"><label class="form-label">Button height</label><select class="form-select" data-theme-key="button_defaults.min_height"><option value="">Inherit from base</option><option value="s">Small</option><option value="m">Medium</option><option value="l">Large</option></select></div>
     <div class="form-group"><label class="form-label">Button casing</label><select class="form-select" data-theme-key="button_defaults.casing"><option value="">Inherit from base</option><option value="none">As written</option><option value="upper">UPPERCASE</option></select></div>
   </div>
+  <h4>Size &amp; spacing in pixels</h4>
+  <p class="form-help">Exact sizes for the answer buttons and the input fields &#8212; they share one look, so a number here moves both. Leave a box empty to keep the base design's value. A number typed here wins over the pickers above.</p>
+  <div class="lg-scalars">
+    <div class="form-group"><label class="form-label">Height</label><input class="form-input" type="number" inputmode="numeric" step="1" min="24" max="160" placeholder="Inherit from base" data-theme-key="button_defaults.min_height_px" aria-label="Height in pixels" /></div>
+    <div class="form-group"><label class="form-label">Padding</label><input class="form-input" type="number" inputmode="numeric" step="1" min="0" max="64" placeholder="Inherit from base" data-theme-key="button_defaults.padding_px" aria-label="Padding in pixels" /></div>
+    <div class="form-group"><label class="form-label">Space between</label><input class="form-input" type="number" inputmode="numeric" step="1" min="0" max="64" placeholder="Inherit from base" data-theme-key="button_defaults.gap_px" aria-label="Space between in pixels" /><p class="form-help">The gap between one answer and the next.</p></div>
+    <div class="form-group"><label class="form-label">Border thickness</label><input class="form-input" type="number" inputmode="numeric" step="1" min="0" max="12" placeholder="Inherit from base" data-theme-key="button_defaults.border_width_px" aria-label="Border thickness in pixels" /></div>
+    <div class="form-group"><label class="form-label">Corner radius</label><input class="form-input" type="number" inputmode="numeric" step="1" min="0" max="64" placeholder="Inherit from base" data-theme-key="button_defaults.radius_px" aria-label="Corner radius in pixels" /></div>
+  </div>
   <h3>Fields</h3>
   <div class="lg-scalars">
     <div class="form-group"><label class="form-label">Field height</label><select class="form-select" data-theme-key="field_defaults.min_height"><option value="">Inherit from base</option><option value="small">Small</option><option value="medium">Medium</option><option value="large">Large</option></select></div>
   </div>
+  <p class="form-help">Field height, padding, borders and corners in pixels are set together with the buttons, under Buttons above.</p>
   <h4>Button style</h4>
   <p class="form-help">Three independent looks (Images 38&#8211;40) &#8212; mix and match; each defaults to today's look.</p>
   <div class="lg-scalars">
@@ -224,6 +234,14 @@
   <div class="lg-scalars">
     <div class="form-group"><label class="form-label">Card corners</label><select class="form-select" data-theme-key="card_defaults.radius"><option value="">Inherit from base</option><option value="sm">Small</option><option value="md">Medium</option><option value="lg">Large</option><option value="xl">Extra large</option><option value="full">Fully round</option></select></div>
     <div class="form-group"><label class="form-label">Card shadow</label><select class="form-select" data-theme-key="card_defaults.shadow"><option value="">Inherit from base</option><option value="none">None</option><option value="sm">Small</option><option value="md">Medium</option><option value="lg">Large</option><option value="xl">Extra large</option></select></div>
+  </div>
+  <h4>Size &amp; spacing in pixels</h4>
+  <p class="form-help">Exact sizes for the question card that holds every component. Leave a box empty to keep the base design's value. A number typed here wins over the pickers above.</p>
+  <div class="lg-scalars">
+    <div class="form-group"><label class="form-label">Padding</label><input class="form-input" type="number" inputmode="numeric" step="1" min="0" max="64" placeholder="Inherit from base" data-theme-key="card_defaults.padding_px" aria-label="Padding in pixels" /><p class="form-help">The space inside the card, around its components.</p></div>
+    <div class="form-group"><label class="form-label">Margin</label><input class="form-input" type="number" inputmode="numeric" step="1" min="0" max="96" placeholder="Inherit from base" data-theme-key="card_defaults.margin_px" aria-label="Margin in pixels" /><p class="form-help">The space above and below the card.</p></div>
+    <div class="form-group"><label class="form-label">Border thickness</label><input class="form-input" type="number" inputmode="numeric" step="1" min="0" max="12" placeholder="Inherit from base" data-theme-key="card_defaults.border_width_px" aria-label="Border thickness in pixels" /></div>
+    <div class="form-group"><label class="form-label">Corner radius</label><input class="form-input" type="number" inputmode="numeric" step="1" min="0" max="64" placeholder="Inherit from base" data-theme-key="card_defaults.radius_px" aria-label="Corner radius in pixels" /></div>
   </div>
   <details class="lg-advanced" id="lg-theme-advanced">
     <summary>Advanced token administration</summary>
@@ -1253,7 +1271,28 @@
       var el = ev.target;
       if (!el || !el.getAttribute) { return; }
       var key = el.getAttribute('data-theme-key');
-      if (key !== null && el.value !== '') { queueThemeEdit(key, el.value); }
+      if (key === null) { return; }
+      // OWNER 2026-08-23 — the px axes are NUMBER inputs, and two things about
+      // them differ from every select in this rail:
+      //   1. the stored value is a NUMBER. Sending el.value would send the
+      //      string "72", which validateTheme refuses by design (it refuses
+      //      "16px" for the same reason) — so the operator's very first entry
+      //      would have failed to save.
+      //   2. an EMPTY box means "inherit from base", and the only way to say
+      //      that is to remove the key: null is this flow's own unset signal
+      //      (flushThemeEdits deletePath). The selects keep their existing
+      //      behaviour untouched — a blank select still queues nothing.
+      if (el.type === 'number') {
+        if (el.value === '') { queueThemeEdit(key, null); return; }
+        var n = Number(el.value);
+        // Not a number, or not whole: leave the stored theme alone rather than
+        // queue a value the save would reject. The input's own min/max/step
+        // already keep the spinner inside the range.
+        if (!isFinite(n) || Math.floor(n) !== n) { return; }
+        queueThemeEdit(key, n);
+        return;
+      }
+      if (el.value !== '') { queueThemeEdit(key, el.value); }
     });
   }
 

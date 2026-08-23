@@ -66,6 +66,7 @@ import { escapeHtml } from "../../templates/layout";
 import {
   THEME_BUTTON_LAYOUTS,
   THEME_BUTTON_MIN_HEIGHTS,
+  THEME_PX_RANGES,
   THEME_BUTTON_SELECTED_STYLES,
   THEME_BUTTON_STYLES,
   THEME_DISPLAY_SIZE_SCALES,
@@ -78,6 +79,7 @@ import {
   THEME_SIZE_SCALES,
   THEME_SPACING_SCALES,
 } from "../../../public/leadgen/designs/theme";
+import type { ThemePxKey } from "../../../public/leadgen/designs/theme";
 import {
   ROLE_META,
   enumOptions,
@@ -281,6 +283,17 @@ function renderThemeEditorPanel(isControl: boolean): string {
     themeSelectRaw(label, key, enumOptions(values, labels));
   const themeSelectRaw = (label: string, key: string, optionsHtml: string): string =>
     `<div class="form-group"><label class="form-label">${escapeHtml(label)}</label><select class="form-select" data-theme-key="${escapeHtml(key)}"><option value="">Inherit from base</option>${optionsHtml}</select></div>`;
+  // OWNER 2026-08-23 — the px axes ("Margins (in px) / Padding (in px) /
+  // Borders (Size & Radius) / Component's Height"). A number input, not a
+  // select: he asked for px, and a step-enum is exactly what he was working
+  // around. min/max come from THEME_PX_RANGES so the input, the save validator
+  // and the renderer share ONE range; `step="1"` and the validator's
+  // whole-number rule agree, so the spinner can never produce a rejected value.
+  // Blank = inherit, the same resting state every select in this rail has.
+  const themePx = (label: string, key: string, rangeKey: ThemePxKey, help?: string): string => {
+    const { min, max } = THEME_PX_RANGES[rangeKey];
+    return `<div class="form-group"><label class="form-label">${escapeHtml(label)}</label><input class="form-input" type="number" inputmode="numeric" step="1" min="${min}" max="${max}" placeholder="Inherit from base" data-theme-key="${escapeHtml(key)}" aria-label="${escapeHtml(label)} in pixels" />${help === undefined ? "" : `<p class="form-help">${escapeHtml(help)}</p>`}</div>`;
+  };
 
   // R2 P2 S2b: the OLD `lg-theme-minipreview`/`lg-theme-minipreview-frame`
   // mini-preview strip (a `data-mini-preview-mode="frame"` request, which
@@ -328,10 +341,20 @@ function renderThemeEditorPanel(isControl: boolean): string {
     ${themeSelect("Button height", "button_defaults.min_height", THEME_BUTTON_MIN_HEIGHTS, BUTTON_HEIGHT_LABELS)}
     ${themeSelect("Button casing", "button_defaults.casing", ["none", "upper"], { none: "As written", upper: "UPPERCASE" })}
   </div>
+  <h4>Size &amp; spacing in pixels</h4>
+  <p class="form-help">Exact sizes for the answer buttons and the input fields &#8212; they share one look, so a number here moves both. Leave a box empty to keep the base design's value. A number typed here wins over the pickers above.</p>
+  <div class="lg-scalars">
+    ${themePx("Height", "button_defaults.min_height_px", "min_height_px")}
+    ${themePx("Padding", "button_defaults.padding_px", "padding_px")}
+    ${themePx("Space between", "button_defaults.gap_px", "gap_px", "The gap between one answer and the next.")}
+    ${themePx("Border thickness", "button_defaults.border_width_px", "border_width_px")}
+    ${themePx("Corner radius", "button_defaults.radius_px", "radius_px")}
+  </div>
   <h3>Fields</h3>
   <div class="lg-scalars">
     ${themeSelect("Field height", "field_defaults.min_height", THEME_FIELD_MIN_HEIGHTS, FIELD_HEIGHT_LABELS)}
   </div>
+  <p class="form-help">Field height, padding, borders and corners in pixels are set together with the buttons, under Buttons above.</p>
   <h4>Button style</h4>
   <p class="form-help">Three independent looks (Images 38&#8211;40) &#8212; mix and match; each defaults to today's look.</p>
   <div class="lg-scalars">
@@ -345,6 +368,14 @@ function renderThemeEditorPanel(isControl: boolean): string {
   <div class="lg-scalars">
     ${themeSelect("Card corners", "card_defaults.radius", THEME_RADIUS_STEPS, THEME_RADIUS_STEP_LABELS)}
     ${themeSelect("Card shadow", "card_defaults.shadow", THEME_SHADOW_STEPS, THEME_SHADOW_STEP_LABELS)}
+  </div>
+  <h4>Size &amp; spacing in pixels</h4>
+  <p class="form-help">Exact sizes for the question card that holds every component. Leave a box empty to keep the base design's value. A number typed here wins over the pickers above.</p>
+  <div class="lg-scalars">
+    ${themePx("Padding", "card_defaults.padding_px", "padding_px", "The space inside the card, around its components.")}
+    ${themePx("Margin", "card_defaults.margin_px", "margin_px", "The space above and below the card.")}
+    ${themePx("Border thickness", "card_defaults.border_width_px", "border_width_px")}
+    ${themePx("Corner radius", "card_defaults.radius_px", "radius_px")}
   </div>
   <details class="lg-advanced" id="lg-theme-advanced">
     <summary>Advanced token administration</summary>
@@ -1390,7 +1421,28 @@ const THEMES_TAB_SCRIPT = `
       var el = ev.target;
       if (!el || !el.getAttribute) { return; }
       var key = el.getAttribute('data-theme-key');
-      if (key !== null && el.value !== '') { queueThemeEdit(key, el.value); }
+      if (key === null) { return; }
+      // OWNER 2026-08-23 — the px axes are NUMBER inputs, and two things about
+      // them differ from every select in this rail:
+      //   1. the stored value is a NUMBER. Sending el.value would send the
+      //      string "72", which validateTheme refuses by design (it refuses
+      //      "16px" for the same reason) — so the operator's very first entry
+      //      would have failed to save.
+      //   2. an EMPTY box means "inherit from base", and the only way to say
+      //      that is to remove the key: null is this flow's own unset signal
+      //      (flushThemeEdits deletePath). The selects keep their existing
+      //      behaviour untouched — a blank select still queues nothing.
+      if (el.type === 'number') {
+        if (el.value === '') { queueThemeEdit(key, null); return; }
+        var n = Number(el.value);
+        // Not a number, or not whole: leave the stored theme alone rather than
+        // queue a value the save would reject. The input's own min/max/step
+        // already keep the spinner inside the range.
+        if (!isFinite(n) || Math.floor(n) !== n) { return; }
+        queueThemeEdit(key, n);
+        return;
+      }
+      if (el.value !== '') { queueThemeEdit(key, el.value); }
     });
   }
 

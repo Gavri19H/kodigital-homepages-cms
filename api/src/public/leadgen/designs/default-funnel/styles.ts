@@ -29,7 +29,7 @@ import type { DefaultFunnelDesign } from "./tokens";
 // R2 P8 M2: readButtonCasing reads theme_json.button_defaults.casing off its
 // own (separate) stash — see theme.ts's BUTTON_CASING_STASH note for why the
 // casing does not ride the button-style triple.
-import { FUNNEL_TOKEN_ROLES, baseTokenForRole, readButtonCasing, readButtonStyle } from "../theme";
+import { FUNNEL_TOKEN_ROLES, baseTokenForRole, readButtonCasing, readButtonStyle, readCardMarginY, readComponentPx } from "../theme";
 import type { EffectiveButtonStyle, EffectiveFunnelDesign } from "../theme";
 // P6 self-hosted fonts (build-time-vendored WOFF2 Latin subsets, base64 data:
 // URLs — ZERO external font requests). selfHostedFontFaceCss emits the
@@ -146,6 +146,10 @@ function pushButtonStyleRules(
   mobile: string[],
 ): void {
   const { radius, shadow, color, spacing } = design;
+  // OWNER 2026-08-23 — the component px axes the operator EXPLICITLY typed (see
+  // readComponentPx). Empty for every funnel that set none, which is what keeps
+  // this whole block byte-identical for them.
+  const componentPx = readComponentPx(design);
 
   // FILL — outline: transparent primary/continue with a coloured 2px border,
   // and a heavier accent border on answer chips.
@@ -191,8 +195,20 @@ function pushButtonStyleRules(
       rule(`${scope} .lg-answer-group[data-btn-layout="list"] .lg-btn-answer`, {
         "justify-content": "flex-start",
         "text-align": "left",
-        "min-height": "56px",
-        padding: `${spacing.md} ${spacing.lg}`,
+        // OWNER 2026-08-23 — this arm's own 56px / 1rem 1.5rem OUTRANKED the
+        // theme's px axes (its selector is 2 classes + an attribute; the token-
+        // reading `.lg-btn` rule is one class). DRIVEN before the fix: a typed
+        // Height 96 and Padding 24 painted 56px and 16px here, i.e. the two
+        // axes he cares most about were dead in exactly the full-width layout
+        // his competitor reference uses.
+        //
+        // The literals STAY as the default: they differ from the token defaults
+        // (52px / 14px 16px), so reading the tokens unconditionally would
+        // restyle every funnel already on list layout. componentPx carries only
+        // what the operator actually typed, so their number wins and everyone
+        // else is byte-identical.
+        "min-height": componentPx.minHeight ?? "56px",
+        padding: componentPx.padding ?? `${spacing.md} ${spacing.lg}`,
       }),
       rule(`${scope} .lg-card-grid[data-btn-layout="list"]`, { "grid-template-columns": "1fr" }),
       rule(`${scope} .lg-card-grid[data-btn-layout="list"] .lg-card`, {
@@ -685,6 +701,7 @@ export function funnelChromeCss(
   // the card to use `.lg-content`'s FULL border-box width for its own
   // golden-exact 46px/side padding, matching the golden's real structure,
   // WITHOUT touching `.lg-banners`' own inset (a sibling, untouched).
+  const cardMarginY = readCardMarginY(design);
   out.push(
     rule(`${scope} .lg-question-card`, {
       background: questionCard.background,
@@ -695,6 +712,13 @@ export function funnelChromeCss(
       "box-sizing": "border-box",
       "margin-left": `calc(-1 * ${content.paddingDesktop})`,
       "margin-right": `calc(-1 * ${content.paddingDesktop})`,
+      // OWNER 2026-08-23 (Theme → Margins in px). Read from the theme's Symbol
+      // stash, NOT a token: a new token key would ship in the public config blob
+      // for every visitor (see readCardMarginY). Unset ⇒ NO declaration, so a
+      // funnel that never sets it is byte-identical. Only the VERTICAL margins
+      // are authorable — the horizontal pair above is the structural
+      // padding-cancellation this rule already depends on.
+      ...(cardMarginY === undefined ? {} : { "margin-top": cardMarginY, "margin-bottom": cardMarginY }),
     }),
   );
   mobile.push(

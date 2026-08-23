@@ -861,6 +861,42 @@ const THEME_JSON_NON_KEYS: ReadonlyArray<{ member: string; reason: string }> = [
   },
 ];
 
+// OWNER 2026-08-23 — the theme sweep's DECLARED-VALUES table, the exact
+// counterpart of FRAME_PROBE_CONTEXT's own `values` (see its comment: "a probe
+// context can also declare WHICH two values put the key in use, for a key whose
+// generic vocabulary cannot"). It is NOT a shortcut to a green: the key must
+// still move the visible fingerprint between the two values named here, and the
+// reason has to say why the generic pair could not measure anything.
+//
+// WHY IT IS NEEDED HERE: vocabularyOf's generic pair for a `number` field is
+// [14, 20] (leadgen-visible-paint.ts), and the px axes each declare a RANGE
+// (THEME_PX_RANGES) that a save error enforces. For three of them the generic
+// pair falls outside that range, so BOTH arms are refused by the renderer's own
+// defense-in-depth and the key measures identical-to-itself — a property of the
+// probe, not the key. Widening the product's ranges to admit a test fixture
+// would be the tail wagging the dog: a 14px-tall tappable control and a 20px
+// border are not values this product should accept.
+const THEME_PX_PROBE_VALUES: ReadonlyArray<{ key: string; values: readonly number[]; reason: string }> = [
+  {
+    key: "button_defaults.min_height_px",
+    values: [44, 96],
+    reason:
+      "THEME_PX_RANGES.min_height_px is 24..160, so the generic [14, 20] pair is BELOW the floor and both arms resolve to undefined. 44 is this design's own .lg-input floor and 96 is a little over double it — the flip the owner is actually making (his live answer buttons measured 52px and he wants the competitor's much taller ones).",
+  },
+  {
+    key: "button_defaults.border_width_px",
+    values: [0, 6],
+    reason:
+      "THEME_PX_RANGES.border_width_px is 0..12, so the generic [14, 20] pair is ABOVE the ceiling and both arms resolve to undefined. 0 (borderless) and 6 (heavy) are the two ends an operator actually reaches for.",
+  },
+  {
+    key: "card_defaults.border_width_px",
+    values: [0, 6],
+    reason:
+      "Same range and same reason as its button sibling above: [14, 20] is outside 0..12, so the generic pair could not put the key in use at all.",
+  },
+];
+
 function themeJsonKeys(): KeySpec[] {
   const skipped = new Set(THEME_JSON_NON_KEYS.map((n) => n.member));
   const out: KeySpec[] = [];
@@ -872,10 +908,12 @@ function themeJsonKeys(): KeySpec[] {
       continue;
     }
     for (const leaf of declaredFields(THEME_FILE, member.typeText)) {
+      const dotted = `${member.name}.${leaf.name}`;
+      const declared = THEME_PX_PROBE_VALUES.find((v) => v.key === dotted)?.values;
       out.push({
         group: member.name,
-        key: `${member.name}.${leaf.name}`,
-        values: vocabularyFor(leaf, member.typeText, false),
+        key: dotted,
+        values: declared ?? vocabularyFor(leaf, member.typeText, false),
       });
     }
   }
@@ -1519,14 +1557,17 @@ describe("R2 P8 M2/R3 sweep — the enumerated universe is source-derived and CL
     const perGroup = new Map<string, number>();
     for (const k of INLINE_KEYS) perGroup.set(k.group, (perGroup.get(k.group) ?? 0) + 1);
     expect(Object.fromEntries([...perGroup].sort())).toEqual({
-      button_defaults: 8,
-      card_defaults: 4,
+      // OWNER 2026-08-23: button_defaults 8 -> 13 and card_defaults 4 -> 8, the
+      // nine px axes ("Margins (in px) / Padding (in px) / Borders (Size &
+      // Radius) / Component's Height" on the component and layout scopes).
+      button_defaults: 13,
+      card_defaults: 8,
       field_defaults: 1,
       palette: 14,
       scales: 3,
       typography: 4,
     });
-    expect(INLINE_KEYS.length, "R3: '34 inline theme_json'").toBe(34);
+    expect(INLINE_KEYS.length, "R3: '34 inline theme_json'").toBe(43);
     // The one member deliberately not a key is still DECLARED and still has
     // exactly one legal value — if `version` ever widens, this fails.
     expect(THEME_JSON_NON_KEYS.map((n) => n.member)).toEqual(["version"]);
@@ -1550,7 +1591,8 @@ describe("R2 P8 M2/R3 sweep — the enumerated universe is source-derived and CL
   });
 
   it("the theme universe is R3's 59 keys — 56 more than the 3 this file used to enumerate", () => {
-    expect(INLINE_KEYS.length + RECORD_KEYS.length, "R3: 'all 59 theme keys'").toBe(59);
+    // OWNER 2026-08-23: 59 -> 68 with the nine px axes.
+    expect(INLINE_KEYS.length + RECORD_KEYS.length, "R3: 'all 59 theme keys'").toBe(68);
     expect(declaredFields(THEME_FILE, "ThemeRecordControls").length, "the old enumeration").toBe(3);
   });
 
@@ -1597,7 +1639,13 @@ describe("R2 P8 M2/R3 sweep — the enumerated universe is source-derived and CL
     // (frames.ts FrameFooterConfig), the spacing between element-J footer
     // blocks — offered in the J panel, probed with FOOTER_TWO_BLOCKS and
     // required to move the visible fingerprint like every other key here.
-    expect(ENUMERATED_TOTAL).toBe(131);
+    // OWNER 2026-08-23: 131 -> 140. The nine added keys are the px axes on
+    // ThemeButtonDefaults (min_height_px / padding_px / border_width_px /
+    // radius_px / gap_px) and ThemeCardDefaults (margin_px / padding_px /
+    // border_width_px / radius_px) — enumerated, probed with in-range declared
+    // values (THEME_PX_PROBE_VALUES) and required to move the visible
+    // fingerprint like every other key in this universe.
+    expect(ENUMERATED_TOTAL).toBe(140);
   });
 
   it("the probe page is a REAL funnel page — and renders none of the surfaces the mis-targeted keys hid behind", () => {
@@ -2314,6 +2362,14 @@ function railControlLabels(): Map<string, string> {
   for (const m of src.matchAll(/frameControl\(\s*"([^"]+)"\s*,\s*renderRoleStrip\("theme:([^"]+)"\)/g)) {
     out.set(m[2] as string, `${headingAt(m.index ?? 0)}${m[1] as string}`);
   }
+  // OWNER 2026-08-23 — the px axes are authored with the rail's THIRD control
+  // helper (themePx, a number input). This scraper is what makes "the label
+  // side covers every rail control" true, so a new helper has to be read here or
+  // its controls are invisible to the whole label->target leg — which is exactly
+  // how they first showed up: operatorTextFor returned null for all nine.
+  for (const m of src.matchAll(/themePx\(\s*"([^"]+)"\s*,\s*"([^"]+)"/g)) {
+    out.set(m[2] as string, `${headingAt(m.index ?? 0)}${m[1] as string}`);
+  }
   return out;
 }
 
@@ -2436,6 +2492,60 @@ const LABEL_TARGET_OUT_OF_COVERAGE: ReadonlyArray<{ key: string; reason: string 
     key: "scales.shadow",
     reason:
       "Labelled 'Scales Shadows'. The GLOBAL shadow scale (the per-component tier card_defaults.shadow IS covered here). 'Shadows' names no element.",
+  },
+  // OWNER 2026-08-23 — the nine px axes. Out of coverage for the SAME reason
+  // scales.spacing is: they are deliberately multi-surface. The owner asked for
+  // "the layout itself and also the sections' components on it", and an answer
+  // button and an input field share this design's box vocabulary (§10.4 "the
+  // SHARED SIZE LANGUAGE"), so one number is SUPPOSED to move both — a control
+  // that moved only one of them would be the half-configured look the request
+  // exists to prevent. Each is still swept for DEADness by §2 (every one of the
+  // nine measured alive), and each is proven role-neutral by
+  // leadgen-p8-f4-component-scope.test.ts, so nothing is parked here.
+  {
+    key: "button_defaults.min_height_px",
+    reason:
+      "Labelled 'Buttons - Size & spacing in pixels - Height', whose own help line says 'they share one look, so a number here moves both'. It writes primaryButton.minHeight AND input.minHeight by design; 'Height' names a dimension, not one element, so there is no single on-target for it to have.",
+  },
+  {
+    key: "button_defaults.padding_px",
+    reason:
+      "Labelled 'Buttons - Size & spacing in pixels - Padding'. Writes the button's paddingY/paddingX and the field's padding together, the shared control look the panel's own help line promises. 'Padding' names a property, not an element.",
+  },
+  {
+    key: "button_defaults.border_width_px",
+    reason:
+      "Labelled 'Buttons - Size & spacing in pixels - Border thickness'. The answer button and the field box ALREADY read one border token (styles.ts: .lg-btn.lg-btn-answer and .lg-input both consume input.border), so a single-surface version of this control cannot exist without splitting that token.",
+  },
+  {
+    key: "button_defaults.radius_px",
+    reason:
+      "Labelled 'Buttons - Size & spacing in pixels - Corner radius'. Writes the button, the field and the icon/image answer CARD — the three shapes an answer can take; leaving the card behind would make one answer family ignore the axis.",
+  },
+  {
+    key: "button_defaults.gap_px",
+    reason:
+      "Labelled 'Buttons - Size & spacing in pixels - Space between'. The owner's 'Margins (in px)' for components: the answer grid's gap at both breakpoints AND the card's inter-component stack floor, so ONE control moves every gap he can see. Exactly the multi-surface shape scales.spacing is excluded for.",
+  },
+  {
+    key: "card_defaults.margin_px",
+    reason:
+      "Labelled 'Cards - Size & spacing in pixels - Margin'. The vertical space AROUND the question card — a relationship between the card and its neighbours rather than a property of one element, so the off-target leg has nothing to compare against.",
+  },
+  {
+    key: "card_defaults.padding_px",
+    reason:
+      "Labelled 'Cards - Size & spacing in pixels - Padding'. Writes questionCard's desktop AND mobile padding (one number means one number at both breakpoints); 'Padding' names a property, not an element.",
+  },
+  {
+    key: "card_defaults.border_width_px",
+    reason:
+      "Labelled 'Cards - Size & spacing in pixels - Border thickness'. Rewrites the width channel of questionCard.border and cardPanel.border — the card family, the same pair card_defaults.border_role already writes (that key IS covered here, because a colour role names a surface; a thickness does not).",
+  },
+  {
+    key: "card_defaults.radius_px",
+    reason:
+      "Labelled 'Cards - Size & spacing in pixels - Corner radius'. Writes questionCard.borderRadius and content.cardRadius, the same pair card_defaults.radius writes; the px axis is the finer-grained sibling of a covered key, not a new target.",
   },
 ];
 
@@ -2696,6 +2806,16 @@ describe("R2 P8-3 F6 — a control moves the element its OWN LABEL names (the MI
       ).toEqual([]);
     }
     expect(LABEL_TARGET_OUT_OF_COVERAGE.map((o) => o.key).sort()).toEqual([
+      // OWNER 2026-08-23 — the nine px axes (see their reasons above).
+      "button_defaults.border_width_px",
+      "button_defaults.gap_px",
+      "button_defaults.min_height_px",
+      "button_defaults.padding_px",
+      "button_defaults.radius_px",
+      "card_defaults.border_width_px",
+      "card_defaults.margin_px",
+      "card_defaults.padding_px",
+      "card_defaults.radius_px",
       "scales.radius",
       "scales.shadow",
       "scales.spacing",
