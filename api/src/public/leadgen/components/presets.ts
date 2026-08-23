@@ -983,16 +983,33 @@ export function renderBackButton(node: LeadgenComponentNode, design: DefaultFunn
   );
 }
 
+// OWNER 2026-08-23: "The 'Advertising disclosure' menu on the header should open
+// a pop-up with text on it — right now it's not working."
+//
+// DRIVEN on his live moneylantern.com/lg/business-loans: the link WAS a
+// `<button aria-expanded="false">` beside a `<div class="lg-disclosure-panel"
+// hidden>`, and clicking it left aria-expanded at "false" — because NOTHING
+// toggled it. The public runtime bundle contains zero references to
+// `lg-disclosure` (styles.ts's own modal rule even says so: "hidden toggle
+// unchanged — no new runtime dependency"). It was an inert control that looked
+// interactive.
+//
+// WHY <details> AND NOT A JS HANDLER: the public runtime bundle sits at
+// 53181 of 53248 bytes — 67 bytes of headroom, and that ceiling is an owner
+// decision. A toggle handler does not fit. <details>/<summary> opens on click
+// with ZERO script, works with JS disabled, is keyboard-operable, and publishes
+// its own expanded state to assistive tech — so dropping the hand-rolled
+// aria-expanded is a gain, not a loss.
 export function renderDisclosureLink(node: LeadgenComponentNode, design: DefaultFunnelDesign): string {
   const label = propStr(node, "label") ?? "Disclosure";
   // panelHtml is author-authored rich text — it flows through escapeHtml so no
-  // markup is injected (the runtime renders it into a text panel).
+  // markup is injected (the panel renders it as text).
   const panelHtml = propStr(node, "panelHtml") ?? "";
   return (
-    `<div class="lg-disclosure-wrap"${hydration(node)}>` +
-    `<button type="button" class="lg-disclosure"${style({ color: design.disclosure.color })} aria-expanded="false">${esc(label)}</button>` +
-    `<div class="lg-disclosure-panel" hidden>${esc(panelHtml)}</div>` +
-    `</div>`
+    `<details class="lg-disclosure-wrap"${hydration(node)}>` +
+    `<summary class="lg-disclosure"${style({ color: design.disclosure.color })}>${esc(label)}</summary>` +
+    `<div class="lg-disclosure-panel">${esc(panelHtml)}</div>` +
+    `</details>`
   );
 }
 

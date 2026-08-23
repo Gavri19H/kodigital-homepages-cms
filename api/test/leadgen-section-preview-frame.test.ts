@@ -516,6 +516,25 @@ const MOVED_CARD_RULES =
 // --lg-sel-bg consuming rule left the frameRegions-gated block for the base
 // sheet (the same coordinated legacy-pin re-pin), so it is the SECOND legal
 // css delta chunk against the pre-change capture (same lockstep discipline).
+// OWNER 2026-08-23 — the disclosure pop-up's own legal delta, same lockstep
+// discipline as MOVED_CARD_RULES / MOVED_SEL_BG_RULE above: the link became a
+// <details>/<summary> (it was a <button> with NOTHING wired to toggle it — the
+// public runtime bundle has zero references to `lg-disclosure`, so clicking it
+// did nothing on his live funnel), which needs the marker suppressed and gives
+// the open panel its pop-up box. Built from the SAME tokens styles.ts uses, so a
+// drift in either place fails here rather than silently re-pinning.
+const DISCLOSURE_SUMMARY_DELTA =
+  ";display:inline;list-style:none}\n" +
+  `${DEFAULT_FUNNEL_SCOPE} .lg-disclosure::-webkit-details-marker{display:none}\n` +
+  `${DEFAULT_FUNNEL_SCOPE} .lg-disclosure::marker{content:""}`;
+const DISCLOSURE_POPUP_RULES =
+  `${DEFAULT_FUNNEL_SCOPE} .lg-disclosure-wrap{position:relative;display:inline-block}\n` +
+  `${DEFAULT_FUNNEL_SCOPE} .lg-disclosure-wrap[open] .lg-disclosure-panel{position:absolute;z-index:30;` +
+  `top:calc(100% + 6px);left:50%;transform:translateX(-50%);width:max-content;max-width:min(92vw, 420px);` +
+  `background:${defaultFunnelDesign.color.card};border:1px solid ${defaultFunnelDesign.color.borderLight};` +
+  `border-radius:${defaultFunnelDesign.radius.md};box-shadow:${defaultFunnelDesign.shadow.lg};` +
+  `padding:${defaultFunnelDesign.spacing.md};text-align:left;white-space:normal}\n`;
+
 const MOVED_SEL_BG_RULE =
   `${DEFAULT_FUNNEL_SCOPE} .lg-btn.lg-btn-answer[aria-checked="true"], ${DEFAULT_FUNNEL_SCOPE} .lg-btn.lg-btn-answer[data-selected="true"]{background:var(--lg-sel-bg, ${defaultFunnelDesign.iconCard.selectedBackground})}\n`;
 
@@ -1154,6 +1173,12 @@ function assertPinnedResponse(actualText: string, fixtureText: string): void {
     .split(MOVED_CARD_RULES)
     .join("")
     .split(MOVED_SEL_BG_RULE)
+    .join("")
+    // OWNER 2026-08-23 — revert the <summary> tail onto the old <button> rule
+    // body, and strip the net-new pop-up rules.
+    .split(DISCLOSURE_SUMMARY_DELTA)
+    .join("}")
+    .split(DISCLOSURE_POPUP_RULES)
     .join("")
     .split(U14_NEW_CONTINUE_RULE)
     .join(U14_OLD_CONTINUE_RULE)

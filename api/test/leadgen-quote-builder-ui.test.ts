@@ -700,11 +700,21 @@ describeDb("Quote Builder frame studio — §4.4 region inspectors [RETIRED: §8
     }
   });
 
-  it("Disclosure region-inspector controls have no current admin surface (see describe-block citation)", async () => {
+  // OWNER 2026-08-23: "The 'Advertising disclosure' menu on the header should
+  // open a pop-up with text on it — right now it's not working, also, Disclosure
+  // should be applied only if activated (right now no option to activation/
+  // deactivation)." This test used to pin the gap he hit: panel D offered ONLY
+  // the v2 `disclosure.entries` list, so the legacy link his funnel actually
+  // paints had no on/off switch and no text field anywhere in the admin. All
+  // four keys have landed in the Templates tab — same shape as the
+  // footer.enabled leg directly below, which recorded the same kind of fix.
+  it("Disclosure region-inspector controls have LANDED in the Templates tab (owner 2026-08-23)", async () => {
     const { html } = await harness();
     for (const key of ["disclosure.enabled", "disclosure.location", "disclosure.link_label", "disclosure.text"]) {
-      expect(html, `disclosure control ${key} absent`).not.toContain(`data-frame-key="${key}"`);
+      expect(html, `disclosure control ${key} landed`).toContain(`data-frame-key="${key}"`);
     }
+    // the text is a PARAGRAPH field, not a one-line box (it is a legal notice)
+    expect(html).toMatch(/<textarea[^>]*data-frame-key="disclosure\.text"/);
   });
 
   it("Footer: footer.enabled is landed in the Templates tab (R2 P3 tail conductor ruling, element-J UI gap fix); footer.show_on/footer.links_source have no current admin surface (see describe-block citation)", async () => {

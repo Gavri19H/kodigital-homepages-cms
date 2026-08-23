@@ -262,3 +262,13 @@ is serialized whole into the public `#lg-config` blob, so adding one key ships
 it to every visitor on every funnel — leadgen-frame-legacy-pin.test.ts caught
 exactly that (`"marginY":""`) during this change. The card-margin axis uses
 theme.ts's Symbol stash instead (readCardMarginY), which JSON.stringify skips.
+
+2026-08-23 re-capture #3 (OWNER disclosure: activation switch + a pop-up that
+opens): panel D offered ONLY the v2 `disclosure.entries` list, so the legacy
+disclosure link his funnel actually paints had no on/off switch and no text
+field anywhere — the two things he reported. All four legacy fields
+(enabled / location / link_label / text) now render in that panel, the text as a
+textarea. `editor-panel-templates.html` and `editor-full.html` re-captured;
+classified before committing: 5 and 7 changed lines are this change, the rest of
+editor-full is the usual minted-id / rolling-window churn this test normalizes.
+Zero unexplained. The other six fixtures were RESTORED.

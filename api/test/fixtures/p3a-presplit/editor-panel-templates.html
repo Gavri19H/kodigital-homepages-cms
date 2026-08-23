@@ -206,6 +206,12 @@
 </div>
     <div class="lg-inspector-panel lg-panel-card" data-tplbox-panel="disclosure">
   <h3>D &middot; Disclosure</h3>
+  
+  <div class="form-group"><label class="form-label">Show the disclosure</label><label class="lg-check"><input type="checkbox" data-frame-key="disclosure.enabled" /> Show the advertising-disclosure link on every funnel page</label></div>
+  <div class="form-group"><label class="form-label">Where it goes</label><select class="form-select" data-frame-key="disclosure.location"><option value="top_bar">Bar above the header</option><option value="header">In the header</option><option value="footer">In the footer (plain text)</option><option value="modal">Centred pop-up</option></select><p class="form-help">Everywhere except the footer, the label is a link that opens the text.</p></div>
+  <div class="form-group"><label class="form-label">Link label</label><input class="form-input" data-frame-key="disclosure.link_label" placeholder="Advertising Disclosure" /></div>
+  <div class="form-group"><label class="form-label">Disclosure text</label><textarea class="form-input" rows="4" data-frame-key="disclosure.text"></textarea><p class="form-help">The text that opens when a visitor taps the label. Without it there is nothing to open, so no link is shown.</p></div>
+  <h4>Per-location entries</h4>
   <p class="form-help">Per-location advertising-disclosure entries (top and bottom can coexist).</p>
   <div data-tplbox-list="disclosure.entries"></div>
   <template data-tplbox-tpl="disclosure.entries"><div class="lg-tplbox-row" data-disc-entry-row>

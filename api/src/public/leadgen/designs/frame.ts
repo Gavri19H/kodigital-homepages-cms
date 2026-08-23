@@ -389,7 +389,14 @@ function renderHeaderRegion(
   // §4.4 independent header toggle (adds the link when the panel lives
   // elsewhere). Both reuse the DisclosureLink preset, stamped as the
   // disclosure region for canvas selection.
-  if (frame.disclosure.enabled && (frame.disclosure.location === "header" || h.disclosure_link)) {
+  // OWNER 2026-08-23 — same "no text, no link" guard as the top_bar/modal legs
+  // (see their comment): a header disclosure link that opens an empty panel is
+  // the defect he reported, not a feature.
+  if (
+    frame.disclosure.enabled &&
+    frame.disclosure.text.trim() !== "" &&
+    (frame.disclosure.location === "header" || h.disclosure_link)
+  ) {
     extras.push(
       `<span class="lg-frame-header-disclosure" data-frame-region="disclosure">` +
         disclosureNode(frame.disclosure, design) +
@@ -1382,12 +1389,18 @@ export function renderQuoteFrame(input: RenderQuoteFrameInput): string {
   benefitAt[frame.benefit_bar.placement] = renderBenefitRegion(frame.benefit_bar, design);
 
   const d = frame.disclosure;
+  // OWNER 2026-08-23 — the OTHER half of "it's not working": his funnel stores
+  // `text: ""`, so the link opened onto an empty panel. The footer leg below has
+  // always required non-empty text; the toggle legs did not, so they painted a
+  // link with nothing behind it. DRIVEN on his live page: the panel existed and
+  // was empty. One guard, the same one, on every leg — no text, no link.
+  const discHasText = d.text.trim() !== "";
   const discTopBar =
-    d.enabled && d.location === "top_bar"
+    d.enabled && discHasText && d.location === "top_bar"
       ? region("disclosure", "lg-frame-disclosure lg-frame-disclosure--top_bar", disclosureNode(d, design))
       : "";
   const discModal =
-    d.enabled && d.location === "modal"
+    d.enabled && discHasText && d.location === "modal"
       ? region("disclosure", "lg-frame-disclosure lg-frame-disclosure--modal", disclosureNode(d, design))
       : "";
   // §11.4 footer location = inline text (no toggle).

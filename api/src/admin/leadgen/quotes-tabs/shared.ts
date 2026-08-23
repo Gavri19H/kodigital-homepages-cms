@@ -1125,6 +1125,20 @@ export function frameInput(label: string, key: string, placeholder = "", help?: 
   return frameControl(label, `<input class="form-input" data-frame-key="${escapeHtml(key)}" placeholder="${escapeHtml(placeholder)}" />`, help);
 }
 
+// OWNER 2026-08-23 — frameInput's multi-line sibling, for a frame key whose
+// value is a PARAGRAPH rather than a label (the advertising-disclosure text is
+// the first: a legal notice typed into a one-line box is unreadable while you
+// write it). Same `data-frame-key` carrier, so the island's existing read and
+// write paths pick it up with no new wiring: populateAllControls assigns
+// `.value` and the change listener reads `.value`, both of which a textarea has.
+export function frameTextarea(label: string, key: string, help?: string, rows = 4): string {
+  return frameControl(
+    label,
+    `<textarea class="form-input" rows="${rows}" data-frame-key="${escapeHtml(key)}"></textarea>`,
+    help,
+  );
+}
+
 
 // DEV-60 (a) — the reusable media-field affordance (04 §4.4 "media picker").
 // A HIDDEN input keeps the exact save key (data-frame-key / data-list-field);

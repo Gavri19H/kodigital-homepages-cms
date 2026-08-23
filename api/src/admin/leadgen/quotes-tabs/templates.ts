@@ -73,6 +73,7 @@ import {
   FRAME_BACKGROUND_STYLES,
   FRAME_BRAND_LOGO_LAYOUTS,
   FRAME_CTA_SLOTS,
+  FRAME_DISCLOSURE_LOCATIONS,
   FRAME_DISCLOSURE_MODES,
   FRAME_DISCLOSURE_V2_LOCATIONS,
   FRAME_ELEMENT_ALIGNS,
@@ -101,6 +102,7 @@ import {
   frameCheck,
   frameSelect,
   frameInput,
+  frameTextarea,
   mediaFieldMarkup,
   mediaPickerControl,
   renderFrameList,
@@ -304,6 +306,21 @@ function renderDisclosureEntryRowTemplate(): string {
 function renderTplBoxDisclosure(): string {
   return `<div class="lg-inspector-panel lg-panel-card" data-tplbox-panel="disclosure">
   <h3>D &middot; Disclosure</h3>
+  ${/* OWNER 2026-08-23: "Disclosure should be applied only if activated (right
+       now no option to activation/deactivation)." `disclosure.enabled` has
+       always existed in the schema, been validated, and been honoured by all
+       four location legs of the renderer — the ONE missing piece was a control,
+       so an operator could never turn it off. Same for the disclosure's own
+       text: this panel offered the v2 ENTRIES list and nothing else, so the
+       link his funnel actually paints (the legacy top-bar one, which the
+       "Header + call CTA" template ships enabled) had no text field anywhere —
+       which is why it opened an empty panel. All four legacy fields are
+       surfaced here now, above the entries list they coexist with. */ ""}
+  ${frameControl("Show the disclosure", frameCheck("Show the advertising-disclosure link on every funnel page", "disclosure.enabled"))}
+  ${frameSelect("Where it goes", "disclosure.location", FRAME_DISCLOSURE_LOCATIONS, { top_bar: "Bar above the header", header: "In the header", footer: "In the footer (plain text)", modal: "Centred pop-up" }, "Everywhere except the footer, the label is a link that opens the text.")}
+  ${frameInput("Link label", "disclosure.link_label", "Advertising Disclosure")}
+  ${frameTextarea("Disclosure text", "disclosure.text", "The text that opens when a visitor taps the label. Without it there is nothing to open, so no link is shown.")}
+  <h4>Per-location entries</h4>
   <p class="form-help">Per-location advertising-disclosure entries (top and bottom can coexist).</p>
   <div data-tplbox-list="disclosure.entries"></div>
   <template data-tplbox-tpl="disclosure.entries">${renderDisclosureEntryRowTemplate()}</template>

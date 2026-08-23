@@ -141,8 +141,14 @@ describe("frame-plus-unit-composition — region presence per template (§4.3)",
     centered: ["back", "background", "footer", "logo", "progress", "section_slot"],
     // site header → progress → bare slot → LARGE site footer
     "header-footer": ["back", "background", "footer", "header", "progress", "section_slot"],
-    // disclosure top bar → logo+CTA header → progress → slot → back link
-    "header-cta": ["back", "background", "disclosure", "footer", "header", "progress", "section_slot"],
+    // logo+CTA header → progress → slot → back link.
+    // OWNER 2026-08-23: the disclosure top bar is NO LONGER in this default set.
+    // This template ships {enabled:true, location:"top_bar", text:""}, and a
+    // disclosure link with no text opened an empty panel — the defect he
+    // reported. Every location leg now requires non-empty text, the same guard
+    // the footer leg always had. Authoring text brings the region back: the leg
+    // directly below the region-set loop proves it.
+    "header-cta": ["back", "background", "footer", "header", "progress", "section_slot"],
     // brand background → logo → step dots → white card slot → legal footer
     "full-background": ["back", "background", "footer", "logo", "progress", "section_slot"],
     // white page → minimal header → slot → (trust strip off by default)
@@ -157,6 +163,18 @@ describe("frame-plus-unit-composition — region presence per template (§4.3)",
     });
   }
 
+  // OWNER 2026-08-23 — the other half of the region-set change above: the
+  // disclosure region is gated on TEXT, not merely on `enabled`, so this proves
+  // authoring text restores it rather than the region having been removed.
+  it("header-cta regains its disclosure top bar the moment the text is authored", () => {
+    expect(regionSet(composed("header-cta"))).not.toContain("disclosure");
+    const withText = composed("header-cta", { disclosure: { text: "We are paid by our partners." } });
+    expect(regionSet(withText)).toContain("disclosure");
+    expect(withText).toContain("lg-frame-disclosure--top_bar");
+    // …and a blank-but-present text is still nothing to open
+    expect(regionSet(composed("header-cta", { disclosure: { text: "   " } }))).not.toContain("disclosure");
+  });
+
   it("centered/full-background stamp the top band as 'logo'; the site-header templates stamp 'header'", () => {
     for (const id of FRAME_TEMPLATE_IDS) {
       const html = composed(id);
@@ -167,7 +185,11 @@ describe("frame-plus-unit-composition — region presence per template (§4.3)",
   });
 
   it("header-cta follows the §4.3 row order: disclosure top bar → header → progress → slot → back link", () => {
-    const html = composed("header-cta");
+    // OWNER 2026-08-23: the disclosure needs authored TEXT to render at all now
+    // (see the region-set note above), so the ROW-ORDER assertion is made on a
+    // config that actually has a disclosure — which keeps this test proving
+    // order instead of quietly proving absence.
+    const html = composed("header-cta", { disclosure: { text: "We are paid by our partners." } });
     const disc = regionIdx(html, "disclosure");
     const header = regionIdx(html, "header");
     const progress = regionIdx(html, "progress");
@@ -386,7 +408,18 @@ describe("frame-plus-unit-composition — disabled groups render nothing", () =>
       disclosure: { enabled: true, location: "modal", text: "We are paid by partners." },
     });
     expect(modal).toContain("lg-frame-disclosure--modal");
-    expect(modal).toContain('<div class="lg-disclosure-panel" hidden>We are paid by partners.</div>');
+    // OWNER 2026-08-23 — the link is a <details>/<summary> now. It used to be a
+    // <button aria-expanded="false"> beside a `hidden` div with NOTHING wired to
+    // toggle it (the public runtime bundle has zero references to
+    // `lg-disclosure`), so clicking it did nothing — driven on his live funnel.
+    // <details> opens on click with zero runtime bytes, which matters: the
+    // bundle has 67 spare of its 53248 ceiling.
+    expect(modal).toContain('<details class="lg-disclosure-wrap"');
+    expect(modal).toContain('<summary class="lg-disclosure"');
+    expect(modal).toContain('<div class="lg-disclosure-panel">We are paid by partners.</div>');
+    // the inert affordance is gone
+    expect(modal).not.toContain('aria-expanded="false"');
+    expect(modal).not.toContain('class="lg-disclosure-panel" hidden');
 
     const footer = composed("centered", {
       disclosure: { enabled: true, location: "footer", text: "Ad disclosure text" },
@@ -395,11 +428,19 @@ describe("frame-plus-unit-composition — disabled groups render nothing", () =>
     const discIdx = footer.indexOf('<div class="lg-frame-footer-disclosure" data-frame-region="disclosure">Ad disclosure text</div>');
     expect(discIdx).toBeGreaterThan(footerIdx); // inline text INSIDE the footer region
 
-    const header = composed("centered", { disclosure: { enabled: true, location: "header" } });
+    // OWNER 2026-08-23 — the header leg needs authored TEXT too (same guard as
+    // top_bar/modal: a link that opens nothing is the reported defect), and the
+    // label is a <summary> rather than a <button>.
+    const header = composed("centered", {
+      disclosure: { enabled: true, location: "header", text: "We are paid by partners." },
+    });
     const headerIdx = regionIdx(header, "logo"); // centered stamps the band as logo
     const linkIdx = header.indexOf('<span class="lg-frame-header-disclosure" data-frame-region="disclosure">');
     expect(linkIdx).toBeGreaterThan(headerIdx);
-    expect(header).toContain(">Advertising Disclosure</button>");
+    expect(header).toContain(">Advertising Disclosure</summary>");
+    // …and with no text there is no header link at all
+    const headerNoText = composed("centered", { disclosure: { enabled: true, location: "header" } });
+    expect(headerNoText).not.toContain("lg-frame-header-disclosure");
   });
 
   it("hostile operator copy is escaped everywhere (tagline / CTA label+href)", () => {
