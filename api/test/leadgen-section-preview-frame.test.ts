@@ -524,7 +524,7 @@ const MOVED_CARD_RULES =
 // the open panel its pop-up box. Built from the SAME tokens styles.ts uses, so a
 // drift in either place fails here rather than silently re-pinning.
 const DISCLOSURE_SUMMARY_DELTA =
-  ";display:inline;list-style:none}\n" +
+  ";list-style:none}\n" +
   `${DEFAULT_FUNNEL_SCOPE} .lg-disclosure::-webkit-details-marker{display:none}\n` +
   `${DEFAULT_FUNNEL_SCOPE} .lg-disclosure::marker{content:""}`;
 const DISCLOSURE_POPUP_RULES =

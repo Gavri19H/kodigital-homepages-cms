@@ -85,6 +85,21 @@ describe("Disclosure — the link actually opens (owner 2026-08-23)", () => {
     expect(LEADGEN_RUNTIME_JS.length).toBeLessThanOrEqual(53248);
   });
 
+  // FOUND ON THE DEPLOYED PAGE, not by a test: a first cut also set
+  // `display:inline` on the summary to kill the marker. That takes the summary
+  // out of its list-item box and BREAKS the widget — a CLOSED disclosure still
+  // laid its panel out (measured: display block, 141x43, offsetParent non-null),
+  // so the legal text spilled under the link for every visitor. The CSS-text
+  // assertions below all PASSED while that was true, which is exactly why this
+  // leg pins the declaration that must NOT be there.
+  it("the summary keeps its list-item box — a display override breaks the closed state", () => {
+    const rule = CSS.match(/\.lg-disclosure\{([^}]*)\}/)?.[1] ?? "";
+    expect(rule, "no display override on the summary").not.toMatch(/(^|;)display:/);
+    // the wrap may be inline-block (it is the positioning anchor); the SUMMARY
+    // may not be re-displayed.
+    expect(CSS).toContain(".lg-disclosure-wrap{position:relative;display:inline-block}");
+  });
+
   it("the browser's own triangle is suppressed, both ways — the label reads as it did", () => {
     const rule = CSS.match(/\.lg-disclosure\{([^}]*)\}/)?.[1] ?? "";
     expect(rule).toContain("list-style:none");
