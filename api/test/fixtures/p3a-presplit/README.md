@@ -242,3 +242,23 @@ verified byte-for-byte before committing:
 The other five fixtures the capture script rewrites were RESTORED — their only
 diff was minted ids and the rolling date window, and committing that churn would
 bury the real change.
+
+2026-08-23 re-capture #2 (OWNER Theme px axes: margins / padding / borders /
+height in pixels): the Themes rail gained nine number inputs under two new
+"Size & spacing in pixels" sub-headings, and THEMES_TAB_SCRIPT's data-theme-key
+listener gained the number branch (a number input must send a NUMBER, and an
+emptied box must send null to mean "inherit"). So `editor-panel-themes.html` and
+`editor-full.html` legitimately change; both were classified line by line before
+committing:
+  * `editor-panel-themes.html` — 41 changed lines, ALL of them the new controls,
+    their help copy, their wrapper divs and the island branch. Zero unexplained.
+  * `editor-full.html` — the same 41 plus 46 minted-id / rolling-window lines
+    this test normalizes. Zero unexplained.
+The other six fixtures the capture script rewrites were RESTORED — their only
+diff was that same id/date churn.
+
+NOTE for the next person: a NEW DESIGN TOKEN is not free here. `design_tokens`
+is serialized whole into the public `#lg-config` blob, so adding one key ships
+it to every visitor on every funnel — leadgen-frame-legacy-pin.test.ts caught
+exactly that (`"marginY":""`) during this change. The card-margin axis uses
+theme.ts's Symbol stash instead (readCardMarginY), which JSON.stringify skips.

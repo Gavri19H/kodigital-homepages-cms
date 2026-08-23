@@ -463,6 +463,76 @@ export type ThemeButtonCasing = (typeof THEME_BUTTON_CASINGS)[number];
 // legacy funnel) leaves the design — and every consumer's bytes — untouched.
 const BUTTON_CASING_STASH = Symbol("lgButtonCasing");
 
+// OWNER 2026-08-23 (Theme → "Margins (in px)" on the layout) — the card's own
+// vertical margin, stashed for the SAME reason the casing above is: every other
+// px axis lands on a token that ALREADY exists, but the question card has no
+// margin token, and adding one is not free. `design_tokens` is serialized whole
+// into the public `#lg-config` blob, so a new key ships to every visitor on
+// every funnel — MEASURED by leadgen-frame-legacy-pin.test.ts, which caught
+// `"marginY":""` in the legacy shell the moment a token was added. A Symbol key
+// is skipped by JSON.stringify, so the public payload is byte-identical and the
+// value still reaches styles.ts. Stashed ONLY when the operator sets it.
+const CARD_MARGIN_STASH = Symbol("lgCardMarginY");
+
+// OWNER 2026-08-23 — the component px axes the operator EXPLICITLY set.
+//
+// WHY a "was it set" signal is needed at all, found by driving rather than by
+// unit test: the button-style `list` layout — the arm that makes answers
+// full-width, i.e. the shape his competitor reference uses — hardcodes its own
+// `min-height:56px` and `padding:1rem 1.5rem` at a HIGHER specificity than the
+// base `.lg-btn` rule that reads primaryButton's tokens. So writing the tokens
+// moved nothing there: driven, a 96px height and 24px padding painted 56px and
+// 16px. The token write is necessary but not sufficient.
+//
+// The arm cannot simply read the tokens instead: its literals (56px / 16px 24px)
+// differ from the token defaults (52px / 14px 16px), so switching would restyle
+// every funnel already using list layout. This stash carries ONLY what the
+// operator typed, so that arm can prefer the operator's number and otherwise
+// keep its own literal, byte-for-byte.
+const COMPONENT_PX_STASH = Symbol("lgComponentPx");
+
+export interface ComponentPxOverrides {
+  minHeight?: string;
+  padding?: string;
+  radius?: string;
+  borderWidth?: string;
+}
+
+function setComponentPx(design: EffectiveFunnelDesign, patch: ComponentPxOverrides): void {
+  const target = design as unknown as Record<symbol, unknown>;
+  const current = (target[COMPONENT_PX_STASH] as ComponentPxOverrides | undefined) ?? {};
+  target[COMPONENT_PX_STASH] = { ...current, ...patch };
+}
+
+// Read the operator's explicit component px values (styles.ts consumer). Every
+// member re-checked against the `${n}px` shape this module writes, so a
+// corrupted caller can never reach a CSS declaration.
+export function readComponentPx(design: FunnelDesign | EffectiveFunnelDesign): ComponentPxOverrides {
+  const stash = (design as unknown as Record<symbol, unknown>)[COMPONENT_PX_STASH];
+  if (typeof stash !== "object" || stash === null) return {};
+  const out: ComponentPxOverrides = {};
+  for (const key of ["minHeight", "padding", "radius", "borderWidth"] as const) {
+    const value = (stash as Record<string, unknown>)[key];
+    if (typeof value === "string" && /^\d{1,3}px$/.test(value)) out[key] = value;
+  }
+  return out;
+}
+
+function setCardMarginY(design: EffectiveFunnelDesign, value: string): void {
+  (design as unknown as Record<symbol, unknown>)[CARD_MARGIN_STASH] = value;
+}
+
+// Read the stashed card margin (styles.ts consumer). Undefined ⇒ no margin
+// authored ⇒ the rule emits exactly its pre-change declarations. Accepts the
+// base FunnelDesign too (the legacy render path passes the un-stashed registry
+// design) — always undefined there.
+export function readCardMarginY(design: FunnelDesign | EffectiveFunnelDesign): string | undefined {
+  const stash = (design as unknown as Record<symbol, unknown>)[CARD_MARGIN_STASH];
+  // Only ever a `${n}px` string this module wrote — re-checked here so a
+  // corrupted caller can never reach a CSS declaration.
+  return typeof stash === "string" && /^\d{1,3}px$/.test(stash) ? stash : undefined;
+}
+
 function setButtonCasing(design: EffectiveFunnelDesign, casing: ThemeButtonCasing): void {
   (design as unknown as Record<symbol, unknown>)[BUTTON_CASING_STASH] = casing;
 }
@@ -604,6 +674,32 @@ export interface ThemeScales {
   shadow?: ThemeShadowScale;
 }
 
+// OWNER 2026-08-23 (Quotes -> Theme): "support the following: 1. Margins (in
+// px) 2. Padding (in px) 3. Borders (Size & Radius) 4. Component's Height …
+// This should allow the user to set and adjust the layout itself and also the
+// sections' components on it to their liking." Compared against a competitor
+// (Best Money) whose answer buttons are full-width, roughly twice as tall, with
+// a larger radius and far more generous padding than what MoneyLantern paints.
+//
+// Measured on his live moneylantern.com/lg/business-loans at 414px BEFORE this
+// axis existed: answer buttons 52px tall (the `m` step, the tallest of three
+// was 60), radius 10px, rows 12px apart, and NO control at all for padding,
+// border width, or any px value. The Theme tab offered only coarse word-steps
+// (Spacing compact|regular|roomy · Corners sharp|soft|round · Button height
+// s|m|l), so his layout could not be moved to where he wanted it.
+//
+// WHY A NUMBER IS SAFE HERE, given §14.10 no-arbitrary-CSS and this file's own
+// P0 STORED-XSS note above: the danger is an unconstrained STRING reaching the
+// served `<style>` block. These axes are INTEGERS — validated as integers,
+// clamped to a declared range (THEME_PX_RANGES), and turned into CSS only as
+// `${n}px`. A number can never carry `</style><script>`, so this stays a closed
+// vocabulary in the same sense the enums are; it is simply a numeric one.
+//
+// TWO SCOPES, matching his sentence exactly: `card_defaults` is "the layout
+// itself" (the question card), `button_defaults` is "the components on it" —
+// and because an answer button and an input field already SHARE their box
+// tokens in this design, one component axis moves both, so their look cannot
+// drift apart into two half-configured controls.
 export interface ThemeButtonDefaults {
   background_role?: FunnelTokenRole;
   text_role?: FunnelTokenRole;
@@ -615,6 +711,16 @@ export interface ThemeButtonDefaults {
   fill?: ThemeButtonStyle; // fill (default) | outline | soft (Image 39)
   layout?: ThemeButtonLayout; // grid (default) | list (Image 38) | card (Image23, §8.4)
   selected?: ThemeButtonSelectedStyle; // wash (default) | mark (Image 40)
+  // OWNER 2026-08-23 — the four px axes on the COMPONENT scope. Each absent ⇒
+  // the base design's own token ⇒ byte-identical to before they existed. A px
+  // value WINS over its coarse-step sibling (`min_height` / `radius`): the
+  // operator who types a number has said something more specific than the
+  // operator who picked a word.
+  min_height_px?: number; // "Component's Height"
+  padding_px?: number; // "Padding (in px)"
+  border_width_px?: number; // "Borders (Size…)"
+  radius_px?: number; // "…& Radius)"
+  gap_px?: number; // "Margins (in px)" — the space BETWEEN components
 }
 
 export interface ThemeCardDefaults {
@@ -622,6 +728,15 @@ export interface ThemeCardDefaults {
   border_role?: FunnelTokenRole;
   radius?: ThemeRadiusStep;
   shadow?: ThemeShadowStep;
+  // OWNER 2026-08-23 — the same four axes on the LAYOUT scope (the question
+  // card). `margin_px` is the vertical space around the card; the card's
+  // horizontal margins stay the existing padding-cancellation math, which is
+  // structural (it is what lets the card use the full content width) and is
+  // not a spacing choice an operator makes.
+  margin_px?: number;
+  padding_px?: number;
+  border_width_px?: number;
+  radius_px?: number;
 }
 
 // R2 F-3 — the FIELD's inline component defaults (the third member of the
@@ -757,6 +872,51 @@ export const THEME_RECORD_EXTRA_ROLE_TO_TOKEN_ROLE = {
   button_primary_text: "button_primary_text",
   button_secondary_bg: "button_secondary_bg",
 } as const satisfies Record<ThemeRecordExtraRoleKey, FunnelTokenRole>;
+
+// OWNER 2026-08-23 — the px axes' DECLARED ranges. This table is the whole
+// vocabulary: a value outside its range is a save error (validateTheme), and a
+// value inside it can only ever become `${n}px`.
+//
+// The ranges are picked from what the surface can actually take, not from
+// taste: 0 must be reachable (a borderless, flush look is a real design), the
+// height floor is the WCAG 24px minimum target size rounded up to this design's
+// smallest existing control (the `.lg-input` 44px floor is the default, not the
+// floor of the control), and the ceilings are the point past which the box
+// stops fitting a 320px-wide phone card.
+export const THEME_PX_RANGES = {
+  min_height_px: { min: 24, max: 160 },
+  padding_px: { min: 0, max: 64 },
+  border_width_px: { min: 0, max: 12 },
+  radius_px: { min: 0, max: 64 },
+  gap_px: { min: 0, max: 64 },
+  margin_px: { min: 0, max: 96 },
+} as const;
+export type ThemePxKey = keyof typeof THEME_PX_RANGES;
+
+// An authored px value → the integer to render, or undefined when it is not a
+// usable number. NOT a clamp that silently rewrites the operator's value: out
+// of range is a SAVE ERROR (validateTheme), and this is the render-side
+// defense-in-depth that keeps a corrupted stored blob from reaching CSS —
+// exactly the role safeThemeRecordFontStack plays for fonts.
+export function themePxValue(value: unknown, key: ThemePxKey): number | undefined {
+  if (typeof value !== "number" || !Number.isFinite(value) || !Number.isInteger(value)) return undefined;
+  const { min, max } = THEME_PX_RANGES[key];
+  return value < min || value > max ? undefined : value;
+}
+
+// The ONLY place a px axis becomes a CSS length.
+function px(value: number): string {
+  return `${value}px`;
+}
+
+// Rewrite just the WIDTH of a `border` shorthand token, preserving its style and
+// colour. The tokens are this design's own literals ("2px solid #D2D9E5"), so
+// the leading length is the only part that moves; anything unexpected is left
+// completely alone rather than half-rewritten.
+function borderWithWidth(token: string, widthPx: number): string {
+  const rest = token.replace(/^\s*[\d.]+px\s+/, "");
+  return rest === token ? token : `${px(widthPx)} ${rest}`;
+}
 
 export const THEME_RECORD_FIELD_HEIGHTS = ["small", "medium", "large"] as const;
 export type ThemeRecordFieldHeight = (typeof THEME_RECORD_FIELD_HEIGHTS)[number];
@@ -1438,6 +1598,54 @@ export function resolveTokens(
   if (bd.text_role !== undefined) design.primaryButton.color = roles[bd.text_role];
   if (bd.radius !== undefined) design.primaryButton.borderRadius = design.radius[bd.radius];
   if (bd.min_height !== undefined) design.primaryButton.minHeight = BUTTON_MIN_HEIGHT_CSS[bd.min_height];
+  // OWNER 2026-08-23 — the COMPONENT px axes, applied AFTER their coarse-step
+  // siblings so a typed number wins over a picked word. Each writes BOTH the
+  // button and the field token family, because "the components on the layout"
+  // is one look to the operator and these two boxes already share this design's
+  // control vocabulary (§10.4 "Buttons & inputs — THE SHARED SIZE LANGUAGE").
+  // An absent axis writes nothing at all → byte-identical to before.
+  const bdMinHeightPx = themePxValue(bd.min_height_px, "min_height_px");
+  if (bdMinHeightPx !== undefined) {
+    design.primaryButton.minHeight = px(bdMinHeightPx);
+    design.input.minHeight = px(bdMinHeightPx);
+    setComponentPx(design, { minHeight: px(bdMinHeightPx) });
+  }
+  const bdPaddingPx = themePxValue(bd.padding_px, "padding_px");
+  if (bdPaddingPx !== undefined) {
+    design.primaryButton.paddingY = px(bdPaddingPx);
+    design.primaryButton.paddingX = px(bdPaddingPx);
+    design.input.padding = px(bdPaddingPx);
+    setComponentPx(design, { padding: px(bdPaddingPx) });
+  }
+  const bdRadiusPx = themePxValue(bd.radius_px, "radius_px");
+  if (bdRadiusPx !== undefined) {
+    design.primaryButton.borderRadius = px(bdRadiusPx);
+    design.input.borderRadius = px(bdRadiusPx);
+    // The icon/image answer CARD is the same answer surface in a different
+    // shape — leaving it behind would make one answer family ignore the axis.
+    design.iconCard.borderRadius = px(bdRadiusPx);
+    setComponentPx(design, { radius: px(bdRadiusPx) });
+  }
+  const bdBorderPx = themePxValue(bd.border_width_px, "border_width_px");
+  if (bdBorderPx !== undefined) {
+    // `.lg-input` AND `.lg-btn.lg-btn-answer` both read input.border (see
+    // styles.ts) — one rewrite moves the field box and the answer button
+    // together, which is the shared look the operator is choosing.
+    design.input.border = borderWithWidth(design.input.border, bdBorderPx);
+    design.iconCard.border = borderWithWidth(design.iconCard.border, bdBorderPx);
+    setComponentPx(design, { borderWidth: px(bdBorderPx) });
+  }
+  const bdGapPx = themePxValue(bd.gap_px, "gap_px");
+  if (bdGapPx !== undefined) {
+    // "Margins (in px)" for components = the space BETWEEN them: the answer
+    // grid's own gap at both breakpoints, and the card's inter-component stack
+    // floor (`.lg-question-card > * + *`), so ONE control moves every gap the
+    // operator can see rather than half of them.
+    design.answerGrid.gap = px(bdGapPx);
+    design.answerGrid.gapMobile = px(bdGapPx);
+    design.spacing.stack = px(bdGapPx);
+    design.spacing.stackMobile = px(bdGapPx);
+  }
   // P6 THEME v2 (follow-on ruling): a resolved theme RECORD's button_style
   // feeds the SAME resolution the inline theme_json.button_defaults fill/
   // layout/selected would — mutually exclusive inputs (`bd` is `{}` on the
@@ -1555,6 +1763,31 @@ export function resolveTokens(
   // Pinned both ways by leadgen-p8-m2-theme-keys.test.ts.
   const explicitCardShadow = cd.shadow !== undefined ? shadowStepValue(baseDesign, cd.shadow) : undefined;
   if (explicitCardShadow !== undefined) design.questionCard.boxShadow = explicitCardShadow;
+  // OWNER 2026-08-23 — the LAYOUT px axes, on the SAME surface the four keys
+  // above were fixed onto in R2 P8 M2: `.lg-question-card`, the one card a
+  // visitor actually sees. Applied after the step siblings so a typed number
+  // wins over a picked word; absent ⇒ nothing written ⇒ byte-identical.
+  const cdRadiusPx = themePxValue(cd.radius_px, "radius_px");
+  if (cdRadiusPx !== undefined) {
+    design.questionCard.borderRadius = px(cdRadiusPx);
+    design.content.cardRadius = px(cdRadiusPx);
+  }
+  const cdPaddingPx = themePxValue(cd.padding_px, "padding_px");
+  if (cdPaddingPx !== undefined) {
+    // ONE value on all sides, at BOTH breakpoints — the base tokens are
+    // asymmetric 3-value shorthands ("44px 46px 40px"), and an operator who
+    // types one number means one number, not a scaled version of an asymmetry
+    // they cannot see.
+    design.questionCard.paddingDesktop = px(cdPaddingPx);
+    design.questionCard.paddingMobile = px(cdPaddingPx);
+  }
+  const cdBorderPx = themePxValue(cd.border_width_px, "border_width_px");
+  if (cdBorderPx !== undefined) {
+    design.questionCard.border = borderWithWidth(design.questionCard.border, cdBorderPx);
+    design.cardPanel.border = borderWithWidth(design.cardPanel.border, cdBorderPx);
+  }
+  const cdMarginPx = themePxValue(cd.margin_px, "margin_px");
+  if (cdMarginPx !== undefined) setCardMarginY(design, px(cdMarginPx));
   const card_defaults: EffectiveCardDefaults = {
     // F4: the value that PAINTS the card (one resolution, never a second
     // opinion), exactly like `shadow` below. Until F4 this read
@@ -2260,6 +2493,13 @@ export const THEME_BUTTON_DEFAULT_FIELDS = {
   fill: "btn_fill",
   layout: "btn_layout",
   selected: "btn_selected",
+  // OWNER 2026-08-23 — the px axes. The `satisfies` above is what forced them
+  // to be listed here the moment they joined the interface.
+  min_height_px: "px_min_height",
+  padding_px: "px_padding",
+  border_width_px: "px_border_width",
+  radius_px: "px_radius",
+  gap_px: "px_gap",
 } as const satisfies Record<keyof ThemeButtonDefaults, DefaultsFieldKind>;
 
 export const THEME_CARD_DEFAULT_FIELDS = {
@@ -2267,7 +2507,24 @@ export const THEME_CARD_DEFAULT_FIELDS = {
   border_role: "role",
   radius: "radius_step",
   shadow: "shadow_step",
+  margin_px: "px_margin",
+  padding_px: "px_padding",
+  border_width_px: "px_border_width",
+  radius_px: "px_radius",
 } as const satisfies Record<keyof ThemeCardDefaults, DefaultsFieldKind>;
+
+// OWNER 2026-08-23 — each px kind carries the THEME_PX_RANGES key it validates
+// against, so the validator, the applier and the operator's own number input all
+// read ONE range table and cannot drift into three different ideas of "valid".
+export const THEME_PX_FIELD_KIND_TO_RANGE = {
+  px_min_height: "min_height_px",
+  px_padding: "padding_px",
+  px_border_width: "border_width_px",
+  px_radius: "radius_px",
+  px_gap: "gap_px",
+  px_margin: "margin_px",
+} as const satisfies Record<string, ThemePxKey>;
+export type ThemePxFieldKind = keyof typeof THEME_PX_FIELD_KIND_TO_RANGE;
 
 // P8-6 Q7 (M5 jargon sweep, "close the raw-key-dump class for good"): every
 // closed vocabulary below is picked from a LABELLED control in the funnel
@@ -2544,7 +2801,8 @@ type DefaultsFieldKind =
   | "casing"
   | "btn_fill"
   | "btn_layout"
-  | "btn_selected";
+  | "btn_selected"
+  | ThemePxFieldKind;
 
 function validateComponentDefaults(
   raw: unknown,
@@ -2567,7 +2825,23 @@ function validateComponentDefaults(
     const value = raw[key];
     if (value === undefined) continue;
     const path = `${basePath}.${key}`;
-    const human = key.replace(/_/g, " ");
+    const human = key.replace(/_px$/, "").replace(/_/g, " ");
+    // OWNER 2026-08-23 — the px axes. A whole number inside the declared range,
+    // and NOTHING else: not a string ("16px" is a common paste and it is
+    // refused with the reason), not a fraction, not out of range. The message
+    // prints the range so the operator never has to guess it.
+    if (kind in THEME_PX_FIELD_KIND_TO_RANGE) {
+      const rangeKey = THEME_PX_FIELD_KIND_TO_RANGE[kind as ThemePxFieldKind];
+      const { min, max } = THEME_PX_RANGES[rangeKey];
+      if (typeof value !== "number" || !Number.isFinite(value)) {
+        push("error", path, `The ${label} ${human} must be a number of pixels between ${min} and ${max} — just the number, no units.`);
+      } else if (!Number.isInteger(value)) {
+        push("error", path, `The ${label} ${human} must be a whole number of pixels between ${min} and ${max}.`);
+      } else if (value < min || value > max) {
+        push("error", path, `The ${label} ${human} must be between ${min} and ${max} pixels — you set ${value}.`);
+      }
+      continue;
+    }
     if (kind === "role") {
       if (!isFunnelTokenRole(value)) {
         push(
