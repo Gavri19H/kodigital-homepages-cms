@@ -3324,6 +3324,67 @@ export function funnelChromeCss(
         "font-family": "var(--lg-footer-font,inherit)",
         padding: `${spacing.lg} ${content.paddingDesktop}`,
         "text-align": "center",
+        // OWNER 2026-08-23 — the five gap STEPS the operator picks between,
+        // declared here as the design's own spacing tokens so frame.ts only
+        // ever emits a var() reference (--lg-footer-block-gap) and never a
+        // length it computed. Adding a step means adding a token here, which
+        // is why the picker's enum and this table can't drift into different
+        // scales.
+        "--lg-footer-gap-xs": spacing.xs,
+        "--lg-footer-gap-s": spacing.sm,
+        "--lg-footer-gap-m": spacing.md,
+        "--lg-footer-gap-l": spacing.lg,
+        "--lg-footer-gap-xl": spacing.xl,
+      }),
+      // OWNER 2026-08-23: "some of the blocks sit really tight, and it looks
+      // weird." Measured before this rule, the block stack's gaps were 8 / 16 /
+      // 4 / 0 / 0 px — five different values from eight independent per-block
+      // margins, and logo→socials and socials→socials TOUCHED. One column gap
+      // owns the spacing now; `> *` zeroes every child's own margin in one
+      // declaration, so no per-type list can drift out of it again (a new block
+      // type is spaced correctly the day it is added). Default `md` == the
+      // WIDEST gap the old margins produced, so nothing gets tighter.
+      rule(`${scope} .lg-frame-footer2--blocks`, {
+        display: "flex",
+        "flex-direction": "column",
+        gap: `var(--lg-footer-block-gap,${spacing.md})`,
+      }),
+      // BOTH classes on purpose. Every per-block margin below is a SINGLE-class
+      // selector, so a one-class rule here would tie on specificity and lose on
+      // source order — measured: the gap came out 24/32/36 instead of 16 because
+      // .lg-frame-footer2-heading's own margin won. Two classes beat all of them
+      // whatever order they are emitted in, so a per-block rule added later
+      // can't quietly re-introduce double spacing.
+      rule(`${scope} .lg-frame-footer2--blocks.lg-frame-footer2 > *`, { margin: "0" }),
+      // The `> *` above reaches direct children only, and the logo block's own
+      // insides carry vertical margins from the LEGACY footer they share a class
+      // with: `.lg-frame-footer-logo` is `margin:1rem auto 0` and
+      // `.lg-frame-footer-logo-text` is `margin-top:1rem`. Measured, that put
+      // 32px above a logo block while every other gap was 16 — the operator
+      // picks one spacing and one block ignores it. Zeroed in BLOCKS MODE ONLY,
+      // so the legacy footer composition keeps those margins byte-identically.
+      //
+      // `auto` side margins and a hardcoded `text-align:center` also made a logo
+      // block the ONE block type that ignored its own Alignment dropdown — a
+      // stored value nothing consumed. Inheriting instead hands that control
+      // back to the [data-align] rules every sibling block already obeys.
+      rule(
+        [
+          `${scope} .lg-frame-footer2--blocks .lg-frame-footer-logo`,
+          `${scope} .lg-frame-footer2--blocks .lg-frame-footer-logo-text`,
+        ].join(","),
+        { margin: "0", "text-align": "inherit" },
+      ),
+      // OWNER 2026-08-23 — the divider block. currentColor + opacity means the
+      // rule reads correctly on ANY footer background (his reference is a faint
+      // light line on dark green) with no colour control to keep in sync, and
+      // `border:0` first kills the UA's default 3D groove.
+      rule(`${scope} .lg-frame-footer2-divider`, {
+        border: "0",
+        "border-top": "1px solid currentColor",
+        opacity: "0.25",
+        width: "100%",
+        "align-self": "stretch",
       }),
       rule(`${scope} .lg-frame-footer2-about`, { margin: `0 0 ${spacing.sm}`, "line-height": "1.5" }),
       rule(`${scope} .lg-frame-footer2-address`, { "font-style": "normal", margin: `0 0 ${spacing.sm}` }),

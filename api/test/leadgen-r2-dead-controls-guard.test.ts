@@ -1151,6 +1151,20 @@ const FOOTER_LINK_ROW_BLOCKS = {
   },
 };
 
+// OWNER 2026-08-23 — block_gap is the spacing BETWEEN blocks, so measuring it
+// needs at least TWO of them (one block has no gap to move). Same shape as
+// FOOTER_LINK_ROW_BLOCKS above: the probe authors what the operator's own Blocks
+// list authors.
+const FOOTER_TWO_BLOCKS = {
+  footer: {
+    blocks: [
+      { type: "about_paragraph", text: "Probe block one" },
+      { type: "divider" },
+      { type: "about_paragraph", text: "Probe block two" },
+    ],
+  },
+};
+
 // `values` (R2 P8 F1) is the second half of the SAME idea: a probe context can
 // also declare WHICH two values put the key in use, for a key whose generic
 // vocabulary cannot. It is never a shortcut to a green — the key must still
@@ -1213,6 +1227,12 @@ const FRAME_PROBE_CONTEXT: ReadonlyArray<{
     patch: FOOTER_LINK_ROW_BLOCKS,
     reason:
       "link_underline styles the footer v2 BLOCK model's links (.lg-frame-footer2-link); with no `blocks` authored the legacy footer bar renders and there is no such link. The probe authors one link_row block, which is what the operator's own Blocks list does.",
+  },
+  {
+    key: "footer.block_gap",
+    patch: FOOTER_TWO_BLOCKS,
+    reason:
+      "OWNER 2026-08-23 (\"the user should be able to increase / decrease the spacing between blocks\"). The axis is the gap between footer v2 BLOCKS, and FRAME_PROBE_BASE authors none — with no blocks the legacy footer bar renders and owns its own spacing, so every step of the picker fingerprints identically. That is a property of the probe, not of the key. The probe authors three blocks (the minimum that HAS gaps), exactly what the operator's own Blocks list authors; measured across the five steps the gap moves every block's y-coordinate at both viewports.",
   },
   {
     key: "footer.link_separator",
@@ -1573,7 +1593,11 @@ describe("R2 P8 M2/R3 sweep — the enumerated universe is source-derived and CL
     // `progress.icon_media_id` (frames.ts FrameProgressConfig), the media ref
     // behind the new `custom` mark id — enumerated, probed and required to move
     // the visible fingerprint like every other key in this universe.
-    expect(ENUMERATED_TOTAL).toBe(130);
+    // OWNER 2026-08-23: 130 -> 131. The one added key is `footer.block_gap`
+    // (frames.ts FrameFooterConfig), the spacing between element-J footer
+    // blocks — offered in the J panel, probed with FOOTER_TWO_BLOCKS and
+    // required to move the visible fingerprint like every other key here.
+    expect(ENUMERATED_TOTAL).toBe(131);
   });
 
   it("the probe page is a REAL funnel page — and renders none of the surfaces the mis-targeted keys hid behind", () => {
@@ -1668,7 +1692,8 @@ describe("R2 P8 M2/R3 sweep — EVERY authorable design key moves a value a visi
     const frameMemberPaths = [...FRAME_KEYS.keys.map((k) => k.key), ...FRAME_KEYS.arrays, ...FRAME_KEYS.singles].filter(
       (k) => k.includes("."),
     );
-    expect(frameMemberPaths.length, "every dotted frame member is scanned, not a subset").toBe(73);
+    // OWNER 2026-08-23: 73 -> 74 with `footer.block_gap`.
+    expect(frameMemberPaths.length, "every dotted frame member is scanned, not a subset").toBe(74);
     const offeredFrameControls = frameMemberPaths.filter((k) => offeredIn(k).length > 0).sort();
     // The MEASURED set, pinned WHOLE rather than as a floor somebody chose: a
     // control added, renamed or deleted moves this list. Every entry was read
@@ -1698,6 +1723,7 @@ describe("R2 P8 M2/R3 sweep — EVERY authorable design key moves a value a visi
       "disclosure.entries",
       "disclosure.link_label",
       "disclosure.text",
+      "footer.block_gap",
       "footer.blocks",
       "footer.enabled",
       "footer.link_separator",
@@ -1885,6 +1911,7 @@ describe("R2 P8 M2/R3 sweep — EVERY authorable design key moves a value a visi
       expect(SWEEP_EXEMPTIONS.map((e) => e.key)).not.toContain(c.key);
     }
     expect(FRAME_PROBE_CONTEXT.map((c) => c.key).sort()).toEqual([
+      "footer.block_gap",
       "footer.link_separator",
       "footer.link_underline",
       "footer.palette_scope.link",

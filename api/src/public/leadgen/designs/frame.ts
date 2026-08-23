@@ -87,7 +87,7 @@ import type {
 // R2 P3 (element J, contract R2 minor-6) — the ONE SAFE_HREF_RE instance
 // (frames.ts's STORE-time gate); every footer href THIS module renders
 // re-checks it too (defense in depth), never a re-declared copy.
-import { SAFE_HREF_RE } from "./frames";
+import { FRAME_FOOTER_BLOCK_GAPS, SAFE_HREF_RE } from "./frames";
 import type { SiteBranding } from "../../../leadgen/branding";
 
 // ---------------------------------------------------------------------------
@@ -1026,6 +1026,15 @@ function footerScopeStyle(f: FrameFooterConfig): string {
   // same closed-table discipline as --lg-footer-font above. Absent → the
   // styles.ts rule's own `none` fallback, i.e. today's behavior.
   if (f.link_underline === true) pairs.push("--lg-footer-link-decoration:underline");
+  // OWNER 2026-08-23 — the block-spacing axis. Same closed-table discipline as
+  // --lg-footer-font/-link-decoration above: the authored value is a token STEP
+  // (validated oneOf(FRAME_FOOTER_BLOCK_GAPS) at store time) and what lands in
+  // CSS is a var() reference to styles.ts's own token, never an author length.
+  // Absent → the rule's own default, i.e. today's widest gap.
+  const blockGap = f.block_gap;
+  if (blockGap !== undefined && FRAME_FOOTER_BLOCK_GAPS.includes(blockGap)) {
+    pairs.push(`--lg-footer-block-gap:var(--lg-footer-gap-${blockGap})`);
+  }
   return pairs.length > 0 ? ` style="${pairs.join(";")}"` : "";
 }
 // R2 P3 (element J) — about_paragraph/disclosure/heading share ONE rich-text
@@ -1098,6 +1107,13 @@ function renderFooterBlock(block: FrameFooterBlock, branding: SiteBranding | nul
         : "";
     case "logo":
       return `<div class="lg-frame-footer2-logo"${alignA}>${renderFooterBlockLogo(block, branding)}</div>`;
+    // OWNER 2026-08-23 — a divider between blocks. An <hr> is the element that
+    // MEANS this, so a screen reader announces the separation the sighted
+    // operator drew. No fields, no align (a rule spans the band either way):
+    // the line takes the footer's own text colour in styles.ts, so it lands
+    // correctly on any background without a colour control to keep in sync.
+    case "divider":
+      return `<hr class="lg-frame-footer2-divider">`;
     case "link_row": {
       // R2 P3 (element J) D2 — "picked" resolves the SAME way "site" does:
       // leadgen/branding.ts resolveSiteBranding's 3rd arg REPLACES
@@ -1178,8 +1194,14 @@ function renderFooterV2(
       ? blocks.map((b) => renderFooterBlock(b, branding, f)).join("")
       : renderFooterLegacyInner(f, design, branding);
   const hideMobile = f.hide_on_mobile || frame.mobile.hide_footer === true;
+  // OWNER 2026-08-23 — the one-gap stack applies to the BLOCK model only. A
+  // footer with no authored blocks renders the legacy trust/links/logo bar in
+  // this same wrapper (the B3 content-preservation path above), and that
+  // composition owns its own spacing — so the class rides `blocks.length > 0`
+  // and every legacy footer stays byte-identical.
   const classes =
     `lg-frame-footer lg-frame-footer2 lg-frame-footer--show-${f.show_on}` +
+    (blocks.length > 0 ? " lg-frame-footer2--blocks" : "") +
     (hideMobile ? " lg-frame-footer--m-hide" : "");
   const bakedHidden = f.show_on === "final" && sectionCount > 1 ? " hidden" : "";
   return (

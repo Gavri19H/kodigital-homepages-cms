@@ -155,7 +155,11 @@ describe("R2 P3 element J — anatomy: rich-text toolbar + heading/list types + 
   it("the block-type picker offers Heading and List alongside the existing 6 types", () => {
     expect(FRAME_FOOTER_BLOCK_TYPES).toContain("heading");
     expect(FRAME_FOOTER_BLOCK_TYPES).toContain("list");
-    expect(FRAME_FOOTER_BLOCK_TYPES.length).toBe(8);
+    // OWNER 2026-08-23: 8 -> 9 with "divider" ("Add the ability to use dividers
+    // between blocks"). Its own coverage — render, validate, panel option,
+    // island row — is test/leadgen-footer-spacing-dividers.test.ts.
+    expect(FRAME_FOOTER_BLOCK_TYPES.length).toBe(9);
+    expect(FRAME_FOOTER_BLOCK_TYPES).toContain("divider");
     expect(panel).toContain('data-footer-block-liststyle');
     expect(panel).toContain('data-footer-block-items');
   });

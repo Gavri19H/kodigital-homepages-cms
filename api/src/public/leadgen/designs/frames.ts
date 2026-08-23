@@ -166,6 +166,12 @@ export const FRAME_DISCLOSURE_MODES = ["full", "hover"] as const;
 // into the footer so the owner's Image45 multi heading+paragraph pattern is
 // authorable; about_paragraph/disclosure/heading all carry the SAME optional
 // `html` rich-text field below (bold/italic/link via the reused toolbar).
+// OWNER 2026-08-23: "Add the ability to use dividers between blocks similar to
+// the one appearing in the attached screenshot" — a divider is a BLOCK, not a
+// per-block flag, because his reference puts one in only two of ten gaps. As a
+// block type it inherits the add / reorder / remove machinery the operator
+// already drives, and it carries no fields of its own (the rule takes its
+// colour from the footer's own text colour — see styles.ts).
 export const FRAME_FOOTER_BLOCK_TYPES = [
   "about_paragraph",
   "link_row",
@@ -175,7 +181,17 @@ export const FRAME_FOOTER_BLOCK_TYPES = [
   "socials",
   "heading",
   "list",
+  "divider",
 ] as const;
+
+// OWNER 2026-08-23: "some of the blocks sit really tight, and it looks weird.
+// The user should be able to increase / decrease the spacing between blocks."
+// Measured before the fix, the gaps came from eight independent hardcoded
+// per-block margins: 8px paragraph→paragraph, 16px heading→heading, 4px
+// heading→disclosure and 0px (touching) for logo→socials and socials→socials.
+// ONE gap axis replaces all eight; these five steps map to the design's own
+// spacing tokens in styles.ts, so this is never an arbitrary CSS length.
+export const FRAME_FOOTER_BLOCK_GAPS = ["xs", "s", "m", "l", "xl"] as const;
 
 // ---------------------------------------------------------------------------
 // §3.3 group shapes — the COMPLETE (effective) config. The STORED column is
@@ -385,6 +401,10 @@ export interface FrameFooterConfig {
   // link_row (never inside one, never a link itself); ABSENT/null → the
   // pre-fix gap-only row, byte-identical.
   link_separator?: string | null;
+  // OWNER 2026-08-23 — the spacing between footer blocks, one axis for all of
+  // them. ABSENT → styles.ts's own default (the widest gap the old per-block
+  // margins produced), so no authored footer gets tighter than it was.
+  block_gap?: (typeof FRAME_FOOTER_BLOCK_GAPS)[number];
 }
 
 export interface FrameTrustLogo {
@@ -1185,6 +1205,9 @@ const FRAME_GROUP_SPECS: Record<string, FrameGroupSpec> = {
       // and nullable plain text (escaped at render, never a markup sink).
       link_underline: bool,
       link_separator: textOrNull,
+      // OWNER 2026-08-23 — the block-spacing axis (a closed token step, never
+      // an arbitrary CSS length).
+      block_gap: oneOf(FRAME_FOOTER_BLOCK_GAPS),
     },
   },
   trust_strip: {
@@ -1299,6 +1322,7 @@ const FRAME_FOOTER_BLOCK_TYPE_LABELS: Readonly<Record<string, string>> = {
   socials: "Social links",
   heading: "Heading",
   list: "List",
+  divider: "Divider line",
 };
 const FRAME_FREE_TEXT_LIST_STYLE_LABELS: Readonly<Record<string, string>> = {
   unordered: "Bulleted",

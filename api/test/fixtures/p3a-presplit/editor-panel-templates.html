@@ -438,10 +438,12 @@
   <div class="form-group"><label class="form-label">Underline links</label><label class="lg-check"><input type="checkbox" data-frame-key="footer.link_underline" /> Underline every link in the footer</label></div>
   <div class="form-group"><label class="form-label">Separator between links</label><input class="form-input" data-frame-key="footer.link_separator" placeholder="e.g.  |  — leave empty for spacing only" /></div>
   <h4>Blocks</h4>
+  
+  <div class="form-group"><label class="form-label">Spacing between blocks</label><select class="form-select" data-frame-key="footer.block_gap"><option value="xs">Extra small</option><option value="s">Small</option><option value="m">Medium</option><option value="l">Large</option><option value="xl">Extra large</option></select><p class="form-help">Applies to every gap in the list below. Add a Divider line block wherever you want a rule between two blocks.</p></div>
   <div data-tplbox-list="footer.blocks"></div>
   <template data-tplbox-tpl="footer.blocks"><div class="lg-tplbox-row" data-footer-block-row>
     <div class="lg-list-row">
-      <select class="form-select form-select-sm" data-footer-block-type aria-label="Footer block type"><option value="about_paragraph">Company details</option><option value="link_row">Link row</option><option value="disclosure">Disclosure</option><option value="logo">Logo</option><option value="address">Address</option><option value="socials">Social links</option><option value="heading">Heading</option><option value="list">List</option></select>
+      <select class="form-select form-select-sm" data-footer-block-type aria-label="Footer block type"><option value="about_paragraph">Company details</option><option value="link_row">Link row</option><option value="disclosure">Disclosure</option><option value="logo">Logo</option><option value="address">Address</option><option value="socials">Social links</option><option value="heading">Heading</option><option value="list">List</option><option value="divider">Divider line</option></select>
       <select class="form-select form-select-sm" data-footer-block-align aria-label="Footer block alignment"><option value="left">Left</option><option value="center">Center</option><option value="right">Right</option></select>
       <span class="lg-row-rail">
         <button type="button" class="btn btn-sm btn-outline" data-footer-block-up aria-label="Move block up">&#8593;</button>

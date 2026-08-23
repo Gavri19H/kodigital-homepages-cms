@@ -289,6 +289,9 @@ describe("R2 P3 blocker — the three editor wirings element J needs (SOURCE-OF-
   function stubRow(type: string): { row: unknown; els: Record<string, StubEl> } {
     const els: Record<string, StubEl> = {
       "[data-footer-block-type]": { className: "", value: type },
+      // OWNER 2026-08-23 — the align select joined this stub when the divider
+      // type made it type-conditional (a divider has no alignment).
+      "[data-footer-block-align]": { className: "form-select form-select-sm" },
       "[data-footer-block-text]": { className: "form-input" },
       "[data-footer-block-linkrow]": { className: "lg-hidden" },
       "[data-footer-block-items]": { className: "form-input lg-hidden" },
@@ -300,17 +303,20 @@ describe("R2 P3 blocker — the three editor wirings element J needs (SOURCE-OF-
   }
   const shown = (el: StubEl): boolean => el.className.indexOf("lg-hidden") === -1;
 
-  it("UI gap 2: footerBlockTypeChanged un-hides the right sub-fields for ALL EIGHT block types", () => {
+  // OWNER 2026-08-23 — NINE types now: "divider" joined the model, and it is
+  // the one type with no fields at all (alignment included).
+  it("UI gap 2: footerBlockTypeChanged un-hides the right sub-fields for ALL NINE block types", () => {
     const fn = loadFooterBlockTypeChanged();
-    const expected: Record<string, { text: boolean; links: boolean; list: boolean; logo: boolean; toolbar: boolean }> = {
-      about_paragraph: { text: true, links: false, list: false, logo: false, toolbar: true },
-      disclosure: { text: true, links: false, list: false, logo: false, toolbar: true },
-      address: { text: true, links: false, list: false, logo: false, toolbar: false },
-      heading: { text: true, links: false, list: false, logo: false, toolbar: true },
-      list: { text: false, links: false, list: true, logo: false, toolbar: false },
-      logo: { text: false, links: false, list: false, logo: true, toolbar: false },
-      link_row: { text: false, links: true, list: false, logo: false, toolbar: false },
-      socials: { text: false, links: false, list: false, logo: false, toolbar: false },
+    const expected: Record<string, { text: boolean; links: boolean; list: boolean; logo: boolean; toolbar: boolean; align: boolean }> = {
+      about_paragraph: { text: true, links: false, list: false, logo: false, toolbar: true, align: true },
+      disclosure: { text: true, links: false, list: false, logo: false, toolbar: true, align: true },
+      address: { text: true, links: false, list: false, logo: false, toolbar: false, align: true },
+      heading: { text: true, links: false, list: false, logo: false, toolbar: true, align: true },
+      list: { text: false, links: false, list: true, logo: false, toolbar: false, align: true },
+      logo: { text: false, links: false, list: false, logo: true, toolbar: false, align: true },
+      link_row: { text: false, links: true, list: false, logo: false, toolbar: false, align: true },
+      socials: { text: false, links: false, list: false, logo: false, toolbar: false, align: true },
+      divider: { text: false, links: false, list: false, logo: false, toolbar: false, align: false },
     };
     for (const [type, want] of Object.entries(expected)) {
       const { row, els } = stubRow(type);
@@ -321,6 +327,7 @@ describe("R2 P3 blocker — the three editor wirings element J needs (SOURCE-OF-
       expect(shown(els["[data-footer-block-liststyle]"]!), `${type}: list style`).toBe(want.list);
       expect(shown(els["[data-footer-block-logo]"]!), `${type}: logo box`).toBe(want.logo);
       expect(shown(els["[data-footer-block-toolbar]"]!), `${type}: rich toolbar`).toBe(want.toolbar);
+      expect(shown(els["[data-footer-block-align]"]!), `${type}: alignment`).toBe(want.align);
     }
   });
 
