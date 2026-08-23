@@ -76,6 +76,7 @@ import {
   FRAME_DISCLOSURE_MODES,
   FRAME_DISCLOSURE_V2_LOCATIONS,
   FRAME_ELEMENT_ALIGNS,
+  FRAME_FOOTER_BLOCK_GAPS,
   FRAME_FOOTER_BLOCK_TYPES,
   FRAME_FREE_TEXT_BLOCK_TYPES,
   FRAME_FREE_TEXT_LIST_STYLES,
@@ -511,7 +512,7 @@ function renderFooterLinkModal(): string {
 function renderFooterBlockRowTemplate(): string {
   return `<div class="lg-tplbox-row" data-footer-block-row>
     <div class="lg-list-row">
-      <select class="form-select form-select-sm" data-footer-block-type aria-label="Footer block type">${enumOptions(FRAME_FOOTER_BLOCK_TYPES, { about_paragraph: "Company details", link_row: "Link row", disclosure: "Disclosure", logo: "Logo", address: "Address", socials: "Social links", heading: "Heading", list: "List" })}</select>
+      <select class="form-select form-select-sm" data-footer-block-type aria-label="Footer block type">${enumOptions(FRAME_FOOTER_BLOCK_TYPES, { about_paragraph: "Company details", link_row: "Link row", disclosure: "Disclosure", logo: "Logo", address: "Address", socials: "Social links", heading: "Heading", list: "List", divider: "Divider line" })}</select>
       <select class="form-select form-select-sm" data-footer-block-align aria-label="Footer block alignment">${enumOptions(FRAME_ELEMENT_ALIGNS, { left: "Left", center: "Center", right: "Right" })}</select>
       <span class="lg-row-rail">
         <button type="button" class="btn btn-sm btn-outline" data-footer-block-up aria-label="Move block up">&#8593;</button>
@@ -600,6 +601,9 @@ function renderTplBoxFooter(): string {
   ${frameControl("Underline links", frameCheck("Underline every link in the footer", "footer.link_underline"))}
   ${frameInput("Separator between links", "footer.link_separator", "e.g.  |  — leave empty for spacing only")}
   <h4>Blocks</h4>
+  ${/* The help string is escapeHtml'd by frameControl, so it is PLAIN TEXT —
+        an HTML entity here would print to the operator as literal &ldquo;. */ ""}
+  ${frameSelect("Spacing between blocks", "footer.block_gap", FRAME_FOOTER_BLOCK_GAPS, { xs: "Extra small", s: "Small", m: "Medium", l: "Large", xl: "Extra large" }, "Applies to every gap in the list below. Add a Divider line block wherever you want a rule between two blocks.")}
   <div data-tplbox-list="footer.blocks"></div>
   <template data-tplbox-tpl="footer.blocks">${renderFooterBlockRowTemplate()}</template>
   <template data-tplbox-tpl="footer_link_row">${renderFooterLinkRowTemplate()}</template>

@@ -3341,6 +3341,12 @@ export const QUOTE_EDITOR_SCRIPT = `
     // the one type whose collector reads it (the same iff-rule as every other
     // field in this function).
     var levelEl = blockRow.querySelector('[data-footer-block-level]');
+    // OWNER 2026-08-23 — a 'divider' block has NO fields at all, alignment
+    // included (a rule spans the whole band either way), so the row shows just
+    // the type picker and the move/remove buttons. Same iff-rule as every
+    // other type here: a control is visible only if the collector reads it.
+    var alignEl = blockRow.querySelector('[data-footer-block-align]');
+    if (alignEl) { alignEl.className = type === 'divider' ? 'form-select form-select-sm lg-hidden' : 'form-select form-select-sm'; }
     var showText = type === 'about_paragraph' || type === 'disclosure' || type === 'address' || type === 'heading';
     var showLinks = type === 'link_row';
     var showList = type === 'list';
@@ -3462,6 +3468,11 @@ export const QUOTE_EDITOR_SCRIPT = `
       if (type === 'heading') {
         if (text === '') { continue; } // heading is html-only — nothing typed, nothing renders
       } else if (showText && text === '') { continue; } // an empty text-typed block renders nothing — skip it
+      // OWNER 2026-08-23 — a divider is the one block that is COMPLETE with no
+      // fields. It must not carry an align (nothing consumes it, and a stored
+      // key nothing reads is the "dead control" class this file guards), and it
+      // must never be swept up by the empty-text skip above.
+      if (type === 'divider') { out.push({ type: 'divider' }); continue; }
       var block = { type: type, align: align };
       // R2 P3 FIX-FIRST (MINOR-9) — ONE textarea backs both fields, but only
       // 'html' is sanitized; 'text' was getting the SAME raw authored markup

@@ -226,3 +226,19 @@ this test's OWN `ID_RE`/`COMPUTED_AT_RE`/`ANALYTICS_DATE_RE` normalizers) proved
 and `quotes-not-found.html` came back byte-identical with no restore needed. Ten
 of the eleven sha256s are therefore unchanged from the previous capture. 12/12
 green afterwards.
+
+2026-08-23 re-capture (OWNER element-J footer request: block spacing + divider
+blocks): the J panel gained one control (`footer.block_gap`, "Spacing between
+blocks") and the block-type picker gained one option ("Divider line"), so
+`editor-panel-templates.html` and `editor-full.html` legitimately change. Scope
+verified byte-for-byte before committing:
+  * `editor-panel-templates.html` — 4 changed lines, ALL of them the new control
+    and the new option. Hand-applied rather than re-captured, so the diff is
+    exactly the change and nothing else.
+  * `editor-full.html` — re-captured (it also carries `QUOTE_EDITOR_SCRIPT`,
+    whose footer collector/row-visibility now handle the divider type). 61
+    changed lines: 14 the change itself, 47 minted ids + the rolling analytics
+    window, which this test normalizes. Zero unexplained bytes.
+The other five fixtures the capture script rewrites were RESTORED — their only
+diff was minted ids and the rolling date window, and committing that churn would
+bury the real change.
