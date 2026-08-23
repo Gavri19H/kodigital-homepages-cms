@@ -1768,8 +1768,14 @@ describe("R2 P8 M2/R3 sweep — EVERY authorable design key moves a value a visi
       "background.role",
       "background.style",
       "benefit_bar.items",
+      // OWNER 2026-08-23 — panel D gained the legacy disclosure's own controls.
+      // It offered ONLY the v2 entries list before, so the link his funnel
+      // actually paints (the legacy top-bar one) had no on/off switch and no
+      // text field anywhere in the admin — which is why it opened empty.
+      "disclosure.enabled",
       "disclosure.entries",
       "disclosure.link_label",
+      "disclosure.location",
       "disclosure.text",
       "footer.block_gap",
       "footer.blocks",

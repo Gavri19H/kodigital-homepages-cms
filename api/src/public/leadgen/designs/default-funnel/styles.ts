@@ -981,8 +981,40 @@ export function funnelChromeCss(
       "font-size": disclosure.fontSize,
       "font-family": "inherit",
       "text-decoration": "underline",
+      // OWNER 2026-08-23 — the link is a <summary> now (see
+      // renderDisclosureLink: a <details> opens with zero runtime bytes, and
+      // the bundle has 67 spare). A summary is a list-item by default, so
+      // BOTH of these suppress the browser's disclosure triangle: the standard
+      // property and WebKit's own pseudo-element below. Without them the
+      // operator's label would grow a marker it never had as a button.
+      display: "inline",
+      "list-style": "none",
     }),
+    rule(`${scope} .lg-disclosure::-webkit-details-marker`, { display: "none" }),
+    rule(`${scope} .lg-disclosure::marker`, { content: '""' }),
     rule(`${scope} .lg-disclosure:hover`, { color: disclosure.hoverColor }),
+    // The pop-up he asked for. Only ever painted when the <details> is OPEN, so
+    // a closed disclosure is invisible exactly as before. The `--modal` location
+    // has its own fixed-overlay rule further down and keeps it: this is the
+    // in-flow anchor case (top bar / header), positioned rather than pushing the
+    // page down, which is what makes it read as a pop-up instead of an accordion.
+    rule(`${scope} .lg-disclosure-wrap`, { position: "relative", display: "inline-block" }),
+    rule(`${scope} .lg-disclosure-wrap[open] .lg-disclosure-panel`, {
+      position: "absolute",
+      "z-index": "30",
+      top: "calc(100% + 6px)",
+      left: "50%",
+      transform: "translateX(-50%)",
+      width: "max-content",
+      "max-width": "min(92vw, 420px)",
+      background: color.card,
+      border: `1px solid ${color.borderLight}`,
+      "border-radius": radius.md,
+      "box-shadow": shadow.lg,
+      padding: spacing.md,
+      "text-align": "left",
+      "white-space": "normal",
+    }),
   );
 
   // ---- progress bar (§14.2 progress) --------------------------------------
