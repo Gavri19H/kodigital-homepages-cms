@@ -1895,6 +1895,8 @@ const MAPPING_FUNCS = [
   "findEdgeIndex",
   "questionByField",
   "answerNodeType",
+  "choiceValueCoercibleTo",
+  "closedAnswerValuesOf",
   "coercibleTo",
   "edgeMapState",
   "offerLiveState",
@@ -2528,6 +2530,155 @@ describeDb("section studio EXECUTED island — §8.7 mapping model (E2) + REAL s
     expect(orphaned).toBe("the buyer field this was mapped to no longer exists — pick one above");
     expect(orphaned).not.toContain("lgp_"); // never a schema id in operator copy
     expect(probe.run(`mapStateNote('unmapped', ${field}, offerById(7), null)`)).toBe("required — not mapped");
+  });
+
+  // OWNER DEFECT 2026-08-23: "Mapping a 'type: number' payload field to an
+  // 'answer from a funnel question' isn't possible because the answers on the
+  // section menu can't be (although designed to support it) sent as numbers."
+  // His question had saved values 1 / 0 already. The island judged the
+  // component's answer_type ('enum') and never read them.
+  const NUMERIC_CHOICE_CONTENT = {
+    components: [
+      {
+        type: "ButtonAnswerGroup",
+        question_id: "q_own",
+        question_key: "own_q",
+        internal_field: "owns_home",
+        answer_type: "enum",
+        choices: [
+          { label: "Yes", value: "1", analytics_id: "1" },
+          { label: "No", value: "0", analytics_id: "0" },
+        ],
+      },
+    ],
+  };
+  const wordValues = (a: string, b: string): unknown => ({
+    components: [
+      {
+        ...NUMERIC_CHOICE_CONTENT.components[0],
+        choices: [
+          { label: "Yes", value: a, analytics_id: a },
+          { label: "No", value: b, analytics_id: b },
+        ],
+      },
+    ],
+  });
+  const NUM_OFFER = {
+    id: 7,
+    public_id: "lgo_numfixture",
+    offer_name: "NumOffer",
+    has_active_schema: true,
+    payload_schema_public_id: "lgp_numfixture",
+    payload_schema_version: 1,
+    answer_fields: [
+      { path: "ownhome", type: "number", required: true, internal_field: null, label: null, valid_values: null },
+      { path: "insured", type: "boolean", required: false, internal_field: null, label: null, valid_values: null },
+    ],
+  };
+  const NUM_SCHEMA_INFO: OfferSchemaInfo = {
+    status: "active",
+    activity: "quote_funnel",
+    vertical: "life",
+    active_schema_id: 44,
+    active_schema_public_id: "lgp_numfixture",
+    fieldTypes: new Map<string, "number" | "boolean">([["ownhome", "number"], ["insured", "boolean"]]),
+    requiredFieldPaths: ["ownhome"],
+  };
+  const numEdge = (over: Record<string, unknown> = {}): Record<string, unknown> => ({
+    question_id: "q_own",
+    question_key: "own_q",
+    internal_field: "owns_home",
+    answer_type: "enum",
+    offer_id: 7,
+    offer_payload_field_path: "ownhome",
+    provider_expected_type: "number",
+    output_value_map: null,
+    value_transform: null,
+    required_for_offer: true,
+    default_value: null,
+    fallback_value: null,
+    ...over,
+  });
+
+  it("SEAM: a choice answer with numeric saved values → a number field reads complete on BOTH sides (owner 2026-08-23)", async () => {
+    const { env } = newHarness();
+    const section = await createSection(env, { content_json: JSON.stringify(NUMERIC_CHOICE_CONTENT) });
+    const html = await studioPage(env, section.public_id);
+
+    const cases: Array<{ label: string; content: unknown; expected: string }> = [
+      { label: "saved values 1 / 0 (his case)", content: NUMERIC_CHOICE_CONTENT, expected: "complete" },
+      { label: "saved values yes / no", content: wordValues("yes", "no"), expected: "type_mismatch" },
+      { label: "one numeric, one not", content: wordValues("1", "no"), expected: "type_mismatch" },
+      { label: "negative + decimal saved values", content: wordValues("-1", "2.5"), expected: "complete" },
+      { label: "a blank saved value tells us nothing", content: wordValues("1", " "), expected: "type_mismatch" },
+    ];
+    for (const c of cases) {
+      const probe = mappingProbe(html, c.content, { activity: "quote_funnel", vertical: "life", offers: [NUM_OFFER] }, [numEdge()], [7]);
+      const island = probe.run(`edgeMapState(state.answer_maps[0], offerById(7))`) as string;
+      const rebuilt = rebuildDerivedIndexes({
+        content: c.content as never,
+        answerMaps: [numEdge()] as never,
+        offerSchemas: new Map([[7, NUM_SCHEMA_INFO]]),
+        selectedOfferIds: new Set([7]),
+      });
+      expect(island, `island (${c.label})`).toBe(rebuilt.answerMaps[0]?.mapping_completeness);
+      expect(island, `expected (${c.label})`).toBe(c.expected);
+    }
+  });
+
+  it("SEAM: numeric saved values do NOT become a boolean — coerceToType never accepts \"1\" there", async () => {
+    const { env } = newHarness();
+    const section = await createSection(env, { content_json: JSON.stringify(NUMERIC_CHOICE_CONTENT) });
+    const html = await studioPage(env, section.public_id);
+    const boolEdge = numEdge({ offer_payload_field_path: "insured", provider_expected_type: "boolean", required_for_offer: false });
+
+    for (const c of [
+      { label: "1 / 0 → a yes-or-no field", content: NUMERIC_CHOICE_CONTENT, expected: "type_mismatch" },
+      { label: "true / false → a yes-or-no field", content: wordValues("true", "false"), expected: "complete" },
+    ]) {
+      const probe = mappingProbe(html, c.content, { activity: "quote_funnel", vertical: "life", offers: [NUM_OFFER] }, [boolEdge], [7]);
+      const island = probe.run(`edgeMapState(state.answer_maps[0], offerById(7))`) as string;
+      const rebuilt = rebuildDerivedIndexes({
+        content: c.content as never,
+        answerMaps: [boolEdge] as never,
+        offerSchemas: new Map([[7, NUM_SCHEMA_INFO]]),
+        selectedOfferIds: new Set([7]),
+      });
+      expect(island, `island (${c.label})`).toBe(rebuilt.answerMaps[0]?.mapping_completeness);
+      expect(island, `expected (${c.label})`).toBe(c.expected);
+    }
+  });
+
+  it("the mismatch note NAMES the saved values that don't fit, because changing them is the operator's own fix", async () => {
+    const { env } = newHarness();
+    const section = await createSection(env, { content_json: JSON.stringify(NUMERIC_CHOICE_CONTENT) });
+    const html = await studioPage(env, section.public_id);
+    const content = wordValues("yes", "no");
+    const probe = mappingProbe(html, content, { activity: "quote_funnel", vertical: "life", offers: [NUM_OFFER] }, [numEdge()], [7]);
+    const note = String(
+      probe.run(`mapStateNote('type_mismatch', answerFieldOf(offerById(7), 'ownhome'), offerById(7), state.answer_maps[0])`),
+    );
+    expect(note).toBe(
+      'this buyer wants number, and the saved values "yes", "no" are not that — change them under Answer format, or set a value map on the Offer',
+    );
+    // plain words only — never a schema id, never the word "coercible"
+    expect(note).not.toContain("coercible");
+    expect(note).not.toContain("lgp_");
+    expect(note).not.toContain("enum");
+
+    // ONE offending value → singular wording
+    const one = mappingProbe(html, wordValues("1", "no"), { activity: "quote_funnel", vertical: "life", offers: [NUM_OFFER] }, [numEdge()], [7]);
+    expect(
+      String(one.run(`mapStateNote('type_mismatch', answerFieldOf(offerById(7), 'ownhome'), offerById(7), state.answer_maps[0])`)),
+    ).toBe(
+      'this buyer wants number, and the saved value "no" is not that — change it under Answer format, or set a value map on the Offer',
+    );
+
+    // An OPEN-ENDED answer has no saved values to name → the original line.
+    const open = mappingProbe(html, MAPPABLE_CONTENT, { activity: "quote_funnel", vertical: "life", offers: [NUM_OFFER] }, [numEdge({ internal_field: "zip", question_id: "q2", answer_type: "string" })], [7]);
+    expect(
+      String(open.run(`mapStateNote('type_mismatch', answerFieldOf(offerById(7), 'ownhome'), offerById(7), state.answer_maps[0])`)),
+    ).toBe("this answer is text and the buyer wants number — pick another field or set a value map on the Offer");
   });
 
 });

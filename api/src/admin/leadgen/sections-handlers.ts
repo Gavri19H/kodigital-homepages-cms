@@ -100,6 +100,7 @@ import { LEADGEN_TEMPLATE_VERSION } from "../../cache/cache-keys";
 import { escapeHtml } from "../templates/layout";
 import { validateZip } from "../../leadgen/maps";
 import {
+  closedAnswerValuesByQuestion,
   mappingCompleteness,
   rebuildDerivedIndexes,
   sectionValidationStatus,
@@ -2646,6 +2647,9 @@ export async function validateSectionPayloadHandler(c: AdminContext): Promise<Re
   const rawAnswers: LeadgenRawAnswers = isRecord(body["answers"]) ? (body["answers"] as LeadgenRawAnswers) : {};
   const content = parseComponents(row.content_json);
   const normalized = normalizeAnswers(content, rawAnswers);
+  // Same closed-value facts the save-time rebuild judges by, so this tool's
+  // verdict can never disagree with the stored one for the same Section.
+  const closedValues = closedAnswerValuesByQuestion(content);
 
   const storedMaps = await readAnswerMaps(c.env.DB, row.id);
   // Optional offer filter (numeric ids or lgo_ public ids).
@@ -2713,6 +2717,7 @@ export async function validateSectionPayloadHandler(c: AdminContext): Promise<Re
           fallback_value: e.fallback_value,
         },
         offerSchema,
+        closedValues.get(e.question_id) ?? null,
       );
       if (completeness === "complete" && offerSchema?.requiredFieldPaths.includes(e.offer_payload_field_path)) {
         mappedRequired.add(e.offer_payload_field_path);

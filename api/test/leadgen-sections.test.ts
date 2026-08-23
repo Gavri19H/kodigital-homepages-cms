@@ -214,34 +214,34 @@ describe("validateMappingReferences — §12.4 archived / mismatched / schema-le
 
 describe("mappingCompleteness — §12.11 four states", () => {
   it("complete: field exists, types line up, required field bound", () => {
-    expect(mappingCompleteness(edge(), offerSchema())).toBe("complete");
+    expect(mappingCompleteness(edge(), offerSchema(), null)).toBe("complete");
   });
 
   it("missing_required: a required edge with no bound internal_field", () => {
-    expect(mappingCompleteness(edge({ internal_field: "" }), offerSchema())).toBe("missing_required");
+    expect(mappingCompleteness(edge({ internal_field: "" }), offerSchema(), null)).toBe("missing_required");
   });
 
   it("type_mismatch: the edge provider type disagrees with the schema node", () => {
-    expect(mappingCompleteness(edge({ provider_expected_type: "string" }), offerSchema())).toBe("type_mismatch");
+    expect(mappingCompleteness(edge({ provider_expected_type: "string" }), offerSchema(), null)).toBe("type_mismatch");
   });
 
   it("orphaned: the field path no longer exists in the active schema (or no schema)", () => {
-    expect(mappingCompleteness(edge({ offer_payload_field_path: "data.ghost" }), offerSchema())).toBe("orphaned");
-    expect(mappingCompleteness(edge(), null)).toBe("orphaned");
-    expect(mappingCompleteness(edge(), offerSchema({ active_schema_id: null }))).toBe("orphaned");
+    expect(mappingCompleteness(edge({ offer_payload_field_path: "data.ghost" }), offerSchema(), null)).toBe("orphaned");
+    expect(mappingCompleteness(edge(), null, null)).toBe("orphaned");
+    expect(mappingCompleteness(edge(), offerSchema({ active_schema_id: null }), null)).toBe("orphaned");
   });
 
   it("a value_map makes any answer_type coercible (no type_mismatch)", () => {
     // answer boolean → provider number would mismatch, but a map bridges it.
     const withMap = edge({ provider_expected_type: "number", offer_payload_field_path: "data.name", output_value_map: { true: 1 } });
     // data.name is a string node → still a schema-type disagreement → mismatch.
-    expect(mappingCompleteness(withMap, offerSchema())).toBe("type_mismatch");
+    expect(mappingCompleteness(withMap, offerSchema(), null)).toBe("type_mismatch");
     // aligned to a number node → complete via the map.
     const numSchema = offerSchema({
       fieldTypes: new Map<string, LeadgenPayloadNodeType>([["data.score", "number"]]),
       requiredFieldPaths: [],
     });
-    expect(mappingCompleteness(edge({ provider_expected_type: "number", offer_payload_field_path: "data.score", output_value_map: { true: 1 }, required_for_offer: false }), numSchema)).toBe("complete");
+    expect(mappingCompleteness(edge({ provider_expected_type: "number", offer_payload_field_path: "data.score", output_value_map: { true: 1 }, required_for_offer: false }), numSchema, null)).toBe("complete");
   });
 
   it("toMappingStatusColumn maps missing_required → the DDL-storable incomplete", () => {
