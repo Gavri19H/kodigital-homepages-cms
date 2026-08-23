@@ -1728,3 +1728,253 @@ describeDb("POST /sections/:id/validate-payload — §12.8 ZIP validation", () =
     expect(body.address_validation?.checks.find((cc) => cc.field === "zip")?.valid).toBe(false);
   });
 });
+
+// ---------------------------------------------------------------------------
+// OWNER DEFECT 2026-08-23: "Mapping a 'type: number' payload field to an
+// 'answer from a funnel question' isn't possible because the answers on the
+// section menu can't be (although designed to support it) sent as numbers."
+//
+// His real row (production section 29 "Home Insured?" → AdsByMoneyHome):
+//   ButtonAnswerGroup, saved values "1" / "0", mapped to `ownhome` (number),
+//   no value map → mapping_status 'type_mismatch', validation_status 'error'
+//   → the whole Quote blocked from publish.
+//
+// The runtime, meanwhile, sends the NUMBER 1 for that same answer
+// (coerceToType("1","number") === 1). The verdict, not the runtime, was wrong:
+// it judged the component's catalog `produces` ("enum") and never looked at the
+// saved values the operator had already set. These tests drive the REAL save
+// API and read the DB row, then prove the runtime agrees with it.
+// ---------------------------------------------------------------------------
+
+// His node, verbatim in shape: numeric saved values on a choice question.
+const NUMERIC_CHOICE_CONTENT = {
+  components: [
+    {
+      type: "ButtonAnswerGroup",
+      question_id: "q_own",
+      question_key: "own_q",
+      internal_field: "owns_home",
+      answer_type: "enum",
+      required: false,
+      choices: [
+        { label: "Yes", value: "1", analytics_id: "1" },
+        { label: "No", value: "0", analytics_id: "0" },
+      ],
+    },
+  ],
+};
+
+function wordChoiceContent(): Record<string, unknown> {
+  return {
+    components: [
+      {
+        ...NUMERIC_CHOICE_CONTENT.components[0],
+        choices: [
+          { label: "Yes", value: "yes", analytics_id: "yes" },
+          { label: "No", value: "no", analytics_id: "no" },
+        ],
+      },
+    ],
+  };
+}
+
+// An Offer whose `ownhome` field is a NUMBER the answer feeds (his buyer).
+const NUMBER_FIELD_SCHEMA = {
+  version: 1,
+  root: {
+    type: "object",
+    children: [
+      { path: "ownhome", name: "ownhome", type: "number", required: true, source: "answer", internal_field: "owns_home" },
+    ],
+  },
+};
+
+async function createNumberFieldOffer(env: Env): Promise<OfferDetail> {
+  const offer = await createOffer(env);
+  const res = await admin.request(
+    `${API}/offers/${offer.id}/payload-schemas`,
+    jsonInit("POST", { schema_json: NUMBER_FIELD_SCHEMA }),
+    env,
+  );
+  expect(res.status, `post number schema: ${await res.clone().text()}`).toBe(201);
+  return offer;
+}
+
+function numberEdge(offerId: number, overrides: Record<string, unknown> = {}): Record<string, unknown> {
+  return {
+    question_id: "q_own",
+    offer_id: offerId,
+    offer_payload_field_path: "ownhome",
+    provider_expected_type: "number",
+    required_for_offer: true,
+    // NO output_value_map and NO value_transform — the whole point: the saved
+    // values already ARE numbers.
+    ...overrides,
+  };
+}
+
+describeDb("§12.11 a choice answer with numeric saved values maps to a number field (owner 2026-08-23)", () => {
+  it("saved values 1 / 0 → a number field: the DB row is complete/ok, and the Quote is not blocked", async () => {
+    const { sdb, env } = newHarness();
+    const offer = await createNumberFieldOffer(env);
+    const section = await createSection(
+      env,
+      sectionBody({ content_json: JSON.stringify(NUMERIC_CHOICE_CONTENT), answer_maps: [numberEdge(offer.id)] }),
+    );
+
+    expect(section.answer_maps).toHaveLength(1);
+    expect(section.answer_maps[0]?.mapping_status).toBe("complete");
+    expect(section.answer_maps[0]?.validation_status).toBe("ok");
+    // No value map was needed to get there.
+    expect(section.answer_maps[0]?.output_value_map).toBeNull();
+    expect(section.answer_maps[0]?.value_transform).toBeNull();
+
+    // DB truth (the column the Quote-publish gate reads).
+    const maps = sdb
+      .prepare("SELECT answer_type, provider_expected_type, mapping_status, validation_status FROM leadgen_section_answer_maps WHERE section_id = ?")
+      .all(section.id) as Array<{ answer_type: string; provider_expected_type: string; mapping_status: string; validation_status: string }>;
+    expect(maps).toEqual([
+      { answer_type: "enum", provider_expected_type: "number", mapping_status: "complete", validation_status: "ok" },
+    ]);
+
+    // The Offer counts the required field as mapped → nothing "missing".
+    expect(section.available_offers[0]?.mapping_state).toBe("complete");
+    expect(section.available_offers[0]?.required_fields_mapped).toBe(1);
+  });
+
+  it("the RUNTIME sends that answer as a real number, so the verdict and the request body agree", async () => {
+    const { env } = newHarness();
+    const offer = await createNumberFieldOffer(env);
+    const section = await createSection(
+      env,
+      sectionBody({ content_json: JSON.stringify(NUMERIC_CHOICE_CONTENT), answer_maps: [numberEdge(offer.id)] }),
+    );
+    // The REAL per-Offer payload preview the same handler serves.
+    const res = await admin.request(
+      `${API}/sections/${section.public_id}/validate-payload`,
+      jsonInit("POST", { answers: { owns_home: "1" } }),
+      env,
+    );
+    expect(res.status, await res.clone().text()).toBe(200);
+    const body = (await res.json()) as {
+      offers: Array<{
+        payload: Record<string, unknown>;
+        invalid: Array<{ field: string; reason: string }>;
+        missing: string[];
+        completeness: { required_total: number; required_mapped: number };
+      }>;
+    };
+    const seen = body.offers[0];
+    expect(seen?.payload["ownhome"]).toBe(1);
+    expect(typeof seen?.payload["ownhome"]).toBe("number");
+    // The tool's own verdict agrees with the stored one: nothing invalid, the
+    // required field counted as mapped.
+    expect(seen?.invalid).toEqual([]);
+    expect(seen?.missing).toEqual([]);
+    expect(seen?.completeness.required_mapped).toBe(1);
+  });
+
+  it("saved values that are NOT numbers stay a real mismatch (yes / no → a number field)", async () => {
+    const { sdb, env } = newHarness();
+    const offer = await createNumberFieldOffer(env);
+    const section = await createSection(
+      env,
+      sectionBody({ content_json: JSON.stringify(wordChoiceContent()), answer_maps: [numberEdge(offer.id)] }),
+    );
+    expect(section.answer_maps[0]?.mapping_status).toBe("type_mismatch");
+    expect(section.answer_maps[0]?.validation_status).toBe("error");
+    const maps = sdb
+      .prepare("SELECT mapping_status FROM leadgen_section_answer_maps WHERE section_id = ?")
+      .all(section.id) as Array<{ mapping_status: string }>;
+    expect(maps).toEqual([{ mapping_status: "type_mismatch" }]);
+  });
+
+  it("PATCHing the saved values from words to numbers flips the SAME edge to complete (replace-set rebuild)", async () => {
+    const { env } = newHarness();
+    const offer = await createNumberFieldOffer(env);
+    const section = await createSection(
+      env,
+      sectionBody({ content_json: JSON.stringify(wordChoiceContent()), answer_maps: [numberEdge(offer.id)] }),
+    );
+    expect(section.answer_maps[0]?.mapping_status).toBe("type_mismatch");
+
+    const res = await admin.request(
+      `${API}/sections/${section.public_id}`,
+      jsonInit("PATCH", {
+        content_json: JSON.stringify(NUMERIC_CHOICE_CONTENT),
+        answer_maps: [numberEdge(offer.id)],
+      }),
+      env,
+    );
+    expect(res.status, await res.clone().text()).toBe(200);
+    const patched = (await res.json()) as SectionDetail;
+    expect(patched.answer_maps[0]?.mapping_status).toBe("complete");
+    expect(patched.answer_maps[0]?.validation_status).toBe("ok");
+  });
+
+  it("a blank saved value tells us nothing → the answer_type verdict stands (no false green)", async () => {
+    const { env } = newHarness();
+    const offer = await createNumberFieldOffer(env);
+    const blank = {
+      components: [
+        {
+          ...NUMERIC_CHOICE_CONTENT.components[0],
+          choices: [
+            { label: "Yes", value: "1", analytics_id: "1" },
+            { label: "Skip", value: " ", analytics_id: "skip" },
+          ],
+        },
+      ],
+    };
+    const section = await createSection(
+      env,
+      sectionBody({ content_json: JSON.stringify(blank), answer_maps: [numberEdge(offer.id)] }),
+    );
+    expect(section.answer_maps[0]?.mapping_status).toBe("type_mismatch");
+  });
+
+  // My own first cut of this fix would have gone GREEN here: a multi-select's
+  // choices are numeric, but the runtime sends the whole LIST and
+  // coerceToType(["1"],"number") refuses an array. Values only decide the
+  // verdict for a SINGLE-value answer.
+  it("a MULTI-select with numeric saved values into a number field stays a mismatch (it sends a list)", async () => {
+    const { env } = newHarness();
+    const offer = await createNumberFieldOffer(env);
+    const multi = {
+      components: [
+        {
+          type: "MultiChoiceCardGroup",
+          question_id: "q_own",
+          question_key: "own_q",
+          internal_field: "owns_home",
+          answer_type: "array",
+          choices: [
+            { label: "Yes", value: "1", analytics_id: "1" },
+            { label: "No", value: "0", analytics_id: "0" },
+          ],
+        },
+      ],
+    };
+    const section = await createSection(
+      env,
+      sectionBody({ content_json: JSON.stringify(multi), answer_maps: [numberEdge(offer.id)] }),
+    );
+    expect(section.answer_maps[0]?.mapping_status).toBe("type_mismatch");
+    expect(section.answer_maps[0]?.validation_status).toBe("error");
+  });
+
+  it("a free-text answer into a number field is still a mismatch — no closed values to judge", async () => {
+    const { env } = newHarness();
+    const offer = await createNumberFieldOffer(env);
+    const freeText = {
+      components: [
+        { type: "FreeTextQuestion", question_id: "q_own", question_key: "own_q", internal_field: "owns_home", answer_type: "string" },
+      ],
+    };
+    const section = await createSection(
+      env,
+      sectionBody({ content_json: JSON.stringify(freeText), answer_maps: [numberEdge(offer.id)] }),
+    );
+    expect(section.answer_maps[0]?.mapping_status).toBe("type_mismatch");
+  });
+});

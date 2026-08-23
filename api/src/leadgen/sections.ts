@@ -546,12 +546,89 @@ function answerTypeNodeType(answerType: string): LeadgenPayloadNodeType {
   }
 }
 
+// One authored choice value → can payload.ts coerceToType turn THAT value into
+// the schema node's type? A byte-faithful mirror of coerceToType's per-value
+// rules (string case = anything; number = a finite Number(); boolean = only the
+// two literals it accepts — "1" is NOT a boolean there; object/array can never
+// come from a scalar choice value).
+function choiceValueCoercible(value: string, nodeType: LeadgenPayloadNodeType): boolean {
+  switch (nodeType) {
+    case "string":
+    case "enum":
+      return true;
+    case "number":
+      return value.trim() !== "" && Number.isFinite(Number(value));
+    case "boolean":
+      return value === "true" || value === "false";
+    case "object":
+    case "array":
+      return false;
+  }
+}
+
+// The CLOSED set of values an answer can actually take: a choice-bearing
+// question's authored `choices[].value`. null = open-ended (free text, a number
+// input, an address) — nothing is knowable about the value until a visitor
+// types it, so only the answer_type can be judged.
+//
+// WHY this exists (owner 2026-08-23): an answer whose every saved value is a
+// number IS a number to the runtime — coerceToType("1","number") === 1 — so
+// judging enum→number on the catalog `produces` alone refused a mapping the
+// runtime executes perfectly, and parked the whole Quote on validation_status
+// 'error'. The verdict now reads the same values the runtime will send.
+function closedAnswerValues(node: unknown): readonly string[] | null {
+  if (!isRecord(node)) return null;
+  const choices = node["choices"];
+  if (!Array.isArray(choices) || choices.length === 0) return null;
+  const out: string[] = [];
+  for (const choice of choices) {
+    if (!isRecord(choice)) return null;
+    const value = choice["value"];
+    // A blank/absent saved value tells us nothing — fall back to answer_type.
+    if (typeof value !== "string" || value.trim() === "") return null;
+    out.push(value);
+  }
+  return out;
+}
+
+// question_id → its closed value set, derived from content_json (§12.1: the
+// derived index is rebuilt FROM content, never from a stored snapshot that can
+// drift). Absent key = open-ended answer.
+export function closedAnswerValuesByQuestion(
+  content: LeadgenSectionContent,
+): Map<string, readonly string[]> {
+  const out = new Map<string, readonly string[]>();
+  const components = flattenComponents(Array.isArray(content.components) ? content.components : []);
+  for (const node of components) {
+    if (!isRecord(node)) continue;
+    const questionId = node["question_id"];
+    if (typeof questionId !== "string") continue;
+    const values = closedAnswerValues(node);
+    if (values !== null) out.set(questionId, values);
+  }
+  return out;
+}
+
 // Without a value_map/transform, can the raw normalized answer coerce to the
 // schema node's declared type? (payload.ts coerceToType semantics.)
-function answerCoercible(answerType: string, nodeType: LeadgenPayloadNodeType): boolean {
+// `answerValues` = the question's closed value set when it has one: every
+// saved value coercing to the node's type IS coercibility, and it is strictly
+// more accurate than the answer_type alone.
+function answerCoercible(
+  answerType: string,
+  nodeType: LeadgenPayloadNodeType,
+  answerValues: readonly string[] | null,
+): boolean {
   if (nodeType === "string") return true; // anything stringifies
   if (nodeType === "enum") return true; // membership is the valid_values check, not the type
-  return answerTypeNodeType(answerType) === nodeType;
+  const answerNodeType = answerTypeNodeType(answerType);
+  if (answerNodeType === nodeType) return true;
+  // A MULTI-select sends the whole LIST, not one of its values: coerceToType
+  // gets an array and refuses it whatever the values look like. Only a
+  // single-value answer is judged by its value set.
+  if (answerNodeType === "array" || answerNodeType === "object") return false;
+  if (answerValues === null || answerValues.length === 0) return false;
+  return answerValues.every((value) => choiceValueCoercible(value, nodeType));
 }
 
 // §12.11 per-edge completeness against the Offer's ACTIVE schema.
@@ -564,6 +641,10 @@ function answerCoercible(answerType: string, nodeType: LeadgenPayloadNodeType): 
 export function mappingCompleteness(
   edge: LeadgenAnswerMapEdge,
   offerSchema: OfferSchemaInfo | null,
+  // REQUIRED, never defaulted: a caller that silently inherited "no values"
+  // is exactly how this verdict drifted from the runtime in the first place.
+  // Pass null only when the answer genuinely has no closed value set.
+  answerValues: readonly string[] | null,
 ): LeadgenMappingCompleteness {
   if (offerSchema === null || offerSchema.active_schema_id === null) return "orphaned";
   const nodeType = offerSchema.fieldTypes.get(edge.offer_payload_field_path);
@@ -574,7 +655,7 @@ export function mappingCompleteness(
 
   const hasMap = isRecord(edge.output_value_map) && Object.keys(edge.output_value_map).length > 0;
   const hasTransform = Array.isArray(edge.value_transform) && edge.value_transform.length > 0;
-  if (!hasMap && !hasTransform && !answerCoercible(edge.answer_type, nodeType)) {
+  if (!hasMap && !hasTransform && !answerCoercible(edge.answer_type, nodeType, answerValues)) {
     return "type_mismatch";
   }
 
@@ -653,9 +734,12 @@ export function rebuildDerivedIndexes(input: RebuildInput): RebuildResult {
   const components = flattenComponents(
     Array.isArray(input.content.components) ? input.content.components : [],
   );
+  const closedValues = new Map<string, readonly string[]>();
   for (const node of components) {
     if (isRecord(node) && typeof node["question_id"] === "string") {
       knownQuestionIds.add(node["question_id"]);
+      const values = closedAnswerValues(node);
+      if (values !== null) closedValues.set(node["question_id"], values);
     }
   }
 
@@ -665,7 +749,11 @@ export function rebuildDerivedIndexes(input: RebuildInput): RebuildResult {
     // dropped (the rebuild is derived FROM content — §12.1).
     if (!knownQuestionIds.has(edge.question_id)) continue;
     const offerSchema = input.offerSchemas.get(edge.offer_id) ?? null;
-    const completeness = mappingCompleteness(edge, offerSchema);
+    const completeness = mappingCompleteness(
+      edge,
+      offerSchema,
+      closedValues.get(edge.question_id) ?? null,
+    );
     answerMaps.push({
       ...edge,
       payload_schema_id: offerSchema?.active_schema_id ?? null,

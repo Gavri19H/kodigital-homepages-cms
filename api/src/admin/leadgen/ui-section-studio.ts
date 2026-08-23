@@ -15767,9 +15767,39 @@ export const SECTION_STUDIO_SCRIPT = `
     if (answerType === 'number' || answerType === 'boolean' || answerType === 'enum' || answerType === 'array' || answerType === 'object' || answerType === 'string') { return answerType; }
     return 'string';
   }
-  function coercibleTo(answerType, nodeType) {
+  // Mirror of sections.ts choiceValueCoercible — payload.ts coerceToType's
+  // per-value rules ("1" IS a number; "1" is NOT a boolean there).
+  function choiceValueCoercibleTo(value, nodeType) {
     if (nodeType === 'string' || nodeType === 'enum') { return true; }
-    return answerNodeType(answerType) === nodeType;
+    if (nodeType === 'number') { return trimStr(value) !== '' && isFinite(Number(value)); }
+    if (nodeType === 'boolean') { return value === 'true' || value === 'false'; }
+    return false;
+  }
+  // Mirror of sections.ts closedAnswerValues — a choice-bearing question's
+  // authored saved values, or null when the answer is open-ended.
+  function closedAnswerValuesOf(node) {
+    if (!node || !node.choices || !node.choices.length) { return null; }
+    var out = [], i, v;
+    for (i = 0; i < node.choices.length; i++) {
+      v = node.choices[i] ? node.choices[i].value : null;
+      if (typeof v !== 'string' || trimStr(v) === '') { return null; }
+      out.push(v);
+    }
+    return out;
+  }
+  function coercibleTo(answerType, nodeType, answerValues) {
+    if (nodeType === 'string' || nodeType === 'enum') { return true; }
+    var answerNode = answerNodeType(answerType);
+    if (answerNode === nodeType) { return true; }
+    // A MULTI-select sends the whole LIST, not one of its values — coerceToType
+    // refuses an array whatever the values look like.
+    if (answerNode === 'array' || answerNode === 'object') { return false; }
+    if (!answerValues || !answerValues.length) { return false; }
+    var i;
+    for (i = 0; i < answerValues.length; i++) {
+      if (!choiceValueCoercibleTo(answerValues[i], nodeType)) { return false; }
+    }
+    return true;
   }
   // Per-edge §12.11 completeness (complete / missing_required / type_mismatch /
   // orphaned) against the offer's ACTIVE-schema answer fields.
@@ -15780,7 +15810,8 @@ export const SECTION_STUDIO_SCRIPT = `
     if (edge.provider_expected_type !== field.type) { return 'type_mismatch'; }
     var hasMap = edge.output_value_map && typeof edge.output_value_map === 'object' && Object.keys(edge.output_value_map).length > 0;
     var hasTransform = edge.value_transform && edge.value_transform.length > 0;
-    if (!hasMap && !hasTransform && !coercibleTo(edge.answer_type, field.type)) { return 'type_mismatch'; }
+    var values = closedAnswerValuesOf(questionByField(edge.internal_field));
+    if (!hasMap && !hasTransform && !coercibleTo(edge.answer_type, field.type, values)) { return 'type_mismatch'; }
     if (edge.required_for_offer === true && trimStr(edge.internal_field) === '') { return 'missing_required'; }
     return 'complete';
   }
@@ -15921,8 +15952,28 @@ export const SECTION_STUDIO_SCRIPT = `
     if (stateName === 'complete') { return 'complete'; }
     if (stateName === 'missing_required') { return 'this buyer needs this field \\u2014 pick it above'; }
     if (stateName === 'type_mismatch') {
+      var wantType = (field && field.type) || (edge && edge.provider_expected_type) || 'string';
+      var wants = plainTypeWords(field || { type: wantType });
+      // A choice question's saved values are the operator's OWN lever: name the
+      // ones that don't fit so the fix is "change this value", not a guess.
+      // (Owner 2026-08-23: he had already set the saved values to 1 / 0 and the
+      // old line still told him to pick another field.)
+      var answerNode = answerNodeType((edge && edge.answer_type) || 'string');
+      var listy = answerNode === 'array' || answerNode === 'object';
+      var values = listy ? null : closedAnswerValuesOf(questionByField(edge && edge.internal_field));
+      var bad = [], i;
+      if (values) {
+        for (i = 0; i < values.length; i++) {
+          if (!choiceValueCoercibleTo(values[i], wantType)) { bad.push('"' + values[i] + '"'); }
+        }
+      }
+      if (bad.length > 0) {
+        return 'this buyer wants ' + wants + ', and the saved ' + (bad.length === 1 ? 'value ' : 'values ') +
+          bad.join(', ') + (bad.length === 1 ? ' is not' : ' are not') + ' that \\u2014 change ' +
+          (bad.length === 1 ? 'it' : 'them') + ' under Answer format, or set a value map on the Offer';
+      }
       return 'this answer is ' + plainTypeWords({ type: (edge && edge.answer_type) || 'string' }) +
-        ' and the buyer wants ' + plainTypeWords(field || { type: (edge && edge.provider_expected_type) || 'string' }) +
+        ' and the buyer wants ' + wants +
         ' \\u2014 pick another field or set a value map on the Offer';
     }
     if (stateName === 'orphaned') {
