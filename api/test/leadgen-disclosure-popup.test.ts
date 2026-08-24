@@ -130,6 +130,58 @@ describe("Disclosure — the link actually opens (owner 2026-08-23)", () => {
   });
 });
 
+// OWNER 2026-08-24: "The pop-up opens, and the text appears, but below the
+// section itself instead of opening on top of it."
+//
+// MEASURED: the panel's own z-index:30 was TRAPPED. Every .lg-frame-region is
+// position:relative; z-index:1, so 30 only ordered things INSIDE the disclosure
+// region — and the slot region holding the question card is a z-index:1 SIBLING
+// later in the DOM, so it painted over the pop-up whatever the panel's own
+// number was. A hit-test down the open panel returned `.lg-content`. The fix is
+// on the REGION: a pop-up can only escape by raising the stacking context it
+// lives in.
+describe("Disclosure — the pop-up paints ON TOP of the page (owner 2026-08-24)", () => {
+  const FRAME_CSS = funnelChromeCss(defaultFunnelDesign, DEFAULT_FUNNEL_SCOPE, { frameRegions: true });
+
+  it("the panel's own z-index can never win alone — the REGION is raised", () => {
+    // the trap, pinned: every region shares one layer…
+    expect(FRAME_CSS).toMatch(/\.lg-frame-region\{[^}]*z-index:1[;}]/);
+    // …so the two dedicated disclosure regions rise above it.
+    for (const loc of ["top_bar", "modal"]) {
+      const m = FRAME_CSS.match(new RegExp(`\\.lg-frame-disclosure--${loc}\\{([^}]*)\\}`));
+      expect(m, `${loc} region rule`).not.toBeNull();
+      expect(m![1], `${loc} region must out-stack its siblings`).toContain("z-index:41");
+    }
+  });
+
+  it("the HEADER location is raised only WHILE OPEN — a sticky header must not out-stack the page forever", () => {
+    expect(FRAME_CSS).toContain(
+      `${DEFAULT_FUNNEL_SCOPE} .lg-frame-region:has(details.lg-disclosure-wrap[open]){z-index:41}`,
+    );
+  });
+
+  it("the anchored popover stays inside the viewport — max-width means the WHOLE box", () => {
+    const rule = CSS.match(/\.lg-disclosure-wrap\[open\] \.lg-disclosure-panel\{([^}]*)\}/)?.[1] ?? "";
+    // MEASURED at 414px without this: 380.88 content + 16px padding + 1px border
+    // each side rendered a 415px popover — wider than the viewport.
+    expect(rule).toContain("box-sizing:border-box");
+    expect(rule).toContain("max-width:min(92vw, 420px)");
+  });
+
+  it("the CENTRED pop-up location keeps its own viewport-centred shape", () => {
+    // MEASURED before this: the base anchored-popover rule (2 classes + attr)
+    // out-ranked the modal arm (2 classes), so "Centred pop-up" resolved to
+    // position:absolute and stopped centring. The modal arm carries [open] so it
+    // wins on its own turf regardless of sheet order.
+    const m = FRAME_CSS.match(
+      /\.lg-frame-disclosure--modal \.lg-disclosure-wrap\[open\] \.lg-disclosure-panel\{([^}]*)\}/,
+    );
+    expect(m, "the modal arm must carry [open]").not.toBeNull();
+    expect(m![1]).toContain("position:fixed");
+    expect(m![1]).toContain("transform:translate(-50%,-50%)");
+  });
+});
+
 describe("Disclosure — no text, no link (the other half of 'it's not working')", () => {
   it("every toggle location refuses to render a link with nothing behind it", () => {
     for (const location of TOGGLE_LOCATIONS) {

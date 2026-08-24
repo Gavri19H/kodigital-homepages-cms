@@ -41,6 +41,18 @@ import { LEADGEN_SELF_HOSTED_FONT_FAMILIES, selfHostedFontFaceCss } from "../fon
 export const FUNNEL_DESIGN_SCOPE_ATTR = "data-funnel-design";
 export const DEFAULT_FUNNEL_SCOPE = '[data-funnel-design="default-funnel"]';
 
+// OWNER 2026-08-24 — the layer a disclosure's region rises to so its pop-up can
+// paint over the page. Named and declared ONCE because the number only means
+// something relative to its neighbours in this sheet, which are:
+//   0  .lg-frame-background      1  .lg-frame-region (every region)
+//   5  the disc2 / trust / image tooltips
+//  20  .lg-header (scoped INSIDE the header region's own z-index:1)
+//  30  the open disclosure panel (scoped inside its region — the trap)
+//  40  the modal disclosure panel (same trap)
+// 41 clears every one of them, which is the point: a pop-up that cannot rise
+// above the question card is the defect this closes.
+const DISCLOSURE_REGION_LAYER = "41";
+
 function decls(pairs: Record<string, string>): string {
   return Object.entries(pairs)
     .map(([k, v]) => `${k}:${v}`)
@@ -1013,6 +1025,10 @@ export function funnelChromeCss(
       transform: "translateX(-50%)",
       width: "max-content",
       "max-width": "min(92vw, 420px)",
+      // MEASURED at 414px: without this the max-width caps the CONTENT box, so
+      // 16px padding + 1px border on each side pushed the rendered popover to
+      // 415px — a hair WIDER than the viewport it was meant to stay inside.
+      "box-sizing": "border-box",
       background: color.card,
       border: `1px solid ${color.borderLight}`,
       "border-radius": radius.md,
@@ -3046,11 +3062,28 @@ export function funnelChromeCss(
         padding: `0 ${footerBar.padding} ${footerBar.padding}`,
       }),
       // ---- disclosure region -----------------------------------------------------
+      // OWNER 2026-08-24: "The pop-up opens, and the text appears, but below the
+      // section itself instead of opening on top of it."
+      //
+      // MEASURED on his case: the panel's own `z-index:30` is TRAPPED. Every
+      // `.lg-frame-region` is `position:relative; z-index:1`, so that 30 only
+      // orders things INSIDE the disclosure region — and the slot region holding
+      // the question card is a z-index:1 SIBLING that comes later in the DOM, so
+      // it paints over the pop-up no matter how high the panel's own number is.
+      // A hit-test down the open panel returned `.lg-content`, not the panel.
+      //
+      // THE FIX IS ON THE REGION, not the panel: a pop-up can only escape by
+      // raising the stacking context it lives in. The two dedicated disclosure
+      // regions hold nothing but the label when closed, so nothing can overlap
+      // them and raising them unconditionally changes no closed-state pixel —
+      // while a `:has()` rule covers the HEADER location, whose link lives
+      // inside the header region that must NOT be raised permanently.
       rule(`${scope} .lg-frame-disclosure--top_bar`, {
         background: color.primaryGhost,
         "border-bottom": `1px solid ${color.borderLight}`,
         "text-align": "center",
         padding: `${spacing.xs} ${content.paddingDesktop}`,
+        "z-index": DISCLOSURE_REGION_LAYER,
       }),
       rule(`${scope} .lg-frame-disclosure--top_bar .lg-disclosure-panel`, {
         "max-width": content.maxWidth,
@@ -3060,10 +3093,31 @@ export function funnelChromeCss(
         "font-size": "0.75rem",
         padding: `${spacing.xs} 0`,
       }),
-      rule(`${scope} .lg-frame-disclosure--modal`, { "text-align": "center", padding: spacing.sm }),
-      // §11.4 modal: the SAME disclosure panel markup, overlay-styled (hidden
-      // toggle unchanged — no new runtime dependency).
-      rule(`${scope} .lg-frame-disclosure--modal .lg-disclosure-panel`, {
+      rule(`${scope} .lg-frame-disclosure--modal`, {
+        "text-align": "center",
+        padding: spacing.sm,
+        // Same trap, same fix: the modal panel below is `position:fixed;
+        // z-index:40`, which was ALSO scoped inside this region's z-index:1 — so
+        // the "centred pop-up" location was occluded by later regions too.
+        "z-index": DISCLOSURE_REGION_LAYER,
+      }),
+      // The HEADER location's link sits inside the header region, which must not
+      // be raised permanently (a sticky header above every region would change
+      // unrelated stacking). Raised only WHILE OPEN, so a closed page is
+      // untouched. `:has()` is the whole mechanism — still zero runtime bytes.
+      rule(`${scope} .lg-frame-region:has(details.lg-disclosure-wrap[open])`, {
+        "z-index": DISCLOSURE_REGION_LAYER,
+      }),
+      // §11.4 modal: the SAME disclosure panel markup, overlay-styled.
+      //
+      // OWNER 2026-08-24 — the selector carries `[open]` so this arm OUT-RANKS
+      // the base sheet's anchored-popover rule (2 classes + attr). MEASURED
+      // without it: the "Centred pop-up" location silently became an anchored
+      // popover (position resolved to `absolute`, not `fixed`), i.e. the panel-D
+      // option labelled "Centred pop-up" stopped centring. The base rule is the
+      // TOP-BAR/HEADER shape; this one is the viewport-centred shape, and each
+      // has to win on its own turf regardless of sheet order.
+      rule(`${scope} .lg-frame-disclosure--modal .lg-disclosure-wrap[open] .lg-disclosure-panel`, {
         position: "fixed",
         left: "50%",
         top: "50%",
