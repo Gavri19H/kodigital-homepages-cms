@@ -531,6 +531,7 @@ const DISCLOSURE_POPUP_RULES =
   `${DEFAULT_FUNNEL_SCOPE} .lg-disclosure-wrap{position:relative;display:inline-block}\n` +
   `${DEFAULT_FUNNEL_SCOPE} .lg-disclosure-wrap[open] .lg-disclosure-panel{position:absolute;z-index:30;` +
   `top:calc(100% + 6px);left:50%;transform:translateX(-50%);width:max-content;max-width:min(92vw, 420px);` +
+  "box-sizing:border-box;" +
   `background:${defaultFunnelDesign.color.card};border:1px solid ${defaultFunnelDesign.color.borderLight};` +
   `border-radius:${defaultFunnelDesign.radius.md};box-shadow:${defaultFunnelDesign.shadow.lg};` +
   `padding:${defaultFunnelDesign.spacing.md};text-align:left;white-space:normal}\n`;
