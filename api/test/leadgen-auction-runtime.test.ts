@@ -473,7 +473,15 @@ describeDb("leadgen §19 runtime — pipeline branches (mocked providers)", () =
     expect(result.explain.carriers_shown.some((c) => c.carrier_key === "low")).toBe(false);
   });
 
-  it("unfilled: no carriers surface → all_carriers_shown", async () => {
+  // OWNER 2026-08-27 — RENAMED with the behaviour. This case stubs a provider
+  // that ANSWERED WITH NOTHING, and the old blanket default reported
+  // "all_carriers_shown" for it: on a fresh session, with nothing ever shown,
+  // the product's one line of diagnosis was false. That is what sent the owner
+  // to us with "the auction wasn't running - I got to an empty page" instead of
+  // being able to read the reason himself. The reason now distinguishes
+  // "nobody offered anything" (the market's answer, not actionable) from
+  // "we could not read what they offered" (a config fault he can fix).
+  it("unfilled: a provider that returns no carriers → no_carriers_returned", async () => {
     const { sdb, env } = harness();
     const auction = seedAuction(sdb);
     const o1 = seedOffer(sdb);
@@ -483,7 +491,7 @@ describeDb("leadgen §19 runtime — pipeline branches (mocked providers)", () =
     const bundle = await loadAuctionBundle(env.DB, auction, 1);
     const result = await runAuction(env, { resolved: makeResolved(), bundle, environment: "production", binding: NO_BINDING, session_id: null, raw_answers: {}, clicked: [] }, { dryRun: true });
     expect(result.explain.carriers_shown.length).toBe(0);
-    expect(result.explain.unfilled_reason).toBe("all_carriers_shown");
+    expect(result.explain.unfilled_reason).toBe("no_carriers_returned");
   });
 
   it("multi-offer + backfill: below-floor carrier backfills an empty slot", async () => {
