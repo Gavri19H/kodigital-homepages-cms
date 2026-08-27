@@ -125,10 +125,34 @@ export function getAtPath(source: unknown, path: string): unknown {
 }
 
 // Resolve a field's first usable candidate path (multi-source fallback).
+// OWNER 2026-08-27: "I finished to build this funnel, clicked it to the end of
+// the funnel, and the auction wasn't running - I got to an empty page."
+//
+// ROOT CAUSE, measured on his own auction instance: his carrier_parse_json field
+// paths are written as `{response:response.listingset.listing.0.cpc}` — the
+// BANNER-URL-TEMPLATE macro syntax the payload builder hands out as copyable
+// chips (ui-payload-builder.ts: "Click a chip to copy its {response:…} macro for
+// the banner URL template"). This parser has always expected a BARE dotted path,
+// so every one of his fields resolved to undefined: no identity → the carrier was
+// dropped → zero banners → an empty page. QuinStreet had answered with a real
+// listing at cpc 32.50.
+//
+// Two syntaxes for two jobs, no validation, and the macro chips sit in the same
+// editor as these fields. Accepting BOTH forms fixes every config already stored
+// in this shape with no migration, and cannot change a bare path's meaning: the
+// wrapper is stripped only when the whole token is exactly `{response:…}`.
+// `?` is tolerated because the banner-template macro allows an optional marker.
+const RESPONSE_MACRO_RE = /^\{response:([^{}]+?)\??\}$/;
+
+export function unwrapResponseMacro(path: string): string {
+  const m = RESPONSE_MACRO_RE.exec(path.trim());
+  return m === null ? path : (m[1] as string);
+}
+
 function extractRaw(item: unknown, paths: LeadgenCarrierFieldPath): unknown {
   const list = typeof paths === "string" ? [paths] : paths;
   for (const path of list) {
-    const value = getAtPath(item, path);
+    const value = getAtPath(item, unwrapResponseMacro(path));
     if (value !== undefined && value !== null) return value;
   }
   return undefined;
@@ -343,7 +367,10 @@ export function parseProviderResponse(
   }
 
   // --- carriers node -------------------------------------------------------
-  const carriersPath = typeof parseConfig.carriers_path === "string" ? parseConfig.carriers_path : "";
+  // Same tolerance for carriers_path — an operator who wrote one field as a
+  // macro wrote them all that way.
+  const carriersPath =
+    typeof parseConfig.carriers_path === "string" ? unwrapResponseMacro(parseConfig.carriers_path) : "";
   const node = getAtPath(body, carriersPath);
   if (node === undefined || node === null) {
     return {

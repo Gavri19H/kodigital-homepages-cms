@@ -78,6 +78,7 @@ import {
 import {
   parseProviderResponse,
   slugifyCarrierName,
+  type LeadgenParseError,
   type LeadgenParsedCarrier,
 } from "./parse";
 import { fetchProvidersParallel, type FetchProviderResult, type ParallelProviderRequest } from "./fetch";
@@ -726,6 +727,31 @@ export type RunAuctionStatus = "ok" | "tampered" | "disqualified" | "redirect" |
 // record (RED LINE 1) -- the caller encrypts `debug_record` into the AES blob
 // and stores ONLY the resulting opaque debug_ref. `debug_record` NEVER binds to
 // a D1 column.
+// OWNER 2026-08-27 — the two formatters that turn dropped-carrier parse errors
+// into the operator-readable pair the provider log already has columns for.
+// SHORT and STABLE: the reason is the first error's code (what to grep), the
+// text names every distinct code with a count and the first message (what to
+// act on). Bounded so a provider returning 500 malformed listings cannot write
+// a megabyte into D1.
+function parseErrorReason(errors: readonly LeadgenParseError[]): string | null {
+  return errors.length === 0 ? null : (errors[0] as LeadgenParseError).code;
+}
+
+function parseErrorText(errors: readonly LeadgenParseError[]): string | null {
+  if (errors.length === 0) return null;
+  const byCode = new Map<string, { n: number; message: string }>();
+  for (const e of errors) {
+    const seen = byCode.get(e.code);
+    if (seen === undefined) byCode.set(e.code, { n: 1, message: e.message });
+    else seen.n += 1;
+  }
+  const parts: string[] = [];
+  for (const [code, { n, message }] of byCode) {
+    parts.push(n > 1 ? `${code} x${n}: ${message}` : `${code}: ${message}`);
+  }
+  return parts.join(" | ").slice(0, 500);
+}
+
 export interface ProviderLogRowToPersist {
   auction_instance_id: string;
   auction_request_id: string;
@@ -1326,6 +1352,10 @@ export async function runAuction(
   const providersRequested: ExplainProviderRequested[] = [];
   const providersResponded: ExplainProviderResponded[] = [];
   const providerLogRows: ProviderLogRowToPersist[] = [];
+  // OWNER 2026-08-27 — the parse errors, kept so the provider log can carry the
+  // reason a carrier was dropped (see the parse site below).
+  const parseErrorsByRow = new Map<string, LeadgenParseError[]>();
+  const parseErrorsByOffer = new Map<string, LeadgenParseError[]>();
   // Result/bundle lookups are keyed by the bundle ROW identity
   // (offer_public_id, placement_public_id): an Offer participating with TWO
   // placements fires two requests whose offer_public_id collides (04 §4.5
@@ -1412,6 +1442,22 @@ export async function runAuction(
         : parseProviderResponse(b.carrier_parse_json, result.parsed ?? result.body ?? "");
       parsedByRow.set(rowKey(b.offer.public_id, b.placement_public_id), parseResult.carriers);
       parsedByOffer.set(b.offer.public_id, parseResult.carriers);
+      // OWNER 2026-08-27: "I finished to build this funnel, clicked it to the end
+      // of the funnel, and the auction wasn't running - I got to an empty page."
+      //
+      // MEASURED on his own attempt (auction_instance 01M11ESQ5TQ36KDCXFV8746XPP):
+      // QuinStreet returned HTTP 200 with numListingsReturned "1" and a real
+      // cpc of 32.50 — and parsed_carriers_json was []. His parse config maps
+      // identity to `company`/`displayname`, which that provider's listing does
+      // not contain, so parse.ts could derive no carrier_key and DROPPED the
+      // carrier. It produced a typed error saying exactly that… and this loop
+      // threw parseResult.errors on the floor, which is why
+      // provider_error_reason and error_text were both NULL and he had nothing
+      // to read. A dropped carrier is a LOST BID; it must leave a trace.
+      if (parseResult.errors.length > 0) {
+        parseErrorsByRow.set(rowKey(b.offer.public_id, b.placement_public_id), parseResult.errors);
+        parseErrorsByOffer.set(b.offer.public_id, parseResult.errors);
+      }
       for (const carrier of parseResult.carriers) {
         bidInputs.push({
           carrier_key: carrier.carrier_key,
@@ -1628,7 +1674,21 @@ export async function runAuction(
   // no_bid (every CPC Offer all-zero + nothing surfaced) is its own status.
   let status: RunAuctionStatus = "ok";
   if (renderedSlots.length === 0) {
-    if (unfilledReason === null) unfilledReason = "all_carriers_shown";
+    // OWNER 2026-08-27 — say WHICH kind of empty this is. The old blanket
+    // default claimed every carrier had already been shown, on a fresh session,
+    // for an auction whose carriers were dropped at parse: the one line of
+    // diagnosis the product offered was false. Order matters — an unparsed
+    // carrier is a CONFIG fault the operator can fix, and it out-ranks
+    // "nobody bid", which is the market's answer and not actionable.
+    if (unfilledReason === null) {
+      const anyParseErrors = parseErrorsByOffer.size > 0;
+      const anyCarriers = [...parsedByOffer.values()].some((list) => list.length > 0);
+      unfilledReason = anyParseErrors
+        ? "carriers_unparsed"
+        : anyCarriers
+          ? "all_carriers_shown"
+          : "no_carriers_returned";
+    }
     status = winner.winner === null && surfaced.length === 0 ? "no_bid" : "unfilled";
   }
 
@@ -1733,6 +1793,10 @@ export async function runAuction(
       parsedByRow.get(rowKey(result.offer_public_id, result.redacted_log.placement_public_id)) ??
       parsedByOffer.get(result.offer_public_id) ??
       [];
+    const parseErrors =
+      parseErrorsByRow.get(rowKey(result.offer_public_id, result.redacted_log.placement_public_id)) ??
+      parseErrorsByOffer.get(result.offer_public_id) ??
+      [];
     providerLogRows.push({
       auction_instance_id: auctionInstanceId,
       auction_request_id: auctionRequestId,
@@ -1747,8 +1811,13 @@ export async function runAuction(
       request_payload_redacted_json: result.redacted_log.request_payload_redacted_json,
       response_redacted_json: result.redacted_log.response_redacted_json,
       parsed_carriers_json: JSON.stringify(parsed),
-      provider_error_reason: result.redacted_log.provider_error_reason,
-      error_text: result.redacted_log.error_text,
+      // OWNER 2026-08-27 — a 200 whose carriers could not be parsed left BOTH of
+      // these NULL, so an operator staring at an empty page had no reason to
+      // read. The fetch stage's own reason always wins (an HTTP/transport
+      // failure is the more fundamental fact); parse errors fill the silence
+      // that used to follow a successful call with an unusable body.
+      provider_error_reason: result.redacted_log.provider_error_reason ?? parseErrorReason(parseErrors),
+      error_text: result.redacted_log.error_text ?? parseErrorText(parseErrors),
       debug_record: result.debug,
     });
   }

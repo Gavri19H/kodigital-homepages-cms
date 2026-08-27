@@ -382,6 +382,20 @@ export interface BackfillInput {
   maxTotalCarriers: number;
 }
 
+// OWNER 2026-08-27 — why no banner filled. Each value is a DIFFERENT operator
+// action, which is the whole point of separating them:
+//   all_carriers_shown — the pool really was exhausted for this session
+//   carriers_unparsed  — a provider answered with carriers we could not read
+//                        (his case: a real 32.50 bid dropped because the parse
+//                        config named identity fields the response lacks)
+//   no_carriers_returned — every provider answered, none offered anything
+export const LEADGEN_UNFILLED_REASONS = [
+  "all_carriers_shown",
+  "carriers_unparsed",
+  "no_carriers_returned",
+] as const;
+export type LeadgenUnfilledReason = (typeof LEADGEN_UNFILLED_REASONS)[number];
+
 export interface BackfillResult {
   // Carriers filling previously-empty slots (source `backfill`, slots continue
   // after the rendered ones).
@@ -390,7 +404,11 @@ export interface BackfillResult {
   unfilled_slots: number;
   // 07 §18.6: set only when backfill ran but the eligible+unique pool was
   // exhausted before every empty slot filled.
-  unfilled_reason: "all_carriers_shown" | null;
+  // OWNER 2026-08-27 — widened. "all_carriers_shown" was the ONLY value, and
+  // engine.ts defaulted to it for every empty outcome, so his fresh-session
+  // empty page reported that every carrier had already been shown when NOTHING
+  // had ever been shown. A reason an operator cannot trust is worse than none.
+  unfilled_reason: LeadgenUnfilledReason | null;
 }
 
 // 07 §18.6. `disabled` → no backfill attempted (never `all_carriers_shown`).
@@ -432,7 +450,7 @@ export function applyBackfill(input: BackfillInput): BackfillResult {
   return {
     filled,
     unfilled_slots,
-    unfilled_reason: unfilled_slots > 0 && poolExhausted ? "all_carriers_shown" : null,
+    unfilled_reason: unfilled_slots > 0 && poolExhausted ? ("all_carriers_shown" as const) : null,
   };
 }
 
