@@ -2649,6 +2649,43 @@ describeDb("section studio EXECUTED island — §8.7 mapping model (E2) + REAL s
     }
   });
 
+  // OWNER 2026-08-27: "I see this field type as 'Text' … even though I defined it
+  // as 'Date'." The picker label is the ONLY place he learns a field's type when
+  // choosing where an answer goes, so this runs the REAL shipped label function.
+  it("a Date payload field is labelled a DATE in the picker, with its own format (owner 2026-08-27)", async () => {
+    const { env } = newHarness();
+    const section = await createSection(env, { content_json: JSON.stringify(NUMERIC_CHOICE_CONTENT) });
+    const html = await studioPage(env, section.public_id);
+    const offer = {
+      id: 7,
+      public_id: "lgo_datefixture",
+      offer_name: "DateOffer",
+      has_active_schema: true,
+      payload_schema_public_id: "lgp_datefixture",
+      answer_fields: [
+        // the shape the projection now sends for a Type=Date field: string
+        // storage + the format off its single formatDate step
+        { path: "company.business_inception", type: "string", date_format: "YYYY-MM-DD", required: false, internal_field: null, label: null, valid_values: null, field_label: "Business inception" },
+        { path: "company.loan_purpose", type: "string", date_format: null, required: false, internal_field: null, label: null, valid_values: null, field_label: "Loan purpose" },
+        { path: "company.loan_amount", type: "number", date_format: null, required: false, internal_field: null, label: null, valid_values: null, field_label: "Loan amount" },
+      ],
+    };
+    const probe = mappingProbe(html, NUMERIC_CHOICE_CONTENT, { activity: "quote_funnel", vertical: "life", offers: [offer] });
+
+    // his exact complaint: this read "Business inception — text"
+    const dateLabel = String(probe.run(`pathOptionLabel(answerFieldOf(offerById(7), 'company.business_inception'))`));
+    expect(dateLabel).toBe("Business inception — date (YYYY-MM-DD)");
+    expect(dateLabel).not.toContain("text");
+
+    // …and nothing else changed: a plain string is still text, a number a number
+    expect(String(probe.run(`pathOptionLabel(answerFieldOf(offerById(7), 'company.loan_purpose'))`))).toBe(
+      "Loan purpose — text",
+    );
+    expect(String(probe.run(`pathOptionLabel(answerFieldOf(offerById(7), 'company.loan_amount'))`))).toBe(
+      "Loan amount — number",
+    );
+  });
+
   it("the mismatch note NAMES the saved values that don't fit, because changing them is the operator's own fix", async () => {
     const { env } = newHarness();
     const section = await createSection(env, { content_json: JSON.stringify(NUMERIC_CHOICE_CONTENT) });

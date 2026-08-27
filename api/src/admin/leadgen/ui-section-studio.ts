@@ -15999,6 +15999,13 @@ export const SECTION_STUDIO_SCRIPT = `
   function plainTypeWords(f) {
     if (!f) { return ''; }
     if (f.valid_values && f.valid_values.length > 0) { return 'one of: ' + f.valid_values.join(', '); }
+    // OWNER 2026-08-27: "I see this field type as 'Text' … even though I defined
+    // it as 'Date'." A Date field is stored as string + one formatDate step (the
+    // payload builder has no "date" JSON type), so the type alone can only ever
+    // say "text". date_format is that step's format, projected alongside — when
+    // it is present the field IS a date, and saying so is the whole point of
+    // this line: the operator picks a field by what this label says.
+    if (typeof f.date_format === 'string' && f.date_format !== '') { return 'date (' + f.date_format + ')'; }
     if (f.type === 'string') { return 'text'; }
     if (f.type === 'number') { return 'number'; }
     if (f.type === 'boolean') { return 'yes or no'; }
