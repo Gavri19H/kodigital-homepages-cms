@@ -365,6 +365,10 @@ const ISLAND_FUNCS = [
   "computeIssues",
   "choiceCellWrap",
   "buildChoiceTextInput",
+  // OWNER 2026-08-27 — buildChoiceRow now delegates the Saved value cell to
+  // this (fixed value vs calculated date), so it has to ride the same slice or
+  // the probe ReferenceErrors on a function the real page has.
+  "buildChoiceValueControls",
   "choiceFieldsFor",
   "choiceRowMoveBtn",
   "buildChoiceRow",

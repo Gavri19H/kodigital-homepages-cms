@@ -998,6 +998,23 @@ export function isChildrenBearingType(type: unknown): boolean {
 // the /lg/config projection + the renderer — those use the dedicated
 // grouping-preserving walks (config-dto.projectSectionComponents / presets),
 // never this flatten.
+// OWNER 2026-08-27 — the per-choice CALCULATED saved value vocabulary. Lives
+// here because a choice is a CONTENT shape; leadgen/answers.ts imports it (and
+// re-exports it) rather than the other way round, which would be a cycle.
+export const LEADGEN_CHOICE_CALC_KINDS = ["date_ago"] as const;
+export const LEADGEN_CHOICE_CALC_UNITS = ["days", "months", "years"] as const;
+export type LeadgenChoiceCalcUnit = (typeof LEADGEN_CHOICE_CALC_UNITS)[number];
+
+export interface LeadgenChoiceCalc {
+  kind: (typeof LEADGEN_CHOICE_CALC_KINDS)[number];
+  amount: number;
+  unit: LeadgenChoiceCalcUnit;
+}
+
+// The largest amount any unit accepts. 1200 months / 1200 years is far past any
+// real business age and keeps the arithmetic inside a safe Date range.
+export const LEADGEN_CHOICE_CALC_MAX_AMOUNT = 1200;
+
 export function flattenComponents(
   components: readonly LeadgenComponentNode[],
 ): LeadgenComponentNode[] {
@@ -4113,6 +4130,28 @@ export function validateSectionContent(
               `${cp}.imageMediaId`,
               `Every answer on the ${leadgenComponentName(type)} needs an image. Pick an image for this answer.`,
             );
+          }
+          // OWNER 2026-08-27 — the per-choice CALCULATED saved value. Absent ⇒
+          // the literal, i.e. every stored choice is unchanged. Validated
+          // strictly here so the runtime's own readChoiceCalc re-check (defense
+          // in depth) can never be the only gate: an operator gets a message,
+          // not a silently-ignored calculation.
+          if (choice["value_calc"] !== undefined) {
+            const calc = choice["value_calc"];
+            if (!isRecord(calc)) {
+              push("invalid_choice", `${cp}.value_calc`, "A calculated saved value must be a group of settings. Set it again, or switch the answer back to a fixed value.");
+            } else {
+              if (calc["kind"] !== "date_ago") {
+                push("invalid_choice", `${cp}.value_calc.kind`, "The only calculation available is a date in the past. Switch the answer back to a fixed value.");
+              }
+              const amount = calc["amount"];
+              if (typeof amount !== "number" || !Number.isInteger(amount) || amount < 0 || amount > LEADGEN_CHOICE_CALC_MAX_AMOUNT) {
+                push("invalid_choice", `${cp}.value_calc.amount`, `'How many' must be a whole number between 0 and ${LEADGEN_CHOICE_CALC_MAX_AMOUNT}. Enter one.`);
+              }
+              if (!(LEADGEN_CHOICE_CALC_UNITS as readonly string[]).includes(String(calc["unit"]))) {
+                push("invalid_choice", `${cp}.value_calc.unit`, `'Unit' must be one of: ${LEADGEN_CHOICE_CALC_UNITS.join(", ")}. Pick one.`);
+              }
+            }
           }
           // v2.5 §8.4 additive per-choice fields — typed when present.
           for (const key of ["title", "subtitle", "badge", "emoji", "image_alt", "aria_label"] as const) {
