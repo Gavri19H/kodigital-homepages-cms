@@ -12051,6 +12051,105 @@ export const SECTION_STUDIO_SCRIPT = `
     inp.addEventListener('change', collectChoices);
     return inp;
   }
+  // OWNER 2026-08-27: "I can't convert the user answer to a date by logical
+  // calculation - for example, I want that if the user clicks the button '2+
+  // Years', the value that will be sent is 'Today - 2 years in format
+  // DD/MM/YYYY' … we need to add an option to 'calculated data' in the 'saved
+  // value' field." OWNER RULING on the answers with no sensible calculation:
+  // "the user that creates this section have the freedome to choose what to
+  // send. It isn't something you need to solve hardcoded." — so the switch is
+  // PER CHOICE and every answer is independently fixed or calculated.
+  //
+  // A CLOSED control, not a formula box: amount + unit, nothing else. A
+  // free-text expression in an operator field would be an evaluator on the money
+  // path, the same class of hole as arbitrary CSS in a theme.
+  //
+  // The value rides a HIDDEN JSON carrier, exactly like the per-choice Style
+  // popover — collectChoices already parses that one field as JSON, so this
+  // needs no new collection channel.
+  function buildChoiceValueControls(field, choice) {
+    var box = document.createElement('div');
+    box.className = 'lg-choice-valuebox';
+
+    var literal = buildChoiceTextInput(field, choice);
+    var storedCalc = (choice && choice.value_calc && typeof choice.value_calc === 'object') ? choice.value_calc : null;
+
+    var hidden = document.createElement('input');
+    hidden.type = 'hidden';
+    hidden.setAttribute('data-choice-field', 'value_calc');
+    hidden.value = storedCalc ? JSON.stringify(storedCalc) : '';
+
+    var mode = document.createElement('select');
+    mode.className = 'form-select form-select-sm';
+    mode.setAttribute('data-choice-calc-mode', '');
+    mode.setAttribute('aria-label', 'How this answer is sent');
+    var optFixed = document.createElement('option');
+    optFixed.value = 'fixed';
+    optFixed.textContent = 'Send a fixed value';
+    var optCalc = document.createElement('option');
+    optCalc.value = 'calc';
+    optCalc.textContent = 'Send a calculated date';
+    mode.appendChild(optFixed);
+    mode.appendChild(optCalc);
+    mode.value = storedCalc ? 'calc' : 'fixed';
+
+    var calcRow = document.createElement('div');
+    calcRow.className = 'lg-choice-calcrow';
+    var todayLbl = document.createElement('span');
+    todayLbl.className = 'lg-choice-cell-label';
+    todayLbl.appendChild(document.createTextNode('Today minus'));
+    var amount = document.createElement('input');
+    amount.className = 'form-input';
+    amount.type = 'number';
+    amount.min = '0';
+    amount.max = String(1200);
+    amount.step = '1';
+    amount.setAttribute('aria-label', 'How many');
+    amount.value = storedCalc && typeof storedCalc.amount === 'number' ? String(storedCalc.amount) : '';
+    var unit = document.createElement('select');
+    unit.className = 'form-select form-select-sm';
+    unit.setAttribute('aria-label', 'Unit');
+    var units = ['days', 'months', 'years'];
+    var u;
+    for (u = 0; u < units.length; u++) {
+      var uo = document.createElement('option');
+      uo.value = units[u];
+      uo.textContent = units[u];
+      unit.appendChild(uo);
+    }
+    unit.value = storedCalc && typeof storedCalc.unit === 'string' ? storedCalc.unit : 'years';
+    var help = document.createElement('p');
+    help.className = 'form-help';
+    help.appendChild(document.createTextNode('Sends that date instead of the fixed value. The payload field\u2019s own date format wins.'));
+    calcRow.appendChild(todayLbl);
+    calcRow.appendChild(amount);
+    calcRow.appendChild(unit);
+
+    function sync() {
+      var isCalc = mode.value === 'calc';
+      literal.hidden = isCalc;
+      calcRow.hidden = !isCalc;
+      help.hidden = !isCalc;
+      if (!isCalc) { hidden.value = ''; return; }
+      var n = parseInt(amount.value, 10);
+      // An empty or out-of-range amount carries NOTHING rather than a value the
+      // save would reject — the operator is mid-typing, not wrong yet.
+      if (isNaN(n) || n < 0 || n > 1200) { hidden.value = ''; return; }
+      hidden.value = JSON.stringify({ kind: 'date_ago', amount: n, unit: unit.value });
+    }
+    mode.addEventListener('change', function () { sync(); collectChoices(); });
+    amount.addEventListener('input', function () { sync(); collectChoices(); });
+    amount.addEventListener('change', function () { sync(); collectChoices(); });
+    unit.addEventListener('change', function () { sync(); collectChoices(); });
+    sync();
+
+    box.appendChild(mode);
+    box.appendChild(literal);
+    box.appendChild(calcRow);
+    box.appendChild(help);
+    box.appendChild(hidden);
+    return { box: box, literal: literal };
+  }
   // v3.1 R3 S2-5/6c: the choice 'icon' picker is the SAME 12 section-8.1
   // leading-icon options (a select, clearable via the "none" first option). A
   // stored legacy raw glyph is preserved as its own selectable option so it
@@ -12513,6 +12612,12 @@ export const SECTION_STUDIO_SCRIPT = `
         var imgCell = buildChoiceImageCell(choice);
         inputsByField.imageMediaId = imgCell.input;
         cell.appendChild(imgCell.row);
+      } else if (field === 'value') {
+        // OWNER 2026-08-27 — the Saved value cell is where he asked for the
+        // calculation, so the fixed input and the calculated pair share it.
+        var valueCtl = buildChoiceValueControls(field, choice);
+        inputsByField.value = valueCtl.literal;
+        cell.appendChild(valueCtl.box);
       } else {
         control = buildChoiceTextInput(field, choice);
         inputsByField[field] = control;
@@ -13212,11 +13317,16 @@ export const SECTION_STUDIO_SCRIPT = `
         // P2b (register R-A completion): the ONE structured field — the
         // per-choice Style popover's hidden carrier — holds JSON, not a plain
         // scalar; every other field keeps the pre-P2b raw-string assignment.
-        if (f === 'style') {
+        if (f === 'style' || f === 'value_calc') {
           if (v !== '') {
             try {
               var parsedStyle = JSON.parse(v);
-              if (parsedStyle && typeof parsedStyle === 'object') { choice.style = parsedStyle; }
+              // OWNER 2026-08-27 — value_calc rides the SAME hidden-JSON-carrier
+              // channel the Style popover established, so no new collection
+              // path exists to drift. An empty carrier (fixed value, or an
+              // amount still being typed) assigns nothing, which is exactly the
+              // pre-existing "send the literal" behaviour.
+              if (parsedStyle && typeof parsedStyle === 'object') { choice[f] = parsedStyle; }
             } catch (styleParseErr) { /* malformed carrier value: drop, never crash the save */ }
           }
         } else if (v !== '') { choice[f] = v; }

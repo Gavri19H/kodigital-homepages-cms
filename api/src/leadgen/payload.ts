@@ -1211,6 +1211,18 @@ export interface LeadgenPayloadBuildContext {
   macros?: Readonly<Record<string, string>>;
   // Server-derived computed values, keyed by the node's `computed` key.
   computed?: Readonly<Record<string, unknown>>;
+  // OWNER 2026-08-27 — per-ANSWER computed values, keyed by internal_field:
+  // the ISO date a selected choice's `value_calc` produced (answers.ts
+  // normalizeAnswers.computed). A DISTINCT channel from `computed` above, which
+  // is keyed by a node's own `computed` name for source:"computed" nodes —
+  // folding the two together would let a calc land on an unrelated node.
+  //
+  // An entry here REPLACES the raw answer for a source:"answer" node bound to
+  // that field, and the node's own transform chain (a Type=Date field's
+  // formatDate) then runs on it — which is what makes the owner's rule true
+  // without a precedence clause: "if the field itself has another format the
+  // field format is the winner".
+  answer_computed?: Readonly<Record<string, string>>;
   // The Offer in scope (fix-contract v2.4 04 §4.5) — source:"placement"
   // resolves from offer.placement_id. Bridged from the canonical
   // LeadGenRuntimeContext.offer slice (runtime-context.ts).
@@ -1488,7 +1500,15 @@ function resolveNode(node: LeadgenPayloadNode, ctx: LeadgenPayloadBuildContext):
   let raw: unknown;
   switch (node.source) {
     case "answer":
-      raw = node.internal_field === undefined ? undefined : ctx.answers[node.internal_field];
+      if (node.internal_field === undefined) {
+        raw = undefined;
+      } else {
+        // OWNER 2026-08-27 — a calculated choice sends its DATE, not its
+        // literal. Only when this exact field has one; every other answer is
+        // byte-identical to before.
+        const calculated = ctx.answer_computed?.[node.internal_field];
+        raw = calculated !== undefined ? calculated : ctx.answers[node.internal_field];
+      }
       break;
     case "static":
       raw = node.value;

@@ -41,7 +41,13 @@ import { COMPONENT_CATALOG } from "../public/leadgen/components/registry";
 // question shown?" can never mean two different things on the two sides of the
 // same request. No import cycle: dependencies.ts never imports this module.
 import { evaluateDependencies } from "./dependencies";
-import { flattenComponents } from "../public/leadgen/components/content-schema";
+import {
+  LEADGEN_CHOICE_CALC_KINDS,
+  LEADGEN_CHOICE_CALC_UNITS,
+  LEADGEN_CHOICE_CALC_MAX_AMOUNT,
+  flattenComponents,
+} from "../public/leadgen/components/content-schema";
+import type { LeadgenChoiceCalc, LeadgenChoiceCalcUnit } from "../public/leadgen/components/content-schema";
 import type {
   LeadgenAnswerType,
   LeadgenComponentNode,
@@ -170,6 +176,102 @@ function toCurrencyNumber(raw: unknown): number | undefined {
 // `fieldsOf` below is THE answer-space derivation, and the §6.2 per-offer field
 // picker (offers-handlers readAnswerFieldUniverse) now consumes it directly, so
 // this spec is part of that consumer's type surface.
+// OWNER 2026-08-27, problem 2 of 2: "I can't convert the user answer to a date
+// by logical calculation - for example, I want that if the user clicks the button
+// '2+ Years', the value that will be sent is 'Today - 2 years in format
+// DD/MM/YYYY' (and if the field itself has another format the field format is the
+// winner). It means we need to add an option to 'calculated data' in the 'saved
+// value' field." OWNER RULING on the choices that have no sensible calculation:
+// "the user that creates this section have the freedom to choose what to send. It
+// isn't something you need to solve hardcoded." — so the calculation is PER
+// CHOICE and each one is independently literal or calculated.
+//
+// THE VOCABULARY IS CLOSED, deliberately. A free-text formula box in an operator
+// field is the same class of hole as arbitrary CSS in a theme: it becomes an
+// expression evaluator on the money path. `date_ago` with a whole amount and one
+// of three units expresses his example exactly, and nothing else.
+
+// The vocabulary lives in content-schema.ts (the CHOICE shape is a content
+// concern, and this module already imports from there — declaring it here would
+// invert that direction into a cycle). Re-exported so a caller can reach the
+// whole calc surface from one module.
+export {
+  LEADGEN_CHOICE_CALC_KINDS,
+  LEADGEN_CHOICE_CALC_UNITS,
+  LEADGEN_CHOICE_CALC_MAX_AMOUNT,
+} from "../public/leadgen/components/content-schema";
+export type { LeadgenChoiceCalc, LeadgenChoiceCalcUnit } from "../public/leadgen/components/content-schema";
+
+// A stored calc, or null. Re-checked at every read (the safeThemeRecordFontStack
+// discipline): a corrupted blob can never reach the arithmetic.
+export function readChoiceCalc(value: unknown): LeadgenChoiceCalc | null {
+  if (typeof value !== "object" || value === null || Array.isArray(value)) return null;
+  const raw = value as Record<string, unknown>;
+  if (!(LEADGEN_CHOICE_CALC_KINDS as readonly string[]).includes(String(raw["kind"]))) return null;
+  const amount = raw["amount"];
+  if (typeof amount !== "number" || !Number.isInteger(amount) || amount < 0) return null;
+  if (amount > LEADGEN_CHOICE_CALC_MAX_AMOUNT) return null;
+  const unit = raw["unit"];
+  if (!(LEADGEN_CHOICE_CALC_UNITS as readonly string[]).includes(String(unit))) return null;
+  return { kind: "date_ago", amount, unit: unit as LeadgenChoiceCalcUnit };
+}
+
+// Evaluate a calc against a reference instant → an ISO yyyy-mm-dd date (UTC).
+//
+// WHY ISO AND NOT THE OPERATOR'S FORMAT: his own rule — "if the field itself has
+// another format the field format is the winner". The payload field already
+// carries a formatDate transform (that IS what the builder's Type=Date stores),
+// and it runs AFTER this, so emitting the canonical ISO date here makes the
+// field's format win with no precedence rule to write. A field with no format
+// gets the ISO date, which is the sane default for a date on the wire.
+//
+// UTC throughout, matching formatDate's own "deterministic UTC formatting" — a
+// server in another zone must not shift the answer by a day.
+export function evaluateChoiceCalc(calc: LeadgenChoiceCalc, nowMs: number): string | undefined {
+  if (!Number.isFinite(nowMs)) return undefined;
+  const d = new Date(nowMs);
+  if (Number.isNaN(d.getTime())) return undefined;
+  let y = d.getUTCFullYear();
+  let m = d.getUTCMonth();
+  const day = d.getUTCDate();
+  if (calc.unit === "years") y -= calc.amount;
+  else if (calc.unit === "months") m -= calc.amount;
+  const out = new Date(Date.UTC(y, m, day));
+  // A month/year shift onto a shorter month (31 Mar minus 1 month) rolls
+  // forward in JS; clamp back into the intended month so the answer never
+  // silently lands in the following one.
+  if (calc.unit !== "days" && out.getUTCDate() !== day) out.setUTCDate(0);
+  if (calc.unit === "days") out.setUTCDate(out.getUTCDate() - calc.amount);
+  if (Number.isNaN(out.getTime())) return undefined;
+  const iso = out.toISOString();
+  return iso.slice(0, 10);
+}
+
+// OWNER 2026-08-27 — the calc on the choice the visitor SELECTED, evaluated.
+// Returns undefined when the node has no choices, the answer matches none of
+// them, or that choice carries no (valid) calc — every one of which means "send
+// the literal", the pre-existing behaviour.
+function selectedChoiceCalcDate(
+  node: LeadgenComponentNode,
+  normalized: unknown,
+  nowMs: number,
+): string | undefined {
+  const choices = (node as { choices?: unknown }).choices;
+  if (!Array.isArray(choices)) return undefined;
+  // Compared as strings: a saved value is authored as text ("2") while a
+  // number-typed answer normalizes to 2, and the operator means the same choice.
+  const key = typeof normalized === "string" ? normalized : String(normalized);
+  for (const choice of choices) {
+    if (typeof choice !== "object" || choice === null) continue;
+    const c = choice as Record<string, unknown>;
+    const value = c["value"];
+    if (value === undefined || String(value) !== key) continue;
+    const calc = readChoiceCalc(c["value_calc"]);
+    return calc === null ? undefined : evaluateChoiceCalc(calc, nowMs);
+  }
+  return undefined;
+}
+
 export interface FieldSpec {
   field: string;
   answerType: LeadgenAnswerType;
@@ -342,6 +444,15 @@ export interface LeadgenNormalizedAnswers {
   answers: Record<string, unknown>;
   // internal_field → §12.6 answer_source (analytics-quality provenance).
   sources: Record<string, LeadgenAnswerSource>;
+  // OWNER 2026-08-27 — internal_field → the ISO date its SELECTED choice
+  // calculates, when that choice carries a value_calc.
+  //
+  // A SEPARATE map on purpose. The literal stays in `answers`, so
+  // leadgen_analytics_answer_distribution keeps grouping every "2+ Years" click
+  // under the same value ("2") instead of scattering it across one row per day —
+  // and the payload build prefers this map for the field it is bound to. One
+  // authored calc, two consumers, neither corrupted by the other.
+  computed: Record<string, string>;
 }
 
 // Normalize raw UI answers to the internal answer space, tracking answer_source
@@ -369,6 +480,10 @@ export function normalizeAnswers(
 ): LeadgenNormalizedAnswers {
   const answers: Record<string, unknown> = {};
   const sources: Record<string, LeadgenAnswerSource> = {};
+  const computed: Record<string, string> = {};
+  // ONE reference instant for the whole submission, so two calculated answers on
+  // the same lead can never straddle midnight.
+  const nowMs = Date.now();
   // §8.5 layout containers: walk the canonical flattened projection so a
   // question nested inside a container contributes its internal field exactly
   // like a top-level one (containers produce nothing and are skipped). Flat
@@ -436,6 +551,11 @@ export function normalizeAnswers(
       if (!usable(spec, normalized)) continue;
       answers[spec.field] = normalized;
       sources[spec.field] = source;
+      // OWNER 2026-08-27 — the SELECTED choice's calculation, if it has one.
+      // Keyed off the normalized answer, so it follows whatever the visitor
+      // actually picked; a choice left literal contributes nothing here.
+      const calcDate = selectedChoiceCalcDate(node, normalized, nowMs);
+      if (calcDate !== undefined) computed[spec.field] = calcDate;
     }
   }
 
@@ -457,6 +577,13 @@ export function normalizeAnswers(
       if (visible.get(d.node.question_id) === false) continue; // hidden ⇒ it doesn't exist
       answers[d.spec.field] = d.value;
       sources[d.spec.field] = "default_applied";
+      // OWNER 2026-08-27 — an APPLIED DEFAULT is an answer too (owner A.1 #2:
+      // "if we set a 'default' and the user didn't change it - this is his
+      // answer"), so a default-selected choice calculates exactly like a tapped
+      // one. Resolving it only in pass 1 would have made the feature silently
+      // skip every question the visitor left on its default.
+      const defaultCalcDate = selectedChoiceCalcDate(d.node, d.value, nowMs);
+      if (defaultCalcDate !== undefined) computed[d.spec.field] = defaultCalcDate;
     }
     // A default that applied is gone; one still hidden is DROPPED (never
     // retried) — only a NEWLY-visible pending default keeps the loop alive.
@@ -467,7 +594,7 @@ export function normalizeAnswers(
     pending = stillPending;
   }
 
-  return { answers, sources };
+  return { answers, sources, computed };
 }
 
 // ---------------------------------------------------------------------------
@@ -653,6 +780,10 @@ export function answerMappingToBinding(mapping: LeadgenAnswerMapping): LeadgenAn
 export function buildOfferPayload(
   mappings: readonly LeadgenAnswerMapping[],
   normalizedAnswers: Readonly<Record<string, unknown>>,
+  // OWNER 2026-08-27 — the calculated dates from normalizeAnswers().computed.
+  // OPTIONAL so every existing caller is unchanged; absent ⇒ literals, exactly
+  // as before.
+  answerComputed?: Readonly<Record<string, string>>,
 ): Record<string, unknown> {
   const schema: LeadgenPayloadSchema = {
     version: 1,
@@ -666,7 +797,7 @@ export function buildOfferPayload(
     list.push(answerMappingToBinding(mapping));
     answer_bindings[mapping.offer_payload_field_path] = list;
   }
-  return buildPayload(schema, { answers: normalizedAnswers, answer_bindings });
+  return buildPayload(schema, { answers: normalizedAnswers, answer_bindings, answer_computed: answerComputed });
 }
 
 // Convenience end-to-end: raw UI answers + one Offer's maps → that Offer's
