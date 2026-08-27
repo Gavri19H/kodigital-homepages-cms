@@ -2403,6 +2403,37 @@ export interface SectionOfferAnswerField {
   // leaf segment. Derived at projection time; no storage change.
   field_label: string;
   valid_values: Array<string | number | boolean> | null;
+  // OWNER 2026-08-27: "I see this field type as 'Text' … even though I defined
+  // it as 'Date'." He is right, and this is why: the payload builder's Type =
+  // Date is NOT a storage type (LEADGEN_PAYLOAD_NODE_TYPES has no "date") — it
+  // stores `type:"string"` PLUS a single formatDate transform, exactly as that
+  // panel's own help line says ("Stored as the formatDate transform — no JSON
+  // type"). This projection carried `type` and DROPPED the transform, so the
+  // Section's Offers picker had nothing to read and printed "text".
+  //
+  // `date_format` is the format string off that transform when the node is the
+  // date shape (the same test ui-payload-builder.ts's own isDateNode applies:
+  // string type + exactly one formatDate step), else null. Non-null IS the
+  // "this field is a date" signal, and it carries the field's OWN format —
+  // which the owner's second ask needs too ("if the field itself has another
+  // format the field format is the winner").
+  date_format: string | null;
+}
+
+// OWNER 2026-08-27 — the date shape, read the SAME way the payload builder's own
+// isDateNode reads it (ui-payload-builder.ts): `type:"string"` carrying exactly
+// one `formatDate` step. Returns that step's format string, or null when the
+// node is not a date. Deliberately strict about "exactly one step": a string
+// with formatDate PLUS other transforms is a different, composed thing and
+// calling it a plain date would be a guess.
+function dateFormatOfNode(node: Record<string, unknown>, type: string): string | null {
+  if (type !== "string") return null;
+  const steps = node["transform"];
+  if (!Array.isArray(steps) || steps.length !== 1) return null;
+  const step = steps[0];
+  if (!isRecord(step) || step["kind"] !== "formatDate") return null;
+  const format = step["format"];
+  return typeof format === "string" && format.trim() !== "" ? format : null;
 }
 
 // Parse a schema_json blob into its answer-source field list. Defensive
@@ -2435,6 +2466,7 @@ function schemaAnswerSourceFields(schemaJson: string | null): SectionOfferAnswer
       label: trimmedString(node["label"]),
       field_label: deriveFieldLabel(node["label"], path),
       valid_values: validValues !== null && validValues.length > 0 ? validValues : null,
+      date_format: dateFormatOfNode(node, type),
     });
   }
   return out;

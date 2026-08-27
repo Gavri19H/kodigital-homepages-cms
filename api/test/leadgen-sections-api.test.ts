@@ -1813,6 +1813,111 @@ function numberEdge(offerId: number, overrides: Record<string, unknown> = {}): R
   };
 }
 
+// ---------------------------------------------------------------------------
+// OWNER 2026-08-27: "I defined a certain field type as a 'Date' … but I see this
+// field type as 'Text', as you can see in the screenshot, even though I defined
+// it as 'Date'."
+//
+// He is right. The payload builder's Type = Date is NOT a storage type
+// (LEADGEN_PAYLOAD_NODE_TYPES has no "date"): it stores type:"string" plus ONE
+// formatDate transform — that panel's own help line says so out loud ("Stored as
+// the formatDate transform — no JSON type"). The Section's Offers projection
+// carried `type` and DROPPED the transform, so the picker had nothing to read
+// and printed "text" for a field the operator had just defined as a date.
+// ---------------------------------------------------------------------------
+
+const DATE_FIELD_SCHEMA = {
+  version: 1,
+  root: {
+    type: "object",
+    children: [
+      // exactly the shape his screenshot's Live JSON preview shows
+      {
+        path: "company.business_inception",
+        name: "business_inception",
+        type: "string",
+        required: false,
+        source: "answer",
+        internal_field: "business_inception",
+        transform: [{ kind: "formatDate", format: "YYYY-MM-DD" }],
+      },
+      // a plain string beside it, so "date" is not just leaking onto every field
+      { path: "company.loan_purpose", name: "loan_purpose", type: "string", source: "answer", internal_field: "loan_purpose" },
+    ],
+  },
+};
+
+describeDb("§12.5 a Date payload field reads as a DATE where it is picked (owner 2026-08-27)", () => {
+  async function offerWithDateField(env: Env): Promise<OfferDetail> {
+    const offer = await createOffer(env);
+    const res = await admin.request(
+      `${API}/offers/${offer.id}/payload-schemas`,
+      jsonInit("POST", { schema_json: DATE_FIELD_SCHEMA }),
+      env,
+    );
+    expect(res.status, `post date schema: ${await res.clone().text()}`).toBe(201);
+    return offer;
+  }
+
+  it("the projection carries the field's own date FORMAT — the signal the picker had none of", async () => {
+    const { env } = newHarness();
+    await offerWithDateField(env);
+    const section = await createSection(env, sectionBody({}));
+    const res = await admin.request(`${API}/sections/${section.public_id}/offers`, { method: "GET" }, env);
+    expect(res.status, await res.clone().text()).toBe(200);
+    const body = (await res.json()) as {
+      offers: Array<{ answer_fields: Array<{ path: string; type: string; date_format: string | null }> }>;
+    };
+    const fields = body.offers.flatMap((o) => o.answer_fields);
+    const dateField = fields.find((f) => f.path === "company.business_inception");
+    expect(dateField, "the date field must be projected").toBeDefined();
+    // the STORAGE type is still string — that is not the bug, and changing it
+    // would be a schema migration the owner did not ask for
+    expect(dateField!.type).toBe("string");
+    // …the date-ness rides alongside it, carrying the operator's own format
+    expect(dateField!.date_format).toBe("YYYY-MM-DD");
+
+    // and a plain string field is NOT suddenly a date
+    const plain = fields.find((f) => f.path === "company.loan_purpose");
+    expect(plain!.date_format).toBeNull();
+  });
+
+  it("a string with formatDate PLUS other steps is not called a plain date (no guessing)", async () => {
+    const { env } = newHarness();
+    const offer = await createOffer(env);
+    const composed = {
+      version: 1,
+      root: {
+        type: "object",
+        children: [
+          {
+            path: "company.mixed",
+            name: "mixed",
+            type: "string",
+            source: "answer",
+            internal_field: "mixed",
+            transform: [{ kind: "trim" }, { kind: "formatDate", format: "YYYY-MM-DD" }],
+          },
+        ],
+      },
+    };
+    const res = await admin.request(
+      `${API}/offers/${offer.id}/payload-schemas`,
+      jsonInit("POST", { schema_json: composed }),
+      env,
+    );
+    expect(res.status, await res.clone().text()).toBe(201);
+    const section = await createSection(env, sectionBody({}));
+    const offersRes = await admin.request(`${API}/sections/${section.public_id}/offers`, { method: "GET" }, env);
+    const body = (await offersRes.json()) as {
+      offers: Array<{ answer_fields: Array<{ path: string; date_format: string | null }> }>;
+    };
+    const mixed = body.offers.flatMap((o) => o.answer_fields).find((f) => f.path === "company.mixed");
+    expect(mixed, "the field is still projected").toBeDefined();
+    expect(mixed!.date_format, "a composed transform chain is not a plain date").toBeNull();
+  });
+});
+
 describeDb("§12.11 a choice answer with numeric saved values maps to a number field (owner 2026-08-23)", () => {
   it("saved values 1 / 0 → a number field: the DB row is complete/ok, and the Quote is not blocked", async () => {
     const { sdb, env } = newHarness();
