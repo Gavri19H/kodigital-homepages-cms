@@ -69,6 +69,7 @@ export type LeadGenRuntimeContext = {
   cloudflare: { country?: string; region?: string; state?: string; city?: string;
                 postalCode?: string; timezone?: string; colo?: string; };
   traffic: { utm_source?: string; utm_medium?: string; utm_content?: string;
+             utm_campaign?: string;
              traffic_source?: string; placement?: string;
              sub1?: string; sub2?: string; sub3?: string; sub4?: string; sub5?: string;
              cpc?: string; fbclid?: string; fbc?: string; };
@@ -131,6 +132,7 @@ export interface LeadgenRuntimeContextOverrides {
   utm_source?: string;
   utm_medium?: string;
   utm_content?: string;
+  utm_campaign?: string;
   traffic_source?: string;
   placement?: string;
   sub1?: string;
@@ -193,6 +195,13 @@ const TRAFFIC_PARAM_KEYS = [
   "utm_source",
   "utm_medium",
   "utm_content",
+  // OWNER 2026-09-01: `utm_campaign` was the ONE standard UTM this product
+  // never read off the landing URL. The rules layer offered a "UTM Campaign"
+  // dimension that silently evaluated utm_content (resolver.ts entryFlatCtx
+  // mirrored it), and no payload field or banner URL template could carry the
+  // campaign at all. Captured here, so every downstream reader sees the real
+  // param.
+  "utm_campaign",
   "traffic_source",
   "placement",
   "sub1",
@@ -399,6 +408,7 @@ export function contextToMacros(
     click_id: "",
     utm_medium: ctx.traffic.utm_medium ?? "",
     utm_content: ctx.traffic.utm_content ?? "",
+    utm_campaign: ctx.traffic.utm_campaign ?? "",
     utm_source: ctx.traffic.utm_source ?? "",
     traffic_source: ctx.traffic.traffic_source ?? "",
     placement,

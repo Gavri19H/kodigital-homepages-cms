@@ -9072,14 +9072,14 @@ if (!document.getElementById('toast-animations')) {
   // in resolver.ENTRY_KNOWN_SLOT_FIELDS via SSR) + the op vocabulary. Injected
   // once so the ruled-case builder never invents a field the save-time scope
   // validator would reject.
-  var SLOT_RULE_FIELDS = [{"value":"state","label":"State"},{"value":"device","label":"Device"},{"value":"utm_source","label":"UTM source"},{"value":"utm_medium","label":"UTM medium"},{"value":"utm_content","label":"UTM content"},{"value":"hour","label":"Hour (0-23, UTC)"},{"value":"weekday","label":"Weekday (0-6, UTC)"}];
+  var SLOT_RULE_FIELDS = [{"value":"state","label":"State"},{"value":"device","label":"Device"},{"value":"utm_source","label":"UTM source"},{"value":"utm_medium","label":"UTM medium"},{"value":"utm_content","label":"UTM content"},{"value":"utm_campaign","label":"UTM campaign"},{"value":"hour","label":"Hour (0-23, UTC)"},{"value":"weekday","label":"Weekday (0-6, UTC)"}];
   var SLOT_RULE_OPS = [{"value":"eq","label":"equals"},{"value":"neq","label":"does not equal"},{"value":"gt","label":"greater than"},{"value":"lt","label":"less than"},{"value":"gte","label":"at least"},{"value":"lte","label":"at most"}];
   // R2 P2 FIX-FIRST (MINOR-4): the plain-language phrase templates GENERATED
   // by ui-rules-builder.ts's own conditionsSentence at SSR time (see
   // SLOT_RULE_SENTENCE_TEMPLATES) plus the chip's own joiners — the dialog's
   // live sentence is assembled from exactly the same pieces the saved chip is.
   var SLOT_RULE_SENTENCE_TEMPLATES = {"eq":"Matches when @@LG_SLOT_RULE_FIELD@@ is \"@@LG_SLOT_RULE_VALUE@@\"","neq":"Matches when @@LG_SLOT_RULE_FIELD@@ is not \"@@LG_SLOT_RULE_VALUE@@\"","gt":"Matches when @@LG_SLOT_RULE_FIELD@@ is greater than \"@@LG_SLOT_RULE_VALUE@@\"","lt":"Matches when @@LG_SLOT_RULE_FIELD@@ is less than \"@@LG_SLOT_RULE_VALUE@@\"","gte":"Matches when @@LG_SLOT_RULE_FIELD@@ is at least \"@@LG_SLOT_RULE_VALUE@@\"","lte":"Matches when @@LG_SLOT_RULE_FIELD@@ is at most \"@@LG_SLOT_RULE_VALUE@@\""};
-  var SLOT_RULE_FIELD_LABELS = {"state":"State","device":"Device","utm_source":"UTM source","utm_medium":"UTM medium","utm_content":"UTM content","hour":"Hour (0-23, UTC)","weekday":"Weekday (0-6, UTC)"};
+  var SLOT_RULE_FIELD_LABELS = {"state":"State","device":"Device","utm_source":"UTM source","utm_medium":"UTM medium","utm_content":"UTM content","utm_campaign":"UTM campaign","hour":"Hour (0-23, UTC)","weekday":"Weekday (0-6, UTC)"};
   var SLOT_RULE_SENTENCE_FIELD_TOKEN = "@@LG_SLOT_RULE_FIELD@@";
   var SLOT_RULE_SENTENCE_VALUE_TOKEN = "@@LG_SLOT_RULE_VALUE@@";
   var RULED_SENTENCE_ARROW = " → ";

@@ -1901,10 +1901,11 @@ export interface QuoteRulesRailData {
 }
 
 // The entry-known condition sources (§4.3-3a) as builder field options. Labels
-// are the pack's (region 8.2-rule-conditions dropdown). utm_campaign is a
-// documented alias of utm_content at evaluation time but IS offered as its own
-// source here (the pack lists it explicitly); the evaluator treats the alias
-// identically. Kept in sync with ENTRY_KNOWN_ROUTING_FIELDS below.
+// are the pack's (region 8.2-rule-conditions dropdown). OWNER 2026-09-01:
+// utm_campaign used to be a documented ALIAS of utm_content at evaluation time
+// — this dropdown offered "UTM Campaign" while the evaluator read the creative
+// id. It is now its own captured landing param end to end. Kept in sync with
+// ENTRY_KNOWN_ROUTING_FIELDS below.
 export const QR_ENTRY_FIELD_OPTIONS: ReadonlyArray<QuoteRulesRailAnswerField> = [
   { internal_field: "utm_source", label: "UTM Source" },
   { internal_field: "utm_medium", label: "UTM Medium" },
@@ -1918,8 +1919,7 @@ export const QR_ENTRY_FIELD_OPTIONS: ReadonlyArray<QuoteRulesRailAnswerField> = 
 ];
 
 // Defensive: prove QR_ENTRY_FIELD_OPTIONS ⊆ the shared entry-known set (so the
-// SSR checkpoint derivation and the picker can never drift). utm_campaign is
-// in ENTRY_KNOWN_ROUTING_FIELDS (alias) so every option is entry-known.
+// SSR checkpoint derivation and the picker can never drift).
 for (const _opt of QR_ENTRY_FIELD_OPTIONS) {
   if (!ENTRY_KNOWN_ROUTING_FIELDS.has(_opt.internal_field)) {
     throw new Error(`QR_ENTRY_FIELD_OPTIONS drift: ${_opt.internal_field} not entry-known`);

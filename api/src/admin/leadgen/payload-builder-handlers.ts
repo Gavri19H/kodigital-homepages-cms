@@ -155,6 +155,7 @@ const TEST_OVERRIDE_KEYS = [
   "utm_source",
   "utm_medium",
   "utm_content",
+  "utm_campaign",
   "traffic_source",
   "placement",
   "sub1",

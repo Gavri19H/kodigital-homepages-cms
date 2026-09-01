@@ -34,7 +34,7 @@ const WIN_CHROME_UA =
 
 const LANDING_URL =
   "https://funnel.example.com/best-life-quotes" +
-  "?utm_source=fb&utm_medium=paid&utm_content=creative7&traffic_source=meta" +
+  "?utm_source=fb&utm_medium=paid&utm_content=creative7&utm_campaign=spring_life&traffic_source=meta" +
   "&placement=feed_top&sub1=s1&sub2=s2&sub3=s3&sub4=s4&sub5=s5&cpc=1.25&fbclid=CLICK123";
 
 const REFERER = "https://ads.example.net/campaign";
@@ -144,6 +144,7 @@ describe("buildLeadgenRuntimeContext — slice construction (§4.1/§4.2)", () =
       utm_source: "fb",
       utm_medium: "paid",
       utm_content: "creative7",
+      utm_campaign: "spring_life",
       traffic_source: "meta",
       placement: "feed_top",
       sub1: "s1",
@@ -208,7 +209,7 @@ describe("buildLeadgenRuntimeContext — slice construction (§4.1/§4.2)", () =
   });
 });
 
-describe("contextToMacros — the 33-macro projection table (§4.3)", () => {
+describe("contextToMacros — the canonical-macro projection table (§4.3)", () => {
   it("emits EVERY canonical macro with its expected context source", () => {
     const ctx = buildLeadgenRuntimeContext(fullRequest(), baseOpts());
 
@@ -217,6 +218,8 @@ describe("contextToMacros — the 33-macro projection table (§4.3)", () => {
       click_id: "", // click-scoped: minted at /lg/lc only, documented-empty here
       utm_medium: "paid", // traffic
       utm_content: "creative7", // traffic
+      // OWNER 2026-09-01: the fourth standard UTM, captured like the other three
+      utm_campaign: "spring_life", // traffic
       utm_source: "fb", // traffic
       traffic_source: "meta", // traffic
       placement: "lgpl_01H", // §4.5: Offer placement in scope WINS over traffic param

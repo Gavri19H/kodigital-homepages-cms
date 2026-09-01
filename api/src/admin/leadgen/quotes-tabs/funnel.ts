@@ -134,6 +134,7 @@ const SLOT_RULE_FIELD_LABELS: Readonly<Record<string, string>> = {
   utm_source: "UTM source",
   utm_medium: "UTM medium",
   utm_content: "UTM content",
+  utm_campaign: "UTM campaign",
   hour: "Hour (0-23, UTC)",
   weekday: "Weekday (0-6, UTC)",
 };

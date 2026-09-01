@@ -272,3 +272,13 @@ textarea. `editor-panel-templates.html` and `editor-full.html` re-captured;
 classified before committing: 5 and 7 changed lines are this change, the rest of
 editor-full is the usual minted-id / rolling-window churn this test normalizes.
 Zero unexplained. The other six fixtures were RESTORED.
+
+2026-09-01 fixture edit (OWNER: "Offers → Payload → Source → add
+utm_campaign"): the fourth standard UTM joined the entry-known rule field
+registry, so the quote editor's slot-rule dropdown gained one option. This time
+the capture script was NOT the source of the committed bytes — it rewrote six
+fixtures whose entire diff was the usual minted-id churn, so ALL six were
+restored and `editor-full.html` got the two real lines applied surgically
+instead (`SLOT_RULE_FIELDS` + `SLOT_RULE_FIELD_LABELS`). `git diff` on this
+directory is therefore exactly 2 insertions / 2 deletions, both containing
+`utm_campaign`. Zero unexplained, zero id churn committed.

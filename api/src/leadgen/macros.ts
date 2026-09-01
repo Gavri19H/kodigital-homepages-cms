@@ -1,7 +1,7 @@
 // LeadGen URL macro registry (contract 04 §10.5 + 01 §3 pattern-reuse table).
 //
-// Re-implements src/listicles/macros.ts IDENTICALLY (same 32 canonical
-// macros, same {clickid} alias normalization, same validation guards:
+// Re-implements src/listicles/macros.ts (same {clickid} alias normalization,
+// same validation guards:
 // absolute http(s) only, no macro in the host/authority position, control
 // chars rejected, unknown canonical macros rejected) and EXTENDS it with the
 // LeadGen `{response:<dotted.path>}` macro family (04 §10.5 / issue 7):
@@ -25,6 +25,14 @@ export const CANONICAL_MACROS: readonly string[] = [
   "click_id",
   "utm_medium",
   "utm_content",
+  // OWNER 2026-09-01 ("Offers → Payload → Source → add utm_campaign"): the
+  // fourth standard UTM. It was absent from this registry, so no payload field
+  // and no banner URL template could carry the campaign — and the rules layer's
+  // "UTM Campaign" dimension silently evaluated utm_content instead
+  // (resolver.ts's documented substitution, now removed). Captured off the
+  // landing URL by runtime-context.ts TRAFFIC_PARAM_KEYS and projected by
+  // contextToMacros, like every other traffic macro here.
+  "utm_campaign",
   "utm_source",
   "traffic_source",
   "placement",
