@@ -826,14 +826,18 @@ function renderBannerPanel(banner: BannerConfig): string {
       </div>
       <div class="lg-scalars">
         <div class="form-group"><label class="form-label" for="lg-b-logo">Logo URL</label><input id="lg-b-logo" class="form-input" data-banner-config="logo" value="${escapeHtml(cfg("logo"))}" /></div>
-        <div class="form-group"><label class="form-label" for="lg-b-cta">CTA</label><input id="lg-b-cta" class="form-input" data-banner-config="cta" value="${escapeHtml(cfg("cta"))}" /></div>
+        <div class="form-group"><label class="form-label" for="lg-b-legal">Legal</label><input id="lg-b-legal" class="form-input" data-banner-config="legal" value="${escapeHtml(cfg("legal"))}" /></div>
       </div>
-      <div class="form-group"><label class="form-label" for="lg-b-legal">Legal</label><input id="lg-b-legal" class="form-input" data-banner-config="legal" value="${escapeHtml(cfg("legal"))}" /></div>
     </div>
 
     <div class="lg-banner-mode-panel${mode === "automatic" ? " active" : ""}" data-banner-panel="automatic">
       <p class="form-help">Maps ONLY the canonical normalized Carrier fields → banner slot ids. Saved provider sample responses configure each Offer's parser, not raw auction maps.</p>
       <div id="lg-a-fieldmap">${fieldMapRows}</div>
+    </div>
+
+    <div class="lg-scalars">
+      <div class="form-group"><label class="form-label" for="lg-b-cta">Button text</label><input id="lg-b-cta" class="form-input" data-banner-config="cta" placeholder="VIEW MY RATE" value="${escapeHtml(cfg("cta"))}" /><p class="form-help">Shown on every card, in both modes. Blank uses VIEW MY RATE.</p></div>
+      <div class="form-group"><label class="form-label" for="lg-b-badge">Winner badge text</label><input id="lg-b-badge" class="form-input" data-banner-config="badge" placeholder="BEST MATCH FOR YOU" value="${escapeHtml(cfg("badge"))}" /><p class="form-help">The pill on the top card only. Blank uses BEST MATCH FOR YOU.</p></div>
     </div>
 
     <button type="button" class="btn btn-primary" id="lg-a-banner-save">Save banner</button>
@@ -1425,17 +1429,20 @@ const AUCTION_EDITOR_SCRIPT = `
         if (fv !== '') { map[k] = fv; }
       }
       payload.field_map_json = map;
-    } else {
-      var config = {};
-      var cfgInputs = root.querySelectorAll('[data-banner-config]');
-      var j;
-      for (j = 0; j < cfgInputs.length; j++) {
-        var ck = cfgInputs[j].getAttribute('data-banner-config');
-        var cv = (cfgInputs[j].value || '').trim();
-        if (cv !== '') { config[ck] = cv; }
-      }
-      payload.banner_config_json = config;
     }
+    // Card copy is saved in BOTH modes: the shared fields (button text, winner
+    // badge text) apply to an automatic auction too, so an automatic mode that
+    // skipped this save left them unauthorable while the renderer still read
+    // them. Manual mode also saves its static headline/subheadline/logo/legal.
+    var config = {};
+    var cfgInputs = root.querySelectorAll('[data-banner-config]');
+    var j;
+    for (j = 0; j < cfgInputs.length; j++) {
+      var ck = cfgInputs[j].getAttribute('data-banner-config');
+      var cv = (cfgInputs[j].value || '').trim();
+      if (cv !== '') { config[ck] = cv; }
+    }
+    payload.banner_config_json = config;
     fetch(apiBase + '/banner', {
       method: 'PUT', credentials: 'same-origin',
       headers: { 'content-type': 'application/json', 'Accept': 'application/json' },

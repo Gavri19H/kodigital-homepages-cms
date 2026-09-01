@@ -1950,12 +1950,16 @@ function applyErrorRole(design: EffectiveFunnelDesign, value: string): void {
 // second opinion, NEVER counted as paint (exactly like validation.successColor
 // in applySuccessRole):
 //   • color.recommendedBorder          — zero consumers anywhere in src/.
-//   • banner.recommendedCtaBackground  — its ONLY reader is banner-default/
-//     styles.ts:80, whose scope `[data-banner-design="banner-default"]` no
-//     element in src/ ever sets (measured: 0 producers). Reported, not fixed
-//     here: that whole banner sub-sheet is scope-dead, and it is also fed the
-//     UNRESOLVED base tokens (registry getBannerDesign returns
-//     defaultFunnelDesign.banner), so no theme reaches it by any path.
+//   • banner.recommendedCtaBackground  — NO LONGER coherence-only as of the
+//     OWNER 2026-09-01 banner-creative fix: the FUNNEL sheet now carries
+//     `.lg-banner[data-recommended="true"] .lg-banner-cta`
+//     (default-funnel/styles.ts), so this write is REAL paint on the winner's
+//     button and a themed accent reaches it. (Its old reader, the
+//     banner-default sub-sheet, remains scope-dead — no element in src/ sets
+//     `[data-banner-design=…]`, measured 0 producers, and the registry hands
+//     it UNRESOLVED base tokens — so that sheet still reaches nothing.) Left
+//     in this list because the dead-controls guard's paint census still
+//     classifies it here; the funnel-sheet rule above is its live consumer.
 // NOT WRITTEN, deliberately: banner.recommendedBg ("#FFFAF7") and
 // banner.recommendedGlow ("rgba(232,93,38,.12)") are accent TINTS, not copies
 // of the accent hex — moving them needs colour math, which is a different

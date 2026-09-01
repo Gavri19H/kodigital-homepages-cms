@@ -14,7 +14,10 @@ import { describe, expect, it } from "vitest";
 import { readFileSync } from "node:fs";
 import { fileURLToPath } from "node:url";
 import { dirname, join } from "node:path";
+import { runInNewContext } from "node:vm";
 import admin from "../src/admin/router";
+import { renderBanners } from "../src/public/leadgen/auction/banner";
+import { bannerDefaultDesign } from "../src/public/leadgen/designs/banner-default/tokens";
 import type { Env } from "../src/env";
 import { isPublicId, mintPublicId } from "../src/leadgen/ids";
 import { conditionsHash } from "../src/leadgen/auction-rules";
@@ -40,6 +43,20 @@ function loadDatabaseSync(): DatabaseSyncCtor | null {
     }
     return null;
   }
+}
+
+// Slice ONE named function out of an island script (the repo's vm-probe idiom,
+// leadgen-quotes-ui.test.ts) so the test runs the code the page really ships
+// instead of a re-typed copy.
+function sliceFn(script: string, name: string): string {
+  const start = script.indexOf(`function ${name}(`);
+  if (start < 0) throw new Error(`island function not found: ${name}`);
+  let depth = 0;
+  for (let i = script.indexOf("{", start); i < script.length; i += 1) {
+    if (script[i] === "{") depth += 1;
+    else if (script[i] === "}" && (depth -= 1) === 0) return script.slice(start, i + 1);
+  }
+  throw new Error(`unbalanced braces slicing ${name}`);
 }
 
 function runSql(sdb: SqliteDb, sql: string): void {
@@ -583,6 +600,113 @@ describeDb("leadgen auctions API — banner (§20)", () => {
     // exactly one banner row (upsert, not duplicate)
     const count = sdb.prepare("SELECT COUNT(*) AS n FROM leadgen_auction_banners WHERE auction_id = ?").get(json.id) as { n: number };
     expect(count.n).toBe(1);
+  });
+
+  // OWNER 2026-09-01 ("your creative looks horrible"): the card's button text
+  // and the winner's badge text apply to an AUTOMATIC auction too, but the
+  // editor's save path only sent banner_config_json in manual mode — so those
+  // two fields were unauthorable for every automatic auction while the renderer
+  // read them. Proven end to end here: the editor page ships the inputs, its
+  // OWN save function (sliced from the SERVED page, never re-typed) puts them
+  // in the automatic payload, the real handler persists them, and the real
+  // renderer paints the persisted bytes.
+  it("automatic mode: the served editor collects card copy, the handler stores it, the renderer paints it", async () => {
+    const { env, sdb } = newHarness();
+    const quote = await createQuote(env);
+    const { json } = await createAuction(env, { auction_name: "A", quote_id: quote.id });
+
+    // 1. the SERVED editor page carries both inputs
+    const page = await admin.request(`/admin/leadgen/auction/${json.public_id}/edit`, {}, env);
+    expect(page.status).toBe(200);
+    const html = await page.text();
+    expect(html).toContain('data-banner-config="cta"');
+    expect(html).toContain('data-banner-config="badge"');
+    // …and they sit OUTSIDE the manual-only panel, so automatic mode can reach
+    // them: the last mode panel closes before the shared copy row starts.
+    const sharedAt = html.indexOf('data-banner-config="cta"');
+    const automaticPanelAt = html.indexOf('data-banner-panel="automatic"');
+    expect(automaticPanelAt).toBeGreaterThan(-1);
+    expect(sharedAt).toBeGreaterThan(automaticPanelAt);
+
+    // 2. the page's OWN saveBanner, sliced out of the served script and run
+    //    against a DOM stub, now sends banner_config_json in automatic mode
+    const script = html.slice(html.indexOf("function saveBanner("));
+    const saveBannerSrc = sliceFn(script, "saveBanner");
+    const inputs = [
+      { attr: "cta", value: "See my quote" },
+      { attr: "badge", value: "Top pick" },
+      { attr: "headline", value: "" },
+    ];
+    let sent: Record<string, unknown> | null = null;
+    const ctx: Record<string, unknown> = {
+      currentBannerMode: () => "automatic",
+      root: {
+        querySelectorAll: (sel: string) =>
+          sel.includes("data-fieldmap-key")
+            ? [{ getAttribute: () => "carrier_name", value: "slot-name" }]
+            : inputs.map((i) => ({ getAttribute: () => i.attr, value: i.value })),
+      },
+      apiBase: "/api",
+      byId: () => null,
+      markDirty: () => undefined,
+      dirty: true,
+      fetch: (_url: string, init: { body: string }) => {
+        sent = JSON.parse(init.body) as Record<string, unknown>;
+        return { then: () => ({ then: () => undefined }) };
+      },
+    };
+    runInNewContext(`${saveBannerSrc}\nsaveBanner();`, ctx);
+    expect(sent).not.toBeNull();
+    expect((sent as unknown as { mode: string }).mode).toBe("automatic");
+    expect((sent as unknown as { field_map_json: unknown }).field_map_json).toEqual({ carrier_name: "slot-name" });
+    // the fix: card copy rides along in AUTOMATIC mode (blank inputs skipped)
+    expect((sent as unknown as { banner_config_json: unknown }).banner_config_json).toEqual({
+      cta: "See my quote",
+      badge: "Top pick",
+    });
+
+    // 3. the real handler persists exactly that
+    const res = await admin.request(
+      `${API}/auctions/${json.public_id}/banner`,
+      jsonInit("PUT", sent as unknown as Record<string, unknown>),
+      env,
+    );
+    expect(res.status).toBe(200);
+    const aRow = sdb.prepare("SELECT banner_config_json FROM leadgen_auctions WHERE id = ?").get(json.id) as {
+      banner_config_json: string;
+    };
+    const stored = JSON.parse(aRow.banner_config_json) as Record<string, unknown>;
+    expect(stored).toEqual({ cta: "See my quote", badge: "Top pick" });
+
+    // 4. the real renderer paints the PERSISTED bytes (no hand-built config)
+    const rendered = renderBanners(
+      [
+        {
+          carrier: {
+            carrier_key: "c1",
+            carrier_name: "NextInsure",
+            carrier_logo: "",
+            headline: "",
+            subheadline: "",
+            click_url: "https://example.com/x",
+            bid: 1,
+            bid_currency: "USD",
+            tracking_id: "t",
+            disclaimer: "",
+          },
+          offer_public_id: "lgo_1",
+          slot: 1,
+          source: "winner",
+          bid: 1,
+        },
+      ] as unknown as Parameters<typeof renderBanners>[0],
+      { auction_instance_id: "ai" },
+      { mode: "automatic", banner_config_json: stored } as Parameters<typeof renderBanners>[2],
+      bannerDefaultDesign,
+      { mintId: () => "brid" },
+    );
+    expect(rendered.html).toContain('<span class="lg-banner-cta">See my quote</span>');
+    expect(rendered.html).toContain('<div class="lg-banner-badge">Top pick</div>');
   });
 });
 

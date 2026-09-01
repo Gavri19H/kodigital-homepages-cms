@@ -536,6 +536,62 @@ const DISCLOSURE_POPUP_RULES =
   `border-radius:${defaultFunnelDesign.radius.md};box-shadow:${defaultFunnelDesign.shadow.lg};` +
   `padding:${defaultFunnelDesign.spacing.md};text-align:left;white-space:normal}\n`;
 
+// OWNER 2026-09-01 ("your creative looks horrible") — the auction card brought
+// to parity with the reference funnel's offer card (contract 00 R1). Same
+// lockstep discipline as the deltas above: THREE existing rules gain appended
+// declarations (reverted here by their byte-exact tails, the
+// DISCLOSURE_SUMMARY_DELTA idiom), and the remaining rules are NET-NEW and
+// stripped wholesale. Built from the SAME tokens styles.ts uses, so a drift in
+// either place fails here rather than silently re-pinning. This preview body
+// carries no banner node at all, so every one of these is a sheet-level delta.
+const BANNER_CARD_TAIL =
+  `;display:flex;flex-direction:column;align-items:center;text-align:center;gap:${defaultFunnelDesign.spacing.md};` +
+  "position:relative;box-sizing:border-box;text-decoration:none;" +
+  `color:${defaultFunnelDesign.page.textColor};cursor:pointer;` +
+  `transition:border-color ${defaultFunnelDesign.transitions.cardHoverMs}ms ease,` +
+  `box-shadow ${defaultFunnelDesign.transitions.cardHoverMs}ms ease}`;
+const BANNER_NAME_TAIL = `;margin-bottom:${defaultFunnelDesign.spacing.xs};text-decoration:none}`;
+const BANNER_CTA_TAIL =
+  ";width:100%;box-sizing:border-box;text-align:center;" +
+  `font-size:${defaultFunnelDesign.primaryButton.fontSize};font-weight:${defaultFunnelDesign.primaryButton.fontWeight};` +
+  `transition:background ${defaultFunnelDesign.transitions.btnHoverMs}ms ease}`;
+const BANNER_NEW_CONTAINER_RULE =
+  `${DEFAULT_FUNNEL_SCOPE} .lg-banners{display:flex;flex-direction:column;gap:${defaultFunnelDesign.spacing.md};` +
+  `max-width:${defaultFunnelDesign.cardPanel.widthM};margin:${defaultFunnelDesign.spacing.xl} auto 0}\n`;
+const BANNER_NEW_LINK_STATE_RULES =
+  `${DEFAULT_FUNNEL_SCOPE} .lg-banner:hover{border-color:${defaultFunnelDesign.color.primary};` +
+  `box-shadow:${defaultFunnelDesign.shadow.md};text-decoration:none}\n` +
+  `${DEFAULT_FUNNEL_SCOPE} .lg-banner:visited{color:${defaultFunnelDesign.page.textColor};text-decoration:none}\n` +
+  `${DEFAULT_FUNNEL_SCOPE} .lg-banner:focus-visible{outline:2px solid ${defaultFunnelDesign.color.primary};outline-offset:2px}\n`;
+const BANNER_NEW_LOGO_RULES =
+  `${DEFAULT_FUNNEL_SCOPE} .lg-banner-logo{width:${defaultFunnelDesign.banner.logoWidth};` +
+  `height:${defaultFunnelDesign.banner.logoHeight};object-fit:contain;margin:0 auto}\n` +
+  `${DEFAULT_FUNNEL_SCOPE} .lg-banner[data-recommended="true"] .lg-banner-logo{width:160px;height:72px}\n` +
+  `${DEFAULT_FUNNEL_SCOPE} .lg-banner-content{width:100%}\n`;
+const BANNER_NEW_TEXT_RULES =
+  `${DEFAULT_FUNNEL_SCOPE} .lg-banner-headline{font-size:0.875rem;color:${defaultFunnelDesign.page.textSecondaryColor}}\n` +
+  `${DEFAULT_FUNNEL_SCOPE} .lg-banner-subheadline{font-size:0.875rem;color:${defaultFunnelDesign.page.textLightColor};` +
+  "display:-webkit-box;-webkit-line-clamp:2;-webkit-box-orient:vertical;overflow:hidden}\n" +
+  `${DEFAULT_FUNNEL_SCOPE} .lg-banner-subheadline[data-rich="1"]{display:block;text-align:left}\n` +
+  `${DEFAULT_FUNNEL_SCOPE} .lg-banner-subheadline ul,${DEFAULT_FUNNEL_SCOPE} .lg-banner-subheadline ol` +
+  `{margin:0;padding-left:${defaultFunnelDesign.spacing.md};text-align:left}\n` +
+  `${DEFAULT_FUNNEL_SCOPE} .lg-banner-subheadline p{margin:0}\n` +
+  `${DEFAULT_FUNNEL_SCOPE} .lg-banner-disclaimer{color:${defaultFunnelDesign.validation.helperColor};` +
+  "font-size:0.75rem;line-height:1.4}\n";
+const BANNER_NEW_CTA_STATE_RULES =
+  `${DEFAULT_FUNNEL_SCOPE} .lg-banner:hover .lg-banner-cta{background:${defaultFunnelDesign.color.primaryDark}}\n` +
+  `${DEFAULT_FUNNEL_SCOPE} .lg-banner[data-recommended="true"] .lg-banner-cta` +
+  `{background:${defaultFunnelDesign.banner.recommendedCtaBackground}}\n` +
+  `${DEFAULT_FUNNEL_SCOPE} .lg-banner[data-recommended="true"]:hover .lg-banner-cta` +
+  `{background:${defaultFunnelDesign.color.accentHover}}\n` +
+  `${DEFAULT_FUNNEL_SCOPE} .lg-banner-badge{background:${defaultFunnelDesign.banner.recommendedBadgeBg};` +
+  `color:${defaultFunnelDesign.banner.recommendedBadgeColor};position:absolute;top:-12px;left:50%;` +
+  "transform:translateX(-50%);font-size:0.6875rem;font-weight:700;padding:5px 16px;" +
+  `border-radius:${defaultFunnelDesign.radius.sm};white-space:nowrap;text-transform:uppercase;letter-spacing:0.5px}\n`;
+const BANNER_NEW_MOBILE_RULES =
+  `${DEFAULT_FUNNEL_SCOPE} .lg-banner-logo{width:100px;height:60px}\n` +
+  `${DEFAULT_FUNNEL_SCOPE} .lg-banner[data-recommended="true"] .lg-banner-logo{width:140px;height:70px}\n`;
+
 const MOVED_SEL_BG_RULE =
   `${DEFAULT_FUNNEL_SCOPE} .lg-btn.lg-btn-answer[aria-checked="true"], ${DEFAULT_FUNNEL_SCOPE} .lg-btn.lg-btn-answer[data-selected="true"]{background:var(--lg-sel-bg, ${defaultFunnelDesign.iconCard.selectedBackground})}\n`;
 
@@ -1174,6 +1230,26 @@ function assertPinnedResponse(actualText: string, fixtureText: string): void {
     .split(MOVED_CARD_RULES)
     .join("")
     .split(MOVED_SEL_BG_RULE)
+    .join("")
+    // OWNER 2026-09-01 — the auction card's reference-parity delta: revert the
+    // three appended rule tails, strip the net-new rules.
+    .split(BANNER_CARD_TAIL)
+    .join("}")
+    .split(BANNER_NAME_TAIL)
+    .join("}")
+    .split(BANNER_CTA_TAIL)
+    .join("}")
+    .split(BANNER_NEW_CONTAINER_RULE)
+    .join("")
+    .split(BANNER_NEW_LINK_STATE_RULES)
+    .join("")
+    .split(BANNER_NEW_LOGO_RULES)
+    .join("")
+    .split(BANNER_NEW_TEXT_RULES)
+    .join("")
+    .split(BANNER_NEW_CTA_STATE_RULES)
+    .join("")
+    .split(BANNER_NEW_MOBILE_RULES)
     .join("")
     // OWNER 2026-08-23 — revert the <summary> tail onto the old <button> rule
     // body, and strip the net-new pop-up rules.

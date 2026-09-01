@@ -2243,22 +2243,131 @@ export function funnelChromeCss(
   );
 
   // ---- banner sub-design (§14.2 banner / §20) -----------------------------
+  // The auction card is the LAST thing a visitor sees and the only thing that
+  // earns revenue, so it is measured 1:1 against the reference funnel's offer
+  // card (contract 00 R1 / README: "the default funnel design is measured from
+  // the reference funnel") — reference sheet `funnel-styles-offers.ts`
+  // (`#offersList` / `.offer-card` / `.offer-logo` / `.offer-content` /
+  // `.offer-name` / `.offer-description` / `.offer-cta` / `.recommended-badge`
+  // + its `@media (max-width:375px)` arm + the `.offer-card:focus-visible`
+  // rule in `funnel-styles-components.ts`). Before this, FOUR rules shipped
+  // (card border/radius/padding/background, the recommended state, the name
+  // pair, the CTA) — so the card had NO layout, the `<a>` kept the browser's
+  // blue underline (no `color`/`text-decoration` reset), and the logo,
+  // headline, subheadline, disclaimer and badge regions `auction/banner.ts`
+  // renders had NO rules at all. Every value below either reads a token or is
+  // a value measured from the reference (cited inline), exactly as `.lg-legal`
+  // above carries its measured 0.75rem/1.4 pair.
   out.push(
+    // reference `#offersList`: the card column, one gap, 420px, centred. The
+    // top margin is the reference's own header-to-cards gap
+    // (`.offers-header{margin-bottom:var(--spacing-xl)}`) and it also keeps the
+    // winner's badge — which straddles the card's top edge by 12px — clear of
+    // whatever the funnel renders above the mount.
+    rule(`${scope} .lg-banners`, {
+      display: "flex",
+      "flex-direction": "column",
+      gap: spacing.md,
+      "max-width": cardPanel.widthM,
+      margin: `${spacing.xl} auto 0`,
+    }),
     rule(`${scope} .lg-banner`, {
       border: banner.cardBorder,
       "border-radius": banner.cardRadius,
       padding: banner.cardPadding,
       background: color.card,
+      // reference `.offer-card`: centred column + the link resets. `position`
+      // is what the absolutely-positioned badge below anchors to.
+      display: "flex",
+      "flex-direction": "column",
+      "align-items": "center",
+      "text-align": "center",
+      gap: spacing.md,
+      position: "relative",
+      "box-sizing": "border-box",
+      // the card IS an <a> (banner.ts renderCard) — without these two the
+      // whole creative paints as default blue underlined hyperlink text.
+      "text-decoration": "none",
+      color: page.textColor,
+      cursor: "pointer",
+      transition: `border-color ${transitions.cardHoverMs}ms ease,box-shadow ${transitions.cardHoverMs}ms ease`,
+    }),
+    // reference `.offer-card:hover` / `:visited` / `:focus-visible`.
+    rule(`${scope} .lg-banner:hover`, {
+      "border-color": color.primary,
+      "box-shadow": shadow.md,
+      "text-decoration": "none",
+    }),
+    rule(`${scope} .lg-banner:visited`, { color: page.textColor, "text-decoration": "none" }),
+    rule(`${scope} .lg-banner:focus-visible`, {
+      outline: `2px solid ${color.primary}`,
+      "outline-offset": "2px",
     }),
     rule(`${scope} .lg-banner[data-recommended="true"]`, {
       border: banner.recommendedBorder,
       background: banner.recommendedBg,
       "box-shadow": banner.recommendedGlow,
     }),
+    // reference `.offer-logo` — the logo box was previously unsized here (its
+    // width/height pair lived only in the banner-default sub-sheet, whose
+    // `[data-banner-design]` scope no element in src/ ever sets), so a
+    // carrier logo rendered at whatever natural size the provider sent.
+    rule(`${scope} .lg-banner-logo`, {
+      width: banner.logoWidth,
+      height: banner.logoHeight,
+      "object-fit": "contain",
+      margin: "0 auto",
+    }),
+    // reference `.offer-card:first-child .offer-logo` (160x72) — the winner's
+    // logo is deliberately larger than the rest of the column.
+    rule(`${scope} .lg-banner[data-recommended="true"] .lg-banner-logo`, {
+      width: "160px",
+      height: "72px",
+    }),
+    // reference `.offer-content { width: 100% }`.
+    rule(`${scope} .lg-banner-content`, { width: "100%" }),
     rule(`${scope} .lg-banner-name`, {
       "font-size": banner.nameFontSize,
       "font-weight": banner.nameFontWeight,
       color: page.textColor,
+      "margin-bottom": spacing.xs,
+      "text-decoration": "none",
+    }),
+    // reference `.offer-description` (0.875rem, light text) — the secondary
+    // line, one step down from the name.
+    rule(`${scope} .lg-banner-headline`, {
+      "font-size": "0.875rem",
+      color: page.textSecondaryColor,
+    }),
+    rule(`${scope} .lg-banner-subheadline`, {
+      "font-size": "0.875rem",
+      color: page.textLightColor,
+      // reference clamps the description to two lines so one verbose provider
+      // cannot stretch the card past its neighbours.
+      display: "-webkit-box",
+      "-webkit-line-clamp": "2",
+      "-webkit-box-orient": "vertical",
+      overflow: "hidden",
+    }),
+    // A provider description that carried real list markup through the
+    // sanitizer renders as the reference's benefit bullets (`.offer-benefits`:
+    // left-aligned, one indent) instead of a clamped centred paragraph.
+    // banner.ts stamps data-rich="1" only when it emitted list markup.
+    rule(`${scope} .lg-banner-subheadline[data-rich="1"]`, {
+      display: "block",
+      "text-align": "left",
+    }),
+    rule(`${scope} .lg-banner-subheadline ul,${scope} .lg-banner-subheadline ol`, {
+      margin: "0",
+      "padding-left": spacing.md,
+      "text-align": "left",
+    }),
+    rule(`${scope} .lg-banner-subheadline p`, { margin: "0" }),
+    // the disclaimer reuses the funnel's own legal treatment (`.lg-legal`).
+    rule(`${scope} .lg-banner-disclaimer`, {
+      color: validation.helperColor,
+      "font-size": "0.75rem",
+      "line-height": "1.4",
     }),
     rule(`${scope} .lg-banner-cta`, {
       background: banner.ctaBackground,
@@ -2268,6 +2377,51 @@ export function funnelChromeCss(
       padding: `${primaryButton.paddingY} ${primaryButton.paddingX}`,
       "text-decoration": "none",
       display: "inline-block",
+      // reference `.offer-cta`: full-width, centred, button typography. The
+      // weight/size read the funnel's own primary-button tokens (the design
+      // language the operator themes) rather than the reference literals.
+      width: "100%",
+      "box-sizing": "border-box",
+      "text-align": "center",
+      "font-size": primaryButton.fontSize,
+      "font-weight": primaryButton.fontWeight,
+      transition: `background ${transitions.btnHoverMs}ms ease`,
+    }),
+    rule(`${scope} .lg-banner:hover .lg-banner-cta`, { background: color.primaryDark }),
+    // reference `.offer-card:first-child .offer-cta` — the winner's CTA takes
+    // the accent. `banner.recommendedCtaBackground` had NO live reader before
+    // this (its only consumer was the scope-dead sub-sheet).
+    rule(`${scope} .lg-banner[data-recommended="true"] .lg-banner-cta`, {
+      background: banner.recommendedCtaBackground,
+    }),
+    rule(`${scope} .lg-banner[data-recommended="true"]:hover .lg-banner-cta`, {
+      background: color.accentHover,
+    }),
+    // reference `.recommended-badge` — a pill straddling the card's top edge.
+    // The two colour tokens already existed; nothing rendered the element and
+    // it had no geometry, so the badge could never appear.
+    rule(`${scope} .lg-banner-badge`, {
+      background: banner.recommendedBadgeBg,
+      color: banner.recommendedBadgeColor,
+      position: "absolute",
+      top: "-12px",
+      left: "50%",
+      transform: "translateX(-50%)",
+      "font-size": "0.6875rem",
+      "font-weight": "700",
+      padding: "5px 16px",
+      "border-radius": radius.sm,
+      "white-space": "nowrap",
+      "text-transform": "uppercase",
+      "letter-spacing": "0.5px",
+    }),
+  );
+  // reference `@media (max-width:375px)`: the logo shrinks on small screens.
+  mobile.push(
+    rule(`${scope} .lg-banner-logo`, { width: "100px", height: "60px" }),
+    rule(`${scope} .lg-banner[data-recommended="true"] .lg-banner-logo`, {
+      width: "140px",
+      height: "70px",
     }),
   );
 
