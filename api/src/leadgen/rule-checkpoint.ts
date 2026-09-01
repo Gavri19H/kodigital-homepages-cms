@@ -20,8 +20,9 @@
 // No import from resolver.ts (which imports THIS module) — the entry-known set
 // is defined here to keep the dependency edge one-directional.
 
-// The entry-known ROUTING field universe (§4.3-3a): utm_source/utm_medium/
-// utm_content + the utm_campaign alias / device / state / hour / weekday,
+// The entry-known ROUTING field universe (§4.3-3a): the four standard UTMs
+// (utm_source/utm_medium/utm_content/utm_campaign) / device / state / hour /
+// weekday,
 // UNION the M10 `os` dimension. §10/S5.1: resolver.ts's OWN parallel
 // ROUTING_ENTRY_KNOWN_FIELDS (the pre-M3, non-os-inclusive per-variant
 // registry) was removed — it had zero live consumers left once the
@@ -36,7 +37,9 @@ export const ENTRY_KNOWN_ROUTING_FIELDS: ReadonlySet<string> = new Set([
   "utm_source",
   "utm_medium",
   "utm_content",
-  "utm_campaign", // documented alias of utm_content (resolver.ts entryFlatCtx)
+  // OWNER 2026-09-01: was "documented alias of utm_content" — a rule on the
+  // campaign evaluated the creative id. Now its own captured landing param.
+  "utm_campaign",
   "hour",
   "weekday",
   OS_ROUTING_FIELD, // M10

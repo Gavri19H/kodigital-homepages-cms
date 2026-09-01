@@ -2971,3 +2971,26 @@ describeDb("payload builder — a lost response is verified, never called a fail
     expect(script).not.toContain("Network error \\u2014 the schema was not saved.");
   });
 });
+
+// OWNER 2026-09-01: "In the 'Leadgen' --> 'Offers' --> 'Payload' --> 'Source'
+// --> add 'utm_campaign'". The page the operator actually opens is asserted
+// here — the picker's own <option>, in the group his screenshot pointed at.
+// (leadgen-utm-campaign.test.ts proves the value then reaches the buyer.)
+describeDb("payload builder — the Source picker offers utm_campaign (OWNER 2026-09-01)", () => {
+  it("the SERVED offer editor renders the option inside the Traffic / URL group", async () => {
+    const { html } = await richEditorPage();
+    // the <optgroup> his screenshot pointed at
+    const groupAt = html.indexOf('<optgroup label="Traffic / URL">');
+    expect(groupAt).toBeGreaterThan(-1);
+    const groupEnd = html.indexOf("</optgroup>", groupAt);
+    const group = html.slice(groupAt, groupEnd);
+    expect(group).toContain('value="macro:utm_campaign"');
+    // beside the three UTMs that were already there, in reading order
+    for (const utm of ["utm_source", "utm_medium", "utm_content", "utm_campaign"]) {
+      expect(group, utm).toContain(`value="macro:${utm}"`);
+    }
+    expect(group.indexOf("macro:utm_campaign")).toBeGreaterThan(group.indexOf("macro:utm_content"));
+    // and the help text names the param, in plain words
+    expect(group).toContain("campaign name");
+  });
+});

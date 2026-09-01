@@ -17,25 +17,33 @@ import {
   validateBannerUrlTemplate,
 } from "../src/leadgen/macros";
 
-describe("macro registry — 32 canonical tokens + alias (04 §10.5 / 01 §3)", () => {
-  // Rework M10/D3: `feed_name` is registered as an additive 33rd canonical
-  // macro (macros.ts's own doc comment: "original 32 + LeadGen Rework's
-  // additive `feed_name`") — the listicles-parity set below is otherwise
-  // byte-identical.
-  it("has exactly 33 canonical macros (the original 32 + Rework M10's feed_name)", () => {
-    expect(CANONICAL_MACROS).toHaveLength(33);
-    expect(new Set(CANONICAL_MACROS).size).toBe(33);
+describe("macro registry — canonical tokens + alias (04 §10.5 / 01 §3)", () => {
+  // The listicles parity set is 32. LeadGen adds exactly two, each with its own
+  // owner reason: Rework M10/D3's `feed_name` (the routing rule that matched
+  // this attempt) and OWNER 2026-09-01's `utm_campaign` (the fourth standard
+  // UTM — asked for in Offers → Payload → Source; it was missing from the whole
+  // vocabulary, and the rules layer had been substituting utm_content for it).
+  it("has exactly 34 canonical macros (the listicles 32 + feed_name + utm_campaign)", () => {
+    expect(CANONICAL_MACROS).toHaveLength(34);
+    expect(new Set(CANONICAL_MACROS).size).toBe(34);
   });
 
-  it("carries the exact listicles token set (identical re-implementation) plus Rework M10's feed_name", () => {
+  it("carries the exact listicles token set (identical re-implementation) plus LeadGen's two additions", () => {
     const expected = [
       "click_id", "utm_medium", "utm_content", "utm_source", "traffic_source",
       "placement", "lander_v", "offer_id", "offer_name", "page", "device",
       "os", "os_version", "browser", "browser_version", "country", "state",
       "city", "ip", "ua", "sub1", "sub2", "sub3", "sub4", "sub5", "url",
       "referer", "language", "cpc", "session_id", "fbc", "fbclid", "feed_name",
+      "utm_campaign",
     ];
     expect([...CANONICAL_MACROS].sort()).toEqual([...expected].sort());
+  });
+
+  it("the four standard UTMs are ALL canonical — utm_campaign is not aliased away", () => {
+    for (const utm of ["utm_source", "utm_medium", "utm_content", "utm_campaign"]) {
+      expect(CANONICAL_MACROS, utm).toContain(utm);
+    }
   });
 
   it("{clickid} is an alias of {click_id}, not a 33rd canonical token", () => {

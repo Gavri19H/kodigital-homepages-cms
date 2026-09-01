@@ -99,18 +99,23 @@ export interface ResolvedFunnelSection {
 // `page_plan_hash` (attempt.ts), never by the cacheable config.
 
 // Entry-known field registry for slot RULES (roast MAJOR-4): conditions may
-// reference ONLY these — never an answer `internal_field`. `utm_campaign` is
-// NOT part of this system's macro vocabulary (utm_source/utm_medium/
-// utm_content are the established 3, e.g. ab-hash.ts/runtime-context.ts/
-// leadgen-events.ts) — `utm_content` is used here in its place (documented
-// substitution; the operator's "UTM source/medium/campaign" phrasing maps
-// onto this codebase's actual 3-dim UTM taxonomy).
+// reference ONLY these — never an answer `internal_field`.
+//
+// OWNER 2026-09-01: this used to carry a documented SUBSTITUTION — utm_campaign
+// was "not part of this system's macro vocabulary", so a rule on the campaign
+// silently evaluated `utm_content`. The taxonomy is now the standard FOUR:
+// utm_campaign is captured off the landing URL (runtime-context.ts
+// TRAFFIC_PARAM_KEYS), is a canonical macro (macros.ts), and evaluates as
+// itself here. Verified before changing it: 0 rows in leadgen_auction_rules /
+// leadgen_funnel_rules / leadgen_quote_routing_rules referenced utm_campaign in
+// production, so no existing rule's meaning moved.
 export const ENTRY_KNOWN_SLOT_FIELDS: ReadonlySet<string> = new Set([
   "state",
   "device",
   "utm_source",
   "utm_medium",
   "utm_content",
+  "utm_campaign",
   "hour",
   "weekday",
 ]);
@@ -1037,6 +1042,7 @@ export interface EntryKnownContext {
   utm_source?: string;
   utm_medium?: string;
   utm_content?: string;
+  utm_campaign?: string;
   // M10 (§4.3-3a): the server-derived OS bucket, joined to the entry-known
   // routing universe with the same client/server parity intent as `device`.
   // Optional — a caller that does not derive it (or a pre-M10 reverse lookup)
@@ -1103,6 +1109,7 @@ function resolveSlot(
       utm_source: ctx.utm_source ?? "",
       utm_medium: ctx.utm_medium ?? "",
       utm_content: ctx.utm_content ?? "",
+      utm_campaign: ctx.utm_campaign ?? "",
       hour: ctx.hour,
       weekday: ctx.weekday,
     };
@@ -1165,21 +1172,24 @@ export function resolvePagePlan(
   return { pages: planPages, winners, hash };
 }
 
-// Parse utm_source/medium/content off a landing URL's query string — the
-// SAME 3-dim vocabulary the client's acquisitionParams(location.search) /
-// runtime-context.ts traffic slice already use. Malformed/absent -> {} (never
+// Parse the four standard UTMs off a landing URL's query string — the SAME
+// vocabulary the client's acquisitionParams(location.search) /
+// runtime-context.ts traffic slice use. Malformed/absent -> {} (never
 // throws; a slot rule referencing an unparseable field just evaluates false).
-export function parseUtmFromLandingUrl(landingUrl: string): Pick<EntryKnownContext, "utm_source" | "utm_medium" | "utm_content"> {
+type LandingUtms = Pick<EntryKnownContext, "utm_source" | "utm_medium" | "utm_content" | "utm_campaign">;
+export function parseUtmFromLandingUrl(landingUrl: string): LandingUtms {
   if (landingUrl === "") return {};
   try {
     const params = new URL(landingUrl).searchParams;
-    const out: Pick<EntryKnownContext, "utm_source" | "utm_medium" | "utm_content"> = {};
+    const out: LandingUtms = {};
     const source = params.get("utm_source");
     const medium = params.get("utm_medium");
     const content = params.get("utm_content");
+    const campaign = params.get("utm_campaign");
     if (source !== null && source !== "") out.utm_source = source;
     if (medium !== null && medium !== "") out.utm_medium = medium;
     if (content !== null && content !== "") out.utm_content = content;
+    if (campaign !== null && campaign !== "") out.utm_campaign = campaign;
     return out;
   } catch {
     return {};
@@ -1230,16 +1240,19 @@ function parseRoutingConditions(raw: string): LeadgenRuleConditions {
 }
 
 // The entry-attribute evaluation map (bare field names — "state"/"utm_source"/
-// … — the SAME names the slot-rule ctx uses). utm_campaign mirrors utm_content.
+// … — the SAME names the slot-rule ctx uses).
+//
+// OWNER 2026-09-01: utm_campaign used to be assigned utm_content's value here —
+// so an operator who built a rule on the campaign was silently testing the
+// creative id. It now carries its own captured param.
 function entryFlatCtx(ctx: EntryKnownContext): Record<string, unknown> {
-  const content = ctx.utm_content ?? "";
   return {
     state: ctx.state ?? "",
     device: ctx.device ?? "",
     utm_source: ctx.utm_source ?? "",
     utm_medium: ctx.utm_medium ?? "",
-    utm_content: content,
-    utm_campaign: content,
+    utm_content: ctx.utm_content ?? "",
+    utm_campaign: ctx.utm_campaign ?? "",
     os: ctx.os ?? "", // M10 — joined to the entry-known evaluation context
     hour: ctx.hour,
     weekday: ctx.weekday,

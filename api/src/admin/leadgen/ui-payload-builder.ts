@@ -146,7 +146,7 @@ const ADVANCED_MACRO_GROUPS: ReadonlyArray<{ group: string; macros: ReadonlyArra
   {
     group: "Advanced macro · Traffic / URL",
     macros: [
-      "utm_source", "utm_medium", "utm_content", "traffic_source", "placement",
+      "utm_source", "utm_medium", "utm_content", "utm_campaign", "traffic_source", "placement",
       "sub1", "sub2", "sub3", "sub4", "sub5", "cpc", "fbclid", "fbc",
     ],
   },
@@ -213,6 +213,7 @@ export const PAYLOAD_SOURCE_GROUPS: ReadonlyArray<PayloadSourceGroup> = [
       macroMember("utm_source", "utm_source", "utm_source — the landing URL's utm_source param, e.g. facebook."),
       macroMember("utm_medium", "utm_medium", "utm_medium — the landing URL's utm_medium param, e.g. paid_social."),
       macroMember("utm_content", "utm_content", "utm_content — the landing URL's utm_content param (ad/creative id)."),
+      macroMember("utm_campaign", "utm_campaign", "utm_campaign — the landing URL's utm_campaign param (campaign name)."),
       macroMember("traffic_source", "Traffic source", "Traffic source — the landing URL's traffic_source param."),
       macroMember(
         "placement",
@@ -408,6 +409,7 @@ export const PAYLOAD_TEST_CONTEXT_DEFAULTS: ReadonlyArray<{
   { key: "utm_source", label: "utm_source", value: "facebook" },
   { key: "utm_medium", label: "utm_medium", value: "paid_social" },
   { key: "utm_content", label: "utm_content", value: "ad_variant_a" },
+  { key: "utm_campaign", label: "utm_campaign", value: "summer_sale" },
   { key: "traffic_source", label: "Traffic source", value: "facebook" },
   { key: "placement", label: "Placement (traffic param)", value: "feed" },
   { key: "sub1", label: "sub1", value: "" },
@@ -1628,7 +1630,8 @@ export const PAYLOAD_BUILDER_SCRIPT = `
     ip: '203.0.113.7', ua: 'Mozilla/5.0 (iPhone)', url: 'https://quotes.example.com/funnel',
     referer: 'https://www.facebook.com/', language: 'en-US', country: 'US', state: 'CA',
     city: 'Los Angeles', utm_source: 'facebook', utm_medium: 'paid_social',
-    utm_content: 'ad_variant_a', traffic_source: 'facebook', placement: 'feed',
+    utm_content: 'ad_variant_a', utm_campaign: 'summer_sale',
+    traffic_source: 'facebook', placement: 'feed',
     sub1: 'a1', sub2: '', sub3: '', sub4: '', sub5: '', cpc: '1.25', fbclid: 'fb.abc',
     fbc: 'fb.1.123.abc', session_id: 'sess_abc123', click_id: 'clk_abc123', page: '/funnel',
     lander_v: 'A', offer_id: offerId, offer_name: 'Offer', device: 'mobile', os: 'iOS',
