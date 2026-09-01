@@ -53,6 +53,7 @@ import {
   type CanonicalCarrierField,
   type LeadgenBannerFieldMap,
 } from "../designs/banner-default/styles";
+import { sanitizeFrameInlineHtml } from "../../../lib/inline-sanitizer";
 import type { BannerDesign } from "../designs/registry";
 import type { SurfacedCarrierSource } from "../../../leadgen/auction-core";
 import type { LeadgenBannerMode } from "../../../admin/leadgen/db-types";
@@ -151,17 +152,12 @@ export interface BannerRenderResult {
   dropped: DroppedCarrier[];
 }
 
-// The canonical fields that render as a dedicated visual region (mapped onto
-// the banner-default CSS classes in bannerChromeCss). Fields not listed here
-// (bid / bid_currency / tracking_id) still resolve into `fields` but carry no
-// visual region of their own.
-const FIELD_REGION_CLASS: Partial<Record<CanonicalCarrierField, string>> = {
-  carrier_logo: "lg-banner-logo",
-  carrier_name: "lg-banner-name",
-  headline: "lg-banner-headline",
-  subheadline: "lg-banner-subheadline",
-  disclaimer: "lg-banner-disclaimer",
-};
+// A canonical-field → CSS-class MAP used to live here. renderCard now owns the
+// region classes directly, because a region no longer corresponds 1:1 to a
+// field: the primary line (`.lg-banner-name`) takes carrier_name OR, when the
+// provider sends no brand, the headline (the reference's own
+// `offer.name || offer.displayname` fallback). Fields with no visual region
+// (bid / bid_currency / tracking_id) still resolve into `fields`.
 
 // The default automatic field map used when field_map_json is absent/invalid —
 // surfaces the standard canonical regions so a render never silently blanks.
@@ -174,7 +170,12 @@ const DEFAULT_FIELD_MAP: LeadgenBannerFieldMap = {
   disclaimer: "disclaimer",
 };
 
-const DEFAULT_CTA_LABEL = "View";
+// Reference funnel card copy (contract 00 R1) — the reference renderer ships
+// "VIEW MY RATE" on every offer CTA and "BEST MATCH FOR YOU" on the winner's
+// badge. Both are overridable per auction via banner_config_json
+// (cta / badge), in either mode.
+const DEFAULT_CTA_LABEL = "VIEW MY RATE";
+const DEFAULT_BADGE_LABEL = "BEST MATCH FOR YOU";
 
 function isRecord(value: unknown): value is Record<string, unknown> {
   return typeof value === "object" && value !== null && !Array.isArray(value);
@@ -252,47 +253,96 @@ function resolveClickUrl(
 // Render one carrier's banner card. `slotData` is the resolved per-field data
 // (automatic: canonical field → value; manual: the static config fields).
 // `href` is the GOVERNED /lg/lc URL (never the raw provider click_url).
+//
+// ANATOMY — 1:1 with the reference funnel's offer card (contract 00 R1; the
+// reference renderer builds badge → logo → `.offer-content`{name, description}
+// → CTA, styled by `funnel-styles-offers.ts`):
+//   badge (winner only) · logo · .lg-banner-content{ name, headline?,
+//   subheadline, disclaimer } · CTA
+// Two reference behaviours this carries that the previous render did not:
+//   * the primary line FALLS BACK the way the reference's does
+//     (`offer.name || offer.displayname`, `offer.description || offer.title`) —
+//     a provider that sends no brand (QuinStreet's listing shape has no brand
+//     field at all: vendorKey/rank/cpc/title/description/clickurl) still gets a
+//     named card instead of an anonymous one;
+//   * NO text region is printed twice. Mapping two Carrier fields to the same
+//     provider value (e.g. carrier_name and headline both → `title`) used to
+//     print the same sentence in two stacked rows.
 function renderCard(
   entry: BannerRenderCarrier,
   href: string,
   mode: LeadgenBannerMode,
   slotData: Record<string, unknown>,
   ctaLabel: string,
+  badgeLabel: string,
 ): string {
   const recommended = entry.source === "winner";
   const parts: string[] = [];
 
+  if (recommended) {
+    const badge = badgeLabel !== "" ? badgeLabel : DEFAULT_BADGE_LABEL;
+    parts.push(`<div class="lg-banner-badge">${esc(badge)}</div>`);
+  }
+
+  // The four text regions, in render order, de-duplicated by their trimmed
+  // text. `rich` regions keep the provider's own inline markup (allowlisted).
+  const regions: { klass: string; text: string; rich: boolean }[] = [];
+  const seenText = new Set<string>();
+  const pushRegion = (klass: string, raw: unknown, rich = false): void => {
+    const text = asText(raw).trim();
+    if (text === "" || seenText.has(text)) return;
+    seenText.add(text);
+    regions.push({ klass, text, rich });
+  };
+
+  let logo: string;
   if (mode === "manual") {
-    const logo = asText(slotData["logo"]);
-    if (logo !== "") {
-      parts.push(`<img class="lg-banner-logo" src="${esc(logo)}" alt="${esc(slotData["headline"])}" />`);
-    }
-    const headline = asText(slotData["headline"]);
-    if (headline !== "") parts.push(`<div class="lg-banner-name">${esc(headline)}</div>`);
-    const subheadline = asText(slotData["subheadline"]);
-    if (subheadline !== "") parts.push(`<div class="lg-banner-subheadline">${esc(subheadline)}</div>`);
-    const legal = asText(slotData["legal"]);
-    if (legal !== "") parts.push(`<div class="lg-banner-disclaimer">${esc(legal)}</div>`);
+    logo = asText(slotData["logo"]);
+    pushRegion("lg-banner-name", slotData["headline"]);
+    pushRegion("lg-banner-subheadline", slotData["subheadline"], true);
+    pushRegion("lg-banner-disclaimer", slotData["legal"]);
   } else {
-    // automatic — render each mapped canonical field's region in a stable order.
-    const order: CanonicalCarrierField[] = [
-      "carrier_logo",
-      "carrier_name",
-      "headline",
-      "subheadline",
-      "disclaimer",
-    ];
-    for (const field of order) {
-      if (!(field in slotData)) continue;
-      const value = asText(slotData[field]);
-      if (value === "") continue;
-      const klass = FIELD_REGION_CLASS[field] ?? "lg-banner-field";
-      if (field === "carrier_logo") {
-        parts.push(`<img class="${klass}" src="${esc(value)}" alt="${esc(asText(slotData["carrier_name"]))}" />`);
-      } else {
-        parts.push(`<div class="${klass}">${esc(value)}</div>`);
-      }
-    }
+    logo = asText(slotData["carrier_logo"]);
+    const carrierName = asText(slotData["carrier_name"]).trim();
+    const headline = asText(slotData["headline"]).trim();
+    // reference `offer.name || offer.displayname` — the brand owns the primary
+    // line; with no brand the offer's headline takes it.
+    pushRegion("lg-banner-name", carrierName !== "" ? carrierName : headline);
+    pushRegion("lg-banner-headline", headline);
+    pushRegion("lg-banner-subheadline", slotData["subheadline"], true);
+    pushRegion("lg-banner-disclaimer", slotData["disclaimer"]);
+  }
+
+  // Only an absolute http(s) logo is ever emitted (the same gate the click URL
+  // gets) and, like the reference renderer, a logo that fails to LOAD removes
+  // itself instead of leaving the browser's broken-image glyph in the middle of
+  // the card. Both are attribute-level; the public runtime bundle is untouched.
+  if (isHttpUrl(logo)) {
+    const alt = regions.length > 0 ? regions[0]!.text : "";
+    parts.push(
+      `<img class="lg-banner-logo" src="${esc(logo.trim())}" alt="${esc(alt)}"` +
+        ` onerror="this.style.display='none'" />`,
+    );
+  }
+
+  if (regions.length > 0) {
+    const inner = regions
+      .map((r) => {
+        if (!r.rich) return `<div class="${r.klass}">${esc(r.text)}</div>`;
+        // A buyer's response (or an operator's authored copy) may carry inline
+        // markup — a provider description is commonly a <ul> of benefits.
+        // Escaping it printed the tags to the visitor as literal text; the
+        // frame's allowlist re-serializer renders the safe subset
+        // (bold/italic/link/lists) and can never emit a construct it does not
+        // itself build. Lists get the reference's left-aligned bullet
+        // treatment via data-rich (styles.ts).
+        const html = sanitizeFrameInlineHtml(r.text);
+        if (html === "") return "";
+        const rich = /<(?:ul|ol)>/.test(html) ? ` data-rich="1"` : "";
+        return `<div class="${r.klass}"${rich}>${html}</div>`;
+      })
+      .join("");
+    if (inner !== "") parts.push(`<div class="lg-banner-content">${inner}</div>`);
   }
 
   const cta = ctaLabel !== "" ? ctaLabel : DEFAULT_CTA_LABEL;
@@ -357,7 +407,10 @@ export function renderBanners(
   }
 
   const manualConfig = isRecord(bannerConfig.banner_config_json) ? bannerConfig.banner_config_json : {};
-  const manualCta = asText(manualConfig["cta"]);
+  // Card copy that applies in BOTH modes (an automatic auction still authors
+  // its own CTA + winner badge wording).
+  const configuredCta = asText(manualConfig["cta"]);
+  const configuredBadge = asText(manualConfig["badge"]);
 
   const slots: RenderedBannerSlot[] = [];
   const impressions: CarrierImpression[] = [];
@@ -388,7 +441,7 @@ export function renderBanners(
         logo: manualConfig["logo"],
         legal: manualConfig["legal"],
       };
-      ctaLabel = manualCta;
+      ctaLabel = configuredCta;
     } else {
       // resolveBannerSlots reads ONLY the mapped canonical fields, but keyed by
       // slot id; for rendering we also want the field→value map. Build both:
@@ -398,7 +451,7 @@ export function renderBanners(
         fieldData[field] = entry.carrier[field];
       }
       slotData = fieldData;
-      ctaLabel = manualCta; // an automatic auction may still set a CTA label
+      ctaLabel = configuredCta; // an automatic auction may still set a CTA label
     }
 
     // Governed href (§19 step 16): the rendered anchor points at /lg/lc, NOT the
@@ -411,7 +464,7 @@ export function renderBanners(
       slot: entry.slot,
       funnel_attempt_id: funnelAttemptId,
     });
-    const html = renderCard(entry, governedHref, bannerConfig.mode, slotData, ctaLabel);
+    const html = renderCard(entry, governedHref, bannerConfig.mode, slotData, ctaLabel, configuredBadge);
     slots.push({
       slot: entry.slot,
       carrier_key: entry.carrier.carrier_key,
@@ -440,5 +493,5 @@ export function renderBanners(
   return { banner_render_id: bannerRenderId, css, html, slots, impressions, dropped };
 }
 
-// Expose the default field map + region-class map for downstream/tests.
-export { DEFAULT_FIELD_MAP, FIELD_REGION_CLASS };
+// Expose the default field map + the default card copy for downstream/tests.
+export { DEFAULT_FIELD_MAP, DEFAULT_CTA_LABEL, DEFAULT_BADGE_LABEL };
