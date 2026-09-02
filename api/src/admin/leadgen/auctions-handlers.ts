@@ -731,11 +731,16 @@ interface AuctionOfferJoinRow {
 }
 
 async function readAuctionOffers(db: D1Database, auctionId: number): Promise<AuctionOfferJoinRow[]> {
-  // last_test_status: newest TEST-TOOL provider-request-log status for the
-  // offer (auction_instance_id IS NULL — 05 §5.1: the Test verdict is the
-  // OPERATOR Test status; runtime auction rows never flip it). 2xx → passed;
-  // any other status → failed; no rows / never-returned → untested. The SAME
-  // scoping the R4 engine gate + evaluateDynamicOffersEligibility use.
+  // last_test_status: the DURABLE verdict on the Offer (migration 0057), the
+  // SAME column the R4 engine gate + evaluateDynamicOffersEligibility read.
+  //
+  // OWNER 2026-09-03, second pass: this panel was a FOURTH reader of the old
+  // subselect over the 7-day-pruned provider-request log. After the fix landed
+  // it still reported "untested" for two Offers the offers list, the offer
+  // editor's "Eligible for live auction" banner AND the engine all agreed were
+  // `passed` — caught by reading this endpoint on production. A panel that
+  // disagrees with the gate is how an operator gets sent to re-test something
+  // that is already serving.
   const result = await db
     .prepare(
       `SELECT ao.offer_placement_id, ao.offer_id, ao.static_order, ao.static_bid_override, ao.enabled,
@@ -743,11 +748,7 @@ async function readAuctionOffers(db: D1Database, auctionId: number): Promise<Auc
               o.public_id AS offer_public_id, o.offer_name, o.provider, o.activity, o.vertical, o.offer_type,
               o.status AS offer_status, o.calls_provider_api, o.cap_enabled, o.active_payload_schema_id,
               s.version AS schema_version,
-              (SELECT CASE WHEN prl.status_code >= 200 AND prl.status_code < 300 THEN 'passed'
-                           WHEN prl.status_code IS NULL THEN 'untested' ELSE 'failed' END
-                 FROM leadgen_provider_request_log prl
-                 WHERE prl.offer_public_id = o.public_id AND prl.auction_instance_id IS NULL
-                 ORDER BY prl.created_at DESC, prl.id DESC LIMIT 1) AS last_test_status
+              o.last_test_status AS last_test_status
        FROM leadgen_auction_offers ao
        JOIN leadgen_offer_placements p ON p.id = ao.offer_placement_id
        JOIN leadgen_offers o ON o.id = ao.offer_id

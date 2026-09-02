@@ -14,7 +14,7 @@
 //      Offers had NO surviving Test-tool row but did have successful auction
 //      calls, so they come back eligible without an operator re-test.
 import { describe, expect, it } from "vitest";
-import { readFileSync } from "node:fs";
+import { readFileSync, readdirSync } from "node:fs";
 import { fileURLToPath } from "node:url";
 import { dirname, join } from "node:path";
 
@@ -185,5 +185,38 @@ describeDb("migration 0057 — the durable Offer Test verdict", () => {
     expect(v.s).toBe("failed");
     expect(v.at).toBe(2_000);
     sdb.close();
+  });
+});
+
+// OWNER 2026-09-03, second pass. The first fix changed THREE readers and the
+// auction's participating-offers panel was a FOURTH — found by reading the
+// deployed endpoint on production, where it still answered
+// `"last_test_status":"untested"` for two Offers that the offers list, the
+// offer editor's "Eligible for live auction" banner and the engine all agreed
+// were `passed`. This guard is source-level so a fifth one cannot appear:
+// nothing may re-derive the Test verdict from the pruned log.
+describe("no source may re-derive the Test verdict from the 7-day-pruned log", () => {
+  it("zero subselects over leadgen_provider_request_log decide a pass/fail verdict", () => {
+    const SRC = join(TEST_DIR, "../src");
+    const offenders: string[] = [];
+    const walk = (dir: string): void => {
+      for (const entry of readdirSync(dir, { withFileTypes: true })) {
+        const full = join(dir, entry.name);
+        if (entry.isDirectory()) {
+          walk(full);
+          continue;
+        }
+        if (!entry.name.endsWith(".ts")) continue;
+        const text = readFileSync(full, "utf8");
+        // the shape of the old derivation: a CASE over prl.status_code that
+        // yields the verdict vocabulary, anywhere in a query string.
+        const derives =
+          /status_code\s*>=\s*200[\s\S]{0,200}?'passed'/.test(text) &&
+          /leadgen_provider_request_log/.test(text);
+        if (derives) offenders.push(full.slice(SRC.length + 1));
+      }
+    };
+    walk(SRC);
+    expect(offenders, "read the durable last_test_status column instead").toEqual([]);
   });
 });
