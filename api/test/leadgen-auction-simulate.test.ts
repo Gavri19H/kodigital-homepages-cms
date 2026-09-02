@@ -92,6 +92,7 @@ const LEADGEN_MIGRATIONS = [
   // columns, so this harness must carry them (a hardcoded list is why the
   // schema went stale twice already — the newest suites scan migrations/).
   "0056_leadgen_offer_api_token_vault.sql",
+  "0057_leadgen_offer_test_verdict.sql",
 ] as const;
 
 function createLeadgenDb(DatabaseSync: DatabaseSyncCtor): SqliteDb {
@@ -168,10 +169,16 @@ function seedDynamicOffer(sdb: SqliteDb): { offer_id: number; offer_public_id: s
   sdb.prepare("INSERT INTO leadgen_offer_placements (public_id, offer_id, placement_id, is_default) VALUES (?, ?, ?, 1)").run(placementPublic, offer.id, `plc-${offerPublic.slice(-4)}`);
   const placement = sdb.prepare("SELECT id FROM leadgen_offer_placements WHERE public_id = ?").get(placementPublic) as { id: number };
   // R4 (fix-contract v2.4 05 §5.1): a dynamic Offer participates only with a
-  // PASSED Test verdict — one TEST-TOOL provider_request_log row
-  // (auction_instance_id NULL) marks it tested.
+  // PASSED Test verdict. OWNER 2026-09-03 (migration 0057): that verdict is a
+  // DURABLE column on the Offer, not a re-read of the 7-day-pruned
+  // provider_request_log — the log row is kept here as the Test's own trace.
   sdb
     .prepare("INSERT INTO leadgen_provider_request_log (offer_public_id, environment, status_code) VALUES (?, 'production', 200)")
+    .run(offerPublic);
+  sdb
+    .prepare(
+      "UPDATE leadgen_offers SET last_test_status = 'passed', last_test_at = unixepoch(), last_test_source = 'test' WHERE public_id = ?",
+    )
     .run(offerPublic);
   return { offer_id: offer.id, offer_public_id: offerPublic, placement_id: placement.id };
 }
@@ -328,6 +335,7 @@ describeDb("leadgen /auctions/:id/simulate — §19.2 dry-run trace + no writes"
     sdb.prepare("INSERT INTO leadgen_offer_placements (public_id, offer_id, placement_id, is_default) VALUES (?, ?, 'plc-macro-1', 1)").run(plPublic, offerId);
     const placementRowId = (sdb.prepare("SELECT id FROM leadgen_offer_placements WHERE public_id = ?").get(plPublic) as { id: number }).id;
     sdb.prepare("INSERT INTO leadgen_provider_request_log (offer_public_id, environment, status_code) VALUES (?, 'production', 200)").run(offerPublic); // PASSED test → R4-eligible
+    sdb.prepare("UPDATE leadgen_offers SET last_test_status = 'passed', last_test_at = unixepoch(), last_test_source = 'test' WHERE public_id = ?").run(offerPublic); // 0057: the DURABLE verdict eligibility reads
     sdb.prepare("INSERT INTO leadgen_auction_offers (auction_id, offer_placement_id, offer_id, static_order, enabled) VALUES (?, ?, ?, 0, 1)").run(auction.id, placementRowId, offerId);
     stubFetch(() => new Response(carrierBody("Acme", 12), { status: 200 }));
 
@@ -386,6 +394,7 @@ describeDb("leadgen /auctions/:id/simulate — §19.2 dry-run trace + no writes"
     sdb.prepare("INSERT INTO leadgen_offer_placements (public_id, offer_id, placement_id, is_default) VALUES (?, ?, 'plc-nosec-1', 1)").run(plPublic, offerId);
     const placementRowId = (sdb.prepare("SELECT id FROM leadgen_offer_placements WHERE public_id = ?").get(plPublic) as { id: number }).id;
     sdb.prepare("INSERT INTO leadgen_provider_request_log (offer_public_id, environment, status_code) VALUES (?, 'production', 200)").run(offerPublic);
+    sdb.prepare("UPDATE leadgen_offers SET last_test_status = 'passed', last_test_at = unixepoch(), last_test_source = 'test' WHERE public_id = ?").run(offerPublic); // 0057: the DURABLE verdict eligibility reads
     sdb.prepare("INSERT INTO leadgen_auction_offers (auction_id, offer_placement_id, offer_id, static_order, enabled) VALUES (?, ?, ?, 0, 1)").run(auction.id, placementRowId, offerId);
 
     // Second offer — ENV-DRIFT: api_token_secret_ref is allowlisted but the
@@ -407,6 +416,7 @@ describeDb("leadgen /auctions/:id/simulate — §19.2 dry-run trace + no writes"
     sdb.prepare("INSERT INTO leadgen_offer_placements (public_id, offer_id, placement_id, is_default) VALUES (?, ?, 'plc-drift-1', 1)").run(driftPlPublic, driftId);
     const driftPlacementRowId = (sdb.prepare("SELECT id FROM leadgen_offer_placements WHERE public_id = ?").get(driftPlPublic) as { id: number }).id;
     sdb.prepare("INSERT INTO leadgen_provider_request_log (offer_public_id, environment, status_code) VALUES (?, 'production', 200)").run(driftPublic);
+    sdb.prepare("UPDATE leadgen_offers SET last_test_status = 'passed', last_test_at = unixepoch(), last_test_source = 'test' WHERE public_id = ?").run(driftPublic); // 0057: the DURABLE verdict eligibility reads
     sdb.prepare("INSERT INTO leadgen_auction_offers (auction_id, offer_placement_id, offer_id, static_order, enabled) VALUES (?, ?, ?, 1, 1)").run(auction.id, driftPlacementRowId, driftId);
     stubFetch(() => new Response(carrierBody("Acme", 12), { status: 200 }));
 

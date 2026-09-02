@@ -202,6 +202,7 @@ const LEADGEN_MIGRATIONS = [
   "0051_leadgen_rework_m7_slider_collapse.sql",
   "0052_leadgen_rework_m9_address_fields.sql",
   "0053_leadgen_rework_m12_othergroup_retirement.sql",
+  "0057_leadgen_offer_test_verdict.sql",
 ] as const;
 
 const TENANT_HOST = "p4a.example.com";
@@ -605,7 +606,10 @@ describeDb("P4a review minor-4: narrowed two-step fallback (0043-without-0044 st
     );
     // 0036 through 0043 ONLY — deliberately stop before 0044, so redirect_pct
     // does not exist but status (0043) does.
-    for (const file of ["0036_leadgen_core.sql", "0037_leadgen_analytics_mirror.sql", "0038_leadgen_revenue_infra.sql", "0039_leadgen_conversion_dedupe.sql", "0040_leadgen_runtime_context.sql", "0041_leadgen_frame_theme.sql", "0042_leadgen_pages.sql", "0043_leadgen_routing_rules.sql"]) {
+    // 0057 rides along (out of sequence, deliberately): it is orthogonal to the
+    // 0043-without-0044 point under test, and the auction's offer join reads
+    // its `last_test_status` column.
+    for (const file of ["0036_leadgen_core.sql", "0037_leadgen_analytics_mirror.sql", "0038_leadgen_revenue_infra.sql", "0039_leadgen_conversion_dedupe.sql", "0040_leadgen_runtime_context.sql", "0041_leadgen_frame_theme.sql", "0042_leadgen_pages.sql", "0043_leadgen_routing_rules.sql", "0057_leadgen_offer_test_verdict.sql"]) {
       runSql(sdb, readFileSync(join(TEST_DIR, "../migrations", file), "utf8"));
     }
     const db = d1FromSqlite(sdb);

@@ -99,6 +99,7 @@ const LEADGEN_MIGRATIONS = [
   "0051_leadgen_rework_m7_slider_collapse.sql",
   "0052_leadgen_rework_m9_address_fields.sql",
   "0053_leadgen_rework_m12_othergroup_retirement.sql",
+  "0057_leadgen_offer_test_verdict.sql",
 ] as const;
 
 function createLeadgenDb(DatabaseSync: DatabaseSyncCtor): SqliteDb {
@@ -222,6 +223,8 @@ function seedOfferTestStatus(sdb: SqliteDb, offerPublicId: string, status: "pass
       "INSERT INTO leadgen_provider_request_log (offer_public_id, environment, status_code) VALUES (?, 'production', ?)",
     )
     .run(offerPublicId, status === "passed" ? 200 : 500);
+  // 0057: eligibility reads the DURABLE verdict on the Offer, so seed it too.
+  sdb.prepare("UPDATE leadgen_offers SET last_test_status = ?, last_test_at = unixepoch(), last_test_source = 'test' WHERE public_id = ?").run(status, offerPublicId);
 }
 
 function seedOffer(sdb: SqliteDb, opts: SeedOfferOpts = {}): SeededOffer {
@@ -1130,5 +1133,117 @@ describeDb("leadgen §19.1 anti-tamper — page-model (Round-4 P3a review round)
       { dryRun: false },
     );
     expect(result.status, "the auction still succeeds using the minted plan despite the post-mint edit").toBe("ok");
+  });
+});
+
+// OWNER 2026-09-03: "I got back to validate the results page after your last
+// fix of the creative — No results at all appear now, when the funnel is
+// complete."
+//
+// It was not the creative. Both of his live Offers were excluded BEFORE any
+// provider call: leadgen_auction_result_log carried
+// offers_excluded_json=[{…,"reason":"test_untested"},{…,"reason":"test_untested"}],
+// carriers_shown_json=[], unfilled_reason="no_carriers_returned", and
+// leadgen_provider_request_log had ZERO rows for those auction instances.
+//
+// ROOT CAUSE: §5.1 eligibility required a passing provider Test, and the
+// verdict was DERIVED at read time from the newest Test-tool row in
+// leadgen_provider_request_log — a table the §30.3 retention cron prunes to
+// SEVEN DAYS (retention.ts PROVIDER_LOG_RETENTION_SECONDS). So every dynamic
+// Offer in this product silently went ineligible exactly one week after its
+// last Test, and the funnel served an empty page with no operator-visible
+// warning. His data dates it: last FILLED auction 2026-08-30 08:35, first
+// empty one 2026-09-01 15:43, and the oldest surviving row in that table
+// equalled now-7d.
+//
+// A gate that decides whether an Offer may earn money must not read a log with
+// a TTL. The verdict is now a durable column on the Offer (migration 0057).
+describeDb("§5.1 eligibility survives the §30.3 retention prune (OWNER 2026-09-03)", () => {
+  function harness(): { sdb: SqliteDb; env: Env } {
+    const sdb = createLeadgenDb(DatabaseSync as DatabaseSyncCtor);
+    const { kv } = makeKvStub();
+    return { sdb, env: buildEnv(d1FromSqlite(sdb), kv) };
+  }
+
+  it("FAIL-BEFORE/PASS-AFTER: wiping every provider-log row does NOT empty the auction", async () => {
+    const { sdb, env } = harness();
+    const auction = seedAuction(sdb);
+    const offer = seedOffer(sdb);
+    attachOffer(sdb, auction.id, offer, 0);
+    stubFetch(() => new Response(carrierBody([{ name: "Acme", bid: 12 }]), { status: 200 }));
+
+    // the auction fills while the Test row is inside the 7-day window
+    const before = await runAuction(
+      env,
+      { resolved: makeResolved(), bundle: await loadAuctionBundle(env.DB, auction, 1), environment: "production", binding: NO_BINDING, session_id: null, raw_answers: {}, clicked: [] },
+      { dryRun: true },
+    );
+    expect(before.status).toBe("ok");
+    expect(before.explain.carriers_shown.length).toBeGreaterThan(0);
+
+    // …now the retention cron runs. Every provider-log row for this Offer is
+    // GONE — exactly the state his production DB was in.
+    sdb.prepare("DELETE FROM leadgen_provider_request_log").run();
+    expect(
+      (sdb.prepare("SELECT COUNT(*) AS n FROM leadgen_provider_request_log").get() as { n: number }).n,
+      "the prune really did empty the table",
+    ).toBe(0);
+
+    stubFetch(() => new Response(carrierBody([{ name: "Acme", bid: 12 }]), { status: 200 }));
+    const after = await runAuction(
+      env,
+      { resolved: makeResolved(), bundle: await loadAuctionBundle(env.DB, auction, 1), environment: "production", binding: NO_BINDING, session_id: null, raw_answers: {}, clicked: [] },
+      { dryRun: true },
+    );
+    // BEFORE the fix this was: excluded `test_untested`, 0 carriers, an empty
+    // results page for every visitor.
+    expect(
+      after.explain.offers_excluded.map((o) => o.reason),
+      "a pruned log must never make a tested Offer ineligible",
+    ).not.toContain("test_untested");
+    expect(after.status).toBe("ok");
+    expect(after.explain.carriers_shown.length).toBeGreaterThan(0);
+  });
+
+  it("a genuinely never-tested Offer is STILL refused — the gate keeps its teeth", async () => {
+    const { sdb, env } = harness();
+    const auction = seedAuction(sdb);
+    const offer = seedOffer(sdb, { testStatus: "untested" });
+    attachOffer(sdb, auction.id, offer, 0);
+    const calls = stubFetch(() => new Response(carrierBody([{ name: "Acme", bid: 12 }]), { status: 200 }));
+
+    const result = await runAuction(
+      env,
+      { resolved: makeResolved(), bundle: await loadAuctionBundle(env.DB, auction, 1), environment: "production", binding: NO_BINDING, session_id: null, raw_answers: {}, clicked: [] },
+      { dryRun: true },
+    );
+    expect(result.explain.offers_excluded.map((o) => o.reason)).toContain("test_untested");
+    expect(calls.length, "an untested Offer's provider is never called").toBe(0);
+  });
+
+  it("a live provider call refreshes the verdict, so a serving Offer cannot decay", async () => {
+    const { sdb, env } = harness();
+    const auction = seedAuction(sdb);
+    const offer = seedOffer(sdb);
+    attachOffer(sdb, auction.id, offer, 0);
+    // an OLD verdict, as if the last Test were long ago
+    sdb
+      .prepare("UPDATE leadgen_offers SET last_test_at = 1, last_test_source = 'test' WHERE public_id = ?")
+      .run(offer.offer_public_id);
+    stubFetch(() => new Response(carrierBody([{ name: "Acme", bid: 12 }]), { status: 200 }));
+
+    // the verdict refresh rides the PERSIST path, beside the provider-log row
+    const result = await runAuction(
+      env,
+      { resolved: makeResolved(), bundle: await loadAuctionBundle(env.DB, auction, 1), environment: "production", binding: NO_BINDING, session_id: "s1", raw_answers: {}, clicked: [] },
+      { dryRun: true },
+    );
+    await persistAuctionResult(env, result);
+    const row = sdb
+      .prepare("SELECT last_test_status, last_test_at, last_test_source FROM leadgen_offers WHERE public_id = ?")
+      .get(offer.offer_public_id) as { last_test_status: string; last_test_at: number; last_test_source: string };
+    expect(row.last_test_status).toBe("passed");
+    expect(row.last_test_source).toBe("auction");
+    expect(row.last_test_at, "the live 200 refreshed the verdict timestamp").toBeGreaterThan(1);
   });
 });

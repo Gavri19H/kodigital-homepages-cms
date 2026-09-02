@@ -127,6 +127,7 @@ const LEADGEN_MIGRATIONS = [
   "0038_leadgen_revenue_infra.sql",
   "0039_leadgen_conversion_dedupe.sql",
   "0042_leadgen_pages.sql",
+  "0057_leadgen_offer_test_verdict.sql",
 ] as const;
 
 function createLeadgenDb(DatabaseSync: DatabaseSyncCtor): SqliteDb {

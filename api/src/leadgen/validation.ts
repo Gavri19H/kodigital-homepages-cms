@@ -715,12 +715,19 @@ export interface LeadgenOfferEligibilityRow {
 // 2xx → passed; a non-null non-2xx status → failed; no rows OR a
 // transport-error row (NULL status_code — the request never returned) →
 // untested (m4: both non-passed codes block eligibility identically).
-export const LEADGEN_TEST_STATUS_SUBSELECT = `(
-  SELECT CASE WHEN prl.status_code >= 200 AND prl.status_code < 300 THEN 'passed'
-              WHEN prl.status_code IS NULL THEN 'untested' ELSE 'failed' END
-    FROM leadgen_provider_request_log prl
-    WHERE prl.offer_public_id = o.public_id AND prl.auction_instance_id IS NULL
-    ORDER BY prl.created_at DESC, prl.id DESC LIMIT 1)`;
+// OWNER 2026-09-03 ("No results at all appear now, when the funnel is
+// complete"): this USED to read the newest Test-tool row out of
+// `leadgen_provider_request_log` — a table the §30.3 retention cron prunes to
+// SEVEN DAYS (retention.ts PROVIDER_LOG_RETENTION_SECONDS). So every dynamic
+// Offer silently became `test_untested` a week after its last Test, the auction
+// excluded it before calling any provider, and the funnel went blank. A gate
+// that decides whether an Offer may earn money cannot read a log with a TTL.
+//
+// The verdict is now a DURABLE column on the Offer (migration 0057), written
+// when a Test runs and when a live auction call succeeds. NULL still means
+// "never tested" — the eligibility verdict for NULL is unchanged, so a
+// genuinely untested Offer is still refused.
+export const LEADGEN_TEST_STATUS_SUBSELECT = `o.last_test_status`;
 
 // Evaluate §5.1 eligibility for a set of Offers by numeric id (chunked ≤80;
 // every query .bind()-parameterized). Environment selects which endpoint must

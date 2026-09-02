@@ -732,6 +732,22 @@ export async function testOfferHandler(c: AdminContext): Promise<Response> {
     )
     .run();
 
+  // --- the DURABLE Test verdict (migration 0057) -----------------------------
+  // OWNER 2026-09-03: §5.1 eligibility used to re-derive this from the log row
+  // above, which the §30.3 cron prunes after 7 days — so a tested Offer went
+  // ineligible a week later and the funnel served an empty page. The verdict
+  // now lands on the Offer row and is never pruned. A transport error
+  // (statusCode null — the request never returned) writes NO verdict, leaving
+  // whatever the last real answer was, exactly as the old read-time CASE
+  // treated a NULL status_code as "untested" rather than as a failure.
+  if (statusCode !== null) {
+    await c.env.DB.prepare(
+      "UPDATE leadgen_offers SET last_test_status = ?, last_test_at = ?, last_test_source = 'test', updated_at = unixepoch() WHERE id = ?",
+    )
+      .bind(statusCode >= 200 && statusCode < 300 ? "passed" : "failed", Math.floor(Date.now() / 1000), offer.id)
+      .run();
+  }
+
   // --- the §11.6 response ----------------------------------------------------
   // "Exact payload sent" with ONE exception (§30.2 wins): secret-derived
   // bytes (token node value, secret headers, query token) are masked — a

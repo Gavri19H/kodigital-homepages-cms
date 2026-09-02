@@ -164,6 +164,7 @@ const LEADGEN_MIGRATIONS = [
   "0051_leadgen_rework_m7_slider_collapse.sql",
   "0052_leadgen_rework_m9_address_fields.sql",
   "0053_leadgen_rework_m12_othergroup_retirement.sql",
+  "0057_leadgen_offer_test_verdict.sql",
 ] as const;
 
 function createLeadgenDb(DatabaseSync: DatabaseSyncCtor): SqliteDb {
@@ -551,6 +552,12 @@ describeDb("payload builder §6.1 — three-pane shell", () => {
         "INSERT INTO leadgen_provider_request_log (offer_public_id, environment, status_code) VALUES (?, 'production', 200)",
       )
       .run(offer.public_id);
+    // 0057: eligibility + the §6.1 chip read the DURABLE verdict on the Offer.
+    sdb
+      .prepare(
+        "UPDATE leadgen_offers SET last_test_status = 'passed', last_test_at = unixepoch(), last_test_source = 'test' WHERE public_id = ?",
+      )
+      .run(offer.public_id);
     const provenHtml = await getHtml(env, `/admin/leadgen/offers/${offer.public_id}/edit`);
     expect(provenHtml).toContain('data-test-status="passed"');
   });
@@ -584,6 +591,10 @@ describeDb("payload builder §6.1 — three-pane shell", () => {
           "INSERT INTO leadgen_provider_request_log (offer_public_id, environment, status_code, created_at) VALUES (?, 'production', 200, ?)",
         )
         .run(offer.public_id, 1_783_468_800);
+      // 0057: the chip's timestamp comes from the DURABLE verdict column.
+      sdb
+        .prepare("UPDATE leadgen_offers SET last_test_status = 'passed', last_test_at = ?, last_test_source = 'test' WHERE public_id = ?")
+        .run(1_783_468_800, offer.public_id);
       return getHtml(env, `/admin/leadgen/offers/${offer.public_id}/edit`);
     })();
     const expectedTs = `${new Date(1_783_468_800 * 1000).toISOString().slice(0, 16).replace("T", " ")} UTC`;
@@ -599,6 +610,10 @@ describeDb("payload builder §6.1 — three-pane shell", () => {
           "INSERT INTO leadgen_provider_request_log (offer_public_id, environment, status_code, created_at) VALUES (?, 'production', 500, ?)",
         )
         .run(offer.public_id, 1_783_468_800);
+      // 0057: a non-2xx Test writes a 'failed' verdict, same as the product.
+      sdb
+        .prepare("UPDATE leadgen_offers SET last_test_status = 'failed', last_test_at = ?, last_test_source = 'test' WHERE public_id = ?")
+        .run(1_783_468_800, offer.public_id);
       return getHtml(env, `/admin/leadgen/offers/${offer.public_id}/edit`);
     })();
     expect(failed).toContain('data-test-status="failed"');
