@@ -236,18 +236,17 @@ export async function loadAuctionBundle(
   variantId: number | null,
 ): Promise<AuctionBundle> {
   // --- participating offers (enabled) + placement -------------------------
-  // last_test_status: newest TEST-TOOL provider_request_log row for the offer
-  // (auction_instance_id IS NULL — runtime rows never flip the Test verdict;
-  // §5.1's test_untested/test_failed is the OPERATOR Test status).
+  // last_test_status: the DURABLE verdict on the Offer row (migration 0057).
+  // OWNER 2026-09-03: this used to be a subselect over the newest Test-tool
+  // `leadgen_provider_request_log` row — a table pruned to 7 days by the §30.3
+  // retention cron — so a working Offer silently became `test_untested` a week
+  // after its last Test and the whole auction emptied out. NULL still means
+  // "never tested" and is still refused by §5.1.
   const offerJoin = await db
     .prepare(
       `SELECT ao.static_order AS static_order, ao.static_bid_override AS static_bid_override,
               p.public_id AS placement_public_id, p.placement_id AS placement_external_id, o.id AS offer_id,
-              (SELECT CASE WHEN prl.status_code >= 200 AND prl.status_code < 300 THEN 'passed'
-                           WHEN prl.status_code IS NULL THEN 'untested' ELSE 'failed' END
-                 FROM leadgen_provider_request_log prl
-                 WHERE prl.offer_public_id = o.public_id AND prl.auction_instance_id IS NULL
-                 ORDER BY prl.created_at DESC, prl.id DESC LIMIT 1) AS last_test_status
+              o.last_test_status AS last_test_status
          FROM leadgen_auction_offers ao
          JOIN leadgen_offer_placements p ON p.id = ao.offer_placement_id
          JOIN leadgen_offers o ON o.id = ao.offer_id
@@ -1913,6 +1912,28 @@ export async function persistAuctionResult(
         .run();
     } catch {
       // fail-open (S28): a provider-log write failure never breaks the response.
+    }
+    // OWNER 2026-09-03: refresh the DURABLE eligibility verdict (migration
+    // 0057) from this LIVE call, so an Offer that is demonstrably answering
+    // never decays into `test_untested` and empty the funnel — the class of
+    // outage his blank results page was. A 2xx keeps it 'passed'; a non-2xx
+    // records 'failed' (the same verdict the Test tool would); a transport
+    // error (status_code null) writes nothing and leaves the last real answer.
+    // Fail-open on the same S28 grounds as the log row above.
+    if (row.status_code !== null && row.status_code !== undefined) {
+      try {
+        await env.DB.prepare(
+          "UPDATE leadgen_offers SET last_test_status = ?, last_test_at = ?, last_test_source = 'auction' WHERE public_id = ?",
+        )
+          .bind(
+            row.status_code >= 200 && row.status_code < 300 ? "passed" : "failed",
+            Math.floor(Date.now() / 1000),
+            row.offer_public_id,
+          )
+          .run();
+      } catch {
+        // never breaks the auction response
+      }
     }
   }
 

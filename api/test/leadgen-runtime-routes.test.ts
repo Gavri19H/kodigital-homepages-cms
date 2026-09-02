@@ -138,6 +138,7 @@ const LEADGEN_MIGRATIONS = [
   "0051_leadgen_rework_m7_slider_collapse.sql",
   "0052_leadgen_rework_m9_address_fields.sql",
   "0053_leadgen_rework_m12_othergroup_retirement.sql",
+  "0057_leadgen_offer_test_verdict.sql",
 ] as const;
 
 const TENANT_HOST = "one.example.com";
@@ -597,10 +598,15 @@ function seedDynamicAuctionForVariant(sdb: SqliteDb, variantId: string): { offer
   sdb.prepare("INSERT INTO leadgen_auction_offers (auction_id, offer_placement_id, offer_id, static_order, enabled) VALUES (?, ?, ?, 0, 1)").run(auction.id, placement.id, offer.id);
   sdb.prepare("UPDATE leadgen_funnel_variants SET auction_id = ? WHERE public_id = ?").run(auction.id, variantId);
   // R4 (fix-contract v2.4 05 §5.1): a dynamic Offer participates only with a
-  // PASSED Test verdict — one TEST-TOOL provider_request_log row (NULL
-  // auction_instance_id) marks it tested.
+  // PASSED Test verdict. OWNER 2026-09-03 (migration 0057): that verdict is a
+  // DURABLE column on the Offer — the log row stays as the Test's own trace.
   sdb
     .prepare("INSERT INTO leadgen_provider_request_log (offer_public_id, environment, status_code) VALUES (?, 'production', 200)")
+    .run(offerPublicId);
+  sdb
+    .prepare(
+      "UPDATE leadgen_offers SET last_test_status = 'passed', last_test_at = unixepoch(), last_test_source = 'test' WHERE public_id = ?",
+    )
     .run(offerPublicId);
   return { offerPublicId, offerId: offer.id };
 }

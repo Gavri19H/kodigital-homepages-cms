@@ -346,18 +346,17 @@ async function offerEligibilityVerdicts(
 }
 
 // §6.1 (fix-contract v2.4): the ADDITIVE `last_test_at` riding the Offer
-// detail responses — MAX(created_at) over the Offer's TEST-TOOL provider-log
-// rows. Scoping mirrors LEADGEN_TEST_STATUS_SUBSELECT exactly
-// (auction_instance_id IS NULL — runtime auction rows never count as an
-// operator Test). created_at is unixepoch seconds → ISO string; no rows →
-// null. Fail-open like the eligibility loader: a read error yields null.
+// detail responses. OWNER 2026-09-03: this read MAX(created_at) over the
+// Offer's Test-tool provider-log rows — the same 7-day-pruned table the
+// eligibility gate read — so the operator's "last tested" display ALSO went
+// blank after a week, right as the Offer silently became ineligible. It now
+// reads the durable verdict timestamp (migration 0057), the same column
+// LEADGEN_TEST_STATUS_SUBSELECT resolves, so the display and the gate can
+// never disagree. Fail-open: a read error yields null.
 async function offerLastTestAt(db: D1Database, offerPublicId: string): Promise<string | null> {
   try {
     const row = await db
-      .prepare(
-        `SELECT MAX(created_at) AS t FROM leadgen_provider_request_log
-          WHERE offer_public_id = ? AND auction_instance_id IS NULL`,
-      )
+      .prepare("SELECT last_test_at AS t FROM leadgen_offers WHERE public_id = ?")
       .bind(offerPublicId)
       .first<{ t: number | null }>();
     const t = row?.t;

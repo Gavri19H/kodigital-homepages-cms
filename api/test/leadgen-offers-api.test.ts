@@ -134,6 +134,7 @@ const LEADGEN_MIGRATIONS = [
   "0051_leadgen_rework_m7_slider_collapse.sql",
   "0052_leadgen_rework_m9_address_fields.sql",
   "0053_leadgen_rework_m12_othergroup_retirement.sql",
+  "0057_leadgen_offer_test_verdict.sql",
 ] as const;
 
 function createLeadgenDb(DatabaseSync: DatabaseSyncCtor): SqliteDb {
@@ -1894,6 +1895,12 @@ async function f10ReadyOffer(
       "INSERT INTO leadgen_provider_request_log (offer_public_id, environment, status_code) VALUES (?, 'production', 200)",
     )
     .run(offer.public_id);
+  // 0057: §5.1 reads the DURABLE verdict on the Offer, not the pruned log row.
+  sdb
+    .prepare(
+      "UPDATE leadgen_offers SET last_test_status = 'passed', last_test_at = unixepoch(), last_test_source = 'test' WHERE public_id = ?",
+    )
+    .run(offer.public_id);
   // v1 WITH the parser — the operator's "define the currency handling" save.
   const res = await admin.request(
     `${API}/offers/${offer.id}/payload-schemas`,
@@ -2080,24 +2087,41 @@ describeDb("offer detail last_test_at — §6.1 right-column chip source", () =>
     expect(detail.last_test_at).toBeNull();
   });
 
-  it("returns MAX(created_at) of TEST-TOOL rows as an ISO string; runtime auction rows NEVER count", async () => {
+  // OWNER 2026-09-03 ("No results at all appear now, when the funnel is
+  // complete"): this used to assert MAX(created_at) over the Offer's Test-tool
+  // `leadgen_provider_request_log` rows. That table is pruned to SEVEN DAYS by
+  // the §30.3 retention cron, so both this chip AND the §5.1 eligibility gate
+  // that shared the derivation went blank a week after a Test — the Offer
+  // silently became `test_untested`, the auction excluded it before calling any
+  // provider, and the visitor got an empty results page. Both now read the
+  // DURABLE verdict on the Offer (migration 0057).
+  it("reads the DURABLE verdict timestamp, so it SURVIVES the 7-day provider-log prune", async () => {
     const { sdb, env } = newHarness();
     const offer = await createOffer(env);
-    const t1 = 1_783_000_000;
-    const t2 = 1_783_100_000; // newer TEST row (failed — status still counts for the timestamp)
-    const t3 = 1_783_200_000; // newest of all — but an AUCTION row (auction_instance_id set)
-    const seed = sdb.prepare(
-      "INSERT INTO leadgen_provider_request_log (offer_public_id, environment, status_code, auction_instance_id, created_at) VALUES (?, 'production', ?, ?, ?)",
-    );
-    seed.run(offer.public_id, 200, null, t1);
-    seed.run(offer.public_id, 500, null, t2);
-    seed.run(offer.public_id, 200, "lgai_runtime_row", t3);
+    const testedAt = 1_783_100_000;
+    // the Test tool writes BOTH: the log row (its trace) and the verdict
+    sdb.prepare(
+      "INSERT INTO leadgen_provider_request_log (offer_public_id, environment, status_code, auction_instance_id, created_at) VALUES (?, 'production', 200, NULL, ?)",
+    ).run(offer.public_id, testedAt);
+    sdb.prepare(
+      "UPDATE leadgen_offers SET last_test_status = 'passed', last_test_at = ?, last_test_source = 'test' WHERE public_id = ?",
+    ).run(testedAt, offer.public_id);
 
-    const res = await admin.request(`${API}/offers/${offer.id}`, {}, env);
-    const detail = (await res.json()) as { last_test_at: string | null };
-    // the auction_instance_id IS NULL discipline (mirrors last_test_status):
-    // t3 is invisible; the newest TEST row wins.
-    expect(detail.last_test_at).toBe(new Date(t2 * 1000).toISOString());
+    const before = (await (await admin.request(`${API}/offers/${offer.id}`, {}, env)).json()) as {
+      last_test_at: string | null;
+    };
+    expect(before.last_test_at).toBe(new Date(testedAt * 1000).toISOString());
+
+    // FAIL-BEFORE/PASS-AFTER: the retention cron deletes every provider-log row
+    // (retention.ts PROVIDER_LOG_RETENTION_SECONDS = 7 days). The chip used to
+    // go null here; now it holds.
+    sdb.prepare("DELETE FROM leadgen_provider_request_log").run();
+    const after = (await (await admin.request(`${API}/offers/${offer.id}`, {}, env)).json()) as {
+      last_test_at: string | null;
+    };
+    expect(after.last_test_at, "the prune must not erase the operator's last-tested fact").toBe(
+      new Date(testedAt * 1000).toISOString(),
+    );
   });
 
   it("another offer's test rows never leak in (.bind-scoped by public_id)", async () => {
@@ -2520,27 +2544,35 @@ describeDb("A3 usage inventory — populated fixture (07 §7.4)", () => {
 // --- F5 (07 §7.1): the additive per-row list test_status chip field ----------
 
 describeDb("GET /offers — F5 §7.1 per-row test_status chip field", () => {
-  it("derives passed/failed/untested from the LATEST TEST-TOOL run; runtime auction rows never count", async () => {
+  // OWNER 2026-09-03: the chip used to re-derive from the newest Test-tool
+  // provider-log row — the 7-day-pruned table — which is what emptied his
+  // results page. It now reads the durable verdict (migration 0057); an Offer
+  // that was never tested is still `untested`, so the gate keeps its teeth.
+  it("reads the durable verdict per row, and SURVIVES the provider-log prune", async () => {
     const { sdb, env } = newHarness();
     const passed = await createOffer(env, { offer_name: "PassedOffer", placements: ["ts-1"] });
     const failed = await createOffer(env, { offer_name: "FailedOffer", placements: ["ts-2"] });
-    const untested = await createOffer(env, { offer_name: "UntestedOffer", placements: ["ts-3"] });
-    const seed = sdb.prepare(
-      "INSERT INTO leadgen_provider_request_log (offer_public_id, environment, status_code, auction_instance_id, created_at) VALUES (?, 'production', ?, ?, ?)",
+    await createOffer(env, { offer_name: "UntestedOffer", placements: ["ts-3"] });
+    const verdict = sdb.prepare(
+      "UPDATE leadgen_offers SET last_test_status = ?, last_test_at = ?, last_test_source = 'test' WHERE public_id = ?",
     );
-    seed.run(passed.public_id, 500, null, 1_000); // older FAIL…
-    seed.run(passed.public_id, 200, null, 2_000); // …the NEWEST test run passes
-    seed.run(failed.public_id, 200, null, 1_000); // older pass…
-    seed.run(failed.public_id, 503, null, 2_000); // …the newest fails
-    seed.run(untested.public_id, 200, "lgai_runtime_row", 3_000); // AUCTION row — invisible to the chip
+    verdict.run("passed", 2_000, passed.public_id);
+    verdict.run("failed", 2_000, failed.public_id);
+    // an AUCTION-sourced verdict is equally durable: an Offer answering live
+    // traffic must never decay into `untested` (the outage class).
+    sdb.prepare(
+      "INSERT INTO leadgen_provider_request_log (offer_public_id, environment, status_code, auction_instance_id, created_at) VALUES (?, 'production', 200, 'lgai_runtime_row', 3_000)",
+    ).run(passed.public_id);
 
+    // the prune wipes every log row; the chips must not move
+    sdb.prepare("DELETE FROM leadgen_provider_request_log").run();
     const res = await admin.request(`${API}/offers`, {}, env);
     expect(res.status).toBe(200);
     const items = ((await res.json()) as { items: Array<{ offer_name: string; test_status: string }> }).items;
     const byName = new Map(items.map((i) => [i.offer_name, i.test_status]));
     expect(byName.get("PassedOffer")).toBe("passed");
     expect(byName.get("FailedOffer")).toBe("failed");
-    expect(byName.get("UntestedOffer"), "no TEST-TOOL rows → untested").toBe("untested");
+    expect(byName.get("UntestedOffer"), "never tested → untested (the gate still refuses it)").toBe("untested");
   });
 });
 

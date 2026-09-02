@@ -112,6 +112,7 @@ const LEADGEN_MIGRATIONS = [
   "0051_leadgen_rework_m7_slider_collapse.sql",
   "0052_leadgen_rework_m9_address_fields.sql",
   "0053_leadgen_rework_m12_othergroup_retirement.sql",
+  "0057_leadgen_offer_test_verdict.sql",
 ] as const;
 
 export function createLeadgenDb(DatabaseSync: DatabaseSyncCtor): SqliteDb {
@@ -297,10 +298,17 @@ const CARRIER_PARSE = JSON.stringify({
   fields: { carrier_name: "name", bid: "bid", click_url: "url", carrier_logo: "logo" },
 });
 
+// OWNER 2026-09-03: the §5.1 Test verdict is a DURABLE column on the Offer
+// (migration 0057), no longer re-derived from a `leadgen_provider_request_log`
+// row that the 7-day retention cron deletes. The log row is still seeded — the
+// analytics assertions read it — but eligibility now comes from the Offer.
 function seedOfferTestStatus(sdb: SqliteDb, offerPublicId: string, status: "passed" | "failed"): void {
   sdb
     .prepare("INSERT INTO leadgen_provider_request_log (offer_public_id, environment, status_code) VALUES (?, 'production', ?)")
     .run(offerPublicId, status === "passed" ? 200 : 500);
+  sdb
+    .prepare("UPDATE leadgen_offers SET last_test_status = ?, last_test_at = unixepoch(), last_test_source = 'test' WHERE public_id = ?")
+    .run(status, offerPublicId);
 }
 
 export function seedAuctionOffer(sdb: SqliteDb): SeededOffer {

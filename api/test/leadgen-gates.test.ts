@@ -164,6 +164,7 @@ const LEADGEN_MIGRATIONS = [
   "0051_leadgen_rework_m7_slider_collapse.sql",
   "0052_leadgen_rework_m9_address_fields.sql",
   "0053_leadgen_rework_m12_othergroup_retirement.sql",
+  "0057_leadgen_offer_test_verdict.sql",
 ] as const;
 
 const TENANT_HOST = "one.example.com";
@@ -435,6 +436,8 @@ function seedDynamicAuctionForVariant(
     sdb
       .prepare("INSERT INTO leadgen_provider_request_log (offer_public_id, environment, status_code) VALUES (?, 'production', ?)")
       .run(offerPublicId, testStatus === "passed" ? 200 : 500);
+    // 0057: eligibility reads the DURABLE verdict on the Offer.
+    sdb.prepare("UPDATE leadgen_offers SET last_test_status = ?, last_test_at = unixepoch(), last_test_source = 'test' WHERE public_id = ?").run(testStatus, offerPublicId);
   }
   return { offerPublicId, offerId: offer.id, auctionId: auction.id, placementExternalId };
 }
