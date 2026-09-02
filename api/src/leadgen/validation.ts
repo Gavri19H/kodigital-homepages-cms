@@ -709,12 +709,10 @@ export interface LeadgenOfferEligibilityRow {
   verdict: LeadgenDynamicEligibilityVerdict;
 }
 
-// The Offer's Test status = the newest TEST-TOOL provider_request_log row
-// (auction_instance_id IS NULL — runtime auction rows never flip an Offer's
-// Test verdict; §5.1 test_untested/test_failed is the OPERATOR Test status):
-// 2xx → passed; a non-null non-2xx status → failed; no rows OR a
-// transport-error row (NULL status_code — the request never returned) →
-// untested (m4: both non-passed codes block eligibility identically).
+// The Offer's Test status: 'passed' (the last provider call answered 2xx),
+// 'failed' (it answered non-2xx), or NULL = never tested. A transport error —
+// the request never returned — writes NO verdict and leaves the last real
+// answer standing (m4: both non-passed values block eligibility identically).
 // OWNER 2026-09-03 ("No results at all appear now, when the funnel is
 // complete"): this USED to read the newest Test-tool row out of
 // `leadgen_provider_request_log` — a table the §30.3 retention cron prunes to
