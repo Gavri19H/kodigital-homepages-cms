@@ -204,6 +204,33 @@ describe("Conversions disabled route shell", () => {
     expect((await admin.request("/admin/conversions/unknown", {}, enabled)).status).toBe(404);
   });
 
+  // OWNER 2026-09-08 opened the tab as "cms.kodigital.app/admin/conversions/".
+  // The trailing slash that a browser address bar and a pasted link both keep
+  // matched no route and answered 404 while the product was healthy.
+  it("serves the same shell for the trailing-slash form of every section URL", async () => {
+    const enabled = env({ CONVERSIONS_UI_ENABLED: "true" });
+    const cases = [
+      ["/admin/conversions/", "flows", "ko-conversions-root"],
+      ["/admin/conversions/flows/", "flows", "ko-conversions-root"],
+      ["/admin/conversions/connections/", "connections", "ko-conversions-root"],
+      ["/admin/conversions/activity/", "activity", "ko-conversions-root"],
+      ["/admin/conversions/controls/", "controls", "ko-conversions-root"],
+      ["/admin/reporting/", "reports", "ko-reporting-root"],
+    ] as const;
+    for (const [path, page, rootId] of cases) {
+      const response = await admin.request(path, {}, enabled);
+      expect(response.status, path).toBe(200);
+      const html = await response.text();
+      expect(html, path).toContain(`id="${rootId}"`);
+      expect(html, path).toContain(`data-page="${page}"`);
+    }
+    // The relaxation is exact-path only: unknown sections keep 404ing, with or
+    // without the slash, so this cannot become a catch-all.
+    for (const path of ["/admin/conversions/unknown/", "/admin/conversions//", "/admin/reporting/x/y/"]) {
+      expect((await admin.request(path, {}, enabled)).status, path).toBe(404);
+    }
+  });
+
   it("does not reflect query or route identifiers into shell markup", async () => {
     const marker = "INJECTED_MARKER_42";
     for (const path of [`/admin/conversions?state=${marker}&bootstrap=true`, `/admin/conversions/flows/${marker}`]) {
