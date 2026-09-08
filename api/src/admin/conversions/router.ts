@@ -236,8 +236,15 @@ function renderPage(c: ConversionsContext, page: ShellPage): Response {
   });
 }
 
+// OWNER 2026-09-08 reported the tab against "cms.kodigital.app/admin/conversions/"
+// — with the trailing slash that a browser address bar and a pasted link both
+// keep. Only the slashless form was registered, so that URL answered 404 while
+// the product was healthy. Serve the same shell for both: the client's
+// routeMode() treats any unrecognized path as the section list, so a trailing
+// slash lands on the list rather than a dead route.
 for (const [path, page] of PAGE_BY_PATH) {
   conversionsUi.get(path, (c) => renderPage(c, page));
+  conversionsUi.get(`${path}/`, (c) => renderPage(c, page));
 }
 
 // Exact section-6 detail/create URLs use the same non-reflecting product shell.

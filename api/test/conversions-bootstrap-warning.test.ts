@@ -82,7 +82,11 @@ function app({ duplicate = false } = {}): Hono<{
 }
 
 function warningCount(html: string): number {
-  return html.match(/data-conversions-bootstrap-warning="critical"/g)?.length ?? 0;
+  return html.match(/data-conversions-bootstrap-warning="/g)?.length ?? 0;
+}
+
+function warningKind(html: string): string | null {
+  return html.match(/data-conversions-bootstrap-warning="([a-z]+)"/)?.[1] ?? null;
 }
 
 describe("Conversions permanent-authority warning", () => {
@@ -95,7 +99,7 @@ describe("Conversions permanent-authority warning", () => {
       && entry.includes("m.status='active'") && entry.includes("w.status='active'"))).toBe(true);
   });
 
-  it("renders exactly one non-secret critical block for every authority failure class", async () => {
+  it("renders exactly one non-secret block for every authority failure class", async () => {
     const failures = [
       environment([]),
       environment([authorityRow(), authorityRow({ workspace_id: "0198f0aa-0000-7000-8000-000000000004" })]),
@@ -107,12 +111,38 @@ describe("Conversions permanent-authority warning", () => {
       const response = await app().request("https://cms.example/admin/reporting/example", {}, bindings);
       const html = await response.text();
       expect(warningCount(html)).toBe(1);
-      expect(html).toContain("permanent Conversions authority is unavailable");
-      expect(html).toContain("Production effects remain blocked");
       expect(html).not.toContain("operator@example.com");
       expect(html).not.toContain(WORKSPACE_ID);
       expect(response.headers.get("content-length")).toBeNull();
     }
+  });
+
+  // OWNER 2026-09-08: the reported symptom was a second person seeing
+  // "permanent Conversions authority is unavailable. Production effects remain
+  // blocked." while the product was healthy and their account simply had no
+  // membership. An unenrolled account must never be reported as an outage.
+  it("tells an unenrolled account it is unenrolled, not that the system is down", async () => {
+    // No matching principal row — exactly the second person's production state.
+    const html = await (await app().request(
+      "https://cms.example/admin/conversions", {}, environment([]),
+    )).text();
+    expect(warningKind(html)).toBe("forbidden");
+    expect(html).toContain("not set up for Conversions");
+    expect(html).toContain("accountable owner");
+    expect(html).not.toContain("authority is unavailable");
+    expect(html).not.toContain("Production effects remain blocked");
+    expect(html).not.toContain("operator@example.com");
+    expect(html).not.toContain(WORKSPACE_ID);
+  });
+
+  it("still reports a genuine authority outage as an outage", async () => {
+    const html = await (await app().request(
+      "https://cms.example/admin/conversions", {}, environment([authorityRow()], { fail: true }),
+    )).text();
+    expect(warningKind(html)).toBe("unavailable");
+    expect(html).toContain("permanent Conversions authority is unavailable");
+    expect(html).toContain("Production effects remain blocked");
+    expect(html).not.toContain("not set up for Conversions");
   });
 
   it("is scoped to Conversions and Reporting HTML surfaces only", async () => {
