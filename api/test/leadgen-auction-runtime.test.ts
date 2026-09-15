@@ -217,6 +217,8 @@ interface SeedOfferOpts {
   // identity/brand as CONSTANTS, so its carrier_parse_json is a different shape
   // from the shared CPC one above.
   carrierParse?: string;
+  // A bespoke payload schema_json (the default is an empty object root).
+  schemaJson?: string;
 }
 
 // Seed the Offer's Test verdict: one TEST-TOOL provider_request_log row
@@ -265,9 +267,9 @@ function seedOffer(sdb: SqliteDb, opts: SeedOfferOpts = {}): SeededOffer {
   // Payload schema (+ carrier_parse_json). A payload token node when the secret
   // is placed in the payload.
   const schemaPublic = mintPublicId("payload_schema_version");
-  const schemaJson = opts.tokenInPayload
+  const schemaJson = opts.schemaJson ?? (opts.tokenInPayload
     ? JSON.stringify({ version: 1, root: { type: "object", children: [{ path: "auth", name: "auth", type: "string", source: "token" }] } })
-    : JSON.stringify({ version: 1, root: { type: "object", children: [] } });
+    : JSON.stringify({ version: 1, root: { type: "object", children: [] } }));
   sdb
     .prepare(
       "INSERT INTO leadgen_offer_payload_schemas (public_id, offer_id, version, schema_json, carrier_parse_json, carrier_parse_version, source) VALUES (?, ?, 1, ?, ?, 1, 'manual')",
@@ -349,12 +351,12 @@ function attachOffer(sdb: SqliteDb, auctionId: number, o: SeededOffer, staticOrd
 
 // A minimal ResolvedActivatedFunnel for the engine (anti-tamper needs variant +
 // sections; the pipeline reads variant.public_id/content_version + funnel id).
-function makeResolved(sections: Array<{ public_id: string; content_version: number }> = []): ResolvedActivatedFunnel {
+function makeResolved(sections: Array<{ public_id: string; content_version: number; content_json?: string }> = []): ResolvedActivatedFunnel {
   const sectionRows = sections.map((s, i) => ({
     position: i,
     // Stable numeric ids (i+1) so the v2 answer_mapping_hash recomputation
     // (computeAttemptBindingExtras — keyed on section.id) has a real key.
-    section: { id: i + 1, public_id: s.public_id, content_version: s.content_version, content_json: '{"components":[]}' } as unknown as LeadgenSectionRow,
+    section: { id: i + 1, public_id: s.public_id, content_version: s.content_version, content_json: s.content_json ?? '{"components":[]}' } as unknown as LeadgenSectionRow,
   }));
   return {
     site_quote: { id: 1, site_id: "site-1", quote_id: 1, enabled: 1, slug: null, settings_overrides_json: null, created_at: 0, updated_at: 0 },
@@ -526,6 +528,138 @@ describeDb("leadgen §19 runtime — pipeline branches (mocked providers)", () =
     // "carriers_unparsed" (the parser worked) — the carrier reached render and
     // was dropped there.
     expect(result.explain.unfilled_reason).toBe("carriers_dropped_at_render");
+  });
+
+  // -------------------------------------------------------------------------
+  // OWNER 2026-09-15 — the calculated answer never reached the live POST.
+  //
+  // His "Business duration" section (lgs_01KY25WJYW6PWJHKEWYN6Y5BZP) authors
+  // "2+ Years" with value_calc {kind:"date_ago", amount:2, unit:"years"} — the
+  // 2026-08-27 feature whose whole point is that a duration question can send a
+  // DATE. normalizeAnswers computes it. runAuction destructured only the
+  // `answers` half and threw `computed` away, and fetch.ts never passed
+  // answer_computed to buildPayload, so the live POST carried the raw saved
+  // value "2". Fundera answered
+  //   {"success":false,"errors":{"company":{"business_inception":
+  //    "is not a valid date"}}}
+  // (leadgen_provider_request_log row 213, 2026-09-15 13:23 UTC).
+  //
+  // Asserted on the BYTES ACTUALLY POSTED, not on an intermediate.
+  // -------------------------------------------------------------------------
+
+  // The choice list from his live section, verbatim.
+  const BUSINESS_DURATION_FIELD = "field_mrujqnc5_2e5a";
+  const BUSINESS_DURATION_CONTENT = JSON.stringify({
+    components: [
+      {
+        internal_field: BUSINESS_DURATION_FIELD,
+        required: false,
+        answer_type: "enum",
+        type: "ButtonAnswerGroup",
+        question_id: "q_mrujqnc5_2e5a",
+        choices: [
+          { label: "2+ Years", value: "2", value_calc: { kind: "date_ago", amount: 2, unit: "years" }, analytics_id: "2" },
+          { label: "1-2 Years", value: "1", value_calc: { kind: "date_ago", amount: 1, unit: "years" }, analytics_id: "1" },
+          { label: "6-12 Months", value: "0.5", value_calc: { kind: "date_ago", amount: 6, unit: "months" }, analytics_id: "0.5" },
+          { label: "Haven't started yet", value: "0", analytics_id: "0" },
+        ],
+      },
+    ],
+  });
+
+  function seedDurationBinding(sdb: SqliteDb, o: SeededOffer, sectionPublicId: string): void {
+    sdb
+      .prepare(
+        "INSERT INTO leadgen_sections (public_id, section_name, activity, vertical, headline_text, content_json, status) VALUES (?, 'Business duration', 'quote_funnel', 'life', 'How long?', ?, 'active')",
+      )
+      .run(sectionPublicId, BUSINESS_DURATION_CONTENT);
+    const section = sdb.prepare("SELECT id FROM leadgen_sections WHERE public_id = ?").get(sectionPublicId) as { id: number };
+    const schema = sdb.prepare("SELECT id, public_id FROM leadgen_offer_payload_schemas WHERE offer_id = ?").get(o.offer_id) as { id: number; public_id: string };
+    sdb
+      .prepare(
+        `INSERT INTO leadgen_section_answer_maps
+           (public_id, section_id, question_id, question_key, internal_field, answer_type, offer_id,
+            payload_schema_id, payload_schema_public_id, offer_payload_field_path, provider_expected_type,
+            mapping_status, validation_status)
+         VALUES (?, ?, 'q_mrujqnc5_2e5a', 'business_duration', ?, 'enum', ?, ?, ?, 'company.business_inception', 'string', 'complete', 'ok')`,
+      )
+      .run(mintPublicId("answer_field_map"), section.id, BUSINESS_DURATION_FIELD, o.offer_id, schema.id, schema.public_id);
+  }
+
+  const BUSINESS_INCEPTION_SCHEMA = JSON.stringify({
+    version: 1,
+    root: {
+      type: "object",
+      children: [{ path: "company.business_inception", name: "business_inception", type: "string", required: false, source: "answer" }],
+    },
+  });
+
+  it("FAIL-BEFORE/PASS-AFTER: a value_calc choice POSTs the calculated DATE, not the saved value", async () => {
+    const { sdb, env } = harness();
+    const auction = seedAuction(sdb);
+    const o1 = seedOffer(sdb, { schemaJson: BUSINESS_INCEPTION_SCHEMA });
+    attachOffer(sdb, auction.id, o1, 0);
+    const sectionPublicId = "lgs_duration000000000000000000";
+    seedDurationBinding(sdb, o1, sectionPublicId);
+    const calls = stubFetch(() => new Response(carrierBody([{ name: "Acme", bid: 12 }]), { status: 200 }));
+
+    const bundle = await loadAuctionBundle(env.DB, auction, 1);
+    await runAuction(
+      env,
+      {
+        resolved: makeResolved([{ public_id: sectionPublicId, content_version: 1, content_json: BUSINESS_DURATION_CONTENT }]),
+        bundle,
+        environment: "production",
+        binding: NO_BINDING,
+        session_id: null,
+        raw_answers: { [BUSINESS_DURATION_FIELD]: "2" },
+        clicked: [],
+      },
+      { dryRun: true },
+    );
+
+    expect(calls.length).toBe(1);
+    const posted = JSON.parse(String(calls[0]?.init.body ?? "{}")) as { company?: { business_inception?: unknown } };
+    const sent = posted.company?.business_inception;
+    // Before the fix this was the string "2" -- what Fundera called "not a
+    // valid date".
+    expect(sent).not.toBe("2");
+    expect(typeof sent).toBe("string");
+    expect(sent).toMatch(/^\d{4}-\d{2}-\d{2}$/);
+    // Exactly two years back from today, UTC (evaluateChoiceCalc's own rule).
+    const now = new Date();
+    const expected = new Date(Date.UTC(now.getUTCFullYear() - 2, now.getUTCMonth(), now.getUTCDate()))
+      .toISOString()
+      .slice(0, 10);
+    expect(sent).toBe(expected);
+  });
+
+  it("a choice with NO value_calc still POSTs its literal saved value", async () => {
+    const { sdb, env } = harness();
+    const auction = seedAuction(sdb);
+    const o1 = seedOffer(sdb, { schemaJson: BUSINESS_INCEPTION_SCHEMA });
+    attachOffer(sdb, auction.id, o1, 0);
+    const sectionPublicId = "lgs_duration000000000000000001";
+    seedDurationBinding(sdb, o1, sectionPublicId);
+    const calls = stubFetch(() => new Response(carrierBody([{ name: "Acme", bid: 12 }]), { status: 200 }));
+
+    const bundle = await loadAuctionBundle(env.DB, auction, 1);
+    await runAuction(
+      env,
+      {
+        resolved: makeResolved([{ public_id: sectionPublicId, content_version: 1, content_json: BUSINESS_DURATION_CONTENT }]),
+        bundle,
+        environment: "production",
+        binding: NO_BINDING,
+        session_id: null,
+        raw_answers: { [BUSINESS_DURATION_FIELD]: "0" }, // "Haven't started yet" — no calc
+        clicked: [],
+      },
+      { dryRun: true },
+    );
+
+    const posted = JSON.parse(String(calls[0]?.init.body ?? "{}")) as { company?: { business_inception?: unknown } };
+    expect(posted.company?.business_inception).toBe("0");
   });
 
   it("no-bid: an all-zero-bid Offer has no winner (winner-only surfacing → no_bid)", async () => {

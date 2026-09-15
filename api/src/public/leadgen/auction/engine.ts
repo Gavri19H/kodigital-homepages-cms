@@ -1149,13 +1149,24 @@ export async function runAuction(
   // values). Merge each section's normalized answers into one internal space.
   // The admin dry-run may instead supply the internal answer space directly.
   const normalizedAnswers: Record<string, unknown> = {};
+  // OWNER 2026-09-15 (moneylantern.com/lg/business-loans) — normalizeAnswers
+  // returns TWO halves, and this loop was keeping only the first. The second is
+  // the 2026-08-27 per-answer `value_calc` result: the ISO date a selected
+  // choice calculates ("2+ Years" carries {kind:date_ago, amount:2,
+  // unit:years}). It was dropped here and never reached buildPayload, so his
+  // Fundera POST carried business_inception "2" -- the raw saved value -- and
+  // came back {"success":false,"errors":{"company":{"business_inception":"is
+  // not a valid date"}}} (leadgen_provider_request_log row 213). The feature
+  // was built, validated and authored; only the live auction never used it.
+  const answerComputed: Record<string, string> = {};
   if (input.normalizedAnswersOverride !== undefined) {
     for (const [field, value] of Object.entries(input.normalizedAnswersOverride)) normalizedAnswers[field] = value;
   } else {
     for (const rs of input.resolved.sections) {
       const content = sectionContent(rs.section.content_json);
-      const { answers } = normalizeAnswers(content, input.raw_answers);
+      const { answers, computed } = normalizeAnswers(content, input.raw_answers);
       for (const [field, value] of Object.entries(answers)) normalizedAnswers[field] = value;
+      for (const [field, value] of Object.entries(computed)) answerComputed[field] = value;
     }
   }
   // The S21.4 evaluation namespace: request dims (device/geo) UNDER the
@@ -1331,6 +1342,7 @@ export async function runAuction(
         ctx: {
           answers: normalizedAnswers,
           answer_bindings: answerBindings.get(b.offer.id) ?? {},
+          answer_computed: answerComputed,
           macros: ctx.macros,
           computed: ctx.computed,
           offer: ctx.offer,
