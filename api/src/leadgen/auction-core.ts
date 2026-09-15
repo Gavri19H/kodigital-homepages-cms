@@ -389,8 +389,21 @@ export interface BackfillInput {
 //                        (his case: a real 32.50 bid dropped because the parse
 //                        config named identity fields the response lacks)
 //   no_carriers_returned — every provider answered, none offered anything
+//
+// OWNER 2026-09-15 (moneylantern.com/lg/business-loans) — a fourth, because
+// three still could not describe his empty page honestly:
+//   carriers_dropped_at_render — carriers WERE parsed and survived rules, floor
+//                        and surfacing, then every one was dropped at banner
+//                        render (no click destination / a required {response:*}
+//                        field the answer did not carry). Saying
+//                        "all_carriers_shown" there repeats the 2026-08-27 lie
+//                        on a fresh session; saying "carriers_unparsed" blames
+//                        a parser that worked. The per-carrier
+//                        carrier_filtered_reason on the same result carries
+//                        WHICH drop it was.
 export const LEADGEN_UNFILLED_REASONS = [
   "all_carriers_shown",
+  "carriers_dropped_at_render",
   "carriers_unparsed",
   "no_carriers_returned",
 ] as const;

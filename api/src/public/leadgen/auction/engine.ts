@@ -77,6 +77,7 @@ import {
 } from "../../../leadgen/auction-core";
 import {
   parseProviderResponse,
+  parseStaticBidProviderResponse,
   slugifyCarrierName,
   type LeadgenParseError,
   type LeadgenParsedCarrier,
@@ -851,6 +852,14 @@ function callsProvider(offer: LeadgenOfferRow): boolean {
   return offer.calls_provider_api === 1;
 }
 
+// The CPL third of 04 S10.2: `request_static_bid` — it DOES call the provider
+// (so callsProvider is true and a payload is POSTed) but its bid is the Offer's
+// static one and the answer is an accept/reject, not a carrier list. It needs
+// parseStaticBidProviderResponse, never the CPC carrier-list parser.
+function staticBidProviderOffer(offer: LeadgenOfferRow): boolean {
+  return callsProvider(offer) && offer.bid_source === "static";
+}
+
 // Synthesize the single canonical Carrier a static_no_request Offer contributes
 // (07 S18.2 static surfacing) from its static config.
 function staticCarrier(offer: LeadgenOfferRow, staticBidOverride: number | null): LeadgenParsedCarrier {
@@ -1436,9 +1445,25 @@ export async function runAuction(
       // only surviving raw provider bytes are in the encrypt-only debug record;
       // an echoed credential can never become public carrier copy or a URL.
       const responseContext = result?.parsed ?? (result?.body ?? null);
+      // OWNER 2026-09-15 (moneylantern.com/lg/business-loans): a
+      // `request_static_bid` Offer — calls_provider_api=1 AND
+      // bid_source='static', the admin's "Provider request · static bid (CPL)"
+      // — was routed through the CPC carrier-list parser, which reads every
+      // configured field as a dotted path into a carrier item. A CPL answer is
+      // an accept/reject with no carrier list, so its identity/brand fields are
+      // CONSTANTS; all of them resolved to undefined and the carrier was dropped
+      // for having no identity. The CPL half now has its own parser (literal by
+      // default, `{response:…}` reads the answer) seeded from the Offer's own
+      // static carrier, so identity can never be underivable.
       const parseResult = result === undefined
         ? { carriers: [], errors: [] }
-        : parseProviderResponse(b.carrier_parse_json, result.parsed ?? result.body ?? "");
+        : staticBidProviderOffer(b.offer)
+          ? parseStaticBidProviderResponse(
+              b.carrier_parse_json,
+              result.parsed ?? result.body ?? "",
+              staticCarrier(b.offer, b.static_bid_override),
+            )
+          : parseProviderResponse(b.carrier_parse_json, result.parsed ?? result.body ?? "");
       parsedByRow.set(rowKey(b.offer.public_id, b.placement_public_id), parseResult.carriers);
       parsedByOffer.set(b.offer.public_id, parseResult.carriers);
       // OWNER 2026-08-27: "I finished to build this funnel, clicked it to the end
@@ -1631,8 +1656,13 @@ export async function runAuction(
   const renderedSlots: RenderedBannerSlot[] = [...primaryRender.slots];
   // A banner drop (missing click_url / required response field) is a filtered
   // carrier (S29 dedicated reason).
+  // Keyed separately from carriersFiltered (which also holds rule/floor/
+  // include-only filters) so the unfilled_reason below can tell "the banner
+  // layer dropped everything" from "the pool was exhausted".
+  const bannerDroppedKeys = new Set<string>();
   for (const d of primaryRender.dropped) {
     carriersFiltered.push({ carrier_key: d.carrier_key, offer_id: d.offer_public_id, carrier_filtered_reason: d.carrier_filtered_reason });
+    bannerDroppedKeys.add(metaKey(d.offer_public_id, d.carrier_key));
   }
 
   // Step 15: backfill on trigger. The auction-time trigger is
@@ -1665,6 +1695,7 @@ export async function runAuction(
       htmlOut = htmlOut + backfillRender.html;
       for (const d of backfillRender.dropped) {
         carriersFiltered.push({ carrier_key: d.carrier_key, offer_id: d.offer_public_id, carrier_filtered_reason: d.carrier_filtered_reason });
+        bannerDroppedKeys.add(metaKey(d.offer_public_id, d.carrier_key));
       }
     }
   }
@@ -1679,14 +1710,24 @@ export async function runAuction(
     // diagnosis the product offered was false. Order matters — an unparsed
     // carrier is a CONFIG fault the operator can fix, and it out-ranks
     // "nobody bid", which is the market's answer and not actionable.
+    //
+    // OWNER 2026-09-15 — and a carrier that reached banner render and was
+    // dropped there out-ranks BOTH: the parser worked, the pool was never
+    // exhausted, and the actionable fact is the drop (its
+    // carrier_filtered_reason is on the same result). Without this a CPL Offer
+    // whose provider declined the lead reported "all_carriers_shown" on a
+    // fresh session — the 2026-08-27 lie, one layer later.
     if (unfilledReason === null) {
       const anyParseErrors = parseErrorsByOffer.size > 0;
       const anyCarriers = [...parsedByOffer.values()].some((list) => list.length > 0);
-      unfilledReason = anyParseErrors
-        ? "carriers_unparsed"
-        : anyCarriers
-          ? "all_carriers_shown"
-          : "no_carriers_returned";
+      const anyRenderDrops = bannerDroppedKeys.size > 0;
+      unfilledReason = anyRenderDrops
+        ? "carriers_dropped_at_render"
+        : anyParseErrors
+          ? "carriers_unparsed"
+          : anyCarriers
+            ? "all_carriers_shown"
+            : "no_carriers_returned";
     }
     status = winner.winner === null && surfaced.length === 0 ? "no_bid" : "unfilled";
   }
