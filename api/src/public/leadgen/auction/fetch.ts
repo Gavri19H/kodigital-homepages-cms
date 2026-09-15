@@ -171,6 +171,13 @@ export interface FetchProviderContext {
   answer_bindings?: Readonly<Record<string, readonly LeadgenAnswerBinding[]>>;
   macros?: Readonly<Record<string, string>>;
   computed?: Readonly<Record<string, unknown>>;
+  // OWNER 2026-09-15 — the PER-ANSWER calculated values (normalizeAnswers'
+  // `computed` half), keyed by internal_field: the ISO date a selected choice's
+  // `value_calc` produced. A DISTINCT channel from `computed` above, which is
+  // keyed by a node's own `computed` name. Without it a source:"answer" node
+  // bound to a calculated choice sends the raw saved value, which is what made
+  // his business_inception go out as "2" and come back "is not a valid date".
+  answer_computed?: Readonly<Record<string, string>>;
   // The Offer in scope (04 §4.5) — buildPayload's source:"placement" resolves
   // from offer.placement_id. Bridged from LeadGenRuntimeContext.offer.
   offer?: Readonly<{ offer_id?: string; offer_name?: string; placement_id?: string }>;
@@ -320,6 +327,7 @@ export async function fetchProvider(
     ...(ctx.answer_bindings !== undefined ? { answer_bindings: ctx.answer_bindings } : {}),
     macros: macroValues,
     ...(ctx.computed !== undefined ? { computed: ctx.computed } : {}),
+    ...(ctx.answer_computed !== undefined ? { answer_computed: ctx.answer_computed } : {}),
     ...(ctx.offer !== undefined ? { offer: ctx.offer } : {}),
     ...(ctx.feed_name !== undefined ? { feed_name: ctx.feed_name } : {}),
     token: {
