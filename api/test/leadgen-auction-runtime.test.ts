@@ -213,6 +213,10 @@ interface SeedOfferOpts {
   // defaults to "passed" so pipeline-branch tests exercise participation; the
   // eligibility tests set "untested"/"failed" explicitly.
   testStatus?: "passed" | "failed" | "untested";
+  // OWNER 2026-09-15: a `request_static_bid` (CPL) Offer authors its carrier
+  // identity/brand as CONSTANTS, so its carrier_parse_json is a different shape
+  // from the shared CPC one above.
+  carrierParse?: string;
 }
 
 // Seed the Offer's Test verdict: one TEST-TOOL provider_request_log row
@@ -268,7 +272,7 @@ function seedOffer(sdb: SqliteDb, opts: SeedOfferOpts = {}): SeededOffer {
     .prepare(
       "INSERT INTO leadgen_offer_payload_schemas (public_id, offer_id, version, schema_json, carrier_parse_json, carrier_parse_version, source) VALUES (?, ?, 1, ?, ?, 1, 'manual')",
     )
-    .run(schemaPublic, offer.id, schemaJson, CARRIER_PARSE);
+    .run(schemaPublic, offer.id, schemaJson, opts.carrierParse ?? CARRIER_PARSE);
   const schema = sdb.prepare("SELECT id FROM leadgen_offer_payload_schemas WHERE public_id = ?").get(schemaPublic) as { id: number };
   sdb.prepare("UPDATE leadgen_offers SET active_payload_schema_id = ? WHERE id = ?").run(schema.id, offer.id);
 
@@ -446,6 +450,82 @@ describeDb("leadgen §19 runtime — pipeline branches (mocked providers)", () =
     const result = await runAuction(env, { resolved: makeResolved(), bundle, environment: "production", binding: NO_BINDING, session_id: null, raw_answers: {}, clicked: [] }, { dryRun: true });
     expect(result.explain.carriers_shown.length).toBe(0);
     expect(result.explain.providers_responded[0]?.provider_error_reason).toBe("malformed_response");
+  });
+
+  // -------------------------------------------------------------------------
+  // OWNER 2026-09-15 (moneylantern.com/lg/business-loans): "the offers in this
+  // funnel are CPL offers - we are sending request to the offer, and if the
+  // offer is responding- we should show the banner to the user. I tested it and
+  // never see results even though the offer is responding."
+  //
+  // A `request_static_bid` Offer (calls_provider_api=1 + bid_source='static')
+  // POSTs the lead and gets an ACCEPT/REJECT back — no carrier list — so its
+  // identity and brand are CONSTANTS in carrier_parse_json and only the
+  // per-lead URL is read from the answer. Routed through the CPC carrier-list
+  // parser those constants were read as dotted paths, all resolved undefined,
+  // and the carrier was dropped for having no identity: an empty page for an
+  // offer that had answered 200. Both halves are driven through the REAL engine
+  // here. The parse-level proof over his verbatim production config and
+  // Fundera's real bodies is in leadgen-cpl-static-bid.test.ts.
+  // -------------------------------------------------------------------------
+
+  const CPL_PARSE = JSON.stringify({
+    fields: {
+      provider_id: "1050",
+      carrier_name: "Fundera",
+      carrier_logo: "https://cdn.example/fundera.png",
+      click_url: "{response:matches.registration_url}",
+      headline: "It's a Match!",
+    },
+  });
+
+  it("CPL: an ACCEPTED provider answer renders the banner at the Offer's static bid", async () => {
+    const { sdb, env } = harness();
+    const auction = seedAuction(sdb, { multi_offer: "disabled", surface_static_bid_offers: 1 });
+    const cpl = seedOffer(sdb, { dynamic: true, bidSource: "static", staticBid: 1, carrierParse: CPL_PARSE });
+    // Production parity (leadgen_offers row 5): this Offer has NO static
+    // fallback URL, so the referral URL in the answer is the only destination.
+    sdb.prepare("UPDATE leadgen_offers SET static_fallback_banner_url = NULL WHERE id = ?").run(cpl.offer_id);
+    attachOffer(sdb, auction.id, cpl, 0);
+    const calls = stubFetch(
+      () =>
+        new Response(
+          JSON.stringify({ success: true, matches: { registration_url: "https://www.fundera.com/referral/560b178e" } }),
+          { status: 200 },
+        ),
+    );
+
+    const bundle = await loadAuctionBundle(env.DB, auction, 1);
+    const result = await runAuction(env, { resolved: makeResolved(), bundle, environment: "production", binding: NO_BINDING, session_id: null, raw_answers: {}, clicked: [] }, { dryRun: true });
+
+    expect(calls.length).toBe(1); // the CPL Offer DOES call its provider
+    expect(result.explain.carriers_shown.map((c) => c.carrier_key)).toEqual(["1050"]);
+    expect(result.explain.carriers_shown[0]?.bid).toBe(1); // static, not from the answer
+    expect(result.banners.length).toBe(1);
+    expect(result.banners_html).toContain("Fundera");
+    expect(result.explain.unfilled_reason).toBeNull();
+  });
+
+  it("CPL: a DECLINED answer shows nothing and says carriers_dropped_at_render", async () => {
+    const { sdb, env } = harness();
+    const auction = seedAuction(sdb, { multi_offer: "disabled", surface_static_bid_offers: 1 });
+    const cpl = seedOffer(sdb, { dynamic: true, bidSource: "static", staticBid: 1, carrierParse: CPL_PARSE });
+    // Production parity (leadgen_offers row 5): this Offer has NO static
+    // fallback URL, so the referral URL in the answer is the only destination.
+    sdb.prepare("UPDATE leadgen_offers SET static_fallback_banner_url = NULL WHERE id = ?").run(cpl.offer_id);
+    attachOffer(sdb, auction.id, cpl, 0);
+    // Fundera's real rejection shape: HTTP 200, success:false, no referral URL.
+    stubFetch(() => new Response(JSON.stringify({ success: false, errors: { owners: { 0: { email: "is required" } } } }), { status: 200 }));
+
+    const bundle = await loadAuctionBundle(env.DB, auction, 1);
+    const result = await runAuction(env, { resolved: makeResolved(), bundle, environment: "production", binding: NO_BINDING, session_id: null, raw_answers: {}, clicked: [] }, { dryRun: true });
+
+    expect(result.banners.length).toBe(0);
+    expect(result.carriers_filtered.map((c) => c.carrier_filtered_reason)).toContain("missing_click_url");
+    // NOT "all_carriers_shown" (nothing was ever shown) and NOT
+    // "carriers_unparsed" (the parser worked) — the carrier reached render and
+    // was dropped there.
+    expect(result.explain.unfilled_reason).toBe("carriers_dropped_at_render");
   });
 
   it("no-bid: an all-zero-bid Offer has no winner (winner-only surfacing → no_bid)", async () => {

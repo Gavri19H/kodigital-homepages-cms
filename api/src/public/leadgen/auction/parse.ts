@@ -480,3 +480,160 @@ export function parseProviderResponse(
 
   return { carriers: pending.map((entry) => entry.carrier), errors };
 }
+
+// ---------------------------------------------------------------------------
+// request_static_bid (CPL) — the accept/reject response shape
+// ---------------------------------------------------------------------------
+//
+// OWNER 2026-09-15: "https://moneylantern.com/lg/business-loans - the offers in
+// this funnel are CPL offers - we are sending request to the offer, and if the
+// offer is responding- we should show the banner to the user. I tested it and
+// never see results even though the offer is responding."
+//
+// MEASURED on a live run of his funnel (auction_instance
+// 01M2JJ0RYF4B8SK488GQZ715GJ, 2026-09-15 12:52 UTC): Fundera answered HTTP 200
+// in 206 ms and POST /lg/auction returned
+// {"status":"no_bid","banners":[],"unfilled_reason":"carriers_unparsed"} — a
+// blank results page, exactly as he described.
+//
+// A `request_static_bid` Offer (04 §10.2: calls_provider_api=1 AND
+// bid_source='static' — the admin's "Provider request · static bid (CPL)")
+// POSTs the lead and gets back an ACCEPT/REJECT, never a carrier list. That
+// answer carries no carrier identity, no brand and no logo, so the operator
+// supplies them as CONSTANTS in carrier_parse_json and reads only the per-lead
+// value out of the response. His stored config (offer lgo_01KY1ZZ1H28G54TW2BKXRJX6GX,
+// schema v21) is precisely that: provider_id "1050", carrier_name "Fundera", a
+// logo URL, a headline, a subheadline — and click_url
+// "{response:matches.registration_url}".
+//
+// parseProviderResponse reads EVERY field as a dotted path INTO a carrier item,
+// so "1050" meant item["1050"] and "Fundera" meant item.Fundera. All undefined
+// ⇒ no identity ⇒ carrier_key_underivable ⇒ the carrier was dropped ⇒ empty
+// page. Proven against Fundera's own SUCCESS body (the sample persisted on
+// schema v10, with a real referral URL): zero carriers there too — so the
+// banner could never render even for an ACCEPTED lead. Two syntaxes for two
+// jobs again, and this half had no implementation at all.
+//
+// So the CPL half is its own parser: a field is a LITERAL unless it is written
+// as the `{response:…}` macro the payload builder hands out as chips — the
+// convention he already authored to. Identity is never underivable here: a CPL
+// Offer IS the carrier, so the Offer's own synthesized static carrier supplies
+// the last-resort key, bid and currency.
+//
+// ACCEPTANCE IS NOT DECIDED HERE. A carrier with no resolvable destination is
+// dropped downstream by the banner layer with its dedicated `missing_click_url`
+// reason — which also honours the Offer's banner_url_template fallback, a
+// decision this pure function has no way to make.
+
+// Resolve ONE CPL field. A token written as the `{response:…}` macro reads the
+// provider response; anything else IS the value. First usable candidate wins,
+// so ["{response:matches.brand}", "Fundera"] reads "the provider's brand when
+// it sends one, the constant otherwise".
+function resolveStaticBidField(
+  root: unknown,
+  paths: LeadgenCarrierFieldPath | undefined,
+): string | null {
+  if (paths === undefined) return null;
+  const list = typeof paths === "string" ? [paths] : paths;
+  for (const candidate of list) {
+    if (typeof candidate !== "string") continue;
+    const token = candidate.trim();
+    if (token === "") continue;
+    const unwrapped = unwrapResponseMacro(token);
+    // Not a macro ⇒ the operator wrote a constant. Constants need no response.
+    if (unwrapped === token) return token;
+    const raw = getAtPath(root, unwrapped);
+    if (typeof raw === "string" && raw.trim() !== "") return raw;
+    if (typeof raw === "number" && Number.isFinite(raw)) return String(raw);
+  }
+  return null;
+}
+
+// Normalize a CPL (`request_static_bid`) provider response into the ONE
+// canonical Carrier that Offer contributes. `fallback` is the Offer's
+// synthesized static carrier (engine.ts staticCarrier) — it owns the bid
+// (bid_source='static' means the bid is the Offer's, never the response's) and
+// backs every field the config does not author. NEVER throws.
+export function parseStaticBidProviderResponse(
+  config: unknown,
+  rawResponse: unknown,
+  fallback: LeadgenParsedCarrier,
+): LeadgenParseResult {
+  const errors: LeadgenParseError[] = [];
+
+  if (!isRecord(config) || !isRecord(config["fields"])) {
+    return {
+      carriers: [],
+      errors: [
+        {
+          scope: "response",
+          code: "config_invalid",
+          message: "carrier_parse_json must be an object with a fields map",
+        },
+      ],
+    };
+  }
+  const fields = (config as unknown as LeadgenCarrierParseConfig).fields;
+
+  // The response is the `{response:…}` root. A provider that answers with no
+  // body or a non-JSON body still yields the carrier (its constants need no
+  // response, and the Offer may carry a banner_url_template) — but the fact is
+  // recorded so the provider log says what actually came back.
+  let root: unknown = null;
+  if (rawResponse === undefined || rawResponse === null || rawResponse === "") {
+    errors.push({ scope: "response", code: "empty_response", message: "provider response is empty" });
+  } else if (typeof rawResponse === "string") {
+    try {
+      root = JSON.parse(rawResponse);
+    } catch {
+      errors.push({
+        scope: "response",
+        code: "invalid_json",
+        message: "provider response is not valid JSON",
+      });
+    }
+  } else {
+    root = rawResponse;
+  }
+
+  const pick = (paths: LeadgenCarrierFieldPath | undefined, backup: string | null | undefined): string | null => {
+    const value = resolveStaticBidField(root, paths);
+    return value !== null ? value : (backup ?? null);
+  };
+
+  const providerId = resolveStaticBidField(root, fields.provider_id);
+  const carrierName = resolveStaticBidField(root, fields.carrier_name);
+  const slug = carrierName === null ? "" : slugifyCarrierName(carrierName);
+
+  // §18.8 identity order (provider id → slug), with the Offer's own key as the
+  // guaranteed last resort — a CPL carrier is never dropped for identity.
+  let carrierKey = fallback.carrier_key;
+  let carrierKeySource: LeadgenCarrierKeySource = fallback.carrier_key_source;
+  if (providerId !== null && providerId.trim() !== "") {
+    carrierKey = providerId.trim();
+    carrierKeySource = "provider_id";
+  } else if (slug !== "") {
+    carrierKey = slug;
+    carrierKeySource = "slug";
+  }
+
+  return {
+    carriers: [
+      {
+        carrier_key: carrierKey,
+        carrier_key_source: carrierKeySource,
+        carrier_name: carrierName !== null ? carrierName : (fallback.carrier_name ?? null),
+        carrier_logo: pick(fields.carrier_logo, fallback.carrier_logo),
+        bid: fallback.bid,
+        bid_currency: pick(fields.bid_currency, fallback.bid_currency),
+        click_url: pick(fields.click_url, fallback.click_url),
+        tracking_id: pick(fields.tracking_id, fallback.tracking_id),
+        headline: pick(fields.headline, fallback.headline),
+        subheadline: pick(fields.subheadline, fallback.subheadline),
+        disclaimer: pick(fields.disclaimer, fallback.disclaimer),
+        pricing_model: pick(fields.pricing_model, fallback.pricing_model ?? "static"),
+      },
+    ],
+    errors,
+  };
+}
