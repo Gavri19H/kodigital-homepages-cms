@@ -183,7 +183,16 @@ export function listicleCandidateKey(
 // unchanged /lg/runtime/2.js (max-age=31536000, immutable) would run framed
 // funnels with dead frame-back/history, frozen dots, ignored footer.show_on
 // and the a11y fix inert for up to a year. Same reason v2.4 bumped 1→2.
-export const LEADGEN_TEMPLATE_VERSION = 3 as const;
+// v4 (2026-09-16, the buffering screen): the engine bytes changed again — the
+// ONE line that stamps data-lg-auction="pending" on the root before the auction
+// POST, which is the whole runtime half of the buffering state. CAUGHT LIVE, not
+// reasoned about: after the deploy, moneylantern.com/lg/home-security was still
+// executing a cached 53181-byte /lg/runtime/3.js with no pending stamp while the
+// origin served 53233 WITH it, and a synchronous setAttribute interception on
+// #lg-funnel-root recorded exactly one call ("unfilled") for the whole funnel.
+// The shell markup and the CSS shipped instantly (server-rendered, keyed on this
+// same constant); only the year-immutable engine URL stayed put.
+export const LEADGEN_TEMPLATE_VERSION = 4 as const;
 
 const NS_LG_SHELL = "lg-shell";
 const NS_LG_CONFIG = "lg-config";
