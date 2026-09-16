@@ -383,7 +383,24 @@ describe("DEV-57 §3.3 mobile keys — frameRegions-gated CSS rules (styles.ts)"
     );
   });
 
-  it("still exactly ONE @media block (the single mobile query contract)", () => {
-    expect(cssFrame.split("@media").length - 1).toBe(1);
+  it("still exactly ONE MOBILE @media block (the single mobile query contract)", () => {
+    // The contract is about the MOBILE query: every responsive rule lives in one
+    // block, so mobile precedence is one ordered place and splitSheet() (the
+    // [hidden]-cascade helper) has one boundary to find. Pinned by kind now
+    // rather than by raw count — the sheet also carries a
+    // prefers-reduced-motion query (2026-09-16, the buffering ring), which is
+    // orthogonal to responsiveness and would otherwise have failed a count that
+    // never meant to forbid it. Asserting BOTH numbers keeps this strictly
+    // tighter than the old single count: a stray third query of either kind
+    // still fails.
+    const all = cssFrame.match(/@media[^{]*/g) ?? [];
+    const mobile = all.filter((q) => q.includes("max-width"));
+    const reducedMotion = all.filter((q) => q.includes("prefers-reduced-motion"));
+    expect(mobile.length).toBe(1);
+    expect(reducedMotion.length).toBe(1);
+    expect(all.length).toBe(2); // and nothing else
+    // the reduced-motion query is LAST, so it can never truncate the base sheet
+    // for splitSheet() (which reads from the FIRST @media onward).
+    expect(cssFrame.lastIndexOf("@media")).toBe(cssFrame.indexOf("@media (prefers-reduced-motion"));
   });
 });

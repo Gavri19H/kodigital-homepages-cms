@@ -1611,12 +1611,13 @@ export function funnelChromeCss(
   );
   mobile.push(rule(`${scope} .lg-continue`, { width: primaryButton.widthMobile }));
   out.push(`@keyframes lg-spin{to{transform:rotate(360deg)}}`);
-  // NO prefers-reduced-motion override for the buffering ring: this sheet
-  // pins EXACTLY ONE @media block (the single mobile query —
-  // leadgen-frame-obligations.test.ts), and a second one breaks that
-  // contract AND splitSheet(), which every [hidden]-cascade assertion reads.
-  // Reported to the owner rather than smuggled in: honouring reduced motion
-  // needs the single-@media contract changed first, which is his call.
+  // OWNER 2026-09-16 — the reduced-motion partner of lg-spin. Opacity only:
+  // what triggers symptoms for a visitor with a vestibular disorder is
+  // MOTION (rotation, translation, scale), not a fade, so the buffering ring
+  // keeps saying "working" without moving. The @media that selects it is
+  // emitted at the very END of the sheet (see the tail) — never here, where
+  // it would cut the base sheet short for splitSheet().
+  out.push(`@keyframes lg-pulse{50%{opacity:0.35}}`);
 
   // ---- P1a answer-group layout system (register PC-1) --------------------
   // `.lg-answer-group` (ButtonAnswerGroup + .lg-yesno TwoButtonYesNo) is a REAL
@@ -4270,6 +4271,20 @@ export function funnelChromeCss(
   const fontFaces = selfHostedFontFacesForDesign(design);
   const base = out.filter((r) => r !== "").join("\n");
   const mobileCss = mobile.filter((r) => r !== "").join("\n");
-  const sheet = mobileCss === "" ? base : `${base}\n@media (max-width: ${breakpoints.mobileMax}){\n${mobileCss}\n}`;
+  const withMobile =
+    mobileCss === "" ? base : `${base}\n@media (max-width: ${breakpoints.mobileMax}){\n${mobileCss}\n}`;
+  // OWNER 2026-09-16 — honour the visitor's OS "Reduce Motion" setting for the
+  // buffering ring. Under it the ring stops rotating and breathes instead
+  // (lg-pulse, opacity only) with an even border, so it still reads as "working"
+  // while producing no motion at all.
+  //
+  // LAST IN THE SHEET, deliberately and load-bearingly: splitSheet() (the helper
+  // every [hidden]-cascade assertion reads) treats everything from the FIRST
+  // `\n@media` onward as media, so a reduced-motion block emitted earlier would
+  // truncate the base sheet — including the terminal `[hidden]{display:none}`
+  // guard — and silently gut those checks. An earlier attempt did exactly that.
+  const sheet =
+    `${withMobile}\n@media (prefers-reduced-motion: reduce){${scope} .lg-buffering-spinner` +
+    `{animation:lg-pulse 1.6s ease-in-out infinite;border-color:${color.primary}}}`;
   return fontFaces === "" ? sheet : `${fontFaces}\n${sheet}`;
 }

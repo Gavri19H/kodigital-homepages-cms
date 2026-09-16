@@ -1120,6 +1120,13 @@ const R2_CARD_IMG_PLACEHOLDER_RULE = [
 // completion region at all, so they are a sheet-level delta only — same
 // wholesale-strip idiom as R2_CARD_IMG_PLACEHOLDER_RULE above, kept in lockstep
 // with styles.ts (a drift in either fails here).
+// The reduced-motion query for the ring (2026-09-16) — the sheet's LAST block,
+// emitted after the mobile one. Stripped with the same wholesale idiom; the
+// frozen capture predates it.
+const BUFFERING_REDUCED_MOTION_RULE = [
+  `\n@media (prefers-reduced-motion: reduce){${DEFAULT_FUNNEL_SCOPE} .lg-buffering-spinner{animation:lg-pulse 1.6s ease-in-out infinite;border-color:#1B3A5C}}`,
+];
+
 const BUFFERING_SCREEN_RULES = [
   `\n${DEFAULT_FUNNEL_SCOPE} .lg-buffering{flex-direction:column;align-items:center;text-align:center;gap:0.5rem;max-width:420px;margin:2rem auto 0;padding:2rem;box-sizing:border-box}`,
   `\n${DEFAULT_FUNNEL_SCOPE} .lg-buffering-spinner{display:block;width:48px;height:48px;border:4px solid #D2D9E5;border-top-color:#1B3A5C;border-radius:9999px;animation:lg-spin 1s linear infinite;margin-bottom:1rem}`,
@@ -1127,6 +1134,7 @@ const BUFFERING_SCREEN_RULES = [
   `\n${DEFAULT_FUNNEL_SCOPE} .lg-buffering-subtext{margin:0;font-size:0.875rem;color:#63707F}`,
   `\n${DEFAULT_FUNNEL_SCOPE}[data-lg-auction="pending"] [data-lg-section]{display:none}`,
   `\n${DEFAULT_FUNNEL_SCOPE}[data-lg-auction="pending"] .lg-buffering{display:flex}`,
+  `\n@keyframes lg-pulse{50%{opacity:0.35}}`,
 ];
 
 // Legacy plain body: unbound headline + icon grid + ONE continue — a realistic
@@ -1374,9 +1382,13 @@ function assertPinnedResponse(actualText: string, fixtureText: string): void {
     (s, r) => s.split(r).join(""),
     cssMinusCardPlaceholder,
   );
-  expect(
+  const cssMinusReducedMotion = BUFFERING_REDUCED_MOTION_RULE.reduce(
+    (s, r) => s.split(r).join(""),
     cssMinusBuffering,
-    "preview.css modulo the DEV-57 + DEV-68 moved rules + the R5 state-safe-border + R5 D11 typography rule bodies + the P1a layout system + the P3a structured-placement (.lg-el/.lg-el-row) rules + the Round-4 P1b studio/preview affordances (ghost/address-composite/mqg-empty) + the R2 P4 §6.8 slider anatomy rules + the R2 P5 F7 address-field-label/Other-select rules + the R2 P8-6 from_to max-rail hit-area clip rule + the not-picked-yet card-image slot rule + the buffering-screen rules",
+  );
+  expect(
+    cssMinusReducedMotion,
+    "preview.css modulo the DEV-57 + DEV-68 moved rules + the R5 state-safe-border + R5 D11 typography rule bodies + the P1a layout system + the P3a structured-placement (.lg-el/.lg-el-row) rules + the Round-4 P1b studio/preview affordances (ghost/address-composite/mqg-empty) + the R2 P4 §6.8 slider anatomy rules + the R2 P5 F7 address-field-label/Other-select rules + the R2 P8-6 from_to max-rail hit-area clip rule + the not-picked-yet card-image slot rule + the buffering-screen rules + the reduced-motion ring query",
   ).toBe(expectedPreview["css"]);
   // and the live producer still owns the string (the sections-api :863 idiom).
   expect(actualPreview["css"]).toBe(funnelChromeCss(getFunnelDesign(null)));

@@ -176,14 +176,31 @@ describe("the pending state is CSS, driven by data-lg-auction", () => {
     expect(CSS.match(/@keyframes lg-spin\{/g)!.length).toBe(1);
   });
 
-  it("adds NO second @media block (the single-mobile-query contract holds)", () => {
-    // A prefers-reduced-motion override for the ring would be the natural
-    // accessibility touch, and it is DELIBERATELY absent: this sheet pins
-    // exactly one @media block (leadgen-frame-obligations.test.ts), and a
-    // second one also breaks splitSheet(), which every [hidden]-cascade
-    // assertion in leadgen-hidden-visibility.test.ts reads. Surfaced to the
-    // owner instead of smuggled in.
-    expect(CSS.match(/@media/g)!.length).toBe(1);
-    expect(CSS).not.toContain("prefers-reduced-motion");
+  it("honours the visitor's OS Reduce Motion setting — no motion, still alive", () => {
+    // Opacity only. What triggers symptoms for a visitor with a vestibular
+    // disorder is MOTION (rotation, translation, scale), not a fade — so the
+    // ring stops rotating and breathes instead, and still reads as "working"
+    // rather than as a frozen page.
+    const reduced = blocks(`${SCOPE} .lg-buffering-spinner`).find((b) =>
+      b.includes("lg-pulse"),
+    );
+    expect(reduced, "a prefers-reduced-motion block for the ring").toBeDefined();
+    expect(reduced!).toContain("animation:lg-pulse 1.6s ease-in-out infinite");
+    expect(reduced!).not.toContain("lg-spin");
+    expect(CSS).toContain("@keyframes lg-pulse{50%{opacity:0.35}}");
+    // the keyframe moves NOTHING — no transform, no offset.
+    expect(/@keyframes lg-pulse\{[^}]*(transform|translate|rotate|scale)/.test(CSS)).toBe(false);
+  });
+
+  it("the reduced-motion query is LAST in the sheet", () => {
+    // Load-bearing: splitSheet() (leadgen-hidden-visibility.test.ts) treats
+    // everything from the FIRST @media onward as media, so this block emitted
+    // any earlier would truncate the base sheet — terminal [hidden] guard
+    // included — and silently gut every cascade assertion. An earlier attempt
+    // did exactly that.
+    expect(CSS.lastIndexOf("@media")).toBe(CSS.indexOf("@media (prefers-reduced-motion"));
+    expect(CSS.indexOf("@media (max-width")).toBeLessThan(
+      CSS.indexOf("@media (prefers-reduced-motion"),
+    );
   });
 });
