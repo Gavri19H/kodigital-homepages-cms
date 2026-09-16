@@ -106,9 +106,44 @@ export const CMS_FALLBACK_LOGO_TEXT = "Kodigital";
 // This is the verbatim baseline string asserted in CI after P0.
 export const LOGO_FALLBACK_CHIP_TEXT = "No logo — set it in Site settings.";
 
+// OWNER 2026-09-16: "between the last massage and the banners there is no
+// baffering screen. look here- <the reference funnel he linked> to understand
+// how the basic buffering screen should look like, and validate it is shown
+// as a default in all funnels."
+//
+// THE REFERENCE, read from its source in the legacy a2z repo
+// (funnel-steps-short.ts + funnel-styles-components.ts): the buffer is a real
+// STEP appended to EVERY variant's step list
+// (['1'…'9','loading'] for short/medium/long alike) — a 48px spinner over a
+// 1.125rem primary line and a 0.875rem muted subline, shown on entering the
+// step and BEFORE the provider call fires (funnel-handlers-core.ts: `if
+// (nextStepId === 'loading') fetchListings()`), with no back button.
+//
+// LeadGen has no step list to append to — sections are the operator's content
+// and a synthetic one would show up in their editor, their progress count and
+// their section_view stream. So the equivalent is ONE SSR-baked,
+// hidden-by-default mount that ships with the completion region: every funnel
+// gets it with no per-funnel config and no migration, and the engine only
+// toggles `hidden` (render.ts showBufferingState / hideBuffering).
+//
+// It rides `LG_BANNERS_MOUNT_HTML` — the single literal serve.ts (live), the
+// legacy shell and BOTH admin previews already pass as `bannersMountHtml` —
+// so there is exactly one place for it to be missing from, and none.
+// APPENDED, never prepended: the banners div stays the first tag of this
+// constant (leadgen-hidden-visibility.test.ts parses it as such).
+export const LG_BUFFERING_MOUNT_HTML =
+  '<div class="lg-buffering" data-lg-buffering hidden role="status" aria-live="polite">' +
+  '<span class="lg-buffering-spinner" aria-hidden="true"></span>' +
+  '<p class="lg-buffering-text">Matching you with top providers\u2026</p>' +
+  '<p class="lg-buffering-subtext">Checking our partner network for your best options</p>' +
+  "</div>";
+
 // The 03 §3.3 auction-mount markup serve.ts bakes today — exported so callers
-// and tests share one literal for the `bannersMountHtml` input.
-export const LG_BANNERS_MOUNT_HTML = '<div class="lg-banners" data-lg-banners hidden></div>';
+// and tests share one literal for the `bannersMountHtml` input. Carries the
+// buffering mount as its hidden sibling (both live in the completion region;
+// exactly one is ever visible).
+export const LG_BANNERS_MOUNT_HTML =
+  '<div class="lg-banners" data-lg-banners hidden></div>' + LG_BUFFERING_MOUNT_HTML;
 
 // ---------------------------------------------------------------------------
 // Inputs

@@ -1112,6 +1112,23 @@ const R2_CARD_IMG_PLACEHOLDER_RULE = [
   `\n${DEFAULT_FUNNEL_SCOPE} .lg-card-img-placeholder{display:inline-flex;align-items:center;justify-content:center;min-height:32px;padding:0 0.5rem;border:1px dashed #D2D9E5;border-radius:6px;color:#718096;font-size:0.75rem;line-height:1}`,
 ];
 
+// OWNER 2026-09-16 (the buffering screen between the last question and the
+// banners): the SIX net-new base-sheet rules frame.ts's LG_BUFFERING_MOUNT_HTML
+// is painted by — four for the mount's own layout/typography, two for the
+// data-lg-auction="pending" state that reveals it. SAFE FOR THIS PIN: net-new
+// since the frozen capture, and this fixture renders a single unit with no
+// completion region at all, so they are a sheet-level delta only — same
+// wholesale-strip idiom as R2_CARD_IMG_PLACEHOLDER_RULE above, kept in lockstep
+// with styles.ts (a drift in either fails here).
+const BUFFERING_SCREEN_RULES = [
+  `\n${DEFAULT_FUNNEL_SCOPE} .lg-buffering{flex-direction:column;align-items:center;text-align:center;gap:0.5rem;max-width:420px;margin:2rem auto 0;padding:2rem;box-sizing:border-box}`,
+  `\n${DEFAULT_FUNNEL_SCOPE} .lg-buffering-spinner{display:block;width:48px;height:48px;border:4px solid #D2D9E5;border-top-color:#1B3A5C;border-radius:9999px;animation:lg-spin 1s linear infinite;margin-bottom:1rem}`,
+  `\n${DEFAULT_FUNNEL_SCOPE} .lg-buffering-text{margin:0;font-size:1.125rem;color:#16324f}`,
+  `\n${DEFAULT_FUNNEL_SCOPE} .lg-buffering-subtext{margin:0;font-size:0.875rem;color:#63707F}`,
+  `\n${DEFAULT_FUNNEL_SCOPE}[data-lg-auction="pending"] [data-lg-section]{display:none}`,
+  `\n${DEFAULT_FUNNEL_SCOPE}[data-lg-auction="pending"] .lg-buffering{display:flex}`,
+];
+
 // Legacy plain body: unbound headline + icon grid + ONE continue — a realistic
 // v2.4 body carrying NONE of the additive params.
 const LEGACY_PLAIN_CONTENT = {
@@ -1351,9 +1368,15 @@ function assertPinnedResponse(actualText: string, fixtureText: string): void {
     (s, r) => s.split(r).join(""),
     cssMinusRailClip,
   );
-  expect(
+  // OWNER 2026-09-16: strip the SIX net-new buffering-screen rules (see
+  // BUFFERING_SCREEN_RULES's own comment above).
+  const cssMinusBuffering = BUFFERING_SCREEN_RULES.reduce(
+    (s, r) => s.split(r).join(""),
     cssMinusCardPlaceholder,
-    "preview.css modulo the DEV-57 + DEV-68 moved rules + the R5 state-safe-border + R5 D11 typography rule bodies + the P1a layout system + the P3a structured-placement (.lg-el/.lg-el-row) rules + the Round-4 P1b studio/preview affordances (ghost/address-composite/mqg-empty) + the R2 P4 §6.8 slider anatomy rules + the R2 P5 F7 address-field-label/Other-select rules + the R2 P8-6 from_to max-rail hit-area clip rule + the not-picked-yet card-image slot rule",
+  );
+  expect(
+    cssMinusBuffering,
+    "preview.css modulo the DEV-57 + DEV-68 moved rules + the R5 state-safe-border + R5 D11 typography rule bodies + the P1a layout system + the P3a structured-placement (.lg-el/.lg-el-row) rules + the Round-4 P1b studio/preview affordances (ghost/address-composite/mqg-empty) + the R2 P4 §6.8 slider anatomy rules + the R2 P5 F7 address-field-label/Other-select rules + the R2 P8-6 from_to max-rail hit-area clip rule + the not-picked-yet card-image slot rule + the buffering-screen rules",
   ).toBe(expectedPreview["css"]);
   // and the live producer still owns the string (the sections-api :863 idiom).
   expect(actualPreview["css"]).toBe(funnelChromeCss(getFunnelDesign(null)));

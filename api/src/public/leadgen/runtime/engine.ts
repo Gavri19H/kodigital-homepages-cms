@@ -2026,6 +2026,18 @@ export class LgEngine {
     if (this.finalized) return; // §3.6 the auction call happens exactly once
     this.finalized = true;
     this.store.setAuction({ status: "pending" });
+    // OWNER 2026-09-16 — the buffering screen. `pending` was a STORE-ONLY state:
+    // nothing on screen changed for the whole provider round trip (1.9s on his
+    // own business-loans run), so the visitor kept staring at the form they had
+    // just submitted. Stamping the root is the entire runtime cost — styles.ts
+    // owns the rest at (0,3,0): it hides the sections and force-shows the
+    // SSR-baked [data-lg-buffering] mount past the terminal [hidden] guard.
+    // Raised BEFORE the POST (as the reference funnel shows its loading step,
+    // then calls fetchListings), so it covers the whole wait including
+    // the §3.5.8 retries. Both exits below overwrite this attribute, which is
+    // what takes the screen back down — on the error exit that also restores
+    // the visitor's own page, with no DOM work and no re-fired section_view.
+    this.root.setAttribute("data-lg-auction", "pending");
 
     if (this.preview) {
       // 09 §9.1: the auction call is DISABLED in preview; the would-fire
@@ -2049,7 +2061,10 @@ export class LgEngine {
     }
 
     if (!outcome.ok) {
-      // §3.5.8: inline notice inside the funnel card; beacons continue.
+      // §3.5.8: inline notice inside the funnel card; beacons continue. The
+      // data-lg-auction flip below is also what takes the buffering screen down
+      // and puts the visitor's own page back, so the notice lands in a VISIBLE
+      // section (a blank page is exactly what §3.5.8 exists to prevent).
       this.store.setAuction({ status: "error" });
       this.root.setAttribute("data-lg-auction", "error");
       render.showRuntimeNotice(this.currentSectionEl() || this.root, FRIENDLY_ERROR);

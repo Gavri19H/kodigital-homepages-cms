@@ -1611,6 +1611,12 @@ export function funnelChromeCss(
   );
   mobile.push(rule(`${scope} .lg-continue`, { width: primaryButton.widthMobile }));
   out.push(`@keyframes lg-spin{to{transform:rotate(360deg)}}`);
+  // NO prefers-reduced-motion override for the buffering ring: this sheet
+  // pins EXACTLY ONE @media block (the single mobile query —
+  // leadgen-frame-obligations.test.ts), and a second one breaks that
+  // contract AND splitSheet(), which every [hidden]-cascade assertion reads.
+  // Reported to the owner rather than smuggled in: honouring reduced motion
+  // needs the single-@media contract changed first, which is his call.
 
   // ---- P1a answer-group layout system (register PC-1) --------------------
   // `.lg-answer-group` (ButtonAnswerGroup + .lg-yesno TwoButtonYesNo) is a REAL
@@ -2271,6 +2277,64 @@ export function funnelChromeCss(
       "max-width": cardPanel.widthM,
       margin: `${spacing.xl} auto 0`,
     }),
+    // OWNER 2026-09-16 — the buffering screen between the last question and the
+    // banners (frame.ts LG_BUFFERING_MOUNT_HTML). Proportions are the reference
+    // funnel he pointed at, read from its source in the legacy a2z repo
+    // (funnel-styles-components.ts `.loading` / `.spinner` / `.loading-text` /
+    // `.loading-subtext`): a 48px 4px-ring spinner spinning once a second over
+    // a 1.125rem primary line and a 0.875rem muted subline, centred in the same
+    // column the banners will occupy — so the swap to results does not jump.
+    // Colours read tokens, never the reference's hard-coded greys, and the
+    // keyframe is the EXISTING `lg-spin` the button spinner already emits.
+    // No `display` here on purpose: the mount is SSR-baked `hidden`, and the
+    // ONLY thing that may reveal it is the pending rule below. A base
+    // `display:` would be a force-visible rule of the exact class the terminal
+    // `[hidden]` guard exists to defeat (leadgen-hidden-visibility.test.ts).
+    rule(`${scope} .lg-buffering`, {
+      "flex-direction": "column",
+      "align-items": "center",
+      "text-align": "center",
+      gap: spacing.sm,
+      "max-width": cardPanel.widthM,
+      margin: `${spacing.xl} auto 0`,
+      padding: spacing.xl,
+      "box-sizing": "border-box",
+    }),
+    rule(`${scope} .lg-buffering-spinner`, {
+      display: "block",
+      width: "48px",
+      height: "48px",
+      border: `4px solid ${color.border}`,
+      "border-top-color": color.primary,
+      "border-radius": radius.full,
+      animation: "lg-spin 1s linear infinite",
+      "margin-bottom": spacing.md,
+    }),
+    rule(`${scope} .lg-buffering-text`, {
+      margin: "0",
+      "font-size": "1.125rem",
+      color: headline.color,
+    }),
+    rule(`${scope} .lg-buffering-subtext`, {
+      margin: "0",
+      "font-size": "0.875rem",
+      color: subheadline.color,
+    }),
+    // THE STATE ITSELF. engine.finalize() stamps data-lg-auction="pending" on
+    // #lg-funnel-root before it POSTs /lg/auction, and overwrites it on every
+    // exit (filled / unfilled / error) — so these two rules are the whole
+    // buffering screen: the funnel goes away, the mount comes up, and the exit
+    // puts either the banners (showCompletionState) or the visitor's own page
+    // (the error path) back with no DOM work at all.
+    //
+    // (0,3,0) — scope attr + the state attr + one more — DELIBERATELY outranks
+    // the terminal `${scope} [hidden]{display:none}` guard (0,2,0) so the
+    // SSR-baked `hidden` on the mount is overridden for exactly this state and
+    // no other. The sections rule is the same specificity, so it beats their
+    // own display rules without touching their `hidden` attributes — which is
+    // what lets the error exit restore them by flipping one attribute.
+    rule(`${scope}[data-lg-auction="pending"] [data-lg-section]`, { display: "none" }),
+    rule(`${scope}[data-lg-auction="pending"] .lg-buffering`, { display: "flex" }),
     rule(`${scope} .lg-banner`, {
       border: banner.cardBorder,
       "border-radius": banner.cardRadius,

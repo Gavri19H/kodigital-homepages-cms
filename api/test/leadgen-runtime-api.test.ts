@@ -1243,8 +1243,12 @@ describeDb("v2.4 03 §3.2/§3.11 — server-rendered sections + #lg-config + run
     expect(sec0![3]).not.toContain("hidden");
     expect(sec1![3]).toContain("hidden");
     expect(sec2![3]).toContain("hidden");
-    // the sections live INSIDE the data-lg-mount main.
-    expect(html.indexOf("data-lg-mount")).toBeLessThan(html.indexOf("data-lg-section"));
+    // the sections live INSIDE the data-lg-mount main. Compared against the
+    // section ELEMENT, not the bare attribute name: the inlined chrome CSS in
+    // <head> now carries a `[data-lg-section]` SELECTOR (the 2026-09-16
+    // buffering-state rule), so a bare indexOf finds the stylesheet first and
+    // proves nothing about the DOM order this assertion is about.
+    expect(html.indexOf("data-lg-mount")).toBeLessThan(html.indexOf("<section data-lg-section"));
     // 11 §11.6: real question markup exists (never an empty mount) — the
     // first (shared) section's TwoButtonYesNo renders as an answer group
     // with lg choices (this variant's own first section is the SAME
