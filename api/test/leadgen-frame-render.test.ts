@@ -564,11 +564,18 @@ describe("frame-plus-unit-composition — funnelChromeCss frame-region extension
     expect(cssDefault).not.toContain(".lg-frame-");
   });
 
-  it("with frameRegions the base rules stay a byte-stable prefix and ONE @media block remains", () => {
+  it("with frameRegions the base rules stay a byte-stable prefix and ONE MOBILE @media block remains", () => {
     const baseOnly = cssDefault.split("\n@media")[0] ?? "";
     expect(baseOnly.length).toBeGreaterThan(1000);
     expect(cssFrame.startsWith(baseOnly)).toBe(true);
-    expect(cssFrame.split("@media").length - 1).toBe(1);
+    // Pinned by KIND, not by raw count: the sheet also carries a
+    // prefers-reduced-motion query (2026-09-16, the buffering ring), which is
+    // orthogonal to responsiveness. Both numbers are asserted, so a stray third
+    // query of either kind still fails — strictly tighter than the old count.
+    const queries = cssFrame.match(/@media[^{]*/g) ?? [];
+    expect(queries.filter((q) => q.includes("max-width")).length).toBe(1);
+    expect(queries.filter((q) => q.includes("prefers-reduced-motion")).length).toBe(1);
+    expect(queries.length).toBe(2);
   });
 
   it("frame-region rules are present and role-resolved from the design tokens (no raw values in markup)", () => {
