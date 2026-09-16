@@ -19,6 +19,7 @@
 // owns the '#lg-studio-canvas-render' mount.
 
 import { describe, expect, it } from "vitest";
+import { LEADGEN_TEMPLATE_VERSION } from "../src/cache/cache-keys";
 import { execFileSync } from "node:child_process";
 import { mkdtempSync, readFileSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
@@ -2925,7 +2926,10 @@ describeDb("section studio — §8.9/§9.1 runtime events document + events pane
     // shell's /lg/runtime/{version}.js serves, inlined (the admin host has no
     // tenant site context, so /lg/* — including the bundle URL — 404s there;
     // LEADGEN_RUNTIME_JS is exactly that route's response body).
-    expect(doc).toContain(`<script data-lg-runtime-version="3">`);
+    // Derived, not re-typed: the version moves whenever the engine bytes do
+    // (leadgen-runtime-version-pin.test.ts). What this pins is that the studio
+    // preview inlines the SAME bundle the live shell serves, not its number.
+    expect(doc).toContain(`<script data-lg-runtime-version="${LEADGEN_TEMPLATE_VERSION}">`);
     expect(doc).toContain(LEADGEN_RUNTIME_JS);
     // honest preview identity — never faked live ids
     expect(doc).toContain('data-funnel-variant-id="lgn_preview"');

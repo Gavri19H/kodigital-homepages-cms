@@ -55,7 +55,7 @@ import {
   type LgAuctionResponse,
 } from "./auction-client";
 
-export const LG_ENGINE_VERSION = "3"; // tracks LEADGEN_TEMPLATE_VERSION (cache-keys.ts)
+export const LG_ENGINE_VERSION = "4"; // tracks LEADGEN_TEMPLATE_VERSION (cache-keys.ts)
 
 const LG_ATTEMPT_URL = "/lg/attempt";
 const SESSION_COOKIE = "ko_sid";
