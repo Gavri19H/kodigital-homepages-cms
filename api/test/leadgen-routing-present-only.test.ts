@@ -677,3 +677,171 @@ describe("B + C — the rules rail and modal copy", () => {
     expect(entry).not.toContain("data-qr-needs-funnel>");
   });
 });
+
+// ===========================================================================
+// Review round 1 (fresh-context adversarial review, FIX-FIRST) — regressions
+// ===========================================================================
+
+describeDb("review — lists past 25 rows (the API caps page_size at 100 and answers 200 with 25)", () => {
+  it("the editor's offer pickers list EVERY offer, not the 25 most recently edited", async () => {
+    const f = seed();
+    for (let i = 0; i < 30; i++) insertStaticOffer(f.sdb, insertAuction(f.sdb), `Extra${i}`, 5, 0);
+    // the cause, measured: the old ask is silently served 25 rows
+    const capped = await adminReq(f.env, "GET", "/offers?page_size=200");
+    expect((capped.json["items"] as unknown[]).length).toBe(25);
+    const html = await (await admin.request(`/admin/leadgen/quotes/${f.quote.public_id}/edit`, {}, f.env)).text();
+    const start = html.indexOf("data-qr-force-offer");
+    const select = html.slice(start, html.indexOf("</select>", start));
+    const values = [...select.matchAll(/<option value="(\d+)"/g)].map((m) => m[1]);
+    expect(values.length).toBe(32); // Fora + Fundera + 30 extra
+    expect(values).toContain(String(f.fora.id)); // the OLDEST offers are there too
+  });
+
+  it("apiJsonAll pages through a list of any length", async () => {
+    const { apiJsonAll } = await import("../src/admin/leadgen/ui");
+    const f = seed();
+    for (let i = 0; i < 230; i++) insertStaticOffer(f.sdb, f.auctionId, `Bulk${i}`, 5, 0);
+    const res = await apiJsonAll<{ id: number }>(f.env, "/api/admin/leadgen/offers");
+    expect(res.ok).toBe(true);
+    if (res.ok) {
+      expect(res.body.items.length).toBe(232);
+      expect(new Set(res.body.items.map((o) => o.id)).size).toBe(232);
+    }
+  });
+});
+
+describeDb("review — nothing else reaches a present-only visitor", () => {
+  function funnelRedirect(f: Fixture, targetOfferId: number | null, redirectUrl: string | null = null): void {
+    f.sdb
+      .prepare(
+        `INSERT INTO leadgen_funnel_rules (public_id, variant_id, rule_type, conditions_json, conditions_hash, target_offer_id, redirect_url, redirect_url_allowlisted, priority, enabled, status, redirect_pct)
+         VALUES (?, ?, 'redirect_direct_offer', '{"groups":[]}', 'h-redir', ?, ?, ?, 0, 1, 'active', 100)`,
+      )
+      .run(mintPublicId("funnel_rule"), f.main.variant.id, targetOfferId, redirectUrl, redirectUrl === null ? 0 : 1);
+  }
+  async function presentOnly(f: Fixture, offer: Offer): Promise<void> {
+    const res = await adminReq(f.env, "POST", `/quotes/${f.quote.public_id}/routing-rules`, { rule_name: "QA", conditions_json: UTM_FUNDERA, force_offer_id: offer.id });
+    expect(res.status).toBe(201);
+  }
+
+  it("an Auction-tab redirect rule to ANOTHER offer does not take the present-only visitor away (ordinary visitors are still redirected)", async () => {
+    const f = seed();
+    funnelRedirect(f, f.fundera.id);
+    await presentOnly(f, f.fora);
+    const qa = await visit(f, "?utm_source=Fundera", { session: "s-fr-qa" });
+    expect(qa.status).toBe("ok");
+    expect(qa.shown).toEqual([f.fora.public_id]);
+    const other = await visit(f, "?utm_source=google", { session: "s-fr-other" });
+    expect(other.status).toBe("redirect");
+  });
+
+  it("…nor a redirect rule to a raw URL; a redirect to the SAME offer still applies", async () => {
+    const f = seed();
+    funnelRedirect(f, null, "https://partner.example.com/land");
+    await presentOnly(f, f.fora);
+    expect((await visit(f, "?utm_source=Fundera", { session: "s-fr-url" })).shown).toEqual([f.fora.public_id]);
+    const g = seed();
+    funnelRedirect(g, g.fora.id);
+    await presentOnly(g, g.fora);
+    expect((await visit(g, "?utm_source=Fundera", { session: "s-fr-same" })).status).toBe("redirect");
+  });
+
+  it("a static offer is presented even when the auction does not surface static offers", async () => {
+    const f = seed();
+    f.sdb.prepare("UPDATE leadgen_auctions SET surface_static_bid_offers = 0 WHERE id = ?").run(f.auctionId);
+    const normal = await visit(f, "?utm_source=google", { session: "s-nostatic" });
+    expect(normal.shown).toEqual([]); // the auction's own setting, unchanged for ordinary traffic
+    await presentOnly(f, f.fundera);
+    const qa = await visit(f, "?utm_source=Fundera", { session: "s-nostatic-qa" });
+    expect(qa.shown).toEqual([f.fundera.public_id]);
+  });
+});
+
+describeDb("review — rail actions and delete guard", () => {
+  it("the on/off switch still works on a present-only rule a funnel deletion left without its Target funnel", async () => {
+    const f = seed();
+    const r = await adminReq(f.env, "POST", `/quotes/${f.quote.public_id}/routing-rules`, {
+      rule_name: "Answer → Alt, Fora only",
+      conditions_json: { groups: [{ field: "q_shared", op: "eq", value: true }] },
+      target_funnel_id: f.alt.funnel.public_id,
+      force_offer_id: f.fora.id,
+    });
+    expect(r.status).toBe(201);
+    // what deleting the Alt funnel does to its rules (quotes-handlers.ts)
+    f.sdb.prepare("UPDATE leadgen_quote_routing_rules SET target_funnel_id = NULL WHERE public_id = ?").run(r.json["public_id"] as string);
+    const off = await adminReq(f.env, "PATCH", `/routing-rules/${r.json["public_id"] as string}`, { status: "disabled" });
+    expect(off.status, JSON.stringify(off.json)).toBe(200);
+    // editing the rule's own inputs still gets the reason
+    const edit = await adminReq(f.env, "PATCH", `/routing-rules/${r.json["public_id"] as string}`, { force_offer_id: f.fundera.id });
+    expect(edit.status).toBe(400);
+    expect((edit.json["fields"] as Record<string, string>)["force_offer_id"]).toContain("entry conditions");
+  });
+
+  it("an offer a routing rule presents or redirects to cannot be hard-deleted (it is listed as in use)", async () => {
+    const f = seed();
+    await adminReq(f.env, "POST", `/quotes/${f.quote.public_id}/routing-rules`, { rule_name: "QA", conditions_json: UTM_FUNDERA, force_offer_id: f.fora.id });
+    await adminReq(f.env, "POST", `/quotes/${f.quote.public_id}/routing-rules`, { rule_name: "Away", conditions_json: UTM_FUNDERA, target_offer_id: f.fundera.id, redirect_pct: 10 });
+    // not participating anywhere, so only the routing rules hold them
+    f.sdb.prepare("DELETE FROM leadgen_auction_offers").run();
+    for (const [offer, rule] of [[f.fora, "QA"], [f.fundera, "Away"]] as const) {
+      const del = await admin.request(`${API}/offers/${offer.id}?mode=hard`, { method: "DELETE" }, f.env);
+      expect(del.status).toBe(409);
+      const body = (await del.json()) as { usage: { kinds: Array<{ kind: string; count: number; items: Array<{ name: string }> }> } };
+      const kind = body.usage.kinds.find((k) => k.kind === "quote_routing_rules_targeting")!;
+      expect(kind.count).toBe(1);
+      expect(kind.items[0]!.name).toBe(`SMB Loans — ${rule}`);
+    }
+  });
+
+  it("the rail carries an error line for card actions", () => {
+    const html = renderQuoteRulesRail({
+      quote_public_id: "lgq_1", rules: [], funnels: [], default_funnel_id: null, shared_page_fields: [], answer_fields: [], offers: [], feed_values: [],
+    });
+    expect(html).toContain('data-qr-rail-error role="alert" hidden');
+  });
+});
+
+describe("review — the not-live warning across A/B versions", () => {
+  it("names an offer live in only some versions of the funnel", () => {
+    const html = renderQuoteRulesRail({
+      quote_public_id: "lgq_1",
+      rules: [
+        {
+          public_id: "lgqr_1", rule_name: "QA", priority: 1, status: "active", match_mode: null, conditions_json: UTM_FUNDERA,
+          target_funnel_id: null, feed_name: null, value_multiplier: null, redirect_pct: null, target_offer_id: null,
+          redirect_url: null, redirect_url_allowlisted: false, force_offer_id: 8,
+        },
+      ],
+      funnels: [{ id: 1, public_id: "lgf_1", name: "Main", is_default: true, pages: [], live_offer_ids: [7], partly_live_offer_ids: [8] }],
+      default_funnel_id: 1,
+      shared_page_fields: [],
+      answer_fields: [],
+      offers: [{ id: 7, name: "Fora", status: "active" }, { id: 8, name: "Fundera", status: "active" }],
+      feed_values: [],
+    });
+    expect(html).toContain("“Fundera” is live in only some A/B versions of funnel “Main”. Matching visitors on the other versions will see no offers.");
+  });
+});
+
+describeDb("review — the not-live warning, from the real editor page and database", () => {
+  it("live everywhere: no warning · live on one A/B version only: 'only some versions' · not in the auction: 'not a live offer'", async () => {
+    const f = seed();
+    await adminReq(f.env, "POST", `/quotes/${f.quote.public_id}/routing-rules`, { rule_name: "QA", conditions_json: UTM_FUNDERA, force_offer_id: f.fundera.id });
+    const page = async (): Promise<string> => (await admin.request(`/admin/leadgen/quotes/${f.quote.public_id}/edit`, {}, f.env)).text();
+    const cardOf = (html: string): string => {
+      const start = html.indexOf("data-qr-card data-rule-public-id");
+      return html.slice(start, html.indexOf("data-qr-delete", start));
+    };
+    expect(cardOf(await page())).not.toContain("data-qr-present-only-warn");
+    // a second active A/B version of Main running an auction WITHOUT Fundera
+    const auction2 = insertAuction(f.sdb);
+    insertStaticOffer(f.sdb, auction2, "Other", 10, 0);
+    const vPublic = mintPublicId("funnel_variant");
+    f.sdb
+      .prepare("INSERT INTO leadgen_funnel_variants (public_id, funnel_id, variant_label, traffic_allocation_bp, funnel_design_id, status, content_version, auction_id) VALUES (?, ?, 'B', 5000, 'default', 'active', 1, ?)")
+      .run(vPublic, f.main.funnel.id, auction2);
+    expect(cardOf(await page())).toContain("is live in only some A/B versions of funnel");
+    f.sdb.prepare("UPDATE leadgen_auction_offers SET enabled = 0 WHERE offer_id = ?").run(f.fundera.id);
+    expect(cardOf(await page())).toContain("is not a live offer in the auction of funnel “Main”");
+  });
+});

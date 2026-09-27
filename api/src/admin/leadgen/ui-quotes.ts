@@ -23,6 +23,7 @@ import {
 import { resolveTimeframe, renderTimeframeSelect, type Timeframe } from "../listicles/ui-shared";
 import {
   apiJson,
+  apiJsonAll,
   branding,
   EMPTY_PAGING,
   leadgenPageShell,
@@ -881,13 +882,13 @@ export async function leadgenQuoteEditorPage(c: UiContext): Promise<Response> {
   // {ok:false} on any non-200), so the early 404 returns below cannot leave an
   // orphaned rejection behind.
   const auctionsP = timed("auctions", () =>
-    apiJson<ListBody<AuctionListItem>>(c.env, `/api/admin/leadgen/auctions?page_size=200`),
+    apiJsonAll<AuctionListItem>(c.env, `/api/admin/leadgen/auctions`),
   );
   const templatesP = timed("templates", () =>
     apiJson<{ items: FrameTemplateItem[] }>(c.env, "/api/admin/leadgen/frame-templates"),
   );
   const offersP = timed("offers", () =>
-    apiJson<ListBody<OfferListItem>>(c.env, "/api/admin/leadgen/offers?page_size=200"),
+    apiJsonAll<OfferListItem>(c.env, "/api/admin/leadgen/offers"),
   );
   // P3b follow-up (§8.2 RIGHT rail) — the quote's routing rules, for
   // QuoteRulesRailData (S3b.2's renderQuoteRulesRail input, assembled below).
@@ -938,7 +939,7 @@ export async function leadgenQuoteEditorPage(c: UiContext): Promise<Response> {
     // saved variant still renders as ordered single-section pages that round-
     // trip byte-identically). See buildPageNodes.
     timed("variantPages", () => loadVariantPages(c.env.DB, selected.id)),
-    timed("sections", () => apiJson<ListBody<AvailableSection>>(c.env, `/api/admin/leadgen/sections?activity=${encodeURIComponent(activity)}&status=active&page_size=200`)),
+    timed("sections", () => apiJsonAll<AvailableSection>(c.env, `/api/admin/leadgen/sections?activity=${encodeURIComponent(activity)}&status=active`)),
     timed("activation", () => apiJson<ActivationBody>(c.env, `/api/admin/leadgen/quotes/${encodedQuote}/activation?preflight=stored&variant=${encodeURIComponent(selected.public_id)}`)),
     timed("frame", () => apiJson<FrameGetBody>(c.env, `/api/admin/leadgen/funnels/${encodedFunnel}/frame`)),
     timed("theme", () => apiJson<ThemeGetBody>(c.env, `/api/admin/leadgen/funnels/${encodedFunnel}/theme`)),
@@ -1001,7 +1002,9 @@ export async function leadgenQuoteEditorPage(c: UiContext): Promise<Response> {
       name: f.funnel_name,
       is_default: structure.quote.default_funnel_id !== null && structure.quote.default_funnel_id !== undefined && f.id === structure.quote.default_funnel_id,
       pages: funnelPageFieldSets(f.active_variant_pages, sectionFieldsMap),
-      ...(liveOffers !== null ? { live_offer_ids: liveOffers.get(f.id) ?? [] } : {}),
+      ...(liveOffers !== null
+        ? { live_offer_ids: liveOffers.get(f.id)?.live ?? [], partly_live_offer_ids: liveOffers.get(f.id)?.partly ?? [] }
+        : {}),
     }));
   const railData: QuoteRulesRailData = {
     quote_public_id: structure.quote.public_id,
@@ -1081,16 +1084,32 @@ interface QuoteRulesRailRuleWire {
   force_offer_id?: number | null;
 }
 
-// 0061 — per funnel of this quote, the offers that are LIVE participants of
-// its auction: an active variant → its active auction → enabled participating
-// rows of active offers (the same filters loadAuctionBundle + serve-auction
-// apply). Feeds the rules rail's "Present only this offer" warning. null on a
-// read error, which turns the warning off rather than raising a false alarm.
-async function readLiveOffersByFunnel(db: D1Database, quoteId: number): Promise<Map<number, number[]> | null> {
+// 0061 — per funnel of this quote, which offers are LIVE participants of its
+// auction: an active variant → its active auction → enabled participating rows
+// of active offers (the same filters loadAuctionBundle + serve-auction apply).
+// A/B versions can run different auctions, so `live` = live for EVERY active
+// version and `partly` = live for some only (a variant with no live auction
+// counts as "not live" for its visitors). Feeds the rules rail's "Present only
+// this offer" warning. null on a read error, which turns the warning off
+// rather than raising a false alarm.
+interface FunnelLiveOffers {
+  live: number[];
+  partly: number[];
+}
+async function readLiveOffersByFunnel(db: D1Database, quoteId: number): Promise<Map<number, FunnelLiveOffers> | null> {
   try {
-    const res = await db
+    const variants = await db
       .prepare(
-        `SELECT DISTINCT f.id AS funnel_id, ao.offer_id AS offer_id
+        `SELECT f.id AS funnel_id, v.id AS variant_id
+           FROM leadgen_funnels f
+           JOIN leadgen_funnel_variants v ON v.funnel_id = f.id AND v.status = 'active'
+          WHERE f.quote_id = ?`,
+      )
+      .bind(quoteId)
+      .all<{ funnel_id: number; variant_id: number }>();
+    const pairs = await db
+      .prepare(
+        `SELECT DISTINCT v.id AS variant_id, ao.offer_id AS offer_id
            FROM leadgen_funnels f
            JOIN leadgen_funnel_variants v ON v.funnel_id = f.id AND v.status = 'active'
            JOIN leadgen_auctions a ON a.id = v.auction_id AND a.status = 'active'
@@ -1099,12 +1118,27 @@ async function readLiveOffersByFunnel(db: D1Database, quoteId: number): Promise<
           WHERE f.quote_id = ?`,
       )
       .bind(quoteId)
-      .all<{ funnel_id: number; offer_id: number }>();
-    const out = new Map<number, number[]>();
-    for (const r of res.results ?? []) {
-      const list = out.get(r.funnel_id) ?? [];
-      list.push(r.offer_id);
-      out.set(r.funnel_id, list);
+      .all<{ variant_id: number; offer_id: number }>();
+    const offersByVariant = new Map<number, Set<number>>();
+    for (const p of pairs.results ?? []) {
+      const set = offersByVariant.get(p.variant_id) ?? new Set<number>();
+      set.add(p.offer_id);
+      offersByVariant.set(p.variant_id, set);
+    }
+    const variantsByFunnel = new Map<number, number[]>();
+    for (const v of variants.results ?? []) {
+      const list = variantsByFunnel.get(v.funnel_id) ?? [];
+      list.push(v.variant_id);
+      variantsByFunnel.set(v.funnel_id, list);
+    }
+    const out = new Map<number, FunnelLiveOffers>();
+    for (const [funnelId, variantIds] of variantsByFunnel) {
+      const counts = new Map<number, number>();
+      for (const vid of variantIds) for (const oid of offersByVariant.get(vid) ?? []) counts.set(oid, (counts.get(oid) ?? 0) + 1);
+      const live: number[] = [];
+      const partly: number[] = [];
+      for (const [oid, n] of counts) (n === variantIds.length ? live : partly).push(oid);
+      out.set(funnelId, { live, partly });
     }
     return out;
   } catch {

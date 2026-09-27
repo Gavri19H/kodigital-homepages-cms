@@ -211,8 +211,16 @@ async function serveLeadgenAttemptV2(c: PublicContext): Promise<Response> {
         plane: "entry",
       });
     }
-  } catch {
-    /* best-effort — never blocks the mint */
+  } catch (err) {
+    // Best-effort — never blocks the mint. Logged: a lost outcome silently
+    // drops this attempt's traffic tag, FB multiplier and "Present only".
+    console.log(
+      JSON.stringify({
+        event: "leadgen_routing_outcome_write_failed",
+        plane: "entry",
+        error: err instanceof Error ? err.message : String(err),
+      }),
+    );
   }
 
   const headers = leadgenNoStoreHeaders();

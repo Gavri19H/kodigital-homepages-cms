@@ -293,3 +293,10 @@ rail: "Feed name" → "Traffic tag" (label, description, chips, help), the
 "Present only this offer" action row, its warnings, the slug preview, the
 modal's field-error text (`errorText` replacing `firstError`), the rail
 description, and the Analytics tab's "Traffic tag" breakdown card title.
+
+2026-09-27 re-capture #2 (same change, adversarial-review round): the rail's
+card-action error line (`data-qr-rail-error`), the modal's own "never apply"
+wording, the A/B "only some versions" warning, the plainer help/warning copy,
+and — in `editor-panel-themes.html` — the section chooser now reading every
+page of the section list (`fetchAllItems`) instead of `?page_size=200`, which
+the API answers with 25 rows. Id-only churn restored as before.

@@ -21,6 +21,7 @@ import {
 import { resolveTimeframe, renderTimeframeSelect, type Timeframe } from "../listicles/ui-shared";
 import {
   apiJson,
+  apiJsonAll,
   branding,
   EMPTY_PAGING,
   leadgenPageShell,
@@ -455,10 +456,7 @@ const AUCTION_LIST_SCRIPT = `
 export async function leadgenAuctionsNewPage(c: UiContext): Promise<Response> {
   // Quote attribution picker feed — any quote is attributable (draft quotes are
   // still being built; the auction attributes to the Quote, not its lifecycle).
-  const quotesRes = await apiJson<ListBody<QuoteOption>>(
-    c.env,
-    "/api/admin/leadgen/quotes?page_size=200",
-  );
+  const quotesRes = await apiJsonAll<QuoteOption>(c.env, "/api/admin/leadgen/quotes");
   const quotes = quotesRes.ok ? quotesRes.body.items : [];
   const quoteOptions = quotes
     .map((q) => `<option value="${q.id}">${escapeHtml(q.quote_name)} (${escapeHtml(q.activity)})</option>`)
@@ -988,7 +986,7 @@ export async function leadgenAuctionEditorPage(c: UiContext): Promise<Response> 
   const offersRes = await apiJson<{ items: ParticipatingOffer[] }>(c.env, `/api/admin/leadgen/auctions/${encoded}/offers`);
   const rulesRes = await apiJson<{ items: LeadgenAuctionRuleApi[] }>(c.env, `/api/admin/leadgen/auctions/${encoded}/rules`);
   const bannerRes = await apiJson<BannerConfig>(c.env, `/api/admin/leadgen/auctions/${encoded}/banner`);
-  const quotesRes = await apiJson<ListBody<QuoteOption>>(c.env, "/api/admin/leadgen/quotes?page_size=200");
+  const quotesRes = await apiJsonAll<QuoteOption>(c.env, "/api/admin/leadgen/quotes");
 
   const quotes = quotesRes.ok ? quotesRes.body.items : [];
   const attributedQuote = quotes.find((q) => q.id === a.quote_id) ?? null;

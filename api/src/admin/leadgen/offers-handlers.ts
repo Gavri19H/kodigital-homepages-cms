@@ -2258,6 +2258,21 @@ export async function buildOfferUsageReport(db: D1Database, offerId: number): Pr
       offerId,
     ),
   );
+  // 0061 review: a quote routing rule that redirects to this Offer
+  // (target_offer_id) or presents only it (force_offer_id) is a live wired
+  // reference — deleting the Offer would silently empty that rule's traffic.
+  // Blocking.
+  add(
+    "quote_routing_rules_targeting",
+    await countRefs(
+      db,
+      `SELECT r.id, r.public_id, q.quote_name || ' — ' || r.rule_name AS name,
+              '/admin/leadgen/quotes/' || q.public_id || '/edit' AS link
+       FROM leadgen_quote_routing_rules r JOIN leadgen_quotes q ON q.id = r.quote_id
+       WHERE r.target_offer_id = ?1 OR r.force_offer_id = ?1 ORDER BY q.quote_name, r.rule_name`,
+      offerId,
+    ),
+  );
   // BLOCKER (adversarial): an Auction using this Offer as its backfill source
   // (leadgen_auctions.backfill_source_offer_id — write-enforced FK) would be
   // left dangling + un-saveable. Blocking.

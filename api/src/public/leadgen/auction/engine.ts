@@ -1223,11 +1223,20 @@ export async function runAuction(
   // auction). skip_section/show_section are per-section navigation owned by the
   // P11 client engine and never gate the terminal auction. auction_entry: when
   // any exists, at least one must match for the auction to run.
+  // 0061 "Present only this offer": set when a quote routing rule narrowed
+  // this attempt to one offer (see RunAuctionInput.present_only_offer_id).
+  const presentOnly = input.present_only_offer_id ?? null;
   const funnelRules = [...input.bundle.funnel_rules].sort((a, b) => a.priority - b.priority);
   for (const fr of funnelRules) {
     if (fr.rule_type === "disqualification" && conditionsMatch(fr.conditions, ruleContext)) {
       return empty("disqualified", 200, null, "disqualified", null);
     }
+    // A present-only attempt is shown that one offer, so a funnel redirect to
+    // anything else (another offer, a raw URL) does not apply to it — it would
+    // send the partner's QA visitor to a different offer. A redirect to the
+    // SAME offer still applies. Disqualification / auction_entry gates stay:
+    // they can only show nothing, never a different offer.
+    if (fr.rule_type === "redirect_direct_offer" && presentOnly !== null && fr.target_offer_id !== presentOnly) continue;
     if (fr.rule_type === "redirect_direct_offer" && conditionsMatch(fr.conditions, ruleContext)) {
       // §15.5 redirect_pct session-sticky gate (0044): a match alone is not
       // enough — this session must also fall inside the rule's percentage
@@ -1263,7 +1272,6 @@ export async function runAuction(
   const offersConsidered: LeadgenAuctionConsideredOffer[] = [];
   const offersExcluded: LeadgenAuctionExcludedOffer[] = [];
   const regionCapSurvivors: AuctionBundleOffer[] = [];
-  const presentOnly = input.present_only_offer_id ?? null;
   const presentOnlyUnavailable = presentOnly !== null && !input.bundle.offers.some((b) => b.offer.id === presentOnly);
   for (const b of input.bundle.offers) {
     offersConsidered.push({ offer_id: b.offer.public_id, placement_id: b.placement_public_id ?? "" });
@@ -1659,7 +1667,11 @@ export async function runAuction(
     carriers,
     bid_source: cpcOfferIds.has(offer_public_id) ? "cpc" : "static",
   }));
-  let surfaced = surfaceCarriers(surfaceOffers, winner.winner, settings);
+  // 0061: a present-only attempt's one offer is presented even when this
+  // auction does not surface static-bid offers (it is the only participant, so
+  // this can only let THAT offer show — "forced presentation").
+  const surfaceSettings = presentOnly !== null ? { ...settings, surface_static_bid_offers: true } : settings;
+  let surfaced = surfaceCarriers(surfaceOffers, winner.winner, surfaceSettings);
 
   // Step 13: remove-clicked (reuse applyRemoveClicked as the authority; keep
   // slot/source by intersecting on the survivor identity, then re-slot).

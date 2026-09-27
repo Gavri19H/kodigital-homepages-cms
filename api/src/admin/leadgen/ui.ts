@@ -142,6 +142,28 @@ export async function apiJson<T>(env: Env, path: string): Promise<ApiResult<T>> 
   return { ok: false, error: errText };
 }
 
+// Every row of a paged admin list (all pages merged). The list API accepts
+// page_size 1–100 and answers ANY larger ask with its default of 25 (offers-
+// handlers.ts parsePaging), so the old `?page_size=200` callers were silently
+// served the 25 most recently edited rows — the section library, the rule
+// builder's answer fields and the offer pickers dropped everything past 25.
+// `path` carries its own filters and no paging params. Capped at 50 pages
+// (5000 rows) so a paging bug can never loop.
+export const API_MAX_PAGE_SIZE = 100;
+export async function apiJsonAll<T>(env: Env, path: string): Promise<ApiResult<ListBody<T>>> {
+  const sep = path.includes("?") ? "&" : "?";
+  const items: T[] = [];
+  let paging: Paging = EMPTY_PAGING;
+  for (let page = 1; page <= 50; page++) {
+    const res = await apiJson<ListBody<T>>(env, `${path}${sep}page_size=${API_MAX_PAGE_SIZE}&page=${page}`);
+    if (!res.ok) return res;
+    items.push(...(res.body.items ?? []));
+    paging = res.body.paging ?? EMPTY_PAGING;
+    if (paging.has_next !== true) break;
+  }
+  return { ok: true, body: { items, paging } };
+}
+
 export function pageParam(c: UiContext): string {
   const raw = c.req.query("page") ?? "";
   const n = Number(raw);

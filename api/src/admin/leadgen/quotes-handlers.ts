@@ -982,7 +982,21 @@ async function buildRoutingRuleFields(
   // checkpoint rule only takes effect when it switches funnel (resolver.ts
   // evaluateQuoteCheckpointRouting). "Present only" on such a rule without a
   // Target funnel would save and then never happen — refuse it here instead.
-  if (forceOfferId !== null && targetFunnelId === null && !isEntryPlane(routingConditionFields(safeParseJson(conditionsJson)))) {
+  // Only when this save touches one of the three inputs: a status-only PATCH
+  // (the rail's on/off switch) must still work on a rule a funnel deletion
+  // left without its Target funnel — the card's warning names that case.
+  const touchesPresentOnly =
+    existing === null ||
+    body["force_offer_id"] !== undefined ||
+    body["target_funnel_id"] !== undefined ||
+    body["conditions_json"] !== undefined ||
+    body["conditions"] !== undefined;
+  if (
+    touchesPresentOnly &&
+    forceOfferId !== null &&
+    targetFunnelId === null &&
+    !isEntryPlane(routingConditionFields(safeParseJson(conditionsJson)))
+  ) {
     errors["force_offer_id"] =
       "Present only this offer needs entry conditions (UTM, device, state, OS, hour, weekday). With answer conditions, also pick a Target funnel.";
   }

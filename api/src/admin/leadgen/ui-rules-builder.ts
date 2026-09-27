@@ -1860,7 +1860,10 @@ export interface QuoteRulesRailFunnel {
   // 0061 — the offers that are live participants of this funnel's auction
   // (an active variant → its active auction → enabled rows of active offers).
   // Drives the "Present only this offer" warning; absent ⇒ no warning.
+  // live_offer_ids = live for EVERY active A/B version of the funnel;
+  // partly_live_offer_ids = live for some versions only.
   live_offer_ids?: number[];
+  partly_live_offer_ids?: number[];
 }
 
 export interface QuoteRulesRailOffer {
@@ -2096,6 +2099,9 @@ function qrPresentOnlyWarning(rule: QuoteRulesRailRule, data: QuoteRulesRailData
   const funnel = funnelId === null ? undefined : data.funnels.find((f) => f.id === funnelId);
   if (funnel === undefined || funnel.live_offer_ids === undefined) return null;
   if (funnel.live_offer_ids.includes(offerId)) return null;
+  if ((funnel.partly_live_offer_ids ?? []).includes(offerId)) {
+    return `“${offer.name}” is live in only some A/B versions of funnel “${funnel.name}”. Matching visitors on the other versions will see no offers.`;
+  }
   return `“${offer.name}” is not a live offer in the auction of funnel “${funnel.name}”. Matching visitors will see no offers until it is added and enabled there.`;
 }
 
@@ -2105,6 +2111,9 @@ function qrPresentOnlyWarning(rule: QuoteRulesRailRule, data: QuoteRulesRailData
 // Unreachable rules already carry the A-6 callout, so they are left to it.
 const QR_NEEDS_FUNNEL_TEXT =
   "Rules on answers only take effect when they also pick a Target funnel. As saved, this rule never applies.";
+// The modal's wording (the rule is not saved yet).
+const QR_NEEDS_FUNNEL_MODAL_TEXT =
+  "Rules on answers only take effect when they also pick a Target funnel. Without one, this rule will never apply.";
 function qrNeedsFunnelWarning(rule: QuoteRulesRailRule, cp: RuleCheckpoint): boolean {
   return cp.plane !== "entry" && cp.unreachable !== true && rule.target_funnel_id === null;
 }
@@ -2301,7 +2310,7 @@ function renderQuoteRuleModal(data: QuoteRulesRailData): string {
     `<div class="lg-qr-readonly" data-qr-modal-checkpoint>Entry</div>` +
     `<div class="lg-qr-help">Derived from the conditions — where this rule can first apply.</div>` +
     `<div class="lg-qr-callout warn" data-qr-modal-a6 data-pin="A-6-inline" hidden><span class="lg-qr-warnico" aria-hidden="true">⚠</span><span>This rule can never apply before a visitor enters a funnel that asks these questions.</span></div>` +
-    `<div class="lg-qr-callout warn" data-qr-modal-needs-funnel role="note" hidden><span class="lg-qr-warnico" aria-hidden="true">⚠</span><span>${escapeHtml(QR_NEEDS_FUNNEL_TEXT)}</span></div></div>` +
+    `<div class="lg-qr-callout warn" data-qr-modal-needs-funnel role="note" hidden><span class="lg-qr-warnico" aria-hidden="true">⚠</span><span>${escapeHtml(QR_NEEDS_FUNNEL_MODAL_TEXT)}</span></div></div>` +
     `<div data-pin="8.2-rule-priority"><label class="lg-qr-label" for="lg-qr-priority">Priority</label>` +
     `<input class="form-input" id="lg-qr-priority" type="number" min="1" max="100" step="1" value="100" data-qr-modal-priority />` +
     `<div class="lg-qr-help">1 = highest priority, 100 = lowest.</div></div>` +
@@ -2438,6 +2447,7 @@ export function renderQuoteRulesRail(data: QuoteRulesRailData): string {
     `<div class="lg-qr-desc">Rules decide which funnel a visitor sees, and can tag the traffic, set the FB multiplier, redirect, or present only one offer. Lowest priority number wins when more than one matches.</div></div>` +
     `<div class="lg-qr-colhead"><span class="lg-qr-cprio">Priority</span><span class="lg-qr-cname">Name · Checkpoint · Conditions · Actions · Status</span></div>` +
     `<div class="lg-qr-list" id="lg-qr-list" data-pin="8.2-rules-table">` +
+    `<p class="alert alert-error lg-qr-error" data-qr-rail-error role="alert" hidden></p>` +
     `<div data-qr-cards>${cards}</div>` +
     `<div class="lg-qr-newbtn" data-pin="8.2-new-rule-btn" role="button" tabindex="0" data-qr-new>+ New rule</div>` +
     `</div>` +
@@ -2651,6 +2661,8 @@ export const QUOTE_RULES_SCRIPT = `(function () {
     var funnel = funnelId == null ? null : funnelById(funnelId);
     if (!funnel || !isArr(funnel.live_offer_ids)) { return null; }
     var i; for (i = 0; i < funnel.live_offer_ids.length; i++) { if (funnel.live_offer_ids[i] === offerId) { return null; } }
+    var partly = isArr(funnel.partly_live_offer_ids) ? funnel.partly_live_offer_ids : [];
+    for (i = 0; i < partly.length; i++) { if (partly[i] === offerId) { return '\\u201c' + offer.name + '\\u201d is live in only some A/B versions of funnel \\u201c' + funnel.name + '\\u201d. Matching visitors on the other versions will see no offers.'; } }
     return '\\u201c' + offer.name + '\\u201d is not a live offer in the auction of funnel \\u201c' + funnel.name + '\\u201d. Matching visitors will see no offers until it is added and enabled there.';
   }
   var NEEDS_FUNNEL_TEXT = 'Rules on answers only take effect when they also pick a Target funnel. As saved, this rule never applies.';
@@ -2950,9 +2962,21 @@ export const QUOTE_RULES_SCRIPT = `(function () {
     if (typeof body.error === 'string') { return body.error; }
     return null;
   }
-  function duplicateRule(pub) { fetch(API + '/routing-rules/' + encodeURIComponent(pub) + '/duplicate', { method: 'POST' }).then(function () { refetch(); }, function () {}); }
-  function deleteRule(pub) { if (!window.confirm('Delete this rule?')) { return; } fetch(API + '/routing-rules/' + encodeURIComponent(pub), { method: 'DELETE' }).then(function () { refetch(); }, function () {}); }
-  function toggleRule(rule) { var next = rule.status === 'disabled' ? 'active' : 'disabled'; fetch(API + '/routing-rules/' + encodeURIComponent(rule.public_id), { method: 'PATCH', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ status: next }) }).then(function () { refetch(); }, function () {}); }
+  // Card actions report a refusal on the rail (they used to drop it: a failed
+  // on/off switch simply stayed where it was, with no reason given).
+  function showRailErr(msg) { var e = qs(root, '[data-qr-rail-error]'); if (e) { if (msg) { txt(e, msg); e.hidden = false; } else { e.hidden = true; } } }
+  function cardAction(url, init, verb) {
+    showRailErr('');
+    fetch(url, init)
+      .then(function (r) { return r.json().then(function (j) { return { ok: r.ok, status: r.status, body: j }; }, function () { return { ok: r.ok, status: r.status, body: null }; }); })
+      .then(function (res) {
+        if (!res.ok) { showRailErr(errorText(res.body) || ('Could not ' + verb + ' the rule (' + res.status + ').')); }
+        refetch();
+      }, function () { showRailErr('Network error \\u2014 could not ' + verb + ' the rule.'); });
+  }
+  function duplicateRule(pub) { cardAction(API + '/routing-rules/' + encodeURIComponent(pub) + '/duplicate', { method: 'POST' }, 'duplicate'); }
+  function deleteRule(pub) { if (!window.confirm('Delete this rule?')) { return; } cardAction(API + '/routing-rules/' + encodeURIComponent(pub), { method: 'DELETE' }, 'delete'); }
+  function toggleRule(rule) { var next = rule.status === 'disabled' ? 'active' : 'disabled'; cardAction(API + '/routing-rules/' + encodeURIComponent(rule.public_id), { method: 'PATCH', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ status: next }) }, next === 'active' ? 'turn on' : 'turn off'); }
 
   // ---- events ---------------------------------------------------------------
   function closestAttr(node, attr) { var n = node; while (n && n !== root) { if (n.getAttribute && n.getAttribute(attr) !== null && n.hasAttribute && n.hasAttribute(attr)) { return n; } n = n.parentNode; } return null; }
@@ -3022,11 +3046,11 @@ export const QUOTE_RULES_SCRIPT = `(function () {
 //   GET /quotes/:id/funnels                          -> funnels WITH nested
 //     variants in ONE call (listQuoteFunnelsHandler already embeds
 //     `variants: variants.map(variantRowToApi)` per funnel item).
-//   GET /sections?activity=X&status=active&page_size=200 -> the activity's
+//   GET /sections?activity=X&status=active (every page) -> the activity's
 //     answer-field universe. SAME derivation ui-quotes.ts's own answerFields
 //     assembly already performs (internal_field + "<section_name> · <field>"),
 //     re-implemented here in ES5 since the browser cannot call that TS helper.
-//   GET /offers?page_size=200                         -> the redirect_direct_
+//   GET /offers (every page)                          -> the redirect_direct_
 //     offer by-name target picker (the SAME general list the quote/variant
 //     editor already reads from, unfiltered — matching precedent exactly).
 //
@@ -3256,6 +3280,21 @@ export const RELOCATED_RULES_SCRIPT = `(function () {
     return out;
   }
 
+  // Every page of a list: the API caps page_size at 100 and answers a larger
+  // ask with 25 rows (the old ?page_size=200 silently dropped the rest).
+  function fetchAllItems(base) {
+    var sep = base.indexOf('?') >= 0 ? '&' : '?';
+    var all = [];
+    function page(n) {
+      return fetch(base + sep + 'page_size=100&page=' + n).then(function (r) { return r.json(); }).then(function (body) {
+        all = all.concat((body && isArr(body.items)) ? body.items : []);
+        if (body && body.paging && body.paging.has_next === true && n < 50) { return page(n + 1); }
+        return { items: all };
+      });
+    }
+    return page(1);
+  }
+
   function loadQuote(quotePub, then) {
     if (quoteCache[quotePub]) { then(quoteCache[quotePub]); return; }
     var quote = null;
@@ -3263,8 +3302,8 @@ export const RELOCATED_RULES_SCRIPT = `(function () {
     for (i = 0; i < quotes.length; i++) { if (quotes[i].public_id === quotePub) { quote = quotes[i]; break; } }
     if (!quote) { then(null); return; }
     var funnelsP = fetch(API + '/quotes/' + encodeURIComponent(quotePub) + '/funnels').then(function (r) { return r.json(); });
-    var sectionsP = fetch(API + '/sections?activity=' + encodeURIComponent(quote.activity) + '&status=active&page_size=200').then(function (r) { return r.json(); });
-    var offersP = fetch(API + '/offers?page_size=200').then(function (r) { return r.json(); });
+    var sectionsP = fetchAllItems(API + '/sections?activity=' + encodeURIComponent(quote.activity) + '&status=active');
+    var offersP = fetchAllItems(API + '/offers');
     Promise.all([funnelsP, sectionsP, offersP]).then(function (results) {
       var funnelsBody = results[0], sectionsBody = results[1], offersBody = results[2];
       var entry = {
