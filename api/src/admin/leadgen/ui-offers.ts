@@ -46,6 +46,12 @@ import {
 } from "../../leadgen/validation";
 import { inferSchemaFromExample } from "../../leadgen/payload";
 import {
+  CLICKOUT_META_DEFAULT_EVENT,
+  CLICKOUT_META_EVENT_NAMES,
+  resolveClickoutMetaDestination,
+  type ClickoutMetaDestinationProblem,
+} from "../../leadgen/clickout-meta";
+import {
   REGION_RULE_ACTION_LABELS,
   REGION_RULE_BEHAVIORS,
   REGION_RULE_PRIORITY_HELP,
@@ -709,6 +715,12 @@ const LG_OFFERS_STYLES = `
 .lg-usage-list li{margin-bottom:4px}
 .lg-retry{margin-left:6px}
 .lg-radio{display:flex;align-items:center;gap:8px;font-weight:400}
+.lg-clickout-meta{border:1px solid var(--c-border);border-radius:8px;padding:12px 16px}
+.lg-clickout-meta[hidden],[data-lg-clickout-meta-detail][hidden]{display:none}
+.lg-clickout-meta-detail{margin-top:12px}
+.lg-clickout-meta-status{margin-top:8px;padding:8px 10px;border-radius:6px;border:1px solid var(--c-border)}
+.lg-clickout-meta-status[data-tone="ok"]{background:#ecfdf5;color:#065f46;border-color:#a7f3d0}
+.lg-clickout-meta-status[data-tone="warn"]{background:#fffbeb;color:#92400e;border-color:#fde68a}
 .lg-placement-row{display:flex;gap:8px;margin-bottom:8px;align-items:center}
 .lg-saving{position:relative;opacity:.85}
 .lg-saving::after{content:'';width:12px;height:12px;border:2px solid rgba(255,255,255,.4);border-top-color:#fff;border-radius:50%;display:inline-block;margin-left:8px;animation:lgSpin .8s linear infinite}
@@ -1784,7 +1796,79 @@ function renderPlacementEditorRow(p: LeadgenOfferPlacementApi | null): string {
   </div>`;
 }
 
-function renderBasicsPanel(o: OfferDetail): string {
+// Where the clickout Meta event would be sent — the TOKEN-FREE projection of
+// clickout-meta.ts resolveClickoutMetaDestination (the resolver returns the
+// token; it never reaches a page).
+export type ClickoutMetaStatusView =
+  | { ok: true; dataset_id: string; api_version: string }
+  | { ok: false; problem: ClickoutMetaDestinationProblem; dataset_id: string | null };
+
+function clickoutMetaStatusText(status: ClickoutMetaStatusView): { tone: "ok" | "warn"; text: string } {
+  if (status.ok) {
+    return {
+      tone: "ok",
+      text: `Connected: events go to Meta dataset ${status.dataset_id} (Conversions API ${status.api_version}) through LeadGen's “facebook” media platform.`,
+    };
+  }
+  switch (status.problem) {
+    case "meta_platform_missing":
+      return { tone: "warn", text: "Not connected: LeadGen has no “facebook” media platform, so nothing will be sent yet." };
+    case "meta_endpoint_not_configured":
+      return {
+        tone: "warn",
+        text: "Not connected: LeadGen's “facebook” media platform has no Meta dataset yet (it needs the Conversions API endpoint https://graph.facebook.com/v25.0/<dataset id>/events), so nothing will be sent yet.",
+      };
+    case "meta_token_missing":
+      return {
+        tone: "warn",
+        text: `Not connected: Meta dataset ${status.dataset_id ?? ""} is set, but its Conversions API access token is not installed, so nothing will be sent yet.`,
+      };
+  }
+}
+
+// 0058 — the clickout Meta conversion. Rendered for every Offer (so switching
+// the mode radio can reveal it without a reload) but visible ONLY while
+// "Static — no provider request" is selected; the save path refuses the switch
+// for any other mode.
+function renderClickoutMetaFieldset(o: OfferDetail, status: ClickoutMetaStatusView): string {
+  const visible = offerMode(o) === "static_no_request";
+  const on = o.clickout_meta_conversion === true;
+  const current = o.clickout_meta_event_name ?? CLICKOUT_META_DEFAULT_EVENT;
+  const eventOptions = CLICKOUT_META_EVENT_NAMES.map((name) => {
+    const selected = name === current ? " selected" : "";
+    const label = name === CLICKOUT_META_DEFAULT_EVENT ? `${name} (default)` : name;
+    return `<option value="${name}"${selected}>${escapeHtml(label)}</option>`;
+  }).join("");
+  const statusLine = clickoutMetaStatusText(status);
+  return `<fieldset class="form-group lg-clickout-meta" data-lg-clickout-meta${visible ? "" : " hidden"}>
+      <legend class="form-label">Meta (Facebook) conversion on clickout</legend>
+      <label class="form-label lg-radio" for="lg-edit-clickout-meta"><input id="lg-edit-clickout-meta" type="checkbox" name="clickout_meta_conversion" value="1"${on ? " checked" : ""} /> Fire Meta conversion on clickout</label>
+      <span class="form-help">When a visitor who arrived from a Meta ad clicks this offer's banner, LeadGen sends Meta one Conversions API event, once per visitor per offer. It is a media signal only: it books no LeadGen revenue and is not counted as a conversion. Off by default. This is a LeadGen offer setting — it is not configured in, and does not use, Admin → Conversions.</span>
+      ${fieldError("clickout_meta_conversion")}
+      <div class="lg-clickout-meta-detail" data-lg-clickout-meta-detail${on ? "" : " hidden"}>
+        <div class="form-group">
+          <label for="lg-edit-clickout-meta-event" class="form-label">Meta event</label>
+          <select id="lg-edit-clickout-meta-event" name="clickout_meta_event_name" class="form-select">${eventOptions}</select>
+          ${fieldError("clickout_meta_event_name")}
+        </div>
+        <div class="form-group">
+          <label for="lg-edit-clickout-meta-value" class="form-label">Value sent to Meta per clickout (optional)</label>
+          <input id="lg-edit-clickout-meta-value" name="clickout_meta_value" type="number" step="0.01" min="0" class="form-input" value="${o.clickout_meta_value !== null ? escapeHtml(String(o.clickout_meta_value)) : ""}" placeholder="Leave empty to send no value" />
+          <span class="form-help">Only for Meta's reporting and bidding; sent in the offer's static bid currency. Leave empty unless you know what a click is worth.</span>
+          ${fieldError("clickout_meta_value")}
+        </div>
+        <div class="form-group">
+          <label for="lg-edit-clickout-meta-test" class="form-label">Meta test event code (optional)</label>
+          <input id="lg-edit-clickout-meta-test" name="clickout_meta_test_event_code" type="text" class="form-input" value="${escapeHtml(o.clickout_meta_test_event_code ?? "")}" placeholder="TEST12345" autocomplete="off" />
+          <span class="form-help">From Meta Events Manager → Test events. While set, clickouts show up there live and are not used for optimisation. Clear it to go live.</span>
+          ${fieldError("clickout_meta_test_event_code")}
+        </div>
+      </div>
+      <p class="form-help lg-clickout-meta-status" data-lg-clickout-meta-status="${status.ok ? "connected" : status.problem}" data-tone="${statusLine.tone}">${escapeHtml(statusLine.text)}</p>
+    </fieldset>`;
+}
+
+function renderBasicsPanel(o: OfferDetail, clickoutMeta: ClickoutMetaStatusView): string {
   const placementRows = o.placements.map((p) => renderPlacementEditorRow(p)).join("");
   const mode = offerMode(o);
   const modeRadios = OFFER_MODES.map((m, index) => {
@@ -1835,6 +1919,7 @@ function renderBasicsPanel(o: OfferDetail): string {
       <span class="form-help">Changing the mode reveals/hides the Static and Payload/Request/Test tabs.</span>
       ${fieldError("auction_mode")}
     </fieldset>
+    ${renderClickoutMetaFieldset(o, clickoutMeta)}
     <div class="form-group">
       <label for="lg-edit-status" class="form-label">Status</label>
       <select id="lg-edit-status" name="status" class="form-select">${options(OFFER_STATUS_VALUES, null, o.status, null)}</select>
@@ -2312,8 +2397,18 @@ const LG_EDITOR_SCRIPT = `
     var fix = e.target && e.target.closest ? e.target.closest('[data-eligibility-fix]') : null;
     if (fix) { activateTab(fix.getAttribute('data-eligibility-fix')); }
   });
+  // 0058: the clickout Meta fieldset exists only for Static - no provider
+  // request; its detail block only while the switch is on.
+  function applyClickoutMetaVisibility() {
+    var box = form.querySelector('[data-lg-clickout-meta]');
+    if (box) { box.hidden = selectedMode() !== 'static_no_request'; }
+    var detail = form.querySelector('[data-lg-clickout-meta-detail]');
+    var toggle = form.querySelector('[name="clickout_meta_conversion"]');
+    if (detail) { detail.hidden = !(toggle && toggle.checked); }
+  }
   form.addEventListener('change', function (e) {
-    if (e.target && e.target.name === 'auction_mode') { applyModeVisibility(); }
+    if (e.target && e.target.name === 'auction_mode') { applyModeVisibility(); applyClickoutMetaVisibility(); }
+    if (e.target && e.target.name === 'clickout_meta_conversion') { applyClickoutMetaVisibility(); }
   });
   window.lgEditorTabs = { activate: activateTab };
 
@@ -2607,6 +2702,13 @@ const LG_EDITOR_SCRIPT = `
       region_rules: collectRegionRules(errors),
       placements: collectPlacements(errors)
     };
+    // 0058: only a Static - no provider request Offer can carry the clickout
+    // Meta switch; any other mode always saves it OFF (the API refuses ON).
+    var clickoutToggle = form.querySelector('[name="clickout_meta_conversion"]');
+    body.clickout_meta_conversion = !!(clickoutToggle && clickoutToggle.checked) && selectedMode() === 'static_no_request';
+    body.clickout_meta_event_name = trimmedOrNull('clickout_meta_event_name');
+    body.clickout_meta_value = numberOrNull('clickout_meta_value', false);
+    body.clickout_meta_test_event_code = trimmedOrNull('clickout_meta_test_event_code');
     if (capEnabled && fallbackIdInput && fallbackIdInput.value) {
       var fb = parseInt(fallbackIdInput.value, 10);
       if (!isNaN(fb) && fb > 0) { body.cap_fallback_offer_id = fb; }
@@ -3002,6 +3104,7 @@ interface EditorPageData {
   analyticsError: string | null;
   timeframe: Timeframe;
   duplicated: DuplicatedInfo | null;
+  clickoutMeta: ClickoutMetaStatusView;
 }
 
 function offerEditorHtml(data: EditorPageData, brand: LeadgenBranding): string {
@@ -3023,7 +3126,7 @@ function offerEditorHtml(data: EditorPageData, brand: LeadgenBranding): string {
   ${renderEligibilityBanner(o)}
   ${renderEditorTabBar(o)}
   <form id="lg-editor-form" novalidate>
-    ${renderBasicsPanel(o)}
+    ${renderBasicsPanel(o, data.clickoutMeta)}
     ${renderStaticPanel(o)}
     ${renderRequestPanel(o, o.headers)}
     ${renderRegionPanel(o)}
@@ -3100,6 +3203,15 @@ function pickActiveSchema(
 
 // GET /admin/leadgen/offers/:id/edit — the full-page editor (accepts the
 // numeric id or the lgo_ public id; unknown/foreign/malformed → the 404 page).
+// The editor's view of the clickout Meta destination. The token is dropped
+// here, before anything is rendered.
+async function clickoutMetaStatusView(c: UiContext): Promise<ClickoutMetaStatusView> {
+  const d = await resolveClickoutMetaDestination(c.env, c.env.DB);
+  return d.ok
+    ? { ok: true, dataset_id: d.dataset_id, api_version: d.api_version }
+    : { ok: false, problem: d.problem, dataset_id: d.dataset_id };
+}
+
 export async function leadgenOfferEditorPage(c: UiContext): Promise<Response> {
   const idParam = c.req.param("id") ?? "";
   const got = await apiJson<OfferDetail>(
@@ -3136,6 +3248,7 @@ export async function leadgenOfferEditorPage(c: UiContext): Promise<Response> {
         analyticsError: analytics.ok ? null : analytics.error,
         timeframe,
         duplicated: parseDuplicatedInfo(c),
+        clickoutMeta: await clickoutMetaStatusView(c),
       },
       branding(c),
     ),

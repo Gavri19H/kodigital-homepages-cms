@@ -32,6 +32,7 @@ import { runtimeRequestGuard, type GuardOutcome } from "./runtime-guard";
 import { ingestProviderPostback, ingestBrowserPixel } from "./postback";
 import { leadgenTrackRouter } from "../../analytics/leadgen-track";
 import { resolveLeadgenClick, type LeadgenClickInput } from "./click";
+import { sendClickoutMetaConversion, type ClickoutMetaOffer } from "../../leadgen/clickout-meta";
 import {
   mintFunnelAttempt,
   verifyConfigTokenDetailed,
@@ -773,6 +774,43 @@ async function loadLeadgenClickContext(
   return out;
 }
 
+// 0058 clickout Meta conversion. The Offer's clickout columns are read HERE,
+// inside waitUntil, rather than in loadLeadgenClickContext's offer SELECT: a
+// failure of this read (or of the whole Meta send) must never cost the click
+// its cap increment, its suppression row or its 302, and it adds no D1 read to
+// the visitor's path. Every Offer reaches this; only a static Offer with the
+// switch on sends anything (clickout-meta.ts decides and logs why not).
+function scheduleClickoutMeta(
+  c: PublicContext,
+  execCtx: WaitUntilContext,
+  offerPublicId: string,
+  click: Parameters<typeof sendClickoutMetaConversion>[3],
+): void {
+  if (offerPublicId === "") return;
+  const env = c.env;
+  const work = (async () => {
+    let offer: ClickoutMetaOffer | null = null;
+    try {
+      offer = await env.DB.prepare(
+        "SELECT public_id, calls_provider_api, clickout_meta_conversion, clickout_meta_event_name, clickout_meta_value, clickout_meta_test_event_code, static_bid_currency FROM leadgen_offers WHERE public_id = ? LIMIT 1",
+      )
+        .bind(offerPublicId)
+        .first<ClickoutMetaOffer>();
+    } catch {
+      offer = null;
+    }
+    // The common case — the switch is off — returns silently: no log line per
+    // ordinary click.
+    if (offer === null || offer.clickout_meta_conversion !== 1) return;
+    await sendClickoutMetaConversion(env, env.DB, offer, click);
+  })().catch(() => undefined);
+  try {
+    execCtx.waitUntil(work);
+  } catch {
+    void work;
+  }
+}
+
 // GET /lg/lc/:offer_id — resolve the governed click, mint the click_id, count it
 // (cap + remove-clicked + carrier_click/offer_click), and 302 to the resolved
 // destination. NEVER 302 to a broken/non-http URL: a required-missing / unsafe /
@@ -852,8 +890,9 @@ async function serveLeadgenClick(c: PublicContext): Promise<Response> {
   // control char in Location — resolveLeadgenClick already gates to a safe
   // http(s) URL, but the construction is guarded so a click never 500s.
   if (result.redirect && result.destination_url !== null) {
+    let redirect: Response | null = null;
     try {
-      return new Response(null, {
+      redirect = new Response(null, {
         status: 302,
         headers: {
           Location: result.destination_url,
@@ -863,6 +902,22 @@ async function serveLeadgenClick(c: PublicContext): Promise<Response> {
       });
     } catch {
       // fall through to the safe no-redirect — the click was already counted.
+    }
+    if (redirect !== null) {
+      // 0058: a SUCCESSFUL clickout on a static Offer may send Meta a media
+      // signal. Entirely on waitUntil — the visitor's 302 never waits on it.
+      scheduleClickoutMeta(c, execCtx, offerPublicId, {
+        click_id: result.click_id,
+        funnel_attempt_id: funnelAttemptId,
+        session_id: canonicalMacros["session_id"] ?? ctx.session_id ?? "",
+        fbc: canonicalMacros["fbc"] ?? "",
+        fbclid: canonicalMacros["fbclid"] ?? "",
+        ip: canonicalMacros["ip"] ?? "",
+        ua: canonicalMacros["ua"] ?? "",
+        page_url: canonicalMacros["referer"] ?? "",
+        host: new URL(c.req.url).host,
+      });
+      return redirect;
     }
   }
   // required-missing / unsafe / no-target → safe non-302 (never a broken URL).

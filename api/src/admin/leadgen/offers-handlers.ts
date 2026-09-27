@@ -43,6 +43,7 @@ import {
   sealOfferApiToken,
 } from "../../leadgen/offer-api-token";
 import { readCapStatus, capExceeded } from "../../leadgen/caps";
+import { CLICKOUT_META_EVENT_NAMES, CLICKOUT_META_TEST_CODE_RE } from "../../leadgen/clickout-meta";
 import { validateBannerUrlTemplate, normalizeTemplate, findUnknownMacros } from "../../leadgen/macros";
 import {
   inferSchemaFromExample,
@@ -254,6 +255,10 @@ export function offerRowToApi(row: LeadgenOfferRow): LeadgenOfferApi {
     ...rest,
     calls_provider_api: row.calls_provider_api !== 0,
     cap_enabled: row.cap_enabled !== 0,
+    clickout_meta_conversion: (row.clickout_meta_conversion ?? 0) !== 0,
+    clickout_meta_event_name: row.clickout_meta_event_name ?? null,
+    clickout_meta_value: row.clickout_meta_value ?? null,
+    clickout_meta_test_event_code: row.clickout_meta_test_event_code ?? null,
     api_token_present: typeof api_token_cipher === "string" && api_token_cipher.trim() !== ""
       && (api_token_key_id === "lgok1" || api_token_key_id === "lgok2"),
     api_token_updated_at: row.api_token_updated_at ?? null,
@@ -1004,6 +1009,12 @@ const OFFER_PATCH_COLUMNS = [
   "cap_fallback_offer_id",
   "cap_fallback_url",
   "status",
+  // 0058 clickout Meta conversion (static — no provider request Offers only;
+  // the merged-state rule in patchOfferHandler enforces that).
+  "clickout_meta_conversion",
+  "clickout_meta_event_name",
+  "clickout_meta_value",
+  "clickout_meta_test_event_code",
 ] as const;
 
 interface HeaderInput {
@@ -1072,7 +1083,7 @@ function collectScalarUpdates(body: Record<string, unknown>, errors: FieldErrors
     }
   }
 
-  for (const key of ["calls_provider_api", "cap_enabled"] as const) {
+  for (const key of ["calls_provider_api", "cap_enabled", "clickout_meta_conversion"] as const) {
     if (body[key] === undefined) continue;
     const toggled = asToggle(body[key]);
     if (toggled === null) errors[key] = `${key} must be a boolean`;
@@ -1162,6 +1173,32 @@ function collectScalarUpdates(body: Record<string, unknown>, errors: FieldErrors
       }
     }
   }
+  // 0058: the Meta event name is a closed list (Meta standard events); null /
+  // "" means the default, Lead. The value is optional — null means "report no
+  // value", because a click is not a sale and nothing should be guessed for it.
+  if (body["clickout_meta_event_name"] !== undefined) {
+    const v = body["clickout_meta_event_name"];
+    if (v === null || v === "") updates.set("clickout_meta_event_name", null);
+    else if (typeof v !== "string" || !(CLICKOUT_META_EVENT_NAMES as readonly string[]).includes(v)) {
+      errors["clickout_meta_event_name"] = `clickout_meta_event_name must be one of ${CLICKOUT_META_EVENT_NAMES.join("|")}`;
+    } else updates.set("clickout_meta_event_name", v);
+  }
+  if (body["clickout_meta_value"] !== undefined) {
+    const v = body["clickout_meta_value"];
+    if (v === null) updates.set("clickout_meta_value", null);
+    else if (typeof v !== "number" || !Number.isFinite(v) || v <= 0) {
+      errors["clickout_meta_value"] = "clickout_meta_value must be a positive number or empty";
+    } else updates.set("clickout_meta_value", v);
+  }
+  if (body["clickout_meta_test_event_code"] !== undefined) {
+    const v = body["clickout_meta_test_event_code"];
+    const code = typeof v === "string" ? v.trim() : v;
+    if (code === null || code === "") updates.set("clickout_meta_test_event_code", null);
+    else if (typeof code !== "string" || !CLICKOUT_META_TEST_CODE_RE.test(code)) {
+      errors["clickout_meta_test_event_code"] = "clickout_meta_test_event_code must be letters, digits, - or _ (Meta's TEST… code)";
+    } else updates.set("clickout_meta_test_event_code", code);
+  }
+
   if (body["cap_timezone"] !== undefined) {
     const v = body["cap_timezone"];
     if (v === null) updates.set("cap_timezone", null);
@@ -1354,9 +1391,9 @@ function collectPlacementInputs(raw: unknown, errors: FieldErrors): PlacementInp
 function mergedNumber(
   existing: LeadgenOfferRow,
   updates: Map<string, unknown>,
-  key: "calls_provider_api" | "cap_enabled",
+  key: "calls_provider_api" | "cap_enabled" | "clickout_meta_conversion",
 ): number {
-  return (updates.has(key) ? updates.get(key) : existing[key]) as number;
+  return ((updates.has(key) ? updates.get(key) : existing[key]) ?? 0) as number;
 }
 
 function mergedField<K extends keyof LeadgenOfferRow>(
@@ -1490,6 +1527,18 @@ export async function patchOfferHandler(c: AdminContext): Promise<Response> {
   if (mergedCalls === 0 && mergedBidSource === "response" && errors["bid_source"] === undefined) {
     // §10.2: the three legal kinds are (0,static), (1,static), (1,response).
     errors["bid_source"] = "bid_source 'response' requires calls_provider_api";
+  }
+  // 0058: the clickout Meta conversion exists ONLY for "Static — no provider
+  // request" Offers. Judged on the MERGED state, so a PATCH that switches an
+  // Offer to a provider-request mode while the switch is still on is refused
+  // rather than leaving a dormant flag behind (the editor sends it off).
+  if (
+    mergedNumber(existing, updates, "clickout_meta_conversion") === 1 &&
+    mergedCalls !== 0 &&
+    errors["clickout_meta_conversion"] === undefined
+  ) {
+    errors["clickout_meta_conversion"] =
+      "Fire Meta conversion on clickout is only available for Static — no provider request offers";
   }
 
   const capErrors = validateOfferCapFields({
