@@ -4662,7 +4662,11 @@ function ruleRowToCandidateEntry(row: LeadgenFunnelRuleRowV2): Record<string, un
 // (leadgen_funnel_rules FKs are enforced by D1) — mirrors putVariantHandler's
 // own per-target existence check (§15.5 replace-set) so a dangling id 400s
 // cleanly here too, never a raw FK-constraint 500.
-async function ruleTargetFkErrors(db: D1Database, rule: PreparedRule): Promise<FieldErrors> {
+async function ruleTargetFkErrors(
+  db: D1Database,
+  rule: PreparedRule,
+  opts: { checkOwnUrl: boolean } = { checkOwnUrl: true },
+): Promise<FieldErrors> {
   const errors: FieldErrors = {};
   if (rule.targetOfferId !== null) {
     const ex = await db
@@ -4670,7 +4674,7 @@ async function ruleTargetFkErrors(db: D1Database, rule: PreparedRule): Promise<F
       .bind(rule.targetOfferId)
       .first<{ id: number; offer_name: string; banner_url_template: string | null }>();
     if (!ex) errors["target_offer_id"] = describeMissingReference("Offer");
-    else if (rule.ruleType === "redirect_direct_offer" && !offerHasOwnClickUrl(ex.banner_url_template)) {
+    else if (opts.checkOwnUrl && rule.ruleType === "redirect_direct_offer" && !offerHasOwnClickUrl(ex.banner_url_template)) {
       errors["target_offer_id"] = describeNoOwnClickUrl(ex.offer_name);
     }
   }
@@ -4759,7 +4763,11 @@ export async function updateVariantRuleHandler(c: AdminContext): Promise<Respons
   }
   const { rule, errors } = prepareOneRule(merged, redirectAllowlist(c.env));
   if (rule === null) return c.json({ error: "Validation failed", fields: errors }, 400);
-  const fkErrors = await ruleTargetFkErrors(c.env.DB, rule);
+  // The own-URL check guards choosing a redirect target; a PATCH that does not
+  // touch the target or type (Disable, a rename, a priority) must still work on
+  // an older rule whose target has no URL — the engine passes that rule over.
+  const touchesTarget = body["target_offer_id"] !== undefined || body["rule_type"] !== undefined;
+  const fkErrors = await ruleTargetFkErrors(c.env.DB, rule, { checkOwnUrl: touchesTarget });
   if (Object.keys(fkErrors).length > 0) return c.json({ error: "Validation failed", fields: fkErrors }, 400);
 
   await c.env.DB.batch([

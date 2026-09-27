@@ -533,8 +533,15 @@ export async function loadAuctionBundle(
           .bind(...targetIds)
           .all<{ id: number; banner_url_template: string | null }>();
         for (const row of rows.results ?? []) if (offerHasOwnClickUrl(row.banner_url_template)) ownUrl.add(row.id);
-      } catch {
-        /* none reachable */
+      } catch (err) {
+        // none reachable for this request — logged, since it makes every
+        // Offer-target redirect rule of the variant inert until the next read
+        console.log(
+          JSON.stringify({
+            event: "leadgen_redirect_targets_read_failed",
+            error: err instanceof Error ? err.message : String(err),
+          }),
+        );
       }
       for (const fr of funnel_rules) {
         if (fr.target_offer_id !== null) fr.target_has_own_click_url = ownUrl.has(fr.target_offer_id);
@@ -1295,15 +1302,19 @@ export async function runAuction(
       // redirect_rule_triggered = a redirect funnel rule fired;
       // direct_offer_redirect = the redirect targets a direct Offer.
       const redirectUrl = fr.redirect_url_allowlisted === 1 ? fr.redirect_url : null;
+      // The Offer is where the visitor goes only when it has its own URL; a
+      // rule that falls through to its URL (redirectCanLand) is not an Offer
+      // redirect, in the events or in the response.
+      const offerTarget = fr.target_offer_id !== null && fr.target_has_own_click_url === true ? fr.target_offer_id : null;
       pushEvent("redirect_rule_triggered");
-      if (fr.target_offer_id !== null) {
+      if (offerTarget !== null) {
         pushEvent("direct_offer_redirect", (e) => {
-          const target = input.bundle.offers.find((b) => b.offer.id === fr.target_offer_id);
+          const target = input.bundle.offers.find((b) => b.offer.id === offerTarget);
           if (target !== undefined) fillOffer(e, target);
         });
       }
       return empty("redirect", 200, null, "redirect", {
-        target_offer_id: fr.target_offer_id,
+        target_offer_id: offerTarget,
         redirect_url: redirectUrl,
       });
     }

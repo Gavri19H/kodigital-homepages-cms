@@ -274,7 +274,7 @@ async function visit(
   f: Fixture,
   landingQuery: string,
   opts: { session: string; checkpointAnswers?: Record<string, unknown> },
-): Promise<{ shown: string[]; status: string; unfilledReason: string | null; excluded: Array<{ offer_id: string; reason: string }>; outcome: Record<string, unknown> | null; servedVariant: string; go: string | null; faid: string; aiid: string }> {
+): Promise<{ shown: string[]; status: string; unfilledReason: string | null; excluded: Array<{ offer_id: string; reason: string }>; outcome: Record<string, unknown> | null; servedVariant: string; go: string | null; faid: string; aiid: string; redirect: { target_offer_id: number | null; redirect_url: string | null } | null }> {
   const cookie = { Cookie: `ko_sid=${opts.session}` };
   const landing = `${TENANT_ORIGIN}/lg${landingQuery}`;
   const attemptRes = await tenantGet(f.env, `/lg/attempt?vid=${f.main.variant.public_id}&u=${encodeURIComponent(landing)}`, cookie);
@@ -317,7 +317,7 @@ async function visit(
     ctx,
   );
   expect(res.status, await res.clone().text()).toBe(200);
-  const json = (await res.json()) as { status: string; banners: Array<{ offer_public_id: string }>; unfilled_reason: string | null; go?: string; auction_instance_id: string };
+  const json = (await res.json()) as { status: string; banners: Array<{ offer_public_id: string }>; unfilled_reason: string | null; go?: string; auction_instance_id: string; redirect?: { target_offer_id: number | null; redirect_url: string | null } };
   await Promise.all(promises);
   const log = f.sdb
     .prepare("SELECT unfilled_reason, offers_excluded_json FROM leadgen_auction_result_log WHERE funnel_attempt_id = ?")
@@ -331,6 +331,7 @@ async function visit(
     outcome,
     servedVariant: variant,
     go: json.go ?? null,
+    redirect: json.redirect ?? null,
     faid: attempt.funnel_attempt_id,
     aiid: json.auction_instance_id,
   };
@@ -1096,6 +1097,25 @@ describeDb("Auction-tab redirect rules send the visitor to the rule's target", (
     const v = await visit(f, "?utm_source=google", { session: "s-redir-both" });
     expect(v.status).toBe("redirect");
     expect(v.go).toBe("https://partner.example.com/land");
+    // it is a URL redirect, not an Offer redirect — recorded as where the visitor went
+    expect(v.redirect).toEqual({ target_offer_id: null, redirect_url: "https://partner.example.com/land" });
+  });
+
+  it("an older redirect rule whose Offer has no URL can still be disabled or renamed; re-targeting it to such an Offer is refused", async () => {
+    const f = seed();
+    f.sdb.prepare("UPDATE leadgen_offers SET calls_provider_api = 1, bid_source = 'response', banner_url_template = NULL WHERE id = ?").run(f.fundera.id);
+    funnelRedirect(f, f.fundera.id, null, false);
+    const pub = (f.sdb.prepare("SELECT public_id FROM leadgen_funnel_rules WHERE variant_id = ?").get(f.main.variant.id) as { public_id: string }).public_id;
+    const off = await adminReq(f.env, "PATCH", `/variants/${f.main.variant.public_id}/rules/${pub}`, { status: "disabled" });
+    expect(off.status, JSON.stringify(off.json)).toBe(200);
+    expect((f.sdb.prepare("SELECT status FROM leadgen_funnel_rules WHERE public_id = ?").get(pub) as { status: string }).status).toBe("disabled");
+    const renamed = await adminReq(f.env, "PATCH", `/variants/${f.main.variant.public_id}/rules/${pub}`, { rule_name: "Old rule" });
+    expect(renamed.status).toBe(200);
+    const retarget = await adminReq(f.env, "PATCH", `/variants/${f.main.variant.public_id}/rules/${pub}`, { target_offer_id: f.fundera.id });
+    expect(retarget.status).toBe(400);
+    // the Auction-tab list says why such a rule never redirects
+    const { RELOCATED_RULES_SCRIPT } = await import("../src/admin/leadgen/ui-rules-builder");
+    expect(RELOCATED_RULES_SCRIPT).toContain("Never redirects: its offer has no URL of its own.");
   });
 
   it("an ordinary auction carries no destination", async () => {

@@ -3440,6 +3440,7 @@ export const RELOCATED_RULES_SCRIPT = `(function () {
     tr.setAttribute('data-rule-public-id', rule.public_id);
     tr.appendChild(txt(el('td'), rule.priority));
     var nameTd = el('td'); txt(nameTd, (rule.rule_name && rule.rule_name.replace(/^\\s+|\\s+$/g, '') !== '') ? rule.rule_name : '(unnamed rule)'); tr.appendChild(nameTd);
+    if (redirectNeverLands(rule)) { nameTd.appendChild(txt(el('div', 'form-help'), 'Never redirects: its offer has no URL of its own. Pick an offer that has one, or disable the rule.')); }
     tr.appendChild(txt(el('td'), RULE_TYPE_LABEL(rule.rule_type)));
     var disabled = rule.status === 'disabled';
     var statusTd = el('td');
@@ -3455,6 +3456,17 @@ export const RELOCATED_RULES_SCRIPT = `(function () {
     actTd.appendChild(actBtn('Delete', 'data-frr-delete'));
     tr.appendChild(actTd);
     return tr;
+  }
+  // Mirror of the engine's redirectCanLand for the list: an Offer target with
+  // no URL of its own and no allowlisted URL to fall back to never redirects.
+  function redirectNeverLands(rule) {
+    if (rule.rule_type !== 'redirect_direct_offer' || rule.target_offer_id == null) { return false; }
+    if (rule.redirect_url && (rule.redirect_url_allowlisted === true || rule.redirect_url_allowlisted === 1)) { return false; }
+    var entry = quoteCache[currentQuotePub];
+    var list = entry ? entry.offers : [];
+    var i;
+    for (i = 0; i < list.length; i++) { if (list[i].id === rule.target_offer_id) { return list[i].has_own_click_url === false; } }
+    return false;
   }
   function actBtn(label, attr) {
     var b = el('button', 'btn btn-sm btn-outline'); b.type = 'button'; b.setAttribute(attr, ''); txt(b, label); return b;
