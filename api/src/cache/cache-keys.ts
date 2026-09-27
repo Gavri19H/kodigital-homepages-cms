@@ -192,7 +192,11 @@ export function listicleCandidateKey(
 // #lg-funnel-root recorded exactly one call ("unfilled") for the whole funnel.
 // The shell markup and the CSS shipped instantly (server-rendered, keyed on this
 // same constant); only the year-immutable engine URL stayed put.
-export const LEADGEN_TEMPLATE_VERSION = 4 as const;
+// v5 (2026-09-27, funnel redirect rules): the engine now follows a matched
+// Auction-tab redirect rule (the /lg/auction response's `go`) instead of
+// showing an empty results page — engine bytes changed, so the URL moves with
+// them (leadgen-runtime-version-pin.test.ts).
+export const LEADGEN_TEMPLATE_VERSION = 5 as const;
 
 const NS_LG_SHELL = "lg-shell";
 const NS_LG_CONFIG = "lg-config";
