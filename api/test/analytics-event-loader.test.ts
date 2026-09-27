@@ -16,7 +16,7 @@ import { readFileSync } from "node:fs";
 import { fileURLToPath } from "node:url";
 import { dirname, join } from "node:path";
 import type { Env } from "../src/env";
-import { runEventLoader, coerceForColumn } from "../src/analytics/event-loader";
+import { runEventLoader, coerceForColumn, chErrorSummary } from "../src/analytics/event-loader";
 
 type SqliteDb = Record<string, unknown> & { prepare(sql: string): { run(...a: unknown[]): unknown; get(...a: unknown[]): unknown; all(...a: unknown[]): unknown[] } };
 type DatabaseSyncCtor = new (path: string) => SqliteDb;
@@ -66,6 +66,7 @@ interface World {
   files: Map<string, string>; // S3 key -> body
   inserts: Array<{ table: string; rows: Record<string, unknown>[] }>;
   failInserts: boolean;
+  chDown: boolean;
   pageSize: number;
   fetch: typeof fetch;
   calls: string[];
@@ -83,7 +84,7 @@ function world(opts: { chCreds?: boolean; bucket?: boolean; columns?: typeof LIV
     ...(opts.chCreds === false ? {} : { CH_URL: "https://ch.example.test:8443", CH_USER: "kodigital_cms_runtime", CH_PASSWORD: "pw" }),
   } as unknown as Env;
   const cols = opts.columns ?? LIVE_COLUMNS;
-  const w: World = { env, sdb, files: new Map(), inserts: [], failInserts: false, pageSize: 1000, calls: [], fetch: undefined as unknown as typeof fetch };
+  const w: World = { env, sdb, files: new Map(), inserts: [], failInserts: false, chDown: false, pageSize: 1000, calls: [], fetch: undefined as unknown as typeof fetch };
   w.fetch = (async (input: RequestInfo | URL, init?: RequestInit) => {
     const req = input instanceof Request ? input : new Request(String(input), init);
     const url = new URL(req.url);
@@ -115,7 +116,12 @@ function world(opts: { chCreds?: boolean; bucket?: boolean; columns?: typeof LIV
       }
       const m = /^INSERT INTO (\w+) FORMAT JSONEachRow\n([\s\S]*)$/.exec(body);
       if (m !== null) {
-        if (w.failInserts) return new Response("Code: 241. DB::Exception: Memory limit exceeded", { status: 500 });
+        if (w.failInserts || w.chDown) return new Response("Code: 241. DB::Exception: Memory limit exceeded (MEMORY_LIMIT_EXCEEDED)", { status: 500 });
+        const parsed = m[2]!.split("\n").map((l) => JSON.parse(l) as Record<string, unknown>);
+        if (parsed.some((r) => r["event_id"] === "poison")) {
+          // ClickHouse quotes the offending row back — with the visitor's data in it.
+          return new Response(`Code: 27. DB::Exception: Cannot parse input: expected '"' before: ${m[2]!.slice(0, 80)} ip 203.0.113.9: (at row 1) (CANNOT_PARSE_INPUT_ASSERTION_FAILED) (version 26.4.1.2359 (official build))`, { status: 500 });
+        }
         w.inserts.push({ table: m[1]!, rows: m[2]!.split("\n").map((l) => JSON.parse(l) as Record<string, unknown>) });
         return new Response("", { status: 200 });
       }
@@ -273,6 +279,18 @@ describeDb("each file once; failures retried; bounded work", () => {
     expect(ledger(w)).toHaveLength(5);
   });
 
+  it("REVIEW M1: a week of files is in the window (a late deploy strands nothing); older ones need a deliberate backfill", async () => {
+    const w = world();
+    const fiveDaysOld = "leadgen/events/dt=2026-09-22/hr=09/leadgen-events-1-2026-09-22-09-00-00-old";
+    const nineDaysOld = "leadgen/events/dt=2026-09-18/hr=09/leadgen-events-1-2026-09-18-09-00-00-older";
+    w.files.set(fiveDaysOld, LG_FILE);
+    w.files.set(nineDaysOld, LG_FILE);
+    await runEventLoader(w.env, { now: NOW, fetchImpl: w.fetch });
+    expect(ledger(w).map((l) => l.object_key)).toEqual([fiveDaysOld]);
+    await runEventLoader(w.env, { now: NOW, fetchImpl: w.fetch, lookbackDays: 14 });
+    expect(ledger(w).map((l) => l.object_key).sort()).toEqual([nineDaysOld, fiveDaysOld].sort());
+  });
+
   it("follows S3 list pagination", async () => {
     const w = world();
     w.pageSize = 2;
@@ -292,7 +310,91 @@ describeDb("each file once; failures retried; bounded work", () => {
   });
 });
 
+describeDb("REVIEW M2: one bad row cannot stall a stream", () => {
+  it("ClickHouse refuses a row: the batch is bisected, that row is dropped and counted, the rest loads, and the files behind it keep flowing", async () => {
+    const w = world();
+    const lines = LG_FILE.trim().split("\n").map((l) => JSON.parse(l) as Record<string, unknown>);
+    lines[0]!["event_id"] = "poison";
+    const bad = "leadgen/events/dt=2026-09-27/hr=10/leadgen-events-1-2026-09-27-10-00-00-bad";
+    const good = "leadgen/events/dt=2026-09-27/hr=10/leadgen-events-1-2026-09-27-10-05-00-good";
+    w.files.set(bad, lines.map((l) => JSON.stringify(l)).join("\n") + "\n");
+    w.files.set(good, LG_FILE);
+    const err = vi.spyOn(console, "error").mockImplementation(() => undefined);
+    const r = await runEventLoader(w.env, { now: NOW, fetchImpl: w.fetch });
+    const lg = r.streams.find((s) => s.stream === "leadgen")!;
+    expect(lg.error).toBeUndefined();
+    expect(ledger(w).filter((l) => l.stream === "leadgen")).toEqual([
+      { stream: "leadgen", object_key: bad, dt: "2026-09-27", events_loaded: 1, sessions_loaded: 1, records_skipped: 1 },
+      { stream: "leadgen", object_key: good, dt: "2026-09-27", events_loaded: 2, sessions_loaded: 1, records_skipped: 0 },
+    ]);
+    expect(rowsFor(w, "lg_events_raw").map((e) => e["event_id"])).not.toContain("poison");
+    const logged = err.mock.calls.map((c) => String(c[0])).join("\n");
+    expect(logged).toContain('"event_id":"poison"');
+    expect(logged).toContain("CANNOT_PARSE_INPUT_ASSERTION_FAILED");
+    expect(logged).not.toContain("203.0.113.9"); // the row ClickHouse quoted back is never logged
+  });
+
+  it("ClickHouse UP but refusing for a non-data reason (access revoked, code 497): every row is kept — the stream stops and retries", async () => {
+    const w = world();
+    w.files.set(LG_KEY, LG_FILE);
+    const real = w.fetch;
+    let denied = true;
+    w.fetch = (async (input: RequestInfo | URL, init?: RequestInit) => {
+      const req = input instanceof Request ? input : new Request(String(input), init);
+      if (denied && req.url.startsWith("https://ch.example.test")) {
+        const body = await req.clone().text();
+        if (body.startsWith("INSERT")) return new Response("Code: 497. DB::Exception: kodigital_cms_runtime: Not enough privileges (ACCESS_DENIED)", { status: 500 });
+      }
+      return real(req);
+    }) as typeof fetch;
+    vi.spyOn(console, "error").mockImplementation(() => undefined);
+    const r = await runEventLoader(w.env, { now: NOW, fetchImpl: w.fetch });
+    expect(r.streams.find((s) => s.stream === "leadgen")?.error).toMatch(/code 497 ACCESS_DENIED/);
+    expect(ledger(w)).toHaveLength(0); // nothing recorded, nothing dropped
+    denied = false;
+    await runEventLoader(w.env, { now: NOW, fetchImpl: w.fetch });
+    expect(ledger(w)[0]).toMatchObject({ events_loaded: 2, sessions_loaded: 1, records_skipped: 0 });
+  });
+
+  it("ClickHouse down: nothing is dropped, nothing is recorded, the same file loads once it is back", async () => {
+    const w = world();
+    w.files.set(LG_KEY, LG_FILE);
+    w.chDown = true;
+    vi.spyOn(console, "error").mockImplementation(() => undefined);
+    const r = await runEventLoader(w.env, { now: NOW, fetchImpl: w.fetch });
+    expect(r.streams.find((s) => s.stream === "leadgen")?.error).toMatch(/clickhouse 500 code 241/);
+    expect(ledger(w)).toHaveLength(0);
+    w.chDown = false;
+    await runEventLoader(w.env, { now: NOW, fetchImpl: w.fetch });
+    expect(ledger(w)[0]).toMatchObject({ events_loaded: 2, records_skipped: 0 });
+  });
+
+  it("the reviewer's trigger — a beacon number no integer column can hold — never reaches ClickHouse", async () => {
+    const w = world();
+    const lines = LST_FILE.trim().split("\n").map((l) => JSON.parse(l) as Record<string, unknown>);
+    lines[0]!["page_index"] = 1e21;
+    lines[0]!["link_position_index"] = 70000; // > UInt16
+    w.files.set(LST_KEY, lines.map((l) => JSON.stringify(l)).join("\n") + "\n");
+    await runEventLoader(w.env, { now: NOW, fetchImpl: w.fetch });
+    const ev = rowsFor(w, "lst_events_raw")[0]!;
+    expect(ev).not.toHaveProperty("page_index");
+    expect(ev).not.toHaveProperty("link_position_index");
+    expect(ledger(w)[0]).toMatchObject({ events_loaded: 1, records_skipped: 0 });
+  });
+});
+
 describeDb("fail-open", () => {
+  it("REVIEW m3: configured bucket but no ClickHouse login — says so once an hour (names only), never silent", async () => {
+    const w = world({ chCreds: false });
+    const log = vi.spyOn(console, "log").mockImplementation(() => undefined);
+    await runEventLoader(w.env, { now: Date.parse("2026-09-27T11:05:00Z"), fetchImpl: w.fetch });
+    expect(log).not.toHaveBeenCalled();
+    await runEventLoader(w.env, { now: Date.parse("2026-09-27T12:00:00Z"), fetchImpl: w.fetch });
+    expect(log.mock.calls.map((c) => String(c[0]))).toEqual([
+      JSON.stringify({ message: "analytics event loader disabled", missing: ["CH_URL", "CH_USER", "CH_PASSWORD"] }),
+    ]);
+  });
+
   it("no ClickHouse login or no bucket: no network at all", async () => {
     for (const w of [world({ chCreds: false }), world({ bucket: false })]) {
       w.files.set(LG_KEY, LG_FILE);
@@ -325,5 +427,24 @@ describe("coerceForColumn", () => {
     expect(coerceForColumn("Float64", "")).toBeUndefined();
     expect(coerceForColumn("String", null)).toBeUndefined();
     expect(coerceForColumn("String", { a: 1 })).toBeUndefined();
+  });
+
+  it("REVIEW M2: integers outside the column's range are omitted — never sent in exponent form", () => {
+    expect(coerceForColumn("UInt16", 1e21)).toBeUndefined();
+    expect(coerceForColumn("UInt8", 256)).toBeUndefined();
+    expect(coerceForColumn("UInt8", 255)).toBe(255);
+    expect(coerceForColumn("UInt16", 65535)).toBe(65535);
+    expect(coerceForColumn("UInt32", 2 ** 32)).toBeUndefined();
+    expect(coerceForColumn("UInt64", 2 ** 60)).toBeUndefined();
+    expect(coerceForColumn("UInt64", 1790505199792)).toBe(1790505199792);
+    expect(coerceForColumn("Int8", -129)).toBeUndefined();
+    expect(coerceForColumn("Int8", -128)).toBe(-128);
+  });
+
+  it("REVIEW m4: ClickHouse errors are logged as code + name only", () => {
+    expect(
+      chErrorSummary(500, "Code: 27. DB::Exception: Cannot parse input: row {\"ip\":\"203.0.113.9\"} (CANNOT_PARSE_INPUT_ASSERTION_FAILED) (version 26.4.1.2359 (official build))"),
+    ).toBe("clickhouse 500 code 27 CANNOT_PARSE_INPUT_ASSERTION_FAILED");
+    expect(chErrorSummary(502, "Bad gateway")).toBe("clickhouse 502");
   });
 });

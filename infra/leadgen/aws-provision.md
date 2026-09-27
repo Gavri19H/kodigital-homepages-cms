@@ -49,10 +49,18 @@ object `leadgen/events/dt=2026-09-27/hr=10/leadgen-events-1-2026-09-27-10-33-20-
   `lg_events_raw` did not define, so the view failed to create; the column is
   now in the DDL (both vendored copies) and was added live with
   `ALTER TABLE … ADD COLUMN IF NOT EXISTS`.
+- **Wrap-around fix:** `lg_section_daily_mv.dropoffs` and
+  `lg_quote_daily_mv.bounces` subtracted two counts into a UInt64 column, so a
+  day with more continues than views (a session crossing UTC midnight) wrapped
+  to 18446744073709551615. Both are now floored at 0 (`greatest(0, …)`) in the
+  DDL and were recreated live (refreshable views rebuild their table on every
+  refresh — nothing lost).
 - **Login:** `kodigital_cms_runtime` (one login per role, like move-club's
   `*_runtime` users). SELECT on `default.lg_*` + `default.lst_*`; INSERT on
   exactly the six raw tables the Worker writes (`lg_events_raw`, `lg_sessions`,
-  `lg_revenue_raw`, `lst_events_raw`, `lst_sessions`, `lst_revenue_raw`).
+  `lg_revenue_raw`, `lst_events_raw`, `lst_sessions`, `lst_revenue_raw`);
+  `SYSTEM VIEWS` on exactly the two views the daily revenue jobs refresh
+  (`lg_revenue_attributed_mv`, `lst_revenue_attributed_mv`).
   Verified refused (code 497) on the dashboard's `auction_events`, on
   move-club, and on writing a daily table. Its URL/user/password live only in
   `~/.config/kodigital-cms/ch-worker.env` (0600) and, once installed, in the
@@ -62,6 +70,9 @@ object `leadgen/events/dt=2026-09-27/hr=10/leadgen-events-1-2026-09-27-10-33-20-
   the S3 files directly (the Worker's AWS user has read-only
   `cms-event-loader-s3-read` on `leadgen/events/*` + `listicles/events/*`
   only) and records each loaded file in D1 `analytics_event_files` (0059).
+  It looks back 7 days (older files: a deliberate run with `lookbackDays`),
+  and only ClickHouse parse/type errors may drop a row — any other refusal
+  stops the stream and retries the file, dropping nothing.
 - **Proof:** the loader run from a workstation with the Worker's own AWS
   identity and the new login loaded the two real files (LeadGen 2 events +
   1 session, listicles 1 + 1); two minutes later `lg_quote_daily` showed the

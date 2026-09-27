@@ -259,8 +259,8 @@ const scheduled = async (
     try {
       // S3 → ClickHouse event loader (LeadGen + Listicles). Fills the raw
       // tables (lg_events_raw/lg_sessions/lst_events_raw/lst_sessions) the
-      // two mirror syncs below read through their daily views. Runs FIRST so
-      // a minute's new files are in CH before the syncs look. Isolated +
+      // two mirror syncs below read through their daily views. Runs BEFORE
+      // both syncs so a minute's new files are in CH before they look. Isolated +
       // fail-open: absent AWS/CH config is a silent no-op; an error is logged
       // and the file retried next minute.
       await runEventLoader(env);
