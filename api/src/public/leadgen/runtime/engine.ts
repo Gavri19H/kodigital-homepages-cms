@@ -2097,8 +2097,10 @@ export class LgEngine {
     });
     this.store.clearPersisted();
     // The queued beacons flush on pagehide (sendBeacon), so leaving now keeps
-    // the quote_complete above.
-    if (response.go) return location.assign(response.go);
+    // the quote_complete above. replace(), not assign(): the redirect stands
+    // in for the funnel, so Back from the target leaves the finished funnel
+    // behind instead of restoring it mid-buffering.
+    if (response.go) return location.replace(response.go);
 
     // §3.6 impressions: ≥50% for ≥1s, exactly once per
     // (page_view_id, banner_render_id, slot_index) per event type.

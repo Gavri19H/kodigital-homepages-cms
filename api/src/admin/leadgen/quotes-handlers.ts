@@ -702,7 +702,7 @@ function quoteRoutingRuleRowToApi(row: LeadgenQuoteRoutingRuleRow): Record<strin
 // provider Offer gets its click URL only from its provider's response, and a
 // redirect happens before any provider is asked — so it would go nowhere.
 function describeNoOwnClickUrl(offerName: string): string {
-  return `“${offerName}” gets its click URL only from its provider's response, so a redirect has nowhere to send the visitor. Pick an offer with a URL of its own, such as a Static — no provider request offer.`;
+  return `“${offerName}” has no URL of its own (a provider offer gets one only from its provider's response), so a redirect has nowhere to send the visitor. Give it a URL, or pick an offer that has one.`;
 }
 
 // Appendix A-11 (verbatim, asserted in CI): a rule with no action is rejected.

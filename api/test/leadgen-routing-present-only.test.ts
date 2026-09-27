@@ -651,6 +651,17 @@ describe("B + C — the rules rail and modal copy", () => {
     expect(html).toContain("Letters, digits, underscore (_) and hyphen (-), up to 64 characters. Spaces and other characters are saved as a hyphen.");
   });
 
+  it("the Redirect → Offer picker lists an offer with no URL of its own as not selectable, with the reason (Present only still offers it)", () => {
+    const d = data([]);
+    d.offers = [{ id: 7, name: "Fora - Tier 3", status: "active", has_own_click_url: true }, { id: 8, name: "Fundera - Tier 1", status: "active", has_own_click_url: false }];
+    const html = renderQuoteRulesRail(d);
+    const redirectSel = html.slice(html.indexOf("data-qr-target-offer"), html.indexOf("</select>", html.indexOf("data-qr-target-offer")));
+    expect(redirectSel).toContain('<option value="7">Fora - Tier 3</option>');
+    expect(redirectSel).toContain('<option value="8" disabled>Fundera - Tier 1 (no URL of its own)</option>');
+    const presentSel = html.slice(html.indexOf("data-qr-force-offer"), html.indexOf("</select>", html.indexOf("data-qr-force-offer")));
+    expect(presentSel).toContain('<option value="8">Fundera - Tier 1</option>');
+  });
+
   it("offers Present only this offer beside Redirect, with the same offers (inactive ones shown but not selectable)", () => {
     const html = renderQuoteRulesRail(data([]));
     expect(html).toContain('data-qr-action="force_offer"');
@@ -1021,20 +1032,25 @@ describeDb("Auction-tab redirect rules send the visitor to the rule's target", (
     expect(v.go).toBe("https://partner.example.com/land?x=1");
   });
 
-  it("a URL that is not allowlisted, or a non-http one, is never sent", async () => {
+  it("a URL that is not allowlisted, or a non-http one, is never sent — the rule is passed over and the visitor gets the normal auction", async () => {
     const f = seed();
     funnelRedirect(f, null, "https://evil.example.com/x", false);
-    expect((await visit(f, "?utm_source=google", { session: "s-redir-evil" })).go).toBeNull();
+    const evil = await visit(f, "?utm_source=google", { session: "s-redir-evil" });
+    expect(evil.go).toBeNull();
+    expect(evil.status).toBe("ok");
+    expect(evil.shown.length).toBeGreaterThan(0);
     const g = seed();
     funnelRedirect(g, null, "javascript:alert(1)", true);
-    expect((await visit(g, "?utm_source=google", { session: "s-redir-js" })).go).toBeNull();
+    const js = await visit(g, "?utm_source=google", { session: "s-redir-js" });
+    expect(js.go).toBeNull();
+    expect(js.status).toBe("ok");
   });
 
   it("a provider offer (no URL of its own) is refused as a redirect target everywhere, and an old row never redirects", async () => {
     const f = seed();
     const provider = f.sdb.prepare("SELECT id FROM leadgen_offers WHERE id = ?").get(f.fundera.id) as { id: number };
     f.sdb.prepare("UPDATE leadgen_offers SET calls_provider_api = 1, bid_source = 'response', banner_url_template = NULL WHERE id = ?").run(provider.id);
-    const expected = "“Fundera - Tier 1” gets its click URL only from its provider's response, so a redirect has nowhere to send the visitor. Pick an offer with a URL of its own, such as a Static — no provider request offer.";
+    const expected = "“Fundera - Tier 1” has no URL of its own (a provider offer gets one only from its provider's response), so a redirect has nowhere to send the visitor. Give it a URL, or pick an offer that has one.";
     // quote routing rule: Redirect → Offer
     const rr = await adminReq(f.env, "POST", `/quotes/${f.quote.public_id}/routing-rules`, { rule_name: "Away", conditions_json: UTM_FUNDERA, redirect_pct: 100, target_offer_id: provider.id });
     expect(rr.status).toBe(400);
@@ -1044,7 +1060,12 @@ describeDb("Auction-tab redirect rules send the visitor to the rule's target", (
       rule_type: "redirect_direct_offer", conditions_json: { groups: [] }, target_offer_id: provider.id, redirect_pct: 100, rule_name: "Away",
     });
     expect(fr.status, JSON.stringify(fr.json)).toBe(400);
-    expect(JSON.stringify(fr.json)).toContain("gets its click URL only from its provider");
+    expect(JSON.stringify(fr.json)).toContain("has no URL of its own");
+    // the pickers get the same fact up front: the offers list says which offers can be a redirect target
+    const list = await adminReq(f.env, "GET", "/offers");
+    const flags = new Map((list.json["items"] as Array<{ id: number; has_own_click_url: boolean }>).map((o) => [o.id, o.has_own_click_url]));
+    expect(flags.get(provider.id)).toBe(false);
+    expect(flags.get(f.fora.id)).toBe(true);
     // a Static offer is still accepted as a target
     const ok = await adminReq(f.env, "POST", `/variants/${f.main.variant.public_id}/rules`, {
       rule_type: "redirect_direct_offer", conditions_json: { groups: [] }, target_offer_id: f.fora.id, redirect_pct: 100, rule_name: "To Fora",
@@ -1054,7 +1075,11 @@ describeDb("Auction-tab redirect rules send the visitor to the rule's target", (
     const g = seed();
     g.sdb.prepare("UPDATE leadgen_offers SET calls_provider_api = 1, bid_source = 'response', banner_url_template = NULL WHERE id = ?").run(g.fundera.id);
     funnelRedirect(g, g.fundera.id, null, false);
-    expect((await visit(g, "?utm_source=google", { session: "s-redir-provider" })).go).toBeNull();
+    // …it is passed over: no dead-end redirect, the normal auction runs
+    const old = await visit(g, "?utm_source=google", { session: "s-redir-provider" });
+    expect(old.go).toBeNull();
+    expect(old.status).toBe("ok");
+    expect(old.shown).toContain(g.fora.public_id);
     const pub = mintPublicId("funnel_rule").replace(/^lgfr_/, "lgqr_");
     g.sdb
       .prepare("INSERT INTO leadgen_quote_routing_rules (public_id, quote_id, rule_name, priority, status, conditions_json, conditions_hash, redirect_pct, target_offer_id, redirect_url_allowlisted) VALUES (?, ?, 'Old', 1, 'active', ?, 'h', 100, ?, 0)")
@@ -1075,7 +1100,8 @@ describeDb("Auction-tab redirect rules send the visitor to the rule's target", (
     const { LEADGEN_RUNTIME_JS } = await import("../src/public/leadgen/runtime/engine-bundle.generated");
     expect(LEADGEN_RUNTIME_JS).toMatch(/typeof \w+\.go=="string"\?\{go:\w+\.go\}/);
     // quote_complete is queued and state cleared BEFORE leaving (pagehide flushes the beacons)
-    expect(LEADGEN_RUNTIME_JS).toMatch(/clearPersisted\(\),\w+\.go\)return location\.assign\(\w+\.go\)/);
+    // replace(): Back from the target never restores the finished funnel mid-buffering
+    expect(LEADGEN_RUNTIME_JS).toMatch(/clearPersisted\(\),\w+\.go\)return location\.replace\(\w+\.go\)/);
   });
 });
 

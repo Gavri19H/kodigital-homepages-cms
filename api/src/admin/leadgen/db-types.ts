@@ -239,6 +239,9 @@ export interface LeadgenOfferRow {
 }
 
 export interface LeadgenOfferApi {
+  // Computed (offerRowToApi): the Offer has a URL of its own, so it can be a
+  // redirect target (leadgen/macros.ts offerHasOwnClickUrl).
+  has_own_click_url: boolean;
   id: number;
   public_id: string;
   offer_name: string;

@@ -308,6 +308,7 @@ const LEADGEN_MIGRATIONS = [
   "0053_leadgen_rework_m12_othergroup_retirement.sql",
   "0054_leadgen_analytics_routing_dims.sql",
   "0055_leadgen_quote_default_template.sql",
+  "0057_leadgen_offer_test_verdict.sql", // offers.last_test_status — the editor's auction query reads it
 ] as const;
 
 function createDb(DatabaseSync: DatabaseSyncCtor): SqliteDb {

@@ -1871,6 +1871,9 @@ export interface QuoteRulesRailOffer {
   name: string;
   // leadgen_offers.status (active | paused | archived); absent ⇒ treated active.
   status?: string;
+  // Has a URL of its own ⇒ can be a Redirect target (false ⇒ shown, not
+  // selectable, for Redirect only; absent ⇒ treated as selectable).
+  has_own_click_url?: boolean;
 }
 
 export interface QuoteRulesRailAnswerField {
@@ -2214,7 +2217,16 @@ function renderQuoteRuleActions(data: QuoteRulesRailData): string {
   const funnelOpts = data.funnels
     .map((f) => `<option value="${escapeHtml(f.public_id)}" data-funnel-id="${f.id}">${escapeHtml(f.name)}${f.is_default ? " (Default)" : ""}</option>`)
     .join("");
-  const offerOpts = data.offers.map((o) => `<option value="${o.id}">${escapeHtml(o.name)}</option>`).join("");
+  // Redirect → Offer: an offer with no URL of its own (a provider offer gets
+  // one only from its provider's response) has nowhere to send the visitor —
+  // the save refuses it, so it is listed but not selectable, and says why.
+  const offerOpts = data.offers
+    .map((o) =>
+      o.has_own_click_url === false
+        ? `<option value="${o.id}" disabled>${escapeHtml(o.name)} (no URL of its own)</option>`
+        : `<option value="${o.id}">${escapeHtml(o.name)}</option>`,
+    )
+    .join("");
   // "Present only this offer" lists the SAME offers as Redirect → Offer; one
   // that is not active cannot be presented (the save refuses it), so it shows
   // its status and is not selectable.
@@ -3518,7 +3530,11 @@ export const RELOCATED_RULES_SCRIPT = `(function () {
     var offers = entry ? entry.offers : [];
     var i;
     for (i = 0; i < offers.length; i++) {
-      var opt = el('option'); opt.value = String(offers[i].id); txt(opt, offers[i].offer_name || ('#' + offers[i].id));
+      // A redirect target needs a URL of its own (the save refuses one without):
+      // listed, not selectable, with the reason.
+      var noUrl = offers[i].has_own_click_url === false;
+      var opt = el('option'); opt.value = String(offers[i].id); txt(opt, (offers[i].offer_name || ('#' + offers[i].id)) + (noUrl ? ' (no URL of its own)' : ''));
+      if (noUrl) { opt.disabled = true; }
       offerEl.appendChild(opt);
     }
   }

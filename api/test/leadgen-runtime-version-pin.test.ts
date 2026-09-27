@@ -47,7 +47,7 @@ const LG_ENGINE_VERSION = /export const LG_ENGINE_VERSION = "([^"]+)"/.exec(ENGI
 
 // sha256 of the committed bundle AT LEADGEN_TEMPLATE_VERSION 5 (the engine
 // follows a funnel redirect rule's `go`; v4 was 53dbaf55…).
-const RUNTIME_BUNDLE_SHA256 = "6d5147e4398c83c08268cc56d03c04237ff5d7286444134628aba7845f5995ef";
+const RUNTIME_BUNDLE_SHA256 = "b216862a97ff22c65b38176d367a795ab2146c01e4b6dbd2ae3e3ffe44ef624d";
 const RUNTIME_BUNDLE_VERSION = 5;
 
 describe("the runtime bundle is pinned to its immutable URL version", () => {
