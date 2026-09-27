@@ -44,6 +44,7 @@ import {
 } from "../../leadgen/offer-api-token";
 import { readCapStatus, capExceeded } from "../../leadgen/caps";
 import { CLICKOUT_META_DATASET_RE, CLICKOUT_META_EVENT_NAMES, CLICKOUT_META_TEST_CODE_RE } from "../../leadgen/clickout-meta";
+import { STATIC_CREATIVE_FIELDS, validateStaticCreativeField } from "../../leadgen/static-creative";
 import { validateBannerUrlTemplate, normalizeTemplate, findUnknownMacros } from "../../leadgen/macros";
 import {
   inferSchemaFromExample,
@@ -263,6 +264,11 @@ export function offerRowToApi(row: LeadgenOfferRow): LeadgenOfferApi {
     clickout_meta_last_status: row.clickout_meta_last_status ?? null,
     clickout_meta_last_detail: row.clickout_meta_last_detail ?? null,
     clickout_meta_last_at: row.clickout_meta_last_at ?? null,
+    static_brand_name: row.static_brand_name ?? null,
+    static_logo_url: row.static_logo_url ?? null,
+    static_headline: row.static_headline ?? null,
+    static_subheadline: row.static_subheadline ?? null,
+    static_disclaimer: row.static_disclaimer ?? null,
     api_token_present: typeof api_token_cipher === "string" && api_token_cipher.trim() !== ""
       && (api_token_key_id === "lgok1" || api_token_key_id === "lgok2"),
     api_token_updated_at: row.api_token_updated_at ?? null,
@@ -1020,6 +1026,8 @@ const OFFER_PATCH_COLUMNS = [
   "clickout_meta_event_name",
   "clickout_meta_value",
   "clickout_meta_test_event_code",
+  // 0060 static-Offer banner creative (validated by leadgen/static-creative.ts).
+  ...STATIC_CREATIVE_FIELDS,
 ] as const;
 
 interface HeaderInput {
@@ -1210,6 +1218,13 @@ function collectScalarUpdates(body: Record<string, unknown>, errors: FieldErrors
     else if (typeof code !== "string" || !CLICKOUT_META_TEST_CODE_RE.test(code)) {
       errors["clickout_meta_test_event_code"] = "clickout_meta_test_event_code must be letters, digits, - or _ (Meta's TEST… code)";
     } else updates.set("clickout_meta_test_event_code", code);
+  }
+
+  for (const key of STATIC_CREATIVE_FIELDS) {
+    if (body[key] === undefined) continue;
+    const verdict = validateStaticCreativeField(key, body[key]);
+    if (verdict.ok) updates.set(key, verdict.value);
+    else errors[key] = verdict.error;
   }
 
   if (body["cap_timezone"] !== undefined) {

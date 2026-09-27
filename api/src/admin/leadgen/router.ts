@@ -38,6 +38,7 @@ import {
   patchOfferHandler,
   searchOffersHandler,
 } from "./offers-handlers";
+import { offerCreativePreviewHandler } from "./offer-creative-preview";
 import {
   generateSampleAnswersHandler,
   putSampleAnswersDraftHandler,
@@ -197,6 +198,7 @@ routes.get("/offers/:id/payload-schemas", listPayloadSchemasHandler);
 routes.post("/offers/:id/payload-schemas", createPayloadSchemaHandler);
 routes.post("/offers/:id/payload-schemas/from-example", createPayloadSchemaFromExampleHandler);
 routes.post("/offers/:id/test", testOfferHandler);
+routes.post("/offers/:id/creative-preview", offerCreativePreviewHandler); // 0060 static banner creative
 // B4 (fix-contract v2.4 06 §6.12.1): ONE route path, two verbs — POST
 // generates the sample-answer form (per-Offer KV draft merged over), PUT
 // persists the operator's edited answers as that draft.

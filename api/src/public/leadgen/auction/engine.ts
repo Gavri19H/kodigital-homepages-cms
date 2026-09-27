@@ -123,6 +123,7 @@ import {
   randomHex,
 } from "../../../admin/leadgen/payload-builder-handlers";
 import { readEnvSecret } from "../../../env";
+import { requestOrigin, staticCreativeDisplay } from "../../../leadgen/static-creative";
 import type {
   LeadgenAuctionConsideredOffer,
   LeadgenAuctionExcludedOffer,
@@ -860,8 +861,11 @@ function staticBidProviderOffer(offer: LeadgenOfferRow): boolean {
   return callsProvider(offer) && offer.bid_source === "static";
 }
 
-// Synthesize the single canonical Carrier a static_no_request Offer contributes
-// (07 S18.2 static surfacing) from its static config.
+// Synthesize the single canonical Carrier a static Offer contributes (07 S18.2
+// static surfacing) from its static config. Also the identity/bid FALLBACK a
+// request_static_bid (CPL) Offer's parser leans on — which is why the authored
+// creative is layered on separately (staticNoRequestCarrier), never here: a
+// CPL Offer's card copy comes from its response parser and must not change.
 function staticCarrier(offer: LeadgenOfferRow, staticBidOverride: number | null): LeadgenParsedCarrier {
   const name = (offer.provider ?? offer.offer_name ?? "").trim();
   const key = name !== "" ? slugifyCarrierName(name) : offer.public_id;
@@ -880,6 +884,20 @@ function staticCarrier(offer: LeadgenOfferRow, staticBidOverride: number | null)
     disclaimer: null,
     pricing_model: "static",
   };
+}
+
+// OWNER 2026-09-27 — a "Static — no provider request" Offer's card carries the
+// creative authored on its Static tab (0060; leadgen/static-creative.ts):
+// brand, logo, headline, subheadline, disclaimer. carrier_key is NOT derived
+// from the brand — it stays the Provider/Offer-name slug it always was, so
+// remove-clicked, dedupe and analytics keys do not move when marketing edits
+// the copy. A Media-library logo resolves against the funnel's own origin.
+function staticNoRequestCarrier(
+  offer: LeadgenOfferRow,
+  staticBidOverride: number | null,
+  origin: string | null,
+): LeadgenParsedCarrier {
+  return { ...staticCarrier(offer, staticBidOverride), ...staticCreativeDisplay(offer, origin) };
 }
 
 // The per-carrier working record threaded through the pipeline: the parsed
@@ -1436,6 +1454,19 @@ export async function runAuction(
     }
   }
 
+  // The origin the funnel is served from (the live /lg/auction request), used to
+  // make a static Offer's Media-library logo absolute. Absent on the admin
+  // dry-run, where such a logo is simply not emitted.
+  const pageOrigin = (() => {
+    const src = input.runtime?.source;
+    if (src === undefined) return null;
+    try {
+      return requestOrigin(("req" in src ? src.req.raw : src).url);
+    } catch {
+      return null;
+    }
+  })();
+
   // Step 8: parse each dynamic response -> canonical carriers; FX-normalize bids
   // to USD. Static Offers contribute their synthesized static carrier. Each
   // bundle ROW parses ITS OWN request's response (resultByRow — 04 §4.5
@@ -1504,7 +1535,7 @@ export async function runAuction(
         carrierMeta.set(metaKey(b.offer.public_id, carrier.carrier_key), { offer: b, parsed: carrier, response_context: responseContext });
       }
     } else {
-      const carrier = staticCarrier(b.offer, b.static_bid_override);
+      const carrier = staticNoRequestCarrier(b.offer, b.static_bid_override, pageOrigin);
       parsedByRow.set(rowKey(b.offer.public_id, b.placement_public_id), [carrier]);
       parsedByOffer.set(b.offer.public_id, [carrier]);
       bidInputs.push({

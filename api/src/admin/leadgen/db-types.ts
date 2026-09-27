@@ -227,6 +227,12 @@ export interface LeadgenOfferRow {
   clickout_meta_last_status?: string | null;
   clickout_meta_last_detail?: string | null;
   clickout_meta_last_at?: number | null;
+  // 0060 static-Offer banner creative (leadgen/static-creative.ts).
+  static_brand_name?: string | null;
+  static_logo_url?: string | null;
+  static_headline?: string | null;
+  static_subheadline?: string | null;
+  static_disclaimer?: string | null;
   created_by: string | null;
   created_at: number;
   updated_at: number;
@@ -278,6 +284,12 @@ export interface LeadgenOfferApi {
   clickout_meta_last_status: string | null;
   clickout_meta_last_detail: string | null;
   clickout_meta_last_at: number | null;
+  // 0060 static-Offer banner creative.
+  static_brand_name: string | null;
+  static_logo_url: string | null;
+  static_headline: string | null;
+  static_subheadline: string | null;
+  static_disclaimer: string | null;
   created_by: string | null;
   created_at: number;
   updated_at: number;
