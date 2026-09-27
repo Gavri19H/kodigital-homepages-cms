@@ -2,6 +2,14 @@
 -- LeadGen CMS — Athena DDL (v2.3 FINAL). Database: leadgen. Substitute __BUCKET__.
 -- Final executable schema — no delta comments, no deprecated snippets. One
 -- Firehose stream, three record_kind values. No banned product name in source.
+--
+-- PARTITION LAYOUT (corrected 2026-09-27 against the LIVE streams): the
+-- `leadgen-events` Firehose stream writes, exactly like `homepage-events` and
+-- `listicle-events`, to  leadgen/events/dt=YYYY-MM-DD/hr=HH/ . The earlier
+-- projection here (yyyy/MM/dd, template leadgen/events/${dt}) described
+-- Firehose's DEFAULT prefix, which none of these streams use, so it matched
+-- no object at all. This mirrors the working `homepage.events` table: dt as a
+-- yyyy-MM-dd date, hr as a two-digit 0-23 integer.
 -- =============================================================================
 CREATE DATABASE IF NOT EXISTS leadgen;
 
@@ -35,11 +43,11 @@ CREATE EXTERNAL TABLE IF NOT EXISTS leadgen.events (
   url string, referer string, language string,
   is_bot boolean, is_internal boolean, is_preview boolean, traffic_quality_flag string
 )
-PARTITIONED BY (dt string)
+PARTITIONED BY (dt string, hr string)
 ROW FORMAT SERDE 'org.openx.data.jsonserde.JsonSerDe'
 WITH SERDEPROPERTIES ('ignore.malformed.json'='true')
 LOCATION 's3://__BUCKET__/leadgen/events/'
-TBLPROPERTIES ('projection.enabled'='true','projection.dt.type'='date','projection.dt.format'='yyyy/MM/dd','projection.dt.range'='2026/07/01,NOW','projection.dt.interval'='1','projection.dt.interval.unit'='DAYS','storage.location.template'='s3://__BUCKET__/leadgen/events/${dt}');
+TBLPROPERTIES ('classification'='json','projection.enabled'='true','projection.dt.type'='date','projection.dt.format'='yyyy-MM-dd','projection.dt.range'='2026-09-01,NOW','projection.dt.interval'='1','projection.dt.interval.unit'='DAYS','projection.hr.type'='integer','projection.hr.range'='0,23','projection.hr.digits'='2','storage.location.template'='s3://__BUCKET__/leadgen/events/dt=${dt}/hr=${hr}');
 
 CREATE EXTERNAL TABLE IF NOT EXISTS leadgen.sessions (
   record_kind string, session_id string, first_seen bigint, last_seen bigint, page_view_id string,
@@ -50,20 +58,20 @@ CREATE EXTERNAL TABLE IF NOT EXISTS leadgen.sessions (
   country string, state string, city string, zip string, ip string, ua string, url string, referer string, language string,
   is_bot boolean, is_internal boolean, is_preview boolean, traffic_quality_flag string
 )
-PARTITIONED BY (dt string)
+PARTITIONED BY (dt string, hr string)
 ROW FORMAT SERDE 'org.openx.data.jsonserde.JsonSerDe'
 WITH SERDEPROPERTIES ('ignore.malformed.json'='true')
 LOCATION 's3://__BUCKET__/leadgen/events/'
-TBLPROPERTIES ('projection.enabled'='true','projection.dt.type'='date','projection.dt.format'='yyyy/MM/dd','projection.dt.range'='2026/07/01,NOW','projection.dt.interval'='1','projection.dt.interval.unit'='DAYS','storage.location.template'='s3://__BUCKET__/leadgen/events/${dt}');
+TBLPROPERTIES ('classification'='json','projection.enabled'='true','projection.dt.type'='date','projection.dt.format'='yyyy-MM-dd','projection.dt.range'='2026-09-01,NOW','projection.dt.interval'='1','projection.dt.interval.unit'='DAYS','projection.hr.type'='integer','projection.hr.range'='0,23','projection.hr.digits'='2','storage.location.template'='s3://__BUCKET__/leadgen/events/dt=${dt}/hr=${hr}');
 
 CREATE EXTERNAL TABLE IF NOT EXISTS leadgen.dead_letter_records (
   record_kind string, event_id string, reason string, payload_json string, received_at bigint
 )
-PARTITIONED BY (dt string)
+PARTITIONED BY (dt string, hr string)
 ROW FORMAT SERDE 'org.openx.data.jsonserde.JsonSerDe'
 WITH SERDEPROPERTIES ('ignore.malformed.json'='true')
 LOCATION 's3://__BUCKET__/leadgen/events/'
-TBLPROPERTIES ('projection.enabled'='true','projection.dt.type'='date','projection.dt.format'='yyyy/MM/dd','projection.dt.range'='2026/07/01,NOW','projection.dt.interval'='1','projection.dt.interval.unit'='DAYS','storage.location.template'='s3://__BUCKET__/leadgen/events/${dt}');
+TBLPROPERTIES ('classification'='json','projection.enabled'='true','projection.dt.type'='date','projection.dt.format'='yyyy-MM-dd','projection.dt.range'='2026-09-01,NOW','projection.dt.interval'='1','projection.dt.interval.unit'='DAYS','projection.hr.type'='integer','projection.hr.range'='0,23','projection.hr.digits'='2','storage.location.template'='s3://__BUCKET__/leadgen/events/dt=${dt}/hr=${hr}');
 
 CREATE OR REPLACE VIEW leadgen.events_only   AS SELECT * FROM leadgen.events   WHERE record_kind='event';
 CREATE OR REPLACE VIEW leadgen.sessions_only AS SELECT * FROM leadgen.sessions WHERE record_kind='session';
