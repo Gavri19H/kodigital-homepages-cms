@@ -75,6 +75,7 @@ import { sha256Hex } from "../../public/leadgen/auction/parse";
 // from the SAME component expander the runtime uses; the derivation itself is
 // never re-implemented here.
 import { deriveRuleCheckpoint, isEntryPlane, type RuleCheckpointFunnel } from "../../leadgen/rule-checkpoint";
+import { offerHasOwnClickUrl } from "../../leadgen/macros";
 import {
   rebuildDerivedIndexes,
   sectionValidationStatus,
@@ -697,6 +698,13 @@ function quoteRoutingRuleRowToApi(row: LeadgenQuoteRoutingRuleRow): Record<strin
   };
 }
 
+// A redirect target must have a URL of its own (offerHasOwnClickUrl): a
+// provider Offer gets its click URL only from its provider's response, and a
+// redirect happens before any provider is asked — so it would go nowhere.
+function describeNoOwnClickUrl(offerName: string): string {
+  return `“${offerName}” gets its click URL only from its provider's response, so a redirect has nowhere to send the visitor. Pick an offer with a URL of its own, such as a Static — no provider request offer.`;
+}
+
 // Appendix A-11 (verbatim, asserted in CI): a rule with no action is rejected.
 const ROUTING_RULE_MIN_ACTION_MESSAGE = "Pick at least one action for this rule.";
 const PRESENT_ONLY_WITH_REDIRECT_MESSAGE =
@@ -922,8 +930,12 @@ async function buildRoutingRuleFields(
     if (parsed === INVALID) errors["target_offer_id"] = "Pick the redirect offer from the list.";
     else if (parsed === null) targetOfferId = null;
     else {
-      const ex = await db.prepare("SELECT id FROM leadgen_offers WHERE id = ? LIMIT 1").bind(parsed).first<{ id: number }>();
+      const ex = await db
+        .prepare("SELECT id, offer_name, banner_url_template FROM leadgen_offers WHERE id = ? LIMIT 1")
+        .bind(parsed)
+        .first<{ id: number; offer_name: string; banner_url_template: string | null }>();
       if (!ex) errors["target_offer_id"] = describeMissingReference("Offer");
+      else if (!offerHasOwnClickUrl(ex.banner_url_template)) errors["target_offer_id"] = describeNoOwnClickUrl(ex.offer_name);
       else targetOfferId = parsed;
     }
   }
@@ -4120,9 +4132,17 @@ export async function putVariantHandler(c: AdminContext): Promise<Response> {
     if (Object.keys(errors).length === 0) {
       const offerIds = Array.from(new Set(preparedRules.map((r) => r.targetOfferId).filter((v): v is number => v !== null)));
       const sectionIds = Array.from(new Set(preparedRules.map((r) => r.targetSectionId).filter((v): v is number => v !== null)));
+      const redirectOfferIds = new Set(
+        preparedRules.filter((r) => r.ruleType === "redirect_direct_offer").map((r) => r.targetOfferId),
+      );
       for (const oid of offerIds) {
-        const ex = await c.env.DB.prepare("SELECT id FROM leadgen_offers WHERE id = ? LIMIT 1").bind(oid).first<{ id: number }>();
+        const ex = await c.env.DB.prepare("SELECT id, offer_name, banner_url_template FROM leadgen_offers WHERE id = ? LIMIT 1")
+          .bind(oid)
+          .first<{ id: number; offer_name: string; banner_url_template: string | null }>();
         if (!ex) errors[`rules.target_offer_id.${oid}`] = describeMissingReference("Offer");
+        else if (redirectOfferIds.has(oid) && !offerHasOwnClickUrl(ex.banner_url_template)) {
+          errors[`rules.target_offer_id.${oid}`] = describeNoOwnClickUrl(ex.offer_name);
+        }
       }
       // target_section_id is NOT part of the describeMissingReference register
       // (H2b): the 3 removed rule types (route_funnel_variant/skip_section/
@@ -4645,8 +4665,14 @@ function ruleRowToCandidateEntry(row: LeadgenFunnelRuleRowV2): Record<string, un
 async function ruleTargetFkErrors(db: D1Database, rule: PreparedRule): Promise<FieldErrors> {
   const errors: FieldErrors = {};
   if (rule.targetOfferId !== null) {
-    const ex = await db.prepare("SELECT id FROM leadgen_offers WHERE id = ? LIMIT 1").bind(rule.targetOfferId).first<{ id: number }>();
+    const ex = await db
+      .prepare("SELECT id, offer_name, banner_url_template FROM leadgen_offers WHERE id = ? LIMIT 1")
+      .bind(rule.targetOfferId)
+      .first<{ id: number; offer_name: string; banner_url_template: string | null }>();
     if (!ex) errors["target_offer_id"] = describeMissingReference("Offer");
+    else if (rule.ruleType === "redirect_direct_offer" && !offerHasOwnClickUrl(ex.banner_url_template)) {
+      errors["target_offer_id"] = describeNoOwnClickUrl(ex.offer_name);
+    }
   }
   // target_section_id: same H2b non-register decision as prepareRules' own
   // FK-existence loop above — 0 live UI producer (grep evidence there).

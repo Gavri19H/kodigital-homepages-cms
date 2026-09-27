@@ -301,12 +301,15 @@ function insertQuoteRuleFull(sdb: SqliteDb, quoteId: number, o: RuleOpts): { has
 }
 
 // A minimal REAL offer row (leadgen_offers NOT NULL cols only) so an entry rule
-// can carry target_offer_id (§4.3-9 offer-governed redirect target).
+// can carry target_offer_id (§4.3-9 offer-governed redirect target). It has a
+// URL of its own (banner_url_template): a redirect target needs one — without
+// it /lg/lc can only answer 204, so the entry redirect no longer fires for it
+// (leadgen/macros.ts offerHasOwnClickUrl).
 function insertOffer(sdb: SqliteDb, name: string): { id: number; public_id: string } {
   const publicId = mintPublicId("offer");
   sdb
     .prepare(
-      "INSERT INTO leadgen_offers (public_id, offer_name, activity, vertical, conversion_tracking_method, offer_type) VALUES (?, ?, 'quote_funnel', 'life', 's2s_postback', 'cpc')",
+      "INSERT INTO leadgen_offers (public_id, offer_name, activity, vertical, conversion_tracking_method, offer_type, banner_url_template) VALUES (?, ?, 'quote_funnel', 'life', 's2s_postback', 'cpc', 'https://offer.example/go?c={click_id}')",
     )
     .run(publicId, name);
   return { id: (sdb.prepare("SELECT id FROM leadgen_offers WHERE public_id = ?").get(publicId) as { id: number }).id, public_id: publicId };

@@ -19,6 +19,9 @@
 export const SELECTED_CLASS = "lg-selected";
 export const ERROR_CLASS = "lg-error";
 export const NOTICE_CLASS = "lg-runtime-notice";
+// The answer-producing node selector — seven call sites; one constant keeps the
+// bundle inside its §3.1 byte budget.
+export const QUESTION_SEL = "[data-lg-question]";
 
 // The `hidden`-attribute toggle every visibility function below performs —
 // one shared helper, ~6 call sites (byte trim; behavior-identical:
@@ -293,7 +296,7 @@ export function clearFieldErrors(sectionEl: Element): void {
 // block); choosing a secondary [data-lg-choice] INSIDE the panel stores the
 // REAL value through the engine's normal choice path.
 export function openOtherPanel(triggerEl: Element): HTMLElement | null {
-  const question = triggerEl.closest("[data-lg-question]");
+  const question = triggerEl.closest(QUESTION_SEL);
   const scope = question || triggerEl.parentElement;
   if (scope === null) return null;
   const panel = scope.querySelector("[data-lg-other-panel]");

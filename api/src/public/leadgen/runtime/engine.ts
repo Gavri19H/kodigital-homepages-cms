@@ -1162,7 +1162,7 @@ export class LgEngine {
       if (input === null || !(input instanceof HTMLInputElement)) return;
       const component = this.componentByQuestionId(
         this.sectionConfigFor(input),
-        input.closest("[data-lg-question]")?.getAttribute("data-lg-question") ?? "",
+        input.closest(render.QUESTION_SEL)?.getAttribute("data-lg-question") ?? "",
       );
       const mask = phoneMask(component);
       if (mask === null) return;
@@ -1319,7 +1319,7 @@ export class LgEngine {
   }
 
   private handleChoiceActivation(choiceEl: Element): void {
-    const questionEl = choiceEl.closest("[data-lg-question]");
+    const questionEl = choiceEl.closest(render.QUESTION_SEL);
     const questionId = questionEl?.getAttribute("data-lg-question") ?? "";
     const section = this.sectionConfigFor(choiceEl);
     const component = this.componentByQuestionId(section, questionId);
@@ -1453,7 +1453,7 @@ export class LgEngine {
   // path so the value records + the value text/fill + aria-valuenow update
   // exactly like a drag. data-lg-step = "dec" | "inc".
   private handleStepper(stepEl: Element): void {
-    const input = stepEl.closest("[data-lg-question]")?.querySelector("[data-lg-input]");
+    const input = stepEl.closest(render.QUESTION_SEL)?.querySelector("[data-lg-input]");
     if (!(input instanceof HTMLInputElement)) return;
     const step = attrNum(input, "step", 1) || 1;
     const min = attrNum(input, "min", 0);
@@ -1626,7 +1626,7 @@ export class LgEngine {
   private handleInputEvent(target: Element): void {
     const input = target.closest("[data-lg-input]") || target;
     const fieldEl = input.closest("[data-lg-field]");
-    const questionEl = input.closest("[data-lg-question]");
+    const questionEl = input.closest(render.QUESTION_SEL);
     const questionId = questionEl?.getAttribute("data-lg-question") ?? "";
     const section = this.sectionConfigFor(input);
     const component = this.componentByQuestionId(section, questionId);
@@ -2083,7 +2083,10 @@ export class LgEngine {
       ...(response.banner_render_id !== "" ? { banner_render_id: response.banner_render_id } : {}),
     });
 
-    render.showCompletionState(this.root, filled ? "filled" : "unfilled");
+    // A funnel redirect rule matched (`go`): no banners by design, so the
+    // buffering screen stays up until the navigation below — this used to show
+    // an empty results page and never leave it.
+    if (!response.go) render.showCompletionState(this.root, filled ? "filled" : "unfilled");
     const mount = filled ? render.injectBanners(this.root, response.banners_html) : null;
 
     // §3.5.6: quote_complete fires when the auction response is received —
@@ -2093,6 +2096,9 @@ export class LgEngine {
       banner_render_id: response.banner_render_id,
     });
     this.store.clearPersisted();
+    // The queued beacons flush on pagehide (sendBeacon), so leaving now keeps
+    // the quote_complete above.
+    if (response.go) return location.assign(response.go);
 
     // §3.6 impressions: ≥50% for ≥1s, exactly once per
     // (page_view_id, banner_render_id, slot_index) per event type.

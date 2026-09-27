@@ -3391,6 +3391,11 @@ export const RELOCATED_RULES_SCRIPT = `(function () {
   if (quoteSel) { quoteSel.addEventListener('change', onQuoteChange); }
   if (funnelSel) { funnelSel.addEventListener('change', onFunnelChange); }
   if (variantSel) { variantSel.addEventListener('change', onVariantChange); }
+  // The auction's own quote arrives pre-selected (SSR selected attribute, or the
+  // browser restoring the field on reload) — load its funnels now. Only a
+  // 'change' event used to do that, so the Funnel picker stayed "pick a quote
+  // first" until the operator re-picked the quote already shown.
+  if (quoteSel && quoteSel.value !== '') { onQuoteChange(); }
 
   // ---- rules list + table -----------------------------------------------------
 
