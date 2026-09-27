@@ -824,24 +824,107 @@ describe("review — the not-live warning across A/B versions", () => {
 });
 
 describeDb("review — the not-live warning, from the real editor page and database", () => {
-  it("live everywhere: no warning · live on one A/B version only: 'only some versions' · not in the auction: 'not a live offer'", async () => {
+  function setup(): { f: Fixture; page: () => Promise<string>; addVersionB: (withFundera: boolean, share: number) => number } {
     const f = seed();
-    await adminReq(f.env, "POST", `/quotes/${f.quote.public_id}/routing-rules`, { rule_name: "QA", conditions_json: UTM_FUNDERA, force_offer_id: f.fundera.id });
-    const page = async (): Promise<string> => (await admin.request(`/admin/leadgen/quotes/${f.quote.public_id}/edit`, {}, f.env)).text();
-    const cardOf = (html: string): string => {
+    const page = async (): Promise<string> => {
+      const html = await (await admin.request(`/admin/leadgen/quotes/${f.quote.public_id}/edit`, {}, f.env)).text();
       const start = html.indexOf("data-qr-card data-rule-public-id");
       return html.slice(start, html.indexOf("data-qr-delete", start));
     };
-    expect(cardOf(await page())).not.toContain("data-qr-present-only-warn");
-    // a second active A/B version of Main running an auction WITHOUT Fundera
-    const auction2 = insertAuction(f.sdb);
-    insertStaticOffer(f.sdb, auction2, "Other", 10, 0);
-    const vPublic = mintPublicId("funnel_variant");
-    f.sdb
-      .prepare("INSERT INTO leadgen_funnel_variants (public_id, funnel_id, variant_label, traffic_allocation_bp, funnel_design_id, status, content_version, auction_id) VALUES (?, ?, 'B', 5000, 'default', 'active', 1, ?)")
-      .run(vPublic, f.main.funnel.id, auction2);
-    expect(cardOf(await page())).toContain("is live in only some A/B versions of funnel");
+    // a second active A/B version of Main, on its own auction
+    const addVersionB = (withFundera: boolean, share: number): number => {
+      const auction2 = insertAuction(f.sdb);
+      insertStaticOffer(f.sdb, auction2, "Other", 10, 0);
+      if (withFundera) {
+        const pl = f.sdb.prepare("SELECT id FROM leadgen_offer_placements WHERE offer_id = ?").get(f.fundera.id) as { id: number };
+        f.sdb.prepare("INSERT INTO leadgen_auction_offers (auction_id, offer_placement_id, offer_id, static_order, enabled) VALUES (?, ?, ?, 1, 1)").run(auction2, pl.id, f.fundera.id);
+      }
+      f.sdb
+        .prepare("INSERT INTO leadgen_funnel_variants (public_id, funnel_id, variant_label, traffic_allocation_bp, funnel_design_id, status, content_version, auction_id) VALUES (?, ?, 'B', ?, 'default', 'active', 1, ?)")
+        .run(mintPublicId("funnel_variant"), f.main.funnel.id, share, auction2);
+      return auction2;
+    };
+    return { f, page, addVersionB };
+  }
+  function startAbTest(f: Fixture): void {
+    f.sdb.prepare("UPDATE leadgen_funnel_variants SET traffic_allocation_bp = 5000 WHERE id = ?").run(f.main.variant.id);
+    f.sdb.prepare("INSERT INTO leadgen_funnel_ab_tests (public_id, funnel_id, name, revision, status, started_at) VALUES (?, ?, 'AB', 1, 'running', unixepoch())").run(mintPublicId("funnel_ab_test"), f.main.funnel.id);
+  }
+  async function qaRule(f: Fixture): Promise<void> {
+    const r = await adminReq(f.env, "POST", `/quotes/${f.quote.public_id}/routing-rules`, { rule_name: "QA", conditions_json: UTM_FUNDERA, force_offer_id: f.fundera.id });
+    expect(r.status).toBe(201);
+  }
+
+  it("live in the served version: no warning; removed from its auction: 'not a live offer'", async () => {
+    const { f, page } = setup();
+    await qaRule(f);
+    expect(await page()).not.toContain("data-qr-present-only-warn");
     f.sdb.prepare("UPDATE leadgen_auction_offers SET enabled = 0 WHERE offer_id = ?").run(f.fundera.id);
-    expect(cardOf(await page())).toContain("is not a live offer in the auction of funnel “Main”");
+    expect(await page()).toContain("is not a live offer in the auction of funnel “Main”");
+  });
+
+  it("with NO running A/B test only version A serves: a version B without the offer changes nothing, and an offer live only in B is 'not live'", async () => {
+    const { f, page, addVersionB } = setup();
+    await qaRule(f);
+    addVersionB(false, 5000);
+    expect(await page()).not.toContain("data-qr-present-only-warn");
+    // Fundera live only in B (removed from A's auction), still no running test
+    const g = setup();
+    await qaRule(g.f);
+    g.addVersionB(true, 5000);
+    g.f.sdb.prepare("UPDATE leadgen_auction_offers SET enabled = 0 WHERE offer_id = ? AND auction_id = ?").run(g.f.fundera.id, g.f.auctionId);
+    expect(await g.page()).toContain("is not a live offer in the auction of funnel “Main”");
+  });
+
+  it("with a RUNNING A/B test both versions serve: an offer missing from one version is 'only some A/B versions'", async () => {
+    const { f, page, addVersionB } = setup();
+    await qaRule(f);
+    addVersionB(false, 5000);
+    startAbTest(f);
+    expect(await page()).toContain("is live in only some A/B versions of funnel “Main”");
+  });
+
+  it("a running test's version with 0% traffic serves nobody and is ignored", async () => {
+    const { f, page, addVersionB } = setup();
+    await qaRule(f);
+    addVersionB(false, 0);
+    startAbTest(f);
+    f.sdb.prepare("UPDATE leadgen_funnel_variants SET traffic_allocation_bp = 10000 WHERE id = ?").run(f.main.variant.id);
+    expect(await page()).not.toContain("data-qr-present-only-warn");
+  });
+});
+
+describeDb("review round 2 — Present only and Redirect never share a rule", () => {
+  it("the API refuses Present only together with a Redirect % or target, with the reason; the modal shows the same reason before saving", async () => {
+    const f = seed();
+    for (const redirect of [
+      { redirect_pct: 100, target_offer_id: f.fora.id },
+      { redirect_pct: 0, target_offer_id: f.fora.id },
+      { redirect_pct: 50, redirect_url: "https://partner.example.com/land" },
+    ]) {
+      const res = await adminReq(f.env, "POST", `/quotes/${f.quote.public_id}/routing-rules`, { rule_name: "Combo", conditions_json: UTM_FUNDERA, force_offer_id: f.fundera.id, ...redirect });
+      expect(res.status, JSON.stringify(redirect)).toBe(400);
+      expect((res.json["fields"] as Record<string, string>)["force_offer_id"]).toContain("can't share a rule with a Redirect");
+    }
+    // …and adding a redirect to an existing present-only rule is refused too
+    const r = await adminReq(f.env, "POST", `/quotes/${f.quote.public_id}/routing-rules`, { rule_name: "QA", conditions_json: UTM_FUNDERA, force_offer_id: f.fundera.id });
+    const patch = await adminReq(f.env, "PATCH", `/routing-rules/${r.json["public_id"] as string}`, { redirect_pct: 100, target_offer_id: f.fora.id });
+    expect(patch.status).toBe(400);
+    expect(QUOTE_RULES_SCRIPT).toContain("can\\'t share a rule with a Redirect");
+  });
+
+  it("even a row carrying both never redirects the QA visitor — they stay and see only the chosen offer", async () => {
+    const f = seed();
+    const r = await adminReq(f.env, "POST", `/quotes/${f.quote.public_id}/routing-rules`, { rule_name: "QA", conditions_json: UTM_FUNDERA, force_offer_id: f.fundera.id });
+    f.sdb.prepare("UPDATE leadgen_quote_routing_rules SET redirect_pct = 100, target_offer_id = ? WHERE public_id = ?").run(f.fora.id, r.json["public_id"] as string);
+    const shell = await tenantGet(f.env, "/lg?utm_source=Fundera", { Cookie: "ko_sid=s-combo" });
+    expect(shell.status).toBe(200);
+    expect(shell.headers.get("Location")).toBeNull();
+    expect((await visit(f, "?utm_source=Fundera", { session: "s-combo" })).shown).toEqual([f.fundera.public_id]);
+  });
+
+  it("the rail says plainly when a rule was deleted elsewhere, and a later successful save clears the rail error", () => {
+    expect(QUOTE_RULES_SCRIPT).toContain("That rule no longer exists");
+    expect(QUOTE_RULES_SCRIPT).toContain("showRailErr(''); closeModal(); refetch();");
   });
 });

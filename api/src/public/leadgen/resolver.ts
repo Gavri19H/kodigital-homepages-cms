@@ -1634,6 +1634,10 @@ export async function resolveEntryRedirect(
 ): Promise<string | null> {
   const match = evaluateQuoteEntryRouting(await loadQuoteRoutingRules(db, quoteId), ctx);
   if (match === null || match.redirect_pct === null) return null;
+  // 0061: a "Present only this offer" rule keeps its visitors in the funnel —
+  // the save refuses it alongside a redirect; this holds even if a row ever
+  // carries both.
+  if (match.force_offer_id !== null) return null;
   if (!shouldRedirectForSession(match.redirect_pct, match.public_id, sessionId)) return null;
   if (match.target_offer_id !== null) {
     try {

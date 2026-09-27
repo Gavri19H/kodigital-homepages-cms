@@ -699,6 +699,8 @@ function quoteRoutingRuleRowToApi(row: LeadgenQuoteRoutingRuleRow): Record<strin
 
 // Appendix A-11 (verbatim, asserted in CI): a rule with no action is rejected.
 const ROUTING_RULE_MIN_ACTION_MESSAGE = "Pick at least one action for this rule.";
+const PRESENT_ONLY_WITH_REDIRECT_MESSAGE =
+  "Present only this offer keeps visitors in the funnel, so it can't share a rule with a Redirect. Turn Redirect % and Redirect target off, or use a separate rule.";
 const ROUTING_ACTION_KEYS = [
   "target_funnel_id", "feed_name", "value_multiplier", "redirect_pct", "target_offer_id", "redirect_url", "force_offer_id",
 ] as const;
@@ -999,6 +1001,12 @@ async function buildRoutingRuleFields(
   ) {
     errors["force_offer_id"] =
       "Present only this offer needs entry conditions (UTM, device, state, OS, hour, weekday). With answer conditions, also pick a Target funnel.";
+  }
+  // Present only keeps the visitor IN the funnel; a redirect on the same rule
+  // sends a share of the same visitors away (the entry redirect runs first), so
+  // the QA link would land on the other target. One rule does one or the other.
+  if (forceOfferId !== null && (hasRedirectTarget || redirectPct !== null)) {
+    errors["force_offer_id"] = PRESENT_ONLY_WITH_REDIRECT_MESSAGE;
   }
   const anyAction =
     targetFunnelId !== null || feedName !== null || valueMultiplier !== null || hasRedirectTarget || redirectPct !== null || forceOfferId !== null;

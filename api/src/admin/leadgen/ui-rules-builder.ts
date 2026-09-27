@@ -2665,6 +2665,7 @@ export const QUOTE_RULES_SCRIPT = `(function () {
     for (i = 0; i < partly.length; i++) { if (partly[i] === offerId) { return '\\u201c' + offer.name + '\\u201d is live in only some A/B versions of funnel \\u201c' + funnel.name + '\\u201d. Matching visitors on the other versions will see no offers.'; } }
     return '\\u201c' + offer.name + '\\u201d is not a live offer in the auction of funnel \\u201c' + funnel.name + '\\u201d. Matching visitors will see no offers until it is added and enabled there.';
   }
+  var PRESENT_ONLY_WITH_REDIRECT_TEXT = 'Present only this offer keeps visitors in the funnel, so it can\\'t share a rule with a Redirect. Turn Redirect % and Redirect target off, or use a separate rule.';
   var NEEDS_FUNNEL_TEXT = 'Rules on answers only take effect when they also pick a Target funnel. As saved, this rule never applies.';
   function needsFunnelWarning(rule, cp) { return cp.plane !== 'entry' && cp.unreachable !== true && rule.target_funnel_id == null; }
   // The Traffic tag's stored form (the feed_name column's own charset): an
@@ -2935,6 +2936,7 @@ export const QUOTE_RULES_SCRIPT = `(function () {
     setActionError(false);
     if (actionOn('feed_name') && slugifyTag(qs(modal, '[data-qr-feed-name]').value) === '') { showErr('Enter a traffic tag (letters or digits), or turn Traffic tag off.'); return; }
     if (actionOn('force_offer') && num(qs(modal, '[data-qr-force-offer]').value) === null) { showErr('Choose the offer to present, or turn Present only this offer off.'); return; }
+    if (actionOn('force_offer') && (actionOn('redirect_pct') || actionOn('redirect_target'))) { showErr(PRESENT_ONLY_WITH_REDIRECT_TEXT); return; }
     showErr('');
     var tagInput = qs(modal, '[data-qr-feed-name]');
     if (tagInput && actionOn('feed_name')) { tagInput.value = slugifyTag(tagInput.value); updateTagPreview(); }
@@ -2945,7 +2947,7 @@ export const QUOTE_RULES_SCRIPT = `(function () {
       .then(function (r) { return r.json().then(function (j) { return { ok: r.ok, status: r.status, body: j }; }); })
       .then(function (res) {
         if (!res.ok) { showErr(errorText(res.body) || ('Save failed (' + res.status + ').')); return; }
-        closeModal(); refetch();
+        showRailErr(''); closeModal(); refetch();
       }, function () { showErr('Network error saving the rule.'); });
   }
   // OWNER 2026-09-27 (Ido): the API answers {error:"Validation failed",
@@ -2970,7 +2972,8 @@ export const QUOTE_RULES_SCRIPT = `(function () {
     fetch(url, init)
       .then(function (r) { return r.json().then(function (j) { return { ok: r.ok, status: r.status, body: j }; }, function () { return { ok: r.ok, status: r.status, body: null }; }); })
       .then(function (res) {
-        if (!res.ok) { showRailErr(errorText(res.body) || ('Could not ' + verb + ' the rule (' + res.status + ').')); }
+        if (res.status === 404) { showRailErr('That rule no longer exists \\u2014 it may have been deleted in another tab. The list below is up to date.'); }
+        else if (!res.ok) { showRailErr(errorText(res.body) || ('Could not ' + verb + ' the rule (' + res.status + ').')); }
         refetch();
       }, function () { showRailErr('Network error \\u2014 could not ' + verb + ' the rule.'); });
   }

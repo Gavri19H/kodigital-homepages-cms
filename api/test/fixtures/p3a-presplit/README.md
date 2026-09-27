@@ -300,3 +300,8 @@ wording, the A/B "only some versions" warning, the plainer help/warning copy,
 and — in `editor-panel-themes.html` — the section chooser now reading every
 page of the section list (`fetchAllItems`) instead of `?page_size=200`, which
 the API answers with 25 rows. Id-only churn restored as before.
+
+2026-09-27 re-capture #3 (confirmation-review round): `editor-full.html` only —
+the rules island refuses Present only + Redirect on one rule, clears the rail
+error on a successful save, and names a rule deleted elsewhere. 7 normalized
+lines, all in QUOTE_RULES_SCRIPT; id-only churn restored.
