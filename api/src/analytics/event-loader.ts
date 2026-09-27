@@ -64,7 +64,10 @@ import type { Env } from "../env";
 
 export const MAX_FILES_PER_RUN = 25;
 export const LOOKBACK_DAYS = 7;
-const LEDGER_RETENTION_DAYS = LOOKBACK_DAYS + 3;
+// Ledger rows are kept 3 days past whatever window a run scanned, so a
+// deliberate multi-run backfill (lookbackDays > LOOKBACK_DAYS) keeps its
+// progress instead of re-fetching the same first files every run.
+const LEDGER_MARGIN_DAYS = 3;
 const CH_TIMEOUT_MS = 20_000;
 const S3_TIMEOUT_MS = 15_000;
 // ClickHouse error codes that mean "this row's data cannot go in this column"
@@ -80,9 +83,13 @@ function isDataError(err: unknown): boolean {
   return code !== undefined && DATA_ERROR_CODES.has(Number(code));
 }
 
-// Upper bound on bisection inserts per stream per run (keeps a pathological
-// file inside the cron's subrequest budget; the rest resumes next run).
-const MAX_ISOLATION_REQUESTS = 40;
+// Upper bound on bisection inserts per stream per run. Sized so a large file
+// with a few refused rows finishes in ONE run (3 bad rows in 2,000 need about
+// 70), while two streams' worst case stays well inside the cron's subrequest
+// budget. If a file ever exceeds it, the run stops that stream and the file
+// is bisected again from scratch next run (already-inserted rows collapse
+// under FINAL) — no row is lost, only time.
+const MAX_ISOLATION_REQUESTS = 150;
 
 interface StreamSpec {
   stream: "leadgen" | "listicles";
@@ -258,11 +265,15 @@ function s3ErrorSummary(op: string, status: number, text: string): string {
   return `s3 ${op} ${status}${code !== undefined ? ` ${code}` : ""}`;
 }
 
-async function s3Fetch(req: Request, doFetch: typeof fetch): Promise<Response> {
+// The timeout covers the WHOLE exchange — headers and body — so a transfer
+// that stalls mid-body cannot hold up the cron tasks queued behind the loader.
+async function s3Fetch(req: Request, doFetch: typeof fetch): Promise<{ ok: boolean; status: number; text: string }> {
   const controller = new AbortController();
   const timer = setTimeout(() => controller.abort(), S3_TIMEOUT_MS);
   try {
-    return await doFetch(req, { signal: controller.signal });
+    const resp = await doFetch(req, { signal: controller.signal });
+    const text = await resp.text();
+    return { ok: resp.ok, status: resp.status, text };
   } finally {
     clearTimeout(timer);
   }
@@ -302,7 +313,7 @@ async function listKeys(aws: AwsClient, env: Env, prefix: string, doFetch: typeo
     if (token !== null) q.set("continuation-token", token);
     const req = await aws.sign(`${s3Host(env)}/?${q.toString()}`, { method: "GET" });
     const resp = await s3Fetch(req, doFetch);
-    const text = await resp.text();
+    const text = resp.text;
     if (!resp.ok) throw new Error(s3ErrorSummary("list", resp.status, text));
     for (const m of text.matchAll(/<Key>([^<]*)<\/Key>/g)) keys.push(xmlDecode(m[1] ?? ""));
     const next = /<NextContinuationToken>([^<]*)<\/NextContinuationToken>/.exec(text);
@@ -316,9 +327,8 @@ async function getObject(aws: AwsClient, env: Env, key: string, doFetch: typeof 
   const path = key.split("/").map(encodeURIComponent).join("/");
   const req = await aws.sign(`${s3Host(env)}/${path}`, { method: "GET" });
   const resp = await s3Fetch(req, doFetch);
-  const text = await resp.text();
-  if (!resp.ok) throw new Error(s3ErrorSummary("get", resp.status, text));
-  return text;
+  if (!resp.ok) throw new Error(s3ErrorSummary("get", resp.status, resp.text));
+  return resp.text;
 }
 
 function dtOfKey(key: string): string {
@@ -373,7 +383,7 @@ export async function runEventLoader(env: Env, opts?: LoaderOpts): Promise<Loade
   // Ledger rows older than the scan window are never consulted again.
   try {
     await env.DB.prepare("DELETE FROM analytics_event_files WHERE dt < ?")
-      .bind(utcDate(now - LEDGER_RETENTION_DAYS * 86_400_000))
+      .bind(utcDate(now - (lookback + LEDGER_MARGIN_DAYS) * 86_400_000))
       .run();
   } catch {
     // bookkeeping only

@@ -291,6 +291,14 @@ describeDb("each file once; failures retried; bounded work", () => {
     expect(ledger(w).map((l) => l.object_key).sort()).toEqual([nineDaysOld, fiveDaysOld].sort());
   });
 
+  it("CONFIRMATION REVIEW: a multi-run backfill keeps its progress (the ledger cleanup follows the window it scanned)", async () => {
+    const w = world();
+    for (let i = 0; i < 30; i++) w.files.set(`leadgen/events/dt=2026-09-10/hr=09/leadgen-events-1-2026-09-10-09-${String(i).padStart(2, "0")}-00-bf`, LG_FILE);
+    await runEventLoader(w.env, { now: NOW, fetchImpl: w.fetch, lookbackDays: 30 });
+    await runEventLoader(w.env, { now: NOW, fetchImpl: w.fetch, lookbackDays: 30 });
+    expect(ledger(w).filter((l) => l.dt === "2026-09-10")).toHaveLength(30);
+  });
+
   it("follows S3 list pagination", async () => {
     const w = world();
     w.pageSize = 2;
