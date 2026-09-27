@@ -223,6 +223,20 @@ export function analyzeResponseMacros(template: string): LeadgenResponseMacroRef
   return refs;
 }
 
+// Whether the governed click route (/lg/lc) can send a visitor to this Offer
+// with NO auction response behind the click — what a redirect rule needs. The
+// click route's destination is the carrier's click_url (only a provider
+// response has one) else the Offer's own banner_url_template; so the Offer
+// qualifies only with a template that is absolute http(s) and has no REQUIRED
+// {response:*} token (those exist only after a provider answers). A Static —
+// no provider request Offer's URL qualifies; a provider Offer with no template
+// of its own does not (its redirect used to end on the click route's 204).
+export function offerHasOwnClickUrl(bannerUrlTemplate: string | null | undefined): boolean {
+  const t = typeof bannerUrlTemplate === "string" ? bannerUrlTemplate.trim() : "";
+  if (!/^https?:\/\//i.test(t)) return false;
+  return !analyzeResponseMacros(t).some((r) => r.required);
+}
+
 // ---------------------------------------------------------------------------
 // Banner URL template validation (04 §10.5 save-time guards)
 // ---------------------------------------------------------------------------

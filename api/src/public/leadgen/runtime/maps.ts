@@ -20,6 +20,8 @@
 //
 // BROWSER module: window/google/document access strictly inside functions.
 
+import { QUESTION_SEL } from "./render";
+
 export interface LgMapsFieldConfig {
   autocomplete: boolean;
   validate: boolean;
@@ -168,7 +170,7 @@ function fillTarget(root: Element, internalField: string): HTMLInputElement | nu
 // no dependence on config.fills (which is empty whenever every sibling is
 // authored mode:"manual", yet the boxes are still siblings on screen).
 function isCompositeAddressField(fieldEl: Element): boolean {
-  const scope = fieldEl.closest("[data-lg-question]") ?? fieldEl;
+  const scope = fieldEl.closest(QUESTION_SEL) ?? fieldEl;
   const names = new Set<string>();
   const subfields = scope.querySelectorAll("[data-lg-field]");
   for (let i = 0; i < subfields.length; i++) {
@@ -207,7 +209,7 @@ export function initMapsFields(root: Element, hooks: LgMapsHooks): number {
     const input = fieldEl.querySelector("[data-lg-input]") ?? fieldEl.querySelector("input");
     if (input === null || !(input instanceof HTMLInputElement)) continue;
 
-    const questionId = fieldEl.closest("[data-lg-question]")?.getAttribute("data-lg-question") ?? "";
+    const questionId = fieldEl.closest(QUESTION_SEL)?.getAttribute("data-lg-question") ?? "";
 
     // Dedicated try/catch: a Places wiring failure must never break the
     // funnel (manual entry keeps working) nor log an error.

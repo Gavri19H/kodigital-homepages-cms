@@ -1032,6 +1032,7 @@ export async function leadgenQuoteEditorPage(c: UiContext): Promise<Response> {
       id: o.id,
       name: o.offer_name,
       ...(typeof o.status === "string" ? { status: o.status } : {}),
+      ...(typeof o.has_own_click_url === "boolean" ? { has_own_click_url: o.has_own_click_url } : {}),
     })),
     feed_values: Array.from(new Set(quoteRoutingRules.map((r) => r.feed_name).filter((v): v is string => typeof v === "string" && v !== ""))).sort(),
   };

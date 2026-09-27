@@ -473,6 +473,9 @@ describeDb("§10.2 auction-path producers — runAuction emits every auction + r
       const out = await eventsFrom(env, sdb, (db) => {
         const auction = seedAuction(db, { multi_offer: "enabled" });
         const offer = seedAuctionOffer(db);
+        // an Offer redirect needs the Offer's own URL (offerHasOwnClickUrl) —
+        // without one the rule falls through to its URL and is not an Offer redirect
+        db.prepare("UPDATE leadgen_offers SET banner_url_template = 'https://offer.example/go?c={click_id}' WHERE id = ?").run(offer.offer_id);
         attachOffer(db, auction.id, offer, 0);
         seedRedirectRule(db, 1, offer.offer_id);
         return { auction };

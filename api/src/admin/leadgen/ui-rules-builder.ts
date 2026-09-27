@@ -1871,6 +1871,9 @@ export interface QuoteRulesRailOffer {
   name: string;
   // leadgen_offers.status (active | paused | archived); absent ⇒ treated active.
   status?: string;
+  // Has a URL of its own ⇒ can be a Redirect target (false ⇒ shown, not
+  // selectable, for Redirect only; absent ⇒ treated as selectable).
+  has_own_click_url?: boolean;
 }
 
 export interface QuoteRulesRailAnswerField {
@@ -2214,7 +2217,16 @@ function renderQuoteRuleActions(data: QuoteRulesRailData): string {
   const funnelOpts = data.funnels
     .map((f) => `<option value="${escapeHtml(f.public_id)}" data-funnel-id="${f.id}">${escapeHtml(f.name)}${f.is_default ? " (Default)" : ""}</option>`)
     .join("");
-  const offerOpts = data.offers.map((o) => `<option value="${o.id}">${escapeHtml(o.name)}</option>`).join("");
+  // Redirect → Offer: an offer with no URL of its own (a provider offer gets
+  // one only from its provider's response) has nowhere to send the visitor —
+  // the save refuses it, so it is listed but not selectable, and says why.
+  const offerOpts = data.offers
+    .map((o) =>
+      o.has_own_click_url === false
+        ? `<option value="${o.id}" disabled>${escapeHtml(o.name)} (no URL of its own)</option>`
+        : `<option value="${o.id}">${escapeHtml(o.name)}</option>`,
+    )
+    .join("");
   // "Present only this offer" lists the SAME offers as Redirect → Offer; one
   // that is not active cannot be presented (the save refuses it), so it shows
   // its status and is not selectable.
@@ -3391,6 +3403,11 @@ export const RELOCATED_RULES_SCRIPT = `(function () {
   if (quoteSel) { quoteSel.addEventListener('change', onQuoteChange); }
   if (funnelSel) { funnelSel.addEventListener('change', onFunnelChange); }
   if (variantSel) { variantSel.addEventListener('change', onVariantChange); }
+  // The auction's own quote arrives pre-selected (SSR selected attribute, or the
+  // browser restoring the field on reload) — load its funnels now. Only a
+  // 'change' event used to do that, so the Funnel picker stayed "pick a quote
+  // first" until the operator re-picked the quote already shown.
+  if (quoteSel && quoteSel.value !== '') { onQuoteChange(); }
 
   // ---- rules list + table -----------------------------------------------------
 
@@ -3423,6 +3440,7 @@ export const RELOCATED_RULES_SCRIPT = `(function () {
     tr.setAttribute('data-rule-public-id', rule.public_id);
     tr.appendChild(txt(el('td'), rule.priority));
     var nameTd = el('td'); txt(nameTd, (rule.rule_name && rule.rule_name.replace(/^\\s+|\\s+$/g, '') !== '') ? rule.rule_name : '(unnamed rule)'); tr.appendChild(nameTd);
+    if (redirectNeverLands(rule)) { nameTd.appendChild(txt(el('div', 'form-help'), 'Never redirects: its offer has no URL of its own. Pick an offer that has one, or disable the rule.')); }
     tr.appendChild(txt(el('td'), RULE_TYPE_LABEL(rule.rule_type)));
     var disabled = rule.status === 'disabled';
     var statusTd = el('td');
@@ -3438,6 +3456,17 @@ export const RELOCATED_RULES_SCRIPT = `(function () {
     actTd.appendChild(actBtn('Delete', 'data-frr-delete'));
     tr.appendChild(actTd);
     return tr;
+  }
+  // Mirror of the engine's redirectCanLand for the list: an Offer target with
+  // no URL of its own and no allowlisted URL to fall back to never redirects.
+  function redirectNeverLands(rule) {
+    if (rule.rule_type !== 'redirect_direct_offer' || rule.target_offer_id == null) { return false; }
+    if (rule.redirect_url && (rule.redirect_url_allowlisted === true || rule.redirect_url_allowlisted === 1)) { return false; }
+    var entry = quoteCache[currentQuotePub];
+    var list = entry ? entry.offers : [];
+    var i;
+    for (i = 0; i < list.length; i++) { if (list[i].id === rule.target_offer_id) { return list[i].has_own_click_url === false; } }
+    return false;
   }
   function actBtn(label, attr) {
     var b = el('button', 'btn btn-sm btn-outline'); b.type = 'button'; b.setAttribute(attr, ''); txt(b, label); return b;
@@ -3513,7 +3542,11 @@ export const RELOCATED_RULES_SCRIPT = `(function () {
     var offers = entry ? entry.offers : [];
     var i;
     for (i = 0; i < offers.length; i++) {
-      var opt = el('option'); opt.value = String(offers[i].id); txt(opt, offers[i].offer_name || ('#' + offers[i].id));
+      // A redirect target needs a URL of its own (the save refuses one without):
+      // listed, not selectable, with the reason.
+      var noUrl = offers[i].has_own_click_url === false;
+      var opt = el('option'); opt.value = String(offers[i].id); txt(opt, (offers[i].offer_name || ('#' + offers[i].id)) + (noUrl ? ' (no URL of its own)' : ''));
+      if (noUrl) { opt.disabled = true; }
       offerEl.appendChild(opt);
     }
   }

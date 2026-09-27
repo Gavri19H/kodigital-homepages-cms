@@ -135,6 +135,7 @@ import type {
   LeadgenOfferRow,
   LeadgenRuleConditions,
 } from "../../../admin/leadgen/db-types";
+import { offerHasOwnClickUrl } from "../../../leadgen/macros";
 
 // ---------------------------------------------------------------------------
 // Loaded auction bundle (READ-ONLY; safe to load in dry-run)
@@ -189,6 +190,10 @@ export interface AuctionFunnelRule {
   // — NULL/absent means never redirect, preserving every PRE-0044 rule's
   // 100%-on-match behavior byte-for-byte until an operator sets it.
   redirect_pct: number | null;
+  // A redirect_direct_offer rule's target Offer has a URL of its own
+  // (leadgen/macros.ts offerHasOwnClickUrl) — /lg/lc can send a visitor there
+  // with no provider response behind the click. Loaded by loadAuctionBundle.
+  target_has_own_click_url?: boolean;
 }
 
 export interface AuctionBundle {
@@ -510,9 +515,52 @@ export async function loadAuctionBundle(
         redirect_pct: r.redirect_pct,
       });
     }
+    // Which redirect targets can actually be sent to (their own URL). One read
+    // for the variant's few redirect rules; a read error marks none reachable
+    // (those rules then do not redirect — the auction runs as normal).
+    const targetIds = [
+      ...new Set(
+        funnel_rules
+          .filter((fr) => fr.rule_type === "redirect_direct_offer" && fr.target_offer_id !== null)
+          .map((fr) => fr.target_offer_id as number),
+      ),
+    ].slice(0, 80);
+    if (targetIds.length > 0) {
+      const ownUrl = new Set<number>();
+      try {
+        const rows = await db
+          .prepare(`SELECT id, banner_url_template FROM leadgen_offers WHERE id IN (${targetIds.map(() => "?").join(",")})`)
+          .bind(...targetIds)
+          .all<{ id: number; banner_url_template: string | null }>();
+        for (const row of rows.results ?? []) if (offerHasOwnClickUrl(row.banner_url_template)) ownUrl.add(row.id);
+      } catch (err) {
+        // none reachable for this request — logged, since it makes every
+        // Offer-target redirect rule of the variant inert until the next read
+        console.log(
+          JSON.stringify({
+            event: "leadgen_redirect_targets_read_failed",
+            error: err instanceof Error ? err.message : String(err),
+          }),
+        );
+      }
+      for (const fr of funnel_rules) {
+        if (fr.target_offer_id !== null) fr.target_has_own_click_url = ownUrl.has(fr.target_offer_id);
+      }
+    }
   }
 
   return { auction, offers, offer_rules, carrier_rules, banner, banner_config_json: parseJson(auction.banner_config_json), funnel_rules };
+}
+
+// Whether a funnel redirect rule has a destination a browser can be sent to
+// (see the step-4 skip in runAuction): an Offer target with its own URL, or an
+// allowlisted absolute http(s) URL (serve-auction.ts redirectDestination tries
+// them in that order).
+function redirectCanLand(fr: AuctionFunnelRule): boolean {
+  const offerOk = fr.target_offer_id !== null && fr.target_has_own_click_url === true;
+  const urlOk =
+    fr.redirect_url_allowlisted === 1 && typeof fr.redirect_url === "string" && /^https?:\/\//i.test(fr.redirect_url.trim());
+  return offerOk || urlOk;
 }
 
 // ---------------------------------------------------------------------------
@@ -1237,6 +1285,11 @@ export async function runAuction(
     // SAME offer still applies. Disqualification / auction_entry gates stay:
     // they can only show nothing, never a different offer.
     if (fr.rule_type === "redirect_direct_offer" && presentOnly !== null && fr.target_offer_id !== presentOnly) continue;
+    // A redirect with nowhere to go is no redirect: its Offer has no URL of its
+    // own (a provider Offer — /lg/lc could only answer 204), or its raw URL is
+    // not allowlisted / not http(s). The rule is passed over like a non-match,
+    // so the visitor gets the normal auction instead of an empty results page.
+    if (fr.rule_type === "redirect_direct_offer" && !redirectCanLand(fr)) continue;
     if (fr.rule_type === "redirect_direct_offer" && conditionsMatch(fr.conditions, ruleContext)) {
       // §15.5 redirect_pct session-sticky gate (0044): a match alone is not
       // enough — this session must also fall inside the rule's percentage
@@ -1249,15 +1302,19 @@ export async function runAuction(
       // redirect_rule_triggered = a redirect funnel rule fired;
       // direct_offer_redirect = the redirect targets a direct Offer.
       const redirectUrl = fr.redirect_url_allowlisted === 1 ? fr.redirect_url : null;
+      // The Offer is where the visitor goes only when it has its own URL; a
+      // rule that falls through to its URL (redirectCanLand) is not an Offer
+      // redirect, in the events or in the response.
+      const offerTarget = fr.target_offer_id !== null && fr.target_has_own_click_url === true ? fr.target_offer_id : null;
       pushEvent("redirect_rule_triggered");
-      if (fr.target_offer_id !== null) {
+      if (offerTarget !== null) {
         pushEvent("direct_offer_redirect", (e) => {
-          const target = input.bundle.offers.find((b) => b.offer.id === fr.target_offer_id);
+          const target = input.bundle.offers.find((b) => b.offer.id === offerTarget);
           if (target !== undefined) fillOffer(e, target);
         });
       }
       return empty("redirect", 200, null, "redirect", {
-        target_offer_id: fr.target_offer_id,
+        target_offer_id: offerTarget,
         redirect_url: redirectUrl,
       });
     }

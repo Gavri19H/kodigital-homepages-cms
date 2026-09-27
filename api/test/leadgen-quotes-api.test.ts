@@ -600,6 +600,8 @@ describeDb("§15.5 variant PUT — funnel-rule replace-set + redirect safety", (
     const q = await createQuote(env);
     const variantId = q.funnels[0]!.variants[0]!.public_id;
     const offer = seedOffer(sdb);
+    // a redirect target needs a URL of its own (offerHasOwnClickUrl)
+    sdb.prepare("UPDATE leadgen_offers SET banner_url_template = 'https://offer.example/go?c={click_id}' WHERE id = ?").run(offer.id);
     const res = await putRules(env, variantId, [
       { rule_type: "redirect_direct_offer", target_offer_id: offer.id, conditions_json: { groups: [{ field: "state", op: "eq", value: "CA" }] } },
     ]);

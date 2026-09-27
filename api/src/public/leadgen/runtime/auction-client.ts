@@ -49,6 +49,9 @@ export interface LgAuctionResponse {
   banner_render_id: string;
   impressions: LgAuctionImpression[];
   unfilled?: true;
+  // A funnel redirect rule matched (status "redirect"): the same-origin
+  // governed click route or allowlisted URL to send the visitor to.
+  go?: string;
 }
 
 export type LgAuctionOutcome =
@@ -80,6 +83,7 @@ function coerceResponse(raw: unknown): LgAuctionResponse | null {
     banner_render_id: typeof r["banner_render_id"] === "string" ? r["banner_render_id"] : "",
     impressions,
     ...(r["unfilled"] === true ? { unfilled: true as const } : {}),
+    ...(typeof r["go"] === "string" ? { go: r["go"] } : {}),
   };
 }
 

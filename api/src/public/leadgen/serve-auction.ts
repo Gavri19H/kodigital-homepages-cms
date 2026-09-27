@@ -45,6 +45,7 @@ import {
 } from "../../leadgen/answers";
 import { validateAddress, GOOGLE_MAPS_SERVER_KEY, type LeadgenLocationFacet } from "../../leadgen/maps";
 import type { LeadgenSectionContent } from "./components/content-schema";
+import { offerHasOwnClickUrl } from "../../leadgen/macros";
 import type { LeadgenAuctionRow, LeadgenEnvironment } from "../../admin/leadgen/db-types";
 
 type PublicContext = Context<{ Bindings: Env; Variables: PublicSiteVariables }>;
@@ -151,6 +152,47 @@ async function loadPresentOnlyOfferId(db: D1Database, funnelAttemptId: string): 
     console.log(JSON.stringify({ event: "leadgen_present_only_read_failed", error: err instanceof Error ? err.message : String(err) }));
     return null;
   }
+}
+
+// Where a matched funnel redirect rule (redirect_direct_offer, status
+// "redirect") sends the visitor — the first of these that can land: an Offer
+// target with its own URL → the same-origin governed
+// click route (/lg/lc resolves the offer's destination, counts the click and
+// 302s — the path every banner click takes), bound to this attempt and auction
+// instance for attribution; an allowlisted raw URL (the engine only passes one
+// whose rule is allowlisted) → that URL, http(s) only. null = nowhere safe to
+// go: the client then shows its normal no-offers state. The client used to
+// ignore the redirect entirely and leave a blank results page.
+async function redirectDestination(
+  db: D1Database,
+  redirect: { target_offer_id: number | null; redirect_url: string | null },
+  ids: { funnel_attempt_id: string; auction_instance_id: string },
+): Promise<string | null> {
+  if (redirect.target_offer_id !== null) {
+    try {
+      const offer = await db
+        .prepare("SELECT public_id, banner_url_template FROM leadgen_offers WHERE id = ? LIMIT 1")
+        .bind(redirect.target_offer_id)
+        .first<{ public_id: string; banner_url_template: string | null }>();
+      // No URL of its own (a provider Offer): /lg/lc could only answer 204 —
+      // fall through to the rule's allowlisted URL, if it has one.
+      if (offer !== null && offer.public_id !== "" && offerHasOwnClickUrl(offer.banner_url_template)) {
+        const q = new URLSearchParams({ aiid: ids.auction_instance_id, faid: ids.funnel_attempt_id });
+        return `/lg/lc/${encodeURIComponent(offer.public_id)}?${q.toString()}`;
+      }
+    } catch {
+      /* an unreadable offer row never sends the visitor to it */
+    }
+  }
+  if (redirect.redirect_url !== null) {
+    try {
+      const u = new URL(redirect.redirect_url);
+      return u.protocol === "https:" || u.protocol === "http:" ? u.toString() : null;
+    } catch {
+      return null;
+    }
+  }
+  return null;
 }
 
 // Parse a section's content_json to the component list the Maps legs read
@@ -367,6 +409,13 @@ export async function serveLeadgenAuction(c: PublicContext): Promise<Response> {
   // banner_render_id + impressions[] (R7 — the server half the client engine
   // beacons on viewability) + unfilled?:true.
   const unfilled = result.status === "unfilled" || result.status === "no_bid";
+  const go =
+    result.status === "redirect" && result.redirect !== null
+      ? await redirectDestination(c.env.DB, result.redirect, {
+          funnel_attempt_id: funnelAttemptId,
+          auction_instance_id: result.auction_instance_id,
+        })
+      : null;
   return jsonNoStore(
     {
       status: result.status,
@@ -387,6 +436,7 @@ export async function serveLeadgenAuction(c: PublicContext): Promise<Response> {
       unfilled_reason: result.explain.unfilled_reason,
       ...(unfilled ? { unfilled: true as const } : {}),
       ...(result.redirect !== null ? { redirect: result.redirect } : {}),
+      ...(go !== null ? { go } : {}),
     },
     200,
   );

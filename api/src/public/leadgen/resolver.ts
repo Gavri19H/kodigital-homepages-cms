@@ -63,6 +63,7 @@ import type { LeadgenComponentNode } from "./components/content-schema";
 import { effectiveFrame, validateFrameConfig, parseSavedFrameTemplateDefaults, footerLegalPagePicks } from "./designs/frames";
 import type { EffectiveFrameConfig, FrameOverrides, StoredFrameConfig, FrameCtaSlotConfig } from "./designs/frames";
 import { conditionalMet, type LeadgenPayloadConditional, type LeadgenPayloadConditionGroup } from "../../leadgen/payload";
+import { offerHasOwnClickUrl } from "../../leadgen/macros";
 // LeadGen Rework §4.3-3: the ONE pure checkpoint-plane derivation (shared by
 // this runtime evaluator AND the admin builder). Imported for the os-inclusive
 // entry-known set + the quote-rule plane partition; rule-checkpoint.ts imports
@@ -1642,10 +1643,14 @@ export async function resolveEntryRedirect(
   if (match.target_offer_id !== null) {
     try {
       const offer = await db
-        .prepare("SELECT public_id FROM leadgen_offers WHERE id = ? LIMIT 1")
+        .prepare("SELECT public_id, banner_url_template FROM leadgen_offers WHERE id = ? LIMIT 1")
         .bind(match.target_offer_id)
-        .first<{ public_id: string }>();
+        .first<{ public_id: string; banner_url_template: string | null }>();
       if (offer === null || offer.public_id === "") return null;
+      // A provider Offer has no URL until its provider answers — /lg/lc would
+      // 204 and the visitor would go nowhere; keep them in the funnel instead
+      // (the save refuses such a target; this covers an older row).
+      if (!offerHasOwnClickUrl(offer.banner_url_template)) return null;
       return `/lg/lc/${encodeURIComponent(offer.public_id)}`;
     } catch {
       return null; // fail-safe: an unreadable offer row never redirects

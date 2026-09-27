@@ -102,6 +102,7 @@ import type {
   LeadgenOfferStatus,
   LeadgenPayloadSchemaSource,
 } from "./db-types";
+import { offerHasOwnClickUrl } from "../../leadgen/macros";
 
 export type AdminContext = Context<{ Bindings: Env }>;
 
@@ -272,6 +273,9 @@ export function offerRowToApi(row: LeadgenOfferRow): LeadgenOfferApi {
     api_token_present: typeof api_token_cipher === "string" && api_token_cipher.trim() !== ""
       && (api_token_key_id === "lgok1" || api_token_key_id === "lgok2"),
     api_token_updated_at: row.api_token_updated_at ?? null,
+    // Can be a redirect target: the click route can send a visitor to this
+    // Offer with no provider response behind the click (its own URL).
+    has_own_click_url: offerHasOwnClickUrl(row.banner_url_template),
   };
 }
 

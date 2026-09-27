@@ -501,6 +501,8 @@ d("leadgen rework handlers (S1.4)", () => {
     const h = harness();
     const q = await newQuote(h);
     const offer = seedOffer(h.sdb);
+    // a redirect target needs a URL of its own (offerHasOwnClickUrl)
+    h.sdb.prepare("UPDATE leadgen_offers SET banner_url_template = 'https://offer.example/go?c={click_id}' WHERE id = ?").run(offer.id);
     const bad = await req(h, "POST", `/quotes/${q.quotePublic}/routing-rules`, { rule_name: "R", redirect_url: "https://evil.example.com/x", redirect_pct: 50 });
     expect(bad.status).toBe(400);
     expect(bad.json.fields.redirect_url).toBeDefined();

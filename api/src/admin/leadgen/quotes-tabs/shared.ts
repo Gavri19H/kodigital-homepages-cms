@@ -352,6 +352,8 @@ export interface OfferListItem {
   offer_name: string;
   // leadgen_offers.status — rides the list's row spread (active|paused|archived).
   status?: string;
+  // Can be a redirect target (offerRowToApi has_own_click_url).
+  has_own_click_url?: boolean;
 }
 
 
