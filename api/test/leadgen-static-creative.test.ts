@@ -113,6 +113,17 @@ describe("the field rules", () => {
     expect(validateStaticCreativeField("static_brand_name", "x".repeat(81)).ok).toBe(false);
     expect(validateStaticCreativeField("static_headline", 12 as unknown as string).ok).toBe(false);
   });
+  it("REVIEW m4: a logo is accepted only in the form the card will actually show (https, no backslashes)", () => {
+    expect(validateStaticCreativeField("static_logo_url", "http://cdn.example/logo.png").ok).toBe(false); // mixed content on an https funnel
+    expect(validateStaticCreativeField("static_logo_url", "https:\\\\evil.com\\x.png").ok).toBe(false);
+    expect(validateStaticCreativeField("static_logo_url", "https://cdn.example/logo.png").ok).toBe(true);
+  });
+  it("REVIEW m3: no link may be authored into the card copy (the card is already the tracked link)", () => {
+    for (const bad of ['Click <a href="https://x.example">here</a>', "<A HREF=x>y</A>", "< a href=x>y</a>"]) {
+      expect(validateStaticCreativeField("static_subheadline", bad).ok, bad).toBe(false);
+    }
+    expect(validateStaticCreativeField("static_subheadline", "Rates <b>from 6%</b> a year").ok).toBe(true);
+  });
   it("a Media-library logo becomes absolute on the page's own origin; no origin ⇒ no logo", () => {
     expect(resolveCreativeLogo("/media/2026/09/27/a.png", "https://moneylantern.com")).toBe("https://moneylantern.com/media/2026/09/27/a.png");
     expect(resolveCreativeLogo("/media/2026/09/27/a.png", null)).toBeNull();
@@ -133,6 +144,17 @@ describeDb("Offer API", () => {
     expect(clear.status).toBe(200);
     expect(((await (await admin.request(`${API}/offers/${offer}`, {}, h.env)).json()) as Record<string, unknown>)["static_headline"]).toBeNull();
   });
+  it("REVIEW MAJOR-1: duplicating a static offer keeps its creative (it IS the card)", async () => {
+    const h = harness();
+    const offer = seedOffer(h.sdb);
+    await admin.request(`${API}/offers/${offer}`, json("PATCH", CREATIVE), h.env);
+    const dup = await admin.request(`${API}/offers/${offer}/duplicate`, json("POST", { name: "Fora - Tier 4", default_placement_id: "pl-t4" }), h.env);
+    expect(dup.status).toBe(201);
+    const copyId = ((await dup.json()) as { offer: { public_id: string } }).offer.public_id;
+    const got = (await (await admin.request(`${API}/offers/${copyId}`, {}, h.env)).json()) as Record<string, unknown>;
+    for (const [k, v] of Object.entries(CREATIVE)) expect(got[k], k).toBe(v);
+  });
+
   it("rejects a bad logo with a field error", async () => {
     const h = harness();
     const offer = seedOffer(h.sdb);
@@ -162,6 +184,13 @@ describeDb("live preview — the real card, unsaved values", () => {
     expect(doc).toContain('data-funnel-design="default-funnel"'); // the funnel's own scope, so its card styles apply
     expect(doc).toContain('[data-funnel-design="default-funnel"] .lg-banner');
   });
+  it("REVIEW m1: the preview card cannot be clicked into a dead admin /lg/lc page", async () => {
+    const h = harness();
+    const offer = seedOffer(h.sdb);
+    const r = await preview(h, offer, CREATIVE);
+    expect(r.body.document).toContain(".lg-banner{pointer-events:none;cursor:default}");
+  });
+
   it("nothing saved: the stored offer is unchanged after previewing", async () => {
     const h = harness();
     const offer = seedOffer(h.sdb);

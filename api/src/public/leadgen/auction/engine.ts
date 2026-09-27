@@ -1454,9 +1454,10 @@ export async function runAuction(
     }
   }
 
-  // The origin the funnel is served from (the live /lg/auction request), used to
-  // make a static Offer's Media-library logo absolute. Absent on the admin
-  // dry-run, where such a logo is simply not emitted.
+  // The origin the page is served from, used to make a static Offer's
+  // Media-library logo absolute: the tenant domain on the live /lg/auction
+  // request; the admin host on the Auction simulator (auctions-handlers passes
+  // its request). With no request at all the logo is simply not emitted.
   const pageOrigin = (() => {
     const src = input.runtime?.source;
     if (src === undefined) return null;

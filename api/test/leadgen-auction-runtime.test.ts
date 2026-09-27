@@ -1546,7 +1546,7 @@ describeDb("static Offer banner creative (0060) — through the real auction", (
     expect(await run("Fora Financial")).toEqual(["impact"]);
   });
 
-  it("no live request (admin dry-run): a Media-library logo is left off rather than broken; an https logo still shows", async () => {
+  it("no request context at all: a Media-library logo is left off rather than broken; an https logo still shows", async () => {
     const { sdb, env } = harness();
     const auction = seedAuction(sdb, { surface_static_bid_offers: 1, multi_offer: "enabled" });
     const a = seedOffer(sdb, { dynamic: false, staticBid: 9 });

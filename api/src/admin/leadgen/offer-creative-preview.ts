@@ -74,12 +74,15 @@ export async function offerCreativePreviewHandler(c: AdminContext): Promise<Resp
     getBannerDesign(null),
     { mintId: () => "preview" },
   );
-  // The live card hides a logo that fails to load (an inline onerror). Here the
+  // The card is a live /lg/lc link on the funnel; in the preview it must not
+  // navigate (the admin host has no /lg routes), so it is made non-interactive
+  // in the preview stylesheet only. The live card hides a logo that fails to
+  // load (an inline onerror). Here the
   // opposite is wanted — a broken logo must stay VISIBLE to the person editing
   // it — and the preview frame runs no scripts at all, so the handler is
   // dropped from the preview copy only.
   const previewHtml = result.html.split(` onerror="this.style.display='none'"`).join("");
-  const css = `${funnelChromeCss(defaultFunnelDesign, DEFAULT_FUNNEL_SCOPE)}\n${result.css}\nhtml,body{margin:0;padding:0;background:#f5f7fb}html{overflow:hidden}body{padding:16px}`;
+  const css = `${funnelChromeCss(defaultFunnelDesign, DEFAULT_FUNNEL_SCOPE)}\n${result.css}\nhtml,body{margin:0;padding:0;background:#f5f7fb}html{overflow:hidden}body{padding:16px}.lg-banner{pointer-events:none;cursor:default}`;
   const document =
     `<!doctype html><html><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">` +
     `<style>${css.replace(/<\/style/gi, "<\\/style")}</style></head><body>` +

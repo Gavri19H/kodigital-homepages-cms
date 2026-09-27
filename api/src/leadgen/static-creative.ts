@@ -61,16 +61,25 @@ export function validateStaticCreativeField(
   if (field === "static_logo_url") {
     if (URL_CONTROL_RE.test(v)) return { ok: false, error: "Logo must be a single URL without spaces" };
     if (MEDIA_PATH_RE.test(v) && !v.includes("..")) return { ok: true, value: v };
-    try {
-      const u = new URL(v);
-      if (u.protocol === "https:" || u.protocol === "http:") return { ok: true, value: v };
-    } catch {
-      /* fall through */
+    // Exactly what the banner will emit: https only (an http logo is blocked as
+    // mixed content on every https funnel), written the way the renderer reads
+    // it — a string new URL() merely tolerates (backslashes, …) would save and
+    // then silently never show.
+    if (/^https:\/\/[^\s\\]+$/.test(v)) {
+      try {
+        if (new URL(v).protocol === "https:") return { ok: true, value: v };
+      } catch {
+        /* fall through */
+      }
     }
     return { ok: false, error: "Logo must be an image from the Media library or an https:// image URL" };
   }
   if (CONTROL_RE.test(v)) return { ok: false, error: `${labelOf(field)} contains an invalid character` };
   if (field === "static_brand_name" && v.includes("\n")) return { ok: false, error: "Brand name must be one line" };
+  // The whole card is ALREADY the (tracked) link. A link inside it would split
+  // the card apart in the browser and bypass /lg/lc — no click id, no cap, no
+  // attribution — so none may be authored into the rich subheadline.
+  if (/<\s*a[\s>\/]/i.test(v)) return { ok: false, error: `${labelOf(field)} cannot contain a link — the whole card is already the link` };
   return { ok: true, value: v };
 }
 

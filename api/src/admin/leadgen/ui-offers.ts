@@ -3143,7 +3143,11 @@ const LG_STATIC_CREATIVE_SCRIPT = `
     if (!t || !t.closest) { return; }
     if (t.closest('[data-logo-choose]')) { openPicker(); return; }
     if (t.closest('[data-logo-clear]')) {
-      if (logoInput) { logoInput.value = ''; }
+      if (logoInput) {
+        logoInput.value = '';
+        // an input event marks the form dirty (the unsaved-changes guard)
+        try { logoInput.dispatchEvent(new Event('input', { bubbles: true })); } catch (e2) { /* old browsers */ }
+      }
       paintThumb(); schedule(); return;
     }
     if (t.closest('[data-media-close]')) { closePicker(); return; }

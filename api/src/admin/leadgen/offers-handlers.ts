@@ -1982,8 +1982,9 @@ export async function duplicateOfferHandler(c: AdminContext): Promise<Response> 
           api_token_placement, api_token_param_name,
           cap_enabled, cap_amount, cap_timezone, cap_count_by,
           cap_fallback_offer_id, cap_fallback_url,
+          static_brand_name, static_logo_url, static_headline, static_subheadline, static_disclaimer,
           status)
-       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'paused')`,
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'paused')`,
     ).bind(
       newPublic, name, src.provider, src.activity, src.vertical, src.tag,
       src.conversion_tracking_method, src.offer_type, src.calls_provider_api, src.bid_source,
@@ -2000,6 +2001,10 @@ export async function duplicateOfferHandler(c: AdminContext): Promise<Response> 
       // it was silently never copied before).
       copyCapSettings ? src.cap_fallback_offer_id : null,
       copyCapSettings ? src.cap_fallback_url : null,
+      // 0060: a static Offer's creative IS its card — it copies like a request
+      // Offer's parser (its creative) does via the copied schema version.
+      src.static_brand_name ?? null, src.static_logo_url ?? null, src.static_headline ?? null,
+      src.static_subheadline ?? null, src.static_disclaimer ?? null,
     ),
   ];
 
