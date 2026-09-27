@@ -56,6 +56,7 @@ import { syncListicleAnalytics } from "./listicles/mirror-sync";
 import { runListicleRevenueCron } from "./listicles/revenue-recon";
 import { pruneLeadgenRetention } from "./leadgen/retention";
 import { syncLeadgenAnalytics } from "./leadgen/mirror-sync";
+import { runEventLoader } from "./analytics/event-loader";
 import { runLeadgenRevenueCron } from "./leadgen/revenue-recon";
 import { processScheduledArticles } from "./workflow";
 import {
@@ -254,6 +255,17 @@ const scheduled = async (
     } catch {
       // A provisioning hiccup must never break the publish cron (or surface
       // as an unhandled rejection that fails the scheduled invocation).
+    }
+    try {
+      // S3 → ClickHouse event loader (LeadGen + Listicles). Fills the raw
+      // tables (lg_events_raw/lg_sessions/lst_events_raw/lst_sessions) the
+      // two mirror syncs below read through their daily views. Runs BEFORE
+      // both syncs so a minute's new files are in CH before they look. Isolated +
+      // fail-open: absent AWS/CH config is a silent no-op; an error is logged
+      // and the file retried next minute.
+      await runEventLoader(env);
+    } catch {
+      // the loader must never break the publish/provisioning cron.
     }
     try {
       // Listicles §18 CH→D1 analytics mirror sync — every minute, bounded

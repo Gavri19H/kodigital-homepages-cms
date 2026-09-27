@@ -15,6 +15,7 @@ CREATE TABLE IF NOT EXISTS lg_events_raw (
   section_order_hash String DEFAULT '', section_id String DEFAULT '', section_index UInt16 DEFAULT 0,
   question_key String DEFAULT '', answer_value_normalized String DEFAULT '',
   answer_source LowCardinality(String) DEFAULT 'user_selected', continue_mode LowCardinality(String) DEFAULT '',
+  continued_to_next_section UInt8 DEFAULT 0, -- read by lg_answer_distribution_daily_mv (was missing: the MV failed to create)
   section_mapping_version UInt32 DEFAULT 0, answer_mapping_version String DEFAULT '',
   auction_config_id String DEFAULT '', auction_config_version String DEFAULT '', auction_type LowCardinality(String) DEFAULT '', winner_logic LowCardinality(String) DEFAULT '',
   auction_instance_id String DEFAULT '', auction_request_id String DEFAULT '', provider_request_id String DEFAULT '',
@@ -78,7 +79,7 @@ CREATE MATERIALIZED VIEW IF NOT EXISTS lg_section_daily_mv REFRESH EVERY 2 MINUT
 SELECT e.section_id AS section_id, e.dt AS dt, sumIf(1,e.event_type='section_view') AS views, sumIf(1,e.event_type='answer_click') AS clicks,
   uniqExactIf(e.session_id,e.event_type='section_continue') AS continued, sumIf(1,e.event_type='validation_error') AS validation_errors,
   sumIf(1,e.answer_source='default_applied') AS default_applied, sumIf(1,e.answer_source='user_confirmed_default') AS user_confirmed_default, sumIf(1,e.answer_source='user_selected') AS user_selected,
-  (uniqExactIf(e.session_id,e.event_type='section_view')-uniqExactIf(e.session_id,e.event_type='section_continue')) AS dropoffs, now() AS synced_at
+  greatest(0, toInt64(uniqExactIf(e.session_id,e.event_type='section_view'))-toInt64(uniqExactIf(e.session_id,e.event_type='section_continue'))) AS dropoffs, now() AS synced_at
 FROM lg_events_raw AS e FINAL WHERE notEmpty(e.section_id) AND e.traffic_quality_flag='clean' GROUP BY e.section_id,e.dt;
 
 CREATE TABLE IF NOT EXISTS lg_answer_distribution_daily (section_id String, question_key String, answer_value_normalized String, answer_source LowCardinality(String), dt Date, count UInt64, continued_count UInt64, synced_at DateTime DEFAULT now()) ENGINE=ReplacingMergeTree(synced_at) PARTITION BY toYYYYMM(dt) ORDER BY (section_id,question_key,answer_value_normalized,answer_source,dt);
@@ -92,7 +93,7 @@ CREATE TABLE IF NOT EXISTS lg_quote_daily (quote_id String, funnel_id String, fu
 CREATE MATERIALIZED VIEW IF NOT EXISTS lg_quote_daily_mv REFRESH EVERY 2 MINUTE TO lg_quote_daily AS
 SELECT e.quote_id AS quote_id, e.funnel_id AS funnel_id, e.funnel_variant_id AS funnel_variant_id, e.funnel_ab_test_id AS funnel_ab_test_id, e.site_id AS site_id, e.traffic_source AS traffic_source, e.dt AS dt,
   sumIf(1,e.event_type='quote_view') AS visits, uniqExactIf(e.session_id,e.event_type='quote_view') AS unique_visits,
-  (uniqExactIf(e.session_id,e.event_type='quote_view')-uniqExactIf(e.session_id,e.event_type='section_continue')) AS bounces,
+  greatest(0, toInt64(uniqExactIf(e.session_id,e.event_type='quote_view'))-toInt64(uniqExactIf(e.session_id,e.event_type='section_continue'))) AS bounces,
   uniqExactIf(e.session_id,e.event_type='auction_start') AS completions, sumIf(1,e.event_type IN ('offer_click','carrier_click')) AS clicks,
   COALESCE(r.conversions,0) AS conversions, uniqExactIf(e.session_id,e.event_type='auction_unfilled') AS unfilled, COALESCE(r.revenue,0) AS revenue, now() AS synced_at
 FROM lg_events_raw AS e FINAL LEFT JOIN (SELECT quote_id,funnel_id,funnel_variant_id,dt,SUM(conversions) conversions,SUM(revenue) revenue FROM lg_revenue_attributed FINAL GROUP BY quote_id,funnel_id,funnel_variant_id,dt) AS r ON e.quote_id=r.quote_id AND e.funnel_id=r.funnel_id AND e.funnel_variant_id=r.funnel_variant_id AND e.dt=r.dt

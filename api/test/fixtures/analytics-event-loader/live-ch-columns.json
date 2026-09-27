@@ -1,0 +1,887 @@
+[
+{
+"table": "lg_events_raw",
+"name": "event_id",
+"type": "String"
+},
+{
+"table": "lg_events_raw",
+"name": "session_id",
+"type": "String"
+},
+{
+"table": "lg_events_raw",
+"name": "event_type",
+"type": "LowCardinality(String)"
+},
+{
+"table": "lg_events_raw",
+"name": "dt",
+"type": "Date"
+},
+{
+"table": "lg_events_raw",
+"name": "ts",
+"type": "DateTime"
+},
+{
+"table": "lg_events_raw",
+"name": "page_view_id",
+"type": "String"
+},
+{
+"table": "lg_events_raw",
+"name": "funnel_attempt_id",
+"type": "String"
+},
+{
+"table": "lg_events_raw",
+"name": "site_id",
+"type": "String"
+},
+{
+"table": "lg_events_raw",
+"name": "quote_id",
+"type": "String"
+},
+{
+"table": "lg_events_raw",
+"name": "funnel_id",
+"type": "String"
+},
+{
+"table": "lg_events_raw",
+"name": "funnel_name",
+"type": "String"
+},
+{
+"table": "lg_events_raw",
+"name": "funnel_variant_id",
+"type": "String"
+},
+{
+"table": "lg_events_raw",
+"name": "funnel_ab_test_id",
+"type": "String"
+},
+{
+"table": "lg_events_raw",
+"name": "funnel_ab_test_revision",
+"type": "UInt32"
+},
+{
+"table": "lg_events_raw",
+"name": "assignment_bucket",
+"type": "UInt16"
+},
+{
+"table": "lg_events_raw",
+"name": "section_order_hash",
+"type": "String"
+},
+{
+"table": "lg_events_raw",
+"name": "section_id",
+"type": "String"
+},
+{
+"table": "lg_events_raw",
+"name": "section_index",
+"type": "UInt16"
+},
+{
+"table": "lg_events_raw",
+"name": "question_key",
+"type": "String"
+},
+{
+"table": "lg_events_raw",
+"name": "answer_value_normalized",
+"type": "String"
+},
+{
+"table": "lg_events_raw",
+"name": "answer_source",
+"type": "LowCardinality(String)"
+},
+{
+"table": "lg_events_raw",
+"name": "continue_mode",
+"type": "LowCardinality(String)"
+},
+{
+"table": "lg_events_raw",
+"name": "continued_to_next_section",
+"type": "UInt8"
+},
+{
+"table": "lg_events_raw",
+"name": "section_mapping_version",
+"type": "UInt32"
+},
+{
+"table": "lg_events_raw",
+"name": "answer_mapping_version",
+"type": "String"
+},
+{
+"table": "lg_events_raw",
+"name": "auction_config_id",
+"type": "String"
+},
+{
+"table": "lg_events_raw",
+"name": "auction_config_version",
+"type": "String"
+},
+{
+"table": "lg_events_raw",
+"name": "auction_type",
+"type": "LowCardinality(String)"
+},
+{
+"table": "lg_events_raw",
+"name": "winner_logic",
+"type": "LowCardinality(String)"
+},
+{
+"table": "lg_events_raw",
+"name": "auction_instance_id",
+"type": "String"
+},
+{
+"table": "lg_events_raw",
+"name": "auction_request_id",
+"type": "String"
+},
+{
+"table": "lg_events_raw",
+"name": "provider_request_id",
+"type": "String"
+},
+{
+"table": "lg_events_raw",
+"name": "auction_result_id",
+"type": "String"
+},
+{
+"table": "lg_events_raw",
+"name": "banner_render_id",
+"type": "String"
+},
+{
+"table": "lg_events_raw",
+"name": "offer_id",
+"type": "String"
+},
+{
+"table": "lg_events_raw",
+"name": "placement_id",
+"type": "String"
+},
+{
+"table": "lg_events_raw",
+"name": "payload_schema_version",
+"type": "String"
+},
+{
+"table": "lg_events_raw",
+"name": "response_parser_version",
+"type": "UInt32"
+},
+{
+"table": "lg_events_raw",
+"name": "offer_type",
+"type": "LowCardinality(String)"
+},
+{
+"table": "lg_events_raw",
+"name": "provider",
+"type": "LowCardinality(String)"
+},
+{
+"table": "lg_events_raw",
+"name": "carrier_key",
+"type": "String"
+},
+{
+"table": "lg_events_raw",
+"name": "carrier_key_source",
+"type": "LowCardinality(String)"
+},
+{
+"table": "lg_events_raw",
+"name": "carrier_name",
+"type": "String"
+},
+{
+"table": "lg_events_raw",
+"name": "carrier_position",
+"type": "UInt16"
+},
+{
+"table": "lg_events_raw",
+"name": "bid_value",
+"type": "Float64"
+},
+{
+"table": "lg_events_raw",
+"name": "bid_currency",
+"type": "LowCardinality(String)"
+},
+{
+"table": "lg_events_raw",
+"name": "bid_source",
+"type": "LowCardinality(String)"
+},
+{
+"table": "lg_events_raw",
+"name": "carrier_filtered_reason",
+"type": "LowCardinality(String)"
+},
+{
+"table": "lg_events_raw",
+"name": "provider_error_reason",
+"type": "LowCardinality(String)"
+},
+{
+"table": "lg_events_raw",
+"name": "auction_unfilled_reason",
+"type": "LowCardinality(String)"
+},
+{
+"table": "lg_events_raw",
+"name": "click_id",
+"type": "String"
+},
+{
+"table": "lg_events_raw",
+"name": "conversion_id",
+"type": "String"
+},
+{
+"table": "lg_events_raw",
+"name": "revenue",
+"type": "Float64"
+},
+{
+"table": "lg_events_raw",
+"name": "booking_trigger",
+"type": "LowCardinality(String)"
+},
+{
+"table": "lg_events_raw",
+"name": "traffic_source",
+"type": "LowCardinality(String)"
+},
+{
+"table": "lg_events_raw",
+"name": "placement",
+"type": "String"
+},
+{
+"table": "lg_events_raw",
+"name": "utm_source",
+"type": "String"
+},
+{
+"table": "lg_events_raw",
+"name": "utm_medium",
+"type": "String"
+},
+{
+"table": "lg_events_raw",
+"name": "utm_content",
+"type": "String"
+},
+{
+"table": "lg_events_raw",
+"name": "device",
+"type": "LowCardinality(String)"
+},
+{
+"table": "lg_events_raw",
+"name": "os",
+"type": "LowCardinality(String)"
+},
+{
+"table": "lg_events_raw",
+"name": "country",
+"type": "LowCardinality(String)"
+},
+{
+"table": "lg_events_raw",
+"name": "state",
+"type": "LowCardinality(String)"
+},
+{
+"table": "lg_events_raw",
+"name": "is_bot",
+"type": "UInt8"
+},
+{
+"table": "lg_events_raw",
+"name": "is_internal",
+"type": "UInt8"
+},
+{
+"table": "lg_events_raw",
+"name": "is_preview",
+"type": "UInt8"
+},
+{
+"table": "lg_events_raw",
+"name": "traffic_quality_flag",
+"type": "LowCardinality(String)"
+},
+{
+"table": "lg_events_raw",
+"name": "value",
+"type": "Float64"
+},
+{
+"table": "lg_events_raw",
+"name": "ver",
+"type": "UInt64"
+},
+{
+"table": "lg_sessions",
+"name": "session_id",
+"type": "String"
+},
+{
+"table": "lg_sessions",
+"name": "dt",
+"type": "Date"
+},
+{
+"table": "lg_sessions",
+"name": "funnel_attempt_id",
+"type": "String"
+},
+{
+"table": "lg_sessions",
+"name": "site_id",
+"type": "String"
+},
+{
+"table": "lg_sessions",
+"name": "quote_id",
+"type": "String"
+},
+{
+"table": "lg_sessions",
+"name": "funnel_id",
+"type": "String"
+},
+{
+"table": "lg_sessions",
+"name": "funnel_variant_id",
+"type": "String"
+},
+{
+"table": "lg_sessions",
+"name": "landing_url",
+"type": "String"
+},
+{
+"table": "lg_sessions",
+"name": "traffic_source",
+"type": "LowCardinality(String)"
+},
+{
+"table": "lg_sessions",
+"name": "placement",
+"type": "String"
+},
+{
+"table": "lg_sessions",
+"name": "utm_source",
+"type": "String"
+},
+{
+"table": "lg_sessions",
+"name": "utm_medium",
+"type": "String"
+},
+{
+"table": "lg_sessions",
+"name": "utm_content",
+"type": "String"
+},
+{
+"table": "lg_sessions",
+"name": "cpc",
+"type": "Float64"
+},
+{
+"table": "lg_sessions",
+"name": "fbc",
+"type": "String"
+},
+{
+"table": "lg_sessions",
+"name": "fbclid",
+"type": "String"
+},
+{
+"table": "lg_sessions",
+"name": "device",
+"type": "LowCardinality(String)"
+},
+{
+"table": "lg_sessions",
+"name": "os",
+"type": "LowCardinality(String)"
+},
+{
+"table": "lg_sessions",
+"name": "country",
+"type": "LowCardinality(String)"
+},
+{
+"table": "lg_sessions",
+"name": "state",
+"type": "LowCardinality(String)"
+},
+{
+"table": "lg_sessions",
+"name": "city",
+"type": "String"
+},
+{
+"table": "lg_sessions",
+"name": "ip",
+"type": "String"
+},
+{
+"table": "lg_sessions",
+"name": "ua",
+"type": "String"
+},
+{
+"table": "lg_sessions",
+"name": "referer",
+"type": "String"
+},
+{
+"table": "lg_sessions",
+"name": "language",
+"type": "LowCardinality(String)"
+},
+{
+"table": "lg_sessions",
+"name": "ver",
+"type": "UInt64"
+},
+{
+"table": "lst_events_raw",
+"name": "event_id",
+"type": "String"
+},
+{
+"table": "lst_events_raw",
+"name": "session_id",
+"type": "String"
+},
+{
+"table": "lst_events_raw",
+"name": "event_type",
+"type": "LowCardinality(String)"
+},
+{
+"table": "lst_events_raw",
+"name": "dt",
+"type": "Date"
+},
+{
+"table": "lst_events_raw",
+"name": "ts",
+"type": "DateTime"
+},
+{
+"table": "lst_events_raw",
+"name": "site_id",
+"type": "String"
+},
+{
+"table": "lst_events_raw",
+"name": "article_id",
+"type": "String"
+},
+{
+"table": "lst_events_raw",
+"name": "lander_v",
+"type": "String"
+},
+{
+"table": "lst_events_raw",
+"name": "article_version_id",
+"type": "String"
+},
+{
+"table": "lst_events_raw",
+"name": "article_version_revision",
+"type": "UInt32"
+},
+{
+"table": "lst_events_raw",
+"name": "article_experiment_id",
+"type": "String"
+},
+{
+"table": "lst_events_raw",
+"name": "article_variant_id",
+"type": "String"
+},
+{
+"table": "lst_events_raw",
+"name": "article_split",
+"type": "UInt8"
+},
+{
+"table": "lst_events_raw",
+"name": "page_index",
+"type": "UInt16"
+},
+{
+"table": "lst_events_raw",
+"name": "page_selection_mode",
+"type": "LowCardinality(String)"
+},
+{
+"table": "lst_events_raw",
+"name": "section_id",
+"type": "String"
+},
+{
+"table": "lst_events_raw",
+"name": "page_candidate_id",
+"type": "String"
+},
+{
+"table": "lst_events_raw",
+"name": "ab_test_id",
+"type": "String"
+},
+{
+"table": "lst_events_raw",
+"name": "ab_split",
+"type": "UInt8"
+},
+{
+"table": "lst_events_raw",
+"name": "page_rule_set_id",
+"type": "String"
+},
+{
+"table": "lst_events_raw",
+"name": "page_rule_id",
+"type": "String"
+},
+{
+"table": "lst_events_raw",
+"name": "selection_reason",
+"type": "LowCardinality(String)"
+},
+{
+"table": "lst_events_raw",
+"name": "matched_rule_json_hash",
+"type": "String"
+},
+{
+"table": "lst_events_raw",
+"name": "link_instance_id",
+"type": "String"
+},
+{
+"table": "lst_events_raw",
+"name": "section_block_id",
+"type": "String"
+},
+{
+"table": "lst_events_raw",
+"name": "link_role",
+"type": "LowCardinality(String)"
+},
+{
+"table": "lst_events_raw",
+"name": "link_position_index",
+"type": "UInt16"
+},
+{
+"table": "lst_events_raw",
+"name": "button_style_id",
+"type": "String"
+},
+{
+"table": "lst_events_raw",
+"name": "button_group_id",
+"type": "String"
+},
+{
+"table": "lst_events_raw",
+"name": "anchor_text_hash",
+"type": "String"
+},
+{
+"table": "lst_events_raw",
+"name": "analytics_label",
+"type": "String"
+},
+{
+"table": "lst_events_raw",
+"name": "page_view_id",
+"type": "String"
+},
+{
+"table": "lst_events_raw",
+"name": "is_bot",
+"type": "UInt8"
+},
+{
+"table": "lst_events_raw",
+"name": "is_internal",
+"type": "UInt8"
+},
+{
+"table": "lst_events_raw",
+"name": "is_preview",
+"type": "UInt8"
+},
+{
+"table": "lst_events_raw",
+"name": "traffic_quality_flag",
+"type": "LowCardinality(String)"
+},
+{
+"table": "lst_events_raw",
+"name": "offer_id",
+"type": "String"
+},
+{
+"table": "lst_events_raw",
+"name": "click_id",
+"type": "String"
+},
+{
+"table": "lst_events_raw",
+"name": "traffic_source",
+"type": "LowCardinality(String)"
+},
+{
+"table": "lst_events_raw",
+"name": "placement",
+"type": "String"
+},
+{
+"table": "lst_events_raw",
+"name": "utm_source",
+"type": "String"
+},
+{
+"table": "lst_events_raw",
+"name": "utm_medium",
+"type": "String"
+},
+{
+"table": "lst_events_raw",
+"name": "utm_content",
+"type": "String"
+},
+{
+"table": "lst_events_raw",
+"name": "device",
+"type": "LowCardinality(String)"
+},
+{
+"table": "lst_events_raw",
+"name": "os",
+"type": "LowCardinality(String)"
+},
+{
+"table": "lst_events_raw",
+"name": "country",
+"type": "LowCardinality(String)"
+},
+{
+"table": "lst_events_raw",
+"name": "state",
+"type": "LowCardinality(String)"
+},
+{
+"table": "lst_events_raw",
+"name": "value",
+"type": "Float64"
+},
+{
+"table": "lst_events_raw",
+"name": "ver",
+"type": "UInt64"
+},
+{
+"table": "lst_sessions",
+"name": "session_id",
+"type": "String"
+},
+{
+"table": "lst_sessions",
+"name": "dt",
+"type": "Date"
+},
+{
+"table": "lst_sessions",
+"name": "site_id",
+"type": "String"
+},
+{
+"table": "lst_sessions",
+"name": "article_id",
+"type": "String"
+},
+{
+"table": "lst_sessions",
+"name": "lander_v",
+"type": "String"
+},
+{
+"table": "lst_sessions",
+"name": "landing_url",
+"type": "String"
+},
+{
+"table": "lst_sessions",
+"name": "traffic_source",
+"type": "LowCardinality(String)"
+},
+{
+"table": "lst_sessions",
+"name": "placement",
+"type": "String"
+},
+{
+"table": "lst_sessions",
+"name": "utm_source",
+"type": "String"
+},
+{
+"table": "lst_sessions",
+"name": "utm_medium",
+"type": "String"
+},
+{
+"table": "lst_sessions",
+"name": "utm_content",
+"type": "String"
+},
+{
+"table": "lst_sessions",
+"name": "cpc",
+"type": "Float64"
+},
+{
+"table": "lst_sessions",
+"name": "fbc",
+"type": "String"
+},
+{
+"table": "lst_sessions",
+"name": "fbclid",
+"type": "String"
+},
+{
+"table": "lst_sessions",
+"name": "sub1",
+"type": "String"
+},
+{
+"table": "lst_sessions",
+"name": "sub2",
+"type": "String"
+},
+{
+"table": "lst_sessions",
+"name": "sub3",
+"type": "String"
+},
+{
+"table": "lst_sessions",
+"name": "sub4",
+"type": "String"
+},
+{
+"table": "lst_sessions",
+"name": "sub5",
+"type": "String"
+},
+{
+"table": "lst_sessions",
+"name": "device",
+"type": "LowCardinality(String)"
+},
+{
+"table": "lst_sessions",
+"name": "os",
+"type": "LowCardinality(String)"
+},
+{
+"table": "lst_sessions",
+"name": "os_version",
+"type": "String"
+},
+{
+"table": "lst_sessions",
+"name": "browser",
+"type": "LowCardinality(String)"
+},
+{
+"table": "lst_sessions",
+"name": "browser_version",
+"type": "String"
+},
+{
+"table": "lst_sessions",
+"name": "country",
+"type": "LowCardinality(String)"
+},
+{
+"table": "lst_sessions",
+"name": "state",
+"type": "LowCardinality(String)"
+},
+{
+"table": "lst_sessions",
+"name": "city",
+"type": "String"
+},
+{
+"table": "lst_sessions",
+"name": "ip",
+"type": "String"
+},
+{
+"table": "lst_sessions",
+"name": "ua",
+"type": "String"
+},
+{
+"table": "lst_sessions",
+"name": "referer",
+"type": "String"
+},
+{
+"table": "lst_sessions",
+"name": "url",
+"type": "String"
+},
+{
+"table": "lst_sessions",
+"name": "language",
+"type": "LowCardinality(String)"
+},
+{
+"table": "lst_sessions",
+"name": "ver",
+"type": "UInt64"
+}
+]

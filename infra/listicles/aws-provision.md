@@ -148,3 +148,25 @@ projection is a pure cost optimization, not a correctness requirement.
 `homepage-events`, its S3 prefixes, `homepage.events`, the `/api/track`
 route, `analytics/{events,firehose,router,tracking-script}.ts` — all
 byte-identical to pre-Phase-7.
+
+## 7. Correction and completion — 2026-09-27
+
+Measured before this date: the `listicle-events` stream existed, but the
+Worker's IAM user (`kodigital-dashboard-athena`) had no permission to write to
+it, so S3 `listicles/` had **never received an object**; and the Athena tables
+used a `yyyy/MM/dd` projection that matches no Firehose prefix (the stream
+writes `listicles/events/dt=YYYY-MM-DD/hr=HH/`). Fixed, owner-approved:
+
+- inline policy `listicle-events-firehose-put` (put on this stream only);
+- `athena-ddl.sql` corrected to the live layout (dt `yyyy-MM-dd` + `hr`,
+  mirroring `homepage.events`) and the three tables recreated from it (they
+  were external and empty — nothing lost); the four views recreated;
+- the Athena → ClickHouse step §4 assumed now exists as the Worker's S3 →
+  ClickHouse loader (`api/src/analytics/event-loader.ts`, see
+  `infra/leadgen/aws-provision.md`), which fills `lst_events_raw` /
+  `lst_sessions`.
+
+Proof: a real visit to `thecontentandcareer.com/senior-savings?utm_source=qa_probe`
+→ `listicles/events/dt=2026-09-27/hr=10/listicle-events-1-2026-09-27-10-50-05-…`
+→ Athena `listicles.events_only` returned its `page_view` → loaded into
+`lst_events_raw` → `lst_article_daily` showed the article view.

@@ -73,6 +73,10 @@ export interface Env {
   // Same AWS creds as the homepage stream; optional so the listicle pipeline
   // no-ops exactly like the homepage one until the stream is provisioned.
   LISTICLE_EVENTS_FIREHOSE_STREAM?: string;
+  // S3 bucket the LeadGen + Listicles Firehose streams deliver to — read back
+  // by the every-minute S3 -> ClickHouse loader (analytics/event-loader.ts).
+  // Non-sensitive ([vars]); absent => the loader is a no-op.
+  ANALYTICS_EVENTS_BUCKET?: string;
 
   // Listicles ClickHouse aggregation (§17/§18). The CH Cloud HTTP interface
   // the mirror-sync reads to populate the five D1 analytics mirrors. All three

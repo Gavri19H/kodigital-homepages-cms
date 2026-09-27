@@ -41,6 +41,7 @@ LISTICLE_EVENTS_FIREHOSE_STREAM = "listicle-events"
 # are wrangler SECRETS, never here). Same reuse posture as the Listicles stream;
 # the worker no-ops until the stream exists in AWS.
 LEADGEN_EVENTS_FIREHOSE_STREAM = "leadgen-events"
+ANALYTICS_EVENTS_BUCKET = "homepage-events-589426401114"
 # Section 18.7: exact, non-secret allowlist for database-selected outbound
 # credential bindings. The two current production rows are disabled legacy
 # S2S names; new offer/provider references must use OFFER_TOKEN_* in code.
@@ -143,6 +144,7 @@ AWS_REGION = "us-east-1"
 EVENTS_FIREHOSE_STREAM = "homepage-events"
 LISTICLE_EVENTS_FIREHOSE_STREAM = "listicle-events"
 LEADGEN_EVENTS_FIREHOSE_STREAM = "leadgen-events"
+ANALYTICS_EVENTS_BUCKET = "homepage-events-589426401114"
 LEADGEN_ALLOWED_OUTBOUND_SECRET_REFS = "LEADGEN_S2S_TOKEN_FACEBOOK,LISTICLE_S2S_TOKEN_FACEBOOK"
 # Staging stays disabled ON PURPOSE: [env.staging] declares `services = []`, so
 # there is no CONVERSIONS_CORE service binding here — enabling the proxy would
@@ -195,6 +197,7 @@ AWS_REGION = "us-east-1"
 EVENTS_FIREHOSE_STREAM = "homepage-events"
 LISTICLE_EVENTS_FIREHOSE_STREAM = "listicle-events"
 LEADGEN_EVENTS_FIREHOSE_STREAM = "leadgen-events"
+ANALYTICS_EVENTS_BUCKET = "homepage-events-589426401114"
 LEADGEN_ALLOWED_OUTBOUND_SECRET_REFS = "LEADGEN_S2S_TOKEN_FACEBOOK,LISTICLE_S2S_TOKEN_FACEBOOK"
 # MATCHES LIVE PRODUCTION. A CI deploy OVERWRITES the Dashboard, so these must
 # mirror what is actually running or the deploy silently turns the Conversions

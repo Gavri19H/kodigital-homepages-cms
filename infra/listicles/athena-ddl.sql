@@ -12,10 +12,12 @@
 -- with the OPTIONAL dynamic-partitioning variant — see aws-provision.md §1 —
 -- point each LOCATION at its physical prefix and drop the predicate.)
 --
--- Partition projection mirrors the standard Firehose key layout
--- (YYYY/MM/DD/HH). If homepage.events does not use projection, the
--- TBLPROPERTIES projection block can be removed — the tables then scan the
--- whole prefix (correctness unchanged).
+-- Partition projection mirrors the LIVE `listicle-events` stream (corrected
+-- 2026-09-27): it writes listicles/events/dt=YYYY-MM-DD/hr=HH/, exactly like
+-- homepage-events, and this now matches the working homepage.events table
+-- (dt yyyy-MM-dd + two-digit hr). The earlier yyyy/MM/dd projection described
+-- Firehose's DEFAULT prefix, which the stream does not use, so the tables
+-- matched no object at all.
 
 -- ---------------------------------------------------------------------------
 -- listicles.events — one row per tracking event (§16 columns 1:1)
@@ -100,18 +102,22 @@ CREATE EXTERNAL TABLE IF NOT EXISTS listicles.events (
   is_preview                boolean,
   traffic_quality_flag      string
 )
-PARTITIONED BY (dt string)
+PARTITIONED BY (dt string, hr string)
 ROW FORMAT SERDE 'org.openx.data.jsonserde.JsonSerDe'
 WITH SERDEPROPERTIES ('ignore.malformed.json' = 'true')
 LOCATION 's3://__BUCKET__/listicles/events/'
 TBLPROPERTIES (
+  'classification' = 'json',
   'projection.enabled' = 'true',
   'projection.dt.type' = 'date',
-  'projection.dt.format' = 'yyyy/MM/dd',
-  'projection.dt.range' = '2026/07/01,NOW',
+  'projection.dt.format' = 'yyyy-MM-dd',
+  'projection.dt.range' = '2026-07-01,NOW',
   'projection.dt.interval' = '1',
   'projection.dt.interval.unit' = 'DAYS',
-  'storage.location.template' = 's3://__BUCKET__/listicles/events/${dt}'
+  'projection.hr.type' = 'integer',
+  'projection.hr.range' = '0,23',
+  'projection.hr.digits' = '2',
+  'storage.location.template' = 's3://__BUCKET__/listicles/events/dt=${dt}/hr=${hr}'
 );
 
 -- ---------------------------------------------------------------------------
@@ -156,18 +162,22 @@ CREATE EXTERNAL TABLE IF NOT EXISTS listicles.sessions (
   is_preview                boolean,
   traffic_quality_flag      string
 )
-PARTITIONED BY (dt string)
+PARTITIONED BY (dt string, hr string)
 ROW FORMAT SERDE 'org.openx.data.jsonserde.JsonSerDe'
 WITH SERDEPROPERTIES ('ignore.malformed.json' = 'true')
 LOCATION 's3://__BUCKET__/listicles/events/'
 TBLPROPERTIES (
+  'classification' = 'json',
   'projection.enabled' = 'true',
   'projection.dt.type' = 'date',
-  'projection.dt.format' = 'yyyy/MM/dd',
-  'projection.dt.range' = '2026/07/01,NOW',
+  'projection.dt.format' = 'yyyy-MM-dd',
+  'projection.dt.range' = '2026-07-01,NOW',
   'projection.dt.interval' = '1',
   'projection.dt.interval.unit' = 'DAYS',
-  'storage.location.template' = 's3://__BUCKET__/listicles/events/${dt}'
+  'projection.hr.type' = 'integer',
+  'projection.hr.range' = '0,23',
+  'projection.hr.digits' = '2',
+  'storage.location.template' = 's3://__BUCKET__/listicles/events/dt=${dt}/hr=${hr}'
 );
 
 -- ---------------------------------------------------------------------------
@@ -181,18 +191,22 @@ CREATE EXTERNAL TABLE IF NOT EXISTS listicles.dead_letter_records (
   payload_json string,
   received_at  bigint
 )
-PARTITIONED BY (dt string)
+PARTITIONED BY (dt string, hr string)
 ROW FORMAT SERDE 'org.openx.data.jsonserde.JsonSerDe'
 WITH SERDEPROPERTIES ('ignore.malformed.json' = 'true')
 LOCATION 's3://__BUCKET__/listicles/events/'
 TBLPROPERTIES (
+  'classification' = 'json',
   'projection.enabled' = 'true',
   'projection.dt.type' = 'date',
-  'projection.dt.format' = 'yyyy/MM/dd',
-  'projection.dt.range' = '2026/07/01,NOW',
+  'projection.dt.format' = 'yyyy-MM-dd',
+  'projection.dt.range' = '2026-07-01,NOW',
   'projection.dt.interval' = '1',
   'projection.dt.interval.unit' = 'DAYS',
-  'storage.location.template' = 's3://__BUCKET__/listicles/events/${dt}'
+  'projection.hr.type' = 'integer',
+  'projection.hr.range' = '0,23',
+  'projection.hr.digits' = '2',
+  'storage.location.template' = 's3://__BUCKET__/listicles/events/dt=${dt}/hr=${hr}'
 );
 
 -- ---------------------------------------------------------------------------
