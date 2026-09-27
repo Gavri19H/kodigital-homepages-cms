@@ -39,17 +39,39 @@ object `leadgen/events/dt=2026-09-27/hr=10/leadgen-events-1-2026-09-27-10-33-20-
 (3 records) → Athena `leadgen.events_only` returned its `quote_view` +
 `section_view`, `leadgen.sessions_only` its session.
 
-## Not provisioned here (still open)
+## ClickHouse (provisioned 2026-09-27, same approval)
 
-- **Athena → ClickHouse ingest** (`lg_events_raw` / `lg_sessions`,
-  `clickhouse-apply.md` "ops-owned"). It does not exist in this repo or in the
-  dashboard repo. Until it does, the `lg_*_daily` MVs and the nine D1 mirrors
-  stay empty.
-- **Worker ClickHouse secrets** `CH_URL` / `CH_USER` / `CH_PASSWORD` are not set
-  in production, so the every-minute mirror sync is a structured no-op.
+- **Tables:** every object in `clickhouse-ddl.sql` applied to the shared
+  ClickHouse Cloud service (`default` database, alongside the dashboard's and
+  the listicles' tables): 13 tables + 10 refreshable views, all refreshing
+  without error. The DDL had never been applied and had one defect —
+  `lg_answer_distribution_daily_mv` read `continued_to_next_section`, which
+  `lg_events_raw` did not define, so the view failed to create; the column is
+  now in the DDL (both vendored copies) and was added live with
+  `ALTER TABLE … ADD COLUMN IF NOT EXISTS`.
+- **Login:** `kodigital_cms_runtime` (one login per role, like move-club's
+  `*_runtime` users). SELECT on `default.lg_*` + `default.lst_*`; INSERT on
+  exactly the six raw tables the Worker writes (`lg_events_raw`, `lg_sessions`,
+  `lg_revenue_raw`, `lst_events_raw`, `lst_sessions`, `lst_revenue_raw`).
+  Verified refused (code 497) on the dashboard's `auction_events`, on
+  move-club, and on writing a daily table. Its URL/user/password live only in
+  `~/.config/kodigital-cms/ch-worker.env` (0600) and, once installed, in the
+  Worker secrets `CH_URL` / `CH_USER` / `CH_PASSWORD`.
+- **Loader:** `api/src/analytics/event-loader.ts` on the every-minute cron —
+  the "external Athena→CH ingest" this doc used to list as missing. It reads
+  the S3 files directly (the Worker's AWS user has read-only
+  `cms-event-loader-s3-read` on `leadgen/events/*` + `listicles/events/*`
+  only) and records each loaded file in D1 `analytics_event_files` (0059).
+- **Proof:** the loader run from a workstation with the Worker's own AWS
+  identity and the new login loaded the two real files (LeadGen 2 events +
+  1 session, listicles 1 + 1); two minutes later `lg_quote_daily` showed the
+  quote's visit, `lg_section_daily` its section view with 0 user answers, and
+  `lst_article_daily` the article view.
 
 ## Undo
 
 `aws firehose delete-delivery-stream --delivery-stream-name leadgen-events`,
 `aws iam delete-user-policy --user-name kodigital-dashboard-athena --policy-name leadgen-events-firehose-put`,
-`DROP DATABASE leadgen CASCADE` (Athena; external tables — S3 objects stay).
+`DROP DATABASE leadgen CASCADE` (Athena; external tables — S3 objects stay),
+`aws iam delete-user-policy --user-name kodigital-dashboard-athena --policy-name cms-event-loader-s3-read`,
+`DROP USER kodigital_cms_runtime` (ClickHouse).

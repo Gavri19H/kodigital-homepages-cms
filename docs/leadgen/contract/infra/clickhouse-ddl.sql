@@ -15,6 +15,7 @@ CREATE TABLE IF NOT EXISTS lg_events_raw (
   section_order_hash String DEFAULT '', section_id String DEFAULT '', section_index UInt16 DEFAULT 0,
   question_key String DEFAULT '', answer_value_normalized String DEFAULT '',
   answer_source LowCardinality(String) DEFAULT 'user_selected', continue_mode LowCardinality(String) DEFAULT '',
+  continued_to_next_section UInt8 DEFAULT 0, -- read by lg_answer_distribution_daily_mv (was missing: the MV failed to create)
   section_mapping_version UInt32 DEFAULT 0, answer_mapping_version String DEFAULT '',
   auction_config_id String DEFAULT '', auction_config_version String DEFAULT '', auction_type LowCardinality(String) DEFAULT '', winner_logic LowCardinality(String) DEFAULT '',
   auction_instance_id String DEFAULT '', auction_request_id String DEFAULT '', provider_request_id String DEFAULT '',

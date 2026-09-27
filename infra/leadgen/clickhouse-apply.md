@@ -56,6 +56,13 @@ upserts into the matching `leadgen_analytics_*` D1 mirror (batch ≤ 80 rows;
 A wider manual backfill is available at
 `POST /api/admin/leadgen/analytics/rebuild-range { from, to }` (admin-gated).
 
+## Status 2026-09-27
+
+The DDL is applied, the ingest exists (the Worker's S3 → ClickHouse loader,
+`api/src/analytics/event-loader.ts`) and the Worker login is
+`kodigital_cms_runtime` — see `aws-provision.md`. The section below is the
+original plan, kept for history.
+
 ## OQ-3 — the ingest is ops-owned (mirror rows BLOCKED-on-external until it runs)
 
 Until ops (a) applies this DDL and (b) runs the Athena→CH ingest that populates
