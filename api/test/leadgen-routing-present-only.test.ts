@@ -926,5 +926,7 @@ describeDb("review round 2 — Present only and Redirect never share a rule", ()
   it("the rail says plainly when a rule was deleted elsewhere, and a later successful save clears the rail error", () => {
     expect(QUOTE_RULES_SCRIPT).toContain("That rule no longer exists");
     expect(QUOTE_RULES_SCRIPT).toContain("showRailErr(''); closeModal(); refetch();");
+    // …and the modal's own save on a rule deleted elsewhere says the same, not a bare "Not Found"
+    expect(QUOTE_RULES_SCRIPT).toContain("if (res.status === 404 && editingPublicId) { showErr(RULE_GONE_TEXT); refetch(); return; }");
   });
 });
