@@ -2096,7 +2096,7 @@ function qrPresentOnlyWarning(rule: QuoteRulesRailRule, data: QuoteRulesRailData
   const funnel = funnelId === null ? undefined : data.funnels.find((f) => f.id === funnelId);
   if (funnel === undefined || funnel.live_offer_ids === undefined) return null;
   if (funnel.live_offer_ids.includes(offerId)) return null;
-  return `“${offer.name}” is not a live offer in the ${funnel.name} funnel's auction. Matching visitors will see no offers until it is added and enabled there.`;
+  return `“${offer.name}” is not a live offer in the auction of funnel “${funnel.name}”. Matching visitors will see no offers until it is added and enabled there.`;
 }
 
 // An answer-conditioned rule is evaluated only at a mid-funnel checkpoint, and
@@ -2233,7 +2233,7 @@ function renderQuoteRuleActions(data: QuoteRulesRailData): string {
     `<div class="lg-qr-amain"><div class="lg-qr-aname">Traffic tag</div><div class="lg-qr-adesc">Tag matching sessions for analytics and downstream offer routing.</div>` +
     `<input class="form-input" type="text" maxlength="64" list="${feedListId}" data-qr-feed-name aria-label="Traffic tag" />` +
     `<datalist id="${feedListId}">${feedOpts}</datalist>` +
-    `<div class="lg-qr-help" data-qr-feed-rule>Letters, digits, _ and - · up to 64 characters. Spaces and other characters are saved as -.</div>` +
+    `<div class="lg-qr-help" data-qr-feed-rule>Letters, digits, underscore (_) and hyphen (-), up to 64 characters. Spaces and other characters are saved as a hyphen.</div>` +
     `<div class="lg-qr-help lg-qr-slug" data-qr-feed-preview hidden></div>` +
     `<div class="lg-qr-help" data-qr-feed-help>${feedHelp}</div></div></div>` +
     // fb multiplier
@@ -2651,7 +2651,7 @@ export const QUOTE_RULES_SCRIPT = `(function () {
     var funnel = funnelId == null ? null : funnelById(funnelId);
     if (!funnel || !isArr(funnel.live_offer_ids)) { return null; }
     var i; for (i = 0; i < funnel.live_offer_ids.length; i++) { if (funnel.live_offer_ids[i] === offerId) { return null; } }
-    return '\\u201c' + offer.name + '\\u201d is not a live offer in the ' + funnel.name + ' funnel\\'s auction. Matching visitors will see no offers until it is added and enabled there.';
+    return '\\u201c' + offer.name + '\\u201d is not a live offer in the auction of funnel \\u201c' + funnel.name + '\\u201d. Matching visitors will see no offers until it is added and enabled there.';
   }
   var NEEDS_FUNNEL_TEXT = 'Rules on answers only take effect when they also pick a Target funnel. As saved, this rule never applies.';
   function needsFunnelWarning(rule, cp) { return cp.plane !== 'entry' && cp.unreachable !== true && rule.target_funnel_id == null; }

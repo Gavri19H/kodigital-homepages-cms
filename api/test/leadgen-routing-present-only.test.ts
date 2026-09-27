@@ -644,7 +644,7 @@ describe("B + C — the rules rail and modal copy", () => {
     expect(html).toContain(">Tag Fundera-Tier-1<");
     expect(html).toContain("No traffic tags used yet.");
     // the allowed characters are stated BEFORE save
-    expect(html).toContain("Letters, digits, _ and - · up to 64 characters. Spaces and other characters are saved as -.");
+    expect(html).toContain("Letters, digits, underscore (_) and hyphen (-), up to 64 characters. Spaces and other characters are saved as a hyphen.");
   });
 
   it("offers Present only this offer beside Redirect, with the same offers (inactive ones shown but not selectable)", () => {
@@ -665,7 +665,7 @@ describe("B + C — the rules rail and modal copy", () => {
     expect(live).not.toContain("data-qr-present-only-warn");
     const notLive = renderQuoteRulesRail(data([rule({ force_offer_id: 8 })], [7]));
     expect(notLive).toContain("data-qr-present-only-warn");
-    expect(notLive).toContain("“Fundera - Tier 1” is not a live offer in the Business Loans Match funnel&#39;s auction.");
+    expect(notLive).toContain("“Fundera - Tier 1” is not a live offer in the auction of funnel “Business Loans Match”.");
     const archived = renderQuoteRulesRail(data([rule({ force_offer_id: 9 })], [7, 8]));
     expect(archived).toContain("“Old Offer” is archived. Matching visitors will see no offers.");
   });
