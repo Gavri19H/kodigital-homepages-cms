@@ -930,3 +930,52 @@ describeDb("review round 2 — Present only and Redirect never share a rule", ()
     expect(QUOTE_RULES_SCRIPT).toContain("if (res.status === 404 && editingPublicId) { showErr(RULE_GONE_TEXT); refetch(); return; }");
   });
 });
+
+// ===========================================================================
+// Final review — the section studio's list helper (fetchItems), run from the
+// REAL SECTION_STUDIO_SCRIPT source against a stubbed fetch.
+// ===========================================================================
+
+describe("final review — section studio fetchItems reads every page, fails to [] and calls back once", () => {
+  async function runFetchItems(pages: Record<string, unknown>, failUrl?: string): Promise<{ calls: unknown[][]; urls: string[] }> {
+    const { SECTION_STUDIO_SCRIPT } = await import("../src/admin/leadgen/ui-section-studio");
+    const start = SECTION_STUDIO_SCRIPT.indexOf("  function fetchItems(url, cb) {");
+    const end = SECTION_STUDIO_SCRIPT.indexOf("\n  }\n", start) + 4;
+    expect(start).toBeGreaterThan(0);
+    const src = SECTION_STUDIO_SCRIPT.slice(start, end);
+    const urls: string[] = [];
+    const calls: unknown[][] = [];
+    const fetchStub = (u: string): Promise<unknown> => {
+      urls.push(u);
+      if (u === failUrl) return Promise.reject(new Error("network"));
+      return Promise.resolve({ json: () => Promise.resolve(pages[u] ?? { items: [] }) });
+    };
+    const sandbox: Record<string, unknown> = { fetch: fetchStub, calls };
+    runInNewContext(`${src}\nthis.run = function (url) { fetchItems(url, function (items) { calls.push(items); }); };`, sandbox);
+    (sandbox["run"] as (u: string) => void)(Object.keys(pages)[0]!);
+    await new Promise((r) => setTimeout(r, 20));
+    return { calls, urls };
+  }
+  const paged = {
+    "/api/admin/leadgen/quotes": { items: [1, 2], paging: { has_next: true, page_size: 2 } },
+    "/api/admin/leadgen/quotes?page_size=2&page=2": { items: [3, 4], paging: { has_next: true, page_size: 2 } },
+    "/api/admin/leadgen/quotes?page_size=2&page=3": { items: [5], paging: { has_next: false, page_size: 2 } },
+  };
+
+  it("follows every page and calls back once with all rows", async () => {
+    const { calls, urls } = await runFetchItems(paged);
+    expect(calls).toEqual([[1, 2, 3, 4, 5]]);
+    expect(urls).toEqual(Object.keys(paged));
+  });
+
+  it("an unpaged list is one request", async () => {
+    const { calls, urls } = await runFetchItems({ "/api/admin/leadgen/activities": { items: ["a", "b"] } });
+    expect(calls).toEqual([["a", "b"]]);
+    expect(urls).toHaveLength(1);
+  });
+
+  it("a failed later page answers [] (never a silently partial list), once", async () => {
+    const { calls } = await runFetchItems(paged, "/api/admin/leadgen/quotes?page_size=2&page=3");
+    expect(calls).toEqual([[]]);
+  });
+});
