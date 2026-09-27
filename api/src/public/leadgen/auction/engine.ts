@@ -707,6 +707,15 @@ export interface RunAuctionInput {
   };
   // Already-clicked offers/carriers for this funnel_attempt (remove-clicked).
   clicked: readonly ClickedRef[];
+  // 0061 "Present only this offer" (partner QA): the numeric offer id a matched
+  // quote routing rule narrowed this attempt to (serve-auction.ts reads it off
+  // the attempt's routing outcome). Set ⇒ the auction's ONLY participant is
+  // that offer; every other participating offer is excluded with reason
+  // `present_only_rule`. The offer not being a live participant of THIS
+  // auction ⇒ nothing is shown (fail closed, unfilled_reason
+  // `present_only_offer_unavailable`) — never the other offers. Absent/null ⇒
+  // the normal auction.
+  present_only_offer_id?: number | null;
   // Injectables for deterministic tests.
   mintId?: () => string;
   now?: number;
@@ -1254,8 +1263,15 @@ export async function runAuction(
   const offersConsidered: LeadgenAuctionConsideredOffer[] = [];
   const offersExcluded: LeadgenAuctionExcludedOffer[] = [];
   const regionCapSurvivors: AuctionBundleOffer[] = [];
+  const presentOnly = input.present_only_offer_id ?? null;
+  const presentOnlyUnavailable = presentOnly !== null && !input.bundle.offers.some((b) => b.offer.id === presentOnly);
   for (const b of input.bundle.offers) {
     offersConsidered.push({ offer_id: b.offer.public_id, placement_id: b.placement_public_id ?? "" });
+    // 0061: a "Present only this offer" routing rule narrowed this attempt.
+    if (presentOnly !== null && b.offer.id !== presentOnly) {
+      offersExcluded.push({ offer_id: b.offer.public_id, reason: "present_only_rule" });
+      continue;
+    }
     // Region rules (Offer-scoped geo block).
     const region = evaluateRegionRules(b.region_rules, geo);
     if (!region.participate) {
@@ -1761,6 +1777,10 @@ export async function runAuction(
     // carrier_filtered_reason is on the same result). Without this a CPL Offer
     // whose provider declined the lead reported "all_carriers_shown" on a
     // fresh session — the 2026-08-27 lie, one layer later.
+    // 0061: the routing rule's offer is not a live participant of this
+    // auction (removed, disabled, archived) — the root cause, so it out-ranks
+    // every downstream reason.
+    if (presentOnlyUnavailable) unfilledReason = "present_only_offer_unavailable";
     if (unfilledReason === null) {
       const anyParseErrors = parseErrorsByOffer.size > 0;
       const anyCarriers = [...parsedByOffer.values()].some((list) => list.length > 0);
@@ -1773,7 +1793,7 @@ export async function runAuction(
             ? "all_carriers_shown"
             : "no_carriers_returned";
     }
-    status = winner.winner === null && surfaced.length === 0 ? "no_bid" : "unfilled";
+    status = !presentOnlyUnavailable && winner.winner === null && surfaced.length === 0 ? "no_bid" : "unfilled";
   }
 
   // 10 §10.2: auction_carrier_filtered — one per post-parse filtered carrier

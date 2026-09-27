@@ -4884,7 +4884,9 @@ export const QUOTE_EDITOR_SCRIPT = `
     host.appendChild(buildBreakdownCard('Site', 'site_id', b.by_site));
     host.appendChild(buildBreakdownCard('Traffic source', 'traffic_source', b.by_traffic_source));
     host.appendChild(buildBreakdownCard('Routed funnel', 'routed_to_funnel', b.by_routed_funnel));
-    host.appendChild(buildBreakdownCard('Feed name', 'feed_name', b.by_feed_name));
+    // The routing rule's Traffic tag (stored as feed_name) — the rule modal's
+    // own name for it (OWNER 2026-09-27: "Feed name" appeared nowhere else).
+    host.appendChild(buildBreakdownCard('Traffic tag', 'feed_name', b.by_feed_name));
   }
   function loadAnalytics() {
     if (analyticsLoaded) { return; }

@@ -101,6 +101,7 @@ const LEADGEN_MIGRATIONS = [
   "0053_leadgen_rework_m12_othergroup_retirement.sql",
   "0057_leadgen_offer_test_verdict.sql",
   "0060_leadgen_offer_static_creative.sql", // static-Offer banner creative
+  "0061_leadgen_routing_present_only_offer.sql", // Present only this offer (force_offer_id)
 ] as const;
 
 function createLeadgenDb(DatabaseSync: DatabaseSyncCtor): SqliteDb {

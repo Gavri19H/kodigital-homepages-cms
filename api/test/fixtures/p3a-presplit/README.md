@@ -282,3 +282,14 @@ restored and `editor-full.html` got the two real lines applied surgically
 instead (`SLOT_RULE_FIELDS` + `SLOT_RULE_FIELD_LABELS`). `git diff` on this
 directory is therefore exactly 2 insertions / 2 deletions, both containing
 `utm_campaign`. Zero unexplained, zero id churn committed.
+
+2026-09-27 re-capture (routing rule modal — Traffic tag + Present only this offer):
+`editor-full.html` and `editor-panel-builder.html` changed; `editor-panel-ab`,
+`editor-panel-activation`, `quotes-list-empty` and `quotes-list-seeded` changed
+ONLY in minted ids (0 lines after normalizing ids / the analytics window /
+dates), so those four were restored, not committed. Every normalized changed
+line in the two editor fixtures is the rules
+rail: "Feed name" → "Traffic tag" (label, description, chips, help), the
+"Present only this offer" action row, its warnings, the slug preview, the
+modal's field-error text (`errorText` replacing `firstError`), the rail
+description, and the Analytics tab's "Traffic tag" breakdown card title.

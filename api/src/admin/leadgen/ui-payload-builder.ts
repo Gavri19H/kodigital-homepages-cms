@@ -157,7 +157,7 @@ const ADVANCED_MACRO_GROUPS: ReadonlyArray<{ group: string; macros: ReadonlyArra
   // neither a request/device signal, a traffic/URL param, a session/page
   // identity, nor an Offer field; it is the routing rule that matched this
   // attempt). "" when no rule matched (never fabricated).
-  { group: "Advanced macro · Routing", macros: ["feed_name"] },
+  { group: "Advanced macro · Routing (Traffic tag)", macros: ["feed_name"] },
 ];
 
 // The 9 §6.2 UI groups. Members OMITTED because no storage-faithful route

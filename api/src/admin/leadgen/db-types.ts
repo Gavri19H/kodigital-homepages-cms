@@ -712,6 +712,9 @@ export interface LeadgenQuoteRoutingRuleRow {
   target_offer_id: number | null;
   redirect_url: string | null;
   redirect_url_allowlisted: number;
+  // 0061 — "Present only this offer": the auction for a matched attempt runs
+  // with this offer as its only participant (NULL = no effect).
+  force_offer_id: number | null;
   created_at: number;
 }
 

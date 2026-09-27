@@ -260,7 +260,7 @@ describe("P3b quote-rules rail — SSR structure", () => {
     const html = renderQuoteRulesRail(railData([RULE_ENTRY]));
     expect(html).toContain(">Routing rules<");
     expect(html).toContain(
-      "Rules decide which funnel a visitor sees, and can tag the lead, set the FB multiplier, or redirect. Lowest priority number wins when more than one matches.",
+      "Rules decide which funnel a visitor sees, and can tag the traffic, set the FB multiplier, redirect, or present only one offer. Lowest priority number wins when more than one matches.",
     );
     expect(html).toContain("Name · Checkpoint · Conditions · Actions · Status");
     expect(html).toContain('data-pin="8.2-new-rule-btn"');
@@ -288,7 +288,7 @@ describe("P3b quote-rules rail — SSR structure", () => {
     expect(html).toContain('data-pin="8.2-rule-disabled"');
   });
 
-  it("renders all five toggleable action rows and the A-11 error verbatim", () => {
+  it("renders all six toggleable action rows and the A-11 error verbatim", () => {
     const html = renderQuoteRulesRail(railData([RULE_ENTRY]));
     for (const pin of [
       "action-target-funnel",
@@ -296,12 +296,13 @@ describe("P3b quote-rules rail — SSR structure", () => {
       "action-fb-multiplier",
       "action-redirect-pct",
       "action-redirect-target",
+      "action-present-only", // 0061 — Present only this offer
     ]) {
       expect(html, pin).toContain(`data-pin="${pin}"`);
     }
-    // one toggle per action row (5) inside the modal actions block.
+    // one toggle per action row (6) inside the modal actions block.
     const actionsBlock = html.slice(html.indexOf('data-pin="4.3-9-actions"'));
-    expect((actionsBlock.match(/data-qr-action-toggle/g) ?? []).length).toBe(5);
+    expect((actionsBlock.match(/data-qr-action-toggle/g) ?? []).length).toBe(6);
     expect(html).toContain("Pick at least one action for this rule.");
     expect(html).toContain('data-pin="A-11-validation"');
     expect(html).toContain('data-pin="8.2-rule-modal"');
@@ -316,7 +317,7 @@ describe("P3b quote-rules rail — SSR structure", () => {
     const html = renderQuoteRulesRail(railData([RULE_ENTRY, RULE_INFUNNEL]));
     expect(html).toContain("Device is desktop"); // entry-field label mapping
     expect(html).toContain("→ Auto Insurance"); // action chip
-    expect(html).toContain("Feed long_pii");
+    expect(html).toContain("Tag long_pii"); // the Traffic tag chip (was "Feed …")
     expect(html).toContain("×1"); // multiplier
     expect(html).toContain("Redirect 100% → Kissterra"); // redirect target by name
     expect(html).toContain("Coverage type is Liability"); // answer-field label mapping
@@ -652,6 +653,7 @@ const LEADGEN_MIGRATIONS = [
   "0051_leadgen_rework_m7_slider_collapse.sql",
   "0052_leadgen_rework_m9_address_fields.sql",
   "0053_leadgen_rework_m12_othergroup_retirement.sql",
+  "0061_leadgen_routing_present_only_offer.sql", // Present only this offer (force_offer_id)
 ] as const;
 
 function createLeadgenDb(DatabaseSync: DatabaseSyncCtor): SqliteDb {
@@ -930,7 +932,7 @@ describeDb("P3b quote-rules rail — SSR through the REAL editor route, non-empt
     // not just names) — device/utm_source labels + the feed/multiplier chips.
     expect(html).toContain("Device is desktop");
     expect(html).toContain("UTM Source is google");
-    expect(html).toContain("Feed short");
+    expect(html).toContain("Tag short"); // the Traffic tag chip (was "Feed …")
     expect(html).toContain("×1.5");
   });
 });

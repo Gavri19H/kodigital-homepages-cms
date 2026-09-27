@@ -158,6 +158,7 @@ const LEADGEN_MIGRATIONS = [
   "0052_leadgen_rework_m9_address_fields.sql",
   "0053_leadgen_rework_m12_othergroup_retirement.sql",
   "0057_leadgen_offer_test_verdict.sql",
+  "0061_leadgen_routing_present_only_offer.sql", // Present only this offer (force_offer_id)
 ] as const;
 
 const TENANT_HOST = "one.example.com";

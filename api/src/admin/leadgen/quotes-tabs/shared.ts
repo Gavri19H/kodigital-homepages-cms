@@ -350,6 +350,8 @@ export interface OfferListItem {
   id: number;
   public_id: string;
   offer_name: string;
+  // leadgen_offers.status — rides the list's row spread (active|paused|archived).
+  status?: string;
 }
 
 
