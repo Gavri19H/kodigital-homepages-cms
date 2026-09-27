@@ -525,6 +525,26 @@ describeDb("sendClickoutMetaConversion — FORGERY (review F1): nothing on the c
     expect(f.calls).toHaveLength(0);
   });
 
+  it("REVIEW N1: a forged click cannot overwrite the operator's 'last clickout' line", async () => {
+    const h = newHarness();
+    const { offerPublicId } = ready(h);
+    stubFetch();
+    await sendClickoutMetaConversion(h.env, h.env.DB, offerRow(h.sdb, offerPublicId), click(), { now: 1790500000123 });
+    const genuine = lastOutcome(h.sdb, offerPublicId);
+    expect(genuine.status).toBe("fired");
+    const offer = offerRow(h.sdb, offerPublicId);
+    for (const forged of [
+      click({ auction_instance_id: "forged" }),
+      click({ funnel_attempt_id: "rvforge-9" }),
+    ]) {
+      expect((await sendClickoutMetaConversion(h.env, h.env.DB, offer, forged, { now: 1790500999000 })).status).toBe("skipped");
+    }
+    const other = seedOffer(h.sdb);
+    seedAuction(h.sdb, { aiid: "aiid-x", faid: "att_x", shown: [other.offerPublicId] });
+    await sendClickoutMetaConversion(h.env, h.env.DB, offer, click({ auction_instance_id: "aiid-x", funnel_attempt_id: "att_x" }));
+    expect(lastOutcome(h.sdb, offerPublicId)).toEqual(genuine);
+  });
+
   it("the auction's visitor did not come from Meta ⇒ nothing (the click request cannot add an fbclid)", async () => {
     const h = newHarness();
     const { offerPublicId } = ready(h, {}, { snapshot: { session_id: "s-organic", utm_source: "google" } });

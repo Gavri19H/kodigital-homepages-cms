@@ -378,6 +378,13 @@ export function describeClickoutMetaOutcome(outcome: ClickoutMetaOutcome): strin
   }
 }
 
+const UNRECORDED_SKIPS: ReadonlySet<ClickoutMetaSkipReason> = new Set<ClickoutMetaSkipReason>([
+  "offer_setting_off",
+  "no_auction",
+  "attempt_mismatch",
+  "offer_not_shown",
+]);
+
 async function recordOutcome(db: D1Database, offerPublicId: string, outcome: ClickoutMetaOutcome, now: number): Promise<void> {
   try {
     await db
@@ -409,8 +416,11 @@ export async function sendClickoutMetaConversion(
   const now = opts?.now ?? Date.now();
   const outcome = await send(env, db, offer, click, now, opts?.fetchImpl ?? fetch);
   logOutcome(offer.public_id, click.click_id, outcome);
-  // "Off" is every ordinary Offer's every click — nothing worth recording.
-  if (!(outcome.status === "skipped" && outcome.reason === "offer_setting_off")) {
+  // Recorded only for clicks that are really this Offer's: "off" is every
+  // ordinary Offer's every click, and a click no auction of ours backs is
+  // anyone's hand-made URL — letting those write would let a stranger
+  // overwrite the operator's "last clickout" line (and buy a D1 write per GET).
+  if (!(outcome.status === "skipped" && UNRECORDED_SKIPS.has(outcome.reason))) {
     await recordOutcome(db, offer.public_id, outcome, now);
   }
   return outcome;
