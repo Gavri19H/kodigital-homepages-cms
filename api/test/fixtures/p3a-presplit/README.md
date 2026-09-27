@@ -305,3 +305,6 @@ the API answers with 25 rows. Id-only churn restored as before.
 the rules island refuses Present only + Redirect on one rule, clears the rail
 error on a successful save, and names a rule deleted elsewhere. 7 normalized
 lines, all in QUOTE_RULES_SCRIPT; id-only churn restored.
+
+2026-09-27 re-capture #4: `editor-full.html` only — 4 normalized lines in
+QUOTE_RULES_SCRIPT (RULE_GONE_TEXT shared by the rail and the modal save).
