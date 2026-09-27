@@ -842,10 +842,25 @@
     }
   }
 
+  // Every page of the list: the API caps page_size at 100 and answers a larger
+  // ask with 25 rows, so the old ?page_size=200 showed only the 25 most
+  // recently edited sections.
+  function fetchAllItems(base) {
+    var sep = base.indexOf('?') >= 0 ? '&' : '?';
+    var all = [];
+    function page(n) {
+      return fetch(base + sep + 'page_size=100&page=' + n, {
+        credentials: 'same-origin', headers: { 'Accept': 'application/json' }
+      }).then(function (r) { return r.json(); }).then(function (body) {
+        all = all.concat((body && body.items) || []);
+        if (body && body.paging && body.paging.has_next === true && n < 50) { return page(n + 1); }
+        return { items: all };
+      });
+    }
+    return page(1);
+  }
   function loadSections() {
-    fetch('/api/admin/leadgen/sections?status=active&page_size=200', {
-      credentials: 'same-origin', headers: { 'Accept': 'application/json' }
-    }).then(function (r) { return r.json(); }).then(function (body) {
+    fetchAllItems('/api/admin/leadgen/sections?status=active').then(function (body) {
       allSections = (body && body.items) || [];
       renderFilters();
       renderCards();

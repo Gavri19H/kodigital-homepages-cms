@@ -207,11 +207,20 @@ async function serveLeadgenAttemptV2(c: PublicContext): Promise<Response> {
         hash: match.hash,
         multiplier: match.value_multiplier,
         feed_name: match.feed_name,
+        force_offer_id: match.force_offer_id,
         plane: "entry",
       });
     }
-  } catch {
-    /* best-effort — never blocks the mint */
+  } catch (err) {
+    // Best-effort — never blocks the mint. Logged: a lost outcome silently
+    // drops this attempt's traffic tag, FB multiplier and "Present only".
+    console.log(
+      JSON.stringify({
+        event: "leadgen_routing_outcome_write_failed",
+        plane: "entry",
+        error: err instanceof Error ? err.message : String(err),
+      }),
+    );
   }
 
   const headers = leadgenNoStoreHeaders();
@@ -328,7 +337,8 @@ function checkpointJson(obj: unknown, status: number): Response {
 // (value_multiplier) read THIS. LeadGen Rework / F-D shape: routed_from_variant
 // NULLable (NULL on the entry plane), routed_to_variant NULLable (the assigned
 // variant, filled at funnel entry §4.3-10), routed_to_funnel NOT NULL (funnel
-// public id), feed_name NULLable (M10/D3 stamp).
+// public id), feed_name NULLable (M10/D3 stamp), force_offer_id NULLable (0061
+// "Present only this offer" — /lg/auction narrows its participants to it).
 async function recordRoutingOutcome(
   db: D1Database,
   row: {
@@ -340,6 +350,7 @@ async function recordRoutingOutcome(
     hash: string;
     multiplier: number | null;
     feed_name: string | null;
+    force_offer_id: number | null;
     plane: "entry" | "checkpoint";
   },
 ): Promise<void> {
@@ -347,8 +358,8 @@ async function recordRoutingOutcome(
     .prepare(
       `INSERT OR REPLACE INTO leadgen_routing_outcomes
          (funnel_attempt_id, session_id, routed_from_variant, routed_to_variant,
-          routed_to_funnel, matched_rule_hash, value_multiplier, feed_name, plane, created_at)
-       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, unixepoch())`,
+          routed_to_funnel, matched_rule_hash, value_multiplier, feed_name, force_offer_id, plane, created_at)
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, unixepoch())`,
     )
     .bind(
       row.funnel_attempt_id,
@@ -359,6 +370,7 @@ async function recordRoutingOutcome(
       row.hash,
       row.multiplier,
       row.feed_name,
+      row.force_offer_id,
       row.plane,
     )
     .run();
@@ -515,6 +527,7 @@ async function serveLeadgenCheckpoint(c: PublicContext): Promise<Response> {
       hash: match.hash,
       multiplier: match.value_multiplier,
       feed_name: match.feed_name,
+      force_offer_id: match.force_offer_id,
       plane: "checkpoint",
     });
   } catch {

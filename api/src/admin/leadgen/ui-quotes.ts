@@ -23,6 +23,7 @@ import {
 import { resolveTimeframe, renderTimeframeSelect, type Timeframe } from "../listicles/ui-shared";
 import {
   apiJson,
+  apiJsonAll,
   branding,
   EMPTY_PAGING,
   leadgenPageShell,
@@ -881,13 +882,13 @@ export async function leadgenQuoteEditorPage(c: UiContext): Promise<Response> {
   // {ok:false} on any non-200), so the early 404 returns below cannot leave an
   // orphaned rejection behind.
   const auctionsP = timed("auctions", () =>
-    apiJson<ListBody<AuctionListItem>>(c.env, `/api/admin/leadgen/auctions?page_size=200`),
+    apiJsonAll<AuctionListItem>(c.env, `/api/admin/leadgen/auctions`),
   );
   const templatesP = timed("templates", () =>
     apiJson<{ items: FrameTemplateItem[] }>(c.env, "/api/admin/leadgen/frame-templates"),
   );
   const offersP = timed("offers", () =>
-    apiJson<ListBody<OfferListItem>>(c.env, "/api/admin/leadgen/offers?page_size=200"),
+    apiJsonAll<OfferListItem>(c.env, "/api/admin/leadgen/offers"),
   );
   // P3b follow-up (§8.2 RIGHT rail) — the quote's routing rules, for
   // QuoteRulesRailData (S3b.2's renderQuoteRulesRail input, assembled below).
@@ -938,7 +939,7 @@ export async function leadgenQuoteEditorPage(c: UiContext): Promise<Response> {
     // saved variant still renders as ordered single-section pages that round-
     // trip byte-identically). See buildPageNodes.
     timed("variantPages", () => loadVariantPages(c.env.DB, selected.id)),
-    timed("sections", () => apiJson<ListBody<AvailableSection>>(c.env, `/api/admin/leadgen/sections?activity=${encodeURIComponent(activity)}&status=active&page_size=200`)),
+    timed("sections", () => apiJsonAll<AvailableSection>(c.env, `/api/admin/leadgen/sections?activity=${encodeURIComponent(activity)}&status=active`)),
     timed("activation", () => apiJson<ActivationBody>(c.env, `/api/admin/leadgen/quotes/${encodedQuote}/activation?preflight=stored&variant=${encodeURIComponent(selected.public_id)}`)),
     timed("frame", () => apiJson<FrameGetBody>(c.env, `/api/admin/leadgen/funnels/${encodedFunnel}/frame`)),
     timed("theme", () => apiJson<ThemeGetBody>(c.env, `/api/admin/leadgen/funnels/${encodedFunnel}/theme`)),
@@ -991,6 +992,7 @@ export async function leadgenQuoteEditorPage(c: UiContext): Promise<Response> {
   for (const s of structure.shared_page?.sections ?? []) {
     for (const f of sectionFieldsMap.get(s.section_public_id) ?? []) sharedFieldSet.add(f);
   }
+  const liveOffers = await readLiveOffersByFunnel(c.env.DB, structure.quote.id);
   const railFunnels: QuoteRulesRailFunnel[] = structure.funnels
     .slice()
     .sort((a, b) => (a.display_order ?? a.id) - (b.display_order ?? b.id))
@@ -1000,6 +1002,9 @@ export async function leadgenQuoteEditorPage(c: UiContext): Promise<Response> {
       name: f.funnel_name,
       is_default: structure.quote.default_funnel_id !== null && structure.quote.default_funnel_id !== undefined && f.id === structure.quote.default_funnel_id,
       pages: funnelPageFieldSets(f.active_variant_pages, sectionFieldsMap),
+      ...(liveOffers !== null
+        ? { live_offer_ids: liveOffers.get(f.id)?.live ?? [], partly_live_offer_ids: liveOffers.get(f.id)?.partly ?? [] }
+        : {}),
     }));
   const railData: QuoteRulesRailData = {
     quote_public_id: structure.quote.public_id,
@@ -1017,12 +1022,17 @@ export async function leadgenQuoteEditorPage(c: UiContext): Promise<Response> {
       target_offer_id: r.target_offer_id,
       redirect_url: r.redirect_url,
       redirect_url_allowlisted: r.redirect_url_allowlisted,
+      force_offer_id: r.force_offer_id ?? null,
     })),
     funnels: railFunnels,
     default_funnel_id: structure.quote.default_funnel_id ?? null,
     shared_page_fields: Array.from(sharedFieldSet),
     answer_fields: fields,
-    offers: (offersRes.ok ? offersRes.body.items : []).map((o) => ({ id: o.id, name: o.offer_name })),
+    offers: (offersRes.ok ? offersRes.body.items : []).map((o) => ({
+      id: o.id,
+      name: o.offer_name,
+      ...(typeof o.status === "string" ? { status: o.status } : {}),
+    })),
     feed_values: Array.from(new Set(quoteRoutingRules.map((r) => r.feed_name).filter((v): v is string => typeof v === "string" && v !== ""))).sort(),
   };
 
@@ -1071,6 +1081,81 @@ interface QuoteRulesRailRuleWire {
   target_offer_id: number | null;
   redirect_url: string | null;
   redirect_url_allowlisted: boolean;
+  force_offer_id?: number | null;
+}
+
+// 0061 — per funnel of this quote, which offers are LIVE participants of its
+// auction for the visitors that funnel actually serves: an active variant →
+// its active auction → enabled participating rows of active offers (the same
+// filters loadAuctionBundle + serve-auction apply). The SERVED versions follow
+// resolver.ts assignVariantForFunnel: with a RUNNING A/B test, its arms (the
+// active variants with a traffic share); with none, only the control (first
+// active variant by label, then id) — the other active versions get nobody.
+// `live` = live for every served version, `partly` = for some only (a served
+// version with no live auction counts as "not live" for its visitors). Feeds
+// the rules rail's "Present only this offer" warning. null on a read error,
+// which turns the warning off rather than raising a false alarm.
+interface FunnelLiveOffers {
+  live: number[];
+  partly: number[];
+}
+async function readLiveOffersByFunnel(db: D1Database, quoteId: number): Promise<Map<number, FunnelLiveOffers> | null> {
+  try {
+    const variants = await db
+      .prepare(
+        `SELECT f.id AS funnel_id, v.id AS variant_id, v.variant_label AS variant_label,
+                v.traffic_allocation_bp AS traffic_allocation_bp,
+                EXISTS (SELECT 1 FROM leadgen_funnel_ab_tests t WHERE t.funnel_id = f.id AND t.status = 'running') AS ab_running
+           FROM leadgen_funnels f
+           JOIN leadgen_funnel_variants v ON v.funnel_id = f.id AND v.status = 'active'
+          WHERE f.quote_id = ?
+          ORDER BY f.id, v.variant_label ASC, v.id ASC`,
+      )
+      .bind(quoteId)
+      .all<{ funnel_id: number; variant_id: number; variant_label: string; traffic_allocation_bp: number | null; ab_running: number }>();
+    const pairs = await db
+      .prepare(
+        `SELECT DISTINCT v.id AS variant_id, ao.offer_id AS offer_id
+           FROM leadgen_funnels f
+           JOIN leadgen_funnel_variants v ON v.funnel_id = f.id AND v.status = 'active'
+           JOIN leadgen_auctions a ON a.id = v.auction_id AND a.status = 'active'
+           JOIN leadgen_auction_offers ao ON ao.auction_id = a.id AND ao.enabled = 1
+           JOIN leadgen_offers o ON o.id = ao.offer_id AND o.status = 'active'
+          WHERE f.quote_id = ?`,
+      )
+      .bind(quoteId)
+      .all<{ variant_id: number; offer_id: number }>();
+    const offersByVariant = new Map<number, Set<number>>();
+    for (const p of pairs.results ?? []) {
+      const set = offersByVariant.get(p.variant_id) ?? new Set<number>();
+      set.add(p.offer_id);
+      offersByVariant.set(p.variant_id, set);
+    }
+    const servedByFunnel = new Map<number, number[]>();
+    for (const v of variants.results ?? []) {
+      const served = servedByFunnel.get(v.funnel_id);
+      if (v.ab_running === 1) {
+        // a running test's arms: every active variant with a traffic share
+        if ((v.traffic_allocation_bp ?? 0) > 0) servedByFunnel.set(v.funnel_id, [...(served ?? []), v.variant_id]);
+        else if (served === undefined) servedByFunnel.set(v.funnel_id, []);
+      } else if (served === undefined) {
+        // no running test: the control only (rows arrive label ASC, id ASC)
+        servedByFunnel.set(v.funnel_id, [v.variant_id]);
+      }
+    }
+    const out = new Map<number, FunnelLiveOffers>();
+    for (const [funnelId, variantIds] of servedByFunnel) {
+      const counts = new Map<number, number>();
+      for (const vid of variantIds) for (const oid of offersByVariant.get(vid) ?? []) counts.set(oid, (counts.get(oid) ?? 0) + 1);
+      const live: number[] = [];
+      const partly: number[] = [];
+      for (const [oid, n] of counts) (n === variantIds.length ? live : partly).push(oid);
+      out.set(funnelId, { live, partly });
+    }
+    return out;
+  } catch {
+    return null;
+  }
 }
 
 // R2 P1 §① — a QuestionGrid node has no internal_field of its own; each of

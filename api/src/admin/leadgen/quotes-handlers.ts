@@ -74,7 +74,7 @@ import { sha256Hex } from "../../public/leadgen/auction/parse";
 // never diverge from the runtime's own partition). We build the field universes
 // from the SAME component expander the runtime uses; the derivation itself is
 // never re-implemented here.
-import { deriveRuleCheckpoint, type RuleCheckpointFunnel } from "../../leadgen/rule-checkpoint";
+import { deriveRuleCheckpoint, isEntryPlane, type RuleCheckpointFunnel } from "../../leadgen/rule-checkpoint";
 import {
   rebuildDerivedIndexes,
   sectionValidationStatus,
@@ -699,6 +699,11 @@ function quoteRoutingRuleRowToApi(row: LeadgenQuoteRoutingRuleRow): Record<strin
 
 // Appendix A-11 (verbatim, asserted in CI): a rule with no action is rejected.
 const ROUTING_RULE_MIN_ACTION_MESSAGE = "Pick at least one action for this rule.";
+const PRESENT_ONLY_WITH_REDIRECT_MESSAGE =
+  "Present only this offer keeps visitors in the funnel, so it can't share a rule with a Redirect. Turn Redirect % and Redirect target off, or use a separate rule.";
+const ROUTING_ACTION_KEYS = [
+  "target_funnel_id", "feed_name", "value_multiplier", "redirect_pct", "target_offer_id", "redirect_url", "force_offer_id",
+] as const;
 
 async function resolveQuoteRoutingRuleRow(
   db: D1Database,
@@ -792,7 +797,14 @@ interface RoutingRuleFields {
   targetOfferId: number | null;
   redirectUrl: string | null;
   redirectUrlAllowlisted: number;
+  forceOfferId: number | null;
 }
+
+// The Traffic tag (feed_name) charset — the column's own CHECK (0048) — and
+// the one message the rule modal shows for it (OWNER 2026-09-27: the modal
+// said only "Validation failed" when a tag had a space in it).
+const TRAFFIC_TAG_RE = /^[A-Za-z0-9_-]+$/;
+const TRAFFIC_TAG_MESSAGE = "Traffic tag must be 1–64 characters: letters, digits, underscore (_) or hyphen (-).";
 
 // Validate + resolve a quote routing rule's columns (§4.3-3..9, M3). `existing`
 // null ⇒ create (defaults applied); set ⇒ PATCH (merge — an absent body key
@@ -816,8 +828,8 @@ async function buildRoutingRuleFields(
   let ruleName = existing?.rule_name ?? "";
   if (existing === null || body["rule_name"] !== undefined) {
     const v = trimmedString(body["rule_name"]);
-    if (v === null) errors["rule_name"] = "rule_name is required";
-    else if (v.length > 80) errors["rule_name"] = "rule_name must be at most 80 characters";
+    if (v === null) errors["rule_name"] = "Rule name is required.";
+    else if (v.length > 80) errors["rule_name"] = "Rule name must be at most 80 characters.";
     else ruleName = v;
   }
 
@@ -826,7 +838,7 @@ async function buildRoutingRuleFields(
   if (body["priority"] !== undefined) {
     const p = body["priority"];
     if (typeof p !== "number" || !Number.isInteger(p) || p < 1 || p > 100) {
-      errors["priority"] = "priority must be an integer between 1 and 100";
+      errors["priority"] = "Priority must be a whole number from 1 to 100.";
     } else priority = p;
   }
 
@@ -869,7 +881,7 @@ async function buildRoutingRuleFields(
     if (raw === null || raw === "") targetFunnelId = null;
     else {
       const f = await resolveFunnelRow(db, String(raw));
-      if (f === null || f.quote_id !== quote.id) errors["target_funnel_id"] = "target funnel does not belong to this quote";
+      if (f === null || f.quote_id !== quote.id) errors["target_funnel_id"] = "The target funnel is not a funnel of this quote.";
       else targetFunnelId = f.id;
     }
   }
@@ -880,8 +892,8 @@ async function buildRoutingRuleFields(
     if (raw === null || raw === "") feedName = null;
     else {
       const v = trimmedString(raw);
-      if (v === null || v.length > 64 || !/^[A-Za-z0-9_-]+$/.test(v)) {
-        errors["feed_name"] = "feed_name must be 1–64 chars of letters, digits, underscore or hyphen";
+      if (v === null || v.length > 64 || !TRAFFIC_TAG_RE.test(v)) {
+        errors["feed_name"] = TRAFFIC_TAG_MESSAGE;
       } else feedName = v;
     }
   }
@@ -891,7 +903,7 @@ async function buildRoutingRuleFields(
     const raw = body["value_multiplier"];
     if (raw === null || raw === "") valueMultiplier = null;
     else if (typeof raw !== "number" || !Number.isFinite(raw) || raw <= 0) {
-      errors["value_multiplier"] = "value_multiplier must be a positive number";
+      errors["value_multiplier"] = "FB multiplier must be a number above 0.";
     } else valueMultiplier = raw;
   }
 
@@ -900,14 +912,14 @@ async function buildRoutingRuleFields(
     const raw = body["redirect_pct"];
     if (raw === null || raw === "") redirectPct = null;
     else if (typeof raw !== "number" || !Number.isFinite(raw) || raw < 0 || raw > 100) {
-      errors["redirect_pct"] = "redirect_pct must be a number between 0 and 100";
+      errors["redirect_pct"] = "Redirect % must be a number from 0 to 100.";
     } else redirectPct = raw;
   }
 
   let targetOfferId = existing?.target_offer_id ?? null;
   if (body["target_offer_id"] !== undefined) {
     const parsed = asIntOrNull(body["target_offer_id"]);
-    if (parsed === INVALID) errors["target_offer_id"] = "target_offer_id must be an integer id";
+    if (parsed === INVALID) errors["target_offer_id"] = "Pick the redirect offer from the list.";
     else if (parsed === null) targetOfferId = null;
     else {
       const ex = await db.prepare("SELECT id FROM leadgen_offers WHERE id = ? LIMIT 1").bind(parsed).first<{ id: number }>();
@@ -932,7 +944,7 @@ async function buildRoutingRuleFields(
         host = "";
       }
       if (host === "" || !allowlist.includes(host)) {
-        errors["redirect_url"] = "redirect_url host is not on the admin redirect allowlist";
+        errors["redirect_url"] = "That URL's host is not on the redirect allowlist.";
       } else {
         redirectUrl = v;
         redirectUrlAllowlisted = 1;
@@ -940,16 +952,69 @@ async function buildRoutingRuleFields(
     }
   }
 
+  // "Present only this offer" (0061, partner QA): the matched attempt's
+  // auction runs with this offer as its only participant. It must be a real,
+  // active offer at save time; the runtime fails CLOSED (no offers at all) if
+  // it later stops being live in the funnel's auction.
+  let forceOfferId = existing?.force_offer_id ?? null;
+  if (body["force_offer_id"] !== undefined) {
+    const parsed = asIntOrNull(body["force_offer_id"]);
+    if (parsed === INVALID) errors["force_offer_id"] = "Pick the offer to present from the list.";
+    else if (parsed === null) forceOfferId = null;
+    else {
+      const ex = await db
+        .prepare("SELECT id, status FROM leadgen_offers WHERE id = ? LIMIT 1")
+        .bind(parsed)
+        .first<{ id: number; status: string }>();
+      if (!ex) errors["force_offer_id"] = describeMissingReference("Offer");
+      else if (ex.status !== "active") errors["force_offer_id"] = `That offer is ${ex.status} — pick an active offer to present.`;
+      else forceOfferId = parsed;
+    }
+  }
+
   // --- redirect coherence + ≥1-action gate ----------------------------------
   if (targetOfferId !== null && redirectUrl !== null) {
-    errors["redirect_url"] = "provide a redirect Offer OR a raw URL, not both";
+    errors["redirect_url"] = "Pick a redirect offer OR a URL, not both.";
   }
   const hasRedirectTarget = targetOfferId !== null || redirectUrl !== null;
   if (hasRedirectTarget !== (redirectPct !== null)) {
-    errors["redirect_pct"] = "a redirect needs both a target (offer/URL) and a percentage";
+    errors["redirect_pct"] = "A redirect needs both a Redirect % and a Redirect target (offer or URL).";
   }
-  const anyAction = targetFunnelId !== null || feedName !== null || valueMultiplier !== null || hasRedirectTarget || redirectPct !== null;
-  if (!anyAction) errors["actions"] = ROUTING_RULE_MIN_ACTION_MESSAGE;
+  // An answer-conditioned rule runs only at a mid-funnel checkpoint, and a
+  // checkpoint rule only takes effect when it switches funnel (resolver.ts
+  // evaluateQuoteCheckpointRouting). "Present only" on such a rule without a
+  // Target funnel would save and then never happen — refuse it here instead.
+  // Only when this save touches one of the three inputs: a status-only PATCH
+  // (the rail's on/off switch) must still work on a rule a funnel deletion
+  // left without its Target funnel — the card's warning names that case.
+  const touchesPresentOnly =
+    existing === null ||
+    body["force_offer_id"] !== undefined ||
+    body["target_funnel_id"] !== undefined ||
+    body["conditions_json"] !== undefined ||
+    body["conditions"] !== undefined;
+  if (
+    touchesPresentOnly &&
+    forceOfferId !== null &&
+    targetFunnelId === null &&
+    !isEntryPlane(routingConditionFields(safeParseJson(conditionsJson)))
+  ) {
+    errors["force_offer_id"] =
+      "Present only this offer needs entry conditions (UTM, device, state, OS, hour, weekday). With answer conditions, also pick a Target funnel.";
+  }
+  // Present only keeps the visitor IN the funnel; a redirect on the same rule
+  // sends a share of the same visitors away (the entry redirect runs first), so
+  // the QA link would land on the other target. One rule does one or the other.
+  if (forceOfferId !== null && (hasRedirectTarget || redirectPct !== null)) {
+    errors["force_offer_id"] = PRESENT_ONLY_WITH_REDIRECT_MESSAGE;
+  }
+  const anyAction =
+    targetFunnelId !== null || feedName !== null || valueMultiplier !== null || hasRedirectTarget || redirectPct !== null || forceOfferId !== null;
+  // An action that was supplied but refused already carries its own reason;
+  // "pick at least one action" on top of it would be wrong (the operator DID
+  // pick one — e.g. a Traffic tag with a space in it).
+  const actionRefused = ROUTING_ACTION_KEYS.some((k) => errors[k] !== undefined);
+  if (!anyAction && !actionRefused) errors["actions"] = ROUTING_RULE_MIN_ACTION_MESSAGE;
 
   if (Object.keys(errors).length > 0) return { value: null, errors };
   // Advisory §4.3-3 checkpoint cache via the shared deriveRuleCheckpoint (the
@@ -977,9 +1042,18 @@ async function buildRoutingRuleFields(
       targetOfferId,
       redirectUrl,
       redirectUrlAllowlisted,
+      forceOfferId,
     },
     errors,
   };
+}
+
+function safeParseJson(raw: string): unknown {
+  try {
+    return JSON.parse(raw);
+  } catch {
+    return {};
+  }
 }
 
 // GET /quotes/:id/routing-rules — the quote's routing rules, priority-ascending.
@@ -1003,13 +1077,13 @@ export async function createQuoteRoutingRuleHandler(c: AdminContext): Promise<Re
     `INSERT INTO leadgen_quote_routing_rules
        (public_id, quote_id, rule_name, priority, status, match_mode, conditions_json, conditions_hash,
         checkpoint_page, target_funnel_id, feed_name, value_multiplier, redirect_pct, target_offer_id,
-        redirect_url, redirect_url_allowlisted)
-     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+        redirect_url, redirect_url_allowlisted, force_offer_id)
+     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
   )
     .bind(
       publicId, quote.id, value.ruleName, value.priority, value.status, value.matchMode, value.conditionsJson,
       value.conditionsHash, value.checkpointPage, value.targetFunnelId, value.feedName, value.valueMultiplier,
-      value.redirectPct, value.targetOfferId, value.redirectUrl, value.redirectUrlAllowlisted,
+      value.redirectPct, value.targetOfferId, value.redirectUrl, value.redirectUrlAllowlisted, value.forceOfferId,
     )
     .run();
   const row = await c.env.DB.prepare("SELECT * FROM leadgen_quote_routing_rules WHERE public_id = ? LIMIT 1")
@@ -1037,13 +1111,13 @@ export async function updateQuoteRoutingRuleHandler(c: AdminContext): Promise<Re
     `UPDATE leadgen_quote_routing_rules SET
        rule_name = ?, priority = ?, status = ?, match_mode = ?, conditions_json = ?, conditions_hash = ?,
        checkpoint_page = ?, target_funnel_id = ?, feed_name = ?, value_multiplier = ?, redirect_pct = ?,
-       target_offer_id = ?, redirect_url = ?, redirect_url_allowlisted = ?
+       target_offer_id = ?, redirect_url = ?, redirect_url_allowlisted = ?, force_offer_id = ?
      WHERE id = ?`,
   )
     .bind(
       value.ruleName, value.priority, value.status, value.matchMode, value.conditionsJson, value.conditionsHash,
       value.checkpointPage, value.targetFunnelId, value.feedName, value.valueMultiplier, value.redirectPct,
-      value.targetOfferId, value.redirectUrl, value.redirectUrlAllowlisted, existing.id,
+      value.targetOfferId, value.redirectUrl, value.redirectUrlAllowlisted, value.forceOfferId, existing.id,
     )
     .run();
   const row = await c.env.DB.prepare("SELECT * FROM leadgen_quote_routing_rules WHERE id = ? LIMIT 1")
@@ -1063,13 +1137,13 @@ export async function duplicateQuoteRoutingRuleHandler(c: AdminContext): Promise
     `INSERT INTO leadgen_quote_routing_rules
        (public_id, quote_id, rule_name, priority, status, match_mode, conditions_json, conditions_hash,
         checkpoint_page, target_funnel_id, feed_name, value_multiplier, redirect_pct, target_offer_id,
-        redirect_url, redirect_url_allowlisted)
-     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+        redirect_url, redirect_url_allowlisted, force_offer_id)
+     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
   )
     .bind(
       publicId, src.quote_id, name, src.priority, src.status, src.match_mode, src.conditions_json,
       src.conditions_hash, src.checkpoint_page, src.target_funnel_id, src.feed_name, src.value_multiplier,
-      src.redirect_pct, src.target_offer_id, src.redirect_url, src.redirect_url_allowlisted,
+      src.redirect_pct, src.target_offer_id, src.redirect_url, src.redirect_url_allowlisted, src.force_offer_id ?? null,
     )
     .run();
   const row = await c.env.DB.prepare("SELECT * FROM leadgen_quote_routing_rules WHERE public_id = ? LIMIT 1")
@@ -2014,7 +2088,8 @@ export async function duplicateQuoteHandler(c: AdminContext): Promise<Response> 
   // to the CLONE's funnel (impossible-sentinel '' → NULL when absent/undeivable,
   // the same idiom the variant-target remap uses). target_offer_id + redirect_url
   // are carried AS-IS (offers/URLs are shared entities, not cloned). feed_name +
-  // multiplier + redirect_pct + conditions + priority + status all preserved.
+  // multiplier + redirect_pct + force_offer_id + conditions + priority + status
+  // all preserved.
   const srcRoutingRules = await readQuoteRoutingRules(c.env.DB, src.id);
   for (const rr of srcRoutingRules) {
     const remappedFunnelPublicId =
@@ -2024,13 +2099,14 @@ export async function duplicateQuoteHandler(c: AdminContext): Promise<Response> 
         `INSERT INTO leadgen_quote_routing_rules
            (public_id, quote_id, rule_name, priority, status, match_mode, conditions_json, conditions_hash,
             checkpoint_page, target_funnel_id, feed_name, value_multiplier, redirect_pct, target_offer_id,
-            redirect_url, redirect_url_allowlisted)
+            redirect_url, redirect_url_allowlisted, force_offer_id)
          VALUES (?, (SELECT id FROM leadgen_quotes WHERE public_id = ?), ?, ?, ?, ?, ?, ?, ?,
-                 (SELECT id FROM leadgen_funnels WHERE public_id = ?), ?, ?, ?, ?, ?, ?)`,
+                 (SELECT id FROM leadgen_funnels WHERE public_id = ?), ?, ?, ?, ?, ?, ?, ?)`,
       ).bind(
         mintPublicId("quote_routing_rule"), newQuotePublicId, rr.rule_name, rr.priority, rr.status, rr.match_mode,
         rr.conditions_json, rr.conditions_hash, rr.checkpoint_page, remappedFunnelPublicId, rr.feed_name,
         rr.value_multiplier, rr.redirect_pct, rr.target_offer_id, rr.redirect_url, rr.redirect_url_allowlisted,
+        rr.force_offer_id ?? null,
       ),
     );
     counts.routing_rules += 1;

@@ -132,6 +132,27 @@ async function loadClickedOffers(db: D1Database, funnelAttemptId: string): Promi
   return (rows.results ?? []).map((r) => ({ offer_public_id: r.offer_public_id, carrier_key: r.carrier_key }));
 }
 
+// 0061 "Present only this offer": the offer a matched routing rule narrowed
+// this attempt's auction to (stamped on its routing outcome at /lg/attempt or
+// /lg/ck), else null. The attempt id is the POSTed one; runAuction applies the
+// narrowing only after its anti-tamper step has verified that id against the
+// signed token. A read error falls back to the normal auction (logged): the
+// feature is a QA narrowing, and an unreadable outcome row must never empty
+// the result page of ordinary traffic.
+async function loadPresentOnlyOfferId(db: D1Database, funnelAttemptId: string): Promise<number | null> {
+  if (funnelAttemptId === "") return null;
+  try {
+    const row = await db
+      .prepare("SELECT force_offer_id FROM leadgen_routing_outcomes WHERE funnel_attempt_id = ? LIMIT 1")
+      .bind(funnelAttemptId)
+      .first<{ force_offer_id: number | null }>();
+    return typeof row?.force_offer_id === "number" ? row.force_offer_id : null;
+  } catch (err) {
+    console.log(JSON.stringify({ event: "leadgen_present_only_read_failed", error: err instanceof Error ? err.message : String(err) }));
+    return null;
+  }
+}
+
 // Parse a section's content_json to the component list the Maps legs read
 // (dedicated try/catch — a corrupt blob yields no Maps fields, never throws;
 // the D1 JSON-parse safety rule).
@@ -283,6 +304,7 @@ export async function serveLeadgenAuction(c: PublicContext): Promise<Response> {
 
   const bundle = await loadAuctionBundle(c.env.DB, auction, resolved.variant.id);
   const clicked = await loadClickedOffers(c.env.DB, funnelAttemptId);
+  const presentOnlyOfferId = await loadPresentOnlyOfferId(c.env.DB, funnelAttemptId);
   const requestContext = buildRequestContext(c);
 
   // v3.1 §9 (S3-5 + S3-6): run the server-side Maps validate leg (drops invalid
@@ -309,6 +331,7 @@ export async function serveLeadgenAuction(c: PublicContext): Promise<Response> {
       // is the admin Test tool's alone — this public route reads none).
       runtime: { source: c.req.raw, page_view_id: pageViewId },
       clicked,
+      present_only_offer_id: presentOnlyOfferId,
     },
     { dryRun: false },
   );

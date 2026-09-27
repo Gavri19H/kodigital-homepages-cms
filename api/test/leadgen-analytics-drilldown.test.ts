@@ -524,7 +524,7 @@ function breakdownsIsland(html: string): { island: BreakdownsIsland; panel: Fake
 }
 
 describeDb("§8.7 UI leg — the breakdown cards island, executed over the REAL served quote-editor script", () => {
-  it("renders 4 cards (Site, Traffic source, Routed funnel, Feed name) in order, with rows sourced from the real dimension keys", async () => {
+  it("renders 4 cards (Site, Traffic source, Routed funnel, Traffic tag) in order, with rows sourced from the real dimension keys", async () => {
     const { env } = newHarness();
     const q = await createQuote(env);
     const html = await getHtml(env, `/admin/leadgen/quotes/${q.public_id}/edit`);
@@ -544,7 +544,7 @@ describeDb("§8.7 UI leg — the breakdown cards island, executed over the REAL 
     expect(host).not.toBeNull();
     expect(host!.children).toHaveLength(4);
     const titles = host!.children.map((card) => textOf(findAll(card, (e) => e.tagName === "H4")[0]!));
-    expect(titles).toEqual(["Site", "Traffic source", "Routed funnel", "Feed name"]);
+    expect(titles).toEqual(["Site", "Traffic source", "Routed funnel", "Traffic tag"]);
 
     // Routed funnel card: '' → em dash label, real value verbatim, real sums present.
     const routedCard = host!.children[2]!;

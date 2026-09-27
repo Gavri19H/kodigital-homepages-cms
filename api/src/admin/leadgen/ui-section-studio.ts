@@ -15618,11 +15618,27 @@ export const SECTION_STUDIO_SCRIPT = `
   if (eventsClearBtn) { eventsClearBtn.addEventListener('click', clearEventsList); }
 
   // --- §8.2 Activity/Vertical dropdowns (E1) ---------------------------------
+  // Every page of a paged list (the quotes list answers 25 rows a page, so the
+  // frame picker used to stop at the 25 most recently edited quotes); an
+  // unpaged list (no paging block) is one request as before. Any failed page
+  // answers [] as a failed single request always did (never a silently
+  // partial list), and cb runs exactly once.
   function fetchItems(url, cb) {
-    fetch(url, { credentials: 'same-origin', headers: { 'Accept': 'application/json' } })
-      .then(function (r) { return r.json(); })
-      .then(function (j) { cb((j && j.items) || []); })
-      .catch(function () { cb([]); });
+    var sep = url.indexOf('?') >= 0 ? '&' : '?';
+    var all = [];
+    var done = false;
+    function finish(items) { if (done) { return; } done = true; cb(items); }
+    function page(n, size) {
+      var u = n === 1 ? url : (url + sep + 'page_size=' + size + '&page=' + n);
+      return fetch(u, { credentials: 'same-origin', headers: { 'Accept': 'application/json' } })
+        .then(function (r) { return r.json(); })
+        .then(function (j) {
+          all = all.concat((j && j.items) || []);
+          if (j && j.paging && j.paging.has_next === true && n < 50) { return page(n + 1, j.paging.page_size || 25); }
+          finish(all);
+        });
+    }
+    page(1, 25).catch(function () { finish([]); });
   }
   // R5 D5 (register S4-A8/B8): the empty-state placeholder text is a
   // parameter, not a hardcoded generic glyph-dash — matches the SSR-side

@@ -282,3 +282,29 @@ restored and `editor-full.html` got the two real lines applied surgically
 instead (`SLOT_RULE_FIELDS` + `SLOT_RULE_FIELD_LABELS`). `git diff` on this
 directory is therefore exactly 2 insertions / 2 deletions, both containing
 `utm_campaign`. Zero unexplained, zero id churn committed.
+
+2026-09-27 re-capture (routing rule modal — Traffic tag + Present only this offer):
+`editor-full.html` and `editor-panel-builder.html` changed; `editor-panel-ab`,
+`editor-panel-activation`, `quotes-list-empty` and `quotes-list-seeded` changed
+ONLY in minted ids (0 lines after normalizing ids / the analytics window /
+dates), so those four were restored, not committed. Every normalized changed
+line in the two editor fixtures is the rules
+rail: "Feed name" → "Traffic tag" (label, description, chips, help), the
+"Present only this offer" action row, its warnings, the slug preview, the
+modal's field-error text (`errorText` replacing `firstError`), the rail
+description, and the Analytics tab's "Traffic tag" breakdown card title.
+
+2026-09-27 re-capture #2 (same change, adversarial-review round): the rail's
+card-action error line (`data-qr-rail-error`), the modal's own "never apply"
+wording, the A/B "only some versions" warning, the plainer help/warning copy,
+and — in `editor-panel-themes.html` — the section chooser now reading every
+page of the section list (`fetchAllItems`) instead of `?page_size=200`, which
+the API answers with 25 rows. Id-only churn restored as before.
+
+2026-09-27 re-capture #3 (confirmation-review round): `editor-full.html` only —
+the rules island refuses Present only + Redirect on one rule, clears the rail
+error on a successful save, and names a rule deleted elsewhere. 7 normalized
+lines, all in QUOTE_RULES_SCRIPT; id-only churn restored.
+
+2026-09-27 re-capture #4: `editor-full.html` only — 4 normalized lines in
+QUOTE_RULES_SCRIPT (RULE_GONE_TEXT shared by the rail and the modal save).

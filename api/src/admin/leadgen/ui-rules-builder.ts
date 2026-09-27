@@ -1811,8 +1811,9 @@ export const RULES_BUILDER_SCRIPT = `(function () {
 // 8.2-rules-rail / 8.2-rules-table / 8.2-rule-modal / 4.3-3-checkpoint /
 // 4.3-9-actions / A-6-inline / A-11-validation / 8.2-rule-sentence). This is
 // the QUOTE-SCOPED rules surface (leadgen_quote_routing_rules, M3) — a rule
-// carries an ENTIRE action set (§4.3-9): Target funnel · Feed name · FB
-// multiplier · Redirect % · Redirect target (offer / allowlisted URL). It is
+// carries an ENTIRE action set (§4.3-9): Target funnel · Traffic tag (stored
+// as feed_name) · FB multiplier · Redirect % · Redirect target (offer /
+// allowlisted URL) · Present only this offer (0061, force_offer_id). It is
 // NOT the four auction-domain leadgen_funnel_rules types — those relocate to
 // the Auction tab (ui-auctions.ts, §13-D5).
 //
@@ -1856,11 +1857,20 @@ export interface QuoteRulesRailFunnel {
   name: string;
   is_default: boolean;
   pages: { position: number; fields: string[] }[];
+  // 0061 — the offers that are live participants of this funnel's auction
+  // (an active variant → its active auction → enabled rows of active offers).
+  // Drives the "Present only this offer" warning; absent ⇒ no warning.
+  // live_offer_ids = live for EVERY active A/B version of the funnel;
+  // partly_live_offer_ids = live for some versions only.
+  live_offer_ids?: number[];
+  partly_live_offer_ids?: number[];
 }
 
 export interface QuoteRulesRailOffer {
   id: number;
   name: string;
+  // leadgen_offers.status (active | paused | archived); absent ⇒ treated active.
+  status?: string;
 }
 
 export interface QuoteRulesRailAnswerField {
@@ -1887,6 +1897,8 @@ export interface QuoteRulesRailRule {
   target_offer_id: number | null;
   redirect_url: string | null;
   redirect_url_allowlisted: boolean;
+  // 0061 "Present only this offer" (optional for pre-0061 payloads).
+  force_offer_id?: number | null;
 }
 
 export interface QuoteRulesRailData {
@@ -2069,11 +2081,48 @@ function qrOfferName(id: number | null, data: QuoteRulesRailData): string {
   return "";
 }
 
+// 0061 — why a "Present only this offer" rule would show matching visitors
+// NOTHING, in the operator's words (null = it will show the offer). The rule's
+// funnel is its Target funnel, else the quote's default funnel (§4.3-7); the
+// check is that funnel's live auction participants (live_offer_ids). Mirrored
+// 1:1 by the island's presentOnlyWarning. Unknown funnel / no live data ⇒ null
+// (never a false alarm).
+function qrPresentOnlyWarning(rule: QuoteRulesRailRule, data: QuoteRulesRailData): string | null {
+  const offerId = rule.force_offer_id ?? null;
+  if (offerId === null) return null;
+  const offer = data.offers.find((o) => o.id === offerId);
+  if (offer === undefined) return "The offer this rule presents no longer exists. Matching visitors will see no offers.";
+  if (offer.status !== undefined && offer.status !== "active") {
+    return `“${offer.name}” is ${offer.status}. Matching visitors will see no offers.`;
+  }
+  const funnelId = rule.target_funnel_id ?? data.default_funnel_id;
+  const funnel = funnelId === null ? undefined : data.funnels.find((f) => f.id === funnelId);
+  if (funnel === undefined || funnel.live_offer_ids === undefined) return null;
+  if (funnel.live_offer_ids.includes(offerId)) return null;
+  if ((funnel.partly_live_offer_ids ?? []).includes(offerId)) {
+    return `“${offer.name}” is live in only some A/B versions of funnel “${funnel.name}”. Matching visitors on the other versions will see no offers.`;
+  }
+  return `“${offer.name}” is not a live offer in the auction of funnel “${funnel.name}”. Matching visitors will see no offers until it is added and enabled there.`;
+}
+
+// An answer-conditioned rule is evaluated only at a mid-funnel checkpoint, and
+// a checkpoint rule only takes effect when it switches funnel (resolver.ts
+// evaluateQuoteCheckpointRouting) — without a Target funnel it never applies.
+// Unreachable rules already carry the A-6 callout, so they are left to it.
+const QR_NEEDS_FUNNEL_TEXT =
+  "Rules on answers only take effect when they also pick a Target funnel. As saved, this rule never applies.";
+// The modal's wording (the rule is not saved yet).
+const QR_NEEDS_FUNNEL_MODAL_TEXT =
+  "Rules on answers only take effect when they also pick a Target funnel. Without one, this rule will never apply.";
+function qrNeedsFunnelWarning(rule: QuoteRulesRailRule, cp: RuleCheckpoint): boolean {
+  return cp.plane !== "entry" && cp.unreachable !== true && rule.target_funnel_id === null;
+}
+
 // Action summary chips (pack rule-field · Actions). Only present actions.
 function qrActionChips(rule: QuoteRulesRailRule, data: QuoteRulesRailData): string[] {
   const chips: string[] = [];
   if (rule.target_funnel_id !== null) chips.push("→ " + qrFunnelName(rule.target_funnel_id, data));
-  if (rule.feed_name !== null && rule.feed_name !== "") chips.push("Feed " + rule.feed_name);
+  if (rule.feed_name !== null && rule.feed_name !== "") chips.push("Tag " + rule.feed_name);
   if (rule.value_multiplier !== null) chips.push("×" + String(rule.value_multiplier));
   const hasTarget = rule.target_offer_id !== null || (rule.redirect_url !== null && rule.redirect_url !== "");
   if (rule.redirect_pct !== null || hasTarget) {
@@ -2086,6 +2135,8 @@ function qrActionChips(rule: QuoteRulesRailRule, data: QuoteRulesRailData): stri
           : "";
     chips.push("Redirect " + pct + "%" + (tgt !== "" ? " → " + tgt : ""));
   }
+  const forceId = rule.force_offer_id ?? null;
+  if (forceId !== null) chips.push("Only offer " + (qrOfferName(forceId, data) || "(removed offer)"));
   return chips;
 }
 
@@ -2121,6 +2172,14 @@ function renderQuoteRuleCard(rule: QuoteRulesRailRule, data: QuoteRulesRailData)
   const a6 = unreachable
     ? `<div class="lg-qr-callout warn" role="note" data-pin="A-6-inline"><span class="lg-qr-warnico" aria-hidden="true">⚠</span><span>This rule can never apply before a visitor enters a funnel that asks these questions.</span></div>`
     : "";
+  const needsFunnel = qrNeedsFunnelWarning(rule, cp)
+    ? `<div class="lg-qr-callout warn" role="note" data-qr-needs-funnel><span class="lg-qr-warnico" aria-hidden="true">⚠</span><span>${escapeHtml(QR_NEEDS_FUNNEL_TEXT)}</span></div>`
+    : "";
+  const presentOnlyText = qrPresentOnlyWarning(rule, data);
+  const presentOnly =
+    presentOnlyText !== null
+      ? `<div class="lg-qr-callout warn" role="note" data-qr-present-only-warn><span class="lg-qr-warnico" aria-hidden="true">⚠</span><span>${escapeHtml(presentOnlyText)}</span></div>`
+      : "";
 
   return (
     `<div class="lg-qr-card${isDisabled ? " disabled" : ""}"${isDisabled ? ' data-pin="8.2-rule-disabled"' : ""} data-qr-card data-rule-public-id="${escapeHtml(rule.public_id)}" data-rule-priority="${escapeHtml(String(rule.priority))}">` +
@@ -2133,6 +2192,8 @@ function renderQuoteRuleCard(rule: QuoteRulesRailRule, data: QuoteRulesRailData)
     `<div class="lg-qr-field"><div class="lg-qr-flab">Conditions · ${escapeHtml(qrMatchWord(rule))}</div><div class="lg-qr-summ" data-qr-cond-summ>${condHtml}</div></div>` +
     `<div class="lg-qr-field"><div class="lg-qr-flab">Actions</div><div class="lg-qr-summ" data-qr-act-summ>${actHtml}</div></div>` +
     a6 +
+    needsFunnel +
+    presentOnly +
     `<div class="lg-qr-foot">` +
     `<span class="lg-qr-act" role="button" tabindex="0" data-qr-edit>✎ Edit</span>` +
     `<span class="lg-qr-act" role="button" tabindex="0" data-qr-duplicate>⎘ Duplicate</span>` +
@@ -2154,9 +2215,18 @@ function renderQuoteRuleActions(data: QuoteRulesRailData): string {
     .map((f) => `<option value="${escapeHtml(f.public_id)}" data-funnel-id="${f.id}">${escapeHtml(f.name)}${f.is_default ? " (Default)" : ""}</option>`)
     .join("");
   const offerOpts = data.offers.map((o) => `<option value="${o.id}">${escapeHtml(o.name)}</option>`).join("");
+  // "Present only this offer" lists the SAME offers as Redirect → Offer; one
+  // that is not active cannot be presented (the save refuses it), so it shows
+  // its status and is not selectable.
+  const presentOpts = data.offers
+    .map((o) => {
+      const inactive = o.status !== undefined && o.status !== "active";
+      return `<option value="${o.id}"${inactive ? " disabled" : ""}>${escapeHtml(o.name)}${inactive ? ` (${escapeHtml(o.status ?? "")})` : ""}</option>`;
+    })
+    .join("");
   const feedListId = "lg-qr-feeds";
   const feedOpts = data.feed_values.map((v) => `<option value="${escapeHtml(v)}"></option>`).join("");
-  const feedHelp = data.feed_values.length > 0 ? `Used in this quote: ${escapeHtml(data.feed_values.join(" · "))}` : "No feed names used yet.";
+  const feedHelp = data.feed_values.length > 0 ? `Used in this quote: ${escapeHtml(data.feed_values.join(" · "))}` : "No traffic tags used yet.";
 
   return (
     `<div data-pin="4.3-9-actions">` +
@@ -2166,12 +2236,14 @@ function renderQuoteRuleActions(data: QuoteRulesRailData): string {
     `<span class="lg-qr-swi on" role="switch" tabindex="0" aria-checked="true" data-qr-action-toggle><span class="lg-qr-knob"></span></span>` +
     `<div class="lg-qr-amain"><div class="lg-qr-aname">Target funnel</div><div class="lg-qr-adesc">Serve this funnel to matching visitors.</div>` +
     `<select class="form-select" data-qr-target-funnel aria-label="Target funnel"><option value="">— choose a funnel —</option>${funnelOpts}</select></div></div>` +
-    // feed name
+    // traffic tag (stored as feed_name; the {feed_name} macro is unchanged)
     `<div class="lg-qr-arow" data-pin="action-feed-name" data-qr-action="feed_name">` +
     `<span class="lg-qr-swi on" role="switch" tabindex="0" aria-checked="true" data-qr-action-toggle><span class="lg-qr-knob"></span></span>` +
-    `<div class="lg-qr-amain"><div class="lg-qr-aname">Feed name</div><div class="lg-qr-adesc">Tag matching leads for analytics &amp; offer routing.</div>` +
-    `<input class="form-input" type="text" list="${feedListId}" data-qr-feed-name aria-label="Feed name" />` +
+    `<div class="lg-qr-amain"><div class="lg-qr-aname">Traffic tag</div><div class="lg-qr-adesc">Tag matching sessions for analytics and downstream offer routing.</div>` +
+    `<input class="form-input" type="text" maxlength="64" list="${feedListId}" data-qr-feed-name aria-label="Traffic tag" />` +
     `<datalist id="${feedListId}">${feedOpts}</datalist>` +
+    `<div class="lg-qr-help" data-qr-feed-rule>Letters, digits, underscore (_) and hyphen (-), up to 64 characters. Spaces and other characters are saved as a hyphen.</div>` +
+    `<div class="lg-qr-help lg-qr-slug" data-qr-feed-preview hidden></div>` +
     `<div class="lg-qr-help" data-qr-feed-help>${feedHelp}</div></div></div>` +
     // fb multiplier
     `<div class="lg-qr-arow" data-pin="action-fb-multiplier" data-qr-action="value_multiplier">` +
@@ -2191,6 +2263,13 @@ function renderQuoteRuleActions(data: QuoteRulesRailData): string {
     `<select class="form-select" data-qr-target-offer aria-label="Redirect offer"><option value="">— choose an offer —</option>${offerOpts}</select>` +
     `<div data-qr-url-wrap hidden><input class="form-input" type="text" data-qr-redirect-url aria-label="Allowlisted redirect URL" placeholder="https://…" />` +
     `<div class="lg-qr-help">Only hosts on the site allowlist can be entered here.</div></div>` +
+    `</div></div>` +
+    // present only this offer (0061 — partner QA)
+    `<div class="lg-qr-arow" data-pin="action-present-only" data-qr-action="force_offer">` +
+    `<span class="lg-qr-swi on" role="switch" tabindex="0" aria-checked="true" data-qr-action-toggle><span class="lg-qr-knob"></span></span>` +
+    `<div class="lg-qr-amain"><div class="lg-qr-aname">Present only this offer</div><div class="lg-qr-adesc">Matching visitors stay in the funnel and see only this offer on the results page — for partner QA links. Redirect sends them away instead.</div>` +
+    `<select class="form-select" data-qr-force-offer aria-label="Offer to present"><option value="">— choose an offer —</option>${presentOpts}</select>` +
+    `<div class="lg-qr-callout warn" data-qr-force-warn role="note" hidden><span class="lg-qr-warnico" aria-hidden="true">⚠</span><span data-qr-force-warn-text></span></div>` +
     `</div></div>` +
     `</div>`
   );
@@ -2230,7 +2309,8 @@ function renderQuoteRuleModal(data: QuoteRulesRailData): string {
     `<div data-pin="4.3-3-checkpoint"><label class="lg-qr-label">Checkpoint <span class="lg-qr-opt">· read-only</span></label>` +
     `<div class="lg-qr-readonly" data-qr-modal-checkpoint>Entry</div>` +
     `<div class="lg-qr-help">Derived from the conditions — where this rule can first apply.</div>` +
-    `<div class="lg-qr-callout warn" data-qr-modal-a6 data-pin="A-6-inline" hidden><span class="lg-qr-warnico" aria-hidden="true">⚠</span><span>This rule can never apply before a visitor enters a funnel that asks these questions.</span></div></div>` +
+    `<div class="lg-qr-callout warn" data-qr-modal-a6 data-pin="A-6-inline" hidden><span class="lg-qr-warnico" aria-hidden="true">⚠</span><span>This rule can never apply before a visitor enters a funnel that asks these questions.</span></div>` +
+    `<div class="lg-qr-callout warn" data-qr-modal-needs-funnel role="note" hidden><span class="lg-qr-warnico" aria-hidden="true">⚠</span><span>${escapeHtml(QR_NEEDS_FUNNEL_MODAL_TEXT)}</span></div></div>` +
     `<div data-pin="8.2-rule-priority"><label class="lg-qr-label" for="lg-qr-priority">Priority</label>` +
     `<input class="form-input" id="lg-qr-priority" type="number" min="1" max="100" step="1" value="100" data-qr-modal-priority />` +
     `<div class="lg-qr-help">1 = highest priority, 100 = lowest.</div></div>` +
@@ -2335,7 +2415,8 @@ const QUOTE_RULES_STYLES = `<style>
 .lg-qr-aname{font-size:13px;font-weight:700;color:#14233a}
 .lg-qr-adesc{font-size:11px;color:#5e6b82;margin:2px 0 7px;line-height:1.4}
 .lg-qr-errmsg{display:flex;gap:6px;align-items:center;color:#b23a2c;font-size:12px;font-weight:600;margin:2px 0 12px}
-.lg-qr-error{margin:0 0 12px}
+.lg-qr-error{margin:0 0 12px;white-space:pre-line}
+.lg-qr-slug{color:#1b3a5c;font-weight:600}
 .lg-qr-sentence{font-size:12px;color:#374966;background:#f7f9fb;border-radius:8px;padding:10px 12px;line-height:1.5}
 .lg-qr-sentlab{font-size:9.5px;font-weight:800;letter-spacing:.4px;text-transform:uppercase;color:#8894a8;display:block;margin-bottom:4px}
 .lg-qr-modal-foot{display:flex;justify-content:flex-end;gap:10px;padding-top:14px}
@@ -2363,9 +2444,10 @@ export function renderQuoteRulesRail(data: QuoteRulesRailData): string {
     `<div class="lg-qr-rail" id="lg-qr-rail" data-pin="8.2-rules-rail" data-quote-public-id="${escapeHtml(data.quote_public_id)}">` +
     QUOTE_RULES_STYLES +
     `<div class="lg-qr-head"><div class="lg-qr-title">Routing rules</div>` +
-    `<div class="lg-qr-desc">Rules decide which funnel a visitor sees, and can tag the lead, set the FB multiplier, or redirect. Lowest priority number wins when more than one matches.</div></div>` +
+    `<div class="lg-qr-desc">Rules decide which funnel a visitor sees, and can tag the traffic, set the FB multiplier, redirect, or present only one offer. Lowest priority number wins when more than one matches.</div></div>` +
     `<div class="lg-qr-colhead"><span class="lg-qr-cprio">Priority</span><span class="lg-qr-cname">Name · Checkpoint · Conditions · Actions · Status</span></div>` +
     `<div class="lg-qr-list" id="lg-qr-list" data-pin="8.2-rules-table">` +
+    `<p class="alert alert-error lg-qr-error" data-qr-rail-error role="alert" hidden></p>` +
     `<div data-qr-cards>${cards}</div>` +
     `<div class="lg-qr-newbtn" data-pin="8.2-new-rule-btn" role="button" tabindex="0" data-qr-new>+ New rule</div>` +
     `</div>` +
@@ -2394,7 +2476,9 @@ export const QUOTE_RULES_SCRIPT = `(function () {
     window.lgQuoteRules = {
       deriveCheckpoint: deriveCheckpointPure,
       checkpointLabelOf: checkpointLabelOf,
-      conditionFieldsOf: conditionFieldsOf
+      conditionFieldsOf: conditionFieldsOf,
+      slugifyTag: slugifyTag,
+      errorText: errorText
     };
   }
 
@@ -2563,10 +2647,43 @@ export const QUOTE_RULES_SCRIPT = `(function () {
   function funnelNameById(id) { var i; for (i = 0; i < funnels.length; i++) { if (funnels[i].id === id) { return funnels[i].name; } } return ''; }
   function funnelPublicById(id) { var i; for (i = 0; i < funnels.length; i++) { if (funnels[i].id === id) { return funnels[i].public_id; } } return ''; }
   function offerNameById(id) { var i; for (i = 0; i < offers.length; i++) { if (offers[i].id === id) { return offers[i].name; } } return ''; }
+  function offerById(id) { var i; for (i = 0; i < offers.length; i++) { if (offers[i].id === id) { return offers[i]; } } return null; }
+  function funnelById(id) { var i; for (i = 0; i < funnels.length; i++) { if (funnels[i].id === id) { return funnels[i]; } } return null; }
+  // Mirror of qrPresentOnlyWarning (0061): why a Present-only rule would show
+  // matching visitors nothing, or null.
+  function presentOnlyWarning(rule) {
+    var offerId = rule.force_offer_id != null ? rule.force_offer_id : null;
+    if (offerId === null) { return null; }
+    var offer = offerById(offerId);
+    if (!offer) { return 'The offer this rule presents no longer exists. Matching visitors will see no offers.'; }
+    if (offer.status !== undefined && offer.status !== 'active') { return '\\u201c' + offer.name + '\\u201d is ' + offer.status + '. Matching visitors will see no offers.'; }
+    var funnelId = rule.target_funnel_id != null ? rule.target_funnel_id : defaultFunnelId;
+    var funnel = funnelId == null ? null : funnelById(funnelId);
+    if (!funnel || !isArr(funnel.live_offer_ids)) { return null; }
+    var i; for (i = 0; i < funnel.live_offer_ids.length; i++) { if (funnel.live_offer_ids[i] === offerId) { return null; } }
+    var partly = isArr(funnel.partly_live_offer_ids) ? funnel.partly_live_offer_ids : [];
+    for (i = 0; i < partly.length; i++) { if (partly[i] === offerId) { return '\\u201c' + offer.name + '\\u201d is live in only some A/B versions of funnel \\u201c' + funnel.name + '\\u201d. Matching visitors on the other versions will see no offers.'; } }
+    return '\\u201c' + offer.name + '\\u201d is not a live offer in the auction of funnel \\u201c' + funnel.name + '\\u201d. Matching visitors will see no offers until it is added and enabled there.';
+  }
+  var RULE_GONE_TEXT = 'That rule no longer exists \\u2014 it may have been deleted in another tab. The list is up to date.';
+  var PRESENT_ONLY_WITH_REDIRECT_TEXT = 'Present only this offer keeps visitors in the funnel, so it can\\'t share a rule with a Redirect. Turn Redirect % and Redirect target off, or use a separate rule.';
+  var NEEDS_FUNNEL_TEXT = 'Rules on answers only take effect when they also pick a Target funnel. As saved, this rule never applies.';
+  function needsFunnelWarning(rule, cp) { return cp.plane !== 'entry' && cp.unreachable !== true && rule.target_funnel_id == null; }
+  // The Traffic tag's stored form (the feed_name column's own charset): an
+  // operator types "Fundera - Tier 1", the rule stores "Fundera-Tier-1".
+  // Accents drop to their base letter; every run of other characters becomes
+  // one "-"; leading/trailing "-" trimmed; capped at 64.
+  function slugifyTag(raw) {
+    var s = raw == null ? '' : String(raw);
+    if (s.normalize) { s = s.normalize('NFD').replace(/[\\u0300-\\u036f]/g, ''); }
+    s = s.replace(/[^A-Za-z0-9_-]+/g, '-').replace(/-{2,}/g, '-').replace(/^-+|-+$/g, '');
+    if (s.length > 64) { s = s.slice(0, 64).replace(/-+$/, ''); }
+    return s;
+  }
   function actionChips(rule) {
     var chips = [];
     if (rule.target_funnel_id != null) { chips.push('\\u2192 ' + funnelNameById(rule.target_funnel_id)); }
-    if (rule.feed_name) { chips.push('Feed ' + rule.feed_name); }
+    if (rule.feed_name) { chips.push('Tag ' + rule.feed_name); }
     if (rule.value_multiplier != null) { chips.push('\\u00d7' + String(rule.value_multiplier)); }
     var hasTarget = rule.target_offer_id != null || (rule.redirect_url && rule.redirect_url !== '');
     if (rule.redirect_pct != null || hasTarget) {
@@ -2574,6 +2691,7 @@ export const QUOTE_RULES_SCRIPT = `(function () {
       var tgt = rule.target_offer_id != null ? offerNameById(rule.target_offer_id) : (rule.redirect_url || '');
       chips.push('Redirect ' + pct + '%' + (tgt !== '' ? ' \\u2192 ' + tgt : ''));
     }
+    if (rule.force_offer_id != null) { chips.push('Only offer ' + (offerNameById(rule.force_offer_id) || '(removed offer)')); }
     return chips;
   }
   function matchWord(rule) { return rule.match_mode === 'any' ? 'any' : 'all'; }
@@ -2621,6 +2739,9 @@ export const QUOTE_RULES_SCRIPT = `(function () {
       call.appendChild(txt(el('span'), 'This rule can never apply before a visitor enters a funnel that asks these questions.'));
       card.appendChild(call);
     }
+    if (needsFunnelWarning(rule, cp)) { card.appendChild(warnCallout('data-qr-needs-funnel', NEEDS_FUNNEL_TEXT)); }
+    var poText = presentOnlyWarning(rule);
+    if (poText !== null) { card.appendChild(warnCallout('data-qr-present-only-warn', poText)); }
 
     var foot = el('div', 'lg-qr-foot');
     foot.appendChild(footAct('\\u270e Edit', 'data-qr-edit'));
@@ -2643,6 +2764,12 @@ export const QUOTE_RULES_SCRIPT = `(function () {
     }
     wrap.appendChild(summ);
     return wrap;
+  }
+  function warnCallout(attr, text) {
+    var c = el('div', 'lg-qr-callout warn'); c.setAttribute('role', 'note'); c.setAttribute(attr, '');
+    var ic = el('span', 'lg-qr-warnico'); ic.setAttribute('aria-hidden', 'true'); txt(ic, '\\u26a0'); c.appendChild(ic);
+    c.appendChild(txt(el('span'), text));
+    return c;
   }
   function footAct(label, attr) { var s = el('span', 'lg-qr-act'); s.setAttribute('role', 'button'); s.setAttribute('tabindex', '0'); s.setAttribute(attr, ''); txt(s, label); return s; }
 
@@ -2708,6 +2835,8 @@ export const QUOTE_RULES_SCRIPT = `(function () {
     setTargetMode(hasUrl ? 'url' : 'offer');
     var toff = qs(modal, '[data-qr-target-offer]'); if (toff) { toff.value = rule && rule.target_offer_id != null ? String(rule.target_offer_id) : ''; }
     var turl = qs(modal, '[data-qr-redirect-url]'); if (turl) { turl.value = hasUrl ? rule.redirect_url : ''; }
+    setActionOn('force_offer', rule ? rule.force_offer_id != null : false);
+    var fo = qs(modal, '[data-qr-force-offer]'); if (fo) { fo.value = rule && rule.force_offer_id != null ? String(rule.force_offer_id) : ''; }
 
     showErr('');
     setActionError(false);
@@ -2753,9 +2882,10 @@ export const QUOTE_RULES_SCRIPT = `(function () {
   function draftRule() {
     var conds = currentConditions();
     var r = { conditions_json: conds, match_mode: currentMatchMode(), rule_name: qs(modal, '[data-qr-modal-name]').value, priority: num(qs(modal, '[data-qr-modal-priority]').value) };
-    r.target_funnel_id = null; r.feed_name = null; r.value_multiplier = null; r.redirect_pct = null; r.target_offer_id = null; r.redirect_url = null;
+    r.target_funnel_id = null; r.feed_name = null; r.value_multiplier = null; r.redirect_pct = null; r.target_offer_id = null; r.redirect_url = null; r.force_offer_id = null;
     if (actionOn('target_funnel')) { var tf = qs(modal, '[data-qr-target-funnel]').value; var fi; for (fi = 0; fi < funnels.length; fi++) { if (funnels[fi].public_id === tf) { r.target_funnel_id = funnels[fi].id; } } }
-    if (actionOn('feed_name')) { r.feed_name = qs(modal, '[data-qr-feed-name]').value || null; }
+    if (actionOn('feed_name')) { r.feed_name = slugifyTag(qs(modal, '[data-qr-feed-name]').value) || null; }
+    if (actionOn('force_offer')) { r.force_offer_id = num(qs(modal, '[data-qr-force-offer]').value); }
     if (actionOn('value_multiplier')) { r.value_multiplier = num(qs(modal, '[data-qr-multiplier]').value); }
     if (actionOn('redirect_pct')) { r.redirect_pct = num(qs(modal, '[data-qr-redirect-pct]').value); }
     if (actionOn('redirect_target')) { if (targetMode === 'offer') { r.target_offer_id = num(qs(modal, '[data-qr-target-offer]').value); } else { r.redirect_url = qs(modal, '[data-qr-redirect-url]').value || null; } }
@@ -2766,10 +2896,25 @@ export const QUOTE_RULES_SCRIPT = `(function () {
     var cp = deriveCheckpoint(conditionFieldsOf(draft.conditions_json));
     var ckEl = qs(modal, '[data-qr-modal-checkpoint]'); if (ckEl) { txt(ckEl, checkpointLabelOf(cp)); }
     var a6 = qs(modal, '[data-qr-modal-a6]'); if (a6) { a6.hidden = cp.unreachable !== true; }
+    var nf = qs(modal, '[data-qr-modal-needs-funnel]'); if (nf) { nf.hidden = !needsFunnelWarning(draft, cp); }
+    var fw = qs(modal, '[data-qr-force-warn]');
+    if (fw) { var fwText = presentOnlyWarning(draft); fw.hidden = fwText === null; txt(qs(fw, '[data-qr-force-warn-text]'), fwText || ''); }
+    updateTagPreview();
     var sent = qs(modal, '[data-qr-sentence]'); if (sent) { txt(sent, ruleSentence(draft)); }
   }
+  // What the typed Traffic tag will be saved as, BEFORE save (hidden when it
+  // is already the stored form).
+  function updateTagPreview() {
+    var input = qs(modal, '[data-qr-feed-name]'); var pv = qs(modal, '[data-qr-feed-preview]');
+    if (!input || !pv) { return; }
+    var raw = input.value.replace(/^\\s+|\\s+$/g, '');
+    var slug = slugifyTag(raw);
+    if (raw === '' || slug === raw) { pv.hidden = true; txt(pv, ''); return; }
+    txt(pv, slug === '' ? 'A traffic tag needs at least one letter or digit.' : ('Will be saved as ' + slug));
+    pv.hidden = false;
+  }
   function anyAction() {
-    return actionOn('target_funnel') || actionOn('feed_name') || actionOn('value_multiplier') || actionOn('redirect_pct') || actionOn('redirect_target');
+    return actionOn('target_funnel') || actionOn('feed_name') || actionOn('value_multiplier') || actionOn('redirect_pct') || actionOn('redirect_target') || actionOn('force_offer');
   }
   function setActionError(on) { var e = qs(modal, '[data-qr-action-error]'); if (e) { e.hidden = !on; } }
   function showErr(msg) { var e = qs(modal, '[data-qr-modal-error]'); if (e) { if (msg) { txt(e, msg); e.hidden = false; } else { e.hidden = true; } } }
@@ -2784,30 +2929,59 @@ export const QUOTE_RULES_SCRIPT = `(function () {
     body.redirect_pct = actionOn('redirect_pct') ? d.redirect_pct : null;
     body.target_offer_id = (actionOn('redirect_target') && targetMode === 'offer') ? d.target_offer_id : null;
     body.redirect_url = (actionOn('redirect_target') && targetMode === 'url') ? d.redirect_url : null;
+    body.force_offer_id = actionOn('force_offer') ? d.force_offer_id : null;
     return body;
   }
   function save() {
     if (!anyAction()) { setActionError(true); return; }
     setActionError(false);
+    if (actionOn('feed_name') && slugifyTag(qs(modal, '[data-qr-feed-name]').value) === '') { showErr('Enter a traffic tag (letters or digits), or turn Traffic tag off.'); return; }
+    if (actionOn('force_offer') && num(qs(modal, '[data-qr-force-offer]').value) === null) { showErr('Choose the offer to present, or turn Present only this offer off.'); return; }
+    if (actionOn('force_offer') && (actionOn('redirect_pct') || actionOn('redirect_target'))) { showErr(PRESENT_ONLY_WITH_REDIRECT_TEXT); return; }
+    showErr('');
+    var tagInput = qs(modal, '[data-qr-feed-name]');
+    if (tagInput && actionOn('feed_name')) { tagInput.value = slugifyTag(tagInput.value); updateTagPreview(); }
     var body = collectBody();
     var url = editingPublicId ? (API + '/routing-rules/' + encodeURIComponent(editingPublicId)) : (API + '/quotes/' + encodeURIComponent(quotePublicId) + '/routing-rules');
     var method = editingPublicId ? 'PATCH' : 'POST';
     fetch(url, { method: method, headers: { 'content-type': 'application/json' }, body: JSON.stringify(body) })
       .then(function (r) { return r.json().then(function (j) { return { ok: r.ok, status: r.status, body: j }; }); })
       .then(function (res) {
-        if (!res.ok) { showErr(firstError(res.body) || ('Save failed (' + res.status + ').')); return; }
-        closeModal(); refetch();
+        if (res.status === 404 && editingPublicId) { showErr(RULE_GONE_TEXT); refetch(); return; }
+        if (!res.ok) { showErr(errorText(res.body) || ('Save failed (' + res.status + ').')); return; }
+        showRailErr(''); closeModal(); refetch();
       }, function () { showErr('Network error saving the rule.'); });
   }
-  function firstError(body) {
+  // OWNER 2026-09-27 (Ido): the API answers {error:"Validation failed",
+  // fields:{feed_name:"…"}} and this used to print only the bare "Validation
+  // failed". The field messages ARE the reason — they come first, one per line
+  // (the funnel-rules modal's fieldsErrorText convention).
+  function errorText(body) {
     if (!body) { return null; }
+    var lines = [];
+    var k;
+    if (body.fields && typeof body.fields === 'object') { for (k in body.fields) { if (Object.prototype.hasOwnProperty.call(body.fields, k)) { lines.push(String(body.fields[k])); } } }
+    if (lines.length === 0 && body.errors && typeof body.errors === 'object') { for (k in body.errors) { if (Object.prototype.hasOwnProperty.call(body.errors, k)) { lines.push(String(body.errors[k])); } } }
+    if (lines.length > 0) { return lines.join('\\n'); }
     if (typeof body.error === 'string') { return body.error; }
-    if (body.errors && typeof body.errors === 'object') { var k; for (k in body.errors) { if (Object.prototype.hasOwnProperty.call(body.errors, k)) { return body.errors[k]; } } }
     return null;
   }
-  function duplicateRule(pub) { fetch(API + '/routing-rules/' + encodeURIComponent(pub) + '/duplicate', { method: 'POST' }).then(function () { refetch(); }, function () {}); }
-  function deleteRule(pub) { if (!window.confirm('Delete this rule?')) { return; } fetch(API + '/routing-rules/' + encodeURIComponent(pub), { method: 'DELETE' }).then(function () { refetch(); }, function () {}); }
-  function toggleRule(rule) { var next = rule.status === 'disabled' ? 'active' : 'disabled'; fetch(API + '/routing-rules/' + encodeURIComponent(rule.public_id), { method: 'PATCH', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ status: next }) }).then(function () { refetch(); }, function () {}); }
+  // Card actions report a refusal on the rail (they used to drop it: a failed
+  // on/off switch simply stayed where it was, with no reason given).
+  function showRailErr(msg) { var e = qs(root, '[data-qr-rail-error]'); if (e) { if (msg) { txt(e, msg); e.hidden = false; } else { e.hidden = true; } } }
+  function cardAction(url, init, verb) {
+    showRailErr('');
+    fetch(url, init)
+      .then(function (r) { return r.json().then(function (j) { return { ok: r.ok, status: r.status, body: j }; }, function () { return { ok: r.ok, status: r.status, body: null }; }); })
+      .then(function (res) {
+        if (res.status === 404) { showRailErr(RULE_GONE_TEXT); }
+        else if (!res.ok) { showRailErr(errorText(res.body) || ('Could not ' + verb + ' the rule (' + res.status + ').')); }
+        refetch();
+      }, function () { showRailErr('Network error \\u2014 could not ' + verb + ' the rule.'); });
+  }
+  function duplicateRule(pub) { cardAction(API + '/routing-rules/' + encodeURIComponent(pub) + '/duplicate', { method: 'POST' }, 'duplicate'); }
+  function deleteRule(pub) { if (!window.confirm('Delete this rule?')) { return; } cardAction(API + '/routing-rules/' + encodeURIComponent(pub), { method: 'DELETE' }, 'delete'); }
+  function toggleRule(rule) { var next = rule.status === 'disabled' ? 'active' : 'disabled'; cardAction(API + '/routing-rules/' + encodeURIComponent(rule.public_id), { method: 'PATCH', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ status: next }) }, next === 'active' ? 'turn on' : 'turn off'); }
 
   // ---- events ---------------------------------------------------------------
   function closestAttr(node, attr) { var n = node; while (n && n !== root) { if (n.getAttribute && n.getAttribute(attr) !== null && n.hasAttribute && n.hasAttribute(attr)) { return n; } n = n.parentNode; } return null; }
@@ -2840,6 +3014,16 @@ export const QUOTE_RULES_SCRIPT = `(function () {
     });
     modal.addEventListener('input', function () { updateLive(); });
     modal.addEventListener('change', function () { updateLive(); });
+    // Leaving the Traffic tag field shows the stored form in place, so what the
+    // operator sees is what is saved (and what {feed_name} sends).
+    modal.addEventListener('focusout', function (ev) {
+      var t = ev.target;
+      if (t && t.hasAttribute && t.hasAttribute('data-qr-feed-name')) {
+        var slug = slugifyTag(t.value);
+        if (slug !== '' && slug !== t.value) { t.value = slug; }
+        updateLive();
+      }
+    });
   }
   function closestAttr2(node, attr) { var n = node; while (n && n !== modal) { if (n.getAttribute && n.hasAttribute && n.hasAttribute(attr)) { return n; } n = n.parentNode; } return null; }
 
@@ -2867,11 +3051,11 @@ export const QUOTE_RULES_SCRIPT = `(function () {
 //   GET /quotes/:id/funnels                          -> funnels WITH nested
 //     variants in ONE call (listQuoteFunnelsHandler already embeds
 //     `variants: variants.map(variantRowToApi)` per funnel item).
-//   GET /sections?activity=X&status=active&page_size=200 -> the activity's
+//   GET /sections?activity=X&status=active (every page) -> the activity's
 //     answer-field universe. SAME derivation ui-quotes.ts's own answerFields
 //     assembly already performs (internal_field + "<section_name> · <field>"),
 //     re-implemented here in ES5 since the browser cannot call that TS helper.
-//   GET /offers?page_size=200                         -> the redirect_direct_
+//   GET /offers (every page)                          -> the redirect_direct_
 //     offer by-name target picker (the SAME general list the quote/variant
 //     editor already reads from, unfiltered — matching precedent exactly).
 //
@@ -3101,6 +3285,21 @@ export const RELOCATED_RULES_SCRIPT = `(function () {
     return out;
   }
 
+  // Every page of a list: the API caps page_size at 100 and answers a larger
+  // ask with 25 rows (the old ?page_size=200 silently dropped the rest).
+  function fetchAllItems(base) {
+    var sep = base.indexOf('?') >= 0 ? '&' : '?';
+    var all = [];
+    function page(n) {
+      return fetch(base + sep + 'page_size=100&page=' + n).then(function (r) { return r.json(); }).then(function (body) {
+        all = all.concat((body && isArr(body.items)) ? body.items : []);
+        if (body && body.paging && body.paging.has_next === true && n < 50) { return page(n + 1); }
+        return { items: all };
+      });
+    }
+    return page(1);
+  }
+
   function loadQuote(quotePub, then) {
     if (quoteCache[quotePub]) { then(quoteCache[quotePub]); return; }
     var quote = null;
@@ -3108,8 +3307,8 @@ export const RELOCATED_RULES_SCRIPT = `(function () {
     for (i = 0; i < quotes.length; i++) { if (quotes[i].public_id === quotePub) { quote = quotes[i]; break; } }
     if (!quote) { then(null); return; }
     var funnelsP = fetch(API + '/quotes/' + encodeURIComponent(quotePub) + '/funnels').then(function (r) { return r.json(); });
-    var sectionsP = fetch(API + '/sections?activity=' + encodeURIComponent(quote.activity) + '&status=active&page_size=200').then(function (r) { return r.json(); });
-    var offersP = fetch(API + '/offers?page_size=200').then(function (r) { return r.json(); });
+    var sectionsP = fetchAllItems(API + '/sections?activity=' + encodeURIComponent(quote.activity) + '&status=active');
+    var offersP = fetchAllItems(API + '/offers');
     Promise.all([funnelsP, sectionsP, offersP]).then(function (results) {
       var funnelsBody = results[0], sectionsBody = results[1], offersBody = results[2];
       var entry = {

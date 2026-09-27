@@ -1415,6 +1415,9 @@ export interface ParsedQuoteRule {
   target_offer_id: number | null;
   redirect_url: string | null;
   redirect_url_allowlisted: boolean;
+  // 0061 "Present only this offer" — the attempt's auction runs with this
+  // offer as its only participant (recorded on the routing outcome).
+  force_offer_id: number | null;
 }
 
 interface QuoteRuleRow {
@@ -1430,6 +1433,7 @@ interface QuoteRuleRow {
   target_offer_id: number | null;
   redirect_url: string | null;
   redirect_url_allowlisted: number | null;
+  force_offer_id: number | null;
 }
 
 function conditionFieldsOf(conditions: LeadgenRuleConditions): string[] {
@@ -1452,6 +1456,7 @@ export function parseQuoteRoutingRule(row: QuoteRuleRow): ParsedQuoteRule {
     target_offer_id: row.target_offer_id,
     redirect_url: row.redirect_url,
     redirect_url_allowlisted: row.redirect_url_allowlisted === 1,
+    force_offer_id: row.force_offer_id ?? null,
   };
 }
 
@@ -1466,7 +1471,7 @@ export async function loadQuoteRoutingRules(db: D1Database, quoteId: number): Pr
       .prepare(
         `SELECT public_id, conditions_json, conditions_hash, priority, match_mode,
                 target_funnel_id, feed_name, value_multiplier, redirect_pct,
-                target_offer_id, redirect_url, redirect_url_allowlisted
+                target_offer_id, redirect_url, redirect_url_allowlisted, force_offer_id
          FROM leadgen_quote_routing_rules
          WHERE quote_id = ? AND status = 'active'
          ORDER BY priority ASC, id ASC`,
@@ -1499,6 +1504,7 @@ export interface QuoteRoutingMatch {
   target_offer_id: number | null;
   redirect_url: string | null;
   redirect_url_allowlisted: boolean;
+  force_offer_id: number | null;
 }
 
 function quoteMatch(r: ParsedQuoteRule): QuoteRoutingMatch {
@@ -1512,6 +1518,7 @@ function quoteMatch(r: ParsedQuoteRule): QuoteRoutingMatch {
     target_offer_id: r.target_offer_id,
     redirect_url: r.redirect_url,
     redirect_url_allowlisted: r.redirect_url_allowlisted,
+    force_offer_id: r.force_offer_id,
   };
 }
 
@@ -1627,6 +1634,10 @@ export async function resolveEntryRedirect(
 ): Promise<string | null> {
   const match = evaluateQuoteEntryRouting(await loadQuoteRoutingRules(db, quoteId), ctx);
   if (match === null || match.redirect_pct === null) return null;
+  // 0061: a "Present only this offer" rule keeps its visitors in the funnel —
+  // the save refuses it alongside a redirect; this holds even if a row ever
+  // carries both.
+  if (match.force_offer_id !== null) return null;
   if (!shouldRedirectForSession(match.redirect_pct, match.public_id, sessionId)) return null;
   if (match.target_offer_id !== null) {
     try {
