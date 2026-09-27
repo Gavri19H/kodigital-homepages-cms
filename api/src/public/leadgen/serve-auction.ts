@@ -155,7 +155,8 @@ async function loadPresentOnlyOfferId(db: D1Database, funnelAttemptId: string): 
 }
 
 // Where a matched funnel redirect rule (redirect_direct_offer, status
-// "redirect") sends the visitor: an Offer target → the same-origin governed
+// "redirect") sends the visitor — the first of these that can land: an Offer
+// target with its own URL → the same-origin governed
 // click route (/lg/lc resolves the offer's destination, counts the click and
 // 302s — the path every banner click takes), bound to this attempt and auction
 // instance for attribution; an allowlisted raw URL (the engine only passes one
@@ -173,13 +174,14 @@ async function redirectDestination(
         .prepare("SELECT public_id, banner_url_template FROM leadgen_offers WHERE id = ? LIMIT 1")
         .bind(redirect.target_offer_id)
         .first<{ public_id: string; banner_url_template: string | null }>();
-      if (offer === null || offer.public_id === "") return null;
-      // No URL of its own (a provider Offer): /lg/lc could only answer 204.
-      if (!offerHasOwnClickUrl(offer.banner_url_template)) return null;
-      const q = new URLSearchParams({ aiid: ids.auction_instance_id, faid: ids.funnel_attempt_id });
-      return `/lg/lc/${encodeURIComponent(offer.public_id)}?${q.toString()}`;
+      // No URL of its own (a provider Offer): /lg/lc could only answer 204 —
+      // fall through to the rule's allowlisted URL, if it has one.
+      if (offer !== null && offer.public_id !== "" && offerHasOwnClickUrl(offer.banner_url_template)) {
+        const q = new URLSearchParams({ aiid: ids.auction_instance_id, faid: ids.funnel_attempt_id });
+        return `/lg/lc/${encodeURIComponent(offer.public_id)}?${q.toString()}`;
+      }
     } catch {
-      return null; // an unreadable offer row never sends the visitor anywhere
+      /* an unreadable offer row never sends the visitor to it */
     }
   }
   if (redirect.redirect_url !== null) {

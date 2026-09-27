@@ -1089,6 +1089,15 @@ describeDb("Auction-tab redirect rules send the visitor to the rule's target", (
     expect(entry.headers.get("Location")).toBeNull();
   });
 
+  it("a rule whose Offer has no URL of its own but which also carries an allowlisted URL goes to that URL", async () => {
+    const f = seed();
+    f.sdb.prepare("UPDATE leadgen_offers SET calls_provider_api = 1, bid_source = 'response', banner_url_template = NULL WHERE id = ?").run(f.fundera.id);
+    funnelRedirect(f, f.fundera.id, "https://partner.example.com/land", true);
+    const v = await visit(f, "?utm_source=google", { session: "s-redir-both" });
+    expect(v.status).toBe("redirect");
+    expect(v.go).toBe("https://partner.example.com/land");
+  });
+
   it("an ordinary auction carries no destination", async () => {
     const f = seed();
     const v = await visit(f, "?utm_source=google", { session: "s-no-redir" });

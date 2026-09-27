@@ -547,10 +547,13 @@ export async function loadAuctionBundle(
 
 // Whether a funnel redirect rule has a destination a browser can be sent to
 // (see the step-4 skip in runAuction): an Offer target with its own URL, or an
-// allowlisted absolute http(s) URL.
+// allowlisted absolute http(s) URL (serve-auction.ts redirectDestination tries
+// them in that order).
 function redirectCanLand(fr: AuctionFunnelRule): boolean {
-  if (fr.target_offer_id !== null) return fr.target_has_own_click_url === true;
-  return fr.redirect_url_allowlisted === 1 && typeof fr.redirect_url === "string" && /^https?:\/\//i.test(fr.redirect_url.trim());
+  const offerOk = fr.target_offer_id !== null && fr.target_has_own_click_url === true;
+  const urlOk =
+    fr.redirect_url_allowlisted === 1 && typeof fr.redirect_url === "string" && /^https?:\/\//i.test(fr.redirect_url.trim());
+  return offerOk || urlOk;
 }
 
 // ---------------------------------------------------------------------------
