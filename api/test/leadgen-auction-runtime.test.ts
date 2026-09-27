@@ -100,6 +100,7 @@ const LEADGEN_MIGRATIONS = [
   "0052_leadgen_rework_m9_address_fields.sql",
   "0053_leadgen_rework_m12_othergroup_retirement.sql",
   "0057_leadgen_offer_test_verdict.sql",
+  "0060_leadgen_offer_static_creative.sql", // static-Offer banner creative
 ] as const;
 
 function createLeadgenDb(DatabaseSync: DatabaseSyncCtor): SqliteDb {
@@ -1459,5 +1460,127 @@ describeDb("§5.1 eligibility survives the §30.3 retention prune (OWNER 2026-09
     expect(row.last_test_status).toBe("passed");
     expect(row.last_test_source).toBe("auction");
     expect(row.last_test_at, "the live 200 refreshed the verdict timestamp").toBeGreaterThan(1);
+  });
+});
+
+// ===========================================================================
+// OWNER 2026-09-27 — the banner creative of a "Static — no provider request"
+// Offer (0060). His screenshot: the Fora card rendered as the word "Impact"
+// (the Provider field) over the CTA, with no logo or copy, beside a Fundera
+// card that had all of them. Driven through the REAL pipeline
+// (loadAuctionBundle → runAuction → renderBanners), not a hand-built card.
+// ===========================================================================
+
+describeDb("static Offer banner creative (0060) — through the real auction", () => {
+  function harness(): { sdb: SqliteDb; env: Env } {
+    const sdb = createLeadgenDb(DatabaseSync as DatabaseSyncCtor);
+    const { kv } = makeKvStub();
+    return { sdb, env: buildEnv(d1FromSqlite(sdb), kv) };
+  }
+  const LIVE_REQUEST = { source: new Request("https://moneylantern.com/lg/auction", { method: "POST" }) };
+
+  function creative(sdb: SqliteDb, offerId: number, c: Record<string, string | null>): void {
+    for (const [k, v] of Object.entries(c)) sdb.prepare(`UPDATE leadgen_offers SET ${k} = ? WHERE id = ?`).run(v, offerId);
+  }
+
+  it("the authored creative is on the card: brand, logo, headline, subheadline, disclaimer", async () => {
+    const { sdb, env } = harness();
+    const auction = seedAuction(sdb, { surface_static_bid_offers: 1 });
+    const fora = seedOffer(sdb, { dynamic: false, staticBid: 200 });
+    creative(sdb, fora.offer_id, {
+      static_brand_name: "Fora Financial",
+      static_logo_url: "/media/2026/09/27/fora-logo.png",
+      static_headline: "Funding in as little as 24 hours",
+      static_subheadline: "Check your options in minutes",
+      static_disclaimer: "Not all applicants qualify.",
+    });
+    attachOffer(sdb, auction.id, fora, 0);
+    stubFetch(() => new Response("{}", { status: 200 }));
+    const bundle = await loadAuctionBundle(env.DB, auction, 1);
+    const result = await runAuction(
+      env,
+      { resolved: makeResolved(), bundle, environment: "production", binding: NO_BINDING, session_id: null, raw_answers: {}, clicked: [], runtime: LIVE_REQUEST },
+      { dryRun: true },
+    );
+    const html = result.banners_html;
+    expect(html).toContain('<div class="lg-banner-name">Fora Financial</div>');
+    // the Media-library logo is made absolute against the FUNNEL's own domain
+    expect(html).toContain('src="https://moneylantern.com/media/2026/09/27/fora-logo.png"');
+    expect(html).toContain("Funding in as little as 24 hours");
+    expect(html).toContain("Check your options in minutes");
+    expect(html).toContain("Not all applicants qualify.");
+    expect(html).not.toContain(">Prov "); // the Provider name no longer stands in for the brand
+  });
+
+  it("an Offer nobody edited renders exactly as before: Provider as the name, no logo, no copy", async () => {
+    const { sdb, env } = harness();
+    const auction = seedAuction(sdb, { surface_static_bid_offers: 1 });
+    const plain = seedOffer(sdb, { dynamic: false, staticBid: 5 });
+    attachOffer(sdb, auction.id, plain, 0);
+    stubFetch(() => new Response("{}", { status: 200 }));
+    const provider = (sdb.prepare("SELECT provider FROM leadgen_offers WHERE id = ?").get(plain.offer_id) as { provider: string }).provider;
+    const bundle = await loadAuctionBundle(env.DB, auction, 1);
+    const result = await runAuction(
+      env,
+      { resolved: makeResolved(), bundle, environment: "production", binding: NO_BINDING, session_id: null, raw_answers: {}, clicked: [], runtime: LIVE_REQUEST },
+      { dryRun: true },
+    );
+    expect(result.banners_html).toContain(`<div class="lg-banner-name">${provider}</div>`);
+    expect(result.banners_html).not.toContain("lg-banner-logo");
+    expect(result.banners_html).not.toContain("lg-banner-headline");
+  });
+
+  it("the carrier key does NOT move when the brand is edited (remove-clicked / dedupe / analytics keys stay put)", async () => {
+    const run = async (brand: string | null): Promise<string[]> => {
+      const { sdb, env } = harness();
+      const auction = seedAuction(sdb, { surface_static_bid_offers: 1 });
+      const o = seedOffer(sdb, { dynamic: false, staticBid: 5 });
+      sdb.prepare("UPDATE leadgen_offers SET provider = 'Impact', static_brand_name = ? WHERE id = ?").run(brand, o.offer_id);
+      attachOffer(sdb, auction.id, o, 0);
+      stubFetch(() => new Response("{}", { status: 200 }));
+      const bundle = await loadAuctionBundle(env.DB, auction, 1);
+      const result = await runAuction(env, { resolved: makeResolved(), bundle, environment: "production", binding: NO_BINDING, session_id: null, raw_answers: {}, clicked: [] }, { dryRun: true });
+      return result.explain.carriers_shown.map((c) => c.carrier_key);
+    };
+    expect(await run(null)).toEqual(["impact"]);
+    expect(await run("Fora Financial")).toEqual(["impact"]);
+  });
+
+  it("no request context at all: a Media-library logo is left off rather than broken; an https logo still shows", async () => {
+    const { sdb, env } = harness();
+    const auction = seedAuction(sdb, { surface_static_bid_offers: 1, multi_offer: "enabled" });
+    const a = seedOffer(sdb, { dynamic: false, staticBid: 9 });
+    const b = seedOffer(sdb, { dynamic: false, staticBid: 8 });
+    creative(sdb, a.offer_id, { static_brand_name: "Media Logo Co", static_logo_url: "/media/2026/09/27/a.png" });
+    creative(sdb, b.offer_id, { static_brand_name: "Https Logo Co", static_logo_url: "https://cdn.example/b.png" });
+    attachOffer(sdb, auction.id, a, 0);
+    attachOffer(sdb, auction.id, b, 1);
+    stubFetch(() => new Response("{}", { status: 200 }));
+    const bundle = await loadAuctionBundle(env.DB, auction, 1);
+    const result = await runAuction(env, { resolved: makeResolved(), bundle, environment: "production", binding: NO_BINDING, session_id: null, raw_answers: {}, clicked: [] }, { dryRun: true });
+    expect(result.banners_html).not.toContain("/media/2026/09/27/a.png");
+    expect(result.banners_html).toContain('src="https://cdn.example/b.png"');
+  });
+
+  it("a CPL (provider-request) Offer's card still comes from its response parser, even with creative columns set", async () => {
+    const CPL = JSON.stringify({
+      fields: { provider_id: "1050", carrier_name: "Fundera", carrier_logo: "https://cdn.example/fundera.png", click_url: "{response:matches.registration_url}", headline: "It's a Match!" },
+    });
+    const { sdb, env } = harness();
+    const auction = seedAuction(sdb, { surface_static_bid_offers: 1 });
+    const cpl = seedOffer(sdb, { dynamic: true, bidSource: "static", staticBid: 1, carrierParse: CPL });
+    sdb.prepare("UPDATE leadgen_offers SET static_fallback_banner_url = NULL WHERE id = ?").run(cpl.offer_id);
+    creative(sdb, cpl.offer_id, { static_brand_name: "SHOULD NOT SHOW", static_headline: "SHOULD NOT SHOW EITHER" });
+    attachOffer(sdb, auction.id, cpl, 0);
+    stubFetch(() => new Response(JSON.stringify({ success: true, matches: { registration_url: "https://www.fundera.com/referral/x" } }), { status: 200 }));
+    const bundle = await loadAuctionBundle(env.DB, auction, 1);
+    const result = await runAuction(
+      env,
+      { resolved: makeResolved(), bundle, environment: "production", binding: NO_BINDING, session_id: null, raw_answers: { email: "a@b.co" }, clicked: [], runtime: LIVE_REQUEST },
+      { dryRun: true },
+    );
+    expect(result.banners_html).toContain('<div class="lg-banner-name">Fundera</div>');
+    expect(result.banners_html).toContain("It&#39;s a Match!");
+    expect(result.banners_html).not.toContain("SHOULD NOT SHOW");
   });
 });

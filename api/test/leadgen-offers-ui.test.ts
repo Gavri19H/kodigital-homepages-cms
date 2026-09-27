@@ -152,6 +152,7 @@ const LEADGEN_MIGRATIONS = [
   "0052_leadgen_rework_m9_address_fields.sql",
   "0053_leadgen_rework_m12_othergroup_retirement.sql",
   "0057_leadgen_offer_test_verdict.sql",
+  "0060_leadgen_offer_static_creative.sql", // duplicate copies the static creative
 ] as const;
 
 function createLeadgenDb(DatabaseSync: DatabaseSyncCtor): SqliteDb {

@@ -717,6 +717,24 @@ const LG_OFFERS_STYLES = `
 .lg-clickout-meta{border:1px solid var(--c-border);border-radius:8px;padding:12px 16px}
 .lg-clickout-meta[hidden],[data-lg-clickout-meta-detail][hidden]{display:none}
 .lg-clickout-meta-detail{margin-top:12px}
+.lg-static-creative{margin-top:16px}
+.lg-static-creative[hidden],.lg-offer-media-overlay[hidden],.lg-logo-thumb[hidden]{display:none}
+.lg-creative-grid{display:grid;grid-template-columns:minmax(0,1fr) minmax(0,1fr);gap:24px;align-items:start}
+@media (max-width: 900px){.lg-creative-grid{grid-template-columns:minmax(0,1fr)}}
+.lg-creative-preview{position:sticky;top:12px}
+.lg-creative-frame{width:100%;height:260px;min-height:160px;border:1px solid var(--c-border);border-radius:8px;background:#f5f7fb;display:block}
+.lg-static-creative textarea.form-textarea{font-family:inherit;min-height:0}
+.lg-logo-row{display:flex;gap:8px;align-items:center}
+.lg-logo-thumb{width:48px;height:48px;object-fit:contain;border:1px solid var(--c-border);border-radius:6px;background:#fff;flex:0 0 auto}
+.lg-logo-actions{display:flex;gap:8px;margin-top:6px;flex-wrap:wrap}
+.lg-offer-media-overlay{position:fixed;inset:0;background:rgba(0,0,0,.5);z-index:1000;display:flex;align-items:center;justify-content:center}
+.lg-offer-media-panel{background:#fff;border-radius:8px;padding:16px;width:min(760px,94vw);max-height:86vh;overflow:auto}
+.lg-offer-media-upload{display:flex;gap:8px;align-items:center;flex-wrap:wrap;margin:8px 0 12px}
+.lg-offer-media-grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(110px,1fr));gap:10px}
+.lg-offer-media-item{border:1px solid var(--c-border);border-radius:6px;background:#fff;padding:6px;cursor:pointer;display:flex;flex-direction:column;gap:4px;align-items:center;font-size:11px;color:var(--c-muted);overflow:hidden}
+.lg-offer-media-item:hover,.lg-offer-media-item:focus-visible{border-color:var(--c-primary)}
+.lg-offer-media-item img{width:100%;height:72px;object-fit:contain}
+.lg-offer-media-item span{max-width:100%;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
 .lg-clickout-meta-status{margin-top:8px;padding:8px 10px;border-radius:6px;border:1px solid var(--c-border)}
 .lg-clickout-meta-status[data-tone="ok"]{background:#ecfdf5;color:#065f46;border-color:#a7f3d0}
 .lg-clickout-meta-status[data-tone="warn"]{background:#fffbeb;color:#92400e;border-color:#fde68a}
@@ -1966,7 +1984,87 @@ function renderStaticPanel(o: OfferDetail): string {
       ${fieldError("static_fallback_banner_url")}
     </div>
   </div>
+  ${renderStaticCreativeCard(o)}
 </section>`;
+}
+
+// OWNER 2026-09-27 — the banner creative of a "Static — no provider request"
+// Offer (0060, leadgen/static-creative.ts): the same five creative fields a
+// provider-request Offer's response parser fills (carrier name, logo,
+// headline, subheadline, disclaimer), authored here because a static Offer has
+// no response. Rendered for every Offer so the mode radio can reveal it
+// without a reload; visible ONLY for static_no_request (a request_static_bid
+// Offer shares this tab but its card copy comes from its parser). The preview
+// is the REAL banner renderer + funnel stylesheet (offer-creative-preview.ts).
+function renderStaticCreativeCard(o: OfferDetail): string {
+  const visible = offerMode(o) === "static_no_request";
+  const val = (v: string | null | undefined): string => escapeHtml(v ?? "");
+  const provider = (o.provider ?? "").trim();
+  const brandHelp =
+    provider !== ""
+      ? `The card's title. Empty = the Provider name (&ldquo;${escapeHtml(provider)}&rdquo;).`
+      : "The card's title. Empty = the Offer name.";
+  return `<div class="card lg-static-creative" data-lg-static-creative${visible ? "" : " hidden"}>
+    <div class="card-header"><h3 class="card-title">Banner creative</h3></div>
+    <p class="form-help">What a visitor sees on this offer's card in the results — the same fields a provider-request offer takes from its response. Leave a field empty to leave it off the card. The button text is set per auction (Auction &rarr; Banner builder), as for every offer.</p>
+    <div class="lg-creative-grid">
+      <div class="lg-creative-fields">
+        <div class="form-group">
+          <label for="lg-edit-brand-name" class="form-label">Brand name</label>
+          <input id="lg-edit-brand-name" name="static_brand_name" type="text" maxlength="80" class="form-input" data-creative-input value="${val(o.static_brand_name)}" placeholder="e.g. Fora Financial" />
+          <span class="form-help">${brandHelp}</span>
+          ${fieldError("static_brand_name")}
+        </div>
+        <div class="form-group">
+          <label for="lg-edit-logo" class="form-label">Logo</label>
+          <div class="lg-logo-row">
+            <img class="lg-logo-thumb" data-logo-thumb alt="" hidden />
+            <input id="lg-edit-logo" name="static_logo_url" type="text" class="form-input" data-creative-input value="${val(o.static_logo_url)}" placeholder="Choose from the Media library, or paste an https:// image URL" autocomplete="off" />
+          </div>
+          <div class="lg-logo-actions">
+            <button type="button" class="btn btn-sm btn-secondary" data-logo-choose>Choose from Media library&#8230;</button>
+            <button type="button" class="btn btn-sm btn-outline" data-logo-clear>Clear</button>
+          </div>
+          ${fieldError("static_logo_url")}
+        </div>
+        <div class="form-group">
+          <label for="lg-edit-headline" class="form-label">Headline</label>
+          <input id="lg-edit-headline" name="static_headline" type="text" maxlength="140" class="form-input" data-creative-input value="${val(o.static_headline)}" placeholder="e.g. Funding in as little as 24 hours" />
+          ${fieldError("static_headline")}
+        </div>
+        <div class="form-group">
+          <label for="lg-edit-subheadline" class="form-label">Subheadline</label>
+          <textarea id="lg-edit-subheadline" name="static_subheadline" rows="2" maxlength="280" class="form-textarea" data-creative-input placeholder="e.g. Check your options in minutes — no impact on your credit score">${val(o.static_subheadline)}</textarea>
+          ${fieldError("static_subheadline")}
+        </div>
+        <div class="form-group">
+          <label for="lg-edit-disclaimer" class="form-label">Disclaimer</label>
+          <textarea id="lg-edit-disclaimer" name="static_disclaimer" rows="2" maxlength="600" class="form-textarea" data-creative-input placeholder="Small print shown under the copy (optional)">${val(o.static_disclaimer)}</textarea>
+          ${fieldError("static_disclaimer")}
+        </div>
+      </div>
+      <div class="lg-creative-preview">
+        <span class="form-label">Preview</span>
+        <iframe id="lg-creative-preview" class="lg-creative-frame" sandbox="allow-same-origin" title="Banner preview" loading="lazy"></iframe>
+        <p class="form-help" id="lg-creative-preview-note" role="status" aria-live="polite">Rendered by the live banner renderer in the default theme (a Quote's own colours are not applied here).</p>
+      </div>
+    </div>
+  </div>
+  <div class="lg-offer-media-overlay" id="lg-offer-media-picker" role="dialog" aria-modal="true" aria-label="Choose a logo from the Media library" hidden>
+    <div class="lg-offer-media-panel">
+      <div class="lg-editor-head">
+        <h3 class="card-title">Media library</h3>
+        <span class="lg-editor-spacer"></span>
+        <button type="button" class="btn btn-sm btn-outline" data-media-close>Close</button>
+      </div>
+      <div class="lg-offer-media-upload">
+        <input type="file" id="lg-offer-media-file" accept="image/*" aria-label="Upload a new image" />
+        <button type="button" class="btn btn-sm btn-secondary" data-media-upload>Upload &amp; use</button>
+        <span class="form-help" id="lg-offer-media-status" role="status"></span>
+      </div>
+      <div class="lg-offer-media-grid" id="lg-offer-media-grid"></div>
+    </div>
+  </div>`;
 }
 
 // §7.5 D1: the FROZEN rule-action enum surfaces as TWO plain behaviors. New
@@ -2707,6 +2805,12 @@ const LG_EDITOR_SCRIPT = `
     body.clickout_meta_event_name = trimmedOrNull('clickout_meta_event_name');
     body.clickout_meta_value = numberOrNull('clickout_meta_value', false);
     body.clickout_meta_test_event_code = trimmedOrNull('clickout_meta_test_event_code');
+    // 0060 static-Offer banner creative (empty = off the card).
+    body.static_brand_name = trimmedOrNull('static_brand_name');
+    body.static_logo_url = trimmedOrNull('static_logo_url');
+    body.static_headline = trimmedOrNull('static_headline');
+    body.static_subheadline = trimmedOrNull('static_subheadline');
+    body.static_disclaimer = trimmedOrNull('static_disclaimer');
     if (capEnabled && fallbackIdInput && fallbackIdInput.value) {
       var fb = parseInt(fallbackIdInput.value, 10);
       if (!isNaN(fb) && fb > 0) { body.cap_fallback_offer_id = fb; }
@@ -2850,6 +2954,229 @@ const LG_EDITOR_SCRIPT = `
 // comma/newline with per-token validation and lists rejected tokens inline.
 // window.lgRegionErrors surfaces the server's typed region_value_invalid
 // (dimension+token) inline.
+
+// 0060 — the static-Offer banner creative island: mode-driven visibility, the
+// logo Media-library picker (the EXISTING /api/admin/media list + upload
+// endpoints, the same the Section Studio picker uses) and the live preview
+// (POST …/creative-preview renders the real card). Strict ES5 (layout.ts).
+const LG_STATIC_CREATIVE_SCRIPT = `
+(function () {
+  var root = document.getElementById('lg-offer-editor');
+  var card = document.querySelector('[data-lg-static-creative]');
+  if (!root || !card) { return; }
+  var offerId = root.getAttribute('data-offer-public-id') || '';
+  var form = document.getElementById('lg-editor-form');
+  var frame = document.getElementById('lg-creative-preview');
+  var note = document.getElementById('lg-creative-preview-note');
+  var logoInput = document.getElementById('lg-edit-logo');
+  var thumb = card.querySelector('[data-logo-thumb]');
+  var overlay = document.getElementById('lg-offer-media-picker');
+  var grid = document.getElementById('lg-offer-media-grid');
+  var statusEl = document.getElementById('lg-offer-media-status');
+  var NOTE = 'Rendered by the live banner renderer in the default theme (a Quote\\'s own colours are not applied here).';
+  var timer = null;
+  var seq = 0;
+  // Grow the frame to the card (same-origin srcdoc, so its height is readable).
+  if (frame) {
+    frame.addEventListener('load', function () {
+      try {
+        var doc = frame.contentDocument;
+        var h = doc && doc.documentElement ? doc.documentElement.scrollHeight : 0;
+        if (h > 0) { frame.style.height = (h + 4) + 'px'; }
+      } catch (e) { /* keep the CSS height */ }
+    });
+  }
+
+  function val(name) {
+    var el = form ? form.querySelector('[name="' + name + '"]') : null;
+    return el ? String(el.value || '') : '';
+  }
+  function selectedMode() {
+    var checked = form ? form.querySelector('[name="auction_mode"]:checked') : null;
+    return checked ? checked.value : '';
+  }
+  function isStatic() { return selectedMode() === 'static_no_request'; }
+  function logoSrc(v) {
+    var s = String(v || '');
+    if (s.indexOf('/media/') === 0 || s.indexOf('https://') === 0 || s.indexOf('http://') === 0) { return s; }
+    return '';
+  }
+  function paintThumb() {
+    if (!thumb || !logoInput) { return; }
+    var src = logoSrc(logoInput.value.replace(/^\\s+|\\s+$/g, ''));
+    if (src === '') { thumb.hidden = true; thumb.removeAttribute('src'); return; }
+    thumb.setAttribute('src', src);
+    thumb.hidden = false;
+  }
+  function setNote(text) { if (note) { note.textContent = text; } }
+  if (thumb) {
+    thumb.addEventListener('error', function () {
+      setNote('The logo image could not be loaded \\u2014 check the URL, or choose it again from the Media library.');
+    });
+  }
+
+  function refreshPreview() {
+    if (!frame || !isStatic()) { return; }
+    var mine = ++seq;
+    var body = {
+      static_brand_name: val('static_brand_name'),
+      static_logo_url: val('static_logo_url'),
+      static_headline: val('static_headline'),
+      static_subheadline: val('static_subheadline'),
+      static_disclaimer: val('static_disclaimer'),
+      provider: val('provider'),
+      offer_name: val('offer_name'),
+      banner_url_template: val('banner_url_template'),
+      static_fallback_banner_url: val('static_fallback_banner_url')
+    };
+    fetch('/api/admin/leadgen/offers/' + encodeURIComponent(offerId) + '/creative-preview', {
+      method: 'POST', credentials: 'same-origin',
+      headers: { 'Content-Type': 'application/json', 'Accept': 'application/json' },
+      body: JSON.stringify(body)
+    }).then(function (r) { return r.json().then(function (j) { return { ok: r.ok, body: j }; }); })
+      .then(function (res) {
+        if (mine !== seq) { return; }
+        if (!res.ok) {
+          var f = res.body && res.body.fields ? res.body.fields : null;
+          var k, first = '';
+          if (f) { for (k in f) { if (Object.prototype.hasOwnProperty.call(f, k)) { first = f[k]; break; } } }
+          setNote(first !== '' ? 'Preview not updated: ' + first : 'Preview unavailable.');
+          return;
+        }
+        frame.setAttribute('srcdoc', res.body.document || '');
+        if (res.body.shown === false) {
+          setNote(res.body.dropped_reason === 'missing_click_url'
+            ? 'This card would NOT be shown to visitors: add a Banner URL template above so the button has somewhere to go.'
+            : 'This card would NOT be shown to visitors (' + String(res.body.dropped_reason || 'unknown reason') + ').');
+        } else {
+          setNote(NOTE);
+        }
+      })
+      .catch(function () { if (mine === seq) { setNote('Preview unavailable: network error.'); } });
+  }
+  function schedule() {
+    if (timer !== null) { clearTimeout(timer); }
+    timer = setTimeout(function () { timer = null; refreshPreview(); }, 350);
+  }
+  function applyVisibility() {
+    card.hidden = !isStatic();
+    if (isStatic()) { schedule(); }
+  }
+
+  // --- the logo Media-library picker -------------------------------------
+  function clearChildren(el) { while (el && el.firstChild) { el.removeChild(el.firstChild); } }
+  function mediaStatus(t) { if (statusEl) { statusEl.textContent = t || ''; } }
+  function closePicker() { if (overlay) { overlay.hidden = true; } }
+  function pick(storageKey) {
+    if (!logoInput) { return; }
+    logoInput.value = '/media/' + storageKey;
+    closePicker();
+    paintThumb();
+    schedule();
+    try { logoInput.dispatchEvent(new Event('input', { bubbles: true })); } catch (e) { /* old browsers */ }
+  }
+  function renderGrid(items) {
+    clearChildren(grid);
+    var shown = 0, i, it, btn, img, name;
+    for (i = 0; items && i < items.length; i++) {
+      it = items[i];
+      if (!it || !it.storage_key) { continue; }
+      if (it.mime_type && String(it.mime_type).indexOf('image/') !== 0) { continue; }
+      btn = document.createElement('button');
+      btn.type = 'button';
+      btn.className = 'lg-offer-media-item';
+      btn.setAttribute('data-media-pick', it.storage_key);
+      btn.title = it.filename || it.storage_key;
+      img = document.createElement('img');
+      img.setAttribute('src', '/media/' + it.storage_key);
+      img.setAttribute('alt', it.alt_text || it.filename || '');
+      img.setAttribute('loading', 'lazy');
+      name = document.createElement('span');
+      name.appendChild(document.createTextNode(it.filename || it.storage_key));
+      btn.appendChild(img);
+      btn.appendChild(name);
+      grid.appendChild(btn);
+      shown++;
+    }
+    if (shown === 0) {
+      var p = document.createElement('p');
+      p.className = 'form-help';
+      p.appendChild(document.createTextNode('No images in the Media library yet \\u2014 upload one above.'));
+      grid.appendChild(p);
+    }
+  }
+  function openPicker() {
+    if (!overlay) { return; }
+    overlay.hidden = false;
+    mediaStatus('Loading\\u2026');
+    fetch('/api/admin/media', { credentials: 'same-origin', headers: { 'Accept': 'application/json' } })
+      .then(function (r) { return r.json().then(function (j) { return { ok: r.ok, body: j }; }); })
+      .then(function (res) {
+        if (!res.ok) { mediaStatus('Could not load the Media library.'); return; }
+        mediaStatus('');
+        renderGrid((res.body && res.body.media) || []);
+      })
+      .catch(function () { mediaStatus('Could not load the Media library.'); });
+  }
+  function upload() {
+    var fileInput = document.getElementById('lg-offer-media-file');
+    if (!fileInput || !fileInput.files || fileInput.files.length === 0) { mediaStatus('Choose an image file first.'); return; }
+    var fd = new FormData();
+    fd.append('file', fileInput.files[0]);
+    mediaStatus('Uploading\\u2026');
+    fetch('/api/admin/media/upload', { method: 'POST', credentials: 'same-origin', body: fd })
+      .then(function (r) { return r.json().then(function (j) { return { ok: r.ok, body: j }; }); })
+      .then(function (res) {
+        if (!res.ok || !res.body || !res.body.item || !res.body.item.storage_key) {
+          mediaStatus((res.body && res.body.error) ? res.body.error : 'Upload failed.');
+          return;
+        }
+        fileInput.value = '';
+        mediaStatus('');
+        pick(res.body.item.storage_key);
+      })
+      .catch(function () { mediaStatus('Upload failed: network error.'); });
+  }
+
+  document.addEventListener('click', function (e) {
+    var t = e.target;
+    if (!t || !t.closest) { return; }
+    if (t.closest('[data-logo-choose]')) { openPicker(); return; }
+    if (t.closest('[data-logo-clear]')) {
+      if (logoInput) {
+        logoInput.value = '';
+        // an input event marks the form dirty (the unsaved-changes guard)
+        try { logoInput.dispatchEvent(new Event('input', { bubbles: true })); } catch (e2) { /* old browsers */ }
+      }
+      paintThumb(); schedule(); return;
+    }
+    if (t.closest('[data-media-close]')) { closePicker(); return; }
+    if (t.closest('[data-media-upload]')) { upload(); return; }
+    var item = t.closest('[data-media-pick]');
+    if (item) { pick(item.getAttribute('data-media-pick')); return; }
+    if (t === overlay) { closePicker(); }
+  });
+  document.addEventListener('keydown', function (e) {
+    if (e.key === 'Escape' && overlay && !overlay.hidden) { closePicker(); }
+  });
+  if (form) {
+    form.addEventListener('input', function (e) {
+      var n = e.target && e.target.name;
+      if (n === 'static_logo_url') { paintThumb(); }
+      if (n && (n.indexOf('static_') === 0 || n === 'provider' || n === 'offer_name' || n === 'banner_url_template')) { schedule(); }
+    });
+    form.addEventListener('change', function (e) {
+      if (e.target && e.target.name === 'auction_mode') { applyVisibility(); }
+    });
+  }
+  document.addEventListener('click', function (e) {
+    var btn = e.target && e.target.closest ? e.target.closest('[data-lg-tab-btn="static"]') : null;
+    if (btn) { schedule(); }
+  });
+  paintThumb();
+  applyVisibility();
+})();
+`;
 
 const LG_REGION_EDITOR_SCRIPT = `
 (function () {
@@ -3149,6 +3476,7 @@ function offerEditorHtml(data: EditorPageData, brand: LeadgenBranding): string {
       LG_SHARED_SCRIPT +
       LG_EDITOR_SCRIPT +
       LG_REGION_EDITOR_SCRIPT +
+      LG_STATIC_CREATIVE_SCRIPT +
       PAYLOAD_BUILDER_SCRIPT +
       listFilterScript,
   });
