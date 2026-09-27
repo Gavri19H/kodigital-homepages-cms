@@ -220,9 +220,13 @@ export interface LeadgenOfferRow {
   // 0058 clickout Meta conversion (static Offers only). NULL-tolerant types:
   // a row read before the migration lands has none of these columns.
   clickout_meta_conversion?: number;
+  clickout_meta_dataset_id?: string | null;
   clickout_meta_event_name?: string | null;
   clickout_meta_value?: number | null;
   clickout_meta_test_event_code?: string | null;
+  clickout_meta_last_status?: string | null;
+  clickout_meta_last_detail?: string | null;
+  clickout_meta_last_at?: number | null;
   created_by: string | null;
   created_at: number;
   updated_at: number;
@@ -266,9 +270,14 @@ export interface LeadgenOfferApi {
   status: LeadgenOfferStatus;
   // 0058 clickout Meta conversion (static Offers only).
   clickout_meta_conversion: boolean;
+  clickout_meta_dataset_id: string | null;
   clickout_meta_event_name: string | null;
   clickout_meta_value: number | null;
   clickout_meta_test_event_code: string | null;
+  // Read-only: what the most recent clickout did (written by the sender).
+  clickout_meta_last_status: string | null;
+  clickout_meta_last_detail: string | null;
+  clickout_meta_last_at: number | null;
   created_by: string | null;
   created_at: number;
   updated_at: number;

@@ -33,6 +33,7 @@ import { ingestProviderPostback, ingestBrowserPixel } from "./postback";
 import { leadgenTrackRouter } from "../../analytics/leadgen-track";
 import { resolveLeadgenClick, type LeadgenClickInput } from "./click";
 import { sendClickoutMetaConversion, type ClickoutMetaOffer } from "../../leadgen/clickout-meta";
+import { safeErrorName } from "../../safety/safe-error";
 import {
   mintFunnelAttempt,
   verifyConfigTokenDetailed,
@@ -792,12 +793,19 @@ function scheduleClickoutMeta(
     let offer: ClickoutMetaOffer | null = null;
     try {
       offer = await env.DB.prepare(
-        "SELECT public_id, calls_provider_api, clickout_meta_conversion, clickout_meta_event_name, clickout_meta_value, clickout_meta_test_event_code, static_bid_currency FROM leadgen_offers WHERE public_id = ? LIMIT 1",
+        "SELECT public_id, calls_provider_api, clickout_meta_conversion, clickout_meta_dataset_id, clickout_meta_event_name, clickout_meta_value, clickout_meta_test_event_code, static_bid_currency FROM leadgen_offers WHERE public_id = ? LIMIT 1",
       )
         .bind(offerPublicId)
         .first<ClickoutMetaOffer>();
-    } catch {
-      offer = null;
+    } catch (err) {
+      // Not silent: a failed read here means a switched-on Offer sent nothing.
+      console.error(JSON.stringify({
+        message: "leadgen clickout meta conversion",
+        offer_id: offerPublicId,
+        status: "failed",
+        reason: `offer_read_error:${safeErrorName(err)}`,
+      }));
+      return;
     }
     // The common case — the switch is off — returns silently: no log line per
     // ordinary click.
@@ -906,15 +914,16 @@ async function serveLeadgenClick(c: PublicContext): Promise<Response> {
     if (redirect !== null) {
       // 0058: a SUCCESSFUL clickout on a static Offer may send Meta a media
       // signal. Entirely on waitUntil — the visitor's 302 never waits on it.
+      // Only the click's own facts go in. The visitor's Meta identifiers are
+      // read from the auction that showed the banner — never from this
+      // request, whose query string anyone can write.
       scheduleClickoutMeta(c, execCtx, offerPublicId, {
         click_id: result.click_id,
+        auction_instance_id: auctionInstanceId,
         funnel_attempt_id: funnelAttemptId,
-        session_id: canonicalMacros["session_id"] ?? ctx.session_id ?? "",
-        fbc: canonicalMacros["fbc"] ?? "",
-        fbclid: canonicalMacros["fbclid"] ?? "",
-        ip: canonicalMacros["ip"] ?? "",
-        ua: canonicalMacros["ua"] ?? "",
-        page_url: canonicalMacros["referer"] ?? "",
+        ip: freshCtx.request.ip,
+        ua: freshCtx.request.ua,
+        page_url: freshCtx.request.referer,
         host: new URL(c.req.url).host,
       });
       return redirect;

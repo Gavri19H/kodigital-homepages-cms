@@ -43,7 +43,7 @@ import {
   sealOfferApiToken,
 } from "../../leadgen/offer-api-token";
 import { readCapStatus, capExceeded } from "../../leadgen/caps";
-import { CLICKOUT_META_EVENT_NAMES, CLICKOUT_META_TEST_CODE_RE } from "../../leadgen/clickout-meta";
+import { CLICKOUT_META_DATASET_RE, CLICKOUT_META_EVENT_NAMES, CLICKOUT_META_TEST_CODE_RE } from "../../leadgen/clickout-meta";
 import { validateBannerUrlTemplate, normalizeTemplate, findUnknownMacros } from "../../leadgen/macros";
 import {
   inferSchemaFromExample,
@@ -256,9 +256,13 @@ export function offerRowToApi(row: LeadgenOfferRow): LeadgenOfferApi {
     calls_provider_api: row.calls_provider_api !== 0,
     cap_enabled: row.cap_enabled !== 0,
     clickout_meta_conversion: (row.clickout_meta_conversion ?? 0) !== 0,
+    clickout_meta_dataset_id: row.clickout_meta_dataset_id ?? null,
     clickout_meta_event_name: row.clickout_meta_event_name ?? null,
     clickout_meta_value: row.clickout_meta_value ?? null,
     clickout_meta_test_event_code: row.clickout_meta_test_event_code ?? null,
+    clickout_meta_last_status: row.clickout_meta_last_status ?? null,
+    clickout_meta_last_detail: row.clickout_meta_last_detail ?? null,
+    clickout_meta_last_at: row.clickout_meta_last_at ?? null,
     api_token_present: typeof api_token_cipher === "string" && api_token_cipher.trim() !== ""
       && (api_token_key_id === "lgok1" || api_token_key_id === "lgok2"),
     api_token_updated_at: row.api_token_updated_at ?? null,
@@ -1012,6 +1016,7 @@ const OFFER_PATCH_COLUMNS = [
   // 0058 clickout Meta conversion (static — no provider request Offers only;
   // the merged-state rule in patchOfferHandler enforces that).
   "clickout_meta_conversion",
+  "clickout_meta_dataset_id",
   "clickout_meta_event_name",
   "clickout_meta_value",
   "clickout_meta_test_event_code",
@@ -1182,6 +1187,14 @@ function collectScalarUpdates(body: Record<string, unknown>, errors: FieldErrors
     else if (typeof v !== "string" || !(CLICKOUT_META_EVENT_NAMES as readonly string[]).includes(v)) {
       errors["clickout_meta_event_name"] = `clickout_meta_event_name must be one of ${CLICKOUT_META_EVENT_NAMES.join("|")}`;
     } else updates.set("clickout_meta_event_name", v);
+  }
+  if (body["clickout_meta_dataset_id"] !== undefined) {
+    const v = body["clickout_meta_dataset_id"];
+    const id = typeof v === "string" ? v.trim() : v;
+    if (id === null || id === "") updates.set("clickout_meta_dataset_id", null);
+    else if (typeof id !== "string" || !CLICKOUT_META_DATASET_RE.test(id)) {
+      errors["clickout_meta_dataset_id"] = "Meta dataset (pixel) ID must be the number shown in Meta Events Manager";
+    } else updates.set("clickout_meta_dataset_id", id);
   }
   if (body["clickout_meta_value"] !== undefined) {
     const v = body["clickout_meta_value"];
@@ -1539,6 +1552,14 @@ export async function patchOfferHandler(c: AdminContext): Promise<Response> {
   ) {
     errors["clickout_meta_conversion"] =
       "Fire Meta conversion on clickout is only available for Static — no provider request offers";
+  }
+  // …and ON needs somewhere to send to.
+  if (
+    mergedNumber(existing, updates, "clickout_meta_conversion") === 1 &&
+    (mergedField(existing, updates, "clickout_meta_dataset_id") ?? null) === null &&
+    errors["clickout_meta_dataset_id"] === undefined
+  ) {
+    errors["clickout_meta_dataset_id"] = "Meta dataset (pixel) ID is required to fire on clickout";
   }
 
   const capErrors = validateOfferCapFields({

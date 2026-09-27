@@ -48,8 +48,7 @@ import { inferSchemaFromExample } from "../../leadgen/payload";
 import {
   CLICKOUT_META_DEFAULT_EVENT,
   CLICKOUT_META_EVENT_NAMES,
-  resolveClickoutMetaDestination,
-  type ClickoutMetaDestinationProblem,
+  resolveClickoutMetaToken,
 } from "../../leadgen/clickout-meta";
 import {
   REGION_RULE_ACTION_LABELS,
@@ -721,6 +720,7 @@ const LG_OFFERS_STYLES = `
 .lg-clickout-meta-status{margin-top:8px;padding:8px 10px;border-radius:6px;border:1px solid var(--c-border)}
 .lg-clickout-meta-status[data-tone="ok"]{background:#ecfdf5;color:#065f46;border-color:#a7f3d0}
 .lg-clickout-meta-status[data-tone="warn"]{background:#fffbeb;color:#92400e;border-color:#fde68a}
+.lg-clickout-meta-status[data-tone="info"]{background:var(--c-bg-alt)}
 .lg-placement-row{display:flex;gap:8px;margin-bottom:8px;align-items:center}
 .lg-saving{position:relative;opacity:.85}
 .lg-saving::after{content:'';width:12px;height:12px;border:2px solid rgba(255,255,255,.4);border-top-color:#fff;border-radius:50%;display:inline-block;margin-left:8px;animation:lgSpin .8s linear infinite}
@@ -1796,34 +1796,17 @@ function renderPlacementEditorRow(p: LeadgenOfferPlacementApi | null): string {
   </div>`;
 }
 
-// Where the clickout Meta event would be sent — the TOKEN-FREE projection of
-// clickout-meta.ts resolveClickoutMetaDestination (the resolver returns the
-// token; it never reaches a page).
-export type ClickoutMetaStatusView =
-  | { ok: true; dataset_id: string; api_version: string }
-  | { ok: false; problem: ClickoutMetaDestinationProblem; dataset_id: string | null };
+// Whether the server holds the Meta access token — the TOKEN-FREE projection
+// of clickout-meta.ts resolveClickoutMetaToken (which returns the token; it
+// never reaches a page). "Installed" is all the page can honestly say: whether
+// Meta ACCEPTS the token is only known after a send, which is why the last
+// clickout's outcome is shown right under it.
+export interface ClickoutMetaStatusView {
+  token_installed: boolean;
+}
 
-function clickoutMetaStatusText(status: ClickoutMetaStatusView): { tone: "ok" | "warn"; text: string } {
-  if (status.ok) {
-    return {
-      tone: "ok",
-      text: `Connected: events go to Meta dataset ${status.dataset_id} (Conversions API ${status.api_version}) through LeadGen's “facebook” media platform.`,
-    };
-  }
-  switch (status.problem) {
-    case "meta_platform_missing":
-      return { tone: "warn", text: "Not connected: LeadGen has no “facebook” media platform, so nothing will be sent yet." };
-    case "meta_endpoint_not_configured":
-      return {
-        tone: "warn",
-        text: "Not connected: LeadGen's “facebook” media platform has no Meta dataset yet (it needs the Conversions API endpoint https://graph.facebook.com/v25.0/<dataset id>/events), so nothing will be sent yet.",
-      };
-    case "meta_token_missing":
-      return {
-        tone: "warn",
-        text: `Not connected: Meta dataset ${status.dataset_id ?? ""} is set, but its Conversions API access token is not installed, so nothing will be sent yet.`,
-      };
-  }
+function fmtUnixUtc(seconds: number): string {
+  return `${new Date(seconds * 1000).toISOString().slice(0, 16).replace("T", " ")} UTC`;
 }
 
 // 0058 — the clickout Meta conversion. Rendered for every Offer (so switching
@@ -1839,13 +1822,25 @@ function renderClickoutMetaFieldset(o: OfferDetail, status: ClickoutMetaStatusVi
     const label = name === CLICKOUT_META_DEFAULT_EVENT ? `${name} (default)` : name;
     return `<option value="${name}"${selected}>${escapeHtml(label)}</option>`;
   }).join("");
-  const statusLine = clickoutMetaStatusText(status);
+  const tokenLine = status.token_installed
+    ? { tone: "ok", text: "The Meta Conversions API access token is installed on the server." }
+    : { tone: "warn", text: "Not ready: the Meta Conversions API access token is not installed on the server yet, so nothing will be sent." };
+  const last =
+    o.clickout_meta_last_at !== null && o.clickout_meta_last_detail !== null
+      ? `Last clickout (${fmtUnixUtc(o.clickout_meta_last_at)}): ${o.clickout_meta_last_detail}`
+      : "No clickout has been processed since this was set up.";
+  const lastTone = o.clickout_meta_last_status === "fired" ? "ok" : o.clickout_meta_last_status === null ? "info" : "warn";
   return `<fieldset class="form-group lg-clickout-meta" data-lg-clickout-meta${visible ? "" : " hidden"}>
       <legend class="form-label">Meta (Facebook) conversion on clickout</legend>
       <label class="form-label lg-radio" for="lg-edit-clickout-meta"><input id="lg-edit-clickout-meta" type="checkbox" name="clickout_meta_conversion" value="1"${on ? " checked" : ""} /> Fire Meta conversion on clickout</label>
-      <span class="form-help">When a visitor who arrived from a Meta ad clicks this offer's banner, LeadGen sends Meta one Conversions API event, once per visitor per offer. It is a media signal only: it books no LeadGen revenue and is not counted as a conversion. Off by default. This is a LeadGen offer setting — it is not configured in, and does not use, Admin → Conversions.</span>
+      <span class="form-help">When a visitor who arrived from a Meta ad clicks this offer's banner, LeadGen sends Meta one Conversions API event — at most once per funnel visit per offer. It is a media signal only: it books no LeadGen revenue and is not counted as a conversion. Off by default. This is a LeadGen offer setting — it is not configured in, and does not use, Admin → Conversions.</span>
       ${fieldError("clickout_meta_conversion")}
       <div class="lg-clickout-meta-detail" data-lg-clickout-meta-detail${on ? "" : " hidden"}>
+        <div class="form-group">
+          <label for="lg-edit-clickout-meta-dataset" class="form-label">Meta dataset (pixel) ID *</label>
+          <input id="lg-edit-clickout-meta-dataset" name="clickout_meta_dataset_id" type="text" inputmode="numeric" class="form-input" value="${escapeHtml(o.clickout_meta_dataset_id ?? "")}" placeholder="The number in Meta Events Manager → Data sources" autocomplete="off" />
+          ${fieldError("clickout_meta_dataset_id")}
+        </div>
         <div class="form-group">
           <label for="lg-edit-clickout-meta-event" class="form-label">Meta event</label>
           <select id="lg-edit-clickout-meta-event" name="clickout_meta_event_name" class="form-select">${eventOptions}</select>
@@ -1860,11 +1855,13 @@ function renderClickoutMetaFieldset(o: OfferDetail, status: ClickoutMetaStatusVi
         <div class="form-group">
           <label for="lg-edit-clickout-meta-test" class="form-label">Meta test event code (optional)</label>
           <input id="lg-edit-clickout-meta-test" name="clickout_meta_test_event_code" type="text" class="form-input" value="${escapeHtml(o.clickout_meta_test_event_code ?? "")}" placeholder="TEST12345" autocomplete="off" />
-          <span class="form-help">From Meta Events Manager → Test events. While set, clickouts show up there live and are not used for optimisation. Clear it to go live.</span>
+          <span class="form-help">From Meta Events Manager → Test events. While set, each clickout also shows up there live. Meta still counts these events, so use it only while testing and clear it afterwards.</span>
           ${fieldError("clickout_meta_test_event_code")}
         </div>
+        <p class="form-help">To test: open the funnel from a link that carries <code>?fbclid=</code> (as a Meta ad click does), finish it, click this offer's banner, then reload this page.</p>
       </div>
-      <p class="form-help lg-clickout-meta-status" data-lg-clickout-meta-status="${status.ok ? "connected" : status.problem}" data-tone="${statusLine.tone}">${escapeHtml(statusLine.text)}</p>
+      <p class="form-help lg-clickout-meta-status" data-lg-clickout-meta-status="${status.token_installed ? "token_installed" : "token_missing"}" data-tone="${tokenLine.tone}">${escapeHtml(tokenLine.text)}</p>
+      <p class="form-help lg-clickout-meta-status" data-lg-clickout-meta-last="${escapeHtml(o.clickout_meta_last_status ?? "none")}" data-tone="${lastTone}">${escapeHtml(last)}</p>
     </fieldset>`;
 }
 
@@ -2706,6 +2703,7 @@ const LG_EDITOR_SCRIPT = `
     // Meta switch; any other mode always saves it OFF (the API refuses ON).
     var clickoutToggle = form.querySelector('[name="clickout_meta_conversion"]');
     body.clickout_meta_conversion = !!(clickoutToggle && clickoutToggle.checked) && selectedMode() === 'static_no_request';
+    body.clickout_meta_dataset_id = trimmedOrNull('clickout_meta_dataset_id');
     body.clickout_meta_event_name = trimmedOrNull('clickout_meta_event_name');
     body.clickout_meta_value = numberOrNull('clickout_meta_value', false);
     body.clickout_meta_test_event_code = trimmedOrNull('clickout_meta_test_event_code');
@@ -3203,13 +3201,11 @@ function pickActiveSchema(
 
 // GET /admin/leadgen/offers/:id/edit — the full-page editor (accepts the
 // numeric id or the lgo_ public id; unknown/foreign/malformed → the 404 page).
-// The editor's view of the clickout Meta destination. The token is dropped
-// here, before anything is rendered.
+// The editor's view of the Meta token: installed or not. The token itself is
+// dropped here, before anything is rendered.
 async function clickoutMetaStatusView(c: UiContext): Promise<ClickoutMetaStatusView> {
-  const d = await resolveClickoutMetaDestination(c.env, c.env.DB);
-  return d.ok
-    ? { ok: true, dataset_id: d.dataset_id, api_version: d.api_version }
-    : { ok: false, problem: d.problem, dataset_id: d.dataset_id };
+  const t = await resolveClickoutMetaToken(c.env, c.env.DB);
+  return { token_installed: t.ok };
 }
 
 export async function leadgenOfferEditorPage(c: UiContext): Promise<Response> {

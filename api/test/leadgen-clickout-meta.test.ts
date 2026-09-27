@@ -9,16 +9,22 @@
 // What these tests hold, against the REAL migrations and the REAL app:
 //   * the sender: exact Graph request (the shape the Conversions engine's
 //     destination-meta adapter and the reference funnel both use), the
-//     once-per-visitor-per-Offer dedupe, and every reason it refuses to send —
-//     including production's ACTUAL facebook row today (the seeded /tr
-//     placeholder), which must read as "not configured", never fire;
-//   * GET /lg/lc: the visitor's 302 is byte-identical with the feature on or
-//     off, the Meta POST happens only for a static Offer with the switch on,
-//     and no revenue / conversion row is ever written;
-//   * the Offer API: the switch is refused for any other auction mode;
-//   * the editor: the control shows only for Static, says it is not Admin →
-//     Conversions, states whether Meta is actually connected, and never
-//     renders the token.
+//     once-per-funnel-visit-per-Offer dedupe, the slot given back when Meta
+//     refuses, the outcome recorded on the Offer, and every reason it sends
+//     nothing;
+//   * FORGERY (review F1): /lg/lc is a public unguarded GET, so a hand-made
+//     URL with a pasted fbclid must send nothing — the visitor's Meta ids come
+//     only from the auction that showed this Offer to this funnel attempt;
+//   * GET /lg/lc: the visitor's 302 is the same with the feature on or off, the
+//     Meta POST happens only for a static Offer with the switch on, and no
+//     revenue / conversion row is ever written;
+//   * §26 is not reused (review F2): production's facebook row exactly as it is
+//     today — the seeded /tr GET template, enabled=0 — is enough, because only
+//     its token reference is read;
+//   * the Offer API refuses the switch for any other auction mode or without a
+//     dataset; the editor shows it only for Static, says it is not Admin →
+//     Conversions, says honestly whether the token is installed, shows the last
+//     clickout's outcome, and never renders the token.
 
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { readFileSync } from "node:fs";
@@ -202,23 +208,24 @@ interface Harness {
   env: Env;
   kv: Map<string, string>;
 }
-function newHarness(opts: { token?: string | null; template?: string | null } = {}): Harness {
+// The facebook row is production's EXACT row today unless a test says
+// otherwise: the seeded /tr GET template, enabled=0, the allowlisted ref.
+function newHarness(opts: { token?: string | null; platformRow?: boolean } = {}): Harness {
   const sdb = createDb(DatabaseSync as DatabaseSyncCtor);
   const { kv, store } = makeKvStub();
-  const template = opts.template === undefined ? ENDPOINT : opts.template;
-  if (template !== null) {
+  if (opts.platformRow !== false) {
     sdb
       .prepare(
         "INSERT INTO leadgen_media_platforms (platform, enabled, postback_url_template, auth_secret_ref, event_name, value_multiplier) VALUES ('facebook', 0, ?, 'LEADGEN_S2S_TOKEN_FACEBOOK', 'Purchase', 1)",
       )
-      .run(template);
+      .run(SEED_FACEBOOK_TEMPLATE);
   }
   return { sdb, env: buildEnv(d1FromSqlite(sdb), kv, { token: opts.token }), kv: store };
 }
 
 function seedOffer(
   sdb: SqliteDb,
-  opts: { static?: boolean; clickout?: number; eventName?: string | null; value?: number | null; testCode?: string | null } = {},
+  opts: { static?: boolean; clickout?: number; dataset?: string | null; eventName?: string | null; value?: number | null; testCode?: string | null } = {},
 ): { offerId: number; offerPublicId: string } {
   const offerPublicId = mintPublicId("offer");
   const isStatic = opts.static ?? true;
@@ -228,15 +235,16 @@ function seedOffer(
          (public_id, offer_name, provider, activity, vertical, conversion_tracking_method, offer_type,
           calls_provider_api, bid_source, request_execution_mode, banner_url_template,
           static_bid_value, static_bid_currency, cap_enabled, status,
-          clickout_meta_conversion, clickout_meta_event_name, clickout_meta_value, clickout_meta_test_event_code)
+          clickout_meta_conversion, clickout_meta_dataset_id, clickout_meta_event_name, clickout_meta_value, clickout_meta_test_event_code)
        VALUES (?, 'Fora - Tier 3', 'Impact', 'leadgen', 'Business Loans', 's2s_postback', 'cpl',
                ?, 'static', 'server', 'https://partner.example/go?cid={click_id}',
-               200, 'USD', 0, 'active', ?, ?, ?, ?)`,
+               200, 'USD', 0, 'active', ?, ?, ?, ?, ?)`,
     )
     .run(
       offerPublicId,
       isStatic ? 0 : 1,
       opts.clickout ?? 1,
+      opts.dataset === undefined ? DATASET : opts.dataset,
       opts.eventName ?? null,
       opts.value ?? null,
       opts.testCode ?? null,
@@ -248,9 +256,21 @@ function seedOffer(
   return { offerId: row.id, offerPublicId };
 }
 
-// The auction's persisted macro snapshot is where the click route gets the
-// visitor's Meta identifiers — the real shape, from a real production row.
-function seedResultLog(sdb: SqliteDb, aiid: string, snapshot: Record<string, string>): void {
+const META_SNAPSHOT: Record<string, string> = {
+  session_id: "be9974ca-3fd9-46fc-bcfb-27da76a628a4",
+  utm_source: "mln",
+  utm_medium: "paid",
+  fbc: FBC,
+  fbclid: FBCLID,
+};
+
+// An auction exactly as the engine persists it (shape read from a production
+// row): the attempt, the offers whose banners were shown, and the macro
+// snapshot that holds the visitor's Meta identifiers.
+function seedAuction(
+  sdb: SqliteDb,
+  opts: { aiid: string; faid: string; shown: string[]; snapshot?: Record<string, string> },
+): void {
   const auctionPublicId = mintPublicId("auction");
   sdb
     .prepare(
@@ -261,20 +281,22 @@ function seedResultLog(sdb: SqliteDb, aiid: string, snapshot: Record<string, str
        VALUES (?, 'A', 'dynamic', 'highest_bid', 'percentage_of_max', 10, 'enabled', 1, 5, 3, 10, 'disabled', 'on_slot_exhaustion', 1, 'offer', 2500, 1, 'active')`,
     )
     .run(auctionPublicId);
+  const snapshot = opts.snapshot ?? META_SNAPSHOT;
   sdb
     .prepare(
-      "INSERT INTO leadgen_auction_result_log (auction_instance_id, auction_result_id, auction_config_id, session_id, funnel_id, macro_context_json) VALUES (?, ?, ?, ?, ?, ?)",
+      "INSERT INTO leadgen_auction_result_log (auction_instance_id, auction_result_id, auction_config_id, session_id, funnel_attempt_id, funnel_id, carriers_shown_json, macro_context_json) VALUES (?, ?, ?, ?, ?, ?, ?, ?)",
     )
-    .run(aiid, `ares-${aiid}`, auctionPublicId, snapshot["session_id"] ?? null, "lgf_x", JSON.stringify(snapshot));
+    .run(
+      opts.aiid,
+      `ares-${opts.aiid}`,
+      auctionPublicId,
+      snapshot["session_id"] ?? null,
+      opts.faid,
+      "lgf_x",
+      JSON.stringify(opts.shown.map((offer_id, i) => ({ carrier_key: "", offer_id, bid: 200, slot: i + 1 }))),
+      JSON.stringify(snapshot),
+    );
 }
-
-const META_SNAPSHOT = {
-  session_id: "be9974ca-3fd9-46fc-bcfb-27da76a628a4",
-  utm_source: "mln",
-  utm_medium: "paid",
-  fbc: FBC,
-  fbclid: FBCLID,
-};
 
 interface CapturedCtx {
   ctx: ExecutionContext;
@@ -314,10 +336,8 @@ afterEach(() => {
 function click(overrides: Partial<ClickoutMetaClick> = {}): ClickoutMetaClick {
   return {
     click_id: "lgl_01TESTCLICK",
+    auction_instance_id: "aiid-1",
     funnel_attempt_id: "att_1",
-    session_id: META_SNAPSHOT.session_id,
-    fbc: FBC,
-    fbclid: FBCLID,
     ip: "203.0.113.7",
     ua: "Mozilla/5.0 (iPhone; CPU iPhone OS 17_0 like Mac OS X)",
     page_url: "https://moneylantern.com/lg/business-loans?fbclid=x",
@@ -329,9 +349,23 @@ function click(overrides: Partial<ClickoutMetaClick> = {}): ClickoutMetaClick {
 function offerRow(sdb: SqliteDb, publicId: string): ClickoutMetaOffer {
   return sdb
     .prepare(
-      "SELECT public_id, calls_provider_api, clickout_meta_conversion, clickout_meta_event_name, clickout_meta_value, clickout_meta_test_event_code, static_bid_currency FROM leadgen_offers WHERE public_id = ?",
+      "SELECT public_id, calls_provider_api, clickout_meta_conversion, clickout_meta_dataset_id, clickout_meta_event_name, clickout_meta_value, clickout_meta_test_event_code, static_bid_currency FROM leadgen_offers WHERE public_id = ?",
     )
     .get(publicId) as ClickoutMetaOffer;
+}
+
+function lastOutcome(sdb: SqliteDb, publicId: string): { status: string | null; detail: string | null; at: number | null } {
+  const r = sdb
+    .prepare("SELECT clickout_meta_last_status s, clickout_meta_last_detail d, clickout_meta_last_at a FROM leadgen_offers WHERE public_id = ?")
+    .get(publicId) as { s: string | null; d: string | null; a: number | null };
+  return { status: r.s, detail: r.d, at: r.a };
+}
+
+// A shown static offer + its auction, ready to click.
+function ready(h: Harness, offerOpts: Parameters<typeof seedOffer>[1] = {}, auction: Partial<{ aiid: string; faid: string; snapshot: Record<string, string> }> = {}) {
+  const o = seedOffer(h.sdb, offerOpts);
+  seedAuction(h.sdb, { aiid: auction.aiid ?? "aiid-1", faid: auction.faid ?? "att_1", shown: [o.offerPublicId], snapshot: auction.snapshot });
+  return o;
 }
 
 // ===========================================================================
@@ -339,9 +373,9 @@ function offerRow(sdb: SqliteDb, publicId: string): ClickoutMetaOffer {
 // ===========================================================================
 
 describeDb("sendClickoutMetaConversion — what reaches Meta", () => {
-  it("POSTs one Conversions API event to the dataset, token as access_token, the visitor's Meta click id attached", async () => {
+  it("POSTs one Conversions API event to the offer's dataset, token as access_token, the auction visitor's Meta click id attached", async () => {
     const h = newHarness();
-    const { offerPublicId } = seedOffer(h.sdb, { testCode: "TEST34567" });
+    const { offerPublicId } = ready(h, { testCode: "TEST34567" });
     const f = stubFetch();
     const out = await sendClickoutMetaConversion(h.env, h.env.DB, offerRow(h.sdb, offerPublicId), click(), { now: 1790500000123 });
 
@@ -374,16 +408,28 @@ describeDb("sendClickoutMetaConversion — what reaches Meta", () => {
         fbc: FBC,
         client_ip_address: "203.0.113.7",
         client_user_agent: "Mozilla/5.0 (iPhone; CPU iPhone OS 17_0 like Mac OS X)",
-        external_id: [createHash("sha256").update(META_SNAPSHOT.session_id).digest("hex")],
+        external_id: [createHash("sha256").update(META_SNAPSHOT["session_id"]!).digest("hex")],
       },
     });
     // No value configured ⇒ no value sent. A click is not a sale.
     expect(body.data[0]).not.toHaveProperty("custom_data");
   });
 
+  it("records what happened on the Offer, in words, so a tester reads it on the Offer page", async () => {
+    const h = newHarness();
+    const { offerPublicId } = ready(h);
+    stubFetch();
+    await sendClickoutMetaConversion(h.env, h.env.DB, offerRow(h.sdb, offerPublicId), click(), { now: 1790500000123 });
+    expect(lastOutcome(h.sdb, offerPublicId)).toEqual({
+      status: "fired",
+      detail: `Sent to Meta dataset ${DATASET}: Lead, Meta accepted 1 event.`,
+      at: 1790500000,
+    });
+  });
+
   it("the token never appears in the log line", async () => {
     const h = newHarness();
-    const { offerPublicId } = seedOffer(h.sdb);
+    const { offerPublicId } = ready(h);
     stubFetch();
     const log = vi.spyOn(console, "log").mockImplementation(() => undefined);
     await sendClickoutMetaConversion(h.env, h.env.DB, offerRow(h.sdb, offerPublicId), click());
@@ -394,7 +440,7 @@ describeDb("sendClickoutMetaConversion — what reaches Meta", () => {
 
   it("an operator-set value goes out as custom_data in the offer's currency; the chosen event name is used", async () => {
     const h = newHarness();
-    const { offerPublicId } = seedOffer(h.sdb, { value: 12.5, eventName: "SubmitApplication" });
+    const { offerPublicId } = ready(h, { value: 12.5, eventName: "SubmitApplication" });
     const f = stubFetch();
     await sendClickoutMetaConversion(h.env, h.env.DB, offerRow(h.sdb, offerPublicId), click());
     const body = JSON.parse(String(f.metaCalls()[0]!.init?.body)) as { data: Array<Record<string, unknown>>; test_event_code?: string };
@@ -403,53 +449,108 @@ describeDb("sendClickoutMetaConversion — what reaches Meta", () => {
     expect(body).not.toHaveProperty("test_event_code"); // live, not a test
   });
 
-  it("fbclid only (no fbc captured) ⇒ fbc derived exactly as §26 derives it", async () => {
+  it("the auction captured only an fbclid ⇒ fbc derived exactly as §26 derives it", async () => {
     const h = newHarness();
-    const { offerPublicId } = seedOffer(h.sdb);
+    const { offerPublicId } = ready(h, {}, { snapshot: { ...META_SNAPSHOT, fbc: "" } });
     const f = stubFetch();
-    await sendClickoutMetaConversion(h.env, h.env.DB, offerRow(h.sdb, offerPublicId), click({ fbc: "" }), { now: 1790500000123 });
+    await sendClickoutMetaConversion(h.env, h.env.DB, offerRow(h.sdb, offerPublicId), click(), { now: 1790500000123 });
     const body = JSON.parse(String(f.metaCalls()[0]!.init?.body)) as { data: Array<{ user_data: { fbc: string } }> };
     expect(body.data[0]!.user_data.fbc).toBe(`fb.1.1790500000123.${FBCLID}`);
   });
 
-  it("once per visitor per offer: a second click in the same funnel attempt is deduped; another visitor still fires", async () => {
+  it("once per funnel visit per offer: a second click in the same attempt is deduped; another attempt still fires", async () => {
     const h = newHarness();
-    const { offerPublicId } = seedOffer(h.sdb);
+    const { offerPublicId } = ready(h);
+    seedAuction(h.sdb, { aiid: "aiid-2", faid: "att_2", shown: [offerPublicId] });
     const f = stubFetch();
     const offer = offerRow(h.sdb, offerPublicId);
     const first = await sendClickoutMetaConversion(h.env, h.env.DB, offer, click({ click_id: "lgl_A" }));
     const again = await sendClickoutMetaConversion(h.env, h.env.DB, offer, click({ click_id: "lgl_B" }));
-    const other = await sendClickoutMetaConversion(h.env, h.env.DB, offer, click({ click_id: "lgl_C", funnel_attempt_id: "att_2" }));
+    const other = await sendClickoutMetaConversion(h.env, h.env.DB, offer, click({ click_id: "lgl_C", auction_instance_id: "aiid-2", funnel_attempt_id: "att_2" }));
     expect(first.status).toBe("fired");
     expect(again).toEqual({ status: "deduped", event_id: `lgco.att_1.${offerPublicId}` });
     expect(other.status).toBe("fired");
     expect(f.metaCalls()).toHaveLength(2);
-    // the LeadGen S2S KV prefix
     expect([...h.kv.keys()].every((k) => k.startsWith("lg_s2s:facebook:clickout:"))).toBe(true);
   });
 
-  it("no attempt id on the href ⇒ the click_id is the identity (at most once per click_id)", async () => {
+  it("REVIEW M1: Meta refusing (bad token) gives the slot back — once the token is fixed the visitor's next click is sent", async () => {
     const h = newHarness();
-    const { offerPublicId } = seedOffer(h.sdb);
-    const f = stubFetch();
+    const { offerPublicId } = ready(h);
     const offer = offerRow(h.sdb, offerPublicId);
-    await sendClickoutMetaConversion(h.env, h.env.DB, offer, click({ funnel_attempt_id: "", click_id: "lgl_X" }));
-    const replay = await sendClickoutMetaConversion(h.env, h.env.DB, offer, click({ funnel_attempt_id: "", click_id: "lgl_X" }));
-    expect(replay).toEqual({ status: "deduped", event_id: "lgco.lgl_X" });
+    vi.spyOn(console, "error").mockImplementation(() => undefined);
+    stubFetch(400, { error: { message: "Invalid OAuth access token", type: "OAuthException", code: 190, fbtrace_id: "T1" } });
+    const refused = await sendClickoutMetaConversion(h.env, h.env.DB, offer, click({ click_id: "lgl_1" }));
+    expect(refused.status).toBe("failed");
+    expect(lastOutcome(h.sdb, offerPublicId).detail).toBe("Meta refused it: the access token is invalid or expired (Meta error 190).");
+    vi.restoreAllMocks();
+    const f = stubFetch();
+    const retried = await sendClickoutMetaConversion(h.env, h.env.DB, offer, click({ click_id: "lgl_2" }));
+    expect(retried.status).toBe("fired");
     expect(f.metaCalls()).toHaveLength(1);
   });
 });
 
-describeDb("sendClickoutMetaConversion — every reason it sends nothing", () => {
-  it("switch off (the default for every existing offer)", async () => {
+describeDb("sendClickoutMetaConversion — FORGERY (review F1): nothing on the click URL can make it send", () => {
+  it("no auction behind the click (a hand-made /lg/lc URL) ⇒ nothing", async () => {
     const h = newHarness();
-    const { offerPublicId } = seedOffer(h.sdb, { clickout: 0 });
+    const { offerPublicId } = seedOffer(h.sdb); // no auction at all
+    const f = stubFetch();
+    expect(await sendClickoutMetaConversion(h.env, h.env.DB, offerRow(h.sdb, offerPublicId), click({ auction_instance_id: "forged" }))).toEqual({
+      status: "skipped",
+      reason: "no_auction",
+    });
+    expect(f.calls).toHaveLength(0);
+  });
+
+  it("a real auction, but a made-up attempt id (the trick to dodge dedupe) ⇒ nothing", async () => {
+    const h = newHarness();
+    const { offerPublicId } = ready(h);
+    const f = stubFetch();
+    expect(
+      await sendClickoutMetaConversion(h.env, h.env.DB, offerRow(h.sdb, offerPublicId), click({ funnel_attempt_id: "rvforge-123" })),
+    ).toEqual({ status: "skipped", reason: "attempt_mismatch" });
+    expect(f.calls).toHaveLength(0);
+  });
+
+  it("a real auction that never showed THIS offer ⇒ nothing", async () => {
+    const h = newHarness();
+    const { offerPublicId } = seedOffer(h.sdb);
+    seedAuction(h.sdb, { aiid: "aiid-1", faid: "att_1", shown: ["lgo_SOMEONE_ELSE"] });
+    const f = stubFetch();
+    expect(await sendClickoutMetaConversion(h.env, h.env.DB, offerRow(h.sdb, offerPublicId), click())).toEqual({
+      status: "skipped",
+      reason: "offer_not_shown",
+    });
+    expect(f.calls).toHaveLength(0);
+  });
+
+  it("the auction's visitor did not come from Meta ⇒ nothing (the click request cannot add an fbclid)", async () => {
+    const h = newHarness();
+    const { offerPublicId } = ready(h, {}, { snapshot: { session_id: "s-organic", utm_source: "google" } });
+    const f = stubFetch();
+    expect(await sendClickoutMetaConversion(h.env, h.env.DB, offerRow(h.sdb, offerPublicId), click())).toEqual({
+      status: "skipped",
+      reason: "not_meta_traffic",
+    });
+    expect(lastOutcome(h.sdb, offerPublicId).detail).toBe(
+      "Not sent: the visitor did not arrive from a Meta ad (no fbclid on the funnel link).",
+    );
+    expect(f.calls).toHaveLength(0);
+  });
+});
+
+describeDb("sendClickoutMetaConversion — every other reason it sends nothing", () => {
+  it("switch off (the default for every existing offer) — and an ordinary click leaves no record", async () => {
+    const h = newHarness();
+    const { offerPublicId } = ready(h, { clickout: 0 });
     const f = stubFetch();
     expect(await sendClickoutMetaConversion(h.env, h.env.DB, offerRow(h.sdb, offerPublicId), click())).toEqual({
       status: "skipped",
       reason: "offer_setting_off",
     });
     expect(f.calls).toHaveLength(0);
+    expect(lastOutcome(h.sdb, offerPublicId).status).toBeNull();
   });
 
   it("the 0058 default IS off: an offer inserted without the column never fires", async () => {
@@ -466,7 +567,7 @@ describeDb("sendClickoutMetaConversion — every reason it sends nothing", () =>
 
   it("a provider-request offer, even with the flag forced on in the database", async () => {
     const h = newHarness();
-    const { offerPublicId } = seedOffer(h.sdb, { static: false, clickout: 1 });
+    const { offerPublicId } = ready(h, { static: false, clickout: 1 });
     const f = stubFetch();
     expect(await sendClickoutMetaConversion(h.env, h.env.DB, offerRow(h.sdb, offerPublicId), click())).toEqual({
       status: "skipped",
@@ -475,37 +576,30 @@ describeDb("sendClickoutMetaConversion — every reason it sends nothing", () =>
     expect(f.calls).toHaveLength(0);
   });
 
-  it("a visitor who did not come from Meta (no fbc, no fbclid)", async () => {
+  it("no dataset on the offer", async () => {
     const h = newHarness();
-    const { offerPublicId } = seedOffer(h.sdb);
-    const f = stubFetch();
-    expect(
-      await sendClickoutMetaConversion(h.env, h.env.DB, offerRow(h.sdb, offerPublicId), click({ fbc: "", fbclid: "" })),
-    ).toEqual({ status: "skipped", reason: "not_meta_traffic" });
-    expect(f.calls).toHaveLength(0);
-  });
-
-  it("PRODUCTION'S ROW TODAY — the seeded /tr placeholder — is 'not configured', never a fire", async () => {
-    const h = newHarness({ template: SEED_FACEBOOK_TEMPLATE });
-    const { offerPublicId } = seedOffer(h.sdb);
+    const { offerPublicId } = ready(h, { dataset: null });
     const f = stubFetch();
     expect(await sendClickoutMetaConversion(h.env, h.env.DB, offerRow(h.sdb, offerPublicId), click())).toEqual({
       status: "skipped",
-      reason: "meta_endpoint_not_configured",
+      reason: "meta_dataset_missing",
     });
     expect(f.calls).toHaveLength(0);
   });
 
-  it("no facebook media platform at all", async () => {
-    const h = newHarness({ template: null });
-    const { offerPublicId } = seedOffer(h.sdb);
+  it("no facebook media platform row (so no token reference)", async () => {
+    const h = newHarness({ platformRow: false });
+    const { offerPublicId } = ready(h);
     stubFetch();
-    expect((await sendClickoutMetaConversion(h.env, h.env.DB, offerRow(h.sdb, offerPublicId), click())).status).toBe("skipped");
+    expect(await sendClickoutMetaConversion(h.env, h.env.DB, offerRow(h.sdb, offerPublicId), click())).toEqual({
+      status: "skipped",
+      reason: "meta_platform_missing",
+    });
   });
 
-  it("the Conversions API token is not installed — fails closed before any request, and the dedupe slot is NOT spent", async () => {
+  it("the access token is not installed — fails closed before any request, and the dedupe slot is NOT spent", async () => {
     const h = newHarness({ token: null });
-    const { offerPublicId } = seedOffer(h.sdb);
+    const { offerPublicId } = ready(h);
     const f = stubFetch();
     expect(await sendClickoutMetaConversion(h.env, h.env.DB, offerRow(h.sdb, offerPublicId), click())).toEqual({
       status: "skipped",
@@ -515,10 +609,9 @@ describeDb("sendClickoutMetaConversion — every reason it sends nothing", () =>
     expect(h.kv.size).toBe(0);
   });
 
-  it("Meta rejects (4xx) ⇒ 'failed' with the status, logged, never thrown", async () => {
+  it("Meta rejects ⇒ 'failed' with Meta's code/type/trace only — never its message, never the token", async () => {
     const h = newHarness();
-    const { offerPublicId } = seedOffer(h.sdb);
-    // Meta's real bad-token answer shape.
+    const { offerPublicId } = ready(h);
     stubFetch(400, {
       error: { message: `Invalid OAuth access token ${TOKEN}`, type: "OAuthException", code: 190, fbtrace_id: "AbCdEf123" },
     });
@@ -530,20 +623,21 @@ describeDb("sendClickoutMetaConversion — every reason it sends nothing", () =>
       http_status: 400,
       meta_error: { code: 190, subcode: null, type: "OAuthException", fbtrace_id: "AbCdEf123" },
     });
-    // Meta's free-form message is never logged — not even when it quotes back what we sent.
-    expect(err.mock.calls.map((c) => String(c[0])).join("\n")).not.toContain("Invalid OAuth");
-    expect(err.mock.calls.map((c) => String(c[0])).join("\n")).not.toContain(TOKEN);
+    const logged = err.mock.calls.map((c) => String(c[0])).join("\n");
+    expect(logged).not.toContain("Invalid OAuth");
+    expect(logged).not.toContain(TOKEN);
   });
 
-  it("the network throws (with the URL in the message) ⇒ 'failed', the token never logged", async () => {
+  it("the network throws (with the URL in the message) ⇒ 'failed', the token never logged or stored", async () => {
     const h = newHarness();
-    const { offerPublicId } = seedOffer(h.sdb);
+    const { offerPublicId } = ready(h);
     vi.spyOn(globalThis, "fetch").mockRejectedValue(new TypeError(`fetch failed ${ENDPOINT}?access_token=${TOKEN}`));
     const err = vi.spyOn(console, "error").mockImplementation(() => undefined);
     const out = await sendClickoutMetaConversion(h.env, h.env.DB, offerRow(h.sdb, offerPublicId), click());
     expect(out.status).toBe("failed");
     expect(JSON.stringify(out)).not.toContain(TOKEN);
     expect(err.mock.calls.map((c) => String(c[0])).join("\n")).not.toContain(TOKEN);
+    expect(JSON.stringify(lastOutcome(h.sdb, offerPublicId))).not.toContain(TOKEN);
   });
 });
 
@@ -551,15 +645,20 @@ describeDb("sendClickoutMetaConversion — every reason it sends nothing", () =>
 // GET /lg/lc — the real route
 // ===========================================================================
 
-async function clickThrough(h: Harness, offerPublicId: string, aiid: string, faid: string): Promise<{ res: Response; captured: CapturedCtx }> {
+async function clickThrough(
+  h: Harness,
+  offerPublicId: string,
+  q: { aiid: string; faid: string; extraQuery?: string },
+): Promise<{ res: Response; captured: CapturedCtx }> {
   const captured = captureCtx();
-  const href = buildLeadgenClickUrl(offerPublicId, {
-    carrier_key: "",
-    auction_instance_id: aiid,
-    banner_render_id: "brid-1",
-    slot: 1,
-    funnel_attempt_id: faid,
-  }).replace(/&amp;/g, "&");
+  const href =
+    buildLeadgenClickUrl(offerPublicId, {
+      carrier_key: "",
+      auction_instance_id: q.aiid,
+      banner_render_id: "brid-1",
+      slot: 1,
+      funnel_attempt_id: q.faid,
+    }).replace(/&amp;/g, "&") + (q.extraQuery ?? "");
   const res = await app.request(
     `http://${TENANT_HOST}${href}`,
     {
@@ -584,13 +683,12 @@ function moneyRows(sdb: SqliteDb): { revenue: number; conversions: number } {
 }
 
 describeDb("GET /lg/lc — a static offer's clickout sends Meta a media signal", () => {
-  it("302 to the partner as before; exactly one Meta event with the visitor's fbc; no revenue, no conversion row", async () => {
+  it("302 to the partner as before; exactly one Meta event carrying the AUCTION's fbc; no revenue, no conversion row", async () => {
     const h = newHarness();
-    const { offerPublicId } = seedOffer(h.sdb);
-    seedResultLog(h.sdb, "aiid-meta-1", META_SNAPSHOT);
+    const { offerPublicId } = ready(h, {}, { aiid: "aiid-r1", faid: "att_r1" });
     const f = stubFetch();
 
-    const { res } = await clickThrough(h, offerPublicId, "aiid-meta-1", "att_meta_1");
+    const { res } = await clickThrough(h, offerPublicId, { aiid: "aiid-r1", faid: "att_r1" });
 
     expect(res.status).toBe(302);
     expect(res.headers.get("Location")).toMatch(/^https:\/\/partner\.example\/go\?cid=lgl_/);
@@ -599,20 +697,38 @@ describeDb("GET /lg/lc — a static offer's clickout sends Meta a media signal",
       data: Array<{ event_name: string; event_id: string; event_source_url: string; user_data: Record<string, unknown> }>;
     };
     expect(body.data[0]!.event_name).toBe("Lead");
-    expect(body.data[0]!.event_id).toBe(`lgco.att_meta_1.${offerPublicId}`);
+    expect(body.data[0]!.event_id).toBe(`lgco.att_r1.${offerPublicId}`);
     expect(body.data[0]!.event_source_url).toBe(`https://${TENANT_HOST}/lg/business-loans`);
     expect(body.data[0]!.user_data["fbc"]).toBe(FBC);
     expect(body.data[0]!.user_data["client_ip_address"]).toBe("203.0.113.7");
     expect(moneyRows(h.sdb)).toEqual({ revenue: 0, conversions: 0 });
+    expect(lastOutcome(h.sdb, offerPublicId).status).toBe("fired");
   });
 
-  it("clicking the same banner twice in one funnel attempt: two 302s, ONE Meta event", async () => {
+  it("REVIEW F1 through the real route: a forged URL with a pasted fbclid and a fresh attempt id sends NOTHING (the visitor still gets the 302)", async () => {
     const h = newHarness();
-    const { offerPublicId } = seedOffer(h.sdb);
-    seedResultLog(h.sdb, "aiid-meta-2", META_SNAPSHOT);
+    const { offerPublicId } = seedOffer(h.sdb); // switched on, no auction behind it
     const f = stubFetch();
-    const a = await clickThrough(h, offerPublicId, "aiid-meta-2", "att_meta_2");
-    const b = await clickThrough(h, offerPublicId, "aiid-meta-2", "att_meta_2");
+    const forged = await clickThrough(h, offerPublicId, { aiid: "", faid: "rvforge-1", extraQuery: `&fbclid=FORGED${FBCLID}` });
+    expect(forged.res.status).toBe(302);
+    expect(f.metaCalls()).toHaveLength(0);
+  });
+
+  it("REVIEW F1: an fbclid pasted onto a REAL banner link whose visitor was organic sends nothing", async () => {
+    const h = newHarness();
+    const { offerPublicId } = ready(h, {}, { aiid: "aiid-org", faid: "att_org", snapshot: { session_id: "s-org", utm_source: "google" } });
+    const f = stubFetch();
+    const { res } = await clickThrough(h, offerPublicId, { aiid: "aiid-org", faid: "att_org", extraQuery: `&fbclid=${FBCLID}&fbc=${FBC}` });
+    expect(res.status).toBe(302);
+    expect(f.metaCalls()).toHaveLength(0);
+  });
+
+  it("clicking the same banner twice in one funnel visit: two 302s, ONE Meta event", async () => {
+    const h = newHarness();
+    const { offerPublicId } = ready(h, {}, { aiid: "aiid-r2", faid: "att_r2" });
+    const f = stubFetch();
+    const a = await clickThrough(h, offerPublicId, { aiid: "aiid-r2", faid: "att_r2" });
+    const b = await clickThrough(h, offerPublicId, { aiid: "aiid-r2", faid: "att_r2" });
     expect(a.res.status).toBe(302);
     expect(b.res.status).toBe(302);
     expect(f.metaCalls()).toHaveLength(1);
@@ -620,10 +736,9 @@ describeDb("GET /lg/lc — a static offer's clickout sends Meta a media signal",
 
   it("switch OFF: the identical click sends nothing, and the 302 is the same", async () => {
     const h = newHarness();
-    const { offerPublicId } = seedOffer(h.sdb, { clickout: 0 });
-    seedResultLog(h.sdb, "aiid-meta-3", META_SNAPSHOT);
+    const { offerPublicId } = ready(h, { clickout: 0 }, { aiid: "aiid-r3", faid: "att_r3" });
     const f = stubFetch();
-    const { res } = await clickThrough(h, offerPublicId, "aiid-meta-3", "att_meta_3");
+    const { res } = await clickThrough(h, offerPublicId, { aiid: "aiid-r3", faid: "att_r3" });
     expect(res.status).toBe(302);
     expect(res.headers.get("Location")).toMatch(/^https:\/\/partner\.example\/go\?cid=lgl_/);
     expect(f.metaCalls()).toHaveLength(0);
@@ -631,22 +746,31 @@ describeDb("GET /lg/lc — a static offer's clickout sends Meta a media signal",
 
   it("a provider-request offer is unchanged: no Meta event even with the flag forced on", async () => {
     const h = newHarness();
-    const { offerPublicId } = seedOffer(h.sdb, { static: false, clickout: 1 });
-    seedResultLog(h.sdb, "aiid-meta-4", META_SNAPSHOT);
+    const { offerPublicId } = ready(h, { static: false, clickout: 1 }, { aiid: "aiid-r4", faid: "att_r4" });
     const f = stubFetch();
-    const { res } = await clickThrough(h, offerPublicId, "aiid-meta-4", "att_meta_4");
+    const { res } = await clickThrough(h, offerPublicId, { aiid: "aiid-r4", faid: "att_r4" });
     expect(res.status).toBe(302);
     expect(f.metaCalls()).toHaveLength(0);
   });
 
   it("Meta down: the visitor still gets the 302 (the send is after the response, on waitUntil)", async () => {
     const h = newHarness();
-    const { offerPublicId } = seedOffer(h.sdb);
-    seedResultLog(h.sdb, "aiid-meta-5", META_SNAPSHOT);
+    const { offerPublicId } = ready(h, {}, { aiid: "aiid-r5", faid: "att_r5" });
     vi.spyOn(globalThis, "fetch").mockRejectedValue(new TypeError("network down"));
     vi.spyOn(console, "error").mockImplementation(() => undefined);
-    const { res } = await clickThrough(h, offerPublicId, "aiid-meta-5", "att_meta_5");
+    const { res } = await clickThrough(h, offerPublicId, { aiid: "aiid-r5", faid: "att_r5" });
     expect(res.status).toBe(302);
+  });
+
+  it("REVIEW F2: §26 is not reused — production's facebook row as it is today (the /tr GET template, enabled=0) is enough, and stays exactly as it was", async () => {
+    const h = newHarness(); // the seeded placeholder row
+    const before = h.sdb.prepare("SELECT * FROM leadgen_media_platforms").all();
+    const { offerPublicId } = ready(h, {}, { aiid: "aiid-r6", faid: "att_r6" });
+    const f = stubFetch();
+    await clickThrough(h, offerPublicId, { aiid: "aiid-r6", faid: "att_r6" });
+    expect(f.metaCalls()).toHaveLength(1);
+    expect(new URL(f.metaCalls()[0]!.url).pathname).toBe(`/v25.0/${DATASET}/events`);
+    expect(h.sdb.prepare("SELECT * FROM leadgen_media_platforms").all()).toEqual(before);
   });
 });
 
@@ -662,11 +786,12 @@ function jsonInit(method: string, body: unknown): RequestInit {
 describeDb("Offer API — the switch exists only for Static — no provider request", () => {
   it("saves and reads back on a static offer", async () => {
     const h = newHarness();
-    const { offerPublicId } = seedOffer(h.sdb, { clickout: 0 });
+    const { offerPublicId } = seedOffer(h.sdb, { clickout: 0, dataset: null });
     const res = await admin.request(
       `${API}/offers/${offerPublicId}`,
       jsonInit("PATCH", {
         clickout_meta_conversion: true,
+        clickout_meta_dataset_id: ` ${DATASET} `,
         clickout_meta_event_name: "Lead",
         clickout_meta_value: null,
         clickout_meta_test_event_code: "TEST34567",
@@ -676,9 +801,20 @@ describeDb("Offer API — the switch exists only for Static — no provider requ
     expect(res.status).toBe(200);
     const got = (await (await admin.request(`${API}/offers/${offerPublicId}`, {}, h.env)).json()) as Record<string, unknown>;
     expect(got["clickout_meta_conversion"]).toBe(true);
+    expect(got["clickout_meta_dataset_id"]).toBe(DATASET);
     expect(got["clickout_meta_event_name"]).toBe("Lead");
     expect(got["clickout_meta_value"]).toBeNull();
     expect(got["clickout_meta_test_event_code"]).toBe("TEST34567");
+    expect(got["clickout_meta_last_status"]).toBeNull();
+  });
+
+  it("switching ON needs a dataset", async () => {
+    const h = newHarness();
+    const { offerPublicId } = seedOffer(h.sdb, { clickout: 0, dataset: null });
+    const res = await admin.request(`${API}/offers/${offerPublicId}`, jsonInit("PATCH", { clickout_meta_conversion: true }), h.env);
+    expect(res.status).toBe(400);
+    const body = (await res.json()) as { fields?: Record<string, string> };
+    expect(body.fields?.["clickout_meta_dataset_id"]).toMatch(/required/);
   });
 
   it("refused on a provider-request offer", async () => {
@@ -707,13 +843,14 @@ describeDb("Offer API — the switch exists only for Static — no provider requ
     expect(ok.status).toBe(200);
   });
 
-  it("rejects an unknown event, a non-positive value and a malformed test code", async () => {
+  it("rejects an unknown event, a non-positive value, a malformed test code and a non-numeric dataset", async () => {
     const h = newHarness();
     const { offerPublicId } = seedOffer(h.sdb);
     for (const [field, value] of [
       ["clickout_meta_event_name", "PageView"],
       ["clickout_meta_value", 0],
       ["clickout_meta_test_event_code", "TEST 1<script>"],
+      ["clickout_meta_dataset_id", "pixel-abc"],
     ] as const) {
       const res = await admin.request(`${API}/offers/${offerPublicId}`, jsonInit("PATCH", { [field]: value }), h.env);
       expect(res.status, field).toBe(400);
@@ -721,9 +858,16 @@ describeDb("Offer API — the switch exists only for Static — no provider requ
       expect(body.fields?.[field], field).toBeDefined();
     }
   });
+
+  it("the outcome columns are read-only", async () => {
+    const h = newHarness();
+    const { offerPublicId } = seedOffer(h.sdb);
+    const res = await admin.request(`${API}/offers/${offerPublicId}`, jsonInit("PATCH", { clickout_meta_last_status: "fired" }), h.env);
+    expect(res.status).toBe(400);
+  });
 });
 
-describeDb("Offer editor — the control, its copy, and whether Meta is really connected", () => {
+describeDb("Offer editor — the control, its copy, and what it can honestly say", () => {
   async function editorHtml(h: Harness, publicId: string): Promise<string> {
     const res = await admin.request(`/admin/leadgen/offers/${publicId}/edit`, {}, h.env);
     expect(res.status).toBe(200);
@@ -744,12 +888,22 @@ describeDb("Offer editor — the control, its copy, and whether Meta is really c
     expect(box).toContain("Fire Meta conversion on clickout");
     expect(box).toContain("not configured in, and does not use, Admin → Conversions");
     expect(box).toContain("books no LeadGen revenue");
-    // placed right after the Auction mode radios, inside the Basics panel
+    expect(box).toContain("at most once per funnel visit per offer");
+    expect(box).toContain('name="clickout_meta_dataset_id"');
+    expect(box).toContain(`value="${DATASET}"`);
     const basics = html.indexOf('data-lg-tab-panel="basics"');
     const mode = html.indexOf("Auction mode", basics);
     expect(mode).toBeGreaterThan(basics);
     expect(html.indexOf("lg-clickout-meta", mode)).toBeGreaterThan(mode);
     expect(html.indexOf("lg-clickout-meta", mode)).toBeLessThan(html.indexOf('data-lg-tab-panel="static"'));
+  });
+
+  it("the test-code copy tells the truth: Meta still counts test events (Meta's docs: they 'are not dropped')", async () => {
+    const h = newHarness();
+    const { offerPublicId } = seedOffer(h.sdb);
+    const box = fieldset(await editorHtml(h, offerPublicId));
+    expect(box).toContain("Meta still counts these events");
+    expect(box).not.toContain("not used for optimisation");
   });
 
   it("provider-request offer: rendered hidden (the mode radio can still reveal it without a reload)", async () => {
@@ -759,28 +913,31 @@ describeDb("Offer editor — the control, its copy, and whether Meta is really c
     expect(box.slice(0, box.indexOf(">"))).toContain("hidden");
   });
 
-  it("connected: names the dataset — and the token is never on the page", async () => {
+  it("token installed: says exactly that — never 'Connected' — and the token is never on the page", async () => {
     const h = newHarness();
     const { offerPublicId } = seedOffer(h.sdb);
     const html = await editorHtml(h, offerPublicId);
-    expect(fieldset(html)).toContain(`data-lg-clickout-meta-status="connected"`);
-    expect(fieldset(html)).toContain(`Meta dataset ${DATASET}`);
+    expect(fieldset(html)).toContain('data-lg-clickout-meta-status="token_installed"');
+    expect(fieldset(html)).not.toContain("Connected");
     expect(html).not.toContain(TOKEN);
   });
 
-  it("production's row today (the /tr placeholder): says NOT connected, plainly", async () => {
-    const h = newHarness({ template: SEED_FACEBOOK_TEMPLATE });
-    const { offerPublicId } = seedOffer(h.sdb);
-    const box = fieldset(await editorHtml(h, offerPublicId));
-    expect(box).toContain(`data-lg-clickout-meta-status="meta_endpoint_not_configured"`);
-    expect(box).toContain("Not connected");
-  });
-
-  it("dataset set but token missing: says so", async () => {
+  it("token missing: says nothing will be sent", async () => {
     const h = newHarness({ token: null });
     const { offerPublicId } = seedOffer(h.sdb);
     const box = fieldset(await editorHtml(h, offerPublicId));
-    expect(box).toContain(`data-lg-clickout-meta-status="meta_token_missing"`);
-    expect(box).toContain(`Meta dataset ${DATASET} is set, but its Conversions API access token is not installed`);
+    expect(box).toContain('data-lg-clickout-meta-status="token_missing"');
+    expect(box).toContain("access token is not installed on the server yet, so nothing will be sent");
+  });
+
+  it("after a real clickout the Offer page shows what happened", async () => {
+    const h = newHarness();
+    const { offerPublicId } = ready(h, {}, { aiid: "aiid-e1", faid: "att_e1" });
+    stubFetch();
+    await clickThrough(h, offerPublicId, { aiid: "aiid-e1", faid: "att_e1" });
+    vi.restoreAllMocks();
+    const box = fieldset(await editorHtml(h, offerPublicId));
+    expect(box).toContain('data-lg-clickout-meta-last="fired"');
+    expect(box).toContain(`Sent to Meta dataset ${DATASET}: Lead, Meta accepted 1 event.`);
   });
 });
