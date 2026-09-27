@@ -32,6 +32,8 @@ import { runtimeRequestGuard, type GuardOutcome } from "./runtime-guard";
 import { ingestProviderPostback, ingestBrowserPixel } from "./postback";
 import { leadgenTrackRouter } from "../../analytics/leadgen-track";
 import { resolveLeadgenClick, type LeadgenClickInput } from "./click";
+import { sendClickoutMetaConversion, type ClickoutMetaOffer } from "../../leadgen/clickout-meta";
+import { safeErrorName } from "../../safety/safe-error";
 import {
   mintFunnelAttempt,
   verifyConfigTokenDetailed,
@@ -773,6 +775,50 @@ async function loadLeadgenClickContext(
   return out;
 }
 
+// 0058 clickout Meta conversion. The Offer's clickout columns are read HERE,
+// inside waitUntil, rather than in loadLeadgenClickContext's offer SELECT: a
+// failure of this read (or of the whole Meta send) must never cost the click
+// its cap increment, its suppression row or its 302, and it adds no D1 read to
+// the visitor's path. Every Offer reaches this; only a static Offer with the
+// switch on sends anything (clickout-meta.ts decides and logs why not).
+function scheduleClickoutMeta(
+  c: PublicContext,
+  execCtx: WaitUntilContext,
+  offerPublicId: string,
+  click: Parameters<typeof sendClickoutMetaConversion>[3],
+): void {
+  if (offerPublicId === "") return;
+  const env = c.env;
+  const work = (async () => {
+    let offer: ClickoutMetaOffer | null = null;
+    try {
+      offer = await env.DB.prepare(
+        "SELECT public_id, calls_provider_api, clickout_meta_conversion, clickout_meta_dataset_id, clickout_meta_event_name, clickout_meta_value, clickout_meta_test_event_code, static_bid_currency FROM leadgen_offers WHERE public_id = ? LIMIT 1",
+      )
+        .bind(offerPublicId)
+        .first<ClickoutMetaOffer>();
+    } catch (err) {
+      // Not silent: a failed read here means a switched-on Offer sent nothing.
+      console.error(JSON.stringify({
+        message: "leadgen clickout meta conversion",
+        offer_id: offerPublicId,
+        status: "failed",
+        reason: `offer_read_error:${safeErrorName(err)}`,
+      }));
+      return;
+    }
+    // The common case — the switch is off — returns silently: no log line per
+    // ordinary click.
+    if (offer === null || offer.clickout_meta_conversion !== 1) return;
+    await sendClickoutMetaConversion(env, env.DB, offer, click);
+  })().catch(() => undefined);
+  try {
+    execCtx.waitUntil(work);
+  } catch {
+    void work;
+  }
+}
+
 // GET /lg/lc/:offer_id — resolve the governed click, mint the click_id, count it
 // (cap + remove-clicked + carrier_click/offer_click), and 302 to the resolved
 // destination. NEVER 302 to a broken/non-http URL: a required-missing / unsafe /
@@ -852,8 +898,9 @@ async function serveLeadgenClick(c: PublicContext): Promise<Response> {
   // control char in Location — resolveLeadgenClick already gates to a safe
   // http(s) URL, but the construction is guarded so a click never 500s.
   if (result.redirect && result.destination_url !== null) {
+    let redirect: Response | null = null;
     try {
-      return new Response(null, {
+      redirect = new Response(null, {
         status: 302,
         headers: {
           Location: result.destination_url,
@@ -863,6 +910,23 @@ async function serveLeadgenClick(c: PublicContext): Promise<Response> {
       });
     } catch {
       // fall through to the safe no-redirect — the click was already counted.
+    }
+    if (redirect !== null) {
+      // 0058: a SUCCESSFUL clickout on a static Offer may send Meta a media
+      // signal. Entirely on waitUntil — the visitor's 302 never waits on it.
+      // Only the click's own facts go in. The visitor's Meta identifiers are
+      // read from the auction that showed the banner — never from this
+      // request, whose query string anyone can write.
+      scheduleClickoutMeta(c, execCtx, offerPublicId, {
+        click_id: result.click_id,
+        auction_instance_id: auctionInstanceId,
+        funnel_attempt_id: funnelAttemptId,
+        ip: freshCtx.request.ip,
+        ua: freshCtx.request.ua,
+        page_url: freshCtx.request.referer,
+        host: new URL(c.req.url).host,
+      });
+      return redirect;
     }
   }
   // required-missing / unsafe / no-target → safe non-302 (never a broken URL).
