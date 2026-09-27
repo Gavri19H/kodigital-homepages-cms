@@ -65,7 +65,7 @@ export function validateStaticCreativeField(
     // mixed content on every https funnel), written the way the renderer reads
     // it — a string new URL() merely tolerates (backslashes, …) would save and
     // then silently never show.
-    if (/^https:\/\/[^\s\\]+$/.test(v)) {
+    if (/^https:\/\/[^\s\\]+$/i.test(v)) {
       try {
         if (new URL(v).protocol === "https:") return { ok: true, value: v };
       } catch {

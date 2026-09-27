@@ -117,6 +117,7 @@ describe("the field rules", () => {
     expect(validateStaticCreativeField("static_logo_url", "http://cdn.example/logo.png").ok).toBe(false); // mixed content on an https funnel
     expect(validateStaticCreativeField("static_logo_url", "https:\\\\evil.com\\x.png").ok).toBe(false);
     expect(validateStaticCreativeField("static_logo_url", "https://cdn.example/logo.png").ok).toBe(true);
+    expect(validateStaticCreativeField("static_logo_url", "HTTPS://cdn.example/logo.png").ok).toBe(true); // the renderer is case-insensitive too
   });
   it("REVIEW m3: no link may be authored into the card copy (the card is already the tracked link)", () => {
     for (const bad of ['Click <a href="https://x.example">here</a>', "<A HREF=x>y</A>", "< a href=x>y</a>"]) {
