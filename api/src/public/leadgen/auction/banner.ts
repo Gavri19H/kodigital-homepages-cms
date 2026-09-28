@@ -53,7 +53,7 @@ import {
   type CanonicalCarrierField,
   type LeadgenBannerFieldMap,
 } from "../designs/banner-default/styles";
-import { sanitizeFrameInlineHtml } from "../../../lib/inline-sanitizer";
+import { decodeHtmlEntities, sanitizeFrameInlineHtml } from "../../../lib/inline-sanitizer";
 import type { BannerDesign } from "../designs/registry";
 import type { SurfacedCarrierSource } from "../../../leadgen/auction-core";
 import type { LeadgenBannerMode } from "../../../admin/leadgen/db-types";
@@ -200,6 +200,35 @@ function asText(value: unknown): string {
   return "";
 }
 
+// OWNER 2026-09-28 — two provider-copy conventions the card printed
+// literally ("Renter&#39;s", "Save up to *50%*"):
+//   * provider copy arrives HTML-encoded. A PLAIN text region is decoded once
+//     (the way a browser reads it) and then escaped again, so an encoded
+//     `&lt;script&gt;` still prints as text and can never become markup;
+//   * `*text*` / `**text**` mark the words to bold. The markers become
+//     <strong> on escaped text only — tags (rich regions keep the sanitizer's
+//     allowlisted markup) are never rewritten, so a marker can not reach an
+//     attribute. The flanking rule (no space just inside a marker) keeps a
+//     footnote star ("50%* on", "*Terms apply") literal.
+const BOLD_MARKER_RE = /\*\*(?=\S)([^*]*?\S)\*\*|\*(?=\S)([^*]*?\S)\*/g;
+
+function boldMarkers(html: string): string {
+  return html
+    .split(/(<[^>]*>)/)
+    .map((segment, i) =>
+      i % 2 === 1
+        ? segment
+        : segment.replace(BOLD_MARKER_RE, (_m, pair: string | undefined, single: string | undefined) => {
+            return `<strong>${pair ?? single ?? ""}</strong>`;
+          }),
+    )
+    .join("");
+}
+
+function stripBoldMarkers(text: string): string {
+  return text.replace(BOLD_MARKER_RE, (_m, pair: string | undefined, single: string | undefined) => pair ?? single ?? "");
+}
+
 // True for an absolute http(s) URL — the only shape accepted directly into a
 // banner href (guards against javascript:/data: and relative provider values).
 function isHttpUrl(value: unknown): value is string {
@@ -288,10 +317,14 @@ function renderCard(
   // text. `rich` regions keep the provider's own inline markup (allowlisted).
   const regions: { klass: string; text: string; rich: boolean }[] = [];
   const seenText = new Set<string>();
+  // Plain regions hold DECODED text (escaped again at emit); rich regions keep
+  // the raw markup for the sanitizer, which decodes its own text. Duplicates
+  // are judged on the decoded text either way.
   const pushRegion = (klass: string, raw: unknown, rich = false): void => {
-    const text = asText(raw).trim();
-    if (text === "" || seenText.has(text)) return;
-    seenText.add(text);
+    const text = rich ? asText(raw).trim() : decodeHtmlEntities(asText(raw)).trim();
+    const key = rich ? decodeHtmlEntities(text) : text;
+    if (text === "" || seenText.has(key)) return;
+    seenText.add(key);
     regions.push({ klass, text, rich });
   };
 
@@ -318,7 +351,7 @@ function renderCard(
   // itself instead of leaving the browser's broken-image glyph in the middle of
   // the card. Both are attribute-level; the public runtime bundle is untouched.
   if (isHttpUrl(logo)) {
-    const alt = regions.length > 0 ? regions[0]!.text : "";
+    const alt = regions.length > 0 ? stripBoldMarkers(regions[0]!.text) : "";
     parts.push(
       `<img class="lg-banner-logo" src="${esc(logo.trim())}" alt="${esc(alt)}"` +
         ` onerror="this.style.display='none'" />`,
@@ -328,7 +361,7 @@ function renderCard(
   if (regions.length > 0) {
     const inner = regions
       .map((r) => {
-        if (!r.rich) return `<div class="${r.klass}">${esc(r.text)}</div>`;
+        if (!r.rich) return `<div class="${r.klass}">${boldMarkers(esc(r.text))}</div>`;
         // A buyer's response (or an operator's authored copy) may carry inline
         // markup — a provider description is commonly a <ul> of benefits.
         // Escaping it printed the tags to the visitor as literal text; the
@@ -336,7 +369,7 @@ function renderCard(
         // (bold/italic/link/lists) and can never emit a construct it does not
         // itself build. Lists get the reference's left-aligned bullet
         // treatment via data-rich (styles.ts).
-        const html = sanitizeFrameInlineHtml(r.text);
+        const html = boldMarkers(sanitizeFrameInlineHtml(r.text));
         if (html === "") return "";
         const rich = /<(?:ul|ol)>/.test(html) ? ` data-rich="1"` : "";
         return `<div class="${r.klass}"${rich}>${html}</div>`;

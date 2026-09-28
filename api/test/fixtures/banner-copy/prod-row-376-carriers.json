@@ -1,0 +1,61 @@
+{
+  "_source": "prod leadgen_provider_request_log row 376 (QuinStreetHome, lgo_01KZR5XF3MHPHPX8PF9ADK9CZ9) parsed_carriers_json, read 2026-09-28; click_url/tracking_id replaced",
+  "carriers": [
+    {
+      "carrier_key": "ultimateinsurance.com (32925110)",
+      "carrier_key_source": "provider_id",
+      "carrier_name": "ultimateinsurance.com",
+      "carrier_logo": "https://cdn.nextinsure.com/imaging/opt?u=aHR0cHM6Ly9pbWFnZXNlcnZlci5xdWluc3RyZWV0LmNvbS9jb250ZW50L29uZS8xMzMwL0xvZ28tZ2lmLVVsdGltYXRlLUluc3VyYW5jZS0tLXdpdGgtc3RhcnMtd2hpdGUtNDk2eDI0MC5naWY%3d&w=120",
+      "headline": "Home Insurance in California: Save up to *50%*",
+      "subheadline": "<ul><li>See How Much You Can Save Today</li><li>Compare Top Carriers in Minutes </li><li>Click Here to Check Best Rates</li></ul><img src=\"https://www.nextinsure.com/ListingDisplay/handlers/imp_px.ashx?I=eb2d6615-fcbd-470f-bcbf-314772645a0b&SI=dab49dde-3ba7-4095-8807-8181bd07ef29&SDT=639261649054351495&R=1\" alt=\"none\" style=\"display:none;\">",
+      "bid": 1.16,
+      "bid_currency": null,
+      "disclaimer": null,
+      "pricing_model": null,
+      "click_url": "https://provider.example/click/1",
+      "tracking_id": null
+    },
+    {
+      "carrier_key": "Progressive",
+      "carrier_key_source": "provider_id",
+      "carrier_name": "Progressive",
+      "carrier_logo": "https://cdn.nextinsure.com/imaging/opt?u=aHR0cHM6Ly9pbWFnZXNlcnZlci5xdWluc3RyZWV0LmNvbS9jb250ZW50L29uZS81NTM1L0Zsb19TaWxob3VldHRlIHVwZGF0ZWQgc2l6ZS5wbmc%3d&w=120",
+      "headline": "Renter&#39;s Insurance Protects You & Your Belongings",
+      "subheadline": "<ul><li>Costs as low as $5/month when bundled with auto insurance</li><li>Provides financial protection for you and your belongings</li><li>Can&#39;t rely on landlord&#39;s insurance to cover your valuables</li><li>Get a quote and choose the policy that is right for you</li></ul><img src=\"https://www.nextinsure.com/ListingDisplay/handlers/imp_px.ashx?I=6a8b84f3-b4f4-451e-aa0b-761a3de07f69&SI=dab49dde-3ba7-4095-8807-8181bd07ef29&SDT=639261649054351495&R=2\" alt=\"none\" style=\"display:none;\">",
+      "bid": 0.76,
+      "bid_currency": null,
+      "disclaimer": null,
+      "pricing_model": null,
+      "click_url": "https://provider.example/click/2",
+      "tracking_id": null
+    },
+    {
+      "carrier_key": "Rio-Technologies (32638310)",
+      "carrier_key_source": "provider_id",
+      "carrier_name": "CheaperQuotes",
+      "carrier_logo": "https://cdn.nextinsure.com/imaging/opt?u=aHR0cHM6Ly9pbWFnZXNlcnZlci5xdWluc3RyZWV0LmNvbS9jb250ZW50L29uZS84NjAyL2NmOTc0NTgwLTg2ZTQtNDA0NC05ZmQxLWM1Y2I5MDIxZWQ1My5naWY%3d&w=120",
+      "headline": "California: Save up to *50%* on Your Home Insurance!",
+      "subheadline": "<ul><li>See How Much You Can Actually Save in California</li><li>Compare Over 20 Carriers in Minutes in One Site</li><li>Easy, Fast &amp; 100% Free. Click Here to Check Discounts You are Eligible For!</li></ul><img src=\"https://www.nextinsure.com/ListingDisplay/handlers/imp_px.ashx?I=8d0540c6-5e59-40a8-a3b0-eb6c3d026cea&SI=dab49dde-3ba7-4095-8807-8181bd07ef29&SDT=639261649054351495&R=3\" alt=\"none\" style=\"display:none;\">",
+      "bid": 0.68,
+      "bid_currency": null,
+      "disclaimer": null,
+      "pricing_model": null,
+      "click_url": "https://provider.example/click/3",
+      "tracking_id": null
+    },
+    {
+      "carrier_key": "Contactability - 32485",
+      "carrier_key_source": "provider_id",
+      "carrier_name": "Contactability",
+      "carrier_logo": "https://cdn.nextinsure.com/imaging/opt?u=aHR0cHM6Ly9pbWFnZXNlcnZlci5xdWluc3RyZWV0LmNvbS9jb250ZW50L29uZS84MDE4L1FNUC1QSUdCLmpwZw%3d%3d&w=120",
+      "headline": "Compare Home Insurance Rates in California",
+      "subheadline": "<ul><li>Lowest Home Insurance Rates in California</li><li>Plans starting at $39/mo</li><li>Compare Top Rated Carriers in Minutes</li><li>We are available 24/7</li></ul><img src=\"https://www.nextinsure.com/ListingDisplay/handlers/imp_px.ashx?I=fa03f230-6259-483c-acea-a4e9fba309d9&SI=dab49dde-3ba7-4095-8807-8181bd07ef29&SDT=639261649054351495&R=4\" alt=\"none\" style=\"display:none;\">",
+      "bid": 0.54,
+      "bid_currency": null,
+      "disclaimer": null,
+      "pricing_model": null,
+      "click_url": "https://provider.example/click/4",
+      "tracking_id": null
+    }
+  ]
+}

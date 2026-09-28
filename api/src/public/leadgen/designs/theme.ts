@@ -1969,12 +1969,39 @@ function applyErrorRole(design: EffectiveFunnelDesign, value: string): void {
 // `color.accent` itself keeps its existing write (setRoleToken, above): it
 // still reaches the per-node `design_overrides.border_color:"accent"` enum
 // (presets.ts:2382) and the `--lg-accent` custom property (styles.ts:497).
+//
+// OWNER 2026-09-28 — THE WINNER CARD KEEPS A READABLE ACCENT. Its button
+// prints WHITE text (banner.ctaColor) on the accent, and the accent border is
+// the card's only emphasis. The "Home Insurance | Match" funnel's accent is
+// the pale peach #fce7de (1.19:1 against white), which washed both out. So the
+// three winner-card slots follow the accent only when the button text stays
+// readable on it (winnerCardAccentVerdict); a paler accent leaves them at the
+// design's own orange, and the activation preflight says so to the operator.
+// The category label and the logo accent follow the role either way.
 function applyAccentRole(design: EffectiveFunnelDesign, value: string): void {
   design.categoryLabel.color = value;
   design.header.logoAccentColor = value;
-  design.banner.recommendedBorder = `2px solid ${value}`;
-  design.banner.recommendedCtaBackground = value;
-  design.color.recommendedBorder = value;
+  if (winnerCardAccentVerdict(value, design.banner.ctaColor).readable) {
+    design.banner.recommendedBorder = `2px solid ${value}`;
+    design.banner.recommendedCtaBackground = value;
+    design.color.recommendedBorder = value;
+  }
+}
+
+// 3:1 is WCAG's floor for large/bold text and for a component's boundary;
+// the design's own orange (#E85D26) measures 3.49:1 against white.
+export const WINNER_CARD_MIN_CONTRAST = 3;
+
+// Can the winner card's button text be read on this accent? `ratio` is null
+// when either colour is not a hex literal — unmeasurable, so the operator's
+// accent is honoured rather than second-guessed.
+export function winnerCardAccentVerdict(
+  accent: string,
+  ctaTextColor: string,
+): { readable: boolean; ratio: number | null } {
+  const verdict = contrastRatioAA(ctaTextColor, accent);
+  if (verdict === null) return { readable: true, ratio: null };
+  return { readable: verdict.ratio >= WINNER_CARD_MIN_CONTRAST, ratio: verdict.ratio };
 }
 
 function shadowStepValue(

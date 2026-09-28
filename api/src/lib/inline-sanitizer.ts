@@ -114,7 +114,62 @@ const UNQUOTED_STOP_RE = /[\s>]/;
 // closes the double-encoding class (&amp;lt; -> &lt; -> <) a single-pass
 // decoder (or a browser re-parse sink like srcdoc) can otherwise reveal a
 // SECOND time, after a check already ran once against the once-decoded form.
-const ENTITY_RE = /&(#x[0-9a-f]+|#[0-9]+|amp|lt|gt|quot|apos|nbsp);/gi;
+//
+// OWNER 2026-09-28 ("Renter&#39;s" on a results card): the same table also
+// carries the typographic named entities provider copy arrives with. Every
+// one of them decodes to a plain printable character — never '<', '>', '"'
+// or a scheme — so none can form markup; the markup-significant names in
+// CASELESS_ENTITIES stay the only ones that ever could.
+const ENTITY_RE = /&(#x[0-9a-f]+|#[0-9]+|[a-z][a-z0-9]{1,31});/gi;
+
+// Maps, not object literals: a name like `&constructor;` must miss, not
+// read the prototype. Case-insensitive, as before: the markup-significant
+// set + nbsp.
+const CASELESS_ENTITIES: ReadonlyMap<string, string> = new Map([
+  ["amp", "&"],
+  ["lt", "<"],
+  ["gt", ">"],
+  ["quot", '"'],
+  ["apos", "'"],
+  ["nbsp", " "],
+]);
+
+// Case-sensitive (HTML names are): typographic characters only.
+const TYPOGRAPHIC_ENTITIES: ReadonlyMap<string, string> = new Map([
+  ["rsquo", "\u2019"],
+  ["lsquo", "\u2018"],
+  ["rdquo", "\u201D"],
+  ["ldquo", "\u201C"],
+  ["sbquo", "\u201A"],
+  ["bdquo", "\u201E"],
+  ["ndash", "\u2013"],
+  ["mdash", "\u2014"],
+  ["hellip", "\u2026"],
+  ["bull", "\u2022"],
+  ["middot", "\u00B7"],
+  ["laquo", "\u00AB"],
+  ["raquo", "\u00BB"],
+  ["reg", "\u00AE"],
+  ["trade", "\u2122"],
+  ["copy", "\u00A9"],
+  ["deg", "\u00B0"],
+  ["cent", "\u00A2"],
+  ["pound", "\u00A3"],
+  ["euro", "\u20AC"],
+  ["yen", "\u00A5"],
+  ["times", "\u00D7"],
+  ["divide", "\u00F7"],
+  ["plusmn", "\u00B1"],
+  ["frac12", "\u00BD"],
+  ["frac14", "\u00BC"],
+  ["frac34", "\u00BE"],
+  ["sup2", "\u00B2"],
+  ["sup3", "\u00B3"],
+  ["sect", "\u00A7"],
+  ["para", "\u00B6"],
+  ["dagger", "\u2020"],
+  ["Dagger", "\u2021"],
+]);
 
 function codePoint(n: number): string {
   if (!Number.isFinite(n) || n < 0 || n > 0x10ffff) return "";
@@ -130,23 +185,16 @@ function decodeEntitiesOnce(s: string): string {
     const b = (body as string).toLowerCase();
     if (b.startsWith("#x")) return codePoint(parseInt(b.slice(2), 16));
     if (b.startsWith("#")) return codePoint(parseInt(b.slice(1), 10));
-    switch (b) {
-      case "amp":
-        return "&";
-      case "lt":
-        return "<";
-      case "gt":
-        return ">";
-      case "quot":
-        return '"';
-      case "apos":
-        return "'";
-      case "nbsp":
-        return " ";
-      default:
-        return m as string;
-    }
+    return TYPOGRAPHIC_ENTITIES.get(body) ?? CASELESS_ENTITIES.get(b) ?? (m as string);
   });
+}
+
+// ONE decode, the way a browser reads text: `&amp;#39;` is the literal text
+// "&#39;", not an apostrophe. For PLAIN text that is about to be escaped
+// again for display (auction/banner.ts card copy) — never a security check;
+// checks use the fixpoint below.
+export function decodeHtmlEntities(s: string): string {
+  return decodeEntitiesOnce(s);
 }
 
 // A generous bound — real payloads never nest encoding this deep; this only

@@ -283,9 +283,14 @@ describe("R2 P8 M2 S3.10 I1 — palette.accent paints 'category label, highlight
     expect(colourOf({}, "lg-logo-accent")).toBe(BASE.header.logoAccentColor);
   });
 
-  it(`accent ${A} -> ${B} moves the RECOMMENDED banner's border`, () => {
+  // OWNER 2026-09-28: the winner card follows the accent only while its WHITE
+  // button text stays readable on it (theme.ts winnerCardAccentVerdict, 3:1).
+  // B (#ee7733) measures 2.87:1, so this leg flips between A and a readable
+  // orange instead; the pale leg is pinned right below.
+  const B_READABLE = "#c2410c";
+  it(`accent ${A} -> ${B_READABLE} moves the RECOMMENDED banner's border`, () => {
     expect(bannerBorder(accent(A))).toBe(`2px solid ${A}`);
-    expect(bannerBorder(accent(B))).toBe(`2px solid ${B}`);
+    expect(bannerBorder(accent(B_READABLE))).toBe(`2px solid ${B_READABLE}`);
     expect(bannerBorder({})).toBe(BASE.banner.recommendedBorder);
     expect(BASE.banner.recommendedBorder).toBe("2px solid #E85D26");
     // the winner is the recommended rule, not the plain .lg-banner card rule.
@@ -294,6 +299,16 @@ describe("R2 P8 M2 S3.10 I1 — palette.accent paints 'category label, highlight
     expect(won(p, byClass(p, "lg-banner"), "border")?.selector).toBe(
       `${SCOPE} .lg-banner[data-recommended="true"]`,
     );
+  });
+
+  it(`an accent too pale for the white button text (${B}, 2.87:1) leaves the winner card at the design orange`, () => {
+    expect(bannerBorder(accent(B))).toBe(BASE.banner.recommendedBorder);
+    const d = paint(accent(B)).design;
+    expect(d.banner.recommendedCtaBackground).toBe(BASE.banner.recommendedCtaBackground);
+    expect(d.color.recommendedBorder).toBe(BASE.color.recommendedBorder);
+    // the category label and the logo accent still take it
+    expect(d.categoryLabel.color).toBe(B);
+    expect(d.header.logoAccentColor).toBe(B);
   });
 
   it("NO FROZEN COPY LEFT BEHIND: every base token that IS the accent colour moves with the role", () => {
