@@ -244,6 +244,30 @@ describe("mappingCompleteness — §12.11 four states", () => {
     expect(mappingCompleteness(edge({ provider_expected_type: "number", offer_payload_field_path: "data.score", output_value_map: { true: 1 }, required_for_offer: false }), numSchema, null)).toBe("complete");
   });
 
+  it("OWNER 2026-09-28 (review M3): a multi-select into a number / yes-no / fixed-options field is a type problem even WITH a value list; into text or a list it is complete", () => {
+    const schema = offerSchema({
+      fieldTypes: new Map<string, LeadgenPayloadNodeType>([
+        ["data.count", "number"],
+        ["data.flag", "boolean"],
+        ["data.band", "enum"],
+        ["data.name", "string"],
+        ["data.list", "array"],
+      ]),
+      requiredFieldPaths: [],
+    });
+    const multi = (path: string, type: string, map: Record<string, string> | null) =>
+      edge({ answer_type: "array", offer_payload_field_path: path, provider_expected_type: type as never, output_value_map: map, required_for_offer: false });
+    // payload.ts maps the list value by value and then gets an ARRAY: a number,
+    // yes-no or fixed-options field refuses it, so nothing is ever sent there
+    expect(mappingCompleteness(multi("data.count", "number", { fire: "1", flood: "2" }), schema, ["fire", "flood"])).toBe("type_mismatch");
+    expect(mappingCompleteness(multi("data.flag", "boolean", { fire: "true" }), schema, ["fire"])).toBe("type_mismatch");
+    expect(mappingCompleteness(multi("data.band", "enum", { fire: "low" }), schema, ["fire"])).toBe("type_mismatch");
+    expect(mappingCompleteness(multi("data.band", "enum", null), schema, ["fire"])).toBe("type_mismatch");
+    // a text field takes the list comma-joined; a list field takes it as is
+    expect(mappingCompleteness(multi("data.name", "string", { fire: "FIRE" }), schema, ["fire"])).toBe("complete");
+    expect(mappingCompleteness(multi("data.list", "array", null), schema, ["fire"])).toBe("complete");
+  });
+
   it("toMappingStatusColumn maps missing_required → the DDL-storable incomplete", () => {
     expect(toMappingStatusColumn("missing_required")).toBe("incomplete");
     expect(toMappingStatusColumn("complete")).toBe("complete");

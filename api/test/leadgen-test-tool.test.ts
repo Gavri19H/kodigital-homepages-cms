@@ -1331,4 +1331,37 @@ describeDb("POST /offers/:id/test — a calculated choice previews its DATE", ()
     const fixed = await runTest(h, { environment: "staging", sample_answers: { email: "a@b.co", zip: "0" }, dry_run: true });
     expect((fixed.body.request.payload["contact"] as Record<string, unknown>)["zip"]).toBe("0");
   });
+
+  it("review m6: two Sections that calculate the same answer differently — the FIRST Section (the one whose binding the payload uses) decides the date, not the last one read", async () => {
+    const h = await setupOffer();
+    const calc = (years: number) => ({
+      components: [
+        {
+          type: "ButtonAnswerGroup", question_id: "q_zip", question_key: "zip", internal_field: "zip", answer_type: "enum",
+          choices: [{ label: "Long", value: "2", analytics_id: "2", value_calc: { kind: "date_ago", amount: years, unit: "years" } }],
+        },
+      ],
+    });
+    h.sdb.prepare("UPDATE leadgen_sections SET content_json = ? WHERE public_id = 'lgs_testtool01'").run(JSON.stringify(calc(2)));
+    // a LATER Section maps the same Offer field and calculates 5 years
+    h.sdb
+      .prepare("INSERT INTO leadgen_sections (public_id, section_name, activity, vertical, headline_text, content_json) VALUES ('lgs_testtool02', 'Second', 'quote_funnel', 'life', 'H', ?)")
+      .run(JSON.stringify(calc(5)));
+    const second = (h.sdb.prepare("SELECT id FROM leadgen_sections WHERE public_id = 'lgs_testtool02'").get() as { id: number }).id;
+    h.sdb
+      .prepare(
+        `INSERT INTO leadgen_section_answer_maps
+           (public_id, section_id, question_id, question_key, internal_field, answer_type, offer_id, payload_schema_id, payload_schema_public_id,
+            offer_payload_field_path, provider_expected_type, mapping_status, validation_status)
+         SELECT 'lgm_zip_second', ?, question_id, question_key, internal_field, answer_type, offer_id, payload_schema_id, payload_schema_public_id,
+                offer_payload_field_path, provider_expected_type, mapping_status, validation_status
+           FROM leadgen_section_answer_maps WHERE internal_field = 'zip' LIMIT 1`,
+      )
+      .run(second);
+    const { status, body } = await runTest(h, { environment: "staging", sample_answers: { email: "a@b.co", zip: "2" }, dry_run: true });
+    expect(status).toBe(200);
+    const now = new Date();
+    const yearsAgo = (n: number) => new Date(Date.UTC(now.getUTCFullYear() - n, now.getUTCMonth(), now.getUTCDate())).toISOString().slice(0, 10);
+    expect((body.request.payload["contact"] as Record<string, unknown>)["zip"]).toBe(yearsAgo(2));
+  });
 });

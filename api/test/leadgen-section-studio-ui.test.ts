@@ -5306,9 +5306,11 @@ describeDb("wave 2 — §6.1.3 undo/redo (executed island history)", () => {
     probe.run(
       [
         "var UNDO_LIMIT = 50; var undoStack = []; var redoStack = [];",
-        "var lastSnapshot = JSON.stringify(state.content);",
         "function updateHistoryButtons() {}",
         "function refreshAfterHistory() {}",
+        sliceIslandFunction(island, "historyState"),
+        sliceIslandFunction(island, "restoreValueLists"),
+        "var lastSnapshot = historyState();",
         sliceIslandFunction(island, "historyPush"),
         sliceIslandFunction(island, "historyReset"),
         sliceIslandFunction(island, "restoreSnapshot"),
@@ -7986,6 +7988,9 @@ const PROVIDER_VALUE_FUNCS = [
   "resetProviderBaseline",
   "fieldOptionLabelIn",
   "edgesBlockedReason",
+  "boxUnsendable",
+  "renameProviderBaseline",
+  "savedValueCount",
   "valuesNotSent",
   "providerRowsShape",
   "shouldRebuildProviderRows",
@@ -8496,9 +8501,142 @@ describeDb("OWNER 2026-09-28 review round 1 — answer keys, Other values, typed
     probe.run(`state.answer_maps[0].output_value_map['30000'] = '30000';`);
     probe.run(`carryProviderValues('${REVENUE_FIELD}', '30000', '30001')`);
     expect((list() as Record<string, unknown>)["30001"]).toBe("30001");
-    // renaming onto a value another choice already has moves nothing
-    expect(probe.run(`carryProviderValues('${REVENUE_FIELD}', '600000', '360500')`)).toBe(false);
-    expect((list() as Record<string, unknown>)["600000"]).toBe("50000");
+    // a key under the new name that no choice holds is a leftover of a removed
+    // choice: the renamed choice's own value replaces it
+    probe.run(`state.answer_maps[0].output_value_map['99999'] = 'OLD';`);
+    probe.run(`carryProviderValues('${REVENUE_FIELD}', '600000', '99999')`);
+    expect((list() as Record<string, unknown>)["99999"]).toBe("50000");
+  });
+
+  // The row's committed-rename decision (the real handler body), on the model.
+  const RENAME_FUNCS = ["carryProviderValues", "commitChoiceRename", "findRefIn", "findRef"];
+  function setChoiceValue(probe: StudioProbe, index: number, value: string): void {
+    probe.run(`findRef('q_mrum8ruj_2sau').node.choices[${index}].value = '${value}';`);
+  }
+
+  it("review M1: a rename onto another choice's value moves nothing, and fixing it afterwards carries THIS choice's values — never the other choice's", async () => {
+    const { probe, offers, island } = await setupWith(MULTI_CONTENT, [["AmONE - Tier 2", [{ path: "Income", type: "string" }]]]);
+    const amone = offers[0]!;
+    probe.run(RENAME_FUNCS.map((n) => sliceIslandFunction(island, n)).join("\n"));
+    probe.run(`upsertEdge(offerById(${amone.id}), answerFieldOf(offerById(${amone.id}), 'Income'), '${REVENUE_FIELD}')`);
+    probe.run(`state.answer_maps[0].output_value_map = { '600000': '50000', '360000': '30000', '30000': '2500' };`);
+    probe.run("snapshotProviderValues(findRef('q_mrum8ruj_2sau').node);");
+    const node = "findRef('q_mrum8ruj_2sau').node";
+    const list = () => (probe.sandbox.state["answer_maps"] as Array<Record<string, unknown>>)[0]!["output_value_map"];
+    // choice 0 (600000) is committed as 360000 — the value choice 1 holds
+    setChoiceValue(probe, 0, "360000");
+    expect(probe.run(`commitChoiceRename(${node}, '${REVENUE_FIELD}', '600000', '360000')`)).toBe("600000");
+    expect(list()).toEqual({ "600000": "50000", "360000": "30000", "30000": "2500" });
+    // then fixed to 750000: ITS 50000 moves; choice 1 keeps its 30000
+    setChoiceValue(probe, 0, "750000");
+    expect(probe.run(`commitChoiceRename(${node}, '${REVENUE_FIELD}', '600000', '750000')`)).toBe("750000");
+    expect(list()).toEqual({ "750000": "50000", "360000": "30000", "30000": "2500" });
+    // an emptied value is not a rename either
+    setChoiceValue(probe, 0, "");
+    expect(probe.run(`commitChoiceRename(${node}, '${REVENUE_FIELD}', '750000', '')`)).toBe("750000");
+    expect(list()).toEqual({ "750000": "50000", "360000": "30000", "30000": "2500" });
+  });
+
+  it("review m2: renaming a choice that was deliberately left off a list keeps it off (it is the same choice)", async () => {
+    const { probe, offers, island } = await setupWith(MULTI_CONTENT, [["AmONE - Tier 2", [{ path: "Income", type: "string" }]]]);
+    const amone = offers[0]!;
+    probe.run(RENAME_FUNCS.map((n) => sliceIslandFunction(island, n)).join("\n"));
+    probe.run(`upsertEdge(offerById(${amone.id}), answerFieldOf(offerById(${amone.id}), 'Income'), '${REVENUE_FIELD}')`);
+    // 30000 is left off AmONE's list on purpose: not sent
+    probe.run(`state.answer_maps[0].output_value_map = { '600000': '50000', '360000': '30000' };`);
+    probe.run("snapshotProviderValues(findRef('q_mrum8ruj_2sau').node);");
+    const node = "findRef('q_mrum8ruj_2sau').node";
+    expect(probe.run(`providerValueOf(${amone.id}, '${REVENUE_FIELD}', '30000').state`)).toBe("missing");
+    setChoiceValue(probe, 2, "35000");
+    probe.run(`commitChoiceRename(${node}, '${REVENUE_FIELD}', '30000', '35000')`);
+    expect(probe.run(`providerValueOf(${amone.id}, '${REVENUE_FIELD}', '35000').state`)).toBe("missing");
+    // and Save does not put it on the list
+    probe.run("fillNewChoicesOnLists();");
+    expect((probe.sandbox.state["answer_maps"] as Array<Record<string, unknown>>)[0]!["output_value_map"]).toEqual({ "600000": "50000", "360000": "30000" });
+    // a choice ADDED since the page opened still joins the lists (unchanged)
+    probe.run(`${node}.choices.push({ label: 'New', value: 'new_band', analytics_id: 'new_band' });`);
+    expect(probe.run(`providerValueOf(${amone.id}, '${REVENUE_FIELD}', 'new_band').state`)).toBe("saved");
+  });
+
+  it("review M2: Undo after a rename takes the carried provider values back with it (one step), and Redo re-applies both", async () => {
+    const { probe, offers, island } = await setupWith(MULTI_CONTENT, [["AmONE - Tier 2", [{ path: "Income", type: "string" }]]]);
+    const amone = offers[0]!;
+    probe.run(
+      [
+        ...RENAME_FUNCS.map((n) => sliceIslandFunction(island, n)),
+        "var UNDO_LIMIT = 50; var undoStack = []; var redoStack = [];",
+        "function updateHistoryButtons() {}",
+        "function refreshAfterHistory() {}",
+        ...["historyState", "restoreValueLists", "historyAbsorb", "historyPush", "restoreSnapshot", "historyUndo", "historyRedo"].map((n) => sliceIslandFunction(island, n)),
+      ].join("\n"),
+    );
+    probe.run(`upsertEdge(offerById(${amone.id}), answerFieldOf(offerById(${amone.id}), 'Income'), '${REVENUE_FIELD}')`);
+    probe.run(`state.answer_maps[0].output_value_map = { '600000': '50000', '360000': '30000', '30000': '2500' };`);
+    probe.run("snapshotProviderValues(findRef('q_mrum8ruj_2sau').node); var lastSnapshot = historyState();");
+    const node = "findRef('q_mrum8ruj_2sau').node";
+    const list = () => (probe.sandbox.state["answer_maps"] as Array<Record<string, unknown>>)[0]!["output_value_map"];
+    const value0 = () => probe.run("findRef('q_mrum8ruj_2sau').node.choices[2].value");
+    // typing 30000 -> 35000 pushes history per edit (afterModelChange), then the
+    // row commits the rename
+    setChoiceValue(probe, 2, "3500");
+    probe.run("historyPush();");
+    setChoiceValue(probe, 2, "35000");
+    probe.run("historyPush();");
+    probe.run(`commitChoiceRename(${node}, '${REVENUE_FIELD}', '30000', '35000')`);
+    expect(list()).toEqual({ "600000": "50000", "360000": "30000", "35000": "2500" });
+    // Undo back to the start: the value AND its provider value are back
+    probe.run("historyUndo(); historyUndo();");
+    expect(value0()).toBe("30000");
+    expect(list()).toEqual({ "600000": "50000", "360000": "30000", "30000": "2500" });
+    expect(probe.run(`providerValueOf(${amone.id}, '${REVENUE_FIELD}', '30000')`)).toEqual({ state: "custom", value: "2500" });
+    // Redo both steps: the rename and its carried value return together
+    probe.run("historyRedo(); historyRedo();");
+    expect(value0()).toBe("35000");
+    expect(list()).toEqual({ "600000": "50000", "360000": "30000", "35000": "2500" });
+  });
+
+  it("review M4 + m1: a box shared by two fields where ONE mapping is blocked still sends to the other — it says so, and the chip does not count it as not sent", async () => {
+    const { probe, offers } = await setupWith(MULTI_CONTENT, [
+      ["Fundera - Tier 1", [{ path: "company.revenue_text", type: "string" }, { path: "company.revenue_copy", type: "string" }]],
+    ]);
+    const f = offers[0]!;
+    probe.run(`upsertEdge(offerById(${f.id}), answerFieldOf(offerById(${f.id}), 'company.revenue_text'), '${REVENUE_FIELD}')`);
+    probe.run(`upsertEdge(offerById(${f.id}), answerFieldOf(offerById(${f.id}), 'company.revenue_copy'), '${REVENUE_FIELD}', null)`);
+    // the second mapping goes stale (its declared type no longer matches the field)
+    probe.run("state.answer_maps[1].provider_expected_type = 'number';");
+    const edges = `edgesOfAnswerOnOffer(${f.id}, '${REVENUE_FIELD}')`;
+    expect(probe.run(`providerBoxGroups(${f.id}, '${REVENUE_FIELD}').length`)).toBe(1);
+    const partly = "partly: not sent to Revenue copy \u2014 this mapping has a type problem (see the Offers tab)";
+    expect(probe.run(`boxUnsendable(${f.id}, ${edges}, '600000')`)).toBe(partly);
+    expect(probe.run(`typingStateFor(${f.id}, ${edges}, '', '600000')`)).toEqual({ kind: "partial", text: "will send 600000 \u2014 " + partly });
+    expect(probe.run(`providerChipRows('${REVENUE_FIELD}', '600000')[0].unsendable`)).toBe(partly);
+    expect(probe.run(`providerChipLabel('${REVENUE_FIELD}', '600000')`)).toBe("Provider values: 0/1 Offers");
+    // both mappings blocked: nothing is sent, and it says so
+    probe.run("state.answer_maps[0].provider_expected_type = 'number';");
+    expect(probe.run(`typingStateFor(${f.id}, ${edges}, '', '600000').kind`)).toBe("blocked");
+    expect(probe.run(`providerChipLabel('${REVENUE_FIELD}', '600000')`)).toBe("Provider values: 0/1 Offers \u00b7 1 not sent");
+  });
+
+  it("review M3: a multi-select mapped to a number field reads as a type problem (the rows say not sent) — into a text field it stays complete", async () => {
+    const MULTI_SELECT = {
+      components: [
+        {
+          type: "MultiChoiceCardGroup", question_id: "q_perils", question_key: "q_perils", internal_field: "perils", answer_type: "array",
+          choices: [
+            { label: "Fire", value: "fire", analytics_id: "fire" },
+            { label: "Flood", value: "flood", analytics_id: "flood" },
+          ],
+        },
+      ],
+    };
+    const { probe, offers } = await setupWith(MULTI_SELECT, [["Perils Co", [{ path: "perils_count", type: "number" }, { path: "perils_text", type: "string" }]]]);
+    const o = offers[0]!;
+    probe.run(`upsertEdge(offerById(${o.id}), answerFieldOf(offerById(${o.id}), 'perils_count'), 'perils')`);
+    probe.run(`upsertEdge(offerById(${o.id}), answerFieldOf(offerById(${o.id}), 'perils_text'), 'perils', null)`);
+    probe.run("state.answer_maps[0].output_value_map = { fire: '1', flood: '2' };");
+    expect(probe.run(`edgeMapState(state.answer_maps[0], offerById(${o.id}))`)).toBe("type_mismatch");
+    expect(probe.run(`edgeMapState(state.answer_maps[1], offerById(${o.id}))`)).toBe("complete");
+    expect(probe.run(`boxUnsendable(${o.id}, [state.answer_maps[0]], '1')`)).toBe("blocked: this mapping has a type problem, so nothing is sent (see the Offers tab)");
   });
 
   it("open item 6 (F8): a box shared by two fields names the one that rejects a value instead of saying 'not sent' for both", async () => {

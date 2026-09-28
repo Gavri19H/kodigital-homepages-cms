@@ -487,7 +487,13 @@ describeDb("leadgen /auctions/:id/simulate — §19.2 dry-run trace + no writes"
       )
       .run(mintPublicId("answer_field_map"), section.id, o1.offer_id, schema.id, schema.public_id);
     sdb.prepare("INSERT INTO leadgen_auction_offers (auction_id, offer_placement_id, offer_id, static_order, enabled) VALUES (?, ?, ?, 0, 1)").run(auction.id, o1.placement_id, o1.offer_id);
-    const calls = stubFetch(() => new Response(carrierBody("Acme", 12), { status: 200 }));
+    // this test's own recorder: the shared stubFetch keeps URLs only, and the
+    // engine leg below needs the request BODY the dry run posts
+    const bodies: string[] = [];
+    vi.stubGlobal("fetch", async (url: RequestInfo | URL, init?: RequestInit): Promise<Response> => {
+      bodies.push(url instanceof Request ? await url.clone().text() : String(init?.body ?? ""));
+      return new Response(carrierBody("Acme", 12), { status: 200 });
+    });
     const res = await admin.request(`${API}/auctions/${auction.public_id}/simulate`, jsonInit("POST", { sample_answers: { dur: "2" } }), env);
     expect(res.status).toBe(200);
     const j = (await res.json()) as { offers_payload_explain: Array<{ offer_id: string; payload_preview: { company?: { business_inception?: unknown } } | null }> };
@@ -496,8 +502,9 @@ describeDb("leadgen /auctions/:id/simulate — §19.2 dry-run trace + no writes"
     const twoYearsAgo = new Date(Date.UTC(now.getUTCFullYear() - 2, now.getUTCMonth(), now.getUTCDate())).toISOString().slice(0, 10);
     expect(entry.payload_preview?.company?.business_inception).toBe(twoYearsAgo);
     // the dry run's own provider request (the engine) carries the date too
-    const posted = calls.map((c) => String((c as { init?: RequestInit }).init?.body ?? "")).find((b) => b.includes("business_inception"));
-    if (posted !== undefined) expect(JSON.parse(posted).company.business_inception).toBe(twoYearsAgo);
+    const posted = bodies.find((b) => b.includes("business_inception"));
+    expect(posted, "the dry run posted the Offer's request").toBeDefined();
+    expect(JSON.parse(posted!).company.business_inception).toBe(twoYearsAgo);
   });
 
   it("POST /simulate on an unknown auction is 404", async () => {
