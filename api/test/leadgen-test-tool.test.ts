@@ -1282,3 +1282,23 @@ describeDb("pruneLeadgenRetention — §30.3 bounded prune", () => {
     expect(result.session_clicked_offers_deleted).toBe(0); // failed leg reports 0, no throw
   });
 });
+
+// OWNER 2026-09-28 review: the Test tab parsed EVERY Offer with the carrier-list
+// parser, while the live auction sends a "Provider request · static bid (CPL)"
+// Offer to its own parser — so the Test tab and the funnel could disagree. Both
+// now call the one engine choice (parseOfferProviderResponse).
+describeDb("POST /offers/:id/test — a CPL (static-bid) Offer is parsed exactly as the funnel parses it", () => {
+  it("constants are literals and {response:…} reads the answer — one carrier, the funnel's one", async () => {
+    const h = await setupOffer();
+    h.sdb.prepare("UPDATE leadgen_offers SET bid_source = 'static', static_bid_value = 40, provider = 'Fundera' WHERE id = ?").run(h.offerId);
+    h.sdb
+      .prepare("UPDATE leadgen_offer_payload_schemas SET carrier_parse_json = ? WHERE id = ?")
+      .run(JSON.stringify({ fields: { provider_id: "1050", carrier_name: "Fundera", click_url: "{response:matches.registration_url}" } }), h.schemaId);
+    stubFetch(() => new Response(JSON.stringify({ success: true, matches: { registration_url: "https://www.fundera.com/referral/abc" } }), { status: 200 }));
+    const { status, body } = await runTest(h, { environment: "staging", sample_answers: SAMPLE_ANSWERS });
+    expect(status).toBe(200);
+    expect(body.parse.carriers).toHaveLength(1);
+    expect(body.parse.carriers![0]!["carrier_key"]).toBe("1050");
+    expect(body.parse.carriers![0]!["click_url"]).toBe("https://www.fundera.com/referral/abc");
+  });
+});

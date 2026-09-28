@@ -110,3 +110,42 @@ describe("the parser reads every listing, not only the first (OWNER 2026-09-28)"
     expect(parseProviderResponse(cfg, NEXTINSURE_6).carriers).toHaveLength(6);
   });
 });
+
+describe("review round — only a list the carrier's identity runs through is the carriers list", () => {
+  it("a single-carrier provider whose logo is logos.0 (a list of strings) stays ONE carrier (it used to empty the page)", () => {
+    const cfg = { fields: { provider_id: "id", carrier_name: "name", bid: "bid", click_url: "click", carrier_logo: "{response:logos.0}" } };
+    const r = parseProviderResponse(cfg, { id: "p1", name: "Solo", bid: 3, click: "https://solo.example/go", logos: ["https://a.png", "https://b.png"] });
+    expect(r.errors).toEqual([]);
+    expect(r.carriers.map((c) => [c.carrier_key, c.carrier_logo])).toEqual([["p1", "https://a.png"]]);
+  });
+
+  it("a headline through offer.features.0 with the identity outside it stays ONE carrier (it used to clone the card)", () => {
+    const cfg = { fields: { provider_id: "offer.id", carrier_name: "offer.brand", bid: "offer.bid", click_url: "offer.url", headline: "{response:offer.features.0.text}" } };
+    const body = { offer: { id: "e2", brand: "Brand", bid: 2, url: "https://e2.example/go", features: [{ text: "Fast" }, { text: "Cheap" }, { text: "Good" }] } };
+    const r = parseProviderResponse(cfg, body);
+    expect(r.carriers.map((c) => [c.carrier_key, c.headline])).toEqual([["e2", "Fast"]]);
+  });
+
+  it("identity through the listing list, another field through a second list: one carrier per listing, the other field shared", () => {
+    const cfg = { fields: { provider_id: "r.listing.0.id", carrier_name: "r.listing.0.name", bid: "r.listing.0.bid", disclaimer: "r.notes.0" } };
+    const body = { r: { listing: [{ id: "a", name: "A", bid: 3 }, { id: "b", name: "B", bid: 2 }], notes: ["Terms apply", "unused"] } };
+    const r = parseProviderResponse(cfg, body);
+    expect(r.carriers.map((c) => [c.carrier_key, c.disclaimer])).toEqual([["a", "Terms apply"], ["b", "Terms apply"]]);
+  });
+
+  it("a list of non-objects under the identity path keeps the old one-object reading", () => {
+    const cfg = { fields: { provider_id: "ids.0", carrier_name: "name", bid: "bid" } };
+    const r = parseProviderResponse(cfg, { ids: ["x", "y"], name: "N", bid: 1 });
+    expect(r.carriers.map((c) => c.carrier_key)).toEqual(["x"]);
+  });
+
+  it("two listings with the same provider id are one carrier: the first is kept, the repeat reported", () => {
+    const listing = NEXTINSURE_6.response.listingset.listing.map((l) => ({ ...l }));
+    listing[4]!["company"] = listing[1]!["company"]!; // a repeat of Farmers further down
+    const r = parseProviderResponse(QUINSTREET_HOME_PARSER, { response: { listingset: { ...NEXTINSURE_6.response.listingset, listing } } });
+    expect(r.carriers).toHaveLength(5);
+    const farmers = r.carriers.filter((c) => c.carrier_key === "Farmers Insurance Group");
+    expect(farmers.map((c) => [c.carrier_name, c.bid])).toEqual([["Farmers", 3.45]]);
+    expect(r.errors.map((e) => e.code)).toEqual(["duplicate_carrier_key"]);
+  });
+});

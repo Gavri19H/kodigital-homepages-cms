@@ -63,7 +63,7 @@ import {
   redactSecretText,
   redactSecretValues,
 } from "../../leadgen/redact";
-import { parseProviderResponse } from "../../public/leadgen/auction/parse";
+import { parseOfferProviderResponse } from "../../public/leadgen/auction/engine";
 import { safeErrorCode, safeErrorName } from "../../safety/safe-error";
 import { readAnswerBindings } from "../../leadgen/answer-bindings";
 import type { LeadgenOfferPayloadSchemaRow, LeadgenOfferRow } from "./db-types";
@@ -646,7 +646,9 @@ export async function testOfferHandler(c: AdminContext): Promise<Response> {
       responseIsJson = false;
     }
   }
-  const parseResult = parseProviderResponse(parseJsonColumn(schemaRow.carrier_parse_json), bodyText ?? "");
+  // The SAME parser choice as the live auction (a CPL / static-bid Offer has
+  // its own) so the Test tab shows what the funnel will.
+  const parseResult = parseOfferProviderResponse(offer, parseJsonColumn(schemaRow.carrier_parse_json), bodyText ?? "", null);
   if (providerErrorReason === null && bodyText !== null && bodyText !== "" && !responseIsJson) {
     providerErrorReason = "malformed_response";
   }

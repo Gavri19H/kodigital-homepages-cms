@@ -918,6 +918,20 @@ function staticBidProviderOffer(offer: LeadgenOfferRow): boolean {
   return callsProvider(offer) && offer.bid_source === "static";
 }
 
+// THE parser choice for one Offer's provider answer — the live auction and the
+// admin Test tool both call this, so the Test tab shows what the funnel will
+// (it used to run every Offer, CPL ones included, through the list parser).
+export function parseOfferProviderResponse(
+  offer: LeadgenOfferRow,
+  carrierParse: unknown,
+  response: unknown,
+  staticBidOverride: number | null,
+): ReturnType<typeof parseProviderResponse> {
+  return staticBidProviderOffer(offer)
+    ? parseStaticBidProviderResponse(carrierParse, response, staticCarrier(offer, staticBidOverride))
+    : parseProviderResponse(carrierParse, response);
+}
+
 // Synthesize the single canonical Carrier a static Offer contributes (07 S18.2
 // static surfacing) from its static config. Also the identity/bid FALLBACK a
 // request_static_bid (CPL) Offer's parser leans on — which is why the authored
@@ -1582,13 +1596,7 @@ export async function runAuction(
       // static carrier, so identity can never be underivable.
       const parseResult = result === undefined
         ? { carriers: [], errors: [] }
-        : staticBidProviderOffer(b.offer)
-          ? parseStaticBidProviderResponse(
-              b.carrier_parse_json,
-              result.parsed ?? result.body ?? "",
-              staticCarrier(b.offer, b.static_bid_override),
-            )
-          : parseProviderResponse(b.carrier_parse_json, result.parsed ?? result.body ?? "");
+        : parseOfferProviderResponse(b.offer, b.carrier_parse_json, result.parsed ?? result.body ?? "", b.static_bid_override);
       parsedByRow.set(rowKey(b.offer.public_id, b.placement_public_id), parseResult.carriers);
       parsedByOffer.set(b.offer.public_id, parseResult.carriers);
       // OWNER 2026-08-27: "I finished to build this funnel, clicked it to the end
