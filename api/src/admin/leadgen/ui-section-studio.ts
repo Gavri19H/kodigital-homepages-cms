@@ -4143,11 +4143,11 @@ export const SECTION_STUDIO_STYLES = `
 /* §12.3 overlay-chip rules moved into SECTION_STUDIO_CANVAS_FRAME_CSS (DEV-66) */
 /* §7.3 provider-values chip (C1) */
 .studio-provider-chip{font-size:10px;border-radius:999px;padding:1px 8px;border:1px solid var(--c-border);background:var(--c-surface);cursor:pointer;color:var(--c-muted)}
-.studio-provider-rows{flex-basis:100%;font-size:11px;border-left:2px solid var(--c-border);padding-left:8px;margin:2px 0}
-.studio-provider-row{display:grid;grid-template-columns:minmax(90px,1fr) minmax(0,1.4fr) auto;gap:6px;align-items:center;margin:3px 0;min-width:0}
+.studio-provider-rows{flex-basis:100%;min-width:0;max-width:100%;box-sizing:border-box;font-size:11px;border-left:2px solid var(--c-border);padding-left:8px;margin:2px 0}
+.studio-provider-row{display:grid;grid-template-columns:minmax(90px,1fr) minmax(120px,1.4fr);gap:2px 6px;align-items:center;margin:3px 0;min-width:0}
 .studio-provider-row .form-input{font-size:12px;padding:3px 6px;min-width:0}
 .studio-provider-name{overflow-wrap:anywhere}
-.studio-provider-state{font-size:10px;color:var(--c-muted);white-space:nowrap}
+.studio-provider-state{grid-column:1 / -1;font-size:10px;color:var(--c-muted);white-space:normal;overflow-wrap:anywhere}
 .studio-provider-state[data-provider-state="custom"]{color:#0f5132}
 .studio-provider-state[data-provider-state="missing"]{color:#842029}
 .studio-provider-state[data-provider-state="invalid"]{color:#842029;font-weight:700}
@@ -12365,7 +12365,8 @@ export const SECTION_STUDIO_SCRIPT = `
             var problem = providerValueProblem(offerId, edges, typed);
             if (problem !== '') { input.setAttribute('aria-invalid', 'true'); } else { input.removeAttribute('aria-invalid'); }
             var blocked = edgesBlockedReason(offerById(offerId), edges);
-            if (problem === '' && blocked === '') {
+            var sendProblem = providerValueProblem(offerId, edges, typed === '' ? saved : typed);
+            if (problem === '' && blocked === '' && sendProblem === '') {
               stateEl.setAttribute('data-provider-state', 'pending');
               clearChildren(stateEl);
               stateEl.appendChild(document.createTextNode('will send ' + (typed === '' ? saved : typed)));
@@ -12373,6 +12374,12 @@ export const SECTION_STUDIO_SCRIPT = `
             }
             var rs = rowState(offerId, edges, saved);
             paintState(stateEl, rs.v, saved, problem, rs.unsendable);
+          });
+          input.addEventListener('blur', function () {
+            // a no-op edit fires no 'change': put the real state back
+            if (input.getAttribute('aria-invalid') === 'true') { return; }
+            var rs0 = rowState(offerId, edges, currentValue());
+            paintState(stateEl, rs0.v, currentValue(), '', rs0.unsendable);
           });
           input.addEventListener('change', function () {
             var saved = currentValue();
@@ -12389,7 +12396,8 @@ export const SECTION_STUDIO_SCRIPT = `
             setProviderValue(offerId, internalField, saved, text, choiceSavedValuesOf(node), edges);
             var rs = rowState(offerId, edges, saved);
             paintState(stateEl, rs.v, saved, '', rs.unsendable);
-            refreshLabel();
+            // this value may unblock (or block) the mapping for every choice
+            refreshProviderChips();
             updateMappingBadge();
             renderInspectorMapping();
           });
@@ -13357,6 +13365,7 @@ export const SECTION_STUDIO_SCRIPT = `
       delete props.other;
     }
     cleanupEmpty(node, 'props');
+    if (typeof refreshProviderChips === 'function') { refreshProviderChips(); }
     afterModelChange();
   }
 
@@ -13755,6 +13764,9 @@ export const SECTION_STUDIO_SCRIPT = `
     // reason populateConditional documents for NOT calling its collaborators;
     // in the shipped island the function is always present.
     if (typeof populateDefaultControls === 'function') { populateDefaultControls(node); }
+    // OWNER 2026-09-28: a choice change can block (or unblock) a mapping — every
+    // open Provider values row and chip re-reads the model, never a stale "sends".
+    if (typeof refreshProviderChips === 'function') { refreshProviderChips(); }
     afterModelChange();
   }
   function parseBulkChoices(text, req) {
@@ -16905,14 +16917,22 @@ export const SECTION_STUDIO_SCRIPT = `
   // say so and how to map it.
   function fixedFieldHint(offer, node, key) {
     var fixed = (offer && offer.fixed_fields) || [], i, seg, hits = [];
-    var part = answerKeyPartLabel(node, key).toLowerCase(), base = trimStr(node && node.internal_field).toLowerCase();
-    // a PART (an Address's ZIP) matches only its own name, never the component's
-    var words = key.toLowerCase() === base ? [base] : [key.toLowerCase()];
-    if (part === 'zip code') { words.push('zip'); words.push('postal'); }
-    else if (key.toLowerCase() !== base) { words.push(part); }
+    // words of the answer key (a PART of an Address matches only its own name,
+    // never the component's base); ZIP-like answers also match postal fields
+    var tokens = function (x) { return String(x).toLowerCase().split(/[^a-z0-9]+/); };
+    var words = {}, t, k;
+    var src = tokens(key);
+    for (k = 0; k < src.length; k++) { if (src[k].length >= 3 && !/^\\d+$/.test(src[k])) { words[src[k]] = true; } }
+    var baseName = trimStr(node && node.internal_field);
+    if (baseName !== '' && key !== baseName) {
+      var bt = tokens(baseName);
+      for (k = 0; k < bt.length; k++) { delete words[bt[k]]; }
+    }
+    if (words.zip === true || words.zipcode === true || words.postal === true) { words.zip = true; words.zipcode = true; words.postal = true; words.postcode = true; }
     for (i = 0; i < fixed.length; i++) {
-      seg = String(fixed[i].path).split('.').pop().toLowerCase();
-      if (seg !== '' && (words.indexOf(seg) !== -1 || (part === 'zip code' && seg.indexOf('zip') !== -1))) { hits.push(fixed[i]); }
+      seg = String(fixed[i].path).split('.').pop();
+      t = tokens(seg);
+      for (k = 0; k < t.length; k++) { if (words[t[k]] === true) { hits.push(fixed[i]); break; } }
     }
     if (hits.length === 0) { return ''; }
     var names = [];

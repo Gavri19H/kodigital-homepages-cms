@@ -2465,6 +2465,8 @@ function schemaFixedFields(schemaJson: string | null): Array<{ path: string; val
   if (!isRecord(parsed) || !isRecord(parsed["root"]) || !Array.isArray(parsed["root"]["children"])) return out;
   for (const node of parsed["root"]["children"]) {
     if (!isRecord(node) || node["source"] !== "static" || typeof node["path"] !== "string" || node["path"] === "") continue;
+    // never ship a fixed credential to the page (the hint only names answer-like fields)
+    if (/token|secret|password|passwd|api[_-]?key|auth|signature|credential/i.test(node["path"])) continue;
     const value = node["value"];
     out.push({ path: node["path"], value: value === undefined || value === null ? "" : String(value) });
   }
