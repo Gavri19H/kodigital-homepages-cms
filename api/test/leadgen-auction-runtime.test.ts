@@ -1629,6 +1629,29 @@ describeDb("every provider listing reaches the auction (OWNER 2026-09-28)", () =
   it("the cap is what limits: at 10 per offer, the 5 banner slots fill", async () => {
     expect(await run(10)).toHaveLength(5);
   });
+
+  it("a carrier the answer names twice is ONE card with its FIRST listing's copy and bid", async () => {
+    const answer = JSON.parse(NEXTINSURE_6) as { response: { listingset: { listing: Array<Record<string, unknown>> } } };
+    const listing = answer.response.listingset.listing;
+    // Farmers again further down, with its own copy, bid and click
+    listing[4] = { ...listing[4], company: listing[1]!["company"], displayname: "Farmers", title: "SECOND FARMERS LISTING", cpc: "2.42", clickurl: "https://second-farmers.example/click" };
+    const sdb = createLeadgenDb(DatabaseSync as DatabaseSyncCtor);
+    const { kv } = makeKvStub();
+    const env = buildEnv(d1FromSqlite(sdb), kv);
+    const auction = seedAuction(sdb, { multi_offer: "enabled", max_carriers_per_offer: 10, banner_slots_count: 5, max_total_carriers: 10, floor_type: "percentage_of_max", floor_value: 10 });
+    const qs = seedOffer(sdb, { dynamic: true, carrierParse: QUINSTREET_HOME_PARSER });
+    attachOffer(sdb, auction.id, qs, 0);
+    stubFetch(() => new Response(JSON.stringify(answer), { status: 200, headers: { "content-type": "application/json" } }));
+    const bundle = await loadAuctionBundle(env.DB, auction, 1);
+    const result = await runAuction(env, { resolved: makeResolved(), bundle, environment: "production", binding: NO_BINDING, session_id: null, raw_answers: {}, clicked: [] }, { dryRun: true });
+    const shown = result.explain.carriers_shown;
+    expect(shown.map((c) => c.carrier_key)).toEqual([
+      "Contactability - 32485", "Farmers Insurance Group", "ultimateinsurance.com (32925110)", "AgileRates, LLC (Buyer)", "Union Square Media (33141310)",
+    ]);
+    expect(shown.find((c) => c.carrier_key === "Farmers Insurance Group")?.bid).toBe(3.45);
+    expect(result.banners_html).toContain("FastQuote® From Farmers");
+    expect(result.banners_html).not.toContain("SECOND FARMERS LISTING");
+  });
 });
 
 describeDb("one recommended card when the winning Offer yields several carriers (OWNER 2026-09-28)", () => {

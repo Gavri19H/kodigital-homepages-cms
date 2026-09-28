@@ -136,6 +136,9 @@ import type {
   LeadgenRuleConditions,
 } from "../../../admin/leadgen/db-types";
 import { offerHasOwnClickUrl } from "../../../leadgen/macros";
+import { staticBidProviderOffer, staticCarrier, parseOfferProviderResponse } from "./offer-parse";
+// Re-exported for callers that already import it from the engine.
+export { parseOfferProviderResponse };
 
 // ---------------------------------------------------------------------------
 // Loaded auction bundle (READ-ONLY; safe to load in dry-run)
@@ -910,52 +913,9 @@ function callsProvider(offer: LeadgenOfferRow): boolean {
   return offer.calls_provider_api === 1;
 }
 
-// The CPL third of 04 S10.2: `request_static_bid` — it DOES call the provider
-// (so callsProvider is true and a payload is POSTed) but its bid is the Offer's
-// static one and the answer is an accept/reject, not a carrier list. It needs
-// parseStaticBidProviderResponse, never the CPC carrier-list parser.
-function staticBidProviderOffer(offer: LeadgenOfferRow): boolean {
-  return callsProvider(offer) && offer.bid_source === "static";
-}
-
-// THE parser choice for one Offer's provider answer — the live auction and the
-// admin Test tool both call this, so the Test tab shows what the funnel will
-// (it used to run every Offer, CPL ones included, through the list parser).
-export function parseOfferProviderResponse(
-  offer: LeadgenOfferRow,
-  carrierParse: unknown,
-  response: unknown,
-  staticBidOverride: number | null,
-): ReturnType<typeof parseProviderResponse> {
-  return staticBidProviderOffer(offer)
-    ? parseStaticBidProviderResponse(carrierParse, response, staticCarrier(offer, staticBidOverride))
-    : parseProviderResponse(carrierParse, response);
-}
-
-// Synthesize the single canonical Carrier a static Offer contributes (07 S18.2
-// static surfacing) from its static config. Also the identity/bid FALLBACK a
-// request_static_bid (CPL) Offer's parser leans on — which is why the authored
-// creative is layered on separately (staticNoRequestCarrier), never here: a
-// CPL Offer's card copy comes from its response parser and must not change.
-function staticCarrier(offer: LeadgenOfferRow, staticBidOverride: number | null): LeadgenParsedCarrier {
-  const name = (offer.provider ?? offer.offer_name ?? "").trim();
-  const key = name !== "" ? slugifyCarrierName(name) : offer.public_id;
-  const bid = staticBidOverride ?? offer.static_bid_value ?? 0;
-  return {
-    carrier_key: key === "" ? offer.public_id : key,
-    carrier_key_source: "slug",
-    carrier_name: name === "" ? null : name,
-    carrier_logo: null,
-    bid: Number.isFinite(bid) && bid > 0 ? bid : 0,
-    bid_currency: offer.static_bid_currency,
-    click_url: offer.static_fallback_banner_url,
-    tracking_id: null,
-    headline: null,
-    subheadline: null,
-    disclaimer: null,
-    pricing_model: "static",
-  };
-}
+// staticBidProviderOffer / staticCarrier / parseOfferProviderResponse live in
+// offer-parse.ts: the admin Test tool shares the parser choice, and importing
+// it from this module would tie the admin handlers into the engine's graph.
 
 // OWNER 2026-09-27 — a "Static — no provider request" Offer's card carries the
 // creative authored on its Static tab (0060; leadgen/static-creative.ts):
@@ -1050,6 +1010,18 @@ function syntheticRequestSource(): LeadgenRuntimeRequestSource {
 
 // Run the S19 pipeline. Steps 1-15 in order. dryRun => compute everything, write
 // nothing (the caller does not persist; no cap is incremented). Never throws.
+// One carrier per carrier_key within ONE provider answer, first entry kept.
+function firstPerCarrierKey(carriers: readonly LeadgenParsedCarrier[]): LeadgenParsedCarrier[] {
+  const seen = new Set<string>();
+  const out: LeadgenParsedCarrier[] = [];
+  for (const carrier of carriers) {
+    if (seen.has(carrier.carrier_key)) continue;
+    seen.add(carrier.carrier_key);
+    out.push(carrier);
+  }
+  return out;
+}
+
 export async function runAuction(
   env: Env,
   input: RunAuctionInput,
@@ -1570,6 +1542,8 @@ export async function runAuction(
   // rows below (parsedByOffer stays as the legacy-override fallback).
   const parsedByRow = new Map<string, LeadgenParsedCarrier[]>();
   const parsedByOffer = new Map<string, LeadgenParsedCarrier[]>();
+  // the carriers each row brings INTO the auction (one per carrier_key)
+  const auctionCarriersByRow = new Map<string, LeadgenParsedCarrier[]>();
   const bidInputs: CarrierBidInput[] = [];
   const carrierMeta = new Map<string, { offer: AuctionBundleOffer; parsed: LeadgenParsedCarrier; response_context: unknown }>();
 
@@ -1594,11 +1568,22 @@ export async function runAuction(
       // for having no identity. The CPL half now has its own parser (literal by
       // default, `{response:…}` reads the answer) seeded from the Offer's own
       // static carrier, so identity can never be underivable.
-      const parseResult = result === undefined
+      const parsed = result === undefined
         ? { carriers: [], errors: [] }
         : parseOfferProviderResponse(b.offer, b.carrier_parse_json, result.parsed ?? result.body ?? "", b.static_bid_override);
-      parsedByRow.set(rowKey(b.offer.public_id, b.placement_public_id), parseResult.carriers);
-      parsedByOffer.set(b.offer.public_id, parseResult.carriers);
+      // OWNER 2026-09-28: every listing of an answer is now a carrier, so ONE
+      // answer can name the same carrier twice (§18.8: same provider id, or
+      // same name + logo → same carrier_key). The auction below keys a
+      // carrier by offer + carrier_key (bid, copy, floor, render), so the
+      // answer's carriers are made unique HERE, keeping the FIRST entry — the
+      // one /lg/lc resolves the click from (runtime-routes.ts
+      // findParsedCarrier returns the first match). Keeping both rendered two
+      // identical cards, each with the LAST entry's copy and bid over the
+      // FIRST entry's click. The provider log keeps the parser's full list.
+      const parseResult = { carriers: firstPerCarrierKey(parsed.carriers), errors: parsed.errors };
+      parsedByRow.set(rowKey(b.offer.public_id, b.placement_public_id), parsed.carriers);
+      parsedByOffer.set(b.offer.public_id, parsed.carriers);
+      auctionCarriersByRow.set(rowKey(b.offer.public_id, b.placement_public_id), parseResult.carriers);
       // OWNER 2026-08-27: "I finished to build this funnel, clicked it to the end
       // of the funnel, and the auction wasn't running - I got to an empty page."
       //
@@ -1628,6 +1613,7 @@ export async function runAuction(
       const carrier = staticNoRequestCarrier(b.offer, b.static_bid_override, pageOrigin);
       parsedByRow.set(rowKey(b.offer.public_id, b.placement_public_id), [carrier]);
       parsedByOffer.set(b.offer.public_id, [carrier]);
+      auctionCarriersByRow.set(rowKey(b.offer.public_id, b.placement_public_id), [carrier]);
       bidInputs.push({
         carrier_key: carrier.carrier_key,
         offer_public_id: b.offer.public_id,
@@ -1646,7 +1632,7 @@ export async function runAuction(
   // row contributes the carriers ITS response parsed, 04 §4.5).
   const working: WorkingCarrier[] = [];
   for (const b of candidates) {
-    for (const carrier of parsedByRow.get(rowKey(b.offer.public_id, b.placement_public_id)) ?? []) {
+    for (const carrier of auctionCarriersByRow.get(rowKey(b.offer.public_id, b.placement_public_id)) ?? []) {
       const usd = usdByKey.get(metaKey(b.offer.public_id, carrier.carrier_key)) ?? 0;
       const meta = carrierMeta.get(metaKey(b.offer.public_id, carrier.carrier_key));
       working.push({ parsed: carrier, offer: b, usd_bid: usd, response_context: meta?.response_context ?? null });

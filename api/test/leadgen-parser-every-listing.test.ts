@@ -81,6 +81,15 @@ describe("the parser reads every listing, not only the first (OWNER 2026-09-28)"
     expect(r.carriers.map((c) => c.carrier_key)).toEqual(["a", "b", "c"]);
   });
 
+  it("a provider id named twice gives the SAME key twice — the parser keeps both (one card is the engine's job)", () => {
+    const listing = NEXTINSURE_6.response.listingset.listing.map((l) => ({ ...l }));
+    listing[4]!["company"] = listing[1]!["company"]!;
+    const r = parseProviderResponse(QUINSTREET_HOME_PARSER, { response: { listingset: { ...NEXTINSURE_6.response.listingset, listing } } });
+    expect(r.carriers).toHaveLength(6);
+    expect(r.carriers.filter((c) => c.carrier_key === "Farmers Insurance Group").map((c) => c.bid)).toEqual([3.45, 2.42]);
+    expect(r.errors).toEqual([]);
+  });
+
   it("an empty list is zero carriers with no parse error (it used to report the carrier as unparseable)", () => {
     const r = parseProviderResponse(ADSBYMONEY_HOME_PARSER, { data: [] });
     expect(r.carriers).toEqual([]);
@@ -126,26 +135,33 @@ describe("review round — only a list the carrier's identity runs through is th
     expect(r.carriers.map((c) => [c.carrier_key, c.headline])).toEqual([["e2", "Fast"]]);
   });
 
-  it("identity through the listing list, another field through a second list: one carrier per listing, the other field shared", () => {
+  it("a field through a SECOND list keeps the one-carrier reading (parallel arrays would put item 0's value on every card)", () => {
     const cfg = { fields: { provider_id: "r.listing.0.id", carrier_name: "r.listing.0.name", bid: "r.listing.0.bid", disclaimer: "r.notes.0" } };
     const body = { r: { listing: [{ id: "a", name: "A", bid: 3 }, { id: "b", name: "B", bid: 2 }], notes: ["Terms apply", "unused"] } };
-    const r = parseProviderResponse(cfg, body);
-    expect(r.carriers.map((c) => [c.carrier_key, c.disclaimer])).toEqual([["a", "Terms apply"], ["b", "Terms apply"]]);
+    expect(parseProviderResponse(cfg, body).carriers.map((c) => [c.carrier_key, c.disclaimer])).toEqual([["a", "Terms apply"]]);
+    // the parallel-array case the review found: identity in ads, bid in bids
+    const parallel = { fields: { provider_id: "ads.0.id", carrier_name: "ads.0.name", click_url: "ads.0.url", bid: "bids.0.amount" } };
+    const pbody = { ads: [{ id: "x", name: "X", url: "https://x.example" }, { id: "y", name: "Y", url: "https://y.example" }], bids: [{ amount: 9 }, { amount: 4 }] };
+    expect(parseProviderResponse(parallel, pbody).carriers.map((c) => [c.carrier_key, c.bid])).toEqual([["x", 9]]);
+  });
+
+  it("a list that only varies the name (bid and click outside it) is not a carriers list — no cloned cards", () => {
+    const cfg = { fields: { carrier_name: "offer.variants.0.name", bid: "offer.bid", click_url: "offer.url" } };
+    const body = { offer: { bid: 2, url: "https://one.example/go", variants: [{ name: "Alpha" }, { name: "Beta" }, { name: "Gamma" }] } };
+    expect(parseProviderResponse(cfg, body).carriers.map((c) => c.carrier_name)).toEqual(["Alpha"]);
+  });
+
+  it("an empty entry among the listings is skipped (reported), never a fall-back to one card", () => {
+    const listing: Array<Record<string, string> | null> = NEXTINSURE_6.response.listingset.listing.map((l) => ({ ...l }));
+    listing[2] = null;
+    const r = parseProviderResponse(QUINSTREET_HOME_PARSER, { response: { listingset: { ...NEXTINSURE_6.response.listingset, listing } } });
+    expect(r.carriers).toHaveLength(5);
+    expect(r.errors.map((e) => [e.code, e.carrier_index])).toEqual([["carrier_not_object", 2]]);
   });
 
   it("a list of non-objects under the identity path keeps the old one-object reading", () => {
     const cfg = { fields: { provider_id: "ids.0", carrier_name: "name", bid: "bid" } };
     const r = parseProviderResponse(cfg, { ids: ["x", "y"], name: "N", bid: 1 });
     expect(r.carriers.map((c) => c.carrier_key)).toEqual(["x"]);
-  });
-
-  it("two listings with the same provider id are one carrier: the first is kept, the repeat reported", () => {
-    const listing = NEXTINSURE_6.response.listingset.listing.map((l) => ({ ...l }));
-    listing[4]!["company"] = listing[1]!["company"]!; // a repeat of Farmers further down
-    const r = parseProviderResponse(QUINSTREET_HOME_PARSER, { response: { listingset: { ...NEXTINSURE_6.response.listingset, listing } } });
-    expect(r.carriers).toHaveLength(5);
-    const farmers = r.carriers.filter((c) => c.carrier_key === "Farmers Insurance Group");
-    expect(farmers.map((c) => [c.carrier_name, c.bid])).toEqual([["Farmers", 3.45]]);
-    expect(r.errors.map((e) => e.code)).toEqual(["duplicate_carrier_key"]);
   });
 });

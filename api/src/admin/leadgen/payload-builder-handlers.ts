@@ -63,7 +63,7 @@ import {
   redactSecretText,
   redactSecretValues,
 } from "../../leadgen/redact";
-import { parseOfferProviderResponse } from "../../public/leadgen/auction/engine";
+import { parseOfferProviderResponse } from "../../public/leadgen/auction/offer-parse";
 import { safeErrorCode, safeErrorName } from "../../safety/safe-error";
 import { readAnswerBindings } from "../../leadgen/answer-bindings";
 import type { LeadgenOfferPayloadSchemaRow, LeadgenOfferRow } from "./db-types";

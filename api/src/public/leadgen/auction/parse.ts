@@ -79,11 +79,7 @@ export type LeadgenParseErrorCode =
   | "carrier_not_object"
   | "field_wrong_type"
   | "bid_invalid"
-  | "carrier_key_underivable"
-  // Two items of one response carry the same provider id: they are the same
-  // carrier, so the first (the provider's higher-ranked one) is kept — keeping
-  // both let a later item's copy and bid ride the first one's click.
-  | "duplicate_carrier_key";
+  | "carrier_key_underivable";
 
 export interface LeadgenParseError {
   // "response" = the whole response failed/degraded; "carrier" = one item.
@@ -337,15 +333,20 @@ interface PendingCarrier {
 // were read against the response root: one carrier, always item 0. Both
 // offers on that auction were authored this way (AdsByMoney: `data.0.bid`).
 //
-// So when the carriers path is empty (the root is one object) and the carrier's
-// IDENTITY (provider_id / carrier_name) runs through a list at index 0 whose
-// items are objects, that list IS the carriers list: item i reads each path
-// through it with 0 → i. Every other path is shared by every carrier — one
-// outside any list (response.listingset.searchid) or through another list (a
-// headline through offer.features.0). Identity outside any list (a single-
-// carrier provider whose logo is logos.0), through a non-zero index, through
-// two different lists, or a list of non-objects keeps the old one-object
-// reading — reading those items as carriers would empty or clone the card.
+// So when the carriers path is empty (the root is one object), that list IS
+// the carriers list — item i reads each path through it with 0 → i — only when
+// ALL of these hold (otherwise the old one-object reading, unchanged):
+//   • the carrier's IDENTITY (provider_id / carrier_name) runs through it at
+//     index 0 (a single carrier whose logo is logos.0 is not a list of
+//     carriers — reading it so emptied the page);
+//   • its BID or CLICK URL runs through it too (a list that only varies the
+//     name would clone one card N times);
+//   • its entries are objects (an empty entry is skipped, never a reason to
+//     fall back to one carrier);
+//   • no other field runs through a different list, or through another index
+//     of this one (parallel arrays — ads.0.id beside bids.0.amount — would put
+//     item 0's bid on every card).
+// Paths outside any list (response.listingset.searchid) are shared.
 interface IndexedCarrierList {
   prefix: string; // dotted path to the list ("" never — the root is an object)
   items: unknown[];
@@ -381,7 +382,23 @@ function inferIndexedCarrierList(body: unknown, fields: LeadgenCarrierParseConfi
     items = hit.items;
   }
   if (prefix === null || items === null) return null;
-  if (!items.every((item) => isRecord(item))) return null; // not a list of carrier objects
+  // a list of carrier objects — empty is fine (zero carriers); an empty entry
+  // is skipped by the loop (reported), never a reason to read one carrier
+  if (items.length > 0 && !items.some((item) => isRecord(item))) return null;
+  if (!items.every((item) => item === null || item === undefined || isRecord(item))) return null;
+  // the value that makes each card its own — its bid or its click — comes from the list
+  const perItem = [...fieldPathStrings(fields.bid), ...fieldPathStrings(fields.click_url)].some((path) => {
+    const hit = firstListOnPath(body, path);
+    return hit !== null && hit.prefix === prefix && hit.index === "0";
+  });
+  if (!perItem) return null;
+  // no field through another list, or another index of this one
+  for (const value of Object.values(fields) as Array<LeadgenCarrierFieldPath | undefined>) {
+    for (const path of fieldPathStrings(value)) {
+      const hit = firstListOnPath(body, path);
+      if (hit !== null && (hit.prefix !== prefix || hit.index !== "0")) return null;
+    }
+  }
   return { prefix, items };
 }
 
@@ -495,7 +512,6 @@ export function parseProviderResponse(
 
   // --- per-carrier extraction (partial failure keeps the rest) ------------
   const pending: PendingCarrier[] = [];
-  const seenProviderIds = new Set<string>();
   items.forEach((listItem, index) => {
     if (!isRecord(listItem)) {
       errors.push({
@@ -530,16 +546,6 @@ export function parseProviderResponse(
     if (providerId !== null && providerId.trim() !== "") {
       carrier.carrier_key = providerId.trim();
       carrier.carrier_key_source = "provider_id";
-      if (seenProviderIds.has(carrier.carrier_key)) {
-        errors.push({
-          scope: "carrier",
-          code: "duplicate_carrier_key",
-          carrier_index: index,
-          message: `carrier '${carrier.carrier_key}' appears more than once in the response — the first is kept`,
-        });
-        return;
-      }
-      seenProviderIds.add(carrier.carrier_key);
       pending.push({ carrier, slug: null });
       return;
     }
