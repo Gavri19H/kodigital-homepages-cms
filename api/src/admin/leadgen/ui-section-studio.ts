@@ -4150,6 +4150,7 @@ export const SECTION_STUDIO_STYLES = `
 .studio-provider-state[data-provider-state="custom"]{color:#0f5132}
 .studio-provider-state[data-provider-state="missing"]{color:#842029}
 .studio-provider-state[data-provider-state="invalid"]{color:#842029;font-weight:700}
+.studio-provider-state[data-provider-state="unsendable"]{color:#842029}
 .studio-provider-row .form-input[aria-invalid="true"]{border-color:#842029}
 .studio-provider-rows a{font-size:11px}
 /* §5.4 funnel-picker rule moved into SECTION_STUDIO_CANVAS_FRAME_CSS (DEV-66) */
@@ -4928,12 +4929,12 @@ export const SECTION_STUDIO_SCRIPT = `
     }
     return [edges];
   }
-  function valueFromEdges(edges, choiceValue) {
+  function valueFromEdges(edges, choiceValue, pendingNew) {
     var i, map;
     for (i = 0; i < edges.length; i++) {
       map = edges[i].output_value_map;
       if (!map || typeof map !== 'object') { continue; }
-      if (!hasOwn(map, choiceValue)) { return { state: 'missing', value: null }; }
+      if (!hasOwn(map, choiceValue)) { return pendingNew === true ? { state: 'saved', value: null } : { state: 'missing', value: null }; }
       var v = map[choiceValue] === null || map[choiceValue] === undefined ? '' : String(map[choiceValue]);
       return v === choiceValue ? { state: 'saved', value: null } : { state: 'custom', value: v };
     }
@@ -4986,117 +4987,97 @@ export const SECTION_STUDIO_SCRIPT = `
     return changed;
   }
   function providerValueOf(offerId, internalField, choiceValue) {
-    return valueFromEdges(edgesOfAnswerOnOffer(offerId, internalField), choiceValue);
+    return valueFromEdges(edgesOfAnswerOnOffer(offerId, internalField), choiceValue, isNewSinceLoad(questionByField(internalField), choiceValue));
   }
-  // Keep every Offer's value list in step with the answer's saved values as
-  // they are edited: a choice ADDED since the last edit is put on each list
-  // with its own saved value (so it is sent, never silently dropped), and a
-  // saved value RENAMED in place carries its provider value to the new name.
+  // A choice ADDED (or renamed) since the page opened is not on an existing
+  // value list yet. It is shown as sending its own saved value and, on Save,
+  // put on every list with that value — so it is never silently dropped. The
+  // baseline is the answer's saved values when the question was first shown;
+  // no per-keystroke tracking (a half-typed value can equal another choice's).
   // A value an existing list already left off (a deliberate "not sent") stays
-  // off. Positional snapshot per question, so a value cleared and retyped
-  // still counts as the same choice being renamed.
-  var providerSnapshot = {};
-  var providerParked = {};
-  function positionalSavedValues(node) {
-    var out = [], i, list;
-    list = node && node.choices ? node.choices : [];
-    for (i = 0; i < list.length; i++) { out.push(list[i] && typeof list[i].value === 'string' ? list[i].value : ''); }
-    list = node && node.props && node.props.other && node.props.other.enabled === true && node.props.other.choices ? node.props.other.choices : [];
-    for (i = 0; i < list.length; i++) { out.push(list[i] && typeof list[i].value === 'string' ? list[i].value : ''); }
-    return out;
-  }
+  // off. A renamed choice sends its NEW saved value; its old provider value is
+  // not carried (it is visible in the row).
+  var providerBaseline = {};
   function snapshotProviderValues(node) {
-    if (node && node.question_id && providerSnapshot[node.question_id] === undefined) {
-      providerSnapshot[node.question_id] = positionalSavedValues(node);
+    if (node && node.question_id && providerBaseline[node.question_id] === undefined) {
+      providerBaseline[node.question_id] = choiceSavedValuesOf(node);
     }
   }
-  function syncProviderLists(node) {
-    if (!node || !node.question_id || trimStr(node.internal_field) === '') { return; }
-    var qid = node.question_id;
-    var after = positionalSavedValues(node);
-    var before = providerSnapshot[qid];
-    providerSnapshot[qid] = after;
-    if (before === undefined) { return; }
-    var moves = [], i, n = 0, at = -1;
-    if (before.length === after.length) {
-      for (i = 0; i < after.length; i++) { if (before[i] !== after[i]) { n += 1; at = i; } }
-      if (n === 1) {
-        if (after[at] === '') { providerParked[qid + '#' + at] = before[at]; }
-        else if (before[at] === '') {
-          if (providerParked[qid + '#' + at] !== undefined) { moves.push([providerParked[qid + '#' + at], after[at]]); }
-          delete providerParked[qid + '#' + at];
-        } else { moves.push([before[at], after[at]]); }
-      }
-    }
-    var known = {}, movedTo = {};
-    for (i = 0; i < before.length; i++) { if (before[i] !== '') { known[before[i]] = true; } }
-    for (i = 0; i < moves.length; i++) { movedTo[moves[i][1]] = true; }
-    var current = choiceSavedValuesOf(node);
-    var edges = [], e;
-    for (i = 0; i < state.answer_maps.length; i++) {
-      e = state.answer_maps[i];
-      if (e && e.internal_field === node.internal_field && e.output_value_map && typeof e.output_value_map === 'object') { edges.push(e); }
-    }
-    var j, map, key, changed, from, to;
-    for (i = 0; i < edges.length; i++) {
-      map = {};
-      for (key in edges[i].output_value_map) { if (hasOwn(edges[i].output_value_map, key)) { map[key] = edges[i].output_value_map[key]; } }
-      changed = false;
-      for (j = 0; j < moves.length; j++) {
-        from = moves[j][0]; to = moves[j][1];
-        if (hasOwn(map, from) && !hasOwn(map, to)) {
-          map[to] = String(map[from]) === from ? to : map[from];
-          delete map[from];
-          changed = true;
-        }
-      }
-      for (j = 0; j < current.length; j++) {
-        if (!hasOwn(map, current[j]) && known[current[j]] !== true && movedTo[current[j]] !== true) {
-          map[current[j]] = current[j];
-          changed = true;
-        }
-      }
-      if (changed) {
-        edges[i].output_value_map = isSavedValueList(map, current) ? null : map;
-        markDirty();
-      }
-    }
+  function isNewSinceLoad(node, value) {
+    var b = node && node.question_id ? providerBaseline[node.question_id] : undefined;
+    return b !== undefined && b.indexOf(value) === -1;
   }
-  // How many of the answer's saved values an edge's list leaves off (not sent).
-  function valuesNotSent(edge, node) {
-    if (!edge || !edge.output_value_map || typeof edge.output_value_map !== 'object' || !node) { return 0; }
-    var vals = choiceSavedValuesOf(node), n = 0, i;
-    for (i = 0; i < vals.length; i++) { if (!hasOwn(edge.output_value_map, vals[i])) { n += 1; } }
+  function fillNewChoicesOnLists() {
+    walkTree(state.content.components, 1, function (n) {
+      if (!n || !n.question_id || providerBaseline[n.question_id] === undefined || trimStr(n.internal_field) === '') { return; }
+      var current = choiceSavedValuesOf(n), i, j, e, map, key, changed;
+      for (i = 0; i < state.answer_maps.length; i++) {
+        e = state.answer_maps[i];
+        if (!e || e.internal_field !== n.internal_field || !e.output_value_map || typeof e.output_value_map !== 'object') { continue; }
+        map = {};
+        for (key in e.output_value_map) { if (hasOwn(e.output_value_map, key)) { map[key] = e.output_value_map[key]; } }
+        changed = false;
+        for (j = 0; j < current.length; j++) {
+          if (!hasOwn(map, current[j]) && isNewSinceLoad(n, current[j])) { map[current[j]] = current[j]; changed = true; }
+        }
+        if (changed) { e.output_value_map = map; markDirty(); }
+      }
+    });
+  }
+  function resetProviderBaseline() { providerBaseline = {}; }
+  // How many of the answer's saved values never reach this edge's buyer field:
+  // left off its value list, or sent as something the field's type (or its
+  // allowed values) cannot take. Shown on the Offers tab and in the rows —
+  // never a hidden status change (a whole edge demoted to type_mismatch is
+  // skipped by the live build for EVERY answer, not just the bad one).
+  function valuesNotSent(edge, node, offer) {
+    if (!edge || !node) { return 0; }
+    var vals = choiceSavedValuesOf(node), n = 0, i, map = edge.output_value_map, send;
+    for (i = 0; i < vals.length; i++) {
+      if (map && typeof map === 'object') {
+        if (!hasOwn(map, vals[i])) {
+          if (!isNewSinceLoad(node, vals[i])) { n += 1; continue; }
+          send = vals[i];
+        } else { send = map[vals[i]] === null || map[vals[i]] === undefined ? '' : String(map[vals[i]]); }
+      } else { send = vals[i]; }
+      if (providerValueProblem(offer ? offer.id : edge.offer_id, [edge], send) !== '') { n += 1; }
+    }
     return n;
   }
   function providerChipRows(internalField, choiceValue) {
-    var ids = mappedOffersFor(internalField), rows = [], i, g, groups, v, pub, name, label, f, offer;
+    var ids = mappedOffersFor(internalField), rows = [], i, g, groups, v, pub, name, label, f, offer, send;
+    var pendingNew = isNewSinceLoad(questionByField(internalField), choiceValue);
     for (i = 0; i < ids.length; i++) {
       groups = providerBoxGroups(ids[i], internalField);
       pub = offerPublicIdFor(ids[i]);
       name = offerNameFor(ids[i]);
       offer = offerById(ids[i]);
       for (g = 0; g < groups.length; g++) {
-        v = valueFromEdges(groups[g], choiceValue);
+        v = valueFromEdges(groups[g], choiceValue, pendingNew);
         label = name;
         if (groups.length > 1) {
           f = offer ? answerFieldOf(offer, groups[g][0].offer_payload_field_path) : null;
-          label = name + ' \\u00b7 ' + (f ? fieldDisplayLabel(f) : groups[g][0].offer_payload_field_path);
+          label = name + ' \\u00b7 ' + (f ? fieldOptionLabelIn(offer, f) : groups[g][0].offer_payload_field_path);
         }
-        rows.push({ offer_id: ids[i], offer_name: label, offer_public_id: pub || null, state: v.state, value: v.value, edges: groups[g] });
+        send = v.state === 'custom' ? v.value : v.state === 'saved' ? choiceValue : null;
+        rows.push({
+          offer_id: ids[i], offer_name: label, offer_public_id: pub || null, state: v.state, value: v.value, edges: groups[g],
+          unsendable: send === null ? '' : providerValueProblem(ids[i], groups[g], send)
+        });
       }
     }
     return rows;
   }
   function providerChipLabel(internalField, choiceValue) {
     var rows = providerChipRows(internalField, choiceValue);
-    var custom = 0, missing = 0, i;
+    var custom = {}, missing = {}, i, nc = 0, nm = 0;
     for (i = 0; i < rows.length; i++) {
-      if (rows[i].state === 'custom') { custom += 1; }
-      if (rows[i].state === 'missing') { missing += 1; }
+      if (rows[i].state === 'custom' && custom[rows[i].offer_id] !== true) { custom[rows[i].offer_id] = true; nc += 1; }
+      if ((rows[i].state === 'missing' || rows[i].unsendable !== '') && missing[rows[i].offer_id] !== true) { missing[rows[i].offer_id] = true; nm += 1; }
     }
-    return 'Provider values: ' + custom + '/' + rows.length + ' Offers' + (missing > 0 ? ' \\u00b7 ' + missing + ' not sent' : '');
+    return 'Provider values: ' + nc + '/' + mappedOffersFor(internalField).length + ' Offers' + (nm > 0 ? ' \\u00b7 ' + nm + ' not sent' : '');
   }
+
 
   // --- §5.4 Move to funnel layout: the equivalent frame_config_json group -------
   // Legacy frame-scope node → the sparse §3.3 group the funnel frame PUT
@@ -7376,7 +7357,7 @@ export const SECTION_STUDIO_SCRIPT = `
       qid = nodes[i].getAttribute('data-question-id');
       ref = findRef(qid);
       if (!ref || !ref.node || !typeMeta(ref.node.type).produces || trimStr(ref.node.internal_field) === '') { continue; }
-      info = overlayChipInfo(ref.node.internal_field);
+      info = overlayChipInfo(ref.node);
       chip = frameCreate('button');
       chip.type = 'button';
       chip.className = 'studio-mapoverlay-chip';
@@ -8700,6 +8681,10 @@ export const SECTION_STUDIO_SCRIPT = `
     for (i = 0; i < panels.length; i++) {
       panels[i].hidden = panels[i].getAttribute('data-studio-panel') !== key;
     }
+    // OWNER 2026-09-28: the Offers tab always shows the LIVE question (a field
+    // renamed on the Content tab is mapped under its new key).
+    // typeof-guard: setInspectorTab is vm-probe-sliced standalone.
+    if (key === 'offers' && typeof renderOffersPanel === 'function' && typeof offersData !== 'undefined' && offersData) { renderOffersPanel(); }
   }
 
   // --- inspector populate ------------------------------------------------------
@@ -12305,15 +12290,21 @@ export const SECTION_STUDIO_SCRIPT = `
       line.appendChild(document.createTextNode(text));
       rowsEl.appendChild(line);
     }
-    function paintState(stateEl, v, saved, problem) {
-      stateEl.setAttribute('data-provider-state', problem ? 'invalid' : v.state);
+    function paintState(stateEl, v, saved, problem, unsendable) {
+      stateEl.setAttribute('data-provider-state', problem ? 'invalid' : unsendable ? 'unsendable' : v.state);
       clearChildren(stateEl);
       stateEl.appendChild(document.createTextNode(
         problem ? problem
+          : unsendable ? 'not sent \\u2014 ' + (v.state === 'custom' ? v.value : saved) + ' ' + unsendable.replace(/^must be/, 'is not')
           : v.state === 'custom' ? 'sends ' + v.value
           : v.state === 'missing' ? 'not sent \\u2014 type a value to send one'
           : 'sends ' + saved
       ));
+    }
+    function rowState(offerId, edges, saved) {
+      var v = valueFromEdges(edges, saved, isNewSinceLoad(node, saved));
+      var send = v.state === 'custom' ? v.value : v.state === 'saved' ? saved : null;
+      return { v: v, unsendable: send === null ? '' : providerValueProblem(offerId, edges, send) };
     }
     function buildRows() {
       clearChildren(rowsEl);
@@ -12325,7 +12316,7 @@ export const SECTION_STUDIO_SCRIPT = `
       if (rowIsCalculated(rowEl, choice)) { note('Calculated date \\u2014 every provider receives the date.'); return; }
       if (v === '') { note('Give this choice a saved value first.'); return; }
       var rows = providerChipRows(internalField, v), i, anyMissing = false;
-      for (i = 0; i < rows.length; i++) { if (rows[i].state === 'missing') { anyMissing = true; } }
+      for (i = 0; i < rows.length; i++) { if (rows[i].state === 'missing' || rows[i].unsendable !== '') { anyMissing = true; } }
       note(anyMissing
         ? 'Empty box = the saved value (' + v + ') is sent \\u2014 except where marked not sent.'
         : 'Empty box = the saved value (' + v + ') is sent.');
@@ -12348,23 +12339,35 @@ export const SECTION_STUDIO_SCRIPT = `
         inp.value = rows[i].state === 'custom' ? rows[i].value : '';
         st = document.createElement('span');
         st.className = 'studio-provider-state';
-        paintState(st, rows[i], v, '');
+        paintState(st, rows[i], v, '', rows[i].unsendable);
         (function (offerId, edges, input, stateEl) {
+          // typing only CHECKS; the value is applied when the box is left (or
+          // Enter) — a refused value never leaves a half-typed one behind
           input.addEventListener('input', function () {
+            var saved = currentValue();
+            var problem = providerValueProblem(offerId, edges, trimStr(input.value));
+            if (problem !== '') { input.setAttribute('aria-invalid', 'true'); } else { input.removeAttribute('aria-invalid'); }
+            var rs = rowState(offerId, edges, saved);
+            paintState(stateEl, rs.v, saved, problem, rs.unsendable);
+          });
+          input.addEventListener('change', function () {
             var saved = currentValue();
             if (saved === '' || rowIsCalculated(rowEl, choice)) { return; }
             var text = trimStr(input.value);
             var problem = providerValueProblem(offerId, edges, text);
             if (problem !== '') {
               input.setAttribute('aria-invalid', 'true');
-              paintState(stateEl, valueFromEdges(edges, saved), saved, problem);
+              var bad = rowState(offerId, edges, saved);
+              paintState(stateEl, bad.v, saved, problem, bad.unsendable);
               return;
             }
             input.removeAttribute('aria-invalid');
             setProviderValue(offerId, internalField, saved, text, choiceSavedValuesOf(node), edges);
-            paintState(stateEl, valueFromEdges(edges, saved), saved, '');
+            var rs = rowState(offerId, edges, saved);
+            paintState(stateEl, rs.v, saved, '', rs.unsendable);
             refreshLabel();
             updateMappingBadge();
+            renderInspectorMapping();
           });
         })(rows[i].offer_id, rows[i].edges, inp, st);
         line.appendChild(lab);
@@ -13330,7 +13333,6 @@ export const SECTION_STUDIO_SCRIPT = `
       delete props.other;
     }
     cleanupEmpty(node, 'props');
-    if (typeof syncProviderLists === 'function') { syncProviderLists(node); }
     afterModelChange();
   }
 
@@ -13729,8 +13731,6 @@ export const SECTION_STUDIO_SCRIPT = `
     // reason populateConditional documents for NOT calling its collaborators;
     // in the shipped island the function is always present.
     if (typeof populateDefaultControls === 'function') { populateDefaultControls(node); }
-    // OWNER 2026-09-28: an added or renamed choice stays on every Offer's value list.
-    if (typeof syncProviderLists === 'function') { syncProviderLists(node); }
     afterModelChange();
   }
   function parseBulkChoices(text, req) {
@@ -16310,18 +16310,6 @@ export const SECTION_STUDIO_SCRIPT = `
     var hasTransform = edge.value_transform && edge.value_transform.length > 0;
     var values = closedAnswerValuesOf(questionByField(edge.internal_field));
     if (!hasMap && !hasTransform && !coercibleTo(edge.answer_type, field.type, values)) { return 'type_mismatch'; }
-    // Mirror of sections.ts mappingCompleteness (OWNER 2026-09-28): a value
-    // list stands in for the answer's type only when each value it sends can
-    // BE that type.
-    if (hasMap && !hasTransform) {
-      var mk;
-      for (mk in edge.output_value_map) {
-        if (Object.prototype.hasOwnProperty.call(edge.output_value_map, mk)) {
-          var mv = edge.output_value_map[mk];
-          if (!choiceValueCoercibleTo(mv === null || mv === undefined ? '' : String(mv), field.type)) { return 'type_mismatch'; }
-        }
-      }
-    }
     if (edge.required_for_offer === true && trimStr(edge.internal_field) === '') { return 'missing_required'; }
     return 'complete';
   }
@@ -16534,7 +16522,12 @@ export const SECTION_STUDIO_SCRIPT = `
   // Offers its answer feeds + whether a REQUIRED Offer field is unsatisfied
   // (a required edge that is not complete, or a required schema field naming
   // this internal field with no edge at all).
-  function overlayChipInfo(internalField) {
+  function overlayChipInfo(internalFieldOrNode) {
+    // OWNER 2026-09-28: a node is matched by EVERY key it records (an Address
+    // mapped by part); a bare string keeps the old one-key behaviour.
+    var keySet = {}, ks, kx;
+    if (typeof internalFieldOrNode === 'string') { keySet[internalFieldOrNode] = true; }
+    else { ks = answerKeysOf(internalFieldOrNode); for (kx = 0; kx < ks.length; kx++) { keySet[ks[kx].key] = true; } }
     var offers = offersList();
     var count = 0, requiredMissing = false;
     var i, j, e, live, fields, has;
@@ -16544,14 +16537,14 @@ export const SECTION_STUDIO_SCRIPT = `
       has = false;
       for (j = 0; j < state.answer_maps.length; j++) {
         e = state.answer_maps[j];
-        if (!e || e.offer_id !== offers[i].id || e.internal_field !== internalField) { continue; }
+        if (!e || e.offer_id !== offers[i].id || keySet[e.internal_field] !== true) { continue; }
         has = true;
         if (e.required_for_offer === true && edgeMapState(e, offers[i]) !== 'complete') { requiredMissing = true; }
       }
       if (has) { count += 1; continue; }
       fields = offers[i].answer_fields || [];
       for (j = 0; j < fields.length; j++) {
-        if (fields[j].required === true && fields[j].internal_field === internalField && findEdgeIndex(offers[i].id, fields[j].path) === -1) { requiredMissing = true; }
+        if (fields[j].required === true && keySet[fields[j].internal_field] === true && findEdgeIndex(offers[i].id, fields[j].path) === -1) { requiredMissing = true; }
       }
     }
     return { count: count, required_missing: requiredMissing };
@@ -16676,23 +16669,84 @@ export const SECTION_STUDIO_SCRIPT = `
   // DEV-65(c)/§12.1: picker options speak the schema field LABEL + plain-word
   // type — never a raw dotted path (the path stays the option VALUE and the
   // row tooltip / Advanced list).
+  // A buyer field's label, with its path added when another field of the same
+  // Offer shows the SAME label (QuinStreet has "Zip" at contact.zip AND at
+  // properties.0.zip — two pickers must never read alike).
+  function fieldOptionLabelIn(offer, f) {
+    var fields = (offer && offer.answer_fields) || [], same = 0, i, mine = fieldDisplayLabel(f);
+    for (i = 0; i < fields.length; i++) { if (fieldDisplayLabel(fields[i]) === mine) { same += 1; } }
+    return same > 1 ? mine + ' (' + f.path + ')' : mine;
+  }
   function pathOptionLabel(f) {
     return fieldDisplayLabel(f) + ' \\u2014 ' + plainTypeWords(f) + (f.required === true ? ' (required)' : '');
   }
   // §8.6 Mapping tab: THIS component's internal_field per selected Offer.
-  // OWNER 2026-09-28 — the keys this question REALLY records: the server's
-  // answer_keys (the /sections/:id/offers projection, computed from the SAVED
-  // content by the derivation normalizeAnswers + the renderer use). A multi-part
-  // component (an Address, a from/to slider, a name group) records one key per
-  // part — an Address showing only a ZIP box records '<base>_zip', never the
-  // bare '<base>' — so each part is mapped on its own. A component not saved
-  // yet falls back to its own internal_field.
+  // OWNER 2026-09-28 — the keys this question REALLY records, derived LIVE from
+  // the editor's own model with the rule the funnel renders by (answers.ts
+  // fieldsOf / presets.ts leadgenAddressAnswerFields — pinned equal to the
+  // server's /sections/:id/offers answer_keys projection by a seam test). Live,
+  // so a component added or renamed since the last save maps its real key.
+  // A multi-part component records one key per part — an Address showing only
+  // a ZIP box records '<base>_zip', never the bare '<base>' — so each part is
+  // mapped on its own.
+  function addressPartKinds(node) {
+    var KINDS = ['street', 'city', 'state', 'zip', 'full_address'];
+    var raw = node && node.props ? node.props.fields : null, out = [], i;
+    if (!raw || !raw.length) { return ['street', 'city', 'state', 'zip']; }
+    for (i = 0; i < raw.length; i++) {
+      if (!raw[i] || typeof raw[i] !== 'object' || KINDS.indexOf(raw[i].field) === -1) { return ['street', 'city', 'state', 'zip']; }
+      out.push(raw[i].field);
+    }
+    return out;
+  }
+  // Keys another node of the section records (its unsuppressed claims) — an
+  // Address fill renamed onto one of them keeps its own '<base>_<part>'.
+  function foreignAnswerKeysOf(node) {
+    var out = {};
+    walkTree(state.content.components, 1, function (n) {
+      if (!n || n === node || !typeMeta(n.type).produces) { return; }
+      var own = trimStr(n.internal_field), k;
+      if (own !== '') { out[own] = true; }
+      var keys = liveAnswerKeysOf(n, null);
+      for (k = 0; k < keys.length; k++) { out[keys[k].key] = true; }
+      if (n.type === 'AddressAutocompleteQuestion') {
+        var kinds = addressPartKinds(n), base = own !== '' ? own : String(n.question_id || 'address');
+        for (k = 0; k < kinds.length; k++) { if (kinds[k] !== 'full_address') { out[base + '_' + kinds[k]] = true; } }
+      }
+    });
+    return out;
+  }
+  function liveAnswerKeysOf(node, foreign) {
+    if (!node || !typeMeta(node.type).produces) { return []; }
+    var f = trimStr(node.internal_field), props = node.props || {}, out = [], seen = {}, i, kind, named, own, fill;
+    var push = function (key, type) { if (key !== '' && seen[key] !== true) { seen[key] = true; out.push({ key: key, answer_type: type }); } };
+    if (node.type === 'NumberRangeQuestion' && f !== '' && (props.slider_type === 'dual_range' || props.slider_type === 'from_to')) {
+      push(f + '_min', 'number'); push(f + '_max', 'number');
+      return out;
+    }
+    if (node.type === 'AddressAutocompleteQuestion') {
+      var base = f !== '' ? f : String(node.question_id || 'address');
+      var fills = props.maps && props.maps.fills && typeof props.maps.fills === 'object' ? props.maps.fills : {};
+      var kinds = addressPartKinds(node);
+      for (i = 0; i < kinds.length; i++) {
+        kind = kinds[i];
+        if (kind === 'full_address') { push(base, 'string'); continue; }
+        own = base + '_' + kind;
+        fill = fills[kind];
+        named = typeof fill === 'string' && trimStr(fill) !== '' ? trimStr(fill) : own;
+        push(named !== own && foreign && foreign[named] === true ? own : named, 'string');
+      }
+      return out;
+    }
+    if (f !== '') { push(f, node.answer_type || typeMeta(node.type).produces || 'string'); return out; }
+    if (node.type === 'NameFieldsGroup') {
+      var parts = props.fields && props.fields.length ? props.fields : ['first', 'last'];
+      for (i = 0; i < parts.length; i++) { if (typeof parts[i] === 'string') { push(trimStr(parts[i]), 'string'); } }
+    }
+    return out;
+  }
   function answerKeysOf(node) {
-    if (!node) { return []; }
-    var fromServer = offersData && offersData.answer_keys && node.question_id ? offersData.answer_keys[node.question_id] : null;
-    if (fromServer && fromServer.length) { return fromServer; }
-    var f = trimStr(node.internal_field);
-    return f === '' ? [] : [{ key: f, answer_type: node.answer_type || (typeMeta(node.type).produces) || 'string' }];
+    return liveAnswerKeysOf(node, node ? foreignAnswerKeysOf(node) : null);
   }
   function answerKeyPartLabel(node, key) {
     var base = trimStr(node && node.internal_field) || String((node && node.question_id) || '');
@@ -16722,28 +16776,32 @@ export const SECTION_STUDIO_SCRIPT = `
   // as 'address') → the mapping is moved onto it and the operator is told to
   // save; several parts → it is listed as not sent, to be re-mapped by part.
   var answerKeyRepairs = {};
+  function findQuestionByQid(qid) {
+    var found = null;
+    walkTree(state.content.components, 1, function (n) { if (found === null && n && n.question_id === qid) { found = n; } });
+    return found;
+  }
   function repairStaleAnswerKeys() {
-    answerKeyRepairs = {};
-    if (!offersData || !offersData.answer_keys) { return; }
-    var i, e, keys, k, known, moved;
+    var i, e, node, keys, k, known, rep;
     for (i = 0; i < state.answer_maps.length; i++) {
       e = state.answer_maps[i];
       if (!e) { continue; }
-      keys = offersData.answer_keys[e.question_id];
-      if (!keys || !keys.length) { continue; }
+      node = findQuestionByQid(e.question_id);
+      keys = node ? answerKeysOf(node) : [];
+      if (!keys.length || trimStr(e.internal_field) === '') { continue; }
       known = false;
       for (k = 0; k < keys.length; k++) { if (keys[k].key === e.internal_field) { known = true; } }
       if (known) { continue; }
-      if (!answerKeyRepairs[e.question_id]) { answerKeyRepairs[e.question_id] = { moved: 0, from: e.internal_field, to: '', stale: [] }; }
+      rep = answerKeyRepairs[e.question_id] || (answerKeyRepairs[e.question_id] = { moved: 0, from: e.internal_field, to: '', stale: [] });
       if (keys.length === 1) {
-        moved = answerKeyRepairs[e.question_id];
-        moved.moved += 1;
-        moved.to = keys[0].key;
+        rep.moved += 1;
+        rep.from = e.internal_field;
+        rep.to = keys[0].key;
         e.internal_field = keys[0].key;
         e.answer_type = keys[0].answer_type || 'string';
         markDirty();
-      } else {
-        answerKeyRepairs[e.question_id].stale.push(e);
+      } else if (rep.stale.indexOf(e) === -1) {
+        rep.stale.push(e);
       }
     }
   }
@@ -16774,6 +16832,7 @@ export const SECTION_STUDIO_SCRIPT = `
       o = document.createElement('option');
       o.value = fields[k].path;
       o.textContent = pathOptionLabel(fields[k]);
+      if (fieldOptionLabelIn(offer, fields[k]) !== fieldDisplayLabel(fields[k])) { o.textContent += ' \\u00b7 ' + fields[k].path; }
       sel.appendChild(o);
     }
     if (fields.length === 0) {
@@ -16807,12 +16866,12 @@ export const SECTION_STUDIO_SCRIPT = `
     status.setAttribute('data-map-state', edgeState);
     status.appendChild(document.createTextNode(edge ? mapStateNote(edgeState, answerFieldOf(offer, current), offer, edge) : 'not mapped'));
     line.appendChild(status);
-    var notSent = edge ? valuesNotSent(edge, node) : 0;
+    var notSent = edge && node.choices ? valuesNotSent(edge, node, offer) : 0;
     if (notSent > 0) {
       var warn = document.createElement('span');
       warn.className = 'studio-map-notsent';
       warn.setAttribute('data-quickmap-notsent', String(notSent));
-      warn.appendChild(document.createTextNode(notSent + ' answer' + (notSent === 1 ? '' : 's') + ' not sent \\u2014 set them in the Content tab'));
+      warn.appendChild(document.createTextNode(notSent + ' answer' + (notSent === 1 ? '' : 's') + ' never reach' + (notSent === 1 ? 'es' : '') + ' this Offer field \\u2014 see each choice\\u2019s Provider values in the Content tab'));
       line.appendChild(warn);
     }
     return line;
@@ -16942,7 +17001,7 @@ export const SECTION_STUDIO_SCRIPT = `
     }
     if (shown === 0) {
       note.appendChild(document.createTextNode(
-        'No active Offer matches this Section\u2019s activity + vertical (' + offersData.activity + ' + ' + offersData.vertical + '), so there is nothing to map yet.'
+        'No active Offer matches this Section\\u2019s activity + vertical (' + offersData.activity + ' + ' + offersData.vertical + '), so there is nothing to map yet.'
       ));
       wrap.appendChild(note);
     }
@@ -16953,6 +17012,9 @@ export const SECTION_STUDIO_SCRIPT = `
   }
   function renderOffersPanel() {
     if (!offersData) { return; }
+    // a mapping on a key its question no longer records (a component renamed
+    // or re-configured since it was mapped) is moved or flagged first
+    repairStaleAnswerKeys();
     renderOffersTable();
     renderMappingAdvancedPaths();
     renderInspectorMapping();
@@ -16991,7 +17053,6 @@ export const SECTION_STUDIO_SCRIPT = `
       }
       offersData = res.body;
       offersNote('');
-      repairStaleAnswerKeys();
       renderOffersPanel();
     }).catch(function () { offersNote('Failed to load the matching Offers'); });
   }
@@ -17123,6 +17184,14 @@ export const SECTION_STUDIO_SCRIPT = `
       var offer = offerById(Number(offerIdAttr));
       var key = t.getAttribute('data-quickmap-key') || (node ? trimStr(node.internal_field) : '');
       if (!node || !offer || key === '') { return; }
+      // a picker drawn before the question changed must never map a key the
+      // question no longer records: a one-key question takes its current key
+      var liveKeys = answerKeysOf(node), lk, stillRecorded = false;
+      for (lk = 0; lk < liveKeys.length; lk++) { if (liveKeys[lk].key === key) { stillRecorded = true; } }
+      if (!stillRecorded) {
+        if (liveKeys.length !== 1) { renderOffersPanel(); return; }
+        key = liveKeys[0].key;
+      }
       var i, e;
       var prevPath = t.getAttribute('data-quickmap-path') || '';
       var slotKey = offer.id + '|' + key;
@@ -17794,6 +17863,9 @@ export const SECTION_STUDIO_SCRIPT = `
       // untouched, no PATCH, button re-enabled.
       if (!confirmSaveMigrationLoss()) { return; }
       saveBtn.disabled = true;
+      // OWNER 2026-09-28: a choice added since the page opened joins every
+      // Offer's value list with its own saved value (never silently dropped).
+      if (typeof fillNewChoicesOnLists === 'function') { fillNewChoicesOnLists(); }
       var isNew = !state.public_id;
       var url = isNew ? '/api/admin/leadgen/sections' : '/api/admin/leadgen/sections/' + encodeURIComponent(state.public_id);
       fetch(url, {
@@ -17815,6 +17887,8 @@ export const SECTION_STUDIO_SCRIPT = `
         }
         dirty = false;
         renderDirtyIndicator();
+        if (typeof resetProviderBaseline === 'function') { resetProviderBaseline(); }
+        answerKeyRepairs = {};
         // R4a E3-NEW-1: a first save that MINTS the public_id must be
         // idempotent from here on — a second Save click (before any
         // navigation) PATCHes, never double-POSTs.

@@ -1904,6 +1904,9 @@ const MAPPING_FUNCS = [
   "offerLiveState",
   "upsertEdge",
   // OWNER 2026-09-28: upsertEdge resolves the question by the key it records
+  "addressPartKinds",
+  "foreignAnswerKeysOf",
+  "liveAnswerKeysOf",
   "answerKeysOf",
   "answerTypeOfKey",
   "questionByAnswerKey",
@@ -7977,9 +7980,11 @@ const PROVIDER_VALUE_FUNCS = [
   "valueFromEdges",
   "providerValueProblem",
   "setProviderValue",
-  "positionalSavedValues",
   "snapshotProviderValues",
-  "syncProviderLists",
+  "isNewSinceLoad",
+  "fillNewChoicesOnLists",
+  "resetProviderBaseline",
+  "fieldOptionLabelIn",
   "valuesNotSent",
   "providerChipRows",
   "providerChipLabel",
@@ -8031,6 +8036,7 @@ describeDb("OWNER 2026-09-28 — one answer to several fields of an Offer; a dif
     const probe = mappingProbe(html, MULTI_CONTENT, offers);
     const island = studioIsland(html);
     probe.run(PROVIDER_VALUE_FUNCS.map((n) => sliceIslandFunction(island, n)).join("\n"));
+    probe.run("var providerBaseline = {};");
     return { env, section, html, probe, quin, amone, fundera };
   }
 
@@ -8101,8 +8107,8 @@ describeDb("OWNER 2026-09-28 — one answer to several fields of an Offer; a dif
     expect(probe.run(`providerChipLabel('${REVENUE_FIELD}', '600000')`)).toBe("Provider values: 1/2 Offers");
     const rows = probe.run(`providerChipRows('${REVENUE_FIELD}', '600000')`) as Array<Record<string, unknown>>;
     expect(rows.map(({ edges: _edges, ...r }) => r)).toEqual([
-      { offer_id: fundera.id, offer_name: "Fundera - Tier 1", offer_public_id: fundera.public_id, state: "saved", value: null },
-      { offer_id: amone.id, offer_name: "AmONE - Tier 2", offer_public_id: amone.public_id, state: "custom", value: "50000" },
+      { offer_id: fundera.id, offer_name: "Fundera - Tier 1", offer_public_id: fundera.public_id, state: "saved", value: null, unsendable: "" },
+      { offer_id: amone.id, offer_name: "AmONE - Tier 2", offer_public_id: amone.public_id, state: "custom", value: "50000", unsendable: "" },
     ]);
     // Fundera's edge is untouched (no list)
     expect((probe.sandbox.state["answer_maps"] as Array<Record<string, unknown>>).find((m) => m["offer_id"] === fundera.id)!["output_value_map"]).toBeNull();
@@ -8168,8 +8174,8 @@ describeDb("OWNER 2026-09-28 review round 1 — answer keys, Other values, typed
     };
     const probe = mappingProbe(html, content, offersRes);
     const island = studioIsland(html);
-    probe.run([...PROVIDER_VALUE_FUNCS, "repairStaleAnswerKeys", "answerKeyPartLabel"].map((n) => sliceIslandFunction(island, n)).join("\n"));
-    probe.run("var answerKeyRepairs = {}; var providerSnapshot = {}; var providerParked = {};");
+    probe.run([...PROVIDER_VALUE_FUNCS, "findQuestionByQid", "repairStaleAnswerKeys", "answerKeyPartLabel"].map((n) => sliceIslandFunction(island, n)).join("\n"));
+    probe.run("var answerKeyRepairs = {}; var providerBaseline = {};");
     return { env, section, probe, offers, offersRes };
   }
   async function save(env: Env, section: SectionDetail, probe: StudioProbe): Promise<Record<string, unknown>> {
@@ -8198,7 +8204,11 @@ describeDb("OWNER 2026-09-28 review round 1 — answer keys, Other values, typed
     probe.run(
       `state.answer_maps = [{ question_id: 'q_mslll307_b3an', question_key: 'q_mslll307_b3an', internal_field: 'address', answer_type: 'object', offer_id: ${quin.id}, offer_payload_field_path: 'tracking.ni_zc', provider_expected_type: 'string', output_value_map: null, value_transform: null, required_for_offer: true, default_value: null, fallback_value: null }]; state.selected_offers = [${quin.id}];`,
     );
-    expect(await (async () => { await save(env, section, probe); return preview(env, section, { address_zip: "94043" }, quin.public_id); })()).toEqual({});
+    // round 3: the SAVE itself corrects a one-key question's bare key (API writers, old tabs)
+    const first = await save(env, section, probe);
+    expect((first["answer_maps"] as Array<Record<string, unknown>>)[0]).toMatchObject({ internal_field: "address_zip", answer_type: "string" });
+    expect(await preview(env, section, { address_zip: "94043" }, quin.public_id)).toEqual({ tracking: { ni_zc: "94043" } });
+    // …and the editor moves it the moment the section opens (the probe still holds the bare key)
     probe.run("repairStaleAnswerKeys()");
     const moved = (probe.sandbox.state["answer_maps"] as Array<Record<string, unknown>>)[0]!;
     expect(moved).toMatchObject({ internal_field: "address_zip", answer_type: "string" });
@@ -8210,6 +8220,15 @@ describeDb("OWNER 2026-09-28 review round 1 — answer keys, Other values, typed
     const detail = await save(env, section, probe);
     for (const m of detail["answer_maps"] as Array<Record<string, unknown>>) expect(m["internal_field"]).toBe("address_zip");
     expect(await preview(env, section, { address_zip: "94043" }, quin.public_id)).toEqual({ tracking: { ni_zc: "94043" }, contact: { zip: "94043" } });
+    // and a writer that still sends the bare key (API, an old tab) is corrected by the SAVE itself
+    const patch = await admin.request(
+      `${API}/sections/${section.public_id}`,
+      jsonInit("PATCH", { answer_maps: [{ question_id: "q_mslll307_b3an", internal_field: "address", offer_id: quin.id, offer_payload_field_path: "tracking.ni_zc", provider_expected_type: "string", required_for_offer: true }] }),
+      env,
+    );
+    expect(patch.status).toBe(200);
+    const after = (await (await admin.request(`${API}/sections/${section.public_id}`, {}, env)).json()) as Record<string, unknown>;
+    expect((after["answer_maps"] as Array<Record<string, unknown>>)[0]).toMatchObject({ internal_field: "address_zip", answer_type: "string" });
   });
 
   const OTHER_CONTENT = {
@@ -8233,7 +8252,7 @@ describeDb("OWNER 2026-09-28 review round 1 — answer keys, Other values, typed
     expect(await preview(env, section, { [REVENUE_FIELD]: "600000" }, amone.public_id)).toEqual({ Income: "50000" });
   });
 
-  it("M1: a value that cannot be the buyer field's type is refused in the box, and a list carrying one reads type_mismatch on save", async () => {
+  it("M1: a value the buyer field's type can't take is refused in the box; one already on a list is SHOWN as not sent — the mapping stays complete, so every other answer still goes", async () => {
     const { env, section, probe, offers } = await setupWith(MULTI_CONTENT, [["Fundera - Tier 1", [{ path: "company.annual_revenue", type: "number" }]]]);
     const fundera = offers[0]!;
     probe.run(`upsertEdge(offerById(${fundera.id}), answerFieldOf(offerById(${fundera.id}), 'company.annual_revenue'), '${REVENUE_FIELD}')`);
@@ -8241,31 +8260,68 @@ describeDb("OWNER 2026-09-28 review round 1 — answer keys, Other values, typed
     expect(probe.run(`providerValueProblem(${fundera.id}, ${edges}, 'Annual')`)).toBe("must be a number, e.g. 50000");
     expect(probe.run(`providerValueProblem(${fundera.id}, ${edges}, '50,000')`)).toBe("must be a number, e.g. 50000");
     expect(probe.run(`providerValueProblem(${fundera.id}, ${edges}, '50000')`)).toBe("");
-    // a list written some other way (API, old data) with a non-number: never "complete"
+    // a list written some other way (API, old data) with a non-number on ONE choice
     probe.run(`state.answer_maps[0].output_value_map = { '600000': 'Annual', '360000': '360000', '30000': '30000' };`);
-    expect(probe.run(`edgeMapState(state.answer_maps[0], offerById(${fundera.id}))`)).toBe("type_mismatch");
+    const rows = probe.run(`providerChipRows('${REVENUE_FIELD}', '600000')`) as Array<Record<string, unknown>>;
+    expect(rows[0]!["unsendable"]).toBe("must be a number, e.g. 50000");
+    expect(probe.run(`providerChipLabel('${REVENUE_FIELD}', '600000')`)).toBe("Provider values: 1/1 Offers \u00b7 1 not sent");
+    expect(probe.run(`valuesNotSent(state.answer_maps[0], questionByField('${REVENUE_FIELD}'), offerById(${fundera.id}))`)).toBe(1);
+    // round 2's hidden type_mismatch made the live build skip the WHOLE field; now it stays complete
+    expect(probe.run(`edgeMapState(state.answer_maps[0], offerById(${fundera.id}))`)).toBe("complete");
     const detail = await save(env, section, probe);
-    expect((detail["answer_maps"] as Array<Record<string, unknown>>)[0]!["mapping_status"]).toBe("type_mismatch");
+    expect((detail["answer_maps"] as Array<Record<string, unknown>>)[0]!["mapping_status"]).toBe("complete");
+    expect(await preview(env, section, { [REVENUE_FIELD]: "360000" }, fundera.public_id)).toEqual({ company: { annual_revenue: 360000 } });
   });
 
-  it("M2: a choice renamed or added after a list exists stays on it; a value the list deliberately left off stays off", async () => {
+  it("M2: a choice added or renamed since the page opened is shown as sending its saved value and joins every list on Save; a deliberately-off value stays off; no per-keystroke moves", async () => {
     const { probe, offers } = await setupWith(MULTI_CONTENT, [["AmONE - Tier 2", [{ path: "Income", type: "string" }]]]);
     const amone = offers[0]!;
     probe.run(`upsertEdge(offerById(${amone.id}), answerFieldOf(offerById(${amone.id}), 'Income'), '${REVENUE_FIELD}')`);
     const node = `questionByField('${REVENUE_FIELD}')`;
-    probe.run(`snapshotProviderValues(${node})`);
+    probe.run(`snapshotProviderValues(${node})`); // the page opened on 600000 / 360000 / 30000
     probe.run(`state.answer_maps[0].output_value_map = { '600000': '50000', '360000': '30000' };`); // 30000 deliberately not sent
     const list = () => (probe.sandbox.state["answer_maps"] as Array<Record<string, unknown>>)[0]!["output_value_map"];
-    // rename 360000 -> 360001 in place: its provider value moves with it
-    probe.run(`${node}.choices[1].value = '360001'; syncProviderLists(${node});`);
-    expect(list()).toEqual({ "600000": "50000", "360001": "30000" });
-    // cleared, then retyped: still the same choice
-    probe.run(`${node}.choices[1].value = ''; syncProviderLists(${node}); ${node}.choices[1].value = '360002'; syncProviderLists(${node});`);
-    expect(list()).toEqual({ "600000": "50000", "360002": "30000" });
-    // a NEW choice is sent with its saved value; the deliberately-off 30000 stays off
-    probe.run(`${node}.choices.push({ label: 'New', value: '15000', analytics_id: '15000' }); syncProviderLists(${node});`);
-    expect(list()).toEqual({ "600000": "50000", "360002": "30000", "15000": "15000" });
-    expect(probe.run(`valuesNotSent(state.answer_maps[0], ${node})`)).toBe(1);
+    // round 2's trap: 600000 retyped through "60000" moved the OTHER choice's value. Keystrokes change nothing now.
+    probe.run(`${node}.choices[0].value = '60000'; ${node}.choices[0].value = '600000';`);
+    expect(list()).toEqual({ "600000": "50000", "360000": "30000" });
+    // rename 360000 -> 360001: the new name is shown as sending its saved value (not "not sent")
+    probe.run(`${node}.choices[1].value = '360001';`);
+    expect(probe.run(`providerValueOf(${amone.id}, '${REVENUE_FIELD}', '360001')`)).toEqual({ state: "saved", value: null });
+    // a NEW choice: same
+    probe.run(`${node}.choices.push({ label: 'New', value: '15000', analytics_id: '15000' });`);
+    expect(probe.run(`providerValueOf(${amone.id}, '${REVENUE_FIELD}', '15000')`)).toEqual({ state: "saved", value: null });
+    // the deliberately-off 30000 still reads "not sent"
+    expect(probe.run(`providerValueOf(${amone.id}, '${REVENUE_FIELD}', '30000')`)).toEqual({ state: "missing", value: null });
+    // Save puts the new names on the list with their own saved values; nothing else moves
+    probe.run("fillNewChoicesOnLists()");
+    expect(list()).toEqual({ "600000": "50000", "360000": "30000", "360001": "360001", "15000": "15000" });
+    expect(probe.run(`valuesNotSent(state.answer_maps[0], ${node}, offerById(${amone.id}))`)).toBe(1);
+  });
+
+  it("the editor's LIVE answer keys equal the server's for real component shapes (his Address, a renamed fill, a name group, a from/to slider)", async () => {
+    const SHAPES = {
+      components: [
+        (PROD_SECTION_25.components as Array<Record<string, unknown>>).find((n) => n["type"] === "AddressAutocompleteQuestion")!,
+        { type: "ZIPInputQuestion", question_id: "q_zipx", question_key: "q_zipx", internal_field: "zipx", answer_type: "string" },
+        {
+          type: "AddressAutocompleteQuestion", question_id: "q_addr2", question_key: "q_addr2", internal_field: "home", answer_type: "object",
+          props: { fields: [{ field: "street" }, { field: "zip" }], maps: { enabled: true, fills: { zip: "zipx", street: "home_line" } } },
+        },
+        { type: "NameFieldsGroup", question_id: "q_name", question_key: "q_name", props: { fields: ["fname", "lname"] } },
+        { type: "NumberRangeQuestion", question_id: "q_range", question_key: "q_range", internal_field: "budget", answer_type: "number", props: { slider_type: "from_to", min: 0, max: 10 } },
+      ],
+    };
+    const { probe, offersRes } = await setupWith(SHAPES, [["AmONE - Tier 2", [{ path: "Income", type: "string" }]]]);
+    const server = (offersRes as unknown as { answer_keys: Record<string, unknown> }).answer_keys;
+    for (const qid of ["q_mslll307_b3an", "q_zipx", "q_addr2", "q_name", "q_range"]) {
+      expect(probe.run(`answerKeysOf(findQuestionByQid('${qid}'))`), qid).toEqual(server[qid]);
+    }
+    // his Address: ONLY the ZIP part; a fill renamed onto a sibling's key keeps its own name
+    expect(server["q_mslll307_b3an"]).toEqual([{ key: "address_zip", answer_type: "string" }]);
+    expect((server["q_addr2"] as Array<{ key: string }>).map((k) => k.key)).toEqual(["home_line", "home_zip"]);
+    // renamed in the editor (not saved yet): the live keys follow at once
+    probe.run(`findQuestionByQid('q_zipx').internal_field = 'zip_new'`);
+    expect(probe.run(`answerKeysOf(findQuestionByQid('q_zipx'))`)).toEqual([{ key: "zip_new", answer_type: "string" }]);
   });
 
   it("M3: an answer filling two fields of one Offer with DIFFERENT lists gets one box per field; editing one never overwrites the other", async () => {
@@ -8279,8 +8335,8 @@ describeDb("OWNER 2026-09-28 review round 1 — answer keys, Other values, typed
     expect((probe.run(`providerBoxGroups(${f.id}, '${REVENUE_FIELD}')`) as unknown[]).length).toBe(2);
     const rows = probe.run(`providerChipRows('${REVENUE_FIELD}', '600000')`) as Array<Record<string, unknown>>;
     expect(rows.map((r) => [r["offer_name"], r["value"]])).toEqual([
-      ["Fundera - Tier 1 · Credit score", "650"],
-      ["Fundera - Tier 1 · Credit score", "F"],
+      ["Fundera - Tier 1 · Credit score (company.credit_score)", "650"],
+      ["Fundera - Tier 1 · Credit score (owners.0.credit_score)", "F"],
     ]);
     probe.run(`setProviderValue(${f.id}, '${REVENUE_FIELD}', '600000', '660', choiceSavedValuesOf(questionByField('${REVENUE_FIELD}')), [state.answer_maps[0]])`);
     const maps = probe.sandbox.state["answer_maps"] as Array<Record<string, unknown>>;

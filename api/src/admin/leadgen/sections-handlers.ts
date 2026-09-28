@@ -444,6 +444,9 @@ async function parseAnswerMaps(
   const warnings: Problem[] = [];
   const rawMaps = body["answer_maps"];
   const nodesByQuestionId = new Map<string, Record<string, unknown>>();
+  // OWNER 2026-09-28: the keys each question really records (answers.ts
+  // fieldsOf), to keep an edge off a key no visitor ever records.
+  const answerKeyClaims = collectAnswerKeyClaims(content.components);
   // §8.5: mappable questions come from the flattened projection — an edge may
   // bind to a question nested inside a layout container; container nodes
   // themselves are not mappable (they never appear in the flattened list).
@@ -550,12 +553,25 @@ async function parseAnswerMaps(
     const questionKey =
       trimmedString(item["question_key"]) ??
       (typeof node["question_key"] === "string" ? node["question_key"] : questionId);
-    const internalField =
+    let internalField =
       trimmedString(item["internal_field"]) ??
       (typeof node["internal_field"] === "string" ? node["internal_field"] : "");
-    const answerType =
+    let answerType =
       trimmedString(item["answer_type"]) ??
       (typeof node["answer_type"] === "string" ? node["answer_type"] : "string");
+    // OWNER 2026-09-28 — an edge on a key its question never records fills
+    // nothing (section 25's Address records "address_zip"; its edges said
+    // "address"). A question recording exactly ONE key gets that key.
+    if (internalField !== "") {
+      const recorded = answerFieldsOf(
+        node as unknown as LeadgenComponentNode,
+        foreignAnswerKeysIn(answerKeyClaims, node as unknown as LeadgenComponentNode),
+      );
+      if (recorded.length === 1 && !recorded.some((spec) => spec.field === internalField)) {
+        internalField = recorded[0]!.field;
+        answerType = recorded[0]!.answerType;
+      }
+    }
 
     edges.push({
       question_id: questionId,
