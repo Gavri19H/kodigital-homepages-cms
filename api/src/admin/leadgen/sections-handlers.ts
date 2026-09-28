@@ -76,6 +76,7 @@ import type {
 import { isPublicId, mintPublicId } from "../../leadgen/ids";
 import {
   buildOfferPayload,
+  fieldsOf as answerFieldsOf,
   type LeadgenAnswerMapping,
   type LeadgenRawAnswers,
   normalizeAnswers,
@@ -2472,6 +2473,26 @@ function schemaAnswerSourceFields(schemaJson: string | null): SectionOfferAnswer
   return out;
 }
 
+// OWNER 2026-09-28 — the keys each question REALLY records, per question_id,
+// from the ONE derivation normalizeAnswers and the renderer use (answers.ts
+// fieldsOf + the section's key-claim map). The Offers tab maps THESE, never the
+// component's own internal_field: an Address that renders only a ZIP box
+// records "<base>_zip", so an edge on the bare base (section 25's "address")
+// was complete-looking and never filled QuinStreet's tracking.ni_zc.
+function sectionAnswerKeys(
+  content: LeadgenSectionContent,
+): Record<string, Array<{ key: string; answer_type: string }>> {
+  const out: Record<string, Array<{ key: string; answer_type: string }>> = {};
+  const claims = collectAnswerKeyClaims(content.components);
+  for (const node of flattenComponents(content.components)) {
+    if (!isRecord(node) || typeof node.question_id !== "string" || node.question_id === "") continue;
+    const specs = answerFieldsOf(node, foreignAnswerKeysIn(claims, node));
+    if (specs.length === 0) continue;
+    out[node.question_id] = specs.map((spec) => ({ key: spec.field, answer_type: spec.answerType }));
+  }
+  return out;
+}
+
 export async function sectionOffersHandler(c: AdminContext): Promise<Response> {
   const row = await resolveSectionRow(c.env.DB, c.req.param("id") ?? "");
   if (row === null) return c.json({ error: "Not Found" }, 404);
@@ -2521,6 +2542,7 @@ export async function sectionOffersHandler(c: AdminContext): Promise<Response> {
     // exactly these values.
     activity: row.activity,
     vertical: row.vertical,
+    answer_keys: sectionAnswerKeys(parseComponents(row.content_json)),
     offers: (offers.results ?? []).map((o) => ({
       id: o.id,
       public_id: o.public_id,

@@ -4049,6 +4049,9 @@ export const SECTION_STUDIO_STYLES = `
 .studio-map-line{display:flex;gap:6px;align-items:center;min-width:0}
 .studio-map-line .form-input{flex:1 1 auto;min-width:0}
 .studio-map-add{font-size:11px;align-self:flex-start}
+.studio-map-part{font-size:11px;font-weight:700;text-transform:uppercase;letter-spacing:.4px;color:var(--c-muted);margin:8px 0 2px}
+.studio-map-notsent{font-size:10px;color:#842029;flex-basis:100%}
+.studio-map-line{flex-wrap:wrap}
 /* §8.9 events panel */
 .studio-events{border:1px dashed var(--c-border);border-radius:6px;padding:8px;margin-bottom:8px}
 .studio-events-head{display:flex;align-items:center;justify-content:space-between;gap:8px}
@@ -4146,6 +4149,8 @@ export const SECTION_STUDIO_STYLES = `
 .studio-provider-state{font-size:10px;color:var(--c-muted);white-space:nowrap}
 .studio-provider-state[data-provider-state="custom"]{color:#0f5132}
 .studio-provider-state[data-provider-state="missing"]{color:#842029}
+.studio-provider-state[data-provider-state="invalid"]{color:#842029;font-weight:700}
+.studio-provider-row .form-input[aria-invalid="true"]{border-color:#842029}
 .studio-provider-rows a{font-size:11px}
 /* §5.4 funnel-picker rule moved into SECTION_STUDIO_CANVAS_FRAME_CSS (DEV-66) */
 /* choice rows: depth fields wrap */
@@ -4873,27 +4878,23 @@ export const SECTION_STUDIO_SCRIPT = `
     return '';
   }
   function hasOwn(obj, key) { return Object.prototype.hasOwnProperty.call(obj, key); }
-  // What this Offer receives for one saved value:
+  // What this Offer receives for one saved value (valueFromEdges below):
   //   'saved'   — the saved value itself (no list, or the list maps it to itself)
   //   'custom'  — the Offer's own value
   //   'missing' — the Offer has a list and this saved value is not on it (not sent)
-  function providerValueOf(offerId, internalField, choiceValue) {
-    var edges = edgesOfAnswerOnOffer(offerId, internalField), i, map;
-    for (i = 0; i < edges.length; i++) {
-      map = edges[i].output_value_map;
-      if (!map || typeof map !== 'object') { continue; }
-      if (!hasOwn(map, choiceValue)) { return { state: 'missing', value: null }; }
-      var v = map[choiceValue] === null || map[choiceValue] === undefined ? '' : String(map[choiceValue]);
-      return v === choiceValue ? { state: 'saved', value: null } : { state: 'custom', value: v };
-    }
-    return { state: 'saved', value: null };
-  }
+  // Every saved value the answer can hold: the base choices AND the authored
+  // "Other" values (props.other.choices) — a value list that left the Other
+  // values out stopped sending them the moment one base value was customised.
   function choiceSavedValuesOf(node) {
-    var out = [], i, v;
+    var out = [], i, v, seen = {};
+    var push = function (x) {
+      if (typeof x === 'string' && trimStr(x) !== '' && seen[x] !== true) { seen[x] = true; out.push(x); }
+    };
     var list = node && node.choices ? node.choices : [];
-    for (i = 0; i < list.length; i++) {
-      v = list[i] ? list[i].value : null;
-      if (typeof v === 'string' && trimStr(v) !== '') { out.push(v); }
+    for (i = 0; i < list.length; i++) { v = list[i] ? list[i].value : null; push(v); }
+    var other = node && node.props && node.props.other && node.props.other.enabled === true ? node.props.other.choices : null;
+    if (other && other.length) {
+      for (i = 0; i < other.length; i++) { v = other[i] ? other[i].value : null; push(v); }
     }
     return out;
   }
@@ -4905,10 +4906,64 @@ export const SECTION_STUDIO_SCRIPT = `
     }
     return true;
   }
-  // Set (text) or clear (text === '') one Offer's value for one saved value, on
-  // EVERY field this answer fills on that Offer (one provider, one value).
-  function setProviderValue(offerId, internalField, choiceValue, text, savedValues) {
-    var edges = edgesOfAnswerOnOffer(offerId, internalField), i, j, map, key, changed = false;
+  // One provider box covers the answer's edges on an Offer when they carry the
+  // SAME list; an Offer whose fields carry DIFFERENT lists gets one box per
+  // field, so editing one never overwrites the other.
+  function listSignature(map) {
+    if (!map || typeof map !== 'object') { return 'none'; }
+    var keys = Object.keys(map).sort(), out = [], i;
+    for (i = 0; i < keys.length; i++) { out.push(keys[i] + '=' + String(map[keys[i]])); }
+    return out.join('\\u0001');
+  }
+  function providerBoxGroups(offerId, internalField) {
+    var edges = edgesOfAnswerOnOffer(offerId, internalField), i, sig;
+    if (edges.length <= 1) { return [edges]; }
+    sig = listSignature(edges[0].output_value_map);
+    for (i = 1; i < edges.length; i++) {
+      if (listSignature(edges[i].output_value_map) !== sig) {
+        var per = [], j;
+        for (j = 0; j < edges.length; j++) { per.push([edges[j]]); }
+        return per;
+      }
+    }
+    return [edges];
+  }
+  function valueFromEdges(edges, choiceValue) {
+    var i, map;
+    for (i = 0; i < edges.length; i++) {
+      map = edges[i].output_value_map;
+      if (!map || typeof map !== 'object') { continue; }
+      if (!hasOwn(map, choiceValue)) { return { state: 'missing', value: null }; }
+      var v = map[choiceValue] === null || map[choiceValue] === undefined ? '' : String(map[choiceValue]);
+      return v === choiceValue ? { state: 'saved', value: null } : { state: 'custom', value: v };
+    }
+    return { state: 'saved', value: null };
+  }
+  // A typed provider value must be sendable as the buyer field's type (a
+  // number field building "Annual" or "50,000" sends nothing at all).
+  function providerValueProblem(offerId, edges, text) {
+    if (text === '') { return ''; }
+    var i, t, f, vv, k, ok;
+    var offer = offerById(offerId);
+    for (i = 0; i < edges.length; i++) {
+      t = edges[i].provider_expected_type;
+      if (t === 'number' && !choiceValueCoercibleTo(text, 'number')) { return 'must be a number, e.g. 50000'; }
+      if (t === 'boolean' && !choiceValueCoercibleTo(text, 'boolean')) { return 'must be true or false'; }
+      f = offer ? answerFieldOf(offer, edges[i].offer_payload_field_path) : null;
+      vv = f && f.valid_values && f.valid_values.length ? f.valid_values : null;
+      if (vv) {
+        ok = false;
+        for (k = 0; k < vv.length; k++) { if (String(vv[k]) === text) { ok = true; } }
+        if (!ok) { return 'must be one of: ' + vv.slice(0, 6).join(', ') + (vv.length > 6 ? ' \\u2026' : ''); }
+      }
+    }
+    return '';
+  }
+  // Set (text) or clear (text === '') the value one Offer receives for one
+  // saved value — on every edge given (default: every field the answer fills
+  // on that Offer: one provider, one value).
+  function setProviderValue(offerId, internalField, choiceValue, text, savedValues, onlyEdges) {
+    var edges = onlyEdges || edgesOfAnswerOnOffer(offerId, internalField), i, j, map, key, changed = false;
     for (i = 0; i < edges.length; i++) {
       map = null;
       if (edges[i].output_value_map && typeof edges[i].output_value_map === 'object') {
@@ -4930,12 +4985,106 @@ export const SECTION_STUDIO_SCRIPT = `
     if (changed) { markDirty(); }
     return changed;
   }
+  function providerValueOf(offerId, internalField, choiceValue) {
+    return valueFromEdges(edgesOfAnswerOnOffer(offerId, internalField), choiceValue);
+  }
+  // Keep every Offer's value list in step with the answer's saved values as
+  // they are edited: a choice ADDED since the last edit is put on each list
+  // with its own saved value (so it is sent, never silently dropped), and a
+  // saved value RENAMED in place carries its provider value to the new name.
+  // A value an existing list already left off (a deliberate "not sent") stays
+  // off. Positional snapshot per question, so a value cleared and retyped
+  // still counts as the same choice being renamed.
+  var providerSnapshot = {};
+  var providerParked = {};
+  function positionalSavedValues(node) {
+    var out = [], i, list;
+    list = node && node.choices ? node.choices : [];
+    for (i = 0; i < list.length; i++) { out.push(list[i] && typeof list[i].value === 'string' ? list[i].value : ''); }
+    list = node && node.props && node.props.other && node.props.other.enabled === true && node.props.other.choices ? node.props.other.choices : [];
+    for (i = 0; i < list.length; i++) { out.push(list[i] && typeof list[i].value === 'string' ? list[i].value : ''); }
+    return out;
+  }
+  function snapshotProviderValues(node) {
+    if (node && node.question_id && providerSnapshot[node.question_id] === undefined) {
+      providerSnapshot[node.question_id] = positionalSavedValues(node);
+    }
+  }
+  function syncProviderLists(node) {
+    if (!node || !node.question_id || trimStr(node.internal_field) === '') { return; }
+    var qid = node.question_id;
+    var after = positionalSavedValues(node);
+    var before = providerSnapshot[qid];
+    providerSnapshot[qid] = after;
+    if (before === undefined) { return; }
+    var moves = [], i, n = 0, at = -1;
+    if (before.length === after.length) {
+      for (i = 0; i < after.length; i++) { if (before[i] !== after[i]) { n += 1; at = i; } }
+      if (n === 1) {
+        if (after[at] === '') { providerParked[qid + '#' + at] = before[at]; }
+        else if (before[at] === '') {
+          if (providerParked[qid + '#' + at] !== undefined) { moves.push([providerParked[qid + '#' + at], after[at]]); }
+          delete providerParked[qid + '#' + at];
+        } else { moves.push([before[at], after[at]]); }
+      }
+    }
+    var known = {}, movedTo = {};
+    for (i = 0; i < before.length; i++) { if (before[i] !== '') { known[before[i]] = true; } }
+    for (i = 0; i < moves.length; i++) { movedTo[moves[i][1]] = true; }
+    var current = choiceSavedValuesOf(node);
+    var edges = [], e;
+    for (i = 0; i < state.answer_maps.length; i++) {
+      e = state.answer_maps[i];
+      if (e && e.internal_field === node.internal_field && e.output_value_map && typeof e.output_value_map === 'object') { edges.push(e); }
+    }
+    var j, map, key, changed, from, to;
+    for (i = 0; i < edges.length; i++) {
+      map = {};
+      for (key in edges[i].output_value_map) { if (hasOwn(edges[i].output_value_map, key)) { map[key] = edges[i].output_value_map[key]; } }
+      changed = false;
+      for (j = 0; j < moves.length; j++) {
+        from = moves[j][0]; to = moves[j][1];
+        if (hasOwn(map, from) && !hasOwn(map, to)) {
+          map[to] = String(map[from]) === from ? to : map[from];
+          delete map[from];
+          changed = true;
+        }
+      }
+      for (j = 0; j < current.length; j++) {
+        if (!hasOwn(map, current[j]) && known[current[j]] !== true && movedTo[current[j]] !== true) {
+          map[current[j]] = current[j];
+          changed = true;
+        }
+      }
+      if (changed) {
+        edges[i].output_value_map = isSavedValueList(map, current) ? null : map;
+        markDirty();
+      }
+    }
+  }
+  // How many of the answer's saved values an edge's list leaves off (not sent).
+  function valuesNotSent(edge, node) {
+    if (!edge || !edge.output_value_map || typeof edge.output_value_map !== 'object' || !node) { return 0; }
+    var vals = choiceSavedValuesOf(node), n = 0, i;
+    for (i = 0; i < vals.length; i++) { if (!hasOwn(edge.output_value_map, vals[i])) { n += 1; } }
+    return n;
+  }
   function providerChipRows(internalField, choiceValue) {
-    var ids = mappedOffersFor(internalField), rows = [], i, v, pub;
+    var ids = mappedOffersFor(internalField), rows = [], i, g, groups, v, pub, name, label, f, offer;
     for (i = 0; i < ids.length; i++) {
-      v = providerValueOf(ids[i], internalField, choiceValue);
+      groups = providerBoxGroups(ids[i], internalField);
       pub = offerPublicIdFor(ids[i]);
-      rows.push({ offer_id: ids[i], offer_name: offerNameFor(ids[i]), offer_public_id: pub || null, state: v.state, value: v.value });
+      name = offerNameFor(ids[i]);
+      offer = offerById(ids[i]);
+      for (g = 0; g < groups.length; g++) {
+        v = valueFromEdges(groups[g], choiceValue);
+        label = name;
+        if (groups.length > 1) {
+          f = offer ? answerFieldOf(offer, groups[g][0].offer_payload_field_path) : null;
+          label = name + ' \\u00b7 ' + (f ? fieldDisplayLabel(f) : groups[g][0].offer_payload_field_path);
+        }
+        rows.push({ offer_id: ids[i], offer_name: label, offer_public_id: pub || null, state: v.state, value: v.value, edges: groups[g] });
+      }
     }
     return rows;
   }
@@ -10162,7 +10311,7 @@ export const SECTION_STUDIO_SCRIPT = `
     var card = document.querySelector('[data-connect-offers-card]');
     var textEl = document.querySelector('[data-connect-offers-text]');
     if (!card) { return; }
-    if (!node || !node.internal_field || !offersData) { card.hidden = true; return; }
+    if (!node || !offersData || answerKeysOf(node).length === 0) { card.hidden = true; return; }
     var list = offersList();
     var selected = [], i, offer, live;
     for (i = 0; i < list.length; i++) {
@@ -10175,12 +10324,14 @@ export const SECTION_STUDIO_SCRIPT = `
     // its own — so every distinct field is named (the first three, then "+N
     // more"), not just the first one found.
     var mappedCount = 0, labels = [], seenLabel = {}, j, edges, e, f, label, onThisOffer;
+    var ownKeys = {}, ak = answerKeysOf(node), q;
+    for (q = 0; q < ak.length; q++) { ownKeys[ak[q].key] = true; }
     for (i = 0; i < selected.length; i++) {
       edges = edgesForOffer(selected[i].id);
       onThisOffer = false;
       for (j = 0; j < edges.length; j++) {
         e = edges[j];
-        if (e.internal_field !== node.internal_field) { continue; }
+        if (ownKeys[e.internal_field] !== true) { continue; }
         onThisOffer = true;
         f = answerFieldOf(selected[i], e.offer_payload_field_path);
         label = f ? fieldDisplayLabel(f) : e.offer_payload_field_path;
@@ -12100,7 +12251,7 @@ export const SECTION_STUDIO_SCRIPT = `
     return !!(node && ((m && m.produces === 'array') || node.answer_type === 'array' || (node.props && node.props.multiple === true)));
   }
   function rowSavedValue(rowEl, fallback) {
-    var inp = rowEl && rowEl.querySelector ? rowEl.querySelector('[data-choice-field="value"]') : null;
+    var inp = rowEl && rowEl.querySelector ? rowEl.querySelector('[data-choice-field="value"], [data-other-field="value"]') : null;
     return inp ? trimStr(inp.value) : fallback;
   }
   function rowIsCalculated(rowEl, choice) {
@@ -12108,11 +12259,25 @@ export const SECTION_STUDIO_SCRIPT = `
     if (hid) { return trimStr(hid.value) !== ''; }
     return !!(choice && choice.value_calc);
   }
+  // Every live chip re-reads the mapping when it changes (a mapping edited on
+  // the Offers tab must not leave "0/0 Offers" on the Content tab).
+  var providerChipRefreshers = [];
+  function refreshProviderChips() {
+    var keep = [], i;
+    for (i = 0; i < providerChipRefreshers.length; i++) {
+      if (providerChipRefreshers[i].el && providerChipRefreshers[i].el.isConnected !== false) {
+        providerChipRefreshers[i].run();
+        keep.push(providerChipRefreshers[i]);
+      }
+    }
+    providerChipRefreshers = keep;
+  }
   function buildProviderChip(node, choice, rowEl) {
     var wrap = document.createElement('span');
     wrap.setAttribute('data-choice-provider', '');
     var internalField = node && node.internal_field ? String(node.internal_field) : '';
     var initial = choice && choice.value !== undefined ? String(choice.value) : '';
+    snapshotProviderValues(node);
     var chip = document.createElement('button');
     chip.type = 'button';
     chip.className = 'studio-provider-chip';
@@ -12140,11 +12305,14 @@ export const SECTION_STUDIO_SCRIPT = `
       line.appendChild(document.createTextNode(text));
       rowsEl.appendChild(line);
     }
-    function paintState(stateEl, v, saved) {
-      stateEl.setAttribute('data-provider-state', v.state);
+    function paintState(stateEl, v, saved, problem) {
+      stateEl.setAttribute('data-provider-state', problem ? 'invalid' : v.state);
       clearChildren(stateEl);
       stateEl.appendChild(document.createTextNode(
-        v.state === 'custom' ? 'sends ' + v.value : v.state === 'missing' ? 'not sent \\u2014 type a value' : 'sends ' + saved
+        problem ? problem
+          : v.state === 'custom' ? 'sends ' + v.value
+          : v.state === 'missing' ? 'not sent \\u2014 type a value to send one'
+          : 'sends ' + saved
       ));
     }
     function buildRows() {
@@ -12156,36 +12324,49 @@ export const SECTION_STUDIO_SCRIPT = `
       if (isMultiAnswer(node)) { note('Each Offer can get its own value on single-choice questions only \\u2014 a multi-select sends its whole list.'); return; }
       if (rowIsCalculated(rowEl, choice)) { note('Calculated date \\u2014 every provider receives the date.'); return; }
       if (v === '') { note('Give this choice a saved value first.'); return; }
-      note('Empty box = the saved value (' + v + ') is sent.');
-      var i, line, lab, inp, st, pv, pub;
-      for (i = 0; i < ids.length; i++) {
-        pv = providerValueOf(ids[i], internalField, v);
-        pub = offerPublicIdFor(ids[i]);
+      var rows = providerChipRows(internalField, v), i, anyMissing = false;
+      for (i = 0; i < rows.length; i++) { if (rows[i].state === 'missing') { anyMissing = true; } }
+      note(anyMissing
+        ? 'Empty box = the saved value (' + v + ') is sent \\u2014 except where marked not sent.'
+        : 'Empty box = the saved value (' + v + ') is sent.');
+      var line, lab, inp, st;
+      for (i = 0; i < rows.length; i++) {
         line = document.createElement('div');
         line.className = 'studio-provider-row';
-        line.setAttribute('data-provider-offer', pub);
+        line.setAttribute('data-provider-offer', rows[i].offer_public_id || '');
         lab = document.createElement('label');
         lab.className = 'studio-provider-name';
-        lab.appendChild(document.createTextNode(offerNameFor(ids[i])));
+        lab.appendChild(document.createTextNode(rows[i].offer_name));
         inp = document.createElement('input');
         inp.className = 'form-input';
-        inp.setAttribute('data-provider-value-input', String(ids[i]));
-        inp.setAttribute('aria-label', 'Value sent to ' + offerNameFor(ids[i]));
-        inp.placeholder = pv.state === 'missing' ? 'not sent' : v;
-        inp.value = pv.state === 'custom' ? pv.value : '';
+        inp.setAttribute('data-provider-value-input', String(rows[i].offer_id));
+        if (rows[i].edges.length === 1 && providerBoxGroups(rows[i].offer_id, internalField).length > 1) {
+          inp.setAttribute('data-provider-value-path', rows[i].edges[0].offer_payload_field_path);
+        }
+        inp.setAttribute('aria-label', 'Value sent to ' + rows[i].offer_name);
+        inp.placeholder = rows[i].state === 'missing' ? 'not sent' : v;
+        inp.value = rows[i].state === 'custom' ? rows[i].value : '';
         st = document.createElement('span');
         st.className = 'studio-provider-state';
-        paintState(st, pv, v);
-        (function (offerId, input, stateEl) {
+        paintState(st, rows[i], v, '');
+        (function (offerId, edges, input, stateEl) {
           input.addEventListener('input', function () {
             var saved = currentValue();
             if (saved === '' || rowIsCalculated(rowEl, choice)) { return; }
-            setProviderValue(offerId, internalField, saved, trimStr(input.value), choiceSavedValuesOf(node));
-            paintState(stateEl, providerValueOf(offerId, internalField, saved), saved);
+            var text = trimStr(input.value);
+            var problem = providerValueProblem(offerId, edges, text);
+            if (problem !== '') {
+              input.setAttribute('aria-invalid', 'true');
+              paintState(stateEl, valueFromEdges(edges, saved), saved, problem);
+              return;
+            }
+            input.removeAttribute('aria-invalid');
+            setProviderValue(offerId, internalField, saved, text, choiceSavedValuesOf(node), edges);
+            paintState(stateEl, valueFromEdges(edges, saved), saved, '');
             refreshLabel();
             updateMappingBadge();
           });
-        })(ids[i], inp, st);
+        })(rows[i].offer_id, rows[i].edges, inp, st);
         line.appendChild(lab);
         line.appendChild(inp);
         line.appendChild(st);
@@ -12193,6 +12374,7 @@ export const SECTION_STUDIO_SCRIPT = `
       }
     }
     refreshLabel();
+    providerChipRefreshers.push({ el: chip, run: function () { refreshLabel(); if (!rowsEl.hidden) { buildRows(); } } });
     chip.addEventListener('click', function () {
       rowsEl.hidden = !rowsEl.hidden;
       if (!rowsEl.hidden) { buildRows(); }
@@ -12201,7 +12383,8 @@ export const SECTION_STUDIO_SCRIPT = `
     // repaint against the new key
     if (rowEl && rowEl.addEventListener) {
       rowEl.addEventListener('input', function (ev) {
-        var f = ev.target && ev.target.getAttribute ? ev.target.getAttribute('data-choice-field') : null;
+        var t = ev.target && ev.target.getAttribute ? ev.target : null;
+        var f = t ? (t.getAttribute('data-choice-field') || t.getAttribute('data-other-field')) : null;
         if (f !== 'value' && f !== 'value_calc') { return; }
         refreshLabel();
         if (!rowsEl.hidden) { buildRows(); }
@@ -13043,6 +13226,8 @@ export const SECTION_STUDIO_SCRIPT = `
     rm.appendChild(document.createTextNode('Remove'));
     rm.addEventListener('click', function () { var p = wrap.parentNode; if (p) { p.removeChild(wrap); } collectOther(); });
     wrap.appendChild(rm);
+    // OWNER 2026-09-28: an "Other" value gets its own per-Offer values too.
+    wrap.appendChild(buildProviderChip(selectedNode(), choice || {}, wrap));
     return wrap;
   }
   function populateOtherEditor(node) {
@@ -13144,6 +13329,7 @@ export const SECTION_STUDIO_SCRIPT = `
       delete props.other;
     }
     cleanupEmpty(node, 'props');
+    if (typeof syncProviderLists === 'function') { syncProviderLists(node); }
     afterModelChange();
   }
 
@@ -13542,6 +13728,8 @@ export const SECTION_STUDIO_SCRIPT = `
     // reason populateConditional documents for NOT calling its collaborators;
     // in the shipped island the function is always present.
     if (typeof populateDefaultControls === 'function') { populateDefaultControls(node); }
+    // OWNER 2026-09-28: an added or renamed choice stays on every Offer's value list.
+    if (typeof syncProviderLists === 'function') { syncProviderLists(node); }
     afterModelChange();
   }
   function parseBulkChoices(text, req) {
@@ -16121,6 +16309,18 @@ export const SECTION_STUDIO_SCRIPT = `
     var hasTransform = edge.value_transform && edge.value_transform.length > 0;
     var values = closedAnswerValuesOf(questionByField(edge.internal_field));
     if (!hasMap && !hasTransform && !coercibleTo(edge.answer_type, field.type, values)) { return 'type_mismatch'; }
+    // Mirror of sections.ts mappingCompleteness (OWNER 2026-09-28): a value
+    // list stands in for the answer's type only when each value it sends can
+    // BE that type.
+    if (hasMap && !hasTransform) {
+      var mk;
+      for (mk in edge.output_value_map) {
+        if (Object.prototype.hasOwnProperty.call(edge.output_value_map, mk)) {
+          var mv = edge.output_value_map[mk];
+          if (!choiceValueCoercibleTo(mv === null || mv === undefined ? '' : String(mv), field.type)) { return 'type_mismatch'; }
+        }
+      }
+    }
     if (edge.required_for_offer === true && trimStr(edge.internal_field) === '') { return 'missing_required'; }
     return 'complete';
   }
@@ -16157,7 +16357,7 @@ export const SECTION_STUDIO_SCRIPT = `
     return { state: name, selected: selected || edges.length > 0, required_total: requiredTotal, required_mapped: requiredMapped, mapped_edges: edges.length };
   }
   function upsertEdge(offer, field, internalField, inherit) {
-    var node = questionByField(internalField);
+    var node = questionByAnswerKey(internalField);
     if (!node || !offer || !field) { return null; }
     var idx = findEdgeIndex(offer.id, field.path);
     var found = idx === -1 ? null : state.answer_maps[idx];
@@ -16172,7 +16372,7 @@ export const SECTION_STUDIO_SCRIPT = `
       question_id: node.question_id,
       question_key: node.question_key || node.question_id,
       internal_field: internalField,
-      answer_type: node.answer_type || meta.produces || 'string',
+      answer_type: internalField === node.internal_field ? (node.answer_type || meta.produces || 'string') : answerTypeOfKey(node, internalField),
       offer_id: offer.id,
       offer_payload_field_path: field.path,
       provider_expected_type: field.type,
@@ -16479,11 +16679,78 @@ export const SECTION_STUDIO_SCRIPT = `
     return fieldDisplayLabel(f) + ' \\u2014 ' + plainTypeWords(f) + (f.required === true ? ' (required)' : '');
   }
   // §8.6 Mapping tab: THIS component's internal_field per selected Offer.
+  // OWNER 2026-09-28 — the keys this question REALLY records: the server's
+  // answer_keys (the /sections/:id/offers projection, computed from the SAVED
+  // content by the derivation normalizeAnswers + the renderer use). A multi-part
+  // component (an Address, a from/to slider, a name group) records one key per
+  // part — an Address showing only a ZIP box records '<base>_zip', never the
+  // bare '<base>' — so each part is mapped on its own. A component not saved
+  // yet falls back to its own internal_field.
+  function answerKeysOf(node) {
+    if (!node) { return []; }
+    var fromServer = offersData && offersData.answer_keys && node.question_id ? offersData.answer_keys[node.question_id] : null;
+    if (fromServer && fromServer.length) { return fromServer; }
+    var f = trimStr(node.internal_field);
+    return f === '' ? [] : [{ key: f, answer_type: node.answer_type || (typeMeta(node.type).produces) || 'string' }];
+  }
+  function answerKeyPartLabel(node, key) {
+    var base = trimStr(node && node.internal_field) || String((node && node.question_id) || '');
+    var part = key.indexOf(base + '_') === 0 ? key.slice(base.length + 1) : key;
+    var names = { zip: 'ZIP code', street: 'Street', city: 'City', state: 'State', min: 'From', max: 'To', first: 'First name', last: 'Last name' };
+    return names[part] || part;
+  }
+  function answerTypeOfKey(node, key) {
+    var keys = answerKeysOf(node), i;
+    for (i = 0; i < keys.length; i++) { if (keys[i].key === key) { return keys[i].answer_type || 'string'; } }
+    return (node && node.answer_type) || 'string';
+  }
+  // The question that records 'key' (its own internal_field, else a part key).
+  function questionByAnswerKey(key) {
+    var byOwn = questionByField(key);
+    if (byOwn) { return byOwn; }
+    var found = null;
+    walkTree(state.content.components, 1, function (n) {
+      if (found !== null) { return; }
+      var keys = answerKeysOf(n), i;
+      for (i = 0; i < keys.length; i++) { if (keys[i].key === key) { found = n; } }
+    });
+    return found;
+  }
+  // Mappings saved against a key the question never records fill nothing.
+  // One recorded part (section 25: an Address showing only a ZIP box, mapped
+  // as 'address') → the mapping is moved onto it and the operator is told to
+  // save; several parts → it is listed as not sent, to be re-mapped by part.
+  var answerKeyRepairs = {};
+  function repairStaleAnswerKeys() {
+    answerKeyRepairs = {};
+    if (!offersData || !offersData.answer_keys) { return; }
+    var i, e, keys, k, known, moved;
+    for (i = 0; i < state.answer_maps.length; i++) {
+      e = state.answer_maps[i];
+      if (!e) { continue; }
+      keys = offersData.answer_keys[e.question_id];
+      if (!keys || !keys.length) { continue; }
+      known = false;
+      for (k = 0; k < keys.length; k++) { if (keys[k].key === e.internal_field) { known = true; } }
+      if (known) { continue; }
+      if (!answerKeyRepairs[e.question_id]) { answerKeyRepairs[e.question_id] = { moved: 0, from: e.internal_field, to: '', stale: [] }; }
+      if (keys.length === 1) {
+        moved = answerKeyRepairs[e.question_id];
+        moved.moved += 1;
+        moved.to = keys[0].key;
+        e.internal_field = keys[0].key;
+        e.answer_type = keys[0].answer_type || 'string';
+        markDirty();
+      } else {
+        answerKeyRepairs[e.question_id].stale.push(e);
+      }
+    }
+  }
   // One Offer x one field this answer fills: the picker + its status. 'edge' is
   // null for the empty "pick a field" slot. A field another picker of THIS
-  // answer already fills on the same Offer is not offered twice.
+  // answer key already fills on the same Offer is not offered twice.
   var quickmapExtraSlot = {};
-  function buildQuickmapLine(offer, node, edge, edgesHere) {
+  function buildQuickmapLine(offer, node, edge, edgesHere, key) {
     var line = document.createElement('div');
     line.className = 'studio-map-line';
     var current = edge ? edge.offer_payload_field_path : '';
@@ -16495,6 +16762,7 @@ export const SECTION_STUDIO_SCRIPT = `
     sel.className = 'form-input';
     sel.setAttribute('data-inspector-quickmap', String(offer.id));
     sel.setAttribute('data-quickmap-path', current);
+    sel.setAttribute('data-quickmap-key', key);
     var o = document.createElement('option');
     o.value = '';
     o.textContent = '\\u2014 not mapped \\u2014';
@@ -16522,12 +16790,30 @@ export const SECTION_STUDIO_SCRIPT = `
     // buyer's field label in plain words, never the path (DEV-65(c)).
     sel.title = current === '' ? 'Pick the buyer field this answer fills' : current;
     line.appendChild(sel);
+    if (!edge && edgesHere.length > 0) {
+      // the blank "+ Add another field" slot can be dismissed without a pick
+      var cancel = document.createElement('button');
+      cancel.type = 'button';
+      cancel.className = 'btn btn-sm btn-outline';
+      cancel.setAttribute('data-inspector-quickmap-cancel', String(offer.id));
+      cancel.setAttribute('data-quickmap-key', key);
+      cancel.appendChild(document.createTextNode('Cancel'));
+      line.appendChild(cancel);
+    }
     var status = document.createElement('span');
     status.className = 'studio-map-status';
     var edgeState = edge ? edgeMapState(edge, offer) : 'unmapped';
     status.setAttribute('data-map-state', edgeState);
     status.appendChild(document.createTextNode(edge ? mapStateNote(edgeState, answerFieldOf(offer, current), offer, edge) : 'not mapped'));
     line.appendChild(status);
+    var notSent = edge ? valuesNotSent(edge, node) : 0;
+    if (notSent > 0) {
+      var warn = document.createElement('span');
+      warn.className = 'studio-map-notsent';
+      warn.setAttribute('data-quickmap-notsent', String(notSent));
+      warn.appendChild(document.createTextNode(notSent + ' answer' + (notSent === 1 ? '' : 's') + ' not sent \\u2014 set them in the Content tab'));
+      line.appendChild(warn);
+    }
     return line;
   }
   function renderInspectorMapping() {
@@ -16537,13 +16823,19 @@ export const SECTION_STUDIO_SCRIPT = `
     var node = selectedNode();
     var note = document.createElement('p');
     note.className = 'form-help';
-    if (!node || trimStr(node.internal_field) === '') {
+    if (!node) {
       note.appendChild(document.createTextNode('Give this component an internal field to map it to Offers.'));
       wrap.appendChild(note);
       return;
     }
     if (!offersData) {
       note.appendChild(document.createTextNode(state.public_id ? 'Loading Offers\\u2026' : 'Save the Section first to load matching Offers.'));
+      wrap.appendChild(note);
+      return;
+    }
+    var keys = answerKeysOf(node);
+    if (keys.length === 0) {
+      note.appendChild(document.createTextNode('Give this component an internal field to map it to Offers.'));
       wrap.appendChild(note);
       return;
     }
@@ -16563,48 +16855,93 @@ export const SECTION_STUDIO_SCRIPT = `
     // code's value should be sent to 2 different fields in the Quinstreet
     // offer's Payload)". So an Offer shows ONE picker PER field this answer
     // fills, plus "+ Add another field"; each picker edits only its own field.
+    // A multi-part component lists its parts (ZIP code, Street, …) — each part
+    // is its own answer and maps on its own.
+    var repair = answerKeyRepairs[node.question_id];
+    if (repair && repair.moved > 0) {
+      var fixed = document.createElement('p');
+      fixed.className = 'alert alert-warning';
+      fixed.setAttribute('data-quickmap-repaired', String(repair.moved));
+      fixed.appendChild(document.createTextNode(
+        repair.moved + ' mapping' + (repair.moved === 1 ? '' : 's') + ' pointed at \\u201c' + repair.from + '\\u201d, which this component never records, so the buyer field was always empty. ' +
+        (repair.moved === 1 ? 'It now uses ' : 'They now use ') + answerKeyPartLabel(node, repair.to) + ' \\u2014 Save to apply.'
+      ));
+      wrap.appendChild(fixed);
+    }
+    if (repair && repair.stale.length > 0) {
+      var st, si, sOffer;
+      for (si = 0; si < repair.stale.length; si++) {
+        sOffer = offerById(repair.stale[si].offer_id);
+        st = document.createElement('p');
+        st.className = 'alert alert-error';
+        st.setAttribute('data-quickmap-stale', repair.stale[si].offer_payload_field_path);
+        st.appendChild(document.createTextNode(
+          'Not sent: ' + (sOffer ? sOffer.offer_name : 'an Offer') + ' \\u2192 ' + repair.stale[si].offer_payload_field_path +
+          ' is mapped to \\u201c' + repair.stale[si].internal_field + '\\u201d, which this component never records. Map it under a part below, then remove this one. '
+        ));
+        var rmStale = document.createElement('button');
+        rmStale.type = 'button';
+        rmStale.className = 'btn btn-sm btn-outline';
+        rmStale.setAttribute('data-quickmap-stale-remove', String(si));
+        rmStale.appendChild(document.createTextNode('Remove'));
+        st.appendChild(rmStale);
+        wrap.appendChild(st);
+      }
+    }
     var list = offersList();
     var shown = 0;
-    var i, offer, row, name, j, fields, edgesHere, slots, lines, add, slotKey;
-    for (i = 0; i < list.length; i++) {
-      offer = list[i];
-      shown += 1;
-      row = document.createElement('div');
-      row.className = 'studio-map-row';
-      row.setAttribute('data-inspector-map-offer', offer.public_id);
-      name = document.createElement('span');
-      name.appendChild(document.createTextNode(offer.offer_name));
-      row.appendChild(name);
-      fields = offer.answer_fields || [];
-      edgesHere = [];
-      for (j = 0; j < state.answer_maps.length; j++) {
-        if (state.answer_maps[j] && state.answer_maps[j].offer_id === offer.id && state.answer_maps[j].internal_field === node.internal_field) {
-          edgesHere.push(state.answer_maps[j]);
+    var i, ki, key, offer, row, name, j, fields, edgesHere, slots, lines, add, slotKey, head;
+    for (ki = 0; ki < keys.length; ki++) {
+      key = keys[ki].key;
+      if (keys.length > 1 || key !== node.internal_field) {
+        head = document.createElement('div');
+        head.className = 'studio-map-part';
+        head.setAttribute('data-quickmap-part', key);
+        head.appendChild(document.createTextNode(answerKeyPartLabel(node, key)));
+        wrap.appendChild(head);
+      }
+      for (i = 0; i < list.length; i++) {
+        offer = list[i];
+        if (ki === 0) { shown += 1; }
+        row = document.createElement('div');
+        row.className = 'studio-map-row';
+        row.setAttribute('data-inspector-map-offer', offer.public_id);
+        row.setAttribute('data-inspector-map-key', key);
+        name = document.createElement('span');
+        name.appendChild(document.createTextNode(offer.offer_name));
+        row.appendChild(name);
+        fields = offer.answer_fields || [];
+        edgesHere = [];
+        for (j = 0; j < state.answer_maps.length; j++) {
+          if (state.answer_maps[j] && state.answer_maps[j].offer_id === offer.id && state.answer_maps[j].internal_field === key) {
+            edgesHere.push(state.answer_maps[j]);
+          }
         }
+        slotKey = offer.id + '|' + key;
+        slots = edgesHere.slice();
+        if (slots.length === 0 || quickmapExtraSlot[slotKey] === true) { slots.push(null); }
+        lines = document.createElement('div');
+        lines.className = 'studio-map-lines';
+        for (j = 0; j < slots.length; j++) {
+          lines.appendChild(buildQuickmapLine(offer, node, slots[j], edgesHere, key));
+        }
+        if (fields.length > edgesHere.length && edgesHere.length > 0 && quickmapExtraSlot[slotKey] !== true) {
+          add = document.createElement('button');
+          add.type = 'button';
+          add.className = 'btn btn-sm btn-outline studio-map-add';
+          add.setAttribute('data-inspector-quickmap-add', String(offer.id));
+          add.setAttribute('data-quickmap-key', key);
+          add.appendChild(document.createTextNode('+ Add another field'));
+          add.title = 'Send this same answer to one more of ' + offer.offer_name + '\\u2019s fields';
+          lines.appendChild(add);
+        }
+        row.appendChild(lines);
+        wrap.appendChild(row);
       }
-      slotKey = offer.id + '|' + node.internal_field;
-      slots = edgesHere.slice();
-      if (slots.length === 0 || quickmapExtraSlot[slotKey] === true) { slots.push(null); }
-      lines = document.createElement('div');
-      lines.className = 'studio-map-lines';
-      for (j = 0; j < slots.length; j++) {
-        lines.appendChild(buildQuickmapLine(offer, node, slots[j], edgesHere));
-      }
-      if (fields.length > edgesHere.length && edgesHere.length > 0 && quickmapExtraSlot[slotKey] !== true) {
-        add = document.createElement('button');
-        add.type = 'button';
-        add.className = 'btn btn-sm btn-outline studio-map-add';
-        add.setAttribute('data-inspector-quickmap-add', String(offer.id));
-        add.appendChild(document.createTextNode('+ Add another field'));
-        add.title = 'Send this same answer to one more of ' + offer.offer_name + '\\u2019s fields';
-        lines.appendChild(add);
-      }
-      row.appendChild(lines);
-      wrap.appendChild(row);
     }
     if (shown === 0) {
       note.appendChild(document.createTextNode(
-        'No active Offer matches this Section\\u2019s activity + vertical (' + offersData.activity + ' + ' + offersData.vertical + '), so there is nothing to map yet.'
+        'No active Offer matches this Section\u2019s activity + vertical (' + offersData.activity + ' + ' + offersData.vertical + '), so there is nothing to map yet.'
       ));
       wrap.appendChild(note);
     }
@@ -16630,6 +16967,8 @@ export const SECTION_STUDIO_SCRIPT = `
     // It was filled only on selection, so the question selected before the
     // Offers loaded never got it and a mapping edit never updated it.
     populateConnectOffersCard(selectedNode());
+    // the Content tab's per-choice Provider values chips read the same model
+    refreshProviderChips();
     // §12.3: the canvas overlay chips derive from the SAME live model — every
     // mapping edit repaints them (decoration is rebuild-per-pass idempotent).
     applyCanvasDecoration();
@@ -16651,6 +16990,7 @@ export const SECTION_STUDIO_SCRIPT = `
       }
       offersData = res.body;
       offersNote('');
+      repairStaleAnswerKeys();
       renderOffersPanel();
     }).catch(function () { offersNote('Failed to load the matching Offers'); });
   }
@@ -16746,14 +17086,31 @@ export const SECTION_STUDIO_SCRIPT = `
   var inspectorMappingWrap = document.querySelector('[data-studio-inspector-mapping]');
   if (inspectorMappingWrap) {
     inspectorMappingWrap.addEventListener('click', function (ev) {
-      var t = ev.target && ev.target.closest ? ev.target.closest('[data-inspector-quickmap-add]') : null;
-      if (!t) { return; }
       var node = selectedNode();
-      if (!node || trimStr(node.internal_field) === '') { return; }
+      if (!node || !ev.target || !ev.target.closest) { return; }
+      var stale = ev.target.closest('[data-quickmap-stale-remove]');
+      if (stale) {
+        var repair = answerKeyRepairs[node.question_id];
+        var gone = repair ? repair.stale[Number(stale.getAttribute('data-quickmap-stale-remove'))] : null;
+        var gi = gone ? state.answer_maps.indexOf(gone) : -1;
+        if (gi !== -1) { state.answer_maps.splice(gi, 1); markDirty(); }
+        if (repair && gone) { repair.stale.splice(repair.stale.indexOf(gone), 1); }
+        renderOffersPanel();
+        return;
+      }
+      var t = ev.target.closest('[data-inspector-quickmap-add], [data-inspector-quickmap-cancel]');
+      if (!t) { return; }
+      var key = t.getAttribute('data-quickmap-key') || trimStr(node.internal_field);
+      if (key === '') { return; }
+      if (t.hasAttribute('data-inspector-quickmap-cancel')) {
+        delete quickmapExtraSlot[t.getAttribute('data-inspector-quickmap-cancel') + '|' + key];
+        renderInspectorMapping();
+        return;
+      }
       var offerId = t.getAttribute('data-inspector-quickmap-add');
-      quickmapExtraSlot[offerId + '|' + node.internal_field] = true;
+      quickmapExtraSlot[offerId + '|' + key] = true;
       renderInspectorMapping();
-      var fresh = inspectorMappingWrap.querySelector('[data-inspector-quickmap="' + offerId + '"][data-quickmap-path=""]');
+      var fresh = inspectorMappingWrap.querySelector('[data-inspector-quickmap="' + offerId + '"][data-quickmap-key="' + key + '"][data-quickmap-path=""]');
       if (fresh && fresh.focus) { fresh.focus(); }
     });
     inspectorMappingWrap.addEventListener('change', function (ev) {
@@ -16763,10 +17120,11 @@ export const SECTION_STUDIO_SCRIPT = `
       if (offerIdAttr === null) { return; }
       var node = selectedNode();
       var offer = offerById(Number(offerIdAttr));
-      if (!node || !offer || trimStr(node.internal_field) === '') { return; }
+      var key = t.getAttribute('data-quickmap-key') || (node ? trimStr(node.internal_field) : '');
+      if (!node || !offer || key === '') { return; }
       var i, e;
       var prevPath = t.getAttribute('data-quickmap-path') || '';
-      var slotKey = offer.id + '|' + node.internal_field;
+      var slotKey = offer.id + '|' + key;
       // OWNER 2026-09-28: each picker owns ONE field. Only the edge THIS picker
       // showed is replaced; the answer's other fields on the Offer stay. (Before,
       // every edge of the answer on the Offer was dropped — so re-picking one of
@@ -16774,7 +17132,7 @@ export const SECTION_STUDIO_SCRIPT = `
       var replaced = null, sibling = null;
       for (i = state.answer_maps.length - 1; i >= 0; i--) {
         e = state.answer_maps[i];
-        if (!e || e.offer_id !== offer.id || e.internal_field !== node.internal_field) { continue; }
+        if (!e || e.offer_id !== offer.id || e.internal_field !== key) { continue; }
         if (prevPath !== '' && e.offer_payload_field_path === prevPath) {
           replaced = e;
           state.answer_maps.splice(i, 1);
@@ -16788,7 +17146,7 @@ export const SECTION_STUDIO_SCRIPT = `
         var field = answerFieldOf(offer, t.value);
         // the field keeps the answer's per-provider values for this Offer
         // (the picker it replaced, else a sibling field of the same answer)
-        if (field) { upsertEdge(offer, field, node.internal_field, replaced || sibling); }
+        if (field) { upsertEdge(offer, field, key, replaced || sibling); }
       } else if (edgesForOffer(offer.id).length === 0) {
         // the last mapping on this Offer just went away — release the Offer too,
         // so "selected" stays a CONSEQUENCE of mapping and never a checkbox the
@@ -16918,15 +17276,30 @@ export const SECTION_STUDIO_SCRIPT = `
   }
   // §7.5: focusing a choice row retargets the scope header to that choice
   // (synchronous — well inside the 100 ms probe budget).
+  // OWNER 2026-09-28 (review M4): a POINTER press retargets on 'click', not on
+  // the 'focusin' the press causes — the retarget re-flows the scope header
+  // (its note hides), the row moves under the pointer between mousedown and
+  // mouseup, and the first click on any row button (the Provider values chip,
+  // Remove, the arrows) was lost. Keyboard focus still retargets at once.
   var choicesPanelWrap = document.querySelector('[data-inspector-choices]');
   if (choicesPanelWrap) {
-    choicesPanelWrap.addEventListener('focusin', function (ev) {
-      var row = ev.target && ev.target.closest ? ev.target.closest('[data-choice-row]') : null;
+    var choicePointerDown = false;
+    var retargetChoiceScope = function (target) {
+      var row = target && target.closest ? target.closest('[data-choice-row]') : null;
       if (!row) { return; }
       var labelInput = row.querySelector('[data-choice-field="label"]');
       choiceScopeLabel = labelInput ? labelInput.value : '';
       setScope('choice');
+    };
+    choicesPanelWrap.addEventListener('mousedown', function () { choicePointerDown = true; }, true);
+    document.addEventListener('mouseup', function () {
+      if (choicePointerDown) { setTimeout(function () { choicePointerDown = false; }, 0); }
+    }, true);
+    choicesPanelWrap.addEventListener('focusin', function (ev) {
+      if (choicePointerDown) { return; }
+      retargetChoiceScope(ev.target);
     });
+    choicesPanelWrap.addEventListener('click', function (ev) { retargetChoiceScope(ev.target); });
   }
 
   // --- §5.4 frame hint toggle (presentation-only skeleton) ----------------------

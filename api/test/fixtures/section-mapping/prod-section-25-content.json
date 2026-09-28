@@ -1,0 +1,62 @@
+{
+  "_source": "prod leadgen_sections id 25 'Home Insurance zip' content_json, read 2026-09-28 (verbatim)",
+  "content": {
+    "components": [
+      {
+        "type": "QuestionHeadline",
+        "question_id": "q_bound_headline",
+        "bind": "section_headline"
+      },
+      {
+        "type": "Subheadline",
+        "question_id": "q_bound_subheadline",
+        "bind": "section_subheadline"
+      },
+      {
+        "type": "TextBlock",
+        "question_id": "q_msllkdep_1ybe",
+        "props": {
+          "role": "heading",
+          "text": "Enter Your Zip Code"
+        },
+        "layout": {
+          "align": "start",
+          "width": "s"
+        }
+      },
+      {
+        "required": false,
+        "internal_field": "address",
+        "answer_type": "object",
+        "type": "AddressAutocompleteQuestion",
+        "question_id": "q_mslll307_b3an",
+        "props": {
+          "fields": [
+            {
+              "field": "zip",
+              "mode": "manual",
+              "validation": "zip5",
+              "required": true
+            }
+          ],
+          "icon": "map-pin",
+          "maps": {
+            "enabled": true,
+            "jobs": {
+              "validate": false,
+              "auction": true,
+              "autocomplete": false
+            }
+          }
+        }
+      },
+      {
+        "type": "ContinueButton",
+        "question_id": "q_msllmqon_f5ma",
+        "props": {
+          "label": "Get Started"
+        }
+      }
+    ]
+  }
+}

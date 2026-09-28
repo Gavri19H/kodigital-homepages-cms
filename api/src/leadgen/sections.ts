@@ -658,6 +658,16 @@ export function mappingCompleteness(
   if (!hasMap && !hasTransform && !answerCoercible(edge.answer_type, nodeType, answerValues)) {
     return "type_mismatch";
   }
+  // OWNER 2026-09-28 (per-provider values): a value list only stands in for the
+  // answer's type when every value it sends can BE that type — a number field
+  // listing "Annual" (or "50,000") builds to nothing (payload.ts coerceToType),
+  // so it must not read "complete". A transform chain may still convert, so
+  // it is left to the transform.
+  if (hasMap && !hasTransform) {
+    for (const value of Object.values(edge.output_value_map as Record<string, unknown>)) {
+      if (!choiceValueCoercible(value === null || value === undefined ? "" : String(value), nodeType)) return "type_mismatch";
+    }
+  }
 
   if (edge.required_for_offer && trimmedString(edge.internal_field) === null) {
     return "missing_required";
