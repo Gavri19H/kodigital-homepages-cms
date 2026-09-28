@@ -587,7 +587,7 @@ export const PREFLIGHT_PASS_CHECKS: ReadonlyArray<{ id: string; label: string }>
 export const ROLE_META: ReadonlyArray<{ role: string; label: string; used_by: string }> = [
   { role: "brand_primary", label: "Brand primary", used_by: "stepper buttons, progress fill, focus ring, trust-row icons, list check marks" },
   { role: "brand_secondary", label: "Brand secondary", used_by: "gradients, secondary emphasis" },
-  { role: "accent", label: "Accent", used_by: "category label, highlights, recommended" },
+  { role: "accent", label: "Accent", used_by: "category label, highlights, recommended (when readable)" },
   { role: "success", label: "Success", used_by: "reassurance, valid states" },
   { role: "error", label: "Error", used_by: "validation errors" },
   { role: "page_background", label: "Page background", used_by: "frame background" },

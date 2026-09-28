@@ -1451,7 +1451,7 @@ export function resolveTokens(
   // invented; the two fixtures were re-minted against the real renderer.
   if (authoredRoles.has("error")) applyErrorRole(design, roles.error);
   // R2 P8 M2 / S3.10 — THE FOURTH ROLE OF THE SAME SHAPE: `accent` ("Accent",
-  // used_by "category label, highlights, recommended" — ROLE_META,
+  // used_by "category label, highlights, recommended (when readable)" — ROLE_META,
   // quotes-tabs/shared.ts:460, rendered VERBATIM into the theme rail the
   // operator reads at quotes-tabs/themes.ts:201). See applyAccentRole below for
   // the surface-by-surface enumeration this fires.
@@ -1919,7 +1919,7 @@ function applyErrorRole(design: EffectiveFunnelDesign, value: string): void {
 // token that IS the accent orange (`grep -n "E85D26" default-funnel/tokens.ts`
 // = 7 slots on 5 lines) crossed with the rule that reads it, and matched
 // against the three things the operator's OWN "Used by" line promises
-// ("category label, highlights, recommended"):
+// ("category label, highlights, recommended (when readable)"):
 //   • categoryLabel.color   -> "CATEGORY LABEL". `${scope} .lg-category`
 //                              (styles.ts:877) AND the renderer's own inline
 //                              `style({color})` (presets.ts:911/3802, the
@@ -1981,27 +1981,56 @@ function applyErrorRole(design: EffectiveFunnelDesign, value: string): void {
 function applyAccentRole(design: EffectiveFunnelDesign, value: string): void {
   design.categoryLabel.color = value;
   design.header.logoAccentColor = value;
-  if (winnerCardAccentVerdict(value, design.banner.ctaColor).readable) {
+  if (winnerCardAccentVerdict(value, design.banner.ctaColor, design.banner.recommendedBg).readable) {
     design.banner.recommendedBorder = `2px solid ${value}`;
     design.banner.recommendedCtaBackground = value;
     design.color.recommendedBorder = value;
   }
 }
 
-// 3:1 is WCAG's floor for large/bold text and for a component's boundary;
-// the design's own orange (#E85D26) measures 3.49:1 against white.
+// 3:1 is WCAG's floor for a component's boundary and for large text. The CTA
+// (15px / 600) is normal-size text, whose AA floor is 4.5:1 — but the
+// design's own orange measures 3.49:1 against white and it is exactly what the
+// owner's reference shows, so 3:1 is the line: it keeps that orange and
+// anything as strong, and rejects the pale tints that wash the card out.
 export const WINNER_CARD_MIN_CONTRAST = 3;
 
-// Can the winner card's button text be read on this accent? `ratio` is null
-// when either colour is not a hex literal — unmeasurable, so the operator's
-// accent is honoured rather than second-guessed.
+// Can the winner card's button text be read on this accent? A translucent
+// accent (#rrggbbaa / #rgba) is measured as it PAINTS — composited over the
+// card's own background — so #E85D2633 (a 20% tint) is judged pale, not by
+// its opaque base colour. `ratio` is null when a colour is not a hex literal
+// (unmeasurable), and then the operator's accent is honoured.
 export function winnerCardAccentVerdict(
   accent: string,
   ctaTextColor: string,
+  cardBackground: string,
 ): { readable: boolean; ratio: number | null } {
-  const verdict = contrastRatioAA(ctaTextColor, accent);
+  const painted = compositeHexOver(accent, cardBackground);
+  if (painted === null) return { readable: true, ratio: null };
+  const verdict = contrastRatioAA(ctaTextColor, painted);
   if (verdict === null) return { readable: true, ratio: null };
   return { readable: verdict.ratio >= WINNER_CARD_MIN_CONTRAST, ratio: verdict.ratio };
+}
+
+// `color` alpha-composited over `under` (itself taken as opaque; white when it
+// is not a hex literal), as an opaque #rrggbb. null when `color` is not hex.
+function compositeHexOver(color: string, under: string): string | null {
+  const top = parseHexRgba(color);
+  if (top === null) return null;
+  const base = parseHexRgba(under)?.rgb ?? [255, 255, 255];
+  const mix = top.rgb.map((c, i) => Math.round(c * top.alpha + base[i]! * (1 - top.alpha)));
+  return `#${mix.map((c) => c.toString(16).padStart(2, "0")).join("")}`;
+}
+
+// #rgb / #rgba / #rrggbb / #rrggbbaa → rgb + alpha (0..1), or null.
+function parseHexRgba(value: unknown): { rgb: [number, number, number]; alpha: number } | null {
+  const rgb = parseHexColor(value);
+  if (rgb === null || typeof value !== "string") return null;
+  const hex = value.trim().slice(1);
+  let alpha = 1;
+  if (hex.length === 4) alpha = Number.parseInt(hex[3]! + hex[3]!, 16) / 255;
+  if (hex.length === 8) alpha = Number.parseInt(hex.slice(6), 16) / 255;
+  return { rgb, alpha };
 }
 
 function shadowStepValue(

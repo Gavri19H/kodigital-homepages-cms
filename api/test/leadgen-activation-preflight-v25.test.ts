@@ -635,6 +635,15 @@ describeDb("activation-preflight-v25 (14 §14.1 rows fire with contract severiti
 
     const readableProblems = (await computeQuoteActivationPreflight(h.d1, readable.quoteRow)).problems;
     expect(readableProblems.filter(onWinner)).toEqual([]);
+
+    // an accent picked as a role alias is named the way the operator picked it
+    const alias = await seedQuote(h, "Alias Accent Quote", [s1.id]);
+    h.sdb
+      .prepare("UPDATE leadgen_funnels SET theme_json = ? WHERE id = ?")
+      .run(JSON.stringify({ version: 1, palette: { accent: "page_background" } }), alias.funnelId);
+    const aliasProblems = (await computeQuoteActivationPreflight(h.d1, alias.quoteRow)).problems;
+    const aliasWarning = firstMatch(aliasProblems, onWinner, "alias accent (winner card)");
+    expect(aliasWarning.message).toMatch(/^Accent page_background \(#[0-9A-Fa-f]{6}\) is too pale for the winner card/);
   });
 
   it("14 §14.4: a LEGACY Quote (NULL frame/theme/overrides) yields ZERO new problems — even with chrome/dup/hex sections — and activates", async () => {

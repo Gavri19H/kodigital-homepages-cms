@@ -76,10 +76,19 @@ describe("OWNER 2026-09-28 bug 2 — encoded provider copy is decoded before it 
     expect(card).not.toContain("&amp;#39;");
   });
 
-  it("named typographic entities decode too; an unknown name stays as written", () => {
+  it("every HTML 4 named entity decodes (accents, punctuation, spacing marks); an unknown name stays as written", () => {
     const html = render([carrier({ carrier_name: "Farmers&reg;", headline: "Save &ndash; fast&hellip; &constructor;" })]).slots[0]!.html;
-    expect(visible(regionHtml(html, "lg-banner-name"))).toBe("Farmers®");
-    expect(visible(regionHtml(html, "lg-banner-headline"))).toBe("Save – fast… &constructor;");
+    expect(visible(regionHtml(html, "lg-banner-name"))).toBe("Farmers\u00AE");
+    expect(visible(regionHtml(html, "lg-banner-headline"))).toBe("Save \u2013 fast\u2026 &constructor;");
+    const latin = render([
+      carrier({ headline: "Caf&eacute; Espa&ntilde;ol M&uuml;ller &iquest;Qu&eacute;? &iexcl;S&iacute;! &Eacute;" }),
+    ]).slots[0]!.html;
+    expect(visible(regionHtml(latin, "lg-banner-headline"))).toBe("Caf\u00E9 Espa\u00F1ol M\u00FCller \u00BFQu\u00E9? \u00A1S\u00ED! \u00C9");
+    const marks = render([carrier({ headline: "a&ensp;b&emsp;c&thinsp;d&lrm;e&shy;f&zwj;g" })]).slots[0]!.html;
+    expect(visible(regionHtml(marks, "lg-banner-headline"))).toBe("a\u2002b\u2003c\u2009d\u200Ee\u00ADf\u200Dg");
+    // a name that is an Object.prototype key never reads the prototype
+    const proto = render([carrier({ headline: "&toString; &__proto__; &hasOwnProperty;" })]).slots[0]!.html;
+    expect(visible(regionHtml(proto, "lg-banner-headline"))).toBe("&toString; &__proto__; &hasOwnProperty;");
   });
 
   it("decoding never lets encoded markup through: it is escaped again and reads as text", () => {
@@ -89,9 +98,10 @@ describe("OWNER 2026-09-28 bug 2 — encoded provider copy is decoded before it 
     expect(visible(regionHtml(html, "lg-banner-headline"))).toBe('<img src=x onerror=alert(1)> "hi"');
   });
 
-  it("one decode, the way a browser reads it: &amp;#39; is the literal text &#39;", () => {
-    const html = render([carrier({ headline: "Code &amp;#39; here" })]).slots[0]!.html;
-    expect(visible(regionHtml(html, "lg-banner-headline"))).toBe("Code &#39; here");
+  it("double-encoded copy reads the same in the headline as in the description", () => {
+    const html = render([carrier({ headline: "Renter&amp;#39;s cover", subheadline: "<p>Renter&amp;#39;s cover too</p>" })]).slots[0]!.html;
+    expect(visible(regionHtml(html, "lg-banner-headline"))).toBe("Renter's cover");
+    expect(visible(regionHtml(html, "lg-banner-subheadline"))).toBe("Renter's cover too");
   });
 
   it("the logo's alt text is the decoded, marker-free name", () => {
@@ -111,22 +121,35 @@ describe("OWNER 2026-09-28 bug 1 — *text* renders bold, markers hidden", () =>
     expect(visible(third)).not.toContain("*");
   });
 
-  it("**text** is bold too", () => {
-    const html = render([carrier({ headline: "Get **Free** quotes" })]).slots[0]!.html;
-    expect(regionHtml(html, "lg-banner-headline")).toBe("Get <strong>Free</strong> quotes");
+  it("**text** and ***text*** are bold too, with no star left over", () => {
+    const headline = (h: string): string => regionHtml(render([carrier({ headline: h })]).slots[0]!.html, "lg-banner-headline");
+    expect(headline("Get **Free** quotes")).toBe("Get <strong>Free</strong> quotes");
+    expect(headline("Save ***50%*** today")).toBe("Save <strong>50%</strong> today");
+    expect(headline('Say "*Free*" (*now*)!')).toBe("Say &quot;<strong>Free</strong>&quot; (<strong>now</strong>)!");
   });
 
-  it("a footnote star stays literal (no space just inside a marker)", () => {
-    const html = render([carrier({ headline: "Save 50%* on rates. *Terms apply" })]).slots[0]!.html;
-    expect(regionHtml(html, "lg-banner-headline")).toBe("Save 50%* on rates. *Terms apply");
+  it("stars that are not a marker pair stay literal: footnotes, maths, a mismatched pair", () => {
+    const headline = (h: string): string => regionHtml(render([carrier({ headline: h })]).slots[0]!.html, "lg-banner-headline");
+    for (const literal of [
+      "Save 50%* on rates. *Terms apply",
+      "Save 15%*, compare 20+ carriers*!",
+      "Save **50% today*",
+      "2*3*4 and M*A*S*H",
+      "rated 5 * 4 * 3",
+    ]) {
+      expect(headline(literal)).toBe(literal);
+    }
   });
 
   it("in a rich description the markers bold list text but never touch a tag or its attribute", () => {
     const html = render([
-      carrier({ subheadline: '<ul><li>*Free* quotes</li><li><a href="https://x.example/*a*">see *all*</a></li></ul>' }),
+      carrier({ subheadline: '<ul><li>*Free* quotes</li><li><a href="https://x.example/*a*">see *all*</a></li><li>Fast &amp; *easy* &lt;b&gt;</li></ul>' }),
     ]).slots[0]!.html;
     const sub = regionHtml(html, "lg-banner-subheadline");
-    expect(sub).toBe('<ul><li><strong>Free</strong> quotes</li><li><a href="https://x.example/*a*">see <strong>all</strong></a></li></ul>');
+    expect(sub).toBe(
+      '<ul><li><strong>Free</strong> quotes</li><li><a href="https://x.example/*a*">see <strong>all</strong></a></li>' +
+        "<li>Fast &amp; <strong>easy</strong> &lt;b&gt;</li></ul>",
+    );
   });
 
   it("markers inside encoded markup stay text: the bold is real <strong>, the payload is escaped", () => {
@@ -173,9 +196,23 @@ describe("OWNER 2026-09-28 bug 3 — the winner card stays a solid orange button
   });
 
   it(`the line is ${WINNER_CARD_MIN_CONTRAST}:1 against the button text; the design's own orange clears it`, () => {
-    expect(winnerCardAccentVerdict("#fce7de", "#FFFFFF")).toEqual({ readable: false, ratio: 1.19 });
-    expect(winnerCardAccentVerdict("#E85D26", "#FFFFFF")).toEqual({ readable: true, ratio: 3.49 });
+    const card = defaultFunnelDesign.banner.recommendedBg;
+    expect(winnerCardAccentVerdict("#fce7de", "#FFFFFF", card)).toEqual({ readable: false, ratio: 1.19 });
+    expect(winnerCardAccentVerdict("#E85D26", "#FFFFFF", card)).toEqual({ readable: true, ratio: 3.49 });
+    expect(winnerCardAccentVerdict("#E85D26FF", "#FFFFFF", card)).toEqual({ readable: true, ratio: 3.49 });
     // unmeasurable (not a hex literal) → the operator's accent is honoured
-    expect(winnerCardAccentVerdict("rgb(1,2,3)", "#FFFFFF")).toEqual({ readable: true, ratio: null });
+    expect(winnerCardAccentVerdict("rgb(1,2,3)", "#FFFFFF", card)).toEqual({ readable: true, ratio: null });
+  });
+
+  it("a translucent accent is measured as it paints over the card: a 20% or 0% orange is pale, not orange", () => {
+    const card = defaultFunnelDesign.banner.recommendedBg;
+    expect(winnerCardAccentVerdict("#E85D2633", "#FFFFFF", card).readable).toBe(false);
+    expect(winnerCardAccentVerdict("#E85D2600", "#FFFFFF", card)).toEqual({ readable: false, ratio: 1.04 });
+    expect(winnerCardAccentVerdict("#F803", "#FFFFFF", card).readable).toBe(false);
+    for (const accent of ["#E85D2633", "#E85D2600"]) {
+      const painted = winnerPaint({ palette: { accent } });
+      expect(painted.cta).toBe("#E85D26");
+      expect(painted.border).toBe("2px solid #E85D26");
+    }
   });
 });

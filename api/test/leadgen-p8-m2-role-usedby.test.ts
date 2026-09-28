@@ -249,7 +249,7 @@ const SURFACES: Surface[] = [
   // The pale fallback is pinned in leadgen-p8-m2-accent-role.test.ts.
   {
     role: "accent",
-    phrase: "recommended",
+    phrase: "recommended (when readable)",
     selector: `${SCOPE} .lg-banner[data-recommended="true"]`,
     property: "border",
     render: (v) => `2px solid ${v}`,

@@ -202,31 +202,54 @@ function asText(value: unknown): string {
 
 // OWNER 2026-09-28 — two provider-copy conventions the card printed
 // literally ("Renter&#39;s", "Save up to *50%*"):
-//   * provider copy arrives HTML-encoded. A PLAIN text region is decoded once
-//     (the way a browser reads it) and then escaped again, so an encoded
-//     `&lt;script&gt;` still prints as text and can never become markup;
-//   * `*text*` / `**text**` mark the words to bold. The markers become
-//     <strong> on escaped text only — tags (rich regions keep the sanitizer's
-//     allowlisted markup) are never rewritten, so a marker can not reach an
-//     attribute. The flanking rule (no space just inside a marker) keeps a
-//     footnote star ("50%* on", "*Terms apply") literal.
-const BOLD_MARKER_RE = /\*\*(?=\S)([^*]*?\S)\*\*|\*(?=\S)([^*]*?\S)\*/g;
+//   * provider copy arrives HTML-encoded. A PLAIN text region is decoded (to
+//     the same fixpoint the rich path's sanitizer uses) and then escaped
+//     again, so an encoded `&lt;script&gt;` still prints as text and can never
+//     become markup;
+//   * `*text*` / `**text**` / `***text***` mark the words to bold. Markers are
+//     read on the real characters (never on escaped HTML), and the pieces are
+//     escaped around the <strong> this module builds itself — a marker can
+//     never produce a tag or reach an attribute. A marker must open a word
+//     (start, or after a space / opening bracket or quote) and close one (end,
+//     or before a space / punctuation), with the same number of stars on both
+//     sides, so footnote stars ("15%*, compare…*!", "*Terms apply"), maths
+//     ("2*3*4") and a mismatched "**50% today*" stay literal.
+const BOLD_MARKER_RE =
+  /(?<=^|[\s(\[{"'\u201C\u2018])(\*{1,3})(?=[^\s*])([^*]*?[^\s*])\1(?=$|[\s.,!?;:)\]}"'\u201D\u2019])/g;
 
-function boldMarkers(html: string): string {
+function markedTextHtml(text: string, escape: (s: string) => string): string {
+  let out = "";
+  let last = 0;
+  for (const m of text.matchAll(BOLD_MARKER_RE)) {
+    out += `${escape(text.slice(last, m.index))}<strong>${escape(m[2]!)}</strong>`;
+    last = m.index + m[0].length;
+  }
+  return out + escape(text.slice(last));
+}
+
+// The sanitizer's output is tags + text escaped for & < > only; its text runs
+// are unescaped exactly (one pass), marked, and escaped the same way again.
+// Tags pass through untouched.
+const SANITIZED_TEXT_ENTITY: Readonly<Record<string, string>> = { amp: "&", lt: "<", gt: ">" };
+function escapeTextRun(s: string): string {
+  return s.replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;");
+}
+function markedSanitizedHtml(html: string): string {
   return html
     .split(/(<[^>]*>)/)
     .map((segment, i) =>
       i % 2 === 1
         ? segment
-        : segment.replace(BOLD_MARKER_RE, (_m, pair: string | undefined, single: string | undefined) => {
-            return `<strong>${pair ?? single ?? ""}</strong>`;
-          }),
+        : markedTextHtml(
+            segment.replace(/&(amp|lt|gt);/g, (_m, name: string) => SANITIZED_TEXT_ENTITY[name]!),
+            escapeTextRun,
+          ),
     )
     .join("");
 }
 
 function stripBoldMarkers(text: string): string {
-  return text.replace(BOLD_MARKER_RE, (_m, pair: string | undefined, single: string | undefined) => pair ?? single ?? "");
+  return text.replace(BOLD_MARKER_RE, (_m, _stars: string, inner: string) => inner);
 }
 
 // True for an absolute http(s) URL — the only shape accepted directly into a
@@ -361,7 +384,7 @@ function renderCard(
   if (regions.length > 0) {
     const inner = regions
       .map((r) => {
-        if (!r.rich) return `<div class="${r.klass}">${boldMarkers(esc(r.text))}</div>`;
+        if (!r.rich) return `<div class="${r.klass}">${markedTextHtml(r.text, esc)}</div>`;
         // A buyer's response (or an operator's authored copy) may carry inline
         // markup — a provider description is commonly a <ul> of benefits.
         // Escaping it printed the tags to the visitor as literal text; the
@@ -369,7 +392,7 @@ function renderCard(
         // (bold/italic/link/lists) and can never emit a construct it does not
         // itself build. Lists get the reference's left-aligned bullet
         // treatment via data-rich (styles.ts).
-        const html = boldMarkers(sanitizeFrameInlineHtml(r.text));
+        const html = markedSanitizedHtml(sanitizeFrameInlineHtml(r.text));
         if (html === "") return "";
         const rich = /<(?:ul|ol)>/.test(html) ? ` data-rich="1"` : "";
         return `<div class="${r.klass}"${rich}>${html}</div>`;
