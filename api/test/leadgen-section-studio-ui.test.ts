@@ -7987,6 +7987,9 @@ const PROVIDER_VALUE_FUNCS = [
   "fieldOptionLabelIn",
   "edgesBlockedReason",
   "valuesNotSent",
+  "providerRowsShape",
+  "shouldRebuildProviderRows",
+  "typingStateFor",
   "providerChipRows",
   "providerChipLabel",
 ] as const;
@@ -8364,6 +8367,97 @@ describeDb("OWNER 2026-09-28 review round 1 — answer keys, Other values, typed
     expect(hint).toContain('contact.zip (always "94105") is a fixed value in QuinStreetHome');
     expect(hint).toContain("filled from an answer");
     expect(hint).not.toContain("ni_ad_client");
+  });
+
+  it("round 4b (N1): a refresh repaints open rows in place — it rebuilds only when the rows' shape changed AND no box in them holds the focus", async () => {
+    const { probe, offers } = await setupWith(MULTI_CONTENT, [
+      ["AmONE - Tier 2", [{ path: "Income", type: "string" }]],
+      ["Fundera - Tier 1", [{ path: "company.annual_revenue", type: "number" }]],
+    ]);
+    const amone = offers[0]!;
+    const fundera = offers[1]!;
+    probe.run(`upsertEdge(offerById(${amone.id}), answerFieldOf(offerById(${amone.id}), 'Income'), '${REVENUE_FIELD}')`);
+    probe.run(`upsertEdge(offerById(${fundera.id}), answerFieldOf(offerById(${fundera.id}), 'company.annual_revenue'), '${REVENUE_FIELD}')`);
+    const shape = () => probe.run(`providerRowsShape(providerChipRows('${REVENUE_FIELD}', '600000'))`) as string;
+    const before = shape();
+    // applying a value (the change that used to rebuild and eat the next box) keeps the shape
+    probe.run(`setProviderValue(${amone.id}, '${REVENUE_FIELD}', '600000', '50000', choiceSavedValuesOf(questionByField('${REVENUE_FIELD}')))`);
+    expect(shape()).toBe(before);
+    expect(probe.run(`shouldRebuildProviderRows('${before}', '${before}', false)`)).toBe(false);
+    // a real shape change rebuilds — unless the operator is typing in those rows
+    expect(probe.run(`shouldRebuildProviderRows('a', 'b', false)`)).toBe(true);
+    expect(probe.run(`shouldRebuildProviderRows('a', 'b', true)`)).toBe(false);
+  });
+
+  it("round 4b (F4/N3): while typing, the status says what WILL be sent — an emptied box judges the saved value it falls back to", async () => {
+    const { probe, offers } = await setupWith(MULTI_CONTENT, [
+      ["AmONE - Tier 2", [{ path: "Band", type: "enum", valid_values: ["low", "mid", "high"] } as never]],
+    ]);
+    const amone = offers[0]!;
+    probe.run(`upsertEdge(offerById(${amone.id}), answerFieldOf(offerById(${amone.id}), 'Band'), '${REVENUE_FIELD}')`);
+    const edges = `edgesOfAnswerOnOffer(${amone.id}, '${REVENUE_FIELD}')`;
+    expect(probe.run(`typingStateFor(${amone.id}, ${edges}, '', '600000')`)).toEqual({ kind: "unsendable", text: "not sent \u2014 600000 is not one of: low, mid, high" });
+    expect(probe.run(`typingStateFor(${amone.id}, ${edges}, 'mid', '600000')`)).toEqual({ kind: "pending", text: "will send mid" });
+    expect(probe.run(`typingStateFor(${amone.id}, ${edges}, 'zzz', '600000')`)).toEqual({ kind: "invalid", text: "must be one of: low, mid, high" });
+  });
+
+  it("round 4b (F5): the fixed-field hint matches by name tokens (zip_code, zip_<tag>) and never an Address's base name", async () => {
+    const content = { components: [{ type: "ZIPInputQuestion", question_id: "q_z", question_key: "q_z", internal_field: "zip_code", answer_type: "string" }] };
+    const { probe, offers } = await setupWith(content, [["QuinStreetHome", [{ path: "tracking.ni_zc", type: "string" }]]]);
+    const q = offers[0]!;
+    probe.run(`offerById(${q.id}).fixed_fields = [{ path: 'contact.zip', value: '94105' }, { path: 'contact.address', value: '' }, { path: 'contact.first_name', value: 'x' }];`);
+    for (const key of ["zip_code", "zip_rv4z", "postal_code"]) {
+      probe.run(`findQuestionByQid('q_z').internal_field = '${key}'`);
+      const hint = probe.run(`fixedFieldHint(offerById(${q.id}), findQuestionByQid('q_z'), '${key}')`) as string;
+      expect(hint, key).toContain('contact.zip (always "94105")');
+      expect(hint, key).not.toContain("contact.address");
+      expect(hint, key).not.toContain("first_name");
+    }
+    // an Address part: only the part's own name counts, never the base ("address")
+    const addr = { type: "AddressAutocompleteQuestion", question_id: "q_a", internal_field: "address", props: { fields: [{ field: "zip" }] } };
+    probe.run(`state.content.components.push(${JSON.stringify(addr)})`);
+    const hint = probe.run(`fixedFieldHint(offerById(${q.id}), findQuestionByQid('q_a'), 'address_zip')`) as string;
+    expect(hint).toContain("contact.zip");
+    expect(hint).not.toContain("contact.address");
+  });
+
+  it("round 4b (F6): the Offers route never ships a fixed value that looks like a credential", async () => {
+    const { env } = newHarness();
+    const offer = await createOfferWithSchema(env, "QS fixed", [{ path: "tracking.ni_zc", type: "string", required: true, internal_field: "zip" }]);
+    const schema = await admin.request(
+      `${API}/offers/${offer.public_id}/payload-schemas`,
+      jsonInit("POST", {
+        schema_json: {
+          version: 2,
+          root: {
+            type: "object",
+            children: [
+              { path: "tracking.ni_zc", name: "ni_zc", type: "string", required: true, source: "answer" },
+              { path: "contact.zip", name: "zip", type: "string", source: "static", value: "94105" },
+              { path: "tracking.api_token", name: "api_token", type: "string", source: "static", value: "tok_secret" },
+              { path: "auth.signature", name: "signature", type: "string", source: "static", value: "sig" },
+            ],
+          },
+        },
+      }),
+      env,
+    );
+    expect(schema.status, await schema.clone().text()).toBe(201);
+    const section = await createSection(env, { content_json: JSON.stringify(MULTI_CONTENT) });
+    const res = (await (await admin.request(`${API}/sections/${section.public_id}/offers`, {}, env)).json()) as OffersResponse;
+    const row = res.offers.find((o) => o.id === offer.id) as Record<string, unknown>;
+    expect(row["fixed_fields"]).toEqual([{ path: "contact.zip", value: "94105" }]);
+    expect(JSON.stringify(res)).not.toContain("tok_secret");
+  });
+
+  it("round 4b (F2): the provider state line sits under its box and wraps (a long 'not sent' line never squeezes the box)", async () => {
+    const { env } = newHarness();
+    const section = await createSection(env);
+    const html = await studioPage(env, section.public_id);
+    expect(html).toContain(".studio-provider-state{grid-column:1 / -1;");
+    expect(html).toMatch(/\.studio-provider-state\{[^}]*white-space:normal/);
+    expect(html).not.toMatch(/\.studio-provider-state\{[^}]*nowrap/);
+    expect(html).toContain(".studio-provider-row{display:grid;grid-template-columns:minmax(90px,1fr) minmax(120px,1.4fr);");
   });
 
   it("M3: an answer filling two fields of one Offer with DIFFERENT lists gets one box per field; editing one never overwrites the other", async () => {

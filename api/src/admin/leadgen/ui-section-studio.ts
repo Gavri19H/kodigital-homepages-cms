@@ -12273,6 +12273,36 @@ export const SECTION_STUDIO_SCRIPT = `
     }
     providerChipRefreshers = keep;
   }
+  // The shape of a chip's open rows: which Offers, and how many boxes each. A
+  // refresh repaints IN PLACE while the shape holds (never destroying the box
+  // the operator is moving into); it rebuilds only when the shape changed and
+  // no box in those rows holds the focus.
+  function providerRowsShape(rows) {
+    var out = [], i, j, paths;
+    for (i = 0; i < rows.length; i++) {
+      paths = [];
+      for (j = 0; j < rows[i].edges.length; j++) { paths.push(rows[i].edges[j].offer_payload_field_path); }
+      out.push(rows[i].offer_id + ':' + paths.join(','));
+    }
+    return out.join('|');
+  }
+  function shouldRebuildProviderRows(builtShape, currentShape, holdsFocus) {
+    return builtShape !== currentShape && holdsFocus !== true;
+  }
+  // What the status line says while a box is being typed in: the value that
+  // WILL be sent (an empty box sends the saved value) and whether it can be.
+  function typingStateFor(offerId, edges, typed, saved) {
+    var blocked = edgesBlockedReason(offerById(offerId), edges);
+    if (blocked !== '') { return { kind: 'blocked', text: 'not sent \\u2014 ' + blocked.slice(9) }; }
+    var send = typed === '' ? saved : typed;
+    var problem = providerValueProblem(offerId, edges, send);
+    if (problem !== '') {
+      return typed === ''
+        ? { kind: 'unsendable', text: 'not sent \\u2014 ' + saved + ' ' + problem.replace(/^must be/, 'is not') }
+        : { kind: 'invalid', text: problem };
+    }
+    return { kind: 'pending', text: 'will send ' + send };
+  }
   function buildProviderChip(node, choice, rowEl) {
     var wrap = document.createElement('span');
     wrap.setAttribute('data-choice-provider', '');
@@ -12322,8 +12352,12 @@ export const SECTION_STUDIO_SCRIPT = `
       var send = v.state === 'custom' ? v.value : v.state === 'saved' ? saved : null;
       return { v: v, unsendable: edgesBlockedReason(offerById(offerId), edges) || (send === null ? '' : providerValueProblem(offerId, edges, send)) };
     }
+    var painters = [];
+    var builtShape = '';
     function buildRows() {
       clearChildren(rowsEl);
+      painters = [];
+      builtShape = '';
       var v = currentValue();
       rowsEl.setAttribute('data-choice-provider-rows', v);
       var ids = mappedOffersFor(internalField);
@@ -12332,6 +12366,7 @@ export const SECTION_STUDIO_SCRIPT = `
       if (rowIsCalculated(rowEl, choice)) { note('Calculated date \\u2014 every provider receives the date.'); return; }
       if (v === '') { note('Give this choice a saved value first.'); return; }
       var rows = providerChipRows(internalField, v), i, anyMissing = false;
+      builtShape = providerRowsShape(rows);
       for (i = 0; i < rows.length; i++) { if (rows[i].state === 'missing' || rows[i].unsendable !== '') { anyMissing = true; } }
       note(anyMissing
         ? 'Empty box = the saved value (' + v + ') is sent \\u2014 except where marked not sent.'
@@ -12357,23 +12392,21 @@ export const SECTION_STUDIO_SCRIPT = `
         st.className = 'studio-provider-state';
         paintState(st, rows[i], v, '', rows[i].unsendable);
         (function (offerId, edges, input, stateEl) {
+          // repaint this row's state in place (a refresh never rebuilds a box)
+          painters.push(function () {
+            if (document.activeElement === input || input.getAttribute('aria-invalid') === 'true') { return; }
+            var rsp = rowState(offerId, edges, currentValue());
+            paintState(stateEl, rsp.v, currentValue(), '', rsp.unsendable);
+          });
           // typing only CHECKS; the value is applied when the box is left (or
           // Enter) — a refused value never leaves a half-typed one behind
           input.addEventListener('input', function () {
-            var saved = currentValue();
             var typed = trimStr(input.value);
-            var problem = providerValueProblem(offerId, edges, typed);
-            if (problem !== '') { input.setAttribute('aria-invalid', 'true'); } else { input.removeAttribute('aria-invalid'); }
-            var blocked = edgesBlockedReason(offerById(offerId), edges);
-            var sendProblem = providerValueProblem(offerId, edges, typed === '' ? saved : typed);
-            if (problem === '' && blocked === '' && sendProblem === '') {
-              stateEl.setAttribute('data-provider-state', 'pending');
-              clearChildren(stateEl);
-              stateEl.appendChild(document.createTextNode('will send ' + (typed === '' ? saved : typed)));
-              return;
-            }
-            var rs = rowState(offerId, edges, saved);
-            paintState(stateEl, rs.v, saved, problem, rs.unsendable);
+            var ts = typingStateFor(offerId, edges, typed, currentValue());
+            if (ts.kind === 'invalid') { input.setAttribute('aria-invalid', 'true'); } else { input.removeAttribute('aria-invalid'); }
+            stateEl.setAttribute('data-provider-state', ts.kind);
+            clearChildren(stateEl);
+            stateEl.appendChild(document.createTextNode(ts.text));
           });
           input.addEventListener('blur', function () {
             // a no-op edit fires no 'change': put the real state back
@@ -12409,7 +12442,14 @@ export const SECTION_STUDIO_SCRIPT = `
       }
     }
     refreshLabel();
-    providerChipRefreshers.push({ el: chip, run: function () { refreshLabel(); if (!rowsEl.hidden) { buildRows(); } } });
+    providerChipRefreshers.push({ el: chip, run: function () {
+      refreshLabel();
+      if (rowsEl.hidden) { return; }
+      var holdsFocus = !!(document.activeElement && rowsEl.contains && rowsEl.contains(document.activeElement));
+      if (shouldRebuildProviderRows(builtShape, providerRowsShape(providerChipRows(internalField, currentValue())), holdsFocus)) { buildRows(); return; }
+      var i;
+      for (i = 0; i < painters.length; i++) { painters[i](); }
+    } });
     chip.addEventListener('click', function () {
       rowsEl.hidden = !rowsEl.hidden;
       if (!rowsEl.hidden) { buildRows(); }
