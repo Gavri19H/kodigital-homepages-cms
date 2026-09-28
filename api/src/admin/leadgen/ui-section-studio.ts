@@ -3762,7 +3762,7 @@ export const SECTION_STUDIO_STYLES = `
    scrolls inside its pane. review M6: the canvas toolbar's controls wrap at every
    width, so at 1024-1080px the More menu no longer slides under the inspector. */
 .studio-toolbar [data-studio-toolbar-actions]{flex-wrap:wrap;row-gap:6px;min-width:0;max-width:100%}
-.lg-choice-cell[data-choice-cell="value"]{flex-basis:150px}
+.lg-choice-cell[data-choice-cell="value"]{flex-basis:196px}
 .lg-editor-spacer{flex:1}
 /* R5 D2 (register S4-A2): .lg-maps-note was the legacy Maps fieldset's OWN
    note-line class — orphaned now that the fieldset is removed. Removed. */
