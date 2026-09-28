@@ -7990,6 +7990,8 @@ const PROVIDER_VALUE_FUNCS = [
   "providerRowsShape",
   "shouldRebuildProviderRows",
   "typingStateFor",
+  "carryProviderValues",
+  "sharedBoxProblem",
   "providerChipRows",
   "providerChipLabel",
 ] as const;
@@ -8180,7 +8182,7 @@ describeDb("OWNER 2026-09-28 review round 1 — answer keys, Other values, typed
     const island = studioIsland(html);
     probe.run([...PROVIDER_VALUE_FUNCS, "findQuestionByQid", "repairStaleAnswerKeys", "answerKeyPartLabel", "fixedFieldHint"].map((n) => sliceIslandFunction(island, n)).join("\n"));
     probe.run("var answerKeyRepairs = {}; var providerBaseline = {};");
-    return { env, section, probe, offers, offersRes };
+    return { env, section, probe, offers, offersRes, island };
   }
   async function save(env: Env, section: SectionDetail, probe: StudioProbe): Promise<Record<string, unknown>> {
     const body = {
@@ -8480,6 +8482,58 @@ describeDb("OWNER 2026-09-28 review round 1 — answer keys, Other values, typed
     const twoYearsAgo = new Date(Date.UTC(now.getUTCFullYear() - 2, now.getUTCMonth(), now.getUTCDate())).toISOString().slice(0, 10);
     expect(await preview(env, section, { dur: "2" }, f.public_id)).toEqual({ company: { business_inception: twoYearsAgo } });
     expect(await preview(env, section, { dur: "0" }, f.public_id)).toEqual({ company: { business_inception: "0" } });
+  });
+
+  it("open item 2: a saved value renamed in its row carries its provider values; a rename onto another choice's value moves nothing", async () => {
+    const { probe, offers } = await setupWith(MULTI_CONTENT, [["AmONE - Tier 2", [{ path: "Income", type: "string" }]]]);
+    const amone = offers[0]!;
+    probe.run(`upsertEdge(offerById(${amone.id}), answerFieldOf(offerById(${amone.id}), 'Income'), '${REVENUE_FIELD}')`);
+    probe.run(`state.answer_maps[0].output_value_map = { '600000': '50000', '360000': '30000', '30000': '2500' };`);
+    const list = () => (probe.sandbox.state["answer_maps"] as Array<Record<string, unknown>>)[0]!["output_value_map"];
+    expect(probe.run(`carryProviderValues('${REVENUE_FIELD}', '360000', '360500')`)).toBe(true);
+    expect(list()).toEqual({ "600000": "50000", "360500": "30000", "30000": "2500" });
+    // a value that maps to itself follows the rename as itself
+    probe.run(`state.answer_maps[0].output_value_map['30000'] = '30000';`);
+    probe.run(`carryProviderValues('${REVENUE_FIELD}', '30000', '30001')`);
+    expect((list() as Record<string, unknown>)["30001"]).toBe("30001");
+    // renaming onto a value another choice already has moves nothing
+    expect(probe.run(`carryProviderValues('${REVENUE_FIELD}', '600000', '360500')`)).toBe(false);
+    expect((list() as Record<string, unknown>)["600000"]).toBe("50000");
+  });
+
+  it("open item 6 (F8): a box shared by two fields names the one that rejects a value instead of saying 'not sent' for both", async () => {
+    const { probe, offers } = await setupWith(MULTI_CONTENT, [
+      ["Fundera - Tier 1", [{ path: "company.revenue_band", type: "enum", valid_values: ["low", "high"] } as never, { path: "company.revenue_text", type: "string" }]],
+    ]);
+    const f = offers[0]!;
+    probe.run(`upsertEdge(offerById(${f.id}), answerFieldOf(offerById(${f.id}), 'company.revenue_band'), '${REVENUE_FIELD}')`);
+    probe.run(`upsertEdge(offerById(${f.id}), answerFieldOf(offerById(${f.id}), 'company.revenue_text'), '${REVENUE_FIELD}', null)`);
+    const edges = `edgesOfAnswerOnOffer(${f.id}, '${REVENUE_FIELD}')`;
+    expect(probe.run(`sharedBoxProblem(${f.id}, ${edges}, '600000')`)).toBe("partly: not sent to Revenue band (must be one of: low, high)");
+    expect(probe.run(`sharedBoxProblem(${f.id}, ${edges}, 'high')`)).toBe("");
+    expect(probe.run(`typingStateFor(${f.id}, ${edges}, '', '600000')`)).toEqual({ kind: "partial", text: "will send 600000 \u2014 partly: not sent to Revenue band (must be one of: low, high)" });
+  });
+
+  it("open item 5: after Save the editor reopens the question and tab being edited", async () => {
+    const { probe, island } = await setupWith(MULTI_CONTENT, [["AmONE - Tier 2", [{ path: "Income", type: "string" }]]]);
+    probe.run([sliceIslandFunction(island, "reopenQuery"), sliceIslandFunction(island, "reopenedSelectionId")].join("\n"));
+    probe.run("var selectedQuestionId = 'q_mrum8ruj_2sau'; var currentInspectorTab = 'offers';");
+    expect(probe.run("reopenQuery()")).toBe("?q=q_mrum8ruj_2sau&tab=offers");
+    probe.sandbox["URLSearchParams"] = URLSearchParams;
+    probe.sandbox["window"] = { location: { search: "?q=q_mrum8ruj_2sau&tab=offers" } };
+    expect(probe.run("reopenedSelectionId()")).toBe("q_mrum8ruj_2sau");
+    probe.sandbox["window"] = { location: { search: "?q=q_gone" } };
+    expect(probe.run("reopenedSelectionId()")).toBeNull();
+  });
+
+  it("open item 1: the editor's columns shrink to the screen (inspector never pushed off-screen) and phone-width rows wrap", async () => {
+    const { env } = newHarness();
+    const html = await studioPage(env, (await createSection(env)).public_id);
+    expect(html).toMatch(/\.lg-editor-grid\{display:grid;grid-template-columns:\d+px minmax\(0,1fr\) \d+px;/);
+    expect(html).toContain(".lg-editor-grid>*{min-width:0}");
+    expect(html).toContain("@media (max-width:1023px){.lg-editor-grid{grid-template-columns:minmax(0,1fr)}");
+    expect(html).toContain('@media (max-width:760px){.studio-root{overflow-x:hidden}');
+    expect(html).toContain('.studio-root [style*="margin-left:auto"]{margin-left:0 !important}');
   });
 
   it("M3: an answer filling two fields of one Offer with DIFFERENT lists gets one box per field; editing one never overwrites the other", async () => {
