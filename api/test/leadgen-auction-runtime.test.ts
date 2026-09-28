@@ -1585,3 +1585,70 @@ describeDb("static Offer banner creative (0060) — through the real auction", (
     expect(result.banners_html).not.toContain("SHOULD NOT SHOW");
   });
 });
+
+// ===========================================================================
+// OWNER 2026-09-28 (insurissimo.com/lg/home-insurance): "each time I got only 1
+// result" while NextInsure returned 6 listings. Through the real pipeline with
+// the production auction's settings (auction 1: multi_offer enabled,
+// max_carriers_per_offer 3, banner_slots_count 5, floor 10% of max) and the
+// offer's stored parser, verbatim.
+// ===========================================================================
+
+describeDb("every provider listing reaches the auction (OWNER 2026-09-28)", () => {
+  const NEXTINSURE_6 = readFileSync(join(TEST_DIR, "fixtures", "parser-every-listing", "nextinsure-home-6-listings.json"), "utf8");
+  const QUINSTREET_HOME_PARSER = JSON.stringify({
+    fields: {
+      provider_id: "{response:response.listingset.listing.0.company}",
+      carrier_name: "{response:response.listingset.listing.0.displayname}",
+      carrier_logo: "{response:response.listingset.listing.0.logo}",
+      bid: "{response:response.listingset.listing.0.cpc}",
+      bid_currency: "{response:response.listingset.listing.0.usd}",
+      click_url: "{response:response.listingset.listing.0.clickurl}",
+      tracking_id: "{response:response.listingset.searchid}",
+      headline: "{response:response.listingset.listing.0.title}",
+      subheadline: "{response:response.listingset.listing.0.description}",
+    },
+  });
+  async function run(maxPerOffer: number): Promise<string[]> {
+    const sdb = createLeadgenDb(DatabaseSync as DatabaseSyncCtor);
+    const { kv } = makeKvStub();
+    const env = buildEnv(d1FromSqlite(sdb), kv);
+    const auction = seedAuction(sdb, { multi_offer: "enabled", max_carriers_per_offer: maxPerOffer, banner_slots_count: 5, max_total_carriers: 10, floor_type: "percentage_of_max", floor_value: 10 });
+    const qs = seedOffer(sdb, { dynamic: true, carrierParse: QUINSTREET_HOME_PARSER });
+    attachOffer(sdb, auction.id, qs, 0);
+    stubFetch(() => new Response(NEXTINSURE_6, { status: 200, headers: { "content-type": "application/json" } }));
+    const bundle = await loadAuctionBundle(env.DB, auction, 1);
+    const result = await runAuction(env, { resolved: makeResolved(), bundle, environment: "production", binding: NO_BINDING, session_id: null, raw_answers: {}, clicked: [] }, { dryRun: true });
+    return result.explain.carriers_shown.map((c) => c.carrier_key);
+  }
+
+  it("with his auction's own cap (3 carriers per offer): the top 3 bids, not 1", async () => {
+    expect(await run(3)).toEqual(["Contactability - 32485", "Farmers Insurance Group", "ultimateinsurance.com (32925110)"]);
+  });
+
+  it("the cap is what limits: at 10 per offer, the 5 banner slots fill", async () => {
+    expect(await run(10)).toHaveLength(5);
+  });
+});
+
+describeDb("one recommended card when the winning Offer yields several carriers (OWNER 2026-09-28)", () => {
+  it("only the first card carries the BEST MATCH badge and the recommended styling", async () => {
+    const sdb = createLeadgenDb(DatabaseSync as DatabaseSyncCtor);
+    const { kv } = makeKvStub();
+    const env = buildEnv(d1FromSqlite(sdb), kv);
+    const auction = seedAuction(sdb, { multi_offer: "enabled", max_carriers_per_offer: 3, banner_slots_count: 5 });
+    const parser = JSON.stringify({ fields: { provider_id: "response.listingset.listing.0.company", carrier_name: "response.listingset.listing.0.displayname", bid: "response.listingset.listing.0.cpc", click_url: "response.listingset.listing.0.clickurl" } });
+    const qs = seedOffer(sdb, { dynamic: true, carrierParse: parser });
+    attachOffer(sdb, auction.id, qs, 0);
+    stubFetch(() => new Response(readFileSync(join(TEST_DIR, "fixtures", "parser-every-listing", "nextinsure-home-6-listings.json"), "utf8"), { status: 200 }));
+    const bundle = await loadAuctionBundle(env.DB, auction, 1);
+    const result = await runAuction(env, { resolved: makeResolved(), bundle, environment: "production", binding: NO_BINDING, session_id: null, raw_answers: {}, clicked: [] }, { dryRun: true });
+    const html = result.banners_html;
+    expect(result.banners).toHaveLength(3);
+    expect(html.match(/BEST MATCH FOR YOU/g) ?? []).toHaveLength(1);
+    expect(html.match(/data-recommended="true"/g) ?? []).toHaveLength(1);
+    // …and it is the top card (the highest bid)
+    expect(html.indexOf('data-recommended="true"')).toBeLessThan(html.indexOf('data-recommended="false"'));
+    expect(html.slice(0, html.indexOf('data-recommended="false"'))).toContain("Contactability");
+  });
+});

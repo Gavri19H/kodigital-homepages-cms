@@ -1229,6 +1229,7 @@ function renderResponseParsingPanel(activeSchema: PayloadBuilderSchemaInfo | nul
     <div class="card-header"><h3 class="card-title">Response parsing</h3>
       <span class="form-help">carrier_parse_json versions WITH the payload schema (a column on the schema-version row)</span></div>
     <p class="form-help">Maps the provider response onto the canonical Carrier fields before the auction/banner layer sees it. Each field takes one or more dotted paths — comma-separated, first match wins. Saving creates the NEXT immutable schema version carrying this parser.</p>
+    <p class="form-help">A list in the response is read item by item: with Carriers path empty, fields that run through the same list at item 0 (e.g. <code>response.listingset.listing.0.cpc</code>) make one carrier per list item; a field outside the list (e.g. <code>response.listingset.searchid</code>) is shared by all of them.</p>
     <div class="form-group">
       <label for="lg-parse-carriers-path" class="form-label">Carriers path</label>
       <input id="lg-parse-carriers-path" type="text" class="form-input" placeholder="carriers (empty = response root)" value="${escapeHtml(carriersPath)}" />

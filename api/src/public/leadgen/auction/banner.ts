@@ -275,8 +275,8 @@ function renderCard(
   slotData: Record<string, unknown>,
   ctaLabel: string,
   badgeLabel: string,
+  recommended: boolean,
 ): string {
-  const recommended = entry.source === "winner";
   const parts: string[] = [];
 
   if (recommended) {
@@ -413,6 +413,12 @@ export function renderBanners(
   const configuredBadge = asText(manualConfig["badge"]);
 
   const slots: RenderedBannerSlot[] = [];
+  // ONE recommended card: the first rendered carrier of the winning Offer (the
+  // reference's `.offer-card:first-child`). Every carrier of the winning Offer
+  // is tagged source "winner", so once an Offer yields several carriers
+  // (OWNER 2026-09-28: NextInsure's 6 listings) each card used to get the
+  // "BEST MATCH FOR YOU" badge and the recommended styling.
+  let recommendedGiven = false;
   const impressions: CarrierImpression[] = [];
   const dropped: DroppedCarrier[] = [];
 
@@ -464,7 +470,9 @@ export function renderBanners(
       slot: entry.slot,
       funnel_attempt_id: funnelAttemptId,
     });
-    const html = renderCard(entry, governedHref, bannerConfig.mode, slotData, ctaLabel, configuredBadge);
+    const recommended = entry.source === "winner" && !recommendedGiven;
+    if (recommended) recommendedGiven = true;
+    const html = renderCard(entry, governedHref, bannerConfig.mode, slotData, ctaLabel, configuredBadge, recommended);
     slots.push({
       slot: entry.slot,
       carrier_key: entry.carrier.carrier_key,

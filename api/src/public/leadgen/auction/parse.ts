@@ -323,6 +323,78 @@ interface PendingCarrier {
 // Offer's parsed carrier_parse_json (validated here — a broken config is a
 // typed response-scope error, never a throw); `rawResponse` is either the
 // raw body STRING (JSON.parse'd here) or an already-parsed JSON value.
+// OWNER 2026-09-28 (insurissimo.com/lg/home-insurance): "each time I got only 1
+// result" — while NextInsure answered with 6 listings (his own curl, and every
+// logged response: 6, 7, 4 and 2 listings, parsed = 1 each time).
+//
+// The parser editor's pick-source chips come from the saved sample response,
+// so they are ABSOLUTE paths through list item 0 —
+// `response.listingset.listing.0.cpc` — and with no carriers_path the fields
+// were read against the response root: one carrier, always item 0. Both
+// offers on that auction were authored this way (AdsByMoney: `data.0.bid`).
+//
+// So when the carriers path is empty (the root is one object) and every field
+// path that runs through a list does so through the SAME list at index 0, that
+// list IS the carriers list: item i reads each of those paths with 0 → i.
+// Paths outside the list (response.listingset.searchid) stay shared by every
+// carrier. A path through a non-zero index, or through two different lists,
+// keeps the old one-object reading — the author pointed at something specific.
+interface IndexedCarrierList {
+  prefix: string; // dotted path to the list ("" never — the root is an object)
+  items: unknown[];
+}
+
+function fieldPathStrings(paths: LeadgenCarrierFieldPath | undefined): string[] {
+  if (paths === undefined) return [];
+  return (typeof paths === "string" ? [paths] : [...paths]).map((p) => unwrapResponseMacro(p));
+}
+
+function inferIndexedCarrierList(body: unknown, fields: LeadgenCarrierParseConfig["fields"]): IndexedCarrierList | null {
+  let prefix: string | null = null;
+  let items: unknown[] | null = null;
+  for (const value of Object.values(fields) as Array<LeadgenCarrierFieldPath | undefined>) {
+    for (const path of fieldPathStrings(value)) {
+      const segs = path.split(".");
+      let cursor: unknown = body;
+      for (let j = 0; j < segs.length; j++) {
+        const seg = segs[j] as string;
+        if (Array.isArray(cursor)) {
+          if (seg !== "0") return null; // an explicit item — not "every item"
+          const here = segs.slice(0, j).join(".");
+          if (here === "" || (prefix !== null && prefix !== here)) return null;
+          prefix = here;
+          items = cursor;
+          break;
+        }
+        if (!isRecord(cursor)) break;
+        cursor = cursor[seg];
+      }
+    }
+  }
+  return prefix !== null && items !== null ? { prefix, items } : null;
+}
+
+// One carrier's field paths inside an inferred list: `<prefix>.0.<rest>` →
+// `<prefix>.<i>.<rest>`; every other path is left as it is (shared).
+function fieldsForListItem(
+  fields: LeadgenCarrierParseConfig["fields"],
+  prefix: string,
+  index: number,
+): LeadgenCarrierParseConfig["fields"] {
+  const head = `${prefix}.0`;
+  const rewrite = (p: string): string => {
+    const bare = unwrapResponseMacro(p);
+    if (bare === head) return `${prefix}.${index}`;
+    return bare.startsWith(`${head}.`) ? `${prefix}.${index}.${bare.slice(head.length + 1)}` : bare;
+  };
+  const out: Record<string, LeadgenCarrierFieldPath> = {};
+  for (const [key, value] of Object.entries(fields) as Array<[string, LeadgenCarrierFieldPath | undefined]>) {
+    if (value === undefined) continue;
+    out[key] = typeof value === "string" ? rewrite(value) : value.map(rewrite);
+  }
+  return out as LeadgenCarrierParseConfig["fields"];
+}
+
 export function parseProviderResponse(
   config: unknown,
   rawResponse: unknown,
@@ -385,7 +457,15 @@ export function parseProviderResponse(
     };
   }
   let items: unknown[];
-  if (Array.isArray(node)) {
+  // Per carrier: what its fields are read against, and with which paths.
+  let sourceFor: (item: unknown) => unknown = (item) => item;
+  let fieldsFor: (index: number) => LeadgenCarrierParseConfig["fields"] = () => fields;
+  const inferred = carriersPath === "" && isRecord(node) ? inferIndexedCarrierList(body, fields) : null;
+  if (inferred !== null) {
+    items = inferred.items;
+    sourceFor = () => body;
+    fieldsFor = (index) => fieldsForListItem(fields, inferred.prefix, index);
+  } else if (Array.isArray(node)) {
     items = node;
   } else if (isRecord(node)) {
     items = [node]; // single-carrier providers return one object
@@ -404,8 +484,8 @@ export function parseProviderResponse(
 
   // --- per-carrier extraction (partial failure keeps the rest) ------------
   const pending: PendingCarrier[] = [];
-  items.forEach((item, index) => {
-    if (!isRecord(item)) {
+  items.forEach((listItem, index) => {
+    if (!isRecord(listItem)) {
       errors.push({
         scope: "carrier",
         code: "carrier_not_object",
@@ -414,22 +494,24 @@ export function parseProviderResponse(
       });
       return;
     }
+    const item = sourceFor(listItem);
+    const f = fieldsFor(index);
 
-    const providerId = extractString(item, fields.provider_id, "provider_id", index, true, errors);
-    const carrierName = extractString(item, fields.carrier_name, "carrier_name", index, false, errors);
+    const providerId = extractString(item, f.provider_id, "provider_id", index, true, errors);
+    const carrierName = extractString(item, f.carrier_name, "carrier_name", index, false, errors);
     const carrier: LeadgenParsedCarrier = {
       carrier_key: "", // minted below (§18.8)
       carrier_key_source: "slug",
       carrier_name: carrierName,
-      carrier_logo: extractString(item, fields.carrier_logo, "carrier_logo", index, false, errors),
-      bid: extractBid(item, fields.bid, index, errors),
-      bid_currency: extractString(item, fields.bid_currency, "bid_currency", index, false, errors),
-      click_url: extractString(item, fields.click_url, "click_url", index, false, errors),
-      tracking_id: extractString(item, fields.tracking_id, "tracking_id", index, true, errors),
-      headline: extractString(item, fields.headline, "headline", index, false, errors),
-      subheadline: extractString(item, fields.subheadline, "subheadline", index, false, errors),
-      disclaimer: extractString(item, fields.disclaimer, "disclaimer", index, false, errors),
-      pricing_model: extractString(item, fields.pricing_model, "pricing_model", index, false, errors),
+      carrier_logo: extractString(item, f.carrier_logo, "carrier_logo", index, false, errors),
+      bid: extractBid(item, f.bid, index, errors),
+      bid_currency: extractString(item, f.bid_currency, "bid_currency", index, false, errors),
+      click_url: extractString(item, f.click_url, "click_url", index, false, errors),
+      tracking_id: extractString(item, f.tracking_id, "tracking_id", index, true, errors),
+      headline: extractString(item, f.headline, "headline", index, false, errors),
+      subheadline: extractString(item, f.subheadline, "subheadline", index, false, errors),
+      disclaimer: extractString(item, f.disclaimer, "disclaimer", index, false, errors),
+      pricing_model: extractString(item, f.pricing_model, "pricing_model", index, false, errors),
     };
 
     // §18.8 identity: provider id → carrier_key as-is; else slug the name.
