@@ -5309,7 +5309,9 @@ describeDb("wave 2 — §6.1.3 undo/redo (executed island history)", () => {
         "function updateHistoryButtons() {}",
         "function refreshAfterHistory() {}",
         sliceIslandFunction(island, "historyState"),
-        sliceIslandFunction(island, "restoreValueLists"),
+        sliceIslandFunction(island, "restoreMappings"),
+        sliceIslandFunction(island, "typingFocus"),
+        "var lastPushFocus = null;",
         "var lastSnapshot = historyState();",
         sliceIslandFunction(island, "historyPush"),
         sliceIslandFunction(island, "historyReset"),
@@ -7989,6 +7991,7 @@ const PROVIDER_VALUE_FUNCS = [
   "fieldOptionLabelIn",
   "edgesBlockedReason",
   "boxUnsendable",
+  "edgesWithTypedList",
   "renameProviderBaseline",
   "savedValueCount",
   "valuesNotSent",
@@ -8510,6 +8513,19 @@ describeDb("OWNER 2026-09-28 review round 1 — answer keys, Other values, typed
 
   // The row's committed-rename decision (the real handler body), on the model.
   const RENAME_FUNCS = ["carryProviderValues", "commitChoiceRename", "findRefIn", "findRef"];
+  const HISTORY_FUNCS = ["historyState", "restoreMappings", "typingFocus", "historyAbsorb", "historyPush", "restoreSnapshot", "historyUndo", "historyRedo"];
+  // the real island history, over the probe's live model
+  function withHistory(probe: StudioProbe, island: string): void {
+    probe.run(
+      [
+        ...RENAME_FUNCS.map((n) => sliceIslandFunction(island, n)),
+        "var UNDO_LIMIT = 50; var undoStack = []; var redoStack = []; var lastPushFocus = null;",
+        "function updateHistoryButtons() {}",
+        "function refreshAfterHistory() {}",
+        ...HISTORY_FUNCS.map((n) => sliceIslandFunction(island, n)),
+      ].join("\n"),
+    );
+  }
   function setChoiceValue(probe: StudioProbe, index: number, value: string): void {
     probe.run(`findRef('q_mrum8ruj_2sau').node.choices[${index}].value = '${value}';`);
   }
@@ -8573,6 +8589,111 @@ describeDb("OWNER 2026-09-28 review round 1 — answer keys, Other values, typed
     });
   });
 
+  it("review F1: a rename typed or pasted into one box is ONE undo step — the analytics id that follows it and the carried provider values come back together", async () => {
+    const { probe, offers, island } = await setupWith(MULTI_CONTENT, [["AmONE - Tier 2", [{ path: "Income", type: "string" }]]]);
+    const amone = offers[0]!;
+    withHistory(probe, island);
+    probe.run(`upsertEdge(offerById(${amone.id}), answerFieldOf(offerById(${amone.id}), 'Income'), '${REVENUE_FIELD}')`);
+    probe.run(`state.answer_maps[0].output_value_map = { '600000': '50000', '360000': '30000', '30000': '2500' };`);
+    probe.run("snapshotProviderValues(findRef('q_mrum8ruj_2sau').node); var lastSnapshot = historyState();");
+    const node = "findRef('q_mrum8ruj_2sau').node";
+    // the value box holds the focus for the whole edit
+    probe.run("document.activeElement = { tagName: 'INPUT', type: 'text' };");
+    // a paste: the value is written, then the analytics id follows it — two
+    // model writes, each pushing history (collectChoices -> afterModelChange)
+    probe.run(`${node}.choices[2].value = '35000'; historyPush();`);
+    probe.run(`${node}.choices[2].analytics_id = '35000'; historyPush();`);
+    probe.run(`commitChoiceRename(${node}, '${REVENUE_FIELD}', '30000', '35000')`);
+    expect(probe.run("undoStack.length")).toBe(1);
+    probe.run("document.activeElement = null; historyUndo();");
+    expect(probe.run(`[${node}.choices[2].value, ${node}.choices[2].analytics_id]`)).toEqual(["30000", "30000"]);
+    expect(probe.run(`providerValueOf(${amone.id}, '${REVENUE_FIELD}', '30000')`)).toEqual({ state: "custom", value: "2500" });
+    probe.run("historyRedo();");
+    expect(probe.run(`[${node}.choices[2].value, ${node}.choices[2].analytics_id]`)).toEqual(["35000", "35000"]);
+    expect(probe.run(`providerValueOf(${amone.id}, '${REVENUE_FIELD}', '35000')`)).toEqual({ state: "custom", value: "2500" });
+    // another box starts a new step
+    probe.run("document.activeElement = { tagName: 'INPUT', type: 'text' };");
+    probe.run(`${node}.choices[0].label = 'Over fifty'; historyPush();`);
+    expect(probe.run("undoStack.length")).toBe(2);
+  });
+
+  it("review F2: Undo restores the whole mapping — a field re-picked on the Offers tab before a rename keeps the choice's value after Undo", async () => {
+    const { probe, offers, island } = await setupWith(MULTI_CONTENT, [["AmONE - Tier 2", [{ path: "Income", type: "string" }, { path: "income_alt", type: "string" }]]]);
+    const amone = offers[0]!;
+    withHistory(probe, island);
+    probe.run(`upsertEdge(offerById(${amone.id}), answerFieldOf(offerById(${amone.id}), 'Income'), '${REVENUE_FIELD}')`);
+    probe.run(`state.answer_maps[0].output_value_map = { '600000': '50000', '360000': '30000', '30000': '2500' };`);
+    probe.run("snapshotProviderValues(findRef('q_mrum8ruj_2sau').node); var lastSnapshot = historyState();");
+    const node = "findRef('q_mrum8ruj_2sau').node";
+    // the Offers tab re-picks Income -> income_alt (the list comes along); the
+    // handler records it as its own step
+    probe.run(`var old = state.answer_maps.splice(0, 1)[0]; upsertEdge(offerById(${amone.id}), answerFieldOf(offerById(${amone.id}), 'income_alt'), '${REVENUE_FIELD}', old); historyPush();`);
+    expect(probe.run("state.answer_maps[0].offer_payload_field_path")).toBe("income_alt");
+    // rename 30000 -> 35000, then one Undo
+    probe.run(`${node}.choices[2].value = '35000'; historyPush();`);
+    probe.run(`commitChoiceRename(${node}, '${REVENUE_FIELD}', '30000', '35000')`);
+    probe.run("historyUndo();");
+    expect(probe.run(`${node}.choices[2].value`)).toBe("30000");
+    expect(probe.run("state.answer_maps[0].offer_payload_field_path")).toBe("income_alt");
+    expect(probe.run(`providerValueOf(${amone.id}, '${REVENUE_FIELD}', '30000')`)).toEqual({ state: "custom", value: "2500" });
+    // and one more Undo takes the re-pick back
+    probe.run("historyUndo();");
+    expect(probe.run("state.answer_maps[0].offer_payload_field_path")).toBe("Income");
+  });
+
+  it("review F6: a rename held back by a collision completes when the other choice renames away (at that commit)", async () => {
+    const { probe, offers, island } = await setupWith(MULTI_CONTENT, [["AmONE - Tier 2", [{ path: "Income", type: "string" }]]]);
+    const amone = offers[0]!;
+    probe.run([...RENAME_FUNCS, "holdRename", "releaseHeldRenames", "clearHeldRenames"].map((n) => sliceIslandFunction(island, n)).join("\n"));
+    probe.run("var heldRenames = [];");
+    probe.run(`upsertEdge(offerById(${amone.id}), answerFieldOf(offerById(${amone.id}), 'Income'), '${REVENUE_FIELD}')`);
+    probe.run(`state.answer_maps[0].output_value_map = { '600000': '50000', '360000': '30000', '30000': '2500' };`);
+    probe.run("snapshotProviderValues(findRef('q_mrum8ruj_2sau').node);");
+    const node = "findRef('q_mrum8ruj_2sau').node";
+    // row A (600000) is committed as 360000 — row B's value: held back
+    probe.run(`var aCommitted = '600000'; var rowA = { holding: function (v) { return ${node}.choices[0].value === v; }, setCommitted: function (v) { aCommitted = v; } };`);
+    probe.run(`${node}.choices[0].value = '360000';`);
+    probe.run(`aCommitted = commitChoiceRename(${node}, '${REVENUE_FIELD}', aCommitted, '360000'); holdRename(rowA, ${node}, '${REVENUE_FIELD}', aCommitted, '360000');`);
+    expect(probe.run("aCommitted")).toBe("600000");
+    // row B renames away 360000 -> 370000: its 30000 moves, THEN A's rename completes
+    probe.run(`${node}.choices[1].value = '370000';`);
+    probe.run(`commitChoiceRename(${node}, '${REVENUE_FIELD}', '360000', '370000')`);
+    expect((probe.sandbox.state["answer_maps"] as Array<Record<string, unknown>>)[0]!["output_value_map"]).toEqual({ "360000": "50000", "370000": "30000", "30000": "2500" });
+    expect(probe.run("aCommitted")).toBe("360000");
+  });
+
+  it("review F8: typing a value into a box whose mapping a value list would cure says it WILL be sent (applying it writes the list)", async () => {
+    const content = JSON.parse(JSON.stringify(MULTI_CONTENT)) as { components: Array<{ choices?: unknown[] }> };
+    content.components[1]!.choices!.push({ label: "Not sure", value: "not_sure", analytics_id: "not_sure" });
+    const { probe, offers } = await setupWith(content, [["Num Co", [{ path: "rev_num", type: "number" }]]]);
+    const o = offers[0]!;
+    probe.run(`upsertEdge(offerById(${o.id}), answerFieldOf(offerById(${o.id}), 'rev_num'), '${REVENUE_FIELD}')`);
+    // no list yet and "not_sure" is not a number: a type problem today
+    expect(probe.run(`edgeMapState(state.answer_maps[0], offerById(${o.id}))`)).toBe("type_mismatch");
+    const edges = `edgesOfAnswerOnOffer(${o.id}, '${REVENUE_FIELD}')`;
+    expect(probe.run(`typingStateFor(${o.id}, ${edges}, '', 'not_sure').kind`)).toBe("blocked");
+    expect(probe.run(`typingStateFor(${o.id}, ${edges}, '1', 'not_sure')`)).toEqual({ kind: "pending", text: "will send 1" });
+    // a multi-select stays blocked whatever is typed (a list never fits a number)
+    expect(probe.run(`typingStateFor(${o.id}, ${edges}, 'abc', 'not_sure').kind`)).toBe("invalid");
+  });
+
+  it("review F5: the Offers tab never tells a multi-select type problem to fix it with per-choice values", async () => {
+    const MULTI_SELECT = {
+      components: [
+        {
+          type: "MultiChoiceCardGroup", question_id: "q_perils", question_key: "q_perils", internal_field: "perils", answer_type: "array",
+          choices: [{ label: "Fire", value: "fire", analytics_id: "fire" }],
+        },
+      ],
+    };
+    const { probe, offers } = await setupWith(MULTI_SELECT, [["Perils Co", [{ path: "perils_count", type: "number" }]]]);
+    const o = offers[0]!;
+    probe.run(`upsertEdge(offerById(${o.id}), answerFieldOf(offerById(${o.id}), 'perils_count'), 'perils')`);
+    const note = probe.run(`mapStateNote('type_mismatch', answerFieldOf(offerById(${o.id}), 'perils_count'), offerById(${o.id}), state.answer_maps[0])`) as string;
+    expect(note).toContain("only a text field (sent comma-separated) or a list field can take it");
+    expect(note).not.toContain("Provider values");
+  });
+
   it("review M2: Undo after a rename takes the carried provider values back with it (one step), and Redo re-applies both", async () => {
     const { probe, offers, island } = await setupWith(MULTI_CONTENT, [["AmONE - Tier 2", [{ path: "Income", type: "string" }]]]);
     const amone = offers[0]!;
@@ -8582,7 +8703,8 @@ describeDb("OWNER 2026-09-28 review round 1 — answer keys, Other values, typed
         "var UNDO_LIMIT = 50; var undoStack = []; var redoStack = [];",
         "function updateHistoryButtons() {}",
         "function refreshAfterHistory() {}",
-        ...["historyState", "restoreValueLists", "historyAbsorb", "historyPush", "restoreSnapshot", "historyUndo", "historyRedo"].map((n) => sliceIslandFunction(island, n)),
+        "var lastPushFocus = null;",
+        ...HISTORY_FUNCS.map((n) => sliceIslandFunction(island, n)),
       ].join("\n"),
     );
     probe.run(`upsertEdge(offerById(${amone.id}), answerFieldOf(offerById(${amone.id}), 'Income'), '${REVENUE_FIELD}')`);
