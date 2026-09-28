@@ -8618,14 +8618,16 @@ describeDb("OWNER 2026-09-28 review round 1 — answer keys, Other values, typed
   });
 
   it("review o1: the Section payload preview builds from the mappings the live request uses — a type-mismatched field is not in it", async () => {
-    const { env, section, probe, offers } = await setupWith(MULTI_CONTENT, [
+    // one choice ("Not sure") is not a number, so the answer can't always fill
+    // a number field: that mapping is a type problem, skipped by the live build
+    const content = JSON.parse(JSON.stringify(MULTI_CONTENT)) as { components: Array<{ choices?: unknown[] }> };
+    content.components[1]!.choices!.push({ label: "Not sure", value: "not_sure", analytics_id: "not_sure" });
+    const { env, section, probe, offers } = await setupWith(content, [
       ["Annual Co", [{ path: "rev_num", type: "number" }, { path: "rev_txt", type: "string" }]],
     ]);
     const o = offers[0]!;
     probe.run(`upsertEdge(offerById(${o.id}), answerFieldOf(offerById(${o.id}), 'rev_num'), '${REVENUE_FIELD}')`);
     probe.run(`upsertEdge(offerById(${o.id}), answerFieldOf(offerById(${o.id}), 'rev_txt'), '${REVENUE_FIELD}', null)`);
-    // the number mapping goes stale: its declared type no longer matches the field
-    probe.run("state.answer_maps[0].provider_expected_type = 'boolean';");
     const saved = await save(env, section, probe);
     const maps = saved["answer_maps"] as Array<{ offer_payload_field_path: string; mapping_status: string }>;
     expect(maps.find((m) => m.offer_payload_field_path === "rev_num")?.mapping_status).toBe("type_mismatch");
