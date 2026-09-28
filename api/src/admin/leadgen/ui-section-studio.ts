@@ -2968,7 +2968,7 @@ export function renderStudioInspector(design: FunnelDesign, sectionPublicId: str
           <textarea id="lg-choice-bulk" class="form-input" rows="3" data-choice-bulk placeholder="Toyota = toyota&#10;Honda = honda"></textarea>
           <button type="button" class="btn btn-sm btn-secondary" id="lg-choice-bulk-apply">Apply bulk paste</button>
         </div>
-        <p class="form-help" data-choices-c1-note>Answer choices own display and normalization only. Provider values are set per Offer in the Offers tab &#8212; each row&#8217;s chip shows them read-only.</p>
+        <p class="form-help" data-choices-c1-note>Each choice&#8217;s <strong>Provider values</strong> button sets what every Offer this answer goes to receives &#8212; an empty box sends the saved value.</p>
       </div>
 
       <!-- §10 removal: the old one-unit grid's "Sub-questions" (rows) editor
@@ -4044,7 +4044,11 @@ export const SECTION_STUDIO_STYLES = `
 .studio-bulk-review{border:1px dashed var(--c-border);border-radius:8px;padding:10px;margin-top:10px}
 .studio-bulk-review ul{list-style:none;margin:6px 0;padding:0;display:flex;flex-direction:column;gap:4px}
 .studio-payload-preview pre{max-height:260px;overflow:auto;background:#0b1021;color:#d8e0f0;border-radius:8px;padding:10px;font-size:11px}
-.studio-inspector-mapping .studio-map-row{grid-template-columns:minmax(120px,1fr) minmax(140px,1.2fr) auto}
+.studio-inspector-mapping .studio-map-row{grid-template-columns:minmax(120px,1fr) minmax(0,2.2fr);align-items:start}
+.studio-map-lines{display:flex;flex-direction:column;gap:4px;min-width:0}
+.studio-map-line{display:flex;gap:6px;align-items:center;min-width:0}
+.studio-map-line .form-input{flex:1 1 auto;min-width:0}
+.studio-map-add{font-size:11px;align-self:flex-start}
 /* §8.9 events panel */
 .studio-events{border:1px dashed var(--c-border);border-radius:6px;padding:8px;margin-bottom:8px}
 .studio-events-head{display:flex;align-items:center;justify-content:space-between;gap:8px}
@@ -4136,6 +4140,12 @@ export const SECTION_STUDIO_STYLES = `
 /* §7.3 provider-values chip (C1) */
 .studio-provider-chip{font-size:10px;border-radius:999px;padding:1px 8px;border:1px solid var(--c-border);background:var(--c-surface);cursor:pointer;color:var(--c-muted)}
 .studio-provider-rows{flex-basis:100%;font-size:11px;border-left:2px solid var(--c-border);padding-left:8px;margin:2px 0}
+.studio-provider-row{display:grid;grid-template-columns:minmax(90px,1fr) minmax(0,1.4fr) auto;gap:6px;align-items:center;margin:3px 0;min-width:0}
+.studio-provider-row .form-input{font-size:12px;padding:3px 6px;min-width:0}
+.studio-provider-name{overflow-wrap:anywhere}
+.studio-provider-state{font-size:10px;color:var(--c-muted);white-space:nowrap}
+.studio-provider-state[data-provider-state="custom"]{color:#0f5132}
+.studio-provider-state[data-provider-state="missing"]{color:#842029}
 .studio-provider-rows a{font-size:11px}
 /* §5.4 funnel-picker rule moved into SECTION_STUDIO_CANVAS_FRAME_CSS (DEV-66) */
 /* choice rows: depth fields wrap */
@@ -4810,32 +4820,133 @@ export const SECTION_STUDIO_SCRIPT = `
     return true;
   }
 
-  // --- §7.3 C1: the read-only per-Offer provider-values projection ---------------
-  // Rows = ONE PER SELECTED OFFER (state.offer_values — the DEV-55 SSR blob
-  // projection): the offer's provider value for this choice, or null ("not
-  // set"). No control on the Choices surface writes a provider value.
-  function providerChipRows(internalField, choiceValue) {
-    var rows = [], i, entry, fieldEntry, v;
-    var list = state.offer_values || [];
+  // --- per-Offer provider values for one choice (OWNER 2026-09-28) -------------
+  // OWNER 2026-09-28 (verbatim): "In the "Content" tab --> Add the option to
+  // select different values for different providers … each provider wants a
+  // different value to be sent (in this case - "AmONE" wants the revenue value
+  // to be Monthly while "Fundera" wants it to be Annual)." This replaces the
+  // read-only C1 chip: the values are edited HERE, per choice, per Offer the
+  // answer is mapped to, and stored where the build already reads them — the
+  // answer's mapping edge(s) for that Offer (output_value_map, keyed by the
+  // choice's saved value).
+  //
+  // A value list is all-or-nothing at build time (a saved value MISSING from
+  // it is not sent — payload.ts resolveNode). So the first custom value on an
+  // Offer writes the whole list (every other choice sends its own saved
+  // value), an empty box always means "send the saved value", a list that is
+  // back to all-saved-values is removed, and a choice already missing from an
+  // Offer's list is shown as "not sent" rather than hidden.
+  function mappedOffersFor(internalField) {
+    var out = [], seen = {}, i, e;
+    for (i = 0; i < state.answer_maps.length; i++) {
+      e = state.answer_maps[i];
+      if (!e || e.internal_field !== internalField || seen[e.offer_id] === true) { continue; }
+      seen[e.offer_id] = true;
+      out.push(e.offer_id);
+    }
+    return out;
+  }
+  function edgesOfAnswerOnOffer(offerId, internalField) {
+    var out = [], i, e;
+    for (i = 0; i < state.answer_maps.length; i++) {
+      e = state.answer_maps[i];
+      if (e && e.offer_id === offerId && e.internal_field === internalField) { out.push(e); }
+    }
+    return out;
+  }
+  function offerNameFor(offerId) {
+    var o = offerById(offerId);
+    if (o && o.offer_name) { return String(o.offer_name); }
+    var list = state.offer_values || [], i;
     for (i = 0; i < list.length; i++) {
-      entry = list[i];
-      if (!entry) { continue; }
-      fieldEntry = (entry.fields && internalField) ? entry.fields[internalField] : null;
-      v = (fieldEntry && fieldEntry.values) ? fieldEntry.values[choiceValue] : undefined;
-      rows.push({
-        offer_name: String(entry.offer_name || entry.offer_id),
-        offer_public_id: entry.offer_public_id || null,
-        value: (v === undefined || v === null) ? null : String(v),
-        href: entry.offer_public_id ? ('/admin/leadgen/offers/' + encodeURIComponent(entry.offer_public_id) + '/edit#payload') : null
-      });
+      if (list[i] && list[i].offer_id === offerId) { return String(list[i].offer_name || offerId); }
+    }
+    return 'Offer ' + offerId;
+  }
+  function offerPublicIdFor(offerId) {
+    var o = offerById(offerId);
+    if (o && o.public_id) { return String(o.public_id); }
+    var list = state.offer_values || [], i;
+    for (i = 0; i < list.length; i++) {
+      if (list[i] && list[i].offer_id === offerId && list[i].offer_public_id) { return String(list[i].offer_public_id); }
+    }
+    return '';
+  }
+  function hasOwn(obj, key) { return Object.prototype.hasOwnProperty.call(obj, key); }
+  // What this Offer receives for one saved value:
+  //   'saved'   — the saved value itself (no list, or the list maps it to itself)
+  //   'custom'  — the Offer's own value
+  //   'missing' — the Offer has a list and this saved value is not on it (not sent)
+  function providerValueOf(offerId, internalField, choiceValue) {
+    var edges = edgesOfAnswerOnOffer(offerId, internalField), i, map;
+    for (i = 0; i < edges.length; i++) {
+      map = edges[i].output_value_map;
+      if (!map || typeof map !== 'object') { continue; }
+      if (!hasOwn(map, choiceValue)) { return { state: 'missing', value: null }; }
+      var v = map[choiceValue] === null || map[choiceValue] === undefined ? '' : String(map[choiceValue]);
+      return v === choiceValue ? { state: 'saved', value: null } : { state: 'custom', value: v };
+    }
+    return { state: 'saved', value: null };
+  }
+  function choiceSavedValuesOf(node) {
+    var out = [], i, v;
+    var list = node && node.choices ? node.choices : [];
+    for (i = 0; i < list.length; i++) {
+      v = list[i] ? list[i].value : null;
+      if (typeof v === 'string' && trimStr(v) !== '') { out.push(v); }
+    }
+    return out;
+  }
+  function isSavedValueList(map, savedValues) {
+    var keys = Object.keys(map), i;
+    if (keys.length !== savedValues.length) { return false; }
+    for (i = 0; i < savedValues.length; i++) {
+      if (!hasOwn(map, savedValues[i]) || String(map[savedValues[i]]) !== savedValues[i]) { return false; }
+    }
+    return true;
+  }
+  // Set (text) or clear (text === '') one Offer's value for one saved value, on
+  // EVERY field this answer fills on that Offer (one provider, one value).
+  function setProviderValue(offerId, internalField, choiceValue, text, savedValues) {
+    var edges = edgesOfAnswerOnOffer(offerId, internalField), i, j, map, key, changed = false;
+    for (i = 0; i < edges.length; i++) {
+      map = null;
+      if (edges[i].output_value_map && typeof edges[i].output_value_map === 'object') {
+        map = {};
+        for (key in edges[i].output_value_map) {
+          if (hasOwn(edges[i].output_value_map, key)) { map[key] = edges[i].output_value_map[key]; }
+        }
+      }
+      if (map === null) {
+        if (text === '') { continue; }
+        map = {};
+        for (j = 0; j < savedValues.length; j++) { map[savedValues[j]] = savedValues[j]; }
+      }
+      map[choiceValue] = text === '' ? choiceValue : text;
+      if (isSavedValueList(map, savedValues)) { map = null; }
+      edges[i].output_value_map = map;
+      changed = true;
+    }
+    if (changed) { markDirty(); }
+    return changed;
+  }
+  function providerChipRows(internalField, choiceValue) {
+    var ids = mappedOffersFor(internalField), rows = [], i, v, pub;
+    for (i = 0; i < ids.length; i++) {
+      v = providerValueOf(ids[i], internalField, choiceValue);
+      pub = offerPublicIdFor(ids[i]);
+      rows.push({ offer_id: ids[i], offer_name: offerNameFor(ids[i]), offer_public_id: pub || null, state: v.state, value: v.value });
     }
     return rows;
   }
   function providerChipLabel(internalField, choiceValue) {
     var rows = providerChipRows(internalField, choiceValue);
-    var set = 0, i;
-    for (i = 0; i < rows.length; i++) { if (rows[i].value !== null) { set += 1; } }
-    return 'Provider values: ' + set + '/' + rows.length + ' Offers';
+    var custom = 0, missing = 0, i;
+    for (i = 0; i < rows.length; i++) {
+      if (rows[i].state === 'custom') { custom += 1; }
+      if (rows[i].state === 'missing') { missing += 1; }
+    }
+    return 'Provider values: ' + custom + '/' + rows.length + ' Offers' + (missing > 0 ? ' \\u00b7 ' + missing + ' not sent' : '');
   }
 
   // --- §5.4 Move to funnel layout: the equivalent frame_config_json group -------
@@ -11976,54 +12087,122 @@ export const SECTION_STUDIO_SCRIPT = `
     return 'Other';
   }
   function choiceContainer() { return document.querySelector('[data-inspector-choices]'); }
-  // §6.4 "internal-value chip" + §12.2 chip: one row per SELECTED Offer with
-  // that Offer's provider value or "not set", deep-linking into the Offer's
-  // value map. Read-only by construction.
-  function buildProviderChip(node, choice) {
+  // The per-choice "Provider values" control (OWNER 2026-09-28): the chip opens
+  // one box per Offer this answer is mapped to; an empty box sends the saved
+  // value. The saved value is read from the row at the moment of each edit, so
+  // renaming it in the row never writes under a stale key.
+  function isMultiAnswer(node) {
+    var m = node ? typeMeta(node.type) : null;
+    return !!(node && ((m && m.produces === 'array') || node.answer_type === 'array' || (node.props && node.props.multiple === true)));
+  }
+  function rowSavedValue(rowEl, fallback) {
+    var inp = rowEl && rowEl.querySelector ? rowEl.querySelector('[data-choice-field="value"]') : null;
+    return inp ? trimStr(inp.value) : fallback;
+  }
+  function rowIsCalculated(rowEl, choice) {
+    var hid = rowEl && rowEl.querySelector ? rowEl.querySelector('[data-choice-field="value_calc"]') : null;
+    if (hid) { return trimStr(hid.value) !== ''; }
+    return !!(choice && choice.value_calc);
+  }
+  function buildProviderChip(node, choice, rowEl) {
     var wrap = document.createElement('span');
     wrap.setAttribute('data-choice-provider', '');
     var internalField = node && node.internal_field ? String(node.internal_field) : '';
-    var value = choice && choice.value !== undefined ? String(choice.value) : '';
+    var initial = choice && choice.value !== undefined ? String(choice.value) : '';
     var chip = document.createElement('button');
     chip.type = 'button';
     chip.className = 'studio-provider-chip';
-    chip.setAttribute('data-choice-provider-chip', value);
-    chip.appendChild(document.createTextNode(providerChipLabel(internalField, value)));
+    chip.setAttribute('data-choice-provider-chip', initial);
     wrap.appendChild(chip);
     var rowsEl = document.createElement('div');
     rowsEl.className = 'studio-provider-rows';
-    rowsEl.setAttribute('data-choice-provider-rows', value);
+    rowsEl.setAttribute('data-choice-provider-rows', initial);
     rowsEl.hidden = true;
-    var rows = providerChipRows(internalField, value);
-    // R4a S2-10: "0/0 Offers" reads as broken without this — plain words on
-    // why it's 0/0 and what makes it move (native tooltip; the chip stays a
-    // real, clickable control either way).
-    chip.title = rows.length === 0
-      ? 'Counts fill in after you select Offers for this section and map this field\\u2019s values on the Offer\\u2019s payload page.'
-      : 'Provider values set for ' + rows.length + ' selected Offer' + (rows.length === 1 ? '' : 's') + ' \\u2014 click to see each one.';
-    var i, line, a;
-    if (rows.length === 0) {
-      line = document.createElement('div');
-      line.appendChild(document.createTextNode('No Offers selected yet \\u2014 select Offers in the mapping drawer first.'));
-      rowsEl.appendChild(line);
-    }
-    for (i = 0; i < rows.length; i++) {
-      line = document.createElement('div');
-      line.setAttribute('data-provider-offer', rows[i].offer_public_id || '');
-      line.appendChild(document.createTextNode(rows[i].offer_name + ': ' + (rows[i].value === null ? 'not set' : rows[i].value) + ' '));
-      if (rows[i].href !== null) {
-        a = document.createElement('a');
-        a.href = rows[i].href;
-        a.target = '_blank';
-        a.rel = 'noopener';
-        a.setAttribute('data-provider-valuemap-link', rows[i].offer_public_id || '');
-        a.appendChild(document.createTextNode('Open value map'));
-        line.appendChild(a);
-      }
-      rowsEl.appendChild(line);
-    }
-    chip.addEventListener('click', function () { rowsEl.hidden = !rowsEl.hidden; });
     wrap.appendChild(rowsEl);
+    function currentValue() { return rowSavedValue(rowEl, initial); }
+    function refreshLabel() {
+      var v = currentValue();
+      clearChildren(chip);
+      chip.appendChild(document.createTextNode(providerChipLabel(internalField, v)));
+      chip.setAttribute('data-choice-provider-chip', v);
+      var n = mappedOffersFor(internalField).length;
+      chip.title = n === 0
+        ? 'Map this answer to an Offer in the Offers tab to give each provider its own value.'
+        : 'What each of the ' + n + ' Offer' + (n === 1 ? '' : 's') + ' this answer goes to receives for this choice \\u2014 click to edit.';
+    }
+    function note(text) {
+      var line = document.createElement('div');
+      line.className = 'form-help';
+      line.appendChild(document.createTextNode(text));
+      rowsEl.appendChild(line);
+    }
+    function paintState(stateEl, v, saved) {
+      stateEl.setAttribute('data-provider-state', v.state);
+      clearChildren(stateEl);
+      stateEl.appendChild(document.createTextNode(
+        v.state === 'custom' ? 'sends ' + v.value : v.state === 'missing' ? 'not sent \\u2014 type a value' : 'sends ' + saved
+      ));
+    }
+    function buildRows() {
+      clearChildren(rowsEl);
+      var v = currentValue();
+      rowsEl.setAttribute('data-choice-provider-rows', v);
+      var ids = mappedOffersFor(internalField);
+      if (ids.length === 0) { note('Map this answer to an Offer in the Offers tab first \\u2014 then each Offer can get its own value here.'); return; }
+      if (isMultiAnswer(node)) { note('Per-provider values work on single-choice questions; a multi-select sends its whole list.'); return; }
+      if (rowIsCalculated(rowEl, choice)) { note('Calculated date \\u2014 every provider receives the date.'); return; }
+      if (v === '') { note('Give this choice a saved value first.'); return; }
+      note('Empty box = the saved value (' + v + ') is sent.');
+      var i, line, lab, inp, st, pv, pub;
+      for (i = 0; i < ids.length; i++) {
+        pv = providerValueOf(ids[i], internalField, v);
+        pub = offerPublicIdFor(ids[i]);
+        line = document.createElement('div');
+        line.className = 'studio-provider-row';
+        line.setAttribute('data-provider-offer', pub);
+        lab = document.createElement('label');
+        lab.className = 'studio-provider-name';
+        lab.appendChild(document.createTextNode(offerNameFor(ids[i])));
+        inp = document.createElement('input');
+        inp.className = 'form-input';
+        inp.setAttribute('data-provider-value-input', String(ids[i]));
+        inp.setAttribute('aria-label', 'Value sent to ' + offerNameFor(ids[i]));
+        inp.placeholder = pv.state === 'missing' ? 'not sent' : v;
+        inp.value = pv.state === 'custom' ? pv.value : '';
+        st = document.createElement('span');
+        st.className = 'studio-provider-state';
+        paintState(st, pv, v);
+        (function (offerId, input, stateEl) {
+          input.addEventListener('input', function () {
+            var saved = currentValue();
+            if (saved === '' || rowIsCalculated(rowEl, choice)) { return; }
+            setProviderValue(offerId, internalField, saved, trimStr(input.value), choiceSavedValuesOf(node));
+            paintState(stateEl, providerValueOf(offerId, internalField, saved), saved);
+            refreshLabel();
+            updateMappingBadge();
+          });
+        })(ids[i], inp, st);
+        line.appendChild(lab);
+        line.appendChild(inp);
+        line.appendChild(st);
+        rowsEl.appendChild(line);
+      }
+    }
+    refreshLabel();
+    chip.addEventListener('click', function () {
+      rowsEl.hidden = !rowsEl.hidden;
+      if (!rowsEl.hidden) { buildRows(); }
+    });
+    // the saved value (or the fixed/calculated switch) changed in the row:
+    // repaint against the new key
+    if (rowEl && rowEl.addEventListener) {
+      rowEl.addEventListener('input', function (ev) {
+        var f = ev.target && ev.target.getAttribute ? ev.target.getAttribute('data-choice-field') : null;
+        if (f !== 'value' && f !== 'value_calc') { return; }
+        refreshLabel();
+        if (!rowsEl.hidden) { buildRows(); }
+      });
+    }
     return wrap;
   }
   // v3.1 R3 S2-4: a labeled cell wraps every visible field (label above the
@@ -12741,8 +12920,8 @@ export const SECTION_STUDIO_SCRIPT = `
       collectChoices();
     });
     wrap.appendChild(rm);
-    // §12.2 C1: the read-only per-Offer provider-values chip ends the row.
-    wrap.appendChild(buildProviderChip(node || selectedNode(), choice || {}));
+    // OWNER 2026-09-28: the per-Offer provider-values control ends the row.
+    wrap.appendChild(buildProviderChip(node || selectedNode(), choice || {}, wrap));
     return wrap;
   }
   function choiceRowMoveBtn(wrap, delta) {
@@ -15973,11 +16152,17 @@ export const SECTION_STUDIO_SCRIPT = `
     else { name = 'complete'; }
     return { state: name, selected: selected || edges.length > 0, required_total: requiredTotal, required_mapped: requiredMapped, mapped_edges: edges.length };
   }
-  function upsertEdge(offer, field, internalField) {
+  function upsertEdge(offer, field, internalField, inherit) {
     var node = questionByField(internalField);
     if (!node || !offer || !field) { return null; }
     var idx = findEdgeIndex(offer.id, field.path);
-    var existing = idx === -1 ? null : state.answer_maps[idx];
+    var found = idx === -1 ? null : state.answer_maps[idx];
+    // The per-Offer format (value map / output format / default / fallback)
+    // belongs to THIS answer on this Offer: kept from the field's own edge when
+    // it is this answer's, else carried from 'inherit' (the picker it replaced
+    // or a sibling field). A field taken over from ANOTHER question never
+    // brings that question's value list along.
+    var existing = (found && found.internal_field === internalField) ? found : (inherit || null);
     var meta = typeMeta(node.type);
     var edge = {
       question_id: node.question_id,
@@ -16290,6 +16475,57 @@ export const SECTION_STUDIO_SCRIPT = `
     return fieldDisplayLabel(f) + ' \\u2014 ' + plainTypeWords(f) + (f.required === true ? ' (required)' : '');
   }
   // §8.6 Mapping tab: THIS component's internal_field per selected Offer.
+  // One Offer x one field this answer fills: the picker + its status. 'edge' is
+  // null for the empty "pick a field" slot. A field another picker of THIS
+  // answer already fills on the same Offer is not offered twice.
+  var quickmapExtraSlot = {};
+  function buildQuickmapLine(offer, node, edge, edgesHere) {
+    var line = document.createElement('div');
+    line.className = 'studio-map-line';
+    var current = edge ? edge.offer_payload_field_path : '';
+    var taken = {}, k;
+    for (k = 0; k < edgesHere.length; k++) {
+      if (edgesHere[k] !== edge) { taken[edgesHere[k].offer_payload_field_path] = true; }
+    }
+    var sel = document.createElement('select');
+    sel.className = 'form-input';
+    sel.setAttribute('data-inspector-quickmap', String(offer.id));
+    sel.setAttribute('data-quickmap-path', current);
+    var o = document.createElement('option');
+    o.value = '';
+    o.textContent = '\\u2014 not mapped \\u2014';
+    sel.appendChild(o);
+    var fields = offer.answer_fields || [];
+    for (k = 0; k < fields.length; k++) {
+      if (taken[fields[k].path] === true) { continue; }
+      o = document.createElement('option');
+      o.value = fields[k].path;
+      o.textContent = pathOptionLabel(fields[k]);
+      sel.appendChild(o);
+    }
+    if (fields.length === 0) {
+      sel.disabled = true;
+      o = document.createElement('option');
+      o.value = '';
+      o.textContent = offer.has_active_schema
+        ? 'this buyer has no answer fields yet \\u2014 add them in its Payload tab'
+        : 'this buyer has no payload yet \\u2014 build one in its Payload tab';
+      clearChildren(sel);
+      sel.appendChild(o);
+    }
+    sel.value = current;
+    // the raw dotted path stays reachable on hover — the option TEXT is the
+    // buyer's field label in plain words, never the path (DEV-65(c)).
+    sel.title = current === '' ? 'Pick the buyer field this answer fills' : current;
+    line.appendChild(sel);
+    var status = document.createElement('span');
+    status.className = 'studio-map-status';
+    var edgeState = edge ? edgeMapState(edge, offer) : 'unmapped';
+    status.setAttribute('data-map-state', edgeState);
+    status.appendChild(document.createTextNode(edge ? mapStateNote(edgeState, answerFieldOf(offer, current), offer, edge) : 'not mapped'));
+    line.appendChild(status);
+    return line;
+  }
   function renderInspectorMapping() {
     var wrap = document.querySelector('[data-studio-inspector-mapping]');
     if (!wrap) { return; }
@@ -16317,9 +16553,15 @@ export const SECTION_STUDIO_SCRIPT = `
     // returns exactly the activity+vertical matches). Picking a field is what
     // selects the Offer — there is no checkbox to find first, and no second
     // mapping surface at the bottom of the page.
+    //
+    // OWNER 2026-09-28 (verbatim): "Allow mapping the value of a given question
+    // in the section to more than 1 field in the offer's payload (… the zip
+    // code's value should be sent to 2 different fields in the Quinstreet
+    // offer's Payload)". So an Offer shows ONE picker PER field this answer
+    // fills, plus "+ Add another field"; each picker edits only its own field.
     var list = offersList();
     var shown = 0;
-    var i, offer, row, name, sel, o, j, fields, current, edge, status, edgeState;
+    var i, offer, row, name, j, fields, edgesHere, slots, lines, add, slotKey;
     for (i = 0; i < list.length; i++) {
       offer = list[i];
       shown += 1;
@@ -16329,50 +16571,31 @@ export const SECTION_STUDIO_SCRIPT = `
       name = document.createElement('span');
       name.appendChild(document.createTextNode(offer.offer_name));
       row.appendChild(name);
-      sel = document.createElement('select');
-      sel.className = 'form-input';
-      sel.setAttribute('data-inspector-quickmap', String(offer.id));
-      o = document.createElement('option');
-      o.value = '';
-      o.textContent = '\\u2014 not mapped \\u2014';
-      sel.appendChild(o);
       fields = offer.answer_fields || [];
-      current = '';
-      edge = null;
-      for (j = 0; j < fields.length; j++) {
-        o = document.createElement('option');
-        o.value = fields[j].path;
-        o.textContent = pathOptionLabel(fields[j]);
-        sel.appendChild(o);
-      }
-      if (fields.length === 0) {
-        sel.disabled = true;
-        o = document.createElement('option');
-        o.value = '';
-        o.textContent = offer.has_active_schema
-          ? 'this buyer has no answer fields yet \\u2014 add them in its Payload tab'
-          : 'this buyer has no payload yet \\u2014 build one in its Payload tab';
-        clearChildren(sel);
-        sel.appendChild(o);
-      }
+      edgesHere = [];
       for (j = 0; j < state.answer_maps.length; j++) {
         if (state.answer_maps[j] && state.answer_maps[j].offer_id === offer.id && state.answer_maps[j].internal_field === node.internal_field) {
-          current = state.answer_maps[j].offer_payload_field_path;
-          edge = state.answer_maps[j];
-          break;
+          edgesHere.push(state.answer_maps[j]);
         }
       }
-      sel.value = current;
-      // the raw dotted path stays reachable on hover — the option TEXT is the
-      // buyer's field label in plain words, never the path (DEV-65(c)).
-      sel.title = current === '' ? 'Pick the buyer field this answer fills' : current;
-      row.appendChild(sel);
-      status = document.createElement('span');
-      status.className = 'studio-map-status';
-      edgeState = edge ? edgeMapState(edge, offer) : 'unmapped';
-      status.setAttribute('data-map-state', edgeState);
-      status.appendChild(document.createTextNode(edge ? mapStateNote(edgeState, answerFieldOf(offer, current), offer, edge) : 'not mapped'));
-      row.appendChild(status);
+      slotKey = offer.id + '|' + node.internal_field;
+      slots = edgesHere.slice();
+      if (slots.length === 0 || quickmapExtraSlot[slotKey] === true) { slots.push(null); }
+      lines = document.createElement('div');
+      lines.className = 'studio-map-lines';
+      for (j = 0; j < slots.length; j++) {
+        lines.appendChild(buildQuickmapLine(offer, node, slots[j], edgesHere));
+      }
+      if (fields.length > edgesHere.length && edgesHere.length > 0 && quickmapExtraSlot[slotKey] !== true) {
+        add = document.createElement('button');
+        add.type = 'button';
+        add.className = 'btn btn-sm btn-outline studio-map-add';
+        add.setAttribute('data-inspector-quickmap-add', String(offer.id));
+        add.appendChild(document.createTextNode('+ Add another field'));
+        add.title = 'Send this same answer to one more of ' + offer.offer_name + '\\u2019s fields';
+        lines.appendChild(add);
+      }
+      row.appendChild(lines);
       wrap.appendChild(row);
     }
     if (shown === 0) {
@@ -16514,6 +16737,17 @@ export const SECTION_STUDIO_SCRIPT = `
   }
   var inspectorMappingWrap = document.querySelector('[data-studio-inspector-mapping]');
   if (inspectorMappingWrap) {
+    inspectorMappingWrap.addEventListener('click', function (ev) {
+      var t = ev.target && ev.target.closest ? ev.target.closest('[data-inspector-quickmap-add]') : null;
+      if (!t) { return; }
+      var node = selectedNode();
+      if (!node || trimStr(node.internal_field) === '') { return; }
+      var offerId = t.getAttribute('data-inspector-quickmap-add');
+      quickmapExtraSlot[offerId + '|' + node.internal_field] = true;
+      renderInspectorMapping();
+      var fresh = inspectorMappingWrap.querySelector('[data-inspector-quickmap="' + offerId + '"][data-quickmap-path=""]');
+      if (fresh && fresh.focus) { fresh.focus(); }
+    });
     inspectorMappingWrap.addEventListener('change', function (ev) {
       var t = ev.target;
       if (!t || !t.getAttribute) { return; }
@@ -16522,17 +16756,31 @@ export const SECTION_STUDIO_SCRIPT = `
       var node = selectedNode();
       var offer = offerById(Number(offerIdAttr));
       if (!node || !offer || trimStr(node.internal_field) === '') { return; }
-      var i;
-      // drop THIS field's existing edge on the offer (one quick-map slot)
+      var i, e;
+      var prevPath = t.getAttribute('data-quickmap-path') || '';
+      var slotKey = offer.id + '|' + node.internal_field;
+      // OWNER 2026-09-28: each picker owns ONE field. Only the edge THIS picker
+      // showed is replaced; the answer's other fields on the Offer stay. (Before,
+      // every edge of the answer on the Offer was dropped — so re-picking one of
+      // two fields silently deleted the other.)
+      var replaced = null, sibling = null;
       for (i = state.answer_maps.length - 1; i >= 0; i--) {
-        if (state.answer_maps[i] && state.answer_maps[i].offer_id === offer.id && state.answer_maps[i].internal_field === node.internal_field) {
+        e = state.answer_maps[i];
+        if (!e || e.offer_id !== offer.id || e.internal_field !== node.internal_field) { continue; }
+        if (prevPath !== '' && e.offer_payload_field_path === prevPath) {
+          replaced = e;
           state.answer_maps.splice(i, 1);
           markDirty();
+        } else if (sibling === null) {
+          sibling = e;
         }
       }
+      if (prevPath === '') { delete quickmapExtraSlot[slotKey]; }
       if (t.value !== '') {
         var field = answerFieldOf(offer, t.value);
-        if (field) { upsertEdge(offer, field, node.internal_field); }
+        // the field keeps the answer's per-provider values for this Offer
+        // (the picker it replaced, else a sibling field of the same answer)
+        if (field) { upsertEdge(offer, field, node.internal_field, replaced || sibling); }
       } else if (edgesForOffer(offer.id).length === 0) {
         // the last mapping on this Offer just went away — release the Offer too,
         // so "selected" stays a CONSEQUENCE of mapping and never a checkbox the

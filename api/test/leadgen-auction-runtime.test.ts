@@ -636,6 +636,164 @@ describeDb("leadgen §19 runtime — pipeline branches (mocked providers)", () =
     expect(sent).toBe(expected);
   });
 
+  // -------------------------------------------------------------------------
+  // OWNER 2026-09-28 — "Allow mapping the value of a given question in the
+  // section to more than 1 field in the offer's payload" and "select different
+  // values for different providers … AmONE wants the revenue value to be
+  // Monthly while Fundera wants it to be Annual". Asserted on the bytes POSTed.
+  // -------------------------------------------------------------------------
+
+  function seedSectionRow(sdb: SqliteDb, publicId: string, contentJson: string): number {
+    sdb
+      .prepare(
+        "INSERT INTO leadgen_sections (public_id, section_name, activity, vertical, headline_text, content_json, status) VALUES (?, 'S', 'quote_funnel', 'life', 'Q?', ?, 'active')",
+      )
+      .run(publicId, contentJson);
+    return (sdb.prepare("SELECT id FROM leadgen_sections WHERE public_id = ?").get(publicId) as { id: number }).id;
+  }
+
+  function seedMapRow(
+    sdb: SqliteDb,
+    sectionId: number,
+    o: SeededOffer,
+    q: { question_id: string; internal_field: string; answer_type: string },
+    path: string,
+    type: string,
+    valueMap: Record<string, string> | null = null,
+  ): void {
+    const schema = sdb.prepare("SELECT id, public_id FROM leadgen_offer_payload_schemas WHERE offer_id = ?").get(o.offer_id) as { id: number; public_id: string };
+    sdb
+      .prepare(
+        `INSERT INTO leadgen_section_answer_maps
+           (public_id, section_id, question_id, question_key, internal_field, answer_type, offer_id,
+            payload_schema_id, payload_schema_public_id, offer_payload_field_path, provider_expected_type,
+            output_value_map_json, mapping_status, validation_status)
+         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'complete', 'ok')`,
+      )
+      .run(
+        mintPublicId("answer_field_map"), sectionId, q.question_id, q.question_id, q.internal_field, q.answer_type,
+        o.offer_id, schema.id, schema.public_id, path, type, valueMap === null ? null : JSON.stringify(valueMap),
+      );
+  }
+
+  const schemaOf = (children: Array<{ path: string; type: string }>): string =>
+    JSON.stringify({
+      version: 1,
+      root: { type: "object", children: children.map((c) => ({ ...c, name: c.path.split(".").pop(), required: false, source: "answer" })) },
+    });
+
+  it("OWNER 2026-09-28: ONE answer fills TWO fields of the same offer (zip -> tracking.ni_zc AND contact.zip)", async () => {
+    const { sdb, env } = harness();
+    const auction = seedAuction(sdb);
+    const o = seedOffer(sdb, { schemaJson: schemaOf([{ path: "tracking.ni_zc", type: "string" }, { path: "contact.zip", type: "string" }]) });
+    attachOffer(sdb, auction.id, o, 0);
+    const zipQ = { question_id: "q_zip", internal_field: "zip", answer_type: "string" };
+    const content = JSON.stringify({ components: [{ type: "FreeTextQuestion", ...zipQ }] });
+    const sectionPublicId = "lgs_zip00000000000000000000000";
+    const sectionId = seedSectionRow(sdb, sectionPublicId, content);
+    seedMapRow(sdb, sectionId, o, zipQ, "tracking.ni_zc", "string");
+    seedMapRow(sdb, sectionId, o, zipQ, "contact.zip", "string");
+    const calls = stubFetch(() => new Response(carrierBody([{ name: "Acme", bid: 12 }]), { status: 200 }));
+
+    const bundle = await loadAuctionBundle(env.DB, auction, 1);
+    await runAuction(
+      env,
+      {
+        resolved: makeResolved([{ public_id: sectionPublicId, content_version: 1, content_json: content }]),
+        bundle, environment: "production", binding: NO_BINDING, session_id: null,
+        raw_answers: { zip: "94043" }, clicked: [],
+      },
+      { dryRun: true },
+    );
+    expect(calls.length).toBe(1);
+    expect(JSON.parse(String(calls[0]?.init.body ?? "{}"))).toEqual({ tracking: { ni_zc: "94043" }, contact: { zip: "94043" } });
+  });
+
+  // His live "Monthly Revnue" section (lgs id 18): choices saved as ANNUAL numbers.
+  const REVENUE_FIELD = "field_mrum8ruj_2sau";
+  const REVENUE_Q = { question_id: "q_mrum8ruj_2sau", internal_field: REVENUE_FIELD, answer_type: "enum" };
+  const REVENUE_CONTENT = JSON.stringify({
+    components: [
+      {
+        ...REVENUE_Q,
+        type: "ButtonAnswerGroup",
+        required: false,
+        choices: [
+          { label: "Over $50,000", value: "600000", analytics_id: "600000" },
+          { label: "$30,000 \u2013 $50,000", value: "360000", analytics_id: "360000" },
+          { label: "Under $5,000", value: "30000", analytics_id: "30000" },
+        ],
+      },
+    ],
+  });
+
+  it("OWNER 2026-09-28: ONE answer sends a DIFFERENT value to each provider (monthly to one, annual to the other)", async () => {
+    const { sdb, env } = harness();
+    const auction = seedAuction(sdb);
+    const monthly = seedOffer(sdb, { schemaJson: schemaOf([{ path: "Income", type: "string" }]) });
+    const annual = seedOffer(sdb, { schemaJson: schemaOf([{ path: "company.annual_revenue", type: "number" }]) });
+    attachOffer(sdb, auction.id, monthly, 0);
+    attachOffer(sdb, auction.id, annual, 1);
+    const sectionPublicId = "lgs_revenue000000000000000000";
+    const sectionId = seedSectionRow(sdb, sectionPublicId, REVENUE_CONTENT);
+    // the monthly provider's own value per saved answer; the annual one sends the saved value as is
+    seedMapRow(sdb, sectionId, monthly, REVENUE_Q, "Income", "string", { "600000": "50000", "360000": "30000", "30000": "2500" });
+    seedMapRow(sdb, sectionId, annual, REVENUE_Q, "company.annual_revenue", "number");
+    const calls = stubFetch(() => new Response(carrierBody([{ name: "Acme", bid: 12 }]), { status: 200 }));
+
+    const bundle = await loadAuctionBundle(env.DB, auction, 1);
+    await runAuction(
+      env,
+      {
+        resolved: makeResolved([{ public_id: sectionPublicId, content_version: 1, content_json: REVENUE_CONTENT }]),
+        bundle, environment: "production", binding: NO_BINDING, session_id: null,
+        raw_answers: { [REVENUE_FIELD]: "600000" }, clicked: [],
+      },
+      { dryRun: true },
+    );
+    const bodies = calls.map((c) => JSON.parse(String(c.init.body ?? "{}")) as Record<string, unknown>);
+    expect(bodies).toHaveLength(2);
+    expect(bodies).toContainEqual({ Income: "50000" });
+    expect(bodies).toContainEqual({ company: { annual_revenue: 600000 } });
+  });
+
+  it("OWNER 2026-09-28: a calculated-date choice still POSTs its date when the offer carries per-provider values", async () => {
+    const { sdb, env } = harness();
+    const auction = seedAuction(sdb);
+    const o1 = seedOffer(sdb, { schemaJson: BUSINESS_INCEPTION_SCHEMA });
+    attachOffer(sdb, auction.id, o1, 0);
+    const sectionPublicId = "lgs_durationmap00000000000000";
+    const sectionId = seedSectionRow(sdb, sectionPublicId, BUSINESS_DURATION_CONTENT);
+    // a per-provider value list over the saved values (the Content-tab editor writes all of them)
+    seedMapRow(
+      sdb, sectionId, o1,
+      { question_id: "q_mrujqnc5_2e5a", internal_field: BUSINESS_DURATION_FIELD, answer_type: "enum" },
+      "company.business_inception", "string",
+      { "2": "2", "1": "1", "0.5": "0.5", "0": "not_started" },
+    );
+    const post = async (answer: string): Promise<unknown> => {
+      const calls = stubFetch(() => new Response(carrierBody([{ name: "Acme", bid: 12 }]), { status: 200 }));
+      const bundle = await loadAuctionBundle(env.DB, auction, 1);
+      await runAuction(
+        env,
+        {
+          resolved: makeResolved([{ public_id: sectionPublicId, content_version: 1, content_json: BUSINESS_DURATION_CONTENT }]),
+          bundle, environment: "production", binding: NO_BINDING, session_id: null,
+          raw_answers: { [BUSINESS_DURATION_FIELD]: answer }, clicked: [],
+        },
+        { dryRun: true },
+      );
+      vi.unstubAllGlobals();
+      return (JSON.parse(String(calls[0]?.init.body ?? "{}")) as { company?: { business_inception?: unknown } }).company?.business_inception;
+    };
+    const now = new Date();
+    const twoYearsAgo = new Date(Date.UTC(now.getUTCFullYear() - 2, now.getUTCMonth(), now.getUTCDate())).toISOString().slice(0, 10);
+    // before the fix the date was looked up in the map, missed, and the field was dropped
+    expect(await post("2")).toBe(twoYearsAgo);
+    // a fixed choice still takes the provider's own value
+    expect(await post("0")).toBe("not_started");
+  });
+
   it("a choice with NO value_calc still POSTs its literal saved value", async () => {
     const { sdb, env } = harness();
     const auction = seedAuction(sdb);
