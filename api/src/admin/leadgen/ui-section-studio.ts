@@ -3739,8 +3739,15 @@ export const SECTION_STUDIO_STYLES = `
 .studio-chip-validation[data-issue-count="0"]{color:${STUDIO_COLOR.muted};background:${STUDIO_COLOR.issuesChipBg};border-color:${STUDIO_COLOR.issuesChipBg}}
 .studio-chip-validation:not([data-issue-count="0"]){color:${STUDIO_COLOR.warnStrong};background:${STUDIO_COLOR.warnTint};border-color:${STUDIO_COLOR.warn}}
 .studio-settings{display:flex;flex-direction:column;gap:12px;margin-bottom:12px}
-.lg-editor-grid{display:grid;grid-template-columns:${STUDIO_GEOMETRY.leftLibraryWidth}px 1fr ${STUDIO_GEOMETRY.rightInspectorWidth}px;gap:16px;align-items:start}
-@media (max-width:1023px){.lg-editor-grid{grid-template-columns:1fr}}
+.lg-editor-grid{display:grid;grid-template-columns:${STUDIO_GEOMETRY.leftLibraryWidth}px minmax(0,1fr) ${STUDIO_GEOMETRY.rightInspectorWidth}px;gap:16px;align-items:start}
+.lg-editor-grid>*{min-width:0}
+@media (max-width:1023px){.lg-editor-grid{grid-template-columns:minmax(0,1fr)}.lg-editor-grid>*{min-width:0;max-width:100%}}
+/* OWNER 2026-09-28 (open item: "The Section editor is cut off at phone width"): a
+   1fr track grows to its widest child's min-content (the canvas, a no-wrap row),
+   so the one-column layout was 1378px wide inside a 375px screen. minmax(0,1fr) +
+   min-width:0 lets every pane shrink to the screen; wide content wraps or scrolls
+   INSIDE its own pane. */
+@media (max-width:760px){.studio-root{overflow-x:hidden}.studio-root .studio-topbar,.studio-root .studio-toolbar{flex-wrap:wrap;row-gap:6px}.studio-root [style*="display:flex"]{flex-wrap:wrap;row-gap:6px}.studio-root [style*="margin-left:auto"]{margin-left:0 !important}.studio-root .studio-tabs{height:auto !important;min-height:42px;flex-wrap:wrap}.studio-root iframe{max-width:100%}.studio-root .lg-choice-row{flex-wrap:wrap}}
 .lg-editor-spacer{flex:1}
 /* R5 D2 (register S4-A2): .lg-maps-note was the legacy Maps fieldset's OWN
    note-line class — orphaned now that the fieldset is removed. Removed. */
@@ -4152,6 +4159,8 @@ export const SECTION_STUDIO_STYLES = `
 .studio-provider-state[data-provider-state="missing"]{color:#842029}
 .studio-provider-state[data-provider-state="invalid"]{color:#842029;font-weight:700}
 .studio-provider-state[data-provider-state="unsendable"]{color:#842029}
+.studio-provider-state[data-provider-state="blocked"]{color:#842029}
+.studio-provider-state[data-provider-state="partial"]{color:#664d03}
 .studio-provider-row .form-input[aria-invalid="true"]{border-color:#842029}
 .studio-provider-rows a{font-size:11px}
 /* §5.4 funnel-picker rule moved into SECTION_STUDIO_CANVAS_FRAME_CSS (DEV-66) */
@@ -4944,6 +4953,23 @@ export const SECTION_STUDIO_SCRIPT = `
   }
   // A typed provider value must be sendable as the buyer field's type (a
   // number field building "Annual" or "50,000" sends nothing at all).
+  // For a box shared by SEVERAL fields of one Offer: the problem only when the
+  // value reaches none of them; when some take it and some don't, name the ones
+  // that don't (review F8: "not sent" for both overstated it).
+  function sharedBoxProblem(offerId, edges, text) {
+    if (edges.length <= 1) { return providerValueProblem(offerId, edges, text); }
+    var bad = [], i, p, offer = offerById(offerId), f;
+    for (i = 0; i < edges.length; i++) {
+      p = providerValueProblem(offerId, [edges[i]], text);
+      if (p !== '') {
+        f = offer ? answerFieldOf(offer, edges[i].offer_payload_field_path) : null;
+        bad.push({ label: f ? fieldOptionLabelIn(offer, f) : edges[i].offer_payload_field_path, problem: p });
+      }
+    }
+    if (bad.length === 0) { return ''; }
+    if (bad.length === edges.length) { return bad[0].problem; }
+    return 'partly: not sent to ' + bad.map(function (b) { return b.label; }).join(', ') + ' (' + bad[0].problem + ')';
+  }
   function providerValueProblem(offerId, edges, text) {
     if (text === '') { return ''; }
     var i, t, f, vv, k, ok;
@@ -5078,7 +5104,7 @@ export const SECTION_STUDIO_SCRIPT = `
         send = v.state === 'custom' ? v.value : v.state === 'saved' ? choiceValue : null;
         rows.push({
           offer_id: ids[i], offer_name: label, offer_public_id: pub || null, state: v.state, value: v.value, edges: groups[g],
-          unsendable: edgesBlockedReason(offer, groups[g]) || (send === null ? '' : providerValueProblem(ids[i], groups[g], send))
+          unsendable: edgesBlockedReason(offer, groups[g]) || (send === null ? '' : sharedBoxProblem(ids[i], groups[g], send))
         });
       }
     }
@@ -8544,6 +8570,20 @@ export const SECTION_STUDIO_SCRIPT = `
   // to: the FIRST real answer-collecting node (produces !== null), skipping
   // bound copy nodes — the §1.2 fixture's one field happens to be the ZIP
   // question, but this works for any Section's content.
+  // The question + inspector tab to reopen after a save's reload (?q=&tab=).
+  function reopenQuery() {
+    var parts = [];
+    if (selectedQuestionId) { parts.push('q=' + encodeURIComponent(selectedQuestionId)); }
+    if (typeof currentInspectorTab === 'string' && currentInspectorTab !== '') { parts.push('tab=' + encodeURIComponent(currentInspectorTab)); }
+    return parts.length ? '?' + parts.join('&') : '';
+  }
+  function reopenedSelectionId() {
+    var q = null, found = false;
+    try { q = new URLSearchParams(window.location.search).get('q'); } catch (e) { q = null; }
+    if (!q) { return null; }
+    walkTree(state.content.components, 1, function (n) { if (n && n.question_id === q) { found = true; } });
+    return found ? q : null;
+  }
   function findDefaultSelectionId() {
     var found = null;
     walkTree(state.content.components, 1, function (n) {
@@ -12247,10 +12287,6 @@ export const SECTION_STUDIO_SCRIPT = `
   // one box per Offer this answer is mapped to; an empty box sends the saved
   // value. The saved value is read from the row at the moment of each edit, so
   // renaming it in the row never writes under a stale key.
-  function isMultiAnswer(node) {
-    var m = node ? typeMeta(node.type) : null;
-    return !!(node && ((m && m.produces === 'array') || node.answer_type === 'array' || (node.props && node.props.multiple === true)));
-  }
   function rowSavedValue(rowEl, fallback) {
     var inp = rowEl && rowEl.querySelector ? rowEl.querySelector('[data-choice-field="value"], [data-other-field="value"]') : null;
     return inp ? trimStr(inp.value) : fallback;
@@ -12295,13 +12331,32 @@ export const SECTION_STUDIO_SCRIPT = `
     var blocked = edgesBlockedReason(offerById(offerId), edges);
     if (blocked !== '') { return { kind: 'blocked', text: 'not sent \\u2014 ' + blocked.slice(9) }; }
     var send = typed === '' ? saved : typed;
-    var problem = providerValueProblem(offerId, edges, send);
+    var problem = sharedBoxProblem(offerId, edges, send);
     if (problem !== '') {
+      if (problem.indexOf('partly:') === 0) { return { kind: 'partial', text: 'will send ' + send + ' \\u2014 ' + problem }; }
       return typed === ''
         ? { kind: 'unsendable', text: 'not sent \\u2014 ' + saved + ' ' + problem.replace(/^must be/, 'is not') }
         : { kind: 'invalid', text: problem };
     }
     return { kind: 'pending', text: 'will send ' + send };
+  }
+  // Move every Offer's value for saved value 'from' to 'to' (a rename): a list
+  // that already names 'to' (another choice has that value) is left alone.
+  function carryProviderValues(internalField, from, to) {
+    var i, e, map, key, changed = false;
+    for (i = 0; i < state.answer_maps.length; i++) {
+      e = state.answer_maps[i];
+      if (!e || e.internal_field !== internalField || !e.output_value_map || typeof e.output_value_map !== 'object') { continue; }
+      if (!hasOwn(e.output_value_map, from) || hasOwn(e.output_value_map, to)) { continue; }
+      map = {};
+      for (key in e.output_value_map) { if (hasOwn(e.output_value_map, key)) { map[key] = e.output_value_map[key]; } }
+      map[to] = String(map[from]) === from ? to : map[from];
+      delete map[from];
+      e.output_value_map = map;
+      changed = true;
+    }
+    if (changed) { markDirty(); }
+    return changed;
   }
   function buildProviderChip(node, choice, rowEl) {
     var wrap = document.createElement('span');
@@ -12337,11 +12392,13 @@ export const SECTION_STUDIO_SCRIPT = `
       rowsEl.appendChild(line);
     }
     function paintState(stateEl, v, saved, problem, unsendable) {
-      stateEl.setAttribute('data-provider-state', problem ? 'invalid' : unsendable ? 'unsendable' : v.state);
+      stateEl.setAttribute('data-provider-state', problem ? 'invalid' : unsendable ? (unsendable.indexOf('partly:') === 0 ? 'partial' : 'unsendable') : v.state);
       clearChildren(stateEl);
       stateEl.appendChild(document.createTextNode(
         problem ? problem
-          : unsendable ? (unsendable.indexOf('blocked:') === 0 ? 'not sent \\u2014 ' + unsendable.slice(9) : 'not sent \\u2014 ' + (v.state === 'custom' ? v.value : saved) + ' ' + unsendable.replace(/^must be/, 'is not'))
+          : unsendable ? (unsendable.indexOf('blocked:') === 0 ? 'not sent \\u2014 ' + unsendable.slice(9)
+            : unsendable.indexOf('partly:') === 0 ? 'sends ' + (v.state === 'custom' ? v.value : saved) + ' \\u2014 ' + unsendable
+            : 'not sent \\u2014 ' + (v.state === 'custom' ? v.value : saved) + ' ' + unsendable.replace(/^must be/, 'is not'))
           : v.state === 'custom' ? 'sends ' + v.value
           : v.state === 'missing' ? 'not sent \\u2014 type a value to send one'
           : 'sends ' + saved
@@ -12350,7 +12407,7 @@ export const SECTION_STUDIO_SCRIPT = `
     function rowState(offerId, edges, saved) {
       var v = valueFromEdges(edges, saved, isNewSinceLoad(node, saved));
       var send = v.state === 'custom' ? v.value : v.state === 'saved' ? saved : null;
-      return { v: v, unsendable: edgesBlockedReason(offerById(offerId), edges) || (send === null ? '' : providerValueProblem(offerId, edges, send)) };
+      return { v: v, unsendable: edgesBlockedReason(offerById(offerId), edges) || (send === null ? '' : sharedBoxProblem(offerId, edges, send)) };
     }
     var painters = [];
     var builtShape = '';
@@ -12362,15 +12419,24 @@ export const SECTION_STUDIO_SCRIPT = `
       rowsEl.setAttribute('data-choice-provider-rows', v);
       var ids = mappedOffersFor(internalField);
       if (ids.length === 0) { note('Map this answer to an Offer in the Offers tab first \\u2014 then each Offer can get its own value here.'); return; }
-      if (isMultiAnswer(node)) { note('Each Offer can get its own value on single-choice questions only \\u2014 a multi-select sends its whole list.'); return; }
       if (rowIsCalculated(rowEl, choice)) { note('Calculated date \\u2014 every provider receives the date.'); return; }
       if (v === '') { note('Give this choice a saved value first.'); return; }
-      var rows = providerChipRows(internalField, v), i, anyMissing = false;
+      var rows = providerChipRows(internalField, v), i;
       builtShape = providerRowsShape(rows);
-      for (i = 0; i < rows.length; i++) { if (rows[i].state === 'missing' || rows[i].unsendable !== '') { anyMissing = true; } }
-      note(anyMissing
-        ? 'Empty box = the saved value (' + v + ') is sent \\u2014 except where marked not sent.'
-        : 'Empty box = the saved value (' + v + ') is sent.');
+      var noteLine = document.createElement('div');
+      noteLine.className = 'form-help';
+      noteLine.setAttribute('data-provider-note', '');
+      rowsEl.appendChild(noteLine);
+      var paintNote = function () {
+        var cur = currentValue(), rs = providerChipRows(internalField, cur), k, missing = false;
+        for (k = 0; k < rs.length; k++) { if (rs[k].state === 'missing' || (rs[k].unsendable !== '' && rs[k].unsendable.indexOf('partly:') !== 0)) { missing = true; } }
+        clearChildren(noteLine);
+        noteLine.appendChild(document.createTextNode(missing
+          ? 'Empty box = the saved value (' + cur + ') is sent \\u2014 except where marked not sent.'
+          : 'Empty box = the saved value (' + cur + ') is sent.'));
+      };
+      paintNote();
+      painters.push(paintNote);
       var line, lab, inp, st;
       for (i = 0; i < rows.length; i++) {
         line = document.createElement('div');
@@ -12418,7 +12484,8 @@ export const SECTION_STUDIO_SCRIPT = `
             var saved = currentValue();
             if (saved === '' || rowIsCalculated(rowEl, choice)) { return; }
             var text = trimStr(input.value);
-            var problem = providerValueProblem(offerId, edges, text);
+            var problem = sharedBoxProblem(offerId, edges, text);
+            if (problem.indexOf('partly:') === 0) { problem = ''; }
             if (problem !== '') {
               input.setAttribute('aria-invalid', 'true');
               var bad = rowState(offerId, edges, saved);
@@ -12429,8 +12496,10 @@ export const SECTION_STUDIO_SCRIPT = `
             setProviderValue(offerId, internalField, saved, text, choiceSavedValuesOf(node), edges);
             var rs = rowState(offerId, edges, saved);
             paintState(stateEl, rs.v, saved, '', rs.unsendable);
-            // this value may unblock (or block) the mapping for every choice
-            refreshProviderChips();
+            // this value may unblock (or block) the mapping for every choice —
+            // repainted once focus has MOVED, so the box being moved into is
+            // seen as focused and never rebuilt (review R5-1)
+            setTimeout(refreshProviderChips, 0);
             updateMappingBadge();
             renderInspectorMapping();
           });
@@ -12454,6 +12523,24 @@ export const SECTION_STUDIO_SCRIPT = `
       rowsEl.hidden = !rowsEl.hidden;
       if (!rowsEl.hidden) { buildRows(); }
     });
+    // OWNER 2026-09-28: a saved value renamed in THIS row carries its provider
+    // values to the new name. Judged when the row's edit is COMMITTED (change
+    // of the value, or of a label that auto-derives it) against this row's own
+    // last committed value — never per keystroke, never by position, so a
+    // half-typed value that equals another choice's can't move its values.
+    var committed = initial;
+    if (rowEl && rowEl.addEventListener) {
+      rowEl.addEventListener('change', function (ev) {
+        var t = ev.target && ev.target.getAttribute ? ev.target : null;
+        var f = t ? (t.getAttribute('data-choice-field') || t.getAttribute('data-other-field')) : null;
+        if (f !== 'value' && f !== 'label') { return; }
+        var now = currentValue();
+        if (now === committed) { return; }
+        if (committed !== '' && now !== '') { carryProviderValues(internalField, committed, now); }
+        committed = now;
+        setTimeout(refreshProviderChips, 0);
+      });
+    }
     // the saved value (or the fixed/calculated switch) changed in the row:
     // repaint against the new key
     if (rowEl && rowEl.addEventListener) {
@@ -18034,7 +18121,9 @@ export const SECTION_STUDIO_SCRIPT = `
         // specs explicitly wait on a page load event right after clicking
         // Save and broke immediately. Restored.)
         if (res.body && res.body.public_id) {
-          window.location.href = '/admin/leadgen/sections/' + encodeURIComponent(res.body.public_id) + '/edit';
+          // OWNER 2026-09-28: come back to the question (and tab) being edited,
+          // not the first question
+          window.location.href = '/admin/leadgen/sections/' + encodeURIComponent(res.body.public_id) + '/edit' + reopenQuery();
         } else {
           window.location.reload();
         }
@@ -18099,7 +18188,12 @@ export const SECTION_STUDIO_SCRIPT = `
   // §6.2 default selection on open (contract: "the ZIP field" — generalized
   // to the first real answer node); selectComponent() already covers
   // decoration/breadcrumb/inspector-population/scope-header/toolbar in one call.
-  selectComponent(findDefaultSelectionId());
+  selectComponent(reopenedSelectionId() || findDefaultSelectionId());
+  (function () {
+    var tab = null;
+    try { tab = new URLSearchParams(window.location.search).get('tab'); } catch (e) { tab = null; }
+    if (tab && reopenedSelectionId() && document.querySelector('[data-studio-inspector-tab="' + tab + '"]')) { setInspectorTab(tab); }
+  })();
   populateSectionOverrides();
   loadComponentPresets();
   loadFramePickerQuotes();
