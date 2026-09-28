@@ -1653,7 +1653,7 @@ function renderCanvasToolbar(design: FunnelDesign): string {
   return `<div class="studio-toolbar" data-studio-selection-toolbar data-studio-canvas-toolbar style="min-height:${STUDIO_GEOMETRY.canvasToolbarHeight}px;padding:0 16px;background:${STUDIO_COLOR.white};border-bottom:1px solid ${STUDIO_COLOR.linePanel};gap:12px">
     <nav class="studio-breadcrumb" data-studio-breadcrumb aria-live="polite" aria-label="Selection breadcrumb"></nav>
     ${renderScopePillsMarkup()}
-    <div style="margin-left:auto;display:flex;align-items:center;gap:10px">
+    <div data-studio-toolbar-actions style="margin-left:auto;display:flex;align-items:center;gap:10px">
       <span class="studio-tb-cluster" data-toolbar-cluster="undo" style="display:flex;align-items:center;gap:2px;border-left:0;padding:0">
         <button type="button" class="studio-undoredo-btn" data-studio-act="undo" disabled title="Undo (&#8984;Z)" aria-label="Undo"><svg width="17" height="17" viewBox="0 0 24 24" fill="none"><path d="M9 7L4 12l5 5" stroke="${STUDIO_COLOR.muted}" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/><path d="M4 12h11a5 5 0 015 5v1" stroke="${STUDIO_COLOR.muted}" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/></svg></button>
         <button type="button" class="studio-undoredo-btn" data-studio-act="redo" disabled title="Redo (&#8679;&#8984;Z)" aria-label="Redo"><svg width="17" height="17" viewBox="0 0 24 24" fill="none"><path d="M15 7l5 5-5 5" stroke="${STUDIO_COLOR.muted}" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/><path d="M20 12H9a5 5 0 00-5 5v1" stroke="${STUDIO_COLOR.muted}" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/></svg></button>
@@ -3747,7 +3747,14 @@ export const SECTION_STUDIO_STYLES = `
    so the one-column layout was 1378px wide inside a 375px screen. minmax(0,1fr) +
    min-width:0 lets every pane shrink to the screen; wide content wraps or scrolls
    INSIDE its own pane. */
-@media (max-width:760px){.studio-root{overflow-x:hidden}.studio-root .studio-topbar,.studio-root .studio-toolbar{flex-wrap:wrap;row-gap:6px}.studio-root [style*="display:flex"]{flex-wrap:wrap;row-gap:6px}.studio-root [style*="margin-left:auto"]{margin-left:0 !important}.studio-root .studio-tabs{height:auto !important;min-height:42px;flex-wrap:wrap}.studio-root iframe{max-width:100%}.studio-root .lg-choice-row{flex-wrap:wrap}}
+@media (max-width:760px){.studio-root{overflow-x:hidden}.studio-root .studio-topbar,.studio-root .studio-toolbar{flex-wrap:wrap;row-gap:6px}.studio-root [style*="display:flex"]{flex-wrap:wrap;row-gap:6px}.studio-root [style*="margin-left:auto"]{margin-left:0 !important}.studio-root .studio-tabs{height:auto !important;min-height:42px;flex-wrap:wrap}.studio-root iframe:not(.studio-canvas-frame){max-width:100%}.studio-root .lg-choice-row{flex-wrap:wrap}.studio-root #lg-section-form>div{flex:1 1 100% !important;max-width:none !important;padding-bottom:0 !important}}
+/* review M5: the headline/subheadline boxes were flex:1.5/1.2 (basis 0), so on a
+   phone they shrank to ~84px side by side instead of wrapping — each takes the
+   full row there. The canvas frame keeps its real 1280/375 viewport (DEV-66) and
+   scrolls inside its pane. review M6: the canvas toolbar's controls wrap at every
+   width, so at 1024-1080px the More menu no longer slides under the inspector. */
+.studio-toolbar [data-studio-toolbar-actions]{flex-wrap:wrap;row-gap:6px;min-width:0;max-width:100%}
+.lg-choice-cell[data-choice-cell="value"]{flex-basis:150px}
 .lg-editor-spacer{flex:1}
 /* R5 D2 (register S4-A2): .lg-maps-note was the legacy Maps fieldset's OWN
    note-line class — orphaned now that the fieldset is removed. Removed. */
@@ -4287,7 +4294,7 @@ export const SECTION_STUDIO_SCRIPT = `
   var UNDO_LIMIT = 50;
   var undoStack = [];
   var redoStack = [];
-  var lastSnapshot = JSON.stringify(state.content);
+  var lastSnapshot = historyState();
   // §7.3 Advanced raw JSON: read-only until the explicit "Edit raw…" confirm.
   var rawEditArmed = false;
   var DROP_CLASSES = ['studio-drop-before', 'studio-drop-after', 'studio-drop-into', 'studio-drop-beside-left', 'studio-drop-beside-right'];
@@ -4460,8 +4467,37 @@ export const SECTION_STUDIO_SCRIPT = `
   }
   // Called AFTER every model mutation (afterModelChange): pushes the PREVIOUS
   // snapshot, caps the stack, and invalidates the redo branch.
+  // OWNER 2026-09-28 (review M2): a snapshot is the content tree PLUS every
+  // Offer's per-choice value lists (and which saved values each question had
+  // when it opened) — a rename carries a choice's provider values, so Undo must
+  // take them back with it, or the choice is left "not sent".
+  function historyState() {
+    var lists = [], i, e, maps = state.answer_maps || [];
+    for (i = 0; i < maps.length; i++) {
+      e = maps[i];
+      if (!e) { continue; }
+      lists.push([e.offer_id + '|' + e.offer_payload_field_path + '|' + e.internal_field, e.output_value_map && typeof e.output_value_map === 'object' ? e.output_value_map : null]);
+    }
+    return JSON.stringify({ c: state.content, v: lists, b: (typeof providerBaseline !== 'undefined' && providerBaseline) || {} });
+  }
+  function restoreValueLists(lists) {
+    var byKey = {}, i, e, key, maps = state.answer_maps || [];
+    for (i = 0; i < (lists || []).length; i++) { byKey[lists[i][0]] = lists[i][1]; }
+    for (i = 0; i < maps.length; i++) {
+      e = maps[i];
+      if (!e) { continue; }
+      key = e.offer_id + '|' + e.offer_payload_field_path + '|' + e.internal_field;
+      if (Object.prototype.hasOwnProperty.call(byKey, key)) { e.output_value_map = byKey[key]; }
+    }
+  }
+  // Fold a change that belongs to the LAST step (the value lists a rename
+  // carried) into that step, so one Undo takes both back.
+  function historyAbsorb() {
+    lastSnapshot = historyState();
+    updateHistoryButtons();
+  }
   function historyPush() {
-    var now = JSON.stringify(state.content);
+    var now = historyState();
     if (now === lastSnapshot) { return false; }
     undoStack.push(lastSnapshot);
     if (undoStack.length > UNDO_LIMIT) { undoStack.shift(); }
@@ -4474,11 +4510,14 @@ export const SECTION_STUDIO_SCRIPT = `
   function historyReset() {
     undoStack.length = 0;
     redoStack.length = 0;
-    lastSnapshot = JSON.stringify(state.content);
+    lastSnapshot = historyState();
     updateHistoryButtons();
   }
   function restoreSnapshot(snapshot) {
-    state.content = JSON.parse(snapshot);
+    var snap = JSON.parse(snapshot);
+    state.content = snap.c;
+    restoreValueLists(snap.v);
+    if (typeof providerBaseline !== 'undefined') { providerBaseline = snap.b || {}; }
     lastSnapshot = snapshot;
     if (selectedQuestionId !== null && findRef(selectedQuestionId) === null) { selectedQuestionId = null; }
     refreshAfterHistory();
@@ -5023,8 +5062,9 @@ export const SECTION_STUDIO_SCRIPT = `
   // baseline is the answer's saved values when the question was first shown;
   // no per-keystroke tracking (a half-typed value can equal another choice's).
   // A value an existing list already left off (a deliberate "not sent") stays
-  // off. A renamed choice sends its NEW saved value; its old provider value is
-  // not carried (it is visible in the row).
+  // off. A renamed choice is the SAME choice: its provider values move to the
+  // new name (carryProviderValues) and so does its baseline entry
+  // (renameProviderBaseline), so a choice left off a list stays off.
   var providerBaseline = {};
   function snapshotProviderValues(node) {
     if (node && node.question_id && providerBaseline[node.question_id] === undefined) {
@@ -5053,6 +5093,25 @@ export const SECTION_STUDIO_SCRIPT = `
     });
   }
   function resetProviderBaseline() { providerBaseline = {}; }
+  function renameProviderBaseline(node, from, to) {
+    var b = node && node.question_id ? providerBaseline[node.question_id] : undefined, i, out;
+    if (!b || b.indexOf(from) === -1 || b.indexOf(to) !== -1) { return false; }
+    out = [];
+    for (i = 0; i < b.length; i++) { out.push(b[i] === from ? to : b[i]); }
+    providerBaseline[node.question_id] = out;
+    return true;
+  }
+  // How many of the answer's choices (Other values included) hold this saved
+  // value right now.
+  function savedValueCount(node, value) {
+    var n = 0, i, list = node && node.choices ? node.choices : [];
+    for (i = 0; i < list.length; i++) { if (list[i] && String(list[i].value) === value) { n += 1; } }
+    var other = node && node.props && node.props.other && node.props.other.enabled === true ? node.props.other.choices : null;
+    if (other && other.length) {
+      for (i = 0; i < other.length; i++) { if (other[i] && String(other[i].value) === value) { n += 1; } }
+    }
+    return n;
+  }
   // How many of the answer's saved values never reach this edge's buyer field:
   // left off its value list, or sent as something the field's type (or its
   // allowed values) cannot take. Shown on the Offers tab and in the rows —
@@ -5069,6 +5128,31 @@ export const SECTION_STUDIO_SCRIPT = `
       if (st === 'orphaned') { return 'blocked: this buyer field no longer exists, so nothing is sent (see the Offers tab)'; }
     }
     return '';
+  }
+  // What stops a box's value reaching its buyer fields, judged PER FIELD: a
+  // box shared by two fields where one mapping is blocked still sends to the
+  // other (review M4: it said "nothing is sent" for both). send === null =
+  // nothing to send (only the blocked mappings are judged).
+  function boxUnsendable(offerId, edges, send) {
+    var offer = offerById(offerId);
+    if (edges.length <= 1) {
+      return edgesBlockedReason(offer, edges) || (send === null ? '' : sharedBoxProblem(offerId, edges, send));
+    }
+    var open = [], blockedLabels = [], firstBlocked = '', i, b, f, rest, note;
+    for (i = 0; i < edges.length; i++) {
+      b = edgesBlockedReason(offer, [edges[i]]);
+      if (b === '') { open.push(edges[i]); continue; }
+      if (firstBlocked === '') { firstBlocked = b; }
+      f = offer ? answerFieldOf(offer, edges[i].offer_payload_field_path) : null;
+      blockedLabels.push(f ? fieldOptionLabelIn(offer, f) : edges[i].offer_payload_field_path);
+    }
+    if (open.length === 0) { return firstBlocked; }
+    rest = send === null ? '' : sharedBoxProblem(offerId, open, send);
+    if (blockedLabels.length === 0) { return rest; }
+    // the value reaches none of the open fields either: that is the problem
+    if (rest !== '' && rest.indexOf('partly:') !== 0) { return rest; }
+    note = 'not sent to ' + blockedLabels.join(', ') + ' \\u2014 ' + firstBlocked.slice(9).replace(', so nothing is sent', '');
+    return rest === '' ? 'partly: ' + note : rest + '; ' + note;
   }
   function valuesNotSent(edge, node, offer) {
     if (!edge || !node) { return 0; }
@@ -5104,7 +5188,7 @@ export const SECTION_STUDIO_SCRIPT = `
         send = v.state === 'custom' ? v.value : v.state === 'saved' ? choiceValue : null;
         rows.push({
           offer_id: ids[i], offer_name: label, offer_public_id: pub || null, state: v.state, value: v.value, edges: groups[g],
-          unsendable: edgesBlockedReason(offer, groups[g]) || (send === null ? '' : sharedBoxProblem(ids[i], groups[g], send))
+          unsendable: boxUnsendable(ids[i], groups[g], send)
         });
       }
     }
@@ -5115,7 +5199,7 @@ export const SECTION_STUDIO_SCRIPT = `
     var custom = {}, missing = {}, i, nc = 0, nm = 0;
     for (i = 0; i < rows.length; i++) {
       if (rows[i].state === 'custom' && custom[rows[i].offer_id] !== true) { custom[rows[i].offer_id] = true; nc += 1; }
-      if ((rows[i].state === 'missing' || rows[i].unsendable !== '') && missing[rows[i].offer_id] !== true) { missing[rows[i].offer_id] = true; nm += 1; }
+      if ((rows[i].state === 'missing' || (rows[i].unsendable !== '' && rows[i].unsendable.indexOf('partly:') !== 0)) && missing[rows[i].offer_id] !== true) { missing[rows[i].offer_id] = true; nm += 1; }
     }
     return 'Provider values: ' + nc + '/' + mappedOffersFor(internalField).length + ' Offers' + (nm > 0 ? ' \\u00b7 ' + nm + ' not sent' : '');
   }
@@ -8218,6 +8302,10 @@ export const SECTION_STUDIO_SCRIPT = `
     else if (selKind === 'headline' || selKind === 'continue') { decorateSimpleSelection(selEl, selKind); }
     // badges/chips/handles change the document height — keep the frame sized.
     updateCanvasFrameHeight();
+    if (typeof reopenScrollPending !== 'undefined' && reopenScrollPending && selEl && selEl.scrollIntoView) {
+      reopenScrollPending = false;
+      selEl.scrollIntoView({ block: 'center', inline: 'nearest' });
+    }
     // R2 P8 M6/R4: the canvas now paints the RESTING state, so a question a
     // dependency hides is not on it. Keep it reachable to AUTHOR — outside the
     // previewed surface (see updateCanvasHiddenList). typeof-guarded like
@@ -8577,6 +8665,9 @@ export const SECTION_STUDIO_SCRIPT = `
     if (typeof currentInspectorTab === 'string' && currentInspectorTab !== '') { parts.push('tab=' + encodeURIComponent(currentInspectorTab)); }
     return parts.length ? '?' + parts.join('&') : '';
   }
+  // Set at boot when the link reopened a question: the first canvas paint
+  // that shows it scrolls it into view (review m3).
+  var reopenScrollPending = false;
   function reopenedSelectionId() {
     var q = null, found = false;
     try { q = new URLSearchParams(window.location.search).get('q'); } catch (e) { q = null; }
@@ -12328,10 +12419,10 @@ export const SECTION_STUDIO_SCRIPT = `
   // What the status line says while a box is being typed in: the value that
   // WILL be sent (an empty box sends the saved value) and whether it can be.
   function typingStateFor(offerId, edges, typed, saved) {
-    var blocked = edgesBlockedReason(offerById(offerId), edges);
-    if (blocked !== '') { return { kind: 'blocked', text: 'not sent \\u2014 ' + blocked.slice(9) }; }
+    var blocked = boxUnsendable(offerId, edges, null);
+    if (blocked.indexOf('blocked:') === 0) { return { kind: 'blocked', text: 'not sent \\u2014 ' + blocked.slice(9) }; }
     var send = typed === '' ? saved : typed;
-    var problem = sharedBoxProblem(offerId, edges, send);
+    var problem = boxUnsendable(offerId, edges, send);
     if (problem !== '') {
       if (problem.indexOf('partly:') === 0) { return { kind: 'partial', text: 'will send ' + send + ' \\u2014 ' + problem }; }
       return typed === ''
@@ -12340,23 +12431,52 @@ export const SECTION_STUDIO_SCRIPT = `
     }
     return { kind: 'pending', text: 'will send ' + send };
   }
-  // Move every Offer's value for saved value 'from' to 'to' (a rename): a list
-  // that already names 'to' (another choice has that value) is left alone.
+  // Move every Offer's value for saved value 'from' to 'to' (a rename; the
+  // caller has checked no other choice holds 'to'). A key already named 'to'
+  // is a leftover of a removed choice: the renamed choice's own value replaces
+  // it, and where the choice was left off a list the leftover goes too, so it
+  // stays off.
   function carryProviderValues(internalField, from, to) {
     var i, e, map, key, changed = false;
     for (i = 0; i < state.answer_maps.length; i++) {
       e = state.answer_maps[i];
       if (!e || e.internal_field !== internalField || !e.output_value_map || typeof e.output_value_map !== 'object') { continue; }
-      if (!hasOwn(e.output_value_map, from) || hasOwn(e.output_value_map, to)) { continue; }
+      if (!hasOwn(e.output_value_map, from) && !hasOwn(e.output_value_map, to)) { continue; }
       map = {};
       for (key in e.output_value_map) { if (hasOwn(e.output_value_map, key)) { map[key] = e.output_value_map[key]; } }
-      map[to] = String(map[from]) === from ? to : map[from];
-      delete map[from];
+      if (hasOwn(map, from)) {
+        map[to] = String(map[from]) === from ? to : map[from];
+        delete map[from];
+      } else {
+        delete map[to];
+      }
       e.output_value_map = map;
       changed = true;
     }
     if (changed) { markDirty(); }
     return changed;
+  }
+  // One row's rename, judged when its edit is committed: 'committed' is the
+  // saved value the row last carried from, 'now' the one it holds. Returns the
+  // value it carries from next — unchanged for an empty value or one another
+  // choice holds (nothing moves then).
+  function commitChoiceRename(node, internalField, committed, now) {
+    if (now === committed || now === '') { return committed; }
+    var ref = node && node.question_id ? findRef(node.question_id) : null;
+    var live = ref ? ref.node : node;
+    if (savedValueCount(live, now) > 1) { return committed; }
+    if (committed !== '') {
+      var carried = carryProviderValues(internalField, committed, now);
+      if ((renameProviderBaseline(live, committed, now) || carried) && typeof historyAbsorb !== 'undefined') { historyAbsorb(); }
+    }
+    return now;
+  }
+  // A provider value applied on the Content tab is its own undo step. Like
+  // any other edit it retires a pending element-delete toast (its Undo would
+  // otherwise revert THIS edit while labeled for the deletion).
+  function historyPushSideEdit() {
+    if (typeof hideUndoToast !== 'undefined') { hideUndoToast(); }
+    historyPush();
   }
   function buildProviderChip(node, choice, rowEl) {
     var wrap = document.createElement('span');
@@ -12407,7 +12527,7 @@ export const SECTION_STUDIO_SCRIPT = `
     function rowState(offerId, edges, saved) {
       var v = valueFromEdges(edges, saved, isNewSinceLoad(node, saved));
       var send = v.state === 'custom' ? v.value : v.state === 'saved' ? saved : null;
-      return { v: v, unsendable: edgesBlockedReason(offerById(offerId), edges) || (send === null ? '' : sharedBoxProblem(offerId, edges, send)) };
+      return { v: v, unsendable: boxUnsendable(offerId, edges, send) };
     }
     var painters = [];
     var builtShape = '';
@@ -12484,8 +12604,8 @@ export const SECTION_STUDIO_SCRIPT = `
             var saved = currentValue();
             if (saved === '' || rowIsCalculated(rowEl, choice)) { return; }
             var text = trimStr(input.value);
-            var problem = sharedBoxProblem(offerId, edges, text);
-            if (problem.indexOf('partly:') === 0) { problem = ''; }
+            var problem = boxUnsendable(offerId, edges, text);
+            if (problem.indexOf('partly:') === 0 || problem.indexOf('blocked:') === 0) { problem = ''; }
             if (problem !== '') {
               input.setAttribute('aria-invalid', 'true');
               var bad = rowState(offerId, edges, saved);
@@ -12493,7 +12613,7 @@ export const SECTION_STUDIO_SCRIPT = `
               return;
             }
             input.removeAttribute('aria-invalid');
-            setProviderValue(offerId, internalField, saved, text, choiceSavedValuesOf(node), edges);
+            if (setProviderValue(offerId, internalField, saved, text, choiceSavedValuesOf(node), edges)) { historyPushSideEdit(); }
             var rs = rowState(offerId, edges, saved);
             paintState(stateEl, rs.v, saved, '', rs.unsendable);
             // this value may unblock (or block) the mapping for every choice —
@@ -12528,16 +12648,16 @@ export const SECTION_STUDIO_SCRIPT = `
     // of the value, or of a label that auto-derives it) against this row's own
     // last committed value — never per keystroke, never by position, so a
     // half-typed value that equals another choice's can't move its values.
+    // A value another choice holds (or an empty one) is not a new name for
+    // this choice: nothing moves and the row keeps carrying from its last good
+    // value (review M1: fixing such a collision took the OTHER choice's values).
     var committed = initial;
     if (rowEl && rowEl.addEventListener) {
       rowEl.addEventListener('change', function (ev) {
         var t = ev.target && ev.target.getAttribute ? ev.target : null;
         var f = t ? (t.getAttribute('data-choice-field') || t.getAttribute('data-other-field')) : null;
         if (f !== 'value' && f !== 'label') { return; }
-        var now = currentValue();
-        if (now === committed) { return; }
-        if (committed !== '' && now !== '') { carryProviderValues(internalField, committed, now); }
-        committed = now;
+        committed = commitChoiceRename(node, internalField, committed, currentValue());
         setTimeout(refreshProviderChips, 0);
       });
     }
@@ -16452,8 +16572,8 @@ export const SECTION_STUDIO_SCRIPT = `
     if (nodeType === 'string' || nodeType === 'enum') { return true; }
     var answerNode = answerNodeType(answerType);
     if (answerNode === nodeType) { return true; }
-    // A MULTI-select sends the whole LIST, not one of its values — coerceToType
-    // refuses an array whatever the values look like.
+    // A MULTI-select sends the whole LIST, not one of its values: a text field
+    // takes it comma-joined (above), a number/yes-no field never takes it.
     if (answerNode === 'array' || answerNode === 'object') { return false; }
     if (!answerValues || !answerValues.length) { return false; }
     var i;
@@ -16471,6 +16591,10 @@ export const SECTION_STUDIO_SCRIPT = `
     if (edge.provider_expected_type !== field.type) { return 'type_mismatch'; }
     var hasMap = edge.output_value_map && typeof edge.output_value_map === 'object' && Object.keys(edge.output_value_map).length > 0;
     var hasTransform = edge.value_transform && edge.value_transform.length > 0;
+    // OWNER 2026-09-28 (review M3): a multi-select's value list maps each value
+    // but the answer is still a LIST — only a text field (comma-joined) or a
+    // list field takes it. Mirror of sections.ts mappingCompleteness.
+    if (!hasTransform && answerNodeType(edge.answer_type) === 'array' && field.type !== 'string' && field.type !== 'array') { return 'type_mismatch'; }
     var values = closedAnswerValuesOf(questionByField(edge.internal_field));
     if (!hasMap && !hasTransform && !coercibleTo(edge.answer_type, field.type, values)) { return 'type_mismatch'; }
     if (edge.required_for_offer === true && trimStr(edge.internal_field) === '') { return 'missing_required'; }
@@ -18188,11 +18312,14 @@ export const SECTION_STUDIO_SCRIPT = `
   // §6.2 default selection on open (contract: "the ZIP field" — generalized
   // to the first real answer node); selectComponent() already covers
   // decoration/breadcrumb/inspector-population/scope-header/toolbar in one call.
+  reopenScrollPending = reopenedSelectionId() !== null;
   selectComponent(reopenedSelectionId() || findDefaultSelectionId());
   (function () {
     var tab = null;
     try { tab = new URLSearchParams(window.location.search).get('tab'); } catch (e) { tab = null; }
-    if (tab && reopenedSelectionId() && document.querySelector('[data-studio-inspector-tab="' + tab + '"]')) { setInspectorTab(tab); }
+    // a tab key is a bare word; anything else in the link is ignored (a quote
+    // in it made querySelector throw and stopped the page loading — review m5)
+    if (tab && /^[a-z_]+$/.test(tab) && reopenedSelectionId() && document.querySelector('[data-studio-inspector-tab="' + tab + '"]')) { setInspectorTab(tab); }
   })();
   populateSectionOverrides();
   loadComponentPresets();

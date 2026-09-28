@@ -1714,6 +1714,7 @@ export async function auctionSimulateHandler(c: AdminContext): Promise<Response>
       raw_answers: {},
       normalizedAnswersOverride: sampleAnswers,
       answerComputedOverride: sampleComputed,
+      answerBindingsFromAllSections: true,
       request_context: context,
       // 04 §4.7: the dry-run builds its runtime context from the admin
       // request (a simulate has no funnel session; payload macros resolve

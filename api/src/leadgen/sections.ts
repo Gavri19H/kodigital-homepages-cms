@@ -620,12 +620,12 @@ function answerCoercible(
   answerValues: readonly string[] | null,
 ): boolean {
   if (nodeType === "string") return true; // anything stringifies
-  if (nodeType === "enum") return true; // membership is the valid_values check, not the type
+  if (nodeType === "enum") return true; // membership is the valid_values check, not the type (a multi-select is refused before this)
   const answerNodeType = answerTypeNodeType(answerType);
   if (answerNodeType === nodeType) return true;
-  // A MULTI-select sends the whole LIST, not one of its values: coerceToType
-  // gets an array and refuses it whatever the values look like. Only a
-  // single-value answer is judged by its value set.
+  // A MULTI-select sends the whole LIST, not one of its values: a text field
+  // takes it comma-joined (above); a number/yes-no field never takes it. Only
+  // a single-value answer is judged by its value set.
   if (answerNodeType === "array" || answerNodeType === "object") return false;
   if (answerValues === null || answerValues.length === 0) return false;
   return answerValues.every((value) => choiceValueCoercible(value, nodeType));
@@ -655,6 +655,13 @@ export function mappingCompleteness(
 
   const hasMap = isRecord(edge.output_value_map) && Object.keys(edge.output_value_map).length > 0;
   const hasTransform = Array.isArray(edge.value_transform) && edge.value_transform.length > 0;
+  // OWNER 2026-09-28 (multi-select per-provider values, review M3): a value
+  // list maps a multi-select value by value, but the answer is still a LIST —
+  // only a text field (comma-joined) or a list field takes it. Into a number,
+  // yes/no or fixed-options field it sent nothing while reading "complete".
+  if (!hasTransform && answerTypeNodeType(edge.answer_type) === "array" && nodeType !== "string" && nodeType !== "array") {
+    return "type_mismatch";
+  }
   if (!hasMap && !hasTransform && !answerCoercible(edge.answer_type, nodeType, answerValues)) {
     return "type_mismatch";
   }

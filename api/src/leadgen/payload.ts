@@ -1334,7 +1334,8 @@ export function conditionalMet(
 // provider_expected_type coercion (05 §12.7 pipeline step). Returns
 // undefined when the value cannot represent the declared type — the node
 // then takes its fallback. Deliberately strict: implicit conversions are
-// the transforms' job (toNumber/toString/mapBoolean), not the coercer's.
+// the transforms' job (toNumber/toString/mapBoolean), not the coercer's —
+// the one exception is a multi-select's list into a text field (joined).
 function coerceToType(value: unknown, type: LeadgenPayloadNodeType): unknown {
   switch (type) {
     case "string":

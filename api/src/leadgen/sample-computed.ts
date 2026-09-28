@@ -6,7 +6,9 @@
 // section in hand, so they sent the saved value ("2") where production sends
 // the date. This derives the same `computed` map for sample answers from every
 // Section that maps the given Offers — the same Sections the previews already
-// read their answer bindings from (readAnswerBindings).
+// read their answer bindings from (readAnswerBindings: complete mappings only,
+// Section order). Two Sections that calculate the same answer differently: the
+// FIRST in that order wins, matching which Section's binding the payload uses.
 import type { D1Database } from "@cloudflare/workers-types";
 import { normalizeAnswers, type LeadgenRawAnswers } from "./answers";
 import type { LeadgenSectionContent } from "../public/leadgen/components/content-schema";
@@ -37,13 +39,16 @@ export async function sampleAnswerComputed(
         `SELECT DISTINCT s.id, s.content_json FROM leadgen_sections s
            JOIN leadgen_section_answer_maps m ON m.section_id = s.id
           WHERE m.offer_id IN (${slice.map(() => "?").join(",")})
+            AND m.mapping_status = 'complete'
           ORDER BY s.id ASC`,
       )
       .bind(...slice)
       .all<{ id: number; content_json: string | null }>();
     for (const row of rows.results ?? []) {
       const { computed } = normalizeAnswers(parseContent(row.content_json), sampleAnswers as LeadgenRawAnswers);
-      for (const [field, value] of Object.entries(computed)) out[field] = value;
+      for (const [field, value] of Object.entries(computed)) {
+        if (!Object.prototype.hasOwnProperty.call(out, field)) out[field] = value;
+      }
     }
   }
   return out;

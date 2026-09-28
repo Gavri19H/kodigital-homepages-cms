@@ -2897,6 +2897,15 @@ export const PAYLOAD_BUILDER_SCRIPT = `
     if (type === 'string') {
       if (typeof value === 'string') { return value; }
       if (typeof value === 'number' || typeof value === 'boolean') { return String(value); }
+      // a multi-select's list into a text field is sent comma-joined
+      if (Object.prototype.toString.call(value) === '[object Array]' && value.length > 0) {
+        var parts = [], pi;
+        for (pi = 0; pi < value.length; pi++) {
+          if (typeof value[pi] !== 'string' && typeof value[pi] !== 'number' && typeof value[pi] !== 'boolean') { return undefined; }
+          parts.push(String(value[pi]));
+        }
+        return parts.join(',');
+      }
       return undefined;
     }
     if (type === 'number') {
