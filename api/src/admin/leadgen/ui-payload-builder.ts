@@ -5169,6 +5169,12 @@ export const PAYLOAD_BUILDER_SCRIPT = `
     thead.appendChild(headRow);
     table.appendChild(thead);
     var tbody = document.createElement('tbody');
+    // An answer that names one carrier twice (same carrier_key) is ONE card in
+    // the funnel, built from its FIRST row (engine.ts firstPerCarrierKey) —
+    // say so, or a repeat row's bid looks like it should lead the auction.
+    var firstRow = {};
+    var repeatNotes = [];
+    var key;
     for (i = 0; i < carriers.length; i++) {
       tr = document.createElement('tr');
       for (j = 0; j < CARRIER_COLUMNS.length; j++) {
@@ -5178,9 +5184,20 @@ export const PAYLOAD_BUILDER_SCRIPT = `
         tr.appendChild(td);
       }
       tbody.appendChild(tr);
+      key = carriers[i] ? carriers[i].carrier_key : undefined;
+      if (typeof key === 'string') {
+        if (Object.prototype.hasOwnProperty.call(firstRow, key)) {
+          repeatNotes.push('Row ' + (i + 1) + ' repeats carrier ' + key + ' (row ' + firstRow[key] + '). The funnel shows this carrier once, with row ' + firstRow[key] + '\\u2019s copy, bid and link.');
+        } else {
+          firstRow[key] = i + 1;
+        }
+      }
     }
     table.appendChild(tbody);
     box.appendChild(table);
+    for (i = 0; i < repeatNotes.length; i++) {
+      textP(box, 'form-help', repeatNotes[i]);
+    }
   }
 
   // §10.5: chips for every discovered response field; flag REQUIRED

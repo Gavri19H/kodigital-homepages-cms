@@ -1286,7 +1286,7 @@ describeDb("pruneLeadgenRetention — §30.3 bounded prune", () => {
 // OWNER 2026-09-28 review: the Test tab parsed EVERY Offer with the carrier-list
 // parser, while the live auction sends a "Provider request · static bid (CPL)"
 // Offer to its own parser — so the Test tab and the funnel could disagree. Both
-// now call the one engine choice (parseOfferProviderResponse).
+// now call the one choice (offer-parse.ts parseOfferProviderResponse).
 describeDb("POST /offers/:id/test — a CPL (static-bid) Offer is parsed exactly as the funnel parses it", () => {
   it("constants are literals and {response:…} reads the answer — one carrier, the funnel's one", async () => {
     const h = await setupOffer();

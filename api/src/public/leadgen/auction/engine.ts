@@ -137,8 +137,6 @@ import type {
 } from "../../../admin/leadgen/db-types";
 import { offerHasOwnClickUrl } from "../../../leadgen/macros";
 import { staticBidProviderOffer, staticCarrier, parseOfferProviderResponse } from "./offer-parse";
-// Re-exported for callers that already import it from the engine.
-export { parseOfferProviderResponse };
 
 // ---------------------------------------------------------------------------
 // Loaded auction bundle (READ-ONLY; safe to load in dry-run)
