@@ -3523,6 +3523,14 @@ export function renderStudioDrawer(summary: StudioMappingSummary, answerMapCount
     <div class="studio-payload-preview" data-studio-payload-preview-wrap hidden>
       <div class="studio-events-head"><span class="form-label" data-studio-payload-preview-title>Generated payload preview</span><button type="button" class="btn btn-sm btn-outline" data-studio-payload-close>Close</button></div>
       <p class="form-help" data-studio-payload-note hidden>Unsaved mapping edits are NOT reflected — the payload preview validates the last SAVED mapping.</p>
+      <!-- OWNER 2026-09-28 (review o3): the preview's own sample answers, visible
+           without QA tools and prefilled from this Section's questions. -->
+      <div class="studio-payload-sample" data-studio-payload-sample>
+        <label class="form-label" for="lg-payload-sample-answers">Sample answers (JSON, keyed by internal field) &#8212; prefilled with each question&#8217;s first value; edit and preview again</label>
+        <textarea id="lg-payload-sample-answers" class="form-input" rows="4" data-studio-payload-sample-answers aria-label="Sample answers for the payload preview"></textarea>
+        <button type="button" class="btn btn-sm btn-secondary" data-studio-payload-rerun>Preview with these answers</button>
+        <p class="alert alert-error" data-studio-payload-sample-error hidden role="alert"></p>
+      </div>
       <pre data-studio-payload-preview></pre>
     </div>
   </div>
@@ -4058,6 +4066,8 @@ export const SECTION_STUDIO_STYLES = `
 .studio-bulk-review{border:1px dashed var(--c-border);border-radius:8px;padding:10px;margin-top:10px}
 .studio-bulk-review ul{list-style:none;margin:6px 0;padding:0;display:flex;flex-direction:column;gap:4px}
 .studio-payload-preview pre{max-height:260px;overflow:auto;background:#0b1021;color:#d8e0f0;border-radius:8px;padding:10px;font-size:11px}
+.studio-payload-sample{display:flex;flex-direction:column;align-items:flex-start;gap:6px;margin:8px 0}
+.studio-payload-sample textarea{width:100%;box-sizing:border-box;font-family:ui-monospace,Menlo,monospace;font-size:12px}
 .studio-inspector-mapping .studio-map-row{grid-template-columns:minmax(120px,1fr) minmax(0,2.2fr);align-items:start}
 .studio-map-lines{display:flex;flex-direction:column;gap:4px;min-width:0}
 .studio-map-line{display:flex;gap:6px;align-items:center;min-width:0}
@@ -17380,6 +17390,37 @@ export const SECTION_STUDIO_SCRIPT = `
       renderOffersPanel();
     }).catch(function () { offersNote('Failed to load the matching Offers'); });
   }
+  // OWNER 2026-09-28 (review o3): the answers the payload preview builds from.
+  // They were read from the QA-tools-only box, so an operator previewed with
+  // no answers at all. Prefilled with each question's first saved value (a
+  // multi-select: a list of one) and a sample for ZIP / email / phone.
+  function defaultPayloadSampleAnswers() {
+    var out = {};
+    walkTree(state.content.components, 1, function (n) {
+      if (!n || trimStr(n.internal_field) === '' || hasOwn(out, n.internal_field)) { return; }
+      var vals = choiceSavedValuesOf(n);
+      if (vals.length > 0) { out[n.internal_field] = typeMeta(n.type).produces === 'array' ? [vals[0]] : vals[0]; return; }
+      if (n.type === 'ZIPInputQuestion') { out[n.internal_field] = '90210'; }
+      else if (n.type === 'EmailInputQuestion') { out[n.internal_field] = 'sample@example.com'; }
+      else if (n.type === 'PhoneInputQuestion') { out[n.internal_field] = '5551234567'; }
+    });
+    return out;
+  }
+  function payloadSampleAnswers() {
+    var box = document.querySelector('[data-studio-payload-sample-answers]');
+    var errEl = document.querySelector('[data-studio-payload-sample-error]');
+    if (!box) { return sampleAnswers(); }
+    if (trimStr(box.value) === '') { box.value = JSON.stringify(defaultPayloadSampleAnswers(), null, 2); }
+    var parsed = null;
+    try { parsed = JSON.parse(box.value); } catch (e) { parsed = null; }
+    if (!parsed || typeof parsed !== 'object' || Object.prototype.toString.call(parsed) === '[object Array]') {
+      if (errEl) { errEl.hidden = false; errEl.textContent = 'Sample answers must be a valid object \\u2014 check for a missing quote, comma, or bracket.'; }
+      return null;
+    }
+    if (errEl) { errEl.hidden = true; }
+    return parsed;
+  }
+  var lastPayloadPreviewOffer = null;
   function showPayloadPreview(offer) {
     var wrap = document.querySelector('[data-studio-payload-preview-wrap]');
     var pre = document.querySelector('[data-studio-payload-preview]');
@@ -17389,12 +17430,15 @@ export const SECTION_STUDIO_SCRIPT = `
     wrap.hidden = false;
     if (title) { title.textContent = 'Generated payload preview \\u2014 ' + offer.offer_name; }
     if (noteEl) { noteEl.hidden = !dirty; }
+    lastPayloadPreviewOffer = offer;
+    var answers = payloadSampleAnswers();
+    if (answers === null) { pre.textContent = ''; return; }
     pre.textContent = 'Validating\\u2026';
     fetch('/api/admin/leadgen/sections/' + encodeURIComponent(state.public_id) + '/validate-payload', {
       method: 'POST',
       credentials: 'same-origin',
       headers: { 'Content-Type': 'application/json', 'Accept': 'application/json' },
-      body: JSON.stringify({ answers: sampleAnswers(), offers: [offer.public_id] })
+      body: JSON.stringify({ answers: answers, offers: [offer.public_id] })
     }).then(function (r) {
       return r.json().then(function (j) { return { ok: r.ok, body: j }; });
     }).then(function (res) {
@@ -17455,6 +17499,11 @@ export const SECTION_STUDIO_SCRIPT = `
       if (el) {
         var payOffer = offerById(Number(el.getAttribute('data-studio-offer-payload')));
         if (payOffer) { showPayloadPreview(payOffer); }
+        return;
+      }
+      el = t.closest('[data-studio-payload-rerun]');
+      if (el) {
+        if (lastPayloadPreviewOffer) { showPayloadPreview(lastPayloadPreviewOffer); }
         return;
       }
       el = t.closest('[data-studio-payload-close]');
