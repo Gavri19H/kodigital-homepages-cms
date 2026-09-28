@@ -76,6 +76,7 @@ import type {
 import { isPublicId, mintPublicId } from "../../leadgen/ids";
 import {
   buildOfferPayload,
+  fieldsOf as answerFieldsOf,
   type LeadgenAnswerMapping,
   type LeadgenRawAnswers,
   normalizeAnswers,
@@ -443,6 +444,9 @@ async function parseAnswerMaps(
   const warnings: Problem[] = [];
   const rawMaps = body["answer_maps"];
   const nodesByQuestionId = new Map<string, Record<string, unknown>>();
+  // OWNER 2026-09-28: the keys each question really records (answers.ts
+  // fieldsOf), to keep an edge off a key no visitor ever records.
+  const answerKeyClaims = collectAnswerKeyClaims(content.components);
   // §8.5: mappable questions come from the flattened projection — an edge may
   // bind to a question nested inside a layout container; container nodes
   // themselves are not mappable (they never appear in the flattened list).
@@ -549,12 +553,25 @@ async function parseAnswerMaps(
     const questionKey =
       trimmedString(item["question_key"]) ??
       (typeof node["question_key"] === "string" ? node["question_key"] : questionId);
-    const internalField =
+    let internalField =
       trimmedString(item["internal_field"]) ??
       (typeof node["internal_field"] === "string" ? node["internal_field"] : "");
-    const answerType =
+    let answerType =
       trimmedString(item["answer_type"]) ??
       (typeof node["answer_type"] === "string" ? node["answer_type"] : "string");
+    // OWNER 2026-09-28 — an edge on a key its question never records fills
+    // nothing (section 25's Address records "address_zip"; its edges said
+    // "address"). A question recording exactly ONE key gets that key.
+    if (internalField !== "") {
+      const recorded = answerFieldsOf(
+        node as unknown as LeadgenComponentNode,
+        foreignAnswerKeysIn(answerKeyClaims, node as unknown as LeadgenComponentNode),
+      );
+      if (recorded.length === 1 && !recorded.some((spec) => spec.field === internalField)) {
+        internalField = recorded[0]!.field;
+        answerType = recorded[0]!.answerType;
+      }
+    }
 
     edges.push({
       question_id: questionId,
@@ -2438,6 +2455,24 @@ function dateFormatOfNode(node: Record<string, unknown>, type: string): string |
 
 // Parse a schema_json blob into its answer-source field list. Defensive
 // against corrupt stored JSON (D1 rule) — a bad blob yields [].
+// OWNER 2026-09-28 — the payload's FIXED-value fields (source "static"), so the
+// Offers tab can say why a field is not offered: prod QuinStreet's contact.zip
+// is the fixed "94105" and can only take the visitor's ZIP once it is switched
+// to "filled from an answer" in the Offer's Payload tab.
+function schemaFixedFields(schemaJson: string | null): Array<{ path: string; value: string }> {
+  const out: Array<{ path: string; value: string }> = [];
+  const parsed = parseJsonColumn(schemaJson);
+  if (!isRecord(parsed) || !isRecord(parsed["root"]) || !Array.isArray(parsed["root"]["children"])) return out;
+  for (const node of parsed["root"]["children"]) {
+    if (!isRecord(node) || node["source"] !== "static" || typeof node["path"] !== "string" || node["path"] === "") continue;
+    // never ship a fixed credential to the page (the hint only names answer-like fields)
+    if (/token|secret|password|passwd|api[_-]?key|auth|signature|credential/i.test(node["path"])) continue;
+    const value = node["value"];
+    out.push({ path: node["path"], value: value === undefined || value === null ? "" : String(value) });
+  }
+  return out;
+}
+
 function schemaAnswerSourceFields(schemaJson: string | null): SectionOfferAnswerField[] {
   const out: SectionOfferAnswerField[] = [];
   const parsed = parseJsonColumn(schemaJson);
@@ -2468,6 +2503,26 @@ function schemaAnswerSourceFields(schemaJson: string | null): SectionOfferAnswer
       valid_values: validValues !== null && validValues.length > 0 ? validValues : null,
       date_format: dateFormatOfNode(node, type),
     });
+  }
+  return out;
+}
+
+// OWNER 2026-09-28 — the keys each question REALLY records, per question_id,
+// from the ONE derivation normalizeAnswers and the renderer use (answers.ts
+// fieldsOf + the section's key-claim map). The Offers tab maps THESE, never the
+// component's own internal_field: an Address that renders only a ZIP box
+// records "<base>_zip", so an edge on the bare base (section 25's "address")
+// was complete-looking and never filled QuinStreet's tracking.ni_zc.
+function sectionAnswerKeys(
+  content: LeadgenSectionContent,
+): Record<string, Array<{ key: string; answer_type: string }>> {
+  const out: Record<string, Array<{ key: string; answer_type: string }>> = {};
+  const claims = collectAnswerKeyClaims(content.components);
+  for (const node of flattenComponents(content.components)) {
+    if (!isRecord(node) || typeof node.question_id !== "string" || node.question_id === "") continue;
+    const specs = answerFieldsOf(node, foreignAnswerKeysIn(claims, node));
+    if (specs.length === 0) continue;
+    out[node.question_id] = specs.map((spec) => ({ key: spec.field, answer_type: spec.answerType }));
   }
   return out;
 }
@@ -2521,6 +2576,7 @@ export async function sectionOffersHandler(c: AdminContext): Promise<Response> {
     // exactly these values.
     activity: row.activity,
     vertical: row.vertical,
+    answer_keys: sectionAnswerKeys(parseComponents(row.content_json)),
     offers: (offers.results ?? []).map((o) => ({
       id: o.id,
       public_id: o.public_id,
@@ -2536,6 +2592,7 @@ export async function sectionOffersHandler(c: AdminContext): Promise<Response> {
       payload_schema_public_id: o.payload_schema_public_id,
       default_placement_id: o.default_placement_id,
       answer_fields: schemaAnswerSourceFields(o.active_schema_json),
+      fixed_fields: schemaFixedFields(o.active_schema_json),
       selected: o.selected !== null && o.selected !== 0,
       mapping_state: o.mapping_state,
       required_fields_total: o.required_fields_total ?? 0,

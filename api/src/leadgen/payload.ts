@@ -1498,6 +1498,10 @@ function resolveNode(node: LeadgenPayloadNode, ctx: LeadgenPayloadBuildContext):
   }
 
   let raw: unknown;
+  // True when the answer is a calculated choice's DATE (below). A per-Offer
+  // value map is keyed by the choices' saved values, so the date itself is
+  // never one of its keys — see the value_map leg.
+  let calculatedAnswer = false;
   switch (node.source) {
     case "answer":
       if (node.internal_field === undefined) {
@@ -1507,6 +1511,7 @@ function resolveNode(node: LeadgenPayloadNode, ctx: LeadgenPayloadBuildContext):
         // literal. Only when this exact field has one; every other answer is
         // byte-identical to before.
         const calculated = ctx.answer_computed?.[node.internal_field];
+        calculatedAnswer = calculated !== undefined;
         raw = calculated !== undefined ? calculated : ctx.answers[node.internal_field];
       }
       break;
@@ -1545,11 +1550,18 @@ function resolveNode(node: LeadgenPayloadNode, ctx: LeadgenPayloadBuildContext):
 
   let value: unknown = raw;
   if (node.source === "answer") {
-    if (node.value_map !== undefined) {
+    if (node.value_map !== undefined && !calculatedAnswer) {
       // value_map keys are strings (§11.5 example {"true":true,...}); a map
       // MISS marks the value invalid rather than passing it through — the
       // admin declared the full input domain by writing a map.
-      value = node.value_map[String(value)];
+      //
+      // OWNER 2026-09-28 (per-provider choice values): a calculated date skips
+      // the map. The map is keyed by saved values; looking the DATE up in it
+      // always missed, so once an Offer carried per-provider values every
+      // calculated choice of that question silently stopped reaching it.
+      value = Object.prototype.hasOwnProperty.call(node.value_map, String(value))
+        ? node.value_map[String(value)]
+        : undefined;
     }
     if (value !== undefined && node.transform !== undefined) {
       value = applyTransformPipeline(value, node.transform);
