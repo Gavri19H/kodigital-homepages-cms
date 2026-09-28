@@ -131,15 +131,16 @@ const CASELESS_ENTITIES: ReadonlyMap<string, string> = new Map([
   ["gt", ">"],
   ["quot", '"'],
   ["apos", "'"],
+  ["nbsp", " "],
 ]);
 
 // Case-sensitive (HTML names are): the complete HTML 4.01 named character
 // reference set (Latin-1, symbols/Greek, specials — 252 names, generated
-// from the W3C list) minus the five names above (nbsp keeps its old space). Each one
+// from the W3C list) minus the five names above; nbsp stays in the caseless
+// set and keeps decoding to a plain space, as it always has. Each one
 // is a printable character or a spacing/format mark; none is '<', '>', '"',
 // '&' or '\''.
 const NAMED_ENTITIES: ReadonlyMap<string, string> = new Map([
-  ["nbsp", "\u{A0}"],
   ["iexcl", "\u{A1}"],
   ["cent", "\u{A2}"],
   ["pound", "\u{A3}"],

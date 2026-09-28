@@ -14,6 +14,7 @@
 // what the winner card's button and border were painted with.
 import { describe, expect, it } from "vitest";
 import { readFileSync } from "node:fs";
+import { sanitizeFrameInlineHtml } from "../src/lib/inline-sanitizer";
 import { renderBanners } from "../src/public/leadgen/auction/banner";
 import type { BannerRenderCarrier } from "../src/public/leadgen/auction/banner";
 import type { LeadgenParsedCarrier } from "../src/public/leadgen/auction/parse";
@@ -96,6 +97,12 @@ describe("OWNER 2026-09-28 bug 2 — encoded provider copy is decoded before it 
     expect(html).not.toMatch(/<img src=x/i);
     expect(regionHtml(html, "lg-banner-headline")).toBe("&lt;img src=x onerror=alert(1)&gt; &quot;hi&quot;");
     expect(visible(regionHtml(html, "lg-banner-headline"))).toBe('<img src=x onerror=alert(1)> "hi"');
+  });
+
+  it("the shared decoder keeps &nbsp; (any case) as the plain space it always was", () => {
+    // frame free text (designs/frame.ts, frames.ts store time) shares this decoder
+    expect(sanitizeFrameInlineHtml("a&nbsp;b&NBSP;c")).toBe("a b c");
+    expect(visible(regionHtml(render([carrier({ headline: "a&nbsp;b" })]).slots[0]!.html, "lg-banner-headline"))).toBe("a b");
   });
 
   it("double-encoded copy reads the same in the headline as in the description", () => {
