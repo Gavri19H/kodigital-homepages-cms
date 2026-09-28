@@ -2389,8 +2389,12 @@ export function funnelChromeCss(
       width: "160px",
       height: "72px",
     }),
-    // reference `.offer-content { width: 100% }`.
-    rule(`${scope} .lg-banner-content`, { width: "100%" }),
+    // reference `.offer-content { width: 100% }`. overflow-wrap: provider copy
+    // arrives verbatim (OWNER 2026-09-28: NextInsure descriptions end in a
+    // hidden pixel tag), and one long unbroken token — a URL, a tag broken by
+    // the provider — must wrap inside the card, never widen it past a phone
+    // screen.
+    rule(`${scope} .lg-banner-content`, { width: "100%", "min-width": "0", "overflow-wrap": "anywhere" }),
     rule(`${scope} .lg-banner-name`, {
       "font-size": banner.nameFontSize,
       "font-weight": banner.nameFontWeight,

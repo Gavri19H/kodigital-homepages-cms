@@ -1229,6 +1229,7 @@ function renderResponseParsingPanel(activeSchema: PayloadBuilderSchemaInfo | nul
     <div class="card-header"><h3 class="card-title">Response parsing</h3>
       <span class="form-help">carrier_parse_json versions WITH the payload schema (a column on the schema-version row)</span></div>
     <p class="form-help">Maps the provider response onto the canonical Carrier fields before the auction/banner layer sees it. Each field takes one or more dotted paths — comma-separated, first match wins. Saving creates the NEXT immutable schema version carrying this parser.</p>
+    <p class="form-help">A list of carriers is read item by item: with Carriers path empty, when the carrier's id or name and its bid or click URL all run through the same list at item 0 (e.g. <code>response.listingset.listing.0.cpc</code>), each item of that list becomes its own carrier; a field outside any list (e.g. <code>response.listingset.searchid</code>) is shared by all of them. If a field points into a different list, or at a specific item other than 0, the response is read as one carrier — set Carriers path to choose the list explicitly.</p>
     <div class="form-group">
       <label for="lg-parse-carriers-path" class="form-label">Carriers path</label>
       <input id="lg-parse-carriers-path" type="text" class="form-input" placeholder="carriers (empty = response root)" value="${escapeHtml(carriersPath)}" />
@@ -5168,6 +5169,12 @@ export const PAYLOAD_BUILDER_SCRIPT = `
     thead.appendChild(headRow);
     table.appendChild(thead);
     var tbody = document.createElement('tbody');
+    // An answer that names one carrier twice (same carrier_key) is ONE card in
+    // the funnel, built from its FIRST row (engine.ts firstPerCarrierKey) —
+    // say so, or a repeat row's bid looks like it should lead the auction.
+    var firstRow = {};
+    var repeatNotes = [];
+    var key;
     for (i = 0; i < carriers.length; i++) {
       tr = document.createElement('tr');
       for (j = 0; j < CARRIER_COLUMNS.length; j++) {
@@ -5177,9 +5184,20 @@ export const PAYLOAD_BUILDER_SCRIPT = `
         tr.appendChild(td);
       }
       tbody.appendChild(tr);
+      key = carriers[i] ? carriers[i].carrier_key : undefined;
+      if (typeof key === 'string') {
+        if (Object.prototype.hasOwnProperty.call(firstRow, key)) {
+          repeatNotes.push('Row ' + (i + 1) + ' repeats carrier ' + key + ' (row ' + firstRow[key] + '). The funnel shows this carrier once, with row ' + firstRow[key] + '\\u2019s copy, bid and link.');
+        } else {
+          firstRow[key] = i + 1;
+        }
+      }
     }
     table.appendChild(tbody);
     box.appendChild(table);
+    for (i = 0; i < repeatNotes.length; i++) {
+      textP(box, 'form-help', repeatNotes[i]);
+    }
   }
 
   // §10.5: chips for every discovered response field; flag REQUIRED

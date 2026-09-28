@@ -568,7 +568,8 @@ const BANNER_NEW_LOGO_RULES =
   `${DEFAULT_FUNNEL_SCOPE} .lg-banner-logo{width:${defaultFunnelDesign.banner.logoWidth};` +
   `height:${defaultFunnelDesign.banner.logoHeight};object-fit:contain;margin:0 auto}\n` +
   `${DEFAULT_FUNNEL_SCOPE} .lg-banner[data-recommended="true"] .lg-banner-logo{width:160px;height:72px}\n` +
-  `${DEFAULT_FUNNEL_SCOPE} .lg-banner-content{width:100%}\n`;
+  // OWNER 2026-09-28: long provider tokens wrap inside the card (min-width/overflow-wrap)
+  `${DEFAULT_FUNNEL_SCOPE} .lg-banner-content{width:100%;min-width:0;overflow-wrap:anywhere}\n`;
 const BANNER_NEW_TEXT_RULES =
   `${DEFAULT_FUNNEL_SCOPE} .lg-banner-headline{font-size:0.875rem;color:${defaultFunnelDesign.page.textSecondaryColor}}\n` +
   `${DEFAULT_FUNNEL_SCOPE} .lg-banner-subheadline{font-size:0.875rem;color:${defaultFunnelDesign.page.textLightColor};` +

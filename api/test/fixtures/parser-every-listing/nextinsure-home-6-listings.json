@@ -1,0 +1,80 @@
+{
+ "response": {
+  "listingset": {
+   "numListingsReturned": "6",
+   "statecode": "MN",
+   "state": "Minnesota",
+   "zipcode": "55101",
+   "searchid": "search-REDACTED-1",
+   "featuredBuyerMatch": "0",
+   "listing": [
+    {
+     "rank": "1",
+     "displayname": "Contactability",
+     "company": "Contactability - 32485",
+     "cpc": "5.85",
+     "title": "Compare Home Insurance Rates in Minnesota",
+     "description": "<ul><li>Lowest Home Insurance Rates in Minnesota</li><li>Plans starting at $39/mo</li><li>Compare Top Rated Carriers in Minutes</li><li>We are available 24/7</li></ul><img src=\"https://www.nextinsure.com/ListingDisplay/handle?REDACTED1\" alt=\"none\" style=\"display:none;\">",
+     "logo": "https://cdn.example/logo-1.png",
+     "clickurl": "https://www.nextinsure.com/ListingDisplay/Click/?I=REDACTED1",
+     "datapass_available": "0"
+    },
+    {
+     "rank": "2",
+     "displayname": "Farmers",
+     "company": "Farmers Insurance Group",
+     "cpc": "3.45",
+     "title": "FastQuote\u00ae From Farmers",
+     "description": "<ul><li>Start your Home Insurance FastQuote\u00ae now!</li><li>You could save up to $476</li><li>Discounts for home improvements, multi-policies and more.</li></ul><img src=\"https://www.nextinsure.com/ListingDisplay/handle?REDACTED2\" alt=\"none\" style=\"display:none;\">",
+     "logo": "https://cdn.example/logo-2.png",
+     "clickurl": "https://www.nextinsure.com/ListingDisplay/Click/?I=REDACTED2",
+     "datapass_available": "1"
+    },
+    {
+     "rank": "3",
+     "displayname": "ultimateinsurance.com",
+     "company": "ultimateinsurance.com (32925110)",
+     "cpc": "3.11",
+     "title": "Home Insurance in Minnesota: Save up to *50%*",
+     "description": "<ul><li>See How Much You Can Save Today</li><li>Compare Top Carriers in Minutes </li><li>Click Here to Check Best Rates</li></ul><img src=\"https://www.nextinsure.com/ListingDisplay/handle?REDACTED3\" alt=\"none\" style=\"display:none;\">",
+     "logo": "https://cdn.example/logo-3.png",
+     "clickurl": "https://www.nextinsure.com/ListingDisplay/Click/?I=REDACTED3",
+     "datapass_available": "0"
+    },
+    {
+     "rank": "4",
+     "displayname": "QuotesMatch.com",
+     "company": "AgileRates, LLC (Buyer)",
+     "cpc": "2.48",
+     "title": "Home Insurance as low as $38/month",
+     "description": "<ul><li>Single-Family, Townhome &amp; Condo insurance</li><li>Fire, Liability &amp; Storm coverage</li><li>Find the right plan for your home</li><li>Match with an A+ rated company today</li></ul><img src=\"https://www.nextinsure.com/ListingDisplay/handle?REDACTED4\" alt=\"none\" style=\"display:none;\">",
+     "logo": "https://cdn.example/logo-4.png",
+     "clickurl": "https://www.nextinsure.com/ListingDisplay/Click/?I=REDACTED4",
+     "datapass_available": "1"
+    },
+    {
+     "rank": "5",
+     "displayname": "CheaperQuotes",
+     "company": "Rio-Technologies (32638310)",
+     "cpc": "2.42",
+     "title": "Minnesota: Save up to *50%* on Your Home Insurance!",
+     "description": "<ul><li>See How Much You Can Actually Save in Minnesota</li><li>Compare Over 20 Carriers in Minutes in One Site</li><li>Easy, Fast &amp; 100% Free. Click Here to Check Discounts You are Eligible For!</li></ul><img src=\"https://www.nextinsure.com/ListingDisplay/handle?REDACTED5\" alt=\"none\" style=\"display:none;\">",
+     "logo": "https://cdn.example/logo-5.png",
+     "clickurl": "https://www.nextinsure.com/ListingDisplay/Click/?I=REDACTED5",
+     "datapass_available": "0"
+    },
+    {
+     "rank": "6",
+     "displayname": "Union Square Media",
+     "company": "Union Square Media (33141310)",
+     "cpc": "1.75",
+     "title": "Fast, Easy Home Insurance",
+     "description": "<ul><li>Quotes from top rated insurance companies</li><li>Bundle home and auto for additional savings</li><li>Get started now</li></ul><img src=\"https://www.nextinsure.com/ListingDisplay/handle?REDACTED6\" alt=\"none\" style=\"display:none;\">",
+     "logo": "https://cdn.example/logo-6.png",
+     "clickurl": "https://www.nextinsure.com/ListingDisplay/Click/?I=REDACTED6",
+     "datapass_available": "0"
+    }
+   ]
+  }
+ }
+}
