@@ -3755,7 +3755,12 @@ export const SECTION_STUDIO_STYLES = `
    so the one-column layout was 1378px wide inside a 375px screen. minmax(0,1fr) +
    min-width:0 lets every pane shrink to the screen; wide content wraps or scrolls
    INSIDE its own pane. */
-@media (max-width:760px){.studio-root{overflow-x:hidden}.studio-root .studio-topbar,.studio-root .studio-toolbar{flex-wrap:wrap;row-gap:6px}.studio-root [style*="display:flex"]{flex-wrap:wrap;row-gap:6px}.studio-root [style*="margin-left:auto"]{margin-left:0 !important}.studio-root .studio-tabs{height:auto !important;min-height:42px;flex-wrap:wrap}.studio-root iframe:not(.studio-canvas-frame){max-width:100%}.studio-root .lg-choice-row{flex-wrap:wrap}.studio-root #lg-section-form>div{flex:1 1 100% !important;max-width:none !important;padding-bottom:0 !important}}
+@media (max-width:760px){.studio-root{overflow-x:hidden}.studio-root .studio-topbar,.studio-root .studio-toolbar{flex-wrap:wrap;row-gap:6px}.studio-root [style*="display:flex"]{flex-wrap:wrap;row-gap:6px}.studio-root [style*="margin-left:auto"]{margin-left:0 !important}.studio-root .studio-tabs{height:auto !important;min-height:42px;flex-wrap:wrap}.studio-root iframe:not(.studio-canvas-frame){max-width:100%}.studio-root .lg-choice-row{flex-wrap:wrap}.studio-root #lg-section-form>div{flex:1 1 100% !important;max-width:none !important;padding-bottom:0 !important}.studio-root .studio-cell-canvas{padding-left:0 !important;padding-right:0 !important;border-left-width:0 !important;border-right-width:0 !important;border-radius:0 !important}.studio-root .studio-canvas-surface{padding-left:0 !important;padding-right:0 !important;border-radius:0 !important}}
+/* review F3: on a phone the canvas spans the screen edge to edge, so the 375
+   Mobile preview it opens in fits a 375 screen (the card and surface paddings
+   left it a 325px pane). review F10: at 1024-1399px the toolbar's controls take
+   their own row instead of scattering over three with dangling dividers. */
+@media (max-width:1399px){.studio-toolbar [data-studio-toolbar-actions]{flex-basis:100%;margin-left:0 !important}.studio-toolbar [data-studio-toolbar-actions]>div[style*="width:1px"]{display:none}}
 /* review M5: the headline/subheadline boxes were flex:1.5/1.2 (basis 0), so on a
    phone they shrank to ~84px side by side instead of wrapping — each takes the
    full row there. The canvas frame keeps its real 1280/375 viewport (DEV-66) and
@@ -4477,28 +4482,44 @@ export const SECTION_STUDIO_SCRIPT = `
   }
   // Called AFTER every model mutation (afterModelChange): pushes the PREVIOUS
   // snapshot, caps the stack, and invalidates the redo branch.
-  // OWNER 2026-09-28 (review M2): a snapshot is the content tree PLUS every
-  // Offer's per-choice value lists (and which saved values each question had
-  // when it opened) — a rename carries a choice's provider values, so Undo must
-  // take them back with it, or the choice is left "not sent".
+  // OWNER 2026-09-28 (review M2, F2): a snapshot is the content tree PLUS the
+  // whole Offer mapping (every edge with its per-choice value list, and the
+  // selected Offers) and which saved values each question had when it opened.
+  // A rename carries a choice's provider values, so Undo must take them back
+  // with it; and an Offers-tab mapping edit is an undo step of its own, so a
+  // restore never has to match edges that changed since.
   function historyState() {
-    var lists = [], i, e, maps = state.answer_maps || [];
-    for (i = 0; i < maps.length; i++) {
-      e = maps[i];
-      if (!e) { continue; }
-      lists.push([e.offer_id + '|' + e.offer_payload_field_path + '|' + e.internal_field, e.output_value_map && typeof e.output_value_map === 'object' ? e.output_value_map : null]);
-    }
-    return JSON.stringify({ c: state.content, v: lists, b: (typeof providerBaseline !== 'undefined' && providerBaseline) || {} });
+    return JSON.stringify({
+      c: state.content,
+      m: state.answer_maps || [],
+      s: state.selected_offers || [],
+      b: (typeof providerBaseline !== 'undefined' && providerBaseline) || {}
+    });
   }
-  function restoreValueLists(lists) {
-    var byKey = {}, i, e, key, maps = state.answer_maps || [];
-    for (i = 0; i < (lists || []).length; i++) { byKey[lists[i][0]] = lists[i][1]; }
-    for (i = 0; i < maps.length; i++) {
-      e = maps[i];
-      if (!e) { continue; }
-      key = e.offer_id + '|' + e.offer_payload_field_path + '|' + e.internal_field;
-      if (Object.prototype.hasOwnProperty.call(byKey, key)) { e.output_value_map = byKey[key]; }
-    }
+  function restoreMappings(snap) {
+    var i;
+    if (!state.answer_maps) { state.answer_maps = []; }
+    if (!state.selected_offers) { state.selected_offers = []; }
+    // in place: other code holds these arrays
+    state.answer_maps.length = 0;
+    for (i = 0; i < (snap.m || []).length; i++) { state.answer_maps.push(snap.m[i]); }
+    state.selected_offers.length = 0;
+    for (i = 0; i < (snap.s || []).length; i++) { state.selected_offers.push(snap.s[i]); }
+    // the stale-key notes point at edge objects the restore replaced; they are
+    // re-derived from the restored mapping on the next Offers repaint
+    if (typeof answerKeyRepairs !== 'undefined') { answerKeyRepairs = {}; }
+  }
+  // Typing in one box is ONE undo step, however many keystrokes (and however
+  // many model writes each makes — a saved value also moves the analytics id
+  // that follows it): review F1, where one Undo left a pasted rename half
+  // undone. A new step starts when another box (or any control) is used.
+  var lastPushFocus = null;
+  function typingFocus() {
+    var f = typeof document !== 'undefined' ? document.activeElement : null;
+    var tag = f && f.tagName ? String(f.tagName).toUpperCase() : '';
+    if (tag === 'TEXTAREA') { return f; }
+    if (tag === 'INPUT' && !/^(checkbox|radio|button|submit|reset|range|color|file|image)$/i.test(String(f.type || ''))) { return f; }
+    return null;
   }
   // Fold a change that belongs to the LAST step (the value lists a rename
   // carried) into that step, so one Undo takes both back.
@@ -4509,10 +4530,17 @@ export const SECTION_STUDIO_SCRIPT = `
   function historyPush() {
     var now = historyState();
     if (now === lastSnapshot) { return false; }
+    var typing = typingFocus();
+    if (typing !== null && typing === lastPushFocus && undoStack.length > 0 && redoStack.length === 0) {
+      lastSnapshot = now;
+      updateHistoryButtons();
+      return true;
+    }
     undoStack.push(lastSnapshot);
     if (undoStack.length > UNDO_LIMIT) { undoStack.shift(); }
     redoStack.length = 0;
     lastSnapshot = now;
+    lastPushFocus = typing;
     updateHistoryButtons();
     return true;
   }
@@ -4521,14 +4549,18 @@ export const SECTION_STUDIO_SCRIPT = `
     undoStack.length = 0;
     redoStack.length = 0;
     lastSnapshot = historyState();
+    lastPushFocus = null;
+    if (typeof clearHeldRenames !== 'undefined') { clearHeldRenames(); }
     updateHistoryButtons();
   }
   function restoreSnapshot(snapshot) {
     var snap = JSON.parse(snapshot);
     state.content = snap.c;
-    restoreValueLists(snap.v);
+    restoreMappings(snap);
     if (typeof providerBaseline !== 'undefined') { providerBaseline = snap.b || {}; }
     lastSnapshot = snapshot;
+    lastPushFocus = null;
+    if (typeof clearHeldRenames !== 'undefined') { clearHeldRenames(); }
     if (selectedQuestionId !== null && findRef(selectedQuestionId) === null) { selectedQuestionId = null; }
     refreshAfterHistory();
   }
@@ -4558,6 +4590,8 @@ export const SECTION_STUDIO_SCRIPT = `
     updateHistoryButtons();
     scheduleCanvasRender();
     selectComponent(selectedQuestionId);
+    // the mapping came back too: repaint every surface that reads it
+    if (typeof renderOffersPanel !== 'undefined') { renderOffersPanel(); }
   }
 
   // --- FIX 4b: pure per-type gates for the dead-write style controls -------------
@@ -7190,6 +7224,25 @@ export const SECTION_STUDIO_SCRIPT = `
   }
   // §6.1.4: the frame element IS the canvas viewport — Desktop 1280 /
   // Mobile 375 (the ui-quotes setCanvasDoc idiom).
+  // OWNER 2026-09-28 (open item 1, review F3): the frame is the real 1280/375
+  // viewport inside a narrower pane, with the Section's content centered in
+  // it — so the pane opened scrolled to the frame's empty left edge and the
+  // selected question was off to the right (0% visible at 1024). When the
+  // selection (or the viewport) changes and the question is not fully in view,
+  // the pane scrolls sideways to it: centered, or its start when wider.
+  var lastCenteredQid = null;
+  function centerCanvasSelection(el, qid) {
+    if (!el || qid === null || qid === lastCenteredQid) { return; }
+    var surface = document.getElementById('lg-studio-canvas');
+    var frame = canvasFrameEl();
+    if (!surface || !frame || !el.getBoundingClientRect || !surface.getBoundingClientRect || !frame.getBoundingClientRect) { return; }
+    lastCenteredQid = qid;
+    var sr = surface.getBoundingClientRect(), fr = frame.getBoundingClientRect(), qr = el.getBoundingClientRect();
+    var left = fr.left + qr.left, right = fr.left + qr.right;
+    if (left >= sr.left && right <= sr.right) { return; }
+    var shift = (right - left) > sr.width ? left - sr.left - 8 : (left + right) / 2 - (sr.left + sr.right) / 2;
+    surface.scrollLeft = Math.max(0, surface.scrollLeft + shift);
+  }
   function updateCanvasFrameViewport() {
     var frame = canvasFrameEl();
     if (!frame) { return; }
@@ -8263,9 +8316,10 @@ export const SECTION_STUDIO_SCRIPT = `
     clearSelectionChrome(region);
     var nodes = region.querySelectorAll('[data-question-id]');
     var qid, base, ref, nodeType, chromeKind;
-    var selEl = null, selKind = null, selNode = null, selQid = null;
+    var selEl = null, selKind = null, selNode = null, selQid = null, selAny = null;
     for (i = 0; i < nodes.length; i++) {
       qid = nodes[i].getAttribute('data-question-id');
+      if (qid === selectedQuestionId && selAny === null) { selAny = nodes[i]; }
       ref = findRef(qid);
       chromeKind = (qid === selectedQuestionId && ref) ? selectionChromeKind(ref.node) : null;
       // R7 U11a: EVERY canvas node is draggable="false" now. Native HTML5 DnD
@@ -8324,6 +8378,7 @@ export const SECTION_STUDIO_SCRIPT = `
       reopenScrollPending = false;
       selEl.scrollIntoView({ block: 'center', inline: 'nearest' });
     }
+    if (typeof centerCanvasSelection !== 'undefined') { centerCanvasSelection(selAny, selectedQuestionId); }
     // R2 P8 M6/R4: the canvas now paints the RESTING state, so a question a
     // dependency hides is not on it. Keep it reachable to AUTHOR — outside the
     // previewed surface (see updateCanvasHiddenList). typeof-guarded like
@@ -12436,7 +12491,23 @@ export const SECTION_STUDIO_SCRIPT = `
   }
   // What the status line says while a box is being typed in: the value that
   // WILL be sent (an empty box sends the saved value) and whether it can be.
+  // The edges as they will be once a typed value is applied: a mapping with
+  // no value list gets one (applying a value writes the whole list), which is
+  // what cures a type problem caused by the saved values (review F8).
+  function edgesWithTypedList(edges, typed) {
+    var out = [], i, e, copy, k;
+    for (i = 0; i < edges.length; i++) {
+      e = edges[i];
+      if (typed === '' || (e.output_value_map && typeof e.output_value_map === 'object' && Object.keys(e.output_value_map).length > 0)) { out.push(e); continue; }
+      copy = {};
+      for (k in e) { if (hasOwn(e, k)) { copy[k] = e[k]; } }
+      copy.output_value_map = { typed: typed };
+      out.push(copy);
+    }
+    return out;
+  }
   function typingStateFor(offerId, edges, typed, saved) {
+    edges = edgesWithTypedList(edges, typed);
     var blocked = boxUnsendable(offerId, edges, null);
     if (blocked.indexOf('blocked:') === 0) { return { kind: 'blocked', text: 'not sent \\u2014 ' + blocked.slice(9) }; }
     var send = typed === '' ? saved : typed;
@@ -12486,9 +12557,36 @@ export const SECTION_STUDIO_SCRIPT = `
     if (committed !== '') {
       var carried = carryProviderValues(internalField, committed, now);
       if ((renameProviderBaseline(live, committed, now) || carried) && typeof historyAbsorb !== 'undefined') { historyAbsorb(); }
+      if (typeof releaseHeldRenames !== 'undefined') { releaseHeldRenames(live, internalField, committed); }
     }
     return now;
   }
+  // A rename held back because another choice had the value (review F6):
+  // it completes when that other choice renames away from it — judged at
+  // that commit, never per keystroke, and only while the held row is still
+  // on screen holding the value.
+  var heldRenames = [];
+  function holdRename(row, node, internalField, committed, now) {
+    var i;
+    for (i = heldRenames.length - 1; i >= 0; i--) { if (heldRenames[i].row === row) { heldRenames.splice(i, 1); } }
+    if (committed !== '' && now !== '' && committed !== now && node && node.question_id) {
+      heldRenames.push({ row: row, qid: node.question_id, field: internalField, from: committed, to: now });
+    }
+  }
+  function releaseHeldRenames(node, internalField, freed) {
+    var i, h, next, due = [];
+    for (i = heldRenames.length - 1; i >= 0; i--) {
+      h = heldRenames[i];
+      if (!node || h.qid !== node.question_id || h.field !== internalField || h.to !== freed) { continue; }
+      heldRenames.splice(i, 1);
+      if (h.row.holding(h.to)) { due.push(h); }
+    }
+    for (i = 0; i < due.length; i++) {
+      next = commitChoiceRename(node, due[i].field, due[i].from, due[i].to);
+      if (next === due[i].to) { due[i].row.setCommitted(next); }
+    }
+  }
+  function clearHeldRenames() { heldRenames = []; }
   // A provider value applied on the Content tab is its own undo step. Like
   // any other edit it retires a pending element-delete toast (its Undo would
   // otherwise revert THIS edit while labeled for the deletion).
@@ -12599,8 +12697,13 @@ export const SECTION_STUDIO_SCRIPT = `
           // repaint this row's state in place (a refresh never rebuilds a box)
           painters.push(function () {
             if (document.activeElement === input || input.getAttribute('aria-invalid') === 'true') { return; }
-            var rsp = rowState(offerId, edges, currentValue());
-            paintState(stateEl, rsp.v, currentValue(), '', rsp.unsendable);
+            var cur = currentValue();
+            var rsp = rowState(offerId, edges, cur);
+            // the box too, not only its line (review F4: after a rename the
+            // boxes stayed empty while the lines said "sends 58000")
+            input.value = rsp.v.state === 'custom' ? rsp.v.value : '';
+            input.placeholder = rsp.v.state === 'missing' ? 'not sent' : cur;
+            paintState(stateEl, rsp.v, cur, '', rsp.unsendable);
           });
           // typing only CHECKS; the value is applied when the box is left (or
           // Enter) — a refused value never leaves a half-typed one behind
@@ -12670,12 +12773,17 @@ export const SECTION_STUDIO_SCRIPT = `
     // this choice: nothing moves and the row keeps carrying from its last good
     // value (review M1: fixing such a collision took the OTHER choice's values).
     var committed = initial;
+    var heldRow = {
+      holding: function (value) { return !!rowEl && rowEl.isConnected !== false && currentValue() === value; },
+      setCommitted: function (value) { committed = value; }
+    };
     if (rowEl && rowEl.addEventListener) {
       rowEl.addEventListener('change', function (ev) {
         var t = ev.target && ev.target.getAttribute ? ev.target : null;
         var f = t ? (t.getAttribute('data-choice-field') || t.getAttribute('data-other-field')) : null;
         if (f !== 'value' && f !== 'label') { return; }
         committed = commitChoiceRename(node, internalField, committed, currentValue());
+        holdRename(heldRow, node, internalField, committed, currentValue());
         setTimeout(refreshProviderChips, 0);
       });
     }
@@ -15344,6 +15452,7 @@ export const SECTION_STUDIO_SCRIPT = `
       // design's @media rules evaluate at the real width (375/1280), then
       // fetch the server render for that viewport.
       updateCanvasFrameViewport();
+      lastCenteredQid = null;
       renderCanvasNow();
     });
   }
@@ -16781,6 +16890,11 @@ export const SECTION_STUDIO_SCRIPT = `
           bad.join(', ') + (bad.length === 1 ? ' is not' : ' are not') + ' that \\u2014 change ' +
           (bad.length === 1 ? 'it' : 'them') + ' under Answer format, or give this Offer its own values under each choice\\u2019s Provider values (Content tab)';
       }
+      // review F5: per-choice values can't fix this one (the answer is still a list)
+      if (answerNode === 'array') {
+        return 'this answer can hold several choices and the buyer wants ' + wants +
+          ' \\u2014 only a text field (sent comma-separated) or a list field can take it; pick another field';
+      }
       return 'this answer is ' + plainTypeWords({ type: (edge && edge.answer_type) || 'string' }) +
         ' and the buyer wants ' + wants +
         ' \\u2014 pick another field, or give this Offer its own values under each choice\\u2019s Provider values (Content tab)';
@@ -17087,7 +17201,7 @@ export const SECTION_STUDIO_SCRIPT = `
     return found;
   }
   function repairStaleAnswerKeys() {
-    var i, e, node, keys, k, known, rep;
+    var i, e, node, keys, k, known, rep, movedAny = false;
     for (i = 0; i < state.answer_maps.length; i++) {
       e = state.answer_maps[i];
       if (!e) { continue; }
@@ -17105,10 +17219,14 @@ export const SECTION_STUDIO_SCRIPT = `
         e.internal_field = keys[0].key;
         e.answer_type = keys[0].answer_type || 'string';
         markDirty();
+        movedAny = true;
       } else if (rep.stale.indexOf(e) === -1) {
         rep.stale.push(e);
       }
     }
+    // an automatic repair is part of the page as it stands, never a step an
+    // Undo could take back (that would bring the dead key back)
+    if (movedAny && typeof historyAbsorb !== 'undefined') { historyAbsorb(); }
   }
   // One Offer x one field this answer fills: the picker + its status. 'edge' is
   // null for the empty "pick a field" slot. A field another picker of THIS
@@ -17538,6 +17656,7 @@ export const SECTION_STUDIO_SCRIPT = `
         var gi = gone ? state.answer_maps.indexOf(gone) : -1;
         if (gi !== -1) { state.answer_maps.splice(gi, 1); markDirty(); }
         if (repair && gone) { repair.stale.splice(repair.stale.indexOf(gone), 1); }
+        historyPushSideEdit();
         renderOffersPanel();
         return;
       }
@@ -17605,6 +17724,7 @@ export const SECTION_STUDIO_SCRIPT = `
         var at = state.selected_offers.indexOf(offer.id);
         if (at !== -1) { state.selected_offers.splice(at, 1); markDirty(); }
       }
+      historyPushSideEdit();
       renderOffersPanel();
     });
   }
@@ -18371,6 +18491,12 @@ export const SECTION_STUDIO_SCRIPT = `
   // decoration/breadcrumb/inspector-population/scope-header/toolbar in one call.
   reopenScrollPending = reopenedSelectionId() !== null;
   selectComponent(reopenedSelectionId() || findDefaultSelectionId());
+  // OWNER 2026-09-28 (open item 1, review F3): on a phone the canvas opens in
+  // the Mobile preview; the 1280 desktop frame is mostly off a 375 screen.
+  if (window.innerWidth && window.innerWidth <= 760 && canvasViewport !== 'mobile') {
+    var phoneViewportBtn = document.querySelector('[data-canvas-viewport="mobile"]');
+    if (phoneViewportBtn) { phoneViewportBtn.click(); }
+  }
   (function () {
     var tab = null;
     try { tab = new URLSearchParams(window.location.search).get('tab'); } catch (e) { tab = null; }

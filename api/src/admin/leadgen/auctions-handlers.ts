@@ -1696,6 +1696,12 @@ export async function auctionSimulateHandler(c: AdminContext): Promise<Response>
     bundle.offers.map((b) => b.offer.id),
     sampleAnswers,
   );
+  // review F7: and per Offer — from the Sections that map THAT Offer, so an
+  // answer two Sections calculate differently previews each Offer's own date.
+  const sampleComputedByOffer = new Map<number, Record<string, string>>();
+  for (const offerId of [...new Set(bundle.offers.map((b) => b.offer.id))]) {
+    sampleComputedByOffer.set(offerId, await sampleAnswerComputed(c.env.DB, [offerId], sampleAnswers));
+  }
 
   const result = await runAuction(
     c.env,
@@ -1714,6 +1720,7 @@ export async function auctionSimulateHandler(c: AdminContext): Promise<Response>
       raw_answers: {},
       normalizedAnswersOverride: sampleAnswers,
       answerComputedOverride: sampleComputed,
+      answerComputedByOffer: sampleComputedByOffer,
       answerBindingsFromAllSections: true,
       request_context: context,
       // 04 §4.7: the dry-run builds its runtime context from the admin
@@ -1844,7 +1851,7 @@ export async function auctionSimulateHandler(c: AdminContext): Promise<Response>
             buildPayload(parsedSchema, {
               answers: sampleAnswers,
               answer_bindings: previewBindings.get(r.offer_row_id) ?? {},
-              answer_computed: sampleComputed,
+              answer_computed: sampleComputedByOffer.get(r.offer_row_id) ?? sampleComputed,
               macros: offerCtx.macros,
               computed: offerCtx.computed,
               offer: { offer_id: r.offer_public_id, placement_id: externalPlacement },

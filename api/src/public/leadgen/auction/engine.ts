@@ -788,6 +788,11 @@ export interface RunAuctionInput {
   // posted every provider an answer-less body while the preview showed the
   // answers. The live route never sets it.
   answerBindingsFromAllSections?: boolean;
+  // Admin dry-run (/simulate) only: each Offer's calculated dates from the
+  // Sections that map THAT Offer (review F7: one answer key calculated
+  // differently by two Sections previewed the other Offer's date). Falls back
+  // to the shared answerComputed for an Offer not in the map.
+  answerComputedByOffer?: ReadonlyMap<number, Readonly<Record<string, string>>>;
 }
 
 export type RunAuctionStatus = "ok" | "tampered" | "disqualified" | "redirect" | "unfilled" | "no_bid";
@@ -1436,7 +1441,7 @@ export async function runAuction(
         ctx: {
           answers: normalizedAnswers,
           answer_bindings: answerBindings.get(b.offer.id) ?? {},
-          answer_computed: answerComputed,
+          answer_computed: input.answerComputedByOffer?.get(b.offer.id) ?? answerComputed,
           macros: ctx.macros,
           computed: ctx.computed,
           offer: ctx.offer,
