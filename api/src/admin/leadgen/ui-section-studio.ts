@@ -10171,20 +10171,22 @@ export const SECTION_STUDIO_SCRIPT = `
       if (live.state !== 'not_selected') { selected.push(offer); }
     }
     if (selected.length === 0) { card.hidden = true; return; }
-    var mappedCount = 0, fieldLabel = '', j, edges, e, f;
+    // OWNER 2026-09-28: an answer can fill several fields, and each Offer names
+    // its own — so every distinct field is named (the first three, then "+N
+    // more"), not just the first one found.
+    var mappedCount = 0, labels = [], seenLabel = {}, j, edges, e, f, label, onThisOffer;
     for (i = 0; i < selected.length; i++) {
       edges = edgesForOffer(selected[i].id);
+      onThisOffer = false;
       for (j = 0; j < edges.length; j++) {
         e = edges[j];
-        if (e.internal_field === node.internal_field) {
-          mappedCount += 1;
-          if (fieldLabel === '') {
-            f = answerFieldOf(selected[i], e.offer_payload_field_path);
-            fieldLabel = f ? fieldDisplayLabel(f) : e.offer_payload_field_path;
-          }
-          break;
-        }
+        if (e.internal_field !== node.internal_field) { continue; }
+        onThisOffer = true;
+        f = answerFieldOf(selected[i], e.offer_payload_field_path);
+        label = f ? fieldDisplayLabel(f) : e.offer_payload_field_path;
+        if (seenLabel[label] !== true) { seenLabel[label] = true; labels.push(label); }
       }
+      if (onThisOffer) { mappedCount += 1; }
     }
     if (mappedCount === 0) { card.hidden = true; return; }
     card.hidden = false;
@@ -10192,7 +10194,9 @@ export const SECTION_STUDIO_SCRIPT = `
       clearChildren(textEl);
       textEl.appendChild(document.createTextNode('This answer fills '));
       var b = document.createElement('b');
-      b.appendChild(document.createTextNode(fieldLabel || node.internal_field));
+      var shownLabels = labels.slice(0, 3).join(', ') + (labels.length > 3 ? ' +' + (labels.length - 3) + ' more' : '');
+      b.appendChild(document.createTextNode(shownLabels || node.internal_field));
+      b.title = labels.join(', ');
       textEl.appendChild(b);
       textEl.appendChild(document.createTextNode(
         mappedCount === selected.length
@@ -16622,6 +16626,10 @@ export const SECTION_STUDIO_SCRIPT = `
     // once, at the top of the save-click handler, using the STALE pre-save
     // capture. Single source now: whichever offersData is live drives it.
     renderZeroOffersWarning();
+    // The Content tab's "This answer fills …" card reads the same live model.
+    // It was filled only on selection, so the question selected before the
+    // Offers loaded never got it and a mapping edit never updated it.
+    populateConnectOffersCard(selectedNode());
     // §12.3: the canvas overlay chips derive from the SAME live model — every
     // mapping edit repaints them (decoration is rebuild-per-pass idempotent).
     applyCanvasDecoration();
