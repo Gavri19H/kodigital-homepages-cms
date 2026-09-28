@@ -3526,7 +3526,7 @@ export function renderStudioDrawer(summary: StudioMappingSummary, answerMapCount
       <!-- OWNER 2026-09-28 (review o3): the preview's own sample answers, visible
            without QA tools and prefilled from this Section's questions. -->
       <div class="studio-payload-sample" data-studio-payload-sample>
-        <label class="form-label" for="lg-payload-sample-answers">Sample answers (JSON, keyed by internal field) &#8212; prefilled with each question&#8217;s first value; edit and preview again</label>
+        <label class="form-label" for="lg-payload-sample-answers">Sample answers, one per answer field &#8212; prefilled with each question&#8217;s first value; edit and preview again</label>
         <textarea id="lg-payload-sample-answers" class="form-input" rows="4" data-studio-payload-sample-answers aria-label="Sample answers for the payload preview"></textarea>
         <button type="button" class="btn btn-sm btn-secondary" data-studio-payload-rerun>Preview with these answers</button>
         <p class="alert alert-error" data-studio-payload-sample-error hidden role="alert"></p>
@@ -3760,7 +3760,7 @@ export const SECTION_STUDIO_STYLES = `
    phone they shrank to ~84px side by side instead of wrapping — each takes the
    full row there. The canvas frame keeps its real 1280/375 viewport (DEV-66) and
    scrolls inside its pane. review M6: the canvas toolbar's controls wrap at every
-   width, so at 1024-1080px the More menu no longer slides under the inspector. */
+   width, so at 1024-1080px the More menu is no longer hidden under the inspector. */
 .studio-toolbar [data-studio-toolbar-actions]{flex-wrap:wrap;row-gap:6px;min-width:0;max-width:100%}
 .lg-choice-cell[data-choice-cell="value"]{flex-basis:196px}
 .lg-editor-spacer{flex:1}
