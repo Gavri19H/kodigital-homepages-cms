@@ -8617,6 +8617,28 @@ describeDb("OWNER 2026-09-28 review round 1 — answer keys, Other values, typed
     expect(probe.run(`providerChipLabel('${REVENUE_FIELD}', '600000')`)).toBe("Provider values: 0/1 Offers \u00b7 1 not sent");
   });
 
+  it("review o1: the Section payload preview builds from the mappings the live request uses — a type-mismatched field is not in it", async () => {
+    const { env, section, probe, offers } = await setupWith(MULTI_CONTENT, [
+      ["Annual Co", [{ path: "rev_num", type: "number" }, { path: "rev_txt", type: "string" }]],
+    ]);
+    const o = offers[0]!;
+    probe.run(`upsertEdge(offerById(${o.id}), answerFieldOf(offerById(${o.id}), 'rev_num'), '${REVENUE_FIELD}')`);
+    probe.run(`upsertEdge(offerById(${o.id}), answerFieldOf(offerById(${o.id}), 'rev_txt'), '${REVENUE_FIELD}', null)`);
+    // the number mapping goes stale: its declared type no longer matches the field
+    probe.run("state.answer_maps[0].provider_expected_type = 'boolean';");
+    const saved = await save(env, section, probe);
+    const maps = saved["answer_maps"] as Array<{ offer_payload_field_path: string; mapping_status: string }>;
+    expect(maps.find((m) => m.offer_payload_field_path === "rev_num")?.mapping_status).toBe("type_mismatch");
+    expect(await preview(env, section, { [REVENUE_FIELD]: "600000" }, o.public_id)).toEqual({ rev_txt: "600000" });
+  });
+
+  it("review o3: the payload preview's own sample answers are prefilled from the Section's questions (first saved value; a sample ZIP)", async () => {
+    const { probe, island } = await setupWith(MULTI_CONTENT, []);
+    probe.run(sliceIslandFunction(island, "defaultPayloadSampleAnswers"));
+    expect(probe.run("defaultPayloadSampleAnswers()")).toEqual({ zip: "90210", [REVENUE_FIELD]: "600000" });
+    expect(island).toContain("body: JSON.stringify({ answers: answers, offers: [offer.public_id] })");
+  });
+
   it("review M3: a multi-select mapped to a number field reads as a type problem (the rows say not sent) — into a text field it stays complete", async () => {
     const MULTI_SELECT = {
       components: [

@@ -633,6 +633,36 @@ describeDb("POST /offers/:id/payload/sample-answers — the universe needs no Of
   });
 });
 
+describeDb("POST /offers/:id/payload/sample-answers — a multi-select answer (review o2)", () => {
+  it("a multi-select question is a multi-pick: kind enum + multiple, its sample a LIST of option values", async () => {
+    const h = await harnessWithOffer();
+    linkSectionWithComponents(h);
+    const row = h.sdb.prepare("SELECT content_json FROM leadgen_sections WHERE public_id = 'lgs_sampletest01'").get() as { content_json: string };
+    const content = JSON.parse(row.content_json) as { components: unknown[] };
+    content.components.push({
+      type: "MultiChoiceCardGroup", question_id: "q-notes", internal_field: "notes",
+      choices: [
+        { label: "Fire", value: "fire", analytics_id: "fire" },
+        { label: "Flood", value: "flood", analytics_id: "flood" },
+      ],
+    });
+    h.sdb.prepare("UPDATE leadgen_sections SET content_json = ? WHERE public_id = 'lgs_sampletest01'").run(JSON.stringify(content));
+    await activateSchema(h, sampleFixtureSchema());
+    const { status, body } = await generate(h);
+    expect(status).toBe(200);
+    const notes = body.fields.find((f) => f.internal_field === "notes") as SampleField & { multiple?: boolean };
+    expect(notes.kind).toBe("enum");
+    expect(notes.multiple).toBe(true);
+    expect(notes.options).toEqual([{ value: "fire", label: "Fire" }, { value: "flood", label: "Flood" }]);
+    expect(notes.sample).toEqual(["fire"]);
+    expect(body.answers["notes"]).toEqual(["fire"]);
+    // a single-select stays a single value
+    const carrier = body.fields.find((f) => f.internal_field === "carrier") as SampleField & { multiple?: boolean };
+    expect(carrier.multiple).toBeUndefined();
+    expect(carrier.sample).toBe("acme");
+  });
+});
+
 describeDb("PUT + POST /offers/:id/payload/sample-answers — per-Offer KV draft", () => {
   it("PUT persists {answers} under lg-testdraft:<lgo_> and POST merges the draft over generated", async () => {
     const h = await harnessWithOffer();
