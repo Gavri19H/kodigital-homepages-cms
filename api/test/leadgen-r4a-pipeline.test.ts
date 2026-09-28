@@ -978,7 +978,9 @@ describeDb("R4a S2-10 — Provider values 0/0 explainer", () => {
     const section = await createSection(env);
     const html = await studioPage(env, section.public_id);
     const island = studioIsland(html);
-    expect(island).toContain("Counts fill in after you select Offers for this section and map this field");
+    // OWNER 2026-09-28: the chip is now an editor over the answer's MAPPED Offers,
+    // so the 0/0 explainer says what makes it move in those terms.
+    expect(island).toContain("Map this answer to an Offer in the Offers tab to give each provider its own value.");
   });
 });
 

@@ -12153,7 +12153,7 @@ export const SECTION_STUDIO_SCRIPT = `
       rowsEl.setAttribute('data-choice-provider-rows', v);
       var ids = mappedOffersFor(internalField);
       if (ids.length === 0) { note('Map this answer to an Offer in the Offers tab first \\u2014 then each Offer can get its own value here.'); return; }
-      if (isMultiAnswer(node)) { note('Per-provider values work on single-choice questions; a multi-select sends its whole list.'); return; }
+      if (isMultiAnswer(node)) { note('Each Offer can get its own value on single-choice questions only \\u2014 a multi-select sends its whole list.'); return; }
       if (rowIsCalculated(rowEl, choice)) { note('Calculated date \\u2014 every provider receives the date.'); return; }
       if (v === '') { note('Give this choice a saved value first.'); return; }
       note('Empty box = the saved value (' + v + ') is sent.');
