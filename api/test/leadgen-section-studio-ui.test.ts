@@ -2532,7 +2532,7 @@ describeDb("section studio EXECUTED island — §8.7 mapping model (E2) + REAL s
       probe.run(`mapStateNote('type_mismatch', ${field}, offerById(7), { answer_type: 'string' })`),
     );
     expect(mismatch).toBe(
-      "this answer is text and the buyer wants yes or no — pick another field or set a value map on the Offer",
+      "this answer is text and the buyer wants yes or no — pick another field, or give this Offer its own values under each choice’s Provider values (Content tab)",
     );
     expect(mismatch).not.toContain("coercible");
     const orphaned = String(probe.run(`mapStateNote('orphaned', null, offerById(7), null)`));
@@ -2705,7 +2705,7 @@ describeDb("section studio EXECUTED island — §8.7 mapping model (E2) + REAL s
       probe.run(`mapStateNote('type_mismatch', answerFieldOf(offerById(7), 'ownhome'), offerById(7), state.answer_maps[0])`),
     );
     expect(note).toBe(
-      'this buyer wants number, and the saved values "yes", "no" are not that — change them under Answer format, or set a value map on the Offer',
+      'this buyer wants number, and the saved values "yes", "no" are not that — change them under Answer format, or give this Offer its own values under each choice’s Provider values (Content tab)',
     );
     // plain words only — never a schema id, never the word "coercible"
     expect(note).not.toContain("coercible");
@@ -2717,14 +2717,14 @@ describeDb("section studio EXECUTED island — §8.7 mapping model (E2) + REAL s
     expect(
       String(one.run(`mapStateNote('type_mismatch', answerFieldOf(offerById(7), 'ownhome'), offerById(7), state.answer_maps[0])`)),
     ).toBe(
-      'this buyer wants number, and the saved value "no" is not that — change it under Answer format, or set a value map on the Offer',
+      'this buyer wants number, and the saved value "no" is not that — change it under Answer format, or give this Offer its own values under each choice’s Provider values (Content tab)',
     );
 
     // An OPEN-ENDED answer has no saved values to name → the original line.
     const open = mappingProbe(html, MAPPABLE_CONTENT, { activity: "quote_funnel", vertical: "life", offers: [NUM_OFFER] }, [numEdge({ internal_field: "zip", question_id: "q2", answer_type: "string" })], [7]);
     expect(
       String(open.run(`mapStateNote('type_mismatch', answerFieldOf(offerById(7), 'ownhome'), offerById(7), state.answer_maps[0])`)),
-    ).toBe("this answer is text and the buyer wants number — pick another field or set a value map on the Offer");
+    ).toBe("this answer is text and the buyer wants number — pick another field, or give this Offer its own values under each choice’s Provider values (Content tab)");
   });
 
 });
@@ -7985,6 +7985,7 @@ const PROVIDER_VALUE_FUNCS = [
   "fillNewChoicesOnLists",
   "resetProviderBaseline",
   "fieldOptionLabelIn",
+  "edgesBlockedReason",
   "valuesNotSent",
   "providerChipRows",
   "providerChipLabel",
@@ -8174,7 +8175,7 @@ describeDb("OWNER 2026-09-28 review round 1 — answer keys, Other values, typed
     };
     const probe = mappingProbe(html, content, offersRes);
     const island = studioIsland(html);
-    probe.run([...PROVIDER_VALUE_FUNCS, "findQuestionByQid", "repairStaleAnswerKeys", "answerKeyPartLabel"].map((n) => sliceIslandFunction(island, n)).join("\n"));
+    probe.run([...PROVIDER_VALUE_FUNCS, "findQuestionByQid", "repairStaleAnswerKeys", "answerKeyPartLabel", "fixedFieldHint"].map((n) => sliceIslandFunction(island, n)).join("\n"));
     probe.run("var answerKeyRepairs = {}; var providerBaseline = {};");
     return { env, section, probe, offers, offersRes };
   }
@@ -8322,6 +8323,47 @@ describeDb("OWNER 2026-09-28 review round 1 — answer keys, Other values, typed
     // renamed in the editor (not saved yet): the live keys follow at once
     probe.run(`findQuestionByQid('q_zipx').internal_field = 'zip_new'`);
     expect(probe.run(`answerKeysOf(findQuestionByQid('q_zipx'))`)).toEqual([{ key: "zip_new", answer_type: "string" }]);
+  });
+
+  it("round 4: when a mapping is blocked (type problem), EVERY row says not sent and the Offers tab counts every answer — never 'sends 600000'", async () => {
+    const { probe, offers } = await setupWith(MULTI_CONTENT, [["Fundera - Tier 1", [{ path: "company.annual_revenue", type: "number" }]]]);
+    const fundera = offers[0]!;
+    probe.run(`upsertEdge(offerById(${fundera.id}), answerFieldOf(offerById(${fundera.id}), 'company.annual_revenue'), '${REVENUE_FIELD}')`);
+    const node = `questionByField('${REVENUE_FIELD}')`;
+    expect(probe.run(`edgeMapState(state.answer_maps[0], offerById(${fundera.id}))`)).toBe("complete");
+    // "+ Add choice" labelled "Over $100,000" auto-saves "over_100_000" — the (pre-existing) type check blocks the whole field
+    probe.run(`${node}.choices.push({ label: 'Over $100,000', value: 'over_100_000', analytics_id: 'over_100_000' });`);
+    expect(probe.run(`edgeMapState(state.answer_maps[0], offerById(${fundera.id}))`)).toBe("type_mismatch");
+    const rows = probe.run(`providerChipRows('${REVENUE_FIELD}', '600000')`) as Array<Record<string, unknown>>;
+    expect(String(rows[0]!["unsendable"])).toMatch(/^blocked: this mapping has a type problem/);
+    expect(probe.run(`providerChipLabel('${REVENUE_FIELD}', '600000')`)).toBe("Provider values: 0/1 Offers \u00b7 1 not sent");
+    expect(probe.run(`valuesNotSent(state.answer_maps[0], ${node}, offerById(${fundera.id}))`)).toBe(4);
+  });
+
+  it("round 4: allowed values are only enforced (and flagged) for enum fields; a list back to saved values is removed even with a leftover key", async () => {
+    const { probe, offers } = await setupWith(MULTI_CONTENT, [
+      ["AmONE - Tier 2", [{ path: "TimeInBusiness", type: "string", valid_values: ["0-1", "1-2", "2+"] } as never]],
+    ]);
+    const amone = offers[0]!;
+    probe.run(`upsertEdge(offerById(${amone.id}), answerFieldOf(offerById(${amone.id}), 'TimeInBusiness'), '${REVENUE_FIELD}')`);
+    expect(probe.run(`providerValueProblem(${amone.id}, edgesOfAnswerOnOffer(${amone.id}, '${REVENUE_FIELD}'), 'good')`)).toBe("");
+    probe.run(`state.answer_maps[0].output_value_map = { '600000': '600000', '360000': '360000', '30000': '30000', '360500': 'X' };`);
+    probe.run(`setProviderValue(${amone.id}, '${REVENUE_FIELD}', '600000', '', choiceSavedValuesOf(questionByField('${REVENUE_FIELD}')))`);
+    expect((probe.sandbox.state["answer_maps"] as Array<Record<string, unknown>>)[0]!["output_value_map"]).toBeNull();
+  });
+
+  it("round 4: a buyer field with a FIXED value named like the answer is explained on the Offers tab (his QuinStreet contact.zip = 94105)", async () => {
+    const { probe, offers, offersRes } = await setupWith(PROD_SECTION_25, [
+      ["QuinStreetHome", [{ path: "tracking.ni_zc", type: "string", required: true }]],
+    ]);
+    const quin = offers[0]!;
+    // the offers route carries the payload's fixed fields (the fixture helper adds none; inject his)
+    expect(Array.isArray((offersRes.offers[0] as Record<string, unknown>)["fixed_fields"])).toBe(true);
+    probe.run(`offerById(${quin.id}).fixed_fields = [{ path: 'contact.zip', value: '94105' }, { path: 'tracking.ni_ad_client', value: '123' }];`);
+    const hint = probe.run(`fixedFieldHint(offerById(${quin.id}), findQuestionByQid('q_mslll307_b3an'), 'address_zip')`) as string;
+    expect(hint).toContain('contact.zip (always "94105") is a fixed value in QuinStreetHome');
+    expect(hint).toContain("filled from an answer");
+    expect(hint).not.toContain("ni_ad_client");
   });
 
   it("M3: an answer filling two fields of one Offer with DIFFERENT lists gets one box per field; editing one never overwrites the other", async () => {

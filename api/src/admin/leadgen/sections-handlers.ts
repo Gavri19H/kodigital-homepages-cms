@@ -2455,6 +2455,22 @@ function dateFormatOfNode(node: Record<string, unknown>, type: string): string |
 
 // Parse a schema_json blob into its answer-source field list. Defensive
 // against corrupt stored JSON (D1 rule) — a bad blob yields [].
+// OWNER 2026-09-28 — the payload's FIXED-value fields (source "static"), so the
+// Offers tab can say why a field is not offered: prod QuinStreet's contact.zip
+// is the fixed "94105" and can only take the visitor's ZIP once it is switched
+// to "filled from an answer" in the Offer's Payload tab.
+function schemaFixedFields(schemaJson: string | null): Array<{ path: string; value: string }> {
+  const out: Array<{ path: string; value: string }> = [];
+  const parsed = parseJsonColumn(schemaJson);
+  if (!isRecord(parsed) || !isRecord(parsed["root"]) || !Array.isArray(parsed["root"]["children"])) return out;
+  for (const node of parsed["root"]["children"]) {
+    if (!isRecord(node) || node["source"] !== "static" || typeof node["path"] !== "string" || node["path"] === "") continue;
+    const value = node["value"];
+    out.push({ path: node["path"], value: value === undefined || value === null ? "" : String(value) });
+  }
+  return out;
+}
+
 function schemaAnswerSourceFields(schemaJson: string | null): SectionOfferAnswerField[] {
   const out: SectionOfferAnswerField[] = [];
   const parsed = parseJsonColumn(schemaJson);
@@ -2574,6 +2590,7 @@ export async function sectionOffersHandler(c: AdminContext): Promise<Response> {
       payload_schema_public_id: o.payload_schema_public_id,
       default_placement_id: o.default_placement_id,
       answer_fields: schemaAnswerSourceFields(o.active_schema_json),
+      fixed_fields: schemaFixedFields(o.active_schema_json),
       selected: o.selected !== null && o.selected !== 0,
       mapping_state: o.mapping_state,
       required_fields_total: o.required_fields_total ?? 0,

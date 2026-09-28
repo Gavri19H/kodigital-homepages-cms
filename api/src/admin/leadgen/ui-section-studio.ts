@@ -4049,6 +4049,7 @@ export const SECTION_STUDIO_STYLES = `
 .studio-map-line{display:flex;gap:6px;align-items:center;min-width:0}
 .studio-map-line .form-input{flex:1 1 auto;min-width:0}
 .studio-map-add{font-size:11px;align-self:flex-start}
+.studio-map-fixed{font-size:10px;margin:2px 0 0;flex-basis:100%}
 .studio-map-part{font-size:11px;font-weight:700;text-transform:uppercase;letter-spacing:.4px;color:var(--c-muted);margin:8px 0 2px}
 .studio-map-notsent{font-size:10px;color:#842029;flex-basis:100%}
 .studio-map-line{flex-wrap:wrap}
@@ -4900,8 +4901,9 @@ export const SECTION_STUDIO_SCRIPT = `
     return out;
   }
   function isSavedValueList(map, savedValues) {
-    var keys = Object.keys(map), i;
-    if (keys.length !== savedValues.length) { return false; }
+    // every CURRENT saved value maps to itself (a key left over from a renamed
+    // or removed choice does not keep the list alive)
+    var i;
     for (i = 0; i < savedValues.length; i++) {
       if (!hasOwn(map, savedValues[i]) || String(map[savedValues[i]]) !== savedValues[i]) { return false; }
     }
@@ -4951,7 +4953,7 @@ export const SECTION_STUDIO_SCRIPT = `
       if (t === 'number' && !choiceValueCoercibleTo(text, 'number')) { return 'must be a number, e.g. 50000'; }
       if (t === 'boolean' && !choiceValueCoercibleTo(text, 'boolean')) { return 'must be true or false'; }
       f = offer ? answerFieldOf(offer, edges[i].offer_payload_field_path) : null;
-      vv = f && f.valid_values && f.valid_values.length ? f.valid_values : null;
+      vv = f && f.type === 'enum' && f.valid_values && f.valid_values.length ? f.valid_values : null;
       if (vv) {
         ok = false;
         for (k = 0; k < vv.length; k++) { if (String(vv[k]) === text) { ok = true; } }
@@ -5030,9 +5032,23 @@ export const SECTION_STUDIO_SCRIPT = `
   // allowed values) cannot take. Shown on the Offers tab and in the rows —
   // never a hidden status change (a whole edge demoted to type_mismatch is
   // skipped by the live build for EVERY answer, not just the bad one).
+  // A mapping the build skips entirely (type problem / field gone): NOTHING
+  // this answer sends reaches it — every row says so, never "sends …".
+  function edgesBlockedReason(offer, edges) {
+    if (!offer) { return ''; }
+    var i, st;
+    for (i = 0; i < edges.length; i++) {
+      st = edgeMapState(edges[i], offer);
+      if (st === 'type_mismatch') { return 'blocked: this mapping has a type problem, so nothing is sent (see the Offers tab)'; }
+      if (st === 'orphaned') { return 'blocked: this buyer field no longer exists, so nothing is sent (see the Offers tab)'; }
+    }
+    return '';
+  }
   function valuesNotSent(edge, node, offer) {
     if (!edge || !node) { return 0; }
     var vals = choiceSavedValuesOf(node), n = 0, i, map = edge.output_value_map, send;
+    var theOffer = offer || offerById(edge.offer_id);
+    if (edgesBlockedReason(theOffer, [edge]) !== '') { return vals.length; }
     for (i = 0; i < vals.length; i++) {
       if (map && typeof map === 'object') {
         if (!hasOwn(map, vals[i])) {
@@ -5040,7 +5056,7 @@ export const SECTION_STUDIO_SCRIPT = `
           send = vals[i];
         } else { send = map[vals[i]] === null || map[vals[i]] === undefined ? '' : String(map[vals[i]]); }
       } else { send = vals[i]; }
-      if (providerValueProblem(offer ? offer.id : edge.offer_id, [edge], send) !== '') { n += 1; }
+      if (providerValueProblem(theOffer ? theOffer.id : edge.offer_id, [edge], send) !== '') { n += 1; }
     }
     return n;
   }
@@ -5062,7 +5078,7 @@ export const SECTION_STUDIO_SCRIPT = `
         send = v.state === 'custom' ? v.value : v.state === 'saved' ? choiceValue : null;
         rows.push({
           offer_id: ids[i], offer_name: label, offer_public_id: pub || null, state: v.state, value: v.value, edges: groups[g],
-          unsendable: send === null ? '' : providerValueProblem(ids[i], groups[g], send)
+          unsendable: edgesBlockedReason(offer, groups[g]) || (send === null ? '' : providerValueProblem(ids[i], groups[g], send))
         });
       }
     }
@@ -10336,7 +10352,7 @@ export const SECTION_STUDIO_SCRIPT = `
       textEl.appendChild(b);
       textEl.appendChild(document.createTextNode(
         mappedCount === selected.length
-          ? (' on all ' + selected.length + ' Offer' + (selected.length === 1 ? '' : 's') + '.')
+          ? (selected.length === 1 ? ' on its 1 Offer.' : ' on all ' + selected.length + ' Offers.')
           : (' on ' + mappedCount + ' of ' + selected.length + ' Offers.')
       ));
     }
@@ -12295,7 +12311,7 @@ export const SECTION_STUDIO_SCRIPT = `
       clearChildren(stateEl);
       stateEl.appendChild(document.createTextNode(
         problem ? problem
-          : unsendable ? 'not sent \\u2014 ' + (v.state === 'custom' ? v.value : saved) + ' ' + unsendable.replace(/^must be/, 'is not')
+          : unsendable ? (unsendable.indexOf('blocked:') === 0 ? 'not sent \\u2014 ' + unsendable.slice(9) : 'not sent \\u2014 ' + (v.state === 'custom' ? v.value : saved) + ' ' + unsendable.replace(/^must be/, 'is not'))
           : v.state === 'custom' ? 'sends ' + v.value
           : v.state === 'missing' ? 'not sent \\u2014 type a value to send one'
           : 'sends ' + saved
@@ -12304,7 +12320,7 @@ export const SECTION_STUDIO_SCRIPT = `
     function rowState(offerId, edges, saved) {
       var v = valueFromEdges(edges, saved, isNewSinceLoad(node, saved));
       var send = v.state === 'custom' ? v.value : v.state === 'saved' ? saved : null;
-      return { v: v, unsendable: send === null ? '' : providerValueProblem(offerId, edges, send) };
+      return { v: v, unsendable: edgesBlockedReason(offerById(offerId), edges) || (send === null ? '' : providerValueProblem(offerId, edges, send)) };
     }
     function buildRows() {
       clearChildren(rowsEl);
@@ -12345,8 +12361,16 @@ export const SECTION_STUDIO_SCRIPT = `
           // Enter) — a refused value never leaves a half-typed one behind
           input.addEventListener('input', function () {
             var saved = currentValue();
-            var problem = providerValueProblem(offerId, edges, trimStr(input.value));
+            var typed = trimStr(input.value);
+            var problem = providerValueProblem(offerId, edges, typed);
             if (problem !== '') { input.setAttribute('aria-invalid', 'true'); } else { input.removeAttribute('aria-invalid'); }
+            var blocked = edgesBlockedReason(offerById(offerId), edges);
+            if (problem === '' && blocked === '') {
+              stateEl.setAttribute('data-provider-state', 'pending');
+              clearChildren(stateEl);
+              stateEl.appendChild(document.createTextNode('will send ' + (typed === '' ? saved : typed)));
+              return;
+            }
             var rs = rowState(offerId, edges, saved);
             paintState(stateEl, rs.v, saved, problem, rs.unsendable);
           });
@@ -16474,11 +16498,11 @@ export const SECTION_STUDIO_SCRIPT = `
       if (bad.length > 0) {
         return 'this buyer wants ' + wants + ', and the saved ' + (bad.length === 1 ? 'value ' : 'values ') +
           bad.join(', ') + (bad.length === 1 ? ' is not' : ' are not') + ' that \\u2014 change ' +
-          (bad.length === 1 ? 'it' : 'them') + ' under Answer format, or set a value map on the Offer';
+          (bad.length === 1 ? 'it' : 'them') + ' under Answer format, or give this Offer its own values under each choice\\u2019s Provider values (Content tab)';
       }
       return 'this answer is ' + plainTypeWords({ type: (edge && edge.answer_type) || 'string' }) +
         ' and the buyer wants ' + wants +
-        ' \\u2014 pick another field or set a value map on the Offer';
+        ' \\u2014 pick another field, or give this Offer its own values under each choice\\u2019s Provider values (Content tab)';
     }
     if (stateName === 'orphaned') {
       return 'the buyer field this was mapped to no longer exists \\u2014 pick one above';
@@ -16876,6 +16900,27 @@ export const SECTION_STUDIO_SCRIPT = `
     }
     return line;
   }
+  // A buyer field with a FIXED value in its payload is never offered here; when
+  // one is named like this answer (QuinStreet's contact.zip = "94105" for a ZIP),
+  // say so and how to map it.
+  function fixedFieldHint(offer, node, key) {
+    var fixed = (offer && offer.fixed_fields) || [], i, seg, hits = [];
+    var part = answerKeyPartLabel(node, key).toLowerCase(), base = trimStr(node && node.internal_field).toLowerCase();
+    // a PART (an Address's ZIP) matches only its own name, never the component's
+    var words = key.toLowerCase() === base ? [base] : [key.toLowerCase()];
+    if (part === 'zip code') { words.push('zip'); words.push('postal'); }
+    else if (key.toLowerCase() !== base) { words.push(part); }
+    for (i = 0; i < fixed.length; i++) {
+      seg = String(fixed[i].path).split('.').pop().toLowerCase();
+      if (seg !== '' && (words.indexOf(seg) !== -1 || (part === 'zip code' && seg.indexOf('zip') !== -1))) { hits.push(fixed[i]); }
+    }
+    if (hits.length === 0) { return ''; }
+    var names = [];
+    for (i = 0; i < hits.length && i < 3; i++) { names.push(hits[i].path + (hits[i].value !== '' ? ' (always "' + hits[i].value + '")' : ' (always empty)')); }
+    return names.join(', ') + (hits.length === 1 ? ' is a fixed value' : ' are fixed values') + ' in ' + offer.offer_name +
+      '\\u2019s payload, so ' + (hits.length === 1 ? 'it is' : 'they are') + ' not offered here \\u2014 switch ' + (hits.length === 1 ? 'it' : 'them') +
+      ' to \\u201cfilled from an answer\\u201d in that Offer\\u2019s Payload tab to map this answer there.';
+  }
   function renderInspectorMapping() {
     var wrap = document.querySelector('[data-studio-inspector-mapping]');
     if (!wrap) { return; }
@@ -16950,7 +16995,7 @@ export const SECTION_STUDIO_SCRIPT = `
     }
     var list = offersList();
     var shown = 0;
-    var i, ki, key, offer, row, name, j, fields, edgesHere, slots, lines, add, slotKey, head;
+    var i, ki, key, offer, row, name, j, fields, edgesHere, slots, lines, add, slotKey, head, fixedHint;
     for (ki = 0; ki < keys.length; ki++) {
       key = keys[ki].key;
       if (keys.length > 1 || key !== node.internal_field) {
@@ -16996,6 +17041,14 @@ export const SECTION_STUDIO_SCRIPT = `
           lines.appendChild(add);
         }
         row.appendChild(lines);
+        fixedHint = fixedFieldHint(offer, node, key);
+        if (fixedHint !== '') {
+          var fh = document.createElement('p');
+          fh.className = 'form-help studio-map-fixed';
+          fh.setAttribute('data-quickmap-fixed', offer.public_id);
+          fh.appendChild(document.createTextNode(fixedHint));
+          lines.appendChild(fh);
+        }
         wrap.appendChild(row);
       }
     }
@@ -17992,6 +18045,10 @@ export const SECTION_STUDIO_SCRIPT = `
   loadFramePickerQuotes();
   loadActivities();
   loadVerticals();
+  // OWNER 2026-09-28: every question's saved values as the page opened — a
+  // choice added anywhere (canvas included) before its question is opened
+  // still counts as new and joins each Offer's value list on Save.
+  walkTree(state.content.components, 1, function (n) { snapshotProviderValues(n); });
   loadOffers();
   loadUsage();
   loadThemesList();
