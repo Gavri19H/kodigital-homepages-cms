@@ -128,8 +128,10 @@ import {
   contrastRatioAA,
   resolveTokens,
   validateTheme,
+  winnerCardAccentVerdict,
   winningThemeId,
   WCAG_AA_MIN_CONTRAST,
+  WINNER_CARD_MIN_CONTRAST,
 } from "../../public/leadgen/designs/theme";
 import type {
   FunnelTokenRole,
@@ -7250,6 +7252,31 @@ async function computeVariantV25Problems(
           fix_url: fixQuote,
         });
       }
+    }
+    // OWNER 2026-09-28 — an accent too pale to carry the winner card's button
+    // text is not painted on that card (theme.ts applyAccentRole); the
+    // operator who picked it is told where it did not land, and why.
+    const winner = winnerCardAccentVerdict(
+      tokens.roles.accent,
+      tokens.design.banner.ctaColor,
+      tokens.design.banner.recommendedBg,
+    );
+    if (!winner.readable) {
+      // Name the accent the way the operator picked it: a role alias
+      // ("brand_primary") is shown with the colour it resolved to.
+      const authored = overridesTheme?.palette?.accent ?? state.theme?.palette?.accent;
+      const resolved = tokens.roles.accent;
+      const named = typeof authored === "string" && !authored.startsWith("#") ? `${authored} (${resolved})` : resolved;
+      problems.push({
+        path: "theme.palette.accent",
+        scope: "theme",
+        severity: "warning",
+        message:
+          `Accent ${named} is too pale for the winner card: its button text would be ` +
+          `${winner.ratio}:1 on it (needs ${WINNER_CARD_MIN_CONTRAST}:1). The winner card keeps the ` +
+          `design's orange button and border; the category label and logo accent still use ${named}.`,
+        fix_url: fixQuote,
+      });
     }
   }
 

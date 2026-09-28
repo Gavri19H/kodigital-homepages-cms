@@ -609,6 +609,43 @@ describeDb("activation-preflight-v25 (14 §14.1 rows fire with contract severiti
     expect(body.activation_preflight.ok).toBe(true);
   });
 
+  // OWNER 2026-09-28 — the "Home Insurance | Match" funnel's REAL theme
+  // (prod leadgen_funnels id 12): accent #fce7de is too pale for the winner
+  // card's white button text, so the card keeps the design's orange
+  // (theme.ts applyAccentRole). The operator is told, on the preflight.
+  it("a theme accent too pale for the winner card warns the operator; a readable one does not", async () => {
+    const prodTheme = readFileSync(new URL("./fixtures/banner-copy/prod-funnel-12-theme.json", import.meta.url), "utf8");
+    const h = newHarness();
+    const s1 = seedSection(h.sdb, { contentJson: CHROME_ONLY_CONTENT });
+    const pale = await seedQuote(h, "Pale Accent Quote", [s1.id]);
+    const readable = await seedQuote(h, "Readable Accent Quote", [s1.id]);
+    h.sdb.prepare("UPDATE leadgen_funnels SET theme_json = ? WHERE id = ?").run(prodTheme.trim(), pale.funnelId);
+    h.sdb
+      .prepare("UPDATE leadgen_funnels SET theme_json = ? WHERE id = ?")
+      .run(JSON.stringify({ version: 1, palette: { accent: "#c2410c" } }), readable.funnelId);
+
+    const paleProblems = (await computeQuoteActivationPreflight(h.d1, pale.quoteRow)).problems;
+    const onWinner = (p: Problem): boolean => p.path === "theme.palette.accent" && p.message.includes("winner card");
+    const warning = firstMatch(paleProblems, onWinner, "pale accent (winner card)");
+    expect(warning.severity).toBe("warning");
+    expect(warning.message).toBe(
+      "Accent #fce7de is too pale for the winner card: its button text would be 1.19:1 on it (needs 3:1). " +
+        "The winner card keeps the design's orange button and border; the category label and logo accent still use #fce7de.",
+    );
+
+    const readableProblems = (await computeQuoteActivationPreflight(h.d1, readable.quoteRow)).problems;
+    expect(readableProblems.filter(onWinner)).toEqual([]);
+
+    // an accent picked as a role alias is named the way the operator picked it
+    const alias = await seedQuote(h, "Alias Accent Quote", [s1.id]);
+    h.sdb
+      .prepare("UPDATE leadgen_funnels SET theme_json = ? WHERE id = ?")
+      .run(JSON.stringify({ version: 1, palette: { accent: "page_background" } }), alias.funnelId);
+    const aliasProblems = (await computeQuoteActivationPreflight(h.d1, alias.quoteRow)).problems;
+    const aliasWarning = firstMatch(aliasProblems, onWinner, "alias accent (winner card)");
+    expect(aliasWarning.message).toMatch(/^Accent page_background \(#[0-9A-Fa-f]{6}\) is too pale for the winner card/);
+  });
+
   it("14 §14.4: a LEGACY Quote (NULL frame/theme/overrides) yields ZERO new problems — even with chrome/dup/hex sections — and activates", async () => {
     const h = newHarness();
     // The nastiest possible legacy sections: chrome + duplicate Continue + no

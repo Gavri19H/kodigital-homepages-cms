@@ -45,10 +45,11 @@ const ENGINE_SRC = readFileSync(
 );
 const LG_ENGINE_VERSION = /export const LG_ENGINE_VERSION = "([^"]+)"/.exec(ENGINE_SRC)?.[1];
 
-// sha256 of the committed bundle AT LEADGEN_TEMPLATE_VERSION 5 (the engine
-// follows a funnel redirect rule's `go`; v4 was 53dbaf55…).
-const RUNTIME_BUNDLE_SHA256 = "b216862a97ff22c65b38176d367a795ab2146c01e4b6dbd2ae3e3ffe44ef624d";
-const RUNTIME_BUNDLE_VERSION = 5;
+// sha256 of the committed bundle AT LEADGEN_TEMPLATE_VERSION 6 (a shell-CSS
+// bump: the engine differs from v5 only by the version it reports; v5 was
+// b216862a…, v4 53dbaf55…).
+const RUNTIME_BUNDLE_SHA256 = "51a4992f0f97412dc0c819f093a435ce6c1cf23908eaaaea963f92bebddd99ce";
+const RUNTIME_BUNDLE_VERSION = 6;
 
 describe("the runtime bundle is pinned to its immutable URL version", () => {
   it("engine bytes unchanged, or the version moved with them", () => {

@@ -53,7 +53,7 @@ import {
   type CanonicalCarrierField,
   type LeadgenBannerFieldMap,
 } from "../designs/banner-default/styles";
-import { sanitizeFrameInlineHtml } from "../../../lib/inline-sanitizer";
+import { decodeHtmlEntities, sanitizeFrameInlineHtml } from "../../../lib/inline-sanitizer";
 import type { BannerDesign } from "../designs/registry";
 import type { SurfacedCarrierSource } from "../../../leadgen/auction-core";
 import type { LeadgenBannerMode } from "../../../admin/leadgen/db-types";
@@ -200,6 +200,58 @@ function asText(value: unknown): string {
   return "";
 }
 
+// OWNER 2026-09-28 — two provider-copy conventions the card printed
+// literally ("Renter&#39;s", "Save up to *50%*"):
+//   * provider copy arrives HTML-encoded. A PLAIN text region is decoded (to
+//     the same fixpoint the rich path's sanitizer uses) and then escaped
+//     again, so an encoded `&lt;script&gt;` still prints as text and can never
+//     become markup;
+//   * `*text*` / `**text**` / `***text***` mark the words to bold. Markers are
+//     read on the real characters (never on escaped HTML), and the pieces are
+//     escaped around the <strong> this module builds itself — a marker can
+//     never produce a tag or reach an attribute. A marker must open a word
+//     (start, or after a space / opening bracket or quote) and close one (end,
+//     or before a space / punctuation), with the same number of stars on both
+//     sides, so footnote stars ("15%*, compare…*!", "*Terms apply"), maths
+//     ("2*3*4") and a mismatched "**50% today*" stay literal.
+const BOLD_MARKER_RE =
+  /(?<=^|[\s(\[{"'\u201C\u2018])(\*{1,3})(?=[^\s*])([^*]*?[^\s*])\1(?=$|[\s.,!?;:)\]}"'\u201D\u2019])/g;
+
+function markedTextHtml(text: string, escape: (s: string) => string): string {
+  let out = "";
+  let last = 0;
+  for (const m of text.matchAll(BOLD_MARKER_RE)) {
+    out += `${escape(text.slice(last, m.index))}<strong>${escape(m[2]!)}</strong>`;
+    last = m.index + m[0].length;
+  }
+  return out + escape(text.slice(last));
+}
+
+// The sanitizer's output is tags + text escaped for & < > only; its text runs
+// are unescaped exactly (one pass), marked, and escaped the same way again.
+// Tags pass through untouched.
+const SANITIZED_TEXT_ENTITY: Readonly<Record<string, string>> = { amp: "&", lt: "<", gt: ">" };
+function escapeTextRun(s: string): string {
+  return s.replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;");
+}
+function markedSanitizedHtml(html: string): string {
+  return html
+    .split(/(<[^>]*>)/)
+    .map((segment, i) =>
+      i % 2 === 1
+        ? segment
+        : markedTextHtml(
+            segment.replace(/&(amp|lt|gt);/g, (_m, name: string) => SANITIZED_TEXT_ENTITY[name]!),
+            escapeTextRun,
+          ),
+    )
+    .join("");
+}
+
+function stripBoldMarkers(text: string): string {
+  return text.replace(BOLD_MARKER_RE, (_m, _stars: string, inner: string) => inner);
+}
+
 // True for an absolute http(s) URL — the only shape accepted directly into a
 // banner href (guards against javascript:/data: and relative provider values).
 function isHttpUrl(value: unknown): value is string {
@@ -288,10 +340,14 @@ function renderCard(
   // text. `rich` regions keep the provider's own inline markup (allowlisted).
   const regions: { klass: string; text: string; rich: boolean }[] = [];
   const seenText = new Set<string>();
+  // Plain regions hold DECODED text (escaped again at emit); rich regions keep
+  // the raw markup for the sanitizer, which decodes its own text. Duplicates
+  // are judged on the decoded text either way.
   const pushRegion = (klass: string, raw: unknown, rich = false): void => {
-    const text = asText(raw).trim();
-    if (text === "" || seenText.has(text)) return;
-    seenText.add(text);
+    const text = rich ? asText(raw).trim() : decodeHtmlEntities(asText(raw)).trim();
+    const key = rich ? decodeHtmlEntities(text) : text;
+    if (text === "" || seenText.has(key)) return;
+    seenText.add(key);
     regions.push({ klass, text, rich });
   };
 
@@ -318,7 +374,7 @@ function renderCard(
   // itself instead of leaving the browser's broken-image glyph in the middle of
   // the card. Both are attribute-level; the public runtime bundle is untouched.
   if (isHttpUrl(logo)) {
-    const alt = regions.length > 0 ? regions[0]!.text : "";
+    const alt = regions.length > 0 ? stripBoldMarkers(regions[0]!.text) : "";
     parts.push(
       `<img class="lg-banner-logo" src="${esc(logo.trim())}" alt="${esc(alt)}"` +
         ` onerror="this.style.display='none'" />`,
@@ -328,7 +384,7 @@ function renderCard(
   if (regions.length > 0) {
     const inner = regions
       .map((r) => {
-        if (!r.rich) return `<div class="${r.klass}">${esc(r.text)}</div>`;
+        if (!r.rich) return `<div class="${r.klass}">${markedTextHtml(r.text, esc)}</div>`;
         // A buyer's response (or an operator's authored copy) may carry inline
         // markup — a provider description is commonly a <ul> of benefits.
         // Escaping it printed the tags to the visitor as literal text; the
@@ -336,7 +392,7 @@ function renderCard(
         // (bold/italic/link/lists) and can never emit a construct it does not
         // itself build. Lists get the reference's left-aligned bullet
         // treatment via data-rich (styles.ts).
-        const html = sanitizeFrameInlineHtml(r.text);
+        const html = markedSanitizedHtml(sanitizeFrameInlineHtml(r.text));
         if (html === "") return "";
         const rich = /<(?:ul|ol)>/.test(html) ? ` data-rich="1"` : "";
         return `<div class="${r.klass}"${rich}>${html}</div>`;

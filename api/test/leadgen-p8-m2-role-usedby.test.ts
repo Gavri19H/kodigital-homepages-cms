@@ -165,6 +165,8 @@ interface Surface {
   selector: string;
   property: string;
   render: (v: string) => string; // the exact `property:<this>` text for input v
+  // the B sentinel for this surface when the shared one cannot apply to it
+  sentinelB?: string;
 }
 
 // ---------------------------------------------------------------------------
@@ -241,7 +243,18 @@ const SURFACES: Surface[] = [
   // phrase.
   { role: "accent", phrase: "category label", selector: `${SCOPE} .lg-category`, property: "color", render: (v) => v },
   { role: "accent", phrase: "highlights", selector: `${SCOPE} .lg-logo-accent`, property: "color", render: (v) => v },
-  { role: "accent", phrase: "recommended", selector: `${SCOPE} .lg-banner[data-recommended="true"]`, property: "border", render: (v) => `2px solid ${v}` },
+  // OWNER 2026-09-28: the winner card follows the accent only while its white
+  // button text stays readable on it (3:1, theme.ts winnerCardAccentVerdict);
+  // B (#ee7733) is 2.87:1, so this surface is swept with a readable orange.
+  // The pale fallback is pinned in leadgen-p8-m2-accent-role.test.ts.
+  {
+    role: "accent",
+    phrase: "recommended (when readable)",
+    selector: `${SCOPE} .lg-banner[data-recommended="true"]`,
+    property: "border",
+    render: (v) => `2px solid ${v}`,
+    sentinelB: "#c2410c",
+  },
 
   // success — :1482 reassurance badge, :1514 SuccessState (applySuccessRole).
   { role: "success", phrase: "reassurance", selector: `${SCOPE} .lg-badge`, property: "border", render: (v) => `1px solid ${v}` },
@@ -367,14 +380,15 @@ describe("S3.11 I1 — every live 'Used by' phrase (shared.ts ROLE_META) is audi
 describe("S3.11 I2 — every audited surface paints the sentinel value it is authored with", () => {
   for (const s of SURFACES) {
     it(`${s.role} "${s.phrase}": ${s.selector} { ${s.property} } moves A -> B`, () => {
+      const b = s.sentinelB ?? B;
       const blockA = declBlock(cssFor(s.role, A), s.selector);
-      const blockB = declBlock(cssFor(s.role, B), s.selector);
+      const blockB = declBlock(cssFor(s.role, b), s.selector);
       expect(blockA).toContain(`${s.property}:${s.render(A)}`);
-      expect(blockB).toContain(`${s.property}:${s.render(B)}`);
+      expect(blockB).toContain(`${s.property}:${s.render(b)}`);
       // …and the UNAUTHORED base sheet does not already coincidentally carry
       // B's sentinel at this property (ruling out a false-positive baseline).
       const blockBase = declBlock(BASE_CSS, s.selector);
-      expect(blockBase).not.toContain(`${s.property}:${s.render(B)}`);
+      expect(blockBase).not.toContain(`${s.property}:${s.render(b)}`);
     });
   }
 

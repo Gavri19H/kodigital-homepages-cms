@@ -196,7 +196,14 @@ export function listicleCandidateKey(
 // Auction-tab redirect rule (the /lg/auction response's `go`) instead of
 // showing an empty results page — engine bytes changed, so the URL moves with
 // them (leadgen-runtime-version-pin.test.ts).
-export const LEADGEN_TEMPLATE_VERSION = 5 as const;
+// v6 (2026-09-28, results-card copy + winner-card colours): the SHELL's baked
+// CSS changed (a pale theme accent no longer paints the winner's button and
+// border), and the shell ETag's material is site/path/content_version/THIS —
+// no build id — so without the bump a browser already holding the funnel
+// revalidates to 304 and keeps the washed-out card until an unrelated content
+// edit. Measured locally by the adversarial review (conditional GET → 304).
+// The engine bytes change only by the version string it reports.
+export const LEADGEN_TEMPLATE_VERSION = 6 as const;
 
 const NS_LG_SHELL = "lg-shell";
 const NS_LG_CONFIG = "lg-config";

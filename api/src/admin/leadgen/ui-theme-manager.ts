@@ -720,7 +720,7 @@ export const ROLE_META: ReadonlyArray<{ key: ThemeRecordRoleKey; label: string; 
   // this row did not name (`.lg-frame-trustrow-icon` and the check glyph of
   // both `--check` frame lists). Full measurement in shared.ts's own comment.
   { key: "brand_primary", label: "Brand primary", sub: "stepper buttons · progress fill · focus ring · trust-row icons · list check marks", border: false },
-  { key: "accent", label: "Accent", sub: "category label · highlights · recommended", border: false },
+  { key: "accent", label: "Accent", sub: "category label · highlights · recommended (when readable)", border: false },
   { key: "page_bg", label: "Page background", sub: "frame background", border: true },
   // R2 P8-3 FIX ROUND F8 — "input fields" added, in lockstep with
   // shared.ts's ROLE_META (same evidence: color.card is ALSO `.lg-input`'s
