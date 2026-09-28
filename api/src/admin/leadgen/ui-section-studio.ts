@@ -5102,7 +5102,15 @@ export const SECTION_STUDIO_SCRIPT = `
       }
     });
   }
-  function resetProviderBaseline() { providerBaseline = {}; }
+  // Every question's saved values as they stand now (page open, and again
+  // after a Save that keeps the page open) — so a choice added from the canvas
+  // to a question never opened still counts as new and joins the lists.
+  function resetProviderBaseline() {
+    providerBaseline = {};
+    if (typeof walkTree !== 'undefined' && state && state.content) {
+      walkTree(state.content.components, 1, function (n) { snapshotProviderValues(n); });
+    }
+  }
   function renameProviderBaseline(node, from, to) {
     var b = node && node.question_id ? providerBaseline[node.question_id] : undefined, i, out;
     if (!b || b.indexOf(from) === -1 || b.indexOf(to) !== -1) { return false; }
@@ -18379,6 +18387,8 @@ export const SECTION_STUDIO_SCRIPT = `
   // choice added anywhere (canvas included) before its question is opened
   // still counts as new and joins each Offer's value list on Save.
   walkTree(state.content.components, 1, function (n) { snapshotProviderValues(n); });
+  // the Undo history starts from the page as opened, baseline included
+  historyReset();
   loadOffers();
   loadUsage();
   loadThemesList();

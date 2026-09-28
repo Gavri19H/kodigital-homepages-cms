@@ -8558,6 +8558,21 @@ describeDb("OWNER 2026-09-28 review round 1 — answer keys, Other values, typed
     expect(probe.run(`providerValueOf(${amone.id}, '${REVENUE_FIELD}', 'new_band').state`)).toBe("saved");
   });
 
+  it("a choice added on the canvas after a Save that keeps the page open still joins every Offer's value list (the baseline is re-read, not emptied)", async () => {
+    const { probe, offers } = await setupWith(MULTI_CONTENT, [["AmONE - Tier 2", [{ path: "Income", type: "string" }]]]);
+    const amone = offers[0]!;
+    probe.run(`upsertEdge(offerById(${amone.id}), answerFieldOf(offerById(${amone.id}), 'Income'), '${REVENUE_FIELD}')`);
+    probe.run(`state.answer_maps[0].output_value_map = { '600000': '50000', '360000': '30000', '30000': '2500' };`);
+    // the save-success path: the page stays open, the baseline is reset
+    probe.run("resetProviderBaseline();");
+    probe.run("findRef('q_mrum8ruj_2sau').node.choices.push({ label: 'New', value: 'new_band', analytics_id: 'new_band' });");
+    expect(probe.run(`providerValueOf(${amone.id}, '${REVENUE_FIELD}', 'new_band').state`)).toBe("saved");
+    probe.run("fillNewChoicesOnLists();");
+    expect((probe.sandbox.state["answer_maps"] as Array<Record<string, unknown>>)[0]!["output_value_map"]).toEqual({
+      "600000": "50000", "360000": "30000", "30000": "2500", new_band: "new_band",
+    });
+  });
+
   it("review M2: Undo after a rename takes the carried provider values back with it (one step), and Redo re-applies both", async () => {
     const { probe, offers, island } = await setupWith(MULTI_CONTENT, [["AmONE - Tier 2", [{ path: "Income", type: "string" }]]]);
     const amone = offers[0]!;
