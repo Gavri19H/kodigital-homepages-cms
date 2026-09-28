@@ -13227,7 +13227,8 @@ export const SECTION_STUDIO_SCRIPT = `
     rm.addEventListener('click', function () { var p = wrap.parentNode; if (p) { p.removeChild(wrap); } collectOther(); });
     wrap.appendChild(rm);
     // OWNER 2026-09-28: an "Other" value gets its own per-Offer values too.
-    wrap.appendChild(buildProviderChip(selectedNode(), choice || {}, wrap));
+    // typeof-guard: buildOtherValueRow is vm-probe-sliced standalone.
+    if (typeof buildProviderChip === 'function') { wrap.appendChild(buildProviderChip(selectedNode(), choice || {}, wrap)); }
     return wrap;
   }
   function populateOtherEditor(node) {
