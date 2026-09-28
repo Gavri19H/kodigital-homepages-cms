@@ -812,6 +812,6 @@ export function generateOfferPayload(
   return {
     answers: normalized.answers,
     sources: normalized.sources,
-    payload: buildOfferPayload(mappings, normalized.answers),
+    payload: buildOfferPayload(mappings, normalized.answers, normalized.computed),
   };
 }

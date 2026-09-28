@@ -1302,3 +1302,33 @@ describeDb("POST /offers/:id/test — a CPL (static-bid) Offer is parsed exactly
     expect(body.parse.carriers![0]!["click_url"]).toBe("https://www.fundera.com/referral/abc");
   });
 });
+
+// OWNER 2026-09-28 — "The admin payload preview shows a calculated choice's
+// saved value, not its date (live request is correct)". The Test tab derives
+// the calculated dates from the Sections that map the Offer, as the live
+// auction does (engine.ts normalizeAnswers(...).computed).
+describeDb("POST /offers/:id/test — a calculated choice previews its DATE", () => {
+  it("FAIL-BEFORE/PASS-AFTER: zip '2' on a choice with value_calc 2 years ago sends the date, not '2'", async () => {
+    const h = await setupOffer();
+    const content = {
+      components: [
+        {
+          type: "ButtonAnswerGroup", question_id: "q_zip", question_key: "zip", internal_field: "zip", answer_type: "enum",
+          choices: [
+            { label: "2+ Years", value: "2", analytics_id: "2", value_calc: { kind: "date_ago", amount: 2, unit: "years" } },
+            { label: "New", value: "0", analytics_id: "0" },
+          ],
+        },
+      ],
+    };
+    h.sdb.prepare("UPDATE leadgen_sections SET content_json = ? WHERE public_id = 'lgs_testtool01'").run(JSON.stringify(content));
+    const { status, body } = await runTest(h, { environment: "staging", sample_answers: { email: "a@b.co", zip: "2" }, dry_run: true });
+    expect(status).toBe(200);
+    const now = new Date();
+    const twoYearsAgo = new Date(Date.UTC(now.getUTCFullYear() - 2, now.getUTCMonth(), now.getUTCDate())).toISOString().slice(0, 10);
+    expect((body.request.payload["contact"] as Record<string, unknown>)["zip"]).toBe(twoYearsAgo);
+    // a fixed choice still previews its saved value
+    const fixed = await runTest(h, { environment: "staging", sample_answers: { email: "a@b.co", zip: "0" }, dry_run: true });
+    expect((fixed.body.request.payload["contact"] as Record<string, unknown>)["zip"]).toBe("0");
+  });
+});

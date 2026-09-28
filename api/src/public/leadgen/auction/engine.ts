@@ -778,6 +778,9 @@ export interface RunAuctionInput {
   // exploration tool (Cloudflare Access gated, writes nothing), so it may
   // supply the internal answer space directly.
   normalizedAnswersOverride?: Readonly<Record<string, unknown>>;
+  // OWNER 2026-09-28 — the calculated dates that go with that override (the
+  // admin simulate derives them from the Sections that map its Offers).
+  answerComputedOverride?: Readonly<Record<string, string>>;
 }
 
 export type RunAuctionStatus = "ok" | "tampered" | "disqualified" | "redirect" | "unfilled" | "no_bid";
@@ -1220,6 +1223,7 @@ export async function runAuction(
   const answerComputed: Record<string, string> = {};
   if (input.normalizedAnswersOverride !== undefined) {
     for (const [field, value] of Object.entries(input.normalizedAnswersOverride)) normalizedAnswers[field] = value;
+    for (const [field, value] of Object.entries(input.answerComputedOverride ?? {})) answerComputed[field] = value;
   } else {
     for (const rs of input.resolved.sections) {
       const content = sectionContent(rs.section.content_json);

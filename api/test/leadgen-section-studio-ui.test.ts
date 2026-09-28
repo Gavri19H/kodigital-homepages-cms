@@ -8460,6 +8460,28 @@ describeDb("OWNER 2026-09-28 review round 1 — answer keys, Other values, typed
     expect(html).toContain(".studio-provider-row{display:grid;grid-template-columns:minmax(90px,1fr) minmax(120px,1.4fr);");
   });
 
+  it("open item 4: the Section payload preview shows a calculated choice's DATE, as production sends it", async () => {
+    const content = {
+      components: [
+        {
+          type: "ButtonAnswerGroup", question_id: "q_dur", question_key: "q_dur", internal_field: "dur", answer_type: "enum",
+          choices: [
+            { label: "2+ Years", value: "2", analytics_id: "2", value_calc: { kind: "date_ago", amount: 2, unit: "years" } },
+            { label: "New", value: "0", analytics_id: "0" },
+          ],
+        },
+      ],
+    };
+    const { env, section, probe, offers } = await setupWith(content, [["Fundera - Tier 1", [{ path: "company.business_inception", type: "string" }]]]);
+    const f = offers[0]!;
+    probe.run(`upsertEdge(offerById(${f.id}), answerFieldOf(offerById(${f.id}), 'company.business_inception'), 'dur')`);
+    await save(env, section, probe);
+    const now = new Date();
+    const twoYearsAgo = new Date(Date.UTC(now.getUTCFullYear() - 2, now.getUTCMonth(), now.getUTCDate())).toISOString().slice(0, 10);
+    expect(await preview(env, section, { dur: "2" }, f.public_id)).toEqual({ company: { business_inception: twoYearsAgo } });
+    expect(await preview(env, section, { dur: "0" }, f.public_id)).toEqual({ company: { business_inception: "0" } });
+  });
+
   it("M3: an answer filling two fields of one Offer with DIFFERENT lists gets one box per field; editing one never overwrites the other", async () => {
     const { probe, offers } = await setupWith(MULTI_CONTENT, [
       ["Fundera - Tier 1", [{ path: "company.credit_score", type: "string" }, { path: "owners.0.credit_score", type: "string" }]],

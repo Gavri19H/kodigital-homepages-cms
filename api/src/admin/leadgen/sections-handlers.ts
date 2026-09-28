@@ -2783,7 +2783,8 @@ export async function validateSectionPayloadHandler(c: AdminContext): Promise<Re
       default_value: e.default_value ?? undefined,
       fallback_value: e.fallback_value ?? undefined,
     }));
-    const payload = buildOfferPayload(mappings, normalized.answers);
+    // OWNER 2026-09-28: a calculated choice previews its DATE, as production sends it.
+    const payload = buildOfferPayload(mappings, normalized.answers, normalized.computed);
 
     const requiredTotal = offerSchema?.requiredFieldPaths.length ?? 0;
     const mappedRequired = new Set<string>();
