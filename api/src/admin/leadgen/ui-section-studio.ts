@@ -3798,7 +3798,7 @@ export const SECTION_STUDIO_STYLES = `
 .studio-item-type{font-size:10px;color:var(--c-muted);font-variant-numeric:tabular-nums;border:1px solid var(--c-border);border-radius:4px;padding:0 4px}
 .studio-item-maps{font-size:10px;color:#0f5132;background:#d1e7dd;border-radius:4px;padding:0 4px}
 /* canvas */
-.studio-breadcrumb{display:flex;align-items:center;gap:6px;font-size:12.5px;color:#8A93A3;font-variant-numeric:tabular-nums;min-height:24px;min-width:0;max-width:100%}
+.studio-breadcrumb{display:flex;align-items:center;gap:6px;font-size:12.5px;color:#8A93A3;font-variant-numeric:tabular-nums;min-height:24px;min-width:0;max-width:100%;flex:1 1 100%;overflow:hidden;white-space:nowrap}
 /* v3.1 §6.1 canvas-toolbar undo/redo icon buttons (golden :277-278) */
 .studio-undoredo-btn{width:30px;height:30px;display:inline-flex;align-items:center;justify-content:center;border-radius:7px;cursor:pointer;border:0;background:none;padding:0}
 .studio-undoredo-btn:hover{background:#F1F3F7}
@@ -4109,9 +4109,9 @@ export const SECTION_STUDIO_STYLES = `
 .studio-tb-check{font-size:11px}
 /* v3.1 §6.1 breadcrumb (golden 266-272): plain muted root/intermediate
    crumbs; the CURRENT (deepest) crumb is the navy chip. */
-.studio-breadcrumb button{border:0;background:none;color:#8A93A3;cursor:pointer;font-size:12.5px;font-weight:600;padding:0 2px}
-.studio-breadcrumb .studio-crumb-current{color:#1B3A5C;font-weight:700;background:#EAF0F6;padding:3px 9px;border-radius:6px;cursor:default;min-width:0;max-width:260px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
-.studio-breadcrumb span:not(.studio-crumb-current){color:#C2CACF;padding:0 1px}
+.studio-breadcrumb button{border:0;background:none;color:#8A93A3;cursor:pointer;font-size:12.5px;font-weight:600;padding:0 2px;flex:0 1 auto;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.studio-breadcrumb .studio-crumb-current{color:#1B3A5C;font-weight:700;background:#EAF0F6;padding:3px 9px;border-radius:6px;cursor:default;flex:0 0 auto;max-width:260px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.studio-breadcrumb span:not(.studio-crumb-current){color:#C2CACF;padding:0 1px;flex:none}
 .studio-toolbar-problems{font-size:11px;color:#842029;flex:1 1 100%;min-height:30px;line-height:15px}
 .studio-control-invalid{outline:2px solid ${STUDIO_COLOR.danger};outline-offset:1px}
 /* LeadGen Rework §6.9 phone mask builder + §6.8 slider-type picker + §6.10
@@ -8943,7 +8943,17 @@ export const SECTION_STUDIO_SCRIPT = `
     bar.style.minHeight = toolbarBaseMin;
     var r = bar.getBoundingClientRect();
     var w = Math.round(r.width), h = Math.ceil(r.height);
-    if (w !== toolbarHoldWidth) { toolbarHoldWidth = w; toolbarHoldHeight = 0; }
+    if (w !== toolbarHoldWidth) {
+      // a new width starts from the tallest this toolbar can get there: every
+      // cluster shown at once, measured before the next paint (review 9b: the
+      // first switch to a taller selection after a resize moved the canvas 34px)
+      toolbarHoldWidth = w;
+      toolbarHoldHeight = 0;
+      var cl = bar.querySelectorAll ? bar.querySelectorAll('[data-toolbar-cluster]') : [], was = [], ci;
+      for (ci = 0; ci < cl.length; ci++) { was.push(cl[ci].hidden); cl[ci].hidden = false; }
+      toolbarHoldHeight = Math.ceil(bar.getBoundingClientRect().height);
+      for (ci = 0; ci < cl.length; ci++) { cl[ci].hidden = was[ci]; }
+    }
     if (h > toolbarHoldHeight) { toolbarHoldHeight = h; }
     if (toolbarHoldHeight > h) {
       var cs = window.getComputedStyle(bar);

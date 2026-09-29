@@ -9238,19 +9238,22 @@ describeDb("OWNER 2026-09-28 review round 1 — answer keys, Other values, typed
     expect(probe.run("reopenedSelectionId()")).toBeNull();
   });
 
-  it("review 8: the canvas toolbar keeps the tallest height it has had at its width, so a selection change never moves the canvas", async () => {
+  it("review 8/9b: the canvas toolbar holds, at each width, the tallest height it can get there — a selection change never moves the canvas", async () => {
     const { env } = newHarness();
     const html = await studioPage(env, (await createSection(env)).public_id);
     const island = studioIsland(html);
     expect(island).toContain("if (typeof holdToolbarHeight !== 'undefined') { holdToolbarHeight(); }");
-    let natural = 80;
     let width = 600;
+    // two toolbar-row clusters; each shown one adds a 20px row to a 47px base (a choice shows one, the Section none)
+    const clusters = [{ hidden: true }, { hidden: true }];
+    const natural = () => 47 + clusters.filter((c) => !c.hidden).length * 20;
     const bar = {
       style: { minHeight: "46px" } as Record<string, string>,
+      querySelectorAll: (sel: string) => (sel === "[data-toolbar-cluster]" ? clusters : []),
       getBoundingClientRect() {
         const floor = parseFloat(this.style["minHeight"] || "0");
         // content-box: min-height excludes the 1px bottom border
-        return { width, height: Math.max(natural, floor + 1) };
+        return { width, height: Math.max(natural(), floor + 1) };
       },
     };
     const sandbox: Record<string, unknown> = {
@@ -9259,22 +9262,24 @@ describeDb("OWNER 2026-09-28 review round 1 — answer keys, Other values, typed
     };
     runInNewContext([sliceIslandLine(island, "var toolbarHoldWidth = "), sliceIslandFunction(island, "holdToolbarHeight")].join("\n"), sandbox);
     const hold = () => runInNewContext("holdToolbarHeight()", sandbox);
+    // first call at this width (the Section selected, no cluster shown): it already holds the all-clusters height
     hold();
-    expect(bar.getBoundingClientRect().height, "a choice selection wraps the toolbar to 80px").toBe(80);
-    // the Section is selected: the toolbar would shrink to one row — it keeps 80
-    natural = 47;
+    expect(bar.getBoundingClientRect().height, "measured with every cluster shown").toBe(87);
+    expect(clusters.map((c) => c.hidden), "and the clusters are put back").toEqual([true, true]);
+    // a choice shows one cluster: the canvas below does not move
+    clusters[0]!.hidden = false;
     hold();
-    expect(bar.getBoundingClientRect().height).toBe(80);
-    // and back to a choice: still 80, the canvas below never moved
-    natural = 80;
+    expect(bar.getBoundingClientRect().height).toBe(87);
+    // back to the Section: still 87
+    clusters[0]!.hidden = true;
     hold();
-    expect(bar.getBoundingClientRect().height).toBe(80);
-    // another width starts over from its own natural height (the SSR floor kept)
+    expect(bar.getBoundingClientRect().height).toBe(87);
+    // another width measures its own ceiling (the SSR floor kept underneath)
     width = 375;
-    natural = 47;
+    clusters.push({ hidden: true });
     hold();
-    expect(bar.getBoundingClientRect().height).toBe(47);
-    expect(bar.style["minHeight"]).toBe("46px");
+    expect(bar.getBoundingClientRect().height).toBe(107);
+    expect(bar.style["minHeight"]).toBe("106px");
   });
 
   it("review 8: a choices row the operator clicks becomes the selected choice everywhere; a row the same click removed is ignored", async () => {
@@ -9363,8 +9368,11 @@ describeDb("OWNER 2026-09-28 review round 1 — answer keys, Other values, typed
     const html = await studioPage(env, (await createSection(env)).public_id);
     const island = studioIsland(html);
     expect(html).toContain(".studio-toolbar-problems{font-size:11px;color:#842029;flex:1 1 100%;min-height:30px;line-height:15px}");
-    expect(html).toMatch(/\.studio-breadcrumb\{[^}]*min-height:24px/);
-    expect(html).toMatch(/\.studio-breadcrumb \.studio-crumb-current\{[^}]*max-width:260px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap\}/);
+    // the breadcrumb is one line on its own toolbar row, whatever its length (its length wrapped the toolbar's other rows)
+    expect(html).toMatch(/\.studio-breadcrumb\{[^}]*min-height:24px[^}]*flex:1 1 100%;overflow:hidden;white-space:nowrap\}/);
+    // the current crumb keeps its width (up to 260px); the crumbs before it shrink first
+    expect(html).toMatch(/\.studio-breadcrumb \.studio-crumb-current\{[^}]*flex:0 0 auto;max-width:260px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap\}/);
+    expect(html).toMatch(/\.studio-breadcrumb button\{[^}]*flex:0 1 auto;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap\}/);
     expect(island).toContain("b.title = 'Choice \\u201C' + choiceScopeLabel + '\\u201D';");
     expect(island).toContain("otherValuesWrap.addEventListener('click', function (ev) { dropForOtherRow(ev.target); });");
     expect(island).toContain("otherValuesWrap.addEventListener('focusin', function (ev) { if (!otherPointerDown) { dropForOtherRow(ev.target); } });");
