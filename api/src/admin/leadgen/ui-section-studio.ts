@@ -17231,6 +17231,15 @@ export const SECTION_STUDIO_SCRIPT = `
         if (state.answer_maps.indexOf(list[i]) !== -1 && !answerKeyRecorded(list[i])) { still.push(list[i]); }
       }
       answerKeyRepairs[rq].stale = still;
+      // the "now uses …" note only while a mapping of this question uses the
+      // key it names (an Undo can take the part change back)
+      if (answerKeyRepairs[rq].moved > 0) {
+        at = false;
+        for (i = 0; i < state.answer_maps.length; i++) {
+          if (state.answer_maps[i] && state.answer_maps[i].question_id === rq && state.answer_maps[i].internal_field === answerKeyRepairs[rq].to) { at = true; }
+        }
+        if (!at) { answerKeyRepairs[rq].moved = 0; }
+      }
     }
     for (i = 0; i < state.answer_maps.length; i++) {
       e = state.answer_maps[i];
