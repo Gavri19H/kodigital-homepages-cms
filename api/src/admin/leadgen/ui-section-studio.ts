@@ -3758,9 +3758,9 @@ export const SECTION_STUDIO_STYLES = `
 @media (max-width:760px){.studio-root{overflow-x:hidden}.studio-root .studio-topbar,.studio-root .studio-toolbar{flex-wrap:wrap;row-gap:6px}.studio-root [style*="display:flex"]{flex-wrap:wrap;row-gap:6px}.studio-root [style*="margin-left:auto"]{margin-left:0 !important}.studio-root .studio-tabs{height:auto !important;min-height:42px;flex-wrap:wrap}.studio-root iframe:not(.studio-canvas-frame){max-width:100%}.studio-root .lg-choice-row{flex-wrap:wrap}.studio-root #lg-section-form>div{flex:1 1 100% !important;max-width:none !important;padding-bottom:0 !important}.studio-root .studio-cell-canvas{padding-left:0 !important;padding-right:0 !important;border-left-width:0 !important;border-right-width:0 !important;border-radius:0 !important}.studio-root .studio-canvas-surface{padding-left:0 !important;padding-right:0 !important;border-radius:0 !important}}
 /* review F3: on a phone the canvas spans the screen edge to edge, so the 375
    Mobile preview it opens in fits a 375 screen (the card and surface paddings
-   left it a 325px pane). review F10: at 1024-1399px the toolbar's controls take
+   left it a 325px pane). review F10: at 1024-1439px the toolbar's controls take
    their own row instead of scattering over three with dangling dividers. */
-@media (max-width:1399px){.studio-toolbar [data-studio-toolbar-actions]{flex-basis:100%;margin-left:0 !important}.studio-toolbar [data-studio-toolbar-actions]>div[style*="width:1px"]{display:none}}
+@media (max-width:1439px){.studio-toolbar [data-studio-toolbar-actions]{flex-basis:100%;margin-left:0 !important}.studio-toolbar [data-studio-toolbar-actions]>div[style*="width:1px"]{display:none}}
 /* review M5: the headline/subheadline boxes were flex:1.5/1.2 (basis 0), so on a
    phone they shrank to ~84px side by side instead of wrapping — each takes the
    full row there. The canvas frame keeps its real 1280/375 viewport (DEV-66) and
@@ -4505,9 +4505,14 @@ export const SECTION_STUDIO_SCRIPT = `
     for (i = 0; i < (snap.m || []).length; i++) { state.answer_maps.push(snap.m[i]); }
     state.selected_offers.length = 0;
     for (i = 0; i < (snap.s || []).length; i++) { state.selected_offers.push(snap.s[i]); }
-    // the stale-key notes point at edge objects the restore replaced; they are
-    // re-derived from the restored mapping on the next Offers repaint
-    if (typeof answerKeyRepairs !== 'undefined') { answerKeyRepairs = {}; }
+    // the "not sent" stale-key list points at edge objects the restore
+    // replaced: it is re-derived from the restored mapping on the next Offers
+    // repaint. The "now uses …" repair note stays (review 3: an unrelated Undo
+    // cleared it while the repair still waited for Save).
+    var rq;
+    if (typeof answerKeyRepairs !== 'undefined') {
+      for (rq in answerKeyRepairs) { if (Object.prototype.hasOwnProperty.call(answerKeyRepairs, rq)) { answerKeyRepairs[rq].stale = []; } }
+    }
   }
   // Typing in one box is ONE undo step, however many keystrokes (and however
   // many model writes each makes — a saved value also moves the analytics id
@@ -4550,7 +4555,6 @@ export const SECTION_STUDIO_SCRIPT = `
     redoStack.length = 0;
     lastSnapshot = historyState();
     lastPushFocus = null;
-    if (typeof clearHeldRenames !== 'undefined') { clearHeldRenames(); }
     updateHistoryButtons();
   }
   function restoreSnapshot(snapshot) {
@@ -4560,7 +4564,6 @@ export const SECTION_STUDIO_SCRIPT = `
     if (typeof providerBaseline !== 'undefined') { providerBaseline = snap.b || {}; }
     lastSnapshot = snapshot;
     lastPushFocus = null;
-    if (typeof clearHeldRenames !== 'undefined') { clearHeldRenames(); }
     if (selectedQuestionId !== null && findRef(selectedQuestionId) === null) { selectedQuestionId = null; }
     refreshAfterHistory();
   }
@@ -12557,36 +12560,40 @@ export const SECTION_STUDIO_SCRIPT = `
     if (committed !== '') {
       var carried = carryProviderValues(internalField, committed, now);
       if ((renameProviderBaseline(live, committed, now) || carried) && typeof historyAbsorb !== 'undefined') { historyAbsorb(); }
-      if (typeof releaseHeldRenames !== 'undefined') { releaseHeldRenames(live, internalField, committed); }
     }
     return now;
   }
-  // A rename held back because another choice had the value (review F6):
-  // it completes when that other choice renames away from it — judged at
-  // that commit, never per keystroke, and only while the held row is still
-  // on screen holding the value.
-  var heldRenames = [];
-  function holdRename(row, node, internalField, committed, now) {
-    var i;
-    for (i = heldRenames.length - 1; i >= 0; i--) { if (heldRenames[i].row === row) { heldRenames.splice(i, 1); } }
-    if (committed !== '' && now !== '' && committed !== now && node && node.question_id) {
-      heldRenames.push({ row: row, qid: node.question_id, field: internalField, from: committed, to: now });
+  // OWNER 2026-09-28 (review 3): a question's saved values are unique. A rename
+  // onto a value another choice already has is REFUSED — the old value goes
+  // back and the row says why. (Holding it half-renamed until the other choice
+  // moved allowed a later swap to send one choice's provider value for the other.)
+  // Swapping two values goes through a spare value, each step a plain rename.
+  function refuseDuplicateValue(rowEl, otherRow, committed, now) {
+    var field = otherRow ? 'data-other-field' : 'data-choice-field';
+    var valueInput = rowEl.querySelector('[' + field + '="value"]');
+    var analyticsInput = rowEl.querySelector('[' + field + '="analytics_id"]');
+    if (valueInput) { valueInput.value = committed; }
+    if (analyticsInput && analyticsInput.getAttribute('data-auto') === 'true') { analyticsInput.value = committed; }
+    var note = rowEl.querySelector('[data-choice-duplicate-note]');
+    if (!note) {
+      note = document.createElement('p');
+      note.className = 'form-error';
+      note.setAttribute('data-choice-duplicate-note', '');
+      note.setAttribute('role', 'alert');
+      rowEl.appendChild(note);
+    }
+    clearChildren(note);
+    note.appendChild(document.createTextNode('Another choice already has the saved value ' + now + ' \\u2014 each choice needs its own' +
+      (committed === '' ? '.' : ', so ' + committed + ' was kept.')));
+    // the refusal is no step of its own: it takes the refused edit back
+    var depth = typeof undoStack !== 'undefined' ? undoStack.length : 0;
+    if (otherRow) { collectOther(); } else { collectChoices(); }
+    if (typeof undoStack !== 'undefined') {
+      if (undoStack.length > depth) { undoStack.pop(); }
+      while (undoStack.length > 0 && undoStack[undoStack.length - 1] === lastSnapshot) { undoStack.pop(); }
+      updateHistoryButtons();
     }
   }
-  function releaseHeldRenames(node, internalField, freed) {
-    var i, h, next, due = [];
-    for (i = heldRenames.length - 1; i >= 0; i--) {
-      h = heldRenames[i];
-      if (!node || h.qid !== node.question_id || h.field !== internalField || h.to !== freed) { continue; }
-      heldRenames.splice(i, 1);
-      if (h.row.holding(h.to)) { due.push(h); }
-    }
-    for (i = 0; i < due.length; i++) {
-      next = commitChoiceRename(node, due[i].field, due[i].from, due[i].to);
-      if (next === due[i].to) { due[i].row.setCommitted(next); }
-    }
-  }
-  function clearHeldRenames() { heldRenames = []; }
   // A provider value applied on the Content tab is its own undo step. Like
   // any other edit it retires a pending element-delete toast (its Undo would
   // otherwise revert THIS edit while labeled for the deletion).
@@ -12769,21 +12776,24 @@ export const SECTION_STUDIO_SCRIPT = `
     // of the value, or of a label that auto-derives it) against this row's own
     // last committed value — never per keystroke, never by position, so a
     // half-typed value that equals another choice's can't move its values.
-    // A value another choice holds (or an empty one) is not a new name for
-    // this choice: nothing moves and the row keeps carrying from its last good
-    // value (review M1: fixing such a collision took the OTHER choice's values).
+    // A value another choice holds is refused (refuseDuplicateValue); an empty
+    // one is not a new name either — nothing moves and the row keeps carrying
+    // from its last good value (review M1: fixing a collision took the OTHER
+    // choice's values).
     var committed = initial;
-    var heldRow = {
-      holding: function (value) { return !!rowEl && rowEl.isConnected !== false && currentValue() === value; },
-      setCommitted: function (value) { committed = value; }
-    };
     if (rowEl && rowEl.addEventListener) {
       rowEl.addEventListener('change', function (ev) {
         var t = ev.target && ev.target.getAttribute ? ev.target : null;
         var f = t ? (t.getAttribute('data-choice-field') || t.getAttribute('data-other-field')) : null;
         if (f !== 'value' && f !== 'label') { return; }
-        committed = commitChoiceRename(node, internalField, committed, currentValue());
-        holdRename(heldRow, node, internalField, committed, currentValue());
+        var now = currentValue();
+        var ref = node && node.question_id ? findRef(node.question_id) : null;
+        if (now !== committed && now !== '' && savedValueCount(ref ? ref.node : node, now) > 1) {
+          refuseDuplicateValue(rowEl, t.hasAttribute('data-other-field'), committed, now);
+          setTimeout(refreshProviderChips, 0);
+          return;
+        }
+        committed = commitChoiceRename(node, internalField, committed, now);
         setTimeout(refreshProviderChips, 0);
       });
     }
@@ -12793,6 +12803,8 @@ export const SECTION_STUDIO_SCRIPT = `
       rowEl.addEventListener('input', function (ev) {
         var t = ev.target && ev.target.getAttribute ? ev.target : null;
         var f = t ? (t.getAttribute('data-choice-field') || t.getAttribute('data-other-field')) : null;
+        var dupNote = (f === 'value' || f === 'label') && rowEl.querySelector ? rowEl.querySelector('[data-choice-duplicate-note]') : null;
+        if (dupNote && dupNote.parentNode) { dupNote.parentNode.removeChild(dupNote); }
         if (f !== 'value' && f !== 'value_calc') { return; }
         refreshLabel();
         if (!rowsEl.hidden) { buildRows(); }
@@ -17200,8 +17212,26 @@ export const SECTION_STUDIO_SCRIPT = `
     walkTree(state.content.components, 1, function (n) { if (found === null && n && n.question_id === qid) { found = n; } });
     return found;
   }
+  function answerKeyRecorded(e) {
+    var node = findQuestionByQid(e.question_id), keys = node ? answerKeysOf(node) : [], k;
+    for (k = 0; k < keys.length; k++) { if (keys[k].key === e.internal_field) { return true; } }
+    return false;
+  }
   function repairStaleAnswerKeys() {
-    var i, e, node, keys, k, known, rep, movedAny = false;
+    var i, e, node, keys, k, known, rep, movedAny = false, rq, list, still, at;
+    // a listed "not sent" mapping that is gone, or whose key the question
+    // records again, is no longer stale: its Remove would delete a WORKING
+    // mapping (review 3: an Address back to one part left the note, and
+    // Remove emptied the ZIP field)
+    for (rq in answerKeyRepairs) {
+      if (!Object.prototype.hasOwnProperty.call(answerKeyRepairs, rq)) { continue; }
+      list = answerKeyRepairs[rq].stale;
+      still = [];
+      for (i = 0; i < list.length; i++) {
+        if (state.answer_maps.indexOf(list[i]) !== -1 && !answerKeyRecorded(list[i])) { still.push(list[i]); }
+      }
+      answerKeyRepairs[rq].stale = still;
+    }
     for (i = 0; i < state.answer_maps.length; i++) {
       e = state.answer_maps[i];
       if (!e) { continue; }
@@ -17220,6 +17250,8 @@ export const SECTION_STUDIO_SCRIPT = `
         e.answer_type = keys[0].answer_type || 'string';
         markDirty();
         movedAny = true;
+        at = rep.stale.indexOf(e);
+        if (at !== -1) { rep.stale.splice(at, 1); }
       } else if (rep.stale.indexOf(e) === -1) {
         rep.stale.push(e);
       }
@@ -17290,7 +17322,10 @@ export const SECTION_STUDIO_SCRIPT = `
     status.appendChild(document.createTextNode(edge ? mapStateNote(edgeState, answerFieldOf(offer, current), offer, edge) : 'not mapped'));
     line.appendChild(status);
     var notSent = edge && node.choices ? valuesNotSent(edge, node, offer) : 0;
-    if (notSent > 0) {
+    // per-choice values can't fix a field that is gone or a multi-select into a
+    // field that can't take a list (review 3: the line still said to use them)
+    var valuesCantHelp = edgeState === 'orphaned' || (edgeState === 'type_mismatch' && answerNodeType((edge && edge.answer_type) || 'string') === 'array');
+    if (notSent > 0 && !valuesCantHelp) {
       var warn = document.createElement('span');
       warn.className = 'studio-map-notsent';
       warn.setAttribute('data-quickmap-notsent', String(notSent));

@@ -18,7 +18,7 @@
 // carrier_match_json / field_map_json reuse the Stage-A `LeadgenCarrierMatch`
 // (auction-rules.ts) / `LeadgenBannerFieldMap` (banner-default/styles.ts).
 
-import { sampleAnswerComputed } from "../../leadgen/sample-computed";
+import { sampleAnswerComputed, sampleAnswerComputedByOffer } from "../../leadgen/sample-computed";
 import { mintPublicId } from "../../leadgen/ids";
 import { conditionsHash } from "../../leadgen/auction-rules";
 import type { LeadgenCarrierMatch } from "../../leadgen/auction-rules";
@@ -1696,12 +1696,13 @@ export async function auctionSimulateHandler(c: AdminContext): Promise<Response>
     bundle.offers.map((b) => b.offer.id),
     sampleAnswers,
   );
-  // review F7: and per Offer — from the Sections that map THAT Offer, so an
-  // answer two Sections calculate differently previews each Offer's own date.
-  const sampleComputedByOffer = new Map<number, Record<string, string>>();
-  for (const offerId of [...new Set(bundle.offers.map((b) => b.offer.id))]) {
-    sampleComputedByOffer.set(offerId, await sampleAnswerComputed(c.env.DB, [offerId], sampleAnswers));
-  }
+  // review F7: and per Offer — each answer's date from the Section whose
+  // mapping sends that answer to THAT Offer.
+  const sampleComputedByOffer = await sampleAnswerComputedByOffer(
+    c.env.DB,
+    bundle.offers.map((b) => b.offer.id),
+    sampleAnswers,
+  );
 
   const result = await runAuction(
     c.env,

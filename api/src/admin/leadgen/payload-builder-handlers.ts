@@ -36,7 +36,7 @@
 //     with `expirationTtl: 259200` — the KV TTL enforces the §30.3 72-hour
 //     debug-blob retention mechanically. debug_ref = that opaque key.
 
-import { sampleAnswerComputed } from "../../leadgen/sample-computed";
+import { sampleAnswerComputedByOffer } from "../../leadgen/sample-computed";
 import {
   readEnvSecret,
   resolveAllowedOutboundSecretReference,
@@ -443,7 +443,7 @@ export async function testOfferHandler(c: AdminContext): Promise<Response> {
   const testBindings = await readAnswerBindings(c.env.DB, [offer.id]);
   // OWNER 2026-09-28: a calculated choice sends its DATE here too, derived from
   // the Sections that map this Offer exactly as the live auction derives it.
-  const testComputed = await sampleAnswerComputed(c.env.DB, [offer.id], sampleAnswers as Record<string, unknown>);
+  const testComputed = (await sampleAnswerComputedByOffer(c.env.DB, [offer.id], sampleAnswers as Record<string, unknown>)).get(offer.id) ?? {};
   const payload = buildPayload(schema, {
     answers: sampleAnswers,
     answer_bindings: testBindings.get(offer.id) ?? {},
