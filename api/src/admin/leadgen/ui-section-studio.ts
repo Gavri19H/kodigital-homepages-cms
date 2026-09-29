@@ -12824,7 +12824,15 @@ export const SECTION_STUDIO_SCRIPT = `
       }
     }
     refreshLabel();
+    // a value being typed that another choice already has (it will be refused
+    // when the edit ends): nothing here repaints with the OTHER choice's
+    // values meanwhile (review 4). Twins saved that way are not "being typed".
+    function typingTakenValue() {
+      var now = currentValue(), ref = node && node.question_id ? findRef(node.question_id) : null;
+      return now !== committed && savedValueCount(ref ? ref.node : node, now) > 1;
+    }
     providerChipRefreshers.push({ el: chip, run: function () {
+      if (typingTakenValue()) { return; }
       refreshLabel();
       if (rowsEl.hidden) { return; }
       var holdsFocus = !!(document.activeElement && rowsEl.contains && rowsEl.contains(document.activeElement));
@@ -12873,8 +12881,7 @@ export const SECTION_STUDIO_SCRIPT = `
         if (f !== 'value' && f !== 'value_calc') { return; }
         // a value another choice has will be refused when the edit ends: the
         // rows keep this choice's own values meanwhile, never the other's
-        var typedRef = node && node.question_id ? findRef(node.question_id) : null;
-        if (f === 'value' && savedValueCount(typedRef ? typedRef.node : node, currentValue()) > 1) { return; }
+        if (f === 'value' && typingTakenValue()) { return; }
         refreshLabel();
         if (!rowsEl.hidden) { buildRows(); }
       });
