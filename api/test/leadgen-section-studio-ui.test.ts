@@ -8663,6 +8663,71 @@ describeDb("OWNER 2026-09-28 review round 1 — answer keys, Other values, typed
     expect(probe.run(`providerValueOf(${amone.id}, '${REVENUE_FIELD}', '360000').state`)).toBe("missing");
   });
 
+  it("review 5: a choice removed and added back (a NEW choice given the old saved value) keeps sending that value's provider values", async () => {
+    const { probe, offers, island } = await setupWith(MULTI_CONTENT, [["AmONE - Tier 2", [{ path: "Income", type: "string" }]]]);
+    const amone = offers[0]!;
+    probe.run(RENAME_FUNCS.map((n) => sliceIslandFunction(island, n)).join("\n"));
+    probe.run(`upsertEdge(offerById(${amone.id}), answerFieldOf(offerById(${amone.id}), 'Income'), '${REVENUE_FIELD}')`);
+    probe.run(`state.answer_maps[0].output_value_map = { '600000': '50000', '360000': '30000', '30000': '2500' };`);
+    probe.run("snapshotProviderValues(findRef('q_mrum8ruj_2sau').node);");
+    const node = "findRef('q_mrum8ruj_2sau').node";
+    // "$30,000 – $50,000" (360000) is removed; the canvas "+ Add choice" makes option_4
+    probe.run(`${node}.choices.splice(1, 1); ${node}.choices.push({ label: 'Option 4', value: 'option_4', analytics_id: 'option_4' });`);
+    // …and the operator types the old saved value into it
+    probe.run(`${node}.choices[2].value = '360000';`);
+    expect(probe.run(`commitChoiceRename(${node}, '${REVENUE_FIELD}', 'option_4', '360000')`)).toBe("360000");
+    expect((probe.sandbox.state["answer_maps"] as Array<Record<string, unknown>>)[0]!["output_value_map"]).toEqual({ "600000": "50000", "360000": "30000", "30000": "2500" });
+    expect(probe.run(`providerValueOf(${amone.id}, '${REVENUE_FIELD}', '360000')`)).toEqual({ state: "custom", value: "30000" });
+    // a choice deliberately left off, renamed onto a leftover, still stays off (m2)
+    probe.run(`state.answer_maps[0].output_value_map = { '600000': '50000', '99999': 'OLD' }; ${node}.choices[1].value = '99999';`);
+    probe.run(`commitChoiceRename(${node}, '${REVENUE_FIELD}', '30000', '99999')`);
+    expect(probe.run(`providerValueOf(${amone.id}, '${REVENUE_FIELD}', '99999').state`)).toBe("missing");
+  });
+
+  it("review 5: a twin renamed onto a removed choice's leftover value sends ITS OWN provider value, not the removed one's", async () => {
+    const twins = { components: [{
+      type: "ButtonAnswerGroup", question_id: "q_tw", question_key: "q_tw", internal_field: "tw", answer_type: "enum",
+      choices: [
+        { label: "Alpha", value: "same_v", analytics_id: "a" },
+        { label: "Beta", value: "same_v", analytics_id: "b" },
+        { label: "Gamma", value: "g_v", analytics_id: "g" },
+      ],
+    }] };
+    const { probe, offers, island } = await setupWith(twins, [["Text Co", [{ path: "dup", type: "string" }]]]);
+    const o = offers[0]!;
+    probe.run(RENAME_FUNCS.map((n) => sliceIslandFunction(island, n)).join("\n"));
+    probe.run(`upsertEdge(offerById(${o.id}), answerFieldOf(offerById(${o.id}), 'dup'), 'tw')`);
+    probe.run(`state.answer_maps[0].output_value_map = { same_v: 'SV', g_v: 'GV' };`);
+    probe.run("snapshotProviderValues(findRef('q_tw').node);");
+    probe.run("findRef('q_tw').node.choices.splice(2, 1); findRef('q_tw').node.choices[1].value = 'g_v';");
+    probe.run("commitChoiceRename(findRef('q_tw').node, 'tw', 'same_v', 'g_v')");
+    expect((probe.sandbox.state["answer_maps"] as Array<Record<string, unknown>>)[0]!["output_value_map"]).toEqual({ same_v: "SV", g_v: "SV" });
+  });
+
+  it("review 5: three choices sharing a value are one issue; two 'Other' values sharing one are flagged too", async () => {
+    const dupEnv = newHarness().env;
+    const dupHtml = await studioPage(dupEnv, (await createSection(dupEnv)).public_id);
+    const probe = studioProbe(dupHtml, {
+      components: [
+        {
+          type: "ButtonAnswerGroup", question_id: "q_tri", internal_field: "tri",
+          choices: [
+            { label: "A", value: "tri_v", analytics_id: "a" },
+            { label: "B", value: "tri_v", analytics_id: "b" },
+            { label: "C", value: "tri_v", analytics_id: "c" },
+          ],
+          props: { other: { enabled: true, label: "Other", choices: [
+            { label: "Gig", value: "side_v", analytics_id: "g1" },
+            { label: "Side", value: "side_v", analytics_id: "g2" },
+          ] } },
+        },
+      ],
+    });
+    const messages = (probe.run("computeIssues()") as Array<{ message: string }>).map((i) => i.message);
+    expect(messages.filter((m) => m.includes('two choices with the saved value "tri_v"'))).toHaveLength(1);
+    expect(messages.filter((m) => m.includes('two "Other" values with the saved value "side_v"'))).toHaveLength(1);
+  });
+
   it("review 4: the refusal puts the old value back, names why, is no Undo step of its own, and gives Redo back", async () => {
     const { probe, island } = await setupWith(MULTI_CONTENT, []);
     withHistory(probe, island);
