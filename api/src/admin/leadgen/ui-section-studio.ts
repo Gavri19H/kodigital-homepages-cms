@@ -5783,6 +5783,19 @@ export const SECTION_STUDIO_SCRIPT = `
     inlineEditing = true;
     el.setAttribute('contenteditable', 'true');
     if (el.focus) { el.focus(); }
+    // the caret starts at the end of the text; inside a card (a <button>) the
+    // browser ignores End/Home, so those are handled below (review 6b: typed
+    // text landed in front of the label)
+    function caretTo(atEnd) {
+      var d = el.ownerDocument || document;
+      try {
+        if (d.createRange && d.getSelection) {
+          var rg = d.createRange(); rg.selectNodeContents(el); rg.collapse(!atEnd);
+          var sl = d.getSelection(); sl.removeAllRanges(); sl.addRange(rg);
+        }
+      } catch (eCaret) { /* no selection API: leave the caret where it is */ }
+    }
+    caretTo(true);
     function finish(apply) {
       if (!inlineEditing) { return; }
       inlineEditing = false;
@@ -5800,6 +5813,10 @@ export const SECTION_STUDIO_SCRIPT = `
       // the selection to the parent.
       if (keyEv.key === 'Enter') { keyEv.preventDefault(); keyEv.stopPropagation(); finish(true); }
       else if (keyEv.key === 'Escape') { keyEv.preventDefault(); keyEv.stopPropagation(); finish(false); }
+      else if ((keyEv.key === 'End' || keyEv.key === 'Home') && el.closest && el.closest('button')) {
+        keyEv.preventDefault(); keyEv.stopPropagation();
+        caretTo(keyEv.key === 'End');
+      }
       else if (keyEv.key === ' ' && el.closest && el.closest('button')) {
         // a card is a <button>: the browser turns Space into a press and types
         // nothing (review 5: "Gamma r5" became "Gammar5") — put the space in
@@ -7580,7 +7597,7 @@ export const SECTION_STUDIO_SCRIPT = `
       // value is the k-th choice with that value (twins stay apart)
       cardIdx = typeof canvasChoiceIndex !== 'undefined' ? canvasChoiceIndex(qid, card.getAttribute('data-lg-choice'), cardSeen) : -1;
       if (cardIdx >= 0) { card.setAttribute('data-studio-choice-index', String(cardIdx)); } else if (card.removeAttribute) { card.removeAttribute('data-studio-choice-index'); }
-      card.className = String(card.className || '').replace(/(^|\s)studio-choice-selected(?=\s|$)/g, '');
+      card.className = withoutClasses(card.className, ['studio-choice-selected']);
       if (qid === selectedQuestionId && selectedChoiceValue !== null && card.getAttribute('data-lg-choice') === String(selectedChoiceValue) &&
           (typeof selectedChoiceIndex !== 'number' || selectedChoiceIndex < 0 || cardIdx < 0 || cardIdx === selectedChoiceIndex)) {
         card.className = card.className + ' studio-choice-selected';
@@ -8926,7 +8943,7 @@ export const SECTION_STUDIO_SCRIPT = `
   function markCurrentChoiceRow() {
     var rows = document.querySelectorAll('[data-choice-row]'), i;
     for (i = 0; i < rows.length; i++) {
-      rows[i].className = String(rows[i].className || '').replace(/(^|\s)studio-choice-row-current(?=\s|$)/g, '');
+      rows[i].className = withoutClasses(rows[i].className, ['studio-choice-row-current']);
       if (i === selectedChoiceIndex) { rows[i].className = rows[i].className + ' studio-choice-row-current'; }
     }
   }
