@@ -4493,8 +4493,21 @@ export const SECTION_STUDIO_SCRIPT = `
       c: state.content,
       m: state.answer_maps || [],
       s: state.selected_offers || [],
-      b: (typeof providerBaseline !== 'undefined' && providerBaseline) || {}
+      b: (typeof providerBaseline !== 'undefined' && providerBaseline) || {},
+      r: typeof repairNotesState !== 'undefined' ? repairNotesState() : {}
     });
+  }
+  // the "now uses …" repair notes as they stand (review 4: a Redo of the part
+  // change came back without its note)
+  function repairNotesState() {
+    var out = {}, k;
+    if (typeof answerKeyRepairs === 'undefined') { return out; }
+    for (k in answerKeyRepairs) {
+      if (Object.prototype.hasOwnProperty.call(answerKeyRepairs, k) && answerKeyRepairs[k].moved > 0) {
+        out[k] = { moved: answerKeyRepairs[k].moved, from: answerKeyRepairs[k].from, to: answerKeyRepairs[k].to };
+      }
+    }
+    return out;
   }
   function restoreMappings(snap) {
     var i;
@@ -4507,11 +4520,15 @@ export const SECTION_STUDIO_SCRIPT = `
     for (i = 0; i < (snap.s || []).length; i++) { state.selected_offers.push(snap.s[i]); }
     // the "not sent" stale-key list points at edge objects the restore
     // replaced: it is re-derived from the restored mapping on the next Offers
-    // repaint. The "now uses …" repair note stays (review 3: an unrelated Undo
-    // cleared it while the repair still waited for Save).
-    var rq;
+    // repaint. The "now uses …" repair notes come back as they were in that
+    // snapshot (review 3: an unrelated Undo cleared them; review 4: a Redo of
+    // the part change lost its note).
+    var rq, notes = snap.r || {};
     if (typeof answerKeyRepairs !== 'undefined') {
-      for (rq in answerKeyRepairs) { if (Object.prototype.hasOwnProperty.call(answerKeyRepairs, rq)) { answerKeyRepairs[rq].stale = []; } }
+      answerKeyRepairs = {};
+      for (rq in notes) {
+        if (Object.prototype.hasOwnProperty.call(notes, rq)) { answerKeyRepairs[rq] = { moved: notes[rq].moved, from: notes[rq].from, to: notes[rq].to, stale: [] }; }
+      }
     }
   }
   // Typing in one box is ONE undo step, however many keystrokes (and however
@@ -4519,6 +4536,8 @@ export const SECTION_STUDIO_SCRIPT = `
   // that follows it): review F1, where one Undo left a pasted rename half
   // undone. A new step starts when another box (or any control) is used.
   var lastPushFocus = null;
+  // what Redo held before the latest step cleared it (a refused edit gives it back)
+  var redoBeforePush = [];
   function typingFocus() {
     var f = typeof document !== 'undefined' ? document.activeElement : null;
     var tag = f && f.tagName ? String(f.tagName).toUpperCase() : '';
@@ -4543,6 +4562,7 @@ export const SECTION_STUDIO_SCRIPT = `
     }
     undoStack.push(lastSnapshot);
     if (undoStack.length > UNDO_LIMIT) { undoStack.shift(); }
+    redoBeforePush = redoStack.slice();
     redoStack.length = 0;
     lastSnapshot = now;
     lastPushFocus = typing;
@@ -5147,6 +5167,12 @@ export const SECTION_STUDIO_SCRIPT = `
     if (typeof walkTree !== 'undefined' && state && state.content) {
       walkTree(state.content.components, 1, function (n) { snapshotProviderValues(n); });
     }
+  }
+  function addProviderBaseline(node, from, to) {
+    var b = node && node.question_id ? providerBaseline[node.question_id] : undefined;
+    if (!b || b.indexOf(from) === -1 || b.indexOf(to) !== -1) { return false; }
+    providerBaseline[node.question_id] = b.concat([to]);
+    return true;
   }
   function renameProviderBaseline(node, from, to) {
     var b = node && node.question_id ? providerBaseline[node.question_id] : undefined, i, out;
@@ -6768,10 +6794,19 @@ export const SECTION_STUDIO_SCRIPT = `
       // icon/image is a VISIBLE studio issue instead of a save-time 400 the
       // "No issues" chip gave no warning about.
       if (node.choices && node.choices.length > 0) {
-        var ci, choice, vt;
+        var ci, choice, vt, seenChoiceValue = {}, seenChoiceLabel = {}, dupKey;
         for (ci = 0; ci < node.choices.length; ci++) {
           choice = node.choices[ci];
           if (!choice || typeof choice !== 'object') { issues.push({ qid: node.question_id, message: label + ' has a choice that is not valid' }); continue; }
+          // review 4: two choices with one saved value can't be told apart in
+          // the answer (nor given their own provider values); two with one
+          // label look the same to the visitor. Shown, never blocking.
+          dupKey = choice.value === undefined || choice.value === null ? '' : String(choice.value);
+          if (dupKey !== '' && seenChoiceValue[dupKey] === true) { issues.push({ qid: node.question_id, message: label + ' has two choices with the saved value "' + dupKey + '" \\u2014 give each its own' }); }
+          seenChoiceValue[dupKey] = true;
+          dupKey = trimStr(choice.label).toLowerCase();
+          if (dupKey !== '' && seenChoiceLabel[dupKey] === true) { issues.push({ qid: node.question_id, message: label + ' has two choices labelled "' + trimStr(choice.label) + '"' }); }
+          seenChoiceLabel[dupKey] = true;
           if (trimStr(choice.label) === '') { issues.push({ qid: node.question_id, message: label + ' has a choice missing its label' }); }
           vt = typeof choice.value;
           if (vt !== 'string' && vt !== 'number' && vt !== 'boolean') { issues.push({ qid: node.question_id, message: label + ' has a choice with an invalid value' }); }
@@ -12558,8 +12593,13 @@ export const SECTION_STUDIO_SCRIPT = `
     var live = ref ? ref.node : node;
     if (savedValueCount(live, now) > 1) { return committed; }
     if (committed !== '') {
-      var carried = carryProviderValues(internalField, committed, now);
-      if ((renameProviderBaseline(live, committed, now) || carried) && typeof historyAbsorb !== 'undefined') { historyAbsorb(); }
+      // another choice still has the old value (twins, from a bulk paste or
+      // saved that way): it keeps its provider values — they are COPIED to
+      // the new name, never moved away from it (review 4)
+      var twin = savedValueCount(live, committed) > 0;
+      var carried = twin ? copyProviderValues(internalField, committed, now) : carryProviderValues(internalField, committed, now);
+      var based = twin ? addProviderBaseline(live, committed, now) : renameProviderBaseline(live, committed, now);
+      if ((based || carried) && typeof historyAbsorb !== 'undefined') { historyAbsorb(); }
     }
     return now;
   }
@@ -12568,7 +12608,7 @@ export const SECTION_STUDIO_SCRIPT = `
   // back and the row says why. (Holding it half-renamed until the other choice
   // moved allowed a later swap to send one choice's provider value for the other.)
   // Swapping two values goes through a spare value, each step a plain rename.
-  function refuseDuplicateValue(rowEl, otherRow, committed, now) {
+  function refuseDuplicateValue(rowEl, otherRow, committed, now, byLabel) {
     var field = otherRow ? 'data-other-field' : 'data-choice-field';
     var valueInput = rowEl.querySelector('[' + field + '="value"]');
     var analyticsInput = rowEl.querySelector('[' + field + '="analytics_id"]');
@@ -12583,16 +12623,41 @@ export const SECTION_STUDIO_SCRIPT = `
       rowEl.appendChild(note);
     }
     clearChildren(note);
-    note.appendChild(document.createTextNode('Another choice already has the saved value ' + now + ' \\u2014 each choice needs its own' +
-      (committed === '' ? '.' : ', so ' + committed + ' was kept.')));
-    // the refusal is no step of its own: it takes the refused edit back
+    note.appendChild(document.createTextNode(byLabel
+      ? 'This label makes the saved value ' + now + ', which another choice already has \\u2014 the saved value stays ' +
+        (committed === '' ? 'empty' : committed) + '. Change the label, or set the saved value by hand.'
+      : 'Another choice already has the saved value ' + now + ' \\u2014 each choice needs its own' +
+        (committed === '' ? '.' : ', so ' + committed + ' was kept.')));
+    // the refusal is no step of its own: it takes the refused edit back —
+    // and whatever Redo held before that edit comes back too (review 4)
+    var redoKept = typeof redoBeforePush !== 'undefined' ? redoBeforePush.slice() : [];
     var depth = typeof undoStack !== 'undefined' ? undoStack.length : 0;
     if (otherRow) { collectOther(); } else { collectChoices(); }
     if (typeof undoStack !== 'undefined') {
+      var poppedEdit = false, ri;
       if (undoStack.length > depth) { undoStack.pop(); }
-      while (undoStack.length > 0 && undoStack[undoStack.length - 1] === lastSnapshot) { undoStack.pop(); }
+      while (undoStack.length > 0 && undoStack[undoStack.length - 1] === lastSnapshot) { undoStack.pop(); poppedEdit = true; }
+      if (poppedEdit && redoStack.length === 0) { for (ri = 0; ri < redoKept.length; ri++) { redoStack.push(redoKept[ri]); } }
       updateHistoryButtons();
     }
+  }
+  // The twin case of carryProviderValues: the old name stays (another choice
+  // still has it) and the new name gets the same value; where the old name
+  // was left off a list, the new one is left off too.
+  function copyProviderValues(internalField, from, to) {
+    var i, e, map, key, changed = false;
+    for (i = 0; i < state.answer_maps.length; i++) {
+      e = state.answer_maps[i];
+      if (!e || e.internal_field !== internalField || !e.output_value_map || typeof e.output_value_map !== 'object') { continue; }
+      if (hasOwn(e.output_value_map, from) ? hasOwn(e.output_value_map, to) : !hasOwn(e.output_value_map, to)) { continue; }
+      map = {};
+      for (key in e.output_value_map) { if (hasOwn(e.output_value_map, key)) { map[key] = e.output_value_map[key]; } }
+      if (hasOwn(map, from)) { map[to] = String(map[from]) === from ? to : map[from]; } else { delete map[to]; }
+      e.output_value_map = map;
+      changed = true;
+    }
+    if (changed) { markDirty(); }
+    return changed;
   }
   // A provider value applied on the Content tab is its own undo step. Like
   // any other edit it retires a pending element-delete toast (its Undo would
@@ -12789,7 +12854,7 @@ export const SECTION_STUDIO_SCRIPT = `
         var now = currentValue();
         var ref = node && node.question_id ? findRef(node.question_id) : null;
         if (now !== committed && now !== '' && savedValueCount(ref ? ref.node : node, now) > 1) {
-          refuseDuplicateValue(rowEl, t.hasAttribute('data-other-field'), committed, now);
+          refuseDuplicateValue(rowEl, t.hasAttribute('data-other-field'), committed, now, f === 'label');
           setTimeout(refreshProviderChips, 0);
           return;
         }
@@ -12806,6 +12871,10 @@ export const SECTION_STUDIO_SCRIPT = `
         var dupNote = (f === 'value' || f === 'label') && rowEl.querySelector ? rowEl.querySelector('[data-choice-duplicate-note]') : null;
         if (dupNote && dupNote.parentNode) { dupNote.parentNode.removeChild(dupNote); }
         if (f !== 'value' && f !== 'value_calc') { return; }
+        // a value another choice has will be refused when the edit ends: the
+        // rows keep this choice's own values meanwhile, never the other's
+        var typedRef = node && node.question_id ? findRef(node.question_id) : null;
+        if (f === 'value' && savedValueCount(typedRef ? typedRef.node : node, currentValue()) > 1) { return; }
         refreshLabel();
         if (!rowsEl.hidden) { buildRows(); }
       });
