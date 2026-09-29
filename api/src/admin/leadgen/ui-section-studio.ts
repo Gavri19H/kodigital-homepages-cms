@@ -5753,6 +5753,20 @@ export const SECTION_STUDIO_SCRIPT = `
       // the selection to the parent.
       if (keyEv.key === 'Enter') { keyEv.preventDefault(); keyEv.stopPropagation(); finish(true); }
       else if (keyEv.key === 'Escape') { keyEv.preventDefault(); keyEv.stopPropagation(); finish(false); }
+      else if (keyEv.key === ' ' && el.closest && el.closest('button')) {
+        // a card is a <button>: the browser turns Space into a press and types
+        // nothing (review 5: "Gamma r5" became "Gammar5") — put the space in
+        keyEv.preventDefault(); keyEv.stopPropagation();
+        var d = el.ownerDocument || document;
+        if (!(d.execCommand && d.execCommand('insertText', false, ' '))) {
+          var sel = d.getSelection ? d.getSelection() : null;
+          if (sel && sel.rangeCount) {
+            var rg = sel.getRangeAt(0), tn = d.createTextNode(' ');
+            rg.deleteContents(); rg.insertNode(tn); rg.setStartAfter(tn); rg.collapse(true);
+            sel.removeAllRanges(); sel.addRange(rg);
+          }
+        }
+      }
     }
     el.addEventListener('blur', onBlur);
     el.addEventListener('keydown', onKey);
@@ -6801,12 +6815,13 @@ export const SECTION_STUDIO_SCRIPT = `
           // review 4: two choices with one saved value can't be told apart in
           // the answer (nor given their own provider values); two with one
           // label look the same to the visitor. Shown, never blocking.
+          // (once per value, however many share it — review 5)
           dupKey = choice.value === undefined || choice.value === null ? '' : String(choice.value);
-          if (dupKey !== '' && seenChoiceValue[dupKey] === true) { issues.push({ qid: node.question_id, message: label + ' has two choices with the saved value "' + dupKey + '" \\u2014 give each its own' }); }
-          seenChoiceValue[dupKey] = true;
+          if (dupKey !== '' && seenChoiceValue[dupKey] === 1) { issues.push({ qid: node.question_id, message: label + ' has two choices with the saved value "' + dupKey + '" \\u2014 give each its own' }); }
+          if (dupKey !== '') { seenChoiceValue[dupKey] = (seenChoiceValue[dupKey] || 0) + 1; }
           dupKey = trimStr(choice.label).toLowerCase();
-          if (dupKey !== '' && seenChoiceLabel[dupKey] === true) { issues.push({ qid: node.question_id, message: label + ' has two choices labelled "' + trimStr(choice.label) + '"' }); }
-          seenChoiceLabel[dupKey] = true;
+          if (dupKey !== '' && seenChoiceLabel[dupKey] === 1) { issues.push({ qid: node.question_id, message: label + ' has two choices labelled "' + trimStr(choice.label) + '"' }); }
+          if (dupKey !== '') { seenChoiceLabel[dupKey] = (seenChoiceLabel[dupKey] || 0) + 1; }
           if (trimStr(choice.label) === '') { issues.push({ qid: node.question_id, message: label + ' has a choice missing its label' }); }
           vt = typeof choice.value;
           if (vt !== 'string' && vt !== 'number' && vt !== 'boolean') { issues.push({ qid: node.question_id, message: label + ' has a choice with an invalid value' }); }
@@ -6840,7 +6855,7 @@ export const SECTION_STUDIO_SCRIPT = `
               if (obc && (typeof obc.value === 'string' || typeof obc.value === 'number' || typeof obc.value === 'boolean')) { otherBaseValues[String(obc.value)] = true; }
             }
           }
-          var otherChoices = node.props.other.choices, oi, oc, ovt;
+          var otherChoices = node.props.other.choices, oi, oc, ovt, seenOtherValue = {};
           if (otherChoices.length > 50) { issues.push({ qid: node.question_id, message: label + ' has more than 50 "Other" values (max 50)' }); }
           for (oi = 0; oi < otherChoices.length; oi++) {
             oc = otherChoices[oi];
@@ -6849,6 +6864,11 @@ export const SECTION_STUDIO_SCRIPT = `
             ovt = typeof oc.value;
             if (ovt !== 'string' && ovt !== 'number' && ovt !== 'boolean') { issues.push({ qid: node.question_id, message: label + ' has an "Other" value with an invalid value' }); }
             else if (otherBaseValues[String(oc.value)]) { issues.push({ qid: node.question_id, message: label + ' has an "Other" value that duplicates a base choice' }); }
+            else {
+              // two "Other" values with one saved value (review 5), once per value
+              if (seenOtherValue[String(oc.value)] === 1) { issues.push({ qid: node.question_id, message: label + ' has two "Other" values with the saved value "' + String(oc.value) + '" \\u2014 give each its own' }); }
+              seenOtherValue[String(oc.value)] = (seenOtherValue[String(oc.value)] || 0) + 1;
+            }
             if (trimStr(oc.analytics_id) === '') { issues.push({ qid: node.question_id, message: label + ' has an "Other" value missing its analytics id' }); }
           }
         }
@@ -12561,14 +12581,17 @@ export const SECTION_STUDIO_SCRIPT = `
   // Move every Offer's value for saved value 'from' to 'to' (a rename; the
   // caller has checked no other choice holds 'to'). A key already named 'to'
   // is a leftover of a removed choice: the renamed choice's own value replaces
-  // it, and where the choice was left off a list the leftover goes too, so it
-  // stays off.
-  function carryProviderValues(internalField, from, to) {
+  // it. Where the choice was deliberately left off a list (fromWasOff) the
+  // leftover goes too, so it stays off; a NEW choice (on no list yet) takes the
+  // leftover as it is — a choice removed and added back keeps sending
+  // (review 5: it was deleted, so every Offer stopped receiving that answer).
+  function carryProviderValues(internalField, from, to, fromWasOff) {
     var i, e, map, key, changed = false;
     for (i = 0; i < state.answer_maps.length; i++) {
       e = state.answer_maps[i];
       if (!e || e.internal_field !== internalField || !e.output_value_map || typeof e.output_value_map !== 'object') { continue; }
       if (!hasOwn(e.output_value_map, from) && !hasOwn(e.output_value_map, to)) { continue; }
+      if (!hasOwn(e.output_value_map, from) && fromWasOff !== true) { continue; }
       map = {};
       for (key in e.output_value_map) { if (hasOwn(e.output_value_map, key)) { map[key] = e.output_value_map[key]; } }
       if (hasOwn(map, from)) {
@@ -12597,7 +12620,10 @@ export const SECTION_STUDIO_SCRIPT = `
       // saved that way): it keeps its provider values — they are COPIED to
       // the new name, never moved away from it (review 4)
       var twin = savedValueCount(live, committed) > 0;
-      var carried = twin ? copyProviderValues(internalField, committed, now) : carryProviderValues(internalField, committed, now);
+      // was the old value deliberately left off a list (a value the question
+      // had when it opened), or is this a NEW choice not on any list yet?
+      var fromWasOff = !isNewSinceLoad(live, committed);
+      var carried = twin ? copyProviderValues(internalField, committed, now, fromWasOff) : carryProviderValues(internalField, committed, now, fromWasOff);
       var based = twin ? addProviderBaseline(live, committed, now) : renameProviderBaseline(live, committed, now);
       if ((based || carried) && typeof historyAbsorb !== 'undefined') { historyAbsorb(); }
     }
@@ -12642,14 +12668,16 @@ export const SECTION_STUDIO_SCRIPT = `
     }
   }
   // The twin case of carryProviderValues: the old name stays (another choice
-  // still has it) and the new name gets the same value; where the old name
-  // was left off a list, the new one is left off too.
-  function copyProviderValues(internalField, from, to) {
+  // still has it) and the new name gets the same value — over a leftover key
+  // too (review 5: it kept a deleted choice's value); where the old name was
+  // deliberately left off a list, the new one is left off too.
+  function copyProviderValues(internalField, from, to, fromWasOff) {
     var i, e, map, key, changed = false;
     for (i = 0; i < state.answer_maps.length; i++) {
       e = state.answer_maps[i];
       if (!e || e.internal_field !== internalField || !e.output_value_map || typeof e.output_value_map !== 'object') { continue; }
-      if (hasOwn(e.output_value_map, from) ? hasOwn(e.output_value_map, to) : !hasOwn(e.output_value_map, to)) { continue; }
+      if (!hasOwn(e.output_value_map, from) && !hasOwn(e.output_value_map, to)) { continue; }
+      if (!hasOwn(e.output_value_map, from) && fromWasOff !== true) { continue; }
       map = {};
       for (key in e.output_value_map) { if (hasOwn(e.output_value_map, key)) { map[key] = e.output_value_map[key]; } }
       if (hasOwn(map, from)) { map[to] = String(map[from]) === from ? to : map[from]; } else { delete map[to]; }
@@ -12671,6 +12699,8 @@ export const SECTION_STUDIO_SCRIPT = `
     wrap.setAttribute('data-choice-provider', '');
     var internalField = node && node.internal_field ? String(node.internal_field) : '';
     var initial = choice && choice.value !== undefined ? String(choice.value) : '';
+    // the saved value this row last committed (a rename carries from it)
+    var committed = initial;
     snapshotProviderValues(node);
     var chip = document.createElement('button');
     chip.type = 'button';
@@ -12684,7 +12714,7 @@ export const SECTION_STUDIO_SCRIPT = `
     wrap.appendChild(rowsEl);
     function currentValue() { return rowSavedValue(rowEl, initial); }
     function refreshLabel() {
-      var v = currentValue();
+      var v = shownValue();
       clearChildren(chip);
       chip.appendChild(document.createTextNode(providerChipLabel(internalField, v)));
       chip.setAttribute('data-choice-provider-chip', v);
@@ -12723,7 +12753,7 @@ export const SECTION_STUDIO_SCRIPT = `
       clearChildren(rowsEl);
       painters = [];
       builtShape = '';
-      var v = currentValue();
+      var v = shownValue();
       rowsEl.setAttribute('data-choice-provider-rows', v);
       var ids = mappedOffersFor(internalField);
       if (ids.length === 0) { note('Map this answer to an Offer in the Offers tab first \\u2014 then each Offer can get its own value here.'); return; }
@@ -12736,7 +12766,7 @@ export const SECTION_STUDIO_SCRIPT = `
       noteLine.setAttribute('data-provider-note', '');
       rowsEl.appendChild(noteLine);
       var paintNote = function () {
-        var cur = currentValue(), rs = providerChipRows(internalField, cur), k, missing = false;
+        var cur = shownValue(), rs = providerChipRows(internalField, cur), k, missing = false;
         for (k = 0; k < rs.length; k++) { if (rs[k].state === 'missing' || (rs[k].unsendable !== '' && rs[k].unsendable.indexOf('partly:') !== 0)) { missing = true; } }
         clearChildren(noteLine);
         noteLine.appendChild(document.createTextNode(missing
@@ -12769,7 +12799,7 @@ export const SECTION_STUDIO_SCRIPT = `
           // repaint this row's state in place (a refresh never rebuilds a box)
           painters.push(function () {
             if (document.activeElement === input || input.getAttribute('aria-invalid') === 'true') { return; }
-            var cur = currentValue();
+            var cur = shownValue();
             var rsp = rowState(offerId, edges, cur);
             // the box too, not only its line (review F4: after a rename the
             // boxes stayed empty while the lines said "sends 58000")
@@ -12781,7 +12811,7 @@ export const SECTION_STUDIO_SCRIPT = `
           // Enter) — a refused value never leaves a half-typed one behind
           input.addEventListener('input', function () {
             var typed = trimStr(input.value);
-            var ts = typingStateFor(offerId, edges, typed, currentValue());
+            var ts = typingStateFor(offerId, edges, typed, shownValue());
             if (ts.kind === 'invalid') { input.setAttribute('aria-invalid', 'true'); } else { input.removeAttribute('aria-invalid'); }
             stateEl.setAttribute('data-provider-state', ts.kind);
             clearChildren(stateEl);
@@ -12790,11 +12820,11 @@ export const SECTION_STUDIO_SCRIPT = `
           input.addEventListener('blur', function () {
             // a no-op edit fires no 'change': put the real state back
             if (input.getAttribute('aria-invalid') === 'true') { return; }
-            var rs0 = rowState(offerId, edges, currentValue());
-            paintState(stateEl, rs0.v, currentValue(), '', rs0.unsendable);
+            var rs0 = rowState(offerId, edges, shownValue());
+            paintState(stateEl, rs0.v, shownValue(), '', rs0.unsendable);
           });
           input.addEventListener('change', function () {
-            var saved = currentValue();
+            var saved = shownValue();
             if (saved === '' || rowIsCalculated(rowEl, choice)) { return; }
             var text = trimStr(input.value);
             var problem = boxUnsendable(offerId, edges, text);
@@ -12831,12 +12861,14 @@ export const SECTION_STUDIO_SCRIPT = `
       var now = currentValue(), ref = node && node.question_id ? findRef(node.question_id) : null;
       return now !== committed && savedValueCount(ref ? ref.node : node, now) > 1;
     }
+    // what the chip and rows show: this row's committed value while the value
+    // being typed is taken (review 5: the rows froze at a typed prefix)
+    function shownValue() { return typingTakenValue() ? committed : currentValue(); }
     providerChipRefreshers.push({ el: chip, run: function () {
-      if (typingTakenValue()) { return; }
       refreshLabel();
       if (rowsEl.hidden) { return; }
       var holdsFocus = !!(document.activeElement && rowsEl.contains && rowsEl.contains(document.activeElement));
-      if (shouldRebuildProviderRows(builtShape, providerRowsShape(providerChipRows(internalField, currentValue())), holdsFocus)) { buildRows(); return; }
+      if (shouldRebuildProviderRows(builtShape, providerRowsShape(providerChipRows(internalField, shownValue())), holdsFocus)) { buildRows(); return; }
       var i;
       for (i = 0; i < painters.length; i++) { painters[i](); }
     } });
@@ -12853,7 +12885,6 @@ export const SECTION_STUDIO_SCRIPT = `
     // one is not a new name either — nothing moves and the row keeps carrying
     // from its last good value (review M1: fixing a collision took the OTHER
     // choice's values).
-    var committed = initial;
     if (rowEl && rowEl.addEventListener) {
       rowEl.addEventListener('change', function (ev) {
         var t = ev.target && ev.target.getAttribute ? ev.target : null;
@@ -12880,8 +12911,7 @@ export const SECTION_STUDIO_SCRIPT = `
         if (dupNote && dupNote.parentNode) { dupNote.parentNode.removeChild(dupNote); }
         if (f !== 'value' && f !== 'value_calc') { return; }
         // a value another choice has will be refused when the edit ends: the
-        // rows keep this choice's own values meanwhile, never the other's
-        if (f === 'value' && typingTakenValue()) { return; }
+        // rows show this choice's own (committed) values meanwhile (shownValue)
         refreshLabel();
         if (!rowsEl.hidden) { buildRows(); }
       });
