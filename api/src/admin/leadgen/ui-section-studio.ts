@@ -7397,8 +7397,21 @@ export const SECTION_STUDIO_SCRIPT = `
   // then those of the old list, so a click on a card in that window could act
   // on another choice (review 6/6b: a remove then a quick ✕ deleted the wrong
   // twin). Choice actions on the canvas wait for the repaint.
-  var canvasModelRev = 0, canvasShownRev = 0;
+  var canvasModelRev = 0, canvasShownRev = 0, canvasBehindNoted = false;
   function canvasIsCurrent() { return canvasShownRev === canvasModelRev; }
+  // A refresh that comes back AFTER a newer one has painted is dropped: it
+  // would paint older content and wind the shown revision back, so the
+  // canvas stayed "behind" and ignored every click (review 7 F7-1).
+  function acceptCanvasPaint(rev) {
+    if (rev < canvasShownRev) { return false; }
+    canvasShownRev = rev;
+    return true;
+  }
+  // A choice action on a canvas that is behind is not taken — and says so.
+  function canvasBehindRefusal() {
+    canvasBehindNoted = true;
+    if (typeof showRefusal !== 'undefined') { showRefusal('The canvas is catching up with your last edit \\u2014 try that again in a moment.'); }
+  }
   function scheduleCanvasRender() {
     canvasModelRev += 1;
     if (canvasTimer) { clearTimeout(canvasTimer); }
@@ -7463,8 +7476,9 @@ export const SECTION_STUDIO_SCRIPT = `
         if (typeof showCanvasPreviewError !== 'undefined') { showCanvasPreviewError(); }
         return;
       }
+      if (typeof acceptCanvasPaint !== 'undefined' && !acceptCanvasPaint(renderingRev)) { return; }
       region.innerHTML = '<style>' + res.body.preview.css + '</style>' + (res.body.preview.html || res.body.preview.desktop || '');
-      if (typeof canvasShownRev !== 'undefined') { canvasShownRev = renderingRev; }
+      if (typeof canvasBehindNoted !== 'undefined' && canvasBehindNoted && canvasIsCurrent()) { canvasBehindNoted = false; clearRefusal(); }
       applyCanvasDecoration();
       updateCanvasEmpty();
       if (typeof hideCanvasPreviewError !== 'undefined') { hideCanvasPreviewError(); }
@@ -8874,14 +8888,12 @@ export const SECTION_STUDIO_SCRIPT = `
     var chip = document.querySelector('[data-choice-value-chip]');
     var c = (node && choiceFocused) ? findChoice(node, selectedChoiceKey()) : null;
     if (chip) { chip.textContent = choiceFocused ? String(selectedChoiceValue) : 'value'; }
-    // only the two card grids draw a badge or a disabled choice — answer
-    // buttons, yes/no and multi-select cards ignore both, so neither control
-    // is offered there (review 6b: a "disabled" button stayed pickable)
-    var drawsBadge = !!node && isCardGridType(node);
     var badgeBtn = document.querySelector('[data-choice-act="badge"]');
-    if (badgeBtn) { badgeBtn.hidden = !drawsBadge; badgeBtn.setAttribute('aria-pressed', c && typeof c.badge === 'string' && c.badge !== '' ? 'true' : 'false'); }
+    if (badgeBtn) { badgeBtn.hidden = !choiceActOffered(node, 'badge'); badgeBtn.setAttribute('aria-pressed', c && typeof c.badge === 'string' && c.badge !== '' ? 'true' : 'false'); }
     var disBtn = document.querySelector('[data-choice-act="disabled"]');
-    if (disBtn) { disBtn.hidden = !drawsBadge; disBtn.setAttribute('aria-pressed', c && c.disabled === true ? 'true' : 'false'); }
+    if (disBtn) { disBtn.hidden = !choiceActOffered(node, 'disabled'); disBtn.setAttribute('aria-pressed', c && c.disabled === true ? 'true' : 'false'); }
+    var imgBtn = document.querySelector('[data-choice-act="image"]');
+    if (imgBtn) { imgBtn.hidden = !choiceActOffered(node, 'image'); }
     updateHistoryButtons();
     renderToolbarProblems();
   }
@@ -8934,11 +8946,26 @@ export const SECTION_STUDIO_SCRIPT = `
   }
   // §6.2/§6.4 per-choice selection: clicking a card/button selects the CHOICE;
   // the inspector simultaneously opens the Choices tab scrolled to that row.
+  function wrapTextForEdit(el) {
+    var span = frameCreate('span');
+    span.setAttribute('data-studio-edit-text', '');
+    while (el.firstChild) { span.appendChild(el.firstChild); }
+    el.appendChild(span);
+    return span;
+  }
   // The studio's own marks inside a canvas card (the remove ✕): taken out
   // before the card's text is edited, so they never become part of a label.
   function removeStudioMarks(el) {
     var marks = el && el.querySelectorAll ? el.querySelectorAll('[data-choice-x]') : [], i;
     for (i = marks.length - 1; i >= 0; i--) { if (marks[i].parentNode) { marks[i].parentNode.removeChild(marks[i]); } }
+  }
+  // Only the two card grids draw a choice's badge, its disabled look or its
+  // image/icon — answer buttons, yes/no and multi-select cards draw none of
+  // them, so those controls are not offered there (review 6b m3, review 7
+  // F7-3: a "disabled" button stayed pickable; an icon was saved unseen).
+  function choiceActOffered(node, act) {
+    if (act === 'badge' || act === 'disabled' || act === 'image') { return !!node && isCardGridType(node); }
+    return true;
   }
   function markCurrentChoiceRow() {
     var rows = document.querySelectorAll('[data-choice-row]'), i;
@@ -13810,7 +13837,11 @@ export const SECTION_STUDIO_SCRIPT = `
     var rows = container.querySelectorAll('[data-choice-row]');
     var row = rows[selectedChoiceIndex] || null;
     var inp = row ? row.querySelector('[data-choice-field="value"]') : null;
-    if (inp && String(inp.value) === String(selectedChoiceValue)) { selectedChoiceRow = row; return; }
+    if (inp && String(inp.value) === String(selectedChoiceValue)) {
+      selectedChoiceRow = row;
+      row.className = withoutClasses(row.className, ['studio-choice-row-current']) + ' studio-choice-row-current';
+      return;
+    }
     selectedChoiceValue = null;
     selectedChoiceIndex = -1;
   }
@@ -15316,7 +15347,7 @@ export const SECTION_STUDIO_SCRIPT = `
       }
       // §6.2 inline choice ops: per-choice ✕ + the "+ Add choice" ghost tile.
       var xBtn = ev.target && ev.target.closest ? ev.target.closest('[data-choice-x]') : null;
-      if (xBtn && typeof canvasIsCurrent !== 'undefined' && !canvasIsCurrent()) { return; }
+      if (xBtn && typeof canvasIsCurrent !== 'undefined' && !canvasIsCurrent()) { canvasBehindRefusal(); return; }
       if (xBtn) {
         var xRef = findRef(xBtn.getAttribute('data-choice-x-qid'));
         if (xRef) {
@@ -15360,7 +15391,7 @@ export const SECTION_STUDIO_SCRIPT = `
       // component (the inspector opens the Choices tab at that row).
       var cardEl = ev.target && ev.target.closest ? ev.target.closest('[data-lg-choice]') : null;
       if (cardEl && el.contains(cardEl) && typeMeta(el.getAttribute('data-component-type')).choice === true) {
-        if (typeof canvasIsCurrent !== 'undefined' && !canvasIsCurrent()) { return; }
+        if (typeof canvasIsCurrent !== 'undefined' && !canvasIsCurrent()) { canvasBehindRefusal(); return; }
         selectChoice(el.getAttribute('data-question-id'), cardEl.getAttribute('data-lg-choice'), choiceKeyOfEl(cardEl).index, true);
         return;
       }
@@ -15386,13 +15417,16 @@ export const SECTION_STUDIO_SCRIPT = `
       var cardEl = ev.target && ev.target.closest ? ev.target.closest('[data-lg-choice]') : null;
       if (cardEl && typeMeta(ref.node.type).choice === true) {
         ev.preventDefault();
-        if (typeof canvasIsCurrent !== 'undefined' && !canvasIsCurrent()) { return; }
+        if (typeof canvasIsCurrent !== 'undefined' && !canvasIsCurrent()) { canvasBehindRefusal(); return; }
         var choiceKey = choiceKeyOfEl(cardEl);
         var cardTitle = cardEl.querySelector('.lg-card-title') || cardEl;
-        // a plain answer button has no title element: the whole button is
-        // edited, so the studio's own marks (the remove ✕) come out first and
-        // never reach the label (review 6b: "Alpha7 new×" was saved)
+        // a plain answer button has no title element: the studio's own marks
+        // (the remove ✕) come out first and never reach the label (review 6b:
+        // "Alpha7 new×" was saved), and its text is edited in a span — a
+        // click inside a contenteditable <button> does not move the caret
+        // (review 7 F7-8). The next canvas paint restores the button.
         removeStudioMarks(cardTitle);
+        if (cardTitle === cardEl) { cardTitle = wrapTextForEdit(cardEl); }
         startInlineEdit(cardTitle, function (text) { commitInlineChoiceLabel(qid, choiceKey, text); });
         return;
       }
@@ -15451,6 +15485,7 @@ export const SECTION_STUDIO_SCRIPT = `
       // native node dragstart can never fire — canvas node moves flow through
       // the delegated pointer gesture (onFieldMoveMouseDown) instead.
       var cardEl = ev.target && ev.target.closest ? ev.target.closest('[data-lg-choice]') : null;
+      if (cardEl && typeof canvasIsCurrent !== 'undefined' && !canvasIsCurrent()) { ev.preventDefault(); canvasBehindRefusal(); return; }
       if (cardEl && ev.dataTransfer) {
         var cardHost = cardEl.closest ? cardEl.closest('[data-question-id]') : null;
         if (cardHost && typeMeta(cardHost.getAttribute('data-component-type')).choice === true) {
@@ -15502,6 +15537,7 @@ export const SECTION_STUDIO_SCRIPT = `
         var targetCard = ev.target && ev.target.closest ? ev.target.closest('[data-lg-choice]') : null;
         var targetHost = targetCard && targetCard.closest ? targetCard.closest('[data-question-id]') : null;
         if (!targetCard || !targetHost || targetHost.getAttribute('data-question-id') !== cQid) { return; }
+        if (typeof canvasIsCurrent !== 'undefined' && !canvasIsCurrent()) { canvasBehindRefusal(); return; }
         var cRef = findRef(cQid);
         if (cRef && reorderChoiceBefore(cRef.node, fromKey, choiceKeyOfEl(targetCard)) && cQid === selectedQuestionId) { renderChoiceEditor(cRef.node); }
         return;

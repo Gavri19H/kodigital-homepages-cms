@@ -8810,7 +8810,7 @@ describeDb("OWNER 2026-09-28 review round 1 — answer keys, Other values, typed
       querySelectorAll: () => [],
     };
     const probe = studioProbe(html, twins, docStub as unknown as Record<string, unknown>);
-    probe.run([sliceIslandFunction(island, "choiceContainer"), sliceIslandFunction(island, "collectChoices"), sliceIslandFunction(island, "markSelectedChoiceRow")].join("\n"));
+    probe.run([sliceIslandFunction(island, "choiceContainer"), sliceIslandFunction(island, "collectChoices"), sliceIslandFunction(island, "withoutClasses"), sliceIslandFunction(island, "markSelectedChoiceRow")].join("\n"));
     probe.run("var selectedChoiceValue = null; var selectedChoiceIndex = -1; var selectedChoiceRow = null; var scopeState = 'choice';");
     probe.sandbox.selectedQuestionId = "q_tw";
     probe.sandbox["betaRow"] = beta;
@@ -8847,7 +8847,70 @@ describeDb("OWNER 2026-09-28 review round 1 — answer keys, Other values, typed
       removeStudioMarks(btn);
     `);
     expect(probe.run("btn.textContent")).toBe("Alpha7 new");
-    expect(island).toContain("removeStudioMarks(cardTitle);\n        startInlineEdit(cardTitle,");
+    // review 7 (F7-8): its text is then edited in a span inside the button
+    // (a click inside a contenteditable <button> does not move the caret)
+    probe.run(sliceIslandFunction(island, "wrapTextForEdit"));
+    probe.run(`
+      function frameCreate(tag) { return { tagName: tag, attrs: {}, childNodes: [], setAttribute: function (k, v) { this.attrs[k] = v; },
+        appendChild: function (c) { if (c.parentNode) { c.parentNode.removeChild(c); } c.parentNode = this; this.childNodes.push(c); return c; },
+        removeChild: function (c) { this.childNodes.splice(this.childNodes.indexOf(c), 1); c.parentNode = null; return c; },
+        get firstChild() { return this.childNodes[0] || null; }, get text() { return this.childNodes.map(function (c) { return c.text; }).join(''); } }; }
+      btn.appendChild = function (c) { if (c.parentNode) { c.parentNode.removeChild(c); } c.parentNode = this; this.childNodes.push(c); return c; };
+      Object.defineProperty(btn, 'firstChild', { get: function () { return this.childNodes[0] || null; } });
+      var editSpan = wrapTextForEdit(btn);
+    `);
+    expect(probe.run("[btn.childNodes.length, btn.childNodes[0] === editSpan, editSpan.tagName, editSpan.text, editSpan.attrs['data-studio-edit-text']]")).toEqual([1, true, "span", "Alpha7 new", ""]);
+  });
+
+  it("review 7 (F7-1): a canvas refresh that comes back after a newer one has painted is dropped — the canvas never winds back and never stays 'behind'", async () => {
+    const { probe, island } = await setupWith(MULTI_CONTENT, []);
+    probe.run([sliceIslandLine(island, "var canvasModelRev = 0"), sliceIslandFunction(island, "canvasIsCurrent"), sliceIslandFunction(island, "acceptCanvasPaint")].join("\n"));
+    // two edits → two refreshes in flight (rev 1 and rev 2)
+    probe.run("canvasModelRev = 2;");
+    expect(probe.run("acceptCanvasPaint(2)")).toBe(true);
+    expect(probe.run("canvasIsCurrent()")).toBe(true);
+    // the older one arrives last: not painted, and the canvas is still current
+    expect(probe.run("acceptCanvasPaint(1)")).toBe(false);
+    expect(probe.run("[canvasShownRev, canvasIsCurrent()]")).toEqual([2, true]);
+  });
+
+  it("review 7 (F7-3, 6b m3): badge, disabled and image/icon are offered only on the two card grids — the only components that draw them", async () => {
+    const { probe, island } = await setupWith(MULTI_CONTENT, []);
+    probe.run([sliceIslandFunction(island, "isCardGridType"), sliceIslandFunction(island, "choiceActOffered")].join("\n"));
+    const offered = (type: string) => probe.run(`['badge', 'disabled', 'image', 'duplicate', 'delete'].map(function (a) { return choiceActOffered({ type: '${type}' }, a); })`);
+    expect(offered("ButtonAnswerGroup")).toEqual([false, false, false, true, true]);
+    expect(offered("MultiChoiceCardGroup")).toEqual([false, false, false, true, true]);
+    expect(offered("TwoButtonYesNo")).toEqual([false, false, false, true, true]);
+    expect(offered("IconCardAnswerGrid")).toEqual([true, true, true, true, true]);
+    expect(offered("ImageCardAnswerGrid")).toEqual([true, true, true, true, true]);
+  });
+
+  it("review 6b (M3): a canvas card click selects the choice WITHOUT moving the page or the focus to the inspector row; the toolbar's own jump still does", async () => {
+    const { probe, island } = await setupWith(MULTI_CONTENT, []);
+    probe.run([
+      "var jumps = 0, marks = 0, scopeState = 'component', choiceScopeLabel = '', selectedChoiceValue = null, selectedChoiceIndex = -1, selectedChoiceRow = null;",
+      "function focusChoiceRow() { jumps += 1; } function markCurrentChoiceRow() { marks += 1; }",
+      "function applyCanvasDecoration() {} function renderBreadcrumb() {} function populateInspector() {} function renderInspectorMapping() {} function setInspectorTab() {} function renderScopeHeader() {} function updateCanvasToolbar() {} function selectComponent() {}",
+      sliceIslandFunction(island, "findChoice"), sliceIslandFunction(island, "choiceIndexOf"), sliceIslandFunction(island, "selectedChoiceKey"), sliceIslandFunction(island, "selectChoice"),
+    ].join("\n"));
+    probe.run("selectChoice('q_mrum8ruj_2sau', '360000', 1, true);");
+    expect(probe.run("[jumps, marks, selectedChoiceIndex, scopeState]")).toEqual([0, 1, 1, "choice"]);
+    probe.run("selectChoice('q_mrum8ruj_2sau', '360000', 1);");
+    expect(probe.run("jumps")).toBe(1);
+  });
+
+  it("review 6b (M1): a canvas toolbar move rebuilds the inspector's rows (stale rows put the old order back at the next inspector edit)", async () => {
+    const { probe, island } = await setupWith(MULTI_CONTENT, []);
+    probe.run([
+      "var rebuilt = 0, selectedChoiceValue = '360000', selectedChoiceIndex = 1, selectedQuestionId = 'q_mrum8ruj_2sau';",
+      "function selectedNode() { return findRef('q_mrum8ruj_2sau').node; } function renderChoiceEditor() { rebuilt += 1; } function showRefusal() {}",
+      ...["findChoice", "choiceIndexOf", "selectedChoiceKey", "selectedChoiceObject", "reselectChoiceObject", "moveChoice", "handleChoiceAct"].map((n) => sliceIslandFunction(island, n)),
+    ].join("\n"));
+    probe.run("handleChoiceAct('left');");
+    expect(probe.run("[rebuilt, findRef('q_mrum8ruj_2sau').node.choices[0].value, selectedChoiceIndex]")).toEqual([1, "360000", 0]);
+    // a move that can't happen (already first) rebuilds nothing
+    probe.run("handleChoiceAct('left');");
+    expect(probe.run("rebuilt")).toBe(1);
   });
 
   it("review 4: the refusal puts the old value back, names why, is no Undo step of its own, and gives Redo back", async () => {
