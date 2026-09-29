@@ -4300,6 +4300,10 @@ export const SECTION_STUDIO_SCRIPT = `
   // §6.2/§6.4 per-choice selection: the focused choice VALUE within the
   // selected choice-bearing component (null = component scope).
   var selectedChoiceValue = null;
+  // OWNER 2026-09-29 (canvas twins): WHICH choice is selected — its position
+  // (-1 = unknown, then the value decides). Two choices can share a saved
+  // value; the value alone always meant the first of them.
+  var selectedChoiceIndex = -1;
   // §6.6 loaded named presets (KV-backed via /component-presets).
   var presetsData = [];
   // §6.2 inline text editing pauses canvas re-renders until commit.
@@ -4673,21 +4677,44 @@ export const SECTION_STUDIO_SCRIPT = `
   }
 
   // --- choice model helpers (§6.2/§6.4) ----------------------------------------
+  // A choice is named by its saved value OR by a key { index, value } (the
+  // canvas card's position): the position wins while it still holds that
+  // value, so the second of two choices sharing a value is the second one
+  // (owner 2026-09-29: the canvas edited/deleted the first twin instead).
   function findChoice(node, value) {
-    if (!node || !node.choices) { return null; }
-    var i;
-    for (i = 0; i < node.choices.length; i++) {
-      if (String(node.choices[i].value) === String(value)) { return node.choices[i]; }
-    }
-    return null;
+    var idx = choiceIndexOf(node, value);
+    return idx === -1 ? null : node.choices[idx];
   }
   function choiceIndexOf(node, value) {
     if (!node || !node.choices) { return -1; }
     var i;
+    if (value && typeof value === 'object') {
+      if (typeof value.index === 'number' && value.index >= 0 && node.choices[value.index] && String(node.choices[value.index].value) === String(value.value)) { return value.index; }
+      value = value.value;
+    }
     for (i = 0; i < node.choices.length; i++) {
       if (String(node.choices[i].value) === String(value)) { return i; }
     }
     return -1;
+  }
+  function selectedChoiceKey() {
+    return { index: typeof selectedChoiceIndex === 'number' ? selectedChoiceIndex : -1, value: selectedChoiceValue };
+  }
+  // A canvas card's key: its stamped position (applyCanvasDecoration) + value.
+  function choiceKeyOfEl(el, valueAttr, indexAttr) {
+    var raw = el ? el.getAttribute(indexAttr || 'data-studio-choice-index') : null;
+    var idx = raw === null || raw === '' ? -1 : Number(raw);
+    return { index: isNaN(idx) ? -1 : idx, value: el ? el.getAttribute(valueAttr || 'data-lg-choice') : null };
+  }
+  // Keep the selected choice selected across a reorder/removal (by identity).
+  function selectedChoiceObject(node) {
+    var i = typeof selectedChoiceIndex === 'number' ? selectedChoiceIndex : -1;
+    return node && node.choices && i >= 0 && selectedChoiceValue !== null && typeof selectedQuestionId !== 'undefined' && node.question_id === selectedQuestionId ? node.choices[i] || null : null;
+  }
+  function reselectChoiceObject(node, obj) {
+    if (!obj || typeof selectedChoiceIndex !== 'number') { return; }
+    selectedChoiceIndex = node.choices.indexOf(obj);
+    if (selectedChoiceIndex === -1) { selectedChoiceValue = null; }
   }
   function addChoiceToNode(node) {
     if (!node || typeMeta(node.type).choice !== true) { return null; }
@@ -4706,8 +4733,11 @@ export const SECTION_STUDIO_SCRIPT = `
   function removeChoiceFromNode(node, value) {
     var idx = choiceIndexOf(node, value);
     if (idx === -1) { return false; }
+    var sel = typeof selectedChoiceObject !== 'undefined' ? selectedChoiceObject(node) : null;
+    var removedObj = node.choices[idx];
     node.choices.splice(idx, 1);
-    if (String(selectedChoiceValue) === String(value)) { selectedChoiceValue = null; }
+    if (sel !== null) { reselectChoiceObject(node, sel === removedObj ? null : sel); if (sel === removedObj) { selectedChoiceValue = null; selectedChoiceIndex = -1; } }
+    else if (String(selectedChoiceValue) === String(value && typeof value === 'object' ? value.value : value)) { selectedChoiceValue = null; }
     afterModelChange();
     return true;
   }
@@ -4716,9 +4746,11 @@ export const SECTION_STUDIO_SCRIPT = `
     if (idx === -1) { return false; }
     var to = idx + delta;
     if (to < 0 || to >= node.choices.length) { return false; }
+    var sel = typeof selectedChoiceObject !== 'undefined' ? selectedChoiceObject(node) : null;
     var tmp = node.choices[idx];
     node.choices[idx] = node.choices[to];
     node.choices[to] = tmp;
+    if (sel !== null) { reselectChoiceObject(node, sel); }
     afterModelChange();
     return true;
   }
@@ -4726,9 +4758,11 @@ export const SECTION_STUDIO_SCRIPT = `
     var from = choiceIndexOf(node, fromValue);
     var to = choiceIndexOf(node, targetValue);
     if (from === -1 || to === -1 || from === to) { return false; }
+    var sel = typeof selectedChoiceObject !== 'undefined' ? selectedChoiceObject(node) : null;
     var moved = node.choices.splice(from, 1)[0];
     if (from < to) { to -= 1; }
     node.choices.splice(to, 0, moved);
+    if (sel !== null) { reselectChoiceObject(node, sel); }
     afterModelChange();
     return true;
   }
@@ -7210,7 +7244,7 @@ export const SECTION_STUDIO_SCRIPT = `
   // selection, or the toolbar's own plain "Delete" control.
   function deleteSelectedWithUndo(qid) {
     if (scopeState === 'choice' && selectedChoiceValue !== null) {
-      deleteSelectedChoiceWithUndo(qid, selectedChoiceValue);
+      deleteSelectedChoiceWithUndo(qid, typeof selectedChoiceKey !== 'undefined' ? selectedChoiceKey() : selectedChoiceValue);
       return;
     }
     var ref = findRef(qid);
@@ -7491,9 +7525,24 @@ export const SECTION_STUDIO_SCRIPT = `
   // choice ✕, the "+ Add choice" ghost tile at the grid end, choice drag
   // handles and the selected-CardPanel resize handle. Rebuilt per pass like
   // the maps chips (the region is server HTML).
+  // The k-th canvas card with a value is the k-th choice with that value.
+  function canvasChoiceIndex(qid, value, seen) {
+    var ref = findRef(qid), k, i, hit = 0;
+    if (!ref || !ref.node || !ref.node.choices) { return -1; }
+    if (!seen[qid]) { seen[qid] = {}; }
+    k = seen[qid][value] || 0;
+    seen[qid][value] = k + 1;
+    for (i = 0; i < ref.node.choices.length; i++) {
+      if (String(ref.node.choices[i].value) === String(value)) {
+        if (hit === k) { return i; }
+        hit += 1;
+      }
+    }
+    return -1;
+  }
   function decorateChoiceCards(region) {
     var cards = region.querySelectorAll('[data-lg-choice]');
-    var i, card, host, qid, x;
+    var i, card, host, qid, x, cardIdx, cardSeen = {};
     for (i = 0; i < cards.length; i++) {
       card = cards[i];
       host = card.closest ? card.closest('[data-question-id]') : null;
@@ -7512,12 +7561,18 @@ export const SECTION_STUDIO_SCRIPT = `
       // that has always actually worked for it.
       if (String(card.tagName || '').toUpperCase() === 'OPTION') { continue; }
       card.setAttribute('draggable', 'true');
-      if (qid === selectedQuestionId && selectedChoiceValue !== null && card.getAttribute('data-lg-choice') === String(selectedChoiceValue)) {
+      // the card's position in the question's choices: the k-th card with a
+      // value is the k-th choice with that value (twins stay apart)
+      cardIdx = typeof canvasChoiceIndex !== 'undefined' ? canvasChoiceIndex(qid, card.getAttribute('data-lg-choice'), cardSeen) : -1;
+      if (cardIdx >= 0) { card.setAttribute('data-studio-choice-index', String(cardIdx)); }
+      if (qid === selectedQuestionId && selectedChoiceValue !== null && card.getAttribute('data-lg-choice') === String(selectedChoiceValue) &&
+          (typeof selectedChoiceIndex !== 'number' || selectedChoiceIndex < 0 || cardIdx < 0 || cardIdx === selectedChoiceIndex)) {
         card.className = card.className + ' studio-choice-selected';
       }
       x = frameCreate('span');
       x.className = 'studio-choice-x';
       x.setAttribute('data-choice-x', card.getAttribute('data-lg-choice'));
+      if (cardIdx >= 0) { x.setAttribute('data-choice-x-index', String(cardIdx)); }
       x.setAttribute('data-choice-x-qid', qid);
       // P1c grid fix (register PC-1/PC-11): a real <button> nested inside
       // the choice's OWN <button> (every choice family here — ButtonAnswer-
@@ -8663,7 +8718,7 @@ export const SECTION_STUDIO_SCRIPT = `
   }
   function setScope(scope) {
     scopeState = scope;
-    if (scope !== 'choice') { selectedChoiceValue = null; }
+    if (scope !== 'choice') { selectedChoiceValue = null; if (typeof selectedChoiceIndex !== 'undefined') { selectedChoiceIndex = -1; } }
     renderScopeHeader();
     updateCanvasToolbar();
   }
@@ -8784,7 +8839,7 @@ export const SECTION_STUDIO_SCRIPT = `
       textRoleSel.disabled = node.bind !== undefined;
     }
     var chip = document.querySelector('[data-choice-value-chip]');
-    var c = (node && choiceFocused) ? findChoice(node, selectedChoiceValue) : null;
+    var c = (node && choiceFocused) ? findChoice(node, selectedChoiceKey()) : null;
     if (chip) { chip.textContent = choiceFocused ? String(selectedChoiceValue) : 'value'; }
     var badgeBtn = document.querySelector('[data-choice-act="badge"]');
     if (badgeBtn) { badgeBtn.setAttribute('aria-pressed', c && typeof c.badge === 'string' && c.badge !== '' ? 'true' : 'false'); }
@@ -8831,6 +8886,7 @@ export const SECTION_STUDIO_SCRIPT = `
     selectedQuestionId = qid || null;
     scopeState = selectedQuestionId ? 'component' : 'section';
     selectedChoiceValue = null;
+    if (typeof selectedChoiceIndex !== 'undefined') { selectedChoiceIndex = -1; }
     applyCanvasDecoration();
     renderBreadcrumb();
     if (!selectedQuestionId && pendingInsert) { pendingInsert = null; updatePendingUi(); }
@@ -8844,6 +8900,17 @@ export const SECTION_STUDIO_SCRIPT = `
   function focusChoiceRow(value) {
     var rows = document.querySelectorAll('[data-choice-row]');
     var i, inp, label;
+    // a key { index, value }: that row, while it holds that value
+    if (value && typeof value === 'object') {
+      inp = typeof value.index === 'number' && value.index >= 0 && rows[value.index] ? rows[value.index].querySelector('[data-choice-field="value"]') : null;
+      if (inp && String(inp.value) === String(value.value)) {
+        if (rows[value.index].scrollIntoView) { rows[value.index].scrollIntoView({ block: 'nearest' }); }
+        label = rows[value.index].querySelector('[data-choice-field="label"]');
+        if (label && label.focus) { label.focus(); }
+        return true;
+      }
+      value = value.value;
+    }
     for (i = 0; i < rows.length; i++) {
       inp = rows[i].querySelector('[data-choice-field="value"]');
       if (inp && String(inp.value) === String(value)) {
@@ -8855,12 +8922,13 @@ export const SECTION_STUDIO_SCRIPT = `
     }
     return false;
   }
-  function selectChoice(qid, value) {
+  function selectChoice(qid, value, index) {
     selectedQuestionId = qid || null;
     var node = selectedNode();
     if (!node || typeMeta(node.type).choice !== true) { selectComponent(qid); return; }
     selectedChoiceValue = value;
-    var c = findChoice(node, value);
+    selectedChoiceIndex = choiceIndexOf(node, { index: typeof index === 'number' ? index : -1, value: value });
+    var c = findChoice(node, selectedChoiceKey());
     choiceScopeLabel = c && c.label !== undefined ? String(c.label) : '';
     scopeState = 'choice';
     applyCanvasDecoration();
@@ -8872,7 +8940,7 @@ export const SECTION_STUDIO_SCRIPT = `
     setInspectorTab('content');
     // populateInspector/setInspectorTab may have re-scoped — re-assert CHOICE.
     scopeState = 'choice';
-    focusChoiceRow(value);
+    focusChoiceRow(selectedChoiceKey());
     renderScopeHeader();
     updateCanvasToolbar();
   }
@@ -15165,7 +15233,7 @@ export const SECTION_STUDIO_SCRIPT = `
       if (xBtn) {
         var xRef = findRef(xBtn.getAttribute('data-choice-x-qid'));
         if (xRef) {
-          removeChoiceFromNode(xRef.node, xBtn.getAttribute('data-choice-x'));
+          removeChoiceFromNode(xRef.node, choiceKeyOfEl(xBtn, 'data-choice-x', 'data-choice-x-index'));
           if (selectedQuestionId === xRef.node.question_id) { renderChoiceEditor(xRef.node); }
         }
         return;
@@ -15205,7 +15273,7 @@ export const SECTION_STUDIO_SCRIPT = `
       // component (the inspector opens the Choices tab at that row).
       var cardEl = ev.target && ev.target.closest ? ev.target.closest('[data-lg-choice]') : null;
       if (cardEl && el.contains(cardEl) && typeMeta(el.getAttribute('data-component-type')).choice === true) {
-        selectChoice(el.getAttribute('data-question-id'), cardEl.getAttribute('data-lg-choice'));
+        selectChoice(el.getAttribute('data-question-id'), cardEl.getAttribute('data-lg-choice'), choiceKeyOfEl(cardEl).index);
         return;
       }
       // R2 S1-7: skip a same-node re-select. Re-selecting re-runs
@@ -15230,9 +15298,9 @@ export const SECTION_STUDIO_SCRIPT = `
       var cardEl = ev.target && ev.target.closest ? ev.target.closest('[data-lg-choice]') : null;
       if (cardEl && typeMeta(ref.node.type).choice === true) {
         ev.preventDefault();
-        var choiceValue = cardEl.getAttribute('data-lg-choice');
+        var choiceKey = choiceKeyOfEl(cardEl);
         var cardTitle = cardEl.querySelector('.lg-card-title') || cardEl;
-        startInlineEdit(cardTitle, function (text) { commitInlineChoiceLabel(qid, choiceValue, text); });
+        startInlineEdit(cardTitle, function (text) { commitInlineChoiceLabel(qid, choiceKey, text); });
         return;
       }
       // R2 S1-7 / E1-C4: the support check runs BEFORE preventDefault — an
@@ -15293,7 +15361,7 @@ export const SECTION_STUDIO_SCRIPT = `
       if (cardEl && ev.dataTransfer) {
         var cardHost = cardEl.closest ? cardEl.closest('[data-question-id]') : null;
         if (cardHost && typeMeta(cardHost.getAttribute('data-component-type')).choice === true) {
-          ev.dataTransfer.setData('text/plain', 'choice:' + cardHost.getAttribute('data-question-id') + ':' + cardEl.getAttribute('data-lg-choice'));
+          ev.dataTransfer.setData('text/plain', 'choice:' + cardHost.getAttribute('data-question-id') + ':' + choiceKeyOfEl(cardEl).index + ':' + cardEl.getAttribute('data-lg-choice'));
         }
       }
   }
@@ -15329,16 +15397,20 @@ export const SECTION_STUDIO_SCRIPT = `
       var payload = data.slice(data.indexOf(':') + 1);
       var placed = null;
       if (kind === 'choice') {
-        // payload = qid:choiceValue → reorder BEFORE the card dropped on.
+        // payload = qid:position:choiceValue → reorder BEFORE the card dropped on.
         var sepAt = payload.indexOf(':');
         if (sepAt === -1) { return; }
         var cQid = payload.slice(0, sepAt);
-        var fromValue = payload.slice(sepAt + 1);
+        var rest = payload.slice(sepAt + 1);
+        var idxAt = rest.indexOf(':');
+        if (idxAt === -1) { return; }
+        var fromIdx = Number(rest.slice(0, idxAt));
+        var fromKey = { index: isNaN(fromIdx) ? -1 : fromIdx, value: rest.slice(idxAt + 1) };
         var targetCard = ev.target && ev.target.closest ? ev.target.closest('[data-lg-choice]') : null;
         var targetHost = targetCard && targetCard.closest ? targetCard.closest('[data-question-id]') : null;
         if (!targetCard || !targetHost || targetHost.getAttribute('data-question-id') !== cQid) { return; }
         var cRef = findRef(cQid);
-        if (cRef) { reorderChoiceBefore(cRef.node, fromValue, targetCard.getAttribute('data-lg-choice')); }
+        if (cRef) { reorderChoiceBefore(cRef.node, fromKey, choiceKeyOfEl(targetCard)); }
         return;
       }
       if (kind === 'add') {
@@ -15441,7 +15513,8 @@ export const SECTION_STUDIO_SCRIPT = `
   function handleChoiceAct(act) {
     var node = selectedNode();
     if (!node || selectedChoiceValue === null) { return; }
-    var value = String(selectedChoiceValue);
+    // the selected choice by position (a twin is not the first twin)
+    var value = selectedChoiceKey();
     var c = findChoice(node, value);
     if (!c) { return; }
     if (act === 'image') {
@@ -15482,7 +15555,7 @@ export const SECTION_STUDIO_SCRIPT = `
     }
     if (act === 'duplicate') {
       var dup = duplicateChoice(node, value);
-      if (dup) { selectChoice(node.question_id, String(dup.value)); }
+      if (dup) { selectChoice(node.question_id, String(dup.value), node.choices.indexOf(dup)); }
       return;
     }
     if (act === 'delete') {
@@ -15503,7 +15576,7 @@ export const SECTION_STUDIO_SCRIPT = `
       var chipBtn = ev.target && ev.target.closest ? ev.target.closest('[data-choice-value-chip]') : null;
       if (chipBtn && selectedChoiceValue !== null) {
         setInspectorTab('content');
-        focusChoiceRow(String(selectedChoiceValue));
+        focusChoiceRow(selectedChoiceKey());
         return;
       }
       // R5 D3 (register S4-A3): the old toolbar's add-choice / auto-advance /

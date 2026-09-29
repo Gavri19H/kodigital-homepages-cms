@@ -6651,6 +6651,7 @@ describeDb("wave 2 — §5.5 choice depth + §6.2 inline editing + §7.3 raw JSO
         "var dirtyFlags = []; function markDirty() { dirtyFlags.push(1); }",
         "function scheduleCanvasRender() {}",
         sliceIslandFunction(island, "findChoice"),
+        sliceIslandFunction(island, "choiceIndexOf"),
         sliceIslandFunction(island, "inlineEditKeyFor"),
         sliceIslandFunction(island, "commitInlineText"),
         sliceIslandFunction(island, "commitInlineChoiceLabel"),
@@ -8733,6 +8734,44 @@ describeDb("OWNER 2026-09-28 review round 1 — answer keys, Other values, typed
     const messages = (probe.run("computeIssues()") as Array<{ message: string }>).map((i) => i.message);
     expect(messages.filter((m) => m.includes('two choices with the saved value "tri_v"'))).toHaveLength(1);
     expect(messages.filter((m) => m.includes('two "Other" values with the saved value "side_v"'))).toHaveLength(1);
+  });
+
+  it("canvas twins (owner 2026-09-29): the k-th card is the k-th choice with that value — renaming, removing and reordering the SECOND twin act on the second twin", async () => {
+    const twins = { components: [{
+      type: "ButtonAnswerGroup", question_id: "q_tw", question_key: "q_tw", internal_field: "tw", answer_type: "enum",
+      choices: [
+        { label: "Alpha", value: "same_v", analytics_id: "a" },
+        { label: "Beta", value: "same_v", analytics_id: "b" },
+        { label: "Gamma", value: "g_v", analytics_id: "g" },
+      ],
+    }] };
+    const { probe, island } = await setupWith(twins, []);
+    probe.run(["findChoice", "choiceIndexOf", "selectedChoiceKey", "selectedChoiceObject", "reselectChoiceObject", "canvasChoiceIndex",
+      "removeChoiceFromNode", "moveChoice", "reorderChoiceBefore", "commitInlineChoiceLabel"].map((n) => sliceIslandFunction(island, n)).join("\n"));
+    probe.run("var selectedChoiceValue = null; var selectedChoiceIndex = -1; var selectedQuestionId = 'q_tw';");
+    const node = "findRef('q_tw').node";
+    const labels = () => probe.run(`${node}.choices.map(function (c) { return c.label; })`);
+    // the canvas stamps positions in card order
+    probe.run("var seen = {}; var idx = [canvasChoiceIndex('q_tw', 'same_v', seen), canvasChoiceIndex('q_tw', 'same_v', seen), canvasChoiceIndex('q_tw', 'g_v', seen)];");
+    expect(probe.run("idx")).toEqual([0, 1, 2]);
+    // a double-click rename on the second twin renames Beta, not Alpha
+    probe.run("commitInlineChoiceLabel('q_tw', { index: 1, value: 'same_v' }, 'Beta two');");
+    expect(labels()).toEqual(["Alpha", "Beta two", "Gamma"]);
+    // a stale position (the value moved) falls back to the value
+    expect(probe.run(`choiceIndexOf(${node}, { index: 2, value: 'same_v' })`)).toBe(0);
+    // the selected second twin stays selected when the first moves after it
+    probe.run("selectedChoiceValue = 'same_v'; selectedChoiceIndex = 1;");
+    probe.run(`moveChoice(${node}, { index: 0, value: 'same_v' }, 1);`);
+    expect(labels()).toEqual(["Beta two", "Alpha", "Gamma"]);
+    expect(probe.run("selectedChoiceIndex")).toBe(0);
+    // removing the other twin keeps the selection on Beta
+    probe.run(`removeChoiceFromNode(${node}, { index: 1, value: 'same_v' });`);
+    expect(labels()).toEqual(["Beta two", "Gamma"]);
+    expect(probe.run("[selectedChoiceValue, selectedChoiceIndex]")).toEqual(["same_v", 0]);
+    // removing the selected choice clears the selection
+    probe.run(`removeChoiceFromNode(${node}, selectedChoiceKey());`);
+    expect(labels()).toEqual(["Gamma"]);
+    expect(probe.run("[selectedChoiceValue, selectedChoiceIndex]")).toEqual([null, -1]);
   });
 
   it("review 4: the refusal puts the old value back, names why, is no Undo step of its own, and gives Redo back", async () => {
