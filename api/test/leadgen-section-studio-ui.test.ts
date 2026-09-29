@@ -8512,14 +8512,14 @@ describeDb("OWNER 2026-09-28 review round 1 — answer keys, Other values, typed
   });
 
   // The row's committed-rename decision (the real handler body), on the model.
-  const RENAME_FUNCS = ["carryProviderValues", "commitChoiceRename", "findRefIn", "findRef"];
-  const HISTORY_FUNCS = ["historyState", "restoreMappings", "typingFocus", "historyAbsorb", "historyPush", "restoreSnapshot", "historyUndo", "historyRedo"];
+  const RENAME_FUNCS = ["carryProviderValues", "copyProviderValues", "addProviderBaseline", "commitChoiceRename", "findRefIn", "findRef"];
+  const HISTORY_FUNCS = ["historyState", "repairNotesState", "restoreMappings", "typingFocus", "historyAbsorb", "historyPush", "restoreSnapshot", "historyUndo", "historyRedo"];
   // the real island history, over the probe's live model
   function withHistory(probe: StudioProbe, island: string): void {
     probe.run(
       [
         ...RENAME_FUNCS.map((n) => sliceIslandFunction(island, n)),
-        "var UNDO_LIMIT = 50; var undoStack = []; var redoStack = []; var lastPushFocus = null;",
+        "var UNDO_LIMIT = 50; var undoStack = []; var redoStack = []; var lastPushFocus = null; var redoBeforePush = [];",
         "function updateHistoryButtons() {}",
         "function refreshAfterHistory() {}",
         ...HISTORY_FUNCS.map((n) => sliceIslandFunction(island, n)),
@@ -8641,6 +8641,96 @@ describeDb("OWNER 2026-09-28 review round 1 — answer keys, Other values, typed
     expect(probe.run("state.answer_maps[0].offer_payload_field_path")).toBe("Income");
   });
 
+  it("review 4: renaming one of two choices that share a saved value COPIES the provider values — the twin keeps its own", async () => {
+    const twins = JSON.parse(JSON.stringify(MULTI_CONTENT)) as { components: Array<{ choices?: Array<{ value: string; label: string; analytics_id: string }> }> };
+    twins.components[1]!.choices![2] = { label: "Also 30-50", value: "360000", analytics_id: "360000b" };
+    const { probe, offers, island } = await setupWith(twins, [["AmONE - Tier 2", [{ path: "Income", type: "string" }]]]);
+    const amone = offers[0]!;
+    probe.run(RENAME_FUNCS.map((n) => sliceIslandFunction(island, n)).join("\n"));
+    probe.run(`upsertEdge(offerById(${amone.id}), answerFieldOf(offerById(${amone.id}), 'Income'), '${REVENUE_FIELD}')`);
+    probe.run(`state.answer_maps[0].output_value_map = { '600000': '50000', '360000': '30000' };`);
+    probe.run("snapshotProviderValues(findRef('q_mrum8ruj_2sau').node);");
+    const node = "findRef('q_mrum8ruj_2sau').node";
+    probe.run(`${node}.choices[2].value = '35000';`);
+    expect(probe.run(`commitChoiceRename(${node}, '${REVENUE_FIELD}', '360000', '35000')`)).toBe("35000");
+    expect((probe.sandbox.state["answer_maps"] as Array<Record<string, unknown>>)[0]!["output_value_map"]).toEqual({ "600000": "50000", "360000": "30000", "35000": "30000" });
+    expect(probe.run(`providerValueOf(${amone.id}, '${REVENUE_FIELD}', '360000')`)).toEqual({ state: "custom", value: "30000" });
+    // twins left off a list: the renamed one stays off too
+    probe.run(`${node}.choices[2].value = '360000'; state.answer_maps[0].output_value_map = { '600000': '50000' }; resetProviderBaseline();`);
+    probe.run(`${node}.choices[2].value = '36000';`);
+    probe.run(`commitChoiceRename(${node}, '${REVENUE_FIELD}', '360000', '36000')`);
+    expect(probe.run(`providerValueOf(${amone.id}, '${REVENUE_FIELD}', '36000').state`)).toBe("missing");
+    expect(probe.run(`providerValueOf(${amone.id}, '${REVENUE_FIELD}', '360000').state`)).toBe("missing");
+  });
+
+  it("review 4: the refusal puts the old value back, names why, is no Undo step of its own, and gives Redo back", async () => {
+    const { probe, island } = await setupWith(MULTI_CONTENT, []);
+    withHistory(probe, island);
+    probe.run([sliceIslandFunction(island, "clearChildren"), sliceIslandFunction(island, "refuseDuplicateValue")].join("\n"));
+    probe.run("snapshotProviderValues(findRef('q_mrum8ruj_2sau').node); var lastSnapshot = historyState();");
+    const node = "findRef('q_mrum8ruj_2sau').node";
+    // a fake choice row: its value + analytics boxes and a place for the note;
+    // collectChoices is the real flow's model write (value box -> model -> history)
+    probe.run(`
+      function fakeEl(tag) { return { tagName: tag, className: '', value: '', attrs: {}, childNodes: [], parentNode: null,
+        getAttribute: function (k) { return this.attrs[k] === undefined ? null : this.attrs[k]; },
+        setAttribute: function (k, v) { this.attrs[k] = String(v); },
+        hasAttribute: function (k) { return this.attrs[k] !== undefined; },
+        appendChild: function (c) { c.parentNode = this; this.childNodes.push(c); return c; },
+        removeChild: function (c) { this.childNodes.splice(this.childNodes.indexOf(c), 1); c.parentNode = null; return c; },
+        get firstChild() { return this.childNodes[0] || null; },
+        get textContent() { return this.childNodes.map(function (c) { return c.text !== undefined ? c.text : c.textContent; }).join(''); } }; }
+      document.createElement = fakeEl;
+      document.createTextNode = function (t) { return { text: t, parentNode: null }; };
+      var valueBox = fakeEl('INPUT'); valueBox.value = '360000';
+      var analyticsBox = fakeEl('INPUT'); analyticsBox.value = '360000'; analyticsBox.setAttribute('data-auto', 'true');
+      var row = fakeEl('DIV');
+      row.querySelector = function (sel) {
+        if (sel === '[data-choice-field="value"]') { return valueBox; }
+        if (sel === '[data-choice-field="analytics_id"]') { return analyticsBox; }
+        if (sel === '[data-choice-duplicate-note]') { for (var i = 0; i < this.childNodes.length; i++) { if (this.childNodes[i].hasAttribute && this.childNodes[i].hasAttribute('data-choice-duplicate-note')) { return this.childNodes[i]; } } return null; }
+        return null;
+      };
+      function collectChoices() { var n = ${node}; n.choices[0].value = valueBox.value; n.choices[0].analytics_id = analyticsBox.value; historyPush(); }
+    `);
+    // an edit, then Undo: Redo holds one step
+    probe.run(`${node}.choices[1].label = 'Mid'; historyPush(); historyUndo();`);
+    expect(probe.run("redoStack.length")).toBe(1);
+    const undoDepth = probe.run("undoStack.length");
+    // choice 0 (600000) is typed as 360000 — choice 1's value
+    probe.run(`document.activeElement = { tagName: 'INPUT', type: 'text' }; ${node}.choices[0].value = '360000'; ${node}.choices[0].analytics_id = '360000'; historyPush();`);
+    expect(probe.run("redoStack.length")).toBe(0);
+    probe.run("document.activeElement = null;");
+    probe.run("refuseDuplicateValue(row, false, '600000', '360000', false);");
+    expect(probe.run(`[${node}.choices[0].value, ${node}.choices[0].analytics_id, valueBox.value, analyticsBox.value]`)).toEqual(["600000", "600000", "600000", "600000"]);
+    expect(probe.run("row.childNodes[0].textContent")).toBe("Another choice already has the saved value 360000 \u2014 each choice needs its own, so 600000 was kept.");
+    expect(probe.run("undoStack.length")).toBe(undoDepth);
+    expect(probe.run("redoStack.length")).toBe(1);
+    // a label that derives a taken value says so in the label's terms
+    probe.run("refuseDuplicateValue(row, false, '600000', '360000', true);");
+    expect(probe.run("row.childNodes[0].textContent")).toBe("This label makes the saved value 360000, which another choice already has \u2014 the saved value stays 600000. Change the label, or set the saved value by hand.");
+  });
+
+  it("review 4: two choices with one saved value (or one label) are shown as issues — never blocking", async () => {
+    const dupEnv = newHarness().env;
+    const dupHtml = await studioPage(dupEnv, (await createSection(dupEnv)).public_id);
+    const probe = studioProbe(dupHtml, {
+      components: [
+        {
+          type: "ButtonAnswerGroup", question_id: "q_dup", internal_field: "dup",
+          choices: [
+            { label: "One", value: "dupz", analytics_id: "a1" },
+            { label: "Two", value: "dupz", analytics_id: "a2" },
+            { label: "one", value: "three", analytics_id: "a3" },
+          ],
+        },
+      ],
+    });
+    const messages = (probe.run("computeIssues()") as Array<{ message: string }>).map((i) => i.message);
+    expect(messages.some((m) => m.includes('two choices with the saved value "dupz"'))).toBe(true);
+    expect(messages.some((m) => m.includes('two choices labelled "one"'))).toBe(true);
+  });
+
   it("review 3: a 'not sent' mapping whose key the component records again is dropped from the list — its Remove can never delete a working mapping", async () => {
     const twoParts = JSON.parse(JSON.stringify(PROD_SECTION_25)) as { components: Array<Record<string, unknown>> };
     const addr = twoParts.components.find((c) => c["question_id"] === "q_mslll307_b3an")!;
@@ -8660,6 +8750,30 @@ describeDb("OWNER 2026-09-28 review round 1 — answer keys, Other values, typed
     expect(probe.run("answerKeyRepairs['q_mslll307_b3an'].moved")).toBe(1);
     // …and is no longer listed as not sent (its Remove would delete it)
     expect(probe.run("answerKeyRepairs['q_mslll307_b3an'].stale.length")).toBe(0);
+  });
+
+  it("review 4: Undo and Redo of an Address part change bring the right note back each way", async () => {
+    const twoParts = JSON.parse(JSON.stringify(PROD_SECTION_25)) as { components: Array<Record<string, unknown>> };
+    const addr = twoParts.components.find((c) => c["question_id"] === "q_mslll307_b3an")!;
+    (addr["props"] as { fields: unknown[] }).fields.push({ field: "street", mode: "manual", required: false });
+    const { probe, offers, island } = await setupWith(twoParts, [["QuinStreetHome", [{ path: "tracking.ni_zc", type: "string", required: true }]]]);
+    const quin = offers[0]!;
+    withHistory(probe, island);
+    probe.run(
+      `state.answer_maps.push({ question_id: 'q_mslll307_b3an', question_key: 'q_mslll307_b3an', internal_field: 'address', answer_type: 'object', offer_id: ${quin.id}, offer_payload_field_path: 'tracking.ni_zc', provider_expected_type: 'string', output_value_map: null, value_transform: null, required_for_offer: true, default_value: null, fallback_value: null }); state.selected_offers.push(${quin.id});`,
+    );
+    probe.run("var lastSnapshot = historyState(); repairStaleAnswerKeys();");
+    expect(probe.run("[answerKeyRepairs['q_mslll307_b3an'].moved, answerKeyRepairs['q_mslll307_b3an'].stale.length]")).toEqual([0, 1]);
+    // the Street part goes: the mapping moves onto the ZIP part (one step)
+    probe.run("findRef('q_mslll307_b3an').node.props.fields.pop(); historyPush(); repairStaleAnswerKeys();");
+    expect(probe.run("[answerKeyRepairs['q_mslll307_b3an'].moved, answerKeyRepairs['q_mslll307_b3an'].stale.length]")).toEqual([1, 0]);
+    // Undo: two parts again, the bare mapping is listed as not sent, no "now uses" note
+    probe.run("historyUndo(); repairStaleAnswerKeys();");
+    expect(probe.run("[answerKeyRepairs['q_mslll307_b3an'].moved, answerKeyRepairs['q_mslll307_b3an'].stale.length]")).toEqual([0, 1]);
+    // Redo: the ZIP-only state, with its note
+    probe.run("historyRedo(); repairStaleAnswerKeys();");
+    expect(probe.run("answerKeyRepairs['q_mslll307_b3an']")).toMatchObject({ moved: 1, from: "address", to: "address_zip", stale: [] });
+    expect(probe.run("state.answer_maps[0].internal_field")).toBe("address_zip");
   });
 
   it("review 3: an Undo keeps the 'now uses ZIP code — Save to apply' note (only the not-sent list is re-derived)", async () => {
