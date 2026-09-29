@@ -3768,6 +3768,7 @@ export const SECTION_STUDIO_STYLES = `
    width, so at 1024-1080px the More menu is no longer hidden under the inspector. */
 .studio-toolbar [data-studio-toolbar-actions]{flex-wrap:wrap;row-gap:6px;min-width:0;max-width:100%}
 .lg-choice-cell[data-choice-cell="value"]{flex-basis:196px}
+.lg-choice-row.studio-choice-row-current{outline:2px solid var(--c-primary);outline-offset:3px;border-radius:6px}
 .lg-editor-spacer{flex:1}
 /* R5 D2 (register S4-A2): .lg-maps-note was the legacy Maps fieldset's OWN
    note-line class — orphaned now that the fieldset is removed. Removed. */
@@ -6863,10 +6864,10 @@ export const SECTION_STUDIO_SCRIPT = `
           // label look the same to the visitor. Shown, never blocking.
           // (once per value, however many share it — review 5)
           dupKey = choice.value === undefined || choice.value === null ? '' : String(choice.value);
-          if (dupKey !== '' && seenChoiceValue[dupKey] === 1) { issues.push({ qid: node.question_id, message: label + ' has two choices with the saved value "' + dupKey + '" \\u2014 give each its own' }); }
+          if (dupKey !== '' && seenChoiceValue[dupKey] === 1) { issues.push({ qid: node.question_id, message: label + ' has more than one choice with the saved value "' + dupKey + '" \\u2014 give each its own' }); }
           if (dupKey !== '') { seenChoiceValue[dupKey] = (seenChoiceValue[dupKey] || 0) + 1; }
           dupKey = trimStr(choice.label).toLowerCase();
-          if (dupKey !== '' && seenChoiceLabel[dupKey] === 1) { issues.push({ qid: node.question_id, message: label + ' has two choices labelled "' + trimStr(choice.label) + '"' }); }
+          if (dupKey !== '' && seenChoiceLabel[dupKey] === 1) { issues.push({ qid: node.question_id, message: label + ' has more than one choice labelled "' + trimStr(choice.label) + '"' }); }
           if (dupKey !== '') { seenChoiceLabel[dupKey] = (seenChoiceLabel[dupKey] || 0) + 1; }
           if (trimStr(choice.label) === '') { issues.push({ qid: node.question_id, message: label + ' has a choice missing its label' }); }
           vt = typeof choice.value;
@@ -6912,7 +6913,7 @@ export const SECTION_STUDIO_SCRIPT = `
             else if (otherBaseValues[String(oc.value)]) { issues.push({ qid: node.question_id, message: label + ' has an "Other" value that duplicates a base choice' }); }
             else {
               // two "Other" values with one saved value (review 5), once per value
-              if (seenOtherValue[String(oc.value)] === 1) { issues.push({ qid: node.question_id, message: label + ' has two "Other" values with the saved value "' + String(oc.value) + '" \\u2014 give each its own' }); }
+              if (seenOtherValue[String(oc.value)] === 1) { issues.push({ qid: node.question_id, message: label + ' has more than one "Other" value with the saved value "' + String(oc.value) + '" \\u2014 give each its own' }); }
               seenOtherValue[String(oc.value)] = (seenOtherValue[String(oc.value)] || 0) + 1;
             }
             if (trimStr(oc.analytics_id) === '') { issues.push({ qid: node.question_id, message: label + ' has an "Other" value missing its analytics id' }); }
@@ -7374,7 +7375,15 @@ export const SECTION_STUDIO_SCRIPT = `
     }
   }
   var canvasTimer = null;
+  // The canvas is BEHIND the model between an edit and the repaint that shows
+  // it (~340ms: the debounce + the preview fetch). Its cards' positions are
+  // then those of the old list, so a click on a card in that window could act
+  // on another choice (review 6/6b: a remove then a quick ✕ deleted the wrong
+  // twin). Choice actions on the canvas wait for the repaint.
+  var canvasModelRev = 0, canvasShownRev = 0;
+  function canvasIsCurrent() { return canvasShownRev === canvasModelRev; }
   function scheduleCanvasRender() {
+    canvasModelRev += 1;
     if (canvasTimer) { clearTimeout(canvasTimer); }
     canvasTimer = setTimeout(function () {
       canvasTimer = null;
@@ -7408,6 +7417,7 @@ export const SECTION_STUDIO_SCRIPT = `
     // studioCanvasRestingHtml. NOTE: sim.answers MUST be present — the handler
     // treats a null answers block as "no basis" and skips the dependency pass
     // entirely.
+    var renderingRev = typeof canvasModelRev !== 'undefined' ? canvasModelRev : 0;
     var canvasBody = {
       content_json: JSON.stringify(state.content),
       viewport: canvasViewport,
@@ -7437,6 +7447,7 @@ export const SECTION_STUDIO_SCRIPT = `
         return;
       }
       region.innerHTML = '<style>' + res.body.preview.css + '</style>' + (res.body.preview.html || res.body.preview.desktop || '');
+      if (typeof canvasShownRev !== 'undefined') { canvasShownRev = renderingRev; }
       applyCanvasDecoration();
       updateCanvasEmpty();
       if (typeof hideCanvasPreviewError !== 'undefined') { hideCanvasPreviewError(); }
@@ -7569,6 +7580,7 @@ export const SECTION_STUDIO_SCRIPT = `
       // value is the k-th choice with that value (twins stay apart)
       cardIdx = typeof canvasChoiceIndex !== 'undefined' ? canvasChoiceIndex(qid, card.getAttribute('data-lg-choice'), cardSeen) : -1;
       if (cardIdx >= 0) { card.setAttribute('data-studio-choice-index', String(cardIdx)); } else if (card.removeAttribute) { card.removeAttribute('data-studio-choice-index'); }
+      card.className = String(card.className || '').replace(/(^|\s)studio-choice-selected(?=\s|$)/g, '');
       if (qid === selectedQuestionId && selectedChoiceValue !== null && card.getAttribute('data-lg-choice') === String(selectedChoiceValue) &&
           (typeof selectedChoiceIndex !== 'number' || selectedChoiceIndex < 0 || cardIdx < 0 || cardIdx === selectedChoiceIndex)) {
         card.className = card.className + ' studio-choice-selected';
@@ -8845,10 +8857,14 @@ export const SECTION_STUDIO_SCRIPT = `
     var chip = document.querySelector('[data-choice-value-chip]');
     var c = (node && choiceFocused) ? findChoice(node, selectedChoiceKey()) : null;
     if (chip) { chip.textContent = choiceFocused ? String(selectedChoiceValue) : 'value'; }
+    // only the two card grids draw a badge or a disabled choice — answer
+    // buttons, yes/no and multi-select cards ignore both, so neither control
+    // is offered there (review 6b: a "disabled" button stayed pickable)
+    var drawsBadge = !!node && isCardGridType(node);
     var badgeBtn = document.querySelector('[data-choice-act="badge"]');
-    if (badgeBtn) { badgeBtn.setAttribute('aria-pressed', c && typeof c.badge === 'string' && c.badge !== '' ? 'true' : 'false'); }
+    if (badgeBtn) { badgeBtn.hidden = !drawsBadge; badgeBtn.setAttribute('aria-pressed', c && typeof c.badge === 'string' && c.badge !== '' ? 'true' : 'false'); }
     var disBtn = document.querySelector('[data-choice-act="disabled"]');
-    if (disBtn) { disBtn.setAttribute('aria-pressed', c && c.disabled === true ? 'true' : 'false'); }
+    if (disBtn) { disBtn.hidden = !drawsBadge; disBtn.setAttribute('aria-pressed', c && c.disabled === true ? 'true' : 'false'); }
     updateHistoryButtons();
     renderToolbarProblems();
   }
@@ -8901,6 +8917,19 @@ export const SECTION_STUDIO_SCRIPT = `
   }
   // §6.2/§6.4 per-choice selection: clicking a card/button selects the CHOICE;
   // the inspector simultaneously opens the Choices tab scrolled to that row.
+  // The studio's own marks inside a canvas card (the remove ✕): taken out
+  // before the card's text is edited, so they never become part of a label.
+  function removeStudioMarks(el) {
+    var marks = el && el.querySelectorAll ? el.querySelectorAll('[data-choice-x]') : [], i;
+    for (i = marks.length - 1; i >= 0; i--) { if (marks[i].parentNode) { marks[i].parentNode.removeChild(marks[i]); } }
+  }
+  function markCurrentChoiceRow() {
+    var rows = document.querySelectorAll('[data-choice-row]'), i;
+    for (i = 0; i < rows.length; i++) {
+      rows[i].className = String(rows[i].className || '').replace(/(^|\s)studio-choice-row-current(?=\s|$)/g, '');
+      if (i === selectedChoiceIndex) { rows[i].className = rows[i].className + ' studio-choice-row-current'; }
+    }
+  }
   function focusChoiceRow(value) {
     var rows = document.querySelectorAll('[data-choice-row]');
     var i, inp, label;
@@ -8926,7 +8955,11 @@ export const SECTION_STUDIO_SCRIPT = `
     }
     return false;
   }
-  function selectChoice(qid, value, index) {
+  // fromCanvas: a click on the canvas card. The inspector marks the row but
+  // neither scrolls the page nor takes the focus (review 6b: the page jumped
+  // 1500px under the pointer, so a double-click edited another card, and the
+  // focus in the inspector made the canvas Delete key do nothing).
+  function selectChoice(qid, value, index, fromCanvas) {
     selectedQuestionId = qid || null;
     var node = selectedNode();
     if (!node || typeMeta(node.type).choice !== true) { selectComponent(qid); return; }
@@ -8944,7 +8977,7 @@ export const SECTION_STUDIO_SCRIPT = `
     setInspectorTab('content');
     // populateInspector/setInspectorTab may have re-scoped — re-assert CHOICE.
     scopeState = 'choice';
-    focusChoiceRow(selectedChoiceKey());
+    if (fromCanvas === true) { markCurrentChoiceRow(); } else { focusChoiceRow(selectedChoiceKey()); }
     renderScopeHeader();
     updateCanvasToolbar();
   }
@@ -13688,16 +13721,19 @@ export const SECTION_STUDIO_SCRIPT = `
         collectChoices();
       });
     }
-    var disabledLabel = document.createElement('label');
-    disabledLabel.className = 'lg-check';
-    var disabledCb = document.createElement('input');
-    disabledCb.type = 'checkbox';
-    disabledCb.setAttribute('data-choice-disabled', '');
-    disabledCb.checked = !!(choice && choice.disabled === true);
-    disabledCb.addEventListener('change', collectChoices);
-    disabledLabel.appendChild(disabledCb);
-    disabledLabel.appendChild(document.createTextNode('disabled'));
-    wrap.appendChild(disabledLabel);
+    // "disabled" only where the component draws it (the two card grids)
+    if (isCardGridType(node || selectedNode())) {
+      var disabledLabel = document.createElement('label');
+      disabledLabel.className = 'lg-check';
+      var disabledCb = document.createElement('input');
+      disabledCb.type = 'checkbox';
+      disabledCb.setAttribute('data-choice-disabled', '');
+      disabledCb.checked = !!(choice && choice.disabled === true);
+      disabledCb.addEventListener('change', collectChoices);
+      disabledLabel.appendChild(disabledCb);
+      disabledLabel.appendChild(document.createTextNode('disabled'));
+      wrap.appendChild(disabledLabel);
+    }
     // §10 removal: the per-choice "main" checkbox (choiceDisplay.mainValues
     // re-bucketing) is gone — §6.5 replaces it with an authored props.other
     // values list (data-other-values), not a re-bucketing of base choices.
@@ -15263,6 +15299,7 @@ export const SECTION_STUDIO_SCRIPT = `
       }
       // §6.2 inline choice ops: per-choice ✕ + the "+ Add choice" ghost tile.
       var xBtn = ev.target && ev.target.closest ? ev.target.closest('[data-choice-x]') : null;
+      if (xBtn && typeof canvasIsCurrent !== 'undefined' && !canvasIsCurrent()) { return; }
       if (xBtn) {
         var xRef = findRef(xBtn.getAttribute('data-choice-x-qid'));
         if (xRef) {
@@ -15306,7 +15343,8 @@ export const SECTION_STUDIO_SCRIPT = `
       // component (the inspector opens the Choices tab at that row).
       var cardEl = ev.target && ev.target.closest ? ev.target.closest('[data-lg-choice]') : null;
       if (cardEl && el.contains(cardEl) && typeMeta(el.getAttribute('data-component-type')).choice === true) {
-        selectChoice(el.getAttribute('data-question-id'), cardEl.getAttribute('data-lg-choice'), choiceKeyOfEl(cardEl).index);
+        if (typeof canvasIsCurrent !== 'undefined' && !canvasIsCurrent()) { return; }
+        selectChoice(el.getAttribute('data-question-id'), cardEl.getAttribute('data-lg-choice'), choiceKeyOfEl(cardEl).index, true);
         return;
       }
       // R2 S1-7: skip a same-node re-select. Re-selecting re-runs
@@ -15331,8 +15369,13 @@ export const SECTION_STUDIO_SCRIPT = `
       var cardEl = ev.target && ev.target.closest ? ev.target.closest('[data-lg-choice]') : null;
       if (cardEl && typeMeta(ref.node.type).choice === true) {
         ev.preventDefault();
+        if (typeof canvasIsCurrent !== 'undefined' && !canvasIsCurrent()) { return; }
         var choiceKey = choiceKeyOfEl(cardEl);
         var cardTitle = cardEl.querySelector('.lg-card-title') || cardEl;
+        // a plain answer button has no title element: the whole button is
+        // edited, so the studio's own marks (the remove ✕) come out first and
+        // never reach the label (review 6b: "Alpha7 new×" was saved)
+        removeStudioMarks(cardTitle);
         startInlineEdit(cardTitle, function (text) { commitInlineChoiceLabel(qid, choiceKey, text); });
         return;
       }
@@ -15443,7 +15486,7 @@ export const SECTION_STUDIO_SCRIPT = `
         var targetHost = targetCard && targetCard.closest ? targetCard.closest('[data-question-id]') : null;
         if (!targetCard || !targetHost || targetHost.getAttribute('data-question-id') !== cQid) { return; }
         var cRef = findRef(cQid);
-        if (cRef) { reorderChoiceBefore(cRef.node, fromKey, choiceKeyOfEl(targetCard)); }
+        if (cRef && reorderChoiceBefore(cRef.node, fromKey, choiceKeyOfEl(targetCard)) && cQid === selectedQuestionId) { renderChoiceEditor(cRef.node); }
         return;
       }
       if (kind === 'add') {
@@ -15597,8 +15640,10 @@ export const SECTION_STUDIO_SCRIPT = `
       setScope(selectedQuestionId ? 'component' : 'section');
       return;
     }
-    if (act === 'left') { moveChoice(node, value, -1); return; }
-    if (act === 'right') { moveChoice(node, value, 1); return; }
+    // the inspector's rows are rebuilt too: the next inspector edit collects
+    // the list FROM its rows, and stale rows put the old order back (review 6b)
+    if (act === 'left') { if (moveChoice(node, value, -1)) { renderChoiceEditor(node); } return; }
+    if (act === 'right') { if (moveChoice(node, value, 1)) { renderChoiceEditor(node); } return; }
   }
   if (toolbarEl) {
     toolbarEl.addEventListener('click', function (ev) {

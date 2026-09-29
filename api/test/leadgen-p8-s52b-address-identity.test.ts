@@ -371,6 +371,8 @@ const ISLAND_FUNCS = [
   "buildChoiceValueControls",
   "choiceFieldsFor",
   "choiceRowMoveBtn",
+  // review 6b: the row offers "disabled" only where the component draws it
+  "isCardGridType",
   "buildChoiceRow",
   "collectChoices",
   "otherValueMoveBtn",

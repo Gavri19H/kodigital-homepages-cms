@@ -8732,8 +8732,8 @@ describeDb("OWNER 2026-09-28 review round 1 — answer keys, Other values, typed
       ],
     });
     const messages = (probe.run("computeIssues()") as Array<{ message: string }>).map((i) => i.message);
-    expect(messages.filter((m) => m.includes('two choices with the saved value "tri_v"'))).toHaveLength(1);
-    expect(messages.filter((m) => m.includes('two "Other" values with the saved value "side_v"'))).toHaveLength(1);
+    expect(messages.filter((m) => m.includes('more than one choice with the saved value "tri_v"'))).toHaveLength(1);
+    expect(messages.filter((m) => m.includes('more than one "Other" value with the saved value "side_v"'))).toHaveLength(1);
   });
 
   it("canvas twins (owner 2026-09-29): the k-th card is the k-th choice with that value — renaming, removing and reordering the SECOND twin act on the second twin", async () => {
@@ -8835,6 +8835,21 @@ describeDb("OWNER 2026-09-28 review round 1 — answer keys, Other values, typed
     expect(probe.run("[selectedChoiceIndex, selectedChoiceValue, scopeState]")).toEqual([-1, null, "component"]);
   });
 
+  it("review 6b (M2): a plain answer button's inline edit takes the studio's remove mark out first — the label never gets the ✕", async () => {
+    const { probe, island } = await setupWith(MULTI_CONTENT, []);
+    probe.run(sliceIslandFunction(island, "removeStudioMarks"));
+    probe.run(`
+      var btn = { childNodes: [], removeChild: function (c) { this.childNodes.splice(this.childNodes.indexOf(c), 1); c.parentNode = null; },
+        querySelectorAll: function (sel) { return sel === '[data-choice-x]' ? this.childNodes.filter(function (c) { return c.isMark; }) : []; },
+        get textContent() { return this.childNodes.map(function (c) { return c.text; }).join(''); } };
+      var label = { text: 'Alpha7 new', parentNode: btn }; var mark = { text: '\u00d7', isMark: true, parentNode: btn };
+      btn.childNodes.push(label, mark);
+      removeStudioMarks(btn);
+    `);
+    expect(probe.run("btn.textContent")).toBe("Alpha7 new");
+    expect(island).toContain("removeStudioMarks(cardTitle);\n        startInlineEdit(cardTitle,");
+  });
+
   it("review 4: the refusal puts the old value back, names why, is no Undo step of its own, and gives Redo back", async () => {
     const { probe, island } = await setupWith(MULTI_CONTENT, []);
     withHistory(probe, island);
@@ -8899,8 +8914,8 @@ describeDb("OWNER 2026-09-28 review round 1 — answer keys, Other values, typed
       ],
     });
     const messages = (probe.run("computeIssues()") as Array<{ message: string }>).map((i) => i.message);
-    expect(messages.some((m) => m.includes('two choices with the saved value "dupz"'))).toBe(true);
-    expect(messages.some((m) => m.includes('two choices labelled "one"'))).toBe(true);
+    expect(messages.some((m) => m.includes('more than one choice with the saved value "dupz"'))).toBe(true);
+    expect(messages.some((m) => m.includes('more than one choice labelled "one"'))).toBe(true);
   });
 
   it("review 3: a 'not sent' mapping whose key the component records again is dropped from the list — its Remove can never delete a working mapping", async () => {
