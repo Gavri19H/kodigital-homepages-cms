@@ -8561,7 +8561,7 @@ export const SECTION_STUDIO_SCRIPT = `
     if (typeof reopenScrollPending !== 'undefined' && reopenScrollPending && selEl && selEl.scrollIntoView) {
       reopenScrollPending = false;
       selEl.scrollIntoView({ block: 'center', inline: 'nearest' });
-      if (typeof holdReopenAnchor !== 'undefined') { holdReopenAnchor(selEl); }
+      if (typeof reopenAnchorEl !== 'undefined') { reopenAnchorEl = selEl; }
     } else if (typeof reopenAnchorEl !== 'undefined' && reopenAnchorEl && selEl && reopenAnchorEl !== selEl) {
       reopenAnchorEl = selEl;
     }
@@ -8967,38 +8967,22 @@ export const SECTION_STUDIO_SCRIPT = `
   // the question down (on a phone, off the screen). Until the operator first
   // presses, types, scrolls or touches, a picture that loads brings the
   // reopened question back into view.
-  var reopenAnchorEl = null, reopenAnchorSpot = null;
-  // where the page is scrolled to: a page scroll that lands anywhere else was
-  // not the studio's own (a scrollbar drag fires none of the release events)
-  function reopenScrollSpot() {
-    var b = document.body, h = document.documentElement;
-    return (b ? b.scrollTop : 0) + ',' + (h ? h.scrollTop : 0);
-  }
-  function holdReopenAnchor(el) {
-    reopenAnchorEl = el;
-    reopenAnchorSpot = reopenScrollSpot();
-  }
+  // A drag on the page's scrollbar fires mousedown/pointerdown on the scroller
+  // too (measured on a BODY scroller like this page), so it releases the hold.
+  var reopenAnchorEl = null;
   function keepReopenAnchor() {
     var el = reopenAnchorEl;
     if (!el) { return; }
     if (el.isConnected === false || !el.scrollIntoView) { reopenAnchorEl = null; return; }
     el.scrollIntoView({ block: 'center', inline: 'nearest' });
-    reopenAnchorSpot = reopenScrollSpot();
   }
   function releaseReopenAnchor() { reopenAnchorEl = null; }
-  function releaseReopenAnchorOnPageScroll(ev) {
-    if (!reopenAnchorEl) { return; }
-    var t = ev ? ev.target : null;
-    if (t !== document && t !== document.body && t !== document.documentElement) { return; }
-    if (reopenScrollSpot() !== reopenAnchorSpot) { reopenAnchorEl = null; }
-  }
   var REOPEN_RELEASE_EVENTS = ['mousedown', 'pointerdown', 'keydown', 'wheel', 'touchstart'];
   function releaseReopenAnchorOnTouch(target) {
     if (!target || !target.addEventListener) { return; }
     for (var i = 0; i < REOPEN_RELEASE_EVENTS.length; i++) {
       target.addEventListener(REOPEN_RELEASE_EVENTS[i], releaseReopenAnchor, true);
     }
-    if (target === document) { target.addEventListener('scroll', releaseReopenAnchorOnPageScroll, true); }
   }
   function reopenedSelectionId() {
     var q = null, found = false;
@@ -9092,6 +9076,10 @@ export const SECTION_STUDIO_SCRIPT = `
     if (wasChoice) {
       if (typeof setScope !== 'undefined') { setScope('component'); } else { scopeState = 'component'; }
     }
+    // the canvas outline and the row mark too: a click into a new blank row
+    // left both on the previous choice (review 9, after m9-2)
+    if (typeof markCurrentChoiceRow !== 'undefined') { markCurrentChoiceRow(); }
+    if (typeof applyCanvasDecoration !== 'undefined') { applyCanvasDecoration(); }
   }
   function markCurrentChoiceRow() {
     var rows = document.querySelectorAll('[data-choice-row]'), i;

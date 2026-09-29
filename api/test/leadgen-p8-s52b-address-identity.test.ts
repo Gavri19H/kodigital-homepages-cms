@@ -715,7 +715,7 @@ describeDb("P8 S5.2b — address identity (R6-2 / R6-3 / R6-4 / M4)", () => {
     const scopes: string[] = [];
     probe.sandbox["__scopes"] = scopes;
     probe.run(sliceIslandFunction(island, "dropChoiceSelection"));
-    probe.run("var scopeState = 'choice', selectedChoiceValue = null, selectedChoiceIndex = -1, selectedChoiceRow = null; function setScope(sc) { scopeState = sc; if (sc !== 'choice') { selectedChoiceValue = null; selectedChoiceIndex = -1; } __scopes.push(sc); }");
+    probe.run("var scopeState = 'choice', selectedChoiceValue = null, selectedChoiceIndex = -1, selectedChoiceRow = null; function setScope(sc) { scopeState = sc; if (sc !== 'choice') { selectedChoiceValue = null; selectedChoiceIndex = -1; } __scopes.push(sc); } function markCurrentChoiceRow() { __scopes.push('mark'); } function applyCanvasDecoration() { __scopes.push('canvas'); }");
     probe.run("var __n = selectedNode(); var __i; for (__i = 0; __i < __n.choices.length; __i++) { choiceContainer().appendChild(buildChoiceRow(__n.choices[__i], __n)); }");
     const rows = container.querySelectorAll("[data-choice-row]");
     // Allstate (row 1) is the selected choice
@@ -727,7 +727,7 @@ describeDb("P8 S5.2b — address identity (R6-2 / R6-3 / R6-4 / M4)", () => {
     expect(probe.run("[scopeState, selectedChoiceValue, selectedChoiceIndex]")).toEqual(["choice", "allstate", 0]);
     // its OWN row's Remove: back to the component through setScope (breadcrumb/header/toolbar re-render)
     container.querySelectorAll("[data-choice-row]")[0]!.querySelector("[data-choice-remove]")!.fire("click");
-    expect(scopes).toEqual(["component"]);
+    expect(scopes, "the header/breadcrumb, then the row mark and the canvas outline").toEqual(["component", "mark", "canvas"]);
     expect(probe.run("[scopeState, selectedChoiceValue, selectedChoiceIndex, selectedChoiceRow]")).toEqual(["component", null, -1, null]);
     const node = probe.sandbox.state.content.components[0] as { choices?: unknown[] };
     expect(node.choices, "both rows removed").toBeUndefined();

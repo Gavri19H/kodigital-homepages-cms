@@ -9324,23 +9324,13 @@ describeDb("OWNER 2026-09-28 review round 1 — answer keys, Other values, typed
     const scrolls: string[] = [];
     const listeners: Record<string, (ev?: unknown) => void> = {};
     const question = { isConnected: true, scrollIntoView: (o: { block: string }) => scrolls.push(o.block) };
-    const body = { scrollTop: 4675 };
-    const docListeners: Record<string, (ev?: unknown) => void> = {};
-    const doc = {
-      body,
-      documentElement: { scrollTop: 0 },
-      addEventListener: (type: string, fn: (ev?: unknown) => void, capture?: boolean) => { if (capture === true) docListeners[type] = fn; },
-    };
-    const sandbox: Record<string, unknown> = { updateCanvasFrameHeight: () => undefined, document: doc };
+    const sandbox: Record<string, unknown> = { updateCanvasFrameHeight: () => undefined };
     runInNewContext(
       [
-        sliceIslandLine(island, "var reopenAnchorEl = null, reopenAnchorSpot = null;"),
+        sliceIslandLine(island, "var reopenAnchorEl = null;"),
         sliceIslandLine(island, "var REOPEN_RELEASE_EVENTS = "),
-        sliceIslandFunction(island, "reopenScrollSpot"),
-        sliceIslandFunction(island, "holdReopenAnchor"),
         sliceIslandFunction(island, "keepReopenAnchor"),
         sliceIslandFunction(island, "releaseReopenAnchor"),
-        sliceIslandFunction(island, "releaseReopenAnchorOnPageScroll"),
         sliceIslandFunction(island, "releaseReopenAnchorOnTouch"),
         sliceIslandFunction(island, "onFrameDocLoadCapture"),
       ].join("\n"),
@@ -9367,28 +9357,18 @@ describeDb("OWNER 2026-09-28 review round 1 — answer keys, Other values, typed
     run("onFrameDocLoadCapture({ target: { tagName: 'IMG' } })");
     expect(scrolls).toEqual(["center"]);
     expect(run("reopenAnchorEl")).toBeNull();
-    // review 9: a page scroll the studio did not make (a scrollbar drag fires none of the
-    // release events) lets go; the studio's own re-centre does not
-    run("releaseReopenAnchorOnTouch(document)");
-    expect(Object.keys(docListeners).sort()).toEqual(["keydown", "mousedown", "pointerdown", "scroll", "touchstart", "wheel"]);
+    // a drag on the page's scrollbar is a press on the scroller (after-r9/probe-scrollbar-ref.cjs:
+    // pointerdown + mousedown on BODY), so it lets go like any other press — no scroll listener
     question.isConnected = true;
-    run("holdReopenAnchor(question)");
-    body.scrollTop = 4675;
-    docListeners["scroll"]!({ target: body });
-    expect(run("reopenAnchorEl"), "the scroll the studio itself made keeps the hold").toBe(question);
+    run("reopenAnchorEl = question");
+    listeners["pointerdown"]!();
     run("onFrameDocLoadCapture({ target: { tagName: 'IMG' } })");
-    expect(scrolls).toEqual(["center", "center"]);
-    docListeners["scroll"]!({ target: { tagName: "DIV" } });
-    expect(run("reopenAnchorEl"), "an inner panel scrolling is not the page").toBe(question);
-    body.scrollTop = 3900;
-    docListeners["scroll"]!({ target: body });
-    expect(run("reopenAnchorEl"), "the operator dragged the page").toBeNull();
-    run("onFrameDocLoadCapture({ target: { tagName: 'IMG' } })");
-    expect(scrolls, "a later picture never pulls the page back").toEqual(["center", "center"]);
+    expect(scrolls).toEqual(["center"]);
+    expect(Object.keys(listeners)).not.toContain("scroll");
     // wiring: the page and the frame document both release it, the first paint sets it
     expect(island).toContain("releaseReopenAnchorOnTouch(document);");
     expect(island).toContain("releaseReopenAnchorOnTouch(doc);");
-    expect(island).toContain("if (typeof holdReopenAnchor !== 'undefined') { holdReopenAnchor(selEl); }");
+    expect(island).toContain("if (typeof reopenAnchorEl !== 'undefined') { reopenAnchorEl = selEl; }");
   });
 
   it("open item 1: the editor's columns shrink to the screen (inspector never pushed off-screen) and phone-width rows wrap", async () => {
