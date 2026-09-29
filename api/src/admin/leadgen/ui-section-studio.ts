@@ -4112,7 +4112,7 @@ export const SECTION_STUDIO_STYLES = `
 .studio-breadcrumb button{border:0;background:none;color:#8A93A3;cursor:pointer;font-size:12.5px;font-weight:600;padding:0 2px}
 .studio-breadcrumb .studio-crumb-current{color:#1B3A5C;font-weight:700;background:#EAF0F6;padding:3px 9px;border-radius:6px;cursor:default}
 .studio-breadcrumb span:not(.studio-crumb-current){color:#C2CACF;padding:0 1px}
-.studio-toolbar-problems{font-size:11px;color:#842029;flex:1 1 100%;min-height:15px;line-height:15px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.studio-toolbar-problems{font-size:11px;color:#842029;flex:1 1 100%;min-height:15px;line-height:15px}
 .studio-control-invalid{outline:2px solid ${STUDIO_COLOR.danger};outline-offset:1px}
 /* LeadGen Rework §6.9 phone mask builder + §6.8 slider-type picker + §6.10
    address field-set editor — studio inspector chrome (server-rendered admin,
@@ -8561,7 +8561,7 @@ export const SECTION_STUDIO_SCRIPT = `
     if (typeof reopenScrollPending !== 'undefined' && reopenScrollPending && selEl && selEl.scrollIntoView) {
       reopenScrollPending = false;
       selEl.scrollIntoView({ block: 'center', inline: 'nearest' });
-      if (typeof reopenAnchorEl !== 'undefined') { reopenAnchorEl = selEl; }
+      if (typeof holdReopenAnchor !== 'undefined') { holdReopenAnchor(selEl); }
     } else if (typeof reopenAnchorEl !== 'undefined' && reopenAnchorEl && selEl && reopenAnchorEl !== selEl) {
       reopenAnchorEl = selEl;
     }
@@ -8846,7 +8846,8 @@ export const SECTION_STUDIO_SCRIPT = `
     if (!el) { return; }
     var node = selectedNode();
     // the line keeps its (one-line) place when empty: no reflow of the canvas
-    // on a selection change (review 8 F8-1); the full text is its title
+    // on a selection change (review 8 F8-1); a longer sentence wraps and the
+    // toolbar's held height absorbs it (holdToolbarHeight)
     el.hidden = false;
     if (!node) { el.textContent = ''; el.title = ''; return; }
     var issues = computeIssues();
@@ -8930,6 +8931,8 @@ export const SECTION_STUDIO_SCRIPT = `
   // (review 8, after F8-1). It keeps the tallest height it has had at its
   // current width, so a selection change never moves the canvas.
   var toolbarHoldWidth = -1, toolbarHoldHeight = 0, toolbarBaseMin = null;
+  // a new width re-measures at once, not at the next selection change (review 9)
+  if (window.addEventListener) { window.addEventListener('resize', function () { holdToolbarHeight(); }); }
   function holdToolbarHeight() {
     var bar = document.querySelector('[data-studio-selection-toolbar]');
     if (!bar || !bar.getBoundingClientRect || !window.getComputedStyle) { return; }
@@ -8964,20 +8967,38 @@ export const SECTION_STUDIO_SCRIPT = `
   // the question down (on a phone, off the screen). Until the operator first
   // presses, types, scrolls or touches, a picture that loads brings the
   // reopened question back into view.
-  var reopenAnchorEl = null;
+  var reopenAnchorEl = null, reopenAnchorSpot = null;
+  // where the page is scrolled to: a page scroll that lands anywhere else was
+  // not the studio's own (a scrollbar drag fires none of the release events)
+  function reopenScrollSpot() {
+    var b = document.body, h = document.documentElement;
+    return (b ? b.scrollTop : 0) + ',' + (h ? h.scrollTop : 0);
+  }
+  function holdReopenAnchor(el) {
+    reopenAnchorEl = el;
+    reopenAnchorSpot = reopenScrollSpot();
+  }
   function keepReopenAnchor() {
     var el = reopenAnchorEl;
     if (!el) { return; }
     if (el.isConnected === false || !el.scrollIntoView) { reopenAnchorEl = null; return; }
     el.scrollIntoView({ block: 'center', inline: 'nearest' });
+    reopenAnchorSpot = reopenScrollSpot();
   }
   function releaseReopenAnchor() { reopenAnchorEl = null; }
+  function releaseReopenAnchorOnPageScroll(ev) {
+    if (!reopenAnchorEl) { return; }
+    var t = ev ? ev.target : null;
+    if (t !== document && t !== document.body && t !== document.documentElement) { return; }
+    if (reopenScrollSpot() !== reopenAnchorSpot) { reopenAnchorEl = null; }
+  }
   var REOPEN_RELEASE_EVENTS = ['mousedown', 'pointerdown', 'keydown', 'wheel', 'touchstart'];
   function releaseReopenAnchorOnTouch(target) {
     if (!target || !target.addEventListener) { return; }
     for (var i = 0; i < REOPEN_RELEASE_EVENTS.length; i++) {
       target.addEventListener(REOPEN_RELEASE_EVENTS[i], releaseReopenAnchor, true);
     }
+    if (target === document) { target.addEventListener('scroll', releaseReopenAnchorOnPageScroll, true); }
   }
   function reopenedSelectionId() {
     var q = null, found = false;
@@ -9046,7 +9067,10 @@ export const SECTION_STUDIO_SCRIPT = `
     for (ri = 0; ri < rowsNow.length; ri++) { if (rowsNow[ri] === row) { at = ri; } }
     var node = selectedNode();
     var c = node && node.choices && at !== -1 ? node.choices[at] : null;
-    if (!c || c.value === undefined || c.value === null) { return; }
+    // a new row with no saved value yet is not a choice to act on: nothing
+    // may keep naming the previous one (review 9 m9-2); its first typed
+    // value selects it (the panel's input listener)
+    if (!c || c.value === undefined || c.value === null) { dropChoiceSelection(); return; }
     var labelInput = row.querySelector('[data-choice-field="label"]');
     selectedChoiceIndex = at;
     selectedChoiceValue = String(c.value);
@@ -9055,6 +9079,19 @@ export const SECTION_STUDIO_SCRIPT = `
     setScope('choice');
     if (typeof applyCanvasDecoration !== 'undefined') { applyCanvasDecoration(); }
     markCurrentChoiceRow();
+  }
+  // A choice selection that is gone (its row removed, emptied, or no longer
+  // holding that value): back to the component, and the breadcrumb, header
+  // and toolbar re-render (review 9 M9-1: after Remove on the selected
+  // choice's own row they kept naming the deleted choice).
+  function dropChoiceSelection() {
+    var wasChoice = typeof scopeState !== 'undefined' && scopeState === 'choice';
+    selectedChoiceValue = null;
+    selectedChoiceIndex = -1;
+    if (typeof selectedChoiceRow !== 'undefined') { selectedChoiceRow = null; }
+    if (wasChoice) {
+      if (typeof setScope !== 'undefined') { setScope('component'); } else { scopeState = 'component'; }
+    }
   }
   function markCurrentChoiceRow() {
     var rows = document.querySelectorAll('[data-choice-row]'), i;
@@ -13935,6 +13972,7 @@ export const SECTION_STUDIO_SCRIPT = `
       row.className = withoutClasses(row.className, ['studio-choice-row-current']) + ' studio-choice-row-current';
       return;
     }
+    if (typeof dropChoiceSelection !== 'undefined') { dropChoiceSelection(); return; }
     selectedChoiceValue = null;
     selectedChoiceIndex = -1;
   }
@@ -14525,11 +14563,14 @@ export const SECTION_STUDIO_SCRIPT = `
     if (typeof selectedChoiceRow !== 'undefined' && selectedChoiceRow !== null && selectedChoiceValue !== null && node.question_id === selectedQuestionId) {
       var selAt = -1, sri;
       for (sri = 0; sri < rows.length; sri++) { if (rows[sri] === selectedChoiceRow) { selAt = sri; } }
-      if (selAt === -1 || !choices[selAt]) {
-        selectedChoiceValue = null;
-        selectedChoiceIndex = -1;
-        selectedChoiceRow = null;
-        if (typeof scopeState !== 'undefined' && scopeState === 'choice') { scopeState = 'component'; }
+      if (selAt === -1 || !choices[selAt] || choices[selAt].value === undefined) {
+        if (typeof dropChoiceSelection !== 'undefined') { dropChoiceSelection(); }
+        else {
+          selectedChoiceValue = null;
+          selectedChoiceIndex = -1;
+          selectedChoiceRow = null;
+          if (typeof scopeState !== 'undefined' && scopeState === 'choice') { scopeState = 'component'; }
+        }
       } else {
         selectedChoiceIndex = selAt;
         selectedChoiceValue = String(choices[selAt].value);
@@ -18355,6 +18396,12 @@ export const SECTION_STUDIO_SCRIPT = `
       retargetChoiceScope(ev.target);
     });
     choicesPanelWrap.addEventListener('click', function (ev) { retargetChoiceScope(ev.target); });
+    // a row that was not the selected choice (a new row getting its first
+    // value) becomes it as the operator types (review 9 m9-2)
+    choicesPanelWrap.addEventListener('input', function (ev) {
+      var row = ev.target && ev.target.closest ? ev.target.closest('[data-choice-row]') : null;
+      if (row && row !== selectedChoiceRow) { pointChoiceAtRow(row, choicesPanelWrap); }
+    });
   }
 
   // --- §5.4 frame hint toggle (presentation-only skeleton) ----------------------

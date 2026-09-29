@@ -9295,6 +9295,7 @@ describeDb("OWNER 2026-09-28 review round 1 — answer keys, Other values, typed
       setScope(sc: string) { calls.push("scope:" + sc + ":" + String(sandbox["choiceScopeLabel"]) + "#" + String(sandbox["selectedChoiceIndex"])); },
       applyCanvasDecoration() { calls.push("canvas"); },
       markCurrentChoiceRow() { calls.push("mark"); },
+      dropChoiceSelection() { calls.push("drop"); sandbox["selectedChoiceValue"] = null; },
     };
     runInNewContext(sliceIslandFunction(island, "pointChoiceAtRow"), sandbox);
     // Remove on a row: by the time the click reaches the panel the row is gone
@@ -9305,6 +9306,15 @@ describeDb("OWNER 2026-09-28 review round 1 — answer keys, Other values, typed
     runInNewContext("pointChoiceAtRow(alpha, container)", sandbox);
     expect(calls).toEqual(["scope:choice:AlphaQ8#0", "canvas", "mark"]);
     expect([sandbox["selectedChoiceIndex"], sandbox["selectedChoiceValue"], sandbox["selectedChoiceRow"] === alpha]).toEqual([0, "bx", true]);
+    // review 9 m9-2: a new row with no saved value yet names no choice (Alpha is not kept)
+    const blank = mkRow("");
+    rows.push(blank);
+    (sandbox["node"] as { choices: Record<string, unknown>[] }).choices.push({ label: "" });
+    calls.length = 0;
+    runInNewContext("pointChoiceAtRow(blank, container)", { ...sandbox, blank } as Record<string, unknown>);
+    expect(calls).toEqual(["drop"]);
+    // its first typed value selects it as the operator types
+    expect(island).toContain("choicesPanelWrap.addEventListener('input', function (ev) {");
   });
 
   it("review 8 (F8-3): a picture that loads after the reopen scroll keeps the reopened question in view until the operator first touches the page", async () => {
@@ -9314,13 +9324,23 @@ describeDb("OWNER 2026-09-28 review round 1 — answer keys, Other values, typed
     const scrolls: string[] = [];
     const listeners: Record<string, (ev?: unknown) => void> = {};
     const question = { isConnected: true, scrollIntoView: (o: { block: string }) => scrolls.push(o.block) };
-    const sandbox: Record<string, unknown> = { updateCanvasFrameHeight: () => undefined };
+    const body = { scrollTop: 4675 };
+    const docListeners: Record<string, (ev?: unknown) => void> = {};
+    const doc = {
+      body,
+      documentElement: { scrollTop: 0 },
+      addEventListener: (type: string, fn: (ev?: unknown) => void, capture?: boolean) => { if (capture === true) docListeners[type] = fn; },
+    };
+    const sandbox: Record<string, unknown> = { updateCanvasFrameHeight: () => undefined, document: doc };
     runInNewContext(
       [
-        "var reopenAnchorEl = null;",
+        sliceIslandLine(island, "var reopenAnchorEl = null, reopenAnchorSpot = null;"),
         sliceIslandLine(island, "var REOPEN_RELEASE_EVENTS = "),
+        sliceIslandFunction(island, "reopenScrollSpot"),
+        sliceIslandFunction(island, "holdReopenAnchor"),
         sliceIslandFunction(island, "keepReopenAnchor"),
         sliceIslandFunction(island, "releaseReopenAnchor"),
+        sliceIslandFunction(island, "releaseReopenAnchorOnPageScroll"),
         sliceIslandFunction(island, "releaseReopenAnchorOnTouch"),
         sliceIslandFunction(island, "onFrameDocLoadCapture"),
       ].join("\n"),
@@ -9347,10 +9367,28 @@ describeDb("OWNER 2026-09-28 review round 1 — answer keys, Other values, typed
     run("onFrameDocLoadCapture({ target: { tagName: 'IMG' } })");
     expect(scrolls).toEqual(["center"]);
     expect(run("reopenAnchorEl")).toBeNull();
+    // review 9: a page scroll the studio did not make (a scrollbar drag fires none of the
+    // release events) lets go; the studio's own re-centre does not
+    run("releaseReopenAnchorOnTouch(document)");
+    expect(Object.keys(docListeners).sort()).toEqual(["keydown", "mousedown", "pointerdown", "scroll", "touchstart", "wheel"]);
+    question.isConnected = true;
+    run("holdReopenAnchor(question)");
+    body.scrollTop = 4675;
+    docListeners["scroll"]!({ target: body });
+    expect(run("reopenAnchorEl"), "the scroll the studio itself made keeps the hold").toBe(question);
+    run("onFrameDocLoadCapture({ target: { tagName: 'IMG' } })");
+    expect(scrolls).toEqual(["center", "center"]);
+    docListeners["scroll"]!({ target: { tagName: "DIV" } });
+    expect(run("reopenAnchorEl"), "an inner panel scrolling is not the page").toBe(question);
+    body.scrollTop = 3900;
+    docListeners["scroll"]!({ target: body });
+    expect(run("reopenAnchorEl"), "the operator dragged the page").toBeNull();
+    run("onFrameDocLoadCapture({ target: { tagName: 'IMG' } })");
+    expect(scrolls, "a later picture never pulls the page back").toEqual(["center", "center"]);
     // wiring: the page and the frame document both release it, the first paint sets it
     expect(island).toContain("releaseReopenAnchorOnTouch(document);");
     expect(island).toContain("releaseReopenAnchorOnTouch(doc);");
-    expect(island).toContain("if (typeof reopenAnchorEl !== 'undefined') { reopenAnchorEl = selEl; }");
+    expect(island).toContain("if (typeof holdReopenAnchor !== 'undefined') { holdReopenAnchor(selEl); }");
   });
 
   it("open item 1: the editor's columns shrink to the screen (inspector never pushed off-screen) and phone-width rows wrap", async () => {
