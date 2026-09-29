@@ -690,6 +690,44 @@ describeDb("P8 S5.2b — address identity (R6-2 / R6-3 / R6-4 / M4)", () => {
     ]);
   });
 
+  it("review 8: a stored 'disabled' on a button choice survives the next edit (the row no longer offers it, it keeps it hidden)", async () => {
+    const env = newHarness();
+    const content = {
+      components: [
+        {
+          type: "ButtonAnswerGroup",
+          question_id: "q_carrier",
+          internal_field: "carrier",
+          answer_type: "enum",
+          choices: [
+            { label: "Geico", value: "geico", analytics_id: "geico", disabled: true },
+            { label: "Allstate", value: "allstate", analytics_id: "allstate" },
+          ],
+        },
+      ],
+    };
+    const section = await createSection(env, content);
+    const page = await studioPage(env, section.public_id);
+    const container = makeEl("div");
+    const probe = islandProbe(islandOf(page), metaOf(page), content, { "[data-studio-choices]": container });
+    probe.sandbox.selectedQuestionId = "q_carrier";
+    probe.run("var __n = selectedNode(); var __i; for (__i = 0; __i < __n.choices.length; __i++) { choiceContainer().appendChild(buildChoiceRow(__n.choices[__i], __n)); }");
+
+    const rows = container.querySelectorAll("[data-choice-row]");
+    const kept = rows[0]!.querySelector("[data-choice-disabled]");
+    expect(kept, "the stored flag rides the row").not.toBeNull();
+    expect(kept!.checked).toBe(true);
+    expect(kept!.parentNode!.hidden, "buttons do not draw it, so it is not offered").toBe(true);
+    expect(rows[1]!.querySelector("[data-choice-disabled]"), "nothing to keep on the other row").toBeNull();
+
+    const lab1 = cellOf(rows[1]!, "data-choice-field", "label");
+    lab1.value = "Allstate Direct";
+    lab1.fire("input");
+    const node = probe.sandbox.state.content.components[0] as { choices?: Record<string, unknown>[] };
+    expect(node.choices![0]).toMatchObject({ label: "Geico", value: "geico", disabled: true });
+    expect(node.choices![1]!["disabled"]).toBeUndefined();
+  });
+
   // =========================================================================
   // M4 — the per-field validation the runtime already supports
   // =========================================================================

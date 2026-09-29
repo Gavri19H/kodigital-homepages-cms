@@ -8913,6 +8913,36 @@ describeDb("OWNER 2026-09-28 review round 1 — answer keys, Other values, typed
     expect(probe.run("rebuilt")).toBe(1);
   });
 
+  it("review 8 (F8-1): a double-click acts on what its FIRST press hit — a reflow between the two clicks can't move it onto another card", async () => {
+    const { probe, island } = await setupWith(MULTI_CONTENT, []);
+    probe.run([sliceIslandLine(island, "var firstPressTarget = null"), sliceIslandFunction(island, "noteFirstPress"), sliceIslandFunction(island, "doubleClickTarget")].join("\n"));
+    probe.run("var beta = { name: 'Beta', closest: function () { return this; } }; var alpha = { name: 'Alpha', closest: function () { return this; } };");
+    // 1st press on Beta; the page reflows; the 2nd press (and the dblclick) land on Alpha
+    probe.run("noteFirstPress({ detail: 1, target: beta }); noteFirstPress({ detail: 2, target: alpha });");
+    expect(probe.run("doubleClickTarget({ target: alpha }).name")).toBe("Beta");
+    // a new, separate click series starts over
+    probe.run("noteFirstPress({ detail: 1, target: alpha });");
+    expect(probe.run("doubleClickTarget({ target: alpha }).name")).toBe("Alpha");
+  });
+
+  it("review 8 (F8-2): a click inside the text being edited only places the caret — it never selects, ends the edit or opens the way to a Backspace delete", async () => {
+    const { probe, island } = await setupWith(MULTI_CONTENT, []);
+    probe.run("var inlineEditing = true; var selected = 0; function selectChoice() { selected += 1; } function selectComponent() { selected += 1; }");
+    probe.run("var editHost = { contains: function (t) { return t === 'inside'; } }; var inlineEditHost = editHost;");
+    probe.run(sliceIslandFunction(island, "onCanvasClick"));
+    probe.run("onCanvasClick({ target: 'inside', preventDefault: function () {} });");
+    expect(probe.run("selected")).toBe(0);
+  });
+
+  it("review 8 (F8-6): the reopen link after Save carries no tab when no tab applies", async () => {
+    const { probe, island } = await setupWith(MULTI_CONTENT, []);
+    probe.run(sliceIslandFunction(island, "reopenQuery"));
+    probe.run("var selectedQuestionId = null; var currentInspectorTab = 'none';");
+    expect(probe.run("reopenQuery()")).toBe("");
+    probe.run("selectedQuestionId = 'q_zip'; currentInspectorTab = 'content';");
+    expect(probe.run("reopenQuery()")).toBe("?q=q_zip&tab=content");
+  });
+
   it("review 4: the refusal puts the old value back, names why, is no Undo step of its own, and gives Redo back", async () => {
     const { probe, island } = await setupWith(MULTI_CONTENT, []);
     withHistory(probe, island);
@@ -9206,6 +9236,121 @@ describeDb("OWNER 2026-09-28 review round 1 — answer keys, Other values, typed
     expect(probe.run("reopenedSelectionId()")).toBe("q_mrum8ruj_2sau");
     probe.sandbox["window"] = { location: { search: "?q=q_gone" } };
     expect(probe.run("reopenedSelectionId()")).toBeNull();
+  });
+
+  it("review 8: the canvas toolbar keeps the tallest height it has had at its width, so a selection change never moves the canvas", async () => {
+    const { env } = newHarness();
+    const html = await studioPage(env, (await createSection(env)).public_id);
+    const island = studioIsland(html);
+    expect(island).toContain("if (typeof holdToolbarHeight !== 'undefined') { holdToolbarHeight(); }");
+    let natural = 80;
+    let width = 600;
+    const bar = {
+      style: { minHeight: "46px" } as Record<string, string>,
+      getBoundingClientRect() {
+        const floor = parseFloat(this.style["minHeight"] || "0");
+        // content-box: min-height excludes the 1px bottom border
+        return { width, height: Math.max(natural, floor + 1) };
+      },
+    };
+    const sandbox: Record<string, unknown> = {
+      document: { querySelector: (sel: string) => (sel === "[data-studio-selection-toolbar]" ? bar : null) },
+      window: { getComputedStyle: () => ({ boxSizing: "content-box", paddingTop: "0px", paddingBottom: "0px", borderTopWidth: "0px", borderBottomWidth: "1px" }) },
+    };
+    runInNewContext([sliceIslandLine(island, "var toolbarHoldWidth = "), sliceIslandFunction(island, "holdToolbarHeight")].join("\n"), sandbox);
+    const hold = () => runInNewContext("holdToolbarHeight()", sandbox);
+    hold();
+    expect(bar.getBoundingClientRect().height, "a choice selection wraps the toolbar to 80px").toBe(80);
+    // the Section is selected: the toolbar would shrink to one row — it keeps 80
+    natural = 47;
+    hold();
+    expect(bar.getBoundingClientRect().height).toBe(80);
+    // and back to a choice: still 80, the canvas below never moved
+    natural = 80;
+    hold();
+    expect(bar.getBoundingClientRect().height).toBe(80);
+    // another width starts over from its own natural height (the SSR floor kept)
+    width = 375;
+    natural = 47;
+    hold();
+    expect(bar.getBoundingClientRect().height).toBe(47);
+    expect(bar.style["minHeight"]).toBe("46px");
+  });
+
+  it("review 8: a choices row the operator clicks becomes the selected choice everywhere; a row the same click removed is ignored", async () => {
+    const { env } = newHarness();
+    const html = await studioPage(env, (await createSection(env)).public_id);
+    const island = studioIsland(html);
+    expect(island).toContain("pointChoiceAtRow(row, choicesPanelWrap);");
+    const mkRow = (label: string) => ({ querySelector: (sel: string) => (sel === '[data-choice-field="label"]' ? { value: label } : null) });
+    const alpha = mkRow("AlphaQ8"), beta = mkRow("BetaQ8"), gone = mkRow("GoneQ8");
+    const rows = [alpha, beta];
+    const container = { contains: (r: unknown) => rows.indexOf(r as typeof alpha) !== -1, querySelectorAll: () => rows };
+    const calls: string[] = [];
+    const sandbox: Record<string, unknown> = {
+      node: { choices: [{ label: "AlphaQ8", value: "bx" }, { label: "BetaQ8", value: "bx" }] },
+      selectedChoiceIndex: 1, selectedChoiceValue: "bx", selectedChoiceRow: beta, choiceScopeLabel: "BetaQ8",
+      alpha, beta, gone, container,
+      selectedNode() { return sandbox["node"]; },
+      setScope(sc: string) { calls.push("scope:" + sc + ":" + String(sandbox["choiceScopeLabel"]) + "#" + String(sandbox["selectedChoiceIndex"])); },
+      applyCanvasDecoration() { calls.push("canvas"); },
+      markCurrentChoiceRow() { calls.push("mark"); },
+    };
+    runInNewContext(sliceIslandFunction(island, "pointChoiceAtRow"), sandbox);
+    // Remove on a row: by the time the click reaches the panel the row is gone
+    runInNewContext("pointChoiceAtRow(gone, container)", sandbox);
+    expect(calls).toEqual([]);
+    expect(sandbox["choiceScopeLabel"], "the header keeps the selected choice, not the removed row").toBe("BetaQ8");
+    // a click in Alpha's row (Alpha is Beta's twin): Alpha is the choice now, by position
+    runInNewContext("pointChoiceAtRow(alpha, container)", sandbox);
+    expect(calls).toEqual(["scope:choice:AlphaQ8#0", "canvas", "mark"]);
+    expect([sandbox["selectedChoiceIndex"], sandbox["selectedChoiceValue"], sandbox["selectedChoiceRow"] === alpha]).toEqual([0, "bx", true]);
+  });
+
+  it("review 8 (F8-3): a picture that loads after the reopen scroll keeps the reopened question in view until the operator first touches the page", async () => {
+    const { env } = newHarness();
+    const html = await studioPage(env, (await createSection(env)).public_id);
+    const island = studioIsland(html);
+    const scrolls: string[] = [];
+    const listeners: Record<string, (ev?: unknown) => void> = {};
+    const question = { isConnected: true, scrollIntoView: (o: { block: string }) => scrolls.push(o.block) };
+    const sandbox: Record<string, unknown> = { updateCanvasFrameHeight: () => undefined };
+    runInNewContext(
+      [
+        "var reopenAnchorEl = null;",
+        sliceIslandLine(island, "var REOPEN_RELEASE_EVENTS = "),
+        sliceIslandFunction(island, "keepReopenAnchor"),
+        sliceIslandFunction(island, "releaseReopenAnchor"),
+        sliceIslandFunction(island, "releaseReopenAnchorOnTouch"),
+        sliceIslandFunction(island, "onFrameDocLoadCapture"),
+      ].join("\n"),
+      sandbox,
+    );
+    const run = (code: string) => runInNewContext(code, sandbox);
+    sandbox["page"] = { addEventListener: (type: string, fn: (ev?: unknown) => void, capture?: boolean) => { if (capture === true) listeners[type] = fn; } };
+    run("releaseReopenAnchorOnTouch(page)");
+    expect(Object.keys(listeners).sort()).toEqual(["keydown", "mousedown", "pointerdown", "touchstart", "wheel"]);
+    // the first paint scrolled to the question and holds it
+    sandbox["question"] = question;
+    run("reopenAnchorEl = question");
+    run("onFrameDocLoadCapture({ target: { tagName: 'IMG' } })");
+    expect(scrolls, "a picture loading above the question brings it back into view").toEqual(["center"]);
+    run("onFrameDocLoadCapture({ target: { tagName: 'LINK' } })");
+    expect(scrolls, "only a picture load re-anchors").toEqual(["center"]);
+    // the operator's first scroll lets go: a later picture never pulls the page back
+    listeners["wheel"]!();
+    run("onFrameDocLoadCapture({ target: { tagName: 'IMG' } })");
+    expect(scrolls).toEqual(["center"]);
+    // a repaint that dropped the node lets go too
+    run("reopenAnchorEl = question");
+    question.isConnected = false;
+    run("onFrameDocLoadCapture({ target: { tagName: 'IMG' } })");
+    expect(scrolls).toEqual(["center"]);
+    expect(run("reopenAnchorEl")).toBeNull();
+    // wiring: the page and the frame document both release it, the first paint sets it
+    expect(island).toContain("releaseReopenAnchorOnTouch(document);");
+    expect(island).toContain("releaseReopenAnchorOnTouch(doc);");
+    expect(island).toContain("if (typeof reopenAnchorEl !== 'undefined') { reopenAnchorEl = selEl; }");
   });
 
   it("open item 1: the editor's columns shrink to the screen (inspector never pushed off-screen) and phone-width rows wrap", async () => {

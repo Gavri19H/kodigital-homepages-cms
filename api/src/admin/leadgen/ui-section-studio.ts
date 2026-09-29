@@ -4112,7 +4112,7 @@ export const SECTION_STUDIO_STYLES = `
 .studio-breadcrumb button{border:0;background:none;color:#8A93A3;cursor:pointer;font-size:12.5px;font-weight:600;padding:0 2px}
 .studio-breadcrumb .studio-crumb-current{color:#1B3A5C;font-weight:700;background:#EAF0F6;padding:3px 9px;border-radius:6px;cursor:default}
 .studio-breadcrumb span:not(.studio-crumb-current){color:#C2CACF;padding:0 1px}
-.studio-toolbar-problems{font-size:11px;color:#842029}
+.studio-toolbar-problems{font-size:11px;color:#842029;flex:1 1 100%;min-height:15px;line-height:15px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
 .studio-control-invalid{outline:2px solid ${STUDIO_COLOR.danger};outline-offset:1px}
 /* LeadGen Rework §6.9 phone mask builder + §6.8 slider-type picker + §6.10
    address field-set editor — studio inspector chrome (server-rendered admin,
@@ -4313,6 +4313,8 @@ export const SECTION_STUDIO_SCRIPT = `
   var presetsData = [];
   // §6.2 inline text editing pauses canvas re-renders until commit.
   var inlineEditing = false;
+  // the element whose text is being edited (review 8 F8-2)
+  var inlineEditHost = null;
   // §6.1.3 undo/redo: bounded in-memory history of content-tree snapshots per
   // open editor. ≥30 required; 50 kept. Cleared on Save.
   var UNDO_LIMIT = 50;
@@ -5781,6 +5783,7 @@ export const SECTION_STUDIO_SCRIPT = `
   function startInlineEdit(el, committer) {
     if (inlineEditing || !el) { return false; }
     inlineEditing = true;
+    if (typeof inlineEditHost !== 'undefined') { inlineEditHost = el; }
     el.setAttribute('contenteditable', 'true');
     if (el.focus) { el.focus(); }
     // the caret starts at the end of the text; inside a card (a <button>) the
@@ -5799,6 +5802,7 @@ export const SECTION_STUDIO_SCRIPT = `
     function finish(apply) {
       if (!inlineEditing) { return; }
       inlineEditing = false;
+      if (typeof inlineEditHost !== 'undefined') { inlineEditHost = null; }
       el.removeAttribute('contenteditable');
       el.removeEventListener('blur', onBlur);
       el.removeEventListener('keydown', onKey);
@@ -7389,6 +7393,7 @@ export const SECTION_STUDIO_SCRIPT = `
     var t = ev ? ev.target : null;
     if (t && t.tagName && String(t.tagName).toUpperCase() === 'IMG') {
       updateCanvasFrameHeight();
+      if (typeof keepReopenAnchor !== 'undefined') { keepReopenAnchor(); }
     }
   }
   var canvasTimer = null;
@@ -7408,9 +7413,16 @@ export const SECTION_STUDIO_SCRIPT = `
     return true;
   }
   // A choice action on a canvas that is behind is not taken — and says so.
+  var CANVAS_BEHIND_NOTE = 'The canvas is catching up with your last edit \\u2014 try that again in a moment.';
   function canvasBehindRefusal() {
     canvasBehindNoted = true;
-    if (typeof showRefusal !== 'undefined') { showRefusal('The canvas is catching up with your last edit \\u2014 try that again in a moment.'); }
+    if (typeof showRefusal !== 'undefined') { showRefusal(CANVAS_BEHIND_NOTE); }
+  }
+  // only the catching-up note goes when the canvas catches up (review 8 F8-7)
+  function clearCanvasBehindNote() {
+    canvasBehindNoted = false;
+    var el = document.querySelector('[data-studio-drop-refusal]');
+    if (el && el.textContent === CANVAS_BEHIND_NOTE) { clearRefusal(); }
   }
   function scheduleCanvasRender() {
     canvasModelRev += 1;
@@ -7473,16 +7485,20 @@ export const SECTION_STUDIO_SCRIPT = `
       // unguarded call would ReferenceError there for a concern entirely
       // outside what they test.
       if (!res.ok || !res.body || !res.body.preview) {
+        // a stale refresh failing after a newer one painted is not an error
+        // of the canvas on screen (review 8 F8-4)
+        if (typeof canvasShownRev !== 'undefined' && renderingRev < canvasShownRev) { return; }
         if (typeof showCanvasPreviewError !== 'undefined') { showCanvasPreviewError(); }
         return;
       }
       if (typeof acceptCanvasPaint !== 'undefined' && !acceptCanvasPaint(renderingRev)) { return; }
       region.innerHTML = '<style>' + res.body.preview.css + '</style>' + (res.body.preview.html || res.body.preview.desktop || '');
-      if (typeof canvasBehindNoted !== 'undefined' && canvasBehindNoted && canvasIsCurrent()) { canvasBehindNoted = false; clearRefusal(); }
+      if (typeof canvasBehindNoted !== 'undefined' && canvasBehindNoted && canvasIsCurrent()) { clearCanvasBehindNote(); }
       applyCanvasDecoration();
       updateCanvasEmpty();
       if (typeof hideCanvasPreviewError !== 'undefined') { hideCanvasPreviewError(); }
     }).catch(function () {
+      if (typeof canvasShownRev !== 'undefined' && renderingRev < canvasShownRev) { return; }
       if (typeof showCanvasPreviewError !== 'undefined') { showCanvasPreviewError(); }
     });
   }
@@ -8545,6 +8561,9 @@ export const SECTION_STUDIO_SCRIPT = `
     if (typeof reopenScrollPending !== 'undefined' && reopenScrollPending && selEl && selEl.scrollIntoView) {
       reopenScrollPending = false;
       selEl.scrollIntoView({ block: 'center', inline: 'nearest' });
+      if (typeof reopenAnchorEl !== 'undefined') { reopenAnchorEl = selEl; }
+    } else if (typeof reopenAnchorEl !== 'undefined' && reopenAnchorEl && selEl && reopenAnchorEl !== selEl) {
+      reopenAnchorEl = selEl;
     }
     if (typeof centerCanvasSelection !== 'undefined') { centerCanvasSelection(selAny, selectedQuestionId); }
     // R2 P8 M6/R4: the canvas now paints the RESTING state, so a question a
@@ -8766,6 +8785,8 @@ export const SECTION_STUDIO_SCRIPT = `
   function setScope(scope) {
     scopeState = scope;
     if (scope !== 'choice') { selectedChoiceValue = null; if (typeof selectedChoiceIndex !== 'undefined') { selectedChoiceIndex = -1; } }
+    // the breadcrumb too: it kept a deleted choice's name (review 8 F8-5)
+    if (typeof renderBreadcrumb !== 'undefined') { renderBreadcrumb(); }
     renderScopeHeader();
     updateCanvasToolbar();
   }
@@ -8824,13 +8845,16 @@ export const SECTION_STUDIO_SCRIPT = `
     var el = document.querySelector('[data-toolbar-problems]');
     if (!el) { return; }
     var node = selectedNode();
-    if (!node) { el.hidden = true; el.textContent = ''; return; }
+    // the line keeps its (one-line) place when empty: no reflow of the canvas
+    // on a selection change (review 8 F8-1); the full text is its title
+    el.hidden = false;
+    if (!node) { el.textContent = ''; el.title = ''; return; }
     var issues = computeIssues();
     var mine = [];
     for (i = 0; i < issues.length; i++) { if (issues[i].qid === node.question_id) { mine.push(issues[i]); } }
-    if (mine.length === 0) { el.hidden = true; el.textContent = ''; return; }
-    el.hidden = false;
+    if (mine.length === 0) { el.textContent = ''; el.title = ''; return; }
     el.textContent = mine[0].message + (mine.length > 1 ? ' (+' + (mine.length - 1) + ' more)' : '');
+    el.title = el.textContent;
     var key, ctl;
     for (i = 0; i < mine.length; i++) {
       key = issueControlKeyOf(mine[i].message);
@@ -8875,7 +8899,9 @@ export const SECTION_STUDIO_SCRIPT = `
     var hasMore = visible.indexOf('structure') !== -1 || visible.indexOf('choice') !== -1;
     var moreBtn = document.querySelector('[data-studio-more-toggle]');
     var morePanel = document.querySelector('[data-studio-more-panel]');
-    if (moreBtn) { moreBtn.hidden = !hasMore; }
+    // kept in the layout (only made invisible) so a selection change never
+    // reflows the canvas under the pointer (review 8 F8-1)
+    if (moreBtn) { moreBtn.hidden = false; moreBtn.style.visibility = hasMore ? 'visible' : 'hidden'; }
     if (!hasMore && morePanel && !morePanel.hidden) {
       morePanel.hidden = true;
       if (moreBtn) { moreBtn.setAttribute('aria-expanded', 'false'); }
@@ -8896,6 +8922,28 @@ export const SECTION_STUDIO_SCRIPT = `
     if (imgBtn) { imgBtn.hidden = !choiceActOffered(node, 'image'); }
     updateHistoryButtons();
     renderToolbarProblems();
+    if (typeof holdToolbarHeight !== 'undefined') { holdToolbarHeight(); }
+  }
+  // The toolbar wraps to a different number of rows per selection (the
+  // breadcrumb and the clusters differ), and every change moved the canvas
+  // under the pointer: 34px when a click went from the Section to a choice
+  // (review 8, after F8-1). It keeps the tallest height it has had at its
+  // current width, so a selection change never moves the canvas.
+  var toolbarHoldWidth = -1, toolbarHoldHeight = 0, toolbarBaseMin = null;
+  function holdToolbarHeight() {
+    var bar = document.querySelector('[data-studio-selection-toolbar]');
+    if (!bar || !bar.getBoundingClientRect || !window.getComputedStyle) { return; }
+    if (toolbarBaseMin === null) { toolbarBaseMin = bar.style.minHeight || ''; }
+    bar.style.minHeight = toolbarBaseMin;
+    var r = bar.getBoundingClientRect();
+    var w = Math.round(r.width), h = Math.ceil(r.height);
+    if (w !== toolbarHoldWidth) { toolbarHoldWidth = w; toolbarHoldHeight = 0; }
+    if (h > toolbarHoldHeight) { toolbarHoldHeight = h; }
+    if (toolbarHoldHeight > h) {
+      var cs = window.getComputedStyle(bar);
+      var extra = cs.boxSizing === 'border-box' ? 0 : (parseFloat(cs.paddingTop) || 0) + (parseFloat(cs.paddingBottom) || 0) + (parseFloat(cs.borderTopWidth) || 0) + (parseFloat(cs.borderBottomWidth) || 0);
+      bar.style.minHeight = (toolbarHoldHeight - extra) + 'px';
+    }
   }
   // §6.2 "Default selection on open = the ZIP field" (contract) generalizes
   // to: the FIRST real answer-collecting node (produces !== null), skipping
@@ -8905,12 +8953,32 @@ export const SECTION_STUDIO_SCRIPT = `
   function reopenQuery() {
     var parts = [];
     if (selectedQuestionId) { parts.push('q=' + encodeURIComponent(selectedQuestionId)); }
-    if (typeof currentInspectorTab === 'string' && currentInspectorTab !== '') { parts.push('tab=' + encodeURIComponent(currentInspectorTab)); }
+    if (typeof currentInspectorTab === 'string' && currentInspectorTab !== '' && currentInspectorTab !== 'none') { parts.push('tab=' + encodeURIComponent(currentInspectorTab)); }
     return parts.length ? '?' + parts.join('&') : '';
   }
   // Set at boot when the link reopened a question: the first canvas paint
   // that shows it scrolls it into view (review m3).
   var reopenScrollPending = false;
+  // review 8 F8-3: that scroll runs on the first paint, but the frame's
+  // pictures finish loading after it, and each one above the question pushed
+  // the question down (on a phone, off the screen). Until the operator first
+  // presses, types, scrolls or touches, a picture that loads brings the
+  // reopened question back into view.
+  var reopenAnchorEl = null;
+  function keepReopenAnchor() {
+    var el = reopenAnchorEl;
+    if (!el) { return; }
+    if (el.isConnected === false || !el.scrollIntoView) { reopenAnchorEl = null; return; }
+    el.scrollIntoView({ block: 'center', inline: 'nearest' });
+  }
+  function releaseReopenAnchor() { reopenAnchorEl = null; }
+  var REOPEN_RELEASE_EVENTS = ['mousedown', 'pointerdown', 'keydown', 'wheel', 'touchstart'];
+  function releaseReopenAnchorOnTouch(target) {
+    if (!target || !target.addEventListener) { return; }
+    for (var i = 0; i < REOPEN_RELEASE_EVENTS.length; i++) {
+      target.addEventListener(REOPEN_RELEASE_EVENTS[i], releaseReopenAnchor, true);
+    }
+  }
   function reopenedSelectionId() {
     var q = null, found = false;
     try { q = new URLSearchParams(window.location.search).get('q'); } catch (e) { q = null; }
@@ -8966,6 +9034,27 @@ export const SECTION_STUDIO_SCRIPT = `
   function choiceActOffered(node, act) {
     if (act === 'badge' || act === 'disabled' || act === 'image') { return !!node && isCardGridType(node); }
     return true;
+  }
+  // A row the operator clicks or tabs into becomes THE selected choice, so
+  // the header, the breadcrumb, the toolbar's actions and the canvas outline
+  // all name the same one (review 8: the header named the row while the
+  // toolbar still acted on the canvas choice, and the header and breadcrumb
+  // named a row that the same click had just removed).
+  function pointChoiceAtRow(row, container) {
+    if (!row || !container || !container.contains || !container.contains(row)) { return; }
+    var rowsNow = container.querySelectorAll('[data-choice-row]'), at = -1, ri;
+    for (ri = 0; ri < rowsNow.length; ri++) { if (rowsNow[ri] === row) { at = ri; } }
+    var node = selectedNode();
+    var c = node && node.choices && at !== -1 ? node.choices[at] : null;
+    if (!c || c.value === undefined || c.value === null) { return; }
+    var labelInput = row.querySelector('[data-choice-field="label"]');
+    selectedChoiceIndex = at;
+    selectedChoiceValue = String(c.value);
+    if (typeof selectedChoiceRow !== 'undefined') { selectedChoiceRow = row; }
+    choiceScopeLabel = labelInput ? labelInput.value : (c.label !== undefined ? String(c.label) : '');
+    setScope('choice');
+    if (typeof applyCanvasDecoration !== 'undefined') { applyCanvasDecoration(); }
+    markCurrentChoiceRow();
   }
   function markCurrentChoiceRow() {
     var rows = document.querySelectorAll('[data-choice-row]'), i;
@@ -13765,10 +13854,14 @@ export const SECTION_STUDIO_SCRIPT = `
         collectChoices();
       });
     }
-    // "disabled" only where the component draws it (the two card grids)
-    if (isCardGridType(node || selectedNode())) {
+    // "disabled" is offered only where the component draws it (the two card
+    // grids); elsewhere a stored one rides a hidden box, so the next edit
+    // keeps it instead of dropping it (review 8, unranked)
+    var drawsDisabled = isCardGridType(node || selectedNode());
+    if (drawsDisabled || (choice && choice.disabled === true)) {
       var disabledLabel = document.createElement('label');
       disabledLabel.className = 'lg-check';
+      if (!drawsDisabled) { disabledLabel.hidden = true; }
       var disabledCb = document.createElement('input');
       disabledCb.type = 'checkbox';
       disabledCb.setAttribute('data-choice-disabled', '');
@@ -15316,6 +15409,10 @@ export const SECTION_STUDIO_SCRIPT = `
     return !!(region && region.contains && region.contains(el));
   }
   function onCanvasClick(ev) {
+      // review 8 F8-2: a click INSIDE the text being edited only places the
+      // caret (it used to select the choice, end the edit, and a following
+      // Backspace then deleted the whole choice)
+      if (typeof inlineEditHost !== 'undefined' && inlineEditHost && inlineEditing && inlineEditHost.contains && ev.target && inlineEditHost.contains(ev.target)) { return; }
       // §5.4 amber-badge actions (the badge is a sibling of the node, so the
       // component-select path below never fires for it). Keep (legacy) = NO
       // model change — session-local acknowledgement only; the C2 activation
@@ -15351,8 +15448,13 @@ export const SECTION_STUDIO_SCRIPT = `
       if (xBtn) {
         var xRef = findRef(xBtn.getAttribute('data-choice-x-qid'));
         if (xRef) {
+          var hadChoice = selectedChoiceValue !== null;
           removeChoiceFromNode(xRef.node, choiceKeyOfEl(xBtn, 'data-choice-x', 'data-choice-x-index'));
-          if (selectedQuestionId === xRef.node.question_id) { renderChoiceEditor(xRef.node); }
+          if (selectedQuestionId === xRef.node.question_id) {
+            renderChoiceEditor(xRef.node);
+            // the selected choice was the one removed: back to the component (review 8 F8-5)
+            if (hadChoice && selectedChoiceValue === null) { setScope('component'); }
+          }
         }
         return;
       }
@@ -15408,13 +15510,14 @@ export const SECTION_STUDIO_SCRIPT = `
   function onCanvasDblClick(ev) {
       // R2 S1-8: a dblclick on a resize handle does nothing (keep native).
       if (ev.target && ev.target.closest && ev.target.closest('[data-field-resize-handle]')) { return; }
-      var host = ev.target && ev.target.closest ? ev.target.closest('[data-question-id]') : null;
+      var pressed = typeof doubleClickTarget !== 'undefined' ? doubleClickTarget(ev) : ev.target;
+      var host = pressed && pressed.closest ? pressed.closest('[data-question-id]') : null;
       var qid = host ? host.getAttribute('data-question-id') : null;
       var fieldEl = host;
       if (!host || !canvasOwns(host)) { return; }
       var ref = findRef(qid);
       if (!ref) { return; }
-      var cardEl = ev.target && ev.target.closest ? ev.target.closest('[data-lg-choice]') : null;
+      var cardEl = pressed && pressed.closest ? pressed.closest('[data-lg-choice]') : null;
       if (cardEl && typeMeta(ref.node.type).choice === true) {
         ev.preventDefault();
         if (typeof canvasIsCurrent !== 'undefined' && !canvasIsCurrent()) { canvasBehindRefusal(); return; }
@@ -15593,9 +15696,25 @@ export const SECTION_STUDIO_SCRIPT = `
         selectComponent(upRef && upRef.parent ? upRef.parent.question_id : null);
       }
   }
+  // The element under the pointer at the FIRST press of a click series. A
+  // selection can reflow the page between the two clicks of a double-click
+  // (review 8 F8-1: the canvas moved 84px and the second click landed on the
+  // card above), so a double-click acts on what the first press hit.
+  var firstPressTarget = null, firstPressAt = 0;
+  function noteFirstPress(ev) {
+    if (!ev || (ev.detail && ev.detail > 1 && Date.now() - firstPressAt < 800)) { return; }
+    firstPressTarget = ev.target || null;
+    firstPressAt = Date.now();
+  }
+  function doubleClickTarget(ev) {
+    var t = firstPressTarget;
+    if (t && Date.now() - firstPressAt < 800 && t.isConnected !== false && t.closest) { return t; }
+    return ev.target;
+  }
   // ONE binder, two roots: the parent surface and (per load) the frame doc.
   function bindCanvasSurface(target) {
     if (!target || !target.addEventListener) { return; }
+    target.addEventListener('mousedown', noteFirstPress, true);
     target.addEventListener('click', onCanvasClick);
     target.addEventListener('dblclick', onCanvasDblClick);
     target.addEventListener('mousedown', onCanvasMouseDown);
@@ -15627,6 +15746,7 @@ export const SECTION_STUDIO_SCRIPT = `
     // img 'load' does not bubble). Bound once per LOADED document, like the
     // surface delegation above.
     doc.addEventListener('load', onFrameDocLoadCapture, true);
+    if (typeof releaseReopenAnchorOnTouch !== 'undefined') { releaseReopenAnchorOnTouch(doc); }
     applyCanvasDecoration();
     updateCanvasFrameViewport();
     updateCanvasFrameHeight();
@@ -18224,9 +18344,7 @@ export const SECTION_STUDIO_SCRIPT = `
     var retargetChoiceScope = function (target) {
       var row = target && target.closest ? target.closest('[data-choice-row]') : null;
       if (!row) { return; }
-      var labelInput = row.querySelector('[data-choice-field="label"]');
-      choiceScopeLabel = labelInput ? labelInput.value : '';
-      setScope('choice');
+      pointChoiceAtRow(row, choicesPanelWrap);
     };
     choicesPanelWrap.addEventListener('mousedown', function () { choicePointerDown = true; }, true);
     document.addEventListener('mouseup', function () {
@@ -18856,6 +18974,13 @@ export const SECTION_STUDIO_SCRIPT = `
   // to the first real answer node); selectComponent() already covers
   // decoration/breadcrumb/inspector-population/scope-header/toolbar in one call.
   reopenScrollPending = reopenedSelectionId() !== null;
+  // review 8 F8-3: the reopened question owns the scroll, not the browser's
+  // remembered position from before the reload; the operator's first touch
+  // ends that (see keepReopenAnchor)
+  if (reopenScrollPending) {
+    try { if (window.history && 'scrollRestoration' in window.history) { window.history.scrollRestoration = 'manual'; } } catch (eScroll) { /* keep the browser's */ }
+    releaseReopenAnchorOnTouch(document);
+  }
   selectComponent(reopenedSelectionId() || findDefaultSelectionId());
   // OWNER 2026-09-28 (open item 1, review F3): on a phone the canvas opens in
   // the Mobile preview; the 1280 desktop frame is mostly off a 375 screen.
