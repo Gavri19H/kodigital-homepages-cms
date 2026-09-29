@@ -1650,7 +1650,7 @@ function renderCanvasToolbar(design: FunnelDesign): string {
   // slider-format/text-type-swap → Content "Answer format"; selected-role +
   // preset apply/save + choice-grid columns/gap → Style tab). See
   // renderStudioInspector for the migrated destinations.
-  return `<div class="studio-toolbar" data-studio-selection-toolbar data-studio-canvas-toolbar style="min-height:${STUDIO_GEOMETRY.canvasToolbarHeight}px;padding:0 16px;background:${STUDIO_COLOR.white};border-bottom:1px solid ${STUDIO_COLOR.linePanel};gap:12px">
+  return `<div class="studio-toolbar" data-studio-selection-toolbar data-studio-canvas-toolbar style="position:relative;min-height:${STUDIO_GEOMETRY.canvasToolbarHeight}px;padding:0 16px;background:${STUDIO_COLOR.white};border-bottom:1px solid ${STUDIO_COLOR.linePanel};gap:12px">
     <nav class="studio-breadcrumb" data-studio-breadcrumb aria-live="polite" aria-label="Selection breadcrumb"></nav>
     ${renderScopePillsMarkup()}
     <div data-studio-toolbar-actions style="margin-left:auto;display:flex;align-items:center;gap:10px">
@@ -3798,7 +3798,7 @@ export const SECTION_STUDIO_STYLES = `
 .studio-item-type{font-size:10px;color:var(--c-muted);font-variant-numeric:tabular-nums;border:1px solid var(--c-border);border-radius:4px;padding:0 4px}
 .studio-item-maps{font-size:10px;color:#0f5132;background:#d1e7dd;border-radius:4px;padding:0 4px}
 /* canvas */
-.studio-breadcrumb{display:flex;align-items:center;gap:6px;font-size:12.5px;color:#8A93A3;font-variant-numeric:tabular-nums}
+.studio-breadcrumb{display:flex;align-items:center;gap:6px;font-size:12.5px;color:#8A93A3;font-variant-numeric:tabular-nums;min-height:24px;min-width:0;max-width:100%}
 /* v3.1 §6.1 canvas-toolbar undo/redo icon buttons (golden :277-278) */
 .studio-undoredo-btn{width:30px;height:30px;display:inline-flex;align-items:center;justify-content:center;border-radius:7px;cursor:pointer;border:0;background:none;padding:0}
 .studio-undoredo-btn:hover{background:#F1F3F7}
@@ -4110,9 +4110,9 @@ export const SECTION_STUDIO_STYLES = `
 /* v3.1 §6.1 breadcrumb (golden 266-272): plain muted root/intermediate
    crumbs; the CURRENT (deepest) crumb is the navy chip. */
 .studio-breadcrumb button{border:0;background:none;color:#8A93A3;cursor:pointer;font-size:12.5px;font-weight:600;padding:0 2px}
-.studio-breadcrumb .studio-crumb-current{color:#1B3A5C;font-weight:700;background:#EAF0F6;padding:3px 9px;border-radius:6px;cursor:default}
+.studio-breadcrumb .studio-crumb-current{color:#1B3A5C;font-weight:700;background:#EAF0F6;padding:3px 9px;border-radius:6px;cursor:default;min-width:0;max-width:260px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
 .studio-breadcrumb span:not(.studio-crumb-current){color:#C2CACF;padding:0 1px}
-.studio-toolbar-problems{font-size:11px;color:#842029;flex:1 1 100%;min-height:15px;line-height:15px}
+.studio-toolbar-problems{font-size:11px;color:#842029;flex:1 1 100%;min-height:30px;line-height:15px}
 .studio-control-invalid{outline:2px solid ${STUDIO_COLOR.danger};outline-offset:1px}
 /* LeadGen Rework §6.9 phone mask builder + §6.8 slider-type picker + §6.10
    address field-set editor — studio inspector chrome (server-rendered admin,
@@ -8833,6 +8833,9 @@ export const SECTION_STUDIO_SCRIPT = `
       b.className = 'studio-crumb-current';
       b.setAttribute('data-crumb-choice', String(selectedChoiceValue));
       b.appendChild(document.createTextNode('Choice \\u201C' + choiceScopeLabel + '\\u201D'));
+      // a long label is cut short in the chip (it would wrap the toolbar onto
+      // another row and move the canvas); the whole label is its title
+      b.title = 'Choice \\u201C' + choiceScopeLabel + '\\u201D';
       crumb.appendChild(b);
     }
   }
@@ -8845,9 +8848,9 @@ export const SECTION_STUDIO_SCRIPT = `
     var el = document.querySelector('[data-toolbar-problems]');
     if (!el) { return; }
     var node = selectedNode();
-    // the line keeps its (one-line) place when empty: no reflow of the canvas
-    // on a selection change (review 8 F8-1); a longer sentence wraps and the
-    // toolbar's held height absorbs it (holdToolbarHeight)
+    // the line keeps its (two-line) place when empty: no reflow of the canvas
+    // on a selection change (review 8 F8-1, review 9b M-1); a longer sentence
+    // still wraps, and the toolbar's held height absorbs it (holdToolbarHeight)
     el.hidden = false;
     if (!node) { el.textContent = ''; el.title = ''; return; }
     var issues = computeIssues();
@@ -9080,6 +9083,17 @@ export const SECTION_STUDIO_SCRIPT = `
     // left both on the previous choice (review 9, after m9-2)
     if (typeof markCurrentChoiceRow !== 'undefined') { markCurrentChoiceRow(); }
     if (typeof applyCanvasDecoration !== 'undefined') { applyCanvasDecoration(); }
+  }
+  // The selected choice's name follows its label as the operator types
+  // (review 9b M-2: a new choice read "Z" until Tab). Only the two texts
+  // change: a full re-render would flash the header on every keystroke.
+  function followSelectedChoiceLabel(label) {
+    if (scopeState !== 'choice' || selectedChoiceValue === null) { return; }
+    choiceScopeLabel = String(label);
+    var nameEl = document.querySelector('[data-studio-scope-header] [data-scope-editing-name]');
+    if (nameEl) { nameEl.textContent = scopeEditingName(selectedNode()); }
+    var crumbEl = document.querySelector('[data-crumb-choice]');
+    if (crumbEl) { crumbEl.textContent = 'Choice \\u201C' + choiceScopeLabel + '\\u201D'; crumbEl.title = crumbEl.textContent; }
   }
   function markCurrentChoiceRow() {
     var rows = document.querySelectorAll('[data-choice-row]'), i;
@@ -16079,6 +16093,21 @@ export const SECTION_STUDIO_SCRIPT = `
   // renderCanvasToolbar). Toggle on click; close on outside-click, Escape
   // (above), or when the selection stops having anything to show
   // (updateCanvasToolbar's hasMore check).
+  // The panel opens just under its button, inside the toolbar's width
+  // (review 9b M-4: with no positioned ancestor it pinned to the window's
+  // top-right corner, far from the button that opened it).
+  function positionMorePanel(panel, btn) {
+    if (!panel || !btn) { return; }
+    var bar = panel.offsetParent;
+    if (!bar) { return; }
+    var top = 0, left = 0, el = btn;
+    while (el && el !== bar) { top += el.offsetTop || 0; left += el.offsetLeft || 0; el = el.offsetParent; }
+    var width = panel.offsetWidth || 180;
+    var maxLeft = (bar.clientWidth || width) - width;
+    panel.style.top = (top + (btn.offsetHeight || 0) + 4) + 'px';
+    panel.style.left = Math.max(0, Math.min(left + (btn.offsetWidth || 0) - width, maxLeft)) + 'px';
+    panel.style.right = 'auto';
+  }
   function closeMorePanel() {
     var panel = document.querySelector('[data-studio-more-panel]');
     var toggle = document.querySelector('[data-studio-more-toggle]');
@@ -16093,6 +16122,7 @@ export const SECTION_STUDIO_SCRIPT = `
       if (!panel) { return; }
       var willOpen = panel.hidden;
       panel.hidden = !willOpen;
+      if (willOpen) { positionMorePanel(panel, this); }
       this.setAttribute('aria-expanded', willOpen ? 'true' : 'false');
     });
   }
@@ -18384,11 +18414,28 @@ export const SECTION_STUDIO_SCRIPT = `
       retargetChoiceScope(ev.target);
     });
     choicesPanelWrap.addEventListener('click', function (ev) { retargetChoiceScope(ev.target); });
+    // an "Other" value row is not a canvas choice, so it names none (review
+    // 9b M-3: the previous choice stayed named and the toolbar acted on it);
+    // a pointer press drops it on click, like the rows above (review M4)
+    var otherValuesWrap = document.querySelector('[data-other-values]');
+    if (otherValuesWrap) {
+      var otherPointerDown = false;
+      var dropForOtherRow = function (target) {
+        if (target && target.closest && target.closest('[data-other-row]') && selectedChoiceValue !== null) { dropChoiceSelection(); }
+      };
+      otherValuesWrap.addEventListener('mousedown', function () { otherPointerDown = true; }, true);
+      document.addEventListener('mouseup', function () {
+        if (otherPointerDown) { setTimeout(function () { otherPointerDown = false; }, 0); }
+      }, true);
+      otherValuesWrap.addEventListener('focusin', function (ev) { if (!otherPointerDown) { dropForOtherRow(ev.target); } });
+      otherValuesWrap.addEventListener('click', function (ev) { dropForOtherRow(ev.target); });
+    }
     // a row that was not the selected choice (a new row getting its first
     // value) becomes it as the operator types (review 9 m9-2)
     choicesPanelWrap.addEventListener('input', function (ev) {
       var row = ev.target && ev.target.closest ? ev.target.closest('[data-choice-row]') : null;
       if (row && row !== selectedChoiceRow) { pointChoiceAtRow(row, choicesPanelWrap); }
+      else if (row && ev.target.getAttribute && ev.target.getAttribute('data-choice-field') === 'label') { followSelectedChoiceLabel(ev.target.value); }
     });
   }
 

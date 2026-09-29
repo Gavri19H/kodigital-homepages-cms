@@ -9317,6 +9317,59 @@ describeDb("OWNER 2026-09-28 review round 1 — answer keys, Other values, typed
     expect(island).toContain("choicesPanelWrap.addEventListener('input', function (ev) {");
   });
 
+  it("review 9b (M-2): the selected choice's name follows its label while typing — texts only, no re-render", async () => {
+    const { env } = newHarness();
+    const html = await studioPage(env, (await createSection(env)).public_id);
+    const island = studioIsland(html);
+    expect(island).toContain("else if (row && ev.target.getAttribute && ev.target.getAttribute('data-choice-field') === 'label') { followSelectedChoiceLabel(ev.target.value); }");
+    const nameEl = { textContent: "Answer choice “Z”" };
+    const crumbEl = { textContent: "Choice “Z”", title: "" };
+    const sandbox: Record<string, unknown> = {
+      scopeState: "choice", selectedChoiceValue: "zeta9", choiceScopeLabel: "Z",
+      selectedNode: () => ({ type: "ButtonAnswerGroup" }),
+      document: { querySelector: (sel: string) => (sel === "[data-studio-scope-header] [data-scope-editing-name]" ? nameEl : sel === "[data-crumb-choice]" ? crumbEl : null) },
+    };
+    runInNewContext([sliceIslandFunction(island, "scopeEditingName"), sliceIslandFunction(island, "followSelectedChoiceLabel")].join("\n"), sandbox);
+    runInNewContext("followSelectedChoiceLabel('Zeta9')", sandbox);
+    expect([nameEl.textContent, crumbEl.textContent, crumbEl.title]).toEqual(["Answer choice “Zeta9”", "Choice “Zeta9”", "Choice “Zeta9”"]);
+    // not choice-scoped: nothing is renamed
+    sandbox["scopeState"] = "component";
+    runInNewContext("followSelectedChoiceLabel('Other')", sandbox);
+    expect(crumbEl.textContent).toBe("Choice “Zeta9”");
+  });
+
+  it("review 9b (M-4): the More panel opens under its button inside the toolbar, not at the window's corner", async () => {
+    const { env } = newHarness();
+    const html = await studioPage(env, (await createSection(env)).public_id);
+    const island = studioIsland(html);
+    expect(html).toMatch(/<div class="studio-toolbar" data-studio-selection-toolbar data-studio-canvas-toolbar style="position:relative;/);
+    expect(island).toContain("if (willOpen) { positionMorePanel(panel, this); }");
+    const bar = { clientWidth: 562 };
+    const btn = { offsetTop: 388, offsetLeft: 497, offsetWidth: 30, offsetHeight: 30, offsetParent: bar };
+    const panel = { offsetParent: bar, offsetWidth: 180, style: {} as Record<string, string> };
+    const sandbox: Record<string, unknown> = { panel, btn };
+    runInNewContext(sliceIslandFunction(island, "positionMorePanel"), sandbox);
+    runInNewContext("positionMorePanel(panel, btn)", sandbox);
+    expect(panel.style).toEqual({ top: "422px", left: "347px", right: "auto" });
+    // a button at the left edge of a phone toolbar: the panel stays inside the toolbar
+    const phoneBtn = { offsetTop: 420, offsetLeft: 16, offsetWidth: 30, offsetHeight: 30, offsetParent: { clientWidth: 375 } };
+    const phonePanel = { offsetParent: phoneBtn.offsetParent, offsetWidth: 180, style: {} as Record<string, string> };
+    runInNewContext("positionMorePanel(p2, b2)", Object.assign(sandbox, { p2: phonePanel, b2: phoneBtn }));
+    expect(phonePanel.style).toEqual({ top: "454px", left: "0px", right: "auto" });
+  });
+
+  it("review 9b (M-1, M-3): the toolbar reserves its variable parts up front; an Other value row names no canvas choice", async () => {
+    const { env } = newHarness();
+    const html = await studioPage(env, (await createSection(env)).public_id);
+    const island = studioIsland(html);
+    expect(html).toContain(".studio-toolbar-problems{font-size:11px;color:#842029;flex:1 1 100%;min-height:30px;line-height:15px}");
+    expect(html).toMatch(/\.studio-breadcrumb\{[^}]*min-height:24px/);
+    expect(html).toMatch(/\.studio-breadcrumb \.studio-crumb-current\{[^}]*max-width:260px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap\}/);
+    expect(island).toContain("b.title = 'Choice \\u201C' + choiceScopeLabel + '\\u201D';");
+    expect(island).toContain("otherValuesWrap.addEventListener('click', function (ev) { dropForOtherRow(ev.target); });");
+    expect(island).toContain("otherValuesWrap.addEventListener('focusin', function (ev) { if (!otherPointerDown) { dropForOtherRow(ev.target); } });");
+  });
+
   it("review 8 (F8-3): a picture that loads after the reopen scroll keeps the reopened question in view until the operator first touches the page", async () => {
     const { env } = newHarness();
     const html = await studioPage(env, (await createSection(env)).public_id);
