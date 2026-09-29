@@ -4304,6 +4304,10 @@ export const SECTION_STUDIO_SCRIPT = `
   // (-1 = unknown, then the value decides). Two choices can share a saved
   // value; the value alone always meant the first of them.
   var selectedChoiceIndex = -1;
+  // ...and its row in the inspector's choice list: an inspector edit (Remove,
+  // up/down, a value edit, bulk paste) rebuilds the list from its rows, so the
+  // selection follows that ROW (review 6 F6-1).
+  var selectedChoiceRow = null;
   // §6.6 loaded named presets (KV-backed via /component-presets).
   var presetsData = [];
   // §6.2 inline text editing pauses canvas re-renders until commit.
@@ -7564,7 +7568,7 @@ export const SECTION_STUDIO_SCRIPT = `
       // the card's position in the question's choices: the k-th card with a
       // value is the k-th choice with that value (twins stay apart)
       cardIdx = typeof canvasChoiceIndex !== 'undefined' ? canvasChoiceIndex(qid, card.getAttribute('data-lg-choice'), cardSeen) : -1;
-      if (cardIdx >= 0) { card.setAttribute('data-studio-choice-index', String(cardIdx)); }
+      if (cardIdx >= 0) { card.setAttribute('data-studio-choice-index', String(cardIdx)); } else if (card.removeAttribute) { card.removeAttribute('data-studio-choice-index'); }
       if (qid === selectedQuestionId && selectedChoiceValue !== null && card.getAttribute('data-lg-choice') === String(selectedChoiceValue) &&
           (typeof selectedChoiceIndex !== 'number' || selectedChoiceIndex < 0 || cardIdx < 0 || cardIdx === selectedChoiceIndex)) {
         card.className = card.className + ' studio-choice-selected';
@@ -13742,6 +13746,20 @@ export const SECTION_STUDIO_SCRIPT = `
     for (i = 0; i < choices.length; i++) {
       c.appendChild(buildChoiceRow(choices[i], node));
     }
+    if (typeof markSelectedChoiceRow !== 'undefined') { markSelectedChoiceRow(node, c); }
+  }
+  // Remember which row is the selected choice; a selection whose position no
+  // longer holds its value (the list was replaced) is dropped, never moved
+  // onto another choice with that value.
+  function markSelectedChoiceRow(node, container) {
+    selectedChoiceRow = null;
+    if (!node || selectedChoiceValue === null || node.question_id !== selectedQuestionId || selectedChoiceIndex < 0) { return; }
+    var rows = container.querySelectorAll('[data-choice-row]');
+    var row = rows[selectedChoiceIndex] || null;
+    var inp = row ? row.querySelector('[data-choice-field="value"]') : null;
+    if (inp && String(inp.value) === String(selectedChoiceValue)) { selectedChoiceRow = row; return; }
+    selectedChoiceValue = null;
+    selectedChoiceIndex = -1;
   }
   // --- Rework §6.5 authored "Other" values editor (props.other) ----------------
   // Single-select choice groups only (§6.2 matrix other_editor). Rows share the
@@ -14325,6 +14343,21 @@ export const SECTION_STUDIO_SCRIPT = `
       choices.push(choice);
     }
     if (choices.length > 0) { node.choices = choices; } else { delete node.choices; }
+    // review 6 (F6-1): the canvas selection follows its ROW through an
+    // inspector edit — a removed row drops it; a moved or re-valued row keeps it
+    if (typeof selectedChoiceRow !== 'undefined' && selectedChoiceRow !== null && selectedChoiceValue !== null && node.question_id === selectedQuestionId) {
+      var selAt = -1, sri;
+      for (sri = 0; sri < rows.length; sri++) { if (rows[sri] === selectedChoiceRow) { selAt = sri; } }
+      if (selAt === -1 || !choices[selAt]) {
+        selectedChoiceValue = null;
+        selectedChoiceIndex = -1;
+        selectedChoiceRow = null;
+        if (typeof scopeState !== 'undefined' && scopeState === 'choice') { scopeState = 'component'; }
+      } else {
+        selectedChoiceIndex = selAt;
+        selectedChoiceValue = String(choices[selAt].value);
+      }
+    }
     // R2 P1 §① — PROBE A3 fail-before: the Default select was built ONCE per
     // selection (populateInspector), so a choice LABEL renamed in-session kept
     // showing the OLD word in the Default list until save+reload. Rebuild it
@@ -15516,7 +15549,7 @@ export const SECTION_STUDIO_SCRIPT = `
     // the selected choice by position (a twin is not the first twin)
     var value = selectedChoiceKey();
     var c = findChoice(node, value);
-    if (!c) { return; }
+    if (!c) { showRefusal('That choice is no longer on the canvas \\u2014 click it again to select it.'); return; }
     if (act === 'image') {
       // §6.4 image/icon swap: image grids open the media picker; icon/emoji
       // types prompt for the curated glyph.

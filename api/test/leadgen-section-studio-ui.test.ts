@@ -8774,6 +8774,67 @@ describeDb("OWNER 2026-09-28 review round 1 — answer keys, Other values, typed
     expect(probe.run("[selectedChoiceValue, selectedChoiceIndex]")).toEqual([null, -1]);
   });
 
+  it("review 6 (F6-1): an inspector edit of the choice list (move, remove, value change) keeps the canvas selection on ITS choice — never the other twin", async () => {
+    const twins = { components: [{
+      type: "ButtonAnswerGroup", question_id: "q_tw", question_key: "q_tw", internal_field: "tw", answer_type: "enum",
+      choices: [
+        { label: "Alpha", value: "a", analytics_id: "a1" },
+        { label: "Mid", value: "m", analytics_id: "m1" },
+        { label: "Beta", value: "a", analytics_id: "b1" },
+      ],
+    }] };
+    const { env } = newHarness();
+    const section = await createSection(env, { content_json: JSON.stringify(twins) });
+    const html = await studioPage(env, section.public_id);
+    const island = studioIsland(html);
+    // fake inspector rows (label/value/analytics boxes), in the list's DOM order
+    const mkRow = (label: string, value: string, aid: string) => {
+      const fields: Record<string, string> = { label, value, analytics_id: aid };
+      return {
+        fields,
+        querySelectorAll(sel: string) {
+          return sel === "[data-choice-field]" ? Object.keys(fields).map((f) => ({ getAttribute: () => f, value: fields[f] })) : [];
+        },
+        querySelector(sel: string) {
+          if (sel === '[data-choice-field="value"]') return { value: fields["value"] };
+          return null;
+        },
+      };
+    };
+    const alpha = mkRow("Alpha", "a", "a1"), mid = mkRow("Mid", "m", "m1"), beta = mkRow("Beta", "a", "b1");
+    let order = [alpha, mid, beta];
+    const container = { querySelectorAll: (sel: string) => (sel === "[data-choice-row]" ? order : []) };
+    const docStub = {
+      getElementById: () => null,
+      querySelector: (sel: string) => (sel === "[data-inspector-choices]" ? container : null),
+      querySelectorAll: () => [],
+    };
+    const probe = studioProbe(html, twins, docStub as unknown as Record<string, unknown>);
+    probe.run([sliceIslandFunction(island, "choiceContainer"), sliceIslandFunction(island, "collectChoices"), sliceIslandFunction(island, "markSelectedChoiceRow")].join("\n"));
+    probe.run("var selectedChoiceValue = null; var selectedChoiceIndex = -1; var selectedChoiceRow = null; var scopeState = 'choice';");
+    probe.sandbox.selectedQuestionId = "q_tw";
+    probe.sandbox["betaRow"] = beta;
+    // Beta (the SECOND "a") is selected on the canvas; the list marks its row
+    probe.run("selectedChoiceValue = 'a'; selectedChoiceIndex = 2; markSelectedChoiceRow(findRef('q_tw').node, choiceContainer());");
+    expect(probe.run("selectedChoiceRow === betaRow")).toBe(true);
+    // Beta's row moves up past Mid
+    order = [alpha, beta, mid];
+    probe.run("collectChoices();");
+    expect(probe.run("[selectedChoiceIndex, selectedChoiceValue, findRef('q_tw').node.choices[selectedChoiceIndex].label]")).toEqual([1, "a", "Beta"]);
+    // Mid is removed
+    order = [alpha, beta];
+    probe.run("collectChoices();");
+    expect(probe.run("[selectedChoiceIndex, findRef('q_tw').node.choices[selectedChoiceIndex].label]")).toEqual([1, "Beta"]);
+    // Beta's value changes to a free one: the selection follows it
+    beta.fields["value"] = "b";
+    probe.run("collectChoices();");
+    expect(probe.run("[selectedChoiceIndex, selectedChoiceValue]")).toEqual([1, "b"]);
+    // Beta is removed: the selection is dropped (never moved onto Alpha)
+    order = [alpha];
+    probe.run("collectChoices();");
+    expect(probe.run("[selectedChoiceIndex, selectedChoiceValue, scopeState]")).toEqual([-1, null, "component"]);
+  });
+
   it("review 4: the refusal puts the old value back, names why, is no Undo step of its own, and gives Redo back", async () => {
     const { probe, island } = await setupWith(MULTI_CONTENT, []);
     withHistory(probe, island);
