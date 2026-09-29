@@ -5718,6 +5718,7 @@ export const SECTION_STUDIO_SCRIPT = `
     if (trimStr(text) === '') { delete props[key]; } else { props[key] = text; }
     cleanupEmpty(ref.node, 'props');
     afterModelChange();
+    if (typeof refreshInspectorAfterCanvasEdit !== 'undefined') { refreshInspectorAfterCanvasEdit(qid); }
     return true;
   }
   function commitInlineChoiceLabel(qid, value, text) {
@@ -5727,7 +5728,14 @@ export const SECTION_STUDIO_SCRIPT = `
     if (!c) { return false; }
     c.label = text;
     afterModelChange();
+    if (typeof refreshInspectorAfterCanvasEdit !== 'undefined') { refreshInspectorAfterCanvasEdit(qid); }
     return true;
+  }
+  // A text edited on the canvas must show in the inspector too (review 5,
+  // pre-existing): its choice list kept the OLD label, and the next edit
+  // anywhere in that list wrote the old label back over the canvas edit.
+  function refreshInspectorAfterCanvasEdit(qid) {
+    if (qid === selectedQuestionId && typeof populateInspector === 'function') { populateInspector(false); }
   }
   // The contenteditable session: Enter/blur commits, Escape cancels; canvas
   // re-renders are paused while editing (scheduleCanvasRender re-checks).
@@ -12668,14 +12676,18 @@ export const SECTION_STUDIO_SCRIPT = `
     }
   }
   // The twin case of carryProviderValues: the old name stays (another choice
-  // still has it) and the new name gets the same value — over a leftover key
-  // too (review 5: it kept a deleted choice's value); where the old name was
-  // deliberately left off a list, the new one is left off too.
+  // still has it) and the new name gets the same value; where the old name was
+  // deliberately left off a list, the new one is left off too. A twin owns no
+  // provider value of its own (it shares its twin's), so a key already under
+  // the new name — values the question had for it — is kept as it is, as live
+  // does (review 5: a bulk-paste typo "Full time = part_time" fixed back to
+  // full_time must get full_time's own FT again, not part_time's PT).
   function copyProviderValues(internalField, from, to, fromWasOff) {
     var i, e, map, key, changed = false;
     for (i = 0; i < state.answer_maps.length; i++) {
       e = state.answer_maps[i];
       if (!e || e.internal_field !== internalField || !e.output_value_map || typeof e.output_value_map !== 'object') { continue; }
+      if (hasOwn(e.output_value_map, to) && hasOwn(e.output_value_map, from)) { continue; }
       if (!hasOwn(e.output_value_map, from) && !hasOwn(e.output_value_map, to)) { continue; }
       if (!hasOwn(e.output_value_map, from) && fromWasOff !== true) { continue; }
       map = {};

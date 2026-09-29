@@ -8684,7 +8684,7 @@ describeDb("OWNER 2026-09-28 review round 1 — answer keys, Other values, typed
     expect(probe.run(`providerValueOf(${amone.id}, '${REVENUE_FIELD}', '99999').state`)).toBe("missing");
   });
 
-  it("review 5: a twin renamed onto a removed choice's leftover value sends ITS OWN provider value, not the removed one's", async () => {
+  it("review 5 ruling: a twin (which owns no provider value of its own) renamed onto a saved value the question already had keeps THAT value's provider values, as live does — so a bulk-paste typo fixed back gets its own value again", async () => {
     const twins = { components: [{
       type: "ButtonAnswerGroup", question_id: "q_tw", question_key: "q_tw", internal_field: "tw", answer_type: "enum",
       choices: [
@@ -8699,9 +8699,16 @@ describeDb("OWNER 2026-09-28 review round 1 — answer keys, Other values, typed
     probe.run(`upsertEdge(offerById(${o.id}), answerFieldOf(offerById(${o.id}), 'dup'), 'tw')`);
     probe.run(`state.answer_maps[0].output_value_map = { same_v: 'SV', g_v: 'GV' };`);
     probe.run("snapshotProviderValues(findRef('q_tw').node);");
-    probe.run("findRef('q_tw').node.choices.splice(2, 1); findRef('q_tw').node.choices[1].value = 'g_v';");
+    // the bulk-paste typo: Gamma's row came back as "Gamma = same_v" (a twin of
+    // Alpha); fixing it to g_v gets Gamma's own GV again, never Alpha's SV
+    probe.run("findRef('q_tw').node.choices[2].value = 'same_v';");
+    probe.run("findRef('q_tw').node.choices[2].value = 'g_v';");
     probe.run("commitChoiceRename(findRef('q_tw').node, 'tw', 'same_v', 'g_v')");
-    expect((probe.sandbox.state["answer_maps"] as Array<Record<string, unknown>>)[0]!["output_value_map"]).toEqual({ same_v: "SV", g_v: "SV" });
+    expect((probe.sandbox.state["answer_maps"] as Array<Record<string, unknown>>)[0]!["output_value_map"]).toEqual({ same_v: "SV", g_v: "GV" });
+    // a twin renamed onto a FREE value copies the shared value (it was sending it)
+    probe.run("findRef('q_tw').node.choices[1].value = 'b_v';");
+    probe.run("commitChoiceRename(findRef('q_tw').node, 'tw', 'same_v', 'b_v')");
+    expect((probe.sandbox.state["answer_maps"] as Array<Record<string, unknown>>)[0]!["output_value_map"]).toEqual({ same_v: "SV", g_v: "GV", b_v: "SV" });
   });
 
   it("review 5: three choices sharing a value are one issue; two 'Other' values sharing one are flagged too", async () => {
