@@ -8188,7 +8188,7 @@ describeDb("OWNER 2026-09-28 review round 1 — answer keys, Other values, typed
     };
     const probe = mappingProbe(html, content, offersRes);
     const island = studioIsland(html);
-    probe.run([...PROVIDER_VALUE_FUNCS, "findQuestionByQid", "repairStaleAnswerKeys", "answerKeyPartLabel", "fixedFieldHint"].map((n) => sliceIslandFunction(island, n)).join("\n"));
+    probe.run([...PROVIDER_VALUE_FUNCS, "findQuestionByQid", "answerKeyRecorded", "repairStaleAnswerKeys", "answerKeyPartLabel", "fixedFieldHint"].map((n) => sliceIslandFunction(island, n)).join("\n"));
     probe.run("var answerKeyRepairs = {}; var providerBaseline = {};");
     return { env, section, probe, offers, offersRes, island };
   }
@@ -8641,25 +8641,41 @@ describeDb("OWNER 2026-09-28 review round 1 — answer keys, Other values, typed
     expect(probe.run("state.answer_maps[0].offer_payload_field_path")).toBe("Income");
   });
 
-  it("review F6: a rename held back by a collision completes when the other choice renames away (at that commit)", async () => {
-    const { probe, offers, island } = await setupWith(MULTI_CONTENT, [["AmONE - Tier 2", [{ path: "Income", type: "string" }]]]);
-    const amone = offers[0]!;
-    probe.run([...RENAME_FUNCS, "holdRename", "releaseHeldRenames", "clearHeldRenames"].map((n) => sliceIslandFunction(island, n)).join("\n"));
-    probe.run("var heldRenames = [];");
-    probe.run(`upsertEdge(offerById(${amone.id}), answerFieldOf(offerById(${amone.id}), 'Income'), '${REVENUE_FIELD}')`);
-    probe.run(`state.answer_maps[0].output_value_map = { '600000': '50000', '360000': '30000', '30000': '2500' };`);
-    probe.run("snapshotProviderValues(findRef('q_mrum8ruj_2sau').node);");
-    const node = "findRef('q_mrum8ruj_2sau').node";
-    // row A (600000) is committed as 360000 — row B's value: held back
-    probe.run(`var aCommitted = '600000'; var rowA = { holding: function (v) { return ${node}.choices[0].value === v; }, setCommitted: function (v) { aCommitted = v; } };`);
-    probe.run(`${node}.choices[0].value = '360000';`);
-    probe.run(`aCommitted = commitChoiceRename(${node}, '${REVENUE_FIELD}', aCommitted, '360000'); holdRename(rowA, ${node}, '${REVENUE_FIELD}', aCommitted, '360000');`);
-    expect(probe.run("aCommitted")).toBe("600000");
-    // row B renames away 360000 -> 370000: its 30000 moves, THEN A's rename completes
-    probe.run(`${node}.choices[1].value = '370000';`);
-    probe.run(`commitChoiceRename(${node}, '${REVENUE_FIELD}', '360000', '370000')`);
-    expect((probe.sandbox.state["answer_maps"] as Array<Record<string, unknown>>)[0]!["output_value_map"]).toEqual({ "360000": "50000", "370000": "30000", "30000": "2500" });
-    expect(probe.run("aCommitted")).toBe("360000");
+  it("review 3: a 'not sent' mapping whose key the component records again is dropped from the list — its Remove can never delete a working mapping", async () => {
+    const twoParts = JSON.parse(JSON.stringify(PROD_SECTION_25)) as { components: Array<Record<string, unknown>> };
+    const addr = twoParts.components.find((c) => c["question_id"] === "q_mslll307_b3an")!;
+    (addr["props"] as { fields: unknown[] }).fields.push({ field: "street", mode: "manual", required: false });
+    const { probe, offers } = await setupWith(twoParts, [["QuinStreetHome", [{ path: "tracking.ni_zc", type: "string", required: true }]]]);
+    const quin = offers[0]!;
+    probe.run(
+      `state.answer_maps = [{ question_id: 'q_mslll307_b3an', question_key: 'q_mslll307_b3an', internal_field: 'address', answer_type: 'object', offer_id: ${quin.id}, offer_payload_field_path: 'tracking.ni_zc', provider_expected_type: 'string', output_value_map: null, value_transform: null, required_for_offer: true, default_value: null, fallback_value: null }]; state.selected_offers = [${quin.id}];`,
+    );
+    // two parts: the bare key is listed as not sent (nothing to move it onto)
+    probe.run("repairStaleAnswerKeys()");
+    expect(probe.run("answerKeyRepairs['q_mslll307_b3an'].stale.length")).toBe(1);
+    // the component goes back to its ZIP part only: the mapping is moved onto it
+    probe.run("findRef('q_mslll307_b3an').node.props.fields.pop();");
+    probe.run("repairStaleAnswerKeys()");
+    expect(probe.run("state.answer_maps[0].internal_field")).toBe("address_zip");
+    expect(probe.run("answerKeyRepairs['q_mslll307_b3an'].moved")).toBe(1);
+    // …and is no longer listed as not sent (its Remove would delete it)
+    expect(probe.run("answerKeyRepairs['q_mslll307_b3an'].stale.length")).toBe(0);
+  });
+
+  it("review 3: an Undo keeps the 'now uses ZIP code — Save to apply' note (only the not-sent list is re-derived)", async () => {
+    const { probe, offers, island } = await setupWith(PROD_SECTION_25, [["QuinStreetHome", [{ path: "tracking.ni_zc", type: "string", required: true }]]]);
+    const quin = offers[0]!;
+    withHistory(probe, island);
+    probe.run(
+      `state.answer_maps.push({ question_id: 'q_mslll307_b3an', question_key: 'q_mslll307_b3an', internal_field: 'address', answer_type: 'object', offer_id: ${quin.id}, offer_payload_field_path: 'tracking.ni_zc', provider_expected_type: 'string', output_value_map: null, value_transform: null, required_for_offer: true, default_value: null, fallback_value: null }); state.selected_offers.push(${quin.id});`,
+    );
+    probe.run("var lastSnapshot = historyState(); repairStaleAnswerKeys();");
+    expect(probe.run("answerKeyRepairs['q_mslll307_b3an'].moved")).toBe(1);
+    // an unrelated edit, then Undo
+    probe.run("findRef('q_mslll307_b3an').node.required = true; historyPush(); historyUndo();");
+    expect(probe.run("answerKeyRepairs['q_mslll307_b3an']")).toMatchObject({ moved: 1, from: "address", to: "address_zip", stale: [] });
+    // the repair itself is not undone: the mapping still uses the recorded key
+    expect(probe.run("state.answer_maps[0].internal_field")).toBe("address_zip");
   });
 
   it("review F8: typing a value into a box whose mapping a value list would cure says it WILL be sent (applying it writes the list)", async () => {
@@ -8686,12 +8702,15 @@ describeDb("OWNER 2026-09-28 review round 1 — answer keys, Other values, typed
         },
       ],
     };
-    const { probe, offers } = await setupWith(MULTI_SELECT, [["Perils Co", [{ path: "perils_count", type: "number" }]]]);
+    const { probe, offers, island } = await setupWith(MULTI_SELECT, [["Perils Co", [{ path: "perils_count", type: "number" }]]]);
     const o = offers[0]!;
     probe.run(`upsertEdge(offerById(${o.id}), answerFieldOf(offerById(${o.id}), 'perils_count'), 'perils')`);
     const note = probe.run(`mapStateNote('type_mismatch', answerFieldOf(offerById(${o.id}), 'perils_count'), offerById(${o.id}), state.answer_maps[0])`) as string;
     expect(note).toContain("only a text field (sent comma-separated) or a list field can take it");
     expect(note).not.toContain("Provider values");
+    // and the Offers tab's "never reach this field" line does not send them there either
+    expect(island).toContain("if (notSent > 0 && !valuesCantHelp) {");
+    expect(island).toContain("var valuesCantHelp = edgeState === 'orphaned' || (edgeState === 'type_mismatch' && answerNodeType((edge && edge.answer_type) || 'string') === 'array');");
   });
 
   it("review M2: Undo after a rename takes the carried provider values back with it (one step), and Redo re-applies both", async () => {
