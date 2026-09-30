@@ -7189,6 +7189,7 @@ describeDb("wave 2 — §5.5 choice depth + §6.2 inline editing + §7.3 raw JSO
         "var inlineEditing = false;",
         "function scheduleCanvasRender() { renders.push(1); }",
         "function selectComponent(qid) { selectedQuestionId = qid; selections.push(qid); }",
+        sliceIslandFunction(island, "caretToEdge"),
         sliceIslandFunction(island, "startInlineEdit"),
         sliceIslandFunction(island, "onCanvasKeyDown"),
       ].join("\n"),
@@ -9238,48 +9239,20 @@ describeDb("OWNER 2026-09-28 review round 1 — answer keys, Other values, typed
     expect(probe.run("reopenedSelectionId()")).toBeNull();
   });
 
-  it("review 8/9b: the canvas toolbar holds, at each width, the tallest height it can get there — a selection change never moves the canvas", async () => {
+  it("review 9c (F-G): the canvas toolbar stays compact — no height hold; the problems line is one line (a tap shows it whole)", async () => {
     const { env } = newHarness();
     const html = await studioPage(env, (await createSection(env)).public_id);
     const island = studioIsland(html);
-    expect(island).toContain("if (typeof holdToolbarHeight !== 'undefined') { holdToolbarHeight(); }");
-    let width = 600;
-    // two toolbar-row clusters; each shown one adds a 20px row to a 47px base (a choice shows one, the Section none)
-    const clusters = [{ hidden: true }, { hidden: true }];
-    const natural = () => 47 + clusters.filter((c) => !c.hidden).length * 20;
-    const bar = {
-      style: { minHeight: "46px" } as Record<string, string>,
-      querySelectorAll: (sel: string) => (sel === "[data-toolbar-cluster]" ? clusters : []),
-      getBoundingClientRect() {
-        const floor = parseFloat(this.style["minHeight"] || "0");
-        // content-box: min-height excludes the 1px bottom border
-        return { width, height: Math.max(natural(), floor + 1) };
-      },
-    };
-    const sandbox: Record<string, unknown> = {
-      document: { querySelector: (sel: string) => (sel === "[data-studio-selection-toolbar]" ? bar : null) },
-      window: { getComputedStyle: () => ({ boxSizing: "content-box", paddingTop: "0px", paddingBottom: "0px", borderTopWidth: "0px", borderBottomWidth: "1px" }) },
-    };
-    runInNewContext([sliceIslandLine(island, "var toolbarHoldWidth = "), sliceIslandFunction(island, "holdToolbarHeight")].join("\n"), sandbox);
-    const hold = () => runInNewContext("holdToolbarHeight()", sandbox);
-    // first call at this width (the Section selected, no cluster shown): it already holds the all-clusters height
-    hold();
-    expect(bar.getBoundingClientRect().height, "measured with every cluster shown").toBe(87);
-    expect(clusters.map((c) => c.hidden), "and the clusters are put back").toEqual([true, true]);
-    // a choice shows one cluster: the canvas below does not move
-    clusters[0]!.hidden = false;
-    hold();
-    expect(bar.getBoundingClientRect().height).toBe(87);
-    // back to the Section: still 87
-    clusters[0]!.hidden = true;
-    hold();
-    expect(bar.getBoundingClientRect().height).toBe(87);
-    // another width measures its own ceiling (the SSR floor kept underneath)
-    width = 375;
-    clusters.push({ hidden: true });
-    hold();
-    expect(bar.getBoundingClientRect().height).toBe(107);
-    expect(bar.style["minHeight"]).toBe("106px");
+    // the hold that kept the tallest height (and its empty bands) is gone
+    expect(island).not.toContain("holdToolbarHeight");
+    expect(html).toContain(".studio-toolbar-problems{font-size:11px;color:#842029;flex:1 1 100%;min-height:15px;line-height:15px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;cursor:pointer}");
+    expect(html).toContain(".studio-toolbar-problems.is-open{white-space:normal;cursor:default}");
+    // shown only when the selection has an issue (as live); a selection change closes it again, only a tap opens it
+    expect(island).toContain("if (mine.length === 0) { el.hidden = true; el.textContent = ''; el.title = ''; return; }");
+    expect(island).toContain("el.className = withoutClasses(el.className, ['is-open']);");
+    expect(island).toContain("toolbarProblemsEl.addEventListener('click', function () {");
+    // the breadcrumb never wraps the toolbar: a fixed basis, one line
+    expect(html).toMatch(/\.studio-breadcrumb\{[^}]*min-height:24px[^}]*flex:1 1 260px;overflow:hidden;white-space:nowrap\}/);
   });
 
   it("review 8: a choices row the operator clicks becomes the selected choice everywhere; a row the same click removed is ignored", async () => {
@@ -9367,15 +9340,107 @@ describeDb("OWNER 2026-09-28 review round 1 — answer keys, Other values, typed
     const { env } = newHarness();
     const html = await studioPage(env, (await createSection(env)).public_id);
     const island = studioIsland(html);
-    expect(html).toContain(".studio-toolbar-problems{font-size:11px;color:#842029;flex:1 1 100%;min-height:30px;line-height:15px}");
-    // the breadcrumb is one line on its own toolbar row, whatever its length (its length wrapped the toolbar's other rows)
-    expect(html).toMatch(/\.studio-breadcrumb\{[^}]*min-height:24px[^}]*flex:1 1 100%;overflow:hidden;white-space:nowrap\}/);
-    // the current crumb keeps its width (up to 260px); the crumbs before it shrink first
-    expect(html).toMatch(/\.studio-breadcrumb \.studio-crumb-current\{[^}]*flex:0 0 auto;max-width:260px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap\}/);
-    expect(html).toMatch(/\.studio-breadcrumb button\{[^}]*flex:0 1 auto;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap\}/);
+    // (the problems line and breadcrumb CSS are pinned by the review 9c F-G test)
+    // the crumbs before the current one shrink first (1000:1); the current one (up to 260px) gives way last
+    expect(html).toMatch(/\.studio-breadcrumb \.studio-crumb-current\{[^}]*flex:0 1 auto;min-width:0;max-width:260px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap\}/);
+    expect(html).toMatch(/\.studio-breadcrumb button\{[^}]*flex:0 1000 auto;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap\}/);
     expect(island).toContain("b.title = 'Choice \\u201C' + choiceScopeLabel + '\\u201D';");
     expect(island).toContain("otherValuesWrap.addEventListener('click', function (ev) { dropForOtherRow(ev.target); });");
     expect(island).toContain("otherValuesWrap.addEventListener('focusin', function (ev) { if (!otherPointerDown) { dropForOtherRow(ev.target); } });");
+  });
+
+  it("review 10: the Unsaved changes indicator keeps its place while hidden (showing it moved Save away from a phone tap)", async () => {
+    const { env } = newHarness();
+    const html = await studioPage(env, (await createSection(env)).public_id);
+    expect(html).toContain(".studio-dirty-dot{display:inline-flex;visibility:hidden;");
+    expect(html).toContain('.studio-dirty-dot[data-dirty="true"]{visibility:visible}');
+    expect(html).not.toMatch(/\.studio-dirty-dot\{display:none/);
+  });
+
+  it("review 10: the second click of a double-click never re-selects (the canvas may have moved under the pointer)", async () => {
+    const { env } = newHarness();
+    const html = await studioPage(env, (await createSection(env)).public_id);
+    const island = studioIsland(html);
+    const fn = sliceIslandFunction(island, "onCanvasClick");
+    const guard = fn.indexOf("if (ev && ev.detail > 1) { return; }");
+    expect(guard, "onCanvasClick returns on a click series' later clicks").toBeGreaterThan(-1);
+    // after the inline-edit guard, before anything selects
+    expect(guard).toBeGreaterThan(fn.indexOf("editCardEl.contains(ev.target)) { return; }"));
+    expect(guard).toBeLessThan(fn.indexOf("selectChoice("));
+  });
+
+  it("review 9c (F-B): a press on the edited card beside its text keeps the edit and puts the caret at the nearer end", async () => {
+    const { env } = newHarness();
+    const html = await studioPage(env, (await createSection(env)).public_id);
+    const island = studioIsland(html);
+    expect(island).toContain("target.addEventListener('mousedown', keepInlineEditOnCardPress, true);");
+    const carets: string[] = [];
+    const span = { contains: (t: unknown) => t === span, getBoundingClientRect: () => ({ left: 714, right: 779 }) } as Record<string, unknown>;
+    const card = { contains: (t: unknown) => t === card || t === span || t === pad };
+    const pad = {};
+    span["closest"] = (sel: string) => (sel === "[data-lg-choice]" ? card : null);
+    const sandbox: Record<string, unknown> = { inlineEditing: true, inlineEditHost: span, span, card, pad, other: {} };
+    runInNewContext([sliceIslandFunction(island, "inlineEditCard"), sliceIslandFunction(island, "keepInlineEditOnCardPress"), "function caretToEdge(el, atEnd) { __carets.push(atEnd ? 'end' : 'start'); }"].join("\n"), Object.assign(sandbox, { __carets: carets }));
+    const press = (target: string, clientX: number) => {
+      let prevented = false;
+      runInNewContext(`keepInlineEditOnCardPress({ target: ${target}, clientX: ${clientX}, preventDefault: function () { __prevented(); } })`, Object.assign(sandbox, { __prevented: () => { prevented = true; } }));
+      return prevented;
+    };
+    expect(press("pad", 782), "just past the last letter: no blur, caret at the end").toBe(true);
+    expect(press("pad", 640), "left of the text: caret at the start").toBe(true);
+    expect(carets).toEqual(["end", "start"]);
+    expect(press("span", 740), "on the text itself: the browser places the caret").toBe(false);
+    expect(press("other", 100), "outside the card: the edit ends as usual").toBe(false);
+    sandbox["inlineEditing"] = false;
+    expect(press("pad", 782), "no edit running: nothing is kept").toBe(false);
+    // the click that follows lands in the edited card and is ignored too
+    expect(island).toContain("if (editCardEl && editCardEl.contains && ev.target && editCardEl.contains(ev.target)) { return; }");
+  });
+
+  it("review 9c (F-D): a failed refresh stays shown until one at least as new paints; nothing pending says Retry, not 'in a moment'", async () => {
+    const { env } = newHarness();
+    const html = await studioPage(env, (await createSection(env)).public_id);
+    const island = studioIsland(html);
+    const notes: string[] = [];
+    const sandbox: Record<string, unknown> = { showRefusal: (t: string) => notes.push(t) };
+    runInNewContext([sliceIslandLine(island, "var canvasModelRev = 0, canvasShownRev = 0"), sliceIslandLine(island, "var CANVAS_BEHIND_NOTE = "), sliceIslandLine(island, "var CANVAS_FAILED_NOTE = "), sliceIslandFunction(island, "canvasBehindRefusal")].join("\n"), sandbox);
+    // edit 3 is on its way: catching up
+    runInNewContext("canvasModelRev = 3; canvasShownRev = 2; canvasFailedRev = 0; canvasBehindRefusal();", sandbox);
+    // edit 3's refresh failed and nothing newer was asked for: Retry
+    runInNewContext("canvasFailedRev = 3; canvasBehindRefusal();", sandbox);
+    expect(notes).toEqual([
+      "The canvas is catching up with your last edit — try that again in a moment.",
+      "The canvas could not show your last edit — press Retry on the canvas, then try again.",
+    ]);
+    // the success path keeps the banner for an older refresh landing late
+    expect(island).toContain("if (typeof hideCanvasPreviewError !== 'undefined' && !(typeof canvasFailedRev !== 'undefined' && renderingRev < canvasFailedRev)) { hideCanvasPreviewError(); }");
+    expect(island.match(/if \(typeof canvasFailedRev !== 'undefined' && renderingRev > canvasFailedRev\) \{ canvasFailedRev = renderingRev; \}/g)?.length, "both failure paths record it").toBe(2);
+  });
+
+  it("review 9c (F-A, F-C, F-E, F-F): notices on the window; the reopen hold follows a repaint and a failed picture; a canvas rename renames the selection; the More panel closes on an action and a resize", async () => {
+    const { env } = newHarness();
+    const html = await studioPage(env, (await createSection(env)).public_id);
+    const island = studioIsland(html);
+    expect(html).toContain(".studio-undo-toast{position:fixed;left:50%;bottom:16px;");
+    expect(html).toContain(".studio-canvas-preview-error{position:fixed;left:50%;bottom:64px;transform:translateX(-50%);z-index:1000;");
+    expect(html).not.toMatch(/\.studio-canvas-preview-error\{[^}]*z-index:65/);
+    expect(island).toContain("doc.addEventListener('error', onFrameDocLoadCapture, true);");
+    expect(island).toContain("reopenAnchorEl = selEl;\n      if (typeof keepReopenAnchor !== 'undefined') { keepReopenAnchor(); }");
+    expect(island).toContain("if ((!withinPanel && !onToggle) || onAction) { closeMorePanel(); }");
+    expect(island).toContain("window.addEventListener('resize', function () { closeMorePanel(); });");
+    // F-E: the canvas-edit refresh renames the selected choice
+    const renamed: string[] = [];
+    const sandbox: Record<string, unknown> = {
+      selectedQuestionId: "q1", scopeState: "choice", selectedChoiceValue: "tg",
+      populateInspector: () => undefined,
+      selectedNode: () => ({ choices: [{ label: "ammaN", value: "tg" }] }),
+      selectedChoiceKey: () => ({ index: 0, value: "tg" }),
+      findChoice: (n: { choices: Array<{ label: string }> }) => n.choices[0],
+      followSelectedChoiceLabel: (l: string) => renamed.push(l),
+    };
+    runInNewContext(sliceIslandFunction(island, "refreshInspectorAfterCanvasEdit"), sandbox);
+    runInNewContext("refreshInspectorAfterCanvasEdit('q1'); refreshInspectorAfterCanvasEdit('q2');", sandbox);
+    expect(renamed).toEqual(["ammaN"]);
   });
 
   it("review 8 (F8-3): a picture that loads after the reopen scroll keeps the reopened question in view until the operator first touches the page", async () => {

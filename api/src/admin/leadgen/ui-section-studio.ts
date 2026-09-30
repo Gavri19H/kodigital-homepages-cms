@@ -3798,7 +3798,7 @@ export const SECTION_STUDIO_STYLES = `
 .studio-item-type{font-size:10px;color:var(--c-muted);font-variant-numeric:tabular-nums;border:1px solid var(--c-border);border-radius:4px;padding:0 4px}
 .studio-item-maps{font-size:10px;color:#0f5132;background:#d1e7dd;border-radius:4px;padding:0 4px}
 /* canvas */
-.studio-breadcrumb{display:flex;align-items:center;gap:6px;font-size:12.5px;color:#8A93A3;font-variant-numeric:tabular-nums;min-height:24px;min-width:0;max-width:100%;flex:1 1 100%;overflow:hidden;white-space:nowrap}
+.studio-breadcrumb{display:flex;align-items:center;gap:6px;font-size:12.5px;color:#8A93A3;font-variant-numeric:tabular-nums;min-height:24px;min-width:0;max-width:100%;flex:1 1 260px;overflow:hidden;white-space:nowrap}
 /* v3.1 §6.1 canvas-toolbar undo/redo icon buttons (golden :277-278) */
 .studio-undoredo-btn{width:30px;height:30px;display:inline-flex;align-items:center;justify-content:center;border-radius:7px;cursor:pointer;border:0;background:none;padding:0}
 .studio-undoredo-btn:hover{background:#F1F3F7}
@@ -4109,10 +4109,11 @@ export const SECTION_STUDIO_STYLES = `
 .studio-tb-check{font-size:11px}
 /* v3.1 §6.1 breadcrumb (golden 266-272): plain muted root/intermediate
    crumbs; the CURRENT (deepest) crumb is the navy chip. */
-.studio-breadcrumb button{border:0;background:none;color:#8A93A3;cursor:pointer;font-size:12.5px;font-weight:600;padding:0 2px;flex:0 1 auto;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
-.studio-breadcrumb .studio-crumb-current{color:#1B3A5C;font-weight:700;background:#EAF0F6;padding:3px 9px;border-radius:6px;cursor:default;flex:0 0 auto;max-width:260px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.studio-breadcrumb button{border:0;background:none;color:#8A93A3;cursor:pointer;font-size:12.5px;font-weight:600;padding:0 2px;flex:0 1000 auto;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.studio-breadcrumb .studio-crumb-current{color:#1B3A5C;font-weight:700;background:#EAF0F6;padding:3px 9px;border-radius:6px;cursor:default;flex:0 1 auto;min-width:0;max-width:260px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
 .studio-breadcrumb span:not(.studio-crumb-current){color:#C2CACF;padding:0 1px;flex:none}
-.studio-toolbar-problems{font-size:11px;color:#842029;flex:1 1 100%;min-height:30px;line-height:15px}
+.studio-toolbar-problems{font-size:11px;color:#842029;flex:1 1 100%;min-height:15px;line-height:15px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;cursor:pointer}
+.studio-toolbar-problems.is-open{white-space:normal;cursor:default}
 .studio-control-invalid{outline:2px solid ${STUDIO_COLOR.danger};outline-offset:1px}
 /* LeadGen Rework §6.9 phone mask builder + §6.8 slider-type picker + §6.10
    address field-set editor — studio inspector chrome (server-rendered admin,
@@ -4204,8 +4205,12 @@ export const SECTION_STUDIO_STYLES = `
    exactly (no CSS class needed here). */
 /* R4a deliverable 20: top-bar "Unsaved changes" state (dirty tracking already
    existed — markDirty/dirty; this is its first visible indicator). */
-.studio-dirty-dot{display:none;align-items:center;gap:6px;font-size:11.5px;font-weight:600;color:${STUDIO_COLOR.warnStrong}}
-.studio-dirty-dot[data-dirty="true"]{display:inline-flex}
+/* the indicator keeps its place while hidden: showing it on the first change
+   used to push Save onto the next line at phone width between the press and
+   the release of a Save tap, so the tap was lost (review 9c after-run: an
+   open canvas edit is committed by that very press) */
+.studio-dirty-dot{display:inline-flex;visibility:hidden;align-items:center;gap:6px;font-size:11.5px;font-weight:600;color:${STUDIO_COLOR.warnStrong}}
+.studio-dirty-dot[data-dirty="true"]{visibility:visible}
 .studio-dirty-dot::before{content:"";width:7px;height:7px;border-radius:50%;background:${STUDIO_COLOR.warn}}
 /* R4a deliverable 1 (S3-3): a brief highlight pulse on the mapping drawer
    panel so switching to it from the Offers tab is visibly noticed, not a
@@ -4224,7 +4229,7 @@ export const SECTION_STUDIO_STYLES = `
    element instead of the page: showUndoToast now appends it there (falling
    back to document.body only if the surface is ever absent). Same Undo
    affordance, same 6s timing, same history reuse — only the anchor moved. */
-.studio-undo-toast{position:absolute;left:50%;bottom:14px;transform:translateX(-50%);display:flex;align-items:center;gap:12px;background:${STUDIO_COLOR.ink};color:${STUDIO_COLOR.white};padding:10px 16px;border-radius:9px;box-shadow:0 6px 20px rgba(15,23,42,.35);font-size:12.5px;z-index:60}
+.studio-undo-toast{position:fixed;left:50%;bottom:16px;transform:translateX(-50%);display:flex;align-items:center;gap:12px;background:${STUDIO_COLOR.ink};color:${STUDIO_COLOR.white};padding:10px 16px;border-radius:9px;box-shadow:0 6px 20px rgba(15,23,42,.35);font-size:12.5px;z-index:1000}
 .studio-undo-toast button{background:none;border:0;color:${STUDIO_COLOR.accent};font-weight:700;cursor:pointer;font-size:12.5px;padding:0}
 /* PC-A9 (register, P1c): renderCanvasNow's preview fetch used to swallow
    every failure (a bad response OR a network catch) with a bare return/
@@ -4234,8 +4239,13 @@ export const SECTION_STUDIO_STYLES = `
    undo toast (position:absolute over #lg-studio-canvas, its position:relative
    canvas-surface parent) but pinned to the TOP of the surface instead of the
    bottom, so the two can never visually collide even if a delete's re-render
-   fails right after the delete itself shows its own undo toast. */
-.studio-canvas-preview-error{position:absolute;left:50%;top:14px;transform:translateX(-50%);display:flex;align-items:center;gap:12px;background:${STUDIO_COLOR.danger};color:${STUDIO_COLOR.white};padding:8px 14px;border-radius:9px;box-shadow:0 6px 20px rgba(15,23,42,.35);font-size:12.5px;z-index:65;max-width:calc(100% - 28px)}
+   fails right after the delete itself shows its own undo toast.
+   Review 9c F-A (+R-1/R-2): both now sit on the WINDOW (position:fixed,
+   bottom centre, the banner above the toast). Inside the canvas pane they
+   scrolled away with it: the pane scrolls sideways at desktop widths and is
+   ~2000px tall, so the banner showed a 22px red sliver and the toast was out
+   of view — a failed refresh or a delete went unseen. */
+.studio-canvas-preview-error{position:fixed;left:50%;bottom:64px;transform:translateX(-50%);z-index:1000;display:flex;align-items:center;gap:12px;background:${STUDIO_COLOR.danger};color:${STUDIO_COLOR.white};padding:8px 14px;border-radius:9px;box-shadow:0 6px 20px rgba(15,23,42,.35);font-size:12.5px;max-width:calc(100% - 28px)}
 .studio-canvas-preview-error button{background:none;border:1px solid rgba(255,255,255,.65);color:${STUDIO_COLOR.white};font-weight:700;cursor:pointer;font-size:12px;padding:3px 10px;border-radius:6px}
 `;
 
@@ -5777,9 +5787,41 @@ export const SECTION_STUDIO_SCRIPT = `
   // anywhere in that list wrote the old label back over the canvas edit.
   function refreshInspectorAfterCanvasEdit(qid) {
     if (qid === selectedQuestionId && typeof populateInspector === 'function') { populateInspector(false); }
+    // the header and breadcrumb name the renamed choice too (review 9c F-E)
+    if (qid === selectedQuestionId && typeof scopeState !== 'undefined' && scopeState === 'choice' && typeof selectedChoiceValue !== 'undefined' && selectedChoiceValue !== null && typeof followSelectedChoiceLabel !== 'undefined') {
+      var renamed = findChoice(selectedNode(), selectedChoiceKey());
+      if (renamed) { followSelectedChoiceLabel(renamed.label !== undefined ? renamed.label : ''); }
+    }
   }
   // The contenteditable session: Enter/blur commits, Escape cancels; canvas
   // re-renders are paused while editing (scheduleCanvasRender re-checks).
+  // Put the caret at the start or end of an editable element.
+  function caretToEdge(el, atEnd) {
+    var d = el.ownerDocument || document;
+    try {
+      if (d.createRange && d.getSelection) {
+        var rg = d.createRange(); rg.selectNodeContents(el); rg.collapse(!atEnd);
+        var sl = d.getSelection(); sl.removeAllRanges(); sl.addRange(rg);
+      }
+    } catch (eCaret) { /* no selection API: leave the caret where it is */ }
+  }
+  // The card whose label is being edited (the edited text is a span inside
+  // it, as wide as the text).
+  function inlineEditCard() {
+    if (typeof inlineEditHost === 'undefined' || !inlineEditHost || !inlineEditing) { return null; }
+    return (inlineEditHost.closest && inlineEditHost.closest('[data-lg-choice]')) || inlineEditHost;
+  }
+  // A press on the edited card but beside its text (just past the last
+  // letter, the card's padding) keeps the edit and puts the caret at the
+  // nearer end (review 9c F-B: it ended the edit, the card stayed selected
+  // and the next Backspace deleted the whole choice).
+  function keepInlineEditOnCardPress(ev) {
+    var card = inlineEditCard();
+    if (!card || !ev || !ev.target || !card.contains || !card.contains(ev.target) || inlineEditHost.contains(ev.target)) { return; }
+    ev.preventDefault();
+    var r = inlineEditHost.getBoundingClientRect ? inlineEditHost.getBoundingClientRect() : null;
+    caretToEdge(inlineEditHost, !(r && typeof ev.clientX === 'number' && ev.clientX < r.left));
+  }
   function startInlineEdit(el, committer) {
     if (inlineEditing || !el) { return false; }
     inlineEditing = true;
@@ -5789,15 +5831,7 @@ export const SECTION_STUDIO_SCRIPT = `
     // the caret starts at the end of the text; inside a card (a <button>) the
     // browser ignores End/Home, so those are handled below (review 6b: typed
     // text landed in front of the label)
-    function caretTo(atEnd) {
-      var d = el.ownerDocument || document;
-      try {
-        if (d.createRange && d.getSelection) {
-          var rg = d.createRange(); rg.selectNodeContents(el); rg.collapse(!atEnd);
-          var sl = d.getSelection(); sl.removeAllRanges(); sl.addRange(rg);
-        }
-      } catch (eCaret) { /* no selection API: leave the caret where it is */ }
-    }
+    function caretTo(atEnd) { caretToEdge(el, atEnd); }
     caretTo(true);
     function finish(apply) {
       if (!inlineEditing) { return; }
@@ -7402,7 +7436,7 @@ export const SECTION_STUDIO_SCRIPT = `
   // then those of the old list, so a click on a card in that window could act
   // on another choice (review 6/6b: a remove then a quick ✕ deleted the wrong
   // twin). Choice actions on the canvas wait for the repaint.
-  var canvasModelRev = 0, canvasShownRev = 0, canvasBehindNoted = false;
+  var canvasModelRev = 0, canvasShownRev = 0, canvasBehindNoted = false, canvasFailedRev = 0;
   function canvasIsCurrent() { return canvasShownRev === canvasModelRev; }
   // A refresh that comes back AFTER a newer one has painted is dropped: it
   // would paint older content and wind the shown revision back, so the
@@ -7414,15 +7448,18 @@ export const SECTION_STUDIO_SCRIPT = `
   }
   // A choice action on a canvas that is behind is not taken — and says so.
   var CANVAS_BEHIND_NOTE = 'The canvas is catching up with your last edit \\u2014 try that again in a moment.';
+  // nothing is on its way when the newest refresh failed (review 9c F-D)
+  var CANVAS_FAILED_NOTE = 'The canvas could not show your last edit \\u2014 press Retry on the canvas, then try again.';
   function canvasBehindRefusal() {
     canvasBehindNoted = true;
-    if (typeof showRefusal !== 'undefined') { showRefusal(CANVAS_BEHIND_NOTE); }
+    var failed = typeof canvasFailedRev !== 'undefined' && canvasFailedRev >= canvasModelRev && canvasFailedRev > canvasShownRev;
+    if (typeof showRefusal !== 'undefined') { showRefusal(failed ? CANVAS_FAILED_NOTE : CANVAS_BEHIND_NOTE); }
   }
   // only the catching-up note goes when the canvas catches up (review 8 F8-7)
   function clearCanvasBehindNote() {
     canvasBehindNoted = false;
     var el = document.querySelector('[data-studio-drop-refusal]');
-    if (el && el.textContent === CANVAS_BEHIND_NOTE) { clearRefusal(); }
+    if (el && (el.textContent === CANVAS_BEHIND_NOTE || el.textContent === CANVAS_FAILED_NOTE)) { clearRefusal(); }
   }
   function scheduleCanvasRender() {
     canvasModelRev += 1;
@@ -7488,6 +7525,7 @@ export const SECTION_STUDIO_SCRIPT = `
         // a stale refresh failing after a newer one painted is not an error
         // of the canvas on screen (review 8 F8-4)
         if (typeof canvasShownRev !== 'undefined' && renderingRev < canvasShownRev) { return; }
+        if (typeof canvasFailedRev !== 'undefined' && renderingRev > canvasFailedRev) { canvasFailedRev = renderingRev; }
         if (typeof showCanvasPreviewError !== 'undefined') { showCanvasPreviewError(); }
         return;
       }
@@ -7496,9 +7534,12 @@ export const SECTION_STUDIO_SCRIPT = `
       if (typeof canvasBehindNoted !== 'undefined' && canvasBehindNoted && canvasIsCurrent()) { clearCanvasBehindNote(); }
       applyCanvasDecoration();
       updateCanvasEmpty();
-      if (typeof hideCanvasPreviewError !== 'undefined') { hideCanvasPreviewError(); }
+      // an OLDER refresh landing after a newer one failed is still behind:
+      // the failure stays shown with its Retry (review 9c F-D)
+      if (typeof hideCanvasPreviewError !== 'undefined' && !(typeof canvasFailedRev !== 'undefined' && renderingRev < canvasFailedRev)) { hideCanvasPreviewError(); }
     }).catch(function () {
       if (typeof canvasShownRev !== 'undefined' && renderingRev < canvasShownRev) { return; }
+      if (typeof canvasFailedRev !== 'undefined' && renderingRev > canvasFailedRev) { canvasFailedRev = renderingRev; }
       if (typeof showCanvasPreviewError !== 'undefined') { showCanvasPreviewError(); }
     });
   }
@@ -8563,7 +8604,10 @@ export const SECTION_STUDIO_SCRIPT = `
       selEl.scrollIntoView({ block: 'center', inline: 'nearest' });
       if (typeof reopenAnchorEl !== 'undefined') { reopenAnchorEl = selEl; }
     } else if (typeof reopenAnchorEl !== 'undefined' && reopenAnchorEl && selEl && reopenAnchorEl !== selEl) {
+      // a repaint before the operator's first touch (on a phone: the switch to
+      // the Mobile preview) moves the question too (review 9c F-C)
       reopenAnchorEl = selEl;
+      if (typeof keepReopenAnchor !== 'undefined') { keepReopenAnchor(); }
     }
     if (typeof centerCanvasSelection !== 'undefined') { centerCanvasSelection(selAny, selectedQuestionId); }
     // R2 P8 M6/R4: the canvas now paints the RESTING state, so a question a
@@ -8848,15 +8892,18 @@ export const SECTION_STUDIO_SCRIPT = `
     var el = document.querySelector('[data-toolbar-problems]');
     if (!el) { return; }
     var node = selectedNode();
-    // the line keeps its (two-line) place when empty: no reflow of the canvas
-    // on a selection change (review 8 F8-1, review 9b M-1); a longer sentence
-    // still wraps, and the toolbar's held height absorbs it (holdToolbarHeight)
-    el.hidden = false;
-    if (!node) { el.textContent = ''; el.title = ''; return; }
+    // ONE line, shown only when the selection has an issue (as live: an empty
+    // reserved line cost every toolbar a row, review 9c F-G); a longer
+    // sentence ends in an ellipsis and a tap shows it whole (review 9 m9-1: a
+    // phone has no hover). A double-click across the line appearing is safe:
+    // it acts on its first press's card (doubleClickTarget, review 8 F8-1).
+    el.className = withoutClasses(el.className, ['is-open']);
+    if (!node) { el.hidden = true; el.textContent = ''; el.title = ''; return; }
     var issues = computeIssues();
     var mine = [];
     for (i = 0; i < issues.length; i++) { if (issues[i].qid === node.question_id) { mine.push(issues[i]); } }
-    if (mine.length === 0) { el.textContent = ''; el.title = ''; return; }
+    if (mine.length === 0) { el.hidden = true; el.textContent = ''; el.title = ''; return; }
+    el.hidden = false;
     el.textContent = mine[0].message + (mine.length > 1 ? ' (+' + (mine.length - 1) + ' more)' : '');
     el.title = el.textContent;
     var key, ctl;
@@ -8926,40 +8973,6 @@ export const SECTION_STUDIO_SCRIPT = `
     if (imgBtn) { imgBtn.hidden = !choiceActOffered(node, 'image'); }
     updateHistoryButtons();
     renderToolbarProblems();
-    if (typeof holdToolbarHeight !== 'undefined') { holdToolbarHeight(); }
-  }
-  // The toolbar wraps to a different number of rows per selection (the
-  // breadcrumb and the clusters differ), and every change moved the canvas
-  // under the pointer: 34px when a click went from the Section to a choice
-  // (review 8, after F8-1). It keeps the tallest height it has had at its
-  // current width, so a selection change never moves the canvas.
-  var toolbarHoldWidth = -1, toolbarHoldHeight = 0, toolbarBaseMin = null;
-  // a new width re-measures at once, not at the next selection change (review 9)
-  if (window.addEventListener) { window.addEventListener('resize', function () { holdToolbarHeight(); }); }
-  function holdToolbarHeight() {
-    var bar = document.querySelector('[data-studio-selection-toolbar]');
-    if (!bar || !bar.getBoundingClientRect || !window.getComputedStyle) { return; }
-    if (toolbarBaseMin === null) { toolbarBaseMin = bar.style.minHeight || ''; }
-    bar.style.minHeight = toolbarBaseMin;
-    var r = bar.getBoundingClientRect();
-    var w = Math.round(r.width), h = Math.ceil(r.height);
-    if (w !== toolbarHoldWidth) {
-      // a new width starts from the tallest this toolbar can get there: every
-      // cluster shown at once, measured before the next paint (review 9b: the
-      // first switch to a taller selection after a resize moved the canvas 34px)
-      toolbarHoldWidth = w;
-      toolbarHoldHeight = 0;
-      var cl = bar.querySelectorAll ? bar.querySelectorAll('[data-toolbar-cluster]') : [], was = [], ci;
-      for (ci = 0; ci < cl.length; ci++) { was.push(cl[ci].hidden); cl[ci].hidden = false; }
-      toolbarHoldHeight = Math.ceil(bar.getBoundingClientRect().height);
-      for (ci = 0; ci < cl.length; ci++) { cl[ci].hidden = was[ci]; }
-    }
-    if (h > toolbarHoldHeight) { toolbarHoldHeight = h; }
-    if (toolbarHoldHeight > h) {
-      var cs = window.getComputedStyle(bar);
-      var extra = cs.boxSizing === 'border-box' ? 0 : (parseFloat(cs.paddingTop) || 0) + (parseFloat(cs.paddingBottom) || 0) + (parseFloat(cs.borderTopWidth) || 0) + (parseFloat(cs.borderBottomWidth) || 0);
-      bar.style.minHeight = (toolbarHoldHeight - extra) + 'px';
-    }
   }
   // §6.2 "Default selection on open = the ZIP field" (contract) generalizes
   // to: the FIRST real answer-collecting node (produces !== null), skipping
@@ -15465,7 +15478,13 @@ export const SECTION_STUDIO_SCRIPT = `
       // review 8 F8-2: a click INSIDE the text being edited only places the
       // caret (it used to select the choice, end the edit, and a following
       // Backspace then deleted the whole choice)
-      if (typeof inlineEditHost !== 'undefined' && inlineEditHost && inlineEditing && inlineEditHost.contains && ev.target && inlineEditHost.contains(ev.target)) { return; }
+      var editCardEl = typeof inlineEditCard !== 'undefined' ? inlineEditCard() : (typeof inlineEditHost !== 'undefined' && inlineEditing ? inlineEditHost : null);
+      if (editCardEl && editCardEl.contains && ev.target && editCardEl.contains(ev.target)) { return; }
+      // the second click of a double-click never re-selects: the first one
+      // did, and the canvas may have moved in between (review 10: after
+      // Escape the canvas moved 31px, the second click selected the card
+      // above while the double-click edited the one pressed)
+      if (ev && ev.detail > 1) { return; }
       // §5.4 amber-badge actions (the badge is a sibling of the node, so the
       // component-select path below never fires for it). Keep (legacy) = NO
       // model change — session-local acknowledgement only; the C2 activation
@@ -15768,6 +15787,7 @@ export const SECTION_STUDIO_SCRIPT = `
   function bindCanvasSurface(target) {
     if (!target || !target.addEventListener) { return; }
     target.addEventListener('mousedown', noteFirstPress, true);
+    target.addEventListener('mousedown', keepInlineEditOnCardPress, true);
     target.addEventListener('click', onCanvasClick);
     target.addEventListener('dblclick', onCanvasDblClick);
     target.addEventListener('mousedown', onCanvasMouseDown);
@@ -15799,6 +15819,8 @@ export const SECTION_STUDIO_SCRIPT = `
     // img 'load' does not bubble). Bound once per LOADED document, like the
     // surface delegation above.
     doc.addEventListener('load', onFrameDocLoadCapture, true);
+    // a picture that fails to load changes the layout as well (review 9c F-C)
+    doc.addEventListener('error', onFrameDocLoadCapture, true);
     if (typeof releaseReopenAnchorOnTouch !== 'undefined') { releaseReopenAnchorOnTouch(doc); }
     applyCanvasDecoration();
     updateCanvasFrameViewport();
@@ -16124,6 +16146,14 @@ export const SECTION_STUDIO_SCRIPT = `
     if (panel) { panel.hidden = true; }
     if (toggle) { toggle.setAttribute('aria-expanded', 'false'); }
   }
+  var toolbarProblemsEl = document.querySelector('[data-toolbar-problems]');
+  if (toolbarProblemsEl) {
+    toolbarProblemsEl.addEventListener('click', function () {
+      if (this.textContent === '') { return; }
+      var open = (' ' + this.className + ' ').indexOf(' is-open ') !== -1;
+      this.className = open ? withoutClasses(this.className, ['is-open']) : withoutClasses(this.className, ['is-open']) + ' is-open';
+    });
+  }
   var moreToggleBtn = document.querySelector('[data-studio-more-toggle]');
   if (moreToggleBtn) {
     moreToggleBtn.addEventListener('click', function (ev) {
@@ -16141,8 +16171,14 @@ export const SECTION_STUDIO_SCRIPT = `
     if (!panel || panel.hidden) { return; }
     var withinPanel = ev.target && ev.target.closest && ev.target.closest('[data-studio-more-panel]');
     var onToggle = ev.target && ev.target.closest && ev.target.closest('[data-studio-more-toggle]');
-    if (!withinPanel && !onToggle) { closeMorePanel(); }
+    // an action taken from the panel closes it, like any menu (review 9c F-F:
+    // it stayed open over the note the action showed)
+    var onAction = withinPanel && ev.target.closest('button');
+    if ((!withinPanel && !onToggle) || onAction) { closeMorePanel(); }
   });
+  // it is placed under its button when it opens; a resize closes it rather
+  // than leave it where the button used to be (review 9c F-F)
+  if (window.addEventListener) { window.addEventListener('resize', function () { closeMorePanel(); }); }
   var chipEl = document.querySelector('[data-studio-validation-chip]');
   if (chipEl) { chipEl.addEventListener('click', function () { setDrawerTab('validation'); }); }
   var openMapping = document.querySelector('[data-studio-open-mapping-drawer]');
