@@ -9245,10 +9245,13 @@ describeDb("OWNER 2026-09-28 review round 1 — answer keys, Other values, typed
     const island = studioIsland(html);
     // the hold that kept the tallest height (and its empty bands) is gone
     expect(island).not.toContain("holdToolbarHeight");
-    expect(html).toContain(".studio-toolbar-problems{font-size:11px;color:#842029;flex:1 1 100%;min-height:15px;line-height:15px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;cursor:pointer}");
+    expect(html).toContain(".studio-toolbar-problems{font-size:11px;color:#842029;flex:1 1 100%;min-height:15px;line-height:15px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;cursor:pointer;position:relative;padding-right:14px}");
     expect(html).toContain(".studio-toolbar-problems.is-open{white-space:normal;cursor:default}");
-    // shown only when the selection has an issue (as live); a selection change closes it again, only a tap opens it
-    expect(island).toContain("if (mine.length === 0) { el.hidden = true; el.textContent = ''; el.title = ''; return; }");
+    // review 10 MAJOR-1: one line kept in place even when empty (the line coming and going moved the canvas mid-click);
+    // a chevron says a tap shows the whole sentence (MINOR-2)
+    expect(html).toContain('.studio-toolbar-problems:not(:empty)::after{content:"\\25BE";');
+    expect(island).toContain("if (mine.length === 0) { el.textContent = ''; el.title = ''; return; }");
+    expect(island).not.toContain("if (mine.length === 0) { el.hidden = true;");
     expect(island).toContain("el.className = withoutClasses(el.className, ['is-open']);");
     expect(island).toContain("toolbarProblemsEl.addEventListener('click', function () {");
     // the breadcrumb never wraps the toolbar: a fixed basis, one line
@@ -9369,6 +9372,78 @@ describeDb("OWNER 2026-09-28 review round 1 — answer keys, Other values, typed
     expect(guard).toBeLessThan(fn.indexOf("selectChoice("));
   });
 
+  it("review 10 re-check: while the canvas is behind, a card click / ✕ still acts when its stamped position holds that value in the model now", async () => {
+    const { env } = newHarness();
+    const html = await studioPage(env, (await createSection(env)).public_id);
+    const island = studioIsland(html);
+    const sandbox: Record<string, unknown> = {
+      current: false,
+      canvasIsCurrent: () => sandbox["current"],
+      findRef: (qid: string) => (qid === "q9_tw" ? { node: { choices: [{ value: "tx" }, { value: "tm" }, { value: "tx" }] } } : null),
+    };
+    runInNewContext(sliceIslandFunction(island, "canvasKeyStillTrue"), sandbox);
+    const ok = (qid: string, index: number, value: string | null) => runInNewContext(`canvasKeyStillTrue(${JSON.stringify(qid)}, { index: ${index}, value: ${JSON.stringify(value)} })`, sandbox);
+    expect(ok("q9_tw", 2, "tx"), "the second twin, still at its place").toBe(true);
+    expect(ok("q9_tw", 1, "tx"), "a stale card: its place now holds another value").toBe(false);
+    expect(ok("q9_tw", 5, "tx"), "a place that is gone").toBe(false);
+    expect(ok("q_gone", 0, "tx")).toBe(false);
+    sandbox["current"] = true;
+    expect(ok("q9_tw", 1, "tx"), "a current canvas never refuses").toBe(true);
+    // wired into the card click and the ✕; the double-click edit and the drags stay gated (stale text / order)
+    expect(island).toContain("!canvasIsCurrent() && !canvasKeyStillTrue(el.getAttribute('data-question-id'), choiceKeyOfEl(cardEl))) { canvasBehindRefusal(); return; }");
+    expect(island).toContain("!canvasIsCurrent() && !canvasKeyStillTrue(xBtn.getAttribute('data-choice-x-qid'), choiceKeyOfEl(xBtn, 'data-choice-x', 'data-choice-x-index'))) { canvasBehindRefusal(); return; }");
+  });
+
+  it("review 10 (MAJOR-2): a change that changed nothing queues nothing — the click that left the box is not refused", async () => {
+    const { env } = newHarness();
+    const html = await studioPage(env, (await createSection(env)).public_id);
+    const island = studioIsland(html);
+    const calls: string[] = [];
+    const sandbox: Record<string, unknown> = {
+      state: { content: { components: [{ question_id: "q1", choices: [{ label: "Ajar", value: "a" }] }] } },
+      historyState: () => JSON.stringify((sandbox["state"] as { content: unknown }).content),
+      document: { getElementById: () => null },
+    };
+    const stubs = ["activeWidthDragCleanup", "hideUndoToast", "markDirty", "historyPush", "clearRefusal", "renderIssues", "renderMapsBanner", "renderMapsJobRiskBanner", "renderBoundChips", "updatePaletteBindItems", "renderBindBanner", "renderOverrideDecorations", "updateCanvasToolbar", "applyContinueModeEligibility", "scheduleCanvasRender", "selectedNode"];
+    for (const n of stubs) sandbox[n] = () => { calls.push(n); };
+    sandbox["activeWidthDragCleanup"] = null;
+    runInNewContext([sliceIslandLine(island, "var lastModelChangeSig = null;"), sliceIslandFunction(island, "modelChangeSig"), sliceIslandFunction(island, "afterModelChange")].join("\n"), sandbox);
+    runInNewContext("afterModelChange()", sandbox);
+    expect(calls.filter((c) => c === "scheduleCanvasRender"), "the first change renders").toHaveLength(1);
+    // the box's change event after its input events: nothing changed → nothing queued, no refusal cleared, no dirty mark
+    calls.length = 0;
+    runInNewContext("afterModelChange()", sandbox);
+    expect(calls).toEqual([]);
+    // a real change goes through again
+    runInNewContext("state.content.components[0].choices[0].label = 'Ajar t10'; afterModelChange();", sandbox);
+    expect(calls).toContain("scheduleCanvasRender");
+    expect(calls).toContain("markDirty");
+  });
+
+  it("review 10: the Style panel fits the screen; every choice delete offers Undo; a canvas add does not scroll the page; the edited card's ✕ is hidden; a reopen link to a gone question still scrolls; moves keep the ⋮ panel open", async () => {
+    const { env } = newHarness();
+    const html = await studioPage(env, (await createSection(env)).public_id);
+    const island = studioIsland(html);
+    // MAJOR-3
+    expect(html).toContain(".lg-choice-style{display:flex;flex-direction:column;gap:4px;flex:0 1 auto;min-width:0;max-width:100%;position:relative}");
+    expect(html).toContain(".lg-choice-style:has(> .lg-choice-style-panel:not([hidden])){flex:1 1 100%}");
+    expect(html).toMatch(/\.lg-choice-style-panel\{[^}]*min-width:0;max-width:100%;box-sizing:border-box\}/);
+    expect(html).toContain(".lg-choice-style-panel .form-input,.lg-choice-style-panel input{flex:0 0 auto;height:auto;");
+    // R10-A: the ✕ and the ⋮ Delete choice show the same Undo toast as the Delete key
+    expect(island.match(/showUndoToast\(xLabel\);/g)?.length).toBe(1);
+    expect(island.match(/showUndoToast\(delLabel\);/g)?.length).toBe(1);
+    // MINOR-4
+    expect(island).toContain("selectChoice(gRef.node.question_id, String(added.value), gRef.node.choices.length - 1, true);");
+    // MINOR-3
+    expect(island).toContain("if (editCardX) { editCardX.style.visibility = 'hidden'; }");
+    expect(island).toContain("if (editCardX) { editCardX.style.visibility = ''; }");
+    // R10-B
+    expect(island).toContain("reopenScrollPending = (function () { try { return !!new URLSearchParams(window.location.search).get('q'); }");
+    // moves keep the ⋮ panel open; a refusal note closes it
+    expect(island).toContain("!ev.target.closest('[data-choice-act=\"left\"],[data-choice-act=\"right\"],[data-studio-act=\"move-up\"],[data-studio-act=\"move-down\"]')");
+    expect(island).toContain("if (typeof closeMorePanel !== 'undefined') { closeMorePanel(); }");
+  });
+
   it("review 9c (F-B): a press on the edited card beside its text keeps the edit and puts the caret at the nearer end", async () => {
     const { env } = newHarness();
     const html = await studioPage(env, (await createSection(env)).public_id);
@@ -9421,9 +9496,12 @@ describeDb("OWNER 2026-09-28 review round 1 — answer keys, Other values, typed
     const { env } = newHarness();
     const html = await studioPage(env, (await createSection(env)).public_id);
     const island = studioIsland(html);
-    expect(html).toContain(".studio-undo-toast{position:fixed;left:50%;bottom:16px;");
-    expect(html).toContain(".studio-canvas-preview-error{position:fixed;left:50%;bottom:64px;transform:translateX(-50%);z-index:1000;");
-    expect(html).not.toMatch(/\.studio-canvas-preview-error\{[^}]*z-index:65/);
+    // review 10 MINOR-1: ONE fixed stack at the bottom of the window; the banner above the toast, never over it
+    expect(html).toContain(".studio-notice-stack{position:fixed;left:50%;bottom:16px;transform:translateX(-50%);display:flex;flex-direction:column;");
+    expect(html).toContain(".studio-undo-toast{position:static;");
+    expect(html).toContain(".studio-canvas-preview-error{position:static;");
+    expect(island).toContain("noticeStack().appendChild(el);");
+    expect(island).toContain("stack.insertBefore(el, stack.firstChild);");
     expect(island).toContain("doc.addEventListener('error', onFrameDocLoadCapture, true);");
     expect(island).toContain("reopenAnchorEl = selEl;\n      if (typeof keepReopenAnchor !== 'undefined') { keepReopenAnchor(); }");
     expect(island).toContain("if ((!withinPanel && !onToggle) || onAction) { closeMorePanel(); }");

@@ -3966,10 +3966,14 @@ export const SECTION_STUDIO_STYLES = `
    yes/no button block); the panel is an inline disclosure (same idiom as
    .lg-choice-emoji-palette above), not a floating overlay, so it never clips
    inside the iframe canvas or needs viewport-relative positioning. */
-.lg-choice-style{display:flex;flex-direction:column;gap:4px;flex:0 0 auto;position:relative}
+.lg-choice-style{display:flex;flex-direction:column;gap:4px;flex:0 1 auto;min-width:0;max-width:100%;position:relative}
+/* open, it takes its own line of the row and wraps its swatches (review 10
+   MAJOR-3: 436px wide, cut off at 375 and past the window at 1280) */
+.lg-choice-style:has(> .lg-choice-style-panel:not([hidden])){flex:1 1 100%}
 .lg-choice-style-toggle-row{display:flex;align-items:center;gap:6px}
 .lg-choice-offtheme-badge{font-size:9.5px;font-weight:700;letter-spacing:.02em;text-transform:uppercase;color:#664d03;background:#fff3cd;border-radius:9px;padding:1px 6px}
-.lg-choice-style-panel{display:flex;flex-direction:column;gap:8px;border:1px solid var(--c-border);border-radius:8px;padding:10px;margin-top:4px;background:var(--c-surface-alt,#f7f9fb);min-width:240px}
+.lg-choice-style-panel{display:flex;flex-direction:column;gap:8px;border:1px solid var(--c-border);border-radius:8px;padding:10px;margin-top:4px;background:var(--c-surface-alt,#f7f9fb);min-width:0;max-width:100%;box-sizing:border-box}
+.lg-choice-style-panel .form-input,.lg-choice-style-panel input{flex:0 0 auto;height:auto;max-width:100%;box-sizing:border-box}
 .lg-choice-style-row{display:flex;flex-direction:column;gap:4px}
 .lg-choice-style-label{font-size:10px;font-weight:700;color:#8A93A3;letter-spacing:.02em;text-transform:uppercase}
 .lg-choice-style-row .studio-segmented{margin-bottom:0}
@@ -4112,8 +4116,11 @@ export const SECTION_STUDIO_STYLES = `
 .studio-breadcrumb button{border:0;background:none;color:#8A93A3;cursor:pointer;font-size:12.5px;font-weight:600;padding:0 2px;flex:0 1000 auto;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
 .studio-breadcrumb .studio-crumb-current{color:#1B3A5C;font-weight:700;background:#EAF0F6;padding:3px 9px;border-radius:6px;cursor:default;flex:0 1 auto;min-width:0;max-width:260px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
 .studio-breadcrumb span:not(.studio-crumb-current){color:#C2CACF;padding:0 1px;flex:none}
-.studio-toolbar-problems{font-size:11px;color:#842029;flex:1 1 100%;min-height:15px;line-height:15px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;cursor:pointer}
+.studio-toolbar-problems{font-size:11px;color:#842029;flex:1 1 100%;min-height:15px;line-height:15px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;cursor:pointer;position:relative;padding-right:14px}
+.studio-toolbar-problems:empty{cursor:default}
+.studio-toolbar-problems:not(:empty)::after{content:"\\25BE";position:absolute;right:2px;top:0}
 .studio-toolbar-problems.is-open{white-space:normal;cursor:default}
+.studio-toolbar-problems.is-open::after{content:"\\25B4"}
 .studio-control-invalid{outline:2px solid ${STUDIO_COLOR.danger};outline-offset:1px}
 /* LeadGen Rework §6.9 phone mask builder + §6.8 slider-type picker + §6.10
    address field-set editor — studio inspector chrome (server-rendered admin,
@@ -4229,7 +4236,9 @@ export const SECTION_STUDIO_STYLES = `
    element instead of the page: showUndoToast now appends it there (falling
    back to document.body only if the surface is ever absent). Same Undo
    affordance, same 6s timing, same history reuse — only the anchor moved. */
-.studio-undo-toast{position:fixed;left:50%;bottom:16px;transform:translateX(-50%);display:flex;align-items:center;gap:12px;background:${STUDIO_COLOR.ink};color:${STUDIO_COLOR.white};padding:10px 16px;border-radius:9px;box-shadow:0 6px 20px rgba(15,23,42,.35);font-size:12.5px;z-index:1000}
+.studio-notice-stack{position:fixed;left:50%;bottom:16px;transform:translateX(-50%);display:flex;flex-direction:column;align-items:center;gap:8px;z-index:1000;width:max-content;max-width:calc(100vw - 24px);pointer-events:none}
+.studio-notice-stack>*{pointer-events:auto;max-width:100%;box-sizing:border-box}
+.studio-undo-toast{position:static;display:flex;align-items:center;gap:12px;background:${STUDIO_COLOR.ink};color:${STUDIO_COLOR.white};padding:10px 16px;border-radius:9px;box-shadow:0 6px 20px rgba(15,23,42,.35);font-size:12.5px}
 .studio-undo-toast button{background:none;border:0;color:${STUDIO_COLOR.accent};font-weight:700;cursor:pointer;font-size:12.5px;padding:0}
 /* PC-A9 (register, P1c): renderCanvasNow's preview fetch used to swallow
    every failure (a bad response OR a network catch) with a bare return/
@@ -4240,12 +4249,12 @@ export const SECTION_STUDIO_STYLES = `
    canvas-surface parent) but pinned to the TOP of the surface instead of the
    bottom, so the two can never visually collide even if a delete's re-render
    fails right after the delete itself shows its own undo toast.
-   Review 9c F-A (+R-1/R-2): both now sit on the WINDOW (position:fixed,
-   bottom centre, the banner above the toast). Inside the canvas pane they
-   scrolled away with it: the pane scrolls sideways at desktop widths and is
-   ~2000px tall, so the banner showed a 22px red sliver and the toast was out
-   of view — a failed refresh or a delete went unseen. */
-.studio-canvas-preview-error{position:fixed;left:50%;bottom:64px;transform:translateX(-50%);z-index:1000;display:flex;align-items:center;gap:12px;background:${STUDIO_COLOR.danger};color:${STUDIO_COLOR.white};padding:8px 14px;border-radius:9px;box-shadow:0 6px 20px rgba(15,23,42,.35);font-size:12.5px;max-width:calc(100% - 28px)}
+   Review 9c F-A (+R-1/R-2): both now sit on the WINDOW, in ONE fixed stack
+   at the bottom centre (.studio-notice-stack: the banner above the toast,
+   never over it — review 10 MINOR-1). Inside the canvas pane they scrolled
+   away with it: the pane scrolls sideways at desktop widths and is ~2000px
+   tall, so a failed refresh or a delete went unseen. */
+.studio-canvas-preview-error{position:static;display:flex;align-items:center;gap:12px;background:${STUDIO_COLOR.danger};color:${STUDIO_COLOR.white};padding:8px 14px;border-radius:9px;box-shadow:0 6px 20px rgba(15,23,42,.35);font-size:12.5px}
 .studio-canvas-preview-error button{background:none;border:1px solid rgba(255,255,255,.65);color:${STUDIO_COLOR.white};font-weight:700;cursor:pointer;font-size:12px;padding:3px 10px;border-radius:6px}
 `;
 
@@ -4718,6 +4727,17 @@ export const SECTION_STUDIO_SCRIPT = `
     return { index: typeof selectedChoiceIndex === 'number' ? selectedChoiceIndex : -1, value: selectedChoiceValue };
   }
   // A canvas card's key: its stamped position (applyCanvasDecoration) + value.
+  // While the canvas is behind the model, a card is still safe to act on
+  // when its stamped position holds that same saved value in the model now.
+  // Leaving an inspector box after a REAL change (a refused duplicate put
+  // back, a value rename) refused the very next canvas click, and a Delete
+  // then removed the box's choice instead (review 10 re-check).
+  function canvasKeyStillTrue(qid, key) {
+    if (typeof canvasIsCurrent === 'undefined' || canvasIsCurrent()) { return true; }
+    var ref = qid ? findRef(qid) : null;
+    var c = ref && ref.node && ref.node.choices && key && key.index >= 0 ? ref.node.choices[key.index] : null;
+    return !!(c && key.value !== null && String(c.value) === String(key.value));
+  }
   function choiceKeyOfEl(el, valueAttr, indexAttr) {
     var raw = el ? el.getAttribute(indexAttr || 'data-studio-choice-index') : null;
     var idx = raw === null || raw === '' ? -1 : Number(raw);
@@ -5826,6 +5846,9 @@ export const SECTION_STUDIO_SCRIPT = `
     if (inlineEditing || !el) { return false; }
     inlineEditing = true;
     if (typeof inlineEditHost !== 'undefined') { inlineEditHost = el; }
+    // the card's ✕ cannot act while its label is being edited: hidden, not dead (review 10 MINOR-3)
+    var editCardX = el.closest && el.closest('[data-lg-choice]') ? el.closest('[data-lg-choice]').querySelector('[data-choice-x]') : null;
+    if (editCardX) { editCardX.style.visibility = 'hidden'; }
     el.setAttribute('contenteditable', 'true');
     if (el.focus) { el.focus(); }
     // the caret starts at the end of the text; inside a card (a <button>) the
@@ -5837,6 +5860,7 @@ export const SECTION_STUDIO_SCRIPT = `
       if (!inlineEditing) { return; }
       inlineEditing = false;
       if (typeof inlineEditHost !== 'undefined') { inlineEditHost = null; }
+      if (editCardX) { editCardX.style.visibility = ''; }
       el.removeAttribute('contenteditable');
       el.removeEventListener('blur', onBlur);
       el.removeEventListener('keydown', onKey);
@@ -7188,7 +7212,21 @@ export const SECTION_STUDIO_SCRIPT = `
     banner.hidden = !shown;
   }
 
+  // The whole model as the save and the canvas see it. A change event that
+  // changed nothing (a box left after its input events already applied the
+  // text) queued a canvas refresh; the canvas was then "behind" and the very
+  // click that left the box was refused (review 10 MAJOR-2).
+  var lastModelChangeSig = null;
+  function modelChangeSig() {
+    var h = document.getElementById('lg-section-headline'), sh = document.getElementById('lg-section-subheadline');
+    try { return historyState() + '|' + JSON.stringify(state) + '|' + (h ? h.value : '') + '|' + (sh ? sh.value : ''); } catch (eSig) { return null; }
+  }
   function afterModelChange() {
+    if (typeof modelChangeSig !== 'undefined') {
+      var sigNow = modelChangeSig();
+      if (sigNow !== null && sigNow === lastModelChangeSig) { return; }
+      lastModelChangeSig = sigNow;
+    }
     // m3 (adversarial re-review) extra robustness: ANY other model mutation
     // proactively tears down a still-registered width-drag (the "moved then
     // the mouseup got lost off-window" case, where the drag's OWN moved flag
@@ -7249,6 +7287,17 @@ export const SECTION_STUDIO_SCRIPT = `
     if (el && el.parentNode) { el.parentNode.removeChild(el); }
     if (undoToastTimer) { clearTimeout(undoToastTimer); undoToastTimer = null; }
   }
+  // The one place the canvas notices sit: fixed at the bottom of the window.
+  function noticeStack() {
+    var st = document.querySelector('[data-studio-notice-stack]');
+    if (!st) {
+      st = document.createElement('div');
+      st.className = 'studio-notice-stack';
+      st.setAttribute('data-studio-notice-stack', '');
+      document.body.appendChild(st);
+    }
+    return st;
+  }
   function showUndoToast(label) {
     hideUndoToast();
     var el = document.createElement('div');
@@ -7272,8 +7321,7 @@ export const SECTION_STUDIO_SCRIPT = `
     // potentially-tall, scrolled-away page. document.body is a defensive
     // fallback only — #lg-studio-canvas is always present once the studio has
     // rendered, which is the only time a delete (and this toast) can fire.
-    var toastHost = document.getElementById('lg-studio-canvas') || document.body;
-    toastHost.appendChild(el);
+    noticeStack().appendChild(el);
     undoToastTimer = setTimeout(hideUndoToast, 6000);
   }
   // The ONE call site both the toolbar Delete button and the Delete/
@@ -7323,10 +7371,14 @@ export const SECTION_STUDIO_SCRIPT = `
   // afterModelChange call, which snapshots the PRE-mutation tree) — no new
   // persistence, and it restores the choice at its original index for free
   // (a full snapshot revert, not a piecewise re-insert).
+  // What a choice's Undo toast calls it.
+  function choiceDeleteLabel(node, value) {
+    var c = node ? findChoice(node, value) : null;
+    return c && c.label !== undefined && String(c.label) !== '' ? String(c.label) : 'Choice';
+  }
   function deleteSelectedChoiceWithUndo(qid, value) {
     var ref = findRef(qid);
-    var c = ref && ref.node ? findChoice(ref.node, value) : null;
-    var label = c && c.label !== undefined && String(c.label) !== '' ? String(c.label) : 'Choice';
+    var label = choiceDeleteLabel(ref && ref.node ? ref.node : null, value);
     var removed = ref && ref.node ? removeChoiceFromNode(ref.node, value) : false;
     if (!removed) {
       showRefusal('Nothing to delete — that selection was no longer on the canvas.');
@@ -7341,6 +7393,8 @@ export const SECTION_STUDIO_SCRIPT = `
   function showRefusal(message) {
     var el = document.querySelector('[data-studio-drop-refusal]');
     if (!el) { return; }
+    // the note is never left under the ⋮ panel (review 9c F-F)
+    if (typeof closeMorePanel !== 'undefined') { closeMorePanel(); }
     el.hidden = false;
     el.textContent = message;
   }
@@ -7559,8 +7613,6 @@ export const SECTION_STUDIO_SCRIPT = `
   }
   function showCanvasPreviewError() {
     hideCanvasPreviewError();
-    var host = document.getElementById('lg-studio-canvas');
-    if (!host) { return; }
     var el = document.createElement('div');
     el.className = 'studio-canvas-preview-error';
     el.setAttribute('data-studio-canvas-preview-error', '');
@@ -7571,7 +7623,8 @@ export const SECTION_STUDIO_SCRIPT = `
     btn.appendChild(document.createTextNode('Retry'));
     btn.addEventListener('click', function () { renderCanvasNow(); });
     el.appendChild(btn);
-    host.appendChild(el);
+    var stack = typeof noticeStack !== 'undefined' ? noticeStack() : document.body;
+    stack.insertBefore(el, stack.firstChild);
   }
   function updateCanvasEmpty() {
     var empty = document.querySelector('[data-studio-canvas-empty]');
@@ -8892,18 +8945,18 @@ export const SECTION_STUDIO_SCRIPT = `
     var el = document.querySelector('[data-toolbar-problems]');
     if (!el) { return; }
     var node = selectedNode();
-    // ONE line, shown only when the selection has an issue (as live: an empty
-    // reserved line cost every toolbar a row, review 9c F-G); a longer
-    // sentence ends in an ellipsis and a tap shows it whole (review 9 m9-1: a
-    // phone has no hover). A double-click across the line appearing is safe:
-    // it acts on its first press's card (doubleClickTarget, review 8 F8-1).
+    // ONE line, kept in place even when empty: the line appearing or going
+    // away moved the canvas between a press and its release, so the click
+    // selected (and Delete removed) the whole question (review 10 MAJOR-1).
+    // A longer sentence ends in an ellipsis with a chevron; a tap shows it
+    // whole (review 9 m9-1 / 10 MINOR-2: a phone has no hover).
+    el.hidden = false;
     el.className = withoutClasses(el.className, ['is-open']);
-    if (!node) { el.hidden = true; el.textContent = ''; el.title = ''; return; }
+    if (!node) { el.textContent = ''; el.title = ''; return; }
     var issues = computeIssues();
     var mine = [];
     for (i = 0; i < issues.length; i++) { if (issues[i].qid === node.question_id) { mine.push(issues[i]); } }
-    if (mine.length === 0) { el.hidden = true; el.textContent = ''; el.title = ''; return; }
-    el.hidden = false;
+    if (mine.length === 0) { el.textContent = ''; el.title = ''; return; }
     el.textContent = mine[0].message + (mine.length > 1 ? ' (+' + (mine.length - 1) + ' more)' : '');
     el.title = el.textContent;
     var key, ctl;
@@ -15516,16 +15569,21 @@ export const SECTION_STUDIO_SCRIPT = `
       }
       // §6.2 inline choice ops: per-choice ✕ + the "+ Add choice" ghost tile.
       var xBtn = ev.target && ev.target.closest ? ev.target.closest('[data-choice-x]') : null;
-      if (xBtn && typeof canvasIsCurrent !== 'undefined' && !canvasIsCurrent()) { canvasBehindRefusal(); return; }
+      if (xBtn && typeof canvasIsCurrent !== 'undefined' && !canvasIsCurrent() && !canvasKeyStillTrue(xBtn.getAttribute('data-choice-x-qid'), choiceKeyOfEl(xBtn, 'data-choice-x', 'data-choice-x-index'))) { canvasBehindRefusal(); return; }
       if (xBtn) {
         var xRef = findRef(xBtn.getAttribute('data-choice-x-qid'));
         if (xRef) {
           var hadChoice = selectedChoiceValue !== null;
-          removeChoiceFromNode(xRef.node, choiceKeyOfEl(xBtn, 'data-choice-x', 'data-choice-x-index'));
-          if (selectedQuestionId === xRef.node.question_id) {
-            renderChoiceEditor(xRef.node);
-            // the selected choice was the one removed: back to the component (review 8 F8-5)
-            if (hadChoice && selectedChoiceValue === null) { setScope('component'); }
+          var xKey = choiceKeyOfEl(xBtn, 'data-choice-x', 'data-choice-x-index');
+          var xLabel = choiceDeleteLabel(xRef.node, xKey);
+          if (removeChoiceFromNode(xRef.node, xKey)) {
+            if (selectedQuestionId === xRef.node.question_id) {
+              renderChoiceEditor(xRef.node);
+              // the selected choice was the one removed: back to the component (review 8 F8-5)
+              if (hadChoice && selectedChoiceValue === null) { setScope('component'); }
+            }
+            // the same Undo the Delete key offers (review 10 R10-A: a phone has no Delete key)
+            showUndoToast(xLabel);
           }
         }
         return;
@@ -15535,7 +15593,10 @@ export const SECTION_STUDIO_SCRIPT = `
         var gRef = findRef(ghostBtn.getAttribute('data-choice-ghost'));
         if (gRef) {
           var added = addChoiceToNode(gRef.node);
-          if (added) { selectChoice(gRef.node.question_id, String(added.value)); }
+          // a canvas action: the new card is selected without scrolling the page to its
+          // inspector row (review 10 MINOR-4: at 375 the page scrolled between the two
+          // clicks of a double-click and the second one opened another row's Style)
+          if (added) { selectChoice(gRef.node.question_id, String(added.value), gRef.node.choices.length - 1, true); }
         }
         return;
       }
@@ -15565,7 +15626,7 @@ export const SECTION_STUDIO_SCRIPT = `
       // component (the inspector opens the Choices tab at that row).
       var cardEl = ev.target && ev.target.closest ? ev.target.closest('[data-lg-choice]') : null;
       if (cardEl && el.contains(cardEl) && typeMeta(el.getAttribute('data-component-type')).choice === true) {
-        if (typeof canvasIsCurrent !== 'undefined' && !canvasIsCurrent()) { canvasBehindRefusal(); return; }
+        if (typeof canvasIsCurrent !== 'undefined' && !canvasIsCurrent() && !canvasKeyStillTrue(el.getAttribute('data-question-id'), choiceKeyOfEl(cardEl))) { canvasBehindRefusal(); return; }
         selectChoice(el.getAttribute('data-question-id'), cardEl.getAttribute('data-lg-choice'), choiceKeyOfEl(cardEl).index, true);
         return;
       }
@@ -15883,9 +15944,12 @@ export const SECTION_STUDIO_SCRIPT = `
       return;
     }
     if (act === 'delete') {
-      removeChoiceFromNode(node, value);
-      renderChoiceEditor(node);
-      setScope(selectedQuestionId ? 'component' : 'section');
+      var delLabel = choiceDeleteLabel(node, value);
+      if (removeChoiceFromNode(node, value)) {
+        renderChoiceEditor(node);
+        setScope(selectedQuestionId ? 'component' : 'section');
+        showUndoToast(delLabel);
+      }
       return;
     }
     // the inspector's rows are rebuilt too: the next inspector edit collects
@@ -16173,7 +16237,8 @@ export const SECTION_STUDIO_SCRIPT = `
     var onToggle = ev.target && ev.target.closest && ev.target.closest('[data-studio-more-toggle]');
     // an action taken from the panel closes it, like any menu (review 9c F-F:
     // it stayed open over the note the action showed)
-    var onAction = withinPanel && ev.target.closest('button');
+    // moves are repeated, so they keep it open (a move of N places took 2N clicks)
+    var onAction = withinPanel && ev.target.closest('button') && !ev.target.closest('[data-choice-act="left"],[data-choice-act="right"],[data-studio-act="move-up"],[data-studio-act="move-down"]');
     if ((!withinPanel && !onToggle) || onAction) { closeMorePanel(); }
   });
   // it is placed under its button when it opens; a resize closes it rather
@@ -19101,7 +19166,9 @@ export const SECTION_STUDIO_SCRIPT = `
   // §6.2 default selection on open (contract: "the ZIP field" — generalized
   // to the first real answer node); selectComponent() already covers
   // decoration/breadcrumb/inspector-population/scope-header/toolbar in one call.
-  reopenScrollPending = reopenedSelectionId() !== null;
+  // any ?q= link means "take me back to my question": if it is gone, the one
+  // selected instead is brought into view too (review 10 R10-B)
+  reopenScrollPending = (function () { try { return !!new URLSearchParams(window.location.search).get('q'); } catch (eQ) { return false; } })();
   // review 8 F8-3: the reopened question owns the scroll, not the browser's
   // remembered position from before the reload; the operator's first touch
   // ends that (see keepReopenAnchor)
