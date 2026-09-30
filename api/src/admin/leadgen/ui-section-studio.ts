@@ -7482,14 +7482,19 @@ export const SECTION_STUDIO_SCRIPT = `
   // the content the canvas on screen was painted from (set at boot and on
   // every accepted paint)
   var canvasPaintedJson = null, paintedCacheJson = null, paintedCacheParsed = null;
-  function paintedChoiceAt(qid, index) {
-    if (!canvasPaintedJson) { return undefined; }
+  // the question as it was PAINTED (null when unknown)
+  function paintedNode(qid) {
+    if (!canvasPaintedJson) { return null; }
     if (paintedCacheJson !== canvasPaintedJson) {
       try { paintedCacheParsed = JSON.parse(canvasPaintedJson); } catch (ePainted) { paintedCacheParsed = null; }
       paintedCacheJson = canvasPaintedJson;
     }
     var found = null;
     if (paintedCacheParsed && paintedCacheParsed.components) { walkTree(paintedCacheParsed.components, 1, function (n) { if (n && n.question_id === qid) { found = n; } }); }
+    return found;
+  }
+  function paintedChoiceAt(qid, index) {
+    var found = paintedNode(qid);
     return found && found.choices ? found.choices[index] : undefined;
   }
   // While the canvas is behind the model, a card is safe to act on exactly
@@ -7497,6 +7502,33 @@ export const SECTION_STUDIO_SCRIPT = `
   // value and everything else. A value-only check hit the wrong twin (review
   // 11); refusing every click while behind made the next Delete remove the
   // choice selected before the click (review 12 MAJOR-A/B).
+  // A paint that lands while the operator presses the canvas waits for the
+  // release (and the click that follows it): replacing the pressed card lost
+  // the click without any note (review 13 MAJOR-2). The newest waiting paint
+  // wins; a lost release (a drag out of the window) lets go after 3 s.
+  var canvasPressActive = false, pendingPaint = null, pressSafetyTimer = null;
+  function holdPaintForPress(rev, run) {
+    if (!canvasPressActive) { return false; }
+    if (!pendingPaint || rev >= pendingPaint.rev) { pendingPaint = { rev: rev, run: run }; }
+    return true;
+  }
+  function flushPendingPaint() {
+    var p = pendingPaint;
+    pendingPaint = null;
+    if (p) { p.run(); }
+  }
+  function canvasPressStart() {
+    canvasPressActive = true;
+    if (pressSafetyTimer) { clearTimeout(pressSafetyTimer); }
+    pressSafetyTimer = setTimeout(canvasPressEnd, 3000);
+  }
+  function canvasPressEnd() {
+    if (!canvasPressActive) { return; }
+    canvasPressActive = false;
+    if (pressSafetyTimer) { clearTimeout(pressSafetyTimer); pressSafetyTimer = null; }
+    // after the click this release is about to dispatch
+    setTimeout(flushPendingPaint, 0);
+  }
   function canvasCardMatchesPaint(qid, key) {
     if (typeof canvasIsCurrent === 'undefined' || canvasIsCurrent()) { return true; }
     var ref = qid ? findRef(qid) : null;
@@ -7525,14 +7557,21 @@ export const SECTION_STUDIO_SCRIPT = `
   // Delete 0.4 s later removed the previously selected choice).
   var choiceActionsDisarmed = false;
   var DISARMED_NOTE = 'Your last click on the canvas did not select anything \\u2014 click the card again first.';
+  // a real selection: the next Delete acts on it, and the note goes
+  function clearDisarm() {
+    choiceActionsDisarmed = false;
+    var el = document.querySelector('[data-studio-drop-refusal]');
+    if (el && el.textContent === DISARMED_NOTE && typeof clearRefusal !== 'undefined') { clearRefusal(); }
+  }
   function disarmedRefusal() {
     if (typeof choiceActionsDisarmed === 'undefined' || !choiceActionsDisarmed) { return false; }
     if (typeof showRefusal !== 'undefined') { showRefusal(DISARMED_NOTE); }
     return true;
   }
-  function canvasBehindRefusal() {
+  function canvasBehindRefusal(selectionStands) {
     canvasBehindNoted = true;
-    if (typeof choiceActionsDisarmed !== 'undefined') { choiceActionsDisarmed = true; }
+    // a double-click whose first click selected the card leaves that selection standing (review 13 MINOR-2)
+    if (typeof choiceActionsDisarmed !== 'undefined' && !selectionStands) { choiceActionsDisarmed = true; }
     var failed = typeof canvasFailedRev !== 'undefined' && canvasFailedRev >= canvasModelRev && canvasFailedRev > canvasShownRev;
     if (typeof showRefusal !== 'undefined') { showRefusal(failed ? CANVAS_FAILED_NOTE : CANVAS_BEHIND_NOTE); }
   }
@@ -7611,15 +7650,21 @@ export const SECTION_STUDIO_SCRIPT = `
         if (typeof showCanvasPreviewError !== 'undefined') { showCanvasPreviewError(); }
         return;
       }
-      if (typeof acceptCanvasPaint !== 'undefined' && !acceptCanvasPaint(renderingRev)) { return; }
-      region.innerHTML = '<style>' + res.body.preview.css + '</style>' + (res.body.preview.html || res.body.preview.desktop || '');
-      if (typeof canvasPaintedJson !== 'undefined') { canvasPaintedJson = canvasBody.content_json; }
-      if (typeof canvasBehindNoted !== 'undefined' && canvasBehindNoted && canvasIsCurrent()) { clearCanvasBehindNote(); }
-      applyCanvasDecoration();
-      updateCanvasEmpty();
-      // an OLDER refresh landing after a newer one failed is still behind:
-      // the failure stays shown with its Retry (review 9c F-D)
-      if (typeof hideCanvasPreviewError !== 'undefined' && !(typeof canvasFailedRev !== 'undefined' && renderingRev < canvasFailedRev)) { hideCanvasPreviewError(); }
+      var paintNow = function () {
+        if (typeof acceptCanvasPaint !== 'undefined' && !acceptCanvasPaint(renderingRev)) { return; }
+        region.innerHTML = '<style>' + res.body.preview.css + '</style>' + (res.body.preview.html || res.body.preview.desktop || '');
+        if (typeof canvasPaintedJson !== 'undefined') { canvasPaintedJson = canvasBody.content_json; }
+        if (typeof canvasBehindNoted !== 'undefined' && canvasBehindNoted && canvasIsCurrent()) { clearCanvasBehindNote(); }
+        applyCanvasDecoration();
+        updateCanvasEmpty();
+        // an OLDER refresh landing after a newer one failed is still behind:
+        // the failure stays shown with its Retry (review 9c F-D)
+        if (typeof hideCanvasPreviewError !== 'undefined' && !(typeof canvasFailedRev !== 'undefined' && renderingRev < canvasFailedRev)) { hideCanvasPreviewError(); }
+      };
+      // a press on the canvas is in progress: the card under it must still be
+      // there when the click arrives (review 13 MAJOR-2) — paint on release
+      if (typeof holdPaintForPress !== 'undefined' && holdPaintForPress(renderingRev, paintNow)) { return; }
+      paintNow();
     }).catch(function () {
       if (typeof canvasShownRev !== 'undefined' && renderingRev < canvasShownRev) { return; }
       if (typeof canvasFailedRev !== 'undefined' && renderingRev > canvasFailedRev) { canvasFailedRev = renderingRev; }
@@ -7710,15 +7755,21 @@ export const SECTION_STUDIO_SCRIPT = `
   // choice ✕, the "+ Add choice" ghost tile at the grid end, choice drag
   // handles and the selected-CardPanel resize handle. Rebuilt per pass like
   // the maps chips (the region is server HTML).
-  // The k-th canvas card with a value is the k-th choice with that value.
+  // The k-th canvas card with a value is the k-th choice with that value IN
+  // THE CONTENT THE CANVAS WAS PAINTED FROM. Counted in the current model, a
+  // change not yet painted (a twin given its own value) moved every later
+  // twin's place, and a click on the painted Beta acted on Delta (review 13
+  // MAJOR-1). When the canvas is current the two are the same content.
   function canvasChoiceIndex(qid, value, seen) {
+    var pn = typeof paintedNode !== 'undefined' ? paintedNode(qid) : null;
     var ref = findRef(qid), k, i, hit = 0;
-    if (!ref || !ref.node || !ref.node.choices) { return -1; }
+    var list = pn && pn.choices ? pn.choices : (ref && ref.node ? ref.node.choices : null);
+    if (!list) { return -1; }
     if (!seen[qid]) { seen[qid] = {}; }
     k = seen[qid][value] || 0;
     seen[qid][value] = k + 1;
-    for (i = 0; i < ref.node.choices.length; i++) {
-      if (String(ref.node.choices[i].value) === String(value)) {
+    for (i = 0; i < list.length; i++) {
+      if (String(list[i].value) === String(value)) {
         if (hit === k) { return i; }
         hit += 1;
       }
@@ -9115,7 +9166,7 @@ export const SECTION_STUDIO_SCRIPT = `
     return found;
   }
   function selectComponent(qid) {
-    if (typeof choiceActionsDisarmed !== 'undefined') { choiceActionsDisarmed = false; }
+    if (typeof clearDisarm !== 'undefined') { clearDisarm(); }
     // m3 (adversarial re-review) extra robustness: a selection change is the
     // other place a stale width-drag (moved, but its own mouseup was lost
     // off-window) should be torn down proactively — see afterModelChange's
@@ -9176,6 +9227,8 @@ export const SECTION_STUDIO_SCRIPT = `
     selectedChoiceIndex = at;
     selectedChoiceValue = String(c.value);
     if (typeof selectedChoiceRow !== 'undefined') { selectedChoiceRow = row; }
+    // selecting by its row is a selection too (review 13 MINOR-1)
+    if (typeof clearDisarm !== 'undefined') { clearDisarm(); }
     choiceScopeLabel = labelInput ? labelInput.value : (c.label !== undefined ? String(c.label) : '');
     setScope('choice');
     if (typeof applyCanvasDecoration !== 'undefined') { applyCanvasDecoration(); }
@@ -9246,7 +9299,7 @@ export const SECTION_STUDIO_SCRIPT = `
   // 1500px under the pointer, so a double-click edited another card, and the
   // focus in the inspector made the canvas Delete key do nothing).
   function selectChoice(qid, value, index, fromCanvas) {
-    if (typeof choiceActionsDisarmed !== 'undefined') { choiceActionsDisarmed = false; }
+    if (typeof clearDisarm !== 'undefined') { clearDisarm(); }
     selectedQuestionId = qid || null;
     var node = selectedNode();
     if (!node || typeMeta(node.type).choice !== true) { selectComponent(qid); return; }
@@ -15701,7 +15754,7 @@ export const SECTION_STUDIO_SCRIPT = `
       var cardEl = pressed && pressed.closest ? pressed.closest('[data-lg-choice]') : null;
       if (cardEl && typeMeta(ref.node.type).choice === true) {
         ev.preventDefault();
-        if (typeof canvasIsCurrent !== 'undefined' && !canvasIsCurrent()) { canvasBehindRefusal(); return; }
+        if (typeof canvasIsCurrent !== 'undefined' && !canvasIsCurrent()) { canvasBehindRefusal(true); return; }
         var choiceKey = choiceKeyOfEl(cardEl);
         var cardTitle = cardEl.querySelector('.lg-card-title') || cardEl;
         // a plain answer button has no title element: the studio's own marks
@@ -15899,6 +15952,9 @@ export const SECTION_STUDIO_SCRIPT = `
     if (!target || !target.addEventListener) { return; }
     target.addEventListener('mousedown', noteFirstPress, true);
     target.addEventListener('mousedown', keepInlineEditOnCardPress, true);
+    target.addEventListener('mousedown', canvasPressStart, true);
+    target.addEventListener('mouseup', canvasPressEnd, true);
+    target.addEventListener('dragend', canvasPressEnd, true);
     target.addEventListener('click', onCanvasClick);
     target.addEventListener('dblclick', onCanvasDblClick);
     target.addEventListener('mousedown', onCanvasMouseDown);
@@ -19257,6 +19313,10 @@ export const SECTION_STUDIO_SCRIPT = `
   reopenScrollPending = (function () { try { return !!new URLSearchParams(window.location.search).get('q'); } catch (eQ) { return false; } })();
   // the canvas on screen is the server's render of the content as loaded
   canvasPaintedJson = JSON.stringify(state.content);
+  // (no window 'blur': a press inside the canvas frame moves the focus into
+  // the frame, which blurs this window and ended the press at once; the 3 s
+  // safety in canvasPressStart covers a release that never arrives)
+  document.addEventListener('mouseup', canvasPressEnd, true);
   // every refusal note shows in the notice stack on the window, where it is
   // seen (review 12 R12-A: the static note was 172-1382px off screen)
   (function () {

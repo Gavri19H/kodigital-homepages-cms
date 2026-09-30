@@ -9438,59 +9438,103 @@ describeDb("OWNER 2026-09-28 review round 1 — answer keys, Other values, typed
     expect(island.match(/'Choice ' \+ choiceNo \+/g)?.length).toBe(2);
   });
 
-  it("review 12 (MAJOR-A/B): while behind, a card acts exactly when the model's choice at its place is the one PAINTED there; a refused action holds Delete and the choice actions until a new selection", async () => {
+  it("review 13 (MAJOR-1): the card's place is counted in the PAINTED content — after a twin gets its own value, the painted Beta card is Beta, never Delta (real stamping + real paint-match)", async () => {
     const { env } = newHarness();
     const html = await studioPage(env, (await createSection(env)).public_id);
     const island = studioIsland(html);
     const painted = { components: [
-      { question_id: "q9_tw", choices: [{ label: "AlphaN9", value: "tx" }, { label: "BetaN9", value: "tx" }, { label: "GammaN9", value: "tg" }] },
-      { question_id: "q9_dis", choices: [{ label: "OpenN9", value: "do" }, { label: "ShutN9", value: "ds" }, { label: "AjarN9", value: "da" }] },
+      { question_id: "q9_tw", choices: [{ label: "AlphaN9", value: "tx" }, { label: "BetaN9", value: "tx" }, { label: "DeltaN9", value: "tx" }] },
+      { question_id: "q9_dis", choices: [{ label: "OpenN9", value: "do" }, { label: "ShutN9", value: "ds" }] },
     ] };
     const model = JSON.parse(JSON.stringify(painted));
     const sandbox: Record<string, unknown> = {
-      current: false,
+      current: true,
       canvasIsCurrent: () => sandbox["current"],
       findRef: (qid: string) => { for (const n of model.components) { if (n.question_id === qid) return { node: n }; } return null; },
       walkTree: (list: Array<{ question_id: string }>, _d: number, fn: (n: unknown) => void) => { for (const n of list) fn(n); },
     };
     runInNewContext([
       "var canvasPaintedJson = null, paintedCacheJson = null, paintedCacheParsed = null;",
+      sliceIslandFunction(island, "paintedNode"),
       sliceIslandFunction(island, "paintedChoiceAt"),
+      sliceIslandFunction(island, "canvasChoiceIndex"),
       sliceIslandFunction(island, "canvasCardMatchesPaint"),
     ].join("\n"), sandbox);
     sandbox["canvasPaintedJson"] = JSON.stringify(painted);
+    // the painted DOM order for q9_tw: three "tx" cards (Alpha, Beta, Delta) — stamp them as decorateChoiceCards does
+    const stamps = () => runInNewContext("(function () { var seen = {}; return ['tx', 'tx', 'tx'].map(function (v) { return canvasChoiceIndex('q9_tw', v, seen); }); })()", sandbox);
+    expect(stamps(), "current canvas: places 0,1,2").toEqual([0, 1, 2]);
+    // the operator gives AlphaN9 its own value; the canvas is behind (not repainted yet)
+    model.components[0].choices[0].value = "zc13";
+    sandbox["current"] = false;
+    expect(stamps(), "counted in the PAINTED content: still 0,1,2 (counted in the model it was 1,2,-1)").toEqual([0, 1, 2]);
     const ok = (qid: string, index: number, value: string) => runInNewContext(`canvasCardMatchesPaint(${JSON.stringify(qid)}, { index: ${index}, value: ${JSON.stringify(value)} })`, sandbox);
-    // MAJOR-A: a no-op change queued a refresh; nothing differs from the paint → the click acts
-    expect(ok("q9_tw", 1, "tx"), "the model equals the paint").toBe(true);
-    // MAJOR-B: a refused duplicate put back in ANOTHER question, or another choice of the same one → the clicked card is as painted
-    model.components[1].choices[2].value = "da2";
-    expect(ok("q9_tw", 2, "tg"), "cross-question change").toBe(true);
-    expect(ok("q9_dis", 1, "ds"), "same question, another choice changed").toBe(true);
-    expect(ok("q9_dis", 2, "da"), "the changed choice itself is refused").toBe(false);
-    // review 11 MAJOR-1: a twin swap keeps "tx" at #0 but it is BetaN9 now → refused
-    const ch = model.components[0].choices; [ch[0], ch[1]] = [ch[1], ch[0]];
-    expect(ok("q9_tw", 0, "tx"), "the wrong twin is never acted on").toBe(false);
-    sandbox["current"] = true;
-    expect(ok("q9_tw", 0, "tx"), "a current canvas never refuses").toBe(true);
-    // wiring: the card click and its ✕
-    expect(island).toContain("!canvasIsCurrent() && !canvasCardMatchesPaint(el.getAttribute('data-question-id'), choiceKeyOfEl(cardEl))) { canvasBehindRefusal(); return; }");
-    expect(island).toContain("!canvasIsCurrent() && !canvasCardMatchesPaint(xBtn.getAttribute('data-choice-x-qid'), choiceKeyOfEl(xBtn, 'data-choice-x', 'data-choice-x-index'))) { canvasBehindRefusal(); return; }");
-    expect(island).toContain("if (typeof canvasPaintedJson !== 'undefined') { canvasPaintedJson = canvasBody.content_json; }");
-    expect(island).toContain("canvasPaintedJson = JSON.stringify(state.content);");
-    // the disarm: a refused action sets it; any selection clears it; Delete and the choice actions refuse while it is set
+    // the painted Beta card (place 1): the model's choice 1 is Beta, unchanged → it acts, on Beta
+    expect(ok("q9_tw", 1, "tx")).toBe(true);
+    expect(model.components[0].choices[1].label).toBe("BetaN9");
+    // the painted Alpha card (place 0): the model's choice 0 changed → refused
+    expect(ok("q9_tw", 0, "tx")).toBe(false);
+    // a twin swap keeps "tx" at 0 but it is another choice → refused (review 11 MAJOR-1)
+    const ch = model.components[0].choices; [ch[1], ch[2]] = [ch[2], ch[1]];
+    expect(ok("q9_tw", 1, "tx"), "the painted Beta place now holds Delta").toBe(false);
+    // another question, unchanged → acts (review 12 MAJOR-A/B)
+    expect(ok("q9_dis", 1, "ds")).toBe(true);
+    expect(island).toContain("var pn = typeof paintedNode !== 'undefined' ? paintedNode(qid) : null;");
+  });
+
+  it("review 13 (MAJOR-2, MINOR-1..3): a paint that lands during a press waits for the release (the pressed card is still there for its click); every selection clears the Delete hold and its note; a double-click refusal does not arm it", async () => {
+    const { env } = newHarness();
+    const html = await studioPage(env, (await createSection(env)).public_id);
+    const island = studioIsland(html);
+    const timers: Array<() => void> = [];
+    const painted: number[] = [];
+    const sandbox: Record<string, unknown> = { setTimeout: (fn: () => void) => { timers.push(fn); return timers.length; }, clearTimeout: () => undefined };
+    runInNewContext([
+      "var canvasPressActive = false, pendingPaint = null, pressSafetyTimer = null;",
+      sliceIslandFunction(island, "holdPaintForPress"),
+      sliceIslandFunction(island, "flushPendingPaint"),
+      sliceIslandFunction(island, "canvasPressStart"),
+      sliceIslandFunction(island, "canvasPressEnd"),
+    ].join("\n"), sandbox);
+    sandbox["paint"] = (rev: number) => () => painted.push(rev);
+    expect(runInNewContext("holdPaintForPress(1, paint(1))", sandbox), "no press: paint at once").toBe(false);
+    runInNewContext("canvasPressStart()", sandbox);
+    expect(runInNewContext("holdPaintForPress(2, paint(2))", sandbox)).toBe(true);
+    expect(runInNewContext("holdPaintForPress(3, paint(3))", sandbox)).toBe(true);
+    expect(runInNewContext("holdPaintForPress(2, paint(2))", sandbox), "an older one never replaces the newest").toBe(true);
+    expect(painted).toEqual([]);
+    runInNewContext("canvasPressEnd()", sandbox);
+    expect(painted, "nothing before the click has been dispatched").toEqual([]);
+    // the release's setTimeout(…, 0) runs after the click: only the newest waiting paint
+    timers[timers.length - 1]!();
+    expect(painted).toEqual([3]);
+    expect(island).toContain("if (typeof holdPaintForPress !== 'undefined' && holdPaintForPress(renderingRev, paintNow)) { return; }");
+    expect(island).toContain("target.addEventListener('mousedown', canvasPressStart, true);");
+    expect(island).toContain("document.addEventListener('mouseup', canvasPressEnd, true);");
+    // a press inside the canvas frame blurs this window: a blur listener ended the press at once and the paint landed under it
+    expect(island).not.toContain("window.addEventListener('blur', canvasPressEnd)");
+    // the Delete hold: a refused action arms it; every selection path clears it (and its note)
     const notes: string[] = [];
-    const sb2: Record<string, unknown> = { showRefusal: (t: string) => notes.push(t) };
-    runInNewContext([sliceIslandLine(island, "var choiceActionsDisarmed = false;"), sliceIslandLine(island, "var DISARMED_NOTE = "), sliceIslandFunction(island, "disarmedRefusal")].join("\n"), sb2);
-    expect(runInNewContext("disarmedRefusal()", sb2)).toBe(false);
+    let cleared = 0;
+    const note = { textContent: "" };
+    const sb2: Record<string, unknown> = {
+      showRefusal: (t: string) => { notes.push(t); note.textContent = t; },
+      clearRefusal: () => { cleared++; note.textContent = ""; },
+      document: { querySelector: () => note },
+    };
+    runInNewContext([sliceIslandLine(island, "var choiceActionsDisarmed = false;"), sliceIslandLine(island, "var DISARMED_NOTE = "), sliceIslandFunction(island, "clearDisarm"), sliceIslandFunction(island, "disarmedRefusal")].join("\n"), sb2);
     runInNewContext("choiceActionsDisarmed = true", sb2);
     expect(runInNewContext("disarmedRefusal()", sb2)).toBe(true);
-    expect(notes).toEqual(["Your last click on the canvas did not select anything — click the card again first."]);
-    expect(sliceIslandFunction(island, "canvasBehindRefusal")).toContain("choiceActionsDisarmed = true;");
-    expect(sliceIslandFunction(island, "selectChoice")).toContain("choiceActionsDisarmed = false;");
-    expect(sliceIslandFunction(island, "selectComponent")).toContain("choiceActionsDisarmed = false;");
+    runInNewContext("clearDisarm()", sb2);
+    expect([runInNewContext("choiceActionsDisarmed", sb2), cleared, note.textContent], "a selection clears the hold and its note").toEqual([false, 1, ""]);
+    expect(runInNewContext("disarmedRefusal()", sb2)).toBe(false);
+    for (const fn of ["selectChoice", "selectComponent", "pointChoiceAtRow"]) {
+      expect(sliceIslandFunction(island, fn), fn + " clears it").toContain("if (typeof clearDisarm !== 'undefined') { clearDisarm(); }");
+    }
+    expect(sliceIslandFunction(island, "canvasBehindRefusal")).toContain("if (typeof choiceActionsDisarmed !== 'undefined' && !selectionStands) { choiceActionsDisarmed = true; }");
+    expect(sliceIslandFunction(island, "onCanvasDblClick")).toContain("canvasBehindRefusal(true); return; }");
     expect(sliceIslandFunction(island, "deleteSelectedWithUndo")).toContain("if (typeof disarmedRefusal !== 'undefined' && disarmedRefusal()) { return; }");
     expect(sliceIslandFunction(island, "handleChoiceAct")).toContain("if (typeof disarmedRefusal !== 'undefined' && disarmedRefusal()) { return; }");
-    expect(island).not.toContain("canvasKeyStillTrue");
   });
 
   it("review 12 (R12-A, MINOR-1, MINOR-2): the refusal note shows in the notice stack; a disabled ⋮ button looks disabled; a save note names an Other value as an Other value", async () => {
