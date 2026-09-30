@@ -9438,16 +9438,79 @@ describeDb("OWNER 2026-09-28 review round 1 — answer keys, Other values, typed
     expect(island.match(/'Choice ' \+ choiceNo \+/g)?.length).toBe(2);
   });
 
-  it("review 11 (MAJOR-1, MINOR-3): no card acts while the canvas is behind (the value-only check hit the wrong twin), and the Delete key waits too", async () => {
+  it("review 12 (MAJOR-A/B): while behind, a card acts exactly when the model's choice at its place is the one PAINTED there; a refused action holds Delete and the choice actions until a new selection", async () => {
     const { env } = newHarness();
     const html = await studioPage(env, (await createSection(env)).public_id);
     const island = studioIsland(html);
+    const painted = { components: [
+      { question_id: "q9_tw", choices: [{ label: "AlphaN9", value: "tx" }, { label: "BetaN9", value: "tx" }, { label: "GammaN9", value: "tg" }] },
+      { question_id: "q9_dis", choices: [{ label: "OpenN9", value: "do" }, { label: "ShutN9", value: "ds" }, { label: "AjarN9", value: "da" }] },
+    ] };
+    const model = JSON.parse(JSON.stringify(painted));
+    const sandbox: Record<string, unknown> = {
+      current: false,
+      canvasIsCurrent: () => sandbox["current"],
+      findRef: (qid: string) => { for (const n of model.components) { if (n.question_id === qid) return { node: n }; } return null; },
+      walkTree: (list: Array<{ question_id: string }>, _d: number, fn: (n: unknown) => void) => { for (const n of list) fn(n); },
+    };
+    runInNewContext([
+      "var canvasPaintedJson = null, paintedCacheJson = null, paintedCacheParsed = null;",
+      sliceIslandFunction(island, "paintedChoiceAt"),
+      sliceIslandFunction(island, "canvasCardMatchesPaint"),
+    ].join("\n"), sandbox);
+    sandbox["canvasPaintedJson"] = JSON.stringify(painted);
+    const ok = (qid: string, index: number, value: string) => runInNewContext(`canvasCardMatchesPaint(${JSON.stringify(qid)}, { index: ${index}, value: ${JSON.stringify(value)} })`, sandbox);
+    // MAJOR-A: a no-op change queued a refresh; nothing differs from the paint → the click acts
+    expect(ok("q9_tw", 1, "tx"), "the model equals the paint").toBe(true);
+    // MAJOR-B: a refused duplicate put back in ANOTHER question, or another choice of the same one → the clicked card is as painted
+    model.components[1].choices[2].value = "da2";
+    expect(ok("q9_tw", 2, "tg"), "cross-question change").toBe(true);
+    expect(ok("q9_dis", 1, "ds"), "same question, another choice changed").toBe(true);
+    expect(ok("q9_dis", 2, "da"), "the changed choice itself is refused").toBe(false);
+    // review 11 MAJOR-1: a twin swap keeps "tx" at #0 but it is BetaN9 now → refused
+    const ch = model.components[0].choices; [ch[0], ch[1]] = [ch[1], ch[0]];
+    expect(ok("q9_tw", 0, "tx"), "the wrong twin is never acted on").toBe(false);
+    sandbox["current"] = true;
+    expect(ok("q9_tw", 0, "tx"), "a current canvas never refuses").toBe(true);
+    // wiring: the card click and its ✕
+    expect(island).toContain("!canvasIsCurrent() && !canvasCardMatchesPaint(el.getAttribute('data-question-id'), choiceKeyOfEl(cardEl))) { canvasBehindRefusal(); return; }");
+    expect(island).toContain("!canvasIsCurrent() && !canvasCardMatchesPaint(xBtn.getAttribute('data-choice-x-qid'), choiceKeyOfEl(xBtn, 'data-choice-x', 'data-choice-x-index'))) { canvasBehindRefusal(); return; }");
+    expect(island).toContain("if (typeof canvasPaintedJson !== 'undefined') { canvasPaintedJson = canvasBody.content_json; }");
+    expect(island).toContain("canvasPaintedJson = JSON.stringify(state.content);");
+    // the disarm: a refused action sets it; any selection clears it; Delete and the choice actions refuse while it is set
+    const notes: string[] = [];
+    const sb2: Record<string, unknown> = { showRefusal: (t: string) => notes.push(t) };
+    runInNewContext([sliceIslandLine(island, "var choiceActionsDisarmed = false;"), sliceIslandLine(island, "var DISARMED_NOTE = "), sliceIslandFunction(island, "disarmedRefusal")].join("\n"), sb2);
+    expect(runInNewContext("disarmedRefusal()", sb2)).toBe(false);
+    runInNewContext("choiceActionsDisarmed = true", sb2);
+    expect(runInNewContext("disarmedRefusal()", sb2)).toBe(true);
+    expect(notes).toEqual(["Your last click on the canvas did not select anything — click the card again first."]);
+    expect(sliceIslandFunction(island, "canvasBehindRefusal")).toContain("choiceActionsDisarmed = true;");
+    expect(sliceIslandFunction(island, "selectChoice")).toContain("choiceActionsDisarmed = false;");
+    expect(sliceIslandFunction(island, "selectComponent")).toContain("choiceActionsDisarmed = false;");
+    expect(sliceIslandFunction(island, "deleteSelectedWithUndo")).toContain("if (typeof disarmedRefusal !== 'undefined' && disarmedRefusal()) { return; }");
+    expect(sliceIslandFunction(island, "handleChoiceAct")).toContain("if (typeof disarmedRefusal !== 'undefined' && disarmedRefusal()) { return; }");
     expect(island).not.toContain("canvasKeyStillTrue");
-    expect(island).toContain("if (xBtn && typeof canvasIsCurrent !== 'undefined' && !canvasIsCurrent()) { canvasBehindRefusal(); return; }");
-    const key = sliceIslandFunction(island, "onCanvasKeyDown");
-    const del = key.indexOf("else if (ev.key === 'Delete' || ev.key === 'Backspace') {");
-    expect(key.indexOf("if (typeof canvasIsCurrent !== 'undefined' && !canvasIsCurrent()) { canvasBehindRefusal(); return; }", del), "the Delete key refuses while behind").toBeGreaterThan(del);
-    expect(key.indexOf("deleteSelectedWithUndo(selectedQuestionId);", del)).toBeGreaterThan(key.indexOf("canvasBehindRefusal(); return; }", del));
+  });
+
+  it("review 12 (R12-A, MINOR-1, MINOR-2): the refusal note shows in the notice stack; a disabled ⋮ button looks disabled; a save note names an Other value as an Other value", async () => {
+    const { env } = newHarness();
+    const html = await studioPage(env, (await createSection(env)).public_id);
+    const island = studioIsland(html);
+    expect(island).toContain("if (refusalNote && typeof noticeStack !== 'undefined') { noticeStack().appendChild(refusalNote); }");
+    expect(html).toContain(".studio-tb-more-panel button:disabled{opacity:.45;cursor:not-allowed}");
+    const fn = sliceIslandFunction(island, "renderSaveProblems");
+    const inner = fn.slice(fn.indexOf("function rowContextLabel(rawPath) {"));
+    const body = inner.slice(0, inner.indexOf("\n    }\n") + 6);
+    const sandbox: Record<string, unknown> = {
+      componentByProblemPath: () => ({ type: "ButtonAnswerGroup", choices: [{ label: "AlphaN9", value: "tx" }, { label: "MidN9", value: "tm" }], props: { other: { choices: [{ label: "OthAN9", value: "ox9" }, { label: "", value: "oy9" }] } } }),
+    };
+    runInNewContext(body, sandbox);
+    const name = (path: string) => runInNewContext(`rowContextLabel(${JSON.stringify(path)})`, sandbox);
+    expect(name("components[1].props.other.choices[0].label")).toBe("Other value “OthAN9”: ");
+    expect(name("components[1].props.other.choices[1].label")).toBe("Other value 2 (saved value “oy9”): ");
+    expect(name("components[1].choices[1].label")).toBe("MidN9: ");
+    expect(island.match(/var otherMatch = p\.match\(/g)?.length, "both copies").toBe(2);
   });
 
   it("review 10: the Style panel fits the screen; every choice delete offers Undo; a canvas add does not scroll the page; the edited card's ✕ is hidden; a reopen link to a gone question still scrolls; moves keep the ⋮ panel open", async () => {
@@ -9540,7 +9603,9 @@ describeDb("OWNER 2026-09-28 review round 1 — answer keys, Other values, typed
     expect(island).toContain("doc.addEventListener('error', onFrameDocLoadCapture, true);");
     expect(island).toContain("reopenAnchorEl = selEl;\n      if (typeof keepReopenAnchor !== 'undefined') { keepReopenAnchor(); }");
     expect(island).toContain("if ((!withinPanel && !onToggle) || onAction) { closeMorePanel(); }");
-    expect(island).toContain("window.addEventListener('resize', function () { closeMorePanel(); if (typeof renderToolbarProblems !== 'undefined') { renderToolbarProblems(); } });");
+    // review 12 MINOR-3 / R12-B: only a width change closes the panel and re-measures the problems line
+    expect(island).toContain("if (w === lastResizeWidth) { return; }");
+    expect(island).toContain("closeMorePanel();\n      if (typeof renderToolbarProblems !== 'undefined') { renderToolbarProblems(); }");
     // F-E: the canvas-edit refresh renames the selected choice
     const renamed: string[] = [];
     const sandbox: Record<string, unknown> = {
