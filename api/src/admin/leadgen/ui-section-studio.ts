@@ -4116,11 +4116,11 @@ export const SECTION_STUDIO_STYLES = `
 .studio-breadcrumb button{border:0;background:none;color:#8A93A3;cursor:pointer;font-size:12.5px;font-weight:600;padding:0 2px;flex:0 1000 auto;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
 .studio-breadcrumb .studio-crumb-current{color:#1B3A5C;font-weight:700;background:#EAF0F6;padding:3px 9px;border-radius:6px;cursor:default;flex:0 1 auto;min-width:0;max-width:260px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
 .studio-breadcrumb span:not(.studio-crumb-current){color:#C2CACF;padding:0 1px;flex:none}
-.studio-toolbar-problems{font-size:11px;color:#842029;flex:1 1 100%;min-height:15px;line-height:15px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;cursor:pointer;position:relative;padding-right:14px}
-.studio-toolbar-problems:empty{cursor:default}
-.studio-toolbar-problems:not(:empty)::after{content:"\\25BE";position:absolute;right:2px;top:0}
-.studio-toolbar-problems.is-open{white-space:normal;cursor:default}
-.studio-toolbar-problems.is-open::after{content:"\\25B4"}
+.studio-toolbar-problems{font-size:11px;color:#842029;flex:1 1 100%;min-height:15px;line-height:15px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;position:relative;padding-right:18px}
+.studio-toolbar-problems.is-cut,.studio-toolbar-problems.is-open{cursor:pointer}
+.studio-toolbar-problems.is-cut::after{content:"\\25BE";position:absolute;right:2px;top:0;font-size:13px;line-height:15px}
+.studio-toolbar-problems.is-open{white-space:normal}
+.studio-toolbar-problems.is-open::after{content:"\\25B4";position:absolute;right:2px;top:0;font-size:13px;line-height:15px}
 .studio-control-invalid{outline:2px solid ${STUDIO_COLOR.danger};outline-offset:1px}
 /* LeadGen Rework §6.9 phone mask builder + §6.8 slider-type picker + §6.10
    address field-set editor — studio inspector chrome (server-rendered admin,
@@ -4727,17 +4727,6 @@ export const SECTION_STUDIO_SCRIPT = `
     return { index: typeof selectedChoiceIndex === 'number' ? selectedChoiceIndex : -1, value: selectedChoiceValue };
   }
   // A canvas card's key: its stamped position (applyCanvasDecoration) + value.
-  // While the canvas is behind the model, a card is still safe to act on
-  // when its stamped position holds that same saved value in the model now.
-  // Leaving an inspector box after a REAL change (a refused duplicate put
-  // back, a value rename) refused the very next canvas click, and a Delete
-  // then removed the box's choice instead (review 10 re-check).
-  function canvasKeyStillTrue(qid, key) {
-    if (typeof canvasIsCurrent === 'undefined' || canvasIsCurrent()) { return true; }
-    var ref = qid ? findRef(qid) : null;
-    var c = ref && ref.node && ref.node.choices && key && key.index >= 0 ? ref.node.choices[key.index] : null;
-    return !!(c && key.value !== null && String(c.value) === String(key.value));
-  }
   function choiceKeyOfEl(el, valueAttr, indexAttr) {
     var raw = el ? el.getAttribute(indexAttr || 'data-studio-choice-index') : null;
     var idx = raw === null || raw === '' ? -1 : Number(raw);
@@ -7212,21 +7201,17 @@ export const SECTION_STUDIO_SCRIPT = `
     banner.hidden = !shown;
   }
 
-  // The whole model as the save and the canvas see it. A change event that
-  // changed nothing (a box left after its input events already applied the
-  // text) queued a canvas refresh; the canvas was then "behind" and the very
-  // click that left the box was refused (review 10 MAJOR-2).
-  var lastModelChangeSig = null;
-  function modelChangeSig() {
-    var h = document.getElementById('lg-section-headline'), sh = document.getElementById('lg-section-subheadline');
-    try { return historyState() + '|' + JSON.stringify(state) + '|' + (h ? h.value : '') + '|' + (sh ? sh.value : ''); } catch (eSig) { return null; }
+  // A choices box left after its input events already applied its text
+  // fires a 'change' that changes nothing; it queued a canvas refresh, the
+  // canvas was then "behind", and the very click that left the box was
+  // refused (review 10 MAJOR-2). Checked against the history's OWN last
+  // step, which Undo and Redo keep current — a separately remembered model
+  // went stale after an Undo and swallowed the same edit made again
+  // (review 11 BLOCKER-1).
+  function modelUnchangedSinceLastStep() {
+    return typeof historyState !== 'undefined' && typeof lastSnapshot !== 'undefined' && lastSnapshot !== null && historyState() === lastSnapshot;
   }
   function afterModelChange() {
-    if (typeof modelChangeSig !== 'undefined') {
-      var sigNow = modelChangeSig();
-      if (sigNow !== null && sigNow === lastModelChangeSig) { return; }
-      lastModelChangeSig = sigNow;
-    }
     // m3 (adversarial re-review) extra robustness: ANY other model mutation
     // proactively tears down a still-registered width-drag (the "moved then
     // the mouseup got lost off-window" case, where the drag's OWN moved flag
@@ -8951,7 +8936,7 @@ export const SECTION_STUDIO_SCRIPT = `
     // A longer sentence ends in an ellipsis with a chevron; a tap shows it
     // whole (review 9 m9-1 / 10 MINOR-2: a phone has no hover).
     el.hidden = false;
-    el.className = withoutClasses(el.className, ['is-open']);
+    el.className = withoutClasses(el.className, ['is-open', 'is-cut']);
     if (!node) { el.textContent = ''; el.title = ''; return; }
     var issues = computeIssues();
     var mine = [];
@@ -8959,6 +8944,8 @@ export const SECTION_STUDIO_SCRIPT = `
     if (mine.length === 0) { el.textContent = ''; el.title = ''; return; }
     el.textContent = mine[0].message + (mine.length > 1 ? ' (+' + (mine.length - 1) + ' more)' : '');
     el.title = el.textContent;
+    // the ▾ only when the line really is cut (review 11 MINOR-6)
+    if (el.scrollWidth > el.clientWidth + 1) { el.className = el.className + ' is-cut'; }
     var key, ctl;
     for (i = 0; i < mine.length; i++) {
       key = issueControlKeyOf(mine[i].message);
@@ -9024,6 +9011,12 @@ export const SECTION_STUDIO_SCRIPT = `
     if (disBtn) { disBtn.hidden = !choiceActOffered(node, 'disabled'); disBtn.setAttribute('aria-pressed', c && c.disabled === true ? 'true' : 'false'); }
     var imgBtn = document.querySelector('[data-choice-act="image"]');
     if (imgBtn) { imgBtn.hidden = !choiceActOffered(node, 'image'); }
+    // a move past either end does nothing, so it is not offered (review 11 MINOR-2)
+    var selAt = (node && choiceFocused && typeof choiceIndexOf !== 'undefined') ? choiceIndexOf(node, selectedChoiceKey()) : -1;
+    var leftBtn = document.querySelector('[data-choice-act="left"]');
+    var rightBtn = document.querySelector('[data-choice-act="right"]');
+    if (leftBtn) { leftBtn.disabled = selAt <= 0; }
+    if (rightBtn) { rightBtn.disabled = selAt === -1 || !node.choices || selAt >= node.choices.length - 1; }
     updateHistoryButtons();
     renderToolbarProblems();
   }
@@ -14248,6 +14241,7 @@ export const SECTION_STUDIO_SCRIPT = `
     }
     cleanupEmpty(node, 'props');
     if (typeof refreshProviderChips === 'function') { refreshProviderChips(); }
+    if (typeof modelUnchangedSinceLastStep !== 'undefined' && modelUnchangedSinceLastStep()) { return; }
     afterModelChange();
   }
 
@@ -14667,6 +14661,7 @@ export const SECTION_STUDIO_SCRIPT = `
     // OWNER 2026-09-28: a choice change can block (or unblock) a mapping — every
     // open Provider values row and chip re-reads the model, never a stale "sends".
     if (typeof refreshProviderChips === 'function') { refreshProviderChips(); }
+    if (typeof modelUnchangedSinceLastStep !== 'undefined' && modelUnchangedSinceLastStep()) { return; }
     afterModelChange();
   }
   function parseBulkChoices(text, req) {
@@ -15569,7 +15564,7 @@ export const SECTION_STUDIO_SCRIPT = `
       }
       // §6.2 inline choice ops: per-choice ✕ + the "+ Add choice" ghost tile.
       var xBtn = ev.target && ev.target.closest ? ev.target.closest('[data-choice-x]') : null;
-      if (xBtn && typeof canvasIsCurrent !== 'undefined' && !canvasIsCurrent() && !canvasKeyStillTrue(xBtn.getAttribute('data-choice-x-qid'), choiceKeyOfEl(xBtn, 'data-choice-x', 'data-choice-x-index'))) { canvasBehindRefusal(); return; }
+      if (xBtn && typeof canvasIsCurrent !== 'undefined' && !canvasIsCurrent()) { canvasBehindRefusal(); return; }
       if (xBtn) {
         var xRef = findRef(xBtn.getAttribute('data-choice-x-qid'));
         if (xRef) {
@@ -15596,7 +15591,14 @@ export const SECTION_STUDIO_SCRIPT = `
           // a canvas action: the new card is selected without scrolling the page to its
           // inspector row (review 10 MINOR-4: at 375 the page scrolled between the two
           // clicks of a double-click and the second one opened another row's Style)
-          if (added) { selectChoice(gRef.node.question_id, String(added.value), gRef.node.choices.length - 1, true); }
+          if (added) {
+            selectChoice(gRef.node.question_id, String(added.value), gRef.node.choices.length - 1, true);
+            // typing names the new choice (review 11 MINOR-1: it went nowhere and a
+            // Backspace deleted the new card); the page does not scroll to the row
+            var newRows = document.querySelectorAll('[data-inspector-choices] [data-choice-row]');
+            var newLabel = newRows.length ? newRows[newRows.length - 1].querySelector('[data-choice-field="label"]') : null;
+            if (newLabel && newLabel.focus) { try { newLabel.focus({ preventScroll: true }); } catch (eFocus) { newLabel.focus(); } if (newLabel.select) { newLabel.select(); } }
+          }
         }
         return;
       }
@@ -15626,7 +15628,7 @@ export const SECTION_STUDIO_SCRIPT = `
       // component (the inspector opens the Choices tab at that row).
       var cardEl = ev.target && ev.target.closest ? ev.target.closest('[data-lg-choice]') : null;
       if (cardEl && el.contains(cardEl) && typeMeta(el.getAttribute('data-component-type')).choice === true) {
-        if (typeof canvasIsCurrent !== 'undefined' && !canvasIsCurrent() && !canvasKeyStillTrue(el.getAttribute('data-question-id'), choiceKeyOfEl(cardEl))) { canvasBehindRefusal(); return; }
+        if (typeof canvasIsCurrent !== 'undefined' && !canvasIsCurrent()) { canvasBehindRefusal(); return; }
         selectChoice(el.getAttribute('data-question-id'), cardEl.getAttribute('data-lg-choice'), choiceKeyOfEl(cardEl).index, true);
         return;
       }
@@ -15822,6 +15824,10 @@ export const SECTION_STUDIO_SCRIPT = `
       // (not here) — this call site is unchanged.
       else if (ev.key === 'Delete' || ev.key === 'Backspace') {
         ev.preventDefault();
+        // like the toolbar's choice actions, the key waits while the canvas is
+        // behind: right after a refused click it removed the choice selected
+        // BEFORE that click (review 11 MINOR-3)
+        if (typeof canvasIsCurrent !== 'undefined' && !canvasIsCurrent()) { canvasBehindRefusal(); return; }
         deleteSelectedWithUndo(selectedQuestionId);
       } else if (ev.key === 'Escape') {
         ev.preventDefault();
@@ -16215,7 +16221,8 @@ export const SECTION_STUDIO_SCRIPT = `
     toolbarProblemsEl.addEventListener('click', function () {
       if (this.textContent === '') { return; }
       var open = (' ' + this.className + ' ').indexOf(' is-open ') !== -1;
-      this.className = open ? withoutClasses(this.className, ['is-open']) : withoutClasses(this.className, ['is-open']) + ' is-open';
+      if (!open && (' ' + this.className + ' ').indexOf(' is-cut ') === -1) { return; }
+      this.className = open ? withoutClasses(this.className, ['is-open']) + ' is-cut' : withoutClasses(this.className, ['is-open', 'is-cut']) + ' is-open';
     });
   }
   var moreToggleBtn = document.querySelector('[data-studio-more-toggle]');
@@ -16237,13 +16244,14 @@ export const SECTION_STUDIO_SCRIPT = `
     var onToggle = ev.target && ev.target.closest && ev.target.closest('[data-studio-more-toggle]');
     // an action taken from the panel closes it, like any menu (review 9c F-F:
     // it stayed open over the note the action showed)
-    // moves are repeated, so they keep it open (a move of N places took 2N clicks)
-    var onAction = withinPanel && ev.target.closest('button') && !ev.target.closest('[data-choice-act="left"],[data-choice-act="right"],[data-studio-act="move-up"],[data-studio-act="move-down"]');
+    // every action closes it, moves too: kept open, a moved card could be
+    // off screen and the move went unseen (review 11 MINOR-4)
+    var onAction = withinPanel && ev.target.closest('button');
     if ((!withinPanel && !onToggle) || onAction) { closeMorePanel(); }
   });
   // it is placed under its button when it opens; a resize closes it rather
   // than leave it where the button used to be (review 9c F-F)
-  if (window.addEventListener) { window.addEventListener('resize', function () { closeMorePanel(); }); }
+  if (window.addEventListener) { window.addEventListener('resize', function () { closeMorePanel(); if (typeof renderToolbarProblems !== 'undefined') { renderToolbarProblems(); } }); }
   var chipEl = document.querySelector('[data-studio-validation-chip]');
   if (chipEl) { chipEl.addEventListener('click', function () { setDrawerTab('validation'); }); }
   var openMapping = document.querySelector('[data-studio-open-mapping-drawer]');
@@ -18863,7 +18871,10 @@ export const SECTION_STUDIO_SCRIPT = `
       if (choiceMatch && node.choices) {
         var choice = node.choices[Number(choiceMatch[1])];
         if (choice) {
-          var choiceName = (choice.label !== undefined && String(choice.label) !== '') ? String(choice.label) : (choice.value !== undefined ? String(choice.value) : 'choice ' + (Number(choiceMatch[1]) + 1));
+          // a choice with no label is named by its place, its saved value in
+          // brackets (review 11 R11-A: "tg: 'Label' is required" read as code)
+          var choiceNo = Number(choiceMatch[1]) + 1;
+          var choiceName = (choice.label !== undefined && String(choice.label) !== '') ? String(choice.label) : 'Choice ' + choiceNo + (choice.value !== undefined && String(choice.value) !== '' ? ' (saved value \\u201C' + String(choice.value) + '\\u201D)' : '');
           return choiceName + ': ';
         }
       }
@@ -18940,7 +18951,10 @@ export const SECTION_STUDIO_SCRIPT = `
       if (choiceMatch && node.choices) {
         var choice = node.choices[Number(choiceMatch[1])];
         if (choice) {
-          var choiceName = (choice.label !== undefined && String(choice.label) !== '') ? String(choice.label) : (choice.value !== undefined ? String(choice.value) : 'choice ' + (Number(choiceMatch[1]) + 1));
+          // a choice with no label is named by its place, its saved value in
+          // brackets (review 11 R11-A: "tg: 'Label' is required" read as code)
+          var choiceNo = Number(choiceMatch[1]) + 1;
+          var choiceName = (choice.label !== undefined && String(choice.label) !== '') ? String(choice.label) : 'Choice ' + choiceNo + (choice.value !== undefined && String(choice.value) !== '' ? ' (saved value \\u201C' + String(choice.value) + '\\u201D)' : '');
           return choiceName + ': ';
         }
       }

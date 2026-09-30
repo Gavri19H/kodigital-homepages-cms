@@ -9245,14 +9245,16 @@ describeDb("OWNER 2026-09-28 review round 1 — answer keys, Other values, typed
     const island = studioIsland(html);
     // the hold that kept the tallest height (and its empty bands) is gone
     expect(island).not.toContain("holdToolbarHeight");
-    expect(html).toContain(".studio-toolbar-problems{font-size:11px;color:#842029;flex:1 1 100%;min-height:15px;line-height:15px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;cursor:pointer;position:relative;padding-right:14px}");
-    expect(html).toContain(".studio-toolbar-problems.is-open{white-space:normal;cursor:default}");
+    expect(html).toContain(".studio-toolbar-problems{font-size:11px;color:#842029;flex:1 1 100%;min-height:15px;line-height:15px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;position:relative;padding-right:18px}");
+    expect(html).toContain(".studio-toolbar-problems.is-open{white-space:normal}");
     // review 10 MAJOR-1: one line kept in place even when empty (the line coming and going moved the canvas mid-click);
     // a chevron says a tap shows the whole sentence (MINOR-2)
-    expect(html).toContain('.studio-toolbar-problems:not(:empty)::after{content:"\\25BE";');
+    // review 11 MINOR-6: the ▾ only when the sentence really is cut, 13px
+    expect(html).toContain('.studio-toolbar-problems.is-cut::after{content:"\\25BE";position:absolute;right:2px;top:0;font-size:13px;');
+    expect(island).toContain("if (el.scrollWidth > el.clientWidth + 1) { el.className = el.className + ' is-cut'; }");
     expect(island).toContain("if (mine.length === 0) { el.textContent = ''; el.title = ''; return; }");
     expect(island).not.toContain("if (mine.length === 0) { el.hidden = true;");
-    expect(island).toContain("el.className = withoutClasses(el.className, ['is-open']);");
+    expect(island).toContain("el.className = withoutClasses(el.className, ['is-open', 'is-cut']);");
     expect(island).toContain("toolbarProblemsEl.addEventListener('click', function () {");
     // the breadcrumb never wraps the toolbar: a fixed basis, one line
     expect(html).toMatch(/\.studio-breadcrumb\{[^}]*min-height:24px[^}]*flex:1 1 260px;overflow:hidden;white-space:nowrap\}/);
@@ -9372,52 +9374,80 @@ describeDb("OWNER 2026-09-28 review round 1 — answer keys, Other values, typed
     expect(guard).toBeLessThan(fn.indexOf("selectChoice("));
   });
 
-  it("review 10 re-check: while the canvas is behind, a card click / ✕ still acts when its stamped position holds that value in the model now", async () => {
+  it("review 11 (BLOCKER-1, MAJOR-2): a no-op change queues nothing, checked against the history's own last step — the same edit made again after an Undo goes through (real history code)", async () => {
     const { env } = newHarness();
     const html = await studioPage(env, (await createSection(env)).public_id);
     const island = studioIsland(html);
+    const refreshed: string[] = [];
     const sandbox: Record<string, unknown> = {
-      current: false,
-      canvasIsCurrent: () => sandbox["current"],
-      findRef: (qid: string) => (qid === "q9_tw" ? { node: { choices: [{ value: "tx" }, { value: "tm" }, { value: "tx" }] } } : null),
+      state: { content: { components: [{ question_id: "q9_tw", choices: [{ label: "AlphaN9", value: "tx" }, { label: "GammaN9", value: "tg" }, { label: "DeltaN9", value: "tx" }] }] }, answer_maps: [], selected_offers: [] },
+      selectedQuestionId: null,
+      findRef: () => null,
+      typingFocus: () => null,
+      updateHistoryButtons: () => undefined,
+      refreshAfterHistory: () => { refreshed.push("history"); },
     };
-    runInNewContext(sliceIslandFunction(island, "canvasKeyStillTrue"), sandbox);
-    const ok = (qid: string, index: number, value: string | null) => runInNewContext(`canvasKeyStillTrue(${JSON.stringify(qid)}, { index: ${index}, value: ${JSON.stringify(value)} })`, sandbox);
-    expect(ok("q9_tw", 2, "tx"), "the second twin, still at its place").toBe(true);
-    expect(ok("q9_tw", 1, "tx"), "a stale card: its place now holds another value").toBe(false);
-    expect(ok("q9_tw", 5, "tx"), "a place that is gone").toBe(false);
-    expect(ok("q_gone", 0, "tx")).toBe(false);
-    sandbox["current"] = true;
-    expect(ok("q9_tw", 1, "tx"), "a current canvas never refuses").toBe(true);
-    // wired into the card click and the ✕; the double-click edit and the drags stay gated (stale text / order)
-    expect(island).toContain("!canvasIsCurrent() && !canvasKeyStillTrue(el.getAttribute('data-question-id'), choiceKeyOfEl(cardEl))) { canvasBehindRefusal(); return; }");
-    expect(island).toContain("!canvasIsCurrent() && !canvasKeyStillTrue(xBtn.getAttribute('data-choice-x-qid'), choiceKeyOfEl(xBtn, 'data-choice-x', 'data-choice-x-index'))) { canvasBehindRefusal(); return; }");
+    runInNewContext(
+      [
+        "var UNDO_LIMIT = 50, undoStack = [], redoStack = [], redoBeforePush = [], lastPushFocus = null;",
+        sliceIslandFunction(island, "historyState"),
+        "var lastSnapshot = historyState();",
+        sliceIslandFunction(island, "historyPush"),
+        sliceIslandFunction(island, "restoreMappings"),
+        sliceIslandFunction(island, "restoreSnapshot"),
+        sliceIslandFunction(island, "historyUndo"),
+        sliceIslandFunction(island, "modelUnchangedSinceLastStep"),
+        "function removeGamma() { var ch = state.content.components[0].choices; for (var i = 0; i < ch.length; i++) { if (ch[i].value === 'tg') { ch.splice(i, 1); return; } } }",
+      ].join("\n"),
+      sandbox,
+    );
+    const run = (code: string) => runInNewContext(code, sandbox);
+    // ✕ GammaN9: a real change, one history step
+    run("removeGamma()");
+    expect(run("modelUnchangedSinceLastStep()"), "a real change is not a no-op").toBe(false);
+    expect(run("historyPush()")).toBe(true);
+    // the box's 'change' after its input events: nothing new → no-op (review 10 MAJOR-2)
+    expect(run("modelUnchangedSinceLastStep()")).toBe(true);
+    // Undo, then ✕ GammaN9 again: NOT a no-op (review 11 BLOCKER-1 — a remembered model went stale here)
+    expect(run("historyUndo()")).toBe(true);
+    expect(run("state.content.components[0].choices.map(function (c) { return c.label; }).join(',')")).toBe("AlphaN9,GammaN9,DeltaN9");
+    run("removeGamma()");
+    expect(run("modelUnchangedSinceLastStep()"), "the same edit after an Undo goes through").toBe(false);
+    expect(run("historyPush()")).toBe(true);
+    // and the source: the guard sits in the two collectors only; afterModelChange has no model memory of its own
+    expect(island).not.toContain("lastModelChangeSig");
+    expect(island.match(/if \(typeof modelUnchangedSinceLastStep !== 'undefined' && modelUnchangedSinceLastStep\(\)\) \{ return; \}/g)?.length).toBe(2);
   });
 
-  it("review 10 (MAJOR-2): a change that changed nothing queues nothing — the click that left the box is not refused", async () => {
+  it("review 11 (R11-A): a save note names a choice with no label by its place, its saved value in brackets", async () => {
     const { env } = newHarness();
     const html = await studioPage(env, (await createSection(env)).public_id);
     const island = studioIsland(html);
-    const calls: string[] = [];
+    const fn = sliceIslandFunction(island, "renderSaveProblems");
+    const inner = fn.slice(fn.indexOf("function rowContextLabel(rawPath) {"));
+    const body = inner.slice(0, inner.indexOf("\n    }\n") + 6);
     const sandbox: Record<string, unknown> = {
-      state: { content: { components: [{ question_id: "q1", choices: [{ label: "Ajar", value: "a" }] }] } },
-      historyState: () => JSON.stringify((sandbox["state"] as { content: unknown }).content),
-      document: { getElementById: () => null },
+      componentByProblemPath: () => ({ type: "ButtonAnswerGroup", choices: [{ label: "AlphaN9", value: "tx" }, { label: "", value: "tg" }, { label: "" }] }),
     };
-    const stubs = ["activeWidthDragCleanup", "hideUndoToast", "markDirty", "historyPush", "clearRefusal", "renderIssues", "renderMapsBanner", "renderMapsJobRiskBanner", "renderBoundChips", "updatePaletteBindItems", "renderBindBanner", "renderOverrideDecorations", "updateCanvasToolbar", "applyContinueModeEligibility", "scheduleCanvasRender", "selectedNode"];
-    for (const n of stubs) sandbox[n] = () => { calls.push(n); };
-    sandbox["activeWidthDragCleanup"] = null;
-    runInNewContext([sliceIslandLine(island, "var lastModelChangeSig = null;"), sliceIslandFunction(island, "modelChangeSig"), sliceIslandFunction(island, "afterModelChange")].join("\n"), sandbox);
-    runInNewContext("afterModelChange()", sandbox);
-    expect(calls.filter((c) => c === "scheduleCanvasRender"), "the first change renders").toHaveLength(1);
-    // the box's change event after its input events: nothing changed → nothing queued, no refusal cleared, no dirty mark
-    calls.length = 0;
-    runInNewContext("afterModelChange()", sandbox);
-    expect(calls).toEqual([]);
-    // a real change goes through again
-    runInNewContext("state.content.components[0].choices[0].label = 'Ajar t10'; afterModelChange();", sandbox);
-    expect(calls).toContain("scheduleCanvasRender");
-    expect(calls).toContain("markDirty");
+    runInNewContext(body, sandbox);
+    const name = (path: string) => runInNewContext(`rowContextLabel(${JSON.stringify(path)})`, sandbox);
+    expect(name("components[1].choices[0].label")).toBe("AlphaN9: ");
+    expect(name("components[1].choices[1].label")).toBe("Choice 2 (saved value “tg”): ");
+    expect(name("components[1].choices[2].label")).toBe("Choice 3: ");
+    // both copies (save problems and save errors) name it the same way
+    expect(island.match(/'Choice ' \+ choiceNo \+/g)?.length).toBe(2);
+  });
+
+  it("review 11 (MAJOR-1, MINOR-3): no card acts while the canvas is behind (the value-only check hit the wrong twin), and the Delete key waits too", async () => {
+    const { env } = newHarness();
+    const html = await studioPage(env, (await createSection(env)).public_id);
+    const island = studioIsland(html);
+    expect(island).not.toContain("canvasKeyStillTrue");
+    expect(island).toContain("if (xBtn && typeof canvasIsCurrent !== 'undefined' && !canvasIsCurrent()) { canvasBehindRefusal(); return; }");
+    const key = sliceIslandFunction(island, "onCanvasKeyDown");
+    const del = key.indexOf("else if (ev.key === 'Delete' || ev.key === 'Backspace') {");
+    expect(key.indexOf("if (typeof canvasIsCurrent !== 'undefined' && !canvasIsCurrent()) { canvasBehindRefusal(); return; }", del), "the Delete key refuses while behind").toBeGreaterThan(del);
+    expect(key.indexOf("deleteSelectedWithUndo(selectedQuestionId);", del)).toBeGreaterThan(key.indexOf("canvasBehindRefusal(); return; }", del));
   });
 
   it("review 10: the Style panel fits the screen; every choice delete offers Undo; a canvas add does not scroll the page; the edited card's ✕ is hidden; a reopen link to a gone question still scrolls; moves keep the ⋮ panel open", async () => {
@@ -9439,9 +9469,14 @@ describeDb("OWNER 2026-09-28 review round 1 — answer keys, Other values, typed
     expect(island).toContain("if (editCardX) { editCardX.style.visibility = ''; }");
     // R10-B
     expect(island).toContain("reopenScrollPending = (function () { try { return !!new URLSearchParams(window.location.search).get('q'); }");
-    // moves keep the ⋮ panel open; a refusal note closes it
-    expect(island).toContain("!ev.target.closest('[data-choice-act=\"left\"],[data-choice-act=\"right\"],[data-studio-act=\"move-up\"],[data-studio-act=\"move-down\"]')");
+    // review 11 MINOR-4: every action from the ⋮ panel closes it again (moves too); a refusal note closes it
+    expect(island).toContain("var onAction = withinPanel && ev.target.closest('button');");
     expect(island).toContain("if (typeof closeMorePanel !== 'undefined') { closeMorePanel(); }");
+    // review 11 MINOR-2: a move past either end is not offered
+    expect(island).toContain("if (leftBtn) { leftBtn.disabled = selAt <= 0; }");
+    expect(island).toContain("if (rightBtn) { rightBtn.disabled = selAt === -1 || !node.choices || selAt >= node.choices.length - 1; }");
+    // review 11 MINOR-1: the canvas + Add choice focuses the new label without scrolling the page
+    expect(island).toContain("newLabel.focus({ preventScroll: true });");
   });
 
   it("review 9c (F-B): a press on the edited card beside its text keeps the edit and puts the caret at the nearer end", async () => {
@@ -9505,7 +9540,7 @@ describeDb("OWNER 2026-09-28 review round 1 — answer keys, Other values, typed
     expect(island).toContain("doc.addEventListener('error', onFrameDocLoadCapture, true);");
     expect(island).toContain("reopenAnchorEl = selEl;\n      if (typeof keepReopenAnchor !== 'undefined') { keepReopenAnchor(); }");
     expect(island).toContain("if ((!withinPanel && !onToggle) || onAction) { closeMorePanel(); }");
-    expect(island).toContain("window.addEventListener('resize', function () { closeMorePanel(); });");
+    expect(island).toContain("window.addEventListener('resize', function () { closeMorePanel(); if (typeof renderToolbarProblems !== 'undefined') { renderToolbarProblems(); } });");
     // F-E: the canvas-edit refresh renames the selected choice
     const renamed: string[] = [];
     const sandbox: Record<string, unknown> = {
