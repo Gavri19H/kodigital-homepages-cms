@@ -1243,6 +1243,15 @@ describeDb("payload builder P5 F1 (SRC-7B / owner #7B + #6-second) — the outpu
     expect(rows).toHaveLength(25);
   });
 
+  it("review m7: the island preview joins a multi-select's list into a text field exactly as the REAL buildPayload sends it", async () => {
+    const { html } = await richEditorPage();
+    const { island } = outputFormatIsland(html);
+    const node: Record<string, unknown> = { type: "string" };
+    const previewed = island.outputFormatPreviewValue(node, ["fire", "flood"]);
+    expect(previewed).toBe("fire,flood");
+    expect(((realPayload(node, ["fire", "flood"])["lead"] ?? {}) as Record<string, unknown>)["amt"]).toBe(previewed);
+  });
+
   // Ruling D9 + the two shapes the owner named, through the STORED node the
   // control writes — the exact bytes one 170000 answer becomes per offer.
   it("D9: the control's own three nodes send \"$170,000\" · 170000 · \"170000\" for the same 170000 answer", async () => {

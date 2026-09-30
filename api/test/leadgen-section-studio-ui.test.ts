@@ -5306,9 +5306,13 @@ describeDb("wave 2 — §6.1.3 undo/redo (executed island history)", () => {
     probe.run(
       [
         "var UNDO_LIMIT = 50; var undoStack = []; var redoStack = [];",
-        "var lastSnapshot = JSON.stringify(state.content);",
         "function updateHistoryButtons() {}",
         "function refreshAfterHistory() {}",
+        sliceIslandFunction(island, "historyState"),
+        sliceIslandFunction(island, "restoreMappings"),
+        sliceIslandFunction(island, "typingFocus"),
+        "var lastPushFocus = null;",
+        "var lastSnapshot = historyState();",
         sliceIslandFunction(island, "historyPush"),
         sliceIslandFunction(island, "historyReset"),
         sliceIslandFunction(island, "restoreSnapshot"),
@@ -6647,6 +6651,7 @@ describeDb("wave 2 — §5.5 choice depth + §6.2 inline editing + §7.3 raw JSO
         "var dirtyFlags = []; function markDirty() { dirtyFlags.push(1); }",
         "function scheduleCanvasRender() {}",
         sliceIslandFunction(island, "findChoice"),
+        sliceIslandFunction(island, "choiceIndexOf"),
         sliceIslandFunction(island, "inlineEditKeyFor"),
         sliceIslandFunction(island, "commitInlineText"),
         sliceIslandFunction(island, "commitInlineChoiceLabel"),
@@ -7184,6 +7189,7 @@ describeDb("wave 2 — §5.5 choice depth + §6.2 inline editing + §7.3 raw JSO
         "var inlineEditing = false;",
         "function scheduleCanvasRender() { renders.push(1); }",
         "function selectComponent(qid) { selectedQuestionId = qid; selections.push(qid); }",
+        sliceIslandFunction(island, "caretToEdge"),
         sliceIslandFunction(island, "startInlineEdit"),
         sliceIslandFunction(island, "onCanvasKeyDown"),
       ].join("\n"),
@@ -7986,10 +7992,16 @@ const PROVIDER_VALUE_FUNCS = [
   "resetProviderBaseline",
   "fieldOptionLabelIn",
   "edgesBlockedReason",
+  "boxUnsendable",
+  "edgesWithTypedList",
+  "renameProviderBaseline",
+  "savedValueCount",
   "valuesNotSent",
   "providerRowsShape",
   "shouldRebuildProviderRows",
   "typingStateFor",
+  "carryProviderValues",
+  "sharedBoxProblem",
   "providerChipRows",
   "providerChipLabel",
 ] as const;
@@ -8178,9 +8190,9 @@ describeDb("OWNER 2026-09-28 review round 1 — answer keys, Other values, typed
     };
     const probe = mappingProbe(html, content, offersRes);
     const island = studioIsland(html);
-    probe.run([...PROVIDER_VALUE_FUNCS, "findQuestionByQid", "repairStaleAnswerKeys", "answerKeyPartLabel", "fixedFieldHint"].map((n) => sliceIslandFunction(island, n)).join("\n"));
+    probe.run([...PROVIDER_VALUE_FUNCS, "findQuestionByQid", "answerKeyRecorded", "repairStaleAnswerKeys", "answerKeyPartLabel", "fixedFieldHint"].map((n) => sliceIslandFunction(island, n)).join("\n"));
     probe.run("var answerKeyRepairs = {}; var providerBaseline = {};");
-    return { env, section, probe, offers, offersRes };
+    return { env, section, probe, offers, offersRes, island };
   }
   async function save(env: Env, section: SectionDetail, probe: StudioProbe): Promise<Record<string, unknown>> {
     const body = {
@@ -8458,6 +8470,1263 @@ describeDb("OWNER 2026-09-28 review round 1 — answer keys, Other values, typed
     expect(html).toMatch(/\.studio-provider-state\{[^}]*white-space:normal/);
     expect(html).not.toMatch(/\.studio-provider-state\{[^}]*nowrap/);
     expect(html).toContain(".studio-provider-row{display:grid;grid-template-columns:minmax(90px,1fr) minmax(120px,1.4fr);");
+  });
+
+  it("open item 4: the Section payload preview shows a calculated choice's DATE, as production sends it", async () => {
+    const content = {
+      components: [
+        {
+          type: "ButtonAnswerGroup", question_id: "q_dur", question_key: "q_dur", internal_field: "dur", answer_type: "enum",
+          choices: [
+            { label: "2+ Years", value: "2", analytics_id: "2", value_calc: { kind: "date_ago", amount: 2, unit: "years" } },
+            { label: "New", value: "0", analytics_id: "0" },
+          ],
+        },
+      ],
+    };
+    const { env, section, probe, offers } = await setupWith(content, [["Fundera - Tier 1", [{ path: "company.business_inception", type: "string" }]]]);
+    const f = offers[0]!;
+    probe.run(`upsertEdge(offerById(${f.id}), answerFieldOf(offerById(${f.id}), 'company.business_inception'), 'dur')`);
+    await save(env, section, probe);
+    const now = new Date();
+    const twoYearsAgo = new Date(Date.UTC(now.getUTCFullYear() - 2, now.getUTCMonth(), now.getUTCDate())).toISOString().slice(0, 10);
+    expect(await preview(env, section, { dur: "2" }, f.public_id)).toEqual({ company: { business_inception: twoYearsAgo } });
+    expect(await preview(env, section, { dur: "0" }, f.public_id)).toEqual({ company: { business_inception: "0" } });
+  });
+
+  it("open item 2: a saved value renamed in its row carries its provider values; a rename onto another choice's value moves nothing", async () => {
+    const { probe, offers } = await setupWith(MULTI_CONTENT, [["AmONE - Tier 2", [{ path: "Income", type: "string" }]]]);
+    const amone = offers[0]!;
+    probe.run(`upsertEdge(offerById(${amone.id}), answerFieldOf(offerById(${amone.id}), 'Income'), '${REVENUE_FIELD}')`);
+    probe.run(`state.answer_maps[0].output_value_map = { '600000': '50000', '360000': '30000', '30000': '2500' };`);
+    const list = () => (probe.sandbox.state["answer_maps"] as Array<Record<string, unknown>>)[0]!["output_value_map"];
+    expect(probe.run(`carryProviderValues('${REVENUE_FIELD}', '360000', '360500')`)).toBe(true);
+    expect(list()).toEqual({ "600000": "50000", "360500": "30000", "30000": "2500" });
+    // a value that maps to itself follows the rename as itself
+    probe.run(`state.answer_maps[0].output_value_map['30000'] = '30000';`);
+    probe.run(`carryProviderValues('${REVENUE_FIELD}', '30000', '30001')`);
+    expect((list() as Record<string, unknown>)["30001"]).toBe("30001");
+    // a key under the new name that no choice holds is a leftover of a removed
+    // choice: the renamed choice's own value replaces it
+    probe.run(`state.answer_maps[0].output_value_map['99999'] = 'OLD';`);
+    probe.run(`carryProviderValues('${REVENUE_FIELD}', '600000', '99999')`);
+    expect((list() as Record<string, unknown>)["99999"]).toBe("50000");
+  });
+
+  // The row's committed-rename decision (the real handler body), on the model.
+  const RENAME_FUNCS = ["carryProviderValues", "copyProviderValues", "addProviderBaseline", "commitChoiceRename", "findRefIn", "findRef"];
+  const HISTORY_FUNCS = ["historyState", "repairNotesState", "restoreMappings", "typingFocus", "historyAbsorb", "historyPush", "restoreSnapshot", "historyUndo", "historyRedo"];
+  // the real island history, over the probe's live model
+  function withHistory(probe: StudioProbe, island: string): void {
+    probe.run(
+      [
+        ...RENAME_FUNCS.map((n) => sliceIslandFunction(island, n)),
+        "var UNDO_LIMIT = 50; var undoStack = []; var redoStack = []; var lastPushFocus = null; var redoBeforePush = [];",
+        "function updateHistoryButtons() {}",
+        "function refreshAfterHistory() {}",
+        ...HISTORY_FUNCS.map((n) => sliceIslandFunction(island, n)),
+      ].join("\n"),
+    );
+  }
+  function setChoiceValue(probe: StudioProbe, index: number, value: string): void {
+    probe.run(`findRef('q_mrum8ruj_2sau').node.choices[${index}].value = '${value}';`);
+  }
+
+  it("review M1: a rename onto another choice's value moves nothing, and fixing it afterwards carries THIS choice's values — never the other choice's", async () => {
+    const { probe, offers, island } = await setupWith(MULTI_CONTENT, [["AmONE - Tier 2", [{ path: "Income", type: "string" }]]]);
+    const amone = offers[0]!;
+    probe.run(RENAME_FUNCS.map((n) => sliceIslandFunction(island, n)).join("\n"));
+    probe.run(`upsertEdge(offerById(${amone.id}), answerFieldOf(offerById(${amone.id}), 'Income'), '${REVENUE_FIELD}')`);
+    probe.run(`state.answer_maps[0].output_value_map = { '600000': '50000', '360000': '30000', '30000': '2500' };`);
+    probe.run("snapshotProviderValues(findRef('q_mrum8ruj_2sau').node);");
+    const node = "findRef('q_mrum8ruj_2sau').node";
+    const list = () => (probe.sandbox.state["answer_maps"] as Array<Record<string, unknown>>)[0]!["output_value_map"];
+    // choice 0 (600000) is committed as 360000 — the value choice 1 holds
+    setChoiceValue(probe, 0, "360000");
+    expect(probe.run(`commitChoiceRename(${node}, '${REVENUE_FIELD}', '600000', '360000')`)).toBe("600000");
+    expect(list()).toEqual({ "600000": "50000", "360000": "30000", "30000": "2500" });
+    // then fixed to 750000: ITS 50000 moves; choice 1 keeps its 30000
+    setChoiceValue(probe, 0, "750000");
+    expect(probe.run(`commitChoiceRename(${node}, '${REVENUE_FIELD}', '600000', '750000')`)).toBe("750000");
+    expect(list()).toEqual({ "750000": "50000", "360000": "30000", "30000": "2500" });
+    // an emptied value is not a rename either
+    setChoiceValue(probe, 0, "");
+    expect(probe.run(`commitChoiceRename(${node}, '${REVENUE_FIELD}', '750000', '')`)).toBe("750000");
+    expect(list()).toEqual({ "750000": "50000", "360000": "30000", "30000": "2500" });
+  });
+
+  it("review m2: renaming a choice that was deliberately left off a list keeps it off (it is the same choice)", async () => {
+    const { probe, offers, island } = await setupWith(MULTI_CONTENT, [["AmONE - Tier 2", [{ path: "Income", type: "string" }]]]);
+    const amone = offers[0]!;
+    probe.run(RENAME_FUNCS.map((n) => sliceIslandFunction(island, n)).join("\n"));
+    probe.run(`upsertEdge(offerById(${amone.id}), answerFieldOf(offerById(${amone.id}), 'Income'), '${REVENUE_FIELD}')`);
+    // 30000 is left off AmONE's list on purpose: not sent
+    probe.run(`state.answer_maps[0].output_value_map = { '600000': '50000', '360000': '30000' };`);
+    probe.run("snapshotProviderValues(findRef('q_mrum8ruj_2sau').node);");
+    const node = "findRef('q_mrum8ruj_2sau').node";
+    expect(probe.run(`providerValueOf(${amone.id}, '${REVENUE_FIELD}', '30000').state`)).toBe("missing");
+    setChoiceValue(probe, 2, "35000");
+    probe.run(`commitChoiceRename(${node}, '${REVENUE_FIELD}', '30000', '35000')`);
+    expect(probe.run(`providerValueOf(${amone.id}, '${REVENUE_FIELD}', '35000').state`)).toBe("missing");
+    // and Save does not put it on the list
+    probe.run("fillNewChoicesOnLists();");
+    expect((probe.sandbox.state["answer_maps"] as Array<Record<string, unknown>>)[0]!["output_value_map"]).toEqual({ "600000": "50000", "360000": "30000" });
+    // a choice ADDED since the page opened still joins the lists (unchanged)
+    probe.run(`${node}.choices.push({ label: 'New', value: 'new_band', analytics_id: 'new_band' });`);
+    expect(probe.run(`providerValueOf(${amone.id}, '${REVENUE_FIELD}', 'new_band').state`)).toBe("saved");
+  });
+
+  it("a choice added on the canvas after a Save that keeps the page open still joins every Offer's value list (the baseline is re-read, not emptied)", async () => {
+    const { probe, offers } = await setupWith(MULTI_CONTENT, [["AmONE - Tier 2", [{ path: "Income", type: "string" }]]]);
+    const amone = offers[0]!;
+    probe.run(`upsertEdge(offerById(${amone.id}), answerFieldOf(offerById(${amone.id}), 'Income'), '${REVENUE_FIELD}')`);
+    probe.run(`state.answer_maps[0].output_value_map = { '600000': '50000', '360000': '30000', '30000': '2500' };`);
+    // the save-success path: the page stays open, the baseline is reset
+    probe.run("resetProviderBaseline();");
+    probe.run("findRef('q_mrum8ruj_2sau').node.choices.push({ label: 'New', value: 'new_band', analytics_id: 'new_band' });");
+    expect(probe.run(`providerValueOf(${amone.id}, '${REVENUE_FIELD}', 'new_band').state`)).toBe("saved");
+    probe.run("fillNewChoicesOnLists();");
+    expect((probe.sandbox.state["answer_maps"] as Array<Record<string, unknown>>)[0]!["output_value_map"]).toEqual({
+      "600000": "50000", "360000": "30000", "30000": "2500", new_band: "new_band",
+    });
+  });
+
+  it("review F1: a rename typed or pasted into one box is ONE undo step — the analytics id that follows it and the carried provider values come back together", async () => {
+    const { probe, offers, island } = await setupWith(MULTI_CONTENT, [["AmONE - Tier 2", [{ path: "Income", type: "string" }]]]);
+    const amone = offers[0]!;
+    withHistory(probe, island);
+    probe.run(`upsertEdge(offerById(${amone.id}), answerFieldOf(offerById(${amone.id}), 'Income'), '${REVENUE_FIELD}')`);
+    probe.run(`state.answer_maps[0].output_value_map = { '600000': '50000', '360000': '30000', '30000': '2500' };`);
+    probe.run("snapshotProviderValues(findRef('q_mrum8ruj_2sau').node); var lastSnapshot = historyState();");
+    const node = "findRef('q_mrum8ruj_2sau').node";
+    // the value box holds the focus for the whole edit
+    probe.run("document.activeElement = { tagName: 'INPUT', type: 'text' };");
+    // a paste: the value is written, then the analytics id follows it — two
+    // model writes, each pushing history (collectChoices -> afterModelChange)
+    probe.run(`${node}.choices[2].value = '35000'; historyPush();`);
+    probe.run(`${node}.choices[2].analytics_id = '35000'; historyPush();`);
+    probe.run(`commitChoiceRename(${node}, '${REVENUE_FIELD}', '30000', '35000')`);
+    expect(probe.run("undoStack.length")).toBe(1);
+    probe.run("document.activeElement = null; historyUndo();");
+    expect(probe.run(`[${node}.choices[2].value, ${node}.choices[2].analytics_id]`)).toEqual(["30000", "30000"]);
+    expect(probe.run(`providerValueOf(${amone.id}, '${REVENUE_FIELD}', '30000')`)).toEqual({ state: "custom", value: "2500" });
+    probe.run("historyRedo();");
+    expect(probe.run(`[${node}.choices[2].value, ${node}.choices[2].analytics_id]`)).toEqual(["35000", "35000"]);
+    expect(probe.run(`providerValueOf(${amone.id}, '${REVENUE_FIELD}', '35000')`)).toEqual({ state: "custom", value: "2500" });
+    // another box starts a new step
+    probe.run("document.activeElement = { tagName: 'INPUT', type: 'text' };");
+    probe.run(`${node}.choices[0].label = 'Over fifty'; historyPush();`);
+    expect(probe.run("undoStack.length")).toBe(2);
+  });
+
+  it("review F2: Undo restores the whole mapping — a field re-picked on the Offers tab before a rename keeps the choice's value after Undo", async () => {
+    const { probe, offers, island } = await setupWith(MULTI_CONTENT, [["AmONE - Tier 2", [{ path: "Income", type: "string" }, { path: "income_alt", type: "string" }]]]);
+    const amone = offers[0]!;
+    withHistory(probe, island);
+    probe.run(`upsertEdge(offerById(${amone.id}), answerFieldOf(offerById(${amone.id}), 'Income'), '${REVENUE_FIELD}')`);
+    probe.run(`state.answer_maps[0].output_value_map = { '600000': '50000', '360000': '30000', '30000': '2500' };`);
+    probe.run("snapshotProviderValues(findRef('q_mrum8ruj_2sau').node); var lastSnapshot = historyState();");
+    const node = "findRef('q_mrum8ruj_2sau').node";
+    // the Offers tab re-picks Income -> income_alt (the list comes along); the
+    // handler records it as its own step
+    probe.run(`var old = state.answer_maps.splice(0, 1)[0]; upsertEdge(offerById(${amone.id}), answerFieldOf(offerById(${amone.id}), 'income_alt'), '${REVENUE_FIELD}', old); historyPush();`);
+    expect(probe.run("state.answer_maps[0].offer_payload_field_path")).toBe("income_alt");
+    // rename 30000 -> 35000, then one Undo
+    probe.run(`${node}.choices[2].value = '35000'; historyPush();`);
+    probe.run(`commitChoiceRename(${node}, '${REVENUE_FIELD}', '30000', '35000')`);
+    probe.run("historyUndo();");
+    expect(probe.run(`${node}.choices[2].value`)).toBe("30000");
+    expect(probe.run("state.answer_maps[0].offer_payload_field_path")).toBe("income_alt");
+    expect(probe.run(`providerValueOf(${amone.id}, '${REVENUE_FIELD}', '30000')`)).toEqual({ state: "custom", value: "2500" });
+    // and one more Undo takes the re-pick back
+    probe.run("historyUndo();");
+    expect(probe.run("state.answer_maps[0].offer_payload_field_path")).toBe("Income");
+  });
+
+  it("review 4: renaming one of two choices that share a saved value COPIES the provider values — the twin keeps its own", async () => {
+    const twins = JSON.parse(JSON.stringify(MULTI_CONTENT)) as { components: Array<{ choices?: Array<{ value: string; label: string; analytics_id: string }> }> };
+    twins.components[1]!.choices![2] = { label: "Also 30-50", value: "360000", analytics_id: "360000b" };
+    const { probe, offers, island } = await setupWith(twins, [["AmONE - Tier 2", [{ path: "Income", type: "string" }]]]);
+    const amone = offers[0]!;
+    probe.run(RENAME_FUNCS.map((n) => sliceIslandFunction(island, n)).join("\n"));
+    probe.run(`upsertEdge(offerById(${amone.id}), answerFieldOf(offerById(${amone.id}), 'Income'), '${REVENUE_FIELD}')`);
+    probe.run(`state.answer_maps[0].output_value_map = { '600000': '50000', '360000': '30000' };`);
+    probe.run("snapshotProviderValues(findRef('q_mrum8ruj_2sau').node);");
+    const node = "findRef('q_mrum8ruj_2sau').node";
+    probe.run(`${node}.choices[2].value = '35000';`);
+    expect(probe.run(`commitChoiceRename(${node}, '${REVENUE_FIELD}', '360000', '35000')`)).toBe("35000");
+    expect((probe.sandbox.state["answer_maps"] as Array<Record<string, unknown>>)[0]!["output_value_map"]).toEqual({ "600000": "50000", "360000": "30000", "35000": "30000" });
+    expect(probe.run(`providerValueOf(${amone.id}, '${REVENUE_FIELD}', '360000')`)).toEqual({ state: "custom", value: "30000" });
+    // twins left off a list: the renamed one stays off too
+    probe.run(`${node}.choices[2].value = '360000'; state.answer_maps[0].output_value_map = { '600000': '50000' }; resetProviderBaseline();`);
+    probe.run(`${node}.choices[2].value = '36000';`);
+    probe.run(`commitChoiceRename(${node}, '${REVENUE_FIELD}', '360000', '36000')`);
+    expect(probe.run(`providerValueOf(${amone.id}, '${REVENUE_FIELD}', '36000').state`)).toBe("missing");
+    expect(probe.run(`providerValueOf(${amone.id}, '${REVENUE_FIELD}', '360000').state`)).toBe("missing");
+  });
+
+  it("review 5: a choice removed and added back (a NEW choice given the old saved value) keeps sending that value's provider values", async () => {
+    const { probe, offers, island } = await setupWith(MULTI_CONTENT, [["AmONE - Tier 2", [{ path: "Income", type: "string" }]]]);
+    const amone = offers[0]!;
+    probe.run(RENAME_FUNCS.map((n) => sliceIslandFunction(island, n)).join("\n"));
+    probe.run(`upsertEdge(offerById(${amone.id}), answerFieldOf(offerById(${amone.id}), 'Income'), '${REVENUE_FIELD}')`);
+    probe.run(`state.answer_maps[0].output_value_map = { '600000': '50000', '360000': '30000', '30000': '2500' };`);
+    probe.run("snapshotProviderValues(findRef('q_mrum8ruj_2sau').node);");
+    const node = "findRef('q_mrum8ruj_2sau').node";
+    // "$30,000 – $50,000" (360000) is removed; the canvas "+ Add choice" makes option_4
+    probe.run(`${node}.choices.splice(1, 1); ${node}.choices.push({ label: 'Option 4', value: 'option_4', analytics_id: 'option_4' });`);
+    // …and the operator types the old saved value into it
+    probe.run(`${node}.choices[2].value = '360000';`);
+    expect(probe.run(`commitChoiceRename(${node}, '${REVENUE_FIELD}', 'option_4', '360000')`)).toBe("360000");
+    expect((probe.sandbox.state["answer_maps"] as Array<Record<string, unknown>>)[0]!["output_value_map"]).toEqual({ "600000": "50000", "360000": "30000", "30000": "2500" });
+    expect(probe.run(`providerValueOf(${amone.id}, '${REVENUE_FIELD}', '360000')`)).toEqual({ state: "custom", value: "30000" });
+    // a choice deliberately left off, renamed onto a leftover, still stays off (m2)
+    probe.run(`state.answer_maps[0].output_value_map = { '600000': '50000', '99999': 'OLD' }; ${node}.choices[1].value = '99999';`);
+    probe.run(`commitChoiceRename(${node}, '${REVENUE_FIELD}', '30000', '99999')`);
+    expect(probe.run(`providerValueOf(${amone.id}, '${REVENUE_FIELD}', '99999').state`)).toBe("missing");
+  });
+
+  it("review 5 ruling: a twin (which owns no provider value of its own) renamed onto a saved value the question already had keeps THAT value's provider values, as live does — so a bulk-paste typo fixed back gets its own value again", async () => {
+    const twins = { components: [{
+      type: "ButtonAnswerGroup", question_id: "q_tw", question_key: "q_tw", internal_field: "tw", answer_type: "enum",
+      choices: [
+        { label: "Alpha", value: "same_v", analytics_id: "a" },
+        { label: "Beta", value: "same_v", analytics_id: "b" },
+        { label: "Gamma", value: "g_v", analytics_id: "g" },
+      ],
+    }] };
+    const { probe, offers, island } = await setupWith(twins, [["Text Co", [{ path: "dup", type: "string" }]]]);
+    const o = offers[0]!;
+    probe.run(RENAME_FUNCS.map((n) => sliceIslandFunction(island, n)).join("\n"));
+    probe.run(`upsertEdge(offerById(${o.id}), answerFieldOf(offerById(${o.id}), 'dup'), 'tw')`);
+    probe.run(`state.answer_maps[0].output_value_map = { same_v: 'SV', g_v: 'GV' };`);
+    probe.run("snapshotProviderValues(findRef('q_tw').node);");
+    // the bulk-paste typo: Gamma's row came back as "Gamma = same_v" (a twin of
+    // Alpha); fixing it to g_v gets Gamma's own GV again, never Alpha's SV
+    probe.run("findRef('q_tw').node.choices[2].value = 'same_v';");
+    probe.run("findRef('q_tw').node.choices[2].value = 'g_v';");
+    probe.run("commitChoiceRename(findRef('q_tw').node, 'tw', 'same_v', 'g_v')");
+    expect((probe.sandbox.state["answer_maps"] as Array<Record<string, unknown>>)[0]!["output_value_map"]).toEqual({ same_v: "SV", g_v: "GV" });
+    // a twin renamed onto a FREE value copies the shared value (it was sending it)
+    probe.run("findRef('q_tw').node.choices[1].value = 'b_v';");
+    probe.run("commitChoiceRename(findRef('q_tw').node, 'tw', 'same_v', 'b_v')");
+    expect((probe.sandbox.state["answer_maps"] as Array<Record<string, unknown>>)[0]!["output_value_map"]).toEqual({ same_v: "SV", g_v: "GV", b_v: "SV" });
+  });
+
+  it("review 5: three choices sharing a value are one issue; two 'Other' values sharing one are flagged too", async () => {
+    const dupEnv = newHarness().env;
+    const dupHtml = await studioPage(dupEnv, (await createSection(dupEnv)).public_id);
+    const probe = studioProbe(dupHtml, {
+      components: [
+        {
+          type: "ButtonAnswerGroup", question_id: "q_tri", internal_field: "tri",
+          choices: [
+            { label: "A", value: "tri_v", analytics_id: "a" },
+            { label: "B", value: "tri_v", analytics_id: "b" },
+            { label: "C", value: "tri_v", analytics_id: "c" },
+          ],
+          props: { other: { enabled: true, label: "Other", choices: [
+            { label: "Gig", value: "side_v", analytics_id: "g1" },
+            { label: "Side", value: "side_v", analytics_id: "g2" },
+          ] } },
+        },
+      ],
+    });
+    const messages = (probe.run("computeIssues()") as Array<{ message: string }>).map((i) => i.message);
+    expect(messages.filter((m) => m.includes('more than one choice with the saved value "tri_v"'))).toHaveLength(1);
+    expect(messages.filter((m) => m.includes('more than one "Other" value with the saved value "side_v"'))).toHaveLength(1);
+  });
+
+  it("canvas twins (owner 2026-09-29): the k-th card is the k-th choice with that value — renaming, removing and reordering the SECOND twin act on the second twin", async () => {
+    const twins = { components: [{
+      type: "ButtonAnswerGroup", question_id: "q_tw", question_key: "q_tw", internal_field: "tw", answer_type: "enum",
+      choices: [
+        { label: "Alpha", value: "same_v", analytics_id: "a" },
+        { label: "Beta", value: "same_v", analytics_id: "b" },
+        { label: "Gamma", value: "g_v", analytics_id: "g" },
+      ],
+    }] };
+    const { probe, island } = await setupWith(twins, []);
+    probe.run(["findChoice", "choiceIndexOf", "selectedChoiceKey", "selectedChoiceObject", "reselectChoiceObject", "canvasChoiceIndex",
+      "removeChoiceFromNode", "moveChoice", "reorderChoiceBefore", "commitInlineChoiceLabel"].map((n) => sliceIslandFunction(island, n)).join("\n"));
+    probe.run("var selectedChoiceValue = null; var selectedChoiceIndex = -1; var selectedQuestionId = 'q_tw';");
+    const node = "findRef('q_tw').node";
+    const labels = () => probe.run(`${node}.choices.map(function (c) { return c.label; })`);
+    // the canvas stamps positions in card order
+    probe.run("var seen = {}; var idx = [canvasChoiceIndex('q_tw', 'same_v', seen), canvasChoiceIndex('q_tw', 'same_v', seen), canvasChoiceIndex('q_tw', 'g_v', seen)];");
+    expect(probe.run("idx")).toEqual([0, 1, 2]);
+    // a double-click rename on the second twin renames Beta, not Alpha
+    probe.run("commitInlineChoiceLabel('q_tw', { index: 1, value: 'same_v' }, 'Beta two');");
+    expect(labels()).toEqual(["Alpha", "Beta two", "Gamma"]);
+    // a stale position (the value moved) falls back to the value
+    expect(probe.run(`choiceIndexOf(${node}, { index: 2, value: 'same_v' })`)).toBe(0);
+    // the selected second twin stays selected when the first moves after it
+    probe.run("selectedChoiceValue = 'same_v'; selectedChoiceIndex = 1;");
+    probe.run(`moveChoice(${node}, { index: 0, value: 'same_v' }, 1);`);
+    expect(labels()).toEqual(["Beta two", "Alpha", "Gamma"]);
+    expect(probe.run("selectedChoiceIndex")).toBe(0);
+    // removing the other twin keeps the selection on Beta
+    probe.run(`removeChoiceFromNode(${node}, { index: 1, value: 'same_v' });`);
+    expect(labels()).toEqual(["Beta two", "Gamma"]);
+    expect(probe.run("[selectedChoiceValue, selectedChoiceIndex]")).toEqual(["same_v", 0]);
+    // removing the selected choice clears the selection
+    probe.run(`removeChoiceFromNode(${node}, selectedChoiceKey());`);
+    expect(labels()).toEqual(["Gamma"]);
+    expect(probe.run("[selectedChoiceValue, selectedChoiceIndex]")).toEqual([null, -1]);
+  });
+
+  it("review 6 (F6-1): an inspector edit of the choice list (move, remove, value change) keeps the canvas selection on ITS choice — never the other twin", async () => {
+    const twins = { components: [{
+      type: "ButtonAnswerGroup", question_id: "q_tw", question_key: "q_tw", internal_field: "tw", answer_type: "enum",
+      choices: [
+        { label: "Alpha", value: "a", analytics_id: "a1" },
+        { label: "Mid", value: "m", analytics_id: "m1" },
+        { label: "Beta", value: "a", analytics_id: "b1" },
+      ],
+    }] };
+    const { env } = newHarness();
+    const section = await createSection(env, { content_json: JSON.stringify(twins) });
+    const html = await studioPage(env, section.public_id);
+    const island = studioIsland(html);
+    // fake inspector rows (label/value/analytics boxes), in the list's DOM order
+    const mkRow = (label: string, value: string, aid: string) => {
+      const fields: Record<string, string> = { label, value, analytics_id: aid };
+      return {
+        fields,
+        querySelectorAll(sel: string) {
+          return sel === "[data-choice-field]" ? Object.keys(fields).map((f) => ({ getAttribute: () => f, value: fields[f] })) : [];
+        },
+        querySelector(sel: string) {
+          if (sel === '[data-choice-field="value"]') return { value: fields["value"] };
+          return null;
+        },
+      };
+    };
+    const alpha = mkRow("Alpha", "a", "a1"), mid = mkRow("Mid", "m", "m1"), beta = mkRow("Beta", "a", "b1");
+    let order = [alpha, mid, beta];
+    const container = { querySelectorAll: (sel: string) => (sel === "[data-choice-row]" ? order : []) };
+    const docStub = {
+      getElementById: () => null,
+      querySelector: (sel: string) => (sel === "[data-inspector-choices]" ? container : null),
+      querySelectorAll: () => [],
+    };
+    const probe = studioProbe(html, twins, docStub as unknown as Record<string, unknown>);
+    probe.run([sliceIslandFunction(island, "choiceContainer"), sliceIslandFunction(island, "collectChoices"), sliceIslandFunction(island, "withoutClasses"), sliceIslandFunction(island, "markSelectedChoiceRow")].join("\n"));
+    probe.run("var selectedChoiceValue = null; var selectedChoiceIndex = -1; var selectedChoiceRow = null; var scopeState = 'choice';");
+    probe.sandbox.selectedQuestionId = "q_tw";
+    probe.sandbox["betaRow"] = beta;
+    // Beta (the SECOND "a") is selected on the canvas; the list marks its row
+    probe.run("selectedChoiceValue = 'a'; selectedChoiceIndex = 2; markSelectedChoiceRow(findRef('q_tw').node, choiceContainer());");
+    expect(probe.run("selectedChoiceRow === betaRow")).toBe(true);
+    // Beta's row moves up past Mid
+    order = [alpha, beta, mid];
+    probe.run("collectChoices();");
+    expect(probe.run("[selectedChoiceIndex, selectedChoiceValue, findRef('q_tw').node.choices[selectedChoiceIndex].label]")).toEqual([1, "a", "Beta"]);
+    // Mid is removed
+    order = [alpha, beta];
+    probe.run("collectChoices();");
+    expect(probe.run("[selectedChoiceIndex, findRef('q_tw').node.choices[selectedChoiceIndex].label]")).toEqual([1, "Beta"]);
+    // Beta's value changes to a free one: the selection follows it
+    beta.fields["value"] = "b";
+    probe.run("collectChoices();");
+    expect(probe.run("[selectedChoiceIndex, selectedChoiceValue]")).toEqual([1, "b"]);
+    // Beta is removed: the selection is dropped (never moved onto Alpha)
+    order = [alpha];
+    probe.run("collectChoices();");
+    expect(probe.run("[selectedChoiceIndex, selectedChoiceValue, scopeState]")).toEqual([-1, null, "component"]);
+  });
+
+  it("review 6b (M2): a plain answer button's inline edit takes the studio's remove mark out first — the label never gets the ✕", async () => {
+    const { probe, island } = await setupWith(MULTI_CONTENT, []);
+    probe.run(sliceIslandFunction(island, "removeStudioMarks"));
+    probe.run(`
+      var btn = { childNodes: [], removeChild: function (c) { this.childNodes.splice(this.childNodes.indexOf(c), 1); c.parentNode = null; },
+        querySelectorAll: function (sel) { return sel === '[data-choice-x]' ? this.childNodes.filter(function (c) { return c.isMark; }) : []; },
+        get textContent() { return this.childNodes.map(function (c) { return c.text; }).join(''); } };
+      var label = { text: 'Alpha7 new', parentNode: btn }; var mark = { text: '\u00d7', isMark: true, parentNode: btn };
+      btn.childNodes.push(label, mark);
+      removeStudioMarks(btn);
+    `);
+    expect(probe.run("btn.textContent")).toBe("Alpha7 new");
+    // review 7 (F7-8): its text is then edited in a span inside the button
+    // (a click inside a contenteditable <button> does not move the caret)
+    probe.run(sliceIslandFunction(island, "wrapTextForEdit"));
+    probe.run(`
+      function frameCreate(tag) { return { tagName: tag, attrs: {}, childNodes: [], setAttribute: function (k, v) { this.attrs[k] = v; },
+        appendChild: function (c) { if (c.parentNode) { c.parentNode.removeChild(c); } c.parentNode = this; this.childNodes.push(c); return c; },
+        removeChild: function (c) { this.childNodes.splice(this.childNodes.indexOf(c), 1); c.parentNode = null; return c; },
+        get firstChild() { return this.childNodes[0] || null; }, get text() { return this.childNodes.map(function (c) { return c.text; }).join(''); } }; }
+      btn.appendChild = function (c) { if (c.parentNode) { c.parentNode.removeChild(c); } c.parentNode = this; this.childNodes.push(c); return c; };
+      Object.defineProperty(btn, 'firstChild', { get: function () { return this.childNodes[0] || null; } });
+      var editSpan = wrapTextForEdit(btn);
+    `);
+    expect(probe.run("[btn.childNodes.length, btn.childNodes[0] === editSpan, editSpan.tagName, editSpan.text, editSpan.attrs['data-studio-edit-text']]")).toEqual([1, true, "span", "Alpha7 new", ""]);
+  });
+
+  it("review 7 (F7-1): a canvas refresh that comes back after a newer one has painted is dropped — the canvas never winds back and never stays 'behind'", async () => {
+    const { probe, island } = await setupWith(MULTI_CONTENT, []);
+    probe.run([sliceIslandLine(island, "var canvasModelRev = 0"), sliceIslandFunction(island, "canvasIsCurrent"), sliceIslandFunction(island, "acceptCanvasPaint")].join("\n"));
+    // two edits → two refreshes in flight (rev 1 and rev 2)
+    probe.run("canvasModelRev = 2;");
+    expect(probe.run("acceptCanvasPaint(2)")).toBe(true);
+    expect(probe.run("canvasIsCurrent()")).toBe(true);
+    // the older one arrives last: not painted, and the canvas is still current
+    expect(probe.run("acceptCanvasPaint(1)")).toBe(false);
+    expect(probe.run("[canvasShownRev, canvasIsCurrent()]")).toEqual([2, true]);
+  });
+
+  it("review 7 (F7-3, 6b m3): badge, disabled and image/icon are offered only on the two card grids — the only components that draw them", async () => {
+    const { probe, island } = await setupWith(MULTI_CONTENT, []);
+    probe.run([sliceIslandFunction(island, "isCardGridType"), sliceIslandFunction(island, "choiceActOffered")].join("\n"));
+    const offered = (type: string) => probe.run(`['badge', 'disabled', 'image', 'duplicate', 'delete'].map(function (a) { return choiceActOffered({ type: '${type}' }, a); })`);
+    expect(offered("ButtonAnswerGroup")).toEqual([false, false, false, true, true]);
+    expect(offered("MultiChoiceCardGroup")).toEqual([false, false, false, true, true]);
+    expect(offered("TwoButtonYesNo")).toEqual([false, false, false, true, true]);
+    expect(offered("IconCardAnswerGrid")).toEqual([true, true, true, true, true]);
+    expect(offered("ImageCardAnswerGrid")).toEqual([true, true, true, true, true]);
+  });
+
+  it("review 6b (M3): a canvas card click selects the choice WITHOUT moving the page or the focus to the inspector row; the toolbar's own jump still does", async () => {
+    const { probe, island } = await setupWith(MULTI_CONTENT, []);
+    probe.run([
+      "var jumps = 0, marks = 0, scopeState = 'component', choiceScopeLabel = '', selectedChoiceValue = null, selectedChoiceIndex = -1, selectedChoiceRow = null;",
+      "function focusChoiceRow() { jumps += 1; } function markCurrentChoiceRow() { marks += 1; }",
+      "function applyCanvasDecoration() {} function renderBreadcrumb() {} function populateInspector() {} function renderInspectorMapping() {} function setInspectorTab() {} function renderScopeHeader() {} function updateCanvasToolbar() {} function selectComponent() {}",
+      sliceIslandFunction(island, "findChoice"), sliceIslandFunction(island, "choiceIndexOf"), sliceIslandFunction(island, "selectedChoiceKey"), sliceIslandFunction(island, "selectChoice"),
+    ].join("\n"));
+    probe.run("selectChoice('q_mrum8ruj_2sau', '360000', 1, true);");
+    expect(probe.run("[jumps, marks, selectedChoiceIndex, scopeState]")).toEqual([0, 1, 1, "choice"]);
+    probe.run("selectChoice('q_mrum8ruj_2sau', '360000', 1);");
+    expect(probe.run("jumps")).toBe(1);
+  });
+
+  it("review 6b (M1): a canvas toolbar move rebuilds the inspector's rows (stale rows put the old order back at the next inspector edit)", async () => {
+    const { probe, island } = await setupWith(MULTI_CONTENT, []);
+    probe.run([
+      "var rebuilt = 0, selectedChoiceValue = '360000', selectedChoiceIndex = 1, selectedQuestionId = 'q_mrum8ruj_2sau';",
+      "function selectedNode() { return findRef('q_mrum8ruj_2sau').node; } function renderChoiceEditor() { rebuilt += 1; } function showRefusal() {}",
+      ...["findChoice", "choiceIndexOf", "selectedChoiceKey", "selectedChoiceObject", "reselectChoiceObject", "moveChoice", "handleChoiceAct"].map((n) => sliceIslandFunction(island, n)),
+    ].join("\n"));
+    probe.run("handleChoiceAct('left');");
+    expect(probe.run("[rebuilt, findRef('q_mrum8ruj_2sau').node.choices[0].value, selectedChoiceIndex]")).toEqual([1, "360000", 0]);
+    // a move that can't happen (already first) rebuilds nothing
+    probe.run("handleChoiceAct('left');");
+    expect(probe.run("rebuilt")).toBe(1);
+  });
+
+  it("review 8 (F8-1): a double-click acts on what its FIRST press hit — a reflow between the two clicks can't move it onto another card", async () => {
+    const { probe, island } = await setupWith(MULTI_CONTENT, []);
+    probe.run([sliceIslandLine(island, "var firstPressTarget = null"), sliceIslandFunction(island, "noteFirstPress"), sliceIslandFunction(island, "doubleClickTarget")].join("\n"));
+    probe.run("var beta = { name: 'Beta', closest: function () { return this; } }; var alpha = { name: 'Alpha', closest: function () { return this; } };");
+    // 1st press on Beta; the page reflows; the 2nd press (and the dblclick) land on Alpha
+    probe.run("noteFirstPress({ detail: 1, target: beta }); noteFirstPress({ detail: 2, target: alpha });");
+    expect(probe.run("doubleClickTarget({ target: alpha }).name")).toBe("Beta");
+    // a new, separate click series starts over
+    probe.run("noteFirstPress({ detail: 1, target: alpha });");
+    expect(probe.run("doubleClickTarget({ target: alpha }).name")).toBe("Alpha");
+  });
+
+  it("review 8 (F8-2): a click inside the text being edited only places the caret — it never selects, ends the edit or opens the way to a Backspace delete", async () => {
+    const { probe, island } = await setupWith(MULTI_CONTENT, []);
+    probe.run("var inlineEditing = true; var selected = 0; function selectChoice() { selected += 1; } function selectComponent() { selected += 1; }");
+    probe.run("var editHost = { contains: function (t) { return t === 'inside'; } }; var inlineEditHost = editHost;");
+    probe.run(sliceIslandFunction(island, "onCanvasClick"));
+    probe.run("onCanvasClick({ target: 'inside', preventDefault: function () {} });");
+    expect(probe.run("selected")).toBe(0);
+  });
+
+  it("review 8 (F8-6): the reopen link after Save carries no tab when no tab applies", async () => {
+    const { probe, island } = await setupWith(MULTI_CONTENT, []);
+    probe.run(sliceIslandFunction(island, "reopenQuery"));
+    probe.run("var selectedQuestionId = null; var currentInspectorTab = 'none';");
+    expect(probe.run("reopenQuery()")).toBe("");
+    probe.run("selectedQuestionId = 'q_zip'; currentInspectorTab = 'content';");
+    expect(probe.run("reopenQuery()")).toBe("?q=q_zip&tab=content");
+  });
+
+  it("review 4: the refusal puts the old value back, names why, is no Undo step of its own, and gives Redo back", async () => {
+    const { probe, island } = await setupWith(MULTI_CONTENT, []);
+    withHistory(probe, island);
+    probe.run([sliceIslandFunction(island, "clearChildren"), sliceIslandFunction(island, "refuseDuplicateValue")].join("\n"));
+    probe.run("snapshotProviderValues(findRef('q_mrum8ruj_2sau').node); var lastSnapshot = historyState();");
+    const node = "findRef('q_mrum8ruj_2sau').node";
+    // a fake choice row: its value + analytics boxes and a place for the note;
+    // collectChoices is the real flow's model write (value box -> model -> history)
+    probe.run(`
+      function fakeEl(tag) { return { tagName: tag, className: '', value: '', attrs: {}, childNodes: [], parentNode: null,
+        getAttribute: function (k) { return this.attrs[k] === undefined ? null : this.attrs[k]; },
+        setAttribute: function (k, v) { this.attrs[k] = String(v); },
+        hasAttribute: function (k) { return this.attrs[k] !== undefined; },
+        appendChild: function (c) { c.parentNode = this; this.childNodes.push(c); return c; },
+        removeChild: function (c) { this.childNodes.splice(this.childNodes.indexOf(c), 1); c.parentNode = null; return c; },
+        get firstChild() { return this.childNodes[0] || null; },
+        get textContent() { return this.childNodes.map(function (c) { return c.text !== undefined ? c.text : c.textContent; }).join(''); } }; }
+      document.createElement = fakeEl;
+      document.createTextNode = function (t) { return { text: t, parentNode: null }; };
+      var valueBox = fakeEl('INPUT'); valueBox.value = '360000';
+      var analyticsBox = fakeEl('INPUT'); analyticsBox.value = '360000'; analyticsBox.setAttribute('data-auto', 'true');
+      var row = fakeEl('DIV');
+      row.querySelector = function (sel) {
+        if (sel === '[data-choice-field="value"]') { return valueBox; }
+        if (sel === '[data-choice-field="analytics_id"]') { return analyticsBox; }
+        if (sel === '[data-choice-duplicate-note]') { for (var i = 0; i < this.childNodes.length; i++) { if (this.childNodes[i].hasAttribute && this.childNodes[i].hasAttribute('data-choice-duplicate-note')) { return this.childNodes[i]; } } return null; }
+        return null;
+      };
+      function collectChoices() { var n = ${node}; n.choices[0].value = valueBox.value; n.choices[0].analytics_id = analyticsBox.value; historyPush(); }
+    `);
+    // an edit, then Undo: Redo holds one step
+    probe.run(`${node}.choices[1].label = 'Mid'; historyPush(); historyUndo();`);
+    expect(probe.run("redoStack.length")).toBe(1);
+    const undoDepth = probe.run("undoStack.length");
+    // choice 0 (600000) is typed as 360000 — choice 1's value
+    probe.run(`document.activeElement = { tagName: 'INPUT', type: 'text' }; ${node}.choices[0].value = '360000'; ${node}.choices[0].analytics_id = '360000'; historyPush();`);
+    expect(probe.run("redoStack.length")).toBe(0);
+    probe.run("document.activeElement = null;");
+    probe.run("refuseDuplicateValue(row, false, '600000', '360000', false);");
+    expect(probe.run(`[${node}.choices[0].value, ${node}.choices[0].analytics_id, valueBox.value, analyticsBox.value]`)).toEqual(["600000", "600000", "600000", "600000"]);
+    expect(probe.run("row.childNodes[0].textContent")).toBe("Another choice already has the saved value 360000 \u2014 each choice needs its own, so 600000 was kept.");
+    expect(probe.run("undoStack.length")).toBe(undoDepth);
+    expect(probe.run("redoStack.length")).toBe(1);
+    // a label that derives a taken value says so in the label's terms
+    probe.run("refuseDuplicateValue(row, false, '600000', '360000', true);");
+    expect(probe.run("row.childNodes[0].textContent")).toBe("This label makes the saved value 360000, which another choice already has \u2014 the saved value stays 600000. Change the label, or set the saved value by hand.");
+  });
+
+  it("review 4: two choices with one saved value (or one label) are shown as issues — never blocking", async () => {
+    const dupEnv = newHarness().env;
+    const dupHtml = await studioPage(dupEnv, (await createSection(dupEnv)).public_id);
+    const probe = studioProbe(dupHtml, {
+      components: [
+        {
+          type: "ButtonAnswerGroup", question_id: "q_dup", internal_field: "dup",
+          choices: [
+            { label: "One", value: "dupz", analytics_id: "a1" },
+            { label: "Two", value: "dupz", analytics_id: "a2" },
+            { label: "one", value: "three", analytics_id: "a3" },
+          ],
+        },
+      ],
+    });
+    const messages = (probe.run("computeIssues()") as Array<{ message: string }>).map((i) => i.message);
+    expect(messages.some((m) => m.includes('more than one choice with the saved value "dupz"'))).toBe(true);
+    expect(messages.some((m) => m.includes('more than one choice labelled "one"'))).toBe(true);
+  });
+
+  it("review 3: a 'not sent' mapping whose key the component records again is dropped from the list — its Remove can never delete a working mapping", async () => {
+    const twoParts = JSON.parse(JSON.stringify(PROD_SECTION_25)) as { components: Array<Record<string, unknown>> };
+    const addr = twoParts.components.find((c) => c["question_id"] === "q_mslll307_b3an")!;
+    (addr["props"] as { fields: unknown[] }).fields.push({ field: "street", mode: "manual", required: false });
+    const { probe, offers } = await setupWith(twoParts, [["QuinStreetHome", [{ path: "tracking.ni_zc", type: "string", required: true }]]]);
+    const quin = offers[0]!;
+    probe.run(
+      `state.answer_maps = [{ question_id: 'q_mslll307_b3an', question_key: 'q_mslll307_b3an', internal_field: 'address', answer_type: 'object', offer_id: ${quin.id}, offer_payload_field_path: 'tracking.ni_zc', provider_expected_type: 'string', output_value_map: null, value_transform: null, required_for_offer: true, default_value: null, fallback_value: null }]; state.selected_offers = [${quin.id}];`,
+    );
+    // two parts: the bare key is listed as not sent (nothing to move it onto)
+    probe.run("repairStaleAnswerKeys()");
+    expect(probe.run("answerKeyRepairs['q_mslll307_b3an'].stale.length")).toBe(1);
+    // the component goes back to its ZIP part only: the mapping is moved onto it
+    probe.run("findRef('q_mslll307_b3an').node.props.fields.pop();");
+    probe.run("repairStaleAnswerKeys()");
+    expect(probe.run("state.answer_maps[0].internal_field")).toBe("address_zip");
+    expect(probe.run("answerKeyRepairs['q_mslll307_b3an'].moved")).toBe(1);
+    // …and is no longer listed as not sent (its Remove would delete it)
+    expect(probe.run("answerKeyRepairs['q_mslll307_b3an'].stale.length")).toBe(0);
+  });
+
+  it("review 4: Undo and Redo of an Address part change bring the right note back each way", async () => {
+    const twoParts = JSON.parse(JSON.stringify(PROD_SECTION_25)) as { components: Array<Record<string, unknown>> };
+    const addr = twoParts.components.find((c) => c["question_id"] === "q_mslll307_b3an")!;
+    (addr["props"] as { fields: unknown[] }).fields.push({ field: "street", mode: "manual", required: false });
+    const { probe, offers, island } = await setupWith(twoParts, [["QuinStreetHome", [{ path: "tracking.ni_zc", type: "string", required: true }]]]);
+    const quin = offers[0]!;
+    withHistory(probe, island);
+    probe.run(
+      `state.answer_maps.push({ question_id: 'q_mslll307_b3an', question_key: 'q_mslll307_b3an', internal_field: 'address', answer_type: 'object', offer_id: ${quin.id}, offer_payload_field_path: 'tracking.ni_zc', provider_expected_type: 'string', output_value_map: null, value_transform: null, required_for_offer: true, default_value: null, fallback_value: null }); state.selected_offers.push(${quin.id});`,
+    );
+    probe.run("var lastSnapshot = historyState(); repairStaleAnswerKeys();");
+    expect(probe.run("[answerKeyRepairs['q_mslll307_b3an'].moved, answerKeyRepairs['q_mslll307_b3an'].stale.length]")).toEqual([0, 1]);
+    // the Street part goes: the mapping moves onto the ZIP part (one step)
+    probe.run("findRef('q_mslll307_b3an').node.props.fields.pop(); historyPush(); repairStaleAnswerKeys();");
+    expect(probe.run("[answerKeyRepairs['q_mslll307_b3an'].moved, answerKeyRepairs['q_mslll307_b3an'].stale.length]")).toEqual([1, 0]);
+    // Undo: two parts again, the bare mapping is listed as not sent, no "now uses" note
+    probe.run("historyUndo(); repairStaleAnswerKeys();");
+    expect(probe.run("[answerKeyRepairs['q_mslll307_b3an'].moved, answerKeyRepairs['q_mslll307_b3an'].stale.length]")).toEqual([0, 1]);
+    // Redo: the ZIP-only state, with its note
+    probe.run("historyRedo(); repairStaleAnswerKeys();");
+    expect(probe.run("answerKeyRepairs['q_mslll307_b3an']")).toMatchObject({ moved: 1, from: "address", to: "address_zip", stale: [] });
+    expect(probe.run("state.answer_maps[0].internal_field")).toBe("address_zip");
+  });
+
+  it("review 3: an Undo keeps the 'now uses ZIP code — Save to apply' note (only the not-sent list is re-derived)", async () => {
+    const { probe, offers, island } = await setupWith(PROD_SECTION_25, [["QuinStreetHome", [{ path: "tracking.ni_zc", type: "string", required: true }]]]);
+    const quin = offers[0]!;
+    withHistory(probe, island);
+    probe.run(
+      `state.answer_maps.push({ question_id: 'q_mslll307_b3an', question_key: 'q_mslll307_b3an', internal_field: 'address', answer_type: 'object', offer_id: ${quin.id}, offer_payload_field_path: 'tracking.ni_zc', provider_expected_type: 'string', output_value_map: null, value_transform: null, required_for_offer: true, default_value: null, fallback_value: null }); state.selected_offers.push(${quin.id});`,
+    );
+    probe.run("var lastSnapshot = historyState(); repairStaleAnswerKeys();");
+    expect(probe.run("answerKeyRepairs['q_mslll307_b3an'].moved")).toBe(1);
+    // an unrelated edit, then Undo
+    probe.run("findRef('q_mslll307_b3an').node.required = true; historyPush(); historyUndo();");
+    expect(probe.run("answerKeyRepairs['q_mslll307_b3an']")).toMatchObject({ moved: 1, from: "address", to: "address_zip", stale: [] });
+    // the repair itself is not undone: the mapping still uses the recorded key
+    expect(probe.run("state.answer_maps[0].internal_field")).toBe("address_zip");
+  });
+
+  it("review F8: typing a value into a box whose mapping a value list would cure says it WILL be sent (applying it writes the list)", async () => {
+    const content = JSON.parse(JSON.stringify(MULTI_CONTENT)) as { components: Array<{ choices?: unknown[] }> };
+    content.components[1]!.choices!.push({ label: "Not sure", value: "not_sure", analytics_id: "not_sure" });
+    const { probe, offers } = await setupWith(content, [["Num Co", [{ path: "rev_num", type: "number" }]]]);
+    const o = offers[0]!;
+    probe.run(`upsertEdge(offerById(${o.id}), answerFieldOf(offerById(${o.id}), 'rev_num'), '${REVENUE_FIELD}')`);
+    // no list yet and "not_sure" is not a number: a type problem today
+    expect(probe.run(`edgeMapState(state.answer_maps[0], offerById(${o.id}))`)).toBe("type_mismatch");
+    const edges = `edgesOfAnswerOnOffer(${o.id}, '${REVENUE_FIELD}')`;
+    expect(probe.run(`typingStateFor(${o.id}, ${edges}, '', 'not_sure').kind`)).toBe("blocked");
+    expect(probe.run(`typingStateFor(${o.id}, ${edges}, '1', 'not_sure')`)).toEqual({ kind: "pending", text: "will send 1" });
+    // a multi-select stays blocked whatever is typed (a list never fits a number)
+    expect(probe.run(`typingStateFor(${o.id}, ${edges}, 'abc', 'not_sure').kind`)).toBe("invalid");
+  });
+
+  it("review F5: the Offers tab never tells a multi-select type problem to fix it with per-choice values", async () => {
+    const MULTI_SELECT = {
+      components: [
+        {
+          type: "MultiChoiceCardGroup", question_id: "q_perils", question_key: "q_perils", internal_field: "perils", answer_type: "array",
+          choices: [{ label: "Fire", value: "fire", analytics_id: "fire" }],
+        },
+      ],
+    };
+    const { probe, offers, island } = await setupWith(MULTI_SELECT, [["Perils Co", [{ path: "perils_count", type: "number" }]]]);
+    const o = offers[0]!;
+    probe.run(`upsertEdge(offerById(${o.id}), answerFieldOf(offerById(${o.id}), 'perils_count'), 'perils')`);
+    const note = probe.run(`mapStateNote('type_mismatch', answerFieldOf(offerById(${o.id}), 'perils_count'), offerById(${o.id}), state.answer_maps[0])`) as string;
+    expect(note).toContain("only a text field (sent comma-separated) or a list field can take it");
+    expect(note).not.toContain("Provider values");
+    // and the Offers tab's "never reach this field" line does not send them there either
+    expect(island).toContain("if (notSent > 0 && !valuesCantHelp) {");
+    expect(island).toContain("var valuesCantHelp = edgeState === 'orphaned' || (edgeState === 'type_mismatch' && answerNodeType((edge && edge.answer_type) || 'string') === 'array');");
+  });
+
+  it("review M2: Undo after a rename takes the carried provider values back with it (one step), and Redo re-applies both", async () => {
+    const { probe, offers, island } = await setupWith(MULTI_CONTENT, [["AmONE - Tier 2", [{ path: "Income", type: "string" }]]]);
+    const amone = offers[0]!;
+    probe.run(
+      [
+        ...RENAME_FUNCS.map((n) => sliceIslandFunction(island, n)),
+        "var UNDO_LIMIT = 50; var undoStack = []; var redoStack = [];",
+        "function updateHistoryButtons() {}",
+        "function refreshAfterHistory() {}",
+        "var lastPushFocus = null;",
+        ...HISTORY_FUNCS.map((n) => sliceIslandFunction(island, n)),
+      ].join("\n"),
+    );
+    probe.run(`upsertEdge(offerById(${amone.id}), answerFieldOf(offerById(${amone.id}), 'Income'), '${REVENUE_FIELD}')`);
+    probe.run(`state.answer_maps[0].output_value_map = { '600000': '50000', '360000': '30000', '30000': '2500' };`);
+    probe.run("snapshotProviderValues(findRef('q_mrum8ruj_2sau').node); var lastSnapshot = historyState();");
+    const node = "findRef('q_mrum8ruj_2sau').node";
+    const list = () => (probe.sandbox.state["answer_maps"] as Array<Record<string, unknown>>)[0]!["output_value_map"];
+    const value0 = () => probe.run("findRef('q_mrum8ruj_2sau').node.choices[2].value");
+    // typing 30000 -> 35000 pushes history per edit (afterModelChange), then the
+    // row commits the rename
+    setChoiceValue(probe, 2, "3500");
+    probe.run("historyPush();");
+    setChoiceValue(probe, 2, "35000");
+    probe.run("historyPush();");
+    probe.run(`commitChoiceRename(${node}, '${REVENUE_FIELD}', '30000', '35000')`);
+    expect(list()).toEqual({ "600000": "50000", "360000": "30000", "35000": "2500" });
+    // Undo back to the start: the value AND its provider value are back
+    probe.run("historyUndo(); historyUndo();");
+    expect(value0()).toBe("30000");
+    expect(list()).toEqual({ "600000": "50000", "360000": "30000", "30000": "2500" });
+    expect(probe.run(`providerValueOf(${amone.id}, '${REVENUE_FIELD}', '30000')`)).toEqual({ state: "custom", value: "2500" });
+    // Redo both steps: the rename and its carried value return together
+    probe.run("historyRedo(); historyRedo();");
+    expect(value0()).toBe("35000");
+    expect(list()).toEqual({ "600000": "50000", "360000": "30000", "35000": "2500" });
+  });
+
+  it("review M4 + m1: a box shared by two fields where ONE mapping is blocked still sends to the other — it says so, and the chip does not count it as not sent", async () => {
+    const { probe, offers } = await setupWith(MULTI_CONTENT, [
+      ["Fundera - Tier 1", [{ path: "company.revenue_text", type: "string" }, { path: "company.revenue_copy", type: "string" }]],
+    ]);
+    const f = offers[0]!;
+    probe.run(`upsertEdge(offerById(${f.id}), answerFieldOf(offerById(${f.id}), 'company.revenue_text'), '${REVENUE_FIELD}')`);
+    probe.run(`upsertEdge(offerById(${f.id}), answerFieldOf(offerById(${f.id}), 'company.revenue_copy'), '${REVENUE_FIELD}', null)`);
+    // the second mapping goes stale (its declared type no longer matches the field)
+    probe.run("state.answer_maps[1].provider_expected_type = 'number';");
+    const edges = `edgesOfAnswerOnOffer(${f.id}, '${REVENUE_FIELD}')`;
+    expect(probe.run(`providerBoxGroups(${f.id}, '${REVENUE_FIELD}').length`)).toBe(1);
+    const partly = "partly: not sent to Revenue copy \u2014 this mapping has a type problem (see the Offers tab)";
+    expect(probe.run(`boxUnsendable(${f.id}, ${edges}, '600000')`)).toBe(partly);
+    expect(probe.run(`typingStateFor(${f.id}, ${edges}, '', '600000')`)).toEqual({ kind: "partial", text: "will send 600000 \u2014 " + partly });
+    expect(probe.run(`providerChipRows('${REVENUE_FIELD}', '600000')[0].unsendable`)).toBe(partly);
+    expect(probe.run(`providerChipLabel('${REVENUE_FIELD}', '600000')`)).toBe("Provider values: 0/1 Offers");
+    // both mappings blocked: nothing is sent, and it says so
+    probe.run("state.answer_maps[0].provider_expected_type = 'number';");
+    expect(probe.run(`typingStateFor(${f.id}, ${edges}, '', '600000').kind`)).toBe("blocked");
+    expect(probe.run(`providerChipLabel('${REVENUE_FIELD}', '600000')`)).toBe("Provider values: 0/1 Offers \u00b7 1 not sent");
+  });
+
+  it("review o1: the Section payload preview builds from the mappings the live request uses — a type-mismatched field is not in it", async () => {
+    // one choice ("Not sure") is not a number, so the answer can't always fill
+    // a number field: that mapping is a type problem, skipped by the live build
+    const content = JSON.parse(JSON.stringify(MULTI_CONTENT)) as { components: Array<{ choices?: unknown[] }> };
+    content.components[1]!.choices!.push({ label: "Not sure", value: "not_sure", analytics_id: "not_sure" });
+    const { env, section, probe, offers } = await setupWith(content, [
+      ["Annual Co", [{ path: "rev_num", type: "number" }, { path: "rev_txt", type: "string" }]],
+    ]);
+    const o = offers[0]!;
+    probe.run(`upsertEdge(offerById(${o.id}), answerFieldOf(offerById(${o.id}), 'rev_num'), '${REVENUE_FIELD}')`);
+    probe.run(`upsertEdge(offerById(${o.id}), answerFieldOf(offerById(${o.id}), 'rev_txt'), '${REVENUE_FIELD}', null)`);
+    const saved = await save(env, section, probe);
+    const maps = saved["answer_maps"] as Array<{ offer_payload_field_path: string; mapping_status: string }>;
+    expect(maps.find((m) => m.offer_payload_field_path === "rev_num")?.mapping_status).toBe("type_mismatch");
+    expect(await preview(env, section, { [REVENUE_FIELD]: "600000" }, o.public_id)).toEqual({ rev_txt: "600000" });
+  });
+
+  it("review o3: the payload preview's own sample answers are prefilled from the Section's questions (first saved value; a sample ZIP)", async () => {
+    const { probe, island } = await setupWith(MULTI_CONTENT, []);
+    probe.run(sliceIslandFunction(island, "defaultPayloadSampleAnswers"));
+    expect(probe.run("defaultPayloadSampleAnswers()")).toEqual({ zip: "90210", [REVENUE_FIELD]: "600000" });
+    expect(island).toContain("body: JSON.stringify({ answers: answers, offers: [offer.public_id] })");
+  });
+
+  it("review M3: a multi-select mapped to a number field reads as a type problem (the rows say not sent) — into a text field it stays complete", async () => {
+    const MULTI_SELECT = {
+      components: [
+        {
+          type: "MultiChoiceCardGroup", question_id: "q_perils", question_key: "q_perils", internal_field: "perils", answer_type: "array",
+          choices: [
+            { label: "Fire", value: "fire", analytics_id: "fire" },
+            { label: "Flood", value: "flood", analytics_id: "flood" },
+          ],
+        },
+      ],
+    };
+    const { probe, offers } = await setupWith(MULTI_SELECT, [["Perils Co", [{ path: "perils_count", type: "number" }, { path: "perils_text", type: "string" }]]]);
+    const o = offers[0]!;
+    probe.run(`upsertEdge(offerById(${o.id}), answerFieldOf(offerById(${o.id}), 'perils_count'), 'perils')`);
+    probe.run(`upsertEdge(offerById(${o.id}), answerFieldOf(offerById(${o.id}), 'perils_text'), 'perils', null)`);
+    probe.run("state.answer_maps[0].output_value_map = { fire: '1', flood: '2' };");
+    expect(probe.run(`edgeMapState(state.answer_maps[0], offerById(${o.id}))`)).toBe("type_mismatch");
+    expect(probe.run(`edgeMapState(state.answer_maps[1], offerById(${o.id}))`)).toBe("complete");
+    expect(probe.run(`boxUnsendable(${o.id}, [state.answer_maps[0]], '1')`)).toBe("blocked: this mapping has a type problem, so nothing is sent (see the Offers tab)");
+  });
+
+  it("open item 6 (F8): a box shared by two fields names the one that rejects a value instead of saying 'not sent' for both", async () => {
+    const { probe, offers } = await setupWith(MULTI_CONTENT, [
+      ["Fundera - Tier 1", [{ path: "company.revenue_band", type: "enum", valid_values: ["low", "high"] } as never, { path: "company.revenue_text", type: "string" }]],
+    ]);
+    const f = offers[0]!;
+    probe.run(`upsertEdge(offerById(${f.id}), answerFieldOf(offerById(${f.id}), 'company.revenue_band'), '${REVENUE_FIELD}')`);
+    probe.run(`upsertEdge(offerById(${f.id}), answerFieldOf(offerById(${f.id}), 'company.revenue_text'), '${REVENUE_FIELD}', null)`);
+    const edges = `edgesOfAnswerOnOffer(${f.id}, '${REVENUE_FIELD}')`;
+    expect(probe.run(`sharedBoxProblem(${f.id}, ${edges}, '600000')`)).toBe("partly: not sent to Revenue band (must be one of: low, high)");
+    expect(probe.run(`sharedBoxProblem(${f.id}, ${edges}, 'high')`)).toBe("");
+    expect(probe.run(`typingStateFor(${f.id}, ${edges}, '', '600000')`)).toEqual({ kind: "partial", text: "will send 600000 \u2014 partly: not sent to Revenue band (must be one of: low, high)" });
+  });
+
+  it("open item 5: after Save the editor reopens the question and tab being edited", async () => {
+    const { probe, island } = await setupWith(MULTI_CONTENT, [["AmONE - Tier 2", [{ path: "Income", type: "string" }]]]);
+    probe.run([sliceIslandFunction(island, "reopenQuery"), sliceIslandFunction(island, "reopenedSelectionId")].join("\n"));
+    probe.run("var selectedQuestionId = 'q_mrum8ruj_2sau'; var currentInspectorTab = 'offers';");
+    expect(probe.run("reopenQuery()")).toBe("?q=q_mrum8ruj_2sau&tab=offers");
+    probe.sandbox["URLSearchParams"] = URLSearchParams;
+    probe.sandbox["window"] = { location: { search: "?q=q_mrum8ruj_2sau&tab=offers" } };
+    expect(probe.run("reopenedSelectionId()")).toBe("q_mrum8ruj_2sau");
+    probe.sandbox["window"] = { location: { search: "?q=q_gone" } };
+    expect(probe.run("reopenedSelectionId()")).toBeNull();
+  });
+
+  it("review 9c (F-G): the canvas toolbar stays compact — no height hold; the problems line is one line (a tap shows it whole)", async () => {
+    const { env } = newHarness();
+    const html = await studioPage(env, (await createSection(env)).public_id);
+    const island = studioIsland(html);
+    // the hold that kept the tallest height (and its empty bands) is gone
+    expect(island).not.toContain("holdToolbarHeight");
+    expect(html).toContain(".studio-toolbar-problems{font-size:11px;color:#842029;flex:1 1 100%;min-height:15px;line-height:15px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;position:relative;padding-right:18px}");
+    expect(html).toContain(".studio-toolbar-problems.is-open{white-space:normal}");
+    // review 10 MAJOR-1: one line kept in place even when empty (the line coming and going moved the canvas mid-click);
+    // a chevron says a tap shows the whole sentence (MINOR-2)
+    // review 11 MINOR-6: the ▾ only when the sentence really is cut, 13px
+    expect(html).toContain('.studio-toolbar-problems.is-cut::after{content:"\\25BE";position:absolute;right:2px;top:0;font-size:13px;');
+    expect(island).toContain("if (el.scrollWidth > el.clientWidth + 1) { el.className = el.className + ' is-cut'; }");
+    expect(island).toContain("if (mine.length === 0) { el.textContent = ''; el.title = ''; return; }");
+    expect(island).not.toContain("if (mine.length === 0) { el.hidden = true;");
+    expect(island).toContain("el.className = withoutClasses(el.className, ['is-open', 'is-cut']);");
+    expect(island).toContain("toolbarProblemsEl.addEventListener('click', function () {");
+    // the breadcrumb never wraps the toolbar: a fixed basis, one line
+    expect(html).toMatch(/\.studio-breadcrumb\{[^}]*min-height:24px[^}]*flex:1 1 260px;overflow:hidden;white-space:nowrap\}/);
+  });
+
+  it("review 8: a choices row the operator clicks becomes the selected choice everywhere; a row the same click removed is ignored", async () => {
+    const { env } = newHarness();
+    const html = await studioPage(env, (await createSection(env)).public_id);
+    const island = studioIsland(html);
+    expect(island).toContain("pointChoiceAtRow(row, choicesPanelWrap);");
+    const mkRow = (label: string) => ({ querySelector: (sel: string) => (sel === '[data-choice-field="label"]' ? { value: label } : null) });
+    const alpha = mkRow("AlphaQ8"), beta = mkRow("BetaQ8"), gone = mkRow("GoneQ8");
+    const rows = [alpha, beta];
+    const container = { contains: (r: unknown) => rows.indexOf(r as typeof alpha) !== -1, querySelectorAll: () => rows };
+    const calls: string[] = [];
+    const sandbox: Record<string, unknown> = {
+      node: { choices: [{ label: "AlphaQ8", value: "bx" }, { label: "BetaQ8", value: "bx" }] },
+      selectedChoiceIndex: 1, selectedChoiceValue: "bx", selectedChoiceRow: beta, choiceScopeLabel: "BetaQ8",
+      alpha, beta, gone, container,
+      selectedNode() { return sandbox["node"]; },
+      setScope(sc: string) { calls.push("scope:" + sc + ":" + String(sandbox["choiceScopeLabel"]) + "#" + String(sandbox["selectedChoiceIndex"])); },
+      applyCanvasDecoration() { calls.push("canvas"); },
+      markCurrentChoiceRow() { calls.push("mark"); },
+      dropChoiceSelection() { calls.push("drop"); sandbox["selectedChoiceValue"] = null; },
+    };
+    runInNewContext(sliceIslandFunction(island, "pointChoiceAtRow"), sandbox);
+    // Remove on a row: by the time the click reaches the panel the row is gone
+    runInNewContext("pointChoiceAtRow(gone, container)", sandbox);
+    expect(calls).toEqual([]);
+    expect(sandbox["choiceScopeLabel"], "the header keeps the selected choice, not the removed row").toBe("BetaQ8");
+    // a click in Alpha's row (Alpha is Beta's twin): Alpha is the choice now, by position
+    runInNewContext("pointChoiceAtRow(alpha, container)", sandbox);
+    expect(calls).toEqual(["scope:choice:AlphaQ8#0", "canvas", "mark"]);
+    expect([sandbox["selectedChoiceIndex"], sandbox["selectedChoiceValue"], sandbox["selectedChoiceRow"] === alpha]).toEqual([0, "bx", true]);
+    // review 9 m9-2: a new row with no saved value yet names no choice (Alpha is not kept)
+    const blank = mkRow("");
+    rows.push(blank);
+    (sandbox["node"] as { choices: Record<string, unknown>[] }).choices.push({ label: "" });
+    calls.length = 0;
+    runInNewContext("pointChoiceAtRow(blank, container)", { ...sandbox, blank } as Record<string, unknown>);
+    expect(calls).toEqual(["drop"]);
+    // its first typed value selects it as the operator types
+    expect(island).toContain("choicesPanelWrap.addEventListener('input', function (ev) {");
+  });
+
+  it("review 9b (M-2): the selected choice's name follows its label while typing — texts only, no re-render", async () => {
+    const { env } = newHarness();
+    const html = await studioPage(env, (await createSection(env)).public_id);
+    const island = studioIsland(html);
+    expect(island).toContain("else if (row && ev.target.getAttribute && ev.target.getAttribute('data-choice-field') === 'label') { followSelectedChoiceLabel(ev.target.value); }");
+    const nameEl = { textContent: "Answer choice “Z”" };
+    const crumbEl = { textContent: "Choice “Z”", title: "" };
+    const sandbox: Record<string, unknown> = {
+      scopeState: "choice", selectedChoiceValue: "zeta9", choiceScopeLabel: "Z",
+      selectedNode: () => ({ type: "ButtonAnswerGroup" }),
+      document: { querySelector: (sel: string) => (sel === "[data-studio-scope-header] [data-scope-editing-name]" ? nameEl : sel === "[data-crumb-choice]" ? crumbEl : null) },
+    };
+    runInNewContext([sliceIslandFunction(island, "scopeEditingName"), sliceIslandFunction(island, "followSelectedChoiceLabel")].join("\n"), sandbox);
+    runInNewContext("followSelectedChoiceLabel('Zeta9')", sandbox);
+    expect([nameEl.textContent, crumbEl.textContent, crumbEl.title]).toEqual(["Answer choice “Zeta9”", "Choice “Zeta9”", "Choice “Zeta9”"]);
+    // not choice-scoped: nothing is renamed
+    sandbox["scopeState"] = "component";
+    runInNewContext("followSelectedChoiceLabel('Other')", sandbox);
+    expect(crumbEl.textContent).toBe("Choice “Zeta9”");
+  });
+
+  it("review 9b (M-4): the More panel opens under its button inside the toolbar, not at the window's corner", async () => {
+    const { env } = newHarness();
+    const html = await studioPage(env, (await createSection(env)).public_id);
+    const island = studioIsland(html);
+    expect(html).toMatch(/<div class="studio-toolbar" data-studio-selection-toolbar data-studio-canvas-toolbar style="position:relative;/);
+    expect(island).toContain("if (willOpen) { positionMorePanel(panel, this); }");
+    const bar = { clientWidth: 562 };
+    const btn = { offsetTop: 388, offsetLeft: 497, offsetWidth: 30, offsetHeight: 30, offsetParent: bar };
+    const panel = { offsetParent: bar, offsetWidth: 180, style: {} as Record<string, string> };
+    const sandbox: Record<string, unknown> = { panel, btn };
+    runInNewContext(sliceIslandFunction(island, "positionMorePanel"), sandbox);
+    runInNewContext("positionMorePanel(panel, btn)", sandbox);
+    expect(panel.style).toEqual({ top: "422px", left: "347px", right: "auto" });
+    // a button at the left edge of a phone toolbar: the panel stays inside the toolbar
+    const phoneBtn = { offsetTop: 420, offsetLeft: 16, offsetWidth: 30, offsetHeight: 30, offsetParent: { clientWidth: 375 } };
+    const phonePanel = { offsetParent: phoneBtn.offsetParent, offsetWidth: 180, style: {} as Record<string, string> };
+    runInNewContext("positionMorePanel(p2, b2)", Object.assign(sandbox, { p2: phonePanel, b2: phoneBtn }));
+    expect(phonePanel.style).toEqual({ top: "454px", left: "0px", right: "auto" });
+  });
+
+  it("review 9b (M-1, M-3): the toolbar reserves its variable parts up front; an Other value row names no canvas choice", async () => {
+    const { env } = newHarness();
+    const html = await studioPage(env, (await createSection(env)).public_id);
+    const island = studioIsland(html);
+    // (the problems line and breadcrumb CSS are pinned by the review 9c F-G test)
+    // the crumbs before the current one shrink first (1000:1); the current one (up to 260px) gives way last
+    expect(html).toMatch(/\.studio-breadcrumb \.studio-crumb-current\{[^}]*flex:0 1 auto;min-width:0;max-width:260px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap\}/);
+    expect(html).toMatch(/\.studio-breadcrumb button\{[^}]*flex:0 1000 auto;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap\}/);
+    expect(island).toContain("b.title = 'Choice \\u201C' + choiceScopeLabel + '\\u201D';");
+    expect(island).toContain("otherValuesWrap.addEventListener('click', function (ev) { dropForOtherRow(ev.target); });");
+    expect(island).toContain("otherValuesWrap.addEventListener('focusin', function (ev) { if (!otherPointerDown) { dropForOtherRow(ev.target); } });");
+  });
+
+  it("review 10: the Unsaved changes indicator keeps its place while hidden (showing it moved Save away from a phone tap)", async () => {
+    const { env } = newHarness();
+    const html = await studioPage(env, (await createSection(env)).public_id);
+    expect(html).toContain(".studio-dirty-dot{display:inline-flex;visibility:hidden;");
+    expect(html).toContain('.studio-dirty-dot[data-dirty="true"]{visibility:visible}');
+    expect(html).not.toMatch(/\.studio-dirty-dot\{display:none/);
+  });
+
+  it("review 10: the second click of a double-click never re-selects (the canvas may have moved under the pointer)", async () => {
+    const { env } = newHarness();
+    const html = await studioPage(env, (await createSection(env)).public_id);
+    const island = studioIsland(html);
+    const fn = sliceIslandFunction(island, "onCanvasClick");
+    const guard = fn.indexOf("if (ev && ev.detail > 1) { return; }");
+    expect(guard, "onCanvasClick returns on a click series' later clicks").toBeGreaterThan(-1);
+    // after the inline-edit guard, before anything selects
+    expect(guard).toBeGreaterThan(fn.indexOf("editCardEl.contains(ev.target)) { return; }"));
+    expect(guard).toBeLessThan(fn.indexOf("selectChoice("));
+  });
+
+  it("review 11 (BLOCKER-1, MAJOR-2): a no-op change queues nothing, checked against the history's own last step — the same edit made again after an Undo goes through (real history code)", async () => {
+    const { env } = newHarness();
+    const html = await studioPage(env, (await createSection(env)).public_id);
+    const island = studioIsland(html);
+    const refreshed: string[] = [];
+    const sandbox: Record<string, unknown> = {
+      state: { content: { components: [{ question_id: "q9_tw", choices: [{ label: "AlphaN9", value: "tx" }, { label: "GammaN9", value: "tg" }, { label: "DeltaN9", value: "tx" }] }] }, answer_maps: [], selected_offers: [] },
+      selectedQuestionId: null,
+      findRef: () => null,
+      typingFocus: () => null,
+      updateHistoryButtons: () => undefined,
+      refreshAfterHistory: () => { refreshed.push("history"); },
+    };
+    runInNewContext(
+      [
+        "var UNDO_LIMIT = 50, undoStack = [], redoStack = [], redoBeforePush = [], lastPushFocus = null;",
+        sliceIslandFunction(island, "historyState"),
+        "var lastSnapshot = historyState();",
+        sliceIslandFunction(island, "historyPush"),
+        sliceIslandFunction(island, "restoreMappings"),
+        sliceIslandFunction(island, "restoreSnapshot"),
+        sliceIslandFunction(island, "historyUndo"),
+        sliceIslandFunction(island, "modelUnchangedSinceLastStep"),
+        "function removeGamma() { var ch = state.content.components[0].choices; for (var i = 0; i < ch.length; i++) { if (ch[i].value === 'tg') { ch.splice(i, 1); return; } } }",
+      ].join("\n"),
+      sandbox,
+    );
+    const run = (code: string) => runInNewContext(code, sandbox);
+    // ✕ GammaN9: a real change, one history step
+    run("removeGamma()");
+    expect(run("modelUnchangedSinceLastStep()"), "a real change is not a no-op").toBe(false);
+    expect(run("historyPush()")).toBe(true);
+    // the box's 'change' after its input events: nothing new → no-op (review 10 MAJOR-2)
+    expect(run("modelUnchangedSinceLastStep()")).toBe(true);
+    // Undo, then ✕ GammaN9 again: NOT a no-op (review 11 BLOCKER-1 — a remembered model went stale here)
+    expect(run("historyUndo()")).toBe(true);
+    expect(run("state.content.components[0].choices.map(function (c) { return c.label; }).join(',')")).toBe("AlphaN9,GammaN9,DeltaN9");
+    run("removeGamma()");
+    expect(run("modelUnchangedSinceLastStep()"), "the same edit after an Undo goes through").toBe(false);
+    expect(run("historyPush()")).toBe(true);
+    // and the source: the guard sits in the two collectors only; afterModelChange has no model memory of its own
+    expect(island).not.toContain("lastModelChangeSig");
+    expect(island.match(/if \(typeof modelUnchangedSinceLastStep !== 'undefined' && modelUnchangedSinceLastStep\(\)\) \{ return; \}/g)?.length).toBe(2);
+  });
+
+  it("review 11 (R11-A): a save note names a choice with no label by its place, its saved value in brackets", async () => {
+    const { env } = newHarness();
+    const html = await studioPage(env, (await createSection(env)).public_id);
+    const island = studioIsland(html);
+    const fn = sliceIslandFunction(island, "renderSaveProblems");
+    const inner = fn.slice(fn.indexOf("function rowContextLabel(rawPath) {"));
+    const body = inner.slice(0, inner.indexOf("\n    }\n") + 6);
+    const sandbox: Record<string, unknown> = {
+      componentByProblemPath: () => ({ type: "ButtonAnswerGroup", choices: [{ label: "AlphaN9", value: "tx" }, { label: "", value: "tg" }, { label: "" }] }),
+    };
+    runInNewContext(body, sandbox);
+    const name = (path: string) => runInNewContext(`rowContextLabel(${JSON.stringify(path)})`, sandbox);
+    expect(name("components[1].choices[0].label")).toBe("AlphaN9: ");
+    expect(name("components[1].choices[1].label")).toBe("Choice 2 (saved value “tg”): ");
+    expect(name("components[1].choices[2].label")).toBe("Choice 3: ");
+    // both copies (save problems and save errors) name it the same way
+    expect(island.match(/'Choice ' \+ choiceNo \+/g)?.length).toBe(2);
+  });
+
+  it("review 13 (MAJOR-1): the card's place is counted in the PAINTED content — after a twin gets its own value, the painted Beta card is Beta, never Delta (real stamping + real paint-match)", async () => {
+    const { env } = newHarness();
+    const html = await studioPage(env, (await createSection(env)).public_id);
+    const island = studioIsland(html);
+    const painted = { components: [
+      { question_id: "q9_tw", choices: [{ label: "AlphaN9", value: "tx" }, { label: "BetaN9", value: "tx" }, { label: "DeltaN9", value: "tx" }] },
+      { question_id: "q9_dis", choices: [{ label: "OpenN9", value: "do" }, { label: "ShutN9", value: "ds" }] },
+    ] };
+    const model = JSON.parse(JSON.stringify(painted));
+    const sandbox: Record<string, unknown> = {
+      current: true,
+      canvasIsCurrent: () => sandbox["current"],
+      findRef: (qid: string) => { for (const n of model.components) { if (n.question_id === qid) return { node: n }; } return null; },
+      walkTree: (list: Array<{ question_id: string }>, _d: number, fn: (n: unknown) => void) => { for (const n of list) fn(n); },
+    };
+    runInNewContext([
+      "var canvasPaintedJson = null, paintedCacheJson = null, paintedCacheParsed = null;",
+      sliceIslandFunction(island, "paintedNode"),
+      sliceIslandFunction(island, "paintedChoiceAt"),
+      sliceIslandFunction(island, "canvasChoiceIndex"),
+      sliceIslandFunction(island, "canvasCardMatchesPaint"),
+    ].join("\n"), sandbox);
+    sandbox["canvasPaintedJson"] = JSON.stringify(painted);
+    // the painted DOM order for q9_tw: three "tx" cards (Alpha, Beta, Delta) — stamp them as decorateChoiceCards does
+    const stamps = () => runInNewContext("(function () { var seen = {}; return ['tx', 'tx', 'tx'].map(function (v) { return canvasChoiceIndex('q9_tw', v, seen); }); })()", sandbox);
+    expect(stamps(), "current canvas: places 0,1,2").toEqual([0, 1, 2]);
+    // the operator gives AlphaN9 its own value; the canvas is behind (not repainted yet)
+    model.components[0].choices[0].value = "zc13";
+    sandbox["current"] = false;
+    expect(stamps(), "counted in the PAINTED content: still 0,1,2 (counted in the model it was 1,2,-1)").toEqual([0, 1, 2]);
+    const ok = (qid: string, index: number, value: string) => runInNewContext(`canvasCardMatchesPaint(${JSON.stringify(qid)}, { index: ${index}, value: ${JSON.stringify(value)} })`, sandbox);
+    // the painted Beta card (place 1): the model's choice 1 is Beta, unchanged → it acts, on Beta
+    expect(ok("q9_tw", 1, "tx")).toBe(true);
+    expect(model.components[0].choices[1].label).toBe("BetaN9");
+    // the painted Alpha card (place 0): the model's choice 0 changed → refused
+    expect(ok("q9_tw", 0, "tx")).toBe(false);
+    // a twin swap keeps "tx" at 0 but it is another choice → refused (review 11 MAJOR-1)
+    const ch = model.components[0].choices; [ch[1], ch[2]] = [ch[2], ch[1]];
+    expect(ok("q9_tw", 1, "tx"), "the painted Beta place now holds Delta").toBe(false);
+    // another question, unchanged → acts (review 12 MAJOR-A/B)
+    expect(ok("q9_dis", 1, "ds")).toBe(true);
+    expect(island).toContain("var pn = typeof paintedNode !== 'undefined' ? paintedNode(qid) : null;");
+  });
+
+  it("review 13 (MAJOR-2, MINOR-1..3): a paint that lands during a press waits for the release (the pressed card is still there for its click); every selection clears the Delete hold and its note; a double-click refusal does not arm it", async () => {
+    const { env } = newHarness();
+    const html = await studioPage(env, (await createSection(env)).public_id);
+    const island = studioIsland(html);
+    const timers: Array<() => void> = [];
+    const painted: number[] = [];
+    const sandbox: Record<string, unknown> = { setTimeout: (fn: () => void) => { timers.push(fn); return timers.length; }, clearTimeout: () => undefined };
+    runInNewContext([
+      "var canvasPressActive = false, pendingPaint = null, pressSafetyTimer = null;",
+      sliceIslandFunction(island, "holdPaintForPress"),
+      sliceIslandFunction(island, "flushPendingPaint"),
+      sliceIslandFunction(island, "canvasPressStart"),
+      sliceIslandFunction(island, "canvasPressEnd"),
+    ].join("\n"), sandbox);
+    sandbox["paint"] = (rev: number) => () => painted.push(rev);
+    expect(runInNewContext("holdPaintForPress(1, paint(1))", sandbox), "no press: paint at once").toBe(false);
+    runInNewContext("canvasPressStart()", sandbox);
+    expect(runInNewContext("holdPaintForPress(2, paint(2))", sandbox)).toBe(true);
+    expect(runInNewContext("holdPaintForPress(3, paint(3))", sandbox)).toBe(true);
+    expect(runInNewContext("holdPaintForPress(2, paint(2))", sandbox), "an older one never replaces the newest").toBe(true);
+    expect(painted).toEqual([]);
+    runInNewContext("canvasPressEnd()", sandbox);
+    expect(painted, "nothing before the click has been dispatched").toEqual([]);
+    // the release's setTimeout(…, 0) runs after the click: only the newest waiting paint
+    timers[timers.length - 1]!();
+    expect(painted).toEqual([3]);
+    expect(island).toContain("if (typeof holdPaintForPress !== 'undefined' && holdPaintForPress(renderingRev, paintNow)) { return; }");
+    expect(island).toContain("target.addEventListener('mousedown', canvasPressStart, true);");
+    expect(island).toContain("document.addEventListener('mouseup', canvasPressEnd, true);");
+    // a press inside the canvas frame blurs this window: a blur listener ended the press at once and the paint landed under it
+    expect(island).not.toContain("window.addEventListener('blur', canvasPressEnd)");
+    // the Delete hold: a refused action arms it; every selection path clears it (and its note)
+    const notes: string[] = [];
+    let cleared = 0;
+    const note = { textContent: "" };
+    const sb2: Record<string, unknown> = {
+      showRefusal: (t: string) => { notes.push(t); note.textContent = t; },
+      clearRefusal: () => { cleared++; note.textContent = ""; },
+      document: { querySelector: () => note },
+    };
+    runInNewContext([sliceIslandLine(island, "var choiceActionsDisarmed = false;"), sliceIslandLine(island, "var DISARMED_NOTE = "), sliceIslandFunction(island, "clearDisarm"), sliceIslandFunction(island, "disarmedRefusal")].join("\n"), sb2);
+    runInNewContext("choiceActionsDisarmed = true", sb2);
+    expect(runInNewContext("disarmedRefusal()", sb2)).toBe(true);
+    runInNewContext("clearDisarm()", sb2);
+    expect([runInNewContext("choiceActionsDisarmed", sb2), cleared, note.textContent], "a selection clears the hold and its note").toEqual([false, 1, ""]);
+    expect(runInNewContext("disarmedRefusal()", sb2)).toBe(false);
+    for (const fn of ["selectChoice", "selectComponent", "pointChoiceAtRow"]) {
+      expect(sliceIslandFunction(island, fn), fn + " clears it").toContain("if (typeof clearDisarm !== 'undefined') { clearDisarm(); }");
+    }
+    expect(sliceIslandFunction(island, "canvasBehindRefusal")).toContain("if (typeof choiceActionsDisarmed !== 'undefined' && !selectionStands) { choiceActionsDisarmed = true; }");
+    expect(sliceIslandFunction(island, "onCanvasDblClick")).toContain("canvasBehindRefusal(true); return; }");
+    expect(sliceIslandFunction(island, "deleteSelectedWithUndo")).toContain("if (typeof disarmedRefusal !== 'undefined' && disarmedRefusal()) { return; }");
+    expect(sliceIslandFunction(island, "handleChoiceAct")).toContain("if (typeof disarmedRefusal !== 'undefined' && disarmedRefusal()) { return; }");
+  });
+
+  it("review 12 (R12-A, MINOR-1, MINOR-2): the refusal note shows in the notice stack; a disabled ⋮ button looks disabled; a save note names an Other value as an Other value", async () => {
+    const { env } = newHarness();
+    const html = await studioPage(env, (await createSection(env)).public_id);
+    const island = studioIsland(html);
+    expect(island).toContain("if (refusalNote && typeof noticeStack !== 'undefined') { noticeStack().appendChild(refusalNote); }");
+    expect(html).toContain(".studio-tb-more-panel button:disabled{opacity:.45;cursor:not-allowed}");
+    const fn = sliceIslandFunction(island, "renderSaveProblems");
+    const inner = fn.slice(fn.indexOf("function rowContextLabel(rawPath) {"));
+    const body = inner.slice(0, inner.indexOf("\n    }\n") + 6);
+    const sandbox: Record<string, unknown> = {
+      componentByProblemPath: () => ({ type: "ButtonAnswerGroup", choices: [{ label: "AlphaN9", value: "tx" }, { label: "MidN9", value: "tm" }], props: { other: { choices: [{ label: "OthAN9", value: "ox9" }, { label: "", value: "oy9" }] } } }),
+    };
+    runInNewContext(body, sandbox);
+    const name = (path: string) => runInNewContext(`rowContextLabel(${JSON.stringify(path)})`, sandbox);
+    expect(name("components[1].props.other.choices[0].label")).toBe("Other value “OthAN9”: ");
+    expect(name("components[1].props.other.choices[1].label")).toBe("Other value 2 (saved value “oy9”): ");
+    expect(name("components[1].choices[1].label")).toBe("MidN9: ");
+    expect(island.match(/var otherMatch = p\.match\(/g)?.length, "both copies").toBe(2);
+  });
+
+  it("review 10: the Style panel fits the screen; every choice delete offers Undo; a canvas add does not scroll the page; the edited card's ✕ is hidden; a reopen link to a gone question still scrolls; moves keep the ⋮ panel open", async () => {
+    const { env } = newHarness();
+    const html = await studioPage(env, (await createSection(env)).public_id);
+    const island = studioIsland(html);
+    // MAJOR-3
+    expect(html).toContain(".lg-choice-style{display:flex;flex-direction:column;gap:4px;flex:0 1 auto;min-width:0;max-width:100%;position:relative}");
+    expect(html).toContain(".lg-choice-style:has(> .lg-choice-style-panel:not([hidden])){flex:1 1 100%}");
+    expect(html).toMatch(/\.lg-choice-style-panel\{[^}]*min-width:0;max-width:100%;box-sizing:border-box\}/);
+    expect(html).toContain(".lg-choice-style-panel .form-input,.lg-choice-style-panel input{flex:0 0 auto;height:auto;");
+    // R10-A: the ✕ and the ⋮ Delete choice show the same Undo toast as the Delete key
+    expect(island.match(/showUndoToast\(xLabel\);/g)?.length).toBe(1);
+    expect(island.match(/showUndoToast\(delLabel\);/g)?.length).toBe(1);
+    // MINOR-4
+    expect(island).toContain("selectChoice(gRef.node.question_id, String(added.value), gRef.node.choices.length - 1, true);");
+    // MINOR-3
+    expect(island).toContain("if (editCardX) { editCardX.style.visibility = 'hidden'; }");
+    expect(island).toContain("if (editCardX) { editCardX.style.visibility = ''; }");
+    // R10-B
+    expect(island).toContain("reopenScrollPending = (function () { try { return !!new URLSearchParams(window.location.search).get('q'); }");
+    // review 11 MINOR-4: every action from the ⋮ panel closes it again (moves too); a refusal note closes it
+    expect(island).toContain("var onAction = withinPanel && ev.target.closest('button');");
+    expect(island).toContain("if (typeof closeMorePanel !== 'undefined') { closeMorePanel(); }");
+    // review 11 MINOR-2: a move past either end is not offered
+    expect(island).toContain("if (leftBtn) { leftBtn.disabled = selAt <= 0; }");
+    expect(island).toContain("if (rightBtn) { rightBtn.disabled = selAt === -1 || !node.choices || selAt >= node.choices.length - 1; }");
+    // review 11 MINOR-1: the canvas + Add choice focuses the new label without scrolling the page
+    expect(island).toContain("newLabel.focus({ preventScroll: true });");
+  });
+
+  it("review 9c (F-B): a press on the edited card beside its text keeps the edit and puts the caret at the nearer end", async () => {
+    const { env } = newHarness();
+    const html = await studioPage(env, (await createSection(env)).public_id);
+    const island = studioIsland(html);
+    expect(island).toContain("target.addEventListener('mousedown', keepInlineEditOnCardPress, true);");
+    const carets: string[] = [];
+    const span = { contains: (t: unknown) => t === span, getBoundingClientRect: () => ({ left: 714, right: 779 }) } as Record<string, unknown>;
+    const card = { contains: (t: unknown) => t === card || t === span || t === pad };
+    const pad = {};
+    span["closest"] = (sel: string) => (sel === "[data-lg-choice]" ? card : null);
+    const sandbox: Record<string, unknown> = { inlineEditing: true, inlineEditHost: span, span, card, pad, other: {} };
+    runInNewContext([sliceIslandFunction(island, "inlineEditCard"), sliceIslandFunction(island, "keepInlineEditOnCardPress"), "function caretToEdge(el, atEnd) { __carets.push(atEnd ? 'end' : 'start'); }"].join("\n"), Object.assign(sandbox, { __carets: carets }));
+    const press = (target: string, clientX: number) => {
+      let prevented = false;
+      runInNewContext(`keepInlineEditOnCardPress({ target: ${target}, clientX: ${clientX}, preventDefault: function () { __prevented(); } })`, Object.assign(sandbox, { __prevented: () => { prevented = true; } }));
+      return prevented;
+    };
+    expect(press("pad", 782), "just past the last letter: no blur, caret at the end").toBe(true);
+    expect(press("pad", 640), "left of the text: caret at the start").toBe(true);
+    expect(carets).toEqual(["end", "start"]);
+    expect(press("span", 740), "on the text itself: the browser places the caret").toBe(false);
+    expect(press("other", 100), "outside the card: the edit ends as usual").toBe(false);
+    sandbox["inlineEditing"] = false;
+    expect(press("pad", 782), "no edit running: nothing is kept").toBe(false);
+    // the click that follows lands in the edited card and is ignored too
+    expect(island).toContain("if (editCardEl && editCardEl.contains && ev.target && editCardEl.contains(ev.target)) { return; }");
+  });
+
+  it("review 9c (F-D): a failed refresh stays shown until one at least as new paints; nothing pending says Retry, not 'in a moment'", async () => {
+    const { env } = newHarness();
+    const html = await studioPage(env, (await createSection(env)).public_id);
+    const island = studioIsland(html);
+    const notes: string[] = [];
+    const sandbox: Record<string, unknown> = { showRefusal: (t: string) => notes.push(t) };
+    runInNewContext([sliceIslandLine(island, "var canvasModelRev = 0, canvasShownRev = 0"), sliceIslandLine(island, "var CANVAS_BEHIND_NOTE = "), sliceIslandLine(island, "var CANVAS_FAILED_NOTE = "), sliceIslandFunction(island, "canvasBehindRefusal")].join("\n"), sandbox);
+    // edit 3 is on its way: catching up
+    runInNewContext("canvasModelRev = 3; canvasShownRev = 2; canvasFailedRev = 0; canvasBehindRefusal();", sandbox);
+    // edit 3's refresh failed and nothing newer was asked for: Retry
+    runInNewContext("canvasFailedRev = 3; canvasBehindRefusal();", sandbox);
+    expect(notes).toEqual([
+      "The canvas is catching up with your last edit — try that again in a moment.",
+      "The canvas could not show your last edit — press Retry on the canvas, then try again.",
+    ]);
+    // the success path keeps the banner for an older refresh landing late
+    expect(island).toContain("if (typeof hideCanvasPreviewError !== 'undefined' && !(typeof canvasFailedRev !== 'undefined' && renderingRev < canvasFailedRev)) { hideCanvasPreviewError(); }");
+    expect(island.match(/if \(typeof canvasFailedRev !== 'undefined' && renderingRev > canvasFailedRev\) \{ canvasFailedRev = renderingRev; \}/g)?.length, "both failure paths record it").toBe(2);
+  });
+
+  it("review 9c (F-A, F-C, F-E, F-F): notices on the window; the reopen hold follows a repaint and a failed picture; a canvas rename renames the selection; the More panel closes on an action and a resize", async () => {
+    const { env } = newHarness();
+    const html = await studioPage(env, (await createSection(env)).public_id);
+    const island = studioIsland(html);
+    // review 10 MINOR-1: ONE fixed stack at the bottom of the window; the banner above the toast, never over it
+    expect(html).toContain(".studio-notice-stack{position:fixed;left:50%;bottom:16px;transform:translateX(-50%);display:flex;flex-direction:column;");
+    expect(html).toContain(".studio-undo-toast{position:static;");
+    expect(html).toContain(".studio-canvas-preview-error{position:static;");
+    expect(island).toContain("noticeStack().appendChild(el);");
+    expect(island).toContain("stack.insertBefore(el, stack.firstChild);");
+    expect(island).toContain("doc.addEventListener('error', onFrameDocLoadCapture, true);");
+    expect(island).toContain("reopenAnchorEl = selEl;\n      if (typeof keepReopenAnchor !== 'undefined') { keepReopenAnchor(); }");
+    expect(island).toContain("if ((!withinPanel && !onToggle) || onAction) { closeMorePanel(); }");
+    // review 12 MINOR-3 / R12-B: only a width change closes the panel and re-measures the problems line
+    expect(island).toContain("if (w === lastResizeWidth) { return; }");
+    expect(island).toContain("closeMorePanel();\n      if (typeof renderToolbarProblems !== 'undefined') { renderToolbarProblems(); }");
+    // F-E: the canvas-edit refresh renames the selected choice
+    const renamed: string[] = [];
+    const sandbox: Record<string, unknown> = {
+      selectedQuestionId: "q1", scopeState: "choice", selectedChoiceValue: "tg",
+      populateInspector: () => undefined,
+      selectedNode: () => ({ choices: [{ label: "ammaN", value: "tg" }] }),
+      selectedChoiceKey: () => ({ index: 0, value: "tg" }),
+      findChoice: (n: { choices: Array<{ label: string }> }) => n.choices[0],
+      followSelectedChoiceLabel: (l: string) => renamed.push(l),
+    };
+    runInNewContext(sliceIslandFunction(island, "refreshInspectorAfterCanvasEdit"), sandbox);
+    runInNewContext("refreshInspectorAfterCanvasEdit('q1'); refreshInspectorAfterCanvasEdit('q2');", sandbox);
+    expect(renamed).toEqual(["ammaN"]);
+  });
+
+  it("review 8 (F8-3): a picture that loads after the reopen scroll keeps the reopened question in view until the operator first touches the page", async () => {
+    const { env } = newHarness();
+    const html = await studioPage(env, (await createSection(env)).public_id);
+    const island = studioIsland(html);
+    const scrolls: string[] = [];
+    const listeners: Record<string, (ev?: unknown) => void> = {};
+    const question = { isConnected: true, scrollIntoView: (o: { block: string }) => scrolls.push(o.block) };
+    const sandbox: Record<string, unknown> = { updateCanvasFrameHeight: () => undefined };
+    runInNewContext(
+      [
+        sliceIslandLine(island, "var reopenAnchorEl = null;"),
+        sliceIslandLine(island, "var REOPEN_RELEASE_EVENTS = "),
+        sliceIslandFunction(island, "keepReopenAnchor"),
+        sliceIslandFunction(island, "releaseReopenAnchor"),
+        sliceIslandFunction(island, "releaseReopenAnchorOnTouch"),
+        sliceIslandFunction(island, "onFrameDocLoadCapture"),
+      ].join("\n"),
+      sandbox,
+    );
+    const run = (code: string) => runInNewContext(code, sandbox);
+    sandbox["page"] = { addEventListener: (type: string, fn: (ev?: unknown) => void, capture?: boolean) => { if (capture === true) listeners[type] = fn; } };
+    run("releaseReopenAnchorOnTouch(page)");
+    expect(Object.keys(listeners).sort()).toEqual(["keydown", "mousedown", "pointerdown", "touchstart", "wheel"]);
+    // the first paint scrolled to the question and holds it
+    sandbox["question"] = question;
+    run("reopenAnchorEl = question");
+    run("onFrameDocLoadCapture({ target: { tagName: 'IMG' } })");
+    expect(scrolls, "a picture loading above the question brings it back into view").toEqual(["center"]);
+    run("onFrameDocLoadCapture({ target: { tagName: 'LINK' } })");
+    expect(scrolls, "only a picture load re-anchors").toEqual(["center"]);
+    // the operator's first scroll lets go: a later picture never pulls the page back
+    listeners["wheel"]!();
+    run("onFrameDocLoadCapture({ target: { tagName: 'IMG' } })");
+    expect(scrolls).toEqual(["center"]);
+    // a repaint that dropped the node lets go too
+    run("reopenAnchorEl = question");
+    question.isConnected = false;
+    run("onFrameDocLoadCapture({ target: { tagName: 'IMG' } })");
+    expect(scrolls).toEqual(["center"]);
+    expect(run("reopenAnchorEl")).toBeNull();
+    // a drag on the page's scrollbar is a press on the scroller (after-r9/probe-scrollbar-ref.cjs:
+    // pointerdown + mousedown on BODY), so it lets go like any other press — no scroll listener
+    question.isConnected = true;
+    run("reopenAnchorEl = question");
+    listeners["pointerdown"]!();
+    run("onFrameDocLoadCapture({ target: { tagName: 'IMG' } })");
+    expect(scrolls).toEqual(["center"]);
+    expect(Object.keys(listeners)).not.toContain("scroll");
+    // wiring: the page and the frame document both release it, the first paint sets it
+    expect(island).toContain("releaseReopenAnchorOnTouch(document);");
+    expect(island).toContain("releaseReopenAnchorOnTouch(doc);");
+    expect(island).toContain("if (typeof reopenAnchorEl !== 'undefined') { reopenAnchorEl = selEl; }");
+  });
+
+  it("open item 1: the editor's columns shrink to the screen (inspector never pushed off-screen) and phone-width rows wrap", async () => {
+    const { env } = newHarness();
+    const html = await studioPage(env, (await createSection(env)).public_id);
+    expect(html).toMatch(/\.lg-editor-grid\{display:grid;grid-template-columns:\d+px minmax\(0,1fr\) \d+px;/);
+    expect(html).toContain(".lg-editor-grid>*{min-width:0}");
+    expect(html).toContain("@media (max-width:1023px){.lg-editor-grid{grid-template-columns:minmax(0,1fr)}");
+    expect(html).toContain('@media (max-width:760px){.studio-root{overflow-x:hidden}');
+    expect(html).toContain('.studio-root [style*="margin-left:auto"]{margin-left:0 !important}');
   });
 
   it("M3: an answer filling two fields of one Offer with DIFFERENT lists gets one box per field; editing one never overwrites the other", async () => {

@@ -1334,12 +1334,20 @@ export function conditionalMet(
 // provider_expected_type coercion (05 §12.7 pipeline step). Returns
 // undefined when the value cannot represent the declared type — the node
 // then takes its fallback. Deliberately strict: implicit conversions are
-// the transforms' job (toNumber/toString/mapBoolean), not the coercer's.
+// the transforms' job (toNumber/toString/mapBoolean), not the coercer's —
+// the one exception is a multi-select's list into a text field (joined).
 function coerceToType(value: unknown, type: LeadgenPayloadNodeType): unknown {
   switch (type) {
     case "string":
       if (typeof value === "string") return value;
       if (typeof value === "number" || typeof value === "boolean") return String(value);
+      // OWNER 2026-09-28 (multi-select per-provider values): a multi-select's
+      // list into a TEXT field is sent comma-joined ("fire,flood"). It was
+      // dropped here while the mapping read "complete" (the studio and the
+      // server both judge array → text coercible).
+      if (Array.isArray(value) && value.length > 0 && value.every((v) => typeof v === "string" || typeof v === "number" || typeof v === "boolean")) {
+        return value.map(String).join(",");
+      }
       return undefined;
     case "number": {
       if (typeof value === "number") return Number.isFinite(value) ? value : undefined;
@@ -1559,9 +1567,19 @@ function resolveNode(node: LeadgenPayloadNode, ctx: LeadgenPayloadBuildContext):
       // the map. The map is keyed by saved values; looking the DATE up in it
       // always missed, so once an Offer carried per-provider values every
       // calculated choice of that question silently stopped reaching it.
-      value = Object.prototype.hasOwnProperty.call(node.value_map, String(value))
-        ? node.value_map[String(value)]
-        : undefined;
+      const map = node.value_map;
+      const own = (v: unknown): boolean => Object.prototype.hasOwnProperty.call(map, String(v));
+      if (Array.isArray(value)) {
+        // OWNER 2026-09-28 (multi-select per-provider values): a multi-select
+        // sends its whole LIST, so the list is mapped value by value; a value
+        // not on the Offer's list is left out of it (the per-value "not
+        // sent"), and a list with nothing left is not sent. Before, the array
+        // itself was looked up as one key and always missed.
+        const mapped = value.filter(own).map((v) => map[String(v)]);
+        value = mapped.length > 0 ? mapped : undefined;
+      } else {
+        value = own(value) ? map[String(value)] : undefined;
+      }
     }
     if (value !== undefined && node.transform !== undefined) {
       value = applyTransformPipeline(value, node.transform);

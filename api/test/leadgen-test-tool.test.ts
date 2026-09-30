@@ -1302,3 +1302,91 @@ describeDb("POST /offers/:id/test — a CPL (static-bid) Offer is parsed exactly
     expect(body.parse.carriers![0]!["click_url"]).toBe("https://www.fundera.com/referral/abc");
   });
 });
+
+// OWNER 2026-09-28 — "The admin payload preview shows a calculated choice's
+// saved value, not its date (live request is correct)". The Test tab derives
+// the calculated dates from the Sections that map the Offer, as the live
+// auction does (engine.ts normalizeAnswers(...).computed).
+describeDb("POST /offers/:id/test — a calculated choice previews its DATE", () => {
+  it("FAIL-BEFORE/PASS-AFTER: zip '2' on a choice with value_calc 2 years ago sends the date, not '2'", async () => {
+    const h = await setupOffer();
+    const content = {
+      components: [
+        {
+          type: "ButtonAnswerGroup", question_id: "q_zip", question_key: "zip", internal_field: "zip", answer_type: "enum",
+          choices: [
+            { label: "2+ Years", value: "2", analytics_id: "2", value_calc: { kind: "date_ago", amount: 2, unit: "years" } },
+            { label: "New", value: "0", analytics_id: "0" },
+          ],
+        },
+      ],
+    };
+    h.sdb.prepare("UPDATE leadgen_sections SET content_json = ? WHERE public_id = 'lgs_testtool01'").run(JSON.stringify(content));
+    const { status, body } = await runTest(h, { environment: "staging", sample_answers: { email: "a@b.co", zip: "2" }, dry_run: true });
+    expect(status).toBe(200);
+    const now = new Date();
+    const twoYearsAgo = new Date(Date.UTC(now.getUTCFullYear() - 2, now.getUTCMonth(), now.getUTCDate())).toISOString().slice(0, 10);
+    expect((body.request.payload["contact"] as Record<string, unknown>)["zip"]).toBe(twoYearsAgo);
+    // a fixed choice still previews its saved value
+    const fixed = await runTest(h, { environment: "staging", sample_answers: { email: "a@b.co", zip: "0" }, dry_run: true });
+    expect((fixed.body.request.payload["contact"] as Record<string, unknown>)["zip"]).toBe("0");
+  });
+
+  it("review m6: two Sections that calculate the same answer differently — the FIRST Section (the one whose binding the payload uses) decides the date, not the last one read", async () => {
+    const h = await setupOffer();
+    const calc = (years: number) => ({
+      components: [
+        {
+          type: "ButtonAnswerGroup", question_id: "q_zip", question_key: "zip", internal_field: "zip", answer_type: "enum",
+          choices: [{ label: "Long", value: "2", analytics_id: "2", value_calc: { kind: "date_ago", amount: years, unit: "years" } }],
+        },
+      ],
+    });
+    h.sdb.prepare("UPDATE leadgen_sections SET content_json = ? WHERE public_id = 'lgs_testtool01'").run(JSON.stringify(calc(2)));
+    // a LATER Section maps the same Offer field and calculates 5 years
+    h.sdb
+      .prepare("INSERT INTO leadgen_sections (public_id, section_name, activity, vertical, headline_text, content_json) VALUES ('lgs_testtool02', 'Second', 'quote_funnel', 'life', 'H', ?)")
+      .run(JSON.stringify(calc(5)));
+    const second = (h.sdb.prepare("SELECT id FROM leadgen_sections WHERE public_id = 'lgs_testtool02'").get() as { id: number }).id;
+    h.sdb
+      .prepare(
+        `INSERT INTO leadgen_section_answer_maps
+           (public_id, section_id, question_id, question_key, internal_field, answer_type, offer_id, payload_schema_id, payload_schema_public_id,
+            offer_payload_field_path, provider_expected_type, mapping_status, validation_status)
+         SELECT 'lgm_zip_second', ?, question_id, question_key, internal_field, answer_type, offer_id, payload_schema_id, payload_schema_public_id,
+                offer_payload_field_path, provider_expected_type, mapping_status, validation_status
+           FROM leadgen_section_answer_maps WHERE internal_field = 'zip' LIMIT 1`,
+      )
+      .run(second);
+    const { status, body } = await runTest(h, { environment: "staging", sample_answers: { email: "a@b.co", zip: "2" }, dry_run: true });
+    expect(status).toBe(200);
+    const now = new Date();
+    const yearsAgo = (n: number) => new Date(Date.UTC(now.getUTCFullYear() - n, now.getUTCMonth(), now.getUTCDate())).toISOString().slice(0, 10);
+    expect((body.request.payload["contact"] as Record<string, unknown>)["zip"]).toBe(yearsAgo(2));
+  });
+
+  it("review 3 (F7): the date comes from the Section whose mapping sends THAT answer — not from an earlier Section that maps the Offer only through other answers", async () => {
+    const h = await setupOffer();
+    const calc = (years: number) => ({
+      components: [
+        {
+          type: "ButtonAnswerGroup", question_id: "q_zip", question_key: "zip", internal_field: "zip", answer_type: "enum",
+          choices: [{ label: "Long", value: "2", analytics_id: "2", value_calc: { kind: "date_ago", amount: years, unit: "years" } }],
+        },
+      ],
+    });
+    // the first Section maps this Offer (email) and calculates zip as 2 years,
+    // but does NOT map zip to it
+    h.sdb.prepare("UPDATE leadgen_sections SET content_json = ? WHERE public_id = 'lgs_testtool01'").run(JSON.stringify(calc(2)));
+    const first = (h.sdb.prepare("SELECT id FROM leadgen_sections WHERE public_id = 'lgs_testtool01'").get() as { id: number }).id;
+    h.sdb.prepare("INSERT INTO leadgen_sections (public_id, section_name, activity, vertical, headline_text, content_json) VALUES ('lgs_testtool02', 'Second', 'quote_funnel', 'life', 'H', ?)").run(JSON.stringify(calc(5)));
+    const second = (h.sdb.prepare("SELECT id FROM leadgen_sections WHERE public_id = 'lgs_testtool02'").get() as { id: number }).id;
+    // the zip mapping belongs to the SECOND Section
+    h.sdb.prepare("UPDATE leadgen_section_answer_maps SET section_id = ? WHERE section_id = ? AND internal_field = 'zip'").run(second, first);
+    const { status, body } = await runTest(h, { environment: "staging", sample_answers: { email: "a@b.co", zip: "2" }, dry_run: true });
+    expect(status).toBe(200);
+    const now = new Date();
+    const yearsAgo = (n: number) => new Date(Date.UTC(now.getUTCFullYear() - n, now.getUTCMonth(), now.getUTCDate())).toISOString().slice(0, 10);
+    expect((body.request.payload["contact"] as Record<string, unknown>)["zip"]).toBe(yearsAgo(5));
+  });
+});

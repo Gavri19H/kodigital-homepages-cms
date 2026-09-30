@@ -375,3 +375,25 @@ describeDb("answer bindings — the Section tab is the ONLY binding surface", ()
     expect(body.mappings[0]).toMatchObject({ internal_field: "zip", offer_payload_field_path: "lead.zip" });
   });
 });
+
+// OWNER 2026-09-28 open item: "Multi-select questions don't get per-provider
+// values". The build maps a multi-select's LIST value by value.
+describe("multi-select per-provider values in the payload build", () => {
+  const schemaOf = (type: "string" | "array"): LeadgenPayloadSchema => ({
+    version: 1,
+    root: { type: "object", children: [{ path: "perils", name: "perils", type, source: "answer" }] },
+  });
+  it("a value list maps each selected value; a value off the list is left out; nothing left is not sent", () => {
+    const bind = { perils: [{ internal_field: "perils", value_map: { fire: "FIRE", flood: "FLOOD" } }] };
+    expect(buildPayload(schemaOf("array"), { answers: { perils: ["fire", "theft", "flood"] }, answer_bindings: bind })).toEqual({ perils: ["FIRE", "FLOOD"] });
+    expect(buildPayload(schemaOf("array"), { answers: { perils: ["theft"] }, answer_bindings: bind })).toEqual({});
+    // a single value is unchanged
+    expect(buildPayload(schemaOf("string"), { answers: { perils: "fire" }, answer_bindings: bind })).toEqual({ perils: "FIRE" });
+  });
+  it("a list into a TEXT field is sent comma-joined (it used to be dropped while the mapping read complete)", () => {
+    const plain = { perils: [{ internal_field: "perils" }] };
+    expect(buildPayload(schemaOf("string"), { answers: { perils: ["fire", "flood"] }, answer_bindings: plain })).toEqual({ perils: "fire,flood" });
+    const mapped = { perils: [{ internal_field: "perils", value_map: { fire: "FIRE", flood: "flood" } }] };
+    expect(buildPayload(schemaOf("string"), { answers: { perils: ["fire", "flood"] }, answer_bindings: mapped })).toEqual({ perils: "FIRE,flood" });
+  });
+});

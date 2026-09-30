@@ -711,6 +711,7 @@ function runDecoration(region: MiniEl): void {
       "function canvasFrameDoc() { return null; }",
       sliceIslandFunction("frameCreate"),
       sliceIslandFunction("typeMeta"),
+      sliceIslandFunction("withoutClasses"),
       sliceIslandFunction("decorateChoiceCards"),
       "decorateChoiceCards(region);",
     ].join("\n"),
@@ -766,6 +767,30 @@ describe("M7 — the canvas offers no control it cannot honour inside a native <
       buttonRegion.querySelectorAll("[data-choice-ghost]").map((g) => g.getAttribute("data-choice-ghost")),
     ).toEqual(["b1"]);
     expect(buttonRegion.querySelectorAll(".studio-choice-x").length).toBe(2);
+  });
+
+  it("review 6b (m1): the REAL decoration pass takes a stale selection outline OFF a card that is no longer selected (the REAL withoutClasses — no regex escape to get wrong between the .ts and the served page)", () => {
+    const region = miniDom(
+      renderSectionComponents(
+        [
+          {
+            type: "ButtonAnswerGroup",
+            question_id: "b1",
+            internal_field: "pick",
+            answer_type: "string",
+            choices: [
+              { label: "A", value: "a", analytics_id: "a" },
+              { label: "B", value: "b", analytics_id: "b" },
+            ],
+          } as unknown as LeadgenComponentNode,
+        ],
+        DESIGN,
+      ),
+    );
+    const cards = region.querySelectorAll("[data-lg-choice]");
+    cards[0]!.className = cards[0]!.className + " studio-choice-selected";
+    runDecoration(region);
+    expect(region.querySelectorAll("[data-lg-choice]").map((c) => c.className.split(" ").includes("studio-choice-selected"))).toEqual([false, false]);
   });
 
   it("a choice group with NO choices yet keeps its ghost (that is when it is needed)", () => {

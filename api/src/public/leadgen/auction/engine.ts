@@ -778,6 +778,21 @@ export interface RunAuctionInput {
   // exploration tool (Cloudflare Access gated, writes nothing), so it may
   // supply the internal answer space directly.
   normalizedAnswersOverride?: Readonly<Record<string, unknown>>;
+  // OWNER 2026-09-28 — the calculated dates that go with that override (the
+  // admin simulate derives them from the Sections that map its Offers).
+  answerComputedOverride?: Readonly<Record<string, string>>;
+  // Admin dry-run (/simulate) only: a simulate has no funnel session, so no
+  // Sections the lead passed through (its resolved sections are empty) — the
+  // question->field bindings come from EVERY Section that maps the Offers, as
+  // the simulate's own payload preview reads them. Without this the dry run
+  // posted every provider an answer-less body while the preview showed the
+  // answers. The live route never sets it.
+  answerBindingsFromAllSections?: boolean;
+  // Admin dry-run (/simulate) only: each Offer's calculated dates from the
+  // Sections that map THAT Offer (review F7: one answer key calculated
+  // differently by two Sections previewed the other Offer's date). Falls back
+  // to the shared answerComputed for an Offer not in the map.
+  answerComputedByOffer?: ReadonlyMap<number, Readonly<Record<string, string>>>;
 }
 
 export type RunAuctionStatus = "ok" | "tampered" | "disqualified" | "redirect" | "unfilled" | "no_bid";
@@ -1220,6 +1235,7 @@ export async function runAuction(
   const answerComputed: Record<string, string> = {};
   if (input.normalizedAnswersOverride !== undefined) {
     for (const [field, value] of Object.entries(input.normalizedAnswersOverride)) normalizedAnswers[field] = value;
+    for (const [field, value] of Object.entries(input.answerComputedOverride ?? {})) answerComputed[field] = value;
   } else {
     for (const rs of input.resolved.sections) {
       const content = sectionContent(rs.section.content_json);
@@ -1410,7 +1426,7 @@ export async function runAuction(
       : await readAnswerBindings(
           env.DB,
           dynamicCandidates.map((b) => b.offer.id),
-          input.resolved.sections.map((rs) => rs.section.id),
+          input.answerBindingsFromAllSections === true ? undefined : input.resolved.sections.map((rs) => rs.section.id),
         );
   const requests: ParallelProviderRequest[] = dynamicCandidates.flatMap((b) => {
     // R4 invariant: an eligible dynamic Offer HAS a valid schema. The guard is
@@ -1425,7 +1441,7 @@ export async function runAuction(
         ctx: {
           answers: normalizedAnswers,
           answer_bindings: answerBindings.get(b.offer.id) ?? {},
-          answer_computed: answerComputed,
+          answer_computed: input.answerComputedByOffer?.get(b.offer.id) ?? answerComputed,
           macros: ctx.macros,
           computed: ctx.computed,
           offer: ctx.offer,

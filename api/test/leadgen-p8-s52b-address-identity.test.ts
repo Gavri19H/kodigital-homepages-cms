@@ -371,6 +371,8 @@ const ISLAND_FUNCS = [
   "buildChoiceValueControls",
   "choiceFieldsFor",
   "choiceRowMoveBtn",
+  // review 6b: the row offers "disabled" only where the component draws it
+  "isCardGridType",
   "buildChoiceRow",
   "collectChoices",
   "otherValueMoveBtn",
@@ -686,6 +688,87 @@ describeDb("P8 S5.2b — address identity (R6-2 / R6-3 / R6-4 / M4)", () => {
       { label: "Roadside help", value: "roadside_help", analytics_id: "roadside_help" },
       { label: "Geico Direct", value: "gco_2024_q3", analytics_id: "partner_gco" },
     ]);
+  });
+
+  it("review 9 (M9-1): Remove on the selected choice's own row takes the selection back to the component and re-renders what names it", async () => {
+    const env = newHarness();
+    const content = {
+      components: [
+        {
+          type: "ButtonAnswerGroup",
+          question_id: "q_carrier",
+          internal_field: "carrier",
+          answer_type: "enum",
+          choices: [
+            { label: "Geico", value: "geico", analytics_id: "geico" },
+            { label: "Allstate", value: "allstate", analytics_id: "allstate" },
+          ],
+        },
+      ],
+    };
+    const section = await createSection(env, content);
+    const page = await studioPage(env, section.public_id);
+    const island = islandOf(page);
+    const container = makeEl("div");
+    const probe = islandProbe(island, metaOf(page), content, { "[data-studio-choices]": container });
+    probe.sandbox.selectedQuestionId = "q_carrier";
+    const scopes: string[] = [];
+    probe.sandbox["__scopes"] = scopes;
+    probe.run(sliceIslandFunction(island, "dropChoiceSelection"));
+    probe.run("var scopeState = 'choice', selectedChoiceValue = null, selectedChoiceIndex = -1, selectedChoiceRow = null; function setScope(sc) { scopeState = sc; if (sc !== 'choice') { selectedChoiceValue = null; selectedChoiceIndex = -1; } __scopes.push(sc); } function markCurrentChoiceRow() { __scopes.push('mark'); } function applyCanvasDecoration() { __scopes.push('canvas'); }");
+    probe.run("var __n = selectedNode(); var __i; for (__i = 0; __i < __n.choices.length; __i++) { choiceContainer().appendChild(buildChoiceRow(__n.choices[__i], __n)); }");
+    const rows = container.querySelectorAll("[data-choice-row]");
+    // Allstate (row 1) is the selected choice
+    probe.sandbox["__row"] = rows[1];
+    probe.run("selectedChoiceRow = __row; selectedChoiceIndex = 1; selectedChoiceValue = 'allstate';");
+    // a DIFFERENT row's Remove keeps the selection (it follows its row)
+    rows[0]!.querySelector("[data-choice-remove]")!.fire("click");
+    expect(scopes).toEqual([]);
+    expect(probe.run("[scopeState, selectedChoiceValue, selectedChoiceIndex]")).toEqual(["choice", "allstate", 0]);
+    // its OWN row's Remove: back to the component through setScope (breadcrumb/header/toolbar re-render)
+    container.querySelectorAll("[data-choice-row]")[0]!.querySelector("[data-choice-remove]")!.fire("click");
+    expect(scopes, "the header/breadcrumb, then the row mark and the canvas outline").toEqual(["component", "mark", "canvas"]);
+    expect(probe.run("[scopeState, selectedChoiceValue, selectedChoiceIndex, selectedChoiceRow]")).toEqual(["component", null, -1, null]);
+    const node = probe.sandbox.state.content.components[0] as { choices?: unknown[] };
+    expect(node.choices, "both rows removed").toBeUndefined();
+  });
+
+  it("review 8: a stored 'disabled' on a button choice survives the next edit (the row no longer offers it, it keeps it hidden)", async () => {
+    const env = newHarness();
+    const content = {
+      components: [
+        {
+          type: "ButtonAnswerGroup",
+          question_id: "q_carrier",
+          internal_field: "carrier",
+          answer_type: "enum",
+          choices: [
+            { label: "Geico", value: "geico", analytics_id: "geico", disabled: true },
+            { label: "Allstate", value: "allstate", analytics_id: "allstate" },
+          ],
+        },
+      ],
+    };
+    const section = await createSection(env, content);
+    const page = await studioPage(env, section.public_id);
+    const container = makeEl("div");
+    const probe = islandProbe(islandOf(page), metaOf(page), content, { "[data-studio-choices]": container });
+    probe.sandbox.selectedQuestionId = "q_carrier";
+    probe.run("var __n = selectedNode(); var __i; for (__i = 0; __i < __n.choices.length; __i++) { choiceContainer().appendChild(buildChoiceRow(__n.choices[__i], __n)); }");
+
+    const rows = container.querySelectorAll("[data-choice-row]");
+    const kept = rows[0]!.querySelector("[data-choice-disabled]");
+    expect(kept, "the stored flag rides the row").not.toBeNull();
+    expect(kept!.checked).toBe(true);
+    expect(kept!.parentNode!.hidden, "buttons do not draw it, so it is not offered").toBe(true);
+    expect(rows[1]!.querySelector("[data-choice-disabled]"), "nothing to keep on the other row").toBeNull();
+
+    const lab1 = cellOf(rows[1]!, "data-choice-field", "label");
+    lab1.value = "Allstate Direct";
+    lab1.fire("input");
+    const node = probe.sandbox.state.content.components[0] as { choices?: Record<string, unknown>[] };
+    expect(node.choices![0]).toMatchObject({ label: "Geico", value: "geico", disabled: true });
+    expect(node.choices![1]!["disabled"]).toBeUndefined();
   });
 
   // =========================================================================

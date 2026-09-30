@@ -393,8 +393,11 @@ describe("Gate 3 geometry — studio SSR (renderSectionStudio, pure)", () => {
     // constant — a constant nobody consumes would still pass a module test.
     expect(STUDIO_GEOMETRY.leftLibraryWidth, "Appendix B / token module").toBe(292);
     expect(STUDIO_GEOMETRY.rightInspectorWidth, "Appendix B / token module").toBe(344);
+    // OWNER 2026-09-28 ("The Section editor is cut off"): the middle track is
+    // minmax(0,1fr) — a plain 1fr grew to the canvas' min-content and pushed the
+    // 344px inspector off-screen at 1280. The rail widths are unchanged.
     expect(SECTION_STUDIO_STYLES, "rendered .lg-editor-grid rail widths == token 292/344").toContain(
-      `grid-template-columns:${STUDIO_GEOMETRY.leftLibraryWidth}px 1fr ${STUDIO_GEOMETRY.rightInspectorWidth}px`,
+      `grid-template-columns:${STUDIO_GEOMETRY.leftLibraryWidth}px minmax(0,1fr) ${STUDIO_GEOMETRY.rightInspectorWidth}px`,
     );
     expect(SECTION_STUDIO_STYLES, "the pre-fix 280/380 divergence is gone").not.toContain(
       "grid-template-columns:280px 1fr 380px",

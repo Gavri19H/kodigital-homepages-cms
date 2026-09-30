@@ -1650,10 +1650,10 @@ function renderCanvasToolbar(design: FunnelDesign): string {
   // slider-format/text-type-swap → Content "Answer format"; selected-role +
   // preset apply/save + choice-grid columns/gap → Style tab). See
   // renderStudioInspector for the migrated destinations.
-  return `<div class="studio-toolbar" data-studio-selection-toolbar data-studio-canvas-toolbar style="min-height:${STUDIO_GEOMETRY.canvasToolbarHeight}px;padding:0 16px;background:${STUDIO_COLOR.white};border-bottom:1px solid ${STUDIO_COLOR.linePanel};gap:12px">
+  return `<div class="studio-toolbar" data-studio-selection-toolbar data-studio-canvas-toolbar style="position:relative;min-height:${STUDIO_GEOMETRY.canvasToolbarHeight}px;padding:0 16px;background:${STUDIO_COLOR.white};border-bottom:1px solid ${STUDIO_COLOR.linePanel};gap:12px">
     <nav class="studio-breadcrumb" data-studio-breadcrumb aria-live="polite" aria-label="Selection breadcrumb"></nav>
     ${renderScopePillsMarkup()}
-    <div style="margin-left:auto;display:flex;align-items:center;gap:10px">
+    <div data-studio-toolbar-actions style="margin-left:auto;display:flex;align-items:center;gap:10px">
       <span class="studio-tb-cluster" data-toolbar-cluster="undo" style="display:flex;align-items:center;gap:2px;border-left:0;padding:0">
         <button type="button" class="studio-undoredo-btn" data-studio-act="undo" disabled title="Undo (&#8984;Z)" aria-label="Undo"><svg width="17" height="17" viewBox="0 0 24 24" fill="none"><path d="M9 7L4 12l5 5" stroke="${STUDIO_COLOR.muted}" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/><path d="M4 12h11a5 5 0 015 5v1" stroke="${STUDIO_COLOR.muted}" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/></svg></button>
         <button type="button" class="studio-undoredo-btn" data-studio-act="redo" disabled title="Redo (&#8679;&#8984;Z)" aria-label="Redo"><svg width="17" height="17" viewBox="0 0 24 24" fill="none"><path d="M15 7l5 5-5 5" stroke="${STUDIO_COLOR.muted}" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/><path d="M20 12H9a5 5 0 00-5 5v1" stroke="${STUDIO_COLOR.muted}" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/></svg></button>
@@ -3523,6 +3523,14 @@ export function renderStudioDrawer(summary: StudioMappingSummary, answerMapCount
     <div class="studio-payload-preview" data-studio-payload-preview-wrap hidden>
       <div class="studio-events-head"><span class="form-label" data-studio-payload-preview-title>Generated payload preview</span><button type="button" class="btn btn-sm btn-outline" data-studio-payload-close>Close</button></div>
       <p class="form-help" data-studio-payload-note hidden>Unsaved mapping edits are NOT reflected — the payload preview validates the last SAVED mapping.</p>
+      <!-- OWNER 2026-09-28 (review o3): the preview's own sample answers, visible
+           without QA tools and prefilled from this Section's questions. -->
+      <div class="studio-payload-sample" data-studio-payload-sample>
+        <label class="form-label" for="lg-payload-sample-answers">Sample answers, one per answer field &#8212; prefilled with each question&#8217;s first value; edit and preview again</label>
+        <textarea id="lg-payload-sample-answers" class="form-input" rows="4" data-studio-payload-sample-answers aria-label="Sample answers for the payload preview"></textarea>
+        <button type="button" class="btn btn-sm btn-secondary" data-studio-payload-rerun>Preview with these answers</button>
+        <p class="alert alert-error" data-studio-payload-sample-error hidden role="alert"></p>
+      </div>
       <pre data-studio-payload-preview></pre>
     </div>
   </div>
@@ -3739,8 +3747,28 @@ export const SECTION_STUDIO_STYLES = `
 .studio-chip-validation[data-issue-count="0"]{color:${STUDIO_COLOR.muted};background:${STUDIO_COLOR.issuesChipBg};border-color:${STUDIO_COLOR.issuesChipBg}}
 .studio-chip-validation:not([data-issue-count="0"]){color:${STUDIO_COLOR.warnStrong};background:${STUDIO_COLOR.warnTint};border-color:${STUDIO_COLOR.warn}}
 .studio-settings{display:flex;flex-direction:column;gap:12px;margin-bottom:12px}
-.lg-editor-grid{display:grid;grid-template-columns:${STUDIO_GEOMETRY.leftLibraryWidth}px 1fr ${STUDIO_GEOMETRY.rightInspectorWidth}px;gap:16px;align-items:start}
-@media (max-width:1023px){.lg-editor-grid{grid-template-columns:1fr}}
+.lg-editor-grid{display:grid;grid-template-columns:${STUDIO_GEOMETRY.leftLibraryWidth}px minmax(0,1fr) ${STUDIO_GEOMETRY.rightInspectorWidth}px;gap:16px;align-items:start}
+.lg-editor-grid>*{min-width:0}
+@media (max-width:1023px){.lg-editor-grid{grid-template-columns:minmax(0,1fr)}.lg-editor-grid>*{min-width:0;max-width:100%}}
+/* OWNER 2026-09-28 (open item: "The Section editor is cut off at phone width"): a
+   1fr track grows to its widest child's min-content (the canvas, a no-wrap row),
+   so the one-column layout was 1378px wide inside a 375px screen. minmax(0,1fr) +
+   min-width:0 lets every pane shrink to the screen; wide content wraps or scrolls
+   INSIDE its own pane. */
+@media (max-width:760px){.studio-root{overflow-x:hidden}.studio-root .studio-topbar,.studio-root .studio-toolbar{flex-wrap:wrap;row-gap:6px}.studio-root [style*="display:flex"]{flex-wrap:wrap;row-gap:6px}.studio-root [style*="margin-left:auto"]{margin-left:0 !important}.studio-root .studio-tabs{height:auto !important;min-height:42px;flex-wrap:wrap}.studio-root iframe:not(.studio-canvas-frame){max-width:100%}.studio-root .lg-choice-row{flex-wrap:wrap}.studio-root #lg-section-form>div{flex:1 1 100% !important;max-width:none !important;padding-bottom:0 !important}.studio-root .studio-cell-canvas{padding-left:0 !important;padding-right:0 !important;border-left-width:0 !important;border-right-width:0 !important;border-radius:0 !important}.studio-root .studio-canvas-surface{padding-left:0 !important;padding-right:0 !important;border-radius:0 !important}}
+/* review F3: on a phone the canvas spans the screen edge to edge, so the 375
+   Mobile preview it opens in fits a 375 screen (the card and surface paddings
+   left it a 325px pane). review F10: at 1024-1439px the toolbar's controls take
+   their own row instead of scattering over three with dangling dividers. */
+@media (max-width:1439px){.studio-toolbar [data-studio-toolbar-actions]{flex-basis:100%;margin-left:0 !important}.studio-toolbar [data-studio-toolbar-actions]>div[style*="width:1px"]{display:none}}
+/* review M5: the headline/subheadline boxes were flex:1.5/1.2 (basis 0), so on a
+   phone they shrank to ~84px side by side instead of wrapping — each takes the
+   full row there. The canvas frame keeps its real 1280/375 viewport (DEV-66) and
+   scrolls inside its pane. review M6: the canvas toolbar's controls wrap at every
+   width, so at 1024-1080px the More menu is no longer hidden under the inspector. */
+.studio-toolbar [data-studio-toolbar-actions]{flex-wrap:wrap;row-gap:6px;min-width:0;max-width:100%}
+.lg-choice-cell[data-choice-cell="value"]{flex-basis:196px}
+.lg-choice-row.studio-choice-row-current{outline:2px solid var(--c-primary);outline-offset:3px;border-radius:6px}
 .lg-editor-spacer{flex:1}
 /* R5 D2 (register S4-A2): .lg-maps-note was the legacy Maps fieldset's OWN
    note-line class — orphaned now that the fieldset is removed. Removed. */
@@ -3770,7 +3798,7 @@ export const SECTION_STUDIO_STYLES = `
 .studio-item-type{font-size:10px;color:var(--c-muted);font-variant-numeric:tabular-nums;border:1px solid var(--c-border);border-radius:4px;padding:0 4px}
 .studio-item-maps{font-size:10px;color:#0f5132;background:#d1e7dd;border-radius:4px;padding:0 4px}
 /* canvas */
-.studio-breadcrumb{display:flex;align-items:center;gap:6px;font-size:12.5px;color:#8A93A3;font-variant-numeric:tabular-nums}
+.studio-breadcrumb{display:flex;align-items:center;gap:6px;font-size:12.5px;color:#8A93A3;font-variant-numeric:tabular-nums;min-height:24px;min-width:0;max-width:100%;flex:1 1 260px;overflow:hidden;white-space:nowrap}
 /* v3.1 §6.1 canvas-toolbar undo/redo icon buttons (golden :277-278) */
 .studio-undoredo-btn{width:30px;height:30px;display:inline-flex;align-items:center;justify-content:center;border-radius:7px;cursor:pointer;border:0;background:none;padding:0}
 .studio-undoredo-btn:hover{background:#F1F3F7}
@@ -3779,6 +3807,8 @@ export const SECTION_STUDIO_STYLES = `
 .studio-toolbar{display:flex;gap:4px;flex-wrap:wrap;margin:8px 0}
 .studio-pending-note{font-size:12px;color:#664d03;background:#fff3cd;border:1px solid #ffecb5;border-radius:6px;padding:4px 8px}
 .studio-refusal{margin:8px 0}
+.studio-tb-more-panel button:disabled{opacity:.45;cursor:not-allowed}
+.studio-notice-stack .studio-refusal{margin:0;border-radius:9px;box-shadow:0 6px 20px rgba(15,23,42,.18);font-size:12.5px;padding:8px 14px}
 /* v3.1 §2.2/§6.1 canvas surface (golden 294-296): dot-grid background,
    34/24 padding. Not a flex row (unlike golden's single wrapped 600px
    column) — this surface hosts an independently-sized REAL iframe (the
@@ -3938,10 +3968,14 @@ export const SECTION_STUDIO_STYLES = `
    yes/no button block); the panel is an inline disclosure (same idiom as
    .lg-choice-emoji-palette above), not a floating overlay, so it never clips
    inside the iframe canvas or needs viewport-relative positioning. */
-.lg-choice-style{display:flex;flex-direction:column;gap:4px;flex:0 0 auto;position:relative}
+.lg-choice-style{display:flex;flex-direction:column;gap:4px;flex:0 1 auto;min-width:0;max-width:100%;position:relative}
+/* open, it takes its own line of the row and wraps its swatches (review 10
+   MAJOR-3: 436px wide, cut off at 375 and past the window at 1280) */
+.lg-choice-style:has(> .lg-choice-style-panel:not([hidden])){flex:1 1 100%}
 .lg-choice-style-toggle-row{display:flex;align-items:center;gap:6px}
 .lg-choice-offtheme-badge{font-size:9.5px;font-weight:700;letter-spacing:.02em;text-transform:uppercase;color:#664d03;background:#fff3cd;border-radius:9px;padding:1px 6px}
-.lg-choice-style-panel{display:flex;flex-direction:column;gap:8px;border:1px solid var(--c-border);border-radius:8px;padding:10px;margin-top:4px;background:var(--c-surface-alt,#f7f9fb);min-width:240px}
+.lg-choice-style-panel{display:flex;flex-direction:column;gap:8px;border:1px solid var(--c-border);border-radius:8px;padding:10px;margin-top:4px;background:var(--c-surface-alt,#f7f9fb);min-width:0;max-width:100%;box-sizing:border-box}
+.lg-choice-style-panel .form-input,.lg-choice-style-panel input{flex:0 0 auto;height:auto;max-width:100%;box-sizing:border-box}
 .lg-choice-style-row{display:flex;flex-direction:column;gap:4px}
 .lg-choice-style-label{font-size:10px;font-weight:700;color:#8A93A3;letter-spacing:.02em;text-transform:uppercase}
 .lg-choice-style-row .studio-segmented{margin-bottom:0}
@@ -4044,6 +4078,8 @@ export const SECTION_STUDIO_STYLES = `
 .studio-bulk-review{border:1px dashed var(--c-border);border-radius:8px;padding:10px;margin-top:10px}
 .studio-bulk-review ul{list-style:none;margin:6px 0;padding:0;display:flex;flex-direction:column;gap:4px}
 .studio-payload-preview pre{max-height:260px;overflow:auto;background:#0b1021;color:#d8e0f0;border-radius:8px;padding:10px;font-size:11px}
+.studio-payload-sample{display:flex;flex-direction:column;align-items:flex-start;gap:6px;margin:8px 0}
+.studio-payload-sample textarea{width:100%;box-sizing:border-box;font-family:ui-monospace,Menlo,monospace;font-size:12px}
 .studio-inspector-mapping .studio-map-row{grid-template-columns:minmax(120px,1fr) minmax(0,2.2fr);align-items:start}
 .studio-map-lines{display:flex;flex-direction:column;gap:4px;min-width:0}
 .studio-map-line{display:flex;gap:6px;align-items:center;min-width:0}
@@ -4079,10 +4115,14 @@ export const SECTION_STUDIO_STYLES = `
 .studio-tb-check{font-size:11px}
 /* v3.1 §6.1 breadcrumb (golden 266-272): plain muted root/intermediate
    crumbs; the CURRENT (deepest) crumb is the navy chip. */
-.studio-breadcrumb button{border:0;background:none;color:#8A93A3;cursor:pointer;font-size:12.5px;font-weight:600;padding:0 2px}
-.studio-breadcrumb .studio-crumb-current{color:#1B3A5C;font-weight:700;background:#EAF0F6;padding:3px 9px;border-radius:6px;cursor:default}
-.studio-breadcrumb span:not(.studio-crumb-current){color:#C2CACF;padding:0 1px}
-.studio-toolbar-problems{font-size:11px;color:#842029}
+.studio-breadcrumb button{border:0;background:none;color:#8A93A3;cursor:pointer;font-size:12.5px;font-weight:600;padding:0 2px;flex:0 1000 auto;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.studio-breadcrumb .studio-crumb-current{color:#1B3A5C;font-weight:700;background:#EAF0F6;padding:3px 9px;border-radius:6px;cursor:default;flex:0 1 auto;min-width:0;max-width:260px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.studio-breadcrumb span:not(.studio-crumb-current){color:#C2CACF;padding:0 1px;flex:none}
+.studio-toolbar-problems{font-size:11px;color:#842029;flex:1 1 100%;min-height:15px;line-height:15px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;position:relative;padding-right:18px}
+.studio-toolbar-problems.is-cut,.studio-toolbar-problems.is-open{cursor:pointer}
+.studio-toolbar-problems.is-cut::after{content:"\\25BE";position:absolute;right:2px;top:0;font-size:13px;line-height:15px}
+.studio-toolbar-problems.is-open{white-space:normal}
+.studio-toolbar-problems.is-open::after{content:"\\25B4";position:absolute;right:2px;top:0;font-size:13px;line-height:15px}
 .studio-control-invalid{outline:2px solid ${STUDIO_COLOR.danger};outline-offset:1px}
 /* LeadGen Rework §6.9 phone mask builder + §6.8 slider-type picker + §6.10
    address field-set editor — studio inspector chrome (server-rendered admin,
@@ -4152,6 +4192,8 @@ export const SECTION_STUDIO_STYLES = `
 .studio-provider-state[data-provider-state="missing"]{color:#842029}
 .studio-provider-state[data-provider-state="invalid"]{color:#842029;font-weight:700}
 .studio-provider-state[data-provider-state="unsendable"]{color:#842029}
+.studio-provider-state[data-provider-state="blocked"]{color:#842029}
+.studio-provider-state[data-provider-state="partial"]{color:#664d03}
 .studio-provider-row .form-input[aria-invalid="true"]{border-color:#842029}
 .studio-provider-rows a{font-size:11px}
 /* §5.4 funnel-picker rule moved into SECTION_STUDIO_CANVAS_FRAME_CSS (DEV-66) */
@@ -4172,8 +4214,12 @@ export const SECTION_STUDIO_STYLES = `
    exactly (no CSS class needed here). */
 /* R4a deliverable 20: top-bar "Unsaved changes" state (dirty tracking already
    existed — markDirty/dirty; this is its first visible indicator). */
-.studio-dirty-dot{display:none;align-items:center;gap:6px;font-size:11.5px;font-weight:600;color:${STUDIO_COLOR.warnStrong}}
-.studio-dirty-dot[data-dirty="true"]{display:inline-flex}
+/* the indicator keeps its place while hidden: showing it on the first change
+   used to push Save onto the next line at phone width between the press and
+   the release of a Save tap, so the tap was lost (review 9c after-run: an
+   open canvas edit is committed by that very press) */
+.studio-dirty-dot{display:inline-flex;visibility:hidden;align-items:center;gap:6px;font-size:11.5px;font-weight:600;color:${STUDIO_COLOR.warnStrong}}
+.studio-dirty-dot[data-dirty="true"]{visibility:visible}
 .studio-dirty-dot::before{content:"";width:7px;height:7px;border-radius:50%;background:${STUDIO_COLOR.warn}}
 /* R4a deliverable 1 (S3-3): a brief highlight pulse on the mapping drawer
    panel so switching to it from the Offers tab is visibly noticed, not a
@@ -4192,7 +4238,9 @@ export const SECTION_STUDIO_STYLES = `
    element instead of the page: showUndoToast now appends it there (falling
    back to document.body only if the surface is ever absent). Same Undo
    affordance, same 6s timing, same history reuse — only the anchor moved. */
-.studio-undo-toast{position:absolute;left:50%;bottom:14px;transform:translateX(-50%);display:flex;align-items:center;gap:12px;background:${STUDIO_COLOR.ink};color:${STUDIO_COLOR.white};padding:10px 16px;border-radius:9px;box-shadow:0 6px 20px rgba(15,23,42,.35);font-size:12.5px;z-index:60}
+.studio-notice-stack{position:fixed;left:50%;bottom:16px;transform:translateX(-50%);display:flex;flex-direction:column;align-items:center;gap:8px;z-index:1000;width:max-content;max-width:calc(100vw - 24px);pointer-events:none}
+.studio-notice-stack>*{pointer-events:auto;max-width:100%;box-sizing:border-box}
+.studio-undo-toast{position:static;display:flex;align-items:center;gap:12px;background:${STUDIO_COLOR.ink};color:${STUDIO_COLOR.white};padding:10px 16px;border-radius:9px;box-shadow:0 6px 20px rgba(15,23,42,.35);font-size:12.5px}
 .studio-undo-toast button{background:none;border:0;color:${STUDIO_COLOR.accent};font-weight:700;cursor:pointer;font-size:12.5px;padding:0}
 /* PC-A9 (register, P1c): renderCanvasNow's preview fetch used to swallow
    every failure (a bad response OR a network catch) with a bare return/
@@ -4202,8 +4250,13 @@ export const SECTION_STUDIO_STYLES = `
    undo toast (position:absolute over #lg-studio-canvas, its position:relative
    canvas-surface parent) but pinned to the TOP of the surface instead of the
    bottom, so the two can never visually collide even if a delete's re-render
-   fails right after the delete itself shows its own undo toast. */
-.studio-canvas-preview-error{position:absolute;left:50%;top:14px;transform:translateX(-50%);display:flex;align-items:center;gap:12px;background:${STUDIO_COLOR.danger};color:${STUDIO_COLOR.white};padding:8px 14px;border-radius:9px;box-shadow:0 6px 20px rgba(15,23,42,.35);font-size:12.5px;z-index:65;max-width:calc(100% - 28px)}
+   fails right after the delete itself shows its own undo toast.
+   Review 9c F-A (+R-1/R-2): both now sit on the WINDOW, in ONE fixed stack
+   at the bottom centre (.studio-notice-stack: the banner above the toast,
+   never over it — review 10 MINOR-1). Inside the canvas pane they scrolled
+   away with it: the pane scrolls sideways at desktop widths and is ~2000px
+   tall, so a failed refresh or a delete went unseen. */
+.studio-canvas-preview-error{position:static;display:flex;align-items:center;gap:12px;background:${STUDIO_COLOR.danger};color:${STUDIO_COLOR.white};padding:8px 14px;border-radius:9px;box-shadow:0 6px 20px rgba(15,23,42,.35);font-size:12.5px}
 .studio-canvas-preview-error button{background:none;border:1px solid rgba(255,255,255,.65);color:${STUDIO_COLOR.white};font-weight:700;cursor:pointer;font-size:12px;padding:3px 10px;border-radius:6px}
 `;
 
@@ -4269,16 +4322,26 @@ export const SECTION_STUDIO_SCRIPT = `
   // §6.2/§6.4 per-choice selection: the focused choice VALUE within the
   // selected choice-bearing component (null = component scope).
   var selectedChoiceValue = null;
+  // OWNER 2026-09-29 (canvas twins): WHICH choice is selected — its position
+  // (-1 = unknown, then the value decides). Two choices can share a saved
+  // value; the value alone always meant the first of them.
+  var selectedChoiceIndex = -1;
+  // ...and its row in the inspector's choice list: an inspector edit (Remove,
+  // up/down, a value edit, bulk paste) rebuilds the list from its rows, so the
+  // selection follows that ROW (review 6 F6-1).
+  var selectedChoiceRow = null;
   // §6.6 loaded named presets (KV-backed via /component-presets).
   var presetsData = [];
   // §6.2 inline text editing pauses canvas re-renders until commit.
   var inlineEditing = false;
+  // the element whose text is being edited (review 8 F8-2)
+  var inlineEditHost = null;
   // §6.1.3 undo/redo: bounded in-memory history of content-tree snapshots per
   // open editor. ≥30 required; 50 kept. Cleared on Save.
   var UNDO_LIMIT = 50;
   var undoStack = [];
   var redoStack = [];
-  var lastSnapshot = JSON.stringify(state.content);
+  var lastSnapshot = historyState();
   // §7.3 Advanced raw JSON: read-only until the explicit "Edit raw…" confirm.
   var rawEditArmed = false;
   var DROP_CLASSES = ['studio-drop-before', 'studio-drop-after', 'studio-drop-into', 'studio-drop-beside-left', 'studio-drop-beside-right'];
@@ -4451,13 +4514,90 @@ export const SECTION_STUDIO_SCRIPT = `
   }
   // Called AFTER every model mutation (afterModelChange): pushes the PREVIOUS
   // snapshot, caps the stack, and invalidates the redo branch.
+  // OWNER 2026-09-28 (review M2, F2): a snapshot is the content tree PLUS the
+  // whole Offer mapping (every edge with its per-choice value list, and the
+  // selected Offers) and which saved values each question had when it opened.
+  // A rename carries a choice's provider values, so Undo must take them back
+  // with it; and an Offers-tab mapping edit is an undo step of its own, so a
+  // restore never has to match edges that changed since.
+  function historyState() {
+    return JSON.stringify({
+      c: state.content,
+      m: state.answer_maps || [],
+      s: state.selected_offers || [],
+      b: (typeof providerBaseline !== 'undefined' && providerBaseline) || {},
+      r: typeof repairNotesState !== 'undefined' ? repairNotesState() : {}
+    });
+  }
+  // the "now uses …" repair notes as they stand (review 4: a Redo of the part
+  // change came back without its note)
+  function repairNotesState() {
+    var out = {}, k;
+    if (typeof answerKeyRepairs === 'undefined') { return out; }
+    for (k in answerKeyRepairs) {
+      if (Object.prototype.hasOwnProperty.call(answerKeyRepairs, k) && answerKeyRepairs[k].moved > 0) {
+        out[k] = { moved: answerKeyRepairs[k].moved, from: answerKeyRepairs[k].from, to: answerKeyRepairs[k].to };
+      }
+    }
+    return out;
+  }
+  function restoreMappings(snap) {
+    var i;
+    if (!state.answer_maps) { state.answer_maps = []; }
+    if (!state.selected_offers) { state.selected_offers = []; }
+    // in place: other code holds these arrays
+    state.answer_maps.length = 0;
+    for (i = 0; i < (snap.m || []).length; i++) { state.answer_maps.push(snap.m[i]); }
+    state.selected_offers.length = 0;
+    for (i = 0; i < (snap.s || []).length; i++) { state.selected_offers.push(snap.s[i]); }
+    // the "not sent" stale-key list points at edge objects the restore
+    // replaced: it is re-derived from the restored mapping on the next Offers
+    // repaint. The "now uses …" repair notes come back as they were in that
+    // snapshot (review 3: an unrelated Undo cleared them; review 4: a Redo of
+    // the part change lost its note).
+    var rq, notes = snap.r || {};
+    if (typeof answerKeyRepairs !== 'undefined') {
+      answerKeyRepairs = {};
+      for (rq in notes) {
+        if (Object.prototype.hasOwnProperty.call(notes, rq)) { answerKeyRepairs[rq] = { moved: notes[rq].moved, from: notes[rq].from, to: notes[rq].to, stale: [] }; }
+      }
+    }
+  }
+  // Typing in one box is ONE undo step, however many keystrokes (and however
+  // many model writes each makes — a saved value also moves the analytics id
+  // that follows it): review F1, where one Undo left a pasted rename half
+  // undone. A new step starts when another box (or any control) is used.
+  var lastPushFocus = null;
+  // what Redo held before the latest step cleared it (a refused edit gives it back)
+  var redoBeforePush = [];
+  function typingFocus() {
+    var f = typeof document !== 'undefined' ? document.activeElement : null;
+    var tag = f && f.tagName ? String(f.tagName).toUpperCase() : '';
+    if (tag === 'TEXTAREA') { return f; }
+    if (tag === 'INPUT' && !/^(checkbox|radio|button|submit|reset|range|color|file|image)$/i.test(String(f.type || ''))) { return f; }
+    return null;
+  }
+  // Fold a change that belongs to the LAST step (the value lists a rename
+  // carried) into that step, so one Undo takes both back.
+  function historyAbsorb() {
+    lastSnapshot = historyState();
+    updateHistoryButtons();
+  }
   function historyPush() {
-    var now = JSON.stringify(state.content);
+    var now = historyState();
     if (now === lastSnapshot) { return false; }
+    var typing = typingFocus();
+    if (typing !== null && typing === lastPushFocus && undoStack.length > 0 && redoStack.length === 0) {
+      lastSnapshot = now;
+      updateHistoryButtons();
+      return true;
+    }
     undoStack.push(lastSnapshot);
     if (undoStack.length > UNDO_LIMIT) { undoStack.shift(); }
+    redoBeforePush = redoStack.slice();
     redoStack.length = 0;
     lastSnapshot = now;
+    lastPushFocus = typing;
     updateHistoryButtons();
     return true;
   }
@@ -4465,12 +4605,17 @@ export const SECTION_STUDIO_SCRIPT = `
   function historyReset() {
     undoStack.length = 0;
     redoStack.length = 0;
-    lastSnapshot = JSON.stringify(state.content);
+    lastSnapshot = historyState();
+    lastPushFocus = null;
     updateHistoryButtons();
   }
   function restoreSnapshot(snapshot) {
-    state.content = JSON.parse(snapshot);
+    var snap = JSON.parse(snapshot);
+    state.content = snap.c;
+    restoreMappings(snap);
+    if (typeof providerBaseline !== 'undefined') { providerBaseline = snap.b || {}; }
     lastSnapshot = snapshot;
+    lastPushFocus = null;
     if (selectedQuestionId !== null && findRef(selectedQuestionId) === null) { selectedQuestionId = null; }
     refreshAfterHistory();
   }
@@ -4500,6 +4645,8 @@ export const SECTION_STUDIO_SCRIPT = `
     updateHistoryButtons();
     scheduleCanvasRender();
     selectComponent(selectedQuestionId);
+    // the mapping came back too: repaint every surface that reads it
+    if (typeof renderOffersPanel !== 'undefined') { renderOffersPanel(); }
   }
 
   // --- FIX 4b: pure per-type gates for the dead-write style controls -------------
@@ -4558,21 +4705,44 @@ export const SECTION_STUDIO_SCRIPT = `
   }
 
   // --- choice model helpers (§6.2/§6.4) ----------------------------------------
+  // A choice is named by its saved value OR by a key { index, value } (the
+  // canvas card's position): the position wins while it still holds that
+  // value, so the second of two choices sharing a value is the second one
+  // (owner 2026-09-29: the canvas edited/deleted the first twin instead).
   function findChoice(node, value) {
-    if (!node || !node.choices) { return null; }
-    var i;
-    for (i = 0; i < node.choices.length; i++) {
-      if (String(node.choices[i].value) === String(value)) { return node.choices[i]; }
-    }
-    return null;
+    var idx = choiceIndexOf(node, value);
+    return idx === -1 ? null : node.choices[idx];
   }
   function choiceIndexOf(node, value) {
     if (!node || !node.choices) { return -1; }
     var i;
+    if (value && typeof value === 'object') {
+      if (typeof value.index === 'number' && value.index >= 0 && node.choices[value.index] && String(node.choices[value.index].value) === String(value.value)) { return value.index; }
+      value = value.value;
+    }
     for (i = 0; i < node.choices.length; i++) {
       if (String(node.choices[i].value) === String(value)) { return i; }
     }
     return -1;
+  }
+  function selectedChoiceKey() {
+    return { index: typeof selectedChoiceIndex === 'number' ? selectedChoiceIndex : -1, value: selectedChoiceValue };
+  }
+  // A canvas card's key: its stamped position (applyCanvasDecoration) + value.
+  function choiceKeyOfEl(el, valueAttr, indexAttr) {
+    var raw = el ? el.getAttribute(indexAttr || 'data-studio-choice-index') : null;
+    var idx = raw === null || raw === '' ? -1 : Number(raw);
+    return { index: isNaN(idx) ? -1 : idx, value: el ? el.getAttribute(valueAttr || 'data-lg-choice') : null };
+  }
+  // Keep the selected choice selected across a reorder/removal (by identity).
+  function selectedChoiceObject(node) {
+    var i = typeof selectedChoiceIndex === 'number' ? selectedChoiceIndex : -1;
+    return node && node.choices && i >= 0 && selectedChoiceValue !== null && typeof selectedQuestionId !== 'undefined' && node.question_id === selectedQuestionId ? node.choices[i] || null : null;
+  }
+  function reselectChoiceObject(node, obj) {
+    if (!obj || typeof selectedChoiceIndex !== 'number') { return; }
+    selectedChoiceIndex = node.choices.indexOf(obj);
+    if (selectedChoiceIndex === -1) { selectedChoiceValue = null; }
   }
   function addChoiceToNode(node) {
     if (!node || typeMeta(node.type).choice !== true) { return null; }
@@ -4591,8 +4761,11 @@ export const SECTION_STUDIO_SCRIPT = `
   function removeChoiceFromNode(node, value) {
     var idx = choiceIndexOf(node, value);
     if (idx === -1) { return false; }
+    var sel = typeof selectedChoiceObject !== 'undefined' ? selectedChoiceObject(node) : null;
+    var removedObj = node.choices[idx];
     node.choices.splice(idx, 1);
-    if (String(selectedChoiceValue) === String(value)) { selectedChoiceValue = null; }
+    if (sel !== null) { reselectChoiceObject(node, sel === removedObj ? null : sel); if (sel === removedObj) { selectedChoiceValue = null; selectedChoiceIndex = -1; } }
+    else if (String(selectedChoiceValue) === String(value && typeof value === 'object' ? value.value : value)) { selectedChoiceValue = null; }
     afterModelChange();
     return true;
   }
@@ -4601,9 +4774,11 @@ export const SECTION_STUDIO_SCRIPT = `
     if (idx === -1) { return false; }
     var to = idx + delta;
     if (to < 0 || to >= node.choices.length) { return false; }
+    var sel = typeof selectedChoiceObject !== 'undefined' ? selectedChoiceObject(node) : null;
     var tmp = node.choices[idx];
     node.choices[idx] = node.choices[to];
     node.choices[to] = tmp;
+    if (sel !== null) { reselectChoiceObject(node, sel); }
     afterModelChange();
     return true;
   }
@@ -4611,9 +4786,11 @@ export const SECTION_STUDIO_SCRIPT = `
     var from = choiceIndexOf(node, fromValue);
     var to = choiceIndexOf(node, targetValue);
     if (from === -1 || to === -1 || from === to) { return false; }
+    var sel = typeof selectedChoiceObject !== 'undefined' ? selectedChoiceObject(node) : null;
     var moved = node.choices.splice(from, 1)[0];
     if (from < to) { to -= 1; }
     node.choices.splice(to, 0, moved);
+    if (sel !== null) { reselectChoiceObject(node, sel); }
     afterModelChange();
     return true;
   }
@@ -4944,6 +5121,23 @@ export const SECTION_STUDIO_SCRIPT = `
   }
   // A typed provider value must be sendable as the buyer field's type (a
   // number field building "Annual" or "50,000" sends nothing at all).
+  // For a box shared by SEVERAL fields of one Offer: the problem only when the
+  // value reaches none of them; when some take it and some don't, name the ones
+  // that don't (review F8: "not sent" for both overstated it).
+  function sharedBoxProblem(offerId, edges, text) {
+    if (edges.length <= 1) { return providerValueProblem(offerId, edges, text); }
+    var bad = [], i, p, offer = offerById(offerId), f;
+    for (i = 0; i < edges.length; i++) {
+      p = providerValueProblem(offerId, [edges[i]], text);
+      if (p !== '') {
+        f = offer ? answerFieldOf(offer, edges[i].offer_payload_field_path) : null;
+        bad.push({ label: f ? fieldOptionLabelIn(offer, f) : edges[i].offer_payload_field_path, problem: p });
+      }
+    }
+    if (bad.length === 0) { return ''; }
+    if (bad.length === edges.length) { return bad[0].problem; }
+    return 'partly: not sent to ' + bad.map(function (b) { return b.label; }).join(', ') + ' (' + bad[0].problem + ')';
+  }
   function providerValueProblem(offerId, edges, text) {
     if (text === '') { return ''; }
     var i, t, f, vv, k, ok;
@@ -4997,8 +5191,9 @@ export const SECTION_STUDIO_SCRIPT = `
   // baseline is the answer's saved values when the question was first shown;
   // no per-keystroke tracking (a half-typed value can equal another choice's).
   // A value an existing list already left off (a deliberate "not sent") stays
-  // off. A renamed choice sends its NEW saved value; its old provider value is
-  // not carried (it is visible in the row).
+  // off. A renamed choice is the SAME choice: its provider values move to the
+  // new name (carryProviderValues) and so does its baseline entry
+  // (renameProviderBaseline), so a choice left off a list stays off.
   var providerBaseline = {};
   function snapshotProviderValues(node) {
     if (node && node.question_id && providerBaseline[node.question_id] === undefined) {
@@ -5026,7 +5221,40 @@ export const SECTION_STUDIO_SCRIPT = `
       }
     });
   }
-  function resetProviderBaseline() { providerBaseline = {}; }
+  // Every question's saved values as they stand now (page open, and again
+  // after a Save that keeps the page open) — so a choice added from the canvas
+  // to a question never opened still counts as new and joins the lists.
+  function resetProviderBaseline() {
+    providerBaseline = {};
+    if (typeof walkTree !== 'undefined' && state && state.content) {
+      walkTree(state.content.components, 1, function (n) { snapshotProviderValues(n); });
+    }
+  }
+  function addProviderBaseline(node, from, to) {
+    var b = node && node.question_id ? providerBaseline[node.question_id] : undefined;
+    if (!b || b.indexOf(from) === -1 || b.indexOf(to) !== -1) { return false; }
+    providerBaseline[node.question_id] = b.concat([to]);
+    return true;
+  }
+  function renameProviderBaseline(node, from, to) {
+    var b = node && node.question_id ? providerBaseline[node.question_id] : undefined, i, out;
+    if (!b || b.indexOf(from) === -1 || b.indexOf(to) !== -1) { return false; }
+    out = [];
+    for (i = 0; i < b.length; i++) { out.push(b[i] === from ? to : b[i]); }
+    providerBaseline[node.question_id] = out;
+    return true;
+  }
+  // How many of the answer's choices (Other values included) hold this saved
+  // value right now.
+  function savedValueCount(node, value) {
+    var n = 0, i, list = node && node.choices ? node.choices : [];
+    for (i = 0; i < list.length; i++) { if (list[i] && String(list[i].value) === value) { n += 1; } }
+    var other = node && node.props && node.props.other && node.props.other.enabled === true ? node.props.other.choices : null;
+    if (other && other.length) {
+      for (i = 0; i < other.length; i++) { if (other[i] && String(other[i].value) === value) { n += 1; } }
+    }
+    return n;
+  }
   // How many of the answer's saved values never reach this edge's buyer field:
   // left off its value list, or sent as something the field's type (or its
   // allowed values) cannot take. Shown on the Offers tab and in the rows —
@@ -5043,6 +5271,31 @@ export const SECTION_STUDIO_SCRIPT = `
       if (st === 'orphaned') { return 'blocked: this buyer field no longer exists, so nothing is sent (see the Offers tab)'; }
     }
     return '';
+  }
+  // What stops a box's value reaching its buyer fields, judged PER FIELD: a
+  // box shared by two fields where one mapping is blocked still sends to the
+  // other (review M4: it said "nothing is sent" for both). send === null =
+  // nothing to send (only the blocked mappings are judged).
+  function boxUnsendable(offerId, edges, send) {
+    var offer = offerById(offerId);
+    if (edges.length <= 1) {
+      return edgesBlockedReason(offer, edges) || (send === null ? '' : sharedBoxProblem(offerId, edges, send));
+    }
+    var open = [], blockedLabels = [], firstBlocked = '', i, b, f, rest, note;
+    for (i = 0; i < edges.length; i++) {
+      b = edgesBlockedReason(offer, [edges[i]]);
+      if (b === '') { open.push(edges[i]); continue; }
+      if (firstBlocked === '') { firstBlocked = b; }
+      f = offer ? answerFieldOf(offer, edges[i].offer_payload_field_path) : null;
+      blockedLabels.push(f ? fieldOptionLabelIn(offer, f) : edges[i].offer_payload_field_path);
+    }
+    if (open.length === 0) { return firstBlocked; }
+    rest = send === null ? '' : sharedBoxProblem(offerId, open, send);
+    if (blockedLabels.length === 0) { return rest; }
+    // the value reaches none of the open fields either: that is the problem
+    if (rest !== '' && rest.indexOf('partly:') !== 0) { return rest; }
+    note = 'not sent to ' + blockedLabels.join(', ') + ' \\u2014 ' + firstBlocked.slice(9).replace(', so nothing is sent', '');
+    return rest === '' ? 'partly: ' + note : rest + '; ' + note;
   }
   function valuesNotSent(edge, node, offer) {
     if (!edge || !node) { return 0; }
@@ -5078,7 +5331,7 @@ export const SECTION_STUDIO_SCRIPT = `
         send = v.state === 'custom' ? v.value : v.state === 'saved' ? choiceValue : null;
         rows.push({
           offer_id: ids[i], offer_name: label, offer_public_id: pub || null, state: v.state, value: v.value, edges: groups[g],
-          unsendable: edgesBlockedReason(offer, groups[g]) || (send === null ? '' : providerValueProblem(ids[i], groups[g], send))
+          unsendable: boxUnsendable(ids[i], groups[g], send)
         });
       }
     }
@@ -5089,7 +5342,7 @@ export const SECTION_STUDIO_SCRIPT = `
     var custom = {}, missing = {}, i, nc = 0, nm = 0;
     for (i = 0; i < rows.length; i++) {
       if (rows[i].state === 'custom' && custom[rows[i].offer_id] !== true) { custom[rows[i].offer_id] = true; nc += 1; }
-      if ((rows[i].state === 'missing' || rows[i].unsendable !== '') && missing[rows[i].offer_id] !== true) { missing[rows[i].offer_id] = true; nm += 1; }
+      if ((rows[i].state === 'missing' || (rows[i].unsendable !== '' && rows[i].unsendable.indexOf('partly:') !== 0)) && missing[rows[i].offer_id] !== true) { missing[rows[i].offer_id] = true; nm += 1; }
     }
     return 'Provider values: ' + nc + '/' + mappedOffersFor(internalField).length + ' Offers' + (nm > 0 ? ' \\u00b7 ' + nm + ' not sent' : '');
   }
@@ -5527,6 +5780,7 @@ export const SECTION_STUDIO_SCRIPT = `
     if (trimStr(text) === '') { delete props[key]; } else { props[key] = text; }
     cleanupEmpty(ref.node, 'props');
     afterModelChange();
+    if (typeof refreshInspectorAfterCanvasEdit !== 'undefined') { refreshInspectorAfterCanvasEdit(qid); }
     return true;
   }
   function commitInlineChoiceLabel(qid, value, text) {
@@ -5536,18 +5790,68 @@ export const SECTION_STUDIO_SCRIPT = `
     if (!c) { return false; }
     c.label = text;
     afterModelChange();
+    if (typeof refreshInspectorAfterCanvasEdit !== 'undefined') { refreshInspectorAfterCanvasEdit(qid); }
     return true;
+  }
+  // A text edited on the canvas must show in the inspector too (review 5,
+  // pre-existing): its choice list kept the OLD label, and the next edit
+  // anywhere in that list wrote the old label back over the canvas edit.
+  function refreshInspectorAfterCanvasEdit(qid) {
+    if (qid === selectedQuestionId && typeof populateInspector === 'function') { populateInspector(false); }
+    // the header and breadcrumb name the renamed choice too (review 9c F-E)
+    if (qid === selectedQuestionId && typeof scopeState !== 'undefined' && scopeState === 'choice' && typeof selectedChoiceValue !== 'undefined' && selectedChoiceValue !== null && typeof followSelectedChoiceLabel !== 'undefined') {
+      var renamed = findChoice(selectedNode(), selectedChoiceKey());
+      if (renamed) { followSelectedChoiceLabel(renamed.label !== undefined ? renamed.label : ''); }
+    }
   }
   // The contenteditable session: Enter/blur commits, Escape cancels; canvas
   // re-renders are paused while editing (scheduleCanvasRender re-checks).
+  // Put the caret at the start or end of an editable element.
+  function caretToEdge(el, atEnd) {
+    var d = el.ownerDocument || document;
+    try {
+      if (d.createRange && d.getSelection) {
+        var rg = d.createRange(); rg.selectNodeContents(el); rg.collapse(!atEnd);
+        var sl = d.getSelection(); sl.removeAllRanges(); sl.addRange(rg);
+      }
+    } catch (eCaret) { /* no selection API: leave the caret where it is */ }
+  }
+  // The card whose label is being edited (the edited text is a span inside
+  // it, as wide as the text).
+  function inlineEditCard() {
+    if (typeof inlineEditHost === 'undefined' || !inlineEditHost || !inlineEditing) { return null; }
+    return (inlineEditHost.closest && inlineEditHost.closest('[data-lg-choice]')) || inlineEditHost;
+  }
+  // A press on the edited card but beside its text (just past the last
+  // letter, the card's padding) keeps the edit and puts the caret at the
+  // nearer end (review 9c F-B: it ended the edit, the card stayed selected
+  // and the next Backspace deleted the whole choice).
+  function keepInlineEditOnCardPress(ev) {
+    var card = inlineEditCard();
+    if (!card || !ev || !ev.target || !card.contains || !card.contains(ev.target) || inlineEditHost.contains(ev.target)) { return; }
+    ev.preventDefault();
+    var r = inlineEditHost.getBoundingClientRect ? inlineEditHost.getBoundingClientRect() : null;
+    caretToEdge(inlineEditHost, !(r && typeof ev.clientX === 'number' && ev.clientX < r.left));
+  }
   function startInlineEdit(el, committer) {
     if (inlineEditing || !el) { return false; }
     inlineEditing = true;
+    if (typeof inlineEditHost !== 'undefined') { inlineEditHost = el; }
+    // the card's ✕ cannot act while its label is being edited: hidden, not dead (review 10 MINOR-3)
+    var editCardX = el.closest && el.closest('[data-lg-choice]') ? el.closest('[data-lg-choice]').querySelector('[data-choice-x]') : null;
+    if (editCardX) { editCardX.style.visibility = 'hidden'; }
     el.setAttribute('contenteditable', 'true');
     if (el.focus) { el.focus(); }
+    // the caret starts at the end of the text; inside a card (a <button>) the
+    // browser ignores End/Home, so those are handled below (review 6b: typed
+    // text landed in front of the label)
+    function caretTo(atEnd) { caretToEdge(el, atEnd); }
+    caretTo(true);
     function finish(apply) {
       if (!inlineEditing) { return; }
       inlineEditing = false;
+      if (typeof inlineEditHost !== 'undefined') { inlineEditHost = null; }
+      if (editCardX) { editCardX.style.visibility = ''; }
       el.removeAttribute('contenteditable');
       el.removeEventListener('blur', onBlur);
       el.removeEventListener('keydown', onKey);
@@ -5562,6 +5866,24 @@ export const SECTION_STUDIO_SCRIPT = `
       // the selection to the parent.
       if (keyEv.key === 'Enter') { keyEv.preventDefault(); keyEv.stopPropagation(); finish(true); }
       else if (keyEv.key === 'Escape') { keyEv.preventDefault(); keyEv.stopPropagation(); finish(false); }
+      else if ((keyEv.key === 'End' || keyEv.key === 'Home') && el.closest && el.closest('button')) {
+        keyEv.preventDefault(); keyEv.stopPropagation();
+        caretTo(keyEv.key === 'End');
+      }
+      else if (keyEv.key === ' ' && el.closest && el.closest('button')) {
+        // a card is a <button>: the browser turns Space into a press and types
+        // nothing (review 5: "Gamma r5" became "Gammar5") — put the space in
+        keyEv.preventDefault(); keyEv.stopPropagation();
+        var d = el.ownerDocument || document;
+        if (!(d.execCommand && d.execCommand('insertText', false, ' '))) {
+          var sel = d.getSelection ? d.getSelection() : null;
+          if (sel && sel.rangeCount) {
+            var rg = sel.getRangeAt(0), tn = d.createTextNode(' ');
+            rg.deleteContents(); rg.insertNode(tn); rg.setStartAfter(tn); rg.collapse(true);
+            sel.removeAllRanges(); sel.addRange(rg);
+          }
+        }
+      }
     }
     el.addEventListener('blur', onBlur);
     el.addEventListener('keydown', onKey);
@@ -6603,10 +6925,20 @@ export const SECTION_STUDIO_SCRIPT = `
       // icon/image is a VISIBLE studio issue instead of a save-time 400 the
       // "No issues" chip gave no warning about.
       if (node.choices && node.choices.length > 0) {
-        var ci, choice, vt;
+        var ci, choice, vt, seenChoiceValue = {}, seenChoiceLabel = {}, dupKey;
         for (ci = 0; ci < node.choices.length; ci++) {
           choice = node.choices[ci];
           if (!choice || typeof choice !== 'object') { issues.push({ qid: node.question_id, message: label + ' has a choice that is not valid' }); continue; }
+          // review 4: two choices with one saved value can't be told apart in
+          // the answer (nor given their own provider values); two with one
+          // label look the same to the visitor. Shown, never blocking.
+          // (once per value, however many share it — review 5)
+          dupKey = choice.value === undefined || choice.value === null ? '' : String(choice.value);
+          if (dupKey !== '' && seenChoiceValue[dupKey] === 1) { issues.push({ qid: node.question_id, message: label + ' has more than one choice with the saved value "' + dupKey + '" \\u2014 give each its own' }); }
+          if (dupKey !== '') { seenChoiceValue[dupKey] = (seenChoiceValue[dupKey] || 0) + 1; }
+          dupKey = trimStr(choice.label).toLowerCase();
+          if (dupKey !== '' && seenChoiceLabel[dupKey] === 1) { issues.push({ qid: node.question_id, message: label + ' has more than one choice labelled "' + trimStr(choice.label) + '"' }); }
+          if (dupKey !== '') { seenChoiceLabel[dupKey] = (seenChoiceLabel[dupKey] || 0) + 1; }
           if (trimStr(choice.label) === '') { issues.push({ qid: node.question_id, message: label + ' has a choice missing its label' }); }
           vt = typeof choice.value;
           if (vt !== 'string' && vt !== 'number' && vt !== 'boolean') { issues.push({ qid: node.question_id, message: label + ' has a choice with an invalid value' }); }
@@ -6640,7 +6972,7 @@ export const SECTION_STUDIO_SCRIPT = `
               if (obc && (typeof obc.value === 'string' || typeof obc.value === 'number' || typeof obc.value === 'boolean')) { otherBaseValues[String(obc.value)] = true; }
             }
           }
-          var otherChoices = node.props.other.choices, oi, oc, ovt;
+          var otherChoices = node.props.other.choices, oi, oc, ovt, seenOtherValue = {};
           if (otherChoices.length > 50) { issues.push({ qid: node.question_id, message: label + ' has more than 50 "Other" values (max 50)' }); }
           for (oi = 0; oi < otherChoices.length; oi++) {
             oc = otherChoices[oi];
@@ -6649,6 +6981,11 @@ export const SECTION_STUDIO_SCRIPT = `
             ovt = typeof oc.value;
             if (ovt !== 'string' && ovt !== 'number' && ovt !== 'boolean') { issues.push({ qid: node.question_id, message: label + ' has an "Other" value with an invalid value' }); }
             else if (otherBaseValues[String(oc.value)]) { issues.push({ qid: node.question_id, message: label + ' has an "Other" value that duplicates a base choice' }); }
+            else {
+              // two "Other" values with one saved value (review 5), once per value
+              if (seenOtherValue[String(oc.value)] === 1) { issues.push({ qid: node.question_id, message: label + ' has more than one "Other" value with the saved value "' + String(oc.value) + '" \\u2014 give each its own' }); }
+              seenOtherValue[String(oc.value)] = (seenOtherValue[String(oc.value)] || 0) + 1;
+            }
             if (trimStr(oc.analytics_id) === '') { issues.push({ qid: node.question_id, message: label + ' has an "Other" value missing its analytics id' }); }
           }
         }
@@ -6866,6 +7203,16 @@ export const SECTION_STUDIO_SCRIPT = `
     banner.hidden = !shown;
   }
 
+  // A choices box left after its input events already applied its text
+  // fires a 'change' that changes nothing; it queued a canvas refresh, the
+  // canvas was then "behind", and the very click that left the box was
+  // refused (review 10 MAJOR-2). Checked against the history's OWN last
+  // step, which Undo and Redo keep current — a separately remembered model
+  // went stale after an Undo and swallowed the same edit made again
+  // (review 11 BLOCKER-1).
+  function modelUnchangedSinceLastStep() {
+    return typeof historyState !== 'undefined' && typeof lastSnapshot !== 'undefined' && lastSnapshot !== null && historyState() === lastSnapshot;
+  }
   function afterModelChange() {
     // m3 (adversarial re-review) extra robustness: ANY other model mutation
     // proactively tears down a still-registered width-drag (the "moved then
@@ -6927,6 +7274,17 @@ export const SECTION_STUDIO_SCRIPT = `
     if (el && el.parentNode) { el.parentNode.removeChild(el); }
     if (undoToastTimer) { clearTimeout(undoToastTimer); undoToastTimer = null; }
   }
+  // The one place the canvas notices sit: fixed at the bottom of the window.
+  function noticeStack() {
+    var st = document.querySelector('[data-studio-notice-stack]');
+    if (!st) {
+      st = document.createElement('div');
+      st.className = 'studio-notice-stack';
+      st.setAttribute('data-studio-notice-stack', '');
+      document.body.appendChild(st);
+    }
+    return st;
+  }
   function showUndoToast(label) {
     hideUndoToast();
     var el = document.createElement('div');
@@ -6950,8 +7308,7 @@ export const SECTION_STUDIO_SCRIPT = `
     // potentially-tall, scrolled-away page. document.body is a defensive
     // fallback only — #lg-studio-canvas is always present once the studio has
     // rendered, which is the only time a delete (and this toast) can fire.
-    var toastHost = document.getElementById('lg-studio-canvas') || document.body;
-    toastHost.appendChild(el);
+    noticeStack().appendChild(el);
     undoToastTimer = setTimeout(hideUndoToast, 6000);
   }
   // The ONE call site both the toolbar Delete button and the Delete/
@@ -6981,8 +7338,9 @@ export const SECTION_STUDIO_SCRIPT = `
   // stays deletable exactly as before: an explicit group (component-scope)
   // selection, or the toolbar's own plain "Delete" control.
   function deleteSelectedWithUndo(qid) {
+    if (typeof disarmedRefusal !== 'undefined' && disarmedRefusal()) { return; }
     if (scopeState === 'choice' && selectedChoiceValue !== null) {
-      deleteSelectedChoiceWithUndo(qid, selectedChoiceValue);
+      deleteSelectedChoiceWithUndo(qid, typeof selectedChoiceKey !== 'undefined' ? selectedChoiceKey() : selectedChoiceValue);
       return;
     }
     var ref = findRef(qid);
@@ -7001,10 +7359,14 @@ export const SECTION_STUDIO_SCRIPT = `
   // afterModelChange call, which snapshots the PRE-mutation tree) — no new
   // persistence, and it restores the choice at its original index for free
   // (a full snapshot revert, not a piecewise re-insert).
+  // What a choice's Undo toast calls it.
+  function choiceDeleteLabel(node, value) {
+    var c = node ? findChoice(node, value) : null;
+    return c && c.label !== undefined && String(c.label) !== '' ? String(c.label) : 'Choice';
+  }
   function deleteSelectedChoiceWithUndo(qid, value) {
     var ref = findRef(qid);
-    var c = ref && ref.node ? findChoice(ref.node, value) : null;
-    var label = c && c.label !== undefined && String(c.label) !== '' ? String(c.label) : 'Choice';
+    var label = choiceDeleteLabel(ref && ref.node ? ref.node : null, value);
     var removed = ref && ref.node ? removeChoiceFromNode(ref.node, value) : false;
     if (!removed) {
       showRefusal('Nothing to delete — that selection was no longer on the canvas.');
@@ -7019,6 +7381,8 @@ export const SECTION_STUDIO_SCRIPT = `
   function showRefusal(message) {
     var el = document.querySelector('[data-studio-drop-refusal]');
     if (!el) { return; }
+    // the note is never left under the ⋮ panel (review 9c F-F)
+    if (typeof closeMorePanel !== 'undefined') { closeMorePanel(); }
     el.hidden = false;
     el.textContent = message;
   }
@@ -7062,6 +7426,25 @@ export const SECTION_STUDIO_SCRIPT = `
   }
   // §6.1.4: the frame element IS the canvas viewport — Desktop 1280 /
   // Mobile 375 (the ui-quotes setCanvasDoc idiom).
+  // OWNER 2026-09-28 (open item 1, review F3): the frame is the real 1280/375
+  // viewport inside a narrower pane, with the Section's content centered in
+  // it — so the pane opened scrolled to the frame's empty left edge and the
+  // selected question was off to the right (0% visible at 1024). When the
+  // selection (or the viewport) changes and the question is not fully in view,
+  // the pane scrolls sideways to it: centered, or its start when wider.
+  var lastCenteredQid = null;
+  function centerCanvasSelection(el, qid) {
+    if (!el || qid === null || qid === lastCenteredQid) { return; }
+    var surface = document.getElementById('lg-studio-canvas');
+    var frame = canvasFrameEl();
+    if (!surface || !frame || !el.getBoundingClientRect || !surface.getBoundingClientRect || !frame.getBoundingClientRect) { return; }
+    lastCenteredQid = qid;
+    var sr = surface.getBoundingClientRect(), fr = frame.getBoundingClientRect(), qr = el.getBoundingClientRect();
+    var left = fr.left + qr.left, right = fr.left + qr.right;
+    if (left >= sr.left && right <= sr.right) { return; }
+    var shift = (right - left) > sr.width ? left - sr.left - 8 : (left + right) / 2 - (sr.left + sr.right) / 2;
+    surface.scrollLeft = Math.max(0, surface.scrollLeft + shift);
+  }
   function updateCanvasFrameViewport() {
     var frame = canvasFrameEl();
     if (!frame) { return; }
@@ -7086,10 +7469,121 @@ export const SECTION_STUDIO_SCRIPT = `
     var t = ev ? ev.target : null;
     if (t && t.tagName && String(t.tagName).toUpperCase() === 'IMG') {
       updateCanvasFrameHeight();
+      if (typeof keepReopenAnchor !== 'undefined') { keepReopenAnchor(); }
     }
   }
   var canvasTimer = null;
+  // The canvas is BEHIND the model between an edit and the repaint that shows
+  // it (~340ms: the debounce + the preview fetch). Its cards' positions are
+  // then those of the old list, so a click on a card in that window could act
+  // on another choice (review 6/6b: a remove then a quick ✕ deleted the wrong
+  // twin). Choice actions on the canvas wait for the repaint.
+  var canvasModelRev = 0, canvasShownRev = 0, canvasBehindNoted = false, canvasFailedRev = 0;
+  // the content the canvas on screen was painted from (set at boot and on
+  // every accepted paint)
+  var canvasPaintedJson = null, paintedCacheJson = null, paintedCacheParsed = null;
+  // the question as it was PAINTED (null when unknown)
+  function paintedNode(qid) {
+    if (!canvasPaintedJson) { return null; }
+    if (paintedCacheJson !== canvasPaintedJson) {
+      try { paintedCacheParsed = JSON.parse(canvasPaintedJson); } catch (ePainted) { paintedCacheParsed = null; }
+      paintedCacheJson = canvasPaintedJson;
+    }
+    var found = null;
+    if (paintedCacheParsed && paintedCacheParsed.components) { walkTree(paintedCacheParsed.components, 1, function (n) { if (n && n.question_id === qid) { found = n; } }); }
+    return found;
+  }
+  function paintedChoiceAt(qid, index) {
+    var found = paintedNode(qid);
+    return found && found.choices ? found.choices[index] : undefined;
+  }
+  // While the canvas is behind the model, a card is safe to act on exactly
+  // when the model's choice at its place is the one PAINTED there — label,
+  // value and everything else. A value-only check hit the wrong twin (review
+  // 11); refusing every click while behind made the next Delete remove the
+  // choice selected before the click (review 12 MAJOR-A/B).
+  // A paint that lands while the operator presses the canvas waits for the
+  // release (and the click that follows it): replacing the pressed card lost
+  // the click without any note (review 13 MAJOR-2). The newest waiting paint
+  // wins; a lost release (a drag out of the window) lets go after 3 s.
+  var canvasPressActive = false, pendingPaint = null, pressSafetyTimer = null;
+  function holdPaintForPress(rev, run) {
+    if (!canvasPressActive) { return false; }
+    if (!pendingPaint || rev >= pendingPaint.rev) { pendingPaint = { rev: rev, run: run }; }
+    return true;
+  }
+  function flushPendingPaint() {
+    var p = pendingPaint;
+    pendingPaint = null;
+    if (p) { p.run(); }
+  }
+  function canvasPressStart() {
+    canvasPressActive = true;
+    if (pressSafetyTimer) { clearTimeout(pressSafetyTimer); }
+    pressSafetyTimer = setTimeout(canvasPressEnd, 3000);
+  }
+  function canvasPressEnd() {
+    if (!canvasPressActive) { return; }
+    canvasPressActive = false;
+    if (pressSafetyTimer) { clearTimeout(pressSafetyTimer); pressSafetyTimer = null; }
+    // after the click this release is about to dispatch
+    setTimeout(flushPendingPaint, 0);
+  }
+  function canvasCardMatchesPaint(qid, key) {
+    if (typeof canvasIsCurrent === 'undefined' || canvasIsCurrent()) { return true; }
+    var ref = qid ? findRef(qid) : null;
+    if (!ref || !ref.node || !ref.node.choices || !key || key.index < 0) { return false; }
+    var now = ref.node.choices[key.index];
+    var painted = paintedChoiceAt(qid, key.index);
+    if (!now || !painted || String(now.value) !== String(key.value)) { return false; }
+    return JSON.stringify(now) === JSON.stringify(painted);
+  }
+  function canvasIsCurrent() { return canvasShownRev === canvasModelRev; }
+  // A refresh that comes back AFTER a newer one has painted is dropped: it
+  // would paint older content and wind the shown revision back, so the
+  // canvas stayed "behind" and ignored every click (review 7 F7-1).
+  function acceptCanvasPaint(rev) {
+    if (rev < canvasShownRev) { return false; }
+    canvasShownRev = rev;
+    return true;
+  }
+  // A choice action on a canvas that is behind is not taken — and says so.
+  var CANVAS_BEHIND_NOTE = 'The canvas is catching up with your last edit \\u2014 try that again in a moment.';
+  // nothing is on its way when the newest refresh failed (review 9c F-D)
+  var CANVAS_FAILED_NOTE = 'The canvas could not show your last edit \\u2014 press Retry on the canvas, then try again.';
+  // A refused canvas action leaves the PREVIOUS selection in place, and the
+  // operator believes the new card is selected: Delete and the choice
+  // actions wait until something is selected again (review 12 MAJOR-B: a
+  // Delete 0.4 s later removed the previously selected choice).
+  var choiceActionsDisarmed = false;
+  var DISARMED_NOTE = 'Your last click on the canvas did not select anything \\u2014 click the card again first.';
+  // a real selection: the next Delete acts on it, and the note goes
+  function clearDisarm() {
+    choiceActionsDisarmed = false;
+    var el = document.querySelector('[data-studio-drop-refusal]');
+    if (el && el.textContent === DISARMED_NOTE && typeof clearRefusal !== 'undefined') { clearRefusal(); }
+  }
+  function disarmedRefusal() {
+    if (typeof choiceActionsDisarmed === 'undefined' || !choiceActionsDisarmed) { return false; }
+    if (typeof showRefusal !== 'undefined') { showRefusal(DISARMED_NOTE); }
+    return true;
+  }
+  function canvasBehindRefusal(selectionStands) {
+    canvasBehindNoted = true;
+    // a double-click whose first click selected the card leaves that selection standing (review 13 MINOR-2)
+    if (typeof choiceActionsDisarmed !== 'undefined' && !selectionStands) { choiceActionsDisarmed = true; }
+    var failed = typeof canvasFailedRev !== 'undefined' && canvasFailedRev >= canvasModelRev && canvasFailedRev > canvasShownRev;
+    if (typeof showRefusal !== 'undefined') { showRefusal(failed ? CANVAS_FAILED_NOTE : CANVAS_BEHIND_NOTE); }
+  }
+  // only the catching-up note goes when the canvas catches up (review 8 F8-7)
+  function clearCanvasBehindNote() {
+    canvasBehindNoted = false;
+    var el = document.querySelector('[data-studio-drop-refusal]');
+    if (el && (el.textContent === CANVAS_BEHIND_NOTE || el.textContent === CANVAS_FAILED_NOTE)) { clearRefusal(); }
+    // (the disarm stays until the next selection: the refused click still did not select)
+  }
   function scheduleCanvasRender() {
+    canvasModelRev += 1;
     if (canvasTimer) { clearTimeout(canvasTimer); }
     canvasTimer = setTimeout(function () {
       canvasTimer = null;
@@ -7123,6 +7617,7 @@ export const SECTION_STUDIO_SCRIPT = `
     // studioCanvasRestingHtml. NOTE: sim.answers MUST be present — the handler
     // treats a null answers block as "no basis" and skips the dependency pass
     // entirely.
+    var renderingRev = typeof canvasModelRev !== 'undefined' ? canvasModelRev : 0;
     var canvasBody = {
       content_json: JSON.stringify(state.content),
       viewport: canvasViewport,
@@ -7148,14 +7643,31 @@ export const SECTION_STUDIO_SCRIPT = `
       // unguarded call would ReferenceError there for a concern entirely
       // outside what they test.
       if (!res.ok || !res.body || !res.body.preview) {
+        // a stale refresh failing after a newer one painted is not an error
+        // of the canvas on screen (review 8 F8-4)
+        if (typeof canvasShownRev !== 'undefined' && renderingRev < canvasShownRev) { return; }
+        if (typeof canvasFailedRev !== 'undefined' && renderingRev > canvasFailedRev) { canvasFailedRev = renderingRev; }
         if (typeof showCanvasPreviewError !== 'undefined') { showCanvasPreviewError(); }
         return;
       }
-      region.innerHTML = '<style>' + res.body.preview.css + '</style>' + (res.body.preview.html || res.body.preview.desktop || '');
-      applyCanvasDecoration();
-      updateCanvasEmpty();
-      if (typeof hideCanvasPreviewError !== 'undefined') { hideCanvasPreviewError(); }
+      var paintNow = function () {
+        if (typeof acceptCanvasPaint !== 'undefined' && !acceptCanvasPaint(renderingRev)) { return; }
+        region.innerHTML = '<style>' + res.body.preview.css + '</style>' + (res.body.preview.html || res.body.preview.desktop || '');
+        if (typeof canvasPaintedJson !== 'undefined') { canvasPaintedJson = canvasBody.content_json; }
+        if (typeof canvasBehindNoted !== 'undefined' && canvasBehindNoted && canvasIsCurrent()) { clearCanvasBehindNote(); }
+        applyCanvasDecoration();
+        updateCanvasEmpty();
+        // an OLDER refresh landing after a newer one failed is still behind:
+        // the failure stays shown with its Retry (review 9c F-D)
+        if (typeof hideCanvasPreviewError !== 'undefined' && !(typeof canvasFailedRev !== 'undefined' && renderingRev < canvasFailedRev)) { hideCanvasPreviewError(); }
+      };
+      // a press on the canvas is in progress: the card under it must still be
+      // there when the click arrives (review 13 MAJOR-2) — paint on release
+      if (typeof holdPaintForPress !== 'undefined' && holdPaintForPress(renderingRev, paintNow)) { return; }
+      paintNow();
     }).catch(function () {
+      if (typeof canvasShownRev !== 'undefined' && renderingRev < canvasShownRev) { return; }
+      if (typeof canvasFailedRev !== 'undefined' && renderingRev > canvasFailedRev) { canvasFailedRev = renderingRev; }
       if (typeof showCanvasPreviewError !== 'undefined') { showCanvasPreviewError(); }
     });
   }
@@ -7175,8 +7687,6 @@ export const SECTION_STUDIO_SCRIPT = `
   }
   function showCanvasPreviewError() {
     hideCanvasPreviewError();
-    var host = document.getElementById('lg-studio-canvas');
-    if (!host) { return; }
     var el = document.createElement('div');
     el.className = 'studio-canvas-preview-error';
     el.setAttribute('data-studio-canvas-preview-error', '');
@@ -7187,7 +7697,8 @@ export const SECTION_STUDIO_SCRIPT = `
     btn.appendChild(document.createTextNode('Retry'));
     btn.addEventListener('click', function () { renderCanvasNow(); });
     el.appendChild(btn);
-    host.appendChild(el);
+    var stack = typeof noticeStack !== 'undefined' ? noticeStack() : document.body;
+    stack.insertBefore(el, stack.firstChild);
   }
   function updateCanvasEmpty() {
     var empty = document.querySelector('[data-studio-canvas-empty]');
@@ -7244,9 +7755,30 @@ export const SECTION_STUDIO_SCRIPT = `
   // choice ✕, the "+ Add choice" ghost tile at the grid end, choice drag
   // handles and the selected-CardPanel resize handle. Rebuilt per pass like
   // the maps chips (the region is server HTML).
+  // The k-th canvas card with a value is the k-th choice with that value IN
+  // THE CONTENT THE CANVAS WAS PAINTED FROM. Counted in the current model, a
+  // change not yet painted (a twin given its own value) moved every later
+  // twin's place, and a click on the painted Beta acted on Delta (review 13
+  // MAJOR-1). When the canvas is current the two are the same content.
+  function canvasChoiceIndex(qid, value, seen) {
+    var pn = typeof paintedNode !== 'undefined' ? paintedNode(qid) : null;
+    var ref = findRef(qid), k, i, hit = 0;
+    var list = pn && pn.choices ? pn.choices : (ref && ref.node ? ref.node.choices : null);
+    if (!list) { return -1; }
+    if (!seen[qid]) { seen[qid] = {}; }
+    k = seen[qid][value] || 0;
+    seen[qid][value] = k + 1;
+    for (i = 0; i < list.length; i++) {
+      if (String(list[i].value) === String(value)) {
+        if (hit === k) { return i; }
+        hit += 1;
+      }
+    }
+    return -1;
+  }
   function decorateChoiceCards(region) {
     var cards = region.querySelectorAll('[data-lg-choice]');
-    var i, card, host, qid, x;
+    var i, card, host, qid, x, cardIdx, cardSeen = {};
     for (i = 0; i < cards.length; i++) {
       card = cards[i];
       host = card.closest ? card.closest('[data-question-id]') : null;
@@ -7265,12 +7797,19 @@ export const SECTION_STUDIO_SCRIPT = `
       // that has always actually worked for it.
       if (String(card.tagName || '').toUpperCase() === 'OPTION') { continue; }
       card.setAttribute('draggable', 'true');
-      if (qid === selectedQuestionId && selectedChoiceValue !== null && card.getAttribute('data-lg-choice') === String(selectedChoiceValue)) {
+      // the card's position in the question's choices: the k-th card with a
+      // value is the k-th choice with that value (twins stay apart)
+      cardIdx = typeof canvasChoiceIndex !== 'undefined' ? canvasChoiceIndex(qid, card.getAttribute('data-lg-choice'), cardSeen) : -1;
+      if (cardIdx >= 0) { card.setAttribute('data-studio-choice-index', String(cardIdx)); } else if (card.removeAttribute) { card.removeAttribute('data-studio-choice-index'); }
+      card.className = withoutClasses(card.className, ['studio-choice-selected']);
+      if (qid === selectedQuestionId && selectedChoiceValue !== null && card.getAttribute('data-lg-choice') === String(selectedChoiceValue) &&
+          (typeof selectedChoiceIndex !== 'number' || selectedChoiceIndex < 0 || cardIdx < 0 || cardIdx === selectedChoiceIndex)) {
         card.className = card.className + ' studio-choice-selected';
       }
       x = frameCreate('span');
       x.className = 'studio-choice-x';
       x.setAttribute('data-choice-x', card.getAttribute('data-lg-choice'));
+      if (cardIdx >= 0) { x.setAttribute('data-choice-x-index', String(cardIdx)); }
       x.setAttribute('data-choice-x-qid', qid);
       // P1c grid fix (register PC-1/PC-11): a real <button> nested inside
       // the choice's OWN <button> (every choice family here — ButtonAnswer-
@@ -8135,9 +8674,10 @@ export const SECTION_STUDIO_SCRIPT = `
     clearSelectionChrome(region);
     var nodes = region.querySelectorAll('[data-question-id]');
     var qid, base, ref, nodeType, chromeKind;
-    var selEl = null, selKind = null, selNode = null, selQid = null;
+    var selEl = null, selKind = null, selNode = null, selQid = null, selAny = null;
     for (i = 0; i < nodes.length; i++) {
       qid = nodes[i].getAttribute('data-question-id');
+      if (qid === selectedQuestionId && selAny === null) { selAny = nodes[i]; }
       ref = findRef(qid);
       chromeKind = (qid === selectedQuestionId && ref) ? selectionChromeKind(ref.node) : null;
       // R7 U11a: EVERY canvas node is draggable="false" now. Native HTML5 DnD
@@ -8192,6 +8732,17 @@ export const SECTION_STUDIO_SCRIPT = `
     else if (selKind === 'headline' || selKind === 'continue') { decorateSimpleSelection(selEl, selKind); }
     // badges/chips/handles change the document height — keep the frame sized.
     updateCanvasFrameHeight();
+    if (typeof reopenScrollPending !== 'undefined' && reopenScrollPending && selEl && selEl.scrollIntoView) {
+      reopenScrollPending = false;
+      selEl.scrollIntoView({ block: 'center', inline: 'nearest' });
+      if (typeof reopenAnchorEl !== 'undefined') { reopenAnchorEl = selEl; }
+    } else if (typeof reopenAnchorEl !== 'undefined' && reopenAnchorEl && selEl && reopenAnchorEl !== selEl) {
+      // a repaint before the operator's first touch (on a phone: the switch to
+      // the Mobile preview) moves the question too (review 9c F-C)
+      reopenAnchorEl = selEl;
+      if (typeof keepReopenAnchor !== 'undefined') { keepReopenAnchor(); }
+    }
+    if (typeof centerCanvasSelection !== 'undefined') { centerCanvasSelection(selAny, selectedQuestionId); }
     // R2 P8 M6/R4: the canvas now paints the RESTING state, so a question a
     // dependency hides is not on it. Keep it reachable to AUTHOR — outside the
     // previewed surface (see updateCanvasHiddenList). typeof-guarded like
@@ -8410,7 +8961,9 @@ export const SECTION_STUDIO_SCRIPT = `
   }
   function setScope(scope) {
     scopeState = scope;
-    if (scope !== 'choice') { selectedChoiceValue = null; }
+    if (scope !== 'choice') { selectedChoiceValue = null; if (typeof selectedChoiceIndex !== 'undefined') { selectedChoiceIndex = -1; } }
+    // the breadcrumb too: it kept a deleted choice's name (review 8 F8-5)
+    if (typeof renderBreadcrumb !== 'undefined') { renderBreadcrumb(); }
     renderScopeHeader();
     updateCanvasToolbar();
   }
@@ -8457,6 +9010,9 @@ export const SECTION_STUDIO_SCRIPT = `
       b.className = 'studio-crumb-current';
       b.setAttribute('data-crumb-choice', String(selectedChoiceValue));
       b.appendChild(document.createTextNode('Choice \\u201C' + choiceScopeLabel + '\\u201D'));
+      // a long label is cut short in the chip (it would wrap the toolbar onto
+      // another row and move the canvas); the whole label is its title
+      b.title = 'Choice \\u201C' + choiceScopeLabel + '\\u201D';
       crumb.appendChild(b);
     }
   }
@@ -8469,13 +9025,22 @@ export const SECTION_STUDIO_SCRIPT = `
     var el = document.querySelector('[data-toolbar-problems]');
     if (!el) { return; }
     var node = selectedNode();
-    if (!node) { el.hidden = true; el.textContent = ''; return; }
+    // ONE line, kept in place even when empty: the line appearing or going
+    // away moved the canvas between a press and its release, so the click
+    // selected (and Delete removed) the whole question (review 10 MAJOR-1).
+    // A longer sentence ends in an ellipsis with a chevron; a tap shows it
+    // whole (review 9 m9-1 / 10 MINOR-2: a phone has no hover).
+    el.hidden = false;
+    el.className = withoutClasses(el.className, ['is-open', 'is-cut']);
+    if (!node) { el.textContent = ''; el.title = ''; return; }
     var issues = computeIssues();
     var mine = [];
     for (i = 0; i < issues.length; i++) { if (issues[i].qid === node.question_id) { mine.push(issues[i]); } }
-    if (mine.length === 0) { el.hidden = true; el.textContent = ''; return; }
-    el.hidden = false;
+    if (mine.length === 0) { el.textContent = ''; el.title = ''; return; }
     el.textContent = mine[0].message + (mine.length > 1 ? ' (+' + (mine.length - 1) + ' more)' : '');
+    el.title = el.textContent;
+    // the ▾ only when the line really is cut (review 11 MINOR-6)
+    if (el.scrollWidth > el.clientWidth + 1) { el.className = el.className + ' is-cut'; }
     var key, ctl;
     for (i = 0; i < mine.length; i++) {
       key = issueControlKeyOf(mine[i].message);
@@ -8520,7 +9085,9 @@ export const SECTION_STUDIO_SCRIPT = `
     var hasMore = visible.indexOf('structure') !== -1 || visible.indexOf('choice') !== -1;
     var moreBtn = document.querySelector('[data-studio-more-toggle]');
     var morePanel = document.querySelector('[data-studio-more-panel]');
-    if (moreBtn) { moreBtn.hidden = !hasMore; }
+    // kept in the layout (only made invisible) so a selection change never
+    // reflows the canvas under the pointer (review 8 F8-1)
+    if (moreBtn) { moreBtn.hidden = false; moreBtn.style.visibility = hasMore ? 'visible' : 'hidden'; }
     if (!hasMore && morePanel && !morePanel.hidden) {
       morePanel.hidden = true;
       if (moreBtn) { moreBtn.setAttribute('aria-expanded', 'false'); }
@@ -8531,12 +9098,20 @@ export const SECTION_STUDIO_SCRIPT = `
       textRoleSel.disabled = node.bind !== undefined;
     }
     var chip = document.querySelector('[data-choice-value-chip]');
-    var c = (node && choiceFocused) ? findChoice(node, selectedChoiceValue) : null;
+    var c = (node && choiceFocused) ? findChoice(node, selectedChoiceKey()) : null;
     if (chip) { chip.textContent = choiceFocused ? String(selectedChoiceValue) : 'value'; }
     var badgeBtn = document.querySelector('[data-choice-act="badge"]');
-    if (badgeBtn) { badgeBtn.setAttribute('aria-pressed', c && typeof c.badge === 'string' && c.badge !== '' ? 'true' : 'false'); }
+    if (badgeBtn) { badgeBtn.hidden = !choiceActOffered(node, 'badge'); badgeBtn.setAttribute('aria-pressed', c && typeof c.badge === 'string' && c.badge !== '' ? 'true' : 'false'); }
     var disBtn = document.querySelector('[data-choice-act="disabled"]');
-    if (disBtn) { disBtn.setAttribute('aria-pressed', c && c.disabled === true ? 'true' : 'false'); }
+    if (disBtn) { disBtn.hidden = !choiceActOffered(node, 'disabled'); disBtn.setAttribute('aria-pressed', c && c.disabled === true ? 'true' : 'false'); }
+    var imgBtn = document.querySelector('[data-choice-act="image"]');
+    if (imgBtn) { imgBtn.hidden = !choiceActOffered(node, 'image'); }
+    // a move past either end does nothing, so it is not offered (review 11 MINOR-2)
+    var selAt = (node && choiceFocused && typeof choiceIndexOf !== 'undefined') ? choiceIndexOf(node, selectedChoiceKey()) : -1;
+    var leftBtn = document.querySelector('[data-choice-act="left"]');
+    var rightBtn = document.querySelector('[data-choice-act="right"]');
+    if (leftBtn) { leftBtn.disabled = selAt <= 0; }
+    if (rightBtn) { rightBtn.disabled = selAt === -1 || !node.choices || selAt >= node.choices.length - 1; }
     updateHistoryButtons();
     renderToolbarProblems();
   }
@@ -8544,6 +9119,45 @@ export const SECTION_STUDIO_SCRIPT = `
   // to: the FIRST real answer-collecting node (produces !== null), skipping
   // bound copy nodes — the §1.2 fixture's one field happens to be the ZIP
   // question, but this works for any Section's content.
+  // The question + inspector tab to reopen after a save's reload (?q=&tab=).
+  function reopenQuery() {
+    var parts = [];
+    if (selectedQuestionId) { parts.push('q=' + encodeURIComponent(selectedQuestionId)); }
+    if (typeof currentInspectorTab === 'string' && currentInspectorTab !== '' && currentInspectorTab !== 'none') { parts.push('tab=' + encodeURIComponent(currentInspectorTab)); }
+    return parts.length ? '?' + parts.join('&') : '';
+  }
+  // Set at boot when the link reopened a question: the first canvas paint
+  // that shows it scrolls it into view (review m3).
+  var reopenScrollPending = false;
+  // review 8 F8-3: that scroll runs on the first paint, but the frame's
+  // pictures finish loading after it, and each one above the question pushed
+  // the question down (on a phone, off the screen). Until the operator first
+  // presses, types, scrolls or touches, a picture that loads brings the
+  // reopened question back into view.
+  // A drag on the page's scrollbar fires mousedown/pointerdown on the scroller
+  // too (measured on a BODY scroller like this page), so it releases the hold.
+  var reopenAnchorEl = null;
+  function keepReopenAnchor() {
+    var el = reopenAnchorEl;
+    if (!el) { return; }
+    if (el.isConnected === false || !el.scrollIntoView) { reopenAnchorEl = null; return; }
+    el.scrollIntoView({ block: 'center', inline: 'nearest' });
+  }
+  function releaseReopenAnchor() { reopenAnchorEl = null; }
+  var REOPEN_RELEASE_EVENTS = ['mousedown', 'pointerdown', 'keydown', 'wheel', 'touchstart'];
+  function releaseReopenAnchorOnTouch(target) {
+    if (!target || !target.addEventListener) { return; }
+    for (var i = 0; i < REOPEN_RELEASE_EVENTS.length; i++) {
+      target.addEventListener(REOPEN_RELEASE_EVENTS[i], releaseReopenAnchor, true);
+    }
+  }
+  function reopenedSelectionId() {
+    var q = null, found = false;
+    try { q = new URLSearchParams(window.location.search).get('q'); } catch (e) { q = null; }
+    if (!q) { return null; }
+    walkTree(state.content.components, 1, function (n) { if (n && n.question_id === q) { found = true; } });
+    return found ? q : null;
+  }
   function findDefaultSelectionId() {
     var found = null;
     walkTree(state.content.components, 1, function (n) {
@@ -8552,6 +9166,7 @@ export const SECTION_STUDIO_SCRIPT = `
     return found;
   }
   function selectComponent(qid) {
+    if (typeof clearDisarm !== 'undefined') { clearDisarm(); }
     // m3 (adversarial re-review) extra robustness: a selection change is the
     // other place a stale width-drag (moved, but its own mouseup was lost
     // off-window) should be torn down proactively — see afterModelChange's
@@ -8561,6 +9176,7 @@ export const SECTION_STUDIO_SCRIPT = `
     selectedQuestionId = qid || null;
     scopeState = selectedQuestionId ? 'component' : 'section';
     selectedChoiceValue = null;
+    if (typeof selectedChoiceIndex !== 'undefined') { selectedChoiceIndex = -1; }
     applyCanvasDecoration();
     renderBreadcrumb();
     if (!selectedQuestionId && pendingInsert) { pendingInsert = null; updatePendingUi(); }
@@ -8571,9 +9187,102 @@ export const SECTION_STUDIO_SCRIPT = `
   }
   // §6.2/§6.4 per-choice selection: clicking a card/button selects the CHOICE;
   // the inspector simultaneously opens the Choices tab scrolled to that row.
+  function wrapTextForEdit(el) {
+    var span = frameCreate('span');
+    span.setAttribute('data-studio-edit-text', '');
+    while (el.firstChild) { span.appendChild(el.firstChild); }
+    el.appendChild(span);
+    return span;
+  }
+  // The studio's own marks inside a canvas card (the remove ✕): taken out
+  // before the card's text is edited, so they never become part of a label.
+  function removeStudioMarks(el) {
+    var marks = el && el.querySelectorAll ? el.querySelectorAll('[data-choice-x]') : [], i;
+    for (i = marks.length - 1; i >= 0; i--) { if (marks[i].parentNode) { marks[i].parentNode.removeChild(marks[i]); } }
+  }
+  // Only the two card grids draw a choice's badge, its disabled look or its
+  // image/icon — answer buttons, yes/no and multi-select cards draw none of
+  // them, so those controls are not offered there (review 6b m3, review 7
+  // F7-3: a "disabled" button stayed pickable; an icon was saved unseen).
+  function choiceActOffered(node, act) {
+    if (act === 'badge' || act === 'disabled' || act === 'image') { return !!node && isCardGridType(node); }
+    return true;
+  }
+  // A row the operator clicks or tabs into becomes THE selected choice, so
+  // the header, the breadcrumb, the toolbar's actions and the canvas outline
+  // all name the same one (review 8: the header named the row while the
+  // toolbar still acted on the canvas choice, and the header and breadcrumb
+  // named a row that the same click had just removed).
+  function pointChoiceAtRow(row, container) {
+    if (!row || !container || !container.contains || !container.contains(row)) { return; }
+    var rowsNow = container.querySelectorAll('[data-choice-row]'), at = -1, ri;
+    for (ri = 0; ri < rowsNow.length; ri++) { if (rowsNow[ri] === row) { at = ri; } }
+    var node = selectedNode();
+    var c = node && node.choices && at !== -1 ? node.choices[at] : null;
+    // a new row with no saved value yet is not a choice to act on: nothing
+    // may keep naming the previous one (review 9 m9-2); its first typed
+    // value selects it (the panel's input listener)
+    if (!c || c.value === undefined || c.value === null) { dropChoiceSelection(); return; }
+    var labelInput = row.querySelector('[data-choice-field="label"]');
+    selectedChoiceIndex = at;
+    selectedChoiceValue = String(c.value);
+    if (typeof selectedChoiceRow !== 'undefined') { selectedChoiceRow = row; }
+    // selecting by its row is a selection too (review 13 MINOR-1)
+    if (typeof clearDisarm !== 'undefined') { clearDisarm(); }
+    choiceScopeLabel = labelInput ? labelInput.value : (c.label !== undefined ? String(c.label) : '');
+    setScope('choice');
+    if (typeof applyCanvasDecoration !== 'undefined') { applyCanvasDecoration(); }
+    markCurrentChoiceRow();
+  }
+  // A choice selection that is gone (its row removed, emptied, or no longer
+  // holding that value): back to the component, and the breadcrumb, header
+  // and toolbar re-render (review 9 M9-1: after Remove on the selected
+  // choice's own row they kept naming the deleted choice).
+  function dropChoiceSelection() {
+    var wasChoice = typeof scopeState !== 'undefined' && scopeState === 'choice';
+    selectedChoiceValue = null;
+    selectedChoiceIndex = -1;
+    if (typeof selectedChoiceRow !== 'undefined') { selectedChoiceRow = null; }
+    if (wasChoice) {
+      if (typeof setScope !== 'undefined') { setScope('component'); } else { scopeState = 'component'; }
+    }
+    // the canvas outline and the row mark too: a click into a new blank row
+    // left both on the previous choice (review 9, after m9-2)
+    if (typeof markCurrentChoiceRow !== 'undefined') { markCurrentChoiceRow(); }
+    if (typeof applyCanvasDecoration !== 'undefined') { applyCanvasDecoration(); }
+  }
+  // The selected choice's name follows its label as the operator types
+  // (review 9b M-2: a new choice read "Z" until Tab). Only the two texts
+  // change: a full re-render would flash the header on every keystroke.
+  function followSelectedChoiceLabel(label) {
+    if (scopeState !== 'choice' || selectedChoiceValue === null) { return; }
+    choiceScopeLabel = String(label);
+    var nameEl = document.querySelector('[data-studio-scope-header] [data-scope-editing-name]');
+    if (nameEl) { nameEl.textContent = scopeEditingName(selectedNode()); }
+    var crumbEl = document.querySelector('[data-crumb-choice]');
+    if (crumbEl) { crumbEl.textContent = 'Choice \\u201C' + choiceScopeLabel + '\\u201D'; crumbEl.title = crumbEl.textContent; }
+  }
+  function markCurrentChoiceRow() {
+    var rows = document.querySelectorAll('[data-choice-row]'), i;
+    for (i = 0; i < rows.length; i++) {
+      rows[i].className = withoutClasses(rows[i].className, ['studio-choice-row-current']);
+      if (i === selectedChoiceIndex) { rows[i].className = rows[i].className + ' studio-choice-row-current'; }
+    }
+  }
   function focusChoiceRow(value) {
     var rows = document.querySelectorAll('[data-choice-row]');
     var i, inp, label;
+    // a key { index, value }: that row, while it holds that value
+    if (value && typeof value === 'object') {
+      inp = typeof value.index === 'number' && value.index >= 0 && rows[value.index] ? rows[value.index].querySelector('[data-choice-field="value"]') : null;
+      if (inp && String(inp.value) === String(value.value)) {
+        if (rows[value.index].scrollIntoView) { rows[value.index].scrollIntoView({ block: 'nearest' }); }
+        label = rows[value.index].querySelector('[data-choice-field="label"]');
+        if (label && label.focus) { label.focus(); }
+        return true;
+      }
+      value = value.value;
+    }
     for (i = 0; i < rows.length; i++) {
       inp = rows[i].querySelector('[data-choice-field="value"]');
       if (inp && String(inp.value) === String(value)) {
@@ -8585,12 +9294,18 @@ export const SECTION_STUDIO_SCRIPT = `
     }
     return false;
   }
-  function selectChoice(qid, value) {
+  // fromCanvas: a click on the canvas card. The inspector marks the row but
+  // neither scrolls the page nor takes the focus (review 6b: the page jumped
+  // 1500px under the pointer, so a double-click edited another card, and the
+  // focus in the inspector made the canvas Delete key do nothing).
+  function selectChoice(qid, value, index, fromCanvas) {
+    if (typeof clearDisarm !== 'undefined') { clearDisarm(); }
     selectedQuestionId = qid || null;
     var node = selectedNode();
     if (!node || typeMeta(node.type).choice !== true) { selectComponent(qid); return; }
     selectedChoiceValue = value;
-    var c = findChoice(node, value);
+    selectedChoiceIndex = choiceIndexOf(node, { index: typeof index === 'number' ? index : -1, value: value });
+    var c = findChoice(node, selectedChoiceKey());
     choiceScopeLabel = c && c.label !== undefined ? String(c.label) : '';
     scopeState = 'choice';
     applyCanvasDecoration();
@@ -8602,7 +9317,7 @@ export const SECTION_STUDIO_SCRIPT = `
     setInspectorTab('content');
     // populateInspector/setInspectorTab may have re-scoped — re-assert CHOICE.
     scopeState = 'choice';
-    focusChoiceRow(value);
+    if (fromCanvas === true) { markCurrentChoiceRow(); } else { focusChoiceRow(selectedChoiceKey()); }
     renderScopeHeader();
     updateCanvasToolbar();
   }
@@ -12247,10 +12962,6 @@ export const SECTION_STUDIO_SCRIPT = `
   // one box per Offer this answer is mapped to; an empty box sends the saved
   // value. The saved value is read from the row at the moment of each edit, so
   // renaming it in the row never writes under a stale key.
-  function isMultiAnswer(node) {
-    var m = node ? typeMeta(node.type) : null;
-    return !!(node && ((m && m.produces === 'array') || node.answer_type === 'array' || (node.props && node.props.multiple === true)));
-  }
   function rowSavedValue(rowEl, fallback) {
     var inp = rowEl && rowEl.querySelector ? rowEl.querySelector('[data-choice-field="value"], [data-other-field="value"]') : null;
     return inp ? trimStr(inp.value) : fallback;
@@ -12291,23 +13002,162 @@ export const SECTION_STUDIO_SCRIPT = `
   }
   // What the status line says while a box is being typed in: the value that
   // WILL be sent (an empty box sends the saved value) and whether it can be.
+  // The edges as they will be once a typed value is applied: a mapping with
+  // no value list gets one (applying a value writes the whole list), which is
+  // what cures a type problem caused by the saved values (review F8).
+  function edgesWithTypedList(edges, typed) {
+    var out = [], i, e, copy, k;
+    for (i = 0; i < edges.length; i++) {
+      e = edges[i];
+      if (typed === '' || (e.output_value_map && typeof e.output_value_map === 'object' && Object.keys(e.output_value_map).length > 0)) { out.push(e); continue; }
+      copy = {};
+      for (k in e) { if (hasOwn(e, k)) { copy[k] = e[k]; } }
+      copy.output_value_map = { typed: typed };
+      out.push(copy);
+    }
+    return out;
+  }
   function typingStateFor(offerId, edges, typed, saved) {
-    var blocked = edgesBlockedReason(offerById(offerId), edges);
-    if (blocked !== '') { return { kind: 'blocked', text: 'not sent \\u2014 ' + blocked.slice(9) }; }
+    edges = edgesWithTypedList(edges, typed);
+    var blocked = boxUnsendable(offerId, edges, null);
+    if (blocked.indexOf('blocked:') === 0) { return { kind: 'blocked', text: 'not sent \\u2014 ' + blocked.slice(9) }; }
     var send = typed === '' ? saved : typed;
-    var problem = providerValueProblem(offerId, edges, send);
+    var problem = boxUnsendable(offerId, edges, send);
     if (problem !== '') {
+      if (problem.indexOf('partly:') === 0) { return { kind: 'partial', text: 'will send ' + send + ' \\u2014 ' + problem }; }
       return typed === ''
         ? { kind: 'unsendable', text: 'not sent \\u2014 ' + saved + ' ' + problem.replace(/^must be/, 'is not') }
         : { kind: 'invalid', text: problem };
     }
     return { kind: 'pending', text: 'will send ' + send };
   }
+  // Move every Offer's value for saved value 'from' to 'to' (a rename; the
+  // caller has checked no other choice holds 'to'). A key already named 'to'
+  // is a leftover of a removed choice: the renamed choice's own value replaces
+  // it. Where the choice was deliberately left off a list (fromWasOff) the
+  // leftover goes too, so it stays off; a NEW choice (on no list yet) takes the
+  // leftover as it is — a choice removed and added back keeps sending
+  // (review 5: it was deleted, so every Offer stopped receiving that answer).
+  function carryProviderValues(internalField, from, to, fromWasOff) {
+    var i, e, map, key, changed = false;
+    for (i = 0; i < state.answer_maps.length; i++) {
+      e = state.answer_maps[i];
+      if (!e || e.internal_field !== internalField || !e.output_value_map || typeof e.output_value_map !== 'object') { continue; }
+      if (!hasOwn(e.output_value_map, from) && !hasOwn(e.output_value_map, to)) { continue; }
+      if (!hasOwn(e.output_value_map, from) && fromWasOff !== true) { continue; }
+      map = {};
+      for (key in e.output_value_map) { if (hasOwn(e.output_value_map, key)) { map[key] = e.output_value_map[key]; } }
+      if (hasOwn(map, from)) {
+        map[to] = String(map[from]) === from ? to : map[from];
+        delete map[from];
+      } else {
+        delete map[to];
+      }
+      e.output_value_map = map;
+      changed = true;
+    }
+    if (changed) { markDirty(); }
+    return changed;
+  }
+  // One row's rename, judged when its edit is committed: 'committed' is the
+  // saved value the row last carried from, 'now' the one it holds. Returns the
+  // value it carries from next — unchanged for an empty value or one another
+  // choice holds (nothing moves then).
+  function commitChoiceRename(node, internalField, committed, now) {
+    if (now === committed || now === '') { return committed; }
+    var ref = node && node.question_id ? findRef(node.question_id) : null;
+    var live = ref ? ref.node : node;
+    if (savedValueCount(live, now) > 1) { return committed; }
+    if (committed !== '') {
+      // another choice still has the old value (twins, from a bulk paste or
+      // saved that way): it keeps its provider values — they are COPIED to
+      // the new name, never moved away from it (review 4)
+      var twin = savedValueCount(live, committed) > 0;
+      // was the old value deliberately left off a list (a value the question
+      // had when it opened), or is this a NEW choice not on any list yet?
+      var fromWasOff = !isNewSinceLoad(live, committed);
+      var carried = twin ? copyProviderValues(internalField, committed, now, fromWasOff) : carryProviderValues(internalField, committed, now, fromWasOff);
+      var based = twin ? addProviderBaseline(live, committed, now) : renameProviderBaseline(live, committed, now);
+      if ((based || carried) && typeof historyAbsorb !== 'undefined') { historyAbsorb(); }
+    }
+    return now;
+  }
+  // OWNER 2026-09-28 (review 3): a question's saved values are unique. A rename
+  // onto a value another choice already has is REFUSED — the old value goes
+  // back and the row says why. (Holding it half-renamed until the other choice
+  // moved allowed a later swap to send one choice's provider value for the other.)
+  // Swapping two values goes through a spare value, each step a plain rename.
+  function refuseDuplicateValue(rowEl, otherRow, committed, now, byLabel) {
+    var field = otherRow ? 'data-other-field' : 'data-choice-field';
+    var valueInput = rowEl.querySelector('[' + field + '="value"]');
+    var analyticsInput = rowEl.querySelector('[' + field + '="analytics_id"]');
+    if (valueInput) { valueInput.value = committed; }
+    if (analyticsInput && analyticsInput.getAttribute('data-auto') === 'true') { analyticsInput.value = committed; }
+    var note = rowEl.querySelector('[data-choice-duplicate-note]');
+    if (!note) {
+      note = document.createElement('p');
+      note.className = 'form-error';
+      note.setAttribute('data-choice-duplicate-note', '');
+      note.setAttribute('role', 'alert');
+      rowEl.appendChild(note);
+    }
+    clearChildren(note);
+    note.appendChild(document.createTextNode(byLabel
+      ? 'This label makes the saved value ' + now + ', which another choice already has \\u2014 the saved value stays ' +
+        (committed === '' ? 'empty' : committed) + '. Change the label, or set the saved value by hand.'
+      : 'Another choice already has the saved value ' + now + ' \\u2014 each choice needs its own' +
+        (committed === '' ? '.' : ', so ' + committed + ' was kept.')));
+    // the refusal is no step of its own: it takes the refused edit back —
+    // and whatever Redo held before that edit comes back too (review 4)
+    var redoKept = typeof redoBeforePush !== 'undefined' ? redoBeforePush.slice() : [];
+    var depth = typeof undoStack !== 'undefined' ? undoStack.length : 0;
+    if (otherRow) { collectOther(); } else { collectChoices(); }
+    if (typeof undoStack !== 'undefined') {
+      var poppedEdit = false, ri;
+      if (undoStack.length > depth) { undoStack.pop(); }
+      while (undoStack.length > 0 && undoStack[undoStack.length - 1] === lastSnapshot) { undoStack.pop(); poppedEdit = true; }
+      if (poppedEdit && redoStack.length === 0) { for (ri = 0; ri < redoKept.length; ri++) { redoStack.push(redoKept[ri]); } }
+      updateHistoryButtons();
+    }
+  }
+  // The twin case of carryProviderValues: the old name stays (another choice
+  // still has it) and the new name gets the same value; where the old name was
+  // deliberately left off a list, the new one is left off too. A twin owns no
+  // provider value of its own (it shares its twin's), so a key already under
+  // the new name — values the question had for it — is kept as it is, as live
+  // does (review 5: a bulk-paste typo "Full time = part_time" fixed back to
+  // full_time must get full_time's own FT again, not part_time's PT).
+  function copyProviderValues(internalField, from, to, fromWasOff) {
+    var i, e, map, key, changed = false;
+    for (i = 0; i < state.answer_maps.length; i++) {
+      e = state.answer_maps[i];
+      if (!e || e.internal_field !== internalField || !e.output_value_map || typeof e.output_value_map !== 'object') { continue; }
+      if (hasOwn(e.output_value_map, to) && hasOwn(e.output_value_map, from)) { continue; }
+      if (!hasOwn(e.output_value_map, from) && !hasOwn(e.output_value_map, to)) { continue; }
+      if (!hasOwn(e.output_value_map, from) && fromWasOff !== true) { continue; }
+      map = {};
+      for (key in e.output_value_map) { if (hasOwn(e.output_value_map, key)) { map[key] = e.output_value_map[key]; } }
+      if (hasOwn(map, from)) { map[to] = String(map[from]) === from ? to : map[from]; } else { delete map[to]; }
+      e.output_value_map = map;
+      changed = true;
+    }
+    if (changed) { markDirty(); }
+    return changed;
+  }
+  // A provider value applied on the Content tab is its own undo step. Like
+  // any other edit it retires a pending element-delete toast (its Undo would
+  // otherwise revert THIS edit while labeled for the deletion).
+  function historyPushSideEdit() {
+    if (typeof hideUndoToast !== 'undefined') { hideUndoToast(); }
+    historyPush();
+  }
   function buildProviderChip(node, choice, rowEl) {
     var wrap = document.createElement('span');
     wrap.setAttribute('data-choice-provider', '');
     var internalField = node && node.internal_field ? String(node.internal_field) : '';
     var initial = choice && choice.value !== undefined ? String(choice.value) : '';
+    // the saved value this row last committed (a rename carries from it)
+    var committed = initial;
     snapshotProviderValues(node);
     var chip = document.createElement('button');
     chip.type = 'button';
@@ -12321,7 +13171,7 @@ export const SECTION_STUDIO_SCRIPT = `
     wrap.appendChild(rowsEl);
     function currentValue() { return rowSavedValue(rowEl, initial); }
     function refreshLabel() {
-      var v = currentValue();
+      var v = shownValue();
       clearChildren(chip);
       chip.appendChild(document.createTextNode(providerChipLabel(internalField, v)));
       chip.setAttribute('data-choice-provider-chip', v);
@@ -12337,11 +13187,13 @@ export const SECTION_STUDIO_SCRIPT = `
       rowsEl.appendChild(line);
     }
     function paintState(stateEl, v, saved, problem, unsendable) {
-      stateEl.setAttribute('data-provider-state', problem ? 'invalid' : unsendable ? 'unsendable' : v.state);
+      stateEl.setAttribute('data-provider-state', problem ? 'invalid' : unsendable ? (unsendable.indexOf('partly:') === 0 ? 'partial' : 'unsendable') : v.state);
       clearChildren(stateEl);
       stateEl.appendChild(document.createTextNode(
         problem ? problem
-          : unsendable ? (unsendable.indexOf('blocked:') === 0 ? 'not sent \\u2014 ' + unsendable.slice(9) : 'not sent \\u2014 ' + (v.state === 'custom' ? v.value : saved) + ' ' + unsendable.replace(/^must be/, 'is not'))
+          : unsendable ? (unsendable.indexOf('blocked:') === 0 ? 'not sent \\u2014 ' + unsendable.slice(9)
+            : unsendable.indexOf('partly:') === 0 ? 'sends ' + (v.state === 'custom' ? v.value : saved) + ' \\u2014 ' + unsendable
+            : 'not sent \\u2014 ' + (v.state === 'custom' ? v.value : saved) + ' ' + unsendable.replace(/^must be/, 'is not'))
           : v.state === 'custom' ? 'sends ' + v.value
           : v.state === 'missing' ? 'not sent \\u2014 type a value to send one'
           : 'sends ' + saved
@@ -12350,7 +13202,7 @@ export const SECTION_STUDIO_SCRIPT = `
     function rowState(offerId, edges, saved) {
       var v = valueFromEdges(edges, saved, isNewSinceLoad(node, saved));
       var send = v.state === 'custom' ? v.value : v.state === 'saved' ? saved : null;
-      return { v: v, unsendable: edgesBlockedReason(offerById(offerId), edges) || (send === null ? '' : providerValueProblem(offerId, edges, send)) };
+      return { v: v, unsendable: boxUnsendable(offerId, edges, send) };
     }
     var painters = [];
     var builtShape = '';
@@ -12358,19 +13210,28 @@ export const SECTION_STUDIO_SCRIPT = `
       clearChildren(rowsEl);
       painters = [];
       builtShape = '';
-      var v = currentValue();
+      var v = shownValue();
       rowsEl.setAttribute('data-choice-provider-rows', v);
       var ids = mappedOffersFor(internalField);
       if (ids.length === 0) { note('Map this answer to an Offer in the Offers tab first \\u2014 then each Offer can get its own value here.'); return; }
-      if (isMultiAnswer(node)) { note('Each Offer can get its own value on single-choice questions only \\u2014 a multi-select sends its whole list.'); return; }
       if (rowIsCalculated(rowEl, choice)) { note('Calculated date \\u2014 every provider receives the date.'); return; }
       if (v === '') { note('Give this choice a saved value first.'); return; }
-      var rows = providerChipRows(internalField, v), i, anyMissing = false;
+      var rows = providerChipRows(internalField, v), i;
       builtShape = providerRowsShape(rows);
-      for (i = 0; i < rows.length; i++) { if (rows[i].state === 'missing' || rows[i].unsendable !== '') { anyMissing = true; } }
-      note(anyMissing
-        ? 'Empty box = the saved value (' + v + ') is sent \\u2014 except where marked not sent.'
-        : 'Empty box = the saved value (' + v + ') is sent.');
+      var noteLine = document.createElement('div');
+      noteLine.className = 'form-help';
+      noteLine.setAttribute('data-provider-note', '');
+      rowsEl.appendChild(noteLine);
+      var paintNote = function () {
+        var cur = shownValue(), rs = providerChipRows(internalField, cur), k, missing = false;
+        for (k = 0; k < rs.length; k++) { if (rs[k].state === 'missing' || (rs[k].unsendable !== '' && rs[k].unsendable.indexOf('partly:') !== 0)) { missing = true; } }
+        clearChildren(noteLine);
+        noteLine.appendChild(document.createTextNode(missing
+          ? 'Empty box = the saved value (' + cur + ') is sent \\u2014 except where marked not sent.'
+          : 'Empty box = the saved value (' + cur + ') is sent.'));
+      };
+      paintNote();
+      painters.push(paintNote);
       var line, lab, inp, st;
       for (i = 0; i < rows.length; i++) {
         line = document.createElement('div');
@@ -12395,14 +13256,19 @@ export const SECTION_STUDIO_SCRIPT = `
           // repaint this row's state in place (a refresh never rebuilds a box)
           painters.push(function () {
             if (document.activeElement === input || input.getAttribute('aria-invalid') === 'true') { return; }
-            var rsp = rowState(offerId, edges, currentValue());
-            paintState(stateEl, rsp.v, currentValue(), '', rsp.unsendable);
+            var cur = shownValue();
+            var rsp = rowState(offerId, edges, cur);
+            // the box too, not only its line (review F4: after a rename the
+            // boxes stayed empty while the lines said "sends 58000")
+            input.value = rsp.v.state === 'custom' ? rsp.v.value : '';
+            input.placeholder = rsp.v.state === 'missing' ? 'not sent' : cur;
+            paintState(stateEl, rsp.v, cur, '', rsp.unsendable);
           });
           // typing only CHECKS; the value is applied when the box is left (or
           // Enter) — a refused value never leaves a half-typed one behind
           input.addEventListener('input', function () {
             var typed = trimStr(input.value);
-            var ts = typingStateFor(offerId, edges, typed, currentValue());
+            var ts = typingStateFor(offerId, edges, typed, shownValue());
             if (ts.kind === 'invalid') { input.setAttribute('aria-invalid', 'true'); } else { input.removeAttribute('aria-invalid'); }
             stateEl.setAttribute('data-provider-state', ts.kind);
             clearChildren(stateEl);
@@ -12411,14 +13277,15 @@ export const SECTION_STUDIO_SCRIPT = `
           input.addEventListener('blur', function () {
             // a no-op edit fires no 'change': put the real state back
             if (input.getAttribute('aria-invalid') === 'true') { return; }
-            var rs0 = rowState(offerId, edges, currentValue());
-            paintState(stateEl, rs0.v, currentValue(), '', rs0.unsendable);
+            var rs0 = rowState(offerId, edges, shownValue());
+            paintState(stateEl, rs0.v, shownValue(), '', rs0.unsendable);
           });
           input.addEventListener('change', function () {
-            var saved = currentValue();
+            var saved = shownValue();
             if (saved === '' || rowIsCalculated(rowEl, choice)) { return; }
             var text = trimStr(input.value);
-            var problem = providerValueProblem(offerId, edges, text);
+            var problem = boxUnsendable(offerId, edges, text);
+            if (problem.indexOf('partly:') === 0 || problem.indexOf('blocked:') === 0) { problem = ''; }
             if (problem !== '') {
               input.setAttribute('aria-invalid', 'true');
               var bad = rowState(offerId, edges, saved);
@@ -12426,11 +13293,13 @@ export const SECTION_STUDIO_SCRIPT = `
               return;
             }
             input.removeAttribute('aria-invalid');
-            setProviderValue(offerId, internalField, saved, text, choiceSavedValuesOf(node), edges);
+            if (setProviderValue(offerId, internalField, saved, text, choiceSavedValuesOf(node), edges)) { historyPushSideEdit(); }
             var rs = rowState(offerId, edges, saved);
             paintState(stateEl, rs.v, saved, '', rs.unsendable);
-            // this value may unblock (or block) the mapping for every choice
-            refreshProviderChips();
+            // this value may unblock (or block) the mapping for every choice —
+            // repainted once focus has MOVED, so the box being moved into is
+            // seen as focused and never rebuilt (review R5-1)
+            setTimeout(refreshProviderChips, 0);
             updateMappingBadge();
             renderInspectorMapping();
           });
@@ -12442,11 +13311,21 @@ export const SECTION_STUDIO_SCRIPT = `
       }
     }
     refreshLabel();
+    // a value being typed that another choice already has (it will be refused
+    // when the edit ends): nothing here repaints with the OTHER choice's
+    // values meanwhile (review 4). Twins saved that way are not "being typed".
+    function typingTakenValue() {
+      var now = currentValue(), ref = node && node.question_id ? findRef(node.question_id) : null;
+      return now !== committed && savedValueCount(ref ? ref.node : node, now) > 1;
+    }
+    // what the chip and rows show: this row's committed value while the value
+    // being typed is taken (review 5: the rows froze at a typed prefix)
+    function shownValue() { return typingTakenValue() ? committed : currentValue(); }
     providerChipRefreshers.push({ el: chip, run: function () {
       refreshLabel();
       if (rowsEl.hidden) { return; }
       var holdsFocus = !!(document.activeElement && rowsEl.contains && rowsEl.contains(document.activeElement));
-      if (shouldRebuildProviderRows(builtShape, providerRowsShape(providerChipRows(internalField, currentValue())), holdsFocus)) { buildRows(); return; }
+      if (shouldRebuildProviderRows(builtShape, providerRowsShape(providerChipRows(internalField, shownValue())), holdsFocus)) { buildRows(); return; }
       var i;
       for (i = 0; i < painters.length; i++) { painters[i](); }
     } });
@@ -12454,13 +13333,42 @@ export const SECTION_STUDIO_SCRIPT = `
       rowsEl.hidden = !rowsEl.hidden;
       if (!rowsEl.hidden) { buildRows(); }
     });
+    // OWNER 2026-09-28: a saved value renamed in THIS row carries its provider
+    // values to the new name. Judged when the row's edit is COMMITTED (change
+    // of the value, or of a label that auto-derives it) against this row's own
+    // last committed value — never per keystroke, never by position, so a
+    // half-typed value that equals another choice's can't move its values.
+    // A value another choice holds is refused (refuseDuplicateValue); an empty
+    // one is not a new name either — nothing moves and the row keeps carrying
+    // from its last good value (review M1: fixing a collision took the OTHER
+    // choice's values).
+    if (rowEl && rowEl.addEventListener) {
+      rowEl.addEventListener('change', function (ev) {
+        var t = ev.target && ev.target.getAttribute ? ev.target : null;
+        var f = t ? (t.getAttribute('data-choice-field') || t.getAttribute('data-other-field')) : null;
+        if (f !== 'value' && f !== 'label') { return; }
+        var now = currentValue();
+        var ref = node && node.question_id ? findRef(node.question_id) : null;
+        if (now !== committed && now !== '' && savedValueCount(ref ? ref.node : node, now) > 1) {
+          refuseDuplicateValue(rowEl, t.hasAttribute('data-other-field'), committed, now, f === 'label');
+          setTimeout(refreshProviderChips, 0);
+          return;
+        }
+        committed = commitChoiceRename(node, internalField, committed, now);
+        setTimeout(refreshProviderChips, 0);
+      });
+    }
     // the saved value (or the fixed/calculated switch) changed in the row:
     // repaint against the new key
     if (rowEl && rowEl.addEventListener) {
       rowEl.addEventListener('input', function (ev) {
         var t = ev.target && ev.target.getAttribute ? ev.target : null;
         var f = t ? (t.getAttribute('data-choice-field') || t.getAttribute('data-other-field')) : null;
+        var dupNote = (f === 'value' || f === 'label') && rowEl.querySelector ? rowEl.querySelector('[data-choice-duplicate-note]') : null;
+        if (dupNote && dupNote.parentNode) { dupNote.parentNode.removeChild(dupNote); }
         if (f !== 'value' && f !== 'value_calc') { return; }
+        // a value another choice has will be refused when the edit ends: the
+        // rows show this choice's own (committed) values meanwhile (shownValue)
         refreshLabel();
         if (!rowsEl.hidden) { buildRows(); }
       });
@@ -13153,16 +14061,23 @@ export const SECTION_STUDIO_SCRIPT = `
         collectChoices();
       });
     }
-    var disabledLabel = document.createElement('label');
-    disabledLabel.className = 'lg-check';
-    var disabledCb = document.createElement('input');
-    disabledCb.type = 'checkbox';
-    disabledCb.setAttribute('data-choice-disabled', '');
-    disabledCb.checked = !!(choice && choice.disabled === true);
-    disabledCb.addEventListener('change', collectChoices);
-    disabledLabel.appendChild(disabledCb);
-    disabledLabel.appendChild(document.createTextNode('disabled'));
-    wrap.appendChild(disabledLabel);
+    // "disabled" is offered only where the component draws it (the two card
+    // grids); elsewhere a stored one rides a hidden box, so the next edit
+    // keeps it instead of dropping it (review 8, unranked)
+    var drawsDisabled = isCardGridType(node || selectedNode());
+    if (drawsDisabled || (choice && choice.disabled === true)) {
+      var disabledLabel = document.createElement('label');
+      disabledLabel.className = 'lg-check';
+      if (!drawsDisabled) { disabledLabel.hidden = true; }
+      var disabledCb = document.createElement('input');
+      disabledCb.type = 'checkbox';
+      disabledCb.setAttribute('data-choice-disabled', '');
+      disabledCb.checked = !!(choice && choice.disabled === true);
+      disabledCb.addEventListener('change', collectChoices);
+      disabledLabel.appendChild(disabledCb);
+      disabledLabel.appendChild(document.createTextNode('disabled'));
+      wrap.appendChild(disabledLabel);
+    }
     // §10 removal: the per-choice "main" checkbox (choiceDisplay.mainValues
     // re-bucketing) is gone — §6.5 replaces it with an authored props.other
     // values list (data-other-values), not a re-bucketing of base choices.
@@ -13211,6 +14126,25 @@ export const SECTION_STUDIO_SCRIPT = `
     for (i = 0; i < choices.length; i++) {
       c.appendChild(buildChoiceRow(choices[i], node));
     }
+    if (typeof markSelectedChoiceRow !== 'undefined') { markSelectedChoiceRow(node, c); }
+  }
+  // Remember which row is the selected choice; a selection whose position no
+  // longer holds its value (the list was replaced) is dropped, never moved
+  // onto another choice with that value.
+  function markSelectedChoiceRow(node, container) {
+    selectedChoiceRow = null;
+    if (!node || selectedChoiceValue === null || node.question_id !== selectedQuestionId || selectedChoiceIndex < 0) { return; }
+    var rows = container.querySelectorAll('[data-choice-row]');
+    var row = rows[selectedChoiceIndex] || null;
+    var inp = row ? row.querySelector('[data-choice-field="value"]') : null;
+    if (inp && String(inp.value) === String(selectedChoiceValue)) {
+      selectedChoiceRow = row;
+      row.className = withoutClasses(row.className, ['studio-choice-row-current']) + ' studio-choice-row-current';
+      return;
+    }
+    if (typeof dropChoiceSelection !== 'undefined') { dropChoiceSelection(); return; }
+    selectedChoiceValue = null;
+    selectedChoiceIndex = -1;
   }
   // --- Rework §6.5 authored "Other" values editor (props.other) ----------------
   // Single-select choice groups only (§6.2 matrix other_editor). Rows share the
@@ -13406,6 +14340,7 @@ export const SECTION_STUDIO_SCRIPT = `
     }
     cleanupEmpty(node, 'props');
     if (typeof refreshProviderChips === 'function') { refreshProviderChips(); }
+    if (typeof modelUnchangedSinceLastStep !== 'undefined' && modelUnchangedSinceLastStep()) { return; }
     afterModelChange();
   }
 
@@ -13794,6 +14729,24 @@ export const SECTION_STUDIO_SCRIPT = `
       choices.push(choice);
     }
     if (choices.length > 0) { node.choices = choices; } else { delete node.choices; }
+    // review 6 (F6-1): the canvas selection follows its ROW through an
+    // inspector edit — a removed row drops it; a moved or re-valued row keeps it
+    if (typeof selectedChoiceRow !== 'undefined' && selectedChoiceRow !== null && selectedChoiceValue !== null && node.question_id === selectedQuestionId) {
+      var selAt = -1, sri;
+      for (sri = 0; sri < rows.length; sri++) { if (rows[sri] === selectedChoiceRow) { selAt = sri; } }
+      if (selAt === -1 || !choices[selAt] || choices[selAt].value === undefined) {
+        if (typeof dropChoiceSelection !== 'undefined') { dropChoiceSelection(); }
+        else {
+          selectedChoiceValue = null;
+          selectedChoiceIndex = -1;
+          selectedChoiceRow = null;
+          if (typeof scopeState !== 'undefined' && scopeState === 'choice') { scopeState = 'component'; }
+        }
+      } else {
+        selectedChoiceIndex = selAt;
+        selectedChoiceValue = String(choices[selAt].value);
+      }
+    }
     // R2 P1 §① — PROBE A3 fail-before: the Default select was built ONCE per
     // selection (populateInspector), so a choice LABEL renamed in-session kept
     // showing the OLD word in the Default list until save+reload. Rebuild it
@@ -13807,6 +14760,7 @@ export const SECTION_STUDIO_SCRIPT = `
     // OWNER 2026-09-28: a choice change can block (or unblock) a mapping — every
     // open Provider values row and chip re-reads the model, never a stale "sends".
     if (typeof refreshProviderChips === 'function') { refreshProviderChips(); }
+    if (typeof modelUnchangedSinceLastStep !== 'undefined' && modelUnchangedSinceLastStep()) { return; }
     afterModelChange();
   }
   function parseBulkChoices(text, req) {
@@ -14668,6 +15622,16 @@ export const SECTION_STUDIO_SCRIPT = `
     return !!(region && region.contains && region.contains(el));
   }
   function onCanvasClick(ev) {
+      // review 8 F8-2: a click INSIDE the text being edited only places the
+      // caret (it used to select the choice, end the edit, and a following
+      // Backspace then deleted the whole choice)
+      var editCardEl = typeof inlineEditCard !== 'undefined' ? inlineEditCard() : (typeof inlineEditHost !== 'undefined' && inlineEditing ? inlineEditHost : null);
+      if (editCardEl && editCardEl.contains && ev.target && editCardEl.contains(ev.target)) { return; }
+      // the second click of a double-click never re-selects: the first one
+      // did, and the canvas may have moved in between (review 10: after
+      // Escape the canvas moved 31px, the second click selected the card
+      // above while the double-click edited the one pressed)
+      if (ev && ev.detail > 1) { return; }
       // §5.4 amber-badge actions (the badge is a sibling of the node, so the
       // component-select path below never fires for it). Keep (legacy) = NO
       // model change — session-local acknowledgement only; the C2 activation
@@ -14699,11 +15663,22 @@ export const SECTION_STUDIO_SCRIPT = `
       }
       // §6.2 inline choice ops: per-choice ✕ + the "+ Add choice" ghost tile.
       var xBtn = ev.target && ev.target.closest ? ev.target.closest('[data-choice-x]') : null;
+      if (xBtn && typeof canvasIsCurrent !== 'undefined' && !canvasIsCurrent() && !canvasCardMatchesPaint(xBtn.getAttribute('data-choice-x-qid'), choiceKeyOfEl(xBtn, 'data-choice-x', 'data-choice-x-index'))) { canvasBehindRefusal(); return; }
       if (xBtn) {
         var xRef = findRef(xBtn.getAttribute('data-choice-x-qid'));
         if (xRef) {
-          removeChoiceFromNode(xRef.node, xBtn.getAttribute('data-choice-x'));
-          if (selectedQuestionId === xRef.node.question_id) { renderChoiceEditor(xRef.node); }
+          var hadChoice = selectedChoiceValue !== null;
+          var xKey = choiceKeyOfEl(xBtn, 'data-choice-x', 'data-choice-x-index');
+          var xLabel = choiceDeleteLabel(xRef.node, xKey);
+          if (removeChoiceFromNode(xRef.node, xKey)) {
+            if (selectedQuestionId === xRef.node.question_id) {
+              renderChoiceEditor(xRef.node);
+              // the selected choice was the one removed: back to the component (review 8 F8-5)
+              if (hadChoice && selectedChoiceValue === null) { setScope('component'); }
+            }
+            // the same Undo the Delete key offers (review 10 R10-A: a phone has no Delete key)
+            showUndoToast(xLabel);
+          }
         }
         return;
       }
@@ -14712,7 +15687,17 @@ export const SECTION_STUDIO_SCRIPT = `
         var gRef = findRef(ghostBtn.getAttribute('data-choice-ghost'));
         if (gRef) {
           var added = addChoiceToNode(gRef.node);
-          if (added) { selectChoice(gRef.node.question_id, String(added.value)); }
+          // a canvas action: the new card is selected without scrolling the page to its
+          // inspector row (review 10 MINOR-4: at 375 the page scrolled between the two
+          // clicks of a double-click and the second one opened another row's Style)
+          if (added) {
+            selectChoice(gRef.node.question_id, String(added.value), gRef.node.choices.length - 1, true);
+            // typing names the new choice (review 11 MINOR-1: it went nowhere and a
+            // Backspace deleted the new card); the page does not scroll to the row
+            var newRows = document.querySelectorAll('[data-inspector-choices] [data-choice-row]');
+            var newLabel = newRows.length ? newRows[newRows.length - 1].querySelector('[data-choice-field="label"]') : null;
+            if (newLabel && newLabel.focus) { try { newLabel.focus({ preventScroll: true }); } catch (eFocus) { newLabel.focus(); } if (newLabel.select) { newLabel.select(); } }
+          }
         }
         return;
       }
@@ -14742,7 +15727,8 @@ export const SECTION_STUDIO_SCRIPT = `
       // component (the inspector opens the Choices tab at that row).
       var cardEl = ev.target && ev.target.closest ? ev.target.closest('[data-lg-choice]') : null;
       if (cardEl && el.contains(cardEl) && typeMeta(el.getAttribute('data-component-type')).choice === true) {
-        selectChoice(el.getAttribute('data-question-id'), cardEl.getAttribute('data-lg-choice'));
+        if (typeof canvasIsCurrent !== 'undefined' && !canvasIsCurrent() && !canvasCardMatchesPaint(el.getAttribute('data-question-id'), choiceKeyOfEl(cardEl))) { canvasBehindRefusal(); return; }
+        selectChoice(el.getAttribute('data-question-id'), cardEl.getAttribute('data-lg-choice'), choiceKeyOfEl(cardEl).index, true);
         return;
       }
       // R2 S1-7: skip a same-node re-select. Re-selecting re-runs
@@ -14758,18 +15744,27 @@ export const SECTION_STUDIO_SCRIPT = `
   function onCanvasDblClick(ev) {
       // R2 S1-8: a dblclick on a resize handle does nothing (keep native).
       if (ev.target && ev.target.closest && ev.target.closest('[data-field-resize-handle]')) { return; }
-      var host = ev.target && ev.target.closest ? ev.target.closest('[data-question-id]') : null;
+      var pressed = typeof doubleClickTarget !== 'undefined' ? doubleClickTarget(ev) : ev.target;
+      var host = pressed && pressed.closest ? pressed.closest('[data-question-id]') : null;
       var qid = host ? host.getAttribute('data-question-id') : null;
       var fieldEl = host;
       if (!host || !canvasOwns(host)) { return; }
       var ref = findRef(qid);
       if (!ref) { return; }
-      var cardEl = ev.target && ev.target.closest ? ev.target.closest('[data-lg-choice]') : null;
+      var cardEl = pressed && pressed.closest ? pressed.closest('[data-lg-choice]') : null;
       if (cardEl && typeMeta(ref.node.type).choice === true) {
         ev.preventDefault();
-        var choiceValue = cardEl.getAttribute('data-lg-choice');
+        if (typeof canvasIsCurrent !== 'undefined' && !canvasIsCurrent()) { canvasBehindRefusal(true); return; }
+        var choiceKey = choiceKeyOfEl(cardEl);
         var cardTitle = cardEl.querySelector('.lg-card-title') || cardEl;
-        startInlineEdit(cardTitle, function (text) { commitInlineChoiceLabel(qid, choiceValue, text); });
+        // a plain answer button has no title element: the studio's own marks
+        // (the remove ✕) come out first and never reach the label (review 6b:
+        // "Alpha7 new×" was saved), and its text is edited in a span — a
+        // click inside a contenteditable <button> does not move the caret
+        // (review 7 F7-8). The next canvas paint restores the button.
+        removeStudioMarks(cardTitle);
+        if (cardTitle === cardEl) { cardTitle = wrapTextForEdit(cardEl); }
+        startInlineEdit(cardTitle, function (text) { commitInlineChoiceLabel(qid, choiceKey, text); });
         return;
       }
       // R2 S1-7 / E1-C4: the support check runs BEFORE preventDefault — an
@@ -14827,10 +15822,11 @@ export const SECTION_STUDIO_SCRIPT = `
       // native node dragstart can never fire — canvas node moves flow through
       // the delegated pointer gesture (onFieldMoveMouseDown) instead.
       var cardEl = ev.target && ev.target.closest ? ev.target.closest('[data-lg-choice]') : null;
+      if (cardEl && typeof canvasIsCurrent !== 'undefined' && !canvasIsCurrent()) { ev.preventDefault(); canvasBehindRefusal(); return; }
       if (cardEl && ev.dataTransfer) {
         var cardHost = cardEl.closest ? cardEl.closest('[data-question-id]') : null;
         if (cardHost && typeMeta(cardHost.getAttribute('data-component-type')).choice === true) {
-          ev.dataTransfer.setData('text/plain', 'choice:' + cardHost.getAttribute('data-question-id') + ':' + cardEl.getAttribute('data-lg-choice'));
+          ev.dataTransfer.setData('text/plain', 'choice:' + cardHost.getAttribute('data-question-id') + ':' + choiceKeyOfEl(cardEl).index + ':' + cardEl.getAttribute('data-lg-choice'));
         }
       }
   }
@@ -14866,16 +15862,21 @@ export const SECTION_STUDIO_SCRIPT = `
       var payload = data.slice(data.indexOf(':') + 1);
       var placed = null;
       if (kind === 'choice') {
-        // payload = qid:choiceValue → reorder BEFORE the card dropped on.
+        // payload = qid:position:choiceValue → reorder BEFORE the card dropped on.
         var sepAt = payload.indexOf(':');
         if (sepAt === -1) { return; }
         var cQid = payload.slice(0, sepAt);
-        var fromValue = payload.slice(sepAt + 1);
+        var rest = payload.slice(sepAt + 1);
+        var idxAt = rest.indexOf(':');
+        if (idxAt === -1) { return; }
+        var fromIdx = Number(rest.slice(0, idxAt));
+        var fromKey = { index: isNaN(fromIdx) ? -1 : fromIdx, value: rest.slice(idxAt + 1) };
         var targetCard = ev.target && ev.target.closest ? ev.target.closest('[data-lg-choice]') : null;
         var targetHost = targetCard && targetCard.closest ? targetCard.closest('[data-question-id]') : null;
         if (!targetCard || !targetHost || targetHost.getAttribute('data-question-id') !== cQid) { return; }
+        if (typeof canvasIsCurrent !== 'undefined' && !canvasIsCurrent()) { canvasBehindRefusal(); return; }
         var cRef = findRef(cQid);
-        if (cRef) { reorderChoiceBefore(cRef.node, fromValue, targetCard.getAttribute('data-lg-choice')); }
+        if (cRef && reorderChoiceBefore(cRef.node, fromKey, choiceKeyOfEl(targetCard)) && cQid === selectedQuestionId) { renderChoiceEditor(cRef.node); }
         return;
       }
       if (kind === 'add') {
@@ -14922,6 +15923,8 @@ export const SECTION_STUDIO_SCRIPT = `
       // (not here) — this call site is unchanged.
       else if (ev.key === 'Delete' || ev.key === 'Backspace') {
         ev.preventDefault();
+        // after a refused click it waits for a new selection (disarmedRefusal
+        // in deleteSelectedWithUndo, review 12 MAJOR-B)
         deleteSelectedWithUndo(selectedQuestionId);
       } else if (ev.key === 'Escape') {
         ev.preventDefault();
@@ -14929,9 +15932,29 @@ export const SECTION_STUDIO_SCRIPT = `
         selectComponent(upRef && upRef.parent ? upRef.parent.question_id : null);
       }
   }
+  // The element under the pointer at the FIRST press of a click series. A
+  // selection can reflow the page between the two clicks of a double-click
+  // (review 8 F8-1: the canvas moved 84px and the second click landed on the
+  // card above), so a double-click acts on what the first press hit.
+  var firstPressTarget = null, firstPressAt = 0;
+  function noteFirstPress(ev) {
+    if (!ev || (ev.detail && ev.detail > 1 && Date.now() - firstPressAt < 800)) { return; }
+    firstPressTarget = ev.target || null;
+    firstPressAt = Date.now();
+  }
+  function doubleClickTarget(ev) {
+    var t = firstPressTarget;
+    if (t && Date.now() - firstPressAt < 800 && t.isConnected !== false && t.closest) { return t; }
+    return ev.target;
+  }
   // ONE binder, two roots: the parent surface and (per load) the frame doc.
   function bindCanvasSurface(target) {
     if (!target || !target.addEventListener) { return; }
+    target.addEventListener('mousedown', noteFirstPress, true);
+    target.addEventListener('mousedown', keepInlineEditOnCardPress, true);
+    target.addEventListener('mousedown', canvasPressStart, true);
+    target.addEventListener('mouseup', canvasPressEnd, true);
+    target.addEventListener('dragend', canvasPressEnd, true);
     target.addEventListener('click', onCanvasClick);
     target.addEventListener('dblclick', onCanvasDblClick);
     target.addEventListener('mousedown', onCanvasMouseDown);
@@ -14963,6 +15986,9 @@ export const SECTION_STUDIO_SCRIPT = `
     // img 'load' does not bubble). Bound once per LOADED document, like the
     // surface delegation above.
     doc.addEventListener('load', onFrameDocLoadCapture, true);
+    // a picture that fails to load changes the layout as well (review 9c F-C)
+    doc.addEventListener('error', onFrameDocLoadCapture, true);
+    if (typeof releaseReopenAnchorOnTouch !== 'undefined') { releaseReopenAnchorOnTouch(doc); }
     applyCanvasDecoration();
     updateCanvasFrameViewport();
     updateCanvasFrameHeight();
@@ -14978,9 +16004,11 @@ export const SECTION_STUDIO_SCRIPT = `
   function handleChoiceAct(act) {
     var node = selectedNode();
     if (!node || selectedChoiceValue === null) { return; }
-    var value = String(selectedChoiceValue);
+    if (typeof disarmedRefusal !== 'undefined' && disarmedRefusal()) { return; }
+    // the selected choice by position (a twin is not the first twin)
+    var value = selectedChoiceKey();
     var c = findChoice(node, value);
-    if (!c) { return; }
+    if (!c) { showRefusal('That choice is no longer on the canvas \\u2014 click it again to select it.'); return; }
     if (act === 'image') {
       // §6.4 image/icon swap: image grids open the media picker; icon/emoji
       // types prompt for the curated glyph.
@@ -15019,17 +16047,22 @@ export const SECTION_STUDIO_SCRIPT = `
     }
     if (act === 'duplicate') {
       var dup = duplicateChoice(node, value);
-      if (dup) { selectChoice(node.question_id, String(dup.value)); }
+      if (dup) { selectChoice(node.question_id, String(dup.value), node.choices.indexOf(dup)); }
       return;
     }
     if (act === 'delete') {
-      removeChoiceFromNode(node, value);
-      renderChoiceEditor(node);
-      setScope(selectedQuestionId ? 'component' : 'section');
+      var delLabel = choiceDeleteLabel(node, value);
+      if (removeChoiceFromNode(node, value)) {
+        renderChoiceEditor(node);
+        setScope(selectedQuestionId ? 'component' : 'section');
+        showUndoToast(delLabel);
+      }
       return;
     }
-    if (act === 'left') { moveChoice(node, value, -1); return; }
-    if (act === 'right') { moveChoice(node, value, 1); return; }
+    // the inspector's rows are rebuilt too: the next inspector edit collects
+    // the list FROM its rows, and stale rows put the old order back (review 6b)
+    if (act === 'left') { if (moveChoice(node, value, -1)) { renderChoiceEditor(node); } return; }
+    if (act === 'right') { if (moveChoice(node, value, 1)) { renderChoiceEditor(node); } return; }
   }
   if (toolbarEl) {
     toolbarEl.addEventListener('click', function (ev) {
@@ -15040,7 +16073,7 @@ export const SECTION_STUDIO_SCRIPT = `
       var chipBtn = ev.target && ev.target.closest ? ev.target.closest('[data-choice-value-chip]') : null;
       if (chipBtn && selectedChoiceValue !== null) {
         setInspectorTab('content');
-        focusChoiceRow(String(selectedChoiceValue));
+        focusChoiceRow(selectedChoiceKey());
         return;
       }
       // R5 D3 (register S4-A3): the old toolbar's add-choice / auto-advance /
@@ -15119,6 +16152,7 @@ export const SECTION_STUDIO_SCRIPT = `
       // design's @media rules evaluate at the real width (375/1280), then
       // fetch the server render for that viewport.
       updateCanvasFrameViewport();
+      lastCenteredQid = null;
       renderCanvasNow();
     });
   }
@@ -15262,11 +16296,35 @@ export const SECTION_STUDIO_SCRIPT = `
   // renderCanvasToolbar). Toggle on click; close on outside-click, Escape
   // (above), or when the selection stops having anything to show
   // (updateCanvasToolbar's hasMore check).
+  // The panel opens just under its button, inside the toolbar's width
+  // (review 9b M-4: with no positioned ancestor it pinned to the window's
+  // top-right corner, far from the button that opened it).
+  function positionMorePanel(panel, btn) {
+    if (!panel || !btn) { return; }
+    var bar = panel.offsetParent;
+    if (!bar) { return; }
+    var top = 0, left = 0, el = btn;
+    while (el && el !== bar) { top += el.offsetTop || 0; left += el.offsetLeft || 0; el = el.offsetParent; }
+    var width = panel.offsetWidth || 180;
+    var maxLeft = (bar.clientWidth || width) - width;
+    panel.style.top = (top + (btn.offsetHeight || 0) + 4) + 'px';
+    panel.style.left = Math.max(0, Math.min(left + (btn.offsetWidth || 0) - width, maxLeft)) + 'px';
+    panel.style.right = 'auto';
+  }
   function closeMorePanel() {
     var panel = document.querySelector('[data-studio-more-panel]');
     var toggle = document.querySelector('[data-studio-more-toggle]');
     if (panel) { panel.hidden = true; }
     if (toggle) { toggle.setAttribute('aria-expanded', 'false'); }
+  }
+  var toolbarProblemsEl = document.querySelector('[data-toolbar-problems]');
+  if (toolbarProblemsEl) {
+    toolbarProblemsEl.addEventListener('click', function () {
+      if (this.textContent === '') { return; }
+      var open = (' ' + this.className + ' ').indexOf(' is-open ') !== -1;
+      if (!open && (' ' + this.className + ' ').indexOf(' is-cut ') === -1) { return; }
+      this.className = open ? withoutClasses(this.className, ['is-open']) + ' is-cut' : withoutClasses(this.className, ['is-open', 'is-cut']) + ' is-open';
+    });
   }
   var moreToggleBtn = document.querySelector('[data-studio-more-toggle]');
   if (moreToggleBtn) {
@@ -15276,6 +16334,7 @@ export const SECTION_STUDIO_SCRIPT = `
       if (!panel) { return; }
       var willOpen = panel.hidden;
       panel.hidden = !willOpen;
+      if (willOpen) { positionMorePanel(panel, this); }
       this.setAttribute('aria-expanded', willOpen ? 'true' : 'false');
     });
   }
@@ -15284,8 +16343,27 @@ export const SECTION_STUDIO_SCRIPT = `
     if (!panel || panel.hidden) { return; }
     var withinPanel = ev.target && ev.target.closest && ev.target.closest('[data-studio-more-panel]');
     var onToggle = ev.target && ev.target.closest && ev.target.closest('[data-studio-more-toggle]');
-    if (!withinPanel && !onToggle) { closeMorePanel(); }
+    // an action taken from the panel closes it, like any menu (review 9c F-F:
+    // it stayed open over the note the action showed)
+    // every action closes it, moves too: kept open, a moved card could be
+    // off screen and the move went unseen (review 11 MINOR-4)
+    var onAction = withinPanel && ev.target.closest('button');
+    if ((!withinPanel && !onToggle) || onAction) { closeMorePanel(); }
   });
+  // it is placed under its button when it opens; a resize closes it rather
+  // than leave it where the button used to be (review 9c F-F)
+  // only a WIDTH change: a height-only resize (a phone's browser bars) closed
+  // the panel and folded a sentence the operator had opened (review 12 MINOR-3, R12-B)
+  var lastResizeWidth = window.innerWidth || 0;
+  if (window.addEventListener) {
+    window.addEventListener('resize', function () {
+      var w = window.innerWidth || 0;
+      if (w === lastResizeWidth) { return; }
+      lastResizeWidth = w;
+      closeMorePanel();
+      if (typeof renderToolbarProblems !== 'undefined') { renderToolbarProblems(); }
+    });
+  }
   var chipEl = document.querySelector('[data-studio-validation-chip]');
   if (chipEl) { chipEl.addEventListener('click', function () { setDrawerTab('validation'); }); }
   var openMapping = document.querySelector('[data-studio-open-mapping-drawer]');
@@ -16365,8 +17443,8 @@ export const SECTION_STUDIO_SCRIPT = `
     if (nodeType === 'string' || nodeType === 'enum') { return true; }
     var answerNode = answerNodeType(answerType);
     if (answerNode === nodeType) { return true; }
-    // A MULTI-select sends the whole LIST, not one of its values — coerceToType
-    // refuses an array whatever the values look like.
+    // A MULTI-select sends the whole LIST, not one of its values: a text field
+    // takes it comma-joined (above), a number/yes-no field never takes it.
     if (answerNode === 'array' || answerNode === 'object') { return false; }
     if (!answerValues || !answerValues.length) { return false; }
     var i;
@@ -16384,6 +17462,10 @@ export const SECTION_STUDIO_SCRIPT = `
     if (edge.provider_expected_type !== field.type) { return 'type_mismatch'; }
     var hasMap = edge.output_value_map && typeof edge.output_value_map === 'object' && Object.keys(edge.output_value_map).length > 0;
     var hasTransform = edge.value_transform && edge.value_transform.length > 0;
+    // OWNER 2026-09-28 (review M3): a multi-select's value list maps each value
+    // but the answer is still a LIST — only a text field (comma-joined) or a
+    // list field takes it. Mirror of sections.ts mappingCompleteness.
+    if (!hasTransform && answerNodeType(edge.answer_type) === 'array' && field.type !== 'string' && field.type !== 'array') { return 'type_mismatch'; }
     var values = closedAnswerValuesOf(questionByField(edge.internal_field));
     if (!hasMap && !hasTransform && !coercibleTo(edge.answer_type, field.type, values)) { return 'type_mismatch'; }
     if (edge.required_for_offer === true && trimStr(edge.internal_field) === '') { return 'missing_required'; }
@@ -16551,6 +17633,11 @@ export const SECTION_STUDIO_SCRIPT = `
         return 'this buyer wants ' + wants + ', and the saved ' + (bad.length === 1 ? 'value ' : 'values ') +
           bad.join(', ') + (bad.length === 1 ? ' is not' : ' are not') + ' that \\u2014 change ' +
           (bad.length === 1 ? 'it' : 'them') + ' under Answer format, or give this Offer its own values under each choice\\u2019s Provider values (Content tab)';
+      }
+      // review F5: per-choice values can't fix this one (the answer is still a list)
+      if (answerNode === 'array') {
+        return 'this answer can hold several choices and the buyer wants ' + wants +
+          ' \\u2014 only a text field (sent comma-separated) or a list field can take it; pick another field';
       }
       return 'this answer is ' + plainTypeWords({ type: (edge && edge.answer_type) || 'string' }) +
         ' and the buyer wants ' + wants +
@@ -16857,8 +17944,35 @@ export const SECTION_STUDIO_SCRIPT = `
     walkTree(state.content.components, 1, function (n) { if (found === null && n && n.question_id === qid) { found = n; } });
     return found;
   }
+  function answerKeyRecorded(e) {
+    var node = findQuestionByQid(e.question_id), keys = node ? answerKeysOf(node) : [], k;
+    for (k = 0; k < keys.length; k++) { if (keys[k].key === e.internal_field) { return true; } }
+    return false;
+  }
   function repairStaleAnswerKeys() {
-    var i, e, node, keys, k, known, rep;
+    var i, e, node, keys, k, known, rep, movedAny = false, rq, list, still, at;
+    // a listed "not sent" mapping that is gone, or whose key the question
+    // records again, is no longer stale: its Remove would delete a WORKING
+    // mapping (review 3: an Address back to one part left the note, and
+    // Remove emptied the ZIP field)
+    for (rq in answerKeyRepairs) {
+      if (!Object.prototype.hasOwnProperty.call(answerKeyRepairs, rq)) { continue; }
+      list = answerKeyRepairs[rq].stale;
+      still = [];
+      for (i = 0; i < list.length; i++) {
+        if (state.answer_maps.indexOf(list[i]) !== -1 && !answerKeyRecorded(list[i])) { still.push(list[i]); }
+      }
+      answerKeyRepairs[rq].stale = still;
+      // the "now uses …" note only while a mapping of this question uses the
+      // key it names (an Undo can take the part change back)
+      if (answerKeyRepairs[rq].moved > 0) {
+        at = false;
+        for (i = 0; i < state.answer_maps.length; i++) {
+          if (state.answer_maps[i] && state.answer_maps[i].question_id === rq && state.answer_maps[i].internal_field === answerKeyRepairs[rq].to) { at = true; }
+        }
+        if (!at) { answerKeyRepairs[rq].moved = 0; }
+      }
+    }
     for (i = 0; i < state.answer_maps.length; i++) {
       e = state.answer_maps[i];
       if (!e) { continue; }
@@ -16876,10 +17990,16 @@ export const SECTION_STUDIO_SCRIPT = `
         e.internal_field = keys[0].key;
         e.answer_type = keys[0].answer_type || 'string';
         markDirty();
+        movedAny = true;
+        at = rep.stale.indexOf(e);
+        if (at !== -1) { rep.stale.splice(at, 1); }
       } else if (rep.stale.indexOf(e) === -1) {
         rep.stale.push(e);
       }
     }
+    // an automatic repair is part of the page as it stands, never a step an
+    // Undo could take back (that would bring the dead key back)
+    if (movedAny && typeof historyAbsorb !== 'undefined') { historyAbsorb(); }
   }
   // One Offer x one field this answer fills: the picker + its status. 'edge' is
   // null for the empty "pick a field" slot. A field another picker of THIS
@@ -16943,7 +18063,10 @@ export const SECTION_STUDIO_SCRIPT = `
     status.appendChild(document.createTextNode(edge ? mapStateNote(edgeState, answerFieldOf(offer, current), offer, edge) : 'not mapped'));
     line.appendChild(status);
     var notSent = edge && node.choices ? valuesNotSent(edge, node, offer) : 0;
-    if (notSent > 0) {
+    // per-choice values can't fix a field that is gone or a multi-select into a
+    // field that can't take a list (review 3: the line still said to use them)
+    var valuesCantHelp = edgeState === 'orphaned' || (edgeState === 'type_mismatch' && answerNodeType((edge && edge.answer_type) || 'string') === 'array');
+    if (notSent > 0 && !valuesCantHelp) {
       var warn = document.createElement('span');
       warn.className = 'studio-map-notsent';
       warn.setAttribute('data-quickmap-notsent', String(notSent));
@@ -17169,6 +18292,37 @@ export const SECTION_STUDIO_SCRIPT = `
       renderOffersPanel();
     }).catch(function () { offersNote('Failed to load the matching Offers'); });
   }
+  // OWNER 2026-09-28 (review o3): the answers the payload preview builds from.
+  // They were read from the QA-tools-only box, so an operator previewed with
+  // no answers at all. Prefilled with each question's first saved value (a
+  // multi-select: a list of one) and a sample for ZIP / email / phone.
+  function defaultPayloadSampleAnswers() {
+    var out = {};
+    walkTree(state.content.components, 1, function (n) {
+      if (!n || trimStr(n.internal_field) === '' || hasOwn(out, n.internal_field)) { return; }
+      var vals = choiceSavedValuesOf(n);
+      if (vals.length > 0) { out[n.internal_field] = typeMeta(n.type).produces === 'array' ? [vals[0]] : vals[0]; return; }
+      if (n.type === 'ZIPInputQuestion') { out[n.internal_field] = '90210'; }
+      else if (n.type === 'EmailInputQuestion') { out[n.internal_field] = 'sample@example.com'; }
+      else if (n.type === 'PhoneInputQuestion') { out[n.internal_field] = '5551234567'; }
+    });
+    return out;
+  }
+  function payloadSampleAnswers() {
+    var box = document.querySelector('[data-studio-payload-sample-answers]');
+    var errEl = document.querySelector('[data-studio-payload-sample-error]');
+    if (!box) { return sampleAnswers(); }
+    if (trimStr(box.value) === '') { box.value = JSON.stringify(defaultPayloadSampleAnswers(), null, 2); }
+    var parsed = null;
+    try { parsed = JSON.parse(box.value); } catch (e) { parsed = null; }
+    if (!parsed || typeof parsed !== 'object' || Object.prototype.toString.call(parsed) === '[object Array]') {
+      if (errEl) { errEl.hidden = false; errEl.textContent = 'Sample answers must be a valid object \\u2014 check for a missing quote, comma, or bracket.'; }
+      return null;
+    }
+    if (errEl) { errEl.hidden = true; }
+    return parsed;
+  }
+  var lastPayloadPreviewOffer = null;
   function showPayloadPreview(offer) {
     var wrap = document.querySelector('[data-studio-payload-preview-wrap]');
     var pre = document.querySelector('[data-studio-payload-preview]');
@@ -17178,12 +18332,15 @@ export const SECTION_STUDIO_SCRIPT = `
     wrap.hidden = false;
     if (title) { title.textContent = 'Generated payload preview \\u2014 ' + offer.offer_name; }
     if (noteEl) { noteEl.hidden = !dirty; }
+    lastPayloadPreviewOffer = offer;
+    var answers = payloadSampleAnswers();
+    if (answers === null) { pre.textContent = ''; return; }
     pre.textContent = 'Validating\\u2026';
     fetch('/api/admin/leadgen/sections/' + encodeURIComponent(state.public_id) + '/validate-payload', {
       method: 'POST',
       credentials: 'same-origin',
       headers: { 'Content-Type': 'application/json', 'Accept': 'application/json' },
-      body: JSON.stringify({ answers: sampleAnswers(), offers: [offer.public_id] })
+      body: JSON.stringify({ answers: answers, offers: [offer.public_id] })
     }).then(function (r) {
       return r.json().then(function (j) { return { ok: r.ok, body: j }; });
     }).then(function (res) {
@@ -17246,6 +18403,11 @@ export const SECTION_STUDIO_SCRIPT = `
         if (payOffer) { showPayloadPreview(payOffer); }
         return;
       }
+      el = t.closest('[data-studio-payload-rerun]');
+      if (el) {
+        if (lastPayloadPreviewOffer) { showPayloadPreview(lastPayloadPreviewOffer); }
+        return;
+      }
       el = t.closest('[data-studio-payload-close]');
       if (el) {
         var pw = document.querySelector('[data-studio-payload-preview-wrap]');
@@ -17270,6 +18432,7 @@ export const SECTION_STUDIO_SCRIPT = `
         var gi = gone ? state.answer_maps.indexOf(gone) : -1;
         if (gi !== -1) { state.answer_maps.splice(gi, 1); markDirty(); }
         if (repair && gone) { repair.stale.splice(repair.stale.indexOf(gone), 1); }
+        historyPushSideEdit();
         renderOffersPanel();
         return;
       }
@@ -17337,6 +18500,7 @@ export const SECTION_STUDIO_SCRIPT = `
         var at = state.selected_offers.indexOf(offer.id);
         if (at !== -1) { state.selected_offers.splice(at, 1); markDirty(); }
       }
+      historyPushSideEdit();
       renderOffersPanel();
     });
   }
@@ -17470,9 +18634,7 @@ export const SECTION_STUDIO_SCRIPT = `
     var retargetChoiceScope = function (target) {
       var row = target && target.closest ? target.closest('[data-choice-row]') : null;
       if (!row) { return; }
-      var labelInput = row.querySelector('[data-choice-field="label"]');
-      choiceScopeLabel = labelInput ? labelInput.value : '';
-      setScope('choice');
+      pointChoiceAtRow(row, choicesPanelWrap);
     };
     choicesPanelWrap.addEventListener('mousedown', function () { choicePointerDown = true; }, true);
     document.addEventListener('mouseup', function () {
@@ -17483,6 +18645,29 @@ export const SECTION_STUDIO_SCRIPT = `
       retargetChoiceScope(ev.target);
     });
     choicesPanelWrap.addEventListener('click', function (ev) { retargetChoiceScope(ev.target); });
+    // an "Other" value row is not a canvas choice, so it names none (review
+    // 9b M-3: the previous choice stayed named and the toolbar acted on it);
+    // a pointer press drops it on click, like the rows above (review M4)
+    var otherValuesWrap = document.querySelector('[data-other-values]');
+    if (otherValuesWrap) {
+      var otherPointerDown = false;
+      var dropForOtherRow = function (target) {
+        if (target && target.closest && target.closest('[data-other-row]') && selectedChoiceValue !== null) { dropChoiceSelection(); }
+      };
+      otherValuesWrap.addEventListener('mousedown', function () { otherPointerDown = true; }, true);
+      document.addEventListener('mouseup', function () {
+        if (otherPointerDown) { setTimeout(function () { otherPointerDown = false; }, 0); }
+      }, true);
+      otherValuesWrap.addEventListener('focusin', function (ev) { if (!otherPointerDown) { dropForOtherRow(ev.target); } });
+      otherValuesWrap.addEventListener('click', function (ev) { dropForOtherRow(ev.target); });
+    }
+    // a row that was not the selected choice (a new row getting its first
+    // value) becomes it as the operator types (review 9 m9-2)
+    choicesPanelWrap.addEventListener('input', function (ev) {
+      var row = ev.target && ev.target.closest ? ev.target.closest('[data-choice-row]') : null;
+      if (row && row !== selectedChoiceRow) { pointChoiceAtRow(row, choicesPanelWrap); }
+      else if (row && ev.target.getAttribute && ev.target.getAttribute('data-choice-field') === 'label') { followSelectedChoiceLabel(ev.target.value); }
+    });
   }
 
   // --- §5.4 frame hint toggle (presentation-only skeleton) ----------------------
@@ -17794,11 +18979,22 @@ export const SECTION_STUDIO_SCRIPT = `
       var p = String(rawPath || '');
       var node = componentByProblemPath(p);
       if (!node) { return ''; }
+      // an "Other" value path (props.other.choices[N]) is not a base choice (review 12 MINOR-2)
+      var otherMatch = p.match(/props\\.other\\.choices\\[(\\d+)\\]/);
+      if (otherMatch) {
+        var oc = node.props && node.props.other && node.props.other.choices ? node.props.other.choices[Number(otherMatch[1])] : null;
+        var ocNo = Number(otherMatch[1]) + 1;
+        if (oc) { return ((oc.label !== undefined && String(oc.label) !== '') ? 'Other value \\u201C' + String(oc.label) + '\\u201D' : 'Other value ' + ocNo + (oc.value !== undefined && String(oc.value) !== '' ? ' (saved value \\u201C' + String(oc.value) + '\\u201D)' : '')) + ': '; }
+        return 'Other value ' + ocNo + ': ';
+      }
       var choiceMatch = p.match(/choices\\[(\\d+)\\]/);
       if (choiceMatch && node.choices) {
         var choice = node.choices[Number(choiceMatch[1])];
         if (choice) {
-          var choiceName = (choice.label !== undefined && String(choice.label) !== '') ? String(choice.label) : (choice.value !== undefined ? String(choice.value) : 'choice ' + (Number(choiceMatch[1]) + 1));
+          // a choice with no label is named by its place, its saved value in
+          // brackets (review 11 R11-A: "tg: 'Label' is required" read as code)
+          var choiceNo = Number(choiceMatch[1]) + 1;
+          var choiceName = (choice.label !== undefined && String(choice.label) !== '') ? String(choice.label) : 'Choice ' + choiceNo + (choice.value !== undefined && String(choice.value) !== '' ? ' (saved value \\u201C' + String(choice.value) + '\\u201D)' : '');
           return choiceName + ': ';
         }
       }
@@ -17871,11 +19067,22 @@ export const SECTION_STUDIO_SCRIPT = `
       if (p.indexOf('content.') === 0) { p = p.slice('content.'.length); }
       var node = componentByProblemPath(p);
       if (!node) { return ''; }
+      // an "Other" value path (props.other.choices[N]) is not a base choice (review 12 MINOR-2)
+      var otherMatch = p.match(/props\\.other\\.choices\\[(\\d+)\\]/);
+      if (otherMatch) {
+        var oc = node.props && node.props.other && node.props.other.choices ? node.props.other.choices[Number(otherMatch[1])] : null;
+        var ocNo = Number(otherMatch[1]) + 1;
+        if (oc) { return ((oc.label !== undefined && String(oc.label) !== '') ? 'Other value \\u201C' + String(oc.label) + '\\u201D' : 'Other value ' + ocNo + (oc.value !== undefined && String(oc.value) !== '' ? ' (saved value \\u201C' + String(oc.value) + '\\u201D)' : '')) + ': '; }
+        return 'Other value ' + ocNo + ': ';
+      }
       var choiceMatch = p.match(/choices\\[(\\d+)\\]/);
       if (choiceMatch && node.choices) {
         var choice = node.choices[Number(choiceMatch[1])];
         if (choice) {
-          var choiceName = (choice.label !== undefined && String(choice.label) !== '') ? String(choice.label) : (choice.value !== undefined ? String(choice.value) : 'choice ' + (Number(choiceMatch[1]) + 1));
+          // a choice with no label is named by its place, its saved value in
+          // brackets (review 11 R11-A: "tg: 'Label' is required" read as code)
+          var choiceNo = Number(choiceMatch[1]) + 1;
+          var choiceName = (choice.label !== undefined && String(choice.label) !== '') ? String(choice.label) : 'Choice ' + choiceNo + (choice.value !== undefined && String(choice.value) !== '' ? ' (saved value \\u201C' + String(choice.value) + '\\u201D)' : '');
           return choiceName + ': ';
         }
       }
@@ -18034,7 +19241,9 @@ export const SECTION_STUDIO_SCRIPT = `
         // specs explicitly wait on a page load event right after clicking
         // Save and broke immediately. Restored.)
         if (res.body && res.body.public_id) {
-          window.location.href = '/admin/leadgen/sections/' + encodeURIComponent(res.body.public_id) + '/edit';
+          // OWNER 2026-09-28: come back to the question (and tab) being edited,
+          // not the first question
+          window.location.href = '/admin/leadgen/sections/' + encodeURIComponent(res.body.public_id) + '/edit' + reopenQuery();
         } else {
           window.location.reload();
         }
@@ -18099,7 +19308,42 @@ export const SECTION_STUDIO_SCRIPT = `
   // §6.2 default selection on open (contract: "the ZIP field" — generalized
   // to the first real answer node); selectComponent() already covers
   // decoration/breadcrumb/inspector-population/scope-header/toolbar in one call.
-  selectComponent(findDefaultSelectionId());
+  // any ?q= link means "take me back to my question": if it is gone, the one
+  // selected instead is brought into view too (review 10 R10-B)
+  reopenScrollPending = (function () { try { return !!new URLSearchParams(window.location.search).get('q'); } catch (eQ) { return false; } })();
+  // the canvas on screen is the server's render of the content as loaded
+  canvasPaintedJson = JSON.stringify(state.content);
+  // (no window 'blur': a press inside the canvas frame moves the focus into
+  // the frame, which blurs this window and ended the press at once; the 3 s
+  // safety in canvasPressStart covers a release that never arrives)
+  document.addEventListener('mouseup', canvasPressEnd, true);
+  // every refusal note shows in the notice stack on the window, where it is
+  // seen (review 12 R12-A: the static note was 172-1382px off screen)
+  (function () {
+    var refusalNote = document.querySelector('[data-studio-drop-refusal]');
+    if (refusalNote && typeof noticeStack !== 'undefined') { noticeStack().appendChild(refusalNote); }
+  })();
+  // review 8 F8-3: the reopened question owns the scroll, not the browser's
+  // remembered position from before the reload; the operator's first touch
+  // ends that (see keepReopenAnchor)
+  if (reopenScrollPending) {
+    try { if (window.history && 'scrollRestoration' in window.history) { window.history.scrollRestoration = 'manual'; } } catch (eScroll) { /* keep the browser's */ }
+    releaseReopenAnchorOnTouch(document);
+  }
+  selectComponent(reopenedSelectionId() || findDefaultSelectionId());
+  // OWNER 2026-09-28 (open item 1, review F3): on a phone the canvas opens in
+  // the Mobile preview; the 1280 desktop frame is mostly off a 375 screen.
+  if (window.innerWidth && window.innerWidth <= 760 && canvasViewport !== 'mobile') {
+    var phoneViewportBtn = document.querySelector('[data-canvas-viewport="mobile"]');
+    if (phoneViewportBtn) { phoneViewportBtn.click(); }
+  }
+  (function () {
+    var tab = null;
+    try { tab = new URLSearchParams(window.location.search).get('tab'); } catch (e) { tab = null; }
+    // a tab key is a bare word; anything else in the link is ignored (a quote
+    // in it made querySelector throw and stopped the page loading — review m5)
+    if (tab && /^[a-z_]+$/.test(tab) && reopenedSelectionId() && document.querySelector('[data-studio-inspector-tab="' + tab + '"]')) { setInspectorTab(tab); }
+  })();
   populateSectionOverrides();
   loadComponentPresets();
   loadFramePickerQuotes();
@@ -18109,6 +19353,8 @@ export const SECTION_STUDIO_SCRIPT = `
   // choice added anywhere (canvas included) before its question is opened
   // still counts as new and joins each Offer's value list on Save.
   walkTree(state.content.components, 1, function (n) { snapshotProviderValues(n); });
+  // the Undo history starts from the page as opened, baseline included
+  historyReset();
   loadOffers();
   loadUsage();
   loadThemesList();

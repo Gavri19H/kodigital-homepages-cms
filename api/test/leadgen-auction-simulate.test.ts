@@ -459,6 +459,105 @@ describeDb("leadgen /auctions/:id/simulate — §19.2 dry-run trace + no writes"
     expect(j.carriers_shown.length).toBe(0);
   });
 
+  it("OWNER 2026-09-28: a calculated choice previews its DATE in the simulate payload (not the saved value)", async () => {
+    const { sdb, env } = harness();
+    const auction = seedAuction(sdb);
+    const o1 = seedDynamicOffer(sdb);
+    sdb.prepare("UPDATE leadgen_offer_payload_schemas SET schema_json = ? WHERE offer_id = ?").run(
+      JSON.stringify({ version: 1, root: { type: "object", children: [{ path: "company.business_inception", name: "business_inception", type: "string", source: "answer" }] } }),
+      o1.offer_id,
+    );
+    const content = {
+      components: [
+        {
+          type: "ButtonAnswerGroup", question_id: "q_dur", question_key: "dur", internal_field: "dur", answer_type: "enum",
+          choices: [{ label: "2+ Years", value: "2", analytics_id: "2", value_calc: { kind: "date_ago", amount: 2, unit: "years" } }],
+        },
+      ],
+    };
+    sdb.prepare("INSERT INTO leadgen_sections (public_id, section_name, activity, vertical, headline_text, content_json, status) VALUES ('lgs_simcalc0000000000000000000', 'Dur', 'quote_funnel', 'life', 'How long?', ?, 'active')").run(JSON.stringify(content));
+    const section = sdb.prepare("SELECT id FROM leadgen_sections WHERE public_id = 'lgs_simcalc0000000000000000000'").get() as { id: number };
+    const schema = sdb.prepare("SELECT id, public_id FROM leadgen_offer_payload_schemas WHERE offer_id = ?").get(o1.offer_id) as { id: number; public_id: string };
+    sdb
+      .prepare(
+        `INSERT INTO leadgen_section_answer_maps
+           (public_id, section_id, question_id, question_key, internal_field, answer_type, offer_id, payload_schema_id, payload_schema_public_id,
+            offer_payload_field_path, provider_expected_type, mapping_status, validation_status)
+         VALUES (?, ?, 'q_dur', 'dur', 'dur', 'enum', ?, ?, ?, 'company.business_inception', 'string', 'complete', 'ok')`,
+      )
+      .run(mintPublicId("answer_field_map"), section.id, o1.offer_id, schema.id, schema.public_id);
+    sdb.prepare("INSERT INTO leadgen_auction_offers (auction_id, offer_placement_id, offer_id, static_order, enabled) VALUES (?, ?, ?, 0, 1)").run(auction.id, o1.placement_id, o1.offer_id);
+    // this test's own recorder: the shared stubFetch keeps URLs only, and the
+    // engine leg below needs the request BODY the dry run posts
+    const bodies: string[] = [];
+    vi.stubGlobal("fetch", async (url: RequestInfo | URL, init?: RequestInit): Promise<Response> => {
+      bodies.push(url instanceof Request ? await url.clone().text() : String(init?.body ?? ""));
+      return new Response(carrierBody("Acme", 12), { status: 200 });
+    });
+    const res = await admin.request(`${API}/auctions/${auction.public_id}/simulate`, jsonInit("POST", { sample_answers: { dur: "2" } }), env);
+    expect(res.status).toBe(200);
+    const j = (await res.json()) as { offers_payload_explain: Array<{ offer_id: string; payload_preview: { company?: { business_inception?: unknown } } | null }> };
+    const entry = j.offers_payload_explain.find((e) => e.offer_id === o1.offer_public_id)!;
+    const now = new Date();
+    const twoYearsAgo = new Date(Date.UTC(now.getUTCFullYear() - 2, now.getUTCMonth(), now.getUTCDate())).toISOString().slice(0, 10);
+    expect(entry.payload_preview?.company?.business_inception).toBe(twoYearsAgo);
+    // the dry run's own provider request (the engine) carries the date too
+    const posted = bodies.find((b) => b.includes("business_inception"));
+    expect(posted, "the dry run posted the Offer's request").toBeDefined();
+    expect(JSON.parse(posted!).company.business_inception).toBe(twoYearsAgo);
+  });
+
+  it("review F7: two Sections calculate the same answer differently — each Offer previews (and the dry run sends) the date of the Section that maps IT", async () => {
+    const { sdb, env } = harness();
+    const auction = seedAuction(sdb);
+    const seedOne = (years: number, path: string, sectionPublic: string) => {
+      const o = seedDynamicOffer(sdb);
+      sdb.prepare("UPDATE leadgen_offer_payload_schemas SET schema_json = ? WHERE offer_id = ?").run(
+        JSON.stringify({ version: 1, root: { type: "object", children: [{ path, name: path.split(".").pop(), type: "string", source: "answer" }] } }),
+        o.offer_id,
+      );
+      const content = {
+        components: [
+          {
+            type: "ButtonAnswerGroup", question_id: "q_dur", question_key: "dur", internal_field: "dur", answer_type: "enum",
+            choices: [{ label: "Long", value: "2", analytics_id: "2", value_calc: { kind: "date_ago", amount: years, unit: "years" } }],
+          },
+        ],
+      };
+      sdb.prepare("INSERT INTO leadgen_sections (public_id, section_name, activity, vertical, headline_text, content_json, status) VALUES (?, 'Dur', 'quote_funnel', 'life', 'How long?', ?, 'active')").run(sectionPublic, JSON.stringify(content));
+      const section = sdb.prepare("SELECT id FROM leadgen_sections WHERE public_id = ?").get(sectionPublic) as { id: number };
+      const schema = sdb.prepare("SELECT id, public_id FROM leadgen_offer_payload_schemas WHERE offer_id = ?").get(o.offer_id) as { id: number; public_id: string };
+      sdb
+        .prepare(
+          `INSERT INTO leadgen_section_answer_maps
+             (public_id, section_id, question_id, question_key, internal_field, answer_type, offer_id, payload_schema_id, payload_schema_public_id,
+              offer_payload_field_path, provider_expected_type, mapping_status, validation_status)
+           VALUES (?, ?, 'q_dur', 'dur', 'dur', 'enum', ?, ?, ?, ?, 'string', 'complete', 'ok')`,
+        )
+        .run(mintPublicId("answer_field_map"), section.id, o.offer_id, schema.id, schema.public_id, path);
+      sdb.prepare("INSERT INTO leadgen_auction_offers (auction_id, offer_placement_id, offer_id, static_order, enabled) VALUES (?, ?, ?, 0, 1)").run(auction.id, o.placement_id, o.offer_id);
+      return o;
+    };
+    const first = seedOne(2, "company.business_inception", "lgs_simcalcA000000000000000000");
+    const second = seedOne(5, "company.founded", "lgs_simcalcB000000000000000000");
+    const bodies: string[] = [];
+    vi.stubGlobal("fetch", async (url: RequestInfo | URL, init?: RequestInit): Promise<Response> => {
+      bodies.push(url instanceof Request ? await url.clone().text() : String(init?.body ?? ""));
+      return new Response(carrierBody("Acme", 12), { status: 200 });
+    });
+    const res = await admin.request(`${API}/auctions/${auction.public_id}/simulate`, jsonInit("POST", { sample_answers: { dur: "2" } }), env);
+    expect(res.status).toBe(200);
+    const j = (await res.json()) as { offers_payload_explain: Array<{ offer_id: string; payload_preview: { company?: Record<string, unknown> } | null }> };
+    const now = new Date();
+    const yearsAgo = (n: number) => new Date(Date.UTC(now.getUTCFullYear() - n, now.getUTCMonth(), now.getUTCDate())).toISOString().slice(0, 10);
+    expect(j.offers_payload_explain.find((e) => e.offer_id === first.offer_public_id)!.payload_preview?.company?.["business_inception"]).toBe(yearsAgo(2));
+    expect(j.offers_payload_explain.find((e) => e.offer_id === second.offer_public_id)!.payload_preview?.company?.["founded"]).toBe(yearsAgo(5));
+    const sentFirst = bodies.find((b) => b.includes("business_inception"));
+    const sentSecond = bodies.find((b) => b.includes("founded"));
+    expect(JSON.parse(sentFirst!).company.business_inception).toBe(yearsAgo(2));
+    expect(JSON.parse(sentSecond!).company.founded).toBe(yearsAgo(5));
+  });
+
   it("POST /simulate on an unknown auction is 404", async () => {
     const { env } = harness();
     const res = await admin.request(`${API}/auctions/${mintPublicId("auction")}/simulate`, jsonInit("POST", {}), env);

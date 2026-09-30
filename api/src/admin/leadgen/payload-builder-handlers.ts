@@ -36,6 +36,7 @@
 //     with `expirationTtl: 259200` — the KV TTL enforces the §30.3 72-hour
 //     debug-blob retention mechanically. debug_ref = that opaque key.
 
+import { sampleAnswerComputedByOffer } from "../../leadgen/sample-computed";
 import {
   readEnvSecret,
   resolveAllowedOutboundSecretReference,
@@ -440,9 +441,13 @@ export async function testOfferHandler(c: AdminContext): Promise<Response> {
   // absent here exactly as it would be live — the Test tab can no longer show a
   // field the runtime would drop.
   const testBindings = await readAnswerBindings(c.env.DB, [offer.id]);
+  // OWNER 2026-09-28: a calculated choice sends its DATE here too, derived from
+  // the Sections that map this Offer exactly as the live auction derives it.
+  const testComputed = (await sampleAnswerComputedByOffer(c.env.DB, [offer.id], sampleAnswers as Record<string, unknown>)).get(offer.id) ?? {};
   const payload = buildPayload(schema, {
     answers: sampleAnswers,
     answer_bindings: testBindings.get(offer.id) ?? {},
+    answer_computed: testComputed,
     macros: macroValues,
     // §4.7.2 parity: computed + the offer/placement slice come from the SAME
     // simulated context — an identical simulated context therefore yields the
@@ -815,7 +820,9 @@ export async function testOfferHandler(c: AdminContext): Promise<Response> {
 //     fields: [{ internal_field, label,
 //                kind: "enum"|"boolean"|"date"|"zip"|"address"|"text"|"number",
 //                options?: [{value, label}], sample, required: boolean,
-//                source_path: string }] }
+//                source_path: string, multiple?: true }] }
+//   `multiple` (OWNER 2026-09-28, review o2): a multi-select answer — an enum
+//   field whose sample (and answer) is a LIST of option values.
 
 export const TEST_DRAFT_KV_PREFIX = "lg-testdraft:";
 // MINOR-4: sample-answer draft bounds — a 64 KB serialized ceiling (typed 400
@@ -846,6 +853,7 @@ export interface LeadgenSampleAnswerField {
   sample: unknown;
   required: boolean;
   source_path: string;
+  multiple?: true;
 }
 
 // Name heuristics (§6.12.1). DOB is a subset of the date-kind name test:
@@ -899,7 +907,7 @@ function classifySampleField(
   node: LeadgenPayloadNode,
   field: LeadgenAnswerFieldEntry | undefined,
   now: number,
-): { kind: LeadgenSampleAnswerKind; options?: LeadgenSampleAnswerOption[]; sample: unknown } {
+): { kind: LeadgenSampleAnswerKind; options?: LeadgenSampleAnswerOption[]; sample: unknown; multiple?: true } {
   const name = node.internal_field ?? "";
   if (
     node.type === "boolean" ||
@@ -909,6 +917,11 @@ function classifySampleField(
     return { kind: "boolean", sample: true };
   }
   const options = sampleOptionsFor(node, field);
+  // a multi-select answers with a LIST of its values (the Test tab offers a
+  // multi-pick for it, not a single dropdown)
+  if (field?.answer_type === "array" && options.length > 0) {
+    return { kind: "enum", options, sample: [options[0]!.value], multiple: true };
+  }
   if (node.type === "enum" || options.length > 0) {
     return { kind: "enum", options, sample: options[0]?.value ?? "" };
   }
@@ -1024,6 +1037,7 @@ export async function generateSampleAnswersHandler(c: AdminContext): Promise<Res
         sample: classified.sample,
         required: node.required === true,
         source_path: node.path,
+        ...(classified.multiple === true ? { multiple: true as const } : {}),
       };
       byInternal.set(internalField, entry);
       fields.push(entry);

@@ -18,6 +18,7 @@
 // carrier_match_json / field_map_json reuse the Stage-A `LeadgenCarrierMatch`
 // (auction-rules.ts) / `LeadgenBannerFieldMap` (banner-default/styles.ts).
 
+import { sampleAnswerComputed, sampleAnswerComputedByOffer } from "../../leadgen/sample-computed";
 import { mintPublicId } from "../../leadgen/ids";
 import { conditionsHash } from "../../leadgen/auction-rules";
 import type { LeadgenCarrierMatch } from "../../leadgen/auction-rules";
@@ -1688,6 +1689,20 @@ export async function auctionSimulateHandler(c: AdminContext): Promise<Response>
 
   const resolved = await buildSimulateResolved(c.env.DB, auction);
   const bundle = await loadAuctionBundle(c.env.DB, auction, resolved.variant.id === 0 ? null : resolved.variant.id);
+  // OWNER 2026-09-28: a calculated choice previews its DATE (as the live
+  // auction sends it), from the Sections that map this auction's Offers.
+  const sampleComputed = await sampleAnswerComputed(
+    c.env.DB,
+    bundle.offers.map((b) => b.offer.id),
+    sampleAnswers,
+  );
+  // review F7: and per Offer — each answer's date from the Section whose
+  // mapping sends that answer to THAT Offer.
+  const sampleComputedByOffer = await sampleAnswerComputedByOffer(
+    c.env.DB,
+    bundle.offers.map((b) => b.offer.id),
+    sampleAnswers,
+  );
 
   const result = await runAuction(
     c.env,
@@ -1705,6 +1720,9 @@ export async function auctionSimulateHandler(c: AdminContext): Promise<Response>
       session_id: null,
       raw_answers: {},
       normalizedAnswersOverride: sampleAnswers,
+      answerComputedOverride: sampleComputed,
+      answerComputedByOffer: sampleComputedByOffer,
+      answerBindingsFromAllSections: true,
       request_context: context,
       // 04 §4.7: the dry-run builds its runtime context from the admin
       // request (a simulate has no funnel session; payload macros resolve
@@ -1834,6 +1852,7 @@ export async function auctionSimulateHandler(c: AdminContext): Promise<Response>
             buildPayload(parsedSchema, {
               answers: sampleAnswers,
               answer_bindings: previewBindings.get(r.offer_row_id) ?? {},
+              answer_computed: sampleComputedByOffer.get(r.offer_row_id) ?? sampleComputed,
               macros: offerCtx.macros,
               computed: offerCtx.computed,
               offer: { offer_id: r.offer_public_id, placement_id: externalPlacement },

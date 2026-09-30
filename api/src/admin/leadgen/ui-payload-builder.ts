@@ -2897,6 +2897,15 @@ export const PAYLOAD_BUILDER_SCRIPT = `
     if (type === 'string') {
       if (typeof value === 'string') { return value; }
       if (typeof value === 'number' || typeof value === 'boolean') { return String(value); }
+      // a multi-select's list into a text field is sent comma-joined
+      if (Object.prototype.toString.call(value) === '[object Array]' && value.length > 0) {
+        var parts = [], pi;
+        for (pi = 0; pi < value.length; pi++) {
+          if (typeof value[pi] !== 'string' && typeof value[pi] !== 'number' && typeof value[pi] !== 'boolean') { return undefined; }
+          parts.push(String(value[pi]));
+        }
+        return parts.join(',');
+      }
       return undefined;
     }
     if (type === 'number') {
@@ -4887,6 +4896,11 @@ export const PAYLOAD_BUILDER_SCRIPT = `
   var testFormStatus = document.getElementById('lg-test-form-status');
   var testFields = [];
 
+  function arrayHasString(list, value) {
+    var i;
+    for (i = 0; i < list.length; i++) { if (String(list[i]) === value) { return true; } }
+    return false;
+  }
   function testFormRow(field) {
     var row = el('div', 'lg-test-form-row');
     row.setAttribute('data-test-field', field.internal_field);
@@ -4900,10 +4914,13 @@ export const PAYLOAD_BUILDER_SCRIPT = `
       input.setAttribute('data-test-input', '');
       input.setAttribute('aria-label', field.label);
       var opts = field.options || [];
+      // a multi-select answers with several values (review o2)
+      var picked = field.multiple === true && Object.prototype.toString.call(field.sample) === '[object Array]' ? field.sample : null;
+      if (field.multiple === true) { input.multiple = true; input.size = Math.min(Math.max(opts.length, 2), 6); }
       for (i = 0; i < opts.length; i++) {
         var o = el('option', null, opts[i].label);
         o.value = String(opts[i].value);
-        if (String(opts[i].value) === String(field.sample)) { o.selected = true; }
+        if (picked ? arrayHasString(picked, String(opts[i].value)) : String(opts[i].value) === String(field.sample)) { o.selected = true; }
         input.appendChild(o);
       }
       row.appendChild(input);
@@ -4995,6 +5012,12 @@ export const PAYLOAD_BUILDER_SCRIPT = `
       }
       input = row.querySelector('[data-test-input]');
       if (!input) { continue; }
+      if (input.multiple) {
+        var sel = [], k;
+        for (k = 0; k < input.options.length; k++) { if (input.options[k].selected) { sel.push(input.options[k].value); } }
+        if (sel.length > 0) { out[field] = sel; }
+        continue;
+      }
       raw = input.value;
       if (trimStr(raw) === '') { continue; }
       if (kind === 'number') { out[field] = Number(raw); }
@@ -5063,7 +5086,10 @@ export const PAYLOAD_BUILDER_SCRIPT = `
           }
         } else {
           input = row.querySelector('[data-test-input]');
-          if (input) { input.value = parsed[field] === null || parsed[field] === undefined ? '' : String(parsed[field]); }
+          if (input && input.multiple) {
+            var want = Object.prototype.toString.call(parsed[field]) === '[object Array]' ? parsed[field] : [parsed[field]];
+            for (j = 0; j < input.options.length; j++) { input.options[j].selected = arrayHasString(want, input.options[j].value); }
+          } else if (input) { input.value = parsed[field] === null || parsed[field] === undefined ? '' : String(parsed[field]); }
         }
       }
     });

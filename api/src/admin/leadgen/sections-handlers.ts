@@ -2773,7 +2773,11 @@ export async function validateSectionPayloadHandler(c: AdminContext): Promise<Re
   const results = offerIds.map((offerId) => {
     const edges = storedMaps.filter((m) => m.offer_id === offerId);
     const offerSchema = offerSchemas.get(offerId) ?? null;
-    const mappings: LeadgenAnswerMapping[] = edges.map((e) => ({
+    // OWNER 2026-09-28 (review o1): the preview builds from the mappings the
+    // live request uses — complete ones only (answer-bindings.ts
+    // readAnswerBindings). A type-mismatched mapping showed its field here
+    // while production never sent it.
+    const mappings: LeadgenAnswerMapping[] = edges.filter((e) => e.mapping_status === "complete").map((e) => ({
       internal_field: e.internal_field,
       offer_payload_field_path: e.offer_payload_field_path,
       provider_expected_type: e.provider_expected_type,
@@ -2783,7 +2787,8 @@ export async function validateSectionPayloadHandler(c: AdminContext): Promise<Re
       default_value: e.default_value ?? undefined,
       fallback_value: e.fallback_value ?? undefined,
     }));
-    const payload = buildOfferPayload(mappings, normalized.answers);
+    // OWNER 2026-09-28: a calculated choice previews its DATE, as production sends it.
+    const payload = buildOfferPayload(mappings, normalized.answers, normalized.computed);
 
     const requiredTotal = offerSchema?.requiredFieldPaths.length ?? 0;
     const mappedRequired = new Set<string>();

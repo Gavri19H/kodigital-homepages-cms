@@ -96,10 +96,15 @@ function fakeDocument() {
   refusalEl.attrs["data-studio-drop-refusal"] = "";
   let toastEl: FakeEl | null = null;
   const body = fakeEl("body");
+  // review 10: the canvas notices sit in ONE fixed stack on the window
+  // (noticeStack) — the toast is appended there, not to the canvas or body
+  const stack = fakeEl("div");
+  stack.attrs["data-studio-notice-stack"] = "";
   const doc = {
     querySelector(sel: string): FakeEl | null {
       if (sel === "[data-studio-drop-refusal]") return refusalEl;
       if (sel === "[data-studio-undo-toast]") return toastEl;
+      if (sel === "[data-studio-notice-stack]") return stack;
       return null;
     },
     getElementById(_id: string): FakeEl | null {
@@ -113,11 +118,10 @@ function fakeDocument() {
       return { textContent: text };
     },
   };
-  // showUndoToast's toastHost.appendChild(el) call is on document.body here
-  // (getElementById returns null) — capture whatever it appends as "the
-  // toast", the same way the real DOM would let a test find it afterward.
-  const realAppend = body.appendChild.bind(body);
-  body.appendChild = (child: FakeEl): FakeEl => {
+  // showUndoToast appends into the notice stack — capture whatever it
+  // appends as "the toast", the same way the real DOM would let a test find it.
+  const realAppend = stack.appendChild.bind(stack);
+  stack.appendChild = (child: FakeEl): FakeEl => {
     if (child.attrs["data-studio-undo-toast"] !== undefined) toastEl = child;
     return realAppend(child);
   };
@@ -147,7 +151,9 @@ function buildSandbox(components: unknown[]): {
     sliceFn("choiceIndexOf"),
     sliceFn("removeChoiceFromNode"),
     sliceFn("hideUndoToast"),
+    sliceFn("noticeStack"),
     sliceFn("showUndoToast"),
+    sliceFn("choiceDeleteLabel"),
     sliceFn("showRefusal"),
     sliceFn("clearRefusal"),
     // Stand-ins: their OWN internals are out of scope for this probe (real
