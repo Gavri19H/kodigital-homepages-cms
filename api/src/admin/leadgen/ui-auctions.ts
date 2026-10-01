@@ -1048,7 +1048,10 @@ function renderSimulatorPanel(rules: LeadgenAuctionRuleApi[], participating: Par
       <select id="lg-sim-funnel" class="form-select" data-sim-funnel>
         ${funnels
           .map((f) => {
-            const name = [f.quote_name, f.funnel_name].filter((x): x is string => typeof x === "string" && x.trim() !== "").join(" — ") || f.funnel_variant_id;
+            // "Home Insurance | Match" already names its quote — no "Home Insurance — Home Insurance | Match"
+            const quote = (f.quote_name ?? "").trim();
+            const funnel = (f.funnel_name ?? "").trim();
+            const name = (funnel !== "" && quote !== "" && !funnel.toLowerCase().startsWith(quote.toLowerCase()) ? `${quote} — ${funnel}` : funnel || quote) || f.funnel_variant_id;
             return `<option value="${escapeHtml(f.funnel_variant_id)}">${escapeHtml(f.variant_label ? `${name} (variant ${f.variant_label})` : name)}</option>`;
           })
           .join("")}

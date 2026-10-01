@@ -900,6 +900,11 @@ describeDb("auction Add-a-rule form — offers by name, Tier-level, readable rul
     expect(html).toMatch(new RegExp(`<option value="${variant.pub}">[^<]+ \\(variant A\\)</option>`));
     expect(html).toContain('<option value="none">No funnel (auction rules only)</option>');
     expect(html).toContain("funnel_variant_id: byId('lg-sim-funnel') ? val('lg-sim-funnel') : undefined");
+    // a funnel name that already starts with its quote's name is not repeated
+    const q = sdb.prepare("SELECT q.quote_name AS quote FROM leadgen_funnel_variants v JOIN leadgen_funnels f ON f.id = v.funnel_id JOIN leadgen_quotes q ON q.id = f.quote_id WHERE v.public_id = ?").get(variant.pub) as { quote: string };
+    sdb.prepare("UPDATE leadgen_funnels SET funnel_name = ? WHERE id = (SELECT funnel_id FROM leadgen_funnel_variants WHERE public_id = ?)").run(`${q.quote} | Match`, variant.pub);
+    const renamed = await getHtml(env, `/admin/leadgen/auction/${auctionPub}/edit`);
+    expect(renamed).toContain(`<option value="${variant.pub}">${q.quote} | Match (variant A)</option>`);
   });
   // PM follow-up 2026-10-02: a rule on the date / time of day reads as a date
   // and a clock time, not as 20261031 / 930.
