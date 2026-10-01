@@ -66,8 +66,10 @@ const EASTERN_TZ = "America/New_York";
 // OWNER 2026-10-01 (rules on Date / Time of day): the ONE clock auction and
 // funnel rules test, US Eastern (owner ruling). date_et is YYYYMMDD as a
 // number so "between" / "greater than" work; hour_et is 0–23; weekday_et is a
-// lowercase English day name.
-export function easternRuleClock(nowMs: number): { date_et: number; hour_et: number; weekday_et: string } {
+// lowercase English day name. time_et (PM follow-up: "Time of day" with
+// minutes) is HHMM as a number — 930 is 9:30, 1745 is 17:45 — so "between 930
+// and 1700" works; Eastern offsets are whole hours, so its minute is UTC's.
+export function easternRuleClock(nowMs: number): { date_et: number; hour_et: number; time_et: number; weekday_et: string } {
   const at = new Date(nowMs);
   let date = Number(at.toISOString().slice(0, 10).replace(/-/g, ""));
   try {
@@ -78,7 +80,8 @@ export function easternRuleClock(nowMs: number): { date_et: number; hour_et: num
   } catch {
     /* UTC date above */
   }
-  return { date_et: date, hour_et: hourInTimezone(EASTERN_TZ, at), weekday_et: dayOfWeekInTimezone(EASTERN_TZ, at) };
+  const hour = hourInTimezone(EASTERN_TZ, at);
+  return { date_et: date, hour_et: hour, time_et: hour * 100 + at.getUTCMinutes(), weekday_et: dayOfWeekInTimezone(EASTERN_TZ, at) };
 }
 
 // Shared resolver bodies for the contract's alias rows (unix_timestamp is an

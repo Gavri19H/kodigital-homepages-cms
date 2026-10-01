@@ -70,8 +70,17 @@
 //
 // Island extras (additive, for the host's dynamic "+ Add rule" rows):
 //   window.lgRulesBuilder = { parseConditions, serializeRows,
-//     normalizeClusterOrder, cardSentence, mount(containerEl, rawText, outEl,
+//     normalizeClusterOrder, cardSentence, makeValueOf(fields), clockValueText,
+//     clockToPicker, clockFromPicker, mount(containerEl, rawText, outEl,
 //     options), getValues() }.
+//
+// Date / time-of-day fields (field.input "date" | "time", rule-fields.ts):
+// every value control is the browser's calendar / clock picker (no value-type
+// select); the row still stores the NUMBER the engine compares — YYYYMMDD /
+// HHMM, US Eastern — and every sentence / chip reads it in words ("1 Oct
+// 2026", "9:30"). An empty or half-typed picker never overwrites the stored
+// value; a fresh row starts at 0 like every other numeric control (an empty
+// date picker; 0:00 for a time).
 
 import { escapeHtml } from "../templates/layout";
 
@@ -159,12 +168,21 @@ export interface RulesBuilderFieldChoice {
   label: string;
 }
 
+// PM follow-up ("Support other conditions such as (Date, … Time of day …)",
+// owner residual "Date is typed as a number, Time of day is whole hours
+// only"): a field may ask for a calendar / clock picker. The STORED value stays
+// a number the engine compares numerically — date YYYYMMDD (20261031), time
+// HHMM (930 = 9:30, 5 = 0:05) — US Eastern (owner ruling).
+export type RulesBuilderClockInput = "date" | "time";
+
 export interface RulesBuilderField {
   internal_field: string;
   label: string;
   // OPTIONAL and additive: a field with no authored choices (free text,
   // number, UTM, custom) carries none and renders its value verbatim.
   choices?: RulesBuilderFieldChoice[];
+  // OPTIONAL and additive: a date / time-of-day field (rule-fields.ts).
+  input?: RulesBuilderClockInput;
 }
 
 export interface RulesBuilderOffer {
@@ -201,12 +219,113 @@ export function resolveChoiceValueText(
   return humanizeChoiceToken(raw);
 }
 
-function choicesOfField(
-  fields: readonly RulesBuilderField[],
-  field: string,
-): RulesBuilderFieldChoice[] | undefined {
-  for (const f of fields) if (f.internal_field === field) return f.choices;
+function fieldOf(fields: readonly RulesBuilderField[], field: string): RulesBuilderField | undefined {
+  for (const f of fields) if (f.internal_field === field) return f;
   return undefined;
+}
+
+// ---------------------------------------------------------------------------
+// Date / time-of-day values (stored numbers ↔ picker strings ↔ words). The ES5
+// island mirrors these 1:1 (clockValueText / clockToPicker / clockFromPicker
+// on window.lgRulesBuilder; parity pinned in test/leadgen-rules-builder.test.ts).
+// ---------------------------------------------------------------------------
+
+const CLOCK_MONTHS = ["Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"];
+
+function clockPad2(n: number): string {
+  return n < 10 ? "0" + String(n) : String(n);
+}
+
+function clockIsInt(n: unknown): n is number {
+  return typeof n === "number" && isFinite(n) && Math.floor(n) === n;
+}
+
+function clockDaysInMonth(y: number, m: number): number {
+  if (m === 2) return (y % 4 === 0 && y % 100 !== 0) || y % 400 === 0 ? 29 : 28;
+  return m === 4 || m === 6 || m === 9 || m === 11 ? 30 : 31;
+}
+
+// YYYYMMDD with a 4-digit year and a real calendar day, else null.
+function clockDateParts(n: unknown): { y: number; m: number; d: number } | null {
+  if (!clockIsInt(n) || n < 10000101 || n > 99991231) return null;
+  const y = Math.floor(n / 10000);
+  const m = Math.floor(n / 100) % 100;
+  const d = n % 100;
+  if (m < 1 || m > 12 || d < 1 || d > clockDaysInMonth(y, m)) return null;
+  return { y, m, d };
+}
+
+// HHMM in 0..2359 with minutes < 60, else null.
+function clockTimeParts(n: unknown): { h: number; mi: number } | null {
+  if (!clockIsInt(n) || n < 0 || n > 2359) return null;
+  const h = Math.floor(n / 100);
+  const mi = n % 100;
+  if (mi > 59) return null;
+  return { h, mi };
+}
+
+// The rule value in words: date 20261001 → "1 Oct 2026"; time 930 → "9:30",
+// 1745 → "17:45", 5 → "0:05" (24-hour). Anything that is not a real date /
+// time of day reads as the stored number itself.
+export function clockValueText(input: RulesBuilderClockInput, n: number): string {
+  if (input === "date") {
+    const p = clockDateParts(n);
+    return p === null ? String(n) : String(p.d) + " " + CLOCK_MONTHS[p.m - 1] + " " + String(p.y);
+  }
+  const t = clockTimeParts(n);
+  return t === null ? String(n) : String(t.h) + ":" + clockPad2(t.mi);
+}
+
+// Stored number → the picker's own value string (<input type="date"> wants
+// "2026-10-01", type="time" wants "09:30"); "" (an empty picker) when the
+// number is not a real date / time of day.
+export function clockToPicker(input: RulesBuilderClockInput, n: unknown): string {
+  if (input === "date") {
+    const p = clockDateParts(n);
+    return p === null ? "" : String(p.y) + "-" + clockPad2(p.m) + "-" + clockPad2(p.d);
+  }
+  const t = clockTimeParts(n);
+  return t === null ? "" : clockPad2(t.h) + ":" + clockPad2(t.mi);
+}
+
+const CLOCK_DATE_PICKER_RE = /^(\d{4})-(\d{2})-(\d{2})$/;
+const CLOCK_TIME_PICKER_RE = /^(\d{2}):(\d{2})(?::\d{2}(?:\.\d+)?)?$/;
+
+// Picker value string → the stored number, or null for an empty / invalid
+// picker (the builder then keeps the value it already had — it never stores
+// a half-typed date). Seconds a browser may append to a time are ignored.
+export function clockFromPicker(input: RulesBuilderClockInput, s: unknown): number | null {
+  if (typeof s !== "string") return null;
+  if (input === "date") {
+    const m = s.match(CLOCK_DATE_PICKER_RE);
+    if (m === null) return null;
+    const n = parseInt(m[1] ?? "", 10) * 10000 + parseInt(m[2] ?? "", 10) * 100 + parseInt(m[3] ?? "", 10);
+    return clockDateParts(n) === null ? null : n;
+  }
+  const t = s.match(CLOCK_TIME_PICKER_RE);
+  if (t === null) return null;
+  const h = parseInt(t[1] ?? "", 10);
+  const mi = parseInt(t[2] ?? "", 10);
+  if (h > 23 || mi > 59) return null;
+  return h * 100 + mi;
+}
+
+function clockInputOf(field: { input?: unknown } | undefined): RulesBuilderClockInput | undefined {
+  const input = field === undefined ? undefined : field.input;
+  return input === "date" || input === "time" ? input : undefined;
+}
+
+// The value side of a condition in the operator's words, for ONE field: a
+// date / time field's number reads as a date / clock time; otherwise the
+// ADJ-N8 choice resolution above. Exported so every TS sentence surface (e.g.
+// the auction editor's IF sentence) resolves values the same way.
+export function ruleValueText(
+  field: { choices?: readonly RulesBuilderFieldChoice[]; input?: RulesBuilderClockInput } | undefined,
+  value: RulesBuilderPrimitive | undefined,
+): string {
+  const input = clockInputOf(field);
+  if (input !== undefined && typeof value === "number") return clockValueText(input, value);
+  return resolveChoiceValueText(field === undefined ? undefined : field.choices, value);
 }
 
 // ---------------------------------------------------------------------------
@@ -398,12 +517,31 @@ export function serializeRows(rows: readonly RulesBuilderRow[]): string {
 // conditionsSentence signature) keep working unchanged.
 type RulesBuilderValueResolver = (field: string, v: RulesBuilderPrimitive | undefined) => string;
 
+// Owner residual ("Yes/No questions don't show their authored labels", e.g. a
+// TwoButtonYesNo "I own" / "I rent"): a boolean reads as the field's own label
+// for its "true" / "false" choice when the resolver finds one — i.e. the
+// resolver returned neither the bare token ("true") nor its humanized form
+// ("True") — and as Yes / No otherwise (unchanged).
+function boolChoiceLabel(
+  v: boolean,
+  field: string | undefined,
+  valueOf: RulesBuilderValueResolver | undefined,
+): string | null {
+  if (valueOf === undefined || field === undefined) return null;
+  const raw = String(v);
+  const resolved = valueOf(field, v);
+  return resolved !== raw && resolved !== humanizeChoiceToken(raw) ? resolved : null;
+}
+
 function fmtValue(
   v: RulesBuilderPrimitive | undefined,
   field?: string,
   valueOf?: RulesBuilderValueResolver,
 ): string {
-  if (typeof v === "boolean") return v ? "Yes" : "No";
+  if (typeof v === "boolean") {
+    const label = boolChoiceLabel(v, field, valueOf);
+    return label === null ? (v ? "Yes" : "No") : '"' + label + '"';
+  }
   if (typeof v === "number" && valueOf === undefined) return String(v);
   if (v === undefined || v === "") return '""';
   if (valueOf !== undefined && field !== undefined) {
@@ -421,6 +559,13 @@ function fmtList(
 ): string {
   if (!chips || chips.length === 0) return "(no values yet)";
   return chips.map((c) => fmtValue(c.value, field, valueOf)).join(", ");
+}
+
+// A range end: through the value resolver when one is given (a date / time
+// field reads "between 9:30 and 17:00"); a plain number field resolves to the
+// bare number, exactly as before.
+function fmtRangeEnd(n: number, field: string | undefined, valueOf?: RulesBuilderValueResolver): string {
+  return valueOf !== undefined && field !== undefined ? valueOf(field, n) : String(n);
 }
 
 function rowSentence(
@@ -444,7 +589,9 @@ function rowSentence(
     case "lte":
       return label + " is at most " + fmtValue(row.value, f, valueOf);
     case "range":
-      return label + " is between " + String(row.from ?? 0) + " and " + String(row.to ?? 0);
+      return (
+        label + " is between " + fmtRangeEnd(row.from ?? 0, f, valueOf) + " and " + fmtRangeEnd(row.to ?? 0, f, valueOf)
+      );
     case "in":
       return label + " is any of " + fmtList(row.values, f, valueOf);
     case "not_in":
@@ -577,9 +724,9 @@ function labelResolver(fields: readonly RulesBuilderField[]): (field: string) =>
   };
 }
 
-// ADJ-N8 twin of labelResolver for the VALUE side.
+// ADJ-N8 twin of labelResolver for the VALUE side (dates / clock times too).
 function valueResolver(fields: readonly RulesBuilderField[]): RulesBuilderValueResolver {
-  return (field, v) => resolveChoiceValueText(choicesOfField(fields, field), v);
+  return (field, v) => ruleValueText(fieldOf(fields, field), v);
 }
 
 function renderFieldSelect(
@@ -625,8 +772,20 @@ function renderVtypeSelect(vtype: RulesBuilderValueType): string {
   return `<select class="form-select lg-rb-vtype" data-lg-rb-vtype aria-label="Value type">${options}</select>`;
 }
 
-function renderChip(chip: RulesBuilderChip, index: number): string {
-  const display = typeof chip.value === "boolean" ? (chip.value ? "Yes" : "No") : String(chip.value);
+// A chip's visible text: a yes/no answer's own label (else Yes / No), a date /
+// clock time in words on a date / time field, otherwise the stored value.
+function chipText(
+  v: RulesBuilderPrimitive,
+  field: string,
+  valueOf: RulesBuilderValueResolver | undefined,
+  clock: boolean,
+): string {
+  if (typeof v === "boolean") return boolChoiceLabel(v, field, valueOf) ?? (v ? "Yes" : "No");
+  if (typeof v === "number" && clock && valueOf !== undefined) return valueOf(field, v);
+  return String(v);
+}
+
+function renderChip(chip: RulesBuilderChip, index: number, display: string): string {
   const typeHint = chip.vtype === "text" ? "" : ` title="${chip.vtype === "number" ? "Number value" : "Yes/no value"}"`;
   return (
     `<span class="lg-rb-chip" data-lg-rb-chip data-chip-index="${index}"${typeHint}>${escapeHtml(display)}` +
@@ -634,10 +793,49 @@ function renderChip(chip: RulesBuilderChip, index: number): string {
   );
 }
 
-function renderValueZone(row: RulesBuilderRow): string {
+// A date / time field's picker (the stored number shown as the picker's own
+// value string; empty when the number is not a real date / time of day).
+function renderClockPicker(input: RulesBuilderClockInput, n: unknown, cls: string, attr: string, label: string): string {
+  return `<input class="form-input ${cls}" ${attr} type="${input}" aria-label="${label}" value="${escapeHtml(clockToPicker(input, n))}" />`;
+}
+
+function renderClockValueZone(
+  row: RulesBuilderRow,
+  kind: RulesBuilderValueKind,
+  input: RulesBuilderClockInput,
+  valueOf: RulesBuilderValueResolver | undefined,
+): string {
+  if (kind === "range") {
+    return (
+      renderClockPicker(input, row.from, "lg-rb-from", "data-lg-rb-from", "From") +
+      `<span class="lg-rb-joiner">and</span>` +
+      renderClockPicker(input, row.to, "lg-rb-to", "data-lg-rb-to", "To")
+    );
+  }
+  if (kind === "list") {
+    const chips = (row.values ?? [])
+      .map((c, i) => renderChip(c, i, chipText(c.value, row.field, valueOf, true)))
+      .join("");
+    return (
+      `<span class="lg-rb-chips" data-lg-rb-chips>${chips}</span>` +
+      renderClockPicker(input, undefined, "lg-rb-chip-entry", "data-lg-rb-chip-entry", "New value") +
+      `<button type="button" class="btn btn-sm btn-outline" data-lg-rb-chip-add>Add</button>`
+    );
+  }
+  // value (eq / neq) and number (gt / lt / gte / lte): one picker, no type select.
+  return renderClockPicker(input, row.value, "lg-rb-value", "data-lg-rb-value", "Value");
+}
+
+function renderValueZone(
+  row: RulesBuilderRow,
+  fieldMeta?: RulesBuilderField,
+  valueOf?: RulesBuilderValueResolver,
+): string {
   const meta = RULES_BUILDER_OPS.find((op) => op.ui === row.op);
   const kind = meta === undefined ? "value" : meta.kind;
   if (kind === "none") return "";
+  const clock = clockInputOf(fieldMeta);
+  if (clock !== undefined) return renderClockValueZone(row, kind, clock, valueOf);
   if (kind === "number") {
     const v = typeof row.value === "number" ? String(row.value) : "0";
     return `<input class="form-input lg-rb-value" data-lg-rb-value type="number" step="any" aria-label="Value" value="${escapeHtml(v)}" />`;
@@ -652,7 +850,9 @@ function renderValueZone(row: RulesBuilderRow): string {
     );
   }
   if (kind === "list") {
-    const chips = (row.values ?? []).map((c, i) => renderChip(c, i)).join("");
+    const chips = (row.values ?? [])
+      .map((c, i) => renderChip(c, i, chipText(c.value, row.field, valueOf, false)))
+      .join("");
     return (
       `<span class="lg-rb-chips" data-lg-rb-chips>${chips}</span>` +
       `<input class="form-input lg-rb-chip-entry" data-lg-rb-chip-entry type="text" aria-label="New value" />` +
@@ -666,10 +866,12 @@ function renderValueZone(row: RulesBuilderRow): string {
   let control: string;
   if (vtype === "bool") {
     const isNo = row.value === false;
+    const yesText = chipText(true, row.field, valueOf, false);
+    const noText = chipText(false, row.field, valueOf, false);
     control =
       `<select class="form-select lg-rb-value" data-lg-rb-value aria-label="Value">` +
-      `<option value="yes"${isNo ? "" : " selected"}>Yes</option>` +
-      `<option value="no"${isNo ? " selected" : ""}>No</option></select>`;
+      `<option value="yes"${isNo ? "" : " selected"}>${escapeHtml(yesText)}</option>` +
+      `<option value="no"${isNo ? " selected" : ""}>${escapeHtml(noText)}</option></select>`;
   } else if (vtype === "number") {
     const v = typeof row.value === "number" ? String(row.value) : "0";
     control = `<input class="form-input lg-rb-value" data-lg-rb-value type="number" step="any" aria-label="Value" value="${escapeHtml(v)}" />`;
@@ -689,7 +891,7 @@ function renderRow(
     `<div class="lg-rb-row" data-lg-rb-row>` +
     renderFieldSelect(row, fields, extraFields) +
     renderOpSelect(row) +
-    `<span class="lg-rb-val" data-lg-rb-val>${renderValueZone(row)}</span>` +
+    `<span class="lg-rb-val" data-lg-rb-val>${renderValueZone(row, fieldOf(fields, row.field), valueResolver(fields))}</span>` +
     `<button type="button" class="btn btn-sm btn-danger" data-lg-rb-remove aria-label="Remove condition">×</button>` +
     `</div>`
   );
@@ -824,7 +1026,12 @@ function sanitizeFields(fields: readonly RulesBuilderField[] | undefined): Rules
     const label = typeof f["label"] === "string" && f["label"] !== "" ? (f["label"] as string) : internal;
     seen.add(internal);
     const choices = sanitizeFieldChoices(f["choices"]);
-    out.push(choices === undefined ? { internal_field: internal, label } : { internal_field: internal, label, choices });
+    const sanitized: RulesBuilderField =
+      choices === undefined ? { internal_field: internal, label } : { internal_field: internal, label, choices };
+    // A date / time field keeps its picker kind (rides into the island blob).
+    const input = clockInputOf(f as { input?: unknown });
+    if (input !== undefined) sanitized.input = input;
+    out.push(sanitized);
   }
   return out;
 }
@@ -860,10 +1067,10 @@ function sanitizeOffers(offers: readonly RulesBuilderOffer[] | undefined): Rules
 
 // FROZEN INTERFACE — the ui-quotes.ts sibling consumes exactly this.
 // ADJ-N8 widened it ADDITIVELY only: `choices` is optional, so every existing
-// caller type-checks and renders unchanged.
+// caller type-checks and renders unchanged (the date / time `input` likewise).
 export function renderRulesBuilderPanel(data: {
   rules: unknown[];
-  fields: { internal_field: string; label: string; choices?: RulesBuilderFieldChoice[] }[];
+  fields: { internal_field: string; label: string; choices?: RulesBuilderFieldChoice[]; input?: RulesBuilderClockInput }[];
   offers: { public_id: string; name: string }[];
   target_input_id?: string;
 }): string {
@@ -942,6 +1149,68 @@ export const RULES_BUILDER_SCRIPT = `(function () {
   }
   function finiteNum(v) { return typeof v === 'number' && isFinite(v); }
   function trimStr(s) { return s.replace(/^\\s+|\\s+$/g, ''); }
+
+  // ---- date / time-of-day values (mirror of clockValueText / clockToPicker /
+  // clockFromPicker): the stored value is a NUMBER, date YYYYMMDD (20261031),
+  // time HHMM (930 = 9:30), US Eastern; the picker shows its own string.
+
+  var CLOCK_MONTHS = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'];
+  function clockPad2(n) { return n < 10 ? '0' + String(n) : String(n); }
+  function clockIsInt(n) { return typeof n === 'number' && isFinite(n) && Math.floor(n) === n; }
+  function clockDaysInMonth(y, m) {
+    if (m === 2) { return (y % 4 === 0 && y % 100 !== 0) || y % 400 === 0 ? 29 : 28; }
+    return m === 4 || m === 6 || m === 9 || m === 11 ? 30 : 31;
+  }
+  function clockDateParts(n) {
+    if (!clockIsInt(n) || n < 10000101 || n > 99991231) { return null; }
+    var y = Math.floor(n / 10000);
+    var m = Math.floor(n / 100) % 100;
+    var d = n % 100;
+    if (m < 1 || m > 12 || d < 1 || d > clockDaysInMonth(y, m)) { return null; }
+    return { y: y, m: m, d: d };
+  }
+  function clockTimeParts(n) {
+    if (!clockIsInt(n) || n < 0 || n > 2359) { return null; }
+    var mi = n % 100;
+    if (mi > 59) { return null; }
+    return { h: Math.floor(n / 100), mi: mi };
+  }
+  function clockValueText(input, n) {
+    if (input === 'date') {
+      var p = clockDateParts(n);
+      return p === null ? String(n) : String(p.d) + ' ' + CLOCK_MONTHS[p.m - 1] + ' ' + String(p.y);
+    }
+    var t = clockTimeParts(n);
+    return t === null ? String(n) : String(t.h) + ':' + clockPad2(t.mi);
+  }
+  function clockToPicker(input, n) {
+    if (input === 'date') {
+      var p = clockDateParts(n);
+      return p === null ? '' : String(p.y) + '-' + clockPad2(p.m) + '-' + clockPad2(p.d);
+    }
+    var t = clockTimeParts(n);
+    return t === null ? '' : clockPad2(t.h) + ':' + clockPad2(t.mi);
+  }
+  // null = an empty / invalid picker (the row then keeps its stored value).
+  function clockFromPicker(input, s) {
+    if (typeof s !== 'string') { return null; }
+    var m;
+    if (input === 'date') {
+      m = s.match(/^(\\d{4})-(\\d{2})-(\\d{2})$/);
+      if (!m) { return null; }
+      var n = parseInt(m[1], 10) * 10000 + parseInt(m[2], 10) * 100 + parseInt(m[3], 10);
+      return clockDateParts(n) === null ? null : n;
+    }
+    m = s.match(/^(\\d{2}):(\\d{2})(?::\\d{2}(?:\\.\\d+)?)?$/);
+    if (!m) { return null; }
+    var h = parseInt(m[1], 10);
+    var mi = parseInt(m[2], 10);
+    if (h > 23 || mi > 59) { return null; }
+    return h * 100 + mi;
+  }
+  function clockInputOf(meta) {
+    return meta && (meta.input === 'date' || meta.input === 'time') ? meta.input : '';
+  }
 
   // ---- parse (stored conditions text/object -> ui rows) --------------------
 
@@ -1084,9 +1353,11 @@ export const RULES_BUILDER_SCRIPT = `(function () {
   function makeValueOf(fieldsArg) {
     return function (field, v) {
       var raw = (v === undefined || v === null) ? '' : String(v);
-      var i, j, choices;
+      var i, j, choices, clock;
       for (i = 0; i < fieldsArg.length; i++) {
         if (fieldsArg[i].internal_field !== field) { continue; }
+        clock = clockInputOf(fieldsArg[i]);
+        if (clock && typeof v === 'number') { return clockValueText(clock, v); }
         choices = isArr(fieldsArg[i].choices) ? fieldsArg[i].choices : null;
         if (!choices || choices.length === 0) { return raw; }
         for (j = 0; j < choices.length; j++) {
@@ -1097,8 +1368,20 @@ export const RULES_BUILDER_SCRIPT = `(function () {
       return raw;
     };
   }
+  // A yes/no answer's own label ("I own" / "I rent") when the resolver finds
+  // one for "true" / "false" (neither the bare token nor its humanized form);
+  // null keeps Yes / No.
+  function boolLabel(v, field, valueOf) {
+    if (!valueOf || field === undefined) { return null; }
+    var raw = String(v);
+    var resolved = valueOf(field, v);
+    return resolved !== raw && resolved !== humanizeToken(raw) ? resolved : null;
+  }
   function fmtValue(v, field, valueOf) {
-    if (typeof v === 'boolean') { return v ? 'Yes' : 'No'; }
+    if (typeof v === 'boolean') {
+      var bl = boolLabel(v, field, valueOf);
+      return bl === null ? (v ? 'Yes' : 'No') : '"' + bl + '"';
+    }
     if (typeof v === 'number' && !valueOf) { return String(v); }
     if (v === undefined || v === '') { return '""'; }
     if (valueOf && field !== undefined) {
@@ -1115,6 +1398,7 @@ export const RULES_BUILDER_SCRIPT = `(function () {
     for (i = 0; i < chips.length; i++) { parts.push(fmtValue(chips[i].value, field, valueOf)); }
     return parts.join(', ');
   }
+  function fmtRangeEnd(n, field, valueOf) { return valueOf && field !== undefined ? valueOf(field, n) : String(n); }
   function rowSentence(row, labelOf, valueOf) {
     var label = row.field === '' ? '(choose a field)' : labelOf(row.field);
     var f = row.field;
@@ -1124,7 +1408,7 @@ export const RULES_BUILDER_SCRIPT = `(function () {
     if (row.op === 'lt') { return label + ' is less than ' + fmtValue(row.value, f, valueOf); }
     if (row.op === 'gte') { return label + ' is at least ' + fmtValue(row.value, f, valueOf); }
     if (row.op === 'lte') { return label + ' is at most ' + fmtValue(row.value, f, valueOf); }
-    if (row.op === 'range') { return label + ' is between ' + String(finiteNum(row.from) ? row.from : 0) + ' and ' + String(finiteNum(row.to) ? row.to : 0); }
+    if (row.op === 'range') { return label + ' is between ' + fmtRangeEnd(finiteNum(row.from) ? row.from : 0, f, valueOf) + ' and ' + fmtRangeEnd(finiteNum(row.to) ? row.to : 0, f, valueOf); }
     if (row.op === 'in') { return label + ' is any of ' + fmtList(row.values, f, valueOf); }
     if (row.op === 'not_in') { return label + ' is none of ' + fmtList(row.values, f, valueOf); }
     if (row.op === 'is_empty') { return label + ' is empty'; }
@@ -1257,6 +1541,63 @@ export const RULES_BUILDER_SCRIPT = `(function () {
     return sel;
   }
 
+  // A chip's (and the yes/no select's) visible text: the yes/no answer's own
+  // label, a date / clock time in words, otherwise the stored value.
+  function chipText(state, field, v) {
+    if (typeof v === 'boolean') {
+      var bl = boolLabel(v, field, state.valueOf);
+      return bl === null ? (v ? 'Yes' : 'No') : bl;
+    }
+    if (typeof v === 'number' && state.valueOf && clockInputOf(fieldMetaOf(state, field))) { return state.valueOf(field, v); }
+    return String(v);
+  }
+
+  // PM follow-up: a date / time field gets the browser's calendar / clock
+  // picker in place of a typed number; the row keeps the NUMBER the engine
+  // compares. An empty or half-typed picker changes nothing.
+  function clockNum(v) {
+    if (finiteNum(v)) { return v; }
+    var n = parseFloat(String(v));
+    return isFinite(n) ? n : 0;
+  }
+  function clockPicker(input, value, cls, label, onPick) {
+    var pick = el('input', 'form-input ' + cls);
+    pick.type = input;
+    pick.setAttribute('aria-label', label);
+    pick.value = clockToPicker(input, value);
+    var take = function () {
+      var n = clockFromPicker(input, pick.value);
+      if (n !== null) { onPick(n); }
+    };
+    pick.addEventListener('input', take);
+    pick.addEventListener('change', take);
+    return pick;
+  }
+  function renderClockControls(state, row, zone, kind, input) {
+    if (kind === 'range') {
+      if (!finiteNum(row.from)) { row.from = 0; }
+      if (!finiteNum(row.to)) { row.to = 0; }
+      var from = clockPicker(input, row.from, 'lg-rb-from', 'From', function (n) {
+        if (n !== row.from) { row.from = n; writeOut(state); }
+      });
+      var joiner = el('span', 'lg-rb-joiner');
+      joiner.textContent = 'and';
+      var to = clockPicker(input, row.to, 'lg-rb-to', 'To', function (n) {
+        if (n !== row.to) { row.to = n; writeOut(state); }
+      });
+      zone.appendChild(from);
+      zone.appendChild(joiner);
+      zone.appendChild(to);
+      return;
+    }
+    // value (eq / neq) and number (gt / lt / gte / lte): one picker, no type select.
+    row.value = clockNum(row.value);
+    row.vtype = 'number';
+    zone.appendChild(clockPicker(input, row.value, 'lg-rb-value', 'Value', function (n) {
+      if (n !== row.value) { row.value = n; writeOut(state); }
+    }));
+  }
+
   function convertRowToOp(row, ui) {
     var kind = opKind(ui);
     if (kind === 'value') {
@@ -1290,6 +1631,8 @@ export const RULES_BUILDER_SCRIPT = `(function () {
     clearNode(zone);
     var kind = opKind(row.op);
     if (kind === 'none') { return; }
+    var clock = clockInputOf(fieldMetaOf(state, row.field));
+    if (clock && kind !== 'list') { renderClockControls(state, row, zone, kind, clock); return; }
 
     if (kind === 'number') {
       var num = el('input', 'form-input lg-rb-value');
@@ -1346,7 +1689,7 @@ export const RULES_BUILDER_SCRIPT = `(function () {
           (function (idx) {
             var chip = el('span', 'lg-rb-chip');
             var v = chips[idx].value;
-            chip.appendChild(document.createTextNode(typeof v === 'boolean' ? (v ? 'Yes' : 'No') : String(v)));
+            chip.appendChild(document.createTextNode(chipText(state, row.field, v)));
             if (chips[idx].vtype === 'number') { chip.title = 'Number value'; }
             if (chips[idx].vtype === 'bool') { chip.title = 'Yes/no value'; }
             var rm = el('button');
@@ -1366,7 +1709,8 @@ export const RULES_BUILDER_SCRIPT = `(function () {
       renderChips();
 
       var entry = el('input', 'form-input lg-rb-chip-entry');
-      entry.type = 'text';
+      // a date / time field: the entry is the picker itself (numeric chips)
+      entry.type = clock || 'text';
       entry.setAttribute('aria-label', 'New value');
       var entryType = el('select', 'form-select lg-rb-chip-vtype');
       entryType.setAttribute('aria-label', 'New value type');
@@ -1383,7 +1727,11 @@ export const RULES_BUILDER_SCRIPT = `(function () {
       addBtn.textContent = 'Add';
       var addChip = function () {
         var rawText = entry.value;
-        if (entryType.value === 'number') {
+        if (clock) {
+          var clockValue = clockFromPicker(clock, rawText);
+          if (clockValue === null) { entry.focus(); return; }
+          chips.push({ vtype: 'number', value: clockValue });
+        } else if (entryType.value === 'number') {
           var n = parseFloat(rawText);
           if (!isFinite(n)) { entry.focus(); return; }
           chips.push({ vtype: 'number', value: n });
@@ -1423,7 +1771,7 @@ export const RULES_BUILDER_SCRIPT = `(function () {
         zone.appendChild(addAnswer);
       }
       zone.appendChild(entry);
-      zone.appendChild(entryType);
+      if (!clock) { zone.appendChild(entryType); }
       zone.appendChild(addBtn);
       return;
     }
@@ -1487,10 +1835,10 @@ export const RULES_BUILDER_SCRIPT = `(function () {
       boolSel.setAttribute('aria-label', 'Value');
       var oYes = el('option');
       oYes.value = 'yes';
-      oYes.textContent = 'Yes';
+      oYes.textContent = chipText(state, row.field, true);
       var oNo = el('option');
       oNo.value = 'no';
-      oNo.textContent = 'No';
+      oNo.textContent = chipText(state, row.field, false);
       boolSel.appendChild(oYes);
       boolSel.appendChild(oNo);
       boolSel.value = row.value === false ? 'no' : 'yes';
@@ -1610,6 +1958,9 @@ export const RULES_BUILDER_SCRIPT = `(function () {
       row.vtype = opKind(row.op) === 'number' ? 'number' : undefined;
       row.vtypeTouched = false;
       if (opKind(row.op) === 'list') { row.values = []; }
+      // a date / time field starts its range afresh too (the previous
+      // field's numbers would read as nonsense dates)
+      if (opKind(row.op) === 'range' && clockInputOf(fieldMetaOf(state, row.field))) { row.from = 0; row.to = 0; }
       renderCardBody(state);
       writeOut(state);
     });
@@ -1903,6 +2254,10 @@ export const RULES_BUILDER_SCRIPT = `(function () {
     serializeRows: serializeRows,
     normalizeClusterOrder: normalizeClusterOrder,
     cardSentence: cardSentence,
+    makeValueOf: makeValueOf,
+    clockValueText: clockValueText,
+    clockToPicker: clockToPicker,
+    clockFromPicker: clockFromPicker,
     mount: mount,
     getValues: getValues,
     ops: OP_META
@@ -2161,7 +2516,11 @@ function qrValueText(g: Record<string, unknown>, field: string, data: QuoteRules
     return vals.map((v) => resolveChoiceValueText(choices, v as RulesBuilderPrimitive)).join(", ");
   }
   const v = g["value"];
-  if (typeof v === "boolean") return v ? "Yes" : "No";
+  if (typeof v === "boolean") {
+    // A yes/no question's own label ("I own" / "I rent") when it has one.
+    const resolved = resolveChoiceValueText(choices, v);
+    return resolved !== String(v) && resolved !== humanizeChoiceToken(String(v)) ? resolved : v ? "Yes" : "No";
+  }
   if (v === undefined || v === null) return "";
   return resolveChoiceValueText(choices, v as RulesBuilderPrimitive);
 }
@@ -2755,7 +3114,11 @@ export const QUOTE_RULES_SCRIPT = `(function () {
   function valueText(g, field) {
     if (g.op === 'range') { return String(g.from == null ? '' : g.from) + '\\u2013' + String(g.to == null ? '' : g.to); }
     if (g.op === 'in' || g.op === 'not_in') { var vals = isArr(g.values) ? g.values : []; var out = []; var i; for (i = 0; i < vals.length; i++) { out.push(choiceValueText(field, vals[i])); } return out.join(', '); }
-    if (typeof g.value === 'boolean') { return g.value ? 'Yes' : 'No'; }
+    if (typeof g.value === 'boolean') {
+      // A yes/no question's own label (mirror of qrValueText).
+      var boolText = choiceValueText(field, g.value);
+      return boolText !== String(g.value) && boolText !== humanizeChoiceToken(String(g.value)) ? boolText : (g.value ? 'Yes' : 'No');
+    }
     return g.value == null ? '' : choiceValueText(field, g.value);
   }
   function conditionChips(rule) {

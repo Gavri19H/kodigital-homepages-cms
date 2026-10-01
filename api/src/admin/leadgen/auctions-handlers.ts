@@ -1222,6 +1222,16 @@ interface PreparedRule {
 // `conditionsHash` — the CANONICAL/stable hash, distinct from the funnel-rule
 // raw-JSON sha). Offer rules need target_offer_id; carrier rules may carry
 // carrier_match_json.
+// PM follow-up (2026-10-02): a Tier-level rule has ONE group of offers, so the
+// waterfall's per-tier wording ("tick one or remove the tier") does not fit it.
+function tierGroupError(waterfallError: string): string {
+  if (waterfallError.startsWith("tier 1 needs at least one offer")) return "a tier-level rule needs at least one offer: tick one";
+  const tooMany = /^tier 1 has more than (\d+) offers$/.exec(waterfallError);
+  if (tooMany) return `a tier-level rule has at most ${tooMany[1]} offers`;
+  if (waterfallError.startsWith("tier 1: ")) return `tier offers: ${waterfallError.slice("tier 1: ".length)}`;
+  return waterfallError;
+}
+
 // 0062: a waterfall's tiers, as posted: [{offer_ids:[…]}, …] (a bare id array
 // per tier is accepted too). Ids are offer row ids; an offer may sit in ONE
 // tier only (it would otherwise be called twice for the same visitor).
@@ -1382,13 +1392,13 @@ async function prepareRule(
   // 0063: a Tier-level rule's group of offers, as one tier.
   if (body["tier_offer_ids"] !== undefined) {
     const parsedGroup = validateWaterfallTiers([body["tier_offer_ids"]]);
-    if (parsedGroup.error !== null) errors["tier_offer_ids"] = parsedGroup.error.replace("tier 1 ", "the tier ");
+    if (parsedGroup.error !== null) errors["tier_offer_ids"] = tierGroupError(parsedGroup.error);
     else tiers = parsedGroup.value;
   }
 
   // level-specific structural checks
   if (ruleLevel === "tier") {
-    if (action === "waterfall") errors["action"] = "a tier-level rule shows its offers (include_only / allow_list) or hides them (exclude / block_list)";
+    if (action === "waterfall") errors["action"] = "a tier-level rule shows its offers (Show only) or hides them (Hide); a waterfall is an offer-level rule";
     if ((tiers === null || tiers.length === 0 || (tiers[0]?.offer_ids.length ?? 0) === 0) && errors["tier_offer_ids"] === undefined) {
       errors["tier_offer_ids"] = "a tier-level rule needs at least one offer";
     }

@@ -241,3 +241,17 @@ describe("the no-match message ships with every funnel", () => {
     expect(CSS).not.toContain(`${SCOPE}[data-lg-auction="filled"] .lg-no-match`);
   });
 });
+
+// PM follow-up 2026-10-02: Back on the results page led to a question page
+// with the old results still under it — and nothing to submit, because the
+// auction runs once per visit (engine finalize). showCompletionState stamps
+// data-lg-complete="1"; one CSS rule takes Back away from that page only.
+describe("the results page has no Back", () => {
+  it("hides Back only once the funnel is complete, above every frame Back style", () => {
+    expect(CSS).toContain(`${SCOPE}[data-lg-complete="1"] .lg-back[data-lg-back]{display:none}`);
+    // no rule hides Back in any other state
+    expect(CSS.match(/\.lg-back\[data-lg-back\]\{display:none\}/g)?.length).toBe(1);
+    // the frame Back styles are at most (0,3,0); this rule is (0,4,0)
+    for (const b of blocks(`${SCOPE} .lg-frame-back--button .lg-back`)) expect(b).not.toContain("!important");
+  });
+});

@@ -2236,6 +2236,11 @@ describeDb("0062 offer waterfall — tiers through the REAL engine (mocked provi
     expect(await disqualifiedWhen([{ field: "hour_et", op: "range", from: 9, to: 17 }], { ...visitor(ANDROID), ...at })).toBe("disqualified");
     expect(await disqualifiedWhen([{ field: "hour_et", op: "range", from: 11, to: 17 }], { ...visitor(ANDROID), ...at })).toBe("ok");
     expect(await disqualifiedWhen([{ field: "weekday_et", op: "eq", value: "thursday" }], { ...visitor(ANDROID), ...at })).toBe("disqualified");
+    // PM follow-up: Time of day with minutes — time_et is HHMM (10:00 → 1000)
+    const at1030 = { now: Date.parse("2026-10-01T14:30:00Z") }; // 10:30 in New York
+    expect(await disqualifiedWhen([{ field: "time_et", op: "range", from: 1015, to: 1045 }], { ...visitor(ANDROID), ...at1030 })).toBe("disqualified");
+    expect(await disqualifiedWhen([{ field: "time_et", op: "range", from: 1031, to: 1045 }], { ...visitor(ANDROID), ...at1030 })).toBe("ok");
+    expect(await disqualifiedWhen([{ field: "time_et", op: "eq", value: 1030 }], { ...visitor(ANDROID), ...at1030 })).toBe("disqualified");
     expect(await disqualifiedWhen([{ field: "date_et", op: "eq", value: 20261001 }], { ...visitor(ANDROID), ...at })).toBe("disqualified");
     // 2026-10-02T02:00:00Z is still Thursday 1 Oct, 22:00, in New York
     expect(await disqualifiedWhen([{ field: "date_et", op: "eq", value: 20261001 }], { ...visitor(ANDROID), now: Date.parse("2026-10-02T02:00:00Z") })).toBe("disqualified");
@@ -2276,6 +2281,47 @@ describeDb("0062 offer waterfall — tiers through the REAL engine (mocked provi
     expect(calls.length).toBe(0);
     expect(shownOffers(ca)).toEqual([fora.offer_public_id]);
     expect(ca.explain.offers_excluded.map((e) => e.reason)).toEqual(["rule_exclude", "rule_exclude"]);
+  });
+
+  it("PM follow-up: a matching Tier-level SHOW rule shows exactly its group — an offer another include rule lets in is not added", async () => {
+    const { sdb, env } = harness();
+    const auction = seedAuction(sdb, { multi_offer: "enabled" });
+    const fundera = providerOffer(sdb, "fundera");
+    const fora = seedOffer(sdb, { dynamic: false, staticBid: 6 });
+    const honest = seedOffer(sdb, { dynamic: false, staticBid: 5 });
+    for (const o of [fundera, fora, honest]) attachOffer(sdb, auction.id, o);
+    const ios = JSON.stringify({ groups: [{ field: "os", op: "eq", value: "ios" }] });
+    sdb
+      .prepare("INSERT INTO leadgen_auction_rules (public_id, auction_id, rule_level, action, conditions_json, conditions_hash, priority, enabled, tiers_json) VALUES (?, ?, 'tier', 'include_only', ?, 'h', 100, 1, ?)")
+      .run(mintPublicId("auction_rule"), auction.id, ios, JSON.stringify({ tiers: [{ offer_ids: [fora.offer_id, honest.offer_id] }] }));
+    // an offer-level "show only Fundera" for the same visitors
+    sdb
+      .prepare("INSERT INTO leadgen_auction_rules (public_id, auction_id, rule_level, action, target_offer_id, conditions_json, conditions_hash, priority, enabled) VALUES (?, ?, 'offer', 'include_only', ?, ?, 'h2', 200, 1)")
+      .run(mintPublicId("auction_rule"), auction.id, fundera.offer_id, ios);
+    const calls = stubFetch(() => yes("Fundera"));
+    const r = await run(env, sdb, auction, visitor(IPHONE));
+    expect(shownOffers(r)).toEqual([fora.offer_public_id, honest.offer_public_id].sort());
+    expect(calls.length).toBe(0); // Fundera is outside the group → not called
+  });
+
+  it("PM follow-up: Eligibility is checked before redirect rules — an ineligible visitor is never redirected", async () => {
+    const { sdb, env } = harness();
+    const auction = seedAuction(sdb, { multi_offer: "enabled" });
+    const amone = providerOffer(sdb, "amone");
+    attachOffer(sdb, auction.id, amone);
+    const variantId = variantWithRules(sdb, [{ type: "eligibility", conditions: { groups: [{ field: "state", op: "eq", value: "CA" }] } }]);
+    sdb
+      .prepare(
+        `INSERT INTO leadgen_funnel_rules (public_id, variant_id, rule_type, conditions_json, conditions_hash, redirect_url, redirect_url_allowlisted, priority, enabled, redirect_pct)
+         VALUES (?, ?, 'redirect_direct_offer', '{"groups":[]}', 'h-redir', 'https://partner.example.com/land', 1, 0, 1, 100)`,
+      )
+      .run(mintPublicId("funnel_rule"), variantId);
+    stubFetch(() => yes("AmONE"));
+    const outside = await runVariant(env, auction, variantId, { request_context: { state: "NY" } });
+    expect(outside.status).toBe("disqualified");
+    expect(outside.explain.unfilled_reason).toBe("not_eligible");
+    const inside = await runVariant(env, auction, variantId, { request_context: { state: "CA" } });
+    expect(inside.status).toBe("redirect"); // an eligible visitor still follows the redirect
   });
 
   it("a 'Present only this offer' attempt is never sent down a waterfall", async () => {

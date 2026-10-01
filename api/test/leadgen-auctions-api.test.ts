@@ -969,6 +969,16 @@ describeDb("leadgen auctions API — Tier-level rules + lgo_ targets (0063)", ()
       expect(bad.status, JSON.stringify(body)).toBe(400);
       expect(((await bad.json()) as { fields: Record<string, string> }).fields[field] ?? "", JSON.stringify(body)).toContain(text);
     }
+    // PM follow-up 2026-10-02: a Tier-level rule has ONE group — its errors
+    // never borrow the waterfall's "remove the tier"; the action error names
+    // the actions in the form's words.
+    const empty = await post({ rule_level: "tier", action: "include_only", tier_offer_ids: [], conditions_json: { groups: [] } });
+    const emptyFields = ((await empty.json()) as { fields: Record<string, string> }).fields;
+    expect(emptyFields["tier_offer_ids"]).toBe("a tier-level rule needs at least one offer: tick one");
+    const wf = await post({ rule_level: "tier", action: "waterfall", traffic_share_pct: 10, tier_offer_ids: [offers[0]!.offer_id], conditions_json: { groups: [] } });
+    const wfAction = ((await wf.json()) as { fields: Record<string, string> }).fields["action"] ?? "";
+    expect(wfAction).toContain("(Show only)");
+    expect(wfAction).not.toContain("include_only");
   });
 
   it("a Tier-level rule clashes only on its own offers: same-priority strictly opposing rules on a SHARED offer → 409", async () => {

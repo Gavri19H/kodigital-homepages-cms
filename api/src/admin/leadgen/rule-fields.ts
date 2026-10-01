@@ -17,6 +17,7 @@
 
 import type { AdminContext } from "./offers-handlers";
 import { ruleFieldEntriesOfContent } from "./ui-quotes";
+import { LEADGEN_COMPONENT_OPERATOR_NAMES } from "../../public/leadgen/components/content-schema";
 
 export interface RuleBuilderChoice {
   value: string;
@@ -32,6 +33,9 @@ export interface RuleBuilderField {
   // label → the exact value a rule stores (typed), for the answers dropdown
   stored_choices?: Array<{ label: string; stored: string | number | boolean }>;
   hint?: string;
+  // PM follow-up: a calendar / clock picker instead of a typed number. The
+  // stored value stays a number — date YYYYMMDD (20261031), time HHMM (930).
+  input?: "date" | "time";
 }
 
 const listed = (pairs: ReadonlyArray<readonly [string, string]>) => ({
@@ -64,8 +68,10 @@ export const VISITOR_RULE_FIELDS: readonly RuleBuilderField[] = [
   { internal_field: "utm_campaign", label: "UTM Campaign", group: "visitor" },
   { internal_field: "utm_content", label: "UTM Content", group: "visitor" },
   { internal_field: "placement", label: "FB Placement", group: "visitor", ...listed(FB_PLACEMENTS) },
-  { internal_field: "date_et", label: "Date (US Eastern)", group: "visitor", hint: "a number like 20261031 (year, month, day)" },
-  { internal_field: "hour_et", label: "Time of day — hour (US Eastern)", group: "visitor", hint: "0–23, e.g. between 9 and 17" },
+  { internal_field: "date_et", label: "Date (US Eastern)", group: "visitor", input: "date" },
+  // hour_et stays in every rule's context (engine.ts) for rules saved before
+  // time_et; new rules pick the minute-level time.
+  { internal_field: "time_et", label: "Time of day (US Eastern)", group: "visitor", input: "time" },
   {
     internal_field: "weekday_et",
     label: "Day of week (US Eastern)",
@@ -93,8 +99,10 @@ function parseContent(raw: string | null): unknown {
 }
 
 // The question fields of these sections, in order, one per answer key, with
-// operator words for labels: the question's label, else its section's name;
-// a label two fields share gets its section's name, then a number.
+// operator words for labels: the question's label, else the Question headline
+// it is asked under, else its section's name. Words two fields share get their
+// section's name (different sections) or their question type (one section:
+// "… (Yes / No)" vs "… (Buttons)"), then a number.
 export function questionRuleFields(sections: readonly SectionRow[]): RuleBuilderField[] {
   const seen = new Set<string>();
   const raw: Array<{ entry: ReturnType<typeof ruleFieldEntriesOfContent>[number]; section: string }> = [];
@@ -107,24 +115,39 @@ export function questionRuleFields(sections: readonly SectionRow[]): RuleBuilder
   }
   const baseOf = (r: (typeof raw)[number]): string => {
     const own = typeof r.entry.label === "string" ? r.entry.label.trim() : "";
-    return own !== "" ? own : r.section;
+    if (own !== "") return own;
+    const asked = typeof r.entry.headline === "string" ? r.entry.headline.trim() : "";
+    return asked !== "" ? asked : r.section;
   };
-  const baseCount = new Map<string, number>();
-  for (const r of raw) baseCount.set(baseOf(r), (baseCount.get(baseOf(r)) ?? 0) + 1);
+  const typeOf = (r: (typeof raw)[number]): string => {
+    const t = r.entry.component_type ?? "";
+    return (LEADGEN_COMPONENT_OPERATOR_NAMES as Readonly<Record<string, string>>)[t] ?? t;
+  };
+  const byBase = new Map<string, Array<(typeof raw)[number]>>();
+  for (const r of raw) byBase.set(baseOf(r), [...(byBase.get(baseOf(r)) ?? []), r]);
   const used = new Map<string, number>();
   return raw.map((r) => {
     const base = baseOf(r);
+    const twins = byBase.get(base) ?? [];
     let label = base;
-    if ((baseCount.get(base) ?? 0) > 1 && base !== r.section) label = `${base} (${r.section})`;
+    if (twins.length > 1) {
+      const sectionsDiffer = new Set(twins.map((t) => t.section)).size > 1;
+      const typesDiffer = new Set(twins.map(typeOf)).size > 1;
+      if (sectionsDiffer && base !== r.section) label = `${base} (${r.section})`;
+      else if (typesDiffer && typeOf(r) !== "") label = `${base} (${typeOf(r)})`;
+    }
     const n = (used.get(label) ?? 0) + 1;
     used.set(label, n);
     if (n > 1) label = `${label} (${n})`;
     const stored = r.entry.stored_choices ?? [];
+    // a Yes / No question has no choices array: its readback words are its
+    // own answer labels ("I own" for true)
+    const choices = r.entry.choices.length > 0 ? r.entry.choices : stored.filter((c) => typeof c.stored === "boolean").map((c) => ({ value: String(c.stored), label: c.label }));
     return {
       internal_field: r.entry.internal_field,
       label,
       group: "question" as const,
-      ...(r.entry.choices.length > 0 ? { choices: r.entry.choices } : {}),
+      ...(choices.length > 0 ? { choices } : {}),
       ...(stored.length > 0 ? { stored_choices: stored } : {}),
     };
   });

@@ -48,8 +48,8 @@ const LG_ENGINE_VERSION = /export const LG_ENGINE_VERSION = "([^"]+)"/.exec(ENGI
 // sha256 of the committed bundle AT LEADGEN_TEMPLATE_VERSION 7 (v7: the shell's no-match block; v6: a shell-CSS
 // bump: the engine differs from v5 only by the version it reports; v5 was
 // b216862a…, v4 53dbaf55…).
-const RUNTIME_BUNDLE_SHA256 = "31a3089475d1ca3cb6823b5a7b1f0035dc04efb1edeb56b8896f2228f481f5a1";
-const RUNTIME_BUNDLE_VERSION = 7;
+const RUNTIME_BUNDLE_SHA256 = "330356c1cc7026e3d8281272a36e5ab21a46a5a2ec2f1d2f503b83753a241fd4";
+const RUNTIME_BUNDLE_VERSION = 8;
 
 describe("the runtime bundle is pinned to its immutable URL version", () => {
   it("engine bytes unchanged, or the version moved with them", () => {

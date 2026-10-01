@@ -56,7 +56,7 @@ import {
   conditionsSentence,
   parseStoredConditions,
   renderRelocatedRulesEditor,
-  resolveChoiceValueText,
+  ruleValueText,
   RELOCATED_RULES_SCRIPT,
   type RelocatedRuleQuote,
 } from "./ui-rules-builder";
@@ -783,7 +783,8 @@ function ifSentence(conditions: unknown, fields: readonly RuleBuilderField[]): s
   const text = conditionsSentence(
     parsed.rows,
     (field) => byField.get(field)?.label ?? field,
-    (field, value) => resolveChoiceValueText(byField.get(field)?.choices, value),
+    // the field's own answer words; a date / time reads "1 Oct 2026" / "9:30"
+    (field, value) => ruleValueText(byField.get(field), value),
   );
   return escapeHtml(text);
 }
@@ -816,14 +817,28 @@ function renderWaterfallRow(r: LeadgenAuctionRuleApi, names: Map<number, string>
 </div>`;
 }
 
+// PM follow-up (2026-10-02, "THEN shows raw words like include_only"): the
+// action in the operator's words. include_only / allow_list are one action
+// and exclude / block_list another (auction-rules.ts INCLUDE/EXCLUDE_ACTIONS);
+// the list says what happens to THIS rule's offers or carriers.
+const RULE_LEVEL_WORDS: Record<string, string> = { offer: "Offer-level", tier: "Tier-level", carrier: "Carrier-level" };
+function ruleThenWords(level: string, action: string): string {
+  const show = action === "include_only" || action === "allow_list";
+  const hide = action === "exclude" || action === "block_list";
+  if (!show && !hide) return action;
+  if (level === "tier") return show ? "show only these offers, together" : "hide these offers";
+  if (level === "carrier") return show ? "show only the matching carriers" : "hide the matching carriers";
+  return show ? "show only this offer" : "hide this offer";
+}
+
 function renderRuleRow(r: LeadgenAuctionRuleApi, names: Map<number, string>, live: Set<number>, fields: readonly RuleBuilderField[]): string {
   const conditions = JSON.stringify(r.conditions_json ?? { groups: [] });
   const carrierMatch = r.carrier_match_json === null || r.carrier_match_json === undefined ? "" : JSON.stringify(r.carrier_match_json);
   return `<div class="lg-rule-row" data-rule-id="${escapeHtml(r.public_id)}" data-rule-level="${escapeHtml(r.rule_level)}">
   <div class="lg-rule-grid">
-    <span><strong>${escapeHtml(r.rule_level)}</strong> rule</span>
-    <span>THEN <strong>${escapeHtml(r.action)}</strong></span>
-    <span>priority ${r.priority}${r.strictly_override ? " · strictly_override" : ""}${r.enabled ? "" : " · disabled"}${r.traffic_share_pct !== null ? ` · <span data-rule-share>${escapeHtml(shareLabel(r.traffic_share_pct))}</span>` : ""}</span>
+    <span><strong>${escapeHtml(RULE_LEVEL_WORDS[r.rule_level] ?? r.rule_level)}</strong> rule</span>
+    <span data-rule-then>THEN <strong>${escapeHtml(ruleThenWords(r.rule_level, r.action))}</strong></span>
+    <span>priority ${r.priority}${r.strictly_override ? " · overrides other rules" : ""}${r.enabled ? "" : " · disabled"}${r.traffic_share_pct !== null ? ` · <span data-rule-share>${escapeHtml(shareLabel(r.traffic_share_pct))}</span>` : ""}</span>
   </div>
   ${
     r.rule_level === "tier"
@@ -894,7 +909,7 @@ ${tierRules.length > 0 ? `<h4>Tier-level</h4>${tierRules.map(row).join("")}` : "
 <h4>Carrier-level</h4>${carrierRules.map(row).join("") || `<p class="form-help">None.</p>`}`;
   return `<div class="lg-apanel" data-panel="rules">
   <div class="card">
-    <h3>Rules — offer-level &amp; carrier-level IF/THEN</h3>
+    <h3>Rules — IF/THEN for offers, tiers and carriers</h3>
     <div id="lg-a-rules-list">${rulesHtml}</div>
     <p id="lg-a-rules-msg" class="form-help" hidden></p>
   </div>
@@ -907,7 +922,7 @@ ${tierRules.length > 0 ? `<h4>Tier-level</h4>${tierRules.map(row).join("")}` : "
       </div>
       <div class="form-group">
         <label class="form-label" for="lg-r-action">THEN action</label>
-        <select id="lg-r-action" class="form-select"><option value="include_only">include_only</option><option value="exclude">exclude</option><option value="allow_list">allow_list</option><option value="block_list">block_list</option><option value="waterfall">waterfall — offer tiers</option></select>
+        <select id="lg-r-action" class="form-select"><option value="include_only">Show only</option><option value="exclude">Hide</option><option value="allow_list">Allow list (same as Show only)</option><option value="block_list">Block list (same as Hide)</option><option value="waterfall">Waterfall — offer tiers</option></select>
       </div>
       <div class="form-group">
         <label class="form-label" for="lg-r-priority">Priority</label>
@@ -932,7 +947,7 @@ ${tierRules.length > 0 ? `<h4>Tier-level</h4>${tierRules.map(row).join("")}` : "
     </div>
     <div class="form-group" data-rule-tier-field hidden>
       <label class="form-label">Tier offers</label>
-      <p class="form-help">When the conditions match: <strong>include_only / allow_list</strong> shows only these offers, all together (like an offerwall); <strong>exclude / block_list</strong> hides them.</p>
+      <p class="form-help">When the conditions match: <strong>Show only</strong> shows only these offers, all together (like an offerwall); <strong>Hide</strong> hides them.</p>
       <div class="lg-tier-offers" data-tier-group-offers>${groupBoxes || `<p class="form-help">Add (or enable) participating offers first (Participating Offers tab).</p>`}</div>
     </div>
     <div class="form-group" data-rule-carrier-field hidden>
@@ -947,7 +962,7 @@ ${tierRules.length > 0 ? `<h4>Tier-level</h4>${tierRules.map(row).join("")}` : "
       <input type="hidden" id="lg-r-conditions" value='{"groups":[]}' />
       <script type="application/json" id="lg-r-cond-fields">${fieldsJson}</script>
     </div>
-    <label class="lg-check" data-rule-strictly-field><input type="checkbox" id="lg-r-strictly" /> strictly_override</label>
+    <label class="lg-check" data-rule-strictly-field><input type="checkbox" id="lg-r-strictly" /> Overrides other rules for this offer</label>
     <label class="lg-check"><input type="checkbox" id="lg-r-enabled" checked /> enabled</label>
     <div><button type="button" class="btn btn-primary" id="lg-a-rule-add">Add rule</button></div>
     <p id="lg-a-rule-msg" class="form-help" hidden></p>

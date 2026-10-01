@@ -610,7 +610,7 @@ describeDb("leadgen auction editor — Rules: waterfalls + share of traffic (006
 
   it("the builder offers the waterfall action, a share field and a tier template listing the participating offers", async () => {
     const { html } = await editorWithWaterfall();
-    expect(html).toContain('<option value="waterfall">waterfall — offer tiers</option>');
+    expect(html).toContain('<option value="waterfall">Waterfall — offer tiers</option>');
     expect(html).toContain('id="lg-r-share"');
     expect(html).toContain("data-rule-waterfall-field hidden");
     const template = html.split('<template id="lg-r-tier-template">')[1]?.split("</template>")[0] ?? "";
@@ -703,7 +703,7 @@ describeDb("rules condition fields — only this funnel's questions, no ids, ans
     const bank = questions.find((f) => f.internal_field === "field_mruk20kn_l4q4");
     expect(bank?.stored_choices).toEqual([{ label: "Yes", stored: true }, { label: "No", stored: false }]);
     expect(fields.filter((f) => f.group === "visitor").map((f) => f.internal_field)).toEqual([
-      "state", "device", "os", "utm_source", "utm_medium", "utm_campaign", "utm_content", "placement", "date_et", "hour_et", "weekday_et",
+      "state", "device", "os", "utm_source", "utm_medium", "utm_campaign", "utm_content", "placement", "date_et", "time_et", "weekday_et",
     ]);
   });
 
@@ -729,6 +729,56 @@ describeDb("rules condition fields — only this funnel's questions, no ids, ans
     const { RELOCATED_RULES_SCRIPT } = await import("../src/admin/leadgen/ui-rules-builder");
     expect(RELOCATED_RULES_SCRIPT).toContain("/rule-fields");
     expect(RELOCATED_RULES_SCRIPT).not.toContain("/sections?activity=");
+  });
+
+  // PM follow-up 2026-10-02: Date and Time of day are pickers (minutes too).
+  it("Date and Time of day are calendar / clock pickers; the hour-only field is gone", async () => {
+    const { env, variantPub } = await seedFunnel();
+    const { fields } = (await (await admin.request(`${API}/variants/${variantPub}/rule-fields`, {}, env)).json()) as { fields: Array<Field & { input?: string; hint?: string }> };
+    expect(fields.find((f) => f.internal_field === "date_et")).toMatchObject({ label: "Date (US Eastern)", input: "date" });
+    expect(fields.find((f) => f.internal_field === "time_et")).toMatchObject({ label: "Time of day (US Eastern)", input: "time" });
+    expect(fields.some((f) => f.internal_field === "hour_et")).toBe(false);
+    expect(fields.find((f) => f.internal_field === "date_et")?.hint).toBeUndefined(); // no "type a number like 20261031"
+  });
+
+  // PM follow-up 2026-10-02: a Yes / No question's answers are its own words.
+  it("a Yes / No question offers its authored answers (\"I own\" / \"I rent\") and reads a rule back with them", async () => {
+    const { questionRuleFields } = await import("../src/admin/leadgen/rule-fields");
+    const fields = questionRuleFields([
+      { id: 1, section_name: "Home", content_json: JSON.stringify({ components: [
+        { type: "TwoButtonYesNo", question_id: "q_own", internal_field: "homeowner", answer_type: "boolean", props: { label: "Do you own or rent?", yesLabel: "I own", noLabel: "I rent" } },
+        { type: "TwoButtonYesNo", question_id: "q_ins", internal_field: "insured", answer_type: "boolean", props: { label: "Are you insured?" } },
+      ] }) },
+    ]);
+    expect(fields[0]).toMatchObject({
+      label: "Do you own or rent?",
+      stored_choices: [{ label: "I own", stored: true }, { label: "I rent", stored: false }],
+      choices: [{ value: "true", label: "I own" }, { value: "false", label: "I rent" }],
+    });
+    expect(fields[1]?.stored_choices).toEqual([{ label: "Yes", stored: true }, { label: "No", stored: false }]);
+  });
+
+  // PM follow-up 2026-10-02: a question with no label of its own is named by
+  // the headline it is asked under; two such questions by their type.
+  it("a label-less question takes its headline's words; twins under one headline are told apart by type, then number", async () => {
+    const { questionRuleFields } = await import("../src/admin/leadgen/rule-fields");
+    const fields = questionRuleFields([
+      { id: 1, section_name: "Carrier Buttons", content_json: JSON.stringify({ components: [
+        { type: "QuestionHeadline", question_id: "h1", props: { text: "Which carrier do you want a quote from?" } },
+        { type: "ButtonAnswerGroup", question_id: "q_a", internal_field: "carrier_a", answer_type: "enum", choices: [{ label: "Acme", value: "acme" }] },
+        { type: "TwoButtonYesNo", question_id: "q_b", internal_field: "carrier_b", answer_type: "boolean" },
+        { type: "QuestionHeadline", question_id: "h2", props: { text: "Pick two more" } },
+        { type: "ButtonAnswerGroup", question_id: "q_c", internal_field: "carrier_c", answer_type: "enum", choices: [{ label: "Beta", value: "beta" }] },
+        { type: "ButtonAnswerGroup", question_id: "q_d", internal_field: "carrier_d", answer_type: "enum", choices: [{ label: "Gamma", value: "gamma" }] },
+      ] }) },
+    ]);
+    const { LEADGEN_COMPONENT_OPERATOR_NAMES } = await import("../src/public/leadgen/components/content-schema");
+    expect(fields.map((f) => f.label)).toEqual([
+      `Which carrier do you want a quote from? (${LEADGEN_COMPONENT_OPERATOR_NAMES.ButtonAnswerGroup})`,
+      `Which carrier do you want a quote from? (${LEADGEN_COMPONENT_OPERATOR_NAMES.TwoButtonYesNo})`,
+      "Pick two more",
+      "Pick two more (2)",
+    ]);
   });
 
   // Review fix 2026-10-01: when the field list cannot load, the editor says
@@ -806,5 +856,31 @@ describeDb("auction Add-a-rule form — offers by name, Tier-level, readable rul
     expect(html).toContain("IF: Matches when OS is &quot;iOS&quot;.");
     expect(html).toContain("IF: Matches when Device is &quot;Mobile&quot;.");
     expect(html).not.toMatch(/IF: <code>/); // no raw JSON for a rule the builder can read
+  });
+
+  // PM follow-up 2026-10-02 ("THEN shows raw words like include_only")
+  it("THEN reads in words for each level; the form's actions and heading too", async () => {
+    const { html } = await editor();
+    expect(html).toContain("<span><strong>Offer-level</strong> rule</span>");
+    expect(html).toContain("<span data-rule-then>THEN <strong>hide this offer</strong></span>");
+    expect(html).toContain("<span><strong>Tier-level</strong> rule</span>");
+    expect(html).toContain("<span data-rule-then>THEN <strong>show only these offers, together</strong></span>");
+    expect(html).not.toMatch(/THEN <strong>(include_only|exclude|allow_list|block_list)<\/strong>/);
+    expect(html).toContain("<h3>Rules — IF/THEN for offers, tiers and carriers</h3>");
+    expect(html).toContain('<option value="include_only">Show only</option><option value="exclude">Hide</option>');
+    expect(html).toContain("Overrides other rules for this offer");
+    expect(html).not.toContain("> strictly_override</label>");
+  });
+  // PM follow-up 2026-10-02: a rule on the date / time of day reads as a date
+  // and a clock time, not as 20261031 / 930.
+  it("a rule on Date / Time of day reads \"1 Oct 2026\" / \"between 9:30 and 17:00\" in the list", async () => {
+    const { env, auctionPub, ids } = await editor();
+    const res = await admin.request(`${API}/auctions/${auctionPub}/rules`, jsonInit("POST", {
+      rule_level: "offer", action: "exclude", target_offer_id: ids.fora,
+      conditions_json: { groups: [{ field: "date_et", op: "eq", value: 20261001 }, { field: "time_et", op: "range", from: 930, to: 1700 }] },
+    }), env);
+    expect(res.status, await res.clone().text()).toBe(201);
+    const html = await getHtml(env, `/admin/leadgen/auction/${auctionPub}/edit`);
+    expect(html).toContain("IF: Matches when Date (US Eastern) is &quot;1 Oct 2026&quot; and Time of day (US Eastern) is between 9:30 and 17:00.");
   });
 });

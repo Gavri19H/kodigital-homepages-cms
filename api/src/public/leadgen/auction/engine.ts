@@ -218,7 +218,7 @@ export interface AuctionBundle {
   // 0063 Tier-level SHOW rules (include family): when one applies to the
   // visitor, the offers it names are shown together (offerwall). Their
   // include/exclude effect itself rides offer_rules (one entry per offer).
-  tier_show_rules?: Array<{ rule_id: string; conditions: LeadgenRuleConditions | null; traffic_share_pct: number | null }>;
+  tier_show_rules?: Array<{ rule_id: string; conditions: LeadgenRuleConditions | null; traffic_share_pct: number | null; offer_ids?: string[]; priority?: number }>;
   banner: { mode: "manual" | "automatic"; field_map_json: unknown } | null;
   banner_config_json: unknown;
   funnel_rules: AuctionFunnelRule[];
@@ -421,7 +421,7 @@ export async function loadAuctionBundle(
         });
       }
       if ((r.action === "include_only" || r.action === "allow_list") && tierOffers.length > 0) {
-        tier_show_rules.push({ rule_id: r.public_id, conditions, traffic_share_pct: trafficSharePct });
+        tier_show_rules.push({ rule_id: r.public_id, conditions, traffic_share_pct: trafficSharePct, offer_ids: tierOffers, priority: r.priority });
       }
       continue;
     }
@@ -1370,6 +1370,14 @@ export async function runAuction(
   // this attempt to one offer (see RunAuctionInput.present_only_offer_id).
   const presentOnly = input.present_only_offer_id ?? null;
   const funnelRules = [...input.bundle.funnel_rules].sort((a, b) => a.priority - b.priority);
+  // OWNER 2026-10-01: Eligibility rules gate who gets results — when the
+  // funnel has any, a visitor matching none of them is not eligible (they get
+  // the no-match page, no offers). Checked FIRST (PM follow-up 2026-10-02): a
+  // redirect is a result too, so an ineligible visitor is never redirected.
+  const eligibilityRules = funnelRules.filter((r) => r.rule_type === "eligibility");
+  if (eligibilityRules.length > 0 && !eligibilityRules.some((r) => conditionsMatch(r.conditions, ruleContext, r.match_mode === "any" ? "any" : "all"))) {
+    return empty("disqualified", 200, null, "not_eligible", null);
+  }
   for (const fr of funnelRules) {
     if (fr.rule_type === "disqualification" && conditionsMatch(fr.conditions, ruleContext, fr.match_mode === "any" ? "any" : "all")) {
       return empty("disqualified", 200, null, "disqualified", null);
@@ -1417,13 +1425,6 @@ export async function runAuction(
   const entryRules = funnelRules.filter((r) => r.rule_type === "auction_entry");
   if (entryRules.length > 0 && !entryRules.some((r) => conditionsMatch(r.conditions, ruleContext, r.match_mode === "any" ? "any" : "all"))) {
     return empty("disqualified", 200, null, "no_auction_entry", null);
-  }
-  // OWNER 2026-10-01: Eligibility rules gate who gets results — when the
-  // funnel has any, a visitor matching none of them is not eligible (they get
-  // the disqualified page, no offers). They used to be saved and never applied.
-  const eligibilityRules = funnelRules.filter((r) => r.rule_type === "eligibility");
-  if (eligibilityRules.length > 0 && !eligibilityRules.some((r) => conditionsMatch(r.conditions, ruleContext, r.match_mode === "any" ? "any" : "all"))) {
-    return empty("disqualified", 200, null, "not_eligible", null);
   }
 
   // Step 5: offer participation -- region rules + caps (READ only) + offer-level
@@ -1997,11 +1998,15 @@ export async function runAuction(
     multi_offer: settings.multi_offer === "disabled" ? ("enabled" as const) : settings.multi_offer,
     surface_static_bid_offers: true,
   };
-  // 0063: a Tier-level SHOW rule applies to this visitor → its offers (already
-  // the only participants, via offer_rules) are shown together.
-  const tierShown = (input.bundle.tier_show_rules ?? []).some(
-    (r) => ruleAppliesToVisitor(r.traffic_share_pct, r.rule_id, visitorKey) && conditionsMatch(r.conditions, ruleContext),
-  );
+  // 0063: a Tier-level SHOW rule applies to this visitor → exactly its group is
+  // shown, all together (ruling: "show only those offers, all together"). An
+  // offer another include rule let in is not added to the group; with several
+  // matching show rules the first by priority wins.
+  const tierShown =
+    (input.bundle.tier_show_rules ?? [])
+      .filter((r) => ruleAppliesToVisitor(r.traffic_share_pct, r.rule_id, visitorKey) && conditionsMatch(r.conditions, ruleContext))
+      .sort((a, b) => (a.priority ?? 0) - (b.priority ?? 0) || (a.rule_id < b.rule_id ? -1 : a.rule_id > b.rule_id ? 1 : 0))[0] ?? null;
+  const tierGroup = tierShown?.offer_ids === undefined ? null : new Set(tierShown.offer_ids);
 
   type AuctionSlice = Awaited<ReturnType<typeof runSlice>>;
   const slices: AuctionSlice[] = [];
@@ -2050,7 +2055,9 @@ export async function runAuction(
       tiers,
     };
   } else {
-    slice = await runSlice(candidates, tierShown ? tierSettings : settings);
+    slice = tierShown !== null
+      ? await runSlice(tierGroup === null ? candidates : candidates.filter((b) => tierGroup.has(b.offer.public_id)), tierSettings)
+      : await runSlice(candidates, settings);
     slices.push(slice);
     if (waterfall !== null) {
       // In this waterfall's share, but its IF conditions do not match this

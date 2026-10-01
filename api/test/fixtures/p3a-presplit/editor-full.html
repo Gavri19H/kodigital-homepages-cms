@@ -10932,6 +10932,68 @@ if (!document.getElementById('toast-animations')) {
   function finiteNum(v) { return typeof v === 'number' && isFinite(v); }
   function trimStr(s) { return s.replace(/^\s+|\s+$/g, ''); }
 
+  // ---- date / time-of-day values (mirror of clockValueText / clockToPicker /
+  // clockFromPicker): the stored value is a NUMBER, date YYYYMMDD (20261031),
+  // time HHMM (930 = 9:30), US Eastern; the picker shows its own string.
+
+  var CLOCK_MONTHS = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'];
+  function clockPad2(n) { return n < 10 ? '0' + String(n) : String(n); }
+  function clockIsInt(n) { return typeof n === 'number' && isFinite(n) && Math.floor(n) === n; }
+  function clockDaysInMonth(y, m) {
+    if (m === 2) { return (y % 4 === 0 && y % 100 !== 0) || y % 400 === 0 ? 29 : 28; }
+    return m === 4 || m === 6 || m === 9 || m === 11 ? 30 : 31;
+  }
+  function clockDateParts(n) {
+    if (!clockIsInt(n) || n < 10000101 || n > 99991231) { return null; }
+    var y = Math.floor(n / 10000);
+    var m = Math.floor(n / 100) % 100;
+    var d = n % 100;
+    if (m < 1 || m > 12 || d < 1 || d > clockDaysInMonth(y, m)) { return null; }
+    return { y: y, m: m, d: d };
+  }
+  function clockTimeParts(n) {
+    if (!clockIsInt(n) || n < 0 || n > 2359) { return null; }
+    var mi = n % 100;
+    if (mi > 59) { return null; }
+    return { h: Math.floor(n / 100), mi: mi };
+  }
+  function clockValueText(input, n) {
+    if (input === 'date') {
+      var p = clockDateParts(n);
+      return p === null ? String(n) : String(p.d) + ' ' + CLOCK_MONTHS[p.m - 1] + ' ' + String(p.y);
+    }
+    var t = clockTimeParts(n);
+    return t === null ? String(n) : String(t.h) + ':' + clockPad2(t.mi);
+  }
+  function clockToPicker(input, n) {
+    if (input === 'date') {
+      var p = clockDateParts(n);
+      return p === null ? '' : String(p.y) + '-' + clockPad2(p.m) + '-' + clockPad2(p.d);
+    }
+    var t = clockTimeParts(n);
+    return t === null ? '' : clockPad2(t.h) + ':' + clockPad2(t.mi);
+  }
+  // null = an empty / invalid picker (the row then keeps its stored value).
+  function clockFromPicker(input, s) {
+    if (typeof s !== 'string') { return null; }
+    var m;
+    if (input === 'date') {
+      m = s.match(/^(\d{4})-(\d{2})-(\d{2})$/);
+      if (!m) { return null; }
+      var n = parseInt(m[1], 10) * 10000 + parseInt(m[2], 10) * 100 + parseInt(m[3], 10);
+      return clockDateParts(n) === null ? null : n;
+    }
+    m = s.match(/^(\d{2}):(\d{2})(?::\d{2}(?:\.\d+)?)?$/);
+    if (!m) { return null; }
+    var h = parseInt(m[1], 10);
+    var mi = parseInt(m[2], 10);
+    if (h > 23 || mi > 59) { return null; }
+    return h * 100 + mi;
+  }
+  function clockInputOf(meta) {
+    return meta && (meta.input === 'date' || meta.input === 'time') ? meta.input : '';
+  }
+
   // ---- parse (stored conditions text/object -> ui rows) --------------------
 
   function entryKeysSupported(g, kind) {
@@ -11073,9 +11135,11 @@ if (!document.getElementById('toast-animations')) {
   function makeValueOf(fieldsArg) {
     return function (field, v) {
       var raw = (v === undefined || v === null) ? '' : String(v);
-      var i, j, choices;
+      var i, j, choices, clock;
       for (i = 0; i < fieldsArg.length; i++) {
         if (fieldsArg[i].internal_field !== field) { continue; }
+        clock = clockInputOf(fieldsArg[i]);
+        if (clock && typeof v === 'number') { return clockValueText(clock, v); }
         choices = isArr(fieldsArg[i].choices) ? fieldsArg[i].choices : null;
         if (!choices || choices.length === 0) { return raw; }
         for (j = 0; j < choices.length; j++) {
@@ -11086,8 +11150,20 @@ if (!document.getElementById('toast-animations')) {
       return raw;
     };
   }
+  // A yes/no answer's own label ("I own" / "I rent") when the resolver finds
+  // one for "true" / "false" (neither the bare token nor its humanized form);
+  // null keeps Yes / No.
+  function boolLabel(v, field, valueOf) {
+    if (!valueOf || field === undefined) { return null; }
+    var raw = String(v);
+    var resolved = valueOf(field, v);
+    return resolved !== raw && resolved !== humanizeToken(raw) ? resolved : null;
+  }
   function fmtValue(v, field, valueOf) {
-    if (typeof v === 'boolean') { return v ? 'Yes' : 'No'; }
+    if (typeof v === 'boolean') {
+      var bl = boolLabel(v, field, valueOf);
+      return bl === null ? (v ? 'Yes' : 'No') : '"' + bl + '"';
+    }
     if (typeof v === 'number' && !valueOf) { return String(v); }
     if (v === undefined || v === '') { return '""'; }
     if (valueOf && field !== undefined) {
@@ -11104,6 +11180,7 @@ if (!document.getElementById('toast-animations')) {
     for (i = 0; i < chips.length; i++) { parts.push(fmtValue(chips[i].value, field, valueOf)); }
     return parts.join(', ');
   }
+  function fmtRangeEnd(n, field, valueOf) { return valueOf && field !== undefined ? valueOf(field, n) : String(n); }
   function rowSentence(row, labelOf, valueOf) {
     var label = row.field === '' ? '(choose a field)' : labelOf(row.field);
     var f = row.field;
@@ -11113,7 +11190,7 @@ if (!document.getElementById('toast-animations')) {
     if (row.op === 'lt') { return label + ' is less than ' + fmtValue(row.value, f, valueOf); }
     if (row.op === 'gte') { return label + ' is at least ' + fmtValue(row.value, f, valueOf); }
     if (row.op === 'lte') { return label + ' is at most ' + fmtValue(row.value, f, valueOf); }
-    if (row.op === 'range') { return label + ' is between ' + String(finiteNum(row.from) ? row.from : 0) + ' and ' + String(finiteNum(row.to) ? row.to : 0); }
+    if (row.op === 'range') { return label + ' is between ' + fmtRangeEnd(finiteNum(row.from) ? row.from : 0, f, valueOf) + ' and ' + fmtRangeEnd(finiteNum(row.to) ? row.to : 0, f, valueOf); }
     if (row.op === 'in') { return label + ' is any of ' + fmtList(row.values, f, valueOf); }
     if (row.op === 'not_in') { return label + ' is none of ' + fmtList(row.values, f, valueOf); }
     if (row.op === 'is_empty') { return label + ' is empty'; }
@@ -11246,6 +11323,63 @@ if (!document.getElementById('toast-animations')) {
     return sel;
   }
 
+  // A chip's (and the yes/no select's) visible text: the yes/no answer's own
+  // label, a date / clock time in words, otherwise the stored value.
+  function chipText(state, field, v) {
+    if (typeof v === 'boolean') {
+      var bl = boolLabel(v, field, state.valueOf);
+      return bl === null ? (v ? 'Yes' : 'No') : bl;
+    }
+    if (typeof v === 'number' && state.valueOf && clockInputOf(fieldMetaOf(state, field))) { return state.valueOf(field, v); }
+    return String(v);
+  }
+
+  // PM follow-up: a date / time field gets the browser's calendar / clock
+  // picker in place of a typed number; the row keeps the NUMBER the engine
+  // compares. An empty or half-typed picker changes nothing.
+  function clockNum(v) {
+    if (finiteNum(v)) { return v; }
+    var n = parseFloat(String(v));
+    return isFinite(n) ? n : 0;
+  }
+  function clockPicker(input, value, cls, label, onPick) {
+    var pick = el('input', 'form-input ' + cls);
+    pick.type = input;
+    pick.setAttribute('aria-label', label);
+    pick.value = clockToPicker(input, value);
+    var take = function () {
+      var n = clockFromPicker(input, pick.value);
+      if (n !== null) { onPick(n); }
+    };
+    pick.addEventListener('input', take);
+    pick.addEventListener('change', take);
+    return pick;
+  }
+  function renderClockControls(state, row, zone, kind, input) {
+    if (kind === 'range') {
+      if (!finiteNum(row.from)) { row.from = 0; }
+      if (!finiteNum(row.to)) { row.to = 0; }
+      var from = clockPicker(input, row.from, 'lg-rb-from', 'From', function (n) {
+        if (n !== row.from) { row.from = n; writeOut(state); }
+      });
+      var joiner = el('span', 'lg-rb-joiner');
+      joiner.textContent = 'and';
+      var to = clockPicker(input, row.to, 'lg-rb-to', 'To', function (n) {
+        if (n !== row.to) { row.to = n; writeOut(state); }
+      });
+      zone.appendChild(from);
+      zone.appendChild(joiner);
+      zone.appendChild(to);
+      return;
+    }
+    // value (eq / neq) and number (gt / lt / gte / lte): one picker, no type select.
+    row.value = clockNum(row.value);
+    row.vtype = 'number';
+    zone.appendChild(clockPicker(input, row.value, 'lg-rb-value', 'Value', function (n) {
+      if (n !== row.value) { row.value = n; writeOut(state); }
+    }));
+  }
+
   function convertRowToOp(row, ui) {
     var kind = opKind(ui);
     if (kind === 'value') {
@@ -11279,6 +11413,8 @@ if (!document.getElementById('toast-animations')) {
     clearNode(zone);
     var kind = opKind(row.op);
     if (kind === 'none') { return; }
+    var clock = clockInputOf(fieldMetaOf(state, row.field));
+    if (clock && kind !== 'list') { renderClockControls(state, row, zone, kind, clock); return; }
 
     if (kind === 'number') {
       var num = el('input', 'form-input lg-rb-value');
@@ -11335,7 +11471,7 @@ if (!document.getElementById('toast-animations')) {
           (function (idx) {
             var chip = el('span', 'lg-rb-chip');
             var v = chips[idx].value;
-            chip.appendChild(document.createTextNode(typeof v === 'boolean' ? (v ? 'Yes' : 'No') : String(v)));
+            chip.appendChild(document.createTextNode(chipText(state, row.field, v)));
             if (chips[idx].vtype === 'number') { chip.title = 'Number value'; }
             if (chips[idx].vtype === 'bool') { chip.title = 'Yes/no value'; }
             var rm = el('button');
@@ -11355,7 +11491,8 @@ if (!document.getElementById('toast-animations')) {
       renderChips();
 
       var entry = el('input', 'form-input lg-rb-chip-entry');
-      entry.type = 'text';
+      // a date / time field: the entry is the picker itself (numeric chips)
+      entry.type = clock || 'text';
       entry.setAttribute('aria-label', 'New value');
       var entryType = el('select', 'form-select lg-rb-chip-vtype');
       entryType.setAttribute('aria-label', 'New value type');
@@ -11372,7 +11509,11 @@ if (!document.getElementById('toast-animations')) {
       addBtn.textContent = 'Add';
       var addChip = function () {
         var rawText = entry.value;
-        if (entryType.value === 'number') {
+        if (clock) {
+          var clockValue = clockFromPicker(clock, rawText);
+          if (clockValue === null) { entry.focus(); return; }
+          chips.push({ vtype: 'number', value: clockValue });
+        } else if (entryType.value === 'number') {
           var n = parseFloat(rawText);
           if (!isFinite(n)) { entry.focus(); return; }
           chips.push({ vtype: 'number', value: n });
@@ -11412,7 +11553,7 @@ if (!document.getElementById('toast-animations')) {
         zone.appendChild(addAnswer);
       }
       zone.appendChild(entry);
-      zone.appendChild(entryType);
+      if (!clock) { zone.appendChild(entryType); }
       zone.appendChild(addBtn);
       return;
     }
@@ -11476,10 +11617,10 @@ if (!document.getElementById('toast-animations')) {
       boolSel.setAttribute('aria-label', 'Value');
       var oYes = el('option');
       oYes.value = 'yes';
-      oYes.textContent = 'Yes';
+      oYes.textContent = chipText(state, row.field, true);
       var oNo = el('option');
       oNo.value = 'no';
-      oNo.textContent = 'No';
+      oNo.textContent = chipText(state, row.field, false);
       boolSel.appendChild(oYes);
       boolSel.appendChild(oNo);
       boolSel.value = row.value === false ? 'no' : 'yes';
@@ -11599,6 +11740,9 @@ if (!document.getElementById('toast-animations')) {
       row.vtype = opKind(row.op) === 'number' ? 'number' : undefined;
       row.vtypeTouched = false;
       if (opKind(row.op) === 'list') { row.values = []; }
+      // a date / time field starts its range afresh too (the previous
+      // field's numbers would read as nonsense dates)
+      if (opKind(row.op) === 'range' && clockInputOf(fieldMetaOf(state, row.field))) { row.from = 0; row.to = 0; }
       renderCardBody(state);
       writeOut(state);
     });
@@ -11892,6 +12036,10 @@ if (!document.getElementById('toast-animations')) {
     serializeRows: serializeRows,
     normalizeClusterOrder: normalizeClusterOrder,
     cardSentence: cardSentence,
+    makeValueOf: makeValueOf,
+    clockValueText: clockValueText,
+    clockToPicker: clockToPicker,
+    clockFromPicker: clockFromPicker,
     mount: mount,
     getValues: getValues,
     ops: OP_META
@@ -12070,7 +12218,11 @@ if (!document.getElementById('toast-animations')) {
   function valueText(g, field) {
     if (g.op === 'range') { return String(g.from == null ? '' : g.from) + '\u2013' + String(g.to == null ? '' : g.to); }
     if (g.op === 'in' || g.op === 'not_in') { var vals = isArr(g.values) ? g.values : []; var out = []; var i; for (i = 0; i < vals.length; i++) { out.push(choiceValueText(field, vals[i])); } return out.join(', '); }
-    if (typeof g.value === 'boolean') { return g.value ? 'Yes' : 'No'; }
+    if (typeof g.value === 'boolean') {
+      // A yes/no question's own label (mirror of qrValueText).
+      var boolText = choiceValueText(field, g.value);
+      return boolText !== String(g.value) && boolText !== humanizeChoiceToken(String(g.value)) ? boolText : (g.value ? 'Yes' : 'No');
+    }
     return g.value == null ? '' : choiceValueText(field, g.value);
   }
   function conditionChips(rule) {
