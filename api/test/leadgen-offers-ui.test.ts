@@ -2250,7 +2250,8 @@ describeDb("offer usage report — auction waterfalls (0062)", () => {
     const body = (await res.json()) as { usage: { kinds: Array<{ kind: string; count: number; items: Array<{ public_id: string; name: string }> }>; delete_eligibility: { eligible: boolean; blocking_kinds: string[] } } };
     const targeting = body.usage.kinds.find((k) => k.kind === "auction_rules_targeting");
     expect(targeting?.count).toBe(1);
-    expect(targeting?.items[0]).toMatchObject({ public_id: "lga_wf_usage", name: "Waterfall Auction" });
+    // the link opens the real editor route (singular /auction/; the plural path 404s)
+    expect(targeting?.items[0]).toMatchObject({ public_id: "lga_wf_usage", name: "Waterfall Auction", link: "/admin/leadgen/auction/lga_wf_usage/edit#rules" });
     expect(body.usage.delete_eligibility.blocking_kinds).toContain("auction_rules_targeting");
     expect(body.usage.delete_eligibility.eligible).toBe(false);
   });

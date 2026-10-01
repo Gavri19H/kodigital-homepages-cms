@@ -379,14 +379,14 @@ export async function loadAuctionBundle(
     const trafficSharePct = typeof r.traffic_share_pct === "number" ? r.traffic_share_pct : null;
     if (r.action === "waterfall") {
       // A tier keeps only the offers that take part in THIS auction (enabled
-      // and active); a tier left with none is dropped. A waterfall with no tier
-      // left keeps its share, so every other waterfall's visitors stay where
-      // they are, and its own visitors get the normal auction (runAuction).
-      const tiers = parseWaterfallTiers(r.tiers_json)
-        .map((t) => ({
-          offer_ids: t.offer_ids.map((id) => offerIdToPublic.get(id)).filter((id): id is string => id !== undefined),
-        }))
-        .filter((t) => t.offer_ids.length > 0);
+      // and active). A tier left with none stays in place (so Tier N in the
+      // trace is Tier N on the Rules tab) and is skipped at run time. A
+      // waterfall with no offer left in any tier keeps its share, so every
+      // other waterfall's visitors stay where they are, and its own visitors
+      // get the normal auction (runAuction).
+      const tiers = parseWaterfallTiers(r.tiers_json).map((t) => ({
+        offer_ids: t.offer_ids.map((id) => offerIdToPublic.get(id)).filter((id): id is string => id !== undefined),
+      }));
       if (trafficSharePct !== null) {
         waterfalls.push({ rule_id: r.public_id, traffic_share_pct: trafficSharePct, conditions, tiers, priority: r.priority });
       }
@@ -1473,7 +1473,7 @@ export async function runAuction(
       if (forced !== undefined) waterfall = { rule: forced, bucket: null, forced: true };
     }
   }
-  const waterfallHasOffers = waterfall !== null && waterfall.rule.tiers.length > 0;
+  const waterfallHasOffers = waterfall !== null && waterfall.rule.tiers.some((t) => t.offer_ids.length > 0);
   const waterfallConditionsMet = waterfall !== null && conditionsMatch(waterfall.rule.conditions, ruleContext);
   const waterfallMatched = waterfallHasOffers && waterfallConditionsMet;
 

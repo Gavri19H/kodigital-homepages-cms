@@ -763,7 +763,7 @@ function tierOfferList(offerIds: readonly number[], names: Map<number, string>, 
     .map((id) => {
       const name = names.get(id);
       if (name === undefined) return `<span class="form-help">offer ${id} (no longer participating — skipped)</span>`;
-      if (!live.has(id)) return `${escapeHtml(name)} <span class="form-help">(participation off — skipped)</span>`;
+      if (!live.has(id)) return `${escapeHtml(name)} <span class="form-help">(not running in this auction — skipped)</span>`;
       return escapeHtml(name);
     })
     .join(" + ");

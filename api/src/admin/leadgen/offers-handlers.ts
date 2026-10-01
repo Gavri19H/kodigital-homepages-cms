@@ -2217,7 +2217,7 @@ export async function buildOfferUsageReport(db: D1Database, offerId: number): Pr
     "auctions_participating",
     await countRefs(
       db,
-      `SELECT a.id, a.public_id, a.auction_name AS name, '/admin/leadgen/auctions/' || a.public_id || '/edit' AS link
+      `SELECT a.id, a.public_id, a.auction_name AS name, '/admin/leadgen/auction/' || a.public_id || '/edit' AS link
        FROM leadgen_auction_offers ao JOIN leadgen_auctions a ON a.id = ao.auction_id
        WHERE ao.offer_id = ? GROUP BY a.id ORDER BY a.auction_name`,
       offerId,
@@ -2225,7 +2225,7 @@ export async function buildOfferUsageReport(db: D1Database, offerId: number): Pr
   );
   const rulesTargeting = await countRefs(
     db,
-    `SELECT a.id, a.public_id, a.auction_name AS name, '/admin/leadgen/auctions/' || a.public_id || '/edit#rules' AS link
+    `SELECT a.id, a.public_id, a.auction_name AS name, '/admin/leadgen/auction/' || a.public_id || '/edit#rules' AS link
      FROM leadgen_auction_rules r JOIN leadgen_auctions a ON a.id = r.auction_id
      WHERE r.target_offer_id = ? GROUP BY a.id ORDER BY a.auction_name`,
     offerId,
@@ -2246,7 +2246,7 @@ export async function buildOfferUsageReport(db: D1Database, offerId: number): Pr
       id: w.auction_id,
       public_id: w.auction_public_id,
       name: w.auction_name,
-      link: `/admin/leadgen/auctions/${w.auction_public_id}/edit#rules`,
+      link: `/admin/leadgen/auction/${w.auction_public_id}/edit#rules`,
     });
   }
   rulesTargeting.sort((x, y) => (x.name < y.name ? -1 : x.name > y.name ? 1 : 0));
@@ -2303,7 +2303,7 @@ export async function buildOfferUsageReport(db: D1Database, offerId: number): Pr
     "auction_backfill_source",
     await countRefs(
       db,
-      `SELECT a.id, a.public_id, a.auction_name AS name, '/admin/leadgen/auctions/' || a.public_id || '/edit' AS link
+      `SELECT a.id, a.public_id, a.auction_name AS name, '/admin/leadgen/auction/' || a.public_id || '/edit' AS link
        FROM leadgen_auctions a WHERE a.backfill_source_offer_id = ? ORDER BY a.auction_name`,
       offerId,
     ),

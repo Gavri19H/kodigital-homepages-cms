@@ -2094,6 +2094,22 @@ describeDb("0062 offer waterfall — tiers through the REAL engine (mocked provi
     expect(r.explain.waterfall?.tiers[0]?.outcome).toBe("shown");
   });
 
+  it("confirmation fix: when a tier's offers leave, the later tiers keep their numbers (trace = Rules tab)", async () => {
+    const { sdb, env } = harness();
+    const auction = seedAuction(sdb, { multi_offer: "enabled" });
+    const amone = providerOffer(sdb, "amone");
+    const fundera = providerOffer(sdb, "fundera");
+    for (const o of [amone, fundera]) attachOffer(sdb, auction.id, o);
+    waterfall(sdb, auction.id, 100, [[amone.offer_id], [fundera.offer_id]]);
+    sdb.prepare("UPDATE leadgen_auction_offers SET enabled = 0 WHERE offer_id = ?").run(amone.offer_id);
+    const calls = stubFetch(() => yes("Fundera"));
+    const r = await run(env, sdb, auction);
+    expect(calls.map((c) => hostOf(c.url))).toEqual(["fundera"]);
+    expect(r.explain.waterfall?.no_offers_left).toBe(false);
+    expect(r.explain.waterfall?.tiers.map((t) => [t.tier, t.outcome])).toEqual([[1, "no_qualifying_offer"], [2, "shown"]]);
+    expect(r.explain.waterfall?.served_tier).toBe(2); // Fundera is Tier 2, as configured
+  });
+
   it("a 'Present only this offer' attempt is never sent down a waterfall", async () => {
     const { sdb, env } = harness();
     const auction = seedAuction(sdb, { multi_offer: "enabled" });

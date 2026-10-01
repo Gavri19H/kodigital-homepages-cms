@@ -632,7 +632,7 @@ describeDb("leadgen auction editor — Rules: waterfalls + share of traffic (006
     const html = await getHtml(env, `/admin/leadgen/auction/${auction.public_id}/edit`);
     expect(html).toMatch(/data-toggle-rule="lgar_[^"]+" data-rule-enabled="1">Disable<\/button>/);
     expect(html).toContain('id="lg-a-rules-msg"');
-    expect(html).toContain('Tier 2: Paused Offer <span class="form-help">(participation off — skipped)</span>');
+    expect(html).toContain('Tier 2: Paused Offer <span class="form-help">(not running in this auction — skipped)</span>');
     const template = html.split('<template id="lg-r-tier-template">')[1]?.split("</template>")[0] ?? "";
     expect(template).toContain("Kept Offer");
     expect(template).not.toContain("Paused Offer");
