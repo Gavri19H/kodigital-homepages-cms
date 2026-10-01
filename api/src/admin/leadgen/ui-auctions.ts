@@ -870,7 +870,7 @@ function liveOfferOptions(participating: ParticipatingOffer[]): Array<[number, s
   return [...offerNamesById(participating)].filter(([id]) => live.has(id));
 }
 
-function renderRulesPanel(rules: LeadgenAuctionRuleApi[], participating: ParticipatingOffer[], fields: readonly RuleBuilderField[] = []): string {
+function renderRulesPanel(rules: LeadgenAuctionRuleApi[], participating: ParticipatingOffer[], fields: readonly RuleBuilderField[] = [], fieldsFailed = false): string {
   const names = offerNamesById(participating);
   const live = liveOfferIds(participating);
   const waterfalls = rules.filter((r) => r.action === "waterfall");
@@ -942,6 +942,7 @@ ${tierRules.length > 0 ? `<h4>Tier-level</h4>${tierRules.map(row).join("")}` : "
     <div class="form-group">
       <label class="form-label">IF — conditions</label>
       <p class="form-help">Pick a funnel question and its answer, or a visitor fact (state, OS, UTM, FB placement, date, time of day). No conditions = always.</p>
+      ${fieldsFailed ? `<p class="alert alert-error" data-rule-fields-error>Could not load this auction's funnel questions — reload the page to try again.</p>` : ""}
       <div id="lg-r-cond-mount" data-rule-cond-mount></div>
       <input type="hidden" id="lg-r-conditions" value='{"groups":[]}' />
       <script type="application/json" id="lg-r-cond-fields">${fieldsJson}</script>
@@ -1090,7 +1091,7 @@ function auctionEditorHtml(
   brand: LeadgenBranding,
   relocatedQuotes: RelocatedRuleQuote[],
   defaultQuotePublicId: string | null,
-  ruleFields: RuleBuilderField[] = [],
+  ruleFields: RuleBuilderField[] | null = [],
 ): string {
   const head = `<div class="lg-editor-head">
     <a href="/admin/leadgen/auction" class="btn btn-outline">&#8592; Auctions</a>
@@ -1117,7 +1118,7 @@ function auctionEditorHtml(
   ${subtabs}
   ${renderSettingsPanel(a, participating, quoteName, quoteOptions)}
   ${renderParticipatingPanel(a, participating, activity, verticals)}
-  ${renderRulesPanel(rules, participating, ruleFields)}
+  ${renderRulesPanel(rules, participating, ruleFields ?? [], ruleFields === null)}
   ${renderRelocatedFunnelRulesPanel(relocatedQuotes, defaultQuotePublicId)}
   ${renderBannerPanel(banner)}
   ${renderSimulatorPanel(rules, participating)}
@@ -1207,7 +1208,7 @@ export async function leadgenAuctionEditorPage(c: UiContext): Promise<Response> 
       branding(c),
       relocatedQuotes,
       defaultQuotePublicId,
-      ruleFieldsRes.ok ? ruleFieldsRes.body.fields : [],
+      ruleFieldsRes.ok ? ruleFieldsRes.body.fields : null,
     ),
   );
 }

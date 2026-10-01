@@ -571,8 +571,10 @@ export async function loadAuctionBundle(
         .bind(variantId)
         .all<{ public_id: string; match_mode: string | null }>();
       for (const m of mm.results ?? []) matchModeById.set(m.public_id, m.match_mode);
-    } catch {
-      /* pre-0043: no match_mode column */
+    } catch (e) {
+      // pre-0043: no match_mode column — only THAT is tolerated; any other
+      // failure is real and surfaces like every other bundle read.
+      if (!/no such column/i.test(String((e as { message?: unknown })?.message ?? e))) throw e;
     }
     for (const r of frRows.results ?? []) {
       funnel_rules.push({

@@ -109,6 +109,27 @@ describe("conditionsMatch — every §21.4 op", () => {
     expect(conditionsMatch(cond([]), {})).toBe(true);
     expect(conditionsMatch(null, {})).toBe(true);
   });
+
+  // Review fix 2026-10-01 (PM: "answer from the funnel question"): a
+  // multi-select answer is an ARRAY at runtime, so "is <answer>" means "picked
+  // it", and every negative op means "picked none of them".
+  it("a multi-select (array) answer: eq/in = picked, neq/not_in = picked none, '' = picked nothing", () => {
+    const picked = { needs: ["equipment", "payroll"] };
+    expect(conditionsMatch(cond([{ field: "needs", op: "eq", value: "payroll" }]), picked)).toBe(true);
+    expect(conditionsMatch(cond([{ field: "needs", op: "eq", value: "real_estate" }]), picked)).toBe(false);
+    expect(conditionsMatch(cond([{ field: "needs", op: "neq", value: "payroll" }]), picked)).toBe(false);
+    expect(conditionsMatch(cond([{ field: "needs", op: "neq", value: "real_estate" }]), picked)).toBe(true);
+    expect(conditionsMatch(cond([{ field: "needs", op: "in", values: ["real_estate", "equipment"] }]), picked)).toBe(true);
+    expect(conditionsMatch(cond([{ field: "needs", op: "not_in", values: ["real_estate", "equipment"] }]), picked)).toBe(false);
+    expect(conditionsMatch(cond([{ field: "needs", op: "not_in", values: ["real_estate"] }]), picked)).toBe(true);
+    expect(conditionsMatch(cond([{ field: "needs", op: "eq", value: "" }]), { needs: [] })).toBe(true);
+    expect(conditionsMatch(cond([{ field: "needs", op: "neq", value: "" }]), picked)).toBe(true);
+    // numbers inside the array compare like a single answer does
+    expect(conditionsMatch(cond([{ field: "ages", op: "gt", value: 60 }]), { ages: [34, 67] })).toBe(true);
+    expect(conditionsMatch(cond([{ field: "ages", op: "gt", value: 70 }]), { ages: [34, 67] })).toBe(false);
+    // a single answer is unchanged
+    expect(conditionsMatch(cond([{ field: "needs", op: "eq", value: "payroll" }]), { needs: "payroll" })).toBe(true);
+  });
 });
 
 // ---------------------------------------------------------------------------

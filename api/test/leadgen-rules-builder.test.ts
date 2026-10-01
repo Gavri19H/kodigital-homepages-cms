@@ -31,6 +31,7 @@ import { runInNewContext } from "node:vm";
 import {
   DEFAULT_RULES_CONDITIONS_INPUT_ID,
   RULES_BUILDER_OPS,
+  RELOCATED_RULES_SCRIPT,
   RULES_BUILDER_SCRIPT,
   parseStoredConditions,
   renderRulesBuilderPanel,
@@ -119,7 +120,7 @@ interface IslandParse {
 interface IslandApi {
   parseConditions(raw: unknown): IslandParse;
   serializeRows(rows: unknown[]): string;
-  cardSentence(rows: unknown[], labelOf: (f: string) => string): string;
+  cardSentence(rows: unknown[], labelOf: (f: string) => string, valueOf?: unknown, joinWord?: string): string;
   getValues(): Array<{ index: number; json: string }>;
   ops: Array<{ ui: string; label: string; kind: string }>;
 }
@@ -628,6 +629,24 @@ describe("rules builder — ES5 island", () => {
       return hit === undefined ? f : hit.label;
     };
     expect(api.cardSentence(parsed.rows ?? [], labelOf)).toBe(sentenceOf(panelFor(ALL_OPS)));
+  });
+
+  // Review fix 2026-10-01: the pop-up's "Match: ANY" used to read "and"
+  // between conditions though the engine (now) ORs them.
+  it("\"Match: ANY\" reads \"or\" between conditions; ALL keeps \"and\"; the pop-up re-words on change", () => {
+    const api = islandApi();
+    const parsed = api.parseConditions(JSON.stringify({ groups: [{ field: "state", op: "eq", value: "CA" }, { field: "device", op: "eq", value: "mobile" }] }));
+    expect(parsed.ok).toBe(true);
+    const labelOf = (f: string): string => f;
+    const all = api.cardSentence(parsed.rows ?? [], labelOf, undefined, "and");
+    const any = api.cardSentence(parsed.rows ?? [], labelOf, undefined, "or");
+    expect(all).toContain(" and ");
+    expect(all).not.toContain(" or ");
+    expect(any).toContain(" or ");
+    expect(any).not.toContain(" and ");
+    expect(RULES_BUILDER_SCRIPT).toContain("joinWord: opts.match === 'any' ? 'or' : 'and'");
+    expect(RULES_BUILDER_SCRIPT).toContain("setMatch: function (mode)");
+    expect(RELOCATED_RULES_SCRIPT).toContain("mountedConditions.setMatch(matchEl.value)");
   });
 });
 

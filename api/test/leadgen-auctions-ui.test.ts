@@ -730,6 +730,23 @@ describeDb("rules condition fields — only this funnel's questions, no ids, ans
     expect(RELOCATED_RULES_SCRIPT).toContain("/rule-fields");
     expect(RELOCATED_RULES_SCRIPT).not.toContain("/sections?activity=");
   });
+
+  // Review fix 2026-10-01: a funnel that ASKS for the state must not list
+  // "State" twice — the visitor's answer is the state a rule tests.
+  it("a question answering `state` replaces the visitor fact of the same key (listed once)", async () => {
+    const { env, sdb, variantPub } = await seedFunnel();
+    const variantId = (sdb.prepare("SELECT id FROM leadgen_funnel_variants WHERE public_id = ?").get(variantPub) as { id: number }).id;
+    const where = seedSection(sdb, "Location", "life", [
+      { type: "DropdownQuestion", question_id: "q_state", internal_field: "state", answer_type: "enum", props: { label: "Which state is your business in?" },
+        choices: [{ label: "California", value: "CA" }, { label: "Texas", value: "TX" }] },
+    ]);
+    sdb.prepare("INSERT INTO leadgen_funnel_variant_sections (variant_id, section_id, position) VALUES (?, ?, 2)").run(variantId, where);
+    const { fields } = (await (await admin.request(`${API}/variants/${variantPub}/rule-fields`, {}, env)).json()) as { fields: Field[] };
+    const states = fields.filter((f) => f.internal_field === "state");
+    expect(states).toHaveLength(1);
+    expect(states[0]).toMatchObject({ group: "question", label: "Which state is your business in?" });
+    expect(fields.filter((f) => f.group === "visitor").map((f) => f.internal_field)).not.toContain("state");
+  });
 });
 
 describeDb("auction Add-a-rule form — offers by name, Tier-level, readable rules (PM feedback)", () => {

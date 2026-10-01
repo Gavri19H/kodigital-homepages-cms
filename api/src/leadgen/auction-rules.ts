@@ -50,6 +50,24 @@ function toConditional(group: LeadgenRuleConditionGroup): LeadgenPayloadConditio
   };
 }
 
+// OWNER 2026-10-01 (review: a multi-select answer never matched — the visitor's
+// answer is a LIST, ["loans"], and "is Loans" compared the list to "loans").
+// For a list answer a rule entry asks about its items: "is X" = the list holds
+// X, "is not X" = it does not, "is one of" = any overlap, "is none of" = no
+// overlap, numbers/ranges = any item; "is empty" = nothing picked. A scalar
+// answer is evaluated exactly as before.
+function entryMet(entry: LeadgenRuleConditionGroup, context: Readonly<Record<string, unknown>>): boolean {
+  const actual = context[entry.field];
+  if (!Array.isArray(actual)) return conditionalMet(toConditional(entry), context);
+  const emptySugar = entry.value === "" && (entry.op === "eq" || entry.op === "neq");
+  if (emptySugar) return entry.op === "eq" ? actual.length === 0 : actual.length > 0;
+  const itemMet = (op: LeadgenRuleConditionGroup["op"], item: unknown): boolean =>
+    conditionalMet(toConditional({ ...entry, field: "__item", op }), { __item: item });
+  if (entry.op === "neq") return !actual.some((item) => itemMet("eq", item));
+  if (entry.op === "not_in") return !actual.some((item) => itemMet("in", item));
+  return actual.some((item) => itemMet(entry.op, item));
+}
+
 // 07 §21.4 (NORMATIVE): entries sharing a `field` are OR'd; distinct fields are
 // AND'd (matchMode="all", the DEFAULT — byte/behavior-identical to every
 // EXISTING caller, which never passes a 3rd argument). Empty/absent groups =
@@ -77,13 +95,13 @@ export function conditionsMatch(
   }
   if (matchMode === "any") {
     for (const entries of byField.values()) {
-      const fieldMet = entries.some((entry) => conditionalMet(toConditional(entry), context));
+      const fieldMet = entries.some((entry) => entryMet(entry, context));
       if (fieldMet) return true; // OR across fields — first satisfied field wins
     }
     return false;
   }
   for (const entries of byField.values()) {
-    const fieldMet = entries.some((entry) => conditionalMet(toConditional(entry), context));
+    const fieldMet = entries.some((entry) => entryMet(entry, context));
     if (!fieldMet) return false; // AND across fields
   }
   return true;

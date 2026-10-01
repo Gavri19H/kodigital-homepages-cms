@@ -138,12 +138,24 @@ export const LG_BUFFERING_MOUNT_HTML =
   '<p class="lg-buffering-subtext">Checking our partner network for your best options</p>' +
   "</div>";
 
+// OWNER 2026-10-01 (Eligibility rules gate who gets offers; review: "an
+// ineligible visitor sees a blank page"): the completion region's message when
+// the auction ends with NO offers — a visitor the funnel's rules turned away,
+// or one no provider matched. The engine stamps data-lg-auction="unfilled" for
+// both, and CSS alone reveals this (default-funnel styles), so the engine
+// bundle stays inside its byte budget.
+export const LG_NO_MATCH_MOUNT_HTML =
+  '<div class="lg-no-match" data-lg-no-match hidden role="status">' +
+  '<p class="lg-no-match-text">Thanks for your answers!</p>' +
+  '<p class="lg-no-match-subtext">We couldn\u2019t find a match for you right now.</p>' +
+  "</div>";
+
 // The 03 §3.3 auction-mount markup serve.ts bakes today — exported so callers
 // and tests share one literal for the `bannersMountHtml` input. Carries the
-// buffering mount as its hidden sibling (both live in the completion region;
-// exactly one is ever visible).
+// buffering and no-match mounts as hidden siblings (all live in the
+// completion region; at most one is ever visible).
 export const LG_BANNERS_MOUNT_HTML =
-  '<div class="lg-banners" data-lg-banners hidden></div>' + LG_BUFFERING_MOUNT_HTML;
+  '<div class="lg-banners" data-lg-banners hidden></div>' + LG_BUFFERING_MOUNT_HTML + LG_NO_MATCH_MOUNT_HTML;
 
 // ---------------------------------------------------------------------------
 // Inputs

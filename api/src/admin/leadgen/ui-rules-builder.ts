@@ -1140,7 +1140,7 @@ export const RULES_BUILDER_SCRIPT = `(function () {
     }
     return out;
   }
-  function cardSentence(rows, labelOf, valueOf) {
+  function cardSentence(rows, labelOf, valueOf, joinWord) {
     if (rows.length === 0) { return 'Always matches \\u2014 no conditions.'; }
     var clusters = clustersOf(normalizeClusterOrder(rows));
     var parts = [];
@@ -1152,7 +1152,7 @@ export const RULES_BUILDER_SCRIPT = `(function () {
       var s = inner.join(' or ');
       parts.push(clusters[i].rows.length > 1 ? '(' + s + ')' : s);
     }
-    return 'Matches when ' + parts.join(' and ') + '.';
+    return 'Matches when ' + parts.join(' ' + (joinWord === 'or' ? 'or' : 'and') + ' ') + '.';
   }
 
   // ---- DOM helpers ----------------------------------------------------------
@@ -1214,7 +1214,7 @@ export const RULES_BUILDER_SCRIPT = `(function () {
       state.ext.value = json;
       if (!silent) { fire(state.ext, 'input'); fire(state.ext, 'change'); }
     }
-    if (state.sentenceEl) { state.sentenceEl.textContent = cardSentence(state.rows, state.labelOf, state.valueOf); }
+    if (state.sentenceEl) { state.sentenceEl.textContent = cardSentence(state.rows, state.labelOf, state.valueOf, state.joinWord); }
     if (state.jsonEl && state.mode !== 'raw') {
       try { state.jsonEl.textContent = JSON.stringify(JSON.parse(json), null, 2); }
       catch (e) { state.jsonEl.textContent = json; }
@@ -1674,7 +1674,7 @@ export const RULES_BUILDER_SCRIPT = `(function () {
       for (i = 0; i < clusters.length; i++) {
         if (i > 0) {
           var andSep = el('div', 'lg-rb-andsep');
-          andSep.textContent = 'and';
+          andSep.textContent = state.joinWord === 'or' ? 'or' : 'and';
           zone.appendChild(andSep);
         }
         var clusterEl = el('div', 'lg-rb-cluster');
@@ -1866,7 +1866,10 @@ export const RULES_BUILDER_SCRIPT = `(function () {
       sentenceEl: sentence,
       jsonEl: pre2,
       addBtn: addBtn,
-      pendingFocus: null
+      pendingFocus: null,
+      // OWNER 2026-10-01: a rule set to "Match: ANY of the following" reads
+      // "or" between its different questions (the engine honours ANY now).
+      joinWord: opts.match === 'any' ? 'or' : 'and'
     };
     states.push(state);
     wireCard(state);
@@ -1874,7 +1877,12 @@ export const RULES_BUILDER_SCRIPT = `(function () {
     writeOut(state, true);
     return {
       state: state,
-      serialize: function () { return serializeRows(state.rows); }
+      serialize: function () { return serializeRows(state.rows); },
+      setMatch: function (mode) {
+        state.joinWord = mode === 'any' ? 'or' : 'and';
+        renderCardBody(state);
+        writeOut(state, true);
+      }
     };
   }
 
@@ -3300,7 +3308,7 @@ export function renderRelocatedRulesEditor(data: RelocatedRulesPanelData): strin
     `<label class="lg-check"><input type="checkbox" id="lg-frr-allowlisted" /> Redirect URL is on the approved list</label>` +
     `</details>` +
     `</div>` +
-    `<div class="lg-rule-action-panel" data-lg-frr-type-panel="eligibility" hidden><p class="form-help">Only visitors who match an Eligibility rule get offers; everyone else sees the not-eligible page. With several Eligibility rules, matching any one is enough.</p></div>` +
+    `<div class="lg-rule-action-panel" data-lg-frr-type-panel="eligibility" hidden><p class="form-help">Only visitors who match an Eligibility rule get offers; everyone else sees “Thanks for your answers! We couldn’t find a match for you right now.” With several Eligibility rules, matching any one is enough.</p></div>` +
     `<div class="lg-rule-action-panel" data-lg-frr-type-panel="disqualification" hidden><p class="form-help">No extra fields — the conditions below decide who is disqualified.</p></div>` +
     `<div class="lg-rule-action-panel" data-lg-frr-type-panel="auction_entry" hidden><p class="form-help">No extra fields — the conditions below decide who enters the auction.</p></div>` +
     `<div class="form-group"><label class="form-label">Conditions</label><div id="lg-frr-cond-mount"></div><input type="hidden" id="lg-frr-cond-out" /></div>` +
@@ -3489,8 +3497,9 @@ export const RELOCATED_RULES_SCRIPT = `(function () {
     fetch(API + '/variants/' + encodeURIComponent(pub) + '/rule-fields')
       .then(function (r) { return r.json(); })
       .then(function (body) {
-        variantFields[pub] = (body && isArr(body.fields)) ? body.fields : [];
-        then(variantFields[pub]);
+        var loaded = (body && isArr(body.fields)) ? body.fields : [];
+        if (loaded.length > 0) { variantFields[pub] = loaded; }
+        then(loaded);
       }, function () { then([]); });
   }
   function onVariantChange() {
@@ -3633,6 +3642,12 @@ export const RELOCATED_RULES_SCRIPT = `(function () {
   var condOut = byId('lg-frr-cond-out');
 
   function showModalError(msg) { if (!modalError) { return; } if (msg) { txt(modalError, msg); modalError.hidden = false; } else { modalError.hidden = true; } }
+  // "Match: ANY" reads "or" between the conditions as soon as it is picked.
+  if (matchEl) {
+    matchEl.addEventListener('change', function () {
+      if (mountedConditions && mountedConditions.setMatch) { mountedConditions.setMatch(matchEl.value); }
+    });
+  }
 
   function populateOfferSelect() {
     if (!offerEl) { return; }
@@ -3683,8 +3698,9 @@ export const RELOCATED_RULES_SCRIPT = `(function () {
       if (mountFor !== currentVariantPub || modal.hidden) { return; }
       if (condMount) { while (condMount.firstChild) { condMount.removeChild(condMount.firstChild); } }
       if (window.lgRulesBuilder && condMount) {
-        try { mountedConditions = window.lgRulesBuilder.mount(condMount, raw, condOut, { fields: fields }); } catch (e) { mountedConditions = null; }
+        try { mountedConditions = window.lgRulesBuilder.mount(condMount, raw, condOut, { fields: fields, match: matchEl.value }); } catch (e) { mountedConditions = null; }
       }
+      if (fields.length === 0) { showModalError('Could not load this funnel\\u2019s questions \\u2014 close and reopen the rule to try again.'); }
     });
   }
   function closeModal() { modal.hidden = true; editingPublicId = null; }

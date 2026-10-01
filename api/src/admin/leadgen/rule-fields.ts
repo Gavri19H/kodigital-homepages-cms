@@ -178,12 +178,20 @@ async function resolveId(db: D1Database, kind: keyof typeof ID_SQL, param: strin
   return row?.id ?? null;
 }
 
+// The questions, then the visitor facts — minus a fact whose key a question
+// already answers (an answered `state` IS the rule's state: the engine lets
+// the declared answer win), so the dropdown never lists the same key twice.
+function withVisitorFacts(questions: RuleBuilderField[]): RuleBuilderField[] {
+  const asked = new Set(questions.map((q) => q.internal_field));
+  return [...questions, ...VISITOR_RULE_FIELDS.filter((f) => !asked.has(f.internal_field))];
+}
+
 // GET /variants/:id/rule-fields — the Funnel eligibility pop-up's fields.
 export async function variantRuleFieldsHandler(c: AdminContext): Promise<Response> {
   const variantId = await resolveId(c.env.DB, "variant", c.req.param("id") ?? "");
   if (variantId === null) return c.json({ error: "Not Found" }, 404);
   const questions = questionRuleFields(await sectionsForVariants(c.env.DB, [variantId]));
-  return c.json({ fields: [...questions, ...VISITOR_RULE_FIELDS] });
+  return c.json({ fields: withVisitorFacts(questions) });
 }
 
 // GET /auctions/:id/rule-fields — the auction "Add a rule" form's fields: the
@@ -195,5 +203,5 @@ export async function auctionRuleFieldsHandler(c: AdminContext): Promise<Respons
     .bind(auctionId)
     .all<{ id: number }>();
   const questions = questionRuleFields(await sectionsForVariants(c.env.DB, (variants.results ?? []).map((v: { id: number }) => v.id)));
-  return c.json({ fields: [...questions, ...VISITOR_RULE_FIELDS] });
+  return c.json({ fields: withVisitorFacts(questions) });
 }

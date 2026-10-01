@@ -155,6 +155,7 @@ const LEADGEN_MIGRATIONS = [
   "0060_leadgen_offer_static_creative.sql", // duplicate copies the static creative
   "0061_leadgen_routing_present_only_offer.sql", // Present only this offer (force_offer_id)
   "0062_leadgen_auction_waterfalls.sql", // waterfall tiers count as offer usage
+  "0063_leadgen_auction_tier_rules.sql", // Tier-level rules (rule_level 'tier') count too
 ] as const;
 
 function createLeadgenDb(DatabaseSync: DatabaseSyncCtor): SqliteDb {
@@ -2253,6 +2254,32 @@ describeDb("offer usage report — auction waterfalls (0062)", () => {
     // the link opens the real editor route (singular /auction/; the plural path 404s)
     expect(targeting?.items[0]).toMatchObject({ public_id: "lga_wf_usage", name: "Waterfall Auction", link: "/admin/leadgen/auction/lga_wf_usage/edit#rules" });
     expect(body.usage.delete_eligibility.blocking_kinds).toContain("auction_rules_targeting");
+    expect(body.usage.delete_eligibility.eligible).toBe(false);
+  });
+
+  // Review fix 2026-10-01: a Tier-level rule (0063) names its group in
+  // tiers_json too, with an include_only / exclude action — it is usage.
+  it("an offer in a Tier-level rule's group lists that auction too (blocking)", async () => {
+    const { env, sdb } = newHarness();
+    const offer = await createOffer(env, "static_no_request", { offer_name: "Group Offer" });
+    sdb
+      .prepare(
+        `INSERT INTO leadgen_auctions (public_id, auction_name, auction_type, winner_logic, floor_type, floor_value, multi_offer,
+           surface_static_bid_offers, banner_slots_count, max_carriers_per_offer, max_total_carriers, backfill, backfill_trigger,
+           remove_clicked_offers, removal_scope, timeout_ms, carrier_normalization_version, status)
+         VALUES ('lga_tier_usage', 'Tier Auction', 'dynamic', 'highest_bid', 'percentage_of_max', 10, 'enabled', 1, 5, 3, 10, 'disabled', 'on_slot_exhaustion', 0, 'offer', 2500, 1, 'active')`,
+      )
+      .run();
+    const auctionId = (sdb.prepare("SELECT id FROM leadgen_auctions WHERE public_id = 'lga_tier_usage'").get() as { id: number }).id;
+    sdb
+      .prepare("INSERT INTO leadgen_auction_rules (public_id, auction_id, rule_level, action, conditions_json, conditions_hash, tiers_json) VALUES (?, ?, 'tier', 'include_only', '{\"groups\":[]}', 'h', ?)")
+      .run(mintPublicId("auction_rule"), auctionId, JSON.stringify({ tiers: [{ offer_ids: [offer.id] }] }));
+    const res = await admin.request(`${API}/offers/${offer.public_id}/usage`, {}, env);
+    expect(res.status, await res.clone().text()).toBe(200);
+    const body = (await res.json()) as { usage: { kinds: Array<{ kind: string; count: number; items: Array<{ public_id: string; name: string }> }>; delete_eligibility: { eligible: boolean; blocking_kinds: string[] } } };
+    const targeting = body.usage.kinds.find((k) => k.kind === "auction_rules_targeting");
+    expect(targeting?.count).toBe(1);
+    expect(targeting?.items[0]).toMatchObject({ public_id: "lga_tier_usage", name: "Tier Auction" });
     expect(body.usage.delete_eligibility.eligible).toBe(false);
   });
 });

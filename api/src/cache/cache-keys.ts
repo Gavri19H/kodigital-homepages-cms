@@ -203,7 +203,11 @@ export function listicleCandidateKey(
 // revalidates to 304 and keeps the washed-out card until an unrelated content
 // edit. Measured locally by the adversarial review (conditional GET → 304).
 // The engine bytes change only by the version string it reports.
-export const LEADGEN_TEMPLATE_VERSION = 6 as const;
+// v7 (2026-10-01, Eligibility rules + "no match" message): the SHELL now bakes
+// a no-match block the auction's "unfilled" state reveals (ineligible /
+// disqualified / nothing matched) — shell markup + CSS changed, so the version
+// moves for the same 304 reason as v6. Engine bytes change only by the version.
+export const LEADGEN_TEMPLATE_VERSION = 7 as const;
 
 const NS_LG_SHELL = "lg-shell";
 const NS_LG_CONFIG = "lg-config";

@@ -22,6 +22,7 @@ import {
   type AntiTamperInput,
 } from "../src/public/leadgen/auction/engine";
 import type { LeadgenAuctionRow, LeadgenSectionRow } from "../src/admin/leadgen/db-types";
+import { ruleFieldEntriesOfContent } from "../src/admin/leadgen/ui-quotes";
 
 // ---------------------------------------------------------------------------
 // node:sqlite harness + D1 shim (the leadgen-auctions-api.test.ts convention)
@@ -2151,6 +2152,32 @@ describeDb("0062 offer waterfall — tiers through the REAL engine (mocked provi
     expect(outside.explain.unfilled_reason).toBe("not_eligible");
     const inside = await runVariant(env, auction, variantId, { request_context: { state: "CA" } });
     expect(inside.status).toBe("ok");
+  });
+
+  it("review fix: a multi-select answer matches the rule built from its answers dropdown (it never could)", async () => {
+    const { sdb, env } = harness();
+    const auction = seedAuction(sdb, { multi_offer: "enabled" });
+    const amone = providerOffer(sdb, "amone");
+    attachOffer(sdb, auction.id, amone);
+    const content = {
+      components: [{
+        type: "MultiChoiceCardGroup", question_id: "q_needs", internal_field: "needs", answer_type: "array", label: "What is the money for?",
+        choices: [{ label: "Equipment", value: "equipment" }, { label: "Payroll", value: "payroll" }, { label: "Real estate", value: "real_estate" }],
+        props: { min: 1, max: 3 },
+      }],
+    };
+    // the value the admin's "Answer from the funnel question" dropdown stores
+    const field = ruleFieldEntriesOfContent(content).find((f) => f.internal_field === "needs");
+    const payroll = field?.stored_choices?.find((c) => c.label === "Payroll")?.stored;
+    expect(payroll).toBe("payroll");
+    const variantId = variantWithRules(sdb, [{ type: "eligibility", conditions: { groups: [{ field: "needs", op: "eq", value: payroll }] } }]);
+    const resolved = makeResolved([{ public_id: "lgs_needs", content_version: 1, content_json: JSON.stringify(content) }]);
+    stubFetch(() => yes("AmONE"));
+    const picked = await runVariant(env, auction, variantId, { resolved, raw_answers: { needs: ["equipment", "payroll"] } });
+    expect(picked.status).toBe("ok");
+    const notPicked = await runVariant(env, auction, variantId, { resolved, raw_answers: { needs: ["equipment", "real_estate"] } });
+    expect(notPicked.status).toBe("disqualified");
+    expect(notPicked.explain.unfilled_reason).toBe("not_eligible");
   });
 
   it("PM feedback: \"Match: ANY of the following\" is honoured (it ran as ALL before)", async () => {
