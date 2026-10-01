@@ -128,6 +128,12 @@ const LG_AUCTIONS_STYLES = `
 .lg-static-only{display:none}
 .lg-auction-static .lg-static-only{display:inline-flex}
 .lg-rule-row{border:1px solid var(--c-border);border-radius:6px;padding:10px;margin-bottom:8px}
+.lg-waterfall-tiers{margin:6px 0;padding:0;list-style:none}
+.lg-waterfall-tiers li{margin:2px 0}
+.lg-tier{border:1px dashed var(--c-border);border-radius:6px;padding:8px 10px;margin-bottom:8px}
+.lg-tier-head{display:flex;justify-content:space-between;align-items:center;gap:8px;margin-bottom:4px}
+.lg-tier-offers{display:flex;flex-wrap:wrap;gap:4px 16px}
+.lg-tier-offers .lg-check{min-width:0;overflow-wrap:anywhere}
 .lg-rule-grid{display:grid;grid-template-columns:repeat(3,1fr);gap:8px}
 @media (max-width:640px){.lg-rule-grid{grid-template-columns:1fr}}
 .lg-banner-mode-panel{display:none}
@@ -729,6 +735,54 @@ function renderParticipatingPanel(a: LeadgenAuctionApi, participating: Participa
 </div>`;
 }
 
+// 0062: "50% of traffic" — the share a rule (or waterfall) applies to.
+function shareLabel(pct: number | null): string {
+  return pct === null ? "all traffic" : `${Number(pct.toFixed(2))}% of traffic`;
+}
+
+// Offer names by offer id, from the participating set (one offer may take part
+// with several placements — the name is the same).
+function offerNamesById(participating: ParticipatingOffer[]): Map<number, string> {
+  const names = new Map<number, string>();
+  for (const p of participating) {
+    if (!names.has(p.offer_id)) names.set(p.offer_id, p.offer_name ?? `offer ${p.offer_id}`);
+  }
+  return names;
+}
+
+function tierOfferList(offerIds: readonly number[], names: Map<number, string>): string {
+  return offerIds
+    .map((id) => {
+      const name = names.get(id);
+      return name === undefined
+        ? `<span class="form-help">offer ${id} (no longer participating — skipped)</span>`
+        : escapeHtml(name);
+    })
+    .join(" + ");
+}
+
+function renderWaterfallRow(r: LeadgenAuctionRuleApi, names: Map<number, string>): string {
+  const conditions = JSON.stringify(r.conditions_json ?? {});
+  const tiers = r.tiers ?? [];
+  const tierItems = tiers
+    .map((t, i) => {
+      const together = t.offer_ids.length > 1 ? ` <span class="form-help">(shown together)</span>` : "";
+      return `<li data-waterfall-tier="${i + 1}">Tier ${i + 1}: ${tierOfferList(t.offer_ids, names)}${together}</li>`;
+    })
+    .join("");
+  const hasConditions = (r.conditions_json?.groups ?? []).length > 0;
+  return `<div class="lg-rule-row" data-rule-id="${escapeHtml(r.public_id)}" data-rule-level="offer" data-rule-action="waterfall">
+  <div class="lg-rule-grid">
+    <span><strong>Waterfall</strong></span>
+    <span data-rule-share>${escapeHtml(shareLabel(r.traffic_share_pct))}</span>
+    <span>priority ${r.priority}${r.enabled ? "" : " · disabled"}</span>
+  </div>
+  <ol class="lg-waterfall-tiers" data-waterfall-tiers>${tierItems}</ol>
+  <p class="form-help">${hasConditions ? `Only visitors matching IF: <code>${escapeHtml(conditions)}</code> — the rest of this share gets the normal auction.` : "Every visitor in this share."}</p>
+  <button type="button" class="btn btn-sm btn-danger" data-delete-rule="${escapeHtml(r.public_id)}">Delete rule</button>
+</div>`;
+}
+
 function renderRuleRow(r: LeadgenAuctionRuleApi): string {
   const conditions = JSON.stringify(r.conditions_json ?? { groups: [] });
   const carrierMatch = r.carrier_match_json === null || r.carrier_match_json === undefined ? "" : JSON.stringify(r.carrier_match_json);
@@ -736,7 +790,7 @@ function renderRuleRow(r: LeadgenAuctionRuleApi): string {
   <div class="lg-rule-grid">
     <span><strong>${escapeHtml(r.rule_level)}</strong> rule</span>
     <span>THEN <strong>${escapeHtml(r.action)}</strong></span>
-    <span>priority ${r.priority}${r.strictly_override ? " · strictly_override" : ""}${r.enabled ? "" : " · disabled"}</span>
+    <span>priority ${r.priority}${r.strictly_override ? " · strictly_override" : ""}${r.enabled ? "" : " · disabled"}${r.traffic_share_pct !== null ? ` · <span data-rule-share>${escapeHtml(shareLabel(r.traffic_share_pct))}</span>` : ""}</span>
   </div>
   ${r.rule_level === "offer" ? `<p class="form-help">target offer id: ${r.target_offer_id ?? EM_DASH}</p>` : `<p class="form-help">carrier match: <code>${escapeHtml(carrierMatch || "{}")}</code></p>`}
   <p class="form-help">IF: <code>${escapeHtml(conditions)}</code></p>
@@ -744,13 +798,40 @@ function renderRuleRow(r: LeadgenAuctionRuleApi): string {
 </div>`;
 }
 
-function renderRulesPanel(rules: LeadgenAuctionRuleApi[]): string {
-  const offerRules = rules.filter((r) => r.rule_level === "offer");
+// OWNER 2026-10-01: how much of the traffic the enabled waterfalls take.
+function renderWaterfallCoverage(waterfalls: LeadgenAuctionRuleApi[]): string {
+  const enabled = waterfalls.filter((w) => w.enabled && w.traffic_share_pct !== null);
+  if (enabled.length === 0) return "";
+  const coveredBp = enabled.reduce((sum, w) => sum + Math.round((w.traffic_share_pct ?? 0) * 100), 0);
+  const covered = coveredBp / 100;
+  const rest = (10000 - coveredBp) / 100;
+  return `<p class="form-help" data-waterfall-coverage>Waterfalls cover <strong>${covered}%</strong> of traffic${rest > 0 ? `; the other ${rest}% get the normal auction` : ""}. Each visitor keeps the same path for their whole session.</p>`;
+}
+
+function renderTierTemplate(participating: ParticipatingOffer[]): string {
+  const names = offerNamesById(participating);
+  const types = new Map<number, string>();
+  for (const p of participating) if (!types.has(p.offer_id)) types.set(p.offer_id, p.offer_type ?? "");
+  const boxes = [...names.entries()]
+    .map(([id, name]) => `<label class="lg-check"><input type="checkbox" data-tier-offer value="${id}" /> ${escapeHtml(name)}${types.get(id) ? ` <span class="form-help">${escapeHtml(types.get(id) ?? "")}</span>` : ""}</label>`)
+    .join("");
+  const offers = boxes === "" ? `<p class="form-help">Add participating offers first (Participating Offers tab).</p>` : boxes;
+  return `<template id="lg-r-tier-template"><div class="lg-tier" data-tier>
+  <div class="lg-tier-head"><strong data-tier-label>Tier 1</strong><button type="button" class="btn btn-sm btn-secondary" data-tier-remove>Remove tier</button></div>
+  <div class="lg-tier-offers">${offers}</div>
+</div></template>`;
+}
+
+function renderRulesPanel(rules: LeadgenAuctionRuleApi[], participating: ParticipatingOffer[]): string {
+  const names = offerNamesById(participating);
+  const waterfalls = rules.filter((r) => r.action === "waterfall");
+  const offerRules = rules.filter((r) => r.rule_level === "offer" && r.action !== "waterfall");
   const carrierRules = rules.filter((r) => r.rule_level === "carrier");
   const rulesHtml =
     rules.length === 0
       ? `<p class="form-help" data-rules-empty>No rules yet.</p>`
-      : `<h4>Offer-level</h4>${offerRules.map(renderRuleRow).join("") || `<p class="form-help">None.</p>`}
+      : `${waterfalls.length > 0 ? `<h4>Waterfalls</h4>${renderWaterfallCoverage(waterfalls)}${waterfalls.map((w) => renderWaterfallRow(w, names)).join("")}` : ""}
+<h4>Offer-level</h4>${offerRules.map(renderRuleRow).join("") || `<p class="form-help">None.</p>`}
 <h4>Carrier-level</h4>${carrierRules.map(renderRuleRow).join("") || `<p class="form-help">None.</p>`}`;
   return `<div class="lg-apanel" data-panel="rules">
   <div class="card">
@@ -760,18 +841,30 @@ function renderRulesPanel(rules: LeadgenAuctionRuleApi[]): string {
   <div class="card" id="lg-a-rule-builder">
     <h4>Add a rule</h4>
     <div class="lg-rule-grid">
-      <div class="form-group">
+      <div class="form-group" data-rule-level-field>
         <label class="form-label" for="lg-r-level">Rule level</label>
         <select id="lg-r-level" class="form-select" data-rule-level-select><option value="offer">Offer-level</option><option value="carrier">Carrier-level</option></select>
       </div>
       <div class="form-group">
         <label class="form-label" for="lg-r-action">THEN action</label>
-        <select id="lg-r-action" class="form-select"><option value="include_only">include_only</option><option value="exclude">exclude</option><option value="allow_list">allow_list</option><option value="block_list">block_list</option></select>
+        <select id="lg-r-action" class="form-select"><option value="include_only">include_only</option><option value="exclude">exclude</option><option value="allow_list">allow_list</option><option value="block_list">block_list</option><option value="waterfall">waterfall — offer tiers</option></select>
       </div>
       <div class="form-group">
         <label class="form-label" for="lg-r-priority">Priority</label>
         <input id="lg-r-priority" type="number" class="form-input" step="1" value="100" />
       </div>
+    </div>
+    <div class="form-group">
+      <label class="form-label" for="lg-r-share">Share of traffic (%)</label>
+      <input id="lg-r-share" type="number" class="form-input" min="0.01" max="100" step="0.01" placeholder="all traffic" />
+      <p class="form-help" data-rule-share-help>Leave blank to apply to all traffic. Each visitor keeps the same share for their whole session.</p>
+    </div>
+    <div class="form-group" data-rule-waterfall-field hidden>
+      <label class="form-label">Tiers — the visitor sees the first tier that shows a result</label>
+      <p class="form-help">Tier 2 is only called if Tier 1 shows nothing, and so on. An offer counts only if the visitor meets its own rules (regions, cap, the rules above). A tier with several offers shows them together, like an offerwall. The waterfalls of an auction split its traffic: together they cover at most 100%.</p>
+      <div id="lg-r-tiers" data-waterfall-tiers-editor></div>
+      <button type="button" class="btn btn-sm btn-secondary" id="lg-r-tier-add">+ Add tier</button>
+      ${renderTierTemplate(participating)}
     </div>
     <div class="form-group" data-rule-offer-field>
       <label class="form-label" for="lg-r-target-offer">Target offer id (offer-level)</label>
@@ -785,7 +878,7 @@ function renderRulesPanel(rules: LeadgenAuctionRuleApi[]): string {
       <label class="form-label" for="lg-r-conditions">IF — conditions JSON (groups[])</label>
       <textarea id="lg-r-conditions" class="form-input" rows="3">{"groups":[]}</textarea>
     </div>
-    <label class="lg-check"><input type="checkbox" id="lg-r-strictly" /> strictly_override</label>
+    <label class="lg-check" data-rule-strictly-field><input type="checkbox" id="lg-r-strictly" /> strictly_override</label>
     <label class="lg-check"><input type="checkbox" id="lg-r-enabled" checked /> enabled</label>
     <div><button type="button" class="btn btn-primary" id="lg-a-rule-add">Add rule</button></div>
     <p id="lg-a-rule-msg" class="form-help" hidden></p>
@@ -852,11 +945,31 @@ function renderBannerPanel(banner: BannerConfig): string {
 // WRITTEN in dry-run (no logs, revenue or cap increments) — but the
 // staging-environment carrier resolve DOES fire (DEV-40 MAJOR-5), so the
 // note must not claim "no provider calls".
-function renderSimulatorPanel(): string {
+function renderSimulatorPanel(rules: LeadgenAuctionRuleApi[], participating: ParticipatingOffer[]): string {
+  // 0062: pick the waterfall path to simulate (only shown when there is one).
+  const names = offerNamesById(participating);
+  const waterfalls = rules.filter((r) => r.action === "waterfall" && r.enabled);
+  const waterfallPicker =
+    waterfalls.length === 0
+      ? ""
+      : `<div class="form-group">
+      <label class="form-label" for="lg-sim-waterfall">Waterfall path</label>
+      <select id="lg-sim-waterfall" class="form-select" data-sim-waterfall>
+        <option value="auto">By visitor share (like a new visitor)</option>
+        ${waterfalls
+          .map((w) => {
+            const path = (w.tiers ?? []).map((t) => t.offer_ids.map((id) => names.get(id) ?? `offer ${id}`).join(" + ")).join(" → ");
+            return `<option value="${escapeHtml(w.public_id)}">${escapeHtml(`${shareLabel(w.traffic_share_pct)}: ${path}`)}</option>`;
+          })
+          .join("")}
+        <option value="none">Normal auction (no waterfall)</option>
+      </select>
+    </div>`;
   return `<div class="lg-apanel" data-panel="simulator">
   <div class="card">
     <h3>Simulator (dry-run)</h3>
     <p class="form-help" data-simulator-dryrun>Dry-run explainability trace against sample answers. No writes; staging-only carrier resolve.</p>
+    ${waterfallPicker}
     <div class="form-group">
       <label class="form-label" for="lg-sim-answers">Sample answers (JSON, optional)</label>
       <textarea id="lg-sim-answers" class="form-textarea" rows="4" data-sim-answers placeholder='{"zip":"90210"}' aria-label="Sample answers JSON"></textarea>
@@ -935,10 +1048,10 @@ function auctionEditorHtml(
   ${subtabs}
   ${renderSettingsPanel(a, participating, quoteName, quoteOptions)}
   ${renderParticipatingPanel(a, participating, activity, verticals)}
-  ${renderRulesPanel(rules)}
+  ${renderRulesPanel(rules, participating)}
   ${renderRelocatedFunnelRulesPanel(relocatedQuotes, defaultQuotePublicId)}
   ${renderBannerPanel(banner)}
-  ${renderSimulatorPanel()}
+  ${renderSimulatorPanel(rules, participating)}
   ${renderAnalyticsPanel()}
   <script type="application/json" id="lg-auction-data">${auctionDataBlob(a)}</script>
 </div>`;
@@ -1337,13 +1450,90 @@ const AUCTION_EDITOR_SCRIPT = `
 
   // --- Rules add/delete -----------------------------------------------------
   var ruleLevelSel = byId('lg-r-level');
+  // 0062 offer waterfall: tiers of participating offers. An offer ticked in
+  // one tier is greyed out in the others (it can sit in one tier only).
+  var ruleActionSel = byId('lg-r-action');
+  var tiersHost = byId('lg-r-tiers');
+  function tierNodes() { return tiersHost ? tiersHost.querySelectorAll('[data-tier]') : []; }
+  function syncTiers() {
+    var tiers = tierNodes();
+    var taken = {};
+    var i, j, boxes, label;
+    for (i = 0; i < tiers.length; i++) {
+      label = tiers[i].querySelector('[data-tier-label]');
+      if (label) { label.textContent = 'Tier ' + (i + 1); }
+      boxes = tiers[i].querySelectorAll('[data-tier-offer]');
+      for (j = 0; j < boxes.length; j++) { if (boxes[j].checked) { taken[boxes[j].value] = i; } }
+    }
+    for (i = 0; i < tiers.length; i++) {
+      boxes = tiers[i].querySelectorAll('[data-tier-offer]');
+      for (j = 0; j < boxes.length; j++) {
+        boxes[j].disabled = !boxes[j].checked && taken[boxes[j].value] !== undefined && taken[boxes[j].value] !== i;
+      }
+    }
+  }
+  function addTier() {
+    var tpl = byId('lg-r-tier-template');
+    if (!tpl || !tpl.content || !tiersHost) { return; }
+    tiersHost.appendChild(document.importNode(tpl.content, true));
+    syncTiers();
+  }
+  function collectTiers() {
+    var out = [];
+    var tiers = tierNodes();
+    var i, j, boxes, ids;
+    for (i = 0; i < tiers.length; i++) {
+      ids = [];
+      boxes = tiers[i].querySelectorAll('[data-tier-offer]');
+      for (j = 0; j < boxes.length; j++) { if (boxes[j].checked) { ids.push(parseInt(boxes[j].value, 10)); } }
+      out.push({ offer_ids: ids });
+    }
+    return out;
+  }
+  if (tiersHost) {
+    tiersHost.addEventListener('click', function (ev) {
+      var el = ev.target;
+      if (!el || !el.getAttribute || el.getAttribute('data-tier-remove') === null) { return; }
+      var tier = el.closest ? el.closest('[data-tier]') : null;
+      if (tier && tier.parentNode) { tier.parentNode.removeChild(tier); }
+      syncTiers();
+    });
+    tiersHost.addEventListener('change', syncTiers);
+  }
+  var tierAddBtn = byId('lg-r-tier-add');
+  if (tierAddBtn) { tierAddBtn.addEventListener('click', addTier); }
+
   function syncRuleFields() {
+    var isWaterfall = ruleActionSel ? ruleActionSel.value === 'waterfall' : false;
+    if (isWaterfall && ruleLevelSel) { ruleLevelSel.value = 'offer'; }
     var lvl = ruleLevelSel ? ruleLevelSel.value : 'offer';
-    setHidden('[data-rule-offer-field]', lvl !== 'offer');
-    setHidden('[data-rule-carrier-field]', lvl !== 'carrier');
+    setHidden('[data-rule-level-field]', isWaterfall);
+    setHidden('[data-rule-offer-field]', isWaterfall || lvl !== 'offer');
+    setHidden('[data-rule-carrier-field]', isWaterfall || lvl !== 'carrier');
+    setHidden('[data-rule-strictly-field]', isWaterfall);
+    setHidden('[data-rule-waterfall-field]', !isWaterfall);
+    var shareHelp = root.querySelector('[data-rule-share-help]');
+    if (shareHelp) {
+      shareHelp.textContent = isWaterfall
+        ? 'Required: the share of visitors who get this waterfall. Each visitor keeps the same path for their whole session.'
+        : 'Leave blank to apply to all traffic. Each visitor keeps the same share for their whole session.';
+    }
+    if (isWaterfall && tierNodes().length === 0) { addTier(); addTier(); }
   }
   if (ruleLevelSel) { ruleLevelSel.addEventListener('change', syncRuleFields); }
+  if (ruleActionSel) { ruleActionSel.addEventListener('change', syncRuleFields); }
   syncRuleFields();
+
+  // A 400's field messages read better than "Validation failed".
+  function errorText(body, fallback) {
+    if (body && body.fields) {
+      var parts = [];
+      var k;
+      for (k in body.fields) { if (Object.prototype.hasOwnProperty.call(body.fields, k)) { parts.push(String(body.fields[k])); } }
+      if (parts.length) { return parts.join(' \\u00b7 '); }
+    }
+    return (body && body.error) ? body.error : fallback;
+  }
 
   function parseJsonField(id, fallback) {
     var raw = val(id).trim();
@@ -1354,19 +1544,34 @@ const AUCTION_EDITOR_SCRIPT = `
     var lvl = val('lg-r-level');
     var conditions = parseJsonField('lg-r-conditions', { groups: [] });
     if (conditions === null) { showMsg('lg-a-rule-msg', 'Conditions must be valid JSON.', false); return; }
-    var payload = {
-      rule_level: lvl,
-      action: val('lg-r-action'),
-      conditions_json: conditions,
-      priority: numVal('lg-r-priority'),
-      strictly_override: isChecked('lg-r-strictly'),
-      enabled: isChecked('lg-r-enabled')
-    };
-    if (lvl === 'offer') { payload.target_offer_id = numVal('lg-r-target-offer'); }
-    else {
-      var cm = parseJsonField('lg-r-carrier-match', {});
-      if (cm === null) { showMsg('lg-a-rule-msg', 'Carrier match must be valid JSON.', false); return; }
-      payload.carrier_match_json = cm;
+    var share = numVal('lg-r-share');
+    var payload;
+    if (val('lg-r-action') === 'waterfall') {
+      payload = {
+        rule_level: 'offer',
+        action: 'waterfall',
+        conditions_json: conditions,
+        priority: numVal('lg-r-priority'),
+        enabled: isChecked('lg-r-enabled'),
+        traffic_share_pct: share,
+        tiers: collectTiers()
+      };
+    } else {
+      payload = {
+        rule_level: lvl,
+        action: val('lg-r-action'),
+        conditions_json: conditions,
+        priority: numVal('lg-r-priority'),
+        strictly_override: isChecked('lg-r-strictly'),
+        enabled: isChecked('lg-r-enabled')
+      };
+      if (share !== null) { payload.traffic_share_pct = share; }
+      if (lvl === 'offer') { payload.target_offer_id = numVal('lg-r-target-offer'); }
+      else {
+        var cm = parseJsonField('lg-r-carrier-match', {});
+        if (cm === null) { showMsg('lg-a-rule-msg', 'Carrier match must be valid JSON.', false); return; }
+        payload.carrier_match_json = cm;
+      }
     }
     fetch(apiBase + '/rules', {
       method: 'POST', credentials: 'same-origin',
@@ -1376,7 +1581,7 @@ const AUCTION_EDITOR_SCRIPT = `
       .then(function (res) {
         if (res.ok) { dirty = false; window.location.reload(); }
         else {
-          var msg = (res.body && res.body.error) ? res.body.error : 'Add failed.';
+          var msg = errorText(res.body, 'Add failed.');
           showMsg('lg-a-rule-msg', (res.status === 409 ? 'Conflict: ' : '') + msg, false);
         }
       });
@@ -1569,6 +1774,25 @@ const AUCTION_EDITOR_SCRIPT = `
       (body.winner && body.winner.offer_id ? ' \\u00b7 winner ' + body.winner.offer_id : '') +
       (body.unfilled_reason ? ' \\u00b7 unfilled: ' + body.unfilled_reason : '')));
     host.appendChild(summary);
+    // 0062: which waterfall path ran and what each tier did.
+    var wf = body.waterfall;
+    var wfLine = makeEl('p', 'form-help');
+    wfLine.setAttribute('data-sim-waterfall-result', '');
+    if (!wf) {
+      wfLine.appendChild(document.createTextNode('Waterfall: none for this visitor \\u2014 the normal auction ran.'));
+    } else if (!wf.conditions_matched) {
+      wfLine.appendChild(document.createTextNode('Waterfall: this visitor is in its ' + wf.traffic_share_pct + '% share but does not match its IF conditions \\u2014 the normal auction ran.'));
+    } else {
+      var outcomes = { shown: 'shown', no_result: 'showed nothing', no_qualifying_offer: 'no offer qualified (not called)', not_reached: 'not called' };
+      var parts = [];
+      var ti2;
+      for (ti2 = 0; ti2 < wf.tiers.length; ti2++) {
+        parts.push('Tier ' + wf.tiers[ti2].tier + ': ' + (outcomes[wf.tiers[ti2].outcome] || wf.tiers[ti2].outcome));
+      }
+      wfLine.appendChild(document.createTextNode('Waterfall (' + wf.traffic_share_pct + '% of traffic' + (wf.forced ? ', chosen here' : '') + '): ' +
+        parts.join(' \\u2192 ') + (wf.served_tier ? '' : ' \\u2014 no tier showed a result.')));
+    }
+    host.appendChild(wfLine);
     var note = makeEl('p', 'form-help');
     note.setAttribute('data-sim-dryrun-note', '');
     note.appendChild(document.createTextNode('Dry-run \\u2014 no writes; staging-only carrier resolve.'));
@@ -1601,7 +1825,7 @@ const AUCTION_EDITOR_SCRIPT = `
     fetch(apiBase + '/simulate', {
       method: 'POST', credentials: 'same-origin',
       headers: { 'content-type': 'application/json', 'Accept': 'application/json' },
-      body: JSON.stringify({ sample_answers: answers, context: context })
+      body: JSON.stringify({ sample_answers: answers, context: context, waterfall: byId('lg-sim-waterfall') ? val('lg-sim-waterfall') : 'auto' })
     }).then(function (r) { return r.json().then(function (j) { return { ok: r.ok, status: r.status, body: j }; }); })
       .then(function (res) {
         if (btn) { btn.disabled = false; }

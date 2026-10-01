@@ -55,9 +55,13 @@ import {
   conditionsMatch,
   evaluateCarrierRules,
   evaluateOfferRules,
+  parseWaterfallTiers,
+  pickWaterfall,
+  ruleAppliesToVisitor,
   type CarrierRuleInput,
   type LeadgenCarrierMatch,
   type OfferRuleInput,
+  type WaterfallRuleInput,
 } from "../../../leadgen/auction-rules";
 import { evaluateRegionRules, type LeadgenRegionRuleInput } from "../../../leadgen/rules";
 import { capExceeded, readCapStatus } from "../../../leadgen/caps";
@@ -95,6 +99,7 @@ import {
   toResultLogRow,
   type AuctionExplainTrace,
   type AuctionResultLogRowInsert,
+  type AuctionWaterfallTrace,
   type ExplainFilteredCarrier,
   type ExplainProviderRequested,
   type ExplainProviderResponded,
@@ -203,6 +208,9 @@ export interface AuctionBundle {
   // Raw S21 rules (both levels) -- split by rule_level at evaluation time.
   offer_rules: OfferRuleInput[];
   carrier_rules: CarrierRuleInput[];
+  // 0062 offer waterfalls (enabled, this auction's). Absent on hand-built
+  // bundles = no waterfall.
+  waterfalls?: WaterfallRuleInput[];
   banner: { mode: "manual" | "automatic"; field_map_json: unknown } | null;
   banner_config_json: unknown;
   funnel_rules: AuctionFunnelRule[];
@@ -351,10 +359,10 @@ export async function loadAuctionBundle(
   }
 
   // --- S21 auction rules (offer + carrier) --------------------------------
+  // SELECT * so a database without 0062 (traffic_share_pct / tiers_json)
+  // loads its rules exactly as before.
   const ruleRows = await db
-    .prepare(
-      "SELECT id, public_id, rule_level, target_offer_id, action, conditions_json, carrier_match_json, strictly_override, priority, enabled FROM leadgen_auction_rules WHERE auction_id = ? AND enabled = 1 ORDER BY priority ASC, id ASC",
-    )
+    .prepare("SELECT * FROM leadgen_auction_rules WHERE auction_id = ? AND enabled = 1 ORDER BY priority ASC, id ASC")
     .bind(auction.id)
     .all<LeadgenAuctionRuleRow>();
 
@@ -365,8 +373,21 @@ export async function loadAuctionBundle(
 
   const offer_rules: OfferRuleInput[] = [];
   const carrier_rules: CarrierRuleInput[] = [];
+  const waterfalls: WaterfallRuleInput[] = [];
   for (const r of ruleRows.results ?? []) {
     const conditions = parseConditions(r.conditions_json);
+    const trafficSharePct = typeof r.traffic_share_pct === "number" ? r.traffic_share_pct : null;
+    if (r.action === "waterfall") {
+      // A tier keeps only offers that take part in THIS auction; a waterfall
+      // without a share or without a tier is inert (never picked).
+      const tiers = parseWaterfallTiers(r.tiers_json).map((t) => ({
+        offer_ids: t.offer_ids.map((id) => offerIdToPublic.get(id)).filter((id): id is string => id !== undefined),
+      }));
+      if (trafficSharePct !== null && tiers.length > 0) {
+        waterfalls.push({ rule_id: r.public_id, traffic_share_pct: trafficSharePct, conditions, tiers, priority: r.priority });
+      }
+      continue;
+    }
     if (r.rule_level === "offer") {
       const targetPublic = r.target_offer_id === null ? "" : offerIdToPublic.get(r.target_offer_id) ?? "";
       offer_rules.push({
@@ -377,6 +398,7 @@ export async function loadAuctionBundle(
         strictly_override: r.strictly_override,
         priority: r.priority,
         enabled: r.enabled,
+        traffic_share_pct: trafficSharePct,
       });
     } else {
       const carrierMatch = parseJson(r.carrier_match_json);
@@ -387,6 +409,7 @@ export async function loadAuctionBundle(
         carrier_match: (carrierMatch as LeadgenCarrierMatch | null) ?? null,
         priority: r.priority,
         enabled: r.enabled,
+        traffic_share_pct: trafficSharePct,
       });
     }
   }
@@ -550,7 +573,7 @@ export async function loadAuctionBundle(
     }
   }
 
-  return { auction, offers, offer_rules, carrier_rules, banner, banner_config_json: parseJson(auction.banner_config_json), funnel_rules };
+  return { auction, offers, offer_rules, carrier_rules, waterfalls, banner, banner_config_json: parseJson(auction.banner_config_json), funnel_rules };
 }
 
 // Whether a funnel redirect rule has a destination a browser can be sent to
@@ -765,6 +788,14 @@ export interface RunAuctionInput {
   // `present_only_offer_unavailable`) — never the other offers. Absent/null ⇒
   // the normal auction.
   present_only_offer_id?: number | null;
+  // Admin dry-run (/simulate) only — which 0062 offer waterfall to run:
+  // "auto" (default) = by the visitor's place in the traffic, "none" = the
+  // normal auction, or a waterfall rule's public id = that path. The live
+  // route never sets it.
+  waterfall_choice?: string;
+  // Admin dry-run only: the visitor identity used to place this run in the
+  // traffic (the Simulator mints a fresh one per run, like a new visitor).
+  traffic_visitor_key?: string;
   // Injectables for deterministic tests.
   mintId?: () => string;
   now?: number;
@@ -1360,8 +1391,21 @@ export async function runAuction(
     regionCapSurvivors.push(b);
   }
 
+  // 0062: the visitor's place in the traffic — the bound session (anti-tamper
+  // v2 signs it), else the attempt id. A rule limited to a share of traffic
+  // that this visitor is outside of is dropped before evaluation.
+  const visitorKey =
+    input.traffic_visitor_key ??
+    (typeof input.session_id === "string" && input.session_id !== "" ? input.session_id : input.binding.funnel_attempt_id ?? "");
+  const offerRulesForVisitor = input.bundle.offer_rules.filter((r) =>
+    ruleAppliesToVisitor(r.traffic_share_pct, String(r.rule_id ?? ""), visitorKey),
+  );
+  const carrierRulesForVisitor = input.bundle.carrier_rules.filter((r) =>
+    ruleAppliesToVisitor(r.traffic_share_pct, String(r.rule_id ?? ""), visitorKey),
+  );
+
   // Offer-level answer rules (S21 include/exclude -- issue 4).
-  const participation = evaluateOfferRules(input.bundle.offer_rules, {
+  const participation = evaluateOfferRules(offerRulesForVisitor, {
     context: ruleContext,
     candidate_offer_ids: regionCapSurvivors.map((b) => b.offer.public_id),
   });
@@ -1410,397 +1454,545 @@ export async function runAuction(
     candidates.push(b);
   }
 
-  // Steps 6-7: build payloads + fire provider requests in parallel (dynamic
-  // Offers only; every one is R4-eligible ⇒ payload_schema is non-null).
-  // Each request carries ITS Offer's canonical runtime context (04 §4.7.1):
-  // macros + computed + the offer/placement slice from THE builder.
-  const dynamicCandidates = candidates.filter((b) => callsProvider(b.offer));
-  // The question→field bindings for THIS lead: the Section tab's mapping rows
-  // for the Sections the lead actually passed through, in funnel order (owner
-  // ruling 2026-08-12 — the payload node no longer carries its own pivot, so
-  // without these an answer field resolves absent). ONE query for the whole
-  // candidate set; skipped entirely when no dynamic Offer will POST.
-  const answerBindings =
-    dynamicCandidates.length === 0
-      ? new Map<number, LeadgenOfferAnswerBindings>()
-      : await readAnswerBindings(
-          env.DB,
-          dynamicCandidates.map((b) => b.offer.id),
-          input.answerBindingsFromAllSections === true ? undefined : input.resolved.sections.map((rs) => rs.section.id),
-        );
-  const requests: ParallelProviderRequest[] = dynamicCandidates.flatMap((b) => {
-    // R4 invariant: an eligible dynamic Offer HAS a valid schema. The guard is
-    // defensive only — it can never fabricate an empty schema to POST.
-    if (b.payload_schema === null) return [];
-    const ctx = contextFor(b);
-    return [
-      {
-        offer: b.offer,
-        headers: b.headers,
-        payloadSchema: b.payload_schema,
-        ctx: {
-          answers: normalizedAnswers,
-          answer_bindings: answerBindings.get(b.offer.id) ?? {},
-          answer_computed: input.answerComputedByOffer?.get(b.offer.id) ?? answerComputed,
-          macros: ctx.macros,
-          computed: ctx.computed,
-          offer: ctx.offer,
-          timeout_ms: auction.timeout_ms,
-          carrier_parse_version: b.carrier_parse_version,
-          placement_public_id: b.placement_public_id,
-          mintId,
+  // 0062 offer waterfall: the waterfall owning this visitor's share of the
+  // traffic (the auction's waterfalls split it like an A/B test). A "Present
+  // only this offer" attempt is shown that one offer, never a waterfall.
+  const waterfalls = input.bundle.waterfalls ?? [];
+  let waterfall: { rule: WaterfallRuleInput; bucket: number | null; forced: boolean } | null = null;
+  if (presentOnly === null && waterfalls.length > 0) {
+    const choice = input.waterfall_choice ?? "auto";
+    if (choice === "auto") {
+      const pick = pickWaterfall(waterfalls, auction.public_id, visitorKey);
+      if (pick !== null) waterfall = { rule: pick.rule, bucket: pick.bucket, forced: false };
+    } else if (choice !== "none") {
+      const forced = waterfalls.find((w) => w.rule_id === choice);
+      if (forced !== undefined) waterfall = { rule: forced, bucket: null, forced: true };
+    }
+  }
+  const waterfallMatched = waterfall !== null && conditionsMatch(waterfall.rule.conditions, ruleContext);
+
+  // Steps 6-14 run over a SLICE of the candidates. A normal auction runs ONE
+  // slice over every candidate (exactly as before). OWNER 2026-10-01 offer
+  // waterfall: one slice per tier, in order — a lower tier's provider is called
+  // only if the tier above showed nothing — and the first tier that renders is
+  // what the visitor sees (owner rulings 2026-10-01).
+  const runSlice = async (sliceCandidates: AuctionBundleOffer[], sliceSettings: typeof settings) => {
+    // Steps 6-7: build payloads + fire provider requests in parallel (dynamic
+    // Offers only; every one is R4-eligible ⇒ payload_schema is non-null).
+    // Each request carries ITS Offer's canonical runtime context (04 §4.7.1):
+    // macros + computed + the offer/placement slice from THE builder.
+    const dynamicCandidates = sliceCandidates.filter((b) => callsProvider(b.offer));
+    // The question→field bindings for THIS lead: the Section tab's mapping rows
+    // for the Sections the lead actually passed through, in funnel order (owner
+    // ruling 2026-08-12 — the payload node no longer carries its own pivot, so
+    // without these an answer field resolves absent). ONE query for the whole
+    // candidate set; skipped entirely when no dynamic Offer will POST.
+    const answerBindings =
+      dynamicCandidates.length === 0
+        ? new Map<number, LeadgenOfferAnswerBindings>()
+        : await readAnswerBindings(
+            env.DB,
+            dynamicCandidates.map((b) => b.offer.id),
+            input.answerBindingsFromAllSections === true ? undefined : input.resolved.sections.map((rs) => rs.section.id),
+          );
+    const requests: ParallelProviderRequest[] = dynamicCandidates.flatMap((b) => {
+      // R4 invariant: an eligible dynamic Offer HAS a valid schema. The guard is
+      // defensive only — it can never fabricate an empty schema to POST.
+      if (b.payload_schema === null) return [];
+      const ctx = contextFor(b);
+      return [
+        {
+          offer: b.offer,
+          headers: b.headers,
+          payloadSchema: b.payload_schema,
+          ctx: {
+            answers: normalizedAnswers,
+            answer_bindings: answerBindings.get(b.offer.id) ?? {},
+            answer_computed: input.answerComputedByOffer?.get(b.offer.id) ?? answerComputed,
+            macros: ctx.macros,
+            computed: ctx.computed,
+            offer: ctx.offer,
+            timeout_ms: auction.timeout_ms,
+            carrier_parse_version: b.carrier_parse_version,
+            placement_public_id: b.placement_public_id,
+            mintId,
+          },
         },
-      },
-    ];
-  });
-
-  let fetchBatch: { auction_request_id: string; results: FetchProviderResult[] };
-  if (input.providerResultsOverride !== undefined) {
-    fetchBatch = input.providerResultsOverride;
-  } else if (requests.length > 0) {
-    fetchBatch = await fetchProvidersParallel(env, requests, input.environment, { mintId });
-  } else {
-    fetchBatch = { auction_request_id: mintId(), results: [] };
-  }
-  const auctionRequestId = fetchBatch.auction_request_id;
-
-  // Provider log rows (redacted + SEPARATE debug record, RED LINE 1) + S19.2
-  // requested/responded views + the 10 §10.2 per-offer events
-  // (auction_offer_request/response/timeout/error, §5.4-stamped). One row per
-  // dynamic request.
-  const providersRequested: ExplainProviderRequested[] = [];
-  const providersResponded: ExplainProviderResponded[] = [];
-  const providerLogRows: ProviderLogRowToPersist[] = [];
-  // OWNER 2026-08-27 — the parse errors, kept so the provider log can carry the
-  // reason a carrier was dropped (see the parse site below).
-  const parseErrorsByRow = new Map<string, LeadgenParseError[]>();
-  const parseErrorsByOffer = new Map<string, LeadgenParseError[]>();
-  // Result/bundle lookups are keyed by the bundle ROW identity
-  // (offer_public_id, placement_public_id): an Offer participating with TWO
-  // placements fires two requests whose offer_public_id collides (04 §4.5
-  // multi-placement — an offer-keyed map is last-write-wins and would hand a
-  // sibling row's response/placement to the wrong row). fetch.ts threads
-  // ctx.placement_public_id into redacted_log, so each result names its own
-  // row. The offer-keyed maps stay as FALLBACKS for legacy
-  // providerResultsOverride shapes that omit placement_public_id (a
-  // single-row Offer behaves identically on either key).
-  const rowKey = (offerPublicId: string, placementPublicId: string | null): string =>
-    `${offerPublicId} ${placementPublicId ?? ""}`;
-  const resultByRow = new Map<string, FetchProviderResult>();
-  const resultByOffer = new Map<string, FetchProviderResult>();
-  const bundleByRowKey = new Map<string, AuctionBundleOffer>();
-  const bundleByPublicId = new Map<string, AuctionBundleOffer>();
-  for (const b of input.bundle.offers) {
-    bundleByRowKey.set(rowKey(b.offer.public_id, b.placement_public_id), b);
-    bundleByPublicId.set(b.offer.public_id, b);
-  }
-  for (const result of fetchBatch.results) {
-    resultByRow.set(rowKey(result.offer_public_id, result.redacted_log.placement_public_id), result);
-    resultByOffer.set(result.offer_public_id, result);
-    providersRequested.push({
-      offer_id: result.offer_public_id,
-      provider_request_id: result.provider_request_id,
-      environment: result.environment,
+      ];
     });
-    providersResponded.push({
-      offer_id: result.offer_public_id,
-      provider_request_id: result.provider_request_id,
-      status: result.status,
-      latency_ms: result.latency_ms,
-      provider_error_reason: result.error_reason,
-    });
-    const bundleOffer =
-      bundleByRowKey.get(rowKey(result.offer_public_id, result.redacted_log.placement_public_id)) ??
-      bundleByPublicId.get(result.offer_public_id);
-    const perOffer = (e: LeadgenEvent): void => {
-      if (bundleOffer !== undefined) fillOffer(e, bundleOffer);
-      stampAuctionIds(e, {
-        auction_request_id: auctionRequestId,
-        provider_request_id: result.provider_request_id,
-      });
-    };
-    pushEvent("auction_offer_request", perOffer);
-    if (result.timed_out) {
-      pushEvent("auction_offer_timeout", (e) => {
-        perOffer(e);
-        e.provider_error_reason = "timeout";
-      });
-    } else if (result.error_reason !== null) {
-      pushEvent("auction_offer_error", (e) => {
-        perOffer(e);
-        e.provider_error_reason = result.error_reason ?? "";
-      });
+
+    let fetchBatch: { auction_request_id: string; results: FetchProviderResult[] };
+    if (input.providerResultsOverride !== undefined) {
+      fetchBatch = input.providerResultsOverride;
+    } else if (requests.length > 0) {
+      fetchBatch = await fetchProvidersParallel(env, requests, input.environment, { mintId });
     } else {
-      pushEvent("auction_offer_response", perOffer);
+      fetchBatch = { auction_request_id: mintId(), results: [] };
     }
-  }
+    const auctionRequestId = fetchBatch.auction_request_id;
 
-  // The origin the page is served from, used to make a static Offer's
-  // Media-library logo absolute: the tenant domain on the live /lg/auction
-  // request; the admin host on the Auction simulator (auctions-handlers passes
-  // its request). With no request at all the logo is simply not emitted.
-  const pageOrigin = (() => {
-    const src = input.runtime?.source;
-    if (src === undefined) return null;
-    try {
-      return requestOrigin(("req" in src ? src.req.raw : src).url);
-    } catch {
-      return null;
+    // Provider log rows (redacted + SEPARATE debug record, RED LINE 1) + S19.2
+    // requested/responded views + the 10 §10.2 per-offer events
+    // (auction_offer_request/response/timeout/error, §5.4-stamped). One row per
+    // dynamic request.
+    const providersRequested: ExplainProviderRequested[] = [];
+    const providersResponded: ExplainProviderResponded[] = [];
+    const providerLogRows: ProviderLogRowToPersist[] = [];
+    // OWNER 2026-08-27 — the parse errors, kept so the provider log can carry the
+    // reason a carrier was dropped (see the parse site below).
+    const parseErrorsByRow = new Map<string, LeadgenParseError[]>();
+    const parseErrorsByOffer = new Map<string, LeadgenParseError[]>();
+    // Result/bundle lookups are keyed by the bundle ROW identity
+    // (offer_public_id, placement_public_id): an Offer participating with TWO
+    // placements fires two requests whose offer_public_id collides (04 §4.5
+    // multi-placement — an offer-keyed map is last-write-wins and would hand a
+    // sibling row's response/placement to the wrong row). fetch.ts threads
+    // ctx.placement_public_id into redacted_log, so each result names its own
+    // row. The offer-keyed maps stay as FALLBACKS for legacy
+    // providerResultsOverride shapes that omit placement_public_id (a
+    // single-row Offer behaves identically on either key).
+    const rowKey = (offerPublicId: string, placementPublicId: string | null): string =>
+      `${offerPublicId} ${placementPublicId ?? ""}`;
+    const resultByRow = new Map<string, FetchProviderResult>();
+    const resultByOffer = new Map<string, FetchProviderResult>();
+    const bundleByRowKey = new Map<string, AuctionBundleOffer>();
+    const bundleByPublicId = new Map<string, AuctionBundleOffer>();
+    for (const b of input.bundle.offers) {
+      bundleByRowKey.set(rowKey(b.offer.public_id, b.placement_public_id), b);
+      bundleByPublicId.set(b.offer.public_id, b);
     }
-  })();
-
-  // Step 8: parse each dynamic response -> canonical carriers; FX-normalize bids
-  // to USD. Static Offers contribute their synthesized static carrier. Each
-  // bundle ROW parses ITS OWN request's response (resultByRow — 04 §4.5
-  // multi-placement); parsedByRow mirrors that identity for the provider-log
-  // rows below (parsedByOffer stays as the legacy-override fallback).
-  const parsedByRow = new Map<string, LeadgenParsedCarrier[]>();
-  const parsedByOffer = new Map<string, LeadgenParsedCarrier[]>();
-  // the carriers each row brings INTO the auction (one per carrier_key)
-  const auctionCarriersByRow = new Map<string, LeadgenParsedCarrier[]>();
-  const bidInputs: CarrierBidInput[] = [];
-  const carrierMeta = new Map<string, { offer: AuctionBundleOffer; parsed: LeadgenParsedCarrier; response_context: unknown }>();
-
-  const metaKey = (offerPublicId: string, carrierKey: string): string => `${offerPublicId} ${carrierKey}`;
-
-  for (const b of candidates) {
-    if (callsProvider(b.offer)) {
-      const result =
-        resultByRow.get(rowKey(b.offer.public_id, b.placement_public_id)) ??
-        resultByOffer.get(b.offer.public_id);
-      // Carrier/banner projections also consume the scrubbed response. The
-      // only surviving raw provider bytes are in the encrypt-only debug record;
-      // an echoed credential can never become public carrier copy or a URL.
-      const responseContext = result?.parsed ?? (result?.body ?? null);
-      // OWNER 2026-09-15 (moneylantern.com/lg/business-loans): a
-      // `request_static_bid` Offer — calls_provider_api=1 AND
-      // bid_source='static', the admin's "Provider request · static bid (CPL)"
-      // — was routed through the CPC carrier-list parser, which reads every
-      // configured field as a dotted path into a carrier item. A CPL answer is
-      // an accept/reject with no carrier list, so its identity/brand fields are
-      // CONSTANTS; all of them resolved to undefined and the carrier was dropped
-      // for having no identity. The CPL half now has its own parser (literal by
-      // default, `{response:…}` reads the answer) seeded from the Offer's own
-      // static carrier, so identity can never be underivable.
-      const parsed = result === undefined
-        ? { carriers: [], errors: [] }
-        : parseOfferProviderResponse(b.offer, b.carrier_parse_json, result.parsed ?? result.body ?? "", b.static_bid_override);
-      // OWNER 2026-09-28: every listing of an answer is now a carrier, so ONE
-      // answer can name the same carrier twice (§18.8: same provider id, or
-      // same name + logo → same carrier_key). The auction below keys a
-      // carrier by offer + carrier_key (bid, copy, floor, render), so the
-      // answer's carriers are made unique HERE, keeping the FIRST entry — the
-      // one /lg/lc resolves the click from (runtime-routes.ts
-      // findParsedCarrier returns the first match). Keeping both rendered two
-      // identical cards, each with the LAST entry's copy and bid over the
-      // FIRST entry's click. The provider log keeps the parser's full list.
-      const parseResult = { carriers: firstPerCarrierKey(parsed.carriers), errors: parsed.errors };
-      parsedByRow.set(rowKey(b.offer.public_id, b.placement_public_id), parsed.carriers);
-      parsedByOffer.set(b.offer.public_id, parsed.carriers);
-      auctionCarriersByRow.set(rowKey(b.offer.public_id, b.placement_public_id), parseResult.carriers);
-      // OWNER 2026-08-27: "I finished to build this funnel, clicked it to the end
-      // of the funnel, and the auction wasn't running - I got to an empty page."
-      //
-      // MEASURED on his own attempt (auction_instance 01M11ESQ5TQ36KDCXFV8746XPP):
-      // QuinStreet returned HTTP 200 with numListingsReturned "1" and a real
-      // cpc of 32.50 — and parsed_carriers_json was []. His parse config maps
-      // identity to `company`/`displayname`, which that provider's listing does
-      // not contain, so parse.ts could derive no carrier_key and DROPPED the
-      // carrier. It produced a typed error saying exactly that… and this loop
-      // threw parseResult.errors on the floor, which is why
-      // provider_error_reason and error_text were both NULL and he had nothing
-      // to read. A dropped carrier is a LOST BID; it must leave a trace.
-      if (parseResult.errors.length > 0) {
-        parseErrorsByRow.set(rowKey(b.offer.public_id, b.placement_public_id), parseResult.errors);
-        parseErrorsByOffer.set(b.offer.public_id, parseResult.errors);
+    for (const result of fetchBatch.results) {
+      resultByRow.set(rowKey(result.offer_public_id, result.redacted_log.placement_public_id), result);
+      resultByOffer.set(result.offer_public_id, result);
+      providersRequested.push({
+        offer_id: result.offer_public_id,
+        provider_request_id: result.provider_request_id,
+        environment: result.environment,
+      });
+      providersResponded.push({
+        offer_id: result.offer_public_id,
+        provider_request_id: result.provider_request_id,
+        status: result.status,
+        latency_ms: result.latency_ms,
+        provider_error_reason: result.error_reason,
+      });
+      const bundleOffer =
+        bundleByRowKey.get(rowKey(result.offer_public_id, result.redacted_log.placement_public_id)) ??
+        bundleByPublicId.get(result.offer_public_id);
+      const perOffer = (e: LeadgenEvent): void => {
+        if (bundleOffer !== undefined) fillOffer(e, bundleOffer);
+        stampAuctionIds(e, {
+          auction_request_id: auctionRequestId,
+          provider_request_id: result.provider_request_id,
+        });
+      };
+      pushEvent("auction_offer_request", perOffer);
+      if (result.timed_out) {
+        pushEvent("auction_offer_timeout", (e) => {
+          perOffer(e);
+          e.provider_error_reason = "timeout";
+        });
+      } else if (result.error_reason !== null) {
+        pushEvent("auction_offer_error", (e) => {
+          perOffer(e);
+          e.provider_error_reason = result.error_reason ?? "";
+        });
+      } else {
+        pushEvent("auction_offer_response", perOffer);
       }
-      for (const carrier of parseResult.carriers) {
+    }
+
+    // The origin the page is served from, used to make a static Offer's
+    // Media-library logo absolute: the tenant domain on the live /lg/auction
+    // request; the admin host on the Auction simulator (auctions-handlers passes
+    // its request). With no request at all the logo is simply not emitted.
+    const pageOrigin = (() => {
+      const src = input.runtime?.source;
+      if (src === undefined) return null;
+      try {
+        return requestOrigin(("req" in src ? src.req.raw : src).url);
+      } catch {
+        return null;
+      }
+    })();
+
+    // Step 8: parse each dynamic response -> canonical carriers; FX-normalize bids
+    // to USD. Static Offers contribute their synthesized static carrier. Each
+    // bundle ROW parses ITS OWN request's response (resultByRow — 04 §4.5
+    // multi-placement); parsedByRow mirrors that identity for the provider-log
+    // rows below (parsedByOffer stays as the legacy-override fallback).
+    const parsedByRow = new Map<string, LeadgenParsedCarrier[]>();
+    const parsedByOffer = new Map<string, LeadgenParsedCarrier[]>();
+    // the carriers each row brings INTO the auction (one per carrier_key)
+    const auctionCarriersByRow = new Map<string, LeadgenParsedCarrier[]>();
+    const bidInputs: CarrierBidInput[] = [];
+    const carrierMeta = new Map<string, { offer: AuctionBundleOffer; parsed: LeadgenParsedCarrier; response_context: unknown }>();
+
+    const metaKey = (offerPublicId: string, carrierKey: string): string => `${offerPublicId} ${carrierKey}`;
+
+    for (const b of sliceCandidates) {
+      if (callsProvider(b.offer)) {
+        const result =
+          resultByRow.get(rowKey(b.offer.public_id, b.placement_public_id)) ??
+          resultByOffer.get(b.offer.public_id);
+        // Carrier/banner projections also consume the scrubbed response. The
+        // only surviving raw provider bytes are in the encrypt-only debug record;
+        // an echoed credential can never become public carrier copy or a URL.
+        const responseContext = result?.parsed ?? (result?.body ?? null);
+        // OWNER 2026-09-15 (moneylantern.com/lg/business-loans): a
+        // `request_static_bid` Offer — calls_provider_api=1 AND
+        // bid_source='static', the admin's "Provider request · static bid (CPL)"
+        // — was routed through the CPC carrier-list parser, which reads every
+        // configured field as a dotted path into a carrier item. A CPL answer is
+        // an accept/reject with no carrier list, so its identity/brand fields are
+        // CONSTANTS; all of them resolved to undefined and the carrier was dropped
+        // for having no identity. The CPL half now has its own parser (literal by
+        // default, `{response:…}` reads the answer) seeded from the Offer's own
+        // static carrier, so identity can never be underivable.
+        const parsed = result === undefined
+          ? { carriers: [], errors: [] }
+          : parseOfferProviderResponse(b.offer, b.carrier_parse_json, result.parsed ?? result.body ?? "", b.static_bid_override);
+        // OWNER 2026-09-28: every listing of an answer is now a carrier, so ONE
+        // answer can name the same carrier twice (§18.8: same provider id, or
+        // same name + logo → same carrier_key). The auction below keys a
+        // carrier by offer + carrier_key (bid, copy, floor, render), so the
+        // answer's carriers are made unique HERE, keeping the FIRST entry — the
+        // one /lg/lc resolves the click from (runtime-routes.ts
+        // findParsedCarrier returns the first match). Keeping both rendered two
+        // identical cards, each with the LAST entry's copy and bid over the
+        // FIRST entry's click. The provider log keeps the parser's full list.
+        const parseResult = { carriers: firstPerCarrierKey(parsed.carriers), errors: parsed.errors };
+        parsedByRow.set(rowKey(b.offer.public_id, b.placement_public_id), parsed.carriers);
+        parsedByOffer.set(b.offer.public_id, parsed.carriers);
+        auctionCarriersByRow.set(rowKey(b.offer.public_id, b.placement_public_id), parseResult.carriers);
+        // OWNER 2026-08-27: "I finished to build this funnel, clicked it to the end
+        // of the funnel, and the auction wasn't running - I got to an empty page."
+        //
+        // MEASURED on his own attempt (auction_instance 01M11ESQ5TQ36KDCXFV8746XPP):
+        // QuinStreet returned HTTP 200 with numListingsReturned "1" and a real
+        // cpc of 32.50 — and parsed_carriers_json was []. His parse config maps
+        // identity to `company`/`displayname`, which that provider's listing does
+        // not contain, so parse.ts could derive no carrier_key and DROPPED the
+        // carrier. It produced a typed error saying exactly that… and this loop
+        // threw parseResult.errors on the floor, which is why
+        // provider_error_reason and error_text were both NULL and he had nothing
+        // to read. A dropped carrier is a LOST BID; it must leave a trace.
+        if (parseResult.errors.length > 0) {
+          parseErrorsByRow.set(rowKey(b.offer.public_id, b.placement_public_id), parseResult.errors);
+          parseErrorsByOffer.set(b.offer.public_id, parseResult.errors);
+        }
+        for (const carrier of parseResult.carriers) {
+          bidInputs.push({
+            carrier_key: carrier.carrier_key,
+            offer_public_id: b.offer.public_id,
+            bid: typeof carrier.bid === "number" ? carrier.bid : 0,
+            bid_currency: carrier.bid_currency,
+          });
+          carrierMeta.set(metaKey(b.offer.public_id, carrier.carrier_key), { offer: b, parsed: carrier, response_context: responseContext });
+        }
+      } else {
+        const carrier = staticNoRequestCarrier(b.offer, b.static_bid_override, pageOrigin);
+        parsedByRow.set(rowKey(b.offer.public_id, b.placement_public_id), [carrier]);
+        parsedByOffer.set(b.offer.public_id, [carrier]);
+        auctionCarriersByRow.set(rowKey(b.offer.public_id, b.placement_public_id), [carrier]);
         bidInputs.push({
           carrier_key: carrier.carrier_key,
           offer_public_id: b.offer.public_id,
           bid: typeof carrier.bid === "number" ? carrier.bid : 0,
           bid_currency: carrier.bid_currency,
         });
-        carrierMeta.set(metaKey(b.offer.public_id, carrier.carrier_key), { offer: b, parsed: carrier, response_context: responseContext });
+        carrierMeta.set(metaKey(b.offer.public_id, carrier.carrier_key), { offer: b, parsed: carrier, response_context: null });
       }
-    } else {
-      const carrier = staticNoRequestCarrier(b.offer, b.static_bid_override, pageOrigin);
-      parsedByRow.set(rowKey(b.offer.public_id, b.placement_public_id), [carrier]);
-      parsedByOffer.set(b.offer.public_id, [carrier]);
-      auctionCarriersByRow.set(rowKey(b.offer.public_id, b.placement_public_id), [carrier]);
-      bidInputs.push({
-        carrier_key: carrier.carrier_key,
-        offer_public_id: b.offer.public_id,
-        bid: typeof carrier.bid === "number" ? carrier.bid : 0,
-        bid_currency: carrier.bid_currency,
-      });
-      carrierMeta.set(metaKey(b.offer.public_id, carrier.carrier_key), { offer: b, parsed: carrier, response_context: null });
     }
-  }
 
-  const usdBids = await normalizeCarrierBidsToUsd(env.DB, bidInputs, { onMissingRate: "zero" });
-  const usdByKey = new Map<string, number>();
-  for (const nb of usdBids) usdByKey.set(metaKey(nb.offer_public_id, nb.carrier_key), nb.usd_bid);
+    const usdBids = await normalizeCarrierBidsToUsd(env.DB, bidInputs, { onMissingRate: "zero" });
+    const usdByKey = new Map<string, number>();
+    for (const nb of usdBids) usdByKey.set(metaKey(nb.offer_public_id, nb.carrier_key), nb.usd_bid);
 
-  // Assemble the working carrier set with USD bids (per bundle ROW — each
-  // row contributes the carriers ITS response parsed, 04 §4.5).
-  const working: WorkingCarrier[] = [];
-  for (const b of candidates) {
-    for (const carrier of auctionCarriersByRow.get(rowKey(b.offer.public_id, b.placement_public_id)) ?? []) {
-      const usd = usdByKey.get(metaKey(b.offer.public_id, carrier.carrier_key)) ?? 0;
-      const meta = carrierMeta.get(metaKey(b.offer.public_id, carrier.carrier_key));
-      working.push({ parsed: carrier, offer: b, usd_bid: usd, response_context: meta?.response_context ?? null });
+    // Assemble the working carrier set with USD bids (per bundle ROW — each
+    // row contributes the carriers ITS response parsed, 04 §4.5).
+    const working: WorkingCarrier[] = [];
+    for (const b of sliceCandidates) {
+      for (const carrier of auctionCarriersByRow.get(rowKey(b.offer.public_id, b.placement_public_id)) ?? []) {
+        const usd = usdByKey.get(metaKey(b.offer.public_id, carrier.carrier_key)) ?? 0;
+        const meta = carrierMeta.get(metaKey(b.offer.public_id, carrier.carrier_key));
+        working.push({ parsed: carrier, offer: b, usd_bid: usd, response_context: meta?.response_context ?? null });
+      }
     }
-  }
 
-  // Step 10 (pre-floor half): carrier EXCLUDE rules -- excluded carriers must
-  // NOT set the floor (S21). Record carrier_filtered_reason.
-  const carriersFiltered: ExplainFilteredCarrier[] = [];
-  const afterExclude: WorkingCarrier[] = [];
-  for (const w of working) {
-    const verdict = evaluateCarrierRules(input.bundle.carrier_rules, {
-      carrier_key: w.parsed.carrier_key,
-      carrier_name: w.parsed.carrier_name,
-    }, ruleContext);
-    if (verdict.excluded_pre_floor) {
-      const reason = verdict.matched.find((m) => m.reason.startsWith("carrier_exclude") || m.reason.startsWith("carrier_block"))?.reason ?? "carrier_excluded";
-      carriersFiltered.push({ carrier_key: w.parsed.carrier_key, offer_id: w.offer.offer.public_id, carrier_filtered_reason: reason });
-      continue;
+    // Step 10 (pre-floor half): carrier EXCLUDE rules -- excluded carriers must
+    // NOT set the floor (S21). Record carrier_filtered_reason.
+    const carriersFiltered: ExplainFilteredCarrier[] = [];
+    const afterExclude: WorkingCarrier[] = [];
+    for (const w of working) {
+      const verdict = evaluateCarrierRules(carrierRulesForVisitor, {
+        carrier_key: w.parsed.carrier_key,
+        carrier_name: w.parsed.carrier_name,
+      }, ruleContext);
+      if (verdict.excluded_pre_floor) {
+        const reason = verdict.matched.find((m) => m.reason.startsWith("carrier_exclude") || m.reason.startsWith("carrier_block"))?.reason ?? "carrier_excluded";
+        carriersFiltered.push({ carrier_key: w.parsed.carrier_key, offer_id: w.offer.offer.public_id, carrier_filtered_reason: reason });
+        continue;
+      }
+      afterExclude.push(w);
     }
-    afterExclude.push(w);
-  }
 
-  // Step 9: floor (S18.3) over the surviving carriers (auction-wide).
-  const floorCarriers: AuctionCarrier[] = afterExclude.map((w) =>
-    toAuctionCarrier({ carrier_key: w.parsed.carrier_key }, w.offer.offer.public_id, w.usd_bid),
-  );
-  const floorResult = computeFloor(floorCarriers, settings.floor_type, settings.floor_value);
-  const qualifiedKeys = new Set(floorResult.qualified.map((c) => metaKey(c.offer_public_id, c.carrier_key)));
-  const belowFloorKeys = new Set(floorResult.below_floor.map((c) => metaKey(c.offer_public_id, c.carrier_key)));
-  // Record below-floor carriers as filtered (available only for backfill).
-  for (const w of afterExclude) {
-    if (belowFloorKeys.has(metaKey(w.offer.offer.public_id, w.parsed.carrier_key))) {
-      carriersFiltered.push({ carrier_key: w.parsed.carrier_key, offer_id: w.offer.offer.public_id, carrier_filtered_reason: "below_floor" });
-    }
-  }
-
-  // Step 10 (post-winner half): carrier INCLUDE-ONLY restriction. Active when
-  // any include rule's context matched; only carriers it matched survive.
-  const qualifiedWorking = afterExclude.filter((w) => qualifiedKeys.has(metaKey(w.offer.offer.public_id, w.parsed.carrier_key)));
-  const includeSurviving: WorkingCarrier[] = [];
-  for (const w of qualifiedWorking) {
-    const verdict = evaluateCarrierRules(input.bundle.carrier_rules, {
-      carrier_key: w.parsed.carrier_key,
-      carrier_name: w.parsed.carrier_name,
-    }, ruleContext);
-    if (verdict.include_only_active && !verdict.included_post_winner) {
-      carriersFiltered.push({ carrier_key: w.parsed.carrier_key, offer_id: w.offer.offer.public_id, carrier_filtered_reason: "carrier_include_only_restriction" });
-      continue;
-    }
-    includeSurviving.push(w);
-  }
-
-  // 10 §10.2: auction_carrier_eligible — one per carrier that survived rules +
-  // floor into surfacing candidacy (§5.4-stamped; carrier identity + USD bid).
-  for (const w of includeSurviving) {
-    pushEvent("auction_carrier_eligible", (e) => {
-      fillOffer(e, w.offer);
-      stampAuctionIds(e, { auction_request_id: auctionRequestId });
-      e.carrier_key = w.parsed.carrier_key;
-      e.carrier_name = typeof w.parsed.carrier_name === "string" ? w.parsed.carrier_name : "";
-      e.bid_value = w.usd_bid;
-    });
-  }
-
-  // Step 11: winner logic (S18.4) over the eligible carriers grouped by Offer.
-  const eligibleByOffer = new Map<string, AuctionCarrier[]>();
-  for (const w of includeSurviving) {
-    const list = eligibleByOffer.get(w.offer.offer.public_id) ?? [];
-    list.push(toAuctionCarrier({ carrier_key: w.parsed.carrier_key }, w.offer.offer.public_id, w.usd_bid));
-    eligibleByOffer.set(w.offer.offer.public_id, list);
-  }
-  // CPC Offers (bid_source=response) are the winner-logic candidates.
-  const cpcOfferIds = new Set(candidates.filter((b) => b.offer.bid_source === "response").map((b) => b.offer.public_id));
-  const winnerOffers = [...eligibleByOffer.entries()]
-    .filter(([offerId]) => cpcOfferIds.has(offerId))
-    .map(([offer_public_id, carriers]) => ({ offer_public_id, carriers }));
-  const winner = selectWinner(winnerOffers, settings.winner_logic);
-
-  // Step 11-12: surface (winner + multi_offer + static/CPL merge) + limits.
-  const surfaceOffers: SurfaceOffer[] = [...eligibleByOffer.entries()].map(([offer_public_id, carriers]) => ({
-    offer_public_id,
-    carriers,
-    bid_source: cpcOfferIds.has(offer_public_id) ? "cpc" : "static",
-  }));
-  // 0061: a present-only attempt's one offer is presented even when this
-  // auction does not surface static-bid offers (it is the only participant, so
-  // this can only let THAT offer show — "forced presentation").
-  const surfaceSettings = presentOnly !== null ? { ...settings, surface_static_bid_offers: true } : settings;
-  let surfaced = surfaceCarriers(surfaceOffers, winner.winner, surfaceSettings);
-
-  // Step 13: remove-clicked (reuse applyRemoveClicked as the authority; keep
-  // slot/source by intersecting on the survivor identity, then re-slot).
-  if (auction.remove_clicked_offers === 1 && input.clicked.length > 0) {
-    const survivorIds = new Set(
-      applyRemoveClicked(surfaced, input.clicked, settings.removal_scope).map((c) => `${c.offer_public_id} ${c.carrier_key}`),
+    // Step 9: floor (S18.3) over the surviving carriers (auction-wide).
+    const floorCarriers: AuctionCarrier[] = afterExclude.map((w) =>
+      toAuctionCarrier({ carrier_key: w.parsed.carrier_key }, w.offer.offer.public_id, w.usd_bid),
     );
-    surfaced = surfaced
-      .filter((s) => survivorIds.has(`${s.offer_public_id} ${s.carrier_key}`))
-      .map((s, i) => ({ ...s, slot: i + 1 }));
-  }
+    const floorResult = computeFloor(floorCarriers, settings.floor_type, settings.floor_value);
+    const qualifiedKeys = new Set(floorResult.qualified.map((c) => metaKey(c.offer_public_id, c.carrier_key)));
+    const belowFloorKeys = new Set(floorResult.below_floor.map((c) => metaKey(c.offer_public_id, c.carrier_key)));
+    // Record below-floor carriers as filtered (available only for backfill).
+    for (const w of afterExclude) {
+      if (belowFloorKeys.has(metaKey(w.offer.offer.public_id, w.parsed.carrier_key))) {
+        carriersFiltered.push({ carrier_key: w.parsed.carrier_key, offer_id: w.offer.offer.public_id, carrier_filtered_reason: "below_floor" });
+      }
+    }
 
-  // Step 14: render banners (winner + multi_offer + static). ONE banner_render_id.
-  const design = getBannerDesign(auction.banner_design_id);
-  const bannerConfig = {
-    mode: input.bundle.banner?.mode ?? "automatic",
-    field_map_json: input.bundle.banner?.field_map_json,
-    banner_config_json: input.bundle.banner_config_json,
-  };
-  // P11 §19 step 16 / §18.7: thread the per-session funnel_attempt_id into the
-  // banner render context so the LIVE governed /lg/lc href carries faid=<attempt>
-  // (buildLeadgenClickUrl). The binding's attempt id is the anti-tamper-validated
-  // one on the live path; a dry-run/simulate passes its placeholder unchanged.
-  // 04 §4.7 site 4: banner URL canonical macros resolve with the AUCTION-TIME
-  // context — the render-level set is the auction-level context's macros and
-  // each entry carries ITS Offer's per-offer projection ({response:*} stays
-  // click-time; {click_id} stays empty until /lg/lc mints it).
-  const bannerCtx = {
-    auction_instance_id: auctionInstanceId,
-    banner_design_id: auction.banner_design_id,
-    funnel_attempt_id: input.binding.funnel_attempt_id,
-    canonical_macros: baseContext.macros,
-  };
+    // Step 10 (post-winner half): carrier INCLUDE-ONLY restriction. Active when
+    // any include rule's context matched; only carriers it matched survive.
+    const qualifiedWorking = afterExclude.filter((w) => qualifiedKeys.has(metaKey(w.offer.offer.public_id, w.parsed.carrier_key)));
+    const includeSurviving: WorkingCarrier[] = [];
+    for (const w of qualifiedWorking) {
+      const verdict = evaluateCarrierRules(carrierRulesForVisitor, {
+        carrier_key: w.parsed.carrier_key,
+        carrier_name: w.parsed.carrier_name,
+      }, ruleContext);
+      if (verdict.include_only_active && !verdict.included_post_winner) {
+        carriersFiltered.push({ carrier_key: w.parsed.carrier_key, offer_id: w.offer.offer.public_id, carrier_filtered_reason: "carrier_include_only_restriction" });
+        continue;
+      }
+      includeSurviving.push(w);
+    }
 
-  const toRenderCarrier = (s: SurfacedCarrier): BannerRenderCarrier => {
-    const meta = carrierMeta.get(metaKey(s.offer_public_id, s.carrier_key));
+    // 10 §10.2: auction_carrier_eligible — one per carrier that survived rules +
+    // floor into surfacing candidacy (§5.4-stamped; carrier identity + USD bid).
+    for (const w of includeSurviving) {
+      pushEvent("auction_carrier_eligible", (e) => {
+        fillOffer(e, w.offer);
+        stampAuctionIds(e, { auction_request_id: auctionRequestId });
+        e.carrier_key = w.parsed.carrier_key;
+        e.carrier_name = typeof w.parsed.carrier_name === "string" ? w.parsed.carrier_name : "";
+        e.bid_value = w.usd_bid;
+      });
+    }
+
+    // Step 11: winner logic (S18.4) over the eligible carriers grouped by Offer.
+    const eligibleByOffer = new Map<string, AuctionCarrier[]>();
+    for (const w of includeSurviving) {
+      const list = eligibleByOffer.get(w.offer.offer.public_id) ?? [];
+      list.push(toAuctionCarrier({ carrier_key: w.parsed.carrier_key }, w.offer.offer.public_id, w.usd_bid));
+      eligibleByOffer.set(w.offer.offer.public_id, list);
+    }
+    // CPC Offers (bid_source=response) are the winner-logic sliceCandidates.
+    const cpcOfferIds = new Set(sliceCandidates.filter((b) => b.offer.bid_source === "response").map((b) => b.offer.public_id));
+    const winnerOffers = [...eligibleByOffer.entries()]
+      .filter(([offerId]) => cpcOfferIds.has(offerId))
+      .map(([offer_public_id, carriers]) => ({ offer_public_id, carriers }));
+    const winner = selectWinner(winnerOffers, settings.winner_logic);
+
+    // Step 11-12: surface (winner + multi_offer + static/CPL merge) + limits.
+    const surfaceOffers: SurfaceOffer[] = [...eligibleByOffer.entries()].map(([offer_public_id, carriers]) => ({
+      offer_public_id,
+      carriers,
+      bid_source: cpcOfferIds.has(offer_public_id) ? "cpc" : "static",
+    }));
+    // 0061: a present-only attempt's one offer is presented even when this
+    // auction does not surface static-bid offers (it is the only participant, so
+    // this can only let THAT offer show — "forced presentation").
+    const surfaceSettings = presentOnly !== null ? { ...sliceSettings, surface_static_bid_offers: true } : sliceSettings;
+    let surfaced = surfaceCarriers(surfaceOffers, winner.winner, surfaceSettings);
+
+    // Step 13: remove-clicked (reuse applyRemoveClicked as the authority; keep
+    // slot/source by intersecting on the survivor identity, then re-slot).
+    if (auction.remove_clicked_offers === 1 && input.clicked.length > 0) {
+      const survivorIds = new Set(
+        applyRemoveClicked(surfaced, input.clicked, settings.removal_scope).map((c) => `${c.offer_public_id} ${c.carrier_key}`),
+      );
+      surfaced = surfaced
+        .filter((s) => survivorIds.has(`${s.offer_public_id} ${s.carrier_key}`))
+        .map((s, i) => ({ ...s, slot: i + 1 }));
+    }
+
+    // Step 14: render banners (winner + multi_offer + static). ONE banner_render_id.
+    const design = getBannerDesign(auction.banner_design_id);
+    const bannerConfig = {
+      mode: input.bundle.banner?.mode ?? "automatic",
+      field_map_json: input.bundle.banner?.field_map_json,
+      banner_config_json: input.bundle.banner_config_json,
+    };
+    // P11 §19 step 16 / §18.7: thread the per-session funnel_attempt_id into the
+    // banner render context so the LIVE governed /lg/lc href carries faid=<attempt>
+    // (buildLeadgenClickUrl). The binding's attempt id is the anti-tamper-validated
+    // one on the live path; a dry-run/simulate passes its placeholder unchanged.
+    // 04 §4.7 site 4: banner URL canonical macros resolve with the AUCTION-TIME
+    // context — the render-level set is the auction-level context's macros and
+    // each entry carries ITS Offer's per-offer projection ({response:*} stays
+    // click-time; {click_id} stays empty until /lg/lc mints it).
+    const bannerCtx = {
+      auction_instance_id: auctionInstanceId,
+      banner_design_id: auction.banner_design_id,
+      funnel_attempt_id: input.binding.funnel_attempt_id,
+      canonical_macros: baseContext.macros,
+    };
+
+    const toRenderCarrier = (s: SurfacedCarrier): BannerRenderCarrier => {
+      const meta = carrierMeta.get(metaKey(s.offer_public_id, s.carrier_key));
+      return {
+        carrier: meta?.parsed ?? { carrier_key: s.carrier_key, carrier_key_source: "slug" },
+        offer_public_id: s.offer_public_id,
+        slot: s.slot,
+        source: s.source,
+        bid: s.bid,
+        banner_url_template: meta?.offer.offer.banner_url_template ?? null,
+        response_context: meta?.response_context ?? null,
+        ...(meta !== undefined ? { canonical_macros: contextFor(meta.offer).macros } : {}),
+      };
+    };
+
+    const primaryRender = renderBanners(surfaced.map(toRenderCarrier), bannerCtx, bannerConfig, design, { mintId });
+    const bannerRenderIds: string[] = [primaryRender.banner_render_id];
+    const impressions: CarrierImpression[] = [...primaryRender.impressions];
+    let cssOut = primaryRender.css;
+    let htmlOut = primaryRender.html;
+    const renderedSlots: RenderedBannerSlot[] = [...primaryRender.slots];
+    // A banner drop (missing click_url / required response field) is a filtered
+    // carrier (S29 dedicated reason).
+    // Keyed separately from carriersFiltered (which also holds rule/floor/
+    // include-only filters) so the unfilled_reason below can tell "the banner
+    // layer dropped everything" from "the pool was exhausted".
+    const bannerDroppedKeys = new Set<string>();
+    for (const d of primaryRender.dropped) {
+      carriersFiltered.push({ carrier_key: d.carrier_key, offer_id: d.offer_public_id, carrier_filtered_reason: d.carrier_filtered_reason });
+      bannerDroppedKeys.add(metaKey(d.offer_public_id, d.carrier_key));
+    }
+
+    // Provider log rows (redacted + SEPARATE debug record, RED LINE 1). Stamp the
+    // grouping ids + parsed carriers onto each redacted shape.
+    for (const result of fetchBatch.results) {
+      // Each provider-log row carries the carriers parsed from ITS OWN response
+      // (row-keyed; offer-keyed fallback for legacy override shapes — 04 §4.5).
+      const parsed =
+        parsedByRow.get(rowKey(result.offer_public_id, result.redacted_log.placement_public_id)) ??
+        parsedByOffer.get(result.offer_public_id) ??
+        [];
+      const parseErrors =
+        parseErrorsByRow.get(rowKey(result.offer_public_id, result.redacted_log.placement_public_id)) ??
+        parseErrorsByOffer.get(result.offer_public_id) ??
+        [];
+      providerLogRows.push({
+        auction_instance_id: auctionInstanceId,
+        auction_request_id: auctionRequestId,
+        provider_request_id: result.redacted_log.provider_request_id,
+        offer_public_id: result.redacted_log.offer_public_id,
+        placement_public_id: result.redacted_log.placement_public_id,
+        carrier_parse_version: result.redacted_log.carrier_parse_version,
+        environment: result.environment,
+        status_code: result.redacted_log.status_code,
+        latency_ms: result.redacted_log.latency_ms,
+        request_headers_redacted_json: result.redacted_log.request_headers_redacted_json,
+        request_payload_redacted_json: result.redacted_log.request_payload_redacted_json,
+        response_redacted_json: result.redacted_log.response_redacted_json,
+        parsed_carriers_json: JSON.stringify(parsed),
+        // OWNER 2026-08-27 — a 200 whose carriers could not be parsed left BOTH of
+        // these NULL, so an operator staring at an empty page had no reason to
+        // read. The fetch stage's own reason always wins (an HTTP/transport
+        // failure is the more fundamental fact); parse errors fill the silence
+        // that used to follow a successful call with an unusable body.
+        provider_error_reason: result.redacted_log.provider_error_reason ?? parseErrorReason(parseErrors),
+        error_text: result.redacted_log.error_text ?? parseErrorText(parseErrors),
+        debug_record: result.debug,
+      });
+    }
+
     return {
-      carrier: meta?.parsed ?? { carrier_key: s.carrier_key, carrier_key_source: "slug" },
-      offer_public_id: s.offer_public_id,
-      slot: s.slot,
-      source: s.source,
-      bid: s.bid,
-      banner_url_template: meta?.offer.offer.banner_url_template ?? null,
-      response_context: meta?.response_context ?? null,
-      ...(meta !== undefined ? { canonical_macros: contextFor(meta.offer).macros } : {}),
+      auctionRequestId, providersRequested, providersResponded, parsedByOffer, parseErrorsByOffer,
+      carrierMeta, bundleByPublicId, metaKey, includeSurviving, afterExclude, belowFloorKeys, surfaced,
+      winner, toRenderCarrier, bannerCtx, bannerConfig, design, bannerRenderIds, impressions, cssOut,
+      htmlOut, renderedSlots, bannerDroppedKeys, carriersFiltered, providerLogRows,
     };
   };
 
-  const primaryRender = renderBanners(surfaced.map(toRenderCarrier), bannerCtx, bannerConfig, design, { mintId });
-  const bannerRenderIds: string[] = [primaryRender.banner_render_id];
-  const impressions: CarrierImpression[] = [...primaryRender.impressions];
-  let cssOut = primaryRender.css;
-  let htmlOut = primaryRender.html;
-  const renderedSlots: RenderedBannerSlot[] = [...primaryRender.slots];
-  // A banner drop (missing click_url / required response field) is a filtered
-  // carrier (S29 dedicated reason).
-  // Keyed separately from carriersFiltered (which also holds rule/floor/
-  // include-only filters) so the unfilled_reason below can tell "the banner
-  // layer dropped everything" from "the pool was exhausted".
-  const bannerDroppedKeys = new Set<string>();
-  for (const d of primaryRender.dropped) {
-    carriersFiltered.push({ carrier_key: d.carrier_key, offer_id: d.offer_public_id, carrier_filtered_reason: d.carrier_filtered_reason });
-    bannerDroppedKeys.add(metaKey(d.offer_public_id, d.carrier_key));
+  type AuctionSlice = Awaited<ReturnType<typeof runSlice>>;
+  const slices: AuctionSlice[] = [];
+  let waterfallTrace: AuctionWaterfallTrace | null = null;
+  let slice: AuctionSlice;
+  if (waterfall !== null && waterfallMatched) {
+    // A tier is an offerwall when it holds several offers: all of them show,
+    // whatever the auction's multi-offer setting (owner 2026-10-01: "Tier 3 …
+    // can include more than 1 specific offer, so it's kinda like an Offerwall").
+    const tierSettings = {
+      ...settings,
+      multi_offer: settings.multi_offer === "disabled" ? ("enabled" as const) : settings.multi_offer,
+      surface_static_bid_offers: true,
+    };
+    const tiers: AuctionWaterfallTrace["tiers"] = [];
+    let servedTier: number | null = null;
+    for (let i = 0; i < waterfall.rule.tiers.length; i++) {
+      const tierOfferIds = waterfall.rule.tiers[i]?.offer_ids ?? [];
+      if (servedTier !== null) {
+        tiers.push({ tier: i + 1, offer_ids: tierOfferIds, outcome: "not_reached" });
+        continue;
+      }
+      // An offer the visitor does not qualify for (its region rules, cap,
+      // auction rules, readiness) already left `candidates` in step 5.
+      const inTier = new Set(tierOfferIds);
+      const tierCandidates = candidates.filter((b) => inTier.has(b.offer.public_id));
+      if (tierCandidates.length === 0) {
+        tiers.push({ tier: i + 1, offer_ids: tierOfferIds, outcome: "no_qualifying_offer" });
+        continue;
+      }
+      const tierSlice = await runSlice(tierCandidates, tierSettings);
+      slices.push(tierSlice);
+      if (tierSlice.renderedSlots.length > 0) {
+        servedTier = i + 1;
+        tiers.push({ tier: i + 1, offer_ids: tierOfferIds, outcome: "shown" });
+      } else {
+        tiers.push({ tier: i + 1, offer_ids: tierOfferIds, outcome: "no_result" });
+      }
+    }
+    if (slices.length === 0) slices.push(await runSlice([], tierSettings));
+    slice = slices[slices.length - 1] as AuctionSlice;
+    waterfallTrace = {
+      rule_id: waterfall.rule.rule_id,
+      traffic_share_pct: waterfall.rule.traffic_share_pct,
+      bucket: waterfall.bucket,
+      forced: waterfall.forced,
+      conditions_matched: true,
+      served_tier: servedTier,
+      tiers,
+    };
+  } else {
+    slice = await runSlice(candidates, settings);
+    slices.push(slice);
+    if (waterfall !== null) {
+      // In this waterfall's share, but its IF conditions do not match this
+      // visitor: they get the normal auction.
+      waterfallTrace = {
+        rule_id: waterfall.rule.rule_id,
+        traffic_share_pct: waterfall.rule.traffic_share_pct,
+        bucket: waterfall.bucket,
+        forced: waterfall.forced,
+        conditions_matched: false,
+        served_tier: null,
+        tiers: [],
+      };
+    }
   }
+  const {
+    auctionRequestId, parsedByOffer, parseErrorsByOffer, carrierMeta, bundleByPublicId, metaKey,
+    includeSurviving, afterExclude, belowFloorKeys, surfaced, winner, toRenderCarrier, bannerCtx,
+    bannerConfig, design, bannerRenderIds, impressions, renderedSlots, bannerDroppedKeys,
+  } = slice;
+  let cssOut = slice.cssOut;
+  let htmlOut = slice.htmlOut;
+  // Every provider call really made (every tier tried) is logged and explained.
+  const providersRequested = slices.flatMap((sl) => sl.providersRequested);
+  const providersResponded = slices.flatMap((sl) => sl.providersResponded);
+  const providerLogRows = slices.flatMap((sl) => sl.providerLogRows);
+  const carriersFiltered = slices.flatMap((sl) => sl.carriersFiltered);
 
   // Step 15: backfill on trigger. The auction-time trigger is
   // on_slot_exhaustion; on_click / on_dismiss are client-fired later (P11).
@@ -1963,45 +2155,9 @@ export async function runAuction(
     carriers_filtered: carriersFiltered,
     providers_requested: providersRequested,
     providers_responded: providersResponded,
+    waterfall: waterfallTrace,
   });
 
-  // Provider log rows (redacted + SEPARATE debug record, RED LINE 1). Stamp the
-  // grouping ids + parsed carriers onto each redacted shape.
-  for (const result of fetchBatch.results) {
-    // Each provider-log row carries the carriers parsed from ITS OWN response
-    // (row-keyed; offer-keyed fallback for legacy override shapes — 04 §4.5).
-    const parsed =
-      parsedByRow.get(rowKey(result.offer_public_id, result.redacted_log.placement_public_id)) ??
-      parsedByOffer.get(result.offer_public_id) ??
-      [];
-    const parseErrors =
-      parseErrorsByRow.get(rowKey(result.offer_public_id, result.redacted_log.placement_public_id)) ??
-      parseErrorsByOffer.get(result.offer_public_id) ??
-      [];
-    providerLogRows.push({
-      auction_instance_id: auctionInstanceId,
-      auction_request_id: auctionRequestId,
-      provider_request_id: result.redacted_log.provider_request_id,
-      offer_public_id: result.redacted_log.offer_public_id,
-      placement_public_id: result.redacted_log.placement_public_id,
-      carrier_parse_version: result.redacted_log.carrier_parse_version,
-      environment: result.environment,
-      status_code: result.redacted_log.status_code,
-      latency_ms: result.redacted_log.latency_ms,
-      request_headers_redacted_json: result.redacted_log.request_headers_redacted_json,
-      request_payload_redacted_json: result.redacted_log.request_payload_redacted_json,
-      response_redacted_json: result.redacted_log.response_redacted_json,
-      parsed_carriers_json: JSON.stringify(parsed),
-      // OWNER 2026-08-27 — a 200 whose carriers could not be parsed left BOTH of
-      // these NULL, so an operator staring at an empty page had no reason to
-      // read. The fetch stage's own reason always wins (an HTTP/transport
-      // failure is the more fundamental fact); parse errors fill the silence
-      // that used to follow a successful call with an unusable body.
-      provider_error_reason: result.redacted_log.provider_error_reason ?? parseErrorReason(parseErrors),
-      error_text: result.redacted_log.error_text ?? parseErrorText(parseErrors),
-      debug_record: result.debug,
-    });
-  }
 
   return {
     status,
@@ -2126,14 +2282,19 @@ export async function persistAuctionResult(
   // NULL result_log_row => nothing to persist (tampered).
   const log = result.result_log_row;
   if (log !== null) {
+    // 0062: waterfall_json is written only when a waterfall ran, so a database
+    // that predates the migration keeps logging every normal auction.
+    const waterfallCol = log.waterfall_json !== null ? ", waterfall_json" : "";
+    const waterfallMark = log.waterfall_json !== null ? ", ?" : "";
+    const waterfallBind = log.waterfall_json !== null ? [log.waterfall_json] : [];
     try {
       await env.DB.prepare(
         `INSERT INTO leadgen_auction_result_log
            (auction_instance_id, auction_result_id, auction_config_id, session_id,
             funnel_attempt_id, funnel_id, funnel_variant_id, banner_render_ids_json,
             offers_considered_json, offers_excluded_json, carriers_shown_json, winner_json, unfilled_reason,
-            macro_context_json)
-         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+            macro_context_json${waterfallCol})
+         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?${waterfallMark})`,
       )
         .bind(
           log.auction_instance_id,
@@ -2150,6 +2311,7 @@ export async function persistAuctionResult(
           log.winner_json,
           log.unfilled_reason,
           JSON.stringify(result.macro_context_snapshot),
+          ...waterfallBind,
         )
         .run();
     } catch {

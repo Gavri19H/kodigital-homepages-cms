@@ -122,6 +122,8 @@ describe("toResultLogRow — leadgen_auction_result_log serialization (0036:271-
         "offers_excluded_json",
         "session_id",
         "unfilled_reason",
+        // 0062: which waterfall path/tier served the visitor (null otherwise)
+        "waterfall_json",
         "winner_json",
       ].sort(),
     );

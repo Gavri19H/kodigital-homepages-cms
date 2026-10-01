@@ -166,6 +166,7 @@ const LEADGEN_MIGRATIONS = [
   "0053_leadgen_rework_m12_othergroup_retirement.sql",
   "0057_leadgen_offer_test_verdict.sql",
   "0061_leadgen_routing_present_only_offer.sql", // Present only this offer (force_offer_id)
+  "0062_leadgen_auction_waterfalls.sql", // traffic share + offer waterfalls
 ] as const;
 
 const TENANT_HOST = "one.example.com";
@@ -592,6 +593,7 @@ describeDb("G2 — the live /lg/auction provider payload carries the REAL runtim
   async function runLiveAuction(
     h: Harness,
     offerHeaders: ReadonlyArray<readonly [string, string, string]> = [],
+    afterSeed?: (seeded: SeededDynamic) => void,
   ): Promise<{
     seeded: SeededDynamic;
     attempt: { funnel_attempt_id: string; signed_config_token: string; section_order_hash: string };
@@ -608,6 +610,7 @@ describeDb("G2 — the live /lg/auction provider payload carries the REAL runtim
         .prepare("INSERT INTO leadgen_offer_headers (offer_id, header_name, value_kind, value_text) VALUES (?, ?, ?, ?)")
         .run(seeded.offerId, name, kind, value);
     }
+    afterSeed?.(seeded);
     const attempt = await mintLiveAttempt(env, variantId, LANDING);
 
     const providerBodies: Array<Record<string, unknown>> = [];
@@ -650,6 +653,32 @@ describeDb("G2 — the live /lg/auction provider payload carries the REAL runtim
     const auctionJson = (await res.json()) as Record<string, unknown>;
     return { seeded, attempt, providerBodies, providerHeaders, auctionJson, captured };
   }
+
+  // OWNER 2026-10-01 (Auction → Rules → offer waterfall), through the REAL
+  // /lg/auction route with a minted, signed attempt: the live path loads the
+  // waterfall, runs its tier and logs which path served the visitor.
+  it("a 100% waterfall runs on the live route and the auction log records the path", async () => {
+    const h = newHarness();
+    let rulePublicId = "";
+    const { seeded, providerBodies, auctionJson, captured } = await runLiveAuction(h, [], (s) => {
+      rulePublicId = mintPublicId("auction_rule");
+      h.sdb
+        .prepare(
+          `INSERT INTO leadgen_auction_rules (public_id, auction_id, rule_level, target_offer_id, action, conditions_json, conditions_hash, priority, enabled, traffic_share_pct, tiers_json)
+           VALUES (?, ?, 'offer', NULL, 'waterfall', '{"groups":[]}', 'h', 100, 1, 100, ?)`,
+        )
+        .run(rulePublicId, s.auctionId, JSON.stringify({ tiers: [{ offer_ids: [s.offerId] }] }));
+    });
+    expect(auctionJson["status"]).toBe("ok");
+    expect(providerBodies.length).toBe(1);
+    await settle(captured);
+    const row = h.sdb.prepare("SELECT waterfall_json, session_id FROM leadgen_auction_result_log LIMIT 1").get() as { waterfall_json: string | null; session_id: string | null };
+    const logged = JSON.parse(row.waterfall_json ?? "null") as { rule_id: string; served_tier: number; tiers: Array<{ offer_ids: string[]; outcome: string }> };
+    expect(logged.rule_id).toBe(rulePublicId);
+    expect(logged.served_tier).toBe(1);
+    expect(logged.tiers).toEqual([{ tier: 1, offer_ids: [seeded.offerPublicId], outcome: "shown" }]);
+    expect(row.session_id).not.toBe(""); // the bound session placed this visitor
+  });
 
   // OWNER 2026-10-01 ("Offers → Request → Headers → support the user's IP
   // address & user agent"; provider spec: True-Client-IP = "Consumer's IP

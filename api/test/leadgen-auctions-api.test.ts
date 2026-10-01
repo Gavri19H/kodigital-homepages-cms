@@ -120,6 +120,7 @@ const LEADGEN_MIGRATIONS = [
   "0052_leadgen_rework_m9_address_fields.sql",
   "0053_leadgen_rework_m12_othergroup_retirement.sql",
   "0057_leadgen_offer_test_verdict.sql",
+  "0062_leadgen_auction_waterfalls.sql", // rules carry traffic_share_pct + tiers_json
 ] as const;
 
 function createLeadgenDb(DatabaseSync: DatabaseSyncCtor): SqliteDb {
@@ -773,5 +774,139 @@ describeDb("leadgen auctions API — /simulate dry-run envelope", () => {
     const { env } = newHarness();
     const res = await admin.request(`${API}/auctions/${mintPublicId("auction")}/simulate`, jsonInit("POST", {}), env);
     expect(res.status).toBe(404);
+  });
+});
+
+// --- 0062 waterfalls + traffic share (OWNER 2026-10-01) ------------------------
+
+describeDb("leadgen auctions API — waterfall rules + traffic share (0062)", () => {
+  async function auctionWithOffers(n: number): Promise<{ env: Env; sdb: SqliteDb; auctionId: string; offers: Array<{ offer_id: number }> }> {
+    const { env, sdb } = newHarness();
+    const quote = await createQuote(env, { activity: "quote_funnel", verticals: ["life"] });
+    const { json } = await createAuction(env, { auction_name: "Business loans", quote_id: quote.id });
+    const offers = Array.from({ length: n }, () => seedOfferWithPlacement(sdb, { activity: "quote_funnel", vertical: "life" }));
+    const put = await admin.request(
+      `${API}/auctions/${json.public_id}/offers`,
+      jsonInit("PUT", { offers: offers.map((o) => ({ offer_placement_id: o.placement_id })) }),
+      env,
+    );
+    expect(put.status, await put.clone().text()).toBe(200);
+    return { env, sdb, auctionId: json.public_id, offers };
+  }
+  const post = (env: Env, auctionId: string, body: unknown) => admin.request(`${API}/auctions/${auctionId}/rules`, jsonInit("POST", body), env);
+
+  it("POST a waterfall: stored with its share + tiers, offer-level, no target; GET returns the tiers", async () => {
+    const { env, sdb, auctionId, offers } = await auctionWithOffers(4);
+    const [fundera, amone, fora, honest] = offers as [{ offer_id: number }, { offer_id: number }, { offer_id: number }, { offer_id: number }];
+    const res = await post(env, auctionId, {
+      action: "waterfall",
+      traffic_share_pct: 50,
+      tiers: [{ offer_ids: [fundera.offer_id] }, { offer_ids: [amone.offer_id] }, { offer_ids: [fora.offer_id, honest.offer_id] }],
+    });
+    expect(res.status, await res.clone().text()).toBe(201);
+    const j = (await res.json()) as { public_id: string; rule_level: string; target_offer_id: number | null; traffic_share_pct: number; tiers: unknown };
+    expect(j.rule_level).toBe("offer");
+    expect(j.target_offer_id).toBeNull();
+    expect(j.traffic_share_pct).toBe(50);
+    expect(j.tiers).toEqual([{ offer_ids: [fundera.offer_id] }, { offer_ids: [amone.offer_id] }, { offer_ids: [fora.offer_id, honest.offer_id] }]);
+    const row = sdb.prepare("SELECT action, tiers_json FROM leadgen_auction_rules WHERE public_id = ?").get(j.public_id) as { action: string; tiers_json: string };
+    expect(row.action).toBe("waterfall");
+    const list = (await (await admin.request(`${API}/auctions/${auctionId}/rules`, {}, env)).json()) as { items: Array<{ public_id: string; tiers: unknown }> };
+    expect(list.items.find((r) => r.public_id === j.public_id)?.tiers).toEqual(j.tiers);
+  });
+
+  it("the waterfalls of one auction cover at most 100% (create and re-enable are both checked)", async () => {
+    const { env, auctionId, offers } = await auctionWithOffers(2);
+    const tiers = [{ offer_ids: [offers[0]!.offer_id] }];
+    expect((await post(env, auctionId, { action: "waterfall", traffic_share_pct: 60, tiers })).status).toBe(201);
+    const over = await post(env, auctionId, { action: "waterfall", traffic_share_pct: 50, tiers });
+    expect(over.status).toBe(400);
+    expect(((await over.json()) as { error: string }).error).toContain("110%");
+    // saved disabled, then enabling it would exceed 100% → refused
+    const off = await post(env, auctionId, { action: "waterfall", traffic_share_pct: 50, tiers, enabled: false });
+    expect(off.status).toBe(201);
+    const offId = ((await off.json()) as { public_id: string }).public_id;
+    const enable = await admin.request(`${API}/auctions/${auctionId}/rules/${offId}`, jsonInit("PATCH", { enabled: true }), env);
+    expect(enable.status).toBe(400);
+    expect((await post(env, auctionId, { action: "waterfall", traffic_share_pct: 40, tiers })).status).toBe(201); // exactly 100%
+  });
+
+  it("refuses a waterfall without a share, without an offer, with an offer in two tiers, or with a non-participating offer", async () => {
+    const { env, sdb, auctionId, offers } = await auctionWithOffers(2);
+    const a = offers[0]!.offer_id;
+    const b = offers[1]!.offer_id;
+    const outsider = seedOfferWithPlacement(sdb).offer_id;
+    const cases: Array<[unknown, string, string]> = [
+      [{ action: "waterfall", tiers: [{ offer_ids: [a] }] }, "traffic_share_pct", "share of traffic"],
+      [{ action: "waterfall", traffic_share_pct: 50, tiers: [] }, "tiers", "at least one tier"],
+      [{ action: "waterfall", traffic_share_pct: 50, tiers: [{ offer_ids: [a] }, { offer_ids: [] }] }, "tiers", "tier 2 needs at least one offer"],
+      [{ action: "waterfall", traffic_share_pct: 50, tiers: [{ offer_ids: [a] }, { offer_ids: [b, a] }] }, "tiers", "more than one tier"],
+      [{ action: "waterfall", traffic_share_pct: 50, tiers: [{ offer_ids: [outsider] }] }, "tiers", "not a participating offer"],
+      [{ action: "waterfall", rule_level: "carrier", traffic_share_pct: 50, tiers: [{ offer_ids: [a] }] }, "rule_level", "offer-level"],
+    ];
+    for (const [body, field, text] of cases) {
+      const res = await post(env, auctionId, body);
+      expect(res.status, JSON.stringify(body)).toBe(400);
+      const j = (await res.json()) as { fields?: Record<string, string> };
+      expect(j.fields?.[field] ?? "", JSON.stringify(body)).toContain(text);
+    }
+  });
+
+  it("an include/exclude rule may carry a share; 0, over 100 and a third decimal are refused", async () => {
+    const { env, auctionId, offers } = await auctionWithOffers(1);
+    const base = { rule_level: "offer", action: "exclude", target_offer_id: offers[0]!.offer_id, conditions_json: { groups: [] } };
+    const ok = await post(env, auctionId, { ...base, traffic_share_pct: 30 });
+    expect(ok.status).toBe(201);
+    expect(((await ok.json()) as { traffic_share_pct: number }).traffic_share_pct).toBe(30);
+    const all = await post(env, auctionId, { ...base, priority: 7 });
+    expect(((await all.json()) as { traffic_share_pct: number | null }).traffic_share_pct).toBeNull();
+    for (const bad of [0, 150, 33.333, "30"]) {
+      const res = await post(env, auctionId, { ...base, traffic_share_pct: bad });
+      expect(res.status, String(bad)).toBe(400);
+    }
+  });
+});
+
+describeDb("0062 migration — the rules table rebuild keeps every existing rule", () => {
+  it("rules saved before 0062 survive byte-for-byte; the new columns start NULL; the new CHECKs hold", () => {
+    const ctor = DatabaseSync as DatabaseSyncCtor;
+    const sdb = new ctor(":memory:");
+    runSql(sdb, "CREATE TABLE sites (id TEXT PRIMARY KEY, name TEXT); CREATE TABLE media (id INTEGER PRIMARY KEY AUTOINCREMENT, site_id TEXT);");
+    for (const file of LEADGEN_MIGRATIONS.filter((f) => f !== "0062_leadgen_auction_waterfalls.sql")) {
+      runSql(sdb, readFileSync(join(TEST_DIR, "../migrations", file), "utf8"));
+    }
+    const offer = seedOfferWithPlacement(sdb);
+    sdb
+      .prepare(
+        `INSERT INTO leadgen_auctions (public_id, auction_name, auction_type, winner_logic, floor_type, floor_value, multi_offer,
+           surface_static_bid_offers, banner_slots_count, max_carriers_per_offer, max_total_carriers, backfill, backfill_trigger,
+           remove_clicked_offers, removal_scope, timeout_ms, carrier_normalization_version, status)
+         VALUES ('lga_mig', 'M', 'dynamic', 'highest_bid', 'percentage_of_max', 10, 'enabled', 1, 5, 3, 10, 'disabled', 'on_slot_exhaustion', 0, 'offer', 2500, 1, 'active')`,
+      )
+      .run();
+    const auctionId = (sdb.prepare("SELECT id FROM leadgen_auctions WHERE public_id = 'lga_mig'").get() as { id: number }).id;
+    sdb.prepare(
+      "INSERT INTO leadgen_auction_rules (public_id, auction_id, rule_level, target_offer_id, action, conditions_json, conditions_hash, carrier_match_json, strictly_override, priority, enabled, created_at) VALUES ('lgar_one', ?, 'offer', ?, 'exclude', '{\"groups\":[{\"field\":\"state\",\"op\":\"eq\",\"value\":\"CA\"}]}', 'h1', NULL, 1, 40, 1, 1700000000)",
+    ).run(auctionId, offer.offer_id);
+    sdb.prepare(
+      "INSERT INTO leadgen_auction_rules (public_id, auction_id, rule_level, target_offer_id, action, conditions_json, conditions_hash, carrier_match_json, strictly_override, priority, enabled, created_at) VALUES ('lgar_two', ?, 'carrier', NULL, 'block_list', '{\"groups\":[]}', 'h2', '{\"carrier_keys\":[\"acme\"]}', 0, 100, 0, 1700000001)",
+    ).run(auctionId);
+    const before = sdb.prepare("SELECT * FROM leadgen_auction_rules ORDER BY id").all();
+
+    runSql(sdb, readFileSync(join(TEST_DIR, "../migrations", "0062_leadgen_auction_waterfalls.sql"), "utf8"));
+
+    const after = sdb.prepare("SELECT * FROM leadgen_auction_rules ORDER BY id").all() as Array<Record<string, unknown>>;
+    expect(after.map(({ traffic_share_pct: _s, tiers_json: _t, ...rest }) => rest)).toEqual(before);
+    expect(after.every((r) => r["traffic_share_pct"] === null && r["tiers_json"] === null)).toBe(true);
+    const index = sdb.prepare("SELECT name FROM sqlite_master WHERE type = 'index' AND tbl_name = 'leadgen_auction_rules'").all() as Array<{ name: string }>;
+    expect(index.map((i) => i.name)).toContain("idx_leadgen_auctionrules_auction");
+    // the new action is accepted; a share outside (0, 100] is refused by the database itself
+    sdb.prepare("INSERT INTO leadgen_auction_rules (public_id, auction_id, rule_level, action, conditions_json, conditions_hash, traffic_share_pct, tiers_json) VALUES ('lgar_w', ?, 'offer', 'waterfall', '{}', 'h', 50, '{\"tiers\":[]}')").run(auctionId);
+    expect(() =>
+      sdb.prepare("INSERT INTO leadgen_auction_rules (public_id, auction_id, rule_level, action, conditions_json, conditions_hash, traffic_share_pct) VALUES ('lgar_bad', ?, 'offer', 'exclude', '{}', 'h', 150)").run(auctionId),
+    ).toThrow();
+    // the result log gained its column
+    const cols = sdb.prepare("SELECT name FROM pragma_table_info('leadgen_auction_result_log')").all() as Array<{ name: string }>;
+    expect(cols.map((c) => c.name)).toContain("waterfall_json");
   });
 });

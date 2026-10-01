@@ -102,6 +102,7 @@ const LEADGEN_MIGRATIONS = [
   "0057_leadgen_offer_test_verdict.sql",
   "0060_leadgen_offer_static_creative.sql", // static-Offer banner creative
   "0061_leadgen_routing_present_only_offer.sql", // Present only this offer (force_offer_id)
+  "0062_leadgen_auction_waterfalls.sql", // traffic share + offer waterfalls
 ] as const;
 
 function createLeadgenDb(DatabaseSync: DatabaseSyncCtor): SqliteDb {
@@ -1831,5 +1832,235 @@ describeDb("one recommended card when the winning Offer yields several carriers 
     // …and it is the top card (the highest bid)
     expect(html.indexOf('data-recommended="true"')).toBeLessThan(html.indexOf('data-recommended="false"'));
     expect(html.slice(0, html.indexOf('data-recommended="false"'))).toContain("Contactability");
+  });
+});
+
+
+// ---------------------------------------------------------------------------
+// 0062 — offer waterfalls + traffic share (OWNER 2026-10-01)
+// ---------------------------------------------------------------------------
+//
+// "We want 50% of the traffic to see Fundera's offer as the first priority
+// (Tier 1) as long as they meet Fundera's offer rules. If they don't, the next
+// Offer (Tier 2) they should see will be Amone's … Only if the users don't
+// meet either of the two priority offers, they will see Tier 3 results (which
+// … can include more than 1 specific offer, so it's kinda like an Offerwall)."
+// Owner rulings: a lower tier's provider is called ONLY if the tier above says
+// no; the visitor sees ONLY the tier that qualified; an auction's waterfalls
+// split the traffic like an A/B test.
+
+describeDb("0062 offer waterfall — tiers through the REAL engine (mocked providers)", () => {
+  function harness(): { sdb: SqliteDb; env: Env } {
+    const sdb = createLeadgenDb(DatabaseSync as DatabaseSyncCtor);
+    const { kv } = makeKvStub();
+    return { sdb, env: buildEnv(d1FromSqlite(sdb), kv) };
+  }
+  // Each provider gets its own endpoint so the stub knows who was called.
+  function providerOffer(sdb: SqliteDb, name: string): SeededOffer {
+    const o = seedOffer(sdb);
+    sdb.prepare("UPDATE leadgen_offers SET endpoint_production = ?, endpoint_staging = ? WHERE id = ?")
+      .run(`https://${name}.provider.example/quote`, `https://${name}.provider.example/quote`, o.offer_id);
+    return o;
+  }
+  function waterfall(sdb: SqliteDb, auctionId: number, sharePct: number, tiers: number[][], opts: { priority?: number; conditions?: unknown } = {}): string {
+    const publicId = mintPublicId("auction_rule");
+    sdb
+      .prepare(
+        `INSERT INTO leadgen_auction_rules (public_id, auction_id, rule_level, target_offer_id, action, conditions_json, conditions_hash, priority, enabled, traffic_share_pct, tiers_json)
+         VALUES (?, ?, 'offer', NULL, 'waterfall', ?, 'h', ?, 1, ?, ?)`,
+      )
+      .run(publicId, auctionId, JSON.stringify(opts.conditions ?? { groups: [] }), opts.priority ?? 100, sharePct, JSON.stringify({ tiers: tiers.map((ids) => ({ offer_ids: ids })) }));
+    return publicId;
+  }
+  const hostOf = (url: string): string => new URL(url).host.split(".")[0] ?? "";
+  // A provider that answers with one carrier (a "yes") or none (a "no").
+  const yes = (name: string): Response => new Response(carrierBody([{ name, bid: 12 }]), { status: 200 });
+  const no = (): Response => new Response(JSON.stringify({ carriers: [] }), { status: 200 });
+  async function run(env: Env, sdb: SqliteDb, auction: LeadgenAuctionRow, extra: Record<string, unknown> = {}) {
+    const bundle = await loadAuctionBundle(env.DB, auction, 1);
+    return runAuction(env, {
+      resolved: makeResolved(), bundle, environment: "production", binding: NO_BINDING,
+      session_id: "visitor-1", raw_answers: {}, clicked: [], ...extra,
+    } as Parameters<typeof runAuction>[1], { dryRun: true });
+  }
+  const shownOffers = (r: Awaited<ReturnType<typeof runAuction>>): string[] => [...new Set(r.banners.map((b) => b.offer_public_id))].sort();
+
+  it("Tier 1 says yes: ONLY Tier 1's provider is called and the visitor sees only Tier 1", async () => {
+    const { sdb, env } = harness();
+    const auction = seedAuction(sdb, { multi_offer: "enabled" });
+    const fundera = providerOffer(sdb, "fundera");
+    const amone = providerOffer(sdb, "amone");
+    const fora = seedOffer(sdb, { dynamic: false, staticBid: 5 });
+    for (const o of [fundera, amone, fora]) attachOffer(sdb, auction.id, o);
+    waterfall(sdb, auction.id, 100, [[fundera.offer_id], [amone.offer_id], [fora.offer_id]]);
+    const calls = stubFetch((url) => (hostOf(url) === "fundera" ? yes("Fundera") : yes("AmONE")));
+
+    const r = await run(env, sdb, auction);
+    expect(calls.map((c) => hostOf(c.url))).toEqual(["fundera"]);
+    expect(shownOffers(r)).toEqual([fundera.offer_public_id]);
+    expect(r.explain.waterfall?.served_tier).toBe(1);
+    expect(r.explain.waterfall?.tiers.map((t) => t.outcome)).toEqual(["shown", "not_reached", "not_reached"]);
+  });
+
+  it("Tier 1 says no: Tier 2 is called only AFTER Tier 1 answered (never in parallel) and only Tier 2 shows", async () => {
+    const { sdb, env } = harness();
+    const auction = seedAuction(sdb, { multi_offer: "enabled" });
+    const fundera = providerOffer(sdb, "fundera");
+    const amone = providerOffer(sdb, "amone");
+    const fora = seedOffer(sdb, { dynamic: false, staticBid: 5 });
+    for (const o of [fundera, amone, fora]) attachOffer(sdb, auction.id, o);
+    waterfall(sdb, auction.id, 100, [[fundera.offer_id], [amone.offer_id], [fora.offer_id]]);
+    const timeline: string[] = [];
+    stubFetch(async (url) => {
+      const who = hostOf(url);
+      timeline.push(`start:${who}`);
+      await new Promise((resolve) => setTimeout(resolve, 20));
+      timeline.push(`end:${who}`);
+      return who === "fundera" ? no() : yes("AmONE");
+    });
+
+    const r = await run(env, sdb, auction);
+    expect(timeline).toEqual(["start:fundera", "end:fundera", "start:amone", "end:amone"]);
+    expect(shownOffers(r)).toEqual([amone.offer_public_id]);
+    expect(r.explain.waterfall?.tiers.map((t) => t.outcome)).toEqual(["no_result", "shown", "not_reached"]);
+    // both calls really made are explained + logged
+    expect(r.explain.providers_requested.map((p) => p.offer_id)).toEqual([fundera.offer_public_id, amone.offer_public_id]);
+    expect(r.provider_log_rows.map((p) => p.offer_public_id)).toEqual([fundera.offer_public_id, amone.offer_public_id]);
+  });
+
+  it("Tiers 1 and 2 show nothing: Tier 3's offers show TOGETHER (offerwall) even with multi-offer off", async () => {
+    const { sdb, env } = harness();
+    const auction = seedAuction(sdb, { multi_offer: "disabled", surface_static_bid_offers: 0 });
+    const fundera = providerOffer(sdb, "fundera");
+    const amone = providerOffer(sdb, "amone");
+    const fora = seedOffer(sdb, { dynamic: false, staticBid: 5 });
+    const honest = seedOffer(sdb, { dynamic: false, staticBid: 4 });
+    for (const o of [fundera, amone, fora, honest]) attachOffer(sdb, auction.id, o);
+    waterfall(sdb, auction.id, 100, [[fundera.offer_id], [amone.offer_id], [fora.offer_id, honest.offer_id]]);
+    const calls = stubFetch(() => no());
+
+    const r = await run(env, sdb, auction);
+    expect(calls.map((c) => hostOf(c.url))).toEqual(["fundera", "amone"]);
+    expect(shownOffers(r)).toEqual([fora.offer_public_id, honest.offer_public_id].sort());
+    expect(r.explain.waterfall?.served_tier).toBe(3);
+  });
+
+  it("an offer whose OWN rules the visitor fails is skipped without a call (Fundera blocked in CA → AmONE)", async () => {
+    const { sdb, env } = harness();
+    const auction = seedAuction(sdb, { multi_offer: "enabled" });
+    const fundera = providerOffer(sdb, "fundera");
+    const amone = providerOffer(sdb, "amone");
+    for (const o of [fundera, amone]) attachOffer(sdb, auction.id, o);
+    sdb.prepare("INSERT INTO leadgen_offer_region_rules (public_id, offer_id, dimension, action, values_json) VALUES (?, ?, 'state', 'exclude', '[\"CA\"]')")
+      .run(mintPublicId("offer_region_rule"), fundera.offer_id);
+    waterfall(sdb, auction.id, 100, [[fundera.offer_id], [amone.offer_id]]);
+    const calls = stubFetch(() => yes("Any"));
+
+    const r = await run(env, sdb, auction, { request_context: { state: "CA" } });
+    expect(calls.map((c) => hostOf(c.url))).toEqual(["amone"]);
+    expect(r.explain.waterfall?.tiers.map((t) => t.outcome)).toEqual(["no_qualifying_offer", "shown"]);
+    expect(shownOffers(r)).toEqual([amone.offer_public_id]);
+  });
+
+  it("no tier shows anything: the visitor sees nothing — offers outside the tiers are never called", async () => {
+    const { sdb, env } = harness();
+    const auction = seedAuction(sdb, { multi_offer: "enabled" });
+    const fundera = providerOffer(sdb, "fundera");
+    const other = providerOffer(sdb, "other");
+    for (const o of [fundera, other]) attachOffer(sdb, auction.id, o);
+    waterfall(sdb, auction.id, 100, [[fundera.offer_id]]);
+    const calls = stubFetch(() => no());
+
+    const r = await run(env, sdb, auction);
+    expect(calls.map((c) => hostOf(c.url))).toEqual(["fundera"]);
+    expect(r.banners).toEqual([]);
+    expect(r.status).not.toBe("ok");
+    expect(r.explain.waterfall?.served_tier).toBeNull();
+  });
+
+  it("the share is real and sticky: a 50% waterfall gets about half of 300 visitors; the rest get the normal auction", async () => {
+    const { sdb, env } = harness();
+    const auction = seedAuction(sdb, { multi_offer: "enabled" });
+    const fundera = providerOffer(sdb, "fundera");
+    const amone = providerOffer(sdb, "amone");
+    for (const o of [fundera, amone]) attachOffer(sdb, auction.id, o);
+    waterfall(sdb, auction.id, 50, [[fundera.offer_id], [amone.offer_id]]);
+    const calls = stubFetch((url) => yes(hostOf(url)));
+    const bundle = await loadAuctionBundle(env.DB, auction, 1);
+    const inWaterfall = new Map<string, boolean>();
+    for (let i = 0; i < 300; i++) {
+      calls.length = 0;
+      const r = await runAuction(env, { resolved: makeResolved(), bundle, environment: "production", binding: NO_BINDING, session_id: `visitor-${i}`, raw_answers: {}, clicked: [] }, { dryRun: true });
+      const waterfallPath = r.explain.waterfall !== null;
+      // waterfall path: Fundera alone (it says yes); normal auction: both, in parallel
+      expect(calls.map((c) => hostOf(c.url)).sort()).toEqual(waterfallPath ? ["fundera"] : ["amone", "fundera"]);
+      inWaterfall.set(`visitor-${i}`, waterfallPath);
+    }
+    const share = [...inWaterfall.values()].filter(Boolean).length / 300;
+    expect(share).toBeGreaterThan(0.4);
+    expect(share).toBeLessThan(0.6);
+    // sticky: the same visitor gets the same path again
+    for (let i = 0; i < 20; i++) {
+      const r = await runAuction(env, { resolved: makeResolved(), bundle, environment: "production", binding: NO_BINDING, session_id: `visitor-${i}`, raw_answers: {}, clicked: [] }, { dryRun: true });
+      expect(r.explain.waterfall !== null).toBe(inWaterfall.get(`visitor-${i}`));
+    }
+  });
+
+  it("an exclude rule limited to 30% of traffic removes its offer for about 30% of visitors only", async () => {
+    const { sdb, env } = harness();
+    const auction = seedAuction(sdb, { multi_offer: "enabled" });
+    const fundera = providerOffer(sdb, "fundera");
+    const amone = providerOffer(sdb, "amone");
+    for (const o of [fundera, amone]) attachOffer(sdb, auction.id, o);
+    sdb
+      .prepare(
+        "INSERT INTO leadgen_auction_rules (public_id, auction_id, rule_level, target_offer_id, action, conditions_json, conditions_hash, priority, enabled, traffic_share_pct) VALUES (?, ?, 'offer', ?, 'exclude', '{\"groups\":[]}', 'h', 100, 1, 30)",
+      )
+      .run(mintPublicId("auction_rule"), auction.id, fundera.offer_id);
+    const calls = stubFetch((url) => yes(hostOf(url)));
+    const bundle = await loadAuctionBundle(env.DB, auction, 1);
+    let excluded = 0;
+    for (let i = 0; i < 300; i++) {
+      calls.length = 0;
+      await runAuction(env, { resolved: makeResolved(), bundle, environment: "production", binding: NO_BINDING, session_id: `v-${i}`, raw_answers: {}, clicked: [] }, { dryRun: true });
+      if (!calls.some((c) => hostOf(c.url) === "fundera")) excluded += 1;
+    }
+    expect(excluded / 300).toBeGreaterThan(0.22);
+    expect(excluded / 300).toBeLessThan(0.38);
+  });
+
+  it("the auction log records the path: waterfall_json on a waterfall run, NULL on a normal one", async () => {
+    const { sdb, env } = harness();
+    const auction = seedAuction(sdb, { multi_offer: "enabled" });
+    const fundera = providerOffer(sdb, "fundera");
+    attachOffer(sdb, auction.id, fundera);
+    const ruleId = waterfall(sdb, auction.id, 100, [[fundera.offer_id]]);
+    stubFetch(() => yes("Fundera"));
+
+    const withWaterfall = await run(env, sdb, auction);
+    await persistAuctionResult(env, withWaterfall);
+    const normal = await run(env, sdb, auction, { waterfall_choice: "none" });
+    await persistAuctionResult(env, normal);
+    const rows = sdb.prepare("SELECT auction_instance_id, waterfall_json FROM leadgen_auction_result_log").all() as Array<{ auction_instance_id: string; waterfall_json: string | null }>;
+    const byId = new Map(rows.map((r) => [r.auction_instance_id, r.waterfall_json]));
+    const logged = JSON.parse(byId.get(withWaterfall.auction_instance_id) ?? "null") as { rule_id: string; served_tier: number };
+    expect(logged.rule_id).toBe(ruleId);
+    expect(logged.served_tier).toBe(1);
+    expect(byId.get(normal.auction_instance_id)).toBeNull();
+  });
+
+  it("a 'Present only this offer' attempt is never sent down a waterfall", async () => {
+    const { sdb, env } = harness();
+    const auction = seedAuction(sdb, { multi_offer: "enabled" });
+    const fundera = providerOffer(sdb, "fundera");
+    const amone = providerOffer(sdb, "amone");
+    for (const o of [fundera, amone]) attachOffer(sdb, auction.id, o);
+    waterfall(sdb, auction.id, 100, [[fundera.offer_id], [amone.offer_id]]);
+    const calls = stubFetch((url) => yes(hostOf(url)));
+
+    const r = await run(env, sdb, auction, { present_only_offer_id: amone.offer_id });
+    expect(calls.map((c) => hostOf(c.url))).toEqual(["amone"]);
+    expect(r.explain.waterfall).toBeNull();
+    expect(shownOffers(r)).toEqual([amone.offer_public_id]);
   });
 });
