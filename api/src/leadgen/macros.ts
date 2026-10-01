@@ -166,6 +166,38 @@ export function resolveMacros(
   });
 }
 
+// A header is not a URL (OWNER 2026-10-01: "Offers → Request → Headers →
+// support the user's IP address & user agent"). resolveMacros' URL escaping
+// turned a real browser user agent into "Mozilla%2F5.0%20(..." and an IPv6
+// visitor's address into "2001%3Adb8%3A%3A1", so a provider reading
+// True-Client-IP / User-Agent got garbage. Here a macro value is substituted
+// VERBATIM; only the characters an HTTP field value cannot carry (control
+// characters, non-ASCII) are percent-encoded, so fetch never throws on a
+// header and no value can split one (no CR/LF injection). Alias
+// normalization, the empty-string unresolved policy and the `{response:*}`
+// pass-through are the same as resolveMacros.
+const HEADER_UNSAFE_RE = /[^\t\x20-\x7E]/gu;
+
+function headerSafe(value: string): string {
+  return value.replace(HEADER_UNSAFE_RE, (ch) => {
+    try {
+      return encodeURIComponent(ch);
+    } catch {
+      return "%EF%BF%BD"; // a lone surrogate has no UTF-8 form
+    }
+  });
+}
+
+export function resolveHeaderMacros(
+  template: string,
+  values: Readonly<Record<string, string>>,
+): string {
+  return normalizeTemplate(template).replace(MACRO_TOKEN_RE, (_token, name: string) => {
+    const value = values[name];
+    return typeof value === "string" ? headerSafe(value) : "";
+  });
+}
+
 // ---------------------------------------------------------------------------
 // Response macro family — analysis (04 §10.5)
 // ---------------------------------------------------------------------------

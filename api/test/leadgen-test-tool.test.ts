@@ -1390,3 +1390,43 @@ describeDb("POST /offers/:id/test — a calculated choice previews its DATE", ()
     expect((body.request.payload["contact"] as Record<string, unknown>)["zip"]).toBe(yearsAgo(5));
   });
 });
+
+// OWNER 2026-10-01 ("Offers → Request → Headers → support the user's IP
+// address & user agent"). The Test tool sends exactly what the auction sends:
+// the macros resolve from the request that ran it, VERBATIM (the old header
+// path URL-escaped them: "Mozilla%2F5.0%20(...", "2001%3Adb8%3A%3A42").
+describeDb("POST /offers/:id/test — consumer IP + user agent headers", () => {
+  it("True-Client-IP={ip} / User-Agent={ua} carry the caller's own IP and browser, unescaped", async () => {
+    const h = await setupOffer();
+    const patch = await admin.request(
+      `${API}/offers/${h.offerId}`,
+      jsonInit("PATCH", {
+        headers: [
+          { header_name: "True-Client-IP", value_kind: "macro", value_text: "{ip}" },
+          { header_name: "User-Agent", value_kind: "macro", value_text: "{ua}" },
+        ],
+      }),
+      h.env,
+    );
+    expect(patch.status).toBe(200);
+    const calls = stubFetch(() => new Response(JSON.stringify(PROVIDER_BODY), { status: 200 }));
+    const UA = "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/18.0 Safari/605.1.15";
+    const res = await admin.request(
+      `${API}/offers/${h.offerId}/test`,
+      {
+        method: "POST",
+        headers: { "content-type": "application/json", "cf-connecting-ip": "2001:db8::42", "user-agent": UA },
+        body: JSON.stringify({ environment: "staging", sample_answers: SAMPLE_ANSWERS }),
+      },
+      h.env,
+    );
+    expect(res.status).toBe(200);
+    const body = (await res.json()) as TestToolResponse;
+    const sent = calls[0]?.init.headers as Record<string, string>;
+    expect(sent["True-Client-IP"]).toBe("2001:db8::42");
+    expect(sent["User-Agent"]).toBe(UA);
+    // the operator sees the same values in the Test result
+    expect(body.request.headers["True-Client-IP"]).toBe("2001:db8::42");
+    expect(body.request.headers["User-Agent"]).toBe(UA);
+  });
+});

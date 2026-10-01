@@ -589,21 +589,32 @@ describeDb("G2 — the live /lg/auction provider payload carries the REAL runtim
   const UA = "Mozilla/5.0 (iPhone; CPU iPhone OS 17_0 like Mac OS X) TestUA/1.0";
   const IP = "203.0.113.9";
 
-  async function runLiveAuction(h: Harness): Promise<{
+  async function runLiveAuction(
+    h: Harness,
+    offerHeaders: ReadonlyArray<readonly [string, string, string]> = [],
+  ): Promise<{
     seeded: SeededDynamic;
     attempt: { funnel_attempt_id: string; signed_config_token: string; section_order_hash: string };
     providerBodies: Array<Record<string, unknown>>;
+    providerHeaders: Array<Record<string, string>>;
     auctionJson: Record<string, unknown>;
     captured: CapturedCtx;
   }> {
     const { sdb, env } = h;
     const { variantId } = await seedActivatedFunnel(env, sdb, "g2");
     const seeded = seedDynamicAuctionForVariant(sdb, variantId);
+    for (const [name, kind, value] of offerHeaders) {
+      sdb
+        .prepare("INSERT INTO leadgen_offer_headers (offer_id, header_name, value_kind, value_text) VALUES (?, ?, ?, ?)")
+        .run(seeded.offerId, name, kind, value);
+    }
     const attempt = await mintLiveAttempt(env, variantId, LANDING);
 
     const providerBodies: Array<Record<string, unknown>> = [];
+    const providerHeaders: Array<Record<string, string>> = [];
     vi.stubGlobal("fetch", async (_url: RequestInfo | URL, init?: RequestInit): Promise<Response> => {
       providerBodies.push(JSON.parse(String(init?.body ?? "{}")) as Record<string, unknown>);
+      providerHeaders.push({ ...((init?.headers ?? {}) as Record<string, string>) });
       return new Response(
         JSON.stringify({ carriers: [{ name: "Acme", bid: 12, url: "https://acme.example/click?c=1", logo: "https://acme.example/l.png" }] }),
         { status: 200 },
@@ -637,8 +648,26 @@ describeDb("G2 — the live /lg/auction provider payload carries the REAL runtim
     const res = await app.request(req, undefined, env, captured.ctx);
     expect(res.status, `auction: ${await res.clone().text()}`).toBe(200);
     const auctionJson = (await res.json()) as Record<string, unknown>;
-    return { seeded, attempt, providerBodies, auctionJson, captured };
+    return { seeded, attempt, providerBodies, providerHeaders, auctionJson, captured };
   }
+
+  // OWNER 2026-10-01 ("Offers → Request → Headers → support the user's IP
+  // address & user agent"; provider spec: True-Client-IP = "Consumer's IP
+  // address ... not passing server IP"). Through the REAL /lg/auction route:
+  // the visitor's own request is the only source of both values.
+  // FAIL-BEFORE: the header path URL-escaped them, so this UA arrived as
+  // "Mozilla%2F5.0%20(iPhone%3B%20...".
+  it("Offer headers {ip}/{ua} send the VISITOR's IP + user agent to the provider, verbatim", async () => {
+    const h = newHarness();
+    const { providerHeaders, auctionJson } = await runLiveAuction(h, [
+      ["True-Client-IP", "macro", "{ip}"],
+      ["User-Agent", "macro", "{ua}"],
+    ]);
+    expect(auctionJson["status"]).toBe("ok");
+    expect(providerHeaders.length).toBe(1);
+    expect(providerHeaders[0]!["True-Client-IP"]).toBe(IP);
+    expect(providerHeaders[0]!["User-Agent"]).toBe(UA);
+  });
 
   it("payload macros resolve real ip/ua/geo (from the live request) + utm/subs (from the VERIFIED landing URL) + placement + computed", async () => {
     const h = newHarness();

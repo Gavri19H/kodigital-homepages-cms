@@ -2663,7 +2663,7 @@ const LG_EDITOR_SCRIPT = `
   function collectHeaders() {
     var out = [];
     var rows = document.querySelectorAll('#lg-headers-rows .lg-header-row');
-    var i, row, name, kind, value;
+    var i, row, name, kind, value, opt, token;
     for (i = 0; i < rows.length; i++) {
       row = rows[i];
       name = row.querySelector('[data-header-field="header_name"]');
@@ -2671,10 +2671,14 @@ const LG_EDITOR_SCRIPT = `
       value = row.querySelector('[data-header-field="value_text"]');
       name = name ? String(name.value || '').replace(/^\\s+|\\s+$/g, '') : '';
       if (name === '') { continue; } // blank rows are skipped, not errors
+      // Consumer IP address / Consumer user agent save as a macro row
+      // carrying their token (the option holds it; see HEADER_PRESETS).
+      opt = kind && kind.options ? kind.options[kind.selectedIndex] : null;
+      token = opt && opt.getAttribute ? opt.getAttribute('data-preset-token') : null;
       out.push({
         header_name: name,
-        value_kind: kind ? kind.value : 'static',
-        value_text: value ? String(value.value || '') : ''
+        value_kind: token ? 'macro' : (kind ? kind.value : 'static'),
+        value_text: token ? token : (value ? String(value.value || '') : '')
       });
     }
     return out;

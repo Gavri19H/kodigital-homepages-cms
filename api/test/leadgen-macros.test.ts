@@ -12,6 +12,7 @@ import {
   findUnknownMacros,
   isCanonicalMacro,
   normalizeTemplate,
+  resolveHeaderMacros,
   resolveMacros,
   responseMacroFallback,
   validateBannerUrlTemplate,
@@ -276,5 +277,45 @@ describe("validateBannerUrlTemplate — §10.5 guards", () => {
     for (const token of ["{click_id}", "{sub5}", "{fbclid}", "{response:slug}"]) {
       expect(verdict.normalized).toContain(token);
     }
+  });
+});
+
+// OWNER 2026-10-01 ("Offers → Request → Headers → support the user's IP
+// address & user agent"): a header value is not a URL. The old header path
+// ran resolveMacros, which URL-escaped a real user agent and an IPv6 address.
+describe("resolveHeaderMacros — header values arrive verbatim", () => {
+  const UA = "Mozilla/5.0 (iPhone; CPU iPhone OS 17_5 like Mac OS X) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/17.5 Mobile/15E148 Safari/604.1";
+
+  it("FAIL-BEFORE: the URL resolver garbles both values (why headers need their own)", () => {
+    expect(resolveMacros("{ua}", { ua: UA })).not.toBe(UA);
+    expect(resolveMacros("{ip}", { ip: "2001:db8::42" })).toBe("2001%3Adb8%3A%3A42");
+  });
+
+  it("the visitor's IPv4, IPv6 and user agent are substituted byte-for-byte", () => {
+    expect(resolveHeaderMacros("{ip}", { ip: "203.0.113.7" })).toBe("203.0.113.7");
+    expect(resolveHeaderMacros("{ip}", { ip: "2001:db8::42" })).toBe("2001:db8::42");
+    expect(resolveHeaderMacros("{ua}", { ua: UA })).toBe(UA);
+    expect(resolveHeaderMacros("ip={ip}; ua={ua}", { ip: "203.0.113.7", ua: "curl/8.7.1" })).toBe(
+      "ip=203.0.113.7; ua=curl/8.7.1",
+    );
+  });
+
+  it("a value can never split the header: CR/LF and other controls are percent-encoded", () => {
+    const out = resolveHeaderMacros("{ua}", { ua: "evil\r\nX-Injected: 1" });
+    expect(out).toBe("evil%0D%0AX-Injected: 1");
+    expect(out).not.toMatch(/[\r\n]/);
+    expect(resolveHeaderMacros("{ua}", { ua: "a\u0000b\u007fc" })).toBe("a%00b%7Fc");
+  });
+
+  it("non-ASCII becomes UTF-8 percent bytes (fetch rejects it raw); a lone surrogate never throws", () => {
+    expect(resolveHeaderMacros("{city}", { city: "São Paulo" })).toBe("S%C3%A3o Paulo");
+    expect(resolveHeaderMacros("{ua}", { ua: "x\ud800y" })).toBe("x%EF%BF%BDy");
+  });
+
+  it("same alias, unresolved and {response:*} rules as the URL resolver", () => {
+    expect(resolveHeaderMacros("{clickid}", { click_id: "c 1" })).toBe("c 1");
+    expect(resolveHeaderMacros("{referrer}", { referer: "https://a.example/x?y=1" })).toBe("https://a.example/x?y=1");
+    expect(resolveHeaderMacros("{ip}", {})).toBe("");
+    expect(resolveHeaderMacros("{response:slug}", { ip: "1.2.3.4" })).toBe("{response:slug}");
   });
 });
