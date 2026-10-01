@@ -11129,7 +11129,7 @@ if (!document.getElementById('toast-animations')) {
     }
     return out;
   }
-  function cardSentence(rows, labelOf, valueOf) {
+  function cardSentence(rows, labelOf, valueOf, joinWord) {
     if (rows.length === 0) { return 'Always matches \u2014 no conditions.'; }
     var clusters = clustersOf(normalizeClusterOrder(rows));
     var parts = [];
@@ -11141,7 +11141,7 @@ if (!document.getElementById('toast-animations')) {
       var s = inner.join(' or ');
       parts.push(clusters[i].rows.length > 1 ? '(' + s + ')' : s);
     }
-    return 'Matches when ' + parts.join(' and ') + '.';
+    return 'Matches when ' + parts.join(' ' + (joinWord === 'or' ? 'or' : 'and') + ' ') + '.';
   }
 
   // ---- DOM helpers ----------------------------------------------------------
@@ -11203,7 +11203,7 @@ if (!document.getElementById('toast-animations')) {
       state.ext.value = json;
       if (!silent) { fire(state.ext, 'input'); fire(state.ext, 'change'); }
     }
-    if (state.sentenceEl) { state.sentenceEl.textContent = cardSentence(state.rows, state.labelOf, state.valueOf); }
+    if (state.sentenceEl) { state.sentenceEl.textContent = cardSentence(state.rows, state.labelOf, state.valueOf, state.joinWord); }
     if (state.jsonEl && state.mode !== 'raw') {
       try { state.jsonEl.textContent = JSON.stringify(JSON.parse(json), null, 2); }
       catch (e) { state.jsonEl.textContent = json; }
@@ -11663,7 +11663,7 @@ if (!document.getElementById('toast-animations')) {
       for (i = 0; i < clusters.length; i++) {
         if (i > 0) {
           var andSep = el('div', 'lg-rb-andsep');
-          andSep.textContent = 'and';
+          andSep.textContent = state.joinWord === 'or' ? 'or' : 'and';
           zone.appendChild(andSep);
         }
         var clusterEl = el('div', 'lg-rb-cluster');
@@ -11855,7 +11855,10 @@ if (!document.getElementById('toast-animations')) {
       sentenceEl: sentence,
       jsonEl: pre2,
       addBtn: addBtn,
-      pendingFocus: null
+      pendingFocus: null,
+      // OWNER 2026-10-01: a rule set to "Match: ANY of the following" reads
+      // "or" between its different questions (the engine honours ANY now).
+      joinWord: opts.match === 'any' ? 'or' : 'and'
     };
     states.push(state);
     wireCard(state);
@@ -11863,7 +11866,12 @@ if (!document.getElementById('toast-animations')) {
     writeOut(state, true);
     return {
       state: state,
-      serialize: function () { return serializeRows(state.rows); }
+      serialize: function () { return serializeRows(state.rows); },
+      setMatch: function (mode) {
+        state.joinWord = mode === 'any' ? 'or' : 'and';
+        renderCardBody(state);
+        writeOut(state, true);
+      }
     };
   }
 

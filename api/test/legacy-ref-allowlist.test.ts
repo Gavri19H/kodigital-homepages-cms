@@ -69,7 +69,11 @@ function cleanupFixtures() {
   if (existsSync(FIXTURE_SRC)) rmSync(FIXTURE_SRC);
 }
 
-describe("verify:no-legacy-prod-refs Group A / Group B allowlist behavior (T10)", () => {
+// Each test spawns the whole-repo scan as a child process: 2.8 s alone and
+// 3.9 s inside the full suite (measured 2026-10-01), so the default 5 s limit
+// failed it once under extra machine load. The scan's verdict is the
+// assertion, not its speed.
+describe("verify:no-legacy-prod-refs Group A / Group B allowlist behavior (T10)", { timeout: 30_000 }, () => {
   afterEach(() => {
     cleanupFixtures();
   });
