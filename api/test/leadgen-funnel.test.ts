@@ -201,6 +201,9 @@ describe("validateFunnelRule — Date / Time of day conditions name a real date 
     expect(messages([{ field: "date_et", op: "range", from: 20261001, to: 0 }])).toContain("Date (US Eastern): pick a date");
     expect(messages([{ field: "date_et", op: "eq", value: 20260231 }])).toContain("Date (US Eastern): pick a date"); // 31 Feb
     expect(messages([{ field: "date_et", op: "in", values: [20261001, 2026101] }])).toContain("Date (US Eastern): pick a date");
+    // confirmation review N1: a list with nothing picked
+    expect(messages([{ field: "date_et", op: "in", values: [] }])).toContain("Date (US Eastern): pick a date");
+    expect(messages([{ field: "time_et", op: "not_in", values: [] }])).toContain("Time of day (US Eastern): pick a time");
     expect(messages([{ field: "time_et", op: "eq", value: 2460 }])).toContain("Time of day (US Eastern): pick a time");
     expect(messages([{ field: "time_et", op: "gte", value: 975 }])).toContain("Time of day (US Eastern): pick a time"); // 9:75
     expect(validateFunnelRule(rule([{ field: "date_et", op: "eq", value: 20261001 }, { field: "time_et", op: "range", from: 0, to: 2359 }]), ALLOWLIST).ok).toBe(true);

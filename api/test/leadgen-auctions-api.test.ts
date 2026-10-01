@@ -993,6 +993,8 @@ describeDb("leadgen auctions API — Tier-level rules + lgo_ targets (0063)", ()
     expect(((await bad.json()) as { fields: Record<string, string> }).fields["conditions_json"]).toBe("Date (US Eastern): pick a date");
     const badTime = await post({ rule_level: "offer", action: "exclude", target_offer_id: target, conditions_json: { groups: [{ field: "time_et", op: "range", from: 930, to: 2400 }] } });
     expect(((await badTime.json()) as { fields: Record<string, string> }).fields["conditions_json"]).toBe("Time of day (US Eastern): pick a time");
+    const emptyList = await post({ rule_level: "offer", action: "exclude", target_offer_id: target, conditions_json: { groups: [{ field: "date_et", op: "in", values: [] }] } });
+    expect(((await emptyList.json()) as { fields: Record<string, string> }).fields["conditions_json"]).toBe("Date (US Eastern): pick a date");
     const ok = await post({ rule_level: "offer", action: "exclude", target_offer_id: target, conditions_json: { groups: [{ field: "date_et", op: "eq", value: 20261001 }, { field: "time_et", op: "range", from: 0, to: 930 }] } });
     expect(ok.status, await ok.clone().text()).toBe(201);
   });

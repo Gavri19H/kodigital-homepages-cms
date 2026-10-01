@@ -101,6 +101,10 @@ export function ruleClockConditionError(group: {
   const op = group.op;
   const values: unknown[] =
     op === "range" ? [group.from, group.to] : op === "in" || op === "not_in" ? (Array.isArray(group.values) ? group.values : []) : [group.value];
+  // a list with no dates / times picked never matches either (confirmation review N1)
+  if ((op === "in" || op === "not_in") && values.length === 0) {
+    return field === "date_et" ? "Date (US Eastern): pick a date" : "Time of day (US Eastern): pick a time";
+  }
   for (const n of values) {
     if (n === "") continue;
     if (field === "date_et" ? !isRuleDate(n) : !isRuleTime(n)) {
