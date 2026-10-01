@@ -49,6 +49,28 @@ export interface ExplainProviderResponded {
   provider_error_reason: string | null;
 }
 
+// 0062 offer waterfall: which waterfall owned this visitor's share of the
+// traffic and what each tier did. outcome per tier:
+//   shown               — the tier rendered; the visitor sees only this tier
+//   no_result           — its offers were tried and showed nothing
+//   no_qualifying_offer — none of its offers qualified (rules/caps/readiness), no call
+//   not_reached         — a tier above was shown, so this one was never called
+export interface AuctionWaterfallTrace {
+  rule_id: string;
+  traffic_share_pct: number;
+  // The visitor's bucket 0..9999 (null when the Simulator forced the path).
+  bucket: number | null;
+  forced: boolean;
+  // false = in this waterfall's share but its IF conditions did not match:
+  // the visitor got the normal auction.
+  conditions_matched: boolean;
+  // true = none of its offers takes part in the auction any more (removed,
+  // disabled, archived): its visitors get the normal auction.
+  no_offers_left: boolean;
+  served_tier: number | null;
+  tiers: Array<{ tier: number; offer_ids: string[]; outcome: "shown" | "no_result" | "no_qualifying_offer" | "not_reached" }>;
+}
+
 // The full §19.2 explainability trace. The result-log columns
 // (auction_instance_id … unfilled_reason) plus the join-surfaced §19.2 extras.
 export interface AuctionExplainTrace {
@@ -70,6 +92,8 @@ export interface AuctionExplainTrace {
   carriers_filtered: ExplainFilteredCarrier[];
   providers_requested: ExplainProviderRequested[];
   providers_responded: ExplainProviderResponded[];
+  // 0062 (result-log column waterfall_json); null when no waterfall applied.
+  waterfall: AuctionWaterfallTrace | null;
 }
 
 // The identity fields a trace always needs; everything else defaults empty so
@@ -91,6 +115,7 @@ export interface ExplainTraceInput {
   carriers_filtered?: readonly ExplainFilteredCarrier[];
   providers_requested?: readonly ExplainProviderRequested[];
   providers_responded?: readonly ExplainProviderResponded[];
+  waterfall?: AuctionWaterfallTrace | null;
 }
 
 // Assemble the §19.2 trace from whatever the pipeline has recorded so far.
@@ -114,6 +139,7 @@ export function buildExplainTrace(input: ExplainTraceInput): AuctionExplainTrace
     carriers_filtered: [...(input.carriers_filtered ?? [])],
     providers_requested: [...(input.providers_requested ?? [])],
     providers_responded: [...(input.providers_responded ?? [])],
+    waterfall: input.waterfall ?? null,
   };
 }
 
@@ -133,6 +159,9 @@ export interface AuctionResultLogRowInsert {
   carriers_shown_json: string;
   winner_json: string | null;
   unfilled_reason: string | null;
+  // 0062; null when no waterfall applied (the column is then not written, so a
+  // database without the migration keeps working).
+  waterfall_json: string | null;
 }
 
 // Serialize a trace to the EXACT leadgen_auction_result_log DDL columns (only
@@ -154,5 +183,6 @@ export function toResultLogRow(trace: AuctionExplainTrace): AuctionResultLogRowI
     carriers_shown_json: JSON.stringify(trace.carriers_shown),
     winner_json: trace.winner === null ? null : JSON.stringify(trace.winner),
     unfilled_reason: trace.unfilled_reason,
+    waterfall_json: trace.waterfall === null ? null : JSON.stringify(trace.waterfall),
   };
 }

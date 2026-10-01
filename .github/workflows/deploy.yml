@@ -217,6 +217,7 @@ jobs:
       #   - 0059_analytics_event_file_ledger.sql
       #   - 0060_leadgen_offer_static_creative.sql
       #   - 0061_leadgen_routing_present_only_offer.sql
+      #   - 0062_leadgen_auction_waterfalls.sql
       - name: Apply D1 migrations to production (kodigital-homepages-cms-db)
         run: npx wrangler d1 migrations apply kodigital-homepages-cms-db --env production --remote
 

@@ -20,7 +20,7 @@
 
 import { sampleAnswerComputed, sampleAnswerComputedByOffer } from "../../leadgen/sample-computed";
 import { mintPublicId } from "../../leadgen/ids";
-import { conditionsHash } from "../../leadgen/auction-rules";
+import { conditionsHash, parseWaterfallTiers } from "../../leadgen/auction-rules";
 import type { LeadgenCarrierMatch } from "../../leadgen/auction-rules";
 import { evaluateDynamicOffersEligibility } from "../../leadgen/validation";
 import { resolveAllowedOutboundSecretReference } from "../../env";
@@ -47,6 +47,7 @@ import type {
   LeadgenAuctionApi,
   LeadgenAuctionBannerRow,
   LeadgenAuctionRow,
+  LeadgenAuctionRuleAction,
   LeadgenAuctionRuleApi,
   LeadgenAuctionRuleRow,
   LeadgenAuctionStatus,
@@ -69,6 +70,7 @@ import type {
   LeadgenRuleConditionGroup,
   LeadgenRuleConditions,
   LeadgenRuleLevel,
+  LeadgenWaterfallTier,
   LeadgenWinnerLogic,
 } from "./db-types";
 
@@ -86,7 +88,10 @@ const BACKFILL_TRIGGERS = ["on_slot_exhaustion", "on_click", "on_dismiss"] as co
 const REMOVAL_SCOPES = ["offer", "carrier"] as const satisfies readonly LeadgenRemovalScope[];
 const AUCTION_STATUSES = ["active", "paused", "archived"] as const satisfies readonly LeadgenAuctionStatus[];
 const RULE_LEVELS = ["offer", "carrier"] as const satisfies readonly LeadgenRuleLevel[];
-const RULE_ACTIONS = ["include_only", "exclude", "allow_list", "block_list"] as const satisfies readonly LeadgenRuleAction[];
+const RULE_ACTIONS = ["include_only", "exclude", "allow_list", "block_list", "waterfall"] as const satisfies readonly LeadgenAuctionRuleAction[];
+// 0062 waterfall bounds: enough for any realistic path, small enough to read.
+const WATERFALL_MAX_TIERS = 10;
+const WATERFALL_MAX_OFFERS_PER_TIER = 20;
 const BANNER_MODES = ["manual", "automatic"] as const satisfies readonly LeadgenBannerMode[];
 const CONDITION_OPS = ["eq", "neq", "gt", "lt", "gte", "lte", "range", "in", "not_in"] as const satisfies readonly LeadgenConditionOp[];
 
@@ -106,7 +111,7 @@ type _EnumsComplete = _Assert<
     _Complete<LeadgenRemovalScope, typeof REMOVAL_SCOPES> &
     _Complete<LeadgenAuctionStatus, typeof AUCTION_STATUSES> &
     _Complete<LeadgenRuleLevel, typeof RULE_LEVELS> &
-    _Complete<LeadgenRuleAction, typeof RULE_ACTIONS> &
+    _Complete<LeadgenAuctionRuleAction, typeof RULE_ACTIONS> &
     _Complete<LeadgenBannerMode, typeof BANNER_MODES> &
     _Complete<LeadgenConditionOp, typeof CONDITION_OPS>
 >;
@@ -206,12 +211,15 @@ export function auctionRowToApi(row: LeadgenAuctionRow): LeadgenAuctionApi {
 }
 
 function auctionRuleRowToApi(row: LeadgenAuctionRuleRow): LeadgenAuctionRuleApi {
+  const { tiers_json: tiersJson, ...rest } = row;
   return {
-    ...row,
+    ...rest,
     conditions_json: (parseJsonColumn(row.conditions_json) as LeadgenRuleConditions | null) ?? { groups: [] },
     carrier_match_json: parseJsonColumn(row.carrier_match_json),
     strictly_override: row.strictly_override !== 0,
     enabled: row.enabled !== 0,
+    traffic_share_pct: typeof row.traffic_share_pct === "number" ? row.traffic_share_pct : null,
+    tiers: row.action === "waterfall" ? parseWaterfallTiers(tiersJson) : null,
   };
 }
 
@@ -1109,10 +1117,10 @@ function detectRuleConflicts(rules: readonly RuleForConflict[]): { hard: Conflic
 async function readRulesForConflict(db: D1Database, auctionId: number): Promise<RuleForConflict[]> {
   const res = await db
     .prepare(
-      "SELECT public_id, rule_level, target_offer_id, action, priority, strictly_override, enabled, carrier_match_json FROM leadgen_auction_rules WHERE auction_id = ?",
+      "SELECT public_id, rule_level, target_offer_id, action, priority, strictly_override, enabled, carrier_match_json FROM leadgen_auction_rules WHERE auction_id = ? AND action != 'waterfall'",
     )
     .bind(auctionId)
-    .all<LeadgenAuctionRuleRow>();
+    .all<LeadgenAuctionRuleRow & { action: LeadgenRuleAction }>();
   return (res.results ?? []).map((r) => ({
     key: r.public_id,
     rule_level: r.rule_level,
@@ -1151,7 +1159,7 @@ export async function listAuctionRulesHandler(c: AdminContext): Promise<Response
 
 interface PreparedRule {
   rule_level: LeadgenRuleLevel;
-  action: LeadgenRuleAction;
+  action: LeadgenAuctionRuleAction;
   target_offer_id: number | null;
   conditions_json: string;
   conditions_hash: string;
@@ -1159,14 +1167,67 @@ interface PreparedRule {
   strictly_override: number;
   priority: number;
   enabled: number;
+  traffic_share_pct: number | null;
+  tiers_json: string | null;
 }
 
 // Validate a rule body into a PreparedRule (conditions_hash via Stage-A
 // `conditionsHash` — the CANONICAL/stable hash, distinct from the funnel-rule
 // raw-JSON sha). Offer rules need target_offer_id; carrier rules may carry
 // carrier_match_json.
+// 0062: a waterfall's tiers, as posted: [{offer_ids:[…]}, …] (a bare id array
+// per tier is accepted too). Ids are offer row ids; an offer may sit in ONE
+// tier only (it would otherwise be called twice for the same visitor).
+function validateWaterfallTiers(raw: unknown): { value: LeadgenWaterfallTier[] | null; error: string | null } {
+  if (!Array.isArray(raw)) return { value: null, error: "tiers must be an array of tiers" };
+  if (raw.length === 0) return { value: null, error: "a waterfall needs at least one tier with an offer" };
+  if (raw.length > WATERFALL_MAX_TIERS) return { value: null, error: `a waterfall has at most ${WATERFALL_MAX_TIERS} tiers` };
+  const seen = new Set<number>();
+  const tiers: LeadgenWaterfallTier[] = [];
+  for (let i = 0; i < raw.length; i++) {
+    const t = raw[i];
+    const ids = Array.isArray(t) ? t : t !== null && typeof t === "object" ? (t as { offer_ids?: unknown }).offer_ids : undefined;
+    if (!Array.isArray(ids) || ids.length === 0) {
+      return { value: null, error: `tier ${i + 1} needs at least one offer: tick one or remove the tier` };
+    }
+    if (ids.length > WATERFALL_MAX_OFFERS_PER_TIER) return { value: null, error: `tier ${i + 1} has more than ${WATERFALL_MAX_OFFERS_PER_TIER} offers` };
+    const offerIds: number[] = [];
+    for (const id of ids) {
+      if (typeof id !== "number" || !Number.isInteger(id) || id <= 0) return { value: null, error: `tier ${i + 1}: offer ids must be integer ids` };
+      if (seen.has(id)) return { value: null, error: `offer ${id} appears in more than one tier` };
+      seen.add(id);
+      offerIds.push(id);
+    }
+    tiers.push({ offer_ids: offerIds });
+  }
+  return { value: tiers, error: null };
+}
+
+// 0062: the enabled waterfalls of an auction split its traffic, so their
+// shares may add up to 100% at most. Basis points of the OTHER waterfalls.
+async function otherWaterfallShareBp(db: D1Database, auctionId: number, excludeRuleId: number | null): Promise<number> {
+  const res = await db
+    .prepare("SELECT id, traffic_share_pct FROM leadgen_auction_rules WHERE auction_id = ? AND action = 'waterfall' AND enabled = 1")
+    .bind(auctionId)
+    .all<{ id: number; traffic_share_pct: number | null }>();
+  let total = 0;
+  for (const r of res.results ?? []) {
+    if (r.id === excludeRuleId || typeof r.traffic_share_pct !== "number") continue;
+    total += Math.round(r.traffic_share_pct * 100);
+  }
+  return total;
+}
+
+function waterfallShareError(value: PreparedRule, otherBp: number): string | null {
+  if (value.action !== "waterfall" || value.enabled === 0 || value.traffic_share_pct === null) return null;
+  const totalBp = otherBp + Math.round(value.traffic_share_pct * 100);
+  if (totalBp <= 10000) return null;
+  return `Waterfalls in this auction would cover ${totalBp / 100}% of traffic; together they can cover at most 100%. Lower this share or another waterfall's.`;
+}
+
 async function prepareRule(
   db: D1Database,
+  auctionId: number,
   body: Record<string, unknown>,
   base: Partial<PreparedRule> | null,
 ): Promise<{ errors: FieldErrors; value: PreparedRule | null }> {
@@ -1181,14 +1242,19 @@ async function prepareRule(
   }
   if (ruleLevel === null) errors["rule_level"] = "rule_level is required";
 
-  let action: LeadgenRuleAction | null = base?.action ?? null;
+  let action: LeadgenAuctionRuleAction | null = base?.action ?? null;
   if (body["action"] !== undefined) {
     const raw = body["action"];
     if (typeof raw !== "string" || !(RULE_ACTIONS as readonly string[]).includes(raw)) {
       errors["action"] = `action must be one of ${RULE_ACTIONS.join("|")}`;
-    } else action = raw as LeadgenRuleAction;
+    } else action = raw as LeadgenAuctionRuleAction;
   }
   if (action === null) errors["action"] = "action is required";
+  // A waterfall chooses between offers, so it is an offer-level rule by nature.
+  if (action === "waterfall" && ruleLevel === null && body["rule_level"] === undefined) {
+    ruleLevel = "offer";
+    delete errors["rule_level"];
+  }
 
   let targetOfferId: number | null = base?.target_offer_id ?? null;
   if (body["target_offer_id"] !== undefined) {
@@ -1238,17 +1304,62 @@ async function prepareRule(
     else enabled = t ? 1 : 0;
   }
 
+  // 0062: the share of traffic the rule applies to (null/"" = every visitor).
+  let trafficSharePct: number | null = base?.traffic_share_pct ?? null;
+  if (body["traffic_share_pct"] !== undefined) {
+    const raw = body["traffic_share_pct"];
+    if (raw === null || raw === "") trafficSharePct = null;
+    else if (typeof raw !== "number" || !Number.isFinite(raw) || raw <= 0 || raw > 100) {
+      errors["traffic_share_pct"] = "the share of traffic must be above 0% and at most 100%";
+    } else if (Math.abs(raw * 100 - Math.round(raw * 100)) > 1e-9) {
+      errors["traffic_share_pct"] = "the share of traffic allows at most 2 decimals";
+    } else trafficSharePct = raw;
+  }
+  // 0062: a waterfall's tiers.
+  let tiers: LeadgenWaterfallTier[] | null =
+    typeof base?.tiers_json === "string" ? parseWaterfallTiers(base.tiers_json) : null;
+  if (body["tiers"] !== undefined) {
+    const parsedTiers = validateWaterfallTiers(body["tiers"]);
+    if (parsedTiers.error !== null) errors["tiers"] = parsedTiers.error;
+    else tiers = parsedTiers.value;
+  }
+
   // level-specific structural checks
-  if (ruleLevel === "offer" && action !== null) {
+  if (action === "waterfall") {
+    if (ruleLevel === "carrier") errors["rule_level"] = "a waterfall is an offer-level rule";
+    if (trafficSharePct === null && errors["traffic_share_pct"] === undefined) {
+      errors["traffic_share_pct"] = "a waterfall needs the share of traffic it applies to";
+    }
+    if ((tiers === null || tiers.length === 0) && errors["tiers"] === undefined) {
+      errors["tiers"] = "a waterfall needs at least one tier with an offer";
+    }
+  } else if (ruleLevel === "offer" && action !== null) {
     if (targetOfferId === null) errors["target_offer_id"] = "offer-level rules require target_offer_id";
   }
 
   if (Object.keys(errors).length > 0) return { errors, value: null };
 
   // FK existence for target_offer_id (clean 400, not a D1 500).
-  if (targetOfferId !== null && !(await checkFkExists(db, "leadgen_offers", targetOfferId))) {
+  if (action !== "waterfall" && targetOfferId !== null && !(await checkFkExists(db, "leadgen_offers", targetOfferId))) {
     errors["target_offer_id"] = `offer ${targetOfferId} does not exist`;
     return { errors, value: null };
+  }
+
+  // A tier can only show an offer that takes part in this auction. Checked when
+  // the tiers are written, not on every later PATCH: a waterfall whose offer
+  // has since left the auction must still be switchable off (the engine skips
+  // an offer that no longer takes part).
+  if (action === "waterfall" && tiers !== null && body["tiers"] !== undefined) {
+    const res = await db
+      .prepare("SELECT DISTINCT offer_id FROM leadgen_auction_offers WHERE auction_id = ?")
+      .bind(auctionId)
+      .all<{ offer_id: number }>();
+    const participating = new Set((res.results ?? []).map((r) => r.offer_id));
+    const missing = tiers.flatMap((t) => t.offer_ids).filter((id) => !participating.has(id));
+    if (missing.length > 0) {
+      errors["tiers"] = `offer ${missing[0]} is not a participating offer of this auction (add it under Participating Offers first)`;
+      return { errors, value: null };
+    }
   }
 
   return {
@@ -1256,13 +1367,15 @@ async function prepareRule(
     value: {
       rule_level: ruleLevel as LeadgenRuleLevel,
       action: action as LeadgenRuleAction,
-      target_offer_id: ruleLevel === "carrier" ? null : targetOfferId,
+      target_offer_id: ruleLevel === "carrier" || action === "waterfall" ? null : targetOfferId,
       conditions_json: conditionsJson,
       conditions_hash: conditionsHashValue,
       carrier_match_json: ruleLevel === "offer" ? null : carrierMatchJson,
-      strictly_override: strictly,
+      strictly_override: action === "waterfall" ? 0 : strictly,
       priority,
       enabled,
+      traffic_share_pct: trafficSharePct,
+      tiers_json: action === "waterfall" && tiers !== null ? JSON.stringify({ tiers }) : null,
     },
   };
 }
@@ -1273,22 +1386,30 @@ export async function createAuctionRuleHandler(c: AdminContext): Promise<Respons
   const body = await readJsonBody(c);
   if (body === null) return c.json({ error: "Invalid JSON body" }, 400);
 
-  const { errors, value } = await prepareRule(c.env.DB, body, null);
+  const { errors, value } = await prepareRule(c.env.DB, auction.id, body, null);
   if (value === null) return c.json({ error: "Validation failed", fields: errors }, 400);
+  const shareError = waterfallShareError(value, await otherWaterfallShareBp(c.env.DB, auction.id, null));
+  if (shareError !== null) return c.json({ error: shareError, fields: { traffic_share_pct: shareError } }, 400);
 
   // Conflict check against the resulting rule set (existing + this new rule).
+  // A waterfall never includes/excludes, so it cannot conflict with one.
   const existing = await readRulesForConflict(c.env.DB, auction.id);
-  const pending: RuleForConflict = {
-    key: "(new)",
-    rule_level: value.rule_level,
-    target_offer_id: value.target_offer_id,
-    action: value.action,
-    priority: value.priority,
-    strictly_override: value.strictly_override !== 0,
-    enabled: value.enabled !== 0,
-    carrier_match: value.carrier_match_json !== null ? (parseJsonColumn(value.carrier_match_json) as LeadgenCarrierMatch) : null,
-  };
-  const { hard, warnings } = detectRuleConflicts([...existing, pending]);
+  const { hard, warnings } =
+    value.action === "waterfall"
+      ? { hard: [], warnings: [] }
+      : detectRuleConflicts([
+          ...existing,
+          {
+            key: "(new)",
+            rule_level: value.rule_level,
+            target_offer_id: value.target_offer_id,
+            action: value.action,
+            priority: value.priority,
+            strictly_override: value.strictly_override !== 0,
+            enabled: value.enabled !== 0,
+            carrier_match: value.carrier_match_json !== null ? (parseJsonColumn(value.carrier_match_json) as LeadgenCarrierMatch) : null,
+          },
+        ]);
   if (hard.length > 0) {
     return c.json({ error: "Rule conflict: equal-priority strictly_override rules with opposing actions", conflicts: hard }, 409);
   }
@@ -1297,12 +1418,12 @@ export async function createAuctionRuleHandler(c: AdminContext): Promise<Respons
   await c.env.DB.prepare(
     `INSERT INTO leadgen_auction_rules
        (public_id, auction_id, rule_level, target_offer_id, action, conditions_json, conditions_hash,
-        carrier_match_json, strictly_override, priority, enabled)
-     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+        carrier_match_json, strictly_override, priority, enabled, traffic_share_pct, tiers_json)
+     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
   )
     .bind(
       publicId, auction.id, value.rule_level, value.target_offer_id, value.action, value.conditions_json, value.conditions_hash,
-      value.carrier_match_json, value.strictly_override, value.priority, value.enabled,
+      value.carrier_match_json, value.strictly_override, value.priority, value.enabled, value.traffic_share_pct, value.tiers_json,
     )
     .run();
 
@@ -1340,23 +1461,32 @@ export async function patchAuctionRuleHandler(c: AdminContext): Promise<Response
     strictly_override: existingRow.strictly_override,
     priority: existingRow.priority,
     enabled: existingRow.enabled,
+    traffic_share_pct: typeof existingRow.traffic_share_pct === "number" ? existingRow.traffic_share_pct : null,
+    tiers_json: typeof existingRow.tiers_json === "string" ? existingRow.tiers_json : null,
   };
-  const { errors, value } = await prepareRule(c.env.DB, body, base);
+  const { errors, value } = await prepareRule(c.env.DB, auction.id, body, base);
   if (value === null) return c.json({ error: "Validation failed", fields: errors }, 400);
+  const shareError = waterfallShareError(value, await otherWaterfallShareBp(c.env.DB, auction.id, existingRow.id));
+  if (shareError !== null) return c.json({ error: shareError, fields: { traffic_share_pct: shareError } }, 400);
 
   // Conflict check against the rule set with THIS rule updated in place.
   const others = (await readRulesForConflict(c.env.DB, auction.id)).filter((r) => r.key !== existingRow.public_id);
-  const pending: RuleForConflict = {
-    key: existingRow.public_id,
-    rule_level: value.rule_level,
-    target_offer_id: value.target_offer_id,
-    action: value.action,
-    priority: value.priority,
-    strictly_override: value.strictly_override !== 0,
-    enabled: value.enabled !== 0,
-    carrier_match: value.carrier_match_json !== null ? (parseJsonColumn(value.carrier_match_json) as LeadgenCarrierMatch) : null,
-  };
-  const { hard, warnings } = detectRuleConflicts([...others, pending]);
+  const { hard, warnings } =
+    value.action === "waterfall"
+      ? { hard: [], warnings: [] }
+      : detectRuleConflicts([
+          ...others,
+          {
+            key: existingRow.public_id,
+            rule_level: value.rule_level,
+            target_offer_id: value.target_offer_id,
+            action: value.action,
+            priority: value.priority,
+            strictly_override: value.strictly_override !== 0,
+            enabled: value.enabled !== 0,
+            carrier_match: value.carrier_match_json !== null ? (parseJsonColumn(value.carrier_match_json) as LeadgenCarrierMatch) : null,
+          },
+        ]);
   if (hard.length > 0) {
     return c.json({ error: "Rule conflict: equal-priority strictly_override rules with opposing actions", conflicts: hard }, 409);
   }
@@ -1364,12 +1494,13 @@ export async function patchAuctionRuleHandler(c: AdminContext): Promise<Response
   await c.env.DB.prepare(
     `UPDATE leadgen_auction_rules SET
        rule_level = ?, target_offer_id = ?, action = ?, conditions_json = ?, conditions_hash = ?,
-       carrier_match_json = ?, strictly_override = ?, priority = ?, enabled = ?
+       carrier_match_json = ?, strictly_override = ?, priority = ?, enabled = ?, traffic_share_pct = ?, tiers_json = ?
      WHERE id = ?`,
   )
     .bind(
       value.rule_level, value.target_offer_id, value.action, value.conditions_json, value.conditions_hash,
-      value.carrier_match_json, value.strictly_override, value.priority, value.enabled, existingRow.id,
+      value.carrier_match_json, value.strictly_override, value.priority, value.enabled, value.traffic_share_pct, value.tiers_json,
+      existingRow.id,
     )
     .run();
 
@@ -1687,6 +1818,12 @@ export async function auctionSimulateHandler(c: AdminContext): Promise<Response>
       ? (body["context"] as Record<string, unknown>)
       : {};
 
+  // 0062: which offer waterfall to simulate — "auto" places this run in the
+  // traffic like a new visitor; "none" = the normal auction; or a waterfall
+  // rule's public id.
+  const waterfallChoice =
+    body !== null && typeof body["waterfall"] === "string" && body["waterfall"].trim() !== "" ? body["waterfall"].trim() : "auto";
+
   const resolved = await buildSimulateResolved(c.env.DB, auction);
   const bundle = await loadAuctionBundle(c.env.DB, auction, resolved.variant.id === 0 ? null : resolved.variant.id);
   // OWNER 2026-09-28: a calculated choice previews its DATE (as the live
@@ -1730,6 +1867,8 @@ export async function auctionSimulateHandler(c: AdminContext): Promise<Response>
       // emitted (dry-run writes nothing).
       runtime: { source: c.req.raw },
       clicked: [],
+      waterfall_choice: waterfallChoice,
+      traffic_visitor_key: `sim_${crypto.randomUUID()}`,
     },
     { dryRun: true },
   );
@@ -1906,6 +2045,7 @@ export async function auctionSimulateHandler(c: AdminContext): Promise<Response>
     status: result.status,
     winner: result.explain.winner,
     unfilled_reason: result.explain.unfilled_reason,
+    waterfall: result.explain.waterfall,
     offers_considered: result.explain.offers_considered,
     offers_payload_explain: payloadExplain, // S1 (07 §7.6)
     offers_excluded: result.explain.offers_excluded,

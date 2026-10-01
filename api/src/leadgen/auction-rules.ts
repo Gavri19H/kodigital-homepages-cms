@@ -18,6 +18,7 @@ import type {
   LeadgenRuleAction,
   LeadgenRuleConditionGroup,
   LeadgenRuleConditions,
+  LeadgenWaterfallTier,
 } from "../admin/leadgen/db-types";
 import { conditionalMet, type LeadgenPayloadConditional } from "./payload";
 import { sha256Hex } from "../public/leadgen/auction/parse";
@@ -150,6 +151,9 @@ export interface OfferRuleInput {
   strictly_override?: number | boolean;
   priority?: number;
   enabled?: number | boolean;
+  // 0062: the share of visitors the rule applies to (null = all). The engine
+  // drops a rule this visitor is outside of BEFORE evaluation.
+  traffic_share_pct?: number | null;
 }
 
 export interface OfferRulesContext {
@@ -275,6 +279,7 @@ export interface CarrierRuleInput {
   carrier_match?: LeadgenCarrierMatch | null;
   priority?: number;
   enabled?: number | boolean;
+  traffic_share_pct?: number | null;
 }
 
 export interface CarrierRuleMatch {
@@ -363,4 +368,100 @@ export function evaluateCarrierRules(
 // exclude/block → pre-floor; include_only/allow → post-winner.
 export function carrierRulePhase(action: LeadgenRuleAction): "pre_floor" | "post_winner" {
   return EXCLUDE_ACTIONS.has(action) ? "pre_floor" : "post_winner";
+}
+
+// ---------------------------------------------------------------------------
+// Traffic share + offer waterfalls (0062)
+// ---------------------------------------------------------------------------
+//
+// OWNER 2026-10-01 ("Auction → Rules: setting any rule dictated by a given
+// amount of traffic" + "applying a specific offer waterfall as an action").
+// A visitor's place in the traffic is a session-sticky bucket 0..9999 — the
+// same SHA-256 idiom as A/B tests (ab-hash.ts) and redirect_pct (funnel.ts),
+// so the same visitor always lands in the same share for the same salt.
+
+export function trafficBucket(salt: string, sessionKey: string): number {
+  return parseInt(sha256Hex(`${salt}:${sessionKey}`).slice(0, 8), 16) % 10000;
+}
+
+// Basis points of a 0..100 percentage (0.01% steps).
+export function trafficShareBp(pct: number): number {
+  return Math.round(pct * 100);
+}
+
+// Does an include/exclude rule apply to this visitor? NULL/absent = every
+// visitor (every pre-0062 rule). A rule limited to a share needs a visitor to
+// place: with no session it applies to nobody (it can never be "half on").
+// Each rule has its own bucket space (salted with its id), like redirect_pct.
+export function ruleAppliesToVisitor(
+  pct: number | null | undefined,
+  ruleId: string,
+  sessionKey: string,
+): boolean {
+  if (pct === null || pct === undefined) return true;
+  if (pct >= 100) return true;
+  if (pct <= 0 || sessionKey === "") return false;
+  return trafficBucket(`auction_rule:${ruleId}`, sessionKey) < trafficShareBp(pct);
+}
+
+// tiers_json → tiers (numeric offer ids). Garbage degrades to [] (an inert
+// waterfall), never a throw — the stored shape is {"tiers":[{"offer_ids":[…]}]}.
+export function parseWaterfallTiers(raw: string | null | undefined): LeadgenWaterfallTier[] {
+  if (typeof raw !== "string" || raw === "") return [];
+  let parsed: unknown;
+  try {
+    parsed = JSON.parse(raw);
+  } catch {
+    return [];
+  }
+  const tiers = parsed !== null && typeof parsed === "object" ? (parsed as { tiers?: unknown }).tiers : undefined;
+  if (!Array.isArray(tiers)) return [];
+  const out: LeadgenWaterfallTier[] = [];
+  for (const t of tiers) {
+    const ids = t !== null && typeof t === "object" ? (t as { offer_ids?: unknown }).offer_ids : undefined;
+    if (!Array.isArray(ids)) continue;
+    const offerIds = ids.filter((id): id is number => typeof id === "number" && Number.isInteger(id) && id > 0);
+    if (offerIds.length > 0) out.push({ offer_ids: offerIds });
+  }
+  return out;
+}
+
+export interface WaterfallRuleInput {
+  rule_id: string;
+  traffic_share_pct: number;
+  conditions?: LeadgenRuleConditions | null;
+  // Offer public ids per tier, in order; tier 1 first.
+  tiers: Array<{ offer_ids: string[] }>;
+  priority?: number;
+}
+
+export interface WaterfallPick {
+  rule: WaterfallRuleInput;
+  bucket: number;
+  // The visitor's share range [from, to) in basis points.
+  range: { from: number; to: number };
+}
+
+// The waterfalls of ONE auction split the traffic like an A/B test (owner
+// ruling 2026-10-01): in priority order each owns the next slice of one
+// shared bucket space (salted with the auction), so 50/25/10/15 are four
+// non-overlapping groups. The share left over gets the normal auction.
+// Returns the waterfall owning this visitor's bucket, or null.
+export function pickWaterfall(
+  waterfalls: readonly WaterfallRuleInput[],
+  auctionPublicId: string,
+  sessionKey: string,
+): WaterfallPick | null {
+  if (waterfalls.length === 0 || sessionKey === "") return null;
+  const bucket = trafficBucket(`auction_waterfall:${auctionPublicId}`, sessionKey);
+  const ordered = [...waterfalls].sort(
+    (a, b) => (a.priority ?? 100) - (b.priority ?? 100) || (a.rule_id < b.rule_id ? -1 : a.rule_id > b.rule_id ? 1 : 0),
+  );
+  let from = 0;
+  for (const rule of ordered) {
+    const to = Math.min(10000, from + trafficShareBp(rule.traffic_share_pct));
+    if (bucket >= from && bucket < to) return { rule, bucket, range: { from, to } };
+    from = to;
+  }
+  return null;
 }

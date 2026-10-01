@@ -100,6 +100,7 @@ const LEADGEN_MIGRATIONS = [
   "0052_leadgen_rework_m9_address_fields.sql",
   "0053_leadgen_rework_m12_othergroup_retirement.sql",
   "0057_leadgen_offer_test_verdict.sql",
+  "0062_leadgen_auction_waterfalls.sql", // traffic share + offer waterfalls
 ] as const;
 
 function createLeadgenDb(DatabaseSync: DatabaseSyncCtor): SqliteDb {
@@ -557,5 +558,90 @@ describeDb("Participating-offer eligibility warnings (05 §5.1)", () => {
     ]) {
       expect(html, `embedded label ${pair}`).toContain(pair);
     }
+  });
+});
+
+
+// --- 0062 Rules: offer waterfalls + traffic share (OWNER 2026-10-01) ---------
+
+describeDb("leadgen auction editor — Rules: waterfalls + share of traffic (0062)", () => {
+  async function editorWithWaterfall(): Promise<{ html: string; names: string[] }> {
+    const { env, sdb } = newHarness();
+    const quote = await createQuote(env);
+    const auction = await createAuction(env, { auction_name: "Business loans", quote_id: quote.id, auction_type: "dynamic" });
+    const named = (name: string) => {
+      const o = seedOfferWithPlacement(sdb, "cpl");
+      sdb.prepare("UPDATE leadgen_offers SET offer_name = ? WHERE id = ?").run(name, o.offer_id);
+      return o;
+    };
+    const fundera = named("Fundera - Tier 1");
+    const amone = named("AmONE - Tier 2");
+    const fora = named("Fora - Tier 3");
+    const honest = named("Honest <Loans> - OW");
+    await putParticipating(env, auction.public_id, [fundera, amone, fora, honest].map((o) => o.placement_id));
+    const wf = await admin.request(
+      `${API}/auctions/${auction.public_id}/rules`,
+      jsonInit("POST", { action: "waterfall", traffic_share_pct: 50, tiers: [[fundera.offer_id], [amone.offer_id], [fora.offer_id, honest.offer_id]] }),
+      env,
+    );
+    expect(wf.status, await wf.clone().text()).toBe(201);
+    const ex = await admin.request(
+      `${API}/auctions/${auction.public_id}/rules`,
+      jsonInit("POST", { rule_level: "offer", action: "exclude", target_offer_id: amone.offer_id, traffic_share_pct: 30, conditions_json: { groups: [] } }),
+      env,
+    );
+    expect(ex.status).toBe(201);
+    return { html: await getHtml(env, `/admin/leadgen/auction/${auction.public_id}/edit`), names: [] };
+  }
+
+  it("the list shows the waterfall by offer NAME, tier by tier, and how much traffic it takes", async () => {
+    const { html } = await editorWithWaterfall();
+    expect(html).toContain("<h4>Waterfalls</h4>");
+    expect(html).toContain("Waterfalls cover <strong>50%</strong> of traffic; the other 50% get the normal auction");
+    expect(html).toContain('data-rule-action="waterfall"');
+    expect(html).toMatch(/<li data-waterfall-tier="1">Tier 1: Fundera - Tier 1<\/li>/);
+    expect(html).toMatch(/<li data-waterfall-tier="2">Tier 2: AmONE - Tier 2<\/li>/);
+    expect(html).toContain('<li data-waterfall-tier="3">Tier 3: Fora - Tier 3 + Honest &lt;Loans&gt; - OW <span class="form-help">(shown together)</span></li>');
+    expect(html).not.toContain("Honest <Loans>"); // escaped everywhere
+    // a share-limited exclude rule says so
+    expect(html).toContain('<span data-rule-share>30% of traffic</span>');
+  });
+
+  it("the builder offers the waterfall action, a share field and a tier template listing the participating offers", async () => {
+    const { html } = await editorWithWaterfall();
+    expect(html).toContain('<option value="waterfall">waterfall — offer tiers</option>');
+    expect(html).toContain('id="lg-r-share"');
+    expect(html).toContain("data-rule-waterfall-field hidden");
+    const template = html.split('<template id="lg-r-tier-template">')[1]?.split("</template>")[0] ?? "";
+    for (const name of ["Fundera - Tier 1", "AmONE - Tier 2", "Fora - Tier 3", "Honest &lt;Loans&gt; - OW"]) expect(template).toContain(name);
+    expect(template.match(/data-tier-offer value="\d+"/g)).toHaveLength(4);
+  });
+
+  it("review fix: every rule has a Disable/Enable switch; a disabled participant is skipped in the list and absent from the picker", async () => {
+    const { env, sdb } = newHarness();
+    const quote = await createQuote(env);
+    const auction = await createAuction(env, { auction_name: "Loans", quote_id: quote.id, auction_type: "dynamic" });
+    const a = seedOfferWithPlacement(sdb, "cpl");
+    const b = seedOfferWithPlacement(sdb, "cpl");
+    sdb.prepare("UPDATE leadgen_offers SET offer_name = 'Kept Offer' WHERE id = ?").run(a.offer_id);
+    sdb.prepare("UPDATE leadgen_offers SET offer_name = 'Paused Offer' WHERE id = ?").run(b.offer_id);
+    await putParticipating(env, auction.public_id, [a.placement_id, b.placement_id]);
+    const wf = await admin.request(`${API}/auctions/${auction.public_id}/rules`, jsonInit("POST", { action: "waterfall", traffic_share_pct: 30, tiers: [[a.offer_id], [b.offer_id]] }), env);
+    expect(wf.status).toBe(201);
+    sdb.prepare("UPDATE leadgen_auction_offers SET enabled = 0 WHERE offer_id = ?").run(b.offer_id);
+    const html = await getHtml(env, `/admin/leadgen/auction/${auction.public_id}/edit`);
+    expect(html).toMatch(/data-toggle-rule="lgar_[^"]+" data-rule-enabled="1">Disable<\/button>/);
+    expect(html).toContain('id="lg-a-rules-msg"');
+    expect(html).toContain('Tier 2: Paused Offer <span class="form-help">(not running in this auction — skipped)</span>');
+    const template = html.split('<template id="lg-r-tier-template">')[1]?.split("</template>")[0] ?? "";
+    expect(template).toContain("Kept Offer");
+    expect(template).not.toContain("Paused Offer");
+  });
+
+  it("the Simulator can run a chosen waterfall path, the normal auction, or pick by visitor share", async () => {
+    const { html } = await editorWithWaterfall();
+    expect(html).toContain('<option value="auto">By visitor share (like a new visitor)</option>');
+    expect(html).toContain("50% of traffic: Fundera - Tier 1 → AmONE - Tier 2 → Fora - Tier 3 + Honest &lt;Loans&gt; - OW");
+    expect(html).toContain('<option value="none">Normal auction (no waterfall)</option>');
   });
 });

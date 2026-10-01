@@ -44,6 +44,15 @@ export type LeadgenHeaderValueKind = "static" | "macro" | "secret_ref";
 // leadgen_offer_region_rules (action is shared with leadgen_auction_rules)
 export type LeadgenRegionDimension = "country" | "state" | "city" | "zip";
 export type LeadgenRuleAction = "include_only" | "exclude" | "allow_list" | "block_list";
+// leadgen_auction_rules only (0062): an auction rule may also run an offer
+// WATERFALL — ordered tiers, the first tier that shows something wins. Region
+// rules keep the four include/exclude actions.
+export type LeadgenAuctionRuleAction = LeadgenRuleAction | "waterfall";
+// tiers_json of a waterfall rule: each tier lists the offers (numeric ids)
+// shown together when that tier is reached.
+export interface LeadgenWaterfallTier {
+  offer_ids: number[];
+}
 
 // leadgen_sections + leadgen_section_available_offers + leadgen_section_answer_maps
 export type LeadgenContinueMode = "button" | "auto_advance";
@@ -853,7 +862,7 @@ export interface LeadgenAuctionRuleRow {
   auction_id: number;
   rule_level: LeadgenRuleLevel;
   target_offer_id: number | null;
-  action: LeadgenRuleAction;
+  action: LeadgenAuctionRuleAction;
   conditions_json: string;
   conditions_hash: string;
   carrier_match_json: string | null;
@@ -861,6 +870,9 @@ export interface LeadgenAuctionRuleRow {
   priority: number;
   enabled: number;
   created_at: number;
+  // 0062 — absent on a database that predates the migration.
+  traffic_share_pct?: number | null;
+  tiers_json?: string | null;
 }
 
 export interface LeadgenAuctionRuleApi {
@@ -869,7 +881,7 @@ export interface LeadgenAuctionRuleApi {
   auction_id: number;
   rule_level: LeadgenRuleLevel;
   target_offer_id: number | null;
-  action: LeadgenRuleAction;
+  action: LeadgenAuctionRuleAction;
   conditions_json: LeadgenRuleConditions;
   conditions_hash: string;
   carrier_match_json: unknown;
@@ -877,6 +889,10 @@ export interface LeadgenAuctionRuleApi {
   priority: number;
   enabled: boolean;
   created_at: number;
+  // 0062: null = every visitor; waterfalls always carry a share.
+  traffic_share_pct: number | null;
+  // 0062: the waterfall's tiers (null for include/exclude rules).
+  tiers: LeadgenWaterfallTier[] | null;
 }
 
 // leadgen_auction_banners
