@@ -91,7 +91,9 @@ export type LeadgenRemovalScope = "offer" | "carrier";
 export type LeadgenAuctionStatus = "active" | "paused" | "archived";
 
 // leadgen_auction_rules
-export type LeadgenRuleLevel = "offer" | "carrier";
+// "tier" (0063): the rule names a GROUP of offers (tiers_json, one tier) and
+// shows only them, all together (include), or hides them (exclude).
+export type LeadgenRuleLevel = "offer" | "carrier" | "tier";
 
 // leadgen_auction_banners
 export type LeadgenBannerMode = "manual" | "automatic";

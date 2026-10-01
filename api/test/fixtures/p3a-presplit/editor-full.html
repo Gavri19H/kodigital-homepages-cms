@@ -11129,7 +11129,7 @@ if (!document.getElementById('toast-animations')) {
     }
     return out;
   }
-  function cardSentence(rows, labelOf, valueOf) {
+  function cardSentence(rows, labelOf, valueOf, joinWord) {
     if (rows.length === 0) { return 'Always matches \u2014 no conditions.'; }
     var clusters = clustersOf(normalizeClusterOrder(rows));
     var parts = [];
@@ -11141,7 +11141,7 @@ if (!document.getElementById('toast-animations')) {
       var s = inner.join(' or ');
       parts.push(clusters[i].rows.length > 1 ? '(' + s + ')' : s);
     }
-    return 'Matches when ' + parts.join(' and ') + '.';
+    return 'Matches when ' + parts.join(' ' + (joinWord === 'or' ? 'or' : 'and') + ' ') + '.';
   }
 
   // ---- DOM helpers ----------------------------------------------------------
@@ -11203,7 +11203,7 @@ if (!document.getElementById('toast-animations')) {
       state.ext.value = json;
       if (!silent) { fire(state.ext, 'input'); fire(state.ext, 'change'); }
     }
-    if (state.sentenceEl) { state.sentenceEl.textContent = cardSentence(state.rows, state.labelOf, state.valueOf); }
+    if (state.sentenceEl) { state.sentenceEl.textContent = cardSentence(state.rows, state.labelOf, state.valueOf, state.joinWord); }
     if (state.jsonEl && state.mode !== 'raw') {
       try { state.jsonEl.textContent = JSON.stringify(JSON.parse(json), null, 2); }
       catch (e) { state.jsonEl.textContent = json; }
@@ -11212,6 +11212,39 @@ if (!document.getElementById('toast-animations')) {
   }
 
   // ---- editors ---------------------------------------------------------------
+
+  // OWNER 2026-10-01 ("Answer from the funnel question"): a field's answers,
+  // each with the exact value a rule stores to match it (rule-fields.ts).
+  function fieldMetaOf(state, field) {
+    var i;
+    for (i = 0; i < state.fields.length; i++) { if (state.fields[i].internal_field === field) { return state.fields[i]; } }
+    return null;
+  }
+  function answersOf(state, field) {
+    var meta = fieldMetaOf(state, field);
+    return meta && isArr(meta.stored_choices) && meta.stored_choices.length > 0 ? meta.stored_choices : null;
+  }
+  function answerIndexOf(answers, value) {
+    var i;
+    for (i = 0; i < answers.length; i++) {
+      if (answers[i].stored === value || String(answers[i].stored) === String(value)) { return i; }
+    }
+    return -1;
+  }
+  function answersSelect(answers, value, label) {
+    var sel = el('select', 'form-select lg-rb-value lg-rb-answer');
+    sel.setAttribute('aria-label', label);
+    var i;
+    for (i = 0; i < answers.length; i++) {
+      var o = el('option');
+      o.value = String(i);
+      o.textContent = answers[i].label;
+      sel.appendChild(o);
+    }
+    var at = answerIndexOf(answers, value);
+    sel.value = String(at >= 0 ? at : 0);
+    return sel;
+  }
 
   function convertRowToOp(row, ui) {
     var kind = opKind(ui);
@@ -11231,7 +11264,18 @@ if (!document.getElementById('toast-animations')) {
     row.op = ui;
   }
 
+  // The value controls, then the field's format hint (Date / Time of day …).
   function renderValueZone(state, row, zone) {
+    renderValueControls(state, row, zone);
+    var hintMeta = fieldMetaOf(state, row.field);
+    if (hintMeta && typeof hintMeta.hint === 'string' && hintMeta.hint !== '' && opKind(row.op) !== 'none') {
+      var hint = el('span', 'form-help lg-rb-hint');
+      hint.textContent = hintMeta.hint;
+      zone.appendChild(hint);
+    }
+  }
+
+  function renderValueControls(state, row, zone) {
     clearNode(zone);
     var kind = opKind(row.op);
     if (kind === 'none') { return; }
@@ -11349,6 +11393,24 @@ if (!document.getElementById('toast-animations')) {
         }
       });
       zone.appendChild(chipsWrap);
+      var listAnswers = answersOf(state, row.field);
+      if (listAnswers) {
+        // a question's answers: pick one and add it (the free entry stays for
+        // values outside the list)
+        var answerPick = answersSelect(listAnswers, undefined, 'Answer to add');
+        var addAnswer = el('button', 'btn btn-sm btn-outline');
+        addAnswer.type = 'button';
+        addAnswer.textContent = 'Add answer';
+        addAnswer.addEventListener('click', function () {
+          var picked = listAnswers[parseInt(answerPick.value, 10)];
+          if (!picked) { return; }
+          chips.push({ vtype: vtypeOf(picked.stored), value: picked.stored });
+          renderChips();
+          writeOut(state);
+        });
+        zone.appendChild(answerPick);
+        zone.appendChild(addAnswer);
+      }
       zone.appendChild(entry);
       zone.appendChild(entryType);
       zone.appendChild(addBtn);
@@ -11357,9 +11419,22 @@ if (!document.getElementById('toast-animations')) {
 
     // kind 'value' (eq / neq): value-type select + typed control.
     var vtype = row.vtype || vtypeOf(isPrim(row.value) ? row.value : '');
+    var answers = answersOf(state, row.field);
+    // A field with answers starts on them (an empty value, or a stored value
+    // that IS one of them); a type the operator picked is kept.
+    if (answers && vtype !== 'choice' && !row.vtypeTouched &&
+        (row.value === '' || row.value === undefined || answerIndexOf(answers, row.value) >= 0)) {
+      vtype = 'choice';
+      row.vtype = 'choice';
+      if (row.value === '' || row.value === undefined) { row.value = answers[0].stored; }
+    }
     var typeSel = el('select', 'form-select lg-rb-vtype');
     typeSel.setAttribute('aria-label', 'Value type');
     var types = [['text', 'Text'], ['number', 'Number'], ['bool', 'Yes/no']];
+    if (answers) {
+      var meta = fieldMetaOf(state, row.field);
+      types.unshift(['choice', meta && meta.group === 'visitor' ? 'From the list' : 'Answer from the funnel question']);
+    }
     var i;
     for (i = 0; i < types.length; i++) {
       var o = el('option');
@@ -11370,7 +11445,10 @@ if (!document.getElementById('toast-animations')) {
     }
     typeSel.addEventListener('change', function () {
       var next = typeSel.value;
-      if (next === 'number') {
+      row.vtypeTouched = true;
+      if (next === 'choice' && answers) {
+        if (answerIndexOf(answers, row.value) < 0) { row.value = answers[0].stored; }
+      } else if (next === 'number') {
         var n = parseFloat(String(row.value));
         row.value = isFinite(n) ? n : 0;
       } else if (next === 'bool') {
@@ -11384,7 +11462,16 @@ if (!document.getElementById('toast-animations')) {
     });
     zone.appendChild(typeSel);
 
-    if (vtype === 'bool') {
+    if (vtype === 'choice' && answers) {
+      var answerSel = answersSelect(answers, row.value, 'Answer');
+      answerSel.addEventListener('change', function () {
+        var picked = answers[parseInt(answerSel.value, 10)];
+        if (picked) { row.value = picked.stored; }
+        writeOut(state);
+      });
+      row.value = answers[parseInt(answerSel.value, 10)].stored;
+      zone.appendChild(answerSel);
+    } else if (vtype === 'bool') {
       var boolSel = el('select', 'form-select lg-rb-value');
       boolSel.setAttribute('aria-label', 'Value');
       var oYes = el('option');
@@ -11449,12 +11536,26 @@ if (!document.getElementById('toast-animations')) {
     var fieldSel = el('select', 'form-select lg-rb-field');
     fieldSel.setAttribute('aria-label', 'Field');
     var i;
+    // OWNER 2026-10-01: the funnel's questions and the visitor facts, grouped
+    // when the field list says which is which (rule-fields.ts).
+    var groupEls = {};
+    var groupLabels = { question: 'Funnel questions', visitor: 'Visitor info' };
     for (i = 0; i < state.fields.length; i++) {
       var opt = el('option');
       opt.value = state.fields[i].internal_field;
       opt.textContent = state.fields[i].label;
       if (state.fields[i].internal_field === row.field) { opt.selected = true; }
-      fieldSel.appendChild(opt);
+      var g = state.fields[i].group;
+      if (g === 'question' || g === 'visitor') {
+        if (!groupEls[g]) {
+          groupEls[g] = el('optgroup');
+          groupEls[g].setAttribute('label', groupLabels[g]);
+          fieldSel.appendChild(groupEls[g]);
+        }
+        groupEls[g].appendChild(opt);
+      } else {
+        fieldSel.appendChild(opt);
+      }
     }
     var extras = extraFieldsOf(state);
     for (i = 0; i < extras.length; i++) {
@@ -11493,6 +11594,11 @@ if (!document.getElementById('toast-animations')) {
         return;
       }
       row.field = fieldSel.value;
+      // a new field: start its value afresh (its answers, when it has some)
+      row.value = opKind(row.op) === 'number' ? 0 : '';
+      row.vtype = opKind(row.op) === 'number' ? 'number' : undefined;
+      row.vtypeTouched = false;
+      if (opKind(row.op) === 'list') { row.values = []; }
       renderCardBody(state);
       writeOut(state);
     });
@@ -11557,7 +11663,7 @@ if (!document.getElementById('toast-animations')) {
       for (i = 0; i < clusters.length; i++) {
         if (i > 0) {
           var andSep = el('div', 'lg-rb-andsep');
-          andSep.textContent = 'and';
+          andSep.textContent = state.joinWord === 'or' ? 'or' : 'and';
           zone.appendChild(andSep);
         }
         var clusterEl = el('div', 'lg-rb-cluster');
@@ -11749,7 +11855,10 @@ if (!document.getElementById('toast-animations')) {
       sentenceEl: sentence,
       jsonEl: pre2,
       addBtn: addBtn,
-      pendingFocus: null
+      pendingFocus: null,
+      // OWNER 2026-10-01: a rule set to "Match: ANY of the following" reads
+      // "or" between its different questions (the engine honours ANY now).
+      joinWord: opts.match === 'any' ? 'or' : 'and'
     };
     states.push(state);
     wireCard(state);
@@ -11757,7 +11866,12 @@ if (!document.getElementById('toast-animations')) {
     writeOut(state, true);
     return {
       state: state,
-      serialize: function () { return serializeRows(state.rows); }
+      serialize: function () { return serializeRows(state.rows); },
+      setMatch: function (mode) {
+        state.joinWord = mode === 'any' ? 'or' : 'and';
+        renderCardBody(state);
+        writeOut(state, true);
+      }
     };
   }
 

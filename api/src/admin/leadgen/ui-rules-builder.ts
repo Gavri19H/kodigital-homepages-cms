@@ -1140,7 +1140,7 @@ export const RULES_BUILDER_SCRIPT = `(function () {
     }
     return out;
   }
-  function cardSentence(rows, labelOf, valueOf) {
+  function cardSentence(rows, labelOf, valueOf, joinWord) {
     if (rows.length === 0) { return 'Always matches \\u2014 no conditions.'; }
     var clusters = clustersOf(normalizeClusterOrder(rows));
     var parts = [];
@@ -1152,7 +1152,7 @@ export const RULES_BUILDER_SCRIPT = `(function () {
       var s = inner.join(' or ');
       parts.push(clusters[i].rows.length > 1 ? '(' + s + ')' : s);
     }
-    return 'Matches when ' + parts.join(' and ') + '.';
+    return 'Matches when ' + parts.join(' ' + (joinWord === 'or' ? 'or' : 'and') + ' ') + '.';
   }
 
   // ---- DOM helpers ----------------------------------------------------------
@@ -1214,7 +1214,7 @@ export const RULES_BUILDER_SCRIPT = `(function () {
       state.ext.value = json;
       if (!silent) { fire(state.ext, 'input'); fire(state.ext, 'change'); }
     }
-    if (state.sentenceEl) { state.sentenceEl.textContent = cardSentence(state.rows, state.labelOf, state.valueOf); }
+    if (state.sentenceEl) { state.sentenceEl.textContent = cardSentence(state.rows, state.labelOf, state.valueOf, state.joinWord); }
     if (state.jsonEl && state.mode !== 'raw') {
       try { state.jsonEl.textContent = JSON.stringify(JSON.parse(json), null, 2); }
       catch (e) { state.jsonEl.textContent = json; }
@@ -1223,6 +1223,39 @@ export const RULES_BUILDER_SCRIPT = `(function () {
   }
 
   // ---- editors ---------------------------------------------------------------
+
+  // OWNER 2026-10-01 ("Answer from the funnel question"): a field's answers,
+  // each with the exact value a rule stores to match it (rule-fields.ts).
+  function fieldMetaOf(state, field) {
+    var i;
+    for (i = 0; i < state.fields.length; i++) { if (state.fields[i].internal_field === field) { return state.fields[i]; } }
+    return null;
+  }
+  function answersOf(state, field) {
+    var meta = fieldMetaOf(state, field);
+    return meta && isArr(meta.stored_choices) && meta.stored_choices.length > 0 ? meta.stored_choices : null;
+  }
+  function answerIndexOf(answers, value) {
+    var i;
+    for (i = 0; i < answers.length; i++) {
+      if (answers[i].stored === value || String(answers[i].stored) === String(value)) { return i; }
+    }
+    return -1;
+  }
+  function answersSelect(answers, value, label) {
+    var sel = el('select', 'form-select lg-rb-value lg-rb-answer');
+    sel.setAttribute('aria-label', label);
+    var i;
+    for (i = 0; i < answers.length; i++) {
+      var o = el('option');
+      o.value = String(i);
+      o.textContent = answers[i].label;
+      sel.appendChild(o);
+    }
+    var at = answerIndexOf(answers, value);
+    sel.value = String(at >= 0 ? at : 0);
+    return sel;
+  }
 
   function convertRowToOp(row, ui) {
     var kind = opKind(ui);
@@ -1242,7 +1275,18 @@ export const RULES_BUILDER_SCRIPT = `(function () {
     row.op = ui;
   }
 
+  // The value controls, then the field's format hint (Date / Time of day …).
   function renderValueZone(state, row, zone) {
+    renderValueControls(state, row, zone);
+    var hintMeta = fieldMetaOf(state, row.field);
+    if (hintMeta && typeof hintMeta.hint === 'string' && hintMeta.hint !== '' && opKind(row.op) !== 'none') {
+      var hint = el('span', 'form-help lg-rb-hint');
+      hint.textContent = hintMeta.hint;
+      zone.appendChild(hint);
+    }
+  }
+
+  function renderValueControls(state, row, zone) {
     clearNode(zone);
     var kind = opKind(row.op);
     if (kind === 'none') { return; }
@@ -1360,6 +1404,24 @@ export const RULES_BUILDER_SCRIPT = `(function () {
         }
       });
       zone.appendChild(chipsWrap);
+      var listAnswers = answersOf(state, row.field);
+      if (listAnswers) {
+        // a question's answers: pick one and add it (the free entry stays for
+        // values outside the list)
+        var answerPick = answersSelect(listAnswers, undefined, 'Answer to add');
+        var addAnswer = el('button', 'btn btn-sm btn-outline');
+        addAnswer.type = 'button';
+        addAnswer.textContent = 'Add answer';
+        addAnswer.addEventListener('click', function () {
+          var picked = listAnswers[parseInt(answerPick.value, 10)];
+          if (!picked) { return; }
+          chips.push({ vtype: vtypeOf(picked.stored), value: picked.stored });
+          renderChips();
+          writeOut(state);
+        });
+        zone.appendChild(answerPick);
+        zone.appendChild(addAnswer);
+      }
       zone.appendChild(entry);
       zone.appendChild(entryType);
       zone.appendChild(addBtn);
@@ -1368,9 +1430,22 @@ export const RULES_BUILDER_SCRIPT = `(function () {
 
     // kind 'value' (eq / neq): value-type select + typed control.
     var vtype = row.vtype || vtypeOf(isPrim(row.value) ? row.value : '');
+    var answers = answersOf(state, row.field);
+    // A field with answers starts on them (an empty value, or a stored value
+    // that IS one of them); a type the operator picked is kept.
+    if (answers && vtype !== 'choice' && !row.vtypeTouched &&
+        (row.value === '' || row.value === undefined || answerIndexOf(answers, row.value) >= 0)) {
+      vtype = 'choice';
+      row.vtype = 'choice';
+      if (row.value === '' || row.value === undefined) { row.value = answers[0].stored; }
+    }
     var typeSel = el('select', 'form-select lg-rb-vtype');
     typeSel.setAttribute('aria-label', 'Value type');
     var types = [['text', 'Text'], ['number', 'Number'], ['bool', 'Yes/no']];
+    if (answers) {
+      var meta = fieldMetaOf(state, row.field);
+      types.unshift(['choice', meta && meta.group === 'visitor' ? 'From the list' : 'Answer from the funnel question']);
+    }
     var i;
     for (i = 0; i < types.length; i++) {
       var o = el('option');
@@ -1381,7 +1456,10 @@ export const RULES_BUILDER_SCRIPT = `(function () {
     }
     typeSel.addEventListener('change', function () {
       var next = typeSel.value;
-      if (next === 'number') {
+      row.vtypeTouched = true;
+      if (next === 'choice' && answers) {
+        if (answerIndexOf(answers, row.value) < 0) { row.value = answers[0].stored; }
+      } else if (next === 'number') {
         var n = parseFloat(String(row.value));
         row.value = isFinite(n) ? n : 0;
       } else if (next === 'bool') {
@@ -1395,7 +1473,16 @@ export const RULES_BUILDER_SCRIPT = `(function () {
     });
     zone.appendChild(typeSel);
 
-    if (vtype === 'bool') {
+    if (vtype === 'choice' && answers) {
+      var answerSel = answersSelect(answers, row.value, 'Answer');
+      answerSel.addEventListener('change', function () {
+        var picked = answers[parseInt(answerSel.value, 10)];
+        if (picked) { row.value = picked.stored; }
+        writeOut(state);
+      });
+      row.value = answers[parseInt(answerSel.value, 10)].stored;
+      zone.appendChild(answerSel);
+    } else if (vtype === 'bool') {
       var boolSel = el('select', 'form-select lg-rb-value');
       boolSel.setAttribute('aria-label', 'Value');
       var oYes = el('option');
@@ -1460,12 +1547,26 @@ export const RULES_BUILDER_SCRIPT = `(function () {
     var fieldSel = el('select', 'form-select lg-rb-field');
     fieldSel.setAttribute('aria-label', 'Field');
     var i;
+    // OWNER 2026-10-01: the funnel's questions and the visitor facts, grouped
+    // when the field list says which is which (rule-fields.ts).
+    var groupEls = {};
+    var groupLabels = { question: 'Funnel questions', visitor: 'Visitor info' };
     for (i = 0; i < state.fields.length; i++) {
       var opt = el('option');
       opt.value = state.fields[i].internal_field;
       opt.textContent = state.fields[i].label;
       if (state.fields[i].internal_field === row.field) { opt.selected = true; }
-      fieldSel.appendChild(opt);
+      var g = state.fields[i].group;
+      if (g === 'question' || g === 'visitor') {
+        if (!groupEls[g]) {
+          groupEls[g] = el('optgroup');
+          groupEls[g].setAttribute('label', groupLabels[g]);
+          fieldSel.appendChild(groupEls[g]);
+        }
+        groupEls[g].appendChild(opt);
+      } else {
+        fieldSel.appendChild(opt);
+      }
     }
     var extras = extraFieldsOf(state);
     for (i = 0; i < extras.length; i++) {
@@ -1504,6 +1605,11 @@ export const RULES_BUILDER_SCRIPT = `(function () {
         return;
       }
       row.field = fieldSel.value;
+      // a new field: start its value afresh (its answers, when it has some)
+      row.value = opKind(row.op) === 'number' ? 0 : '';
+      row.vtype = opKind(row.op) === 'number' ? 'number' : undefined;
+      row.vtypeTouched = false;
+      if (opKind(row.op) === 'list') { row.values = []; }
       renderCardBody(state);
       writeOut(state);
     });
@@ -1568,7 +1674,7 @@ export const RULES_BUILDER_SCRIPT = `(function () {
       for (i = 0; i < clusters.length; i++) {
         if (i > 0) {
           var andSep = el('div', 'lg-rb-andsep');
-          andSep.textContent = 'and';
+          andSep.textContent = state.joinWord === 'or' ? 'or' : 'and';
           zone.appendChild(andSep);
         }
         var clusterEl = el('div', 'lg-rb-cluster');
@@ -1760,7 +1866,10 @@ export const RULES_BUILDER_SCRIPT = `(function () {
       sentenceEl: sentence,
       jsonEl: pre2,
       addBtn: addBtn,
-      pendingFocus: null
+      pendingFocus: null,
+      // OWNER 2026-10-01: a rule set to "Match: ANY of the following" reads
+      // "or" between its different questions (the engine honours ANY now).
+      joinWord: opts.match === 'any' ? 'or' : 'and'
     };
     states.push(state);
     wireCard(state);
@@ -1768,7 +1877,12 @@ export const RULES_BUILDER_SCRIPT = `(function () {
     writeOut(state, true);
     return {
       state: state,
-      serialize: function () { return serializeRows(state.rows); }
+      serialize: function () { return serializeRows(state.rows); },
+      setMatch: function (mode) {
+        state.joinWord = mode === 'any' ? 'or' : 'and';
+        renderCardBody(state);
+        writeOut(state, true);
+      }
     };
   }
 
@@ -3194,7 +3308,7 @@ export function renderRelocatedRulesEditor(data: RelocatedRulesPanelData): strin
     `<label class="lg-check"><input type="checkbox" id="lg-frr-allowlisted" /> Redirect URL is on the approved list</label>` +
     `</details>` +
     `</div>` +
-    `<div class="lg-rule-action-panel" data-lg-frr-type-panel="eligibility" hidden><p class="form-help">No extra fields — the conditions below decide who is eligible.</p></div>` +
+    `<div class="lg-rule-action-panel" data-lg-frr-type-panel="eligibility" hidden><p class="form-help">Only visitors who match an Eligibility rule get offers; everyone else sees “Thanks for your answers! We couldn’t find a match for you right now.” With several Eligibility rules, matching any one is enough.</p></div>` +
     `<div class="lg-rule-action-panel" data-lg-frr-type-panel="disqualification" hidden><p class="form-help">No extra fields — the conditions below decide who is disqualified.</p></div>` +
     `<div class="lg-rule-action-panel" data-lg-frr-type-panel="auction_entry" hidden><p class="form-help">No extra fields — the conditions below decide who enters the auction.</p></div>` +
     `<div class="form-group"><label class="form-label">Conditions</label><div id="lg-frr-cond-mount"></div><input type="hidden" id="lg-frr-cond-out" /></div>` +
@@ -3278,25 +3392,6 @@ export const RELOCATED_RULES_SCRIPT = `(function () {
 
   // ---- quote -> funnel(+variants) / fields / offers loading -----------------
 
-  function fieldsFromSections(items) {
-    var out = [];
-    var seen = {};
-    var i, j;
-    for (i = 0; i < items.length; i++) {
-      var content = items[i].content_json;
-      var components = (content && typeof content === 'object' && isArr(content.components)) ? content.components : [];
-      for (j = 0; j < components.length; j++) {
-        var node = components[j];
-        if (!node || typeof node !== 'object') { continue; }
-        var f = node.internal_field;
-        if (typeof f !== 'string' || f === '' || seen[f]) { continue; }
-        seen[f] = true;
-        out.push({ internal_field: f, label: (items[i].section_name || '') + ' \\u00b7 ' + f });
-      }
-    }
-    return out;
-  }
-
   // Every page of a list: the API caps page_size at 100 and answers a larger
   // ask with 25 rows (the old ?page_size=200 silently dropped the rest).
   function fetchAllItems(base) {
@@ -3319,18 +3414,16 @@ export const RELOCATED_RULES_SCRIPT = `(function () {
     for (i = 0; i < quotes.length; i++) { if (quotes[i].public_id === quotePub) { quote = quotes[i]; break; } }
     if (!quote) { then(null); return; }
     var funnelsP = fetch(API + '/quotes/' + encodeURIComponent(quotePub) + '/funnels').then(function (r) { return r.json(); });
-    var sectionsP = fetchAllItems(API + '/sections?activity=' + encodeURIComponent(quote.activity) + '&status=active');
     var offersP = fetchAllItems(API + '/offers');
-    Promise.all([funnelsP, sectionsP, offersP]).then(function (results) {
-      var funnelsBody = results[0], sectionsBody = results[1], offersBody = results[2];
+    Promise.all([funnelsP, offersP]).then(function (results) {
+      var funnelsBody = results[0], offersBody = results[1];
       var entry = {
         funnels: (funnelsBody && isArr(funnelsBody.items)) ? funnelsBody.items : [],
-        fields: fieldsFromSections((sectionsBody && isArr(sectionsBody.items)) ? sectionsBody.items : []),
         offers: (offersBody && isArr(offersBody.items)) ? offersBody.items : []
       };
       quoteCache[quotePub] = entry;
       then(entry);
-    }, function () { showTopError('Could not load this quote\\u2019s funnels/sections/offers.'); then(null); });
+    }, function () { showTopError('Could not load this quote\\u2019s funnels/offers.'); then(null); });
   }
 
   function resetSelect(sel, placeholder) {
@@ -3394,10 +3487,26 @@ export const RELOCATED_RULES_SCRIPT = `(function () {
     if (!currentFunnel) { return; }
     populateVariantSelect(isArr(currentFunnel.variants) ? currentFunnel.variants : []);
   }
+  // OWNER 2026-10-01: the condition fields are THIS variant's questions (its
+  // sections + the quote's shared page) plus the visitor facts — fetched per
+  // variant from /variants/:id/rule-fields (rule-fields.ts), never every
+  // section of the activity (which mixed in other verticals).
+  var variantFields = {};
+  function loadVariantFields(pub, then) {
+    if (variantFields[pub]) { then(variantFields[pub]); return; }
+    fetch(API + '/variants/' + encodeURIComponent(pub) + '/rule-fields')
+      .then(function (r) { return r.json(); })
+      .then(function (body) {
+        var loaded = (body && isArr(body.fields)) ? body.fields : [];
+        if (loaded.length > 0) { variantFields[pub] = loaded; }
+        then(loaded);
+      }, function () { then([]); });
+  }
   function onVariantChange() {
     showTopError('');
     currentVariantPub = variantSel.value;
     if (currentVariantPub === '') { showBody(false); return; }
+    loadVariantFields(currentVariantPub, function () {});
     refetchRules();
   }
   if (quoteSel) { quoteSel.addEventListener('change', onQuoteChange); }
@@ -3533,6 +3642,12 @@ export const RELOCATED_RULES_SCRIPT = `(function () {
   var condOut = byId('lg-frr-cond-out');
 
   function showModalError(msg) { if (!modalError) { return; } if (msg) { txt(modalError, msg); modalError.hidden = false; } else { modalError.hidden = true; } }
+  // "Match: ANY" reads "or" between the conditions as soon as it is picked.
+  if (matchEl) {
+    matchEl.addEventListener('change', function () {
+      if (mountedConditions && mountedConditions.setMatch) { mountedConditions.setMatch(matchEl.value); }
+    });
+  }
 
   function populateOfferSelect() {
     if (!offerEl) { return; }
@@ -3577,12 +3692,16 @@ export const RELOCATED_RULES_SCRIPT = `(function () {
     condOut.value = raw;
     if (condMount) { while (condMount.firstChild) { condMount.removeChild(condMount.firstChild); } }
     mountedConditions = null;
-    var entry = quoteCache[currentQuotePub];
-    var fields = entry ? entry.fields : [];
-    if (window.lgRulesBuilder && condMount) {
-      try { mountedConditions = window.lgRulesBuilder.mount(condMount, raw, condOut, { fields: fields }); } catch (e) { mountedConditions = null; }
-    }
     modal.hidden = false;
+    var mountFor = currentVariantPub;
+    loadVariantFields(mountFor, function (fields) {
+      if (mountFor !== currentVariantPub || modal.hidden) { return; }
+      if (condMount) { while (condMount.firstChild) { condMount.removeChild(condMount.firstChild); } }
+      if (window.lgRulesBuilder && condMount) {
+        try { mountedConditions = window.lgRulesBuilder.mount(condMount, raw, condOut, { fields: fields, match: matchEl.value }); } catch (e) { mountedConditions = null; }
+      }
+      if (fields.length === 0) { showModalError('Could not load this funnel\\u2019s questions \\u2014 close and reopen the rule to try again.'); }
+    });
   }
   function closeModal() { modal.hidden = true; editingPublicId = null; }
 

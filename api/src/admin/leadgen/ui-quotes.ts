@@ -45,7 +45,8 @@ import { loadVariantPages, type ResolvedFunnelPage } from "../../public/leadgen/
 // new layer crossing); collectAnswerKeyClaims + foreignAnswerKeysIn supply the
 // section context that makes its Address branch name the key the MARKUP
 // carries; flattenComponents is the shared container/QuestionGrid descent.
-import { fieldsOf as leadgenAnswerFieldsOf } from "../../leadgen/answers";
+import { fieldsOf as leadgenAnswerFieldsOf, normalizeAnswerValue } from "../../leadgen/answers";
+import type { LeadgenAnswerType } from "../../public/leadgen/components/content-schema";
 import {
   collectAnswerKeyClaims,
   foreignAnswerKeysIn,
@@ -1185,6 +1186,12 @@ interface SectionFieldEntry {
   internal_field: string;
   label: string | null;
   choices: RulesBuilderFieldChoice[];
+  // OWNER 2026-10-01 (rules: "Answer from the funnel question"): each choice
+  // with the value a rule must STORE to match it — the choice value run
+  // through the same answer normalizer the auction uses (75000 stays a number,
+  // a yes/no stays a boolean). Own-question fields only; [] for derived ones.
+  stored_choices?: Array<{ label: string; stored: string | number | boolean }>;
+  answer_type?: string | null;
 }
 function questionLabelOf(node: unknown): string | null {
   if (node === null || typeof node !== "object") return null;
@@ -1207,6 +1214,46 @@ function pushChoices(raw: unknown, into: RulesBuilderFieldChoice[], seen: Set<st
     into.push({ value: key, label: label.trim() });
   }
 }
+// The value a rule stores for each authored choice (see SectionFieldEntry).
+function questionStoredChoicesOf(node: unknown): Array<{ label: string; stored: string | number | boolean }> {
+  if (node === null || typeof node !== "object") return [];
+  const answerType = (node as { answer_type?: unknown }).answer_type;
+  const lists: unknown[] = [(node as { choices?: unknown }).choices];
+  const props = (node as { props?: unknown }).props;
+  if (props !== null && typeof props === "object") {
+    const other = (props as { other?: unknown }).other;
+    if (other !== null && typeof other === "object") lists.push((other as { choices?: unknown }).choices);
+  }
+  const out: Array<{ label: string; stored: string | number | boolean }> = [];
+  const seen = new Set<string>();
+  for (const list of lists) {
+    if (!Array.isArray(list)) continue;
+    for (const c of list) {
+      if (c === null || typeof c !== "object") continue;
+      const v = (c as { value?: unknown }).value;
+      if (typeof v !== "string" && typeof v !== "number" && typeof v !== "boolean") continue;
+      const label = (c as { label?: unknown }).label;
+      if (typeof label !== "string" || label.trim() === "" || seen.has(String(v))) continue;
+      seen.add(String(v));
+      const normalized =
+        typeof answerType === "string" ? normalizeAnswerValue(v, answerType as LeadgenAnswerType) : v;
+      const stored = typeof normalized === "string" || typeof normalized === "number" || typeof normalized === "boolean" ? normalized : v;
+      out.push({ label: label.trim(), stored });
+    }
+  }
+  return out;
+}
+
+// OWNER 2026-10-01: one section's answer fields for the rules builders
+// (rule-fields.ts) — the SAME walk the quote rules rail uses.
+export function ruleFieldEntriesOfContent(content: unknown): SectionFieldEntry[] {
+  const components =
+    content !== null && typeof content === "object" && Array.isArray((content as { components?: unknown }).components)
+      ? ((content as { components: unknown[] }).components)
+      : [];
+  return sectionAnswerFieldEntries(components);
+}
+
 function questionChoicesOf(node: unknown): RulesBuilderFieldChoice[] {
   if (node === null || typeof node !== "object") return [];
   const out: RulesBuilderFieldChoice[] = [];
@@ -1422,7 +1469,13 @@ function sectionAnswerFieldEntries(components: readonly unknown[]): SectionField
       if (spec.field === "") continue;
       out.push(
         spec.field === own
-          ? { internal_field: spec.field, label: questionLabelOf(leaf), choices: questionChoicesOf(leaf) }
+          ? {
+              internal_field: spec.field,
+              label: questionLabelOf(leaf),
+              choices: questionChoicesOf(leaf),
+              stored_choices: questionStoredChoicesOf(leaf),
+              answer_type: typeof (leaf as { answer_type?: unknown }).answer_type === "string" ? ((leaf as { answer_type: string }).answer_type) : null,
+            }
           : {
               internal_field: spec.field,
               // A derived sub-field carries no enum domain of its own ⇒ no

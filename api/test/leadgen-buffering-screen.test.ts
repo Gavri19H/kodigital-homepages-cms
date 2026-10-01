@@ -31,11 +31,12 @@ import { describe, expect, it } from "vitest";
 import {
   LG_BANNERS_MOUNT_HTML,
   LG_BUFFERING_MOUNT_HTML,
+  LG_NO_MATCH_MOUNT_HTML,
   renderQuoteFrame,
   renderLegacyShell,
 } from "../src/public/leadgen/designs/frame";
 import type { RenderQuoteFrameInput } from "../src/public/leadgen/designs/frame";
-import { effectiveFrame } from "../src/public/leadgen/designs/frames";
+import { effectiveFrame, FRAME_TEMPLATE_IDS } from "../src/public/leadgen/designs/frames";
 import { resolveTokens } from "../src/public/leadgen/designs/theme";
 import { defaultFunnelDesign } from "../src/public/leadgen/designs/default-funnel/tokens";
 import { funnelChromeCss, DEFAULT_FUNNEL_SCOPE } from "../src/public/leadgen/designs/default-funnel/styles";
@@ -202,5 +203,41 @@ describe("the pending state is CSS, driven by data-lg-auction", () => {
     expect(CSS.indexOf("@media (max-width")).toBeLessThan(
       CSS.indexOf("@media (prefers-reduced-motion"),
     );
+  });
+});
+
+// OWNER 2026-10-01 (ruling R1 "Gate who gets results"): a visitor the funnel's
+// Eligibility rules turn away — or any auction that ends with no offers — sees
+// a message, not a blank page. Same mechanism as the buffering screen: one
+// hidden SSR mount, revealed by CSS off data-lg-auction="unfilled" (the state
+// showCompletionState already stamps), so no client-runtime bytes.
+describe("the no-match message ships with every funnel", () => {
+  it("is SSR-baked hidden, says the words, and rides LG_BANNERS_MOUNT_HTML", () => {
+    expect(LG_NO_MATCH_MOUNT_HTML).toContain("data-lg-no-match hidden");
+    expect(LG_NO_MATCH_MOUNT_HTML).toContain('role="status"');
+    expect(LG_NO_MATCH_MOUNT_HTML).toContain("Thanks for your answers!");
+    expect(LG_NO_MATCH_MOUNT_HTML).toContain("We couldn\u2019t find a match for you right now.");
+    expect(LG_BANNERS_MOUNT_HTML).toContain(LG_NO_MATCH_MOUNT_HTML);
+    // a sibling AFTER the banners mount, never inside it (banners overwrite innerHTML)
+    expect(LG_BANNERS_MOUNT_HTML.indexOf("data-lg-no-match")).toBeGreaterThan(LG_BANNERS_MOUNT_HTML.indexOf("</div>"));
+  });
+
+  it("is in the composed shell of every frame template and the legacy shell", () => {
+    // every real template id, and none may throw (no skip path)
+    expect(FRAME_TEMPLATE_IDS.length).toBe(6);
+    for (const template of FRAME_TEMPLATE_IDS) {
+      expect(quoteFrame(template), template).toContain("data-lg-no-match");
+    }
+    const legacy = renderLegacyShell({ designId: defaultFunnelDesign.id, sectionsHtml: "", bannersMountHtml: LG_BANNERS_MOUNT_HTML, ...ROOT } as never);
+    expect(legacy).toContain("data-lg-no-match");
+  });
+
+  it("only the unfilled state reveals it (no base display; pending/filled never show it)", () => {
+    const base = block(`${SCOPE} .lg-no-match`);
+    expect(base).not.toBeNull();
+    expect(base!).not.toContain("display:");
+    expect(CSS).toContain(`${SCOPE}[data-lg-auction="unfilled"] .lg-no-match{display:flex}`);
+    expect(CSS).not.toContain(`${SCOPE}[data-lg-auction="pending"] .lg-no-match`);
+    expect(CSS).not.toContain(`${SCOPE}[data-lg-auction="filled"] .lg-no-match`);
   });
 });

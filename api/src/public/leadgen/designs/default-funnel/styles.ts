@@ -2336,6 +2336,24 @@ export function funnelChromeCss(
     // what lets the error exit restore them by flipping one attribute.
     rule(`${scope}[data-lg-auction="pending"] [data-lg-section]`, { display: "none" }),
     rule(`${scope}[data-lg-auction="pending"] .lg-buffering`, { display: "flex" }),
+    // OWNER 2026-10-01: an auction that ends with no offers (not eligible,
+    // disqualified, or nothing matched) says so instead of a blank page
+    // (frame.ts LG_NO_MATCH_MOUNT_HTML). Same column and type as the buffering
+    // screen; revealed by the same (0,3,0) state-rule pattern, never a base
+    // `display`.
+    rule(`${scope} .lg-no-match`, {
+      "flex-direction": "column",
+      "align-items": "center",
+      "text-align": "center",
+      gap: spacing.sm,
+      "max-width": cardPanel.widthM,
+      margin: `${spacing.xl} auto 0`,
+      padding: spacing.xl,
+      "box-sizing": "border-box",
+    }),
+    rule(`${scope} .lg-no-match-text`, { margin: "0", "font-size": "1.125rem", color: headline.color }),
+    rule(`${scope} .lg-no-match-subtext`, { margin: "0", "font-size": "0.875rem", color: subheadline.color }),
+    rule(`${scope}[data-lg-auction="unfilled"] .lg-no-match`, { display: "flex" }),
     rule(`${scope} .lg-banner`, {
       border: banner.cardBorder,
       "border-radius": banner.cardRadius,

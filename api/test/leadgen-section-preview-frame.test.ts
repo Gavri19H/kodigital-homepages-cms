@@ -1139,6 +1139,19 @@ const BUFFERING_SCREEN_RULES = [
   `\n@keyframes lg-pulse{50%{opacity:0.35}}`,
 ];
 
+// OWNER 2026-10-01 (Eligibility rules gate offers; an auction with no offers
+// says so instead of a blank page): the FOUR net-new rules frame.ts's
+// LG_NO_MATCH_MOUNT_HTML is painted by — three for its layout/typography, one
+// for the data-lg-auction="unfilled" state that reveals it. Same safety as the
+// buffering rules: this fixture has no completion region, so a sheet-level
+// delta only; stripped wholesale, in lockstep with styles.ts.
+const NO_MATCH_RULES = [
+  `\n${DEFAULT_FUNNEL_SCOPE} .lg-no-match{flex-direction:column;align-items:center;text-align:center;gap:0.5rem;max-width:420px;margin:2rem auto 0;padding:2rem;box-sizing:border-box}`,
+  `\n${DEFAULT_FUNNEL_SCOPE} .lg-no-match-text{margin:0;font-size:1.125rem;color:#16324f}`,
+  `\n${DEFAULT_FUNNEL_SCOPE} .lg-no-match-subtext{margin:0;font-size:0.875rem;color:#63707F}`,
+  `\n${DEFAULT_FUNNEL_SCOPE}[data-lg-auction="unfilled"] .lg-no-match{display:flex}`,
+];
+
 // Legacy plain body: unbound headline + icon grid + ONE continue — a realistic
 // v2.4 body carrying NONE of the additive params.
 const LEGACY_PLAIN_CONTENT = {
@@ -1384,13 +1397,14 @@ function assertPinnedResponse(actualText: string, fixtureText: string): void {
     (s, r) => s.split(r).join(""),
     cssMinusCardPlaceholder,
   );
+  const cssMinusNoMatch = NO_MATCH_RULES.reduce((s, r) => s.split(r).join(""), cssMinusBuffering);
   const cssMinusReducedMotion = BUFFERING_REDUCED_MOTION_RULE.reduce(
     (s, r) => s.split(r).join(""),
-    cssMinusBuffering,
+    cssMinusNoMatch,
   );
   expect(
     cssMinusReducedMotion,
-    "preview.css modulo the DEV-57 + DEV-68 moved rules + the R5 state-safe-border + R5 D11 typography rule bodies + the P1a layout system + the P3a structured-placement (.lg-el/.lg-el-row) rules + the Round-4 P1b studio/preview affordances (ghost/address-composite/mqg-empty) + the R2 P4 §6.8 slider anatomy rules + the R2 P5 F7 address-field-label/Other-select rules + the R2 P8-6 from_to max-rail hit-area clip rule + the not-picked-yet card-image slot rule + the buffering-screen rules + the reduced-motion ring query",
+    "preview.css modulo the DEV-57 + DEV-68 moved rules + the R5 state-safe-border + R5 D11 typography rule bodies + the P1a layout system + the P3a structured-placement (.lg-el/.lg-el-row) rules + the Round-4 P1b studio/preview affordances (ghost/address-composite/mqg-empty) + the R2 P4 §6.8 slider anatomy rules + the R2 P5 F7 address-field-label/Other-select rules + the R2 P8-6 from_to max-rail hit-area clip rule + the not-picked-yet card-image slot rule + the buffering-screen rules + the no-match rules + the reduced-motion ring query",
   ).toBe(expectedPreview["css"]);
   // and the live producer still owns the string (the sections-api :863 idiom).
   expect(actualPreview["css"]).toBe(funnelChromeCss(getFunnelDesign(null)));

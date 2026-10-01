@@ -2230,13 +2230,14 @@ export async function buildOfferUsageReport(db: D1Database, offerId: number): Pr
      WHERE r.target_offer_id = ? GROUP BY a.id ORDER BY a.auction_name`,
     offerId,
   );
-  // 0062: a waterfall names its offers inside tiers_json, read here in code.
-  // SELECT r.*: a database without 0062 has no tiers_json and no waterfall.
+  // 0062/0063: a waterfall or a Tier-level rule names its offers inside
+  // tiers_json, read here in code. SELECT r.*: a database without 0062 has no
+  // tiers_json and neither kind of rule.
   const waterfallRows = await db
     .prepare(
       `SELECT r.*, a.public_id AS auction_public_id, a.auction_name AS auction_name
        FROM leadgen_auction_rules r JOIN leadgen_auctions a ON a.id = r.auction_id
-       WHERE r.action = 'waterfall'`,
+       WHERE r.action = 'waterfall' OR r.rule_level = 'tier'`,
     )
     .all<{ auction_id: number; tiers_json?: string | null; auction_public_id: string; auction_name: string }>();
   for (const w of waterfallRows.results ?? []) {

@@ -13,6 +13,7 @@
 // (03 §8.1): /offers/search is registered BEFORE /offers/:id.
 
 import { Hono } from "hono";
+import { auctionRuleFieldsHandler, variantRuleFieldsHandler } from "./rule-fields";
 import { bodyLimit } from "hono/body-limit";
 import type { Env } from "../../env";
 import {
@@ -314,6 +315,7 @@ routes.post("/variants/:id/preview", previewVariantHandler);
 // either way). The existing duplicate route (below) keeps its own `variant_id`
 // param name (distinct from the outer `:id` on ITS route) — unaffected.
 routes.get("/variants/:id/rules", listVariantRulesHandler);
+routes.get("/variants/:id/rule-fields", variantRuleFieldsHandler);
 routes.post("/variants/:id/rules", createVariantRuleHandler);
 routes.patch("/variants/:id/rules/:rule_id", updateVariantRuleHandler);
 routes.delete("/variants/:id/rules/:rule_id", deleteVariantRuleHandler);
@@ -377,6 +379,7 @@ routes.post("/auctions", createAuctionHandler);
 routes.get("/auctions/:id/offers", getAuctionOffersHandler);
 routes.put("/auctions/:id/offers", putAuctionOffersHandler);
 routes.get("/auctions/:id/rules", listAuctionRulesHandler);
+routes.get("/auctions/:id/rule-fields", auctionRuleFieldsHandler);
 routes.post("/auctions/:id/rules", createAuctionRuleHandler);
 routes.patch("/auctions/:id/rules/:rule_id", patchAuctionRuleHandler);
 routes.delete("/auctions/:id/rules/:rule_id", deleteAuctionRuleHandler);
