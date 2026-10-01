@@ -2112,3 +2112,114 @@ describeDb("F13 — needs-value placement sentinel", () => {
     expect(out2.map((p) => p.placement_id)).toEqual(["pl-dup-main", "pl-real-2"]);
   });
 });
+
+// OWNER 2026-10-01 ("Leadgen → Offers → Request → Headers → Support The
+// user's IP address & User agent", arrow on the type dropdown). The dropdown
+// carries two ready-made choices that save as macro rows ({ip} / {ua}).
+describeDb("Request → Headers — Consumer IP address / Consumer user agent", () => {
+  async function editorWithHeaders(): Promise<string> {
+    const { env } = newHarness();
+    const offer = await createOffer(env, "request_dynamic_bid", { offer_name: "Header Presets" });
+    // the REAL save path accepts the two macros
+    await patchOffer(env, offer.public_id, {
+      headers: [
+        { header_name: "True-Client-IP", value_kind: "macro", value_text: "{ip}" },
+        { header_name: "User-Agent", value_kind: "macro", value_text: "{ua}" },
+        { header_name: "X-Offer", value_kind: "macro", value_text: "{offer_id}" },
+        { header_name: "Content-Type", value_kind: "static", value_text: "application/json" },
+      ],
+    });
+    return getHtml(env, `/admin/leadgen/offers/${offer.public_id}/edit`);
+  }
+
+  function rowOf(html: string, headerName: string): string {
+    const rows = html.split('<div class="lg-header-row">').slice(1);
+    const row = rows.find((r) => r.includes(`value="${headerName}"`));
+    expect(row, `row ${headerName}`).toBeDefined();
+    return row!.split("</div>")[0]!;
+  }
+
+  it("the type dropdown offers both choices on every row and on a new row", async () => {
+    const html = await editorWithHeaders();
+    const template = html.split('<template id="lg-header-template">')[1]!.split("</template>")[0]!;
+    for (const part of [template, rowOf(html, "Content-Type")]) {
+      expect(part).toContain('<option value="consumer_ip" data-preset-token="{ip}">Consumer IP address</option>');
+      expect(part).toContain('<option value="consumer_ua" data-preset-token="{ua}">Consumer user agent</option>');
+    }
+    // the four choices plus the legacy secret_ref, in that order
+    const order = [...template.matchAll(/<option value="([^"]+)"/g)].map((m) => m[1]);
+    expect(order).toEqual(["static", "macro", "consumer_ip", "consumer_ua", "secret_ref"]);
+    expect(html).toContain("Consumer IP address / Consumer user agent = the visitor&#39;s own IP and browser");
+  });
+
+  it("a saved {ip} / {ua} row reopens on its choice with the value locked; other rows are untouched", async () => {
+    const html = await editorWithHeaders();
+    const ip = rowOf(html, "True-Client-IP");
+    expect(ip).toMatch(/<option value="consumer_ip" data-preset-token="\{ip\}" selected>/);
+    expect(ip).not.toMatch(/<option value="macro" selected>/);
+    expect(ip).toMatch(/data-header-field="value_text"[^>]*value="\{ip\}" readonly/);
+    const ua = rowOf(html, "User-Agent");
+    expect(ua).toMatch(/<option value="consumer_ua" data-preset-token="\{ua\}" selected>/);
+    expect(ua).toMatch(/value="\{ua\}" readonly/);
+    const other = rowOf(html, "X-Offer");
+    expect(other).toMatch(/<option value="macro" selected>/);
+    expect(other).not.toContain("readonly");
+    expect(rowOf(html, "Content-Type")).toMatch(/<option value="static" selected>/);
+  });
+
+  it("(executed) collectHeaders saves a chosen preset as its macro row, whatever the value box holds", async () => {
+    const html = await editorWithHeaders();
+    const script = extractScripts(html).find((s) => s.includes("function collectHeaders("));
+    expect(script, "editor script present").toBeDefined();
+    const source = `${sliceIslandFunction(script!, "collectHeaders")}\n({ collect: collectHeaders })`;
+
+    function headerRow(name: string, options: Array<{ value: string; token?: string }>, selected: number, value: string): FakeEl {
+      const row = fakeElement("div");
+      const n = fakeElement("input");
+      n.setAttribute("data-header-field", "header_name");
+      n.value = name;
+      const kind = fakeElement("select");
+      kind.setAttribute("data-header-field", "value_kind");
+      const opts = options.map((o) => {
+        const el = fakeElement("option");
+        el.value = o.value;
+        if (o.token !== undefined) el.setAttribute("data-preset-token", o.token);
+        return el;
+      });
+      Object.assign(kind, { options: opts, selectedIndex: selected });
+      kind.value = options[selected]!.value;
+      const v = fakeElement("input");
+      v.setAttribute("data-header-field", "value_text");
+      v.value = value;
+      row.appendChild(n);
+      row.appendChild(kind);
+      row.appendChild(v);
+      return row;
+    }
+    const OPTS = [
+      { value: "static" },
+      { value: "macro" },
+      { value: "consumer_ip", token: "{ip}" },
+      { value: "consumer_ua", token: "{ua}" },
+      { value: "secret_ref" },
+    ];
+    const rows = [
+      headerRow("True-Client-IP", OPTS, 2, ""), // value box empty: the token still wins
+      headerRow("User-Agent", OPTS, 3, "stale text"),
+      headerRow("X-Offer", OPTS, 1, "{offer_id}"),
+      headerRow("Content-Type", OPTS, 0, "application/json"),
+    ];
+    const sandbox = {
+      document: { querySelectorAll: (sel: string) => (sel === "#lg-headers-rows .lg-header-row" ? rows : []) },
+    };
+    const island = runInNewContext(source, sandbox) as {
+      collect(): Array<{ header_name: string; value_kind: string; value_text: string }>;
+    };
+    expect(island.collect()).toEqual([
+      { header_name: "True-Client-IP", value_kind: "macro", value_text: "{ip}" },
+      { header_name: "User-Agent", value_kind: "macro", value_text: "{ua}" },
+      { header_name: "X-Offer", value_kind: "macro", value_text: "{offer_id}" },
+      { header_name: "Content-Type", value_kind: "static", value_text: "application/json" },
+    ]);
+  });
+});

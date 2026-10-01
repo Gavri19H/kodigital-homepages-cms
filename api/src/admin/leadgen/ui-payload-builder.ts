@@ -1052,7 +1052,30 @@ export function renderPayloadPanel(props: PayloadPanelProps): string {
 // (placement = header + the header name). `secret_ref` remains only for the
 // pre-0056 rows that already reference a deployed binding by name.
 const HEADER_KIND_HELP =
-  "static = sent verbatim · macro = canonical-macro template · for a provider API key use the API token field below (never a static header) — secret_ref is a legacy deployed-binding name";
+  "static = sent verbatim · macro = canonical-macro template · Consumer IP address / Consumer user agent = the visitor's own IP and browser, taken from their request when the offer is called (never the server's) · for a provider API key use the API token field below (never a static header) — secret_ref is a legacy deployed-binding name";
+
+// OWNER 2026-10-01 ("Headers → support the user's IP address & user agent"):
+// two ready-made choices in the type list. They are not new stored kinds:
+// each saves as a macro row ({ip} / {ua}), and a macro row holding exactly
+// that token shows as its choice again on reload. The token rides on the
+// <option> so the save collector and the row script read one source.
+export const HEADER_PRESETS: ReadonlyArray<{ value: string; label: string; token: string }> = [
+  { value: "consumer_ip", label: "Consumer IP address", token: "{ip}" },
+  { value: "consumer_ua", label: "Consumer user agent", token: "{ua}" },
+];
+
+function headerKindOptions(kind: string, valueText: string): string {
+  const preset =
+    kind === "macro" ? HEADER_PRESETS.find((p) => p.token === valueText.trim()) : undefined;
+  const selected = preset !== undefined ? preset.value : kind;
+  const plain = (v: string): string =>
+    `<option value="${escapeHtml(v)}"${v === selected ? " selected" : ""}>${escapeHtml(v)}</option>`;
+  const presets = HEADER_PRESETS.map(
+    (p) =>
+      `<option value="${p.value}" data-preset-token="${escapeHtml(p.token)}"${p.value === selected ? " selected" : ""}>${escapeHtml(p.label)}</option>`,
+  ).join("");
+  return LEADGEN_HEADER_VALUE_KINDS.map((v) => (v === "secret_ref" ? presets + plain(v) : plain(v))).join("");
+}
 
 // The one token fact the editor may show: when it was last pasted.
 function tokenSavedWhen(updatedAt: number | null): string {
@@ -1064,11 +1087,13 @@ function tokenSavedWhen(updatedAt: number | null): string {
 function renderHeaderRow(header: LeadgenOfferHeaderApi | null): string {
   const name = header !== null ? escapeHtml(header.header_name) : "";
   const kind = header !== null ? header.value_kind : "static";
-  const value = header !== null ? escapeHtml(header.value_text ?? "") : "";
+  const rawValue = header !== null ? (header.value_text ?? "") : "";
+  const value = escapeHtml(rawValue);
+  const isPreset = kind === "macro" && HEADER_PRESETS.some((p) => p.token === rawValue.trim());
   return `<div class="lg-header-row">
     <input type="text" class="form-input" data-header-field="header_name" placeholder="x-api-key" aria-label="Header name" value="${name}" />
-    <select class="form-select" data-header-field="value_kind" aria-label="Header value kind">${options(LEADGEN_HEADER_VALUE_KINDS, kind, null)}</select>
-    <input type="text" class="form-input" data-header-field="value_text" placeholder="value / {macro} / SECRET_NAME" aria-label="Header value" value="${value}" />
+    <select class="form-select" data-header-field="value_kind" aria-label="Header value kind">${headerKindOptions(kind, rawValue)}</select>
+    <input type="text" class="form-input" data-header-field="value_text" placeholder="value / {macro} / SECRET_NAME" aria-label="Header value" value="${value}"${isPreset ? " readonly" : ""} />
     <button type="button" class="btn btn-sm btn-danger" data-header-remove>Remove</button>
   </div>`;
 }
@@ -1439,7 +1464,7 @@ export const PAYLOAD_BUILDER_STYLES = `
 .lg-json-pre{background:var(--c-bg-dark);border:1px solid var(--c-border);border-radius:6px;padding:10px;font-size:12px;max-height:320px;overflow:auto;white-space:pre-wrap;word-break:break-word}
 .lg-json-pre .lg-pb-hl{background:#fde68a;color:#1f2937;border-radius:2px}
 .lg-example-panel{margin:12px 0;border-top:1px solid var(--c-border);padding-top:8px}
-.lg-header-row{display:grid;grid-template-columns:2fr 1fr 3fr auto;gap:8px;margin-bottom:8px;align-items:center}
+.lg-header-row{display:grid;grid-template-columns:minmax(0,2fr) minmax(215px,1fr) minmax(0,3fr) auto;gap:8px;margin-bottom:8px;align-items:center}
 @media (max-width:768px){.lg-header-row{grid-template-columns:1fr}}
 .lg-radio{display:flex;align-items:center;gap:8px;font-weight:400}
 .lg-test-grid{display:grid;grid-template-columns:1fr 1fr;gap:12px}
@@ -4877,6 +4902,27 @@ export const PAYLOAD_BUILDER_SCRIPT = `
       if (btn) {
         var row = btn.closest('.lg-header-row');
         if (row && row.parentNode) { row.parentNode.removeChild(row); }
+      }
+    });
+    // Consumer IP address / Consumer user agent fill the value with their
+    // macro and lock it; leaving one unlocks the value, and keeps the macro
+    // only when the new type is macro (a static "{ip}" would be sent as text).
+    headersRows.addEventListener('change', function (e) {
+      var t = e.target;
+      if (!t || !t.getAttribute || t.getAttribute('data-header-field') !== 'value_kind') { return; }
+      var row = t.closest ? t.closest('.lg-header-row') : null;
+      var input = row ? row.querySelector('[data-header-field="value_text"]') : null;
+      if (!input) { return; }
+      var opt = t.options ? t.options[t.selectedIndex] : null;
+      var token = opt ? opt.getAttribute('data-preset-token') : null;
+      if (token) {
+        input.value = token;
+        input.readOnly = true;
+        return;
+      }
+      if (input.readOnly) {
+        input.readOnly = false;
+        if (t.value !== 'macro') { input.value = ''; }
       }
     });
   }

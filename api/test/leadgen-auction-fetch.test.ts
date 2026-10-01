@@ -295,6 +295,46 @@ describe("fetchProvider — error taxonomy (never throws)", () => {
 // ---------------------------------------------------------------------------
 
 describe("fetchProvider — header + token resolution (§11.3-11.4 / §30.2)", () => {
+  // OWNER 2026-10-01 ("Headers → support the user's IP address & user agent";
+  // provider spec: True-Client-IP = "Consumer's IP address ... not passing
+  // server IP"). FAIL-BEFORE: the header path URL-escaped macro values, so the
+  // provider received "Mozilla%2F5.0%20(..." and "2001%3Adb8%3A%3A42".
+  it("macro headers {ip}/{ua} carry the visitor's IP and user agent VERBATIM", async () => {
+    const UA = "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/129.0.0.0 Safari/537.36";
+    const calls = stubFetch(() => new Response("{}", { status: 200 }));
+    const headers: LeadgenOfferHeaderRow[] = [
+      { id: 1, offer_id: 1, header_name: "True-Client-IP", value_kind: "macro", value_text: "{ip}", created_at: 0 },
+      { id: 2, offer_id: 1, header_name: "User-Agent", value_kind: "macro", value_text: "{ua}", created_at: 0 },
+    ];
+    const result = await fetchProvider(
+      buildEnv(),
+      makeOffer(),
+      headers,
+      makeSchema(),
+      makeCtx({ macros: { offer_id: "lgo_test", ip: "2001:db8::42", ua: UA } }),
+      "staging",
+    );
+    const sent = calls[0]?.init.headers as Record<string, string>;
+    expect(sent["True-Client-IP"]).toBe("2001:db8::42");
+    expect(sent["User-Agent"]).toBe(UA);
+    // the log row shows what was really sent
+    const logged = JSON.parse(result.redacted_log.request_headers_redacted_json) as Record<string, string>;
+    expect(logged["True-Client-IP"]).toBe("2001:db8::42");
+    expect(logged["User-Agent"]).toBe(UA);
+  });
+
+  it("a macro header that resolves to nothing is left OFF (never a blank True-Client-IP)", async () => {
+    const calls = stubFetch(() => new Response("{}", { status: 200 }));
+    const headers: LeadgenOfferHeaderRow[] = [
+      { id: 1, offer_id: 1, header_name: "True-Client-IP", value_kind: "macro", value_text: "{ip}", created_at: 0 },
+      { id: 2, offer_id: 1, header_name: "X-Static", value_kind: "static", value_text: "kept", created_at: 0 },
+    ];
+    await fetchProvider(buildEnv(), makeOffer(), headers, makeSchema(), makeCtx({ macros: { offer_id: "lgo_test", ip: "" } }), "staging");
+    const sent = calls[0]?.init.headers as Record<string, string>;
+    expect(Object.keys(sent).map((k) => k.toLowerCase())).not.toContain("true-client-ip");
+    expect(sent["X-Static"]).toBe("kept");
+  });
+
   it("missing allowlisted binding fails closed before fetch", async () => {
     const calls = stubFetch(() => new Response("{}", { status: 200 }));
     const offer = makeOffer({ api_token_secret_ref: "OFFER_TOKEN_MISSING" });

@@ -8,7 +8,8 @@
 // This MIRRORS the §11.6 Test-tool proxy (admin/leadgen/payload-builder-
 // handlers.ts) EXACTLY for request construction + secret masking, so the
 // auction runtime and the Test tool can never diverge:
-//   * headers (04 §11.3): value_kind static → verbatim; macro → resolveMacros;
+//   * headers (04 §11.3): value_kind static → verbatim; macro →
+//     resolveHeaderMacros (verbatim values, never URL-escaped);
 //     secret_ref → narrow allowlist+binding resolver (any failure ⇒ typed
 //     fail-closed result before fetch, never a tokenless request).
 //   * token placement (04 §11.3-11.4): header | query (masked in the echoed
@@ -38,7 +39,7 @@ import { ulid } from "../../../leadgen/ids";
 // 0056: the operator-pasted token, sealed in D1. Preferred over the legacy
 // wrangler-secret reference, which no admin screen asks for any more.
 import { offerApiTokenFailureMessage, resolveOfferApiToken } from "../../../leadgen/offer-api-token";
-import { resolveMacros } from "../../../leadgen/macros";
+import { resolveHeaderMacros } from "../../../leadgen/macros";
 import {
   buildPayload,
   type LeadgenAnswerBinding,
@@ -348,7 +349,13 @@ export async function fetchProvider(
     if (row.value_kind === "static") {
       sentHeaders[row.header_name] = valueText;
     } else if (row.value_kind === "macro") {
-      sentHeaders[row.header_name] = resolveMacros(valueText, macroValues);
+      // Header-safe (never URL-escaped) so {ip}/{ua} reach the provider as
+      // the visitor's own address and browser string. A header whose macros
+      // resolve to nothing is left OFF rather than sent blank: a blank
+      // True-Client-IP is not an address, and the provider must never be
+      // handed a stand-in for the consumer's.
+      const resolved = resolveHeaderMacros(valueText, macroValues);
+      if (resolved.trim() !== "") sentHeaders[row.header_name] = resolved;
     } else {
       // secret_ref
       const resolution =

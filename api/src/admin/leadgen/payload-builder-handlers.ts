@@ -44,7 +44,7 @@ import {
 } from "../../env";
 import { ulid } from "../../leadgen/ids";
 import { offerApiTokenFailureMessage, resolveOfferApiToken } from "../../leadgen/offer-api-token";
-import { resolveMacros } from "../../leadgen/macros";
+import { resolveHeaderMacros } from "../../leadgen/macros";
 import {
   buildPayload,
   inferSchemaFromExample,
@@ -473,7 +473,10 @@ export async function testOfferHandler(c: AdminContext): Promise<Response> {
     if (row.value_kind === "static") {
       sentHeaders[row.header_name] = valueText;
     } else if (row.value_kind === "macro") {
-      sentHeaders[row.header_name] = resolveMacros(valueText, macroValues);
+      // The auction's rule exactly (fetch.ts): verbatim values, and a header
+      // that resolves to nothing is left off.
+      const resolved = resolveHeaderMacros(valueText, macroValues);
+      if (resolved.trim() !== "") sentHeaders[row.header_name] = resolved;
     } else {
       const resolution =
         valueText === ""
