@@ -737,7 +737,7 @@ describeDb("rules condition fields — only this funnel's questions, no ids, ans
     const { env, sdb, auctionPub } = await seedFunnel();
     const ok = await getHtml(env, `/admin/leadgen/auction/${auctionPub}/edit`);
     expect(ok).not.toContain("data-rule-fields-error");
-    sdb.exec("DROP TABLE leadgen_funnel_variant_sections"); // the rule-fields read now fails
+    sdb.prepare("DROP TABLE leadgen_funnel_variant_sections").run(); // the rule-fields read now fails
     expect((await admin.request(`${API}/auctions/${auctionPub}/rule-fields`, {}, env)).status).toBe(500);
     const failed = await getHtml(env, `/admin/leadgen/auction/${auctionPub}/edit`);
     expect(failed).toContain("data-rule-fields-error");
