@@ -121,6 +121,7 @@ const LEADGEN_MIGRATIONS = [
   "0053_leadgen_rework_m12_othergroup_retirement.sql",
   "0057_leadgen_offer_test_verdict.sql",
   "0062_leadgen_auction_waterfalls.sql", // rules carry traffic_share_pct + tiers_json
+  "0063_leadgen_auction_tier_rules.sql", // Tier-level rules (rule_level tier)
 ] as const;
 
 function createLeadgenDb(DatabaseSync: DatabaseSyncCtor): SqliteDb {
@@ -887,7 +888,7 @@ describeDb("0062 migration — the rules table rebuild keeps every existing rule
     const ctor = DatabaseSync as DatabaseSyncCtor;
     const sdb = new ctor(":memory:");
     runSql(sdb, "CREATE TABLE sites (id TEXT PRIMARY KEY, name TEXT); CREATE TABLE media (id INTEGER PRIMARY KEY AUTOINCREMENT, site_id TEXT);");
-    for (const file of LEADGEN_MIGRATIONS.filter((f) => f !== "0062_leadgen_auction_waterfalls.sql")) {
+    for (const file of LEADGEN_MIGRATIONS.filter((f) => f < "0062")) {
       runSql(sdb, readFileSync(join(TEST_DIR, "../migrations", file), "utf8"));
     }
     const offer = seedOfferWithPlacement(sdb);
@@ -923,5 +924,87 @@ describeDb("0062 migration — the rules table rebuild keeps every existing rule
     // the result log gained its column
     const cols = sdb.prepare("SELECT name FROM pragma_table_info('leadgen_auction_result_log')").all() as Array<{ name: string }>;
     expect(cols.map((c) => c.name)).toContain("waterfall_json");
+  });
+});
+
+// --- OWNER 2026-10-01 (PM feedback): Tier-level rules + offer targets by lgo_ id ---
+
+describeDb("leadgen auctions API — Tier-level rules + lgo_ targets (0063)", () => {
+  async function setup(n: number) {
+    const { env, sdb } = newHarness();
+    const quote = await createQuote(env, { activity: "quote_funnel", verticals: ["life"] });
+    const { json } = await createAuction(env, { auction_name: "Loans", quote_id: quote.id });
+    const offers = Array.from({ length: n }, () => seedOfferWithPlacement(sdb, { activity: "quote_funnel", vertical: "life" }));
+    await admin.request(`${API}/auctions/${json.public_id}/offers`, jsonInit("PUT", { offers: offers.map((o) => ({ offer_placement_id: o.placement_id })) }), env);
+    const post = (body: unknown) => admin.request(`${API}/auctions/${json.public_id}/rules`, jsonInit("POST", body), env);
+    return { env, sdb, auctionId: json.public_id, offers, post };
+  }
+
+  it("the PM's case: target_offer_id accepts the offer's lgo_ id; an unknown lgo_ id is a clear 400", async () => {
+    const { post, offers } = await setup(1);
+    const ok = await post({ rule_level: "offer", action: "exclude", target_offer_id: offers[0]!.offer_public_id, conditions_json: { groups: [] } });
+    expect(ok.status, await ok.clone().text()).toBe(201);
+    expect(((await ok.json()) as { target_offer_id: number }).target_offer_id).toBe(offers[0]!.offer_id);
+    const bad = await post({ rule_level: "offer", action: "exclude", target_offer_id: "lgo_01KY1ZZ1H28G54TW2BKXRJX6GX", conditions_json: { groups: [] } });
+    expect(bad.status).toBe(400);
+    expect(((await bad.json()) as { fields: Record<string, string> }).fields["target_offer_id"]).toBe("offer lgo_01KY1ZZ1H28G54TW2BKXRJX6GX does not exist");
+  });
+
+  it("POST a Tier-level rule: stores its group, no single target; validation refuses an empty group, a waterfall action, an outsider", async () => {
+    const { sdb, post, offers } = await setup(3);
+    const res = await post({ rule_level: "tier", action: "include_only", tier_offer_ids: [offers[1]!.offer_id, offers[2]!.offer_id], conditions_json: { groups: [{ field: "os", op: "eq", value: "ios" }] } });
+    expect(res.status, await res.clone().text()).toBe(201);
+    const j = (await res.json()) as { rule_level: string; target_offer_id: number | null; tiers: unknown };
+    expect(j.rule_level).toBe("tier");
+    expect(j.target_offer_id).toBeNull();
+    expect(j.tiers).toEqual([{ offer_ids: [offers[1]!.offer_id, offers[2]!.offer_id] }]);
+    const outsider = seedOfferWithPlacement(sdb).offer_id;
+    for (const [body, field, text] of [
+      [{ rule_level: "tier", action: "include_only", conditions_json: { groups: [] } }, "tier_offer_ids", "at least one offer"],
+      [{ rule_level: "tier", action: "include_only", tier_offer_ids: [], conditions_json: { groups: [] } }, "tier_offer_ids", "at least one offer"],
+      [{ rule_level: "tier", action: "waterfall", traffic_share_pct: 10, tier_offer_ids: [offers[0]!.offer_id], conditions_json: { groups: [] } }, "action", "shows its offers"],
+      [{ rule_level: "tier", action: "exclude", tier_offer_ids: [outsider], conditions_json: { groups: [] } }, "tier_offer_ids", "not a participating offer"],
+    ] as Array<[unknown, string, string]>) {
+      const bad = await post(body);
+      expect(bad.status, JSON.stringify(body)).toBe(400);
+      expect(((await bad.json()) as { fields: Record<string, string> }).fields[field] ?? "", JSON.stringify(body)).toContain(text);
+    }
+  });
+
+  it("a Tier-level rule clashes only on its own offers: same-priority strictly opposing rules on a SHARED offer → 409", async () => {
+    const { post, offers } = await setup(3);
+    expect((await post({ rule_level: "tier", action: "include_only", tier_offer_ids: [offers[0]!.offer_id, offers[1]!.offer_id], strictly_override: true, priority: 5, conditions_json: { groups: [] } })).status).toBe(201);
+    // another offer → no clash
+    expect((await post({ rule_level: "offer", action: "exclude", target_offer_id: offers[2]!.offer_id, strictly_override: true, priority: 5, conditions_json: { groups: [] } })).status).toBe(201);
+    // the same offer → hard clash
+    expect((await post({ rule_level: "offer", action: "exclude", target_offer_id: offers[1]!.offer_id, strictly_override: true, priority: 5, conditions_json: { groups: [] } })).status).toBe(409);
+  });
+});
+
+describeDb("0063 migration — the rules table rebuild keeps every rule (0062 columns included)", () => {
+  it("rows survive byte-for-byte; rule_level now accepts 'tier' and still refuses anything else", () => {
+    const ctor = DatabaseSync as DatabaseSyncCtor;
+    const sdb = new ctor(":memory:");
+    runSql(sdb, "CREATE TABLE sites (id TEXT PRIMARY KEY, name TEXT); CREATE TABLE media (id INTEGER PRIMARY KEY AUTOINCREMENT, site_id TEXT);");
+    for (const file of LEADGEN_MIGRATIONS.filter((f) => f < "0063")) runSql(sdb, readFileSync(join(TEST_DIR, "../migrations", file), "utf8"));
+    sdb
+      .prepare(
+        `INSERT INTO leadgen_auctions (public_id, auction_name, auction_type, winner_logic, floor_type, floor_value, multi_offer,
+           surface_static_bid_offers, banner_slots_count, max_carriers_per_offer, max_total_carriers, backfill, backfill_trigger,
+           remove_clicked_offers, removal_scope, timeout_ms, carrier_normalization_version, status)
+         VALUES ('lga_m63', 'M', 'dynamic', 'highest_bid', 'percentage_of_max', 10, 'enabled', 1, 5, 3, 10, 'disabled', 'on_slot_exhaustion', 0, 'offer', 2500, 1, 'active')`,
+      )
+      .run();
+    const auctionId = (sdb.prepare("SELECT id FROM leadgen_auctions WHERE public_id = 'lga_m63'").get() as { id: number }).id;
+    const offer = seedOfferWithPlacement(sdb);
+    sdb.prepare("INSERT INTO leadgen_auction_rules (public_id, auction_id, rule_level, target_offer_id, action, conditions_json, conditions_hash, strictly_override, priority, enabled, created_at, traffic_share_pct) VALUES ('lgar_a', ?, 'offer', ?, 'exclude', '{\"groups\":[]}', 'h1', 1, 40, 1, 1700000000, 30)").run(auctionId, offer.offer_id);
+    sdb.prepare("INSERT INTO leadgen_auction_rules (public_id, auction_id, rule_level, action, conditions_json, conditions_hash, priority, enabled, created_at, traffic_share_pct, tiers_json) VALUES ('lgar_w', ?, 'offer', 'waterfall', '{\"groups\":[]}', 'h2', 100, 0, 1700000001, 50, '{\"tiers\":[{\"offer_ids\":[1]}]}')").run(auctionId);
+    const before = sdb.prepare("SELECT * FROM leadgen_auction_rules ORDER BY id").all();
+    runSql(sdb, readFileSync(join(TEST_DIR, "../migrations", "0063_leadgen_auction_tier_rules.sql"), "utf8"));
+    expect(sdb.prepare("SELECT * FROM leadgen_auction_rules ORDER BY id").all()).toEqual(before);
+    sdb.prepare("INSERT INTO leadgen_auction_rules (public_id, auction_id, rule_level, action, conditions_json, conditions_hash, tiers_json) VALUES ('lgar_t', ?, 'tier', 'include_only', '{}', 'h', '{\"tiers\":[]}')").run(auctionId);
+    expect(() => sdb.prepare("INSERT INTO leadgen_auction_rules (public_id, auction_id, rule_level, action, conditions_json, conditions_hash) VALUES ('lgar_x', ?, 'group', 'exclude', '{}', 'h')").run(auctionId)).toThrow();
+    const index = sdb.prepare("SELECT name FROM sqlite_master WHERE type = 'index' AND tbl_name = 'leadgen_auction_rules'").all() as Array<{ name: string }>;
+    expect(index.map((i) => i.name)).toContain("idx_leadgen_auctionrules_auction");
   });
 });

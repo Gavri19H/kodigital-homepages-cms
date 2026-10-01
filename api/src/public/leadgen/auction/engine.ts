@@ -37,6 +37,7 @@
 
 import type { Env } from "../../../env";
 import { ulid } from "../../../leadgen/ids";
+import { easternRuleClock } from "../../../leadgen/computed";
 import { shouldRedirectForSession } from "../../../leadgen/funnel";
 import {
   computeAttemptBindingExtras,
@@ -191,6 +192,9 @@ export interface AuctionFunnelRule {
   redirect_url_allowlisted: number;
   priority: number;
   enabled: number;
+  // "Match: ALL / ANY of the following" (0043 match_mode; NULL = all). It was
+  // saved by the rules pop-up and never read here, so every ANY rule ran as ALL.
+  match_mode?: "any" | "all" | null;
   // §15.5 (0044, additive REAL NULL): the redirect_direct_offer session-sticky
   // percentage gate. `?? 0` (funnel.ts resolveRedirectPct/shouldRedirectForSession)
   // — NULL/absent means never redirect, preserving every PRE-0044 rule's
@@ -211,6 +215,10 @@ export interface AuctionBundle {
   // 0062 offer waterfalls (enabled, this auction's). Absent on hand-built
   // bundles = no waterfall.
   waterfalls?: WaterfallRuleInput[];
+  // 0063 Tier-level SHOW rules (include family): when one applies to the
+  // visitor, the offers it names are shown together (offerwall). Their
+  // include/exclude effect itself rides offer_rules (one entry per offer).
+  tier_show_rules?: Array<{ rule_id: string; conditions: LeadgenRuleConditions | null; traffic_share_pct: number | null }>;
   banner: { mode: "manual" | "automatic"; field_map_json: unknown } | null;
   banner_config_json: unknown;
   funnel_rules: AuctionFunnelRule[];
@@ -374,6 +382,7 @@ export async function loadAuctionBundle(
   const offer_rules: OfferRuleInput[] = [];
   const carrier_rules: CarrierRuleInput[] = [];
   const waterfalls: WaterfallRuleInput[] = [];
+  const tier_show_rules: NonNullable<AuctionBundle["tier_show_rules"]> = [];
   for (const r of ruleRows.results ?? []) {
     const conditions = parseConditions(r.conditions_json);
     const trafficSharePct = typeof r.traffic_share_pct === "number" ? r.traffic_share_pct : null;
@@ -389,6 +398,30 @@ export async function loadAuctionBundle(
       }));
       if (trafficSharePct !== null) {
         waterfalls.push({ rule_id: r.public_id, traffic_share_pct: trafficSharePct, conditions, tiers, priority: r.priority });
+      }
+      continue;
+    }
+    if (r.rule_level === "tier") {
+      // 0063: one include/exclude per offer of the group — the offer-rule
+      // evaluator's include union then shows exactly these offers. An offer
+      // that no longer takes part in the auction is skipped.
+      const tierOffers = (parseWaterfallTiers(r.tiers_json)[0]?.offer_ids ?? [])
+        .map((id) => offerIdToPublic.get(id))
+        .filter((id): id is string => id !== undefined);
+      for (const target of tierOffers) {
+        offer_rules.push({
+          rule_id: r.public_id,
+          target_offer_id: target,
+          action: r.action,
+          conditions,
+          strictly_override: r.strictly_override,
+          priority: r.priority,
+          enabled: r.enabled,
+          traffic_share_pct: trafficSharePct,
+        });
+      }
+      if ((r.action === "include_only" || r.action === "allow_list") && tierOffers.length > 0) {
+        tier_show_rules.push({ rule_id: r.public_id, conditions, traffic_share_pct: trafficSharePct });
       }
       continue;
     }
@@ -529,8 +562,21 @@ export async function loadAuctionBundle(
         };
       }
     }
+    // match_mode (0043) read on its own, so a database without the column
+    // keeps every rule (each then matches ALL of its conditions, as before).
+    const matchModeById = new Map<string, string | null>();
+    try {
+      const mm = await db
+        .prepare("SELECT public_id, match_mode FROM leadgen_funnel_rules WHERE variant_id = ?")
+        .bind(variantId)
+        .all<{ public_id: string; match_mode: string | null }>();
+      for (const m of mm.results ?? []) matchModeById.set(m.public_id, m.match_mode);
+    } catch {
+      /* pre-0043: no match_mode column */
+    }
     for (const r of frRows.results ?? []) {
       funnel_rules.push({
+        match_mode: matchModeById.get(r.public_id) === "any" ? "any" : "all",
         public_id: r.public_id,
         rule_type: r.rule_type,
         conditions: parseConditions(r.conditions_json),
@@ -577,7 +623,7 @@ export async function loadAuctionBundle(
     }
   }
 
-  return { auction, offers, offer_rules, carrier_rules, waterfalls, banner, banner_config_json: parseJson(auction.banner_config_json), funnel_rules };
+  return { auction, offers, offer_rules, carrier_rules, waterfalls, tier_show_rules, banner, banner_config_json: parseJson(auction.banner_config_json), funnel_rules };
 }
 
 // Whether a funnel redirect rule has a destination a browser can be sent to
@@ -1288,7 +1334,19 @@ export async function runAuction(
   // location facet UNDER the server-normalized DECLARED answers. So a lead's
   // answered state/city/zip wins over the facet, the facet wins over CF geo, and
   // an absent facet ({}) leaves the context byte-identical to pre-facet.
+  // OWNER 2026-10-01 (PM: rules on Date, State, Time of day, OS, UTM Source,
+  // FB Placement): visitor facts every funnel and auction rule can test, under
+  // the request dims. Traffic comes from the VERIFIED landing URL (the
+  // auction-level context), OS from the user agent, the clock is US Eastern.
+  // An unknown fact is left out, so a rule on it never matches by accident.
+  const visitorFacts: Record<string, unknown> = { ...easternRuleClock(nowMs) };
+  if (baseContext.macros.os) visitorFacts["os"] = baseContext.macros.os;
+  for (const key of ["utm_source", "utm_medium", "utm_campaign", "utm_content", "placement"] as const) {
+    const value = baseContext.traffic[key];
+    if (typeof value === "string" && value !== "") visitorFacts[key] = value;
+  }
   const ruleContext: Record<string, unknown> = {
+    ...visitorFacts,
     ...(input.request_context ?? {}),
     ...(input.location_facet ?? {}),
     ...normalizedAnswers,
@@ -1311,7 +1369,7 @@ export async function runAuction(
   const presentOnly = input.present_only_offer_id ?? null;
   const funnelRules = [...input.bundle.funnel_rules].sort((a, b) => a.priority - b.priority);
   for (const fr of funnelRules) {
-    if (fr.rule_type === "disqualification" && conditionsMatch(fr.conditions, ruleContext)) {
+    if (fr.rule_type === "disqualification" && conditionsMatch(fr.conditions, ruleContext, fr.match_mode === "any" ? "any" : "all")) {
       return empty("disqualified", 200, null, "disqualified", null);
     }
     // A present-only attempt is shown that one offer, so a funnel redirect to
@@ -1325,7 +1383,7 @@ export async function runAuction(
     // not allowlisted / not http(s). The rule is passed over like a non-match,
     // so the visitor gets the normal auction instead of an empty results page.
     if (fr.rule_type === "redirect_direct_offer" && !redirectCanLand(fr)) continue;
-    if (fr.rule_type === "redirect_direct_offer" && conditionsMatch(fr.conditions, ruleContext)) {
+    if (fr.rule_type === "redirect_direct_offer" && conditionsMatch(fr.conditions, ruleContext, fr.match_mode === "any" ? "any" : "all")) {
       // §15.5 redirect_pct session-sticky gate (0044): a match alone is not
       // enough — this session must also fall inside the rule's percentage
       // bucket. `?? 0` (NULL/absent -> never) preserves every pre-0044 rule's
@@ -1355,8 +1413,15 @@ export async function runAuction(
     }
   }
   const entryRules = funnelRules.filter((r) => r.rule_type === "auction_entry");
-  if (entryRules.length > 0 && !entryRules.some((r) => conditionsMatch(r.conditions, ruleContext))) {
+  if (entryRules.length > 0 && !entryRules.some((r) => conditionsMatch(r.conditions, ruleContext, r.match_mode === "any" ? "any" : "all"))) {
     return empty("disqualified", 200, null, "no_auction_entry", null);
+  }
+  // OWNER 2026-10-01: Eligibility rules gate who gets results — when the
+  // funnel has any, a visitor matching none of them is not eligible (they get
+  // the disqualified page, no offers). They used to be saved and never applied.
+  const eligibilityRules = funnelRules.filter((r) => r.rule_type === "eligibility");
+  if (eligibilityRules.length > 0 && !eligibilityRules.some((r) => conditionsMatch(r.conditions, ruleContext, r.match_mode === "any" ? "any" : "all"))) {
+    return empty("disqualified", 200, null, "not_eligible", null);
   }
 
   // Step 5: offer participation -- region rules + caps (READ only) + offer-level
@@ -1921,6 +1986,21 @@ export async function runAuction(
     };
   };
 
+  // A tier is an offerwall when it holds several offers: all of them show,
+  // whatever the auction's multi-offer setting (owner 2026-10-01: "Tier 3 …
+  // can include more than 1 specific offer, so it's kinda like an Offerwall").
+  // Waterfall tiers and Tier-level show rules (0063) both present this way.
+  const tierSettings = {
+    ...settings,
+    multi_offer: settings.multi_offer === "disabled" ? ("enabled" as const) : settings.multi_offer,
+    surface_static_bid_offers: true,
+  };
+  // 0063: a Tier-level SHOW rule applies to this visitor → its offers (already
+  // the only participants, via offer_rules) are shown together.
+  const tierShown = (input.bundle.tier_show_rules ?? []).some(
+    (r) => ruleAppliesToVisitor(r.traffic_share_pct, r.rule_id, visitorKey) && conditionsMatch(r.conditions, ruleContext),
+  );
+
   type AuctionSlice = Awaited<ReturnType<typeof runSlice>>;
   const slices: AuctionSlice[] = [];
   // The tier whose slice the visitor's page comes from (backfill below may
@@ -1929,14 +2009,6 @@ export async function runAuction(
   let waterfallTrace: AuctionWaterfallTrace | null = null;
   let slice: AuctionSlice;
   if (waterfall !== null && waterfallMatched) {
-    // A tier is an offerwall when it holds several offers: all of them show,
-    // whatever the auction's multi-offer setting (owner 2026-10-01: "Tier 3 …
-    // can include more than 1 specific offer, so it's kinda like an Offerwall").
-    const tierSettings = {
-      ...settings,
-      multi_offer: settings.multi_offer === "disabled" ? ("enabled" as const) : settings.multi_offer,
-      surface_static_bid_offers: true,
-    };
     const tiers: AuctionWaterfallTrace["tiers"] = [];
     let servedTier: number | null = null;
     for (let i = 0; i < waterfall.rule.tiers.length; i++) {
@@ -1976,7 +2048,7 @@ export async function runAuction(
       tiers,
     };
   } else {
-    slice = await runSlice(candidates, settings);
+    slice = await runSlice(candidates, tierShown ? tierSettings : settings);
     slices.push(slice);
     if (waterfall !== null) {
       // In this waterfall's share, but its IF conditions do not match this

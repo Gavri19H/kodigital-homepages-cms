@@ -101,6 +101,7 @@ const LEADGEN_MIGRATIONS = [
   "0053_leadgen_rework_m12_othergroup_retirement.sql",
   "0057_leadgen_offer_test_verdict.sql",
   "0062_leadgen_auction_waterfalls.sql", // traffic share + offer waterfalls
+  "0063_leadgen_auction_tier_rules.sql", // Tier-level rules (rule_level tier)
 ] as const;
 
 function createLeadgenDb(DatabaseSync: DatabaseSyncCtor): SqliteDb {
@@ -643,5 +644,136 @@ describeDb("leadgen auction editor — Rules: waterfalls + share of traffic (006
     expect(html).toContain('<option value="auto">By visitor share (like a new visitor)</option>');
     expect(html).toContain("50% of traffic: Fundera - Tier 1 → AmONE - Tier 2 → Fora - Tier 3 + Honest &lt;Loans&gt; - OW");
     expect(html).toContain('<option value="none">Normal auction (no waterfall)</option>');
+  });
+});
+
+// --- OWNER 2026-10-01 (PM feedback): rule fields, offer picker, tier rules ---
+
+describeDb("rules condition fields — only this funnel's questions, no ids, answers attached (rule-fields.ts)", () => {
+  // A section with questions: a labelled enum choice, a labelled number choice
+  // (answer_type number), a yes/no, and a question with NO label of its own.
+  function seedSection(sdb: SqliteDb, name: string, vertical: string, components: unknown[]): number {
+    const pub = mintPublicId("section");
+    sdb
+      .prepare("INSERT INTO leadgen_sections (public_id, section_name, activity, vertical, headline_text, content_json, continue_mode, status) VALUES (?, ?, 'quote_funnel', ?, 'H', ?, 'button', 'active')")
+      .run(pub, name, vertical, JSON.stringify({ components }));
+    return (sdb.prepare("SELECT id FROM leadgen_sections WHERE public_id = ?").get(pub) as { id: number }).id;
+  }
+  async function seedFunnel(): Promise<{ env: Env; sdb: SqliteDb; variantPub: string; auctionPub: string }> {
+    const { env, sdb } = newHarness();
+    const res = await admin.request(`${API}/quotes`, jsonInit("POST", { quote_name: "SMB Loans", activity: "quote_funnel", verticals: ["life"] }), env);
+    const quote = (await res.json()) as { id: number; public_id: string; funnels: Array<{ variants: Array<{ id: number; public_id: string }> }> };
+    const variant = quote.funnels[0]!.variants[0]!;
+    const industry = seedSection(sdb, "Industry", "life", [
+      { type: "DropdownQuestion", question_id: "q_ind", internal_field: "field_mrulh4c7_6g4v", answer_type: "enum", props: { label: "Which industry is your business in?" },
+        choices: [{ label: "Retail", value: "retail" }, { label: "Consumer goods & services", value: "consumer_goods_services" }] },
+      { type: "ButtonAnswerGroup", question_id: "q_fund", internal_field: "field_fund", answer_type: "number", props: { label: "How much funding do you need?" },
+        choices: [{ label: "$75,000", value: "75000" }, { label: "$150,000", value: "150000" }] },
+    ]);
+    const bank = seedSection(sdb, "Business bank account", "life", [
+      { type: "TwoButtonYesNo", question_id: "q_bank", internal_field: "field_mruk20kn_l4q4", answer_type: "boolean",
+        choices: [{ label: "Yes", value: "yes" }, { label: "No", value: "no" }] },
+    ]);
+    // another vertical's section — NOT in this funnel
+    seedSection(sdb, "Install Immediacy", "home_security", [
+      { type: "DropdownQuestion", question_id: "q_inst", internal_field: "field_mupksp32_goe4", answer_type: "enum", props: { label: "When do you need it installed?" }, choices: [{ label: "Now", value: "now" }] },
+    ]);
+    sdb.prepare("INSERT INTO leadgen_funnel_variant_sections (variant_id, section_id, position) VALUES (?, ?, 0), (?, ?, 1)").run(variant.id, industry, variant.id, bank);
+    const auction = await createAuction(env, { auction_name: "Loans", quote_id: quote.id, auction_type: "dynamic" });
+    sdb.prepare("UPDATE leadgen_funnel_variants SET auction_id = ? WHERE id = ?").run(auction.id, variant.id);
+    return { env, sdb, variantPub: variant.public_id, auctionPub: auction.public_id };
+  }
+  type Field = { internal_field: string; label: string; group: string; stored_choices?: Array<{ label: string; stored: unknown }> };
+
+  it("a variant's fields: its own questions (no other vertical), labelled in words, with typed answers; then the visitor facts", async () => {
+    const { env, variantPub } = await seedFunnel();
+    const res = await admin.request(`${API}/variants/${variantPub}/rule-fields`, {}, env);
+    expect(res.status).toBe(200);
+    const { fields } = (await res.json()) as { fields: Field[] };
+    const questions = fields.filter((f) => f.group === "question");
+    expect(questions.map((f) => [f.internal_field, f.label])).toEqual([
+      ["field_mrulh4c7_6g4v", "Which industry is your business in?"],
+      ["field_fund", "How much funding do you need?"],
+      ["field_mruk20kn_l4q4", "Business bank account"], // no label of its own → its section's name
+    ]);
+    expect(fields.some((f) => f.internal_field === "field_mupksp32_goe4")).toBe(false); // other vertical left out
+    expect(fields.every((f) => !/field_|·/.test(f.label))).toBe(true); // no ids in any label
+    const fund = questions.find((f) => f.internal_field === "field_fund");
+    expect(fund?.stored_choices).toEqual([{ label: "$75,000", stored: 75000 }, { label: "$150,000", stored: 150000 }]); // numbers stay numbers
+    const bank = questions.find((f) => f.internal_field === "field_mruk20kn_l4q4");
+    expect(bank?.stored_choices).toEqual([{ label: "Yes", stored: true }, { label: "No", stored: false }]);
+    expect(fields.filter((f) => f.group === "visitor").map((f) => f.internal_field)).toEqual([
+      "state", "device", "os", "utm_source", "utm_medium", "utm_campaign", "utm_content", "placement", "date_et", "hour_et", "weekday_et",
+    ]);
+  });
+
+  it("an auction's fields are its funnels' questions; the editor embeds them for the IF builder", async () => {
+    const { env, auctionPub } = await seedFunnel();
+    const { fields } = (await (await admin.request(`${API}/auctions/${auctionPub}/rule-fields`, {}, env)).json()) as { fields: Field[] };
+    expect(fields.filter((f) => f.group === "question").map((f) => f.internal_field)).toEqual(["field_mrulh4c7_6g4v", "field_fund", "field_mruk20kn_l4q4"]);
+    const html = await getHtml(env, `/admin/leadgen/auction/${auctionPub}/edit`);
+    const blob = html.split('<script type="application/json" id="lg-r-cond-fields">')[1]?.split("</script>")[0] ?? "";
+    expect((JSON.parse(blob) as Field[]).map((f) => f.label)).toContain("Which industry is your business in?");
+    expect(html).toContain('id="lg-r-cond-mount"');
+    expect(html).not.toContain("IF — conditions JSON (groups[])");
+  });
+
+  it("two questions with the same words get their section's name; the funnel pop-up no longer lists every section", async () => {
+    const { questionRuleFields } = await import("../src/admin/leadgen/rule-fields");
+    const q = (field: string, label?: string) => ({ type: "FreeTextQuestion", question_id: `q_${field}`, internal_field: field, answer_type: "string", ...(label ? { props: { label } } : {}) });
+    const fields = questionRuleFields([
+      { id: 1, section_name: "Owner", content_json: JSON.stringify({ components: [q("f1", "Your name"), q("f2")] }) },
+      { id: 2, section_name: "Co-owner", content_json: JSON.stringify({ components: [q("f3", "Your name"), q("f4")] }) },
+    ]);
+    expect(fields.map((f) => f.label)).toEqual(["Your name (Owner)", "Owner", "Your name (Co-owner)", "Co-owner"]);
+    const { RELOCATED_RULES_SCRIPT } = await import("../src/admin/leadgen/ui-rules-builder");
+    expect(RELOCATED_RULES_SCRIPT).toContain("/rule-fields");
+    expect(RELOCATED_RULES_SCRIPT).not.toContain("/sections?activity=");
+  });
+});
+
+describeDb("auction Add-a-rule form — offers by name, Tier-level, readable rules (PM feedback)", () => {
+  async function editor(): Promise<{ env: Env; html: string; ids: Record<string, number>; auctionPub: string }> {
+    const { env, sdb } = newHarness();
+    const quote = await createQuote(env);
+    const auction = await createAuction(env, { auction_name: "Loans", quote_id: quote.id, auction_type: "dynamic" });
+    const named = (name: string) => {
+      const o = seedOfferWithPlacement(sdb, "cpl");
+      sdb.prepare("UPDATE leadgen_offers SET offer_name = ? WHERE id = ?").run(name, o.offer_id);
+      return o;
+    };
+    const fundera = named("Fundera - Tier 1");
+    const fora = named("Fora - Tier 3");
+    const honest = named("Honest Loans - OW");
+    await putParticipating(env, auction.public_id, [fundera, fora, honest].map((o) => o.placement_id));
+    const post = (body: unknown) => admin.request(`${API}/auctions/${auction.public_id}/rules`, jsonInit("POST", body), env);
+    const funderaPub = (sdb.prepare("SELECT public_id FROM leadgen_offers WHERE id = ?").get(fundera.offer_id) as { public_id: string }).public_id;
+    // the PM's case: the offer's "lgo_…" id works as the target
+    expect((await post({ rule_level: "offer", action: "exclude", target_offer_id: funderaPub, conditions_json: { groups: [{ field: "os", op: "eq", value: "ios" }] } })).status).toBe(201);
+    expect((await post({ rule_level: "tier", action: "include_only", tier_offer_ids: [fora.offer_id, honest.offer_id], conditions_json: { groups: [{ field: "device", op: "eq", value: "mobile" }] } })).status).toBe(201);
+    const html = await getHtml(env, `/admin/leadgen/auction/${auction.public_id}/edit`);
+    return { env, html, ids: { fundera: fundera.offer_id, fora: fora.offer_id, honest: honest.offer_id }, auctionPub: auction.public_id };
+  }
+
+  it("Target offer is a dropdown of the auction's offers by name (no number box)", async () => {
+    const { html, ids } = await editor();
+    expect(html).toMatch(new RegExp(`<select id="lg-r-target-offer" class="form-select"><option value="">— choose an offer —</option>.*<option value="${ids.fundera}">Fundera - Tier 1</option>`));
+    expect(html).not.toContain('id="lg-r-target-offer" type="number"');
+  });
+
+  it("Rule level offers Tier-level with the auction's offers to tick", async () => {
+    const { html, ids } = await editor();
+    expect(html).toContain('<option value="tier">Tier-level (a group of offers)</option>');
+    expect(html).toContain(`<input type="checkbox" data-tier-group-offer value="${ids.fora}" /> Fora - Tier 3`);
+  });
+
+  it("the rules list reads in words: the offer by name, the tier's offers, and the IF as a sentence", async () => {
+    const { html } = await editor();
+    expect(html).toContain('<p class="form-help" data-rule-target>offer: Fundera - Tier 1</p>');
+    expect(html).toContain("<h4>Tier-level</h4>");
+    expect(html).toContain("offers: Fora - Tier 3 + Honest Loans - OW (shown together)");
+    expect(html).toContain("IF: Matches when OS is &quot;iOS&quot;.");
+    expect(html).toContain("IF: Matches when Device is &quot;Mobile&quot;.");
+    expect(html).not.toMatch(/IF: <code>/); // no raw JSON for a rule the builder can read
   });
 });

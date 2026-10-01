@@ -63,6 +63,24 @@ function dayOfWeekInTimezone(tz: string, at: Date): string {
 
 const EASTERN_TZ = "America/New_York";
 
+// OWNER 2026-10-01 (rules on Date / Time of day): the ONE clock auction and
+// funnel rules test, US Eastern (owner ruling). date_et is YYYYMMDD as a
+// number so "between" / "greater than" work; hour_et is 0–23; weekday_et is a
+// lowercase English day name.
+export function easternRuleClock(nowMs: number): { date_et: number; hour_et: number; weekday_et: string } {
+  const at = new Date(nowMs);
+  let date = Number(at.toISOString().slice(0, 10).replace(/-/g, ""));
+  try {
+    const parts = new Intl.DateTimeFormat("en-US", { timeZone: EASTERN_TZ, year: "numeric", month: "2-digit", day: "2-digit" }).formatToParts(at);
+    const part = (t: string): string => parts.find((p) => p.type === t)?.value ?? "";
+    const ymd = Number(`${part("year")}${part("month")}${part("day")}`);
+    if (Number.isInteger(ymd) && ymd > 19000101) date = ymd;
+  } catch {
+    /* UTC date above */
+  }
+  return { date_et: date, hour_et: hourInTimezone(EASTERN_TZ, at), weekday_et: dayOfWeekInTimezone(EASTERN_TZ, at) };
+}
+
 // Shared resolver bodies for the contract's alias rows (unix_timestamp is an
 // alias of request_timestamp; current_date_utc of today_date_utc) — aliases
 // can never drift because they ARE the same function.

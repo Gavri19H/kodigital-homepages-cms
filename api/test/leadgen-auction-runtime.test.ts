@@ -103,6 +103,7 @@ const LEADGEN_MIGRATIONS = [
   "0060_leadgen_offer_static_creative.sql", // static-Offer banner creative
   "0061_leadgen_routing_present_only_offer.sql", // Present only this offer (force_offer_id)
   "0062_leadgen_auction_waterfalls.sql", // traffic share + offer waterfalls
+  "0063_leadgen_auction_tier_rules.sql", // Tier-level rules (rule_level tier)
 ] as const;
 
 function createLeadgenDb(DatabaseSync: DatabaseSyncCtor): SqliteDb {
@@ -2108,6 +2109,124 @@ describeDb("0062 offer waterfall — tiers through the REAL engine (mocked provi
     expect(r.explain.waterfall?.no_offers_left).toBe(false);
     expect(r.explain.waterfall?.tiers.map((t) => [t.tier, t.outcome])).toEqual([[1, "no_qualifying_offer"], [2, "shown"]]);
     expect(r.explain.waterfall?.served_tier).toBe(2); // Fundera is Tier 2, as configured
+  });
+
+  // --- OWNER 2026-10-01 (PM feedback): rule conditions + Tier-level rules ---
+  function variantWithRules(sdb: SqliteDb, rules: Array<{ type: string; conditions: unknown; match?: "any" | "all" }>): number {
+    sdb.prepare("INSERT INTO leadgen_quotes (public_id, quote_name, activity, verticals_json) VALUES (?, 'Q', 'quote_funnel', '[\"life\"]')").run(mintPublicId("quote"));
+    const quoteId = (sdb.prepare("SELECT id FROM leadgen_quotes ORDER BY id DESC LIMIT 1").get() as { id: number }).id;
+    sdb.prepare("INSERT INTO leadgen_funnels (public_id, quote_id, funnel_name) VALUES (?, ?, 'F')").run(mintPublicId("funnel"), quoteId);
+    const funnelId = (sdb.prepare("SELECT id FROM leadgen_funnels ORDER BY id DESC LIMIT 1").get() as { id: number }).id;
+    sdb.prepare("INSERT INTO leadgen_funnel_variants (public_id, funnel_id) VALUES (?, ?)").run(mintPublicId("funnel_variant"), funnelId);
+    const variantId = (sdb.prepare("SELECT id FROM leadgen_funnel_variants ORDER BY id DESC LIMIT 1").get() as { id: number }).id;
+    rules.forEach((r, i) => {
+      sdb
+        .prepare("INSERT INTO leadgen_funnel_rules (public_id, variant_id, rule_type, conditions_json, conditions_hash, priority, enabled, match_mode) VALUES (?, ?, ?, ?, ?, ?, 1, ?)")
+        .run(mintPublicId("funnel_rule"), variantId, r.type, JSON.stringify(r.conditions), `h${i}`, i + 1, r.match ?? null);
+    });
+    return variantId;
+  }
+  async function runVariant(env: Env, auction: LeadgenAuctionRow, variantId: number, extra: Record<string, unknown> = {}) {
+    const bundle = await loadAuctionBundle(env.DB, auction, variantId);
+    return runAuction(env, {
+      resolved: makeResolved(), bundle, environment: "production", binding: NO_BINDING,
+      session_id: "visitor-1", raw_answers: {}, clicked: [], ...extra,
+    } as Parameters<typeof runAuction>[1], { dryRun: true });
+  }
+  const IPHONE = "Mozilla/5.0 (iPhone; CPU iPhone OS 17_5 like Mac OS X) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/17.5 Mobile/15E148 Safari/604.1";
+  const ANDROID = "Mozilla/5.0 (Linux; Android 14; Pixel 8) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/129.0 Mobile Safari/537.36";
+  const visitor = (ua: string, query = ""): { runtime: { source: Request } } => ({
+    runtime: { source: new Request(`https://loans.example/lg/business-loans${query}`, { headers: { "user-agent": ua } }) },
+  });
+
+  it("PM feedback: Eligibility rules now gate who gets offers (they used to be saved and never applied)", async () => {
+    const { sdb, env } = harness();
+    const auction = seedAuction(sdb, { multi_offer: "enabled" });
+    const amone = providerOffer(sdb, "amone");
+    attachOffer(sdb, auction.id, amone);
+    const variantId = variantWithRules(sdb, [{ type: "eligibility", conditions: { groups: [{ field: "state", op: "eq", value: "CA" }] } }]);
+    stubFetch(() => yes("AmONE"));
+    const outside = await runVariant(env, auction, variantId, { request_context: { state: "NY" } });
+    expect(outside.status).toBe("disqualified");
+    expect(outside.explain.unfilled_reason).toBe("not_eligible");
+    const inside = await runVariant(env, auction, variantId, { request_context: { state: "CA" } });
+    expect(inside.status).toBe("ok");
+  });
+
+  it("PM feedback: \"Match: ANY of the following\" is honoured (it ran as ALL before)", async () => {
+    const { sdb, env } = harness();
+    const auction = seedAuction(sdb, { multi_offer: "enabled" });
+    const amone = providerOffer(sdb, "amone");
+    attachOffer(sdb, auction.id, amone);
+    const conditions = { groups: [{ field: "state", op: "eq", value: "CA" }, { field: "device", op: "eq", value: "mobile" }] };
+    const anyVariant = variantWithRules(sdb, [{ type: "disqualification", conditions, match: "any" }]);
+    const allVariant = variantWithRules(sdb, [{ type: "disqualification", conditions, match: "all" }]);
+    stubFetch(() => yes("AmONE"));
+    const ctx = { request_context: { state: "NY", device: "mobile" } }; // only ONE condition true
+    expect((await runVariant(env, auction, anyVariant, ctx)).status).toBe("disqualified");
+    expect((await runVariant(env, auction, allVariant, ctx)).status).toBe("ok");
+  });
+
+  it("PM feedback: rules can test OS, UTM Source, FB Placement and the US-Eastern date / hour / weekday", async () => {
+    const { sdb, env } = harness();
+    const auction = seedAuction(sdb, { multi_offer: "enabled" });
+    const amone = providerOffer(sdb, "amone");
+    attachOffer(sdb, auction.id, amone);
+    stubFetch(() => yes("AmONE"));
+    const disqualifiedWhen = async (groups: unknown[], extra: Record<string, unknown>) => {
+      const v = variantWithRules(sdb, [{ type: "disqualification", conditions: { groups } }]);
+      return (await runVariant(env, auction, v, extra)).status;
+    };
+    // 2026-10-01T14:00:00Z is 10:00 on Thursday 1 Oct in New York (EDT)
+    const at = { now: Date.parse("2026-10-01T14:00:00Z") };
+    expect(await disqualifiedWhen([{ field: "os", op: "eq", value: "ios" }], visitor(IPHONE))).toBe("disqualified");
+    expect(await disqualifiedWhen([{ field: "os", op: "eq", value: "ios" }], visitor(ANDROID))).toBe("ok");
+    expect(await disqualifiedWhen([{ field: "utm_source", op: "eq", value: "mln" }], visitor(ANDROID, "?utm_source=mln"))).toBe("disqualified");
+    expect(await disqualifiedWhen([{ field: "placement", op: "eq", value: "Facebook_Mobile_Reels" }], visitor(ANDROID, "?placement=Facebook_Mobile_Reels"))).toBe("disqualified");
+    expect(await disqualifiedWhen([{ field: "placement", op: "eq", value: "Facebook_Mobile_Reels" }], visitor(ANDROID, "?placement=Instagram_Reels"))).toBe("ok");
+    expect(await disqualifiedWhen([{ field: "hour_et", op: "range", from: 9, to: 17 }], { ...visitor(ANDROID), ...at })).toBe("disqualified");
+    expect(await disqualifiedWhen([{ field: "hour_et", op: "range", from: 11, to: 17 }], { ...visitor(ANDROID), ...at })).toBe("ok");
+    expect(await disqualifiedWhen([{ field: "weekday_et", op: "eq", value: "thursday" }], { ...visitor(ANDROID), ...at })).toBe("disqualified");
+    expect(await disqualifiedWhen([{ field: "date_et", op: "eq", value: 20261001 }], { ...visitor(ANDROID), ...at })).toBe("disqualified");
+    // 2026-10-02T02:00:00Z is still Thursday 1 Oct, 22:00, in New York
+    expect(await disqualifiedWhen([{ field: "date_et", op: "eq", value: 20261001 }], { ...visitor(ANDROID), now: Date.parse("2026-10-02T02:00:00Z") })).toBe("disqualified");
+  });
+
+  it("PM feedback: a Tier-level SHOW rule presents its whole group together (offerwall) when its conditions match", async () => {
+    const { sdb, env } = harness();
+    const auction = seedAuction(sdb, { multi_offer: "disabled" });
+    const fundera = providerOffer(sdb, "fundera");
+    const fora = seedOffer(sdb, { dynamic: false, staticBid: 6 });
+    const honest = seedOffer(sdb, { dynamic: false, staticBid: 5 });
+    for (const o of [fundera, fora, honest]) attachOffer(sdb, auction.id, o);
+    sdb
+      .prepare("INSERT INTO leadgen_auction_rules (public_id, auction_id, rule_level, action, conditions_json, conditions_hash, priority, enabled, tiers_json) VALUES (?, ?, 'tier', 'include_only', ?, 'h', 100, 1, ?)")
+      .run(mintPublicId("auction_rule"), auction.id, JSON.stringify({ groups: [{ field: "os", op: "eq", value: "ios" }] }), JSON.stringify({ tiers: [{ offer_ids: [fora.offer_id, honest.offer_id] }] }));
+    const calls = stubFetch(() => yes("Fundera"));
+    const ios = await run(env, sdb, auction, visitor(IPHONE));
+    expect(calls.length).toBe(0); // Fundera is outside the tier → not even called
+    expect(shownOffers(ios)).toEqual([fora.offer_public_id, honest.offer_public_id].sort()); // both, though multi-offer is off
+    calls.length = 0;
+    const android = await run(env, sdb, auction, visitor(ANDROID)); // conditions not met → the normal auction
+    expect(calls.map((c) => hostOf(c.url))).toEqual(["fundera"]);
+    expect(shownOffers(android)).toContain(fundera.offer_public_id);
+  });
+
+  it("PM feedback: a Tier-level HIDE rule removes its whole group when its conditions match", async () => {
+    const { sdb, env } = harness();
+    const auction = seedAuction(sdb, { multi_offer: "enabled" });
+    const fundera = providerOffer(sdb, "fundera");
+    const amone = providerOffer(sdb, "amone");
+    const fora = seedOffer(sdb, { dynamic: false, staticBid: 6 });
+    for (const o of [fundera, amone, fora]) attachOffer(sdb, auction.id, o);
+    sdb
+      .prepare("INSERT INTO leadgen_auction_rules (public_id, auction_id, rule_level, action, conditions_json, conditions_hash, priority, enabled, tiers_json) VALUES (?, ?, 'tier', 'exclude', ?, 'h', 100, 1, ?)")
+      .run(mintPublicId("auction_rule"), auction.id, JSON.stringify({ groups: [{ field: "state", op: "eq", value: "CA" }] }), JSON.stringify({ tiers: [{ offer_ids: [fundera.offer_id, amone.offer_id] }] }));
+    const calls = stubFetch((url) => yes(hostOf(url)));
+    const ca = await run(env, sdb, auction, { request_context: { state: "CA" } });
+    expect(calls.length).toBe(0);
+    expect(shownOffers(ca)).toEqual([fora.offer_public_id]);
+    expect(ca.explain.offers_excluded.map((e) => e.reason)).toEqual(["rule_exclude", "rule_exclude"]);
   });
 
   it("a 'Present only this offer' attempt is never sent down a waterfall", async () => {

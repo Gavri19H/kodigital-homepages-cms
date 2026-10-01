@@ -87,7 +87,7 @@ const BACKFILL_MODES = ["disabled", "enabled", "enabled_unique"] as const satisf
 const BACKFILL_TRIGGERS = ["on_slot_exhaustion", "on_click", "on_dismiss"] as const satisfies readonly LeadgenBackfillTrigger[];
 const REMOVAL_SCOPES = ["offer", "carrier"] as const satisfies readonly LeadgenRemovalScope[];
 const AUCTION_STATUSES = ["active", "paused", "archived"] as const satisfies readonly LeadgenAuctionStatus[];
-const RULE_LEVELS = ["offer", "carrier"] as const satisfies readonly LeadgenRuleLevel[];
+const RULE_LEVELS = ["offer", "carrier", "tier"] as const satisfies readonly LeadgenRuleLevel[];
 const RULE_ACTIONS = ["include_only", "exclude", "allow_list", "block_list", "waterfall"] as const satisfies readonly LeadgenAuctionRuleAction[];
 // 0062 waterfall bounds: enough for any realistic path, small enough to read.
 const WATERFALL_MAX_TIERS = 10;
@@ -219,7 +219,7 @@ function auctionRuleRowToApi(row: LeadgenAuctionRuleRow): LeadgenAuctionRuleApi 
     strictly_override: row.strictly_override !== 0,
     enabled: row.enabled !== 0,
     traffic_share_pct: typeof row.traffic_share_pct === "number" ? row.traffic_share_pct : null,
-    tiers: row.action === "waterfall" ? parseWaterfallTiers(tiersJson) : null,
+    tiers: row.action === "waterfall" || row.rule_level === "tier" ? parseWaterfallTiers(tiersJson) : null,
   };
 }
 
@@ -1117,20 +1117,67 @@ function detectRuleConflicts(rules: readonly RuleForConflict[]): { hard: Conflic
 async function readRulesForConflict(db: D1Database, auctionId: number): Promise<RuleForConflict[]> {
   const res = await db
     .prepare(
-      "SELECT public_id, rule_level, target_offer_id, action, priority, strictly_override, enabled, carrier_match_json FROM leadgen_auction_rules WHERE auction_id = ? AND action != 'waterfall'",
+      "SELECT * FROM leadgen_auction_rules WHERE auction_id = ? AND action != 'waterfall'",
     )
     .bind(auctionId)
     .all<LeadgenAuctionRuleRow & { action: LeadgenRuleAction }>();
-  return (res.results ?? []).map((r) => ({
-    key: r.public_id,
-    rule_level: r.rule_level,
-    target_offer_id: r.target_offer_id,
+  return (res.results ?? []).flatMap((r) =>
+    conflictEntries(
+      {
+        rule_level: r.rule_level,
+        target_offer_id: r.target_offer_id,
+        action: r.action,
+        priority: r.priority,
+        strictly_override: r.strictly_override,
+        enabled: r.enabled,
+        carrier_match_json: r.carrier_match_json,
+        tiers_json: typeof r.tiers_json === "string" ? r.tiers_json : null,
+      },
+      r.public_id,
+    ),
+  );
+}
+
+// A rule as the conflict check sees it. A Tier-level rule (0063) acts on each
+// of its offers, so it counts as one offer-level entry per offer — a clash
+// with an offer rule (or another tier rule) on the SAME offer is found, and two
+// tier rules on different offers never clash.
+function conflictEntries(
+  r: {
+    rule_level: LeadgenRuleLevel;
+    target_offer_id: number | null;
+    action: LeadgenRuleAction;
+    priority: number;
+    strictly_override: number;
+    enabled: number;
+    carrier_match_json: string | null;
+    tiers_json: string | null;
+  },
+  key: string,
+): RuleForConflict[] {
+  const base = {
+    key,
     action: r.action,
     priority: r.priority,
     strictly_override: r.strictly_override !== 0,
     enabled: r.enabled !== 0,
-    carrier_match: (parseJsonColumn(r.carrier_match_json) as LeadgenCarrierMatch | null) ?? null,
-  }));
+  };
+  if (r.rule_level === "tier") {
+    return (parseWaterfallTiers(r.tiers_json)[0]?.offer_ids ?? []).map((id) => ({
+      ...base,
+      rule_level: "offer" as const,
+      target_offer_id: id,
+      carrier_match: null,
+    }));
+  }
+  return [
+    {
+      ...base,
+      rule_level: r.rule_level,
+      target_offer_id: r.target_offer_id,
+      carrier_match: (parseJsonColumn(r.carrier_match_json) as LeadgenCarrierMatch | null) ?? null,
+    },
+  ];
 }
 
 // ---------------------------------------------------------------------------
@@ -1258,9 +1305,18 @@ async function prepareRule(
 
   let targetOfferId: number | null = base?.target_offer_id ?? null;
   if (body["target_offer_id"] !== undefined) {
-    const parsed = asIntId(body["target_offer_id"]);
-    if (parsed === INVALID) errors["target_offer_id"] = "target_offer_id must be an integer id";
-    else targetOfferId = parsed;
+    const rawTarget = body["target_offer_id"];
+    // OWNER 2026-10-01 (PM): the editor shows offers by their "lgo_…" id, so a
+    // pasted public id works as well as the row id.
+    if (typeof rawTarget === "string" && rawTarget.trim().startsWith("lgo_")) {
+      const found = await db.prepare("SELECT id FROM leadgen_offers WHERE public_id = ? LIMIT 1").bind(rawTarget.trim()).first<{ id: number }>();
+      if (found) targetOfferId = found.id;
+      else errors["target_offer_id"] = `offer ${rawTarget.trim()} does not exist`;
+    } else {
+      const parsed = asIntId(rawTarget);
+      if (parsed === INVALID) errors["target_offer_id"] = "target_offer_id must be an offer (its lgo_ id or row id)";
+      else targetOfferId = parsed;
+    }
   }
 
   // conditions
@@ -1323,9 +1379,20 @@ async function prepareRule(
     if (parsedTiers.error !== null) errors["tiers"] = parsedTiers.error;
     else tiers = parsedTiers.value;
   }
+  // 0063: a Tier-level rule's group of offers, as one tier.
+  if (body["tier_offer_ids"] !== undefined) {
+    const parsedGroup = validateWaterfallTiers([body["tier_offer_ids"]]);
+    if (parsedGroup.error !== null) errors["tier_offer_ids"] = parsedGroup.error.replace("tier 1 ", "the tier ");
+    else tiers = parsedGroup.value;
+  }
 
   // level-specific structural checks
-  if (action === "waterfall") {
+  if (ruleLevel === "tier") {
+    if (action === "waterfall") errors["action"] = "a tier-level rule shows its offers (include_only / allow_list) or hides them (exclude / block_list)";
+    if ((tiers === null || tiers.length === 0 || (tiers[0]?.offer_ids.length ?? 0) === 0) && errors["tier_offer_ids"] === undefined) {
+      errors["tier_offer_ids"] = "a tier-level rule needs at least one offer";
+    }
+  } else if (action === "waterfall") {
     if (ruleLevel === "carrier") errors["rule_level"] = "a waterfall is an offer-level rule";
     if (trafficSharePct === null && errors["traffic_share_pct"] === undefined) {
       errors["traffic_share_pct"] = "a waterfall needs the share of traffic it applies to";
@@ -1334,13 +1401,13 @@ async function prepareRule(
       errors["tiers"] = "a waterfall needs at least one tier with an offer";
     }
   } else if (ruleLevel === "offer" && action !== null) {
-    if (targetOfferId === null) errors["target_offer_id"] = "offer-level rules require target_offer_id";
+    if (targetOfferId === null && errors["target_offer_id"] === undefined) errors["target_offer_id"] = "offer-level rules require target_offer_id";
   }
 
   if (Object.keys(errors).length > 0) return { errors, value: null };
 
   // FK existence for target_offer_id (clean 400, not a D1 500).
-  if (action !== "waterfall" && targetOfferId !== null && !(await checkFkExists(db, "leadgen_offers", targetOfferId))) {
+  if (action !== "waterfall" && ruleLevel !== "tier" && targetOfferId !== null && !(await checkFkExists(db, "leadgen_offers", targetOfferId))) {
     errors["target_offer_id"] = `offer ${targetOfferId} does not exist`;
     return { errors, value: null };
   }
@@ -1349,7 +1416,8 @@ async function prepareRule(
   // the tiers are written, not on every later PATCH: a waterfall whose offer
   // has since left the auction must still be switchable off (the engine skips
   // an offer that no longer takes part).
-  if (action === "waterfall" && tiers !== null && body["tiers"] !== undefined) {
+  const groupWritten = body["tiers"] !== undefined || body["tier_offer_ids"] !== undefined;
+  if ((action === "waterfall" || ruleLevel === "tier") && tiers !== null && groupWritten) {
     const res = await db
       .prepare("SELECT DISTINCT offer_id FROM leadgen_auction_offers WHERE auction_id = ?")
       .bind(auctionId)
@@ -1357,7 +1425,7 @@ async function prepareRule(
     const participating = new Set((res.results ?? []).map((r) => r.offer_id));
     const missing = tiers.flatMap((t) => t.offer_ids).filter((id) => !participating.has(id));
     if (missing.length > 0) {
-      errors["tiers"] = `offer ${missing[0]} is not a participating offer of this auction (add it under Participating Offers first)`;
+      errors[ruleLevel === "tier" ? "tier_offer_ids" : "tiers"] = `offer ${missing[0]} is not a participating offer of this auction (add it under Participating Offers first)`;
       return { errors, value: null };
     }
   }
@@ -1367,15 +1435,15 @@ async function prepareRule(
     value: {
       rule_level: ruleLevel as LeadgenRuleLevel,
       action: action as LeadgenRuleAction,
-      target_offer_id: ruleLevel === "carrier" || action === "waterfall" ? null : targetOfferId,
+      target_offer_id: ruleLevel === "carrier" || ruleLevel === "tier" || action === "waterfall" ? null : targetOfferId,
       conditions_json: conditionsJson,
       conditions_hash: conditionsHashValue,
-      carrier_match_json: ruleLevel === "offer" ? null : carrierMatchJson,
+      carrier_match_json: ruleLevel === "carrier" ? carrierMatchJson : null,
       strictly_override: action === "waterfall" ? 0 : strictly,
       priority,
       enabled,
       traffic_share_pct: trafficSharePct,
-      tiers_json: action === "waterfall" && tiers !== null ? JSON.stringify({ tiers }) : null,
+      tiers_json: (action === "waterfall" || ruleLevel === "tier") && tiers !== null ? JSON.stringify({ tiers }) : null,
     },
   };
 }
@@ -1397,19 +1465,7 @@ export async function createAuctionRuleHandler(c: AdminContext): Promise<Respons
   const { hard, warnings } =
     value.action === "waterfall"
       ? { hard: [], warnings: [] }
-      : detectRuleConflicts([
-          ...existing,
-          {
-            key: "(new)",
-            rule_level: value.rule_level,
-            target_offer_id: value.target_offer_id,
-            action: value.action,
-            priority: value.priority,
-            strictly_override: value.strictly_override !== 0,
-            enabled: value.enabled !== 0,
-            carrier_match: value.carrier_match_json !== null ? (parseJsonColumn(value.carrier_match_json) as LeadgenCarrierMatch) : null,
-          },
-        ]);
+      : detectRuleConflicts([...existing, ...conflictEntries({ ...value, action: value.action }, "(new)")]);
   if (hard.length > 0) {
     return c.json({ error: "Rule conflict: equal-priority strictly_override rules with opposing actions", conflicts: hard }, 409);
   }
@@ -1474,19 +1530,7 @@ export async function patchAuctionRuleHandler(c: AdminContext): Promise<Response
   const { hard, warnings } =
     value.action === "waterfall"
       ? { hard: [], warnings: [] }
-      : detectRuleConflicts([
-          ...others,
-          {
-            key: existingRow.public_id,
-            rule_level: value.rule_level,
-            target_offer_id: value.target_offer_id,
-            action: value.action,
-            priority: value.priority,
-            strictly_override: value.strictly_override !== 0,
-            enabled: value.enabled !== 0,
-            carrier_match: value.carrier_match_json !== null ? (parseJsonColumn(value.carrier_match_json) as LeadgenCarrierMatch) : null,
-          },
-        ]);
+      : detectRuleConflicts([...others, ...conflictEntries({ ...value, action: value.action }, existingRow.public_id)]);
   if (hard.length > 0) {
     return c.json({ error: "Rule conflict: equal-priority strictly_override rules with opposing actions", conflicts: hard }, 409);
   }
