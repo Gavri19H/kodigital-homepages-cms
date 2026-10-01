@@ -2049,6 +2049,51 @@ describeDb("0062 offer waterfall — tiers through the REAL engine (mocked provi
     expect(byId.get(normal.auction_instance_id)).toBeNull();
   });
 
+  it("review fix: a waterfall whose offers all left the auction gives its visitors the NORMAL auction, and nobody else moves", async () => {
+    const { sdb, env } = harness();
+    const auction = seedAuction(sdb, { multi_offer: "enabled" });
+    const fundera = providerOffer(sdb, "fundera");
+    const amone = providerOffer(sdb, "amone");
+    for (const o of [fundera, amone]) attachOffer(sdb, auction.id, o);
+    const first = waterfall(sdb, auction.id, 50, [[fundera.offer_id]], { priority: 1 });
+    const second = waterfall(sdb, auction.id, 50, [[amone.offer_id]], { priority: 2 });
+    stubFetch((url) => yes(hostOf(url)));
+    const path = async (visitor: string) => {
+      const bundle = await loadAuctionBundle(env.DB, auction, 1);
+      return runAuction(env, { resolved: makeResolved(), bundle, environment: "production", binding: NO_BINDING, session_id: visitor, raw_answers: {}, clicked: [] }, { dryRun: true });
+    };
+    const before = new Map<string, string | null>();
+    for (let i = 0; i < 60; i++) before.set(`p-${i}`, (await path(`p-${i}`)).explain.waterfall?.rule_id ?? null);
+    // Fundera leaves the auction: the first waterfall has no offer left
+    sdb.prepare("UPDATE leadgen_auction_offers SET enabled = 0 WHERE offer_id = ?").run(fundera.offer_id);
+    for (let i = 0; i < 60; i++) {
+      const r = await path(`p-${i}`);
+      expect(r.explain.waterfall?.rule_id ?? null).toBe(before.get(`p-${i}`)); // same visitors, same share
+      if (before.get(`p-${i}`) === first) {
+        expect(r.explain.waterfall?.no_offers_left).toBe(true);
+        expect(shownOffers(r)).toEqual([amone.offer_public_id]); // the normal auction, not an empty page
+      } else {
+        expect(r.explain.waterfall?.rule_id).toBe(second);
+        expect(r.explain.waterfall?.served_tier).toBe(1);
+      }
+    }
+    expect([...before.values()].filter((v) => v === first).length).toBeGreaterThan(0);
+  });
+
+  it("review fix: when the last tier's main render is empty but backfill fills it, the trace says that tier was shown", async () => {
+    const { sdb, env } = harness();
+    // an absolute floor of 20 puts AmONE's 12 below it; backfill then shows it
+    const auction = seedAuction(sdb, { multi_offer: "enabled", floor_type: "absolute_bid", floor_value: 20, backfill: "enabled", backfill_trigger: "on_slot_exhaustion" });
+    const amone = providerOffer(sdb, "amone");
+    attachOffer(sdb, auction.id, amone);
+    waterfall(sdb, auction.id, 100, [[amone.offer_id]]);
+    stubFetch(() => yes("AmONE"));
+    const r = await run(env, sdb, auction);
+    expect(shownOffers(r)).toEqual([amone.offer_public_id]);
+    expect(r.explain.waterfall?.served_tier).toBe(1);
+    expect(r.explain.waterfall?.tiers[0]?.outcome).toBe("shown");
+  });
+
   it("a 'Present only this offer' attempt is never sent down a waterfall", async () => {
     const { sdb, env } = harness();
     const auction = seedAuction(sdb, { multi_offer: "enabled" });

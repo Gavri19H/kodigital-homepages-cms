@@ -64,6 +64,9 @@ export interface AuctionWaterfallTrace {
   // false = in this waterfall's share but its IF conditions did not match:
   // the visitor got the normal auction.
   conditions_matched: boolean;
+  // true = none of its offers takes part in the auction any more (removed,
+  // disabled, archived): its visitors get the normal auction.
+  no_offers_left: boolean;
   served_tier: number | null;
   tiers: Array<{ tier: number; offer_ids: string[]; outcome: "shown" | "no_result" | "no_qualifying_offer" | "not_reached" }>;
 }

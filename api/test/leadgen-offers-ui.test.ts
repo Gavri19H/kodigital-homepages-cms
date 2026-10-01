@@ -154,6 +154,7 @@ const LEADGEN_MIGRATIONS = [
   "0057_leadgen_offer_test_verdict.sql",
   "0060_leadgen_offer_static_creative.sql", // duplicate copies the static creative
   "0061_leadgen_routing_present_only_offer.sql", // Present only this offer (force_offer_id)
+  "0062_leadgen_auction_waterfalls.sql", // waterfall tiers count as offer usage
 ] as const;
 
 function createLeadgenDb(DatabaseSync: DatabaseSyncCtor): SqliteDb {
@@ -2221,5 +2222,36 @@ describeDb("Request → Headers — Consumer IP address / Consumer user agent", 
       { header_name: "X-Offer", value_kind: "macro", value_text: "{offer_id}" },
       { header_name: "Content-Type", value_kind: "static", value_text: "application/json" },
     ]);
+  });
+});
+
+
+// 0062 review fix: an offer named in an Auction waterfall tier is IN USE there
+// (blocking, like an auction rule that targets it) — deleting it would empty
+// that tier.
+describeDb("offer usage report — auction waterfalls (0062)", () => {
+  it("an offer in a waterfall tier lists that auction under auction_rules_targeting (blocking)", async () => {
+    const { env, sdb } = newHarness();
+    const offer = await createOffer(env, "static_no_request", { offer_name: "Tier Offer" });
+    sdb
+      .prepare(
+        `INSERT INTO leadgen_auctions (public_id, auction_name, auction_type, winner_logic, floor_type, floor_value, multi_offer,
+           surface_static_bid_offers, banner_slots_count, max_carriers_per_offer, max_total_carriers, backfill, backfill_trigger,
+           remove_clicked_offers, removal_scope, timeout_ms, carrier_normalization_version, status)
+         VALUES ('lga_wf_usage', 'Waterfall Auction', 'dynamic', 'highest_bid', 'percentage_of_max', 10, 'enabled', 1, 5, 3, 10, 'disabled', 'on_slot_exhaustion', 0, 'offer', 2500, 1, 'active')`,
+      )
+      .run();
+    const auctionId = (sdb.prepare("SELECT id FROM leadgen_auctions WHERE public_id = 'lga_wf_usage'").get() as { id: number }).id;
+    sdb
+      .prepare("INSERT INTO leadgen_auction_rules (public_id, auction_id, rule_level, action, conditions_json, conditions_hash, traffic_share_pct, tiers_json) VALUES (?, ?, 'offer', 'waterfall', '{\"groups\":[]}', 'h', 50, ?)")
+      .run(mintPublicId("auction_rule"), auctionId, JSON.stringify({ tiers: [{ offer_ids: [999999] }, { offer_ids: [offer.id] }] }));
+    const res = await admin.request(`${API}/offers/${offer.public_id}/usage`, {}, env);
+    expect(res.status, await res.clone().text()).toBe(200);
+    const body = (await res.json()) as { usage: { kinds: Array<{ kind: string; count: number; items: Array<{ public_id: string; name: string }> }>; delete_eligibility: { eligible: boolean; blocking_kinds: string[] } } };
+    const targeting = body.usage.kinds.find((k) => k.kind === "auction_rules_targeting");
+    expect(targeting?.count).toBe(1);
+    expect(targeting?.items[0]).toMatchObject({ public_id: "lga_wf_usage", name: "Waterfall Auction" });
+    expect(body.usage.delete_eligibility.blocking_kinds).toContain("auction_rules_targeting");
+    expect(body.usage.delete_eligibility.eligible).toBe(false);
   });
 });

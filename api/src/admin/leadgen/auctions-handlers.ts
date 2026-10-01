@@ -1345,8 +1345,11 @@ async function prepareRule(
     return { errors, value: null };
   }
 
-  // A tier can only show an offer that takes part in this auction.
-  if (action === "waterfall" && tiers !== null) {
+  // A tier can only show an offer that takes part in this auction. Checked when
+  // the tiers are written, not on every later PATCH: a waterfall whose offer
+  // has since left the auction must still be switchable off (the engine skips
+  // an offer that no longer takes part).
+  if (action === "waterfall" && tiers !== null && body["tiers"] !== undefined) {
     const res = await db
       .prepare("SELECT DISTINCT offer_id FROM leadgen_auction_offers WHERE auction_id = ?")
       .bind(auctionId)

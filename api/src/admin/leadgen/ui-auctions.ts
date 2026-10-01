@@ -750,24 +750,37 @@ function offerNamesById(participating: ParticipatingOffer[]): Map<number, string
   return names;
 }
 
-function tierOfferList(offerIds: readonly number[], names: Map<number, string>): string {
+// The offers the auction really runs: an enabled participation of an active
+// offer (the engine's loader rule). A waterfall skips every other offer.
+function liveOfferIds(participating: ParticipatingOffer[]): Set<number> {
+  const live = new Set<number>();
+  for (const p of participating) if (p.enabled && (p.offer_status ?? "active") === "active") live.add(p.offer_id);
+  return live;
+}
+
+function tierOfferList(offerIds: readonly number[], names: Map<number, string>, live: Set<number>): string {
   return offerIds
     .map((id) => {
       const name = names.get(id);
-      return name === undefined
-        ? `<span class="form-help">offer ${id} (no longer participating — skipped)</span>`
-        : escapeHtml(name);
+      if (name === undefined) return `<span class="form-help">offer ${id} (no longer participating — skipped)</span>`;
+      if (!live.has(id)) return `${escapeHtml(name)} <span class="form-help">(participation off — skipped)</span>`;
+      return escapeHtml(name);
     })
     .join(" + ");
 }
 
-function renderWaterfallRow(r: LeadgenAuctionRuleApi, names: Map<number, string>): string {
+// OWNER 2026-10-01: switch a rule off and on without deleting it.
+function ruleToggleButton(r: LeadgenAuctionRuleApi): string {
+  return `<button type="button" class="btn btn-sm btn-secondary" data-toggle-rule="${escapeHtml(r.public_id)}" data-rule-enabled="${r.enabled ? "1" : "0"}">${r.enabled ? "Disable" : "Enable"}</button>`;
+}
+
+function renderWaterfallRow(r: LeadgenAuctionRuleApi, names: Map<number, string>, live: Set<number>): string {
   const conditions = JSON.stringify(r.conditions_json ?? {});
   const tiers = r.tiers ?? [];
   const tierItems = tiers
     .map((t, i) => {
       const together = t.offer_ids.length > 1 ? ` <span class="form-help">(shown together)</span>` : "";
-      return `<li data-waterfall-tier="${i + 1}">Tier ${i + 1}: ${tierOfferList(t.offer_ids, names)}${together}</li>`;
+      return `<li data-waterfall-tier="${i + 1}">Tier ${i + 1}: ${tierOfferList(t.offer_ids, names, live)}${together}</li>`;
     })
     .join("");
   const hasConditions = (r.conditions_json?.groups ?? []).length > 0;
@@ -779,6 +792,7 @@ function renderWaterfallRow(r: LeadgenAuctionRuleApi, names: Map<number, string>
   </div>
   <ol class="lg-waterfall-tiers" data-waterfall-tiers>${tierItems}</ol>
   <p class="form-help">${hasConditions ? `Only visitors matching IF: <code>${escapeHtml(conditions)}</code> — the rest of this share gets the normal auction.` : "Every visitor in this share."}</p>
+  ${ruleToggleButton(r)}
   <button type="button" class="btn btn-sm btn-danger" data-delete-rule="${escapeHtml(r.public_id)}">Delete rule</button>
 </div>`;
 }
@@ -794,6 +808,7 @@ function renderRuleRow(r: LeadgenAuctionRuleApi): string {
   </div>
   ${r.rule_level === "offer" ? `<p class="form-help">target offer id: ${r.target_offer_id ?? EM_DASH}</p>` : `<p class="form-help">carrier match: <code>${escapeHtml(carrierMatch || "{}")}</code></p>`}
   <p class="form-help">IF: <code>${escapeHtml(conditions)}</code></p>
+  ${ruleToggleButton(r)}
   <button type="button" class="btn btn-sm btn-danger" data-delete-rule="${escapeHtml(r.public_id)}">Delete rule</button>
 </div>`;
 }
@@ -809,13 +824,14 @@ function renderWaterfallCoverage(waterfalls: LeadgenAuctionRuleApi[]): string {
 }
 
 function renderTierTemplate(participating: ParticipatingOffer[]): string {
-  const names = offerNamesById(participating);
+  const live = liveOfferIds(participating);
+  const names = new Map([...offerNamesById(participating)].filter(([id]) => live.has(id)));
   const types = new Map<number, string>();
   for (const p of participating) if (!types.has(p.offer_id)) types.set(p.offer_id, p.offer_type ?? "");
   const boxes = [...names.entries()]
     .map(([id, name]) => `<label class="lg-check"><input type="checkbox" data-tier-offer value="${id}" /> ${escapeHtml(name)}${types.get(id) ? ` <span class="form-help">${escapeHtml(types.get(id) ?? "")}</span>` : ""}</label>`)
     .join("");
-  const offers = boxes === "" ? `<p class="form-help">Add participating offers first (Participating Offers tab).</p>` : boxes;
+  const offers = boxes === "" ? `<p class="form-help">Add (or enable) participating offers first (Participating Offers tab).</p>` : boxes;
   return `<template id="lg-r-tier-template"><div class="lg-tier" data-tier>
   <div class="lg-tier-head"><strong data-tier-label>Tier 1</strong><button type="button" class="btn btn-sm btn-secondary" data-tier-remove>Remove tier</button></div>
   <div class="lg-tier-offers">${offers}</div>
@@ -824,19 +840,21 @@ function renderTierTemplate(participating: ParticipatingOffer[]): string {
 
 function renderRulesPanel(rules: LeadgenAuctionRuleApi[], participating: ParticipatingOffer[]): string {
   const names = offerNamesById(participating);
+  const live = liveOfferIds(participating);
   const waterfalls = rules.filter((r) => r.action === "waterfall");
   const offerRules = rules.filter((r) => r.rule_level === "offer" && r.action !== "waterfall");
   const carrierRules = rules.filter((r) => r.rule_level === "carrier");
   const rulesHtml =
     rules.length === 0
       ? `<p class="form-help" data-rules-empty>No rules yet.</p>`
-      : `${waterfalls.length > 0 ? `<h4>Waterfalls</h4>${renderWaterfallCoverage(waterfalls)}${waterfalls.map((w) => renderWaterfallRow(w, names)).join("")}` : ""}
+      : `${waterfalls.length > 0 ? `<h4>Waterfalls</h4>${renderWaterfallCoverage(waterfalls)}${waterfalls.map((w) => renderWaterfallRow(w, names, live)).join("")}` : ""}
 <h4>Offer-level</h4>${offerRules.map(renderRuleRow).join("") || `<p class="form-help">None.</p>`}
 <h4>Carrier-level</h4>${carrierRules.map(renderRuleRow).join("") || `<p class="form-help">None.</p>`}`;
   return `<div class="lg-apanel" data-panel="rules">
   <div class="card">
     <h3>Rules — offer-level &amp; carrier-level IF/THEN</h3>
     <div id="lg-a-rules-list">${rulesHtml}</div>
+    <p id="lg-a-rules-msg" class="form-help" hidden></p>
   </div>
   <div class="card" id="lg-a-rule-builder">
     <h4>Add a rule</h4>
@@ -1592,6 +1610,24 @@ const AUCTION_EDITOR_SCRIPT = `
   root.addEventListener('click', function (ev) {
     var el = ev.target;
     if (!el || !el.getAttribute) { return; }
+    // Disable / Enable a rule in place (turning a waterfall back on re-checks
+    // that all waterfalls together stay within 100%).
+    var toggleId = el.getAttribute('data-toggle-rule');
+    if (toggleId) {
+      var turnOn = el.getAttribute('data-rule-enabled') !== '1';
+      el.disabled = true;
+      fetch(apiBase + '/rules/' + encodeURIComponent(toggleId), {
+        method: 'PATCH', credentials: 'same-origin',
+        headers: { 'content-type': 'application/json', 'Accept': 'application/json' },
+        body: JSON.stringify({ enabled: turnOn })
+      }).then(function (r) { return r.json().then(function (j) { return { ok: r.ok, body: j }; }); })
+        .then(function (res) {
+          if (res.ok) { dirty = false; window.location.reload(); return; }
+          el.disabled = false;
+          showMsg('lg-a-rules-msg', errorText(res.body, 'Could not change the rule.'), false);
+        });
+      return;
+    }
     var delId = el.getAttribute('data-delete-rule');
     if (delId) {
       if (!window.confirm('Delete this rule?')) { return; }
@@ -1780,6 +1816,8 @@ const AUCTION_EDITOR_SCRIPT = `
     wfLine.setAttribute('data-sim-waterfall-result', '');
     if (!wf) {
       wfLine.appendChild(document.createTextNode('Waterfall: none for this visitor \\u2014 the normal auction ran.'));
+    } else if (wf.no_offers_left) {
+      wfLine.appendChild(document.createTextNode('Waterfall (' + wf.traffic_share_pct + '% of traffic): none of its offers takes part in this auction any more \\u2014 the normal auction ran.'));
     } else if (!wf.conditions_matched) {
       wfLine.appendChild(document.createTextNode('Waterfall: this visitor is in its ' + wf.traffic_share_pct + '% share but does not match its IF conditions \\u2014 the normal auction ran.'));
     } else {

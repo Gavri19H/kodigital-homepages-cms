@@ -852,6 +852,21 @@ describeDb("leadgen auctions API — waterfall rules + traffic share (0062)", ()
     }
   });
 
+  it("review fix: a waterfall whose offer has since left the auction can still be switched off and on", async () => {
+    const { env, sdb, auctionId, offers } = await auctionWithOffers(2);
+    const created = await post(env, auctionId, { action: "waterfall", traffic_share_pct: 40, tiers: [[offers[0]!.offer_id], [offers[1]!.offer_id]] });
+    const ruleId = ((await created.json()) as { public_id: string }).public_id;
+    sdb.prepare("DELETE FROM leadgen_auction_offers WHERE offer_id = ?").run(offers[0]!.offer_id);
+    const off = await admin.request(`${API}/auctions/${auctionId}/rules/${ruleId}`, jsonInit("PATCH", { enabled: false }), env);
+    expect(off.status, await off.clone().text()).toBe(200);
+    expect(((await off.json()) as { enabled: boolean }).enabled).toBe(false);
+    const on = await admin.request(`${API}/auctions/${auctionId}/rules/${ruleId}`, jsonInit("PATCH", { enabled: true }), env);
+    expect(on.status).toBe(200);
+    // re-writing the tiers re-checks participation
+    const rewrite = await admin.request(`${API}/auctions/${auctionId}/rules/${ruleId}`, jsonInit("PATCH", { tiers: [[offers[0]!.offer_id]] }), env);
+    expect(rewrite.status).toBe(400);
+  });
+
   it("an include/exclude rule may carry a share; 0, over 100 and a third decimal are refused", async () => {
     const { env, auctionId, offers } = await auctionWithOffers(1);
     const base = { rule_level: "offer", action: "exclude", target_offer_id: offers[0]!.offer_id, conditions_json: { groups: [] } };

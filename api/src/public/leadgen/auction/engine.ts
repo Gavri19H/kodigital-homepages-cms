@@ -378,12 +378,16 @@ export async function loadAuctionBundle(
     const conditions = parseConditions(r.conditions_json);
     const trafficSharePct = typeof r.traffic_share_pct === "number" ? r.traffic_share_pct : null;
     if (r.action === "waterfall") {
-      // A tier keeps only offers that take part in THIS auction; a waterfall
-      // without a share or without a tier is inert (never picked).
-      const tiers = parseWaterfallTiers(r.tiers_json).map((t) => ({
-        offer_ids: t.offer_ids.map((id) => offerIdToPublic.get(id)).filter((id): id is string => id !== undefined),
-      }));
-      if (trafficSharePct !== null && tiers.length > 0) {
+      // A tier keeps only the offers that take part in THIS auction (enabled
+      // and active); a tier left with none is dropped. A waterfall with no tier
+      // left keeps its share, so every other waterfall's visitors stay where
+      // they are, and its own visitors get the normal auction (runAuction).
+      const tiers = parseWaterfallTiers(r.tiers_json)
+        .map((t) => ({
+          offer_ids: t.offer_ids.map((id) => offerIdToPublic.get(id)).filter((id): id is string => id !== undefined),
+        }))
+        .filter((t) => t.offer_ids.length > 0);
+      if (trafficSharePct !== null) {
         waterfalls.push({ rule_id: r.public_id, traffic_share_pct: trafficSharePct, conditions, tiers, priority: r.priority });
       }
       continue;
@@ -1469,7 +1473,9 @@ export async function runAuction(
       if (forced !== undefined) waterfall = { rule: forced, bucket: null, forced: true };
     }
   }
-  const waterfallMatched = waterfall !== null && conditionsMatch(waterfall.rule.conditions, ruleContext);
+  const waterfallHasOffers = waterfall !== null && waterfall.rule.tiers.length > 0;
+  const waterfallConditionsMet = waterfall !== null && conditionsMatch(waterfall.rule.conditions, ruleContext);
+  const waterfallMatched = waterfallHasOffers && waterfallConditionsMet;
 
   // Steps 6-14 run over a SLICE of the candidates. A normal auction runs ONE
   // slice over every candidate (exactly as before). OWNER 2026-10-01 offer
@@ -1917,6 +1923,9 @@ export async function runAuction(
 
   type AuctionSlice = Awaited<ReturnType<typeof runSlice>>;
   const slices: AuctionSlice[] = [];
+  // The tier whose slice the visitor's page comes from (backfill below may
+  // still fill it when its main render was empty).
+  let lastRunTier: number | null = null;
   let waterfallTrace: AuctionWaterfallTrace | null = null;
   let slice: AuctionSlice;
   if (waterfall !== null && waterfallMatched) {
@@ -1946,6 +1955,7 @@ export async function runAuction(
       }
       const tierSlice = await runSlice(tierCandidates, tierSettings);
       slices.push(tierSlice);
+      lastRunTier = i + 1;
       if (tierSlice.renderedSlots.length > 0) {
         servedTier = i + 1;
         tiers.push({ tier: i + 1, offer_ids: tierOfferIds, outcome: "shown" });
@@ -1961,6 +1971,7 @@ export async function runAuction(
       bucket: waterfall.bucket,
       forced: waterfall.forced,
       conditions_matched: true,
+      no_offers_left: false,
       served_tier: servedTier,
       tiers,
     };
@@ -1969,13 +1980,14 @@ export async function runAuction(
     slices.push(slice);
     if (waterfall !== null) {
       // In this waterfall's share, but its IF conditions do not match this
-      // visitor: they get the normal auction.
+      // visitor, or none of its offers takes part any more: the normal auction.
       waterfallTrace = {
         rule_id: waterfall.rule.rule_id,
         traffic_share_pct: waterfall.rule.traffic_share_pct,
         bucket: waterfall.bucket,
         forced: waterfall.forced,
-        conditions_matched: false,
+        conditions_matched: waterfallConditionsMet,
+        no_offers_left: !waterfallHasOffers,
         served_tier: null,
         tiers: [],
       };
@@ -2027,6 +2039,14 @@ export async function runAuction(
         bannerDroppedKeys.add(metaKey(d.offer_public_id, d.carrier_key));
       }
     }
+  }
+
+  // A waterfall's last tier tried showed nothing in its main render but its
+  // backfill did: that tier is what the visitor sees, so the trace says so.
+  if (waterfallTrace !== null && waterfallTrace.served_tier === null && renderedSlots.length > 0 && lastRunTier !== null) {
+    waterfallTrace.served_tier = lastRunTier;
+    const tierEntry = waterfallTrace.tiers[lastRunTier - 1];
+    if (tierEntry !== undefined) tierEntry.outcome = "shown";
   }
 
   // Unfilled when no slot rendered and the pool was exhausted (S18.6). A pure

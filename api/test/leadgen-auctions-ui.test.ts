@@ -617,6 +617,27 @@ describeDb("leadgen auction editor — Rules: waterfalls + share of traffic (006
     expect(template.match(/data-tier-offer value="\d+"/g)).toHaveLength(4);
   });
 
+  it("review fix: every rule has a Disable/Enable switch; a disabled participant is skipped in the list and absent from the picker", async () => {
+    const { env, sdb } = newHarness();
+    const quote = await createQuote(env);
+    const auction = await createAuction(env, { auction_name: "Loans", quote_id: quote.id, auction_type: "dynamic" });
+    const a = seedOfferWithPlacement(sdb, "cpl");
+    const b = seedOfferWithPlacement(sdb, "cpl");
+    sdb.prepare("UPDATE leadgen_offers SET offer_name = 'Kept Offer' WHERE id = ?").run(a.offer_id);
+    sdb.prepare("UPDATE leadgen_offers SET offer_name = 'Paused Offer' WHERE id = ?").run(b.offer_id);
+    await putParticipating(env, auction.public_id, [a.placement_id, b.placement_id]);
+    const wf = await admin.request(`${API}/auctions/${auction.public_id}/rules`, jsonInit("POST", { action: "waterfall", traffic_share_pct: 30, tiers: [[a.offer_id], [b.offer_id]] }), env);
+    expect(wf.status).toBe(201);
+    sdb.prepare("UPDATE leadgen_auction_offers SET enabled = 0 WHERE offer_id = ?").run(b.offer_id);
+    const html = await getHtml(env, `/admin/leadgen/auction/${auction.public_id}/edit`);
+    expect(html).toMatch(/data-toggle-rule="lgar_[^"]+" data-rule-enabled="1">Disable<\/button>/);
+    expect(html).toContain('id="lg-a-rules-msg"');
+    expect(html).toContain('Tier 2: Paused Offer <span class="form-help">(participation off — skipped)</span>');
+    const template = html.split('<template id="lg-r-tier-template">')[1]?.split("</template>")[0] ?? "";
+    expect(template).toContain("Kept Offer");
+    expect(template).not.toContain("Paused Offer");
+  });
+
   it("the Simulator can run a chosen waterfall path, the normal auction, or pick by visitor share", async () => {
     const { html } = await editorWithWaterfall();
     expect(html).toContain('<option value="auto">By visitor share (like a new visitor)</option>');

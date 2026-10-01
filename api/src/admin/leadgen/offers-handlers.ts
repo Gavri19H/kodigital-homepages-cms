@@ -46,6 +46,7 @@ import { readCapStatus, capExceeded } from "../../leadgen/caps";
 import { CLICKOUT_META_DATASET_RE, CLICKOUT_META_EVENT_NAMES, CLICKOUT_META_TEST_CODE_RE } from "../../leadgen/clickout-meta";
 import { STATIC_CREATIVE_FIELDS, validateStaticCreativeField } from "../../leadgen/static-creative";
 import { validateBannerUrlTemplate, normalizeTemplate, findUnknownMacros } from "../../leadgen/macros";
+import { parseWaterfallTiers } from "../../leadgen/auction-rules";
 import {
   inferSchemaFromExample,
   splitPayloadSchemaErrors,
@@ -2222,16 +2223,34 @@ export async function buildOfferUsageReport(db: D1Database, offerId: number): Pr
       offerId,
     ),
   );
-  add(
-    "auction_rules_targeting",
-    await countRefs(
-      db,
-      `SELECT a.id, a.public_id, a.auction_name AS name, '/admin/leadgen/auctions/' || a.public_id || '/edit#rules' AS link
-       FROM leadgen_auction_rules r JOIN leadgen_auctions a ON a.id = r.auction_id
-       WHERE r.target_offer_id = ? GROUP BY a.id ORDER BY a.auction_name`,
-      offerId,
-    ),
+  const rulesTargeting = await countRefs(
+    db,
+    `SELECT a.id, a.public_id, a.auction_name AS name, '/admin/leadgen/auctions/' || a.public_id || '/edit#rules' AS link
+     FROM leadgen_auction_rules r JOIN leadgen_auctions a ON a.id = r.auction_id
+     WHERE r.target_offer_id = ? GROUP BY a.id ORDER BY a.auction_name`,
+    offerId,
   );
+  // 0062: a waterfall names its offers inside tiers_json, read here in code.
+  // SELECT r.*: a database without 0062 has no tiers_json and no waterfall.
+  const waterfallRows = await db
+    .prepare(
+      `SELECT r.*, a.public_id AS auction_public_id, a.auction_name AS auction_name
+       FROM leadgen_auction_rules r JOIN leadgen_auctions a ON a.id = r.auction_id
+       WHERE r.action = 'waterfall'`,
+    )
+    .all<{ auction_id: number; tiers_json?: string | null; auction_public_id: string; auction_name: string }>();
+  for (const w of waterfallRows.results ?? []) {
+    if (!parseWaterfallTiers(w.tiers_json).some((t) => t.offer_ids.includes(offerId))) continue;
+    if (rulesTargeting.some((x) => x.id === w.auction_id)) continue;
+    rulesTargeting.push({
+      id: w.auction_id,
+      public_id: w.auction_public_id,
+      name: w.auction_name,
+      link: `/admin/leadgen/auctions/${w.auction_public_id}/edit#rules`,
+    });
+  }
+  rulesTargeting.sort((x, y) => (x.name < y.name ? -1 : x.name > y.name ? 1 : 0));
+  add("auction_rules_targeting", rulesTargeting);
   add(
     "cap_fallback_referenced_by",
     await countRefs(
