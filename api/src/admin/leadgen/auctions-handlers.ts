@@ -21,6 +21,7 @@
 import { sampleAnswerComputed, sampleAnswerComputedByOffer } from "../../leadgen/sample-computed";
 import { mintPublicId } from "../../leadgen/ids";
 import { conditionsHash, parseWaterfallTiers } from "../../leadgen/auction-rules";
+import { ruleClockConditionError } from "../../leadgen/computed";
 import type { LeadgenCarrierMatch } from "../../leadgen/auction-rules";
 import { evaluateDynamicOffersEligibility } from "../../leadgen/validation";
 import { resolveAllowedOutboundSecretReference } from "../../env";
@@ -1016,6 +1017,8 @@ function validateConditions(raw: unknown): { conditions: LeadgenRuleConditions; 
     if (Array.isArray(g["values"])) group.values = g["values"] as unknown[];
     if (typeof g["from"] === "number") group.from = g["from"];
     if (typeof g["to"] === "number") group.to = g["to"];
+    const clockError = ruleClockConditionError(group);
+    if (clockError !== null) return { conditions: { groups: [] }, error: clockError };
     groups.push(group);
   }
   return { conditions: { groups }, error: null };
@@ -1229,6 +1232,8 @@ function tierGroupError(waterfallError: string): string {
   const tooMany = /^tier 1 has more than (\d+) offers$/.exec(waterfallError);
   if (tooMany) return `a tier-level rule has at most ${tooMany[1]} offers`;
   if (waterfallError.startsWith("tier 1: ")) return `tier offers: ${waterfallError.slice("tier 1: ".length)}`;
+  const twice = /^offer (\d+) appears in more than one tier$/.exec(waterfallError);
+  if (twice) return `offer ${twice[1]} is ticked twice`;
   return waterfallError;
 }
 
@@ -1809,17 +1814,45 @@ export async function auctionAnalyticsHandler(c: AdminContext): Promise<Response
 // site_quote/quote/assignment/ga4 fields are unread by runAuction in dry-run
 // (anti-tamper skipped, sections replaced by the sample answers) and are typed
 // stubs. sections is [] because the sample answers ARE the normalized space.
-async function buildSimulateResolved(
+// PM follow-up (review, 2026-10-02): which funnel's rules a simulation runs.
+// Funnels point at their auction (leadgen_funnel_variants.auction_id); the old
+// auction → variant link (auctions.funnel_variant_id) is empty in production,
+// so every simulation ran with NO funnel rules — an Eligibility rule the live
+// funnel applies never ran here. `choice`: a variant public id that uses this
+// auction, "none" (auction rules only), or absent (the old link, else the
+// first funnel that uses the auction).
+async function simulateVariant(
   db: D1Database,
   auction: LeadgenAuctionRow,
-): Promise<ResolvedActivatedFunnel> {
-  let variant: LeadgenFunnelVariantRow | null = null;
+  choice: string | null,
+): Promise<{ variant: LeadgenFunnelVariantRow | null; error: string | null }> {
+  if (choice === "none") return { variant: null, error: null };
+  if (choice !== null) {
+    const chosen = await db
+      .prepare("SELECT * FROM leadgen_funnel_variants WHERE public_id = ? AND auction_id = ? LIMIT 1")
+      .bind(choice, auction.id)
+      .first<LeadgenFunnelVariantRow>();
+    return chosen === null ? { variant: null, error: "that funnel does not use this auction" } : { variant: chosen, error: null };
+  }
   if (auction.funnel_variant_id !== null) {
-    variant = await db
+    const bound = await db
       .prepare("SELECT * FROM leadgen_funnel_variants WHERE id = ? LIMIT 1")
       .bind(auction.funnel_variant_id)
       .first<LeadgenFunnelVariantRow>();
+    if (bound !== null) return { variant: bound, error: null };
   }
+  const first = await db
+    .prepare("SELECT * FROM leadgen_funnel_variants WHERE auction_id = ? ORDER BY id ASC LIMIT 1")
+    .bind(auction.id)
+    .first<LeadgenFunnelVariantRow>();
+  return { variant: first, error: null };
+}
+
+async function buildSimulateResolved(
+  db: D1Database,
+  auction: LeadgenAuctionRow,
+  variant: LeadgenFunnelVariantRow | null,
+): Promise<ResolvedActivatedFunnel> {
   let funnel: LeadgenFunnelRow | null = null;
   const funnelId = variant?.funnel_id ?? auction.funnel_id;
   if (funnelId !== null && funnelId !== undefined) {
@@ -1858,6 +1891,24 @@ async function buildSimulateResolved(
   return { site_quote: siteQuote, quote, funnel: funnelRow, variant: variantRow, sections: [], ga4_measurement_id: null, assignment };
 }
 
+// GET /auctions/:id/funnels — the funnels (variants) that run this auction,
+// for the Simulator's "Funnel" picker.
+export async function auctionFunnelsHandler(c: AdminContext): Promise<Response> {
+  const auction = await resolveAuctionRow(c.env.DB, c.req.param("id") ?? "");
+  if (auction === null) return c.json({ error: "Not Found" }, 404);
+  const rows = await c.env.DB.prepare(
+    `SELECT v.public_id AS funnel_variant_id, v.variant_label AS variant_label, f.funnel_name AS funnel_name, q.quote_name AS quote_name
+     FROM leadgen_funnel_variants v
+     JOIN leadgen_funnels f ON f.id = v.funnel_id
+     LEFT JOIN leadgen_quotes q ON q.id = f.quote_id
+     WHERE v.auction_id = ?
+     ORDER BY v.id ASC`,
+  )
+    .bind(auction.id)
+    .all<{ funnel_variant_id: string; variant_label: string | null; funnel_name: string | null; quote_name: string | null }>();
+  return c.json({ items: rows.results ?? [] });
+}
+
 export async function auctionSimulateHandler(c: AdminContext): Promise<Response> {
   const auction = await resolveAuctionRow(c.env.DB, c.req.param("id") ?? "");
   if (auction === null) return c.json({ error: "Not Found" }, 404);
@@ -1878,7 +1929,11 @@ export async function auctionSimulateHandler(c: AdminContext): Promise<Response>
   const waterfallChoice =
     body !== null && typeof body["waterfall"] === "string" && body["waterfall"].trim() !== "" ? body["waterfall"].trim() : "auto";
 
-  const resolved = await buildSimulateResolved(c.env.DB, auction);
+  const funnelChoice =
+    body !== null && typeof body["funnel_variant_id"] === "string" && body["funnel_variant_id"].trim() !== "" ? body["funnel_variant_id"].trim() : null;
+  const chosen = await simulateVariant(c.env.DB, auction, funnelChoice);
+  if (chosen.error !== null) return c.json({ error: "Validation failed", fields: { funnel_variant_id: chosen.error } }, 400);
+  const resolved = await buildSimulateResolved(c.env.DB, auction, chosen.variant);
   const bundle = await loadAuctionBundle(c.env.DB, auction, resolved.variant.id === 0 ? null : resolved.variant.id);
   // OWNER 2026-09-28: a calculated choice previews its DATE (as the live
   // auction sends it), from the Sections that map this auction's Offers.
@@ -2096,6 +2151,8 @@ export async function auctionSimulateHandler(c: AdminContext): Promise<Response>
   return c.json({
     dry_run: true,
     auction_public_id: auction.public_id,
+    // the funnel whose rules ran (null = auction rules only)
+    funnel_variant_id: chosen.variant?.public_id ?? null,
     status: result.status,
     winner: result.explain.winner,
     unfilled_reason: result.explain.unfilled_reason,

@@ -1466,18 +1466,42 @@ function derivedSubFieldLabel(
 // Neither records an answer (both are wrapper hydration attributes — measured
 // above), so a rule written against one could never fire; offering it is the
 // over-claim that produced the "can never apply" report in the first place.
+// PM follow-up (rules builder): the Question headline each question is asked
+// under. A headline inside a container (QuestionGrid / layout) names only what
+// follows it INSIDE that container — it never leaks to the questions after the
+// container; a top-level headline also covers a container right after it.
+function headlinesOfLeaves(nodes: readonly LeadgenComponentNode[]): Map<LeadgenComponentNode, string | null> {
+  const textOf = (n: unknown): string | null => {
+    if (n === null || typeof n !== "object" || (n as { type?: unknown }).type !== "QuestionHeadline") return null;
+    const text = (n as { props?: { text?: unknown } }).props?.text;
+    return typeof text === "string" && text.trim() !== "" ? text.trim() : null;
+  };
+  const isHeadline = (n: unknown): boolean => n !== null && typeof n === "object" && (n as { type?: unknown }).type === "QuestionHeadline";
+  const out = new Map<LeadgenComponentNode, string | null>();
+  let top: string | null = null;
+  for (const node of nodes) {
+    if (isHeadline(node)) {
+      top = textOf(node) ?? top;
+      continue;
+    }
+    let current = top;
+    for (const leaf of flattenComponents([node])) {
+      if (isHeadline(leaf)) {
+        current = textOf(leaf) ?? current;
+        continue;
+      }
+      out.set(leaf, current);
+    }
+  }
+  return out;
+}
 function sectionAnswerFieldEntries(components: readonly unknown[]): SectionFieldEntry[] {
   const nodes = components as readonly LeadgenComponentNode[];
   const claims = collectAnswerKeyClaims(nodes);
+  const headlines = headlinesOfLeaves(nodes);
   const out: SectionFieldEntry[] = [];
-  let headline: string | null = null;
   for (const leaf of flattenComponents(nodes)) {
     if (leaf === null || typeof leaf !== "object") continue;
-    if ((leaf as { type?: unknown }).type === "QuestionHeadline") {
-      const text = (leaf as { props?: { text?: unknown } }).props?.text;
-      headline = typeof text === "string" && text.trim() !== "" ? text.trim() : headline;
-      continue;
-    }
     const own = typeof leaf.internal_field === "string" ? leaf.internal_field : "";
     // ONE section-context set per leaf: the derivation reads it to name the key
     // the markup carries, and derivedSubFieldLabel reads the SAME one to ask
@@ -1494,7 +1518,7 @@ function sectionAnswerFieldEntries(components: readonly unknown[]): SectionField
               choices: questionChoicesOf(leaf),
               stored_choices: questionStoredChoicesOf(leaf),
               answer_type: typeof (leaf as { answer_type?: unknown }).answer_type === "string" ? ((leaf as { answer_type: string }).answer_type) : null,
-              headline,
+              headline: headlines.get(leaf) ?? null,
               component_type: typeof (leaf as { type?: unknown }).type === "string" ? ((leaf as { type: string }).type) : null,
             }
           : {

@@ -962,7 +962,7 @@ ${tierRules.length > 0 ? `<h4>Tier-level</h4>${tierRules.map(row).join("")}` : "
       <input type="hidden" id="lg-r-conditions" value='{"groups":[]}' />
       <script type="application/json" id="lg-r-cond-fields">${fieldsJson}</script>
     </div>
-    <label class="lg-check" data-rule-strictly-field><input type="checkbox" id="lg-r-strictly" /> Overrides other rules for this offer</label>
+    <label class="lg-check" data-rule-strictly-field><input type="checkbox" id="lg-r-strictly" /> Overrides other rules</label>
     <label class="lg-check"><input type="checkbox" id="lg-r-enabled" checked /> enabled</label>
     <div><button type="button" class="btn btn-primary" id="lg-a-rule-add">Add rule</button></div>
     <p id="lg-a-rule-msg" class="form-help" hidden></p>
@@ -1029,7 +1029,33 @@ function renderBannerPanel(banner: BannerConfig): string {
 // WRITTEN in dry-run (no logs, revenue or cap increments) — but the
 // staging-environment carrier resolve DOES fire (DEV-40 MAJOR-5), so the
 // note must not claim "no provider calls".
-function renderSimulatorPanel(rules: LeadgenAuctionRuleApi[], participating: ParticipatingOffer[]): string {
+// PM follow-up (review): the funnel whose rules a simulation runs — a real
+// visitor always comes through one, and its Eligibility / disqualification /
+// redirect rules decide before any offer is asked.
+interface SimFunnel {
+  funnel_variant_id: string;
+  variant_label: string | null;
+  funnel_name: string | null;
+  quote_name: string | null;
+}
+
+function renderSimulatorPanel(rules: LeadgenAuctionRuleApi[], participating: ParticipatingOffer[], funnels: readonly SimFunnel[] = []): string {
+  const funnelPicker =
+    funnels.length === 0
+      ? ""
+      : `<div class="form-group">
+      <label class="form-label" for="lg-sim-funnel">Funnel</label>
+      <select id="lg-sim-funnel" class="form-select" data-sim-funnel>
+        ${funnels
+          .map((f) => {
+            const name = [f.quote_name, f.funnel_name].filter((x): x is string => typeof x === "string" && x.trim() !== "").join(" — ") || f.funnel_variant_id;
+            return `<option value="${escapeHtml(f.funnel_variant_id)}">${escapeHtml(f.variant_label ? `${name} (variant ${f.variant_label})` : name)}</option>`;
+          })
+          .join("")}
+        <option value="none">No funnel (auction rules only)</option>
+      </select>
+      <p class="form-help">The funnel's own rules (Eligibility, disqualification, redirects) run first, like for a real visitor.</p>
+    </div>`;
   // 0062: pick the waterfall path to simulate (only shown when there is one).
   const names = offerNamesById(participating);
   const waterfalls = rules.filter((r) => r.action === "waterfall" && r.enabled);
@@ -1053,6 +1079,7 @@ function renderSimulatorPanel(rules: LeadgenAuctionRuleApi[], participating: Par
   <div class="card">
     <h3>Simulator (dry-run)</h3>
     <p class="form-help" data-simulator-dryrun>Dry-run explainability trace against sample answers. No writes; staging-only carrier resolve.</p>
+    ${funnelPicker}
     ${waterfallPicker}
     <div class="form-group">
       <label class="form-label" for="lg-sim-answers">Sample answers (JSON, optional)</label>
@@ -1107,6 +1134,7 @@ function auctionEditorHtml(
   relocatedQuotes: RelocatedRuleQuote[],
   defaultQuotePublicId: string | null,
   ruleFields: RuleBuilderField[] | null = [],
+  simFunnels: readonly SimFunnel[] = [],
 ): string {
   const head = `<div class="lg-editor-head">
     <a href="/admin/leadgen/auction" class="btn btn-outline">&#8592; Auctions</a>
@@ -1136,7 +1164,7 @@ function auctionEditorHtml(
   ${renderRulesPanel(rules, participating, ruleFields ?? [], ruleFields === null)}
   ${renderRelocatedFunnelRulesPanel(relocatedQuotes, defaultQuotePublicId)}
   ${renderBannerPanel(banner)}
-  ${renderSimulatorPanel(rules, participating)}
+  ${renderSimulatorPanel(rules, participating, simFunnels)}
   ${renderAnalyticsPanel()}
   <script type="application/json" id="lg-auction-data">${auctionDataBlob(a)}</script>
 </div>`;
@@ -1187,6 +1215,7 @@ export async function leadgenAuctionEditorPage(c: UiContext): Promise<Response> 
   // OWNER 2026-10-01: the IF builder's fields — the questions of the funnels
   // that run this auction + the visitor facts (rule-fields.ts).
   const ruleFieldsRes = await apiJson<{ fields: RuleBuilderField[] }>(c.env, `/api/admin/leadgen/auctions/${encoded}/rule-fields`);
+  const funnelsRes = await apiJson<{ items: SimFunnel[] }>(c.env, `/api/admin/leadgen/auctions/${encoded}/funnels`);
   const quotesRes = await apiJsonAll<QuoteOption>(c.env, "/api/admin/leadgen/quotes");
 
   const quotes = quotesRes.ok ? quotesRes.body.items : [];
@@ -1224,6 +1253,7 @@ export async function leadgenAuctionEditorPage(c: UiContext): Promise<Response> 
       relocatedQuotes,
       defaultQuotePublicId,
       ruleFieldsRes.ok ? ruleFieldsRes.body.fields : null,
+      funnelsRes.ok ? funnelsRes.body.items : [],
     ),
   );
 }
@@ -1959,7 +1989,7 @@ const AUCTION_EDITOR_SCRIPT = `
     fetch(apiBase + '/simulate', {
       method: 'POST', credentials: 'same-origin',
       headers: { 'content-type': 'application/json', 'Accept': 'application/json' },
-      body: JSON.stringify({ sample_answers: answers, context: context, waterfall: byId('lg-sim-waterfall') ? val('lg-sim-waterfall') : 'auto' })
+      body: JSON.stringify({ sample_answers: answers, context: context, waterfall: byId('lg-sim-waterfall') ? val('lg-sim-waterfall') : 'auto', funnel_variant_id: byId('lg-sim-funnel') ? val('lg-sim-funnel') : undefined })
     }).then(function (r) { return r.json().then(function (j) { return { ok: r.ok, status: r.status, body: j }; }); })
       .then(function (res) {
         if (btn) { btn.disabled = false; }

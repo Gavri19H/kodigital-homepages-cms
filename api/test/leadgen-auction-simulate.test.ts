@@ -216,6 +216,44 @@ describeDb("leadgen /auctions/:id/simulate — §19.2 dry-run trace + no writes"
     return { sdb, env: buildEnv(d1FromSqlite(sdb)) };
   }
 
+  // PM follow-up (review, 2026-10-02): the Simulator ignored the funnel's
+  // Eligibility rule — it read the old auction → variant link, which is empty
+  // in production (funnels point at their auction), so NO funnel rule ran.
+  it("runs the funnel's rules: the first funnel using the auction by default, a chosen one, or none", async () => {
+    const { sdb, env } = harness();
+    const auction = seedAuction(sdb);
+    const o1 = seedDynamicOffer(sdb);
+    sdb.prepare("INSERT INTO leadgen_auction_offers (auction_id, offer_placement_id, offer_id, static_order, enabled) VALUES (?, ?, ?, 0, 1)").run(auction.id, o1.placement_id, o1.offer_id);
+    sdb.prepare("INSERT INTO leadgen_quotes (public_id, quote_name, activity, verticals_json) VALUES (?, 'SMB Loans', 'quote_funnel', '[\"life\"]')").run(mintPublicId("quote"));
+    const quoteId = (sdb.prepare("SELECT id FROM leadgen_quotes ORDER BY id DESC LIMIT 1").get() as { id: number }).id;
+    sdb.prepare("INSERT INTO leadgen_funnels (public_id, quote_id, funnel_name) VALUES (?, ?, 'Business Loans')").run(mintPublicId("funnel"), quoteId);
+    const funnelId = (sdb.prepare("SELECT id FROM leadgen_funnels ORDER BY id DESC LIMIT 1").get() as { id: number }).id;
+    const variantPub = mintPublicId("funnel_variant");
+    sdb.prepare("INSERT INTO leadgen_funnel_variants (public_id, funnel_id, auction_id) VALUES (?, ?, ?)").run(variantPub, funnelId, auction.id);
+    const variantId = (sdb.prepare("SELECT id FROM leadgen_funnel_variants WHERE public_id = ?").get(variantPub) as { id: number }).id;
+    sdb
+      .prepare("INSERT INTO leadgen_funnel_rules (public_id, variant_id, rule_type, conditions_json, conditions_hash, priority, enabled) VALUES (?, ?, 'eligibility', ?, 'h', 1, 1)")
+      .run(mintPublicId("funnel_rule"), variantId, JSON.stringify({ groups: [{ field: "state", op: "eq", value: "CA" }] }));
+    expect((sdb.prepare("SELECT funnel_variant_id FROM leadgen_auctions WHERE id = ?").get(auction.id) as { funnel_variant_id: number | null }).funnel_variant_id).toBeNull(); // like production
+    stubFetch(() => new Response(carrierBody("Acme", 12), { status: 200 }));
+    const sim = async (body: Record<string, unknown>) => {
+      const res = await admin.request(`${API}/auctions/${auction.public_id}/simulate`, jsonInit("POST", { sample_answers: {}, ...body }), env);
+      return { status: res.status, body: (await res.json()) as { status?: string; unfilled_reason?: string | null; funnel_variant_id?: string | null; fields?: Record<string, string> } };
+    };
+    const away = await sim({ context: { state: "NY" } });
+    expect(away.status).toBe(200);
+    expect(away.body).toMatchObject({ funnel_variant_id: variantPub, status: "disqualified", unfilled_reason: "not_eligible" });
+    expect((await sim({ context: { state: "CA" } })).body).toMatchObject({ funnel_variant_id: variantPub, status: "ok" });
+    expect((await sim({ context: { state: "CA" }, funnel_variant_id: variantPub })).body.status).toBe("ok");
+    expect((await sim({ context: { state: "NY" }, funnel_variant_id: "none" })).body).toMatchObject({ funnel_variant_id: null, status: "ok" });
+    const foreign = await sim({ funnel_variant_id: mintPublicId("funnel_variant") });
+    expect(foreign.status).toBe(400);
+    expect(foreign.body.fields?.["funnel_variant_id"]).toBe("that funnel does not use this auction");
+    // the picker's list
+    const list = (await (await admin.request(`${API}/auctions/${auction.public_id}/funnels`, {}, env)).json()) as { items: Array<Record<string, unknown>> };
+    expect(list.items).toEqual([{ funnel_variant_id: variantPub, variant_label: "A", funnel_name: "Business Loans", quote_name: "SMB Loans" }]);
+  });
+
   it("returns the full §19.2 trace (offers/providers/carriers/winner/banners) and writes NOTHING", async () => {
     const { sdb, env } = harness();
     const auction = seedAuction(sdb);

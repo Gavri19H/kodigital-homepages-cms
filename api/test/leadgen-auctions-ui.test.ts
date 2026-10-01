@@ -779,6 +779,22 @@ describeDb("rules condition fields — only this funnel's questions, no ids, ans
       "Pick two more",
       "Pick two more (2)",
     ]);
+    // confirmation review m6: a headline inside a container names only what
+    // follows it there — it never leaks to a question after the container
+    const scoped = questionRuleFields([
+      { id: 2, section_name: "Page B", content_json: JSON.stringify({ components: [
+        { type: "QuestionGrid", question_id: "g", props: {}, children: [
+          { type: "QuestionHeadline", question_id: "h3", props: { text: "Grid question" } },
+          { type: "ButtonAnswerGroup", question_id: "q4", internal_field: "grid_a", answer_type: "enum", choices: [{ label: "A", value: "a" }] },
+        ] },
+        { type: "TwoButtonYesNo", question_id: "q5", internal_field: "after_grid", answer_type: "boolean" },
+        { type: "QuestionHeadline", question_id: "h4", props: { text: "Your home" } },
+        { type: "QuestionGrid", question_id: "g2", props: {}, children: [
+          { type: "ButtonAnswerGroup", question_id: "q6", internal_field: "in_grid", answer_type: "enum", choices: [{ label: "B", value: "b" }] },
+        ] },
+      ] }) },
+    ]);
+    expect(scoped.map((f) => [f.internal_field, f.label])).toEqual([["grid_a", "Grid question"], ["after_grid", "Page B"], ["in_grid", "Your home"]]);
   });
 
   // Review fix 2026-10-01: when the field list cannot load, the editor says
@@ -814,7 +830,7 @@ describeDb("rules condition fields — only this funnel's questions, no ids, ans
 });
 
 describeDb("auction Add-a-rule form — offers by name, Tier-level, readable rules (PM feedback)", () => {
-  async function editor(): Promise<{ env: Env; html: string; ids: Record<string, number>; auctionPub: string }> {
+  async function editor(): Promise<{ env: Env; sdb: SqliteDb; html: string; ids: Record<string, number>; auctionPub: string }> {
     const { env, sdb } = newHarness();
     const quote = await createQuote(env);
     const auction = await createAuction(env, { auction_name: "Loans", quote_id: quote.id, auction_type: "dynamic" });
@@ -833,7 +849,7 @@ describeDb("auction Add-a-rule form — offers by name, Tier-level, readable rul
     expect((await post({ rule_level: "offer", action: "exclude", target_offer_id: funderaPub, conditions_json: { groups: [{ field: "os", op: "eq", value: "ios" }] } })).status).toBe(201);
     expect((await post({ rule_level: "tier", action: "include_only", tier_offer_ids: [fora.offer_id, honest.offer_id], conditions_json: { groups: [{ field: "device", op: "eq", value: "mobile" }] } })).status).toBe(201);
     const html = await getHtml(env, `/admin/leadgen/auction/${auction.public_id}/edit`);
-    return { env, html, ids: { fundera: fundera.offer_id, fora: fora.offer_id, honest: honest.offer_id }, auctionPub: auction.public_id };
+    return { env, sdb, html, ids: { fundera: fundera.offer_id, fora: fora.offer_id, honest: honest.offer_id }, auctionPub: auction.public_id };
   }
 
   it("Target offer is a dropdown of the auction's offers by name (no number box)", async () => {
@@ -868,8 +884,22 @@ describeDb("auction Add-a-rule form — offers by name, Tier-level, readable rul
     expect(html).not.toMatch(/THEN <strong>(include_only|exclude|allow_list|block_list)<\/strong>/);
     expect(html).toContain("<h3>Rules — IF/THEN for offers, tiers and carriers</h3>");
     expect(html).toContain('<option value="include_only">Show only</option><option value="exclude">Hide</option>');
-    expect(html).toContain("Overrides other rules for this offer");
+    expect(html).toContain("<input type=\"checkbox\" id=\"lg-r-strictly\" /> Overrides other rules</label>");
     expect(html).not.toContain("> strictly_override</label>");
+  });
+
+  // PM follow-up (review): the Simulator runs a funnel's rules — pick which.
+  it("the Simulator offers the funnels that use this auction, plus auction rules only", async () => {
+    const { env, sdb, html: before, auctionPub } = await editor();
+    expect(before).not.toContain('id="lg-sim-funnel"'); // no funnel runs it yet → no picker
+    const auctionId = (sdb.prepare("SELECT id FROM leadgen_auctions WHERE public_id = ?").get(auctionPub) as { id: number }).id;
+    const variant = sdb.prepare("SELECT v.public_id AS pub FROM leadgen_funnel_variants v ORDER BY v.id ASC LIMIT 1").get() as { pub: string };
+    sdb.prepare("UPDATE leadgen_funnel_variants SET auction_id = ? WHERE public_id = ?").run(auctionId, variant.pub);
+    const html = await getHtml(env, `/admin/leadgen/auction/${auctionPub}/edit`);
+    expect(html).toContain('<select id="lg-sim-funnel" class="form-select" data-sim-funnel>');
+    expect(html).toMatch(new RegExp(`<option value="${variant.pub}">[^<]+ \\(variant A\\)</option>`));
+    expect(html).toContain('<option value="none">No funnel (auction rules only)</option>');
+    expect(html).toContain("funnel_variant_id: byId('lg-sim-funnel') ? val('lg-sim-funnel') : undefined");
   });
   // PM follow-up 2026-10-02: a rule on the date / time of day reads as a date
   // and a clock time, not as 20261031 / 930.

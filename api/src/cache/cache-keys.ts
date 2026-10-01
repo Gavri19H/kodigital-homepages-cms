@@ -208,7 +208,8 @@ export function listicleCandidateKey(
 // disqualified / nothing matched) — shell markup + CSS changed, so the version
 // moves for the same 304 reason as v6. Engine bytes change only by the version.
 // v8 (2026-10-02, PM follow-up): shell CSS hides Back on the results page —
-// CSS only, same 304 reason; the engine bundle is unchanged (still runtime 7).
+// CSS only, same 304 reason; runtime "8" tracks it (bundle bytes change only by
+// the version string).
 export const LEADGEN_TEMPLATE_VERSION = 8 as const;
 
 const NS_LG_SHELL = "lg-shell";
