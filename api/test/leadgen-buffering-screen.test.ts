@@ -36,7 +36,7 @@ import {
   renderLegacyShell,
 } from "../src/public/leadgen/designs/frame";
 import type { RenderQuoteFrameInput } from "../src/public/leadgen/designs/frame";
-import { effectiveFrame } from "../src/public/leadgen/designs/frames";
+import { effectiveFrame, FRAME_TEMPLATE_IDS } from "../src/public/leadgen/designs/frames";
 import { resolveTokens } from "../src/public/leadgen/designs/theme";
 import { defaultFunnelDesign } from "../src/public/leadgen/designs/default-funnel/tokens";
 import { funnelChromeCss, DEFAULT_FUNNEL_SCOPE } from "../src/public/leadgen/designs/default-funnel/styles";
@@ -223,14 +223,10 @@ describe("the no-match message ships with every funnel", () => {
   });
 
   it("is in the composed shell of every frame template and the legacy shell", () => {
-    for (const template of ["centered", "split", "hero", "minimal"]) {
-      let html: string;
-      try {
-        html = quoteFrame(template);
-      } catch {
-        continue;
-      }
-      expect(html, template).toContain("data-lg-no-match");
+    // every real template id, and none may throw (no skip path)
+    expect(FRAME_TEMPLATE_IDS.length).toBe(6);
+    for (const template of FRAME_TEMPLATE_IDS) {
+      expect(quoteFrame(template), template).toContain("data-lg-no-match");
     }
     const legacy = renderLegacyShell({ designId: defaultFunnelDesign.id, sectionsHtml: "", bannersMountHtml: LG_BANNERS_MOUNT_HTML, ...ROOT } as never);
     expect(legacy).toContain("data-lg-no-match");

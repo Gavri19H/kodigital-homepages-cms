@@ -731,6 +731,20 @@ describeDb("rules condition fields — only this funnel's questions, no ids, ans
     expect(RELOCATED_RULES_SCRIPT).not.toContain("/sections?activity=");
   });
 
+  // Review fix 2026-10-01: when the field list cannot load, the editor says
+  // so instead of showing a builder with nothing to pick.
+  it("a failed field load shows an error on the auction editor (the rest of the page still renders)", async () => {
+    const { env, sdb, auctionPub } = await seedFunnel();
+    const ok = await getHtml(env, `/admin/leadgen/auction/${auctionPub}/edit`);
+    expect(ok).not.toContain("data-rule-fields-error");
+    sdb.exec("DROP TABLE leadgen_funnel_variant_sections"); // the rule-fields read now fails
+    expect((await admin.request(`${API}/auctions/${auctionPub}/rule-fields`, {}, env)).status).toBe(500);
+    const failed = await getHtml(env, `/admin/leadgen/auction/${auctionPub}/edit`);
+    expect(failed).toContain("data-rule-fields-error");
+    expect(failed).toContain("Could not load this auction");
+    expect(failed).toContain('id="lg-r-cond-mount"');
+  });
+
   // Review fix 2026-10-01: a funnel that ASKS for the state must not list
   // "State" twice — the visitor's answer is the state a rule tests.
   it("a question answering `state` replaces the visitor fact of the same key (listed once)", async () => {

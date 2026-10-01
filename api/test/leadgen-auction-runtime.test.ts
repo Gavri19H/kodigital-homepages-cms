@@ -2180,6 +2180,28 @@ describeDb("0062 offer waterfall — tiers through the REAL engine (mocked provi
     expect(notPicked.explain.unfilled_reason).toBe("not_eligible");
   });
 
+  it("review fix: the Match ANY loader tolerates only a missing match_mode column — any other read error surfaces", async () => {
+    const { sdb, env } = harness();
+    const auction = seedAuction(sdb, { multi_offer: "enabled" });
+    const variantId = variantWithRules(sdb, [{ type: "disqualification", conditions: { groups: [{ field: "state", op: "eq", value: "CA" }] }, match: "any" }]);
+    // the match_mode read alone fails with the given message; every other read is the real DB
+    const failingMatchMode = (message: string): D1Database =>
+      new Proxy(env.DB, {
+        get(target, prop, receiver) {
+          if (prop !== "prepare") return Reflect.get(target, prop, receiver);
+          return (sql: string) => {
+            if (/match_mode/.test(sql)) throw new Error(message);
+            return target.prepare(sql);
+          };
+        },
+      });
+    const older = await loadAuctionBundle(failingMatchMode("D1_ERROR: no such column: match_mode: SQLITE_ERROR"), auction, variantId);
+    expect(older.funnel_rules.map((r) => r.match_mode)).toEqual(["all"]); // a pre-0043 database keeps the rule, as ALL
+    await expect(loadAuctionBundle(failingMatchMode("D1_ERROR: Network connection lost."), auction, variantId)).rejects.toThrow(/Network connection lost/);
+    // the real database reads the saved ANY
+    expect((await loadAuctionBundle(env.DB, auction, variantId)).funnel_rules.map((r) => r.match_mode)).toEqual(["any"]);
+  });
+
   it("PM feedback: \"Match: ANY of the following\" is honoured (it ran as ALL before)", async () => {
     const { sdb, env } = harness();
     const auction = seedAuction(sdb, { multi_offer: "enabled" });
