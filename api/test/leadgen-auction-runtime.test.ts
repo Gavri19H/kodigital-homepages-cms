@@ -2241,6 +2241,10 @@ describeDb("0062 offer waterfall — tiers through the REAL engine (mocked provi
     expect(await disqualifiedWhen([{ field: "time_et", op: "range", from: 1015, to: 1045 }], { ...visitor(ANDROID), ...at1030 })).toBe("disqualified");
     expect(await disqualifiedWhen([{ field: "time_et", op: "range", from: 1031, to: 1045 }], { ...visitor(ANDROID), ...at1030 })).toBe("ok");
     expect(await disqualifiedWhen([{ field: "time_et", op: "eq", value: 1030 }], { ...visitor(ANDROID), ...at1030 })).toBe("disqualified");
+    // an overnight window (22:00 → 2:00): 23:30 in New York is inside it
+    const at2330 = { now: Date.parse("2026-10-02T03:30:00Z") };
+    expect(await disqualifiedWhen([{ field: "time_et", op: "range", from: 2200, to: 200 }], { ...visitor(ANDROID), ...at2330 })).toBe("disqualified");
+    expect(await disqualifiedWhen([{ field: "time_et", op: "range", from: 2200, to: 200 }], { ...visitor(ANDROID), ...at1030 })).toBe("ok");
     expect(await disqualifiedWhen([{ field: "date_et", op: "eq", value: 20261001 }], { ...visitor(ANDROID), ...at })).toBe("disqualified");
     // 2026-10-02T02:00:00Z is still Thursday 1 Oct, 22:00, in New York
     expect(await disqualifiedWhen([{ field: "date_et", op: "eq", value: 20261001 }], { ...visitor(ANDROID), now: Date.parse("2026-10-02T02:00:00Z") })).toBe("disqualified");

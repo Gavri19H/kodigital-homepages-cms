@@ -58,6 +58,11 @@ function toConditional(group: LeadgenRuleConditionGroup): LeadgenPayloadConditio
 // answer is evaluated exactly as before.
 function entryMet(entry: LeadgenRuleConditionGroup, context: Readonly<Record<string, unknown>>): boolean {
   const actual = context[entry.field];
+  // PM follow-up (review N5): a Time of day window that crosses midnight
+  // ("between 22:00 and 2:00", stored 2200 → 200) means late OR early.
+  if (entry.field === "time_et" && entry.op === "range" && typeof entry.from === "number" && typeof entry.to === "number" && entry.from > entry.to) {
+    return typeof actual === "number" && (actual >= entry.from || actual <= entry.to);
+  }
   if (!Array.isArray(actual)) return conditionalMet(toConditional(entry), context);
   const emptySugar = entry.value === "" && (entry.op === "eq" || entry.op === "neq");
   if (emptySugar) return entry.op === "eq" ? actual.length === 0 : actual.length > 0;

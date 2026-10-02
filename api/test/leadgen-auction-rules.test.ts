@@ -130,6 +130,23 @@ describe("conditionsMatch — every §21.4 op", () => {
     // a single answer is unchanged
     expect(conditionsMatch(cond([{ field: "needs", op: "eq", value: "payroll" }]), { needs: "payroll" })).toBe(true);
   });
+
+  // PM follow-up (review N5): "between 22:00 and 2:00" crosses midnight.
+  it("a Time of day window that crosses midnight means late OR early; a normal window is unchanged", () => {
+    const overnight = cond([{ field: "time_et", op: "range", from: 2200, to: 200 }]);
+    expect(conditionsMatch(overnight, { time_et: 2330 })).toBe(true);
+    expect(conditionsMatch(overnight, { time_et: 2200 })).toBe(true);
+    expect(conditionsMatch(overnight, { time_et: 0 })).toBe(true);
+    expect(conditionsMatch(overnight, { time_et: 200 })).toBe(true);
+    expect(conditionsMatch(overnight, { time_et: 201 })).toBe(false);
+    expect(conditionsMatch(overnight, { time_et: 1200 })).toBe(false);
+    expect(conditionsMatch(overnight, {})).toBe(false);
+    const day = cond([{ field: "time_et", op: "range", from: 930, to: 1700 }]);
+    expect(conditionsMatch(day, { time_et: 1200 })).toBe(true);
+    expect(conditionsMatch(day, { time_et: 2330 })).toBe(false);
+    // other fields keep the plain from ≤ n ≤ to meaning
+    expect(conditionsMatch(cond([{ field: "age", op: "range", from: 60, to: 18 }]), { age: 70 })).toBe(false);
+  });
 });
 
 // ---------------------------------------------------------------------------

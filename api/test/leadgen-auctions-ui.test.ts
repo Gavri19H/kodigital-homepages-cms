@@ -795,6 +795,22 @@ describeDb("rules condition fields — only this funnel's questions, no ids, ans
       ] }) },
     ]);
     expect(scoped.map((f) => [f.internal_field, f.label])).toEqual([["grid_a", "Grid question"], ["after_grid", "Page B"], ["in_grid", "Your home"]]);
+    // confirmation review N3: nested containers — a headline in the left
+    // column does not name the right column's question
+    const columns = questionRuleFields([
+      { id: 3, section_name: "Two columns page", content_json: JSON.stringify({ components: [
+        { type: "Columns", question_id: "cols", props: {}, children: [
+          { type: "Stack", question_id: "left", props: {}, children: [
+            { type: "QuestionHeadline", question_id: "hl", props: { text: "Left column headline" } },
+            { type: "ButtonAnswerGroup", question_id: "ql", internal_field: "left_q", answer_type: "enum", choices: [{ label: "A", value: "a" }] },
+          ] },
+          { type: "Stack", question_id: "right", props: {}, children: [
+            { type: "ButtonAnswerGroup", question_id: "qr", internal_field: "right_q", answer_type: "enum", choices: [{ label: "B", value: "b" }] },
+          ] },
+        ] },
+      ] }) },
+    ]);
+    expect(columns.map((f) => [f.internal_field, f.label])).toEqual([["left_q", "Left column headline"], ["right_q", "Two columns page"]]);
   });
 
   // Review fix 2026-10-01: when the field list cannot load, the editor says
@@ -886,6 +902,26 @@ describeDb("auction Add-a-rule form — offers by name, Tier-level, readable rul
     expect(html).toContain('<option value="include_only">Show only</option><option value="exclude">Hide</option>');
     expect(html).toContain("<input type=\"checkbox\" id=\"lg-r-strictly\" /> Overrides other rules</label>");
     expect(html).not.toContain("> strictly_override</label>");
+  });
+
+  // PM follow-up (confirmation review N2 / N4): the pop-ups show a refusal in
+  // words (the API keeps its machine code), and the Simulator says when the
+  // funnel's rules ended a visit before any auction.
+  it("pop-up refusals read in words; the Simulator names a funnel rule that ended the visit", async () => {
+    const { RELOCATED_RULES_SCRIPT, QUOTE_RULES_SCRIPT } = await import("../src/admin/leadgen/ui-rules-builder");
+    for (const script of [RELOCATED_RULES_SCRIPT, QUOTE_RULES_SCRIPT]) {
+      const src = /function plainReason\(text\) \{[^\n]*\}/.exec(script)?.[0];
+      expect(src).toBeDefined();
+      const plainReason = new Function(`${src}; return plainReason;`)() as (t: string) => string;
+      expect(plainReason("conditions_invalid: Date (US Eastern): pick a date")).toBe("Date (US Eastern): pick a date");
+      expect(plainReason("redirect_offer_missing_target: a redirect needs an offer; raw_redirect_url_invalid: not a web address")).toBe("a redirect needs an offer; not a web address");
+      expect(plainReason("Date (US Eastern): pick a date")).toBe("Date (US Eastern): pick a date");
+      expect(plainReason("tier offers: offer ids must be integer ids")).toBe("tier offers: offer ids must be integer ids");
+      expect(script).toContain("lines.push(plainReason(body.fields[k]))");
+    }
+    const { html } = await editor();
+    expect(html).toContain("'Ended before the auction: ' + endedReason + '. No offer was asked and no waterfall ran.'");
+    expect(html).toContain("not_eligible: 'the visitor matches none of the funnel");
   });
 
   // PM follow-up (review): the Simulator runs a funnel's rules — pick which.

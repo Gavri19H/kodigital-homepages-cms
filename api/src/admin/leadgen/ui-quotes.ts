@@ -56,6 +56,7 @@ import {
 } from "../../public/leadgen/components/presets";
 import {
   flattenComponents,
+  isChildrenBearingType,
   leadgenComponentName,
   leadgenControlLabel,
   LEADGEN_ADDRESS_FIELD_KINDS,
@@ -1467,32 +1468,29 @@ function derivedSubFieldLabel(
 // above), so a rule written against one could never fire; offering it is the
 // over-claim that produced the "can never apply" report in the first place.
 // PM follow-up (rules builder): the Question headline each question is asked
-// under. A headline inside a container (QuestionGrid / layout) names only what
-// follows it INSIDE that container — it never leaks to the questions after the
-// container; a top-level headline also covers a container right after it.
+// under. A headline names the questions after it at ITS level and inside the
+// containers that follow it there — never anything outside its own container
+// (a headline in a grid or in one column does not name the question after the
+// grid or in the next column).
 function headlinesOfLeaves(nodes: readonly LeadgenComponentNode[]): Map<LeadgenComponentNode, string | null> {
-  const textOf = (n: unknown): string | null => {
-    if (n === null || typeof n !== "object" || (n as { type?: unknown }).type !== "QuestionHeadline") return null;
-    const text = (n as { props?: { text?: unknown } }).props?.text;
-    return typeof text === "string" && text.trim() !== "" ? text.trim() : null;
-  };
-  const isHeadline = (n: unknown): boolean => n !== null && typeof n === "object" && (n as { type?: unknown }).type === "QuestionHeadline";
   const out = new Map<LeadgenComponentNode, string | null>();
-  let top: string | null = null;
-  for (const node of nodes) {
-    if (isHeadline(node)) {
-      top = textOf(node) ?? top;
-      continue;
-    }
-    let current = top;
-    for (const leaf of flattenComponents([node])) {
-      if (isHeadline(leaf)) {
-        current = textOf(leaf) ?? current;
-        continue;
+  const walk = (level: readonly LeadgenComponentNode[], inherited: string | null): void => {
+    let current = inherited;
+    for (const node of level) {
+      if (node === null || typeof node !== "object") continue;
+      const type = (node as { type?: unknown }).type;
+      if (type === "QuestionHeadline") {
+        const text = (node as { props?: { text?: unknown } }).props?.text;
+        current = typeof text === "string" && text.trim() !== "" ? text.trim() : current;
+      } else if (isChildrenBearingType(type)) {
+        const children = (node as { children?: unknown }).children;
+        if (Array.isArray(children)) walk(children as LeadgenComponentNode[], current);
+      } else {
+        out.set(node, current);
       }
-      out.set(leaf, current);
     }
-  }
+  };
+  walk(nodes, null);
   return out;
 }
 function sectionAnswerFieldEntries(components: readonly unknown[]): SectionFieldEntry[] {

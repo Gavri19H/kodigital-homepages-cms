@@ -1943,7 +1943,19 @@ const AUCTION_EDITOR_SCRIPT = `
     var wf = body.waterfall;
     var wfLine = makeEl('p', 'form-help');
     wfLine.setAttribute('data-sim-waterfall-result', '');
-    if (!wf) {
+    // PM follow-up (review N4): the funnel's own rules can end the visit before
+    // any auction — then no waterfall or auction ran, so say why instead.
+    var endedBy = {
+      not_eligible: 'the visitor matches none of the funnel\u2019s Eligibility rules',
+      disqualified: 'a funnel Disqualification rule matched',
+      no_auction_entry: 'no Auction-entry rule of the funnel matched',
+      redirect: 'a funnel Redirect rule sends the visitor away'
+    };
+    var endedReason = (body.status === 'disqualified' || body.status === 'redirect') ? endedBy[body.unfilled_reason] : undefined;
+    if (endedReason) {
+      wfLine.setAttribute('data-sim-ended-by-funnel', '');
+      wfLine.appendChild(document.createTextNode('Ended before the auction: ' + endedReason + '. No offer was asked and no waterfall ran.'));
+    } else if (!wf) {
       wfLine.appendChild(document.createTextNode('Waterfall: none for this visitor \\u2014 the normal auction ran.'));
     } else if (wf.no_offers_left) {
       wfLine.appendChild(document.createTextNode('Waterfall (' + wf.traffic_share_pct + '% of traffic): none of its offers takes part in this auction any more \\u2014 the normal auction ran.'));

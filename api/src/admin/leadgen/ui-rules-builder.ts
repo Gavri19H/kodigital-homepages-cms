@@ -3445,11 +3445,14 @@ export const QUOTE_RULES_SCRIPT = `(function () {
   // fields:{feed_name:"…"}} and this used to print only the bare "Validation
   // failed". The field messages ARE the reason — they come first, one per line
   // (the funnel-rules modal's fieldsErrorText convention).
+  // A funnel-rule refusal reads "conditions_invalid: Date … pick a date" — the
+  // API keeps its machine code; the operator reads the words only.
+  function plainReason(text) { return String(text).replace(/(^|; )[a-z][a-z0-9_]*: /g, '$1'); }
   function errorText(body) {
     if (!body) { return null; }
     var lines = [];
     var k;
-    if (body.fields && typeof body.fields === 'object') { for (k in body.fields) { if (Object.prototype.hasOwnProperty.call(body.fields, k)) { lines.push(String(body.fields[k])); } } }
+    if (body.fields && typeof body.fields === 'object') { for (k in body.fields) { if (Object.prototype.hasOwnProperty.call(body.fields, k)) { lines.push(plainReason(body.fields[k])); } } }
     if (lines.length === 0 && body.errors && typeof body.errors === 'object') { for (k in body.errors) { if (Object.prototype.hasOwnProperty.call(body.errors, k)) { lines.push(String(body.errors[k])); } } }
     if (lines.length > 0) { return lines.join('\\n'); }
     if (typeof body.error === 'string') { return body.error; }
@@ -3741,12 +3744,15 @@ export const RELOCATED_RULES_SCRIPT = `(function () {
     if (!topError) { return; }
     if (msg) { txt(topError, msg); topError.hidden = false; } else { topError.hidden = true; }
   }
+  // A funnel-rule refusal reads "conditions_invalid: Date … pick a date" — the
+  // API keeps its machine code; the operator reads the words only.
+  function plainReason(text) { return String(text).replace(/(^|; )[a-z][a-z0-9_]*: /g, '$1'); }
   function fieldsErrorText(body) {
     if (!body) { return 'Something went wrong.'; }
     if (body.fields && typeof body.fields === 'object') {
       var lines = [];
       var k;
-      for (k in body.fields) { if (Object.prototype.hasOwnProperty.call(body.fields, k)) { lines.push(String(body.fields[k])); } }
+      for (k in body.fields) { if (Object.prototype.hasOwnProperty.call(body.fields, k)) { lines.push(plainReason(body.fields[k])); } }
       if (lines.length > 0) { return lines.join('\\n'); }
     }
     if (typeof body.error === 'string') { return body.error; }
