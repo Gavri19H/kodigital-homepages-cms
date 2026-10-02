@@ -811,6 +811,22 @@ describeDb("rules condition fields — only this funnel's questions, no ids, ans
       ] }) },
     ]);
     expect(columns.map((f) => [f.internal_field, f.label])).toEqual([["left_q", "Left column headline"], ["right_q", "Two columns page"]]);
+    // scoped review M1: questions placed straight into Columns / a grid are
+    // cells of their own — a headline cell names no other cell
+    const cells = questionRuleFields([
+      { id: 4, section_name: "Cells page", content_json: JSON.stringify({ components: [
+        { type: "QuestionHeadline", question_id: "top", props: { text: "Top headline" } },
+        { type: "Columns", question_id: "cols2", props: {}, children: [
+          { type: "QuestionHeadline", question_id: "hc", props: { text: "Left headline" } },
+          { type: "TwoButtonYesNo", question_id: "qa", internal_field: "cell_right", answer_type: "boolean" },
+          { type: "ButtonAnswerGroup", question_id: "qb", internal_field: "cell_below", answer_type: "enum", choices: [{ label: "C", value: "c" }] },
+        ] },
+      ] }) },
+    ]);
+    expect(cells.map((f) => [f.internal_field, f.label])).toEqual([
+      ["cell_right", "Top headline (Yes / No)"],
+      ["cell_below", "Top headline (Simple answer buttons)"],
+    ]);
   });
 
   // Review fix 2026-10-01: when the field list cannot load, the editor says

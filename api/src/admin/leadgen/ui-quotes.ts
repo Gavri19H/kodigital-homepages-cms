@@ -1471,7 +1471,9 @@ function derivedSubFieldLabel(
 // under. A headline names the questions after it at ITS level and inside the
 // containers that follow it there — never anything outside its own container
 // (a headline in a grid or in one column does not name the question after the
-// grid or in the next column).
+// grid or in the next column). Columns / GridContainer lay their DIRECT
+// children out as separate cells, so each cell is its own scope there.
+const CELL_LAYOUTS: ReadonlySet<string> = new Set(["Columns", "GridContainer"]);
 function headlinesOfLeaves(nodes: readonly LeadgenComponentNode[]): Map<LeadgenComponentNode, string | null> {
   const out = new Map<LeadgenComponentNode, string | null>();
   const walk = (level: readonly LeadgenComponentNode[], inherited: string | null): void => {
@@ -1484,7 +1486,12 @@ function headlinesOfLeaves(nodes: readonly LeadgenComponentNode[]): Map<LeadgenC
         current = typeof text === "string" && text.trim() !== "" ? text.trim() : current;
       } else if (isChildrenBearingType(type)) {
         const children = (node as { children?: unknown }).children;
-        if (Array.isArray(children)) walk(children as LeadgenComponentNode[], current);
+        if (!Array.isArray(children)) continue;
+        if (typeof type === "string" && CELL_LAYOUTS.has(type)) {
+          for (const cell of children as LeadgenComponentNode[]) walk([cell], current);
+        } else {
+          walk(children as LeadgenComponentNode[], current);
+        }
       } else {
         out.set(node, current);
       }
