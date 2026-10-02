@@ -30,12 +30,20 @@ import { runInNewContext } from "node:vm";
 
 import {
   DEFAULT_RULES_CONDITIONS_INPUT_ID,
+  QUOTE_RULES_SCRIPT,
   RULES_BUILDER_OPS,
   RELOCATED_RULES_SCRIPT,
   RULES_BUILDER_SCRIPT,
+  clockFromPicker,
+  clockToPicker,
+  clockValueText,
+  conditionsSentence,
   parseStoredConditions,
+  renderQuoteRulesRail,
   renderRulesBuilderPanel,
+  ruleValueText,
   serializeRows,
+  type RulesBuilderClockInput,
   type RulesBuilderRow,
 } from "../src/admin/leadgen/ui-rules-builder";
 // REAL evaluator stack — the §21.4 single source of truth.
@@ -61,6 +69,57 @@ function panelFor(conditions: unknown, extra: Record<string, unknown> = {}): str
     offers: OFFERS,
   });
 }
+
+// The date / time-of-day visitor facts (rule-fields.ts shape) + one plain
+// number field that must read exactly as before.
+const CLOCK_FIELDS: Array<{ internal_field: string; label: string; input?: RulesBuilderClockInput }> = [
+  { internal_field: "date_et", label: "Date (US Eastern)", input: "date" },
+  { internal_field: "time_et", label: "Time of day (US Eastern)", input: "time" },
+  { internal_field: "age", label: "Age" },
+];
+
+function clockPanelFor(conditions: unknown): string {
+  return renderRulesBuilderPanel({
+    rules: [{ rule_type: "eligibility", conditions_json: conditions }],
+    fields: CLOCK_FIELDS,
+    offers: OFFERS,
+  });
+}
+
+function clockLabelOf(f: string): string {
+  const hit = CLOCK_FIELDS.find((x) => x.internal_field === f);
+  return hit === undefined ? f : hit.label;
+}
+
+// [stored conditions, the sentence both sides must print]
+const CLOCK_SENTENCES: Array<[LeadgenRuleConditions, string]> = [
+  [{ groups: [{ field: "date_et", op: "eq", value: 20261001 }] }, 'Matches when Date (US Eastern) is "1 Oct 2026".'],
+  [{ groups: [{ field: "time_et", op: "range", from: 930, to: 1700 }] }, "Matches when Time of day (US Eastern) is between 9:30 and 17:00."],
+  [{ groups: [{ field: "time_et", op: "neq", value: 5 }] }, 'Matches when Time of day (US Eastern) is not "0:05".'],
+  [{ groups: [{ field: "date_et", op: "gte", value: 20261031 }] }, 'Matches when Date (US Eastern) is at least "31 Oct 2026".'],
+  [{ groups: [{ field: "time_et", op: "lt", value: 1745 }] }, 'Matches when Time of day (US Eastern) is less than "17:45".'],
+  [
+    { groups: [{ field: "date_et", op: "in", values: [20261001, 20261225] }] },
+    'Matches when Date (US Eastern) is any of "1 Oct 2026", "25 Dec 2026".',
+  ],
+  [{ groups: [{ field: "date_et", op: "range", from: 20261001, to: 20261031 }] }, "Matches when Date (US Eastern) is between 1 Oct 2026 and 31 Oct 2026."],
+  // not a real date / unset → the stored number, unquoted (as before)
+  [{ groups: [{ field: "date_et", op: "eq", value: 0 }] }, "Matches when Date (US Eastern) is 0."],
+  [{ groups: [{ field: "date_et", op: "eq", value: 20260230 }] }, "Matches when Date (US Eastern) is 20260230."],
+  // the plain number field: unchanged wording
+  [{ groups: [{ field: "age", op: "range", from: 25, to: 64 }] }, "Matches when Age is between 25 and 64."],
+  [{ groups: [{ field: "age", op: "eq", value: 30 }] }, "Matches when Age is 30."],
+  [
+    {
+      groups: [
+        { field: "date_et", op: "eq", value: 20261225 },
+        { field: "time_et", op: "range", from: 0, to: 2359 },
+        { field: "age", op: "gte", value: 21 },
+      ],
+    },
+    'Matches when Date (US Eastern) is "25 Dec 2026" and Time of day (US Eastern) is between 0:00 and 23:59 and Age is at least 21.',
+  ],
+];
 
 // Reverse of layout.ts escapeHtml (amp LAST — escapeHtml escapes it first).
 function unescapeHtml(s: string): string {
@@ -121,6 +180,10 @@ interface IslandApi {
   parseConditions(raw: unknown): IslandParse;
   serializeRows(rows: unknown[]): string;
   cardSentence(rows: unknown[], labelOf: (f: string) => string, valueOf?: unknown, joinWord?: string): string;
+  makeValueOf(fields: unknown[]): (field: string, v: unknown) => string;
+  clockValueText(input: string, n: unknown): string;
+  clockToPicker(input: string, n: unknown): string;
+  clockFromPicker(input: string, s: unknown): number | null;
   getValues(): Array<{ index: number; json: string }>;
   ops: Array<{ ui: string; label: string; kind: string }>;
 }
@@ -629,6 +692,18 @@ describe("rules builder — ES5 island", () => {
       return hit === undefined ? f : hit.label;
     };
     expect(api.cardSentence(parsed.rows ?? [], labelOf)).toBe(sentenceOf(panelFor(ALL_OPS)));
+
+    // Date / time-of-day fields (owner residual "Date is typed as a number,
+    // Time of day is whole hours only"): both sides read the stored numbers
+    // in words, range ends included; the plain number field reads as before.
+    const islandValueOf = api.makeValueOf(CLOCK_FIELDS);
+    for (const [conditions, expected] of CLOCK_SENTENCES) {
+      const ssr = sentenceOf(clockPanelFor(conditions));
+      const island = api.parseConditions(JSON.stringify(conditions));
+      expect(island.ok).toBe(true);
+      expect(ssr, JSON.stringify(conditions)).toBe(expected);
+      expect(api.cardSentence(island.rows ?? [], clockLabelOf, islandValueOf), JSON.stringify(conditions)).toBe(ssr);
+    }
   });
 
   // Review fix 2026-10-01: the pop-up's "Match: ANY" used to read "and"
@@ -788,5 +863,541 @@ describe("rules builder — normal-mode copy", () => {
     expect(copy).toContain("NextInsure");
     expect(copy).toContain("Disabled");
     expect(copy).toContain("Auction entry");
+  });
+});
+
+// ---------------------------------------------------------------------------
+// 7 · Date / time-of-day fields (PM: "Support other conditions such as (Date,
+//     State, Time of day, …)"; owner residual "Date is typed as a number, Time
+//     of day is whole hours only"). Stored values stay NUMBERS — date YYYYMMDD,
+//     time HHMM, US Eastern — read in words, edited with the browser's pickers.
+// ---------------------------------------------------------------------------
+
+// [input, stored number, words, picker string]
+const CLOCK_TABLE: Array<[RulesBuilderClockInput, number, string, string]> = [
+  ["date", 20261001, "1 Oct 2026", "2026-10-01"],
+  ["date", 20261031, "31 Oct 2026", "2026-10-31"],
+  ["date", 20260105, "5 Jan 2026", "2026-01-05"],
+  ["date", 20261225, "25 Dec 2026", "2026-12-25"],
+  ["date", 20240229, "29 Feb 2024", "2024-02-29"],
+  ["date", 20000229, "29 Feb 2000", "2000-02-29"],
+  ["time", 930, "9:30", "09:30"],
+  ["time", 1745, "17:45", "17:45"],
+  ["time", 5, "0:05", "00:05"],
+  ["time", 0, "0:00", "00:00"],
+  ["time", 1200, "12:00", "12:00"],
+  ["time", 2359, "23:59", "23:59"],
+];
+
+// Not a real date / time of day → words = the number itself, picker empty.
+const CLOCK_INVALID: Array<[RulesBuilderClockInput, number]> = [
+  ["date", 0],
+  ["date", 20260230],
+  ["date", 20250229],
+  ["date", 19000229],
+  ["date", 20261300],
+  ["date", 20261000],
+  ["date", 2026101],
+  ["date", 20261001.5],
+  ["date", -20261001],
+  ["time", 960],
+  ["time", 2400],
+  ["time", -5],
+  ["time", 930.5],
+  ["time", 12345],
+];
+
+describe("rules builder — date / time-of-day values", () => {
+  it("clockValueText reads a stored date / time in words (day month year; 24-hour h:mm)", () => {
+    for (const [input, n, words] of CLOCK_TABLE) {
+      expect(clockValueText(input, n), `${input} ${n}`).toBe(words);
+    }
+    for (const [input, n] of CLOCK_INVALID) {
+      expect(clockValueText(input, n), `${input} ${n}`).toBe(String(n));
+    }
+  });
+
+  it("picker strings convert both ways: '2026-10-01' <-> 20261001, '09:30' <-> 930, '00:05' <-> 5", () => {
+    for (const [input, n, , picker] of CLOCK_TABLE) {
+      expect(clockToPicker(input, n), `${input} ${n}`).toBe(picker);
+      expect(clockFromPicker(input, picker), `${input} ${picker}`).toBe(n);
+    }
+    for (const [input, n] of CLOCK_INVALID) {
+      expect(clockToPicker(input, n), `${input} ${n}`).toBe("");
+    }
+    // A browser may append seconds to a time; they are ignored.
+    expect(clockFromPicker("time", "17:45:12")).toBe(1745);
+    expect(clockFromPicker("time", "09:30:00.000")).toBe(930);
+    // Empty / half-typed / impossible picker values store nothing (null).
+    for (const [input, s] of [
+      ["date", ""],
+      ["date", "2026-02-30"],
+      ["date", "2026-13-01"],
+      ["date", "2026-1-1"],
+      ["date", "20261001"],
+      ["time", ""],
+      ["time", "24:00"],
+      ["time", "09:60"],
+      ["time", "9:30"],
+    ] as Array<[RulesBuilderClockInput, string]>) {
+      expect(clockFromPicker(input, s), `${input} "${s}"`).toBeNull();
+    }
+    expect(clockFromPicker("date", undefined)).toBeNull();
+  });
+
+  it("the island's conversions agree with the TS ones on the whole table", () => {
+    const api = islandApi();
+    for (const [input, n, words, picker] of CLOCK_TABLE) {
+      expect(api.clockValueText(input, n)).toBe(words);
+      expect(api.clockValueText(input, n)).toBe(clockValueText(input, n));
+      expect(api.clockToPicker(input, n)).toBe(picker);
+      expect(api.clockFromPicker(input, picker)).toBe(n);
+    }
+    for (const [input, n] of CLOCK_INVALID) {
+      expect(api.clockValueText(input, n)).toBe(clockValueText(input, n));
+      expect(api.clockToPicker(input, n)).toBe(clockToPicker(input, n));
+    }
+    for (const s of ["", "2026-02-30", "2026-10-01", "17:45:12", "24:00", "00:05", "x"]) {
+      for (const input of ["date", "time"] as RulesBuilderClockInput[]) {
+        expect(api.clockFromPicker(input, s), `${input} "${s}"`).toBe(clockFromPicker(input, s));
+      }
+    }
+  });
+
+  it("the island value resolver formats clock-field numbers like the TS one; other fields unchanged", () => {
+    const api = islandApi();
+    const valueOf = api.makeValueOf(CLOCK_FIELDS);
+    const byField = new Map(CLOCK_FIELDS.map((f) => [f.internal_field, f]));
+    const cases: Array<[string, string | number | boolean]> = [
+      ["date_et", 20261001],
+      ["date_et", 0],
+      ["date_et", "20261001"],
+      ["time_et", 930],
+      ["time_et", 5],
+      ["time_et", 960],
+      ["age", 30],
+      ["age", 20261001],
+      ["unknown", 930],
+    ];
+    for (const [field, v] of cases) {
+      expect(valueOf(field, v), `${field} ${String(v)}`).toBe(ruleValueText(byField.get(field), v));
+    }
+    expect(valueOf("date_et", 20261001)).toBe("1 Oct 2026");
+    expect(valueOf("time_et", 930)).toBe("9:30");
+    expect(valueOf("age", 20261001)).toBe("20261001");
+  });
+
+  it("SSR renders calendar / clock pickers for date / time fields (no value-type select) and keeps the numbers in the output", () => {
+    const eqDate = clockPanelFor({ groups: [{ field: "date_et", op: "eq", value: 20261001 }] });
+    expect(eqDate).toContain('data-lg-rb-value type="date" aria-label="Value" value="2026-10-01"');
+    expect(eqDate).not.toContain("data-lg-rb-vtype");
+    expect(JSON.parse(hiddenInputValue(eqDate))).toEqual({ groups: [{ field: "date_et", op: "eq", value: 20261001 }] });
+
+    const gtTime = clockPanelFor({ groups: [{ field: "time_et", op: "gt", value: 930 }] });
+    expect(gtTime).toContain('data-lg-rb-value type="time" aria-label="Value" value="09:30"');
+    expect(gtTime).not.toContain('type="number"');
+
+    const range = clockPanelFor({ groups: [{ field: "time_et", op: "range", from: 930, to: 1700 }] });
+    expect(range).toContain('data-lg-rb-from type="time" aria-label="From" value="09:30"');
+    expect(range).toContain('data-lg-rb-to type="time" aria-label="To" value="17:00"');
+
+    const list = clockPanelFor({ groups: [{ field: "date_et", op: "in", values: [20261001, 20261225] }] });
+    expect(list).toContain(">1 Oct 2026<button");
+    expect(list).toContain(">25 Dec 2026<button");
+    expect(list).toContain('data-lg-rb-chip-entry type="date" aria-label="New value" value=""');
+    expect(list).not.toContain("data-lg-rb-chip-vtype");
+
+    // The data blob tells the island which fields are pickers.
+    const blob = list.match(/<script id="lg-rules-builder-data" type="application\/json">([\s\S]*?)<\/script>/)?.[1] ?? "";
+    const data = JSON.parse(blob) as { fields: Array<{ internal_field: string; input?: string }> };
+    expect(data.fields.map((f) => [f.internal_field, f.input ?? null])).toEqual([
+      ["date_et", "date"],
+      ["time_et", "time"],
+      ["age", null],
+    ]);
+
+    // A plain number field renders exactly as before.
+    const age = clockPanelFor({ groups: [{ field: "age", op: "range", from: 25, to: 64 }] });
+    expect(age).toContain('data-lg-rb-from type="number" step="any" aria-label="From" value="25"');
+    expect(age).toContain('data-lg-rb-to type="number" step="any" aria-label="To" value="64"');
+  });
+
+  it("the round-trip keeps clock rows as numbers the real evaluator compares (US Eastern facts)", () => {
+    const conditions: LeadgenRuleConditions = {
+      groups: [
+        { field: "date_et", op: "range", from: 20261001, to: 20261031 },
+        { field: "time_et", op: "gte", value: 930 },
+      ],
+    };
+    const parsed = parseStoredConditions(conditions);
+    expect(parsed.ok).toBe(true);
+    const json = JSON.parse(serializeRows(parsed.ok ? parsed.rows : [])) as LeadgenRuleConditions;
+    expect(json).toEqual(conditions);
+    expect(conditionsMatch(json, { date_et: 20261015, time_et: 1000 })).toBe(true);
+    expect(conditionsMatch(json, { date_et: 20261015, time_et: 905 })).toBe(false);
+    expect(conditionsMatch(json, { date_et: 20261101, time_et: 1000 })).toBe(false);
+  });
+
+  it("ruleValueText (the shared TS resolver) reads clock numbers in words and choice slugs as labels", () => {
+    expect(ruleValueText({ input: "date" }, 20261001)).toBe("1 Oct 2026");
+    expect(ruleValueText({ input: "time" }, 1745)).toBe("17:45");
+    expect(ruleValueText({ input: "time" }, "x")).toBe("x");
+    expect(ruleValueText({ choices: [{ value: "ca", label: "California" }] }, "ca")).toBe("California");
+    expect(ruleValueText(undefined, 930)).toBe("930");
+    // conditionsSentence with that resolver = the builder card's own sentence.
+    const rows: RulesBuilderRow[] = [{ field: "time_et", op: "range", from: 930, to: 1700 }];
+    expect(conditionsSentence(rows, clockLabelOf, (f, v) => ruleValueText(CLOCK_FIELDS.find((x) => x.internal_field === f), v))).toBe(
+      "Matches when Time of day (US Eastern) is between 9:30 and 17:00.",
+    );
+    // Without a resolver nothing changes (frozen callers).
+    expect(conditionsSentence(rows, clockLabelOf)).toBe("Matches when Time of day (US Eastern) is between 930 and 1700.");
+  });
+});
+
+// ---------------------------------------------------------------------------
+// 8 · The island DRIVEN through a minimal DOM: mount() → pickers → output
+// ---------------------------------------------------------------------------
+
+class FakeNode {
+  tagName: string;
+  className = "";
+  type = "";
+  value = "";
+  title = "";
+  selected = false;
+  disabled = false;
+  hidden = false;
+  attrs: Record<string, string> = {};
+  children: FakeNode[] = [];
+  parentNode: FakeNode | null = null;
+  listeners: Record<string, Array<(e: unknown) => void>> = {};
+  private text = "";
+  constructor(tag: string) {
+    this.tagName = tag.toUpperCase();
+  }
+  get firstChild(): FakeNode | null {
+    return this.children[0] ?? null;
+  }
+  appendChild(n: FakeNode): FakeNode {
+    n.parentNode = this;
+    this.children.push(n);
+    return n;
+  }
+  removeChild(n: FakeNode): FakeNode {
+    const i = this.children.indexOf(n);
+    if (i >= 0) this.children.splice(i, 1);
+    n.parentNode = null;
+    return n;
+  }
+  setAttribute(k: string, v: unknown): void {
+    this.attrs[k] = String(v);
+  }
+  getAttribute(k: string): string | null {
+    return k in this.attrs ? (this.attrs[k] ?? null) : null;
+  }
+  hasAttribute(k: string): boolean {
+    return k in this.attrs;
+  }
+  removeAttribute(k: string): void {
+    delete this.attrs[k];
+  }
+  addEventListener(t: string, f: (e: unknown) => void): void {
+    (this.listeners[t] ??= []).push(f);
+  }
+  dispatchEvent(): boolean {
+    return true;
+  }
+  focus(): void {}
+  get textContent(): string {
+    return this.text + this.children.map((c) => c.textContent).join("");
+  }
+  set textContent(t: string) {
+    this.children = [];
+    this.text = String(t);
+  }
+  fire(type: string): void {
+    for (const f of this.listeners[type] ?? []) f({ keyCode: 0 });
+  }
+  all(): FakeNode[] {
+    const out: FakeNode[] = [];
+    const walk = (n: FakeNode): void => {
+      for (const c of n.children) {
+        out.push(c);
+        walk(c);
+      }
+    };
+    walk(this);
+    return out;
+  }
+  byClass(cls: string): FakeNode[] {
+    return this.all().filter((n) => n.className.split(" ").includes(cls));
+  }
+}
+
+interface MountHandle {
+  state: { out: FakeNode; sentenceEl: FakeNode };
+}
+
+function drivenIsland(): { mount: (raw: string, fields: unknown[]) => { root: FakeNode; out: FakeNode; sentence: () => string } } {
+  const windowObj: Record<string, unknown> = {};
+  const fakeEvent = { initEvent: (): void => {}, initCustomEvent: (): void => {} };
+  const document = {
+    readyState: "complete",
+    getElementById: (): null => null,
+    createElement: (tag: string): FakeNode => new FakeNode(tag),
+    createTextNode: (t: string): FakeNode => {
+      const n = new FakeNode("#text");
+      n.textContent = t;
+      return n;
+    },
+    createEvent: (): typeof fakeEvent => fakeEvent,
+  };
+  runInNewContext(RULES_BUILDER_SCRIPT, { window: windowObj, document });
+  const api = windowObj["lgRulesBuilder"] as { mount: (c: FakeNode, raw: string, out: null, o: unknown) => MountHandle };
+  return {
+    mount: (raw, fields) => {
+      const root = new FakeNode("div");
+      const handle = api.mount(root, raw, null, { fields });
+      return { root, out: handle.state.out, sentence: () => handle.state.sentenceEl.textContent };
+    },
+  };
+}
+
+describe("rules builder — island pickers for date / time fields (driven)", () => {
+  it("is (=) on a date: one calendar picker, no value-type select; picking stores YYYYMMDD; an empty picker stores nothing", () => {
+    const { root, out, sentence } = drivenIsland().mount(
+      JSON.stringify({ groups: [{ field: "date_et", op: "eq", value: 20261001 }] }),
+      CLOCK_FIELDS,
+    );
+    expect(root.byClass("lg-rb-vtype")).toHaveLength(0);
+    const pickers = root.byClass("lg-rb-value");
+    expect(pickers).toHaveLength(1);
+    const pick = pickers[0] as FakeNode;
+    expect(pick.type).toBe("date");
+    expect(pick.value).toBe("2026-10-01");
+    expect(sentence()).toBe('Matches when Date (US Eastern) is "1 Oct 2026".');
+
+    pick.value = "2026-10-31";
+    pick.fire("input");
+    expect(JSON.parse(out.value)).toEqual({ groups: [{ field: "date_et", op: "eq", value: 20261031 }] });
+    expect(sentence()).toBe('Matches when Date (US Eastern) is "31 Oct 2026".');
+
+    // Cleared / half-typed: the stored date stays (never 0, never a string).
+    pick.value = "";
+    pick.fire("input");
+    pick.fire("change");
+    expect(JSON.parse(out.value)).toEqual({ groups: [{ field: "date_et", op: "eq", value: 20261031 }] });
+  });
+
+  it("a fresh row on a date field starts at 0 as a NUMBER (empty picker, never the empty-string 'is empty' sugar); a time starts at 0:00", () => {
+    const { root, out, sentence } = drivenIsland().mount("", CLOCK_FIELDS);
+    const addCondition = root.all().find((n) => n.tagName === "BUTTON" && n.textContent === "+ Add condition") as FakeNode;
+    addCondition.fire("click");
+    const pick = root.byClass("lg-rb-value")[0] as FakeNode;
+    expect(pick.type).toBe("date");
+    expect(pick.value).toBe("");
+    expect(JSON.parse(out.value)).toEqual({ groups: [{ field: "date_et", op: "eq", value: 0 }] });
+    expect(sentence()).toBe("Matches when Date (US Eastern) is 0.");
+    pick.value = "2026-10-01";
+    pick.fire("change");
+    expect(JSON.parse(out.value)).toEqual({ groups: [{ field: "date_et", op: "eq", value: 20261001 }] });
+
+    // A stored non-number on a time field becomes the numeric default 0:00.
+    const fresh = drivenIsland().mount(JSON.stringify({ groups: [{ field: "time_et", op: "eq", value: "x" }] }), CLOCK_FIELDS);
+    const timePick = fresh.root.byClass("lg-rb-value")[0] as FakeNode;
+    expect(timePick.type).toBe("time");
+    expect(timePick.value).toBe("00:00");
+    expect(JSON.parse(fresh.out.value)).toEqual({ groups: [{ field: "time_et", op: "eq", value: 0 }] });
+    timePick.value = "09:30";
+    timePick.fire("change");
+    expect(JSON.parse(fresh.out.value)).toEqual({ groups: [{ field: "time_et", op: "eq", value: 930 }] });
+  });
+
+  it("at least (≥) on a time: the clock picker replaces the number box", () => {
+    const { root, out } = drivenIsland().mount(
+      JSON.stringify({ groups: [{ field: "time_et", op: "gte", value: 930 }] }),
+      CLOCK_FIELDS,
+    );
+    const pick = root.byClass("lg-rb-value")[0] as FakeNode;
+    expect(pick.type).toBe("time");
+    expect(pick.value).toBe("09:30");
+    pick.value = "17:45";
+    pick.fire("input");
+    expect(JSON.parse(out.value)).toEqual({ groups: [{ field: "time_et", op: "gte", value: 1745 }] });
+  });
+
+  it("between on a time: From / To clock pickers; the sentence reads 'between 9:30 and 17:00'", () => {
+    const { root, out, sentence } = drivenIsland().mount(
+      JSON.stringify({ groups: [{ field: "time_et", op: "range", from: 930, to: 1700 }] }),
+      CLOCK_FIELDS,
+    );
+    const from = root.byClass("lg-rb-from")[0] as FakeNode;
+    const to = root.byClass("lg-rb-to")[0] as FakeNode;
+    expect([from.type, from.value, to.type, to.value]).toEqual(["time", "09:30", "time", "17:00"]);
+    expect(sentence()).toBe("Matches when Time of day (US Eastern) is between 9:30 and 17:00.");
+    from.value = "00:05";
+    from.fire("input");
+    to.value = "";
+    to.fire("input");
+    expect(JSON.parse(out.value)).toEqual({ groups: [{ field: "time_et", op: "range", from: 5, to: 1700 }] });
+    expect(sentence()).toBe("Matches when Time of day (US Eastern) is between 0:05 and 17:00.");
+  });
+
+  it("in list on a date: chips read as dates; the entry is a calendar picker that adds a numeric chip", () => {
+    const { root, out, sentence } = drivenIsland().mount(
+      JSON.stringify({ groups: [{ field: "date_et", op: "in", values: [20261001] }] }),
+      CLOCK_FIELDS,
+    );
+    const chipTexts = (): string[] => root.byClass("lg-rb-chip").map((c) => c.firstChild?.textContent ?? "");
+    expect(chipTexts()).toEqual(["1 Oct 2026"]);
+    expect(root.byClass("lg-rb-chip-vtype")).toHaveLength(0);
+    const entry = root.byClass("lg-rb-chip-entry")[0] as FakeNode;
+    expect(entry.type).toBe("date");
+    const add = root.all().find((n) => n.tagName === "BUTTON" && n.textContent === "Add") as FakeNode;
+    // an empty picker adds nothing
+    entry.value = "";
+    add.fire("click");
+    expect(JSON.parse(out.value)).toEqual({ groups: [{ field: "date_et", op: "in", values: [20261001] }] });
+    entry.value = "2026-12-25";
+    add.fire("click");
+    expect(JSON.parse(out.value)).toEqual({ groups: [{ field: "date_et", op: "in", values: [20261001, 20261225] }] });
+    expect(chipTexts()).toEqual(["1 Oct 2026", "25 Dec 2026"]);
+    expect(sentence()).toBe('Matches when Date (US Eastern) is any of "1 Oct 2026", "25 Dec 2026".');
+  });
+
+  it("a field without a picker kind behaves exactly as before (value-type select + number box; text entry + type select)", () => {
+    const eq = drivenIsland().mount(JSON.stringify({ groups: [{ field: "age", op: "eq", value: 30 }] }), CLOCK_FIELDS);
+    expect(eq.root.byClass("lg-rb-vtype")).toHaveLength(1);
+    const num = eq.root.byClass("lg-rb-value")[0] as FakeNode;
+    expect(num.type).toBe("number");
+    expect(num.value).toBe("30");
+    num.value = "";
+    num.fire("input");
+    expect(JSON.parse(eq.out.value)).toEqual({ groups: [{ field: "age", op: "eq", value: 0 }] });
+
+    const list = drivenIsland().mount(JSON.stringify({ groups: [{ field: "age", op: "in", values: [20261001] }] }), CLOCK_FIELDS);
+    expect(list.root.byClass("lg-rb-chip").map((c) => c.firstChild?.textContent)).toEqual(["20261001"]);
+    expect((list.root.byClass("lg-rb-chip-entry")[0] as FakeNode).type).toBe("text");
+    expect(list.root.byClass("lg-rb-chip-vtype")).toHaveLength(1);
+    expect(list.sentence()).toBe("Matches when Age is any of 20261001.");
+  });
+});
+
+// ---------------------------------------------------------------------------
+// 9 · Yes/no questions read their authored labels (owner residual "Yes/No
+//     questions don't show their authored labels", e.g. "I own" / "I rent")
+// ---------------------------------------------------------------------------
+
+const YES_NO_FIELDS = [
+  {
+    internal_field: "homeowner",
+    label: "Owns a home",
+    choices: [
+      { value: "true", label: "I own" },
+      { value: "false", label: "I rent" },
+    ],
+  },
+  { internal_field: "smoker", label: "Smoker" },
+  { internal_field: "rating", label: "Rating", choices: [{ value: "excellent", label: "Excellent" }] },
+];
+
+function yesNoPanelFor(conditions: unknown): string {
+  return renderRulesBuilderPanel({
+    rules: [{ rule_type: "eligibility", conditions_json: conditions }],
+    fields: YES_NO_FIELDS,
+    offers: OFFERS,
+  });
+}
+
+const YES_NO_SENTENCES: Array<[LeadgenRuleConditions, string]> = [
+  [{ groups: [{ field: "homeowner", op: "eq", value: true }] }, 'Matches when Owns a home is "I own".'],
+  [{ groups: [{ field: "homeowner", op: "neq", value: false }] }, 'Matches when Owns a home is not "I rent".'],
+  [{ groups: [{ field: "homeowner", op: "in", values: [true, false] }] }, 'Matches when Owns a home is any of "I own", "I rent".'],
+  // no labels → Yes / No exactly as before
+  [{ groups: [{ field: "smoker", op: "eq", value: true }] }, "Matches when Smoker is Yes."],
+  [{ groups: [{ field: "smoker", op: "not_in", values: [false] }] }, "Matches when Smoker is none of No."],
+  // choices, but none for true/false → Yes / No
+  [{ groups: [{ field: "rating", op: "eq", value: false }] }, "Matches when Rating is No."],
+];
+
+describe("rules builder — yes/no questions read their own labels", () => {
+  it("SSR and island sentences agree, with the labels when the question has them and Yes / No otherwise", () => {
+    const api = islandApi();
+    const valueOf = api.makeValueOf(YES_NO_FIELDS);
+    const labelOf = (f: string): string => YES_NO_FIELDS.find((x) => x.internal_field === f)?.label ?? f;
+    for (const [conditions, expected] of YES_NO_SENTENCES) {
+      const ssr = sentenceOf(yesNoPanelFor(conditions));
+      expect(ssr, JSON.stringify(conditions)).toBe(expected);
+      const parsed = api.parseConditions(JSON.stringify(conditions));
+      expect(api.cardSentence(parsed.rows ?? [], labelOf, valueOf), JSON.stringify(conditions)).toBe(ssr);
+    }
+  });
+
+  it("SSR chips and the yes/no select show the labels; a question without labels keeps Yes / No", () => {
+    const list = yesNoPanelFor({ groups: [{ field: "homeowner", op: "in", values: [true, false] }] });
+    expect(list).toContain(">I own<button");
+    expect(list).toContain(">I rent<button");
+    const eq = yesNoPanelFor({ groups: [{ field: "homeowner", op: "eq", value: false }] });
+    expect(eq).toContain('<option value="yes">I own</option>');
+    expect(eq).toContain('<option value="no" selected>I rent</option>');
+    const plain = yesNoPanelFor({ groups: [{ field: "smoker", op: "eq", value: true }] });
+    expect(plain).toContain('<option value="yes" selected>Yes</option>');
+  });
+
+  it("island chips show the labels too (driven)", () => {
+    const { root } = drivenIsland().mount(
+      JSON.stringify({ groups: [{ field: "homeowner", op: "in", values: [true, false] }] }),
+      YES_NO_FIELDS,
+    );
+    expect(root.byClass("lg-rb-chip").map((c) => c.firstChild?.textContent)).toEqual(["I own", "I rent"]);
+    const plain = drivenIsland().mount(JSON.stringify({ groups: [{ field: "smoker", op: "in", values: [true] }] }), YES_NO_FIELDS);
+    expect(plain.root.byClass("lg-rb-chip").map((c) => c.firstChild?.textContent)).toEqual(["Yes"]);
+  });
+
+  it("the routing-rules rail cards: SSR chip and the island's own value text agree (label, else Yes / No)", () => {
+    const rule = (field: string, value: boolean) => ({
+      public_id: "qrr_" + field,
+      rule_name: "R",
+      priority: 1,
+      status: "active" as const,
+      match_mode: "all",
+      conditions_json: { groups: [{ field, op: "eq", value }] },
+      target_funnel_id: null,
+      feed_name: null,
+      value_multiplier: null,
+      redirect_pct: null,
+      target_offer_id: null,
+      redirect_url: null,
+      redirect_url_allowlisted: false,
+    });
+    const answerFields = YES_NO_FIELDS.map((f) => ({ internal_field: f.internal_field, label: f.label, ...(f.choices ? { choices: f.choices } : {}) }));
+    const html = renderQuoteRulesRail({
+      quote_public_id: "q_1",
+      rules: [rule("homeowner", true), rule("smoker", false)],
+      funnels: [],
+      default_funnel_id: null,
+      shared_page_fields: [],
+      answer_fields: answerFields,
+      offers: [],
+      feed_values: [],
+    });
+    expect(html).toContain('<span class="lg-qr-chip">Owns a home is I own</span>');
+    expect(html).toContain('<span class="lg-qr-chip">Smoker is No</span>');
+
+    // The island's valueText — the REAL function text, run on the same fields.
+    const from = QUOTE_RULES_SCRIPT.indexOf("function humanizeChoiceToken(token) {");
+    const to = QUOTE_RULES_SCRIPT.indexOf("function conditionChips(rule) {");
+    expect(from).toBeGreaterThan(0);
+    expect(to).toBeGreaterThan(from);
+    const ctx: Record<string, unknown> = {
+      answerFields,
+      isArr: (v: unknown): boolean => Array.isArray(v),
+    };
+    runInNewContext(QUOTE_RULES_SCRIPT.slice(from, to) + "\nthis.valueTextOut = valueText;", ctx);
+    const valueText = ctx["valueTextOut"] as (g: unknown, field: string) => string;
+    expect(valueText({ op: "eq", value: true }, "homeowner")).toBe("I own");
+    expect(valueText({ op: "eq", value: false }, "homeowner")).toBe("I rent");
+    expect(valueText({ op: "eq", value: false }, "smoker")).toBe("No");
+    expect(valueText({ op: "eq", value: true }, "rating")).toBe("Yes");
   });
 });

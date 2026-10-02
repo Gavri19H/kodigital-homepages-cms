@@ -56,7 +56,7 @@ import {
   conditionsSentence,
   parseStoredConditions,
   renderRelocatedRulesEditor,
-  resolveChoiceValueText,
+  ruleValueText,
   RELOCATED_RULES_SCRIPT,
   type RelocatedRuleQuote,
 } from "./ui-rules-builder";
@@ -783,7 +783,8 @@ function ifSentence(conditions: unknown, fields: readonly RuleBuilderField[]): s
   const text = conditionsSentence(
     parsed.rows,
     (field) => byField.get(field)?.label ?? field,
-    (field, value) => resolveChoiceValueText(byField.get(field)?.choices, value),
+    // the field's own answer words; a date / time reads "1 Oct 2026" / "9:30"
+    (field, value) => ruleValueText(byField.get(field), value),
   );
   return escapeHtml(text);
 }
@@ -816,14 +817,28 @@ function renderWaterfallRow(r: LeadgenAuctionRuleApi, names: Map<number, string>
 </div>`;
 }
 
+// PM follow-up (2026-10-02, "THEN shows raw words like include_only"): the
+// action in the operator's words. include_only / allow_list are one action
+// and exclude / block_list another (auction-rules.ts INCLUDE/EXCLUDE_ACTIONS);
+// the list says what happens to THIS rule's offers or carriers.
+const RULE_LEVEL_WORDS: Record<string, string> = { offer: "Offer-level", tier: "Tier-level", carrier: "Carrier-level" };
+function ruleThenWords(level: string, action: string): string {
+  const show = action === "include_only" || action === "allow_list";
+  const hide = action === "exclude" || action === "block_list";
+  if (!show && !hide) return action;
+  if (level === "tier") return show ? "show only these offers, together" : "hide these offers";
+  if (level === "carrier") return show ? "show only the matching carriers" : "hide the matching carriers";
+  return show ? "show only this offer" : "hide this offer";
+}
+
 function renderRuleRow(r: LeadgenAuctionRuleApi, names: Map<number, string>, live: Set<number>, fields: readonly RuleBuilderField[]): string {
   const conditions = JSON.stringify(r.conditions_json ?? { groups: [] });
   const carrierMatch = r.carrier_match_json === null || r.carrier_match_json === undefined ? "" : JSON.stringify(r.carrier_match_json);
   return `<div class="lg-rule-row" data-rule-id="${escapeHtml(r.public_id)}" data-rule-level="${escapeHtml(r.rule_level)}">
   <div class="lg-rule-grid">
-    <span><strong>${escapeHtml(r.rule_level)}</strong> rule</span>
-    <span>THEN <strong>${escapeHtml(r.action)}</strong></span>
-    <span>priority ${r.priority}${r.strictly_override ? " · strictly_override" : ""}${r.enabled ? "" : " · disabled"}${r.traffic_share_pct !== null ? ` · <span data-rule-share>${escapeHtml(shareLabel(r.traffic_share_pct))}</span>` : ""}</span>
+    <span><strong>${escapeHtml(RULE_LEVEL_WORDS[r.rule_level] ?? r.rule_level)}</strong> rule</span>
+    <span data-rule-then>THEN <strong>${escapeHtml(ruleThenWords(r.rule_level, r.action))}</strong></span>
+    <span>priority ${r.priority}${r.strictly_override ? " · overrides other rules" : ""}${r.enabled ? "" : " · disabled"}${r.traffic_share_pct !== null ? ` · <span data-rule-share>${escapeHtml(shareLabel(r.traffic_share_pct))}</span>` : ""}</span>
   </div>
   ${
     r.rule_level === "tier"
@@ -894,7 +909,7 @@ ${tierRules.length > 0 ? `<h4>Tier-level</h4>${tierRules.map(row).join("")}` : "
 <h4>Carrier-level</h4>${carrierRules.map(row).join("") || `<p class="form-help">None.</p>`}`;
   return `<div class="lg-apanel" data-panel="rules">
   <div class="card">
-    <h3>Rules — offer-level &amp; carrier-level IF/THEN</h3>
+    <h3>Rules — IF/THEN for offers, tiers and carriers</h3>
     <div id="lg-a-rules-list">${rulesHtml}</div>
     <p id="lg-a-rules-msg" class="form-help" hidden></p>
   </div>
@@ -907,7 +922,7 @@ ${tierRules.length > 0 ? `<h4>Tier-level</h4>${tierRules.map(row).join("")}` : "
       </div>
       <div class="form-group">
         <label class="form-label" for="lg-r-action">THEN action</label>
-        <select id="lg-r-action" class="form-select"><option value="include_only">include_only</option><option value="exclude">exclude</option><option value="allow_list">allow_list</option><option value="block_list">block_list</option><option value="waterfall">waterfall — offer tiers</option></select>
+        <select id="lg-r-action" class="form-select"><option value="include_only">Show only</option><option value="exclude">Hide</option><option value="allow_list">Allow list (same as Show only)</option><option value="block_list">Block list (same as Hide)</option><option value="waterfall">Waterfall — offer tiers</option></select>
       </div>
       <div class="form-group">
         <label class="form-label" for="lg-r-priority">Priority</label>
@@ -932,7 +947,7 @@ ${tierRules.length > 0 ? `<h4>Tier-level</h4>${tierRules.map(row).join("")}` : "
     </div>
     <div class="form-group" data-rule-tier-field hidden>
       <label class="form-label">Tier offers</label>
-      <p class="form-help">When the conditions match: <strong>include_only / allow_list</strong> shows only these offers, all together (like an offerwall); <strong>exclude / block_list</strong> hides them.</p>
+      <p class="form-help">When the conditions match: <strong>Show only</strong> shows only these offers, all together (like an offerwall); <strong>Hide</strong> hides them.</p>
       <div class="lg-tier-offers" data-tier-group-offers>${groupBoxes || `<p class="form-help">Add (or enable) participating offers first (Participating Offers tab).</p>`}</div>
     </div>
     <div class="form-group" data-rule-carrier-field hidden>
@@ -947,7 +962,7 @@ ${tierRules.length > 0 ? `<h4>Tier-level</h4>${tierRules.map(row).join("")}` : "
       <input type="hidden" id="lg-r-conditions" value='{"groups":[]}' />
       <script type="application/json" id="lg-r-cond-fields">${fieldsJson}</script>
     </div>
-    <label class="lg-check" data-rule-strictly-field><input type="checkbox" id="lg-r-strictly" /> strictly_override</label>
+    <label class="lg-check" data-rule-strictly-field><input type="checkbox" id="lg-r-strictly" /> Overrides other rules</label>
     <label class="lg-check"><input type="checkbox" id="lg-r-enabled" checked /> enabled</label>
     <div><button type="button" class="btn btn-primary" id="lg-a-rule-add">Add rule</button></div>
     <p id="lg-a-rule-msg" class="form-help" hidden></p>
@@ -1014,7 +1029,36 @@ function renderBannerPanel(banner: BannerConfig): string {
 // WRITTEN in dry-run (no logs, revenue or cap increments) — but the
 // staging-environment carrier resolve DOES fire (DEV-40 MAJOR-5), so the
 // note must not claim "no provider calls".
-function renderSimulatorPanel(rules: LeadgenAuctionRuleApi[], participating: ParticipatingOffer[]): string {
+// PM follow-up (review): the funnel whose rules a simulation runs — a real
+// visitor always comes through one, and its Eligibility / disqualification /
+// redirect rules decide before any offer is asked.
+interface SimFunnel {
+  funnel_variant_id: string;
+  variant_label: string | null;
+  funnel_name: string | null;
+  quote_name: string | null;
+}
+
+function renderSimulatorPanel(rules: LeadgenAuctionRuleApi[], participating: ParticipatingOffer[], funnels: readonly SimFunnel[] = []): string {
+  const funnelPicker =
+    funnels.length === 0
+      ? ""
+      : `<div class="form-group">
+      <label class="form-label" for="lg-sim-funnel">Funnel</label>
+      <select id="lg-sim-funnel" class="form-select" data-sim-funnel>
+        ${funnels
+          .map((f) => {
+            // "Home Insurance | Match" already names its quote — no "Home Insurance — Home Insurance | Match"
+            const quote = (f.quote_name ?? "").trim();
+            const funnel = (f.funnel_name ?? "").trim();
+            const name = (funnel !== "" && quote !== "" && !funnel.toLowerCase().startsWith(quote.toLowerCase()) ? `${quote} — ${funnel}` : funnel || quote) || f.funnel_variant_id;
+            return `<option value="${escapeHtml(f.funnel_variant_id)}">${escapeHtml(f.variant_label ? `${name} (variant ${f.variant_label})` : name)}</option>`;
+          })
+          .join("")}
+        <option value="none">No funnel (auction rules only)</option>
+      </select>
+      <p class="form-help">The funnel's own rules (Eligibility, disqualification, redirects) run first, like for a real visitor.</p>
+    </div>`;
   // 0062: pick the waterfall path to simulate (only shown when there is one).
   const names = offerNamesById(participating);
   const waterfalls = rules.filter((r) => r.action === "waterfall" && r.enabled);
@@ -1038,6 +1082,7 @@ function renderSimulatorPanel(rules: LeadgenAuctionRuleApi[], participating: Par
   <div class="card">
     <h3>Simulator (dry-run)</h3>
     <p class="form-help" data-simulator-dryrun>Dry-run explainability trace against sample answers. No writes; staging-only carrier resolve.</p>
+    ${funnelPicker}
     ${waterfallPicker}
     <div class="form-group">
       <label class="form-label" for="lg-sim-answers">Sample answers (JSON, optional)</label>
@@ -1092,6 +1137,7 @@ function auctionEditorHtml(
   relocatedQuotes: RelocatedRuleQuote[],
   defaultQuotePublicId: string | null,
   ruleFields: RuleBuilderField[] | null = [],
+  simFunnels: readonly SimFunnel[] = [],
 ): string {
   const head = `<div class="lg-editor-head">
     <a href="/admin/leadgen/auction" class="btn btn-outline">&#8592; Auctions</a>
@@ -1121,7 +1167,7 @@ function auctionEditorHtml(
   ${renderRulesPanel(rules, participating, ruleFields ?? [], ruleFields === null)}
   ${renderRelocatedFunnelRulesPanel(relocatedQuotes, defaultQuotePublicId)}
   ${renderBannerPanel(banner)}
-  ${renderSimulatorPanel(rules, participating)}
+  ${renderSimulatorPanel(rules, participating, simFunnels)}
   ${renderAnalyticsPanel()}
   <script type="application/json" id="lg-auction-data">${auctionDataBlob(a)}</script>
 </div>`;
@@ -1172,6 +1218,7 @@ export async function leadgenAuctionEditorPage(c: UiContext): Promise<Response> 
   // OWNER 2026-10-01: the IF builder's fields — the questions of the funnels
   // that run this auction + the visitor facts (rule-fields.ts).
   const ruleFieldsRes = await apiJson<{ fields: RuleBuilderField[] }>(c.env, `/api/admin/leadgen/auctions/${encoded}/rule-fields`);
+  const funnelsRes = await apiJson<{ items: SimFunnel[] }>(c.env, `/api/admin/leadgen/auctions/${encoded}/funnels`);
   const quotesRes = await apiJsonAll<QuoteOption>(c.env, "/api/admin/leadgen/quotes");
 
   const quotes = quotesRes.ok ? quotesRes.body.items : [];
@@ -1209,6 +1256,7 @@ export async function leadgenAuctionEditorPage(c: UiContext): Promise<Response> 
       relocatedQuotes,
       defaultQuotePublicId,
       ruleFieldsRes.ok ? ruleFieldsRes.body.fields : null,
+      funnelsRes.ok ? funnelsRes.body.items : [],
     ),
   );
 }
@@ -1895,7 +1943,19 @@ const AUCTION_EDITOR_SCRIPT = `
     var wf = body.waterfall;
     var wfLine = makeEl('p', 'form-help');
     wfLine.setAttribute('data-sim-waterfall-result', '');
-    if (!wf) {
+    // PM follow-up (review N4): the funnel's own rules can end the visit before
+    // any auction — then no waterfall or auction ran, so say why instead.
+    var endedBy = {
+      not_eligible: 'the visitor matches none of the funnel\u2019s Eligibility rules',
+      disqualified: 'a funnel Disqualification rule matched',
+      no_auction_entry: 'no Auction-entry rule of the funnel matched',
+      redirect: 'a funnel Redirect rule sends the visitor away'
+    };
+    var endedReason = (body.status === 'disqualified' || body.status === 'redirect') ? endedBy[body.unfilled_reason] : undefined;
+    if (endedReason) {
+      wfLine.setAttribute('data-sim-ended-by-funnel', '');
+      wfLine.appendChild(document.createTextNode('Ended before the auction: ' + endedReason + '. No offer was asked and no waterfall ran.'));
+    } else if (!wf) {
       wfLine.appendChild(document.createTextNode('Waterfall: none for this visitor \\u2014 the normal auction ran.'));
     } else if (wf.no_offers_left) {
       wfLine.appendChild(document.createTextNode('Waterfall (' + wf.traffic_share_pct + '% of traffic): none of its offers takes part in this auction any more \\u2014 the normal auction ran.'));
@@ -1944,7 +2004,7 @@ const AUCTION_EDITOR_SCRIPT = `
     fetch(apiBase + '/simulate', {
       method: 'POST', credentials: 'same-origin',
       headers: { 'content-type': 'application/json', 'Accept': 'application/json' },
-      body: JSON.stringify({ sample_answers: answers, context: context, waterfall: byId('lg-sim-waterfall') ? val('lg-sim-waterfall') : 'auto' })
+      body: JSON.stringify({ sample_answers: answers, context: context, waterfall: byId('lg-sim-waterfall') ? val('lg-sim-waterfall') : 'auto', funnel_variant_id: byId('lg-sim-funnel') ? val('lg-sim-funnel') : undefined })
     }).then(function (r) { return r.json().then(function (j) { return { ok: r.ok, status: r.status, body: j }; }); })
       .then(function (res) {
         if (btn) { btn.disabled = false; }

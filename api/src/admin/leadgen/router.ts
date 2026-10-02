@@ -146,6 +146,7 @@ import { withRequestReadCache } from "./request-read-cache";
 import {
   auctionAnalyticsHandler,
   auctionSimulateHandler,
+  auctionFunnelsHandler,
   auctionUsageHandler,
   createAuctionHandler,
   createAuctionRuleHandler,
@@ -388,6 +389,7 @@ routes.put("/auctions/:id/banner", putAuctionBannerHandler);
 routes.get("/auctions/:id/analytics", auctionAnalyticsHandler);
 routes.get("/auctions/:id/usage", auctionUsageHandler); // Round-4 A-2 (row R4-38)
 routes.post("/auctions/:id/simulate", auctionSimulateHandler);
+routes.get("/auctions/:id/funnels", auctionFunnelsHandler);
 routes.get("/auctions/:id", getAuctionHandler);
 routes.patch("/auctions/:id", patchAuctionHandler);
 routes.delete("/auctions/:id", deleteAuctionHandler);

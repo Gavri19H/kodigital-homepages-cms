@@ -19,6 +19,7 @@ import type {
   LeadgenConditionOp,
 } from "../admin/leadgen/db-types";
 import { isPublicId } from "./ids";
+import { ruleClockConditionError } from "./computed";
 import { sha256Hex } from "../public/leadgen/auction/parse";
 
 // ---------------------------------------------------------------------------
@@ -351,6 +352,8 @@ function validateRuleConditions(value: unknown, errors: FunnelRuleError[]): void
     if ((op === "in" || op === "not_in") && !Array.isArray(group["values"])) {
       errors.push({ code: "conditions_invalid", message: `conditions_json.groups[${i}] ${op} op requires a values array` });
     }
+    const clockError = ruleClockConditionError(group);
+    if (clockError !== null) errors.push({ code: "conditions_invalid", message: clockError });
   }
 }
 

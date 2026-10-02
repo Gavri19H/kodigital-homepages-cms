@@ -56,6 +56,7 @@ import {
 } from "../../public/leadgen/components/presets";
 import {
   flattenComponents,
+  isChildrenBearingType,
   leadgenComponentName,
   leadgenControlLabel,
   LEADGEN_ADDRESS_FIELD_KINDS,
@@ -1192,6 +1193,11 @@ interface SectionFieldEntry {
   // a yes/no stays a boolean). Own-question fields only; [] for derived ones.
   stored_choices?: Array<{ label: string; stored: string | number | boolean }>;
   answer_type?: string | null;
+  // PM follow-up (rules builder): the words a label-less question is asked
+  // with — the section's last Question headline above it — and the
+  // question's component type, so two such questions can be told apart.
+  headline?: string | null;
+  component_type?: string | null;
 }
 function questionLabelOf(node: unknown): string | null {
   if (node === null || typeof node !== "object") return null;
@@ -1217,6 +1223,14 @@ function pushChoices(raw: unknown, into: RulesBuilderFieldChoice[], seen: Set<st
 // The value a rule stores for each authored choice (see SectionFieldEntry).
 function questionStoredChoicesOf(node: unknown): Array<{ label: string; stored: string | number | boolean }> {
   if (node === null || typeof node !== "object") return [];
+  // A Yes / No question has no choices array: its two answers are the
+  // authored yesLabel / noLabel ("I own" / "I rent") and record true / false.
+  if ((node as { type?: unknown }).type === "TwoButtonYesNo") {
+    const props = (node as { props?: unknown }).props;
+    const p = props !== null && typeof props === "object" ? (props as Record<string, unknown>) : {};
+    const word = (v: unknown, fallback: string): string => (typeof v === "string" && v.trim() !== "" ? v.trim() : fallback);
+    return [{ label: word(p["yesLabel"], "Yes"), stored: true }, { label: word(p["noLabel"], "No"), stored: false }];
+  }
   const answerType = (node as { answer_type?: unknown }).answer_type;
   const lists: unknown[] = [(node as { choices?: unknown }).choices];
   const props = (node as { props?: unknown }).props;
@@ -1453,9 +1467,43 @@ function derivedSubFieldLabel(
 // Neither records an answer (both are wrapper hydration attributes — measured
 // above), so a rule written against one could never fire; offering it is the
 // over-claim that produced the "can never apply" report in the first place.
+// PM follow-up (rules builder): the Question headline each question is asked
+// under. A headline names the questions after it at ITS level and inside the
+// containers that follow it there — never anything outside its own container
+// (a headline in a grid or in one column does not name the question after the
+// grid or in the next column). Columns / GridContainer lay their DIRECT
+// children out as separate cells, so each cell is its own scope there.
+const CELL_LAYOUTS: ReadonlySet<string> = new Set(["Columns", "GridContainer"]);
+function headlinesOfLeaves(nodes: readonly LeadgenComponentNode[]): Map<LeadgenComponentNode, string | null> {
+  const out = new Map<LeadgenComponentNode, string | null>();
+  const walk = (level: readonly LeadgenComponentNode[], inherited: string | null): void => {
+    let current = inherited;
+    for (const node of level) {
+      if (node === null || typeof node !== "object") continue;
+      const type = (node as { type?: unknown }).type;
+      if (type === "QuestionHeadline") {
+        const text = (node as { props?: { text?: unknown } }).props?.text;
+        current = typeof text === "string" && text.trim() !== "" ? text.trim() : current;
+      } else if (isChildrenBearingType(type)) {
+        const children = (node as { children?: unknown }).children;
+        if (!Array.isArray(children)) continue;
+        if (typeof type === "string" && CELL_LAYOUTS.has(type)) {
+          for (const cell of children as LeadgenComponentNode[]) walk([cell], current);
+        } else {
+          walk(children as LeadgenComponentNode[], current);
+        }
+      } else {
+        out.set(node, current);
+      }
+    }
+  };
+  walk(nodes, null);
+  return out;
+}
 function sectionAnswerFieldEntries(components: readonly unknown[]): SectionFieldEntry[] {
   const nodes = components as readonly LeadgenComponentNode[];
   const claims = collectAnswerKeyClaims(nodes);
+  const headlines = headlinesOfLeaves(nodes);
   const out: SectionFieldEntry[] = [];
   for (const leaf of flattenComponents(nodes)) {
     if (leaf === null || typeof leaf !== "object") continue;
@@ -1475,6 +1523,8 @@ function sectionAnswerFieldEntries(components: readonly unknown[]): SectionField
               choices: questionChoicesOf(leaf),
               stored_choices: questionStoredChoicesOf(leaf),
               answer_type: typeof (leaf as { answer_type?: unknown }).answer_type === "string" ? ((leaf as { answer_type: string }).answer_type) : null,
+              headline: headlines.get(leaf) ?? null,
+              component_type: typeof (leaf as { type?: unknown }).type === "string" ? ((leaf as { type: string }).type) : null,
             }
           : {
               internal_field: spec.field,

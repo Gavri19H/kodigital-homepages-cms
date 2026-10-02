@@ -969,6 +969,34 @@ describeDb("leadgen auctions API — Tier-level rules + lgo_ targets (0063)", ()
       expect(bad.status, JSON.stringify(body)).toBe(400);
       expect(((await bad.json()) as { fields: Record<string, string> }).fields[field] ?? "", JSON.stringify(body)).toContain(text);
     }
+    // PM follow-up 2026-10-02: a Tier-level rule has ONE group — its errors
+    // never borrow the waterfall's "remove the tier"; the action error names
+    // the actions in the form's words.
+    const empty = await post({ rule_level: "tier", action: "include_only", tier_offer_ids: [], conditions_json: { groups: [] } });
+    const emptyFields = ((await empty.json()) as { fields: Record<string, string> }).fields;
+    expect(emptyFields["tier_offer_ids"]).toBe("a tier-level rule needs at least one offer: tick one");
+    const wf = await post({ rule_level: "tier", action: "waterfall", traffic_share_pct: 10, tier_offer_ids: [offers[0]!.offer_id], conditions_json: { groups: [] } });
+    const wfAction = ((await wf.json()) as { fields: Record<string, string> }).fields["action"] ?? "";
+    expect(wfAction).toContain("(Show only)");
+    expect(wfAction).not.toContain("include_only");
+    // confirmation review m3: an offer ticked twice in the one group
+    const twice = await post({ rule_level: "tier", action: "include_only", tier_offer_ids: [offers[0]!.offer_id, offers[0]!.offer_id], conditions_json: { groups: [] } });
+    expect(((await twice.json()) as { fields: Record<string, string> }).fields["tier_offer_ids"]).toBe(`offer ${offers[0]!.offer_id} is ticked twice`);
+  });
+
+  // PM follow-up (review m1): an empty date picker used to save "Date is 0".
+  it("a Date / Time of day condition must name a real date / time", async () => {
+    const { post, offers } = await setup(1);
+    const target = offers[0]!.offer_id;
+    const bad = await post({ rule_level: "offer", action: "exclude", target_offer_id: target, conditions_json: { groups: [{ field: "date_et", op: "eq", value: 0 }] } });
+    expect(bad.status).toBe(400);
+    expect(((await bad.json()) as { fields: Record<string, string> }).fields["conditions_json"]).toBe("Date (US Eastern): pick a date");
+    const badTime = await post({ rule_level: "offer", action: "exclude", target_offer_id: target, conditions_json: { groups: [{ field: "time_et", op: "range", from: 930, to: 2400 }] } });
+    expect(((await badTime.json()) as { fields: Record<string, string> }).fields["conditions_json"]).toBe("Time of day (US Eastern): pick a time");
+    const emptyList = await post({ rule_level: "offer", action: "exclude", target_offer_id: target, conditions_json: { groups: [{ field: "date_et", op: "in", values: [] }] } });
+    expect(((await emptyList.json()) as { fields: Record<string, string> }).fields["conditions_json"]).toBe("Date (US Eastern): pick a date");
+    const ok = await post({ rule_level: "offer", action: "exclude", target_offer_id: target, conditions_json: { groups: [{ field: "date_et", op: "eq", value: 20261001 }, { field: "time_et", op: "range", from: 0, to: 930 }] } });
+    expect(ok.status, await ok.clone().text()).toBe(201);
   });
 
   it("a Tier-level rule clashes only on its own offers: same-priority strictly opposing rules on a SHARED offer → 409", async () => {

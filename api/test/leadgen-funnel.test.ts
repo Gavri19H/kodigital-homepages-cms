@@ -190,6 +190,28 @@ describe("validateFunnelRule — §15.5 redirect safety", () => {
 // allowlist bypass). Contract 04 §10.5: a raw redirect_url MUST be an absolute
 // http(s) URL — a non-http(s) scheme (or an empty host) can NEVER validate,
 // regardless of the allowlist flag or contents.
+// PM follow-up (review m1, 2026-10-02): an empty date picker stored 0 and the
+// rule saved — "Date is 0", never matching. A Date / Time condition must name
+// a real date / time; 0:00 is a real time.
+describe("validateFunnelRule — Date / Time of day conditions name a real date / time", () => {
+  const rule = (groups: unknown[]): FunnelRuleInput => ({ rule_type: "eligibility", conditions_json: { groups } as FunnelRuleInput["conditions_json"] });
+  const messages = (groups: unknown[]): string[] => validateFunnelRule(rule(groups), ALLOWLIST).errors.map((e) => e.message);
+  it("refuses an empty / impossible date or time, accepts real ones (0:00 included)", () => {
+    expect(messages([{ field: "date_et", op: "eq", value: 0 }])).toContain("Date (US Eastern): pick a date");
+    expect(messages([{ field: "date_et", op: "range", from: 20261001, to: 0 }])).toContain("Date (US Eastern): pick a date");
+    expect(messages([{ field: "date_et", op: "eq", value: 20260231 }])).toContain("Date (US Eastern): pick a date"); // 31 Feb
+    expect(messages([{ field: "date_et", op: "in", values: [20261001, 2026101] }])).toContain("Date (US Eastern): pick a date");
+    // confirmation review N1: a list with nothing picked
+    expect(messages([{ field: "date_et", op: "in", values: [] }])).toContain("Date (US Eastern): pick a date");
+    expect(messages([{ field: "time_et", op: "not_in", values: [] }])).toContain("Time of day (US Eastern): pick a time");
+    expect(messages([{ field: "time_et", op: "eq", value: 2460 }])).toContain("Time of day (US Eastern): pick a time");
+    expect(messages([{ field: "time_et", op: "gte", value: 975 }])).toContain("Time of day (US Eastern): pick a time"); // 9:75
+    expect(validateFunnelRule(rule([{ field: "date_et", op: "eq", value: 20261001 }, { field: "time_et", op: "range", from: 0, to: 2359 }]), ALLOWLIST).ok).toBe(true);
+    expect(validateFunnelRule(rule([{ field: "date_et", op: "eq", value: 20280229 }]), ALLOWLIST).ok).toBe(true); // a leap day
+    expect(validateFunnelRule(rule([{ field: "hour_et", op: "eq", value: 0 }]), ALLOWLIST).ok).toBe(true); // other fields untouched
+  });
+});
+
 describe("validateFunnelRule — §10.5 non-http(s) redirect scheme guard (B2)", () => {
   const NON_HTTP = [
     "javascript:alert(1)",

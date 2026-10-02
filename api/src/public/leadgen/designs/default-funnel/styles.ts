@@ -2354,6 +2354,12 @@ export function funnelChromeCss(
     rule(`${scope} .lg-no-match-text`, { margin: "0", "font-size": "1.125rem", color: headline.color }),
     rule(`${scope} .lg-no-match-subtext`, { margin: "0", "font-size": "0.875rem", color: subheadline.color }),
     rule(`${scope}[data-lg-auction="unfilled"] .lg-no-match`, { display: "flex" }),
+    // PM follow-up (2026-10-02): the results page is the end of the funnel —
+    // the auction runs once per visit (engine finalize), so Back from it led to
+    // a question page with the old results still under it and nothing to
+    // submit. showCompletionState stamps data-lg-complete; (0,4,0) outranks
+    // every frame Back style.
+    rule(`${scope}[data-lg-complete="1"] .lg-back[data-lg-back]`, { display: "none" }),
     rule(`${scope} .lg-banner`, {
       border: banner.cardBorder,
       "border-radius": banner.cardRadius,

@@ -1150,6 +1150,8 @@ const NO_MATCH_RULES = [
   `\n${DEFAULT_FUNNEL_SCOPE} .lg-no-match-text{margin:0;font-size:1.125rem;color:#16324f}`,
   `\n${DEFAULT_FUNNEL_SCOPE} .lg-no-match-subtext{margin:0;font-size:0.875rem;color:#63707F}`,
   `\n${DEFAULT_FUNNEL_SCOPE}[data-lg-auction="unfilled"] .lg-no-match{display:flex}`,
+  // PM follow-up 2026-10-02: no Back on the results page
+  `\n${DEFAULT_FUNNEL_SCOPE}[data-lg-complete="1"] .lg-back[data-lg-back]{display:none}`,
 ];
 
 // Legacy plain body: unbound headline + icon grid + ONE continue — a realistic
@@ -1404,7 +1406,7 @@ function assertPinnedResponse(actualText: string, fixtureText: string): void {
   );
   expect(
     cssMinusReducedMotion,
-    "preview.css modulo the DEV-57 + DEV-68 moved rules + the R5 state-safe-border + R5 D11 typography rule bodies + the P1a layout system + the P3a structured-placement (.lg-el/.lg-el-row) rules + the Round-4 P1b studio/preview affordances (ghost/address-composite/mqg-empty) + the R2 P4 §6.8 slider anatomy rules + the R2 P5 F7 address-field-label/Other-select rules + the R2 P8-6 from_to max-rail hit-area clip rule + the not-picked-yet card-image slot rule + the buffering-screen rules + the no-match rules + the reduced-motion ring query",
+    "preview.css modulo the DEV-57 + DEV-68 moved rules + the R5 state-safe-border + R5 D11 typography rule bodies + the P1a layout system + the P3a structured-placement (.lg-el/.lg-el-row) rules + the Round-4 P1b studio/preview affordances (ghost/address-composite/mqg-empty) + the R2 P4 §6.8 slider anatomy rules + the R2 P5 F7 address-field-label/Other-select rules + the R2 P8-6 from_to max-rail hit-area clip rule + the not-picked-yet card-image slot rule + the buffering-screen rules + the no-match rules + the results-page Back rule + the reduced-motion ring query",
   ).toBe(expectedPreview["css"]);
   // and the live producer still owns the string (the sections-api :863 idiom).
   expect(actualPreview["css"]).toBe(funnelChromeCss(getFunnelDesign(null)));

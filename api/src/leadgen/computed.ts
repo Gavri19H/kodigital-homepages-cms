@@ -66,8 +66,10 @@ const EASTERN_TZ = "America/New_York";
 // OWNER 2026-10-01 (rules on Date / Time of day): the ONE clock auction and
 // funnel rules test, US Eastern (owner ruling). date_et is YYYYMMDD as a
 // number so "between" / "greater than" work; hour_et is 0–23; weekday_et is a
-// lowercase English day name.
-export function easternRuleClock(nowMs: number): { date_et: number; hour_et: number; weekday_et: string } {
+// lowercase English day name. time_et (PM follow-up: "Time of day" with
+// minutes) is HHMM as a number — 930 is 9:30, 1745 is 17:45 — so "between 930
+// and 1700" works; Eastern offsets are whole hours, so its minute is UTC's.
+export function easternRuleClock(nowMs: number): { date_et: number; hour_et: number; time_et: number; weekday_et: string } {
   const at = new Date(nowMs);
   let date = Number(at.toISOString().slice(0, 10).replace(/-/g, ""));
   try {
@@ -78,7 +80,49 @@ export function easternRuleClock(nowMs: number): { date_et: number; hour_et: num
   } catch {
     /* UTC date above */
   }
-  return { date_et: date, hour_et: hourInTimezone(EASTERN_TZ, at), weekday_et: dayOfWeekInTimezone(EASTERN_TZ, at) };
+  const hour = hourInTimezone(EASTERN_TZ, at);
+  return { date_et: date, hour_et: hour, time_et: hour * 100 + at.getUTCMinutes(), weekday_et: dayOfWeekInTimezone(EASTERN_TZ, at) };
+}
+
+// PM follow-up (review m1): a Date / Time of day condition must name a real
+// date / time. An empty date picker stored 0, which saved a rule that could
+// never match ("Date is 0"). 0 is a real time (0:00); the "is empty" sugar
+// (value "") is left to the generic checks.
+export function ruleClockConditionError(group: {
+  field?: unknown;
+  op?: unknown;
+  value?: unknown;
+  values?: unknown;
+  from?: unknown;
+  to?: unknown;
+}): string | null {
+  const field = group.field;
+  if (field !== "date_et" && field !== "time_et") return null;
+  const op = group.op;
+  const values: unknown[] =
+    op === "range" ? [group.from, group.to] : op === "in" || op === "not_in" ? (Array.isArray(group.values) ? group.values : []) : [group.value];
+  // a list with no dates / times picked never matches either (confirmation review N1)
+  if ((op === "in" || op === "not_in") && values.length === 0) {
+    return field === "date_et" ? "Date (US Eastern): pick a date" : "Time of day (US Eastern): pick a time";
+  }
+  for (const n of values) {
+    if (n === "") continue;
+    if (field === "date_et" ? !isRuleDate(n) : !isRuleTime(n)) {
+      return field === "date_et" ? "Date (US Eastern): pick a date" : "Time of day (US Eastern): pick a time";
+    }
+  }
+  return null;
+}
+function isRuleDate(n: unknown): boolean {
+  if (typeof n !== "number" || !Number.isInteger(n)) return false;
+  const y = Math.floor(n / 10000);
+  const m = Math.floor(n / 100) % 100;
+  const d = n % 100;
+  if (y < 2000 || y > 2100 || m < 1 || m > 12 || d < 1) return false;
+  return d <= new Date(Date.UTC(y, m, 0)).getUTCDate();
+}
+function isRuleTime(n: unknown): boolean {
+  return typeof n === "number" && Number.isInteger(n) && n >= 0 && n <= 2359 && n % 100 < 60;
 }
 
 // Shared resolver bodies for the contract's alias rows (unix_timestamp is an

@@ -207,7 +207,10 @@ export function listicleCandidateKey(
 // a no-match block the auction's "unfilled" state reveals (ineligible /
 // disqualified / nothing matched) — shell markup + CSS changed, so the version
 // moves for the same 304 reason as v6. Engine bytes change only by the version.
-export const LEADGEN_TEMPLATE_VERSION = 7 as const;
+// v8 (2026-10-02, PM follow-up): shell CSS hides Back on the results page —
+// CSS only, same 304 reason; runtime "8" tracks it (bundle bytes change only by
+// the version string).
+export const LEADGEN_TEMPLATE_VERSION = 8 as const;
 
 const NS_LG_SHELL = "lg-shell";
 const NS_LG_CONFIG = "lg-config";
