@@ -36,26 +36,46 @@ function asText(raw: unknown): string {
   return "";
 }
 
+// Fix round 1 (review m2): a contact value is capped to 254 characters (an
+// email address's maximum) before any pattern runs on it — here and in the
+// funnel shell's browser normaliser alike, so both halves hash the same text.
+// (A free-text answer the operator marked personal — kind "text" — is hashed
+// whole: it is never matched against a pattern.)
+const META_VALUE_MAX_CHARS = 254;
+function contactText(raw: unknown): string {
+  return asText(raw).slice(0, META_VALUE_MAX_CHARS);
+}
+
 // email: trim + lowercase.
 export function normalizeMetaEmail(raw: unknown): string {
-  return asText(raw).trim().toLowerCase();
+  return contactText(raw).trim().toLowerCase();
 }
 
-// phone: digits only; a 10-digit (US national) number gets the leading 1.
+// phone (Meta's rule — the funnel shell's browser normaliser does the SAME,
+// serve.ts metaPixelShellScript `norm`): digits only; leading zeros (an
+// international "00" prefix included) stripped; a 10-digit number (US
+// national) gets the leading 1. Fewer than 7 digits is not a phone number ⇒ "".
 export function normalizeMetaPhone(raw: unknown): string {
-  const digits = asText(raw).replace(/[^0-9]/g, "");
-  if (digits.length === 10) return `1${digits}`;
-  return digits;
+  let digits = contactText(raw).replace(/[^0-9]/g, "").replace(/^0+/, "");
+  if (digits.length === 10) digits = `1${digits}`;
+  return digits.length >= 7 ? digits : "";
 }
 
-// first / last name: lowercase, trimmed.
+// Any character that is not a Unicode letter (punctuation, spaces, digits,
+// combining marks, symbols).
+const NON_LETTER_RE = /[^\p{L}]/gu;
+
+// first / last name (Meta's rule — the browser normaliser does the SAME):
+// lowercase letters only. Unicode letters are kept ("Zoë" → "zoë"), everything
+// else — punctuation, spaces, digits — is removed ("Mary-Jane O'Neil" →
+// "maryjaneoneil").
 export function normalizeMetaName(raw: unknown): string {
-  return asText(raw).trim().toLowerCase();
+  return contactText(raw).toLowerCase().replace(NON_LETTER_RE, "");
 }
 
 // street line: lowercase, trimmed.
 export function normalizeMetaStreet(raw: unknown): string {
-  return asText(raw).trim().toLowerCase();
+  return contactText(raw).trim().toLowerCase();
 }
 
 function pad2(n: number): string {
@@ -76,7 +96,7 @@ const DOB_COMPACT = /^(\d{4})(\d{2})(\d{2})$/;
 // (ISO YYYY-MM-DD[...], YYYY/MM/DD, MM/DD/YYYY, MM-DD-YYYY, YYYYMMDD). An
 // unparseable value normalises to "" (never a guessed date).
 export function normalizeMetaDob(raw: unknown): string {
-  const s = asText(raw).trim();
+  const s = contactText(raw).trim();
   let m = s.match(DOB_YMD);
   if (m !== null) return validYmd(Number(m[1]), Number(m[2]), Number(m[3]));
   m = s.match(DOB_MDY);
@@ -88,7 +108,7 @@ export function normalizeMetaDob(raw: unknown): string {
 
 // city: lowercase letters only.
 export function normalizeMetaCity(raw: unknown): string {
-  return asText(raw).toLowerCase().replace(/[^a-z]/g, "");
+  return contactText(raw).toLowerCase().replace(/[^a-z]/g, "");
 }
 
 const US_STATE_CODES: Readonly<Record<string, string>> = {
@@ -107,20 +127,20 @@ const US_STATE_CODES: Readonly<Record<string, string>> = {
 // state: the 2-letter code, lowercase. A full US state name maps to its code;
 // anything else that is not exactly two letters normalises to "".
 export function normalizeMetaState(raw: unknown): string {
-  const letters = asText(raw).toLowerCase().replace(/[^a-z]/g, "");
+  const letters = contactText(raw).toLowerCase().replace(/[^a-z]/g, "");
   if (letters.length === 2) return letters;
   return US_STATE_CODES[letters] ?? "";
 }
 
 // zip: the first 5 digits ("" when fewer than 5).
 export function normalizeMetaZip(raw: unknown): string {
-  const digits = asText(raw).replace(/[^0-9]/g, "");
+  const digits = contactText(raw).replace(/[^0-9]/g, "");
   return digits.length >= 5 ? digits.slice(0, 5) : "";
 }
 
 // country: 2-letter lowercase ISO code.
 export function normalizeMetaCountry(raw: unknown): string {
-  const letters = asText(raw).toLowerCase().replace(/[^a-z]/g, "");
+  const letters = contactText(raw).toLowerCase().replace(/[^a-z]/g, "");
   return letters.length === 2 ? letters : "";
 }
 
@@ -149,6 +169,66 @@ export function normalizeMetaValue(kind: MetaContactKind, raw: unknown): string 
     case "text":
       return asText(raw).trim().toLowerCase();
   }
+}
+
+// ---------------------------------------------------------------------------
+// The ONE answer-key → Meta-key list (fix round 1, review M1)
+// ---------------------------------------------------------------------------
+
+// A funnel answer whose internal field NAME says what contact detail it holds
+// (a free-text "email" box, an answer keyed "telephone", ...). Used by: the
+// Athena enrichment (leadgen-enrich.ts — such a free-text answer is hashed),
+// the auction's hashed Meta user data (leadgen-enrich.ts
+// buildAuctionMetaUserData) and the funnel shell's browser field map
+// (serve.ts metaMatchFieldMap). One list, so the three never disagree.
+// The Meta keys a field name can stand for (every user_data key but country).
+export type MetaContactFieldKey = Exclude<MetaUserDataKey, "country">;
+
+export const META_CONTACT_FIELD_PATTERNS: ReadonlyArray<readonly [RegExp, MetaContactFieldKey]> = [
+  [/^e_?mail(_?address)?$/i, "em"],
+  [/^(phone|phone_?number|telephone|mobile|mobile_?phone|cell|cell_?phone)$/i, "ph"],
+  [/^(first_?name|fname|given_name)$/i, "fn"],
+  [/^(last_?name|lname|surname|family_name)$/i, "ln"],
+  [/^(dob|date_of_birth|birth_?date|birthday)$/i, "db"],
+  [/^(zip|zip_?code|postal_?code)$/i, "zp"],
+  [/^city$/i, "ct"],
+  [/^state$/i, "st"],
+];
+
+// The Meta key an answer's internal field name stands for, or null.
+export function metaKeyForFieldName(field: unknown): MetaContactFieldKey | null {
+  if (typeof field !== "string") return null;
+  const name = field.trim();
+  if (name === "" || name.length > 64) return null;
+  for (const [re, key] of META_CONTACT_FIELD_PATTERNS) {
+    if (re.test(name)) return key;
+  }
+  return null;
+}
+
+// ---------------------------------------------------------------------------
+// Contact-value sniff (fix round 1, review M1 + m2)
+// ---------------------------------------------------------------------------
+
+// Values are capped to this many characters BEFORE any regex runs (an email
+// address is at most 254 characters), so no answer — however long — can make
+// a pattern below run long. Both patterns are linear: the email one has a
+// single way to split (labels exclude "."), the phone one is a bounded class.
+export const META_SNIFF_MAX_CHARS = META_VALUE_MAX_CHARS;
+const EMAIL_SNIFF_RE = /^[^\s@]+@[^\s@.]+(?:\.[^\s@.]+)+$/;
+const PHONE_SNIFF_RE = /^[+()\-.\s\d]{7,24}$/;
+
+// What a typed value LOOKS like, whatever question it answered: an email
+// address, a phone number (10 or 11 digits), or neither (null).
+export function sniffMetaContactKind(value: unknown): "em" | "ph" | null {
+  const v = asText(value).trim().slice(0, META_SNIFF_MAX_CHARS);
+  if (v === "") return null;
+  if (EMAIL_SNIFF_RE.test(v)) return "em";
+  if (PHONE_SNIFF_RE.test(v)) {
+    const digits = v.replace(/[^0-9]/g, "").length;
+    if (digits === 10 || digits === 11) return "ph";
+  }
+  return null;
 }
 
 // SHA-256 of the Meta-normalised value; "" when the value normalises to "".

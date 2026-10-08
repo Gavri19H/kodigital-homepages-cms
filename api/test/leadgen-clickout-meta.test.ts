@@ -384,12 +384,13 @@ describeDb("sendClickoutMetaConversion — what reaches Meta", () => {
     const f = stubFetch();
     const out = await sendClickoutMetaConversion(h.env, h.env.DB, offerRow(h.sdb, offerPublicId), click(), { now: 1790500000123 });
 
-    // 0064: no saved event name ⇒ Purchase (R2); the event id is the click's
+    // FIX-R1 m4: no saved event name ⇒ the type default — this is a CPL offer,
+    // so Lead (a CPC offer sends Purchase, R2); the event id is the click's
     // own ('lgc_' + click id) when the link carried no browser-minted `eid`.
     expect(out).toEqual({
       status: "fired",
       dataset_id: DATASET,
-      event_name: "Purchase",
+      event_name: "Lead",
       event_id: "lgc_lgl_01TESTCLICK",
       http_status: 200,
       events_received: 1,
@@ -406,7 +407,7 @@ describeDb("sendClickoutMetaConversion — what reaches Meta", () => {
     expect(body.test_event_code).toBe("TEST34567");
     expect(body.data).toHaveLength(1);
     expect(body.data[0]).toEqual({
-      event_name: "Purchase",
+      event_name: "Lead",
       event_time: 1790500000,
       event_id: "lgc_lgl_01TESTCLICK",
       action_source: "website",
@@ -429,7 +430,7 @@ describeDb("sendClickoutMetaConversion — what reaches Meta", () => {
     await sendClickoutMetaConversion(h.env, h.env.DB, offerRow(h.sdb, offerPublicId), click(), { now: 1790500000123 });
     expect(lastOutcome(h.sdb, offerPublicId)).toEqual({
       status: "fired",
-      detail: `Sent to Meta dataset ${DATASET}: Purchase, Meta accepted 1 event.`,
+      detail: `Sent to Meta dataset ${DATASET}: Lead, Meta accepted 1 event.`,
       at: 1790500000,
     });
   });
@@ -716,7 +717,7 @@ describeDb("GET /lg/lc — a static offer's clickout sends Meta a media signal",
     const body = JSON.parse(String(f.metaCalls()[0]!.init?.body)) as {
       data: Array<{ event_name: string; event_id: string; event_source_url: string; user_data: Record<string, unknown> }>;
     };
-    expect(body.data[0]!.event_name).toBe("Purchase");
+    expect(body.data[0]!.event_name).toBe("Lead"); // FIX-R1 m4: CPL, no saved name
     // No `eid` on the link ⇒ the server names the event after the click it minted.
     const clickId = new URL(res.headers.get("Location")!).searchParams.get("cid");
     expect(body.data[0]!.event_id).toBe(`lgc_${clickId}`);
@@ -931,7 +932,6 @@ describeDb("Offer editor — the control, its copy, and what it can honestly say
     expect(box).toContain("Fire a Facebook event on every click of this offer");
     expect(box).toContain("in the visitor's browser (the Facebook pixel) AND sends the same event from the server");
     expect(box).toContain("the click's bid × the multiplier below, or the fixed value");
-    expect(box).toContain("not configured in, and does not use, Admin → Conversions");
     expect(box).not.toContain("at most once per funnel visit per offer");
     expect(box).toContain('name="clickout_meta_value_multiplier"');
     expect(box).toContain('name="clickout_meta_dataset_id"');
@@ -951,12 +951,37 @@ describeDb("Offer editor — the control, its copy, and what it can honestly say
     expect(box).not.toContain("not used for optimisation");
   });
 
-  it("0064: provider-request offer — the control is visible too; a newly enabled offer defaults to Purchase", async () => {
+  it("0064: provider-request offer — the control is visible too; FIX-R1 m4: a newly enabled offer's default event follows its type (this CPL offer: Lead; a CPC offer: Purchase); a saved name is kept", async () => {
     const h = newHarness();
     const { offerPublicId } = seedOffer(h.sdb, { static: false, clickout: 0 });
     const box = fieldset(await editorHtml(h, offerPublicId));
     expect(box.slice(0, box.indexOf(">"))).not.toContain("hidden");
-    expect(box).toContain('<option value="Purchase" selected>Purchase (default)</option>');
+    expect(box).toContain('<option value="Lead" selected>Lead (default)</option>');
+    expect(box).toContain('data-lg-clickout-event-saved="0"');
+
+    const cpc = seedOffer(h.sdb, { static: false, clickout: 0 });
+    h.sdb.prepare("UPDATE leadgen_offers SET offer_type = 'cpc' WHERE public_id = ?").run(cpc.offerPublicId);
+    const cpcBox = fieldset(await editorHtml(h, cpc.offerPublicId));
+    expect(cpcBox).toContain('<option value="Purchase" selected>Purchase (default)</option>');
+
+    const saved = seedOffer(h.sdb, { eventName: "Contact" });
+    const savedBox = fieldset(await editorHtml(h, saved.offerPublicId));
+    expect(savedBox).toContain('<option value="Contact" selected>Contact</option>');
+    expect(savedBox).toContain('data-lg-clickout-event-saved="1"');
+    // the editor island keeps an unsaved event in step with the type picker
+    const html = await editorHtml(h, offerPublicId);
+    expect(html).toContain("clickoutEvent.value = (t === 'cpl' || t === 'cpa' || t === 'cpi') ? 'Lead' : 'Purchase';");
+  });
+
+  it("FIX-R1 B1: the help text says every CPC click is booked as revenue whatever the switch says; the switch controls only the Facebook event", async () => {
+    const h = newHarness();
+    const { offerPublicId } = seedOffer(h.sdb);
+    const box = fieldset(await editorHtml(h, offerPublicId));
+    expect(box).toContain("every click of a CPC offer is booked as revenue (in the dashboard and in LeadGen reporting) whether this is on or off");
+    expect(box).toContain("This switch only controls the Facebook event.");
+    expect(box).not.toContain("media signal");
+    expect(box).not.toContain("not a conversion here");
+    expect(box).not.toContain("does not use, Admin → Conversions");
   });
 
   it("token installed: says exactly that — never 'Connected' — and the token is never on the page", async () => {
@@ -984,6 +1009,6 @@ describeDb("Offer editor — the control, its copy, and what it can honestly say
     vi.restoreAllMocks();
     const box = fieldset(await editorHtml(h, offerPublicId));
     expect(box).toContain('data-lg-clickout-meta-last="fired"');
-    expect(box).toContain(`Sent to Meta dataset ${DATASET}: Purchase, Meta accepted 1 event.`);
+    expect(box).toContain(`Sent to Meta dataset ${DATASET}: Lead, Meta accepted 1 event.`); // CPL ⇒ Lead (FIX-R1 m4)
   });
 });

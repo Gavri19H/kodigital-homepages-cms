@@ -46,8 +46,8 @@ import {
 } from "../../leadgen/validation";
 import { inferSchemaFromExample } from "../../leadgen/payload";
 import {
-  CLICKOUT_META_DEFAULT_EVENT,
   CLICKOUT_META_EVENT_NAMES,
+  clickoutMetaDefaultEvent,
   resolveClickoutMetaToken,
 } from "../../leadgen/clickout-meta";
 import {
@@ -1832,17 +1832,23 @@ function fmtUnixUtc(seconds: number): string {
 // (the funnel shell's pixel) AND from the server (clickout-meta.ts) with one
 // shared event id, on every click, value = the click's bid x the multiplier or
 // a fixed value. Existing rows keep their saved event name; a newly enabled
-// Offer defaults to Purchase.
+// Offer defaults by its type (fix round 1, review m4): CPC → Purchase,
+// CPL / CPA / CPI → Lead — server-rendered here, kept in step with the type
+// picker by the editor island until the operator picks an event themselves.
+// Fix round 1 (review B1): the help text says plainly that every CPC click is
+// booked as revenue whatever this switch says — the switch is Facebook only.
 function renderClickoutMetaFieldset(o: OfferDetail, status: ClickoutMetaStatusView): string {
   const on = o.clickout_meta_conversion === true;
   const multiplier =
     typeof o.clickout_meta_value_multiplier === "number" && Number.isFinite(o.clickout_meta_value_multiplier)
       ? o.clickout_meta_value_multiplier
       : 1;
-  const current = o.clickout_meta_event_name ?? CLICKOUT_META_DEFAULT_EVENT;
+  const saved = o.clickout_meta_event_name ?? null;
+  const typeDefault = clickoutMetaDefaultEvent(o.offer_type);
+  const current = saved ?? typeDefault;
   const eventOptions = CLICKOUT_META_EVENT_NAMES.map((name) => {
     const selected = name === current ? " selected" : "";
-    const label = name === CLICKOUT_META_DEFAULT_EVENT ? `${name} (default)` : name;
+    const label = name === typeDefault ? `${name} (default)` : name;
     return `<option value="${name}"${selected}>${escapeHtml(label)}</option>`;
   }).join("");
   const tokenLine = status.token_installed
@@ -1856,7 +1862,8 @@ function renderClickoutMetaFieldset(o: OfferDetail, status: ClickoutMetaStatusVi
   return `<fieldset class="form-group lg-clickout-meta" data-lg-clickout-meta>
       <legend class="form-label">Facebook (Meta) event on every click</legend>
       <label class="form-label lg-radio" for="lg-edit-clickout-meta"><input id="lg-edit-clickout-meta" type="checkbox" name="clickout_meta_conversion" value="1"${on ? " checked" : ""} /> Fire a Facebook event on every click of this offer</label>
-      <span class="form-help">Every time a visitor clicks this offer's banner, LeadGen fires one Facebook event in the visitor's browser (the Facebook pixel) AND sends the same event from the server (Conversions API), with one shared event ID so Facebook counts it once. The value is the click's bid × the multiplier below, or the fixed value if you set one. It is a media signal for Facebook only: it is not a conversion here. Off by default. This is a LeadGen offer setting — it is not configured in, and does not use, Admin → Conversions.</span>
+      <span class="form-help">Every time a visitor clicks this offer's banner, LeadGen fires one Facebook event in the visitor's browser (the Facebook pixel) AND sends the same event from the server (Conversions API), with one shared event ID so Facebook counts it once. The value is the click's bid × the multiplier below, or the fixed value if you set one. Off by default.</span>
+      <span class="form-help">Revenue does not depend on this switch: every click of a CPC offer is booked as revenue (in the dashboard and in LeadGen reporting) whether this is on or off. This switch only controls the Facebook event.</span>
       ${fieldError("clickout_meta_conversion")}
       <div class="lg-clickout-meta-detail" data-lg-clickout-meta-detail${on ? "" : " hidden"}>
         <div class="form-group">
@@ -1866,7 +1873,7 @@ function renderClickoutMetaFieldset(o: OfferDetail, status: ClickoutMetaStatusVi
         </div>
         <div class="form-group">
           <label for="lg-edit-clickout-meta-event" class="form-label">Meta event</label>
-          <select id="lg-edit-clickout-meta-event" name="clickout_meta_event_name" class="form-select">${eventOptions}</select>
+          <select id="lg-edit-clickout-meta-event" name="clickout_meta_event_name" class="form-select" data-lg-clickout-event-saved="${saved !== null ? "1" : "0"}">${eventOptions}</select>
           ${fieldError("clickout_meta_event_name")}
         </div>
         <div class="form-group">
@@ -2510,9 +2517,21 @@ const LG_EDITOR_SCRIPT = `
     var toggle = form.querySelector('[name="clickout_meta_conversion"]');
     if (detail) { detail.hidden = !(toggle && toggle.checked); }
   }
+  // Fix round 1 (review m4): with no saved event, the event follows the offer
+  // type (CPC Purchase; CPL/CPA/CPI Lead) until the operator picks one.
+  var clickoutEvent = form.querySelector('[name="clickout_meta_event_name"]');
+  var clickoutEventPicked = !clickoutEvent || clickoutEvent.getAttribute('data-lg-clickout-event-saved') === '1';
+  function applyClickoutMetaDefaultEvent() {
+    if (clickoutEventPicked || !clickoutEvent) { return; }
+    var typeSel = form.querySelector('[name="offer_type"]');
+    var t = typeSel ? typeSel.value : '';
+    clickoutEvent.value = (t === 'cpl' || t === 'cpa' || t === 'cpi') ? 'Lead' : 'Purchase';
+  }
   form.addEventListener('change', function (e) {
     if (e.target && e.target.name === 'auction_mode') { applyModeVisibility(); }
-    if (e.target && e.target.name === 'clickout_meta_conversion') { applyClickoutMetaVisibility(); }
+    if (e.target && e.target.name === 'clickout_meta_conversion') { applyClickoutMetaVisibility(); applyClickoutMetaDefaultEvent(); }
+    if (e.target && e.target.name === 'offer_type') { applyClickoutMetaDefaultEvent(); }
+    if (e.target && e.target.name === 'clickout_meta_event_name') { clickoutEventPicked = true; }
   });
   window.lgEditorTabs = { activate: activateTab };
 

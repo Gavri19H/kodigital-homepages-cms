@@ -1199,7 +1199,9 @@ function collectScalarUpdates(body: Record<string, unknown>, errors: FieldErrors
     }
   }
   // 0058: the Meta event name is a closed list (Meta standard events); null /
-  // "" means the default (0064: Purchase). The fixed value is optional — null
+  // "" means the default by offer type (fix round 1, review m4 — clickout-meta.ts
+  // clickoutMetaDefaultEvent: CPC Purchase, CPL/CPA/CPI Lead), resolved at send
+  // time, so a saved name is never rewritten. The fixed value is optional — null
   // means "use the click's bid x the multiplier" (clickout-meta.ts
   // clickoutMetaValue).
   if (body["clickout_meta_event_name"] !== undefined) {

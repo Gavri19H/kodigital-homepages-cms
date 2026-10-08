@@ -23,6 +23,7 @@ import {
   buildAuctionMetaUserData,
   buildSectionFacts,
   answerWordsFor,
+  enrichTrackEvents,
   resetLeadgenEnrichCaches,
   leadgenEnrichCacheSizes,
   resolveLeadgenFunnelNames,
@@ -30,7 +31,9 @@ import {
 } from "../src/analytics/leadgen-enrich";
 import {
   hashMetaUserData,
+  metaKeyForFieldName,
   normalizeMetaDob,
+  normalizeMetaName,
   normalizeMetaPhone,
   normalizeMetaState,
   normalizeMetaZip,
@@ -39,6 +42,15 @@ import {
   readFbcCookie,
   sha256Hex,
 } from "../src/leadgen/meta-hash";
+import {
+  CLICK_REPLAY_CAP,
+  claimClickReplaySlot,
+  recordInSiteClickRevenue,
+} from "../src/leadgen/revenue-ingest";
+import { shipRevenueRawToCh, type LeadgenChWriteClient } from "../src/leadgen/revenue-recon";
+import { renderStudioInspector, SECTION_STUDIO_SCRIPT } from "../src/admin/leadgen/ui-section-studio";
+import { defaultFunnelDesign } from "../src/public/leadgen/designs/default-funnel/tokens";
+import { validateSectionContent } from "../src/public/leadgen/components/content-schema";
 import { resolveLeadgenClick, type LeadgenClickInput } from "../src/public/leadgen/click";
 import { loadAuctionBundle, persistAuctionResult, runAuction } from "../src/public/leadgen/auction/engine";
 import { blankLeadgenEvent, leadgenSessionFromQuoteView } from "../src/analytics/leadgen-events";
@@ -415,8 +427,10 @@ describeDb("3. contact answers are stored as SHA-256 of the Meta-normalised valu
     expect(em!.answer_value_normalized).toBe(sha("someone@mail.com"));
     expect(em!.answer_hashed).toBe(true);
     expect(ph!.answer_value_normalized).toBe(sha("15551234567"));
-    expect(num!.answer_value_normalized).toBe("330000");
-    expect(num!.answer_hashed).toBe(false);
+    // Fix round 1 (review M2): an unresolvable TYPED answer is hashed too —
+    // fail closed (it used to stay plain unless it looked like an email/phone).
+    expect(num!.answer_value_normalized).toBe(sha("330000"));
+    expect(num!.answer_hashed).toBe(true);
   });
 
   it("Meta normalisation helpers", async () => {
@@ -733,5 +747,284 @@ describe("7. event-loader maps records carrying the new fields", () => {
     const sRow = mapRecordToRow(session, new Map([["session_id", "String"], ["dt", "Date"], ["fbp", "String"]]), {}, "session");
     expect(sRow).not.toBeNull();
     expect(sRow!.fbp).toBe(FBP);
+  });
+});
+
+// ===========================================================================
+// FIX ROUND 1 (review 1, FIX-FIRST) — each block fails on d5e53620
+// ===========================================================================
+
+const FREE_CONTACT_SECTION = [
+  { type: "FreeTextQuestion", question_id: "q_fem", internal_field: "email", props: { label: "Your email" } },
+  { type: "FreeTextQuestion", question_id: "q_fph", internal_field: "phone_number", props: { label: "Phone" } },
+  { type: "FreeTextQuestion", question_id: "q_ffn", internal_field: "first_name", props: { label: "First name" } },
+  { type: "FreeTextQuestion", question_id: "q_ftel", internal_field: "telephone", props: { label: "Tel" } },
+  { type: "FreeTextQuestion", question_id: "q_fzip", internal_field: "zip", props: { label: "ZIP" } },
+  { type: "FreeTextQuestion", question_id: "q_occ", internal_field: "occupation", props: { label: "Occupation" } },
+];
+
+function byEventId(records: Array<Record<string, unknown>>, sent: Array<Record<string, unknown>>): Array<Record<string, unknown>> {
+  return sent.map((e) => records.find((r) => r.record_kind === "event" && r.event_id === e.event_id)!);
+}
+
+describeDb("FIX-R1 M1: contact data never plain in Athena — name-pattern free text + the sniff on every typed value", () => {
+  it("free text named email / phone_number / first_name / telephone is hashed (Meta-normalised); a contact-looking value typed into ANY field is hashed; zip / plain words stay plain", async () => {
+    const { sdb, env } = harness();
+    seedSection(sdb, "lgs_f", "Free", "Tell us", FREE_CONTACT_SECTION);
+    const at = (q: string, v: string): Record<string, unknown> => ev("answer_change", { section_id: "lgs_f", question_id: q, answer_value_normalized: v });
+    const sent = [
+      at("q_fem", " Jane@Example.COM "),
+      at("q_fph", "(555) 123-4567"),
+      at("q_ffn", "Mary-Jane"),
+      at("q_ftel", "555 123 4567"),
+      at("q_fzip", "90210"),
+      at("q_occ", "jane@example.com"),
+      at("q_occ", "555.123.4567"),
+      at("q_occ", "Teacher"),
+    ];
+    const { records } = await track(env, sent);
+    const got = byEventId(records, sent).map((e) => [e.question_key, e.answer_value_normalized, e.answer_hashed, e.answer_label]);
+    expect(got).toEqual([
+      ["email", sha("jane@example.com"), true, ""],
+      ["phone_number", sha("15551234567"), true, ""],
+      ["first_name", sha("maryjane"), true, ""],
+      ["telephone", sha("15551234567"), true, ""],
+      ["zip", "90210", false, "90210"],
+      ["occupation", sha("jane@example.com"), true, ""],
+      ["occupation", sha("15551234567"), true, ""],
+      ["occupation", "Teacher", false, "Teacher"],
+    ]);
+    const blob = JSON.stringify(records);
+    for (const plain of ["Jane@Example.COM", "jane@example.com", "(555) 123-4567", "555 123 4567", "555.123.4567", "Mary-Jane"]) {
+      expect(blob.includes(plain), plain).toBe(false);
+    }
+  });
+
+  it("ONE name -> Meta-key list (meta-hash.ts) feeds the Athena hashing AND the auction's hashed user data", async () => {
+    expect(metaKeyForFieldName("email")).toBe("em");
+    expect(metaKeyForFieldName("E_Mail_Address")).toBe("em");
+    expect(metaKeyForFieldName("telephone")).toBe("ph");
+    expect(metaKeyForFieldName("given_name")).toBe("fn");
+    expect(metaKeyForFieldName("Last_Name")).toBe("ln");
+    expect(metaKeyForFieldName("birthday")).toBe("db");
+    expect(metaKeyForFieldName("postal_code")).toBe("zp");
+    expect(metaKeyForFieldName("notes")).toBeNull();
+    // the auction reads conventional answer keys by the same list: given_name
+    // was missing from its old private list.
+    expect(await buildAuctionMetaUserData([], { telephone: "555-123-4567", given_name: "Jane" })).toEqual({
+      ph: sha("15551234567"),
+      fn: sha("jane"),
+      country: sha("us"),
+    });
+  });
+});
+
+describe("FIX-R1 M1: the section editor's 'Personal data — store hashed' control on a text field", () => {
+  it("a checkbox bound to props.pii, shown for FreeTextQuestion only; the saved prop passes the real validator", () => {
+    const html = renderStudioInspector(defaultFunnelDesign as never, "lgs_x");
+    const wrapAt = html.indexOf("data-pii-wrap");
+    expect(wrapAt).toBeGreaterThan(-1);
+    const wrap = html.slice(wrapAt, html.indexOf("</p>", wrapAt));
+    expect(wrap).toContain("Personal data &#8212; store hashed");
+    expect(wrap).toContain('<input type="checkbox" data-inspector-field="pii"');
+    expect(SECTION_STUDIO_SCRIPT).toContain("var piiWrap = document.querySelector('[data-pii-wrap]');");
+    expect(SECTION_STUDIO_SCRIPT).toContain("var showPii = !!node && node.type === 'FreeTextQuestion';");
+    // the generic inspector collector writes a checkbox as a boolean prop
+    expect(SECTION_STUDIO_SCRIPT).toContain("if (input.type === 'checkbox') { props[field] = !!input.checked; }");
+    const content = { components: [{ type: "FreeTextQuestion", question_id: "q1", question_key: "k1", internal_field: "member_id", answer_type: "string", props: { pii: true } }] };
+    expect(validateSectionContent(content as never).errors).toEqual([]);
+  });
+});
+
+describeDb("FIX-R1 M2: a typed answer whose question cannot be resolved is hashed (fail closed)", () => {
+  it("unknown / empty section_id or a question the section no longer holds: every typed answer_change is hashed, answer_label ''; a choice click stays plain", async () => {
+    const { sdb, env } = harness();
+    seedSection(sdb, "lgs_c", "Contact", "Your details", CONTACT_SECTION);
+    const sent = [
+      ev("answer_change", { section_id: "lgs_unknown", question_id: "q_x", answer_value_normalized: "Jane Smith" }),
+      ev("answer_change", { section_id: "", question_id: "q_z", answer_value_normalized: "330000" }),
+      ev("answer_change", { section_id: "lgs_c", question_id: "q_gone", answer_value_normalized: "12 Oak Lane" }),
+      ev("answer_click", { section_id: "", question_id: "q_c", answer_value_normalized: "own" }),
+    ];
+    const { records } = await track(env, sent);
+    const [name, num, gone, click] = byEventId(records, sent);
+    for (const [e, plain] of [[name, "jane smith"], [num, "330000"], [gone, "12 oak lane"]] as const) {
+      expect(e!.answer_value_normalized, plain).toBe(sha(plain));
+      expect(e!.answer_hashed, plain).toBe(true);
+      expect(e!.answer_label, plain).toBe("");
+    }
+    expect(click!.answer_value_normalized).toBe("own");
+    expect(click!.answer_hashed).toBe(false);
+    for (const plain of ["Jane Smith", "12 Oak Lane"]) expect(JSON.stringify(records).includes(plain), plain).toBe(false);
+  });
+
+  it("D1 over the enrichment time budget: the typed answer is hashed, never plain", async () => {
+    const hanging = {
+      prepare: () => ({ bind: () => ({ first: () => new Promise(() => undefined), all: () => new Promise(() => undefined) }) }),
+    } as unknown as D1Database;
+    const env = { DB: hanging } as unknown as Env;
+    const e = blankLeadgenEvent("answer_change", Date.now());
+    e.section_id = "lgs_slow";
+    e.question_id = "q_occ";
+    e.answer_value_normalized = "Teacher";
+    await enrichTrackEvents(env, [{ event: e, internal_field: "occupation" }], { hostname: "", cookieHeader: null, now: Date.now() }, { budgetMs: 20 });
+    expect(e.answer_value_normalized).toBe(sha("teacher"));
+    expect(e.answer_hashed).toBe(true);
+    expect(e.answer_label).toBe("");
+  });
+});
+
+describe("FIX-R1 m1: Meta normalisation (server — the browser shell applies the same rules)", () => {
+  it("names: lowercase letters only — Unicode letters kept; punctuation, spaces and digits removed", () => {
+    expect(normalizeMetaName("  Mary-Jane O'Neil 3rd ")).toBe("maryjaneoneilrd");
+    expect(normalizeMetaName("Zoë Ñúñez")).toBe("zoëñúñez");
+    expect(normalizeMetaName("Анна-Мария")).toBe("аннамария");
+  });
+
+  it("phone: digits only, leading zeros / '00' stripped, a 10-digit (US) number gets the leading 1", () => {
+    expect(normalizeMetaPhone("0015551234567")).toBe("15551234567");
+    expect(normalizeMetaPhone("00 44 20 7946 0958")).toBe("442079460958");
+    expect(normalizeMetaPhone("05551234567")).toBe("15551234567");
+    expect(normalizeMetaPhone("+1 (555) 123-4567")).toBe("15551234567");
+    expect(normalizeMetaPhone("123")).toBe("");
+  });
+});
+
+describe("FIX-R1 m2: values are capped to 254 chars before any regex sniff (linear email pattern)", () => {
+  it("20 pathological 16 KB answers are enriched in bounded time — and hashed", async () => {
+    const evil = "a@" + "a.".repeat(8000) + "@";
+    const items = Array.from({ length: 20 }, () => {
+      const e = blankLeadgenEvent("answer_change", 0);
+      e.answer_value_normalized = evil;
+      return { event: e, internal_field: "" };
+    });
+    const env = { DB: { prepare: () => { throw new Error("no db"); } } } as unknown as Env;
+    const t0 = performance.now();
+    await enrichTrackEvents(env, items, { hostname: "", cookieHeader: null, now: Date.now() });
+    expect(performance.now() - t0).toBeLessThan(400);
+    expect(items.every((i) => i.event.answer_hashed === true && /^[0-9a-f]{64}$/.test(i.event.answer_value_normalized))).toBe(true);
+  });
+});
+
+function clickHarness(): { sdb: SqliteDb; env: Env; kvPuts: Array<{ key: string; ttl: number | undefined }> } {
+  const sdb = createLeadgenDb(DatabaseSync as DatabaseSyncCtor);
+  const { kv } = makeKvStub();
+  const kvPuts: Array<{ key: string; ttl: number | undefined }> = [];
+  const wrapped = {
+    get: (k: string) => kv.get(k),
+    put: (k: string, v: string, o?: { expirationTtl?: number }) => {
+      kvPuts.push({ key: k, ttl: o?.expirationTtl });
+      return kv.put(k, v);
+    },
+    delete: (k: string) => kv.delete(k),
+    list: () => kv.list(),
+  } as unknown as KVNamespace;
+  return { sdb, env: buildLeadgenEnv(d1FromSqlite(sdb), wrapped, { firehose: false }), kvPuts };
+}
+
+function ledger(sdb: SqliteDb): Array<Record<string, unknown>> {
+  return sdb
+    .prepare("SELECT dt, click_id, offer_public_id, source, booking_trigger, conversions, revenue, currency, synced_to_ch_at FROM leadgen_revenue_raw ORDER BY id")
+    .all() as Array<Record<string, unknown>>;
+}
+
+describeDb("FIX-R1 B1: every CPC banner click is booked into the CMS revenue ledger too", () => {
+  it("a CPC click writes ONE leadgen_revenue_raw row (in_site / click / 0 conversions / the event's USD revenue / USD / UTC date); cpl/cpa/cpi write none", async () => {
+    const { sdb, env } = clickHarness();
+    seedOffer(sdb, "lgo_cpc", "cpc");
+    seedShown(sdb, "aiid-1", [{ carrier_key: "acme", offer_id: "lgo_cpc", bid: 32.5, slot: 1 }]);
+    const now = Date.UTC(2026, 9, 8, 23, 59, 30);
+    const cap = ctxCapture();
+    const r = await resolveLeadgenClick(env, cap.ctx, clickInput({ now }));
+    await settle(cap.promises);
+    expect(r.events[0]!.revenue).toBe(32.5);
+    expect(ledger(sdb)).toEqual([
+      { dt: "2026-10-08", click_id: r.click_id, offer_public_id: "lgo_cpc", source: "in_site", booking_trigger: "click", conversions: 0, revenue: 32.5, currency: "USD", synced_to_ch_at: null },
+    ]);
+    for (const t of ["cpl", "cpa", "cpi"]) {
+      seedOffer(sdb, `lgo_${t}`, t);
+      seedShown(sdb, `aiid-${t}`, [{ carrier_key: "acme", offer_id: `lgo_${t}`, bid: 9, slot: 1 }]);
+      const c2 = ctxCapture();
+      await resolveLeadgenClick(env, c2.ctx, clickInput({ offer_public_id: `lgo_${t}`, auction_instance_id: `aiid-${t}`, now }));
+      await settle(c2.promises);
+    }
+    expect(ledger(sdb)).toHaveLength(1);
+  });
+
+  it("idempotent per click_id: the same click booked twice is one row; the booking goes through decideBooking (a CPL click books nothing)", async () => {
+    const { sdb, env } = clickHarness();
+    const input = { offer_public_id: "lgo_cpc", offer_type: "cpc", click_id: "lgl_SAME", revenue: 7.25, dt: "2026-10-08", clean: true };
+    expect(await recordInSiteClickRevenue(env.DB, input)).toEqual({ recorded: true });
+    expect(await recordInSiteClickRevenue(env.DB, input)).toMatchObject({ recorded: false, deduped: true });
+    expect(await recordInSiteClickRevenue(env.DB, { ...input, click_id: "lgl_CPL", offer_type: "cpl" })).toMatchObject({ recorded: false });
+    expect(await recordInSiteClickRevenue(env.DB, { ...input, click_id: "lgl_BOT", clean: false })).toMatchObject({ recorded: false });
+    expect(ledger(sdb).map((r) => r.click_id)).toEqual(["lgl_SAME"]);
+  });
+
+  it("the D1 -> ClickHouse revenue shipper (synced_to_ch_at IS NULL) picks the click row up and stamps it", async () => {
+    const { sdb, env } = clickHarness();
+    seedOffer(sdb, "lgo_cpc", "cpc");
+    seedShown(sdb, "aiid-1", [{ carrier_key: "acme", offer_id: "lgo_cpc", bid: 32.5, slot: 1 }]);
+    const cap = ctxCapture();
+    const r = await resolveLeadgenClick(env, cap.ctx, clickInput({}));
+    await settle(cap.promises);
+    const inserts: Array<{ table: string; rows: ReadonlyArray<Record<string, unknown>> }> = [];
+    const client = {
+      configured: true,
+      async query() {
+        return { rows: [], configured: true };
+      },
+      async insert(table: string, rows: ReadonlyArray<Record<string, unknown>>) {
+        inserts.push({ table, rows });
+        return { inserted: rows.length, configured: true };
+      },
+    } as unknown as LeadgenChWriteClient;
+    expect(await shipRevenueRawToCh(env, { client })).toEqual({ configured: true, shipped: 1 });
+    expect(inserts).toHaveLength(1);
+    expect(inserts[0]!.table).toBe("lg_revenue_raw");
+    expect(inserts[0]!.rows[0]).toMatchObject({ click_id: r.click_id, offer_id: "lgo_cpc", source: "in_site", booking_trigger: "click", conversions: 0, revenue: 32.5, currency: "USD" });
+    expect(ledger(sdb)[0]!.synced_to_ch_at).not.toBeNull();
+  });
+});
+
+describeDb("FIX-R1 M4: replay cap — at most 5 bookings per (funnel attempt, offer) per 24 h", () => {
+  it("6 clicks of one CPC card in one attempt: 5 book (event + ledger); the 6th still emits its click event with revenue 0 + booking_trigger 'capped' and writes no ledger row; another attempt books again", async () => {
+    const { sdb, env, kvPuts } = clickHarness();
+    seedOffer(sdb, "lgo_cpc", "cpc");
+    seedShown(sdb, "aiid-1", [{ carrier_key: "acme", offer_id: "lgo_cpc", bid: 32.5, slot: 1 }]);
+    const results = [];
+    const capped: boolean[] = [];
+    for (let i = 0; i < 6; i++) {
+      const cap = ctxCapture();
+      const r = await resolveLeadgenClick(env, cap.ctx, clickInput({}));
+      await settle(cap.promises);
+      capped.push(await r.replay_capped);
+      results.push(r);
+    }
+    expect(CLICK_REPLAY_CAP).toBe(5);
+    expect(results.map((r) => r.events[0]!.revenue)).toEqual([32.5, 32.5, 32.5, 32.5, 32.5, 0]);
+    expect(results.map((r) => r.events[0]!.booking_trigger)).toEqual(["click", "click", "click", "click", "click", "capped"]);
+    expect(capped).toEqual([false, false, false, false, false, true]);
+    expect(ledger(sdb)).toHaveLength(5);
+    expect(new Set(ledger(sdb).map((r) => r.click_id)).has(results[5]!.click_id)).toBe(false);
+
+    const cap = ctxCapture();
+    const other = await resolveLeadgenClick(env, cap.ctx, clickInput({ funnel_attempt_id: "fa-2" }));
+    await settle(cap.promises);
+    expect(other.events[0]!.revenue).toBe(32.5);
+    expect(ledger(sdb)).toHaveLength(6);
+    // KV seen-set family lg_s2s:, a 24 h window that later clicks never extend
+    expect(kvPuts.every((p) => p.key.startsWith("lg_s2s:click_cap:"))).toBe(true);
+    expect(Math.max(...kvPuts.map((p) => p.ttl ?? 0))).toBeLessThanOrEqual(24 * 3600);
+  });
+
+  it("the window is 24 h from the pair's first click; an attacker-length attempt id still keys a bounded KV key", async () => {
+    const { kv, store } = makeKvStub();
+    const t0 = Date.UTC(2026, 9, 8, 12, 0, 0);
+    for (let i = 0; i < 5; i++) expect(await claimClickReplaySlot(kv, "fa-x", "lgo_1", t0 + i * 1000)).toBe(true);
+    expect(await claimClickReplaySlot(kv, "fa-x", "lgo_1", t0 + 23 * 3600 * 1000)).toBe(false);
+    expect(await claimClickReplaySlot(kv, "fa-x", "lgo_1", t0 + 24 * 3600 * 1000 + 1000)).toBe(true);
+    await claimClickReplaySlot(kv, "x".repeat(5000), "lgo_1", t0);
+    expect(Math.max(...[...store.keys()].map((k) => k.length))).toBeLessThan(100);
   });
 });

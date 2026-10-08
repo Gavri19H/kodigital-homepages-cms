@@ -45,13 +45,14 @@ const ENGINE_SRC = readFileSync(
 );
 const LG_ENGINE_VERSION = /export const LG_ENGINE_VERSION = "([^"]+)"/.exec(ENGINE_SRC)?.[1];
 
-// sha256 of the committed bundle AT LEADGEN_TEMPLATE_VERSION 9 (v9, 2026-10-08:
-// the one beacon path calls the shell's window.__lgOnEvent hook for the funnel's
-// Facebook pixel; v8 was 330356c1…; v7: the shell's no-match block; v6: a
-// shell-CSS bump: the engine differs from v5 only by the version it reports; v5
-// was b216862a…, v4 53dbaf55…).
-const RUNTIME_BUNDLE_SHA256 = "7ac8307dd8effad3372bf742452e003f086a67adfbe58bfb806b95cacd3bf7e9";
-const RUNTIME_BUNDLE_VERSION = 9;
+// sha256 of the committed bundle AT LEADGEN_TEMPLATE_VERSION 10 (v10,
+// 2026-10-08 Facebook-events fix round 1, review m6: the shell-hook call reads
+// window.__lgOnEvent once and calls it only when it is a function; v9 was
+// 7ac8307d… (the hook call added); v8 was 330356c1…; v7: the shell's no-match
+// block; v6: a shell-CSS bump: the engine differs from v5 only by the version
+// it reports; v5 was b216862a…, v4 53dbaf55…).
+const RUNTIME_BUNDLE_SHA256 = "7d2e5eea4c31fe955828a6b50812ba6351950207a1b62b3c86ef668d7690d6f8";
+const RUNTIME_BUNDLE_VERSION = 10;
 
 describe("the runtime bundle is pinned to its immutable URL version", () => {
   it("engine bytes unchanged, or the version moved with them", () => {

@@ -81,8 +81,10 @@ describe("Disclosure — the link actually opens (owner 2026-08-23)", () => {
     // WHY THIS MATTERS: the public bundle sits at 53181 of a 53248 ceiling that
     // is an owner decision (67 bytes spare). A JS toggle does not fit, which is
     // exactly why <details> is the right mechanism rather than a compromise.
+    // (2026-10-08: the ceiling is 54272 since the Facebook-events fix round 1,
+    // review finding m6 — the same one-step raise as leadgen-runtime-engine.test.ts.)
     expect(LEADGEN_RUNTIME_JS).not.toContain("lg-disclosure");
-    expect(LEADGEN_RUNTIME_JS.length).toBeLessThanOrEqual(53248);
+    expect(LEADGEN_RUNTIME_JS.length).toBeLessThanOrEqual(54272);
   });
 
   // FOUND ON THE DEPLOYED PAGE, not by a test: a first cut also set

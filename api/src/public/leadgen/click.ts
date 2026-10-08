@@ -46,6 +46,18 @@
 // request's _fbp cookie, else the one the auction persisted) and the
 // server-resolved quote / funnel / template names. Every lookup is FAIL-OPEN
 // and runs on waitUntil (after the 302), before the event is emitted.
+//
+// Fix round 1 (review B1 + M4): the same CPC click is also booked into the CMS
+// revenue ledger (leadgen_revenue_raw — revenue-ingest.ts
+// recordInSiteClickRevenue: source 'in_site', booking_trigger 'click',
+// conversions 0, the event's USD revenue, idempotent per click_id), on the same
+// waitUntil task, fail-open. And a replayed link is bounded: at most
+// CLICK_REPLAY_CAP clicks per (funnel attempt, offer) per 24 h book / send to
+// Facebook (revenue-ingest.ts claimClickReplaySlot); a click over the cap still
+// 302s and still emits its event, with revenue 0 and booking_trigger 'capped'
+// (NOT null — the dashboard falls back to the bid when revenue is null), and
+// writes no ledger row. The decision is handed to the route
+// (`replay_capped`) so the Facebook send obeys the same cap.
 
 import type { Env } from "../../env";
 import type { WaitUntilContext } from "../../wait-until-context";
@@ -66,6 +78,7 @@ import {
 import { resolveLeadgenFunnelNames, type LeadgenFunnelNames } from "../../analytics/leadgen-enrich";
 import { normalizeToUsd } from "../../leadgen/fx";
 import { META_FBP_RE, readFbpCookie } from "../../leadgen/meta-hash";
+import { claimClickReplaySlot, recordInSiteClickRevenue } from "../../leadgen/revenue-ingest";
 
 // Why the resolver could not produce a 302 to a real destination.
 export type LeadgenClickUnresolvedReason =
@@ -135,6 +148,9 @@ export interface LeadgenClickResult {
   // D1 facts (offer_type / USD bid / revenue / names) are stamped by the
   // waitUntil task — settle the context before asserting them.
   events: LeadgenEvent[];
+  // Fix round 1 (review M4): resolves true when this click is over the replay
+  // cap (the route's Facebook send then sends nothing). Never rejects.
+  replay_capped: Promise<boolean>;
 }
 
 // True for an absolute http(s) URL — the only shape accepted into a 302.
@@ -221,6 +237,11 @@ interface LeadgenClickFacts {
   offer_type: string; // "" when the Offer row could not be read
   usd_bid: number | null; // null when no USD bid could be determined
   names: LeadgenFunnelNames | null;
+  // The Offer's Facebook click-event switch (0058) is on.
+  clickout_on: boolean;
+  // The funnel attempt the AUCTION behind the click belongs to ("" when the
+  // auction is unknown) — the replay cap keys on it, not on the link's faid.
+  auction_attempt_id: string;
 }
 
 const OFFER_TYPES: ReadonlySet<string> = new Set(["cpc", "cpl", "cpa", "cpi"]);
@@ -252,13 +273,20 @@ function shownUsdBid(carriersShownJson: string | null, offerPublicId: string, ca
 
 async function loadClickFacts(env: Env, input: LeadgenClickInput, now: number): Promise<LeadgenClickFacts> {
   const db = env.DB;
+  // `SELECT *` so a database a column behind still reads (absent columns
+  // default); every column is read defensively below.
   const offerRead = (async () => {
     if (input.offer_public_id === "") return null;
     try {
       return await db
-        .prepare("SELECT offer_type, static_bid_value, static_bid_currency FROM leadgen_offers WHERE public_id = ? LIMIT 1")
+        .prepare("SELECT * FROM leadgen_offers WHERE public_id = ? LIMIT 1")
         .bind(input.offer_public_id)
-        .first<{ offer_type: string | null; static_bid_value: number | null; static_bid_currency: string | null }>();
+        .first<{
+          offer_type?: string | null;
+          static_bid_value?: number | null;
+          static_bid_currency?: string | null;
+          clickout_meta_conversion?: number | null;
+        }>();
     } catch {
       return null;
     }
@@ -267,10 +295,14 @@ async function loadClickFacts(env: Env, input: LeadgenClickInput, now: number): 
     if (input.auction_instance_id === "") return null;
     try {
       const row = await db
-        .prepare("SELECT carriers_shown_json FROM leadgen_auction_result_log WHERE auction_instance_id = ? LIMIT 1")
+        .prepare("SELECT carriers_shown_json, funnel_attempt_id FROM leadgen_auction_result_log WHERE auction_instance_id = ? LIMIT 1")
         .bind(input.auction_instance_id)
-        .first<{ carriers_shown_json: string | null }>();
-      return row === null ? null : shownUsdBid(row.carriers_shown_json, input.offer_public_id, input.carrier_key);
+        .first<{ carriers_shown_json: string | null; funnel_attempt_id: string | null }>();
+      if (row === null) return null;
+      return {
+        bid: shownUsdBid(row.carriers_shown_json, input.offer_public_id, input.carrier_key),
+        attempt: typeof row.funnel_attempt_id === "string" ? row.funnel_attempt_id : "",
+      };
     } catch {
       return null;
     }
@@ -282,10 +314,10 @@ async function loadClickFacts(env: Env, input: LeadgenClickInput, now: number): 
     now,
   ).catch(() => null);
 
-  const [offer, shownBid, names] = await Promise.all([offerRead, shownRead, namesRead]);
+  const [offer, shown, names] = await Promise.all([offerRead, shownRead, namesRead]);
   const offerType = offer !== null && typeof offer.offer_type === "string" && OFFER_TYPES.has(offer.offer_type) ? offer.offer_type : "";
 
-  let usdBid: number | null = shownBid;
+  let usdBid: number | null = shown?.bid ?? null;
   // Fallbacks, converted exactly like the auction converts: the carrier's own
   // bid in its currency, else the Offer's static bid.
   try {
@@ -300,7 +332,13 @@ async function loadClickFacts(env: Env, input: LeadgenClickInput, now: number): 
   } catch {
     // an FX miss leaves the bid unknown (never a fabricated value)
   }
-  return { offer_type: offerType, usd_bid: usdBid, names };
+  return {
+    offer_type: offerType,
+    usd_bid: usdBid,
+    names,
+    clickout_on: offer !== null && offer.clickout_meta_conversion === 1,
+    auction_attempt_id: shown?.attempt ?? "",
+  };
 }
 
 // Build one §22.3 click event stamped with the click identity + auction ids.
@@ -468,15 +506,53 @@ export async function resolveLeadgenClick(
   //    still emits the event (FAIL-OPEN). `events` is the SAME object the task
   //    stamps, so a caller that settles the context sees the stamped event.
   const events = [buildClickEvent(clickType, now, input, clickId)];
+  let settleCapped: (capped: boolean) => void = () => undefined;
+  const replayCapped = new Promise<boolean>((resolve) => {
+    settleCapped = resolve;
+  });
   const emitTask = (async () => {
     const facts = await loadClickFacts(env, input, now).catch(() => null);
     for (const e of events) applyClickFacts(e, facts);
+    // Fix round 1 (review M4): only a click that would book (CPC) or send to
+    // Facebook (switch on) spends a replay slot — keyed on the attempt the
+    // AUCTION belongs to (the link's own faid only when the auction is unknown).
+    let capped = false;
+    const e0 = events[0];
+    try {
+      if (facts !== null && e0 !== undefined && (e0.offer_type === "cpc" || facts.clickout_on)) {
+        const attempt = facts.auction_attempt_id !== "" ? facts.auction_attempt_id : input.funnel_attempt_id;
+        capped = !(await claimClickReplaySlot(env.CACHE, attempt, input.offer_public_id, now));
+      }
+    } catch {
+      capped = false;
+    }
+    settleCapped(capped);
+    if (capped) {
+      for (const e of events) {
+        e.revenue = 0;
+        e.booking_trigger = "capped";
+      }
+    } else if (e0 !== undefined && e0.offer_type === "cpc") {
+      // Fix round 1 (review B1): the CMS revenue ledger books the same value.
+      try {
+        await recordInSiteClickRevenue(env.DB, {
+          offer_public_id: input.offer_public_id,
+          offer_type: e0.offer_type,
+          click_id: clickId,
+          revenue: e0.revenue,
+          dt: new Date(now).toISOString().slice(0, 10),
+          clean: e0.traffic_quality_flag === "clean",
+        });
+      } catch {
+        // the ledger write never breaks the click or its event
+      }
+    }
     const sends: Promise<unknown>[] = [];
     emitLeadgenRecords(env, { waitUntil: (p) => void sends.push(p) }, [...events]);
     await Promise.all(sends.map((p) => Promise.resolve(p).catch(() => undefined)));
   })().catch(() => {
     /* tracking never breaks the click */
-  });
+  }).finally(() => settleCapped(false));
   try {
     ctx.waitUntil(emitTask);
   } catch {
@@ -491,5 +567,6 @@ export async function resolveLeadgenClick(
     cap_incremented: capIncremented,
     clicked_recorded: clickedRecorded,
     events,
+    replay_capped: replayCapped,
   };
 }

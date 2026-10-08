@@ -796,11 +796,16 @@ async function loadLeadgenClickContext(
 // the visitor's path. Every Offer reaches this; any Offer with the switch on
 // sends (0064 — clickout-meta.ts decides and logs why not). `SELECT *` so a
 // database a column behind (pre-0064) still reads: absent columns default.
+//
+// Fix round 1 (review M4): `replayCapped` is the click's replay-cap decision
+// (click.ts) — a click over the cap sends nothing (clickout-meta.ts
+// "replay_capped"). Awaited inside this background task only.
 function scheduleClickoutMeta(
   c: PublicContext,
   execCtx: WaitUntilContext,
   offerPublicId: string,
   click: Parameters<typeof sendClickoutMetaConversion>[3],
+  replayCapped: Promise<boolean>,
 ): void {
   if (offerPublicId === "") return;
   const env = c.env;
@@ -824,7 +829,8 @@ function scheduleClickoutMeta(
     // The common case — the switch is off — returns silently: no log line per
     // ordinary click.
     if (offer === null || offer.clickout_meta_conversion !== 1) return;
-    await sendClickoutMetaConversion(env, env.DB, offer, click);
+    const capped = await replayCapped.catch(() => false);
+    await sendClickoutMetaConversion(env, env.DB, offer, { ...click, capped });
   })().catch(() => undefined);
   try {
     execCtx.waitUntil(work);
@@ -967,7 +973,7 @@ async function serveLeadgenClick(c: PublicContext): Promise<Response> {
         fbp: readFbpCookie(c.req.header("Cookie") ?? null),
         carrier_key: carrierKey,
         slot,
-      });
+      }, result.replay_capped);
       return redirect;
     }
   }

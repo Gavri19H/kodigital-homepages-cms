@@ -215,7 +215,12 @@ export function listicleCandidateKey(
 // pixel or an Offer's click event is on), and the runtime's one beacon path
 // calls the shell's window.__lgOnEvent hook — shell markup AND runtime bytes
 // change, same 304 reason as v6; runtime "9" tracks it.
-export const LEADGEN_TEMPLATE_VERSION = 9 as const;
+// v10 (2026-10-08, fix round 1 of the Facebook-events review): the shell's
+// Meta pixel script changes (no hardcoded country, the visitor's stored answers
+// at the pixel's first init, Meta normalisation parity, per-funnel gating) and
+// the runtime's hook call gains a typeof guard — shell markup AND runtime bytes
+// change, same 304 reason as v6; runtime "10" tracks it.
+export const LEADGEN_TEMPLATE_VERSION = 10 as const;
 
 const NS_LG_SHELL = "lg-shell";
 const NS_LG_CONFIG = "lg-config";

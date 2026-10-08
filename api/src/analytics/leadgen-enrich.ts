@@ -40,9 +40,11 @@ import {
 import {
   hashMetaUserData,
   hashMetaValue,
+  metaKeyForFieldName,
   readFbcCookie,
   readFbpCookie,
   sha256Hex,
+  sniffMetaContactKind,
   type MetaContactKind,
   type MetaUserData,
   type MetaUserDataKey,
@@ -384,7 +386,7 @@ function roleOf(node: LeadgenComponentNode, own: string, field: string, foreign:
 }
 
 // The contact kind of one answer key (R3 + the Meta user_data keys).
-function contactKindOf(node: LeadgenComponentNode, role: string | null): MetaContactKind | null {
+function contactKindOf(node: LeadgenComponentNode, role: string | null, key: string): MetaContactKind | null {
   switch (node.type) {
     case "EmailInputQuestion":
       return "em";
@@ -404,7 +406,12 @@ function contactKindOf(node: LeadgenComponentNode, role: string | null): MetaCon
     case "ZIPInputQuestion":
       return "zp";
     case "FreeTextQuestion":
-      return node.props?.["pii"] === true ? "text" : null;
+      // Fix round 1 (review M1): the operator's "Personal data — store hashed"
+      // switch (props.pii, the section editor), else a field NAME that says
+      // what it holds ("email", "phone_number", "first_name" … — the ONE list
+      // in meta-hash.ts the browser map and the auction use too).
+      if (node.props?.["pii"] === true) return "text";
+      return metaKeyForFieldName(key);
     default:
       return null;
   }
@@ -493,7 +500,7 @@ export function buildSectionFacts(row: {
     const dobHint = DOB_WORDS.test(own) || DOB_WORDS.test(ownLabel);
     for (const key of keys) {
       const role = roleOf(leaf, own, key, foreign);
-      const contact = contactKindOf(leaf, role);
+      const contact = contactKindOf(leaf, role, key);
       const word = role !== null ? ROLE_WORDS[role] : undefined;
       const facts: FieldFacts = {
         field: key,
@@ -551,22 +558,6 @@ export function answerWordsFor(choices: ReadonlyMap<string, string>, value: stri
     return parts.map((p) => choices.get(p) ?? p).join(", ");
   }
   return value;
-}
-
-const EMAIL_LIKE = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
-const PHONE_LIKE = /^[+()\-.\s\d]{7,24}$/;
-
-// Safety net for an answer whose question could not be resolved (unknown
-// section, D1 down, budget hit): a value that LOOKS like an email or a phone
-// number is still never stored plain.
-function sniffContactKind(value: string): MetaContactKind | null {
-  const v = value.trim();
-  if (EMAIL_LIKE.test(v)) return "em";
-  if (PHONE_LIKE.test(v)) {
-    const digits = v.replace(/[^0-9]/g, "").length;
-    if (digits === 10 || digits === 11) return "ph";
-  }
-  return null;
 }
 
 async function hashAnswer(e: LeadgenEvent, kind: MetaContactKind): Promise<void> {
@@ -684,9 +675,14 @@ function withBudget<T>(p: Promise<T>, ms: number): Promise<T | null> {
 //   2. D1 lookups (cached) under ENRICH_BUDGET_MS: quote/funnel/template
 //      names, site_id from the Host when empty, section name + the question's
 //      key/label + the answer's words;
-//   3. contact answers are hashed (R3) — ALWAYS, even when step 2 failed (a
-//      value that looks like an email/phone is hashed when its question is
-//      unknown).
+//   3. contact answers are hashed (R3) — ALWAYS, even when step 2 failed.
+//      Fix round 1 (review M1/M2): every answer value not already hashed is
+//      sniffed (meta-hash.ts sniffMetaContactKind — capped to 254 chars, linear
+//      patterns): one that LOOKS like an email / phone number is hashed
+//      whatever question it answered; and a typed answer (answer_change) whose
+//      section / question cannot be resolved (unknown or empty section_id, a
+//      question the section no longer holds, D1 over its time budget) is
+//      hashed too — fail closed: never plain, answer_label "".
 export async function enrichTrackEvents(
   env: Env,
   items: readonly TrackEnrichItem[],
@@ -738,13 +734,22 @@ export async function enrichTrackEvents(
         e.question_label = field.question_label;
       }
       if (!ANSWER_EVENT_TYPES.has(e.event_type)) continue;
-      if (field !== null) {
-        if (field.hashed && field.contact !== null) await hashAnswer(e, field.contact);
-        else e.answer_label = answerWordsFor(field.choices, e.answer_value_normalized);
-      } else {
-        const sniffed = sniffContactKind(e.answer_value_normalized);
-        if (sniffed !== null) await hashAnswer(e, sniffed);
+      if (field !== null && field.hashed && field.contact !== null) {
+        await hashAnswer(e, field.contact);
+        continue;
       }
+      // M1: a contact-looking value is hashed whatever question it answered.
+      const sniffed = sniffMetaContactKind(e.answer_value_normalized);
+      if (sniffed !== null) {
+        await hashAnswer(e, sniffed);
+        continue;
+      }
+      // M2: fail closed — a typed answer we cannot place is never kept plain.
+      if (field === null) {
+        if (e.event_type === "answer_change") await hashAnswer(e, "text");
+        continue;
+      }
+      e.answer_label = answerWordsFor(field.choices, e.answer_value_normalized);
     } catch {
       // one event's enrichment never affects another, nor the batch
     }
@@ -754,18 +759,6 @@ export async function enrichTrackEvents(
 // ---------------------------------------------------------------------------
 // Auction-time Meta user_data (persisted hashed in the auction's macro snapshot)
 // ---------------------------------------------------------------------------
-
-// Conventional answer keys read when no typed component claimed the Meta key.
-const CONVENTIONAL_KEYS: ReadonlyArray<readonly [MetaUserDataKey, readonly string[]]> = [
-  ["em", ["email", "email_address"]],
-  ["ph", ["phone", "phone_number", "telephone"]],
-  ["fn", ["first_name", "firstname", "fname"]],
-  ["ln", ["last_name", "lastname", "lname"]],
-  ["db", ["dob", "date_of_birth", "birthdate", "birth_date"]],
-  ["ct", ["city"]],
-  ["st", ["state"]],
-  ["zp", ["zip", "zip_code", "zipcode", "postal_code"]],
-];
 
 function answerText(v: unknown): string {
   if (typeof v === "string") return v.trim();
@@ -801,8 +794,11 @@ export async function buildAuctionMetaUserData(
         take(f.contact, answers[f.field]);
       }
     }
-    for (const [key, names] of CONVENTIONAL_KEYS) {
-      for (const n of names) take(key, answers[n]);
+    // Conventional answer keys, read when no typed component claimed the Meta
+    // key — by the ONE name list (meta-hash.ts META_CONTACT_FIELD_PATTERNS).
+    for (const [field, value] of Object.entries(answers)) {
+      const key = metaKeyForFieldName(field);
+      if (key !== null) take(key, value);
     }
     if (facet !== undefined) {
       take("zp", facet["zip"]);

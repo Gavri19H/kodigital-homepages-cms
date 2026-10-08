@@ -41,11 +41,13 @@ import { SEED_FACEBOOK_TEMPLATE } from "../src/leadgen/revenue-recon";
 import { renderBanners, type BannerRenderCarrier } from "../src/public/leadgen/auction/banner";
 import { getBannerDesign } from "../src/public/leadgen/designs/registry";
 import { metaMatchFieldMap, metaPixelShellScript, type LeadgenMetaPixelShell } from "../src/public/leadgen/serve";
+import { normalizeMetaName, normalizeMetaPhone } from "../src/leadgen/meta-hash";
 import type { ResolvedActivatedFunnel } from "../src/public/leadgen/resolver";
 import { LgBeaconClient } from "../src/public/leadgen/runtime/events";
 import { LEADGEN_RUNTIME_JS } from "../src/public/leadgen/runtime/engine-bundle.generated";
 import {
   clickoutMetaCardPixel,
+  clickoutMetaEventName,
   clickoutMetaValue,
   sendClickoutMetaConversion,
   type ClickoutMetaClick,
@@ -351,6 +353,25 @@ function seedAuction(
     );
 }
 
+// FIX-R1 m3: put an offer in the variant's own auction (the shell's click
+// handler ships only for offers of THIS funnel's auction).
+function attachToFunnelAuction(h: Harness, variantPub: string, offerId: number, enabled = 1): void {
+  const auctionPublicId = mintPublicId("auction");
+  h.sdb
+    .prepare(
+      `INSERT INTO leadgen_auctions
+         (public_id, auction_name, auction_type, winner_logic, floor_type, floor_value, multi_offer,
+          surface_static_bid_offers, banner_slots_count, max_carriers_per_offer, max_total_carriers,
+          backfill, backfill_trigger, remove_clicked_offers, removal_scope, timeout_ms, carrier_normalization_version, status)
+       VALUES (?, 'Funnel auction', 'dynamic', 'highest_bid', 'percentage_of_max', 10, 'enabled', 1, 5, 3, 10, 'disabled', 'on_slot_exhaustion', 1, 'offer', 2500, 1, 'active')`,
+    )
+    .run(auctionPublicId);
+  const a = h.sdb.prepare("SELECT id FROM leadgen_auctions WHERE public_id = ?").get(auctionPublicId) as { id: number };
+  const pl = h.sdb.prepare("SELECT id FROM leadgen_offer_placements WHERE offer_id = ?").get(offerId) as { id: number };
+  h.sdb.prepare("INSERT INTO leadgen_auction_offers (auction_id, offer_placement_id, offer_id, enabled) VALUES (?, ?, ?, ?)").run(a.id, pl.id, offerId, enabled);
+  h.sdb.prepare("UPDATE leadgen_funnel_variants SET auction_id = ? WHERE public_id = ?").run(a.id, variantPub);
+}
+
 function stubFetch() {
   const calls: Array<{ url: string; init: RequestInit | undefined }> = [];
   vi.spyOn(globalThis, "fetch").mockImplementation(async (input: RequestInfo | URL, init?: RequestInit) => {
@@ -416,17 +437,24 @@ function stubAnchor(attrs: Record<string, string>): StubAnchor {
   return a;
 }
 
-function runShellScript(cfg: LeadgenMetaPixelShell, opts: { cookie?: string; bannersOnScreen?: () => boolean; withFbq?: boolean } = {}) {
+function runShellScript(
+  cfg: LeadgenMetaPixelShell,
+  opts: { cookie?: string; bannersOnScreen?: () => boolean; withFbq?: boolean; storage?: Record<string, string>; sandbox?: Record<string, unknown> } = {},
+) {
   const fbq: FbqCall[] = [];
   const listeners: Record<string, Array<(e: unknown) => void>> = {};
   const injected: Array<{ src?: string; async?: boolean }> = [];
-  const storage = new Map<string, string>();
+  const storage = new Map<string, string>(Object.entries(opts.storage ?? {}));
   const w: Record<string, unknown> = {
     crypto: (globalThis as unknown as { crypto: unknown }).crypto,
     sessionStorage: {
       getItem: (k: string) => (storage.has(k) ? storage.get(k)! : null),
       setItem: (k: string, v: string) => void storage.set(k, v),
       removeItem: (k: string) => void storage.delete(k),
+      key: (i: number) => [...storage.keys()][i] ?? null,
+      get length() {
+        return storage.size;
+      },
     },
   };
   if (opts.withFbq !== false) {
@@ -445,7 +473,7 @@ function runShellScript(cfg: LeadgenMetaPixelShell, opts: { cookie?: string; ban
   };
   const html = metaPixelShellScript(cfg);
   expect(html.startsWith("<script>") && html.endsWith("</script>")).toBe(true);
-  runInNewContext(html.slice("<script>".length, -"</script>".length), { window: w, document: d });
+  runInNewContext(html.slice("<script>".length, -"</script>".length), { window: w, document: d, ...(opts.sandbox ?? {}) });
   const hook = (e: Record<string, unknown>): void => (w["__lgOnEvent"] as (e: unknown) => void)(e);
   const click = (a: StubAnchor, type: "click" | "auxclick" = "click", button = 0): void => {
     for (const fn of listeners[type] ?? []) fn({ type, button, target: { closest: (sel: string) => (sel === "a[data-lg-px]" ? a : null) } });
@@ -467,7 +495,7 @@ describeDb("1. funnel shell — the Facebook pixel loads only when configured", 
     const html = await shell(h, "home");
     expect(html).not.toContain("fbevents.js");
     expect(html).not.toContain("__lgOnEvent");
-    expect(html).toContain('src="/lg/runtime/9.js"');
+    expect(html).toContain('src="/lg/runtime/10.js"');
   });
 
   it("the funnel's Facebook pixel ID saved through the real admin PATCH reaches the shell: loader, init, PageView, the contact-field map", async () => {
@@ -509,14 +537,32 @@ describeDb("1. funnel shell — the Facebook pixel loads only when configured", 
     expect(await shell(h, "home")).not.toContain("fbevents.js");
   });
 
-  it("no funnel pixel, but an offer's click event is on ⇒ the click handler ships (no funnel init)", async () => {
-    const h = newHarness();
-    seedOffer(h, { on: 1 });
-    await activatedFunnel(h, "home");
-    const html = await shell(h, "home");
-    expect(html).toContain("fbevents.js");
-    expect(html).toContain('"p":""');
-    expect(html).toContain("a[data-lg-px]");
+  it("FIX-R1 m3: no funnel pixel — an offer's click event ships the handler ONLY when that offer is in THIS funnel's auction (never a global 'any offer' check)", async () => {
+    // switched on, but not in this funnel's auction ⇒ nothing Meta
+    const h1 = newHarness();
+    seedOffer(h1, { on: 1 });
+    await activatedFunnel(h1, "home");
+    const html1 = await shell(h1, "home");
+    expect(html1).not.toContain("fbevents.js");
+    expect(html1).not.toContain("a[data-lg-px]");
+
+    // the same offer in the funnel's own auction ⇒ the click handler ships (no funnel init)
+    const h2 = newHarness();
+    const o = seedOffer(h2, { on: 1 });
+    const f = await activatedFunnel(h2, "home");
+    attachToFunnelAuction(h2, f.variantPub, o.offerId);
+    const html2 = await shell(h2, "home");
+    expect(html2).toContain("fbevents.js");
+    expect(html2).toContain('"p":""');
+    expect(html2).toContain(`"v":"${f.variantPub}"`);
+    expect(html2).toContain("a[data-lg-px]");
+
+    // in the funnel's auction but disabled there ⇒ nothing Meta
+    const h3 = newHarness();
+    const o3 = seedOffer(h3, { on: 1 });
+    const f3 = await activatedFunnel(h3, "home");
+    attachToFunnelAuction(h3, f3.variantPub, o3.offerId, 0);
+    expect(await shell(h3, "home")).not.toContain("fbevents.js");
   });
 
   it("the funnel-settings dialog carries the Facebook pixel ID control, prefilled, saved by its own PATCH", async () => {
@@ -549,6 +595,9 @@ describe("1b. the contact-field map, by component type", () => {
         { type: "DateQuestion", question_id: "f", internal_field: "move_date" },
         { type: "FreeTextQuestion", question_id: "g", internal_field: "first_name" },
         { type: "FreeTextQuestion", question_id: "h", internal_field: "notes" },
+        // FIX-R1 M1: the ONE name list (meta-hash.ts) — "telephone" was only in
+        // the auction's old private list, never in this map.
+        { type: "FreeTextQuestion", question_id: "i", internal_field: "telephone" },
       ],
     };
     const resolved = { sections: [{ section: { content_json: JSON.stringify(content) } }] } as unknown as ResolvedActivatedFunnel;
@@ -564,6 +613,7 @@ describe("1b. the contact-field map, by component type", () => {
     expect(map["move_date"]).toBeUndefined();
     expect(map["first_name"]).toBe("fn");
     expect(map["notes"]).toBeUndefined();
+    expect(map["telephone"]).toBe("ph");
   });
 });
 
@@ -574,10 +624,10 @@ describe("1b. the contact-field map, by component type", () => {
 describe("2. funnel pixel — PageView on load, Lead once after the first answer, AddToCart once when offers show", () => {
   const cfg: LeadgenMetaPixelShell = { funnel_pixel_id: FUNNEL_PIXEL, click_events: false, fields: { email: "em" } };
 
-  it("on load: dataProcessingOptions [] BEFORE init, init with country us + the ko_sid external id, then PageView with its own event id", () => {
+  it("on load: dataProcessingOptions [] BEFORE init, init with the ko_sid external id (FIX-R1 m8: no hardcoded country), then PageView with its own event id", () => {
     const run = runShellScript(cfg);
     expect(run.fbq[0]!.args).toEqual(["dataProcessingOptions", []]);
-    expect(inits(run.fbq)).toEqual([{ pixel: FUNNEL_PIXEL, user: { country: "us", external_id: SID } }]);
+    expect(inits(run.fbq)).toEqual([{ pixel: FUNNEL_PIXEL, user: { external_id: SID } }]);
     const t = tracked(run.fbq);
     expect(t).toHaveLength(1);
     expect(t[0]).toMatchObject({ pixel: FUNNEL_PIXEL, event: "PageView" });
@@ -638,8 +688,60 @@ describe("2. funnel pixel — PageView on load, Lead once after the first answer
     }
     expect(seen).toEqual(["answer_click"]);
     expect(client.pendingCount()).toBe(3);
-    // The SERVED bundle carries the call (not just the source).
-    expect(LEADGEN_RUNTIME_JS).toContain("globalThis.__lgOnEvent(");
+    // FIX-R1 m6: the SERVED bundle reads the global ONCE and calls it only when
+    // it is a function (no blind call that throws on every beacon).
+    expect(LEADGEN_RUNTIME_JS).not.toContain("globalThis.__lgOnEvent(");
+    expect(LEADGEN_RUNTIME_JS).toMatch(/let (\w+)=globalThis\.__lgOnEvent;typeof \1=="function"&&\1\(/);
+    // a non-function value is ignored (not called), the beacon still queues
+    const g2 = globalThis as { __lgOnEvent?: unknown };
+    try {
+      g2.__lgOnEvent = 42;
+      client.enqueue("quote_complete");
+    } finally {
+      delete g2.__lgOnEvent;
+    }
+    expect(client.pendingCount()).toBe(4);
+  });
+
+  it("FIX-R1 M3: a reload mid-funnel — the funnel pixel's FIRST init carries the contact data this visitor already gave THIS funnel (sessionStorage), never another funnel's", () => {
+    const run = runShellScript(
+      { funnel_pixel_id: FUNNEL_PIXEL, click_events: false, fields: { email: "em", first: "fn", phone: "ph" }, variant_id: "lgn_THIS" },
+      {
+        storage: {
+          "lg:att_old": JSON.stringify({ v: 1, tuple: { funnel_variant_id: "lgn_THIS", section_order_hash: "h", content_version: 1 }, answers: { email: { value: " Jane@Example.com " }, first: { value: "Mary-Jane" }, phone: { value: "0015551234567" } }, saved_at: 2 }),
+          "lg:att_other": JSON.stringify({ v: 1, tuple: { funnel_variant_id: "lgn_OTHER", section_order_hash: "h", content_version: 1 }, answers: { email: { value: "other@x.com" } }, saved_at: 3 }),
+          "lg:corrupt": "{not json",
+          unrelated: "x",
+        },
+      },
+    );
+    expect(inits(run.fbq)).toEqual([{ pixel: FUNNEL_PIXEL, user: { external_id: SID, em: "jane@example.com", fn: "maryjane", ph: "15551234567" } }]);
+    expect(tracked(run.fbq).map((t) => t.event)).toEqual(["PageView"]);
+  });
+
+  it("FIX-R1 m1/m2: the browser normalises like the server — names letters only (Unicode kept), phone without leading zeros; values capped to 254 chars", () => {
+    const run = runShellScript({ funnel_pixel_id: null, click_events: true, fields: { first: "fn", last: "ln", phone: "ph", city: "ct" } });
+    const typed = { first: "Анна-Мария 2nd", last: "a".repeat(300), phone: "0015551234567", city: "New York!" };
+    for (const [f, v] of Object.entries(typed)) run.hook({ event_type: "answer_change", funnel_attempt_id: "att_1", internal_field: f, answer_value_normalized: v });
+    run.click(stubAnchor({ href: "/lg/lc/lgo_x?ck=a", "data-lg-px": OFFER_PIXEL, "data-lg-px-event": "Purchase" }));
+    const user = inits(run.fbq).find((i) => i.pixel === OFFER_PIXEL)!.user;
+    expect(user).toEqual({ external_id: SID, fn: "аннамарияnd", ln: "a".repeat(254), ph: "15551234567", ct: "newyork" });
+    // the server rules give the same text
+    expect(normalizeMetaName(typed.first)).toBe(user["fn"]);
+    expect(normalizeMetaName(typed.last)).toBe(user["ln"]);
+    expect(normalizeMetaPhone(typed.phone)).toBe(user["ph"]);
+  });
+
+  it("FIX-R1 m1: an engine without the RegExp `u` flag (ES5) still keeps the cased letters of any script", () => {
+    const Real = RegExp;
+    const NoU = function (p: string, f?: string) {
+      if (typeof f === "string" && f.indexOf("u") >= 0) throw new SyntaxError("u flag unsupported");
+      return new Real(p, f);
+    };
+    const run = runShellScript({ funnel_pixel_id: null, click_events: true, fields: { first: "fn" } }, { sandbox: { RegExp: NoU } });
+    run.hook({ event_type: "answer_change", funnel_attempt_id: "att_1", internal_field: "first", answer_value_normalized: "Zoë-Анна O'Neil 3" });
+    run.click(stubAnchor({ href: "/lg/lc/lgo_x", "data-lg-px": OFFER_PIXEL }));
+    expect(inits(run.fbq).find((i) => i.pixel === OFFER_PIXEL)!.user["fn"]).toBe("zoëаннаoneil");
   });
 });
 
@@ -680,6 +782,15 @@ describe("3. banner card — the click event's data attributes ride the governed
     expect(plain).not.toContain("data-lg-px");
     expect(render(entry({ clickout_meta_conversion: 0, clickout_meta_dataset_id: OFFER_PIXEL, offer_type: "cpc" }))).toBe(plain);
     expect(render(entry({ clickout_meta_conversion: 1, clickout_meta_dataset_id: "pixel-abc", offer_type: "cpc" }))).toBe(plain);
+  });
+
+  it("FIX-R1 m4: with no saved name the event follows the offer type — cpc Purchase, cpl/cpa/cpi Lead; a saved name is kept", () => {
+    for (const [t, want] of [["cpc", "Purchase"], ["cpl", "Lead"], ["cpa", "Lead"], ["cpi", "Lead"]] as const) {
+      expect(clickoutMetaEventName({ clickout_meta_event_name: null, offer_type: t }), t).toBe(want);
+      expect(render(entry({ clickout_meta_conversion: 1, clickout_meta_dataset_id: OFFER_PIXEL, offer_type: t })), t).toContain(`data-lg-px-event="${want}"`);
+    }
+    expect(clickoutMetaEventName({ clickout_meta_event_name: "Contact", offer_type: "cpc" })).toBe("Contact");
+    expect(clickoutMetaEventName({ clickout_meta_event_name: "Purchase", offer_type: "cpl" })).toBe("Purchase");
   });
 
   it("the shared value rule: fixed wins; CPC bid x multiplier rounded to cents; multiplier out of range ⇒ 1", () => {
@@ -732,7 +843,6 @@ describeDb("4. the click: the shell mints the event id, the real /lg/lc sends th
 
     // Browser half: the offer's pixel inited at click time WITH what was typed.
     expect(inits(run.fbq).find((i) => i.pixel === OFFER_PIXEL)?.user).toEqual({
-      country: "us",
       external_id: SID,
       em: "jane@example.com",
       ph: "15551234567",
@@ -792,15 +902,37 @@ describeDb("4. the click: the shell mints the event id, the real /lg/lc sends th
     expect((f.metaEvents()[0]!["user_data"] as Record<string, unknown>)["em"]).toEqual([HASHED_USER.em]);
   });
 
-  it("an API (provider-request) CPL offer sends too — no click bid, so no value", async () => {
+  it("an API (provider-request) CPL offer sends too — no click bid, so no value; FIX-R1 m4: with no saved name a CPL offer sends Lead on both halves", async () => {
     const { h, anchor, run } = await scenario({ type: "cpl", calls: 1 });
     const f = stubFetch();
     expect(anchor.attrs["data-lg-px-value"]).toBeUndefined();
+    expect(anchor.attrs["data-lg-px-event"]).toBe("Lead");
     run.click(anchor);
-    expect(tracked(run.fbq).find((t) => t.event === "Purchase")?.data).toEqual({ currency: "USD" });
+    expect(tracked(run.fbq).find((t) => t.event === "Lead")?.data).toEqual({ currency: "USD" });
     await getClick(h, anchor.attrs["href"]!);
     expect(f.metaEvents()).toHaveLength(1);
+    expect(f.metaEvents()[0]!["event_name"]).toBe("Lead");
     expect(f.metaEvents()[0]).not.toHaveProperty("custom_data");
+  });
+
+  it("FIX-R1 M4: six clicks of one card in one funnel attempt — six 302s, five Facebook sends, five ledger bookings", async () => {
+    const { h, anchor, run } = await scenario();
+    const f = stubFetch();
+    const statuses: number[] = [];
+    for (let i = 0; i < 6; i++) {
+      run.click(anchor);
+      statuses.push((await getClick(h, anchor.attrs["href"]!)).status);
+    }
+    expect(statuses).toEqual([302, 302, 302, 302, 302, 302]);
+    expect(f.metaEvents()).toHaveLength(5);
+    const rows = h.sdb.prepare("SELECT booking_trigger, revenue FROM leadgen_revenue_raw").all() as Array<{ booking_trigger: string; revenue: number }>;
+    expect(rows).toHaveLength(5);
+    expect(rows.every((r) => r.booking_trigger === "click" && r.revenue === 4)).toBe(true);
+    // another funnel attempt is its own budget
+    seedAuction(h, { aiid: "aiid-2", faid: "att_2", cards: [{ offer_id: new URL(anchor.attrs["href"]!, "http://x").pathname.split("/").pop()!, carrier_key: "ck1", bid: 4, slot: 1 }] });
+    const other = anchor.attrs["href"]!.replace("aiid=aiid-1", "aiid=aiid-2").replace("faid=att_1", "faid=att_2");
+    expect((await getClick(h, other)).status).toBe(302);
+    expect(f.metaEvents()).toHaveLength(6);
   });
 });
 

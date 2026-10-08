@@ -51,7 +51,15 @@
 // KV seen-set uses the LeadGen S2S prefix `lg_s2s:` and only stops a replay of
 // the SAME click (the same `eid`); Meta's own event_id dedupe pairs the server
 // event with the browser one. A send Meta refuses (a bad token, say) gives the
-// slot back.
+// slot back. REPLAY CAP (fix round 1, review M4): a replayed banner link mints
+// a new click every time, so /lg/lc decides per click whether it is within
+// CLICK_REPLAY_CAP clicks per (funnel attempt, offer) per 24 h
+// (revenue-ingest.ts claimClickReplaySlot, the same lg_s2s: KV family); a click
+// over the cap arrives here with `capped` and sends nothing.
+//
+// EVENT NAME (fix round 1, review m4): a saved name is always kept; with none
+// saved, a CPC Offer sends Purchase (the click IS the money) and a
+// CPL / CPA / CPI Offer sends Lead (its money is a later conversion).
 //
 // Never throws. Runs on waitUntil after the 302 has been returned, so a Meta
 // outage cannot slow or break a visitor's click. The outcome is logged AND
@@ -66,9 +74,11 @@ import { safeErrorName } from "../safety/safe-error";
 import { META_FBP_RE } from "./meta-hash";
 
 // Meta standard events that make sense for a click. "Purchase" is the default
-// (owner R2, 2026-10-08: the ad sets optimise Purchase value, and the click's
-// bid is the value). 0058 rows that are switched on with no saved name were
-// pinned to "Lead" by 0064, so no existing Offer changes event.
+// for a CPC Offer (owner R2, 2026-10-08: the ad sets optimise Purchase value,
+// and the click's bid is the value); a CPL / CPA / CPI Offer defaults to
+// "Lead" (fix round 1, review m4 — clickoutMetaDefaultEvent). 0058 rows that
+// are switched on with no saved name were pinned to "Lead" by 0064, so no
+// existing Offer changes event.
 export const CLICKOUT_META_EVENT_NAMES = [
   "Lead",
   "CompleteRegistration",
@@ -80,6 +90,13 @@ export const CLICKOUT_META_EVENT_NAMES = [
 ] as const;
 export type ClickoutMetaEventName = (typeof CLICKOUT_META_EVENT_NAMES)[number];
 export const CLICKOUT_META_DEFAULT_EVENT: ClickoutMetaEventName = "Purchase";
+
+// The event a newly enabled Offer sends when no name is saved, by its type:
+// cpc → Purchase; cpl / cpa / cpi → Lead; unknown → Purchase.
+export function clickoutMetaDefaultEvent(offerType: string | null | undefined): ClickoutMetaEventName {
+  const t = (offerType ?? "").trim().toLowerCase();
+  return t === "cpl" || t === "cpa" || t === "cpi" ? "Lead" : CLICKOUT_META_DEFAULT_EVENT;
+}
 
 // A Meta dataset (pixel) id is all digits.
 export const CLICKOUT_META_DATASET_RE = /^[0-9]{5,20}$/;
@@ -145,6 +162,9 @@ export interface ClickoutMetaClick {
   // recorded for it. Never a price: the price is read from the auction.
   carrier_key?: string;
   slot?: number | null;
+  // Fix round 1 (review M4): true ⇒ this click is over the replay cap
+  // (/lg/lc decided it) — nothing is sent.
+  capped?: boolean;
 }
 
 // One card the auction showed (leadgen_auction_result_log.carriers_shown_json).
@@ -192,6 +212,7 @@ export interface MetaErrorFacts {
 // "not_meta_traffic" (the reference funnel sends for every click).
 export type ClickoutMetaSkipReason =
   | "offer_setting_off"
+  | "replay_capped" // over CLICK_REPLAY_CAP clicks per (funnel attempt, offer) per 24 h
   | "no_auction" // the click names no auction we ran
   | "attempt_mismatch" // the auction belongs to another funnel attempt
   | "offer_not_shown" // that auction never showed this Offer
@@ -372,7 +393,7 @@ export function clickoutMetaCardPixel(
   if (!CLICKOUT_META_DATASET_RE.test(dataset)) return null;
   return {
     dataset_id: dataset,
-    event_name: clickoutMetaEventName({ clickout_meta_event_name: offer.clickout_meta_event_name ?? null }),
+    event_name: clickoutMetaEventName({ clickout_meta_event_name: offer.clickout_meta_event_name ?? null, offer_type: offer.offer_type ?? null }),
     value: clickoutMetaValue(
       {
         clickout_meta_value: offer.clickout_meta_value ?? null,
@@ -400,11 +421,11 @@ export function clickoutMetaClickedBid(
   return (bySlot ?? matches[0]!).bid;
 }
 
-export function clickoutMetaEventName(offer: Pick<ClickoutMetaOffer, "clickout_meta_event_name">): ClickoutMetaEventName {
+export function clickoutMetaEventName(offer: Pick<ClickoutMetaOffer, "clickout_meta_event_name" | "offer_type">): ClickoutMetaEventName {
   const raw = (offer.clickout_meta_event_name ?? "").trim();
   return (CLICKOUT_META_EVENT_NAMES as readonly string[]).includes(raw)
     ? (raw as ClickoutMetaEventName)
-    : CLICKOUT_META_DEFAULT_EVENT;
+    : clickoutMetaDefaultEvent(offer.offer_type);
 }
 
 async function sha256Hex(value: string): Promise<string> {
@@ -532,6 +553,8 @@ export function describeClickoutMetaOutcome(outcome: ClickoutMetaOutcome): strin
       switch (outcome.reason) {
         case "offer_setting_off":
           return "Not sent: the setting is off.";
+        case "replay_capped":
+          return "Not sent: this visitor already clicked this offer 5 times today.";
         case "no_auction":
           return "Not sent: the click did not come from a banner LeadGen showed.";
         case "attempt_mismatch":
@@ -548,6 +571,7 @@ export function describeClickoutMetaOutcome(outcome: ClickoutMetaOutcome): strin
 
 const UNRECORDED_SKIPS: ReadonlySet<ClickoutMetaSkipReason> = new Set<ClickoutMetaSkipReason>([
   "offer_setting_off",
+  "replay_capped",
   "no_auction",
   "attempt_mismatch",
   "offer_not_shown",
@@ -604,6 +628,7 @@ async function send(
 ): Promise<ClickoutMetaOutcome> {
   try {
     if (offer.clickout_meta_conversion !== 1) return { status: "skipped", reason: "offer_setting_off" };
+    if (click.capped === true) return { status: "skipped", reason: "replay_capped" };
 
     const auction = await loadClickoutMetaAuction(db, click.auction_instance_id);
     if (auction === null) return { status: "skipped", reason: "no_auction" };
