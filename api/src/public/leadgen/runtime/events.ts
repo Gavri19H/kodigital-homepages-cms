@@ -219,15 +219,16 @@ export class LgBeaconClient {
     };
     // Owner 2026-10-08 (R2): the funnel's Meta pixel (serve.ts
     // metaPixelShellScript, emitted only when a pixel is configured) learns
-    // "first answer" / "offers shown" from this one emission path. Fix round 1
-    // (review m6): the global is read ONCE and called only when it is a
-    // function (no pixel on the page ⇒ nothing called, nothing thrown); a
-    // throwing hook is still swallowed — the beacon is what matters.
+    // "first answer" / "offers shown" from this one emission path. With no
+    // hook installed the call throws and is swallowed — written this way (no
+    // typeof guard) because the bundle sits at its byte budget; a throwing
+    // hook never costs the beacon either. (Fix round 2, review N4: a typeof
+    // guard was tried in fix round 1 and reverted — it pushed the bundle over
+    // the owner-set 53248 B cap.)
     try {
-      const hook = (globalThis as unknown as { __lgOnEvent?: unknown }).__lgOnEvent;
-      if (typeof hook === "function") (hook as (e: LgBeaconEvent) => void)(event);
+      (globalThis as unknown as { __lgOnEvent: (e: LgBeaconEvent) => void }).__lgOnEvent(event);
     } catch {
-      /* the hook failed — the beacon is what matters */
+      /* no pixel on this page, or the hook failed — the beacon is what matters */
     }
     this.queue.push(event);
     if (this.queue.length >= this.maxBatch) {

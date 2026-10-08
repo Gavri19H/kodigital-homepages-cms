@@ -41,7 +41,7 @@ import { SEED_FACEBOOK_TEMPLATE } from "../src/leadgen/revenue-recon";
 import { renderBanners, type BannerRenderCarrier } from "../src/public/leadgen/auction/banner";
 import { getBannerDesign } from "../src/public/leadgen/designs/registry";
 import { metaMatchFieldMap, metaPixelShellScript, type LeadgenMetaPixelShell } from "../src/public/leadgen/serve";
-import { normalizeMetaName, normalizeMetaPhone } from "../src/leadgen/meta-hash";
+import { normalizeMetaName, normalizeMetaPhone, normalizeMetaZip } from "../src/leadgen/meta-hash";
 import type { ResolvedActivatedFunnel } from "../src/public/leadgen/resolver";
 import { LgBeaconClient } from "../src/public/leadgen/runtime/events";
 import { LEADGEN_RUNTIME_JS } from "../src/public/leadgen/runtime/engine-bundle.generated";
@@ -402,11 +402,11 @@ function captureCtx(): { ctx: ExecutionContext; settle: () => Promise<void> } {
   };
 }
 
-async function getClick(h: Harness, href: string, cookie = ""): Promise<Response> {
+async function getClick(h: Harness, href: string, cookie = "", ua = "Mozilla/5.0 (iPhone)"): Promise<Response> {
   const cap = captureCtx();
   const res = await app.request(
     `http://${TENANT_HOST}${href}`,
-    { headers: { "cf-connecting-ip": "203.0.113.7", "user-agent": "Mozilla/5.0 (iPhone)", referer: `https://${TENANT_HOST}/lg/home`, ...(cookie !== "" ? { cookie } : {}) } },
+    { headers: { "cf-connecting-ip": "203.0.113.7", "user-agent": ua, referer: `https://${TENANT_HOST}/lg/home`, ...(cookie !== "" ? { cookie } : {}) } },
     h.env,
     cap.ctx,
   );
@@ -688,11 +688,13 @@ describe("2. funnel pixel — PageView on load, Lead once after the first answer
     }
     expect(seen).toEqual(["answer_click"]);
     expect(client.pendingCount()).toBe(3);
-    // FIX-R1 m6: the SERVED bundle reads the global ONCE and calls it only when
-    // it is a function (no blind call that throws on every beacon).
-    expect(LEADGEN_RUNTIME_JS).not.toContain("globalThis.__lgOnEvent(");
-    expect(LEADGEN_RUNTIME_JS).toMatch(/let (\w+)=globalThis\.__lgOnEvent;typeof \1=="function"&&\1\(/);
-    // a non-function value is ignored (not called), the beacon still queues
+    // FIX-R2 N4: fix round 1's typeof guard (m6) is reverted — it pushed the
+    // bundle over the owner-set 53248 B cap. The SERVED bundle calls the hook
+    // inside try/catch: no hook (or a non-function value) throws and is
+    // swallowed, and the beacon still queues.
+    expect(LEADGEN_RUNTIME_JS).toContain("globalThis.__lgOnEvent(");
+    expect(LEADGEN_RUNTIME_JS.length).toBeLessThanOrEqual(53248);
+    // a non-function value is not a hook: the beacon still queues
     const g2 = globalThis as { __lgOnEvent?: unknown };
     try {
       g2.__lgOnEvent = 42;
@@ -730,6 +732,24 @@ describe("2. funnel pixel — PageView on load, Lead once after the first answer
     expect(normalizeMetaName(typed.first)).toBe(user["fn"]);
     expect(normalizeMetaName(typed.last)).toBe(user["ln"]);
     expect(normalizeMetaPhone(typed.phone)).toBe(user["ph"]);
+  });
+
+  it("FIX-R2 N7: ZIP — the browser keeps the first 5 of its digits only, fewer than 5 digits → omitted (the server's normalizeMetaZip)", () => {
+    const cases: Array<[string, string | undefined]> = [
+      ["78701-1234", "78701"],
+      [" 9 0 2 1 0 ", "90210"],
+      ["ZIP 90210", "90210"],
+      ["1234", undefined],
+      ["abcde", undefined],
+    ];
+    for (const [typed, want] of cases) {
+      const run = runShellScript({ funnel_pixel_id: null, click_events: true, fields: { zip: "zp" } });
+      run.hook({ event_type: "answer_change", funnel_attempt_id: "att_1", internal_field: "zip", answer_value_normalized: typed });
+      run.click(stubAnchor({ href: "/lg/lc/lgo_x", "data-lg-px": OFFER_PIXEL }));
+      const user = inits(run.fbq).find((i) => i.pixel === OFFER_PIXEL)!.user;
+      expect(user["zp"], typed).toBe(want);
+      expect(normalizeMetaZip(typed), typed).toBe(want ?? "");
+    }
   });
 
   it("FIX-R1 m1: an engine without the RegExp `u` flag (ES5) still keeps the cased letters of any script", () => {
@@ -933,6 +953,84 @@ describeDb("4. the click: the shell mints the event id, the real /lg/lc sends th
     const other = anchor.attrs["href"]!.replace("aiid=aiid-1", "aiid=aiid-2").replace("faid=att_1", "faid=att_2");
     expect((await getClick(h, other)).status).toBe(302);
     expect(f.metaEvents()).toHaveLength(6);
+  });
+});
+
+// FIX-R2: the click events /lg/lc streams to Firehose (→ Athena), captured
+// alongside the Meta posts.
+function withFirehose(h: Harness): void {
+  Object.assign(h.env as unknown as Record<string, unknown>, {
+    AWS_ACCESS_KEY_ID: "k",
+    AWS_SECRET_ACCESS_KEY: "s",
+    LEADGEN_EVENTS_FIREHOSE_STREAM: "leadgen-events",
+  });
+}
+function stubFetchWithFirehose() {
+  const meta: Array<Record<string, unknown>> = [];
+  const records: Array<Record<string, unknown>> = [];
+  vi.spyOn(globalThis, "fetch").mockImplementation(async (input: RequestInfo | URL, init?: RequestInit) => {
+    const url = String(input instanceof Request ? input.url : input);
+    if (url.includes("firehose")) {
+      const text = input instanceof Request ? await input.clone().text() : String(init?.body ?? "{}");
+      const body = JSON.parse(text) as { Records?: Array<{ Data: string }> };
+      for (const r of body.Records ?? []) records.push(JSON.parse(Buffer.from(r.Data, "base64").toString("utf8")) as Record<string, unknown>);
+      return new Response(JSON.stringify({ FailedPutCount: 0, RequestResponses: [] }), { status: 200 });
+    }
+    if (url.startsWith("https://graph.facebook.com/")) meta.push((JSON.parse(String(init?.body)) as { data: Array<Record<string, unknown>> }).data[0]!);
+    return new Response(JSON.stringify({ events_received: 1, fbtrace_id: "Atrace" }), { status: 200, headers: { "content-type": "application/json" } });
+  });
+  return { meta, clicks: () => records.filter((r) => r["event_type"] === "carrier_click") };
+}
+function ledgerRows(h: Harness): Array<{ booking_trigger: string; revenue: number }> {
+  return h.sdb.prepare("SELECT booking_trigger, revenue FROM leadgen_revenue_raw").all() as Array<{ booking_trigger: string; revenue: number }>;
+}
+
+describeDb("FIX-R2 — the real /lg/lc books and sends to Facebook only for a real, clean click", () => {
+  async function cpcScenario() {
+    const h = newHarness();
+    withFirehose(h);
+    const { offerPublicId } = seedOffer(h, { type: "cpc", multiplier: 1 });
+    seedAuction(h, { aiid: "aiid-1", faid: "att_1", cards: [{ offer_id: offerPublicId, carrier_key: "ck1", bid: 4, slot: 1 }] });
+    const href = `/lg/lc/${offerPublicId}?ck=ck1&aiid=aiid-1&brid=lgbr_FIXED&slot=1&faid=att_1`;
+    return { h, offerPublicId, href };
+  }
+
+  it("N3: traffic quality is computed like /lg/px — a curl user agent (bot) or the ko_internal=1 cookie (internal) still 302s, but books Athena revenue 0 with booking_trigger 'not_clean', no ledger row and no Facebook send; a clean click books and sends", async () => {
+    const { h, href } = await cpcScenario();
+    const f = stubFetchWithFirehose();
+    const statuses = [
+      (await getClick(h, href, "", "curl/8.4.0")).status,
+      (await getClick(h, href, "ko_internal=1")).status,
+      (await getClick(h, href)).status,
+    ];
+    expect(statuses).toEqual([302, 302, 302]);
+    expect(f.clicks().map((c) => [c["is_bot"], c["is_internal"], c["is_preview"], c["traffic_quality_flag"], c["revenue"], c["booking_trigger"]])).toEqual([
+      [true, false, false, "bot", 0, "not_clean"],
+      [false, true, false, "internal", 0, "not_clean"],
+      [false, false, false, "clean", 4, "click"],
+    ]);
+    expect(ledgerRows(h)).toEqual([{ booking_trigger: "click", revenue: 4 }]);
+    expect(f.meta).toHaveLength(1);
+  });
+
+  it("N1: a forged link — no auction, an auction of another attempt, an auction that never showed this offer — still 302s, books Athena revenue 0 with booking_trigger 'unverified', no ledger row, no Facebook send, no replay slot spent", async () => {
+    const { h, href } = await cpcScenario();
+    seedAuction(h, { aiid: "aiid-else", faid: "att_1", cards: [{ offer_id: "lgo_someone_else", carrier_key: "ck1", bid: 4, slot: 1 }] });
+    const f = stubFetchWithFirehose();
+    const forged = [
+      href.replace("aiid=aiid-1", "aiid=aiid-nope"),
+      href.replace("faid=att_1", "faid=att_forged"),
+      href.replace("aiid=aiid-1", "aiid=aiid-else"),
+    ];
+    for (const link of forged) expect((await getClick(h, link)).status, link).toBe(302);
+    expect(f.clicks().map((c) => [c["revenue"], c["booking_trigger"]])).toEqual([
+      [0, "unverified"],
+      [0, "unverified"],
+      [0, "unverified"],
+    ]);
+    expect(ledgerRows(h)).toEqual([]);
+    expect(f.meta).toHaveLength(0);
+    expect([...h.kv.keys()].filter((k) => k.startsWith("lg_s2s:click_cap:"))).toEqual([]);
   });
 });
 

@@ -560,6 +560,15 @@ export function answerWordsFor(choices: ReadonlyMap<string, string>, value: stri
   return value;
 }
 
+// True when the stored value is one of the field's own authored choices (a
+// multi-select's "a,b" when every part is one) — a picked choice, not typing.
+function isChoiceValue(choices: ReadonlyMap<string, string>, value: string): boolean {
+  if (choices.size === 0 || value === "") return false;
+  if (choices.has(value)) return true;
+  const parts = value.split(",").map((p) => p.trim()).filter((p) => p !== "");
+  return parts.length > 1 && parts.every((p) => choices.has(p));
+}
+
 async function hashAnswer(e: LeadgenEvent, kind: MetaContactKind): Promise<void> {
   const raw = e.answer_value_normalized;
   let hashed = raw === "" ? "" : await hashMetaValue(kind, raw);
@@ -676,10 +685,12 @@ function withBudget<T>(p: Promise<T>, ms: number): Promise<T | null> {
 //      names, site_id from the Host when empty, section name + the question's
 //      key/label + the answer's words;
 //   3. contact answers are hashed (R3) — ALWAYS, even when step 2 failed.
-//      Fix round 1 (review M1/M2): every answer value not already hashed is
-//      sniffed (meta-hash.ts sniffMetaContactKind — capped to 254 chars, linear
-//      patterns): one that LOOKS like an email / phone number is hashed
-//      whatever question it answered; and a typed answer (answer_change) whose
+//      Fix round 1 (review M1/M2), narrowed by fix round 2 (review N2): every
+//      TYPED answer value (answer_change, not one of the field's own choices)
+//      not already hashed is sniffed (meta-hash.ts sniffMetaContactKind —
+//      capped to 254 chars, linear patterns): one that LOOKS like an email /
+//      phone number is hashed whatever question it answered — choice clicks
+//      and picked choice values are never sniffed; and a typed answer whose
 //      section / question cannot be resolved (unknown or empty section_id, a
 //      question the section no longer holds, D1 over its time budget) is
 //      hashed too — fail closed: never plain, answer_label "".
@@ -738,18 +749,26 @@ export async function enrichTrackEvents(
         await hashAnswer(e, field.contact);
         continue;
       }
-      // M1: a contact-looking value is hashed whatever question it answered.
-      const sniffed = sniffMetaContactKind(e.answer_value_normalized);
-      if (sniffed !== null) {
-        await hashAnswer(e, sniffed);
-        continue;
+      // Fix round 2 (review N2): the sniff and the fail-closed hash apply to
+      // TYPED answers only — an answer_change whose value is not one of the
+      // answered field's own choices. A choice click (answer_click), a default
+      // (answer_default_applied) or a picked choice value is never sniffed: an
+      // income band "50000-100000" is a choice, not a phone number.
+      const typed = e.event_type === "answer_change" && !(field !== null && isChoiceValue(field.choices, e.answer_value_normalized));
+      if (typed) {
+        // M1: a contact-looking typed value is hashed whatever question it answered.
+        const sniffed = sniffMetaContactKind(e.answer_value_normalized);
+        if (sniffed !== null) {
+          await hashAnswer(e, sniffed);
+          continue;
+        }
+        // M2: fail closed — a typed answer we cannot place is never kept plain.
+        if (field === null) {
+          await hashAnswer(e, "text");
+          continue;
+        }
       }
-      // M2: fail closed — a typed answer we cannot place is never kept plain.
-      if (field === null) {
-        if (e.event_type === "answer_change") await hashAnswer(e, "text");
-        continue;
-      }
-      e.answer_label = answerWordsFor(field.choices, e.answer_value_normalized);
+      if (field !== null) e.answer_label = answerWordsFor(field.choices, e.answer_value_normalized);
     } catch {
       // one event's enrichment never affects another, nor the batch
     }

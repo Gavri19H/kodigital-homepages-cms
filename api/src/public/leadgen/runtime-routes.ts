@@ -66,7 +66,7 @@ import { genSessionId, readCookie, sessionCookie } from "../listicle/experiment-
 // read (04 §4.2 "bridged, not duplicated") — reused here, read-only, for the
 // slot-rule/A-B plan resolution's entry-known state/device signals + the
 // P2a ctx echo.
-import { readCfSignals, geoFromCf, parseClientUa } from "../../analytics/listicle-quality";
+import { readCfSignals, geoFromCf, parseClientUa, computeTrafficQuality } from "../../analytics/listicle-quality";
 import { buildLeadgenRuntimeContext } from "../../leadgen/runtime-context";
 import { LEADGEN_TEMPLATE_VERSION } from "../../cache/cache-keys";
 import { LEADGEN_RUNTIME_JS } from "./runtime/engine-bundle.generated";
@@ -910,6 +910,21 @@ async function serveLeadgenClick(c: PublicContext): Promise<Response> {
   ec.sub3 = canonicalMacros["sub3"] ?? "";
   ec.sub4 = canonicalMacros["sub4"] ?? "";
   ec.sub5 = canonicalMacros["sub5"] ?? "";
+  // Fix round 2 (review N3): the click's traffic quality, computed EXACTLY as
+  // /lg/px computes it (postback.ts ingestBrowserPixel: the CF edge signals,
+  // the User-Agent, the cookies — ko_internal=1 — and the request + Referer
+  // URLs). Stamped on the click event; a non-clean click books nothing and
+  // sends nothing to Facebook (click.ts / clickout-meta.ts).
+  const quality = computeTrafficQuality({
+    cf: readCfSignals(c.req.raw),
+    userAgent: c.req.header("User-Agent"),
+    cookieHeader: c.req.header("Cookie"),
+    urls: [c.req.url, c.req.header("Referer") ?? ""],
+  });
+  ec.is_bot = quality.is_bot;
+  ec.is_internal = quality.is_internal;
+  ec.is_preview = quality.is_preview;
+  ec.traffic_quality_flag = quality.traffic_quality_flag;
 
   const input: LeadgenClickInput = {
     offer_public_id: offerPublicId,
@@ -973,6 +988,7 @@ async function serveLeadgenClick(c: PublicContext): Promise<Response> {
         fbp: readFbpCookie(c.req.header("Cookie") ?? null),
         carrier_key: carrierKey,
         slot,
+        traffic_quality_flag: quality.traffic_quality_flag,
       }, result.replay_capped);
       return redirect;
     }

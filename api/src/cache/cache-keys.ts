@@ -217,9 +217,10 @@ export function listicleCandidateKey(
 // change, same 304 reason as v6; runtime "9" tracks it.
 // v10 (2026-10-08, fix round 1 of the Facebook-events review): the shell's
 // Meta pixel script changes (no hardcoded country, the visitor's stored answers
-// at the pixel's first init, Meta normalisation parity, per-funnel gating) and
-// the runtime's hook call gains a typeof guard — shell markup AND runtime bytes
-// change, same 304 reason as v6; runtime "10" tracks it.
+// at the pixel's first init, Meta normalisation parity, per-funnel gating; fix
+// round 2: ZIP normalised exactly like the server) — shell markup AND runtime
+// bytes change (the runtime reports "10"), same 304 reason as v6; runtime "10"
+// tracks it. v10 never shipped before fix round 2, so round 2 keeps it.
 export const LEADGEN_TEMPLATE_VERSION = 10 as const;
 
 const NS_LG_SHELL = "lg-shell";

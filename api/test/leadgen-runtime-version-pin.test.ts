@@ -46,12 +46,14 @@ const ENGINE_SRC = readFileSync(
 const LG_ENGINE_VERSION = /export const LG_ENGINE_VERSION = "([^"]+)"/.exec(ENGINE_SRC)?.[1];
 
 // sha256 of the committed bundle AT LEADGEN_TEMPLATE_VERSION 10 (v10,
-// 2026-10-08 Facebook-events fix round 1, review m6: the shell-hook call reads
-// window.__lgOnEvent once and calls it only when it is a function; v9 was
-// 7ac8307d… (the hook call added); v8 was 330356c1…; v7: the shell's no-match
-// block; v6: a shell-CSS bump: the engine differs from v5 only by the version
-// it reports; v5 was b216862a…, v4 53dbaf55…).
-const RUNTIME_BUNDLE_SHA256 = "7d2e5eea4c31fe955828a6b50812ba6351950207a1b62b3c86ef668d7690d6f8";
+// 2026-10-08 Facebook-events fix rounds 1+2: the shell's pixel script changed;
+// the runtime's shell-hook call is the v9 one again (fix round 2, review N4
+// reverted round 1's typeof guard, 7d2e5eea…, which broke the 53248 B cap) —
+// v10 never shipped, so it is re-pinned rather than bumped; v9 was 7ac8307d…
+// (the hook call added); v8 was 330356c1…; v7: the shell's no-match block; v6:
+// a shell-CSS bump: the engine differs from v5 only by the version it reports;
+// v5 was b216862a…, v4 53dbaf55…).
+const RUNTIME_BUNDLE_SHA256 = "537125c0a12a8a6116e4f7c54e87cd23ead796936a9581a5c66649e39f703dce";
 const RUNTIME_BUNDLE_VERSION = 10;
 
 describe("the runtime bundle is pinned to its immutable URL version", () => {

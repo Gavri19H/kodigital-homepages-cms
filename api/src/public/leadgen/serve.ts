@@ -506,7 +506,8 @@ export function metaMatchFieldMap(resolved: ResolvedActivatedFunnel): Record<str
 //     only, Unicode letters kept (a `\p{L}` RegExp built at run time inside
 //     try/catch — an engine without the `u` flag keeps the cased letters);
 //     city → a-z only; phone → digits, leading zeros / "00" stripped, a
-//     10-digit number gets the leading 1;
+//     10-digit number gets the leading 1; ZIP (fix round 2, review N7) → the
+//     first 5 of its digits only, fewer than 5 digits → omitted;
 //   * offer click (click + middle-click auxclick, EVERY click — R1): on an
 //     <a data-lg-px> card (banner.ts) it mints 'lgc_' + 20 random letters/digits,
 //     appends it to the /lg/lc link as `eid` BEFORE the browser navigates (the
@@ -545,7 +546,7 @@ export function metaPixelShellScript(cfg: LeadgenMetaPixelShell): string {
     "if(k==='em'){return v.indexOf('@')>0?v.toLowerCase():'';}" +
     "if(k==='ph'){v=v.replace(/\\D/g,'').replace(/^0+/,'');if(v.length===10){v='1'+v;}return v.length>=7?v:'';}" +
     "if(k==='db'){v=v.replace(/\\D/g,'');if(v.length===8&&+v.slice(0,4)<1900){v=v.slice(4)+v.slice(0,4);}return v.length===8?v:'';}" +
-    "if(k==='zp'){v=v.replace(/\\s/g,'').toLowerCase();return /^\\d{5}/.test(v)?v.slice(0,5):v;}" +
+    "if(k==='zp'){v=v.replace(/\\D/g,'');return v.length>=5?v.slice(0,5):'';}" +
     "if(k==='st'){v=v.toLowerCase().replace(/[^a-z]/g,'');return v.length===2?v:'';}" +
     "if(k==='ct'){return v.toLowerCase().replace(/[^a-z]/g,'');}" +
     "return letters(v);}" +

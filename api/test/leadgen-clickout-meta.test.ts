@@ -35,6 +35,7 @@ import { readFileSync } from "node:fs";
 import { fileURLToPath } from "node:url";
 import { dirname, join } from "node:path";
 import { createHash } from "node:crypto";
+import { runInNewContext } from "node:vm";
 import app from "../src/index";
 import admin from "../src/admin/router";
 import type { Env } from "../src/env";
@@ -42,6 +43,7 @@ import { mintPublicId } from "../src/leadgen/ids";
 import { buildLeadgenClickUrl } from "../src/public/leadgen/auction/banner";
 import { SEED_FACEBOOK_TEMPLATE } from "../src/leadgen/revenue-recon";
 import {
+  CLICKOUT_META_EVENT_NAMES,
   sendClickoutMetaConversion,
   type ClickoutMetaClick,
   type ClickoutMetaOffer,
@@ -969,8 +971,43 @@ describeDb("Offer editor — the control, its copy, and what it can honestly say
     expect(savedBox).toContain('<option value="Contact" selected>Contact</option>');
     expect(savedBox).toContain('data-lg-clickout-event-saved="1"');
     // the editor island keeps an unsaved event in step with the type picker
+    // (executed in the FIX-R2 N7 test below)
     const html = await editorHtml(h, offerPublicId);
-    expect(html).toContain("clickoutEvent.value = (t === 'cpl' || t === 'cpa' || t === 'cpi') ? 'Lead' : 'Purchase';");
+    expect(html).toContain("function applyClickoutMetaDefaultEvent()");
+  });
+
+  it("FIX-R2 N7: the '(default)' mark follows an offer-type change — the editor island's own code, executed; an unpicked event follows the type, a picked one is kept", async () => {
+    const h = newHarness();
+    const { offerPublicId } = seedOffer(h.sdb, { static: false, clickout: 0 }); // CPL, no saved event
+    const html = await editorHtml(h, offerPublicId);
+    const from = html.indexOf("var clickoutEvent = form.querySelector");
+    const to = html.indexOf("form.addEventListener('change'", from);
+    expect(from).toBeGreaterThan(-1);
+    expect(to).toBeGreaterThan(from);
+    const options = CLICKOUT_META_EVENT_NAMES.map((v) => ({ value: v, text: v === "Lead" ? "Lead (default)" : v }));
+    const select = { value: "Lead", options, getAttribute: (n: string) => (n === "data-lg-clickout-event-saved" ? "0" : null) };
+    const typeSel = { value: "cpl" };
+    const form = {
+      querySelector: (sel: string) => (sel === '[name="clickout_meta_event_name"]' ? select : sel === '[name="offer_type"]' ? typeSel : null),
+    };
+    const ctx: Record<string, unknown> = { form };
+    runInNewContext(html.slice(from, to), ctx);
+    const apply = ctx["applyClickoutMetaDefaultEvent"] as () => void;
+    const marked = (): string[] => options.filter((o) => o.text === `${o.value} (default)`).map((o) => o.value);
+
+    typeSel.value = "cpc";
+    apply();
+    expect(marked()).toEqual(["Purchase"]);
+    expect(options.find((o) => o.value === "Lead")!.text).toBe("Lead");
+    expect(select.value).toBe("Purchase");
+
+    // the operator picks an event: the pick is kept, the mark still follows the type
+    ctx["clickoutEventPicked"] = true;
+    select.value = "Contact";
+    typeSel.value = "cpa";
+    apply();
+    expect(marked()).toEqual(["Lead"]);
+    expect(select.value).toBe("Contact");
   });
 
   it("FIX-R1 B1: the help text says every CPC click is booked as revenue whatever the switch says; the switch controls only the Facebook event", async () => {

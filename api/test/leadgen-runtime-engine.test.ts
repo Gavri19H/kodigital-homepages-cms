@@ -855,10 +855,9 @@ describe("bundle: committed engine-bundle.generated.ts", () => {
     // (mask/sliders/other/address); then R2 owner decision D1 (2026-07-28):
     // the cap is raised 51200 -> 53248 (52 KiB) to fund the R2 slider and grid
     // runtime components — overflow = owner decision. See docs/leadgen/rework/byte-ledger.md.
-    // 2026-10-08 LeadGen Facebook-events fix round 1 (review finding m6): the
-    // shell-hook call reads the global once + a typeof guard (+29 bytes over
-    // 53248) — raised one 1 KiB step to 54272 (53 KiB) as the fix spec directs.
-    expect(LEADGEN_RUNTIME_JS_BYTES).toBeLessThanOrEqual(54272);
+    // (2026-10-08: fix round 1 raised this to 54272 for a typeof guard on the
+    // shell hook; fix round 2, review N4, reverted the guard and the raise.)
+    expect(LEADGEN_RUNTIME_JS_BYTES).toBeLessThanOrEqual(53248);
     expect(LEADGEN_RUNTIME_JS_BYTES).toBeGreaterThan(1000);
   });
 

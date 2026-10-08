@@ -51,11 +51,10 @@ export const GENERATED_PATH = resolve(
 // 52 KiB (53248) by R2 owner decision D1 (2026-07-28) to fund the R2 slider
 // and grid runtime components — enforced with a per-feature byte ledger
 // (docs/leadgen/rework/byte-ledger.md). Overflow beyond the cap is an owner
-// decision; the cap is final absent that approval. Then 53 KiB (54272) by the
-// 2026-10-08 LeadGen Facebook-events fix round 1 (review finding m6: the
-// runtime's shell-hook call reads the global once and calls it only when it
-// is a function — +29 bytes over 53248; the fix spec authorises one 1 KiB step).
-export const MAX_BUNDLE_BYTES = 54272;
+// decision; the cap is final absent that approval. (2026-10-08: a fix-round-1
+// raise to 54272 for a typeof guard on the shell hook was reverted in fix
+// round 2, review N4 — the guard was dropped, the owner-set cap stands.)
+export const MAX_BUNDLE_BYTES = 53248;
 
 export interface RuntimeBundle {
   js: string;

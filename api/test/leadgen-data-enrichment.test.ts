@@ -490,10 +490,10 @@ function seedOffer(sdb: SqliteDb, publicId: string, offerType: string, staticBid
   return (sdb.prepare("SELECT id FROM leadgen_offers WHERE public_id = ?").get(publicId) as { id: number }).id;
 }
 
-function seedShown(sdb: SqliteDb, aiid: string, shown: Array<{ carrier_key: string; offer_id: string; bid: number; slot: number }>): void {
+function seedShown(sdb: SqliteDb, aiid: string, shown: Array<{ carrier_key: string; offer_id: string; bid: number | null; slot: number }>, faid: string | null = null): void {
   sdb
-    .prepare("INSERT INTO leadgen_auction_result_log (auction_instance_id, auction_result_id, auction_config_id, funnel_id, carriers_shown_json) VALUES (?, ?, 'lga_1', 'lgf_home', ?)")
-    .run(aiid, `res-${aiid}`, JSON.stringify(shown));
+    .prepare("INSERT INTO leadgen_auction_result_log (auction_instance_id, auction_result_id, auction_config_id, funnel_id, funnel_attempt_id, carriers_shown_json) VALUES (?, ?, 'lga_1', 'lgf_home', ?, ?)")
+    .run(aiid, `res-${aiid}`, faid, JSON.stringify(shown));
 }
 
 function clickInput(o: Partial<LeadgenClickInput>): LeadgenClickInput {
@@ -558,11 +558,14 @@ describeDb("4. banner clicks: CPC books its USD bid on EVERY click; cpl/cpa/cpi 
   it("a static CPC offer with no stored card bid books static_bid_value; fbp falls back to the auction snapshot", async () => {
     const { sdb, env } = harness({ firehose: false });
     seedOffer(sdb, "lgo_static", "cpc", 2.5, "USD");
+    // FIX-R2 N1: a click books only when the auction it names showed the
+    // offer (it used to book with no auction at all — now 'unverified').
+    seedShown(sdb, "aiid-static", [{ carrier_key: "", offer_id: "lgo_static", bid: null, slot: 1 }]);
     const cap = ctxCapture();
     const r = await resolveLeadgenClick(
       env,
       cap.ctx,
-      clickInput({ offer_public_id: "lgo_static", carrier_key: "", auction_instance_id: "", carrier: null, canonical_macros: { fbp: FBP } }),
+      clickInput({ offer_public_id: "lgo_static", carrier_key: "", auction_instance_id: "aiid-static", carrier: null, canonical_macros: { fbp: FBP } }),
     );
     await settle(cap.promises);
     const e = r.events[0]!;
@@ -1026,5 +1029,102 @@ describeDb("FIX-R1 M4: replay cap — at most 5 bookings per (funnel attempt, of
     expect(await claimClickReplaySlot(kv, "fa-x", "lgo_1", t0 + 24 * 3600 * 1000 + 1000)).toBe(true);
     await claimClickReplaySlot(kv, "x".repeat(5000), "lgo_1", t0);
     expect(Math.max(...[...store.keys()].map((k) => k.length))).toBeLessThan(100);
+  });
+});
+
+// ---------------------------------------------------------------------------
+// Fix round 2 (confirmation review)
+// ---------------------------------------------------------------------------
+
+const BAND_SECTION = [
+  {
+    type: "ButtonAnswerGroup",
+    question_id: "q_rev",
+    internal_field: "annual_revenue",
+    props: { label: "Annual revenue" },
+    choices: [
+      { label: "$10k to $50k", value: "10000-50000", analytics_id: "r1" },
+      { label: "$50k to $100k", value: "50000-100000", analytics_id: "r2" },
+    ],
+  },
+  {
+    type: "DropdownQuestion",
+    question_id: "q_inc",
+    internal_field: "income",
+    props: { label: "Household income" },
+    choices: [{ label: "$50k to $100k", value: "50000-100000", analytics_id: "i1" }],
+  },
+  { type: "FreeTextQuestion", question_id: "q_note", internal_field: "notes", props: { label: "Anything else?" } },
+];
+
+describeDb("FIX-R2 N2: the email/phone sniff runs on TYPED answers only — never on a choice", () => {
+  it("choices '10000-50000' / '50000-100000' stay readable with their answer label (clicked, picked from a dropdown, or clicked with the section unresolved); a typed phone in a free-text field is still hashed; an unresolved typed answer still fails closed", async () => {
+    const { sdb, env } = harness();
+    seedSection(sdb, "lgs_band", "Business", "About your business", BAND_SECTION);
+    const sent = [
+      ev("answer_click", { section_id: "lgs_band", question_id: "q_rev", answer_value_normalized: "10000-50000" }),
+      ev("answer_click", { section_id: "lgs_band", question_id: "q_rev", answer_value_normalized: "50000-100000" }),
+      ev("answer_change", { section_id: "lgs_band", question_id: "q_inc", answer_value_normalized: "50000-100000" }),
+      ev("answer_click", { section_id: "", question_id: "q_rev", answer_value_normalized: "50000-100000" }),
+      ev("answer_change", { section_id: "lgs_band", question_id: "q_note", answer_value_normalized: "555-123-4567" }),
+      ev("answer_change", { section_id: "", question_id: "q_typed", answer_value_normalized: "50000-100000" }),
+    ];
+    const { records } = await track(env, sent);
+    const got = byEventId(records, sent).map((e) => [e.question_key, e.answer_value_normalized, e.answer_hashed, e.answer_label]);
+    expect(got.slice(0, 5)).toEqual([
+      ["annual_revenue", "10000-50000", false, "$10k to $50k"],
+      ["annual_revenue", "50000-100000", false, "$50k to $100k"],
+      ["income", "50000-100000", false, "$50k to $100k"],
+      ["", "50000-100000", false, ""],
+      ["notes", sha("15551234567"), true, ""],
+    ]);
+    // an answer_change we cannot place is typing — fail closed (M2) still holds
+    expect(got[5]![2]).toBe(true);
+    expect(got[5]![1]).toMatch(/^[0-9a-f]{64}$/);
+    expect(JSON.stringify(records).includes("555-123-4567")).toBe(false);
+  });
+});
+
+describeDb("FIX-R2 N6: bid_currency is USD only when the bid really was converted", () => {
+  it("an FX miss (a EUR carrier bid, no EUR rate, no stored USD card bid): bid_value 40 in EUR, revenue null, no ledger row", async () => {
+    const { sdb, env } = clickHarness();
+    seedOffer(sdb, "lgo_cpc", "cpc");
+    seedShown(sdb, "aiid-fx", [{ carrier_key: "acme", offer_id: "lgo_cpc", bid: null, slot: 1 }]);
+    const cap = ctxCapture();
+    const r = await resolveLeadgenClick(env, cap.ctx, clickInput({ auction_instance_id: "aiid-fx" }));
+    await settle(cap.promises);
+    const e = r.events[0]!;
+    expect([e.bid_value, e.bid_currency, e.revenue, e.booking_trigger]).toEqual([40, "EUR", null, "click"]);
+    expect(ledger(sdb)).toEqual([]);
+  });
+});
+
+describeDb("FIX-R2 N1: a click books only when its auction is real — the ONE check the Facebook send uses", () => {
+  it("no auction / an auction of another attempt / an auction that never showed this offer: revenue 0 (not null) + booking_trigger 'unverified', no ledger row, no replay slot spent, still a 302 target; the real click books", async () => {
+    const { sdb, env, kvPuts } = clickHarness();
+    seedOffer(sdb, "lgo_cpc", "cpc");
+    seedShown(sdb, "aiid-real", [{ carrier_key: "acme", offer_id: "lgo_cpc", bid: 32.5, slot: 1 }], "fa-1");
+    seedShown(sdb, "aiid-else", [{ carrier_key: "acme", offer_id: "lgo_other", bid: 32.5, slot: 1 }], "fa-1");
+    const forged = [
+      clickInput({ auction_instance_id: "" }),
+      clickInput({ auction_instance_id: "aiid-nope" }),
+      clickInput({ auction_instance_id: "aiid-real", funnel_attempt_id: "fa-forged" }),
+      clickInput({ auction_instance_id: "aiid-else" }),
+    ];
+    for (const input of forged) {
+      const cap = ctxCapture();
+      const r = await resolveLeadgenClick(env, cap.ctx, { ...input, banner_url_template: "https://partner.example/go?cid={click_id}", carrier: null });
+      await settle(cap.promises);
+      expect(r.redirect, input.auction_instance_id).toBe(true);
+      expect(await r.replay_capped).toBe(false);
+      expect([r.events[0]!.revenue, r.events[0]!.booking_trigger], input.auction_instance_id).toEqual([0, "unverified"]);
+    }
+    expect(ledger(sdb)).toEqual([]);
+    expect(kvPuts).toEqual([]);
+    const cap = ctxCapture();
+    const real = await resolveLeadgenClick(env, cap.ctx, clickInput({ auction_instance_id: "aiid-real" }));
+    await settle(cap.promises);
+    expect([real.events[0]!.revenue, real.events[0]!.booking_trigger]).toEqual([32.5, "click"]);
+    expect(ledger(sdb)).toHaveLength(1);
   });
 });

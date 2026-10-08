@@ -58,6 +58,21 @@
 // (NOT null — the dashboard falls back to the bid when revenue is null), and
 // writes no ledger row. The decision is handed to the route
 // (`replay_capped`) so the Facebook send obeys the same cap.
+//
+// Fix round 2 (review N1 / N3 / N6) — a click books (Athena revenue + ledger
+// row) and sends to Facebook ONLY when it is real and clean:
+//   * REAL: the auction it names exists, belongs to the link's funnel attempt
+//     and showed this Offer — clickout-meta.ts checkClickoutMetaAuction, the
+//     SAME function the Facebook send uses (one check, not two). A forged /
+//     unknown click books revenue 0 (not null) with booking_trigger
+//     'unverified', no ledger row, no Facebook send;
+//   * CLEAN: /lg/lc stamps is_bot / is_internal / is_preview /
+//     traffic_quality_flag exactly as /lg/px does (computeTrafficQuality, in
+//     the route); a non-clean click books revenue 0 with booking_trigger
+//     'not_clean', no ledger row, no Facebook send;
+//   then the replay cap. The 302 happens in every case.
+//   * bid_currency is "USD" only when the bid really was converted to USD; an
+//     FX miss keeps the bid in its own currency and leaves revenue null.
 
 import type { Env } from "../../env";
 import type { WaitUntilContext } from "../../wait-until-context";
@@ -79,6 +94,11 @@ import { resolveLeadgenFunnelNames, type LeadgenFunnelNames } from "../../analyt
 import { normalizeToUsd } from "../../leadgen/fx";
 import { META_FBP_RE, readFbpCookie } from "../../leadgen/meta-hash";
 import { claimClickReplaySlot, recordInSiteClickRevenue } from "../../leadgen/revenue-ingest";
+import {
+  checkClickoutMetaAuction,
+  loadClickoutMetaAuction,
+  type ClickoutMetaShownCard,
+} from "../../leadgen/clickout-meta";
 
 // Why the resolver could not produce a 302 to a real destination.
 export type LeadgenClickUnresolvedReason =
@@ -236,11 +256,16 @@ function resolveCandidate(
 interface LeadgenClickFacts {
   offer_type: string; // "" when the Offer row could not be read
   usd_bid: number | null; // null when no USD bid could be determined
+  // N6: the bid that could NOT be converted to USD (an FX miss), in its own
+  // currency — stamped as bid_value / bid_currency instead; null otherwise.
+  native_bid: { value: number; currency: string } | null;
   names: LeadgenFunnelNames | null;
   // The Offer's Facebook click-event switch (0058) is on.
   clickout_on: boolean;
+  // N1: the auction behind the click is real (checkClickoutMetaAuction).
+  verified: boolean;
   // The funnel attempt the AUCTION behind the click belongs to ("" when the
-  // auction is unknown) — the replay cap keys on it, not on the link's faid.
+  // auction has none) — the replay cap keys on it, not on the link's faid.
   auction_attempt_id: string;
 }
 
@@ -250,23 +275,13 @@ function finiteNumber(v: unknown): number | null {
   return typeof v === "number" && Number.isFinite(v) ? v : null;
 }
 
-// The USD bid the auction stored for the clicked card (carriers_shown_json is
-// [{carrier_key, offer_id, bid (USD), slot}]). Dedicated try/catch parse.
-function shownUsdBid(carriersShownJson: string | null, offerPublicId: string, carrierKey: string): number | null {
-  let parsed: unknown;
-  try {
-    parsed = JSON.parse(carriersShownJson ?? "[]");
-  } catch {
-    return null;
-  }
-  if (!Array.isArray(parsed)) return null;
-  for (const entry of parsed) {
-    if (entry === null || typeof entry !== "object") continue;
-    const e = entry as { offer_id?: unknown; carrier_key?: unknown; bid?: unknown };
-    if (e.offer_id !== offerPublicId) continue;
-    if (carrierKey !== "" && e.carrier_key !== carrierKey) continue;
-    const bid = finiteNumber(e.bid);
-    if (bid !== null) return bid;
+// The USD bid the auction stored for the clicked card (the auction's shown
+// cards, read once by clickout-meta.ts loadClickoutMetaAuction).
+function shownUsdBid(cards: readonly ClickoutMetaShownCard[], offerPublicId: string, carrierKey: string): number | null {
+  for (const c of cards) {
+    if (c.offer_id !== offerPublicId) continue;
+    if (carrierKey !== "" && c.carrier_key !== carrierKey) continue;
+    if (c.bid !== null) return c.bid;
   }
   return null;
 }
@@ -291,22 +306,9 @@ async function loadClickFacts(env: Env, input: LeadgenClickInput, now: number): 
       return null;
     }
   })();
-  const shownRead = (async () => {
-    if (input.auction_instance_id === "") return null;
-    try {
-      const row = await db
-        .prepare("SELECT carriers_shown_json, funnel_attempt_id FROM leadgen_auction_result_log WHERE auction_instance_id = ? LIMIT 1")
-        .bind(input.auction_instance_id)
-        .first<{ carriers_shown_json: string | null; funnel_attempt_id: string | null }>();
-      if (row === null) return null;
-      return {
-        bid: shownUsdBid(row.carriers_shown_json, input.offer_public_id, input.carrier_key),
-        attempt: typeof row.funnel_attempt_id === "string" ? row.funnel_attempt_id : "",
-      };
-    } catch {
-      return null;
-    }
-  })();
+  // N1: the auction behind the click, read by the SAME loader the Facebook
+  // send uses (null for an unknown / unreadable auction — never throws).
+  const auctionRead = loadClickoutMetaAuction(db, input.auction_instance_id).catch(() => null);
   const ec = input.event_context ?? {};
   const namesRead = resolveLeadgenFunnelNames(
     db,
@@ -314,30 +316,36 @@ async function loadClickFacts(env: Env, input: LeadgenClickInput, now: number): 
     now,
   ).catch(() => null);
 
-  const [offer, shown, names] = await Promise.all([offerRead, shownRead, namesRead]);
+  const [offer, auction, names] = await Promise.all([offerRead, auctionRead, namesRead]);
   const offerType = offer !== null && typeof offer.offer_type === "string" && OFFER_TYPES.has(offer.offer_type) ? offer.offer_type : "";
 
-  let usdBid: number | null = shown?.bid ?? null;
+  let usdBid: number | null = auction !== null ? shownUsdBid(auction.shown_cards ?? [], input.offer_public_id, input.carrier_key) : null;
+  let nativeBid: { value: number; currency: string } | null = null;
   // Fallbacks, converted exactly like the auction converts: the carrier's own
-  // bid in its currency, else the Offer's static bid.
+  // bid in its currency, else the Offer's static bid. An FX miss (N6) keeps
+  // the bid in its own currency (native_bid) and leaves the USD bid unknown.
   try {
-    const carrierBid = finiteNumber(input.carrier?.bid);
-    if (usdBid === null && carrierBid !== null) {
-      usdBid = (await normalizeToUsd(db, carrierBid, input.carrier?.bid_currency ?? null)).usd;
-    }
-    const staticBid = finiteNumber(offer?.static_bid_value);
-    if (usdBid === null && staticBid !== null) {
-      usdBid = (await normalizeToUsd(db, staticBid, offer?.static_bid_currency ?? null)).usd;
+    const fallbacks: Array<[number | null, string | null]> = [
+      [finiteNumber(input.carrier?.bid), input.carrier?.bid_currency ?? null],
+      [finiteNumber(offer?.static_bid_value), offer?.static_bid_currency ?? null],
+    ];
+    for (const [bid, currency] of fallbacks) {
+      if (usdBid !== null || bid === null) continue;
+      const fx = await normalizeToUsd(db, bid, currency);
+      usdBid = fx.usd;
+      if (fx.usd === null && nativeBid === null) nativeBid = { value: bid, currency: fx.currency };
     }
   } catch {
-    // an FX miss leaves the bid unknown (never a fabricated value)
+    // an FX error leaves the bid unknown (never a fabricated value)
   }
   return {
     offer_type: offerType,
     usd_bid: usdBid,
+    native_bid: usdBid === null ? nativeBid : null,
     names,
     clickout_on: offer !== null && offer.clickout_meta_conversion === 1,
-    auction_attempt_id: shown?.attempt ?? "",
+    verified: checkClickoutMetaAuction(auction, input.offer_public_id, input.funnel_attempt_id) === null,
+    auction_attempt_id: auction?.funnel_attempt_id ?? "",
   };
 }
 
@@ -389,9 +397,14 @@ function buildClickEvent(
 function applyClickFacts(e: LeadgenEvent, facts: LeadgenClickFacts | null): void {
   if (facts !== null) {
     if (facts.offer_type !== "") e.offer_type = facts.offer_type;
+    // N6: "USD" only for a bid really converted to USD; an FX miss keeps the
+    // bid in its own currency.
     if (facts.usd_bid !== null) {
       e.bid_value = facts.usd_bid;
       e.bid_currency = "USD";
+    } else if (facts.native_bid !== null) {
+      e.bid_value = facts.native_bid.value;
+      e.bid_currency = facts.native_bid.currency;
     }
     const n = facts.names;
     if (n !== null) {
@@ -403,10 +416,10 @@ function applyClickFacts(e: LeadgenEvent, facts: LeadgenClickFacts | null): void
     }
   }
   // R1 "Every click": a CPC click books its bid (USD) — no dedupe; every
-  // other Offer type books nothing at click time.
+  // other Offer type books nothing at click time. No USD bid (an FX miss) ⇒
+  // revenue null.
   if (e.offer_type === "cpc") {
     e.revenue = facts?.usd_bid ?? null;
-    e.bid_currency = "USD";
     e.booking_trigger = "click";
   } else if (OFFER_TYPES.has(e.offer_type)) {
     e.revenue = null;
@@ -513,24 +526,35 @@ export async function resolveLeadgenClick(
   const emitTask = (async () => {
     const facts = await loadClickFacts(env, input, now).catch(() => null);
     for (const e of events) applyClickFacts(e, facts);
-    // Fix round 1 (review M4): only a click that would book (CPC) or send to
-    // Facebook (switch on) spends a replay slot — keyed on the attempt the
-    // AUCTION belongs to (the link's own faid only when the auction is unknown).
-    let capped = false;
+    // A click that would book (CPC) or send to Facebook (switch on) must be
+    // real (N1: the shared auction check), then clean (N3: the route's
+    // traffic-quality stamp), then within the replay cap (M4 — keyed on the
+    // attempt the AUCTION belongs to; the link's own faid only when the
+    // auction was persisted without one). The first that fails names the
+    // booking_trigger and the click books revenue 0 (NOT null — the dashboard
+    // falls back to the bid when revenue is null), no ledger row, no Facebook
+    // send (clickout-meta.ts runs the same auction check and the same
+    // traffic-quality rule; `replay_capped` carries the cap decision). Only a
+    // real, clean click spends a replay slot.
+    let blocked: "unverified" | "not_clean" | "capped" | null = null;
     const e0 = events[0];
     try {
       if (facts !== null && e0 !== undefined && (e0.offer_type === "cpc" || facts.clickout_on)) {
-        const attempt = facts.auction_attempt_id !== "" ? facts.auction_attempt_id : input.funnel_attempt_id;
-        capped = !(await claimClickReplaySlot(env.CACHE, attempt, input.offer_public_id, now));
+        if (!facts.verified) blocked = "unverified";
+        else if (e0.traffic_quality_flag !== "clean") blocked = "not_clean";
+        else {
+          const attempt = facts.auction_attempt_id !== "" ? facts.auction_attempt_id : input.funnel_attempt_id;
+          if (!(await claimClickReplaySlot(env.CACHE, attempt, input.offer_public_id, now))) blocked = "capped";
+        }
       }
     } catch {
-      capped = false;
+      // claimClickReplaySlot never throws (KV errors fail open inside it)
     }
-    settleCapped(capped);
-    if (capped) {
+    settleCapped(blocked === "capped");
+    if (blocked !== null) {
       for (const e of events) {
         e.revenue = 0;
-        e.booking_trigger = "capped";
+        e.booking_trigger = blocked;
       }
     } else if (e0 !== undefined && e0.offer_type === "cpc") {
       // Fix round 1 (review B1): the CMS revenue ledger books the same value.

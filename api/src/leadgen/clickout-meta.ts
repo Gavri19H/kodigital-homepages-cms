@@ -55,7 +55,16 @@
 // a new click every time, so /lg/lc decides per click whether it is within
 // CLICK_REPLAY_CAP clicks per (funnel attempt, offer) per 24 h
 // (revenue-ingest.ts claimClickReplaySlot, the same lg_s2s: KV family); a click
-// over the cap arrives here with `capped` and sends nothing.
+// over the cap arrives here with `capped` and sends nothing. TRAFFIC QUALITY
+// (fix round 2, review N3): /lg/lc stamps the click with the same
+// computeTrafficQuality the /lg/px pixel uses; a bot / internal / preview
+// click arrives here with that flag and sends nothing ("not_clean").
+//
+// ONE AUCTION CHECK (fix round 2, review N1): checkClickoutMetaAuction below is
+// the single "this click is backed by an auction we ran, for this attempt,
+// that showed this Offer" test — the Meta send uses it here and /lg/lc's
+// revenue booking (click.ts) uses the same function, so the two can never
+// disagree about which clicks are real.
 //
 // EVENT NAME (fix round 1, review m4): a saved name is always kept; with none
 // saved, a CPC Offer sends Purchase (the click IS the money) and a
@@ -165,6 +174,10 @@ export interface ClickoutMetaClick {
   // Fix round 1 (review M4): true ⇒ this click is over the replay cap
   // (/lg/lc decided it) — nothing is sent.
   capped?: boolean;
+  // Fix round 2 (review N3): the click request's traffic_quality_flag
+  // (computeTrafficQuality, exactly as /lg/px). Anything but "clean" (bot /
+  // internal / preview) sends nothing. Absent ⇒ not judged here.
+  traffic_quality_flag?: string;
 }
 
 // One card the auction showed (leadgen_auction_result_log.carriers_shown_json).
@@ -213,10 +226,15 @@ export interface MetaErrorFacts {
 export type ClickoutMetaSkipReason =
   | "offer_setting_off"
   | "replay_capped" // over CLICK_REPLAY_CAP clicks per (funnel attempt, offer) per 24 h
+  | "not_clean" // bot / internal / preview traffic (fix round 2, review N3)
+  | ClickoutMetaAuctionProblem
+  | ClickoutMetaDestinationProblem;
+
+// Why a click is not backed by a real auction (checkClickoutMetaAuction).
+export type ClickoutMetaAuctionProblem =
   | "no_auction" // the click names no auction we ran
   | "attempt_mismatch" // the auction belongs to another funnel attempt
-  | "offer_not_shown" // that auction never showed this Offer
-  | ClickoutMetaDestinationProblem;
+  | "offer_not_shown"; // that auction never showed this Offer
 
 export type ClickoutMetaDestinationProblem =
   | "meta_dataset_missing" // the Offer has no (valid) dataset id
@@ -268,6 +286,24 @@ export async function resolveClickoutMetaDestination(
     endpoint: `https://graph.facebook.com/${CLICKOUT_META_GRAPH_VERSION}/${dataset}/events`,
     token: token.token,
   };
+}
+
+// THE check that a click is real (fix round 2, review N1 — the one shared by
+// the Meta send below and /lg/lc's revenue booking, click.ts): the auction it
+// names exists, belongs to the funnel attempt the link names (an auction
+// persisted without an attempt id is not held to one), and showed this Offer.
+// null ⇒ real; otherwise why not.
+export function checkClickoutMetaAuction(
+  auction: Pick<ClickoutMetaAuction, "funnel_attempt_id" | "shown_offer_ids"> | null,
+  offerPublicId: string,
+  funnelAttemptId: string,
+): ClickoutMetaAuctionProblem | null {
+  if (auction === null) return "no_auction";
+  if (auction.funnel_attempt_id !== "" && auction.funnel_attempt_id !== funnelAttemptId.trim()) {
+    return "attempt_mismatch";
+  }
+  if (!auction.shown_offer_ids.has(offerPublicId)) return "offer_not_shown";
+  return null;
 }
 
 // The auction behind a click, or null. Dedicated JSON parses — a corrupt blob
@@ -555,6 +591,8 @@ export function describeClickoutMetaOutcome(outcome: ClickoutMetaOutcome): strin
           return "Not sent: the setting is off.";
         case "replay_capped":
           return "Not sent: this visitor already clicked this offer 5 times today.";
+        case "not_clean":
+          return "Not sent: the click came from a bot, internal (ko_internal cookie) or preview traffic.";
         case "no_auction":
           return "Not sent: the click did not come from a banner LeadGen showed.";
         case "attempt_mismatch":
@@ -572,6 +610,7 @@ export function describeClickoutMetaOutcome(outcome: ClickoutMetaOutcome): strin
 const UNRECORDED_SKIPS: ReadonlySet<ClickoutMetaSkipReason> = new Set<ClickoutMetaSkipReason>([
   "offer_setting_off",
   "replay_capped",
+  "not_clean",
   "no_auction",
   "attempt_mismatch",
   "offer_not_shown",
@@ -628,14 +667,14 @@ async function send(
 ): Promise<ClickoutMetaOutcome> {
   try {
     if (offer.clickout_meta_conversion !== 1) return { status: "skipped", reason: "offer_setting_off" };
+    if (click.traffic_quality_flag !== undefined && click.traffic_quality_flag !== "clean") {
+      return { status: "skipped", reason: "not_clean" };
+    }
     if (click.capped === true) return { status: "skipped", reason: "replay_capped" };
 
     const auction = await loadClickoutMetaAuction(db, click.auction_instance_id);
-    if (auction === null) return { status: "skipped", reason: "no_auction" };
-    if (auction.funnel_attempt_id !== "" && auction.funnel_attempt_id !== click.funnel_attempt_id.trim()) {
-      return { status: "skipped", reason: "attempt_mismatch" };
-    }
-    if (!auction.shown_offer_ids.has(offer.public_id)) return { status: "skipped", reason: "offer_not_shown" };
+    const problem = checkClickoutMetaAuction(auction, offer.public_id, click.funnel_attempt_id);
+    if (problem !== null || auction === null) return { status: "skipped", reason: problem ?? "no_auction" };
 
     const destination = await resolveClickoutMetaDestination(env, db, offer);
     if (!destination.ok) return { status: "skipped", reason: destination.problem };

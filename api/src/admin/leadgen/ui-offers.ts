@@ -2519,13 +2519,20 @@ const LG_EDITOR_SCRIPT = `
   }
   // Fix round 1 (review m4): with no saved event, the event follows the offer
   // type (CPC Purchase; CPL/CPA/CPI Lead) until the operator picks one.
+  // Fix round 2 (review N7): the "(default)" mark on the options follows the
+  // type on every change, whether or not an event was picked.
   var clickoutEvent = form.querySelector('[name="clickout_meta_event_name"]');
   var clickoutEventPicked = !clickoutEvent || clickoutEvent.getAttribute('data-lg-clickout-event-saved') === '1';
   function applyClickoutMetaDefaultEvent() {
-    if (clickoutEventPicked || !clickoutEvent) { return; }
+    if (!clickoutEvent) { return; }
     var typeSel = form.querySelector('[name="offer_type"]');
     var t = typeSel ? typeSel.value : '';
-    clickoutEvent.value = (t === 'cpl' || t === 'cpa' || t === 'cpi') ? 'Lead' : 'Purchase';
+    var def = (t === 'cpl' || t === 'cpa' || t === 'cpi') ? 'Lead' : 'Purchase';
+    var opts = clickoutEvent.options || [];
+    for (var i = 0; i < opts.length; i++) {
+      opts[i].text = opts[i].value + (opts[i].value === def ? ' (default)' : '');
+    }
+    if (!clickoutEventPicked) { clickoutEvent.value = def; }
   }
   form.addEventListener('change', function (e) {
     if (e.target && e.target.name === 'auction_mode') { applyModeVisibility(); }

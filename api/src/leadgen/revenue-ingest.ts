@@ -459,6 +459,11 @@ export async function clickReplayKey(funnelAttemptId: string, offerPublicId: str
 // count ("<count>:<window end, epoch s>"), so later clicks never extend it.
 // Best-effort KV (the lg_s2s: seen-set idiom): a KV error claims the slot
 // (fail-open — a KV outage never costs a real click its money).
+// NOT ATOMIC (fix round 2, review N1 — accepted residual): KV get + put is a
+// read-then-write with no compare-and-set, so a PARALLEL burst of clicks on one
+// (attempt, offer) can all read the same count and exceed the cap. The cap
+// bounds sequential replays; every booked click must still be a real, clean
+// click of an auction that showed this Offer (click.ts). No lock is added.
 export async function claimClickReplaySlot(
   kv: KVNamespace,
   funnelAttemptId: string,
