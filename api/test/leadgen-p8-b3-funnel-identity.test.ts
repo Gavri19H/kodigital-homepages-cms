@@ -1891,7 +1891,10 @@ describe("P8-1 F6 (contract R6-1) — every funnel-scoped URL in the three quote
   // reason: `funnelOfEl(el)` reads `[data-funnel-col][data-funnel-public-id]`
   // off the column the operator clicked, so duplicate/delete/rename act on THAT
   // column by construction — they are not panel writes and have no target.
-  const BOARD_COLUMN_IDENTIFIERS = ["pub", "funnelPub"] as const;
+  // `fsettingsFunnel` (0064, the funnel-settings dialog's Facebook pixel PATCH)
+  // is that same clicked column's id: openFunnelSettings(pub) stores the `pub`
+  // the column's kebab passed (ctx.funnelPub) and the dialog's Save writes it.
+  const BOARD_COLUMN_IDENTIFIERS = ["pub", "funnelPub", "fsettingsFunnel"] as const;
 
   it("funnel.ts EDITOR island: every funnel URL is saveTargetFunnelPublicId(), and the editor's own funnel id is never put in URL position", () => {
     const islands = topLevelIslands(QUOTE_EDITOR_SCRIPT);

@@ -41,7 +41,12 @@ CREATE EXTERNAL TABLE IF NOT EXISTS leadgen.events (
   device string, os string, os_version string, browser string, browser_version string,
   country string, state string, city string, zip string, ip string, ua string,
   url string, referer string, language string,
-  is_bot boolean, is_internal boolean, is_preview boolean, traffic_quality_flag string
+  is_bot boolean, is_internal boolean, is_preview boolean, traffic_quality_flag string,
+  -- 2026-10-08 additions (appended): answer words, contact hashing (answer_hashed
+  -- = answer_value_normalized is a SHA-256 of the Meta-normalised value), the
+  -- rendering frame template, bids per offer response, Meta _fbp.
+  question_label string, answer_label string, answer_hashed boolean,
+  template_id string, template_name string, bids_count int, fbp string
 )
 PARTITIONED BY (dt string, hr string)
 ROW FORMAT SERDE 'org.openx.data.jsonserde.JsonSerDe'
@@ -56,7 +61,9 @@ CREATE EXTERNAL TABLE IF NOT EXISTS leadgen.sessions (
   cpc string, fbclid string, fbc string, sub1 string, sub2 string, sub3 string, sub4 string, sub5 string,
   device string, os string, os_version string, browser string, browser_version string,
   country string, state string, city string, zip string, ip string, ua string, url string, referer string, language string,
-  is_bot boolean, is_internal boolean, is_preview boolean, traffic_quality_flag string
+  is_bot boolean, is_internal boolean, is_preview boolean, traffic_quality_flag string,
+  -- 2026-10-08 additions (appended): server-resolved names + Meta _fbp.
+  quote_name string, funnel_name string, template_id string, template_name string, fbp string
 )
 PARTITIONED BY (dt string, hr string)
 ROW FORMAT SERDE 'org.openx.data.jsonserde.JsonSerDe'

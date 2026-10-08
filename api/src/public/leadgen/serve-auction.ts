@@ -34,6 +34,7 @@ import {
   type AntiTamperInput,
 } from "./auction/engine";
 import { emitLeadgenRecords } from "../../analytics/leadgen-events";
+import { resolveLeadgenFunnelNames } from "../../analytics/leadgen-enrich";
 import type { ClickedRef } from "../../leadgen/auction-core";
 // v3.1 §9 (S3-5 + S3-6): the server-side Maps validate leg + auction facet.
 import {
@@ -399,10 +400,45 @@ export async function serveLeadgenAuction(c: PublicContext): Promise<Response> {
   // per-offer request/response/timeout/error, carrier_eligible/filtered,
   // filled/unfilled — §5.4-stamped). Clients never own auction truth.
   // Fail-open like every beacon (emitLeadgenRecords no-ops without stream).
+  // OWNER 2026-10-08: each event also carries the frame template that renders
+  // this funnel (+ the quote / funnel names), resolved on waitUntil AFTER the
+  // response (cached D1 lookups) — a lookup failure only leaves them "".
+  let telemetryCtx: { waitUntil(p: Promise<unknown>): void } | undefined;
   try {
-    emitLeadgenRecords(c.env, c.executionCtx, [...result.events]);
+    telemetryCtx = c.executionCtx;
   } catch {
-    /* fail-open: telemetry never breaks the auction response */
+    telemetryCtx = undefined; /* no ExecutionContext (harness) ⇒ no telemetry, as before */
+  }
+  if (telemetryCtx !== undefined) {
+    const env = c.env;
+    const events = [...result.events];
+    const telemetry = (async () => {
+      try {
+        const names = await resolveLeadgenFunnelNames(env.DB, {
+          quote_id: resolved.quote.public_id,
+          funnel_id: resolved.funnel.public_id,
+          funnel_variant_id: resolved.variant.public_id,
+        });
+        for (const e of events) {
+          if (e.quote_name === "") e.quote_name = names.quote_name;
+          if (e.funnel_name === "") e.funnel_name = names.funnel_name;
+          e.template_id = names.template_id;
+          e.template_name = names.template_name;
+        }
+      } catch {
+        /* fail-open: the events go out without the names */
+      }
+      const sends: Promise<unknown>[] = [];
+      emitLeadgenRecords(env, { waitUntil: (p) => void sends.push(p) }, events);
+      await Promise.all(sends.map((p) => Promise.resolve(p).catch(() => undefined)));
+    })().catch(() => {
+      /* fail-open: telemetry never breaks the auction response */
+    });
+    try {
+      telemetryCtx.waitUntil(telemetry);
+    } catch {
+      void telemetry;
+    }
   }
 
   // 03 §3.6 response: banners_html (existing) + auction_result_id +

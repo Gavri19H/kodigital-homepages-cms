@@ -33,6 +33,13 @@
 //   6. emit via emitLeadgenRecords — FAIL-OPEN, a structured no-op until the
 //      stream var + AWS creds exist. A Firehose delivery error is swallowed by
 //      emitLeadgenRecords and never breaks the 204 (§22.5 dead-letter posture).
+//   7. OWNER 2026-10-08 server-resolved names + answer words + contact hashing
+//      (leadgen-enrich.ts enrichTrackEvents): quote/funnel/template/section
+//      names and the question key/label + answer label come from D1 by the ids
+//      the event carries (never the client's names); site_id from the Host when
+//      empty; fbp/fbc from the Meta cookies; contact answers SHA-256 hashed
+//      (R3). Steps 5-7 run on waitUntil AFTER the 204, under a time budget —
+//      an enrichment failure never drops or delays an event.
 
 import { Hono } from "hono";
 import type { Env } from "../env";
@@ -53,6 +60,7 @@ import {
   geoFromCf,
   computeTrafficQuality,
 } from "./listicle-quality";
+import { enrichTrackEvents } from "./leadgen-enrich";
 
 const ALLOWED_TYPES: ReadonlySet<string> = new Set(LEADGEN_EVENT_TYPES);
 
@@ -162,6 +170,9 @@ leadgenTrackRouter.post("/lg/track", async (c) => {
 
   const accepted: LeadgenEvent[] = [];
   const deadLetters: LeadgenDeadLetterRecord[] = [];
+  // The client's internal_field per event — a HINT for picking among the
+  // server-known answer keys of the resolved question (never stored as-is).
+  const fieldHints = new Map<LeadgenEvent, string>();
 
   const deadLetter = (eventId: string, payload: unknown, reason: string): void => {
     let json = "";
@@ -241,6 +252,7 @@ leadgenTrackRouter.post("/lg/track", async (c) => {
     event.traffic_quality_flag = quality.traffic_quality_flag;
 
     accepted.push(event);
+    fieldHints.set(event, asString(payload["internal_field"]));
   }
 
   // §22.5 KV seen-set: drop immediate replays pre-Firehose. Best-effort — a KV
@@ -261,12 +273,12 @@ leadgenTrackRouter.post("/lg/track", async (c) => {
     if (!seen) fresh.push(event);
   }
 
-  // Sessions ride the same batch (quote_view only, §22.1/§22.3).
-  const records: LeadgenStreamRecord[] = [...fresh];
-  for (const event of fresh) {
-    if (event.event_type === "quote_view") records.push(leadgenSessionFromQuoteView(event));
+  let hostname = "";
+  try {
+    hostname = new URL(c.req.url).hostname;
+  } catch {
+    hostname = "";
   }
-  for (const dl of deadLetters) records.push(dl);
 
   // Background work: D1 dead-letter rows (§22.5). Fire-and-forget with its own
   // guard — the 204 never waits on it, a failure never surfaces.
@@ -293,8 +305,39 @@ leadgenTrackRouter.post("/lg/track", async (c) => {
     }
   }
 
+  // Enrich → assemble (sessions ride the same batch, quote_view only,
+  // §22.1/§22.3 — built AFTER enrichment so they carry the resolved names) →
   // FAIL-OPEN Firehose dispatch (no-op until the stream var + creds exist).
-  emitLeadgenRecords(c.env, execCtx, records);
+  // All on waitUntil: the 204 never waits on D1 lookups. The Firehose send is
+  // awaited INSIDE this one background task so the whole pipeline is a single
+  // waitUntil registration.
+  const env = c.env;
+  const pipeline = (async () => {
+    try {
+      await enrichTrackEvents(
+        env,
+        fresh.map((event) => ({ event, internal_field: fieldHints.get(event) ?? "" })),
+        { hostname, cookieHeader, now },
+      );
+    } catch {
+      // fail-open: the events go out with whatever resolved
+    }
+    const records: LeadgenStreamRecord[] = [...fresh];
+    for (const event of fresh) {
+      if (event.event_type === "quote_view") records.push(leadgenSessionFromQuoteView(event));
+    }
+    for (const dl of deadLetters) records.push(dl);
+    const sends: Promise<unknown>[] = [];
+    emitLeadgenRecords(env, { waitUntil: (p) => void sends.push(p) }, records);
+    await Promise.all(sends.map((p) => Promise.resolve(p).catch(() => undefined)));
+  })().catch(() => {
+    /* tracking never breaks the beacon */
+  });
+  try {
+    execCtx.waitUntil(pipeline);
+  } catch {
+    // never the 204's problem
+  }
 
   return c.body(null, 204);
 });

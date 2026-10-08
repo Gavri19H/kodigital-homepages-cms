@@ -34,6 +34,18 @@
 //
 // ALL side effects are FAIL-OPEN: a cap / clicked-row / Firehose failure never
 // prevents the resolved 302 (or the safe no-redirect fallback).
+//
+// OWNER 2026-10-08 (R1 "Every click"): the click event carries the money. The
+// Offer's offer_type is read from leadgen_offers; a CPC click books the clicked
+// card's bid in USD as `revenue` (booking_trigger "click", bid_currency "USD")
+// on EVERY click — no per-visitor dedupe. The USD bid is the one the auction
+// stored for that card (leadgen_auction_result_log.carriers_shown_json .bid),
+// else the carrier's own bid / the Offer's static_bid_value converted the same
+// way (fx.normalizeToUsd). CPL/CPA/CPI clicks book nothing (revenue null,
+// booking_trigger ""). The event also carries Meta's `fbp` (the click
+// request's _fbp cookie, else the one the auction persisted) and the
+// server-resolved quote / funnel / template names. Every lookup is FAIL-OPEN
+// and runs on waitUntil (after the 302), before the event is emitted.
 
 import type { Env } from "../../env";
 import type { WaitUntilContext } from "../../wait-until-context";
@@ -51,6 +63,9 @@ import {
   emitLeadgenRecords,
   type LeadgenEvent,
 } from "../../analytics/leadgen-events";
+import { resolveLeadgenFunnelNames, type LeadgenFunnelNames } from "../../analytics/leadgen-enrich";
+import { normalizeToUsd } from "../../leadgen/fx";
+import { META_FBP_RE, readFbpCookie } from "../../leadgen/meta-hash";
 
 // Why the resolver could not produce a 302 to a real destination.
 export type LeadgenClickUnresolvedReason =
@@ -94,6 +109,12 @@ export interface LeadgenClickInput {
   // server-derived + safe (§30.3): never raw answer PII.
   event_context?: Partial<LeadgenEvent>;
 
+  // --- OWNER 2026-10-08: Meta browser id ---
+  // The click request's Cookie header: Meta's _fbp is read from it (shape-
+  // checked). Absent / no valid _fbp ⇒ the auction snapshot's `fbp`
+  // (canonical_macros.fbp, persisted at /lg/auction).
+  request_cookie_header?: string | null;
+
   // --- injectables (tests) ---
   now?: number;
   mintClickId?: () => string;
@@ -110,7 +131,9 @@ export interface LeadgenClickResult {
   clicked_recorded: boolean;
   // The single §22.3 click event built + handed to Firehose (returned so a
   // caller/test can assert it without intercepting the stream). Exactly one per
-  // physical click: carrier_click when carrier-scoped, else offer_click.
+  // physical click: carrier_click when carrier-scoped, else offer_click. Its
+  // D1 facts (offer_type / USD bid / revenue / names) are stamped by the
+  // waitUntil task — settle the context before asserting them.
   events: LeadgenEvent[];
 }
 
@@ -191,6 +214,95 @@ function resolveCandidate(
   return { url };
 }
 
+// OWNER 2026-10-08 — what the click event needs from D1: the Offer's type, the
+// clicked card's USD bid, and the funnel names. Resolved in parallel with the
+// cap / suppression writes; every miss degrades to "unknown" (never throws).
+interface LeadgenClickFacts {
+  offer_type: string; // "" when the Offer row could not be read
+  usd_bid: number | null; // null when no USD bid could be determined
+  names: LeadgenFunnelNames | null;
+}
+
+const OFFER_TYPES: ReadonlySet<string> = new Set(["cpc", "cpl", "cpa", "cpi"]);
+
+function finiteNumber(v: unknown): number | null {
+  return typeof v === "number" && Number.isFinite(v) ? v : null;
+}
+
+// The USD bid the auction stored for the clicked card (carriers_shown_json is
+// [{carrier_key, offer_id, bid (USD), slot}]). Dedicated try/catch parse.
+function shownUsdBid(carriersShownJson: string | null, offerPublicId: string, carrierKey: string): number | null {
+  let parsed: unknown;
+  try {
+    parsed = JSON.parse(carriersShownJson ?? "[]");
+  } catch {
+    return null;
+  }
+  if (!Array.isArray(parsed)) return null;
+  for (const entry of parsed) {
+    if (entry === null || typeof entry !== "object") continue;
+    const e = entry as { offer_id?: unknown; carrier_key?: unknown; bid?: unknown };
+    if (e.offer_id !== offerPublicId) continue;
+    if (carrierKey !== "" && e.carrier_key !== carrierKey) continue;
+    const bid = finiteNumber(e.bid);
+    if (bid !== null) return bid;
+  }
+  return null;
+}
+
+async function loadClickFacts(env: Env, input: LeadgenClickInput, now: number): Promise<LeadgenClickFacts> {
+  const db = env.DB;
+  const offerRead = (async () => {
+    if (input.offer_public_id === "") return null;
+    try {
+      return await db
+        .prepare("SELECT offer_type, static_bid_value, static_bid_currency FROM leadgen_offers WHERE public_id = ? LIMIT 1")
+        .bind(input.offer_public_id)
+        .first<{ offer_type: string | null; static_bid_value: number | null; static_bid_currency: string | null }>();
+    } catch {
+      return null;
+    }
+  })();
+  const shownRead = (async () => {
+    if (input.auction_instance_id === "") return null;
+    try {
+      const row = await db
+        .prepare("SELECT carriers_shown_json FROM leadgen_auction_result_log WHERE auction_instance_id = ? LIMIT 1")
+        .bind(input.auction_instance_id)
+        .first<{ carriers_shown_json: string | null }>();
+      return row === null ? null : shownUsdBid(row.carriers_shown_json, input.offer_public_id, input.carrier_key);
+    } catch {
+      return null;
+    }
+  })();
+  const ec = input.event_context ?? {};
+  const namesRead = resolveLeadgenFunnelNames(
+    db,
+    { quote_id: ec.quote_id ?? "", funnel_id: ec.funnel_id ?? "", funnel_variant_id: ec.funnel_variant_id ?? "" },
+    now,
+  ).catch(() => null);
+
+  const [offer, shownBid, names] = await Promise.all([offerRead, shownRead, namesRead]);
+  const offerType = offer !== null && typeof offer.offer_type === "string" && OFFER_TYPES.has(offer.offer_type) ? offer.offer_type : "";
+
+  let usdBid: number | null = shownBid;
+  // Fallbacks, converted exactly like the auction converts: the carrier's own
+  // bid in its currency, else the Offer's static bid.
+  try {
+    const carrierBid = finiteNumber(input.carrier?.bid);
+    if (usdBid === null && carrierBid !== null) {
+      usdBid = (await normalizeToUsd(db, carrierBid, input.carrier?.bid_currency ?? null)).usd;
+    }
+    const staticBid = finiteNumber(offer?.static_bid_value);
+    if (usdBid === null && staticBid !== null) {
+      usdBid = (await normalizeToUsd(db, staticBid, offer?.static_bid_currency ?? null)).usd;
+    }
+  } catch {
+    // an FX miss leaves the bid unknown (never a fabricated value)
+  }
+  return { offer_type: offerType, usd_bid: usdBid, names };
+}
+
 // Build one §22.3 click event stamped with the click identity + auction ids.
 // `event_context` is merged first (server-derived safe dims), then the
 // click-specific fields override. answer_value_raw is never set here (§30.3).
@@ -223,8 +335,45 @@ function buildClickEvent(
     e.bid_value = typeof input.carrier.bid === "number" ? input.carrier.bid : e.bid_value;
     e.bid_currency = asText(input.carrier.bid_currency);
   }
+  // Meta browser id: the click request's _fbp, else the auction's persisted one.
+  const liveFbp = readFbpCookie(input.request_cookie_header ?? null);
+  const snapshotFbp = input.canonical_macros?.["fbp"] ?? "";
+  e.fbp = liveFbp !== "" ? liveFbp : META_FBP_RE.test(snapshotFbp) ? snapshotFbp : "";
   if (e.event_id === "") e.event_id = mintPublicId("link_click", now); // per-event idempotency id
   return e;
+}
+
+// OWNER 2026-10-08 — stamp the D1 facts onto the built click event (IN
+// PLACE): the Offer's type, the card's USD bid, the funnel names, and the R1
+// booking — a CPC click books its USD bid on EVERY click; cpl/cpa/cpi book
+// nothing at click time. `facts` null (every read failed) ⇒ only an offer_type
+// already on the event decides the booking.
+function applyClickFacts(e: LeadgenEvent, facts: LeadgenClickFacts | null): void {
+  if (facts !== null) {
+    if (facts.offer_type !== "") e.offer_type = facts.offer_type;
+    if (facts.usd_bid !== null) {
+      e.bid_value = facts.usd_bid;
+      e.bid_currency = "USD";
+    }
+    const n = facts.names;
+    if (n !== null) {
+      if (e.quote_id === "" && n.quote_id !== "") e.quote_id = n.quote_id;
+      e.quote_name = n.quote_name;
+      e.funnel_name = n.funnel_name;
+      e.template_id = n.template_id;
+      e.template_name = n.template_name;
+    }
+  }
+  // R1 "Every click": a CPC click books its bid (USD) — no dedupe; every
+  // other Offer type books nothing at click time.
+  if (e.offer_type === "cpc") {
+    e.revenue = facts?.usd_bid ?? null;
+    e.bid_currency = "USD";
+    e.booking_trigger = "click";
+  } else if (OFFER_TYPES.has(e.offer_type)) {
+    e.revenue = null;
+    e.booking_trigger = "";
+  }
 }
 
 // The /lg/lc resolve→mint→side-effects flow (§19 step 16). Never throws — every
@@ -313,8 +462,26 @@ export async function resolveLeadgenClick(
   //    the same union, so a double emit is 2× clicks + 2× revenue attribution.
   const clickType: "carrier_click" | "offer_click" =
     input.carrier_key !== "" ? "carrier_click" : "offer_click";
+  //    OWNER 2026-10-08: the event's D1 facts (offer type, USD bid → revenue,
+  //    names) are read on waitUntil — the visitor's 302 never waits on them —
+  //    then the event is emitted from the same background task. A failed read
+  //    still emits the event (FAIL-OPEN). `events` is the SAME object the task
+  //    stamps, so a caller that settles the context sees the stamped event.
   const events = [buildClickEvent(clickType, now, input, clickId)];
-  emitLeadgenRecords(env, ctx, [...events]);
+  const emitTask = (async () => {
+    const facts = await loadClickFacts(env, input, now).catch(() => null);
+    for (const e of events) applyClickFacts(e, facts);
+    const sends: Promise<unknown>[] = [];
+    emitLeadgenRecords(env, { waitUntil: (p) => void sends.push(p) }, [...events]);
+    await Promise.all(sends.map((p) => Promise.resolve(p).catch(() => undefined)));
+  })().catch(() => {
+    /* tracking never breaks the click */
+  });
+  try {
+    ctx.waitUntil(emitTask);
+  } catch {
+    void emitTask;
+  }
 
   return {
     click_id: clickId,

@@ -217,6 +217,17 @@ export class LgBeaconClient {
       event_id: ulidLike(this.adapters.now(), this.adapters.rand),
       timestamp: this.adapters.now(),
     };
+    // Owner 2026-10-08 (R2): the funnel's Meta pixel (serve.ts
+    // metaPixelShellScript, emitted only when a pixel is configured) learns
+    // "first answer" / "offers shown" from this one emission path. With no
+    // hook installed the call throws and is swallowed — written this way (no
+    // typeof guard) because the bundle sits at its byte budget; a throwing
+    // hook never costs the beacon either.
+    try {
+      (globalThis as unknown as { __lgOnEvent: (e: LgBeaconEvent) => void }).__lgOnEvent(event);
+    } catch {
+      /* no pixel on this page, or the hook failed — the beacon is what matters */
+    }
     this.queue.push(event);
     if (this.queue.length >= this.maxBatch) {
       this.flush();

@@ -210,7 +210,12 @@ export function listicleCandidateKey(
 // v8 (2026-10-02, PM follow-up): shell CSS hides Back on the results page —
 // CSS only, same 304 reason; runtime "8" tracks it (bundle bytes change only by
 // the version string).
-export const LEADGEN_TEMPLATE_VERSION = 8 as const;
+// v9 (2026-10-08, owner: Facebook events for LeadGen funnels): the shell head
+// may now carry the Meta pixel + click-event script (only when the funnel has a
+// pixel or an Offer's click event is on), and the runtime's one beacon path
+// calls the shell's window.__lgOnEvent hook — shell markup AND runtime bytes
+// change, same 304 reason as v6; runtime "9" tracks it.
+export const LEADGEN_TEMPLATE_VERSION = 9 as const;
 
 const NS_LG_SHELL = "lg-shell";
 const NS_LG_CONFIG = "lg-config";

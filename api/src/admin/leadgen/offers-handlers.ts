@@ -43,7 +43,12 @@ import {
   sealOfferApiToken,
 } from "../../leadgen/offer-api-token";
 import { readCapStatus, capExceeded } from "../../leadgen/caps";
-import { CLICKOUT_META_DATASET_RE, CLICKOUT_META_EVENT_NAMES, CLICKOUT_META_TEST_CODE_RE } from "../../leadgen/clickout-meta";
+import {
+  CLICKOUT_META_DATASET_RE,
+  CLICKOUT_META_EVENT_NAMES,
+  CLICKOUT_META_MULTIPLIER_MAX,
+  CLICKOUT_META_TEST_CODE_RE,
+} from "../../leadgen/clickout-meta";
 import { STATIC_CREATIVE_FIELDS, validateStaticCreativeField } from "../../leadgen/static-creative";
 import { validateBannerUrlTemplate, normalizeTemplate, findUnknownMacros } from "../../leadgen/macros";
 import { parseWaterfallTiers } from "../../leadgen/auction-rules";
@@ -262,6 +267,7 @@ export function offerRowToApi(row: LeadgenOfferRow): LeadgenOfferApi {
     clickout_meta_dataset_id: row.clickout_meta_dataset_id ?? null,
     clickout_meta_event_name: row.clickout_meta_event_name ?? null,
     clickout_meta_value: row.clickout_meta_value ?? null,
+    clickout_meta_value_multiplier: row.clickout_meta_value_multiplier ?? 1,
     clickout_meta_test_event_code: row.clickout_meta_test_event_code ?? null,
     clickout_meta_last_status: row.clickout_meta_last_status ?? null,
     clickout_meta_last_detail: row.clickout_meta_last_detail ?? null,
@@ -1024,12 +1030,13 @@ const OFFER_PATCH_COLUMNS = [
   "cap_fallback_offer_id",
   "cap_fallback_url",
   "status",
-  // 0058 clickout Meta conversion (static — no provider request Offers only;
-  // the merged-state rule in patchOfferHandler enforces that).
+  // 0058 clickout Meta conversion — 0064: every Offer (owner 2026-10-08, R2),
+  // plus the multiplier applied to the clicked card's bid.
   "clickout_meta_conversion",
   "clickout_meta_dataset_id",
   "clickout_meta_event_name",
   "clickout_meta_value",
+  "clickout_meta_value_multiplier",
   "clickout_meta_test_event_code",
   // 0060 static-Offer banner creative (validated by leadgen/static-creative.ts).
   ...STATIC_CREATIVE_FIELDS,
@@ -1192,8 +1199,9 @@ function collectScalarUpdates(body: Record<string, unknown>, errors: FieldErrors
     }
   }
   // 0058: the Meta event name is a closed list (Meta standard events); null /
-  // "" means the default, Lead. The value is optional — null means "report no
-  // value", because a click is not a sale and nothing should be guessed for it.
+  // "" means the default (0064: Purchase). The fixed value is optional — null
+  // means "use the click's bid x the multiplier" (clickout-meta.ts
+  // clickoutMetaValue).
   if (body["clickout_meta_event_name"] !== undefined) {
     const v = body["clickout_meta_event_name"];
     if (v === null || v === "") updates.set("clickout_meta_event_name", null);
@@ -1215,6 +1223,15 @@ function collectScalarUpdates(body: Record<string, unknown>, errors: FieldErrors
     else if (typeof v !== "number" || !Number.isFinite(v) || v <= 0) {
       errors["clickout_meta_value"] = "clickout_meta_value must be a positive number or empty";
     } else updates.set("clickout_meta_value", v);
+  }
+  // 0064: value = the clicked card's USD bid x this multiplier (NOT NULL,
+  // default 1 — null / "" resets it to 1).
+  if (body["clickout_meta_value_multiplier"] !== undefined) {
+    const v = body["clickout_meta_value_multiplier"];
+    if (v === null || v === "") updates.set("clickout_meta_value_multiplier", 1);
+    else if (typeof v !== "number" || !Number.isFinite(v) || v <= 0 || v > CLICKOUT_META_MULTIPLIER_MAX) {
+      errors["clickout_meta_value_multiplier"] = `clickout_meta_value_multiplier must be a number above 0 and at most ${CLICKOUT_META_MULTIPLIER_MAX}`;
+    } else updates.set("clickout_meta_value_multiplier", v);
   }
   if (body["clickout_meta_test_event_code"] !== undefined) {
     const v = body["clickout_meta_test_event_code"];
@@ -1561,19 +1578,9 @@ export async function patchOfferHandler(c: AdminContext): Promise<Response> {
     // §10.2: the three legal kinds are (0,static), (1,static), (1,response).
     errors["bid_source"] = "bid_source 'response' requires calls_provider_api";
   }
-  // 0058: the clickout Meta conversion exists ONLY for "Static — no provider
-  // request" Offers. Judged on the MERGED state, so a PATCH that switches an
-  // Offer to a provider-request mode while the switch is still on is refused
-  // rather than leaving a dormant flag behind (the editor sends it off).
-  if (
-    mergedNumber(existing, updates, "clickout_meta_conversion") === 1 &&
-    mergedCalls !== 0 &&
-    errors["clickout_meta_conversion"] === undefined
-  ) {
-    errors["clickout_meta_conversion"] =
-      "Fire Meta conversion on clickout is only available for Static — no provider request offers";
-  }
-  // …and ON needs somewhere to send to.
+  // 0064 (owner 2026-10-08, R2): the click event is available on EVERY Offer
+  // — the 0058 "Static — no provider request only" rule is gone. ON needs
+  // somewhere to send to.
   if (
     mergedNumber(existing, updates, "clickout_meta_conversion") === 1 &&
     (mergedField(existing, updates, "clickout_meta_dataset_id") ?? null) === null &&
