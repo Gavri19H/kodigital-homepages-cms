@@ -33,6 +33,7 @@ import { ingestProviderPostback, ingestBrowserPixel } from "./postback";
 import { leadgenTrackRouter } from "../../analytics/leadgen-track";
 import { resolveLeadgenClick, type LeadgenClickInput } from "./click";
 import { sendClickoutMetaConversion, type ClickoutMetaOffer } from "../../leadgen/clickout-meta";
+import { readFbpCookie } from "../../leadgen/meta-hash";
 import { safeErrorName } from "../../safety/safe-error";
 import {
   mintFunnelAttempt,
@@ -65,7 +66,7 @@ import { genSessionId, readCookie, sessionCookie } from "../listicle/experiment-
 // read (04 §4.2 "bridged, not duplicated") — reused here, read-only, for the
 // slot-rule/A-B plan resolution's entry-known state/device signals + the
 // P2a ctx echo.
-import { readCfSignals, geoFromCf, parseClientUa } from "../../analytics/listicle-quality";
+import { readCfSignals, geoFromCf, parseClientUa, computeTrafficQuality } from "../../analytics/listicle-quality";
 import { buildLeadgenRuntimeContext } from "../../leadgen/runtime-context";
 import { LEADGEN_TEMPLATE_VERSION } from "../../cache/cache-keys";
 import { LEADGEN_RUNTIME_JS } from "./runtime/engine-bundle.generated";
@@ -788,28 +789,33 @@ async function loadLeadgenClickContext(
   return out;
 }
 
-// 0058 clickout Meta conversion. The Offer's clickout columns are read HERE,
+// 0058/0064 click Meta event. The Offer's clickout columns are read HERE,
 // inside waitUntil, rather than in loadLeadgenClickContext's offer SELECT: a
 // failure of this read (or of the whole Meta send) must never cost the click
 // its cap increment, its suppression row or its 302, and it adds no D1 read to
-// the visitor's path. Every Offer reaches this; only a static Offer with the
-// switch on sends anything (clickout-meta.ts decides and logs why not).
+// the visitor's path. Every Offer reaches this; any Offer with the switch on
+// sends (0064 — clickout-meta.ts decides and logs why not). `SELECT *` so a
+// database a column behind (pre-0064) still reads: absent columns default.
+//
+// Fix round 1 (review M4): `replayCapped` is the click's replay-cap decision
+// (click.ts) — a click over the cap sends nothing (clickout-meta.ts
+// "replay_capped"). Awaited inside this background task only.
 function scheduleClickoutMeta(
   c: PublicContext,
   execCtx: WaitUntilContext,
   offerPublicId: string,
   click: Parameters<typeof sendClickoutMetaConversion>[3],
+  replayCapped: Promise<boolean>,
 ): void {
   if (offerPublicId === "") return;
   const env = c.env;
   const work = (async () => {
     let offer: ClickoutMetaOffer | null = null;
     try {
-      offer = await env.DB.prepare(
-        "SELECT public_id, calls_provider_api, clickout_meta_conversion, clickout_meta_dataset_id, clickout_meta_event_name, clickout_meta_value, clickout_meta_test_event_code, static_bid_currency FROM leadgen_offers WHERE public_id = ? LIMIT 1",
-      )
+      const row = await env.DB.prepare("SELECT * FROM leadgen_offers WHERE public_id = ? LIMIT 1")
         .bind(offerPublicId)
-        .first<ClickoutMetaOffer>();
+        .first<Record<string, unknown>>();
+      offer = row === null ? null : clickoutOfferFromRow(row);
     } catch (err) {
       // Not silent: a failed read here means a switched-on Offer sent nothing.
       console.error(JSON.stringify({
@@ -823,13 +829,32 @@ function scheduleClickoutMeta(
     // The common case — the switch is off — returns silently: no log line per
     // ordinary click.
     if (offer === null || offer.clickout_meta_conversion !== 1) return;
-    await sendClickoutMetaConversion(env, env.DB, offer, click);
+    const capped = await replayCapped.catch(() => false);
+    await sendClickoutMetaConversion(env, env.DB, offer, { ...click, capped });
   })().catch(() => undefined);
   try {
     execCtx.waitUntil(work);
   } catch {
     void work;
   }
+}
+
+// The ClickoutMetaOffer projection of a leadgen_offers row (?? defaults keep a
+// pre-0064 row — no multiplier column — reading as multiplier 1).
+function clickoutOfferFromRow(row: Record<string, unknown>): ClickoutMetaOffer {
+  const str = (v: unknown): string | null => (typeof v === "string" ? v : null);
+  const num = (v: unknown): number | null => (typeof v === "number" && Number.isFinite(v) ? v : null);
+  return {
+    public_id: str(row["public_id"]) ?? "",
+    offer_type: str(row["offer_type"]),
+    clickout_meta_conversion: num(row["clickout_meta_conversion"]) ?? 0,
+    clickout_meta_dataset_id: str(row["clickout_meta_dataset_id"]),
+    clickout_meta_event_name: str(row["clickout_meta_event_name"]),
+    clickout_meta_value: num(row["clickout_meta_value"]),
+    clickout_meta_value_multiplier: num(row["clickout_meta_value_multiplier"]) ?? 1,
+    clickout_meta_test_event_code: str(row["clickout_meta_test_event_code"]),
+    static_bid_currency: str(row["static_bid_currency"]),
+  };
 }
 
 // GET /lg/lc/:offer_id — resolve the governed click, mint the click_id, count it
@@ -885,6 +910,21 @@ async function serveLeadgenClick(c: PublicContext): Promise<Response> {
   ec.sub3 = canonicalMacros["sub3"] ?? "";
   ec.sub4 = canonicalMacros["sub4"] ?? "";
   ec.sub5 = canonicalMacros["sub5"] ?? "";
+  // Fix round 2 (review N3): the click's traffic quality, computed EXACTLY as
+  // /lg/px computes it (postback.ts ingestBrowserPixel: the CF edge signals,
+  // the User-Agent, the cookies — ko_internal=1 — and the request + Referer
+  // URLs). Stamped on the click event; a non-clean click books nothing and
+  // sends nothing to Facebook (click.ts / clickout-meta.ts).
+  const quality = computeTrafficQuality({
+    cf: readCfSignals(c.req.raw),
+    userAgent: c.req.header("User-Agent"),
+    cookieHeader: c.req.header("Cookie"),
+    urls: [c.req.url, c.req.header("Referer") ?? ""],
+  });
+  ec.is_bot = quality.is_bot;
+  ec.is_internal = quality.is_internal;
+  ec.is_preview = quality.is_preview;
+  ec.traffic_quality_flag = quality.traffic_quality_flag;
 
   const input: LeadgenClickInput = {
     offer_public_id: offerPublicId,
@@ -903,6 +943,9 @@ async function serveLeadgenClick(c: PublicContext): Promise<Response> {
     offer: ctx.offer,
     removal_scope: ctx.removal_scope,
     event_context: ec,
+    // OWNER 2026-10-08: the click events carry the visitor's live `_fbp`
+    // (click.ts reads it shape-checked from this header).
+    request_cookie_header: c.req.header("Cookie") ?? null,
   };
 
   const result = await resolveLeadgenClick(c.env, execCtx, input);
@@ -925,11 +968,14 @@ async function serveLeadgenClick(c: PublicContext): Promise<Response> {
       // fall through to the safe no-redirect — the click was already counted.
     }
     if (redirect !== null) {
-      // 0058: a SUCCESSFUL clickout on a static Offer may send Meta a media
-      // signal. Entirely on waitUntil — the visitor's 302 never waits on it.
-      // Only the click's own facts go in. The visitor's Meta identifiers are
-      // read from the auction that showed the banner — never from this
-      // request, whose query string anyone can write.
+      // 0058/0064: a SUCCESSFUL click on an Offer with the switch on sends
+      // Meta the server half of the click event. Entirely on waitUntil — the
+      // visitor's 302 never waits on it. Only the click's own facts go in: the
+      // browser-minted event id (`eid`, so Meta pairs it with the pixel's
+      // half), the visitor's `_fbp` cookie and which card was clicked. The
+      // visitor's Meta identifiers, contact hashes and the card's bid are read
+      // from the auction that showed the banner — never from this request,
+      // whose query string anyone can write.
       scheduleClickoutMeta(c, execCtx, offerPublicId, {
         click_id: result.click_id,
         auction_instance_id: auctionInstanceId,
@@ -938,7 +984,12 @@ async function serveLeadgenClick(c: PublicContext): Promise<Response> {
         ua: freshCtx.request.ua,
         page_url: freshCtx.request.referer,
         host: new URL(c.req.url).host,
-      });
+        eid: c.req.query("eid") ?? "",
+        fbp: readFbpCookie(c.req.header("Cookie") ?? null),
+        carrier_key: carrierKey,
+        slot,
+        traffic_quality_flag: quality.traffic_quality_flag,
+      }, result.replay_capped);
       return redirect;
     }
   }

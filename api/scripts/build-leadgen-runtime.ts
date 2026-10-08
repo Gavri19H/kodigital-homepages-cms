@@ -51,7 +51,9 @@ export const GENERATED_PATH = resolve(
 // 52 KiB (53248) by R2 owner decision D1 (2026-07-28) to fund the R2 slider
 // and grid runtime components — enforced with a per-feature byte ledger
 // (docs/leadgen/rework/byte-ledger.md). Overflow beyond the cap is an owner
-// decision; the cap is final absent that approval.
+// decision; the cap is final absent that approval. (2026-10-08: a fix-round-1
+// raise to 54272 for a typeof guard on the shell hook was reverted in fix
+// round 2, review N4 — the guard was dropped, the owner-set cap stands.)
 export const MAX_BUNDLE_BYTES = 53248;
 
 export interface RuntimeBundle {

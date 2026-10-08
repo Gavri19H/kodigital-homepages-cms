@@ -570,10 +570,20 @@ function renderBoardMenus(): string {
 // getFunnelDesign (the SAME resolver the visitor-facing path uses) so a
 // funnel storing the alias ("default") still shows the canonical entry
 // selected — a non-empty, correct state (I2) — instead of matching nothing.
+// 0064 (owner 2026-10-08, R2 "Offer + funnel"): a 7th control — the FUNNEL's
+// Facebook pixel ID (leadgen_funnels.meta_pixel_id, PATCH /funnels/:id). When
+// set, the funnel's pages load the pixel: PageView on load, Lead after the
+// first answer, AddToCart when offers show (serve.ts metaPixelShellScript).
+function funnelMetaPixelOf(f: FunnelNode | null): string {
+  const raw = f === null ? null : (f as { meta_pixel_id?: unknown }).meta_pixel_id;
+  return typeof raw === "string" ? raw : "";
+}
+
 function renderFunnelSettingsDialog(
   designs: Array<{ id: string; label: string }>,
   auctions: AuctionListItem[],
   current: VariantNode | null,
+  currentMetaPixel = "",
 ): string {
   const currentDesignId = current !== null ? getFunnelDesign(current.funnel_design_id).id : null;
   const designOptions = designs
@@ -597,6 +607,7 @@ function renderFunnelSettingsDialog(
         <div class="form-group"><label class="form-label" for="lg-lander-hero">Lander hero image URL</label><input id="lg-lander-hero" class="form-input" value="${escapeHtml(current?.lander_hero_media_url ?? "")}" /></div>
         <div class="form-group"><label class="form-label" for="lg-funnel-design">Base visual design</label><select id="lg-funnel-design" class="form-select" aria-label="Funnel design">${designOptions}</select></div>
         <div class="form-group"><label class="form-label" for="lg-auction-id">Auction</label><select id="lg-auction-id" class="form-select" aria-label="Auction">${auctionOptions}</select></div>
+        <div class="form-group"><label class="form-label" for="lg-funnel-meta-pixel">Facebook pixel ID</label><input id="lg-funnel-meta-pixel" class="form-input" inputmode="numeric" autocomplete="off" placeholder="Leave empty for no pixel" value="${escapeHtml(currentMetaPixel)}" /><span class="form-help">The number in Meta Events Manager. When set, this funnel's pages load the Facebook pixel and send PageView on load, Lead after the first answer and AddToCart when offers show.</span></div>
       </div>
       <div class="lg-board-guard-foot"><button type="button" class="btn btn-outline" data-funnel-settings-close>Cancel</button><button type="button" class="btn btn-primary" data-funnel-settings-save>Save</button></div>
     </div>
@@ -674,6 +685,8 @@ function funnelSettingsForBlob(f: FunnelNode): Record<string, unknown> | null {
     lander_hero_media_url: av.lander_hero_media_url ?? "",
     funnel_design_id: av.funnel_design_id,
     auction_id: av.auction_id,
+    // 0064: funnel-level (not a variant field) — saved by its own PATCH.
+    meta_pixel_id: funnelMetaPixelOf(f),
   };
 }
 
@@ -776,7 +789,7 @@ export function renderBuilderPanel(
     </div>
   </div>
   ${renderBoardMenus()}
-  ${renderFunnelSettingsDialog(designs, auctions, currentSettingsVariant)}
+  ${renderFunnelSettingsDialog(designs, auctions, currentSettingsVariant, funnelMetaPixelOf(currentFunnel))}
   ${renderSharedSlotAbDialog()}
   ${renderSharedSlotRuledDialog()}
   <script type="application/json" id="lg-board-data">${boardDataBlob(structure, available, templates)}</script>
@@ -4943,7 +4956,9 @@ export const QUOTE_EDITOR_SCRIPT = `
   // input persists through the upload POST.
   // §10/S5.1: 'lg-variant-select'/'lg-canvas-variant-select' dropped — both
   // elements were removed from the rendered HTML with the P3b board rewrite.
-  var NON_PERSISTED_IDS = { 'lg-ab-preview-session': 1, 'lg-add-section-select': 1, 'lg-theme-hex-role': 1, 'lg-theme-hex-value': 1, 'lg-quote-rename-input': 1, 'lg-media-upload-file': 1 };
+  // 0064: the funnel-settings dialog's Facebook pixel input persists through
+  // the dialog's own Save (PATCH /funnels/:id), like the quote-rename input.
+  var NON_PERSISTED_IDS = { 'lg-ab-preview-session': 1, 'lg-add-section-select': 1, 'lg-theme-hex-role': 1, 'lg-theme-hex-value': 1, 'lg-quote-rename-input': 1, 'lg-media-upload-file': 1, 'lg-funnel-meta-pixel': 1 };
   function markDirtyFor(el) {
     if (!el || !el.getAttribute) { return; }
     var id = el.id || '';
@@ -5491,6 +5506,9 @@ export const QUOTE_EDITOR_SCRIPT = `
   // path -- the field-present hardening collectPayload documents, dedicated path.
   var fsettingsEl = document.querySelector('[data-funnel-settings]');
   var fsettingsVariant = fsettingsEl ? (fsettingsEl.getAttribute('data-settings-variant') || '') : '';
+  // 0064: the funnel-level Facebook pixel rides its own PATCH /funnels/:id.
+  var fsettingsFunnel = '';
+  var fsettingsPixel = '';
   function fsById(id) { return document.getElementById(id); }
   function openFunnelSettings(pub) {
     if (!fsettingsEl) { return; }
@@ -5509,6 +5527,9 @@ export const QUOTE_EDITOR_SCRIPT = `
       if (des.value !== fid) { des.selectedIndex = 0; }
     }
     var auc = fsById('lg-auction-id'); if (auc) { auc.value = (s.auction_id === null || s.auction_id === undefined) ? '' : String(s.auction_id); }
+    fsettingsFunnel = pub;
+    fsettingsPixel = s.meta_pixel_id || '';
+    var px = fsById('lg-funnel-meta-pixel'); if (px) { px.value = fsettingsPixel; }
     show(fsettingsEl);
   }
   function closeFunnelSettings() { hide(fsettingsEl); }
@@ -5527,9 +5548,15 @@ export const QUOTE_EDITOR_SCRIPT = `
     var btn = fsettingsEl ? fsettingsEl.querySelector('[data-funnel-settings-save]') : null;
     if (btn) { btn.disabled = true; }
     req('PUT', API + '/variants/' + encodeURIComponent(fsettingsVariant), collectFunnelSettings()).then(function (res) {
-      if (btn) { btn.disabled = false; }
-      if (!res.ok) { showInlineErr(null, firstFieldError(res.body)); return; }
-      reloadPage();
+      if (!res.ok) { if (btn) { btn.disabled = false; } showInlineErr(null, firstFieldError(res.body)); return; }
+      var px = fsById('lg-funnel-meta-pixel');
+      var nextPixel = px ? px.value.replace(/^\\s+|\\s+$/g, '') : fsettingsPixel;
+      if (!fsettingsFunnel || nextPixel === fsettingsPixel) { if (btn) { btn.disabled = false; } reloadPage(); return; }
+      req('PATCH', API + '/funnels/' + encodeURIComponent(fsettingsFunnel), { meta_pixel_id: nextPixel === '' ? null : nextPixel }).then(function (pres) {
+        if (btn) { btn.disabled = false; }
+        if (!pres.ok) { showInlineErr(null, firstFieldError(pres.body)); return; }
+        reloadPage();
+      });
     });
   }
 

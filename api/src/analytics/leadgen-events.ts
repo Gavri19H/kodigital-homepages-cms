@@ -211,6 +211,26 @@ export interface LeadgenEvent {
   is_internal: boolean;
   is_preview: boolean;
   traffic_quality_flag: string; // clean | bot | internal | preview | tampered
+  // --- OWNER 2026-10-08 data additions (appended — Athena columns at the END) ---
+  // Answer events: the question's operator words (its label → the Question
+  // headline it is asked under → the section headline → the section name)
+  // and the words of the answer the visitor saw (choice label(s); typed text
+  // itself). Server-resolved from the section content (leadgen-enrich.ts).
+  question_label: string;
+  answer_label: string;
+  // R3: true when answer_value_normalized is the SHA-256 of a Meta-normalised
+  // contact value (email / phone / name / street / date of birth / personal
+  // free text) — answer_label is then "" (never plain contact data).
+  answer_hashed: boolean;
+  // The frame template that renders this funnel (variant → funnel → quote
+  // default): its public id (lgft_…) + name. Server-resolved.
+  template_id: string;
+  template_name: string;
+  // auction_offer_response: how many bids/carriers the Offer returned (0 on a
+  // no-bid); null on every other event.
+  bids_count: number | null;
+  // Meta's _fbp browser id (request cookie, shape-checked); "" when absent.
+  fbp: string;
 }
 
 // One row in Athena `leadgen.sessions` — written on the funnel-entry event
@@ -264,6 +284,11 @@ export interface LeadgenSessionRecord {
   is_internal: boolean;
   is_preview: boolean;
   traffic_quality_flag: string;
+  // OWNER 2026-10-08 (appended): server-resolved names + Meta browser id.
+  quote_name: string;
+  template_id: string;
+  template_name: string;
+  fbp: string;
 }
 
 // §22.5 dead-letter record — an audit copy (of the D1 `leadgen_event_dead_letter`
@@ -443,6 +468,13 @@ export function blankLeadgenEvent(eventType: string, now: number): LeadgenEvent 
     is_internal: false,
     is_preview: false,
     traffic_quality_flag: "clean",
+    question_label: "",
+    answer_label: "",
+    answer_hashed: false,
+    template_id: "",
+    template_name: "",
+    bids_count: null,
+    fbp: "",
   };
 }
 
@@ -694,5 +726,9 @@ export function leadgenSessionFromQuoteView(e: LeadgenEvent): LeadgenSessionReco
     is_internal: e.is_internal,
     is_preview: e.is_preview,
     traffic_quality_flag: e.traffic_quality_flag,
+    quote_name: e.quote_name,
+    template_id: e.template_id,
+    template_name: e.template_name,
+    fbp: e.fbp,
   };
 }

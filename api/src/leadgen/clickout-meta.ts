@@ -1,19 +1,28 @@
-// LeadGen — the Meta (Facebook) conversion fired on CLICKOUT for a
-// "Static — no provider request" Offer (0058).
+// LeadGen — the Meta (Facebook) event fired when a visitor CLICKS an Offer's
+// banner (0058, widened by 0064).
 //
-// WHY THIS EXISTS: a static Offer is a partner with no API. It never tells us
-// who converted, so the Meta campaign that bought the visit has nothing to
-// optimise on. The clickout is the one signal we own. Marketing asked for it
-// as a MEDIA signal only.
+// WHY THIS EXISTS: the Meta campaign that bought the visit has nothing to
+// optimise on unless we tell it what a click was worth. Owner, 2026-10-08: "we
+// want to fire the browser side event to facebook, the system should support it
+// in the offer level, including the generated click revenue value ... and also
+// server side event". Rulings: R1 "Every click" — every click is its own event;
+// R2 — Purchase (configurable) on click, value = the click's bid x a multiplier
+// (default 1); browser + server events for the click share ONE event id.
+//
+// 0064 widened 0058 (which was "static Offers only, Meta-ad visitors only, once
+// per funnel visit per Offer") to EVERY Offer with the switch on, EVERY visitor
+// (the reference funnel sends for every click) and EVERY click. The browser
+// half lives in the funnel shell (serve.ts metaPixelShellScript): it mints the
+// event id, appends it to the /lg/lc link as `eid`, and fires the same event
+// through the pixel; this module sends the server half with that same id so
+// Meta deduplicates the pair.
 //
 // WHAT IT IS NOT — each of these is a deliberate boundary, not an omission:
 //   * not §26 (s2s-dispatch.ts). §26 fires on a MATCHED conversion booked by
 //     /lg/pb or /lg/px and is untouched here — its platform row's URL template
-//     and `enabled` flag are not read. §26 also gates on the click's
-//     traffic_source, which is empty on every production auction measured
-//     (2026-09-27: 146/146 rows, including all 54 that carry an fbclid).
+//     and `enabled` flag are not read.
 //   * not revenue. Nothing here writes leadgen_revenue_raw,
-//     leadgen_conversion_log or a cap counter. A click is not a sale.
+//     leadgen_conversion_log or a cap counter.
 //   * not Admin → Conversions. That product has its own Meta connection; this
 //     is configured on the LeadGen Offer.
 //   * not a second credential store. The Meta dataset id is an Offer setting;
@@ -23,13 +32,14 @@
 // WHO THE VISITOR IS comes ONLY from the auction that showed this Offer. /lg/lc
 // is an unguarded public GET (a click must always 302), so anything on its
 // query string is attacker-controlled: an fbclid pasted onto a hand-made
-// /lg/lc URL would otherwise let a script mint unlimited Meta Leads. The fbc,
-// fbclid and session come from the auction's persisted macro snapshot, and the
-// send happens only when that auction (a) exists, (b) belongs to the funnel
-// attempt the click names, and (c) actually showed this Offer. /lg/auction is
-// the guarded endpoint (bot + rate limit + signed attempt binding), so a
-// forged Lead now costs a full guarded funnel run — and the dedupe below
-// makes that run worth exactly one event.
+// /lg/lc URL would otherwise let a script mint unlimited Meta events. The fbc,
+// fbclid, session, the hashed contact fields (meta_user_data) and the clicked
+// card's bid come from the auction's persisted rows, and the send happens only
+// when that auction (a) exists, (b) belongs to the funnel attempt the click
+// names, and (c) actually showed this Offer. /lg/auction is the guarded
+// endpoint (bot + rate limit + signed attempt binding). The only request
+// values used are the visitor's own: IP, user agent, the `_fbp` cookie, and the
+// `eid` the browser minted (shape-checked; it only names the event).
 //
 // TRANSPORT matches the two known-good Meta senders in this estate (the
 // Conversions engine's destination-meta adapter and the reference funnel's
@@ -37,13 +47,28 @@
 // with the token as the access_token query parameter. The URL therefore
 // carries a secret and is NEVER logged; only the dataset id is.
 //
-// DEDUPE: at most one Meta event per (funnel attempt, Offer). A double-click
-// mints a new click_id each time, and counting each as a Lead would inflate
-// exactly the number marketing optimises on. The KV seen-set uses the LeadGen
-// S2S prefix `lg_s2s:`; the same identity is Meta's event_id, so Meta's own
-// event_id dedupe backs up KV's eventual consistency. A send Meta refuses (a
-// bad token, say) gives the slot back, so fixing the token does not lose the
-// visitor's next click.
+// DEDUPE: one Meta event per event id (R1: every click is its own event). The
+// KV seen-set uses the LeadGen S2S prefix `lg_s2s:` and only stops a replay of
+// the SAME click (the same `eid`); Meta's own event_id dedupe pairs the server
+// event with the browser one. A send Meta refuses (a bad token, say) gives the
+// slot back. REPLAY CAP (fix round 1, review M4): a replayed banner link mints
+// a new click every time, so /lg/lc decides per click whether it is within
+// CLICK_REPLAY_CAP clicks per (funnel attempt, offer) per 24 h
+// (revenue-ingest.ts claimClickReplaySlot, the same lg_s2s: KV family); a click
+// over the cap arrives here with `capped` and sends nothing. TRAFFIC QUALITY
+// (fix round 2, review N3): /lg/lc stamps the click with the same
+// computeTrafficQuality the /lg/px pixel uses; a bot / internal / preview
+// click arrives here with that flag and sends nothing ("not_clean").
+//
+// ONE AUCTION CHECK (fix round 2, review N1): checkClickoutMetaAuction below is
+// the single "this click is backed by an auction we ran, for this attempt,
+// that showed this Offer" test — the Meta send uses it here and /lg/lc's
+// revenue booking (click.ts) uses the same function, so the two can never
+// disagree about which clicks are real.
+//
+// EVENT NAME (fix round 1, review m4): a saved name is always kept; with none
+// saved, a CPC Offer sends Purchase (the click IS the money) and a
+// CPL / CPA / CPI Offer sends Lead (its money is a later conversion).
 //
 // Never throws. Runs on waitUntil after the 302 has been returned, so a Meta
 // outage cannot slow or break a visitor's click. The outcome is logged AND
@@ -54,10 +79,15 @@ import type { Env } from "../env";
 import { resolveAllowedOutboundSecretReference } from "../env";
 import { deriveFbc } from "./s2s-dispatch";
 import { safeErrorName } from "../safety/safe-error";
+// Meta's browser id cookie `_fbp` shape — the one definition (meta-hash.ts).
+import { META_FBP_RE } from "./meta-hash";
 
-// Meta standard events that make sense for a clickout. "Lead" is the default:
-// the visitor left for the partner's form, which is what a lead-gen campaign
-// optimises toward.
+// Meta standard events that make sense for a click. "Purchase" is the default
+// for a CPC Offer (owner R2, 2026-10-08: the ad sets optimise Purchase value,
+// and the click's bid is the value); a CPL / CPA / CPI Offer defaults to
+// "Lead" (fix round 1, review m4 — clickoutMetaDefaultEvent). 0058 rows that
+// are switched on with no saved name were pinned to "Lead" by 0064, so no
+// existing Offer changes event.
 export const CLICKOUT_META_EVENT_NAMES = [
   "Lead",
   "CompleteRegistration",
@@ -68,7 +98,14 @@ export const CLICKOUT_META_EVENT_NAMES = [
   "Purchase",
 ] as const;
 export type ClickoutMetaEventName = (typeof CLICKOUT_META_EVENT_NAMES)[number];
-export const CLICKOUT_META_DEFAULT_EVENT: ClickoutMetaEventName = "Lead";
+export const CLICKOUT_META_DEFAULT_EVENT: ClickoutMetaEventName = "Purchase";
+
+// The event a newly enabled Offer sends when no name is saved, by its type:
+// cpc → Purchase; cpl / cpa / cpi → Lead; unknown → Purchase.
+export function clickoutMetaDefaultEvent(offerType: string | null | undefined): ClickoutMetaEventName {
+  const t = (offerType ?? "").trim().toLowerCase();
+  return t === "cpl" || t === "cpa" || t === "cpi" ? "Lead" : CLICKOUT_META_DEFAULT_EVENT;
+}
 
 // A Meta dataset (pixel) id is all digits.
 export const CLICKOUT_META_DATASET_RE = /^[0-9]{5,20}$/;
@@ -77,24 +114,40 @@ export const CLICKOUT_META_DATASET_RE = /^[0-9]{5,20}$/;
 export const CLICKOUT_META_TEST_CODE_RE = /^[A-Za-z0-9_-]{1,64}$/;
 // The Graph API version both known-good Meta senders in this estate use.
 export const CLICKOUT_META_GRAPH_VERSION = "v25.0";
+// The click's event id as the browser mints it (serve.ts metaPixelShellScript:
+// 'lgc_' + random letters/digits) and appends to the /lg/lc link as `eid`.
+// Anything else on that parameter is ignored and the server names the event
+// itself ('lgc_' + click id).
+export const CLICKOUT_META_EID_RE = /^lgc_[A-Za-z0-9]{8,40}$/;
+// The value multiplier an operator may set (0064). Bounded so a typo cannot
+// report a click worth a thousand times its bid.
+export const CLICKOUT_META_MULTIPLIER_MAX = 100;
+// The hashed contact fields the auction snapshot may carry (meta_user_data):
+// Meta's customer-information keys, each already a lowercase hex SHA-256.
+export const CLICKOUT_META_USER_DATA_KEYS = ["em", "ph", "fn", "ln", "db", "ct", "st", "zp", "country"] as const;
 
 const META_PLATFORM = "facebook";
 const CLICKOUT_SEEN_TTL_SECONDS = 24 * 3600; // the §26 S2S window
 // Meta's fbc cookie shape (fb.<subdomain index>.<creation ms>.<fbclid>).
 const FBC_RE = /^fb\.[12]\.[0-9]{10,16}\.[A-Za-z0-9._~-]{1,512}$/;
+const SHA256_HEX_RE = /^[0-9a-f]{64}$/;
 const IP_RE = /^[0-9A-Fa-f:.]{2,45}$/;
 const CONTROL_RE = /[\u0000-\u001f\u007f]/;
 
-// The Offer columns this needs (leadgen_offers + 0058).
+// The Offer columns this needs (leadgen_offers + 0058 + 0064).
+// `calls_provider_api` is no longer read (0064: every Offer may send); it stays
+// optional so callers that still select it type-check.
 export interface ClickoutMetaOffer {
   public_id: string;
-  calls_provider_api: number;
+  calls_provider_api?: number;
+  offer_type?: string | null;
   clickout_meta_conversion: number;
   clickout_meta_dataset_id: string | null;
   clickout_meta_event_name: string | null;
   clickout_meta_value: number | null;
+  clickout_meta_value_multiplier?: number | null;
   clickout_meta_test_event_code: string | null;
-  static_bid_currency: string | null;
+  static_bid_currency?: string | null;
 }
 
 // What the /lg/lc request itself contributes. Deliberately NO Meta
@@ -109,15 +162,47 @@ export interface ClickoutMetaClick {
   page_url: string;
   // Fallback event_source_url when the Referer is absent: the tenant origin.
   host: string;
+  // The event id the browser minted for this click (the `eid` the shell
+  // appends to the link). Shape-checked; anything else is ignored.
+  eid?: string;
+  // The visitor's own `_fbp` cookie as sent on this request (shape-checked).
+  fbp?: string;
+  // Which card was clicked (the link's ck/slot) — selects the bid the auction
+  // recorded for it. Never a price: the price is read from the auction.
+  carrier_key?: string;
+  slot?: number | null;
+  // Fix round 1 (review M4): true ⇒ this click is over the replay cap
+  // (/lg/lc decided it) — nothing is sent.
+  capped?: boolean;
+  // Fix round 2 (review N3): the click request's traffic_quality_flag
+  // (computeTrafficQuality, exactly as /lg/px). Anything but "clean" (bot /
+  // internal / preview) sends nothing. Absent ⇒ not judged here.
+  traffic_quality_flag?: string;
+}
+
+// One card the auction showed (leadgen_auction_result_log.carriers_shown_json).
+export interface ClickoutMetaShownCard {
+  offer_id: string;
+  carrier_key: string;
+  bid: number | null;
+  slot: number | null;
 }
 
 // The auction that showed the banner, as persisted by the engine.
 export interface ClickoutMetaAuction {
   funnel_attempt_id: string;
   shown_offer_ids: ReadonlySet<string>;
+  // Every card shown, with the USD bid the engine recorded for it.
+  shown_cards?: readonly ClickoutMetaShownCard[];
   fbc: string;
   fbclid: string;
+  // The visitor's `_fbp` as the auction request carried it (snapshot `fbp`) —
+  // the fallback when the click request itself has no `_fbp` cookie.
+  fbp?: string;
   session_id: string;
+  // The snapshot's `meta_user_data`: Meta key → lowercase hex SHA-256, only
+  // well-formed entries kept (absent/malformed → {}).
+  meta_user_data?: Readonly<Record<string, string>>;
 }
 
 export type ClickoutMetaOutcome =
@@ -136,14 +221,20 @@ export interface MetaErrorFacts {
   fbtrace_id: string | null;
 }
 
+// 0064 dropped "offer_not_static" (every Offer may send) and
+// "not_meta_traffic" (the reference funnel sends for every click).
 export type ClickoutMetaSkipReason =
   | "offer_setting_off"
-  | "offer_not_static"
+  | "replay_capped" // over CLICK_REPLAY_CAP clicks per (funnel attempt, offer) per 24 h
+  | "not_clean" // bot / internal / preview traffic (fix round 2, review N3)
+  | ClickoutMetaAuctionProblem
+  | ClickoutMetaDestinationProblem;
+
+// Why a click is not backed by a real auction (checkClickoutMetaAuction).
+export type ClickoutMetaAuctionProblem =
   | "no_auction" // the click names no auction we ran
   | "attempt_mismatch" // the auction belongs to another funnel attempt
-  | "offer_not_shown" // that auction never showed this Offer
-  | "not_meta_traffic" // the auction's visitor had no fbc and no fbclid
-  | ClickoutMetaDestinationProblem;
+  | "offer_not_shown"; // that auction never showed this Offer
 
 export type ClickoutMetaDestinationProblem =
   | "meta_dataset_missing" // the Offer has no (valid) dataset id
@@ -197,6 +288,24 @@ export async function resolveClickoutMetaDestination(
   };
 }
 
+// THE check that a click is real (fix round 2, review N1 — the one shared by
+// the Meta send below and /lg/lc's revenue booking, click.ts): the auction it
+// names exists, belongs to the funnel attempt the link names (an auction
+// persisted without an attempt id is not held to one), and showed this Offer.
+// null ⇒ real; otherwise why not.
+export function checkClickoutMetaAuction(
+  auction: Pick<ClickoutMetaAuction, "funnel_attempt_id" | "shown_offer_ids"> | null,
+  offerPublicId: string,
+  funnelAttemptId: string,
+): ClickoutMetaAuctionProblem | null {
+  if (auction === null) return "no_auction";
+  if (auction.funnel_attempt_id !== "" && auction.funnel_attempt_id !== funnelAttemptId.trim()) {
+    return "attempt_mismatch";
+  }
+  if (!auction.shown_offer_ids.has(offerPublicId)) return "offer_not_shown";
+  return null;
+}
+
 // The auction behind a click, or null. Dedicated JSON parses — a corrupt blob
 // reads as "nothing shown / no identifiers", which sends nothing.
 export async function loadClickoutMetaAuction(db: D1Database, auctionInstanceId: string): Promise<ClickoutMetaAuction | null> {
@@ -214,12 +323,22 @@ export async function loadClickoutMetaAuction(db: D1Database, auctionInstanceId:
   }
   if (row === null) return null;
   const shown = new Set<string>();
+  const cards: ClickoutMetaShownCard[] = [];
   try {
     const carriers = JSON.parse(row.carriers_shown_json ?? "[]") as unknown;
     if (Array.isArray(carriers)) {
       for (const c of carriers) {
-        const id = c !== null && typeof c === "object" ? (c as { offer_id?: unknown }).offer_id : undefined;
-        if (typeof id === "string" && id !== "") shown.add(id);
+        if (c === null || typeof c !== "object") continue;
+        const entry = c as { offer_id?: unknown; carrier_key?: unknown; bid?: unknown; slot?: unknown };
+        const id = entry.offer_id;
+        if (typeof id !== "string" || id === "") continue;
+        shown.add(id);
+        cards.push({
+          offer_id: id,
+          carrier_key: typeof entry.carrier_key === "string" ? entry.carrier_key : "",
+          bid: typeof entry.bid === "number" && Number.isFinite(entry.bid) ? entry.bid : null,
+          slot: typeof entry.slot === "number" && Number.isInteger(entry.slot) ? entry.slot : null,
+        });
       }
     }
   } catch {
@@ -236,17 +355,113 @@ export async function loadClickoutMetaAuction(db: D1Database, auctionInstanceId:
   return {
     funnel_attempt_id: row.funnel_attempt_id ?? "",
     shown_offer_ids: shown,
+    shown_cards: cards,
     fbc: text(snapshot["fbc"]),
     fbclid: text(snapshot["fbclid"]),
+    fbp: text(snapshot["fbp"]),
     session_id: row.session_id ?? text(snapshot["session_id"]),
+    meta_user_data: readMetaUserData(snapshot["meta_user_data"]),
   };
 }
 
-export function clickoutMetaEventName(offer: Pick<ClickoutMetaOffer, "clickout_meta_event_name">): ClickoutMetaEventName {
+// The snapshot's hashed contact fields, read defensively: only Meta's keys,
+// only lowercase hex SHA-256 values (the other side hashes before it stores).
+// A string (a JSON blob persisted as text) is parsed in its own try/catch.
+export function readMetaUserData(raw: unknown): Record<string, string> {
+  let value: unknown = raw;
+  if (typeof value === "string") {
+    try {
+      value = JSON.parse(value) as unknown;
+    } catch {
+      return {};
+    }
+  }
+  if (value === null || typeof value !== "object" || Array.isArray(value)) return {};
+  const out: Record<string, string> = {};
+  for (const key of CLICKOUT_META_USER_DATA_KEYS) {
+    const v = (value as Record<string, unknown>)[key];
+    if (typeof v === "string" && SHA256_HEX_RE.test(v)) out[key] = v;
+  }
+  return out;
+}
+
+// The multiplier an Offer applies to the click's bid (0064). NULL / absent /
+// non-finite / out of range ⇒ 1 (the bid itself).
+export function clickoutMetaMultiplier(offer: Pick<ClickoutMetaOffer, "clickout_meta_value_multiplier">): number {
+  const m = offer.clickout_meta_value_multiplier;
+  return typeof m === "number" && Number.isFinite(m) && m > 0 && m <= CLICKOUT_META_MULTIPLIER_MAX ? m : 1;
+}
+
+// THE value rule (owner R2), shared by the browser card (banner.ts) and the
+// server event so both halves of one click report the same number:
+//   * a fixed clickout_meta_value on the Offer wins;
+//   * otherwise a CPC Offer reports the clicked card's USD bid x multiplier;
+//   * no bid (or not a CPC Offer) ⇒ null — no value is sent at all.
+// Always USD: the engine records shown bids FX-normalized to USD.
+export function clickoutMetaValue(
+  offer: Pick<ClickoutMetaOffer, "clickout_meta_value" | "clickout_meta_value_multiplier" | "offer_type">,
+  usdBid: number | null | undefined,
+): number | null {
+  const fixed = offer.clickout_meta_value;
+  if (typeof fixed === "number" && Number.isFinite(fixed) && fixed > 0) return fixed;
+  if ((offer.offer_type ?? "").trim().toLowerCase() !== "cpc") return null;
+  if (typeof usdBid !== "number" || !Number.isFinite(usdBid) || usdBid <= 0) return null;
+  const value = Math.round(usdBid * clickoutMetaMultiplier(offer) * 100) / 100;
+  return value > 0 ? value : null;
+}
+
+// What the card link carries for the browser half (banner.ts renders these as
+// data-lg-px* attributes), or null when the Offer sends nothing.
+export interface ClickoutMetaCardPixel {
+  dataset_id: string;
+  event_name: ClickoutMetaEventName;
+  value: number | null;
+  currency: "USD";
+}
+
+export function clickoutMetaCardPixel(
+  offer: Partial<Pick<ClickoutMetaOffer, "clickout_meta_conversion" | "clickout_meta_dataset_id" | "clickout_meta_event_name" | "clickout_meta_value" | "clickout_meta_value_multiplier" | "offer_type">> | null | undefined,
+  usdBid: number | null | undefined,
+): ClickoutMetaCardPixel | null {
+  if (offer === null || offer === undefined) return null;
+  if ((offer.clickout_meta_conversion ?? 0) !== 1) return null;
+  const dataset = (offer.clickout_meta_dataset_id ?? "").trim();
+  if (!CLICKOUT_META_DATASET_RE.test(dataset)) return null;
+  return {
+    dataset_id: dataset,
+    event_name: clickoutMetaEventName({ clickout_meta_event_name: offer.clickout_meta_event_name ?? null, offer_type: offer.offer_type ?? null }),
+    value: clickoutMetaValue(
+      {
+        clickout_meta_value: offer.clickout_meta_value ?? null,
+        clickout_meta_value_multiplier: offer.clickout_meta_value_multiplier ?? null,
+        offer_type: offer.offer_type ?? null,
+      },
+      usdBid,
+    ),
+    currency: "USD",
+  };
+}
+
+// The USD bid the auction recorded for the clicked card: the shown entry for
+// this Offer with the link's carrier key (the slot breaks a tie). No match ⇒
+// null — the value is never taken from the request.
+export function clickoutMetaClickedBid(
+  auction: Pick<ClickoutMetaAuction, "shown_cards">,
+  offerPublicId: string,
+  click: Pick<ClickoutMetaClick, "carrier_key" | "slot">,
+): number | null {
+  const ck = click.carrier_key ?? "";
+  const matches = (auction.shown_cards ?? []).filter((c) => c.offer_id === offerPublicId && c.carrier_key === ck);
+  if (matches.length === 0) return null;
+  const bySlot = typeof click.slot === "number" ? matches.find((c) => c.slot === click.slot) : undefined;
+  return (bySlot ?? matches[0]!).bid;
+}
+
+export function clickoutMetaEventName(offer: Pick<ClickoutMetaOffer, "clickout_meta_event_name" | "offer_type">): ClickoutMetaEventName {
   const raw = (offer.clickout_meta_event_name ?? "").trim();
   return (CLICKOUT_META_EVENT_NAMES as readonly string[]).includes(raw)
     ? (raw as ClickoutMetaEventName)
-    : CLICKOUT_META_DEFAULT_EVENT;
+    : clickoutMetaDefaultEvent(offer.offer_type);
 }
 
 async function sha256Hex(value: string): Promise<string> {
@@ -277,11 +492,19 @@ export function clickoutMetaFbc(ids: Pick<ClickoutMetaAuction, "fbc" | "fbclid">
   return FBC_RE.test(derived) ? derived : "";
 }
 
-// One (funnel attempt, Offer) → one Meta event. The attempt is the auction's
-// own (server truth), falling back to the auction instance.
-export function clickoutMetaEventId(offerPublicId: string, auction: Pick<ClickoutMetaAuction, "funnel_attempt_id">, auctionInstanceId: string): string {
-  const attempt = auction.funnel_attempt_id.trim();
-  return `lgco.${attempt !== "" ? attempt : auctionInstanceId}.${offerPublicId}`;
+// One click → one Meta event (owner R1). The id is the one the browser minted
+// for its half of the same click (`eid`), so Meta pairs the two; a link that
+// carries none (no pixel script on the page, or a hand-made URL) gets the
+// server's own: 'lgc_' + the click id /lg/lc minted.
+export function clickoutMetaEventId(click: Pick<ClickoutMetaClick, "eid" | "click_id">): string {
+  const eid = (click.eid ?? "").trim();
+  return CLICKOUT_META_EID_RE.test(eid) ? eid : `lgc_${click.click_id}`;
+}
+
+// The visitor's `_fbp` cookie when it is well-formed, else "".
+export function clickoutMetaFbp(raw: string | undefined): string {
+  const t = (raw ?? "").trim();
+  return META_FBP_RE.test(t) ? t : "";
 }
 
 // Build the Graph API body (exported for the tests that pin its shape).
@@ -292,11 +515,20 @@ export async function buildClickoutMetaBody(
   eventId: string,
   now: number,
 ): Promise<Record<string, unknown>> {
-  const userData: Record<string, unknown> = { fbc: clickoutMetaFbc(auction, now) };
+  const userData: Record<string, unknown> = {};
+  const fbc = clickoutMetaFbc(auction, now);
+  if (fbc !== "") userData.fbc = fbc;
+  const fbp = clickoutMetaFbp(click.fbp) || clickoutMetaFbp(auction.fbp);
+  if (fbp !== "") userData.fbp = fbp;
   if (IP_RE.test(click.ip.trim())) userData.client_ip_address = click.ip.trim();
   const ua = click.ua.trim();
   if (ua !== "" && ua.length <= 1024 && !CONTROL_RE.test(ua)) userData.client_user_agent = ua;
   if (auction.session_id.trim() !== "") userData.external_id = [await sha256Hex(auction.session_id)];
+  // The contact details the visitor typed into the funnel, hashed upstream
+  // (owner R2: "Contact details from the funnel go hashed for matching").
+  for (const [key, hash] of Object.entries(readMetaUserData(auction.meta_user_data ?? {}))) {
+    userData[key] = [hash];
+  }
 
   const event: Record<string, unknown> = {
     event_name: clickoutMetaEventName(offer),
@@ -306,11 +538,8 @@ export async function buildClickoutMetaBody(
     event_source_url: httpUrlOrNull(click.page_url) ?? `https://${click.host}/`,
     user_data: userData,
   };
-  const value = offer.clickout_meta_value;
-  if (typeof value === "number" && Number.isFinite(value) && value > 0) {
-    const currency = (offer.static_bid_currency ?? "").trim().toUpperCase();
-    event.custom_data = { value, currency: /^[A-Z]{3}$/.test(currency) ? currency : "USD" };
-  }
+  const value = clickoutMetaValue(offer, clickoutMetaClickedBid(auction, offer.public_id, click));
+  if (value !== null) event.custom_data = { value, currency: "USD" };
   const body: Record<string, unknown> = { data: [event] };
   const testCode = (offer.clickout_meta_test_event_code ?? "").trim();
   if (CLICKOUT_META_TEST_CODE_RE.test(testCode)) body.test_event_code = testCode;
@@ -347,7 +576,7 @@ export function describeClickoutMetaOutcome(outcome: ClickoutMetaOutcome): strin
     case "fired":
       return `Sent to Meta dataset ${outcome.dataset_id}: ${outcome.event_name}, Meta accepted ${outcome.events_received ?? "?"} event${outcome.events_received === 1 ? "" : "s"}${outcome.test ? " (with the test event code)" : ""}.`;
     case "deduped":
-      return "Not sent again: this visitor's clickout on this offer was already sent.";
+      return "Not sent again: this exact click was already sent.";
     case "failed": {
       const e = outcome.meta_error;
       if (e !== undefined && e.code === 190) return "Meta refused it: the access token is invalid or expired (Meta error 190).";
@@ -360,15 +589,15 @@ export function describeClickoutMetaOutcome(outcome: ClickoutMetaOutcome): strin
       switch (outcome.reason) {
         case "offer_setting_off":
           return "Not sent: the setting is off.";
-        case "offer_not_static":
-          return "Not sent: this offer is not Static — no provider request.";
+        case "replay_capped":
+          return "Not sent: this visitor already clicked this offer 5 times today.";
+        case "not_clean":
+          return "Not sent: the click came from a bot, internal (ko_internal cookie) or preview traffic.";
         case "no_auction":
           return "Not sent: the click did not come from a banner LeadGen showed.";
         case "attempt_mismatch":
         case "offer_not_shown":
           return "Not sent: the click does not match the auction that showed this banner.";
-        case "not_meta_traffic":
-          return "Not sent: the visitor did not arrive from a Meta ad (no fbclid on the funnel link).";
         case "meta_dataset_missing":
           return "Not sent: no Meta dataset (pixel) ID is set on this offer.";
         case "meta_platform_missing":
@@ -380,6 +609,8 @@ export function describeClickoutMetaOutcome(outcome: ClickoutMetaOutcome): strin
 
 const UNRECORDED_SKIPS: ReadonlySet<ClickoutMetaSkipReason> = new Set<ClickoutMetaSkipReason>([
   "offer_setting_off",
+  "replay_capped",
+  "not_clean",
   "no_auction",
   "attempt_mismatch",
   "offer_not_shown",
@@ -436,24 +667,20 @@ async function send(
 ): Promise<ClickoutMetaOutcome> {
   try {
     if (offer.clickout_meta_conversion !== 1) return { status: "skipped", reason: "offer_setting_off" };
-    // The setting is only offered for static Offers and the save path refuses
-    // it otherwise; this re-check keeps a hand-edited row from firing for a
-    // provider-request Offer.
-    if (offer.calls_provider_api !== 0) return { status: "skipped", reason: "offer_not_static" };
+    if (click.traffic_quality_flag !== undefined && click.traffic_quality_flag !== "clean") {
+      return { status: "skipped", reason: "not_clean" };
+    }
+    if (click.capped === true) return { status: "skipped", reason: "replay_capped" };
 
     const auction = await loadClickoutMetaAuction(db, click.auction_instance_id);
-    if (auction === null) return { status: "skipped", reason: "no_auction" };
-    if (auction.funnel_attempt_id !== "" && auction.funnel_attempt_id !== click.funnel_attempt_id.trim()) {
-      return { status: "skipped", reason: "attempt_mismatch" };
-    }
-    if (!auction.shown_offer_ids.has(offer.public_id)) return { status: "skipped", reason: "offer_not_shown" };
-    if (clickoutMetaFbc(auction, now) === "") return { status: "skipped", reason: "not_meta_traffic" };
+    const problem = checkClickoutMetaAuction(auction, offer.public_id, click.funnel_attempt_id);
+    if (problem !== null || auction === null) return { status: "skipped", reason: problem ?? "no_auction" };
 
     const destination = await resolveClickoutMetaDestination(env, db, offer);
     if (!destination.ok) return { status: "skipped", reason: destination.problem };
 
     const eventName = clickoutMetaEventName(offer);
-    const eventId = clickoutMetaEventId(offer.public_id, auction, click.auction_instance_id);
+    const eventId = clickoutMetaEventId(click);
     const key = seenKey(eventName, eventId);
     // Configuration is proven good before the slot is claimed, so an operator
     // who fixes a missing setting does not find the next click eaten.

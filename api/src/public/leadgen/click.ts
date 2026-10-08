@@ -34,6 +34,45 @@
 //
 // ALL side effects are FAIL-OPEN: a cap / clicked-row / Firehose failure never
 // prevents the resolved 302 (or the safe no-redirect fallback).
+//
+// OWNER 2026-10-08 (R1 "Every click"): the click event carries the money. The
+// Offer's offer_type is read from leadgen_offers; a CPC click books the clicked
+// card's bid in USD as `revenue` (booking_trigger "click", bid_currency "USD")
+// on EVERY click — no per-visitor dedupe. The USD bid is the one the auction
+// stored for that card (leadgen_auction_result_log.carriers_shown_json .bid),
+// else the carrier's own bid / the Offer's static_bid_value converted the same
+// way (fx.normalizeToUsd). CPL/CPA/CPI clicks book nothing (revenue null,
+// booking_trigger ""). The event also carries Meta's `fbp` (the click
+// request's _fbp cookie, else the one the auction persisted) and the
+// server-resolved quote / funnel / template names. Every lookup is FAIL-OPEN
+// and runs on waitUntil (after the 302), before the event is emitted.
+//
+// Fix round 1 (review B1 + M4): the same CPC click is also booked into the CMS
+// revenue ledger (leadgen_revenue_raw — revenue-ingest.ts
+// recordInSiteClickRevenue: source 'in_site', booking_trigger 'click',
+// conversions 0, the event's USD revenue, idempotent per click_id), on the same
+// waitUntil task, fail-open. And a replayed link is bounded: at most
+// CLICK_REPLAY_CAP clicks per (funnel attempt, offer) per 24 h book / send to
+// Facebook (revenue-ingest.ts claimClickReplaySlot); a click over the cap still
+// 302s and still emits its event, with revenue 0 and booking_trigger 'capped'
+// (NOT null — the dashboard falls back to the bid when revenue is null), and
+// writes no ledger row. The decision is handed to the route
+// (`replay_capped`) so the Facebook send obeys the same cap.
+//
+// Fix round 2 (review N1 / N3 / N6) — a click books (Athena revenue + ledger
+// row) and sends to Facebook ONLY when it is real and clean:
+//   * REAL: the auction it names exists, belongs to the link's funnel attempt
+//     and showed this Offer — clickout-meta.ts checkClickoutMetaAuction, the
+//     SAME function the Facebook send uses (one check, not two). A forged /
+//     unknown click books revenue 0 (not null) with booking_trigger
+//     'unverified', no ledger row, no Facebook send;
+//   * CLEAN: /lg/lc stamps is_bot / is_internal / is_preview /
+//     traffic_quality_flag exactly as /lg/px does (computeTrafficQuality, in
+//     the route); a non-clean click books revenue 0 with booking_trigger
+//     'not_clean', no ledger row, no Facebook send;
+//   then the replay cap. The 302 happens in every case.
+//   * bid_currency is "USD" only when the bid really was converted to USD; an
+//     FX miss keeps the bid in its own currency and leaves revenue null.
 
 import type { Env } from "../../env";
 import type { WaitUntilContext } from "../../wait-until-context";
@@ -51,6 +90,15 @@ import {
   emitLeadgenRecords,
   type LeadgenEvent,
 } from "../../analytics/leadgen-events";
+import { resolveLeadgenFunnelNames, type LeadgenFunnelNames } from "../../analytics/leadgen-enrich";
+import { normalizeToUsd } from "../../leadgen/fx";
+import { META_FBP_RE, readFbpCookie } from "../../leadgen/meta-hash";
+import { claimClickReplaySlot, recordInSiteClickRevenue } from "../../leadgen/revenue-ingest";
+import {
+  checkClickoutMetaAuction,
+  loadClickoutMetaAuction,
+  type ClickoutMetaShownCard,
+} from "../../leadgen/clickout-meta";
 
 // Why the resolver could not produce a 302 to a real destination.
 export type LeadgenClickUnresolvedReason =
@@ -94,6 +142,12 @@ export interface LeadgenClickInput {
   // server-derived + safe (§30.3): never raw answer PII.
   event_context?: Partial<LeadgenEvent>;
 
+  // --- OWNER 2026-10-08: Meta browser id ---
+  // The click request's Cookie header: Meta's _fbp is read from it (shape-
+  // checked). Absent / no valid _fbp ⇒ the auction snapshot's `fbp`
+  // (canonical_macros.fbp, persisted at /lg/auction).
+  request_cookie_header?: string | null;
+
   // --- injectables (tests) ---
   now?: number;
   mintClickId?: () => string;
@@ -110,8 +164,13 @@ export interface LeadgenClickResult {
   clicked_recorded: boolean;
   // The single §22.3 click event built + handed to Firehose (returned so a
   // caller/test can assert it without intercepting the stream). Exactly one per
-  // physical click: carrier_click when carrier-scoped, else offer_click.
+  // physical click: carrier_click when carrier-scoped, else offer_click. Its
+  // D1 facts (offer_type / USD bid / revenue / names) are stamped by the
+  // waitUntil task — settle the context before asserting them.
   events: LeadgenEvent[];
+  // Fix round 1 (review M4): resolves true when this click is over the replay
+  // cap (the route's Facebook send then sends nothing). Never rejects.
+  replay_capped: Promise<boolean>;
 }
 
 // True for an absolute http(s) URL — the only shape accepted into a 302.
@@ -191,6 +250,105 @@ function resolveCandidate(
   return { url };
 }
 
+// OWNER 2026-10-08 — what the click event needs from D1: the Offer's type, the
+// clicked card's USD bid, and the funnel names. Resolved in parallel with the
+// cap / suppression writes; every miss degrades to "unknown" (never throws).
+interface LeadgenClickFacts {
+  offer_type: string; // "" when the Offer row could not be read
+  usd_bid: number | null; // null when no USD bid could be determined
+  // N6: the bid that could NOT be converted to USD (an FX miss), in its own
+  // currency — stamped as bid_value / bid_currency instead; null otherwise.
+  native_bid: { value: number; currency: string } | null;
+  names: LeadgenFunnelNames | null;
+  // The Offer's Facebook click-event switch (0058) is on.
+  clickout_on: boolean;
+  // N1: the auction behind the click is real (checkClickoutMetaAuction).
+  verified: boolean;
+  // The funnel attempt the AUCTION behind the click belongs to ("" when the
+  // auction has none) — the replay cap keys on it, not on the link's faid.
+  auction_attempt_id: string;
+}
+
+const OFFER_TYPES: ReadonlySet<string> = new Set(["cpc", "cpl", "cpa", "cpi"]);
+
+function finiteNumber(v: unknown): number | null {
+  return typeof v === "number" && Number.isFinite(v) ? v : null;
+}
+
+// The USD bid the auction stored for the clicked card (the auction's shown
+// cards, read once by clickout-meta.ts loadClickoutMetaAuction).
+function shownUsdBid(cards: readonly ClickoutMetaShownCard[], offerPublicId: string, carrierKey: string): number | null {
+  for (const c of cards) {
+    if (c.offer_id !== offerPublicId) continue;
+    if (carrierKey !== "" && c.carrier_key !== carrierKey) continue;
+    if (c.bid !== null) return c.bid;
+  }
+  return null;
+}
+
+async function loadClickFacts(env: Env, input: LeadgenClickInput, now: number): Promise<LeadgenClickFacts> {
+  const db = env.DB;
+  // `SELECT *` so a database a column behind still reads (absent columns
+  // default); every column is read defensively below.
+  const offerRead = (async () => {
+    if (input.offer_public_id === "") return null;
+    try {
+      return await db
+        .prepare("SELECT * FROM leadgen_offers WHERE public_id = ? LIMIT 1")
+        .bind(input.offer_public_id)
+        .first<{
+          offer_type?: string | null;
+          static_bid_value?: number | null;
+          static_bid_currency?: string | null;
+          clickout_meta_conversion?: number | null;
+        }>();
+    } catch {
+      return null;
+    }
+  })();
+  // N1: the auction behind the click, read by the SAME loader the Facebook
+  // send uses (null for an unknown / unreadable auction — never throws).
+  const auctionRead = loadClickoutMetaAuction(db, input.auction_instance_id).catch(() => null);
+  const ec = input.event_context ?? {};
+  const namesRead = resolveLeadgenFunnelNames(
+    db,
+    { quote_id: ec.quote_id ?? "", funnel_id: ec.funnel_id ?? "", funnel_variant_id: ec.funnel_variant_id ?? "" },
+    now,
+  ).catch(() => null);
+
+  const [offer, auction, names] = await Promise.all([offerRead, auctionRead, namesRead]);
+  const offerType = offer !== null && typeof offer.offer_type === "string" && OFFER_TYPES.has(offer.offer_type) ? offer.offer_type : "";
+
+  let usdBid: number | null = auction !== null ? shownUsdBid(auction.shown_cards ?? [], input.offer_public_id, input.carrier_key) : null;
+  let nativeBid: { value: number; currency: string } | null = null;
+  // Fallbacks, converted exactly like the auction converts: the carrier's own
+  // bid in its currency, else the Offer's static bid. An FX miss (N6) keeps
+  // the bid in its own currency (native_bid) and leaves the USD bid unknown.
+  try {
+    const fallbacks: Array<[number | null, string | null]> = [
+      [finiteNumber(input.carrier?.bid), input.carrier?.bid_currency ?? null],
+      [finiteNumber(offer?.static_bid_value), offer?.static_bid_currency ?? null],
+    ];
+    for (const [bid, currency] of fallbacks) {
+      if (usdBid !== null || bid === null) continue;
+      const fx = await normalizeToUsd(db, bid, currency);
+      usdBid = fx.usd;
+      if (fx.usd === null && nativeBid === null) nativeBid = { value: bid, currency: fx.currency };
+    }
+  } catch {
+    // an FX error leaves the bid unknown (never a fabricated value)
+  }
+  return {
+    offer_type: offerType,
+    usd_bid: usdBid,
+    native_bid: usdBid === null ? nativeBid : null,
+    names,
+    clickout_on: offer !== null && offer.clickout_meta_conversion === 1,
+    verified: checkClickoutMetaAuction(auction, input.offer_public_id, input.funnel_attempt_id) === null,
+    auction_attempt_id: auction?.funnel_attempt_id ?? "",
+  };
+}
+
 // Build one §22.3 click event stamped with the click identity + auction ids.
 // `event_context` is merged first (server-derived safe dims), then the
 // click-specific fields override. answer_value_raw is never set here (§30.3).
@@ -223,8 +381,50 @@ function buildClickEvent(
     e.bid_value = typeof input.carrier.bid === "number" ? input.carrier.bid : e.bid_value;
     e.bid_currency = asText(input.carrier.bid_currency);
   }
+  // Meta browser id: the click request's _fbp, else the auction's persisted one.
+  const liveFbp = readFbpCookie(input.request_cookie_header ?? null);
+  const snapshotFbp = input.canonical_macros?.["fbp"] ?? "";
+  e.fbp = liveFbp !== "" ? liveFbp : META_FBP_RE.test(snapshotFbp) ? snapshotFbp : "";
   if (e.event_id === "") e.event_id = mintPublicId("link_click", now); // per-event idempotency id
   return e;
+}
+
+// OWNER 2026-10-08 — stamp the D1 facts onto the built click event (IN
+// PLACE): the Offer's type, the card's USD bid, the funnel names, and the R1
+// booking — a CPC click books its USD bid on EVERY click; cpl/cpa/cpi book
+// nothing at click time. `facts` null (every read failed) ⇒ only an offer_type
+// already on the event decides the booking.
+function applyClickFacts(e: LeadgenEvent, facts: LeadgenClickFacts | null): void {
+  if (facts !== null) {
+    if (facts.offer_type !== "") e.offer_type = facts.offer_type;
+    // N6: "USD" only for a bid really converted to USD; an FX miss keeps the
+    // bid in its own currency.
+    if (facts.usd_bid !== null) {
+      e.bid_value = facts.usd_bid;
+      e.bid_currency = "USD";
+    } else if (facts.native_bid !== null) {
+      e.bid_value = facts.native_bid.value;
+      e.bid_currency = facts.native_bid.currency;
+    }
+    const n = facts.names;
+    if (n !== null) {
+      if (e.quote_id === "" && n.quote_id !== "") e.quote_id = n.quote_id;
+      e.quote_name = n.quote_name;
+      e.funnel_name = n.funnel_name;
+      e.template_id = n.template_id;
+      e.template_name = n.template_name;
+    }
+  }
+  // R1 "Every click": a CPC click books its bid (USD) — no dedupe; every
+  // other Offer type books nothing at click time. No USD bid (an FX miss) ⇒
+  // revenue null.
+  if (e.offer_type === "cpc") {
+    e.revenue = facts?.usd_bid ?? null;
+    e.booking_trigger = "click";
+  } else if (OFFER_TYPES.has(e.offer_type)) {
+    e.revenue = null;
+    e.booking_trigger = "";
+  }
 }
 
 // The /lg/lc resolve→mint→side-effects flow (§19 step 16). Never throws — every
@@ -313,8 +513,75 @@ export async function resolveLeadgenClick(
   //    the same union, so a double emit is 2× clicks + 2× revenue attribution.
   const clickType: "carrier_click" | "offer_click" =
     input.carrier_key !== "" ? "carrier_click" : "offer_click";
+  //    OWNER 2026-10-08: the event's D1 facts (offer type, USD bid → revenue,
+  //    names) are read on waitUntil — the visitor's 302 never waits on them —
+  //    then the event is emitted from the same background task. A failed read
+  //    still emits the event (FAIL-OPEN). `events` is the SAME object the task
+  //    stamps, so a caller that settles the context sees the stamped event.
   const events = [buildClickEvent(clickType, now, input, clickId)];
-  emitLeadgenRecords(env, ctx, [...events]);
+  let settleCapped: (capped: boolean) => void = () => undefined;
+  const replayCapped = new Promise<boolean>((resolve) => {
+    settleCapped = resolve;
+  });
+  const emitTask = (async () => {
+    const facts = await loadClickFacts(env, input, now).catch(() => null);
+    for (const e of events) applyClickFacts(e, facts);
+    // A click that would book (CPC) or send to Facebook (switch on) must be
+    // real (N1: the shared auction check), then clean (N3: the route's
+    // traffic-quality stamp), then within the replay cap (M4 — keyed on the
+    // attempt the AUCTION belongs to; the link's own faid only when the
+    // auction was persisted without one). The first that fails names the
+    // booking_trigger and the click books revenue 0 (NOT null — the dashboard
+    // falls back to the bid when revenue is null), no ledger row, no Facebook
+    // send (clickout-meta.ts runs the same auction check and the same
+    // traffic-quality rule; `replay_capped` carries the cap decision). Only a
+    // real, clean click spends a replay slot.
+    let blocked: "unverified" | "not_clean" | "capped" | null = null;
+    const e0 = events[0];
+    try {
+      if (facts !== null && e0 !== undefined && (e0.offer_type === "cpc" || facts.clickout_on)) {
+        if (!facts.verified) blocked = "unverified";
+        else if (e0.traffic_quality_flag !== "clean") blocked = "not_clean";
+        else {
+          const attempt = facts.auction_attempt_id !== "" ? facts.auction_attempt_id : input.funnel_attempt_id;
+          if (!(await claimClickReplaySlot(env.CACHE, attempt, input.offer_public_id, now))) blocked = "capped";
+        }
+      }
+    } catch {
+      // claimClickReplaySlot never throws (KV errors fail open inside it)
+    }
+    settleCapped(blocked === "capped");
+    if (blocked !== null) {
+      for (const e of events) {
+        e.revenue = 0;
+        e.booking_trigger = blocked;
+      }
+    } else if (e0 !== undefined && e0.offer_type === "cpc") {
+      // Fix round 1 (review B1): the CMS revenue ledger books the same value.
+      try {
+        await recordInSiteClickRevenue(env.DB, {
+          offer_public_id: input.offer_public_id,
+          offer_type: e0.offer_type,
+          click_id: clickId,
+          revenue: e0.revenue,
+          dt: new Date(now).toISOString().slice(0, 10),
+          clean: e0.traffic_quality_flag === "clean",
+        });
+      } catch {
+        // the ledger write never breaks the click or its event
+      }
+    }
+    const sends: Promise<unknown>[] = [];
+    emitLeadgenRecords(env, { waitUntil: (p) => void sends.push(p) }, [...events]);
+    await Promise.all(sends.map((p) => Promise.resolve(p).catch(() => undefined)));
+  })().catch(() => {
+    /* tracking never breaks the click */
+  }).finally(() => settleCapped(false));
+  try {
+    ctx.waitUntil(emitTask);
+  } catch {
+    void emitTask;
+  }
 
   return {
     click_id: clickId,
@@ -324,5 +591,6 @@ export async function resolveLeadgenClick(
     cap_incremented: capIncremented,
     clicked_recorded: clickedRecorded,
     events,
+    replay_capped: replayCapped,
   };
 }

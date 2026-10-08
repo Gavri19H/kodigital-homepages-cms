@@ -121,6 +121,8 @@ import {
   type LeadgenAuctionEventStamp,
   type LeadgenEvent,
 } from "../../../analytics/leadgen-events";
+import { buildAuctionMetaUserData } from "../../../analytics/leadgen-enrich";
+import { readFbpCookie, type MetaUserData } from "../../../leadgen/meta-hash";
 import {
   DEBUG_BLOB_TTL_SECONDS,
   DEBUG_ENCRYPTION_SECRET_NAME,
@@ -965,6 +967,11 @@ export interface RunAuctionResult {
   // NO raw ip/ua/request-scoped values) persisted to
   // leadgen_auction_result_log.macro_context_json by persistAuctionResult.
   macro_context_snapshot: Record<string, string>;
+  // OWNER 2026-10-08 — the visitor's Meta user_data, HASHED (each value the
+  // lowercase hex SHA-256 of the Meta-normalised answer; absent keys omitted).
+  // persistAuctionResult writes it into macro_context_json under the key
+  // `meta_user_data` for the server-side Meta sender. Never plain values.
+  meta_user_data?: MetaUserData;
   // 10 §10.2 auction-path events (server-owned; §5.4-stamped). The LIVE route
   // emits them; a dry-run caller discards them (writes nothing).
   events: LeadgenEvent[];
@@ -1247,6 +1254,20 @@ export async function runAuction(
     auction_result_id: auctionResultId,
   };
   const m = baseContext.macros;
+  // OWNER 2026-10-08: Meta's _fbp browser id from the live request's cookie
+  // (shape-checked) — stamped on the auction-path events and persisted in the
+  // macro snapshot so the click (and the server-side Meta event) can carry it.
+  const fbp = (() => {
+    const src = input.runtime?.source;
+    if (src === undefined) return "";
+    try {
+      return readFbpCookie(("req" in src ? src.req.raw : src).headers.get("cookie"));
+    } catch {
+      return "";
+    }
+  })();
+  const quoteName = typeof input.resolved.quote.quote_name === "string" ? input.resolved.quote.quote_name : "";
+  const funnelName = typeof input.resolved.funnel.funnel_name === "string" ? input.resolved.funnel.funnel_name : "";
   const pushEvent = (
     eventType: string,
     fill?: (e: LeadgenEvent) => void,
@@ -1258,8 +1279,11 @@ export async function runAuction(
     e.funnel_attempt_id = input.binding.funnel_attempt_id;
     e.site_id = input.resolved.site_quote.site_id;
     e.quote_id = input.resolved.quote.public_id;
+    e.quote_name = quoteName;
     e.funnel_id = input.resolved.funnel.public_id;
+    e.funnel_name = funnelName;
     e.funnel_variant_id = input.resolved.variant.public_id;
+    e.fbp = fbp;
     e.auction_type = auction.auction_type;
     e.winner_logic = auction.winner_logic;
     e.url = landingUrl;
@@ -1327,6 +1351,15 @@ export async function runAuction(
       for (const [field, value] of Object.entries(computed)) answerComputed[field] = value;
     }
   }
+  // OWNER 2026-10-08 — the visitor's contact answers as HASHED Meta user_data
+  // (server-normalized answers of the sections they passed through; the
+  // ZIP-derived facet fills a missing city/state/zip). Never throws.
+  const metaUserData = await buildAuctionMetaUserData(
+    input.resolved.sections.map((rs) => rs.section),
+    normalizedAnswers,
+    input.location_facet,
+  );
+
   // The S21.4 evaluation namespace: request dims (device/geo) UNDER the
   // server-normalized answers -- the lead's DECLARED location (answered
   // state/zip/city) drives region + answer rules, while request dims (device,
@@ -1629,6 +1662,9 @@ export async function runAuction(
       `${offerPublicId} ${placementPublicId ?? ""}`;
     const resultByRow = new Map<string, FetchProviderResult>();
     const resultByOffer = new Map<string, FetchProviderResult>();
+    // OWNER 2026-10-08 ("recived bids per offer"): each Offer's
+    // auction_offer_response event, to stamp its best USD bid + bid count.
+    const responseEventsByRow = new Map<string, LeadgenEvent[]>();
     const bundleByRowKey = new Map<string, AuctionBundleOffer>();
     const bundleByPublicId = new Map<string, AuctionBundleOffer>();
     for (const b of input.bundle.offers) {
@@ -1672,7 +1708,17 @@ export async function runAuction(
           e.provider_error_reason = result.error_reason ?? "";
         });
       } else {
-        pushEvent("auction_offer_response", perOffer);
+        const responseEvent = pushEvent("auction_offer_response", perOffer);
+        // bid_value / bids_count are filled once the response is parsed + FX-
+        // normalized (below); keyed by the bundle ROW this response belongs to.
+        if (bundleOffer !== undefined) {
+          const key = rowKey(bundleOffer.offer.public_id, bundleOffer.placement_public_id);
+          const list = responseEventsByRow.get(key) ?? [];
+          list.push(responseEvent);
+          responseEventsByRow.set(key, list);
+        } else {
+          responseEvent.bids_count = 0;
+        }
       }
     }
 
@@ -1782,6 +1828,24 @@ export async function runAuction(
     const usdBids = await normalizeCarrierBidsToUsd(env.DB, bidInputs, { onMissingRate: "zero" });
     const usdByKey = new Map<string, number>();
     for (const nb of usdBids) usdByKey.set(metaKey(nb.offer_public_id, nb.carrier_key), nb.usd_bid);
+
+    // OWNER 2026-10-08: auction_offer_response carries what the Offer bid —
+    // bid_value = its best USD bid, bids_count = how many carriers (bids) its
+    // answer brought into the auction (0 on a no-bid ⇒ bid_value null).
+    for (const [key, responseEvents] of responseEventsByRow) {
+      const carriers = auctionCarriersByRow.get(key) ?? [];
+      let best: number | null = null;
+      for (const carrier of carriers) {
+        const offerPublicId = key.slice(0, key.indexOf(" "));
+        const usd = usdByKey.get(metaKey(offerPublicId, carrier.carrier_key));
+        if (usd !== undefined && (best === null || usd > best)) best = usd;
+      }
+      for (const responseEvent of responseEvents) {
+        responseEvent.bids_count = carriers.length;
+        responseEvent.bid_value = carriers.length > 0 ? best : null;
+        if (carriers.length > 0 && best !== null) responseEvent.bid_currency = "USD";
+      }
+    }
 
     // Assemble the working carrier set with USD bids (per bundle ROW — each
     // row contributes the carriers ITS response parsed, 04 §4.5).
@@ -1921,6 +1985,10 @@ export async function runAuction(
         source: s.source,
         bid: s.bid,
         banner_url_template: meta?.offer.offer.banner_url_template ?? null,
+        // OWNER 2026-10-08: the card carries its Offer's Facebook click-event
+        // settings (data-lg-px/-event/-value) so the browser fires the same
+        // event id the server sends from /lg/lc.
+        clickout_offer: meta?.offer.offer ?? null,
         response_context: meta?.response_context ?? null,
         ...(meta !== undefined ? { canonical_macros: contextFor(meta.offer).macros } : {}),
       };
@@ -2277,7 +2345,12 @@ export async function runAuction(
     // 04 §4.6: the REDACTED snapshot (session/traffic/offer-scoped macros of
     // the auction-level context — the SNAPSHOT_MACRO_KEYS whitelist; NO
     // computed keys; request-scoped values are re-derived at click).
-    macro_context_snapshot: redactedMacroSnapshot(baseContext.macros),
+    macro_context_snapshot: {
+      ...redactedMacroSnapshot(baseContext.macros),
+      // OWNER 2026-10-08: the visitor's Meta _fbp (cookie, shape-checked).
+      ...(fbp !== "" ? { fbp } : {}),
+    },
+    ...(Object.keys(metaUserData).length > 0 ? { meta_user_data: metaUserData } : {}),
     events,
     explain: trace,
     result_log_row: toResultLogRow(trace),
@@ -2411,7 +2484,14 @@ export async function persistAuctionResult(
           log.carriers_shown_json,
           log.winner_json,
           log.unfilled_reason,
-          JSON.stringify(result.macro_context_snapshot),
+          JSON.stringify({
+            ...result.macro_context_snapshot,
+            // OWNER 2026-10-08: hashed Meta user_data for the server-side
+            // Meta event (SHA-256 values only — never plain contact data).
+            ...(result.meta_user_data !== undefined && Object.keys(result.meta_user_data).length > 0
+              ? { meta_user_data: result.meta_user_data }
+              : {}),
+          }),
           ...waterfallBind,
         )
         .run();

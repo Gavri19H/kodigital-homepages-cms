@@ -46,8 +46,8 @@ import {
 } from "../../leadgen/validation";
 import { inferSchemaFromExample } from "../../leadgen/payload";
 import {
-  CLICKOUT_META_DEFAULT_EVENT,
   CLICKOUT_META_EVENT_NAMES,
+  clickoutMetaDefaultEvent,
   resolveClickoutMetaToken,
 } from "../../leadgen/clickout-meta";
 import {
@@ -1827,17 +1827,28 @@ function fmtUnixUtc(seconds: number): string {
   return `${new Date(seconds * 1000).toISOString().slice(0, 16).replace("T", " ")} UTC`;
 }
 
-// 0058 — the clickout Meta conversion. Rendered for every Offer (so switching
-// the mode radio can reveal it without a reload) but visible ONLY while
-// "Static — no provider request" is selected; the save path refuses the switch
-// for any other mode.
+// 0058 — the Facebook (Meta) event on every click of this Offer. 0064 (owner
+// 2026-10-08, R2): available on EVERY Offer, fired in the visitor's browser
+// (the funnel shell's pixel) AND from the server (clickout-meta.ts) with one
+// shared event id, on every click, value = the click's bid x the multiplier or
+// a fixed value. Existing rows keep their saved event name; a newly enabled
+// Offer defaults by its type (fix round 1, review m4): CPC → Purchase,
+// CPL / CPA / CPI → Lead — server-rendered here, kept in step with the type
+// picker by the editor island until the operator picks an event themselves.
+// Fix round 1 (review B1): the help text says plainly that every CPC click is
+// booked as revenue whatever this switch says — the switch is Facebook only.
 function renderClickoutMetaFieldset(o: OfferDetail, status: ClickoutMetaStatusView): string {
-  const visible = offerMode(o) === "static_no_request";
   const on = o.clickout_meta_conversion === true;
-  const current = o.clickout_meta_event_name ?? CLICKOUT_META_DEFAULT_EVENT;
+  const multiplier =
+    typeof o.clickout_meta_value_multiplier === "number" && Number.isFinite(o.clickout_meta_value_multiplier)
+      ? o.clickout_meta_value_multiplier
+      : 1;
+  const saved = o.clickout_meta_event_name ?? null;
+  const typeDefault = clickoutMetaDefaultEvent(o.offer_type);
+  const current = saved ?? typeDefault;
   const eventOptions = CLICKOUT_META_EVENT_NAMES.map((name) => {
     const selected = name === current ? " selected" : "";
-    const label = name === CLICKOUT_META_DEFAULT_EVENT ? `${name} (default)` : name;
+    const label = name === typeDefault ? `${name} (default)` : name;
     return `<option value="${name}"${selected}>${escapeHtml(label)}</option>`;
   }).join("");
   const tokenLine = status.token_installed
@@ -1848,10 +1859,11 @@ function renderClickoutMetaFieldset(o: OfferDetail, status: ClickoutMetaStatusVi
       ? `Last clickout (${fmtUnixUtc(o.clickout_meta_last_at)}): ${o.clickout_meta_last_detail}`
       : "No clickout has been processed since this was set up.";
   const lastTone = o.clickout_meta_last_status === "fired" ? "ok" : o.clickout_meta_last_status === null ? "info" : "warn";
-  return `<fieldset class="form-group lg-clickout-meta" data-lg-clickout-meta${visible ? "" : " hidden"}>
-      <legend class="form-label">Meta (Facebook) conversion on clickout</legend>
-      <label class="form-label lg-radio" for="lg-edit-clickout-meta"><input id="lg-edit-clickout-meta" type="checkbox" name="clickout_meta_conversion" value="1"${on ? " checked" : ""} /> Fire Meta conversion on clickout</label>
-      <span class="form-help">When a visitor who arrived from a Meta ad clicks this offer's banner, LeadGen sends Meta one Conversions API event — at most once per funnel visit per offer. It is a media signal only: it books no LeadGen revenue and is not counted as a conversion. Off by default. This is a LeadGen offer setting — it is not configured in, and does not use, Admin → Conversions.</span>
+  return `<fieldset class="form-group lg-clickout-meta" data-lg-clickout-meta>
+      <legend class="form-label">Facebook (Meta) event on every click</legend>
+      <label class="form-label lg-radio" for="lg-edit-clickout-meta"><input id="lg-edit-clickout-meta" type="checkbox" name="clickout_meta_conversion" value="1"${on ? " checked" : ""} /> Fire a Facebook event on every click of this offer</label>
+      <span class="form-help">Every time a visitor clicks this offer's banner, LeadGen fires one Facebook event in the visitor's browser (the Facebook pixel) AND sends the same event from the server (Conversions API), with one shared event ID so Facebook counts it once. The value is the click's bid × the multiplier below, or the fixed value if you set one. Off by default.</span>
+      <span class="form-help">Revenue does not depend on this switch: every click of a CPC offer is booked as revenue (in the dashboard and in LeadGen reporting) whether this is on or off. This switch only controls the Facebook event.</span>
       ${fieldError("clickout_meta_conversion")}
       <div class="lg-clickout-meta-detail" data-lg-clickout-meta-detail${on ? "" : " hidden"}>
         <div class="form-group">
@@ -1861,13 +1873,19 @@ function renderClickoutMetaFieldset(o: OfferDetail, status: ClickoutMetaStatusVi
         </div>
         <div class="form-group">
           <label for="lg-edit-clickout-meta-event" class="form-label">Meta event</label>
-          <select id="lg-edit-clickout-meta-event" name="clickout_meta_event_name" class="form-select">${eventOptions}</select>
+          <select id="lg-edit-clickout-meta-event" name="clickout_meta_event_name" class="form-select" data-lg-clickout-event-saved="${saved !== null ? "1" : "0"}">${eventOptions}</select>
           ${fieldError("clickout_meta_event_name")}
         </div>
         <div class="form-group">
-          <label for="lg-edit-clickout-meta-value" class="form-label">Value sent to Meta per clickout (optional)</label>
-          <input id="lg-edit-clickout-meta-value" name="clickout_meta_value" type="number" step="0.01" min="0" class="form-input" value="${o.clickout_meta_value !== null ? escapeHtml(String(o.clickout_meta_value)) : ""}" placeholder="Leave empty to send no value" />
-          <span class="form-help">Only for Meta's reporting and bidding; sent in the offer's static bid currency. Leave empty unless you know what a click is worth.</span>
+          <label for="lg-edit-clickout-meta-multiplier" class="form-label">Value multiplier</label>
+          <input id="lg-edit-clickout-meta-multiplier" name="clickout_meta_value_multiplier" type="number" step="0.01" min="0.01" max="100" class="form-input" value="${escapeHtml(String(multiplier))}" />
+          <span class="form-help">The value sent with each click is the clicked banner's bid (in USD) × this number — 1 sends the bid itself. Used for CPC offers; a click with no bid is sent with no value.</span>
+          ${fieldError("clickout_meta_value_multiplier")}
+        </div>
+        <div class="form-group">
+          <label for="lg-edit-clickout-meta-value" class="form-label">Fixed value per click (optional)</label>
+          <input id="lg-edit-clickout-meta-value" name="clickout_meta_value" type="number" step="0.01" min="0" class="form-input" value="${o.clickout_meta_value !== null ? escapeHtml(String(o.clickout_meta_value)) : ""}" placeholder="Leave empty to send bid × multiplier" />
+          <span class="form-help">When set, every click of this offer is sent with this value (USD) instead of bid × multiplier.</span>
           ${fieldError("clickout_meta_value")}
         </div>
         <div class="form-group">
@@ -1876,7 +1894,7 @@ function renderClickoutMetaFieldset(o: OfferDetail, status: ClickoutMetaStatusVi
           <span class="form-help">From Meta Events Manager → Test events. While set, each clickout also shows up there live. Meta still counts these events, so use it only while testing and clear it afterwards.</span>
           ${fieldError("clickout_meta_test_event_code")}
         </div>
-        <p class="form-help">To test: open the funnel from a link that carries <code>?fbclid=</code> (as a Meta ad click does), finish it, click this offer's banner, then reload this page.</p>
+        <p class="form-help">To test: set the test event code, open the funnel, finish it, click this offer's banner, then reload this page.</p>
       </div>
       <p class="form-help lg-clickout-meta-status" data-lg-clickout-meta-status="${status.token_installed ? "token_installed" : "token_missing"}" data-tone="${tokenLine.tone}">${escapeHtml(tokenLine.text)}</p>
       <p class="form-help lg-clickout-meta-status" data-lg-clickout-meta-last="${escapeHtml(o.clickout_meta_last_status ?? "none")}" data-tone="${lastTone}">${escapeHtml(last)}</p>
@@ -2492,18 +2510,35 @@ const LG_EDITOR_SCRIPT = `
     var fix = e.target && e.target.closest ? e.target.closest('[data-eligibility-fix]') : null;
     if (fix) { activateTab(fix.getAttribute('data-eligibility-fix')); }
   });
-  // 0058: the clickout Meta fieldset exists only for Static - no provider
-  // request; its detail block only while the switch is on.
+  // 0058/0064: the Facebook click-event fieldset shows for every Offer; its
+  // detail block only while the switch is on.
   function applyClickoutMetaVisibility() {
-    var box = form.querySelector('[data-lg-clickout-meta]');
-    if (box) { box.hidden = selectedMode() !== 'static_no_request'; }
     var detail = form.querySelector('[data-lg-clickout-meta-detail]');
     var toggle = form.querySelector('[name="clickout_meta_conversion"]');
     if (detail) { detail.hidden = !(toggle && toggle.checked); }
   }
+  // Fix round 1 (review m4): with no saved event, the event follows the offer
+  // type (CPC Purchase; CPL/CPA/CPI Lead) until the operator picks one.
+  // Fix round 2 (review N7): the "(default)" mark on the options follows the
+  // type on every change, whether or not an event was picked.
+  var clickoutEvent = form.querySelector('[name="clickout_meta_event_name"]');
+  var clickoutEventPicked = !clickoutEvent || clickoutEvent.getAttribute('data-lg-clickout-event-saved') === '1';
+  function applyClickoutMetaDefaultEvent() {
+    if (!clickoutEvent) { return; }
+    var typeSel = form.querySelector('[name="offer_type"]');
+    var t = typeSel ? typeSel.value : '';
+    var def = (t === 'cpl' || t === 'cpa' || t === 'cpi') ? 'Lead' : 'Purchase';
+    var opts = clickoutEvent.options || [];
+    for (var i = 0; i < opts.length; i++) {
+      opts[i].text = opts[i].value + (opts[i].value === def ? ' (default)' : '');
+    }
+    if (!clickoutEventPicked) { clickoutEvent.value = def; }
+  }
   form.addEventListener('change', function (e) {
-    if (e.target && e.target.name === 'auction_mode') { applyModeVisibility(); applyClickoutMetaVisibility(); }
-    if (e.target && e.target.name === 'clickout_meta_conversion') { applyClickoutMetaVisibility(); }
+    if (e.target && e.target.name === 'auction_mode') { applyModeVisibility(); }
+    if (e.target && e.target.name === 'clickout_meta_conversion') { applyClickoutMetaVisibility(); applyClickoutMetaDefaultEvent(); }
+    if (e.target && e.target.name === 'offer_type') { applyClickoutMetaDefaultEvent(); }
+    if (e.target && e.target.name === 'clickout_meta_event_name') { clickoutEventPicked = true; }
   });
   window.lgEditorTabs = { activate: activateTab };
 
@@ -2801,13 +2836,13 @@ const LG_EDITOR_SCRIPT = `
       region_rules: collectRegionRules(errors),
       placements: collectPlacements(errors)
     };
-    // 0058: only a Static - no provider request Offer can carry the clickout
-    // Meta switch; any other mode always saves it OFF (the API refuses ON).
+    // 0058/0064: every Offer can carry the Facebook click-event switch.
     var clickoutToggle = form.querySelector('[name="clickout_meta_conversion"]');
-    body.clickout_meta_conversion = !!(clickoutToggle && clickoutToggle.checked) && selectedMode() === 'static_no_request';
+    body.clickout_meta_conversion = !!(clickoutToggle && clickoutToggle.checked);
     body.clickout_meta_dataset_id = trimmedOrNull('clickout_meta_dataset_id');
     body.clickout_meta_event_name = trimmedOrNull('clickout_meta_event_name');
     body.clickout_meta_value = numberOrNull('clickout_meta_value', false);
+    body.clickout_meta_value_multiplier = numberOrNull('clickout_meta_value_multiplier', false);
     body.clickout_meta_test_event_code = trimmedOrNull('clickout_meta_test_event_code');
     // 0060 static-Offer banner creative (empty = off the card).
     body.static_brand_name = trimmedOrNull('static_brand_name');

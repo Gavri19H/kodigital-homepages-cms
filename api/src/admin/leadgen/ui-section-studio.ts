@@ -2839,6 +2839,16 @@ export function renderStudioInspector(design: FunnelDesign, sectionPublicId: str
         <label class="form-label" for="lg-leading-icon">Leading icon</label>
         <select id="lg-leading-icon" class="form-input" data-inspector-field="icon"><option value="">&#8212; none &#8212;</option>${LEADING_ICON_OPTION_HTML}</select>
       </div>
+      <!-- 2026-10-08 LeadGen data fix round 1 (review M1): a text answer that
+           holds personal data is stored hashed in reporting (props.pii, read by
+           leadgen-enrich.ts). Text fields only (populateInspector). -->
+      <div class="lg-inspector-field" data-pii-wrap hidden>
+        <div class="studio-row-between">
+          <span class="lg-check-label">Personal data &#8212; store hashed</span>
+          <label class="lg-check"><input type="checkbox" data-inspector-field="pii" aria-label="Personal data &#8212; store hashed" /></label>
+        </div>
+        <p class="form-help">Turn this on when visitors type personal details here (a name, an address, an ID number). Reporting then keeps only a one-way scrambled code of the answer, never the words typed.</p>
+      </div>
 
       <!-- R5 D3 (register S4-A3 migration): the 5-type copy-node TYPE SWAP
            (Headline/Subheadline/Kicker/Helper/Legal), migrated here from the
@@ -9659,6 +9669,11 @@ export const SECTION_STUDIO_SCRIPT = `
     // Placeholder-inert types above.
     var iconWrap = document.querySelector('[data-leading-icon-wrap]');
     if (iconWrap) { iconWrap.hidden = acceptFmt === null || (!!node && node.type === 'CurrencyInputQuestion'); }
+    // 2026-10-08 LeadGen data fix round 1 (review M1): the "Personal data -
+    // store hashed" switch (props.pii) is a text-field control only.
+    var piiWrap = document.querySelector('[data-pii-wrap]');
+    var showPii = !!node && node.type === 'FreeTextQuestion';
+    if (piiWrap) { piiWrap.hidden = !showPii; if (showPii) { anyContent = true; } }
     if (emptyNote && acceptFmt !== null) { emptyNote.hidden = true; }
     var acceptWrap = document.querySelector('[data-accept-wrap]');
     var acceptSel = document.querySelector('[data-inspector-accept]');

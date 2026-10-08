@@ -685,6 +685,7 @@ button.lg-publish-why-fix:focus-visible{outline:2px solid currentColor;outline-o
         <div class="form-group"><label class="form-label" for="lg-lander-hero">Lander hero image URL</label><input id="lg-lander-hero" class="form-input" value="" /></div>
         <div class="form-group"><label class="form-label" for="lg-funnel-design">Base visual design</label><select id="lg-funnel-design" class="form-select" aria-label="Funnel design"><option value="default-funnel" selected>Default Funnel Design</option></select></div>
         <div class="form-group"><label class="form-label" for="lg-auction-id">Auction</label><select id="lg-auction-id" class="form-select" aria-label="Auction"><option value="">— none —</option></select></div>
+        <div class="form-group"><label class="form-label" for="lg-funnel-meta-pixel">Facebook pixel ID</label><input id="lg-funnel-meta-pixel" class="form-input" inputmode="numeric" autocomplete="off" placeholder="Leave empty for no pixel" value="" /><span class="form-help">The number in Meta Events Manager. When set, this funnel's pages load the Facebook pixel and send PageView on load, Lead after the first answer and AddToCart when offers show.</span></div>
       </div>
       <div class="lg-board-guard-foot"><button type="button" class="btn btn-outline" data-funnel-settings-close>Cancel</button><button type="button" class="btn btn-primary" data-funnel-settings-save>Save</button></div>
     </div>
@@ -728,7 +729,7 @@ button.lg-publish-why-fix:focus-visible{outline:2px solid currentColor;outline-o
       </div>
     </div>
   </div>
-  <script type="application/json" id="lg-board-data">{"quote_public_id":"lgq_01M3HVREX43YTWPDEZDW1CACHZ","default_funnel_id":1,"shared_page_id":null,"shared_sections":[],"shared_slots":[],"funnels":[{"public_id":"lgf_01M3HVREX40P9FYCKGBSRKPCP9","id":1,"name":"\u003cb>Quote\u003c/b> — Funnel A","display_order":1,"is_default":true,"active_variant_public_id":"lgn_01M3HVREX4N1ZZR0XH74DRP5B1","arms":1,"frame_template_id":null,"settings":{"variant_public_id":"lgn_01M3HVREX4N1ZZR0XH74DRP5B1","lander_enabled":false,"lander_headline":"","lander_subheadline":"","lander_hero_media_url":"","funnel_design_id":"default","auction_id":null},"pages":[{"page_id":"lgpg_01M3HVREX6KE1QJEM84NTVR8MT","slots":[{"slot_id":1,"kind":"fixed","section_ids":["lgs_01M3HVREX56YGH7AQWNJEPPMT1"],"allocations":null,"rules":null}]},{"page_id":"lgpg_01M3HVREX6BB9EK6AMS40Q5TZP","slots":[{"slot_id":2,"kind":"fixed","section_ids":["lgs_01M3HVREX5EV7TKJY09E03T6EM"],"allocations":null,"rules":null}]}]}],"sections":[{"public_id":"lgs_01M3HVREX5EV7TKJY09E03T6EM","name":"Second","activity":"quote_funnel","vertical":"health"},{"public_id":"lgs_01M3HVREX56YGH7AQWNJEPPMT1","name":"\u003ci>First\u003c/i>","activity":"quote_funnel","vertical":"life"}],"templates":[{"id":"centered","label":"Centered card"},{"id":"header-footer","label":"Site header + footer"},{"id":"header-cta","label":"Header + call CTA"},{"id":"full-background","label":"Full background"},{"id":"white-trust","label":"White + trust bar"},{"id":"minimal","label":"Minimal"}]}</script>
+  <script type="application/json" id="lg-board-data">{"quote_public_id":"lgq_01M3HVREX43YTWPDEZDW1CACHZ","default_funnel_id":1,"shared_page_id":null,"shared_sections":[],"shared_slots":[],"funnels":[{"public_id":"lgf_01M3HVREX40P9FYCKGBSRKPCP9","id":1,"name":"\u003cb>Quote\u003c/b> — Funnel A","display_order":1,"is_default":true,"active_variant_public_id":"lgn_01M3HVREX4N1ZZR0XH74DRP5B1","arms":1,"frame_template_id":null,"settings":{"variant_public_id":"lgn_01M3HVREX4N1ZZR0XH74DRP5B1","lander_enabled":false,"lander_headline":"","lander_subheadline":"","lander_hero_media_url":"","funnel_design_id":"default","auction_id":null,"meta_pixel_id":""},"pages":[{"page_id":"lgpg_01M3HVREX6KE1QJEM84NTVR8MT","slots":[{"slot_id":1,"kind":"fixed","section_ids":["lgs_01M3HVREX56YGH7AQWNJEPPMT1"],"allocations":null,"rules":null}]},{"page_id":"lgpg_01M3HVREX6BB9EK6AMS40Q5TZP","slots":[{"slot_id":2,"kind":"fixed","section_ids":["lgs_01M3HVREX5EV7TKJY09E03T6EM"],"allocations":null,"rules":null}]}]}],"sections":[{"public_id":"lgs_01M3HVREX5EV7TKJY09E03T6EM","name":"Second","activity":"quote_funnel","vertical":"health"},{"public_id":"lgs_01M3HVREX56YGH7AQWNJEPPMT1","name":"\u003ci>First\u003c/i>","activity":"quote_funnel","vertical":"life"}],"templates":[{"id":"centered","label":"Centered card"},{"id":"header-footer","label":"Site header + footer"},{"id":"header-cta","label":"Header + call CTA"},{"id":"full-background","label":"Full background"},{"id":"white-trust","label":"White + trust bar"},{"id":"minimal","label":"Minimal"}]}</script>
 </div>
   <div class="lg-qpanel" data-panel="templates">
   <style>
@@ -9042,7 +9043,9 @@ if (!document.getElementById('toast-animations')) {
   // input persists through the upload POST.
   // §10/S5.1: 'lg-variant-select'/'lg-canvas-variant-select' dropped — both
   // elements were removed from the rendered HTML with the P3b board rewrite.
-  var NON_PERSISTED_IDS = { 'lg-ab-preview-session': 1, 'lg-add-section-select': 1, 'lg-theme-hex-role': 1, 'lg-theme-hex-value': 1, 'lg-quote-rename-input': 1, 'lg-media-upload-file': 1 };
+  // 0064: the funnel-settings dialog's Facebook pixel input persists through
+  // the dialog's own Save (PATCH /funnels/:id), like the quote-rename input.
+  var NON_PERSISTED_IDS = { 'lg-ab-preview-session': 1, 'lg-add-section-select': 1, 'lg-theme-hex-role': 1, 'lg-theme-hex-value': 1, 'lg-quote-rename-input': 1, 'lg-media-upload-file': 1, 'lg-funnel-meta-pixel': 1 };
   function markDirtyFor(el) {
     if (!el || !el.getAttribute) { return; }
     var id = el.id || '';
@@ -9590,6 +9593,9 @@ if (!document.getElementById('toast-animations')) {
   // path -- the field-present hardening collectPayload documents, dedicated path.
   var fsettingsEl = document.querySelector('[data-funnel-settings]');
   var fsettingsVariant = fsettingsEl ? (fsettingsEl.getAttribute('data-settings-variant') || '') : '';
+  // 0064: the funnel-level Facebook pixel rides its own PATCH /funnels/:id.
+  var fsettingsFunnel = '';
+  var fsettingsPixel = '';
   function fsById(id) { return document.getElementById(id); }
   function openFunnelSettings(pub) {
     if (!fsettingsEl) { return; }
@@ -9608,6 +9614,9 @@ if (!document.getElementById('toast-animations')) {
       if (des.value !== fid) { des.selectedIndex = 0; }
     }
     var auc = fsById('lg-auction-id'); if (auc) { auc.value = (s.auction_id === null || s.auction_id === undefined) ? '' : String(s.auction_id); }
+    fsettingsFunnel = pub;
+    fsettingsPixel = s.meta_pixel_id || '';
+    var px = fsById('lg-funnel-meta-pixel'); if (px) { px.value = fsettingsPixel; }
     show(fsettingsEl);
   }
   function closeFunnelSettings() { hide(fsettingsEl); }
@@ -9626,9 +9635,15 @@ if (!document.getElementById('toast-animations')) {
     var btn = fsettingsEl ? fsettingsEl.querySelector('[data-funnel-settings-save]') : null;
     if (btn) { btn.disabled = true; }
     req('PUT', API + '/variants/' + encodeURIComponent(fsettingsVariant), collectFunnelSettings()).then(function (res) {
-      if (btn) { btn.disabled = false; }
-      if (!res.ok) { showInlineErr(null, firstFieldError(res.body)); return; }
-      reloadPage();
+      if (!res.ok) { if (btn) { btn.disabled = false; } showInlineErr(null, firstFieldError(res.body)); return; }
+      var px = fsById('lg-funnel-meta-pixel');
+      var nextPixel = px ? px.value.replace(/^\s+|\s+$/g, '') : fsettingsPixel;
+      if (!fsettingsFunnel || nextPixel === fsettingsPixel) { if (btn) { btn.disabled = false; } reloadPage(); return; }
+      req('PATCH', API + '/funnels/' + encodeURIComponent(fsettingsFunnel), { meta_pixel_id: nextPixel === '' ? null : nextPixel }).then(function (pres) {
+        if (btn) { btn.disabled = false; }
+        if (!pres.ok) { showInlineErr(null, firstFieldError(pres.body)); return; }
+        reloadPage();
+      });
     });
   }
 

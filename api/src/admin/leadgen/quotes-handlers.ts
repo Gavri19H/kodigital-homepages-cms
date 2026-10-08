@@ -26,6 +26,7 @@
 // affordance. Each seam is commented at its handler.
 
 import { isPublicId, mintPublicId, type PublicIdKind } from "../../leadgen/ids";
+import { CLICKOUT_META_DATASET_RE } from "../../leadgen/clickout-meta";
 // Round-4 P3a (D-3 pages model): the SAME loader the public runtime resolves
 // through (parity by construction — the admin structure panel and the live
 // serve/attempt path can never disagree on a variant's page/slot shape), plus
@@ -2223,6 +2224,11 @@ export async function patchFunnelHandler(c: AdminContext): Promise<Response> {
 
   let funnelName = existing.funnel_name;
   let status = existing.status;
+  // 0064: the funnel's Facebook (Meta) pixel id (owner 2026-10-08, R2 —
+  // PageView / Lead / AddToCart from the funnel's pages). Same digits rule as
+  // the Offer's dataset id; "" / null clears it.
+  const priorPixel = typeof existing.meta_pixel_id === "string" ? existing.meta_pixel_id : null;
+  let metaPixelId: string | null = priorPixel;
   let touched = false;
   const errors: FieldErrors = {};
   if (body["funnel_name"] !== undefined) {
@@ -2236,6 +2242,13 @@ export async function patchFunnelHandler(c: AdminContext): Promise<Response> {
       errors["status"] = `status must be one of ${QUOTE_STATUSES.join("|")}`;
     } else { status = s as LeadgenQuoteStatus; touched = true; }
   }
+  if (body["meta_pixel_id"] !== undefined) {
+    const v = body["meta_pixel_id"];
+    const id = v === null ? "" : typeof v === "string" ? v.trim() : typeof v === "number" ? String(v) : null;
+    if (id === null || (id !== "" && !CLICKOUT_META_DATASET_RE.test(id))) {
+      errors["meta_pixel_id"] = "Facebook pixel ID must be the number shown in Meta Events Manager";
+    } else { metaPixelId = id === "" ? null : id; touched = true; }
+  }
   if (Object.keys(errors).length > 0) return c.json({ error: "Validation failed", fields: errors }, 400);
   if (!touched) return c.json({ error: "No updatable fields provided" }, 400);
 
@@ -2244,6 +2257,14 @@ export async function patchFunnelHandler(c: AdminContext): Promise<Response> {
   )
     .bind(funnelName, status, existing.id)
     .run();
+  if (metaPixelId !== priorPixel) {
+    await c.env.DB.prepare("UPDATE leadgen_funnels SET meta_pixel_id = ? WHERE id = ?")
+      .bind(metaPixelId, existing.id)
+      .run();
+    // The pixel is baked into the cached funnel shell; the content_version bump
+    // is what makes the edit reach visitors (the frame/theme idiom).
+    await bumpActiveVariantContentVersions(c.env.DB, existing.id);
+  }
   const updated = await c.env.DB.prepare("SELECT * FROM leadgen_funnels WHERE id = ? LIMIT 1")
     .bind(existing.id)
     .first<LeadgenFunnelRow>();

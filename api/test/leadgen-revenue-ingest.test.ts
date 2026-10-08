@@ -240,6 +240,14 @@ describe("§25 booking rules — resolveBookingTrigger / decideBooking", () => {
     }
   });
 
+  it("FIX-R1 B1 (owner R1 'Every click'): an in-site CLICK books a CPC offer (stamped 'click'); a CPL/CPA/CPI click books nothing", () => {
+    expect(decideBooking({ offer_type: "cpc", signal: "click", source: "in_site" }))
+      .toMatchObject({ book: true, booking_trigger: "click" });
+    for (const t of ["cpl", "cpa", "cpi"] as const) {
+      expect(decideBooking({ offer_type: t, signal: "click", source: "in_site" }).book).toBe(false);
+    }
+  });
+
   it("isConversionCapped is true only for cap_enabled + cap_count_by='conversions'", () => {
     expect(isConversionCapped({ cap_enabled: 1, cap_count_by: "conversions" })).toBe(true);
     expect(isConversionCapped({ cap_enabled: 1, cap_count_by: "clicks" })).toBe(false);

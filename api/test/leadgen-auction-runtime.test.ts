@@ -101,10 +101,12 @@ const LEADGEN_MIGRATIONS = [
   "0052_leadgen_rework_m9_address_fields.sql",
   "0053_leadgen_rework_m12_othergroup_retirement.sql",
   "0057_leadgen_offer_test_verdict.sql",
+  "0058_leadgen_offer_clickout_meta.sql", // Offer Facebook click event (0058 + 0064 multiplier)
   "0060_leadgen_offer_static_creative.sql", // static-Offer banner creative
   "0061_leadgen_routing_present_only_offer.sql", // Present only this offer (force_offer_id)
   "0062_leadgen_auction_waterfalls.sql", // traffic share + offer waterfalls
   "0063_leadgen_auction_tier_rules.sql", // Tier-level rules (rule_level tier)
+  "0064_leadgen_meta_pixel.sql", // funnel pixel id + click-event value multiplier
 ] as const;
 
 function createLeadgenDb(DatabaseSync: DatabaseSyncCtor): SqliteDb {
@@ -430,6 +432,33 @@ describeDb("leadgen §19 runtime — pipeline branches (mocked providers)", () =
     expect(result.banners.length).toBeGreaterThan(0);
     expect(result.explain.carriers_shown.length).toBeGreaterThan(0);
     expect(result.banners_html).toContain("lg-banner");
+  });
+
+  it("OWNER 2026-10-08: the real engine puts the Offer's Facebook click event on ITS card (pixel, event, value = USD bid x multiplier); other cards stay clean", async () => {
+    const { sdb, env } = harness();
+    const auction = seedAuction(sdb, { multi_offer: "enabled" });
+    const o1 = seedOffer(sdb);
+    const o2 = seedOffer(sdb);
+    attachOffer(sdb, auction.id, o1, 0);
+    attachOffer(sdb, auction.id, o2, 1);
+    sdb
+      .prepare("UPDATE leadgen_offers SET clickout_meta_conversion = 1, clickout_meta_dataset_id = '656145712939950', clickout_meta_event_name = 'Purchase', clickout_meta_value_multiplier = 2 WHERE public_id = ?")
+      .run(o1.offer_public_id);
+    stubFetch((url) => new Response(carrierBody([{ name: url.includes(o1.offer_public_id.slice(-4)) ? "Acme" : "Beta", bid: 12 }]), { status: 200 }));
+
+    const bundle = await loadAuctionBundle(env.DB, auction, 1);
+    const result = await runAuction(env, { resolved: makeResolved(), bundle, environment: "production", binding: NO_BINDING, session_id: null, raw_answers: {}, clicked: [] }, { dryRun: true });
+
+    const cards = [...result.banners_html.matchAll(/<a [^>]*data-offer="([^"]+)"[^>]*>/g)].map((m) => ({ offer: m[1], tag: m[0] }));
+    const c1 = cards.find((c) => c.offer === o1.offer_public_id);
+    const c2 = cards.find((c) => c.offer === o2.offer_public_id);
+    expect(c1).toBeDefined();
+    expect(c2).toBeDefined();
+    expect(c1!.tag).toContain('data-lg-px="656145712939950"');
+    expect(c1!.tag).toContain('data-lg-px-event="Purchase"');
+    expect(c1!.tag).toContain('data-lg-px-value="24"');
+    expect(c1!.tag).toContain('data-lg-px-currency="USD"');
+    expect(c2!.tag).not.toContain("data-lg-px");
   });
 
   it("timeout: a slow provider is dropped, its carriers never surface", async () => {

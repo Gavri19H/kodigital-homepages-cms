@@ -58,6 +58,7 @@ import type { BannerDesign } from "../designs/registry";
 import type { SurfacedCarrierSource } from "../../../leadgen/auction-core";
 import type { LeadgenBannerMode } from "../../../admin/leadgen/db-types";
 import { ulid } from "../../../leadgen/ids";
+import { clickoutMetaCardPixel, type ClickoutMetaOffer } from "../../../leadgen/clickout-meta";
 
 // The dedicated §10.5 / §29 carrier drop reasons banner render can emit.
 export type LeadgenCarrierFilteredReason =
@@ -84,6 +85,14 @@ export interface BannerRenderCarrier {
   // Wins over the render-level `auction.canonical_macros` for this entry;
   // {response:*} stays click-time either way.
   canonical_macros?: Readonly<Record<string, string>>;
+  // 0058/0064 — the card's Offer's click-event settings (the leadgen_offers
+  // row the auction already loaded). When its switch is on with a valid
+  // dataset, the card link carries the browser half of the click event as
+  // data-lg-px* attributes (pixel id, event name, value = this card's USD
+  // `bid` x the Offer's multiplier or its fixed value, currency); the funnel
+  // shell's click handler fires it and shares its event id with the server
+  // half (clickout-meta.ts). Absent/null ⇒ no attributes (byte-identical card).
+  clickout_offer?: Partial<ClickoutMetaOffer> | null;
 }
 
 // Runtime render context (07 §19). `canonical_macros` are the request-derived
@@ -408,7 +417,21 @@ function renderCard(
     `<a class="lg-banner" href="${esc(href)}"` +
     ` data-recommended="${recommended ? "true" : "false"}"` +
     ` data-slot="${entry.slot}" data-carrier-key="${esc(entry.carrier.carrier_key)}"` +
-    ` data-offer="${esc(entry.offer_public_id)}">${parts.join("")}</a>`
+    ` data-offer="${esc(entry.offer_public_id)}"${cardPixelAttrs(entry)}>${parts.join("")}</a>`
+  );
+}
+
+// The browser half of the Offer's click event (owner R2, 2026-10-08), or "".
+// Only rendered for an Offer whose switch is on, so no other card ever carries
+// its bid. Values are digits / a fixed event-name list / a number — escaped
+// anyway.
+export function cardPixelAttrs(entry: Pick<BannerRenderCarrier, "clickout_offer" | "bid">): string {
+  const px = clickoutMetaCardPixel(entry.clickout_offer, entry.bid);
+  if (px === null) return "";
+  return (
+    ` data-lg-px="${esc(px.dataset_id)}" data-lg-px-event="${esc(px.event_name)}"` +
+    (px.value !== null ? ` data-lg-px-value="${esc(String(px.value))}"` : "") +
+    ` data-lg-px-currency="${esc(px.currency)}"`
   );
 }
 

@@ -19,6 +19,13 @@
 //                            payload column + an AES-GCM debug_ref KV blob (absent
 //                            key ⇒ NULL ref — the P10 pattern, no re-implemented
 //                            crypto). A replay is a no-op.
+//   * recordInSiteClickRevenue — OWNER 2026-10-08 R1 ("Every click"): a CPC
+//                            banner click books its USD bid into the SAME
+//                            ledger through the SAME in-site booking batch
+//                            (idempotent per click_id), stamped 'click'.
+//   * claimClickReplaySlot — fix round 1 (review M4): at most
+//                            CLICK_REPLAY_CAP bookings / Meta sends per
+//                            (funnel attempt, offer) per 24 h (KV, lg_s2s:).
 //   * resolveBookingTrigger / decideBooking — the §25 booking-rule helpers.
 //   * isConversionCapped   — §25 conversion-cap predicate.
 //
@@ -44,6 +51,7 @@ import type {
 import { readEnvSecret } from "../env";
 import { incrementCap } from "./caps";
 import { redactPii } from "./redact";
+import { sha256Hex } from "./meta-hash";
 
 // The 0038 leadgen_revenue_raw.source CHECK set. Exported so callers pass a
 // compile-checked literal, never a free string that could violate the CHECK.
@@ -120,8 +128,12 @@ export function resolveBookingTrigger(
 }
 
 // §25 the full booking decision for an arriving signal:
-//   * source='in_site'  → ALWAYS books (immediately, via the deduped in-site
-//     conversion log), stamped 'conversion';
+//   * source='in_site' + a CLICK signal → OWNER 2026-10-08 R1 ("Every click"):
+//     a CPC Offer's banner click books its bid on EVERY click (the funnel's
+//     own /lg/lc click — recordInSiteClickRevenue), stamped 'click';
+//     CPL/CPA/CPI clicks book nothing (their money is a conversion);
+//   * source='in_site' + a conversion → ALWAYS books (immediately, via the
+//     deduped in-site conversion log), stamped 'conversion';
 //   * a CLICK signal     → books ONLY for a click-booked CPC Offer (never
 //     CPL/CPA/CPI, never a conversion-triggered CPC);
 //   * a CONVERSION signal→ books for a conversion-triggered Offer (never a
@@ -131,6 +143,11 @@ export function decideBooking(input: BookingRuleInput): BookingDecision {
     cpc_books_on_click: input.cpc_books_on_click,
   });
   if (input.source === "in_site") {
+    if (input.signal === "click") {
+      return input.offer_type === "cpc"
+        ? { book: true, booking_trigger: "click", reason: "every in-site CPC click books its bid (owner R1)" }
+        : { book: false, booking_trigger: "conversion", reason: "a CPL/CPA/CPI click books nothing (money arrives as a conversion)" };
+    }
     return { book: true, booking_trigger: "conversion", reason: "in_site conversion books immediately (deduped)" };
   }
   if (input.signal === "click") {
@@ -279,26 +296,16 @@ export async function recordInSitePayout(
     typeof revenue === "number" && Number.isFinite(revenue) && revenue >= 0 ? revenue : 0;
   const cur = (typeof currency === "string" ? currency : "").trim() || "USD";
 
-  const results = await db.batch([
-    db
-      .prepare(
-        `INSERT INTO leadgen_revenue_raw
-           (dt, click_id, offer_public_id, source, booking_trigger, conversions, revenue, currency)
-         SELECT ?, ?, ?, 'in_site', 'conversion', 1, ?, ?
-         WHERE NOT EXISTS (SELECT 1 FROM leadgen_conversion_log WHERE click_id = ? AND dedupe_key = ?)`,
-      )
-      .bind(dtUtc, clickId, offer.public_id, value, cur, clickId, dedupeKey),
-    db
-      .prepare(
-        `INSERT OR IGNORE INTO leadgen_conversion_log
-           (click_id, dedupe_key, offer_public_id, source, revenue, currency)
-         VALUES (?, ?, ?, 'in_site', ?, ?)`,
-      )
-      .bind(clickId, dedupeKey, offer.public_id, value, cur),
-  ]);
-
-  const revenueInserted =
-    ((results[0] as { meta?: { changes?: number } } | undefined)?.meta?.changes ?? 0) === 1;
+  const revenueInserted = await bookInSiteRevenue(db, {
+    dt: dtUtc,
+    click_id: clickId,
+    dedupe_key: dedupeKey,
+    offer_public_id: offer.public_id,
+    booking_trigger: "conversion",
+    conversions: 1,
+    revenue: value,
+    currency: cur,
+  });
   if (!revenueInserted) {
     // Already booked (replay) — the batch inserted 0 revenue rows. No cap bump.
     return {
@@ -318,6 +325,168 @@ export async function recordInSitePayout(
     capIncremented = true;
   }
   return { recorded: true, revenue: value, currency: cur, capIncremented, deduped: false };
+}
+
+// The ONE in-site booking write (shared by the conversion booking above and the
+// click booking below): the revenue INSERT…SELECT gated on the
+// (click_id, dedupe_key) conversion-log row NOT yet existing + that log row,
+// in ONE db.batch. true ⇒ a revenue row was newly written; false ⇒ a replay.
+async function bookInSiteRevenue(
+  db: D1Database,
+  row: {
+    dt: string;
+    click_id: string;
+    dedupe_key: string;
+    offer_public_id: string;
+    booking_trigger: BookingTrigger;
+    conversions: number;
+    revenue: number;
+    currency: string;
+  },
+): Promise<boolean> {
+  const results = await db.batch([
+    db
+      .prepare(
+        `INSERT INTO leadgen_revenue_raw
+           (dt, click_id, offer_public_id, source, booking_trigger, conversions, revenue, currency)
+         SELECT ?, ?, ?, 'in_site', ?, ?, ?, ?
+         WHERE NOT EXISTS (SELECT 1 FROM leadgen_conversion_log WHERE click_id = ? AND dedupe_key = ?)`,
+      )
+      .bind(
+        row.dt,
+        row.click_id,
+        row.offer_public_id,
+        row.booking_trigger,
+        row.conversions,
+        row.revenue,
+        row.currency,
+        row.click_id,
+        row.dedupe_key,
+      ),
+    db
+      .prepare(
+        `INSERT OR IGNORE INTO leadgen_conversion_log
+           (click_id, dedupe_key, offer_public_id, source, revenue, currency)
+         VALUES (?, ?, ?, 'in_site', ?, ?)`,
+      )
+      .bind(row.click_id, row.dedupe_key, row.offer_public_id, row.revenue, row.currency),
+  ]);
+  return ((results[0] as { meta?: { changes?: number } } | undefined)?.meta?.changes ?? 0) === 1;
+}
+
+// ---------------------------------------------------------------------------
+// OWNER 2026-10-08 R1 — every CPC banner click books its bid (fix round 1, B1)
+// ---------------------------------------------------------------------------
+
+// The conversion-log dedupe key a click booking is recorded under: one booking
+// per click_id (a click_id is minted fresh for every click, so this only stops
+// the SAME click being booked twice).
+export const IN_SITE_CLICK_DEDUPE_KEY = "lg:click";
+
+export interface InSiteClickRevenueInput {
+  offer_public_id: string;
+  offer_type: string;
+  click_id: string;
+  revenue: number | null; // the USD value the click event books
+  dt: string; // 'YYYY-MM-DD' UTC
+  clean: boolean; // the click event's traffic_quality_flag === 'clean'
+}
+
+export interface InSiteClickRevenueOutcome {
+  recorded: boolean;
+  deduped?: boolean;
+  reason?: string;
+}
+
+// Book one CPC click into leadgen_revenue_raw (source 'in_site',
+// booking_trigger 'click', conversions 0, currency USD) — the same money the
+// click's Athena event carries, so the CMS ledger (→ the D1→CH shipper,
+// revenue-recon.ts) and the dashboard agree. Decided by decideBooking (a
+// CPL/CPA/CPI click books nothing); written by the in-site booking batch
+// (idempotent per click_id); non-clean traffic never books (§29). No cap
+// counter is touched — the click was already counted by /lg/lc.
+export async function recordInSiteClickRevenue(
+  db: D1Database,
+  input: InSiteClickRevenueInput,
+): Promise<InSiteClickRevenueOutcome> {
+  const offerType = input.offer_type as LeadgenOfferType;
+  const decision = decideBooking({ offer_type: offerType, signal: "click", source: "in_site" });
+  if (!decision.book) return { recorded: false, reason: decision.reason };
+  if (input.click_id === "" || input.offer_public_id === "") {
+    return { recorded: false, reason: "no click_id / offer on the click" };
+  }
+  if (!input.clean) return { recorded: false, reason: "non-clean traffic never books revenue (§29)" };
+  const value = input.revenue;
+  if (typeof value !== "number" || !Number.isFinite(value) || value <= 0) {
+    return { recorded: false, reason: "no positive USD bid on the click" };
+  }
+  const inserted = await bookInSiteRevenue(db, {
+    dt: input.dt,
+    click_id: input.click_id,
+    dedupe_key: IN_SITE_CLICK_DEDUPE_KEY,
+    offer_public_id: input.offer_public_id,
+    booking_trigger: decision.booking_trigger,
+    conversions: 0,
+    revenue: value,
+    currency: "USD",
+  });
+  return inserted ? { recorded: true } : { recorded: false, deduped: true, reason: "click already booked" };
+}
+
+// ---------------------------------------------------------------------------
+// Fix round 1 (review M4) — the /lg/lc replay cap
+// ---------------------------------------------------------------------------
+
+// /lg/lc is a public GET that must always 302, so one banner link can be
+// replayed. Every click books (R1) and may send a Facebook event, so a replay
+// is bounded: at most CLICK_REPLAY_CAP clicks per (funnel attempt, offer) per
+// CLICK_REPLAY_WINDOW_SECONDS book revenue / send to Facebook. A click over
+// the cap still 302s and still emits its Athena click event — with revenue 0
+// and booking_trigger 'capped' — and books / sends nothing.
+export const CLICK_REPLAY_CAP = 5;
+export const CLICK_REPLAY_WINDOW_SECONDS = 24 * 3600;
+const CLICK_REPLAY_KEY_PREFIX = "lg_s2s:click_cap:";
+const CLICK_REPLAY_VALUE_RE = /^(\d{1,6}):(\d{9,11})$/;
+
+// The KV key for one (attempt, offer) pair — hashed, so an attacker-sized
+// attempt id can never push the key past KV's length limit.
+export async function clickReplayKey(funnelAttemptId: string, offerPublicId: string): Promise<string> {
+  return `${CLICK_REPLAY_KEY_PREFIX}${await sha256Hex(`${funnelAttemptId}\u0000${offerPublicId}`)}`;
+}
+
+// Claim one of the pair's slots. true ⇒ within the cap (book / send); false ⇒
+// over it. The window starts at the pair's first click and is stored with the
+// count ("<count>:<window end, epoch s>"), so later clicks never extend it.
+// Best-effort KV (the lg_s2s: seen-set idiom): a KV error claims the slot
+// (fail-open — a KV outage never costs a real click its money).
+// NOT ATOMIC (fix round 2, review N1 — accepted residual): KV get + put is a
+// read-then-write with no compare-and-set, so a PARALLEL burst of clicks on one
+// (attempt, offer) can all read the same count and exceed the cap. The cap
+// bounds sequential replays; every booked click must still be a real, clean
+// click of an auction that showed this Offer (click.ts). No lock is added.
+export async function claimClickReplaySlot(
+  kv: KVNamespace,
+  funnelAttemptId: string,
+  offerPublicId: string,
+  nowMs: number,
+): Promise<boolean> {
+  try {
+    const key = await clickReplayKey(funnelAttemptId, offerPublicId);
+    const nowS = Math.floor(nowMs / 1000);
+    let count = 0;
+    let windowEnd = nowS + CLICK_REPLAY_WINDOW_SECONDS;
+    const raw = await kv.get(key);
+    const m = raw === null ? null : CLICK_REPLAY_VALUE_RE.exec(raw);
+    if (m !== null && Number(m[2]) > nowS) {
+      count = Number(m[1]);
+      windowEnd = Number(m[2]);
+    }
+    if (count >= CLICK_REPLAY_CAP) return false;
+    await kv.put(key, `${count + 1}:${windowEnd}`, { expirationTtl: Math.max(60, windowEnd - nowS) });
+    return true;
+  } catch {
+    return true;
+  }
 }
 
 // ---------------------------------------------------------------------------

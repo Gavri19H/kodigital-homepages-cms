@@ -91,7 +91,17 @@ import { funnelChromeCss, FUNNEL_DESIGN_SCOPE_ATTR } from "./designs/default-fun
 // admin preview, quote preview, and persisted content_html render the live
 // shell sections. Pure over (nodes, design) with a pinned en-US locale, so the
 // server-rendered body stays variant-invariant under the cache-key axes.
-import { isNewMapsShape, renderSectionComponents, type LeadgenSectionRenderCtx } from "./components/presets";
+import {
+  collectAnswerKeyClaims,
+  foreignAnswerKeysIn,
+  isNewMapsShape,
+  leadgenAddressAnswerFields,
+  renderSectionComponents,
+  type LeadgenSectionRenderCtx,
+} from "./components/presets";
+import type { LeadgenComponentNode } from "./components/content-schema";
+import { CLICKOUT_META_DATASET_RE } from "../../leadgen/clickout-meta";
+import { metaKeyForFieldName } from "../../leadgen/meta-hash";
 // v2.5 redesign §13.3 composition swap: `frame_config_json` NULL → the
 // byte-pinned legacy shell (renderLegacyShell mirrors the historical inline
 // root construction 1:1); non-NULL → the ONE composition path renderQuoteFrame
@@ -345,6 +355,224 @@ function ga4HeadSnippet(measurementId: string | null): string {
     "function gtag(){dataLayer.push(arguments);}" +
     "gtag('js',new Date());" +
     `gtag('config',${jsStringLiteral(id)});</script>`
+  );
+}
+
+// ---------------------------------------------------------------------------
+// Facebook (Meta) pixel — owner 2026-10-08: "we want to fire the browser side
+// event to facebook, the system should support it in the offer level,
+// including the generated click revenue value ... (with all the data we have on
+// the user including pii if we are collecting it in the funnel)". Ruling R2
+// "Offer + funnel, like [the reference funnel]": funnel level — PageView on
+// load, Lead after the first answer, AddToCart when offers show; offer level —
+// the Offer's event (Purchase by default) on EVERY click (R1), value = the
+// card's bid x multiplier, browser + server sharing ONE event id.
+// ---------------------------------------------------------------------------
+
+// The Meta customer-information keys the browser pixel takes as advanced
+// matching (the pixel normalises + hashes them itself).
+export type LeadgenMetaMatchKey = "em" | "ph" | "fn" | "ln" | "db" | "ct" | "st" | "zp";
+
+export interface LeadgenMetaPixelShell {
+  // The funnel's own pixel (leadgen_funnels.meta_pixel_id, digits) or null.
+  funnel_pixel_id: string | null;
+  // Whether an Offer of THIS funnel's auction has its click event on (fix
+  // round 1, review m3 — funnelOfferClickEventOn; never a global "any
+  // offer" check) — the click handler is emitted for those cards'
+  // data-lg-px* links (banner.ts).
+  click_events: boolean;
+  // internal_field → Meta key, from THIS funnel's component types, so the
+  // shell can hand what the visitor typed to the pixel.
+  fields: Record<string, LeadgenMetaMatchKey>;
+  // This shell's funnel variant (lgn_…): picks the visitor's stored answers
+  // for THIS funnel out of sessionStorage at load (fix round 1, review M3).
+  variant_id?: string;
+}
+
+// The funnel's pixel id when it is a valid Meta dataset id, else null.
+export function funnelMetaPixelId(resolved: ResolvedActivatedFunnel): string | null {
+  const raw = (resolved.funnel as { meta_pixel_id?: unknown }).meta_pixel_id;
+  const id = typeof raw === "string" ? raw.trim() : "";
+  return CLICKOUT_META_DATASET_RE.test(id) ? id : null;
+}
+
+// Whether an Offer of THIS funnel's auction (the variant's auction_id — the
+// shell is cached per variant, and only that auction's cards can appear on it)
+// has its click event switched on with a dataset. Fix round 1 (review m3):
+// never a global "any offer" check — a funnel whose auction has no such Offer
+// (and no pixel of its own) ships no Meta script at all. Cold render only (the
+// shell is cached); fail-closed to "no" on a read error. An Offer switched on
+// AFTER a shell was cached gets its browser half once that shell's cache entry
+// expires (the server half never depends on the shell).
+export async function funnelOfferClickEventOn(db: D1Database, auctionId: number | null | undefined): Promise<boolean> {
+  if (typeof auctionId !== "number" || !Number.isInteger(auctionId) || auctionId <= 0) return false;
+  try {
+    const row = await db
+      .prepare(
+        "SELECT 1 AS on_ FROM leadgen_auction_offers ao JOIN leadgen_offers o ON o.id = ao.offer_id WHERE ao.auction_id = ? AND ao.enabled = 1 AND o.status = 'active' AND o.clickout_meta_conversion = 1 AND o.clickout_meta_dataset_id IS NOT NULL LIMIT 1",
+      )
+      .bind(auctionId)
+      .first<{ on_: number }>();
+    return row !== null;
+  } catch {
+    return false;
+  }
+}
+
+// internal_field → Meta key for every contact field the funnel collects, by
+// component type: Email/Phone/ZIP inputs, the Name group's two parts, the
+// Address's city/state/zip boxes (the SAME rendered key names the answers
+// carry — leadgenAddressAnswerFields with the section's claims), a Date
+// question only when it is a birth date, and free text only on an
+// unmistakable field name (the ONE list in meta-hash.ts, shared with the
+// Athena hashing and the auction's hashed user data).
+export function metaMatchFieldMap(resolved: ResolvedActivatedFunnel): Record<string, LeadgenMetaMatchKey> {
+  const out: Record<string, LeadgenMetaMatchKey> = {};
+  const put = (field: unknown, key: LeadgenMetaMatchKey): void => {
+    if (typeof field !== "string") return;
+    const f = field.trim();
+    if (f !== "" && out[f] === undefined) out[f] = key;
+  };
+  for (const rs of resolved.sections) {
+    const raw = rs.section.content_json;
+    const nodes = typeof raw === "string" && raw !== "" ? parseSectionComponents(raw) : [];
+    if (nodes.length === 0) continue;
+    const claims = collectAnswerKeyClaims(nodes);
+    for (const leaf of flattenComponents(nodes)) {
+      if (leaf === null || typeof leaf !== "object") continue;
+      const field = leaf.internal_field;
+      switch (leaf.type) {
+        case "EmailInputQuestion":
+          put(field, "em");
+          break;
+        case "PhoneInputQuestion":
+          put(field, "ph");
+          break;
+        case "ZIPInputQuestion":
+          put(field, "zp");
+          break;
+        case "DateQuestion":
+          if (/birth|dob/i.test(`${field ?? ""} ${leaf.question_key ?? ""}`)) put(field, "db");
+          break;
+        case "NameFieldsGroup": {
+          const parts = Array.isArray(leaf.props?.["fields"]) ? (leaf.props?.["fields"] as unknown[]) : [];
+          put(typeof parts[0] === "string" && parts[0].trim() !== "" ? parts[0] : "first", "fn");
+          put(typeof parts[1] === "string" && parts[1].trim() !== "" ? parts[1] : "last", "ln");
+          break;
+        }
+        case "AddressAutocompleteQuestion": {
+          const foreign = foreignAnswerKeysIn(claims, leaf);
+          const kinds: ReadonlyArray<[string, LeadgenMetaMatchKey]> = [["city", "ct"], ["state", "st"], ["zip", "zp"]];
+          for (const [kind, key] of kinds) {
+            const probe: LeadgenComponentNode = { ...leaf, props: { ...(leaf.props ?? {}), fields: [{ field: kind }] } };
+            put(leadgenAddressAnswerFields(probe, foreign)[0], key);
+          }
+          break;
+        }
+        case "FreeTextQuestion": {
+          const key = metaKeyForFieldName(field);
+          if (key !== null) put(field, key);
+          break;
+        }
+        default:
+          break;
+      }
+    }
+  }
+  return out;
+}
+
+// The shell script (ES5, inline, emitted ONLY when the funnel has a pixel or an
+// Offer of THIS funnel's auction has its click event on — otherwise the shell
+// is byte-identical to v8 apart from the runtime version). It:
+//   * loads Meta's fbevents.js (the standard loader) and sets
+//     dataProcessingOptions [] before any init;
+//   * funnel pixel: init with {external_id: ko_sid} + the contact details this
+//     visitor already gave THIS funnel (fix round 1, review M3: a reload mid-
+//     funnel — the runtime's sessionStorage snapshot `lg:<attempt>` whose tuple
+//     names this variant; no hardcoded country, review m8), PageView on
+//     load, Lead once after the visitor's first answer, AddToCart once when the
+//     offer cards are first on screen — learned from the runtime's single beacon
+//     path through window.__lgOnEvent (events.ts). Each event has its own id.
+//     MEASURED LIMITATION (fbevents.js 2.9.415, 2026-10-08): Meta's pixel takes
+//     user data only at a pixel's FIRST init — neither a second
+//     fbq('init', samePixel, userData) nor fbq('set','userData',…) adds em/ph
+//     to later hits. So contact details typed AFTER load never reach the
+//     funnel pixel's browser hits; they ride the server half of the click
+//     event (clickout-meta.ts, hashed, same event id) — which is also how the
+//     reference funnel sends contact data;
+//   * normalisation (review m1/m2 — the SAME rules as meta-hash.ts): every
+//     value capped to 254 chars before any regex; names → lowercase letters
+//     only, Unicode letters kept (a `\p{L}` RegExp built at run time inside
+//     try/catch — an engine without the `u` flag keeps the cased letters);
+//     city → a-z only; phone → digits, leading zeros / "00" stripped, a
+//     10-digit number gets the leading 1; ZIP (fix round 2, review N7) → the
+//     first 5 of its digits only, fewer than 5 digits → omitted;
+//   * offer click (click + middle-click auxclick, EVERY click — R1): on an
+//     <a data-lg-px> card (banner.ts) it mints 'lgc_' + 20 random letters/digits,
+//     appends it to the /lg/lc link as `eid` BEFORE the browser navigates (the
+//     server sends its half with this same id — clickout-meta.ts), inits the
+//     Offer's pixel if not yet inited — with what the visitor typed (advanced
+//     matching from `fields`; Meta's pixel only takes user data on init, so a
+//     pixel already inited on load (the funnel's own) keeps its init data and
+//     the hashed contact details ride the server half, which shares the event
+//     id) — and fires trackSingle(pixel, event, {value, currency}, {eventID}).
+// Answers are collected from the beacons (answer_click/answer_change) and from
+// the runtime's sessionStorage snapshot (`lg:<attempt>`) when quote_complete
+// fires — the runtime clears that snapshot right after.
+export function metaPixelShellScript(cfg: LeadgenMetaPixelShell): string {
+  if (cfg.funnel_pixel_id === null && !cfg.click_events) return "";
+  const json = JSON.stringify({ p: cfg.funnel_pixel_id ?? "", f: cfg.fields, v: cfg.variant_id ?? "" }).replace(/</g, "\\u003c");
+  return (
+    "<script>(function(w,d){var C=" + json + ";" +
+    "if(w.__lgPx){return;}w.__lgPx=1;" +
+    "!function(f,b,e,v,n,t,s){if(f.fbq)return;n=f.fbq=function(){n.callMethod?n.callMethod.apply(n,arguments):n.queue.push(arguments)};" +
+    "if(!f._fbq)f._fbq=n;n.push=n;n.loaded=!0;n.version='2.0';n.queue=[];t=b.createElement(e);t.async=!0;t.src=v;" +
+    "s=b.getElementsByTagName(e)[0];s.parentNode.insertBefore(t,s)}(w,d,'script','https://connect.facebook.net/en_US/fbevents.js');" +
+    "var I={},A={},M={},H=Object.prototype.hasOwnProperty;" +
+    "function rid(){var a='ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789',s='',i,r=null;" +
+    "try{r=w.crypto.getRandomValues(new Uint8Array(20));}catch(x){}" +
+    "for(i=0;i<20;i++){s+=a.charAt((r?r[i]:Math.floor(Math.random()*256))%62);}return s;}" +
+    "function sid(){var m=d.cookie.match(/(?:^|;\\s*)ko_sid=([^;]*)/);if(!m){return '';}try{return decodeURIComponent(m[1]);}catch(x){return m[1];}}" +
+    "function base(){var u={},s=sid();if(s){u.external_id=s;}return u;}" +
+    "function user(){var u=base(),k;for(k in A){if(H.call(A,k)){u[k]=A[k];}}return u;}" +
+    "function init(p,u){if(I[p]){return;}I[p]=1;w.fbq('init',p,u);}" +
+    "function ev(p,n,c,id){try{w.fbq('trackSingle',p,n,c,{eventID:id});}catch(x){}}" +
+    "function once(k){if(M[k]){return false;}M[k]=1;try{if(w.sessionStorage.getItem(k)){return false;}w.sessionStorage.setItem(k,'1');}catch(x){}return true;}" +
+    "var LR=null;try{LR=new RegExp('[^\\\\p{L}]','gu');}catch(x){}" +
+    "function letters(v){v=v.toLowerCase();if(LR){return v.replace(LR,'');}var o='',i,c;" +
+    "for(i=0;i<v.length;i++){c=v.charAt(i);if(c.toUpperCase()!==c){o+=c;}}return o;}" +
+    "function norm(k,v){v=String(v==null?'':v).slice(0,254).replace(/^\\s+|\\s+$/g,'');if(!v){return '';}" +
+    "if(k==='em'){return v.indexOf('@')>0?v.toLowerCase():'';}" +
+    "if(k==='ph'){v=v.replace(/\\D/g,'').replace(/^0+/,'');if(v.length===10){v='1'+v;}return v.length>=7?v:'';}" +
+    "if(k==='db'){v=v.replace(/\\D/g,'');if(v.length===8&&+v.slice(0,4)<1900){v=v.slice(4)+v.slice(0,4);}return v.length===8?v:'';}" +
+    "if(k==='zp'){v=v.replace(/\\D/g,'');return v.length>=5?v.slice(0,5):'';}" +
+    "if(k==='st'){v=v.toLowerCase().replace(/[^a-z]/g,'');return v.length===2?v:'';}" +
+    "if(k==='ct'){return v.toLowerCase().replace(/[^a-z]/g,'');}" +
+    "return letters(v);}" +
+    "function take(f,v){var k=H.call(C.f,f)?C.f[f]:'';if(!k){return;}v=norm(k,v);if(v){A[k]=v;}}" +
+    "function fromSnap(o){var a=o&&o.answers,f;if(a){for(f in a){if(H.call(a,f)&&a[f]){take(f,a[f].value);}}}}" +
+    "function fromStore(att){try{fromSnap(JSON.parse(w.sessionStorage.getItem('lg:'+att)||'null'));}catch(x){}}" +
+    "function scan(){var s=w.sessionStorage,n=s.length,i,k,o,b=null,bt=-1;for(i=0;i<n;i++){k=s.key(i);" +
+    "if(!k||k.indexOf('lg:')!==0){continue;}try{o=JSON.parse(s.getItem(k)||'null');}catch(x){o=null;}" +
+    "if(!o||!o.answers||!o.tuple||(C.v&&o.tuple.funnel_variant_id!==C.v)){continue;}" +
+    "if((+o.saved_at||0)>bt){bt=+o.saved_at||0;b=o;}}return b;}" +
+    "try{fromSnap(scan());}catch(x){}" +
+    "try{w.fbq('dataProcessingOptions',[]);if(C.p){init(C.p,user());ev(C.p,'PageView',{},'lgp_'+rid());}}catch(x){}" +
+    "w.__lgOnEvent=function(e){var t=e&&e.event_type,att=(e&&e.funnel_attempt_id)||'';" +
+    "if(t==='answer_click'||t==='answer_change'){if(e.internal_field){take(e.internal_field,e.answer_value_normalized);}" +
+    "if(C.p&&once('lgpx:lead:'+att)){ev(C.p,'Lead',{},'lgl_'+rid());}}" +
+    "if(t==='quote_complete'){fromStore(att);if(C.p&&d.querySelector('a.lg-banner')&&once('lgpx:cart:'+att)){ev(C.p,'AddToCart',{},'lga_'+rid());}}};" +
+    "function click(e){if(e.type==='auxclick'&&e.button!==1){return;}" +
+    "var a=e.target&&e.target.closest?e.target.closest('a[data-lg-px]'):null;if(!a){return;}" +
+    "var p=a.getAttribute('data-lg-px')||'';if(!/^[0-9]{5,20}$/.test(p)){return;}" +
+    "var id='lgc_'+rid(),h=(a.getAttribute('href')||'').replace(/([?&])eid=[^&#]*&?/g,'$1').replace(/[?&]$/,'');" +
+    "a.setAttribute('href',h+(h.indexOf('?')<0?'?':'&')+'eid='+id);" +
+    "try{if(!I[p]){init(p,user());}" +
+    "var c={currency:a.getAttribute('data-lg-px-currency')||'USD'},v=parseFloat(a.getAttribute('data-lg-px-value')||'');" +
+    "if(v>0&&isFinite(v)){c.value=v;}ev(p,a.getAttribute('data-lg-px-event')||'Purchase',c,id);}catch(x){}}" +
+    "d.addEventListener('click',click,true);d.addEventListener('auxclick',click,true);" +
+    "})(window,document);</script>"
   );
 }
 
@@ -835,6 +1063,10 @@ function renderFunnelShell(
   // function stays synchronous (no DB access of its own), mirroring how
   // themeRecord is already a pre-resolved plain param.
   savedTemplateDefaults: EffectiveFrameConfig | null = null,
+  // 2026-10-08 Facebook events: the Meta pixel / click-event shell script
+  // config (pre-resolved by the caller — this function stays synchronous).
+  // null ⇒ nothing emitted (the pre-v9 bytes apart from the runtime version).
+  metaPixel: LeadgenMetaPixelShell | null = null,
 ): string {
   const funnelId = toFunnelId(resolved.funnel.public_id);
   const funnelVariantId = toFunnelVariantId(resolved.variant.public_id);
@@ -911,6 +1143,7 @@ function renderFunnelShell(
     // §28 GA4: the site's measurement id is baked into this per-site-cached shell
     // (absent id ⇒ nothing). Non-destructive: it never resets an existing dataLayer.
     ga4HeadSnippet(resolved.ga4_measurement_id) +
+    (metaPixel !== null ? metaPixelShellScript(metaPixel) : "") +
     `<style>${chromeCss}</style>` +
     MAPS_KEY_SENTINEL +
     "</head>" +
@@ -1066,7 +1299,18 @@ export async function serveFunnelShell(
     // shell's cache key — permanent coverage in leadgen-rework-handlers.
     // test.ts's "cache coherence" tests.
     const savedTemplateDefaults = await resolveSavedFrameTemplateDefaultsFor(c.env.DB, resolved);
-    pristine = renderFunnelShell(resolved, design, answerMapVersions, themeRecord, savedTemplateDefaults);
+    // 2026-10-08 Facebook events — cold path only, like every other read here:
+    // the funnel's own pixel (a pixel edit bumps content_version → new key) and
+    // whether an Offer of THIS funnel's auction has its click event on (one
+    // LIMIT 1 read — fix round 1, review m3).
+    const metaPixel: LeadgenMetaPixelShell = {
+      funnel_pixel_id: funnelMetaPixelId(resolved),
+      click_events: await funnelOfferClickEventOn(c.env.DB, resolved.variant.auction_id),
+      fields: {},
+      variant_id: resolved.variant.public_id,
+    };
+    if (metaPixel.funnel_pixel_id !== null || metaPixel.click_events) metaPixel.fields = metaMatchFieldMap(resolved);
+    pristine = renderFunnelShell(resolved, design, answerMapVersions, themeRecord, savedTemplateDefaults, metaPixel);
     const ttl = parseNumber(c.env.HTML_CACHE_TTL_SECONDS, DEFAULT_TTL_SECONDS);
     // Write-through stores the PRISTINE shell (visitor-invariant: no Maps key,
     // no per-session assignment dims — only the sentinels).
