@@ -2063,7 +2063,9 @@ function withExtraRule(css: string, rule: string): string {
   return at < 0 ? `${css}\n${rule}` : `${css.slice(0, at)}\n${rule}${css.slice(at)}`;
 }
 
-describe("R2 P8 M2/R3 sweep — the predicate itself fails on a dead, a MIS-TARGETED and a HIDDEN key", () => {
+// 30 s: each leg renders and sweeps a whole page; under the full-suite CPU load one leg
+// took >5 s (gate 259206c4, 2026-10-18) while it runs in <1 s alone.
+describe("R2 P8 M2/R3 sweep — the predicate itself fails on a dead, a MIS-TARGETED and a HIDDEN key", { timeout: 30_000 }, () => {
   it("(a) a synthetic key no renderer reads is reported DEAD, while the real keys stay alive", () => {
     const synthetic: KeySpec = { group: "card_defaults", key: "card_defaults.halo_depth", values: ["sharp", "pill"] };
     expect(deadUnderVisiblePaint([synthetic], paintedForInlineKey)).toEqual(["card_defaults.halo_depth"]);
