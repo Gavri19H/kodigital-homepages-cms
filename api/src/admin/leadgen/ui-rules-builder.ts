@@ -1944,6 +1944,17 @@ export const RULES_BUILDER_SCRIPT = `(function () {
 
   function renderRowEl(state, row) {
     var wrap = el('div', 'lg-rb-row');
+    // Confirmation N1: a Custom-field name kept after a refusal becomes the
+    // row's field as soon as it is no longer refused (e.g. the other share row
+    // was removed) — never a box that shows a name the rule does not hold.
+    if (row.field === '' && typeof row.customText === 'string') {
+      var kept = trimStr(row.customText);
+      if (kept !== '' && !(isShareField(state, kept) && fieldTakenByOther(state, kept, row))) {
+        row.field = kept;
+        row.customText = undefined;
+        if (isShareField(state, kept)) { row.op = 'eq'; row.vtype = 'number'; if (!finiteNum(row.value)) { row.value = SHARE_DEFAULT; } }
+      }
+    }
 
     var fieldSel = el('select', 'form-select lg-rb-field');
     fieldSel.setAttribute('aria-label', 'Field');
@@ -2003,7 +2014,8 @@ export const RULES_BUILDER_SCRIPT = `(function () {
       if (on) {
         customInput.setAttribute('aria-invalid', 'true');
         customInput.title = SHARE_TWICE_TEXT;
-        if (customHint.parentNode !== wrap) { wrap.appendChild(customHint); }
+        // Confirmation N2: directly under the box, not after the row's other controls.
+        if (customHint.parentNode !== wrap) { wrap.insertBefore(customHint, customInput.nextSibling); }
       } else {
         customInput.removeAttribute('aria-invalid');
         customInput.title = '';

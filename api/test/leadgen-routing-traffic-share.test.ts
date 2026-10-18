@@ -543,6 +543,20 @@ class FakeNode {
     n.parentNode = null;
     return n;
   }
+  get nextSibling(): FakeNode | null {
+    const p = this.parentNode;
+    if (!p) return null;
+    return p.children[p.children.indexOf(this) + 1] ?? null;
+  }
+  // DOM insertBefore: a null/absent ref appends (as the real DOM does).
+  insertBefore(n: FakeNode, ref: FakeNode | null | undefined): FakeNode {
+    if (n.parentNode) n.parentNode.removeChild(n);
+    const i = ref ? this.children.indexOf(ref) : -1;
+    n.parentNode = this;
+    if (i < 0) this.children.push(n);
+    else this.children.splice(i, 0, n);
+    return n;
+  }
   setAttribute(k: string, v: unknown): void {
     this.attrs[k] = String(v);
   }
@@ -847,6 +861,36 @@ describe("Share of traffic — review 1 fixes", () => {
     expect(hintOf()).toBeNull();
     expect(customAfter.getAttribute("aria-invalid")).toBeNull();
     expect((JSON.parse(out()) as { groups: Array<{ field: string }> }).groups.map((g) => g.field)).toEqual(["traffic_share", "my_field"]);
+  });
+
+  it("confirmation N1 + N2: the hint sits right under the box; once the other share row is removed the kept name becomes the row's field", () => {
+    const { root, mount, out } = bootRail(railData([]));
+    const newBtn = root.appendChild(new FakeNode("div", { "data-qr-new": "" }));
+    click(root, newBtn);
+    const add = (): void => mount.all().find((x) => x.tagName === "BUTTON" && x.textContent === "+ Add condition")!.fire("click");
+    add();
+    const firstSel = mount.byClass("lg-rb-field")[0]!;
+    firstSel.value = "traffic_share";
+    firstSel.fire("change");
+    add();
+    const secondSel = mount.byClass("lg-rb-field")[1]!;
+    secondSel.value = "__lgcustom__";
+    secondSel.fire("change");
+    const custom = mount.byClass("lg-rb-field-custom").find((c) => !c.hasAttribute("hidden"))!;
+    custom.value = "traffic_share";
+    custom.fire("input");
+    const hint = mount.querySelector("[data-lg-rb-custom-hint]")!;
+    // N2: directly after the box, before the row's operator/value/remove controls
+    const row = custom.parentNode!;
+    expect(row.children.indexOf(hint)).toBe(row.children.indexOf(custom) + 1);
+    custom.fire("change");
+    // N1: remove the first (real) share row — the kept "traffic_share" is no longer refused
+    const removes = mount.all().filter((x) => x.tagName === "BUTTON" && x.getAttribute("aria-label") === "Remove condition");
+    removes[0]!.fire("click");
+    expect(mount.querySelector("[data-lg-rb-custom-hint]"), "no refusal any more").toBeNull();
+    const groups = shareGroups(out());
+    expect(groups, "the kept name is now the rule's share condition").toHaveLength(1);
+    expect(mount.byClass("lg-rb-share").length, "the row shows the % box, not an empty custom box").toBe(1);
   });
 
   it("MINOR-2: the % box allows what the server allows (> 0, 2 decimals, ≤ 100): min 0.01, step 0.01, max 100", () => {
