@@ -1220,6 +1220,9 @@ export const RULES_BUILDER_SCRIPT = `(function () {
   // second; the sentence reads "10% of traffic".
   var SHARE_DEFAULT = 10;
   var SHARE_TWICE_TEXT = 'Share of traffic is already a condition of this rule.';
+  // Review 1 (MINOR-3): shares are sticky slices taken in rule order, so
+  // moving a percentage, the order or a switch re-deals some visitors.
+  var SHARE_HELP_TEXT = 'Changing a share rule\\'s percentage, order or on/off switch can move returning visitors between the share funnels.';
   function shareInputOf(meta) { return !!(meta && meta.input === 'share'); }
   function isShareField(state, field) { return field !== '' && shareInputOf(fieldMetaOf(state, field)); }
   function fieldTakenByOther(state, field, row) {
@@ -1659,7 +1662,8 @@ export const RULES_BUILDER_SCRIPT = `(function () {
     if (!finiteNum(row.value)) { row.value = SHARE_DEFAULT; }
     var pct = el('input', 'form-input lg-rb-value lg-rb-share');
     pct.type = 'number';
-    pct.setAttribute('min', '1');
+    // the server's range: > 0, at most 2 decimals, at most 100
+    pct.setAttribute('min', '0.01');
     pct.setAttribute('max', '100');
     pct.setAttribute('step', '0.01');
     pct.setAttribute('aria-label', '% of traffic');
@@ -1985,19 +1989,38 @@ export const RULES_BUILDER_SCRIPT = `(function () {
     var customInput = el('input', 'form-input lg-rb-field-custom');
     customInput.type = 'text';
     customInput.setAttribute('aria-label', 'Custom field name');
-    customInput.value = '';
+    // a refused name stays in the box (row.customText) across re-renders
+    customInput.value = row.field === '' && typeof row.customText === 'string' ? row.customText : '';
     if (row.field !== '') { customInput.setAttribute('hidden', 'hidden'); }
+    // Review 1 (MINOR-1): the refusal is a visible line under the box, not
+    // only a tooltip; it is added/removed in place while typing.
+    var customHint = el('div', 'form-error lg-rb-custom-hint');
+    customHint.setAttribute('data-lg-rb-custom-hint', '');
+    customHint.setAttribute('role', 'alert');
+    customHint.textContent = SHARE_TWICE_TEXT;
+    function customRefused(typed) { return isShareField(state, typed) && fieldTakenByOther(state, typed, row); }
+    function markCustomRefused(on) {
+      if (on) {
+        customInput.setAttribute('aria-invalid', 'true');
+        customInput.title = SHARE_TWICE_TEXT;
+        if (customHint.parentNode !== wrap) { wrap.appendChild(customHint); }
+      } else {
+        customInput.removeAttribute('aria-invalid');
+        customInput.title = '';
+        if (customHint.parentNode === wrap) { wrap.removeChild(customHint); }
+      }
+    }
     customInput.addEventListener('input', function () {
       var typed = trimStr(customInput.value);
       // the Custom field path cannot add a second share of traffic either
-      if (isShareField(state, typed) && fieldTakenByOther(state, typed, row)) {
+      if (customRefused(typed)) {
         row.field = '';
-        customInput.setAttribute('aria-invalid', 'true');
-        customInput.title = SHARE_TWICE_TEXT;
+        row.customText = customInput.value;
+        markCustomRefused(true);
       } else {
         row.field = typed;
-        customInput.removeAttribute('aria-invalid');
-        customInput.title = '';
+        row.customText = undefined;
+        markCustomRefused(false);
         if (isShareField(state, typed)) { row.op = 'eq'; row.vtype = 'number'; if (!finiteNum(row.value)) { row.value = SHARE_DEFAULT; } }
       }
       writeOut(state);
@@ -2016,6 +2039,7 @@ export const RULES_BUILDER_SCRIPT = `(function () {
         return;
       }
       row.field = fieldSel.value;
+      row.customText = undefined;
       // a share of traffic: one percentage, no operator
       if (isShareField(state, row.field)) {
         row.op = 'eq';
@@ -2074,6 +2098,15 @@ export const RULES_BUILDER_SCRIPT = `(function () {
       writeOut(state);
     });
     wrap.appendChild(removeBtn);
+
+    if (row.field === '' && typeof row.customText === 'string' && customRefused(trimStr(row.customText))) { markCustomRefused(true); }
+    // Review 1 (MINOR-3): ONE line under the share box (a rule holds one share).
+    if (shareRow) {
+      var shareHelp = el('div', 'form-help lg-rb-share-help');
+      shareHelp.setAttribute('data-lg-rb-share-help', '');
+      shareHelp.textContent = SHARE_HELP_TEXT;
+      wrap.appendChild(shareHelp);
+    }
 
     return wrap;
   }
@@ -3000,6 +3033,7 @@ const QUOTE_RULES_STYLES = `<style>
 .lg-qr-adesc{font-size:11px;color:#5e6b82;margin:2px 0 7px;line-height:1.4}
 .lg-qr-errmsg{display:flex;gap:6px;align-items:center;color:#b23a2c;font-size:12px;font-weight:600;margin:2px 0 12px}
 .lg-qr-error{margin:0 0 12px;white-space:pre-line}
+.lg-qr-card-err{margin:8px 0 0;font-weight:600;white-space:pre-line}
 .lg-qr-slug{color:#1b3a5c;font-weight:600}
 .lg-qr-sentence{font-size:12px;color:#374966;background:#f7f9fb;border-radius:8px;padding:10px 12px;line-height:1.5}
 .lg-qr-sentlab{font-size:9.5px;font-weight:800;letter-spacing:.4px;text-transform:uppercase;color:#8894a8;display:block;margin-bottom:4px}
@@ -3087,6 +3121,7 @@ export const QUOTE_RULES_SCRIPT = `(function () {
   var listEl = document.getElementById('lg-qr-list');
   var cardsEl = qs(listEl, '[data-qr-cards]');
   var editingPublicId = null;   // null when creating
+  var cardErr = null;           // { pub, msg }: a refused card action's reason
   var mountedConditions = null; // window.lgRulesBuilder mount handle
   var targetMode = 'offer';
 
@@ -3341,6 +3376,12 @@ export const QUOTE_RULES_SCRIPT = `(function () {
     var sw = el('span', 'lg-qr-swi' + (disabled ? '' : ' on')); sw.setAttribute('role', 'switch'); sw.setAttribute('tabindex', '0'); sw.setAttribute('aria-checked', disabled ? 'false' : 'true'); sw.setAttribute('aria-label', 'Enabled'); sw.setAttribute('data-qr-toggle', ''); sw.appendChild(el('span', 'lg-qr-knob')); tw.appendChild(sw); foot.appendChild(tw);
     var del = el('span', 'lg-qr-act del'); del.setAttribute('role', 'button'); del.setAttribute('tabindex', '0'); del.setAttribute('data-qr-delete', ''); del.setAttribute('aria-label', 'Delete rule'); txt(del, '\\u2716'); foot.appendChild(del);
     card.appendChild(foot);
+    // Review 1 (MAJOR-1): a refused card action reads on THIS card, right
+    // under the switch the operator clicked (never the boot render).
+    if (cardErr && cardErr.pub === rule.public_id) {
+      var ce = el('div', 'form-error lg-qr-card-err'); ce.setAttribute('data-qr-card-error', ''); ce.setAttribute('role', 'alert'); txt(ce, cardErr.msg);
+      card.appendChild(ce);
+    }
     return card;
   }
   function fieldBlock(label, chips, joinWord, isAct) {
@@ -3371,6 +3412,12 @@ export const QUOTE_RULES_SCRIPT = `(function () {
     sortRules();
     var i;
     for (i = 0; i < rules.length; i++) { cardsEl.appendChild(buildCard(rules[i])); }
+    if (cardErr) { intoView(qs(cardsEl, '[data-qr-card-error]')); }
+  }
+  // Keep a message the operator must read on screen (the rail list scrolls
+  // on its own, the page scrolls too); 'nearest' never moves a visible one.
+  function intoView(node) {
+    if (node && node.scrollIntoView) { try { node.scrollIntoView({ block: 'nearest' }); } catch (e) { /* best-effort */ } }
   }
 
   // ---- API ------------------------------------------------------------------
@@ -3546,7 +3593,7 @@ export const QUOTE_RULES_SCRIPT = `(function () {
       .then(function (res) {
         if (res.status === 404 && editingPublicId) { showErr(RULE_GONE_TEXT); refetch(); return; }
         if (!res.ok) { showErr(errorText(res.body) || ('Save failed (' + res.status + ').')); return; }
-        showRailErr(''); closeModal(); refetch();
+        cardErr = null; showRailErr(''); closeModal(); refetch();
       }, function () { showErr('Network error saving the rule.'); });
   }
   // OWNER 2026-09-27 (Ido): the API answers {error:"Validation failed",
@@ -3568,20 +3615,25 @@ export const QUOTE_RULES_SCRIPT = `(function () {
   }
   // Card actions report a refusal on the rail (they used to drop it: a failed
   // on/off switch simply stayed where it was, with no reason given).
-  function showRailErr(msg) { var e = qs(root, '[data-qr-rail-error]'); if (e) { if (msg) { txt(e, msg); e.hidden = false; } else { e.hidden = true; } } }
-  function cardAction(url, init, verb) {
+  // Review 1 (MAJOR-1): the rail line sat at the top of a scrolled list, out
+  // of view of the switch the operator clicked — a refusal now reads on that
+  // rule's card; the rail line is kept for a rule that no longer exists.
+  function showRailErr(msg) { var e = qs(root, '[data-qr-rail-error]'); if (e) { if (msg) { txt(e, msg); e.hidden = false; intoView(e); } else { e.hidden = true; } } }
+  function showCardErr(pub, msg) { cardErr = { pub: pub, msg: msg }; renderList(); }
+  function cardAction(pub, url, init, verb) {
     showRailErr('');
+    if (cardErr) { cardErr = null; renderList(); }
     fetch(url, init)
       .then(function (r) { return r.json().then(function (j) { return { ok: r.ok, status: r.status, body: j }; }, function () { return { ok: r.ok, status: r.status, body: null }; }); })
       .then(function (res) {
         if (res.status === 404) { showRailErr(RULE_GONE_TEXT); }
-        else if (!res.ok) { showRailErr(errorText(res.body) || ('Could not ' + verb + ' the rule (' + res.status + ').')); }
+        else if (!res.ok) { showCardErr(pub, errorText(res.body) || ('Could not ' + verb + ' the rule (' + res.status + ').')); }
         refetch();
-      }, function () { showRailErr('Network error \\u2014 could not ' + verb + ' the rule.'); });
+      }, function () { showCardErr(pub, 'Network error \\u2014 could not ' + verb + ' the rule.'); });
   }
-  function duplicateRule(pub) { cardAction(API + '/routing-rules/' + encodeURIComponent(pub) + '/duplicate', { method: 'POST' }, 'duplicate'); }
-  function deleteRule(pub) { if (!window.confirm('Delete this rule?')) { return; } cardAction(API + '/routing-rules/' + encodeURIComponent(pub), { method: 'DELETE' }, 'delete'); }
-  function toggleRule(rule) { var next = rule.status === 'disabled' ? 'active' : 'disabled'; cardAction(API + '/routing-rules/' + encodeURIComponent(rule.public_id), { method: 'PATCH', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ status: next }) }, next === 'active' ? 'turn on' : 'turn off'); }
+  function duplicateRule(pub) { cardAction(pub, API + '/routing-rules/' + encodeURIComponent(pub) + '/duplicate', { method: 'POST' }, 'duplicate'); }
+  function deleteRule(pub) { if (!window.confirm('Delete this rule?')) { return; } cardAction(pub, API + '/routing-rules/' + encodeURIComponent(pub), { method: 'DELETE' }, 'delete'); }
+  function toggleRule(rule) { var next = rule.status === 'disabled' ? 'active' : 'disabled'; cardAction(rule.public_id, API + '/routing-rules/' + encodeURIComponent(rule.public_id), { method: 'PATCH', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ status: next }) }, next === 'active' ? 'turn on' : 'turn off'); }
 
   // ---- events ---------------------------------------------------------------
   function closestAttr(node, attr) { var n = node; while (n && n !== root) { if (n.getAttribute && n.getAttribute(attr) !== null && n.hasAttribute && n.hasAttribute(attr)) { return n; } n = n.parentNode; } return null; }

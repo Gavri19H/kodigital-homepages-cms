@@ -604,11 +604,17 @@ const RAIL_BLOB_RE = /<script id="lg-qr-data" type="application\/json">([^]*?)<\
 
 // Boots the REAL rail island (with the REAL condition builder mounted into its
 // modal) over the rail's REAL SSR data blob.
-function bootRail(data: QuoteRulesRailData): { root: FakeNode; modal: FakeNode; sentence: () => string; out: () => string; mount: FakeNode } {
+type FetchStub = (url: string, init?: { method?: string; body?: string }) => Promise<unknown>;
+function bootRail(
+  data: QuoteRulesRailData,
+  fetchImpl: FetchStub = () => Promise.reject(new Error("no network in this test")),
+): { root: FakeNode; modal: FakeNode; sentence: () => string; out: () => string; mount: FakeNode } {
   const blob = (renderQuoteRulesRail(data).match(RAIL_BLOB_RE) ?? [])[1] ?? "";
   const n = (tag: string, attrs: Record<string, string> = {}, cls = ""): FakeNode => new FakeNode(tag, attrs, cls);
   const root = n("div", { id: "lg-qr-rail" });
   const list = root.appendChild(n("div", { id: "lg-qr-list" }));
+  const railErr = list.appendChild(n("p", { "data-qr-rail-error": "", role: "alert" }));
+  railErr.hidden = true;
   list.appendChild(n("div", { "data-qr-cards": "" }));
   const modal = root.appendChild(n("div", { id: "lg-qr-modal" }));
   modal.appendChild(n("h3", { id: "lg-qr-modal-title" }));
@@ -636,7 +642,7 @@ function bootRail(data: QuoteRulesRailData): { root: FakeNode; modal: FakeNode; 
     },
     createEvent: (): typeof fakeEvent => fakeEvent,
   };
-  const ctx = createContext({ window: {}, document, fetch: () => Promise.reject(new Error("no network in this test")) });
+  const ctx = createContext({ window: {}, document, fetch: fetchImpl });
   runInContext(RULES_BUILDER_SCRIPT, ctx);
   runInContext(QUOTE_RULES_SCRIPT, ctx);
   return { root, modal, sentence: () => sentence.textContent, out: () => out.value, mount };
@@ -669,7 +675,7 @@ describe("Share of traffic — the admin editor", () => {
     expect(shareRow).toBeDefined();
     const box = shareRow.byClass("lg-rb-share")[0]!;
     expect([box.type, box.value, box.getAttribute("min"), box.getAttribute("max"), box.getAttribute("step"), box.getAttribute("aria-label")]).toEqual([
-      "number", "10", "1", "100", "0.01", "% of traffic",
+      "number", "10", "0.01", "100", "0.01", "% of traffic",
     ]);
     expect(shareRow.byClass("lg-rb-op"), "no operator choice").toHaveLength(0);
     expect(shareRow.byClass("lg-rb-share-unit")[0]!.textContent).toBe("% of traffic");
@@ -717,6 +723,146 @@ describe("Share of traffic — the admin editor", () => {
     expect(custom.title).toBe("Share of traffic is already a condition of this rule.");
     custom.fire("change");
     expect(shareGroups(out())).toHaveLength(1);
+  });
+});
+
+// ===========================================================================
+// 5b — review 1 (FIX-FIRST) findings
+// ===========================================================================
+
+const SHARE_HELP_TEXT = "Changing a share rule's percentage, order or on/off switch can move returning visitors between the share funnels.";
+const REFUSED_107 = "Shares of traffic add up to 107% — at most 100%";
+const SHARE_97_OFF: QuoteRulesRailRule = {
+  ...SHARE_RULE,
+  public_id: "lgqr_share97",
+  rule_name: "97% (off)",
+  priority: 2,
+  status: "disabled",
+  conditions_json: { groups: [share(97)] },
+};
+const ticks = async (): Promise<void> => {
+  for (let i = 0; i < 6; i++) await new Promise((r) => setTimeout(r, 0));
+};
+const jsonResponse = (status: number, body: unknown): Promise<unknown> =>
+  Promise.resolve({ ok: status >= 200 && status < 300, status, json: () => Promise.resolve(body) });
+function cardOf(root: FakeNode, pub: string): FakeNode {
+  return root.querySelectorAll("[data-qr-card]").find((c) => c.getAttribute("data-rule-public-id") === pub)!;
+}
+function openShareModal(rule: QuoteRulesRailRule): { root: FakeNode; mount: FakeNode } {
+  const booted = bootRail(railData([rule]));
+  click(booted.root, booted.root.querySelector("[data-qr-edit]")!);
+  return booted;
+}
+
+describe("Share of traffic — review 1 fixes", () => {
+  it("MAJOR-1: a refused switch-on / duplicate puts the server's reason ON that rule's card (the switch stays off); the next accepted action clears it", async () => {
+    const calls: string[] = [];
+    let rules: QuoteRulesRailRule[] = [SHARE_RULE, SHARE_97_OFF];
+    const refused = { error: "Validation failed", fields: { traffic_share: REFUSED_107 } };
+    const fetchImpl: FetchStub = (url, init) => {
+      const method = init?.method ?? "GET";
+      calls.push(method + " " + url);
+      if (method === "GET") return jsonResponse(200, { items: rules });
+      if (method === "PATCH" && url.endsWith("/lgqr_share97")) return jsonResponse(400, refused);
+      if (method === "POST" && url.endsWith("/lgqr_share/duplicate")) return jsonResponse(400, { error: "Validation failed", fields: { traffic_share: "Shares of traffic add up to 20% — at most 100%" } });
+      if (method === "PATCH" && url.endsWith("/lgqr_share")) {
+        rules = [{ ...SHARE_RULE, status: "disabled" }, SHARE_97_OFF];
+        return jsonResponse(200, rules[0]);
+      }
+      return jsonResponse(500, null);
+    };
+    const { root } = bootRail(railData([SHARE_RULE, SHARE_97_OFF]), fetchImpl);
+    const railErr = root.querySelector("[data-qr-rail-error]")!;
+    expect(cardOf(root, "lgqr_share97").querySelector("[data-qr-card-error]"), "no error before any action").toBeNull();
+
+    // switch on the 97% rule → the server refuses (10% + 97% = 107%)
+    click(root, cardOf(root, "lgqr_share97").querySelector("[data-qr-toggle]")!);
+    await ticks();
+    expect(calls).toContain("PATCH /api/admin/leadgen/routing-rules/lgqr_share97");
+    const offCard = cardOf(root, "lgqr_share97");
+    const err = offCard.querySelector("[data-qr-card-error]");
+    expect(err, "the reason sits on the clicked rule's card").not.toBeNull();
+    expect(err!.textContent).toBe(REFUSED_107);
+    expect(err!.getAttribute("role")).toBe("alert");
+    expect(offCard.querySelector("[data-qr-toggle]")!.getAttribute("aria-checked"), "the switch snaps back off").toBe("false");
+    expect(cardOf(root, "lgqr_share").querySelector("[data-qr-card-error]"), "only that card").toBeNull();
+    expect(railErr.hidden, "not parked at the top of the rail").toBe(true);
+    // the card's error is the last thing on the card (right under the switch row)
+    expect(offCard.children[offCard.children.length - 1]!.hasAttribute("data-qr-card-error")).toBe(true);
+
+    // duplicate the 10% rule → refused: the reason moves to THAT card
+    click(root, cardOf(root, "lgqr_share").querySelector("[data-qr-duplicate]")!);
+    await ticks();
+    expect(cardOf(root, "lgqr_share").querySelector("[data-qr-card-error]")!.textContent).toBe("Shares of traffic add up to 20% — at most 100%");
+    expect(cardOf(root, "lgqr_share97").querySelector("[data-qr-card-error]")).toBeNull();
+
+    // an accepted action (switch the 10% rule off) clears the card error
+    click(root, cardOf(root, "lgqr_share").querySelector("[data-qr-toggle]")!);
+    await ticks();
+    expect(root.querySelectorAll("[data-qr-card-error]")).toHaveLength(0);
+    expect(cardOf(root, "lgqr_share").querySelector("[data-qr-toggle]")!.getAttribute("aria-checked")).toBe("false");
+  });
+
+  it("MAJOR-1: a network failure on a card action also lands on that card", async () => {
+    const { root } = bootRail(railData([SHARE_RULE, SHARE_97_OFF]), () => Promise.reject(new Error("offline")));
+    click(root, cardOf(root, "lgqr_share97").querySelector("[data-qr-toggle]")!);
+    await ticks();
+    expect(cardOf(root, "lgqr_share97").querySelector("[data-qr-card-error]")!.textContent).toBe("Network error — could not turn on the rule.");
+  });
+
+  it("MINOR-1: the Custom field path refusing a second share shows a plain hint under the input and keeps the typed text", () => {
+    const { root, mount, out } = bootRail(railData([]));
+    const newBtn = root.appendChild(new FakeNode("div", { "data-qr-new": "" }));
+    click(root, newBtn);
+    const add = (): void => mount.all().find((x) => x.tagName === "BUTTON" && x.textContent === "+ Add condition")!.fire("click");
+    add();
+    const firstSel = mount.byClass("lg-rb-field")[0]!;
+    firstSel.value = "traffic_share";
+    firstSel.fire("change");
+    add();
+    const secondSel = mount.byClass("lg-rb-field")[1]!;
+    secondSel.value = "__lgcustom__";
+    secondSel.fire("change");
+    const custom = mount.byClass("lg-rb-field-custom").find((c) => !c.hasAttribute("hidden"))!;
+    custom.value = "traffic_share";
+    custom.fire("input");
+    const hintOf = (): FakeNode | null => mount.querySelector("[data-lg-rb-custom-hint]");
+    expect(hintOf(), "a visible hint, not only a tooltip").not.toBeNull();
+    expect(hintOf()!.textContent).toBe("Share of traffic is already a condition of this rule.");
+    expect(hintOf()!.hidden).toBe(false);
+    expect(hintOf()!.className.split(" ")).toContain("form-error");
+    // the hint sits in the custom input's own row, after the input
+    const row = custom.parentNode!;
+    expect(row.children.indexOf(hintOf()!)).toBeGreaterThan(row.children.indexOf(custom));
+    // leaving the box (change → the builder re-renders) keeps the typed text and the hint
+    custom.fire("change");
+    const customAfter = mount.byClass("lg-rb-field-custom").find((c) => !c.hasAttribute("hidden"))!;
+    expect(customAfter.value, "the typed text is not erased").toBe("traffic_share");
+    expect(customAfter.getAttribute("aria-invalid")).toBe("true");
+    expect(hintOf()!.textContent).toBe("Share of traffic is already a condition of this rule.");
+    expect(shareGroups(out())).toHaveLength(1);
+    // typing an allowed field clears the hint and stores it
+    customAfter.value = "my_field";
+    customAfter.fire("input");
+    expect(hintOf()).toBeNull();
+    expect(customAfter.getAttribute("aria-invalid")).toBeNull();
+    expect((JSON.parse(out()) as { groups: Array<{ field: string }> }).groups.map((g) => g.field)).toEqual(["traffic_share", "my_field"]);
+  });
+
+  it("MINOR-2: the % box allows what the server allows (> 0, 2 decimals, ≤ 100): min 0.01, step 0.01, max 100", () => {
+    const { mount } = openShareModal(SHARE_RULE);
+    const box = mount.byClass("lg-rb-share")[0]!;
+    expect([box.getAttribute("min"), box.getAttribute("step"), box.getAttribute("max")]).toEqual(["0.01", "0.01", "100"]);
+  });
+
+  it("MINOR-3: ONE help line about returning visitors shows while Share of traffic is in use, and not otherwise", () => {
+    const { mount } = openShareModal(SHARE_RULE);
+    const help = mount.querySelectorAll("[data-lg-rb-share-help]");
+    expect(help).toHaveLength(1);
+    expect(help[0]!.textContent).toBe(SHARE_HELP_TEXT);
+    expect(help[0]!.className.split(" ")).toContain("form-help");
+    const utmOnly = openShareModal({ ...SHARE_RULE, conditions_json: { groups: [{ field: "utm_source", op: "eq", value: "fb" }] } });
+    expect(utmOnly.mount.querySelectorAll("[data-lg-rb-share-help]")).toHaveLength(0);
   });
 });
 
