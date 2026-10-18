@@ -197,7 +197,10 @@ async function serveLeadgenAttemptV2(c: PublicContext): Promise<Response> {
   // target_funnel_id === resolved.funnel.id` would always be false for a null
   // target_funnel_id and silently drop this winner's feed_name/multiplier).
   try {
-    const match = evaluateQuoteEntryRouting(await loadQuoteRoutingRules(c.env.DB, resolved.quote.id), entryCtx);
+    const match = evaluateQuoteEntryRouting(await loadQuoteRoutingRules(c.env.DB, resolved.quote.id), entryCtx, {
+      quote_public_id: resolved.quote.public_id,
+      session_id: sessionId,
+    });
     if (match !== null && entryMatchImpliesFunnel(match, resolved.funnel.id, resolved.quote.default_funnel_id)) {
       await recordRoutingOutcome(c.env.DB, {
         funnel_attempt_id: attempt.funnel_attempt_id,
@@ -476,6 +479,7 @@ async function serveLeadgenCheckpoint(c: PublicContext): Promise<Response> {
     await loadQuoteRoutingRules(db, current.quote.id),
     entryCtx,
     answers,
+    { quote_public_id: current.quote.public_id, session_id: sessionId },
   );
   // S6.2: QuoteRoutingMatch.target_funnel_id widened to `number | null` (the
   // ENTRY evaluator now returns action-only winners too) — but
