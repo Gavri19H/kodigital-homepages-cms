@@ -106,7 +106,9 @@ export interface LeadgenEvent {
   funnel_variant_id: string;
   funnel_ab_test_id: string;
   funnel_ab_test_revision: number;
-  assignment_bucket: string;
+  // The §16.2 A/B bucket (0..9999) as a number; null when there is no A/B
+  // bucket (Athena `assignment_bucket int` — a string there is bad data).
+  assignment_bucket: number | null;
   assignment_reason: string;
   // LeadGen Rework M10/D3: the quote-scoped routing rule's stamped dims for
   // this attempt — routed_to_funnel (the funnel a routing rule served; may
@@ -250,7 +252,7 @@ export interface LeadgenSessionRecord {
   funnel_variant_id: string;
   funnel_ab_test_id: string;
   funnel_attempt_id: string;
-  assignment_bucket: string;
+  assignment_bucket: number | null; // null = no A/B bucket (Athena int column)
   assignment_reason: string;
   traffic_source: string;
   utm_source: string;
@@ -386,7 +388,7 @@ export function blankLeadgenEvent(eventType: string, now: number): LeadgenEvent 
     funnel_variant_id: "",
     funnel_ab_test_id: "",
     funnel_ab_test_revision: 0,
-    assignment_bucket: "",
+    assignment_bucket: null,
     assignment_reason: "",
     feed_name: "",
     routed_to_funnel: "",
@@ -544,6 +546,14 @@ function asNumberOrNull(v: unknown): number | null {
   return typeof v === "number" && Number.isFinite(v) ? v : null;
 }
 
+// The A/B bucket the client echoes (a digit string such as "1234", or a
+// number). Stored as an integer 0..9999 because the Athena column is an int;
+// absent / "" / anything else ⇒ null ("no bucket"), never a string.
+function asBucketOrNull(v: unknown): number | null {
+  const n = typeof v === "number" ? v : typeof v === "string" && /^[0-9]{1,4}$/.test(v) ? Number(v) : NaN;
+  return Number.isInteger(n) && n >= 0 && n <= 9999 ? n : null;
+}
+
 function asBool(v: unknown): boolean {
   return v === true;
 }
@@ -600,7 +610,7 @@ export function leadgenEventFromPayload(
   e.funnel_ab_test_id = asString(payload["funnel_ab_test_id"]);
   const abRev = asNumberOrNull(payload["funnel_ab_test_revision"]);
   e.funnel_ab_test_revision = abRev === null ? 0 : abRev;
-  e.assignment_bucket = asString(payload["assignment_bucket"]);
+  e.assignment_bucket = asBucketOrNull(payload["assignment_bucket"]);
   e.assignment_reason = asString(payload["assignment_reason"]);
   e.funnel_attempt_id = asString(payload["funnel_attempt_id"]);
   e.section_order_hash = asString(payload["section_order_hash"]);

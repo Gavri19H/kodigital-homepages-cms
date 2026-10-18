@@ -75,7 +75,14 @@ import { sha256Hex } from "../../public/leadgen/auction/parse";
 // never diverge from the runtime's own partition). We build the field universes
 // from the SAME component expander the runtime uses; the derivation itself is
 // never re-implemented here.
-import { deriveRuleCheckpoint, isEntryPlane, type RuleCheckpointFunnel } from "../../leadgen/rule-checkpoint";
+import {
+  deriveRuleCheckpoint,
+  isEntryPlane,
+  isValidTrafficSharePct,
+  routingSharePct,
+  TRAFFIC_SHARE_ROUTING_FIELD,
+  type RuleCheckpointFunnel,
+} from "../../leadgen/rule-checkpoint";
 import { offerHasOwnClickUrl } from "../../leadgen/macros";
 import {
   rebuildDerivedIndexes,
@@ -307,6 +314,13 @@ const CONDITION_OPS_V2: ReadonlySet<string> = new Set([
   "not_in",
 ]);
 
+// Share of traffic (OWNER 2026-10-18): one condition entry
+// {"field":"traffic_share","op":"eq","value":<pct>} — a percentage above 0 and
+// at most 100 with up to 2 decimals, at most ONE per rule.
+const TRAFFIC_SHARE_VALUE_MESSAGE =
+  "Share of traffic must be a percentage above 0 and at most 100, with up to 2 decimals.";
+const TRAFFIC_SHARE_TWICE_MESSAGE = "A rule can have only one Share of traffic condition.";
+
 // Mirrors leadgen/funnel.ts's private validateRuleConditions (same §21.4
 // shape check); duplicated locally because that function is not exported and
 // its file is outside this slice. Returns a plain-language error, or null
@@ -316,6 +330,7 @@ function validateRoutingConditionsShape(value: unknown): string | null {
   if (typeof value !== "object" || Array.isArray(value)) return "conditions_json must be an object { groups: [...] }";
   const groups = (value as { groups?: unknown }).groups;
   if (!Array.isArray(groups)) return "conditions_json.groups must be an array";
+  let shareSeen = false;
   for (let i = 0; i < groups.length; i++) {
     const g = groups[i];
     if (typeof g !== "object" || g === null || Array.isArray(g)) return `conditions_json.groups[${i}] must be an object`;
@@ -333,8 +348,34 @@ function validateRoutingConditionsShape(value: unknown): string | null {
     if ((op === "in" || op === "not_in") && !Array.isArray(group["values"])) {
       return `conditions_json.groups[${i}] ${op} op requires a values array`;
     }
+    if (group["field"] === TRAFFIC_SHARE_ROUTING_FIELD) {
+      if (shareSeen) return TRAFFIC_SHARE_TWICE_MESSAGE;
+      shareSeen = true;
+      if (op !== "eq" || !isValidTrafficSharePct(group["value"])) return TRAFFIC_SHARE_VALUE_MESSAGE;
+    }
   }
   return null;
+}
+
+// The share of traffic (basis points) the quote's OTHER active routing rules
+// already take — every active share rule owns a slice of one bucket space
+// (resolver.ts routingShareOwner), so together they can cover at most 100%.
+async function activeShareBpOfOtherRules(db: D1Database, quoteId: number, excludeRuleId: number | null): Promise<number> {
+  const res = await db
+    .prepare("SELECT id, conditions_json FROM leadgen_quote_routing_rules WHERE quote_id = ? AND status = 'active'")
+    .bind(quoteId)
+    .all<{ id: number; conditions_json: string }>();
+  let bp = 0;
+  for (const r of res.results ?? []) {
+    if (r.id === excludeRuleId) continue;
+    const pct = routingSharePct(safeParseJson(r.conditions_json));
+    if (pct !== null) bp += Math.round(pct * 100);
+  }
+  return bp;
+}
+
+function describeShareTotal(totalBp: number): string {
+  return `Shares of traffic add up to ${totalBp / 100}% — at most 100%`;
 }
 
 // §10/S5.1: three route_funnel_variant-era local mirrors were removed here
@@ -883,6 +924,18 @@ async function buildRoutingRuleFields(
     }
   }
 
+  // Share of traffic (2026-10-18): the quote's ACTIVE shares add up to at
+  // most 100%. Checked on every save that leaves this rule active with a share
+  // — create, edit, and the rail's on/off switch (a status-only PATCH) — and
+  // never for a disabled rule: disabling a rule frees its share.
+  if (errors["conditions_json"] === undefined && errors["status"] === undefined && status === "active") {
+    const ownShare = routingSharePct(safeParseJson(conditionsJson));
+    if (ownShare !== null) {
+      const totalBp = Math.round(ownShare * 100) + (await activeShareBpOfOtherRules(db, quote.id, existing?.id ?? null));
+      if (totalBp > 10000) errors["traffic_share"] = describeShareTotal(totalBp);
+    }
+  }
+
   // --- actions (each optional; ≥1 required, §4.3-9) -------------------------
   // target_funnel_id accepts EITHER a numeric id or a funnel public id (lgf_…),
   // the 03 §8.1 dual-id convention; it must belong to THIS quote.
@@ -1015,7 +1068,7 @@ async function buildRoutingRuleFields(
     !isEntryPlane(routingConditionFields(safeParseJson(conditionsJson)))
   ) {
     errors["force_offer_id"] =
-      "Present only this offer needs entry conditions (UTM, device, state, OS, hour, weekday). With answer conditions, also pick a Target funnel.";
+      "Present only this offer needs entry conditions (UTM, device, state, OS, hour, weekday, share of traffic). With answer conditions, also pick a Target funnel.";
   }
   // Present only keeps the visitor IN the funnel; a redirect on the same rule
   // sends a share of the same visitors away (the entry redirect runs first), so
@@ -1146,6 +1199,14 @@ export async function updateQuoteRoutingRuleHandler(c: AdminContext): Promise<Re
 export async function duplicateQuoteRoutingRuleHandler(c: AdminContext): Promise<Response> {
   const src = await resolveQuoteRoutingRuleRow(c.env.DB, c.req.param("rule_id") ?? c.req.param("id") ?? "");
   if (src === null) return c.json({ error: "Not Found" }, 404);
+  // Share of traffic (2026-10-18): an active copy takes ANOTHER slice of the
+  // quote's traffic, so it must still fit the 100% (the copy keeps the
+  // source's status — duplicating a disabled rule always fits).
+  const srcShare = src.status === "active" ? routingSharePct(safeParseJson(src.conditions_json)) : null;
+  if (srcShare !== null) {
+    const totalBp = Math.round(srcShare * 100) + (await activeShareBpOfOtherRules(c.env.DB, src.quote_id, null));
+    if (totalBp > 10000) return c.json({ error: "Validation failed", fields: { traffic_share: describeShareTotal(totalBp) } }, 400);
+  }
   const publicId = mintPublicId("quote_routing_rule");
   const name = src.rule_name.length > 73 ? `${src.rule_name.slice(0, 73)} (copy)` : `${src.rule_name} (copy)`;
   await c.env.DB.prepare(

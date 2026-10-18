@@ -2,8 +2,8 @@
 //
 // A quote-scoped routing rule (leadgen_quote_routing_rules) evaluates at a
 // PLANE that is DERIVED from its condition fields, never authored:
-//   (a) EVERY condition field is entry-known (utm/device/os/state/hour/weekday)
-//       → ENTRY plane, evaluated at /lg/attempt.
+//   (a) EVERY condition field is entry-known (utm/device/os/state/hour/weekday/
+//       share of traffic) → ENTRY plane, evaluated at /lg/attempt.
 //   (b) every ANSWER field (the non-entry-known condition fields) is collected
 //       by the quote's SHARED first page → SHARED checkpoint, evaluated at the
 //       existing /lg/ck after the shared page.
@@ -31,6 +31,13 @@
 // the ONLY entry-known field registry in the leadgen namespace.
 export const OS_ROUTING_FIELD = "os";
 
+// OWNER 2026-10-18 ("support using share of traffic as a condition to decide
+// which funnel to run … 10% of all traffic runs a different funnel"): the
+// visitor's place in the quote's traffic. Known from the visitor's session the
+// moment they arrive, so a share-only rule stays an ENTRY rule. Stored as ONE
+// condition entry {"field":"traffic_share","op":"eq","value":<pct>}.
+export const TRAFFIC_SHARE_ROUTING_FIELD = "traffic_share";
+
 export const ENTRY_KNOWN_ROUTING_FIELDS: ReadonlySet<string> = new Set([
   "state",
   "device",
@@ -43,7 +50,32 @@ export const ENTRY_KNOWN_ROUTING_FIELDS: ReadonlySet<string> = new Set([
   "hour",
   "weekday",
   OS_ROUTING_FIELD, // M10
+  TRAFFIC_SHARE_ROUTING_FIELD,
 ]);
+
+// A share of traffic the rule editor may store: a percentage above 0 and at
+// most 100, with at most 2 decimals (0.01% = one bucket of 10,000).
+export function isValidTrafficSharePct(v: unknown): v is number {
+  if (typeof v !== "number" || !Number.isFinite(v) || v <= 0 || v > 100) return false;
+  return Math.abs(v * 100 - Math.round(v * 100)) < 1e-9;
+}
+
+// The share (percent) a rule's conditions claim — the value of its first
+// traffic_share entry — or null when it has none, or the stored value is not a
+// usable share (that rule then owns no slice, so its share condition never
+// matches). PURE; shared by the runtime evaluator and the admin save gate.
+export function routingSharePct(conditions: unknown): number | null {
+  if (typeof conditions !== "object" || conditions === null) return null;
+  const groups = (conditions as { groups?: unknown }).groups;
+  if (!Array.isArray(groups)) return null;
+  for (const g of groups) {
+    if (g !== null && typeof g === "object" && (g as { field?: unknown }).field === TRAFFIC_SHARE_ROUTING_FIELD) {
+      const v = (g as { value?: unknown }).value;
+      return isValidTrafficSharePct(v) ? v : null;
+    }
+  }
+  return null;
+}
 
 export type RuleCheckpointPlane = "entry" | "shared" | "in_funnel";
 

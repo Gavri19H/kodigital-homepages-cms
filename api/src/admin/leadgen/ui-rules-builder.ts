@@ -1212,6 +1212,23 @@ export const RULES_BUILDER_SCRIPT = `(function () {
     return meta && (meta.input === 'date' || meta.input === 'time') ? meta.input : '';
   }
 
+  // ---- share of traffic (OWNER 2026-10-18: "using share of traffic as a
+  // condition to decide which funnel to run"). A field whose meta says input
+  // 'share' is ONE percentage: no operator, a single "% of traffic" number box
+  // (1-100, 2 decimals), stored {field, op:'eq', value:<pct>}. A rule holds at
+  // most one, so its option, the Custom field path and "+ or" never add a
+  // second; the sentence reads "10% of traffic".
+  var SHARE_DEFAULT = 10;
+  var SHARE_TWICE_TEXT = 'Share of traffic is already a condition of this rule.';
+  function shareInputOf(meta) { return !!(meta && meta.input === 'share'); }
+  function isShareField(state, field) { return field !== '' && shareInputOf(fieldMetaOf(state, field)); }
+  function fieldTakenByOther(state, field, row) {
+    var i;
+    for (i = 0; i < state.rows.length; i++) { if (state.rows[i] !== row && state.rows[i].field === field) { return true; } }
+    return false;
+  }
+  function shareText(v) { return String(finiteNum(v) ? v : 0) + '% of traffic'; }
+
   // ---- parse (stored conditions text/object -> ui rows) --------------------
 
   function entryKeysSupported(g, kind) {
@@ -1351,7 +1368,7 @@ export const RULES_BUILDER_SCRIPT = `(function () {
     return spaced.charAt(0).toUpperCase() + spaced.slice(1);
   }
   function makeValueOf(fieldsArg) {
-    return function (field, v) {
+    var valueOf = function (field, v) {
       var raw = (v === undefined || v === null) ? '' : String(v);
       var i, j, choices, clock;
       for (i = 0; i < fieldsArg.length; i++) {
@@ -1367,6 +1384,13 @@ export const RULES_BUILDER_SCRIPT = `(function () {
       }
       return raw;
     };
+    // Is this field a share of traffic? (rowSentence reads it as "10% of traffic".)
+    valueOf.isShare = function (field) {
+      var i;
+      for (i = 0; i < fieldsArg.length; i++) { if (fieldsArg[i].internal_field === field) { return shareInputOf(fieldsArg[i]); } }
+      return false;
+    };
+    return valueOf;
   }
   // A yes/no answer's own label ("I own" / "I rent") when the resolver finds
   // one for "true" / "false" (neither the bare token nor its humanized form);
@@ -1400,6 +1424,7 @@ export const RULES_BUILDER_SCRIPT = `(function () {
   }
   function fmtRangeEnd(n, field, valueOf) { return valueOf && field !== undefined ? valueOf(field, n) : String(n); }
   function rowSentence(row, labelOf, valueOf) {
+    if (valueOf && valueOf.isShare && row.field !== '' && valueOf.isShare(row.field)) { return shareText(row.value); }
     var label = row.field === '' ? '(choose a field)' : labelOf(row.field);
     var f = row.field;
     if (row.op === 'eq') { return label + ' is ' + fmtValue(row.value, f, valueOf); }
@@ -1627,8 +1652,32 @@ export const RULES_BUILDER_SCRIPT = `(function () {
     }
   }
 
+  // The share of traffic's one box: "[ 10 ] % of traffic".
+  function renderShareControl(state, row, zone) {
+    row.op = 'eq';
+    row.vtype = 'number';
+    if (!finiteNum(row.value)) { row.value = SHARE_DEFAULT; }
+    var pct = el('input', 'form-input lg-rb-value lg-rb-share');
+    pct.type = 'number';
+    pct.setAttribute('min', '1');
+    pct.setAttribute('max', '100');
+    pct.setAttribute('step', '0.01');
+    pct.setAttribute('aria-label', '% of traffic');
+    pct.value = String(row.value);
+    pct.addEventListener('input', function () {
+      var v = parseFloat(pct.value);
+      row.value = isFinite(v) ? v : 0;
+      writeOut(state);
+    });
+    var unit = el('span', 'lg-rb-joiner lg-rb-share-unit');
+    unit.textContent = '% of traffic';
+    zone.appendChild(pct);
+    zone.appendChild(unit);
+  }
+
   function renderValueControls(state, row, zone) {
     clearNode(zone);
+    if (isShareField(state, row.field)) { renderShareControl(state, row, zone); return; }
     var kind = opKind(row.op);
     if (kind === 'none') { return; }
     var clock = clockInputOf(fieldMetaOf(state, row.field));
@@ -1895,11 +1944,14 @@ export const RULES_BUILDER_SCRIPT = `(function () {
     var fieldSel = el('select', 'form-select lg-rb-field');
     fieldSel.setAttribute('aria-label', 'Field');
     var i;
+    var shareRow = isShareField(state, row.field);
     // OWNER 2026-10-01: the funnel's questions and the visitor facts, grouped
     // when the field list says which is which (rule-fields.ts).
     var groupEls = {};
     var groupLabels = { question: 'Funnel questions', visitor: 'Visitor info' };
     for (i = 0; i < state.fields.length; i++) {
+      // a share of traffic another row already uses is not offered twice
+      if (shareInputOf(state.fields[i]) && fieldTakenByOther(state, state.fields[i].internal_field, row)) { continue; }
       var opt = el('option');
       opt.value = state.fields[i].internal_field;
       opt.textContent = state.fields[i].label;
@@ -1936,7 +1988,18 @@ export const RULES_BUILDER_SCRIPT = `(function () {
     customInput.value = '';
     if (row.field !== '') { customInput.setAttribute('hidden', 'hidden'); }
     customInput.addEventListener('input', function () {
-      row.field = trimStr(customInput.value);
+      var typed = trimStr(customInput.value);
+      // the Custom field path cannot add a second share of traffic either
+      if (isShareField(state, typed) && fieldTakenByOther(state, typed, row)) {
+        row.field = '';
+        customInput.setAttribute('aria-invalid', 'true');
+        customInput.title = SHARE_TWICE_TEXT;
+      } else {
+        row.field = typed;
+        customInput.removeAttribute('aria-invalid');
+        customInput.title = '';
+        if (isShareField(state, typed)) { row.op = 'eq'; row.vtype = 'number'; if (!finiteNum(row.value)) { row.value = SHARE_DEFAULT; } }
+      }
       writeOut(state);
     });
     customInput.addEventListener('change', function () {
@@ -1953,6 +2016,16 @@ export const RULES_BUILDER_SCRIPT = `(function () {
         return;
       }
       row.field = fieldSel.value;
+      // a share of traffic: one percentage, no operator
+      if (isShareField(state, row.field)) {
+        row.op = 'eq';
+        row.vtype = 'number';
+        row.vtypeTouched = false;
+        row.value = SHARE_DEFAULT;
+        renderCardBody(state);
+        writeOut(state);
+        return;
+      }
       // a new field: start its value afresh (its answers, when it has some)
       row.value = opKind(row.op) === 'number' ? 0 : '';
       row.vtype = opKind(row.op) === 'number' ? 'number' : undefined;
@@ -1967,21 +2040,24 @@ export const RULES_BUILDER_SCRIPT = `(function () {
     wrap.appendChild(fieldSel);
     wrap.appendChild(customInput);
 
-    var opSel = el('select', 'form-select lg-rb-op');
-    opSel.setAttribute('aria-label', 'Condition');
-    for (i = 0; i < OP_META.length; i++) {
-      var opOpt = el('option');
-      opOpt.value = OP_META[i].ui;
-      opOpt.textContent = OP_META[i].label;
-      if (OP_META[i].ui === row.op) { opOpt.selected = true; }
-      opSel.appendChild(opOpt);
+    // a share of traffic has no operator choice (it is one percentage)
+    if (!shareRow) {
+      var opSel = el('select', 'form-select lg-rb-op');
+      opSel.setAttribute('aria-label', 'Condition');
+      for (i = 0; i < OP_META.length; i++) {
+        var opOpt = el('option');
+        opOpt.value = OP_META[i].ui;
+        opOpt.textContent = OP_META[i].label;
+        if (OP_META[i].ui === row.op) { opOpt.selected = true; }
+        opSel.appendChild(opOpt);
+      }
+      opSel.addEventListener('change', function () {
+        convertRowToOp(row, opSel.value);
+        renderCardBody(state);
+        writeOut(state);
+      });
+      wrap.appendChild(opSel);
     }
-    opSel.addEventListener('change', function () {
-      convertRowToOp(row, opSel.value);
-      renderCardBody(state);
-      writeOut(state);
-    });
-    wrap.appendChild(opSel);
 
     var zone = el('span', 'lg-rb-val');
     renderValueZone(state, row, zone);
@@ -2005,8 +2081,12 @@ export const RULES_BUILDER_SCRIPT = `(function () {
   function newRow(field) {
     return { field: field, op: 'eq', vtype: 'text', value: '' };
   }
+  // "+ Add condition" starts on the first field that is not a share of
+  // traffic (that one is picked on purpose, and only once).
   function defaultField(state) {
-    return state.fields.length > 0 ? state.fields[0].internal_field : '';
+    var i;
+    for (i = 0; i < state.fields.length; i++) { if (!shareInputOf(state.fields[i])) { return state.fields[i].internal_field; } }
+    return '';
   }
 
   function renderCardBody(state) {
@@ -2041,6 +2121,8 @@ export const RULES_BUILDER_SCRIPT = `(function () {
           clusterEl.appendChild(renderRowEl(state, clusters[i].rows[j]));
         }
         (function (clusterField) {
+          // one share of traffic per rule: no "+ or" beside it
+          if (isShareField(state, clusterField)) { return; }
           var actions = el('div', 'lg-rb-clusteractions');
           var orBtn = el('button', 'btn btn-sm btn-outline');
           orBtn.type = 'button';
@@ -2310,6 +2392,7 @@ export const RULES_BUILDER_SCRIPT = `(function () {
 import {
   deriveRuleCheckpoint,
   ENTRY_KNOWN_ROUTING_FIELDS,
+  TRAFFIC_SHARE_ROUTING_FIELD,
   type RuleCheckpoint,
   type RuleCheckpointFunnel,
 } from "../../leadgen/rule-checkpoint";
@@ -2351,6 +2434,9 @@ export interface QuoteRulesRailAnswerField {
   // ADJ-N8 — the question's authored choice labels, so a condition on a
   // choice/enum field reads "is Excellent", never "is excellent_rvw7q3".
   choices?: RulesBuilderFieldChoice[];
+  // 2026-10-18 — "share": the field is one percentage of traffic (the mounted
+  // condition builder shows a single "% of traffic" box, no operator).
+  input?: "share";
 }
 
 // A rule row in the API shape (quoteRoutingRuleRowToApi): conditions_json is a
@@ -2400,6 +2486,9 @@ export const QR_ENTRY_FIELD_OPTIONS: ReadonlyArray<QuoteRulesRailAnswerField> = 
   { internal_field: "state", label: "State" },
   { internal_field: "hour", label: "Hour" },
   { internal_field: "weekday", label: "Weekday" },
+  // OWNER 2026-10-18: "using share of traffic as a condition to decide which
+  // funnel to run" — e.g. 10% of all traffic runs a different funnel.
+  { internal_field: TRAFFIC_SHARE_ROUTING_FIELD, label: "Share of traffic", input: "share" },
 ];
 
 // Defensive: prove QR_ENTRY_FIELD_OPTIONS ⊆ the shared entry-known set (so the
@@ -2525,9 +2614,15 @@ function qrValueText(g: Record<string, unknown>, field: string, data: QuoteRules
   return resolveChoiceValueText(choices, v as RulesBuilderPrimitive);
 }
 
+// A share-of traffic condition reads as its share: "10% of traffic".
+function qrShareChip(value: unknown): string {
+  return String(value ?? "") + "% of traffic";
+}
+
 // Condition summary chips (pack rule-field · Conditions). Each group -> one
 // chip "<Field> <op> <value>"; joined by the rule's match word (all -> "and",
-// any -> "or"). Empty conditions -> "Always".
+// any -> "or"). Empty conditions -> "Always". A share of traffic -> "10% of
+// traffic" (no operator — it is one percentage).
 function qrConditionChips(rule: QuoteRulesRailRule, data: QuoteRulesRailData): string[] {
   const conditions = rule.conditions_json;
   if (typeof conditions !== "object" || conditions === null) return ["Always"];
@@ -2538,6 +2633,10 @@ function qrConditionChips(rule: QuoteRulesRailRule, data: QuoteRulesRailData): s
     if (raw === null || typeof raw !== "object") continue;
     const g = raw as Record<string, unknown>;
     const field = typeof g["field"] === "string" ? (g["field"] as string) : "";
+    if (field === TRAFFIC_SHARE_ROUTING_FIELD) {
+      chips.push(qrShareChip(g["value"]));
+      continue;
+    }
     const op = typeof g["op"] === "string" ? (g["op"] as string) : "eq";
     const word = QR_OP_WORDS[op] ?? op;
     chips.push(qrFieldLabel(field, data) + " " + word + " " + qrValueText(g, field, data));
@@ -2997,7 +3096,7 @@ export const QUOTE_RULES_SCRIPT = `(function () {
   function qsa(r, s) { return r ? r.querySelectorAll(s) : []; }
   function el(tag, cls) { var n = document.createElement(tag); if (cls) { n.className = cls; } return n; }
   function txt(node, t) { node.textContent = t == null ? '' : String(t); return node; }
-  function ENTRY_KNOWN() { return ['state','device','utm_source','utm_medium','utm_content','utm_campaign','hour','weekday','os']; }
+  function ENTRY_KNOWN() { return ['state','device','utm_source','utm_medium','utm_content','utm_campaign','hour','weekday','os','traffic_share']; }
   function isEntryKnown(f) { var k = ENTRY_KNOWN(); var i; for (i = 0; i < k.length; i++) { if (k[i] === f) { return true; } } return false; }
   function num(v) { var n = parseFloat(v); return isFinite(n) ? n : null; }
 
@@ -3121,6 +3220,8 @@ export const QUOTE_RULES_SCRIPT = `(function () {
     }
     return g.value == null ? '' : choiceValueText(field, g.value);
   }
+  // Mirror of qrShareChip: a share of traffic reads "10% of traffic".
+  function shareChip(v) { return String(v == null ? '' : v) + '% of traffic'; }
   function conditionChips(rule) {
     var conditions = rule.conditions_json;
     if (!conditions || typeof conditions !== 'object' || !isArr(conditions.groups) || conditions.groups.length === 0) { return ['Always']; }
@@ -3129,6 +3230,7 @@ export const QUOTE_RULES_SCRIPT = `(function () {
     for (i = 0; i < conditions.groups.length; i++) {
       var g = conditions.groups[i];
       if (!g || typeof g !== 'object') { continue; }
+      if (g.field === 'traffic_share') { chips.push(shareChip(g.value)); continue; }
       chips.push(fieldLabel(g.field || '') + ' ' + opWord(g.op || 'eq') + ' ' + valueText(g, g.field || ''));
     }
     return chips.length > 0 ? chips : ['Always'];
@@ -3287,7 +3389,13 @@ export const QUOTE_RULES_SCRIPT = `(function () {
     // "Matches when ..." line resolves the value side too (the modal shows
     // BOTH sentences; fixing only one leaves the jargon on screen).
     for (i = 0; i < answerFields.length; i++) { out.push({ internal_field: answerFields[i].internal_field, label: 'Answer: ' + answerFields[i].label, choices: isArr(answerFields[i].choices) ? answerFields[i].choices : null }); }
-    for (i = 0; i < entryFields.length; i++) { out.push({ internal_field: entryFields[i].internal_field, label: entryFields[i].label }); }
+    // A "share" entry field keeps its input kind, so the builder shows its
+    // single "% of traffic" box (no operator).
+    for (i = 0; i < entryFields.length; i++) {
+      var ef = { internal_field: entryFields[i].internal_field, label: entryFields[i].label };
+      if (entryFields[i].input === 'share') { ef.input = 'share'; }
+      out.push(ef);
+    }
     return out;
   }
   function setToggle(sw, on) {

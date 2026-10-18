@@ -45,7 +45,7 @@ import { resolveSiteBranding, type SiteBranding } from "../../leadgen/branding";
 // composed-group evaluator (07 §21.4; the same one funnel offer/carrier
 // rules already share) so a slot rule and a future P4 routing rule can never
 // diverge on operator meaning. Read-only reuse — this module is not edited.
-import { conditionsMatch } from "../../leadgen/auction-rules";
+import { conditionsMatch, pickTrafficSlice, trafficBucket } from "../../leadgen/auction-rules";
 import { sha256Hex } from "./auction/parse";
 // Round-4 P4a (D-2): the ONE canonical component parser/expander (no drift)
 // used to derive which page each ANSWER field becomes known on (the auto-
@@ -71,6 +71,8 @@ import { offerHasOwnClickUrl } from "../../leadgen/macros";
 import {
   ENTRY_KNOWN_ROUTING_FIELDS,
   isEntryPlane as isQuoteRuleEntryPlane,
+  routingSharePct,
+  TRAFFIC_SHARE_ROUTING_FIELD,
 } from "../../leadgen/rule-checkpoint";
 
 // One ordered section of the resolved variant (position + the full section
@@ -1523,6 +1525,51 @@ function quoteMatch(r: ParsedQuoteRule): QuoteRoutingMatch {
   };
 }
 
+// OWNER 2026-10-18 — "Share of traffic" (e.g. "10% of all traffic runs a
+// different funnel"). Prior owner ruling reused (auction waterfalls, #209):
+// shares split like an A/B test — each share is its own slice, slices never
+// overlap, total ≤ 100%, the leftover gets normal behaviour.
+//
+// The visitor the routing rules are evaluated for: the quote (salts the
+// bucket) + the ko_sid session (places the visitor). Every live evaluator call
+// site passes it (shell serve, /lg/attempt attribution, /lg/ck checkpoint).
+export interface RoutingVisitor {
+  quote_public_id: string;
+  session_id: string;
+}
+
+// The quote's ACTIVE rules that carry a share condition take consecutive
+// slices of ONE per-visitor bucket — sha256("routing_share:" + quote_public_id
+// + ":" + session_id) % 10000, the trafficBucket/abBucket shape — in rule
+// priority order (priority ASC, id ASC: loadQuoteRoutingRules' ORDER BY, kept
+// by the stable priority sort). Returns the public_id of the rule whose slice
+// holds this visitor, or null (no session, no share rules, or the leftover).
+// Same visitor + same rules ⇒ same owner on every request (sticky for the
+// ko_sid cookie's lifetime, like A/B). A rule whose stored share is unusable
+// owns no slice. Disabled rules never reach here (loadQuoteRoutingRules reads
+// status='active' only), so disabling a rule frees its slice.
+function routingShareOwner(rules: readonly ParsedQuoteRule[], visitor: RoutingVisitor | undefined): string | null {
+  if (visitor === undefined || visitor.session_id === "") return null;
+  const sharers = [...rules].sort((a, b) => a.priority - b.priority).filter((r) => routingSharePct(r.conditions) !== null);
+  if (sharers.length === 0) return null;
+  const bucket = trafficBucket(`routing_share:${visitor.quote_public_id}`, visitor.session_id);
+  const hit = pickTrafficSlice(sharers, (r) => routingSharePct(r.conditions) ?? 0, bucket);
+  return hit === null ? null : hit.item.public_id;
+}
+
+// One rule's conditions over the flat context. A share condition is met when
+// this visitor's bucket lies in THIS rule's slice (shareOwner); the rule's
+// other conditions combine with it under its match mode exactly as before (the
+// share entry is evaluated as a yes/no fact through the same conditionsMatch).
+function quoteRuleMatches(r: ParsedQuoteRule, flat: Readonly<Record<string, unknown>>, shareOwner: string | null): boolean {
+  const groups = r.conditions.groups ?? [];
+  if (!groups.some((g) => g.field === TRAFFIC_SHARE_ROUTING_FIELD)) return conditionsMatch(r.conditions, flat, r.match_mode);
+  const shareAsFact: LeadgenRuleConditions = {
+    groups: groups.map((g) => (g.field === TRAFFIC_SHARE_ROUTING_FIELD ? { field: g.field, op: "eq" as const, value: true } : g)),
+  };
+  return conditionsMatch(shareAsFact, { ...flat, [TRAFFIC_SHARE_ROUTING_FIELD]: shareOwner === r.public_id }, r.match_mode);
+}
+
 // ENTRY plane (§4.3-3a): the highest-priority entry-only rule matching the
 // request attributes — or null. Rules already arrive priority-sorted from
 // loadQuoteRoutingRules; the defensive re-sort keeps §4.3-4 intact for a
@@ -1541,14 +1588,19 @@ function quoteMatch(r: ParsedQuoteRule): QuoteRoutingMatch {
 // target_funnel_id as "no funnel action → fall through to the default-funnel
 // semantics (§4.3-7)" rather than "no match" — so this is safe to widen here,
 // the single shared evaluation point every entry-plane caller shares.
+//
+// `visitor` (2026-10-18): places the visitor for share-of-traffic conditions
+// (routingShareOwner). Absent ⇒ no session ⇒ a share condition never matches.
 export function evaluateQuoteEntryRouting(
   rules: readonly ParsedQuoteRule[],
   ctx: EntryKnownContext,
+  visitor?: RoutingVisitor,
 ): QuoteRoutingMatch | null {
   const flat = entryFlatCtx(ctx);
+  const shareOwner = routingShareOwner(rules, visitor);
   for (const r of [...rules].sort((a, b) => a.priority - b.priority)) {
     if (!r.entry_only) continue;
-    if (conditionsMatch(r.conditions, flat, r.match_mode)) return quoteMatch(r);
+    if (quoteRuleMatches(r, flat, shareOwner)) return quoteMatch(r);
   }
   return null;
 }
@@ -1591,15 +1643,19 @@ export function entryMatchImpliesFunnel(
 // but still record feed/multiplier" outcome shape the contract does not define
 // — so this filter is deliberately left in place rather than invented; see the
 // S6.2 follow-up report's open concern).
+// `visitor` (2026-10-18): as evaluateQuoteEntryRouting — the SAME slices (every
+// active share rule, entry or checkpoint plane, takes its slice in one space).
 export function evaluateQuoteCheckpointRouting(
   rules: readonly ParsedQuoteRule[],
   ctx: EntryKnownContext,
   answers: Readonly<Record<string, unknown>>,
+  visitor?: RoutingVisitor,
 ): QuoteRoutingMatch | null {
   const flat = { ...entryFlatCtx(ctx), ...answers };
+  const shareOwner = routingShareOwner(rules, visitor);
   for (const r of [...rules].sort((a, b) => a.priority - b.priority)) {
     if (r.entry_only || r.target_funnel_id === null) continue;
-    if (conditionsMatch(r.conditions, flat, r.match_mode)) return quoteMatch(r);
+    if (quoteRuleMatches(r, flat, shareOwner)) return quoteMatch(r);
   }
   return null;
 }
@@ -1629,11 +1685,14 @@ export function evaluateQuoteCheckpointRouting(
 // non-allowlisted target all ⇒ null (fail CLOSED — never a broken redirect).
 export async function resolveEntryRedirect(
   db: D1Database,
-  quoteId: number,
+  quote: { id: number; public_id: string },
   ctx: EntryKnownContext,
   sessionId: string,
 ): Promise<string | null> {
-  const match = evaluateQuoteEntryRouting(await loadQuoteRoutingRules(db, quoteId), ctx);
+  const match = evaluateQuoteEntryRouting(await loadQuoteRoutingRules(db, quote.id), ctx, {
+    quote_public_id: quote.public_id,
+    session_id: sessionId,
+  });
   if (match === null || match.redirect_pct === null) return null;
   // 0061: a "Present only this offer" rule keeps its visitors in the funnel —
   // the save refuses it alongside a redirect; this holds even if a row ever
@@ -1841,7 +1900,10 @@ export async function resolveActivatedFunnel(
   let servedFunnel: LeadgenFunnelRow | null = null;
   let routedHash: string | null = null;
   if (args.entry_ctx !== undefined) {
-    const entryMatch = evaluateQuoteEntryRouting(await loadQuoteRoutingRules(db, quote.id), args.entry_ctx);
+    const entryMatch = evaluateQuoteEntryRouting(await loadQuoteRoutingRules(db, quote.id), args.entry_ctx, {
+      quote_public_id: quote.public_id,
+      session_id: sessionId,
+    });
     if (entryMatch !== null) {
       // S6.2 fix round: entryMatch.target_funnel_id may now be null (a valid
       // redirect-only/feed-only winner, §4.3-9). `funnels.find(f => f.id ===

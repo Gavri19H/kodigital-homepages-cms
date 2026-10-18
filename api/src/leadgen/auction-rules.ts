@@ -465,6 +465,26 @@ export interface WaterfallPick {
   range: { from: number; to: number };
 }
 
+// Shared slices (the A/B split): items ALREADY in precedence order each own
+// the next slice of one 0..9999 bucket space, pct×100 basis points wide, so
+// slices never overlap and whatever is left over belongs to nobody. Returns
+// the item whose slice holds `bucket`, with that slice, or null. Used by the
+// auction waterfalls below and by the quote routing rules' share of traffic
+// (resolver.ts) — one slice model for both.
+export function pickTrafficSlice<T>(
+  ordered: readonly T[],
+  sharePctOf: (item: T) => number,
+  bucket: number,
+): { item: T; range: { from: number; to: number } } | null {
+  let from = 0;
+  for (const item of ordered) {
+    const to = Math.min(10000, from + trafficShareBp(sharePctOf(item)));
+    if (bucket >= from && bucket < to) return { item, range: { from, to } };
+    from = to;
+  }
+  return null;
+}
+
 // The waterfalls of ONE auction split the traffic like an A/B test (owner
 // ruling 2026-10-01): in priority order each owns the next slice of one
 // shared bucket space (salted with the auction), so 50/25/10/15 are four
@@ -480,11 +500,6 @@ export function pickWaterfall(
   const ordered = [...waterfalls].sort(
     (a, b) => (a.priority ?? 100) - (b.priority ?? 100) || (a.rule_id < b.rule_id ? -1 : a.rule_id > b.rule_id ? 1 : 0),
   );
-  let from = 0;
-  for (const rule of ordered) {
-    const to = Math.min(10000, from + trafficShareBp(rule.traffic_share_pct));
-    if (bucket >= from && bucket < to) return { rule, bucket, range: { from, to } };
-    from = to;
-  }
-  return null;
+  const hit = pickTrafficSlice(ordered, (rule) => rule.traffic_share_pct, bucket);
+  return hit === null ? null : { rule: hit.item, bucket, range: hit.range };
 }

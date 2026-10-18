@@ -1254,7 +1254,7 @@ export async function serveFunnelShell(
   // the freshly-minted ko_sid so the decision is sticky across a reload (§4.3-6)
   // — the SAME session hash always lands the same verdict. No funnel_attempt_id
   // exists at shell-serve, so the redirect decision is not recorded here.
-  const redirectTo = await resolveEntryRedirect(c.env.DB, resolved.quote.id, entryCtx, sid);
+  const redirectTo = await resolveEntryRedirect(c.env.DB, resolved.quote, entryCtx, sid);
   if (redirectTo !== null) {
     const rh = new Headers();
     rh.set("Location", redirectTo);
