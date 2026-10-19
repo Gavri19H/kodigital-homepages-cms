@@ -1071,6 +1071,7 @@ function outputFormatIsland(html: string): { island: OutputFormatIsland; source:
     "clientFreeTextConstraints",
     "outputFormatPreviewValue",
     "outputFormatJsonLiteral",
+    "outputFormatInvalidReason",
     "updateOutputFormatPreview",
   ];
   const source = names.map((n) => sliceIslandFunction(script!, n)).join("\n");
@@ -1120,13 +1121,14 @@ function paintOutputFormat(
   island: OutputFormatIsland,
   node: Record<string, unknown>,
   sample: string,
-): { preview: string; json: string; invalidHidden: boolean } {
+): { preview: string; json: string; invalidHidden: boolean; invalidText: string } {
   const bodyEl = outputFormatPanelDom(sample);
   island.updateOutputFormatPreview(bodyEl, node);
   return {
     preview: bodyEl.querySelector("[data-pb-outputformat-preview]")!.textContent,
     json: bodyEl.querySelector("[data-pb-outputformat-json]")!.textContent,
     invalidHidden: bodyEl.querySelector("[data-pb-outputformat-invalid-note]")!.hidden,
+    invalidText: bodyEl.querySelector("[data-pb-outputformat-invalid-note]")!.textContent,
   };
 }
 
@@ -1388,6 +1390,33 @@ describeDb("payload builder P5 F1 (SRC-7B / owner #7B + #6-second) — the outpu
     expect(maxLeg.slice(0, maxLeg.indexOf("return;"))).toContain("updateOutputFormatPreview(editorEl, node);");
     const customLeg = script!.slice(script!.indexOf("if (field === 'free_text_pattern_custom') {"));
     expect(customLeg.slice(0, customLeg.indexOf("return;"))).toContain("updateOutputFormatPreview(editorEl, node);");
+  });
+
+  it("confirmation 2026-10-19: the INVALID note names the real reason — format, Max length / Pattern, or Type", async () => {
+    const { html } = await richEditorPage();
+    const { island } = outputFormatIsland(html);
+    const base: Record<string, unknown> = { source: "answer", type: "string", fallback: "0000000000" };
+    island.applyOutputFormat(base, "removeSpecial");
+    expect(paintOutputFormat(island, base, "---").invalidText).toContain("this format cannot convert");
+    const tooLong = { ...base, free_text_max_length: 5 };
+    const painted = paintOutputFormat(island, tooLong, "(707) 849 3710");
+    expect(painted.invalidHidden).toBe(false);
+    expect(painted.invalidText).toContain("too long or does not match the Pattern");
+    expect(painted.invalidText).not.toContain("cannot convert");
+  });
+
+  it("confirmation 2026-10-19: switching Pattern or Free text keeps the operator's typed sample and re-paints (served change handler)", async () => {
+    const { html } = await richEditorPage();
+    const script = extractScripts(html).find((s) => s.includes("function outputFormatPreviewValue("));
+    expect(script).toBeDefined();
+    for (const head of ["if (field === 'free_text_pattern') {", "if (field === 'free_text') {"]) {
+      const leg = script!.slice(script!.indexOf(head));
+      const body = leg.slice(0, leg.indexOf("return;"));
+      expect(body, head).toContain("[data-pb-outputformat-sample]");
+      expect(body, head).toContain("renderEditor();");
+      expect(body.indexOf("[data-pb-outputformat-sample]"), head).toBeLessThan(body.indexOf("renderEditor();"));
+      expect(body, head).toContain("updateOutputFormatPreview(editorEl, node);");
+    }
   });
 
   // Admin save → reload: the stored node comes back through the bootstrap

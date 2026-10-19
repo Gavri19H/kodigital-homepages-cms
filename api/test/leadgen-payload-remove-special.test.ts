@@ -159,10 +159,11 @@ describe("removeSpecial — buildPayload over a HAND-WRITTEN answer binding (the
 // PhoneInputQuestion with no mask/preset, and the reviewer's live visitor drive
 // recorded "+17078493710" for a typed "(707) 849 3710" — the visitor runtime
 // (runtime/engine.ts, the PhoneInputQuestion branch with no mask) stores
-// normalizePhoneE164(value). Every function below is the production one; the
-// D1 rows are written by the real admin routes over the real migrations
-// (node:sqlite harness, repo pattern); only the provider's HTTP endpoint is
-// stubbed so the exact request body can be read.
+// normalizePhoneE164(value). Every function below is the production one. The
+// offer and its payload schema are written by the real admin routes over the
+// real migrations (node:sqlite harness, repo pattern); the section and its
+// answer-map rows are seeded with plain SQL INSERTs; only the provider's HTTP
+// endpoint is stubbed so the exact request body can be read.
 // ---------------------------------------------------------------------------
 
 type SqliteStatement = {

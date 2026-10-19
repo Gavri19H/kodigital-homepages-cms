@@ -3035,6 +3035,20 @@ export const PAYLOAD_BUILDER_SCRIPT = `
   function outputFormatJsonLiteral(v) {
     return JSON.stringify(v);
   }
+  // Confirmation review 2026-10-19: the note names WHY the sample is INVALID —
+  // the format could not convert it, or Max length / Pattern rejected the
+  // converted value, or it cannot be sent as the field's Type (the same three
+  // legs, in the same order, as outputFormatPreviewValue and the runtime).
+  function outputFormatInvalidReason(node, raw) {
+    var tail = ' is INVALID at runtime \u21d2 the field\u2019s fallback is sent instead.';
+    var kind = outputFormatKindOf(node);
+    var v = kind === '' ? raw : clientRunOutputFormat(kind, raw);
+    if (v === undefined) { return 'A sample this format cannot convert' + tail; }
+    if (node.source === 'answer' && clientHasFreeTextConstraints(node) && clientFreeTextConstraints(v, node) === undefined) {
+      return 'A sample that is too long or does not match the Pattern' + tail;
+    }
+    return 'A sample that cannot be sent as the field\u2019s Type' + tail;
+  }
   function updateOutputFormatPreview(bodyEl, node) {
     var sampleEl = bodyEl.querySelector('[data-pb-outputformat-sample]');
     var preview = bodyEl.querySelector('[data-pb-outputformat-preview]');
@@ -3054,7 +3068,7 @@ export const PAYLOAD_BUILDER_SCRIPT = `
       var fb = node.fallback !== undefined ? ' (' + outputFormatJsonLiteral(node.fallback) + ')' : ' (field omitted)';
       preview.textContent = 'invalid \\u2192 fallback' + fb;
       if (jsonChip) { jsonChip.textContent = node.fallback !== undefined ? outputFormatJsonLiteral(node.fallback) : '(field omitted)'; }
-      if (invalidNote) { invalidNote.hidden = false; }
+      if (invalidNote) { invalidNote.textContent = outputFormatInvalidReason(node, raw); invalidNote.hidden = false; }
       return;
     }
     if (invalidNote) { invalidNote.hidden = true; }
@@ -3873,7 +3887,12 @@ export const PAYLOAD_BUILDER_SCRIPT = `
           if (node.value_map === undefined) { node.value_map = {}; }
         }
         refreshAdvReasons(item);
+        var ftKeptEl = editorEl.querySelector('[data-pb-outputformat-sample]');
+        var ftKept = ftKeptEl ? ftKeptEl.value : '';
         renderEditor();
+        var ftNewEl = editorEl.querySelector('[data-pb-outputformat-sample]');
+        if (ftNewEl) { ftNewEl.value = ftKept; }
+        updateOutputFormatPreview(editorEl, node);
         afterModelChange();
         return;
       }
@@ -3896,7 +3915,13 @@ export const PAYLOAD_BUILDER_SCRIPT = `
           node.free_text_pattern = t.value;
           if (t.value !== 'custom') { delete node.free_text_pattern_custom; }
         }
+        // carry the operator's typed sample across the rebuild (like output_format)
+        var patKeptEl = editorEl.querySelector('[data-pb-outputformat-sample]');
+        var patKept = patKeptEl ? patKeptEl.value : '';
         renderEditor();
+        var patNewEl = editorEl.querySelector('[data-pb-outputformat-sample]');
+        if (patNewEl) { patNewEl.value = patKept; }
+        updateOutputFormatPreview(editorEl, node);
         afterModelChange();
         return;
       }
