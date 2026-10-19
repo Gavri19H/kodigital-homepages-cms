@@ -542,6 +542,28 @@ describeDb("POST /sections — create + §12.1 derived rebuild", () => {
     expect(JSON.parse(dbRow.transform_json ?? "null")).toEqual([{ kind: "toString" }]);
   });
 
+  // 2026-10-19 owner: the payload builder's "Remove special characters and
+  // spacing" Output format is the `removeSpecial` transform kind. The Section
+  // tab's per-offer answer map saves value_transform through
+  // parseTransformSteps, whose allow-list is the exported
+  // LEADGEN_TRANSFORM_KINDS — so the new kind must save and read back here too.
+  it("the Section answer-map save accepts value_transform [{kind:'removeSpecial'}] and reads it back", async () => {
+    const { sdb, env } = newHarness();
+    const offer = await createMappableOffer(env);
+    const section = await createSection(
+      env,
+      sectionBody({ answer_maps: [mapEdge(offer.id, { value_transform: [{ kind: "removeSpecial" }] })] }),
+    );
+    const getRes = await admin.request(`${API}/sections/${section.public_id}`, {}, env);
+    expect(getRes.status).toBe(200);
+    const got = (await getRes.json()) as SectionDetail;
+    expect(got.answer_maps[0]?.value_transform).toEqual([{ kind: "removeSpecial" }]);
+    const dbRow = sdb
+      .prepare("SELECT transform_json FROM leadgen_section_answer_maps WHERE section_id = ?")
+      .get(section.id) as { transform_json: string | null };
+    expect(JSON.parse(dbRow.transform_json ?? "null")).toEqual([{ kind: "removeSpecial" }]);
+  });
+
   // Round-4 P1c re-pin (deliberate — operator item #2/A-2 overrode the
   // pre-round-4 "DELETE always archives" semantics): DELETE is now a
   // GUARDED hard delete (sections-handlers.ts deleteSectionHandler) —

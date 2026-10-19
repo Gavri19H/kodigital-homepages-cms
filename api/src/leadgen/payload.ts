@@ -138,7 +138,10 @@ export type LeadgenTransformStep =
   | { kind: "formatCurrency" }
   | { kind: "toNumber" }
   | { kind: "toString" }
-  | { kind: "trim" };
+  | { kind: "trim" }
+  // 2026-10-19 owner: the Output format "Remove special characters and
+  // spacing" — (707) 849 3710 is sent as "7078493710" (transformRemoveSpecial).
+  | { kind: "removeSpecial" };
 
 // The ONE allow-list of transform kinds (05 §12). Exported — the admin
 // answer-map validator (admin/leadgen/sections-handlers.ts parseTransformSteps)
@@ -155,6 +158,7 @@ export const LEADGEN_TRANSFORM_KINDS = [
   "toNumber",
   "toString",
   "trim",
+  "removeSpecial",
 ] as const;
 
 export interface LeadgenPayloadNode {
@@ -1122,6 +1126,22 @@ function transformFormatCurrency(value: unknown): unknown {
   return `${negative ? "-" : ""}$${grouped}${rest}`;
 }
 
+// removeSpecial — the payload builder's "Remove special characters and
+// spacing" Output format (owner 2026-10-19: a home phone typed as
+// "(707) 849 3710" must reach AmOne as the plain string "7078493710"). Every
+// character that is not a letter or a digit is removed — Unicode letters and
+// digits are KEPT ("José Núñez" → "JoséNúñez"), so it never mangles a name.
+// A number answer is stringified first (707.5 → "7075"); the output is always
+// a STRING. Nothing left, a non-finite number, or a non string/number input is
+// INVALID → the node takes its fallback, exactly like formatPhone/formatDate.
+// IDEMPOTENT: its output has nothing left to remove.
+function transformRemoveSpecial(value: unknown): unknown {
+  if (typeof value === "number" && !Number.isFinite(value)) return undefined;
+  if (typeof value !== "string" && typeof value !== "number") return undefined;
+  const kept = String(value).replace(/[^\p{L}\p{N}]+/gu, "");
+  return kept === "" ? undefined : kept;
+}
+
 function applyTransformStep(value: unknown, step: LeadgenTransformStep): unknown {
   switch (step.kind) {
     case "mapBoolean":
@@ -1154,6 +1174,8 @@ function applyTransformStep(value: unknown, step: LeadgenTransformStep): unknown
     case "trim":
       // trim is a string transform; non-strings pass through unchanged.
       return typeof value === "string" ? value.trim() : value;
+    case "removeSpecial":
+      return transformRemoveSpecial(value);
   }
 }
 

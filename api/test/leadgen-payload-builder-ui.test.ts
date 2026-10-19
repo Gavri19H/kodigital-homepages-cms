@@ -968,9 +968,10 @@ describeDb("payload builder §6.5–§6.7 — free text / date / boolean", () =>
   it("SRC-7B: the output-format picker offers currency/number/string, live-previews, and is EXCLUDED from computeAdvReasons' transform-pipeline Advanced-drawer flag", async () => {
     const { html } = await richEditorPage();
     const block = selectBlock(html, 'data-pb-field="output_format"');
-    expect(optionValues(block)).toEqual(["", "formatCurrency", "toNumber", "toString"]);
+    expect(optionValues(block)).toEqual(["", "formatCurrency", "toNumber", "toString", "removeSpecial"]);
     expect(block).toContain("Currency string");
     expect(block).toContain("Number as string");
+    expect(block).toContain('<option value="removeSpecial">Remove special characters and spacing</option>');
     expect(html).toContain("data-pb-outputformat-sample");
     expect(html).toContain("data-pb-outputformat-preview");
     expect(html).toContain("data-pb-outputformat-invalid-note");
@@ -991,12 +992,13 @@ describeDb("payload builder §6.5–§6.7 — free text / date / boolean", () =>
         currency: isOutputFormatNode({ transform: [{ kind: "formatCurrency" }] }),
         num: isOutputFormatNode({ transform: [{ kind: "toNumber" }] }),
         str: isOutputFormatNode({ transform: [{ kind: "toString" }] }),
+        strip: isOutputFormatNode({ transform: [{ kind: "removeSpecial" }] }),
         trim: isOutputFormatNode({ transform: [{ kind: "trim" }] }),
         none: isOutputFormatNode({}),
       })`,
       {},
-    ) as { currency: boolean; num: boolean; str: boolean; trim: boolean; none: boolean };
-    expect(sandbox).toEqual({ currency: true, num: true, str: true, trim: false, none: false });
+    ) as { currency: boolean; num: boolean; str: boolean; strip: boolean; trim: boolean; none: boolean };
+    expect(sandbox).toEqual({ currency: true, num: true, str: true, strip: true, trim: false, none: false });
   });
 
   it("§6.7 boolean presets: the 6 options with exact value_map emissions + preview chips", async () => {
@@ -1148,6 +1150,8 @@ describeDb("payload builder P5 F1 (SRC-7B / owner #7B + #6-second) — the outpu
     { option: "formatCurrency", type: "string", transform: [{ kind: "formatCurrency" }] },
     { option: "toNumber", type: "number", transform: [{ kind: "toNumber" }] },
     { option: "toString", type: "string", transform: [{ kind: "toString" }] },
+    // 2026-10-19 owner: "add a "Remove special characters and spacing" option"
+    { option: "removeSpecial", type: "string", transform: [{ kind: "removeSpecial" }] },
   ];
 
   it("ATOMIC: each option writes node.type AND node.transform together (As entered leaves the Type select in charge)", async () => {
@@ -1211,7 +1215,7 @@ describeDb("payload builder P5 F1 (SRC-7B / owner #7B + #6-second) — the outpu
   // buildPayload for every option × every sample, including the shapes that
   // used to lie: currency-into-number (dropped) and number-as-string (emitted
   // unquoted).
-  it("E11: the island preview == the REAL buildPayload output across {4 options} × {170000, 0, \"07032\", \"\", \"abc\"}", async () => {
+  it("E11: the island preview == the REAL buildPayload output across {5 options} × {170000, 0, \"07032\", \"\", \"abc\"}", async () => {
     const { html } = await richEditorPage();
     const { island } = outputFormatIsland(html);
     const RAWS = ["170000", "0", "07032", "", "abc"];
@@ -1239,8 +1243,111 @@ describeDb("payload builder P5 F1 (SRC-7B / owner #7B + #6-second) — the outpu
         }
       }
     }
-    // 3 formats × 1 base type + "As entered" × 2 base types, all × 5 samples
-    expect(rows).toHaveLength(25);
+    // 4 formats × 1 base type + "As entered" × 2 base types, all × 5 samples
+    expect(rows).toHaveLength(30);
+  });
+
+  // 2026-10-19 owner verbatim: "(707) 849 3710 --> AmOne requesting it to be
+  // sent as a simple string "7078493710"". The same island-vs-REAL parity as
+  // E11 above, over the samples this option exists for (both base types the
+  // control can be picked from, number answers included).
+  it("E11 (Remove special characters and spacing): island preview == REAL buildPayload for phone / name / punctuation-only / number samples", async () => {
+    const { html } = await richEditorPage();
+    const { island } = outputFormatIsland(html);
+    const SAMPLES: Array<[unknown, unknown]> = [
+      ["(707) 849 3710", "7078493710"],
+      ["+1 (707) 849-3710", "17078493710"],
+      ["José Núñez", "JoséNúñez"],
+      ["7078493710", "7078493710"],
+      ["---", undefined],
+      ["", undefined],
+      [707.5, "7075"],
+      [170000, "170000"],
+    ];
+    let checked = 0;
+    for (const baseType of ["string", "number"]) {
+      for (const [raw, expected] of SAMPLES) {
+        const node: Record<string, unknown> = { type: baseType };
+        island.applyOutputFormat(node, "removeSpecial");
+        expect(node).toEqual({ type: "string", transform: [{ kind: "removeSpecial" }] });
+        const previewed = island.outputFormatPreviewValue(node, raw);
+        const lead = (realPayload(node, raw)["lead"] ?? {}) as Record<string, unknown>;
+        const emitted = Object.prototype.hasOwnProperty.call(lead, "amt") ? lead["amt"] : undefined;
+        expect(previewed, `island ${baseType} ${JSON.stringify(raw)}`).toBe(expected);
+        expect(emitted, `REAL ${baseType} ${JSON.stringify(raw)}`).toBe(expected);
+        if (expected !== undefined) expect(typeof emitted).toBe("string");
+        checked += 1;
+      }
+    }
+    expect(checked).toBe(16);
+  });
+
+  it("Remove special characters and spacing: the painted chips read the exact JSON string the provider receives, and nothing-left paints the fallback leg", async () => {
+    const { html } = await richEditorPage();
+    const { island } = outputFormatIsland(html);
+    const node: Record<string, unknown> = { type: "string" };
+    island.applyOutputFormat(node, "removeSpecial");
+    const painted = paintOutputFormat(island, node, "(707) 849 3710");
+    const sent = ((realPayload(node, "(707) 849 3710")["lead"] ?? {}) as Record<string, unknown>)["amt"];
+    expect(sent).toBe("7078493710");
+    expect(painted.json).toBe(JSON.stringify(sent));
+    expect(painted.json).toBe('"7078493710"');
+    expect(painted.preview).toBe('(707) 849 3710 \u2192 "7078493710"');
+    expect(painted.invalidHidden).toBe(true);
+    const bad = paintOutputFormat(island, { ...node, fallback: "0000000000" }, "---");
+    expect(bad.json).toBe('"0000000000"');
+    expect(bad.invalidHidden).toBe(false);
+    expect(((realPayload({ ...node, fallback: "0000000000" }, "---")["lead"] ?? {}) as Record<string, unknown>)["amt"]).toBe(
+      "0000000000",
+    );
+  });
+
+  // Admin save → reload: the stored node comes back through the bootstrap
+  // island, the served <select> carries the option, and the REAL served
+  // fillOutputFormatPanel selects it (plus the "sends as text" type note).
+  it("Remove special characters and spacing: saved → reloaded field shows the option selected", async () => {
+    const { sdb, env } = newHarness();
+    const offer = await createOffer(env, { placements: ["pl-main"] });
+    linkSection(sdb, offer.id, "Home Details");
+    const schema = JSON.parse(JSON.stringify(RICH_SCHEMA)) as typeof RICH_SCHEMA & {
+      root: { children: Array<Record<string, unknown>> };
+    };
+    schema.root.children.push({
+      path: "home_phone",
+      name: "home_phone",
+      type: "string",
+      source: "answer",
+      transform: [{ kind: "removeSpecial" }],
+    });
+    await postSchema(env, offer.public_id, schema);
+    const html = await getHtml(env, `/admin/leadgen/offers/${offer.public_id}/edit`);
+    const data = island(html, "lg-payload-data") as {
+      active_schema: { schema: { root: { children: Array<Record<string, unknown>> } } };
+    };
+    const saved = data.active_schema.schema.root.children.find((n) => n["path"] === "home_phone");
+    expect(saved).toBeDefined();
+    expect(saved!["type"]).toBe("string");
+    expect(saved!["transform"]).toEqual([{ kind: "removeSpecial" }]);
+    expect(optionValues(selectBlock(html, 'data-pb-field="output_format"'))).toContain("removeSpecial");
+    const script = extractScripts(html).find((s) => s.includes("function fillOutputFormatPanel("));
+    expect(script, "fillOutputFormatPanel island present").toBeDefined();
+    const { source } = outputFormatIsland(html);
+    const fill = runInNewContext(`${source}\n${sliceIslandFunction(script!, "fillOutputFormatPanel")}\nfillOutputFormatPanel`, {}) as (
+      bodyEl: FakeEl,
+      node: Record<string, unknown>,
+    ) => void;
+    const bodyEl = outputFormatPanelDom("");
+    const sel = fakeElement("select");
+    sel.setAttribute('data-pb-field="output_format"', "");
+    const typeNote = fakeElement("p");
+    typeNote.setAttribute("data-pb-outputformat-type-note", "");
+    typeNote.hidden = true;
+    bodyEl.appendChild(sel);
+    bodyEl.appendChild(typeNote);
+    fill(bodyEl, saved!);
+    expect(sel.value).toBe("removeSpecial");
+    expect(typeNote.hidden).toBe(false);
+    expect(typeNote.textContent).toContain("sends the value as text");
   });
 
   it("review m7: the island preview joins a multi-select's list into a text field exactly as the REAL buildPayload sends it", async () => {
@@ -1299,8 +1406,10 @@ describeDb("payload builder P5 F1 (SRC-7B / owner #7B + #6-second) — the outpu
   it("the panel's own markup: sample box takes TEXT (a leading-zero ZIP survives), JSON-shape chip, type-owned note", async () => {
     const { html } = await richEditorPage();
     const block = selectBlock(html, 'data-pb-field="output_format"');
-    expect(optionValues(block)).toEqual(["", "formatCurrency", "toNumber", "toString"]);
+    expect(optionValues(block)).toEqual(["", "formatCurrency", "toNumber", "toString", "removeSpecial"]);
     expect(block).toContain("As entered (no formatting)");
+    expect(block).toContain("Remove special characters and spacing");
+    expect(html).toContain("Stored as the transform pipeline (formatCurrency / toNumber / toString / removeSpecial)");
     expect(html).toContain('<input type="text" inputmode="decimal" class="form-input" data-pb-outputformat-sample');
     expect(html).not.toContain('type="number" class="form-input" data-pb-outputformat-sample');
     expect(html).toContain("Try a sample value");

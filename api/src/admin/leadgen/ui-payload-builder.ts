@@ -684,7 +684,11 @@ function renderEditorTemplate(): string {
          field in different formats per offer!!!") is why the panel is not
          number-only: a STRING answer (an address sub-field) needs the same
          per-offer format authoring. Still additive to the value map above
-         (05 §12.7 pipeline order: value_map, then transform). -->
+         (05 §12.7 pipeline order: value_map, then transform).
+
+         2026-10-19 owner: "add a "Remove special characters and spacing"
+         option" — removeSpecial keeps only letters and digits, sent as text:
+         (707) 849 3710 reaches AmOne as "7078493710". -->
     <div data-pb-panel="outputformat" hidden>
       <h4 class="form-label">Output format</h4>
       <select class="form-select" data-pb-field="output_format" aria-label="Output format">
@@ -692,8 +696,9 @@ function renderEditorTemplate(): string {
         <option value="formatCurrency">Currency string ($170,000)</option>
         <option value="toNumber">Number (force numeric)</option>
         <option value="toString">Number as string ("170000")</option>
+        <option value="removeSpecial">Remove special characters and spacing</option>
       </select>
-      <p class="form-help">Stored as the transform pipeline (formatCurrency / toNumber / toString) &#8212; no JSON to type. The pick sets the type the provider receives too, so what you choose here is what the auction sends.</p>
+      <p class="form-help">Stored as the transform pipeline (formatCurrency / toNumber / toString / removeSpecial) &#8212; no JSON to type. The pick sets the type the provider receives too, so what you choose here is what the auction sends.</p>
       <p class="form-help" data-pb-outputformat-type-note hidden></p>
       <div class="lg-pb-grid-2">
         <div><label class="form-label">Try a sample value</label><input type="text" inputmode="decimal" class="form-input" data-pb-outputformat-sample aria-label="Sample input value" /></div>
@@ -1729,6 +1734,7 @@ export const PAYLOAD_BUILDER_SCRIPT = `
     if (kind === 'formatCurrency') { return 'string'; }
     if (kind === 'toNumber') { return 'number'; }
     if (kind === 'toString') { return 'string'; }
+    if (kind === 'removeSpecial') { return 'string'; }
     return null;
   }
   // A ONE-step transform pipeline whose kind is one of those output formats.
@@ -2896,7 +2902,7 @@ export const PAYLOAD_BUILDER_SCRIPT = `
     var grouped = whole.replace(/\\B(?=(\\d{3})+(?!\\d))/g, ',');
     return (negative ? '-' : '') + '$' + grouped + rest;
   }
-  // P5 F1 — a pure client mirror of payload.ts applyTransformStep for the 3
+  // P5 F1 — a pure client mirror of payload.ts applyTransformStep for the
   // output-format kinds (server logic, LOGIC-FOR-LOGIC, never re-derived).
   function clientRunOutputFormat(kind, value) {
     if (kind === 'formatCurrency') { return clientFormatCurrency(value); }
@@ -2912,6 +2918,17 @@ export const PAYLOAD_BUILDER_SCRIPT = `
       if (typeof value === 'string') { return value; }
       if (typeof value === 'number' || typeof value === 'boolean') { return String(value); }
       return undefined;
+    }
+    // 2026-10-19 — mirror of payload.ts transformRemoveSpecial: drop every
+    // character that is not a Unicode letter or digit, always a string;
+    // nothing left / non-finite number / non string-or-number = INVALID. The
+    // pattern is built through the RegExp constructor so this inline script
+    // stays ES5-parseable (a u-flag regex literal is ES2015 syntax).
+    if (kind === 'removeSpecial') {
+      if (typeof value === 'number' && !isFinite(value)) { return undefined; }
+      if (typeof value !== 'string' && typeof value !== 'number') { return undefined; }
+      var kept = String(value).replace(new RegExp('[^\\\\p{L}\\\\p{N}]+', 'gu'), '');
+      return kept === '' ? undefined : kept;
     }
     return value;
   }
