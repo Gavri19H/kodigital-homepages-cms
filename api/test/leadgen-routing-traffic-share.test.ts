@@ -260,8 +260,9 @@ describeDb("Share of traffic — matching", () => {
       expect(m?.target_funnel_id ?? null, sid).toBe(inSlice ? f.long.funnel.id : null);
       if (m !== null) routed++;
     }
-    expect(routed).toBeGreaterThanOrEqual(900);
-    expect(routed).toBeLessThanOrEqual(1100);
+    // ≈10% sanity band (per-visitor routing is asserted exactly above): binomial(10000, 0.1), σ ≈ 30 → ±5σ.
+    expect(routed).toBeGreaterThanOrEqual(850);
+    expect(routed).toBeLessThanOrEqual(1150);
     // sticky: re-evaluating (fresh rule read) gives every session the same verdict
     const again = await loadQuoteRoutingRules(f.env.DB, f.quote.id);
     for (const sid of SIDS.slice(0, 500)) {
@@ -294,9 +295,12 @@ describeDb("Share of traffic — matching", () => {
       expect(m?.feed_name ?? null, sid).toBe(expected);
       if (m !== null) counts[m.feed_name as "slice_a" | "slice_b"]++;
     }
+    // Each visitor's slice is asserted EXACTLY above; this is only the "≈10%" sanity band. The quote public id is
+    // minted per run, so the count is binomial(10000, 0.1): σ ≈ 30 — ±5σ (850..1150) instead of ±3.3σ, which failed
+    // by chance (893) on gate 808f8490, 2026-10-19.
     for (const n of Object.values(counts)) {
-      expect(n).toBeGreaterThanOrEqual(900);
-      expect(n).toBeLessThanOrEqual(1100);
+      expect(n).toBeGreaterThanOrEqual(850);
+      expect(n).toBeLessThanOrEqual(1150);
     }
   });
 

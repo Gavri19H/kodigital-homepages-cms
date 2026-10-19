@@ -968,9 +968,10 @@ describeDb("payload builder §6.5–§6.7 — free text / date / boolean", () =>
   it("SRC-7B: the output-format picker offers currency/number/string, live-previews, and is EXCLUDED from computeAdvReasons' transform-pipeline Advanced-drawer flag", async () => {
     const { html } = await richEditorPage();
     const block = selectBlock(html, 'data-pb-field="output_format"');
-    expect(optionValues(block)).toEqual(["", "formatCurrency", "toNumber", "toString"]);
+    expect(optionValues(block)).toEqual(["", "formatCurrency", "toNumber", "toString", "removeSpecial"]);
     expect(block).toContain("Currency string");
     expect(block).toContain("Number as string");
+    expect(block).toContain('<option value="removeSpecial">Remove special characters and spacing</option>');
     expect(html).toContain("data-pb-outputformat-sample");
     expect(html).toContain("data-pb-outputformat-preview");
     expect(html).toContain("data-pb-outputformat-invalid-note");
@@ -991,12 +992,13 @@ describeDb("payload builder §6.5–§6.7 — free text / date / boolean", () =>
         currency: isOutputFormatNode({ transform: [{ kind: "formatCurrency" }] }),
         num: isOutputFormatNode({ transform: [{ kind: "toNumber" }] }),
         str: isOutputFormatNode({ transform: [{ kind: "toString" }] }),
+        strip: isOutputFormatNode({ transform: [{ kind: "removeSpecial" }] }),
         trim: isOutputFormatNode({ transform: [{ kind: "trim" }] }),
         none: isOutputFormatNode({}),
       })`,
       {},
-    ) as { currency: boolean; num: boolean; str: boolean; trim: boolean; none: boolean };
-    expect(sandbox).toEqual({ currency: true, num: true, str: true, trim: false, none: false });
+    ) as { currency: boolean; num: boolean; str: boolean; strip: boolean; trim: boolean; none: boolean };
+    expect(sandbox).toEqual({ currency: true, num: true, str: true, strip: true, trim: false, none: false });
   });
 
   it("§6.7 boolean presets: the 6 options with exact value_map emissions + preview chips", async () => {
@@ -1061,8 +1063,15 @@ function outputFormatIsland(html: string): { island: OutputFormatIsland; source:
     "clientFormatCurrency",
     "clientRunOutputFormat",
     "clientCoerceToType",
+    // 2026-10-19 fix round (MINOR-1): the preview runs the Max length /
+    // Pattern mirror (+ the catastrophic-pattern screen it shares with save).
+    "isUnboundedBraceAt",
+    "isCatastrophicShape",
+    "clientHasFreeTextConstraints",
+    "clientFreeTextConstraints",
     "outputFormatPreviewValue",
     "outputFormatJsonLiteral",
+    "outputFormatInvalidReason",
     "updateOutputFormatPreview",
   ];
   const source = names.map((n) => sliceIslandFunction(script!, n)).join("\n");
@@ -1112,13 +1121,14 @@ function paintOutputFormat(
   island: OutputFormatIsland,
   node: Record<string, unknown>,
   sample: string,
-): { preview: string; json: string; invalidHidden: boolean } {
+): { preview: string; json: string; invalidHidden: boolean; invalidText: string } {
   const bodyEl = outputFormatPanelDom(sample);
   island.updateOutputFormatPreview(bodyEl, node);
   return {
     preview: bodyEl.querySelector("[data-pb-outputformat-preview]")!.textContent,
     json: bodyEl.querySelector("[data-pb-outputformat-json]")!.textContent,
     invalidHidden: bodyEl.querySelector("[data-pb-outputformat-invalid-note]")!.hidden,
+    invalidText: bodyEl.querySelector("[data-pb-outputformat-invalid-note]")!.textContent,
   };
 }
 
@@ -1148,6 +1158,8 @@ describeDb("payload builder P5 F1 (SRC-7B / owner #7B + #6-second) — the outpu
     { option: "formatCurrency", type: "string", transform: [{ kind: "formatCurrency" }] },
     { option: "toNumber", type: "number", transform: [{ kind: "toNumber" }] },
     { option: "toString", type: "string", transform: [{ kind: "toString" }] },
+    // 2026-10-19 owner: "add a "Remove special characters and spacing" option"
+    { option: "removeSpecial", type: "string", transform: [{ kind: "removeSpecial" }] },
   ];
 
   it("ATOMIC: each option writes node.type AND node.transform together (As entered leaves the Type select in charge)", async () => {
@@ -1211,7 +1223,7 @@ describeDb("payload builder P5 F1 (SRC-7B / owner #7B + #6-second) — the outpu
   // buildPayload for every option × every sample, including the shapes that
   // used to lie: currency-into-number (dropped) and number-as-string (emitted
   // unquoted).
-  it("E11: the island preview == the REAL buildPayload output across {4 options} × {170000, 0, \"07032\", \"\", \"abc\"}", async () => {
+  it("E11: the island preview == the REAL buildPayload output across {5 options} × {170000, 0, \"07032\", \"\", \"abc\"}", async () => {
     const { html } = await richEditorPage();
     const { island } = outputFormatIsland(html);
     const RAWS = ["170000", "0", "07032", "", "abc"];
@@ -1239,8 +1251,220 @@ describeDb("payload builder P5 F1 (SRC-7B / owner #7B + #6-second) — the outpu
         }
       }
     }
-    // 3 formats × 1 base type + "As entered" × 2 base types, all × 5 samples
-    expect(rows).toHaveLength(25);
+    // 4 formats × 1 base type + "As entered" × 2 base types, all × 5 samples
+    expect(rows).toHaveLength(30);
+  });
+
+  // 2026-10-19 owner verbatim: "(707) 849 3710 --> AmOne requesting it to be
+  // sent as a simple string "7078493710"". The same island-vs-REAL parity as
+  // E11 above, over the samples this option exists for (both base types the
+  // control can be picked from, number answers included).
+  it("E11 (Remove special characters and spacing): island preview == REAL buildPayload for phone / name / punctuation-only / number samples", async () => {
+    const { html } = await richEditorPage();
+    const { island } = outputFormatIsland(html);
+    const SAMPLES: Array<[unknown, unknown]> = [
+      ["(707) 849 3710", "7078493710"],
+      // fix round B1: the shape the visitor runtime STORES for that phone
+      // (normalizePhoneE164 adds the +1) sends the 10 national digits too
+      ["+17078493710", "7078493710"],
+      ["+1 (707) 849-3710", "17078493710"],
+      ["José Núñez", "JoséNúñez"],
+      // fix round MINOR-4: combining marks are kept (NFD accents, Hindi signs)
+      ["José Núñez".normalize("NFD"), "JoséNúñez".normalize("NFD")],
+      ["हिन्दी नाम", "हिन्दीनाम"],
+      ["7078493710", "7078493710"],
+      ["---", undefined],
+      ["", undefined],
+      [707.5, "7075"],
+      [170000, "170000"],
+    ];
+    let checked = 0;
+    for (const baseType of ["string", "number"]) {
+      for (const [raw, expected] of SAMPLES) {
+        const node: Record<string, unknown> = { type: baseType };
+        island.applyOutputFormat(node, "removeSpecial");
+        expect(node).toEqual({ type: "string", transform: [{ kind: "removeSpecial" }] });
+        const previewed = island.outputFormatPreviewValue(node, raw);
+        const lead = (realPayload(node, raw)["lead"] ?? {}) as Record<string, unknown>;
+        const emitted = Object.prototype.hasOwnProperty.call(lead, "amt") ? lead["amt"] : undefined;
+        expect(previewed, `island ${baseType} ${JSON.stringify(raw)}`).toBe(expected);
+        expect(emitted, `REAL ${baseType} ${JSON.stringify(raw)}`).toBe(expected);
+        if (expected !== undefined) expect(typeof emitted).toBe("string");
+        checked += 1;
+      }
+    }
+    expect(checked).toBe(22);
+  });
+
+  it("Remove special characters and spacing: the painted chips read the exact JSON string the provider receives, and nothing-left paints the fallback leg", async () => {
+    const { html } = await richEditorPage();
+    const { island } = outputFormatIsland(html);
+    const node: Record<string, unknown> = { type: "string" };
+    island.applyOutputFormat(node, "removeSpecial");
+    const painted = paintOutputFormat(island, node, "(707) 849 3710");
+    const sent = ((realPayload(node, "(707) 849 3710")["lead"] ?? {}) as Record<string, unknown>)["amt"];
+    expect(sent).toBe("7078493710");
+    expect(painted.json).toBe(JSON.stringify(sent));
+    expect(painted.json).toBe('"7078493710"');
+    expect(painted.preview).toBe('(707) 849 3710 \u2192 "7078493710"');
+    expect(painted.invalidHidden).toBe(true);
+    const bad = paintOutputFormat(island, { ...node, fallback: "0000000000" }, "---");
+    expect(bad.json).toBe('"0000000000"');
+    expect(bad.invalidHidden).toBe(false);
+    expect(((realPayload({ ...node, fallback: "0000000000" }, "---")["lead"] ?? {}) as Record<string, unknown>)["amt"]).toBe(
+      "0000000000",
+    );
+  });
+
+  // 2026-10-19 fix round (MINOR-1): on an answer field with Max length /
+  // Pattern the runtime (payload.ts resolveNode → applyFreeTextConstraints)
+  // checks the FORMATTED value and sends the fallback when it fails. The
+  // preview + "Sent to the provider as" chip must say the same, never the
+  // formatted string the provider will not receive.
+  it("MINOR-1: preview == REAL buildPayload when the field carries Max length / Pattern ({4 options} × {9 constraint sets} × {6 samples})", async () => {
+    const { html } = await richEditorPage();
+    const { island } = outputFormatIsland(html);
+    const CONSTRAINTS: Array<Record<string, unknown>> = [
+      {},
+      { free_text_max_length: 5 },
+      { free_text_max_length: 10 },
+      { free_text_pattern: "letters" },
+      { free_text_pattern: "digits" },
+      { free_text_pattern: "custom", free_text_pattern_custom: "^\\d{10}$" },
+      { free_text_pattern: "custom", free_text_pattern_custom: "^\\d{3}$" },
+      { free_text_pattern: "custom", free_text_pattern_custom: "(a+)+" }, // catastrophic → INVALID at runtime
+      { free_text_max_length: 4, free_text_pattern: "letters" },
+    ];
+    const SAMPLES = ["(707) 849 3710", "+17078493710", "José Núñez", "170000", " \u0007abc ", "---"];
+    let rows = 0;
+    let invalidRows = 0;
+    for (const option of ["", "removeSpecial", "toString", "formatCurrency"]) {
+      for (const constraint of CONSTRAINTS) {
+        for (const raw of SAMPLES) {
+          const node: Record<string, unknown> = { source: "answer", type: "string", fallback: "FALLBACK", ...constraint };
+          island.applyOutputFormat(node, option);
+          const previewed = island.outputFormatPreviewValue(node, raw);
+          const lead = (realPayload(node, raw)["lead"] ?? {}) as Record<string, unknown>;
+          const label = `${option || "(as entered)"} ${JSON.stringify(constraint)} ${JSON.stringify(raw)}`;
+          // the island's undefined = INVALID = the runtime sends the fallback
+          expect(previewed === undefined ? "FALLBACK" : previewed, label).toBe(lead["amt"]);
+          if (previewed === undefined) invalidRows += 1;
+          rows += 1;
+        }
+      }
+    }
+    expect(rows).toBe(216);
+    // the constraint legs really fire (not a vacuous all-valid matrix)
+    expect(invalidRows).toBeGreaterThan(50);
+  });
+
+  it("MINOR-1: Max length 5 on a Remove-special field paints INVALID → fallback (the runtime sends the fallback), Pattern digits paints the string", async () => {
+    const { html } = await richEditorPage();
+    const { island } = outputFormatIsland(html);
+    const base: Record<string, unknown> = { source: "answer", type: "string", fallback: "0000000000" };
+    island.applyOutputFormat(base, "removeSpecial");
+
+    const tooLong = { ...base, free_text_max_length: 5 };
+    const painted = paintOutputFormat(island, tooLong, "(707) 849 3710");
+    expect(((realPayload(tooLong, "(707) 849 3710")["lead"] ?? {}) as Record<string, unknown>)["amt"]).toBe("0000000000");
+    expect(painted.preview).toBe('invalid \u2192 fallback ("0000000000")');
+    expect(painted.json).toBe('"0000000000"');
+    expect(painted.invalidHidden).toBe(false);
+
+    const lettersOnly = { ...base, free_text_pattern: "letters" };
+    expect(paintOutputFormat(island, lettersOnly, "(707) 849 3710").json).toBe('"0000000000"');
+
+    const digitsOnly = { ...base, free_text_pattern: "digits", free_text_max_length: 10 };
+    const ok = paintOutputFormat(island, digitsOnly, "(707) 849 3710");
+    expect(((realPayload(digitsOnly, "(707) 849 3710")["lead"] ?? {}) as Record<string, unknown>)["amt"]).toBe("7078493710");
+    expect(ok.json).toBe('"7078493710"');
+    expect(ok.preview).toBe('(707) 849 3710 \u2192 "7078493710"');
+    expect(ok.invalidHidden).toBe(true);
+  });
+
+  it("MINOR-1: editing Max length / the custom Pattern re-paints the Output-format preview (served change handler)", async () => {
+    const { html } = await richEditorPage();
+    const script = extractScripts(html).find((s) => s.includes("function outputFormatPreviewValue("));
+    expect(script).toBeDefined();
+    const maxLeg = script!.slice(script!.indexOf("if (field === 'free_text_max_length') {"));
+    expect(maxLeg.slice(0, maxLeg.indexOf("return;"))).toContain("updateOutputFormatPreview(editorEl, node);");
+    const customLeg = script!.slice(script!.indexOf("if (field === 'free_text_pattern_custom') {"));
+    expect(customLeg.slice(0, customLeg.indexOf("return;"))).toContain("updateOutputFormatPreview(editorEl, node);");
+  });
+
+  it("confirmation 2026-10-19: the INVALID note names the real reason — format, Max length / Pattern, or Type", async () => {
+    const { html } = await richEditorPage();
+    const { island } = outputFormatIsland(html);
+    const base: Record<string, unknown> = { source: "answer", type: "string", fallback: "0000000000" };
+    island.applyOutputFormat(base, "removeSpecial");
+    expect(paintOutputFormat(island, base, "---").invalidText).toContain("this format cannot convert");
+    const tooLong = { ...base, free_text_max_length: 5 };
+    const painted = paintOutputFormat(island, tooLong, "(707) 849 3710");
+    expect(painted.invalidHidden).toBe(false);
+    expect(painted.invalidText).toContain("too long or does not match the Pattern");
+    expect(painted.invalidText).not.toContain("cannot convert");
+  });
+
+  it("confirmation 2026-10-19: switching Pattern or Free text keeps the operator's typed sample and re-paints (served change handler)", async () => {
+    const { html } = await richEditorPage();
+    const script = extractScripts(html).find((s) => s.includes("function outputFormatPreviewValue("));
+    expect(script).toBeDefined();
+    for (const head of ["if (field === 'free_text_pattern') {", "if (field === 'free_text') {"]) {
+      const leg = script!.slice(script!.indexOf(head));
+      const body = leg.slice(0, leg.indexOf("return;"));
+      expect(body, head).toContain("[data-pb-outputformat-sample]");
+      expect(body, head).toContain("renderEditor();");
+      expect(body.indexOf("[data-pb-outputformat-sample]"), head).toBeLessThan(body.indexOf("renderEditor();"));
+      expect(body, head).toContain("updateOutputFormatPreview(editorEl, node);");
+    }
+  });
+
+  // Admin save → reload: the stored node comes back through the bootstrap
+  // island, the served <select> carries the option, and the REAL served
+  // fillOutputFormatPanel selects it (plus the "sends as text" type note).
+  it("Remove special characters and spacing: saved → reloaded field shows the option selected", async () => {
+    const { sdb, env } = newHarness();
+    const offer = await createOffer(env, { placements: ["pl-main"] });
+    linkSection(sdb, offer.id, "Home Details");
+    const schema = JSON.parse(JSON.stringify(RICH_SCHEMA)) as typeof RICH_SCHEMA & {
+      root: { children: Array<Record<string, unknown>> };
+    };
+    schema.root.children.push({
+      path: "home_phone",
+      name: "home_phone",
+      type: "string",
+      source: "answer",
+      transform: [{ kind: "removeSpecial" }],
+    });
+    await postSchema(env, offer.public_id, schema);
+    const html = await getHtml(env, `/admin/leadgen/offers/${offer.public_id}/edit`);
+    const data = island(html, "lg-payload-data") as {
+      active_schema: { schema: { root: { children: Array<Record<string, unknown>> } } };
+    };
+    const saved = data.active_schema.schema.root.children.find((n) => n["path"] === "home_phone");
+    expect(saved).toBeDefined();
+    expect(saved!["type"]).toBe("string");
+    expect(saved!["transform"]).toEqual([{ kind: "removeSpecial" }]);
+    expect(optionValues(selectBlock(html, 'data-pb-field="output_format"'))).toContain("removeSpecial");
+    const script = extractScripts(html).find((s) => s.includes("function fillOutputFormatPanel("));
+    expect(script, "fillOutputFormatPanel island present").toBeDefined();
+    const { source } = outputFormatIsland(html);
+    const fill = runInNewContext(`${source}\n${sliceIslandFunction(script!, "fillOutputFormatPanel")}\nfillOutputFormatPanel`, {}) as (
+      bodyEl: FakeEl,
+      node: Record<string, unknown>,
+    ) => void;
+    const bodyEl = outputFormatPanelDom("");
+    const sel = fakeElement("select");
+    sel.setAttribute('data-pb-field="output_format"', "");
+    const typeNote = fakeElement("p");
+    typeNote.setAttribute("data-pb-outputformat-type-note", "");
+    typeNote.hidden = true;
+    bodyEl.appendChild(sel);
+    bodyEl.appendChild(typeNote);
+    fill(bodyEl, saved!);
+    expect(sel.value).toBe("removeSpecial");
+    expect(typeNote.hidden).toBe(false);
+    expect(typeNote.textContent).toContain("sends the value as text");
   });
 
   it("review m7: the island preview joins a multi-select's list into a text field exactly as the REAL buildPayload sends it", async () => {
@@ -1299,9 +1523,15 @@ describeDb("payload builder P5 F1 (SRC-7B / owner #7B + #6-second) — the outpu
   it("the panel's own markup: sample box takes TEXT (a leading-zero ZIP survives), JSON-shape chip, type-owned note", async () => {
     const { html } = await richEditorPage();
     const block = selectBlock(html, 'data-pb-field="output_format"');
-    expect(optionValues(block)).toEqual(["", "formatCurrency", "toNumber", "toString"]);
+    expect(optionValues(block)).toEqual(["", "formatCurrency", "toNumber", "toString", "removeSpecial"]);
     expect(block).toContain("As entered (no formatting)");
-    expect(html).toContain('<input type="text" inputmode="decimal" class="form-input" data-pb-outputformat-sample');
+    expect(block).toContain("Remove special characters and spacing");
+    expect(html).toContain("Stored as the transform pipeline (formatCurrency / toNumber / toString / removeSpecial)");
+    // 2026-10-19 fix round (MINOR-2): inputmode="text", not "decimal" — the
+    // Remove-special sample is a phone typed WITH "(", ")" and spaces or a name
+    // like "José", which a phone's decimal keypad cannot type.
+    expect(html).toContain('<input type="text" inputmode="text" class="form-input" data-pb-outputformat-sample');
+    expect(html).not.toContain('inputmode="decimal" class="form-input" data-pb-outputformat-sample');
     expect(html).not.toContain('type="number" class="form-input" data-pb-outputformat-sample');
     expect(html).toContain("Try a sample value");
     expect(html).toContain("data-pb-outputformat-json");
