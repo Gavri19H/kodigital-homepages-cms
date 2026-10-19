@@ -465,6 +465,37 @@ describe("§6.9 phone mask — fill UX + raw-digit recording through the real en
   });
 });
 
+// 2026-10-19 (payload Output format "Remove special characters and spacing",
+// fix round B1): the visitor half of the owner's AmOne example. A
+// PhoneInputQuestion with NO mask (production q_mrun7kvo_l2s0) records the
+// E.164 form, so "(707) 849 3710" is STORED as "+17078493710" — the exact
+// value test/leadgen-payload-remove-special.test.ts feeds the server route
+// (normalizeAnswers → readAnswerBindings → fetchProvider → "7078493710").
+describe("phone answer as the visitor runtime STORES it (no mask) — the Remove-special input", () => {
+  function plainPhoneConfig(): LgPublicConfig {
+    return baseConfig([section("lgs_1", 0, [
+      { type: "PhoneInputQuestion", question_id: "q_ph", question_key: "k_ph", internal_field: "phone", required: true, props: {}, client_validation: { required: true } },
+    ])]);
+  }
+
+  it('typing "(707) 849 3710" records "+17078493710" (the +1 is the runtime\'s normalisation, not typed)', async () => {
+    const dom = maskDom();
+    const { answers } = await boot(plainPhoneConfig(), dom.root, { preview: true });
+    dom.input.value = "(707) 849 3710";
+    dom.root.dispatch("input", dom.input);
+    expect(answers()["phone"]).toBe("+17078493710");
+    expect(dom.input.value).toBe("(707) 849 3710"); // the visitor still sees what they typed
+  });
+
+  it("with a mask the same typing records the raw 10 digits (the other stored shape)", async () => {
+    const dom = maskDom();
+    const { answers } = await boot(maskConfig(), dom.root, { preview: true });
+    dom.input.value = "(707) 849 3710";
+    dom.root.dispatch("input", dom.input);
+    expect(answers()["phone"]).toBe("7078493710");
+  });
+});
+
 // ---------------------------------------------------------------------------
 // §6.8 — slider types
 // ---------------------------------------------------------------------------

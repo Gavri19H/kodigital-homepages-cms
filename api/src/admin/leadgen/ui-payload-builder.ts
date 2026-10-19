@@ -687,8 +687,11 @@ function renderEditorTemplate(): string {
          (05 §12.7 pipeline order: value_map, then transform).
 
          2026-10-19 owner: "add a "Remove special characters and spacing"
-         option" — removeSpecial keeps only letters and digits, sent as text:
-         (707) 849 3710 reaches AmOne as "7078493710". -->
+         option" — removeSpecial keeps only letters, combining marks and
+         digits, sent as text: (707) 849 3710 reaches AmOne as "7078493710",
+         also when the visitor runtime stored the phone as +17078493710. The
+         sample box asks for the TEXT keypad so a phone can type "(", ")" and
+         letters ("José") — a decimal keypad cannot. -->
     <div data-pb-panel="outputformat" hidden>
       <h4 class="form-label">Output format</h4>
       <select class="form-select" data-pb-field="output_format" aria-label="Output format">
@@ -701,7 +704,7 @@ function renderEditorTemplate(): string {
       <p class="form-help">Stored as the transform pipeline (formatCurrency / toNumber / toString / removeSpecial) &#8212; no JSON to type. The pick sets the type the provider receives too, so what you choose here is what the auction sends.</p>
       <p class="form-help" data-pb-outputformat-type-note hidden></p>
       <div class="lg-pb-grid-2">
-        <div><label class="form-label">Try a sample value</label><input type="text" inputmode="decimal" class="form-input" data-pb-outputformat-sample aria-label="Sample input value" /></div>
+        <div><label class="form-label">Try a sample value</label><input type="text" inputmode="text" class="form-input" data-pb-outputformat-sample aria-label="Sample input value" /></div>
         <div><label class="form-label">Output preview</label><span class="lg-pb-chip" data-pb-outputformat-preview>&#8212;</span></div>
       </div>
       <p class="form-help">Sent to the provider as: <span class="lg-pb-chip" data-pb-outputformat-json>&#8212;</span> (exactly these JSON bytes &#8212; quotes mean a string).</p>
@@ -1397,7 +1400,7 @@ export function renderTestPanel(
 export const PAYLOAD_BUILDER_STYLES = `
 .lg-pb-shell{display:grid;grid-template-columns:minmax(240px,1fr) minmax(300px,1.4fr) minmax(240px,1fr);gap:14px;align-items:start;margin-top:8px}
 @media (max-width:1100px){.lg-pb-shell{grid-template-columns:1fr 1fr}.lg-pb-side-pane{grid-column:1 / -1}}
-@media (max-width:760px){.lg-pb-shell{grid-template-columns:1fr}}
+@media (max-width:760px){.lg-pb-shell{grid-template-columns:minmax(0,1fr)}}
 .lg-pb-pane{border:1px solid var(--c-border);border-radius:6px;padding:10px;background:var(--c-bg);min-height:120px}
 .lg-pb-toolbar{display:flex;gap:6px;flex-wrap:wrap;margin-bottom:8px}
 #lg-pb-search{margin-bottom:8px}
@@ -1439,7 +1442,8 @@ export const PAYLOAD_BUILDER_STYLES = `
 .lg-pb-test-chip[data-test-status="passed"]{color:#166534}
 .lg-pb-test-chip[data-test-status="failed"]{color:#991b1b}
 .lg-pb-codes{font-size:11px;color:var(--c-muted);margin-top:8px}
-.lg-pb-codes ul{margin:6px 0 0 18px;columns:2}
+.lg-pb-codes ul{margin:6px 0 0 18px;columns:2 200px}
+.lg-pb-codes code{overflow-wrap:anywhere}
 .lg-pb-advmanaged{margin-bottom:8px;display:inline-block}
 .lg-pb-subtree{max-height:180px}
 .lg-pb-vm-content{max-width:960px}
@@ -2919,15 +2923,21 @@ export const PAYLOAD_BUILDER_SCRIPT = `
       if (typeof value === 'number' || typeof value === 'boolean') { return String(value); }
       return undefined;
     }
-    // 2026-10-19 — mirror of payload.ts transformRemoveSpecial: drop every
-    // character that is not a Unicode letter or digit, always a string;
-    // nothing left / non-finite number / non string-or-number = INVALID. The
-    // pattern is built through the RegExp constructor so this inline script
-    // stays ES5-parseable (a u-flag regex literal is ES2015 syntax).
+    // 2026-10-19 — mirror of payload.ts transformRemoveSpecial (same two
+    // rules). Stored-phone rule: a value in exactly our stored US phone shape
+    // (+1 then 10 digits) sends its 10 national digits — the visitor runtime
+    // adds that +1 when it normalises a phone answer (normalizePhoneE164), the
+    // visitor never typed it. Generic rule: drop every character that is not
+    // a Unicode letter, combining mark or digit (accents and Hindi vowel signs
+    // survive), always a string; nothing left / non-finite number / non
+    // string-or-number = INVALID. The pattern is built through the RegExp
+    // constructor so this inline script stays ES5-parseable (a u-flag regex
+    // literal is ES2015 syntax).
     if (kind === 'removeSpecial') {
       if (typeof value === 'number' && !isFinite(value)) { return undefined; }
       if (typeof value !== 'string' && typeof value !== 'number') { return undefined; }
-      var kept = String(value).replace(new RegExp('[^\\\\p{L}\\\\p{N}]+', 'gu'), '');
+      if (typeof value === 'string' && /^\\+1\\d{10}$/.test(value)) { return value.slice(2); }
+      var kept = String(value).replace(new RegExp('[^\\\\p{L}\\\\p{M}\\\\p{N}]+', 'gu'), '');
       return kept === '' ? undefined : kept;
     }
     return value;
@@ -2969,14 +2979,51 @@ export const PAYLOAD_BUILDER_SCRIPT = `
     if (type === 'array') { return Object.prototype.toString.call(value) === '[object Array]' ? value : undefined; }
     return undefined;
   }
+  // 2026-10-19 fix round — a pure client mirror of payload.ts
+  // applyFreeTextConstraints (+ sanitizeFreeText): on an answer field that
+  // carries a Max length / Pattern the runtime strips control characters,
+  // trims, then rejects an over-long value or a pattern miss as INVALID (the
+  // fallback is sent). It runs AFTER the output format and BEFORE the type
+  // coercion, so the preview and the "Sent to the provider as" chip must too —
+  // otherwise they show a formatted string the runtime never sends.
+  function clientHasFreeTextConstraints(node) {
+    return node.free_text_max_length !== undefined ||
+      node.free_text_pattern !== undefined ||
+      node.free_text_pattern_custom !== undefined;
+  }
+  function clientFreeTextConstraints(value, node) {
+    var str = clientCoerceToType(value, 'string');
+    if (typeof str !== 'string') { return undefined; }
+    var sanitized = trimStr(str.replace(/[\\u0000-\\u001F\\u007F]/g, ''));
+    var max = node.free_text_max_length === undefined || node.free_text_max_length === null
+      ? 4096 : node.free_text_max_length;
+    if (sanitized.length > max) { return undefined; }
+    var pattern = node.free_text_pattern;
+    if (pattern === 'letters' && !/^[A-Za-z ]+$/.test(sanitized)) { return undefined; }
+    if (pattern === 'digits' && !/^[0-9]+$/.test(sanitized)) { return undefined; }
+    if (pattern === 'custom') {
+      var custom = node.free_text_pattern_custom;
+      if (typeof custom !== 'string' || isCatastrophicShape(custom)) { return undefined; }
+      var matched = false;
+      try { matched = new RegExp(custom).test(sanitized); } catch (reErr) { matched = false; }
+      if (!matched) { return undefined; }
+    }
+    return sanitized;
+  }
   // The value the runtime WOULD send for this node given a raw answer:
-  // transform pipeline, then the type coercion — the same order (and the same
-  // undefined-is-invalid semantics) as payload.ts resolveNode. A committed
-  // test pins this against the REAL buildPayload across the whole matrix.
+  // transform pipeline, then (an answer field with Max length / Pattern) the
+  // free-text constraints, then the type coercion — the same order (and the
+  // same undefined-is-invalid semantics) as payload.ts resolveNode. A
+  // committed test pins this against the REAL buildPayload across the whole
+  // matrix.
   function outputFormatPreviewValue(node, raw) {
     var kind = outputFormatKindOf(node);
     var v = kind === '' ? raw : clientRunOutputFormat(kind, raw);
     if (v === undefined) { return undefined; }
+    if (node.source === 'answer' && clientHasFreeTextConstraints(node)) {
+      v = clientFreeTextConstraints(v, node);
+      if (v === undefined) { return undefined; }
+    }
     return clientCoerceToType(v, node.type || 'string');
   }
   // The exact JSON bytes the provider receives (quotes included) — the shape
@@ -3835,6 +3882,8 @@ export const PAYLOAD_BUILDER_SCRIPT = `
         var maxNum = Number(maxRaw);
         if (maxRaw === '' || !isFinite(maxNum)) { delete node.free_text_max_length; }
         else { node.free_text_max_length = maxNum; }
+        // the Output-format preview applies Max length like the runtime
+        updateOutputFormatPreview(editorEl, node);
         afterModelChange();
         return;
       }
@@ -3854,6 +3903,8 @@ export const PAYLOAD_BUILDER_SCRIPT = `
       if (field === 'free_text_pattern_custom') {
         if (trimStr(t.value) === '') { delete node.free_text_pattern_custom; }
         else { node.free_text_pattern_custom = t.value; }
+        // the Output-format preview applies the custom Pattern like the runtime
+        updateOutputFormatPreview(editorEl, node);
         afterModelChange();
         return;
       }

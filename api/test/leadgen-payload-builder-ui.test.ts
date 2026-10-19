@@ -1063,6 +1063,12 @@ function outputFormatIsland(html: string): { island: OutputFormatIsland; source:
     "clientFormatCurrency",
     "clientRunOutputFormat",
     "clientCoerceToType",
+    // 2026-10-19 fix round (MINOR-1): the preview runs the Max length /
+    // Pattern mirror (+ the catastrophic-pattern screen it shares with save).
+    "isUnboundedBraceAt",
+    "isCatastrophicShape",
+    "clientHasFreeTextConstraints",
+    "clientFreeTextConstraints",
     "outputFormatPreviewValue",
     "outputFormatJsonLiteral",
     "updateOutputFormatPreview",
@@ -1256,8 +1262,14 @@ describeDb("payload builder P5 F1 (SRC-7B / owner #7B + #6-second) — the outpu
     const { island } = outputFormatIsland(html);
     const SAMPLES: Array<[unknown, unknown]> = [
       ["(707) 849 3710", "7078493710"],
+      // fix round B1: the shape the visitor runtime STORES for that phone
+      // (normalizePhoneE164 adds the +1) sends the 10 national digits too
+      ["+17078493710", "7078493710"],
       ["+1 (707) 849-3710", "17078493710"],
       ["José Núñez", "JoséNúñez"],
+      // fix round MINOR-4: combining marks are kept (NFD accents, Hindi signs)
+      ["José Núñez".normalize("NFD"), "JoséNúñez".normalize("NFD")],
+      ["हिन्दी नाम", "हिन्दीनाम"],
       ["7078493710", "7078493710"],
       ["---", undefined],
       ["", undefined],
@@ -1279,7 +1291,7 @@ describeDb("payload builder P5 F1 (SRC-7B / owner #7B + #6-second) — the outpu
         checked += 1;
       }
     }
-    expect(checked).toBe(16);
+    expect(checked).toBe(22);
   });
 
   it("Remove special characters and spacing: the painted chips read the exact JSON string the provider receives, and nothing-left paints the fallback leg", async () => {
@@ -1300,6 +1312,82 @@ describeDb("payload builder P5 F1 (SRC-7B / owner #7B + #6-second) — the outpu
     expect(((realPayload({ ...node, fallback: "0000000000" }, "---")["lead"] ?? {}) as Record<string, unknown>)["amt"]).toBe(
       "0000000000",
     );
+  });
+
+  // 2026-10-19 fix round (MINOR-1): on an answer field with Max length /
+  // Pattern the runtime (payload.ts resolveNode → applyFreeTextConstraints)
+  // checks the FORMATTED value and sends the fallback when it fails. The
+  // preview + "Sent to the provider as" chip must say the same, never the
+  // formatted string the provider will not receive.
+  it("MINOR-1: preview == REAL buildPayload when the field carries Max length / Pattern ({4 options} × {9 constraint sets} × {6 samples})", async () => {
+    const { html } = await richEditorPage();
+    const { island } = outputFormatIsland(html);
+    const CONSTRAINTS: Array<Record<string, unknown>> = [
+      {},
+      { free_text_max_length: 5 },
+      { free_text_max_length: 10 },
+      { free_text_pattern: "letters" },
+      { free_text_pattern: "digits" },
+      { free_text_pattern: "custom", free_text_pattern_custom: "^\\d{10}$" },
+      { free_text_pattern: "custom", free_text_pattern_custom: "^\\d{3}$" },
+      { free_text_pattern: "custom", free_text_pattern_custom: "(a+)+" }, // catastrophic → INVALID at runtime
+      { free_text_max_length: 4, free_text_pattern: "letters" },
+    ];
+    const SAMPLES = ["(707) 849 3710", "+17078493710", "José Núñez", "170000", " \u0007abc ", "---"];
+    let rows = 0;
+    let invalidRows = 0;
+    for (const option of ["", "removeSpecial", "toString", "formatCurrency"]) {
+      for (const constraint of CONSTRAINTS) {
+        for (const raw of SAMPLES) {
+          const node: Record<string, unknown> = { source: "answer", type: "string", fallback: "FALLBACK", ...constraint };
+          island.applyOutputFormat(node, option);
+          const previewed = island.outputFormatPreviewValue(node, raw);
+          const lead = (realPayload(node, raw)["lead"] ?? {}) as Record<string, unknown>;
+          const label = `${option || "(as entered)"} ${JSON.stringify(constraint)} ${JSON.stringify(raw)}`;
+          // the island's undefined = INVALID = the runtime sends the fallback
+          expect(previewed === undefined ? "FALLBACK" : previewed, label).toBe(lead["amt"]);
+          if (previewed === undefined) invalidRows += 1;
+          rows += 1;
+        }
+      }
+    }
+    expect(rows).toBe(216);
+    // the constraint legs really fire (not a vacuous all-valid matrix)
+    expect(invalidRows).toBeGreaterThan(50);
+  });
+
+  it("MINOR-1: Max length 5 on a Remove-special field paints INVALID → fallback (the runtime sends the fallback), Pattern digits paints the string", async () => {
+    const { html } = await richEditorPage();
+    const { island } = outputFormatIsland(html);
+    const base: Record<string, unknown> = { source: "answer", type: "string", fallback: "0000000000" };
+    island.applyOutputFormat(base, "removeSpecial");
+
+    const tooLong = { ...base, free_text_max_length: 5 };
+    const painted = paintOutputFormat(island, tooLong, "(707) 849 3710");
+    expect(((realPayload(tooLong, "(707) 849 3710")["lead"] ?? {}) as Record<string, unknown>)["amt"]).toBe("0000000000");
+    expect(painted.preview).toBe('invalid \u2192 fallback ("0000000000")');
+    expect(painted.json).toBe('"0000000000"');
+    expect(painted.invalidHidden).toBe(false);
+
+    const lettersOnly = { ...base, free_text_pattern: "letters" };
+    expect(paintOutputFormat(island, lettersOnly, "(707) 849 3710").json).toBe('"0000000000"');
+
+    const digitsOnly = { ...base, free_text_pattern: "digits", free_text_max_length: 10 };
+    const ok = paintOutputFormat(island, digitsOnly, "(707) 849 3710");
+    expect(((realPayload(digitsOnly, "(707) 849 3710")["lead"] ?? {}) as Record<string, unknown>)["amt"]).toBe("7078493710");
+    expect(ok.json).toBe('"7078493710"');
+    expect(ok.preview).toBe('(707) 849 3710 \u2192 "7078493710"');
+    expect(ok.invalidHidden).toBe(true);
+  });
+
+  it("MINOR-1: editing Max length / the custom Pattern re-paints the Output-format preview (served change handler)", async () => {
+    const { html } = await richEditorPage();
+    const script = extractScripts(html).find((s) => s.includes("function outputFormatPreviewValue("));
+    expect(script).toBeDefined();
+    const maxLeg = script!.slice(script!.indexOf("if (field === 'free_text_max_length') {"));
+    expect(maxLeg.slice(0, maxLeg.indexOf("return;"))).toContain("updateOutputFormatPreview(editorEl, node);");
+    const customLeg = script!.slice(script!.indexOf("if (field === 'free_text_pattern_custom') {"));
+    expect(customLeg.slice(0, customLeg.indexOf("return;"))).toContain("updateOutputFormatPreview(editorEl, node);");
   });
 
   // Admin save → reload: the stored node comes back through the bootstrap
@@ -1410,7 +1498,11 @@ describeDb("payload builder P5 F1 (SRC-7B / owner #7B + #6-second) — the outpu
     expect(block).toContain("As entered (no formatting)");
     expect(block).toContain("Remove special characters and spacing");
     expect(html).toContain("Stored as the transform pipeline (formatCurrency / toNumber / toString / removeSpecial)");
-    expect(html).toContain('<input type="text" inputmode="decimal" class="form-input" data-pb-outputformat-sample');
+    // 2026-10-19 fix round (MINOR-2): inputmode="text", not "decimal" — the
+    // Remove-special sample is a phone typed WITH "(", ")" and spaces or a name
+    // like "José", which a phone's decimal keypad cannot type.
+    expect(html).toContain('<input type="text" inputmode="text" class="form-input" data-pb-outputformat-sample');
+    expect(html).not.toContain('inputmode="decimal" class="form-input" data-pb-outputformat-sample');
     expect(html).not.toContain('type="number" class="form-input" data-pb-outputformat-sample');
     expect(html).toContain("Try a sample value");
     expect(html).toContain("data-pb-outputformat-json");

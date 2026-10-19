@@ -140,7 +140,8 @@ export type LeadgenTransformStep =
   | { kind: "toString" }
   | { kind: "trim" }
   // 2026-10-19 owner: the Output format "Remove special characters and
-  // spacing" — (707) 849 3710 is sent as "7078493710" (transformRemoveSpecial).
+  // spacing" — (707) 849 3710 is sent as "7078493710", also when the visitor
+  // runtime stored it as "+17078493710" (transformRemoveSpecial).
   | { kind: "removeSpecial" };
 
 // The ONE allow-list of transform kinds (05 §12). Exported — the admin
@@ -1128,17 +1129,36 @@ function transformFormatCurrency(value: unknown): unknown {
 
 // removeSpecial — the payload builder's "Remove special characters and
 // spacing" Output format (owner 2026-10-19: a home phone typed as
-// "(707) 849 3710" must reach AmOne as the plain string "7078493710"). Every
-// character that is not a letter or a digit is removed — Unicode letters and
-// digits are KEPT ("José Núñez" → "JoséNúñez"), so it never mangles a name.
+// "(707) 849 3710" must reach AmOne as the plain string "7078493710").
+//
+// Generic rule: every character that is not a letter, a combining mark or a
+// digit is removed. Letters + marks + digits (Unicode \p{L} \p{M} \p{N}) are
+// KEPT, so a name is never mangled: "José Núñez" → "JoséNúñez" whether the
+// accents arrive precomposed (NFC) or as combining marks (NFD), and Hindi
+// "हिन्दी नाम" → "हिन्दीनाम" (its vowel signs/virama are marks, not letters).
+//
+// Stored-phone rule: a value in EXACTLY our stored US phone shape
+// /^\+1\d{10}$/ sends its 10 national digits. WHY: the visitor runtime
+// normalises a valid PhoneInputQuestion answer to E.164 at capture
+// (runtime/validation.ts normalizePhoneE164, called from runtime/engine.ts),
+// so the owner's "(707) 849 3710" reaches this build as "+17078493710". That
+// "+1" is OUR normalisation, not something the visitor typed — the generic
+// rule alone would send "17078493710" and miss the owner's "7078493710".
+// Every other value (e.g. a typed "+1 (707) 849-3710" free-text answer) keeps
+// the generic rule.
+//
 // A number answer is stringified first (707.5 → "7075"); the output is always
 // a STRING. Nothing left, a non-finite number, or a non string/number input is
 // INVALID → the node takes its fallback, exactly like formatPhone/formatDate.
-// IDEMPOTENT: its output has nothing left to remove.
+// IDEMPOTENT: its output has nothing left to remove (and 10 digits never match
+// the stored-phone shape again). The builder island (ui-payload-builder.ts
+// clientRunOutputFormat) carries the same two rules for its preview.
+const STORED_US_PHONE_RE = /^\+1\d{10}$/;
 function transformRemoveSpecial(value: unknown): unknown {
   if (typeof value === "number" && !Number.isFinite(value)) return undefined;
   if (typeof value !== "string" && typeof value !== "number") return undefined;
-  const kept = String(value).replace(/[^\p{L}\p{N}]+/gu, "");
+  if (typeof value === "string" && STORED_US_PHONE_RE.test(value)) return value.slice(2);
+  const kept = String(value).replace(/[^\p{L}\p{M}\p{N}]+/gu, "");
   return kept === "" ? undefined : kept;
 }
 
