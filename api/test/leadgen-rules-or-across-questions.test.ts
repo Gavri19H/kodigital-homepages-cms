@@ -887,14 +887,24 @@ describe('Rules builder — "+ Add condition" then a question change stays AND (
     }
   });
 
-  it("legacy JSON with two answers to ONE question (no or_group): switching one row's question reads and saves AND — the old behaviour", () => {
+  // Fix round 2 (m2) REPLACES this round-1 expectation ("legacy … switching
+  // one row's question reads and saves AND"): what the editor SHOWS as "or"
+  // stays "or" — a saved rule's same-question cluster is named when opened.
+  it("fix round 2 (m2): legacy JSON with two answers to ONE question (no or_group) — mount → switch one row's question → still 'or', one shared or_group", () => {
     const b = mountOwner(bootBuilder(), JSON.stringify({ groups: [BD_HAVENT, { field: "business_duration", op: "eq", value: "under_1_year" }] }));
     expect(b.separators()).toEqual(["or"]);
     pickField(b.rows()[1]!, "credit_score");
     pickAnswer(b.rows()[1]!, "Unsure / Below 550");
-    expect(b.separators()).toEqual(["and"]);
-    expect(b.groups()).toEqual([BD_HAVENT, CS_BELOW]);
-    expect(b.sentence()).toBe('Matches when Business duration is "Haven\'t started yet" and Credit Score is "Unsure / Below 550".');
+    expect(b.separators(), "the word the editor showed stays").toEqual(["or"]);
+    expect(b.clusters()).toHaveLength(1);
+    const groups = b.groups();
+    expect(groups.map((g) => [g["field"], g["op"], g["value"]])).toEqual([
+      ["business_duration", "eq", "havent_started"],
+      ["credit_score", "eq", "below_550"],
+    ]);
+    expect(groups[0]!["or_group"]).toMatch(/^[A-Za-z0-9_-]{1,32}$/);
+    expect(groups[1]!["or_group"]).toBe(groups[0]!["or_group"]);
+    expect(b.sentence()).toBe(OWNER_SENTENCE);
     expectTsParity(b, OWNER_FIELDS);
   });
 
@@ -914,19 +924,22 @@ describe('Rules builder — "+ Add condition" then a question change stays AND (
     expectTsParity(b, OWNER_FIELDS);
   });
 
-  it('"+ Add condition" starts on the first question not used yet; when every one is used, on the first question', () => {
+  // Fix round 2 (m1) REPLACES the round-1 third step (it started on State, a
+  // visitor fact with an empty value): when every question is used, the new
+  // row starts on the first question.
+  it('"+ Add condition" starts on the first question not used yet; when every one is used, on the first question (never State)', () => {
     const b = mountOwner(bootBuilder());
     const fieldOf = (i: number): string => shownField(b.rows()[i]!);
     b.button("+ Add condition").fire("click");
     expect(fieldOf(0)).toBe("business_duration");
     b.button("+ Add condition").fire("click");
     expect(b.rows().map((_, i) => fieldOf(i))).toEqual(["business_duration", "credit_score"]);
+    expect(b.separators()).toEqual(["and"]);
     b.button("+ Add condition").fire("click");
-    expect(b.rows().map((_, i) => fieldOf(i))).toEqual(["business_duration", "credit_score", "state"]);
-    expect(b.separators()).toEqual(["and", "and"]);
-    b.button("+ Add condition").fire("click");
-    expect(b.rows()).toHaveLength(4);
+    expect(b.rows()).toHaveLength(3);
     expect(b.rows().map((_, i) => fieldOf(i)).filter((f) => f === "business_duration")).toHaveLength(2);
+    expect(b.rows().map((_, i) => fieldOf(i))).not.toContain("state");
+    expect(b.groups().some((g) => g["field"] === "state")).toBe(false);
   });
 
   it("MINOR-3: the State row's hint is a block of its own, before the row's remove button (never inline against it)", () => {
@@ -1205,5 +1218,222 @@ describe("Routing rules rail — cards, the sentence and the modal read the real
     expect(mount.byClass("lg-rb-andsep").map((n) => n.textContent)).toEqual(["and"]);
     root.querySelector("#lg-qr-modal")!.fire("click", { target: matchItem("any") });
     expect(builderSentence()).toBe('Matches when UTM Source is "fb" or State is "CA".');
+  });
+});
+
+// ===========================================================================
+// 6 — Fix round 2 (confirmation review minors, base fac0b7a8)
+//   m1: "+ Add condition" starts on the first UNUSED question with answer
+//       choices; when every question is used, on the first question — never
+//       a visitor fact (State) with an empty value.
+//   m2: what the editor SHOWS as "or" stays "or": a saved rule's cluster of
+//       2+ rows on ONE question (legacy, no or_group) is named when the rule
+//       is opened; rows added during the session keep fix (b).
+//   o1: the auction simulator's long offer id wraps inside its card (375).
+// ===========================================================================
+
+const DEVICE_VISITOR = {
+  internal_field: "device",
+  label: "Device",
+  group: "visitor",
+  choices: [
+    { value: "mobile", label: "Mobile" },
+    { value: "desktop", label: "Desktop" },
+  ],
+  stored_choices: [
+    { label: "Mobile", stored: "mobile" },
+    { label: "Desktop", stored: "desktop" },
+  ],
+};
+const BD_UNDER = { field: "business_duration", op: "eq", value: "under_1_year" } as const;
+const LEGACY_PAIR = { groups: [BD_HAVENT, BD_UNDER] };
+
+describe('Fix round 2 (m1) — "+ Add condition" default field', () => {
+  it("with every question used the default is the first question — never State (the reviewer's page: two carrier questions + State)", () => {
+    const b = mountOwner(bootBuilder(), "", { fields: REVIEWER_FIELDS });
+    const fields = (): string[] => b.rows().map((r) => shownField(r));
+    b.button("+ Add condition").fire("click");
+    b.button("+ Add condition").fire("click");
+    expect(fields()).toEqual(["r2fix_carrier", "field_msotdm9w_6el7"]);
+    b.button("+ Add condition").fire("click");
+    expect(fields().filter((f) => f === "r2fix_carrier"), "the third row starts on the first question").toHaveLength(2);
+    expect(fields()).not.toContain("state");
+    // the untouched default row carries a real answer, never an empty value
+    expect(b.groups().map((g) => [g["field"], g["value"]])).toEqual([
+      ["r2fix_carrier", "acme_insurance"],
+      ["r2fix_carrier", "acme_insurance"],
+      ["field_msotdm9w_6el7", "option_1"],
+    ]);
+    expect(b.groups().some((g) => g["value"] === "")).toBe(false);
+  });
+
+  it("with one question unused the default is that question (whatever else the saved rule uses)", () => {
+    const usesImageAndState = mountOwner(bootBuilder(), JSON.stringify({ groups: [{ field: "field_msotdm9w_6el7", op: "eq", value: "option_1" }, STATE_CA] }), { fields: REVIEWER_FIELDS });
+    usesImageAndState.button("+ Add condition").fire("click");
+    expect(usesImageAndState.rows().map((r) => shownField(r))).toEqual(["field_msotdm9w_6el7", "state", "r2fix_carrier"]);
+    const usesCarrier = mountOwner(bootBuilder(), JSON.stringify({ groups: [{ field: "r2fix_carrier", op: "eq", value: "gamma_direct" }] }), { fields: REVIEWER_FIELDS });
+    usesCarrier.button("+ Add condition").fire("click");
+    expect(usesCarrier.rows().map((r) => shownField(r))).toEqual(["r2fix_carrier", "field_msotdm9w_6el7"]);
+    expect(usesCarrier.separators()).toEqual(["and"]);
+  });
+
+  it("a visitor fact WITH answer choices (Device) is never the default either", () => {
+    const fields = [REVIEWER_FIELDS[0]!, DEVICE_VISITOR, REVIEWER_FIELDS[2]!];
+    const b = mountOwner(bootBuilder(), "", { fields });
+    b.button("+ Add condition").fire("click");
+    b.button("+ Add condition").fire("click");
+    expect(b.rows().map((r) => shownField(r))).toEqual(["r2fix_carrier", "r2fix_carrier"]);
+  });
+
+  it("the routing modal (real rail): its Answer fields are the questions — the second condition starts on the first one, never State / a UTM fact", () => {
+    const data = railData([]);
+    data.answer_fields = [
+      { internal_field: "credit_score", label: "Credit Score", choices: [{ value: "700_plus", label: "700+" }, { value: "below_550", label: "Unsure / Below 550" }] },
+    ];
+    const { root, mount } = bootRail(data);
+    const newBtn = root.appendChild(new FakeNode("div", { "data-qr-new": "" }));
+    root.fire("click", { target: newBtn });
+    const add = (): void => mount.all().find((x) => x.tagName === "BUTTON" && x.textContent === "+ Add condition")!.fire("click");
+    add();
+    add();
+    expect(mount.byClass("lg-rb-row").map((r) => shownField(r))).toEqual(["credit_score", "credit_score"]);
+  });
+});
+
+describe("Fix round 2 (m2) — a saved same-question cluster keeps its 'or' when one row's question changes", () => {
+  it("mount names the saved cluster: switching EITHER row keeps 'or' and one shared or_group (auction builder)", () => {
+    for (const which of [0, 1]) {
+      const b = mountOwner(bootBuilder(), JSON.stringify(LEGACY_PAIR));
+      expect(b.separators()).toEqual(["or"]);
+      pickField(b.rows()[which]!, "credit_score");
+      pickAnswer(b.rows()[which]!, "Unsure / Below 550");
+      expect(b.separators(), `switched row ${which}`).toEqual(["or"]);
+      expect(b.clusters()).toHaveLength(1);
+      const groups = b.groups();
+      expect(groups).toHaveLength(2);
+      expect(groups[0]!["or_group"]).toMatch(/^[A-Za-z0-9_-]{1,32}$/);
+      expect(groups[1]!["or_group"]).toBe(groups[0]!["or_group"]);
+      // the switched row keeps its place inside the group (authored order)
+      expect(b.sentence()).toBe(
+        which === 0
+          ? 'Matches when (Credit Score is "Unsure / Below 550" or Business duration is "Less than 1 year").'
+          : 'Matches when (Business duration is "Haven\'t started yet" or Credit Score is "Unsure / Below 550").',
+      );
+      expectTsParity(b, OWNER_FIELDS);
+      const saved = cond(JSON.parse(b.out.value));
+      expect(conditionsMatch(saved, { credit_score: "below_550" })).toBe(true);
+      expect(conditionsMatch(saved, { business_duration: which === 0 ? "under_1_year" : "havent_started" })).toBe(true);
+      expect(conditionsMatch(saved, { business_duration: which === 0 ? "havent_started" : "under_1_year", credit_score: "700_plus" })).toBe(false);
+    }
+  });
+
+  it("rows added during the session keep fix (b): a '+ Add condition' row on an already-used question leaves on a question change ('and')", () => {
+    const b = mountOwner(bootBuilder(), JSON.stringify({ groups: [CS_BELOW] }));
+    b.button("+ Add condition").fire("click"); // business_duration (unused)
+    pickAnswer(b.rows()[1]!, "Haven't started yet");
+    b.button("+ Add condition").fire("click"); // every question used → the first one
+    expect(b.rows().map((r) => shownField(r)).filter((f) => f === "business_duration")).toHaveLength(2);
+    expect(b.separators(), "drawn with the used question (legacy: same question = or)").toEqual(["and", "or"]);
+    const added = b.rows().filter((r) => shownField(r) === "business_duration")[1]!;
+    pickField(added, "state");
+    expect(b.separators()).toEqual(["and", "and"]);
+    expect(b.groups().every((g) => !("or_group" in g)), "no or group from '+ Add condition'").toBe(true);
+  });
+
+  it("an untouched legacy rule re-saved evaluates exactly the same (the evaluator reads the named cluster like the legacy one)", () => {
+    const api = bootBuilder();
+    const shapes: unknown[] = [
+      LEGACY_PAIR,
+      { groups: [BD_HAVENT, CS_BELOW, BD_UNDER] },
+      { groups: [STATE_CA, BD_HAVENT, { field: "state", op: "eq", value: "TX" }, BD_UNDER, CS_BELOW] },
+      { groups: [{ field: "state", op: "neq", value: "CA" }, { field: "state", op: "neq", value: "TX" }] },
+    ];
+    const contexts = [
+      {},
+      { business_duration: "havent_started" },
+      { business_duration: "under_1_year", credit_score: "below_550" },
+      { business_duration: "havent_started", credit_score: "700_plus" },
+      { state: "CA", business_duration: "under_1_year", credit_score: "below_550" },
+      { state: "TX", business_duration: "havent_started", credit_score: "below_550" },
+      { state: "NV", business_duration: "havent_started", credit_score: "below_550" },
+    ];
+    for (const shape of shapes) {
+      const b = mountOwner(api, JSON.stringify(shape));
+      const resaved = cond(JSON.parse(b.out.value));
+      for (const ctx of contexts) {
+        expect(conditionsMatch(resaved, ctx), `${JSON.stringify(shape)} → ${b.out.value} @ ${JSON.stringify(ctx)}`).toBe(conditionsMatch(cond(shape), ctx));
+      }
+      expect(b.out.value, "the JSON the editor writes on open").toBe(b.handle.serialize());
+    }
+    // the saved same-question pair carries ONE or_group in the editor from the moment it opens
+    const opened = (JSON.parse(mountOwner(api, JSON.stringify(LEGACY_PAIR)).out.value) as { groups: Array<Record<string, unknown>> }).groups;
+    expect(opened.map((g) => g["or_group"])).toEqual(["g1", "g1"]);
+  });
+
+  it("the routing modal (real rail): a saved State CA / State TX rule, State TX switched to UTM Source → still 'or'", () => {
+    const rule = railRule({ groups: [STATE_CA, { field: "state", op: "eq", value: "TX" }] });
+    const { root, modal, mount, sentence } = bootRail(railData([rule]));
+    root.fire("click", { target: root.querySelector("[data-qr-edit]")! });
+    const rows = (): FakeNode[] => mount.byClass("lg-rb-row");
+    expect(mount.byClass("lg-rb-orsep").map((n) => n.textContent)).toEqual(["or"]);
+    const tx = rows()[1]!;
+    pickField(tx, "utm_source");
+    const value = rows()[1]!.byClass("lg-rb-value").find((n) => n.tagName === "INPUT")!;
+    value.value = "fb";
+    value.fire("input");
+    modal.fire("input");
+    expect(mount.byClass("lg-rb-orsep").map((n) => n.textContent)).toEqual(["or"]);
+    expect(mount.byClass("lg-rb-andsep")).toHaveLength(0);
+    const out = root.querySelector("[data-qr-cond-out]")!;
+    const groups = (JSON.parse(out.value) as { groups: Array<Record<string, unknown>> }).groups;
+    expect(groups.map((g) => g["field"])).toEqual(["state", "utm_source"]);
+    expect(groups[0]!["or_group"]).toBeTruthy();
+    expect(groups[1]!["or_group"]).toBe(groups[0]!["or_group"]);
+    expect(sentence()).toBe("When (State is CA or UTM Source is fb), → Long.");
+  });
+});
+
+describeDb("Fix round 2 (m2) — an untouched legacy auction rule, opened and re-saved through the real API, hides the same offers", () => {
+  it("POST legacy → open in the builder → PATCH what it writes → the auction dry-run hides exactly as before", async () => {
+    const { sdb, env, auction, offer } = auctionHarness();
+    const legacy = { groups: [BD_HAVENT, CS_BELOW, BD_UNDER] };
+    const created = await adminReq(env, "POST", `/auctions/${auction.public_id}/rules`, {
+      rule_level: "offer",
+      action: "exclude",
+      target_offer_id: offer.offer_id,
+      conditions_json: legacy,
+      priority: 50,
+    });
+    expect(created.status, JSON.stringify(created.json)).toBe(201);
+    const hidden = (j: SimulateBody): boolean => j.offers_excluded.some((o) => o.offer_id === offer.offer_public_id && o.reason.includes("exclude"));
+    const visitors = [
+      { business_duration: "havent_started", credit_score: "below_550" },
+      { business_duration: "under_1_year", credit_score: "below_550" },
+      { business_duration: "havent_started", credit_score: "700_plus" },
+      { business_duration: "other", credit_score: "below_550" },
+    ];
+    const before: boolean[] = [];
+    for (const v of visitors) before.push(hidden(await simulate(env, auction.public_id, v)));
+    expect(before).toEqual([true, true, false, false]);
+
+    const stored = sdb.prepare("SELECT conditions_json FROM leadgen_auction_rules WHERE public_id = ?").get(created.json["public_id"]) as { conditions_json: string };
+    const b = mountOwner(bootBuilder(), stored.conditions_json);
+    const patched = await adminReq(env, "PATCH", `/auctions/${auction.public_id}/rules/${String(created.json["public_id"])}`, { conditions_json: JSON.parse(b.out.value) });
+    expect(patched.status, JSON.stringify(patched.json)).toBe(200);
+    const after: boolean[] = [];
+    for (const v of visitors) after.push(hidden(await simulate(env, auction.public_id, v)));
+    expect(after).toEqual(before);
+  });
+});
+
+describeDb("Fix round 2 (o1) — the auction simulator's offer id wraps inside its card", () => {
+  it("the served editor page carries the scoped wrap rule for the offer id (the <strong> the simulator puts in .lg-sim-offer-head)", async () => {
+    const { env, auction } = auctionHarness();
+    const res = await admin.request(`/admin/leadgen/auction/${auction.public_id}/edit`, {}, env);
+    expect(res.status).toBe(200);
+    const html = await res.text();
+    expect(html).toContain(".lg-sim-offer-head>strong{min-width:0;overflow-wrap:anywhere}");
+    expect(html).toContain("var head = makeEl('div', 'lg-sim-offer-head');");
+    expect(html).toContain("var title = makeEl('strong');");
   });
 });

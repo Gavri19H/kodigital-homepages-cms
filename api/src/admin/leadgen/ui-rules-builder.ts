@@ -22,6 +22,10 @@
 // its cluster at click time, so a row whose question changes stays in it) or,
 // for rules saved without one, the rows on one field (a row without an
 // or_group whose question changes leaves that cluster: "and", as before).
+// Fix round 2: what the editor SHOWS as "or" stays "or" — when a saved rule
+// is opened, its clusters of 2+ rows on one question get an or_group in the
+// editor (the engine reads them exactly as before); rows added in the session
+// still need "+ or" to stay in a cluster.
 // Operators NOT in the evaluator (contains, …) are omitted from the dropdown
 // per §6.10 (never disabled-but-visible). "is empty"/"is not empty" are pure
 // §6.10 sugar over eq/neq with value "" (identical serialized bytes).
@@ -2260,22 +2264,51 @@ export const RULES_BUILDER_SCRIPT = `(function () {
     for (i = 0; i < rows.length; i++) { if (orGroupOf(rows[i]) !== null) { counts['k' + rows[i].or_group] = (counts['k' + rows[i].or_group] || 0) + 1; } }
     for (i = 0; i < rows.length; i++) { if (rows[i].or_group !== undefined && !(counts['k' + rows[i].or_group] >= 2)) { delete rows[i].or_group; } }
   }
-  // "+ Add condition" starts on the first field the rule does not use yet
-  // (else the first field) — never a share of traffic (that one is picked on
-  // purpose, and only once). Review 1: the new row is then its own "and"
+  // Fix round 2: when a saved rule is opened, each cluster of 2+ rows on ONE
+  // question without an or_group (saved before "or" groups) gets one, so
+  // switching a row's question keeps the "or" the editor shows. The engine
+  // reads such a group exactly like the same-question rows it was.
+  function nameSavedClusters(state) {
+    var rows = state.rows;
+    var keys = unitKeys(rows);
+    var counts = {};
+    var names = {};
+    var i, k;
+    for (i = 0; i < rows.length; i++) {
+      if (keys[i].indexOf('f:') === 0 && rows[i].field !== '') { counts['k' + keys[i]] = (counts['k' + keys[i]] || 0) + 1; }
+    }
+    for (i = 0; i < rows.length; i++) {
+      k = 'k' + keys[i];
+      if (!(counts[k] >= 2) || isShareField(state, rows[i].field)) { continue; }
+      if (!names[k]) { names[k] = nextOrGroup(rows); }
+      rows[i].or_group = names[k];
+    }
+  }
+  // "+ Add condition" starts on the first funnel question (a field with answer
+  // choices) the rule does not use yet; when every question is used, on the
+  // first question; with no such question, on the first field (as before) —
+  // never a share of traffic, and never a visitor fact with an empty value
+  // while a question exists. Review 1: an unused question is its own "and"
   // cluster, not drawn inside an existing same-question cluster.
+  function isAnswerQuestion(meta) {
+    if (!meta || shareInputOf(meta) || meta.group === 'visitor') { return false; }
+    return (isArr(meta.stored_choices) && meta.stored_choices.length > 0) || (isArr(meta.choices) && meta.choices.length > 0);
+  }
   function defaultField(state) {
     var used = {};
-    var first = '';
+    var firstField = '';
+    var firstQuestion = '';
     var i, f;
     for (i = 0; i < state.rows.length; i++) { used['k' + state.rows[i].field] = true; }
     for (i = 0; i < state.fields.length; i++) {
       if (shareInputOf(state.fields[i])) { continue; }
       f = state.fields[i].internal_field;
-      if (first === '') { first = f; }
+      if (firstField === '') { firstField = f; }
+      if (!isAnswerQuestion(state.fields[i])) { continue; }
+      if (firstQuestion === '') { firstQuestion = f; }
       if (!used['k' + f]) { return f; }
     }
-    return first;
+    return firstQuestion !== '' ? firstQuestion : firstField;
   }
 
   function renderCardBody(state) {
@@ -2423,6 +2456,7 @@ export const RULES_BUILDER_SCRIPT = `(function () {
         pendingFocus: null
       };
       states.push(state);
+      nameSavedClusters(state);
       wireCard(state);
       renderCardBody(state);
       writeOut(state, true);
@@ -2505,6 +2539,7 @@ export const RULES_BUILDER_SCRIPT = `(function () {
       joinWord: opts.match === 'any' ? 'or' : 'and'
     };
     states.push(state);
+    nameSavedClusters(state);
     wireCard(state);
     renderCardBody(state);
     writeOut(state, true);

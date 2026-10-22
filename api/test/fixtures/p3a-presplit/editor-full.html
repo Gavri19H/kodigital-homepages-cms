@@ -12010,22 +12010,51 @@ if (!document.getElementById('toast-animations')) {
     for (i = 0; i < rows.length; i++) { if (orGroupOf(rows[i]) !== null) { counts['k' + rows[i].or_group] = (counts['k' + rows[i].or_group] || 0) + 1; } }
     for (i = 0; i < rows.length; i++) { if (rows[i].or_group !== undefined && !(counts['k' + rows[i].or_group] >= 2)) { delete rows[i].or_group; } }
   }
-  // "+ Add condition" starts on the first field the rule does not use yet
-  // (else the first field) — never a share of traffic (that one is picked on
-  // purpose, and only once). Review 1: the new row is then its own "and"
+  // Fix round 2: when a saved rule is opened, each cluster of 2+ rows on ONE
+  // question without an or_group (saved before "or" groups) gets one, so
+  // switching a row's question keeps the "or" the editor shows. The engine
+  // reads such a group exactly like the same-question rows it was.
+  function nameSavedClusters(state) {
+    var rows = state.rows;
+    var keys = unitKeys(rows);
+    var counts = {};
+    var names = {};
+    var i, k;
+    for (i = 0; i < rows.length; i++) {
+      if (keys[i].indexOf('f:') === 0 && rows[i].field !== '') { counts['k' + keys[i]] = (counts['k' + keys[i]] || 0) + 1; }
+    }
+    for (i = 0; i < rows.length; i++) {
+      k = 'k' + keys[i];
+      if (!(counts[k] >= 2) || isShareField(state, rows[i].field)) { continue; }
+      if (!names[k]) { names[k] = nextOrGroup(rows); }
+      rows[i].or_group = names[k];
+    }
+  }
+  // "+ Add condition" starts on the first funnel question (a field with answer
+  // choices) the rule does not use yet; when every question is used, on the
+  // first question; with no such question, on the first field (as before) —
+  // never a share of traffic, and never a visitor fact with an empty value
+  // while a question exists. Review 1: an unused question is its own "and"
   // cluster, not drawn inside an existing same-question cluster.
+  function isAnswerQuestion(meta) {
+    if (!meta || shareInputOf(meta) || meta.group === 'visitor') { return false; }
+    return (isArr(meta.stored_choices) && meta.stored_choices.length > 0) || (isArr(meta.choices) && meta.choices.length > 0);
+  }
   function defaultField(state) {
     var used = {};
-    var first = '';
+    var firstField = '';
+    var firstQuestion = '';
     var i, f;
     for (i = 0; i < state.rows.length; i++) { used['k' + state.rows[i].field] = true; }
     for (i = 0; i < state.fields.length; i++) {
       if (shareInputOf(state.fields[i])) { continue; }
       f = state.fields[i].internal_field;
-      if (first === '') { first = f; }
+      if (firstField === '') { firstField = f; }
+      if (!isAnswerQuestion(state.fields[i])) { continue; }
+      if (firstQuestion === '') { firstQuestion = f; }
       if (!used['k' + f]) { return f; }
     }
-    return first;
+    return firstQuestion !== '' ? firstQuestion : firstField;
   }
 
   function renderCardBody(state) {
@@ -12173,6 +12202,7 @@ if (!document.getElementById('toast-animations')) {
         pendingFocus: null
       };
       states.push(state);
+      nameSavedClusters(state);
       wireCard(state);
       renderCardBody(state);
       writeOut(state, true);
@@ -12255,6 +12285,7 @@ if (!document.getElementById('toast-animations')) {
       joinWord: opts.match === 'any' ? 'or' : 'and'
     };
     states.push(state);
+    nameSavedClusters(state);
     wireCard(state);
     renderCardBody(state);
     writeOut(state, true);

@@ -148,6 +148,7 @@ const LG_AUCTIONS_STYLES = `
 .lg-sim-summary{font-weight:600;margin:10px 0 4px}
 .lg-sim-offer{border:1px solid var(--c-border);border-radius:6px;padding:10px 12px;margin:8px 0}
 .lg-sim-offer-head{display:flex;align-items:center;gap:10px;flex-wrap:wrap;margin-bottom:4px}
+.lg-sim-offer-head>strong{min-width:0;overflow-wrap:anywhere}
 .lg-sim-eligible{font-size:12px;padding:2px 10px;border-radius:9999px;background:var(--c-success-bg,#e8f7ee);color:var(--c-success,#186a3b);border:1px solid var(--c-success,#7dcb9a)}
 .lg-sim-excluded{font-size:12px;padding:2px 10px;border-radius:9999px;background:var(--c-danger-bg,#fdecea);color:var(--c-danger,#8a1f11);border:1px solid var(--c-danger,#e5a49a)}
 .lg-sim-reason{color:var(--c-danger,#8a1f11);font-size:13px;margin:2px 0}
