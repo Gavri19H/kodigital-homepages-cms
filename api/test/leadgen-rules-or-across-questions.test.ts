@@ -26,7 +26,7 @@ import { createRequire } from "node:module";
 import admin from "../src/admin/router";
 import type { Env } from "../src/env";
 import { mintPublicId } from "../src/leadgen/ids";
-import { conditionsMatch } from "../src/leadgen/auction-rules";
+import { conditionsHash, conditionsMatch } from "../src/leadgen/auction-rules";
 import { validateFunnelRule } from "../src/leadgen/funnel";
 import { loadQuoteRoutingRules, evaluateQuoteEntryRouting, type EntryKnownContext } from "../src/public/leadgen/resolver";
 import {
@@ -151,6 +151,53 @@ describe("conditionsMatch — or_group: entries sharing one are ONE unit", () =>
     for (const ctx of [{ state: "CA" }, { state: "TX" }, { state: "NV" }, {}]) {
       expect(conditionsMatch(lonely, ctx), JSON.stringify(ctx)).toBe(conditionsMatch(legacy, ctx));
     }
+  });
+});
+
+// ===========================================================================
+// 1b — conditions_hash (fix round 1, MINOR-1): or_group names are canonical
+// ===========================================================================
+
+describe("conditionsHash — logically identical or groups hash identically", () => {
+  const h = (c: unknown): string => conditionsHash(cond(c));
+  const TX_OR_CA = { field: "state", op: "in", values: ["TX", "CA"] } as const;
+  // Pinned from the production canonicalizer (c4044672 — unchanged by this
+  // feature): rules without or_group keep their stored hashes byte-for-byte.
+  const LEGACY_BD_CS = "214d1448318234866afc375a2c5cb6c832b7690f981a6f6c9489c8e82adb2b03";
+  const LEGACY_ST_TX_BD = "34c8f6bd50fb3a5af995fc8f781ee180a930f3a588eb14e18a50cbdd0e6fcd4b";
+  const LEGACY_EMPTY = "47aec4b16657492be8ea01cac39a2b54a0485f848fdc1bae4e70dd6bad83abd8";
+
+  it("legacy rules (no or_group) hash exactly as before", () => {
+    expect(h({ groups: [BD_HAVENT, CS_BELOW] })).toBe(LEGACY_BD_CS);
+    expect(h({ groups: [CS_BELOW, BD_HAVENT] })).toBe(LEGACY_BD_CS);
+    expect(h({ groups: [STATE_CA, TX_OR_CA, BD_HAVENT] })).toBe(LEGACY_ST_TX_BD);
+    expect(h({ groups: [] })).toBe(LEGACY_EMPTY);
+  });
+
+  it("the group's NAME never matters: g1 / zz / swapped names / another entry order hash the same", () => {
+    const base = h({ groups: [{ ...BD_HAVENT, or_group: "g1" }, { ...CS_BELOW, or_group: "g1" }] });
+    expect(h({ groups: [{ ...BD_HAVENT, or_group: "zz" }, { ...CS_BELOW, or_group: "zz" }] })).toBe(base);
+    expect(h({ groups: [{ ...CS_BELOW, or_group: "x" }, { ...BD_HAVENT, or_group: "x" }] })).toBe(base);
+    const two = h({ groups: [{ ...BD_HAVENT, or_group: "a" }, { ...CS_BELOW, or_group: "a" }, { ...STATE_CA, or_group: "b" }, { ...TX_OR_CA, or_group: "b" }] });
+    expect(h({ groups: [{ ...BD_HAVENT, or_group: "b" }, { ...CS_BELOW, or_group: "b" }, { ...STATE_CA, or_group: "a" }, { ...TX_OR_CA, or_group: "a" }] })).toBe(two);
+    expect(h({ groups: [{ ...TX_OR_CA, or_group: "g1" }, { ...CS_BELOW, or_group: "g2" }, { ...STATE_CA, or_group: "g1" }, { ...BD_HAVENT, or_group: "g2" }] })).toBe(two);
+  });
+
+  it("a name carried by ONE entry is dropped: it hashes like the same rule without the key", () => {
+    expect(h({ groups: [{ ...BD_HAVENT, or_group: "solo" }, CS_BELOW] })).toBe(LEGACY_BD_CS);
+    expect(h({ groups: [{ ...BD_HAVENT, or_group: "p" }, { ...CS_BELOW, or_group: "q" }] })).toBe(LEGACY_BD_CS);
+  });
+
+  it("different logic still hashes differently", () => {
+    const anyOf = h({ groups: [{ ...BD_HAVENT, or_group: "g1" }, { ...CS_BELOW, or_group: "g1" }] });
+    expect(anyOf).not.toBe(LEGACY_BD_CS); // (A or B) ≠ A and B
+    const abC = h({ groups: [{ ...BD_HAVENT, or_group: "g1" }, { ...CS_BELOW, or_group: "g1" }, STATE_CA] });
+    const acB = h({ groups: [{ ...BD_HAVENT, or_group: "g1" }, { ...STATE_CA, or_group: "g1" }, CS_BELOW] });
+    expect(abC).not.toBe(acB); // (A or B) and C ≠ (A or C) and B
+    const overlap1 = h({ groups: [{ ...BD_HAVENT, or_group: "x" }, { ...CS_BELOW, or_group: "x" }, { ...BD_HAVENT, or_group: "y" }, { ...STATE_CA, or_group: "y" }] });
+    const overlap2 = h({ groups: [{ ...BD_HAVENT, or_group: "y" }, { ...STATE_CA, or_group: "y" }, { ...BD_HAVENT, or_group: "x" }, { ...CS_BELOW, or_group: "x" }] });
+    expect(overlap2).toBe(overlap1); // (A or B) and (A or C), written in either order
+    expect(overlap1).not.toBe(h({ groups: [{ ...BD_HAVENT, or_group: "x" }, { ...STATE_CA, or_group: "x" }, { ...BD_HAVENT, or_group: "y" }, { ...STATE_CA, or_group: "y" }] }));
   });
 });
 
@@ -677,23 +724,13 @@ describe("Rules builder — the owner's journey: Business duration … + or … 
     expect(groups[0]!["or_group"]).toBe(groups[1]!["or_group"]);
   });
 
-  it("removing a row down to one drops the or_group; a legacy same-field pair keeps its cluster when one row's question changes", () => {
+  it("removing a row down to one drops the or_group", () => {
     const api = bootBuilder();
     const b = mountOwner(api, JSON.stringify(OWNER_CONDITIONS));
     const removeOf = (row: FakeNode): FakeNode => row.all().find((n) => n.tagName === "BUTTON" && n.getAttribute("aria-label") === "Remove condition")!;
     removeOf(b.rows()[1]!).fire("click");
     expect(b.groups()).toEqual([BD_HAVENT]);
     expect(b.separators()).toEqual([]);
-
-    const legacy = mountOwner(api, JSON.stringify({ groups: [BD_HAVENT, { field: "business_duration", op: "eq", value: "under_1_year" }] }));
-    expect(legacy.separators()).toEqual(["or"]);
-    pickField(legacy.rows()[1]!, "credit_score");
-    pickAnswer(legacy.rows()[1]!, "Unsure / Below 550");
-    expect(legacy.separators()).toEqual(["or"]);
-    const groups = legacy.groups();
-    expect(groups[0]!["or_group"]).toBeTruthy();
-    expect(groups[1]!["or_group"]).toBe(groups[0]!["or_group"]);
-    expect(legacy.sentence()).toBe(OWNER_SENTENCE);
   });
 
   it("Match ANY reads 'or' between the clusters and keeps the parentheses", () => {
@@ -701,6 +738,205 @@ describe("Rules builder — the owner's journey: Business duration … + or … 
     const b = mountOwner(api, JSON.stringify({ groups: [...OWNER_CONDITIONS.groups, STATE_CA] }), { match: "any" });
     expect(b.sentence()).toBe('Matches when (Business duration is "Haven\'t started yet" or Credit Score is "Unsure / Below 550") or State is "CA".');
     expect(b.separators()).toEqual(["or", "or"]);
+  });
+});
+
+// ===========================================================================
+// 3b — Fix round 1 (review BLOCKER): "+ Add condition" followed by a question
+// change stays AND. Only "+ or" makes an or group (it names one AT CLICK
+// TIME); a row keeps its cluster on a question change only when it already
+// carries an or_group; "+ Add condition" starts on the first unused question.
+// ===========================================================================
+
+// The reviewer's dev page: two carrier questions + State (labels/values as
+// the reviewer's j1/failbefore logs show them).
+const CARRIER_SIMPLE = "Which carrier do you want a quote from? (Simple answer buttons)";
+const CARRIER_IMAGE = "Which carrier do you want a quote from? (Image answer cards)";
+const REVIEWER_FIELDS = [
+  {
+    internal_field: "r2fix_carrier",
+    label: CARRIER_SIMPLE,
+    group: "question",
+    choices: [
+      { value: "acme_insurance", label: "Acme Insurance" },
+      { value: "beta_mutual", label: "Beta Mutual" },
+      { value: "gamma_direct", label: "Gamma Direct" },
+    ],
+    stored_choices: [
+      { label: "Acme Insurance", stored: "acme_insurance" },
+      { label: "Beta Mutual", stored: "beta_mutual" },
+      { label: "Gamma Direct", stored: "gamma_direct" },
+    ],
+  },
+  {
+    internal_field: "field_msotdm9w_6el7",
+    label: CARRIER_IMAGE,
+    group: "question",
+    choices: [
+      { value: "option_1", label: "Option 1" },
+      { value: "option_2", label: "Option 2" },
+    ],
+    stored_choices: [
+      { label: "Option 1", stored: "option_1" },
+      { label: "Option 2", stored: "option_2" },
+    ],
+  },
+  { internal_field: "state", label: "State", group: "visitor", hint: "two-letter code, e.g. CA" },
+];
+
+// The question a row's field select shows (the island marks it selected).
+function shownField(row: FakeNode): string {
+  const sel = row.byClass("lg-rb-field")[0]!;
+  const opts = sel.all().filter((n) => n.tagName === "OPTION" && n.selected);
+  expect(opts, "one selected question").toHaveLength(1);
+  return opts[0]!.value;
+}
+
+// The TS twin reads the island's saved JSON identically: parse → serialize is
+// byte-identical and the TS sentence equals the sentence the island shows.
+function expectTsParity(b: ReturnType<typeof mountOwner>, fields: ReadonlyArray<{ internal_field: string; label: string }>): void {
+  const json = b.out.value;
+  const ts = parseStoredConditions(JSON.parse(json));
+  expect(ts.ok, json).toBe(true);
+  const rows = (ts.ok ? ts.rows : []) as RulesBuilderRow[];
+  expect(serializeRows(rows), "TS serialize of the island's JSON").toBe(json);
+  const labelOf = (f: string): string => fields.find((x) => x.internal_field === f)?.label ?? f;
+  const valueOf = (f: string, v: unknown): string => ruleValueText(fields.find((x) => x.internal_field === f) as never, v as never);
+  expect(conditionsSentence(rows, labelOf, valueOf), "TS sentence = island sentence").toBe(b.sentence());
+}
+
+describe('Rules builder — "+ Add condition" then a question change stays AND (fix round 1)', () => {
+  it('the reviewer\'s exact scenario: carrier is "Gamma Direct" → "+ Add condition" → the new row switched to the image-card question saves AND (no or_group), as production does', () => {
+    const b = mountOwner(bootBuilder(), "", { fields: REVIEWER_FIELDS });
+    b.button("+ Add condition").fire("click");
+    pickField(b.rows()[0]!, "r2fix_carrier");
+    pickAnswer(b.rows()[0]!, "Gamma Direct");
+    b.button("+ Add condition").fire("click");
+    const startedOn = shownField(b.rows()[1]!);
+    const separatorsAtAdd = b.separators();
+    pickField(b.rows()[1]!, "field_msotdm9w_6el7");
+    pickAnswer(b.rows()[1]!, "Option 2");
+
+    expect(b.separators(), "the word between the two questions").toEqual(["and"]);
+    expect(b.clusters()).toHaveLength(2);
+    expect(b.groups()).toEqual([
+      { field: "r2fix_carrier", op: "eq", value: "gamma_direct" },
+      { field: "field_msotdm9w_6el7", op: "eq", value: "option_2" },
+    ]);
+    expect(b.sentence()).toBe(`Matches when ${CARRIER_SIMPLE} is "Gamma Direct" and ${CARRIER_IMAGE} is "Option 2".`);
+    expectTsParity(b, REVIEWER_FIELDS);
+    const saved = cond(JSON.parse(b.out.value));
+    expect(conditionsMatch(saved, { r2fix_carrier: "gamma_direct", field_msotdm9w_6el7: "option_2" })).toBe(true);
+    expect(conditionsMatch(saved, { r2fix_carrier: "gamma_direct" })).toBe(false);
+    expect(conditionsMatch(saved, { field_msotdm9w_6el7: "option_2" })).toBe(false);
+    // (c) the new row started on the first question not used yet — never inside the carrier cluster
+    expect(startedOn).toBe("field_msotdm9w_6el7");
+    expect(separatorsAtAdd).toEqual(["and"]);
+  });
+
+  it("the same scenario with the new row drawn INSIDE the carrier cluster first (as production's '+ Add condition' starts it): switching its question leaves the cluster → AND", () => {
+    const b = mountOwner(bootBuilder(), "", { fields: REVIEWER_FIELDS });
+    b.button("+ Add condition").fire("click");
+    pickField(b.rows()[0]!, "r2fix_carrier");
+    pickAnswer(b.rows()[0]!, "Gamma Direct");
+    b.button("+ Add condition").fire("click");
+    pickField(b.rows()[1]!, "r2fix_carrier");
+    pickAnswer(b.rows()[1]!, "Acme Insurance");
+    // two answers to ONE question: the engine ORs them, the screen says "or" (legacy, no or_group)
+    expect(b.separators()).toEqual(["or"]);
+    expect(b.groups().every((g) => !("or_group" in g))).toBe(true);
+    pickField(b.rows()[1]!, "field_msotdm9w_6el7");
+    pickAnswer(b.rows()[1]!, "Option 2");
+    expect(b.separators()).toEqual(["and"]);
+    expect(b.groups()).toEqual([
+      { field: "r2fix_carrier", op: "eq", value: "gamma_direct" },
+      { field: "field_msotdm9w_6el7", op: "eq", value: "option_2" },
+    ]);
+    expect(b.sentence()).toBe(`Matches when ${CARRIER_SIMPLE} is "Gamma Direct" and ${CARRIER_IMAGE} is "Option 2".`);
+    expectTsParity(b, REVIEWER_FIELDS);
+  });
+
+  it('"+ or" names the or_group AT CLICK TIME (the cluster\'s rows + the new row), then switching EITHER row keeps "or"', () => {
+    for (const which of [0, 1]) {
+      const b = mountOwner(bootBuilder(), "", { fields: REVIEWER_FIELDS });
+      b.button("+ Add condition").fire("click");
+      pickField(b.rows()[0]!, "r2fix_carrier");
+      pickAnswer(b.rows()[0]!, "Beta Mutual");
+      b.button("+ or").fire("click");
+      const atClick = b.groups();
+      expect(atClick).toHaveLength(2);
+      expect(atClick[0]!["or_group"], "named at click time").toMatch(/^[A-Za-z0-9_-]{1,32}$/);
+      expect(atClick[1]!["or_group"]).toBe(atClick[0]!["or_group"]);
+      pickField(b.rows()[which]!, "field_msotdm9w_6el7");
+      pickAnswer(b.rows()[which]!, "Option 1");
+      if (which === 1) pickAnswer(b.rows()[0]!, "Beta Mutual");
+      else pickAnswer(b.rows()[1]!, "Acme Insurance");
+      expect(b.separators(), `switched row ${which}`).toEqual(["or"]);
+      expect(b.clusters()).toHaveLength(1);
+      const groups = b.groups();
+      expect(groups).toHaveLength(2);
+      expect(groups[0]!["or_group"]).toBeTruthy();
+      expect(groups[1]!["or_group"]).toBe(groups[0]!["or_group"]);
+      expect(new Set(groups.map((g) => g["field"]))).toEqual(new Set(["r2fix_carrier", "field_msotdm9w_6el7"]));
+      expect(b.sentence()).toMatch(/^Matches when \(.+ or .+\)\.$/);
+      expectTsParity(b, REVIEWER_FIELDS);
+      const saved = cond(JSON.parse(b.out.value));
+      expect(conditionsMatch(saved, { field_msotdm9w_6el7: "option_1" })).toBe(true);
+      expect(conditionsMatch(saved, { r2fix_carrier: which === 1 ? "beta_mutual" : "acme_insurance" })).toBe(true);
+      expect(conditionsMatch(saved, { r2fix_carrier: "gamma_direct", field_msotdm9w_6el7: "option_2" })).toBe(false);
+    }
+  });
+
+  it("legacy JSON with two answers to ONE question (no or_group): switching one row's question reads and saves AND — the old behaviour", () => {
+    const b = mountOwner(bootBuilder(), JSON.stringify({ groups: [BD_HAVENT, { field: "business_duration", op: "eq", value: "under_1_year" }] }));
+    expect(b.separators()).toEqual(["or"]);
+    pickField(b.rows()[1]!, "credit_score");
+    pickAnswer(b.rows()[1]!, "Unsure / Below 550");
+    expect(b.separators()).toEqual(["and"]);
+    expect(b.groups()).toEqual([BD_HAVENT, CS_BELOW]);
+    expect(b.sentence()).toBe('Matches when Business duration is "Haven\'t started yet" and Credit Score is "Unsure / Below 550".');
+    expectTsParity(b, OWNER_FIELDS);
+  });
+
+  it("the owner's journey still saves OR (one shared or_group) and reads (… or …)", () => {
+    const b = mountOwner(bootBuilder());
+    b.button("+ Add condition").fire("click");
+    pickField(b.rows()[0]!, "business_duration");
+    pickAnswer(b.rows()[0]!, "Haven't started yet");
+    b.button("+ or").fire("click");
+    pickField(b.rows()[1]!, "credit_score");
+    pickAnswer(b.rows()[1]!, "Unsure / Below 550");
+    expect(b.separators()).toEqual(["or"]);
+    const groups = b.groups();
+    expect(groups[0]!["or_group"]).toBeTruthy();
+    expect(groups[1]!["or_group"]).toBe(groups[0]!["or_group"]);
+    expect(b.sentence()).toBe(OWNER_SENTENCE);
+    expectTsParity(b, OWNER_FIELDS);
+  });
+
+  it('"+ Add condition" starts on the first question not used yet; when every one is used, on the first question', () => {
+    const b = mountOwner(bootBuilder());
+    const fieldOf = (i: number): string => shownField(b.rows()[i]!);
+    b.button("+ Add condition").fire("click");
+    expect(fieldOf(0)).toBe("business_duration");
+    b.button("+ Add condition").fire("click");
+    expect(b.rows().map((_, i) => fieldOf(i))).toEqual(["business_duration", "credit_score"]);
+    b.button("+ Add condition").fire("click");
+    expect(b.rows().map((_, i) => fieldOf(i))).toEqual(["business_duration", "credit_score", "state"]);
+    expect(b.separators()).toEqual(["and", "and"]);
+    b.button("+ Add condition").fire("click");
+    expect(b.rows()).toHaveLength(4);
+    expect(b.rows().map((_, i) => fieldOf(i)).filter((f) => f === "business_duration")).toHaveLength(2);
+  });
+
+  it("MINOR-3: the State row's hint is a block of its own, before the row's remove button (never inline against it)", () => {
+    const b = mountOwner(bootBuilder(), JSON.stringify({ groups: [STATE_CA] }));
+    const row = b.rows()[0]!;
+    const hint = row.byClass("lg-rb-hint")[0]!;
+    expect(hint.textContent).toBe("two-letter code, e.g. CA");
+    expect(hint.tagName).toBe("DIV");
+    const remove = row.children.find((n) => n.getAttribute("aria-label") === "Remove condition")!;
+    expect(row.children.indexOf(remove)).toBeGreaterThan(row.children.indexOf(hint.parentNode!));
   });
 });
 

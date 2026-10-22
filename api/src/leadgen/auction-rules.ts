@@ -194,15 +194,44 @@ function stableStringify(value: unknown): string {
 // group's `values` by canonical string, before hashing. Evaluation
 // (evaluateOfferRules/evaluateCarrierRules) is already order-independent, so this
 // only affects the stored hash, never a verdict.
+//
+// Review 1 (MINOR-1): an `or_group` NAME carries no meaning — only which
+// entries share one does. So before hashing, a name used by a single entry is
+// dropped (conditionUnitKeys reads that entry by its field, exactly like a
+// legacy one), and every shared name is renamed g1, g2, … by first appearance
+// in a canonical order (the groups ordered by their sorted member entries,
+// names excluded) — so swapped names or another entry order never split one
+// logical rule into two hashes. Rules without or_group hash exactly as before.
 function canonicalizeConditions(conditions: LeadgenRuleConditions): unknown {
   const groups = Array.isArray(conditions?.groups) ? conditions.groups : [];
-  const canonGroups = groups
-    .map((g) => {
-      const group = g as unknown as Record<string, unknown>;
-      const values = Array.isArray(group["values"])
-        ? [...(group["values"] as unknown[])].sort((a, b) => (stableStringify(a) < stableStringify(b) ? -1 : 1))
-        : group["values"];
-      return { ...group, ...(values !== undefined ? { values } : {}) };
+  const keys = conditionUnitKeys(groups);
+  const bodies = groups.map((g) => {
+    const { or_group: _name, ...group } = g as unknown as Record<string, unknown>;
+    const values = Array.isArray(group["values"])
+      ? [...(group["values"] as unknown[])].sort((a, b) => (stableStringify(a) < stableStringify(b) ? -1 : 1))
+      : group["values"];
+    return { ...group, ...(values !== undefined ? { values } : {}) };
+  });
+  const members = new Map<string, string[]>();
+  keys.forEach((key, i) => {
+    if (!key.startsWith("g:")) return;
+    const list = members.get(key) ?? [];
+    list.push(stableStringify(bodies[i]));
+    members.set(key, list);
+  });
+  const signatureOf = (key: string): string => stableStringify([...(members.get(key) ?? [])].sort());
+  const canonNames = new Map<string, string>();
+  [...members.keys()]
+    .sort((a, b) => {
+      const sa = signatureOf(a);
+      const sb = signatureOf(b);
+      return sa < sb ? -1 : sa > sb ? 1 : 0;
+    })
+    .forEach((key, n) => canonNames.set(key, `g${n + 1}`));
+  const canonGroups = bodies
+    .map((body, i) => {
+      const name = canonNames.get(keys[i] as string);
+      return name === undefined ? body : { ...body, or_group: name };
     })
     .sort((a, b) => (stableStringify(a) < stableStringify(b) ? -1 : 1));
   return { ...conditions, groups: canonGroups };

@@ -19,8 +19,9 @@
 // is exactly: OR rows inside a cluster, the match word between clusters. A
 // cluster is an or_group (OWNER 2026-10-22: "Business duration is "Haven't
 // started yet" or Credit Score is "Unsure / Below 550"" — "+ or" names one for
-// its cluster, so a row whose question changes stays in it) or, for rules
-// saved without one, the rows on one field.
+// its cluster at click time, so a row whose question changes stays in it) or,
+// for rules saved without one, the rows on one field (a row without an
+// or_group whose question changes leaves that cluster: "and", as before).
 // Operators NOT in the evaluator (contains, …) are omitted from the dropdown
 // per §6.10 (never disabled-but-visible). "is empty"/"is not empty" are pure
 // §6.10 sugar over eq/neq with value "" (identical serialized bytes).
@@ -1735,11 +1736,14 @@ export const RULES_BUILDER_SCRIPT = `(function () {
   }
 
   // The value controls, then the field's format hint (Date / Time of day …).
+  // Review 1 (MINOR-3): a block of its own, so on hosts without the panel's
+  // flex row styles (the auction / routing modals) the row's remove button never
+  // butts against the hint text.
   function renderValueZone(state, row, zone) {
     renderValueControls(state, row, zone);
     var hintMeta = fieldMetaOf(state, row.field);
     if (hintMeta && typeof hintMeta.hint === 'string' && hintMeta.hint !== '' && opKind(row.op) !== 'none') {
-      var hint = el('span', 'form-help lg-rb-hint');
+      var hint = el('div', 'form-help lg-rb-hint');
       hint.textContent = hintMeta.hint;
       zone.appendChild(hint);
     }
@@ -2114,7 +2118,6 @@ export const RULES_BUILDER_SCRIPT = `(function () {
     }
     customInput.addEventListener('input', function () {
       var typed = trimStr(customInput.value);
-      keepInCluster(state, row);
       // the Custom field path cannot add a second share of traffic either
       if (customRefused(typed)) {
         row.field = '';
@@ -2133,9 +2136,9 @@ export const RULES_BUILDER_SCRIPT = `(function () {
       writeOut(state);
     });
     fieldSel.addEventListener('change', function () {
-      // OWNER 2026-10-22: a row whose question changes stays in its "or"
-      // cluster (the "or" never turns into "and" behind the operator's back).
-      keepInCluster(state, row);
+      // OWNER 2026-10-22 + review 1: a row that carries an or_group (only
+      // "+ or" names one) stays in its "or" cluster whatever its question; a
+      // row without one leaves its same-question cluster (AND), as before.
       if (fieldSel.value === '__lgcustom__') {
         row.field = '';
         customInput.removeAttribute('hidden');
@@ -2245,15 +2248,6 @@ export const RULES_BUILDER_SCRIPT = `(function () {
     for (i = 0; i < rows.length; i++) { if (keys[i] === keys[at]) { out.push(rows[i]); } }
     return out;
   }
-  // Before a row's question changes: a cluster of 2+ rows still keyed by its
-  // question (saved before "or" groups) gets a name, so the row stays in it.
-  function keepInCluster(state, row) {
-    var mates = clusterMates(state.rows, row);
-    if (mates.length < 2 || unitKeys(state.rows)[state.rows.indexOf(row)].indexOf('g:') === 0) { return; }
-    var og = nextOrGroup(state.rows);
-    var i;
-    for (i = 0; i < mates.length; i++) { mates[i].or_group = og; }
-  }
   // A share of traffic is never one of several "or" conditions (the server
   // refuses it): that row leaves its cluster.
   function leaveCluster(row) {
@@ -2266,12 +2260,22 @@ export const RULES_BUILDER_SCRIPT = `(function () {
     for (i = 0; i < rows.length; i++) { if (orGroupOf(rows[i]) !== null) { counts['k' + rows[i].or_group] = (counts['k' + rows[i].or_group] || 0) + 1; } }
     for (i = 0; i < rows.length; i++) { if (rows[i].or_group !== undefined && !(counts['k' + rows[i].or_group] >= 2)) { delete rows[i].or_group; } }
   }
-  // "+ Add condition" starts on the first field that is not a share of
-  // traffic (that one is picked on purpose, and only once).
+  // "+ Add condition" starts on the first field the rule does not use yet
+  // (else the first field) — never a share of traffic (that one is picked on
+  // purpose, and only once). Review 1: the new row is then its own "and"
+  // cluster, not drawn inside an existing same-question cluster.
   function defaultField(state) {
-    var i;
-    for (i = 0; i < state.fields.length; i++) { if (!shareInputOf(state.fields[i])) { return state.fields[i].internal_field; } }
-    return '';
+    var used = {};
+    var first = '';
+    var i, f;
+    for (i = 0; i < state.rows.length; i++) { used['k' + state.rows[i].field] = true; }
+    for (i = 0; i < state.fields.length; i++) {
+      if (shareInputOf(state.fields[i])) { continue; }
+      f = state.fields[i].internal_field;
+      if (first === '') { first = f; }
+      if (!used['k' + f]) { return f; }
+    }
+    return first;
   }
 
   function renderCardBody(state) {
