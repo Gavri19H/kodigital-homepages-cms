@@ -10930,6 +10930,7 @@ if (!document.getElementById('toast-animations')) {
     { ui: 'not_empty', label: 'is not empty', kind: 'none' }
   ];
   var EMPTY_COPY = 'No conditions \u2014 this rule always applies.';
+  var OR_BUTTON_TITLE = 'Add another condition here \u2014 any one of them is enough';
   var TIMES = '\u00d7';
 
   function opKind(ui) {
@@ -11033,9 +11034,9 @@ if (!document.getElementById('toast-animations')) {
   // ---- parse (stored conditions text/object -> ui rows) --------------------
 
   function entryKeysSupported(g, kind) {
-    var allowed = kind === 'range' ? ['field', 'op', 'from', 'to']
-      : kind === 'list' ? ['field', 'op', 'values']
-      : ['field', 'op', 'value'];
+    var allowed = kind === 'range' ? ['field', 'op', 'from', 'to', 'or_group']
+      : kind === 'list' ? ['field', 'op', 'values', 'or_group']
+      : ['field', 'op', 'value', 'or_group'];
     var keys = Object.keys(g);
     var i;
     for (i = 0; i < keys.length; i++) {
@@ -11047,7 +11048,17 @@ if (!document.getElementById('toast-animations')) {
     return true;
   }
 
+  // A stored entry's "or" cluster name rides along on its row (last key).
   function rowFromEntry(g) {
+    if (Object.prototype.hasOwnProperty.call(g, 'or_group') && (typeof g.or_group !== 'string' || !OR_GROUP_RE.test(g.or_group))) {
+      return 'or_group_invalid';
+    }
+    var row = rowFromEntryBody(g);
+    if (typeof row !== 'string' && typeof g.or_group === 'string') { row.or_group = g.or_group; }
+    return row;
+  }
+
+  function rowFromEntryBody(g) {
     var field = g.field;
     if (typeof field !== 'string' || trimStr(field) === '') { return 'field_invalid'; }
     var op = g.op;
@@ -11111,26 +11122,53 @@ if (!document.getElementById('toast-animations')) {
     return rowsFromValue(v);
   }
 
+  // ---- "or" clusters (mirror of auction-rules.ts conditionUnitKeys) --------
+  // OWNER 2026-10-22: rows sharing an or_group (2+ rows) are ONE cluster
+  // whatever their questions; a row without one clusters with its field's
+  // rows (legacy). Counts are keyed 'k' + name (never a prototype key).
+
+  var OR_GROUP_RE = /^[A-Za-z0-9_-]{1,32}$/;
+  function orGroupOf(row) { return typeof row.or_group === 'string' && row.or_group !== '' ? row.or_group : null; }
+  function unitKeys(rows) {
+    var counts = {};
+    var keys = [];
+    var i, og;
+    for (i = 0; i < rows.length; i++) {
+      og = orGroupOf(rows[i]);
+      if (og !== null) { counts['k' + og] = (counts['k' + og] || 0) + 1; }
+    }
+    for (i = 0; i < rows.length; i++) {
+      og = orGroupOf(rows[i]);
+      keys.push(og !== null && counts['k' + og] >= 2 ? 'g:' + og : 'f:' + rows[i].field);
+    }
+    return keys;
+  }
+
   // ---- serialize (ui rows -> evaluator-exact conditions JSON) --------------
 
   function normalizeClusterOrder(rows) {
-    var fields = [];
-    var i;
-    for (i = 0; i < rows.length; i++) {
-      var f = rows[i].field;
+    var keys = unitKeys(rows);
+    var order = [];
+    var i, j;
+    for (i = 0; i < keys.length; i++) {
       var seen = false;
-      var j;
-      for (j = 0; j < fields.length; j++) { if (fields[j] === f) { seen = true; break; } }
-      if (!seen) { fields.push(f); }
+      for (j = 0; j < order.length; j++) { if (order[j] === keys[i]) { seen = true; break; } }
+      if (!seen) { order.push(keys[i]); }
     }
     var out = [];
-    for (i = 0; i < fields.length; i++) {
-      for (var k = 0; k < rows.length; k++) { if (rows[k].field === fields[i]) { out.push(rows[k]); } }
+    for (i = 0; i < order.length; i++) {
+      for (j = 0; j < rows.length; j++) { if (keys[j] === order[i]) { out.push(rows[j]); } }
     }
     return out;
   }
 
-  function groupFromRow(row) {
+  function groupFromRow(row, inOrGroup) {
+    var g = groupBodyFromRow(row);
+    if (inOrGroup && typeof row.or_group === 'string') { g.or_group = row.or_group; }
+    return g;
+  }
+
+  function groupBodyFromRow(row) {
     if (row.op === 'is_empty') { return { field: row.field, op: 'eq', value: '' }; }
     if (row.op === 'not_empty') { return { field: row.field, op: 'neq', value: '' }; }
     if (row.op === 'range') {
@@ -11154,8 +11192,9 @@ if (!document.getElementById('toast-animations')) {
     var i;
     for (i = 0; i < rows.length; i++) { if (rows[i].field !== '') { withField.push(rows[i]); } }
     var norm = normalizeClusterOrder(withField);
+    var keys = unitKeys(norm);
     var groups = [];
-    for (i = 0; i < norm.length; i++) { groups.push(groupFromRow(norm[i])); }
+    for (i = 0; i < norm.length; i++) { groups.push(groupFromRow(norm[i], keys[i].indexOf('g:') === 0)); }
     return JSON.stringify({ groups: groups });
   }
 
@@ -11241,12 +11280,16 @@ if (!document.getElementById('toast-animations')) {
     return label + ' is not empty';
   }
   function clustersOf(rows) {
+    var keys = unitKeys(rows);
     var out = [];
     var current = null;
     var i;
     for (i = 0; i < rows.length; i++) {
-      if (current !== null && current.field === rows[i].field) { current.rows.push(rows[i]); }
-      else { current = { field: rows[i].field, rows: [rows[i]] }; out.push(current); }
+      if (current !== null && current.key === keys[i]) { current.rows.push(rows[i]); }
+      else {
+        current = { field: rows[i].field, key: keys[i], orGroup: keys[i].indexOf('g:') === 0 ? keys[i].slice(2) : null, rows: [rows[i]] };
+        out.push(current);
+      }
     }
     return out;
   }
@@ -11750,7 +11793,7 @@ if (!document.getElementById('toast-animations')) {
       if (kept !== '' && !(isShareField(state, kept) && fieldTakenByOther(state, kept, row))) {
         row.field = kept;
         row.customText = undefined;
-        if (isShareField(state, kept)) { row.op = 'eq'; row.vtype = 'number'; if (!finiteNum(row.value)) { row.value = SHARE_DEFAULT; } }
+        if (isShareField(state, kept)) { row.op = 'eq'; row.vtype = 'number'; if (!finiteNum(row.value)) { row.value = SHARE_DEFAULT; } leaveCluster(row); }
       }
     }
 
@@ -11822,6 +11865,7 @@ if (!document.getElementById('toast-animations')) {
     }
     customInput.addEventListener('input', function () {
       var typed = trimStr(customInput.value);
+      keepInCluster(state, row);
       // the Custom field path cannot add a second share of traffic either
       if (customRefused(typed)) {
         row.field = '';
@@ -11831,7 +11875,7 @@ if (!document.getElementById('toast-animations')) {
         row.field = typed;
         row.customText = undefined;
         markCustomRefused(false);
-        if (isShareField(state, typed)) { row.op = 'eq'; row.vtype = 'number'; if (!finiteNum(row.value)) { row.value = SHARE_DEFAULT; } }
+        if (isShareField(state, typed)) { row.op = 'eq'; row.vtype = 'number'; if (!finiteNum(row.value)) { row.value = SHARE_DEFAULT; } leaveCluster(row); }
       }
       writeOut(state);
     });
@@ -11840,6 +11884,9 @@ if (!document.getElementById('toast-animations')) {
       writeOut(state);
     });
     fieldSel.addEventListener('change', function () {
+      // OWNER 2026-10-22: a row whose question changes stays in its "or"
+      // cluster (the "or" never turns into "and" behind the operator's back).
+      keepInCluster(state, row);
       if (fieldSel.value === '__lgcustom__') {
         row.field = '';
         customInput.removeAttribute('hidden');
@@ -11856,6 +11903,7 @@ if (!document.getElementById('toast-animations')) {
         row.vtype = 'number';
         row.vtypeTouched = false;
         row.value = SHARE_DEFAULT;
+        leaveCluster(row);
         renderCardBody(state);
         writeOut(state);
         return;
@@ -11924,6 +11972,51 @@ if (!document.getElementById('toast-animations')) {
   function newRow(field) {
     return { field: field, op: 'eq', vtype: 'text', value: '' };
   }
+
+  // ---- "or" clusters in the editor (OWNER 2026-10-22) ------------------------
+  // "+ or" names an or_group for its cluster (g1, g2, … — the first free one)
+  // so the new row stays in it even when its question changes.
+  function nextOrGroup(rows) {
+    var n = 1;
+    var i, used;
+    for (;;) {
+      used = false;
+      for (i = 0; i < rows.length; i++) { if (rows[i].or_group === 'g' + n) { used = true; break; } }
+      if (!used) { return 'g' + n; }
+      n++;
+    }
+  }
+  // The rows of row's cluster (row included), in state order.
+  function clusterMates(rows, row) {
+    var keys = unitKeys(rows);
+    var at = rows.indexOf(row);
+    var out = [];
+    var i;
+    if (at < 0) { return out; }
+    for (i = 0; i < rows.length; i++) { if (keys[i] === keys[at]) { out.push(rows[i]); } }
+    return out;
+  }
+  // Before a row's question changes: a cluster of 2+ rows still keyed by its
+  // question (saved before "or" groups) gets a name, so the row stays in it.
+  function keepInCluster(state, row) {
+    var mates = clusterMates(state.rows, row);
+    if (mates.length < 2 || unitKeys(state.rows)[state.rows.indexOf(row)].indexOf('g:') === 0) { return; }
+    var og = nextOrGroup(state.rows);
+    var i;
+    for (i = 0; i < mates.length; i++) { mates[i].or_group = og; }
+  }
+  // A share of traffic is never one of several "or" conditions (the server
+  // refuses it): that row leaves its cluster.
+  function leaveCluster(row) {
+    if (row.or_group !== undefined) { delete row.or_group; }
+  }
+  // An or_group left on a single row reads like any other row: drop the name.
+  function dropLonelyOrGroups(rows) {
+    var counts = {};
+    var i;
+    for (i = 0; i < rows.length; i++) { if (orGroupOf(rows[i]) !== null) { counts['k' + rows[i].or_group] = (counts['k' + rows[i].or_group] || 0) + 1; } }
+    for (i = 0; i < rows.length; i++) { if (rows[i].or_group !== undefined && !(counts['k' + rows[i].or_group] >= 2)) { delete rows[i].or_group; } }
+  }
   // "+ Add condition" starts on the first field that is not a share of
   // traffic (that one is picked on purpose, and only once).
   function defaultField(state) {
@@ -11935,6 +12028,7 @@ if (!document.getElementById('toast-animations')) {
   function renderCardBody(state) {
     var zone = state.zone;
     if (!zone) { return; }
+    dropLonelyOrGroups(state.rows);
     state.rows = normalizeClusterOrder(state.rows);
     clearNode(zone);
 
@@ -11954,6 +12048,7 @@ if (!document.getElementById('toast-animations')) {
         var clusterEl = el('div', 'lg-rb-cluster');
         clusterEl.setAttribute('data-lg-rb-cluster', '');
         clusterEl.setAttribute('data-cluster-field', clusters[i].field);
+        if (clusters[i].orGroup !== null) { clusterEl.setAttribute('data-cluster-or-group', clusters[i].orGroup); }
         var j;
         for (j = 0; j < clusters[i].rows.length; j++) {
           if (j > 0) {
@@ -11963,19 +12058,28 @@ if (!document.getElementById('toast-animations')) {
           }
           clusterEl.appendChild(renderRowEl(state, clusters[i].rows[j]));
         }
-        (function (clusterField) {
+        (function (cluster) {
           // one share of traffic per rule: no "+ or" beside it
-          if (isShareField(state, clusterField)) { return; }
+          if (isShareField(state, cluster.field)) { return; }
           var actions = el('div', 'lg-rb-clusteractions');
           var orBtn = el('button', 'btn btn-sm btn-outline');
           orBtn.type = 'button';
           orBtn.textContent = '+ or';
-          orBtn.title = 'Add another accepted answer for this field';
+          orBtn.title = OR_BUTTON_TITLE;
           orBtn.addEventListener('click', function () {
-            var last = -1;
+            // OWNER 2026-10-22: the new row joins THIS cluster for good — the
+            // cluster gets an or_group (when it has none yet) that the new row
+            // shares, so changing the new row's question keeps the "or".
+            var anchor = cluster.rows[cluster.rows.length - 1];
+            var mates = clusterMates(state.rows, anchor);
+            if (mates.length === 0) { mates = [anchor]; }
+            var anchorKey = unitKeys(state.rows)[state.rows.indexOf(anchor)] || '';
+            var og = anchorKey.indexOf('g:') === 0 ? anchorKey.slice(2) : nextOrGroup(state.rows);
             var k;
-            for (k = 0; k < state.rows.length; k++) { if (state.rows[k].field === clusterField) { last = k; } }
-            var added = newRow(clusterField);
+            for (k = 0; k < mates.length; k++) { mates[k].or_group = og; }
+            var added = newRow(anchor.field !== '' ? anchor.field : cluster.field);
+            added.or_group = og;
+            var last = state.rows.indexOf(mates[mates.length - 1]);
             if (last === -1) { state.rows.push(added); }
             else { state.rows.splice(last + 1, 0, added); }
             renderCardBody(state);
@@ -11983,7 +12087,7 @@ if (!document.getElementById('toast-animations')) {
           });
           actions.appendChild(orBtn);
           clusterEl.appendChild(actions);
-        })(clusters[i].field);
+        })(clusters[i]);
         zone.appendChild(clusterEl);
       }
     }
@@ -12371,16 +12475,48 @@ if (!document.getElementById('toast-animations')) {
   }
   // Mirror of qrShareChip: a share of traffic reads "10% of traffic".
   function shareChip(v) { return String(v == null ? '' : v) + '% of traffic'; }
+  function entryText(g) {
+    if (g.field === 'traffic_share') { return shareChip(g.value); }
+    return fieldLabel(g.field || '') + ' ' + opWord(g.op || 'eq') + ' ' + valueText(g, g.field || '');
+  }
+  // Mirror of auction-rules.ts conditionUnitKeys: an or_group shared by 2+
+  // entries is one unit, else the entries on one field (counts keyed 'k' + name).
+  function unitKeysOf(entries) {
+    var counts = {};
+    var keys = [];
+    var i, og;
+    for (i = 0; i < entries.length; i++) {
+      og = typeof entries[i].or_group === 'string' && entries[i].or_group !== '' ? entries[i].or_group : null;
+      if (og !== null) { counts['k' + og] = (counts['k' + og] || 0) + 1; }
+    }
+    for (i = 0; i < entries.length; i++) {
+      og = typeof entries[i].or_group === 'string' && entries[i].or_group !== '' ? entries[i].or_group : null;
+      keys.push(og !== null && counts['k' + og] >= 2 ? 'g:' + og : 'f:' + (typeof entries[i].field === 'string' ? entries[i].field : ''));
+    }
+    return keys;
+  }
+  // Mirror of qrConditionChips: one chip per matching unit; "(A or B)" for a
+  // unit of several entries.
   function conditionChips(rule) {
     var conditions = rule.conditions_json;
     if (!conditions || typeof conditions !== 'object' || !isArr(conditions.groups) || conditions.groups.length === 0) { return ['Always']; }
-    var chips = [];
-    var i;
+    var entries = [];
+    var i, j;
     for (i = 0; i < conditions.groups.length; i++) {
       var g = conditions.groups[i];
-      if (!g || typeof g !== 'object') { continue; }
-      if (g.field === 'traffic_share') { chips.push(shareChip(g.value)); continue; }
-      chips.push(fieldLabel(g.field || '') + ' ' + opWord(g.op || 'eq') + ' ' + valueText(g, g.field || ''));
+      if (g && typeof g === 'object') { entries.push(g); }
+    }
+    var keys = unitKeysOf(entries);
+    var order = [];
+    var units = {};
+    for (i = 0; i < entries.length; i++) {
+      if (!Object.prototype.hasOwnProperty.call(units, 'k' + keys[i])) { order.push(keys[i]); units['k' + keys[i]] = []; }
+      units['k' + keys[i]].push(entryText(entries[i]));
+    }
+    var chips = [];
+    for (j = 0; j < order.length; j++) {
+      var unit = units['k' + order[j]];
+      chips.push(unit.length > 1 ? '(' + unit.join(' or ') + ')' : unit[0]);
     }
     return chips.length > 0 ? chips : ['Always'];
   }
@@ -12607,7 +12743,8 @@ if (!document.getElementById('toast-animations')) {
     if (mount) { while (mount.firstChild) { mount.removeChild(mount.firstChild); } }
     mountedConditions = null;
     if (window.lgRulesBuilder && mount) {
-      try { mountedConditions = window.lgRulesBuilder.mount(mount, raw, outEl, { fields: combinedFields() }); } catch (e) { mountedConditions = null; }
+      // the builder's "Matches when" reads the rule's own match word (ANY → "or")
+      try { mountedConditions = window.lgRulesBuilder.mount(mount, raw, outEl, { fields: combinedFields(), match: currentMatchMode() }); } catch (e) { mountedConditions = null; }
     }
     updateLive();
     modal.hidden = false;
@@ -12774,7 +12911,12 @@ if (!document.getElementById('toast-animations')) {
       var atog = closestAttr2(t, 'data-qr-action-toggle');
       if (atog) { setToggle(atog, atog.className.indexOf('on') < 0); updateLive(); return; }
       var match = closestAttr2(t, 'data-qr-match');
-      if (match) { setMatchMode(match.getAttribute('data-qr-match')); updateLive(); return; }
+      if (match) {
+        setMatchMode(match.getAttribute('data-qr-match'));
+        if (mountedConditions && mountedConditions.setMatch) { mountedConditions.setMatch(currentMatchMode()); }
+        updateLive();
+        return;
+      }
       var mode = closestAttr2(t, 'data-qr-mode');
       if (mode) { setTargetMode(mode.getAttribute('data-qr-mode')); updateLive(); return; }
     });

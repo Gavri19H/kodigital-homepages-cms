@@ -20,7 +20,7 @@
 
 import { sampleAnswerComputed, sampleAnswerComputedByOffer } from "../../leadgen/sample-computed";
 import { mintPublicId } from "../../leadgen/ids";
-import { conditionsHash, parseWaterfallTiers } from "../../leadgen/auction-rules";
+import { conditionsHash, orGroupConditionError, parseWaterfallTiers } from "../../leadgen/auction-rules";
 import { ruleClockConditionError } from "../../leadgen/computed";
 import type { LeadgenCarrierMatch } from "../../leadgen/auction-rules";
 import { evaluateDynamicOffersEligibility } from "../../leadgen/validation";
@@ -1017,6 +1017,11 @@ function validateConditions(raw: unknown): { conditions: LeadgenRuleConditions; 
     if (Array.isArray(g["values"])) group.values = g["values"] as unknown[];
     if (typeof g["from"] === "number") group.from = g["from"];
     if (typeof g["to"] === "number") group.to = g["to"];
+    // OWNER 2026-10-22: the "or" group across questions is KEPT (it used to be
+    // stripped here as an unknown key, so "A or B" saved as "A and B").
+    const orGroupError = orGroupConditionError(g, `conditions.groups[${i}]`);
+    if (orGroupError !== null) return { conditions: { groups: [] }, error: orGroupError };
+    if (typeof g["or_group"] === "string") group.or_group = g["or_group"];
     const clockError = ruleClockConditionError(group);
     if (clockError !== null) return { conditions: { groups: [] }, error: clockError };
     groups.push(group);

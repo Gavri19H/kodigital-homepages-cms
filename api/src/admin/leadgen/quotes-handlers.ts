@@ -83,6 +83,7 @@ import {
   TRAFFIC_SHARE_ROUTING_FIELD,
   type RuleCheckpointFunnel,
 } from "../../leadgen/rule-checkpoint";
+import { orGroupConditionError } from "../../leadgen/auction-rules";
 import { offerHasOwnClickUrl } from "../../leadgen/macros";
 import {
   rebuildDerivedIndexes,
@@ -348,6 +349,8 @@ function validateRoutingConditionsShape(value: unknown): string | null {
     if ((op === "in" || op === "not_in") && !Array.isArray(group["values"])) {
       return `conditions_json.groups[${i}] ${op} op requires a values array`;
     }
+    const orGroupError = orGroupConditionError(group, `conditions_json.groups[${i}]`);
+    if (orGroupError !== null) return orGroupError;
     if (group["field"] === TRAFFIC_SHARE_ROUTING_FIELD) {
       if (shareSeen) return TRAFFIC_SHARE_TWICE_MESSAGE;
       shareSeen = true;
@@ -3733,6 +3736,19 @@ async function preparePages(
           const conditions = caseRaw["conditions"];
           if (!isRecord(conditions) || !Array.isArray(conditions["groups"])) {
             errors[`${casePath}.conditions`] = "conditions must be an object { groups: [...] }";
+            bad = true;
+            continue;
+          }
+          // OWNER 2026-10-22: an "or" group across conditions must be named
+          // like every other rule's (auction-rules.ts orGroupConditionError).
+          const groupsRaw = conditions["groups"] as unknown[];
+          let orGroupError: string | null = null;
+          for (let gi = 0; gi < groupsRaw.length && orGroupError === null; gi++) {
+            const g = groupsRaw[gi];
+            if (isRecord(g)) orGroupError = orGroupConditionError(g, `conditions.groups[${gi}]`);
+          }
+          if (orGroupError !== null) {
+            errors[`${casePath}.conditions`] = orGroupError;
             bad = true;
             continue;
           }

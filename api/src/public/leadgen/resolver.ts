@@ -1561,11 +1561,18 @@ function routingShareOwner(rules: readonly ParsedQuoteRule[], visitor: RoutingVi
 // this visitor's bucket lies in THIS rule's slice (shareOwner); the rule's
 // other conditions combine with it under its match mode exactly as before (the
 // share entry is evaluated as a yes/no fact through the same conditionsMatch).
+// The save gate refuses a share inside an "or" group (orGroupConditionError);
+// the entry's or_group is still carried over so the fact is evaluated in
+// exactly the unit the stored rule names.
 function quoteRuleMatches(r: ParsedQuoteRule, flat: Readonly<Record<string, unknown>>, shareOwner: string | null): boolean {
   const groups = r.conditions.groups ?? [];
   if (!groups.some((g) => g.field === TRAFFIC_SHARE_ROUTING_FIELD)) return conditionsMatch(r.conditions, flat, r.match_mode);
   const shareAsFact: LeadgenRuleConditions = {
-    groups: groups.map((g) => (g.field === TRAFFIC_SHARE_ROUTING_FIELD ? { field: g.field, op: "eq" as const, value: true } : g)),
+    groups: groups.map((g) =>
+      g.field === TRAFFIC_SHARE_ROUTING_FIELD
+        ? { field: g.field, op: "eq" as const, value: true, ...(g.or_group !== undefined ? { or_group: g.or_group } : {}) }
+        : g,
+    ),
   };
   return conditionsMatch(shareAsFact, { ...flat, [TRAFFIC_SHARE_ROUTING_FIELD]: shareOwner === r.public_id }, r.match_mode);
 }
