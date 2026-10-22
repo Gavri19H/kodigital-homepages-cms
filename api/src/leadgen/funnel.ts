@@ -20,6 +20,7 @@ import type {
 } from "../admin/leadgen/db-types";
 import { isPublicId } from "./ids";
 import { ruleClockConditionError } from "./computed";
+import { orGroupConditionError } from "./auction-rules";
 import { sha256Hex } from "../public/leadgen/auction/parse";
 
 // ---------------------------------------------------------------------------
@@ -354,6 +355,9 @@ function validateRuleConditions(value: unknown, errors: FunnelRuleError[]): void
     }
     const clockError = ruleClockConditionError(group);
     if (clockError !== null) errors.push({ code: "conditions_invalid", message: clockError });
+    // OWNER 2026-10-22: an "or" group across questions (auction-rules.ts).
+    const orGroupError = orGroupConditionError(group, `conditions_json.groups[${i}]`);
+    if (orGroupError !== null) errors.push({ code: "conditions_invalid", message: orGroupError });
   }
 }
 

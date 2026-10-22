@@ -135,6 +135,10 @@ export interface LeadgenRuleConditionGroup {
   values?: unknown[];
   from?: number;
   to?: number;
+  // OWNER 2026-10-22: entries sharing an or_group are ONE matching unit (any
+  // of them is enough), across questions; absent = the legacy same-field unit
+  // (auction-rules.ts conditionUnitKeys).
+  or_group?: string;
 }
 
 export interface LeadgenRuleConditions {

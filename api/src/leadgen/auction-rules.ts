@@ -22,6 +22,7 @@ import type {
 } from "../admin/leadgen/db-types";
 import { conditionalMet, type LeadgenPayloadConditional } from "./payload";
 import { sha256Hex } from "../public/leadgen/auction/parse";
+import { TRAFFIC_SHARE_ROUTING_FIELD } from "./rule-checkpoint";
 
 const INCLUDE_ACTIONS: ReadonlySet<LeadgenRuleAction> = new Set(["include_only", "allow_list"]);
 const EXCLUDE_ACTIONS: ReadonlySet<LeadgenRuleAction> = new Set(["exclude", "block_list"]);
@@ -35,7 +36,8 @@ function isOverride(strictly: number | boolean | undefined): boolean {
 }
 
 // ---------------------------------------------------------------------------
-// §21.4 typed conditions — OR within a field, AND across fields
+// §21.4 typed conditions — OR within a unit (an or_group, else a field), the
+// units combined by the rule's match mode (AND by default)
 // ---------------------------------------------------------------------------
 
 // One §21.4 group entry → the `conditionalMet` conditional shape (field→when).
@@ -73,17 +75,68 @@ function entryMet(entry: LeadgenRuleConditionGroup, context: Readonly<Record<str
   return actual.some((item) => itemMet(entry.op, item));
 }
 
-// 07 §21.4 (NORMATIVE): entries sharing a `field` are OR'd; distinct fields are
-// AND'd (matchMode="all", the DEFAULT — byte/behavior-identical to every
-// EXISTING caller, which never passes a 3rd argument). Empty/absent groups =
-// an UNCONDITIONAL rule (always matches, regardless of matchMode). Each entry
-// is evaluated by the shared `conditionalMet` (an ABSENT context value never
-// satisfies a conditional — deterministic).
-//
-// matchMode="any" (P4a routing-rule ANY/ALL, additive): the within-field OR
-// is unchanged, but the ACROSS-FIELDS combinator flips from AND to OR — the
-// rule matches when AT LEAST ONE field's group is satisfied. This is the ONLY
-// caller-visible behavior change, and only when a caller explicitly opts in.
+// OWNER 2026-10-22 ("the "or" operand isn't working when trying to use answers
+// from more than 1 question … Business duration is "Haven't started yet" or
+// Credit Score is "Unsure / Below 550" … the "or" changes automatically to
+// "and""): an entry may carry an OPTIONAL `or_group` name. Entries sharing an
+// or_group form ONE matching unit — any of them is enough — whatever their
+// questions. An entry without the key (every rule saved before this) keeps
+// the legacy unit: the entries on its own field. An or_group carried by ONE
+// entry has nothing to "or" with, so that entry is read like a legacy one (by
+// its field) — the builder writes the key only on groups of two or more, and
+// dropping a lonely key therefore never changes a verdict.
+export const OR_GROUP_PATTERN = /^[A-Za-z0-9_-]{1,32}$/;
+
+function orGroupOf(entry: { or_group?: unknown }): string | null {
+  const og = entry.or_group;
+  return typeof og === "string" && og !== "" ? og : null;
+}
+
+// The matching-unit key of every entry, index-aligned: "g:<or_group>" for an
+// or_group shared by two or more entries, else "f:<field>" (legacy). PURE —
+// the builder (ui-rules-builder.ts, TS + island twin) and the routing card
+// chips group by exactly this key, so the words can never drift from the
+// verdict.
+export function conditionUnitKeys(entries: ReadonlyArray<{ field: string; or_group?: unknown }>): string[] {
+  const counts = new Map<string, number>();
+  for (const entry of entries) {
+    const og = orGroupOf(entry);
+    if (og !== null) counts.set(og, (counts.get(og) ?? 0) + 1);
+  }
+  return entries.map((entry) => {
+    const og = orGroupOf(entry);
+    return og !== null && (counts.get(og) ?? 0) >= 2 ? `g:${og}` : `f:${entry.field}`;
+  });
+}
+
+// Save-time check shared by every validator that accepts §21.4 conditions
+// (auction rules, quote routing rules, funnel rules, ruled slots): an or_group
+// is 1-32 letters / digits / "_" / "-", and a Share of traffic is never one of
+// several "or" conditions (it owns a slice of the traffic; resolver.ts
+// quoteRuleMatches evaluates it as its own yes/no fact). `at` names the entry
+// in the message ("conditions.groups[0]"). Null = acceptable.
+export function orGroupConditionError(group: Readonly<Record<string, unknown>>, at: string): string | null {
+  if (!("or_group" in group) || group["or_group"] === undefined) return null;
+  const og = group["or_group"];
+  if (typeof og !== "string" || !OR_GROUP_PATTERN.test(og)) {
+    return `${at}.or_group must be 1-32 letters, digits, "_" or "-"`;
+  }
+  if (group["field"] === TRAFFIC_SHARE_ROUTING_FIELD) {
+    return 'Share of traffic can\'t be one of several "or" conditions — keep it as its own condition.';
+  }
+  return null;
+}
+
+// 07 §21.4 (NORMATIVE): a rule's entries form matching UNITS — entries sharing
+// an or_group (above), else entries sharing a `field` (legacy) — and a unit
+// matches when ANY of its entries matches. Units combine by matchMode:
+// "all" (the DEFAULT — byte/behavior-identical for every EXISTING caller,
+// which never passes a 3rd argument) ANDs them; "any" (P4a routing-rule
+// ANY/ALL, opt-in) ORs them. Empty/absent groups = an UNCONDITIONAL rule
+// (always matches, regardless of matchMode). Each entry is evaluated by the
+// shared `conditionalMet` (an ABSENT context value never satisfies a
+// conditional — deterministic). Rules without or_group evaluate exactly as
+// before (same-field OR, cross-field AND/OR by matchMode).
 export function conditionsMatch(
   conditions: LeadgenRuleConditions | null | undefined,
   context: Readonly<Record<string, unknown>>,
@@ -92,22 +145,24 @@ export function conditionsMatch(
   const groups = conditions?.groups;
   if (!Array.isArray(groups) || groups.length === 0) return true;
 
-  const byField = new Map<string, LeadgenRuleConditionGroup[]>();
-  for (const group of groups) {
-    const list = byField.get(group.field) ?? [];
+  const keys = conditionUnitKeys(groups);
+  const units = new Map<string, LeadgenRuleConditionGroup[]>();
+  groups.forEach((group, i) => {
+    const key = keys[i] as string;
+    const list = units.get(key) ?? [];
     list.push(group);
-    byField.set(group.field, list);
-  }
+    units.set(key, list);
+  });
   if (matchMode === "any") {
-    for (const entries of byField.values()) {
-      const fieldMet = entries.some((entry) => entryMet(entry, context));
-      if (fieldMet) return true; // OR across fields — first satisfied field wins
+    for (const entries of units.values()) {
+      const unitMet = entries.some((entry) => entryMet(entry, context));
+      if (unitMet) return true; // OR across units — first satisfied unit wins
     }
     return false;
   }
-  for (const entries of byField.values()) {
-    const fieldMet = entries.some((entry) => entryMet(entry, context));
-    if (!fieldMet) return false; // AND across fields
+  for (const entries of units.values()) {
+    const unitMet = entries.some((entry) => entryMet(entry, context));
+    if (!unitMet) return false; // AND across units
   }
   return true;
 }
@@ -139,15 +194,44 @@ function stableStringify(value: unknown): string {
 // group's `values` by canonical string, before hashing. Evaluation
 // (evaluateOfferRules/evaluateCarrierRules) is already order-independent, so this
 // only affects the stored hash, never a verdict.
+//
+// Review 1 (MINOR-1): an `or_group` NAME carries no meaning — only which
+// entries share one does. So before hashing, a name used by a single entry is
+// dropped (conditionUnitKeys reads that entry by its field, exactly like a
+// legacy one), and every shared name is renamed g1, g2, … by first appearance
+// in a canonical order (the groups ordered by their sorted member entries,
+// names excluded) — so swapped names or another entry order never split one
+// logical rule into two hashes. Rules without or_group hash exactly as before.
 function canonicalizeConditions(conditions: LeadgenRuleConditions): unknown {
   const groups = Array.isArray(conditions?.groups) ? conditions.groups : [];
-  const canonGroups = groups
-    .map((g) => {
-      const group = g as unknown as Record<string, unknown>;
-      const values = Array.isArray(group["values"])
-        ? [...(group["values"] as unknown[])].sort((a, b) => (stableStringify(a) < stableStringify(b) ? -1 : 1))
-        : group["values"];
-      return { ...group, ...(values !== undefined ? { values } : {}) };
+  const keys = conditionUnitKeys(groups);
+  const bodies = groups.map((g) => {
+    const { or_group: _name, ...group } = g as unknown as Record<string, unknown>;
+    const values = Array.isArray(group["values"])
+      ? [...(group["values"] as unknown[])].sort((a, b) => (stableStringify(a) < stableStringify(b) ? -1 : 1))
+      : group["values"];
+    return { ...group, ...(values !== undefined ? { values } : {}) };
+  });
+  const members = new Map<string, string[]>();
+  keys.forEach((key, i) => {
+    if (!key.startsWith("g:")) return;
+    const list = members.get(key) ?? [];
+    list.push(stableStringify(bodies[i]));
+    members.set(key, list);
+  });
+  const signatureOf = (key: string): string => stableStringify([...(members.get(key) ?? [])].sort());
+  const canonNames = new Map<string, string>();
+  [...members.keys()]
+    .sort((a, b) => {
+      const sa = signatureOf(a);
+      const sb = signatureOf(b);
+      return sa < sb ? -1 : sa > sb ? 1 : 0;
+    })
+    .forEach((key, n) => canonNames.set(key, `g${n + 1}`));
+  const canonGroups = bodies
+    .map((body, i) => {
+      const name = canonNames.get(keys[i] as string);
+      return name === undefined ? body : { ...body, or_group: name };
     })
     .sort((a, b) => (stableStringify(a) < stableStringify(b) ? -1 : 1));
   return { ...conditions, groups: canonGroups };

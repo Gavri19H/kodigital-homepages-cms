@@ -9,13 +9,23 @@
 //
 //   { "groups": [ { "field": string, "op": eq|neq|gt|lt|gte|lte|range|in|not_in,
 //                   "value"?: primitive, "values"?: primitive[],
-//                   "from"?: number, "to"?: number } ] }
+//                   "from"?: number, "to"?: number, "or_group"?: string } ] }
 //
-// §21.4 NORMATIVE combination semantics: entries sharing a `field` are OR'd,
-// distinct fields are AND'd, empty/absent groups = always matches. The grammar
-// has NO deeper nesting — so the builder's AND/OR surface is exactly: OR rows
-// inside a per-field cluster, AND between clusters (§6.10 "OR groups only if
-// the current evaluator supports them" — it supports same-field OR only).
+// §21.4 NORMATIVE combination semantics (auction-rules.ts conditionsMatch):
+// entries sharing an `or_group` form ONE unit, else (legacy, no key) entries
+// sharing a `field` do; a unit matches when ANY of its entries does; units are
+// AND'd (or OR'd under the rule's Match ANY); empty/absent groups = always
+// matches. The grammar has NO deeper nesting — so the builder's AND/OR surface
+// is exactly: OR rows inside a cluster, the match word between clusters. A
+// cluster is an or_group (OWNER 2026-10-22: "Business duration is "Haven't
+// started yet" or Credit Score is "Unsure / Below 550"" — "+ or" names one for
+// its cluster at click time, so a row whose question changes stays in it) or,
+// for rules saved without one, the rows on one field (a row without an
+// or_group whose question changes leaves that cluster: "and", as before).
+// Fix round 2: what the editor SHOWS as "or" stays "or" — when a saved rule
+// is opened, its clusters of 2+ rows on one question get an or_group in the
+// editor (the engine reads them exactly as before); rows added in the session
+// still need "+ or" to stay in a cluster.
 // Operators NOT in the evaluator (contains, …) are omitted from the dropdown
 // per §6.10 (never disabled-but-visible). "is empty"/"is not empty" are pure
 // §6.10 sugar over eq/neq with value "" (identical serialized bytes).
@@ -83,6 +93,7 @@
 // date picker; 0:00 for a time).
 
 import { escapeHtml } from "../templates/layout";
+import { conditionUnitKeys, OR_GROUP_PATTERN } from "../../leadgen/auction-rules";
 
 // ---------------------------------------------------------------------------
 // Types + operator metadata (single source for SSR, island mirror, and tests)
@@ -150,6 +161,10 @@ export interface RulesBuilderRow {
   from?: number;
   to?: number;
   values?: RulesBuilderChip[];
+  // The "or" cluster this row belongs to across questions (absent = the
+  // legacy same-field cluster). Written to storage only for a cluster of two
+  // or more rows.
+  or_group?: string;
 }
 
 export type RulesBuilderParseResult =
@@ -362,20 +377,32 @@ function vtypeOf(v: RulesBuilderPrimitive): RulesBuilderValueType {
 
 // Allowed key sets per op-kind — a stored entry carrying ANY other key is
 // unsupported (re-serializing would silently drop it; fallback preserves it).
+// `or_group` is allowed on every kind (OWNER 2026-10-22).
 function entryKeysSupported(g: Record<string, unknown>, kind: RulesBuilderValueKind): boolean {
   const allowed: Record<string, true> =
     kind === "range"
-      ? { field: true, op: true, from: true, to: true }
+      ? { field: true, op: true, from: true, to: true, or_group: true }
       : kind === "list"
-        ? { field: true, op: true, values: true }
-        : { field: true, op: true, value: true };
+        ? { field: true, op: true, values: true, or_group: true }
+        : { field: true, op: true, value: true, or_group: true };
   for (const key of Object.keys(g)) {
     if (allowed[key] !== true) return false;
   }
   return true;
 }
 
+// A stored entry's "or" cluster name rides along on its row (last key — the
+// island twin builds rows the same way).
 function rowFromEntry(g: Record<string, unknown>): RulesBuilderRow | string {
+  if ("or_group" in g && (typeof g["or_group"] !== "string" || !OR_GROUP_PATTERN.test(g["or_group"]))) {
+    return "or_group_invalid";
+  }
+  const row = rowFromEntryBody(g);
+  if (typeof row !== "string" && typeof g["or_group"] === "string") row.or_group = g["or_group"];
+  return row;
+}
+
+function rowFromEntryBody(g: Record<string, unknown>): RulesBuilderRow | string {
   const field = g["field"];
   if (typeof field !== "string" || field.trim() === "") return "field_invalid";
   const op = g["op"];
@@ -463,24 +490,34 @@ export function parseStoredConditions(raw: unknown): RulesBuilderParseResult {
 // Serialize (ui rows → evaluator-exact conditions JSON)
 // ---------------------------------------------------------------------------
 
-// §21.4 evaluation is order-independent (AND across fields, OR within a
-// field), so grouping same-field rows contiguously never changes a verdict —
-// it only makes groups[] mirror the visual clusters.
+// §21.4 evaluation is order-independent (units AND'd/OR'd, OR within a unit),
+// so gathering each cluster's rows contiguously never changes a verdict — it
+// only makes groups[] mirror the visual clusters. Clusters keep the order they
+// were authored in (first row first); a cluster is the evaluator's own unit
+// key (auction-rules.ts conditionUnitKeys: an or_group of 2+ rows, else the
+// field), so an "or" cluster spanning two questions is never pulled apart.
 export function normalizeClusterOrder(rows: readonly RulesBuilderRow[]): RulesBuilderRow[] {
-  const fieldOrder: string[] = [];
-  for (const row of rows) {
-    if (!fieldOrder.includes(row.field)) fieldOrder.push(row.field);
+  const keys = conditionUnitKeys(rows);
+  const keyOrder: string[] = [];
+  for (const key of keys) {
+    if (!keyOrder.includes(key)) keyOrder.push(key);
   }
   const out: RulesBuilderRow[] = [];
-  for (const field of fieldOrder) {
-    for (const row of rows) {
-      if (row.field === field) out.push(row);
-    }
+  for (const key of keyOrder) {
+    rows.forEach((row, i) => {
+      if (keys[i] === key) out.push(row);
+    });
   }
   return out;
 }
 
-function groupFromRow(row: RulesBuilderRow): Record<string, unknown> {
+function groupFromRow(row: RulesBuilderRow, inOrGroup = false): Record<string, unknown> {
+  const group = groupBodyFromRow(row);
+  if (inOrGroup && row.or_group !== undefined) group["or_group"] = row.or_group;
+  return group;
+}
+
+function groupBodyFromRow(row: RulesBuilderRow): Record<string, unknown> {
   if (row.op === "is_empty") return { field: row.field, op: "eq", value: "" };
   if (row.op === "not_empty") return { field: row.field, op: "neq", value: "" };
   if (row.op === "range") {
@@ -502,10 +539,14 @@ function groupFromRow(row: RulesBuilderRow): Record<string, unknown> {
 }
 
 // Rows with an empty field are not conditions yet (mid-edit) — skipped, so the
-// output NEVER fails validateFunnelRule's field-required check.
+// output NEVER fails validateFunnelRule's field-required check. `or_group` is
+// written only for a cluster of two or more rows (a lone row reads exactly
+// like a legacy one, so its key is dropped — rules without "or" groups keep
+// their exact bytes).
 export function serializeRows(rows: readonly RulesBuilderRow[]): string {
   const usable = normalizeClusterOrder(rows.filter((r) => r.field !== ""));
-  return JSON.stringify({ groups: usable.map(groupFromRow) });
+  const keys = conditionUnitKeys(usable);
+  return JSON.stringify({ groups: usable.map((row, i) => groupFromRow(row, (keys[i] ?? "").startsWith("g:"))) });
 }
 
 // ---------------------------------------------------------------------------
@@ -604,21 +645,29 @@ function rowSentence(
 }
 
 interface RowCluster {
+  // the cluster's first row's field (the legacy per-field cluster's field)
   field: string;
+  // the evaluator unit key (auction-rules.ts conditionUnitKeys)
+  key: string;
+  // set for an "or" cluster across questions
+  orGroup: string | null;
   rows: RulesBuilderRow[];
 }
 
+// Consecutive rows sharing a unit key — call on normalizeClusterOrder output.
 function clustersOf(rows: readonly RulesBuilderRow[]): RowCluster[] {
+  const keys = conditionUnitKeys(rows);
   const out: RowCluster[] = [];
   let current: RowCluster | null = null;
-  for (const row of rows) {
-    if (current !== null && current.field === row.field) {
+  rows.forEach((row, i) => {
+    const key = keys[i] ?? "";
+    if (current !== null && current.key === key) {
       current.rows.push(row);
     } else {
-      current = { field: row.field, rows: [row] };
+      current = { field: row.field, key, orGroup: key.startsWith("g:") ? key.slice(2) : null, rows: [row] };
       out.push(current);
     }
-  }
+  });
   return out;
 }
 
@@ -898,6 +947,8 @@ function renderRow(
 }
 
 const EMPTY_ROWS_COPY = "No conditions — this rule always applies.";
+// "+ or" adds an alternative to its cluster — the same question or another.
+const OR_BUTTON_TITLE = "Add another condition here — any one of them is enough";
 
 function renderClusters(
   rows: readonly RulesBuilderRow[],
@@ -920,10 +971,11 @@ function renderClusters(
     const rowsHtml = cluster.rows
       .map((row) => renderRow(row, fields, extraFields))
       .join(`<div class="lg-rb-orsep" data-lg-rb-orsep>or</div>`);
+    const orGroupAttr = cluster.orGroup === null ? "" : ` data-cluster-or-group="${escapeHtml(cluster.orGroup)}"`;
     parts.push(
-      `<div class="lg-rb-cluster" data-lg-rb-cluster data-cluster-field="${escapeHtml(cluster.field)}">` +
+      `<div class="lg-rb-cluster" data-lg-rb-cluster data-cluster-field="${escapeHtml(cluster.field)}"${orGroupAttr}>` +
         rowsHtml +
-        `<div class="lg-rb-clusteractions"><button type="button" class="btn btn-sm btn-outline" data-lg-rb-add-or data-field="${escapeHtml(cluster.field)}" title="Add another accepted answer for this field">+ or</button></div>` +
+        `<div class="lg-rb-clusteractions"><button type="button" class="btn btn-sm btn-outline" data-lg-rb-add-or data-field="${escapeHtml(cluster.field)}" title="${OR_BUTTON_TITLE}">+ or</button></div>` +
         `</div>`,
     );
   });
@@ -1132,6 +1184,7 @@ export const RULES_BUILDER_SCRIPT = `(function () {
     { ui: 'not_empty', label: 'is not empty', kind: 'none' }
   ];
   var EMPTY_COPY = 'No conditions \\u2014 this rule always applies.';
+  var OR_BUTTON_TITLE = 'Add another condition here \\u2014 any one of them is enough';
   var TIMES = '\\u00d7';
 
   function opKind(ui) {
@@ -1235,9 +1288,9 @@ export const RULES_BUILDER_SCRIPT = `(function () {
   // ---- parse (stored conditions text/object -> ui rows) --------------------
 
   function entryKeysSupported(g, kind) {
-    var allowed = kind === 'range' ? ['field', 'op', 'from', 'to']
-      : kind === 'list' ? ['field', 'op', 'values']
-      : ['field', 'op', 'value'];
+    var allowed = kind === 'range' ? ['field', 'op', 'from', 'to', 'or_group']
+      : kind === 'list' ? ['field', 'op', 'values', 'or_group']
+      : ['field', 'op', 'value', 'or_group'];
     var keys = Object.keys(g);
     var i;
     for (i = 0; i < keys.length; i++) {
@@ -1249,7 +1302,17 @@ export const RULES_BUILDER_SCRIPT = `(function () {
     return true;
   }
 
+  // A stored entry's "or" cluster name rides along on its row (last key).
   function rowFromEntry(g) {
+    if (Object.prototype.hasOwnProperty.call(g, 'or_group') && (typeof g.or_group !== 'string' || !OR_GROUP_RE.test(g.or_group))) {
+      return 'or_group_invalid';
+    }
+    var row = rowFromEntryBody(g);
+    if (typeof row !== 'string' && typeof g.or_group === 'string') { row.or_group = g.or_group; }
+    return row;
+  }
+
+  function rowFromEntryBody(g) {
     var field = g.field;
     if (typeof field !== 'string' || trimStr(field) === '') { return 'field_invalid'; }
     var op = g.op;
@@ -1313,26 +1376,53 @@ export const RULES_BUILDER_SCRIPT = `(function () {
     return rowsFromValue(v);
   }
 
+  // ---- "or" clusters (mirror of auction-rules.ts conditionUnitKeys) --------
+  // OWNER 2026-10-22: rows sharing an or_group (2+ rows) are ONE cluster
+  // whatever their questions; a row without one clusters with its field's
+  // rows (legacy). Counts are keyed 'k' + name (never a prototype key).
+
+  var OR_GROUP_RE = /^[A-Za-z0-9_-]{1,32}$/;
+  function orGroupOf(row) { return typeof row.or_group === 'string' && row.or_group !== '' ? row.or_group : null; }
+  function unitKeys(rows) {
+    var counts = {};
+    var keys = [];
+    var i, og;
+    for (i = 0; i < rows.length; i++) {
+      og = orGroupOf(rows[i]);
+      if (og !== null) { counts['k' + og] = (counts['k' + og] || 0) + 1; }
+    }
+    for (i = 0; i < rows.length; i++) {
+      og = orGroupOf(rows[i]);
+      keys.push(og !== null && counts['k' + og] >= 2 ? 'g:' + og : 'f:' + rows[i].field);
+    }
+    return keys;
+  }
+
   // ---- serialize (ui rows -> evaluator-exact conditions JSON) --------------
 
   function normalizeClusterOrder(rows) {
-    var fields = [];
-    var i;
-    for (i = 0; i < rows.length; i++) {
-      var f = rows[i].field;
+    var keys = unitKeys(rows);
+    var order = [];
+    var i, j;
+    for (i = 0; i < keys.length; i++) {
       var seen = false;
-      var j;
-      for (j = 0; j < fields.length; j++) { if (fields[j] === f) { seen = true; break; } }
-      if (!seen) { fields.push(f); }
+      for (j = 0; j < order.length; j++) { if (order[j] === keys[i]) { seen = true; break; } }
+      if (!seen) { order.push(keys[i]); }
     }
     var out = [];
-    for (i = 0; i < fields.length; i++) {
-      for (var k = 0; k < rows.length; k++) { if (rows[k].field === fields[i]) { out.push(rows[k]); } }
+    for (i = 0; i < order.length; i++) {
+      for (j = 0; j < rows.length; j++) { if (keys[j] === order[i]) { out.push(rows[j]); } }
     }
     return out;
   }
 
-  function groupFromRow(row) {
+  function groupFromRow(row, inOrGroup) {
+    var g = groupBodyFromRow(row);
+    if (inOrGroup && typeof row.or_group === 'string') { g.or_group = row.or_group; }
+    return g;
+  }
+
+  function groupBodyFromRow(row) {
     if (row.op === 'is_empty') { return { field: row.field, op: 'eq', value: '' }; }
     if (row.op === 'not_empty') { return { field: row.field, op: 'neq', value: '' }; }
     if (row.op === 'range') {
@@ -1356,8 +1446,9 @@ export const RULES_BUILDER_SCRIPT = `(function () {
     var i;
     for (i = 0; i < rows.length; i++) { if (rows[i].field !== '') { withField.push(rows[i]); } }
     var norm = normalizeClusterOrder(withField);
+    var keys = unitKeys(norm);
     var groups = [];
-    for (i = 0; i < norm.length; i++) { groups.push(groupFromRow(norm[i])); }
+    for (i = 0; i < norm.length; i++) { groups.push(groupFromRow(norm[i], keys[i].indexOf('g:') === 0)); }
     return JSON.stringify({ groups: groups });
   }
 
@@ -1443,12 +1534,16 @@ export const RULES_BUILDER_SCRIPT = `(function () {
     return label + ' is not empty';
   }
   function clustersOf(rows) {
+    var keys = unitKeys(rows);
     var out = [];
     var current = null;
     var i;
     for (i = 0; i < rows.length; i++) {
-      if (current !== null && current.field === rows[i].field) { current.rows.push(rows[i]); }
-      else { current = { field: rows[i].field, rows: [rows[i]] }; out.push(current); }
+      if (current !== null && current.key === keys[i]) { current.rows.push(rows[i]); }
+      else {
+        current = { field: rows[i].field, key: keys[i], orGroup: keys[i].indexOf('g:') === 0 ? keys[i].slice(2) : null, rows: [rows[i]] };
+        out.push(current);
+      }
     }
     return out;
   }
@@ -1645,11 +1740,14 @@ export const RULES_BUILDER_SCRIPT = `(function () {
   }
 
   // The value controls, then the field's format hint (Date / Time of day …).
+  // Review 1 (MINOR-3): a block of its own, so on hosts without the panel's
+  // flex row styles (the auction / routing modals) the row's remove button never
+  // butts against the hint text.
   function renderValueZone(state, row, zone) {
     renderValueControls(state, row, zone);
     var hintMeta = fieldMetaOf(state, row.field);
     if (hintMeta && typeof hintMeta.hint === 'string' && hintMeta.hint !== '' && opKind(row.op) !== 'none') {
-      var hint = el('span', 'form-help lg-rb-hint');
+      var hint = el('div', 'form-help lg-rb-hint');
       hint.textContent = hintMeta.hint;
       zone.appendChild(hint);
     }
@@ -1952,7 +2050,7 @@ export const RULES_BUILDER_SCRIPT = `(function () {
       if (kept !== '' && !(isShareField(state, kept) && fieldTakenByOther(state, kept, row))) {
         row.field = kept;
         row.customText = undefined;
-        if (isShareField(state, kept)) { row.op = 'eq'; row.vtype = 'number'; if (!finiteNum(row.value)) { row.value = SHARE_DEFAULT; } }
+        if (isShareField(state, kept)) { row.op = 'eq'; row.vtype = 'number'; if (!finiteNum(row.value)) { row.value = SHARE_DEFAULT; } leaveCluster(row); }
       }
     }
 
@@ -2033,7 +2131,7 @@ export const RULES_BUILDER_SCRIPT = `(function () {
         row.field = typed;
         row.customText = undefined;
         markCustomRefused(false);
-        if (isShareField(state, typed)) { row.op = 'eq'; row.vtype = 'number'; if (!finiteNum(row.value)) { row.value = SHARE_DEFAULT; } }
+        if (isShareField(state, typed)) { row.op = 'eq'; row.vtype = 'number'; if (!finiteNum(row.value)) { row.value = SHARE_DEFAULT; } leaveCluster(row); }
       }
       writeOut(state);
     });
@@ -2042,6 +2140,9 @@ export const RULES_BUILDER_SCRIPT = `(function () {
       writeOut(state);
     });
     fieldSel.addEventListener('change', function () {
+      // OWNER 2026-10-22 + review 1: a row that carries an or_group (only
+      // "+ or" names one) stays in its "or" cluster whatever its question; a
+      // row without one leaves its same-question cluster (AND), as before.
       if (fieldSel.value === '__lgcustom__') {
         row.field = '';
         customInput.removeAttribute('hidden');
@@ -2058,6 +2159,7 @@ export const RULES_BUILDER_SCRIPT = `(function () {
         row.vtype = 'number';
         row.vtypeTouched = false;
         row.value = SHARE_DEFAULT;
+        leaveCluster(row);
         renderCardBody(state);
         writeOut(state);
         return;
@@ -2126,17 +2228,93 @@ export const RULES_BUILDER_SCRIPT = `(function () {
   function newRow(field) {
     return { field: field, op: 'eq', vtype: 'text', value: '' };
   }
-  // "+ Add condition" starts on the first field that is not a share of
-  // traffic (that one is picked on purpose, and only once).
-  function defaultField(state) {
+
+  // ---- "or" clusters in the editor (OWNER 2026-10-22) ------------------------
+  // "+ or" names an or_group for its cluster (g1, g2, … — the first free one)
+  // so the new row stays in it even when its question changes.
+  function nextOrGroup(rows) {
+    var n = 1;
+    var i, used;
+    for (;;) {
+      used = false;
+      for (i = 0; i < rows.length; i++) { if (rows[i].or_group === 'g' + n) { used = true; break; } }
+      if (!used) { return 'g' + n; }
+      n++;
+    }
+  }
+  // The rows of row's cluster (row included), in state order.
+  function clusterMates(rows, row) {
+    var keys = unitKeys(rows);
+    var at = rows.indexOf(row);
+    var out = [];
     var i;
-    for (i = 0; i < state.fields.length; i++) { if (!shareInputOf(state.fields[i])) { return state.fields[i].internal_field; } }
-    return '';
+    if (at < 0) { return out; }
+    for (i = 0; i < rows.length; i++) { if (keys[i] === keys[at]) { out.push(rows[i]); } }
+    return out;
+  }
+  // A share of traffic is never one of several "or" conditions (the server
+  // refuses it): that row leaves its cluster.
+  function leaveCluster(row) {
+    if (row.or_group !== undefined) { delete row.or_group; }
+  }
+  // An or_group left on a single row reads like any other row: drop the name.
+  function dropLonelyOrGroups(rows) {
+    var counts = {};
+    var i;
+    for (i = 0; i < rows.length; i++) { if (orGroupOf(rows[i]) !== null) { counts['k' + rows[i].or_group] = (counts['k' + rows[i].or_group] || 0) + 1; } }
+    for (i = 0; i < rows.length; i++) { if (rows[i].or_group !== undefined && !(counts['k' + rows[i].or_group] >= 2)) { delete rows[i].or_group; } }
+  }
+  // Fix round 2: when a saved rule is opened, each cluster of 2+ rows on ONE
+  // question without an or_group (saved before "or" groups) gets one, so
+  // switching a row's question keeps the "or" the editor shows. The engine
+  // reads such a group exactly like the same-question rows it was.
+  function nameSavedClusters(state) {
+    var rows = state.rows;
+    var keys = unitKeys(rows);
+    var counts = {};
+    var names = {};
+    var i, k;
+    for (i = 0; i < rows.length; i++) {
+      if (keys[i].indexOf('f:') === 0 && rows[i].field !== '') { counts['k' + keys[i]] = (counts['k' + keys[i]] || 0) + 1; }
+    }
+    for (i = 0; i < rows.length; i++) {
+      k = 'k' + keys[i];
+      if (!(counts[k] >= 2) || isShareField(state, rows[i].field)) { continue; }
+      if (!names[k]) { names[k] = nextOrGroup(rows); }
+      rows[i].or_group = names[k];
+    }
+  }
+  // "+ Add condition" starts on the first funnel question (a field with answer
+  // choices) the rule does not use yet; when every question is used, on the
+  // first question; with no such question, on the first field (as before) —
+  // never a share of traffic, and never a visitor fact with an empty value
+  // while a question exists. Review 1: an unused question is its own "and"
+  // cluster, not drawn inside an existing same-question cluster.
+  function isAnswerQuestion(meta) {
+    if (!meta || shareInputOf(meta) || meta.group === 'visitor') { return false; }
+    return (isArr(meta.stored_choices) && meta.stored_choices.length > 0) || (isArr(meta.choices) && meta.choices.length > 0);
+  }
+  function defaultField(state) {
+    var used = {};
+    var firstField = '';
+    var firstQuestion = '';
+    var i, f;
+    for (i = 0; i < state.rows.length; i++) { used['k' + state.rows[i].field] = true; }
+    for (i = 0; i < state.fields.length; i++) {
+      if (shareInputOf(state.fields[i])) { continue; }
+      f = state.fields[i].internal_field;
+      if (firstField === '') { firstField = f; }
+      if (!isAnswerQuestion(state.fields[i])) { continue; }
+      if (firstQuestion === '') { firstQuestion = f; }
+      if (!used['k' + f]) { return f; }
+    }
+    return firstQuestion !== '' ? firstQuestion : firstField;
   }
 
   function renderCardBody(state) {
     var zone = state.zone;
     if (!zone) { return; }
+    dropLonelyOrGroups(state.rows);
     state.rows = normalizeClusterOrder(state.rows);
     clearNode(zone);
 
@@ -2156,6 +2334,7 @@ export const RULES_BUILDER_SCRIPT = `(function () {
         var clusterEl = el('div', 'lg-rb-cluster');
         clusterEl.setAttribute('data-lg-rb-cluster', '');
         clusterEl.setAttribute('data-cluster-field', clusters[i].field);
+        if (clusters[i].orGroup !== null) { clusterEl.setAttribute('data-cluster-or-group', clusters[i].orGroup); }
         var j;
         for (j = 0; j < clusters[i].rows.length; j++) {
           if (j > 0) {
@@ -2165,19 +2344,28 @@ export const RULES_BUILDER_SCRIPT = `(function () {
           }
           clusterEl.appendChild(renderRowEl(state, clusters[i].rows[j]));
         }
-        (function (clusterField) {
+        (function (cluster) {
           // one share of traffic per rule: no "+ or" beside it
-          if (isShareField(state, clusterField)) { return; }
+          if (isShareField(state, cluster.field)) { return; }
           var actions = el('div', 'lg-rb-clusteractions');
           var orBtn = el('button', 'btn btn-sm btn-outline');
           orBtn.type = 'button';
           orBtn.textContent = '+ or';
-          orBtn.title = 'Add another accepted answer for this field';
+          orBtn.title = OR_BUTTON_TITLE;
           orBtn.addEventListener('click', function () {
-            var last = -1;
+            // OWNER 2026-10-22: the new row joins THIS cluster for good — the
+            // cluster gets an or_group (when it has none yet) that the new row
+            // shares, so changing the new row's question keeps the "or".
+            var anchor = cluster.rows[cluster.rows.length - 1];
+            var mates = clusterMates(state.rows, anchor);
+            if (mates.length === 0) { mates = [anchor]; }
+            var anchorKey = unitKeys(state.rows)[state.rows.indexOf(anchor)] || '';
+            var og = anchorKey.indexOf('g:') === 0 ? anchorKey.slice(2) : nextOrGroup(state.rows);
             var k;
-            for (k = 0; k < state.rows.length; k++) { if (state.rows[k].field === clusterField) { last = k; } }
-            var added = newRow(clusterField);
+            for (k = 0; k < mates.length; k++) { mates[k].or_group = og; }
+            var added = newRow(anchor.field !== '' ? anchor.field : cluster.field);
+            added.or_group = og;
+            var last = state.rows.indexOf(mates[mates.length - 1]);
             if (last === -1) { state.rows.push(added); }
             else { state.rows.splice(last + 1, 0, added); }
             renderCardBody(state);
@@ -2185,7 +2373,7 @@ export const RULES_BUILDER_SCRIPT = `(function () {
           });
           actions.appendChild(orBtn);
           clusterEl.appendChild(actions);
-        })(clusters[i].field);
+        })(clusters[i]);
         zone.appendChild(clusterEl);
       }
     }
@@ -2268,6 +2456,7 @@ export const RULES_BUILDER_SCRIPT = `(function () {
         pendingFocus: null
       };
       states.push(state);
+      nameSavedClusters(state);
       wireCard(state);
       renderCardBody(state);
       writeOut(state, true);
@@ -2350,6 +2539,7 @@ export const RULES_BUILDER_SCRIPT = `(function () {
       joinWord: opts.match === 'any' ? 'or' : 'and'
     };
     states.push(state);
+    nameSavedClusters(state);
     wireCard(state);
     renderCardBody(state);
     writeOut(state, true);
@@ -2664,28 +2854,45 @@ function qrShareChip(value: unknown): string {
   return String(value ?? "") + "% of traffic";
 }
 
-// Condition summary chips (pack rule-field · Conditions). Each group -> one
-// chip "<Field> <op> <value>"; joined by the rule's match word (all -> "and",
-// any -> "or"). Empty conditions -> "Always". A share of traffic -> "10% of
-// traffic" (no operator — it is one percentage).
+// One condition entry in words: "<Field> <op> <value>"; a share of traffic ->
+// "10% of traffic" (no operator — it is one percentage).
+function qrEntryText(g: Record<string, unknown>, data: QuoteRulesRailData): string {
+  const field = typeof g["field"] === "string" ? (g["field"] as string) : "";
+  if (field === TRAFFIC_SHARE_ROUTING_FIELD) return qrShareChip(g["value"]);
+  const op = typeof g["op"] === "string" ? (g["op"] as string) : "eq";
+  const word = QR_OP_WORDS[op] ?? op;
+  return qrFieldLabel(field, data) + " " + word + " " + qrValueText(g, field, data);
+}
+
+// Condition summary chips (pack rule-field · Conditions). One chip per
+// matching UNIT (auction-rules.ts conditionUnitKeys — an "or" group, else the
+// entries on one field), joined by the rule's match word (all -> "and", any ->
+// "or"); a unit of several entries reads "(A or B)" — the runtime ORs them
+// (it used to print one chip per entry joined by "and", which misread two
+// answers to one question). Empty conditions -> "Always".
 function qrConditionChips(rule: QuoteRulesRailRule, data: QuoteRulesRailData): string[] {
   const conditions = rule.conditions_json;
   if (typeof conditions !== "object" || conditions === null) return ["Always"];
   const groups = (conditions as { groups?: unknown }).groups;
   if (!Array.isArray(groups) || groups.length === 0) return ["Always"];
-  const chips: string[] = [];
-  for (const raw of groups) {
-    if (raw === null || typeof raw !== "object") continue;
-    const g = raw as Record<string, unknown>;
-    const field = typeof g["field"] === "string" ? (g["field"] as string) : "";
-    if (field === TRAFFIC_SHARE_ROUTING_FIELD) {
-      chips.push(qrShareChip(g["value"]));
-      continue;
+  const entries = groups
+    .filter((raw): raw is Record<string, unknown> => raw !== null && typeof raw === "object")
+    .map((g) => ({ g, field: typeof g["field"] === "string" ? (g["field"] as string) : "", or_group: g["or_group"] }));
+  const keys = conditionUnitKeys(entries);
+  const order: string[] = [];
+  const texts = new Map<string, string[]>();
+  entries.forEach((e, i) => {
+    const key = keys[i] ?? "";
+    if (!texts.has(key)) {
+      order.push(key);
+      texts.set(key, []);
     }
-    const op = typeof g["op"] === "string" ? (g["op"] as string) : "eq";
-    const word = QR_OP_WORDS[op] ?? op;
-    chips.push(qrFieldLabel(field, data) + " " + word + " " + qrValueText(g, field, data));
-  }
+    texts.get(key)?.push(qrEntryText(e.g, data));
+  });
+  const chips = order.map((key) => {
+    const unit = texts.get(key) ?? [];
+    return unit.length > 1 ? "(" + unit.join(" or ") + ")" : (unit[0] ?? "");
+  });
   return chips.length > 0 ? chips : ["Always"];
 }
 
@@ -3269,16 +3476,48 @@ export const QUOTE_RULES_SCRIPT = `(function () {
   }
   // Mirror of qrShareChip: a share of traffic reads "10% of traffic".
   function shareChip(v) { return String(v == null ? '' : v) + '% of traffic'; }
+  function entryText(g) {
+    if (g.field === 'traffic_share') { return shareChip(g.value); }
+    return fieldLabel(g.field || '') + ' ' + opWord(g.op || 'eq') + ' ' + valueText(g, g.field || '');
+  }
+  // Mirror of auction-rules.ts conditionUnitKeys: an or_group shared by 2+
+  // entries is one unit, else the entries on one field (counts keyed 'k' + name).
+  function unitKeysOf(entries) {
+    var counts = {};
+    var keys = [];
+    var i, og;
+    for (i = 0; i < entries.length; i++) {
+      og = typeof entries[i].or_group === 'string' && entries[i].or_group !== '' ? entries[i].or_group : null;
+      if (og !== null) { counts['k' + og] = (counts['k' + og] || 0) + 1; }
+    }
+    for (i = 0; i < entries.length; i++) {
+      og = typeof entries[i].or_group === 'string' && entries[i].or_group !== '' ? entries[i].or_group : null;
+      keys.push(og !== null && counts['k' + og] >= 2 ? 'g:' + og : 'f:' + (typeof entries[i].field === 'string' ? entries[i].field : ''));
+    }
+    return keys;
+  }
+  // Mirror of qrConditionChips: one chip per matching unit; "(A or B)" for a
+  // unit of several entries.
   function conditionChips(rule) {
     var conditions = rule.conditions_json;
     if (!conditions || typeof conditions !== 'object' || !isArr(conditions.groups) || conditions.groups.length === 0) { return ['Always']; }
-    var chips = [];
-    var i;
+    var entries = [];
+    var i, j;
     for (i = 0; i < conditions.groups.length; i++) {
       var g = conditions.groups[i];
-      if (!g || typeof g !== 'object') { continue; }
-      if (g.field === 'traffic_share') { chips.push(shareChip(g.value)); continue; }
-      chips.push(fieldLabel(g.field || '') + ' ' + opWord(g.op || 'eq') + ' ' + valueText(g, g.field || ''));
+      if (g && typeof g === 'object') { entries.push(g); }
+    }
+    var keys = unitKeysOf(entries);
+    var order = [];
+    var units = {};
+    for (i = 0; i < entries.length; i++) {
+      if (!Object.prototype.hasOwnProperty.call(units, 'k' + keys[i])) { order.push(keys[i]); units['k' + keys[i]] = []; }
+      units['k' + keys[i]].push(entryText(entries[i]));
+    }
+    var chips = [];
+    for (j = 0; j < order.length; j++) {
+      var unit = units['k' + order[j]];
+      chips.push(unit.length > 1 ? '(' + unit.join(' or ') + ')' : unit[0]);
     }
     return chips.length > 0 ? chips : ['Always'];
   }
@@ -3505,7 +3744,8 @@ export const QUOTE_RULES_SCRIPT = `(function () {
     if (mount) { while (mount.firstChild) { mount.removeChild(mount.firstChild); } }
     mountedConditions = null;
     if (window.lgRulesBuilder && mount) {
-      try { mountedConditions = window.lgRulesBuilder.mount(mount, raw, outEl, { fields: combinedFields() }); } catch (e) { mountedConditions = null; }
+      // the builder's "Matches when" reads the rule's own match word (ANY → "or")
+      try { mountedConditions = window.lgRulesBuilder.mount(mount, raw, outEl, { fields: combinedFields(), match: currentMatchMode() }); } catch (e) { mountedConditions = null; }
     }
     updateLive();
     modal.hidden = false;
@@ -3672,7 +3912,12 @@ export const QUOTE_RULES_SCRIPT = `(function () {
       var atog = closestAttr2(t, 'data-qr-action-toggle');
       if (atog) { setToggle(atog, atog.className.indexOf('on') < 0); updateLive(); return; }
       var match = closestAttr2(t, 'data-qr-match');
-      if (match) { setMatchMode(match.getAttribute('data-qr-match')); updateLive(); return; }
+      if (match) {
+        setMatchMode(match.getAttribute('data-qr-match'));
+        if (mountedConditions && mountedConditions.setMatch) { mountedConditions.setMatch(currentMatchMode()); }
+        updateLive();
+        return;
+      }
       var mode = closestAttr2(t, 'data-qr-mode');
       if (mode) { setTargetMode(mode.getAttribute('data-qr-mode')); updateLive(); return; }
     });
