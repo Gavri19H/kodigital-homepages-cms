@@ -157,6 +157,12 @@ describe("Plain messages for amounts", () => {
     );
   });
 
+  it("names the missing, unreadable or mismatching currency in the publish blocker", () => {
+    expect(sampleRecordInvalidSentence({ reason: "currency_missing", field: "cur" })).toContain("needs: the currency (field 'cur')");
+    expect(sampleRecordInvalidSentence({ reason: "currency_invalid", field: "cur" })).toContain("needs: a valid 3-letter currency code (for example USD) (field 'cur')");
+    expect(sampleRecordInvalidSentence({ reason: "currency_mismatch", field: "cur" })).toContain("needs: a currency that matches the Flow's currency (field 'cur')");
+  });
+
   it("shows the amount note, the Purchase help and the disabled no-value choice on the screen", () => {
     expect(VALUE_AMOUNT_NOTE).toBe("We read amounts like 12.50, 12,50 and $12.50. An amount in another currency than the Flow's is not sent.");
     expect(flows).toContain('<option value="" disabled={purchase}>{NO_VALUE_LABEL}</option>');

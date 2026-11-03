@@ -556,6 +556,9 @@ const SAMPLE_RECORD_REASONS: Readonly<Record<string, string>> = Object.freeze({
   time_invalid: "a readable conversion time",
   value_missing: "the amount (value)",
   value_invalid: "a readable amount in the Flow's currency",
+  currency_missing: "the currency",
+  currency_invalid: "a valid 3-letter currency code (for example USD)",
+  currency_mismatch: "a currency that matches the Flow's currency",
 });
 
 /**
