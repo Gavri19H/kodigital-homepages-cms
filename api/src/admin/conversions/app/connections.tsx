@@ -28,6 +28,7 @@ import {
   type ConversionsUiContext,
 } from "./product-state";
 import { loadConnectionArchiveImpacts } from "./connection-archive-impact";
+import { POSTBACK_MINIMUM_LINE } from "./flow-draft-helpers";
 import { metaReleaseNotice, type MetaReleaseSummary } from "./meta-release-notice";
 import { ShellFrame } from "./shell";
 
@@ -450,6 +451,7 @@ function PostbackLinkPanel(props: { origin: string | null; publicId: string; tok
         <code>{props.origin}/v1/in/{props.publicId}?{props.tokenParameter}=…</code>
         <p>Give this link to the partner, with the saved token in place of “…”. The partner adds the conversion details to the end of the link, for example <code>&amp;click_id=123</code>.</p>
       </>}
+      <p>{POSTBACK_MINIMUM_LINE}</p>
       <h4>Try the link</h4>
       <p>Type or paste the token here to build a test link. It stays in this browser tab only: it is not saved and not sent to our service.</p>
       <div class="ko-config-grid">

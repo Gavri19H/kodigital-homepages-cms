@@ -2,23 +2,42 @@ import { useCallback, useEffect, useMemo, useRef, useState } from "preact/hooks"
 import { ConversionsApiError, requestConversionsApi } from "./api-client";
 import { collectCorePages } from "./core-pages";
 import {
+  ACTION_SOURCE_CHANGED_NOTE,
   applyDestinationKind,
   applyDestinationValue,
+  applyFieldTime,
+  applyReceivedTime,
+  applyRecommendedTime,
+  applyTimeZone,
   applyVisitorConsent,
   applyVisitorLookup,
+  DEFAULT_TIME_FIELD,
   defaultDestination,
   defaultFlowDraft,
   defaultOutcome,
   destinationValueLabel,
   destinationValueOptions,
   draftBodyForSave,
+  fixMetaActionSource,
   hasVisitorConsent,
   initialVisitorLookup,
   MAX_EVENT_TYPES,
   mappingSourceFields,
+  needsRecommendedTime,
   parseEventTypes,
   publishReviewSentence,
   readVisitorLookup,
+  TIME_FIELD_LABEL,
+  TIME_FIELD_NOTE,
+  TIME_HEADING,
+  TIME_RECEIVED_LABEL,
+  TIME_RECOMMENDED_BUTTON,
+  TIME_STRICT_NOTE,
+  TIME_ZONE_HELP,
+  timeFieldOptions,
+  timeSourceField,
+  timeZoneOptions,
+  usesReceivedTime,
   visitorLookupBlocker,
   VISITOR_FILLS,
   VISITOR_KEY_KINDS,
@@ -282,6 +301,32 @@ function VisitorLookupEditor(props: { draft: Item; setDraft: (draft: Item) => vo
   </section>;
 }
 
+function TimeEditor(props: { draft: Item; setDraft: (draft: Item) => void }) {
+  const time = props.draft.time as Item;
+  const received = usesReceivedTime(props.draft);
+  const strict = needsRecommendedTime(props.draft);
+  const [field, setField] = useState(() => timeSourceField(props.draft) ?? DEFAULT_TIME_FIELD);
+  const zones = timeZoneOptions(time.timezone);
+  const fields = [...new Set([field, ...timeFieldOptions(props.draft)])];
+  return <section class="ko-wizard-card" aria-labelledby="flow-time-heading"><h4 id="flow-time-heading">{TIME_HEADING}</h4>
+    <div class="ko-output-options" role="radiogroup" aria-labelledby="flow-time-heading">
+      <label class="ko-checkbox"><input type="radio" name="flow-time-source" checked={received} onChange={() => props.setDraft(applyReceivedTime(props.draft))} /><span>{TIME_RECEIVED_LABEL}</span></label>
+      <label class="ko-checkbox"><input type="radio" name="flow-time-source" checked={!received} onChange={() => props.setDraft(applyFieldTime(props.draft, field))} /><span>{TIME_FIELD_LABEL}</span></label>
+    </div>
+    {!received && <div class="ko-config-grid">
+      <label class="ko-config-field"><span>Field with the conversion time</span><select value={timeSourceField(props.draft) ?? field} onChange={(event) => {
+        setField(event.currentTarget.value);
+        props.setDraft(applyFieldTime(props.draft, event.currentTarget.value));
+      }}>{fields.map((name) => <option value={name}>{name}</option>)}</select><small>The name of the field in the partner's postback.</small></label>
+    </div>}
+    {!received && !strict && <p class="ko-disabled-reason">{TIME_FIELD_NOTE}</p>}
+    {strict && <div class="ko-disabled-reason" role="status"><p>{TIME_STRICT_NOTE}</p><button class="ko-button ko-button--small" type="button" onClick={() => props.setDraft(applyRecommendedTime(props.draft, zones))}>{TIME_RECOMMENDED_BUTTON}</button></div>}
+    <div class="ko-config-grid">
+      <label class="ko-config-field"><span>Time zone</span><select value={String(time.timezone ?? "")} onChange={(event) => props.setDraft(applyTimeZone(props.draft, event.currentTarget.value))}>{zones.map((zone) => <option value={zone}>{zone}</option>)}</select><small>{TIME_ZONE_HELP}</small></label>
+    </div>
+  </section>;
+}
+
 function QualificationEditor(props: { draft: Item; setDraft: (draft: Item) => void }) {
   const rules = props.draft.rules as { ordered: Item[]; default_outcome: Item };
   function updateRule(index: number, patch: Item) {
@@ -346,6 +391,7 @@ function FlowWizard(props: { bootstrapActive: boolean; route: Extract<FlowRoute,
   const evidenceGeneration = useRef(0);
   const sourceConnections = useMemo(() => connections.filter((item) => item.direction === "source" && item.status !== "archived"), [connections]);
   const destinationConnections = useMemo(() => connections.filter((item) => item.direction === "destination" && item.status !== "archived"), [connections]);
+  const [actionSourceNote, setActionSourceNote] = useState(false);
   const canManage = context?.capabilities.includes("flows.manage") === true;
   const canReviewPublish = context?.capabilities.includes("flows.publish") === true;
   const canCommitPublish = canReviewPublish
@@ -356,6 +402,18 @@ function FlowWizard(props: { bootstrapActive: boolean; route: Extract<FlowRoute,
     evidenceGeneration.current += 1;
     setPreviews({});
     setPublishToken("");
+  };
+  const isMetaIn = (list: ReadonlyArray<Item>) => (connectionId: unknown) => list
+    .some((connection) => connection.connection_id === connectionId && connection.adapter_type === "meta");
+  // A Facebook destination saved earlier as "website" is switched to "other" before it is sent.
+  const currentForSave = (): Item => {
+    const current = draftRef.current as Item;
+    const fixed = fixMetaActionSource(current, isMetaIn(connections));
+    if (!fixed.changed) return current;
+    draftRef.current = fixed.draft;
+    setDraftState(fixed.draft);
+    setActionSourceNote(true);
+    return fixed.draft;
   };
   const setDraft = (value: Item) => {
     draftRef.current = value;
@@ -368,6 +426,7 @@ function FlowWizard(props: { bootstrapActive: boolean; route: Extract<FlowRoute,
   const load = useCallback(async () => {
     evidenceGeneration.current += 1;
     setState("loading");
+    let migrated = false;
     try {
       const [contextPayload, nextConnections, nextRuns] = await Promise.all([
         requestConversionsApi<unknown>("ui.context", "/api/admin/conversions/ui-context"),
@@ -393,7 +452,11 @@ function FlowWizard(props: { bootstrapActive: boolean; route: Extract<FlowRoute,
         const draftPayload = await requestConversionsApi<unknown>(`flow.draft.read:${id}:${latestVersion}`, `${FLOWS_PATH}/${id}/drafts/${latestVersion}`);
         const result = unwrapCoreResult(draftPayload);
         if (!isRecord(result)) throw new CoreWireError("invalid_response", "The service returned an invalid Flow draft.");
-        const body = exactDraft(result);
+        const mutable = flow.latest_version_status === "draft";
+        const loaded = exactDraft(result);
+        const fixed = fixMetaActionSource(loaded, isMetaIn(nextConnections));
+        migrated = mutable && fixed.changed;
+        const body = migrated ? fixed.draft : loaded;
         draftRef.current = body;
         setDraftState(body);
         setVersion(latestVersion);
@@ -403,7 +466,9 @@ function FlowWizard(props: { bootstrapActive: boolean; route: Extract<FlowRoute,
       setPreviews({});
       setPublishToken("");
       setPatchSampleReferences({});
-      setDirty(false);
+      // A switched Facebook setting is saved by autosave.
+      setDirty(migrated);
+      setActionSourceNote(migrated);
       setState("ready");
       setStatus("");
     } catch (error) {
@@ -414,8 +479,8 @@ function FlowWizard(props: { bootstrapActive: boolean; route: Extract<FlowRoute,
   useEffect(() => { void load(); }, [load]);
 
   async function persist({ navigate = false } = {}) {
-    const current = draftRef.current;
-    if (current === null || saving || !canManage || !draftMutable) return false;
+    if (draftRef.current === null || saving || !canManage || !draftMutable) return false;
+    const current = currentForSave();
     setSaving(true);
     setStatus("Saving draft…");
     try {
@@ -457,8 +522,8 @@ function FlowWizard(props: { bootstrapActive: boolean; route: Extract<FlowRoute,
   }, [canManage, dirty, draftMutable, id, saving, rowVersion, version]);
 
   async function createNextDraft() {
-    const current = draftRef.current;
-    if (id === null || current === null || saving || !canManage || draftMutable) return;
+    if (id === null || draftRef.current === null || saving || !canManage || draftMutable) return;
+    const current = currentForSave();
     setSaving(true);
     setStatus("Creating a new immutable draft version…");
     try {
@@ -611,7 +676,6 @@ function FlowWizard(props: { bootstrapActive: boolean; route: Extract<FlowRoute,
     const primary = draft.primary_config as Item;
     const precedence = primary.precedence as Item;
     const normalization = draft.normalization as { fields: Item[] };
-    const time = draft.time as Item;
     const currency = draft.currency as Item;
     const internal = draft.internal_outputs as Item;
     if (step === 0) return <section class="ko-wizard-card"><h4>What business conversion does this Flow represent?</h4><div class="ko-config-grid">
@@ -660,10 +724,7 @@ function FlowWizard(props: { bootstrapActive: boolean; route: Extract<FlowRoute,
       <button class="ko-button ko-button--small" type="button" onClick={() => setDraft({ ...draft, normalization: { fields: [...normalization.fields, { source_field: "", transforms: [] }] } })}>Add normalized source field</button>
     </section>;
     if (step === 4) return <QualificationEditor draft={draft} setDraft={setDraft} />;
-    if (step === 5) return <><MappingEditor draft={draft} setDraft={setDraft} /><VisitorLookupEditor draft={draft} setDraft={setDraft} /><section class="ko-wizard-card"><h4>Time and currency</h4><div class="ko-config-grid">
-      <label class="ko-config-field"><span>Occurred-at canonical field</span><input value={String(time.occurred_at_field)} onInput={(event) => setDraft({ ...draft, time: { ...time, occurred_at_field: event.currentTarget.value } })} /><small>Must be populated by mapping; current time is never substituted.</small></label>
-      <label class="ko-config-field"><span>Input time format</span><input value={String(time.input_format)} onInput={(event) => setDraft({ ...draft, time: { ...time, input_format: event.currentTarget.value } })} /><small>Exact approved timestamp format.</small></label>
-      <label class="ko-config-field"><span>Source time zone</span><input value={String(time.timezone)} onInput={(event) => setDraft({ ...draft, time: { ...time, timezone: event.currentTarget.value } })} /><small>IANA source time zone.</small></label>
+    if (step === 5) return <><MappingEditor draft={draft} setDraft={setDraft} /><VisitorLookupEditor draft={draft} setDraft={setDraft} /><TimeEditor draft={draft} setDraft={setDraft} /><section class="ko-wizard-card"><h4>Currency</h4><div class="ko-config-grid">
       <label class="ko-config-field"><span>Reporting currency</span><output>{String(currency.reporting_currency)}</output><small>Inherited from permanent workspace authority.</small></label>
       <label class="ko-config-field"><span>Source currency column</span><input value={String(currency.source_currency_field ?? "")} onInput={(event) => setDraft({ ...draft, currency: { ...currency, source_currency_field: event.currentTarget.value || null, fixed_source_currency: event.currentTarget.value ? null : context.reportingCurrency } })} /><small>Leave blank to use the fixed workspace currency.</small></label>
       <label class="ko-config-field"><span>Conversion policy</span><select value={String(currency.conversion_policy)} onChange={(event) => setDraft({ ...draft, currency: { ...currency, conversion_policy: event.currentTarget.value } })}><option value="same_currency_only">Reject different currency</option><option value="daily_reporting_date_rate">Convert using reporting-date rate</option></select><small>Money never silently becomes zero. Foreign-currency rows block publish until the required reporting-date rates are available.</small></label>
@@ -740,7 +801,7 @@ function FlowWizard(props: { bootstrapActive: boolean; route: Extract<FlowRoute,
       {!allPreviews && <p class="ko-disabled-reason">Complete source, rule, and destination previews first.</p>}
       {!canReviewPublish && <p class="ko-disabled-reason">You do not have the flows.publish capability required for publish review.</p>}
       {review && <><dl class="ko-test-result"><dt>Decision</dt><dd>{text(review, "decision")}</dd><dt>Ownership scopes</dt><dd>{text(review, "ownership_scope_count")}</dd><dt>Ownership conflicts</dt><dd>{text(review, "ownership_conflict_count")}</dd><dt>Blockers</dt><dd>{Array.isArray(review.blockers) ? review.blockers.length : "—"}</dd><dt>Warnings</dt><dd>{Array.isArray(review.warnings) ? review.warnings.length : "—"}</dd><dt>Expires</dt><dd>{text(review, "expires_at")}</dd></dl>
-        {Array.isArray(review.blockers) && review.blockers.length > 0 && <div class="ko-inline-error" role="alert"><p>Publishing is blocked. Fix these, then run Review publish again:</p><ul>{review.blockers.map((code) => <li key={String(code)}>{publishReviewSentence(String(code))}</li>)}</ul></div>}
+        {Array.isArray(review.blockers) && review.blockers.length > 0 && <div class="ko-inline-error" role="alert"><p>Publishing is blocked. Fix these, then run Review publish again:</p><ul>{review.blockers.map((code) => <li key={String(code)}>{publishReviewSentence(String(code), "blocker", review)}</li>)}</ul></div>}
         {Array.isArray(review.warnings) && review.warnings.length > 0 && <div class="ko-disabled-reason"><p>Good to know:</p><ul>{review.warnings.map((code) => <li key={String(code)}>{publishReviewSentence(String(code), "warning")}</li>)}</ul></div>}</>}
       <button class="ko-button ko-button--primary" type="button" disabled={publishToken === "" || saving || !canCommitPublish || !draftMutable} onClick={() => void publish()}>Publish exact reviewed draft</button>
       {publishToken === "" && <p class="ko-disabled-reason">A current successful publish review is required.</p>}
@@ -768,6 +829,7 @@ function FlowWizard(props: { bootstrapActive: boolean; route: Extract<FlowRoute,
       <nav class="ko-step-rail" aria-label="Flow steps"><ol>{STEPS.map((label, index) => <li><button type="button" aria-current={step === index ? "step" : undefined} onClick={() => setStep(index)}><span>{index + 1}</span>{" "}{label}</button></li>)}</ol></nav>
       <main class="ko-step-content"><div class="ko-current-step"><span>Step {step + 1} of {STEPS.length}</span><h3>{STEPS[step]}</h3></div>
         {!draftMutable && <div class="ko-conversions-state"><h3>Published version {version} is immutable</h3><p>Create a new draft version before changing this Flow.</p><button class="ko-button ko-button--primary" type="button" disabled={saving || !canManage} onClick={() => void createNextDraft()}>Create new draft version</button>{!canManage && <p class="ko-disabled-reason">You do not have the flows.manage capability.</p>}</div>}
+        {actionSourceNote && <p class="ko-disabled-reason" role="status">{ACTION_SOURCE_CHANGED_NOTE}</p>}
         {draftMutable && !canManage && step !== STEPS.length - 1 && <p class="ko-disabled-reason">This draft is read-only because you do not have the flows.manage capability.</p>}
         <fieldset class="ko-wizard-step-fieldset" disabled={saving || !draftMutable || (step !== STEPS.length - 1 && !canManage)}>{renderStep()}</fieldset>
         <div class="ko-wizard-actions"><button class="ko-button" type="button" disabled={step === 0} onClick={() => setStep((value) => Math.max(0, value - 1))}>Back</button><button class="ko-button ko-button--primary" type="button" disabled={saving || !draftMutable || !canManage || String(draft.name).trim() === "" || String(draft.primary_connection_id) === ""} onClick={() => void persist({ navigate: true })}>{saving ? "Saving…" : step === STEPS.length - 1 ? "Save draft" : "Save and continue"}</button><span role="status" aria-live="polite">{status}{dirty ? " Unsaved changes." : ""}</span></div>

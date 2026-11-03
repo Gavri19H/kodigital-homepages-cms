@@ -102,7 +102,7 @@ describe("Publish review blockers in plain English", () => {
   });
 
   it("shows sentences, not raw codes, on the publish step", () => {
-    expect(flows).toContain("publishReviewSentence(String(code))");
+    expect(flows).toContain('publishReviewSentence(String(code), "blocker", review)');
     expect(flows).toContain('publishReviewSentence(String(code), "warning")');
     expect(flows).not.toContain('review.blockers.map(String).join(", ")');
   });

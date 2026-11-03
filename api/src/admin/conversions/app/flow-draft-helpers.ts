@@ -243,6 +243,136 @@ export function defaultDestination(connectionId: string, isMeta: boolean): Item 
   };
 }
 
+/** A Meta destination saved earlier with "website" is switched to "other", which Facebook accepts here. */
+export const ACTION_SOURCE_CHANGED_NOTE = "Changed 'Where the conversion happened' to Other, which Facebook accepts.";
+
+export function fixMetaActionSource(draft: Item, isMeta: (connectionId: unknown) => boolean): { draft: Item; changed: boolean } {
+  if (!Array.isArray(draft.destinations)) return { draft, changed: false };
+  let changed = false;
+  const destinations = draft.destinations.map((destination: unknown) => {
+    if (!isRecord(destination) || !isRecord(destination.mapping)
+        || destination.mapping.action_source !== "website" || !isMeta(destination.connection_id)) return destination;
+    changed = true;
+    return { ...destination, mapping: { ...destination.mapping, action_source: "other" } };
+  });
+  return changed ? { draft: { ...draft, destinations }, changed } : { draft, changed };
+}
+
+// ---- Conversion time ----
+
+export const DEFAULT_TIME_ZONE = "UTC";
+export const DEFAULT_TIME_FIELD = "occurred_at";
+export const TIME_HEADING = "When did the conversion happen?";
+export const TIME_RECEIVED_LABEL = "When we received it (recommended)";
+export const TIME_FIELD_LABEL = "From a field the partner sends";
+export const TIME_FIELD_NOTE = "We understand most date formats (for example 2026-11-03T14:05:00Z, 2026-11-03 14:05:00, or a Unix timestamp). "
+  + "If the time is missing or unreadable, we use the time we received it.";
+export const TIME_ZONE_HELP = "Used only when the partner's time has no time zone.";
+export const TIME_STRICT_NOTE = "This Flow reads the time in one exact format and refuses a conversion whose time is missing or unreadable.";
+export const TIME_RECOMMENDED_BUTTON = "Use the recommended setting";
+
+/** The time block a new Flow draft sends: the time we received the postback, read forgivingly. */
+export function defaultTime(): Item {
+  return { occurred_at_field: null, input_format: "auto", timezone: DEFAULT_TIME_ZONE, invalid_policy: "received_at" };
+}
+
+function timeOf(draft: Item): Item {
+  return isRecord(draft.time) ? draft.time : {};
+}
+
+function withoutOccurredAtMapping(draft: Item): Item {
+  const fields = mappingFields(draft);
+  const kept = fields.filter((field) => field.canonical_field !== "occurred_at");
+  return kept.length === fields.length ? draft : withMappingFields(draft, kept);
+}
+
+/** True when the conversion time is the time we received the postback. */
+export function usesReceivedTime(draft: Item): boolean {
+  return timeOf(draft).occurred_at_field === null;
+}
+
+/** True for a draft that still reads the partner time strictly (saved before the forgiving setting existed). */
+export function needsRecommendedTime(draft: Item): boolean {
+  const time = timeOf(draft);
+  return time.occurred_at_field !== null && !(time.input_format === "auto" && time.invalid_policy === "received_at");
+}
+
+/** The partner field the time is read from, or null when the received time is used. */
+export function timeSourceField(draft: Item): string | null {
+  const time = timeOf(draft);
+  if (time.occurred_at_field === null) return null;
+  // On the strict setting an explicit occurred_at mapping entry wins over the time block.
+  if (needsRecommendedTime(draft)) {
+    const entry = mappingFields(draft).find((field) => field.canonical_field === "occurred_at");
+    if (typeof entry?.source_field === "string" && entry.source_field !== "") return entry.source_field;
+  }
+  return typeof time.occurred_at_field === "string" ? time.occurred_at_field : null;
+}
+
+/** Use the time we received the postback. */
+export function applyReceivedTime(draft: Item): Item {
+  return {
+    ...withoutOccurredAtMapping(draft),
+    time: { ...timeOf(draft), occurred_at_field: null, input_format: "auto", invalid_policy: "received_at" },
+  };
+}
+
+/** Read the time from a partner field. A draft still on the strict setting keeps it and only changes the field. */
+export function applyFieldTime(draft: Item, field: string): Item {
+  if (needsRecommendedTime(draft)) {
+    const fields = mappingFields(draft).map((entry) => entry.canonical_field === "occurred_at" && entry.source_field !== null
+      ? { ...entry, source_field: field }
+      : entry);
+    return { ...withMappingFields(draft, fields), time: { ...timeOf(draft), occurred_at_field: field } };
+  }
+  return {
+    ...withoutOccurredAtMapping(draft),
+    time: { ...timeOf(draft), occurred_at_field: field, input_format: "auto", invalid_policy: "received_at" },
+  };
+}
+
+/** One click for a strict draft: keep the field it reads, read it forgivingly, fall back to the received time. */
+export function applyRecommendedTime(draft: Item, zones: ReadonlyArray<string> = timeZoneOptions()): Item {
+  const timezone = timeOf(draft).timezone;
+  return {
+    ...withoutOccurredAtMapping(draft),
+    time: {
+      occurred_at_field: timeSourceField(draft) ?? DEFAULT_TIME_FIELD,
+      input_format: "auto",
+      timezone: typeof timezone === "string" && zones.includes(timezone) ? timezone : DEFAULT_TIME_ZONE,
+      invalid_policy: "received_at",
+    },
+  };
+}
+
+export function applyTimeZone(draft: Item, timezone: string): Item {
+  return { ...draft, time: { ...timeOf(draft), timezone } };
+}
+
+/** Time zones to choose from: UTC first, then every zone this browser knows, plus the saved one. */
+export function timeZoneOptions(saved?: unknown): string[] {
+  const intl = Intl as unknown as { supportedValuesOf?: (key: string) => string[] };
+  let zones: string[] = [];
+  try {
+    zones = typeof intl.supportedValuesOf === "function" ? intl.supportedValuesOf("timeZone") : [];
+  } catch {
+    zones = [];
+  }
+  const list = new Set<string>([DEFAULT_TIME_ZONE, ...zones]);
+  if (typeof saved === "string" && saved !== "") list.add(saved);
+  return [...list];
+}
+
+/** Partner fields offered for the time: the saved one, the usual name, then the mapped columns. */
+export function timeFieldOptions(draft: Item): string[] {
+  const saved = timeSourceField(draft);
+  return [...new Set([...(saved === null ? [] : [saved]), DEFAULT_TIME_FIELD, ...mappingSourceFields(draft)])];
+}
+
+/** One line for the partner link: what a partner must send at minimum. */
+export const POSTBACK_MINIMUM_LINE = "At minimum, the partner must send the record id field (set in the Flow's Map fields step, usually id). "
+  + "The time field is needed only if the Flow takes the conversion time 'From a field the partner sends'.";
+
 // ---- New drafts and saving ----
 
 /** A rule outcome with no value. */
@@ -285,20 +415,11 @@ export function defaultFlowDraft(context: { readonly timeZone: string; readonly 
         fixed_value: null,
         required: true,
         transforms: [{ op: "trim" }, { op: "unicode_nfc" }],
-      }, {
-        canonical_field: "occurred_at",
-        source_field: "occurred_at",
-        fixed_value: null,
-        required: true,
-        transforms: [{ op: "timestamp", format: "iso_8601", timezone: context.timeZone }],
       }],
     },
-    time: {
-      occurred_at_field: "occurred_at",
-      input_format: "iso_8601",
-      timezone: context.timeZone,
-      invalid_policy: "invalid",
-    },
+    // The time block alone decides the conversion time, so there is no occurred_at mapping entry.
+    // The time zone is UTC, not the browser's or workspace's: it applies only to partner times without one.
+    time: defaultTime(),
     currency: {
       reporting_currency: context.reportingCurrency,
       source_currency_field: null,
@@ -343,8 +464,30 @@ const PUBLISH_REVIEW_SENTENCES: Readonly<Record<string, string>> = Object.freeze
   sample_contains_duplicate_commands: "The preview sample contains repeated rows. Repeats are counted once.",
 });
 
+const SAMPLE_RECORD_REASONS: Readonly<Record<string, string>> = Object.freeze({
+  identity_missing: "the record id",
+  time_missing: "the conversion time",
+  time_invalid: "a readable conversion time",
+});
+
+/**
+ * Sentence for the sample_record_invalid blocker, from the review's
+ * sample_record_issue { sample_index, reason, field }.
+ */
+export function sampleRecordInvalidSentence(issue: unknown): string {
+  const reason = isRecord(issue) && typeof issue.reason === "string" ? issue.reason : null;
+  if (reason === "sample_unavailable") {
+    return "The test postback could not be read. Send the test link again, then run the previews and review again.";
+  }
+  const words = reason === null ? undefined : SAMPLE_RECORD_REASONS[reason];
+  const field = isRecord(issue) && typeof issue.field === "string" && issue.field !== "" ? issue.field : null;
+  const what = words === undefined ? "" : `: ${words}${field === null ? "" : ` (field '${field}')`}`;
+  return `The test postback is missing something the Flow needs${what}. Fix the partner link or the mapping, then send the test link again.`;
+}
+
 /** Plain-English sentence, with the action to take, for a publish-review blocker or warning code. */
-export function publishReviewSentence(code: string, kind: "blocker" | "warning" = "blocker"): string {
+export function publishReviewSentence(code: string, kind: "blocker" | "warning" = "blocker", review?: Item): string {
+  if (code === "sample_record_invalid") return sampleRecordInvalidSentence(review?.sample_record_issue);
   const known = PUBLISH_REVIEW_SENTENCES[code];
   if (known !== undefined) return known;
   // The page-address blocker is matched by meaning so any spelling of its code gets the same help.

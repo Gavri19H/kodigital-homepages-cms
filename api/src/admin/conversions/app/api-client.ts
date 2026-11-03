@@ -1,6 +1,11 @@
 const API_PREFIX = "/api/admin/conversions/v1";
 const UI_CONTEXT_PATH = "/api/admin/conversions/ui-context";
 const META_PROVIDER_PATH = /^\/api\/admin\/conversions\/provider-connections\/[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}\/meta$/u;
+/** Plain-English messages for the service's error reasons (error.reason) on a draft save. */
+export const ERROR_REASON_MESSAGES: Readonly<Record<string, string>> = Object.freeze({
+  visitor_lookup_consent_required: "Tick the consent box in 'Find our visitor' to send visitor details to Facebook.",
+  time_timezone_invalid: "Choose a time zone from the list.",
+});
 const pendingIdempotencyKeys = new Map<string, string>();
 let fallbackSequence = 0;
 
@@ -88,11 +93,14 @@ export async function requestConversionsApi<T>(
         ? candidate.error_code
         : typeof candidate.error === "string" ? candidate.error : "request_failed";
     const serviceMessage = typeof nestedError?.message === "string" ? nestedError.message : null;
+    const reason = typeof nestedError?.reason === "string" ? nestedError.reason : "";
     throw new ConversionsApiError(
       response.status,
       code,
       response.status === 403
         ? "This action is unavailable with the current local capability."
+        : Object.hasOwn(ERROR_REASON_MESSAGES, reason)
+          ? ERROR_REASON_MESSAGES[reason] as string
         : code === "connection_name_taken"
           ? "A connection with this name already exists. Choose another name."
         : response.status === 409 || response.status === 412 || code === "resource_changed"
