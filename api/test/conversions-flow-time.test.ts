@@ -199,6 +199,7 @@ describe("Plain-English messages for the new checks", () => {
     expect(ERROR_REASON_MESSAGES).toEqual({
       visitor_lookup_consent_required: "Tick the consent box in 'Find our visitor' to send visitor details to Facebook.",
       time_timezone_invalid: "Choose a time zone from the list.",
+      value_field_not_numeric: "The value field must be an amount. Pick it again so we read it as an amount.",
     });
     for (const [reason, text] of Object.entries(ERROR_REASON_MESSAGES)) {
       vi.stubGlobal("fetch", vi.fn(async () => new Response(JSON.stringify({

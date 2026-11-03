@@ -5,6 +5,7 @@ const META_PROVIDER_PATH = /^\/api\/admin\/conversions\/provider-connections\/[0
 export const ERROR_REASON_MESSAGES: Readonly<Record<string, string>> = Object.freeze({
   visitor_lookup_consent_required: "Tick the consent box in 'Find our visitor' to send visitor details to Facebook.",
   time_timezone_invalid: "Choose a time zone from the list.",
+  value_field_not_numeric: "The value field must be an amount. Pick it again so we read it as an amount.",
 });
 const pendingIdempotencyKeys = new Map<string, string>();
 let fallbackSequence = 0;

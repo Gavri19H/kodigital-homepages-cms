@@ -8,12 +8,12 @@
 export const ADMIN_ASSET_MANIFEST = {
   conversions: {
     js: {
-      fileName: "conversions.c385951466659683.js",
-      url: "/assets/admin/conversions/conversions.c385951466659683.js",
+      fileName: "conversions.5c4615b35866c53c.js",
+      url: "/assets/admin/conversions/conversions.5c4615b35866c53c.js",
       contentType: "text/javascript; charset=utf-8",
-      etag: "\"sha256-c3859514666596837ce7161c4ca582c0b98d4bc0e0fc7206463c850957e087b5\"",
-      sha256: "c3859514666596837ce7161c4ca582c0b98d4bc0e0fc7206463c850957e087b5",
-      bytes: 184677,
+      etag: "\"sha256-5c4615b35866c53cb36112e5a26998b68733340256bd95d9c47ec0e7b39e3fae\"",
+      sha256: "5c4615b35866c53cb36112e5a26998b68733340256bd95d9c47ec0e7b39e3fae",
+      bytes: 186927,
       gzipBytes: null,
     },
     css: {
@@ -28,12 +28,12 @@ export const ADMIN_ASSET_MANIFEST = {
   },
   reporting: {
     js: {
-      fileName: "reporting.a94d217d95b77175.js",
-      url: "/assets/admin/reporting/reporting.a94d217d95b77175.js",
+      fileName: "reporting.69117d6a9bf16848.js",
+      url: "/assets/admin/reporting/reporting.69117d6a9bf16848.js",
       contentType: "text/javascript; charset=utf-8",
-      etag: "\"sha256-a94d217d95b77175a7b855c0756a0075b748ee55dd386c7b2ee082d4cef8d675\"",
-      sha256: "a94d217d95b77175a7b855c0756a0075b748ee55dd386c7b2ee082d4cef8d675",
-      bytes: 88457,
+      etag: "\"sha256-69117d6a9bf168484cc2705d9d41258c81e1d8a3f23b7f48c7b061a46d47e735\"",
+      sha256: "69117d6a9bf168484cc2705d9d41258c81e1d8a3f23b7f48c7b061a46d47e735",
+      bytes: 88560,
       gzipBytes: null,
     },
     css: {

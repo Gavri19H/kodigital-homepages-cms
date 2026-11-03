@@ -4,9 +4,10 @@ import { collectCorePages } from "./core-pages";
 import {
   ACTION_SOURCE_CHANGED_NOTE,
   applyDestinationKind,
-  applyDestinationValue,
+  applyDestinationValueChoice,
   applyFieldTime,
   applyReceivedTime,
+  applyRuleValueField,
   applyRecommendedTime,
   applyTimeZone,
   applyVisitorConsent,
@@ -17,16 +18,24 @@ import {
   defaultOutcome,
   destinationValueLabel,
   destinationValueOptions,
+  destinationValueSelected,
   draftBodyForSave,
   fixMetaActionSource,
   hasVisitorConsent,
   initialVisitorLookup,
   MAX_EVENT_TYPES,
   mappingSourceFields,
+  needsPurchaseValue,
   needsRecommendedTime,
+  NO_VALUE_LABEL,
   parseEventTypes,
+  PICK_AGAIN_LABEL,
+  PICK_AGAIN_VALUE,
   publishReviewSentence,
+  PURCHASE_VALUE_HELP,
   readVisitorLookup,
+  ruleValueOptions,
+  ruleValueSelected,
   TIME_FIELD_LABEL,
   TIME_FIELD_NOTE,
   TIME_HEADING,
@@ -38,6 +47,7 @@ import {
   timeSourceField,
   timeZoneOptions,
   usesReceivedTime,
+  VALUE_AMOUNT_NOTE,
   visitorLookupBlocker,
   VISITOR_FILLS,
   VISITOR_KEY_KINDS,
@@ -353,10 +363,18 @@ function QualificationEditor(props: { draft: Item; setDraft: (draft: Item) => vo
           const value = ruleName === "fixed_amount" ? { kind: "fixed", amount: "0.0000" } : ruleName === "bid_half" ? { kind: "multiply", field: "bid_amount", factor: "0.5" } : { kind: "field", field: ruleName === "actual_payout" ? "payout_amount" : "bid_amount" };
           updateRule(index, { outcome: { status: "qualified", effective_value_rule: ruleName, value } });
         }}><option value="actual_payout">Actual payout</option><option value="bid_full">Full bid</option><option value="bid_half">Half bid</option><option value="fixed_amount">Fixed amount</option></select></label>
-        <label>{(outcome.value as Item)?.kind === "fixed" ? "Fixed amount" : "Value field"}<input value={String((outcome.value as Item)?.amount ?? (outcome.value as Item)?.field ?? "")} onInput={(event) => {
+        {outcome.effective_value_rule === "actual_payout" && (outcome.value as Item)?.kind === "field" ? (() => {
+          const current = String((outcome.value as Item).field ?? "");
+          const selected = ruleValueSelected(props.draft, current);
+          return <label>Value field<select value={selected} onChange={(event) => props.setDraft(applyRuleValueField(props.draft, index, event.currentTarget.value))}>
+            {selected === PICK_AGAIN_VALUE && <option value={PICK_AGAIN_VALUE} disabled>{PICK_AGAIN_LABEL}</option>}
+            {current === "" && <option value="" disabled>Choose a field</option>}
+            {ruleValueOptions(props.draft, current).map((field) => <option value={field}>{destinationValueLabel(props.draft, field)}</option>)}
+          </select><small>{VALUE_AMOUNT_NOTE}</small></label>;
+        })() : <label>{(outcome.value as Item)?.kind === "fixed" ? "Fixed amount" : "Value field"}<input value={String((outcome.value as Item)?.amount ?? (outcome.value as Item)?.field ?? "")} onInput={(event) => {
           const value = outcome.value as Item;
           updateRule(index, { outcome: { ...outcome, value: value.kind === "fixed" ? { ...value, amount: event.currentTarget.value } : { ...value, field: event.currentTarget.value } } });
-        }} /></label></>}
+        }} /></label>}</>}
         <button class="ko-button ko-button--small" type="button" disabled={rules.ordered.length <= 1} onClick={() => props.setDraft({ ...props.draft, rules: { ...rules, ordered: rules.ordered.filter((_, itemIndex) => itemIndex !== index) } })}>Remove rule</button>
       </fieldset>;
     })}
@@ -770,13 +788,14 @@ function FlowWizard(props: { bootstrapActive: boolean; route: Extract<FlowRoute,
       {destinations.map((destination, index) => {
         const destinationMapping = destination.mapping as Item;
         const isMeta = isMetaConnection(destination.connection_id);
-        const setMapping = (mapping: Item) => setDraft({ ...draft, destinations: destinations.map((item, itemIndex) => itemIndex === index ? { ...item, mapping } : item) });
+        const valueSelected = destinationValueSelected(draft, destinationMapping);
+        const purchase = needsPurchaseValue(destinationMapping, isMeta);
         return <fieldset class="ko-rule-card"><legend>Destination {index + 1}</legend>
         <label>Destination Connection<select value={String(destination.connection_id)} onChange={(event) => {
           const connectionId = event.currentTarget.value;
           setDraft({ ...draft, destinations: destinations.map((item, itemIndex) => itemIndex === index ? { ...item, connection_id: connectionId, mapping: applyDestinationKind(item.mapping as Item, isMetaConnection(connectionId)) } : item) });
         }}>{destinationConnections.map((connection) => <option value={String(connection.connection_id)}>{text(connection, "name")} · {text(connection, "adapter_type")}</option>)}</select></label>
-        <label>Value to send<select value={String(destinationMapping.value_field ?? "")} onChange={(event) => setMapping(applyDestinationValue(destinationMapping, event.currentTarget.value))}>{[...new Set([...valueOptions, ...(typeof destinationMapping.value_field === "string" ? [destinationMapping.value_field] : [])])].map((field) => <option value={field}>{destinationValueLabel(draft, field)}</option>)}<option value="">Do not send a value</option></select><small>The currency comes from the currency setting in the Map fields step.</small></label>
+        <label>Value to send<select value={valueSelected} onChange={(event) => setDraft(applyDestinationValueChoice(draft, index, event.currentTarget.value))}>{valueSelected === PICK_AGAIN_VALUE && <option value={PICK_AGAIN_VALUE} disabled>{PICK_AGAIN_LABEL}</option>}{valueOptions.map((field) => <option value={field}>{destinationValueLabel(draft, field)}</option>)}<option value="" disabled={purchase}>{NO_VALUE_LABEL}</option></select>{purchase && <small class="ko-disabled-reason">{PURCHASE_VALUE_HELP}</small>}<small>{VALUE_AMOUNT_NOTE}</small><small>The currency comes from the currency setting in the Map fields step.</small></label>
         {isMeta && <p class="ko-disabled-reason">Where the conversion happened is set on the Facebook connection (Connections → this connection → Sending to the ad platform). This Flow uses that setting.</p>}
         <label class="ko-checkbox"><input type="checkbox" checked={destination.enabled === true} onChange={(event) => setDraft({ ...draft, destinations: destinations.map((item, itemIndex) => itemIndex === index ? { ...item, enabled: event.currentTarget.checked } : item) })} /><span>Eligible after publish and control activation</span></label>
         <label>Provider event name<input value={String((destination.mapping as Item).event_name)} onInput={(event) => setDraft({ ...draft, destinations: destinations.map((item, itemIndex) => itemIndex === index ? { ...item, mapping: { ...(item.mapping as Item), event_name: event.currentTarget.value } } : item) })} /></label>

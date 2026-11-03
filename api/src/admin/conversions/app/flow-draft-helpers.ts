@@ -190,22 +190,108 @@ function canHoldMoney(name: string): boolean {
     && !/^(click|session|attempt|funnel_attempt)_/u.test(name);
 }
 
-/** Value choices: the rule value first, then every mapped field that can hold money. "" means no value. */
-export function destinationValueOptions(draft: Item): string[] {
-  const fields = new Set<string>([DEFAULT_VALUE_FIELD]);
-  for (const field of mappingFields(draft)) {
-    const name = field.canonical_field;
-    if (typeof name === "string" && name.trim() !== "" && canHoldMoney(name)) fields.add(name);
-  }
-  return [...fields];
+/** True when the mapping entry for this canonical field is read as an amount (has the decimal transform). */
+export function isAmountField(draft: Item, name: string): boolean {
+  const entry = mappingFields(draft).find((field) => field.canonical_field === name);
+  return Array.isArray(entry?.transforms)
+    && entry.transforms.some((transform) => isRecord(transform) && transform.op === "decimal");
 }
 
-/** Plain-English name for a value choice: the mapping entry's own label when it has one, else "Field: <name>". */
+function isMappedField(draft: Item, name: string): boolean {
+  return mappingFields(draft).some((field) => field.canonical_field === name);
+}
+
+/** Mapped fields that are amounts first, then other mapped fields that could hold one. */
+function amountFieldChoices(draft: Item): string[] {
+  const amounts: string[] = [];
+  const others: string[] = [];
+  for (const field of mappingFields(draft)) {
+    const name = field.canonical_field;
+    if (typeof name !== "string" || name.trim() === "") continue;
+    if (isAmountField(draft, name)) amounts.push(name);
+    else if (canHoldMoney(name)) others.push(name);
+  }
+  return [...new Set([...amounts, ...others])];
+}
+
+/**
+ * Value choices: the rule value first, then mapped fields read as amounts, then, for convenience,
+ * other mapped fields that could hold money (picking one makes us read it as an amount).
+ */
+export function destinationValueOptions(draft: Item): string[] {
+  return [DEFAULT_VALUE_FIELD, ...amountFieldChoices(draft).filter((name) => name !== DEFAULT_VALUE_FIELD)];
+}
+
+/**
+ * Plain-English name for a value choice: the mapping entry's own label when it is read as an amount,
+ * "Field: <name> (we'll read it as an amount)" for a mapped field not yet read as one, else "Field: <name>".
+ */
 export function destinationValueLabel(draft: Item, name: string): string {
   if (name === DEFAULT_VALUE_FIELD) return "Value from the partner's report (effective value)";
+  if (isMappedField(draft, name) && !isAmountField(draft, name)) return `Field: ${name} (we'll read it as an amount)`;
   const entry = mappingFields(draft).find((field) => field.canonical_field === name);
   const label = entry?.label;
   return typeof label === "string" && label.trim() !== "" ? label.trim() : `Field: ${name}`;
+}
+
+export const VALUE_AMOUNT_NOTE = "We read amounts like 12.50, 12,50 and $12.50. An amount in another currency than the Flow's is not sent.";
+export const NO_VALUE_LABEL = "Do not send a value";
+export const PURCHASE_VALUE_HELP = "Facebook needs an amount for Purchase.";
+/** Shown, selected and not choosable, when the saved field is not read as an amount yet. */
+export const PICK_AGAIN_VALUE = "?pick-again";
+export const PICK_AGAIN_LABEL = "Pick the value again";
+
+/** Makes us read a mapped field as an amount: adds the decimal transform to its entry when missing. */
+export function readAsAmount(draft: Item, name: string | null): Item {
+  if (name === null || name === "" || name === DEFAULT_VALUE_FIELD
+      || !isMappedField(draft, name) || isAmountField(draft, name)) return draft;
+  return withMappingFields(draft, mappingFields(draft).map((field) => field.canonical_field === name
+    ? { ...field, transforms: [...(Array.isArray(field.transforms) ? field.transforms : []), { op: "decimal" }] }
+    : field));
+}
+
+/** Facebook refuses a Purchase without an amount, so "Do not send a value" is not offered there. */
+export function needsPurchaseValue(mapping: Item, isMeta: boolean): boolean {
+  return isMeta && mapping.event_name === "Purchase";
+}
+
+/** What the value select shows: "" for no value, the field, or PICK_AGAIN_VALUE for a field not read as an amount. */
+export function destinationValueSelected(draft: Item, mapping: Item): string {
+  const value = mapping.value_field;
+  if (typeof value !== "string" || value === "") return "";
+  return value === DEFAULT_VALUE_FIELD || isAmountField(draft, value) ? value : PICK_AGAIN_VALUE;
+}
+
+/** Picks the value a destination sends; a mapped field picked here is read as an amount from now on. */
+export function applyDestinationValueChoice(draft: Item, index: number, valueField: string): Item {
+  if (valueField === PICK_AGAIN_VALUE || !Array.isArray(draft.destinations)) return draft;
+  const destinations = draft.destinations.map((destination: unknown, itemIndex) => itemIndex === index && isRecord(destination)
+    ? { ...destination, mapping: applyDestinationValue(isRecord(destination.mapping) ? destination.mapping : {}, valueField) }
+    : destination);
+  return readAsAmount({ ...draft, destinations }, valueField === "" ? null : valueField);
+}
+
+/** "Actual payout" choices: mapped amount fields, other mapped fields that could hold money, and the saved field. */
+export function ruleValueOptions(draft: Item, current: string): string[] {
+  const choices = amountFieldChoices(draft);
+  return current === "" || choices.includes(current) ? choices : [current, ...choices];
+}
+
+/** What the "Actual payout" select shows: PICK_AGAIN_VALUE for a mapped field not read as an amount yet. */
+export function ruleValueSelected(draft: Item, current: string): string {
+  return isMappedField(draft, current) && !isAmountField(draft, current) ? PICK_AGAIN_VALUE : current;
+}
+
+/** Picks the field an "Actual payout" rule reads; a mapped field picked here is read as an amount from now on. */
+export function applyRuleValueField(draft: Item, index: number, field: string): Item {
+  const rules = draft.rules;
+  if (field === PICK_AGAIN_VALUE || !isRecord(rules) || !Array.isArray(rules.ordered)) return draft;
+  const ordered = rules.ordered.map((rule: unknown, itemIndex) => {
+    if (itemIndex !== index || !isRecord(rule) || !isRecord(rule.outcome)) return rule;
+    const value = isRecord(rule.outcome.value) ? rule.outcome.value : { kind: "field" };
+    return { ...rule, outcome: { ...rule.outcome, value: { ...value, field } } };
+  });
+  return readAsAmount({ ...draft, rules: { ...rules, ordered } }, field);
 }
 
 /** Sets value_field and keeps currency_field in step: "currency" when a value is sent, otherwise null. */
@@ -468,6 +554,8 @@ const SAMPLE_RECORD_REASONS: Readonly<Record<string, string>> = Object.freeze({
   identity_missing: "the record id",
   time_missing: "the conversion time",
   time_invalid: "a readable conversion time",
+  value_missing: "the amount (value)",
+  value_invalid: "a readable amount in the Flow's currency",
 });
 
 /**

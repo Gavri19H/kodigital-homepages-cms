@@ -192,11 +192,12 @@ describe("Destination value field logic", () => {
 
   it("names each value choice in plain words", () => {
     const labelled = draft([
-      { canonical_field: "bid_amount", source_field: "bid", fixed_value: null, required: false, transforms: [], label: "Partner bid" },
+      { canonical_field: "bid_amount", source_field: "bid", fixed_value: null, required: false, transforms: [{ op: "decimal" }], label: "Partner bid" },
     ]);
     expect(destinationValueLabel(labelled, "effective_value")).toBe("Value from the partner's report (effective value)");
     expect(destinationValueLabel(labelled, "bid_amount")).toBe("Partner bid");
-    expect(destinationValueLabel(labelled, "payout_amount")).toBe("Field: payout_amount");
+    expect(destinationValueLabel(labelled, "payout_amount")).toBe("Field: payout_amount (we'll read it as an amount)");
+    expect(destinationValueLabel(labelled, "unmapped_amount")).toBe("Field: unmapped_amount");
   });
 
   it("keeps the currency in step with the value", () => {
