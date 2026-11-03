@@ -41,6 +41,8 @@ export interface Env {
   CONVERSIONS_ACTOR_AUDIENCE?: string;
   CONVERSIONS_ACTOR_ENVIRONMENT?: string;
   CONVERSIONS_ACTOR_SIGNING_KEY_B64URL?: string;
+  /** Public https origin of the Conversions postback intake (no path). */
+  CONVERSIONS_POSTBACK_ORIGIN?: string;
   // Four disjoint encrypted HMAC bindings for the private provider authority.
   // No value or provider credential is stored in Wrangler plaintext vars.
   CMS_PROVIDER_PREPARE_REQUEST_HMAC_KEY_B64URL?: string;

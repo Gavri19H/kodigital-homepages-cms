@@ -374,6 +374,22 @@ export function normalizeConnectionConfigField(
     if (value === "batch") next = writeConfigPath(next, "field_location", "json_body");
   }
   if (path === "auth.mode") {
+    if (value === "query_token") {
+      next = writeConfigPath(next, "auth.authorization_header", "token");
+      next = writeConfigPath(next, "auth.timestamp_header", null);
+      next = writeConfigPath(next, "auth.signature_header", null);
+      next = writeConfigPath(next, "field_location", "query");
+      next = writeConfigPath(next, "mode", "single");
+      next = writeConfigPath(next, "batch_member_field", null);
+      next = writeConfigPath(next, "allowed_methods", ["GET"]);
+      next = writeConfigPath(next, "allowed_content_types", []);
+      return next;
+    }
+    if (readConfigPath(config, "auth.mode") === "query_token") {
+      next = writeConfigPath(next, "field_location", "json_body");
+      next = writeConfigPath(next, "allowed_methods", ["POST"]);
+      next = writeConfigPath(next, "allowed_content_types", ["application/json"]);
+    }
     if (value === "hmac") {
       next = writeConfigPath(
         writeConfigPath(
@@ -603,8 +619,8 @@ export const CONNECTION_CONFIG_SECTIONS: Readonly<Record<ConnectionAdapter, Read
       { path: "field_location", label: "Read fields from", kind: "select", options: [{ value: "json_body", label: "JSON body" }, { value: "query", label: "Query string" }], help: "Batch mode requires a JSON body." },
       { path: "batch_member_field", label: "Batch array field", kind: "text", nullable: true, help: "Required only for batch mode." },
       pair("field_mapping", "Inbound field mapping", "Map partner field names into stable source column names.", "Incoming field", "Source column"),
-      { path: "auth.mode", label: "Authentication", kind: "select", options: [{ value: "hmac", label: "HMAC (recommended)" }, { value: "bearer", label: "Bearer token" }, { value: "basic", label: "Basic authentication" }], help: "The secret itself is entered in the separate credential section." },
-      { path: "auth.authorization_header", label: "Authorization header", kind: "text", nullable: true, help: "Required for bearer/basic; blank for HMAC." },
+      { path: "auth.mode", label: "Authentication", kind: "select", options: [{ value: "hmac", label: "HMAC (recommended)" }, { value: "bearer", label: "Bearer token" }, { value: "basic", label: "Basic authentication" }, { value: "query_token", label: "Token in the link" }], help: "The secret itself is entered in the separate credential section. \"Token in the link\" lets a partner call a simple link that carries the token." },
+      { path: "auth.authorization_header", label: "Authorization header", kind: "text", nullable: true, help: "Required for bearer/basic; blank for HMAC. For \"Token in the link\" this is the name of the link part that carries the token." },
       { path: "auth.timestamp_header", label: "HMAC timestamp header", kind: "text", nullable: true, help: "Required for HMAC and checked with five-minute tolerance." },
       { path: "auth.signature_header", label: "HMAC signature header", kind: "text", nullable: true, help: "Required for HMAC." },
       { path: "limits.max_body_bytes", label: "Maximum body bytes", kind: "number", minimum: 1, maximum: 1_048_576, help: "Hard request cap before enqueue." },
@@ -655,7 +671,7 @@ export const CONNECTION_CONFIG_SECTIONS: Readonly<Record<ConnectionAdapter, Read
     description: "The access token is saved separately and never returned.",
     fields: [
       { path: "dataset_id", label: "Meta dataset ID", kind: "text", help: "Dataset/pixel that receives eligible events." },
-      { path: "api_version", label: "Pinned supported API version", kind: "text", help: "Verified API version; it is not guessed or silently upgraded." },
+      { path: "api_version", label: "Facebook API version", kind: "text", help: "Verified API version; it is not guessed or silently upgraded." },
       { path: "test_event_code", label: "Test event code", kind: "text", nullable: true, help: "Optional provider test code for non-production validation." },
     ],
   }],
@@ -700,6 +716,82 @@ export const CONNECTION_CONFIG_SECTIONS: Readonly<Record<ConnectionAdapter, Read
     ],
   }],
 });
+
+export const ACTION_SOURCE_OPTIONS: ReadonlyArray<{ readonly value: string; readonly label: string }> = Object.freeze([
+  { value: "app", label: "Mobile app" },
+  { value: "phone_call", label: "Phone call" },
+  { value: "chat", label: "Chat" },
+  { value: "physical_store", label: "In a physical store" },
+  { value: "system_generated", label: "Created automatically by a system" },
+  { value: "business_messaging", label: "Business messaging" },
+  { value: "other", label: "Other (a partner reported it)" },
+]);
+
+/** Default "Where the conversion happened" for Facebook sending: partner-reported conversions carry no page address. */
+export const META_DEFAULT_ACTION_SOURCE = "other";
+
+/**
+ * Website is not offered: Facebook needs the page address for Website conversions and Flows do not send one,
+ * so the service refuses it. A connection saved earlier as Website shows this warning until it is changed.
+ */
+export function metaActionSourceWarning(actionSource: string): string | null {
+  return actionSource === "website"
+    ? "This connection is set to Website, which Facebook can't accept here. Choose Other and save."
+    : null;
+}
+
+/** 32 random bytes as base64url without padding (43 characters). */
+export function generatePostbackToken(
+  fill: (bytes: Uint8Array) => Uint8Array = (bytes) => crypto.getRandomValues(bytes),
+): string {
+  const bytes = fill(new Uint8Array(32));
+  let binary = "";
+  for (const byte of bytes) binary += String.fromCharCode(byte);
+  return btoa(binary).replaceAll("+", "-").replaceAll("/", "_").replace(/=+$/u, "");
+}
+
+/** Postback link for a "Token in the link" connection. The token goes first, then the example fields in order. */
+export function buildPostbackLink(input: {
+  readonly origin: string;
+  readonly publicId: string;
+  readonly tokenParameter: string;
+  readonly token: string;
+  readonly fields: ReadonlyArray<{ readonly name: string; readonly value: string }>;
+}): string {
+  const parameters = new URLSearchParams();
+  parameters.append(input.tokenParameter, input.token);
+  for (const field of input.fields) {
+    const name = field.name.trim();
+    if (name !== "" && name !== input.tokenParameter) parameters.append(name, field.value);
+  }
+  return `${input.origin.replace(/\/+$/u, "")}/v1/in/${encodeURIComponent(input.publicId)}?${parameters.toString()}`;
+}
+
+/**
+ * The field as the editor should show it for the current settings.
+ * "Token in the link" webhooks are opened by partners with a plain link (GET),
+ * so the request-method and header wording is replaced with link wording.
+ */
+export function presentConfigField(adapter: ConnectionAdapter, field: ConfigField, config: Record<string, unknown>): ConfigField {
+  if (adapter !== "inbound_webhook") return field;
+  if (readConfigPath(config, "auth.mode") !== "query_token") return field;
+  if (field.path === "auth.authorization_header") {
+    return { ...field, label: "Name of the token in the link", help: "Partners add this to the link, for example ?token=…" };
+  }
+  if (field.path === "allowed_methods") {
+    return { ...field, kind: "static", help: "Partners open the link (GET)." };
+  }
+  return field;
+}
+
+/** HMAC-only fields are hidden for "Token in the link" webhooks, where they never apply. */
+const HMAC_ONLY_FIELDS = new Set(["auth.timestamp_header", "auth.signature_header"]);
+
+/** Whether the editor shows this field for the current settings. */
+export function isConfigFieldShown(adapter: ConnectionAdapter, field: ConfigField, config: Record<string, unknown>): boolean {
+  if (field.visibleWhen !== undefined && readConfigPath(config, field.visibleWhen.path) !== field.visibleWhen.equals) return false;
+  return !(adapter === "inbound_webhook" && readConfigPath(config, "auth.mode") === "query_token" && HMAC_ONLY_FIELDS.has(field.path));
+}
 
 export function adapterDefinition(value: string): AdapterDefinition | undefined {
   return CONNECTION_ADAPTERS.find((adapter) => adapter.value === value);

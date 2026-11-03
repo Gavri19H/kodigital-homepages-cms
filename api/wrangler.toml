@@ -54,6 +54,9 @@ CONVERSIONS_UI_ENABLED = "false"
 CONVERSIONS_PROXY_ENABLED = "false"
 CONVERSIONS_ACTOR_AUDIENCE = "kodigital-conversions-core"
 CONVERSIONS_ACTOR_ENVIRONMENT = "development"
+# Public origin of the Conversions postback intake; the Connections page shows
+# partners the full link built from it. Not a secret.
+CONVERSIONS_POSTBACK_ORIGIN = "https://post.kodigital.app"
 # Listicles Phase 9 revenue pipeline (§19/§20/§24) uses ONLY encrypted secrets —
 # NONE appear here (they are set via `wrangler secret put`, Dashboard/CI only,
 # exactly like the AWS + CH creds). Typed optional in api/src/env.ts; full names
@@ -211,6 +214,9 @@ CONVERSIONS_UI_ENABLED = "true"
 CONVERSIONS_PROXY_ENABLED = "true"
 CONVERSIONS_ACTOR_AUDIENCE = "kodigital-conversions-core"
 CONVERSIONS_ACTOR_ENVIRONMENT = "production"
+# Public origin of the Conversions postback intake; the Connections page shows
+# partners the full link built from it. Not a secret.
+CONVERSIONS_POSTBACK_ORIGIN = "https://post.kodigital.app"
 ADMIN_HOST = "cms.kodigital.app"
 ADMIN_BASE_URL = "https://cms.kodigital.app"
 ADMIN_BASE_PATH = "/admin"

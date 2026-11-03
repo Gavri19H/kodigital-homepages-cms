@@ -1,12 +1,19 @@
 import { useCallback, useEffect, useMemo, useState } from "preact/hooks";
 import { ConversionsApiError, requestConversionsApi } from "./api-client";
 import {
+  ACTION_SOURCE_OPTIONS,
   adapterDefinition,
   adaptersForDirection,
+  buildPostbackLink,
   CONNECTION_CONFIG_SECTIONS,
+  generatePostbackToken,
   credentialTypesForAdapter,
   defaultConnectionConfig,
+  isConfigFieldShown,
+  META_DEFAULT_ACTION_SOURCE,
+  metaActionSourceWarning,
   normalizeConnectionConfigField,
+  presentConfigField,
   type ConfigField,
   type ConnectionAdapter,
   type ConnectionDirection,
@@ -21,6 +28,8 @@ import {
   type ConversionsUiContext,
 } from "./product-state";
 import { loadConnectionArchiveImpacts } from "./connection-archive-impact";
+import { POSTBACK_MINIMUM_LINE } from "./flow-draft-helpers";
+import { metaReleaseNotice, type MetaReleaseSummary } from "./meta-release-notice";
 import { ShellFrame } from "./shell";
 
 type Item = Record<string, unknown>;
@@ -29,6 +38,10 @@ type RouteMode = { readonly kind: "list" | "new" } | { readonly kind: "detail"; 
 const CONNECTIONS_PATH = "/api/admin/conversions/v1/connections";
 const UI_CONTEXT_PATH = "/api/admin/conversions/ui-context";
 const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-7[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/;
+const PROVIDER_CONNECTIONS_PATH = "/api/admin/conversions/provider-connections";
+const META_STATUSES = ["disabled", "test_only", "live"] as const;
+type MetaStatus = typeof META_STATUSES[number];
+const META_STATUS_LABELS: Readonly<Record<MetaStatus, string>> = { disabled: "Off", test_only: "Testing", live: "Live" };
 
 function routeMode(): RouteMode {
   if (typeof window === "undefined") return { kind: "list" };
@@ -145,7 +158,7 @@ function ConfigFieldEditor(props: {
           checked={value === true}
           onChange={(event) => props.onChange(props.field.path, event.currentTarget.checked)}
         />
-        <span>{props.field.label}<small>{props.field.help}</small></span>
+        <span>{props.field.label}{" "}<small>{props.field.help}</small></span>
       </label>
     );
   }
@@ -209,12 +222,11 @@ function ConfigEditor(props: {
           <p>{section.description}</p>
           <div class="ko-config-grid">
             {section.fields
-              .filter((field) => field.visibleWhen === undefined
-                || getPath(props.config, field.visibleWhen.path) === field.visibleWhen.equals)
+              .filter((field) => isConfigFieldShown(props.adapter, field, props.config))
               .map((field) => (
               <ConfigFieldEditor
                 key={field.path}
-                field={field}
+                field={presentConfigField(props.adapter, field, props.config)}
                 config={props.config}
                 onChange={(path, value) => props.onChange(
                   normalizeConnectionConfigField(props.config, path, value),
@@ -333,19 +345,23 @@ function CredentialPanel(props: {
   credentialPresent: boolean;
   credentialVersion: number | null;
   canManageCredentials: boolean;
+  linkToken: boolean;
   onSaved: () => void;
 }) {
   const types = credentialTypesForAdapter(props.adapter);
-  const [type, setType] = useState(types[0] ?? "");
+  const initialType = props.linkToken && types.includes("bearer_token") ? "bearer_token" : types[0] ?? "";
+  const [type, setType] = useState(initialType);
   const [first, setFirst] = useState("");
   const [second, setSecond] = useState("");
+  const [generated, setGenerated] = useState(false);
   const [message, setMessage] = useState("");
   const [saving, setSaving] = useState(false);
   useEffect(() => {
-    setType(types[0] ?? "");
+    setType(initialType);
     setFirst("");
     setSecond("");
-  }, [props.adapter]);
+    setGenerated(false);
+  }, [props.adapter, props.linkToken]);
   async function save(event: Event) {
     event.preventDefault();
     if (!props.canManageCredentials) return;
@@ -366,6 +382,7 @@ function CredentialPanel(props: {
       });
       setFirst("");
       setSecond("");
+      setGenerated(false);
       setMessage("Credential saved. Its value was discarded from this screen.");
       props.onSaved();
     } catch (error) {
@@ -407,14 +424,215 @@ function CredentialPanel(props: {
           <label>Credential type<select disabled={!props.canManageCredentials} value={type} onChange={(event) => setType(event.currentTarget.value)}>{types.map((value) => <option value={value}>{value.replaceAll("_", " ")}</option>)}</select></label>
           <label>
             {type === "basic" ? "Username" : type === "service_account" ? "Service-account email" : type === "hmac" ? "HMAC secret" : "Token"}
-            <input disabled={!props.canManageCredentials} type={type === "basic" || type === "service_account" ? "text" : "password"} value={first} onInput={(event) => setFirst(event.currentTarget.value)} autocomplete="off" required />
+            <input disabled={!props.canManageCredentials} type={type === "basic" || type === "service_account" || generated ? "text" : "password"} value={first} onInput={(event) => { setFirst(event.currentTarget.value); setGenerated(false); }} autocomplete="off" required />
           </label>
+          {props.linkToken && type === "bearer_token" && <>
+            <button class="ko-button ko-button--small" type="button" disabled={!props.canManageCredentials} onClick={() => { setFirst(generatePostbackToken()); setGenerated(true); }}>Generate</button>
+            {generated && <p class="ko-disabled-reason">Copy this token now and give it to the partner. It will not be shown again after you save it.</p>}
+          </>}
           {(type === "basic" || type === "service_account") && <label>{type === "basic" ? "Password" : "Private key"}<textarea disabled={!props.canManageCredentials} value={second} onInput={(event) => setSecond(event.currentTarget.value)} required rows={4} autocomplete="off" /></label>}
           <button class="ko-button" type="submit" disabled={saving || !props.canManageCredentials || first.length < 1 || ((type === "basic" || type === "service_account") && second.length < 1)}>Save credentials</button>
         </form>
       )}
       {types.length === 0 && !oauthAdapter && <p>No per-Connection credential is required for this adapter.</p>}
       <p role="status" aria-live="polite">{message}</p>
+    </section>
+  );
+}
+
+function PostbackLinkPanel(props: { origin: string | null; publicId: string; tokenParameter: string }) {
+  const [token, setToken] = useState("");
+  const [fields, setFields] = useState<ReadonlyArray<{ name: string; value: string }>>([{ name: "click_id", value: "test-123" }]);
+  const ready = props.origin !== null && token.trim() !== "";
+  return (
+    <section class="ko-generated-endpoint" aria-labelledby="postback-link-heading">
+      <h3 id="postback-link-heading">Partner link</h3>
+      {props.origin === null ? <p>The link address is not set up yet, so the full link cannot be shown.</p> : <>
+        <code>{props.origin}/v1/in/{props.publicId}?{props.tokenParameter}=…</code>
+        <p>Give this link to the partner, with the saved token in place of “…”. The partner adds the conversion details to the end of the link, for example <code>&amp;click_id=123</code>.</p>
+      </>}
+      <p>{POSTBACK_MINIMUM_LINE}</p>
+      <h4>Try the link</h4>
+      <p>Type or paste the token here to build a test link. It stays in this browser tab only: it is not saved and not sent to our service.</p>
+      <div class="ko-config-grid">
+        <label class="ko-config-field"><span>Token</span><input type="password" value={token} onInput={(event) => setToken(event.currentTarget.value)} autocomplete="off" /><small>The token you saved in Authentication.</small></label>
+      </div>
+      <fieldset class="ko-config-field ko-config-pairs">
+        <legend>Example details</legend>
+        {fields.map((field, index) => (
+          <div class="ko-pair-row" key={`postback-field-${index}`}>
+            <label><span>Field name</span><input value={field.name} onInput={(event) => {
+              const name = event.currentTarget.value;
+              setFields(fields.map((item, itemIndex) => itemIndex === index ? { ...item, name } : item));
+            }} /></label>
+            <label><span>Value</span><input value={field.value} onInput={(event) => {
+              const value = event.currentTarget.value;
+              setFields(fields.map((item, itemIndex) => itemIndex === index ? { ...item, value } : item));
+            }} /></label>
+            <button class="ko-button ko-button--small" type="button" onClick={() => setFields(fields.filter((_, itemIndex) => itemIndex !== index))}>Remove</button>
+          </div>
+        ))}
+        <button class="ko-button ko-button--small" type="button" onClick={() => setFields([...fields, { name: "", value: "" }])}>Add row</button>
+      </fieldset>
+      <button class="ko-button" type="button" disabled={!ready} onClick={() => {
+        if (props.origin === null || token.trim() === "") return;
+        window.open(buildPostbackLink({
+          origin: props.origin,
+          publicId: props.publicId,
+          tokenParameter: props.tokenParameter,
+          token: token.trim(),
+          fields,
+        }), "_blank", "noopener");
+      }}>Open test link</button>
+      <p class="ko-disabled-reason">Save the flow draft first; the test creates the preview sample.</p>
+    </section>
+  );
+}
+
+interface MetaProviderView {
+  readonly configured: boolean;
+  readonly status: MetaStatus;
+  readonly datasetId: string | null;
+  readonly actionSource: string | null;
+  readonly testEventCode: string | null;
+  readonly headRowVersion: number | null;
+  readonly release: MetaReleaseSummary | null;
+}
+
+function nullableString(value: unknown): value is string | null {
+  return value === null || typeof value === "string";
+}
+
+function parseMetaProviderView(payload: unknown, connectionId: string): MetaProviderView {
+  const release = isRecord(payload) ? payload.release : undefined;
+  if (!isRecord(payload) || payload.schema_version !== "cms_meta_provider_config_view.v1"
+      || payload.connection_id !== connectionId || typeof payload.configured !== "boolean"
+      || !META_STATUSES.includes(payload.status as MetaStatus)
+      || !nullableString(payload.dataset_id) || !nullableString(payload.action_source)
+      || !nullableString(payload.test_event_code)
+      || !(payload.head_row_version === null || typeof payload.head_row_version === "number")
+      || !(release === null || (isRecord(release) && typeof release.expires_at === "number"
+        && typeof release.ended === "boolean"))) {
+    throw new CoreWireError("invalid_response", "The service returned invalid sending settings.");
+  }
+  return {
+    configured: payload.configured,
+    status: payload.status as MetaStatus,
+    datasetId: payload.dataset_id,
+    actionSource: payload.action_source,
+    testEventCode: payload.test_event_code,
+    headRowVersion: payload.head_row_version as number | null,
+    release: isRecord(release) ? { expiresAt: release.expires_at as number, ended: release.ended as boolean } : null,
+  };
+}
+
+function MetaLivePanel(props: { id: string; config: Item; credentialPresent: boolean; canManage: boolean }) {
+  const path = `${PROVIDER_CONNECTIONS_PATH}/${props.id}/meta`;
+  const [view, setView] = useState<MetaProviderView | null>(null);
+  const [state, setState] = useState<"loading" | "ready" | "error">("loading");
+  const [status, setStatus] = useState<MetaStatus>("disabled");
+  const [datasetId, setDatasetId] = useState("");
+  const [actionSource, setActionSource] = useState(META_DEFAULT_ACTION_SOURCE);
+  const [testCode, setTestCode] = useState("");
+  const [confirmLive, setConfirmLive] = useState(false);
+  const [saving, setSaving] = useState(false);
+  const [message, setMessage] = useState("");
+  const show = (next: MetaProviderView) => {
+    setView(next);
+    setStatus(next.status);
+    setDatasetId(next.datasetId ?? (typeof props.config.dataset_id === "string" ? props.config.dataset_id : ""));
+    setActionSource(next.actionSource ?? META_DEFAULT_ACTION_SOURCE);
+    setTestCode(next.testEventCode ?? (typeof props.config.test_event_code === "string" ? props.config.test_event_code : ""));
+  };
+  const load = useCallback(async () => {
+    setState("loading");
+    try {
+      show(parseMetaProviderView(await requestConversionsApi<unknown>(`meta.settings.read:${props.id}`, path), props.id));
+      setState("ready");
+      setMessage("");
+    } catch (error) {
+      setState("error");
+      setMessage(error instanceof ConversionsApiError && (error.status === 404 || error.status === 503)
+        ? "Sending settings are not available right now."
+        : errorMessage(error));
+    }
+  }, [props.id]);
+  useEffect(() => { void load(); }, [load]);
+  async function save() {
+    if (view === null || !props.canManage) return;
+    setConfirmLive(false);
+    setSaving(true);
+    setMessage("Saving…");
+    try {
+      const payload = await requestConversionsApi<unknown>(`meta.settings.write:${props.id}:${view.headRowVersion ?? "new"}`, path, {
+        method: "PUT",
+        body: {
+          schema_version: "cms_meta_provider_config.v1",
+          status,
+          dataset_id: datasetId.trim() === "" ? null : datasetId.trim(),
+          action_source: actionSource,
+          test_event_code: status === "test_only" ? testCode.trim() : null,
+          expected_head_row_version: view.configured ? view.headRowVersion : null,
+        },
+      });
+      show(parseMetaProviderView(payload, props.id));
+      setMessage("Sending settings saved.");
+    } catch (error) {
+      setMessage(errorMessage(error));
+      if (error instanceof ConversionsApiError && error.status === 409) void load();
+    } finally {
+      setSaving(false);
+    }
+  }
+  const notice = view === null ? null : metaReleaseNotice(view.status, view.release);
+  const actionSourceWarning = metaActionSourceWarning(actionSource);
+  const missing = actionSourceWarning !== null
+    ? "Choose Other for Where the conversion happened."
+    : status !== "disabled" && datasetId.trim() === ""
+      ? "Enter the dataset ID."
+      : status === "test_only" && testCode.trim() === "" ? "Enter the test code." : "";
+  return (
+    <section class="ko-config-section" aria-labelledby="meta-live-heading">
+      <h3 id="meta-live-heading">Sending to the ad platform</h3>
+      <p>Off sends nothing. Testing sends events marked as tests, which the ad platform does not count. Live sends real events.</p>
+      {state === "loading" && <div class="ko-loading" role="status" aria-busy="true"><span class="ko-spinner" />Loading sending settings…</div>}
+      {state === "error" && <p class="ko-inline-error" role="alert">{message} <button class="ko-button ko-button--small" type="button" onClick={() => void load()}>Try again</button></p>}
+      {state === "ready" && view !== null && <>
+        <dl class="ko-test-result">
+          <dt>Now</dt><dd>{notice?.until ?? META_STATUS_LABELS[view.status]}</dd>
+        </dl>
+        {notice?.warning != null && <div class="ko-conversions-state ko-conversions-state--warning" role="alert"><p>{notice.warning}</p></div>}
+        <div class="ko-config-grid">
+          <label class="ko-config-field"><span>Sending</span><select value={status} disabled={!props.canManage} onChange={(event) => setStatus(event.currentTarget.value as MetaStatus)}>
+            <option value="disabled">Off</option>
+            <option value="test_only">Testing</option>
+            <option value="live" disabled={!props.credentialPresent}>Live</option>
+          </select><small>{props.credentialPresent ? "Live is a separate, confirmed step." : "Live becomes available after the access token is saved in Authentication."}</small></label>
+          <label class="ko-config-field"><span>Dataset ID</span><input value={datasetId} disabled={!props.canManage} onInput={(event) => setDatasetId(event.currentTarget.value)} autocomplete="off" /><small>The dataset that receives the events.</small></label>
+          <label class="ko-config-field"><span>Where the conversion happened</span><select value={actionSource} disabled={!props.canManage} onChange={(event) => setActionSource(event.currentTarget.value)}>{actionSource === "website" && <option value="website" disabled>Website (not accepted)</option>}{ACTION_SOURCE_OPTIONS.map((option) => <option value={option.value}>{option.label}</option>)}</select><small>Told to Facebook with each event. Every Flow that sends to this connection uses this setting.</small></label>
+          {status === "test_only" && <label class="ko-config-field"><span>Test code</span><input value={testCode} disabled={!props.canManage} onInput={(event) => setTestCode(event.currentTarget.value)} autocomplete="off" /><small>From the ad platform's test events screen.</small></label>}
+        </div>
+        {actionSourceWarning !== null && <div class="ko-conversions-state ko-conversions-state--warning" role="alert"><p>{actionSourceWarning}</p></div>}
+        <button class="ko-button ko-button--primary" type="button" disabled={saving || !props.canManage || missing !== "" || (status === "live" && !props.credentialPresent)} onClick={() => {
+          if (status === "live" && view.status !== "live") setConfirmLive(true);
+          else void save();
+        }}>Save sending settings</button>
+        {missing !== "" && <p class="ko-disabled-reason">{missing}</p>}
+        {!props.canManage && <p class="ko-disabled-reason">You do not have the connections.manage capability.</p>}
+        <p role="status" aria-live="polite">{message}</p>
+      </>}
+      {confirmLive && (
+        <div class="ko-modal-backdrop" role="presentation">
+          <section class="ko-confirm-dialog" role="dialog" aria-modal="true" aria-labelledby="meta-live-dialog-title">
+            <h3 id="meta-live-dialog-title">Switch to Live?</h3>
+            <p>Real events will be sent to the ad platform and counted in its reports. Test events stop.</p>
+            <div class="ko-button-row">
+              <button class="ko-button ko-button--danger" type="button" disabled={saving} onClick={() => void save()}>Yes, go live</button>
+              <button class="ko-button" type="button" onClick={() => setConfirmLive(false)}>Cancel</button>
+            </div>
+          </section>
+        </div>
+      )}
     </section>
   );
 }
@@ -457,6 +675,10 @@ function ConnectionEditor(props: { bootstrapActive: boolean; mode: Extract<Route
   const adapters = useMemo(() => model === null ? [] : adaptersForDirection(model.direction), [model?.direction]);
   const canManage = context?.capabilities.includes("connections.manage") === true;
   const canManageCredentials = context?.capabilities.includes("connections.credentials") === true;
+  const savedConfig = resource !== null && isRecord(resource.config) ? resource.config : null;
+  const savedAuth = savedConfig !== null && isRecord(savedConfig.auth) ? savedConfig.auth : null;
+  const savedLinkToken = savedAuth?.mode === "query_token";
+  const savedTokenParameter = typeof savedAuth?.authorization_header === "string" ? savedAuth.authorization_header : "token";
 
   function changeDirection(direction: ConnectionDirection) {
     if (model === null || context === null) return;
@@ -580,7 +802,8 @@ function ConnectionEditor(props: { bootstrapActive: boolean; mode: Extract<Route
               {context.accountScope.length === 0 && <p class="ko-inline-error" role="alert">No authorized KODigital account is available. Creation is blocked.</p>}
             </section>
             {id !== null && model.adapter === "managed_email" && <section class="ko-generated-endpoint"><h3>Generated recipient</h3><p>The service must return the approved recipient address before this source can be used. The opaque Connection token is <code>{scalar(resource ?? {}, "public_id")}</code>.</p></section>}
-            {id !== null && model.adapter === "inbound_webhook" && <section class="ko-generated-endpoint"><h3>Generated webhook path</h3><code>/v1/in/{scalar(resource ?? {}, "public_id")}</code><p>Share the full approved public hostname and the separately generated credential only after ingress activation is explicitly authorized.</p></section>}
+            {id !== null && model.adapter === "inbound_webhook" && savedLinkToken && <PostbackLinkPanel origin={context.postbackOrigin ?? null} publicId={scalar(resource ?? {}, "public_id")} tokenParameter={savedTokenParameter} />}
+            {id !== null && model.adapter === "inbound_webhook" && !savedLinkToken && <section class="ko-generated-endpoint"><h3>Generated webhook path</h3><code>/v1/in/{scalar(resource ?? {}, "public_id")}</code><p>Share the full approved public hostname and the separately generated credential only after ingress activation is explicitly authorized.</p></section>}
             <ConfigEditor adapter={model.adapter} config={model.config} onChange={(config) => setModel({ ...model, config })} />
             <div class="ko-sticky-actions">
               <button class="ko-button ko-button--primary" type="submit" disabled={saving || !canManage || model.name.trim() === "" || model.accountId === ""}>{saving ? "Saving…" : id === null ? "Save draft" : "Save changes"}</button>
@@ -596,12 +819,22 @@ function ConnectionEditor(props: { bootstrapActive: boolean; mode: Extract<Route
                 credentialPresent={resource.credential_present === true}
                 credentialVersion={typeof resource.credential_version === "number" ? resource.credential_version : null}
                 canManageCredentials={canManageCredentials}
+                linkToken={model.adapter === "inbound_webhook" && savedLinkToken}
                 onSaved={() => void load()}
               />
+              {model.adapter === "meta" && model.direction === "destination" && (
+                <MetaLivePanel
+                  id={id}
+                  config={model.config}
+                  credentialPresent={resource.credential_present === true}
+                  canManage={canManage}
+                />
+              )}
               <section class="ko-config-section" aria-labelledby="connection-test-heading">
                 <h3 id="connection-test-heading">Test connection</h3>
                 <p>This reads connectivity and a bounded sample only. It records no live conversion and sends no destination event.</p>
                 <button class="ko-button" type="button" disabled={saving || !canManage} onClick={() => void testConnection()}>Run side-effect-free test</button>
+                {model.adapter === "inbound_webhook" && <p>A passing test turns this connection on, so partners can start sending.</p>}
                 {testResult && <dl class="ko-test-result"><dt>Status</dt><dd>{scalar(testResult, "status")}</dd><dt>Code</dt><dd>{scalar(testResult, "code")}</dd><dt>Message</dt><dd>{scalar(testResult, "message")}</dd></dl>}
               </section>
               <section class="ko-config-section ko-danger-zone" aria-labelledby="connection-archive-heading">

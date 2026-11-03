@@ -26,6 +26,21 @@ describe("functional conversions and reporting source", () => {
     expect(source).not.toMatch(/https?:\/\/(?!local\.kodigital\.invalid)/);
   });
 
+  it("explains the webhook test and keeps words apart in labels", () => {
+    const connections = readFileSync(new URL("../src/admin/conversions/app/connections.tsx", import.meta.url), "utf8");
+    const flows = readFileSync(new URL("../src/admin/conversions/app/flows.tsx", import.meta.url), "utf8");
+    expect(connections).toContain('{model.adapter === "inbound_webhook" && <p>A passing test turns this connection on, so partners can start sending.</p>}');
+    expect(connections).toContain("field={presentConfigField(props.adapter, field, props.config)}");
+    expect(connections).toContain('{props.field.label}{" "}<small>');
+    expect(flows).toContain('for ads measurement{" "}<small>');
+    expect(flows).toContain('<span>{index + 1}</span>{" "}{label}');
+    expect(flows).toContain("{destinationValueLabel(draft, field)}");
+    expect(flows).not.toContain("Value from the qualification rules");
+    for (const source of [connections, flows]) {
+      expect(source).not.toMatch(/[A-Za-z.]<small>/u);
+    }
+  });
+
   it("keeps newer visible Flow edits dirty when an older autosave response arrives", () => {
     const source = readFileSync(new URL("../src/admin/conversions/app/flows.tsx", import.meta.url), "utf8");
     expect(source).toContain("const savedCurrentDraft = draftRef.current === current");

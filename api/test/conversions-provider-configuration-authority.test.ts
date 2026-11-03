@@ -60,6 +60,8 @@ import {
   type PermanentConversionsAuthority,
 } from "../src/admin/conversions/permanent-authority";
 import {
+  PROVIDER_DELIVERY_PREPARE_PATH,
+  PROVIDER_DELIVERY_PREPARE_REQUEST_PURPOSE,
   PROVIDER_EXECUTE_PATH,
   PROVIDER_EXECUTE_REQUEST_PURPOSE,
   PROVIDER_PREPARE_PATH,
@@ -73,7 +75,9 @@ const CONNECTION = "0198f0aa-0000-7000-8000-000000000003";
 const ALIAS = "0198f0aa-0000-7000-8000-000000000004";
 const FLOW = "0198f0aa-0000-7000-8000-000000000005";
 const DELIVERY = "a12d9e7c-4b31-5a00-8000-000000000006";
-const NOW = 1_789_000_000;
+// Derived from the real clock: Core's delivery repository checks capability
+// expiry against SQLite's own clock, so a fixed instant expires in real time.
+const NOW = Math.floor(Date.now() / 1_000);
 const NONCE = "abcdefghijklmnop";
 const E2E_EVENT = "0198f0aa-0000-7000-8000-000000000008";
 const E2E_FLOW = "0198f0aa-0000-7000-8000-000000000009";
@@ -987,5 +991,158 @@ describe.skipIf(!HAS_CONVERSIONS_CORE)("private provider configuration authority
       method: "POST", headers: { "Content-Type": "application/json" }, body: malformedBody, duplex: "half",
     } as RequestInit & { duplex: "half" });
     expect((await handleProviderConfigurationRequest(malformed, environment, NOW)).status).toBe(400);
+  });
+});
+
+// Part A (A5): a Meta head may be "live" — real events, no test code. These
+// proofs need only the CMS side, so they run with or without a Core checkout.
+// Every test_only expectation above is unchanged.
+function liveSnapshot(testEventCode: string | null = null): string {
+  const value = JSON.parse(snapshot()) as { connection: Record<string, unknown> & { core_connection: Record<string, unknown> } };
+  value.connection.core_connection.status = "live";
+  value.connection.test_event_code = testEventCode;
+  return canonicalJson(value);
+}
+
+function liveProviderRow(raw = liveSnapshot()) {
+  const digest = createHash("sha256").update(raw).digest();
+  return { ...providerRow(), head_status: "live", current_snapshot_sha256: digest, snapshot_json: raw, snapshot_sha256: digest };
+}
+
+function deliveryPrepareRequest(environment: Env): Request {
+  const payload = {
+    schema_version: "destination_provider_delivery_prepare_request.v1",
+    workspace_id: WORKSPACE, destination_connection_id: CONNECTION, flow_id: FLOW, flow_version_id: FLOW,
+    event_id: E2E_EVENT, event_version: 1, source_command_id: "c".repeat(64), state_fingerprint: "d".repeat(64),
+    delivery_id: DELIVERY, issued_at: NOW, expires_at: NOW + 30, nonce: NONCE,
+  };
+  return new Request(`https://private.invalid${PROVIDER_DELIVERY_PREPARE_PATH}`, {
+    method: "POST", headers: { "Content-Type": "application/json" },
+    body: canonicalJson({ payload, signature: hmac(payload, environment.CMS_PROVIDER_PREPARE_REQUEST_HMAC_KEY_B64URL!, PROVIDER_DELIVERY_PREPARE_REQUEST_PURPOSE) }),
+  });
+}
+
+function liveCmsDatabase(): NodeSqlite {
+  const db = realCmsDatabase();
+  db.exec(readFileSync(new URL("../migrations/0065_conversion_provider_live.sql", import.meta.url), "utf8"));
+  const raw = liveSnapshot();
+  const digest = createHash("sha256").update(raw).digest();
+  db.prepare(`INSERT INTO conversion_provider_connection_versions(
+    workspace_id,destination_connection_id,config_version,adapter_type,account_public_id,snapshot_json,
+    snapshot_sha256,credential_alias_id,credential_purpose,created_at,created_by_principal_id
+  ) VALUES(?,?,2,'meta','account-1',?,?,?,?,0,?)`).run(
+    WORKSPACE, CONNECTION, raw, digest, ALIAS, "meta_access_token", PRINCIPAL,
+  );
+  db.prepare(`UPDATE conversion_provider_connection_heads
+    SET current_config_version=2,current_snapshot_sha256=?,status='live',row_version=2`).run(digest);
+  return db;
+}
+
+function insertRelease(db: NodeSqlite, configVersion: number, raw: string, mode: string, expiresAt: number): void {
+  db.prepare(`INSERT INTO conversion_provider_execution_releases(
+    release_id,workspace_id,destination_connection_id,config_version,source_snapshot_sha256,
+    adapter_type,account_public_id,release_mode,approval_packet_sha256,status,
+    activated_at,expires_at,activated_by_principal_id,updated_at,updated_by_principal_id,row_version
+  ) VALUES(?,?,?,?,?,'meta','account-1',?,?,'active',?,?,?,?,?,1)`).run(
+    RELEASE, WORKSPACE, CONNECTION, configVersion, createHash("sha256").update(raw).digest(), mode,
+    Buffer.from("b".repeat(64), "hex"), NOW - 1, expiresAt, PRINCIPAL, NOW - 1, PRINCIPAL,
+  );
+}
+
+const liveExecuteOverrides = () => ({
+  expected_config_version: 2,
+  expected_snapshot_sha256: createHash("sha256").update(liveSnapshot()).digest("hex"),
+});
+
+describe("private provider configuration authority — live Meta status", () => {
+  it("answers prepare, delivery prepare and execute with status live for a live head", async () => {
+    const environment = env([liveProviderRow()]);
+    const prepare = await handleProviderConfigurationRequest(await prepareRequest(environment), environment, NOW);
+    await expect(prepare.json()).resolves.toMatchObject({ payload: {
+      schema_version: "destination_provider_connection_prepare_capability.v1",
+      status: "live", production_execution_released: false,
+    } });
+    const delivery = await handleProviderConfigurationRequest(deliveryPrepareRequest(environment), environment, NOW);
+    await expect(delivery.json()).resolves.toMatchObject({ payload: {
+      schema_version: "destination_provider_delivery_prepare_capability.v1",
+      status: "live", production_execution_released: false,
+    } });
+    const execute = await handleProviderConfigurationRequest(
+      executeRequest(environment, { expected_snapshot_sha256: createHash("sha256").update(liveSnapshot()).digest("hex") }),
+      environment, NOW,
+    );
+    await expect(execute.json()).resolves.toMatchObject({ payload: {
+      schema_version: "destination_provider_connection_execute_capability.v1",
+      status: "live", production_execution_released: false,
+    } });
+  });
+
+  it("still answers status test_only for a test_only head through delivery prepare", async () => {
+    const environment = env();
+    const delivery = await handleProviderConfigurationRequest(deliveryPrepareRequest(environment), environment, NOW);
+    await expect(delivery.json()).resolves.toMatchObject({ payload: {
+      schema_version: "destination_provider_delivery_prepare_capability.v1",
+      status: "test_only", production_execution_released: false,
+    } });
+  });
+
+  it("refuses a live snapshot that still carries a test code, and a live head over a test_only snapshot", async () => {
+    for (const row of [liveProviderRow(liveSnapshot("TEST123")), { ...providerRow(), head_status: "live" }]) {
+      const environment = env([row]);
+      const response = await handleProviderConfigurationRequest(await prepareRequest(environment), environment, NOW);
+      await expect(response.json()).resolves.toMatchObject({ payload: {
+        schema_version: "destination_provider_connection_prepare_denial.v1", code: "identity_mismatch",
+      } });
+    }
+  });
+
+  it("releases a live head only through a meta_live release of at most 366 days", async () => {
+    const db = liveCmsDatabase();
+    try {
+      insertRelease(db, 2, liveSnapshot(), "meta_live", NOW + 31_536_000);
+      const environment = { ...env(), DB: realD1(db) } as Env;
+      const response = await handleProviderConfigurationRequest(
+        executeRequest(environment, liveExecuteOverrides()), environment, NOW,
+      );
+      const wire = await response.json() as { payload: Record<string, unknown> };
+      expect(wire.payload).toMatchObject({
+        schema_version: "destination_provider_connection_execute_capability.v2",
+        status: "live", production_execution_released: true, release_id: RELEASE,
+        release_expires_at: NOW + 31_536_000,
+      });
+      expect(wire.payload.expires_at).toBe(NOW + 30);
+    } finally {
+      db.close();
+    }
+  });
+
+  it("does not release a live head through a test-event release, nor a test_only head through a live release", async () => {
+    const live = liveCmsDatabase();
+    try {
+      insertRelease(live, 2, liveSnapshot(), "meta_test_event", NOW + 300);
+      const environment = { ...env(), DB: realD1(live) } as Env;
+      const response = await handleProviderConfigurationRequest(
+        executeRequest(environment, liveExecuteOverrides()), environment, NOW,
+      );
+      await expect(response.json()).resolves.toMatchObject({ payload: {
+        schema_version: "destination_provider_connection_execute_capability.v1",
+        status: "live", production_execution_released: false,
+      } });
+    } finally {
+      live.close();
+    }
+    const testOnly = realCmsDatabase();
+    try {
+      testOnly.exec(readFileSync(new URL("../migrations/0065_conversion_provider_live.sql", import.meta.url), "utf8"));
+      insertRelease(testOnly, 1, snapshot(), "meta_live", NOW + 300);
+      const environment = { ...env(), DB: realD1(testOnly) } as Env;
+      const response = await handleProviderConfigurationRequest(executeRequest(environment), environment, NOW);
+      await expect(response.json()).resolves.toMatchObject({ payload: {
+        schema_version: "destination_provider_connection_execute_capability.v1",
+        status: "test_only", production_execution_released: false,
+      } });
+    } finally {
+      testOnly.close();
+    }
   });
 });

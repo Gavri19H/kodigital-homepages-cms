@@ -827,10 +827,19 @@ describe("3. banner card — the click event's data attributes ride the governed
 // ===========================================================================
 
 describeDb("4. the click: the shell mints the event id, the real /lg/lc sends the server half under it — every click", () => {
-  async function scenario(opts: { type?: string; calls?: number; multiplier?: number; samePixel?: boolean } = {}) {
+  async function scenario(
+    opts: { type?: string; calls?: number; multiplier?: number; samePixel?: boolean; eventName?: string | null; value?: number | null } = {},
+  ) {
     const h = newHarness();
     const dataset = opts.samePixel === true ? FUNNEL_PIXEL : OFFER_PIXEL;
-    const { offerPublicId } = seedOffer(h, { type: opts.type ?? "cpc", calls: opts.calls ?? 1, multiplier: opts.multiplier ?? 1.5, dataset });
+    const { offerPublicId } = seedOffer(h, {
+      type: opts.type ?? "cpc",
+      calls: opts.calls ?? 1,
+      multiplier: opts.multiplier ?? 1.5,
+      dataset,
+      eventName: opts.eventName ?? null,
+      value: opts.value ?? null,
+    });
     seedAuction(h, { aiid: "aiid-1", faid: "att_1", cards: [{ offer_id: offerPublicId, carrier_key: "ck1", bid: 4, slot: 1 }] });
     // The card exactly as banner.ts renders it from the REAL offer row.
     const offerRow = h.sdb.prepare("SELECT * FROM leadgen_offers WHERE public_id = ?").get(offerPublicId) as Partial<ClickoutMetaOffer>;
@@ -933,6 +942,41 @@ describeDb("4. the click: the shell mints the event id, the real /lg/lc sends th
     expect(f.metaEvents()).toHaveLength(1);
     expect(f.metaEvents()[0]!["event_name"]).toBe("Lead");
     expect(f.metaEvents()[0]).not.toHaveProperty("custom_data");
+  });
+
+  it("A7: a static CPL offer with event Lead and no value — Lead on both halves, no value attribute, no custom_data, one shared id", async () => {
+    const { h, anchor, run } = await scenario({ type: "cpl", calls: 0, eventName: "Lead" });
+    const f = stubFetch();
+    expect(anchor.attrs["data-lg-px-event"]).toBe("Lead");
+    expect(anchor.attrs["data-lg-px-value"]).toBeUndefined();
+    run.click(anchor);
+    const eid = new URL(anchor.attrs["href"]!, "http://x").searchParams.get("eid")!;
+    expect(tracked(run.fbq).filter((t) => t.pixel === OFFER_PIXEL)).toEqual([{ pixel: OFFER_PIXEL, event: "Lead", data: { currency: "USD" }, id: eid }]);
+    await getClick(h, anchor.attrs["href"]!);
+    expect(f.metaEvents()).toHaveLength(1);
+    expect(f.metaEvents()[0]!["event_name"]).toBe("Lead");
+    expect(f.metaEvents()[0]!["event_id"]).toBe(eid);
+    expect(f.metaEvents()[0]).not.toHaveProperty("custom_data");
+  });
+
+  it("A7: a static CPL offer with event Purchase and a fixed value of 212 — the card, the browser trackSingle and the server body all carry Purchase 212 USD under ONE id", async () => {
+    const { h, anchor, run } = await scenario({ type: "cpl", calls: 0, eventName: "Purchase", value: 212 });
+    const f = stubFetch();
+    expect(anchor.attrs["data-lg-px"]).toBe(OFFER_PIXEL);
+    expect(anchor.attrs["data-lg-px-event"]).toBe("Purchase");
+    expect(anchor.attrs["data-lg-px-value"]).toBe("212");
+    expect(anchor.attrs["data-lg-px-currency"]).toBe("USD");
+    run.click(anchor);
+    const eid = new URL(anchor.attrs["href"]!, "http://x").searchParams.get("eid")!;
+    expect(eid).toMatch(/^lgc_[A-Za-z0-9]{20}$/);
+    expect(tracked(run.fbq).filter((t) => t.pixel === OFFER_PIXEL)).toEqual([
+      { pixel: OFFER_PIXEL, event: "Purchase", data: { currency: "USD", value: 212 }, id: eid },
+    ]);
+    expect((await getClick(h, anchor.attrs["href"]!)).status).toBe(302);
+    expect(f.metaEvents()).toHaveLength(1);
+    expect(f.metaEvents()[0]!["event_id"]).toBe(eid);
+    expect(f.metaEvents()[0]!["event_name"]).toBe("Purchase");
+    expect(f.metaEvents()[0]!["custom_data"]).toEqual({ value: 212, currency: "USD" });
   });
 
   it("FIX-R1 M4: six clicks of one card in one funnel attempt — six 302s, five Facebook sends, five ledger bookings", async () => {

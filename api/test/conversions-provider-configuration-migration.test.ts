@@ -167,3 +167,41 @@ describeSqlite("0044 provider execution release migration", () => {
     db.close();
   });
 });
+
+// The original CHECKs allowed only test_only heads and one-hour test-event
+// releases. 0065 widens exactly those two for live Meta; the narrower 0043/0044
+// shape is pinned first so the change is visible.
+describeSqlite("0043/0044 status CHECKs widened by 0065", () => {
+  const release = (mode: string, activatedAt: number, expiresAt: number) => `INSERT INTO conversion_provider_execution_releases(
+    release_id,workspace_id,destination_connection_id,config_version,source_snapshot_sha256,
+    adapter_type,account_public_id,release_mode,approval_packet_sha256,status,
+    activated_at,expires_at,activated_by_principal_id,updated_at,updated_by_principal_id,row_version
+  ) VALUES('0198f0aa-0000-7000-8000-000000000009','${WORKSPACE}','${CONNECTION}',1,?,
+    'meta','account-1','${mode}',?,'active',${activatedAt},${expiresAt},'${PRINCIPAL}',${activatedAt},'${PRINCIPAL}',1)`;
+  const hashes = () => [createHash("sha256").update(metaSnapshot()).digest(), Buffer.from("a".repeat(64), "hex")];
+
+  it("rejects live heads and live releases before 0065", () => {
+    const db = openDb();
+    seed(db);
+    db.exec(readFileSync(new URL("../migrations/0044_conversion_provider_execution_releases.sql", import.meta.url), "utf8"));
+    expect(() => db.prepare("UPDATE conversion_provider_connection_heads SET status='live',row_version=2").run()).toThrow(/CHECK/i);
+    expect(() => db.prepare(release("meta_live", 100, 400)).run(...hashes())).toThrow(/CHECK/i);
+    expect(() => db.prepare(release("meta_test_event", 100, 3_701)).run(...hashes())).toThrow(/CHECK/i);
+    db.close();
+  });
+
+  it("accepts live heads and live releases up to 366 days after 0065, test events still capped at one hour", () => {
+    const db = openDb();
+    seed(db);
+    db.exec(readFileSync(new URL("../migrations/0044_conversion_provider_execution_releases.sql", import.meta.url), "utf8"));
+    db.exec(readFileSync(new URL("../migrations/0065_conversion_provider_live.sql", import.meta.url), "utf8"));
+    expect(() => db.prepare("UPDATE conversion_provider_connection_heads SET status='paused',row_version=2").run()).toThrow(/CHECK/i);
+    expect(() => db.prepare("UPDATE conversion_provider_connection_heads SET status='live',row_version=2").run()).not.toThrow();
+    expect(() => db.prepare(release("meta_test_event", 100, 3_701)).run(...hashes())).toThrow(/CHECK/i);
+    expect(() => db.prepare(release("meta_live", 100, 100 + 31_622_401)).run(...hashes())).toThrow(/CHECK/i);
+    expect(() => db.prepare(release("meta_live", 100, 100)).run(...hashes())).toThrow(/CHECK/i);
+    expect(() => db.prepare(release("meta_other", 100, 400)).run(...hashes())).toThrow(/CHECK/i);
+    expect(() => db.prepare(release("meta_live", 100, 100 + 31_622_400)).run(...hashes())).not.toThrow();
+    db.close();
+  });
+});

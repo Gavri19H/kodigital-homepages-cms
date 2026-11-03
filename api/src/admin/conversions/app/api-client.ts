@@ -1,5 +1,12 @@
 const API_PREFIX = "/api/admin/conversions/v1";
 const UI_CONTEXT_PATH = "/api/admin/conversions/ui-context";
+const META_PROVIDER_PATH = /^\/api\/admin\/conversions\/provider-connections\/[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}\/meta$/u;
+/** Plain-English messages for the service's error reasons (error.reason) on a draft save. */
+export const ERROR_REASON_MESSAGES: Readonly<Record<string, string>> = Object.freeze({
+  visitor_lookup_consent_required: "Tick the consent box in 'Find our visitor' to send visitor details to Facebook.",
+  time_timezone_invalid: "Choose a time zone from the list.",
+  value_field_not_numeric: "The value field must be an amount. Pick it again so we read it as an amount.",
+});
 const pendingIdempotencyKeys = new Map<string, string>();
 let fallbackSequence = 0;
 
@@ -26,8 +33,13 @@ function stableKey(action: string): string {
   return generated;
 }
 
-function requirePath(path: string): string {
-  if (!path.startsWith(`${API_PREFIX}/`) && path !== API_PREFIX && path !== UI_CONTEXT_PATH) {
+function requirePath(path: string, method: string): string {
+  const metaProviderPath = META_PROVIDER_PATH.test(path);
+  // The Meta provider settings path accepts only GET and PUT; PUT is accepted nowhere else.
+  if (metaProviderPath ? method !== "GET" && method !== "PUT" : method === "PUT") {
+    throw new ConversionsApiError(0, "invalid_path", "The requested local API path is invalid.");
+  }
+  if (!path.startsWith(`${API_PREFIX}/`) && path !== API_PREFIX && path !== UI_CONTEXT_PATH && !metaProviderPath) {
     throw new ConversionsApiError(0, "invalid_path", "The requested local API path is invalid.");
   }
   const parsed = new URL(path, "https://local.kodigital.invalid");
@@ -40,7 +52,7 @@ function requirePath(path: string): string {
 export async function requestConversionsApi<T>(
   action: string,
   path: string,
-  options: { method?: "GET" | "POST" | "PATCH" | "DELETE"; body?: unknown; signal?: AbortSignal } = {},
+  options: { method?: "GET" | "POST" | "PATCH" | "PUT" | "DELETE"; body?: unknown; signal?: AbortSignal } = {},
 ): Promise<T> {
   const method = options.method ?? "GET";
   const mutation = method !== "GET";
@@ -51,7 +63,7 @@ export async function requestConversionsApi<T>(
   }
   let response: Response;
   try {
-    response = await fetch(requirePath(path), {
+    response = await fetch(requirePath(path, method), {
       method,
       headers,
       body: options.body === undefined ? undefined : JSON.stringify(options.body),
@@ -82,11 +94,16 @@ export async function requestConversionsApi<T>(
         ? candidate.error_code
         : typeof candidate.error === "string" ? candidate.error : "request_failed";
     const serviceMessage = typeof nestedError?.message === "string" ? nestedError.message : null;
+    const reason = typeof nestedError?.reason === "string" ? nestedError.reason : "";
     throw new ConversionsApiError(
       response.status,
       code,
       response.status === 403
         ? "This action is unavailable with the current local capability."
+        : Object.hasOwn(ERROR_REASON_MESSAGES, reason)
+          ? ERROR_REASON_MESSAGES[reason] as string
+        : code === "connection_name_taken"
+          ? "A connection with this name already exists. Choose another name."
         : response.status === 409 || response.status === 412 || code === "resource_changed"
           ? "This item changed. Refresh it before trying again."
           : code === "precondition_failed"

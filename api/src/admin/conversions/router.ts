@@ -8,6 +8,12 @@ import {
   PermanentAuthorityError,
   resolvePermanentConversionsActor,
 } from "./permanent-authority";
+import {
+  MetaProviderConfigError,
+  getMetaProviderConfig,
+  putMetaProviderConfig,
+  readMetaProviderConfigBody,
+} from "./provider-meta-config";
 
 type ConversionsEnv = { Bindings: Env; Variables: AccessAuthVariables };
 type ConversionsContext = Context<ConversionsEnv>;
@@ -65,6 +71,18 @@ function dependencyUnavailable(c: ConversionsContext): Response {
   c.header("Cache-Control", "no-store");
   c.header("X-Content-Type-Options", "nosniff");
   return c.json({ error: "Static assets unavailable" }, 503);
+}
+
+// The public postback origin is shown to partners inside a link, so only an
+// exact https origin (no path, query, credentials or port) is passed through.
+export function postbackOrigin(value: string | undefined): string | null {
+  if (typeof value !== "string" || value.length > 253) return null;
+  try {
+    const url = new URL(value);
+    return url.protocol === "https:" && url.origin === value && url.port === "" ? value : null;
+  } catch {
+    return null;
+  }
 }
 
 function getUserEmail(c: ConversionsContext): string | undefined {
@@ -193,6 +211,7 @@ conversionsUi.get("/api/admin/conversions/ui-context", async (c) => {
         recipient_id: authority.principalId,
         display_label: authority.canonicalEmail,
       }],
+      postback_origin: postbackOrigin(c.env.CONVERSIONS_POSTBACK_ORIGIN),
     });
   } catch (error) {
     if (error instanceof PermanentAuthorityError) {
@@ -207,6 +226,45 @@ conversionsUi.get("/api/admin/conversions/ui-context", async (c) => {
       { error: { code: "unavailable", message: "Conversions access is unavailable." } },
       503,
     );
+  }
+});
+
+// Meta provider configuration: the CMS is the only writer (Part A, A5). Not
+// proxied to Core. Requires the permanent actor with connections.manage.
+conversionsUi.on(["GET", "PUT"], "/api/admin/conversions/provider-connections/:connection_id/meta", async (c) => {
+  if (!isEnabled(c)) return notFound(c);
+  c.header("Cache-Control", "no-store");
+  c.header("X-Content-Type-Options", "nosniff");
+  try {
+    const authority = await resolvePermanentConversionsActor(c.env, c.get("access"));
+    if (!authority.cmsCapabilities.includes("connections.manage")) {
+      return c.json({ error: { code: "forbidden", message: "This action is unavailable with your access." } }, 403);
+    }
+    const connectionId = c.req.param("connection_id");
+    const view = c.req.method === "PUT"
+      ? await putMetaProviderConfig(c.env, authority, connectionId, await readMetaProviderConfigBody(c.req.raw))
+      : await getMetaProviderConfig(c.env, authority, connectionId);
+    return c.json(view);
+  } catch (error) {
+    if (error instanceof PermanentAuthorityError) {
+      return c.json(
+        { error: { code: error.kind, message: "Conversions access is unavailable." } },
+        error.kind === "forbidden" ? 403 : 503,
+      );
+    }
+    if (error instanceof MetaProviderConfigError) {
+      const message = error.code === "resource_changed"
+        ? "This setting changed. Refresh it before trying again."
+        : error.code === "credential_alias_inactive"
+          ? "The saved ad platform key is switched off. It must be turned back on first."
+          : error.code === "not_found" ? "This connection was not found."
+            : error.code === "website_needs_page_address"
+              ? "Facebook can't accept Website here because Flows don't send the page address. Choose Other and save."
+              : error.code === "invalid_request" ? "Some values are missing or not valid."
+              : "The service is unavailable. Try again.";
+      return c.json({ error: { code: error.code, message } }, error.status);
+    }
+    return c.json({ error: { code: "unavailable", message: "The service is unavailable. Try again." } }, 503);
   }
 });
 

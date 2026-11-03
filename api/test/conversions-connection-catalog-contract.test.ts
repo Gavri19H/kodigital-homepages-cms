@@ -6,11 +6,14 @@ import { describe, expect, it } from "vitest";
 
 import { CONVERSIONS_CORE_ROOT, HAS_CONVERSIONS_CORE } from "./helpers/conversions-core-root";
 import {
+  buildPostbackLink,
   CONNECTION_ADAPTERS,
   CONNECTION_CONFIG_SECTIONS,
   credentialTypesForAdapter,
+  generatePostbackToken,
   defaultConnectionConfig,
   normalizeConnectionConfigField,
+  presentConfigField,
   type ConnectionAdapter,
 } from "../src/admin/conversions/app/connection-catalog";
 
@@ -282,6 +285,105 @@ describe("Connections UI/Core closed-contract parity", () => {
     const webhook = defaultConnectionConfig("inbound_webhook", "UTC");
     const status200 = normalizeConnectionConfigField(webhook, "response.status", 200);
     expect(valueAtPath(status200, "response.status")).toBe(200);
+  });
+
+  it("turns \"Token in the link\" into a single-record GET link webhook and back", () => {
+    const webhook = defaultConnectionConfig("inbound_webhook", "UTC");
+    const authField = CONNECTION_CONFIG_SECTIONS.inbound_webhook
+      .flatMap((section) => section.fields)
+      .find((field) => field.path === "auth.mode");
+    expect(authField?.options).toContainEqual({ value: "query_token", label: "Token in the link" });
+
+    const batch = normalizeConnectionConfigField(webhook, "mode", "batch");
+    const linkToken = normalizeConnectionConfigField(batch, "auth.mode", "query_token");
+    expect(linkToken.auth).toEqual({
+      mode: "query_token",
+      authorization_header: "token",
+      timestamp_header: null,
+      signature_header: null,
+    });
+    expect(linkToken.field_location).toBe("query");
+    expect(linkToken.mode).toBe("single");
+    expect(linkToken.batch_member_field).toBeNull();
+    expect(linkToken.allowed_methods).toEqual(["GET"]);
+    expect(linkToken.allowed_content_types).toEqual([]);
+    expect(credentialTypesForAdapter("inbound_webhook")).toContain("bearer_token");
+
+    const bearer = normalizeConnectionConfigField(linkToken, "auth.mode", "bearer");
+    expect(bearer.auth).toEqual({
+      mode: "bearer",
+      authorization_header: "authorization",
+      timestamp_header: null,
+      signature_header: null,
+    });
+    expect(bearer.field_location).toBe("json_body");
+    expect(bearer.allowed_methods).toEqual(["POST"]);
+    expect(bearer.allowed_content_types).toEqual(["application/json"]);
+    const hmac = normalizeConnectionConfigField(webhook, "auth.mode", "hmac");
+    expect(hmac.field_location).toBe("json_body");
+    expect(hmac.allowed_methods).toEqual(["POST"]);
+  });
+
+  it("uses link wording for \"Token in the link\" and plain names elsewhere", () => {
+    const fields = CONNECTION_CONFIG_SECTIONS.inbound_webhook.flatMap((section) => section.fields);
+    const header = fields.find((field) => field.path === "auth.authorization_header")!;
+    const methods = fields.find((field) => field.path === "allowed_methods")!;
+    const webhook = defaultConnectionConfig("inbound_webhook", "UTC");
+    const linkToken = normalizeConnectionConfigField(webhook, "auth.mode", "query_token");
+
+    const linkHeader = presentConfigField("inbound_webhook", header, linkToken);
+    expect(linkHeader.label).toBe("Name of the token in the link");
+    expect(linkHeader.help).toBe("Partners add this to the link, for example ?token=…");
+    const linkMethods = presentConfigField("inbound_webhook", methods, linkToken);
+    expect(linkMethods.kind).toBe("static");
+    expect(linkMethods.help).toBe("Partners open the link (GET).");
+    expect(linkMethods.help).not.toContain("POST or PUT");
+
+    expect(presentConfigField("inbound_webhook", header, webhook)).toBe(header);
+    expect(presentConfigField("inbound_webhook", methods, webhook).help).toBe("POST or PUT.");
+
+    const metaVersion = CONNECTION_CONFIG_SECTIONS.meta.flatMap((section) => section.fields)
+      .find((field) => field.path === "api_version");
+    expect(metaVersion?.label).toBe("Facebook API version");
+  });
+
+  it("generates a 43-character link token and builds the partner link", () => {
+    const token = generatePostbackToken();
+    expect(token).toMatch(/^[A-Za-z0-9_-]{43}$/u);
+    expect(generatePostbackToken()).not.toBe(token);
+    expect(generatePostbackToken((bytes) => bytes.fill(255))).toBe(`${"_".repeat(42)}8`);
+    expect(buildPostbackLink({
+      origin: "https://post.example.test/",
+      publicId: "0198f0aa-0000-7000-8000-000000000001",
+      tokenParameter: "token",
+      token: "abc",
+      fields: [
+        { name: "click_id", value: "a b&c" },
+        { name: " ", value: "ignored" },
+        { name: "token", value: "ignored" },
+        { name: "payout", value: "1.5" },
+      ],
+    })).toBe("https://post.example.test/v1/in/0198f0aa-0000-7000-8000-000000000001?token=abc&click_id=a+b%26c&payout=1.5");
+  });
+
+  it.skipIf(!HAS_CONVERSIONS_CORE)("accepts the \"Token in the link\" webhook draft in Core schema and semantics", () => {
+    const config = normalizeConnectionConfigField(
+      defaultConnectionConfig("inbound_webhook", "Asia/Jerusalem"),
+      "auth.mode",
+      "query_token",
+    );
+    expect(runNativeCoreValidation({
+      bodies: [{
+        name: "Token in the link contract fixture",
+        direction: "source",
+        adapter_type: "inbound_webhook",
+        config_schema_version: 1,
+        config,
+        account_id: "kodigital-primary",
+        currency: "USD",
+      }],
+      credentials: [{ adapter: "inbound_webhook", credentialType: "bearer_token", expected: true }],
+    })).toEqual({ bodyCount: 1, credentialCount: 1, result: "PASS" });
   });
 
   it.skipIf(!HAS_CONVERSIONS_CORE)("keeps every write-only credential choice inside Core's adapter allowlist", () => {

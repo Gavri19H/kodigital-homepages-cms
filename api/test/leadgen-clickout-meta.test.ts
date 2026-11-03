@@ -665,6 +665,80 @@ describeDb("sendClickoutMetaConversion — every other reason it sends nothing",
 });
 
 // ===========================================================================
+// A7: every skip of a REAL click is shown on the Offer; a forged one never is
+// ===========================================================================
+
+describeDb("sendClickoutMetaConversion — A7: a skipped REAL click is shown on the Offer", () => {
+  const NOT_CLEAN = "Not sent: this click was test, internal (ko_internal cookie), preview or bot traffic.";
+  const CAPPED = "Not sent: this visitor already reached the limit of 5 click events for this offer in 24 hours.";
+
+  it("A7: a verified click from test/internal/preview/bot traffic records 'skipped' with a plain-English reason, and sends nothing", async () => {
+    const h = newHarness();
+    const { offerPublicId } = ready(h);
+    const f = stubFetch();
+    const out = await sendClickoutMetaConversion(h.env, h.env.DB, offerRow(h.sdb, offerPublicId), click({ traffic_quality_flag: "internal" }), {
+      now: 1790500000123,
+    });
+    expect(out).toEqual({ status: "skipped", reason: "not_clean" });
+    expect(f.calls).toHaveLength(0);
+    expect(h.kv.size).toBe(0);
+    expect(lastOutcome(h.sdb, offerPublicId)).toEqual({ status: "skipped", detail: NOT_CLEAN, at: 1790500000 });
+  });
+
+  it("A7: a verified click over the replay cap records 'skipped' with a plain-English reason, and sends nothing", async () => {
+    const h = newHarness();
+    const { offerPublicId } = ready(h);
+    const f = stubFetch();
+    const out = await sendClickoutMetaConversion(h.env, h.env.DB, offerRow(h.sdb, offerPublicId), click({ capped: true }), { now: 1790500000123 });
+    expect(out).toEqual({ status: "skipped", reason: "replay_capped" });
+    expect(f.calls).toHaveLength(0);
+    expect(lastOutcome(h.sdb, offerPublicId)).toEqual({ status: "skipped", detail: CAPPED, at: 1790500000 });
+  });
+
+  it("A7: a forged click stays unrecorded even when it is also not clean or capped (the auction check comes first)", async () => {
+    const h = newHarness();
+    const { offerPublicId } = ready(h);
+    stubFetch();
+    await sendClickoutMetaConversion(h.env, h.env.DB, offerRow(h.sdb, offerPublicId), click(), { now: 1790500000123 });
+    const genuine = lastOutcome(h.sdb, offerPublicId);
+    expect(genuine.status).toBe("fired");
+    const offer = offerRow(h.sdb, offerPublicId);
+    const other = seedOffer(h.sdb);
+    seedAuction(h.sdb, { aiid: "aiid-x", faid: "att_x", shown: [other.offerPublicId] });
+    for (const [forged, reason] of [
+      [click({ auction_instance_id: "forged", traffic_quality_flag: "bot" }), "no_auction"],
+      [click({ auction_instance_id: "forged", capped: true }), "no_auction"],
+      [click({ funnel_attempt_id: "rvforge-9", traffic_quality_flag: "internal" }), "attempt_mismatch"],
+      [click({ auction_instance_id: "aiid-x", funnel_attempt_id: "att_x", traffic_quality_flag: "bot", capped: true }), "offer_not_shown"],
+    ] as const) {
+      expect(await sendClickoutMetaConversion(h.env, h.env.DB, offer, forged, { now: 1790500999000 }), reason).toEqual({ status: "skipped", reason });
+    }
+    expect(lastOutcome(h.sdb, offerPublicId)).toEqual(genuine);
+  });
+
+  it("A7: switch off still records nothing, even for a not-clean or capped click", async () => {
+    const h = newHarness();
+    const { offerPublicId } = ready(h, { clickout: 0 });
+    stubFetch();
+    for (const c of [click({ traffic_quality_flag: "bot" }), click({ capped: true })]) {
+      expect(await sendClickoutMetaConversion(h.env, h.env.DB, offerRow(h.sdb, offerPublicId), c)).toEqual({ status: "skipped", reason: "offer_setting_off" });
+    }
+    expect(lastOutcome(h.sdb, offerPublicId)).toEqual({ status: null, detail: null, at: null });
+  });
+
+  it("A7: a CPL offer with event Purchase and a fixed value of 212 sends custom_data {value: 212, currency: USD}", async () => {
+    const h = newHarness();
+    const { offerPublicId } = ready(h, { eventName: "Purchase", value: 212 });
+    const f = stubFetch();
+    const out = await sendClickoutMetaConversion(h.env, h.env.DB, offerRow(h.sdb, offerPublicId), click());
+    expect(out).toMatchObject({ status: "fired", event_name: "Purchase" });
+    const body = JSON.parse(String(f.metaCalls()[0]!.init?.body)) as { data: Array<Record<string, unknown>> };
+    expect(body.data[0]!["event_name"]).toBe("Purchase");
+    expect(body.data[0]!["custom_data"]).toEqual({ value: 212, currency: "USD" });
+  });
+});
+
+// ===========================================================================
 // GET /lg/lc — the real route
 // ===========================================================================
 
@@ -905,6 +979,52 @@ describeDb("Offer API — the switch exists on every offer (0064)", () => {
     }
   });
 
+  it("A7: Purchase with no fixed value is refused on a CPL offer, with a plain-English message", async () => {
+    const h = newHarness();
+    const { offerPublicId } = seedOffer(h.sdb, { clickout: 0 });
+    const res = await admin.request(
+      `${API}/offers/${offerPublicId}`,
+      jsonInit("PATCH", { clickout_meta_conversion: true, clickout_meta_event_name: "Purchase", clickout_meta_value: null }),
+      h.env,
+    );
+    expect(res.status).toBe(400);
+    const body = (await res.json()) as { fields?: Record<string, string> };
+    expect(body.fields?.["clickout_meta_value"]).toBe(
+      "Purchase needs a fixed value per click for this offer type. Enter the amount, or choose Lead.",
+    );
+    expect(offerRow(h.sdb, offerPublicId).clickout_meta_conversion).toBe(0);
+  });
+
+  it("A7: Purchase with no fixed value is still allowed on a CPC offer (the value is bid x multiplier)", async () => {
+    const h = newHarness();
+    const { offerPublicId } = seedOffer(h.sdb, { clickout: 0 });
+    const res = await admin.request(
+      `${API}/offers/${offerPublicId}`,
+      jsonInit("PATCH", { offer_type: "cpc", clickout_meta_conversion: true, clickout_meta_event_name: "Purchase", clickout_meta_value: null }),
+      h.env,
+    );
+    expect(res.status, await res.clone().text()).toBe(200);
+    expect(offerRow(h.sdb, offerPublicId).clickout_meta_event_name).toBe("Purchase");
+  });
+
+  it("A7: Lead with no fixed value is allowed on a CPL offer; Purchase with a fixed value is allowed on a CPL offer", async () => {
+    const h = newHarness();
+    const { offerPublicId } = seedOffer(h.sdb, { clickout: 0 });
+    const lead = await admin.request(
+      `${API}/offers/${offerPublicId}`,
+      jsonInit("PATCH", { clickout_meta_conversion: true, clickout_meta_event_name: "Lead", clickout_meta_value: null }),
+      h.env,
+    );
+    expect(lead.status, await lead.clone().text()).toBe(200);
+    const purchase = await admin.request(
+      `${API}/offers/${offerPublicId}`,
+      jsonInit("PATCH", { clickout_meta_event_name: "Purchase", clickout_meta_value: 212 }),
+      h.env,
+    );
+    expect(purchase.status, await purchase.clone().text()).toBe(200);
+    expect(offerRow(h.sdb, offerPublicId).clickout_meta_value).toBe(212);
+  });
+
   it("the outcome columns are read-only", async () => {
     const h = newHarness();
     const { offerPublicId } = seedOffer(h.sdb);
@@ -1036,6 +1156,17 @@ describeDb("Offer editor — the control, its copy, and what it can honestly say
     const box = fieldset(await editorHtml(h, offerPublicId));
     expect(box).toContain('data-lg-clickout-meta-status="token_missing"');
     expect(box).toContain("access token is not installed on the server yet, so nothing will be sent");
+  });
+
+  it("A7: the Offer page shows the last line for a skipped click too", async () => {
+    const h = newHarness();
+    const { offerPublicId } = ready(h);
+    stubFetch();
+    await sendClickoutMetaConversion(h.env, h.env.DB, offerRow(h.sdb, offerPublicId), click({ traffic_quality_flag: "internal" }));
+    vi.restoreAllMocks();
+    const box = fieldset(await editorHtml(h, offerPublicId));
+    expect(box).toContain('data-lg-clickout-meta-last="skipped" data-tone="warn"');
+    expect(box).toContain("Not sent: this click was test, internal (ko_internal cookie), preview or bot traffic.");
   });
 
   it("after a real clickout the Offer page shows what happened", async () => {

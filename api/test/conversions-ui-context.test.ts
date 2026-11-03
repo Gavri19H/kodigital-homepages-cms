@@ -80,10 +80,29 @@ describe("Conversions CMS UI context", () => {
         recipient_id: PRINCIPAL,
         display_label: "operator@example.com",
       }],
+      postback_origin: null,
     });
     expect(JSON.stringify(body)).toContain("operator@example.com");
     expect(JSON.stringify(body)).not.toContain("cf-user-1");
     expect(JSON.stringify(body)).toContain(PRINCIPAL);
+  });
+
+  it("passes the postback link origin through only when it is an exact https origin", async () => {
+    const origin = async (value: string | undefined) => {
+      const response = await app().request(
+        "/api/admin/conversions/ui-context",
+        {},
+        { DB: database(), CONVERSIONS_UI_ENABLED: "true", CONVERSIONS_POSTBACK_ORIGIN: value } as Env,
+      );
+      expect(response.status).toBe(200);
+      return (await response.json<Record<string, unknown>>()).postback_origin;
+    };
+    expect(await origin("https://post.kodigital.app")).toBe("https://post.kodigital.app");
+    for (const rejected of [
+      undefined, "", "http://post.kodigital.app", "https://post.kodigital.app/", "https://post.kodigital.app/v1",
+      "https://post.kodigital.app?x=1", "https://user@post.kodigital.app", "https://post.kodigital.app:8443",
+      "javascript:alert(1)",
+    ]) expect(await origin(rejected)).toBeNull();
   });
 
   it("fails closed when the UI release flag is off", async () => {

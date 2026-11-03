@@ -9,7 +9,7 @@ const WORKSPACE = "0198f0aa-0000-7000-8000-000000000002";
 const CONNECTION = "0198f0aa-0000-7000-8000-000000000003";
 const ALIAS = "0198f0aa-0000-7000-8000-000000000004";
 
-function core(adapter: string, status: "disabled" | "test_only", credential: boolean) {
+function core(adapter: string, status: "disabled" | "test_only" | "live", credential: boolean) {
   return {
     schema_version: "destination_connection.v1", adapter_type: adapter, adapter_major_version: 1,
     contract_variant: `${adapter}.v1`, workspace_id: WORKSPACE, destination_connection_id: CONNECTION,
@@ -68,6 +68,31 @@ describe("typed provider aliases and raw snapshots", () => {
     }))).toBeUndefined();
     expect(validateProviderConnectionSnapshotJson(snapshot("newsbreak", {
       core_connection: core("newsbreak", "test_only", true),
+    }))).toBeUndefined();
+  });
+
+  it("accepts live only for Meta, with an alias and credential and without a test code", () => {
+    const meta = (status: "disabled" | "test_only" | "live", credential: boolean, alias: unknown, code: string | null) =>
+      snapshot("meta", {
+        core_connection: core("meta", status, credential), dataset_id: "12345", action_source: "website",
+        credential_alias: alias, test_event_code: code,
+      });
+    const live = validateProviderConnectionSnapshotJson(meta("live", true, metaAlias, null), { status: "live" });
+    expect(live?.status).toBe("live");
+    expect(live?.credentialAlias).toEqual(metaAlias);
+    expect(validateProviderConnectionSnapshotJson(meta("live", true, metaAlias, "TEST123"))).toBeUndefined();
+    expect(validateProviderConnectionSnapshotJson(meta("live", true, null, null))).toBeUndefined();
+    expect(validateProviderConnectionSnapshotJson(meta("live", false, metaAlias, null))).toBeUndefined();
+    expect(validateProviderConnectionSnapshotJson(meta("test_only", true, metaAlias, null))).toBeUndefined();
+    expect(validateProviderConnectionSnapshotJson(meta("disabled", false, null, null))?.status).toBe("disabled");
+    expect(validateProviderConnectionSnapshotJson(meta("live", true, metaAlias, null), { status: "test_only" })).toBeUndefined();
+    expect(validateProviderConnectionSnapshotJson(snapshot("google_data_manager", {
+      core_connection: core("google_data_manager", "live", true), destination_reference: "dest-1",
+      operating_account: { account_id: "123", account_type: "GOOGLE_ADS" }, login_account: null,
+      linked_account: null, product_destination_id: "products/123", credential_alias: googleAlias,
+    }))).toBeUndefined();
+    expect(validateProviderConnectionSnapshotJson(snapshot("newsbreak", {
+      core_connection: core("newsbreak", "live", false),
     }))).toBeUndefined();
   });
 });
