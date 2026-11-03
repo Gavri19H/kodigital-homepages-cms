@@ -48,6 +48,7 @@ import {
   CLICKOUT_META_EVENT_NAMES,
   CLICKOUT_META_MULTIPLIER_MAX,
   CLICKOUT_META_TEST_CODE_RE,
+  clickoutMetaEventName,
 } from "../../leadgen/clickout-meta";
 import { STATIC_CREATIVE_FIELDS, validateStaticCreativeField } from "../../leadgen/static-creative";
 import { validateBannerUrlTemplate, normalizeTemplate, findUnknownMacros } from "../../leadgen/macros";
@@ -1589,6 +1590,22 @@ export async function patchOfferHandler(c: AdminContext): Promise<Response> {
     errors["clickout_meta_dataset_id"] === undefined
   ) {
     errors["clickout_meta_dataset_id"] = "Meta dataset (pixel) ID is required to fire on clickout";
+  }
+  // A7: Purchase with no value only makes sense on a CPC offer (its value is
+  // the click's bid x the multiplier); any other type must give a fixed one.
+  const mergedOfferType = mergedField(existing, updates, "offer_type") ?? null;
+  if (
+    mergedNumber(existing, updates, "clickout_meta_conversion") === 1 &&
+    clickoutMetaEventName({
+      clickout_meta_event_name: mergedField(existing, updates, "clickout_meta_event_name") ?? null,
+      offer_type: mergedOfferType,
+    }) === "Purchase" &&
+    (mergedOfferType ?? "").trim().toLowerCase() !== "cpc" &&
+    !((mergedField(existing, updates, "clickout_meta_value") ?? 0) > 0) &&
+    errors["clickout_meta_value"] === undefined &&
+    errors["clickout_meta_event_name"] === undefined
+  ) {
+    errors["clickout_meta_value"] = "Purchase needs a fixed value per click for this offer type. Enter the amount, or choose Lead.";
   }
 
   const capErrors = validateOfferCapFields({

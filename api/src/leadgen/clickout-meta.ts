@@ -590,9 +590,9 @@ export function describeClickoutMetaOutcome(outcome: ClickoutMetaOutcome): strin
         case "offer_setting_off":
           return "Not sent: the setting is off.";
         case "replay_capped":
-          return "Not sent: this visitor already clicked this offer 5 times today.";
+          return "Not sent: this visitor already reached the limit of 5 click events for this offer in 24 hours.";
         case "not_clean":
-          return "Not sent: the click came from a bot, internal (ko_internal cookie) or preview traffic.";
+          return "Not sent: this click was test, internal, preview or bot traffic.";
         case "no_auction":
           return "Not sent: the click did not come from a banner LeadGen showed.";
         case "attempt_mismatch":
@@ -607,10 +607,10 @@ export function describeClickoutMetaOutcome(outcome: ClickoutMetaOutcome): strin
   }
 }
 
+// A7: not_clean and replay_capped ARE recorded — send() reports them only
+// after the click's auction check passed, so the click is verifiably ours.
 const UNRECORDED_SKIPS: ReadonlySet<ClickoutMetaSkipReason> = new Set<ClickoutMetaSkipReason>([
   "offer_setting_off",
-  "replay_capped",
-  "not_clean",
   "no_auction",
   "attempt_mismatch",
   "offer_not_shown",
@@ -667,14 +667,18 @@ async function send(
 ): Promise<ClickoutMetaOutcome> {
   try {
     if (offer.clickout_meta_conversion !== 1) return { status: "skipped", reason: "offer_setting_off" };
+
+    // A7: the auction check comes BEFORE not_clean / capped, so those two are
+    // only ever reported for a click that is verifiably ours (and so may be
+    // recorded on the Offer); a forged URL stops here, unrecorded.
+    const auction = await loadClickoutMetaAuction(db, click.auction_instance_id);
+    const problem = checkClickoutMetaAuction(auction, offer.public_id, click.funnel_attempt_id);
+    if (problem !== null || auction === null) return { status: "skipped", reason: problem ?? "no_auction" };
+
     if (click.traffic_quality_flag !== undefined && click.traffic_quality_flag !== "clean") {
       return { status: "skipped", reason: "not_clean" };
     }
     if (click.capped === true) return { status: "skipped", reason: "replay_capped" };
-
-    const auction = await loadClickoutMetaAuction(db, click.auction_instance_id);
-    const problem = checkClickoutMetaAuction(auction, offer.public_id, click.funnel_attempt_id);
-    if (problem !== null || auction === null) return { status: "skipped", reason: problem ?? "no_auction" };
 
     const destination = await resolveClickoutMetaDestination(env, db, offer);
     if (!destination.ok) return { status: "skipped", reason: destination.problem };
