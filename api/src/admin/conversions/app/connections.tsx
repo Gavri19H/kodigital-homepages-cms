@@ -584,9 +584,11 @@ function MetaLivePanel(props: { id: string; config: Item; credentialPresent: boo
   }
   const notice = view === null ? null : metaReleaseNotice(view.status, view.release);
   const actionSourceWarning = metaActionSourceWarning(actionSource);
-  const missing = status !== "disabled" && datasetId.trim() === ""
-    ? "Enter the dataset ID."
-    : status === "test_only" && testCode.trim() === "" ? "Enter the test code." : "";
+  const missing = actionSourceWarning !== null
+    ? "Choose Other for Where the conversion happened."
+    : status !== "disabled" && datasetId.trim() === ""
+      ? "Enter the dataset ID."
+      : status === "test_only" && testCode.trim() === "" ? "Enter the test code." : "";
   return (
     <section class="ko-config-section" aria-labelledby="meta-live-heading">
       <h3 id="meta-live-heading">Sending to the ad platform</h3>
@@ -605,7 +607,7 @@ function MetaLivePanel(props: { id: string; config: Item; credentialPresent: boo
             <option value="live" disabled={!props.credentialPresent}>Live</option>
           </select><small>{props.credentialPresent ? "Live is a separate, confirmed step." : "Live becomes available after the access token is saved in Authentication."}</small></label>
           <label class="ko-config-field"><span>Dataset ID</span><input value={datasetId} disabled={!props.canManage} onInput={(event) => setDatasetId(event.currentTarget.value)} autocomplete="off" /><small>The dataset that receives the events.</small></label>
-          <label class="ko-config-field"><span>Where the conversion happened</span><select value={actionSource} disabled={!props.canManage} onChange={(event) => setActionSource(event.currentTarget.value)}>{ACTION_SOURCE_OPTIONS.map((option) => <option value={option.value}>{option.label}</option>)}</select><small>Told to Facebook with each event. Every Flow that sends to this connection uses this setting.</small></label>
+          <label class="ko-config-field"><span>Where the conversion happened</span><select value={actionSource} disabled={!props.canManage} onChange={(event) => setActionSource(event.currentTarget.value)}>{actionSource === "website" && <option value="website" disabled>Website (not accepted)</option>}{ACTION_SOURCE_OPTIONS.map((option) => <option value={option.value}>{option.label}</option>)}</select><small>Told to Facebook with each event. Every Flow that sends to this connection uses this setting.</small></label>
           {status === "test_only" && <label class="ko-config-field"><span>Test code</span><input value={testCode} disabled={!props.canManage} onInput={(event) => setTestCode(event.currentTarget.value)} autocomplete="off" /><small>From the ad platform's test events screen.</small></label>}
         </div>
         {actionSourceWarning !== null && <div class="ko-conversions-state ko-conversions-state--warning" role="alert"><p>{actionSourceWarning}</p></div>}

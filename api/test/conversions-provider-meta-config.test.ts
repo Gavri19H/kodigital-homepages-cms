@@ -126,7 +126,7 @@ function body(status: string, overrides: Record<string, unknown> = {}): Record<s
     schema_version: "cms_meta_provider_config.v1",
     status,
     dataset_id: "123456789",
-    action_source: "website",
+    action_source: "other",
     test_event_code: status === "test_only" ? "TEST42" : null,
     expected_head_row_version: null,
     ...overrides,
@@ -176,7 +176,7 @@ describeSqlite("Meta provider configuration endpoint (CMS writer)", () => {
     expect(testing.status).toBe(200);
     const testingView = await testing.json<Record<string, unknown>>();
     expect(testingView).toMatchObject({
-      configured: true, status: "test_only", dataset_id: "123456789", action_source: "website",
+      configured: true, status: "test_only", dataset_id: "123456789", action_source: "other",
       test_event_code: "TEST42", head_row_version: 1, config_version: 1,
       release: { release_mode: "meta_test_event" },
     });
@@ -439,6 +439,23 @@ describeSqlite("Meta provider configuration endpoint (CMS writer)", () => {
       method: "PUT", headers: { "Content-Type": "application/json" }, body: "{".repeat(5_000),
     }, environment)).status).toBe(400);
     expect(count(db, "conversion_provider_change_audit")).toBe(0);
+    db.close();
+  });
+
+  it("refuses Website, which Facebook cannot accept without a page address, and writes nothing", async () => {
+    const db = openDb();
+    const environment = env(db);
+    for (const status of ["test_only", "live", "disabled"]) {
+      const response = await put(environment, body(status, { action_source: "website" }));
+      expect(response.status).toBe(400);
+      expect(await response.json()).toEqual({ error: {
+        code: "website_needs_page_address",
+        message: "Facebook can't accept Website here because Flows don't send the page address. Choose Other and save.",
+      } });
+    }
+    expect(tableCounts(db)).toEqual(tableCounts(openDb()));
+    expect(count(db, "conversion_provider_change_audit")).toBe(0);
+    expect((await put(environment, body("test_only"))).status).toBe(200);
     db.close();
   });
 

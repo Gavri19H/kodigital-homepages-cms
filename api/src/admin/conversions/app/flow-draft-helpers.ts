@@ -325,7 +325,7 @@ export function draftBodyForSave(draft: Item): Item {
 // ---- Publish review ----
 
 const PAGE_ADDRESS_SENTENCE = "Facebook needs the page address for Website conversions, and this Flow does not send one. "
-  + "Open the Facebook connection (Connections → this connection → Sending to the ad platform), set Where the conversion happened to Other, save, and review again.";
+  + "Open the Facebook connection this Flow sends to (Connections → that connection → Sending to the ad platform), set Where the conversion happened to Other, save, and review again.";
 
 const PUBLISH_REVIEW_SENTENCES: Readonly<Record<string, string>> = Object.freeze({
   ownership_conflict: "Another Flow already sends conversions for these offers. In Basics → Offers, choose only this partner's offers.",

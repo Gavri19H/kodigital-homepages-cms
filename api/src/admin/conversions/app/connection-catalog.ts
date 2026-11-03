@@ -718,7 +718,6 @@ export const CONNECTION_CONFIG_SECTIONS: Readonly<Record<ConnectionAdapter, Read
 });
 
 export const ACTION_SOURCE_OPTIONS: ReadonlyArray<{ readonly value: string; readonly label: string }> = Object.freeze([
-  { value: "website", label: "Website" },
   { value: "app", label: "Mobile app" },
   { value: "phone_call", label: "Phone call" },
   { value: "chat", label: "Chat" },
@@ -731,10 +730,13 @@ export const ACTION_SOURCE_OPTIONS: ReadonlyArray<{ readonly value: string; read
 /** Default "Where the conversion happened" for Facebook sending: partner-reported conversions carry no page address. */
 export const META_DEFAULT_ACTION_SOURCE = "other";
 
-/** Warning shown when Facebook sending is set to Website, which needs a page address that Flows do not send. */
+/**
+ * Website is not offered: Facebook needs the page address for Website conversions and Flows do not send one,
+ * so the service refuses it. A connection saved earlier as Website shows this warning until it is changed.
+ */
 export function metaActionSourceWarning(actionSource: string): string | null {
   return actionSource === "website"
-    ? "Facebook needs the page address for Website conversions. This Flow does not send one, so choose Other."
+    ? "This connection is set to Website, which Facebook can't accept here. Choose Other and save."
     : null;
 }
 

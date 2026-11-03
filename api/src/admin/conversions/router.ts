@@ -258,7 +258,9 @@ conversionsUi.on(["GET", "PUT"], "/api/admin/conversions/provider-connections/:c
         : error.code === "credential_alias_inactive"
           ? "The saved ad platform key is switched off. It must be turned back on first."
           : error.code === "not_found" ? "This connection was not found."
-            : error.code === "invalid_request" ? "Some values are missing or not valid."
+            : error.code === "website_needs_page_address"
+              ? "Facebook can't accept Website here because Flows don't send the page address. Choose Other and save."
+              : error.code === "invalid_request" ? "Some values are missing or not valid."
               : "The service is unavailable. Try again.";
       return c.json({ error: { code: error.code, message } }, error.status);
     }

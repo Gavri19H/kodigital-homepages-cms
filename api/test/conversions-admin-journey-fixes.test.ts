@@ -28,24 +28,28 @@ const connections = readFileSync(new URL("../src/admin/conversions/app/connectio
 const flows = readFileSync(new URL("../src/admin/conversions/app/flows.tsx", import.meta.url), "utf8");
 
 describe("Facebook: where the conversion happened", () => {
-  it("defaults to Other with a plain label and keeps Website selectable", () => {
+  it("defaults to Other with a plain label and does not offer Website", () => {
     expect(META_DEFAULT_ACTION_SOURCE).toBe("other");
     expect(ACTION_SOURCE_OPTIONS).toContainEqual({ value: "other", label: "Other (a partner reported it)" });
-    expect(ACTION_SOURCE_OPTIONS).toContainEqual({ value: "website", label: "Website" });
+    expect(ACTION_SOURCE_OPTIONS.map((option) => option.value)).not.toContain("website");
+    expect(ACTION_SOURCE_OPTIONS.map((option) => option.label)).not.toContain("Website");
     expect(connections).toContain("useState(META_DEFAULT_ACTION_SOURCE)");
     expect(connections).toContain("next.actionSource ?? META_DEFAULT_ACTION_SOURCE");
     expect(connections).not.toMatch(/useState\("website"\)|\?\? "website"/u);
   });
 
-  it("warns only when Website is chosen", () => {
+  it("warns only for a connection saved earlier as Website, and blocks saving it again", () => {
     expect(metaActionSourceWarning("website")).toBe(
-      "Facebook needs the page address for Website conversions. This Flow does not send one, so choose Other.",
+      "This connection is set to Website, which Facebook can't accept here. Choose Other and save.",
     );
-    for (const option of ACTION_SOURCE_OPTIONS.filter((item) => item.value !== "website")) {
+    for (const option of ACTION_SOURCE_OPTIONS) {
       expect(metaActionSourceWarning(option.value)).toBeNull();
     }
     expect(connections).toContain("const actionSourceWarning = metaActionSourceWarning(actionSource);");
     expect(connections).toMatch(/actionSourceWarning !== null && <div class="ko-conversions-state ko-conversions-state--warning" role="alert">/u);
+    // A saved Website value is shown as it is, but cannot be picked again.
+    expect(connections).toContain('{actionSource === "website" && <option value="website" disabled>Website (not accepted)</option>}');
+    expect(connections).toMatch(/const missing = actionSourceWarning !== null\s+\? "Choose Other for Where the conversion happened\."/u);
   });
 
   it("has no Flow-level choice that the sender would ignore", () => {
@@ -83,6 +87,7 @@ describe("Publish review blockers in plain English", () => {
     for (const code of ["meta_website_requires_page_address", "meta_event_source_url_required", "destination_source_url_missing"]) {
       const sentence = publishReviewSentence(code);
       expect(sentence).toContain("Facebook needs the page address for Website conversions");
+      expect(sentence).toContain("Open the Facebook connection this Flow sends to (Connections → that connection → Sending to the ad platform)");
       expect(sentence).toContain("set Where the conversion happened to Other");
     }
   });

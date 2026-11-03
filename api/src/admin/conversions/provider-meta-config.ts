@@ -32,7 +32,8 @@ const ACTION_SOURCES = new Set([
 const STATUSES = new Set<ProviderConnectionStatus>(["disabled", "test_only", "live"]);
 
 export type MetaConfigErrorCode =
-  | "invalid_request" | "not_found" | "resource_changed" | "credential_alias_inactive" | "unavailable";
+  | "invalid_request" | "website_needs_page_address" | "not_found" | "resource_changed"
+  | "credential_alias_inactive" | "unavailable";
 
 export class MetaProviderConfigError extends Error {
   constructor(readonly status: 400 | 404 | 409 | 415 | 503, readonly code: MetaConfigErrorCode) {
@@ -110,6 +111,10 @@ export function parseMetaProviderConfigRequest(value: unknown): MetaConfigReques
           || (value.expected_head_row_version as number) > 2_147_483_647))) {
     throw new MetaProviderConfigError(400, "invalid_request");
   }
+  // Facebook refuses a "website" conversion without the page address, and
+  // Conversions Flows never send one, so every send would fail. Older saved
+  // configurations may still read back as "website"; they cannot be saved again.
+  if (value.action_source === "website") throw new MetaProviderConfigError(400, "website_needs_page_address");
   return {
     status: value.status as ProviderConnectionStatus,
     dataset_id: value.dataset_id,
