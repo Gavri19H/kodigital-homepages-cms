@@ -220,7 +220,7 @@ export function applyDestinationKind(mapping: Item, isMeta: boolean): Item {
     return {
       ...mapping,
       click_id_field: null,
-      action_source: typeof mapping.action_source === "string" ? mapping.action_source : "website",
+      action_source: typeof mapping.action_source === "string" ? mapping.action_source : "other",
     };
   }
   return { ...mapping, click_id_field: mapping.click_id_field ?? "click_id" };
@@ -234,11 +234,122 @@ export function defaultDestination(connectionId: string, isMeta: boolean): Item 
     mapping: {
       event_name: "Purchase", event_id_field: "event_id", event_time_field: "occurred_at",
       value_field: DEFAULT_VALUE_FIELD, currency_field: "currency", click_id_field: isMeta ? null : "click_id",
-      source_url_field: null, action_source: "website", query_templates: [], header_templates: [], body_template: null,
+      source_url_field: null, action_source: "other", query_templates: [], header_templates: [], body_template: null,
     },
     delivery_policy: {
       batch_size: 100, maximum_attempts: 12, maximum_age_seconds: 604800,
       retry_profile: "bounded_24h", unknown_outcome_policy: "hold_for_review", dedupe_mode: "provider_native",
     },
   };
+}
+
+// ---- New drafts and saving ----
+
+/** A rule outcome with no value. */
+export function defaultOutcome(status = "invalid"): Item {
+  return { status, effective_value_rule: status, value: null };
+}
+
+/** A new Flow draft with safe defaults; nothing qualifies until rules are set. */
+export function defaultFlowDraft(context: { readonly timeZone: string; readonly reportingCurrency: string }, sourceId: string): Item {
+  return {
+    name: "",
+    description: "",
+    product_scope: "both",
+    activity_label: "Conversion",
+    vertical_label: "All",
+    offer_scope: { type: "all", value: "all" },
+    primary_connection_id: sourceId,
+    primary_config: {
+      input_ordinal: 0,
+      precedence: { business_version_field: null, business_version_kind: "none", input_priority: 100 },
+    },
+    identity_namespace: `flow-${crypto.randomUUID()}`,
+    identity_fields: ["source_record_id"],
+    normalization: {
+      fields: [{ source_field: "id", transforms: [{ op: "trim" }, { op: "unicode_nfc" }] }],
+    },
+    rules: {
+      ordered: [{
+        id: "default_invalid",
+        predicate: { op: "always" },
+        outcome: defaultOutcome(),
+        on_value_error: null,
+      }],
+      default_outcome: defaultOutcome(),
+    },
+    mapping: {
+      fields: [{
+        canonical_field: "source_record_id",
+        source_field: "id",
+        fixed_value: null,
+        required: true,
+        transforms: [{ op: "trim" }, { op: "unicode_nfc" }],
+      }, {
+        canonical_field: "occurred_at",
+        source_field: "occurred_at",
+        fixed_value: null,
+        required: true,
+        transforms: [{ op: "timestamp", format: "iso_8601", timezone: context.timeZone }],
+      }],
+    },
+    time: {
+      occurred_at_field: "occurred_at",
+      input_format: "iso_8601",
+      timezone: context.timeZone,
+      invalid_policy: "invalid",
+    },
+    currency: {
+      reporting_currency: context.reportingCurrency,
+      source_currency_field: null,
+      fixed_source_currency: context.reportingCurrency,
+      conversion_policy: "same_currency_only",
+    },
+    patch_inputs: [],
+    internal_outputs: {
+      canonical_storage: true,
+      reporting: true,
+      dashboard: false,
+      dashboard_revenue: false,
+    },
+    destinations: [],
+  };
+}
+
+
+/** The draft body to send on create or update. The service may return description as null but accepts only text. */
+export function draftBodyForSave(draft: Item): Item {
+  return { ...draft, description: typeof draft.description === "string" ? draft.description : "" };
+}
+
+// ---- Publish review ----
+
+const PAGE_ADDRESS_SENTENCE = "Facebook needs the page address for Website conversions, and this Flow does not send one. "
+  + "Open the Facebook connection (Connections → this connection → Sending to the ad platform), set Where the conversion happened to Other, save, and review again.";
+
+const PUBLISH_REVIEW_SENTENCES: Readonly<Record<string, string>> = Object.freeze({
+  ownership_conflict: "Another Flow already sends conversions for these offers. In Basics → Offers, choose only this partner's offers.",
+  ownership_scope_unresolved: "Some chosen offers could not be found. In Basics → Offers, check the offer or group reference.",
+  ownership_claim_set_not_exact: "The offers this Flow sends for have changed. Run the previews again, then review again.",
+  connection_test_not_current: "Run the connection test again (Connections → this connection → Run test).",
+  source_input_not_ready: "Open the partner link once (Connections → Try the link) to create a preview sample.",
+  destination_not_ready: "A destination is not ready. Open each destination connection, save its credentials, run the test, then review again.",
+  source_preview_not_ready: "The source preview did not pass. In Preview real data, choose a sample and run Preview source again.",
+  rule_preview_not_ready: "The rules preview did not pass. In Side-effect-free test, run Preview rules again.",
+  destination_preview_not_ready: "The destinations preview did not pass. In Side-effect-free test, run Preview destinations again.",
+  connection_facts_changed: "A connection changed after the previews ran. Run all previews again, then review again.",
+  identity_uniqueness_bounded_sample_only: "Duplicate checks used only the preview sample, not all past data.",
+  sample_contains_invalid_rows: "Some rows in the preview sample were not valid. Check the field mapping and rules.",
+  sample_contains_duplicate_commands: "The preview sample contains repeated rows. Repeats are counted once.",
+});
+
+/** Plain-English sentence, with the action to take, for a publish-review blocker or warning code. */
+export function publishReviewSentence(code: string, kind: "blocker" | "warning" = "blocker"): string {
+  const known = PUBLISH_REVIEW_SENTENCES[code];
+  if (known !== undefined) return known;
+  // The page-address blocker is matched by meaning so any spelling of its code gets the same help.
+  if (/page_address|source_url|event_source/u.test(code)) return PAGE_ADDRESS_SENTENCE;
+  return kind === "blocker"
+    ? `Something blocks publishing (code: ${code}). Contact support with this code.`
+    : `Something needs a look (code: ${code}). Contact support with this code.`;
 }

@@ -725,8 +725,18 @@ export const ACTION_SOURCE_OPTIONS: ReadonlyArray<{ readonly value: string; read
   { value: "physical_store", label: "In a physical store" },
   { value: "system_generated", label: "Created automatically by a system" },
   { value: "business_messaging", label: "Business messaging" },
-  { value: "other", label: "Other" },
+  { value: "other", label: "Other (a partner reported it)" },
 ]);
+
+/** Default "Where the conversion happened" for Facebook sending: partner-reported conversions carry no page address. */
+export const META_DEFAULT_ACTION_SOURCE = "other";
+
+/** Warning shown when Facebook sending is set to Website, which needs a page address that Flows do not send. */
+export function metaActionSourceWarning(actionSource: string): string | null {
+  return actionSource === "website"
+    ? "Facebook needs the page address for Website conversions. This Flow does not send one, so choose Other."
+    : null;
+}
 
 /** 32 random bytes as base64url without padding (43 characters). */
 export function generatePostbackToken(
@@ -770,6 +780,15 @@ export function presentConfigField(adapter: ConnectionAdapter, field: ConfigFiel
     return { ...field, kind: "static", help: "Partners open the link (GET)." };
   }
   return field;
+}
+
+/** HMAC-only fields are hidden for "Token in the link" webhooks, where they never apply. */
+const HMAC_ONLY_FIELDS = new Set(["auth.timestamp_header", "auth.signature_header"]);
+
+/** Whether the editor shows this field for the current settings. */
+export function isConfigFieldShown(adapter: ConnectionAdapter, field: ConfigField, config: Record<string, unknown>): boolean {
+  if (field.visibleWhen !== undefined && readConfigPath(config, field.visibleWhen.path) !== field.visibleWhen.equals) return false;
+  return !(adapter === "inbound_webhook" && readConfigPath(config, "auth.mode") === "query_token" && HMAC_ONLY_FIELDS.has(field.path));
 }
 
 export function adapterDefinition(value: string): AdapterDefinition | undefined {

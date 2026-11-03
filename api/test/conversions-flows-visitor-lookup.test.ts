@@ -209,7 +209,7 @@ describe("Destination value field logic", () => {
   it("clears the click ID field for Meta and restores it otherwise", () => {
     const meta = applyDestinationKind({ click_id_field: "click_id", action_source: "website" }, true);
     expect(meta).toEqual({ click_id_field: null, action_source: "website" });
-    expect(applyDestinationKind({ click_id_field: "click_id" }, true)).toEqual({ click_id_field: null, action_source: "website" });
+    expect(applyDestinationKind({ click_id_field: "click_id" }, true)).toEqual({ click_id_field: null, action_source: "other" });
     expect(applyDestinationKind(meta, false)).toEqual({ click_id_field: "click_id", action_source: "website" });
   });
 
@@ -218,7 +218,7 @@ describe("Destination value field logic", () => {
     expect(other.mapping).toEqual({
       event_name: "Purchase", event_id_field: "event_id", event_time_field: "occurred_at",
       value_field: "effective_value", currency_field: "currency", click_id_field: "click_id",
-      source_url_field: null, action_source: "website", query_templates: [], header_templates: [], body_template: null,
+      source_url_field: null, action_source: "other", query_templates: [], header_templates: [], body_template: null,
     });
     expect((defaultDestination("c2", true).mapping as Item).click_id_field).toBeNull();
     expect(defaultDestination("c2", true).enabled).toBe(false);

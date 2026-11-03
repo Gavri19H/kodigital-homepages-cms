@@ -93,6 +93,8 @@ export async function requestConversionsApi<T>(
       code,
       response.status === 403
         ? "This action is unavailable with the current local capability."
+        : code === "connection_name_taken"
+          ? "A connection with this name already exists. Choose another name."
         : response.status === 409 || response.status === 412 || code === "resource_changed"
           ? "This item changed. Refresh it before trying again."
           : code === "precondition_failed"

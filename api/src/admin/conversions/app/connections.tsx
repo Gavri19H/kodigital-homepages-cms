@@ -9,6 +9,9 @@ import {
   generatePostbackToken,
   credentialTypesForAdapter,
   defaultConnectionConfig,
+  isConfigFieldShown,
+  META_DEFAULT_ACTION_SOURCE,
+  metaActionSourceWarning,
   normalizeConnectionConfigField,
   presentConfigField,
   type ConfigField,
@@ -218,8 +221,7 @@ function ConfigEditor(props: {
           <p>{section.description}</p>
           <div class="ko-config-grid">
             {section.fields
-              .filter((field) => field.visibleWhen === undefined
-                || getPath(props.config, field.visibleWhen.path) === field.visibleWhen.equals)
+              .filter((field) => isConfigFieldShown(props.adapter, field, props.config))
               .map((field) => (
               <ConfigFieldEditor
                 key={field.path}
@@ -528,7 +530,7 @@ function MetaLivePanel(props: { id: string; config: Item; credentialPresent: boo
   const [state, setState] = useState<"loading" | "ready" | "error">("loading");
   const [status, setStatus] = useState<MetaStatus>("disabled");
   const [datasetId, setDatasetId] = useState("");
-  const [actionSource, setActionSource] = useState("website");
+  const [actionSource, setActionSource] = useState(META_DEFAULT_ACTION_SOURCE);
   const [testCode, setTestCode] = useState("");
   const [confirmLive, setConfirmLive] = useState(false);
   const [saving, setSaving] = useState(false);
@@ -537,7 +539,7 @@ function MetaLivePanel(props: { id: string; config: Item; credentialPresent: boo
     setView(next);
     setStatus(next.status);
     setDatasetId(next.datasetId ?? (typeof props.config.dataset_id === "string" ? props.config.dataset_id : ""));
-    setActionSource(next.actionSource ?? "website");
+    setActionSource(next.actionSource ?? META_DEFAULT_ACTION_SOURCE);
     setTestCode(next.testEventCode ?? (typeof props.config.test_event_code === "string" ? props.config.test_event_code : ""));
   };
   const load = useCallback(async () => {
@@ -581,6 +583,7 @@ function MetaLivePanel(props: { id: string; config: Item; credentialPresent: boo
     }
   }
   const notice = view === null ? null : metaReleaseNotice(view.status, view.release);
+  const actionSourceWarning = metaActionSourceWarning(actionSource);
   const missing = status !== "disabled" && datasetId.trim() === ""
     ? "Enter the dataset ID."
     : status === "test_only" && testCode.trim() === "" ? "Enter the test code." : "";
@@ -602,9 +605,10 @@ function MetaLivePanel(props: { id: string; config: Item; credentialPresent: boo
             <option value="live" disabled={!props.credentialPresent}>Live</option>
           </select><small>{props.credentialPresent ? "Live is a separate, confirmed step." : "Live becomes available after the access token is saved in Authentication."}</small></label>
           <label class="ko-config-field"><span>Dataset ID</span><input value={datasetId} disabled={!props.canManage} onInput={(event) => setDatasetId(event.currentTarget.value)} autocomplete="off" /><small>The dataset that receives the events.</small></label>
-          <label class="ko-config-field"><span>Where the conversion happened</span><select value={actionSource} disabled={!props.canManage} onChange={(event) => setActionSource(event.currentTarget.value)}>{ACTION_SOURCE_OPTIONS.map((option) => <option value={option.value}>{option.label}</option>)}</select><small>Told to the ad platform with each event.</small></label>
+          <label class="ko-config-field"><span>Where the conversion happened</span><select value={actionSource} disabled={!props.canManage} onChange={(event) => setActionSource(event.currentTarget.value)}>{ACTION_SOURCE_OPTIONS.map((option) => <option value={option.value}>{option.label}</option>)}</select><small>Told to Facebook with each event. Every Flow that sends to this connection uses this setting.</small></label>
           {status === "test_only" && <label class="ko-config-field"><span>Test code</span><input value={testCode} disabled={!props.canManage} onInput={(event) => setTestCode(event.currentTarget.value)} autocomplete="off" /><small>From the ad platform's test events screen.</small></label>}
         </div>
+        {actionSourceWarning !== null && <div class="ko-conversions-state ko-conversions-state--warning" role="alert"><p>{actionSourceWarning}</p></div>}
         <button class="ko-button ko-button--primary" type="button" disabled={saving || !props.canManage || missing !== "" || (status === "live" && !props.credentialPresent)} onClick={() => {
           if (status === "live" && view.status !== "live") setConfirmLive(true);
           else void save();

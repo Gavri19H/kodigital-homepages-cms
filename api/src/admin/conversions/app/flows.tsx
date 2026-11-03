@@ -1,6 +1,5 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "preact/hooks";
 import { ConversionsApiError, requestConversionsApi } from "./api-client";
-import { ACTION_SOURCE_OPTIONS } from "./connection-catalog";
 import { collectCorePages } from "./core-pages";
 import {
   applyDestinationKind,
@@ -8,13 +7,17 @@ import {
   applyVisitorConsent,
   applyVisitorLookup,
   defaultDestination,
+  defaultFlowDraft,
+  defaultOutcome,
   destinationValueLabel,
   destinationValueOptions,
+  draftBodyForSave,
   hasVisitorConsent,
   initialVisitorLookup,
   MAX_EVENT_TYPES,
   mappingSourceFields,
   parseEventTypes,
+  publishReviewSentence,
   readVisitorLookup,
   visitorLookupBlocker,
   VISITOR_FILLS,
@@ -71,75 +74,6 @@ function message(error: unknown): string {
 function text(item: Item, key: string): string {
   const value = item[key];
   return typeof value === "string" || typeof value === "number" ? String(value) : "—";
-}
-
-function defaultOutcome(status = "invalid"): Item {
-  return { status, effective_value_rule: status, value: null };
-}
-
-function defaultFlowDraft(context: ConversionsUiContext, sourceId: string): Item {
-  return {
-    name: "",
-    description: "",
-    product_scope: "both",
-    activity_label: "Conversion",
-    vertical_label: "All",
-    offer_scope: { type: "all", value: "all" },
-    primary_connection_id: sourceId,
-    primary_config: {
-      input_ordinal: 0,
-      precedence: { business_version_field: null, business_version_kind: "none", input_priority: 100 },
-    },
-    identity_namespace: `flow-${crypto.randomUUID()}`,
-    identity_fields: ["source_record_id"],
-    normalization: {
-      fields: [{ source_field: "id", transforms: [{ op: "trim" }, { op: "unicode_nfc" }] }],
-    },
-    rules: {
-      ordered: [{
-        id: "default_invalid",
-        predicate: { op: "always" },
-        outcome: defaultOutcome(),
-        on_value_error: null,
-      }],
-      default_outcome: defaultOutcome(),
-    },
-    mapping: {
-      fields: [{
-        canonical_field: "source_record_id",
-        source_field: "id",
-        fixed_value: null,
-        required: true,
-        transforms: [{ op: "trim" }, { op: "unicode_nfc" }],
-      }, {
-        canonical_field: "occurred_at",
-        source_field: "occurred_at",
-        fixed_value: null,
-        required: true,
-        transforms: [{ op: "timestamp", format: "iso_8601", timezone: context.timeZone }],
-      }],
-    },
-    time: {
-      occurred_at_field: "occurred_at",
-      input_format: "iso_8601",
-      timezone: context.timeZone,
-      invalid_policy: "invalid",
-    },
-    currency: {
-      reporting_currency: context.reportingCurrency,
-      source_currency_field: null,
-      fixed_source_currency: context.reportingCurrency,
-      conversion_policy: "same_currency_only",
-    },
-    patch_inputs: [],
-    internal_outputs: {
-      canonical_storage: true,
-      reporting: true,
-      dashboard: false,
-      dashboard_revenue: false,
-    },
-    destinations: [],
-  };
 }
 
 function exactDraft(value: unknown): Item {
@@ -488,7 +422,7 @@ function FlowWizard(props: { bootstrapActive: boolean; route: Extract<FlowRoute,
       const payload = await requestConversionsApi<unknown>(
         id === null ? `flow.create:${String(current.name)}` : `flow.autosave:${id}:${version}`,
         id === null ? FLOWS_PATH : `${FLOWS_PATH}/${id}/drafts/${version}`,
-        { method: id === null ? "POST" : "PATCH", body: id === null ? current : { row_version: rowVersion, ...current } },
+        { method: id === null ? "POST" : "PATCH", body: id === null ? draftBodyForSave(current) : { row_version: rowVersion, ...draftBodyForSave(current) } },
       );
       const result = unwrapCoreResult(payload);
       if (!isRecord(result) || typeof result.flow_id !== "string") throw new CoreWireError("invalid_response", "The service returned an invalid Flow save.");
@@ -531,7 +465,7 @@ function FlowWizard(props: { bootstrapActive: boolean; route: Extract<FlowRoute,
       const payload = await requestConversionsApi<unknown>(
         `flow.draft.create:${id}:${version + 1}`,
         `${FLOWS_PATH}/${id}/drafts`,
-        { method: "POST", body: current },
+        { method: "POST", body: draftBodyForSave(current) },
       );
       const result = unwrapCoreResult(payload);
       if (!isRecord(result) || typeof result.version !== "number"
@@ -782,7 +716,7 @@ function FlowWizard(props: { bootstrapActive: boolean; route: Extract<FlowRoute,
           setDraft({ ...draft, destinations: destinations.map((item, itemIndex) => itemIndex === index ? { ...item, connection_id: connectionId, mapping: applyDestinationKind(item.mapping as Item, isMetaConnection(connectionId)) } : item) });
         }}>{destinationConnections.map((connection) => <option value={String(connection.connection_id)}>{text(connection, "name")} · {text(connection, "adapter_type")}</option>)}</select></label>
         <label>Value to send<select value={String(destinationMapping.value_field ?? "")} onChange={(event) => setMapping(applyDestinationValue(destinationMapping, event.currentTarget.value))}>{[...new Set([...valueOptions, ...(typeof destinationMapping.value_field === "string" ? [destinationMapping.value_field] : [])])].map((field) => <option value={field}>{destinationValueLabel(draft, field)}</option>)}<option value="">Do not send a value</option></select><small>The currency comes from the currency setting in the Map fields step.</small></label>
-        {isMeta && <label>Where the conversion happened<select value={String(destinationMapping.action_source ?? "website")} onChange={(event) => setMapping({ ...destinationMapping, action_source: event.currentTarget.value })}>{ACTION_SOURCE_OPTIONS.map((option) => <option value={option.value}>{option.label}</option>)}</select></label>}
+        {isMeta && <p class="ko-disabled-reason">Where the conversion happened is set on the Facebook connection (Connections → this connection → Sending to the ad platform). This Flow uses that setting.</p>}
         <label class="ko-checkbox"><input type="checkbox" checked={destination.enabled === true} onChange={(event) => setDraft({ ...draft, destinations: destinations.map((item, itemIndex) => itemIndex === index ? { ...item, enabled: event.currentTarget.checked } : item) })} /><span>Eligible after publish and control activation</span></label>
         <label>Provider event name<input value={String((destination.mapping as Item).event_name)} onInput={(event) => setDraft({ ...draft, destinations: destinations.map((item, itemIndex) => itemIndex === index ? { ...item, mapping: { ...(item.mapping as Item), event_name: event.currentTarget.value } } : item) })} /></label>
         <label>Maximum event age seconds<input type="number" value={String((destination.delivery_policy as Item).maximum_age_seconds)} onInput={(event) => setDraft({ ...draft, destinations: destinations.map((item, itemIndex) => itemIndex === index ? { ...item, delivery_policy: { ...(item.delivery_policy as Item), maximum_age_seconds: Number(event.currentTarget.value) } } : item) })} /></label>
@@ -806,8 +740,8 @@ function FlowWizard(props: { bootstrapActive: boolean; route: Extract<FlowRoute,
       {!allPreviews && <p class="ko-disabled-reason">Complete source, rule, and destination previews first.</p>}
       {!canReviewPublish && <p class="ko-disabled-reason">You do not have the flows.publish capability required for publish review.</p>}
       {review && <><dl class="ko-test-result"><dt>Decision</dt><dd>{text(review, "decision")}</dd><dt>Ownership scopes</dt><dd>{text(review, "ownership_scope_count")}</dd><dt>Ownership conflicts</dt><dd>{text(review, "ownership_conflict_count")}</dd><dt>Blockers</dt><dd>{Array.isArray(review.blockers) ? review.blockers.length : "—"}</dd><dt>Warnings</dt><dd>{Array.isArray(review.warnings) ? review.warnings.length : "—"}</dd><dt>Expires</dt><dd>{text(review, "expires_at")}</dd></dl>
-        {Array.isArray(review.blockers) && review.blockers.length > 0 && <p class="ko-inline-error">Blocked: {review.blockers.map(String).join(", ")}</p>}
-        {Array.isArray(review.warnings) && review.warnings.length > 0 && <p class="ko-disabled-reason">Warnings: {review.warnings.map(String).join(", ")}</p>}</>}
+        {Array.isArray(review.blockers) && review.blockers.length > 0 && <div class="ko-inline-error" role="alert"><p>Publishing is blocked. Fix these, then run Review publish again:</p><ul>{review.blockers.map((code) => <li key={String(code)}>{publishReviewSentence(String(code))}</li>)}</ul></div>}
+        {Array.isArray(review.warnings) && review.warnings.length > 0 && <div class="ko-disabled-reason"><p>Good to know:</p><ul>{review.warnings.map((code) => <li key={String(code)}>{publishReviewSentence(String(code), "warning")}</li>)}</ul></div>}</>}
       <button class="ko-button ko-button--primary" type="button" disabled={publishToken === "" || saving || !canCommitPublish || !draftMutable} onClick={() => void publish()}>Publish exact reviewed draft</button>
       {publishToken === "" && <p class="ko-disabled-reason">A current successful publish review is required.</p>}
       {canReviewPublish && !canCommitPublish && <p class="ko-disabled-reason">Publishing also requires the ownership.manage capability.</p>}
