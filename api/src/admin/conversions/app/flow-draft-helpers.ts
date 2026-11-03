@@ -174,14 +174,38 @@ export function parseEventTypes(payload: unknown): string[] | null {
 
 export const DEFAULT_VALUE_FIELD = "effective_value";
 
-/** Value choices: the rule value first, then every mapped field. "" means no value. */
+/** Fields that can never hold a money value, so they are not offered as the value to send. */
+const NON_MONEY_FIELDS = new Set<string>([
+  ...VISITOR_FILLS.map(({ value }) => value),
+  CONSENT_FIELD,
+  "click_id",
+  "session_id",
+  "attempt_id",
+  "funnel_attempt_id",
+]);
+
+function canHoldMoney(name: string): boolean {
+  return !NON_MONEY_FIELDS.has(name)
+    && !/(^|_)id$/u.test(name)
+    && !/^(click|session|attempt|funnel_attempt)_/u.test(name);
+}
+
+/** Value choices: the rule value first, then every mapped field that can hold money. "" means no value. */
 export function destinationValueOptions(draft: Item): string[] {
   const fields = new Set<string>([DEFAULT_VALUE_FIELD]);
   for (const field of mappingFields(draft)) {
     const name = field.canonical_field;
-    if (typeof name === "string" && name.trim() !== "") fields.add(name);
+    if (typeof name === "string" && name.trim() !== "" && canHoldMoney(name)) fields.add(name);
   }
   return [...fields];
+}
+
+/** Plain-English name for a value choice: the mapping entry's own label when it has one, else "Field: <name>". */
+export function destinationValueLabel(draft: Item, name: string): string {
+  if (name === DEFAULT_VALUE_FIELD) return "Value from the partner's report (effective value)";
+  const entry = mappingFields(draft).find((field) => field.canonical_field === name);
+  const label = entry?.label;
+  return typeof label === "string" && label.trim() !== "" ? label.trim() : `Field: ${name}`;
 }
 
 /** Sets value_field and keeps currency_field in step: "currency" when a value is sent, otherwise null. */

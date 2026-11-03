@@ -10,6 +10,7 @@ import {
   credentialTypesForAdapter,
   defaultConnectionConfig,
   normalizeConnectionConfigField,
+  presentConfigField,
   type ConfigField,
   type ConnectionAdapter,
   type ConnectionDirection,
@@ -153,7 +154,7 @@ function ConfigFieldEditor(props: {
           checked={value === true}
           onChange={(event) => props.onChange(props.field.path, event.currentTarget.checked)}
         />
-        <span>{props.field.label}<small>{props.field.help}</small></span>
+        <span>{props.field.label}{" "}<small>{props.field.help}</small></span>
       </label>
     );
   }
@@ -222,7 +223,7 @@ function ConfigEditor(props: {
               .map((field) => (
               <ConfigFieldEditor
                 key={field.path}
-                field={field}
+                field={presentConfigField(props.adapter, field, props.config)}
                 config={props.config}
                 onChange={(path, value) => props.onChange(
                   normalizeConnectionConfigField(props.config, path, value),
@@ -825,6 +826,7 @@ function ConnectionEditor(props: { bootstrapActive: boolean; mode: Extract<Route
                 <h3 id="connection-test-heading">Test connection</h3>
                 <p>This reads connectivity and a bounded sample only. It records no live conversion and sends no destination event.</p>
                 <button class="ko-button" type="button" disabled={saving || !canManage} onClick={() => void testConnection()}>Run side-effect-free test</button>
+                {model.adapter === "inbound_webhook" && <p>A passing test turns this connection on, so partners can start sending.</p>}
                 {testResult && <dl class="ko-test-result"><dt>Status</dt><dd>{scalar(testResult, "status")}</dd><dt>Code</dt><dd>{scalar(testResult, "code")}</dd><dt>Message</dt><dd>{scalar(testResult, "message")}</dd></dl>}
               </section>
               <section class="ko-config-section ko-danger-zone" aria-labelledby="connection-archive-heading">

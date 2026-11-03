@@ -7,6 +7,7 @@ import {
   applyVisitorConsent,
   applyVisitorLookup,
   defaultDestination,
+  destinationValueLabel,
   destinationValueOptions,
   hasVisitorConsent,
   initialVisitorLookup,
@@ -164,11 +165,38 @@ describe("Find our visitor draft logic", () => {
 });
 
 describe("Destination value field logic", () => {
-  it("offers the rule value first, then each mapped field once", () => {
+  it("offers the rule value first, then each mapped field that can hold money, once", () => {
     expect(destinationValueOptions(draft([
       { canonical_field: "effective_value", source_field: "x", fixed_value: null, required: false, transforms: [] },
       { canonical_field: "", source_field: "y", fixed_value: null, required: false, transforms: [] },
-    ]))).toEqual(["effective_value", "source_record_id", "click_id", "payout_amount"]);
+    ]))).toEqual(["effective_value", "payout_amount"]);
+  });
+
+  it("hides fields that can never be a money value", () => {
+    const withVisitor = applyVisitorLookup(applyVisitorConsent(draft([
+      { canonical_field: "session_id", source_field: "sid", fixed_value: null, required: false, transforms: [] },
+      { canonical_field: "funnel_attempt_id", source_field: "aid", fixed_value: null, required: false, transforms: [] },
+      { canonical_field: "attempt_id", source_field: "att", fixed_value: null, required: false, transforms: [] },
+      { canonical_field: "click_ref", source_field: "cref", fixed_value: null, required: false, transforms: [] },
+      { canonical_field: "bid_amount", source_field: "bid", fixed_value: null, required: false, transforms: [] },
+    ]), true), {
+      key_source_field: "clickid", key_kind: "click_id", event_types: ["purchase"],
+      fill: ["fbc", "client_ip_address", "client_user_agent"],
+    });
+    const options = destinationValueOptions(withVisitor);
+    expect(options).toEqual(["effective_value", "payout_amount", "bid_amount"]);
+    for (const hidden of ["fbc", "client_ip_address", "client_user_agent", "personal_data_consent", "click_id", "session_id", "attempt_id", "funnel_attempt_id", "source_record_id", "click_ref"]) {
+      expect(options).not.toContain(hidden);
+    }
+  });
+
+  it("names each value choice in plain words", () => {
+    const labelled = draft([
+      { canonical_field: "bid_amount", source_field: "bid", fixed_value: null, required: false, transforms: [], label: "Partner bid" },
+    ]);
+    expect(destinationValueLabel(labelled, "effective_value")).toBe("Value from the partner's report (effective value)");
+    expect(destinationValueLabel(labelled, "bid_amount")).toBe("Partner bid");
+    expect(destinationValueLabel(labelled, "payout_amount")).toBe("Field: payout_amount");
   });
 
   it("keeps the currency in step with the value", () => {

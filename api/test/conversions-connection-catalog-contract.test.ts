@@ -13,6 +13,7 @@ import {
   generatePostbackToken,
   defaultConnectionConfig,
   normalizeConnectionConfigField,
+  presentConfigField,
   type ConnectionAdapter,
 } from "../src/admin/conversions/app/connection-catalog";
 
@@ -321,6 +322,29 @@ describe("Connections UI/Core closed-contract parity", () => {
     const hmac = normalizeConnectionConfigField(webhook, "auth.mode", "hmac");
     expect(hmac.field_location).toBe("json_body");
     expect(hmac.allowed_methods).toEqual(["POST"]);
+  });
+
+  it("uses link wording for \"Token in the link\" and plain names elsewhere", () => {
+    const fields = CONNECTION_CONFIG_SECTIONS.inbound_webhook.flatMap((section) => section.fields);
+    const header = fields.find((field) => field.path === "auth.authorization_header")!;
+    const methods = fields.find((field) => field.path === "allowed_methods")!;
+    const webhook = defaultConnectionConfig("inbound_webhook", "UTC");
+    const linkToken = normalizeConnectionConfigField(webhook, "auth.mode", "query_token");
+
+    const linkHeader = presentConfigField("inbound_webhook", header, linkToken);
+    expect(linkHeader.label).toBe("Name of the token in the link");
+    expect(linkHeader.help).toBe("Partners add this to the link, for example ?token=…");
+    const linkMethods = presentConfigField("inbound_webhook", methods, linkToken);
+    expect(linkMethods.kind).toBe("static");
+    expect(linkMethods.help).toBe("Partners open the link (GET).");
+    expect(linkMethods.help).not.toContain("POST or PUT");
+
+    expect(presentConfigField("inbound_webhook", header, webhook)).toBe(header);
+    expect(presentConfigField("inbound_webhook", methods, webhook).help).toBe("POST or PUT.");
+
+    const metaVersion = CONNECTION_CONFIG_SECTIONS.meta.flatMap((section) => section.fields)
+      .find((field) => field.path === "api_version");
+    expect(metaVersion?.label).toBe("Facebook API version");
   });
 
   it("generates a 43-character link token and builds the partner link", () => {

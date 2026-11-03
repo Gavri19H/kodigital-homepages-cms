@@ -8,6 +8,7 @@ import {
   applyVisitorConsent,
   applyVisitorLookup,
   defaultDestination,
+  destinationValueLabel,
   destinationValueOptions,
   hasVisitorConsent,
   initialVisitorLookup,
@@ -317,7 +318,7 @@ function VisitorLookupEditor(props: { draft: Item; setDraft: (draft: Item) => vo
     <label class="ko-checkbox"><input type="checkbox" checked={consent} onChange={(event) => {
       if (!event.currentTarget.checked && saved !== null) setPending(saved);
       props.setDraft(applyVisitorConsent(props.draft, event.currentTarget.checked));
-    }} /><span>The visitor agreed to share their data for ads measurement<small>Required. This is sent to the ad platform with every event from this Flow.</small></span></label>
+    }} /><span>The visitor agreed to share their data for ads measurement{" "}<small>Required. This is sent to the ad platform with every event from this Flow.</small></span></label>
     <label class="ko-checkbox"><input type="checkbox" checked={saved !== null} onChange={(event) => toggle(event.currentTarget.checked)} /><span>Find our visitor for each conversion</span></label>
     <div class="ko-config-grid">
       <label class="ko-config-field"><span>Column with the visitor key</span><select value={spec.key_source_field} onChange={(event) => change({ ...spec, key_source_field: event.currentTarget.value })}><option value="">Choose a column</option>{sourceFields.map((field) => <option value={field}>{field}</option>)}</select><small>A column from the field mapping above that the partner sends back to us.</small></label>
@@ -780,7 +781,7 @@ function FlowWizard(props: { bootstrapActive: boolean; route: Extract<FlowRoute,
           const connectionId = event.currentTarget.value;
           setDraft({ ...draft, destinations: destinations.map((item, itemIndex) => itemIndex === index ? { ...item, connection_id: connectionId, mapping: applyDestinationKind(item.mapping as Item, isMetaConnection(connectionId)) } : item) });
         }}>{destinationConnections.map((connection) => <option value={String(connection.connection_id)}>{text(connection, "name")} · {text(connection, "adapter_type")}</option>)}</select></label>
-        <label>Value to send<select value={String(destinationMapping.value_field ?? "")} onChange={(event) => setMapping(applyDestinationValue(destinationMapping, event.currentTarget.value))}>{[...new Set([...valueOptions, ...(typeof destinationMapping.value_field === "string" ? [destinationMapping.value_field] : [])])].map((field) => <option value={field}>{field === "effective_value" ? "Value from the qualification rules" : field}</option>)}<option value="">Do not send a value</option></select><small>The currency comes from the currency setting in the Map fields step.</small></label>
+        <label>Value to send<select value={String(destinationMapping.value_field ?? "")} onChange={(event) => setMapping(applyDestinationValue(destinationMapping, event.currentTarget.value))}>{[...new Set([...valueOptions, ...(typeof destinationMapping.value_field === "string" ? [destinationMapping.value_field] : [])])].map((field) => <option value={field}>{destinationValueLabel(draft, field)}</option>)}<option value="">Do not send a value</option></select><small>The currency comes from the currency setting in the Map fields step.</small></label>
         {isMeta && <label>Where the conversion happened<select value={String(destinationMapping.action_source ?? "website")} onChange={(event) => setMapping({ ...destinationMapping, action_source: event.currentTarget.value })}>{ACTION_SOURCE_OPTIONS.map((option) => <option value={option.value}>{option.label}</option>)}</select></label>}
         <label class="ko-checkbox"><input type="checkbox" checked={destination.enabled === true} onChange={(event) => setDraft({ ...draft, destinations: destinations.map((item, itemIndex) => itemIndex === index ? { ...item, enabled: event.currentTarget.checked } : item) })} /><span>Eligible after publish and control activation</span></label>
         <label>Provider event name<input value={String((destination.mapping as Item).event_name)} onInput={(event) => setDraft({ ...draft, destinations: destinations.map((item, itemIndex) => itemIndex === index ? { ...item, mapping: { ...(item.mapping as Item), event_name: event.currentTarget.value } } : item) })} /></label>
@@ -830,7 +831,7 @@ function FlowWizard(props: { bootstrapActive: boolean; route: Extract<FlowRoute,
       {props.bootstrapActive && <p class="ko-disabled-reason">Resume and rollback require permanent operator authority. Safe pause remains available.</p>}
     </section>}
     {state === "ready" && draft && <div class="ko-flow-wizard">
-      <nav class="ko-step-rail" aria-label="Flow steps"><ol>{STEPS.map((label, index) => <li><button type="button" aria-current={step === index ? "step" : undefined} onClick={() => setStep(index)}><span>{index + 1}</span>{label}</button></li>)}</ol></nav>
+      <nav class="ko-step-rail" aria-label="Flow steps"><ol>{STEPS.map((label, index) => <li><button type="button" aria-current={step === index ? "step" : undefined} onClick={() => setStep(index)}><span>{index + 1}</span>{" "}{label}</button></li>)}</ol></nav>
       <main class="ko-step-content"><div class="ko-current-step"><span>Step {step + 1} of {STEPS.length}</span><h3>{STEPS[step]}</h3></div>
         {!draftMutable && <div class="ko-conversions-state"><h3>Published version {version} is immutable</h3><p>Create a new draft version before changing this Flow.</p><button class="ko-button ko-button--primary" type="button" disabled={saving || !canManage} onClick={() => void createNextDraft()}>Create new draft version</button>{!canManage && <p class="ko-disabled-reason">You do not have the flows.manage capability.</p>}</div>}
         {draftMutable && !canManage && step !== STEPS.length - 1 && <p class="ko-disabled-reason">This draft is read-only because you do not have the flows.manage capability.</p>}

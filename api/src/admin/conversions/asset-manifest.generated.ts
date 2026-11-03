@@ -8,12 +8,12 @@
 export const ADMIN_ASSET_MANIFEST = {
   conversions: {
     js: {
-      fileName: "conversions.fe27e28598fd5c0f.js",
-      url: "/assets/admin/conversions/conversions.fe27e28598fd5c0f.js",
+      fileName: "conversions.528ee18a8f6cf28a.js",
+      url: "/assets/admin/conversions/conversions.528ee18a8f6cf28a.js",
       contentType: "text/javascript; charset=utf-8",
-      etag: "\"sha256-fe27e28598fd5c0f2cdc0880b0890ddb1b18b1f7afaff4b71374fb3f39a75104\"",
-      sha256: "fe27e28598fd5c0f2cdc0880b0890ddb1b18b1f7afaff4b71374fb3f39a75104",
-      bytes: 175945,
+      etag: "\"sha256-528ee18a8f6cf28a3d3d8e20be1ba945bd6b611966ff9aacb79f82d9ab5e089c\"",
+      sha256: "528ee18a8f6cf28a3d3d8e20be1ba945bd6b611966ff9aacb79f82d9ab5e089c",
+      bytes: 176774,
       gzipBytes: null,
     },
     css: {

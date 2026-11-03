@@ -671,7 +671,7 @@ export const CONNECTION_CONFIG_SECTIONS: Readonly<Record<ConnectionAdapter, Read
     description: "The access token is saved separately and never returned.",
     fields: [
       { path: "dataset_id", label: "Meta dataset ID", kind: "text", help: "Dataset/pixel that receives eligible events." },
-      { path: "api_version", label: "Pinned supported API version", kind: "text", help: "Verified API version; it is not guessed or silently upgraded." },
+      { path: "api_version", label: "Facebook API version", kind: "text", help: "Verified API version; it is not guessed or silently upgraded." },
       { path: "test_event_code", label: "Test event code", kind: "text", nullable: true, help: "Optional provider test code for non-production validation." },
     ],
   }],
@@ -753,6 +753,23 @@ export function buildPostbackLink(input: {
     if (name !== "" && name !== input.tokenParameter) parameters.append(name, field.value);
   }
   return `${input.origin.replace(/\/+$/u, "")}/v1/in/${encodeURIComponent(input.publicId)}?${parameters.toString()}`;
+}
+
+/**
+ * The field as the editor should show it for the current settings.
+ * "Token in the link" webhooks are opened by partners with a plain link (GET),
+ * so the request-method and header wording is replaced with link wording.
+ */
+export function presentConfigField(adapter: ConnectionAdapter, field: ConfigField, config: Record<string, unknown>): ConfigField {
+  if (adapter !== "inbound_webhook") return field;
+  if (readConfigPath(config, "auth.mode") !== "query_token") return field;
+  if (field.path === "auth.authorization_header") {
+    return { ...field, label: "Name of the token in the link", help: "Partners add this to the link, for example ?token=…" };
+  }
+  if (field.path === "allowed_methods") {
+    return { ...field, kind: "static", help: "Partners open the link (GET)." };
+  }
+  return field;
 }
 
 export function adapterDefinition(value: string): AdapterDefinition | undefined {
