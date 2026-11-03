@@ -79,7 +79,7 @@ const DELIVERY = "a12d9e7c-4b31-5a00-8000-000000000006";
 // expiry against SQLite's own clock, so a fixed instant expires in real time.
 const NOW = Math.floor(Date.now() / 1_000);
 const NONCE = "abcdefghijklmnop";
-const E2E_EVENT = "0198f0aa-0000-7000-8000-000000000008";
+const E2E_EVENT = "0198f0aa-0000-5000-8000-000000000008"; // Core event ids are UUIDv5.
 const E2E_FLOW = "0198f0aa-0000-7000-8000-000000000009";
 const RELEASE = "0198f0aa-0000-7000-8000-00000000000a";
 const SYSTEM_EVENT = "0198f0aa-0000-7000-8000-00000000000b";
@@ -1009,11 +1009,11 @@ function liveProviderRow(raw = liveSnapshot()) {
   return { ...providerRow(), head_status: "live", current_snapshot_sha256: digest, snapshot_json: raw, snapshot_sha256: digest };
 }
 
-function deliveryPrepareRequest(environment: Env): Request {
+function deliveryPrepareRequest(environment: Env, eventId = E2E_EVENT): Request {
   const payload = {
     schema_version: "destination_provider_delivery_prepare_request.v1",
     workspace_id: WORKSPACE, destination_connection_id: CONNECTION, flow_id: FLOW, flow_version_id: FLOW,
-    event_id: E2E_EVENT, event_version: 1, source_command_id: "c".repeat(64), state_fingerprint: "d".repeat(64),
+    event_id: eventId, event_version: 1, source_command_id: "c".repeat(64), state_fingerprint: "d".repeat(64),
     delivery_id: DELIVERY, issued_at: NOW, expires_at: NOW + 30, nonce: NONCE,
   };
   return new Request(`https://private.invalid${PROVIDER_DELIVERY_PREPARE_PATH}`, {
@@ -1084,6 +1084,22 @@ describe("private provider configuration authority — live Meta status", () => 
       schema_version: "destination_provider_delivery_prepare_capability.v1",
       status: "test_only", production_execution_released: false,
     } });
+  });
+
+  it("accepts Core's deterministic UUIDv5 event ids through delivery prepare, and still refuses a malformed one", async () => {
+    const environment = env([liveProviderRow()]);
+    const delivery = await handleProviderConfigurationRequest(
+      deliveryPrepareRequest(environment, "858169eb-b13f-53e4-ac9a-b984ed64875e"), environment, NOW,
+    );
+    expect(delivery.status).toBe(200);
+    await expect(delivery.json()).resolves.toMatchObject({ payload: {
+      schema_version: "destination_provider_delivery_prepare_capability.v1",
+      event_id: "858169eb-b13f-53e4-ac9a-b984ed64875e", status: "live",
+    } });
+    const malformed = await handleProviderConfigurationRequest(
+      deliveryPrepareRequest(environment, "858169eb-b13f-53e4-ac9a-B984ED64875E"), environment, NOW,
+    );
+    expect(malformed.status).toBe(400);
   });
 
   it("refuses a live snapshot that still carries a test code, and a live head over a test_only snapshot", async () => {

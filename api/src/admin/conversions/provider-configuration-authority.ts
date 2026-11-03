@@ -687,9 +687,12 @@ async function prepareDelivery(request: Request, env: Env, nowSeconds: number): 
     throw new ProviderAuthorityError(403);
   }
   validateRequestTime(payload, nowSeconds);
+  // Core event ids are deterministic UUIDv5 (event identity), not v7.
   if (![payload.workspace_id, payload.destination_connection_id, payload.flow_id,
-    payload.flow_version_id, payload.event_id]
+    payload.flow_version_id]
     .every((value) => typeof value === "string" && isUuidV7(value))
+      || typeof payload.event_id !== "string"
+      || !CANONICAL_UUID.test(payload.event_id)
       || typeof payload.delivery_id !== "string"
       || !CANONICAL_UUID.test(payload.delivery_id)
       || !Number.isSafeInteger(payload.event_version)
