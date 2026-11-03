@@ -669,7 +669,7 @@ describeDb("sendClickoutMetaConversion — every other reason it sends nothing",
 // ===========================================================================
 
 describeDb("sendClickoutMetaConversion — A7: a skipped REAL click is shown on the Offer", () => {
-  const NOT_CLEAN = "Not sent: this click was test, internal, preview or bot traffic.";
+  const NOT_CLEAN = "Not sent: this click was test, internal (ko_internal cookie), preview or bot traffic.";
   const CAPPED = "Not sent: this visitor already reached the limit of 5 click events for this offer in 24 hours.";
 
   it("A7: a verified click from test/internal/preview/bot traffic records 'skipped' with a plain-English reason, and sends nothing", async () => {
@@ -1166,7 +1166,7 @@ describeDb("Offer editor — the control, its copy, and what it can honestly say
     vi.restoreAllMocks();
     const box = fieldset(await editorHtml(h, offerPublicId));
     expect(box).toContain('data-lg-clickout-meta-last="skipped" data-tone="warn"');
-    expect(box).toContain("Not sent: this click was test, internal, preview or bot traffic.");
+    expect(box).toContain("Not sent: this click was test, internal (ko_internal cookie), preview or bot traffic.");
   });
 
   it("after a real clickout the Offer page shows what happened", async () => {

@@ -592,7 +592,7 @@ export function describeClickoutMetaOutcome(outcome: ClickoutMetaOutcome): strin
         case "replay_capped":
           return "Not sent: this visitor already reached the limit of 5 click events for this offer in 24 hours.";
         case "not_clean":
-          return "Not sent: this click was test, internal, preview or bot traffic.";
+          return "Not sent: this click was test, internal (ko_internal cookie), preview or bot traffic.";
         case "no_auction":
           return "Not sent: the click did not come from a banner LeadGen showed.";
         case "attempt_mismatch":
