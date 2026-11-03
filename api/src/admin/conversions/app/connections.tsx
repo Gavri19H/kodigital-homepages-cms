@@ -24,6 +24,7 @@ import {
   type ConversionsUiContext,
 } from "./product-state";
 import { loadConnectionArchiveImpacts } from "./connection-archive-impact";
+import { metaReleaseNotice, type MetaReleaseSummary } from "./meta-release-notice";
 import { ShellFrame } from "./shell";
 
 type Item = Record<string, unknown>;
@@ -490,7 +491,7 @@ interface MetaProviderView {
   readonly actionSource: string | null;
   readonly testEventCode: string | null;
   readonly headRowVersion: number | null;
-  readonly releaseExpiresAt: number | null;
+  readonly release: MetaReleaseSummary | null;
 }
 
 function nullableString(value: unknown): value is string | null {
@@ -505,7 +506,8 @@ function parseMetaProviderView(payload: unknown, connectionId: string): MetaProv
       || !nullableString(payload.dataset_id) || !nullableString(payload.action_source)
       || !nullableString(payload.test_event_code)
       || !(payload.head_row_version === null || typeof payload.head_row_version === "number")
-      || !(release === null || (isRecord(release) && typeof release.expires_at === "number"))) {
+      || !(release === null || (isRecord(release) && typeof release.expires_at === "number"
+        && typeof release.ended === "boolean"))) {
     throw new CoreWireError("invalid_response", "The service returned invalid sending settings.");
   }
   return {
@@ -515,7 +517,7 @@ function parseMetaProviderView(payload: unknown, connectionId: string): MetaProv
     actionSource: payload.action_source,
     testEventCode: payload.test_event_code,
     headRowVersion: payload.head_row_version as number | null,
-    releaseExpiresAt: isRecord(release) ? release.expires_at as number : null,
+    release: isRecord(release) ? { expiresAt: release.expires_at as number, ended: release.ended as boolean } : null,
   };
 }
 
@@ -577,6 +579,7 @@ function MetaLivePanel(props: { id: string; config: Item; credentialPresent: boo
       setSaving(false);
     }
   }
+  const notice = view === null ? null : metaReleaseNotice(view.status, view.release);
   const missing = status !== "disabled" && datasetId.trim() === ""
     ? "Enter the dataset ID."
     : status === "test_only" && testCode.trim() === "" ? "Enter the test code." : "";
@@ -588,9 +591,9 @@ function MetaLivePanel(props: { id: string; config: Item; credentialPresent: boo
       {state === "error" && <p class="ko-inline-error" role="alert">{message} <button class="ko-button ko-button--small" type="button" onClick={() => void load()}>Try again</button></p>}
       {state === "ready" && view !== null && <>
         <dl class="ko-test-result">
-          <dt>Now</dt><dd>{META_STATUS_LABELS[view.status]}</dd>
-          {view.releaseExpiresAt !== null && <><dt>Until</dt><dd>{new Date(view.releaseExpiresAt * 1000).toLocaleString()}</dd></>}
+          <dt>Now</dt><dd>{notice?.until ?? META_STATUS_LABELS[view.status]}</dd>
         </dl>
+        {notice?.warning != null && <div class="ko-conversions-state ko-conversions-state--warning" role="alert"><p>{notice.warning}</p></div>}
         <div class="ko-config-grid">
           <label class="ko-config-field"><span>Sending</span><select value={status} disabled={!props.canManage} onChange={(event) => setStatus(event.currentTarget.value as MetaStatus)}>
             <option value="disabled">Off</option>

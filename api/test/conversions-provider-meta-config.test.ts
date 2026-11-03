@@ -12,7 +12,7 @@ import {
   handleProviderConfigurationRequest,
 } from "../src/admin/conversions/provider-configuration-authority";
 import { validateProviderConnectionSnapshotJson } from "../src/admin/conversions/provider-credential-aliases";
-import { putMetaProviderConfig } from "../src/admin/conversions/provider-meta-config";
+import { getMetaProviderConfig, putMetaProviderConfig } from "../src/admin/conversions/provider-meta-config";
 import { resolvePermanentConversionsActor } from "../src/admin/conversions/permanent-authority";
 import { conversionsUi } from "../src/admin/conversions/router";
 
@@ -149,6 +149,12 @@ function tableCounts(db: Sqlite): Record<string, number> {
     "conversion_provider_connection_heads", "conversion_provider_execution_releases",
     "conversion_provider_change_audit",
   ].map((table) => [table, count(db, table)]));
+}
+
+function operator(environment: Env) {
+  return resolvePermanentConversionsActor(environment, {
+    mode: "identity", email: "operator@example.com", sub: "cf-operator", claims: { iat: 1_700_000_000 },
+  });
 }
 
 describeSqlite("Meta provider configuration endpoint (CMS writer)", () => {
@@ -310,6 +316,101 @@ describeSqlite("Meta provider configuration endpoint (CMS writer)", () => {
     });
     expect(db.prepare("SELECT status,row_version FROM conversion_provider_connection_heads").get())
       .toEqual({ status: "disabled", row_version: 2 });
+    db.close();
+  });
+
+  it("writes nothing (no version, release or audit row) when the head moves between reading and writing", async () => {
+    const db = openDb();
+    const base = env(db);
+    await put(base, body("test_only"));
+    const counts = tableCounts(db);
+    const releaseBefore = db.prepare("SELECT release_id,status,row_version FROM conversion_provider_execution_releases").all();
+    const raw = base.DB;
+    const racing = {
+      prepare: raw.prepare.bind(raw),
+      async batch(statements: D1PreparedStatement[]) {
+        // A concurrent writer bumps the head without adding a version, so no
+        // primary key collides: only the row-version guard can stop this save.
+        db.prepare("UPDATE conversion_provider_connection_heads SET row_version=row_version+1").run();
+        return raw.batch(statements);
+      },
+    } as unknown as D1Database;
+    const response = await put({ ...base, DB: racing }, body("live", { expected_head_row_version: 1 }));
+    expect(response.status).toBe(409);
+    expect(await response.json()).toMatchObject({ error: { code: "resource_changed" } });
+    expect(tableCounts(db)).toEqual(counts);
+    expect(db.prepare("SELECT release_id,status,row_version FROM conversion_provider_execution_releases").all())
+      .toEqual(releaseBefore);
+    expect(db.prepare("SELECT status,row_version,current_config_version FROM conversion_provider_connection_heads").get())
+      .toEqual({ status: "test_only", row_version: 2, current_config_version: 1 });
+    db.close();
+  });
+
+  it("writes nothing when another first save lands between reading and writing", async () => {
+    const db = openDb();
+    const base = env(db);
+    const raw = base.DB;
+    let raced = false;
+    const racing = {
+      prepare: raw.prepare.bind(raw),
+      async batch(statements: D1PreparedStatement[]) {
+        if (!raced) {
+          raced = true;
+          await putMetaProviderConfig(base, await operator(base), CONNECTION, body("disabled"));
+        }
+        return raw.batch(statements);
+      },
+    } as unknown as D1Database;
+    const response = await put({ ...base, DB: racing }, body("test_only"));
+    expect(response.status).toBe(409);
+    expect(tableCounts(db)).toEqual({
+      conversion_provider_credential_aliases: 0,
+      conversion_provider_connection_versions: 1,
+      conversion_provider_connection_heads: 1,
+      conversion_provider_execution_releases: 0,
+      conversion_provider_change_audit: 1,
+    });
+    db.close();
+  });
+
+  it.each([
+    ["test_only", 3_600, "meta_test_event"],
+    ["live", 31_536_000, "meta_live"],
+  ] as const)("saving %s again with the same status revokes the old approval and issues a new one", async (status, seconds, mode) => {
+    const db = openDb();
+    const environment = env(db);
+    const authority = await operator(environment);
+    const t0 = Date.UTC(2026, 10, 3, 12, 0, 0);
+    const first = await putMetaProviderConfig(environment, authority, CONNECTION, body(status), t0);
+    expect(first.release).toEqual({ release_mode: mode, expires_at: t0 / 1_000 + seconds, ended: false });
+    const later = t0 + (seconds + 60) * 1_000;
+    const expired = await getMetaProviderConfig(environment, authority, CONNECTION, later);
+    expect(expired.release).toEqual({ release_mode: mode, expires_at: t0 / 1_000 + seconds, ended: true });
+    const oldRelease = db.prepare("SELECT release_id FROM conversion_provider_execution_releases").get() as { release_id: string };
+
+    const renewed = await putMetaProviderConfig(environment, authority, CONNECTION,
+      body(status, { expected_head_row_version: 1 }), later);
+    expect(renewed).toMatchObject({ status, head_row_version: 2, config_version: 2 });
+    expect(renewed.release).toEqual({ release_mode: mode, expires_at: later / 1_000 + seconds, ended: false });
+    expect(db.prepare("SELECT status,updated_at FROM conversion_provider_execution_releases WHERE release_id=?")
+      .get(oldRelease.release_id)).toEqual({ status: "revoked", updated_at: later / 1_000 });
+    expect(count(db, "conversion_provider_execution_releases", "status='active'")).toBe(1);
+    expect(count(db, "conversion_provider_change_audit", `from_status='${status}' AND to_status='${status}'`)).toBe(1);
+    db.close();
+  });
+
+  it("reports an approval marked expired as ended, and none at all once sending is off", async () => {
+    const db = openDb();
+    const environment = env(db);
+    const authority = await operator(environment);
+    const t0 = Date.UTC(2026, 10, 3, 12, 0, 0);
+    await putMetaProviderConfig(environment, authority, CONNECTION, body("live"), t0);
+    db.prepare(`UPDATE conversion_provider_execution_releases
+      SET status='expired',updated_at=updated_at+1,row_version=row_version+1`).run();
+    expect((await getMetaProviderConfig(environment, authority, CONNECTION, t0 + 5_000)).release)
+      .toEqual({ release_mode: "meta_live", expires_at: t0 / 1_000 + 31_536_000, ended: true });
+    await putMetaProviderConfig(environment, authority, CONNECTION, body("disabled", { expected_head_row_version: 1 }), t0 + 10_000);
+    expect((await getMetaProviderConfig(environment, authority, CONNECTION, t0 + 10_000)).release).toBeNull();
     db.close();
   });
 

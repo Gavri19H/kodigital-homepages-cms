@@ -1,8 +1,9 @@
 // The only CMS writer of Meta provider configuration (Part A, A5). One PUT
 // writes, in a single D1 batch: the credential alias (first activation only),
-// a new immutable configuration version, the head (optimistic row-version
-// check), the revocation of any active release, a new release for the chosen
-// mode, and one append-only audit row. Nothing is proxied to Core here; the
+// a new immutable configuration version, the revocation of any active release,
+// a new release for the chosen mode, one append-only audit row and, last, the
+// head (optimistic row-version check). Every statement is guarded by the head
+// still being exactly as read, so a lost race writes nothing at all. Nothing is proxied to Core here; the
 // engine reads this state through the signed provider-authority endpoints.
 import type { Env } from "../../env";
 import { canonicalJson, createUuidV7, isUuidV7 } from "./actor-envelope";
@@ -50,9 +51,12 @@ export interface MetaProviderConfigView {
   readonly test_event_code: string | null;
   readonly head_row_version: number | null;
   readonly config_version: number | null;
+  // The latest approval that is not revoked (active or expired). Shown only
+  // while sending is on, so the panel can say when sending stops or stopped.
   readonly release: null | {
     readonly release_mode: "meta_test_event" | "meta_live";
     readonly expires_at: number;
+    readonly ended: boolean;
   };
 }
 
@@ -75,7 +79,7 @@ interface CurrentState {
   maxConfigVersion: number;
   foreignVersions: number;
   alias: null | { aliasId: string; workspaceId: string; status: unknown; secretPresent: unknown };
-  release: null | { releaseMode: unknown; expiresAt: unknown };
+  release: null | { releaseMode: unknown; expiresAt: unknown; status: unknown };
 }
 
 function isRecord(value: unknown): value is Record<string, unknown> {
@@ -147,8 +151,9 @@ FROM conversion_provider_connection_versions WHERE destination_connection_id=?1`
 FROM conversion_provider_credential_aliases
 WHERE destination_connection_id=?1 AND adapter_type='meta' AND purpose='meta_access_token'
 ORDER BY credential_alias_id LIMIT 2`).bind(connectionId).all<Record<string, unknown>>(),
-      env.DB.prepare(`SELECT release_mode,expires_at FROM conversion_provider_execution_releases
-WHERE destination_connection_id=?1 AND status='active'`).bind(connectionId).first<Record<string, unknown>>(),
+      env.DB.prepare(`SELECT release_mode,expires_at,status FROM conversion_provider_execution_releases
+WHERE destination_connection_id=?1 AND status IN ('active','expired')
+ORDER BY status='active' DESC,activated_at DESC,release_id DESC LIMIT 1`).bind(connectionId).first<Record<string, unknown>>(),
     ]);
     if (versions === null || !Number.isSafeInteger(versions.max_version)
         || !Number.isSafeInteger(versions.foreign_versions)) throw new Error("versions");
@@ -185,7 +190,9 @@ WHERE destination_connection_id=?1 AND status='active'`).bind(connectionId).firs
         status: aliasRow.status,
         secretPresent: aliasRow.secret_present,
       },
-      release: release === null ? null : { releaseMode: release.release_mode, expiresAt: release.expires_at },
+      release: release === null ? null : {
+        releaseMode: release.release_mode, expiresAt: release.expires_at, status: release.status,
+      },
     };
   } catch (error) {
     if (error instanceof MetaProviderConfigError) throw error;
@@ -193,7 +200,12 @@ WHERE destination_connection_id=?1 AND status='active'`).bind(connectionId).firs
   }
 }
 
-function viewFromState(workspaceId: string, connectionId: string, state: CurrentState): MetaProviderConfigView {
+function viewFromState(
+  workspaceId: string,
+  connectionId: string,
+  state: CurrentState,
+  nowSeconds: number,
+): MetaProviderConfigView {
   // A connection id configured under another workspace (or another provider)
   // is invisible here, never overwritten.
   if (state.foreignVersions > 0 || (state.alias !== null && state.alias.workspaceId !== workspaceId)) {
@@ -214,10 +226,14 @@ function viewFromState(workspaceId: string, connectionId: string, state: Current
   });
   if (snapshot === undefined) throw new MetaProviderConfigError(503, "unavailable");
   const connection = snapshot.value.connection as Record<string, unknown>;
-  const release = state.release !== null
+  const release = state.head.status !== "disabled" && state.release !== null
     && (state.release.releaseMode === "meta_test_event" || state.release.releaseMode === "meta_live")
     && Number.isSafeInteger(state.release.expiresAt)
-    ? { release_mode: state.release.releaseMode, expires_at: state.release.expiresAt as number } as const
+    ? {
+      release_mode: state.release.releaseMode,
+      expires_at: state.release.expiresAt as number,
+      ended: state.release.status !== "active" || (state.release.expiresAt as number) <= nowSeconds,
+    } as const
     : null;
   return Object.freeze({
     schema_version: META_CONFIG_VIEW_SCHEMA,
@@ -237,9 +253,11 @@ export async function getMetaProviderConfig(
   env: Env,
   authority: PermanentConversionsAuthority,
   connectionId: string,
+  nowMillis = Date.now(),
 ): Promise<MetaProviderConfigView> {
   if (!isUuidV7(connectionId)) throw new MetaProviderConfigError(404, "not_found");
-  return viewFromState(authority.workspaceId, connectionId, await loadState(env, authority.workspaceId, connectionId));
+  return viewFromState(authority.workspaceId, connectionId, await loadState(env, authority.workspaceId, connectionId),
+    Math.floor(nowMillis / 1_000));
 }
 
 export function metaSnapshotJson(
@@ -294,8 +312,9 @@ export async function putMetaProviderConfig(
   const request = parseMetaProviderConfigRequest(body);
   const workspaceId = authority.workspaceId;
   const principalId = authority.principalId;
+  const nowSeconds = Math.floor(nowMillis / 1_000);
   const state = await loadState(env, workspaceId, connectionId);
-  viewFromState(workspaceId, connectionId, state);
+  viewFromState(workspaceId, connectionId, state, nowSeconds);
   if ((state.head === null) !== (request.expected_head_row_version === null)
       || (state.head !== null && state.head.rowVersion !== request.expected_head_row_version)) {
     throw new MetaProviderConfigError(409, "resource_changed");
@@ -304,7 +323,6 @@ export async function putMetaProviderConfig(
   if (active && state.alias !== null && (state.alias.status !== "test_only" || state.alias.secretPresent !== 1)) {
     throw new MetaProviderConfigError(409, "credential_alias_inactive");
   }
-  const nowSeconds = Math.floor(nowMillis / 1_000);
   const aliasId = active ? state.alias?.aliasId ?? createUuidV7(nowMillis) : null;
   const snapshotJson = metaSnapshotJson(workspaceId, connectionId, request, aliasId);
   const snapshotHash = hexBytes(await sha256Hex(snapshotJson));
@@ -317,29 +335,54 @@ export async function putMetaProviderConfig(
     `${canonicalJson(body)}\n${principalId}\n${String(nowSeconds)}`,
   ));
   const db = env.DB;
+  // Optimistic lock: every statement below is a no-op unless the head is still
+  // exactly as read (same row version, or still absent on a first save). The
+  // head change runs last, so within the batch the guard sees the same head for
+  // every statement; if the head moved, nothing is written and the head change
+  // reports 0 rows, which becomes resource_changed.
+  const guardValues: unknown[] = state.head === null ? [connectionId] : [connectionId, workspaceId, state.head.rowVersion];
+  const guard = (n: number): string => state.head === null
+    ? `NOT EXISTS(SELECT 1 FROM conversion_provider_connection_heads WHERE destination_connection_id=?${n})`
+    : `EXISTS(SELECT 1 FROM conversion_provider_connection_heads
+  WHERE destination_connection_id=?${n} AND workspace_id=?${n + 1} AND row_version=?${n + 2})`;
   const statements: D1PreparedStatement[] = [];
   if (active && state.alias === null) {
     statements.push(db.prepare(`INSERT INTO conversion_provider_credential_aliases(
   credential_alias_id,workspace_id,destination_connection_id,adapter_type,purpose,status,secret_present,
   created_at,created_by_principal_id,updated_at,updated_by_principal_id,row_version
-) VALUES(?1,?2,?3,'meta','meta_access_token','test_only',1,?4,?5,?4,?5,1)`)
-      .bind(aliasId, workspaceId, connectionId, nowSeconds, principalId));
+) SELECT ?1,?2,?3,'meta','meta_access_token','test_only',1,?4,?5,?4,?5,1 WHERE ${guard(6)}`)
+      .bind(aliasId, workspaceId, connectionId, nowSeconds, principalId, ...guardValues));
   }
-  // Optimistic lock: this endpoint is the only writer, and every write adds
-  // exactly one version numbered (highest seen + 1). Any change that landed
-  // after our read already holds that number, so this insert hits the primary
-  // key and D1 rolls the whole batch back. The head update's row-version
-  // condition is checked again after the batch as a second line of defence.
   statements.push(db.prepare(`INSERT INTO conversion_provider_connection_versions(
   workspace_id,destination_connection_id,config_version,adapter_type,account_public_id,snapshot_json,
   snapshot_sha256,credential_alias_id,credential_purpose,created_at,created_by_principal_id
-) VALUES(?1,?2,?3,'meta',?2,?4,?5,?6,?7,?8,?9)`).bind(workspaceId, connectionId, configVersion, snapshotJson,
-    snapshotHash, aliasId, active ? "meta_access_token" : null, nowSeconds, principalId));
+) SELECT ?1,?2,?3,'meta',?2,?4,?5,?6,?7,?8,?9 WHERE ${guard(10)}`).bind(workspaceId, connectionId, configVersion,
+    snapshotJson, snapshotHash, aliasId, active ? "meta_access_token" : null, nowSeconds, principalId, ...guardValues));
+  statements.push(db.prepare(`UPDATE conversion_provider_execution_releases
+SET status='revoked',updated_at=max(updated_at,?2),updated_by_principal_id=?3,row_version=row_version+1
+WHERE destination_connection_id=?1 AND status='active' AND ${guard(4)}`)
+    .bind(connectionId, nowSeconds, principalId, ...guardValues));
+  if (active) {
+    statements.push(db.prepare(`INSERT INTO conversion_provider_execution_releases(
+  release_id,workspace_id,destination_connection_id,config_version,source_snapshot_sha256,
+  adapter_type,account_public_id,release_mode,approval_packet_sha256,status,
+  activated_at,expires_at,activated_by_principal_id,updated_at,updated_by_principal_id,row_version
+) SELECT ?1,?2,?3,?4,?5,'meta',?3,?6,?7,'active',?8,?9,?10,?8,?10,1 WHERE ${guard(11)}`)
+      .bind(releaseId, workspaceId, connectionId, configVersion, snapshotHash, releaseMode, approvalHash,
+        nowSeconds, nowSeconds + releaseSeconds, principalId, ...guardValues));
+  }
+  statements.push(db.prepare(`INSERT INTO conversion_provider_change_audit(
+  audit_id,workspace_id,destination_connection_id,principal_id,action,from_status,to_status,
+  config_version,release_id,created_at
+) SELECT ?1,?2,?3,?4,'meta_configure',?5,?6,?7,?8,?9 WHERE ${guard(10)}`)
+    .bind(createUuidV7(nowMillis), workspaceId, connectionId, principalId, state.head?.status ?? null,
+      request.status, configVersion, releaseId, nowSeconds, ...guardValues));
   const headIndex = statements.length;
   if (state.head === null) {
     statements.push(db.prepare(`INSERT INTO conversion_provider_connection_heads(
   destination_connection_id,workspace_id,current_config_version,current_snapshot_sha256,status,updated_at,row_version
-) VALUES(?1,?2,?3,?4,?5,?6,1)`).bind(connectionId, workspaceId, configVersion, snapshotHash, request.status, nowSeconds));
+) SELECT ?1,?2,?3,?4,?5,?6,1 WHERE ${guard(7)}`)
+      .bind(connectionId, workspaceId, configVersion, snapshotHash, request.status, nowSeconds, ...guardValues));
   } else {
     statements.push(db.prepare(`UPDATE conversion_provider_connection_heads
 SET current_config_version=?3,current_snapshot_sha256=?4,status=?5,updated_at=max(updated_at,?6),
@@ -347,24 +390,6 @@ SET current_config_version=?3,current_snapshot_sha256=?4,status=?5,updated_at=ma
 WHERE destination_connection_id=?1 AND workspace_id=?2 AND row_version=?7`)
       .bind(connectionId, workspaceId, configVersion, snapshotHash, request.status, nowSeconds, state.head.rowVersion));
   }
-  statements.push(db.prepare(`UPDATE conversion_provider_execution_releases
-SET status='revoked',updated_at=max(updated_at,?2),updated_by_principal_id=?3,row_version=row_version+1
-WHERE destination_connection_id=?1 AND status='active'`).bind(connectionId, nowSeconds, principalId));
-  if (active) {
-    statements.push(db.prepare(`INSERT INTO conversion_provider_execution_releases(
-  release_id,workspace_id,destination_connection_id,config_version,source_snapshot_sha256,
-  adapter_type,account_public_id,release_mode,approval_packet_sha256,status,
-  activated_at,expires_at,activated_by_principal_id,updated_at,updated_by_principal_id,row_version
-) VALUES(?1,?2,?3,?4,?5,'meta',?3,?6,?7,'active',?8,?9,?10,?8,?10,1)`)
-      .bind(releaseId, workspaceId, connectionId, configVersion, snapshotHash, releaseMode, approvalHash,
-        nowSeconds, nowSeconds + releaseSeconds, principalId));
-  }
-  statements.push(db.prepare(`INSERT INTO conversion_provider_change_audit(
-  audit_id,workspace_id,destination_connection_id,principal_id,action,from_status,to_status,
-  config_version,release_id,created_at
-) VALUES(?1,?2,?3,?4,'meta_configure',?5,?6,?7,?8,?9)`)
-    .bind(createUuidV7(nowMillis), workspaceId, connectionId, principalId, state.head?.status ?? null,
-      request.status, configVersion, releaseId, nowSeconds));
   let results: D1Result[];
   try {
     results = await db.batch(statements);
@@ -373,6 +398,7 @@ WHERE destination_connection_id=?1 AND status='active'`).bind(connectionId, nowS
       ? new MetaProviderConfigError(409, "resource_changed")
       : new MetaProviderConfigError(503, "unavailable");
   }
-  if (results[headIndex]?.meta?.changes !== 1) throw new MetaProviderConfigError(503, "unavailable");
-  return getMetaProviderConfig(env, authority, connectionId);
+  // The head did not move from what we read; every guarded statement was a no-op.
+  if (results[headIndex]?.meta?.changes !== 1) throw new MetaProviderConfigError(409, "resource_changed");
+  return getMetaProviderConfig(env, authority, connectionId, nowMillis);
 }
