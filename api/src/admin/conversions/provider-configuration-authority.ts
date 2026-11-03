@@ -18,6 +18,7 @@ import {
   sha256Hex,
   validateProviderConnectionSnapshotJson,
   type ProviderAdapter,
+  type ProviderConnectionStatus,
   type ProviderCredentialPurpose,
 } from "./provider-credential-aliases";
 
@@ -67,6 +68,10 @@ const SAFE_TEST_KIND = /^[a-z][a-z0-9._:-]{0,127}$/;
 const UTC_MILLIS = /^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}\.\d{3}Z$/;
 const CANONICAL_UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/;
 const PROVIDER_RESPONSE_MAX_SECONDS = 30;
+// Release windows by mode. A Meta test-event release lasts at most one hour; a
+// live release at most 366 days. Mirrors the 0065 table CHECK exactly.
+export const META_TEST_EVENT_RELEASE_MAX_SECONDS = 3_600;
+export const META_LIVE_RELEASE_MAX_SECONDS = 31_622_400;
 const textEncoder = new TextEncoder();
 const MAX_SIGNED_BODY_BYTES = 2_097_152;
 
@@ -480,14 +485,14 @@ async function providerRows(env: Env, where: string, bindings: ReadonlyArray<unk
 async function validateProviderRow(row: ProviderRow): Promise<{
   workspaceId: string; destinationConnectionId: string; adapterType: ProviderAdapter;
   accountPublicId: string; configVersion: number; snapshotSha256: string; snapshotJson: string;
-  headRowVersion: number; status: "disabled" | "test_only";
+  headRowVersion: number; status: ProviderConnectionStatus;
 } | undefined> {
   const headHash = blobSha256Hex(row.current_snapshot_sha256);
   const versionHash = blobSha256Hex(row.snapshot_sha256);
   if (!isUuidV7(row.workspace_id) || !isUuidV7(row.destination_connection_id)
       || !Number.isSafeInteger(row.current_config_version) || (row.current_config_version as number) < 1
       || !Number.isSafeInteger(row.head_row_version) || (row.head_row_version as number) < 1
-      || (row.head_status !== "disabled" && row.head_status !== "test_only")
+      || (row.head_status !== "disabled" && row.head_status !== "test_only" && row.head_status !== "live")
       || typeof row.adapter_type !== "string" || typeof row.account_public_id !== "string"
       || !SAFE_ACCOUNT.test(row.account_public_id) || typeof row.snapshot_json !== "string"
       || headHash === undefined || versionHash === undefined || headHash !== versionHash
@@ -497,7 +502,7 @@ async function validateProviderRow(row: ProviderRow): Promise<{
     workspaceId: row.workspace_id,
     destinationConnectionId: row.destination_connection_id,
     accountPublicId: row.account_public_id,
-    status: row.head_status,
+    status: row.head_status as ProviderConnectionStatus,
     credentialAliasId: row.credential_alias_id as string | null,
     credentialPurpose: row.credential_purpose as ProviderCredentialPurpose | null,
   });
@@ -518,7 +523,7 @@ async function validateProviderRow(row: ProviderRow): Promise<{
     snapshotSha256: headHash,
     snapshotJson: row.snapshot_json,
     headRowVersion: row.head_row_version as number,
-    status: row.head_status,
+    status: row.head_status as ProviderConnectionStatus,
   };
 }
 
@@ -527,6 +532,7 @@ function validateProviderRelease(
   provider: {
     workspaceId: string; destinationConnectionId: string; adapterType: ProviderAdapter;
     accountPublicId: string; configVersion: number; snapshotSha256: string;
+    status: ProviderConnectionStatus;
   },
   nowSeconds: number,
 ): {
@@ -534,21 +540,26 @@ function validateProviderRelease(
 } | undefined {
   const sourceHash = blobSha256Hex(row.release_source_snapshot_sha256);
   const approvalHash = blobSha256Hex(row.release_approval_packet_sha256);
-  if (!isUuidV7(row.release_id)
+  // Each release mode belongs to exactly one head status and window.
+  const maximumSeconds = row.release_mode === "meta_test_event" && provider.status === "test_only"
+    ? META_TEST_EVENT_RELEASE_MAX_SECONDS
+    : row.release_mode === "meta_live" && provider.status === "live"
+      ? META_LIVE_RELEASE_MAX_SECONDS
+      : undefined;
+  if (maximumSeconds === undefined || !isUuidV7(row.release_id)
       || row.release_workspace_id !== provider.workspaceId
       || row.release_destination_connection_id !== provider.destinationConnectionId
       || row.release_config_version !== provider.configVersion
       || sourceHash !== provider.snapshotSha256
       || row.release_adapter_type !== provider.adapterType
       || row.release_account_public_id !== provider.accountPublicId
-      || row.release_mode !== "meta_test_event"
       || row.release_status !== "active"
       || approvalHash === undefined
       || !Number.isSafeInteger(row.release_activated_at)
       || !Number.isSafeInteger(row.release_expires_at)
       || (row.release_activated_at as number) > nowSeconds
       || (row.release_expires_at as number) <= nowSeconds
-      || (row.release_expires_at as number) - (row.release_activated_at as number) > 3600
+      || (row.release_expires_at as number) - (row.release_activated_at as number) > maximumSeconds
       || !isUuidV7(row.release_activated_by_principal_id)
       || !Number.isSafeInteger(row.release_row_version)
       || (row.release_row_version as number) < 1) return undefined;
@@ -558,6 +569,10 @@ function validateProviderRelease(
     rowVersion: row.release_row_version as number,
     expiresAt: row.release_expires_at as number,
   };
+}
+
+function isRunnableStatus(status: ProviderConnectionStatus): boolean {
+  return status === "test_only" || status === "live";
 }
 
 function releasedProviderSnapshotJson(snapshotJson: string): string {
@@ -622,7 +637,7 @@ async function prepare(request: Request, env: Env, nowSeconds: number): Promise<
     return signedDenial(env, "prepare", envelope.payload, "disabled", nowSeconds);
   }
   const provider = await validateProviderRow(rows[0]!);
-  if (provider === undefined || provider.status !== "test_only") {
+  if (provider === undefined || !isRunnableStatus(provider.status)) {
     const aliasInactive = rows[0]!.credential_alias_id !== null
       && (rows[0]!.alias_status !== "test_only" || rows[0]!.alias_secret_present !== 1);
     return signedDenial(env, "prepare", envelope.payload,
@@ -648,7 +663,7 @@ async function prepare(request: Request, env: Env, nowSeconds: number): Promise<
     snapshot_sha256: provider.snapshotSha256,
     snapshot_json: provider.snapshotJson,
     head_row_version: provider.headRowVersion,
-    status: "test_only",
+    status: provider.status,
     production_execution_released: false,
     ...capabilityTail(env, config.audience, nowSeconds, envelope.payload.nonce as string),
   });
@@ -695,7 +710,7 @@ async function prepareDelivery(request: Request, env: Env, nowSeconds: number): 
     return signedDenial(env, "deliveryPrepare", payload, "disabled", nowSeconds);
   }
   const provider = await validateProviderRow(rows[0]!);
-  if (provider === undefined || provider.status !== "test_only") {
+  if (provider === undefined || !isRunnableStatus(provider.status)) {
     const aliasInactive = rows[0]!.credential_alias_id !== null
       && (rows[0]!.alias_status !== "test_only" || rows[0]!.alias_secret_present !== 1);
     return signedDenial(env, "deliveryPrepare", payload,
@@ -711,7 +726,7 @@ async function prepareDelivery(request: Request, env: Env, nowSeconds: number): 
     snapshot_sha256: provider.snapshotSha256,
     snapshot_json: provider.snapshotJson,
     head_row_version: provider.headRowVersion,
-    status: "test_only",
+    status: provider.status,
     production_execution_released: false,
     ...capabilityTail(env, config.audience, nowSeconds, payload.nonce as string),
   });
@@ -764,7 +779,7 @@ async function execute(request: Request, env: Env, nowSeconds: number): Promise<
     return signedDenial(env, "execute", payload, "disabled", nowSeconds);
   }
   const provider = await validateProviderRow(rows[0]!);
-  if (provider === undefined || provider.status !== "test_only"
+  if (provider === undefined || !isRunnableStatus(provider.status)
       || provider.adapterType !== payload.adapter_type || provider.accountPublicId !== payload.account_public_id
       || provider.configVersion !== payload.expected_config_version
       || provider.snapshotSha256 !== payload.expected_snapshot_sha256) {
@@ -781,7 +796,7 @@ async function execute(request: Request, env: Env, nowSeconds: number): Promise<
       schema_version: "destination_provider_connection_execute_capability.v1",
       snapshot_json: provider.snapshotJson,
       head_row_version: provider.headRowVersion,
-      status: "test_only",
+      status: provider.status,
       production_execution_released: false,
       ...capabilityTail(env, config.audience, nowSeconds, payload.nonce as string),
     });
@@ -795,7 +810,7 @@ async function execute(request: Request, env: Env, nowSeconds: number): Promise<
     snapshot_json: snapshotJson,
     snapshot_sha256: snapshotSha256,
     head_row_version: provider.headRowVersion,
-    status: "test_only",
+    status: provider.status,
     production_execution_released: true,
     release_id: release.releaseId,
     release_row_version: release.rowVersion,

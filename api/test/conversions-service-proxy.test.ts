@@ -154,10 +154,10 @@ type JsonValue = null | boolean | number | string | JsonValue[] | { [key: string
 // side. Every assertion is unchanged and runs verbatim whenever Core is present
 // (CONVERSIONS_CORE_ROOT=<path to kodigital-conversions>).
 describe.skipIf(!HAS_CONVERSIONS_CORE)("Conversions private service proxy", () => {
-  it("locks the canonical target, complete 71-route seam and 61-operation authority policy to Core", () => {
+  it("locks the canonical target, complete 72-route seam and 62-operation authority policy to Core", () => {
     expect(CMS_CANONICAL_TARGET_POLICY).toEqual(ADMIN_CONTRACT_FIXTURE.canonical_target_policy);
-    expect(CMS_PROXY_ROUTE_POLICIES).toHaveLength(71);
-    expect(new Set(CMS_PROXY_ROUTE_POLICIES.map(({ method, template }) => `${method} ${template}`)).size).toBe(71);
+    expect(CMS_PROXY_ROUTE_POLICIES).toHaveLength(72);
+    expect(new Set(CMS_PROXY_ROUTE_POLICIES.map(({ method, template }) => `${method} ${template}`)).size).toBe(72);
     expect(CMS_PROXY_ROUTE_POLICIES.map(({ method, template, selector, operations }) => ({
       method,
       template,
@@ -169,11 +169,11 @@ describe.skipIf(!HAS_CONVERSIONS_CORE)("Conversions private service proxy", () =
       selector,
       operations: operation === undefined ? operations : [operation],
     })));
-    expect(Object.keys(CMS_BOOTSTRAP_POLICY_BY_OPERATION)).toHaveLength(61);
+    expect(Object.keys(CMS_BOOTSTRAP_POLICY_BY_OPERATION)).toHaveLength(62);
     expect(CMS_BOOTSTRAP_POLICY_BY_OPERATION).toEqual(Object.fromEntries(
       Object.entries(ADMIN_CONTRACT_FIXTURE.operations).map(([operation, policy]) => [operation, policy.bootstrap_policy]),
     ));
-    expect(Object.values(CMS_ACTOR_ISSUER_BY_OPERATION).filter((issuer) => issuer === "permanent")).toHaveLength(60);
+    expect(Object.values(CMS_ACTOR_ISSUER_BY_OPERATION).filter((issuer) => issuer === "permanent")).toHaveLength(61);
     expect(Object.values(CMS_ACTOR_ISSUER_BY_OPERATION).filter((issuer) => issuer === "denied")).toHaveLength(1);
     expect(Object.values(CMS_ACTOR_ISSUER_BY_OPERATION)).not.toContain("bootstrap");
   });

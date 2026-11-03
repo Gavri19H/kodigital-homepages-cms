@@ -250,13 +250,24 @@ export interface ConversionsUiContext {
     readonly recipientId: string;
     readonly displayLabel: string;
   }>;
+  /** Public link address for incoming partner links; null when not set up. Absent from older servers. */
+  readonly postbackOrigin?: string | null;
 }
 
+const POSTBACK_ORIGIN = /^https:\/\/[a-z0-9](?:[a-z0-9.-]{0,251}[a-z0-9])?$/u;
+const UI_CONTEXT_KEYS = [
+  "account_scope", "capabilities", "recipient_scope", "reporting_currency", "role",
+  "schema_version", "time_zone", "workspace_id",
+] as const;
+
 export function unwrapConversionsUiContext(payload: unknown): ConversionsUiContext {
-  if (!isRecord(payload) || !exactKeys(payload, [
-    "account_scope", "capabilities", "recipient_scope", "reporting_currency", "role",
-    "schema_version", "time_zone", "workspace_id",
-  ]) || payload.schema_version !== "cms_conversions_ui_context.v2"
+  const hasPostbackOrigin = isRecord(payload) && Object.hasOwn(payload, "postback_origin");
+  if (!isRecord(payload) || !exactKeys(payload, hasPostbackOrigin
+    ? [...UI_CONTEXT_KEYS, "postback_origin"]
+    : UI_CONTEXT_KEYS)
+      || (hasPostbackOrigin && payload.postback_origin !== null
+        && (typeof payload.postback_origin !== "string" || !POSTBACK_ORIGIN.test(payload.postback_origin)))
+      || payload.schema_version !== "cms_conversions_ui_context.v2"
       || typeof payload.workspace_id !== "string" || !UUID_V7.test(payload.workspace_id)
       || !["accountable_owner", "administrator", "reporter"].includes(String(payload.role))
       || !Array.isArray(payload.capabilities)
@@ -293,6 +304,7 @@ export function unwrapConversionsUiContext(payload: unknown): ConversionsUiConte
     reportingCurrency: payload.reporting_currency,
     timeZone: payload.time_zone,
     recipientScope: Object.freeze(recipientScope),
+    ...(hasPostbackOrigin ? { postbackOrigin: payload.postback_origin as string | null } : {}),
   });
 }
 

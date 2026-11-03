@@ -1,6 +1,25 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "preact/hooks";
 import { ConversionsApiError, requestConversionsApi } from "./api-client";
+import { ACTION_SOURCE_OPTIONS } from "./connection-catalog";
 import { collectCorePages } from "./core-pages";
+import {
+  applyDestinationKind,
+  applyDestinationValue,
+  applyVisitorConsent,
+  applyVisitorLookup,
+  defaultDestination,
+  destinationValueOptions,
+  hasVisitorConsent,
+  initialVisitorLookup,
+  MAX_EVENT_TYPES,
+  mappingSourceFields,
+  parseEventTypes,
+  readVisitorLookup,
+  visitorLookupBlocker,
+  VISITOR_FILLS,
+  VISITOR_KEY_KINDS,
+  type VisitorLookup,
+} from "./flow-draft-helpers";
 import {
   CoreWireError,
   isRecord,
@@ -237,6 +256,94 @@ function MappingEditor(props: { draft: Item; setDraft: (draft: Item) => void }) 
       <button class="ko-button ko-button--small" type="button" disabled={fields.length <= 1} onClick={() => props.setDraft({ ...props.draft, mapping: { fields: fields.filter((_, itemIndex) => itemIndex !== index) } })}>Remove</button>
     </div>)}
     <button class="ko-button ko-button--small" type="button" onClick={() => props.setDraft({ ...props.draft, mapping: { fields: [...fields, { canonical_field: "", source_field: "", fixed_value: null, required: false, transforms: [] }] } })}>Add mapped field</button>
+  </section>;
+}
+
+const EVENT_TYPES_PATH = "/api/admin/conversions/v1/lookup/event-types";
+
+function VisitorLookupEditor(props: { draft: Item; setDraft: (draft: Item) => void }) {
+  const saved = readVisitorLookup(props.draft);
+  const [pending, setPending] = useState<VisitorLookup>(() => initialVisitorLookup(props.draft));
+  const [eventTypes, setEventTypes] = useState<ReadonlyArray<string>>([]);
+  const [listState, setListState] = useState<"loading" | "ready" | "error">("loading");
+  const [note, setNote] = useState("");
+  const spec = saved ?? pending;
+  const consent = hasVisitorConsent(props.draft);
+  const sourceFields = mappingSourceFields(props.draft);
+  const loadEventTypes = useCallback(async () => {
+    setListState("loading");
+    try {
+      const types = parseEventTypes(await requestConversionsApi<unknown>("lookup.event-types", EVENT_TYPES_PATH));
+      if (types === null) throw new CoreWireError("invalid_response", "The service returned an invalid list.");
+      setEventTypes(types);
+      setListState("ready");
+    } catch {
+      setListState("error");
+    }
+  }, []);
+  useEffect(() => { void loadEventTypes(); }, [loadEventTypes]);
+  function change(next: VisitorLookup) {
+    if (saved === null) {
+      setPending(next);
+      setNote("");
+      return;
+    }
+    const blocker = visitorLookupBlocker(props.draft, next);
+    if (blocker !== null) {
+      setNote(blocker);
+      return;
+    }
+    setNote("");
+    props.setDraft(applyVisitorLookup(props.draft, next));
+  }
+  function toggle(on: boolean) {
+    if (on) {
+      const blocker = visitorLookupBlocker(props.draft, pending);
+      if (blocker !== null) {
+        setNote(blocker);
+        return;
+      }
+      setNote("");
+      props.setDraft(applyVisitorLookup(props.draft, pending));
+    } else {
+      if (saved !== null) setPending(saved);
+      setNote("");
+      props.setDraft(applyVisitorLookup(props.draft, null));
+    }
+  }
+  const shownTypes = [...new Set([...eventTypes, ...spec.event_types])];
+  return <section class="ko-wizard-card" aria-labelledby="visitor-lookup-heading"><h4 id="visitor-lookup-heading">Find our visitor</h4>
+    <p>When a partner reports a conversion, we can find the matching visit on our own site and fill in details that help the ad platform match the person. Only empty values are filled in. Nothing is looked up while this is off.</p>
+    <label class="ko-checkbox"><input type="checkbox" checked={consent} onChange={(event) => {
+      if (!event.currentTarget.checked && saved !== null) setPending(saved);
+      props.setDraft(applyVisitorConsent(props.draft, event.currentTarget.checked));
+    }} /><span>The visitor agreed to share their data for ads measurement<small>Required. This is sent to the ad platform with every event from this Flow.</small></span></label>
+    <label class="ko-checkbox"><input type="checkbox" checked={saved !== null} onChange={(event) => toggle(event.currentTarget.checked)} /><span>Find our visitor for each conversion</span></label>
+    <div class="ko-config-grid">
+      <label class="ko-config-field"><span>Column with the visitor key</span><select value={spec.key_source_field} onChange={(event) => change({ ...spec, key_source_field: event.currentTarget.value })}><option value="">Choose a column</option>{sourceFields.map((field) => <option value={field}>{field}</option>)}</select><small>A column from the field mapping above that the partner sends back to us.</small></label>
+      <label class="ko-config-field"><span>What the key is</span><select value={spec.key_kind} onChange={(event) => change({ ...spec, key_kind: event.currentTarget.value as VisitorLookup["key_kind"] })}>{VISITOR_KEY_KINDS.map((kind) => <option value={kind.value}>{kind.label}</option>)}</select><small>The kind of ID our site passed to the partner.</small></label>
+    </div>
+    <h4>Visitor actions to match</h4>
+    <p>Only visits where the visitor did one of these actions are matched. Choose up to {MAX_EVENT_TYPES}.</p>
+    {listState === "loading" && <div class="ko-loading" role="status" aria-busy="true"><span class="ko-spinner" />Loading visitor actions…</div>}
+    {listState === "error" && <p class="ko-inline-error" role="alert">The list of visitor actions is not available right now. <button class="ko-button ko-button--small" type="button" onClick={() => void loadEventTypes()}>Try again</button></p>}
+    {listState === "ready" && shownTypes.length === 0 && <p class="ko-disabled-reason">No visitor actions were found yet.</p>}
+    <div class="ko-output-options">{shownTypes.map((type) => {
+      const checked = spec.event_types.includes(type);
+      return <label class="ko-checkbox"><input type="checkbox" checked={checked} disabled={!checked && spec.event_types.length >= MAX_EVENT_TYPES} onChange={(event) => change({
+        ...spec,
+        event_types: event.currentTarget.checked ? [...spec.event_types, type] : spec.event_types.filter((item) => item !== type),
+      })} /><span>{type.replaceAll("_", " ")}</span></label>;
+    })}</div>
+    <h4>Details to fill in</h4>
+    <div class="ko-output-options">{VISITOR_FILLS.map((fill) => {
+      const checked = spec.fill.includes(fill.value);
+      return <label class="ko-checkbox"><input type="checkbox" checked={checked} onChange={(event) => change({
+        ...spec,
+        fill: event.currentTarget.checked ? [...spec.fill, fill.value] : spec.fill.filter((item) => item !== fill.value),
+      })} /><span>{fill.label}</span></label>;
+    })}</div>
+    {note !== "" && <p class="ko-disabled-reason" role="status">{note}</p>}
   </section>;
 }
 
@@ -618,7 +725,7 @@ function FlowWizard(props: { bootstrapActive: boolean; route: Extract<FlowRoute,
       <button class="ko-button ko-button--small" type="button" onClick={() => setDraft({ ...draft, normalization: { fields: [...normalization.fields, { source_field: "", transforms: [] }] } })}>Add normalized source field</button>
     </section>;
     if (step === 4) return <QualificationEditor draft={draft} setDraft={setDraft} />;
-    if (step === 5) return <><MappingEditor draft={draft} setDraft={setDraft} /><section class="ko-wizard-card"><h4>Time and currency</h4><div class="ko-config-grid">
+    if (step === 5) return <><MappingEditor draft={draft} setDraft={setDraft} /><VisitorLookupEditor draft={draft} setDraft={setDraft} /><section class="ko-wizard-card"><h4>Time and currency</h4><div class="ko-config-grid">
       <label class="ko-config-field"><span>Occurred-at canonical field</span><input value={String(time.occurred_at_field)} onInput={(event) => setDraft({ ...draft, time: { ...time, occurred_at_field: event.currentTarget.value } })} /><small>Must be populated by mapping; current time is never substituted.</small></label>
       <label class="ko-config-field"><span>Input time format</span><input value={String(time.input_format)} onInput={(event) => setDraft({ ...draft, time: { ...time, input_format: event.currentTarget.value } })} /><small>Exact approved timestamp format.</small></label>
       <label class="ko-config-field"><span>Source time zone</span><input value={String(time.timezone)} onInput={(event) => setDraft({ ...draft, time: { ...time, timezone: event.currentTarget.value } })} /><small>IANA source time zone.</small></label>
@@ -655,33 +762,36 @@ function FlowWizard(props: { bootstrapActive: boolean; route: Extract<FlowRoute,
     }
     if (step === 7) {
       const destinations = draft.destinations as Item[];
+      const valueOptions = destinationValueOptions(draft);
+      const isMetaConnection = (connectionId: unknown) => destinationConnections
+        .some((connection) => connection.connection_id === connectionId && connection.adapter_type === "meta");
       return <section class="ko-wizard-card"><h4>Internal outputs</h4><div class="ko-output-options">
         <label class="ko-checkbox"><input type="checkbox" checked disabled /><span>Canonical storage (required)</span></label>
         <label class="ko-checkbox"><input type="checkbox" checked={internal.reporting === true} onChange={(event) => setDraft({ ...draft, internal_outputs: { ...internal, reporting: event.currentTarget.checked } })} /><span>Reporting</span></label>
         <label class="ko-checkbox"><input type="checkbox" checked={internal.dashboard === true} onChange={(event) => setDraft({ ...draft, internal_outputs: { ...internal, dashboard: event.currentTarget.checked, dashboard_revenue: event.currentTarget.checked ? internal.dashboard_revenue : false } })} /><span>Dashboard conversion overlay</span></label>
         <label class="ko-checkbox"><input type="checkbox" checked={internal.dashboard_revenue === true} disabled={internal.dashboard !== true} onChange={(event) => setDraft({ ...draft, internal_outputs: { ...internal, dashboard_revenue: event.currentTarget.checked } })} /><span>Dashboard revenue overlay</span></label>
       </div><h4>External destinations</h4><p>Each selected destination starts disabled. Preview shows the redacted payload, native identity, age-window decision, fan-out, and retry dedupe safety before publish.</p>
-      {destinations.map((destination, index) => <fieldset class="ko-rule-card"><legend>Destination {index + 1}</legend>
-        <label>Destination Connection<select value={String(destination.connection_id)} onChange={(event) => setDraft({ ...draft, destinations: destinations.map((item, itemIndex) => itemIndex === index ? { ...item, connection_id: event.currentTarget.value } : item) })}>{destinationConnections.map((connection) => <option value={String(connection.connection_id)}>{text(connection, "name")} · {text(connection, "adapter_type")}</option>)}</select></label>
+      {destinations.map((destination, index) => {
+        const destinationMapping = destination.mapping as Item;
+        const isMeta = isMetaConnection(destination.connection_id);
+        const setMapping = (mapping: Item) => setDraft({ ...draft, destinations: destinations.map((item, itemIndex) => itemIndex === index ? { ...item, mapping } : item) });
+        return <fieldset class="ko-rule-card"><legend>Destination {index + 1}</legend>
+        <label>Destination Connection<select value={String(destination.connection_id)} onChange={(event) => {
+          const connectionId = event.currentTarget.value;
+          setDraft({ ...draft, destinations: destinations.map((item, itemIndex) => itemIndex === index ? { ...item, connection_id: connectionId, mapping: applyDestinationKind(item.mapping as Item, isMetaConnection(connectionId)) } : item) });
+        }}>{destinationConnections.map((connection) => <option value={String(connection.connection_id)}>{text(connection, "name")} · {text(connection, "adapter_type")}</option>)}</select></label>
+        <label>Value to send<select value={String(destinationMapping.value_field ?? "")} onChange={(event) => setMapping(applyDestinationValue(destinationMapping, event.currentTarget.value))}>{[...new Set([...valueOptions, ...(typeof destinationMapping.value_field === "string" ? [destinationMapping.value_field] : [])])].map((field) => <option value={field}>{field === "effective_value" ? "Value from the qualification rules" : field}</option>)}<option value="">Do not send a value</option></select><small>The currency comes from the currency setting in the Map fields step.</small></label>
+        {isMeta && <label>Where the conversion happened<select value={String(destinationMapping.action_source ?? "website")} onChange={(event) => setMapping({ ...destinationMapping, action_source: event.currentTarget.value })}>{ACTION_SOURCE_OPTIONS.map((option) => <option value={option.value}>{option.label}</option>)}</select></label>}
         <label class="ko-checkbox"><input type="checkbox" checked={destination.enabled === true} onChange={(event) => setDraft({ ...draft, destinations: destinations.map((item, itemIndex) => itemIndex === index ? { ...item, enabled: event.currentTarget.checked } : item) })} /><span>Eligible after publish and control activation</span></label>
         <label>Provider event name<input value={String((destination.mapping as Item).event_name)} onInput={(event) => setDraft({ ...draft, destinations: destinations.map((item, itemIndex) => itemIndex === index ? { ...item, mapping: { ...(item.mapping as Item), event_name: event.currentTarget.value } } : item) })} /></label>
         <label>Maximum event age seconds<input type="number" value={String((destination.delivery_policy as Item).maximum_age_seconds)} onInput={(event) => setDraft({ ...draft, destinations: destinations.map((item, itemIndex) => itemIndex === index ? { ...item, delivery_policy: { ...(item.delivery_policy as Item), maximum_age_seconds: Number(event.currentTarget.value) } } : item) })} /></label>
         <button class="ko-button ko-button--small" type="button" onClick={() => setDraft({ ...draft, destinations: destinations.filter((_, itemIndex) => itemIndex !== index) })}>Remove destination</button>
-      </fieldset>)}
-      <button class="ko-button ko-button--small" type="button" disabled={destinationConnections.length === 0 || destinations.length >= 6} onClick={() => setDraft({ ...draft, destinations: [...destinations, {
-        connection_id: String(destinationConnections[0]?.connection_id ?? ""),
-        enabled: false,
-        event_filter: { qualification_statuses: ["qualified"], required_fields: ["event_id", "occurred_at"] },
-        mapping: {
-          event_name: "Purchase", event_id_field: "event_id", event_time_field: "occurred_at",
-          value_field: "effective_value", currency_field: "currency", click_id_field: "click_id",
-          source_url_field: null, action_source: "website", query_templates: [], header_templates: [], body_template: null,
-        },
-        delivery_policy: {
-          batch_size: 100, maximum_attempts: 12, maximum_age_seconds: 604800,
-          retry_profile: "bounded_24h", unknown_outcome_policy: "hold_for_review", dedupe_mode: "provider_native",
-        },
-      }] })}>Add destination</button>{destinationConnections.length === 0 && <p class="ko-disabled-reason">Create and test a destination Connection first.</p>}</section>;
+      </fieldset>;
+      })}
+      <button class="ko-button ko-button--small" type="button" disabled={destinationConnections.length === 0 || destinations.length >= 6} onClick={() => {
+        const connectionId = String(destinationConnections[0]?.connection_id ?? "");
+        setDraft({ ...draft, destinations: [...destinations, defaultDestination(connectionId, isMetaConnection(connectionId))] });
+      }}>Add destination</button>{destinationConnections.length === 0 && <p class="ko-disabled-reason">Create and test a destination Connection first.</p>}</section>;
     }
     if (step === 8) return <section class="ko-wizard-card"><h4>Side-effect-free rule and destination proof</h4><p>These previews evaluate the same archived sample through the rule engine and pure destination engine. They expose identity, arithmetic, suppression, fan-out, age, and dedupe readiness while preparing no dispatch and making no external request.</p>
       <div class="ko-button-row"><button class="ko-button" type="button" disabled={id === null || dirty || !UUID.test(sampleReference) || !patchSamplesReady || saving} onClick={() => void preview("rule-preview")}>Preview rules</button><button class="ko-button" type="button" disabled={id === null || dirty || !UUID.test(sampleReference) || !patchSamplesReady || saving} onClick={() => void preview("destination-preview")}>Preview destinations</button></div>

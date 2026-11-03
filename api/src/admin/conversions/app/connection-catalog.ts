@@ -374,6 +374,22 @@ export function normalizeConnectionConfigField(
     if (value === "batch") next = writeConfigPath(next, "field_location", "json_body");
   }
   if (path === "auth.mode") {
+    if (value === "query_token") {
+      next = writeConfigPath(next, "auth.authorization_header", "token");
+      next = writeConfigPath(next, "auth.timestamp_header", null);
+      next = writeConfigPath(next, "auth.signature_header", null);
+      next = writeConfigPath(next, "field_location", "query");
+      next = writeConfigPath(next, "mode", "single");
+      next = writeConfigPath(next, "batch_member_field", null);
+      next = writeConfigPath(next, "allowed_methods", ["GET"]);
+      next = writeConfigPath(next, "allowed_content_types", []);
+      return next;
+    }
+    if (readConfigPath(config, "auth.mode") === "query_token") {
+      next = writeConfigPath(next, "field_location", "json_body");
+      next = writeConfigPath(next, "allowed_methods", ["POST"]);
+      next = writeConfigPath(next, "allowed_content_types", ["application/json"]);
+    }
     if (value === "hmac") {
       next = writeConfigPath(
         writeConfigPath(
@@ -603,8 +619,8 @@ export const CONNECTION_CONFIG_SECTIONS: Readonly<Record<ConnectionAdapter, Read
       { path: "field_location", label: "Read fields from", kind: "select", options: [{ value: "json_body", label: "JSON body" }, { value: "query", label: "Query string" }], help: "Batch mode requires a JSON body." },
       { path: "batch_member_field", label: "Batch array field", kind: "text", nullable: true, help: "Required only for batch mode." },
       pair("field_mapping", "Inbound field mapping", "Map partner field names into stable source column names.", "Incoming field", "Source column"),
-      { path: "auth.mode", label: "Authentication", kind: "select", options: [{ value: "hmac", label: "HMAC (recommended)" }, { value: "bearer", label: "Bearer token" }, { value: "basic", label: "Basic authentication" }], help: "The secret itself is entered in the separate credential section." },
-      { path: "auth.authorization_header", label: "Authorization header", kind: "text", nullable: true, help: "Required for bearer/basic; blank for HMAC." },
+      { path: "auth.mode", label: "Authentication", kind: "select", options: [{ value: "hmac", label: "HMAC (recommended)" }, { value: "bearer", label: "Bearer token" }, { value: "basic", label: "Basic authentication" }, { value: "query_token", label: "Token in the link" }], help: "The secret itself is entered in the separate credential section. \"Token in the link\" lets a partner call a simple link that carries the token." },
+      { path: "auth.authorization_header", label: "Authorization header", kind: "text", nullable: true, help: "Required for bearer/basic; blank for HMAC. For \"Token in the link\" this is the name of the link part that carries the token." },
       { path: "auth.timestamp_header", label: "HMAC timestamp header", kind: "text", nullable: true, help: "Required for HMAC and checked with five-minute tolerance." },
       { path: "auth.signature_header", label: "HMAC signature header", kind: "text", nullable: true, help: "Required for HMAC." },
       { path: "limits.max_body_bytes", label: "Maximum body bytes", kind: "number", minimum: 1, maximum: 1_048_576, help: "Hard request cap before enqueue." },
@@ -700,6 +716,44 @@ export const CONNECTION_CONFIG_SECTIONS: Readonly<Record<ConnectionAdapter, Read
     ],
   }],
 });
+
+export const ACTION_SOURCE_OPTIONS: ReadonlyArray<{ readonly value: string; readonly label: string }> = Object.freeze([
+  { value: "website", label: "Website" },
+  { value: "app", label: "Mobile app" },
+  { value: "phone_call", label: "Phone call" },
+  { value: "chat", label: "Chat" },
+  { value: "physical_store", label: "In a physical store" },
+  { value: "system_generated", label: "Created automatically by a system" },
+  { value: "business_messaging", label: "Business messaging" },
+  { value: "other", label: "Other" },
+]);
+
+/** 32 random bytes as base64url without padding (43 characters). */
+export function generatePostbackToken(
+  fill: (bytes: Uint8Array) => Uint8Array = (bytes) => crypto.getRandomValues(bytes),
+): string {
+  const bytes = fill(new Uint8Array(32));
+  let binary = "";
+  for (const byte of bytes) binary += String.fromCharCode(byte);
+  return btoa(binary).replaceAll("+", "-").replaceAll("/", "_").replace(/=+$/u, "");
+}
+
+/** Postback link for a "Token in the link" connection. The token goes first, then the example fields in order. */
+export function buildPostbackLink(input: {
+  readonly origin: string;
+  readonly publicId: string;
+  readonly tokenParameter: string;
+  readonly token: string;
+  readonly fields: ReadonlyArray<{ readonly name: string; readonly value: string }>;
+}): string {
+  const parameters = new URLSearchParams();
+  parameters.append(input.tokenParameter, input.token);
+  for (const field of input.fields) {
+    const name = field.name.trim();
+    if (name !== "" && name !== input.tokenParameter) parameters.append(name, field.value);
+  }
+  return `${input.origin.replace(/\/+$/u, "")}/v1/in/${encodeURIComponent(input.publicId)}?${parameters.toString()}`;
+}
 
 export function adapterDefinition(value: string): AdapterDefinition | undefined {
   return CONNECTION_ADAPTERS.find((adapter) => adapter.value === value);

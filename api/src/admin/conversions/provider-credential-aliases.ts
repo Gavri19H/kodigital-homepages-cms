@@ -6,6 +6,10 @@ export const PROVIDER_ADAPTERS = Object.freeze([
 export type ProviderAdapter = (typeof PROVIDER_ADAPTERS)[number];
 export type ProviderCredentialPurpose = "meta_access_token" | "google_oauth_access_token";
 
+// "live" exists only for Meta: real events with no test code. Every other
+// provider keeps the original disabled/test_only pair.
+export type ProviderConnectionStatus = "disabled" | "test_only" | "live";
+
 export interface ProviderCredentialAlias {
   readonly schema_version: "destination_provider_credential_alias.v1";
   readonly credential_alias_id: string;
@@ -18,7 +22,7 @@ export interface ValidatedProviderSnapshot {
   readonly workspaceId: string;
   readonly destinationConnectionId: string;
   readonly accountPublicId: string;
-  readonly status: "disabled" | "test_only";
+  readonly status: ProviderConnectionStatus;
   readonly credentialAlias: ProviderCredentialAlias | null;
 }
 
@@ -81,7 +85,7 @@ function validateCoreConnection(value: unknown, adapter: ProviderAdapter): {
   workspaceId: string;
   destinationConnectionId: string;
   accountPublicId: string;
-  status: "disabled" | "test_only";
+  status: ProviderConnectionStatus;
   credentialPresent: boolean;
 } | undefined {
   if (!isRecord(value) || !hasExactKeys(value, [
@@ -92,7 +96,8 @@ function validateCoreConnection(value: unknown, adapter: ProviderAdapter): {
       || value.adapter_major_version !== 1 || value.contract_variant !== `${adapter}.v1`
       || !isUuidV7(value.workspace_id) || !isUuidV7(value.destination_connection_id)
       || typeof value.account_public_id !== "string" || !SAFE_PUBLIC_ID.test(value.account_public_id)
-      || (value.status !== "disabled" && value.status !== "test_only")
+      || (value.status !== "disabled" && value.status !== "test_only"
+        && !(value.status === "live" && adapter === "meta"))
       || value.test_verified !== false || typeof value.credential_present !== "boolean") return undefined;
   return {
     workspaceId: value.workspace_id,
@@ -110,7 +115,7 @@ export function validateProviderConnectionSnapshotJson(
     workspaceId: string;
     destinationConnectionId: string;
     accountPublicId: string;
-    status: "disabled" | "test_only";
+    status: ProviderConnectionStatus;
     credentialAliasId: string | null;
     credentialPurpose: ProviderCredentialPurpose | null;
   }>,
@@ -148,9 +153,9 @@ export function validateProviderConnectionSnapshotJson(
         || typeof connection.action_source !== "string" || !ACTION_SOURCE.has(connection.action_source)
         || (connection.test_event_code !== null
           && (typeof connection.test_event_code !== "string" || !TEST_EVENT_CODE.test(connection.test_event_code)))) return undefined;
-    const active = core.status === "test_only";
+    const active = core.status !== "disabled";
     if ((alias !== null) !== active || core.credentialPresent !== active
-        || (connection.test_event_code !== null) !== active) return undefined;
+        || (connection.test_event_code !== null) !== (core.status === "test_only")) return undefined;
   } else if (adapter === "google_data_manager") {
     if (typeof connection.destination_reference !== "string" || !DESTINATION_REFERENCE.test(connection.destination_reference)
         || !productAccount(connection.operating_account)
