@@ -221,11 +221,13 @@ export async function seedFixP1Funnel(
     "payload schema create",
   );
 
-  // ---- REAL test-tool run (staging → the mock) — records the PASSED row ---
+  // ---- REAL test-tool run (production → the mock) — records the PASSED row ---
+  // X11 decision 4: only a Production Test run saves the Offer's Test status
+  // (both endpoints point at the local mock, so this calls nothing real).
   const testRun = await json<{ status_code?: number | null }>(
     await request.post(`${LG_API}/offers/${offer.id}/test`, {
       data: {
-        environment: "staging",
+        environment: "production",
         sample_answers: { homeowner: "true", zip: "90210" },
       },
     }),

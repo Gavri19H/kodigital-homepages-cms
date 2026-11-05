@@ -860,11 +860,12 @@ test.beforeAll(async ({ browser }) => {
     assertStoredShape(stored, spec);
   }
 
-  // the R4 eligibility gate's PASSED Test-tool run.
+  // the R4 eligibility gate's PASSED Test-tool run. X11 decision 4: only a
+  // Production run saves the Offer's Test status (both endpoints are the mock).
   for (let i = 0; i < OFFERS.length; i += 1) {
     const spec = OFFERS[i] as OfferSpec;
     const testRun = await api<{ response?: { status?: number | null } }>(ctx, "post", `/api/admin/leadgen/offers/${offers.ids[i]}/test`, {
-      environment: "staging",
+      environment: "production",
       sample_answers: { [AMOUNT_FIELD]: AMOUNT_FINAL, [ADDR_ZIP_FIELD]: ZIP_TYPED },
     });
     const status = testRun.response?.status ?? null;

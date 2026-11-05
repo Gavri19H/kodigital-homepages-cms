@@ -750,11 +750,23 @@ export async function testOfferHandler(c: AdminContext): Promise<Response> {
   // (statusCode null — the request never returned) writes NO verdict, leaving
   // whatever the last real answer was, exactly as the old read-time CASE
   // treated a NULL status_code as "untested" rather than as a failure.
-  if (statusCode !== null) {
+  // X11 (OWNER 2026-11-05, decision 4): only a "Production" run writes it,
+  // whatever the answer. The live auction calls the production endpoint, so a
+  // "Staging" answer says nothing about whether the live Offer works and must
+  // neither block nor unblock it. A Staging run still returns its full answer
+  // (below) and still writes the request-log row (above).
+  const savedTestStatus =
+    statusCode !== null && environment === "production"
+      ? statusCode >= 200 && statusCode < 300
+        ? "passed"
+        : "failed"
+      : null;
+  const testStatusSaved = savedTestStatus !== null;
+  if (savedTestStatus !== null) {
     await c.env.DB.prepare(
       "UPDATE leadgen_offers SET last_test_status = ?, last_test_at = ?, last_test_source = 'test', updated_at = unixepoch() WHERE id = ?",
     )
-      .bind(statusCode >= 200 && statusCode < 300 ? "passed" : "failed", Math.floor(Date.now() / 1000), offer.id)
+      .bind(savedTestStatus, Math.floor(Date.now() / 1000), offer.id)
       .run();
   }
 
@@ -787,6 +799,9 @@ export async function testOfferHandler(c: AdminContext): Promise<Response> {
     provider_error_reason: providerErrorReason,
     debug_ref: debugRef,
     context_used: contextUsed,
+    // X11: whether this run changed the Offer's saved Test status (a
+    // Production run that got an answer). The Payload tab chip moves only then.
+    test_status_saved: testStatusSaved,
   });
 }
 

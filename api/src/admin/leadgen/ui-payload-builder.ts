@@ -55,7 +55,7 @@ import {
   LEADGEN_REQUEST_METHODS,
   LEADGEN_TOKEN_PLACEMENTS,
 } from "../../leadgen/validation";
-import { eligibilityReasonLabel } from "./ui-offers";
+import { eligibilityReasonLabel, eligibilityReasonLine } from "./ui-offers";
 import type {
   LeadgenOfferApi,
   LeadgenOfferHeaderApi,
@@ -484,9 +484,11 @@ export type PayloadBuilderOffer = LeadgenOfferApi & {
   placements?: readonly LeadgenOfferPlacementApi[];
   eligibility?: PayloadEligibilityVerdict | null;
   builder_context?: PayloadBuilderContext | null;
-  // §6.1: ISO timestamp of the newest TEST-TOOL provider-log row
-  // (offers-handlers offerLastTestAt) — null when the Offer was never tested.
+  // §6.1: ISO time of the Offer's durable Test status (offers-handlers
+  // offerLastTest) — null when the Offer was never tested.
   last_test_at?: string | null;
+  // X11: who wrote that status — 'test' (the Test tab) | 'auction' (a live call).
+  last_test_source?: string | null;
 };
 
 export interface PayloadPanelProps {
@@ -901,7 +903,9 @@ function renderValueMapModal(): string {
 // §6.1 chip timestamp: compact UTC form of the offer's last_test_at ISO
 // string ("2026-07-08 14:00 UTC" — the SSR sibling of the live-run chip's
 // local "at HH:MM"). Unparseable input renders verbatim (never a crash).
-function formatTestTimestamp(iso: string): string {
+// X11: also the time on the "Blocked from live auction" banner's failed-Test
+// line (ui-offers eligibilityReasonLine), so both read the same.
+export function formatTestTimestamp(iso: string): string {
   const d = new Date(iso);
   if (Number.isNaN(d.getTime())) return iso;
   return `${d.toISOString().slice(0, 16).replace("T", " ")} UTC`;
@@ -1299,7 +1303,7 @@ export function renderTestPanel(
   const eligibilityNote =
     eligibility !== null && !eligibility.eligible
       ? `<p class="form-help" data-test-eligibility>Blocked from live auction: ${escapeHtml(
-          eligibility.reasons.map(eligibilityReasonLabel).join(" · "),
+          eligibility.reasons.map((code) => eligibilityReasonLine(code, offer)).join(" · "),
         )}</p>`
       : "";
   const contextInputs = PAYLOAD_TEST_CONTEXT_DEFAULTS.map(
@@ -5497,7 +5501,12 @@ export const PAYLOAD_BUILDER_SCRIPT = `
           var ok = resBody.response && resBody.response.status !== null && resBody.response.status >= 200 && resBody.response.status < 300;
           var now = new Date();
           function pad2(n) { return (n < 10 ? '0' : '') + n; }
-          setTestChip(ok ? 'passed' : 'failed', pad2(now.getHours()) + ':' + pad2(now.getMinutes()));
+          // X11: the chip shows the Offer's SAVED Test status, so it moves only
+          // when this run saved one (a Production run that got an answer). A
+          // Staging run or a timeout leaves the chip, and the Offer, as they were.
+          if (resBody.test_status_saved === true) {
+            setTestChip(ok ? 'passed' : 'failed', pad2(now.getHours()) + ':' + pad2(now.getMinutes()));
+          }
         }).catch(function () {
           runBtn.disabled = false;
           runBtn.classList.remove('lg-saving');

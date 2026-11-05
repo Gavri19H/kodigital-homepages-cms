@@ -258,8 +258,10 @@ async function ensureOfferEndpointsAndSchema(offer: EnsuredOffer, mockUrl: strin
   // provider's HTTP status under response.status (there is no top-level
   // status_code key — test-ui/leadgen-fix-p1-seed.ts's own `status_code`
   // read is a latent no-op for the same reason; verified against source).
+  // X11 decision 4: only a Production Test run saves the Offer's Test status
+  // (both endpoints point at the local mock, so this calls nothing real).
   const testRun = await call<{ response?: { status?: number | null } }>("POST", `${LG}/offers/${offer.id}/test`, {
-    environment: "staging",
+    environment: "production",
     sample_answers: { [FIELD_NAME]: sampleValue },
   });
   const statusCode = testRun.response?.status ?? null;

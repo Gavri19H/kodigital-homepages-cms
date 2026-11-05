@@ -687,6 +687,40 @@ describeDb("leadgen /auctions/:id/simulate — §19.2 dry-run trace + no writes"
     expect(body.carriers_deduplicated.map((d) => d.carrier_name)).toEqual(["Kin", "Progressive"]);
   });
 
+  // X11 (OWNER 2026-11-05): the Simulator runs the same gate as the live
+  // auction. QuinStreetHome, stored 'failed' by a live visitor's request, is
+  // simulated and called; an Offer whose Test-tab run failed is still
+  // excluded with test_failed and never called.
+  it("FAIL-BEFORE/PASS-AFTER: X11 — a live request's 'failed' is simulated and called; a Test-tab 'failed' is still excluded", async () => {
+    const { sdb, env } = harness();
+    const auction = seedAuction(sdb);
+    const provider = (offerName: string, host: string, source: string) => {
+      const o = seedDynamicOffer(sdb);
+      sdb
+        .prepare("UPDATE leadgen_offers SET offer_name = ?, endpoint_staging = ?, endpoint_production = ?, last_test_status = 'failed', last_test_at = 1793800800, last_test_source = ? WHERE id = ?")
+        .run(offerName, `https://${host}/quote`, `https://${host}/quote`, source, o.offer_id);
+      sdb.prepare("INSERT INTO leadgen_auction_offers (auction_id, offer_placement_id, offer_id, static_order, enabled) VALUES (?, ?, ?, 0, 1)").run(auction.id, o.placement_id, o.offer_id);
+      return o;
+    };
+    const quinstreet = provider("QuinStreetHome", "quinstreet.example", "auction");
+    const testFailed = provider("AdsByMoneyHome", "adsbymoney.example", "test");
+    const calls = stubFetch(() => new Response(carrierBody("Progressive", 14), { status: 200 }));
+    const res = await admin.request(`${API}/auctions/${auction.public_id}/simulate`, jsonInit("POST", { sample_answers: {} }), env);
+    expect(res.status, await res.clone().text()).toBe(200);
+    const body = (await res.json()) as { offers_excluded: Array<{ offer_id: string; reason: string }>; carriers_shown: Array<{ offer_id: string }> };
+    const excludedBy = new Map(body.offers_excluded.map((e) => [e.offer_id, e.reason]));
+    expect(excludedBy.has(quinstreet.offer_public_id), "QuinStreetHome is not excluded").toBe(false);
+    expect(excludedBy.get(testFailed.offer_public_id)).toBe("test_failed");
+    expect(calls.map((c) => new URL(c.url).host)).toEqual(["quinstreet.example"]);
+    expect(body.carriers_shown.map((c) => c.offer_id)).toContain(quinstreet.offer_public_id);
+    // the Simulator writes nothing: the stored rows are unchanged
+    const rows = sdb.prepare("SELECT last_test_status AS s, last_test_source AS src FROM leadgen_offers ORDER BY id").all();
+    expect(rows).toEqual([
+      { s: "failed", src: "auction" },
+      { s: "failed", src: "test" },
+    ]);
+  });
+
   it("POST /simulate on an unknown auction is 404", async () => {
     const { env } = harness();
     const res = await admin.request(`${API}/auctions/${mintPublicId("auction")}/simulate`, jsonInit("POST", {}), env);

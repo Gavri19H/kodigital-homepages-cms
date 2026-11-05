@@ -98,8 +98,10 @@ async function seedInputsFunnel(request: APIRequestContext): Promise<SeededInput
       carrier_parse_json: { carriers_path: "carriers", fields: { provider_id: "id", carrier_name: "name", carrier_logo: "logo", bid: "bid", bid_currency: "currency", headline: "headline", tracking_id: "tracking" } },
     },
   }), "payload schema");
+  // X11 decision 4: only a Production Test run saves the Offer's Test status
+  // (both endpoints point at the local mock, so this calls nothing real).
   const testRun = await json<{ status_code?: number | null }>(await request.post(`${LG_API}/offers/${offer.id}/test`, {
-    data: { environment: "staging", sample_answers: { homeowner: "true" } },
+    data: { environment: "production", sample_answers: { homeowner: "true" } },
   }), "offer test run");
   if (testRun.status_code != null && (testRun.status_code < 200 || testRun.status_code >= 300)) {
     throw new Error(`seed: test-tool run did not PASS (${testRun.status_code}) — is the mock provider up on :8788?`);

@@ -1749,3 +1749,122 @@ describeDb("live auction — the Section mapping fills the payload, the payload 
     expect(typeof bodies[0]!["plc"]).toBe("string");
   });
 });
+
+// ===========================================================================
+// X11 (OWNER 2026-11-05, Slack #haikov-support): Offer "QuinStreetHome" showed
+// "Blocked from live auction: Last provider test failed" with no Test run and
+// no CMS edit. Since #189 every live non-2xx answer saved 'failed' (source
+// 'auction') on the Offer; the gate then never called the Provider again and
+// nothing could write 'passed' back. Through the REAL /lg/auction route, as
+// production runs it: signed attempt → gate → provider call → the waitUntil
+// persist → the NEXT visitor's auction. The owner's live check reads the same
+// two tables these tests read: the request log and offers_excluded_json.
+// ===========================================================================
+describeDb("X11 — a live visitor's failed request never blocks the Offer (real /lg/auction route)", () => {
+  const LANDING = "https://one.example.com/lg/x11?utm_source=facebook";
+
+  async function visitor(
+    h: Harness,
+    variantId: string,
+    providerStatus: number,
+  ): Promise<{ providerCalls: number; auction: Record<string, unknown>; excluded: string }> {
+    const attempt = await mintLiveAttempt(h.env, variantId, LANDING);
+    let providerCalls = 0;
+    vi.stubGlobal("fetch", async (): Promise<Response> => {
+      providerCalls += 1;
+      return providerStatus >= 200 && providerStatus < 300
+        ? new Response(
+            JSON.stringify({ carriers: [{ name: "Progressive", bid: 14, url: "https://qs.example/click?c=1", logo: "https://qs.example/l.png" }] }),
+            { status: providerStatus },
+          )
+        : new Response(JSON.stringify({ error: "rejected" }), { status: providerStatus });
+    });
+    const captured = captureCtx();
+    const res = await reqTenant(
+      h.env,
+      "/lg/auction",
+      jsonInit("POST", {
+        funnel_variant_id: variantId,
+        funnel_attempt_id: attempt.funnel_attempt_id,
+        section_order_hash: attempt.section_order_hash,
+        signed_config_token: attempt.signed_config_token,
+        session_id: attempt.session_id,
+        page_view_id: `pv-${providerStatus}`,
+        answers: { f: { value: true, answer_source: "user_selected" } },
+      }),
+      captured.ctx,
+    );
+    expect(res.status, `auction: ${await res.clone().text()}`).toBe(200);
+    const auction = (await res.json()) as Record<string, unknown>;
+    // the request log + the Offer write ride waitUntil — let them land before the next visitor
+    await settle(captured);
+    vi.unstubAllGlobals();
+    const logRow = h.sdb
+      .prepare("SELECT offers_excluded_json FROM leadgen_auction_result_log WHERE auction_instance_id = ?")
+      .get(String(auction["auction_instance_id"])) as { offers_excluded_json: string | null } | undefined;
+    return { providerCalls, auction, excluded: logRow?.offers_excluded_json ?? "" };
+  }
+
+  function storedVerdict(h: Harness, offerPublicId: string): { status: string | null; at: number | null; source: string | null } {
+    return h.sdb
+      .prepare("SELECT last_test_status AS status, last_test_at AS at, last_test_source AS source FROM leadgen_offers WHERE public_id = ?")
+      .get(offerPublicId) as { status: string | null; at: number | null; source: string | null };
+  }
+
+  function bannerOffers(auction: Record<string, unknown>): string[] {
+    return ((auction["banners"] ?? []) as Array<{ offer_public_id: string }>).map((b) => b.offer_public_id);
+  }
+
+  it("FAIL-BEFORE/PASS-AFTER: QuinStreetHome stored 'failed' by a live request — the next visitor's auction calls QuinStreet, shows its cards, and the 2xx rewrites 'passed'", async () => {
+    const h = newHarness();
+    const { variantId } = await seedActivatedFunnel(h.env, h.sdb, "x11home");
+    const seeded = seedDynamicAuctionForVariant(h.sdb, variantId);
+    // the live row on 5 Nov (owner's screenshot: "Last provider test failed")
+    h.sdb
+      .prepare("UPDATE leadgen_offers SET offer_name = 'QuinStreetHome', last_test_status = 'failed', last_test_at = 1793800800, last_test_source = 'auction' WHERE public_id = ?")
+      .run(seeded.offerPublicId);
+
+    const v = await visitor(h, variantId, 200);
+    expect(v.excluded, "no test_failed exclusion in the auction log").not.toContain("test_failed");
+    expect(v.providerCalls, "QuinStreet is called").toBe(1);
+    expect(v.auction["status"]).toBe("ok");
+    expect(bannerOffers(v.auction)).toContain(seeded.offerPublicId);
+    const healed = storedVerdict(h, seeded.offerPublicId);
+    expect(healed.status).toBe("passed");
+    expect(healed.source).toBe("auction");
+    expect(healed.at ?? 0).toBeGreaterThan(1793800800);
+  });
+
+  it("FAIL-BEFORE/PASS-AFTER: one visitor's 400 leaves the Offer 'passed'; the next visitor's auction still calls the Provider", async () => {
+    const h = newHarness();
+    const { variantId } = await seedActivatedFunnel(h.env, h.sdb, "x11reject");
+    const seeded = seedDynamicAuctionForVariant(h.sdb, variantId); // a passed Test-tab verdict
+    const before = storedVerdict(h, seeded.offerPublicId);
+    expect(before.status).toBe("passed");
+    expect(before.source).toBe("test");
+
+    const rejected = await visitor(h, variantId, 400);
+    expect(rejected.providerCalls).toBe(1);
+    // the request log still records the 400…
+    const logged = h.sdb
+      .prepare("SELECT status_code FROM leadgen_provider_request_log WHERE offer_public_id = ? AND auction_instance_id = ?")
+      .all(seeded.offerPublicId, String(rejected.auction["auction_instance_id"]));
+    expect(logged).toEqual([{ status_code: 400 }]);
+    // …and the Offer is untouched
+    expect(storedVerdict(h, seeded.offerPublicId), "a live 400 writes nothing to the Offer").toEqual(before);
+
+    const next = await visitor(h, variantId, 200);
+    expect(next.excluded).not.toContain("test_failed");
+    expect(next.providerCalls, "the next visitor's auction still calls the Provider").toBe(1);
+    expect(bannerOffers(next.auction)).toContain(seeded.offerPublicId);
+  });
+
+  it("the gate keeps its teeth on the live route: a failed Test-tab run blocks and the Provider is never called", async () => {
+    const h = newHarness();
+    const { variantId } = await seedActivatedFunnel(h.env, h.sdb, "x11teeth");
+    seedDynamicAuctionForVariant(h.sdb, variantId, { testStatus: "failed" }); // source 'test'
+    const v = await visitor(h, variantId, 200);
+    expect(v.excluded).toContain("test_failed");
+    expect(v.providerCalls).toBe(0);
+  });
+});

@@ -179,9 +179,13 @@ export interface AuctionBundleOffer {
   schema_version: number | null;
   carrier_parse_json: unknown;
   carrier_parse_version: number | null;
-  // Newest TEST-TOOL provider_request_log verdict (auction_instance_id IS
-  // NULL): 'passed' | 'failed' | 'untested' (§5.1 test_* codes).
+  // The DURABLE Test status on the Offer row (migration 0057):
+  // 'passed' | 'failed' | 'untested' (§5.1 test_* codes).
   last_test_status: LeadgenOfferTestStatus;
+  // X11: who wrote it — 'test' (an operator's Test) | 'auction' (a live call),
+  // NULL when unknown. The gate blocks on 'failed' only when it did not come
+  // from a live call (validation.ts effectiveLeadgenTestStatus).
+  last_test_source: string | null;
   region_rules: LeadgenRegionRuleInput[];
 }
 
@@ -270,11 +274,13 @@ export async function loadAuctionBundle(
   // retention cron — so a working Offer silently became `test_untested` a week
   // after its last Test and the whole auction emptied out. NULL still means
   // "never tested" and is still refused by §5.1.
+  // X11: last_test_source rides along so the gate can tell an operator's
+  // failed Test (blocks) from a 'failed' a live call left behind (does not).
   const offerJoin = await db
     .prepare(
       `SELECT ao.static_order AS static_order, ao.static_bid_override AS static_bid_override,
               p.public_id AS placement_public_id, p.placement_id AS placement_external_id, o.id AS offer_id,
-              o.last_test_status AS last_test_status
+              o.last_test_status AS last_test_status, o.last_test_source AS last_test_source
          FROM leadgen_auction_offers ao
          JOIN leadgen_offer_placements p ON p.id = ao.offer_placement_id
          JOIN leadgen_offers o ON o.id = ao.offer_id
@@ -289,6 +295,7 @@ export async function loadAuctionBundle(
       placement_external_id: string | null;
       offer_id: number;
       last_test_status: LeadgenOfferTestStatus | null;
+      last_test_source: string | null;
     }>();
 
   const offers: AuctionBundleOffer[] = [];
@@ -366,6 +373,7 @@ export async function loadAuctionBundle(
       carrier_parse_json: carrierParseJson,
       carrier_parse_version: carrierParseVersion,
       last_test_status: join.last_test_status ?? "untested",
+      last_test_source: join.last_test_source ?? null,
       region_rules,
     });
   }
@@ -1548,6 +1556,7 @@ export async function runAuction(
         })),
         carrier_parse: b.carrier_parse_json,
       },
+      b.last_test_source,
     );
     if (!verdict.eligible) {
       const reason = verdict.reasons.join(",");
@@ -2457,21 +2466,24 @@ export async function persistAuctionResult(
     }
     // OWNER 2026-09-03: refresh the DURABLE eligibility verdict (migration
     // 0057) from this LIVE call, so an Offer that is demonstrably answering
-    // never decays into `test_untested` and empty the funnel — the class of
-    // outage his blank results page was. A 2xx keeps it 'passed'; a non-2xx
-    // records 'failed' (the same verdict the Test tool would); a transport
-    // error (status_code null) writes nothing and leaves the last real answer.
+    // never decays into `test_untested` and empties the funnel — the class of
+    // outage his blank results page was.
+    // X11 (OWNER 2026-11-05, decision 1): a live call only ever refreshes
+    // 'passed'. A 2xx writes 'passed' (source 'auction'); ANY other status
+    // code writes NOTHING to the Offer. It used to write 'failed', and the
+    // step-5.5 gate then never called the Provider again — one visitor's bad
+    // answer switched "QuinStreetHome" off for every visitor, with no way
+    // back. Only an operator's Test may block an Offer. The request-log row
+    // above still records every answer with its status code, exactly as
+    // before. A transport error (status_code null) writes nothing, as before.
     // Fail-open on the same S28 grounds as the log row above.
-    if (row.status_code !== null && row.status_code !== undefined) {
+    const liveStatus = row.status_code;
+    if (liveStatus !== null && liveStatus !== undefined && liveStatus >= 200 && liveStatus < 300) {
       try {
         await env.DB.prepare(
-          "UPDATE leadgen_offers SET last_test_status = ?, last_test_at = ?, last_test_source = 'auction' WHERE public_id = ?",
+          "UPDATE leadgen_offers SET last_test_status = 'passed', last_test_at = ?, last_test_source = 'auction' WHERE public_id = ?",
         )
-          .bind(
-            row.status_code >= 200 && row.status_code < 300 ? "passed" : "failed",
-            Math.floor(Date.now() / 1000),
-            row.offer_public_id,
-          )
+          .bind(Math.floor(Date.now() / 1000), row.offer_public_id)
           .run();
       } catch {
         // never breaks the auction response

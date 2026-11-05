@@ -535,3 +535,75 @@ describe("dynamicAuctionEligibility — §11.8 publish gate", () => {
     expect(dynamicAuctionEligibility({ calls_provider_api: false }, null, null).eligible).toBe(true);
   });
 });
+
+// X11 (OWNER 2026-11-05, Slack #haikov-support): "QuinStreetHome" showed
+// "Blocked from live auction: Last provider test failed" with no Test run and
+// no CMS edit. A live visitor's non-2xx answer had saved 'failed' with source
+// 'auction'. Only an operator's Test may block an Offer (owner decision 1); a
+// 'failed' left by a live request counts as tested (decision 2). A failed
+// Test-tab run and a never-tested Offer still block.
+describe("dynamicAuctionEligibility — X11: which Test status may block", () => {
+  const okSchema = { ok: true, errors: [] };
+  const goodExtras = {
+    endpoint: "https://provider.example/quote",
+    headers: [] as { header_name: string; value_kind: string; value_text: string | null }[],
+    carrier_parse: { carriers_path: "carriers", fields: { carrier_name: "name" } },
+  };
+
+  it("'failed' left by a live visitor's request (source 'auction') no longer blocks — the QuinStreetHome row", () => {
+    expect(dynamicAuctionEligibility({ calls_provider_api: 1 }, okSchema, "failed", undefined, "auction")).toEqual({
+      eligible: true,
+      reasons: [],
+    });
+    // the engine and the admin loader always pass the 05 §5.1 extras too
+    expect(dynamicAuctionEligibility({ calls_provider_api: 1 }, okSchema, "failed", goodExtras, "auction")).toEqual({
+      eligible: true,
+      reasons: [],
+    });
+  });
+
+  it("'failed' from an operator's Test still blocks with test_failed", () => {
+    expect(dynamicAuctionEligibility({ calls_provider_api: 1 }, okSchema, "failed", goodExtras, "test")).toEqual({
+      eligible: false,
+      reasons: ["test_failed"],
+    });
+  });
+
+  it("'failed' with no known source still blocks (the safe side for a money gate)", () => {
+    for (const source of [null, undefined, "", "Auction", "something-else"]) {
+      expect(
+        dynamicAuctionEligibility({ calls_provider_api: 1 }, okSchema, "failed", goodExtras, source).reasons,
+        `source ${String(source)}`,
+      ).toEqual(["test_failed"]);
+    }
+  });
+
+  it("a never-tested Offer still blocks with test_untested, whatever the source", () => {
+    for (const source of ["auction", "test", null, undefined]) {
+      expect(dynamicAuctionEligibility({ calls_provider_api: 1 }, okSchema, null, goodExtras, source).reasons).toEqual([
+        "test_untested",
+      ]);
+      expect(
+        dynamicAuctionEligibility({ calls_provider_api: 1 }, okSchema, "untested", goodExtras, source).reasons,
+      ).toEqual(["test_untested"]);
+    }
+  });
+
+  it("the other reasons don't change: a live-request 'failed' only drops test_failed", () => {
+    expect(
+      dynamicAuctionEligibility(
+        { calls_provider_api: 1 },
+        null,
+        "failed",
+        { endpoint: "", headers: [{ header_name: "", value_kind: "static", value_text: null }], carrier_parse: null },
+        "auction",
+      ).reasons,
+    ).toEqual(["no_active_schema", "endpoint_missing", "invalid_headers", "carrier_parse_missing"]);
+    expect(
+      dynamicAuctionEligibility({ calls_provider_api: 1 }, okSchema, "passed", { ...goodExtras, carrier_parse: "nope" }, "auction")
+        .reasons,
+    ).toEqual(["carrier_parse_invalid"]);
+    // an Offer that never calls a Provider stays outside the gate
+    expect(dynamicAuctionEligibility({ calls_provider_api: 0 }, null, "failed", undefined, "test").eligible).toBe(true);
+  });
+});

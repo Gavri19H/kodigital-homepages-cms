@@ -777,6 +777,7 @@ test.describe.serial("LeadGen fix-P2 — payload builder (G5, 06 §6.13/§6.14)"
     const testBody = (await testRes.json()) as {
       environment: string;
       response: { status: number | null };
+      test_status_saved: boolean;
       context_used: {
         placement_id: string | null;
         placement_public_id: string | null;
@@ -801,8 +802,11 @@ test.describe.serial("LeadGen fix-P2 — payload builder (G5, 06 §6.13/§6.14)"
     );
     await expect(page.locator("#lg-test-request-payload")).toContainText("60614");
     await expect(page.locator("#lg-test-response-body")).toContainText("mockref-a7x42");
-    // The last-test chip flips to passed (payload-tab side pane element).
-    await expect(page.locator("#lg-pb-test-chip")).toHaveAttribute("data-test-status", "passed");
+    // X11 decision 4 (owner 2026-11-05): a Staging run can't change the live
+    // Offer's Test status, so the last-test chip (payload-tab side pane) stays
+    // as it was — this fresh Offer is still untested — and the answer says so.
+    expect(testBody.test_status_saved).toBe(false);
+    await expect(page.locator("#lg-pb-test-chip")).toHaveAttribute("data-test-status", "untested");
 
     await page.screenshot({ path: `${SHOT_DIR}/05-test-tab-result.png`, fullPage: true });
 

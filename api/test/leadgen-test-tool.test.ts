@@ -1430,3 +1430,112 @@ describeDb("POST /offers/:id/test — consumer IP + user agent headers", () => {
     expect(body.request.headers["User-Agent"]).toBe(UA);
   });
 });
+
+// ---------------------------------------------------------------------------
+// X11 decision 4 (OWNER 2026-11-05): a "Staging" Test can't change the live
+// Offer's Test status — only a "Production" run writes it, whatever the
+// answer. The live auction runs against production, so a staging answer says
+// nothing about whether the live Offer works. A Staging run still returns its
+// full answer and still writes the request-log row. `test_status_saved` tells
+// the Payload tab chip whether this run changed the saved status.
+// ---------------------------------------------------------------------------
+
+describeDb("POST /offers/:id/test — X11: only a Production run writes the Offer's Test status", () => {
+  const SAVED_AT = 1_793_800_800; // 2026-11-04 14:00 UTC
+
+  function setVerdict(h: Harness, status: "passed" | "failed", source: "test" | "auction"): void {
+    h.sdb
+      .prepare("UPDATE leadgen_offers SET last_test_status = ?, last_test_at = ?, last_test_source = ? WHERE id = ?")
+      .run(status, SAVED_AT, source, h.offerId);
+  }
+
+  function storedVerdict(h: Harness): { status: string | null; at: number | null; source: string | null } {
+    return h.sdb
+      .prepare("SELECT last_test_status AS status, last_test_at AS at, last_test_source AS source FROM leadgen_offers WHERE id = ?")
+      .get(h.offerId) as { status: string | null; at: number | null; source: string | null };
+  }
+
+  it("FAIL-BEFORE/PASS-AFTER: a non-2xx Staging run leaves the status as it was, and still shows its answer and logs it", async () => {
+    const h = await setupOffer();
+    setVerdict(h, "passed", "test");
+    stubFetch(() => new Response(JSON.stringify({ error: "staging is down" }), { status: 500 }));
+    const { status, body } = await runTest(h, { environment: "staging", sample_answers: SAMPLE_ANSWERS });
+    expect(status).toBe(200);
+    // the live Offer's Test status is untouched
+    expect(storedVerdict(h)).toEqual({ status: "passed", at: SAVED_AT, source: "test" });
+    // the operator still sees the full answer
+    expect(body.environment).toBe("staging");
+    expect(body.response.status).toBe(500);
+    expect(body.response.body).toEqual({ error: "staging is down" });
+    expect(body.provider_error_reason).toBe("http_500");
+    // the request log still records the run
+    const log = lastLogRow(h.sdb);
+    expect(log?.["environment"]).toBe("staging");
+    expect(log?.["status_code"]).toBe(500);
+    // and the answer says nothing was saved
+    expect((body as unknown as { test_status_saved: unknown }).test_status_saved).toBe(false);
+  });
+
+  it("FAIL-BEFORE/PASS-AFTER: a 2xx Staging run doesn't unblock an Offer whose Production Test failed", async () => {
+    const h = await setupOffer();
+    setVerdict(h, "failed", "test");
+    stubFetch(() => new Response(JSON.stringify(PROVIDER_BODY), { status: 200 }));
+    const { body } = await runTest(h, { environment: "staging", sample_answers: SAMPLE_ANSWERS });
+    expect(body.response.status).toBe(200);
+    expect(storedVerdict(h)).toEqual({ status: "failed", at: SAVED_AT, source: "test" });
+    expect((body as unknown as { test_status_saved: unknown }).test_status_saved).toBe(false);
+  });
+
+  it("a non-2xx Production run writes 'failed' from 'test' (the gate's teeth stay)", async () => {
+    const h = await setupOffer();
+    setVerdict(h, "passed", "auction");
+    stubFetch(() => new Response(JSON.stringify({ error: "rejected" }), { status: 400 }));
+    const { body } = await runTest(h, { environment: "production", sample_answers: SAMPLE_ANSWERS });
+    expect(body.response.status).toBe(400);
+    const saved = storedVerdict(h);
+    expect(saved.status).toBe("failed");
+    expect(saved.source).toBe("test");
+    expect(saved.at ?? 0).toBeGreaterThan(SAVED_AT);
+    expect(lastLogRow(h.sdb)?.["environment"]).toBe("production");
+  });
+
+  it("a 2xx Production run writes 'passed' from 'test' — the operator's way to unblock", async () => {
+    const h = await setupOffer();
+    setVerdict(h, "failed", "test");
+    stubFetch(() => new Response(JSON.stringify(PROVIDER_BODY), { status: 200 }));
+    const { body } = await runTest(h, { environment: "production", sample_answers: SAMPLE_ANSWERS });
+    expect(body.response.status).toBe(200);
+    const saved = storedVerdict(h);
+    expect(saved.status).toBe("passed");
+    expect(saved.source).toBe("test");
+    expect(saved.at ?? 0).toBeGreaterThan(SAVED_AT);
+  });
+
+  it("a Production run that times out writes nothing, as before", async () => {
+    const h = await setupOffer();
+    setVerdict(h, "passed", "test");
+    stubFetch(() => {
+      const err = new Error("The operation was aborted");
+      err.name = "AbortError";
+      throw err;
+    });
+    const { body } = await runTest(h, { environment: "production", sample_answers: SAMPLE_ANSWERS });
+    expect(body.response.status).toBeNull();
+    expect(body.provider_error_reason).toBe("timeout");
+    expect(storedVerdict(h)).toEqual({ status: "passed", at: SAVED_AT, source: "test" });
+  });
+
+  it("FAIL-BEFORE/PASS-AFTER: the answer says whether the status was saved (the Payload tab chip moves only then)", async () => {
+    const h = await setupOffer();
+    stubFetch(() => new Response(JSON.stringify({ error: "rejected" }), { status: 400 }));
+    const prod = await runTest(h, { environment: "production", sample_answers: SAMPLE_ANSWERS });
+    expect((prod.body as unknown as { test_status_saved: unknown }).test_status_saved).toBe(true);
+    stubFetch(() => {
+      const err = new Error("The operation was aborted");
+      err.name = "AbortError";
+      throw err;
+    });
+    const timedOut = await runTest(h, { environment: "production", sample_answers: SAMPLE_ANSWERS });
+    expect((timedOut.body as unknown as { test_status_saved: unknown }).test_status_saved).toBe(false);
+  });
+});

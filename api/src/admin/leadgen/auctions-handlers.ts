@@ -23,7 +23,11 @@ import { mintPublicId } from "../../leadgen/ids";
 import { conditionsHash, orGroupConditionError, parseWaterfallTiers } from "../../leadgen/auction-rules";
 import { ruleClockConditionError } from "../../leadgen/computed";
 import type { LeadgenCarrierMatch } from "../../leadgen/auction-rules";
-import { evaluateDynamicOffersEligibility } from "../../leadgen/validation";
+import {
+  effectiveLeadgenTestStatus,
+  evaluateDynamicOffersEligibility,
+  type LeadgenOfferTestStatus,
+} from "../../leadgen/validation";
 import { resolveAllowedOutboundSecretReference } from "../../env";
 import { offerApiTokenSealed } from "../../leadgen/offer-api-token";
 import { buildPayload } from "../../leadgen/payload";
@@ -737,7 +741,8 @@ interface AuctionOfferJoinRow {
   cap_enabled: number | null;
   active_payload_schema_id: number | null;
   schema_version: number | null;
-  last_test_status: string | null;
+  last_test_status: LeadgenOfferTestStatus | null;
+  last_test_source: string | null;
 }
 
 async function readAuctionOffers(db: D1Database, auctionId: number): Promise<AuctionOfferJoinRow[]> {
@@ -751,6 +756,10 @@ async function readAuctionOffers(db: D1Database, auctionId: number): Promise<Auc
   // `passed` — caught by reading this endpoint on production. A panel that
   // disagrees with the gate is how an operator gets sent to re-test something
   // that is already serving.
+  //
+  // X11 (OWNER 2026-11-05): read with `last_test_source` through the gate's
+  // own rule (effectiveLeadgenTestStatus), so a 'failed' a live request left
+  // behind shows the 'passed' the gate acts on.
   const result = await db
     .prepare(
       `SELECT ao.offer_placement_id, ao.offer_id, ao.static_order, ao.static_bid_override, ao.enabled,
@@ -758,7 +767,7 @@ async function readAuctionOffers(db: D1Database, auctionId: number): Promise<Auc
               o.public_id AS offer_public_id, o.offer_name, o.provider, o.activity, o.vertical, o.offer_type,
               o.status AS offer_status, o.calls_provider_api, o.cap_enabled, o.active_payload_schema_id,
               s.version AS schema_version,
-              o.last_test_status AS last_test_status
+              o.last_test_status AS last_test_status, o.last_test_source AS last_test_source
        FROM leadgen_auction_offers ao
        JOIN leadgen_offer_placements p ON p.id = ao.offer_placement_id
        JOIN leadgen_offers o ON o.id = ao.offer_id
@@ -789,7 +798,7 @@ function auctionOfferRowToApi(row: AuctionOfferJoinRow): Record<string, unknown>
     placement_external_id: row.placement_external_id,
     active_payload_schema_id: row.active_payload_schema_id,
     schema_version: row.schema_version,
-    last_test_status: row.last_test_status ?? "untested",
+    last_test_status: effectiveLeadgenTestStatus(row.last_test_status, row.last_test_source) ?? "untested",
     static_order: row.static_order,
     static_bid_override: row.static_bid_override,
     enabled: row.enabled !== 0,

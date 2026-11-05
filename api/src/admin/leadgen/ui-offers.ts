@@ -78,6 +78,7 @@ import {
   type LeadgenBranding,
 } from "./ui";
 import {
+  formatTestTimestamp,
   renderPayloadPanel,
   renderRequestPanel,
   renderTestPanel,
@@ -113,12 +114,15 @@ type OfferListItem = LeadgenOfferApi & {
 };
 
 // GET /offers/:id detail — the mapped row + its three editor collections
-// + the additive eligibility verdict for the §5.1 editor banner.
+// + the additive eligibility verdict for the §5.1 editor banner
+// + (X11) when and from where the stored Test status came.
 type OfferDetail = LeadgenOfferApi & {
   placements: LeadgenOfferPlacementApi[];
   headers: LeadgenOfferHeaderApi[];
   region_rules: LeadgenOfferRegionRuleApi[];
   eligibility?: OfferEligibilityVerdict | null;
+  last_test_at?: string | null;
+  last_test_source?: string | null;
 };
 
 interface OfferAnalyticsBody {
@@ -205,6 +209,25 @@ export const LEADGEN_ELIGIBILITY_REASON_LABELS: Readonly<Record<string, string>>
 
 export function eligibilityReasonLabel(code: string): string {
   return LEADGEN_ELIGIBILITY_REASON_LABELS[code] ?? `Blocked (${code.replace(/_/g, " ")})`;
+}
+
+// X11 (OWNER 2026-11-05, decision 3): the "Blocked from live auction" banner
+// and the Test tab note say where and when a failed Test came from —
+// "Last provider test failed · from the Test tab at 2026-11-05 09:41 UTC" —
+// so an operator knows why an Offer is blocked without opening the database.
+// The extra words appear only when the stored status came from the Test tab
+// and its time is stored; otherwise the plain label stays. (After X11 a live
+// request can no longer produce this reason, so there is no live wording.)
+export function eligibilityReasonLine(
+  code: string,
+  lastTest: { last_test_at?: string | null; last_test_source?: string | null } | null | undefined,
+): string {
+  const label = eligibilityReasonLabel(code);
+  if (code !== "test_failed" || lastTest === null || lastTest === undefined) return label;
+  if (lastTest.last_test_source !== "test") return label;
+  const at = lastTest.last_test_at;
+  if (typeof at !== "string" || at === "") return label;
+  return `${label} · from the Test tab at ${formatTestTimestamp(at)}`;
 }
 
 // §7.4 usage report — the SAME server payload drives the §7.2 delete guard
@@ -2298,7 +2321,7 @@ function renderEligibilityBanner(o: OfferDetail): string {
   const reasons = verdict.reasons
     .map(
       (code) =>
-        `<li data-eligibility-reason="${escapeHtml(code)}">${escapeHtml(eligibilityReasonLabel(code))}</li>`,
+        `<li data-eligibility-reason="${escapeHtml(code)}">${escapeHtml(eligibilityReasonLine(code, o))}</li>`,
     )
     .join("");
   return `<div class="lg-eligibility-banner lg-blocked" data-eligibility-banner="blocked" role="alert">

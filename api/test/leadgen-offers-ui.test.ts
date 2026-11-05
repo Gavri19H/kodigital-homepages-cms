@@ -1167,6 +1167,113 @@ describeDb("leadgen offers list eligibility badge column (05 §5.1)", () => {
 });
 
 // ---------------------------------------------------------------------------
+// X11 (OWNER 2026-11-05, Slack #haikov-support): "QuinStreetHome" showed
+// "Blocked from live auction: Last provider test failed" with no Test run.
+// Decision 2: a 'failed' left by a live request no longer blocks — the editor
+// banner, the Offers list (Eligibility badge + Test chip), the Payload tab
+// chip and the Test tab note must all agree with the auction gate.
+// Decision 3: a failed Test says where and when it came from.
+// ---------------------------------------------------------------------------
+
+describeDb("X11 — banner, Offers list and Test tab agree on where a failure came from", () => {
+  // 2026-11-05 09:41 UTC — the plan's example time
+  const FAILED_AT = 1_793_871_660;
+
+  function setVerdict(sdb: SqliteDb, offerPublicId: string, status: string | null, at: number | null, source: string | null): void {
+    sdb
+      .prepare("UPDATE leadgen_offers SET last_test_status = ?, last_test_at = ?, last_test_source = ? WHERE public_id = ?")
+      .run(status, at, source, offerPublicId);
+  }
+
+  // The list row for one Offer (each row is one <tr …data-offer-public-id=…>…</tr>).
+  function listRow(html: string, offerPublicId: string): string {
+    const start = html.indexOf(`data-offer-public-id="${offerPublicId}"`);
+    expect(start, `list row for ${offerPublicId}`).toBeGreaterThan(-1);
+    return html.slice(start, html.indexOf("</tr>", start));
+  }
+
+  it("FAIL-BEFORE/PASS-AFTER: a failed Test-tab run reads 'Last provider test failed · from the Test tab at <time> UTC' in the banner and the Test tab note", async () => {
+    const { sdb, env } = newHarness();
+    const offer = await seedEligibleDynamicOffer(env, sdb);
+    setVerdict(sdb, offer.public_id, "failed", FAILED_AT, "test");
+    const html = await getHtml(env, `/admin/leadgen/offers/${offer.public_id}/edit`);
+    const line = "Last provider test failed · from the Test tab at 2026-11-05 09:41 UTC";
+    expect(html).toContain('data-eligibility-banner="blocked"');
+    expect(html).toContain(`<li data-eligibility-reason="test_failed">${line}</li>`);
+    // the Test tab note carries the same words
+    const noteStart = html.indexOf("data-test-eligibility");
+    expect(noteStart).toBeGreaterThan(-1);
+    expect(html.slice(noteStart, html.indexOf("</p>", noteStart))).toContain(line);
+    // the banner's two buttons stay
+    expect(html).toContain("Open Payload Schema");
+    expect(html).toContain("Open Test tab");
+  });
+
+  it("a failed Test with no stored time stays plain 'Last provider test failed'", async () => {
+    const { sdb, env } = newHarness();
+    const offer = await seedEligibleDynamicOffer(env, sdb);
+    setVerdict(sdb, offer.public_id, "failed", null, "test");
+    const html = await getHtml(env, `/admin/leadgen/offers/${offer.public_id}/edit`);
+    expect(html).toContain('<li data-eligibility-reason="test_failed">Last provider test failed</li>');
+    expect(html).not.toContain("from the Test tab at");
+  });
+
+  it("FAIL-BEFORE/PASS-AFTER: QuinStreetHome ('failed' from a live request) is Eligible in the banner AND the Offers list, with no Blocked chip", async () => {
+    const { sdb, env } = newHarness();
+    const offer = await seedEligibleDynamicOffer(env, sdb);
+    await patchOffer(env, offer.public_id, { offer_name: "QuinStreetHome" });
+    setVerdict(sdb, offer.public_id, "failed", 1_793_800_800, "auction");
+
+    // the Offer editor (375px and 1280px render the same server markup)
+    const editor = await getHtml(env, `/admin/leadgen/offers/${offer.public_id}/edit`);
+    expect(editor).toContain('data-eligibility-banner="eligible"');
+    expect(editor).toContain("Eligible for live auction");
+    expect(editor).not.toContain('data-eligibility-banner="blocked"');
+    expect(editor).not.toContain("data-test-eligibility");
+    // the Payload tab chip agrees (no "failed")
+    expect(editor).toContain('data-pb-test-chip data-test-status="passed"');
+
+    // the Offers list: Eligible badge and a Passed Test chip — never "Blocked"
+    const row = listRow(await getHtml(env, "/admin/leadgen/offers"), offer.public_id);
+    expect(row).toContain('data-offer-eligibility="eligible"');
+    expect(row).not.toContain('data-offer-eligibility="blocked"');
+    expect(row).toContain('data-offer-test-status="passed"');
+
+    // the API both screens read
+    const detail = await getOfferJson(env, offer.public_id);
+    expect(detail.eligibility).toEqual({ eligible: true, reasons: [] });
+    const list = (await (await admin.request(`${API}/offers`, {}, env)).json()) as {
+      items: Array<{ public_id: string; eligibility: { eligible: boolean } | null; test_status: string }>;
+    };
+    const item = list.items.find((i) => i.public_id === offer.public_id);
+    expect(item?.eligibility?.eligible).toBe(true);
+    expect(item?.test_status).toBe("passed");
+  });
+
+  it("a failed Test-tab run: the list's Blocked chip, its Failed Test chip and the banner agree", async () => {
+    const { sdb, env } = newHarness();
+    const offer = await seedEligibleDynamicOffer(env, sdb);
+    setVerdict(sdb, offer.public_id, "failed", FAILED_AT, "test");
+    const editor = await getHtml(env, `/admin/leadgen/offers/${offer.public_id}/edit`);
+    expect(editor).toContain('data-eligibility-banner="blocked"');
+    const row = listRow(await getHtml(env, "/admin/leadgen/offers"), offer.public_id);
+    expect(row).toContain('data-offer-eligibility="blocked"');
+    expect(row).toContain('data-offer-test-status="failed"');
+  });
+
+  it("a never-tested Offer is still blocked everywhere ('Provider test has not been run yet')", async () => {
+    const { sdb, env } = newHarness();
+    const offer = await seedEligibleDynamicOffer(env, sdb);
+    setVerdict(sdb, offer.public_id, null, null, null);
+    const editor = await getHtml(env, `/admin/leadgen/offers/${offer.public_id}/edit`);
+    expect(editor).toContain('<li data-eligibility-reason="test_untested">Provider test has not been run yet</li>');
+    const row = listRow(await getHtml(env, "/admin/leadgen/offers"), offer.public_id);
+    expect(row).toContain('data-offer-eligibility="blocked"');
+    expect(row).toContain('data-offer-test-status="untested"');
+  });
+});
+
+// ---------------------------------------------------------------------------
 // Phase 3 (fix-contract v2.4 · 07) — offer management UI
 // ---------------------------------------------------------------------------
 

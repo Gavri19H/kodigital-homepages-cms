@@ -449,6 +449,33 @@ describeDb("leadgen auctions API — participating offers (§18.5 replace-set)",
     expect(j.items[0]!.offer_id).toBe(o1.offer_id);
     expect(j.items[0]!.last_test_status).toBe("untested");
   });
+
+  // X11 (OWNER 2026-11-05): Auction → Participating Offers shows the same
+  // last-test value the gate acts on. A 'failed' left by a live visitor's
+  // request (the QuinStreetHome row) counts as tested; a failed Test-tab run
+  // still reads 'failed'.
+  it("FAIL-BEFORE/PASS-AFTER: last_test_status agrees with the gate — a live request's 'failed' reads 'passed', a Test-tab 'failed' stays 'failed'", async () => {
+    const { env, sdb } = newHarness();
+    const quote = await createQuote(env, { activity: "quote_funnel", verticals: ["life"] });
+    const { json } = await createAuction(env, { auction_name: "A", quote_id: quote.id });
+    const live = seedOfferWithPlacement(sdb, { activity: "quote_funnel", vertical: "life" });
+    const tested = seedOfferWithPlacement(sdb, { activity: "quote_funnel", vertical: "life" });
+    const setVerdict = sdb.prepare(
+      "UPDATE leadgen_offers SET last_test_status = 'failed', last_test_at = 1793800800, last_test_source = ? WHERE id = ?",
+    );
+    setVerdict.run("auction", live.offer_id);
+    setVerdict.run("test", tested.offer_id);
+    await admin.request(
+      `${API}/auctions/${json.public_id}/offers`,
+      jsonInit("PUT", { offers: [{ offer_placement_id: live.placement_id }, { offer_placement_id: tested.placement_id }] }),
+      env,
+    );
+    const res = await admin.request(`${API}/auctions/${json.public_id}/offers`, {}, env);
+    const j = (await res.json()) as { items: Array<Record<string, unknown>> };
+    const byOffer = new Map(j.items.map((i) => [i["offer_id"], i["last_test_status"]]));
+    expect(byOffer.get(live.offer_id)).toBe("passed");
+    expect(byOffer.get(tested.offer_id)).toBe("failed");
+  });
 });
 
 // --- Rules (§21) + §21.4 conditions + conflict flag --------------------------

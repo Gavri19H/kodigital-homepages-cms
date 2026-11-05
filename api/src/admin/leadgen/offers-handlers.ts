@@ -85,6 +85,7 @@ import {
   LEADGEN_TEST_STATUS_SUBSELECT,
   LEADGEN_TOKEN_PLACEMENTS,
   LEADGEN_TRACKING_METHODS,
+  effectiveLeadgenTestStatus,
   evaluateDynamicOffersEligibility,
   isAbsoluteHttpUrl,
   isValidTimezone,
@@ -379,18 +380,27 @@ async function offerEligibilityVerdicts(
 // blank after a week, right as the Offer silently became ineligible. It now
 // reads the durable verdict timestamp (migration 0057), the same column
 // LEADGEN_TEST_STATUS_SUBSELECT resolves, so the display and the gate can
-// never disagree. Fail-open: a read error yields null.
-async function offerLastTestAt(db: D1Database, offerPublicId: string): Promise<string | null> {
+// never disagree. Fail-open: a read error yields nulls.
+// X11 (OWNER 2026-11-05, decision 3): `last_test_source` ('test' | 'auction')
+// rides beside it, so the "Blocked from live auction" banner and the Test tab
+// note can say a failure came "from the Test tab at <time> UTC".
+async function offerLastTest(
+  db: D1Database,
+  offerPublicId: string,
+): Promise<{ last_test_at: string | null; last_test_source: string | null }> {
   try {
     const row = await db
-      .prepare("SELECT last_test_at AS t FROM leadgen_offers WHERE public_id = ?")
+      .prepare("SELECT last_test_at AS t, last_test_source AS src FROM leadgen_offers WHERE public_id = ?")
       .bind(offerPublicId)
-      .first<{ t: number | null }>();
+      .first<{ t: number | null; src: string | null }>();
     const t = row?.t;
-    return typeof t === "number" && Number.isFinite(t) ? new Date(t * 1000).toISOString() : null;
+    return {
+      last_test_at: typeof t === "number" && Number.isFinite(t) ? new Date(t * 1000).toISOString() : null,
+      last_test_source: typeof row?.src === "string" ? row.src : null,
+    };
   } catch (err) {
     console.warn("[lg-last-test] loader failed", err instanceof Error ? err.name : String(err));
-    return null;
+    return { last_test_at: null, last_test_source: null };
   }
 }
 
@@ -737,7 +747,7 @@ async function offerBuilderContext(
 // headers + region rules ride the editor tabs, §10.4/§11.3 — no dedicated
 // routes in 03 §8.2) + the additive 05 §5.1 `eligibility` verdict + the
 // additive Phase-2 `builder_context` projection (above) + the additive §6.1
-// `last_test_at` timestamp.
+// `last_test_at` timestamp + (X11) the additive `last_test_source`.
 async function offerDetailJson(
   db: D1Database,
   row: LeadgenOfferRow,
@@ -758,7 +768,7 @@ async function offerDetailJson(
     region_rules: (rules.results ?? []).map(regionRuleRowToApi),
     eligibility: eligibility.get(row.id) ?? null,
     builder_context: await offerBuilderContext(db, row),
-    last_test_at: await offerLastTestAt(db, row.public_id),
+    ...(await offerLastTest(db, row.public_id)),
   };
 }
 
@@ -774,6 +784,7 @@ type LeadgenOfferListRow = LeadgenOfferRow & {
   default_placement_id: string | null;
   default_placement_public_id: string | null;
   test_status: LeadgenOfferTestStatus | null;
+  test_source: string | null;
 };
 
 export async function listOffersHandler(c: AdminContext): Promise<Response> {
@@ -840,7 +851,7 @@ export async function listOffersHandler(c: AdminContext): Promise<Response> {
 
   const rows = await c.env.DB.prepare(
     `SELECT o.*, dp.placement_id AS default_placement_id, dp.public_id AS default_placement_public_id,
-            ${LEADGEN_TEST_STATUS_SUBSELECT} AS test_status
+            ${LEADGEN_TEST_STATUS_SUBSELECT} AS test_status, o.last_test_source AS test_source
      FROM leadgen_offers o
      LEFT JOIN leadgen_offer_placements dp ON dp.offer_id = o.id AND dp.is_default = 1
      WHERE ${clause} ORDER BY o.updated_at DESC, o.id DESC LIMIT ? OFFSET ?`,
@@ -866,10 +877,11 @@ export async function listOffersHandler(c: AdminContext): Promise<Response> {
       default_placement_id: row.default_placement_id ?? null,
       default_placement_public_id: row.default_placement_public_id ?? null,
       eligibility: eligibility.get(row.id) ?? null,
-      // F5 (07 §7.1): the additive Test-status chip value — the canonical
-      // LEADGEN_TEST_STATUS_SUBSELECT derivation (newest TEST-TOOL run:
-      // 2xx → passed, non-2xx → failed); no rows → untested.
-      test_status: (row.test_status ?? "untested") as LeadgenOfferTestStatus,
+      // F5 (07 §7.1): the additive Test-status chip value — the durable
+      // verdict on the Offer (LEADGEN_TEST_STATUS_SUBSELECT); NULL → untested.
+      // X11: read through the gate's own rule, so a 'failed' a live request
+      // left behind shows "Passed" beside the "Eligible" badge, never "Failed".
+      test_status: effectiveLeadgenTestStatus(row.test_status, row.test_source) ?? "untested",
     })),
     paging: buildPaging(page, pageSize, total),
   });

@@ -596,6 +596,32 @@ export function validateOfferCapFields(raw: LeadgenCapFieldsInput): FieldErrors 
 
 export type LeadgenOfferTestStatus = "untested" | "passed" | "failed";
 
+// X11 (OWNER 2026-11-05, Slack #haikov-support): Offer "QuinStreetHome" showed
+// "Blocked from live auction: Last provider test failed" though nobody had run
+// a Test or edited it. From #189 (3 Sep) the live auction saved 'failed' on
+// the Offer whenever ONE visitor's provider request answered non-2xx; the gate
+// then never called the Provider again, so the Offer could never recover.
+//
+// Only an operator's Test may block an Offer (owner decision 1). The live
+// write now refreshes 'passed' only (engine persistAuctionResult). A 'failed'
+// the live auction already left behind (`last_test_source` = 'auction') counts
+// as tested (owner decision 2): reading it as 'passed' is exactly what the row
+// would hold had the live failure never been written, since a live call only
+// happens for an Offer that was already eligible. The next live 2xx rewrites
+// the row. A 'failed' with any other source — 'test', or NULL/unknown (no
+// writer leaves that shape; only a hand edit could) — still blocks: the safe
+// side for a gate that decides which Offers may earn money.
+//
+// Every surface that shows or acts on the Test status goes through this one
+// rule, so the auction, the Simulator, the Offer banner, the Offers list and
+// Auction → Participating Offers always agree.
+export function effectiveLeadgenTestStatus(
+  status: LeadgenOfferTestStatus | null,
+  source: string | null | undefined,
+): LeadgenOfferTestStatus | null {
+  return status === "failed" && source === "auction" ? "passed" : status;
+}
+
 export type LeadgenDynamicIneligibilityReason =
   | "no_active_schema"
   | "schema_validation_errors"
@@ -646,8 +672,10 @@ function headersInvalid(
 
 // §11.8 + 05 §5.1: an Offer with calls_provider_api=1 cannot go live in a
 // DYNAMIC auction while its active payload schema has validation errors, an
-// untested/failed Test status, no endpoint for the selected environment,
-// unresolvable headers, or a missing/invalid response parser. Pure verdict —
+// untested Test status or a failed operator Test (X11: pass `lastTestSource`,
+// the Offer's `last_test_source`; a 'failed' from 'auction' does not block,
+// and an omitted source is treated like 'test'), no endpoint for the selected
+// environment, unresolvable headers, or a missing/invalid response parser. Pure verdict —
 // P9/P10 (auction config save + runtime candidate selection) + the R5
 // activation preflight consume it. Offers that do not call a provider are
 // outside this gate (they carry no payload schema; their surfacing is the
@@ -658,6 +686,7 @@ export function dynamicAuctionEligibility(
   schemaValidation: LeadgenPayloadSchemaValidation | null,
   lastTestStatus: LeadgenOfferTestStatus | null,
   extras?: LeadgenDynamicEligibilityExtras,
+  lastTestSource?: string | null,
 ): LeadgenDynamicEligibilityVerdict {
   if (asToggle(offer.calls_provider_api) !== true) {
     return { eligible: true, reasons: [] };
@@ -668,9 +697,10 @@ export function dynamicAuctionEligibility(
   } else if (!schemaValidation.ok) {
     reasons.push("schema_validation_errors");
   }
-  if (lastTestStatus === null || lastTestStatus === "untested") {
+  const testStatus = effectiveLeadgenTestStatus(lastTestStatus, lastTestSource);
+  if (testStatus === null || testStatus === "untested") {
     reasons.push("test_untested");
-  } else if (lastTestStatus === "failed") {
+  } else if (testStatus === "failed") {
     reasons.push("test_failed");
   }
   if (extras !== undefined) {
@@ -709,10 +739,22 @@ export interface LeadgenOfferEligibilityRow {
   verdict: LeadgenDynamicEligibilityVerdict;
 }
 
-// The Offer's Test status: 'passed' (the last provider call answered 2xx),
-// 'failed' (it answered non-2xx), or NULL = never tested. A transport error —
-// the request never returned — writes NO verdict and leaves the last real
-// answer standing (m4: both non-passed values block eligibility identically).
+// The Offer's Test status: 'passed', 'failed', or NULL = never tested, with
+// `last_test_at` (when) and `last_test_source` (who wrote it). Writers:
+//   - the Test tab, Environment "Production" only (X11 decision 4): a 2xx
+//     writes 'passed', a non-2xx writes 'failed', source 'test'. A "Staging"
+//     run never writes it — the live auction runs against production.
+//   - a live visitor's provider call (engine persistAuctionResult): a 2xx
+//     writes 'passed', source 'auction'. Since X11 a live non-2xx writes
+//     NOTHING here (decision 1): one visitor's bad answer must never switch an
+//     Offer off for everyone. The request log still records every answer.
+//   - a transport error (no status code, either path) writes nothing and
+//     leaves the last real answer standing.
+// So a 'failed' can only block when an operator's Test produced it. Read this
+// column TOGETHER with `last_test_source` and pass both to
+// dynamicAuctionEligibility / effectiveLeadgenTestStatus: a 'failed' with
+// source 'auction' was left by the pre-X11 live write and counts as tested.
+//
 // OWNER 2026-09-03 ("No results at all appear now, when the funnel is
 // complete"): this USED to read the newest Test-tool row out of
 // `leadgen_provider_request_log` — a table the §30.3 retention cron prunes to
@@ -722,7 +764,7 @@ export interface LeadgenOfferEligibilityRow {
 // that decides whether an Offer may earn money cannot read a log with a TTL.
 //
 // The verdict is now a DURABLE column on the Offer (migration 0057), written
-// when a Test runs and when a live auction call succeeds. NULL still means
+// when a Production Test runs and when a live auction call succeeds. NULL still means
 // "never tested" — the eligibility verdict for NULL is unchanged, so a
 // genuinely untested Offer is still refused.
 export const LEADGEN_TEST_STATUS_SUBSELECT = `o.last_test_status`;
@@ -750,6 +792,7 @@ export async function evaluateDynamicOffersEligibility(
     schema_json: string | null;
     carrier_parse_json: string | null;
     last_test_status: LeadgenOfferTestStatus | null;
+    last_test_source: string | null;
   }
   const rows: OfferEligibilityQueryRow[] = [];
   for (let i = 0; i < unique.length; i += 80) {
@@ -760,7 +803,7 @@ export async function evaluateDynamicOffersEligibility(
         `SELECT o.id, o.public_id, o.offer_name, o.calls_provider_api, o.active_payload_schema_id,
                 o.endpoint_production, o.endpoint_staging,
                 s.schema_json AS schema_json, s.carrier_parse_json AS carrier_parse_json,
-                ${LEADGEN_TEST_STATUS_SUBSELECT} AS last_test_status
+                ${LEADGEN_TEST_STATUS_SUBSELECT} AS last_test_status, o.last_test_source AS last_test_source
            FROM leadgen_offers o
            LEFT JOIN leadgen_offer_payload_schemas s ON s.id = o.active_payload_schema_id
           WHERE o.id IN (${marks})`,
@@ -819,6 +862,7 @@ export async function evaluateDynamicOffersEligibility(
         headers: headersByOffer.get(r.id) ?? [],
         carrier_parse: carrierParse,
       },
+      r.last_test_source,
     );
     out.set(r.id, {
       offer_id: r.id,

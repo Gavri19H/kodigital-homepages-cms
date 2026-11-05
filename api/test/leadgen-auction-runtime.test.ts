@@ -1655,6 +1655,128 @@ describeDb("§5.1 eligibility survives the §30.3 retention prune (OWNER 2026-09
 });
 
 // ===========================================================================
+// X11 (OWNER 2026-11-05, Slack #haikov-support): Offer "QuinStreetHome" showed
+// "Blocked from live auction: Last provider test failed" with no Test run and
+// no CMS edit, and QuinStreet traffic in the Home insurance funnel stopped.
+// Since #189 every live call that got a non-2xx answer saved 'failed' on the
+// Offer; the step-5.5 gate then never called the Provider again, so nothing
+// could ever write 'passed' back. Now a live call only refreshes 'passed', and
+// a 'failed' left by a live call counts as tested. Driven through the REAL
+// pipeline (gate → provider call → persistAuctionResult → the next auction)
+// with stubbed Provider answers.
+// ===========================================================================
+describeDb("X11 — a live visitor's failed request never blocks the Offer", () => {
+  // 2026-11-04 14:00 UTC — about when QuinStreetHome was switched off.
+  const STUCK_AT = 1_793_800_800;
+
+  function harness(): { sdb: SqliteDb; env: Env } {
+    const sdb = createLeadgenDb(DatabaseSync as DatabaseSyncCtor);
+    const { kv } = makeKvStub();
+    return { sdb, env: buildEnv(d1FromSqlite(sdb), kv) };
+  }
+
+  async function visitorAuction(env: Env, auction: LeadgenAuctionRow) {
+    return runAuction(
+      env,
+      { resolved: makeResolved(), bundle: await loadAuctionBundle(env.DB, auction, 1), environment: "production", binding: NO_BINDING, session_id: "s1", raw_answers: {}, clicked: [] },
+      { dryRun: true },
+    );
+  }
+
+  function storedVerdict(sdb: SqliteDb, offerPublicId: string): { status: string | null; at: number | null; source: string | null } {
+    return sdb
+      .prepare("SELECT last_test_status AS status, last_test_at AS at, last_test_source AS source FROM leadgen_offers WHERE public_id = ?")
+      .get(offerPublicId) as { status: string | null; at: number | null; source: string | null };
+  }
+
+  function excludedReasons(result: { explain: { offers_excluded: Array<{ reason: string }> } }): string {
+    return result.explain.offers_excluded.map((o) => o.reason).join(",");
+  }
+
+  it.each([400, 429, 500, 503])(
+    "FAIL-BEFORE/PASS-AFTER: a live %i leaves the Offer as it was, and the next auction still calls the Provider",
+    async (code) => {
+      const { sdb, env } = harness();
+      const auction = seedAuction(sdb);
+      const offer = seedOffer(sdb); // a passed Test-tab verdict: eligible and serving
+      attachOffer(sdb, auction.id, offer, 0);
+      sdb.prepare("UPDATE leadgen_offers SET last_test_at = ? WHERE public_id = ?").run(STUCK_AT, offer.offer_public_id);
+      const before = storedVerdict(sdb, offer.offer_public_id);
+      expect(before).toEqual({ status: "passed", at: STUCK_AT, source: "test" });
+
+      // visitor 1: the Provider rejects this one request
+      const rejected = stubFetch(() => new Response(JSON.stringify({ error: "rejected" }), { status: code }));
+      const first = await visitorAuction(env, auction);
+      expect(rejected.length, "the eligible Offer was called").toBe(1);
+      await persistAuctionResult(env, first);
+
+      // the answer is still logged with its status code, exactly as before…
+      const logged = sdb
+        .prepare("SELECT status_code, auction_instance_id FROM leadgen_provider_request_log WHERE offer_public_id = ? AND auction_instance_id IS NOT NULL")
+        .all(offer.offer_public_id);
+      expect(logged).toEqual([{ status_code: code, auction_instance_id: first.auction_instance_id }]);
+      // …but the Offer's Test status is untouched
+      expect(storedVerdict(sdb, offer.offer_public_id), "a live non-2xx writes nothing to the Offer").toEqual(before);
+
+      // visitor 2: the gate lets the Offer in and the Provider is called again
+      const served = stubFetch(() => new Response(carrierBody([{ name: "Acme", bid: 12 }]), { status: 200 }));
+      const second = await visitorAuction(env, auction);
+      expect(excludedReasons(second)).not.toContain("test_failed");
+      expect(served.length, "the next auction still calls the Provider").toBe(1);
+      expect(second.status).toBe("ok");
+      expect(second.explain.carriers_shown.length).toBeGreaterThan(0);
+    },
+  );
+
+  it("FAIL-BEFORE/PASS-AFTER: QuinStreetHome stored 'failed' by a live request is called again; a timeout writes nothing; a live 2xx rewrites 'passed'", async () => {
+    const { sdb, env } = harness();
+    const auction = seedAuction(sdb, { timeout_ms: 50 });
+    const offer = seedOffer(sdb);
+    attachOffer(sdb, auction.id, offer, 0);
+    // the live row on 5 Nov: 'failed', written by a live visitor's request
+    sdb
+      .prepare("UPDATE leadgen_offers SET offer_name = 'QuinStreetHome', last_test_status = 'failed', last_test_at = ?, last_test_source = 'auction' WHERE public_id = ?")
+      .run(STUCK_AT, offer.offer_public_id);
+
+    // visitor 1: the gate lets QuinStreetHome in; QuinStreet is slow and times out
+    const slow = stubFetch(() => new Promise<Response>(() => {}));
+    const first = await visitorAuction(env, auction);
+    expect(excludedReasons(first), "a live request's 'failed' no longer blocks").not.toContain("test_failed");
+    expect(slow.length, "the Provider is called").toBe(1);
+    expect(first.explain.providers_responded[0]?.provider_error_reason).toBe("timeout");
+    await persistAuctionResult(env, first);
+    expect(storedVerdict(sdb, offer.offer_public_id), "a timeout writes nothing, as before").toEqual({
+      status: "failed",
+      at: STUCK_AT,
+      source: "auction",
+    });
+
+    // visitor 2: QuinStreet answers 200 → its cards show and the row heals
+    const answered = stubFetch(() => new Response(carrierBody([{ name: "Progressive", bid: 14 }]), { status: 200 }));
+    const second = await visitorAuction(env, auction);
+    expect(answered.length).toBe(1);
+    expect(second.status).toBe("ok");
+    expect(second.explain.carriers_shown.length).toBeGreaterThan(0);
+    await persistAuctionResult(env, second);
+    const healed = storedVerdict(sdb, offer.offer_public_id);
+    expect(healed.status).toBe("passed");
+    expect(healed.source).toBe("auction");
+    expect(healed.at ?? 0, "the live 2xx refreshed the time").toBeGreaterThan(STUCK_AT);
+  });
+
+  it("the gate keeps its teeth: a failed Test-tab run still blocks, and the Provider is never called", async () => {
+    const { sdb, env } = harness();
+    const auction = seedAuction(sdb);
+    const offer = seedOffer(sdb, { testStatus: "failed" }); // source 'test'
+    attachOffer(sdb, auction.id, offer, 0);
+    const calls = stubFetch(() => new Response(carrierBody([{ name: "Acme", bid: 12 }]), { status: 200 }));
+    const result = await visitorAuction(env, auction);
+    expect(excludedReasons(result)).toContain("test_failed");
+    expect(calls.length, "a failed Test keeps the Provider uncalled").toBe(0);
+  });
+});
+
+// ===========================================================================
 // OWNER 2026-09-27 — the banner creative of a "Static — no provider request"
 // Offer (0060). His screenshot: the Fora card rendered as the word "Impact"
 // (the Provider field) over the CTA, with no logo or copy, beside a Fundera
