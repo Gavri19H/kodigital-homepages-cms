@@ -1953,7 +1953,7 @@ export async function runAuction(
       const dropped = carrierMeta.get(metaKey(d.dropped.offer_public_id, d.dropped.carrier_key));
       const kept = carrierMeta.get(metaKey(d.kept.offer_public_id, d.kept.carrier_key));
       return {
-        carrier_name: (typeof dropped?.parsed.carrier_name === "string" ? dropped.parsed.carrier_name : null) ?? d.carrier_identity,
+        carrier_name: typeof dropped?.parsed.carrier_name === "string" && dropped.parsed.carrier_name.trim() !== "" ? dropped.parsed.carrier_name.trim() : d.carrier_identity,
         dropped: { offer_id: d.dropped.offer_public_id, offer_name: dropped?.offer.offer.offer_name ?? null, carrier_key: d.dropped.carrier_key, bid: d.dropped.bid },
         kept: { offer_id: d.kept.offer_public_id, offer_name: kept?.offer.offer.offer_name ?? null, carrier_key: d.kept.carrier_key, bid: d.kept.bid },
       };
