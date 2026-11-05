@@ -23,7 +23,7 @@ Per Offer, eligible carriers = passed floor + carrier rules; bids USD-normalized
 Worked example (`percentage_of_max`, `floor_value=10`): X[A 12, B 3], Y[C 9, D 8, E 7.5], Z[F 11] → highest_bid→X, average_bid→Z, sum_bids→Y.
 
 ### 18.5 Multi-offer + surfacing + limits (issue 18)
-`multi_offer`: `disabled` (winner only) | `enabled` (all carriers, bid order) | `enabled_unique` (all, deduped by `carrier_key`). Hard limits enforced during surfacing: `max_carriers_per_offer`, `max_total_carriers`, and `banner_slots_count` (rendered slots). `render_mode`: `all_at_once` | `progressive`.
+`multi_offer`: `disabled` (winner only) | `enabled` (all carriers, bid order) | `enabled_unique` (all, each Carrier **once across all Offers and Providers**, matched by its **carrier identity** — §18.8; amended X10, owner 2026-11-05: deduping by `carrier_key` alone let the same Carrier through from two Providers, because each Provider has its own id for it). The static/CPL merge (§18.2) also dedupes by carrier identity, in every mode, so two Static Offers from one Provider with different Brand names both show. The copy kept is the first in bid order: inside the provider pool the higher bid; a provider (CPC) copy beats a static/CPL copy. Each dropped copy is listed in the explain trace (`carriers_deduplicated`) and shown in the Simulator. Hard limits enforced during surfacing: `max_carriers_per_offer`, `max_total_carriers`, and `banner_slots_count` (rendered slots). `render_mode`: `all_at_once` | `progressive`.
 
 ### 18.6 Backfill (issue 18 — precise)
 `backfill`: `disabled` | `enabled` | `enabled_unique` (dedupe by `carrier_key`). `backfill_source_offer_id` = designated source (NULL → all remaining Offers in bid order). `backfill_trigger`: `on_slot_exhaustion` | `on_click` | `on_dismiss`.
@@ -33,7 +33,7 @@ Worked example (`percentage_of_max`, `floor_value=10`): X[A 12, B 3], Y[C 9, D 8
 `remove_clicked_offers` + `removal_scope` (default **`offer`** — a click suppresses the whole clicked Offer, not just one carrier; `carrier` suppresses only that `carrier_key`). Tracked in `leadgen_session_clicked_offers` (`carrier_key NOT NULL DEFAULT ''`, `''` when scope=offer). Consulted on backfill + subsequent instances in the session.
 
 ### 18.8 Carrier identity (issue 20 — normative)
-Every parsed carrier gets a `carrier_key` used for `enabled_unique`, `backfill_unique`, and all carrier analytics:
+Every parsed carrier gets a `carrier_key` used for clicks, remove-clicked, impressions, carrier rules and all carrier analytics. **Carrier identity (amended X10, owner 2026-11-05)** is separate and used ONLY for "the same Carrier" checks (`enabled_unique`, the static/CPL merge, `backfill` `enabled_unique`): the Carrier's shown name (parsed `carrier_name`; for a Static Offer the Brand name, else Provider, else Offer name), lowercased, letters and numbers only ("Kin", "kin", "KIN." → `kin`); when the name is empty it falls back to `carrier_key`. Exact match after cleaning — no alias list. `carrier_key` is unchanged by this. Identity rules for `carrier_key`:
 - `carrier_key_source`: `provider_id` (provider supplied a stable id) | `slug` (derived) | `slug_logo` (slug + logo hash).
 - `carrier_key`: the provider id if present; else `slug(carrier_name)` = lowercase, trim, non-alphanumerics→`-`; `+` first-8 hex of SHA-256(logo_url) when disambiguation needed.
 - `carrier_normalization_version` (on the auction) versions the algorithm so a change is auditable and doesn't silently merge history.

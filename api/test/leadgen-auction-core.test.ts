@@ -350,7 +350,8 @@ describe("toAuctionCarrier bridge", () => {
       bid: 42, // native — replaced by the USD bid the caller passes
     };
     const ac = toAuctionCarrier(parsed, "offer_1", 12.5);
-    expect(ac).toEqual({ carrier_key: "acme", offer_public_id: "offer_1", bid: 12.5 });
+    // X10: the shown carrier_name also becomes the uniqueness identity.
+    expect(ac).toEqual({ carrier_key: "acme", offer_public_id: "offer_1", bid: 12.5, carrier_identity: "acme" });
   });
 
   it("collapses a non-positive/invalid USD bid to 0 (§18.4)", () => {

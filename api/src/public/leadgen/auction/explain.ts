@@ -34,6 +34,22 @@ export interface ExplainFilteredCarrier {
 
 // §19.2 "requested (payload + redacted headers)" — the auction-side reference
 // to a provider_request_log row (the redacted payload/headers live there).
+// X10 decision 4 (owner 2026-11-05): a copy surfacing dropped because the
+// same Carrier was already on the page ("Enabled (unique by carrier)", or the
+// static/CPL merge). The Simulator shows one line per entry.
+export interface ExplainDeduplicatedCarrierSide {
+  offer_id: string;
+  offer_name: string | null;
+  carrier_key: string;
+  bid: number;
+}
+
+export interface ExplainDeduplicatedCarrier {
+  carrier_name: string;
+  dropped: ExplainDeduplicatedCarrierSide;
+  kept: ExplainDeduplicatedCarrierSide;
+}
+
 export interface ExplainProviderRequested {
   offer_id: string;
   provider_request_id: string;
@@ -90,6 +106,8 @@ export interface AuctionExplainTrace {
   // §19.2 extras (surfaced from provider_request_log + carrier_filtered events;
   // NOT result-log columns).
   carriers_filtered: ExplainFilteredCarrier[];
+  // X10: copies dropped as the same Carrier (not a result-log column).
+  carriers_deduplicated: ExplainDeduplicatedCarrier[];
   providers_requested: ExplainProviderRequested[];
   providers_responded: ExplainProviderResponded[];
   // 0062 (result-log column waterfall_json); null when no waterfall applied.
@@ -113,6 +131,7 @@ export interface ExplainTraceInput {
   banner_render_ids?: readonly string[];
   unfilled_reason?: string | null;
   carriers_filtered?: readonly ExplainFilteredCarrier[];
+  carriers_deduplicated?: readonly ExplainDeduplicatedCarrier[];
   providers_requested?: readonly ExplainProviderRequested[];
   providers_responded?: readonly ExplainProviderResponded[];
   waterfall?: AuctionWaterfallTrace | null;
@@ -137,6 +156,7 @@ export function buildExplainTrace(input: ExplainTraceInput): AuctionExplainTrace
     banner_render_ids: [...(input.banner_render_ids ?? [])],
     unfilled_reason: input.unfilled_reason ?? null,
     carriers_filtered: [...(input.carriers_filtered ?? [])],
+    carriers_deduplicated: [...(input.carriers_deduplicated ?? [])],
     providers_requested: [...(input.providers_requested ?? [])],
     providers_responded: [...(input.providers_responded ?? [])],
     waterfall: input.waterfall ?? null,

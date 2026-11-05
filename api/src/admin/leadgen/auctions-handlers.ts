@@ -2169,6 +2169,8 @@ export async function auctionSimulateHandler(c: AdminContext): Promise<Response>
     providers_responded: result.explain.providers_responded,
     carriers_shown: result.explain.carriers_shown,
     carriers_filtered: result.explain.carriers_filtered,
+    // X10 decision 4: copies hidden as the same Carrier (one Simulator line each)
+    carriers_deduplicated: result.explain.carriers_deduplicated,
     banner_render_ids: result.explain.banner_render_ids,
     banners: result.banners.map((b) => ({
       slot: b.slot,

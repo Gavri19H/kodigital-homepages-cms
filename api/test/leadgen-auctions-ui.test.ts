@@ -940,6 +940,27 @@ describeDb("auction Add-a-rule form — offers by name, Tier-level, readable rul
     expect(html).toContain("not_eligible: 'the visitor matches none of the funnel");
   });
 
+  // X10 decision 4 (owner 2026-11-05): the Simulator says when a card was
+  // hidden because the same carrier was already on the page.
+  it("X10: the Simulator names each copy hidden as the same carrier", async () => {
+    const { html } = await editor();
+    const src = /function simDuplicateLine\(dup\) \{[^\n]*\}/.exec(html)?.[0];
+    expect(src).toBeDefined();
+    const line = new Function(`${src}; return simDuplicateLine;`)() as (d: unknown) => string;
+    expect(line({
+      carrier_name: "Kin",
+      dropped: { offer_id: "lgo_1", offer_name: "AdsByMoneyHome", carrier_key: "kin-homeowners-insurance-review" },
+      kept: { offer_id: "lgo_2", offer_name: "QuinStreetHome", carrier_key: "Kin Insurance" },
+    })).toBe("Kin from AdsByMoneyHome: same carrier as QuinStreetHome");
+    // an Offer without a name falls back to its id; a missing record never throws
+    expect(line({ carrier_name: "Kin", dropped: { offer_id: "lgo_1" }, kept: { offer_id: "lgo_2" } })).toBe("Kin from lgo_1: same carrier as lgo_2");
+    expect(line(null)).toBe("carrier from an offer: same carrier as another offer");
+    // the results panel lists one line per hidden copy from the simulate answer
+    expect(html).toContain("var dups = body.carriers_deduplicated || [];");
+    expect(html).toContain("dupItem.appendChild(document.createTextNode(simDuplicateLine(dups[di])));");
+    expect(html).toContain("'Same carrier shown once (' + dups.length + ' hidden):'");
+  });
+
   // PM follow-up (review): the Simulator runs a funnel's rules — pick which.
   it("the Simulator offers the funnels that use this auction, plus auction rules only", async () => {
     const { env, sdb, html: before, auctionPub } = await editor();

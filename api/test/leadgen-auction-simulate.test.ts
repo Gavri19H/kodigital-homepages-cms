@@ -596,6 +596,65 @@ describeDb("leadgen /auctions/:id/simulate — §19.2 dry-run trace + no writes"
     expect(JSON.parse(sentSecond!).company.founded).toBe(yearsAgo(5));
   });
 
+  // X10 (owner 2026-11-05, insurissimo.com/lg/home-insurance): QuinStreet and
+  // AdsByMoney both return Kin, each with its OWN id for it, so "Enabled
+  // (unique by carrier)" showed Kin twice (271 of 537 live auctions repeated a
+  // Carrier, 29 Oct – 5 Nov). Each Carrier must show once, the higher bid
+  // stays, and the Simulator names the hidden copy (decision 4).
+  it("X10: unique by carrier shows Kin once across two Providers, and the Simulator names the hidden copy", async () => {
+    const { sdb, env } = harness();
+    const auction = seedAuction(sdb);
+    const withIdParser = JSON.stringify({ carriers_path: "carriers", fields: { provider_id: "id", carrier_name: "name", bid: "bid", click_url: "url" } });
+    const provider = (offerName: string, host: string) => {
+      const o = seedDynamicOffer(sdb);
+      sdb.prepare("UPDATE leadgen_offers SET offer_name = ?, endpoint_staging = ?, endpoint_production = ? WHERE id = ?").run(offerName, `https://${host}/quote`, `https://${host}/quote`, o.offer_id);
+      sdb.prepare("UPDATE leadgen_offer_payload_schemas SET carrier_parse_json = ? WHERE offer_id = ?").run(withIdParser, o.offer_id);
+      sdb.prepare("INSERT INTO leadgen_auction_offers (auction_id, offer_placement_id, offer_id, static_order, enabled) VALUES (?, ?, ?, 0, 1)").run(auction.id, o.placement_id, o.offer_id);
+      return o;
+    };
+    const quinstreet = provider("QuinStreetHome", "quinstreet.example");
+    const adsbymoney = provider("AdsByMoneyHome", "adsbymoney.example");
+    const listing = (id: string, name: string, bid: number) => ({ id, name, bid, url: `https://click.example/${encodeURIComponent(id)}` });
+    stubFetch((url) =>
+      new Response(
+        JSON.stringify({
+          carriers: url.includes("quinstreet")
+            ? [listing("Progressive", "Progressive", 4.1), listing("Kin Insurance", "Kin", 3.2)]
+            : [listing("kin-homeowners-insurance-review", "Kin", 3.6), listing("lemonade-home", "Lemonade", 1.5)],
+        }),
+        { status: 200 },
+      ),
+    );
+    type SimBody = {
+      carriers_shown: Array<{ carrier_key: string; offer_id: string; bid: number }>;
+      carriers_deduplicated: Array<{ carrier_name: string; dropped: { offer_name: string | null; carrier_key: string }; kept: { offer_name: string | null; carrier_key: string } }>;
+    };
+    const simulate = async (multiOffer: string): Promise<SimBody> => {
+      sdb.prepare("UPDATE leadgen_auctions SET multi_offer = ? WHERE id = ?").run(multiOffer, auction.id);
+      const res = await admin.request(`${API}/auctions/${auction.public_id}/simulate`, jsonInit("POST", { sample_answers: {} }), env);
+      expect(res.status, await res.clone().text()).toBe(200);
+      return (await res.json()) as SimBody;
+    };
+
+    const unique = await simulate("enabled_unique");
+    expect(unique.carriers_shown.map((c) => c.carrier_key)).toEqual(["Progressive", "kin-homeowners-insurance-review", "lemonade-home"]);
+    // decision 1: AdsByMoney's Kin (3.6) beats QuinStreet's (3.2)
+    expect(unique.carriers_shown.find((c) => c.carrier_key === "kin-homeowners-insurance-review")?.offer_id).toBe(adsbymoney.offer_public_id);
+    expect(unique.carriers_deduplicated).toEqual([
+      expect.objectContaining({
+        carrier_name: "Kin",
+        dropped: expect.objectContaining({ offer_name: "QuinStreetHome", carrier_key: "Kin Insurance" }),
+        kept: expect.objectContaining({ offer_name: "AdsByMoneyHome", carrier_key: "kin-homeowners-insurance-review" }),
+      }),
+    ]);
+
+    // "Enabled (all, bid order)" is unchanged: Kin from both Providers.
+    const all = await simulate("enabled");
+    expect(all.carriers_shown.map((c) => c.carrier_key)).toEqual(["Progressive", "kin-homeowners-insurance-review", "Kin Insurance", "lemonade-home"]);
+    expect(all.carriers_deduplicated).toEqual([]);
+    expect(quinstreet.offer_public_id).not.toBe(adsbymoney.offer_public_id);
+  });
+
   it("POST /simulate on an unknown auction is 404", async () => {
     const { env } = harness();
     const res = await admin.request(`${API}/auctions/${mintPublicId("auction")}/simulate`, jsonInit("POST", {}), env);

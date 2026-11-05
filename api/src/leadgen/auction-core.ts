@@ -48,20 +48,53 @@ export interface AuctionCarrier {
   bid: number;
   // The participating Offer this carrier was parsed from (public_id "lgo_…").
   offer_public_id: string;
+  // X10 (owner 2026-11-05) — "the same Carrier" for the UNIQUENESS checks
+  // only (multi_offer enabled_unique, the static/CPL merge, backfill
+  // enabled_unique): see `carrierIdentity`. carrier_key stays the identity for
+  // clicks, remove-clicked, impressions, carrier rules and analytics. Absent
+  // (a hand-built carrier) → carrier_key, which is the pre-X10 behaviour.
+  carrier_identity?: string;
+}
+
+// X10 (owner 2026-11-05): two Providers name the same Carrier with different
+// carrier_keys (QuinStreet `Kin Insurance`, AdsByMoney
+// `kin-homeowners-insurance-review`), so "unique by carrier" keyed on
+// carrier_key showed Kin twice — measured on "A Home Insurance" 29 Oct–5 Nov:
+// 271 of 537 auctions repeated a Carrier (Progressive, Kin, GEICO), every one
+// a QuinStreet copy + an AdsByMoney copy carrying the SAME carrier name.
+// The identity is the Carrier's shown name, lowercased, letters and numbers
+// only ("Kin", "kin", "KIN." → "kin"; owner decision 2: exact name after
+// cleaning, no alias list). No usable name → carrier_key (today's behaviour).
+export function carrierIdentity(carrierName: unknown, carrierKey: string): string {
+  if (typeof carrierName !== "string") return carrierKey;
+  const cleaned = carrierName.normalize("NFKC").toLowerCase().replace(/[^\p{L}\p{N}]/gu, "");
+  return cleaned === "" ? carrierKey : cleaned;
+}
+
+// The identity a uniqueness check compares (X10). Hand-built carriers without
+// `carrier_identity` compare carrier_key, exactly as before.
+function uniqueIdentity(carrier: { carrier_key: string; carrier_identity?: string }): string {
+  return carrier.carrier_identity ?? carrier.carrier_key;
 }
 
 // Bridge a canonical parse.ts carrier into the auction-core projection. The
 // USD bid + Offer association are supplied by the Phase 10 caller (FX + the
 // offer→carrier grouping are its responsibility); the carrier_key is carried
 // through verbatim (07 §18.8). Proves auction-core does NOT re-implement the
-// Carrier shape — it consumes parse.ts's.
+// Carrier shape — it consumes parse.ts's. X10: the shown `carrier_name`, when
+// passed, becomes the uniqueness identity.
 export function toAuctionCarrier(
-  carrier: Pick<LeadgenParsedCarrier, "carrier_key">,
+  carrier: Pick<LeadgenParsedCarrier, "carrier_key"> & { carrier_name?: string | null },
   offer_public_id: string,
   usdBid: number,
 ): AuctionCarrier {
   const bid = Number.isFinite(usdBid) && usdBid > 0 ? usdBid : 0;
-  return { carrier_key: carrier.carrier_key, bid, offer_public_id };
+  return {
+    carrier_key: carrier.carrier_key,
+    bid,
+    offer_public_id,
+    carrier_identity: carrierIdentity(carrier.carrier_name, carrier.carrier_key),
+  };
 }
 
 // One participating Offer + its eligible carriers (post-floor + post-carrier-
@@ -233,6 +266,22 @@ export interface SurfacedCarrier {
   source: SurfacedCarrierSource;
   // 1-based render slot (07 §19 step 14 assigns one carrier_impression per slot).
   slot: number;
+  // X10: carried through from the AuctionCarrier (absent → carrier_key).
+  carrier_identity?: string;
+}
+
+// X10 decision 4 (owner 2026-11-05): one record per copy surfacing dropped as
+// "the same Carrier" — the Simulator shows it as one line, so the next "why is
+// kin missing" question answers itself. `kept` is the copy that stayed.
+export interface SurfaceDuplicate {
+  carrier_identity: string;
+  dropped: AuctionCarrier;
+  kept: AuctionCarrier;
+}
+
+export interface SurfaceResult {
+  surfaced: SurfacedCarrier[];
+  duplicates: SurfaceDuplicate[];
 }
 
 export type SurfaceSettings = Pick<
@@ -263,10 +312,16 @@ function capPerOffer(carriers: readonly AuctionCarrier[], maxPerOffer: number): 
 // render:
 //   * multi_offer `disabled` → the winning Offer's carriers only;
 //     `enabled` → all CPC Offers' carriers in bid order;
-//     `enabled_unique` → same, deduped by carrier_key.
+//     `enabled_unique` → same, each Carrier once ACROSS all Offers/Providers
+//     (X10: compared by `carrier_identity`, the cleaned shown name).
 //   * when surface_static_bid_offers, the static/CPL-bid Offers' carriers are
-//     surfaced alongside by bid desc, ALWAYS deduped by carrier_key against
-//     the CPC pool (07 §18.2 CPL-merge default).
+//     surfaced alongside by bid desc, ALWAYS deduped against the CPC pool and
+//     each other (07 §18.2 CPL-merge default) — by `carrier_identity` in every
+//     mode (X10 decision 3: two Static Offers from ONE Provider with different
+//     Brand names no longer hide each other; the same Brand name still shows
+//     once).
+//   * which copy stays (X10 decision 1): the first in bid order — inside the
+//     CPC pool the higher bid; a CPC copy always beats a static/CPL copy.
 //   * limits: max_carriers_per_offer (per Offer) → max_total_carriers
 //     (surfaced) → banner_slots_count (rendered). Final slot count is the
 //     min of the last two.
@@ -275,6 +330,16 @@ export function surfaceCarriers(
   winnerOfferId: string | null,
   settings: SurfaceSettings,
 ): SurfacedCarrier[] {
+  return surfaceCarriersExplained(offers, winnerOfferId, settings).surfaced;
+}
+
+// `surfaceCarriers` plus the copies dropped as "the same Carrier" (X10
+// decision 4) — the engine passes these to the Simulator.
+export function surfaceCarriersExplained(
+  offers: readonly SurfaceOffer[],
+  winnerOfferId: string | null,
+  settings: SurfaceSettings,
+): SurfaceResult {
   const cpcOffers = offers.filter((o) => o.bid_source === "cpc");
   const staticOffers = offers.filter((o) => o.bid_source === "static");
 
@@ -302,15 +367,22 @@ export function surfaceCarriers(
   });
 
   const pool: Array<{ carrier: AuctionCarrier; source: SurfacedCarrierSource }> = [];
-  const seenKeys = new Set<string>();
+  const duplicates: SurfaceDuplicate[] = [];
+  // identity → the copy already in the pool (the one a later repeat yields to)
+  const seen = new Map<string, AuctionCarrier>();
   const dedupeCpc = settings.multi_offer === "enabled_unique";
   for (const entry of cpcRanked) {
-    if (dedupeCpc && seenKeys.has(entry.carrier.carrier_key)) continue;
+    const identity = uniqueIdentity(entry.carrier);
+    const kept = seen.get(identity);
+    if (dedupeCpc && kept !== undefined) {
+      duplicates.push({ carrier_identity: identity, dropped: entry.carrier, kept });
+      continue;
+    }
     pool.push(entry);
-    seenKeys.add(entry.carrier.carrier_key);
+    if (kept === undefined) seen.set(identity, entry.carrier);
   }
 
-  // --- static/CPL-bid merge (07 §18.2), always deduped by carrier_key -----
+  // --- static/CPL-bid merge (07 §18.2), always deduped (X10: by identity) --
   if (settings.surface_static_bid_offers) {
     const staticRanked: AuctionCarrier[] = [];
     for (const offer of staticOffers) {
@@ -320,9 +392,15 @@ export function surfaceCarriers(
     }
     staticRanked.sort(byBidDesc);
     for (const carrier of staticRanked) {
-      if (seenKeys.has(carrier.carrier_key)) continue; // CPL-merge dedupe
+      const identity = uniqueIdentity(carrier);
+      const kept = seen.get(identity);
+      if (kept !== undefined) {
+        // CPL-merge dedupe
+        duplicates.push({ carrier_identity: identity, dropped: carrier, kept });
+        continue;
+      }
       pool.push({ carrier, source: "static_bid" });
-      seenKeys.add(carrier.carrier_key);
+      seen.set(identity, carrier);
     }
   }
 
@@ -331,32 +409,36 @@ export function surfaceCarriers(
   const slotCap = Number.isFinite(settings.banner_slots_count) ? Math.floor(settings.banner_slots_count) : 0;
   const renderCap = Math.max(0, Math.min(totalCap, slotCap));
 
-  return pool.slice(0, renderCap).map((entry, index) => ({
+  const surfaced = pool.slice(0, renderCap).map((entry, index) => ({
     carrier_key: entry.carrier.carrier_key,
     offer_public_id: entry.carrier.offer_public_id,
     bid: entry.carrier.bid,
     source: entry.source,
     slot: index + 1,
+    ...(entry.carrier.carrier_identity !== undefined ? { carrier_identity: entry.carrier.carrier_identity } : {}),
   }));
+  return { surfaced, duplicates };
 }
 
 // ---------------------------------------------------------------------------
 // §18.6 Backfill
 // ---------------------------------------------------------------------------
 
-function dedupeByKey(carriers: readonly AuctionCarrier[]): AuctionCarrier[] {
+// X10: "unique" is by `carrier_identity` (absent → carrier_key, as before).
+function dedupeByIdentity(carriers: readonly AuctionCarrier[]): AuctionCarrier[] {
   const seen = new Set<string>();
   const out: AuctionCarrier[] = [];
   for (const carrier of carriers) {
-    if (seen.has(carrier.carrier_key)) continue;
-    seen.add(carrier.carrier_key);
+    const identity = uniqueIdentity(carrier);
+    if (seen.has(identity)) continue;
+    seen.add(identity);
     out.push(carrier);
   }
   return out;
 }
 
 // 07 §18.6 NORMATIVE "exhausted" test: at a trigger point the number of
-// eligible AND unique (by carrier_key) carriers remaining — after rules, caps,
+// eligible AND unique (by carrier identity, X10) carriers remaining — after rules, caps,
 // floor, and already-rendered/clicked removal — is LESS THAN the number of
 // empty banner slots (`banner_slots_count` minus rendered-unclicked). When
 // true, some slots will stay empty (unfilled → `all_carriers_shown`).
@@ -368,7 +450,7 @@ export function backfillExhausted(
   const slots = Number.isFinite(bannerSlotsCount) ? Math.floor(bannerSlotsCount) : 0;
   const rendered = Number.isFinite(renderedUnclicked) ? Math.floor(renderedUnclicked) : 0;
   const emptySlots = Math.max(0, slots - rendered);
-  return dedupeByKey(remaining).length < emptySlots;
+  return dedupeByIdentity(remaining).length < emptySlots;
 }
 
 export interface BackfillInput {
@@ -426,7 +508,9 @@ export interface BackfillResult {
 
 // 07 §18.6. `disabled` → no backfill attempted (never `all_carriers_shown`).
 // `enabled`/`enabled_unique` fill empty slots from `remaining` (excluding
-// already-rendered carrier_keys, deduped by carrier_key for `enabled_unique`),
+// already-rendered carrier_keys; `enabled_unique` also excludes a Carrier
+// already on screen and keeps one copy per Carrier — X10: by carrier
+// identity, so another Provider's copy of a rendered Carrier never backfills),
 // by bid desc, up to `max_total_carriers`. When the pool is exhausted before
 // the slots fill, the remaining empty slots carry reason `all_carriers_shown`.
 export function applyBackfill(input: BackfillInput): BackfillResult {
@@ -439,7 +523,11 @@ export function applyBackfill(input: BackfillInput): BackfillResult {
 
   const renderedKeys = new Set(input.rendered.map((c) => c.carrier_key));
   let pool = input.remaining.filter((c) => !renderedKeys.has(c.carrier_key));
-  if (input.mode === "enabled_unique") pool = dedupeByKey(pool);
+  if (input.mode === "enabled_unique") {
+    const renderedIdentities = new Set(input.rendered.map((c) => uniqueIdentity(c)));
+    // Sort BEFORE the dedupe so the copy kept per Carrier is the higher bid.
+    pool = dedupeByIdentity([...pool].sort(byBidDesc).filter((c) => !renderedIdentities.has(uniqueIdentity(c))));
+  }
   pool = [...pool].sort(byBidDesc);
 
   const totalCap = Number.isFinite(input.maxTotalCarriers) ? Math.floor(input.maxTotalCarriers) : 0;
@@ -452,6 +540,7 @@ export function applyBackfill(input: BackfillInput): BackfillResult {
     bid: carrier.bid,
     source: "backfill",
     slot: input.rendered.length + index + 1,
+    ...(carrier.carrier_identity !== undefined ? { carrier_identity: carrier.carrier_identity } : {}),
   }));
 
   const unfilled_slots = emptySlots - filled.length;

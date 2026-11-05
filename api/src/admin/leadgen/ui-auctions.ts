@@ -1930,6 +1930,8 @@ const AUCTION_EDITOR_SCRIPT = `
     }
     host.appendChild(card);
   }
+  // X10 decision 4: "<carrier> from <hidden offer>: same carrier as <kept offer>".
+  function simDuplicateLine(dup) { var d = dup || {}; var dr = d.dropped || {}; var kp = d.kept || {}; return (d.carrier_name || dr.carrier_key || 'carrier') + ' from ' + (dr.offer_name || dr.offer_id || 'an offer') + ': same carrier as ' + (kp.offer_name || kp.offer_id || 'another offer'); }
   function renderSimulate(body) {
     var host = byId('lg-sim-results');
     if (!host) { return; }
@@ -1977,6 +1979,25 @@ const AUCTION_EDITOR_SCRIPT = `
     note.setAttribute('data-sim-dryrun-note', '');
     note.appendChild(document.createTextNode('Dry-run \\u2014 no writes; staging-only carrier resolve.'));
     host.appendChild(note);
+    // X10 decision 4 (owner 2026-11-05): one line per copy hidden because the
+    // same carrier was already on the page, e.g. "Kin from AdsByMoneyHome:
+    // same carrier as QuinStreetHome".
+    var dups = body.carriers_deduplicated || [];
+    if (dups.length) {
+      var dupHead = makeEl('p', 'form-help');
+      dupHead.setAttribute('data-sim-duplicates', '');
+      dupHead.appendChild(document.createTextNode('Same carrier shown once (' + dups.length + ' hidden):'));
+      host.appendChild(dupHead);
+      var dupList = makeEl('ul', 'lg-sim-duplicates');
+      var di;
+      for (di = 0; di < dups.length; di++) {
+        var dupItem = makeEl('li');
+        dupItem.setAttribute('data-sim-duplicate', '');
+        dupItem.appendChild(document.createTextNode(simDuplicateLine(dups[di])));
+        dupList.appendChild(dupItem);
+      }
+      host.appendChild(dupList);
+    }
     // S1 (07 §7.6): the per-offer explainability (redacted payload_preview,
     // parser id/version, expected fields, exclusion reason) rides the additive
     // offers_payload_explain array — NOT offers_considered (which is only

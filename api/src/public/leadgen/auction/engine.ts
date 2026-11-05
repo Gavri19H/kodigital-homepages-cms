@@ -70,9 +70,10 @@ import { normalizeCarrierBidsToUsd, type CarrierBidInput } from "../../../leadge
 import {
   applyBackfill,
   applyRemoveClicked,
+  carrierIdentity,
   computeFloor,
   selectWinner,
-  surfaceCarriers,
+  surfaceCarriersExplained,
   toAuctionCarrier,
   type AuctionCarrier,
   type AuctionCoreSettings,
@@ -101,6 +102,7 @@ import {
   type AuctionExplainTrace,
   type AuctionResultLogRowInsert,
   type AuctionWaterfallTrace,
+  type ExplainDeduplicatedCarrier,
   type ExplainFilteredCarrier,
   type ExplainProviderRequested,
   type ExplainProviderResponded,
@@ -1921,7 +1923,9 @@ export async function runAuction(
     const eligibleByOffer = new Map<string, AuctionCarrier[]>();
     for (const w of includeSurviving) {
       const list = eligibleByOffer.get(w.offer.offer.public_id) ?? [];
-      list.push(toAuctionCarrier({ carrier_key: w.parsed.carrier_key }, w.offer.offer.public_id, w.usd_bid));
+      // X10: the shown carrier_name is the "same Carrier" identity for the
+      // uniqueness checks in surfacing.
+      list.push(toAuctionCarrier({ carrier_key: w.parsed.carrier_key, carrier_name: w.parsed.carrier_name }, w.offer.offer.public_id, w.usd_bid));
       eligibleByOffer.set(w.offer.offer.public_id, list);
     }
     // CPC Offers (bid_source=response) are the winner-logic sliceCandidates.
@@ -1941,7 +1945,19 @@ export async function runAuction(
     // auction does not surface static-bid offers (it is the only participant, so
     // this can only let THAT offer show — "forced presentation").
     const surfaceSettings = presentOnly !== null ? { ...sliceSettings, surface_static_bid_offers: true } : sliceSettings;
-    let surfaced = surfaceCarriers(surfaceOffers, winner.winner, surfaceSettings);
+    const surfacing = surfaceCarriersExplained(surfaceOffers, winner.winner, surfaceSettings);
+    let surfaced = surfacing.surfaced;
+    // X10 decision 4: each copy dropped as "the same Carrier" becomes one
+    // Simulator line (names from the parsed carrier + the Offer).
+    const carriersDeduplicated: ExplainDeduplicatedCarrier[] = surfacing.duplicates.map((d) => {
+      const dropped = carrierMeta.get(metaKey(d.dropped.offer_public_id, d.dropped.carrier_key));
+      const kept = carrierMeta.get(metaKey(d.kept.offer_public_id, d.kept.carrier_key));
+      return {
+        carrier_name: (typeof dropped?.parsed.carrier_name === "string" ? dropped.parsed.carrier_name : null) ?? d.carrier_identity,
+        dropped: { offer_id: d.dropped.offer_public_id, offer_name: dropped?.offer.offer.offer_name ?? null, carrier_key: d.dropped.carrier_key, bid: d.dropped.bid },
+        kept: { offer_id: d.kept.offer_public_id, offer_name: kept?.offer.offer.offer_name ?? null, carrier_key: d.kept.carrier_key, bid: d.kept.bid },
+      };
+    });
 
     // Step 13: remove-clicked (reuse applyRemoveClicked as the authority; keep
     // slot/source by intersecting on the survivor identity, then re-slot).
@@ -2053,7 +2069,7 @@ export async function runAuction(
       auctionRequestId, providersRequested, providersResponded, parsedByOffer, parseErrorsByOffer,
       carrierMeta, bundleByPublicId, metaKey, includeSurviving, afterExclude, belowFloorKeys, surfaced,
       winner, toRenderCarrier, bannerCtx, bannerConfig, design, bannerRenderIds, impressions, cssOut,
-      htmlOut, renderedSlots, bannerDroppedKeys, carriersFiltered, providerLogRows,
+      htmlOut, renderedSlots, bannerDroppedKeys, carriersFiltered, providerLogRows, carriersDeduplicated,
     };
   };
 
@@ -2154,6 +2170,7 @@ export async function runAuction(
   const providersResponded = slices.flatMap((sl) => sl.providersResponded);
   const providerLogRows = slices.flatMap((sl) => sl.providerLogRows);
   const carriersFiltered = slices.flatMap((sl) => sl.carriersFiltered);
+  const carriersDeduplicated = slices.flatMap((sl) => sl.carriersDeduplicated);
 
   // Step 15: backfill on trigger. The auction-time trigger is
   // on_slot_exhaustion; on_click / on_dismiss are client-fired later (P11).
@@ -2164,13 +2181,22 @@ export async function runAuction(
     // "below-floor available only for backfill"), excluding clicked.
     const remainingWorking = [...includeSurviving, ...afterExclude.filter((w) => belowFloorKeys.has(metaKey(w.offer.offer.public_id, w.parsed.carrier_key)))]
       .filter((w) => !renderedKeys.has(`${w.offer.offer.public_id} ${w.parsed.carrier_key}`));
-    let remaining: AuctionCarrier[] = remainingWorking.map((w) => toAuctionCarrier({ carrier_key: w.parsed.carrier_key }, w.offer.offer.public_id, w.usd_bid));
+    let remaining: AuctionCarrier[] = remainingWorking.map((w) => toAuctionCarrier({ carrier_key: w.parsed.carrier_key, carrier_name: w.parsed.carrier_name }, w.offer.offer.public_id, w.usd_bid));
     if (auction.remove_clicked_offers === 1 && input.clicked.length > 0) {
       remaining = applyRemoveClicked(remaining, input.clicked, settings.removal_scope);
     }
     const backfill = applyBackfill({
       remaining,
-      rendered: renderedSlots.map((s) => ({ carrier_key: s.carrier_key, offer_public_id: s.offer_public_id, bid: s.bid, source: s.source, slot: s.slot })),
+      // X10: a rendered Carrier's identity, so "unique" backfill never brings
+      // back the same Carrier from another Provider.
+      rendered: renderedSlots.map((s) => ({
+        carrier_key: s.carrier_key,
+        offer_public_id: s.offer_public_id,
+        bid: s.bid,
+        source: s.source,
+        slot: s.slot,
+        carrier_identity: carrierIdentity(carrierMeta.get(metaKey(s.offer_public_id, s.carrier_key))?.parsed.carrier_name, s.carrier_key),
+      })),
       mode: settings.backfill,
       bannerSlotsCount: settings.banner_slots_count,
       maxTotalCarriers: settings.max_total_carriers,
@@ -2322,6 +2348,7 @@ export async function runAuction(
     banner_render_ids: bannerRenderIds,
     unfilled_reason: unfilledReason,
     carriers_filtered: carriersFiltered,
+    carriers_deduplicated: carriersDeduplicated,
     providers_requested: providersRequested,
     providers_responded: providersResponded,
     waterfall: waterfallTrace,
