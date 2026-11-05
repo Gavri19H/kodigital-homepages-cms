@@ -1764,6 +1764,65 @@ describeDb("X11 — a live visitor's failed request never blocks the Offer", () 
     expect(healed.at ?? 0, "the live 2xx refreshed the time").toBeGreaterThan(STUCK_AT);
   });
 
+  // X11 review 1: two writers share this field — the Test tab and the live
+  // write. A visitor's auction can be in flight (the Offer was eligible when
+  // its bundle loaded) while the operator's Production Test fails. When that
+  // visitor's 2xx is persisted a moment later it must not write 'passed' over
+  // the operator's 'failed': only a Production Test can lift it.
+  it("FAIL-BEFORE/PASS-AFTER: a live 2xx already in flight does not undo an operator's failed Production Test", async () => {
+    const { sdb, env } = harness();
+    const auction = seedAuction(sdb);
+    const offer = seedOffer(sdb); // passed, source 'test': eligible
+    attachOffer(sdb, auction.id, offer, 0);
+
+    // the visitor's auction runs while the Offer is still eligible…
+    const calls = stubFetch(() => new Response(carrierBody([{ name: "Acme", bid: 12 }]), { status: 200 }));
+    const inFlight = await visitorAuction(env, auction);
+    expect(calls.length, "the eligible Offer was called").toBe(1);
+    expect(inFlight.explain.providers_responded[0]?.status).toBe(200);
+
+    // …the operator's Production Test fails before that result is saved (the
+    // exact UPDATE the Test tab runs: payload-builder-handlers testOfferHandler)
+    const failedAt = STUCK_AT + 60;
+    sdb
+      .prepare("UPDATE leadgen_offers SET last_test_status = 'failed', last_test_at = ?, last_test_source = 'test' WHERE public_id = ?")
+      .run(failedAt, offer.offer_public_id);
+
+    await persistAuctionResult(env, inFlight);
+
+    // the live answer is still logged…
+    const logged = sdb
+      .prepare("SELECT status_code FROM leadgen_provider_request_log WHERE offer_public_id = ? AND auction_instance_id IS NOT NULL")
+      .all(offer.offer_public_id);
+    expect(logged).toEqual([{ status_code: 200 }]);
+    // …but the operator's failure stands
+    expect(storedVerdict(sdb, offer.offer_public_id), "a live 2xx must not lift an operator's failed Test").toEqual({
+      status: "failed",
+      at: failedAt,
+      source: "test",
+    });
+
+    // and the next visitor's auction keeps the Offer out, without calling it
+    const next = stubFetch(() => new Response(carrierBody([{ name: "Acme", bid: 12 }]), { status: 200 }));
+    const after = await visitorAuction(env, auction);
+    expect(excludedReasons(after)).toContain("test_failed");
+    expect(next.length, "the blocked Offer's Provider is not called").toBe(0);
+  });
+
+  it("FAIL-BEFORE/PASS-AFTER: a 'failed' with no recorded source is treated like an operator's Test: a live 2xx does not lift it either", async () => {
+    const { sdb, env } = harness();
+    const auction = seedAuction(sdb);
+    const offer = seedOffer(sdb);
+    attachOffer(sdb, auction.id, offer, 0);
+    stubFetch(() => new Response(carrierBody([{ name: "Acme", bid: 12 }]), { status: 200 }));
+    const inFlight = await visitorAuction(env, auction);
+    sdb
+      .prepare("UPDATE leadgen_offers SET last_test_status = 'failed', last_test_at = ?, last_test_source = NULL WHERE public_id = ?")
+      .run(STUCK_AT, offer.offer_public_id);
+    await persistAuctionResult(env, inFlight);
+    expect(storedVerdict(sdb, offer.offer_public_id)).toEqual({ status: "failed", at: STUCK_AT, source: null });
+  });
+
   it("the gate keeps its teeth: a failed Test-tab run still blocks, and the Provider is never called", async () => {
     const { sdb, env } = harness();
     const auction = seedAuction(sdb);

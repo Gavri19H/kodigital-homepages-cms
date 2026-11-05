@@ -1250,6 +1250,44 @@ describeDb("X11 — banner, Offers list and Test tab agree on where a failure ca
     expect(item?.test_status).toBe("passed");
   });
 
+  // X11 review 1: QuinStreetHome's stored time is the time of the live
+  // FAILURE. Every screen shows that 'failed' as passed, so the Payload tab
+  // chip must not read "passed at <time of the failure>".
+  it("FAIL-BEFORE/PASS-AFTER: QuinStreetHome's Payload tab chip shows no time (its stored time is the live failure's)", async () => {
+    const { sdb, env } = newHarness();
+    const offer = await seedEligibleDynamicOffer(env, sdb);
+    await patchOffer(env, offer.public_id, { offer_name: "QuinStreetHome" });
+    setVerdict(sdb, offer.public_id, "failed", 1_793_800_800, "auction"); // 2026-11-04 14:00 UTC
+
+    const editor = await getHtml(env, `/admin/leadgen/offers/${offer.public_id}/edit`);
+    const chipStart = editor.indexOf('id="lg-pb-test-chip"');
+    expect(chipStart).toBeGreaterThan(-1);
+    const chip = editor.slice(chipStart, editor.indexOf("</p>", chipStart));
+    expect(chip).toContain('data-test-status="passed"');
+    expect(chip).toContain(">Test: passed <button");
+    expect(chip, "no time of the live failure on the chip").not.toContain("Test: passed at");
+    expect(chip).not.toContain("2026-11-04 14:00 UTC");
+
+    // the API the chip reads carries no time for it
+    const detail = await getOfferJson(env, offer.public_id);
+    expect(detail["last_test_at"]).toBeNull();
+    expect(detail["last_test_source"]).toBe("auction");
+  });
+
+  it("the chip keeps its time for a live 'passed' and for an operator's failed Test", async () => {
+    const { sdb, env } = newHarness();
+    const offer = await seedEligibleDynamicOffer(env, sdb);
+    setVerdict(sdb, offer.public_id, "passed", FAILED_AT, "auction");
+    const passedLive = await getHtml(env, `/admin/leadgen/offers/${offer.public_id}/edit`);
+    expect(passedLive).toContain("Test: passed at 2026-11-05 09:41 UTC");
+    expect((await getOfferJson(env, offer.public_id))["last_test_at"]).toBe(new Date(FAILED_AT * 1000).toISOString());
+
+    setVerdict(sdb, offer.public_id, "failed", FAILED_AT, "test");
+    const failedTest = await getHtml(env, `/admin/leadgen/offers/${offer.public_id}/edit`);
+    expect(failedTest).toContain("Test: failed at 2026-11-05 09:41 UTC");
+    expect((await getOfferJson(env, offer.public_id))["last_test_at"]).toBe(new Date(FAILED_AT * 1000).toISOString());
+  });
+
   it("a failed Test-tab run: the list's Blocked chip, its Failed Test chip and the banner agree", async () => {
     const { sdb, env } = newHarness();
     const offer = await seedEligibleDynamicOffer(env, sdb);

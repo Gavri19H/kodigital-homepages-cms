@@ -384,18 +384,28 @@ async function offerEligibilityVerdicts(
 // X11 (OWNER 2026-11-05, decision 3): `last_test_source` ('test' | 'auction')
 // rides beside it, so the "Blocked from live auction" banner and the Test tab
 // note can say a failure came "from the Test tab at <time> UTC".
+// X11 review 1: a 'failed' left by a live call (source 'auction', written
+// before X11) counts as tested, so every screen shows it as passed
+// (effectiveLeadgenTestStatus). Its stored time is the time of that live
+// FAILURE, so it returns no time: the Payload tab chip then reads plain
+// "Test: passed", never "passed at <time of the failure>". The next live 2xx
+// writes 'passed' with a fresh time and the time comes back.
 async function offerLastTest(
   db: D1Database,
   offerPublicId: string,
 ): Promise<{ last_test_at: string | null; last_test_source: string | null }> {
   try {
     const row = await db
-      .prepare("SELECT last_test_at AS t, last_test_source AS src FROM leadgen_offers WHERE public_id = ?")
+      .prepare(
+        "SELECT last_test_status AS status, last_test_at AS t, last_test_source AS src FROM leadgen_offers WHERE public_id = ?",
+      )
       .bind(offerPublicId)
-      .first<{ t: number | null; src: string | null }>();
+      .first<{ status: string | null; t: number | null; src: string | null }>();
     const t = row?.t;
+    const failedByLiveCall = row?.status === "failed" && row?.src === "auction";
     return {
-      last_test_at: typeof t === "number" && Number.isFinite(t) ? new Date(t * 1000).toISOString() : null,
+      last_test_at:
+        !failedByLiveCall && typeof t === "number" && Number.isFinite(t) ? new Date(t * 1000).toISOString() : null,
       last_test_source: typeof row?.src === "string" ? row.src : null,
     };
   } catch (err) {

@@ -614,7 +614,11 @@ export type LeadgenOfferTestStatus = "untested" | "passed" | "failed";
 //
 // Every surface that shows or acts on the Test status goes through this one
 // rule, so the auction, the Simulator, the Offer banner, the Offers list and
-// Auction → Participating Offers always agree.
+// Auction → Participating Offers always agree. Two SQL mirrors keep it too:
+// the live 'passed' write in engine persistAuctionResult skips a row this rule
+// would block (X11 review 1), and offers-handlers offerLastTest returns no
+// time for a row this rule turns from 'failed' into 'passed'. Change them
+// together.
 export function effectiveLeadgenTestStatus(
   status: LeadgenOfferTestStatus | null,
   source: string | null | undefined,
@@ -748,6 +752,10 @@ export interface LeadgenOfferEligibilityRow {
 //     writes 'passed', source 'auction'. Since X11 a live non-2xx writes
 //     NOTHING here (decision 1): one visitor's bad answer must never switch an
 //     Offer off for everyone. The request log still records every answer.
+//     X11 review 1: that 'passed' write also skips a 'failed' that blocks
+//     (any source but 'auction' — the rule in effectiveLeadgenTestStatus), so
+//     a live answer in flight can't undo an operator's failed Test; only a
+//     Production Test lifts it.
 //   - a transport error (no status code, either path) writes nothing and
 //     leaves the last real answer standing.
 // So a 'failed' can only block when an operator's Test produced it. Read this

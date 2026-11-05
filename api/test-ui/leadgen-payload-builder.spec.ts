@@ -807,6 +807,14 @@ test.describe.serial("LeadGen fix-P2 — payload builder (G5, 06 §6.13/§6.14)"
     // as it was — this fresh Offer is still untested — and the answer says so.
     expect(testBody.test_status_saved).toBe(false);
     await expect(page.locator("#lg-pb-test-chip")).toHaveAttribute("data-test-status", "untested");
+    // X11 review 1: the operator is told so, under Environment and in the result.
+    await expect(page.locator("[data-test-env-help]")).toHaveText(
+      "Only a production run changes whether this Offer can enter the live auction.",
+    );
+    await expect(page.locator("#lg-test-saved-note")).toBeVisible();
+    await expect(page.locator("#lg-test-saved-note")).toHaveText(
+      "Staging run \u2014 this Offer\u2019s Test status was not changed. Run it on production to update it.",
+    );
 
     await page.screenshot({ path: `${SHOT_DIR}/05-test-tab-result.png`, fullPage: true });
 

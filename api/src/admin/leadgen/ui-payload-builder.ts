@@ -1355,6 +1355,7 @@ export function renderTestPanel(
         <option value="staging">staging (${escapeHtml(stagingState)})</option>
         <option value="production">production (${escapeHtml(prodState)})</option>
       </select>
+      <p class="form-help" data-test-env-help>Only a production run changes whether this Offer can enter the live auction.</p>
       <span class="form-help">Production runs ask for an explicit confirmation.</span>
     </div>
     <div class="modal-actions"><button type="button" id="lg-test-run" class="btn btn-primary">Run test</button></div>
@@ -1373,6 +1374,7 @@ export function renderTestPanel(
     <div id="lg-test-results" hidden>
       <h4 class="form-label">Status</h4>
       <p id="lg-test-status-line" class="lg-test-status"></p>
+      <p id="lg-test-saved-note" class="form-help" data-test-saved-note role="status" hidden></p>
       <div id="lg-test-notes"></div>
       <h4 class="form-label">Context used</h4>
       <div id="lg-test-context-used" data-test-context-used></div>
@@ -5287,6 +5289,24 @@ export const PAYLOAD_BUILDER_SCRIPT = `
     chip.appendChild(document.createTextNode('Test: ' + status + (tsText ? ' at ' + tsText : '') + ' '));
     if (btn) { chip.appendChild(btn); }
   }
+  // X11 review 1 (decision 4): a Staging run never changes the Offer's saved
+  // Test status, so a Staging run that got an answer says so in the result
+  // area. Otherwise the operator sees a 2xx, the chip stays put and the Offer
+  // stays blocked with no reason given. A run with no answer (a timeout) keeps
+  // the old behaviour: no note.
+  function renderTestSavedNote(resBody, environment) {
+    var note = document.getElementById('lg-test-saved-note');
+    if (!note) { return; }
+    var gotAnswer = !!(resBody && resBody.response && resBody.response.status !== null && resBody.response.status !== undefined);
+    var runEnv = (resBody && resBody.environment) || environment;
+    if (resBody && resBody.test_status_saved !== true && gotAnswer && runEnv === 'staging') {
+      note.textContent = 'Staging run \\u2014 this Offer\\u2019s Test status was not changed. Run it on production to update it.';
+      note.hidden = false;
+    } else {
+      note.textContent = '';
+      note.hidden = true;
+    }
+  }
   function collectContextOverrides() {
     var out = {};
     var any = false;
@@ -5503,10 +5523,12 @@ export const PAYLOAD_BUILDER_SCRIPT = `
           function pad2(n) { return (n < 10 ? '0' : '') + n; }
           // X11: the chip shows the Offer's SAVED Test status, so it moves only
           // when this run saved one (a Production run that got an answer). A
-          // Staging run or a timeout leaves the chip, and the Offer, as they were.
+          // Staging run or a timeout leaves the chip, and the Offer, as they were;
+          // a Staging run that got an answer says so (renderTestSavedNote).
           if (resBody.test_status_saved === true) {
             setTestChip(ok ? 'passed' : 'failed', pad2(now.getHours()) + ':' + pad2(now.getMinutes()));
           }
+          renderTestSavedNote(resBody, environment);
         }).catch(function () {
           runBtn.disabled = false;
           runBtn.classList.remove('lg-saving');

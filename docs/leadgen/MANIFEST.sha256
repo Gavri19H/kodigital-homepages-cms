@@ -2,7 +2,7 @@
 21862ca0fa4288ca1e907c61617e1828ed4d8ff6e4f7767141815578c8569b4f  contract/01-overview-architecture-navigation.md
 5f37d6b41847c58b20b12bb93f7e615b17d9280883bfe008abee5fd24bf3d8ac  contract/02-data-model-and-schema.md
 b299604468976819699dfdc11c2af1f387b56155825b9ec3e969ef277d8f2839  contract/03-api-and-admin-ui.md
-b70f9deccaeb37fde2d825e9dc9cdbb8e53270fc66e3c0c216eec8d830299b07  contract/04-offers-and-payload-builder.md
+65a70126bc1fff2b029c88146d2f9aa17c1e82ea9feb3a5c14c52732faff9f79  contract/04-offers-and-payload-builder.md
 14953a0b29a1a96a97fafab7c6b315de5993533a6514325ed82302b75e209793  contract/05-sections-question-builder-design-tokens.md
 83b4eb8b775fcc67eed112e45a5f1c14c4e7da7b49def6380e4a9d4e51b09f6a  contract/06-quotes-funnel-ab-activation.md
 c92f877f31fe5ae89b21d4e9b7d73635086b5a28e0d17148f6a34384cc947115  contract/07-auction-runtime-banners-rules.md

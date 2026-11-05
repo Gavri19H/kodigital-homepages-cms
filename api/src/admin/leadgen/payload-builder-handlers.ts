@@ -754,7 +754,9 @@ export async function testOfferHandler(c: AdminContext): Promise<Response> {
   // whatever the answer. The live auction calls the production endpoint, so a
   // "Staging" answer says nothing about whether the live Offer works and must
   // neither block nor unblock it. A Staging run still returns its full answer
-  // (below) and still writes the request-log row (above).
+  // (below) and still writes the request-log row (above). X11 review 1: the
+  // Test tab says so, under Environment and, after a Staging run that got an
+  // answer, in the result (ui-payload-builder renderTestSavedNote).
   const savedTestStatus =
     statusCode !== null && environment === "production"
       ? statusCode >= 200 && statusCode < 300

@@ -2677,6 +2677,107 @@ describeDb("payload builder §6.12 — Test tab", () => {
 });
 
 // ---------------------------------------------------------------------------
+// X11 review 1 (decision 4): a "Staging" Test never changes the Offer's saved
+// Test status, and the Test tab still defaults to staging. Before this, an
+// operator who tested the usual way got a 2xx, the chip didn't move and the
+// Offer stayed blocked with no reason given. The Environment field now says
+// which run counts, and a Staging run that got an answer says it saved nothing.
+// ---------------------------------------------------------------------------
+
+interface SavedNoteResult {
+  hidden: boolean;
+  text: string;
+}
+
+// The REAL served renderTestSavedNote, sliced out of the REAL rendered page and
+// run over a stand-in note element.
+function savedNoteIsland(html: string): (resBody: unknown, environment: string, note?: FakeEl) => SavedNoteResult {
+  const script = extractScripts(html).find((s) => s.includes("lg-test-saved-note"));
+  expect(script, "Test tab island script present").toBeDefined();
+  const source = sliceIslandFunction(script!, "renderTestSavedNote");
+  return (resBody, environment, existing) => {
+    const note = existing ?? fakeElement("p");
+    if (existing === undefined) note.hidden = true;
+    const sandbox = {
+      document: { getElementById: (id: string) => (id === "lg-test-saved-note" ? note : null) },
+      resBody,
+      environment,
+    };
+    runInNewContext(`${source}\nrenderTestSavedNote(resBody, environment);`, sandbox);
+    return { hidden: note.hidden, text: note.textContent };
+  };
+}
+
+const STAGING_NOTE = "Staging run — this Offer’s Test status was not changed. Run it on production to update it.";
+
+describeDb("payload builder §6.12 — X11 review 1: a Staging Test says it changed nothing", () => {
+  it("FAIL-BEFORE/PASS-AFTER: the Environment field says only a production run changes whether the Offer can enter the live auction", async () => {
+    const { html } = await richEditorPage();
+    const start = html.indexOf('<label for="lg-test-environment"');
+    expect(start).toBeGreaterThan(-1);
+    const group = html.slice(start, html.indexOf("</div>", start));
+    expect(group).toContain(
+      '<p class="form-help" data-test-env-help>Only a production run changes whether this Offer can enter the live auction.</p>',
+    );
+    // the existing sentence stays
+    expect(group).toContain("Production runs ask for an explicit confirmation.");
+    // the result area carries the (empty, hidden) note the script fills
+    expect(html).toContain('<p id="lg-test-saved-note" class="form-help" data-test-saved-note role="status" hidden></p>');
+  });
+
+  it("FAIL-BEFORE/PASS-AFTER: executed — a Staging run that got an answer shows the note; a saved run or a timeout shows none", async () => {
+    const { html } = await richEditorPage();
+    const render = savedNoteIsland(html);
+
+    // a Staging 2xx and a Staging non-2xx: the note shows
+    expect(render({ environment: "staging", response: { status: 200 }, test_status_saved: false }, "staging")).toEqual({
+      hidden: false,
+      text: STAGING_NOTE,
+    });
+    expect(render({ environment: "staging", response: { status: 500 }, test_status_saved: false }, "staging")).toEqual({
+      hidden: false,
+      text: STAGING_NOTE,
+    });
+    // the run's own environment wins over the select's current value
+    expect(render({ environment: "staging", response: { status: 200 }, test_status_saved: false }, "production").hidden).toBe(false);
+
+    // a Production run that saved its status: no note
+    expect(render({ environment: "production", response: { status: 200 }, test_status_saved: true }, "production")).toEqual({
+      hidden: true,
+      text: "",
+    });
+    // a Production run with no answer (timeout): today's behaviour, no note
+    expect(render({ environment: "production", response: { status: null }, test_status_saved: false }, "production")).toEqual({
+      hidden: true,
+      text: "",
+    });
+    // a Staging run with no answer: nothing to explain, no note
+    expect(render({ environment: "staging", response: { status: null }, test_status_saved: false }, "staging").hidden).toBe(true);
+
+    // a later Production run clears a note an earlier Staging run left
+    const note = fakeElement("p");
+    note.hidden = true;
+    render({ environment: "staging", response: { status: 200 }, test_status_saved: false }, "staging", note);
+    expect(note.hidden).toBe(false);
+    render({ environment: "production", response: { status: 200 }, test_status_saved: true }, "production", note);
+    expect(note.hidden).toBe(true);
+    expect(note.textContent).toBe("");
+  });
+
+  it("the run handler calls the note after the chip, gated on test_status_saved", async () => {
+    const { html } = await richEditorPage();
+    const script = extractScripts(html).find((s) => s.includes("lg-test-saved-note"))!;
+    const gate = script.indexOf("if (resBody.test_status_saved === true) {");
+    const call = script.indexOf("renderTestSavedNote(resBody, environment);");
+    expect(gate).toBeGreaterThan(-1);
+    expect(call).toBeGreaterThan(gate);
+    expect(sliceIslandFunction(script, "renderTestSavedNote")).toContain("resBody.test_status_saved !== true");
+    // text goes in as text, never as markup
+    expect(sliceIslandFunction(script, "renderTestSavedNote")).not.toContain("innerHTML");
+  });
+});
+
+// ---------------------------------------------------------------------------
 // §6.14 / M2 — raw JSON exists ONLY behind Advanced disclosures
 // ---------------------------------------------------------------------------
 

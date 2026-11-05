@@ -2476,12 +2476,24 @@ export async function persistAuctionResult(
     // back. Only an operator's Test may block an Offer. The request-log row
     // above still records every answer with its status code, exactly as
     // before. A transport error (status_code null) writes nothing, as before.
+    // X11 review 1: the 'passed' write also skips an Offer whose status is a
+    // 'failed' that blocks — any source but 'auction': 'test', or NULL, which
+    // the gate treats the same way (the WHERE below mirrors validation.ts
+    // effectiveLeadgenTestStatus exactly). Without this, a live call already
+    // in flight when the operator's Production Test failed could land a moment
+    // later and write 'passed' over it, silently unblocking an Offer the
+    // operator just watched fail. Only a Production Test can lift an
+    // operator's failure. A 'failed' left by a live call before X11 (source
+    // 'auction') is still rewritten to 'passed'. The check sits in the UPDATE
+    // itself, so there is no read-then-write gap.
     // Fail-open on the same S28 grounds as the log row above.
     const liveStatus = row.status_code;
     if (liveStatus !== null && liveStatus !== undefined && liveStatus >= 200 && liveStatus < 300) {
       try {
         await env.DB.prepare(
-          "UPDATE leadgen_offers SET last_test_status = 'passed', last_test_at = ?, last_test_source = 'auction' WHERE public_id = ?",
+          `UPDATE leadgen_offers SET last_test_status = 'passed', last_test_at = ?, last_test_source = 'auction'
+            WHERE public_id = ?
+              AND NOT (COALESCE(last_test_status, '') = 'failed' AND COALESCE(last_test_source, '') <> 'auction')`,
         )
           .bind(Math.floor(Date.now() / 1000), row.offer_public_id)
           .run();
