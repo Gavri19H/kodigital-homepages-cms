@@ -2170,7 +2170,9 @@ export async function runAuction(
   const providersResponded = slices.flatMap((sl) => sl.providersResponded);
   const providerLogRows = slices.flatMap((sl) => sl.providerLogRows);
   const carriersFiltered = slices.flatMap((sl) => sl.carriersFiltered);
-  const carriersDeduplicated = slices.flatMap((sl) => sl.carriersDeduplicated);
+  // X10: only the slice whose page the visitor gets (a waterfall tier that
+  // showed nothing is not what they saw).
+  const carriersDeduplicated = slice.carriersDeduplicated;
 
   // Step 15: backfill on trigger. The auction-time trigger is
   // on_slot_exhaustion; on_click / on_dismiss are client-fired later (P11).
@@ -2200,6 +2202,7 @@ export async function runAuction(
       mode: settings.backfill,
       bannerSlotsCount: settings.banner_slots_count,
       maxTotalCarriers: settings.max_total_carriers,
+      multiOfferUnique: settings.multi_offer === "enabled_unique",
     });
     unfilledReason = backfill.unfilled_reason;
     if (backfill.filled.length > 0) {

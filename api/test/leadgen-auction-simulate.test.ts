@@ -655,6 +655,38 @@ describeDb("leadgen /auctions/:id/simulate — §19.2 dry-run trace + no writes"
     expect(quinstreet.offer_public_id).not.toBe(adsbymoney.offer_public_id);
   });
 
+  // X10 code review 1: live answers carry 4+ listings 32% of the time. With
+  // the live settings (5 slots, 3 per offer) the slot a repeat frees must hold
+  // the next Carrier — the page still fills.
+  it("X10: with 5 listings per Provider the page still fills 5 slots with 5 different Carriers", async () => {
+    const { sdb, env } = harness();
+    const auction = seedAuction(sdb);
+    sdb.prepare("UPDATE leadgen_auctions SET multi_offer = 'enabled_unique' WHERE id = ?").run(auction.id);
+    const withIdParser = JSON.stringify({ carriers_path: "carriers", fields: { provider_id: "id", carrier_name: "name", bid: "bid", click_url: "url" } });
+    for (const [offerName, host] of [["QuinStreetHome", "quinstreet.example"], ["AdsByMoneyHome", "adsbymoney.example"]] as const) {
+      const o = seedDynamicOffer(sdb);
+      sdb.prepare("UPDATE leadgen_offers SET offer_name = ?, endpoint_staging = ?, endpoint_production = ? WHERE id = ?").run(offerName, `https://${host}/quote`, `https://${host}/quote`, o.offer_id);
+      sdb.prepare("UPDATE leadgen_offer_payload_schemas SET carrier_parse_json = ? WHERE offer_id = ?").run(withIdParser, o.offer_id);
+      sdb.prepare("INSERT INTO leadgen_auction_offers (auction_id, offer_placement_id, offer_id, static_order, enabled) VALUES (?, ?, ?, 0, 1)").run(auction.id, o.placement_id, o.offer_id);
+    }
+    const listing = (id: string, name: string, bid: number) => ({ id, name, bid, url: `https://click.example/${encodeURIComponent(id)}` });
+    stubFetch((url) =>
+      new Response(
+        JSON.stringify({
+          carriers: url.includes("quinstreet")
+            ? [listing("Progressive", "Progressive", 4.1), listing("Kin Insurance", "Kin", 3.2), listing("Geico", "GEICO", 1.0), listing("Farmers", "Farmers", 0.9), listing("Allstate", "Allstate", 0.8)]
+            : [listing("kin-review", "Kin", 3.6), listing("progressive-review", "Progressive", 2.0), listing("lemonade", "Lemonade", 1.5), listing("hippo", "Hippo", 1.2), listing("openly", "Openly", 0.7)],
+        }),
+        { status: 200 },
+      ),
+    );
+    const res = await admin.request(`${API}/auctions/${auction.public_id}/simulate`, jsonInit("POST", { sample_answers: {} }), env);
+    expect(res.status, await res.clone().text()).toBe(200);
+    const body = (await res.json()) as { carriers_shown: Array<{ carrier_key: string }>; carriers_deduplicated: Array<{ carrier_name: string }> };
+    expect(body.carriers_shown.map((c) => c.carrier_key)).toEqual(["Progressive", "kin-review", "lemonade", "hippo", "Geico"]);
+    expect(body.carriers_deduplicated.map((d) => d.carrier_name)).toEqual(["Kin", "Progressive"]);
+  });
+
   it("POST /simulate on an unknown auction is 404", async () => {
     const { env } = harness();
     const res = await admin.request(`${API}/auctions/${mintPublicId("auction")}/simulate`, jsonInit("POST", {}), env);

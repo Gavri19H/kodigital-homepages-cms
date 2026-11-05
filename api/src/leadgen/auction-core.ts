@@ -302,10 +302,9 @@ function byBidDesc(a: AuctionCarrier, b: AuctionCarrier): number {
   return 0;
 }
 
-// Top-N carriers of one Offer by bid desc (07 §18.5 max_carriers_per_offer).
-function capPerOffer(carriers: readonly AuctionCarrier[], maxPerOffer: number): AuctionCarrier[] {
-  const limit = Number.isFinite(maxPerOffer) && maxPerOffer >= 0 ? Math.floor(maxPerOffer) : 0;
-  return [...carriers].sort(byBidDesc).slice(0, limit);
+// 07 §18.5 max_carriers_per_offer as a whole number of places per Offer.
+function perOfferLimit(maxPerOffer: number): number {
+  return Number.isFinite(maxPerOffer) && maxPerOffer >= 0 ? Math.floor(maxPerOffer) : 0;
 }
 
 // 07 §18.2 + §18.5. Builds the ordered, deduped, limit-capped carriers to
@@ -324,7 +323,11 @@ function capPerOffer(carriers: readonly AuctionCarrier[], maxPerOffer: number): 
 //     CPC pool the higher bid; a CPC copy always beats a static/CPL copy.
 //   * limits: max_carriers_per_offer (per Offer) → max_total_carriers
 //     (surfaced) → banner_slots_count (rendered). Final slot count is the
-//     min of the last two.
+//     min of the last two. X10 code review 1: a dropped repeat does NOT use
+//     one of its Offer's places, so the freed slot holds that Offer's next
+//     Carrier (live answers carry 4+ listings 32% of the time). Taking each
+//     Offer's first N in the global bid order is the same set as the old
+//     "top N per Offer, then merge" whenever nothing is dropped.
 export function surfaceCarriers(
   offers: readonly SurfaceOffer[],
   winnerOfferId: string | null,
@@ -334,7 +337,9 @@ export function surfaceCarriers(
 }
 
 // `surfaceCarriers` plus the copies dropped as "the same Carrier" (X10
-// decision 4) — the engine passes these to the Simulator.
+// decision 4) — the engine passes these to the Simulator. Only a copy that
+// would otherwise have been on the page (its Offer had a place left and a
+// slot was still free) is reported.
 export function surfaceCarriersExplained(
   offers: readonly SurfaceOffer[],
   winnerOfferId: string | null,
@@ -342,6 +347,10 @@ export function surfaceCarriersExplained(
 ): SurfaceResult {
   const cpcOffers = offers.filter((o) => o.bid_source === "cpc");
   const staticOffers = offers.filter((o) => o.bid_source === "static");
+  const maxPerOffer = perOfferLimit(settings.max_carriers_per_offer);
+  const totalCap = Number.isFinite(settings.max_total_carriers) ? Math.floor(settings.max_total_carriers) : 0;
+  const slotCap = Number.isFinite(settings.banner_slots_count) ? Math.floor(settings.banner_slots_count) : 0;
+  const renderCap = Math.max(0, Math.min(totalCap, slotCap));
 
   // --- CPC pool (multi_offer) --------------------------------------------
   let cpcSource: SurfaceOffer[];
@@ -353,9 +362,7 @@ export function surfaceCarriersExplained(
   const cpcRanked: Array<{ carrier: AuctionCarrier; source: SurfacedCarrierSource }> = [];
   for (const offer of cpcSource) {
     const source: SurfacedCarrierSource = offer.offer_public_id === winnerOfferId ? "winner" : "multi_offer";
-    for (const carrier of capPerOffer(offer.carriers, settings.max_carriers_per_offer)) {
-      cpcRanked.push({ carrier, source });
-    }
+    for (const carrier of offer.carriers) cpcRanked.push({ carrier, source });
   }
   // Order the whole CPC pool by bid desc (07 §18.5 "bid order"); a `winner`
   // tag wins an exact-bid tie so the winning Offer leads.
@@ -370,45 +377,46 @@ export function surfaceCarriersExplained(
   const duplicates: SurfaceDuplicate[] = [];
   // identity → the copy already in the pool (the one a later repeat yields to)
   const seen = new Map<string, AuctionCarrier>();
+  const placesUsed = new Map<string, number>();
+  const hasPlace = (c: AuctionCarrier): boolean => (placesUsed.get(c.offer_public_id) ?? 0) < maxPerOffer;
+  const take = (entry: { carrier: AuctionCarrier; source: SurfacedCarrierSource }): void => {
+    pool.push(entry);
+    placesUsed.set(entry.carrier.offer_public_id, (placesUsed.get(entry.carrier.offer_public_id) ?? 0) + 1);
+  };
+  const drop = (identity: string, carrier: AuctionCarrier, kept: AuctionCarrier): void => {
+    if (pool.length < renderCap) duplicates.push({ carrier_identity: identity, dropped: carrier, kept });
+  };
   const dedupeCpc = settings.multi_offer === "enabled_unique";
   for (const entry of cpcRanked) {
+    if (!hasPlace(entry.carrier)) continue;
     const identity = uniqueIdentity(entry.carrier);
     const kept = seen.get(identity);
     if (dedupeCpc && kept !== undefined) {
-      duplicates.push({ carrier_identity: identity, dropped: entry.carrier, kept });
+      drop(identity, entry.carrier, kept);
       continue;
     }
-    pool.push(entry);
+    take(entry);
     if (kept === undefined) seen.set(identity, entry.carrier);
   }
 
   // --- static/CPL-bid merge (07 §18.2), always deduped (X10: by identity) --
   if (settings.surface_static_bid_offers) {
-    const staticRanked: AuctionCarrier[] = [];
-    for (const offer of staticOffers) {
-      for (const carrier of capPerOffer(offer.carriers, settings.max_carriers_per_offer)) {
-        staticRanked.push(carrier);
-      }
-    }
-    staticRanked.sort(byBidDesc);
+    const staticRanked = staticOffers.flatMap((offer) => offer.carriers).sort(byBidDesc);
     for (const carrier of staticRanked) {
+      if (!hasPlace(carrier)) continue;
       const identity = uniqueIdentity(carrier);
       const kept = seen.get(identity);
       if (kept !== undefined) {
         // CPL-merge dedupe
-        duplicates.push({ carrier_identity: identity, dropped: carrier, kept });
+        drop(identity, carrier, kept);
         continue;
       }
-      pool.push({ carrier, source: "static_bid" });
+      take({ carrier, source: "static_bid" });
       seen.set(identity, carrier);
     }
   }
 
   // --- limits: max_total_carriers then banner_slots_count -----------------
-  const totalCap = Number.isFinite(settings.max_total_carriers) ? Math.floor(settings.max_total_carriers) : 0;
-  const slotCap = Number.isFinite(settings.banner_slots_count) ? Math.floor(settings.banner_slots_count) : 0;
-  const renderCap = Math.max(0, Math.min(totalCap, slotCap));
-
   const surfaced = pool.slice(0, renderCap).map((entry, index) => ({
     carrier_key: entry.carrier.carrier_key,
     offer_public_id: entry.carrier.offer_public_id,
@@ -462,6 +470,10 @@ export interface BackfillInput {
   mode: LeadgenBackfillMode;
   bannerSlotsCount: number;
   maxTotalCarriers: number;
+  // X10 code review 1: the auction's Multi-offer is "Enabled (unique by
+  // carrier)". Backfill then keeps that promise whatever its own mode, so a
+  // repeat surfacing dropped can never come back through Backfill "Enabled".
+  multiOfferUnique?: boolean;
 }
 
 // OWNER 2026-08-27 — why no banner filled. Each value is a DIFFERENT operator
@@ -523,12 +535,12 @@ export function applyBackfill(input: BackfillInput): BackfillResult {
 
   const renderedKeys = new Set(input.rendered.map((c) => c.carrier_key));
   let pool = input.remaining.filter((c) => !renderedKeys.has(c.carrier_key));
-  if (input.mode === "enabled_unique") {
-    const renderedIdentities = new Set(input.rendered.map((c) => uniqueIdentity(c)));
-    // Sort BEFORE the dedupe so the copy kept per Carrier is the higher bid.
-    pool = dedupeByIdentity([...pool].sort(byBidDesc).filter((c) => !renderedIdentities.has(uniqueIdentity(c))));
-  }
+  // Sorted BEFORE any dedupe so the copy kept per Carrier is the higher bid.
   pool = [...pool].sort(byBidDesc);
+  if (input.mode === "enabled_unique" || input.multiOfferUnique === true) {
+    const renderedIdentities = new Set(input.rendered.map((c) => uniqueIdentity(c)));
+    pool = dedupeByIdentity(pool.filter((c) => !renderedIdentities.has(uniqueIdentity(c))));
+  }
 
   const totalCap = Number.isFinite(input.maxTotalCarriers) ? Math.floor(input.maxTotalCarriers) : 0;
   const remainingTotalCapacity = Math.max(0, totalCap - input.rendered.length);

@@ -147,6 +147,56 @@ describe("Enabled (unique by carrier) — each Carrier once across Providers", (
   });
 });
 
+// Code review 1 (5 Nov): live answers carry 4+ listings 32% of the time. A
+// repeat must NOT use up one of its Offer's "Max carriers per offer" places —
+// the freed slot has to hold that Offer's next Carrier (the plan's promise).
+describe("the freed slot holds the next Carrier (live-shaped answers)", () => {
+  const QS5: SurfaceOffer = {
+    offer_public_id: "lgo_quinstreet",
+    bid_source: "cpc",
+    carriers: [
+      named("lgo_quinstreet", "Progressive", "Progressive", 4.1),
+      named("lgo_quinstreet", "Kin Insurance", "Kin", 3.2),
+      named("lgo_quinstreet", "Geico", "GEICO", 1.0),
+      named("lgo_quinstreet", "Farmers", "Farmers", 0.9),
+      named("lgo_quinstreet", "Allstate", "Allstate", 0.8),
+    ],
+  };
+  const ABM5: SurfaceOffer = {
+    offer_public_id: "lgo_adsbymoney",
+    bid_source: "cpc",
+    carriers: [
+      named("lgo_adsbymoney", "kin-homeowners-insurance-review", "Kin", 3.6),
+      named("lgo_adsbymoney", "progressive-home-insurance-review", "Progressive", 2.0),
+      named("lgo_adsbymoney", "lemonade-home", "Lemonade", 1.5),
+      named("lgo_adsbymoney", "hippo-home", "Hippo", 1.2),
+      named("lgo_adsbymoney", "openly-home", "Openly", 0.7),
+    ],
+  };
+
+  it("5 slots, 3 per offer: 5 different Carriers fill the page", () => {
+    const r = surfaceCarriers([QS5, ABM5], "lgo_quinstreet", settings);
+    expect(r.map((s) => s.carrier_identity)).toEqual(["progressive", "kin", "lemonade", "hippo", "geico"]);
+    expect(r).toHaveLength(5);
+    // still at most 3 per Offer
+    expect(r.filter((s) => s.offer_public_id === "lgo_adsbymoney")).toHaveLength(3);
+    expect(r.filter((s) => s.offer_public_id === "lgo_quinstreet")).toHaveLength(2);
+  });
+
+  it("the per-offer cap is unchanged for the other modes", () => {
+    const r = surfaceCarriers([QS5, ABM5], "lgo_quinstreet", { ...settings, multi_offer: "enabled", banner_slots_count: 10 });
+    expect(r.filter((s) => s.offer_public_id === "lgo_quinstreet").map((s) => s.carrier_key)).toEqual(["Progressive", "Kin Insurance", "Geico"]);
+    expect(r.filter((s) => s.offer_public_id === "lgo_adsbymoney").map((s) => s.carrier_key)).toEqual(["kin-homeowners-insurance-review", "progressive-home-insurance-review", "lemonade-home"]);
+  });
+
+  it("the Simulator list names only copies that would otherwise have been on the page", () => {
+    const { duplicates } = surfaceCarriersExplained([QS5, ABM5], "lgo_quinstreet", { ...settings, banner_slots_count: 2 });
+    // slots 1-2 are Progressive (QS) and Kin (ABM); QS's Kin (3.2) would have
+    // taken slot 3 — outside the 2 slots — so no line for any copy.
+    expect(duplicates).toEqual([]);
+  });
+});
+
 describe("Provider copy vs Static/CPL copy of the same Carrier (decision 1)", () => {
   // Provider A returns "Kin" (key 1234); Provider B's Static Offer has Brand
   // name "kin" (key adsbymoney, from its Provider field).
@@ -205,9 +255,16 @@ describe("Backfill (unique by carrier) never brings back a Carrier already on sc
     expect(r.filled[0]?.slot).toBe(2);
   });
 
-  it("enabled (not unique) still backfills it, as today", () => {
+  it("Backfill 'Enabled' still backfills it when Multi-offer is NOT unique, as today", () => {
     const r = applyBackfill({ remaining, rendered, mode: "enabled", bannerSlotsCount: 5, maxTotalCarriers: 10 });
     expect(r.filled.map((s) => s.carrier_key)).toEqual(["kin-homeowners-insurance-review", "lemonade-home"]);
+  });
+
+  // Code review 1: with Multi-offer "Enabled (unique by carrier)", a repeat
+  // surfacing dropped must not come back through Backfill "Enabled".
+  it("Backfill 'Enabled' never brings a Carrier back when Multi-offer is unique by carrier", () => {
+    const r = applyBackfill({ remaining, rendered, mode: "enabled", bannerSlotsCount: 5, maxTotalCarriers: 10, multiOfferUnique: true });
+    expect(r.filled.map((s) => s.carrier_key)).toEqual(["lemonade-home"]);
   });
 
   it("enabled_unique keeps the HIGHER bid of two copies in the pool", () => {
