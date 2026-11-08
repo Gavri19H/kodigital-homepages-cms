@@ -857,7 +857,7 @@ describe("bundle: committed engine-bundle.generated.ts", () => {
     // runtime components — overflow = owner decision. See docs/leadgen/rework/byte-ledger.md.
     // (2026-10-08: fix round 1 raised this to 54272 for a typeof guard on the
     // shell hook; fix round 2, review N4, reverted the guard and the raise.)
-    expect(LEADGEN_RUNTIME_JS_BYTES).toBeLessThanOrEqual(53248);
+    expect(LEADGEN_RUNTIME_JS_BYTES).toBeLessThanOrEqual(53376) // X09: owner raised the cap 53248 -> 53376 (2026-11-08);
     expect(LEADGEN_RUNTIME_JS_BYTES).toBeGreaterThan(1000);
   });
 

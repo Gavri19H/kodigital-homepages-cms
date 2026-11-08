@@ -312,7 +312,7 @@ export function acceptFormatOfType(type: ComponentType): LeadgenFieldAcceptForma
 // mask?, message?}} rule. content-schema VALIDATES the shape at save (below);
 // config-dto COMPILES it into the client contract (buildPhoneContract); the
 // runtime CHECKER (validation.ts) consumes the contract. Absent ⇒ byte-
-// identical legacy NANP behavior (the runtime's normalizePhoneE164 default).
+// identical legacy NANP behavior (the runtime's normalizeUsPhone default).
 export const LEADGEN_PHONE_FORMAT_PRESETS = ["nanp", "e164_intl", "il"] as const;
 export type LeadgenPhoneFormatPreset = (typeof LEADGEN_PHONE_FORMAT_PRESETS)[number];
 const PHONE_FORMAT_PRESET_SET: ReadonlySet<string> = new Set(LEADGEN_PHONE_FORMAT_PRESETS);

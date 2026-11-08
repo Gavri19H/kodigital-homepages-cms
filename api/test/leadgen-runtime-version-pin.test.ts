@@ -45,7 +45,9 @@ const ENGINE_SRC = readFileSync(
 );
 const LG_ENGINE_VERSION = /export const LG_ENGINE_VERSION = "([^"]+)"/.exec(ENGINE_SRC)?.[1];
 
-// sha256 of the committed bundle AT LEADGEN_TEMPLATE_VERSION 10 (v10,
+// sha256 of the committed bundle AT LEADGEN_TEMPLATE_VERSION 11 (v11,
+// 2026-11-08, X09: a default-US phone answer is stored as 10 digits; v10 was
+// 537125c0…). Before that, v10 (
 // 2026-10-08 Facebook-events fix rounds 1+2: the shell's pixel script changed;
 // the runtime's shell-hook call is the v9 one again (fix round 2, review N4
 // reverted round 1's typeof guard, 7d2e5eea…, which broke the 53248 B cap) —
@@ -53,8 +55,8 @@ const LG_ENGINE_VERSION = /export const LG_ENGINE_VERSION = "([^"]+)"/.exec(ENGI
 // (the hook call added); v8 was 330356c1…; v7: the shell's no-match block; v6:
 // a shell-CSS bump: the engine differs from v5 only by the version it reports;
 // v5 was b216862a…, v4 53dbaf55…).
-const RUNTIME_BUNDLE_SHA256 = "537125c0a12a8a6116e4f7c54e87cd23ead796936a9581a5c66649e39f703dce";
-const RUNTIME_BUNDLE_VERSION = 10;
+const RUNTIME_BUNDLE_SHA256 = "6aaa4e906f7b10208c1c1d316cbf204ee3cbad32823e07a6512d2101b5b76b87";
+const RUNTIME_BUNDLE_VERSION = 11;
 
 describe("the runtime bundle is pinned to its immutable URL version", () => {
   it("engine bytes unchanged, or the version moved with them", () => {

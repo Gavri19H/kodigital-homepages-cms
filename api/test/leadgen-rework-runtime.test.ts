@@ -467,10 +467,15 @@ describe("§6.9 phone mask — fill UX + raw-digit recording through the real en
 
 // 2026-10-19 (payload Output format "Remove special characters and spacing",
 // fix round B1): the visitor half of the owner's AmOne example. A
-// PhoneInputQuestion with NO mask (production q_mrun7kvo_l2s0) records the
-// E.164 form, so "(707) 849 3710" is STORED as "+17078493710" — the exact
-// value test/leadgen-payload-remove-special.test.ts feeds the server route
-// (normalizeAnswers → readAnswerBindings → fetchProvider → "7078493710").
+// PhoneInputQuestion with NO mask (production q_mrun7kvo_l2s0).
+// X09 (2026-11-08) — owner, 2026-10-20: "The way I would like it is to remove
+// the hardcoded additional "+1" from the code entirely, so the phone number is
+// saved and sent as plain 10 digits, e.g. (707) 849 3710 --> 7078493710."
+// So "(707) 849 3710" is now STORED as "7078493710" — the exact value
+// test/leadgen-payload-remove-special.test.ts feeds the server route. "+1" is
+// added per Offer field by the "Phone with country code" Output format. The
+// 'e164_intl' preset and custom rules keep storing "+1…" (owner decision
+// 2026-11-08: those fields behave exactly as before).
 describe("phone answer as the visitor runtime STORES it (no mask) — the Remove-special input", () => {
   function plainPhoneConfig(): LgPublicConfig {
     return baseConfig([section("lgs_1", 0, [
@@ -478,13 +483,53 @@ describe("phone answer as the visitor runtime STORES it (no mask) — the Remove
     ])]);
   }
 
-  it('typing "(707) 849 3710" records "+17078493710" (the +1 is the runtime\'s normalisation, not typed)', async () => {
+  function presetPhoneConfig(phone: Record<string, unknown>): LgPublicConfig {
+    return baseConfig([section("lgs_1", 0, [
+      { type: "PhoneInputQuestion", question_id: "q_ph", question_key: "k_ph", internal_field: "phone", required: true, props: {}, client_validation: { required: true, phone } },
+    ])]);
+  }
+  async function stored(config: LgPublicConfig, typed: string): Promise<unknown> {
+    const dom = maskDom();
+    const { answers } = await boot(config, dom.root, { preview: true });
+    dom.input.value = typed;
+    dom.root.dispatch("input", dom.input);
+    return answers()["phone"];
+  }
+
+  it('X09: typing "(707) 849 3710" records "7078493710" — no "+1" added by the runtime', async () => {
     const dom = maskDom();
     const { answers } = await boot(plainPhoneConfig(), dom.root, { preview: true });
     dom.input.value = "(707) 849 3710";
     dom.root.dispatch("input", dom.input);
-    expect(answers()["phone"]).toBe("+17078493710");
+    expect(answers()["phone"]).toBe("7078493710");
     expect(dom.input.value).toBe("(707) 849 3710"); // the visitor still sees what they typed
+  });
+
+  it('X09: a typed "+1 707 849 3710" and "17078493710" also record the 10 digits', async () => {
+    expect(await stored(plainPhoneConfig(), "+1 707 849 3710")).toBe("7078493710");
+    expect(await stored(plainPhoneConfig(), "17078493710")).toBe("7078493710");
+  });
+
+  it("X09: the explicit 'nanp' preset (the US check) records the 10 digits too", async () => {
+    const nanp = { regex: "^1?[2-9]\\d{2}[2-9]\\d{2}\\d{4}$", normalize: "digits", message: "Enter a valid US phone number." };
+    expect(await stored(presetPhoneConfig(nanp), "(707) 849 3710")).toBe("7078493710");
+  });
+
+  it("X09: the 'e164_intl' preset and a custom rule keep today's \"+1\" form (owner 2026-11-08)", async () => {
+    const intl = { regex: "^\\+\\d{8,15}$", normalize: "e164", message: "Enter your phone number with the country code, like +972…" };
+    expect(await stored(presetPhoneConfig(intl), "+1 707 849 3710")).toBe("+17078493710");
+    expect(await stored(presetPhoneConfig(intl), "+44 20 7946 0958")).toBe("+44 20 7946 0958");
+    const custom = { regex: "^.+$", normalize: "none", message: "Enter a phone number." };
+    expect(await stored(presetPhoneConfig(custom), "(707) 849 3710")).toBe("+17078493710");
+  });
+
+  it("X09: the 'il' preset is never NANP-valid, so it keeps the typed text exactly as before", async () => {
+    const il = { regex: "^0\\d{8,9}$", normalize: "digits", message: "Enter a valid Israeli phone number." };
+    expect(await stored(presetPhoneConfig(il), "052-123-4567")).toBe("052-123-4567");
+  });
+
+  it("an invalid entry keeps the raw text (unchanged)", async () => {
+    expect(await stored(plainPhoneConfig(), "(107) 849 3710")).toBe("(107) 849 3710");
   });
 
   it("with a mask the same typing records the raw 10 digits (the other stored shape)", async () => {

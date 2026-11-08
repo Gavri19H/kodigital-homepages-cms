@@ -15,7 +15,8 @@
  *      (46080) by a consolidated operator amendment (2026-07-20), then the
  *      LeadGen-Rework 50 KiB (51200) by owner decision D1 (2026-07-22), then
  *      the R2 final 52 KiB (53248) by owner decision D1 (2026-07-28) funding
- *      the R2 slider and grid runtime components; overflow = owner cap decision)).
+ *      the R2 slider and grid runtime components, then 53376 by the owner's
+ *      X09 decision (2026-11-08); overflow = owner cap decision)).
  *   3. TYPES — `tsc -p tsconfig.runtime.json --noEmit` (the browser-lib
  *      project covering ONLY src/public/leadgen/runtime/): the runtime
  *      modules are excluded from the worker tsconfig (no DOM lib there), so

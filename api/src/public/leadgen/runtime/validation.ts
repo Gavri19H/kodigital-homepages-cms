@@ -135,16 +135,19 @@ function addressFieldKey(component: LgComponentConfig, kind: string): string {
     : `${addressBase(component)}_${kind}`;
 }
 
-// PC-A4 (P4b) — NANP structural phone validation + E.164 normalization.
+// PC-A4 (P4b) — NANP structural phone validation + normalization (X09: the
+// stored form is the 10 national digits, no longer E.164).
 //
-// Returns the E.164 form (`+1` + 10 digits) for a valid US/Canada number, or
-// null. Strips all formatting; accepts 10 significant digits, or 11 with a
-// leading country-code `1`. NANP requires BOTH the area code and the exchange
+// Returns the 10 national digits for a valid US/Canada number, or null
+// (X09, owner 2026-10-20: "the phone number is saved and sent as plain 10
+// digits"; "+1" is added per Offer field by the payload Output format
+// "Phone with country code"). Strips all formatting; accepts 10 significant
+// digits, or 11 with a leading country-code `1`. NANP requires BOTH the area code and the exchange
 // (central-office) code to begin 2–9 — so the old strip-and-count 7..15 check's
 // false-accepts are now correctly rejected: "1111111111" has area code 111
 // (first digit 1) → invalid, and a 14-digit blob is not 10/11 digits → invalid.
-// A valid number like "(415) 555-1234" → "+14155551234".
-export function normalizePhoneE164(value: string): string | null {
+// A valid number like "(415) 555-1234" → "4155551234".
+export function normalizeUsPhone(value: string): string | null {
   let digits = value.replace(/\D/g, "");
   // strip a leading country-code 1 on an 11-digit number
   if (digits.length === 11 && digits.charCodeAt(0) === 49 /* "1" */) digits = digits.slice(1);
@@ -153,7 +156,7 @@ export function normalizePhoneE164(value: string): string | null {
   const exch = digits.charCodeAt(3); // NANP: exchange code first digit 2–9
   if (area < 50 || area > 57) return null; // "2".."9"
   if (exch < 50 || exch > 57) return null; // "2".."9"
-  return "+1" + digits;
+  return digits;
 }
 
 function checkFormat(
@@ -171,7 +174,7 @@ function checkFormat(
     // client_validation.phone) drives a GENERIC checker — strip per `normalize`,
     // test the compiled `regex`, emit the compiled `message`. When NO contract
     // is present (legacy config, no phone_format) the behavior is BYTE-FOR-BYTE
-    // the NANP default (normalizePhoneE164 — still the engine's answer-normalizer
+    // the NANP default (normalizeUsPhone — still the engine's answer-normalizer
     // + the frozen p4b pin). A bad compiled regex degrades to "no rule" (never a
     // runtime throw), the same defensive idiom as the authored `pattern` rule.
     // config-dto guarantees `regex`/`normalize`/`message` are non-empty strings
@@ -199,7 +202,7 @@ function checkFormat(
         }
       }
       if (!ok) out.push({ code: "phone_format", message: c.message });
-    } else if (normalizePhoneE164(value) === null) {
+    } else if (normalizeUsPhone(value) === null) {
       out.push({ code: "phone_format", message: "Enter a valid US phone number." });
     }
   } else if (kind === "zip" && !ZIP_RE.test(value.trim())) {

@@ -968,10 +968,12 @@ describeDb("payload builder §6.5–§6.7 — free text / date / boolean", () =>
   it("SRC-7B: the output-format picker offers currency/number/string, live-previews, and is EXCLUDED from computeAdvReasons' transform-pipeline Advanced-drawer flag", async () => {
     const { html } = await richEditorPage();
     const block = selectBlock(html, 'data-pb-field="output_format"');
-    expect(optionValues(block)).toEqual(["", "formatCurrency", "toNumber", "toString", "removeSpecial"]);
+    expect(optionValues(block)).toEqual(["", "formatCurrency", "toNumber", "toString", "removeSpecial", "formatPhoneE164"]);
     expect(block).toContain("Currency string");
     expect(block).toContain("Number as string");
     expect(block).toContain('<option value="removeSpecial">Remove special characters and spacing</option>');
+    // X09 (owner 2026-11-08): the LAST choice
+    expect(block).toContain('<option value="formatPhoneE164">Phone with country code (+17078493710)</option>');
     expect(html).toContain("data-pb-outputformat-sample");
     expect(html).toContain("data-pb-outputformat-preview");
     expect(html).toContain("data-pb-outputformat-invalid-note");
@@ -1160,6 +1162,9 @@ describeDb("payload builder P5 F1 (SRC-7B / owner #7B + #6-second) — the outpu
     { option: "toString", type: "string", transform: [{ kind: "toString" }] },
     // 2026-10-19 owner: "add a "Remove special characters and spacing" option"
     { option: "removeSpecial", type: "string", transform: [{ kind: "removeSpecial" }] },
+    // X09 (owner 2026-11-08, after talking with Guy): "add the option to send
+    // it in the Format field of the CMS (Under payload)"
+    { option: "formatPhoneE164", type: "string", transform: [{ kind: "formatPhoneE164" }] },
   ];
 
   it("ATOMIC: each option writes node.type AND node.transform together (As entered leaves the Type select in charge)", async () => {
@@ -1206,7 +1211,7 @@ describeDb("payload builder P5 F1 (SRC-7B / owner #7B + #6-second) — the outpu
     const { html } = await richEditorPage();
     const { island, source } = outputFormatIsland(html);
     const optionKinds = optionValues(selectBlock(html, 'data-pb-field="output_format"')).filter((v) => v !== "");
-    const inlined = [...sliceIslandFunction(source, "outputFormatTypeFor").matchAll(/kind === '([A-Za-z]+)'/g)].map(
+    const inlined = [...sliceIslandFunction(source, "outputFormatTypeFor").matchAll(/kind === '([A-Za-z0-9]+)'/g)].map(
       (m) => m[1] as string,
     );
     expect(inlined.slice().sort()).toEqual(optionKinds.slice().sort());
@@ -1223,7 +1228,7 @@ describeDb("payload builder P5 F1 (SRC-7B / owner #7B + #6-second) — the outpu
   // buildPayload for every option × every sample, including the shapes that
   // used to lie: currency-into-number (dropped) and number-as-string (emitted
   // unquoted).
-  it("E11: the island preview == the REAL buildPayload output across {5 options} × {170000, 0, \"07032\", \"\", \"abc\"}", async () => {
+  it("E11: the island preview == the REAL buildPayload output across {6 options} × {170000, 0, \"07032\", \"\", \"abc\"}", async () => {
     const { html } = await richEditorPage();
     const { island } = outputFormatIsland(html);
     const RAWS = ["170000", "0", "07032", "", "abc"];
@@ -1251,8 +1256,9 @@ describeDb("payload builder P5 F1 (SRC-7B / owner #7B + #6-second) — the outpu
         }
       }
     }
-    // 4 formats × 1 base type + "As entered" × 2 base types, all × 5 samples
-    expect(rows).toHaveLength(30);
+    // 5 formats × 1 base type + "As entered" × 2 base types, all × 5 samples
+    // (X09 added the 5th format, "Phone with country code")
+    expect(rows).toHaveLength(35);
   });
 
   // 2026-10-19 owner verbatim: "(707) 849 3710 --> AmOne requesting it to be
@@ -1264,9 +1270,10 @@ describeDb("payload builder P5 F1 (SRC-7B / owner #7B + #6-second) — the outpu
     const { island } = outputFormatIsland(html);
     const SAMPLES: Array<[unknown, unknown]> = [
       ["(707) 849 3710", "7078493710"],
-      // fix round B1: the shape the visitor runtime STORES for that phone
-      // (normalizePhoneE164 adds the +1) sends the 10 national digits too
-      ["+17078493710", "7078493710"],
+      // X09 (owner 2026-10-20: "remove the hardcoded additional "+1" from the
+      // code entirely"): the hidden "+1" rule is gone, so a "+1" value keeps
+      // every digit; the runtime now stores "7078493710" (row below)
+      ["+17078493710", "17078493710"],
       ["+1 (707) 849-3710", "17078493710"],
       ["José Núñez", "JoséNúñez"],
       // fix round MINOR-4: combining marks are kept (NFD accents, Hindi signs)
@@ -1294,6 +1301,60 @@ describeDb("payload builder P5 F1 (SRC-7B / owner #7B + #6-second) — the outpu
       }
     }
     expect(checked).toBe(22);
+  });
+
+  // X09 (owner 2026-11-08, after talking with Guy: "it also needs to set the
+  // conditions in which the +1 should be sent, so ... add the option to send it
+  // in the Format field of the CMS (Under payload)"). Island preview == REAL
+  // buildPayload for "Phone with country code".
+  it("E11 (Phone with country code): island preview == REAL buildPayload — US phones get \"+1\", anything else is INVALID", async () => {
+    const { html } = await richEditorPage();
+    const { island } = outputFormatIsland(html);
+    const SAMPLES: Array<[unknown, unknown]> = [
+      ["7078493710", "+17078493710"],
+      ["(707) 849 3710", "+17078493710"],
+      ["+17078493710", "+17078493710"], // same in, same out
+      ["17078493710", "+17078493710"],
+      ["+1 (707) 849-3710", "+17078493710"],
+      [7078493710, "+17078493710"],
+      ["+44 20 7946 0958", undefined], // non-US → Fallback
+      ["12345", undefined],
+      ["27078493710", undefined], // 11 digits not starting with 1
+      ["", undefined],
+      ["abc", undefined],
+    ];
+    let checked = 0;
+    for (const baseType of ["string", "number"]) {
+      for (const [raw, expected] of SAMPLES) {
+        const node: Record<string, unknown> = { type: baseType };
+        island.applyOutputFormat(node, "formatPhoneE164");
+        expect(node).toEqual({ type: "string", transform: [{ kind: "formatPhoneE164" }] });
+        const previewed = island.outputFormatPreviewValue(node, raw);
+        const lead = (realPayload(node, raw)["lead"] ?? {}) as Record<string, unknown>;
+        const emitted = Object.prototype.hasOwnProperty.call(lead, "amt") ? lead["amt"] : undefined;
+        expect(previewed, `island ${baseType} ${JSON.stringify(raw)}`).toBe(expected);
+        expect(emitted, `REAL ${baseType} ${JSON.stringify(raw)}`).toBe(expected);
+        if (expected !== undefined) expect(typeof emitted).toBe("string");
+        checked += 1;
+      }
+    }
+    expect(checked).toBe(22);
+  });
+
+  it("Phone with country code: the chips read \"+17078493710\" for the sample 7078493710; \"12345\" paints the fallback or (field omitted)", async () => {
+    const { html } = await richEditorPage();
+    const { island } = outputFormatIsland(html);
+    const node: Record<string, unknown> = { type: "string" };
+    island.applyOutputFormat(node, "formatPhoneE164");
+    const painted = paintOutputFormat(island, node, "7078493710");
+    expect(painted.preview).toBe('7078493710 \u2192 "+17078493710"');
+    expect(painted.json).toBe('"+17078493710"');
+    expect(painted.invalidHidden).toBe(true);
+    const omitted = paintOutputFormat(island, node, "12345");
+    expect(omitted.json).toBe("(field omitted)");
+    expect(omitted.invalidHidden).toBe(false);
+    const fb = paintOutputFormat(island, { ...node, fallback: "0000000000" }, "12345");
+    expect(fb.json).toBe('"0000000000"');
   });
 
   it("Remove special characters and spacing: the painted chips read the exact JSON string the provider receives, and nothing-left paints the fallback leg", async () => {
@@ -1523,10 +1584,10 @@ describeDb("payload builder P5 F1 (SRC-7B / owner #7B + #6-second) — the outpu
   it("the panel's own markup: sample box takes TEXT (a leading-zero ZIP survives), JSON-shape chip, type-owned note", async () => {
     const { html } = await richEditorPage();
     const block = selectBlock(html, 'data-pb-field="output_format"');
-    expect(optionValues(block)).toEqual(["", "formatCurrency", "toNumber", "toString", "removeSpecial"]);
+    expect(optionValues(block)).toEqual(["", "formatCurrency", "toNumber", "toString", "removeSpecial", "formatPhoneE164"]);
     expect(block).toContain("As entered (no formatting)");
     expect(block).toContain("Remove special characters and spacing");
-    expect(html).toContain("Stored as the transform pipeline (formatCurrency / toNumber / toString / removeSpecial)");
+    expect(html).toContain("Stored as the transform pipeline (formatCurrency / toNumber / toString / removeSpecial / formatPhoneE164)");
     // 2026-10-19 fix round (MINOR-2): inputmode="text", not "decimal" — the
     // Remove-special sample is a phone typed WITH "(", ")" and spaces or a name
     // like "José", which a phone's decimal keypad cannot type.

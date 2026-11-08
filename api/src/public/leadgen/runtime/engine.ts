@@ -44,7 +44,7 @@ import {
   type LgConditionGroup,
   type LgDependencyState,
 } from "./dependencies";
-import { formatKindFor, normalizePhoneE164, validateSection } from "./validation";
+import { formatKindFor, normalizeUsPhone, validateSection } from "./validation";
 import { LgBeaconClient, ulidLike, type LgSendFn, type LgEnvelopeBase } from "./events";
 import * as render from "./render";
 import { wireMapsFields } from "./maps";
@@ -55,7 +55,7 @@ import {
   type LgAuctionResponse,
 } from "./auction-client";
 
-export const LG_ENGINE_VERSION = "10"; // tracks LEADGEN_TEMPLATE_VERSION (cache-keys.ts)
+export const LG_ENGINE_VERSION = "11"; // tracks LEADGEN_TEMPLATE_VERSION (cache-keys.ts)
 
 const LG_ATTEMPT_URL = "/lg/attempt";
 const SESSION_COOKIE = "ko_sid";
@@ -459,8 +459,8 @@ async function fetchAttemptWithRetry(funnelVariantId: string): Promise<LgAttempt
 // LeadGen Rework §6.9 — the compiled MASK contract a phone field carries when
 // the author set a digit-group format (config-dto buildPhoneContract →
 // client_validation.phone.{scaffold,digit_count}). Absent (legacy preset /
-// no phone_format) ⇒ null, so a legacy phone keeps its byte-identical E.164
-// path (L-192). Module-level (no `this`) so it is byte-cheap at each call.
+// no phone_format) ⇒ null, so a legacy phone keeps the no-mask save path
+// (normalizeUsPhone; X09: 10 digits on the US check). Module-level (no `this`) so it is byte-cheap at each call.
 function phoneMask(component: LgComponentConfig | null): { scaffold: string; count: number } | null {
   if (component === null) return null;
   const cv = component.client_validation;
@@ -1692,9 +1692,18 @@ export class LgEngine {
         // contract gates completeness on exactly this raw digit string.
         value = this.applyPhoneMask(input, mask, value);
       } else {
-        // Legacy preset / no mask → byte-identical E.164 normalization (L-192).
-        const e164 = normalizePhoneE164(value);
-        if (e164 !== null) value = e164;
+        // X09 (owner, 2026-10-20 + 2026-11-08): a valid US/Canada answer on the
+        // default US check (no phone_format, or the 'nanp' preset — the only
+        // 'digits' contract a US number can pass) is stored as its 10
+        // national digits, never with "+1"; "+1" is added per Offer field by
+        // the payload Output format "Phone with country code"
+        // (formatPhoneE164). The 'e164_intl' preset and custom rules keep the
+        // E.164 form exactly as before (owner decision 2026-11-08).
+        const us = normalizeUsPhone(value);
+        if (us !== null) {
+          const c = (component.client_validation || {})["phone"] as { normalize?: unknown } | undefined;
+          value = c && c.normalize !== "digits" ? "+1" + us : us;
+        }
       }
     }
 

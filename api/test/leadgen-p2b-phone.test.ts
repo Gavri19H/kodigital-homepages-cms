@@ -11,7 +11,7 @@
 import { describe, expect, it } from "vitest";
 import { toPublicComponent, parseSectionContinueVisibleWhen } from "../src/public/leadgen/config-dto";
 import { validateSectionContent } from "../src/public/leadgen/components/content-schema";
-import { validateValue, normalizePhoneE164 } from "../src/public/leadgen/runtime/validation";
+import { validateValue, normalizeUsPhone } from "../src/public/leadgen/runtime/validation";
 import type { LgComponentConfig } from "../src/public/leadgen/runtime/state";
 
 // Author a PhoneInputQuestion carrying `phone_format`, run it through the REAL
@@ -135,7 +135,7 @@ describe("P2b A-6b — legacy byte-parity + nanp==current-behavior-exactly", () 
     expect("phone" in cv).toBe(true);
   });
 
-  // The battery the frozen p4b suite pins on normalizePhoneE164 — the no-prop
+  // The battery the frozen p4b suite pins on normalizeUsPhone — the no-prop
   // field, the explicit-nanp field, and the raw normalizer must all agree.
   const BATTERY = [
     "(415) 555-1234", "4155551234", "14155551234", "+1 415 555 1234", "2025551234",
@@ -143,13 +143,13 @@ describe("P2b A-6b — legacy byte-parity + nanp==current-behavior-exactly", () 
     "1155551234", "4151151234", "0155551234", "abcdefghij",
   ];
 
-  it("no-prop, explicit-nanp, and normalizePhoneE164 agree on EVERY battery input", () => {
+  it("no-prop, explicit-nanp, and normalizeUsPhone agree on EVERY battery input", () => {
     const plain = phoneField(undefined);
     const nanp = phoneField("nanp");
     for (const input of BATTERY) {
       const plainCodes = codes(plain, input);
       const nanpCodes = codes(nanp, input);
-      const rawValid = normalizePhoneE164(input) !== null;
+      const rawValid = normalizeUsPhone(input) !== null;
       expect(plainCodes, `no-prop vs raw: ${input}`).toEqual(rawValid ? [] : ["phone_format"]);
       expect(nanpCodes, `explicit-nanp vs no-prop: ${input}`).toEqual(plainCodes);
       // the message copy is identical too (both the NANP US string).

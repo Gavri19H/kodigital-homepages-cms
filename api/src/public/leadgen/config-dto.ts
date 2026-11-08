@@ -274,7 +274,7 @@ const PATTERN_PRESET_REGEX: Readonly<Record<string, string>> = {
 // `message`. Built-in presets:
 //   nanp       — US/Canada NANP: optional leading country-1, area + exchange
 //                first digit 2-9, 10 significant digits (digits-normalized).
-//                Byte-equivalent to the runtime normalizePhoneE164 default
+//                Byte-equivalent to the runtime normalizeUsPhone default
 //                (proven in leadgen-p2b-phone.test.ts), so explicit 'nanp'
 //                validates identically to legacy no-prop content.
 //   e164_intl  — E.164: '+' then 8-15 digits (keep '+' and digits).

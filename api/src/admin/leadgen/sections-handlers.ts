@@ -544,7 +544,8 @@ async function parseAnswerMaps(
     // P2 review-round: formatPhone x a non-NANP phone_format is a silent
     // lead-drop, never a save-blocker (the combination exists in shipped
     // content already) — warn, don't reject.
-    if (transform !== null && transform.some((step) => step.kind === "formatPhone")) {
+    // X09: formatPhoneE164 ("Phone with country code") is US-only too.
+    if (transform !== null && transform.some((step) => step.kind === "formatPhone" || step.kind === "formatPhoneE164")) {
       const warning = phoneFormatIncoherenceWarning(node, `${base}.value_transform`);
       if (warning !== null) warnings.push(warning);
     }

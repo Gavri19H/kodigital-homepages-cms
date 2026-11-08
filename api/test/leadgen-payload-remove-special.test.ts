@@ -9,11 +9,16 @@
 //
 // The `removeSpecial` transform kind: String(value) with every character that
 // is not a letter, a combining mark or a digit removed (Unicode \p{L} \p{M}
-// \p{N} kept); a value in EXACTLY our stored US phone shape (/^\+1\d{10}$/ —
-// the "+1" the visitor runtime's normalizePhoneE164 adds at capture) sends its
-// 10 national digits; the output is a STRING; an empty result or a non
+// \p{N} kept); the output is a STRING; an empty result or a non
 // string/number input is INVALID (→ the node's fallback), like the other
 // formatters. Idempotent.
+//
+// X09 (2026-11-08): the hidden "stored +1 phone → 10 digits" rule is gone.
+// Owner, 2026-10-20: "The way I would like it is to remove the hardcoded
+// additional "+1" from the code entirely, so the phone number is saved and
+// sent as plain 10 digits, e.g. (707) 849 3710 --> 7078493710." The visitor
+// runtime now stores "7078493710", and "+1" is sent only by the "Phone with
+// country code" format (test/leadgen-payload-phone-e164.test.ts).
 //
 // This file is the runtime unit floor (the exact emitted strings + edge
 // cases), buildPayload over a hand-written binding (the shape
@@ -39,7 +44,7 @@ import {
   type LeadgenPayloadSchema,
 } from "../src/leadgen/payload";
 import { fetchProvider } from "../src/public/leadgen/auction/fetch";
-import { formatKindFor, normalizePhoneE164 } from "../src/public/leadgen/runtime/validation";
+import { formatKindFor, normalizeUsPhone } from "../src/public/leadgen/runtime/validation";
 import type { LgComponentConfig } from "../src/public/leadgen/runtime/state";
 
 const strip = (value: unknown): unknown => applyTransformPipeline(value, [{ kind: "removeSpecial" }] as never);
@@ -49,19 +54,23 @@ describe("removeSpecial — the emitted string", () => {
     expect(strip("(707) 849 3710")).toBe("7078493710");
   });
 
-  it('the STORED phone shape "+17078493710" (what the visitor runtime records for "(707) 849 3710") → "7078493710"', () => {
-    expect(strip("+17078493710")).toBe("7078493710");
-    expect(strip("+12155551234")).toBe("2155551234");
+  it('X09: the hidden "+1" rule is gone — "+17078493710" → "17078493710" (one plain rule)', () => {
+    expect(strip("+17078493710")).toBe("17078493710");
+    expect(strip("+12155551234")).toBe("12155551234");
   });
 
-  it('only the EXACT stored shape drops the "+1": a typed "+1 (707) 849-3710" keeps the generic rule → "17078493710"', () => {
+  it('the stored US phone "7078493710" (what the visitor runtime records for "(707) 849 3710") is sent unchanged', () => {
+    expect(strip("7078493710")).toBe("7078493710");
+  });
+
+  it('no digit is ever dropped: a typed "+1 (707) 849-3710" → "17078493710"', () => {
     expect(strip("+1 (707) 849-3710")).toBe("17078493710");
-    // near misses of /^\+1\d{10}$/ — generic rule, no digit is ever dropped
+    // generic rule, no digit is ever dropped
     expect(strip("+170784937101")).toBe("170784937101"); // 11 digits after +1
     expect(strip("+1707849371")).toBe("1707849371"); // 9 digits after +1
     expect(strip("+447078493710")).toBe("447078493710"); // another country code
     expect(strip("17078493710")).toBe("17078493710"); // no "+"
-    expect(strip(17078493710)).toBe("17078493710"); // a number never matches the stored text shape
+    expect(strip(17078493710)).toBe("17078493710");
   });
 
   it('Unicode letters survive: "José Núñez" → "JoséNúñez"', () => {
@@ -157,9 +166,9 @@ describe("removeSpecial — buildPayload over a HAND-WRITTEN answer binding (the
 // The REAL route (fix round B1 / MINOR-5). Production fact (read-only, conductor
 // 2026-10-19): AmONE's HomePhone is filled by q_mrun7kvo_l2s0, a
 // PhoneInputQuestion with no mask/preset, and the reviewer's live visitor drive
-// recorded "+17078493710" for a typed "(707) 849 3710" — the visitor runtime
-// (runtime/engine.ts, the PhoneInputQuestion branch with no mask) stores
-// normalizePhoneE164(value). Every function below is the production one. The
+// recorded "+17078493710" for a typed "(707) 849 3710". Since X09 (2026-11-08)
+// the visitor runtime (runtime/engine.ts, the PhoneInputQuestion branch with
+// no mask) stores normalizeUsPhone(value) = "7078493710". Every function below is the production one. The
 // offer and its payload schema are written by the real admin routes over the
 // real migrations (node:sqlite harness, repo pattern); the section and its
 // answer-map rows are seeded with plain SQL INSERTs; only the provider's HTTP
@@ -349,7 +358,7 @@ interface RouteHarness {
 // removeSpecial on the node); the Section that asks the phone question + its
 // answer-map row (Section tab: HomePhone ← home_phone, NO transform of its own,
 // as in production).
-async function setupRoute(): Promise<RouteHarness> {
+async function setupRoute(kind: "removeSpecial" | "formatPhoneE164" = "removeSpecial"): Promise<RouteHarness> {
   const sdb = createLeadgenDb(DatabaseSync as DatabaseSyncCtor);
   const env = buildEnv(d1FromSqlite(sdb));
   const createRes = await admin.request(
@@ -392,7 +401,7 @@ async function setupRoute(): Promise<RouteHarness> {
               name: "HomePhone",
               type: "string",
               source: "answer",
-              transform: [{ kind: "removeSpecial" }],
+              transform: [{ kind }],
             },
           ],
         },
@@ -451,7 +460,7 @@ describeDb("removeSpecial — the REAL route: visitor phone answer → stored sh
     const h = await setupRoute();
 
     // 1) Visitor runtime capture: the question is a phone-format component with
-    //    no compiled mask, so runtime/engine.ts records normalizePhoneE164(typed).
+    //    no compiled mask, so runtime/engine.ts records normalizeUsPhone(typed).
     const sectionRow = h.sdb.prepare("SELECT content_json FROM leadgen_sections WHERE id = ?").get(h.sectionId) as {
       content_json: string;
     };
@@ -459,15 +468,15 @@ describeDb("removeSpecial — the REAL route: visitor phone answer → stored sh
     const component = content.components[0] as unknown as LgComponentConfig;
     expect(formatKindFor(component)).toBe("phone");
     expect((component as unknown as Record<string, unknown>)["client_validation"]).toBeUndefined(); // no mask
-    const stored = normalizePhoneE164("(707) 849 3710");
-    expect(stored).toBe("+17078493710");
+    const stored = normalizeUsPhone("(707) 849 3710");
+    expect(stored).toBe("7078493710");
 
     // 2) Server leg, the auction engine's own order (auction/engine.ts):
     //    normalizeAnswers(section content, posted envelope) → readAnswerBindings
     //    (the Section rows, for the Sections the lead passed) → fetchProvider.
     const posted = { home_phone: { value: stored, answer_source: "user_selected" } };
     const { answers } = normalizeAnswers(content as never, posted as never);
-    expect(answers["home_phone"]).toBe("+17078493710");
+    expect(answers["home_phone"]).toBe("7078493710");
     const bindings = (await readAnswerBindings(h.env.DB, [h.offerId], [h.sectionId])).get(h.offerId) ?? {};
     expect(bindings["HomePhone"]).toEqual([{ internal_field: "home_phone" }]);
 
@@ -497,7 +506,7 @@ describeDb("removeSpecial — the REAL route: visitor phone answer → stored sh
     expect(sent[0]?.body).toBe('{"HomePhone":"7078493710"}');
   });
 
-  it('the admin Test tab sample-answers path for the same phone field sends the same "7078493710"', async () => {
+  it('the admin Test tab sample-answers path for the same phone field sends "7078493710" (a typed "+1" is kept as digits)', async () => {
     const h = await setupRoute();
     // The Test tab's form: generated from the Section rows (the phone field is
     // classified from its PhoneInputQuestion).
@@ -509,7 +518,12 @@ describeDb("removeSpecial — the REAL route: visitor phone answer → stored sh
     // The operator types the owner's example — or pastes the stored shape a
     // real lead carries — into the phone answer; the draft is saved and the
     // form re-generated with it, then Test runs (dry run: build + mask only).
-    for (const typed of ["(707) 849 3710", "+17078493710"]) {
+    // X09: an operator-typed "+17078493710" is no longer special-cased.
+    for (const [typed, expected] of [
+      ["(707) 849 3710", "7078493710"],
+      ["7078493710", "7078493710"],
+      ["+17078493710", "17078493710"],
+    ] as const) {
       const putRes = await admin.request(
         `${API}/offers/${h.offerId}/payload/sample-answers`,
         jsonInit("PUT", { answers: { ...gen.answers, home_phone: typed } }),
@@ -527,7 +541,64 @@ describeDb("removeSpecial — the REAL route: visitor phone answer → stored sh
       );
       expect(testRes.status).toBe(200);
       const body = (await testRes.json()) as { request: { payload: Record<string, unknown> } };
-      expect(body.request.payload, typed).toEqual({ HomePhone: "7078493710" });
+      expect(body.request.payload, typed).toEqual({ HomePhone: expected });
+    }
+  });
+});
+
+// X09 (owner 2026-11-08, after talking with Guy): the same REAL route with the
+// Offer field set to "Phone with country code" — the admin route saves the
+// schema (validator accepts the new kind) and the provider receives "+1".
+describeDb("formatPhoneE164 — the REAL route: stored 10-digit phone → provider request with \"+1\"", () => {
+  it('the visitor\'s "(707) 849 3710", stored as "7078493710", reaches the provider as "+17078493710"', async () => {
+    const h = await setupRoute("formatPhoneE164");
+    const sectionRow = h.sdb.prepare("SELECT content_json FROM leadgen_sections WHERE id = ?").get(h.sectionId) as {
+      content_json: string;
+    };
+    const content = JSON.parse(sectionRow.content_json) as { components: Array<Record<string, unknown>> };
+    const stored = normalizeUsPhone("(707) 849 3710");
+    expect(stored).toBe("7078493710");
+    const posted = { home_phone: { value: stored, answer_source: "user_selected" } };
+    const { answers } = normalizeAnswers(content as never, posted as never);
+    const bindings = (await readAnswerBindings(h.env.DB, [h.offerId], [h.sectionId])).get(h.offerId) ?? {};
+    const offerRow = h.sdb.prepare("SELECT * FROM leadgen_offers WHERE id = ?").get(h.offerId) as LeadgenOfferRow;
+    const schemaRow = h.sdb
+      .prepare("SELECT schema_json FROM leadgen_offer_payload_schemas WHERE id = ?")
+      .get(h.schemaId) as { schema_json: string };
+    const savedSchema = JSON.parse(schemaRow.schema_json) as LeadgenPayloadSchema;
+    expect(JSON.stringify(savedSchema)).toContain('"formatPhoneE164"');
+
+    const sent: Array<{ url: string; body: string }> = [];
+    vi.stubGlobal("fetch", async (url: RequestInfo | URL, init?: RequestInit): Promise<Response> => {
+      sent.push({ url: String(url), body: typeof init?.body === "string" ? init.body : "" });
+      return new Response(JSON.stringify({ carriers: [] }), { status: 200 });
+    });
+    await fetchProvider(
+      h.env,
+      offerRow,
+      [],
+      savedSchema,
+      { answers, answer_bindings: bindings, macros: {}, timeout_ms: 2500 },
+      "staging",
+    );
+    expect(sent).toHaveLength(1);
+    expect(sent[0]?.body).toBe('{"HomePhone":"+17078493710"}');
+  });
+
+  it('the admin Test tab sends "+17078493710" for "(707) 849 3710", "7078493710" and "+17078493710"', async () => {
+    const h = await setupRoute("formatPhoneE164");
+    const genRes = await admin.request(`${API}/offers/${h.offerId}/payload/sample-answers`, { method: "POST" }, h.env);
+    expect(genRes.status).toBe(200);
+    const gen = (await genRes.json()) as { answers: Record<string, unknown> };
+    for (const typed of ["(707) 849 3710", "7078493710", "+17078493710"]) {
+      const testRes = await admin.request(
+        `${API}/offers/${h.offerId}/test`,
+        jsonInit("POST", { environment: "staging", sample_answers: { ...gen.answers, home_phone: typed }, dry_run: true }),
+        h.env,
+      );
+      expect(testRes.status).toBe(200);
+      const body = (await testRes.json()) as { request: { payload: Record<string, unknown> } };
+      expect(body.request.payload, typed).toEqual({ HomePhone: "+17078493710" });
     }
   });
 });
