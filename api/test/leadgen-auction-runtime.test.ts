@@ -826,6 +826,74 @@ describeDb("leadgen §19 runtime — pipeline branches (mocked providers)", () =
     expect(await post("0")).toBe("not_started");
   });
 
+  // F09 (owner 2026-10-01): "Fundera wants the value sent to be the actual
+  // date ... while Amone wants the value sent to be a fixed value selected from
+  // their Appendix" -> "Send Mixed Type of Values". One choice, two Offers, the
+  // bytes each Offer is POSTed.
+  it("F09 FAIL-BEFORE/PASS-AFTER: a MIXED choice POSTs the date to the Offer set to a calculated date and the fixed value to the other", async () => {
+    const { sdb, env } = harness();
+    const auction = seedAuction(sdb, { multi_offer: "enabled" });
+    const fundera = seedOffer(sdb, { schemaJson: BUSINESS_INCEPTION_SCHEMA });
+    const amone = seedOffer(sdb, {
+      schemaJson: JSON.stringify({
+        version: 1,
+        root: { type: "object", children: [{ path: "Ageofbusiness", name: "Ageofbusiness", type: "string", required: false, source: "answer" }] },
+      }),
+    });
+    attachOffer(sdb, auction.id, fundera, 0);
+    attachOffer(sdb, auction.id, amone, 1);
+    const content = JSON.stringify({
+      components: [
+        {
+          internal_field: BUSINESS_DURATION_FIELD, required: false, answer_type: "enum", type: "ButtonAnswerGroup", question_id: "q_mrujqnc5_2e5a",
+          choices: [
+            {
+              label: "6-12 Months", value: "6", analytics_id: "6",
+              value_calc: { kind: "date_ago", amount: 6, unit: "months", mixed: true, date_offer_ids: [fundera.offer_id] },
+            },
+            { label: "2+ Years", value: "2", analytics_id: "2", value_calc: { kind: "date_ago", amount: 2, unit: "years" } },
+          ],
+        },
+      ],
+    });
+    const sectionPublicId = "lgs_durationmixed000000000000";
+    const sectionId = seedSectionRow(sdb, sectionPublicId, content);
+    const q = { question_id: "q_mrujqnc5_2e5a", internal_field: BUSINESS_DURATION_FIELD, answer_type: "enum" };
+    seedMapRow(sdb, sectionId, fundera, q, "company.business_inception", "string");
+    seedMapRow(sdb, sectionId, amone, q, "Ageofbusiness", "string", { "6": "6-12 Months", "2": "2+ Years" });
+    const post = async (answer: string): Promise<Array<Record<string, unknown>>> => {
+      const calls = stubFetch(() => new Response(carrierBody([{ name: "Acme", bid: 12 }]), { status: 200 }));
+      const bundle = await loadAuctionBundle(env.DB, auction, 1);
+      await runAuction(
+        env,
+        {
+          resolved: makeResolved([{ public_id: sectionPublicId, content_version: 1, content_json: content }]),
+          bundle, environment: "production", binding: NO_BINDING, session_id: null,
+          raw_answers: { [BUSINESS_DURATION_FIELD]: answer }, clicked: [],
+        },
+        { dryRun: true },
+      );
+      vi.unstubAllGlobals();
+      return calls.map((c) => JSON.parse(String(c.init.body ?? "{}")) as Record<string, unknown>);
+    };
+    const now = new Date();
+    const sixMonthsAgo = (() => {
+      const d = new Date(Date.UTC(now.getUTCFullYear(), now.getUTCMonth() - 6, now.getUTCDate()));
+      if (d.getUTCDate() !== now.getUTCDate()) d.setUTCDate(0);
+      return d.toISOString().slice(0, 10);
+    })();
+    const twoYearsAgo = new Date(Date.UTC(now.getUTCFullYear() - 2, now.getUTCMonth(), now.getUTCDate())).toISOString().slice(0, 10);
+    // mixed: Fundera the date, AmOne its own fixed value (before: AmOne got the date too)
+    const mixed = await post("6");
+    expect(mixed).toHaveLength(2);
+    expect(mixed).toContainEqual({ company: { business_inception: sixMonthsAgo } });
+    expect(mixed).toContainEqual({ Ageofbusiness: "6-12 Months" });
+    // a plain calculated choice on the same question: every Offer still gets the date
+    const plain = await post("2");
+    expect(plain).toContainEqual({ company: { business_inception: twoYearsAgo } });
+    expect(plain).toContainEqual({ Ageofbusiness: twoYearsAgo });
+  });
+
   it("a choice with NO value_calc still POSTs its literal saved value", async () => {
     const { sdb, env } = harness();
     const auction = seedAuction(sdb);

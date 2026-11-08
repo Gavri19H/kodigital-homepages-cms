@@ -1837,6 +1837,8 @@ interface SchemaFieldSeed {
   valid_values?: Array<string | number | boolean>;
   // §12.5: the authored schema label — field_label derivation source.
   label?: string;
+  // F09: a Date field is string + one formatDate step (the builder's Type = Date).
+  transform?: Array<Record<string, unknown>>;
 }
 
 async function createOfferWithSchema(
@@ -1874,6 +1876,7 @@ async function createOfferWithSchema(
       internal_field: f.internal_field ?? f.path.split(".").pop(),
       ...(f.valid_values !== undefined ? { valid_values: f.valid_values } : {}),
       ...(f.label !== undefined ? { label: f.label } : {}),
+      ...(f.transform !== undefined ? { transform: f.transform } : {}),
     }));
     // one macro node rides along — it must NEVER appear in answer_fields
     children.push({ path: "meta.click_id", name: "click_id", type: "string", source: "macro", macro: "click_id" } as never);
@@ -8177,7 +8180,10 @@ const PROD_SECTION_25 = (
 ).content;
 
 describeDb("OWNER 2026-09-28 review round 1 — answer keys, Other values, typed values, renames, per-field lists", () => {
-  async function setupWith(content: unknown, offerDefs: Array<[string, Array<{ path: string; type: string; required?: boolean; internal_field?: string }>]>) {
+  async function setupWith(
+    content: unknown,
+    offerDefs: Array<[string, Array<{ path: string; type: string; required?: boolean; internal_field?: string; transform?: Array<Record<string, unknown>> }>]>,
+  ) {
     const { env } = newHarness();
     const offers: Array<{ id: number; public_id: string }> = [];
     for (const [name, fields] of offerDefs) {
@@ -8492,6 +8498,65 @@ describeDb("OWNER 2026-09-28 review round 1 — answer keys, Other values, typed
     const twoYearsAgo = new Date(Date.UTC(now.getUTCFullYear() - 2, now.getUTCMonth(), now.getUTCDate())).toISOString().slice(0, 10);
     expect(await preview(env, section, { dur: "2" }, f.public_id)).toEqual({ company: { business_inception: twoYearsAgo } });
     expect(await preview(env, section, { dur: "0" }, f.public_id)).toEqual({ company: { business_inception: "0" } });
+  });
+
+  // F09 (owner 2026-10-01): "Fundera" wants the actual date, "Amone" a fixed
+  // value from their Appendix -> "Send Mixed Type of Values". Decided
+  // 2026-11-08: Q1 — a new Value type starts as the date where the Offer's
+  // payload field is a Date field.
+  it("F09: a mixed choice — the Date-field Offer starts on the date (Q1), the chip counts both kinds, and the payload preview sends Fundera the date and AmOne its fixed value", async () => {
+    const content = {
+      components: [
+        {
+          type: "ButtonAnswerGroup", question_id: "q_dur", question_key: "q_dur", internal_field: "dur", answer_type: "enum",
+          choices: [
+            { label: "6-12 Months", value: "6", analytics_id: "6", value_calc: { kind: "date_ago", amount: 6, unit: "months", mixed: true, date_offer_ids: [] } },
+            { label: "New", value: "0", analytics_id: "0" },
+          ],
+        },
+      ],
+    };
+    const { env, section, probe, offers, island } = await setupWith(content, [
+      ["Fundera - Tier 1", [{ path: "company.business_inception", type: "string", transform: [{ kind: "formatDate", format: "YYYY-MM-DD" }] }]],
+      ["AmONE - Tier 2", [{ path: "Ageofbusiness", type: "string" }]],
+    ]);
+    probe.run(["idInList", "offerAnswerIsDateField", "mappedDateOffers"].map((n) => sliceIslandFunction(island, n)).join("\n"));
+    const [f, a] = [offers[0]!, offers[1]!];
+    probe.run(`upsertEdge(offerById(${f.id}), answerFieldOf(offerById(${f.id}), 'company.business_inception'), 'dur')`);
+    probe.run(`upsertEdge(offerById(${a.id}), answerFieldOf(offerById(${a.id}), 'Ageofbusiness'), 'dur')`);
+    // Q1: only Fundera's field is a Date field
+    expect(probe.run("mappedDateOffers('dur')")).toEqual([f.id]);
+    probe.run(`state.content.components[0].choices[0].value_calc.date_offer_ids = [${f.id}];`);
+    // AmOne's fixed value for this choice
+    probe.run(`setProviderValue(${a.id}, 'dur', '6', '6-12 Months', choiceSavedValuesOf(questionByField('dur')))`);
+    // "Provider values: k/n Offers" counts both kinds
+    expect(probe.run(`providerChipLabel('dur', '6', [${f.id}])`)).toBe("Provider values: 2/2 Offers");
+    expect(probe.run("providerChipLabel('dur', '6')")).toBe("Provider values: 1/2 Offers");
+    await save(env, section, probe);
+    const stored = (await (await admin.request(`${API}/sections/${section.public_id}`, {}, env)).json()) as { content_json: unknown };
+    const storedContent = (typeof stored.content_json === "string" ? JSON.parse(stored.content_json) : stored.content_json) as {
+      components: Array<{ choices: Array<{ value_calc: unknown }> }>;
+    };
+    expect(storedContent.components[0]!.choices[0]!.value_calc).toEqual({
+      kind: "date_ago", amount: 6, unit: "months", mixed: true, date_offer_ids: [f.id],
+    });
+    const now = new Date();
+    const d = new Date(Date.UTC(now.getUTCFullYear(), now.getUTCMonth() - 6, now.getUTCDate()));
+    if (d.getUTCDate() !== now.getUTCDate()) d.setUTCDate(0);
+    const sixMonthsAgo = d.toISOString().slice(0, 10);
+    expect(await preview(env, section, { dur: "6" }, f.public_id)).toEqual({ company: { business_inception: sixMonthsAgo } });
+    expect(await preview(env, section, { dur: "6" }, a.public_id)).toEqual({ Ageofbusiness: "6-12 Months" });
+  });
+
+  it("F09: the Saved value control offers the third option, and the typed provider row has its own grid (old rows unchanged)", async () => {
+    const { env } = newHarness();
+    const section = await createSection(env, {});
+    const html = await studioPage(env, section.public_id);
+    expect(html).toContain("optMixed.textContent = 'Send mixed types of values';");
+    expect(html).toContain("tOptDate.textContent = 'Send a calculated date';");
+    expect(html).toContain("'sends the calculated date'");
+    expect(html).toContain(".studio-provider-row--typed{grid-template-columns:minmax(96px,auto) minmax(64px,1fr) minmax(84px,1.2fr)}");
+    expect(html).toContain(".studio-provider-row{display:grid;grid-template-columns:minmax(90px,1fr) minmax(120px,1.4fr);");
   });
 
   it("open item 2: a saved value renamed in its row carries its provider values; a rename onto another choice's value moves nothing", async () => {

@@ -79,6 +79,7 @@ import {
   fieldsOf as answerFieldsOf,
   type LeadgenAnswerMapping,
   type LeadgenRawAnswers,
+  computedForOffer,
   normalizeAnswers,
 } from "../../leadgen/answers";
 // Stage-A pure engines (P6) — CONSUMED here, never modified: the §12.3 IF/THEN
@@ -2789,7 +2790,12 @@ export async function validateSectionPayloadHandler(c: AdminContext): Promise<Re
       fallback_value: e.fallback_value ?? undefined,
     }));
     // OWNER 2026-09-28: a calculated choice previews its DATE, as production sends it.
-    const payload = buildOfferPayload(mappings, normalized.answers, normalized.computed);
+    // F09: a mixed choice's date only for the Offers on its list.
+    const payload = buildOfferPayload(
+      mappings,
+      normalized.answers,
+      computedForOffer(normalized.computed, normalized.computed_offers, offerId),
+    );
 
     const requiredTotal = offerSchema?.requiredFieldPaths.length ?? 0;
     const mappedRequired = new Set<string>();

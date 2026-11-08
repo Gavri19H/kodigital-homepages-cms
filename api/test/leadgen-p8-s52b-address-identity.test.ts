@@ -1025,4 +1025,76 @@ describeDb("P8 S5.2b — address identity (R6-2 / R6-3 / R6-4 / M4)", () => {
     expect(inStreet.disabled, "street renders its own box, so there the same key is refused").toBe(true);
     expect(inStreet.textContent).toBe("town_field — already answered by Town");
   });
+
+  // F09 (owner 2026-10-01, "Send Mixed Type of Values"): the Saved value
+  // control's third option, driven through the REAL shipped row code.
+  it("F09: the third Saved value option keeps each Offer's Value type through mode switches and a half-typed amount, and collects it onto the choice", async () => {
+    const env = newHarness();
+    const content = {
+      components: [
+        {
+          type: "ButtonAnswerGroup",
+          question_id: "q_dur",
+          internal_field: "dur",
+          answer_type: "enum",
+          choices: [
+            { label: "6-12 Months", value: "6", analytics_id: "6", value_calc: { kind: "date_ago", amount: 6, unit: "months", mixed: true, date_offer_ids: [5] } },
+          ],
+        },
+      ],
+    };
+    const section = await createSection(env, content);
+    const page = await studioPage(env, section.public_id);
+    const container = makeEl("div");
+    const probe = islandProbe(islandOf(page), metaOf(page), content, { "[data-studio-choices]": container });
+    probe.sandbox.selectedQuestionId = "q_dur";
+    probe.run("var __n = selectedNode(); choiceContainer().appendChild(buildChoiceRow(__n.choices[0], __n));");
+    const row = container.querySelectorAll("[data-choice-row]")[0]!;
+    const modeSel = row.querySelector("[data-choice-calc-mode]")!;
+    const carrier = cellOf(row, "data-choice-field", "value_calc") as FakeEl & {
+      lgSetDateOffer: (id: number, on: boolean) => void;
+      lgDateOffers: () => number[];
+    };
+    const amount = row.querySelectorAll("[aria-label]").find((e) => e.getAttribute("aria-label") === "How many")!;
+    const literal = cellOf(row, "data-choice-field", "value");
+    const calcOf = () => (probe.sandbox.state.content.components[0] as { choices: Array<Record<string, unknown>> }).choices[0]!["value_calc"];
+
+    expect(modeSel.value).toBe("mixed");
+    expect(optionsOf(modeSel).map((o) => o.textContent)).toEqual([
+      "Send a fixed value",
+      "Send a calculated date",
+      "Send mixed types of values",
+    ]);
+    // mixed shows BOTH the fixed saved value and the "Today minus" controls
+    expect(literal.hidden).toBe(false);
+    expect(carrier.getAttribute("data-calc-mode")).toBe("mixed");
+
+    // an Offer's Value type set to the date, as the Provider values row does
+    carrier.lgSetDateOffer(7, true);
+    probe.run("collectChoices()");
+    expect(calcOf()).toEqual({ kind: "date_ago", amount: 6, unit: "months", mixed: true, date_offer_ids: [5, 7] });
+    carrier.lgSetDateOffer(5, false);
+    probe.run("collectChoices()");
+    expect((calcOf() as { date_offer_ids: number[] }).date_offer_ids).toEqual([7]);
+
+    // a half-typed amount never drops the Offer list (review fix)
+    amount.value = "";
+    amount.fire("input");
+    expect(calcOf()).toEqual({ kind: "date_ago", amount: 6, unit: "months", mixed: true, date_offer_ids: [7] });
+
+    // switching to "Send a fixed value" removes the calculation; back to mixed restores the list
+    modeSel.value = "fixed";
+    modeSel.fire("change");
+    expect(calcOf()).toBeUndefined();
+    modeSel.value = "mixed";
+    amount.value = "12";
+    amount.fire("input");
+    expect(calcOf()).toEqual({ kind: "date_ago", amount: 12, unit: "months", mixed: true, date_offer_ids: [7] });
+
+    // plain "Send a calculated date" is unchanged: no mixed flag, no list
+    modeSel.value = "calc";
+    modeSel.fire("change");
+    expect(calcOf()).toEqual({ kind: "date_ago", amount: 12, unit: "months" });
+    expect(literal.hidden).toBe(true);
+  });
 });

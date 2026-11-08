@@ -1009,7 +1009,17 @@ export interface LeadgenChoiceCalc {
   kind: (typeof LEADGEN_CHOICE_CALC_KINDS)[number];
   amount: number;
   unit: LeadgenChoiceCalcUnit;
+  // F09 (owner 2026-10-01, decided 2026-11-08) — "Send mixed types of values":
+  // the date goes ONLY to the Offers listed in date_offer_ids (numeric Offer
+  // ids, the same ids the Section's answer maps carry); every other Offer gets
+  // its fixed value (the choice's saved value through that Offer's Provider
+  // values list). Absent `mixed` ⇒ every Offer gets the date, exactly as before.
+  mixed?: true;
+  date_offer_ids?: number[];
 }
+
+// F09 — a mixed choice's Offer list is capped like any authored list.
+export const LEADGEN_CHOICE_CALC_MAX_OFFERS = 200;
 
 // The largest amount any unit accepts. 1200 months / 1200 years is far past any
 // real business age and keeps the arithmetic inside a safe Date range.
@@ -4150,6 +4160,22 @@ export function validateSectionContent(
               }
               if (!(LEADGEN_CHOICE_CALC_UNITS as readonly string[]).includes(String(calc["unit"]))) {
                 push("invalid_choice", `${cp}.value_calc.unit`, `'Unit' must be one of: ${LEADGEN_CHOICE_CALC_UNITS.join(", ")}. Pick one.`);
+              }
+              // F09 — "Send mixed types of values": `mixed` is the literal true,
+              // and the Offers that get the date are a list of Offer ids.
+              if (calc["mixed"] !== undefined && calc["mixed"] !== true) {
+                push("invalid_choice", `${cp}.value_calc.mixed`, "Mixed types of values must be on or off. Pick the Saved value option again.");
+              }
+              const dateOffers = calc["date_offer_ids"];
+              if (dateOffers !== undefined) {
+                const ok =
+                  calc["mixed"] === true &&
+                  Array.isArray(dateOffers) &&
+                  dateOffers.length <= LEADGEN_CHOICE_CALC_MAX_OFFERS &&
+                  dateOffers.every((id) => typeof id === "number" && Number.isInteger(id) && id > 0);
+                if (!ok) {
+                  push("invalid_choice", `${cp}.value_calc.date_offer_ids`, "The Offers that get the calculated date could not be read. Set each Offer's Value type again.");
+                }
               }
             }
           }

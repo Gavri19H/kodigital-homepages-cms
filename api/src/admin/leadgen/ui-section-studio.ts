@@ -4206,6 +4206,10 @@ export const SECTION_STUDIO_STYLES = `
 .studio-provider-state[data-provider-state="partial"]{color:#664d03}
 .studio-provider-row .form-input[aria-invalid="true"]{border-color:#842029}
 .studio-provider-rows a{font-size:11px}
+/* F09 "Send mixed types of values": a "Value type" column left of each Offer */
+.studio-provider-row--typed{grid-template-columns:minmax(96px,auto) minmax(64px,1fr) minmax(84px,1.2fr)}
+.studio-provider-row--typed .form-select{font-size:11px;padding:2px 4px;min-width:0}
+.studio-provider-head{font-size:10px;color:var(--c-muted);font-weight:600;margin-bottom:0}
 /* §5.4 funnel-picker rule moved into SECTION_STUDIO_CANVAS_FRAME_CSS (DEV-66) */
 /* choice rows: depth fields wrap */
 .lg-choice-row{position:relative}
@@ -5347,10 +5351,32 @@ export const SECTION_STUDIO_SCRIPT = `
     }
     return rows;
   }
-  function providerChipLabel(internalField, choiceValue) {
+  // F09 Q1 (owner 2026-11-08): a mixed choice starts with "Send a calculated
+  // date" for every Offer whose mapped payload field is a Date field (a field
+  // projected with a date_format), and "Send a fixed value" for the rest.
+  function offerAnswerIsDateField(offerId, internalField) {
+    var offer = offerById(offerId), edges = edgesOfAnswerOnOffer(offerId, internalField), i, f;
+    for (i = 0; i < edges.length; i++) {
+      f = offer ? answerFieldOf(offer, edges[i].offer_payload_field_path) : null;
+      if (f && typeof f.date_format === 'string' && f.date_format !== '') { return true; }
+    }
+    return false;
+  }
+  function mappedDateOffers(internalField) {
+    var ids = mappedOffersFor(internalField), out = [], i;
+    for (i = 0; i < ids.length; i++) { if (offerAnswerIsDateField(ids[i], internalField)) { out.push(ids[i]); } }
+    return out;
+  }
+  // dateIds (F09, optional): a mixed choice's date Offers — counted as set
+  // ("Provider values: k/n Offers" counts both kinds), never as "not sent".
+  function providerChipLabel(internalField, choiceValue, dateIds) {
     var rows = providerChipRows(internalField, choiceValue);
     var custom = {}, missing = {}, i, nc = 0, nm = 0;
     for (i = 0; i < rows.length; i++) {
+      if (dateIds && idInList(dateIds, rows[i].offer_id)) {
+        if (custom[rows[i].offer_id] !== true) { custom[rows[i].offer_id] = true; nc += 1; }
+        continue;
+      }
       if (rows[i].state === 'custom' && custom[rows[i].offer_id] !== true) { custom[rows[i].offer_id] = true; nc += 1; }
       if ((rows[i].state === 'missing' || (rows[i].unsendable !== '' && rows[i].unsendable.indexOf('partly:') !== 0)) && missing[rows[i].offer_id] !== true) { missing[rows[i].offer_id] = true; nm += 1; }
     }
@@ -12981,10 +13007,33 @@ export const SECTION_STUDIO_SCRIPT = `
     var inp = rowEl && rowEl.querySelector ? rowEl.querySelector('[data-choice-field="value"], [data-other-field="value"]') : null;
     return inp ? trimStr(inp.value) : fallback;
   }
-  function rowIsCalculated(rowEl, choice) {
+  // F09 (owner 2026-10-01, decided 2026-11-08): how a choice is sent —
+  // 'fixed', 'calc' (every Offer gets the date) or 'mixed' (each Offer's
+  // "Value type" decides). The row's Saved value control stamps its mode on
+  // the hidden carrier, so a half-typed amount never flips the rows.
+  function rowCalcMode(rowEl, choice) {
     var hid = rowEl && rowEl.querySelector ? rowEl.querySelector('[data-choice-field="value_calc"]') : null;
-    if (hid) { return trimStr(hid.value) !== ''; }
-    return !!(choice && choice.value_calc);
+    var m = hid && hid.getAttribute ? hid.getAttribute('data-calc-mode') : null;
+    if (m === 'fixed' || m === 'calc' || m === 'mixed') { return m; }
+    var vc = choice && choice.value_calc && typeof choice.value_calc === 'object' ? choice.value_calc : null;
+    if (hid) {
+      if (trimStr(hid.value) === '') { return 'fixed'; }
+      try { vc = JSON.parse(hid.value); } catch (calcParseErr) { return 'calc'; }
+    }
+    if (!vc) { return 'fixed'; }
+    return vc.mixed === true ? 'mixed' : 'calc';
+  }
+  // F09: the Offer ids a mixed choice sends its date to.
+  function rowDateOffers(rowEl, choice) {
+    var hid = rowEl && rowEl.querySelector ? rowEl.querySelector('[data-choice-field="value_calc"]') : null;
+    if (hid && typeof hid.lgDateOffers === 'function') { return hid.lgDateOffers(); }
+    var vc = choice && choice.value_calc;
+    return vc && Object.prototype.toString.call(vc.date_offer_ids) === '[object Array]' ? vc.date_offer_ids.slice() : [];
+  }
+  function idInList(list, id) {
+    var i;
+    for (i = 0; i < list.length; i++) { if (list[i] === id) { return true; } }
+    return false;
   }
   // Every live chip re-reads the mapping when it changes (a mapping edited on
   // the Offers tab must not leave "0/0 Offers" on the Content tab).
@@ -13188,7 +13237,7 @@ export const SECTION_STUDIO_SCRIPT = `
     function refreshLabel() {
       var v = shownValue();
       clearChildren(chip);
-      chip.appendChild(document.createTextNode(providerChipLabel(internalField, v)));
+      chip.appendChild(document.createTextNode(providerChipLabel(internalField, v, rowCalcMode(rowEl, choice) === 'mixed' ? rowDateOffers(rowEl, choice) : null)));
       chip.setAttribute('data-choice-provider-chip', v);
       var n = mappedOffersFor(internalField).length;
       chip.title = n === 0
@@ -13221,15 +13270,31 @@ export const SECTION_STUDIO_SCRIPT = `
     }
     var painters = [];
     var builtShape = '';
+    var builtMode = '';
+    // F09 review: in mixed mode an Offer on "Send a fixed value" whose payload
+    // field is a Date field drops anything that is not a date (the field's
+    // date format runs on it) — say so instead of "sends 6".
+    function warnFixedIntoDate(stateEl, offerId, sends) {
+      if (!offerAnswerIsDateField(offerId, internalField)) { return; }
+      if (/^\\d{4}-\\d{2}-\\d{2}/.test(String(sends))) { return; }
+      stateEl.setAttribute('data-provider-state', 'unsendable');
+      clearChildren(stateEl);
+      stateEl.appendChild(document.createTextNode('not sent \\u2014 this Offer\\u2019s field is a date: pick Send a calculated date'));
+    }
     function buildRows() {
       clearChildren(rowsEl);
       painters = [];
       builtShape = '';
+      builtMode = rowCalcMode(rowEl, choice);
       var v = shownValue();
       rowsEl.setAttribute('data-choice-provider-rows', v);
       var ids = mappedOffersFor(internalField);
       if (ids.length === 0) { note('Map this answer to an Offer in the Offers tab first \\u2014 then each Offer can get its own value here.'); return; }
-      if (rowIsCalculated(rowEl, choice)) { note('Calculated date \\u2014 every provider receives the date.'); return; }
+      if (builtMode === 'calc') { note('Calculated date \\u2014 every provider receives the date.'); return; }
+      // F09: in "Send mixed types of values" each Offer row starts with its
+      // "Value type"; an Offer set to the date shows no box.
+      var typed = builtMode === 'mixed';
+      var dateIds = typed ? rowDateOffers(rowEl, choice) : [];
       if (v === '') { note('Give this choice a saved value first.'); return; }
       var rows = providerChipRows(internalField, v), i;
       builtShape = providerRowsShape(rows);
@@ -13239,7 +13304,7 @@ export const SECTION_STUDIO_SCRIPT = `
       rowsEl.appendChild(noteLine);
       var paintNote = function () {
         var cur = shownValue(), rs = providerChipRows(internalField, cur), k, missing = false;
-        for (k = 0; k < rs.length; k++) { if (rs[k].state === 'missing' || (rs[k].unsendable !== '' && rs[k].unsendable.indexOf('partly:') !== 0)) { missing = true; } }
+        for (k = 0; k < rs.length; k++) { if (typed && idInList(dateIds, rs[k].offer_id)) { continue; } if (rs[k].state === 'missing' || (rs[k].unsendable !== '' && rs[k].unsendable.indexOf('partly:') !== 0)) { missing = true; } }
         clearChildren(noteLine);
         noteLine.appendChild(document.createTextNode(missing
           ? 'Empty box = the saved value (' + cur + ') is sent \\u2014 except where marked not sent.'
@@ -13247,11 +13312,50 @@ export const SECTION_STUDIO_SCRIPT = `
       };
       paintNote();
       painters.push(paintNote);
-      var line, lab, inp, st;
+      var line, lab, inp, st, typeSel, isDate;
+      if (typed) {
+        var head = document.createElement('div');
+        head.className = 'studio-provider-row studio-provider-row--typed studio-provider-head';
+        head.setAttribute('data-provider-head', '');
+        var hcol = ['Value type', 'Offer', 'Value'], hc, hs;
+        for (hc = 0; hc < hcol.length; hc++) {
+          hs = document.createElement('span');
+          hs.appendChild(document.createTextNode(hcol[hc]));
+          head.appendChild(hs);
+        }
+        rowsEl.appendChild(head);
+      }
       for (i = 0; i < rows.length; i++) {
         line = document.createElement('div');
-        line.className = 'studio-provider-row';
+        line.className = typed ? 'studio-provider-row studio-provider-row--typed' : 'studio-provider-row';
         line.setAttribute('data-provider-offer', rows[i].offer_public_id || '');
+        isDate = typed && idInList(dateIds, rows[i].offer_id);
+        typeSel = null;
+        if (typed) {
+          typeSel = document.createElement('select');
+          typeSel.className = 'form-select form-select-sm';
+          typeSel.setAttribute('data-provider-value-type', String(rows[i].offer_id));
+          typeSel.setAttribute('aria-label', 'Value type for ' + rows[i].offer_name);
+          var tOptFixed = document.createElement('option');
+          tOptFixed.value = 'fixed';
+          tOptFixed.textContent = 'Send a fixed value';
+          var tOptDate = document.createElement('option');
+          tOptDate.value = 'date';
+          tOptDate.textContent = 'Send a calculated date';
+          typeSel.appendChild(tOptFixed);
+          typeSel.appendChild(tOptDate);
+          typeSel.value = isDate ? 'date' : 'fixed';
+          (function (offerId, sel) {
+            sel.addEventListener('change', function () {
+              var hid = rowEl && rowEl.querySelector ? rowEl.querySelector('[data-choice-field="value_calc"]') : null;
+              if (!hid || typeof hid.lgSetDateOffer !== 'function') { return; }
+              hid.lgSetDateOffer(offerId, sel.value === 'date');
+              collectChoices();
+              refreshLabel();
+              buildRows();
+            });
+          })(rows[i].offer_id, typeSel);
+        }
         lab = document.createElement('label');
         lab.className = 'studio-provider-name';
         lab.appendChild(document.createTextNode(rows[i].offer_name));
@@ -13266,7 +13370,20 @@ export const SECTION_STUDIO_SCRIPT = `
         inp.value = rows[i].state === 'custom' ? rows[i].value : '';
         st = document.createElement('span');
         st.className = 'studio-provider-state';
+        if (isDate) {
+          // F09: this Offer receives the choice's calculated date — no box.
+          inp.hidden = true;
+          st.setAttribute('data-provider-state', 'date');
+          st.appendChild(document.createTextNode('sends the calculated date'));
+          if (typeSel) { line.appendChild(typeSel); }
+          line.appendChild(lab);
+          line.appendChild(inp);
+          line.appendChild(st);
+          rowsEl.appendChild(line);
+          continue;
+        }
         paintState(st, rows[i], v, '', rows[i].unsendable);
+        if (typed) { warnFixedIntoDate(st, rows[i].offer_id, rows[i].state === 'custom' ? rows[i].value : v); }
         (function (offerId, edges, input, stateEl) {
           // repaint this row's state in place (a refresh never rebuilds a box)
           painters.push(function () {
@@ -13278,6 +13395,7 @@ export const SECTION_STUDIO_SCRIPT = `
             input.value = rsp.v.state === 'custom' ? rsp.v.value : '';
             input.placeholder = rsp.v.state === 'missing' ? 'not sent' : cur;
             paintState(stateEl, rsp.v, cur, '', rsp.unsendable);
+            if (typed) { warnFixedIntoDate(stateEl, offerId, rsp.v.state === 'custom' ? rsp.v.value : cur); }
           });
           // typing only CHECKS; the value is applied when the box is left (or
           // Enter) — a refused value never leaves a half-typed one behind
@@ -13297,7 +13415,7 @@ export const SECTION_STUDIO_SCRIPT = `
           });
           input.addEventListener('change', function () {
             var saved = shownValue();
-            if (saved === '' || rowIsCalculated(rowEl, choice)) { return; }
+            if (saved === '' || rowCalcMode(rowEl, choice) === 'calc') { return; }
             var text = trimStr(input.value);
             var problem = boxUnsendable(offerId, edges, text);
             if (problem.indexOf('partly:') === 0 || problem.indexOf('blocked:') === 0) { problem = ''; }
@@ -13319,6 +13437,7 @@ export const SECTION_STUDIO_SCRIPT = `
             renderInspectorMapping();
           });
         })(rows[i].offer_id, rows[i].edges, inp, st);
+        if (typeSel) { line.appendChild(typeSel); }
         line.appendChild(lab);
         line.appendChild(inp);
         line.appendChild(st);
@@ -13340,6 +13459,7 @@ export const SECTION_STUDIO_SCRIPT = `
       refreshLabel();
       if (rowsEl.hidden) { return; }
       var holdsFocus = !!(document.activeElement && rowsEl.contains && rowsEl.contains(document.activeElement));
+      if (rowCalcMode(rowEl, choice) !== builtMode && !holdsFocus) { buildRows(); return; }
       if (shouldRebuildProviderRows(builtShape, providerRowsShape(providerChipRows(internalField, shownValue())), holdsFocus)) { buildRows(); return; }
       var i;
       for (i = 0; i < painters.length; i++) { painters[i](); }
@@ -13453,9 +13573,19 @@ export const SECTION_STUDIO_SCRIPT = `
     var optCalc = document.createElement('option');
     optCalc.value = 'calc';
     optCalc.textContent = 'Send a calculated date';
+    // F09 (owner 2026-10-01): "a 3rd option will appear in the "Saved value"
+    // dropdown menu under the name "Send Mixed Type of Values"".
+    var optMixed = document.createElement('option');
+    optMixed.value = 'mixed';
+    optMixed.textContent = 'Send mixed types of values';
     mode.appendChild(optFixed);
     mode.appendChild(optCalc);
-    mode.value = storedCalc ? 'calc' : 'fixed';
+    mode.appendChild(optMixed);
+    mode.value = storedCalc ? (storedCalc.mixed === true ? 'mixed' : 'calc') : 'fixed';
+    // F09: the Offer ids that get the date in mixed mode (null until the
+    // choice is first switched to mixed, when Q1's default fills it).
+    var mixedOffers = storedCalc && storedCalc.mixed === true && Object.prototype.toString.call(storedCalc.date_offer_ids) === '[object Array]'
+      ? storedCalc.date_offer_ids.slice() : null;
 
     var calcRow = document.createElement('div');
     calcRow.className = 'lg-choice-calcrow';
@@ -13489,19 +13619,62 @@ export const SECTION_STUDIO_SCRIPT = `
     calcRow.appendChild(amount);
     calcRow.appendChild(unit);
 
+    var mixedHelp = document.createElement('p');
+    mixedHelp.className = 'form-help';
+    mixedHelp.appendChild(document.createTextNode('Each Offer gets the fixed value or that date: set its Value type under Provider values.'));
+    function defaultDateOffers() {
+      var n0 = selectedNode();
+      var f0 = n0 && n0.internal_field ? String(n0.internal_field) : '';
+      return f0 === '' || typeof mappedDateOffers !== 'function' ? [] : mappedDateOffers(f0);
+    }
+    // F09 review: the last complete mixed setting — a half-typed amount keeps
+    // it rather than silently saving the choice as a fixed value (which would
+    // drop every Offer's Value type).
+    var lastMixed = storedCalc && storedCalc.mixed === true ? JSON.stringify(storedCalc) : '';
     function sync() {
-      var isCalc = mode.value === 'calc';
-      literal.hidden = isCalc;
+      var m = mode.value;
+      var isCalc = m !== 'fixed';
+      literal.hidden = m === 'calc';
       calcRow.hidden = !isCalc;
-      help.hidden = !isCalc;
+      help.hidden = m !== 'calc';
+      mixedHelp.hidden = m !== 'mixed';
+      hidden.setAttribute('data-calc-mode', m);
       if (!isCalc) { hidden.value = ''; return; }
+      if (m === 'mixed' && mixedOffers === null) { mixedOffers = defaultDateOffers(); }
       var n = parseInt(amount.value, 10);
       // An empty or out-of-range amount carries NOTHING rather than a value the
       // save would reject — the operator is mid-typing, not wrong yet.
-      if (isNaN(n) || n < 0 || n > 1200) { hidden.value = ''; return; }
-      hidden.value = JSON.stringify({ kind: 'date_ago', amount: n, unit: unit.value });
+      if (isNaN(n) || n < 0 || n > 1200) {
+        if (m === 'mixed' && lastMixed !== '') {
+          var keep = JSON.parse(lastMixed);
+          keep.date_offer_ids = mixedOffers.slice();
+          hidden.value = JSON.stringify(keep);
+          return;
+        }
+        hidden.value = '';
+        return;
+      }
+      var calcOut = { kind: 'date_ago', amount: n, unit: unit.value };
+      if (m === 'mixed') { calcOut.mixed = true; calcOut.date_offer_ids = mixedOffers.slice(); }
+      hidden.value = JSON.stringify(calcOut);
+      if (m === 'mixed') { lastMixed = hidden.value; }
     }
-    mode.addEventListener('change', function () { sync(); collectChoices(); });
+    // F09: the Provider values rows read and set the date Offers through the
+    // carrier (one source of truth: this control).
+    hidden.lgDateOffers = function () { return mixedOffers === null ? [] : mixedOffers.slice(); };
+    hidden.lgSetDateOffer = function (offerId, on) {
+      var next = [], i0;
+      var cur = mixedOffers === null ? [] : mixedOffers;
+      for (i0 = 0; i0 < cur.length; i0++) { if (cur[i0] !== offerId) { next.push(cur[i0]); } }
+      if (on) { next.push(offerId); }
+      mixedOffers = next;
+      sync();
+    };
+    mode.addEventListener('change', function () {
+      sync();
+      collectChoices();
+      if (typeof refreshProviderChips === 'function') { setTimeout(refreshProviderChips, 0); }
+    });
     amount.addEventListener('input', function () { sync(); collectChoices(); });
     amount.addEventListener('change', function () { sync(); collectChoices(); });
     unit.addEventListener('change', function () { sync(); collectChoices(); });
@@ -13511,6 +13684,7 @@ export const SECTION_STUDIO_SCRIPT = `
     box.appendChild(literal);
     box.appendChild(calcRow);
     box.appendChild(help);
+    box.appendChild(mixedHelp);
     box.appendChild(hidden);
     return { box: box, literal: literal };
   }

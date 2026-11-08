@@ -448,6 +448,26 @@ function otherChoiceValues(node: LeadgenComponentNode): Array<string | number | 
   return out;
 }
 
+// F09 — a mixed calculated choice's Offer list (value_calc.date_offer_ids) is
+// admin wiring the visitor's browser never needs: it is dropped from the public
+// config. Choices without one are passed through as the SAME array, so every
+// existing config stays byte-identical.
+function publicChoices<T>(choices: T): T {
+  if (!Array.isArray(choices)) return choices;
+  const hasOfferList = choices.some((c) => {
+    const calc = (c as { value_calc?: unknown } | null)?.value_calc;
+    return typeof calc === "object" && calc !== null && "date_offer_ids" in calc;
+  });
+  if (!hasOfferList) return choices;
+  return choices.map((c) => {
+    const calc = (c as { value_calc?: unknown } | null)?.value_calc;
+    if (typeof calc !== "object" || calc === null || !("date_offer_ids" in calc)) return c;
+    const { date_offer_ids: _omit, ...rest } = calc as Record<string, unknown>;
+    void _omit;
+    return { ...(c as Record<string, unknown>), value_calc: rest };
+  }) as unknown as T;
+}
+
 export function toPublicComponent(node: LeadgenComponentNode): PublicSectionComponent {
   const component: PublicSectionComponent = {
     type: node.type,
@@ -459,7 +479,7 @@ export function toPublicComponent(node: LeadgenComponentNode): PublicSectionComp
   if (node.answer_type !== undefined) component.answer_type = node.answer_type;
   if (node.required !== undefined) component.required = node.required;
   if (node.valid_values !== undefined) component.valid_values = node.valid_values;
-  if (node.choices !== undefined) component.choices = node.choices;
+  if (node.choices !== undefined) component.choices = publicChoices(node.choices);
   // Rework §6.5: authored "Other" values share the node's ONE answer domain, so
   // they join valid_values — the runtime accepts an "other" selection exactly
   // like a base choice (the renderer paints base + other). Only when
