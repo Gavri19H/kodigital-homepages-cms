@@ -82,7 +82,7 @@ describe("Disclosure — the link actually opens (owner 2026-08-23)", () => {
     // is an owner decision (67 bytes spare). A JS toggle does not fit, which is
     // exactly why <details> is the right mechanism rather than a compromise.
     expect(LEADGEN_RUNTIME_JS).not.toContain("lg-disclosure");
-    expect(LEADGEN_RUNTIME_JS.length).toBeLessThanOrEqual(53248);
+    expect(LEADGEN_RUNTIME_JS.length).toBeLessThanOrEqual(53376) // X09: owner raised the cap 53248 -> 53376 (2026-11-08);
   });
 
   // FOUND ON THE DEPLOYED PAGE, not by a test: a first cut also set

@@ -221,7 +221,12 @@ export function listicleCandidateKey(
 // round 2: ZIP normalised exactly like the server) — shell markup AND runtime
 // bytes change (the runtime reports "10"), same 304 reason as v6; runtime "10"
 // tracks it. v10 never shipped before fix round 2, so round 2 keeps it.
-export const LEADGEN_TEMPLATE_VERSION = 10 as const;
+// v11 (2026-11-08, X09 owner fix): the runtime stores a valid answer on a
+// default-US phone field as its 10 national digits (no "+1"); "+1" now comes
+// only from the payload Output format "Phone with country code". Runtime bytes
+// change, so the immutable /lg/runtime/{v}.js URL must move; runtime "11"
+// tracks it.
+export const LEADGEN_TEMPLATE_VERSION = 11 as const;
 
 const NS_LG_SHELL = "lg-shell";
 const NS_LG_CONFIG = "lg-config";

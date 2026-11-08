@@ -290,6 +290,19 @@ describeDb("formatPhone x phone_format incoherence warning (P2 review round)", (
     expect(warning!.path).toBe("answer_maps[0].value_transform");
   });
 
+  it("X09: e164_intl phone_format + formatPhoneE164 (\"Phone with country code\", US-only too): also warns", async () => {
+    const { env } = newHarness();
+    const offer = await createMappableOffer(env);
+    const res = await admin.request(
+      `${API}/sections`,
+      jsonInit("POST", sectionBody("e164_intl", offer.id, [{ kind: "formatPhoneE164" }])),
+      env,
+    );
+    expect(res.status, await res.clone().text()).toBe(201);
+    const body = (await res.json()) as { problems: ProblemJson[] };
+    expect(findPhoneWarning(body.problems)).toBeDefined();
+  });
+
   it("e164_intl phone_format + formatPhone: also warns (any non-nanp preset, not just il)", async () => {
     const { env } = newHarness();
     const offer = await createMappableOffer(env);

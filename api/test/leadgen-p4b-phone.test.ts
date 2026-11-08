@@ -4,9 +4,16 @@
 // structure — "1111111111" passed, a 14-digit blob passed. This suite pins the
 // replacement: NANP structure (area + exchange first digit 2–9), 10 or 11(w/1)
 // digits, E.164 normal form, honest messages, and the error_text override.
+//
+// X09 (2026-11-08): the stored normal form is now the 10 national digits, not
+// E.164. Owner, 2026-10-20: "The way I would like it is to remove the
+// hardcoded additional "+1" from the code entirely, so the phone number is
+// saved and sent as plain 10 digits, e.g. (707) 849 3710 --> 7078493710."
+// "+1" is added per Offer field by the "Phone with country code" format. The
+// accept/reject matrix below is unchanged — only the expected stored value.
 
 import { describe, expect, it } from "vitest";
-import { normalizePhoneE164, validateValue } from "../src/public/leadgen/runtime/validation";
+import { normalizeUsPhone, validateValue } from "../src/public/leadgen/runtime/validation";
 import type { LgComponentConfig } from "../src/public/leadgen/runtime/state";
 
 const phone = (extra: Record<string, unknown> = {}): LgComponentConfig =>
@@ -17,16 +24,16 @@ const phone = (extra: Record<string, unknown> = {}): LgComponentConfig =>
     ...extra,
   }) as unknown as LgComponentConfig;
 
-// [input, expected E.164 | null, note]
+// [input, expected stored 10 digits | null, note]
 const MATRIX: Array<[string, string | null, string]> = [
   // VALID
-  ["4155551234", "+14155551234", "bare 10-digit"],
-  ["(415) 555-1234", "+14155551234", "US formatting"],
-  ["415.555.1234", "+14155551234", "dotted"],
-  ["14155551234", "+14155551234", "11-digit with leading country 1"],
-  ["+1 415 555 1234", "+14155551234", "already E.164-ish with spaces"],
-  ["2025551234", "+12025551234", "area 202 / exchange 555 boundary-low area"],
-  ["9999551234", "+19999551234", "area/exchange high boundary 9"],
+  ["4155551234", "4155551234", "bare 10-digit"],
+  ["(415) 555-1234", "4155551234", "US formatting"],
+  ["415.555.1234", "4155551234", "dotted"],
+  ["14155551234", "4155551234", "11-digit with leading country 1"],
+  ["+1 415 555 1234", "4155551234", "already E.164-ish with spaces"],
+  ["2025551234", "2025551234", "area 202 / exchange 555 boundary-low area"],
+  ["9999551234", "9999551234", "area/exchange high boundary 9"],
   // INVALID — the old false-accepts, now rejected
   ["1111111111", null, "area code 111 (first digit 1) — the headline false-accept"],
   ["12345678901234", null, "14-digit blob (was accepted by count 7..15)"],
@@ -42,15 +49,16 @@ const MATRIX: Array<[string, string | null, string]> = [
   ["abcdefghij", null, "no digits"],
 ];
 
-describe("P4b PC-A4 — normalizePhoneE164 (NANP structure + E.164)", () => {
+describe("P4b PC-A4 — normalizeUsPhone (NANP structure; X09: 10 national digits)", () => {
   for (const [input, expected, note] of MATRIX) {
     it(`${JSON.stringify(input)} → ${expected} (${note})`, () => {
-      expect(normalizePhoneE164(input)).toBe(expected);
+      expect(normalizeUsPhone(input)).toBe(expected);
     });
   }
 
-  it("is idempotent on its own E.164 output", () => {
-    expect(normalizePhoneE164("+14155551234")).toBe("+14155551234");
+  it("is idempotent on its own output, and an E.164 input gives the same 10 digits", () => {
+    expect(normalizeUsPhone("4155551234")).toBe("4155551234");
+    expect(normalizeUsPhone("+14155551234")).toBe("4155551234");
   });
 });
 

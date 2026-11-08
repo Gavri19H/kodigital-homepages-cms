@@ -495,7 +495,7 @@ describeDb("1. funnel shell — the Facebook pixel loads only when configured", 
     const html = await shell(h, "home");
     expect(html).not.toContain("fbevents.js");
     expect(html).not.toContain("__lgOnEvent");
-    expect(html).toContain('src="/lg/runtime/10.js"');
+    expect(html).toContain('src="/lg/runtime/11.js"');
   });
 
   it("the funnel's Facebook pixel ID saved through the real admin PATCH reaches the shell: loader, init, PageView, the contact-field map", async () => {
@@ -693,7 +693,7 @@ describe("2. funnel pixel — PageView on load, Lead once after the first answer
     // inside try/catch: no hook (or a non-function value) throws and is
     // swallowed, and the beacon still queues.
     expect(LEADGEN_RUNTIME_JS).toContain("globalThis.__lgOnEvent(");
-    expect(LEADGEN_RUNTIME_JS.length).toBeLessThanOrEqual(53248);
+    expect(LEADGEN_RUNTIME_JS.length).toBeLessThanOrEqual(53376) // X09: owner raised the cap 53248 -> 53376 (2026-11-08);
     // a non-function value is not a hook: the beacon still queues
     const g2 = globalThis as { __lgOnEvent?: unknown };
     try {

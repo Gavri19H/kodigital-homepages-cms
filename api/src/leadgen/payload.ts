@@ -140,9 +140,11 @@ export type LeadgenTransformStep =
   | { kind: "toString" }
   | { kind: "trim" }
   // 2026-10-19 owner: the Output format "Remove special characters and
-  // spacing" — (707) 849 3710 is sent as "7078493710", also when the visitor
-  // runtime stored it as "+17078493710" (transformRemoveSpecial).
-  | { kind: "removeSpecial" };
+  // spacing" — (707) 849 3710 is sent as "7078493710" (transformRemoveSpecial).
+  | { kind: "removeSpecial" }
+  // X09 (owner 2026-11-08): the Output format "Phone with country code" —
+  // a US/Canada phone sent as "+1" + 10 digits (transformFormatPhoneE164).
+  | { kind: "formatPhoneE164" };
 
 // The ONE allow-list of transform kinds (05 §12). Exported — the admin
 // answer-map validator (admin/leadgen/sections-handlers.ts parseTransformSteps)
@@ -160,6 +162,7 @@ export const LEADGEN_TRANSFORM_KINDS = [
   "toString",
   "trim",
   "removeSpecial",
+  "formatPhoneE164",
 ] as const;
 
 export interface LeadgenPayloadNode {
@@ -1080,11 +1083,25 @@ function transformFormatDate(value: unknown, format: string): unknown {
 // formatPhone — normalize a US phone to its 10 digits (strip punctuation,
 // drop a leading `1` country code from 11-digit numbers). Anything that
 // does not normalize to exactly 10 digits is INVALID.
-function transformFormatPhone(value: unknown): unknown {
+function transformFormatPhone(value: unknown): string | undefined {
   if (typeof value !== "string" && typeof value !== "number") return undefined;
   let digits = String(value).replace(/\D+/g, "");
   if (digits.length === 11 && digits.startsWith("1")) digits = digits.slice(1);
   return digits.length === 10 ? digits : undefined;
+}
+
+// formatPhoneE164 — the payload builder's "Phone with country code" Output
+// format (X09, owner 2026-11-08 after talking with Guy: "+1" is sent only
+// where an Offer field asks for it). The visitor runtime stores a US phone as
+// its 10 digits; this step adds the US/Canada "+1": the formatPhone rule
+// (strip non-digits, drop a leading "1" from 11 digits, exactly 10 remain),
+// then "+1" in front. "7078493710", "(707) 849 3710" and "+17078493710" all
+// send "+17078493710" (IDEMPOTENT). Anything else (e.g. "+44 20 7946 0958")
+// is INVALID → the node takes its fallback. US/Canada only, like the funnel's
+// own phone check.
+function transformFormatPhoneE164(value: unknown): unknown {
+  const digits = transformFormatPhone(value);
+  return digits === undefined ? undefined : `+1${digits}`;
 }
 
 // formatCurrency — the SRC-7B "currency is passed to the offer" output format
@@ -1137,27 +1154,21 @@ function transformFormatCurrency(value: unknown): unknown {
 // accents arrive precomposed (NFC) or as combining marks (NFD), and Hindi
 // "हिन्दी नाम" → "हिन्दीनाम" (its vowel signs/virama are marks, not letters).
 //
-// Stored-phone rule: a value in EXACTLY our stored US phone shape
-// /^\+1\d{10}$/ sends its 10 national digits. WHY: the visitor runtime
-// normalises a valid PhoneInputQuestion answer to E.164 at capture
-// (runtime/validation.ts normalizePhoneE164, called from runtime/engine.ts),
-// so the owner's "(707) 849 3710" reaches this build as "+17078493710". That
-// "+1" is OUR normalisation, not something the visitor typed — the generic
-// rule alone would send "17078493710" and miss the owner's "7078493710".
-// Every other value (e.g. a typed "+1 (707) 849-3710" free-text answer) keeps
-// the generic rule.
+// X09 (owner 2026-11-08): the hidden "stored +1 phone → 10 digits" rule that
+// lived here is gone. The visitor runtime now stores a US phone as its 10
+// digits, and "+1" is added only by the "Phone with country code" format
+// (formatPhoneE164), so this format is one plain rule again: "+17078493710"
+// → "17078493710".
 //
 // A number answer is stringified first (707.5 → "7075"); the output is always
 // a STRING. Nothing left, a non-finite number, or a non string/number input is
 // INVALID → the node takes its fallback, exactly like formatPhone/formatDate.
-// IDEMPOTENT: its output has nothing left to remove (and 10 digits never match
-// the stored-phone shape again). The builder island (ui-payload-builder.ts
-// clientRunOutputFormat) carries the same two rules for its preview.
-const STORED_US_PHONE_RE = /^\+1\d{10}$/;
+// IDEMPOTENT: its output has nothing left to remove. The builder island
+// (ui-payload-builder.ts clientRunOutputFormat) carries the same rule for its
+// preview.
 function transformRemoveSpecial(value: unknown): unknown {
   if (typeof value === "number" && !Number.isFinite(value)) return undefined;
   if (typeof value !== "string" && typeof value !== "number") return undefined;
-  if (typeof value === "string" && STORED_US_PHONE_RE.test(value)) return value.slice(2);
   const kept = String(value).replace(/[^\p{L}\p{M}\p{N}]+/gu, "");
   return kept === "" ? undefined : kept;
 }
@@ -1196,6 +1207,8 @@ function applyTransformStep(value: unknown, step: LeadgenTransformStep): unknown
       return typeof value === "string" ? value.trim() : value;
     case "removeSpecial":
       return transformRemoveSpecial(value);
+    case "formatPhoneE164":
+      return transformFormatPhoneE164(value);
   }
 }
 

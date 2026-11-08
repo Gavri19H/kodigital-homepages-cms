@@ -690,10 +690,14 @@ function renderEditorTemplate(): string {
 
          2026-10-19 owner: "add a "Remove special characters and spacing"
          option" — removeSpecial keeps only letters, combining marks and
-         digits, sent as text: (707) 849 3710 reaches AmOne as "7078493710",
-         also when the visitor runtime stored the phone as +17078493710. The
-         sample box asks for the TEXT keypad so a phone can type "(", ")" and
-         letters ("José") — a decimal keypad cannot. -->
+         digits, sent as text: (707) 849 3710 reaches AmOne as "7078493710".
+         The sample box asks for the TEXT keypad so a phone can type "(", ")"
+         and letters ("José") — a decimal keypad cannot.
+
+         X09 (owner 2026-11-08, after talking with Guy): "Phone with country
+         code" — formatPhoneE164 sends a US/Canada phone as "+1" + 10 digits,
+         as text. The funnel stores phones as 10 digits, so "+1" reaches an
+         Offer only where this format is picked. -->
     <div data-pb-panel="outputformat" hidden>
       <h4 class="form-label">Output format</h4>
       <select class="form-select" data-pb-field="output_format" aria-label="Output format">
@@ -702,8 +706,9 @@ function renderEditorTemplate(): string {
         <option value="toNumber">Number (force numeric)</option>
         <option value="toString">Number as string ("170000")</option>
         <option value="removeSpecial">Remove special characters and spacing</option>
+        <option value="formatPhoneE164">Phone with country code (+17078493710)</option>
       </select>
-      <p class="form-help">Stored as the transform pipeline (formatCurrency / toNumber / toString / removeSpecial) &#8212; no JSON to type. The pick sets the type the provider receives too, so what you choose here is what the auction sends.</p>
+      <p class="form-help">Stored as the transform pipeline (formatCurrency / toNumber / toString / removeSpecial / formatPhoneE164) &#8212; no JSON to type. The pick sets the type the provider receives too, so what you choose here is what the auction sends.</p>
       <p class="form-help" data-pb-outputformat-type-note hidden></p>
       <div class="lg-pb-grid-2">
         <div><label class="form-label">Try a sample value</label><input type="text" inputmode="text" class="form-input" data-pb-outputformat-sample aria-label="Sample input value" /></div>
@@ -1745,6 +1750,7 @@ export const PAYLOAD_BUILDER_SCRIPT = `
     if (kind === 'toNumber') { return 'number'; }
     if (kind === 'toString') { return 'string'; }
     if (kind === 'removeSpecial') { return 'string'; }
+    if (kind === 'formatPhoneE164') { return 'string'; }
     return null;
   }
   // A ONE-step transform pipeline whose kind is one of those output formats.
@@ -2929,22 +2935,26 @@ export const PAYLOAD_BUILDER_SCRIPT = `
       if (typeof value === 'number' || typeof value === 'boolean') { return String(value); }
       return undefined;
     }
-    // 2026-10-19 — mirror of payload.ts transformRemoveSpecial (same two
-    // rules). Stored-phone rule: a value in exactly our stored US phone shape
-    // (+1 then 10 digits) sends its 10 national digits — the visitor runtime
-    // adds that +1 when it normalises a phone answer (normalizePhoneE164), the
-    // visitor never typed it. Generic rule: drop every character that is not
-    // a Unicode letter, combining mark or digit (accents and Hindi vowel signs
-    // survive), always a string; nothing left / non-finite number / non
-    // string-or-number = INVALID. The pattern is built through the RegExp
-    // constructor so this inline script stays ES5-parseable (a u-flag regex
-    // literal is ES2015 syntax).
+    // 2026-10-19 — mirror of payload.ts transformRemoveSpecial: drop every
+    // character that is not a Unicode letter, combining mark or digit (accents
+    // and Hindi vowel signs survive), always a string; nothing left /
+    // non-finite number / non string-or-number = INVALID. X09 (2026-11-08):
+    // the hidden "+1 phone → 10 digits" rule is gone, as on the server. The
+    // pattern is built through the RegExp constructor so this inline script
+    // stays ES5-parseable (a u-flag regex literal is ES2015 syntax).
     if (kind === 'removeSpecial') {
       if (typeof value === 'number' && !isFinite(value)) { return undefined; }
       if (typeof value !== 'string' && typeof value !== 'number') { return undefined; }
-      if (typeof value === 'string' && /^\\+1\\d{10}$/.test(value)) { return value.slice(2); }
       var kept = String(value).replace(new RegExp('[^\\\\p{L}\\\\p{M}\\\\p{N}]+', 'gu'), '');
       return kept === '' ? undefined : kept;
+    }
+    // X09 — mirror of payload.ts transformFormatPhoneE164: strip non-digits,
+    // drop a leading "1" from 11 digits, exactly 10 must remain, then "+1".
+    if (kind === 'formatPhoneE164') {
+      if (typeof value !== 'string' && typeof value !== 'number') { return undefined; }
+      var pd = String(value).replace(/\\D+/g, '');
+      if (pd.length === 11 && pd.charAt(0) === '1') { pd = pd.slice(1); }
+      return pd.length === 10 ? '+1' + pd : undefined;
     }
     return value;
   }
