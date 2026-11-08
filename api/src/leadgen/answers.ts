@@ -216,6 +216,19 @@ export function readChoiceCalc(value: unknown): LeadgenChoiceCalc | null {
   return { kind: "date_ago", amount, unit: unit as LeadgenChoiceCalcUnit };
 }
 
+// F09 — a stored calc's "mixed" Offer list: the Offer ids that get the date,
+// or null for a plain calculated choice (every Offer gets the date). A
+// malformed list reads as an EMPTY list (no Offer gets the date, every Offer
+// its fixed value) — never as "everyone gets the date".
+export function readChoiceCalcOffers(value: unknown): number[] | null {
+  if (typeof value !== "object" || value === null || Array.isArray(value)) return null;
+  const raw = value as Record<string, unknown>;
+  if (raw["mixed"] !== true) return null;
+  const ids = raw["date_offer_ids"];
+  if (!Array.isArray(ids)) return [];
+  return ids.filter((id): id is number => typeof id === "number" && Number.isInteger(id) && id > 0);
+}
+
 // Evaluate a calc against a reference instant → an ISO yyyy-mm-dd date (UTC).
 //
 // WHY ISO AND NOT THE OPERATOR'S FORMAT: his own rule — "if the field itself has
@@ -251,11 +264,13 @@ export function evaluateChoiceCalc(calc: LeadgenChoiceCalc, nowMs: number): stri
 // Returns undefined when the node has no choices, the answer matches none of
 // them, or that choice carries no (valid) calc — every one of which means "send
 // the literal", the pre-existing behaviour.
-function selectedChoiceCalcDate(
+// F09: also returns the selected choice's "mixed" Offer list (null = every
+// Offer gets the date).
+function selectedChoiceCalc(
   node: LeadgenComponentNode,
   normalized: unknown,
   nowMs: number,
-): string | undefined {
+): { date: string; offers: number[] | null } | undefined {
   const choices = (node as { choices?: unknown }).choices;
   if (!Array.isArray(choices)) return undefined;
   // Compared as strings: a saved value is authored as text ("2") while a
@@ -267,7 +282,9 @@ function selectedChoiceCalcDate(
     const value = c["value"];
     if (value === undefined || String(value) !== key) continue;
     const calc = readChoiceCalc(c["value_calc"]);
-    return calc === null ? undefined : evaluateChoiceCalc(calc, nowMs);
+    if (calc === null) return undefined;
+    const date = evaluateChoiceCalc(calc, nowMs);
+    return date === undefined ? undefined : { date, offers: readChoiceCalcOffers(c["value_calc"]) };
   }
   return undefined;
 }
@@ -453,6 +470,28 @@ export interface LeadgenNormalizedAnswers {
   // and the payload build prefers this map for the field it is bound to. One
   // authored calc, two consumers, neither corrupted by the other.
   computed: Record<string, string>;
+  // F09 (owner 2026-10-01: "Send Mixed Type of Values") — internal_field → the
+  // Offer ids that get computed[field] when the SELECTED choice is a MIXED
+  // calc. Every other Offer gets the literal answer (its fixed value, through
+  // that Offer's Provider values list). Absent for a field ⇒ every Offer gets
+  // the date (a plain calculated choice), exactly as before.
+  computed_offers: Record<string, number[]>;
+}
+
+// F09 — the calculated dates ONE Offer receives: a mixed choice's date only
+// when this Offer is on that choice's list; every other date as-is.
+export function computedForOffer(
+  computed: Readonly<Record<string, string>>,
+  computedOffers: Readonly<Record<string, readonly number[]>> | undefined,
+  offerId: number,
+): Record<string, string> {
+  const out: Record<string, string> = {};
+  for (const [field, value] of Object.entries(computed)) {
+    const only = computedOffers?.[field];
+    if (only !== undefined && !only.includes(offerId)) continue;
+    out[field] = value;
+  }
+  return out;
 }
 
 // Normalize raw UI answers to the internal answer space, tracking answer_source
@@ -481,6 +520,13 @@ export function normalizeAnswers(
   const answers: Record<string, unknown> = {};
   const sources: Record<string, LeadgenAnswerSource> = {};
   const computed: Record<string, string> = {};
+  const computedOffers: Record<string, number[]> = {};
+  const setComputed = (field: string, calc: { date: string; offers: number[] | null } | undefined): void => {
+    if (calc === undefined) return;
+    computed[field] = calc.date;
+    if (calc.offers === null) delete computedOffers[field];
+    else computedOffers[field] = calc.offers;
+  };
   // ONE reference instant for the whole submission, so two calculated answers on
   // the same lead can never straddle midnight.
   const nowMs = Date.now();
@@ -554,8 +600,7 @@ export function normalizeAnswers(
       // OWNER 2026-08-27 — the SELECTED choice's calculation, if it has one.
       // Keyed off the normalized answer, so it follows whatever the visitor
       // actually picked; a choice left literal contributes nothing here.
-      const calcDate = selectedChoiceCalcDate(node, normalized, nowMs);
-      if (calcDate !== undefined) computed[spec.field] = calcDate;
+      setComputed(spec.field, selectedChoiceCalc(node, normalized, nowMs));
     }
   }
 
@@ -582,8 +627,7 @@ export function normalizeAnswers(
       // answer"), so a default-selected choice calculates exactly like a tapped
       // one. Resolving it only in pass 1 would have made the feature silently
       // skip every question the visitor left on its default.
-      const defaultCalcDate = selectedChoiceCalcDate(d.node, d.value, nowMs);
-      if (defaultCalcDate !== undefined) computed[d.spec.field] = defaultCalcDate;
+      setComputed(d.spec.field, selectedChoiceCalc(d.node, d.value, nowMs));
     }
     // A default that applied is gone; one still hidden is DROPPED (never
     // retried) — only a NEWLY-visible pending default keeps the loop alive.
@@ -594,7 +638,7 @@ export function normalizeAnswers(
     pending = stillPending;
   }
 
-  return { answers, sources, computed };
+  return { answers, sources, computed, computed_offers: computedOffers };
 }
 
 // ---------------------------------------------------------------------------

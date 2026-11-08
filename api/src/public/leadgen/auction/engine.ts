@@ -46,7 +46,7 @@ import {
 } from "../attempt";
 import { computeSectionOrderHash } from "../config-dto";
 import type { ResolvedActivatedFunnel } from "../resolver";
-import { normalizeAnswers, type LeadgenRawAnswers } from "../../../leadgen/answers";
+import { computedForOffer, normalizeAnswers, type LeadgenRawAnswers } from "../../../leadgen/answers";
 import {
   readAnswerBindings,
   type LeadgenOfferAnswerBindings,
@@ -1350,15 +1350,23 @@ export async function runAuction(
   // not a valid date"}}} (leadgen_provider_request_log row 213). The feature
   // was built, validated and authored; only the live auction never used it.
   const answerComputed: Record<string, string> = {};
+  // F09 — a MIXED calculated choice: the Offer ids that get its date (every
+  // other Offer gets the literal, i.e. its fixed Provider value).
+  const answerComputedOffers: Record<string, number[]> = {};
   if (input.normalizedAnswersOverride !== undefined) {
     for (const [field, value] of Object.entries(input.normalizedAnswersOverride)) normalizedAnswers[field] = value;
     for (const [field, value] of Object.entries(input.answerComputedOverride ?? {})) answerComputed[field] = value;
   } else {
     for (const rs of input.resolved.sections) {
       const content = sectionContent(rs.section.content_json);
-      const { answers, computed } = normalizeAnswers(content, input.raw_answers);
+      const { answers, computed, computed_offers } = normalizeAnswers(content, input.raw_answers);
       for (const [field, value] of Object.entries(answers)) normalizedAnswers[field] = value;
-      for (const [field, value] of Object.entries(computed)) answerComputed[field] = value;
+      for (const [field, value] of Object.entries(computed)) {
+        answerComputed[field] = value;
+        const only = computed_offers[field];
+        if (only === undefined) delete answerComputedOffers[field];
+        else answerComputedOffers[field] = only;
+      }
     }
   }
   // OWNER 2026-10-08 — the visitor's contact answers as HASHED Meta user_data
@@ -1626,7 +1634,9 @@ export async function runAuction(
           ctx: {
             answers: normalizedAnswers,
             answer_bindings: answerBindings.get(b.offer.id) ?? {},
-            answer_computed: input.answerComputedByOffer?.get(b.offer.id) ?? answerComputed,
+            answer_computed:
+              input.answerComputedByOffer?.get(b.offer.id) ??
+              computedForOffer(answerComputed, answerComputedOffers, b.offer.id),
             macros: ctx.macros,
             computed: ctx.computed,
             offer: ctx.offer,

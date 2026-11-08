@@ -1332,6 +1332,28 @@ describeDb("POST /offers/:id/test — a calculated choice previews its DATE", ()
     expect((fixed.body.request.payload["contact"] as Record<string, unknown>)["zip"]).toBe("0");
   });
 
+  it("F09: a MIXED choice previews the date only for an Offer on its date list; any other Offer previews its fixed value", async () => {
+    const h = await setupOffer();
+    const mixed = (dateOfferIds: number[]) => ({
+      components: [
+        {
+          type: "ButtonAnswerGroup", question_id: "q_zip", question_key: "zip", internal_field: "zip", answer_type: "enum",
+          choices: [
+            { label: "2+ Years", value: "2", analytics_id: "2", value_calc: { kind: "date_ago", amount: 2, unit: "years", mixed: true, date_offer_ids: dateOfferIds } },
+          ],
+        },
+      ],
+    });
+    const now = new Date();
+    const twoYearsAgo = new Date(Date.UTC(now.getUTCFullYear() - 2, now.getUTCMonth(), now.getUTCDate())).toISOString().slice(0, 10);
+    h.sdb.prepare("UPDATE leadgen_sections SET content_json = ? WHERE public_id = 'lgs_testtool01'").run(JSON.stringify(mixed([h.offerId])));
+    const onList = await runTest(h, { environment: "staging", sample_answers: { email: "a@b.co", zip: "2" }, dry_run: true });
+    expect((onList.body.request.payload["contact"] as Record<string, unknown>)["zip"]).toBe(twoYearsAgo);
+    h.sdb.prepare("UPDATE leadgen_sections SET content_json = ? WHERE public_id = 'lgs_testtool01'").run(JSON.stringify(mixed([h.offerId + 1000])));
+    const offList = await runTest(h, { environment: "staging", sample_answers: { email: "a@b.co", zip: "2" }, dry_run: true });
+    expect((offList.body.request.payload["contact"] as Record<string, unknown>)["zip"]).toBe("2");
+  });
+
   it("review m6: two Sections that calculate the same answer differently — the FIRST Section (the one whose binding the payload uses) decides the date, not the last one read", async () => {
     const h = await setupOffer();
     const calc = (years: number) => ({

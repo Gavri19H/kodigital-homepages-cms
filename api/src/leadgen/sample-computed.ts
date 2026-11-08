@@ -81,7 +81,7 @@ export async function sampleAnswerComputedByOffer(
     for (const row of rows.results ?? []) maps.push(row);
   }
   const sectionIds = [...new Set(maps.map((m) => m.section_id))];
-  const computedBySection = new Map<number, Record<string, string>>();
+  const computedBySection = new Map<number, { computed: Record<string, string>; offers: Record<string, number[]> }>();
   for (let i = 0; i < sectionIds.length; i += 80) {
     const slice = sectionIds.slice(i, i + 80);
     const rows = await db
@@ -89,14 +89,27 @@ export async function sampleAnswerComputedByOffer(
       .bind(...slice)
       .all<{ id: number; content_json: string | null }>();
     for (const row of rows.results ?? []) {
-      computedBySection.set(row.id, normalizeAnswers(parseContent(row.content_json), sampleAnswers as LeadgenRawAnswers).computed);
+      const n = normalizeAnswers(parseContent(row.content_json), sampleAnswers as LeadgenRawAnswers);
+      computedBySection.set(row.id, { computed: n.computed, offers: n.computed_offers });
     }
   }
+  // (offer, field) pairs already decided by an earlier Section — "first Section
+  // wins", including when that Section decided "no date for this Offer".
+  const decided = new Set<string>();
   for (const m of maps) {
     const perOffer = out.get(m.offer_id);
-    const value = computedBySection.get(m.section_id)?.[m.internal_field];
+    const section = computedBySection.get(m.section_id);
+    const value = section?.computed[m.internal_field];
     if (perOffer === undefined || value === undefined) continue;
-    if (!Object.prototype.hasOwnProperty.call(perOffer, m.internal_field)) perOffer[m.internal_field] = value;
+    const key = `${m.offer_id}\u0000${m.internal_field}`;
+    if (decided.has(key)) continue;
+    decided.add(key);
+    // F09 — a MIXED choice's date reaches only the Offers on its list; any
+    // other Offer gets its fixed value (the literal through its Provider
+    // values), so no date is set for it here.
+    const only = section?.offers[m.internal_field];
+    if (only !== undefined && !only.includes(m.offer_id)) continue;
+    perOffer[m.internal_field] = value;
   }
   return out;
 }
