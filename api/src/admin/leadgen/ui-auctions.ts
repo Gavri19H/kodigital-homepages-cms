@@ -18,7 +18,16 @@ import {
   KEBAB_CLOSE,
   kebabMenuScript,
 } from "../templates/layout";
-import { resolveTimeframe, renderTimeframeSelect, type Timeframe } from "../listicles/ui-shared";
+import {
+  resolveDateWindow,
+  renderDateWindowControl,
+  renderDateWindowHiddenInputs,
+  dateWindowParams,
+  dateWindowSuffix,
+  LG_DATE_WINDOW_STYLES,
+  LG_DATE_WINDOW_SCRIPT,
+  type DateWindow,
+} from "./date-window";
 import {
   apiJson,
   apiJsonAll,
@@ -225,7 +234,8 @@ function renderAuctionListRow(a: AuctionListItem): string {
 
 function renderAuctionsToolbar(
   filters: { search: string; type: string; status: string },
-  timeframe: Timeframe,
+  dateWindow: DateWindow,
+  currentQuery: URLSearchParams,
 ): string {
   const typeOpt = (val: string, label: string): string =>
     `<option value="${escapeHtml(val)}"${val === filters.type ? " selected" : ""}>${escapeHtml(label)}</option>`;
@@ -237,8 +247,9 @@ function renderAuctionsToolbar(
     <input type="search" name="search" class="form-input" placeholder="Search auctions…" value="${escapeHtml(filters.search)}" aria-label="Search auctions" />
     <select name="type" class="form-select" aria-label="Auction type">${typeOpt("", "All types")}${typeOpt("static", "Static")}${typeOpt("dynamic", "Dynamic")}</select>
     <select name="status" class="form-select" aria-label="Status">${statusOpt("", "All statuses")}${statusOpt("active", "Active")}${statusOpt("paused", "Paused")}${statusOpt("archived", "Archived")}</select>
-    ${renderTimeframeSelect(timeframe.key)}
+    ${renderDateWindowHiddenInputs(dateWindow)}
   </form>
+  ${renderDateWindowControl(dateWindow, currentQuery)}
 </div>`;
 }
 
@@ -247,7 +258,8 @@ export async function leadgenAuctionsListPage(c: UiContext): Promise<Response> {
   const search = c.req.query("search")?.trim() ?? "";
   const type = c.req.query("type")?.trim() ?? "";
   const status = c.req.query("status")?.trim() ?? "";
-  const timeframe = resolveTimeframe(c.req.query("range"));
+  const timeframe = resolveDateWindow({ range: c.req.query("range"), from: c.req.query("from"), to: c.req.query("to") });
+  const currentQuery = new URL(c.req.url).searchParams;
 
   const qs = new URLSearchParams();
   if (page !== "") qs.set("page", page);
@@ -277,9 +289,9 @@ export async function leadgenAuctionsListPage(c: UiContext): Promise<Response> {
     ? ""
     : `<p class="alert alert-error" role="alert">${escapeHtml(listed.error)}</p>`;
 
-  const content = `${renderLeadgenTabs("auction")}
+  const content = `${renderLeadgenTabs("auction", dateWindowSuffix(timeframe))}
 ${loadErrorHtml}
-${renderAuctionsToolbar({ search, type, status }, timeframe)}
+${renderAuctionsToolbar({ search, type, status }, timeframe, currentQuery)}
 <div class="card">
   <div class="table-wrapper">
     <table class="table table--sticky-edges leadgen-auctions-list" aria-label="Auctions list" data-lg-analytics data-analytics-from="${escapeHtml(timeframe.from)}" data-analytics-to="${escapeHtml(timeframe.to)}">
@@ -288,7 +300,7 @@ ${renderAuctionsToolbar({ search, type, status }, timeframe)}
     </table>
   </div>
 </div>
-${renderListPager({ page: paging.page, per_page: paging.page_size, total: paging.total }, { page })}`;
+${renderListPager({ page: paging.page, per_page: paging.page_size, total: paging.total }, { search, type, status, ...dateWindowParams(timeframe) })}`;
 
   return c.html(
     leadgenPageShell({
@@ -296,8 +308,8 @@ ${renderListPager({ page: paging.page, per_page: paging.page_size, total: paging
       userEmail: branding(c).userEmail,
       conversionsUiEnabled: branding(c).conversionsUiEnabled,
       content,
-      styles: LG_AUCTIONS_STYLES,
-      scripts: kebabMenuScript + AUCTION_LIST_SCRIPT + listFilterScript,
+      styles: LG_AUCTIONS_STYLES + LG_DATE_WINDOW_STYLES,
+      scripts: kebabMenuScript + AUCTION_LIST_SCRIPT + listFilterScript + LG_DATE_WINDOW_SCRIPT,
     }),
   );
 }

@@ -284,9 +284,13 @@ describeDb("leadgen sections list page (03 §9.3)", () => {
     const { env } = newHarness();
     await createSection(env);
     const html = await getHtml(env, "/admin/leadgen/sections");
-    for (const name of ["activity", "vertical", "status", "range"]) {
+    for (const name of ["activity", "vertical", "status"]) {
       expect(html, `filter select ${name}`).toContain(`<select name="${name}"`);
     }
+    // F21: the date control replaced the old range <select>
+    expect(html).not.toContain('<select name="range"');
+    expect(html).toContain('<div class="lg-dw" data-lg-dw');
+    expect(html).toMatch(/<span class="lg-dw-label">Last 30 days · [^<]+<\/span>/);
     expect(html).toContain('name="search"');
     // analytics hydration wiring + per-cell skeletons
     expect(html).toContain("data-lg-analytics");

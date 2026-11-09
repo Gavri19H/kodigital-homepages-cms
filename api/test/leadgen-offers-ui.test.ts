@@ -397,10 +397,16 @@ describeDb("leadgen offers list page (03 §9.2)", () => {
       '<button type="button" class="btn btn-primary" data-open-offer-modal>+ Create an Offer</button>',
     );
     expect(html).not.toMatch(/<button[^>]*disabled[^>]*>\+ Create an Offer/);
-    // §9.2 filter row + timeframe control
-    for (const name of ["provider", "vertical", "activity", "status", "offer_type", "dynamic", "range"]) {
+    // §9.2 filter row + timeframe control (F21: the date control replaced
+    // the old range <select>; the default window is "Last 30 days")
+    for (const name of ["provider", "vertical", "activity", "status", "offer_type", "dynamic"]) {
       expect(html, `filter select ${name}`).toContain(`<select name="${name}"`);
     }
+    expect(html).not.toContain('<select name="range"');
+    expect(html).toContain('<div class="lg-dw" data-lg-dw');
+    expect(html).toMatch(/<span class="lg-dw-label">Last 30 days · [^<]+<\/span>/);
+    expect(html).toContain('aria-label="Previous period"');
+    expect(html).toContain('aria-label="Next period" disabled');
     expect(html).toContain('name="search"');
     // seeded distinct filter options surface in the selects
     expect(html).toContain('<option value="prov-a">prov-a</option>');
