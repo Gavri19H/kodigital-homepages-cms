@@ -436,6 +436,22 @@ button.lg-publish-why-fix:focus-visible{outline:2px solid currentColor;outline-o
    lands in instead of widening it. */
 .lg-board-inline-err{color:#B23A2C;font-size:12px;font-weight:600;line-height:1.45;margin:6px 0;padding:8px 10px;background:#FBEEEC;border:1px solid rgba(178,58,44,.28);border-radius:8px;box-sizing:border-box;max-width:100%;min-width:0}
 @media (max-width:1100px){.lg-board-shell{flex-direction:column}.lg-board-left,.lg-board-right{flex:1 1 auto;width:auto;border:0;border-bottom:1px solid var(--c-border)}}
+
+.lg-dw{position:relative;display:flex;align-items:stretch;gap:4px}
+.lg-dw-arrow{justify-content:center;min-width:36px;font-size:16px;line-height:1}
+.lg-dw-arrow:disabled{opacity:.45;cursor:not-allowed}
+.lg-dw-toggle{display:inline-flex;align-items:center;gap:8px;padding:8px 12px;font-size:14px;font-family:inherit;line-height:1.4;color:var(--c-text);background:var(--c-bg);border:1px solid var(--c-border);border-radius:6px;cursor:pointer;white-space:nowrap}
+.lg-dw-toggle:focus{outline:none;border-color:var(--c-primary);box-shadow:0 0 0 3px var(--c-primary-light)}
+.lg-dw-caret{color:var(--c-muted);font-size:12px}
+.lg-dw-panel{position:absolute;top:calc(100% + 4px);left:0;z-index:40;width:340px;max-width:calc(100vw - 32px);background:#fff;border:1px solid var(--c-border);border-radius:8px;box-shadow:0 6px 18px rgba(0,0,0,0.12);padding:12px}
+.lg-dw-panel.lg-dw-panel--right{left:auto;right:0}
+.lg-dw-panel[hidden]{display:none}
+.lg-dw-presets{display:flex;flex-wrap:wrap;gap:6px;margin-bottom:12px}
+.lg-dw-dates{display:flex;gap:8px}
+.lg-dw-field{flex:1;min-width:0}
+.lg-dw-field .form-label{font-size:12px;margin-bottom:4px}
+.lg-dw-actions{display:flex;justify-content:flex-end;gap:8px;margin-top:12px}
+@media (max-width:480px){.lg-dw{width:100%}.lg-dw-toggle{flex:1;min-width:0;justify-content:space-between}.lg-dw-label{overflow:hidden;text-overflow:ellipsis}.lg-dw-panel{left:0;right:0;width:auto;max-width:none}}
 </style>
 </head>
 <body data-area="admin">
@@ -462,12 +478,24 @@ button.lg-publish-why-fix:focus-visible{outline:2px solid currentColor;outline-o
   <div class="toolbar-filters">
     <select name="activity" class="form-select" aria-label="Activity"><option value="">All activities</option></select>
     <select name="status" class="form-select" aria-label="Status"><option value="">All statuses</option><option value="draft">draft</option><option value="active">active</option><option value="archived">archived</option></select>
-    <select name="range" class="form-select" aria-label="Analytics timeframe"><option value="today">Today</option><option value="7d">Last 7 days</option><option value="30d" selected>Last 30 days</option><option value="90d">Last 90 days</option></select>
+  </div>
+  <div class="lg-dw" data-lg-dw data-lg-dw-today="2026-11-09" data-lg-dw-max-days="366">
+    <a class="btn btn-secondary btn-sm lg-dw-arrow" href="?from=2026-09-11&amp;to=2026-10-10" aria-label="Previous period" data-lg-dw-prev>‹</a><button type="button" class="lg-dw-toggle" aria-haspopup="dialog" aria-expanded="false" aria-controls="lg-dw-panel" aria-label="Dates: Last 30 days · 11 Oct – 9 Nov 2026" data-lg-dw-toggle><span class="lg-dw-label">Last 30 days · 11 Oct – 9 Nov 2026</span><span class="lg-dw-caret" aria-hidden="true">▾</span></button><button type="button" class="btn btn-secondary btn-sm lg-dw-arrow" aria-label="Next period" disabled data-lg-dw-next>›</button>
+    <div class="lg-dw-panel" id="lg-dw-panel" role="dialog" aria-label="Choose dates" data-lg-dw-panel hidden>
+      <div class="lg-dw-presets"><a class="btn btn-outline btn-sm" href="?range=today" data-lg-dw-preset="today">Today</a><a class="btn btn-outline btn-sm" href="?range=yesterday" data-lg-dw-preset="yesterday">Yesterday</a><a class="btn btn-outline btn-sm" href="?range=3d" data-lg-dw-preset="3d">Last 3 days</a><a class="btn btn-outline btn-sm" href="?range=7d" data-lg-dw-preset="7d">Last 7 days</a><a class="btn btn-primary btn-sm" href="?range=30d" data-lg-dw-preset="30d" aria-current="true">Last 30 days</a><a class="btn btn-outline btn-sm" href="?range=90d" data-lg-dw-preset="90d">Last 90 days</a></div>
+      <div class="lg-dw-dates">
+        <div class="lg-dw-field"><label class="form-label" for="lg-dw-from">From</label><input type="date" id="lg-dw-from" class="form-input" value="2026-10-11" max="2026-11-09" data-lg-dw-from /></div>
+        <div class="lg-dw-field"><label class="form-label" for="lg-dw-to">To</label><input type="date" id="lg-dw-to" class="form-input" value="2026-11-09" max="2026-11-09" data-lg-dw-to /></div>
+      </div>
+      <p class="form-help">Dates are in UTC.</p>
+      <p class="form-error" role="alert" data-lg-dw-error hidden></p>
+      <div class="lg-dw-actions"><button type="button" class="btn btn-secondary btn-sm" data-lg-dw-cancel>Cancel</button><button type="button" class="btn btn-primary btn-sm" data-lg-dw-apply>Apply</button></div>
+    </div>
   </div>
 </div>
 <div class="card">
   <div class="table-wrapper">
-    <table class="table table--sticky-edges leadgen-quotes-list" aria-label="Quotes list" data-lg-analytics data-analytics-from="2026-07-07" data-analytics-to="2026-08-05">
+    <table class="table table--sticky-edges leadgen-quotes-list" aria-label="Quotes list" data-lg-analytics data-analytics-from="2026-10-11" data-analytics-to="2026-11-09">
       <thead><tr><th scope="col">Name</th><th scope="col">Activity</th><th scope="col">Verticals</th><th scope="col" class="lg-num">Variants</th><th scope="col">A/B status</th><th scope="col" class="lg-num">Active sites</th><th scope="col" class="lg-num">Visits</th><th scope="col" class="lg-num">Completion rate</th><th scope="col" class="lg-num">Avg RPS</th><th scope="col" class="lg-num">Unfilled rate</th><th scope="col" class="lg-num">Revenue</th><th scope="col">Actions</th></tr></thead>
       <tbody><tr><td colspan="12"><div class="empty-state"><p>No quotes yet.</p><p class="form-help">Create a Quote to build a funnel.</p></div></td></tr></tbody>
     </table>
@@ -951,6 +979,87 @@ if (!document.getElementById('toast-animations')) {
       }
     });
   }
+}());
+
+(function () {
+  var root = document.querySelector('[data-lg-dw]');
+  if (!root) { return; }
+  var toggle = root.querySelector('[data-lg-dw-toggle]');
+  var panel = root.querySelector('[data-lg-dw-panel]');
+  var fromInput = root.querySelector('[data-lg-dw-from]');
+  var toInput = root.querySelector('[data-lg-dw-to]');
+  var errorBox = root.querySelector('[data-lg-dw-error]');
+  var applyBtn = root.querySelector('[data-lg-dw-apply]');
+  var cancelBtn = root.querySelector('[data-lg-dw-cancel]');
+  if (!toggle || !panel || !fromInput || !toInput || !errorBox || !applyBtn || !cancelBtn) { return; }
+  // The page's UTC "today", moved forward if the page stayed open past
+  // midnight UTC (the server resolves each request with its own clock).
+  var today = root.getAttribute('data-lg-dw-today') || '';
+  var maxDays = Number(root.getAttribute('data-lg-dw-max-days')) || 0;
+  function currentToday() {
+    var now = new Date().toISOString().slice(0, 10);
+    return now > today ? now : today;
+  }
+  function spanDays(from, to) {
+    return Math.round((Date.parse(to + 'T00:00:00Z') - Date.parse(from + 'T00:00:00Z')) / 86400000) + 1;
+  }
+  var startFrom = fromInput.value;
+  var startTo = toInput.value;
+  var DAY_RE = /^[0-9]{4}-[0-9]{2}-[0-9]{2}$/;
+  function showError(text) { errorBox.textContent = text; errorBox.hidden = false; }
+  function clearError() { errorBox.textContent = ''; errorBox.hidden = true; }
+  function isOpen() { return !panel.hidden; }
+  function openPanel() {
+    var max = currentToday();
+    fromInput.setAttribute('max', max);
+    toInput.setAttribute('max', max);
+    panel.hidden = false;
+    toggle.setAttribute('aria-expanded', 'true');
+    panel.classList.remove('lg-dw-panel--right');
+    var box = panel.getBoundingClientRect();
+    var viewport = window.innerWidth || document.documentElement.clientWidth || 0;
+    if (viewport && box.right > viewport - 8) { panel.classList.add('lg-dw-panel--right'); }
+    var first = panel.querySelector('[aria-current="true"]') || fromInput;
+    if (first && first.focus) { first.focus(); }
+  }
+  function closePanel(restoreFocus) {
+    panel.hidden = true;
+    toggle.setAttribute('aria-expanded', 'false');
+    fromInput.value = startFrom;
+    toInput.value = startTo;
+    clearError();
+    if (restoreFocus) { toggle.focus(); }
+  }
+  function applyDates() {
+    var from = fromInput.value;
+    var to = toInput.value;
+    if (!DAY_RE.test(from) || !DAY_RE.test(to)) { showError('Pick both a From and a To date.'); return; }
+    if (from > to) { showError('From must be on or before To.'); return; }
+    if (to > currentToday()) { showError('To must be today or earlier (UTC).'); return; }
+    if (maxDays && spanDays(from, to) > maxDays) { showError('Pick at most ' + maxDays + ' days.'); return; }
+    var url = new URL(window.location.href);
+    url.searchParams.delete('page');
+    url.searchParams.delete('range');
+    url.searchParams.set('from', from);
+    url.searchParams.set('to', to);
+    window.location.href = url.toString();
+  }
+  function onDateKey(e) {
+    if (e.key === 'Enter') { e.preventDefault(); applyDates(); }
+  }
+  toggle.addEventListener('click', function () {
+    if (isOpen()) { closePanel(false); } else { openPanel(); }
+  });
+  applyBtn.addEventListener('click', applyDates);
+  cancelBtn.addEventListener('click', function () { closePanel(true); });
+  fromInput.addEventListener('keydown', onDateKey);
+  toInput.addEventListener('keydown', onDateKey);
+  document.addEventListener('click', function (e) {
+    if (isOpen() && !root.contains(e.target)) { closePanel(false); }
+  });
+  document.addEventListener('keydown', function (e) {
+    if ((e.key === 'Escape' || e.key === 'Esc') && isOpen()) { closePanel(true); }
+  });
 }());
 </script>
 </body>

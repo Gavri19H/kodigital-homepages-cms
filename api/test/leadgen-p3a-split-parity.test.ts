@@ -225,6 +225,16 @@ const COMPUTED_AT_RE = /"computed_at":\d+/g;
 // placeholder, not derived from either side, so a real future difference
 // (e.g. the from/to pairing itself going wrong) still fails the comparison.
 const ANALYTICS_DATE_RE = /(data-analytics-(?:from|to))="[^"]*"/g;
+// F21 (9 Nov 2026): the list's date control (admin/leadgen/date-window.ts)
+// renders the same request-time window in four more places — its "today"
+// attribute and the From / To inputs' value / max, the "‹" link's
+// from / to pair, and the date button's "Last 30 days · 11 Oct – 9 Nov
+// 2026" text. Same wall-clock source as data-analytics-from / -to above,
+// normalized the same way (fixed placeholders), so every other byte of the
+// control — markup, presets, links, script — is still compared exactly.
+const DATE_WINDOW_ATTR_RE = /(data-lg-dw-today|value|max)="\d{4}-\d{2}-\d{2}"/g;
+const DATE_WINDOW_LINK_RE = /from=\d{4}-\d{2}-\d{2}&amp;to=\d{4}-\d{2}-\d{2}/g;
+const DATE_WINDOW_LABEL_RE = /((?:Today|Yesterday|Last \d+ days) · )[^<"]+/g;
 function normalizeIds(html: string): string {
   const seen = new Map<string, string>();
   return html
@@ -237,7 +247,10 @@ function normalizeIds(html: string): string {
       return placeholder;
     })
     .replace(COMPUTED_AT_RE, `"computed_at":0`)
-    .replace(ANALYTICS_DATE_RE, '$1="0000-00-00"');
+    .replace(ANALYTICS_DATE_RE, '$1="0000-00-00"')
+    .replace(DATE_WINDOW_ATTR_RE, '$1="0000-00-00"')
+    .replace(DATE_WINDOW_LINK_RE, "from=0000-00-00&amp;to=0000-00-00")
+    .replace(DATE_WINDOW_LABEL_RE, "$1DATES");
 }
 
 function expectByteIdenticalModuloIds(actual: string, expected: string): void {
@@ -271,6 +284,8 @@ describeDb("P3a split parity — post-split render == pre-split captured fixture
       // vacuously pass without ever exercising the normalizer).
       expect(html).toContain('data-analytics-to="2027-03-15"');
       expect(html).toContain('data-analytics-from="2027-02-14"'); // 29 days back
+      expect(html).toContain('data-lg-dw-today="2027-03-15"'); // F21 date control
+      expect(html).toContain("Last 30 days · 14 Feb – 15 Mar 2027");
       expect(html).not.toContain('data-analytics-to="2026-07-23"');
       // Yet still byte-identical (modulo ids/computed_at/analytics-dates) to
       // the fixture captured on a DIFFERENT wall-clock day entirely.

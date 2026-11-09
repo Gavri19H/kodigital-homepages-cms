@@ -184,11 +184,14 @@ const TABS: ReadonlyArray<{ key: LeadgenTab; href: string; label: string }> = [
 ];
 
 // 01 §5.2 / 03 §9.1: four sub-tabs — Offers · Sections · Quotes · Auction.
-export function renderLeadgenTabs(active: LeadgenTab): string {
+// F21: the list pages pass their date window ("?range=3d" / "?from=…&to=…",
+// date-window.ts dateWindowSuffix) so the chosen dates follow the operator
+// from tab to tab; every other page passes nothing and keeps plain links.
+export function renderLeadgenTabs(active: LeadgenTab, dateSuffix = ""): string {
   const items = TABS.map((t) => {
     const cls = t.key === active ? "leadgen-tab active" : "leadgen-tab";
     const aria = t.key === active ? ' aria-current="page"' : "";
-    return `<a href="${t.href}" class="${cls}"${aria}>${escapeHtml(t.label)}</a>`;
+    return `<a href="${escapeHtml(t.href + dateSuffix)}" class="${cls}"${aria}>${escapeHtml(t.label)}</a>`;
   }).join("");
   return `<nav class="leadgen-tabs" aria-label="LeadGen sections">${items}</nav>`;
 }

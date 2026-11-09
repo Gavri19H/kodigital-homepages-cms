@@ -17,7 +17,15 @@ import {
   KEBAB_CLOSE,
   kebabMenuScript,
 } from "../templates/layout";
-import { resolveTimeframe, renderTimeframeSelect, type Timeframe } from "../listicles/ui-shared";
+import {
+  resolveDateWindow,
+  renderDateWindowControl,
+  dateWindowParams,
+  dateWindowSuffix,
+  LG_DATE_WINDOW_STYLES,
+  LG_DATE_WINDOW_SCRIPT,
+  type DateWindow,
+} from "./date-window";
 import {
   apiJson,
   branding,
@@ -278,7 +286,8 @@ function renderSectionsToolbar(
   filters: { search: string; activity: string; vertical: string; status: string },
   verticals: string[],
   activities: string[],
-  timeframe: Timeframe,
+  dateWindow: DateWindow,
+  currentQuery: URLSearchParams,
 ): string {
   const options = (values: string[], selected: string): string =>
     values
@@ -291,8 +300,8 @@ function renderSectionsToolbar(
     <select name="activity" class="form-select" aria-label="Activity"><option value="">All activities</option>${options(activities, filters.activity)}</select>
     <select name="vertical" class="form-select" aria-label="Vertical"><option value="">All verticals</option>${options(verticals, filters.vertical)}</select>
     <select name="status" class="form-select" aria-label="Status"><option value="">All statuses</option><option value="active"${filters.status === "active" ? " selected" : ""}>active</option><option value="archived"${filters.status === "archived" ? " selected" : ""}>archived</option></select>
-    ${renderTimeframeSelect(timeframe.key)}
   </div>
+  ${renderDateWindowControl(dateWindow, currentQuery)}
 </div>`;
 }
 
@@ -520,7 +529,8 @@ export async function leadgenSectionsListPage(c: UiContext): Promise<Response> {
   const activity = c.req.query("activity")?.trim() ?? "";
   const vertical = c.req.query("vertical")?.trim() ?? "";
   const status = c.req.query("status")?.trim() ?? "";
-  const timeframe = resolveTimeframe(c.req.query("range"));
+  const timeframe = resolveDateWindow({ range: c.req.query("range"), from: c.req.query("from"), to: c.req.query("to") });
+  const currentQuery = new URL(c.req.url).searchParams;
 
   const qs = new URLSearchParams();
   if (page !== "") qs.set("page", page);
@@ -553,9 +563,9 @@ export async function leadgenSectionsListPage(c: UiContext): Promise<Response> {
     ? ""
     : `<p class="alert alert-error" role="alert">${escapeHtml(listed.error)}</p>`;
 
-  const content = `${renderLeadgenTabs("sections")}
+  const content = `${renderLeadgenTabs("sections", dateWindowSuffix(timeframe))}
 ${loadErrorHtml}
-${renderSectionsToolbar({ search, activity, vertical, status }, verticalsRes.ok ? verticalsRes.body.items : [], activitiesRes.ok ? activitiesRes.body.items : [], timeframe)}
+${renderSectionsToolbar({ search, activity, vertical, status }, verticalsRes.ok ? verticalsRes.body.items : [], activitiesRes.ok ? activitiesRes.body.items : [], timeframe, currentQuery)}
 <div class="card">
   <div class="table-wrapper">
     <table class="table table--sticky-edges leadgen-sections-list" aria-label="Sections list" data-lg-analytics data-analytics-url-prefix="/api/admin/leadgen/sections/" data-analytics-from="${escapeHtml(timeframe.from)}" data-analytics-to="${escapeHtml(timeframe.to)}">
@@ -564,7 +574,7 @@ ${renderSectionsToolbar({ search, activity, vertical, status }, verticalsRes.ok 
     </table>
   </div>
 </div>
-${renderListPager({ page: paging.page, per_page: paging.page_size, total: paging.total }, { page })}`;
+${renderListPager({ page: paging.page, per_page: paging.page_size, total: paging.total }, { search, activity, vertical, status, ...dateWindowParams(timeframe) })}`;
 
   return c.html(
     leadgenPageShell({
@@ -572,8 +582,8 @@ ${renderListPager({ page: paging.page, per_page: paging.page_size, total: paging
       userEmail: branding(c).userEmail,
       conversionsUiEnabled: branding(c).conversionsUiEnabled,
       content,
-      styles: LG_SECTIONS_STYLES,
-      scripts: kebabMenuScript + SECTION_LIST_SCRIPT + listFilterScript,
+      styles: LG_SECTIONS_STYLES + LG_DATE_WINDOW_STYLES,
+      scripts: kebabMenuScript + SECTION_LIST_SCRIPT + listFilterScript + LG_DATE_WINDOW_SCRIPT,
     }),
   );
 }

@@ -38,6 +38,15 @@ import {
   type Timeframe,
 } from "../listicles/ui-shared";
 import {
+  resolveDateWindow,
+  renderDateWindowControl,
+  dateWindowParams,
+  dateWindowSuffix,
+  LG_DATE_WINDOW_STYLES,
+  LG_DATE_WINDOW_SCRIPT,
+  type DateWindow,
+} from "./date-window";
+import {
   LEADGEN_CAP_COUNT_BY,
   LEADGEN_OFFER_TYPES,
   LEADGEN_REGION_DIMENSIONS,
@@ -344,7 +353,6 @@ interface OffersPageFilters {
   status: string;
   offer_type: string;
   dynamic: string;
-  range: string;
 }
 
 interface OffersFilterOptions {
@@ -358,7 +366,10 @@ interface OffersPageProps {
   paging: Paging;
   filters: OffersPageFilters;
   filterOptions: OffersFilterOptions;
-  timeframe: Timeframe;
+  // F21: the list's date window (date-window.ts); the Offer editor's own
+  // Analytics tab keeps the Listicles Timeframe select.
+  timeframe: DateWindow;
+  currentQuery: URLSearchParams;
   loadError: string | null;
   autoOpenCreate: boolean;
 }
@@ -396,8 +407,8 @@ function renderOffersToolbar(props: OffersPageProps): string {
     <select name="status" class="form-select" aria-label="Status filter">${options(OFFER_STATUS_VALUES, null, f.status, "All statuses")}</select>
     <select name="offer_type" class="form-select" aria-label="Offer type filter">${options(LEADGEN_OFFER_TYPES, OFFER_TYPE_LABELS, f.offer_type, "All offer types")}</select>
     <select name="dynamic" class="form-select" aria-label="Dynamic or static filter"><option value="">Dynamic + static</option><option value="1"${f.dynamic === "1" ? " selected" : ""}>Dynamic</option><option value="0"${f.dynamic === "0" ? " selected" : ""}>Static</option></select>
-    ${renderTimeframeSelect(props.timeframe.key)}
   </div>
+  ${renderDateWindowControl(props.timeframe, props.currentQuery)}
 </div>`;
 }
 
@@ -1666,14 +1677,14 @@ function offersListHtml(props: OffersPageProps, brand: LeadgenBranding): string 
       status: props.filters.status,
       offer_type: props.filters.offer_type,
       dynamic: props.filters.dynamic,
-      range: props.filters.range,
+      ...dateWindowParams(props.timeframe),
     },
   );
   const loadErrorHtml = props.loadError
     ? `<p class="alert alert-error" role="alert">${escapeHtml(props.loadError)}</p>`
     : "";
   const content = `<div id="lg-offers-root"${props.autoOpenCreate ? ' data-autopen-create="1"' : ""}>
-${renderLeadgenTabs("offers")}
+${renderLeadgenTabs("offers", dateWindowSuffix(props.timeframe))}
 ${loadErrorHtml}
 ${renderOffersToolbar(props)}
 ${renderOffersTable(props)}
@@ -1688,13 +1699,13 @@ ${renderLgDialogShell()}
     userEmail: brand.userEmail,
     conversionsUiEnabled: brand.conversionsUiEnabled,
     content,
-    styles: LG_OFFERS_STYLES,
-    scripts: kebabMenuScript + LG_SHARED_SCRIPT + LG_OFFER_MODAL_SCRIPT + LG_OFFERS_LIST_ACTIONS_SCRIPT + listFilterScript,
+    styles: LG_OFFERS_STYLES + LG_DATE_WINDOW_STYLES,
+    scripts: kebabMenuScript + LG_SHARED_SCRIPT + LG_OFFER_MODAL_SCRIPT + LG_OFFERS_LIST_ACTIONS_SCRIPT + listFilterScript + LG_DATE_WINDOW_SCRIPT,
   });
 }
 
 async function renderOffersList(c: UiContext, autoOpenCreate: boolean): Promise<Response> {
-  const timeframe = resolveTimeframe(c.req.query("range"));
+  const timeframe = resolveDateWindow({ range: c.req.query("range"), from: c.req.query("from"), to: c.req.query("to") });
   const filters: OffersPageFilters = {
     search: queryParam(c, "search"),
     provider: queryParam(c, "provider"),
@@ -1703,7 +1714,6 @@ async function renderOffersList(c: UiContext, autoOpenCreate: boolean): Promise<
     status: sanitizeEnum(queryParam(c, "status"), OFFER_STATUS_VALUES),
     offer_type: sanitizeEnum(queryParam(c, "offer_type"), LEADGEN_OFFER_TYPES),
     dynamic: sanitizeEnum(queryParam(c, "dynamic"), ["1", "0"]),
-    range: timeframe.key,
   };
   const qs = buildQuery({
     search: filters.search,
@@ -1737,6 +1747,7 @@ async function renderOffersList(c: UiContext, autoOpenCreate: boolean): Promise<
         filters,
         filterOptions,
         timeframe,
+        currentQuery: new URL(c.req.url).searchParams,
         loadError: listed.ok ? null : listed.error,
         autoOpenCreate,
       },
