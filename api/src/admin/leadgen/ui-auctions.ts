@@ -807,6 +807,35 @@ function ruleToggleButton(r: LeadgenAuctionRuleApi): string {
   return `<button type="button" class="btn btn-sm btn-secondary" data-toggle-rule="${escapeHtml(r.public_id)}" data-rule-enabled="${r.enabled ? "1" : "0"}">${r.enabled ? "Disable" : "Enable"}</button>`;
 }
 
+// F15 (owner 2026-10-04): change a rule in place. "Edit rule" loads the rule's
+// saved values (the #lg-a-rules-data blob below) into the "Add a rule" form,
+// whose "Save changes" sends PATCH …/rules/:rule_id — the rule keeps its id and
+// is never deleted and re-added.
+function ruleEditButton(r: LeadgenAuctionRuleApi): string {
+  return `<button type="button" class="btn btn-sm btn-secondary" data-edit-rule="${escapeHtml(r.public_id)}">Edit rule</button>`;
+}
+
+// The saved values "Edit rule" puts back into the form, keyed by the rule's
+// public id. `<` is escaped so the JSON can never close its script tag.
+function rulesEditData(rules: LeadgenAuctionRuleApi[]): string {
+  const data: Record<string, unknown> = {};
+  for (const r of rules) {
+    data[r.public_id] = {
+      rule_level: r.rule_level,
+      action: r.action,
+      priority: r.priority,
+      traffic_share_pct: r.traffic_share_pct,
+      tiers: (r.tiers ?? []).map((t) => t.offer_ids),
+      target_offer_id: r.target_offer_id,
+      carrier_match_json: r.carrier_match_json ?? null,
+      conditions_json: r.conditions_json ?? { groups: [] },
+      strictly_override: Boolean(r.strictly_override),
+      enabled: Boolean(r.enabled),
+    };
+  }
+  return JSON.stringify(data).replace(/</g, "\\u003c");
+}
+
 function renderWaterfallRow(r: LeadgenAuctionRuleApi, names: Map<number, string>, live: Set<number>, fields: readonly RuleBuilderField[]): string {
   const conditions = JSON.stringify(r.conditions_json ?? {});
   const tiers = r.tiers ?? [];
@@ -826,6 +855,7 @@ function renderWaterfallRow(r: LeadgenAuctionRuleApi, names: Map<number, string>
   <ol class="lg-waterfall-tiers" data-waterfall-tiers>${tierItems}</ol>
   <p class="form-help">${hasConditions ? `Only visitors matching: ${ifSentence(r.conditions_json, fields)} The rest of this share gets the normal auction.` : "Every visitor in this share."}</p>
   ${ruleToggleButton(r)}
+  ${ruleEditButton(r)}
   <button type="button" class="btn btn-sm btn-danger" data-delete-rule="${escapeHtml(r.public_id)}">Delete rule</button>
 </div>`;
 }
@@ -862,6 +892,7 @@ function renderRuleRow(r: LeadgenAuctionRuleApi, names: Map<number, string>, liv
   }
   <p class="form-help">IF: ${ifSentence(r.conditions_json, fields)}</p>
   ${ruleToggleButton(r)}
+  ${ruleEditButton(r)}
   <button type="button" class="btn btn-sm btn-danger" data-delete-rule="${escapeHtml(r.public_id)}">Delete rule</button>
 </div>`;
 }
@@ -924,10 +955,11 @@ ${tierRules.length > 0 ? `<h4>Tier-level</h4>${tierRules.map(row).join("")}` : "
   <div class="card">
     <h3>Rules — IF/THEN for offers, tiers and carriers</h3>
     <div id="lg-a-rules-list">${rulesHtml}</div>
+    <script type="application/json" id="lg-a-rules-data">${rulesEditData(rules)}</script>
     <p id="lg-a-rules-msg" class="form-help" hidden></p>
   </div>
   <div class="card" id="lg-a-rule-builder">
-    <h4>Add a rule</h4>
+    <h4 id="lg-a-rule-heading">Add a rule</h4>
     <div class="lg-rule-grid">
       <div class="form-group" data-rule-level-field>
         <label class="form-label" for="lg-r-level">Rule level</label>
@@ -977,7 +1009,7 @@ ${tierRules.length > 0 ? `<h4>Tier-level</h4>${tierRules.map(row).join("")}` : "
     </div>
     <label class="lg-check" data-rule-strictly-field><input type="checkbox" id="lg-r-strictly" /> Overrides other rules</label>
     <label class="lg-check"><input type="checkbox" id="lg-r-enabled" checked /> enabled</label>
-    <div><button type="button" class="btn btn-primary" id="lg-a-rule-add">Add rule</button></div>
+    <div><button type="button" class="btn btn-primary" id="lg-a-rule-add">Add rule</button> <button type="button" class="btn btn-outline" id="lg-a-rule-cancel" hidden>Cancel</button></div>
     <p id="lg-a-rule-msg" class="form-help" hidden></p>
   </div>
 </div>`;
@@ -1699,11 +1731,135 @@ const AUCTION_EDITOR_SCRIPT = `
     if (raw === '') { return fallback; }
     try { return JSON.parse(raw); } catch (e) { return null; }
   }
-  function addRule() {
+  // F15: "Edit rule" puts a saved rule back into this form; "Save changes"
+  // then PATCHes it in place (same id), "Cancel" returns the form to "Add a
+  // rule". The saved values ride the #lg-a-rules-data blob.
+  var rulesData = {};
+  (function () {
+    var el = byId('lg-a-rules-data');
+    try { rulesData = JSON.parse(el ? el.textContent : '{}') || {}; } catch (e) { rulesData = {}; }
+  }());
+  var editingRuleId = null;
+  var editingMissing = [];
+  var ruleHeading = byId('lg-a-rule-heading');
+  var ruleAddBtn = byId('lg-a-rule-add');
+  var ruleCancelBtn = byId('lg-a-rule-cancel');
+  function setField(id, value) { var el = byId(id); if (el) { el.value = value; } }
+  function setChecked(id, on) { var el = byId(id); if (el) { el.checked = !!on; } }
+  function clearTiers() { while (tiersHost && tiersHost.firstChild) { tiersHost.removeChild(tiersHost.firstChild); } }
+  function hideMsg(id) { var el = byId(id); if (el) { el.hidden = true; el.textContent = ''; } }
+  function dropTempTarget() {
+    var temp = root.querySelector('[data-rule-temp-target]');
+    if (temp && temp.parentNode) { temp.parentNode.removeChild(temp); }
+  }
+  // Ticks the given offers on the boxes found by selector; returns the ids no
+  // box exists for (offers no longer running in this auction).
+  function tickOffers(scope, selector, ids) {
+    var boxes = scope.querySelectorAll(selector);
+    var want = {};
+    var found = {};
+    var missing = [];
+    var i;
+    for (i = 0; i < ids.length; i++) { want[String(ids[i])] = true; }
+    for (i = 0; i < boxes.length; i++) {
+      boxes[i].checked = want[boxes[i].value] === true;
+      if (boxes[i].checked) { found[boxes[i].value] = true; }
+    }
+    for (i = 0; i < ids.length; i++) { if (found[String(ids[i])] !== true) { missing.push(ids[i]); } }
+    return missing;
+  }
+  function setConditions(conditions) {
+    var condOut = byId('lg-r-conditions');
+    if (condOut) { condOut.value = JSON.stringify(conditions || { groups: [] }); }
+    mountConditionBuilder();
+  }
+  function setRuleMode(editing) {
+    if (ruleHeading) { ruleHeading.textContent = editing ? 'Edit rule' : 'Add a rule'; }
+    if (ruleAddBtn) { ruleAddBtn.textContent = editing ? 'Save changes' : 'Add rule'; }
+    if (ruleCancelBtn) { ruleCancelBtn.hidden = !editing; }
+  }
+  function resetRuleForm(keepBuilder) {
+    editingRuleId = null;
+    editingMissing = [];
+    dropTempTarget();
+    clearTiers();
+    setField('lg-r-level', 'offer');
+    setField('lg-r-action', 'include_only');
+    setField('lg-r-priority', '100');
+    setField('lg-r-share', '');
+    setField('lg-r-target-offer', '');
+    setField('lg-r-carrier-match', '');
+    tickOffers(root, '[data-tier-group-offer]', []);
+    setChecked('lg-r-strictly', false);
+    setChecked('lg-r-enabled', true);
+    syncRuleFields();
+    if (!keepBuilder) { setConditions({ groups: [] }); }
+    hideMsg('lg-a-rule-msg');
+    setRuleMode(false);
+  }
+  function startEditRule(ruleId) {
+    var rule = rulesData[ruleId];
+    if (!rule) { showMsg('lg-a-rules-msg', 'This rule could not be loaded. Reload the page and try again.', false); return; }
+    resetRuleForm(true);
+    editingRuleId = ruleId;
+    var isWaterfall = rule.action === 'waterfall';
+    var missing = [];
+    setField('lg-r-level', isWaterfall ? 'offer' : rule.rule_level);
+    setField('lg-r-action', rule.action);
+    setField('lg-r-priority', String(rule.priority));
+    setField('lg-r-share', rule.traffic_share_pct === null || rule.traffic_share_pct === undefined ? '' : String(rule.traffic_share_pct));
+    if (isWaterfall) {
+      var t, tiers = rule.tiers || [];
+      for (t = 0; t < tiers.length; t++) {
+        addTier();
+        var nodes = tierNodes();
+        missing = missing.concat(tickOffers(nodes[nodes.length - 1], '[data-tier-offer]', tiers[t] || []));
+      }
+      syncTiers();
+    } else if (rule.rule_level === 'tier') {
+      missing = tickOffers(root, '[data-tier-group-offer]', (rule.tiers && rule.tiers[0]) || []);
+    } else if (rule.rule_level === 'offer' && rule.target_offer_id !== null && rule.target_offer_id !== undefined) {
+      var target = byId('lg-r-target-offer');
+      var want = String(rule.target_offer_id);
+      setField('lg-r-target-offer', want);
+      if (target && target.value !== want) {
+        // The target left this auction: keep it, so saving doesn't drop it.
+        var opt = document.createElement('option');
+        opt.value = want;
+        opt.textContent = 'offer ' + want + ' (not running in this auction)';
+        opt.setAttribute('data-rule-temp-target', '1');
+        target.appendChild(opt);
+        target.value = want;
+      }
+    } else if (rule.rule_level === 'carrier') {
+      setField('lg-r-carrier-match', rule.carrier_match_json ? JSON.stringify(rule.carrier_match_json) : '');
+    }
+    setChecked('lg-r-strictly', rule.strictly_override);
+    setChecked('lg-r-enabled', rule.enabled);
+    syncRuleFields();
+    setConditions(rule.conditions_json);
+    setRuleMode(true);
+    editingMissing = missing;
+    if (missing.length > 0) {
+      var note = byId('lg-a-rule-msg');
+      if (note) {
+        note.textContent = 'Offer ' + missing.join(', ') + ' no longer runs in this auction, so it is left out. Saving removes it from this rule.';
+        note.className = 'alert alert-warning';
+        note.hidden = false;
+      }
+    }
+    var builder = byId('lg-a-rule-builder');
+    if (builder && builder.scrollIntoView) { builder.scrollIntoView({ behavior: 'smooth', block: 'start' }); }
+    var first = isWaterfall ? ruleActionSel : ruleLevelSel;
+    // no scroll from focus: it would cut the smooth scroll to the heading short
+    if (first && first.focus) { first.focus({ preventScroll: true }); }
+  }
+  function saveRule() {
     var lvl = val('lg-r-level');
     var conditions = parseJsonField('lg-r-conditions', { groups: [] });
     if (conditions === null) { showMsg('lg-a-rule-msg', 'Conditions must be valid JSON.', false); return; }
     var share = numVal('lg-r-share');
+    var editing = editingRuleId !== null;
     var payload;
     if (val('lg-r-action') === 'waterfall') {
       payload = {
@@ -1724,34 +1880,45 @@ const AUCTION_EDITOR_SCRIPT = `
         strictly_override: isChecked('lg-r-strictly'),
         enabled: isChecked('lg-r-enabled')
       };
-      if (share !== null) { payload.traffic_share_pct = share; }
+      // An edit always sends the share: a cleared box means "all traffic"
+      // again, which leaving it out would not change.
+      if (share !== null || editing) { payload.traffic_share_pct = share; }
       if (lvl === 'offer') { payload.target_offer_id = numVal('lg-r-target-offer'); }
       else if (lvl === 'tier') { payload.tier_offer_ids = tierGroupOfferIds(); }
-      else {
+      else if (editing && val('lg-r-carrier-match').trim() === '') {
+        // an edit leaves an empty carrier match as it was saved
+      } else {
         var cm = parseJsonField('lg-r-carrier-match', {});
         if (cm === null) { showMsg('lg-a-rule-msg', 'Carrier match must be valid JSON.', false); return; }
         payload.carrier_match_json = cm;
       }
     }
-    fetch(apiBase + '/rules', {
-      method: 'POST', credentials: 'same-origin',
+    if (editing && editingMissing.length > 0 && !window.confirm('Offer ' + editingMissing.join(', ') + ' no longer runs in this auction. Save without it?')) { return; }
+    var url = editing ? apiBase + '/rules/' + encodeURIComponent(editingRuleId) : apiBase + '/rules';
+    if (ruleAddBtn) { ruleAddBtn.disabled = true; }
+    fetch(url, {
+      method: editing ? 'PATCH' : 'POST', credentials: 'same-origin',
       headers: { 'content-type': 'application/json', 'Accept': 'application/json' },
       body: JSON.stringify(payload)
     }).then(function (r) { return r.json().then(function (j) { return { ok: r.ok, status: r.status, body: j }; }); })
       .then(function (res) {
-        if (res.ok) { dirty = false; window.location.reload(); }
-        else {
-          var msg = errorText(res.body, 'Add failed.');
-          showMsg('lg-a-rule-msg', (res.status === 409 ? 'Conflict: ' : '') + msg, false);
-        }
+        if (res.ok) { dirty = false; window.location.reload(); return; }
+        if (ruleAddBtn) { ruleAddBtn.disabled = false; }
+        var msg = errorText(res.body, editing ? 'Save failed.' : 'Add failed.');
+        showMsg('lg-a-rule-msg', (res.status === 409 ? 'Conflict: ' : '') + msg, false);
+      }, function () {
+        if (ruleAddBtn) { ruleAddBtn.disabled = false; }
+        showMsg('lg-a-rule-msg', editing ? 'Save failed. Check your connection and try again.' : 'Add failed. Check your connection and try again.', false);
       });
   }
-  var ruleAddBtn = byId('lg-a-rule-add');
-  if (ruleAddBtn) { ruleAddBtn.addEventListener('click', addRule); }
+  if (ruleAddBtn) { ruleAddBtn.addEventListener('click', saveRule); }
+  if (ruleCancelBtn) { ruleCancelBtn.addEventListener('click', function () { resetRuleForm(false); }); }
 
   root.addEventListener('click', function (ev) {
     var el = ev.target;
     if (!el || !el.getAttribute) { return; }
+    var editId = el.getAttribute('data-edit-rule');
+    if (editId) { startEditRule(editId); return; }
     // Disable / Enable a rule in place (turning a waterfall back on re-checks
     // that all waterfalls together stay within 100%).
     var toggleId = el.getAttribute('data-toggle-rule');
