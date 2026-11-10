@@ -138,6 +138,13 @@ p { margin: 0; }
   color: #fff; font-weight: 900; font-size: 20px;
   box-shadow: 0 2px 6px rgba(27,168,200,0.25);
 }
+/* X14: the site's uploaded logo in the header, fitted into a fixed box so
+   the header never shifts while it loads. */
+.brand-logo-img {
+  display: block; width: 200px; height: 36px;
+  object-fit: contain; object-position: left center;
+}
+@media (max-width:480px) { .brand-logo-img { width: 160px; height: 30px; } }
 .brand-name {
   font-family: var(--tw-font-display);
   font-size: 1.25rem; font-weight: 800;

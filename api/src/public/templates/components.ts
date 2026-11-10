@@ -312,12 +312,44 @@ function brandLogoHtml(site: SiteRef): string {
   return `<span class="brand-logo" aria-hidden="true">${brandGlyphSvg(key)}</span>`;
 }
 
+// X14 (owner 2026-11-10): the HEADER shows the site's uploaded logo (Settings
+// → Logo) when it has one; the badge above stays for every other site and for
+// the footer. The logo the setup step makes with AI (stored under
+// ai/<site>/logo/ — square, mostly white space) is what PR #37 replaced with
+// the badge, so it keeps the badge. Only same-origin /media/ logos qualify,
+// so the picture can be resized at the edge.
+const AI_SETUP_LOGO_PATH = /^\/media\/ai\/[^/]+\/logo\//;
+export function uploadedLogoUrl(site: SiteRef): string | null {
+  const url = typeof site.logoUrl === "string" ? site.logoUrl.trim() : "";
+  if (!url.startsWith("/media/") || AI_SETUP_LOGO_PATH.test(url)) return null;
+  return url;
+}
+
+// The header logo sits in a fixed 200×36 box (160×30 on a phone, public-css
+// .brand-logo-img) and is fitted inside it, so the header never shifts while
+// it loads — the media records carry no width / height to size it exactly.
+const HEADER_LOGO_WIDTH = 200;
+const HEADER_LOGO_HEIGHT = 36;
+function headerBrandHtml(site: SiteRef): string {
+  const logo = uploadedLogoUrl(site);
+  if (logo === null) return `${brandLogoHtml(site)}<span class="brand-name">${escText(site.name)}</span>`;
+  return responsiveImg({
+    src: logo,
+    alt: site.name,
+    width: HEADER_LOGO_WIDTH,
+    height: HEADER_LOGO_HEIGHT,
+    className: "brand-logo-img",
+    loading: "eager",
+    sizes: `(max-width: 480px) 160px, ${HEADER_LOGO_WIDTH}px`,
+  });
+}
+
 export function renderHeader(args: HeaderArgs): string {
   const site = args.site;
   const placeholder = searchPlaceholderOf(args.searchPlaceholder);
-  // Design brand mark: the teal rounded-square badge with the per-vertical glyph
-  // (issue 1) — NOT the uploaded logo <img> (which was a poor AI mockup).
-  const logoHtml = brandLogoHtml(site);
+  // Design brand mark: the site's uploaded logo (X14), else the teal
+  // rounded-square badge with the per-vertical glyph and the site name.
+  const brandHtml = headerBrandHtml(site);
   // Design header child order: .brand → .header-search → .header-nav
   // (nav-links, then a .btn-outline "Sign in"). round-4 (issue 4a): the leading
   // chevron was removed — it implied a dropdown that was never built and just
@@ -332,7 +364,7 @@ export function renderHeader(args: HeaderArgs): string {
   return `<header class="site-header" role="banner">
   <div class="container">
     <div class="header-inner">
-      <a class="brand" href="/" aria-label="${escAttr(site.name)} home">${logoHtml}<span class="brand-name">${escText(site.name)}</span></a>
+      <a class="brand" href="/" aria-label="${escAttr(site.name)} home">${brandHtml}</a>
       <div class="header-search" role="search">${iconSearch({ size: 16 })}<input type="search" name="q" aria-label="Search" placeholder="${escAttr(placeholder)}"></div>
       <nav class="header-nav" aria-label="Primary">${navLinks}<button class="btn-outline" type="button">Sign in</button></nav>
     </div>
