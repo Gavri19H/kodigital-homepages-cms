@@ -236,10 +236,10 @@ describe("T24-AC1 logo render fix (RC-043)", () => {
     expect(site.logoUrl).toBe("/media/uploads/brand-logo.png");
 
     // The view-model still RESOLVES logo_media_id → /media/<key> (asserted
-    // above); the public side keeps the resolved logoUrl available. RESCUE-4
-    // round-2 design RED LINE (issue 1): the header brand mark is the teal-square
-    // badge holding a VECTOR glyph — the uploaded (bad-AI) logo image MUST NOT
-    // render in the header. So the design .brand carries the glyph, never <img>.
+    // above). X14 (owner 2026-11-10) reverses the RESCUE-4 round-2 rule for
+    // UPLOADED logos: the header now shows the uploaded logo picture instead of
+    // the teal badge (the AI-made setup logo keeps the badge —
+    // test/public-header-logo.test.ts covers both).
     const header = renderHeader({
       site: {
         name: site.name,
@@ -247,11 +247,10 @@ describe("T24-AC1 logo render fix (RC-043)", () => {
         hostname: site.hostname,
       },
     });
-    expect(header).toContain('<a class="brand"');
-    // Glyph badge (no vertical keyword in the name → the neutral mark), no image.
-    expect(header).toContain('<span class="brand-logo" aria-hidden="true"><svg class="brand-glyph"');
-    expect(header).not.toContain('<img class="brand-logo"');
-    expect(header).not.toContain("/media/uploads/brand-logo.png");
+    expect(header).toContain('<a class="brand" href="/" aria-label="Acme News home"><img class="brand-logo-img" src="/media/uploads/brand-logo.png"');
+    expect(header).toContain('alt="Acme News"');
+    expect(header).not.toContain('<span class="brand-logo"');
+    expect(header).not.toContain('<span class="brand-name">');
   });
 
   it("[api/test/logo-panel.test.ts] T24-AC1: an unset logo_media_id resolves to null (no broken /media/ src; neutral mark fallback) L2_AUTO_DISAMBIGUATION:T24-AC1:RC-043", async () => {
