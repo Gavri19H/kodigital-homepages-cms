@@ -22,6 +22,22 @@ export const LEGAL_TEMPLATE_SLUGS = [
 
 export type LegalTemplateSlug = (typeof LEGAL_TEMPLATE_SLUGS)[number];
 
+// X15: every Page the site setup writes for a site — the about page
+// (steps.ts generateAboutPageStep) plus the legal pages above. The admin
+// Page form warns before saving any site-owned Page with one of these slugs.
+export const SETUP_PAGE_SLUGS: ReadonlyArray<string> = [
+  "about",
+  ...LEGAL_TEMPLATE_SLUGS,
+];
+
+export function isSetupPage(
+  siteId: string | number | null | undefined,
+  slug: string | null | undefined,
+): boolean {
+  if (siteId === null || siteId === undefined || String(siteId) === "") return false;
+  return typeof slug === "string" && SETUP_PAGE_SLUGS.includes(slug);
+}
+
 // R2 P3 flake-fix (root). Every provisioned legal page used to be inserted
 // with the literal page_type 'legal', so the four canonical pages a site is
 // seeded with were INDISTINGUISHABLE by page_type — and

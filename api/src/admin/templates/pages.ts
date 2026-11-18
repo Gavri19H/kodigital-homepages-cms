@@ -37,6 +37,51 @@ import {
   blockEditorMountScript,
   renderBlockEditorField,
 } from "../../editor/mount";
+import { isSetupPage } from "../../site-provisioning/legal-renderer";
+
+// X15: one-line explanations under the fields people get wrong (the same
+// small grey .form-help text the LeadGen screens use). Owner-approved copy.
+const HELP = {
+  slug: 'The page\'s web address: yoursite.com/page/<i>slug</i>. Use lowercase words joined by hyphens. Leave it empty to build it from the title. Changing it on a live page breaks old links to it.',
+  pageType: 'What kind of page this is. Pick "generic" for anything that isn\'t a legal page. The legal types (privacy-policy, terms, do-not-sell, contact, legal) can be shared by all sites.',
+  site: 'The site that shows this page. Leaving it empty is allowed only for legal types: the page then appears on every site that has no page at the same address. Leave it empty only on purpose.',
+  status: 'Only "published" pages appear on the site. "draft" keeps the page hidden while you work. "archived" takes it off the site.',
+  template: 'Not used by the homepage sites yet. Leave it on "Default".',
+  showInFooter: 'Offers this page as a footer link on LeadGen funnel pages. The homepage footer always shows the same five links: About, Contact, Privacy, Terms and Do Not Sell.',
+  displayOrder: 'Where this page appears among the LeadGen footer links. Lower numbers come first.',
+  content: 'Visitors see this text after you click "Save changes", as long as the status is "published". Pasting from Google Docs or Word keeps headings and lists.',
+  seoTitle: 'The title Google shows for this page. Leave it empty to use the page title.',
+  seoDescription: 'The short text under the title in Google results, about 150 characters. Leave it empty to use the site description.',
+} as const;
+
+function help(id: string, html: string): string {
+  return `<small id="${id}" class="form-help">${html}</small>`;
+}
+
+// X15 (owner D1: warn right before saving): the window shown on EVERY
+// "Save changes" of a Page the site setup created. Names are escaped here;
+// nothing in it is filled by script.
+function renderSetupWarning(pageTitle: string, siteName: string): string {
+  return `<div id="setup-page-modal" class="modal hidden" style="display:none;" role="dialog" aria-modal="true" aria-labelledby="setup-page-modal-title" aria-hidden="true">
+  <div class="modal-content">
+    <h2 id="setup-page-modal-title" class="modal-title">You're about to change a page created by the site setup</h2>
+    <p><b>${escapeHtml(pageTitle)}</b> on <b>${escapeHtml(siteName)}</b> was written automatically when the site was set up, from the shared template.</p>
+    <p class="alert alert-warning">If you save, your text replaces what visitors see on the live site right away.</p>
+    <p>Legal pages are read by partners and ad platforms. Check the text carefully before you save.</p>
+    <div class="modal-actions">
+      <button type="button" id="setup-page-cancel" class="btn btn-secondary">Keep editing</button>
+      <button type="button" id="setup-page-confirm" class="btn btn-primary">Save to live site</button>
+    </div>
+  </div>
+</div>`;
+}
+
+const SETUP_MODAL_STYLES = '.modal{position:fixed;inset:0;background:rgba(0,0,0,0.5);align-items:center;justify-content:center;z-index:1000}'
+  + '.modal.hidden{display:none}'
+  + '.modal-content{background:#fff;border-radius:8px;padding:24px;max-width:520px;width:90%;max-height:90vh;overflow-y:auto;box-shadow:0 10px 25px rgba(0,0,0,0.15)}'
+  + '.modal-content p{margin:0 0 12px;line-height:1.5}'
+  + '.modal-title{margin-bottom:16px;font-size:18px;font-weight:600}'
+  + '.modal-actions{display:flex;gap:8px;justify-content:flex-end;margin-top:16px;flex-wrap:wrap}';
 
 export interface SiteOption {
   id: string;
@@ -306,7 +351,13 @@ function renderPageForm(page: PageFormValues | null, sites: ReadonlyArray<SiteOp
   const siteRequiredAttr = legal ? "" : " required";
   const siteAriaRequired = legal ? "false" : "true";
   const badgeHiddenAttr = legal ? "" : " hidden";
-  return `<form id="page-form" class="page-form" data-mode="${formMode}" data-page-id="${pageId}">
+  const setupPage = isEdit && isSetupPage(p.site_id, p.slug);
+  let siteName = p.site_id ?? "";
+  for (const site of sites) {
+    if (site.id === p.site_id) { siteName = site.name ?? site.id; }
+  }
+  const setupAttr = setupPage ? ` data-setup-page="1"` : "";
+  return `<form id="page-form" class="page-form" data-mode="${formMode}" data-page-id="${pageId}"${setupAttr}>
   <div class="card">
     <div class="form-group">
       <label for="page-title" class="form-label">Title</label>
@@ -314,7 +365,8 @@ function renderPageForm(page: PageFormValues | null, sites: ReadonlyArray<SiteOp
     </div>
     <div class="form-group">
       <label for="page-slug" class="form-label">Slug</label>
-      <input id="page-slug" name="slug" type="text" class="form-input" value="${slugVal}" />
+      <input id="page-slug" name="slug" type="text" class="form-input" value="${slugVal}" aria-describedby="page-slug-help" />
+      ${help("page-slug-help", HELP.slug)}
     </div>
     <div class="form-group">
       <label for="page-type" class="form-label">Page type</label>
@@ -322,6 +374,7 @@ function renderPageForm(page: PageFormValues | null, sites: ReadonlyArray<SiteOp
         ${renderPageTypeOptions(pageTypeVal, false)}
       </select>
       <span id="page-global-badge" class="badge global-template" data-field="global_template_badge"${badgeHiddenAttr}>Global template</span>
+      ${help("page-type-help", HELP.pageType)}
     </div>
     <div class="form-group">
       <label for="page-site" class="form-label">Site</label>
@@ -329,38 +382,45 @@ function renderPageForm(page: PageFormValues | null, sites: ReadonlyArray<SiteOp
         <option value="">Choose a site…</option>
         ${renderSiteOptions(sites, p.site_id ?? "", false)}
       </select>
-      <small id="page-site-hint" class="form-hint" data-field="site_hint">Legal templates may be saved as global (no site).</small>
+      <small id="page-site-hint" class="form-help" data-field="site_hint">${HELP.site}</small>
     </div>
     <div class="form-group">
       <label for="page-status" class="form-label">Status</label>
       <select id="page-status" name="status" class="form-select">
         ${renderStatusOptions(p.status ?? "draft", false)}
       </select>
+      ${help("page-status-help", HELP.status)}
     </div>
     <div class="form-group">
       <label for="page-template" class="form-label">Template</label>
       <select id="page-template" name="template" class="form-select" data-field="template">
         ${renderTemplateOptions(templateVal)}
       </select>
+      ${help("page-template-help", HELP.template)}
     </div>
     <div class="form-group">
       <label for="page-show-in-footer" class="form-label"><input id="page-show-in-footer" name="show_in_footer" type="checkbox" value="1"${boolAttr(p.show_in_footer)} /> Show in footer</label>
+      ${help("page-show-in-footer-help", HELP.showInFooter)}
     </div>
     <div class="form-group">
       <label for="page-display-order" class="form-label">Display Order</label>
       <input id="page-display-order" name="display_order" type="number" class="form-input" value="${escapeHtml(p.display_order ?? 0)}" min="0" />
+      ${help("page-display-order-help", HELP.displayOrder)}
     </div>
     ${renderBlockEditorField(p.content_json)}
+    ${help("page-content-help", HELP.content)}
   </div>
   <div class="card">
     <div class="card-header"><h3 class="card-title">SEO</h3></div>
     <div class="form-group">
       <label for="page-seo-title" class="form-label">SEO title</label>
       <input id="page-seo-title" name="seo_title" type="text" class="form-input" value="${seoTitleVal}" />
+      ${help("page-seo-title-help", HELP.seoTitle)}
     </div>
     <div class="form-group">
       <label for="page-seo-description" class="form-label">SEO description</label>
       <textarea id="page-seo-description" name="seo_description" class="form-textarea" rows="3">${seoDescVal}</textarea>
+      ${help("page-seo-description-help", HELP.seoDescription)}
     </div>
   </div>
   <p id="page-form-error" class="alert alert-error" hidden role="alert"></p>
@@ -369,10 +429,10 @@ function renderPageForm(page: PageFormValues | null, sites: ReadonlyArray<SiteOp
     <button type="submit" class="btn btn-primary">${isEdit ? "Save changes" : "Create page"}</button>
     <a href="/admin/pages" class="btn btn-secondary">Cancel</a>
   </div>
-</form>`;
+</form>${setupPage ? renderSetupWarning(p.title ?? "", siteName) : ""}`;
 }
 
-const PAGE_FORM_SCRIPT = `
+export const PAGE_FORM_SCRIPT = `
 (function(){
   var form = document.getElementById('page-form');
   if (!form) { return; }
@@ -412,6 +472,33 @@ const PAGE_FORM_SCRIPT = `
       applyLegalState();
     });
   }
+  // X15: Pages the site setup created ask before EVERY save (owner D1).
+  var setupModal = document.getElementById('setup-page-modal');
+  var setupPage = form.getAttribute('data-setup-page') === '1' && !!setupModal;
+  function showSetupModal() {
+    setupModal.style.display = 'flex';
+    setupModal.classList.remove('hidden');
+    setupModal.setAttribute('aria-hidden', 'false');
+    var keep = document.getElementById('setup-page-cancel');
+    if (keep) { keep.focus(); }
+  }
+  function hideSetupModal() {
+    setupModal.style.display = 'none';
+    setupModal.classList.add('hidden');
+    setupModal.setAttribute('aria-hidden', 'true');
+  }
+  function setupModalOpen() { return setupPage && setupModal.getAttribute('aria-hidden') === 'false'; }
+  if (setupPage) {
+    document.getElementById('setup-page-cancel').addEventListener('click', hideSetupModal);
+    document.getElementById('setup-page-confirm').addEventListener('click', function () {
+      hideSetupModal();
+      save();
+    });
+    setupModal.addEventListener('click', function (ev) { if (ev.target === setupModal) { hideSetupModal(); } });
+    document.addEventListener('keydown', function (ev) {
+      if (ev.key === 'Escape' && setupModalOpen()) { hideSetupModal(); }
+    });
+  }
   form.addEventListener('submit', function (e) {
     e.preventDefault();
     setError('');
@@ -424,6 +511,10 @@ const PAGE_FORM_SCRIPT = `
       siteSelect.focus();
       return;
     }
+    if (setupPage) { showSetupModal(); return; }
+    save();
+  });
+  function save() {
     var fd = new FormData(form);
     var body = {
       title: fd.get('title') || '',
@@ -454,7 +545,7 @@ const PAGE_FORM_SCRIPT = `
         setError((res.body && res.body.error) || ('Error: ' + res.status));
       }
     }).catch(function () { setError('Network error'); });
-  });
+  }
 }());
 `;
 
@@ -472,7 +563,7 @@ export function pageFormPage(
     userEmail: branding.userEmail,
     conversionsUiEnabled: branding.conversionsUiEnabled,
     content,
-    styles: BLOCK_EDITOR_COLOR_TOKENS + editorStyles,
-    scripts: editorScripts + blockEditorMountScript("Start writing your page...") + PAGE_FORM_SCRIPT,
+    styles: BLOCK_EDITOR_COLOR_TOKENS + editorStyles + SETUP_MODAL_STYLES,
+    scripts: editorScripts + blockEditorMountScript("Start writing your page...", { richPaste: true }) + PAGE_FORM_SCRIPT,
   });
 }

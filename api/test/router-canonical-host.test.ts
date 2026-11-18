@@ -89,7 +89,7 @@ function makeDb(
               (x) => x.slug === slug && x.site_id === siteId,
             ) ?? null) as unknown as T | null;
           }
-          if (sql.startsWith("SELECT id, slug, title, content_html, status, updated_at, site_id FROM pages")) {
+          if (sql.startsWith("SELECT id, slug, title, content_html, status, updated_at, site_id, seo_title, seo_description FROM pages")) {
             const slug = captured[0] as string;
             const siteId = captured[1] as string;
             return (pages.find(

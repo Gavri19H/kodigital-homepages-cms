@@ -19,9 +19,15 @@ export const BLOCK_EDITOR_COLOR_TOKENS = `
 :root{--color-bg:#ffffff;--color-bg-alt:#f9fafb;--color-bg-dark:#f3f4f6;--color-border:#e5e7eb;--color-text:#111827;--color-text-muted:#6b7280;--color-primary:#2563eb;--color-primary-light:#dbeafe;--color-primary-dark:#1d4ed8;--color-error:#ef4444;--color-success:#10b981;--color-warning:#f59e0b;}
 `;
 
-export function blockEditorMountScript(placeholder: string): string {
+export function blockEditorMountScript(
+  placeholder: string,
+  opts: { richPaste?: boolean } = {},
+): string {
+  // X15: `richPaste` is appended only when asked for, so the Articles form's
+  // emitted bytes stay exactly as before.
+  const extra = opts.richPaste === true ? ",richPaste:true" : "";
   return `
-(function(){window._inlineAIImagePresets=window._inlineAIImagePresets||[];function boot(){if(window.initBlockEditor){window.initBlockEditor("content-editor",{hiddenInputId:"content_json",placeholder:${JSON.stringify(placeholder)}});}}if(document.readyState==="loading"){document.addEventListener("DOMContentLoaded",boot);}else{boot();}}());
+(function(){window._inlineAIImagePresets=window._inlineAIImagePresets||[];function boot(){if(window.initBlockEditor){window.initBlockEditor("content-editor",{hiddenInputId:"content_json",placeholder:${JSON.stringify(placeholder)}${extra}});}}if(document.readyState==="loading"){document.addEventListener("DOMContentLoaded",boot);}else{boot();}}());
 `;
 }
 

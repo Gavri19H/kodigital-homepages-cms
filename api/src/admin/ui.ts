@@ -41,6 +41,7 @@ import {
   type PresetRow,
 } from './ai-presets';
 import type { AiGenerationRow } from '../ai/generation-log';
+import { editorJsonForPage } from '../editor/html-to-blocks';
 
 type AdminEnv = { Bindings: Env; Variables: AccessAuthVariables };
 type AdminContext = Context<AdminEnv>;
@@ -252,6 +253,11 @@ async function renderPageEdit(c: AdminContext): Promise<Response> {
     ? await data.getAdminPage(c.env, numericId)
     : null;
   const sites = await data.listAdminSites(c.env);
+  // X15: Pages made by the site setup store no editor blocks; fill the
+  // editor from the live text (in memory only — nothing is written here).
+  if (page) {
+    page.content_json = editorJsonForPage(page.content_json, page.content_html);
+  }
   return c.html(pageFormPage(page, sites, branding(c)));
 }
 adminUi.get('/admin/pages/:id', renderPageEdit);

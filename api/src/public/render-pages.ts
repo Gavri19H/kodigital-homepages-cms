@@ -739,6 +739,10 @@ function renderDoNotSellOptOut(): string {
   return markup + script;
 }
 
+function nonBlank(v: string | null | undefined): string | undefined {
+  return typeof v === "string" && v.trim() !== "" ? v.trim() : undefined;
+}
+
 export async function renderPageHtml(
   db: D1Database,
   siteContext: PublicSiteContext,
@@ -805,8 +809,9 @@ export async function renderPageHtml(
       logoUrl: site.logoUrl,
     },
     meta: {
-      title: row.title,
-      description: site.description,
+      // X15 (D2): the Page form's SEO fields win when filled in.
+      title: nonBlank(row.seo_title) ?? row.title,
+      description: nonBlank(row.seo_description) ?? site.description,
       canonicalUrl,
     },
     body,
