@@ -30,6 +30,9 @@ class BlockEditor {
       // tokens, emoji set, markers. null (the default) keeps every existing
       // page byte-identical — all listicle branches are gated on this.
       listicle: options.listicle || null,
+      // X15 (D3): keep headings/lists/bold/links when pasting rich text.
+      // Only the Page form turns it on; Articles keep plain-text paste.
+      richPaste: options.richPaste === true,
     };
 
     // Listicle-only edit surfaces, keyed by block type (values escape every
@@ -3141,6 +3144,15 @@ class BlockEditor {
   // one block.
   handlePaste(e, block) {
     e.preventDefault();
+    // X15 (D3): a paste from Google Docs / Word carries rich HTML. When it
+    // holds real structure (headings, lists, several paragraphs) it becomes
+    // editor blocks with bold/italic/links kept; anything else (one plain
+    // line, or a paste inside a list) takes the plain-text path below.
+    const rich = e.clipboardData.getData('text/html');
+    if (rich && this.options.richPaste && !(block && block.type === 'list')) {
+      const pasted = this._richPasteBlocks(rich);
+      if (pasted) { this._insertPastedBlocks(pasted, block); return; }
+    }
     const raw = e.clipboardData.getData('text/plain');
     if (!raw) return;
     // Keep the first line's spacing intact (it continues the caret text);
@@ -3176,6 +3188,147 @@ class BlockEditor {
       newBlocks.push({ id: this.generateId(), type: 'paragraph', data: { text: lines[i].trim() } });
     }
     this.blocks.splice((index === -1 ? this.blocks.length - 1 : index) + 1, 0, ...newBlocks);
+    this.renderBlocks();
+    this.saveToInput();
+    this._markClean();
+    const lastNew = newBlocks[newBlocks.length - 1];
+    this.focusedBlockId = lastNew.id;
+    document.querySelectorAll('.editor-block').forEach(el => {
+      el.classList.toggle('focused', el.dataset.blockId === lastNew.id);
+    });
+    const lastEl = document.querySelector('[data-block-id="' + lastNew.id + '"] [contenteditable="true"]');
+    if (lastEl) this._placeCaret(lastEl, -1);
+  }
+
+  // X15 (D3): copy the inline part of pasted rich HTML into dst, keeping
+  // only bold / italic / links / line breaks. Google Docs marks bold and
+  // italic with inline styles (and wraps everything in a font-weight:normal
+  // <b>), so styles are read as well as tags. The result still goes through
+  // sanitizeHtml via _syncTextAndHtml / _itemValue.
+  _richInline(src, dst) {
+    for (const child of Array.from(src.childNodes)) {
+      if (child.nodeType === Node.TEXT_NODE) {
+        dst.appendChild(document.createTextNode(child.textContent || ''));
+        continue;
+      }
+      if (child.nodeType !== Node.ELEMENT_NODE) continue;
+      const tag = child.tagName.toLowerCase();
+      if (tag === 'br') { dst.appendChild(document.createElement('br')); continue; }
+      if (tag === 'style' || tag === 'script' || tag === 'meta' || tag === 'title' || tag === 'link') continue;
+      const fw = this._styleValue(child, 'font-weight');
+      const fs = this._styleValue(child, 'font-style');
+      const weightNum = parseInt(fw, 10);
+      const bold = fw !== 'normal' && !(weightNum > 0 && weightNum < 600) &&
+        (tag === 'strong' || tag === 'b' || fw === 'bold' || fw === 'bolder' || weightNum >= 600);
+      const italic = fs !== 'normal' && (tag === 'em' || tag === 'i' || fs === 'italic');
+      let target = dst;
+      const href = tag === 'a' ? child.getAttribute('href') : null;
+      if (href) { const a = document.createElement('a'); a.setAttribute('href', href); target.appendChild(a); target = a; }
+      if (bold) { const st = document.createElement('strong'); target.appendChild(st); target = st; }
+      if (italic) { const em = document.createElement('em'); target.appendChild(em); target = em; }
+      this._richInline(child, target);
+    }
+  }
+
+  // One property from an element's inline style attribute ('' if unset).
+  _styleValue(el, prop) {
+    const st = (el.getAttribute('style') || '').toLowerCase().split(' ').join('');
+    const at = st.indexOf(prop + ':');
+    if (at === -1 || (at > 0 && st.charAt(at - 1) !== ';')) return '';
+    const rest = st.slice(at + prop.length + 1);
+    const end = rest.indexOf(';');
+    return end === -1 ? rest : rest.slice(0, end);
+  }
+
+  _richTextBlock(type, el, extra) {
+    const holder = document.createElement('div');
+    this._richInline(el, holder);
+    const b = { id: this.generateId(), type: type, data: Object.assign({}, extra || {}) };
+    this._syncTextAndHtml(b, holder);
+    b.data.text = (b.data.text || '').trim();
+    if (b.data.html) { b.data.html = b.data.html.trim(); }
+    return b.data.text === '' ? null : b;
+  }
+
+  // X15 (D3): pasted rich HTML -> editor blocks, or null when the paste has
+  // no structure worth keeping (the caller then pastes plain text).
+  _richPasteBlocks(html) {
+    let doc;
+    try { doc = new DOMParser().parseFromString(html, 'text/html'); } catch (err) { return null; }
+    if (!doc || !doc.body) return null;
+    const out = [];
+    let structured = false;
+    let loose = null;
+    const BLOCK_SEL = 'p,div,h1,h2,h3,h4,h5,h6,ul,ol,blockquote,table,section,article';
+    const push = (b) => { if (b) out.push(b); };
+    const flush = () => {
+      if (loose) { push(this._richTextBlock('paragraph', loose)); }
+      loose = null;
+    };
+    const walk = (node) => {
+      for (const child of Array.from(node.childNodes)) {
+        if (child.nodeType === Node.ELEMENT_NODE) {
+          const tag = child.tagName.toLowerCase();
+          if (tag === 'style' || tag === 'script' || tag === 'meta' || tag === 'title' || tag === 'link') continue;
+          if (tag.length === 2 && tag.charAt(0) === 'h' && tag.charAt(1) >= '1' && tag.charAt(1) <= '6') {
+            flush();
+            const level = Math.min(3, parseInt(tag.charAt(1), 10));
+            const h = this._richTextBlock('heading', child, { level: level });
+            if (h) { structured = true; push(h); }
+            continue;
+          }
+          if (tag === 'ul' || tag === 'ol') {
+            flush();
+            const items = [];
+            for (const li of Array.from(child.children)) {
+              if (li.tagName.toLowerCase() !== 'li') continue;
+              const holder = document.createElement('div');
+              this._richInline(li, holder);
+              const v = this._itemValue(holder).trim();
+              if (v !== '') items.push(v);
+            }
+            if (items.length) {
+              structured = true;
+              out.push({ id: this.generateId(), type: 'list', data: { style: tag === 'ol' ? 'ordered' : 'unordered', items: items } });
+            }
+            continue;
+          }
+          if (tag === 'blockquote') {
+            flush();
+            const q = this._richTextBlock('quote', child, { caption: '' });
+            if (q) { structured = true; push(q); }
+            continue;
+          }
+          if (tag === 'p') { flush(); push(this._richTextBlock('paragraph', child)); continue; }
+          if (child.querySelector(BLOCK_SEL) || tag === 'div' || tag === 'table' || tag === 'section' || tag === 'article') {
+            flush();
+            if (child.querySelector(BLOCK_SEL)) { walk(child); } else { push(this._richTextBlock('paragraph', child)); }
+            continue;
+          }
+        } else if (child.nodeType !== Node.TEXT_NODE) {
+          continue;
+        }
+        if (!loose) { loose = document.createElement('div'); }
+        loose.appendChild(child.cloneNode(true));
+      }
+    };
+    walk(doc.body);
+    flush();
+    if (!out.length) return null;
+    if (!structured && out.length < 2) return null;
+    return out;
+  }
+
+  _insertPastedBlocks(newBlocks, block) {
+    this.snapshot();
+    let index = block ? this.blocks.findIndex(b => b.id === block.id) : -1;
+    let removeCurrent = 0;
+    if (index !== -1 && block.type === 'paragraph') {
+      const curEl = document.querySelector('[data-block-id="' + block.id + '"] [contenteditable="true"]');
+      if (curEl && (curEl.textContent || '').trim() === '') { removeCurrent = 1; }
+    }
+    if (index === -1) { index = this.blocks.length - 1; }
+    this.blocks.splice(index + (removeCurrent ? 0 : 1), removeCurrent, ...newBlocks);
     this.renderBlocks();
     this.saveToInput();
     this._markClean();

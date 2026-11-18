@@ -31,6 +31,10 @@ export interface PublicPageRow {
   status: string;
   updated_at: number | null;
   site_id: string | null;
+  // X15 (D2): the Page form's SEO fields; empty/NULL falls back to the
+  // title and the site description.
+  seo_title?: string | null;
+  seo_description?: string | null;
 }
 
 export interface PublicCategoryRow {
@@ -54,7 +58,7 @@ export async function fetchPublishedPage(
 ): Promise<PublicPageRow | null> {
   const row = await db
     .prepare(
-      "SELECT id, slug, title, content_html, status, updated_at, site_id FROM pages " +
+      "SELECT id, slug, title, content_html, status, updated_at, site_id, seo_title, seo_description FROM pages " +
         "WHERE slug = ? AND status = 'published' " +
         "AND (site_id = ? OR site_id IS NULL) LIMIT 1",
     )

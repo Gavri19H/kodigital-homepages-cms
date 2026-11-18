@@ -89,7 +89,7 @@ function makeDb(pages: PageSeed[], articles: ArticleSeed[]): D1Database {
           }
           if (
             sql.startsWith(
-              "SELECT id, slug, title, content_html, status, updated_at, site_id FROM pages",
+              "SELECT id, slug, title, content_html, status, updated_at, site_id, seo_title, seo_description FROM pages",
             )
           ) {
             const slug = captured[0] as string;

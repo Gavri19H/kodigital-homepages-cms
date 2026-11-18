@@ -131,6 +131,26 @@ export class MiniNode {
       this.appendChild(t);
     }
   }
+  // innerHTML (X15): serialise / re-parse the children, for scripts that
+  // build markup through a scratch element (the block editor's sanitizer).
+  get innerHTML(): string {
+    const esc = (t: string): string => t.replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;");
+    const ser = (n: MiniNode): string => {
+      if (n.nodeType === 3) return esc(n.text);
+      if (n.nodeType !== 1) return n.childNodes.map(ser).join("");
+      const tag = n.tagName.toLowerCase();
+      let attrs = "";
+      for (const [k, v] of n.attrs) attrs += ` ${k}="${esc(v).replace(/"/g, "&quot;")}"`;
+      if (VOID.has(tag)) return `<${tag}${attrs}>`;
+      return `<${tag}${attrs}>${n.childNodes.map(ser).join("")}</${tag}>`;
+    };
+    return this.childNodes.map(ser).join("");
+  }
+  set innerHTML(html: string) {
+    for (const c of this.childNodes) c.parentNode = null;
+    this.childNodes = [];
+    for (const c of [...parseHtml(String(html)).childNodes]) this.appendChild(c);
+  }
   cloneNode(deep = false): MiniNode {
     const copy = new MiniNode(this.tagName, this.nodeType);
     copy.text = this.text;

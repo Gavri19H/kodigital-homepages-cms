@@ -38,6 +38,22 @@ import {
   assertTenantBoundary,
 } from "../site/tenant-guards";
 import { applyPageMutationCacheInvalidation } from "./pages";
+import { blocksToHtml } from "../editor/blocks-to-html";
+import { hasEditorBlocks } from "../editor/html-to-blocks";
+
+// X15: the public site renders ONLY pages.content_html, while the admin Page
+// editor sends ONLY content_json. Saving therefore must rebuild the live copy
+// from the editor document (the same renderer Articles use on publish).
+// Returns undefined (leave content_html alone) when the request carries its
+// own content_html, or when content_json is not an editor document (e.g. the
+// site setup's {kind:"legal_template_rendered"} record) so a save can never
+// blank a live page from a non-block record.
+function liveHtmlFromBody(body: { content_json?: unknown; content_html?: unknown }): string | undefined {
+  if (body.content_html !== undefined) return undefined;
+  if (typeof body.content_json !== "string") return undefined;
+  if (!hasEditorBlocks(body.content_json)) return undefined;
+  return blocksToHtml(body.content_json);
+}
 
 // Wire vocabulary — mirrors PAGE_TYPES / LEGAL_PAGE_TYPES / the DB CHECK
 // constraint. The form's "pending" status option is NOT DB-legal (pages
@@ -268,7 +284,9 @@ export async function createPageHandler(
       ? body.content_json
       : '{"version":1,"blocks":[]}';
   const contentHtml =
-    typeof body.content_html === "string" ? body.content_html : null;
+    typeof body.content_html === "string"
+      ? body.content_html
+      : liveHtmlFromBody(body) ?? null;
   const template =
     typeof body.template === "string" && body.template.trim().length > 0
       ? body.template.trim()
@@ -435,6 +453,12 @@ export async function updatePageHandler(
   if (typeof body.content_html === "string" || body.content_html === null) {
     setClauses.push("content_html = ?");
     bindings.push(body.content_html);
+  } else {
+    const rebuilt = liveHtmlFromBody(body);
+    if (rebuilt !== undefined) {
+      setClauses.push("content_html = ?");
+      bindings.push(rebuilt);
+    }
   }
   if (typeof body.status === "string" && body.status.length > 0) {
     if (!PAGE_STATUS_VALUES.has(body.status)) {

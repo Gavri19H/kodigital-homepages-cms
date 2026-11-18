@@ -55,7 +55,7 @@ function makeDbMock(pages: PageSeed[]) {
           }
           if (
             sql.startsWith("SELECT id, slug, title, content_html, status, updated_at FROM pages") ||
-            sql.startsWith("SELECT id, slug, title, content_html, status, updated_at, site_id FROM pages")
+            sql.startsWith("SELECT id, slug, title, content_html, status, updated_at, site_id, seo_title, seo_description FROM pages")
           ) {
             // T27: site-scoped page query passes (slug, siteId). The
             // fixture pages here are treated as global (site_id NULL) so
