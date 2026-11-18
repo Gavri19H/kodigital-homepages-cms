@@ -164,6 +164,19 @@ const LG_AUCTIONS_STYLES = `
 .lg-sim-fields{display:flex;flex-wrap:wrap;gap:6px;align-items:center;margin:4px 0}
 .lg-sim-chip{font-family:ui-monospace,SFMono-Regular,Menlo,monospace;font-size:12px;padding:2px 8px;border:1px solid var(--c-border);border-radius:9999px;background:var(--c-bg-alt)}
 .lg-sim-payload{background:var(--c-bg-alt,#f5f6f8);border:1px solid var(--c-border);border-radius:6px;padding:10px;font-size:12px;overflow-x:auto;white-space:pre;max-height:280px}
+/* X03: the Status filter's starting choice "Active and paused" is its longest
+   label; keep it readable (the shared toolbar lets selects shrink), and let the
+   filters wrap on a phone instead of squeezing every label. */
+.toolbar-filters select[name="status"]{flex:0 0 auto;width:auto}
+@media (max-width:640px){.toolbar-filters{flex-wrap:wrap}}
+/* X03 Delete window (the Offers delete window's look, scoped to this page) */
+.lg-adel-modal{position:fixed;inset:0;background:rgba(0,0,0,0.5);display:flex;align-items:center;justify-content:center;z-index:1000;padding:16px}
+.lg-adel-modal[hidden]{display:none}
+.lg-adel-content{background:#fff;border-radius:8px;padding:24px;max-width:480px;width:100%;max-height:90vh;overflow-y:auto;box-shadow:0 10px 25px rgba(0,0,0,0.15)}
+.lg-adel-content .modal-title{margin:0 0 16px;font-size:18px;font-weight:600}
+.lg-adel-content .modal-actions{display:flex;flex-wrap:wrap;gap:8px;justify-content:flex-end;margin-top:16px}
+.lg-adel-content [data-adel-blocked]{margin:0}
+.lg-adel-content [data-adel-blocked] a{color:inherit;text-decoration:underline}
 `;
 
 // ---------------------------------------------------------------------------
@@ -183,6 +196,9 @@ const AUCTION_LIST_COLUMNS: ReadonlyArray<ListColumn> = [
   { label: "Winner logic" },
   { label: "Offers", numeric: true },
   { label: "Multi-offer / Backfill" },
+  // X03: every row shows its status (the Offers / Quotes / Sections lists
+  // already do), so an Archive or a Delete visibly changes something.
+  { label: "Status" },
   { label: "Auctions", numeric: true, metric: "auctions" },
   { label: "Fill rate", numeric: true, metric: "fill_rate" },
   { label: "Avg imp/auction", numeric: true, metric: "avg_imp_per_auction" },
@@ -206,8 +222,9 @@ function renderAuctionListRow(a: AuctionListItem): string {
   // endpoint (router.ts). Archive/Reactivate are the unrestricted PATCH
   // {status} leg (patchAuctionHandler/buildAuctionSettings already accept
   // "status"); Delete is the SEPARATE guarded DELETE /auctions/:id
-  // (deleteAuctionHandler 409s "This auction is used by a live funnel
-  // variant — archive it instead" when referenced, else it also archives).
+  // (X03: the list's Delete window sends ?mode=hard — a real delete only when
+  // no Funnel variant uses the Auction and it never ran; otherwise a 409 the
+  // window explains, with "Archive instead").
   const archiveOrReactivate =
     a.status === "archived"
       ? `<button type="button" class="lg-kebab-item" role="menuitem" data-auction-reactivate="${escapeHtml(a.public_id)}" data-entity-name="${name}">Reactivate</button>`
@@ -219,12 +236,13 @@ function renderAuctionListRow(a: AuctionListItem): string {
   <td>${escapeHtml(a.winner_logic)}</td>
   <td class="lg-num">${a.participating_count}</td>
   <td>${escapeHtml(a.multi_offer)} / ${escapeHtml(a.backfill)}</td>
+  <td>${statusBadge(a.status)}</td>
   ${analyticsCells}
   <td><div class="table-actions">
     <a href="/admin/leadgen/auction/${escapeHtml(a.public_id)}/edit" class="btn btn-sm btn-secondary">Edit</a>
     ${renderKebabOpen(name)}<button type="button" class="lg-kebab-item" role="menuitem" data-auction-usage="${escapeHtml(a.public_id)}" aria-expanded="false">Usage</button>
     ${archiveOrReactivate}
-    <button type="button" class="lg-kebab-item lg-kebab-danger" role="menuitem" data-auction-delete="${escapeHtml(a.public_id)}" data-entity-name="${name}">Delete</button>${KEBAB_CLOSE}
+    <button type="button" class="lg-kebab-item lg-kebab-danger" role="menuitem" data-auction-delete="${escapeHtml(a.public_id)}" data-entity-name="${name}" data-auction-status="${escapeHtml(a.status)}">Delete</button>${KEBAB_CLOSE}
   </div></td>
 </tr>
 <tr class="lg-usage-row" data-auction-usage-row="${escapeHtml(a.public_id)}" hidden>
@@ -246,10 +264,39 @@ function renderAuctionsToolbar(
   <form class="toolbar-filters" data-list-filter method="get">
     <input type="search" name="search" class="form-input" placeholder="Search auctions…" value="${escapeHtml(filters.search)}" aria-label="Search auctions" />
     <select name="type" class="form-select" aria-label="Auction type">${typeOpt("", "All types")}${typeOpt("static", "Static")}${typeOpt("dynamic", "Dynamic")}</select>
-    <select name="status" class="form-select" aria-label="Status">${statusOpt("", "All statuses")}${statusOpt("active", "Active")}${statusOpt("paused", "Paused")}${statusOpt("archived", "Archived")}</select>
+    <select name="status" class="form-select" aria-label="Status">${statusOpt("active_paused", "Active and paused")}${statusOpt("all", "All statuses")}${statusOpt("active", "Active")}${statusOpt("paused", "Paused")}${statusOpt("archived", "Archived")}</select>
     ${renderDateWindowHiddenInputs(dateWindow)}
   </form>
   ${renderDateWindowControl(dateWindow, currentQuery)}
+</div>`;
+}
+
+// ---------------------------------------------------------------------------
+// X03 Delete window (owner 2026-11-18: a real delete, the Offers pattern)
+// ---------------------------------------------------------------------------
+//
+// Type the Auction's name → "Delete" turns on → DELETE ?mode=hard. 200 → the
+// row is gone ("Auction deleted"). 409 → the window says why, in plain words:
+// used by a Funnel (links to its Quote) or it already ran; "Archive instead"
+// when it isn't archived yet. Texts are the approved X03 plan's (Section 4).
+function renderAuctionDeleteModal(): string {
+  return `<div id="lg-auction-delete-modal" class="lg-adel-modal" hidden role="dialog" aria-modal="true" aria-labelledby="lg-adel-title">
+  <div class="lg-adel-content">
+    <h2 id="lg-adel-title" class="modal-title">Delete this Auction?</h2>
+    <form id="lg-adel-form" novalidate>
+      <div class="form-group" data-adel-confirm>
+        <label for="lg-adel-input" class="form-label">Type <strong data-adel-name></strong> to confirm. This can't be undone.</label>
+        <input id="lg-adel-input" type="text" class="form-input" autocomplete="off" />
+      </div>
+      <p class="alert alert-error" role="alert" data-adel-blocked hidden></p>
+      <p class="alert alert-error" role="alert" data-adel-error hidden></p>
+      <div class="modal-actions">
+        <button type="button" class="btn btn-secondary" data-adel-cancel>Cancel</button>
+        <button type="button" class="btn btn-primary" data-adel-archive hidden>Archive instead</button>
+        <button type="submit" class="btn btn-danger" data-adel-submit disabled aria-disabled="true">Delete</button>
+      </div>
+    </form>
+  </div>
 </div>`;
 }
 
@@ -257,7 +304,14 @@ export async function leadgenAuctionsListPage(c: UiContext): Promise<Response> {
   const page = pageParam(c);
   const search = c.req.query("search")?.trim() ?? "";
   const type = c.req.query("type")?.trim() ?? "";
-  const status = c.req.query("status")?.trim() ?? "";
+  // X03 (owner 2026-11-18): the list opens on "Active and paused" — archived
+  // Auctions show only when "Archived" or "All statuses" is picked. An absent
+  // or empty ?status= means the starting choice (the API keeps "no status" =
+  // every Auction for its other callers; the page sends active_paused/all).
+  // An unknown value (an old bookmark) falls back to the starting choice too,
+  // instead of a load error with no rows.
+  const rawStatus = c.req.query("status")?.trim() ?? "";
+  const status = ["active_paused", "all", "active", "paused", "archived"].includes(rawStatus) ? rawStatus : "active_paused";
   const timeframe = resolveDateWindow({ range: c.req.query("range"), from: c.req.query("from"), to: c.req.query("to") });
   const currentQuery = new URL(c.req.url).searchParams;
 
@@ -275,9 +329,18 @@ export async function leadgenAuctionsListPage(c: UiContext): Promise<Response> {
 
   const items = listed.ok ? listed.body.items : [];
   const paging: Paging = listed.ok ? listed.body.paging : EMPTY_PAGING;
+  // The "archived are hidden" hint only when archived Auctions really exist;
+  // an empty CMS keeps the honest "No auctions yet."
+  let archivedHidden = false;
+  if (listed.ok && items.length === 0 && status === "active_paused" && search === "" && type === "") {
+    const archived = await apiJson<ListBody<AuctionListItem>>(c.env, "/api/admin/leadgen/auctions?status=archived&page_size=1");
+    archivedHidden = archived.ok && archived.body.paging.total > 0;
+  }
   const rows =
     items.length === 0
-      ? `<tr><td colspan="${AUCTION_LIST_COLUMNS.length}"><div class="empty-state"><p>No auctions yet.</p><p class="form-help">Create an Auction to configure winner logic, participating offers, rules, and banners.</p></div></td></tr>`
+      ? archivedHidden
+        ? `<tr><td colspan="${AUCTION_LIST_COLUMNS.length}"><div class="empty-state"><p>No active or paused Auctions.</p><p class="form-help">Archived Auctions are hidden. Pick "All statuses" or "Archived" in the Status filter to see them, or create an Auction.</p></div></td></tr>`
+        : `<tr><td colspan="${AUCTION_LIST_COLUMNS.length}"><div class="empty-state"><p>No auctions yet.</p><p class="form-help">Create an Auction to configure winner logic, participating offers, rules, and banners.</p></div></td></tr>`
       : items.map(renderAuctionListRow).join("");
 
   const headerCells = AUCTION_LIST_COLUMNS.map((col) => {
@@ -300,7 +363,8 @@ ${renderAuctionsToolbar({ search, type, status }, timeframe, currentQuery)}
     </table>
   </div>
 </div>
-${renderListPager({ page: paging.page, per_page: paging.page_size, total: paging.total }, { search, type, status, ...dateWindowParams(timeframe) })}`;
+${renderListPager({ page: paging.page, per_page: paging.page_size, total: paging.total }, { search, type, status, ...dateWindowParams(timeframe) })}
+${renderAuctionDeleteModal()}`;
 
   return c.html(
     leadgenPageShell({
@@ -362,6 +426,153 @@ const AUCTION_LIST_SCRIPT = `
     for (j = 0; j < rows.length; j++) { fillRow(tables[t], rows[j]); }
   }
 
+  // X03 Delete window: type the name, then DELETE ?mode=hard (the Offers
+  // pattern). A 409 explains itself: used by a Funnel (with links) or already
+  // ran; "Archive instead" only while the Auction isn't archived yet.
+  var delModal = document.getElementById('lg-auction-delete-modal');
+  var delForm = document.getElementById('lg-adel-form');
+  var delInput = document.getElementById('lg-adel-input');
+  var delTarget = { id: '', name: '', status: '', opener: null };
+  function delPart(attr) { return delModal ? delModal.querySelector('[' + attr + ']') : null; }
+  function showDeleteError(msg) {
+    var e = delPart('data-adel-error');
+    if (!e) { return; }
+    clearChildren(e);
+    if (msg) { e.appendChild(document.createTextNode(msg)); e.hidden = false; } else { e.hidden = true; }
+  }
+  function syncDelete() {
+    var btn = delPart('data-adel-submit');
+    if (!btn) { return; }
+    var ok = !!delInput && delTarget.name !== '' && String(delInput.value || '') === delTarget.name;
+    btn.disabled = !ok;
+    btn.setAttribute('aria-disabled', ok ? 'false' : 'true');
+  }
+  function closeDeleteWindow() {
+    if (!delModal || delModal.hidden) { return; }
+    delModal.hidden = true;
+    if (delTarget.opener && delTarget.opener.focus) { try { delTarget.opener.focus(); } catch (e) {} }
+  }
+  function openDeleteWindow(id, name, status, opener) {
+    if (!delModal) { return; }
+    delTarget = { id: id, name: name, status: status, opener: opener || null };
+    var nameEl = delPart('data-adel-name');
+    if (nameEl) { clearChildren(nameEl); nameEl.appendChild(document.createTextNode(name)); }
+    var confirmEl = delPart('data-adel-confirm');
+    if (confirmEl) { confirmEl.hidden = false; }
+    var blocked = delPart('data-adel-blocked');
+    if (blocked) { clearChildren(blocked); blocked.hidden = true; }
+    var archiveBtn = delPart('data-adel-archive');
+    if (archiveBtn) { archiveBtn.hidden = true; archiveBtn.disabled = false; }
+    var submitBtn = delPart('data-adel-submit');
+    if (submitBtn) { submitBtn.hidden = false; }
+    showDeleteError('');
+    if (delInput) { delInput.value = ''; }
+    syncDelete();
+    delModal.hidden = false;
+    if (delInput) { delInput.focus(); }
+  }
+  // The 409 body carries reason ("in_use" | "has_history"), the Auction's
+  // status and, when in use, the variants with links to their Quote.
+  function showBlocked(body) {
+    var blocked = delPart('data-adel-blocked');
+    var confirmEl = delPart('data-adel-confirm');
+    var submitBtn = delPart('data-adel-submit');
+    var archiveBtn = delPart('data-adel-archive');
+    if (!blocked) { return; }
+    clearChildren(blocked);
+    var archived = (body && body.status ? body.status : delTarget.status) === 'archived';
+    var reason = body && body.reason ? body.reason : '';
+    var variants = body && body.usage && body.usage.variants ? body.usage.variants : [];
+    if (reason === 'in_use' && variants.length > 0) {
+      blocked.appendChild(document.createTextNode('This Auction is used by '));
+      var i;
+      for (i = 0; i < variants.length; i++) {
+        if (i > 0) { blocked.appendChild(document.createTextNode(', ')); }
+        var v = variants[i] || {};
+        var label = String(v.name || v.public_id || '');
+        var href = String(v.link || '');
+        if (href.charAt(0) === '/' && href.charAt(1) !== '/') {
+          var a = document.createElement('a');
+          a.setAttribute('href', href);
+          a.appendChild(document.createTextNode(label));
+          blocked.appendChild(a);
+        } else {
+          blocked.appendChild(document.createTextNode(label));
+        }
+      }
+      blocked.appendChild(document.createTextNode(archived ? '.' : '. Archive it instead.'));
+    } else if (archived) {
+      blocked.appendChild(document.createTextNode("Already archived. It has history, so it can't be deleted."));
+    } else {
+      blocked.appendChild(document.createTextNode((body && body.error) || "This Auction has already run, so it can't be deleted. Archive it instead."));
+    }
+    blocked.hidden = false;
+    if (confirmEl) { confirmEl.hidden = true; }
+    if (submitBtn) { submitBtn.hidden = true; }
+    if (archiveBtn) { archiveBtn.hidden = archived; }
+  }
+  function toast(msg, kind) {
+    if (window.showToast) { window.showToast(msg, kind); }
+  }
+  if (delInput) { delInput.addEventListener('input', syncDelete); }
+  if (delModal) {
+    delModal.addEventListener('click', function (ev) {
+      if (ev.target === delModal) { closeDeleteWindow(); return; }
+      var t = ev.target;
+      if (t && t.closest && t.closest('[data-adel-cancel]')) { closeDeleteWindow(); return; }
+      var arch = t && t.closest ? t.closest('[data-adel-archive]') : null;
+      if (arch) {
+        arch.disabled = true;
+        fetch('/api/admin/leadgen/auctions/' + encodeURIComponent(delTarget.id), {
+          method: 'PATCH', credentials: 'same-origin',
+          headers: { 'Content-Type': 'application/json', 'Accept': 'application/json' },
+          body: JSON.stringify({ status: 'archived' })
+        }).then(function (r) {
+          return r.json().catch(function () { return null; }).then(function (j) { return { ok: r.ok, body: j }; });
+        }).then(function (res) {
+          if (!res.ok) { arch.disabled = false; showDeleteError((res.body && res.body.error) || 'Archive failed.'); return; }
+          closeDeleteWindow();
+          toast('Auction archived', 'success');
+          window.setTimeout(function () { window.location.reload(); }, 600);
+        }).catch(function () { arch.disabled = false; showDeleteError('Network error. The Auction was not archived.'); });
+      }
+    });
+    document.addEventListener('keydown', function (ev) {
+      if (ev.key === 'Escape' && delModal && !delModal.hidden) { closeDeleteWindow(); }
+    });
+  }
+  if (delForm) {
+    delForm.addEventListener('submit', function (ev) {
+      ev.preventDefault();
+      var submitBtn = delPart('data-adel-submit');
+      if (!submitBtn || submitBtn.disabled || submitBtn.hidden) { return; }
+      submitBtn.disabled = true;
+      showDeleteError('');
+      fetch('/api/admin/leadgen/auctions/' + encodeURIComponent(delTarget.id) + '?mode=hard', {
+        method: 'DELETE', credentials: 'same-origin', headers: { 'Accept': 'application/json' }
+      }).then(function (r) {
+        return r.json().catch(function () { return null; }).then(function (j) { return { ok: r.ok, status: r.status, body: j }; });
+      }).then(function (res) {
+        if (res.ok) {
+          closeDeleteWindow();
+          var row = document.querySelector('tr[data-entity-id="' + delTarget.id + '"]');
+          var usageRow = document.querySelector('[data-auction-usage-row="' + delTarget.id + '"]');
+          if (row && row.parentNode) { row.parentNode.removeChild(row); }
+          if (usageRow && usageRow.parentNode) { usageRow.parentNode.removeChild(usageRow); }
+          toast('Auction deleted', 'success');
+          window.setTimeout(function () { window.location.reload(); }, 600);
+          return;
+        }
+        if (res.status === 409) { showBlocked(res.body); return; }
+        syncDelete();
+        showDeleteError((res.body && res.body.error) || ('Delete failed (' + res.status + ').'));
+      }).catch(function () {
+        syncDelete();
+        showDeleteError('Network error. The Auction was not deleted.');
+      });
+    });
+  }
+
   // Round-4 A-2 kebab rollout (row R4-02/R4-38): Archive/Reactivate are the
   // unrestricted PATCH {status} leg (previously Archive silently DELETEd
   // with no res.ok check at all — a blocked/failed archive reloaded the page
@@ -408,16 +619,7 @@ const AUCTION_LIST_SCRIPT = `
     var deleteId = el.getAttribute('data-auction-delete');
     if (deleteId) {
       if (window.lgCloseKebabs) { window.lgCloseKebabs(); }
-      var deleteName = el.getAttribute('data-entity-name') || 'this auction';
-      if (!window.confirm('Delete ' + deleteName + '?')) { return; }
-      fetch('/api/admin/leadgen/auctions/' + encodeURIComponent(deleteId), {
-        method: 'DELETE', credentials: 'same-origin', headers: { 'Accept': 'application/json' }
-      }).then(function (r) {
-        return r.json().catch(function () { return null; }).then(function (j) { return { ok: r.ok, status: r.status, body: j }; });
-      }).then(function (res) {
-        if (!res.ok) { window.alert((res.body && res.body.error) || ('Delete failed (' + res.status + ')')); return; }
-        window.location.reload();
-      }).catch(function () { window.alert('Delete request failed'); });
+      openDeleteWindow(deleteId, el.getAttribute('data-entity-name') || '', el.getAttribute('data-auction-status') || '', el);
       return;
     }
     var usageId = el.getAttribute('data-auction-usage');
@@ -442,7 +644,7 @@ const AUCTION_LIST_SCRIPT = `
         var ki;
         for (ki = 0; ki < kinds.length; ki++) { total += Number(kinds[ki].count) || 0; }
         if (total === 0) {
-          panel.appendChild(document.createTextNode('Not referenced by any live funnel variant \\u2014 safe to delete or archive.'));
+          panel.appendChild(document.createTextNode('Not used by any live funnel variant. It can be archived, and deleted if it never ran.'));
           return;
         }
         for (ki = 0; ki < kinds.length; ki++) {

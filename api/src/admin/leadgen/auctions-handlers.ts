@@ -423,9 +423,16 @@ export async function listAuctionsHandler(c: AdminContext): Promise<Response> {
   if (type !== "" && !(AUCTION_TYPES as readonly string[]).includes(type)) {
     return c.json({ error: "Validation failed", fields: { type: `type must be one of ${AUCTION_TYPES.join("|")}` } }, 400);
   }
-  if (status !== "" && !(AUCTION_STATUSES as readonly string[]).includes(status)) {
-    return c.json({ error: "Validation failed", fields: { status: `status must be one of ${AUCTION_STATUSES.join("|")}` } }, 400);
+  // X03 (owner 2026-11-18): the Auction LIST PAGE opens on "Active and paused"
+  // (archived hidden). Two list-only values carry that without changing what
+  // an absent status means for other callers (Section Studio's ?quote= lookup
+  // and any script still expect "no status" = every Auction):
+  //   active_paused → status IN ('active','paused');  all → no status filter.
+  const LIST_STATUS_FILTERS: readonly string[] = [...AUCTION_STATUSES, "active_paused", "all"];
+  if (status !== "" && !LIST_STATUS_FILTERS.includes(status)) {
+    return c.json({ error: "Validation failed", fields: { status: `status must be one of ${LIST_STATUS_FILTERS.join("|")}` } }, 400);
   }
+  const statusIsOne = status !== "" && status !== "all" && status !== "active_paused";
 
   // `quote` filter accepts a numeric quote id OR a quote public_id (lgq_).
   const quoteSelector = quote === "" ? null : idSelector("quote", quote);
@@ -437,7 +444,8 @@ export async function listAuctionsHandler(c: AdminContext): Promise<Response> {
   const filters: FilterCondition[] = [
     { when: search !== "", clause: "a.auction_name LIKE ? ESCAPE '\\'", params: [like] },
     { when: type !== "", clause: "a.auction_type = ?", params: [type] },
-    { when: status !== "", clause: "a.status = ?", params: [status] },
+    { when: statusIsOne, clause: "a.status = ?", params: [status] },
+    { when: status === "active_paused", clause: "a.status IN ('active','paused')", params: [] },
     {
       when: quoteSelector !== null && quoteSelector.column === "id",
       clause: "a.quote_id = ?",
@@ -675,10 +683,39 @@ async function auctionReferencingVariants(db: D1Database, auctionId: number): Pr
   return result.results ?? [];
 }
 
+// Any trace that this Auction ever ran for a visitor. Its ABSENCE (plus no
+// referencing variant) is what makes a permanent delete safe: money-related
+// history is archived, never deleted (owner decision 3, 2026-11-18 — rules and
+// participating Offers are setup, not history). The engine writes the
+// Auction's lga_ public id as auction_config_id on every result-log row;
+// clicks keep the numeric id; the ClickHouse mirrors keep the public id.
+async function auctionHasRunHistory(db: D1Database, auctionId: number, publicId: string): Promise<boolean> {
+  const r = await db
+    .prepare(
+      `SELECT
+         EXISTS(SELECT 1 FROM leadgen_auction_result_log WHERE auction_config_id = ?) AS result_log,
+         EXISTS(SELECT 1 FROM leadgen_session_clicked_offers WHERE auction_id = ?) AS clicks,
+         EXISTS(SELECT 1 FROM leadgen_analytics_auction WHERE auction_public_id = ?) AS stats_auction,
+         EXISTS(SELECT 1 FROM leadgen_analytics_auction_drilldown WHERE auction_public_id = ?) AS stats_drilldown,
+         EXISTS(SELECT 1 FROM leadgen_analytics_carrier WHERE auction_public_id = ?) AS stats_carrier,
+         EXISTS(SELECT 1 FROM leadgen_analytics_provider_diagnostics WHERE auction_public_id = ?) AS stats_provider`,
+    )
+    .bind(publicId, auctionId, publicId, publicId, publicId, publicId)
+    .first<Record<string, number>>();
+  // Fail closed: no answer at all counts as history (never delete on doubt).
+  if (r === null) return true;
+  return Object.values(r).some((v) => Number(v) !== 0);
+}
+
 // DELETE /auctions/:id — archive (status flip, reversible; matches Listicles).
+// X03 (owner 2026-11-18): `?mode=hard` is the guarded PERMANENT delete, the
+// same contract as DELETE /offers/:id?mode=hard — allowed only when no Funnel
+// variant uses the Auction and it never ran. Without a mode, DELETE keeps
+// archiving exactly as before (other callers rely on it).
 export async function deleteAuctionHandler(c: AdminContext): Promise<Response> {
   const row = await resolveAuctionRow(c.env.DB, c.req.param("id") ?? "");
   if (row === null) return c.json({ error: "Not Found" }, 404);
+  if ((c.req.query("mode") ?? "") === "hard") return hardDeleteAuction(c, row);
   // Round-4 D-8: DELETE stays archive-semantics, but an Auction referenced by
   // a live funnel variant is REFUSED outright — fail closed to Archive
   // (PATCH {status:'archived'} is already reachable + unrestricted, see
@@ -695,6 +732,82 @@ export async function deleteAuctionHandler(c: AdminContext): Promise<Response> {
   }
   await c.env.DB.prepare("UPDATE leadgen_auctions SET status = 'archived', updated_at = unixepoch() WHERE id = ?").bind(row.id).run();
   return c.json({ id: row.id, public_id: row.public_id, status: "archived" });
+}
+
+// The `?mode=hard` leg. 409 bodies carry `reason` ("in_use" | "has_history")
+// and the Auction's current `status`, so the list's Delete window can say
+// "used by …" (with links) or "Already archived. It has history, …" without
+// guessing. Same order of checks as the Offers handler: usage first.
+async function hardDeleteAuction(c: AdminContext, row: LeadgenAuctionRow): Promise<Response> {
+  const referencing = await auctionReferencingVariants(c.env.DB, row.id);
+  if (referencing.length > 0) {
+    return c.json(
+      {
+        error: "This Auction is used by a Funnel. Archive it instead.",
+        reason: "in_use",
+        status: row.status,
+        usage: { variants: referencing },
+      },
+      409,
+    );
+  }
+  if (await auctionHasRunHistory(c.env.DB, row.id, row.public_id)) {
+    return c.json(
+      {
+        error: "This Auction has already run, so it can't be deleted. Archive it instead.",
+        reason: "has_history",
+        status: row.status,
+      },
+      409,
+    );
+  }
+
+  // Cheap scalar COUNTs before the batch, for the structured log (?? not ||
+  // so a real 0 survives).
+  const counts = await c.env.DB.prepare(
+    `SELECT
+       (SELECT COUNT(*) FROM leadgen_auction_rules WHERE auction_id = ?) AS rules,
+       (SELECT COUNT(*) FROM leadgen_auction_offers WHERE auction_id = ?) AS offers,
+       (SELECT COUNT(*) FROM leadgen_auction_banners WHERE auction_id = ?) AS banners`,
+  )
+    .bind(row.id, row.id, row.id)
+    .first<{ rules: number; offers: number; banners: number }>();
+
+  // The Auction's OWN setup goes with it, in one atomic batch. The schema says
+  // ON DELETE CASCADE, but D1 does not enforce these links (the Offers handler
+  // notes the same), so every child table is deleted explicitly. Logs, clicks
+  // and analytics are never touched — their absence is what allowed this.
+  // Each statement re-checks "no variant uses it" inside the batch, so a
+  // variant assigned between the checks above and this batch keeps its
+  // Auction (and its setup) instead of pointing at a deleted row.
+  const unused = "NOT EXISTS (SELECT 1 FROM leadgen_funnel_variants WHERE auction_id = ?)";
+  await c.env.DB.batch([
+    c.env.DB.prepare(`DELETE FROM leadgen_auction_rules WHERE auction_id = ? AND ${unused}`).bind(row.id, row.id),
+    c.env.DB.prepare(`DELETE FROM leadgen_auction_offers WHERE auction_id = ? AND ${unused}`).bind(row.id, row.id),
+    c.env.DB.prepare(`DELETE FROM leadgen_auction_banners WHERE auction_id = ? AND ${unused}`).bind(row.id, row.id),
+    c.env.DB.prepare(`DELETE FROM leadgen_auctions WHERE id = ? AND ${unused}`).bind(row.id, row.id),
+  ]);
+  const stillThere = await c.env.DB.prepare("SELECT 1 AS x FROM leadgen_auctions WHERE id = ? LIMIT 1").bind(row.id).first<{ x: number }>();
+  if (stillThere !== null) {
+    const nowUsing = await auctionReferencingVariants(c.env.DB, row.id);
+    return c.json(
+      { error: "This Auction is used by a Funnel. Archive it instead.", reason: "in_use", status: row.status, usage: { variants: nowUsing } },
+      409,
+    );
+  }
+  console.log(
+    JSON.stringify({
+      event: "leadgen_auction_hard_delete",
+      auction_public_id: row.public_id,
+      auction_name: row.auction_name,
+      cascaded: {
+        leadgen_auction_rules: counts?.rules ?? 0,
+        leadgen_auction_offers: counts?.offers ?? 0,
+        leadgen_auction_banners: counts?.banners ?? 0,
+      },
+    }),
+  );
+  return c.json({ ok: true, id: row.id, public_id: row.public_id, deleted: "hard" });
 }
 
 // ---------------------------------------------------------------------------
