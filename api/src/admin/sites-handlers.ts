@@ -38,6 +38,7 @@ import {
   type WaitUntilCtx,
 } from "../site-provisioning";
 import { runCloudflareSiteTeardown } from "../site-provisioning/cloudflare-interfaces";
+import { SITE_STATUS_NEXT } from "./site-status";
 
 interface SiteRow {
   id: string;
@@ -95,14 +96,10 @@ const VALID_SITE_STATUSES: ReadonlySet<string> = new Set([
 // A same->same change is an idempotent no-op (handled in the caller). Anything
 // not listed here is rejected (HTTP 409) so an illegal transition can never
 // land in the sites table.
+// X04: the lists live in site-status.ts, shared with the Domains "Change
+// status" window so it offers exactly the statuses this server accepts.
 const ALLOWED_STATUS_TRANSITIONS: ReadonlyMap<string, ReadonlySet<string>> =
-  new Map([
-    ["draft", new Set(["provisioning", "disabled", "failed"])],
-    ["provisioning", new Set(["active", "failed", "disabled"])],
-    ["active", new Set(["disabled"])],
-    ["disabled", new Set(["active", "draft"])],
-    ["failed", new Set(["provisioning", "draft", "disabled"])],
-  ]);
+  new Map(Object.entries(SITE_STATUS_NEXT).map(([from, to]) => [from, new Set(to)] as const));
 
 function isLegalStatusTransition(from: string, to: string): boolean {
   if (from === to) return true; // idempotent no-op

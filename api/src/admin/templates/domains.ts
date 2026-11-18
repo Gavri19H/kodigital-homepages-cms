@@ -20,6 +20,7 @@
 // "//" double-slash 404.
 
 import { adminLayout, escapeHtml } from "./layout";
+import { SITE_STATUS_NEXT } from "../site-status";
 
 export interface DomainEntry {
   id?: string;
@@ -78,7 +79,7 @@ function renderRow(d: DomainEntry): string {
   var created = escapeHtml(d.created);
   var lastProvisioned = escapeHtml(d.last_provisioned);
   var siteId = escapeHtml(d.id);
-  return '<tr data-domain="' + domain + '" data-site-id="' + siteId + '">'
+  return '<tr data-domain="' + domain + '" data-site-id="' + siteId + '" data-site-status="' + status + '">'
     + '<td>' + domain + '</td>'
     + '<td>' + siteName + '</td>'
     + '<td>' + vertical + '</td>'
@@ -188,6 +189,50 @@ function renderModal(verticalOptions: string): string {
     + '</div>';
 }
 
+// X04 (owner 2026-11-18): the two Actions that can take a live site down ask
+// properly instead of through a browser pop-up. Same .modal look as "Add New
+// Site". Server text only ever goes in through textContent (the script).
+function renderDeleteSiteModal(): string {
+  return '<div id="delete-site-modal" class="modal hidden" style="display:none;" role="dialog" aria-modal="true" aria-labelledby="delete-site-title" aria-hidden="true">'
+    + '<div class="modal-content">'
+    + '<h2 id="delete-site-title" class="modal-title">Delete this site?</h2>'
+    + '<form id="delete-site-form" novalidate>'
+    + '<p class="alert alert-error" data-delete-what></p>'
+    + '<div class="form-group">'
+    + '<label for="delete-site-confirm" class="form-label" data-delete-label></label>'
+    + '<input id="delete-site-confirm" type="text" class="form-input" autocomplete="off" />'
+    + '</div>'
+    + '<p class="alert alert-error" role="alert" data-delete-error hidden></p>'
+    + '<div class="modal-actions">'
+    + '<button type="button" class="btn btn-secondary" data-delete-cancel>Cancel</button>'
+    + '<button type="submit" class="btn btn-danger" data-delete-submit disabled aria-disabled="true">Delete</button>'
+    + '</div>'
+    + '</form>'
+    + '</div>'
+    + '</div>';
+}
+
+function renderStatusModal(): string {
+  return '<div id="site-status-modal" class="modal hidden" style="display:none;" role="dialog" aria-modal="true" aria-labelledby="site-status-title" aria-hidden="true">'
+    + '<div class="modal-content">'
+    + '<h2 id="site-status-title" class="modal-title">Change status</h2>'
+    + '<form id="site-status-form" novalidate>'
+    + '<p class="form-help" data-status-now></p>'
+    + '<div class="form-group">'
+    + '<label for="site-status-select" class="form-label">New status</label>'
+    + '<select id="site-status-select" class="form-select"></select>'
+    + '</div>'
+    + '<p class="status-warning" role="alert" data-status-warning hidden></p>'
+    + '<p class="alert alert-error" role="alert" data-status-error hidden></p>'
+    + '<div class="modal-actions">'
+    + '<button type="button" class="btn btn-secondary" data-status-cancel>Cancel</button>'
+    + '<button type="submit" class="btn btn-primary" data-status-submit>Save</button>'
+    + '</div>'
+    + '</form>'
+    + '</div>'
+    + '</div>';
+}
+
 var MODAL_STYLES = '.modal{position:fixed;inset:0;top:0;left:0;right:0;bottom:0;background:rgba(0,0,0,0.5);align-items:center;justify-content:center;z-index:1000}'
   + '.modal.hidden{display:none}'
   + '.modal-content{background:#fff;border-radius:8px;padding:24px;max-width:520px;width:90%;max-height:90vh;overflow-y:auto;box-shadow:0 10px 25px rgba(0,0,0,0.15)}'
@@ -199,7 +244,11 @@ var MODAL_STYLES = '.modal{position:fixed;inset:0;top:0;left:0;right:0;bottom:0;
   + '.actions-menu{position:absolute;right:0;top:100%;z-index:1100;min-width:170px;list-style:none;margin:4px 0 0;padding:4px 0;background:#fff;border:1px solid var(--c-border,#e5e7eb);border-radius:8px;box-shadow:0 6px 18px rgba(0,0,0,0.12)}'
   + '.actions-menu[hidden]{display:none}'
   + '.actions-menu-item{display:block;width:100%;text-align:left;padding:8px 14px;border:0;background:none;font-size:13px;line-height:1.4;cursor:pointer;color:var(--c-text,#111827)}'
-  + '.actions-menu-item:hover,.actions-menu-item:focus{background:var(--c-bg-dark,#f3f4f6)}';
+  + '.actions-menu-item:hover,.actions-menu-item:focus{background:var(--c-bg-dark,#f3f4f6)}'
+  // X04: the "disabled" warning in the Change status window.
+  + '.status-warning{background:#fef2f2;border:1px solid #fecaca;color:#991b1b;border-radius:6px;padding:8px 10px;font-size:13px;margin:0}'
+  + '.status-warning[hidden]{display:none}'
+  + '#delete-site-modal .form-help,#site-status-modal .form-help{margin:0 0 12px}';
 
 var MODAL_SCRIPT = '(function(){'
   + 'var modal=document.getElementById("new-site-modal");'
@@ -373,13 +422,14 @@ var MODAL_SCRIPT = '(function(){'
 // covers both server-rendered rows and rows appended after a create.
 //
 // Action -> existing endpoint (all under /api/admin/sites/:id):
-//   Edit          -> PATCH /sites/:id    {name}    (rename via prompt)
-//   Change status -> PATCH /sites/:id    {status}  (updateSiteHandler
-//                    validates against draft|provisioning|active|disabled|failed)
+//   Edit          -> opens /admin/settings?site_id=:id (X04; no rename here)
+//   Change status -> PATCH /sites/:id    {status}  through the X04 window that
+//                    lists only SITE_STATUS_NEXT[current] (updateSiteHandler
+//                    enforces the same lists)
 //   Re-provision  -> POST  /sites/:id/provision/next
 //   Purge cache   -> POST  /sites/:id/purge-cache
-//   Delete        -> DELETE /sites/:id   (handler lands in T37; the UI
-//                    wiring targets the canonical path now)
+//   Delete        -> DELETE /sites/:id   through the X04 window (type the
+//                    domain exactly first)
 // On a 2xx the row refreshes: Delete removes the <tr>; every other action
 // re-fetches GET /sites/:id and repaints the name + status cells. The
 // status cell is rebuilt with createElement + textContent (never innerHTML
@@ -404,6 +454,7 @@ var DOMAINS_ACTIONS_SCRIPT = '(function(){'
   + 'badge.className="badge";'
   + 'badge.textContent=String(status==null?"":status);'
   + 'cell.appendChild(badge);'
+  + 'if(status!=null){row.setAttribute("data-site-status",String(status));}'
   + '}'
   + 'function refreshRow(row,siteId){'
   + 'return fetch("/api/admin/sites/"+encodeURIComponent(siteId),{method:"GET",credentials:"same-origin",headers:{"Accept":"application/json"}})'
@@ -411,20 +462,23 @@ var DOMAINS_ACTIONS_SCRIPT = '(function(){'
   + '.then(function(j){if(!j){return;}var site=j.resource||j;setRowName(row,site.name);setRowStatus(row,site.status);})'
   + '.catch(function(){});'
   + '}'
-  + 'function patch(siteId,row,payload){'
-  + 'return fetch("/api/admin/sites/"+encodeURIComponent(siteId),{method:"PATCH",credentials:"same-origin",headers:{"Content-Type":"application/json","Accept":"application/json"},body:JSON.stringify(payload)})'
-  + '.then(function(r){if(r.ok){return refreshRow(row,siteId);}})'
-  + '.catch(function(){});'
+  // X04: every call answers {ok,status,body}; nothing is swallowed any more,
+  // so each action can say what happened (toast) or show the server's error.
+  + 'function call(method,url,payload){'
+  + 'var init={method:method,credentials:"same-origin",headers:{"Accept":"application/json"}};'
+  + 'if(payload!==undefined){init.headers["Content-Type"]="application/json";init.body=JSON.stringify(payload);}'
+  + 'return fetch(url,init).then(function(r){return r.json().then(function(j){return{ok:r.ok,status:r.status,body:j};},function(){return{ok:r.ok,status:r.status,body:null};});});'
   + '}'
-  + 'function post(siteId,row,suffix){'
-  + 'return fetch("/api/admin/sites/"+encodeURIComponent(siteId)+suffix,{method:"POST",credentials:"same-origin",headers:{"Accept":"application/json"}})'
-  + '.then(function(r){if(r.ok){return refreshRow(row,siteId);}})'
-  + '.catch(function(){});'
-  + '}'
-  + 'function destroy(siteId,row){'
-  + 'return fetch("/api/admin/sites/"+encodeURIComponent(siteId),{method:"DELETE",credentials:"same-origin",headers:{"Accept":"application/json"}})'
-  + '.then(function(r){if(r.ok&&row&&row.parentNode){row.parentNode.removeChild(row);}})'
-  + '.catch(function(){});'
+  + 'function siteUrl(siteId,suffix){return "/api/admin/sites/"+encodeURIComponent(siteId)+(suffix||"");}'
+  + 'function errText(res,fallback){return (res&&res.body&&(res.body.error||res.body.message))||(fallback+" ("+(res?res.status:"network")+")");}'
+  + 'function toast(msg,kind){if(window.showToast){window.showToast(msg,kind||"success");}}'
+  + 'function rowsOf(siteId){var out=[];var all=tbody.querySelectorAll("[data-site-id]");for(var i=0;i<all.length;i++){if(all[i].getAttribute("data-site-id")===siteId){out.push(all[i]);}}return out;}'
+  + 'function postAction(siteId,row,suffix,label,okText){'
+  + 'return call("POST",siteUrl(siteId,suffix)).then(function(res){'
+  + 'if(!res.ok){toast(errText(res,label+" failed"),"error");return;}'
+  + 'toast(okText(res.body||{}),"success");'
+  + 'return refreshRow(row,siteId);'
+  + '},function(){toast("Network error. "+label+" did not run.","error");});'
   + '}'
   // T39 [BCL-013]: the re-openable progress panel. getPanel() looks up the
   // server-rendered #provisioning-status-panel each call so closeProgressPanel
@@ -476,27 +530,109 @@ var DOMAINS_ACTIONS_SCRIPT = '(function(){'
   // Open the panel first (immediate feedback) THEN drive the resume; the
   // poll observes the build advance through to status='completed'.
   + 'openProgressPanel(siteId,row?row.getAttribute("data-domain"):"");'
-  + 'return fetch("/api/admin/sites/"+encodeURIComponent(siteId)+"/provision/resume",{method:"POST",credentials:"same-origin",headers:{"Accept":"application/json"}})'
-  + '.then(function(r){if(r.ok){return refreshRow(row,siteId);}})'
-  + '.catch(function(){});'
+  + 'return call("POST",siteUrl(siteId,"/provision/resume")).then(function(res){'
+  + 'if(!res.ok){toast(errText(res,"Resume build failed"),"error");return;}'
+  + 'var b=res.body||{};'
+  + 'toast(b.resumed?"Build resumed":"Nothing to resume: the build is complete","success");'
+  + 'return refreshRow(row,siteId);'
+  + '},function(){toast("Network error. Resume build did not run.","error");});'
   + '}'
+  // X04 modal plumbing (same show/hide as the Add New Site modal).
+  + 'function showModal(m){if(m){m.style.display="flex";m.classList.remove("hidden");m.setAttribute("aria-hidden","false");}}'
+  + 'function hideModal(m){if(m){m.style.display="none";m.classList.add("hidden");m.setAttribute("aria-hidden","true");}}'
+  + 'function part(m,attr){return m?m.querySelector("["+attr+"]"):null;}'
+  + 'function showErr(el,msg){if(!el){return;}el.textContent=msg||"";el.hidden=!msg;}'
+  // The status the row was rendered/refreshed with (data-site-status), with
+  // the badge text only as a fallback for rows appended after a create.
+  + 'function currentStatus(row){var a=row?row.getAttribute("data-site-status"):null;if(a){return a;}var c=row&&row.children?row.children[4]:null;return c?String(c.textContent||"").replace(/^\\s+|\\s+$/g,""):"";}'
+  // X04 Delete: type the domain exactly before "Delete" turns on.
+  + 'var delModal=document.getElementById("delete-site-modal");'
+  + 'var delForm=document.getElementById("delete-site-form");'
+  + 'var delInput=document.getElementById("delete-site-confirm");'
+  + 'var delTarget={siteId:"",domain:"",row:null};'
+  + 'function syncDelete(){var b=part(delModal,"data-delete-submit");if(!b){return;}var ok=!!delInput&&delTarget.domain!==""&&String(delInput.value||"")===delTarget.domain;b.disabled=!ok;b.setAttribute("aria-disabled",ok?"false":"true");}'
+  + 'function openDelete(siteId,row){'
+  + 'if(!delModal){return;}'
+  + 'var domain=row?String(row.getAttribute("data-domain")||""):"";'
+  + 'delTarget={siteId:siteId,domain:domain,row:row};'
+  + 'var what=part(delModal,"data-delete-what");if(what){what.textContent="This takes "+domain+" offline and permanently removes its articles, pages and settings. It can\'t be undone.";}'
+  + 'var lab=part(delModal,"data-delete-label");if(lab){while(lab.firstChild){lab.removeChild(lab.firstChild);}lab.appendChild(document.createTextNode("Type "));var strong=document.createElement("strong");strong.textContent=domain;lab.appendChild(strong);lab.appendChild(document.createTextNode(" to confirm."));}'
+  + 'showErr(part(delModal,"data-delete-error"),"");'
+  + 'if(delInput){delInput.value="";}'
+  + 'syncDelete();'
+  + 'showModal(delModal);'
+  + 'if(delInput){delInput.focus();}'
+  + '}'
+  + 'if(delInput){delInput.addEventListener("input",syncDelete);}'
+  + 'if(delModal){delModal.addEventListener("click",function(e){if(e.target===delModal||closestAttr(e.target,"data-delete-cancel")){hideModal(delModal);}});}'
+  + 'if(delForm){delForm.addEventListener("submit",function(e){'
+  + 'e.preventDefault();'
+  + 'var b=part(delModal,"data-delete-submit");if(!b||b.disabled){return;}'
+  + 'b.disabled=true;showErr(part(delModal,"data-delete-error"),"");'
+  + 'call("DELETE",siteUrl(delTarget.siteId)).then(function(res){'
+  + 'if(!res.ok){syncDelete();showErr(part(delModal,"data-delete-error"),errText(res,"Delete failed"));return;}'
+  + 'hideModal(delModal);'
+  + 'var rows=rowsOf(delTarget.siteId);for(var i=0;i<rows.length;i++){if(rows[i].parentNode){rows[i].parentNode.removeChild(rows[i]);}}'
+  + 'var pnl=getPanel();if(pnl&&pnl.getAttribute("data-site-id")===delTarget.siteId){closeProgressPanel();}'
+  + 'toast("Site deleted","success");'
+  + '},function(){syncDelete();showErr(part(delModal,"data-delete-error"),"Network error. The site was not deleted.");});'
+  + '});}'
+  // X04 Change status: only the statuses the server allows from the current
+  // one (SITE_STATUS_NEXT, the same lists the PATCH handler checks); a
+  // warning and a red "Disable site" before "disabled".
+  + 'var NEXT=' + JSON.stringify(SITE_STATUS_NEXT) + ';'
+  + 'var stModal=document.getElementById("site-status-modal");'
+  + 'var stForm=document.getElementById("site-status-form");'
+  + 'var stSelect=document.getElementById("site-status-select");'
+  + 'var stTarget={siteId:"",domain:"",row:null};'
+  + 'function syncStatus(){'
+  + 'var v=stSelect?stSelect.value:"";'
+  + 'var warn=part(stModal,"data-status-warning");'
+  + 'var b=part(stModal,"data-status-submit");'
+  + 'var dis=v==="disabled";'
+  + 'if(warn){warn.textContent=dis?("Disabled takes "+stTarget.domain+" offline: every page answers \u201cGone\u201d to visitors and to Google until you set it back to active."):"";warn.hidden=!dis;}'
+  + 'if(b){b.textContent=dis?"Disable site":"Save";b.className=dis?"btn btn-danger":"btn btn-primary";b.disabled=!v;}'
+  + '}'
+  + 'function openStatus(siteId,row){'
+  + 'if(!stModal||!stSelect){return;}'
+  + 'var now=currentStatus(row);'
+  + 'stTarget={siteId:siteId,domain:row?String(row.getAttribute("data-domain")||""):"",row:row};'
+  + 'var nowEl=part(stModal,"data-status-now");if(nowEl){nowEl.textContent=stTarget.domain+" is "+(now||"unknown")+" now.";}'
+  + 'while(stSelect.firstChild){stSelect.removeChild(stSelect.firstChild);}'
+  + 'var opts=NEXT[now]||[];'
+  + 'for(var i=0;i<opts.length;i++){var o=document.createElement("option");o.value=opts[i];o.textContent=opts[i];stSelect.appendChild(o);}'
+  + 'showErr(part(stModal,"data-status-error"),opts.length?"":"No other status is allowed from \u201c"+now+"\u201d.");'
+  + 'stSelect.disabled=opts.length===0;'
+  + 'syncStatus();'
+  + 'showModal(stModal);'
+  + 'stSelect.focus();'
+  + '}'
+  + 'if(stSelect){stSelect.addEventListener("change",syncStatus);}'
+  + 'if(stModal){stModal.addEventListener("click",function(e){if(e.target===stModal||closestAttr(e.target,"data-status-cancel")){hideModal(stModal);}});}'
+  + 'if(stForm){stForm.addEventListener("submit",function(e){'
+  + 'e.preventDefault();'
+  + 'var b=part(stModal,"data-status-submit");var v=stSelect?stSelect.value:"";'
+  + 'if(!b||b.disabled||!v){return;}'
+  + 'b.disabled=true;showErr(part(stModal,"data-status-error"),"");'
+  + 'call("PATCH",siteUrl(stTarget.siteId),{status:v}).then(function(res){'
+  + 'b.disabled=false;'
+  + 'if(!res.ok){showErr(part(stModal,"data-status-error"),errText(res,"Status change failed"));return;}'
+  + 'hideModal(stModal);'
+  + 'var site=(res.body&&res.body.resource)||{};'
+  + 'var rows=rowsOf(stTarget.siteId);for(var i=0;i<rows.length;i++){setRowStatus(rows[i],site.status||v);}'
+  + 'toast("Status changed","success");'
+  + '},function(){b.disabled=false;showErr(part(stModal,"data-status-error"),"Network error. The status was not changed.");});'
+  + '});}'
+  + 'document.addEventListener("keydown",function(e){if(e.key==="Escape"){hideModal(delModal);hideModal(stModal);}});'
   + 'function doAction(action,row,siteId){'
-  + 'if(action==="edit"){'
-  + 'var cells=row.children;var current=cells[1]?cells[1].textContent:"";'
-  + 'var name=window.prompt("Site name",current);'
-  + 'if(name===null){return;}'
-  + 'return patch(siteId,row,{name:name});'
-  + '}'
-  + 'if(action==="change-status"){'
-  + 'var status=window.prompt("New status (draft, provisioning, active, disabled, failed)","active");'
-  + 'if(status===null||status===""){return;}'
-  + 'return patch(siteId,row,{status:status});'
-  + '}'
-  + 'if(action==="reprovision"){return post(siteId,row,"/provision/next");}'
+  // X04 (owner 2026-11-18): Edit opens this site's Settings; Domains renames nothing.
+  + 'if(action==="edit"){window.location.href="/admin/settings?site_id="+encodeURIComponent(siteId);return;}'
+  + 'if(action==="change-status"){openStatus(siteId,row);return;}'
+  + 'if(action==="reprovision"){return postAction(siteId,row,"/provision/next","Re-provision",function(b){return b.completed?"Nothing to re-provision: the build is complete":"Re-provision ran step "+(b.current_step||"")+" ("+(b.status||"")+")";});}'
   + 'if(action==="resume"){return resumeBuild(siteId,row);}'
   + 'if(action==="view-progress"){openProgressPanel(siteId,row?row.getAttribute("data-domain"):"");return;}'
-  + 'if(action==="purge-cache"){return post(siteId,row,"/purge-cache");}'
-  + 'if(action==="delete"){if(!window.confirm("Delete this site? This cannot be undone.")){return;}return destroy(siteId,row);}'
+  + 'if(action==="purge-cache"){return postAction(siteId,row,"/purge-cache","Purge cache",function(b){var st=b.resource&&b.resource.status?b.resource.status:"";return "Cache purged"+(st?" ("+st+")":"");});}'
+  + 'if(action==="delete"){openDelete(siteId,row);return;}'
   + '}'
   + 'tbody.addEventListener("click",function(e){'
   + 'var target=e.target;'
@@ -535,7 +671,8 @@ export function domainsPage(
 ): string {
   var rows = renderRows(domains);
   var options = renderVerticalOptions(verticals);
-  var content = renderToolbar() + renderProvisioningPanel() + renderTable(rows) + renderModal(options);
+  var content = renderToolbar() + renderProvisioningPanel() + renderTable(rows) + renderModal(options)
+    + renderDeleteSiteModal() + renderStatusModal();
   return adminLayout({
     title: "Domains",
     activePath: "/admin/domains",

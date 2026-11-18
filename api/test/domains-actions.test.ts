@@ -173,19 +173,42 @@ type Json = Record<string, unknown>;
 
 // A routing fetch stub: the responder decides the JSON body per (url, method);
 // every call resolves ok:true. Records each call for assertion.
-function makeFetch(getJson: (url: string, method: string) => Json) {
+function makeFetch(
+  getJson: (url: string, method: string) => Json,
+  getStatus?: (url: string, method: string) => number,
+) {
   const calls: FetchCall[] = [];
   const fetchStub = (url: string, init?: { method?: string; body?: string }) => {
     const method = (init && init.method) || "GET";
     calls.push({ url, method, body: init ? init.body : undefined });
     const body: Json = getJson(url, method);
+    const status = getStatus ? getStatus(url, method) : method === "POST" ? 201 : 200;
     return Promise.resolve({
-      ok: true,
-      status: method === "POST" ? 201 : 200,
+      ok: status >= 200 && status < 300,
+      status,
       json: () => Promise.resolve(body),
     });
   };
   return { calls, fetchStub };
+}
+
+// X04: the Delete and Change status windows, built to mirror
+// renderDeleteSiteModal()/renderStatusModal() (attribute markers only).
+function buildModal(rootId: string, formId: string, inputId: string, inputTag: string, markers: string[]) {
+  const modal = new FakeNode("div");
+  modal.setAttribute("id", rootId);
+  modal.className = "modal hidden";
+  const form = modal.appendChild(new FakeNode("form"));
+  form.setAttribute("id", formId);
+  const input = form.appendChild(new FakeNode(inputTag));
+  input.setAttribute("id", inputId);
+  const parts: Record<string, FakeNode> = {};
+  for (const m of markers) {
+    const n = form.appendChild(new FakeNode(m.indexOf("submit") >= 0 || m.indexOf("cancel") >= 0 ? "button" : "p"));
+    n.setAttribute(m, "");
+    parts[m] = n;
+  }
+  return { modal, form, input, parts };
 }
 
 const flush = () => new Promise((r) => setTimeout(r, 0));
@@ -195,7 +218,7 @@ const flush = () => new Promise((r) => setTimeout(r, 0));
 // built to mirror renderRow()/actionsCell(). Run DOMAINS_ACTIONS_SCRIPT over
 // it, then fire the delegated clicks.
 // ---------------------------------------------------------------------------
-const ACTIONS = ["edit", "change-status", "reprovision", "purge-cache", "delete"];
+const ACTIONS = ["edit", "change-status", "reprovision", "resume", "purge-cache", "delete"];
 
 function buildRow(siteId: string, name: string, status: string) {
   const tr = new FakeNode("tr");
@@ -231,6 +254,7 @@ function bootActions(opts: {
   name?: string;
   status?: string;
   getJson?: (url: string) => Json;
+  getStatus?: (url: string, method: string) => number;
   prompt?: string | null;
   confirm?: boolean;
 }) {
@@ -239,9 +263,24 @@ function bootActions(opts: {
   tbody.setAttribute("id", "domains-list-body");
   const row = buildRow(siteId, opts.name ?? "Old Name", opts.status ?? "active");
   tbody.appendChild(row.tr);
+  const del = buildModal("delete-site-modal", "delete-site-form", "delete-site-confirm", "input", [
+    "data-delete-what", "data-delete-label", "data-delete-error", "data-delete-cancel", "data-delete-submit",
+  ]);
+  const st = buildModal("site-status-modal", "site-status-form", "site-status-select", "select", [
+    "data-status-now", "data-status-warning", "data-status-error", "data-status-cancel", "data-status-submit",
+  ]);
+  const byId: Record<string, FakeNode> = {
+    "domains-list-body": tbody,
+    "delete-site-modal": del.modal,
+    "delete-site-form": del.form,
+    "delete-site-confirm": del.input,
+    "site-status-modal": st.modal,
+    "site-status-form": st.form,
+    "site-status-select": st.input,
+  };
 
   const doc = {
-    getElementById: (id: string) => (id === "domains-list-body" ? tbody : null),
+    getElementById: (id: string) => byId[id] ?? null,
     createElement: (tag: string) => new FakeNode(tag),
     createTextNode: (text: string) => {
       const n = new FakeNode("#text");
@@ -254,11 +293,15 @@ function bootActions(opts: {
       (this.listeners[type] = this.listeners[type] || []).push(fn);
     },
   };
-  const { calls, fetchStub } = makeFetch(opts.getJson ?? (() => ({})));
+  const { calls, fetchStub } = makeFetch(opts.getJson ?? (() => ({})), opts.getStatus);
+  const prompts: string[] = [];
+  const toasts: Array<[string, string]> = [];
   const win = {
-    prompt: () => (opts.prompt === undefined ? null : opts.prompt),
-    confirm: () => opts.confirm === true,
+    prompt: (q: string) => { prompts.push(q); return opts.prompt === undefined ? null : opts.prompt; },
+    confirm: (q: string) => { prompts.push(q); return opts.confirm === true; },
     setTimeout: () => 0,
+    location: { href: "/admin/domains" },
+    showToast: (msg: string, kind: string) => { toasts.push([msg, kind]); },
   };
   vm.runInNewContext(DOMAINS_ACTIONS_SCRIPT, {
     document: doc,
@@ -269,8 +312,10 @@ function bootActions(opts: {
   const clickToggle = () => tbody.fire("click", { target: row.toggle });
   const clickAction = (a: string) =>
     tbody.fire("click", { target: row.items[a] });
-  return { tbody, row, calls, clickToggle, clickAction };
+  return { tbody, row, calls, clickToggle, clickAction, del, st, win, prompts, toasts };
 }
+
+const submitEvent = () => ({ preventDefault() {} });
 
 function find(calls: FetchCall[], method: string, urlPart: string) {
   return calls.find((c) => c.method === method && c.url.indexOf(urlPart) >= 0);
@@ -301,41 +346,68 @@ describe("T35-AC1 Actions menu wires every per-row control to its endpoint", () 
     expect(html).toContain('data-row-action="toggle-actions"');
   });
 
-  it("[api/test/domains-actions.test.ts] L2_AUTO_DISAMBIGUATION:T35-AC1:RC-059 Edit PATCHes the new name to /sites/:id then refreshes the row", async () => {
-    const { row, calls, clickToggle, clickAction } = bootActions({
-      prompt: "Renamed Site",
-      getJson: () => ({ resource: { name: "Renamed Site", status: "active" } }),
-    });
-    clickToggle();
-    clickAction("edit");
+  // X04 (owner 2026-11-18): Edit opens this site's Settings; it sends nothing
+  // and never asks for a name.
+  it("[api/test/domains-actions.test.ts] X04 Edit opens /admin/settings?site_id=:id and sends no request", async () => {
+    const t = bootActions({ siteId: "st_2f4ac7c710d04279" });
+    t.clickToggle();
+    t.clickAction("edit");
     await flush();
-    await flush();
-    const patch = find(calls, "PATCH", "/api/admin/sites/st_1");
-    expect(patch, "Edit issues PATCH /api/admin/sites/:id").toBeDefined();
-    const sent = JSON.parse(String(patch!.body)) as { name?: string; status?: string };
-    expect(sent.name).toBe("Renamed Site");
-    expect(sent.status).toBeUndefined();
-    // Row refreshes from GET /sites/:id on success.
-    expect(find(calls, "GET", "/api/admin/sites/st_1")).toBeDefined();
-    expect(row.cells[1]!.textContent).toBe("Renamed Site");
+    expect(t.win.location.href).toBe("/admin/settings?site_id=st_2f4ac7c710d04279");
+    expect(t.calls.length).toBe(0);
+    expect(t.prompts.length).toBe(0);
   });
 
-  it("[api/test/domains-actions.test.ts] L2_AUTO_DISAMBIGUATION:T35-AC1:RC-059 Change status PATCHes {status} and the row badge repaints to the new status", async () => {
-    const { row, calls, clickToggle, clickAction } = bootActions({
-      prompt: "disabled",
+  // X04: Change status lists only what the server allows from the current
+  // status, warns before "disabled", then PATCHes {status} and repaints.
+  it("[api/test/domains-actions.test.ts] X04 Change status: an active site offers only 'disabled', warns, PATCHes {status} and repaints the badge", async () => {
+    const t = bootActions({
       status: "active",
       getJson: () => ({ resource: { name: "Old Name", status: "disabled" } }),
     });
-    clickToggle();
-    clickAction("change-status");
+    t.clickToggle();
+    t.clickAction("change-status");
+    expect(t.prompts.length).toBe(0);
+    expect(t.st.modal.classList.contains("hidden")).toBe(false);
+    const options = t.st.input.children.map((o) => o.value);
+    expect(options).toEqual(["disabled"]);
+    expect(t.st.parts["data-status-now"]!.textContent).toBe("st_1.example is active now.");
+    // The browser selects the first option; mirror that, then sync.
+    t.st.input.value = "disabled";
+    t.st.input.fire("change");
+    const warn = t.st.parts["data-status-warning"]!;
+    expect(warn.hidden).toBe(false);
+    expect(warn.textContent).toContain("Disabled takes st_1.example offline");
+    expect(t.st.parts["data-status-submit"]!.textContent).toBe("Disable site");
+    t.st.form.fire("submit", submitEvent());
     await flush();
     await flush();
-    const patch = find(calls, "PATCH", "/api/admin/sites/st_1");
+    const patch = find(t.calls, "PATCH", "/api/admin/sites/st_1");
     expect(patch).toBeDefined();
-    const sent = JSON.parse(String(patch!.body)) as { status?: string };
-    expect(sent.status).toBe("disabled");
-    expect(find(calls, "GET", "/api/admin/sites/st_1")).toBeDefined();
-    expect(row.cells[4]!.textContent).toBe("disabled");
+    expect(JSON.parse(String(patch!.body))).toEqual({ status: "disabled" });
+    expect(t.row.cells[4]!.textContent).toBe("disabled");
+    expect(t.toasts).toContainEqual(["Status changed", "success"]);
+    expect(t.st.modal.classList.contains("hidden")).toBe(true);
+  });
+
+  it("[api/test/domains-actions.test.ts] X04 Change status: a server refusal stays in the window and the badge is unchanged", async () => {
+    const t = bootActions({
+      status: "disabled",
+      getJson: (url) => (url.indexOf("/sites/") >= 0 ? { error: "cannot activate: site has no reconciled (servable) domain" } : {}),
+      getStatus: (_u, m) => (m === "PATCH" ? 409 : 200),
+    });
+    t.clickToggle();
+    t.clickAction("change-status");
+    expect(t.st.input.children.map((o) => o.value)).toEqual(["active", "draft"]);
+    t.st.input.value = "active";
+    t.st.input.fire("change");
+    expect(t.st.parts["data-status-warning"]!.hidden).toBe(true);
+    t.st.form.fire("submit", submitEvent());
+    await flush();
+    await flush();
+    expect(t.st.parts["data-status-error"]!.textContent).toBe("cannot activate: site has no reconciled (servable) domain");
+    expect(t.st.modal.classList.contains("hidden")).toBe(false);
+    expect(t.row.cells[4]!.textContent).toBe("disabled");
   });
 
   it("[api/test/domains-actions.test.ts] L2_AUTO_DISAMBIGUATION:T35-AC1:RC-059 Re-provision POSTs /sites/:id/provision/next and refreshes the row", async () => {
@@ -362,24 +434,81 @@ describe("T35-AC1 Actions menu wires every per-row control to its endpoint", () 
     expect(find(calls, "GET", "/api/admin/sites/st_1")).toBeDefined();
   });
 
-  it("[api/test/domains-actions.test.ts] L2_AUTO_DISAMBIGUATION:T35-AC1:RC-059 Delete (confirmed) DELETEs /sites/:id and removes the row; cancel fires nothing", async () => {
-    // Confirmed delete: DELETE fires, row is removed.
-    const confirmed = bootActions({ confirm: true });
-    confirmed.clickToggle();
-    confirmed.clickAction("delete");
+  // X04: Delete needs the domain typed exactly; a single browser confirm is gone.
+  it("[api/test/domains-actions.test.ts] X04 Delete: no request until the domain is typed exactly; then DELETEs and removes the row", async () => {
+    const t = bootActions({ confirm: true });
+    t.clickToggle();
+    t.clickAction("delete");
+    expect(t.prompts.length).toBe(0);
+    expect(t.del.modal.classList.contains("hidden")).toBe(false);
+    expect(t.del.parts["data-delete-what"]!.textContent).toContain("This takes st_1.example offline");
+    expect(t.del.parts["data-delete-label"]!.textContent).toBe("Type st_1.example to confirm.");
+    const submit = t.del.parts["data-delete-submit"]! as FakeNode & { disabled?: boolean };
+    expect(submit.disabled).toBe(true);
+    // A near miss keeps Delete off, and submitting sends nothing.
+    t.del.input.value = "st_1.exampl";
+    t.del.input.fire("input");
+    expect(submit.disabled).toBe(true);
+    t.del.form.fire("submit", submitEvent());
+    await flush();
+    expect(find(t.calls, "DELETE", "/api/admin/sites/st_1")).toBeUndefined();
+    // The exact domain turns it on.
+    t.del.input.value = "st_1.example";
+    t.del.input.fire("input");
+    expect(submit.disabled).toBe(false);
+    t.del.form.fire("submit", submitEvent());
     await flush();
     await flush();
-    const del = find(confirmed.calls, "DELETE", "/api/admin/sites/st_1");
-    expect(del, "Delete issues DELETE /api/admin/sites/:id").toBeDefined();
-    expect(confirmed.tbody.children.indexOf(confirmed.row.tr)).toBe(-1);
+    expect(find(t.calls, "DELETE", "/api/admin/sites/st_1")).toBeDefined();
+    expect(t.tbody.children.indexOf(t.row.tr)).toBe(-1);
+    expect(t.toasts).toContainEqual(["Site deleted", "success"]);
+  });
 
-    // Declined confirm: no request, row stays.
-    const declined = bootActions({ confirm: false });
-    declined.clickToggle();
-    declined.clickAction("delete");
+  it("[api/test/domains-actions.test.ts] X04 Delete: Cancel sends nothing; a server error stays in the window and the row stays", async () => {
+    const cancelled = bootActions({});
+    cancelled.clickToggle();
+    cancelled.clickAction("delete");
+    cancelled.del.modal.fire("click", { target: cancelled.del.parts["data-delete-cancel"] });
+    expect(cancelled.del.modal.classList.contains("hidden")).toBe(true);
+    expect(cancelled.calls.length).toBe(0);
+
+    const failing = bootActions({
+      getJson: () => ({ error: "failed to delete site: boom" }),
+      getStatus: (_u, m) => (m === "DELETE" ? 500 : 200),
+    });
+    failing.clickToggle();
+    failing.clickAction("delete");
+    failing.del.input.value = "st_1.example";
+    failing.del.input.fire("input");
+    failing.del.form.fire("submit", submitEvent());
     await flush();
-    expect(find(declined.calls, "DELETE", "/api/admin/sites/st_1")).toBeUndefined();
-    expect(declined.tbody.children.indexOf(declined.row.tr)).toBe(0);
+    await flush();
+    expect(failing.del.parts["data-delete-error"]!.textContent).toBe("failed to delete site: boom");
+    expect(failing.del.modal.classList.contains("hidden")).toBe(false);
+    expect(failing.tbody.children.indexOf(failing.row.tr)).toBe(0);
+  });
+
+  it("[api/test/domains-actions.test.ts] X04 Re-provision, Resume and Purge cache report their result", async () => {
+    const t = bootActions({
+      getJson: (url) =>
+        url.indexOf("/provision/next") >= 0 ? { completed: true }
+        : url.indexOf("/provision/resume") >= 0 ? { resumed: false, completed: true }
+        : url.indexOf("/purge-cache") >= 0 ? { resource: { purge_id: "1", status: "purged" } }
+        : { resource: { name: "Old Name", status: "active" } },
+    });
+    t.clickToggle();
+    t.clickAction("reprovision");
+    await flush(); await flush();
+    expect(t.toasts).toContainEqual(["Nothing to re-provision: the build is complete", "success"]);
+    t.clickToggle();
+    t.clickAction("purge-cache");
+    await flush(); await flush();
+    expect(t.toasts).toContainEqual(["Cache purged (purged)", "success"]);
+    t.clickToggle();
+    t.clickAction("resume");
+    await flush(); await flush();
+    expect(find(t.calls, "POST", "/api/admin/sites/st_1/provision/resume")).toBeDefined();
+    expect(t.toasts).toContainEqual(["Nothing to resume: the build is complete", "success"]);
   });
 });
 

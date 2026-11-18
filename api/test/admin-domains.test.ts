@@ -317,3 +317,27 @@ describe("T33 /admin/domains restyle", () => {
     expect(html).toContain('fetch("/api/admin/sites"');
   });
 });
+
+// X04 (2026-11-18): the real Domains page, from the data layer's own query
+// through the route to the template, gives every row (alias rows included)
+// its site id and status. Before the fix the route dropped the id, so every
+// row rendered data-site-id="" and no Actions item could fire.
+describe("X04 /admin/domains rows carry their site id (real data path)", () => {
+  it("GET /admin/domains renders data-site-id and data-site-status on canonical and alias rows", async () => {
+    const joined = [
+      { hostname: "moneylantern.com", site_id: "st_2f4ac7c710d04279", site_name: "moneylantern", vertical_slug: "finance", activity: "main", status: "active", created_at: 1785000000, last_provisioned_at: 1785000000 },
+      { hostname: "www.moneylantern.com", site_id: "st_2f4ac7c710d04279", site_name: "moneylantern", vertical_slug: "finance", activity: "main", status: "active", created_at: 1785000000, last_provisioned_at: 1785000000 },
+    ];
+    const { db } = makeFakeDb([
+      { match: "FROM domains d INNER JOIN sites s", row: joined },
+      { match: "FROM articles WHERE site_id IS NOT NULL", row: [] },
+      { match: "FROM verticals", row: [{ slug: "finance", name: "Finance", display_order: 1 }] },
+    ]);
+    const res = await admin.request("/admin/domains", {}, buildEnv(db));
+    expect(res.status).toBe(200);
+    const html = await res.text();
+    expect(html).toContain('<tr data-domain="moneylantern.com" data-site-id="st_2f4ac7c710d04279" data-site-status="active">');
+    expect(html).toContain('<tr data-domain="www.moneylantern.com" data-site-id="st_2f4ac7c710d04279" data-site-status="active">');
+    expect(html).not.toContain('data-site-id=""><td>moneylantern.com');
+  });
+});

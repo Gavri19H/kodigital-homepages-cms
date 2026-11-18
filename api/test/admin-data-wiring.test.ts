@@ -146,6 +146,7 @@ describe("admin ui handlers pass real data to templates", () => {
     vi.mocked(data.listAdminDomains).mockResolvedValue([
       {
         domain: "demo-acme.example",
+        site_id: "st_demoacme0000001",
         site_name: "Demo Acme",
         vertical: "finance",
         activity: "credit-cards",
@@ -166,6 +167,10 @@ describe("admin ui handlers pass real data to templates", () => {
     expect(data.listAdminVerticals).toHaveBeenCalledTimes(1);
     expect(body).toContain("demo-acme.example");
     expect(body).toContain("Demo Acme");
+    // X04: the row carries its site id, so its Actions menu can act. Before
+    // the fix the route dropped the id and every row had data-site-id="".
+    expect(body).toContain('data-site-id="st_demoacme0000001"');
+    expect(body).not.toContain('<tr data-domain="demo-acme.example" data-site-id="">');
   });
 
   it("admin ui handlers pass real data to templates: articles route calls listArticlesForSite with resolved site_id", async () => {
