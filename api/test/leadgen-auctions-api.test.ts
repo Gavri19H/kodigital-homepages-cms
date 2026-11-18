@@ -1063,3 +1063,183 @@ describeDb("0063 migration — the rules table rebuild keeps every rule (0062 co
     expect(index.map((i) => i.name)).toContain("idx_leadgen_auctionrules_auction");
   });
 });
+
+// --- X03 (owner 2026-11-18): real delete for unused, never-run Auctions; the
+// list opens on "Active and paused" ------------------------------------------
+
+function seedVariantUsing(sdb: SqliteDb, quoteId: number, auctionId: number): void {
+  const funnelPublic = mintPublicId("funnel");
+  sdb.prepare("INSERT INTO leadgen_funnels (public_id, quote_id, funnel_name) VALUES (?, ?, 'Home')").run(funnelPublic, quoteId);
+  const funnel = sdb.prepare("SELECT id FROM leadgen_funnels WHERE public_id = ?").get(funnelPublic) as { id: number };
+  sdb
+    .prepare("INSERT INTO leadgen_funnel_variants (public_id, funnel_id, auction_id) VALUES (?, ?, ?)")
+    .run(mintPublicId("funnel_variant"), funnel.id, auctionId);
+}
+
+function auctionRowCount(sdb: SqliteDb, auctionId: number): number {
+  return (sdb.prepare("SELECT COUNT(*) AS n FROM leadgen_auctions WHERE id = ?").get(auctionId) as { n: number }).n;
+}
+
+describeDb("leadgen auctions API — X03 permanent delete (?mode=hard)", () => {
+  it("unused, never-run Auction with setup → 200; the Auction, its rules, participating Offers and banner row are gone", async () => {
+    const { env, sdb } = newHarness();
+    const quote = await createQuote(env);
+    const { json } = await createAuction(env, { auction_name: "Test only", quote_id: quote.id });
+    const o1 = seedOfferWithPlacement(sdb);
+    await admin.request(`${API}/auctions/${json.public_id}/offers`, jsonInit("PUT", { offers: [{ offer_placement_id: o1.placement_id }] }), env);
+    await admin.request(`${API}/auctions/${json.public_id}/rules`, jsonInit("POST", { rule_level: "carrier", action: "exclude", conditions_json: { groups: [] } }), env);
+    await admin.request(`${API}/auctions/${json.public_id}/banner`, jsonInit("PUT", { mode: "manual", banner_config_json: { headline: "H" } }), env);
+    const count = (table: string): number =>
+      (sdb.prepare(`SELECT COUNT(*) AS n FROM ${table} WHERE auction_id = ?`).get(json.id) as { n: number }).n;
+    expect(count("leadgen_auction_offers")).toBe(1);
+    expect(count("leadgen_auction_rules")).toBe(1);
+    expect(count("leadgen_auction_banners")).toBe(1);
+
+    const del = await admin.request(`${API}/auctions/${json.public_id}?mode=hard`, { method: "DELETE" }, env);
+    expect(del.status).toBe(200);
+    expect(((await del.json()) as { deleted: string }).deleted).toBe("hard");
+    expect(auctionRowCount(sdb, json.id)).toBe(0);
+    expect(count("leadgen_auction_offers")).toBe(0);
+    expect(count("leadgen_auction_rules")).toBe(0);
+    expect(count("leadgen_auction_banners")).toBe(0);
+    // The Offer itself is not touched.
+    expect((sdb.prepare("SELECT COUNT(*) AS n FROM leadgen_offers WHERE id = ?").get(o1.offer_id) as { n: number }).n).toBe(1);
+  });
+
+  it("used by a Funnel variant → 409 in_use with the variant and its Quote link; nothing deleted", async () => {
+    const { env, sdb } = newHarness();
+    const quote = await createQuote(env);
+    const { json } = await createAuction(env, { auction_name: "Live", quote_id: quote.id });
+    seedVariantUsing(sdb, quote.id, json.id);
+    const del = await admin.request(`${API}/auctions/${json.public_id}?mode=hard`, { method: "DELETE" }, env);
+    expect(del.status).toBe(409);
+    const body = (await del.json()) as { reason: string; status: string; usage: { variants: Array<{ name: string; link: string }> } };
+    expect(body.reason).toBe("in_use");
+    expect(body.status).toBe("active");
+    expect(body.usage.variants.length).toBe(1);
+    expect(body.usage.variants[0]!.link).toBe(`/admin/leadgen/quotes/${quote.public_id}/edit`);
+    expect(auctionRowCount(sdb, json.id)).toBe(1);
+  });
+
+  it("has a row in the auction results log for its lga_ id → 409 has_history; the log row and the Auction stay", async () => {
+    const { env, sdb } = newHarness();
+    const quote = await createQuote(env);
+    const { json } = await createAuction(env, { auction_name: "Ran once", quote_id: quote.id });
+    sdb
+      .prepare("INSERT INTO leadgen_auction_result_log (auction_instance_id, auction_result_id, auction_config_id, session_id) VALUES (?, ?, ?, ?)")
+      .run("aiid-1", "arid-1", json.public_id, "s-1");
+    const del = await admin.request(`${API}/auctions/${json.public_id}?mode=hard`, { method: "DELETE" }, env);
+    expect(del.status).toBe(409);
+    expect(((await del.json()) as { reason: string }).reason).toBe("has_history");
+    expect(auctionRowCount(sdb, json.id)).toBe(1);
+    expect((sdb.prepare("SELECT COUNT(*) AS n FROM leadgen_auction_result_log WHERE auction_config_id = ?").get(json.public_id) as { n: number }).n).toBe(1);
+  });
+
+  it("a click on its cards, or a stats row for it, also counts as history → 409", async () => {
+    const { env, sdb } = newHarness();
+    const quote = await createQuote(env);
+    const clicked = await createAuction(env, { auction_name: "Clicked", quote_id: quote.id });
+    sdb
+      .prepare("INSERT INTO leadgen_session_clicked_offers (funnel_attempt_id, offer_id, auction_id) VALUES ('fa-1', 1, ?)")
+      .run(clicked.json.id);
+    const a = await admin.request(`${API}/auctions/${clicked.json.public_id}?mode=hard`, { method: "DELETE" }, env);
+    expect(a.status).toBe(409);
+
+    const withStats = await createAuction(env, { auction_name: "Has stats", quote_id: quote.id });
+    sdb.prepare("INSERT INTO leadgen_analytics_auction (auction_public_id, date) VALUES (?, '2026-11-01')").run(withStats.json.public_id);
+    const b = await admin.request(`${API}/auctions/${withStats.json.public_id}?mode=hard`, { method: "DELETE" }, env);
+    expect(b.status).toBe(409);
+    expect(auctionRowCount(sdb, clicked.json.id)).toBe(1);
+    expect(auctionRowCount(sdb, withStats.json.id)).toBe(1);
+  });
+
+  it("an archived Auction with history → 409 has_history and reports status archived (the window says 'Already archived …')", async () => {
+    const { env, sdb } = newHarness();
+    const quote = await createQuote(env);
+    const { json } = await createAuction(env, { auction_name: "Old", quote_id: quote.id });
+    await admin.request(`${API}/auctions/${json.public_id}`, { method: "DELETE" }, env); // archive
+    sdb
+      .prepare("INSERT INTO leadgen_auction_result_log (auction_instance_id, auction_result_id, auction_config_id, session_id) VALUES (?, ?, ?, ?)")
+      .run("aiid-2", "arid-2", json.public_id, "s-2");
+    const del = await admin.request(`${API}/auctions/${json.public_id}?mode=hard`, { method: "DELETE" }, env);
+    expect(del.status).toBe(409);
+    const body = (await del.json()) as { reason: string; status: string };
+    expect(body).toMatchObject({ reason: "has_history", status: "archived" });
+  });
+
+  it("DELETE without a mode still only archives, even for an unused never-run Auction", async () => {
+    const { env, sdb } = newHarness();
+    const quote = await createQuote(env);
+    const { json } = await createAuction(env, { auction_name: "Keep", quote_id: quote.id });
+    const del = await admin.request(`${API}/auctions/${json.public_id}`, { method: "DELETE" }, env);
+    expect(del.status).toBe(200);
+    expect((sdb.prepare("SELECT status FROM leadgen_auctions WHERE id = ?").get(json.id) as { status: string }).status).toBe("archived");
+  });
+});
+
+describeDb("leadgen auctions API — X03 list status filters", () => {
+  async function seedThree(env: Env, sdb: SqliteDb): Promise<void> {
+    const quote = await createQuote(env);
+    await createAuction(env, { auction_name: "Active one", quote_id: quote.id });
+    const paused = await createAuction(env, { auction_name: "Paused one", quote_id: quote.id });
+    const archived = await createAuction(env, { auction_name: "Archived one", quote_id: quote.id });
+    sdb.prepare("UPDATE leadgen_auctions SET status = 'paused' WHERE id = ?").run(paused.json.id);
+    sdb.prepare("UPDATE leadgen_auctions SET status = 'archived' WHERE id = ?").run(archived.json.id);
+  }
+  const names = async (res: Response): Promise<string[]> =>
+    ((await res.json()) as { items: Array<{ auction_name: string }> }).items.map((i) => i.auction_name).sort();
+
+  it("status=active_paused hides archived; status=all and no status show every Auction; a bad value is a 400", async () => {
+    const { env, sdb } = newHarness();
+    await seedThree(env, sdb);
+    expect(await names(await admin.request(`${API}/auctions?status=active_paused`, {}, env))).toEqual(["Active one", "Paused one"]);
+    expect(await names(await admin.request(`${API}/auctions?status=all`, {}, env))).toEqual(["Active one", "Archived one", "Paused one"]);
+    expect(await names(await admin.request(`${API}/auctions`, {}, env))).toEqual(["Active one", "Archived one", "Paused one"]);
+    expect(await names(await admin.request(`${API}/auctions?status=archived`, {}, env))).toEqual(["Archived one"]);
+    expect((await admin.request(`${API}/auctions?status=nope`, {}, env)).status).toBe(400);
+  });
+
+  it("the list PAGE opens on 'Active and paused' (no archived rows) with a Status badge on every row; 'All statuses' shows archived", async () => {
+    const { env, sdb } = newHarness();
+    await seedThree(env, sdb);
+    const page = await admin.request("/admin/leadgen/auction", {}, env);
+    expect(page.status).toBe(200);
+    const html = await page.text();
+    expect(html).toContain('<option value="active_paused" selected>Active and paused</option>');
+    expect(html).toContain(">Status</th>");
+    expect(html).toContain("Active one");
+    expect(html).toContain("Paused one");
+    expect(html).not.toContain("Archived one");
+    expect(html).toContain('id="lg-auction-delete-modal"');
+    expect(html).toContain("Delete this Auction?");
+    const all = await (await admin.request("/admin/leadgen/auction?status=all", {}, env)).text();
+    expect(all).toContain("Archived one");
+    expect(all).toContain('<option value="all" selected>All statuses</option>');
+  });
+});
+
+describeDb("leadgen auctions API — X03 review fixes", () => {
+  it("an unknown ?status= on the list page falls back to 'Active and paused' instead of an error", async () => {
+    const { env } = newHarness();
+    const quote = await createQuote(env);
+    await createAuction(env, { auction_name: "Shown", quote_id: quote.id });
+    const html = await (await admin.request("/admin/leadgen/auction?status=draft", {}, env)).text();
+    expect(html).toContain('<option value="active_paused" selected>Active and paused</option>');
+    expect(html).toContain("Shown");
+    expect(html).not.toContain('class="alert alert-error" role="alert">Validation');
+  });
+});
+
+describeDb("leadgen auctions API — X03 empty list wording", () => {
+  it("only archived Auctions exist → the page says they are hidden; no Auctions at all → 'No auctions yet.'", async () => {
+    const { env, sdb } = newHarness();
+    const empty = await (await admin.request("/admin/leadgen/auction", {}, env)).text();
+    expect(empty).toContain("No auctions yet.");
+    const quote = await createQuote(env);
+    const a = await createAuction(env, { auction_name: "Gone quiet", quote_id: quote.id });
+    sdb.prepare("UPDATE leadgen_auctions SET status = 'archived' WHERE id = ?").run(a.json.id);
+    const onlyArchived = await (await admin.request("/admin/leadgen/auction", {}, env)).text();
+    expect(onlyArchived).toContain("No active or paused Auctions.");
+    expect(onlyArchived).not.toContain("Gone quiet");
+  });
+});
