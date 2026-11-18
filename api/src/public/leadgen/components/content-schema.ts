@@ -817,6 +817,51 @@ export const LEADGEN_CHOICE_EMPHASES = ["normal", "strong"] as const;
 export type LeadgenChoiceEmphasis = (typeof LEADGEN_CHOICE_EMPHASES)[number];
 const CHOICE_EMPHASIS_SET: ReadonlySet<string> = new Set(LEADGEN_CHOICE_EMPHASES);
 
+// X07 (owner 2026-10-04, decided 2026-11-18) — the alignment of the TEXT INSIDE
+// each answer choice, moved together with its circle / check mark / icon. Set
+// per element ("Answer text", props.choice_text.align) and per choice (the
+// Style pop-up's "Text align", choice.style.align — the choice wins). Absent ⇒
+// the theme's own look (byte-identical render).
+export const LEADGEN_CHOICE_TEXT_ALIGNS = ["left", "center", "right"] as const;
+export type LeadgenChoiceTextAlign = (typeof LEADGEN_CHOICE_TEXT_ALIGNS)[number];
+const CHOICE_TEXT_ALIGN_SET: ReadonlySet<string> = new Set(LEADGEN_CHOICE_TEXT_ALIGNS);
+
+// X07 — the "Answer text" size step: a step over the theme's OWN text size
+// (the s/m/l ramp designs/theme.ts THEME_SIZE_FACTORS defines; m = the theme's
+// size). A TEXT size — not the per-choice `size`, which is the item's HEIGHT.
+export const LEADGEN_CHOICE_TEXT_SIZES = ["s", "m", "l"] as const;
+export type LeadgenChoiceTextSize = (typeof LEADGEN_CHOICE_TEXT_SIZES)[number];
+const CHOICE_TEXT_SIZE_SET: ReadonlySet<string> = new Set(LEADGEN_CHOICE_TEXT_SIZES);
+
+// X07 — the element-level "Answer text" bag (props.choice_text) on the choice
+// families (Buttons, Icon / Image cards, Yes / No, Multi-select — the types the
+// §6.2 matrix gives a selected-state marker). Closed values only, the SAME
+// rules the per-choice style uses for the shared keys (text color role OR
+// off-theme #hex, never both; emphasis normal|strong). Every key optional; an
+// absent bag (every Section saved before X07) validates and renders exactly as
+// before. Precedence at render: a choice's own style (align, text color,
+// emphasis) > this bag > the theme.
+export interface LeadgenChoiceText {
+  align?: LeadgenChoiceTextAlign;
+  text_color_role?: LeadgenThemeRole;
+  text_color_hex?: string;
+  emphasis?: LeadgenChoiceEmphasis;
+  size?: LeadgenChoiceTextSize;
+}
+
+const CHOICE_TEXT_KEYS = ["align", "text_color_role", "text_color_hex", "emphasis", "size"] as const;
+const CHOICE_TEXT_KEY_SET: ReadonlySet<string> = new Set(CHOICE_TEXT_KEYS);
+
+// The operator's own control names for the "Answer text" keys (the Studio's
+// labels) — "Text align" / "Text weight" / "Text size", never the stored ids.
+const CHOICE_TEXT_KEY_LABELS: Readonly<Record<(typeof CHOICE_TEXT_KEYS)[number], string>> = {
+  align: "Text align",
+  text_color_role: "Text color role",
+  text_color_hex: "Custom text color",
+  emphasis: "Text weight",
+  size: "Text size",
+};
+
 export interface LeadgenChoiceStyle {
   // HEIGHT (min-height): a button-size preset OR a custom px on the SAME
   // [SIZE_HEIGHT_CUSTOM_PX_MIN, SIZE_HEIGHT_CUSTOM_PX_MAX] snap-4 grid the
@@ -836,6 +881,9 @@ export interface LeadgenChoiceStyle {
   // node-level props.selected_marker and the theme's Selected axis for THIS
   // choice. Optional; absent ⇒ inherit node/theme.
   selected_marker?: LeadgenSelectedMarker;
+  // X07: THIS choice's own text alignment (the Style pop-up's "Text align";
+  // absent = "Use element" — the element's Answer text, else the theme).
+  align?: LeadgenChoiceTextAlign;
 }
 
 const CHOICE_STYLE_KEYS = [
@@ -846,8 +894,15 @@ const CHOICE_STYLE_KEYS = [
   "text_color_hex",
   "emphasis",
   "selected_marker",
+  "align",
 ] as const;
 const CHOICE_STYLE_KEY_SET: ReadonlySet<string> = new Set(CHOICE_STYLE_KEYS);
+
+// X07: the per-choice `align` is the Style pop-up's "Text align" — not the
+// element Placement "Align" leadgenControlLabel names for the same stored id.
+function choiceStyleKeyLabel(key: string): string {
+  return key === "align" ? CHOICE_TEXT_KEY_LABELS.align : leadgenControlLabel(key);
+}
 
 // One component node in a Section's `content_json`.
 //
@@ -1295,6 +1350,7 @@ const OPERATOR_CONTROL_LABELS: Readonly<Record<string, string>> = {
   alt: "Alt text",
   yesStyle: "Yes button style",
   noStyle: "No button style",
+  choice_text: "Answer text",
   color_role: "Color role",
   color_hex: "Custom color",
   text_color_role: "Text color role",
@@ -2497,7 +2553,7 @@ function validateChoiceStyle(
       push(
         "invalid_choice_style",
         `${path}.${key}`,
-        `'${key}' is not an answer style setting. Remove it — an answer's style covers ${orList(CHOICE_STYLE_KEYS.map(leadgenControlLabel))}.`,
+        `'${key}' is not an answer style setting. Remove it — an answer's style covers ${orList(CHOICE_STYLE_KEYS.map(choiceStyleKeyLabel))}.`,
       );
     }
   }
@@ -2524,6 +2580,73 @@ function validateChoiceStyle(
         "invalid_choice_style",
         `${path}.selected_marker`,
         `An answer's 'Selected-state style' must be one of: ${orList(LEADGEN_SELECTED_MARKERS)}. Pick one of those.`,
+      );
+    }
+  }
+  // X07: per-choice "Text align" (left | center | right).
+  if (value["align"] !== undefined) {
+    if (typeof value["align"] !== "string" || !CHOICE_TEXT_ALIGN_SET.has(value["align"])) {
+      push(
+        "invalid_choice_style",
+        `${path}.align`,
+        `An answer's 'Text align' must be one of: ${orList(LEADGEN_CHOICE_TEXT_ALIGNS)}. Pick one of those.`,
+      );
+    }
+  }
+}
+
+// ---------------------------------------------------------------------------
+// X07 — the element-level "Answer text" bag (props.choice_text) validator.
+// SAME discipline as validateChoiceStyle above (save-time refusal, the SAME
+// `invalid_choice_style` code): not a bag → refused; an unknown key → refused;
+// every present key checked against its closed vocabulary; the text color
+// reuses validateChoiceColorPair (role OR off-theme #hex, never both, the
+// arbitrary-CSS guard included). The renderer additionally reads only these
+// closed values (presets.ts readChoiceText), so nothing else can reach CSS.
+// ---------------------------------------------------------------------------
+function validateChoiceText(
+  value: unknown,
+  path: string,
+  push: (code: SectionContentErrorCode, path: string, message: string) => void,
+): void {
+  if (!isRecord(value)) {
+    push("invalid_choice_style", path, "'Answer text' must be a set of text settings. Use Reset under Answer text.");
+    return;
+  }
+  for (const key of Object.keys(value)) {
+    if (!CHOICE_TEXT_KEY_SET.has(key)) {
+      push(
+        "invalid_choice_style",
+        `${path}.${key}`,
+        `'${key}' is not an Answer text setting. Remove it — Answer text covers ${orList(CHOICE_TEXT_KEYS.map((k) => CHOICE_TEXT_KEY_LABELS[k]))}.`,
+      );
+    }
+  }
+  if (value["align"] !== undefined) {
+    if (typeof value["align"] !== "string" || !CHOICE_TEXT_ALIGN_SET.has(value["align"])) {
+      push(
+        "invalid_choice_style",
+        `${path}.align`,
+        `Answer text 'Text align' must be one of: ${orList(LEADGEN_CHOICE_TEXT_ALIGNS)}. Pick one of those.`,
+      );
+    }
+  }
+  validateChoiceColorPair(value["text_color_role"], value["text_color_hex"], path, "text_color", push);
+  if (value["emphasis"] !== undefined) {
+    if (typeof value["emphasis"] !== "string" || !CHOICE_EMPHASIS_SET.has(value["emphasis"])) {
+      push(
+        "invalid_choice_style",
+        `${path}.emphasis`,
+        `Answer text 'Text weight' must be one of: ${orList(LEADGEN_CHOICE_EMPHASES)}. Pick one of those.`,
+      );
+    }
+  }
+  if (value["size"] !== undefined) {
+    if (typeof value["size"] !== "string" || !CHOICE_TEXT_SIZE_SET.has(value["size"])) {
+      push(
+        "invalid_choice_style",
+        `${path}.size`,
+        `Answer text 'Text size' must be one of: ${orList(LEADGEN_CHOICE_TEXT_SIZES)}. Pick one of those.`,
       );
     }
   }
@@ -2687,6 +2810,24 @@ function validateNewFieldProps(
         `${base}.props.selected_marker`,
         `'Selected-state style' must be one of: ${orList(LEADGEN_SELECTED_MARKERS)}. Pick one of those.`,
       );
+    }
+  }
+
+  // X07: element-level "Answer text" (props.choice_text). Valid only on the
+  // choice families — the SAME five types the §6.2 matrix flags with a
+  // selected-state marker (Buttons, Icon / Image cards, Yes / No, Multi-select:
+  // the elements whose answers are choice buttons). A misplaced one is an
+  // invalid_field_prop like the marker above (a NEW field ⇒ rejecting it
+  // elsewhere breaks no stored content); the bag itself is validateChoiceText.
+  if (props["choice_text"] !== undefined) {
+    if (!cap.selected_marker) {
+      push(
+        "invalid_field_prop",
+        `${base}.props.choice_text`,
+        `The ${leadgenComponentName(type)} has no answer choices to style. Remove 'Answer text' — only answer buttons and cards offer it.`,
+      );
+    } else {
+      validateChoiceText(props["choice_text"], `${base}.props.choice_text`, push);
     }
   }
 

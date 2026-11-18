@@ -60,8 +60,11 @@ import type {
   LeadgenAddressFieldKind,
   LeadgenAddressFieldMode,
   LeadgenChoice,
+  LeadgenChoiceEmphasis,
   LeadgenChoiceSizePreset,
   LeadgenChoiceStyle,
+  LeadgenChoiceText,
+  LeadgenChoiceTextAlign,
   LeadgenComponentNode,
   LeadgenDesignOverrides,
   LeadgenNodeBorderColorRole,
@@ -79,7 +82,9 @@ import {
   baseTokenForRole,
   isFunnelTokenRole,
   readButtonStyle,
+  scaleCssLength,
   THEME_RECORD_FIELD_HEIGHT_TO_MIN_HEIGHT,
+  THEME_SIZE_FACTORS,
   fieldPaddingBlockForPx,
 } from "../designs/theme";
 // R2 P1 §① (owner A.1 #4 / probe 4a): the ONE definition of the §6.6 mark
@@ -735,19 +740,22 @@ function selectedMarkStyleBlock(
 // "the marker interplay" is exactly this: ONE marker mechanism, repositioned
 // for the card context by a dedicated styles.ts rule (gridItemColumnEntries-
 // style separation of concerns), never a second, parallel marker system.
+// X07: `titleStyle` is the card layout's Answer text title style
+// (choiceTextLabelStyle) — "" when unset, so the markup is unchanged.
 function buttonInnerContent(
   isCard: boolean,
   marker: LeadgenSelectedMarker,
   label: string,
   title: string | undefined,
   subtitle: string | undefined,
+  titleStyle = "",
 ): string {
   const markerHtml = selectedMarkerMarkup(marker);
   if (!isCard) return `${markerHtml}${esc(label)}`;
   const t = typeof title === "string" && title !== "" ? title : label;
   const s = typeof subtitle === "string" && subtitle !== "" ? subtitle : undefined;
   return (
-    `${markerHtml}<span class="lg-tscard-title">${esc(t)}</span>` +
+    `${markerHtml}<span class="lg-tscard-title"${titleStyle}>${esc(t)}</span>` +
     (s !== undefined ? `<span class="lg-tscard-subtitle">${esc(s)}</span>` : "")
   );
 }
@@ -1613,13 +1621,21 @@ export function renderButtonAnswerGroup(
   // the choice authors any (byte-identical to pre-R3/pre-P2a).
   // Rework §6.7: `index` feeds gridItemColumnEntries (L-195 wrapped-last-row
   // centering) — {} (no override) for every item outside a partial-row grid.
-  const btn = (c: LeadgenChoice, index: number): string =>
-    `<button type="button" class="lg-btn lg-btn-answer${isCard ? " lg-tscard" : ""}" role="radio" aria-checked="false"${choiceItemStyle(node, design, ctx, c.style, gridItemColumnEntries(index, choices.length, gridCols.cols))}` +
-    attr("data-value", c.value) +
-    // 03 §3.3: data-lg-choice mirrors the choice's REAL stored value.
-    attr("data-lg-choice", c.value) +
-    attr("data-analytics-id", c.analytics_id) +
-    `>${buttonInnerContent(isCard, markerResolutions[index]!, c.label, c.title, c.subtitle)}</button>`;
+  // X07: each button's "Answer text" (choice > element > theme) — the plain
+  // chip and the card layout keep their text in different boxes
+  // (ChoiceTextFamily). Unset ⇒ {} / "" ⇒ byte-identical.
+  const textFamily: ChoiceTextFamily = isCard ? "tscard" : "button";
+  const btn = (c: LeadgenChoice, index: number): string => {
+    const tp = choiceTextPlan(node, c.style, design, ctx);
+    return (
+      `<button type="button" class="lg-btn lg-btn-answer${isCard ? " lg-tscard" : ""}" role="radio" aria-checked="false"${choiceItemStyle(node, design, ctx, c.style, gridItemColumnEntries(index, choices.length, gridCols.cols), choiceTextItemEntries(tp, textFamily, design))}` +
+      attr("data-value", c.value) +
+      // 03 §3.3: data-lg-choice mirrors the choice's REAL stored value.
+      attr("data-lg-choice", c.value) +
+      attr("data-analytics-id", c.analytics_id) +
+      `>${buttonInnerContent(isCard, markerResolutions[index]!, c.label, c.title, c.subtitle, choiceTextLabelStyle(tp, textFamily, design))}</button>`
+    );
+  };
   // Rework §6.5: base choices UNCHANGED + ONE trailing "Other" affordance
   // (same family, chevron) revealing a hidden <select> of the authored values.
   // Absent/disabled props.other ⇒ "" ⇒ byte-identical (replaces the retired
@@ -1628,11 +1644,14 @@ export function renderButtonAnswerGroup(
   // tscard (the pack's "Other" row anatomy — title span + chevron, no
   // subtitle span at all, matching the pack's own trailing-affordance shape).
   const other = readOtherConfig(node);
+  // X07: the "Other" trigger is one of this element's choices on screen, so
+  // the element's Answer text reaches it too (no choice style of its own).
+  const otherText = choiceTextPlan(node, undefined, design, ctx);
   const otherHtml =
     other === undefined
       ? ""
-      : `<button type="button" class="lg-btn lg-btn-answer${isCard ? " lg-tscard" : ""} lg-other-trigger" data-lg-other-trigger` +
-        ` aria-expanded="false" aria-haspopup="listbox">${isCard ? `<span class="lg-tscard-title">${esc(other.label)}</span>` : esc(other.label)}${otherChevronSvg(design)}</button>` +
+      : `<button type="button" class="lg-btn lg-btn-answer${isCard ? " lg-tscard" : ""} lg-other-trigger"${style(choiceTextItemEntries(otherText, textFamily, design))} data-lg-other-trigger` +
+        ` aria-expanded="false" aria-haspopup="listbox">${isCard ? `<span class="lg-tscard-title"${choiceTextLabelStyle(otherText, textFamily, design)}>${esc(other.label)}</span>` : esc(other.label)}${otherChevronSvg(design)}</button>` +
         otherSelectMarkup(other);
   const body = choices.map(btn).join("") + otherHtml;
   return (
@@ -1689,10 +1708,17 @@ export function renderTwoButtonYesNo(
   const yesMarker = resolveSelectedMarker(node, yesStyle, design);
   const noMarker = resolveSelectedMarker(node, noStyle, design);
   const anyMark = yesMarker === "mark" || noMarker === "mark";
-  const btn = (label: string, value: boolean, cs: LeadgenChoiceStyle | undefined, marker: LeadgenSelectedMarker): string =>
-    `<button type="button" class="lg-btn lg-btn-answer${isCard ? " lg-tscard" : ""}" role="radio" aria-checked="false"${choiceItemStyle(node, design, ctx, cs)}` +
-    // 03 §3.3: data-lg-choice mirrors data-value (the stored boolean).
-    ` data-value="${value ? "true" : "false"}" data-lg-choice="${value ? "true" : "false"}">${buttonInnerContent(isCard, marker, label, undefined, undefined)}</button>`;
+  // X07: the Yes / No buttons take the element's Answer text the same way a
+  // choice group does; yesStyle/noStyle.align (their Style pop-ups) win.
+  const textFamily: ChoiceTextFamily = isCard ? "tscard" : "button";
+  const btn = (label: string, value: boolean, cs: LeadgenChoiceStyle | undefined, marker: LeadgenSelectedMarker): string => {
+    const tp = choiceTextPlan(node, cs, design, ctx);
+    return (
+      `<button type="button" class="lg-btn lg-btn-answer${isCard ? " lg-tscard" : ""}" role="radio" aria-checked="false"${choiceItemStyle(node, design, ctx, cs, undefined, choiceTextItemEntries(tp, textFamily, design))}` +
+      // 03 §3.3: data-lg-choice mirrors data-value (the stored boolean).
+      ` data-value="${value ? "true" : "false"}" data-lg-choice="${value ? "true" : "false"}">${buttonInnerContent(isCard, marker, label, undefined, undefined, choiceTextLabelStyle(tp, textFamily, design))}</button>`
+    );
+  };
   return (
     labelLine(node) +
     `<div class="lg-answer-group lg-yesno" role="radiogroup"${hydration(node)}${choiceHeightsAttr(yesStyle?.size !== undefined || noStyle?.size !== undefined)}${answerGroupRootStyle(node, design, ctx, gridCols)}${buttonStyleAttrs(design, { fill: true, layout: true })}${attr("data-card-select", anyMark ? "mark" : undefined)} data-auto-advance="${autoAdvance ? "true" : "false"}">` +
@@ -1857,8 +1883,11 @@ function renderCardGrid(
     // cascade (no !important). Only class + hydration attrs are emitted here.
     // §8.4 disabled rides the native attribute + aria-disabled (the §14.4
     // .lg-card:disabled/[aria-disabled] chrome rules style it).
+    // X07: Answer text — the card's column (icon/image + title + subtitle)
+    // aligns as one; color/weight/size reach the title span. Unset ⇒ "".
+    const tp = choiceTextPlan(node, c.style, design, ctx);
     return (
-      `<button type="button" class="lg-card" role="radio" aria-checked="false"${choiceItemStyle(node, design, ctx, c.style, gridItemColumnEntries(index, choices.length, gridCols.cols))}` +
+      `<button type="button" class="lg-card" role="radio" aria-checked="false"${choiceItemStyle(node, design, ctx, c.style, gridItemColumnEntries(index, choices.length, gridCols.cols), choiceTextItemEntries(tp, "card", design))}` +
       (c.disabled === true ? ` disabled aria-disabled="true"` : "") +
       attr("data-value", c.value) +
       // 03 §3.3: data-lg-choice mirrors the choice's REAL stored value.
@@ -1866,7 +1895,7 @@ function renderCardGrid(
       attr("data-analytics-id", c.analytics_id) +
       // §8.4 aria_label — explicit accessible-name override when authored.
       attr("aria-label", c.aria_label) +
-      `>${markCheck}${badge}${media}<span class="lg-card-title">${esc(titleText)}</span>${desc}</button>`
+      `>${markCheck}${badge}${media}<span class="lg-card-title"${choiceTextLabelStyle(tp, "card", design)}>${esc(titleText)}</span>${desc}</button>`
     );
   };
   // Rework §6.5: base cards UNCHANGED + one trailing "Other" card-styled
@@ -1874,11 +1903,14 @@ function renderCardGrid(
   // renderOtherGroupTail mechanism, §10). Absent/disabled props.other ⇒ ""
   // (byte-identical).
   const other = readOtherConfig(node);
+  // X07: the element's Answer text reaches the "Other" card too (see the
+  // button group's own trigger).
+  const otherText = choiceTextPlan(node, undefined, design, ctx);
   const otherHtml =
     other === undefined
       ? ""
-      : `<button type="button" class="lg-card lg-other-trigger" data-lg-other-trigger` +
-        ` aria-expanded="false" aria-haspopup="listbox"><span class="lg-card-title">${esc(other.label)}</span>${otherChevronSvg(design)}</button>` +
+      : `<button type="button" class="lg-card lg-other-trigger"${style(choiceTextItemEntries(otherText, "card", design))} data-lg-other-trigger` +
+        ` aria-expanded="false" aria-haspopup="listbox"><span class="lg-card-title"${choiceTextLabelStyle(otherText, "card", design)}>${esc(other.label)}</span>${otherChevronSvg(design)}</button>` +
         otherSelectMarkup(other);
   const cards = choices.map(card).join("") + otherHtml;
   return (
@@ -1990,6 +2022,10 @@ export function renderMultiChoiceCardGroup(
   // circle + ✓ these spans become is styles.ts selectedMarkCardRules.
   const markerResolutions = choices.map((c) => resolveSelectedMarker(node, c.style, design));
   const anyMark = markerResolutions.some((m) => m === "mark");
+  // X07: under a mark group every .lg-card-multi is the styles.ts 2-column
+  // grid (ring | text), otherwise the base flex column — the Answer text
+  // alignment is expressed in whichever layout the card really has.
+  const textFamily: ChoiceTextFamily = anyMark ? "card_mark_grid" : "card";
   const card = (c: LeadgenChoice, index: number): string => {
     const titleText = typeof c.title === "string" && c.title !== "" ? c.title : c.label;
     const desc =
@@ -1999,17 +2035,18 @@ export function renderMultiChoiceCardGroup(
             color: ic.subtitleColor,
           })}>${esc(c.subtitle)}</span>`
         : "";
+    const tp = choiceTextPlan(node, c.style, design, ctx);
     // Base border/background live in the scoped chrome CSS (.lg-card) — not
     // inline — so the §14.4 selected/hover/focus state rules apply.
     return (
-      `<button type="button" class="lg-card lg-card-multi" role="checkbox" aria-checked="false"${choiceItemStyle(node, design, ctx, c.style, gridItemColumnEntries(index, choices.length, gridCols.cols))}` +
+      `<button type="button" class="lg-card lg-card-multi" role="checkbox" aria-checked="false"${choiceItemStyle(node, design, ctx, c.style, gridItemColumnEntries(index, choices.length, gridCols.cols), choiceTextItemEntries(tp, textFamily, design))}` +
       attr("data-value", c.value) +
       // 03 §3.3: data-lg-choice mirrors the choice's REAL stored value.
       attr("data-lg-choice", c.value) +
       attr("data-analytics-id", c.analytics_id) +
       // LEADING (before the title) — the pack's own order, and what makes the
       // grid's first column the marker's.
-      `>${selectedMarkerMarkup(markerResolutions[index] ?? "wash")}<span class="lg-card-title">${esc(titleText)}</span>${desc}</button>`
+      `>${selectedMarkerMarkup(markerResolutions[index] ?? "wash")}<span class="lg-card-title"${choiceTextLabelStyle(tp, textFamily, design)}>${esc(titleText)}</span>${desc}</button>`
     );
   };
   // §6.5 matrix: MultiChoiceCardGroup (multi-select) has NO Other editor — the
@@ -2826,18 +2863,178 @@ function choiceStyleOverlayEntries(
 // only gridItemColumnEntries's per-item grid-column-start/-end) — LAST so it
 // wins over the node/choice layers on a shared key (none collide today).
 // Omitted by every pre-§6.7 call site ⇒ byte-identical.
+// X07: `textEntries` carries the item's "Answer text" entries
+// (choiceTextItemEntries) — merged after the choice overlay and before the
+// grid entries (no shared key with either of those except color/font-weight,
+// whose X07 value is the SAME choice-first resolution). Omitted / {} by every
+// item with no Answer text and no per-choice align ⇒ byte-identical.
 function choiceItemStyle(
   node: LeadgenComponentNode,
   design: DefaultFunnelDesign,
   ctx: LeadgenSectionRenderCtx | undefined,
   choiceStyle?: LeadgenChoiceStyle,
   extraEntries?: Record<string, string | undefined>,
+  textEntries?: Record<string, string | undefined>,
 ): string {
   return style({
     ...nodeItemStyleEntries(node, design, ctx),
     ...choiceStyleOverlayEntries(choiceStyle, design, ctx),
+    ...textEntries,
     ...extraEntries,
   });
+}
+
+// ---------------------------------------------------------------------------
+// X07 — "Answer text": the alignment, color, weight and size of the TEXT
+// INSIDE each choice of a choice element (Buttons, Icon / Image cards, Yes /
+// No, Multi-select). Owner (Slack 2026-10-04): the operator could align the
+// whole element but not the text inside its choices, so choices of different
+// lengths ("Only burglar/intrusion" / "Fire detection" / "Both burglar and
+// fire detection") read ragged. Decided 2026-11-18: one element-level bag
+// (props.choice_text) plus a per-choice "Text align" (choice.style.align).
+//
+// PRECEDENCE, per axis: the choice's own style (align / text color / emphasis)
+// > the element's Answer text > the theme. Size is element-only (the
+// per-choice `size` is the item HEIGHT, a different axis).
+//
+// BYTE-IDENTITY: every entry below is emitted ONLY when the element (or, for
+// align, the choice) actually authors that axis — a node with no
+// props.choice_text and no choice.style.align yields {} / "" everywhere, so
+// every Section saved before X07 renders byte-for-byte as before. Color and
+// weight on the element's TITLE spans are likewise gated on the ELEMENT
+// authoring that axis, so a choice's own text color keeps its pre-X07
+// rendering until the element's Answer text sets a color too.
+//
+// NO FREE CSS: only the closed vocabularies below reach a style value — the
+// three aligns map through fixed tables, size is a THEME_SIZE_FACTORS step
+// over the design's OWN font-size token (the theme's s/m/l ramp, same
+// scaleCssLength arithmetic), emphasis is the per-choice "strong → 700", and
+// color is a theme role (resolved like every other role) or a strict #hex.
+//
+// WHERE each family's text lives (why the entries differ):
+//   "button"         — .lg-btn.lg-btn-answer: an inline-flex ROW whose label
+//                      is a bare text node beside the §6.6 marker spans. Align
+//                      = justify-content (moves circle/✓ + text together) +
+//                      text-align (for a wrapped label); color/weight/size sit
+//                      on the button itself (it IS the text's box). Inline, so
+//                      a set align beats the theme's "list" layout rule
+//                      (styles.ts data-btn-layout="list") — and only when set.
+//   "tscard"         — the theme's Card answer layout (.lg-tscard, a block):
+//                      align = text-align; color/weight/size go on the
+//                      .lg-tscard-title span, which carries its own class
+//                      color/size/weight (an inherited value would never
+//                      reach it).
+//   "card"           — .lg-card (icon / image / multi-select cards): a flex
+//                      COLUMN (icon over title over subtitle). Align =
+//                      align-items (icon/image + text move together) +
+//                      text-align; color/weight/size on .lg-card-title.
+//   "card_mark_grid" — a multi-select card inside a mark group: styles.ts
+//                      selectedMarkCardRules turns it into a 2-column grid
+//                      (ring | text). Align = the two columns sized to their
+//                      content + justify-content (ring and text move as one) +
+//                      text-align; color/weight/size on .lg-card-title.
+// ---------------------------------------------------------------------------
+type ChoiceTextFamily = "button" | "tscard" | "card" | "card_mark_grid";
+
+interface ChoiceTextPlan {
+  align?: LeadgenChoiceTextAlign;
+  // resolved CSS color (choice's own > element) — only when the element sets one
+  color?: string;
+  // resolved emphasis (choice's own > element) — only when the element sets one
+  strong?: boolean;
+  // THEME_SIZE_FACTORS step — only for an element size of s or l (m = identity)
+  sizeFactor?: number;
+}
+
+const CHOICE_TEXT_FLEX_ALIGN: Record<LeadgenChoiceTextAlign, string> = {
+  left: "flex-start",
+  center: "center",
+  right: "flex-end",
+};
+const CHOICE_TEXT_GRID_ALIGN: Record<LeadgenChoiceTextAlign, string> = {
+  left: "start",
+  center: "center",
+  right: "end",
+};
+const CHOICE_TEXT_HEX_RE = /^#[0-9a-fA-F]{3,8}$/;
+
+function isChoiceTextAlign(v: unknown): v is LeadgenChoiceTextAlign {
+  return v === "left" || v === "center" || v === "right";
+}
+function isChoiceEmphasis(v: unknown): v is LeadgenChoiceEmphasis {
+  return v === "normal" || v === "strong";
+}
+
+// The element's Answer text bag, read defensively (the save-time gate is
+// content-schema validateChoiceText): anything but a plain object is absent.
+function readChoiceText(node: LeadgenComponentNode): LeadgenChoiceText | undefined {
+  const raw = node.props?.["choice_text"];
+  return typeof raw === "object" && raw !== null && !Array.isArray(raw) ? (raw as LeadgenChoiceText) : undefined;
+}
+
+function choiceTextPlan(
+  node: LeadgenComponentNode,
+  choiceStyle: LeadgenChoiceStyle | undefined,
+  design: DefaultFunnelDesign,
+  ctx: LeadgenSectionRenderCtx | undefined,
+): ChoiceTextPlan {
+  const cs = typeof choiceStyle === "object" && choiceStyle !== null ? choiceStyle : undefined;
+  const el = readChoiceText(node);
+  const plan: ChoiceTextPlan = {};
+  const align = isChoiceTextAlign(cs?.align) ? cs?.align : isChoiceTextAlign(el?.align) ? el?.align : undefined;
+  if (align !== undefined) plan.align = align;
+  if (el === undefined) return plan;
+  const elHex = typeof el.text_color_hex === "string" && CHOICE_TEXT_HEX_RE.test(el.text_color_hex) ? el.text_color_hex : undefined;
+  const elColor = choiceColorValue(el.text_color_role, elHex, design, ctx);
+  if (elColor !== undefined) {
+    plan.color = choiceColorValue(cs?.text_color_role, cs?.text_color_hex, design, ctx) ?? elColor;
+  }
+  if (isChoiceEmphasis(el.emphasis)) {
+    plan.strong = (isChoiceEmphasis(cs?.emphasis) ? cs?.emphasis : el.emphasis) === "strong";
+  }
+  if (el.size === "s" || el.size === "l") plan.sizeFactor = THEME_SIZE_FACTORS[el.size];
+  return plan;
+}
+
+// color / weight / size for the box that holds the text. `baseFontSize` is the
+// design token that box's own class rule reads (so S/L step from what the
+// theme already paints there).
+function choiceTextFontEntries(plan: ChoiceTextPlan, baseFontSize: string): Record<string, string | undefined> {
+  const out: Record<string, string | undefined> = {};
+  if (plan.color !== undefined) out["color"] = plan.color;
+  // Both values are explicit once the element sets a weight: the themes paint
+  // answer text at 600, so "Normal" must say 400 or it would change nothing
+  // (and a choice's own Normal under an element Bold would stay bold).
+  if (plan.strong !== undefined) out["font-weight"] = plan.strong ? "700" : "400";
+  if (plan.sizeFactor !== undefined) out["font-size"] = scaleCssLength(baseFontSize, plan.sizeFactor);
+  return out;
+}
+
+// The entries for the choice ITEM itself (merged into its one style="…").
+function choiceTextItemEntries(
+  plan: ChoiceTextPlan,
+  family: ChoiceTextFamily,
+  design: DefaultFunnelDesign,
+): Record<string, string | undefined> {
+  const out: Record<string, string | undefined> = {};
+  if (plan.align !== undefined) {
+    if (family === "button") out["justify-content"] = CHOICE_TEXT_FLEX_ALIGN[plan.align];
+    if (family === "card") out["align-items"] = CHOICE_TEXT_FLEX_ALIGN[plan.align];
+    if (family === "card_mark_grid") {
+      out["grid-template-columns"] = "auto auto";
+      out["justify-content"] = CHOICE_TEXT_GRID_ALIGN[plan.align];
+    }
+    out["text-align"] = plan.align;
+  }
+  return family === "button" ? { ...out, ...choiceTextFontEntries(plan, design.primaryButton.fontSize) } : out;
+}
+
+// The ` style="…"` for the title span of the card families ("" for "button",
+// whose text is the button's own text node, and whenever nothing is set). Both
+// .lg-tscard-title and .lg-card-title size from iconCard.titleFontSize.
+function choiceTextLabelStyle(plan: ChoiceTextPlan, family: ChoiceTextFamily, design: DefaultFunnelDesign): string {
+  if (family === "button") return "";
+  return style(choiceTextFontEntries(plan, design.iconCard.titleFontSize));
 }
 
 // P2b FIX-ROUND (adversarial review MINOR-3): `.lg-answer-group`/`.lg-card-
