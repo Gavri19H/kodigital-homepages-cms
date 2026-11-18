@@ -259,6 +259,12 @@
       "note": "The Content-tab address field-set editor (ordered field rows + \"Plain text address\" preset + \"+ Add field\" + the Maps-off degrade note) — the P0 golden design pack's studio-panels.html pins this control (data-pin 6.10-field-set-editor), but pixel-fidelity against that pack is the authoring (studio inspector) slice's own verification, not asserted here. Classified golden:false / accepted extension so the strict census gate is not silently left unclassified (gate-closing entry added by the P2 server-renderer slice per conductor coordination — the function itself is owned/authored by the studio-inspector slice, not this one)."
     },
     {
+      "id": "src/admin/leadgen/ui-section-studio.ts::renderAnswerTextControls",
+      "golden": false,
+      "register": "Backlog X07 (owner 2026-10-04, decided 2026-11-18)",
+      "note": "The Content-tab \"Answer text\" group directly below Answer format (Text align / Text color / Text weight / Text size / Reset + the yellow-star affects line) for the choice elements — writes props.choice_text. Post-golden feature: the golden mockup has no such group. Extracted as its own block (the SAME P1-granularity discipline renderPhoneFormatControls / renderSliderTypePicker / renderAddressFieldSet follow) so this addition does not dilute the golden:true renderStudioInspector region. Reuses existing studio classes only. Not a golden region — accepted extension."
+    },
+    {
       "id": "src/admin/leadgen/ui-section-studio.ts::renderThemesOverlay",
       "golden": true,
       "register": "S4-A11 (R5 D6)",

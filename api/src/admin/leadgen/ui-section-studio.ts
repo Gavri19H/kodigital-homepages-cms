@@ -2603,6 +2603,55 @@ function renderAddressFieldSet(): string {
       </div>`;
 }
 
+// X07 (owner 2026-10-04, decided 2026-11-18) — the Content-tab "Answer text"
+// group, directly below "Answer format": the alignment, color, weight and size
+// of the text inside EVERY choice of the selected choice element (Buttons,
+// Icon / Image cards, Yes / No, Multi-select — shown in both scopes "This
+// element" and "Choice"; the island gates it on the selected-marker
+// capability, the same five types the schema accepts props.choice_text on).
+// Writes props.choice_text = {align, text_color_role | text_color_hex,
+// emphasis, size} (content-schema validateChoiceText); unset = no segment
+// selected = the theme's look. "Text color" is NOT static markup: the island
+// mounts the per-choice Style pop-up's own color control into
+// [data-answer-text-color] (buildStyleColorAxis — one component, two call
+// sites). The heading, segmented controls and the yellow-star affects line
+// reuse existing studio classes only (no new colors).
+function renderAnswerTextControls(): string {
+  return `<div data-answer-text-block hidden>
+        <div class="studio-hr"></div>
+        <div class="studio-panel-eyebrow">Answer text</div>
+        <div class="studio-scope-affects">
+          <svg width="14" height="14" viewBox="0 0 24 24" fill="none" aria-hidden="true"><path d="M12 2l2.9 6.3 6.9.7-5.1 4.6 1.4 6.8L12 17.8 5 20.2l1.4-6.8L1.3 8.9l6.9-.7z" fill="${STUDIO_COLOR.accent}"/></svg>
+          <span class="studio-scope-affects-text">Affects: every choice in this element.</span>
+        </div>
+        <div class="lg-inspector-field">
+          <label class="form-label">Text align</label>
+          <div class="studio-segmented" role="group" aria-label="Text align">
+            <button type="button" data-set-answer-text="align" data-answer-text-value="left">Left</button>
+            <button type="button" data-set-answer-text="align" data-answer-text-value="center">Center</button>
+            <button type="button" data-set-answer-text="align" data-answer-text-value="right">Right</button>
+          </div>
+        </div>
+        <div class="lg-inspector-field" data-answer-text-color></div>
+        <div class="lg-inspector-field">
+          <label class="form-label">Text weight</label>
+          <div class="studio-segmented" role="group" aria-label="Text weight">
+            <button type="button" data-set-answer-text="emphasis" data-answer-text-value="normal">Normal</button>
+            <button type="button" data-set-answer-text="emphasis" data-answer-text-value="strong">Bold</button>
+          </div>
+        </div>
+        <div class="lg-inspector-field">
+          <label class="form-label">Text size</label>
+          <div class="studio-segmented" role="group" aria-label="Text size">
+            <button type="button" data-set-answer-text="size" data-answer-text-value="s">S</button>
+            <button type="button" data-set-answer-text="size" data-answer-text-value="m">M</button>
+            <button type="button" data-set-answer-text="size" data-answer-text-value="l">L</button>
+          </div>
+        </div>
+        <button type="button" class="studio-link-btn" data-answer-text-reset>Reset</button>
+      </div>`;
+}
+
 // The full tabbed inspector. Panels are server-rendered ONCE; the island
 // toggles tab/panel visibility per the selected node's type metadata and
 // populates/collects values (data-inspector-field / data-inspector-override /
@@ -2938,6 +2987,7 @@ export function renderStudioInspector(design: FunnelDesign, sectionPublicId: str
         <input id="lg-vprop-error" class="form-input" type="text" data-inspector-vprop="error_text" />
       </div>
       <p class="form-help" data-range-format-note hidden>Provider output format is set per Offer in the Offers tab (value transform) &#8212; sliders store the plain number here.</p>
+      ${renderAnswerTextControls()}
 
       <div class="studio-hr"></div>
       <div class="lg-inspector-field studio-connect-offers-card" data-connect-offers-card hidden>
@@ -9844,6 +9894,10 @@ export const SECTION_STUDIO_SCRIPT = `
     populateRequiredWhen(node);
     populateDefaultControls(node);
     populateYesNoStyleBlock(node);
+    // X07 Answer text. typeof-guard: populateInspector is vm-probe-sliced by
+    // name with a fixed collaborator list (leadgen-rework-matrix Layer B) —
+    // the same self-containment convention populateContentVariant documents.
+    if (typeof populateAnswerTextBlock === 'function') { populateAnswerTextBlock(node); }
     populateConnectOffersCard(node);
     var groups = document.querySelectorAll('[data-container-group]');
     for (i = 0; i < groups.length; i++) {
@@ -12288,6 +12342,68 @@ export const SECTION_STUDIO_SCRIPT = `
     cleanupEmpty(node, 'props');
     afterModelChange();
   }
+  // X07 — the Content tab's "Answer text" group (renderAnswerTextControls):
+  // props.choice_text on the selected choice element, edited for EVERY choice
+  // at once (the choice's own Style pop-up "Text align" / text color / Bold
+  // still win at render, presets.ts choiceTextPlan). Shown for the five
+  // choice families — cap selected_marker, the SAME gate content-schema
+  // applies to props.choice_text — in both scopes "This element" and
+  // "Choice" (the Content tab is node-scoped in both). Diff-only like the
+  // Style pop-up: an unset axis is ABSENT (no segment selected = the theme's
+  // look), Reset deletes the whole bag. Rebuilt on every populateInspector()
+  // and after every write (the populateYesNoStyleBlock lifecycle).
+  var ANSWER_TEXT_KEYS = ['align', 'text_color_role', 'text_color_hex', 'emphasis', 'size'];
+  function answerTextOf(node) {
+    var out = {};
+    var raw = (node && node.props && node.props.choice_text && typeof node.props.choice_text === 'object') ? node.props.choice_text : null;
+    var i;
+    if (raw) {
+      for (i = 0; i < ANSWER_TEXT_KEYS.length; i++) {
+        if (raw[ANSWER_TEXT_KEYS[i]] !== undefined) { out[ANSWER_TEXT_KEYS[i]] = raw[ANSWER_TEXT_KEYS[i]]; }
+      }
+    }
+    return out;
+  }
+  function writeAnswerText(next) {
+    var node = selectedNode();
+    if (!node) { return; }
+    var props = ensureObj(node, 'props');
+    var has = false, k;
+    for (k in next) { if (Object.prototype.hasOwnProperty.call(next, k)) { has = true; break; } }
+    if (has) { props.choice_text = next; } else { delete props.choice_text; }
+    cleanupEmpty(node, 'props');
+    populateAnswerTextBlock(node);
+    afterModelChange();
+  }
+  function setAnswerTextValue(key, value) {
+    var node = selectedNode();
+    if (!node || ANSWER_TEXT_KEYS.indexOf(key) === -1) { return; }
+    var next = answerTextOf(node);
+    next[key] = value;
+    writeAnswerText(next);
+  }
+  function resetAnswerText() {
+    writeAnswerText({});
+  }
+  function populateAnswerTextBlock(node) {
+    var block = document.querySelector('[data-answer-text-block]');
+    var show = cap(node, 'selected_marker') === true;
+    if (block) { block.hidden = !show; }
+    if (!show) { return; }
+    var cur = answerTextOf(node);
+    var btns = document.querySelectorAll('[data-set-answer-text]');
+    var i;
+    for (i = 0; i < btns.length; i++) {
+      btns[i].className = cur[btns[i].getAttribute('data-set-answer-text')] === btns[i].getAttribute('data-answer-text-value') ? 'active' : '';
+    }
+    var mount = document.querySelector('[data-answer-text-color]');
+    if (mount) {
+      clearChildren(mount);
+      var axis = buildStyleColorAxis(cur, function () { writeAnswerText(cur); }, 'text_color', 'Text color', 'text_color_role', 'text_color_hex', 'form-label');
+      paintStyleColorAxis(axis, cur.text_color_role, cur.text_color_hex);
+      mount.appendChild(axis.row);
+    }
+  }
   function collectDefaultControl(input) {
     var node = selectedNode();
     if (!node) { return; }
@@ -12962,6 +13078,15 @@ export const SECTION_STUDIO_SCRIPT = `
   // WIDTH presets s/m/l/full) — same discipline as ICON_CATEGORY_ORDER above.
   var CHOICE_SIZE_PRESETS_UI = ['s', 'm', 'l'];
   var CHOICE_SIZE_PRESET_LABELS_UI = { s: 'S', m: 'M', l: 'L' };
+  // X07: the Style pop-up's "Text align" — ES5 mirror of content-schema.ts's
+  // LEADGEN_CHOICE_TEXT_ALIGNS, plus "Use element" ('' = no stored align: the
+  // element's Answer text, else the theme).
+  var CHOICE_TEXT_ALIGN_OPTIONS_UI = [
+    { value: '', label: 'Use element' },
+    { value: 'left', label: 'Left' },
+    { value: 'center', label: 'Center' },
+    { value: 'right', label: 'Right' }
+  ];
   // v3.1 R3 S2-5: curated emoji palette (human choice, not a bare text input).
   var CHOICE_EMOJI_PALETTE = ['\\u2705', '\\u274C', '\\u2B50', '\\uD83D\\uDD25', '\\uD83D\\uDC4D', '\\uD83D\\uDC4E', '\\u2764\\uFE0F', '\\uD83C\\uDFE0', '\\uD83D\\uDE97', '\\uD83D\\uDCB0', '\\uD83D\\uDCC5', '\\uD83D\\uDCDE', '\\uD83D\\uDCE7', '\\uD83D\\uDD12', '\\uD83D\\uDC64', '\\uD83D\\uDEE1\\uFE0F'];
   // v3.1 R3 S2-5/6c: the icon picker reuses the SAME curated Tabler leading-
@@ -13846,6 +13971,96 @@ export const SECTION_STUDIO_SCRIPT = `
     row.appendChild(choose);
     return { row: row, input: input };
   }
+  // P2b color control (per-choice Style pop-up) — a theme-role swatch row
+  // plus the off-theme hex escape hatch and its own "Reset to theme".
+  // Palette-FIRST: every theme role ROLE_VALUES resolves to hex, swatch-
+  // painted (the studio's own resolved colors, not a re-typed guess), THEN
+  // an explicit "Custom color — off theme" hex escape hatch.
+  // X07: lifted out of buildChoiceStyleControl UNCHANGED so the Content tab's
+  // Answer text group mounts the SAME control (F02/F04 extend this one
+  // component). cur is the caller's working style object (mutated in place —
+  // the pop-up's closure-local 'cur', or populateAnswerTextBlock's copy of
+  // props.choice_text); commit() is the caller's write + repaint. labelClass
+  // (optional) restyles the row label for a host panel; the pop-up passes none.
+  function buildStyleColorAxis(cur, commit, axisKey, label, roleKeyName, hexKeyName, labelClass) {
+    var row = document.createElement('div');
+    row.className = 'lg-choice-style-row';
+    row.setAttribute('data-choice-style-axis', axisKey);
+    var lab = document.createElement('span');
+    lab.className = labelClass || 'lg-choice-style-label';
+    lab.appendChild(document.createTextNode(label));
+    row.appendChild(lab);
+    var swatchRow = document.createElement('span');
+    swatchRow.className = 'lg-choice-style-swatch-row';
+    var roleKeys = Object.keys(ROLE_VALUES);
+    var rk, roleBtns = {};
+    for (rk = 0; rk < roleKeys.length; rk++) {
+      (function (role) {
+        var b = document.createElement('button');
+        b.type = 'button';
+        b.setAttribute('data-choice-role-swatch', role);
+        b.title = roleLabelOf(role);
+        b.setAttribute('aria-label', roleLabelOf(role));
+        var sw = document.createElement('span');
+        sw.className = 'studio-role-swatch';
+        if (sw.style) { sw.style.background = ROLE_VALUES[role] || ''; }
+        b.appendChild(sw);
+        b.addEventListener('click', function () {
+          delete cur[hexKeyName];
+          cur[roleKeyName] = role;
+          commit();
+        });
+        roleBtns[role] = b;
+        swatchRow.appendChild(b);
+      })(roleKeys[rk]);
+    }
+    row.appendChild(swatchRow);
+    var hexWrap = document.createElement('span');
+    hexWrap.className = 'lg-choice-style-hex';
+    var hexLabel = document.createElement('label');
+    hexLabel.className = 'form-label';
+    hexLabel.appendChild(document.createTextNode('Custom color — off theme'));
+    hexWrap.appendChild(hexLabel);
+    var hexInput = document.createElement('input');
+    hexInput.type = 'text';
+    hexInput.className = 'form-input';
+    hexInput.setAttribute('data-choice-hex-input', '');
+    hexInput.setAttribute('placeholder', '#RRGGBB');
+    hexInput.setAttribute('aria-label', label + ' custom hex color');
+    hexInput.addEventListener('change', function () {
+      var v = trimStr(hexInput.value);
+      if (v === '') { delete cur[hexKeyName]; commit(); return; }
+      if (!/^#[0-9a-fA-F]{3,8}$/.test(v)) { return; }
+      delete cur[roleKeyName];
+      cur[hexKeyName] = v;
+      commit();
+    });
+    hexWrap.appendChild(hexInput);
+    row.appendChild(hexWrap);
+    var reset = document.createElement('button');
+    reset.type = 'button';
+    reset.className = 'studio-link-btn';
+    reset.setAttribute('data-choice-style-reset', axisKey);
+    reset.appendChild(document.createTextNode('Reset to theme'));
+    reset.addEventListener('click', function () {
+      delete cur[roleKeyName];
+      delete cur[hexKeyName];
+      hexInput.value = '';
+      commit();
+    });
+    row.appendChild(reset);
+    return { row: row, roleBtns: roleBtns, hexInput: hexInput };
+  }
+  // X07: paints one buildStyleColorAxis control from a stored role / #hex.
+  function paintStyleColorAxis(axis, roleVal, hexVal) {
+    var r;
+    for (r in axis.roleBtns) {
+      if (Object.prototype.hasOwnProperty.call(axis.roleBtns, r)) {
+        axis.roleBtns[r].className = (roleVal === r && !isHexColor(hexVal)) ? 'active' : '';
+      }
+    }
+    axis.hexInput.value = isHexColor(hexVal) ? String(hexVal) : '';
+  }
   // P2b (register R-A completion) — per-choice/per-button STYLE popover: SIZE
   // (segmented s/m/l + custom px, the SAME [4,600] snap-4 grid + snap function
   // the node-level height drag uses — HEIGHT_PX_MIN/MAX/GRID + snapHeightCustomPx
@@ -13874,6 +14089,7 @@ export const SECTION_STUDIO_SCRIPT = `
       if (initialStyle.text_color_role !== undefined) { cur.text_color_role = initialStyle.text_color_role; }
       if (initialStyle.text_color_hex !== undefined) { cur.text_color_hex = initialStyle.text_color_hex; }
       if (initialStyle.emphasis !== undefined) { cur.emphasis = initialStyle.emphasis; }
+      if (initialStyle.align !== undefined) { cur.align = initialStyle.align; }
     }
 
     function hasAnyKey(obj) {
@@ -13964,81 +14180,13 @@ export const SECTION_STUDIO_SCRIPT = `
     panel.appendChild(sizeRow);
 
     // ---- COLOR / TEXT COLOR (shared swatch-row builder) ----------------------
-    // Palette-FIRST: every theme role ROLE_VALUES resolves to hex, swatch-
-    // painted (the studio's own resolved colors, not a re-typed guess), THEN
-    // an explicit "Custom color — off theme" hex escape hatch.
-    function buildColorAxis(axisKey, label, roleKeyName, hexKeyName) {
-      var row = document.createElement('div');
-      row.className = 'lg-choice-style-row';
-      row.setAttribute('data-choice-style-axis', axisKey);
-      var lab = document.createElement('span');
-      lab.className = 'lg-choice-style-label';
-      lab.appendChild(document.createTextNode(label));
-      row.appendChild(lab);
-      var swatchRow = document.createElement('span');
-      swatchRow.className = 'lg-choice-style-swatch-row';
-      var roleKeys = Object.keys(ROLE_VALUES);
-      var rk, roleBtns = {};
-      for (rk = 0; rk < roleKeys.length; rk++) {
-        (function (role) {
-          var b = document.createElement('button');
-          b.type = 'button';
-          b.setAttribute('data-choice-role-swatch', role);
-          b.title = roleLabelOf(role);
-          b.setAttribute('aria-label', roleLabelOf(role));
-          var sw = document.createElement('span');
-          sw.className = 'studio-role-swatch';
-          if (sw.style) { sw.style.background = ROLE_VALUES[role] || ''; }
-          b.appendChild(sw);
-          b.addEventListener('click', function () {
-            delete cur[hexKeyName];
-            cur[roleKeyName] = role;
-            commit();
-          });
-          roleBtns[role] = b;
-          swatchRow.appendChild(b);
-        })(roleKeys[rk]);
-      }
-      row.appendChild(swatchRow);
-      var hexWrap = document.createElement('span');
-      hexWrap.className = 'lg-choice-style-hex';
-      var hexLabel = document.createElement('label');
-      hexLabel.className = 'form-label';
-      hexLabel.appendChild(document.createTextNode('Custom color — off theme'));
-      hexWrap.appendChild(hexLabel);
-      var hexInput = document.createElement('input');
-      hexInput.type = 'text';
-      hexInput.className = 'form-input';
-      hexInput.setAttribute('data-choice-hex-input', '');
-      hexInput.setAttribute('placeholder', '#RRGGBB');
-      hexInput.setAttribute('aria-label', label + ' custom hex color');
-      hexInput.addEventListener('change', function () {
-        var v = trimStr(hexInput.value);
-        if (v === '') { delete cur[hexKeyName]; commit(); return; }
-        if (!/^#[0-9a-fA-F]{3,8}$/.test(v)) { return; }
-        delete cur[roleKeyName];
-        cur[hexKeyName] = v;
-        commit();
-      });
-      hexWrap.appendChild(hexInput);
-      row.appendChild(hexWrap);
-      var reset = document.createElement('button');
-      reset.type = 'button';
-      reset.className = 'studio-link-btn';
-      reset.setAttribute('data-choice-style-reset', axisKey);
-      reset.appendChild(document.createTextNode('Reset to theme'));
-      reset.addEventListener('click', function () {
-        delete cur[roleKeyName];
-        delete cur[hexKeyName];
-        hexInput.value = '';
-        commit();
-      });
-      row.appendChild(reset);
-      panel.appendChild(row);
-      return { roleBtns: roleBtns, hexInput: hexInput };
-    }
-    var colorAxis = buildColorAxis('color', 'Color', 'color_role', 'color_hex');
-    var textColorAxis = buildColorAxis('text_color', 'Text color', 'text_color_role', 'text_color_hex');
+    // X07: the builder is the island-level buildStyleColorAxis (above), shared
+    // with the Content tab's Answer text group (one color control, two call
+    // sites) — it mutates this closure's 'cur' and calls this commit().
+    var colorAxis = buildStyleColorAxis(cur, commit, 'color', 'Color', 'color_role', 'color_hex');
+    panel.appendChild(colorAxis.row);
+    var textColorAxis = buildStyleColorAxis(cur, commit, 'text_color', 'Text color', 'text_color_role', 'text_color_hex');
+    panel.appendChild(textColorAxis.row);
 
     // ---- EMPHASIS (Bold) ------------------------------------------------------
     var emphasisRow = document.createElement('div');
@@ -14057,15 +14205,38 @@ export const SECTION_STUDIO_SCRIPT = `
     emphasisRow.appendChild(emphasisLabelWrap);
     panel.appendChild(emphasisRow);
 
-    function paintAxis(axis, roleVal, hexVal) {
-      var r;
-      for (r in axis.roleBtns) {
-        if (Object.prototype.hasOwnProperty.call(axis.roleBtns, r)) {
-          axis.roleBtns[r].className = (roleVal === r && !isHexColor(hexVal)) ? 'active' : '';
-        }
-      }
-      axis.hexInput.value = isHexColor(hexVal) ? String(hexVal) : '';
+    // ---- TEXT ALIGN (X07) -----------------------------------------------------
+    // This choice's own text alignment — beats the element's Answer text align.
+    // "Use element" DELETES the key (diff-only, like every Reset here).
+    var alignRow = document.createElement('div');
+    alignRow.className = 'lg-choice-style-row';
+    var alignLabel = document.createElement('span');
+    alignLabel.className = 'lg-choice-style-label';
+    alignLabel.appendChild(document.createTextNode('Text align'));
+    alignRow.appendChild(alignLabel);
+    var alignSeg = document.createElement('span');
+    alignSeg.className = 'studio-segmented';
+    alignSeg.setAttribute('role', 'group');
+    alignSeg.setAttribute('aria-label', 'Text align');
+    var alignBtns = {};
+    var ta;
+    for (ta = 0; ta < CHOICE_TEXT_ALIGN_OPTIONS_UI.length; ta++) {
+      (function (opt) {
+        var b = document.createElement('button');
+        b.type = 'button';
+        b.setAttribute('data-choice-style-align', opt.value);
+        b.appendChild(document.createTextNode(opt.label));
+        b.addEventListener('click', function () {
+          if (opt.value === '') { delete cur.align; } else { cur.align = opt.value; }
+          commit();
+        });
+        alignBtns[opt.value] = b;
+        alignSeg.appendChild(b);
+      })(CHOICE_TEXT_ALIGN_OPTIONS_UI[ta]);
     }
+    alignRow.appendChild(alignSeg);
+    panel.appendChild(alignRow);
+
     function refresh() {
       var i2, p2;
       var isCustomSize = cur.size !== undefined && typeof cur.size === 'object';
@@ -14074,9 +14245,14 @@ export const SECTION_STUDIO_SCRIPT = `
         sizePresetBtns[p2].className = (!isCustomSize && cur.size === p2) ? 'active' : '';
       }
       sizePxInput.value = isCustomSize ? String(cur.size.custom_px) : '';
-      paintAxis(colorAxis, cur.color_role, cur.color_hex);
-      paintAxis(textColorAxis, cur.text_color_role, cur.text_color_hex);
+      paintStyleColorAxis(colorAxis, cur.color_role, cur.color_hex);
+      paintStyleColorAxis(textColorAxis, cur.text_color_role, cur.text_color_hex);
       emphasisCb.checked = cur.emphasis === 'strong';
+      var curAlign = cur.align === undefined ? '' : String(cur.align);
+      var ak;
+      for (ak in alignBtns) {
+        if (Object.prototype.hasOwnProperty.call(alignBtns, ak)) { alignBtns[ak].className = ak === curAlign ? 'active' : ''; }
+      }
       // OFF-THEME badge: an escape-hatch hex on EITHER color axis — never for
       // a theme role (roles are always "on theme" by construction).
       offThemeBadge.hidden = !(isHexColor(cur.color_hex) || isHexColor(cur.text_color_hex));
@@ -16691,6 +16867,14 @@ export const SECTION_STUDIO_SCRIPT = `
   for (smi = 0; smi < selMarkerEls.length; smi++) {
     selMarkerEls[smi].addEventListener('click', function () { setSelectedMarker(this.getAttribute('data-set-selected-marker')); });
   }
+  // X07: the Content tab's Answer text segmented controls + its Reset link.
+  var answerTextEls = document.querySelectorAll('[data-set-answer-text]');
+  var ati;
+  for (ati = 0; ati < answerTextEls.length; ati++) {
+    answerTextEls[ati].addEventListener('click', function () { setAnswerTextValue(this.getAttribute('data-set-answer-text'), this.getAttribute('data-answer-text-value')); });
+  }
+  var answerTextResetEl = document.querySelector('[data-answer-text-reset]');
+  if (answerTextResetEl) { answerTextResetEl.addEventListener('click', resetAnswerText); }
   var textBlockRoleEl = document.querySelector('[data-text-block-role]');
   if (textBlockRoleEl) { textBlockRoleEl.addEventListener('change', collectTextBlockRole); }
 

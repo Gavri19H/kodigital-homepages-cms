@@ -2416,7 +2416,10 @@ function scaleDisplayFontSizes(design: EffectiveFunnelDesign, factor: number): v
   }
 }
 
-function scaleCssLength(value: string, factor: number): string {
+// Exported for X07 (presets.ts "Answer text" size step): the SAME scaler the
+// theme's own s/m/l text ramp uses, so a choice's S/L text lands on the same
+// arithmetic as the theme's (px/rem/em; anything else passes through).
+export function scaleCssLength(value: string, factor: number): string {
   const match = value.trim().match(/^(-?\d*\.?\d+)(px|rem|em)$/);
   const num = match?.[1];
   const unit = match?.[2];
