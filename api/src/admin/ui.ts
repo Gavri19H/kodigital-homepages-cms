@@ -104,7 +104,10 @@ adminUi.get('/admin/domains', async (c) => {
   // Map the data DTO (site_name) onto the template DomainEntry (name)
   // per the WARN-FIX-3 site_name -> name migration that landed in
   // api/src/admin/templates/domains.ts.
+  // X04: pass the site id through, so every row's Actions menu knows its
+  // site (the id was selected but dropped here, leaving data-site-id="").
   const entries = domainsList.map((d) => ({
+    id: d.site_id,
     domain: d.domain,
     name: d.site_name,
     vertical: d.vertical,

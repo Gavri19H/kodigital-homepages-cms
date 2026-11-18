@@ -150,6 +150,9 @@ export interface SiteDto {
 
 export interface DomainRowDto {
   domain: string;
+  // X04: the row's site id. Every Domains → Actions item needs it; without
+  // it the rows rendered data-site-id="" and no action ever fired.
+  site_id: string;
   site_name: string;
   vertical: string;
   activity: string;
@@ -405,6 +408,7 @@ export async function listAdminDomains(env: Env): Promise<DomainRowDto[]> {
   }
   return (rows.results ?? []).map((r) => ({
     domain: r.hostname,
+    site_id: r.site_id,
     site_name: r.site_name,
     vertical: r.vertical_slug,
     activity: r.activity,
