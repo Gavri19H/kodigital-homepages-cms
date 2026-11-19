@@ -25,6 +25,7 @@ import type { RedirectAfterInstruction } from "../src/public/leadgen/redirect/ty
 
 const screen = vi.hoisted(() => ({
   failLook: false,
+  renderMode: "screen" as "screen" | "throw" | "unchanged",
   lookReads: 0,
   renders: [] as Array<{ banners_html: string; instruction: unknown; look: unknown }>,
 }));
@@ -37,6 +38,8 @@ vi.mock("../src/public/leadgen/redirect/screen", async (importOriginal) => ({
   },
   renderRedirectScreen: (input: { banners_html: string; instruction: unknown; look: unknown }) => {
     screen.renders.push(input);
+    if (screen.renderMode === "throw") throw new Error("render failed");
+    if (screen.renderMode === "unchanged") return input.banners_html;
     return `<div data-test-redirect-screen>${input.banners_html}</div>`;
   },
 }));
@@ -104,6 +107,7 @@ const describeDb = DatabaseSync === null ? describe.skip : describe;
 
 afterEach(() => {
   screen.failLook = false;
+  screen.renderMode = "screen";
   screen.lookReads = 0;
   screen.renders = [];
 });
@@ -309,6 +313,21 @@ describeDb("F11 — POST /lg/auction with an \"After the offer is shown\" rule",
     expect(screen.renders).toHaveLength(1);
     expect(screen.renders[0]!.look).toBeNull();
   });
+
+  for (const mode of ["throw", "unchanged"] as const) {
+    it(`a redirect screen that ${mode === "throw" ? "fails to render" : "cannot be built"} never breaks the page: today's results, no redirect_after`, async () => {
+      const f = seed();
+      await addAfterRule(f, f.honest.id, 100);
+      screen.renderMode = mode;
+      const { reply, log } = await visit(f, `s-render-${mode}`);
+      expect(reply.status).toBe("ok");
+      expect(reply).not.toHaveProperty("redirect_after");
+      expect(reply.banners_html).toContain('class="lg-banners"');
+      expect(reply.banners_html).not.toContain("data-test-redirect-screen");
+      // the visitor was assigned to the "opened" half; the record says so
+      expect(JSON.parse(log?.redirect_json ?? "null")).toMatchObject({ outcome: "opened" });
+    });
+  }
 
   it("[compat] when no rule opens a card, the reply is exactly as before: no redirect_after, no screen, the normal cards", async () => {
     const f = seed();

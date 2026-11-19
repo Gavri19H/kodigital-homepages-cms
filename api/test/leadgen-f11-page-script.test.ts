@@ -218,6 +218,15 @@ const hiddenSlots = (p: Page): string[] =>
 
 // ===========================================================================
 
+
+// F11 review fix: a visitor's own card click clears any mark an earlier page
+// click left behind (its navigation never reached /lg/lc), so these tests
+// assert "no mark SET", and that the only other write is the clear.
+const CLEAR = "lg_rc=; Max-Age=0; Path=/; SameSite=Lax; Secure";
+function marksSet(p: { cookieWrites: string[] }): string[] {
+  return p.cookieWrites.filter((w) => /^lg_rc=[^;]/.test(w));
+}
+
 describe("F11 page script — the countdown, then the mark, then ONE click on the card's own link", () => {
   it("claims the screen, counts 5→1, sets lg_rc and only THEN clicks the chosen card, once", () => {
     const p = page();
@@ -271,7 +280,8 @@ describe("F11 page script — a visitor's own click first is the normal click", 
     expect(p.run()).toBe("clicked");
     p.advance(60_000);
     expect(p.clicks, "only the visitor's own click").toHaveLength(1);
-    expect(p.cookieWrites, "a visitor's click never sets the mark").toEqual([]);
+    expect(marksSet(p), "a visitor's click never sets the mark").toEqual([]);
+    expect(p.cookieWrites, "it only clears any mark left behind").toEqual([CLEAR]);
     expect(p.storage.get("lg_rd:fa_1"), "the attempt is used up").toBe("1");
   });
 
@@ -283,7 +293,7 @@ describe("F11 page script — a visitor's own click first is the normal click", 
       p.card(2).fire(type);
       p.advance(60_000);
       expect(p.clicks, type).toHaveLength(0);
-      expect(p.cookieWrites, type).toEqual([]);
+      expect(marksSet(p), type).toEqual([]);
       expect(p.run(), type).toBe("clicked");
     }
   });
@@ -315,7 +325,7 @@ describe('F11 page script — "Stay here" follows the Auction\'s "Remove clicked
       expect([...p.storage.keys()], "Stay here writes nothing").toEqual([]);
       // a later click on a card is a plain visitor click: still no mark
       p.card(1).fire("click");
-      expect(p.cookieWrites).toEqual([]);
+      expect(marksSet(p)).toEqual([]);
     });
   }
 });
@@ -437,3 +447,19 @@ describe("F11 page script — ships in the shell, outside the visitor bundle", (
     expect(LEADGEN_RUNTIME_JS).not.toContain("data-lg-redirect");
   });
 });
+
+describe("F11 page script — review fixes (stale mark, no results mount)", () => {
+  it("a mark left by a page click whose navigation never happened is cleared before the visitor's own click", () => {
+    const p = page();
+    p.inject(screenHtml());
+    p.advance(5000); // the page's own click: mark set, then .click()
+    expect(marksSet(p)).toHaveLength(1);
+    // the navigation never reached /lg/lc (aborted); the visitor now clicks the same card
+    p.card(2).fire("click");
+    // The browser follows the link only after the click event finished
+    // dispatching (target, then the bubbling listener that clears the mark),
+    // so the /lg/lc request carries no mark.
+    expect(p.cookieWrites[p.cookieWrites.length - 1], "cleared before the browser follows the link").toBe(CLEAR);
+  });
+});
+

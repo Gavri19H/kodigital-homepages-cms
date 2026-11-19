@@ -611,7 +611,9 @@ export async function loadAuctionBundle(
     // own like match_mode above, so the rule reads above stay exactly as they
     // were and a database without 0066 keeps every rule "Straight away".
     const redirectAfterById = new Map<string, { seconds: number | null; display: string | null }>();
-    try {
+    // Only read when the variant has a "Redirect to offer" rule at all, so
+    // every other auction pays no extra round trip.
+    if ((frRows.results ?? []).some((r) => r.rule_type === "redirect_direct_offer")) try {
       const ra = await db
         .prepare("SELECT public_id, redirect_show_seconds, redirect_display FROM leadgen_funnel_rules WHERE variant_id = ? AND redirect_show_seconds IS NOT NULL")
         .bind(variantId)

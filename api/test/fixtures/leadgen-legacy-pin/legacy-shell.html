@@ -305,10 +305,15 @@ r.paused = false; r.last = now();
 r.root.removeAttribute('data-lg-rd-paused');
 tick();
 }
+function clearMark() { try { d.cookie = 'lg_rc=; Max-Age=0; Path=/; SameSite=Lax; Secure'; } catch (e) {} }
 function onCard(r, ev) {
-if (r.done || r.self) { return; }
+if (r.self) { return; }
 var t = ev && ev.target;
 if (!t || typeof t.closest !== 'function' || !t.closest('a.lg-banner')) { return; }
+// A visitor's own click is never a redirect click, even if an earlier
+// page click left the mark behind (its navigation never reached /lg/lc).
+clearMark();
+if (r.done) { return; }
 stop(r, 'clicked');
 markOpened(r);
 }
@@ -367,6 +372,7 @@ for (i = 0; i < roots.length; i++) { if (roots[i].getAttribute(RUN) === null) { 
 d.addEventListener('visibilitychange', onVisibility);
 w.addEventListener('pageshow', function (ev) {
 if (!ev || !ev.persisted) { return; }
+clearMark();
 var roots = d.querySelectorAll('[data-lg-redirect]'), i, st;
 for (i = 0; i < roots.length; i++) {
 st = roots[i].getAttribute(RUN);
@@ -376,7 +382,9 @@ if (active !== null && active.root === roots[i]) { stop(active, 'back'); } else 
 }
 });
 var mounts = d.querySelectorAll('[data-lg-banners]'), i;
-if (w.MutationObserver && mounts.length > 0) {
+// No results mount on this page: no redirect screen can ever appear here.
+if (mounts.length === 0) { return; }
+if (w.MutationObserver) {
 var mo = new w.MutationObserver(scan);
 for (i = 0; i < mounts.length; i++) { mo.observe(mounts[i], { childList: true }); }
 } else {
