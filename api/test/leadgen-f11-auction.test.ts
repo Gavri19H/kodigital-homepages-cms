@@ -621,6 +621,44 @@ describeDb("X16 — the matching \"After\" rules are tried in priority order: th
     expect(logged.passed_over.map((p) => p.rule_id)).toEqual([second]);
   });
 
+  it("the visitor already CLICKED the top rule's Offer in this visit (the Auction removed it): no fallback — today's page, \"no_card\" for the top rule, the next rule's Offer is NOT opened (owner, 19 Nov)", async () => {
+    const { sdb, env, auction, variantId } = harness({ auction: { remove_clicked_offers: 1, removal_scope: "offer" } });
+    const honest = honestLoans(sdb, auction.id, 0);
+    const fun = fundera(sdb, auction.id, 1);
+    const qs = quinstreet(sdb, auction.id, 2);
+    const first = seedRule(sdb, variantId, { offer: fun, pct: 100, seconds: 5, priority: 1 });
+    seedRule(sdb, variantId, { offer: qs, pct: 100, seconds: 5, priority: 2 });
+    stubProviders({ fundera: "accepted" }); // Fundera answers — its card is removed only because it was clicked
+
+    const r = await run(env, auction, variantId, { clicked: [{ offer_public_id: fun.public_id, carrier_key: "" }] });
+
+    expect(shownOffers(r)).toEqual([honest.public_id, qs.public_id].sort()); // the next rule's Offer has a card…
+    expect(r.redirect_after).toBeUndefined(); // …and is still not opened
+    expect(eventTypes(r)).not.toContain("redirect_rule_triggered");
+    expect(eventTypes(r)).not.toContain("direct_offer_redirect");
+    expect(await loggedRedirect(env, sdb, r)).toEqual({ rule_id: first, offer_id: fun.public_id, outcome: "no_card" });
+  });
+
+  it("a click on a DIFFERENT Offer does not stop the fallback: the top rule's Offer said no, the next rule opens", async () => {
+    const { sdb, env, auction, variantId } = harness({ auction: { remove_clicked_offers: 1, removal_scope: "offer" } });
+    const honest = honestLoans(sdb, auction.id, 0);
+    const fun = fundera(sdb, auction.id, 1);
+    const qs = quinstreet(sdb, auction.id, 2);
+    const first = seedRule(sdb, variantId, { offer: fun, pct: 100, seconds: 5, priority: 1 });
+    const second = seedRule(sdb, variantId, { offer: qs, pct: 100, seconds: 5, priority: 2 });
+    stubProviders({ fundera: "declined" });
+
+    const r = await run(env, auction, variantId, { clicked: [{ offer_public_id: honest.public_id, carrier_key: "" }] });
+
+    expect(r.redirect_after).toMatchObject({ rule_public_id: second, offer_public_id: qs.public_id });
+    expect(await loggedRedirect(env, sdb, r)).toEqual({
+      rule_id: second,
+      offer_id: qs.public_id,
+      outcome: "opened",
+      passed_over: [{ rule_id: first, offer_id: fun.public_id }],
+    });
+  });
+
   it("a rule whose conditions don't match is not tried: the next MATCHING rule's Offer is opened", async () => {
     const { sdb, env, auction, variantId } = harness();
     const honest = honestLoans(sdb, auction.id, 0);

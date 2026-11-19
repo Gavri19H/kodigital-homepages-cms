@@ -2445,7 +2445,9 @@ export async function runAuction(
   //   * the rule's Offer has no card here (the Provider said no, a cap, a
   //     click earlier, the card limits…) → the rule is passed over and the
   //     next one is tried; when no rule's Offer has a card → "no_card" for the
-  //     first rule: the page is exactly as today;
+  //     first rule: the page is exactly as today. Except when the visitor
+  //     already clicked that Offer in this visit: then "no_card" for that
+  //     rule, and no lower rule is tried (at most one automatic redirect);
   //   * the first rule whose Offer has a card decides, and no lower rule is
   //     tried. Outside its "Redirect %" draw → "held_back": the page is
   //     exactly as today (owner, X16 D1: the draw is a test split, so its
@@ -2464,6 +2466,19 @@ export async function runAuction(
     const targetPublicId = targetBundle?.offer.public_id ?? fr.target_offer_public_id ?? String(fr.target_offer_id);
     const top = renderedSlots.find((sl) => sl.offer_public_id === targetPublicId);
     if (top === undefined) {
+      // Owner (X16, 19 Nov): no card because the visitor ALREADY CLICKED this
+      // Offer in this visit (the Auction removed it) stops the fallback — a
+      // visitor coming back to the results page is never sent on to a second
+      // partner automatically. "no_card" for this rule; lower rules untried.
+      if (input.clicked.some((c) => c.offer_public_id === targetPublicId)) {
+        redirectLog = {
+          rule_id: fr.public_id,
+          offer_id: targetPublicId,
+          outcome: "no_card",
+          ...(passedOver.length > 0 ? { passed_over: passedOver } : {}),
+        };
+        break;
+      }
       passedOver.push({ rule_id: fr.public_id, offer_id: targetPublicId });
       continue;
     }
@@ -2512,10 +2527,10 @@ export async function runAuction(
   // No matching rule's Offer has a card: "no_card" for the first rule, with
   // the others listed as passed over.
   if (redirectLog === null && passedOver.length > 0) {
-    const [first, ...rest] = passedOver;
+    const rest = passedOver.slice(1);
     redirectLog = {
-      rule_id: first!.rule_id,
-      offer_id: first!.offer_id,
+      rule_id: passedOver[0]!.rule_id,
+      offer_id: passedOver[0]!.offer_id,
       outcome: "no_card",
       ...(rest.length > 0 ? { passed_over: rest } : {}),
     };

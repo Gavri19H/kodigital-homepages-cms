@@ -25,7 +25,8 @@ Saving refuses, with a message, when the seconds are outside 2–30, when no Off
 
 What the rule never changes:
 - The auction itself: the same Offers, Provider calls, bids, card order, caps and "remove clicked".
-- If a rule's Offer has no card for a visitor (the Provider said no, it is capped, the visitor already clicked it), the next matching "After the offer is shown" rule is tried. If no matching rule's Offer has a card, the visitor sees today's results page, with no countdown.
+- If a rule's Offer has no card for a visitor (the Provider said no, it is capped), the next matching "After the offer is shown" rule is tried. If no matching rule's Offer has a card, the visitor sees today's results page, with no countdown.
+- If the visitor already clicked that rule's Offer in this visit (for example, they were redirected and came back), lower rules are not tried: they see today's results page. A visitor is never sent on to a second partner automatically.
 - A visitor held back by a rule's "Redirect %" (its Offer has a card) sees today's page too, and lower rules are not tried. That keeps the "held back" half a clean comparison.
 - A "Straight away" rule placed below a matching "After the offer is shown" rule is not used: it can only act before the auction. Put "Straight away" rules above "After the offer is shown" rules if they should win.
 - After "Stay here", the Auction's "Remove-clicked & normalization" settings decide whether the chosen card stays.
