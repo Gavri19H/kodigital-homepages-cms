@@ -2,9 +2,10 @@
 // backlog/items/F11.html, contract backlog/CONTRACT-F11.md).
 //
 // The open instruction the auction engine produces when the FIRST matching
-// funnel rule is a "Redirect to offer" rule with redirect_show_seconds set, the
-// visitor falls inside its sticky "Redirect %" draw, and the rule's Offer has a
-// card in this visitor's results. serve-auction.ts hands it to
+// funnel rule is a "Redirect to offer" rule with redirect_show_seconds set:
+// the first matching such rule whose Offer has a card in this visitor's
+// results (X16: rules whose Offer has none are passed over), when the visitor
+// falls inside that rule's sticky "Redirect %" draw. serve-auction.ts hands it to
 // renderRedirectScreen() (./screen.ts), which turns the normal banners_html into
 // the redirect banner / animation-only screen that the page shell's small
 // redirect script runs. Nothing here names a partner.
@@ -54,11 +55,18 @@ export const REDIRECT_SHOW_SECONDS_MIN = 2 as const;
 export const REDIRECT_SHOW_SECONDS_MAX = 30 as const;
 
 /** leadgen_auction_result_log.redirect_json (one per auction, NULL when no
- *  "After" rule matched first). */
+ *  "After" rule matched first). rule_id / offer_id / outcome name the rule
+ *  that decided: the first matching "After" rule whose Offer has a card
+ *  ("opened" or "held_back"), or the first matching rule when none had one
+ *  ("no_card"). X16: `passed_over` lists, in priority order, the matching
+ *  rules whose Offer had no card and that were passed over before it (or
+ *  after it, for "no_card"); absent when there were none. The read-out
+ *  queries read only the first three fields. */
 export interface RedirectLogRecord {
   rule_id: string;
   offer_id: string;
   outcome: "opened" | "held_back" | "no_card";
+  passed_over?: Array<{ rule_id: string; offer_id: string }>;
 }
 
 /** The hidden redirect mark: a first-party cookie the page script sets just

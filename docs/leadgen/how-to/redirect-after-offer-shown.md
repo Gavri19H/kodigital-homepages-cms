@@ -17,7 +17,7 @@ The rule works for any Offer. Nothing in the code is set up for one partner: eve
    - "What the visitor sees": "The redirect banner" (the usual choice) or "Only the animation" (see below).
    - "Redirect to offer": the Offer to open. Every Offer in the list can be picked.
    - "Redirect %": the share of matching visitors who get the countdown. The others see today's results page. See the tip below.
-   - "Priority (1 = highest)", "Match" and "Conditions": who the rule is for, the same way as every other rule. Only the first rule that matches a visitor counts.
+   - "Priority (1 = highest)", "Match" and "Conditions": who the rule is for, the same way as every other rule. Rules are tried from priority 1 down. If a rule's Offer has no card for the visitor, the next matching rule is tried. The first rule whose Offer has a card decides.
    - "Status": "Active".
 5. Click "Save rule". The rules list shows the rule as "Redirect {%} → {Offer} · after {n} s".
 
@@ -25,7 +25,9 @@ Saving refuses, with a message, when the seconds are outside 2–30, when no Off
 
 What the rule never changes:
 - The auction itself: the same Offers, Provider calls, bids, card order, caps and "remove clicked".
-- If the chosen Offer has no card for a visitor (the Provider said no, it is capped, the visitor already clicked it), that visitor sees today's results page, with no countdown. No other rule's Offer is tried.
+- If a rule's Offer has no card for a visitor (the Provider said no, it is capped, the visitor already clicked it), the next matching "After the offer is shown" rule is tried. If no matching rule's Offer has a card, the visitor sees today's results page, with no countdown.
+- A visitor held back by a rule's "Redirect %" (its Offer has a card) sees today's page too, and lower rules are not tried. That keeps the "held back" half a clean comparison.
+- A "Straight away" rule placed below a matching "After the offer is shown" rule is not used: it can only act before the auction. Put "Straight away" rules above "After the offer is shown" rules if they should win.
 - After "Stay here", the Auction's "Remove-clicked & normalization" settings decide whether the chosen card stays.
 - Each visitor gives at most one counted click, whether they wait, click first, or press "Stay here" and click later.
 
@@ -131,7 +133,7 @@ ORDER BY rule, offer, half;
 
 How to read it (one row per rule and half):
 - `rule` and `offer`: the rule's "Rule name" and the Offer it opens.
-- `half`: "opened" (inside "Redirect %": got the countdown), "held back" (outside "Redirect %": saw today's page), or "no card" (the chosen Offer had no card for them, so they saw today's page whichever half they were in).
+- `half`: "opened" (inside "Redirect %": got the countdown), "held back" (outside "Redirect %": saw today's page), or "no card" (no matching rule's Offer had a card for them, so they saw today's page whichever half they were in). A visitor whose rule had no card but whose next rule opened is counted under that next rule. The results log lists the rules passed over (`passed_over` in `redirect_json`).
 - `visitors`: visitors in that row. Each visitor counts once, on their first results page under the rule.
 - `visitors_with_card`: of those, the ones whose chosen Offer had a card (every "opened" and "held back" visitor). Compare "opened" with "held back".
 - `clicked_the_card` and `card_click_rate_pct`: how many of them clicked the chosen Offer, and the rate.

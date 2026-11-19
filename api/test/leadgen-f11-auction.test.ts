@@ -509,27 +509,158 @@ describeDb("F11 — an \"After the offer is shown\" rule runs the full auction a
   });
 });
 
-describeDb("F11 — only the first matching rule counts; no backup Offer", () => {
-  it("the Offer has no card (Fundera, recorded \"declined\"): today's page, no instruction — even though the SECOND matching rule's Offer has a card", async () => {
+describeDb("X16 — the matching \"After\" rules are tried in priority order: the first one whose Offer has a card decides", () => {
+  it("the top rule's Offer has no card (Fundera, recorded \"declined\"): the NEXT matching rule's Offer (QuinStreetHome) is opened, and the top rule is listed as passed over", async () => {
     const { sdb, env, auction, variantId } = harness();
     const honest = honestLoans(sdb, auction.id, 0);
     const fun = fundera(sdb, auction.id, 1);
     const qs = quinstreet(sdb, auction.id, 2);
     const first = seedRule(sdb, variantId, { offer: fun, pct: 100, seconds: 5, priority: 1 });
-    seedRule(sdb, variantId, { offer: qs, pct: 100, seconds: 5, priority: 2 });
+    const second = seedRule(sdb, variantId, { offer: qs, pct: 100, seconds: 3, priority: 2 });
     stubProviders({ fundera: "declined" });
 
     const r = await run(env, auction, variantId);
 
     expect(r.status).toBe("ok");
-    expect(shownOffers(r)).toEqual([honest.public_id, qs.public_id].sort()); // the other Offers' cards, as today
-    expect(r.redirect_after).toBeUndefined();
+    expect(shownOffers(r)).toEqual([honest.public_id, qs.public_id].sort()); // the auction's cards are unchanged
     expect(r.redirect).toBeNull();
-    expect(eventTypes(r)).not.toContain("redirect_rule_triggered");
-    expect(eventTypes(r)).not.toContain("direct_offer_redirect");
-    expect(await loggedRedirect(env, sdb, r)).toEqual({ rule_id: first, offer_id: fun.public_id, outcome: "no_card" });
+    const top = r.banners.filter((b) => b.offer_public_id === qs.public_id).sort((a, b) => a.slot - b.slot)[0]!;
+    expect(r.redirect_after).toMatchObject({ rule_public_id: second, offer_public_id: qs.public_id, slot: top.slot, carrier_key: top.carrier_key, seconds: 3 });
+    expect(eventTypes(r).filter((t) => t === "redirect_rule_triggered")).toHaveLength(1);
+    expect(eventTypes(r).filter((t) => t === "direct_offer_redirect")).toHaveLength(1);
+    expect(await loggedRedirect(env, sdb, r)).toEqual({
+      rule_id: second,
+      offer_id: qs.public_id,
+      outcome: "opened",
+      passed_over: [{ rule_id: first, offer_id: fun.public_id }],
+    });
   });
 
+  it("the top rule's Offer has no card and the visitor is outside the next rule's \"Redirect %\": held back by the next rule, today's page", async () => {
+    const { sdb, env, auction, variantId } = harness();
+    const honest = honestLoans(sdb, auction.id, 0);
+    const fun = fundera(sdb, auction.id, 1);
+    const qs = quinstreet(sdb, auction.id, 2);
+    const first = seedRule(sdb, variantId, { offer: fun, pct: 100, seconds: 5, priority: 1 });
+    const second = seedRule(sdb, variantId, { offer: qs, pct: 50, seconds: 5, priority: 2 });
+    stubProviders({ fundera: "declined" });
+
+    const r = await run(env, auction, variantId, { session_id: sessionFor(second, 50, false) });
+
+    expect(r.status).toBe("ok");
+    expect(shownOffers(r)).toEqual([honest.public_id, qs.public_id].sort());
+    expect(r.redirect_after).toBeUndefined();
+    expect(eventTypes(r)).not.toContain("redirect_rule_triggered");
+    expect(eventTypes(r)).not.toContain("direct_offer_redirect");
+    expect(await loggedRedirect(env, sdb, r)).toEqual({
+      rule_id: second,
+      offer_id: qs.public_id,
+      outcome: "held_back",
+      passed_over: [{ rule_id: first, offer_id: fun.public_id }],
+    });
+  });
+
+  it("the top rule's Offer HAS a card but the visitor is outside its \"Redirect %\": held back by the top rule, and the next rule is NOT tried (owner, D1)", async () => {
+    const { sdb, env, auction, variantId } = harness();
+    honestLoans(sdb, auction.id, 0);
+    const fun = fundera(sdb, auction.id, 1);
+    const qs = quinstreet(sdb, auction.id, 2);
+    const first = seedRule(sdb, variantId, { offer: fun, pct: 50, seconds: 5, priority: 1 });
+    seedRule(sdb, variantId, { offer: qs, pct: 100, seconds: 5, priority: 2 });
+    stubProviders({ fundera: "accepted" });
+
+    const r = await run(env, auction, variantId, { session_id: sessionFor(first, 50, false) });
+
+    expect(shownOffers(r)).toContain(qs.public_id); // the next rule's Offer has a card…
+    expect(r.redirect_after).toBeUndefined(); // …and is still not opened
+    expect(eventTypes(r)).not.toContain("redirect_rule_triggered");
+    expect(await loggedRedirect(env, sdb, r)).toEqual({ rule_id: first, offer_id: fun.public_id, outcome: "held_back" });
+  });
+
+  it("three rules, only the third rule's Offer has a card (the same Offer in rules 1 and 2): the third rule opens, rules 1 and 2 passed over in order", async () => {
+    const { sdb, env, auction, variantId } = harness();
+    honestLoans(sdb, auction.id, 0);
+    const fun = fundera(sdb, auction.id, 1);
+    const qs = quinstreet(sdb, auction.id, 2);
+    const r1 = seedRule(sdb, variantId, { offer: fun, pct: 100, seconds: 5, priority: 1 });
+    const r2 = seedRule(sdb, variantId, { offer: fun, pct: 100, seconds: 5, priority: 2 });
+    const r3 = seedRule(sdb, variantId, { offer: qs, pct: 100, seconds: 5, priority: 3 });
+    stubProviders({ fundera: "declined" });
+
+    const r = await run(env, auction, variantId);
+
+    expect(r.redirect_after).toMatchObject({ rule_public_id: r3, offer_public_id: qs.public_id });
+    expect(await loggedRedirect(env, sdb, r)).toEqual({
+      rule_id: r3,
+      offer_id: qs.public_id,
+      outcome: "opened",
+      passed_over: [
+        { rule_id: r1, offer_id: fun.public_id },
+        { rule_id: r2, offer_id: fun.public_id },
+      ],
+    });
+  });
+
+  it("no matching rule's Offer has a card: today's page, no instruction, \"no_card\" for the top rule with the others passed over", async () => {
+    const { sdb, env, auction, variantId } = harness();
+    const honest = honestLoans(sdb, auction.id, 0);
+    const fun = fundera(sdb, auction.id, 1);
+    const unattached = honestLoans(sdb, seedAuction(sdb).id, 0); // an Offer of ANOTHER Auction: never a card here
+    const first = seedRule(sdb, variantId, { offer: fun, pct: 100, seconds: 5, priority: 1 });
+    const second = seedRule(sdb, variantId, { offer: unattached, pct: 100, seconds: 5, priority: 2 });
+    stubProviders({ fundera: "declined" });
+
+    const r = await run(env, auction, variantId);
+
+    expect(r.status).toBe("ok");
+    expect(shownOffers(r)).toEqual([honest.public_id]);
+    expect(r.redirect_after).toBeUndefined();
+    expect(eventTypes(r)).not.toContain("redirect_rule_triggered");
+    const logged = (await loggedRedirect(env, sdb, r)) as { rule_id: string; offer_id: string; outcome: string; passed_over: Array<{ rule_id: string }> };
+    expect(logged).toMatchObject({ rule_id: first, offer_id: fun.public_id, outcome: "no_card" });
+    expect(logged.passed_over.map((p) => p.rule_id)).toEqual([second]);
+  });
+
+  it("a rule whose conditions don't match is not tried: the next MATCHING rule's Offer is opened", async () => {
+    const { sdb, env, auction, variantId } = harness();
+    const honest = honestLoans(sdb, auction.id, 0);
+    const fun = fundera(sdb, auction.id, 1);
+    const qs = quinstreet(sdb, auction.id, 2);
+    const first = seedRule(sdb, variantId, { offer: fun, pct: 100, seconds: 5, priority: 1 });
+    seedRule(sdb, variantId, { offer: honest, pct: 100, seconds: 5, priority: 2, conditions: { groups: [{ field: "state", op: "eq", value: "CA" }] } });
+    const third = seedRule(sdb, variantId, { offer: qs, pct: 100, seconds: 5, priority: 3 });
+    stubProviders({ fundera: "declined" });
+
+    const r = await run(env, auction, variantId);
+
+    expect(r.redirect_after).toMatchObject({ rule_public_id: third, offer_public_id: qs.public_id });
+    expect(await loggedRedirect(env, sdb, r)).toEqual({
+      rule_id: third,
+      offer_id: qs.public_id,
+      outcome: "opened",
+      passed_over: [{ rule_id: first, offer_id: fun.public_id }],
+    });
+  });
+
+  it("a \"Straight away\" rule BETWEEN two \"After\" rules is not used (owner, D2): no redirect before the auction, the lower \"After\" rule opens its card", async () => {
+    const { sdb, env, auction, variantId } = harness();
+    const honest = honestLoans(sdb, auction.id, 0);
+    const fun = fundera(sdb, auction.id, 1);
+    const qs = quinstreet(sdb, auction.id, 2);
+    seedRule(sdb, variantId, { offer: fun, pct: 100, seconds: 5, priority: 1 });
+    seedRule(sdb, variantId, { offer: honest, pct: 100, priority: 2 }); // Straight away
+    const third = seedRule(sdb, variantId, { offer: qs, pct: 100, seconds: 5, priority: 3 });
+    stubProviders({ fundera: "declined" });
+
+    const r = await run(env, auction, variantId);
+
+    expect(r.status).toBe("ok");
+    expect(r.redirect).toBeNull();
+    expect(r.redirect_after).toMatchObject({ rule_public_id: third, offer_public_id: qs.public_id });
+  });
+});
+
+describeDb("F11 — the first matching rule's outcomes", () => {
   it("no card anywhere: today's no-offers result, no instruction, outcome \"no_card\"", async () => {
     const { sdb, env, auction, variantId } = harness();
     const fun = fundera(sdb, auction.id, 0);
