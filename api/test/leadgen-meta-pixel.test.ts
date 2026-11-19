@@ -45,6 +45,7 @@ import { normalizeMetaName, normalizeMetaPhone, normalizeMetaZip } from "../src/
 import type { ResolvedActivatedFunnel } from "../src/public/leadgen/resolver";
 import { LgBeaconClient } from "../src/public/leadgen/runtime/events";
 import { LEADGEN_RUNTIME_JS } from "../src/public/leadgen/runtime/engine-bundle.generated";
+import { LEADGEN_TEMPLATE_VERSION } from "../src/cache/cache-keys";
 import {
   clickoutMetaCardPixel,
   clickoutMetaEventName,
@@ -495,7 +496,8 @@ describeDb("1. funnel shell — the Facebook pixel loads only when configured", 
     const html = await shell(h, "home");
     expect(html).not.toContain("fbevents.js");
     expect(html).not.toContain("__lgOnEvent");
-    expect(html).toContain('src="/lg/runtime/11.js"');
+    // F11 bumped the shell version (11 -> 12); read the constant so the next bump needs no edit here.
+    expect(html).toContain(`src="/lg/runtime/${LEADGEN_TEMPLATE_VERSION}.js"`);
   });
 
   it("the funnel's Facebook pixel ID saved through the real admin PATCH reaches the shell: loader, init, PageView, the contact-field map", async () => {

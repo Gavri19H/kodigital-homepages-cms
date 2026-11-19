@@ -50,6 +50,12 @@
 .lg-tpl2-seg-item input{position:absolute;opacity:0;width:100%;height:100%;top:0;left:0;margin:0;cursor:pointer}
 .lg-tpl2-seg-item.active{background:var(--c-primary,#1B3A5C);color:#fff}
 .lg-tpl2-divider{height:1px;background:var(--c-border);margin:12px 0}
+/* F11 L · Redirect: the five animation styles wrap onto two rows of the same
+   segmented control; the preview buttons show which one the canvas is on. */
+.lg-tpl2-seg--grid{flex-wrap:wrap}
+.lg-tpl2-seg--grid .lg-tpl2-seg-item{flex:1 1 30%;border-left:0;box-shadow:inset 0 0 0 .5px var(--c-border)}
+.lg-tpl2-rd-actions .lg-tpl2-rd-reset{margin-left:auto}
+.lg-tpl2-rd-actions [data-rd-preview][aria-pressed="true"]{background:var(--c-primary,#1B3A5C);border-color:var(--c-primary,#1B3A5C);color:#fff}
 .lg-tpl2-toggle-row{display:flex;align-items:center;justify-content:space-between;gap:10px;padding:6px 0}
 .lg-tpl2-toggle-title{font-size:13px;font-weight:600;color:var(--c-text);display:block}
 .lg-tpl2-toggle-help{font-size:11px;color:var(--c-muted);display:block}
@@ -130,7 +136,14 @@
     <span class="lg-tplbox-card-letter">J</span>
     <span>Footer</span>
   </button></div>
-  <p class="form-help">Sits at the bottom of every page and keeps its own colours, fonts and sizes.</p></div>
+  <p class="form-help">Sits at the bottom of every page and keeps its own colours, fonts and sizes.</p>
+  <div class="lg-tpl2-divider"></div>
+  <div class="lg-tpl2-eyebrow">Results page</div>
+  <div class="lg-tplbox-grid lg-tplbox-grid-results" id="lg-tplbox-grid-results"><button type="button" class="lg-tplbox-card" data-tplbox-pick="redirect">
+    <span class="lg-tplbox-card-letter">L</span>
+    <span>Redirect</span>
+  </button></div>
+  <p class="form-help">The redirect banner and the animation-only screen a "Redirect to offer" rule can show.</p></div>
     <div class="lg-tpl2-center"><div class="lg-tpl2-canvas-shell">
     <div class="lg-tpl2-canvas-toolbar" id="lg-tpl-canvas-toolbar">
       <select class="form-select form-select-sm" id="lg-tpl-theme-select" aria-label="Theme switcher" style="max-width:180px">
@@ -513,6 +526,91 @@
   </div></template>
   <button type="button" class="btn btn-sm btn-secondary" data-tplbox-add="footer.blocks">+ Add a footer block</button>
 </div>
+    <div class="lg-inspector-panel lg-panel-card" data-tplbox-panel="redirect">
+  <h3>L &middot; Redirect</h3>
+  <p class="form-help">How the results page looks when a "Redirect to offer" rule opens an offer after showing it. Colors are this funnel's Theme roles; fonts always come from the Theme.</p>
+
+  <div class="lg-tpl2-eyebrow">Banner</div>
+  <label class="lg-tpl2-toggle-row">
+    <span class="lg-tpl2-toggle-copy">
+      <span class="lg-tpl2-toggle-title">Show the badge</span>
+      
+    </span>
+    <span class="lg-tpl2-switch">
+      <input type="checkbox" data-frame-key="redirect.badge_on" class="lg-tpl2-switch-input" />
+      <span class="lg-tpl2-switch-track" aria-hidden="true"><span class="lg-tpl2-switch-knob"></span></span>
+    </span>
+  </label>
+  <div class="form-group"><label class="form-label">Badge</label><input class="form-input" data-frame-key="redirect.badge_text" placeholder="It’s a match" /></div>
+  <div class="form-group"><label class="form-label">Headline</label><input class="form-input" data-frame-key="redirect.headline" placeholder="We found an offer that fits you" /></div>
+  <label class="lg-tpl2-toggle-row">
+    <span class="lg-tpl2-toggle-copy">
+      <span class="lg-tpl2-toggle-title">Show the message</span>
+      
+    </span>
+    <span class="lg-tpl2-switch">
+      <input type="checkbox" data-frame-key="redirect.message_on" class="lg-tpl2-switch-input" />
+      <span class="lg-tpl2-switch-track" aria-hidden="true"><span class="lg-tpl2-switch-knob"></span></span>
+    </span>
+  </label>
+  <div class="form-group"><label class="form-label">Message</label><input class="form-input" data-frame-key="redirect.message" placeholder="{brand} will help you finish in a few steps." /></div>
+  <div class="form-group"><label class="form-label">Countdown line</label><input class="form-input" data-frame-key="redirect.countdown_line" placeholder="Taking you to {brand} in {n}…" /><p class="form-help">Must include {n}, the seconds left.</p></div>
+  <div class="form-group"><label class="form-label">“Stay here” label</label><input class="form-input" data-frame-key="redirect.stay_label" placeholder="Stay here" /></div>
+  <p class="form-help">Fill-ins: {brand} is the offer's brand name ("your offer" when it has none) and {n} is the seconds left. Up to 120 characters each. Leave a box empty to use the text shown in it.</p>
+  <div class="lg-scalars">
+    <div class="form-group"><label class="form-label">Background</label><div class="lg-role-strip" data-role-strip="redirect.background_role"><button type="button" class="lg-role-swatch" data-role-pick="brand_primary" data-role-pick-for="redirect.background_role" title="Brand primary" aria-label="Brand primary"></button><button type="button" class="lg-role-swatch" data-role-pick="brand_secondary" data-role-pick-for="redirect.background_role" title="Brand secondary" aria-label="Brand secondary"></button><button type="button" class="lg-role-swatch" data-role-pick="accent" data-role-pick-for="redirect.background_role" title="Accent" aria-label="Accent"></button><button type="button" class="lg-role-swatch" data-role-pick="success" data-role-pick-for="redirect.background_role" title="Success" aria-label="Success"></button><button type="button" class="lg-role-swatch" data-role-pick="error" data-role-pick-for="redirect.background_role" title="Error" aria-label="Error"></button><button type="button" class="lg-role-swatch" data-role-pick="page_background" data-role-pick-for="redirect.background_role" title="Page background" aria-label="Page background"></button><button type="button" class="lg-role-swatch" data-role-pick="card_background" data-role-pick-for="redirect.background_role" title="Card background" aria-label="Card background"></button><button type="button" class="lg-role-swatch" data-role-pick="surface_wash" data-role-pick-for="redirect.background_role" title="Soft fill" aria-label="Soft fill"></button><button type="button" class="lg-role-swatch" data-role-pick="border" data-role-pick-for="redirect.background_role" title="Border" aria-label="Border"></button><button type="button" class="lg-role-swatch" data-role-pick="text_primary" data-role-pick-for="redirect.background_role" title="Text" aria-label="Text"></button><button type="button" class="lg-role-swatch" data-role-pick="text_muted" data-role-pick-for="redirect.background_role" title="Muted text" aria-label="Muted text"></button><button type="button" class="lg-role-swatch" data-role-pick="button_primary_bg" data-role-pick-for="redirect.background_role" title="Button" aria-label="Button"></button><button type="button" class="lg-role-swatch" data-role-pick="button_primary_text" data-role-pick-for="redirect.background_role" title="Button text" aria-label="Button text"></button><button type="button" class="lg-role-swatch" data-role-pick="button_secondary_bg" data-role-pick-for="redirect.background_role" title="Secondary button" aria-label="Secondary button"></button></div></div>
+    <div class="form-group"><label class="form-label">Border</label><div class="lg-role-strip" data-role-strip="redirect.border_role"><button type="button" class="lg-role-swatch" data-role-pick="brand_primary" data-role-pick-for="redirect.border_role" title="Brand primary" aria-label="Brand primary"></button><button type="button" class="lg-role-swatch" data-role-pick="brand_secondary" data-role-pick-for="redirect.border_role" title="Brand secondary" aria-label="Brand secondary"></button><button type="button" class="lg-role-swatch" data-role-pick="accent" data-role-pick-for="redirect.border_role" title="Accent" aria-label="Accent"></button><button type="button" class="lg-role-swatch" data-role-pick="success" data-role-pick-for="redirect.border_role" title="Success" aria-label="Success"></button><button type="button" class="lg-role-swatch" data-role-pick="error" data-role-pick-for="redirect.border_role" title="Error" aria-label="Error"></button><button type="button" class="lg-role-swatch" data-role-pick="page_background" data-role-pick-for="redirect.border_role" title="Page background" aria-label="Page background"></button><button type="button" class="lg-role-swatch" data-role-pick="card_background" data-role-pick-for="redirect.border_role" title="Card background" aria-label="Card background"></button><button type="button" class="lg-role-swatch" data-role-pick="surface_wash" data-role-pick-for="redirect.border_role" title="Soft fill" aria-label="Soft fill"></button><button type="button" class="lg-role-swatch" data-role-pick="border" data-role-pick-for="redirect.border_role" title="Border" aria-label="Border"></button><button type="button" class="lg-role-swatch" data-role-pick="text_primary" data-role-pick-for="redirect.border_role" title="Text" aria-label="Text"></button><button type="button" class="lg-role-swatch" data-role-pick="text_muted" data-role-pick-for="redirect.border_role" title="Muted text" aria-label="Muted text"></button><button type="button" class="lg-role-swatch" data-role-pick="button_primary_bg" data-role-pick-for="redirect.border_role" title="Button" aria-label="Button"></button><button type="button" class="lg-role-swatch" data-role-pick="button_primary_text" data-role-pick-for="redirect.border_role" title="Button text" aria-label="Button text"></button><button type="button" class="lg-role-swatch" data-role-pick="button_secondary_bg" data-role-pick-for="redirect.border_role" title="Secondary button" aria-label="Secondary button"></button></div></div>
+    <div class="form-group"><label class="form-label">Badge text</label><div class="lg-role-strip" data-role-strip="redirect.badge_role"><button type="button" class="lg-role-swatch" data-role-pick="brand_primary" data-role-pick-for="redirect.badge_role" title="Brand primary" aria-label="Brand primary"></button><button type="button" class="lg-role-swatch" data-role-pick="brand_secondary" data-role-pick-for="redirect.badge_role" title="Brand secondary" aria-label="Brand secondary"></button><button type="button" class="lg-role-swatch" data-role-pick="accent" data-role-pick-for="redirect.badge_role" title="Accent" aria-label="Accent"></button><button type="button" class="lg-role-swatch" data-role-pick="success" data-role-pick-for="redirect.badge_role" title="Success" aria-label="Success"></button><button type="button" class="lg-role-swatch" data-role-pick="error" data-role-pick-for="redirect.badge_role" title="Error" aria-label="Error"></button><button type="button" class="lg-role-swatch" data-role-pick="page_background" data-role-pick-for="redirect.badge_role" title="Page background" aria-label="Page background"></button><button type="button" class="lg-role-swatch" data-role-pick="card_background" data-role-pick-for="redirect.badge_role" title="Card background" aria-label="Card background"></button><button type="button" class="lg-role-swatch" data-role-pick="surface_wash" data-role-pick-for="redirect.badge_role" title="Soft fill" aria-label="Soft fill"></button><button type="button" class="lg-role-swatch" data-role-pick="border" data-role-pick-for="redirect.badge_role" title="Border" aria-label="Border"></button><button type="button" class="lg-role-swatch" data-role-pick="text_primary" data-role-pick-for="redirect.badge_role" title="Text" aria-label="Text"></button><button type="button" class="lg-role-swatch" data-role-pick="text_muted" data-role-pick-for="redirect.badge_role" title="Muted text" aria-label="Muted text"></button><button type="button" class="lg-role-swatch" data-role-pick="button_primary_bg" data-role-pick-for="redirect.badge_role" title="Button" aria-label="Button"></button><button type="button" class="lg-role-swatch" data-role-pick="button_primary_text" data-role-pick-for="redirect.badge_role" title="Button text" aria-label="Button text"></button><button type="button" class="lg-role-swatch" data-role-pick="button_secondary_bg" data-role-pick-for="redirect.badge_role" title="Secondary button" aria-label="Secondary button"></button></div></div>
+    <div class="form-group"><label class="form-label">Badge fill</label><div class="lg-role-strip" data-role-strip="redirect.badge_bg_role"><button type="button" class="lg-role-swatch" data-role-pick="brand_primary" data-role-pick-for="redirect.badge_bg_role" title="Brand primary" aria-label="Brand primary"></button><button type="button" class="lg-role-swatch" data-role-pick="brand_secondary" data-role-pick-for="redirect.badge_bg_role" title="Brand secondary" aria-label="Brand secondary"></button><button type="button" class="lg-role-swatch" data-role-pick="accent" data-role-pick-for="redirect.badge_bg_role" title="Accent" aria-label="Accent"></button><button type="button" class="lg-role-swatch" data-role-pick="success" data-role-pick-for="redirect.badge_bg_role" title="Success" aria-label="Success"></button><button type="button" class="lg-role-swatch" data-role-pick="error" data-role-pick-for="redirect.badge_bg_role" title="Error" aria-label="Error"></button><button type="button" class="lg-role-swatch" data-role-pick="page_background" data-role-pick-for="redirect.badge_bg_role" title="Page background" aria-label="Page background"></button><button type="button" class="lg-role-swatch" data-role-pick="card_background" data-role-pick-for="redirect.badge_bg_role" title="Card background" aria-label="Card background"></button><button type="button" class="lg-role-swatch" data-role-pick="surface_wash" data-role-pick-for="redirect.badge_bg_role" title="Soft fill" aria-label="Soft fill"></button><button type="button" class="lg-role-swatch" data-role-pick="border" data-role-pick-for="redirect.badge_bg_role" title="Border" aria-label="Border"></button><button type="button" class="lg-role-swatch" data-role-pick="text_primary" data-role-pick-for="redirect.badge_bg_role" title="Text" aria-label="Text"></button><button type="button" class="lg-role-swatch" data-role-pick="text_muted" data-role-pick-for="redirect.badge_bg_role" title="Muted text" aria-label="Muted text"></button><button type="button" class="lg-role-swatch" data-role-pick="button_primary_bg" data-role-pick-for="redirect.badge_bg_role" title="Button" aria-label="Button"></button><button type="button" class="lg-role-swatch" data-role-pick="button_primary_text" data-role-pick-for="redirect.badge_bg_role" title="Button text" aria-label="Button text"></button><button type="button" class="lg-role-swatch" data-role-pick="button_secondary_bg" data-role-pick-for="redirect.badge_bg_role" title="Secondary button" aria-label="Secondary button"></button></div></div>
+    <div class="form-group"><label class="form-label">Headline</label><div class="lg-role-strip" data-role-strip="redirect.headline_role"><button type="button" class="lg-role-swatch" data-role-pick="brand_primary" data-role-pick-for="redirect.headline_role" title="Brand primary" aria-label="Brand primary"></button><button type="button" class="lg-role-swatch" data-role-pick="brand_secondary" data-role-pick-for="redirect.headline_role" title="Brand secondary" aria-label="Brand secondary"></button><button type="button" class="lg-role-swatch" data-role-pick="accent" data-role-pick-for="redirect.headline_role" title="Accent" aria-label="Accent"></button><button type="button" class="lg-role-swatch" data-role-pick="success" data-role-pick-for="redirect.headline_role" title="Success" aria-label="Success"></button><button type="button" class="lg-role-swatch" data-role-pick="error" data-role-pick-for="redirect.headline_role" title="Error" aria-label="Error"></button><button type="button" class="lg-role-swatch" data-role-pick="page_background" data-role-pick-for="redirect.headline_role" title="Page background" aria-label="Page background"></button><button type="button" class="lg-role-swatch" data-role-pick="card_background" data-role-pick-for="redirect.headline_role" title="Card background" aria-label="Card background"></button><button type="button" class="lg-role-swatch" data-role-pick="surface_wash" data-role-pick-for="redirect.headline_role" title="Soft fill" aria-label="Soft fill"></button><button type="button" class="lg-role-swatch" data-role-pick="border" data-role-pick-for="redirect.headline_role" title="Border" aria-label="Border"></button><button type="button" class="lg-role-swatch" data-role-pick="text_primary" data-role-pick-for="redirect.headline_role" title="Text" aria-label="Text"></button><button type="button" class="lg-role-swatch" data-role-pick="text_muted" data-role-pick-for="redirect.headline_role" title="Muted text" aria-label="Muted text"></button><button type="button" class="lg-role-swatch" data-role-pick="button_primary_bg" data-role-pick-for="redirect.headline_role" title="Button" aria-label="Button"></button><button type="button" class="lg-role-swatch" data-role-pick="button_primary_text" data-role-pick-for="redirect.headline_role" title="Button text" aria-label="Button text"></button><button type="button" class="lg-role-swatch" data-role-pick="button_secondary_bg" data-role-pick-for="redirect.headline_role" title="Secondary button" aria-label="Secondary button"></button></div></div>
+    <div class="form-group"><label class="form-label">Text</label><div class="lg-role-strip" data-role-strip="redirect.text_role"><button type="button" class="lg-role-swatch" data-role-pick="brand_primary" data-role-pick-for="redirect.text_role" title="Brand primary" aria-label="Brand primary"></button><button type="button" class="lg-role-swatch" data-role-pick="brand_secondary" data-role-pick-for="redirect.text_role" title="Brand secondary" aria-label="Brand secondary"></button><button type="button" class="lg-role-swatch" data-role-pick="accent" data-role-pick-for="redirect.text_role" title="Accent" aria-label="Accent"></button><button type="button" class="lg-role-swatch" data-role-pick="success" data-role-pick-for="redirect.text_role" title="Success" aria-label="Success"></button><button type="button" class="lg-role-swatch" data-role-pick="error" data-role-pick-for="redirect.text_role" title="Error" aria-label="Error"></button><button type="button" class="lg-role-swatch" data-role-pick="page_background" data-role-pick-for="redirect.text_role" title="Page background" aria-label="Page background"></button><button type="button" class="lg-role-swatch" data-role-pick="card_background" data-role-pick-for="redirect.text_role" title="Card background" aria-label="Card background"></button><button type="button" class="lg-role-swatch" data-role-pick="surface_wash" data-role-pick-for="redirect.text_role" title="Soft fill" aria-label="Soft fill"></button><button type="button" class="lg-role-swatch" data-role-pick="border" data-role-pick-for="redirect.text_role" title="Border" aria-label="Border"></button><button type="button" class="lg-role-swatch" data-role-pick="text_primary" data-role-pick-for="redirect.text_role" title="Text" aria-label="Text"></button><button type="button" class="lg-role-swatch" data-role-pick="text_muted" data-role-pick-for="redirect.text_role" title="Muted text" aria-label="Muted text"></button><button type="button" class="lg-role-swatch" data-role-pick="button_primary_bg" data-role-pick-for="redirect.text_role" title="Button" aria-label="Button"></button><button type="button" class="lg-role-swatch" data-role-pick="button_primary_text" data-role-pick-for="redirect.text_role" title="Button text" aria-label="Button text"></button><button type="button" class="lg-role-swatch" data-role-pick="button_secondary_bg" data-role-pick-for="redirect.text_role" title="Secondary button" aria-label="Secondary button"></button></div></div>
+  </div>
+  <div class="form-group"><label class="form-label">Corners</label><div class="lg-tpl2-seg" role="radiogroup" aria-label="Corners"><label class="lg-tpl2-seg-item"><input type="radio" name="lg-tpl-seg-redirect-corners" value="theme" data-frame-key="redirect.corners" data-frame-radio="1" /><span>Follow the Theme</span></label><label class="lg-tpl2-seg-item"><input type="radio" name="lg-tpl-seg-redirect-corners" value="square" data-frame-key="redirect.corners" data-frame-radio="1" /><span>Square</span></label><label class="lg-tpl2-seg-item"><input type="radio" name="lg-tpl-seg-redirect-corners" value="rounded" data-frame-key="redirect.corners" data-frame-radio="1" /><span>Rounded</span></label></div></div>
+  <div class="form-group"><label class="form-label">Headline size</label><div class="lg-tpl2-seg" role="radiogroup" aria-label="Headline size"><label class="lg-tpl2-seg-item"><input type="radio" name="lg-tpl-seg-redirect-headline_size" value="s" data-frame-key="redirect.headline_size" data-frame-radio="1" /><span>S</span></label><label class="lg-tpl2-seg-item"><input type="radio" name="lg-tpl-seg-redirect-headline_size" value="m" data-frame-key="redirect.headline_size" data-frame-radio="1" /><span>M</span></label><label class="lg-tpl2-seg-item"><input type="radio" name="lg-tpl-seg-redirect-headline_size" value="l" data-frame-key="redirect.headline_size" data-frame-radio="1" /><span>L</span></label></div></div>
+  <label class="lg-tpl2-toggle-row">
+    <span class="lg-tpl2-toggle-copy">
+      <span class="lg-tpl2-toggle-title">Shadow</span>
+      
+    </span>
+    <span class="lg-tpl2-switch">
+      <input type="checkbox" data-frame-key="redirect.shadow" class="lg-tpl2-switch-input" />
+      <span class="lg-tpl2-switch-track" aria-hidden="true"><span class="lg-tpl2-switch-knob"></span></span>
+    </span>
+  </label>
+
+  <div class="lg-tpl2-divider"></div>
+  <div class="lg-tpl2-eyebrow">Animation</div>
+  <div class="form-group"><label class="form-label">Style</label><div class="lg-tpl2-seg lg-tpl2-seg--grid" role="radiogroup" aria-label="Style"><label class="lg-tpl2-seg-item"><input type="radio" name="lg-tpl-seg-redirect-animation" value="ring" data-frame-key="redirect.animation" data-frame-radio="1" /><span>Countdown ring</span></label><label class="lg-tpl2-seg-item"><input type="radio" name="lg-tpl-seg-redirect-animation" value="bar" data-frame-key="redirect.animation" data-frame-radio="1" /><span>Progress bar</span></label><label class="lg-tpl2-seg-item"><input type="radio" name="lg-tpl-seg-redirect-animation" value="logo_bar" data-frame-key="redirect.animation" data-frame-radio="1" /><span>Logo on a bar</span></label><label class="lg-tpl2-seg-item"><input type="radio" name="lg-tpl-seg-redirect-animation" value="spinner" data-frame-key="redirect.animation" data-frame-radio="1" /><span>Spinner</span></label><label class="lg-tpl2-seg-item"><input type="radio" name="lg-tpl-seg-redirect-animation" value="dots" data-frame-key="redirect.animation" data-frame-radio="1" /><span>Dots</span></label></div><p class="form-help">&quot;Logo on a bar&quot; shows the ring when the offer has no logo.</p></div>
+  <div class="lg-scalars">
+    <div class="form-group"><label class="form-label">Color</label><div class="lg-role-strip" data-role-strip="redirect.animation_role"><button type="button" class="lg-role-swatch" data-role-pick="brand_primary" data-role-pick-for="redirect.animation_role" title="Brand primary" aria-label="Brand primary"></button><button type="button" class="lg-role-swatch" data-role-pick="brand_secondary" data-role-pick-for="redirect.animation_role" title="Brand secondary" aria-label="Brand secondary"></button><button type="button" class="lg-role-swatch" data-role-pick="accent" data-role-pick-for="redirect.animation_role" title="Accent" aria-label="Accent"></button><button type="button" class="lg-role-swatch" data-role-pick="success" data-role-pick-for="redirect.animation_role" title="Success" aria-label="Success"></button><button type="button" class="lg-role-swatch" data-role-pick="error" data-role-pick-for="redirect.animation_role" title="Error" aria-label="Error"></button><button type="button" class="lg-role-swatch" data-role-pick="page_background" data-role-pick-for="redirect.animation_role" title="Page background" aria-label="Page background"></button><button type="button" class="lg-role-swatch" data-role-pick="card_background" data-role-pick-for="redirect.animation_role" title="Card background" aria-label="Card background"></button><button type="button" class="lg-role-swatch" data-role-pick="surface_wash" data-role-pick-for="redirect.animation_role" title="Soft fill" aria-label="Soft fill"></button><button type="button" class="lg-role-swatch" data-role-pick="border" data-role-pick-for="redirect.animation_role" title="Border" aria-label="Border"></button><button type="button" class="lg-role-swatch" data-role-pick="text_primary" data-role-pick-for="redirect.animation_role" title="Text" aria-label="Text"></button><button type="button" class="lg-role-swatch" data-role-pick="text_muted" data-role-pick-for="redirect.animation_role" title="Muted text" aria-label="Muted text"></button><button type="button" class="lg-role-swatch" data-role-pick="button_primary_bg" data-role-pick-for="redirect.animation_role" title="Button" aria-label="Button"></button><button type="button" class="lg-role-swatch" data-role-pick="button_primary_text" data-role-pick-for="redirect.animation_role" title="Button text" aria-label="Button text"></button><button type="button" class="lg-role-swatch" data-role-pick="button_secondary_bg" data-role-pick-for="redirect.animation_role" title="Secondary button" aria-label="Secondary button"></button></div></div>
+    <div class="form-group"><label class="form-label">Track</label><div class="lg-role-strip" data-role-strip="redirect.track_role"><button type="button" class="lg-role-swatch" data-role-pick="brand_primary" data-role-pick-for="redirect.track_role" title="Brand primary" aria-label="Brand primary"></button><button type="button" class="lg-role-swatch" data-role-pick="brand_secondary" data-role-pick-for="redirect.track_role" title="Brand secondary" aria-label="Brand secondary"></button><button type="button" class="lg-role-swatch" data-role-pick="accent" data-role-pick-for="redirect.track_role" title="Accent" aria-label="Accent"></button><button type="button" class="lg-role-swatch" data-role-pick="success" data-role-pick-for="redirect.track_role" title="Success" aria-label="Success"></button><button type="button" class="lg-role-swatch" data-role-pick="error" data-role-pick-for="redirect.track_role" title="Error" aria-label="Error"></button><button type="button" class="lg-role-swatch" data-role-pick="page_background" data-role-pick-for="redirect.track_role" title="Page background" aria-label="Page background"></button><button type="button" class="lg-role-swatch" data-role-pick="card_background" data-role-pick-for="redirect.track_role" title="Card background" aria-label="Card background"></button><button type="button" class="lg-role-swatch" data-role-pick="surface_wash" data-role-pick-for="redirect.track_role" title="Soft fill" aria-label="Soft fill"></button><button type="button" class="lg-role-swatch" data-role-pick="border" data-role-pick-for="redirect.track_role" title="Border" aria-label="Border"></button><button type="button" class="lg-role-swatch" data-role-pick="text_primary" data-role-pick-for="redirect.track_role" title="Text" aria-label="Text"></button><button type="button" class="lg-role-swatch" data-role-pick="text_muted" data-role-pick-for="redirect.track_role" title="Muted text" aria-label="Muted text"></button><button type="button" class="lg-role-swatch" data-role-pick="button_primary_bg" data-role-pick-for="redirect.track_role" title="Button" aria-label="Button"></button><button type="button" class="lg-role-swatch" data-role-pick="button_primary_text" data-role-pick-for="redirect.track_role" title="Button text" aria-label="Button text"></button><button type="button" class="lg-role-swatch" data-role-pick="button_secondary_bg" data-role-pick-for="redirect.track_role" title="Secondary button" aria-label="Secondary button"></button></div></div>
+  </div>
+  <div class="form-group"><label class="form-label">Size</label><div class="lg-tpl2-seg" role="radiogroup" aria-label="Size"><label class="lg-tpl2-seg-item"><input type="radio" name="lg-tpl-seg-redirect-animation_size" value="s" data-frame-key="redirect.animation_size" data-frame-radio="1" /><span>S</span></label><label class="lg-tpl2-seg-item"><input type="radio" name="lg-tpl-seg-redirect-animation_size" value="m" data-frame-key="redirect.animation_size" data-frame-radio="1" /><span>M</span></label><label class="lg-tpl2-seg-item"><input type="radio" name="lg-tpl-seg-redirect-animation_size" value="l" data-frame-key="redirect.animation_size" data-frame-radio="1" /><span>L</span></label></div><p class="form-help">The animation-only screen shows it one size larger.</p></div>
+  <label class="lg-tpl2-toggle-row">
+    <span class="lg-tpl2-toggle-copy">
+      <span class="lg-tpl2-toggle-title">Show the seconds</span>
+      <span class="lg-tpl2-toggle-help">Inside the ring, or beside the bar.</span>
+    </span>
+    <span class="lg-tpl2-switch">
+      <input type="checkbox" data-frame-key="redirect.show_seconds" class="lg-tpl2-switch-input" />
+      <span class="lg-tpl2-switch-track" aria-hidden="true"><span class="lg-tpl2-switch-knob"></span></span>
+    </span>
+  </label>
+
+  <div class="lg-tpl2-divider"></div>
+  <div class="lg-tpl2-eyebrow">Animation only</div>
+  <div class="form-group"><label class="form-label">Headline</label><input class="form-input" data-frame-key="redirect.only_headline" placeholder="Taking you to {brand}…" /></div>
+  <div class="form-group"><label class="form-label">Message</label><input class="form-input" data-frame-key="redirect.only_message" placeholder="You’ll continue on our partner’s site in a few seconds." /></div>
+  <div class="form-group"><label class="form-label">Link</label><input class="form-input" data-frame-key="redirect.only_link" placeholder="Show me all offers" /></div>
+
+  <div class="lg-tpl2-divider"></div>
+  <div class="lg-tpl2-bar-row lg-tpl2-rd-actions">
+    <button type="button" class="btn btn-sm btn-secondary" data-rd-preview="banner" aria-pressed="false">Preview banner</button>
+    <button type="button" class="btn btn-sm btn-secondary" data-rd-preview="animation" aria-pressed="false">Preview animation only</button>
+    <button type="button" class="btn btn-sm btn-outline lg-tpl2-rd-reset" id="lg-tpl-redirect-reset">Reset to defaults</button>
+  </div>
+  <p class="form-help" id="lg-tpl-redirect-status" role="status"></p>
+</div>
   </div></div>
   </div>
   <div class="lg-tpl2-dialog-overlay lg-hidden" id="lg-tpl-apply-dialog" role="dialog" aria-modal="true" aria-label="Apply a template to this funnel">
@@ -596,6 +694,189 @@
   var lastRealProgressStyle = 'bar';
   var previewSeq = 0;
   var currentSections = [];
+  // F11 "L · Redirect" — the preview data and the ES5 twins of the server's
+  // redirect renderer (quotes-tabs/redirect-preview.ts). rdPreview is '' (the
+  // normal canvas), 'banner' or 'animation'.
+  var RD = {"css":".lg-rd{display:block;width:100%;box-sizing:border-box}.lg-rd .lg-rd-chrome{display:none}.lg-rd[data-lg-rd-live] .lg-rd-head{display:flex;flex-direction:column;align-items:center;text-align:center;gap:12px}.lg-rd[data-lg-rd-live] .lg-rd-foot{display:flex;justify-content:center}.lg-rd--banner[data-lg-rd-live] .lg-rd-box{display:flex;flex-direction:column;gap:16px;max-width:520px;margin:0 auto;padding:26px 22px 18px;box-sizing:border-box;background:var(--lg-rd-bg);border:1px solid var(--lg-rd-border);border-radius:var(--lg-rd-radius);box-shadow:var(--lg-rd-shadow);font-family:var(--lg-rd-font-body)}.lg-rd--banner[data-lg-rd-live] .lg-banner:not([data-lg-rd-chosen]){display:none!important}.lg-rd--banner[data-lg-rd-live] .lg-rd-cards .lg-banners{margin:0 auto;max-width:100%}.lg-rd--only[data-lg-rd-live] .lg-rd-cards{display:none!important}.lg-rd--only[data-lg-rd-live] .lg-rd-box{padding:40px 0 24px;font-family:var(--lg-rd-font-body)}.lg-rd--only[data-lg-rd-live] .lg-rd-head{gap:14px}.lg-rd .lg-banner[data-lg-rd-hide]{display:none!important}.lg-rd-badge{display:inline-block;font-family:var(--lg-rd-font-body);font-size:12px;font-weight:600;line-height:1;text-transform:uppercase;letter-spacing:.08em;color:var(--lg-rd-badge);background:var(--lg-rd-badge-bg);border-radius:999px;padding:6px 12px}.lg-rd-headline{margin:0;font-family:var(--lg-rd-font-head);font-size:var(--lg-rd-hs);font-weight:600;line-height:1.2;color:var(--lg-rd-head)}.lg-rd-headline--only{font-size:var(--lg-rd-only-hs)}.lg-rd-message{margin:0;font-family:var(--lg-rd-font-body);font-size:15px;font-weight:400;line-height:1.5;color:var(--lg-rd-text)}.lg-rd-line{margin:0;font-family:var(--lg-rd-font-body);font-size:14px;font-weight:500;line-height:1.4;color:var(--lg-rd-text)}.lg-rd-anim{display:flex;justify-content:center;width:100%;margin:4px 0}.lg-rd-stay{-webkit-appearance:none;appearance:none;background:none;border:0;margin:0;padding:6px 8px;font-family:var(--lg-rd-font-body);font-size:14px;line-height:1.4;color:var(--lg-rd-text);text-decoration:underline;cursor:pointer}.lg-rd-stay:focus-visible{outline:2px solid var(--lg-ra-color);outline-offset:2px;border-radius:4px}.lg-rd-sr{position:absolute!important;width:1px;height:1px;margin:-1px;padding:0;border:0;overflow:hidden;clip:rect(0,0,0,0);white-space:nowrap}.lg-rd[data-lg-rd-run=\"clicked\"] .lg-rd-anim,.lg-rd[data-lg-rd-run=\"clicked\"] .lg-rd-line{display:none}@media (max-width:480px){.lg-rd--banner[data-lg-rd-live] .lg-rd-box{padding:22px 18px}.lg-rd-headline{font-size:var(--lg-rd-hs-sm)}.lg-rd-headline--only{font-size:var(--lg-rd-only-hs-sm)}}.lg-ra{position:relative;display:inline-flex;align-items:center;justify-content:center;gap:10px;max-width:100%;--lg-ra-size:64px}.lg-ra--s{--lg-ra-size:48px}.lg-ra--m{--lg-ra-size:64px}.lg-ra--l{--lg-ra-size:96px}.lg-ra--ring{width:var(--lg-ra-size);height:var(--lg-ra-size)}.lg-ra-svg{display:block;width:100%;height:100%;transform:rotate(-90deg)}.lg-ra-track{fill:none;stroke:var(--lg-ra-track,#D2D9E5);stroke-width:4}.lg-ra-prog{fill:none;stroke:var(--lg-ra-color,#1B3A5C);stroke-width:4;stroke-linecap:round;stroke-dasharray:175.93;stroke-dashoffset:0;animation:lg-ra-empty var(--lg-ra-secs,5s) linear forwards}@keyframes lg-ra-empty{from{stroke-dashoffset:0}to{stroke-dashoffset:175.93}}.lg-ra-n{font-weight:600;font-variant-numeric:tabular-nums;line-height:1;color:var(--lg-ra-text,inherit)}.lg-ra--ring .lg-ra-n{position:absolute;top:0;left:0;right:0;bottom:0;display:flex;align-items:center;justify-content:center;font-size:calc(var(--lg-ra-size) * .32)}.lg-ra-n--side{font-size:14px;min-width:1.2em;text-align:left}.lg-ra-bar{display:block;position:relative;width:calc(var(--lg-ra-size) * 3.4);max-width:100%;height:calc(var(--lg-ra-size) / 8);border-radius:999px;background:var(--lg-ra-track,#D2D9E5);overflow:hidden}.lg-ra-fill{display:block;height:100%;width:0;border-radius:999px;background:var(--lg-ra-color,#1B3A5C);animation:lg-ra-fill var(--lg-ra-secs,5s) linear forwards}@keyframes lg-ra-fill{from{width:0}to{width:100%}}.lg-ra--logo_bar{flex-direction:column;align-items:stretch;gap:6px;width:calc(var(--lg-ra-size) * 3.4);max-width:100%}.lg-ra--logo_bar .lg-ra-bar{width:100%}.lg-ra-lane{display:block;position:relative;height:calc(var(--lg-ra-size) * .62)}.lg-ra-logo{position:absolute;bottom:0;left:0;display:flex;align-items:center;justify-content:center;height:100%;padding:3px 6px;box-sizing:border-box;background:#FFFFFF;border:1px solid var(--lg-ra-track,#D2D9E5);border-radius:6px;box-shadow:0 1px 3px rgba(16,24,40,.08);animation:lg-ra-ride var(--lg-ra-secs,5s) linear forwards}.lg-ra-logo img{display:block;height:100%;width:auto;max-width:calc(var(--lg-ra-size) * 1.9);object-fit:contain}@keyframes lg-ra-ride{from{left:0;transform:translateX(0)}to{left:100%;transform:translateX(-100%)}}.lg-ra-spin{display:block;width:var(--lg-ra-size);height:var(--lg-ra-size);box-sizing:border-box;border-radius:50%;border:calc(var(--lg-ra-size) / 16) solid var(--lg-ra-track,#D2D9E5);border-top-color:var(--lg-ra-color,#1B3A5C);animation:lg-ra-spin 1s linear;animation-iteration-count:var(--lg-ra-turns,5)}@keyframes lg-ra-spin{to{transform:rotate(360deg)}}.lg-ra--dots{gap:calc(var(--lg-ra-size) / 8);height:calc(var(--lg-ra-size) / 2)}.lg-ra-dot{display:block;width:calc(var(--lg-ra-size) / 5.33);height:calc(var(--lg-ra-size) / 5.33);border-radius:50%;background:var(--lg-ra-color,#1B3A5C);opacity:.4;transform:scale(.6);animation:lg-ra-pulse1 1s ease-in-out;animation-iteration-count:var(--lg-ra-turns,5)}.lg-ra-dot:nth-child(2){animation-name:lg-ra-pulse2}.lg-ra-dot:nth-child(3){animation-name:lg-ra-pulse3}@keyframes lg-ra-pulse1{0%,45%,100%{transform:scale(.6);opacity:.4}20%{transform:scale(1);opacity:1}}@keyframes lg-ra-pulse2{0%,25%,70%,100%{transform:scale(.6);opacity:.4}45%{transform:scale(1);opacity:1}}@keyframes lg-ra-pulse3{0%,50%,95%,100%{transform:scale(.6);opacity:.4}70%{transform:scale(1);opacity:1}}[data-lg-rd-paused] .lg-ra-prog,[data-lg-rd-paused] .lg-ra-fill,[data-lg-rd-paused] .lg-ra-logo,[data-lg-rd-paused] .lg-ra-spin,[data-lg-rd-paused] .lg-ra-dot{animation-play-state:paused}@media (prefers-reduced-motion:reduce){.lg-ra-prog,.lg-ra-fill,.lg-ra-logo,.lg-ra-spin,.lg-ra-dot{animation:none!important}.lg-ra-prog{stroke-dashoffset:calc(175.93px * var(--lg-ra-p,0))}.lg-ra-fill{width:calc(100% * var(--lg-ra-p,0))}.lg-ra-logo{left:calc(100% * var(--lg-ra-p,0));transform:translateX(calc(-100% * var(--lg-ra-p,0)))}.lg-ra-dot{opacity:.7;transform:none}}","preview_css":"[data-lg-section]{display:none!important}.lg-rd.lg-rd--loop{--lg-ra-turns:infinite}.lg-rd--loop .lg-ra-prog,.lg-rd--loop .lg-ra-fill,.lg-rd--loop .lg-ra-logo{animation-iteration-count:infinite}.lg-rd--loop .lg-banner{pointer-events:none}","defaults":{"badge_on":true,"badge_text":"It’s a match","headline":"We found an offer that fits you","message_on":true,"message":"{brand} will help you finish in a few steps.","countdown_line":"Taking you to {brand} in {n}…","stay_label":"Stay here","background_role":"card_background","border_role":"border","badge_role":"brand_primary","badge_bg_role":"surface_wash","headline_role":"text_primary","text_role":"text_muted","corners":"theme","shadow":true,"headline_size":"m","animation":"ring","animation_role":"brand_primary","track_role":"border","animation_size":"m","show_seconds":true,"only_headline":"Taking you to {brand}…","only_message":"You’ll continue on our partner’s site in a few seconds.","only_link":"Show me all offers"},"role_paths":{"brand_primary":"color.primary","brand_secondary":"color.primaryLight","accent":"color.accent","success":"color.success","error":"color.error","page_background":"page.backgroundColor","card_background":"color.card","surface_wash":"color.primaryWash","border":"color.border","text_primary":"page.textColor","text_muted":"page.textSecondaryColor","button_primary_bg":"primaryButton.background","button_primary_text":"primaryButton.color","button_secondary_bg":"color.primaryGhost"},"roles":["brand_primary","brand_secondary","accent","success","error","page_background","card_background","surface_wash","border","text_primary","text_muted","button_primary_bg","button_primary_text","button_secondary_bg"],"sizes":["s","m","l"],"corners":["theme","square","rounded"],"animations":["ring","bar","logo_bar","spinner","dots"],"text_max":120,"headline_px":{"s":[20,18],"m":[24,21],"l":[28,24]},"only_headline_px":[26,22],"only_size":{"s":"m","m":"l","l":"l"},"rounded":"24px","no_brand":"your offer","sample":{"brand":"Sample Partner","logo_url":"data:image/svg+xml,%3Csvg%20xmlns%3D'http%3A%2F%2Fwww.w3.org%2F2000%2Fsvg'%20width%3D'160'%20height%3D'60'%20viewBox%3D'0%200%20160%2060'%3E%3Crect%20x%3D'1'%20y%3D'1'%20width%3D'158'%20height%3D'58'%20rx%3D'10'%20fill%3D'%23F2F4F7'%20stroke%3D'%23D0D5DD'%2F%3E%3Ccircle%20cx%3D'30'%20cy%3D'30'%20r%3D'13'%20fill%3D'%2398A2B3'%2F%3E%3Ctext%20x%3D'52'%20y%3D'36'%20font-family%3D'Arial%2Csans-serif'%20font-size%3D'17'%20font-weight%3D'700'%20fill%3D'%23475467'%3EPartner%3C%2Ftext%3E%3C%2Fsvg%3E","seconds":5,"cards_html":"\u003cdiv class=\"lg-banners\" data-banner-render-id=\"preview\">\u003ca class=\"lg-banner\" data-lg-rd-chosen=\"1\" href=\"/lg/lc/lgo_preview?ck=sample-partner&amp;aiid=preview&amp;brid=preview&amp;slot=1&amp;faid=preview\" data-recommended=\"true\" data-slot=\"1\" data-carrier-key=\"sample-partner\" data-offer=\"lgo_preview\">\u003cdiv class=\"lg-banner-badge\">BEST MATCH FOR YOU\u003c/div>\u003cimg class=\"lg-banner-logo\" src=\"data:image/svg+xml,%3Csvg%20xmlns%3D'http%3A%2F%2Fwww.w3.org%2F2000%2Fsvg'%20width%3D'160'%20height%3D'60'%20viewBox%3D'0%200%20160%2060'%3E%3Crect%20x%3D'1'%20y%3D'1'%20width%3D'158'%20height%3D'58'%20rx%3D'10'%20fill%3D'%23F2F4F7'%20stroke%3D'%23D0D5DD'%2F%3E%3Ccircle%20cx%3D'30'%20cy%3D'30'%20r%3D'13'%20fill%3D'%2398A2B3'%2F%3E%3Ctext%20x%3D'52'%20y%3D'36'%20font-family%3D'Arial%2Csans-serif'%20font-size%3D'17'%20font-weight%3D'700'%20fill%3D'%23475467'%3EPartner%3C%2Ftext%3E%3C%2Fsvg%3E\" alt=\"Sample Partner\" onerror=\"this.style.display='none'\" />\u003cdiv class=\"lg-banner-content\">\u003cdiv class=\"lg-banner-name\">Sample Partner\u003c/div>\u003cdiv class=\"lg-banner-headline\">It’s a match!\u003c/div>\u003cdiv class=\"lg-banner-subheadline\">Tap below to continue on the partner’s site, where you’ll finish a few questions.\u003c/div>\u003c/div>\u003cspan class=\"lg-banner-cta\">VIEW MY RATE\u003c/span>\u003c/a>\u003c/div>"}};
+  var rdPreview = '';
+  var rdTicker = null;
+  var rdTickStart = 0;
+
+  // Tags are spelt from parts so this island's text never carries an
+  // unbalanced div token (the panel slicers count them).
+  var RD_DIV_O = '<' + 'div';
+  var RD_DIV_C = '<' + '/div>';
+  var RD_TEXT_KEYS = ['badge_text', 'headline', 'message', 'countdown_line', 'stay_label', 'only_headline', 'only_message', 'only_link'];
+  var RD_ROLE_SLOTS = [['background', 'background_role'], ['border', 'border_role'], ['badge', 'badge_role'], ['badge_bg', 'badge_bg_role'], ['headline', 'headline_role'], ['text', 'text_role'], ['animation', 'animation_role'], ['track', 'track_role']];
+  function rdIsRecord(v) { return v !== null && typeof v === 'object' && !(v instanceof Array); }
+  function rdEsc(v) {
+    return String(v).replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;').replace(/'/g, '&#39;');
+  }
+  // redirect/look.ts safeCss
+  function rdSafeCss(v, fallback) {
+    if (typeof v !== 'string') { return fallback; }
+    var t = v.trim();
+    if (t === '' || !/^[#\w\s.,%()'"\/+-]{1,200}$/.test(t) || /url\s*\(|expression|\\|\/\*/i.test(t)) { return fallback; }
+    return t;
+  }
+  function rdRead(design, group, key) {
+    var g = rdIsRecord(design) ? design[group] : undefined;
+    return rdIsRecord(g) ? g[key] : undefined;
+  }
+  // designs/theme.ts baseTokenForRole
+  function rdRoleValue(design, role) {
+    var path = RD.role_paths[role] || '';
+    var dot = path.indexOf('.');
+    var v = dot < 0 ? undefined : rdRead(design, path.slice(0, dot), path.slice(dot + 1));
+    return typeof v === 'string' ? v : '';
+  }
+  function rdPickText(s, key) {
+    var v = s[key];
+    var f = RD.defaults[key];
+    if (typeof v !== 'string') { return f; }
+    var t = v.trim();
+    if (t === '' || t.length > RD.text_max) { return f; }
+    if (key === 'countdown_line' && t.indexOf('{n}') < 0) { return f; }
+    return t;
+  }
+  function rdPickEnum(s, key, values, fallback) {
+    var v = s[key];
+    return (typeof v === 'string' && values.indexOf(v) >= 0) ? v : fallback;
+  }
+  function rdPickBool(s, key) { return typeof s[key] === 'boolean' ? s[key] : RD.defaults[key]; }
+  // redirect/look.ts resolveRedirectLook
+  function rdResolveLook(stored, design) {
+    var s = rdIsRecord(stored) ? stored : {};
+    var D = RD.defaults;
+    var look = { texts: {}, roles: {}, css: {} };
+    var i, slot, v;
+    for (i = 0; i < RD_ROLE_SLOTS.length; i++) {
+      v = s[RD_ROLE_SLOTS[i][1]];
+      look.roles[RD_ROLE_SLOTS[i][0]] = (typeof v === 'string' && RD.roles.indexOf(v) >= 0) ? v : D[RD_ROLE_SLOTS[i][1]];
+    }
+    for (i = 0; i < RD_TEXT_KEYS.length; i++) { look.texts[RD_TEXT_KEYS[i]] = rdPickText(s, RD_TEXT_KEYS[i]); }
+    look.corners = rdPickEnum(s, 'corners', RD.corners, D.corners);
+    look.shadow = rdPickBool(s, 'shadow');
+    look.animation_size = rdPickEnum(s, 'animation_size', RD.sizes, D.animation_size);
+    for (i = 0; i < RD_ROLE_SLOTS.length; i++) {
+      slot = RD_ROLE_SLOTS[i][0];
+      look.css[slot] = rdSafeCss(rdRoleValue(design, look.roles[slot]), slot === 'background' ? 'white' : 'currentColor');
+    }
+    look.css.radius = look.corners === 'square' ? '0px' : (look.corners === 'rounded' ? RD.rounded : rdSafeCss(rdRead(design, 'radius', 'lg'), '14px'));
+    look.css.shadow = look.shadow ? rdSafeCss(rdRead(design, 'shadow', 'lg'), 'none') : 'none';
+    look.css.font_headline = rdSafeCss(rdRead(design, 'headline', 'fontFamily'), 'inherit');
+    look.css.font_body = rdSafeCss(rdRead(design, 'page', 'fontFamily'), 'inherit');
+    look.badge_on = rdPickBool(s, 'badge_on');
+    look.message_on = rdPickBool(s, 'message_on');
+    look.show_seconds = rdPickBool(s, 'show_seconds');
+    look.headline_size = rdPickEnum(s, 'headline_size', RD.sizes, D.headline_size);
+    look.animation = rdPickEnum(s, 'animation', RD.animations, D.animation);
+    return look;
+  }
+  // redirect/screen.ts redirectLookVarsCss
+  function rdVarsCss(look, seconds) {
+    var hs = RD.headline_px[look.headline_size];
+    var c = look.css;
+    return '.lg-rd{' +
+      '--lg-rd-bg:' + c.background + ';--lg-rd-border:' + c.border + ';--lg-rd-badge:' + c.badge + ';--lg-rd-badge-bg:' + c.badge_bg + ';' +
+      '--lg-rd-head:' + c.headline + ';--lg-rd-text:' + c.text + ';--lg-rd-radius:' + c.radius + ';--lg-rd-shadow:' + c.shadow + ';' +
+      '--lg-rd-font-head:' + c.font_headline + ';--lg-rd-font-body:' + c.font_body + ';' +
+      '--lg-rd-hs:' + hs[0] + 'px;--lg-rd-hs-sm:' + hs[1] + 'px;--lg-rd-only-hs:' + RD.only_headline_px[0] + 'px;--lg-rd-only-hs-sm:' + RD.only_headline_px[1] + 'px;' +
+      '--lg-ra-color:' + c.animation + ';--lg-ra-track:' + c.track + ';--lg-ra-text:' + c.headline + ';' +
+      '--lg-ra-secs:' + seconds + 's;--lg-ra-turns:' + seconds +
+      '}';
+  }
+  // redirect/screen.ts fillRedirectText
+  function rdFill(text, brand, seconds) {
+    var name = (typeof brand === 'string' && brand.trim() !== '') ? brand.trim() : null;
+    return rdEsc(text).replace(/\{brand\}|\{n\}/g, function (token, offset) {
+      if (token === '{n}') { return '<span data-lg-rd-n>' + String(seconds) + '</span>'; }
+      if (name !== null) { return rdEsc(name); }
+      return offset === 0 ? RD.no_brand.charAt(0).toUpperCase() + RD.no_brand.slice(1) : RD.no_brand;
+    });
+  }
+  // redirect/animations.ts isHttpLogoUrl (+ the preview's own inline sample logo)
+  function rdIsLogo(u) {
+    return typeof u === 'string' && (/^https?:\/\/[^\s"'<>]+$/i.test(u.trim()) || u.indexOf('data:image/svg+xml,') === 0);
+  }
+  // redirect/animations.ts renderCountdownAnimation
+  function rdAnimation(style, size, showSeconds, seconds, logoUrl, logoAlt) {
+    if (style === 'logo_bar' && !rdIsLogo(logoUrl)) { style = 'ring'; }
+    if (RD.sizes.indexOf(size) < 0) { size = 'm'; }
+    var cls = 'lg-ra lg-ra--' + style + ' lg-ra--' + size;
+    var n = String(Math.max(0, Math.floor(seconds)));
+    if (style === 'ring') {
+      return RD_DIV_O + ' class="' + cls + '" aria-hidden="true">' +
+        '<svg class="lg-ra-svg" viewBox="0 0 64 64" focusable="false">' +
+        '<circle class="lg-ra-track" cx="32" cy="32" r="28"></circle>' +
+        '<circle class="lg-ra-prog" cx="32" cy="32" r="28"></circle>' +
+        '</svg>' + (showSeconds ? '<span class="lg-ra-n" data-lg-rd-n>' + n + '</span>' : '') + RD_DIV_C;
+    }
+    if (style === 'bar') {
+      return RD_DIV_O + ' class="' + cls + '" aria-hidden="true">' +
+        '<span class="lg-ra-bar"><span class="lg-ra-fill"></span></span>' +
+        (showSeconds ? '<span class="lg-ra-n lg-ra-n--side" data-lg-rd-n>' + n + '</span>' : '') + RD_DIV_C;
+    }
+    if (style === 'logo_bar') {
+      return RD_DIV_O + ' class="' + cls + '" aria-hidden="true">' +
+        '<span class="lg-ra-lane"><span class="lg-ra-logo">' +
+        '<img src="' + rdEsc(logoUrl.trim()) + '" alt="' + rdEsc(logoAlt === null || logoAlt === undefined ? '' : logoAlt) + '" />' +
+        '</span></span>' +
+        '<span class="lg-ra-bar"><span class="lg-ra-fill"></span></span>' + RD_DIV_C;
+    }
+    if (style === 'spinner') { return RD_DIV_O + ' class="' + cls + '" aria-hidden="true"><span class="lg-ra-spin"></span>' + RD_DIV_C; }
+    return RD_DIV_O + ' class="' + cls + '" aria-hidden="true"><span class="lg-ra-dot"></span><span class="lg-ra-dot"></span><span class="lg-ra-dot"></span>' + RD_DIV_C;
+  }
+  // redirect/screen.ts renderRedirectMarkup
+  function rdMarkup(m) {
+    var look = m.look, t = look.texts, brand = m.brand, seconds = m.seconds;
+    var only = m.display === 'animation';
+    var size = only ? RD.only_size[look.animation_size] : look.animation_size;
+    var anim = rdAnimation(look.animation, size, look.show_seconds, seconds, rdIsLogo(m.logo_url) ? m.logo_url : null, brand);
+    var line = rdFill(t.countdown_line, brand, seconds);
+    var open = RD_DIV_O + ' class="lg-rd ' + (only ? 'lg-rd--only' : 'lg-rd--banner') + '" data-lg-redirect' +
+      ' data-lg-rd-display="' + (only ? 'animation' : 'banner') + '" data-lg-rd-seconds="' + seconds + '"' +
+      ' data-lg-rd-slot="' + m.slot + '" data-lg-rd-brid="' + rdEsc(m.brid) + '" data-lg-rd-faid="' + rdEsc(m.faid) + '"' +
+      ' data-lg-rd-hides="' + m.stay_mode + '" data-lg-rd-hides-key="' + rdEsc(m.stay_key) + '">' +
+      '<style>' + RD.css + rdVarsCss(look, seconds) + '</style>' +
+      RD_DIV_O + ' class="lg-rd-box">';
+    var cards = RD_DIV_O + ' class="lg-rd-cards">' + m.cards_html + RD_DIV_C;
+    function stay(label) { return '<button type="button" class="lg-rd-stay" data-lg-rd-stay>' + rdFill(label, brand, seconds) + '</button>'; }
+    if (only) {
+      return open + RD_DIV_O + ' class="lg-rd-chrome lg-rd-head">' +
+        RD_DIV_O + ' class="lg-rd-anim">' + anim + RD_DIV_C +
+        '<h2 class="lg-rd-headline lg-rd-headline--only">' + rdFill(t.only_headline, brand, seconds) + '</h2>' +
+        '<p class="lg-rd-message">' + rdFill(t.only_message, brand, seconds) + '</p>' +
+        '<p class="lg-rd-line lg-rd-sr" role="status">' + line + '</p>' +
+        stay(t.only_link) + RD_DIV_C + cards + RD_DIV_C + RD_DIV_C;
+    }
+    return open + RD_DIV_O + ' class="lg-rd-chrome lg-rd-head">' +
+      (look.badge_on ? '<span class="lg-rd-badge">' + rdFill(t.badge_text, brand, seconds) + '</span>' : '') +
+      '<h2 class="lg-rd-headline">' + rdFill(t.headline, brand, seconds) + '</h2>' +
+      (look.message_on ? '<p class="lg-rd-message">' + rdFill(t.message, brand, seconds) + '</p>' : '') +
+      RD_DIV_O + ' class="lg-rd-anim">' + anim + RD_DIV_C +
+      '<p class="lg-rd-line" role="status">' + line + '</p>' +
+      RD_DIV_C + cards +
+      RD_DIV_O + ' class="lg-rd-chrome lg-rd-foot">' + stay(t.stay_label) + RD_DIV_C +
+      RD_DIV_C + RD_DIV_C;
+  }
+  // The preview: the sample offer's redirect screen dropped into the composed
+  // page's banners mount, claimed (live, looping) the way the visitor page's
+  // script would claim it.
+  function rdPreviewHtml(pageHtml, display, stored, design) {
+    var S = RD.sample;
+    var markup = rdMarkup({
+      display: display, look: rdResolveLook(stored, design), seconds: S.seconds, brand: S.brand,
+      logo_url: S.logo_url, cards_html: S.cards_html, slot: 1, brid: 'preview', faid: '', stay_mode: 'none', stay_key: ''
+    });
+    markup = markup.replace(RD_DIV_O + ' class="lg-rd ', RD_DIV_O + ' class="lg-rd lg-rd--loop ')
+      .replace(' data-lg-redirect', ' data-lg-redirect data-lg-rd-run="countdown" data-lg-rd-live');
+    var mount = RD_DIV_O + ' class="lg-banners" data-lg-banners hidden>' + RD_DIV_C;
+    var at = String(pageHtml).indexOf(mount);
+    if (at < 0) { return String(pageHtml) + markup; }
+    return pageHtml.slice(0, at) + RD_DIV_O + ' class="lg-banners" data-lg-banners>' + markup + RD_DIV_C + pageHtml.slice(at + mount.length);
+  }
+
   // P8-1 F1 (B3/R6-1, round 2): WHICH funnel this panel edits lives in the
   // page URL's hash (tab=<name>&funnel=<public id>), set by a board Template
   // chip click (quotes-tabs/funnel.ts) or by this panel's own funnel picker,
@@ -858,7 +1139,17 @@
         return;
       }
       var p = res.body.preview || {};
-      setCanvasDoc(p.html || '', p.css || '');
+      var pageHtml = p.html || '';
+      var pageCss = p.css || '';
+      // F11: "Preview banner" / "Preview animation only" — the sample offer's
+      // redirect screen over this funnel's own composed page and Theme tokens.
+      if (rdPreview !== '') {
+        var rdTokens = (res.body.config && res.body.config.design_tokens) ? res.body.config.design_tokens : {};
+        pageHtml = rdPreviewHtml(pageHtml, rdPreview, rdDraft(), rdTokens);
+        pageCss = pageCss + RD.preview_css;
+      }
+      setCanvasDoc(pageHtml, pageCss);
+      if (rdPreview !== '') { rdStartTicker(); } else { rdStopTicker(); }
       // Appendix A-9's no-sections copy, VERBATIM (unchanged from the retired
       // client fixture) + what is new: it renders inside the REAL frame.
       canvasStatus(res.body.sample_section === true ? 'Sample section (add sections to preview your own). Your frame, theme and every element edit render around it.' : '');
@@ -2243,6 +2534,165 @@
     document.addEventListener('lg:target-funnel-change', function () { onTargetFunnelChanged(); });
   }
 
+  // =========================================================================
+  // F11 — element "L · Redirect". The controls are the shared island's
+  // (generic [data-frame-key]/[data-role-pick] populate + write + Save); this
+  // part adds only what that wiring cannot know:
+  //   * the DEFAULTS on screen: a key with no stored value is the default, so
+  //     its toggle, segmented button and role swatch show the default (text
+  //     boxes show it as their placeholder);
+  //   * "Reset to defaults": every control back to its default through the
+  //     SAME change/click paths an operator's own edit takes (empty text = the
+  //     default; toggles, buttons and roles = the default value, which is the
+  //     Theme look on every Theme, since colours are Theme roles);
+  //   * "Preview banner" / "Preview animation only" (see renderCanvasPreview).
+  // =========================================================================
+  var RD_BOOL_KEYS = ['badge_on', 'message_on', 'shadow', 'show_seconds'];
+  var RD_RADIO_KEYS = ['corners', 'headline_size', 'animation', 'animation_size'];
+  var RD_ROLE_KEYS = ['background_role', 'border_role', 'badge_role', 'badge_bg_role', 'headline_role', 'text_role', 'animation_role', 'track_role'];
+  function rdControls(key) { return toArray(document.querySelectorAll('[data-frame-key="redirect.' + key + '"]')); }
+  // The block the canvas and the defaults read: the effective one (a saved
+  // template's block included) with this session's edits on top.
+  function rdDraft() {
+    var eff = (boot && boot.frame && boot.frame.effective_frame) ? boot.frame.effective_frame.redirect : null;
+    var out = rdIsRecord(eff) ? deepClone(eff) : {};
+    var mine = myFrame ? myFrame.redirect : undefined;
+    var k;
+    if (rdIsRecord(mine)) {
+      for (k in mine) { if (Object.prototype.hasOwnProperty.call(mine, k)) { out[k] = mine[k]; } }
+    }
+    return out;
+  }
+  function rdPaintDefaults() {
+    var d = rdDraft();
+    var i, j, els, key, strip, sw;
+    for (i = 0; i < RD_BOOL_KEYS.length; i++) {
+      key = RD_BOOL_KEYS[i];
+      if (typeof d[key] === 'boolean') { continue; }
+      els = rdControls(key);
+      for (j = 0; j < els.length; j++) { els[j].checked = RD.defaults[key] === true; }
+    }
+    for (i = 0; i < RD_RADIO_KEYS.length; i++) {
+      key = RD_RADIO_KEYS[i];
+      if (typeof d[key] === 'string') { continue; }
+      els = rdControls(key);
+      for (j = 0; j < els.length; j++) { els[j].checked = els[j].value === RD.defaults[key]; }
+    }
+    for (i = 0; i < RD_ROLE_KEYS.length; i++) {
+      key = RD_ROLE_KEYS[i];
+      if (typeof d[key] === 'string') { continue; }
+      strip = document.querySelector('[data-role-strip="redirect.' + key + '"]');
+      sw = strip ? toArray(strip.querySelectorAll('[data-role-pick]')) : [];
+      for (j = 0; j < sw.length; j++) {
+        sw[j].className = sw[j].getAttribute('data-role-pick') === RD.defaults[key] ? 'lg-role-swatch selected' : 'lg-role-swatch';
+      }
+    }
+    syncRadioActiveClasses();
+  }
+  function rdFire(el, type) {
+    var evt = null;
+    if (typeof window.Event === 'function') { try { evt = new window.Event(type, { bubbles: true }); } catch (e) { evt = null; } }
+    if (evt === null && document.createEvent) { evt = document.createEvent('Event'); evt.initEvent(type, true, false); }
+    if (evt !== null && el.dispatchEvent) { el.dispatchEvent(evt); }
+  }
+  function rdStatus(msg) {
+    var el = byId('lg-tpl-redirect-status');
+    if (!el) { return; }
+    clearChildren(el);
+    if (msg) { el.appendChild(text(msg)); }
+  }
+  function rdReset() {
+    var i, j, els, key, btn;
+    for (i = 0; i < RD_TEXT_KEYS.length; i++) {
+      els = rdControls(RD_TEXT_KEYS[i]);
+      for (j = 0; j < els.length; j++) { els[j].value = ''; rdFire(els[j], 'change'); }
+    }
+    for (i = 0; i < RD_BOOL_KEYS.length; i++) {
+      key = RD_BOOL_KEYS[i];
+      els = rdControls(key);
+      for (j = 0; j < els.length; j++) { els[j].checked = RD.defaults[key] === true; rdFire(els[j], 'change'); }
+    }
+    for (i = 0; i < RD_RADIO_KEYS.length; i++) {
+      key = RD_RADIO_KEYS[i];
+      els = rdControls(key);
+      for (j = 0; j < els.length; j++) {
+        if (els[j].value === RD.defaults[key]) { els[j].checked = true; rdFire(els[j], 'change'); }
+      }
+    }
+    for (i = 0; i < RD_ROLE_KEYS.length; i++) {
+      key = RD_ROLE_KEYS[i];
+      btn = document.querySelector('[data-role-strip="redirect.' + key + '"] [data-role-pick="' + RD.defaults[key] + '"]');
+      if (btn && btn.click) { btn.click(); }
+    }
+    syncRadioActiveClasses();
+    rdStatus('Back to the Theme look. Save to keep it.');
+    scheduleCanvasPreview();
+  }
+  function rdStopTicker() {
+    if (rdTicker !== null && typeof window.clearInterval === 'function') { window.clearInterval(rdTicker); }
+    rdTicker = null;
+  }
+  // The canvas runs no script, so the seconds are ticked from out here (the
+  // canvas document is same-origin), looping with the looping animation.
+  function rdStartTicker() {
+    rdStopTicker();
+    if (typeof window.setInterval !== 'function') { return; }
+    rdTickStart = new Date().getTime();
+    rdTicker = window.setInterval(function () {
+      var frame = byId('lg-tpl-canvas-iframe');
+      var idoc = null;
+      try { idoc = frame ? frame.contentDocument : null; } catch (e) { idoc = null; }
+      if (!idoc || !idoc.querySelectorAll) { return; }
+      var secs = RD.sample.seconds;
+      var n = secs - (Math.floor((new Date().getTime() - rdTickStart) / 1000) % secs);
+      var ns = idoc.querySelectorAll('[data-lg-rd-n]');
+      var i;
+      for (i = 0; i < ns.length; i++) { ns[i].textContent = String(n); }
+    }, 250);
+  }
+  function rdSetPreview(mode) {
+    rdPreview = mode;
+    var btns = toArray(document.querySelectorAll('[data-rd-preview]'));
+    var i;
+    for (i = 0; i < btns.length; i++) {
+      btns[i].setAttribute('aria-pressed', btns[i].getAttribute('data-rd-preview') === mode ? 'true' : 'false');
+    }
+    if (mode === '') { rdStopTicker(); }
+    renderCanvasPreview();
+  }
+  function rdWire() {
+    document.addEventListener('click', function (ev) {
+      var el = ev.target;
+      if (!el || !el.closest) { return; }
+      var pv = el.closest('[data-rd-preview]');
+      if (pv) {
+        var mode = pv.getAttribute('data-rd-preview') || '';
+        rdSetPreview(rdPreview === mode ? '' : mode);
+        return;
+      }
+      if (el.closest('#lg-tpl-redirect-reset')) { rdReset(); return; }
+      var pick = el.closest('[data-tplbox-pick]');
+      if (pick) {
+        if (pick.getAttribute('data-tplbox-pick') === 'redirect') { window.setTimeout(rdPaintDefaults, 0); }
+        else if (rdPreview !== '') { rdSetPreview(''); }
+        return;
+      }
+      // The shared island re-marks every role strip after a pick; put the
+      // unpicked redirect strips' defaults back.
+      if (el.closest('[data-role-pick]') && el.closest('[data-tplbox-panel="redirect"]')) { window.setTimeout(rdPaintDefaults, 0); }
+    });
+    // Typing shows in the preview at once (the shared island writes on 'change').
+    document.addEventListener('input', function (ev) {
+      var el = ev.target;
+      var key = (el && el.getAttribute) ? el.getAttribute('data-frame-key') : null;
+      if (key && key.indexOf('redirect.') === 0 && el.type !== 'checkbox' && el.type !== 'radio') {
+        setPath(myFrame, key, el.value === '' ? null : el.value);
+      }
+    });
+    document.addEventListener('lg:target-funnel-frame', function () { window.setTimeout(rdPaintDefaults, 0); });
+    window.setTimeout(rdPaintDefaults, 0);
+  }
+
   // --- init ---------------------------------------------------------------
   function init() {
     boot = loadBoot();
@@ -2288,6 +2738,7 @@
     wireAbTemplatesDialog();
     loadTemplates();
     loadQuoteDefaultTemplate();
+    rdWire();
   }
 
   if (document.readyState === 'loading') {

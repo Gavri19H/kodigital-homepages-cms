@@ -85,6 +85,7 @@ import {
 } from "../../leadgen/rule-checkpoint";
 import { orGroupConditionError } from "../../leadgen/auction-rules";
 import { offerHasOwnClickUrl } from "../../leadgen/macros";
+import { REDIRECT_SHOW_SECONDS_MAX, REDIRECT_SHOW_SECONDS_MIN } from "../../public/leadgen/redirect/types";
 import {
   rebuildDerivedIndexes,
   sectionValidationStatus,
@@ -751,6 +752,17 @@ function quoteRoutingRuleRowToApi(row: LeadgenQuoteRoutingRuleRow): Record<strin
 function describeNoOwnClickUrl(offerName: string): string {
   return `“${offerName}” has no URL of its own (a provider offer gets one only from its provider's response), so a redirect has nowhere to send the visitor. Give it a URL, or pick an offer that has one.`;
 }
+
+// F11 — "Redirect to offer" → "When to redirect" → "After the offer is shown"
+// (plan Section 3 A): the save refuses these, each with a plain message.
+const REDIRECT_SECONDS_RANGE_MESSAGE =
+  `“Show the offer for (seconds)” must be a whole number from ${REDIRECT_SHOW_SECONDS_MIN} to ${REDIRECT_SHOW_SECONDS_MAX}.`;
+const REDIRECT_AFTER_NEEDS_OFFER_MESSAGE =
+  "“After the offer is shown” needs an offer: pick the offer to show in “Redirect to offer”.";
+const REDIRECT_AFTER_NO_RAW_URL_MESSAGE =
+  "“After the offer is shown” can’t use a raw redirect URL, because a URL has no offer card to show. Remove the URL, or choose “Straight away, before the auction”.";
+const REDIRECT_DISPLAY_MESSAGE =
+  "“What the visitor sees” must be “The redirect banner” or “Only the animation”.";
 
 // Appendix A-11 (verbatim, asserted in CI): a rule with no action is rejected.
 const ROUTING_RULE_MIN_ACTION_MESSAGE = "Pick at least one action for this rule.";
@@ -2012,6 +2024,10 @@ interface RuleInsertRow {
   ruleName: string | null;
   status: string;
   redirectPct: number | null;
+  // F11 (0066) — optional: absent/null on every rule that is not an "After
+  // the offer is shown" redirect.
+  redirectShowSeconds?: number | null;
+  redirectDisplay?: string | null;
 }
 function insertRuleStatement(
   db: D1Database,
@@ -2021,18 +2037,27 @@ function insertRuleStatement(
   targetVariantIdSql = "?",
   targetVariantIdBindValue: number | string | null = r.targetFunnelVariantId,
 ): D1PreparedStatement {
+  // F11 (0066): the two "After the offer is shown" columns are written only
+  // when the rule carries a value, so every other rule's INSERT is the same
+  // statement as before and a database without 0066 keeps saving them.
+  const redirectAfter =
+    (r.redirectShowSeconds ?? null) !== null || (r.redirectDisplay ?? null) !== null;
+  const afterCols = redirectAfter ? ", redirect_show_seconds, redirect_display" : "";
+  const afterMarks = redirectAfter ? ", ?, ?" : "";
+  const afterBinds = redirectAfter ? [r.redirectShowSeconds ?? null, r.redirectDisplay ?? null] : [];
   return db
     .prepare(
       `INSERT INTO leadgen_funnel_rules
          (public_id, variant_id, rule_type, conditions_json, conditions_hash, target_offer_id, target_section_id,
           redirect_url, redirect_url_allowlisted, priority, enabled,
-          target_funnel_variant_id, value_multiplier, checkpoint_page, match_mode, rule_name, status, redirect_pct)
-       VALUES (?, ${variantIdSql}, ?, ?, ?, ?, ?, ?, ?, ?, ?, ${targetVariantIdSql}, ?, ?, ?, ?, ?, ?)`,
+          target_funnel_variant_id, value_multiplier, checkpoint_page, match_mode, rule_name, status, redirect_pct${afterCols})
+       VALUES (?, ${variantIdSql}, ?, ?, ?, ?, ?, ?, ?, ?, ?, ${targetVariantIdSql}, ?, ?, ?, ?, ?, ?${afterMarks})`,
     )
     .bind(
       r.publicId, variantIdBindValue, r.ruleType, r.conditionsJson, r.conditionsHash, r.targetOfferId, r.targetSectionId,
       r.redirectUrl, r.redirectAllowlisted, r.priority, r.enabled,
       targetVariantIdBindValue, r.valueMultiplier, r.checkpointPage, r.matchMode, r.ruleName, r.status, r.redirectPct,
+      ...afterBinds,
     );
 }
 
@@ -2153,6 +2178,8 @@ export async function duplicateQuoteHandler(c: AdminContext): Promise<Response> 
               ruleName: r.rule_name,
               status: r.status,
               redirectPct: r.redirect_pct,
+              redirectShowSeconds: r.redirect_show_seconds ?? null,
+              redirectDisplay: r.redirect_display ?? null,
             },
             "(SELECT id FROM leadgen_funnel_variants WHERE public_id = ?)",
             remappedTargetPublicId,
@@ -2454,6 +2481,8 @@ export async function duplicateFunnelHandler(c: AdminContext): Promise<Response>
           ruleName: r.rule_name,
           status: r.status,
           redirectPct: r.redirect_pct,
+          redirectShowSeconds: r.redirect_show_seconds ?? null,
+          redirectDisplay: r.redirect_display ?? null,
         }),
       );
     }
@@ -3338,6 +3367,13 @@ interface PreparedRule {
   valueMultiplier: number | null;
   checkpointPage: number | null;
   redirectPct: number | null;
+  // F11 (0066): "When to redirect" — null = "Straight away, before the
+  // auction" (today's redirect); 2..30 = "After the offer is shown" for this
+  // many seconds. redirect_direct_offer only (null for every other type).
+  redirectShowSeconds: number | null;
+  // F11 (0066): "What the visitor sees" — 'banner' | 'animation', or null
+  // (= banner). Kept only on an "After" rule.
+  redirectDisplay: string | null;
 }
 
 // D5 mini-round: the SINGLE-rule validation core, extracted out of the array
@@ -3451,6 +3487,52 @@ function prepareOneRule(
     redirectPct = redirectPctRaw;
   }
 
+  // F11 (0066) — "When to redirect" on a "Redirect to offer" rule. Absent /
+  // null / "" = "Straight away, before the auction" (today's redirect, exactly
+  // as before); a whole number 2..30 = "After the offer is shown" for that
+  // many seconds. "After" needs an Offer (its card is what is shown) and never
+  // takes a raw URL (a URL has no card). "What the visitor sees" is a closed
+  // value; it is kept only on an "After" rule. Checked before the Stage-A
+  // verdict below so the operator reads these plain messages first. Other
+  // rule types never carry either value.
+  let redirectShowSeconds: number | null = null;
+  let redirectDisplay: string | null = null;
+  if (ruleType === "redirect_direct_offer") {
+    const secondsRaw = entry["redirect_show_seconds"];
+    if (secondsRaw !== undefined && secondsRaw !== null && secondsRaw !== "") {
+      if (
+        typeof secondsRaw !== "number" ||
+        !Number.isInteger(secondsRaw) ||
+        secondsRaw < REDIRECT_SHOW_SECONDS_MIN ||
+        secondsRaw > REDIRECT_SHOW_SECONDS_MAX
+      ) {
+        errors["redirect_show_seconds"] = REDIRECT_SECONDS_RANGE_MESSAGE;
+        return { rule: null, errors };
+      }
+      redirectShowSeconds = secondsRaw;
+    }
+    const displayRaw = entry["redirect_display"];
+    if (displayRaw !== undefined && displayRaw !== null && displayRaw !== "") {
+      if (displayRaw !== "banner" && displayRaw !== "animation") {
+        errors["redirect_display"] = REDIRECT_DISPLAY_MESSAGE;
+        return { rule: null, errors };
+      }
+      redirectDisplay = displayRaw;
+    }
+    if (redirectShowSeconds !== null) {
+      if (targetOfferId === null) {
+        errors["target_offer_id"] = REDIRECT_AFTER_NEEDS_OFFER_MESSAGE;
+        return { rule: null, errors };
+      }
+      if (redirectUrl !== null) {
+        errors["redirect_url"] = REDIRECT_AFTER_NO_RAW_URL_MESSAGE;
+        return { rule: null, errors };
+      }
+    } else {
+      redirectDisplay = null;
+    }
+  }
+
   // Rework M3/D5: the four auction-domain rule types NEVER carry a routing
   // target or a checkpoint (routing lives in leadgen_quote_routing_rules now)
   // — target_funnel_variant_id / checkpoint_page stay NULL. Every accepted
@@ -3493,6 +3575,8 @@ function prepareOneRule(
       targetFunnelVariantId,
       valueMultiplier,
       checkpointPage,
+      redirectShowSeconds,
+      redirectDisplay,
     },
     errors: {},
   };
@@ -4232,8 +4316,13 @@ export async function putVariantHandler(c: AdminContext): Promise<Response> {
     if (Object.keys(errors).length === 0) {
       const offerIds = Array.from(new Set(preparedRules.map((r) => r.targetOfferId).filter((v): v is number => v !== null)));
       const sectionIds = Array.from(new Set(preparedRules.map((r) => r.targetSectionId).filter((v): v is number => v !== null)));
+      // F11: the own-URL check guards "Straight away" redirects only — an
+      // "After the offer is shown" rule opens its Offer's card, whatever the
+      // Offer's type, so any Offer may be its target.
       const redirectOfferIds = new Set(
-        preparedRules.filter((r) => r.ruleType === "redirect_direct_offer").map((r) => r.targetOfferId),
+        preparedRules
+          .filter((r) => r.ruleType === "redirect_direct_offer" && r.redirectShowSeconds === null)
+          .map((r) => r.targetOfferId),
       );
       for (const oid of offerIds) {
         const ex = await c.env.DB.prepare("SELECT id, offer_name, banner_url_template FROM leadgen_offers WHERE id = ? LIMIT 1")
@@ -4580,6 +4669,8 @@ export async function forkVariantHandler(c: AdminContext): Promise<Response> {
         ruleName: r.rule_name,
         status: r.status,
         redirectPct: r.redirect_pct,
+        redirectShowSeconds: r.redirect_show_seconds ?? null,
+        redirectDisplay: r.redirect_display ?? null,
       }),
     );
   }
@@ -4755,6 +4846,10 @@ function ruleRowToCandidateEntry(row: LeadgenFunnelRuleRowV2): Record<string, un
     match_mode: row.match_mode,
     value_multiplier: row.value_multiplier,
     redirect_pct: row.redirect_pct,
+    // F11 (0066): absent on a database without the migration (= "Straight
+    // away"), so a PATCH that does not touch them keeps the saved values.
+    redirect_show_seconds: row.redirect_show_seconds ?? null,
+    redirect_display: row.redirect_display ?? null,
   };
 }
 
@@ -4774,7 +4869,14 @@ async function ruleTargetFkErrors(
       .bind(rule.targetOfferId)
       .first<{ id: number; offer_name: string; banner_url_template: string | null }>();
     if (!ex) errors["target_offer_id"] = describeMissingReference("Offer");
-    else if (opts.checkOwnUrl && rule.ruleType === "redirect_direct_offer" && !offerHasOwnClickUrl(ex.banner_url_template)) {
+    // F11: skipped only for "After the offer is shown" (redirect_show_seconds
+    // set) — that rule opens the Offer's own card, so any Offer can be shown.
+    else if (
+      opts.checkOwnUrl &&
+      rule.ruleType === "redirect_direct_offer" &&
+      rule.redirectShowSeconds === null &&
+      !offerHasOwnClickUrl(ex.banner_url_template)
+    ) {
       errors["target_offer_id"] = describeNoOwnClickUrl(ex.offer_name);
     }
   }
@@ -4866,21 +4968,32 @@ export async function updateVariantRuleHandler(c: AdminContext): Promise<Respons
   // The own-URL check guards choosing a redirect target; a PATCH that does not
   // touch the target or type (Disable, a rename, a priority) must still work on
   // an older rule whose target has no URL — the engine passes that rule over.
-  const touchesTarget = body["target_offer_id"] !== undefined || body["rule_type"] !== undefined;
+  // F11: switching "When to redirect" back to "Straight away" re-chooses the
+  // redirect's destination too, so it gets the own-URL check like a new target.
+  const touchesTarget =
+    body["target_offer_id"] !== undefined || body["rule_type"] !== undefined || body["redirect_show_seconds"] !== undefined;
   const fkErrors = await ruleTargetFkErrors(c.env.DB, rule, { checkOwnUrl: touchesTarget });
   if (Object.keys(fkErrors).length > 0) return c.json({ error: "Validation failed", fields: fkErrors }, 400);
 
+  // F11 (0066): the "After the offer is shown" columns are written whenever
+  // the database has them (SELECT * returned the keys — so an edit can also
+  // clear them), or when the rule now carries a value. A database without
+  // 0066 that saves an ordinary rule runs the same UPDATE as before.
+  const hasAfterColumns = "redirect_show_seconds" in existing || "redirect_display" in existing;
+  const writeAfter = hasAfterColumns || rule.redirectShowSeconds !== null || rule.redirectDisplay !== null;
+  const afterSet = writeAfter ? ", redirect_show_seconds = ?, redirect_display = ?" : "";
+  const afterBinds = writeAfter ? [rule.redirectShowSeconds, rule.redirectDisplay] : [];
   await c.env.DB.batch([
     c.env.DB.prepare(
       `UPDATE leadgen_funnel_rules SET
          rule_type = ?, conditions_json = ?, conditions_hash = ?, target_offer_id = ?, target_section_id = ?,
          redirect_url = ?, redirect_url_allowlisted = ?, priority = ?, enabled = ?, value_multiplier = ?,
-         match_mode = ?, rule_name = ?, status = ?, redirect_pct = ?
+         match_mode = ?, rule_name = ?, status = ?, redirect_pct = ?${afterSet}
        WHERE id = ?`,
     ).bind(
       rule.ruleType, rule.conditionsJson, rule.conditionsHash, rule.targetOfferId, rule.targetSectionId,
       rule.redirectUrl, rule.redirectAllowlisted, rule.priority, rule.enabled, rule.valueMultiplier,
-      rule.matchMode, rule.ruleName, rule.status, rule.redirectPct, existing.id,
+      rule.matchMode, rule.ruleName, rule.status, rule.redirectPct, ...afterBinds, existing.id,
     ),
     bumpVariantContentVersionStatement(c.env.DB, variant.id),
   ]);
@@ -4954,6 +5067,8 @@ export async function duplicateRuleHandler(c: AdminContext): Promise<Response> {
       ruleName: newName,
       status: src.status,
       redirectPct: src.redirect_pct,
+      redirectShowSeconds: src.redirect_show_seconds ?? null,
+      redirectDisplay: src.redirect_display ?? null,
     }),
     bumpVariantContentVersionStatement(c.env.DB, variant.id),
   ]);

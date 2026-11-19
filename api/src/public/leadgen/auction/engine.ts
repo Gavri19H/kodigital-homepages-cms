@@ -91,6 +91,7 @@ import {
 import { fetchProvidersParallel, type FetchProviderResult, type ParallelProviderRequest } from "./fetch";
 import {
   renderBanners,
+  renderedCardBrandAndLogo,
   type BannerRenderCarrier,
   type CarrierImpression,
   type RenderedBannerSlot,
@@ -147,6 +148,13 @@ import type {
 } from "../../../admin/leadgen/db-types";
 import { offerHasOwnClickUrl } from "../../../leadgen/macros";
 import { staticBidProviderOffer, staticCarrier, parseOfferProviderResponse } from "./offer-parse";
+import {
+  REDIRECT_SHOW_SECONDS_MAX,
+  REDIRECT_SHOW_SECONDS_MIN,
+  type RedirectAfterInstruction,
+  type RedirectLogRecord,
+  type RedirectStayHides,
+} from "../redirect/types";
 
 // ---------------------------------------------------------------------------
 // Loaded auction bundle (READ-ONLY; safe to load in dry-run)
@@ -212,6 +220,17 @@ export interface AuctionFunnelRule {
   // (leadgen/macros.ts offerHasOwnClickUrl) — /lg/lc can send a visitor there
   // with no provider response behind the click. Loaded by loadAuctionBundle.
   target_has_own_click_url?: boolean;
+  // F11 (0066) "When to redirect": null/absent = "Straight away, before the
+  // auction" (today); a number = "After the offer is shown" for that many
+  // seconds — the auction runs as normal and the results page shows the
+  // target Offer's top card, then opens it. Absent on a database without 0066.
+  redirect_show_seconds?: number | null;
+  // F11 (0066) "What the visitor sees" with "After": null = the banner.
+  redirect_display?: "banner" | "animation" | null;
+  // F11: the target Offer's public id (the redirect log names the Offer by it
+  // even when the Offer takes no part in this auction). Loaded by
+  // loadAuctionBundle with the own-URL fact.
+  target_offer_public_id?: string | null;
 }
 
 export interface AuctionBundle {
@@ -588,6 +607,21 @@ export async function loadAuctionBundle(
       // failure is real and surfaces like every other bundle read.
       if (!/no such column/i.test(String((e as { message?: unknown })?.message ?? e))) throw e;
     }
+    // F11 (0066) "When to redirect" / "What the visitor sees", read on their
+    // own like match_mode above, so the rule reads above stay exactly as they
+    // were and a database without 0066 keeps every rule "Straight away".
+    const redirectAfterById = new Map<string, { seconds: number | null; display: string | null }>();
+    try {
+      const ra = await db
+        .prepare("SELECT public_id, redirect_show_seconds, redirect_display FROM leadgen_funnel_rules WHERE variant_id = ? AND redirect_show_seconds IS NOT NULL")
+        .bind(variantId)
+        .all<{ public_id: string; redirect_show_seconds: number | null; redirect_display: string | null }>();
+      for (const r of ra.results ?? []) redirectAfterById.set(r.public_id, { seconds: r.redirect_show_seconds, display: r.redirect_display });
+    } catch (e) {
+      // pre-0066: no such columns — only THAT is tolerated (every rule then
+      // stays "Straight away"); any other failure surfaces.
+      if (!/no such column/i.test(String((e as { message?: unknown })?.message ?? e))) throw e;
+    }
     for (const r of frRows.results ?? []) {
       funnel_rules.push({
         match_mode: matchModeById.get(r.public_id) === "any" ? "any" : "all",
@@ -601,6 +635,12 @@ export async function loadAuctionBundle(
         priority: r.priority,
         enabled: r.enabled,
         redirect_pct: r.redirect_pct,
+        ...(r.rule_type === "redirect_direct_offer" && typeof redirectAfterById.get(r.public_id)?.seconds === "number"
+          ? {
+              redirect_show_seconds: redirectAfterById.get(r.public_id)?.seconds ?? null,
+              redirect_display: redirectAfterById.get(r.public_id)?.display === "animation" ? ("animation" as const) : ("banner" as const),
+            }
+          : {}),
       });
     }
     // Which redirect targets can actually be sent to (their own URL). One read
@@ -615,12 +655,16 @@ export async function loadAuctionBundle(
     ].slice(0, 80);
     if (targetIds.length > 0) {
       const ownUrl = new Set<number>();
+      const publicIdOf = new Map<number, string>();
       try {
         const rows = await db
-          .prepare(`SELECT id, banner_url_template FROM leadgen_offers WHERE id IN (${targetIds.map(() => "?").join(",")})`)
+          .prepare(`SELECT id, public_id, banner_url_template FROM leadgen_offers WHERE id IN (${targetIds.map(() => "?").join(",")})`)
           .bind(...targetIds)
-          .all<{ id: number; banner_url_template: string | null }>();
-        for (const row of rows.results ?? []) if (offerHasOwnClickUrl(row.banner_url_template)) ownUrl.add(row.id);
+          .all<{ id: number; public_id: string; banner_url_template: string | null }>();
+        for (const row of rows.results ?? []) {
+          if (offerHasOwnClickUrl(row.banner_url_template)) ownUrl.add(row.id);
+          publicIdOf.set(row.id, row.public_id);
+        }
       } catch (err) {
         // none reachable for this request — logged, since it makes every
         // Offer-target redirect rule of the variant inert until the next read
@@ -632,7 +676,10 @@ export async function loadAuctionBundle(
         );
       }
       for (const fr of funnel_rules) {
-        if (fr.target_offer_id !== null) fr.target_has_own_click_url = ownUrl.has(fr.target_offer_id);
+        if (fr.target_offer_id !== null) {
+          fr.target_has_own_click_url = ownUrl.has(fr.target_offer_id);
+          if (fr.redirect_show_seconds !== undefined) fr.target_offer_public_id = publicIdOf.get(fr.target_offer_id) ?? null;
+        }
       }
     }
   }
@@ -991,6 +1038,12 @@ export interface RunAuctionResult {
   provider_log_rows: ProviderLogRowToPersist[];
   // Set when a funnel rule redirects (status "redirect").
   redirect: { target_offer_id: number | null; redirect_url: string | null } | null;
+  // F11: set only when the first matching funnel rule is a "Redirect to
+  // offer" rule set to "After the offer is shown", the visitor falls inside
+  // its sticky "Redirect %" draw, and its Offer has a card in these results:
+  // open that Offer's top card after the rule's seconds (serve-auction.ts
+  // turns it into the redirect screen). Absent on every other result.
+  redirect_after?: RedirectAfterInstruction;
   // Convenience aggregate of every reason a carrier was filtered post-parse.
   carriers_filtered: ExplainFilteredCarrier[];
 }
@@ -1429,16 +1482,36 @@ export async function runAuction(
   if (eligibilityRules.length > 0 && !eligibilityRules.some((r) => conditionsMatch(r.conditions, ruleContext, r.match_mode === "any" ? "any" : "all"))) {
     return empty("disqualified", 200, null, "not_eligible", null);
   }
+  // F11 — "Redirect to offer" → "After the offer is shown": the FIRST
+  // matching redirect rule decides, as today. When it is an "After" rule the
+  // auction is NOT stopped: it is remembered here (with whether this visitor
+  // falls inside its sticky "Redirect %" draw), the redirect rules below it no
+  // longer fire for this visitor, and the auction runs exactly as it would
+  // without the rule — the gates below (disqualification, auction entry) still
+  // apply, so the rule never adds a card. What it did is decided once the
+  // cards are built (see "F11 — the open instruction" below).
+  let afterRule: { rule: AuctionFunnelRule; in_draw: boolean } | null = null;
   for (const fr of funnelRules) {
     if (fr.rule_type === "disqualification" && conditionsMatch(fr.conditions, ruleContext, fr.match_mode === "any" ? "any" : "all")) {
       return empty("disqualified", 200, null, "disqualified", null);
     }
+    if (fr.rule_type === "redirect_direct_offer" && afterRule !== null) continue;
     // A present-only attempt is shown that one offer, so a funnel redirect to
     // anything else (another offer, a raw URL) does not apply to it — it would
     // send the partner's QA visitor to a different offer. A redirect to the
     // SAME offer still applies. Disqualification / auction_entry gates stay:
     // they can only show nothing, never a different offer.
     if (fr.rule_type === "redirect_direct_offer" && presentOnly !== null && fr.target_offer_id !== presentOnly) continue;
+    // F11: an "After the offer is shown" rule needs no URL of its own (it
+    // opens the Offer's card, whatever the Offer's type) — only an Offer,
+    // which the save already requires.
+    if (fr.rule_type === "redirect_direct_offer" && typeof fr.redirect_show_seconds === "number") {
+      if (fr.target_offer_id === null) continue;
+      if (conditionsMatch(fr.conditions, ruleContext, fr.match_mode === "any" ? "any" : "all")) {
+        afterRule = { rule: fr, in_draw: shouldRedirectForSession(fr.redirect_pct, fr.public_id, input.session_id ?? "") };
+      }
+      continue;
+    }
     // A redirect with nowhere to go is no redirect: its Offer has no URL of its
     // own (a provider Offer — /lg/lc could only answer 204), or its raw URL is
     // not allowlisted / not http(s). The rule is passed over like a non-match,
@@ -2359,6 +2432,67 @@ export async function runAuction(
     });
   }
 
+  // F11 — the open instruction. Only when the first matching redirect rule
+  // was an "After the offer is shown" rule (step 4). The Auction's own
+  // settings already decided every card above; this only reads them:
+  //   * the rule's Offer has no card here (the Provider said no, a cap, a
+  //     click earlier, the card limits…) → "no_card": the page is exactly as
+  //     today, and no other rule's Offer is tried (no backup Offer);
+  //   * a card, but the visitor is outside the rule's "Redirect %" draw →
+  //     "held_back": the page is exactly as today;
+  //   * a card and inside the draw → "opened": the instruction for that
+  //     Offer's TOP card (the first one on the page), and the redirect events
+  //     fire — then, and only then.
+  // "Stay here" hides what the Auction's "Remove clicked offers" + "Removal
+  // scope" would hide after a click on that card (the Auction always wins).
+  let redirectAfter: RedirectAfterInstruction | undefined;
+  let redirectLog: RedirectLogRecord | null = null;
+  if (afterRule !== null) {
+    const fr = afterRule.rule;
+    const targetBundle = input.bundle.offers.find((b) => b.offer.id === fr.target_offer_id);
+    const targetPublicId = targetBundle?.offer.public_id ?? fr.target_offer_public_id ?? String(fr.target_offer_id);
+    const top = renderedSlots.find((sl) => sl.offer_public_id === targetPublicId);
+    redirectLog = {
+      rule_id: fr.public_id,
+      offer_id: targetPublicId,
+      outcome: top === undefined ? "no_card" : afterRule.in_draw ? "opened" : "held_back",
+    };
+    if (top !== undefined && afterRule.in_draw) {
+      const card = renderedCardBrandAndLogo(top, bannerConfig.mode);
+      const stayHides: RedirectStayHides =
+        auction.remove_clicked_offers !== 1
+          ? { mode: "none" }
+          : settings.removal_scope === "carrier"
+            ? { mode: "carrier", carrier_key: top.carrier_key }
+            : { mode: "offer", offer_public_id: targetPublicId };
+      const brid = impressions.find(
+        (imp) => imp.offer_public_id === top.offer_public_id && imp.carrier_key === top.carrier_key && imp.slot === top.slot,
+      )?.banner_render_id;
+      const seconds = Math.min(
+        REDIRECT_SHOW_SECONDS_MAX,
+        Math.max(REDIRECT_SHOW_SECONDS_MIN, Math.round(fr.redirect_show_seconds ?? REDIRECT_SHOW_SECONDS_MIN)),
+      );
+      redirectAfter = {
+        rule_public_id: fr.public_id,
+        offer_public_id: targetPublicId,
+        slot: top.slot,
+        carrier_key: top.carrier_key,
+        seconds,
+        display: fr.redirect_display === "animation" ? "animation" : "banner",
+        brand: card.brand,
+        logo_url: card.logo_url,
+        stay_hides: stayHides,
+        ...(brid !== undefined ? { banner_render_id: brid } : {}),
+      };
+      // 10 §10.2 redirect producers: the rule fired, and it targets an Offer.
+      pushEvent("redirect_rule_triggered");
+      pushEvent("direct_offer_redirect", (e) => {
+        const b = carrierMeta.get(metaKey(top.offer_public_id, top.carrier_key))?.offer ?? targetBundle;
+        if (b !== undefined) fillOffer(e, b);
+      });
+    }
+  }
+
   // Assemble the S19.2 trace + the persistable result-log row.
   const carriersShown = renderedSlots.map((s) => ({ carrier_key: s.carrier_key, offer_id: s.offer_public_id, bid: s.bid, slot: s.slot }));
   const trace = buildExplainTrace({
@@ -2402,9 +2536,11 @@ export async function runAuction(
     ...(Object.keys(metaUserData).length > 0 ? { meta_user_data: metaUserData } : {}),
     events,
     explain: trace,
-    result_log_row: toResultLogRow(trace),
+    result_log_row:
+      redirectLog === null ? toResultLogRow(trace) : { ...toResultLogRow(trace), redirect_json: JSON.stringify(redirectLog) },
     provider_log_rows: providerLogRows,
     redirect: null,
+    ...(redirectAfter !== undefined ? { redirect_after: redirectAfter } : {}),
     carriers_filtered: carriersFiltered,
   };
 }
@@ -2525,14 +2661,19 @@ export async function persistAuctionResult(
     const waterfallCol = log.waterfall_json !== null ? ", waterfall_json" : "";
     const waterfallMark = log.waterfall_json !== null ? ", ?" : "";
     const waterfallBind = log.waterfall_json !== null ? [log.waterfall_json] : [];
+    // F11 (0066): the same rule for redirect_json — written only when an
+    // "After the offer is shown" rule matched first.
+    const redirectCol = log.redirect_json !== undefined ? ", redirect_json" : "";
+    const redirectMark = log.redirect_json !== undefined ? ", ?" : "";
+    const redirectBind = log.redirect_json !== undefined ? [log.redirect_json] : [];
     try {
       await env.DB.prepare(
         `INSERT INTO leadgen_auction_result_log
            (auction_instance_id, auction_result_id, auction_config_id, session_id,
             funnel_attempt_id, funnel_id, funnel_variant_id, banner_render_ids_json,
             offers_considered_json, offers_excluded_json, carriers_shown_json, winner_json, unfilled_reason,
-            macro_context_json${waterfallCol})
-         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?${waterfallMark})`,
+            macro_context_json${waterfallCol}${redirectCol})
+         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?${waterfallMark}${redirectMark})`,
       )
         .bind(
           log.auction_instance_id,
@@ -2557,6 +2698,7 @@ export async function persistAuctionResult(
               : {}),
           }),
           ...waterfallBind,
+          ...redirectBind,
         )
         .run();
     } catch {

@@ -700,7 +700,20 @@ export interface LeadgenFunnelRuleRow {
   priority: number;
   enabled: number;
   created_at: number;
+  // F11 (0066): "Redirect to offer" → "When to redirect". NULL = "Straight
+  // away, before the auction" (today's redirect); 2..30 = "After the offer is
+  // shown" for this many seconds. Optional: a database without 0066 has
+  // neither column, and every rule there is "Straight away".
+  redirect_show_seconds?: number | null;
+  // F11 (0066): "What the visitor sees" with "After the offer is shown".
+  // NULL = the redirect banner.
+  redirect_display?: LeadgenRedirectDisplay | null;
 }
+
+// F11: the two closed values of leadgen_funnel_rules.redirect_display (the
+// range of redirect_show_seconds lives with the redirect contract,
+// public/leadgen/redirect/types.ts).
+export type LeadgenRedirectDisplay = "banner" | "animation";
 
 export interface LeadgenFunnelRuleApi {
   id: number;
@@ -716,6 +729,9 @@ export interface LeadgenFunnelRuleApi {
   priority: number;
   enabled: boolean;
   created_at: number;
+  // F11 (0066) — see LeadgenFunnelRuleRow.
+  redirect_show_seconds?: number | null;
+  redirect_display?: LeadgenRedirectDisplay | null;
 }
 
 // leadgen_quote_routing_rules (rework M3) — quote-scoped, multi-action routing.
@@ -942,6 +958,10 @@ export interface LeadgenAuctionResultLogRow {
   winner_json: string | null;
   unfilled_reason: string | null;
   created_at: number;
+  // F11 (0066): what an "After the offer is shown" rule did for this visitor
+  // ({rule_id, offer_id, outcome}); NULL when none matched first. Optional: a
+  // database without 0066 has no such column.
+  redirect_json?: string | null;
 }
 
 export interface LeadgenAuctionResultLogApi {
@@ -1046,6 +1066,9 @@ export interface LeadgenAnalyticsOfferRow {
   unique_clicks: number;
   conversions: number;
   revenue: number;
+  // F11 (0066): the part of `clicks` the results page made itself when an
+  // "After the offer is shown" countdown ended. Visitor clicks = clicks - this.
+  redirect_clicks: number;
   synced_at: number;
 }
 

@@ -73,6 +73,13 @@
 //   then the replay cap. The 302 happens in every case.
 //   * bid_currency is "USD" only when the bid really was converted to USD; an
 //     FX miss keeps the bid in its own currency and leaves revenue null.
+//
+// F11 (plan Section 3 D/F): a click whose request carries the hidden redirect
+// mark (cookie `lg_rc` = this card's `<brid>.<slot>`) is the results page's
+// own click at the end of an "After the offer is shown" countdown. Its event
+// says click_source "redirect" (every other click: "") and the route deletes
+// the cookie in its reply. It is still one ordinary counted click: same
+// destination, cap, remove-clicked row, revenue, replay cap and Meta event.
 
 import type { Env } from "../../env";
 import type { WaitUntilContext } from "../../wait-until-context";
@@ -92,7 +99,8 @@ import {
 } from "../../analytics/leadgen-events";
 import { resolveLeadgenFunnelNames, type LeadgenFunnelNames } from "../../analytics/leadgen-enrich";
 import { normalizeToUsd } from "../../leadgen/fx";
-import { META_FBP_RE, readFbpCookie } from "../../leadgen/meta-hash";
+import { META_FBP_RE, readCookieValue, readFbpCookie } from "../../leadgen/meta-hash";
+import { REDIRECT_MARK_COOKIE } from "./redirect/types";
 import { claimClickReplaySlot, recordInSiteClickRevenue } from "../../leadgen/revenue-ingest";
 import {
   checkClickoutMetaAuction,
@@ -171,7 +179,33 @@ export interface LeadgenClickResult {
   // Fix round 1 (review M4): resolves true when this click is over the replay
   // cap (the route's Facebook send then sends nothing). Never rejects.
   replay_capped: Promise<boolean>;
+  // F11: true ⇒ the request carried the hidden redirect mark for THIS card
+  // (the page's own click when an "After the offer is shown" countdown
+  // ended): the event says click_source "redirect", and the route's reply
+  // deletes the mark (REDIRECT_MARK_CLEAR_COOKIE). Nothing else differs.
+  redirect_mark: boolean;
 }
+
+// F11 — the hidden redirect mark (plan Section 3 D/F; the cookie contract is
+// redirect/types.ts). Just before the results page clicks the chosen card
+// itself, its page script sets `lg_rc=<brid>.<slot>` on our own site. A click
+// whose request carries that cookie for ITS OWN brid + slot is a redirect
+// click; any other click (no cookie, another card's value, a stale value) is
+// a normal visitor click and leaves the cookie alone. The cookie is read the
+// same way the _fbp cookie is (meta-hash.ts readCookieValue).
+export function isRedirectMarkFor(
+  cookieHeader: string | null | undefined,
+  bannerRenderId: string,
+  slot: number | null,
+): boolean {
+  if (bannerRenderId === "" || slot === null) return false;
+  const value = readCookieValue(cookieHeader, REDIRECT_MARK_COOKIE);
+  return value !== "" && value === `${bannerRenderId}.${slot}`;
+}
+
+// The reply header that deletes the mark (same Path / SameSite / Secure as
+// the page script's Set, so the browser drops that exact cookie).
+export const REDIRECT_MARK_CLEAR_COOKIE = `${REDIRECT_MARK_COOKIE}=; Max-Age=0; Path=/; SameSite=Lax; Secure`;
 
 // True for an absolute http(s) URL — the only shape accepted into a 302.
 function isHttpUrl(value: unknown): value is string {
@@ -357,6 +391,7 @@ function buildClickEvent(
   now: number,
   input: LeadgenClickInput,
   clickId: string,
+  clickSource: "" | "redirect",
 ): LeadgenEvent {
   const e = blankLeadgenEvent(eventType, now);
   if (input.event_context !== undefined) Object.assign(e, input.event_context);
@@ -372,6 +407,8 @@ function buildClickEvent(
   e.banner_render_id = input.banner_render_id;
   e.funnel_attempt_id = input.funnel_attempt_id;
   e.carrier_position = input.slot;
+  // F11: "redirect" only for the page's own click (the matching mark).
+  e.click_source = clickSource;
   if (input.session_id !== undefined && input.session_id !== null) {
     e.session_id = input.session_id;
   }
@@ -518,7 +555,11 @@ export async function resolveLeadgenClick(
   //    then the event is emitted from the same background task. A failed read
   //    still emits the event (FAIL-OPEN). `events` is the SAME object the task
   //    stamps, so a caller that settles the context sees the stamped event.
-  const events = [buildClickEvent(clickType, now, input, clickId)];
+  //    F11: the hidden redirect mark only labels the event (click_source) and
+  //    tells the route to delete the cookie — destination, cap, clicked row,
+  //    revenue, the replay cap and the Meta send are exactly the same.
+  const redirectMark = isRedirectMarkFor(input.request_cookie_header, input.banner_render_id, input.slot);
+  const events = [buildClickEvent(clickType, now, input, clickId, redirectMark ? "redirect" : "")];
   let settleCapped: (capped: boolean) => void = () => undefined;
   const replayCapped = new Promise<boolean>((resolve) => {
     settleCapped = resolve;
@@ -592,5 +633,6 @@ export async function resolveLeadgenClick(
     clicked_recorded: clickedRecorded,
     events,
     replay_capped: replayCapped,
+    redirect_mark: redirectMark,
   };
 }

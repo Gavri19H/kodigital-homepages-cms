@@ -966,7 +966,11 @@ const FRAME_NON_KEYS: ReadonlyArray<{ member: string; reason: string }> = [
       "FrameCompatConfig is swept as a group like every other; listed here only so this table stays exhaustive over EffectiveFrameConfig.",
   },
 ];
-const FRAME_ELEMENT_MEMBERS: readonly string[] = ["free_text", "brand_logos", "cta_slots", "trust_rows", "images"];
+// F11: `redirect` (element "L · Redirect") paints the RESULTS page through
+// redirect/screen.ts, never the question page this sweep renders; its own
+// liveness probe — every key changes the rendered redirect screen — is
+// test/leadgen-f11-look.test.ts.
+const FRAME_ELEMENT_MEMBERS: readonly string[] = ["free_text", "brand_logos", "cta_slots", "trust_rows", "images", "redirect"];
 const FRAME_ARRAY_FIELDS: readonly string[] = [
   "disclosure.entries",
   "footer.links",

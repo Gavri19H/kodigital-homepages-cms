@@ -26,6 +26,7 @@ CREATE TABLE IF NOT EXISTS lg_events_raw (
   bid_value Float64 DEFAULT 0, bid_currency LowCardinality(String) DEFAULT 'USD', bid_source LowCardinality(String) DEFAULT '',
   carrier_filtered_reason LowCardinality(String) DEFAULT '', provider_error_reason LowCardinality(String) DEFAULT '', auction_unfilled_reason LowCardinality(String) DEFAULT '',
   click_id String DEFAULT '', conversion_id String DEFAULT '', revenue Float64 DEFAULT 0, booking_trigger LowCardinality(String) DEFAULT '',
+  click_source LowCardinality(String) DEFAULT '', -- F11: 'redirect' = the page's own click when a "Redirect to offer" countdown ended; '' = a visitor's click (every past click)
   traffic_source LowCardinality(String) DEFAULT '', placement String DEFAULT '', utm_source String DEFAULT '', utm_medium String DEFAULT '', utm_content String DEFAULT '',
   device LowCardinality(String) DEFAULT '', os LowCardinality(String) DEFAULT '', country LowCardinality(String) DEFAULT '', state LowCardinality(String) DEFAULT '',
   is_bot UInt8 DEFAULT 0, is_internal UInt8 DEFAULT 0, is_preview UInt8 DEFAULT 0, traffic_quality_flag LowCardinality(String) DEFAULT 'clean',
@@ -65,10 +66,11 @@ JOIN (SELECT click_id, dt, quote_id, funnel_id, funnel_variant_id, auction_insta
 GROUP BY c.dt, c.quote_id, c.funnel_id, c.funnel_variant_id, c.auction_instance_id, c.auction_config_id, c.offer_id, c.carrier_key, c.traffic_source, r.source;
 
 -- Offer daily (offer_impression = one per (auction_instance_id, offer_id); event already deduped at emit).
-CREATE TABLE IF NOT EXISTS lg_offer_daily (offer_id String, dt Date, offer_impressions UInt64, clicks UInt64, unique_clicks UInt64, conversions UInt64, revenue Float64, synced_at DateTime DEFAULT now()) ENGINE=ReplacingMergeTree(synced_at) PARTITION BY toYYYYMM(dt) ORDER BY (offer_id, dt);
+CREATE TABLE IF NOT EXISTS lg_offer_daily (offer_id String, dt Date, offer_impressions UInt64, clicks UInt64, unique_clicks UInt64, redirect_clicks UInt64 DEFAULT 0, conversions UInt64, revenue Float64, synced_at DateTime DEFAULT now()) ENGINE=ReplacingMergeTree(synced_at) PARTITION BY toYYYYMM(dt) ORDER BY (offer_id, dt);
 CREATE MATERIALIZED VIEW IF NOT EXISTS lg_offer_daily_mv REFRESH EVERY 2 MINUTE TO lg_offer_daily AS
 SELECT e.offer_id AS offer_id, e.dt AS dt, sumIf(1,e.event_type='offer_impression') AS offer_impressions,
   sumIf(1,e.event_type IN ('offer_click','carrier_click')) AS clicks, uniqExactIf(e.session_id,e.event_type IN ('offer_click','carrier_click')) AS unique_clicks,
+  sumIf(1,e.event_type IN ('offer_click','carrier_click') AND e.click_source='redirect') AS redirect_clicks, -- F11: a part of clicks, never added to it
   COALESCE(r.conversions,0) AS conversions, COALESCE(r.revenue,0) AS revenue, now() AS synced_at
 FROM lg_events_raw AS e FINAL LEFT JOIN (SELECT offer_id,dt,SUM(conversions) conversions,SUM(revenue) revenue FROM lg_revenue_attributed FINAL GROUP BY offer_id,dt) AS r ON e.offer_id=r.offer_id AND e.dt=r.dt
 WHERE notEmpty(e.offer_id) AND e.traffic_quality_flag='clean' GROUP BY e.offer_id,e.dt,r.conversions,r.revenue;

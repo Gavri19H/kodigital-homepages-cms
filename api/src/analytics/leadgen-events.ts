@@ -233,6 +233,14 @@ export interface LeadgenEvent {
   bids_count: number | null;
   // Meta's _fbp browser id (request cookie, shape-checked); "" when absent.
   fbp: string;
+  // F11 (appended): on offer_click / carrier_click only, "redirect" when the
+  // results page clicked the card itself at the end of an "After the offer is
+  // shown" countdown (the hidden lg_rc mark, public/leadgen/click.ts); "" for
+  // a visitor's own click and on every other event. Server-stamped only — a
+  // client beacon never sets it (leadgenEventFromPayload leaves it "").
+  // ClickHouse lg_events_raw.click_source (default '') is filled by name by
+  // the S3 loader (analytics/event-loader.ts) once that column exists.
+  click_source: string;
 }
 
 // One row in Athena `leadgen.sessions` — written on the funnel-entry event
@@ -477,6 +485,7 @@ export function blankLeadgenEvent(eventType: string, now: number): LeadgenEvent 
     template_name: "",
     bids_count: null,
     fbp: "",
+    click_source: "",
   };
 }
 

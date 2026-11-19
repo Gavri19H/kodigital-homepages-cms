@@ -421,6 +421,24 @@ function renderCard(
   );
 }
 
+// F11 — the brand name and logo a rendered card SHOWS, for the redirect
+// screen's "{brand}" and "Logo on a bar" (redirect/types.ts). Read the same way
+// renderCard reads them: an automatic card's brand line is its carrier_name
+// (decoded, bold markers dropped); a card with no brand shows its headline
+// there instead, so it has no brand name → null ("your offer"). A manual card's
+// copy is the Auction's own, not a brand → null. The logo counts only when the
+// card would show it (an absolute http(s) URL).
+export function renderedCardBrandAndLogo(
+  slot: Pick<RenderedBannerSlot, "fields">,
+  mode: LeadgenBannerMode,
+): { brand: string | null; logo_url: string | null } {
+  const logoRaw = asText(mode === "manual" ? slot.fields["logo"] : slot.fields["carrier_logo"]);
+  const logo_url = isHttpUrl(logoRaw) ? logoRaw.trim() : null;
+  if (mode === "manual") return { brand: null, logo_url };
+  const brand = stripBoldMarkers(decodeHtmlEntities(asText(slot.fields["carrier_name"])).trim()).trim();
+  return { brand: brand !== "" ? brand : null, logo_url };
+}
+
 // The browser half of the Offer's click event (owner R2, 2026-10-08), or "".
 // Only rendered for an Offer whose switch is on, so no other card ever carries
 // its bid. Values are digits / a fixed event-name list / a number — escaped

@@ -4033,6 +4033,7 @@ const RELOCATED_RULES_STYLES = `<style>
 .lg-frr-actions-cell{white-space:nowrap}
 .lg-frr-pill{font-size:12px;padding:2px 8px;border:1px solid rgba(0,0,0,0.2);border-radius:999px}
 .lg-frr-pill.off{opacity:0.6}
+.lg-frr-chip{display:inline-block;margin-top:4px;font-size:12px;padding:2px 8px;border-radius:999px;background:#dbeafe;color:#1d4ed8;overflow-wrap:anywhere}
 .lg-frr-modal-overlay{position:fixed;inset:0;background:rgba(0,0,0,0.4);display:flex;align-items:flex-start;justify-content:center;overflow:auto;z-index:1000;padding:32px 16px}
 #lg-frr-root [hidden]{display:none}
 .lg-frr-modal{max-width:640px;width:100%;margin:0 auto}
@@ -4084,9 +4085,25 @@ export function renderRelocatedRulesEditor(data: RelocatedRulesPanelData): strin
     `<div class="form-group"><label class="form-label" for="lg-frr-match">Match</label><select id="lg-frr-match" class="form-select"><option value="all">ALL of the following</option><option value="any">ANY of the following</option></select></div>` +
     `</div>` +
     `<div class="lg-rule-action-panel" data-lg-frr-type-panel="redirect_direct_offer" hidden>` +
+    // F11 — "When to redirect" (plan Section 3 A / Section 4 "Rule window").
+    // "Straight away, before the auction" is today's redirect and the starting
+    // choice; "After the offer is shown" adds the seconds and "What the
+    // visitor sees", lets every Offer be picked, and hides the raw URL.
+    `<fieldset class="form-group" data-lg-frr-timing><legend class="form-label">When to redirect</legend>` +
+    `<label class="lg-check"><input type="radio" name="lg-frr-timing" id="lg-frr-timing-now" value="now" checked /> Straight away, before the auction</label>` +
+    `<label class="lg-check"><input type="radio" name="lg-frr-timing" id="lg-frr-timing-after" value="after" /> After the offer is shown</label>` +
+    `</fieldset>` +
+    `<div data-lg-frr-after hidden>` +
+    `<div class="form-group"><label class="form-label" for="lg-frr-seconds">Show the offer for (seconds)</label><input id="lg-frr-seconds" class="form-input" type="number" min="2" max="30" step="1" value="5" /><p class="form-help">A whole number from 2 to 30. The visitor sees the offer for this long, then it opens.</p></div>` +
+    `<fieldset class="form-group"><legend class="form-label">What the visitor sees</legend>` +
+    `<label class="lg-check"><input type="radio" name="lg-frr-display" id="lg-frr-display-banner" value="banner" checked /> The redirect banner</label>` +
+    `<label class="lg-check"><input type="radio" name="lg-frr-display" id="lg-frr-display-animation" value="animation" /> Only the animation</label>` +
+    `<p class="form-help">The look of both is set in the funnel's Template → "L · Redirect".</p>` +
+    `</fieldset>` +
+    `</div>` +
     `<div class="form-group"><label class="form-label" for="lg-frr-offer">Redirect to offer</label><select id="lg-frr-offer" class="form-select" aria-label="Target offer"><option value="">— choose an offer —</option></select></div>` +
     `<div class="form-group"><label class="form-label" for="lg-frr-redirect-pct">Redirect %</label><input id="lg-frr-redirect-pct" class="form-input" type="number" min="0" max="100" step="any" /><p class="form-help">0 or empty = no redirect; 100 = all matched visitors.</p></div>` +
-    `<details class="lg-advanced"><summary>Advanced — raw redirect URL (allowlist-gated)</summary>` +
+    `<details class="lg-advanced" data-lg-frr-raw-url><summary>Advanced — raw redirect URL (allowlist-gated)</summary>` +
     `<div class="form-group"><input id="lg-frr-redirect-url" class="form-input" type="text" placeholder="https://…" /></div>` +
     `<label class="lg-check"><input type="checkbox" id="lg-frr-allowlisted" /> Redirect URL is on the approved list</label>` +
     `</details>` +
@@ -4336,7 +4353,10 @@ export const RELOCATED_RULES_SCRIPT = `(function () {
     tr.appendChild(txt(el('td'), rule.priority));
     var nameTd = el('td'); txt(nameTd, (rule.rule_name && rule.rule_name.replace(/^\\s+|\\s+$/g, '') !== '') ? rule.rule_name : '(unnamed rule)'); tr.appendChild(nameTd);
     if (redirectNeverLands(rule)) { nameTd.appendChild(txt(el('div', 'form-help'), 'Never redirects: its offer has no URL of its own. Pick an offer that has one, or disable the rule.')); }
-    tr.appendChild(txt(el('td'), RULE_TYPE_LABEL(rule.rule_type)));
+    var typeTd = txt(el('td'), RULE_TYPE_LABEL(rule.rule_type));
+    var chip = redirectChipText(rule);
+    if (chip) { typeTd.appendChild(document.createElement('br')); typeTd.appendChild(txt(el('span', 'lg-frr-chip'), chip)); }
+    tr.appendChild(typeTd);
     var disabled = rule.status === 'disabled';
     var statusTd = el('td');
     var pill = el('span', 'lg-frr-pill' + (disabled ? ' off' : '')); txt(pill, disabled ? 'Disabled' : 'Active'); statusTd.appendChild(pill);
@@ -4352,10 +4372,30 @@ export const RELOCATED_RULES_SCRIPT = `(function () {
     tr.appendChild(actTd);
     return tr;
   }
+  // F11: a "Redirect to offer" rule's chip — "Redirect {%} → {Offer}", plus
+  // " · after {n} s" when it waits for the offer to be shown.
+  function offerNameById(id) {
+    var entry = quoteCache[currentQuotePub];
+    var list = entry ? entry.offers : [];
+    var i;
+    for (i = 0; i < list.length; i++) { if (list[i].id === id) { return list[i].offer_name || ('#' + id); } }
+    return '#' + id;
+  }
+  function redirectChipText(rule) {
+    if (rule.rule_type !== 'redirect_direct_offer') { return ''; }
+    var pct = rule.redirect_pct != null ? String(rule.redirect_pct) : '0';
+    var target = rule.target_offer_id != null ? offerNameById(rule.target_offer_id) : (rule.redirect_url || '');
+    var out = 'Redirect ' + pct + '% → ' + target;
+    if (rule.redirect_show_seconds != null) { out += ' · after ' + rule.redirect_show_seconds + ' s'; }
+    return out;
+  }
   // Mirror of the engine's redirectCanLand for the list: an Offer target with
   // no URL of its own and no allowlisted URL to fall back to never redirects.
+  // F11: an "After the offer is shown" rule opens the Offer's card, so it
+  // always has somewhere to go.
   function redirectNeverLands(rule) {
     if (rule.rule_type !== 'redirect_direct_offer' || rule.target_offer_id == null) { return false; }
+    if (rule.redirect_show_seconds != null) { return false; }
     if (rule.redirect_url && (rule.redirect_url_allowlisted === true || rule.redirect_url_allowlisted === 1)) { return false; }
     var entry = quoteCache[currentQuotePub];
     var list = entry ? entry.offers : [];
@@ -4423,6 +4463,15 @@ export const RELOCATED_RULES_SCRIPT = `(function () {
   var redirectPctEl = byId('lg-frr-redirect-pct');
   var redirectUrlEl = byId('lg-frr-redirect-url');
   var allowlistedEl = byId('lg-frr-allowlisted');
+  // F11 — "When to redirect" / "Show the offer for (seconds)" / "What the
+  // visitor sees".
+  var timingNowEl = byId('lg-frr-timing-now');
+  var timingAfterEl = byId('lg-frr-timing-after');
+  var secondsEl = byId('lg-frr-seconds');
+  var displayBannerEl = byId('lg-frr-display-banner');
+  var displayAnimationEl = byId('lg-frr-display-animation');
+  var afterWrap = qs(modal, '[data-lg-frr-after]');
+  var rawUrlWrap = qs(modal, '[data-lg-frr-raw-url]');
   var modalError = byId('lg-frr-error');
   var condMount = byId('lg-frr-cond-mount');
   var condOut = byId('lg-frr-cond-out');
@@ -4435,22 +4484,38 @@ export const RELOCATED_RULES_SCRIPT = `(function () {
     });
   }
 
+  function isAfterTiming() { return !!(timingAfterEl && timingAfterEl.checked); }
   function populateOfferSelect() {
     if (!offerEl) { return; }
+    var keep = offerEl.value;
     while (offerEl.firstChild) { offerEl.removeChild(offerEl.firstChild); }
     var ph = el('option'); ph.value = ''; txt(ph, '— choose an offer —'); offerEl.appendChild(ph);
     var entry = quoteCache[currentQuotePub];
     var offers = entry ? entry.offers : [];
+    var after = isAfterTiming();
     var i;
     for (i = 0; i < offers.length; i++) {
-      // A redirect target needs a URL of its own (the save refuses one without):
-      // listed, not selectable, with the reason.
-      var noUrl = offers[i].has_own_click_url === false;
+      // A "Straight away" target needs a URL of its own (the save refuses one
+      // without): listed, not selectable, with the reason. F11: "After the
+      // offer is shown" opens the Offer's own card, so every Offer is
+      // selectable then.
+      var noUrl = !after && offers[i].has_own_click_url === false;
       var opt = el('option'); opt.value = String(offers[i].id); txt(opt, (offers[i].offer_name || ('#' + offers[i].id)) + (noUrl ? ' (no URL of its own)' : ''));
       if (noUrl) { opt.disabled = true; }
       offerEl.appendChild(opt);
     }
+    if (keep) { offerEl.value = keep; }
   }
+  // F11: "After the offer is shown" shows the seconds and "What the visitor
+  // sees", and hides the raw URL (a URL has no card to show).
+  function applyTiming() {
+    var after = isAfterTiming();
+    if (afterWrap) { afterWrap.hidden = !after; }
+    if (rawUrlWrap) { rawUrlWrap.hidden = after; }
+    populateOfferSelect();
+  }
+  if (timingNowEl) { timingNowEl.addEventListener('change', applyTiming); }
+  if (timingAfterEl) { timingAfterEl.addEventListener('change', applyTiming); }
   function setTypePanel(ruleType) {
     var panels = qsa(modal, '[data-lg-frr-type-panel]');
     var i;
@@ -4466,7 +4531,17 @@ export const RELOCATED_RULES_SCRIPT = `(function () {
     priorityEl.value = rule && rule.priority != null ? String(rule.priority) : '100';
     statusEl.value = rule && rule.status === 'disabled' ? 'disabled' : 'active';
     matchEl.value = rule && rule.match_mode === 'any' ? 'any' : 'all';
-    populateOfferSelect();
+    // F11: every saved value fills in; a new rule starts on "Straight away",
+    // 5 seconds and the redirect banner.
+    var after = !!(rule && rule.redirect_show_seconds != null);
+    if (timingNowEl) { timingNowEl.checked = !after; }
+    if (timingAfterEl) { timingAfterEl.checked = after; }
+    if (secondsEl) { secondsEl.value = after ? String(rule.redirect_show_seconds) : '5'; }
+    var animation = !!(rule && after && rule.redirect_display === 'animation');
+    if (displayBannerEl) { displayBannerEl.checked = !animation; }
+    if (displayAnimationEl) { displayAnimationEl.checked = animation; }
+    offerEl.value = '';
+    applyTiming();
     offerEl.value = rule && rule.target_offer_id != null ? String(rule.target_offer_id) : '';
     redirectPctEl.value = rule && rule.redirect_pct != null ? String(rule.redirect_pct) : '';
     redirectUrlEl.value = rule && rule.redirect_url ? rule.redirect_url : '';
@@ -4503,13 +4578,26 @@ export const RELOCATED_RULES_SCRIPT = `(function () {
     if (typeEl.value === 'redirect_direct_offer') {
       body.target_offer_id = offerEl.value !== '' ? Number(offerEl.value) : null;
       body.redirect_pct = redirectPctEl.value !== '' ? num(redirectPctEl.value) : null;
-      body.redirect_url = allowlistedEl.checked && redirectUrlEl.value !== '' ? redirectUrlEl.value : null;
-      body.redirect_url_allowlisted = allowlistedEl.checked;
+      if (isAfterTiming()) {
+        // F11: the seconds go as typed (the save says plainly when they are
+        // not a whole number from 2 to 30); no raw URL with "After".
+        body.redirect_show_seconds = secondsEl ? num(secondsEl.value) : null;
+        body.redirect_display = displayAnimationEl && displayAnimationEl.checked ? 'animation' : 'banner';
+        body.redirect_url = null;
+        body.redirect_url_allowlisted = false;
+      } else {
+        body.redirect_show_seconds = null;
+        body.redirect_display = null;
+        body.redirect_url = allowlistedEl.checked && redirectUrlEl.value !== '' ? redirectUrlEl.value : null;
+        body.redirect_url_allowlisted = allowlistedEl.checked;
+      }
     } else {
       body.target_offer_id = null;
       body.redirect_pct = null;
       body.redirect_url = null;
       body.redirect_url_allowlisted = false;
+      body.redirect_show_seconds = null;
+      body.redirect_display = null;
     }
     return body;
   }
@@ -4520,6 +4608,12 @@ export const RELOCATED_RULES_SCRIPT = `(function () {
 
   function save() {
     var body = collectBody();
+    // F11: an empty "Show the offer for (seconds)" would read as "Straight
+    // away" on the server, so it is refused here with the save's own words.
+    if (body.rule_type === 'redirect_direct_offer' && isAfterTiming() && body.redirect_show_seconds === null) {
+      showModalError('\u201cShow the offer for (seconds)\u201d must be a whole number from 2 to 30.');
+      return;
+    }
     var url = editingPublicId
       ? (API + '/variants/' + encodeURIComponent(currentVariantPub) + '/rules/' + encodeURIComponent(editingPublicId))
       : (API + '/variants/' + encodeURIComponent(currentVariantPub) + '/rules');

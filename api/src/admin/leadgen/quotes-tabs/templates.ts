@@ -93,6 +93,13 @@ import {
   FRAME_TYPO_SIZES,
 } from "../../../public/leadgen/designs/frames";
 import { FUNNEL_TOKEN_ROLES, THEME_RECORD_FONT_NAMES } from "../../../public/leadgen/designs/theme";
+import {
+  FRAME_REDIRECT_ANIMATION_LABELS,
+  FRAME_REDIRECT_CORNER_LABELS,
+  FRAME_REDIRECT_TEXT_MAX,
+} from "../../../public/leadgen/designs/frames";
+import { REDIRECT_LOOK_DEFAULTS } from "../../../public/leadgen/redirect/look";
+import { redirectPreviewBoot, REDIRECT_PREVIEW_ISLAND_JS } from "./redirect-preview";
 import { type QuoteRulesRailAnswerField } from "../ui-rules-builder";
 import {
   roleLabel,
@@ -849,6 +856,89 @@ function renderTplBoxProgress(): string {
 }
 
 
+// ---------------------------------------------------------------------------
+// F11 — element "L · Redirect" (plan Section 3 G/H, Section 4 "Admin:
+// Templates → L · Redirect"). The look of the results page when a "Redirect to
+// offer" rule set to "After the offer is shown" fires: the redirect banner and
+// the animation-only screen. Every control is a `redirect.*` frame key on the
+// SAME generic [data-frame-key]/[data-role-pick] wiring every other element
+// uses (populate/write/save are the shared island's, quotes-tabs/funnel.ts),
+// so saving is the funnel's normal Save and the server's validateFrameConfig
+// (designs/frames.ts validateRedirect) is the gate. Texts left empty mean the
+// default (shown as the placeholder). Colours are Theme roles only; fonts
+// always come from the Theme. The preview buttons and "Reset to defaults" are
+// this file's island (rdWire* below).
+// ---------------------------------------------------------------------------
+
+function redirectInput(label: string, key: keyof typeof REDIRECT_LOOK_DEFAULTS, help?: string): string {
+  return frameInput(label, `redirect.${key}`, String(REDIRECT_LOOK_DEFAULTS[key]), help);
+}
+
+function redirectSegmented(label: string, key: string, labels: Readonly<Record<string, string>>, help?: string, extraClass = ""): string {
+  const groupName = `lg-tpl-seg-redirect-${key}`;
+  const items = Object.entries(labels)
+    .map(
+      ([value, optLabel]) =>
+        `<label class="lg-tpl2-seg-item"><input type="radio" name="${escapeHtml(groupName)}" value="${escapeHtml(value)}" data-frame-key="redirect.${escapeHtml(key)}" data-frame-radio="1" /><span>${escapeHtml(optLabel)}</span></label>`,
+    )
+    .join("");
+  return frameControl(label, `<div class="lg-tpl2-seg${extraClass}" role="radiogroup" aria-label="${escapeHtml(label)}">${items}</div>`, help);
+}
+
+function renderTplBoxRedirect(): string {
+  const sizes = { s: "S", m: "M", l: "L" } as const;
+  return `<div class="lg-inspector-panel lg-panel-card" data-tplbox-panel="redirect">
+  <h3>L &middot; Redirect</h3>
+  <p class="form-help">How the results page looks when a "Redirect to offer" rule opens an offer after showing it. Colors are this funnel's Theme roles; fonts always come from the Theme.</p>
+
+  <div class="lg-tpl2-eyebrow">Banner</div>
+  ${toggleControl("Show the badge", "redirect.badge_on")}
+  ${redirectInput("Badge", "badge_text")}
+  ${redirectInput("Headline", "headline")}
+  ${toggleControl("Show the message", "redirect.message_on")}
+  ${redirectInput("Message", "message")}
+  ${redirectInput("Countdown line", "countdown_line", "Must include {n}, the seconds left.")}
+  ${redirectInput("“Stay here” label", "stay_label")}
+  <p class="form-help">Fill-ins: {brand} is the offer's brand name ("your offer" when it has none) and {n} is the seconds left. Up to ${FRAME_REDIRECT_TEXT_MAX} characters each. Leave a box empty to use the text shown in it.</p>
+  <div class="lg-scalars">
+    ${frameControl("Background", renderRoleStrip("redirect.background_role"))}
+    ${frameControl("Border", renderRoleStrip("redirect.border_role"))}
+    ${frameControl("Badge text", renderRoleStrip("redirect.badge_role"))}
+    ${frameControl("Badge fill", renderRoleStrip("redirect.badge_bg_role"))}
+    ${frameControl("Headline", renderRoleStrip("redirect.headline_role"))}
+    ${frameControl("Text", renderRoleStrip("redirect.text_role"))}
+  </div>
+  ${redirectSegmented("Corners", "corners", FRAME_REDIRECT_CORNER_LABELS)}
+  ${redirectSegmented("Headline size", "headline_size", sizes)}
+  ${toggleControl("Shadow", "redirect.shadow")}
+
+  <div class="lg-tpl2-divider"></div>
+  <div class="lg-tpl2-eyebrow">Animation</div>
+  ${redirectSegmented("Style", "animation", FRAME_REDIRECT_ANIMATION_LABELS, '"Logo on a bar" shows the ring when the offer has no logo.', " lg-tpl2-seg--grid")}
+  <div class="lg-scalars">
+    ${frameControl("Color", renderRoleStrip("redirect.animation_role"))}
+    ${frameControl("Track", renderRoleStrip("redirect.track_role"))}
+  </div>
+  ${redirectSegmented("Size", "animation_size", sizes, "The animation-only screen shows it one size larger.")}
+  ${toggleControl("Show the seconds", "redirect.show_seconds", "Inside the ring, or beside the bar.")}
+
+  <div class="lg-tpl2-divider"></div>
+  <div class="lg-tpl2-eyebrow">Animation only</div>
+  ${redirectInput("Headline", "only_headline")}
+  ${redirectInput("Message", "only_message")}
+  ${redirectInput("Link", "only_link")}
+
+  <div class="lg-tpl2-divider"></div>
+  <div class="lg-tpl2-bar-row lg-tpl2-rd-actions">
+    <button type="button" class="btn btn-sm btn-secondary" data-rd-preview="banner" aria-pressed="false">Preview banner</button>
+    <button type="button" class="btn btn-sm btn-secondary" data-rd-preview="animation" aria-pressed="false">Preview animation only</button>
+    <button type="button" class="btn btn-sm btn-outline lg-tpl2-rd-reset" id="lg-tpl-redirect-reset">Reset to defaults</button>
+  </div>
+  <p class="form-help" id="lg-tpl-redirect-status" role="status"></p>
+</div>`;
+}
+
+
 // R2 P7 (owner: "the 'J' element, I don't see it in the Quotes") — the footer
 // tile is lettered **J** and sits LAST, in its own group.
 //
@@ -888,11 +978,16 @@ const TPLBOX_CARDS: ReadonlyArray<{ key: string; letter: string; label: string }
   { key: "images", letter: "G", label: "Images" },
   { key: "progress", letter: "I", label: "Progress" },
   { key: "footer", letter: "J", label: "Footer" },
+  // F11: "L · Redirect" comes after J; "K" stays free for F10's
+  // "K · Result animation" (the loading screen just before the results).
+  { key: "redirect", letter: "L", label: "Redirect" },
 ];
 
 // The one tile A.2 calls a "seperate template element" — rendered in its own
 // group below the in-page elements rather than inline with them.
 const TPLBOX_SEPARATE_KEY = "footer";
+// F11: the results-page element, in its own group after the page footer.
+const TPLBOX_RESULTS_KEY = "redirect";
 
 
 // ---------------------------------------------------------------------------
@@ -915,14 +1010,19 @@ function renderElementsList(): string {
   // heading and help below used to quote the contract at the operator
   // ("separate template element", "independent of the main template"). The
   // grouping is unchanged; only the words are now product copy.
-  const inPage = TPLBOX_CARDS.filter((c) => c.key !== TPLBOX_SEPARATE_KEY).map(tplBoxCard).join("");
+  const inPage = TPLBOX_CARDS.filter((c) => c.key !== TPLBOX_SEPARATE_KEY && c.key !== TPLBOX_RESULTS_KEY).map(tplBoxCard).join("");
   const separate = TPLBOX_CARDS.filter((c) => c.key === TPLBOX_SEPARATE_KEY).map(tplBoxCard).join("");
+  const results = TPLBOX_CARDS.filter((c) => c.key === TPLBOX_RESULTS_KEY).map(tplBoxCard).join("");
   return `<div class="lg-tpl2-eyebrow">Funnel-layout elements</div>
   <div class="lg-tplbox-grid" id="lg-tplbox-grid">${inPage}</div>
   <div class="lg-tpl2-divider"></div>
   <div class="lg-tpl2-eyebrow">Page footer</div>
   <div class="lg-tplbox-grid lg-tplbox-grid-separate" id="lg-tplbox-grid-separate">${separate}</div>
-  <p class="form-help">Sits at the bottom of every page and keeps its own colours, fonts and sizes.</p>`;
+  <p class="form-help">Sits at the bottom of every page and keeps its own colours, fonts and sizes.</p>
+  <div class="lg-tpl2-divider"></div>
+  <div class="lg-tpl2-eyebrow">Results page</div>
+  <div class="lg-tplbox-grid lg-tplbox-grid-results" id="lg-tplbox-grid-results">${results}</div>
+  <p class="form-help">The redirect banner and the animation-only screen a "Redirect to offer" rule can show.</p>`;
 }
 
 
@@ -938,6 +1038,7 @@ function renderSettingsColumn(answerFields: readonly QuoteRulesRailAnswerField[]
     ${renderTplBoxImages()}
     ${renderTplBoxProgress()}
     ${renderTplBoxFooter()}
+    ${renderTplBoxRedirect()}
   </div>`;
 }
 
@@ -1141,6 +1242,12 @@ const TPL_STYLES = `
 .lg-tpl2-seg-item input{position:absolute;opacity:0;width:100%;height:100%;top:0;left:0;margin:0;cursor:pointer}
 .lg-tpl2-seg-item.active{background:var(--c-primary,#1B3A5C);color:#fff}
 .lg-tpl2-divider{height:1px;background:var(--c-border);margin:12px 0}
+/* F11 L · Redirect: the five animation styles wrap onto two rows of the same
+   segmented control; the preview buttons show which one the canvas is on. */
+.lg-tpl2-seg--grid{flex-wrap:wrap}
+.lg-tpl2-seg--grid .lg-tpl2-seg-item{flex:1 1 30%;border-left:0;box-shadow:inset 0 0 0 .5px var(--c-border)}
+.lg-tpl2-rd-actions .lg-tpl2-rd-reset{margin-left:auto}
+.lg-tpl2-rd-actions [data-rd-preview][aria-pressed="true"]{background:var(--c-primary,#1B3A5C);border-color:var(--c-primary,#1B3A5C);color:#fff}
 .lg-tpl2-toggle-row{display:flex;align-items:center;justify-content:space-between;gap:10px;padding:6px 0}
 .lg-tpl2-toggle-title{font-size:13px;font-weight:600;color:var(--c-text);display:block}
 .lg-tpl2-toggle-help{font-size:11px;color:var(--c-muted);display:block}
@@ -1222,6 +1329,14 @@ const TPL_SCRIPT = `
   var lastRealProgressStyle = 'bar';
   var previewSeq = 0;
   var currentSections = [];
+  // F11 "L · Redirect" — the preview data and the ES5 twins of the server's
+  // redirect renderer (quotes-tabs/redirect-preview.ts). rdPreview is '' (the
+  // normal canvas), 'banner' or 'animation'.
+  var RD = ${JSON.stringify(redirectPreviewBoot()).replace(/</g, "\\u003c")};
+  var rdPreview = '';
+  var rdTicker = null;
+  var rdTickStart = 0;
+${REDIRECT_PREVIEW_ISLAND_JS}
   // P8-1 F1 (B3/R6-1, round 2): WHICH funnel this panel edits lives in the
   // page URL's hash (tab=<name>&funnel=<public id>), set by a board Template
   // chip click (quotes-tabs/funnel.ts) or by this panel's own funnel picker,
@@ -1484,7 +1599,17 @@ const TPL_SCRIPT = `
         return;
       }
       var p = res.body.preview || {};
-      setCanvasDoc(p.html || '', p.css || '');
+      var pageHtml = p.html || '';
+      var pageCss = p.css || '';
+      // F11: "Preview banner" / "Preview animation only" — the sample offer's
+      // redirect screen over this funnel's own composed page and Theme tokens.
+      if (rdPreview !== '') {
+        var rdTokens = (res.body.config && res.body.config.design_tokens) ? res.body.config.design_tokens : {};
+        pageHtml = rdPreviewHtml(pageHtml, rdPreview, rdDraft(), rdTokens);
+        pageCss = pageCss + RD.preview_css;
+      }
+      setCanvasDoc(pageHtml, pageCss);
+      if (rdPreview !== '') { rdStartTicker(); } else { rdStopTicker(); }
       // Appendix A-9's no-sections copy, VERBATIM (unchanged from the retired
       // client fixture) + what is new: it renders inside the REAL frame.
       canvasStatus(res.body.sample_section === true ? 'Sample section (add sections to preview your own). Your frame, theme and every element edit render around it.' : '');
@@ -2869,6 +2994,165 @@ const TPL_SCRIPT = `
     document.addEventListener('lg:target-funnel-change', function () { onTargetFunnelChanged(); });
   }
 
+  // =========================================================================
+  // F11 — element "L · Redirect". The controls are the shared island's
+  // (generic [data-frame-key]/[data-role-pick] populate + write + Save); this
+  // part adds only what that wiring cannot know:
+  //   * the DEFAULTS on screen: a key with no stored value is the default, so
+  //     its toggle, segmented button and role swatch show the default (text
+  //     boxes show it as their placeholder);
+  //   * "Reset to defaults": every control back to its default through the
+  //     SAME change/click paths an operator's own edit takes (empty text = the
+  //     default; toggles, buttons and roles = the default value, which is the
+  //     Theme look on every Theme, since colours are Theme roles);
+  //   * "Preview banner" / "Preview animation only" (see renderCanvasPreview).
+  // =========================================================================
+  var RD_BOOL_KEYS = ['badge_on', 'message_on', 'shadow', 'show_seconds'];
+  var RD_RADIO_KEYS = ['corners', 'headline_size', 'animation', 'animation_size'];
+  var RD_ROLE_KEYS = ['background_role', 'border_role', 'badge_role', 'badge_bg_role', 'headline_role', 'text_role', 'animation_role', 'track_role'];
+  function rdControls(key) { return toArray(document.querySelectorAll('[data-frame-key="redirect.' + key + '"]')); }
+  // The block the canvas and the defaults read: the effective one (a saved
+  // template's block included) with this session's edits on top.
+  function rdDraft() {
+    var eff = (boot && boot.frame && boot.frame.effective_frame) ? boot.frame.effective_frame.redirect : null;
+    var out = rdIsRecord(eff) ? deepClone(eff) : {};
+    var mine = myFrame ? myFrame.redirect : undefined;
+    var k;
+    if (rdIsRecord(mine)) {
+      for (k in mine) { if (Object.prototype.hasOwnProperty.call(mine, k)) { out[k] = mine[k]; } }
+    }
+    return out;
+  }
+  function rdPaintDefaults() {
+    var d = rdDraft();
+    var i, j, els, key, strip, sw;
+    for (i = 0; i < RD_BOOL_KEYS.length; i++) {
+      key = RD_BOOL_KEYS[i];
+      if (typeof d[key] === 'boolean') { continue; }
+      els = rdControls(key);
+      for (j = 0; j < els.length; j++) { els[j].checked = RD.defaults[key] === true; }
+    }
+    for (i = 0; i < RD_RADIO_KEYS.length; i++) {
+      key = RD_RADIO_KEYS[i];
+      if (typeof d[key] === 'string') { continue; }
+      els = rdControls(key);
+      for (j = 0; j < els.length; j++) { els[j].checked = els[j].value === RD.defaults[key]; }
+    }
+    for (i = 0; i < RD_ROLE_KEYS.length; i++) {
+      key = RD_ROLE_KEYS[i];
+      if (typeof d[key] === 'string') { continue; }
+      strip = document.querySelector('[data-role-strip="redirect.' + key + '"]');
+      sw = strip ? toArray(strip.querySelectorAll('[data-role-pick]')) : [];
+      for (j = 0; j < sw.length; j++) {
+        sw[j].className = sw[j].getAttribute('data-role-pick') === RD.defaults[key] ? 'lg-role-swatch selected' : 'lg-role-swatch';
+      }
+    }
+    syncRadioActiveClasses();
+  }
+  function rdFire(el, type) {
+    var evt = null;
+    if (typeof window.Event === 'function') { try { evt = new window.Event(type, { bubbles: true }); } catch (e) { evt = null; } }
+    if (evt === null && document.createEvent) { evt = document.createEvent('Event'); evt.initEvent(type, true, false); }
+    if (evt !== null && el.dispatchEvent) { el.dispatchEvent(evt); }
+  }
+  function rdStatus(msg) {
+    var el = byId('lg-tpl-redirect-status');
+    if (!el) { return; }
+    clearChildren(el);
+    if (msg) { el.appendChild(text(msg)); }
+  }
+  function rdReset() {
+    var i, j, els, key, btn;
+    for (i = 0; i < RD_TEXT_KEYS.length; i++) {
+      els = rdControls(RD_TEXT_KEYS[i]);
+      for (j = 0; j < els.length; j++) { els[j].value = ''; rdFire(els[j], 'change'); }
+    }
+    for (i = 0; i < RD_BOOL_KEYS.length; i++) {
+      key = RD_BOOL_KEYS[i];
+      els = rdControls(key);
+      for (j = 0; j < els.length; j++) { els[j].checked = RD.defaults[key] === true; rdFire(els[j], 'change'); }
+    }
+    for (i = 0; i < RD_RADIO_KEYS.length; i++) {
+      key = RD_RADIO_KEYS[i];
+      els = rdControls(key);
+      for (j = 0; j < els.length; j++) {
+        if (els[j].value === RD.defaults[key]) { els[j].checked = true; rdFire(els[j], 'change'); }
+      }
+    }
+    for (i = 0; i < RD_ROLE_KEYS.length; i++) {
+      key = RD_ROLE_KEYS[i];
+      btn = document.querySelector('[data-role-strip="redirect.' + key + '"] [data-role-pick="' + RD.defaults[key] + '"]');
+      if (btn && btn.click) { btn.click(); }
+    }
+    syncRadioActiveClasses();
+    rdStatus('Back to the Theme look. Save to keep it.');
+    scheduleCanvasPreview();
+  }
+  function rdStopTicker() {
+    if (rdTicker !== null && typeof window.clearInterval === 'function') { window.clearInterval(rdTicker); }
+    rdTicker = null;
+  }
+  // The canvas runs no script, so the seconds are ticked from out here (the
+  // canvas document is same-origin), looping with the looping animation.
+  function rdStartTicker() {
+    rdStopTicker();
+    if (typeof window.setInterval !== 'function') { return; }
+    rdTickStart = new Date().getTime();
+    rdTicker = window.setInterval(function () {
+      var frame = byId('lg-tpl-canvas-iframe');
+      var idoc = null;
+      try { idoc = frame ? frame.contentDocument : null; } catch (e) { idoc = null; }
+      if (!idoc || !idoc.querySelectorAll) { return; }
+      var secs = RD.sample.seconds;
+      var n = secs - (Math.floor((new Date().getTime() - rdTickStart) / 1000) % secs);
+      var ns = idoc.querySelectorAll('[data-lg-rd-n]');
+      var i;
+      for (i = 0; i < ns.length; i++) { ns[i].textContent = String(n); }
+    }, 250);
+  }
+  function rdSetPreview(mode) {
+    rdPreview = mode;
+    var btns = toArray(document.querySelectorAll('[data-rd-preview]'));
+    var i;
+    for (i = 0; i < btns.length; i++) {
+      btns[i].setAttribute('aria-pressed', btns[i].getAttribute('data-rd-preview') === mode ? 'true' : 'false');
+    }
+    if (mode === '') { rdStopTicker(); }
+    renderCanvasPreview();
+  }
+  function rdWire() {
+    document.addEventListener('click', function (ev) {
+      var el = ev.target;
+      if (!el || !el.closest) { return; }
+      var pv = el.closest('[data-rd-preview]');
+      if (pv) {
+        var mode = pv.getAttribute('data-rd-preview') || '';
+        rdSetPreview(rdPreview === mode ? '' : mode);
+        return;
+      }
+      if (el.closest('#lg-tpl-redirect-reset')) { rdReset(); return; }
+      var pick = el.closest('[data-tplbox-pick]');
+      if (pick) {
+        if (pick.getAttribute('data-tplbox-pick') === 'redirect') { window.setTimeout(rdPaintDefaults, 0); }
+        else if (rdPreview !== '') { rdSetPreview(''); }
+        return;
+      }
+      // The shared island re-marks every role strip after a pick; put the
+      // unpicked redirect strips' defaults back.
+      if (el.closest('[data-role-pick]') && el.closest('[data-tplbox-panel="redirect"]')) { window.setTimeout(rdPaintDefaults, 0); }
+    });
+    // Typing shows in the preview at once (the shared island writes on 'change').
+    document.addEventListener('input', function (ev) {
+      var el = ev.target;
+      var key = (el && el.getAttribute) ? el.getAttribute('data-frame-key') : null;
+      if (key && key.indexOf('redirect.') === 0 && el.type !== 'checkbox' && el.type !== 'radio') {
+        setPath(myFrame, key, el.value === '' ? null : el.value);
+      }
+    });
+    document.addEventListener('lg:target-funnel-frame', function () { window.setTimeout(rdPaintDefaults, 0); });
+    window.setTimeout(rdPaintDefaults, 0);
+  }
+
   // --- init ---------------------------------------------------------------
   function init() {
     boot = loadBoot();
@@ -2914,6 +3198,7 @@ const TPL_SCRIPT = `
     wireAbTemplatesDialog();
     loadTemplates();
     loadQuoteDefaultTemplate();
+    rdWire();
   }
 
   if (document.readyState === 'loading') {

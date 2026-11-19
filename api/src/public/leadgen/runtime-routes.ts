@@ -31,7 +31,7 @@ import { serveLeadgenAuction } from "./serve-auction";
 import { runtimeRequestGuard, type GuardOutcome } from "./runtime-guard";
 import { ingestProviderPostback, ingestBrowserPixel } from "./postback";
 import { leadgenTrackRouter } from "../../analytics/leadgen-track";
-import { resolveLeadgenClick, type LeadgenClickInput } from "./click";
+import { REDIRECT_MARK_CLEAR_COOKIE, resolveLeadgenClick, type LeadgenClickInput } from "./click";
 import { sendClickoutMetaConversion, type ClickoutMetaOffer } from "../../leadgen/clickout-meta";
 import { readFbpCookie } from "../../leadgen/meta-hash";
 import { safeErrorName } from "../../safety/safe-error";
@@ -954,6 +954,15 @@ async function serveLeadgenClick(c: PublicContext): Promise<Response> {
 
   const result = await resolveLeadgenClick(c.env, execCtx, input);
 
+  // F11: the page's own click carried the hidden redirect mark for THIS card
+  // — delete it in the reply (both the 302 and the safe 204). Any other click
+  // leaves the cookie alone.
+  const replyHeaders = (base: Record<string, string>): Headers => {
+    const headers = new Headers(base);
+    if (result.redirect_mark) headers.append("Set-Cookie", REDIRECT_MARK_CLEAR_COOKIE);
+    return headers;
+  };
+
   // 302 to the resolved destination (no-store). The Response ctor THROWS on a
   // control char in Location — resolveLeadgenClick already gates to a safe
   // http(s) URL, but the construction is guarded so a click never 500s.
@@ -962,11 +971,11 @@ async function serveLeadgenClick(c: PublicContext): Promise<Response> {
     try {
       redirect = new Response(null, {
         status: 302,
-        headers: {
+        headers: replyHeaders({
           Location: result.destination_url,
           "Cache-Control": "no-store",
           "X-Content-Type-Options": "nosniff",
-        },
+        }),
       });
     } catch {
       // fall through to the safe no-redirect — the click was already counted.
@@ -1000,7 +1009,7 @@ async function serveLeadgenClick(c: PublicContext): Promise<Response> {
   // required-missing / unsafe / no-target → safe non-302 (never a broken URL).
   return new Response(null, {
     status: 204,
-    headers: { "Cache-Control": "no-store", "X-Content-Type-Options": "nosniff" },
+    headers: replyHeaders({ "Cache-Control": "no-store", "X-Content-Type-Options": "nosniff" }),
   });
 }
 

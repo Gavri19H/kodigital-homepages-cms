@@ -48,6 +48,7 @@ import { validateAddress, GOOGLE_MAPS_SERVER_KEY, type LeadgenLocationFacet } fr
 import type { LeadgenSectionContent } from "./components/content-schema";
 import { offerHasOwnClickUrl } from "../../leadgen/macros";
 import type { LeadgenAuctionRow, LeadgenEnvironment } from "../../admin/leadgen/db-types";
+import { loadRedirectLook, renderRedirectScreen, type RedirectLook } from "./redirect/screen";
 
 type PublicContext = Context<{ Bindings: Env; Variables: PublicSiteVariables }>;
 
@@ -441,6 +442,28 @@ export async function serveLeadgenAuction(c: PublicContext): Promise<Response> {
     }
   }
 
+  // F11 — "Redirect to offer" → "After the offer is shown": the engine set
+  // the open instruction (first matching rule, visitor inside its "Redirect %"
+  // draw, its Offer has a card here). The normal cards are wrapped into the
+  // redirect screen (the banner or the animation only, in the look of the
+  // funnel Template's "L · Redirect"); the page shell's small redirect script
+  // runs the countdown and clicks the card's own link. The look is read
+  // fail-open: on any error the screen uses its defaults (look null) — a
+  // results page never fails because of it. Every other result is untouched.
+  let bannersHtml = result.banners_html;
+  if (result.redirect_after !== undefined) {
+    let look: RedirectLook | null = null;
+    try {
+      look = await loadRedirectLook(c.env, resolved);
+    } catch (err) {
+      console.warn(
+        JSON.stringify({ event: "leadgen_redirect_look_read_failed", error: err instanceof Error ? err.message : String(err) }),
+      );
+      look = null;
+    }
+    bannersHtml = renderRedirectScreen({ banners_html: result.banners_html, instruction: result.redirect_after, look });
+  }
+
   // 03 §3.6 response: banners_html (existing) + auction_result_id +
   // banner_render_id + impressions[] (R7 — the server half the client engine
   // beacons on viewability) + unfilled?:true.
@@ -459,7 +482,7 @@ export async function serveLeadgenAuction(c: PublicContext): Promise<Response> {
       auction_result_id: result.auction_result_id,
       banner_render_id: result.banner_render_ids[0] ?? "",
       banners_css: result.banners_css,
-      banners_html: result.banners_html,
+      banners_html: bannersHtml,
       banners: result.banners.map((b) => ({
         slot: b.slot,
         carrier_key: b.carrier_key,
@@ -473,6 +496,9 @@ export async function serveLeadgenAuction(c: PublicContext): Promise<Response> {
       ...(unfilled ? { unfilled: true as const } : {}),
       ...(result.redirect !== null ? { redirect: result.redirect } : {}),
       ...(go !== null ? { go } : {}),
+      // F11: the open instruction itself (the screen above already carries
+      // what the page needs; this is the record of it).
+      ...(result.redirect_after !== undefined ? { redirect_after: result.redirect_after } : {}),
     },
     200,
   );

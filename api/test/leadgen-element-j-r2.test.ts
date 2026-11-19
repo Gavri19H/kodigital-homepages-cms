@@ -119,6 +119,9 @@ describe("R2 P3 element J — TPLBOX_CARDS stays a single footer entry (contract
       "G:Images",
       "I:Progress",
       "J:Footer",
+      // F11 (plan Section 3 G): "L · Redirect" comes after J, in its own
+      // "Results page" group; K stays free for F10's "K · Result animation".
+      "L:Redirect",
     ]);
     // …and the vacancy is H, exactly one letter, between the contiguous block
     // and the owner's two pinned letters.
