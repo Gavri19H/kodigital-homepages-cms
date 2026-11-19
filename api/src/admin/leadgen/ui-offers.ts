@@ -147,6 +147,10 @@ interface OfferAnalyticsBody {
     cvr: number | null;
     rpc: number | null;
     rpm: number | null;
+    // F11: redirect clicks are a part of clicks; visitor clicks are the rest.
+    redirect_clicks: number;
+    visitor_clicks: number;
+    visitor_ctr: number | null;
   };
 }
 
@@ -375,10 +379,12 @@ interface OffersPageProps {
 }
 
 // §9.2 analytics columns, in contract order. `metric` keys match the §10.7
-// analytics endpoint fields the after-paint hydration reads.
+// analytics endpoint fields the after-paint hydration reads. F11 adds
+// "Redirect clicks" right after "Clicks" (still counted inside "Clicks").
 const OFFER_ANALYTICS_COLUMNS: ReadonlyArray<{ metric: string; label: string }> = [
   { metric: "offer_impressions", label: "Impressions" },
   { metric: "clicks", label: "Clicks" },
+  { metric: "redirect_clicks", label: "Redirect clicks" },
   { metric: "ctr", label: "CTR" },
   { metric: "conversions", label: "Conversions" },
   { metric: "cvr", label: "CVR" },
@@ -388,7 +394,7 @@ const OFFER_ANALYTICS_COLUMNS: ReadonlyArray<{ metric: string; label: string }> 
 ];
 
 // 8 descriptive + the §5.1 eligibility badge + the §7.1 test-status chip
-// + 8 analytics + actions.
+// + 9 analytics (F11: + "Redirect clicks") + actions.
 const OFFER_COLUMN_COUNT = 10 + OFFER_ANALYTICS_COLUMNS.length + 1;
 
 // §9.2 toolbar: + Create an Offer FIRST (top-left, opens the modal), then
@@ -853,6 +859,7 @@ const LG_SHARED_SCRIPT = `
   function fmtDec(v) { var n = Number(v); if (!isFinite(n)) { n = 0; } return n.toFixed(2); }
   var FORMATS = {
     offer_impressions: fmtInt, clicks: fmtInt, unique_clicks: fmtInt, conversions: fmtInt,
+    redirect_clicks: fmtInt,
     ctr: fmtPct, cvr: fmtPct,
     revenue: fmtDec, rpc: fmtDec, rpm: fmtDec
   };
@@ -2404,7 +2411,13 @@ function fmtMetricDec(v: number | null | undefined): string {
   return typeof v === "number" && Number.isFinite(v) ? v.toFixed(2) : EM_DASH;
 }
 
+// F11: the one line under the Analytics cards that explains the click split.
+export const OFFER_REDIRECT_CLICKS_HELP =
+  'Clicks counts every click. Redirect clicks are the ones the page made by itself when a "Redirect to offer" countdown ended; Visitor clicks are the rest. Visitor CTR = Visitor clicks ÷ Impressions.';
+
 // §10.7 read-only analytics: all nine metrics, NULL ratios render em-dashes.
+// F11 adds "Visitor clicks", "Redirect clicks" and "Visitor CTR" right after
+// "Clicks"; "Clicks" and "CTR" keep counting every click.
 function renderAnalyticsPanel(
   analytics: OfferAnalyticsBody["analytics"] | null,
   analyticsError: string | null,
@@ -2416,6 +2429,9 @@ function renderAnalyticsPanel(
   <div class="stats-grid">
     <div class="stat-card"><div class="stat-label">Impressions</div><div class="stat-value">${fmtMetricInt(analytics.offer_impressions)}</div></div>
     <div class="stat-card"><div class="stat-label">Clicks</div><div class="stat-value">${fmtMetricInt(analytics.clicks)}</div></div>
+    <div class="stat-card"><div class="stat-label">Visitor clicks</div><div class="stat-value">${fmtMetricInt(analytics.visitor_clicks)}</div></div>
+    <div class="stat-card"><div class="stat-label">Redirect clicks</div><div class="stat-value">${fmtMetricInt(analytics.redirect_clicks)}</div></div>
+    <div class="stat-card"><div class="stat-label">Visitor CTR</div><div class="stat-value">${fmtMetricPct(analytics.visitor_ctr)}</div></div>
     <div class="stat-card"><div class="stat-label">Unique clicks</div><div class="stat-value">${fmtMetricInt(analytics.unique_clicks)}</div></div>
     <div class="stat-card"><div class="stat-label">Conversions</div><div class="stat-value">${fmtMetricInt(analytics.conversions)}</div></div>
     <div class="stat-card"><div class="stat-label">CTR</div><div class="stat-value">${fmtMetricPct(analytics.ctr)}</div></div>
@@ -2423,7 +2439,8 @@ function renderAnalyticsPanel(
     <div class="stat-card"><div class="stat-label">Revenue</div><div class="stat-value">${fmtMetricDec(analytics.revenue)}</div></div>
     <div class="stat-card"><div class="stat-label">RPC</div><div class="stat-value">${fmtMetricDec(analytics.rpc)}</div></div>
     <div class="stat-card"><div class="stat-label">RPM</div><div class="stat-value">${fmtMetricDec(analytics.rpm)}</div></div>
-  </div>`
+  </div>
+  <p class="form-help" data-lg-redirect-clicks-help>${escapeHtml(OFFER_REDIRECT_CLICKS_HELP)}</p>`
       : `<p class="alert alert-error" role="alert">${escapeHtml(analyticsError ?? "Analytics unavailable")}</p>`;
   return `<section class="lg-editor-panel" data-lg-tab-panel="analytics" hidden>
   <div class="card">

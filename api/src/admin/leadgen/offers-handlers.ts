@@ -2526,23 +2526,13 @@ interface OfferMetricRow {
   cvr: number | null;
   rpc: number | null;
   rpm: number | null;
+  // F11 (0066): redirect clicks are a part of `clicks`, never added to it.
+  redirect_clicks: number | null;
+  visitor_clicks: number | null;
+  visitor_ctr: number | null;
 }
 
-// §10.7 ratios computed at read, NULLIF-guarded: ctr = clicks /
-// offer_impressions (offer_impression is the deduped §6.4 event), cvr =
-// conversions/clicks, rpc = revenue/clicks, rpm = revenue/offer_impressions
-// × 1000. A zero denominator yields NULL (the UI renders "—", §9.1) — never
-// a fake 0 ratio.
-export async function offerAnalyticsHandler(c: AdminContext): Promise<Response> {
-  const row = await resolveOfferRow(c.env.DB, c.req.param("id") ?? "");
-  if (row === null) return c.json({ error: "Not Found" }, 404);
-  const range = parseDateRange(c);
-  if ("error" in range) {
-    return c.json({ error: "Validation failed", fields: { range: range.error } }, 400);
-  }
-  const metrics = await c.env.DB.prepare(
-    `SELECT
-       SUM(offer_impressions) AS offer_impressions,
+const OFFER_METRICS_SQL = `SUM(offer_impressions) AS offer_impressions,
        SUM(clicks) AS clicks,
        SUM(unique_clicks) AS unique_clicks,
        SUM(conversions) AS conversions,
@@ -2550,18 +2540,56 @@ export async function offerAnalyticsHandler(c: AdminContext): Promise<Response> 
        CAST(SUM(clicks) AS REAL) / NULLIF(SUM(offer_impressions), 0) AS ctr,
        CAST(SUM(conversions) AS REAL) / NULLIF(SUM(clicks), 0) AS cvr,
        SUM(revenue) / NULLIF(SUM(clicks), 0) AS rpc,
-       SUM(revenue) / NULLIF(SUM(offer_impressions), 0) * 1000 AS rpm
-     FROM leadgen_analytics_offer
-     WHERE offer_public_id = ? AND date BETWEEN ? AND ?`,
-  )
-    .bind(row.public_id, range.from, range.to)
-    .first<OfferMetricRow>();
+       SUM(revenue) / NULLIF(SUM(offer_impressions), 0) * 1000 AS rpm`;
+
+// F11: visitor clicks = clicks - redirect clicks (the page's own clicks when
+// an "After the offer is shown" countdown ended); visitor CTR = visitor
+// clicks / offer_impressions, NULLIF-guarded like ctr.
+const OFFER_REDIRECT_METRICS_SQL = `SUM(redirect_clicks) AS redirect_clicks,
+       SUM(clicks) - SUM(redirect_clicks) AS visitor_clicks,
+       CAST(SUM(clicks) - SUM(redirect_clicks) AS REAL) / NULLIF(SUM(offer_impressions), 0) AS visitor_ctr`;
+
+async function readOfferMetrics(db: D1Database, offerPublicId: string, range: DateRange): Promise<OfferMetricRow | null> {
+  const from = "FROM leadgen_analytics_offer WHERE offer_public_id = ? AND date BETWEEN ? AND ?";
+  try {
+    return await db
+      .prepare(`SELECT ${OFFER_METRICS_SQL}, ${OFFER_REDIRECT_METRICS_SQL} ${from}`)
+      .bind(offerPublicId, range.from, range.to)
+      .first<OfferMetricRow>();
+  } catch (err) {
+    // A database a migration behind (0066 not applied yet: no redirect_clicks
+    // column) still shows the stats: every click is then a visitor click.
+    if (!/no such column:?\s*redirect_clicks/i.test(err instanceof Error ? err.message : String(err))) throw err;
+    const base = await db
+      .prepare(`SELECT ${OFFER_METRICS_SQL} ${from}`)
+      .bind(offerPublicId, range.from, range.to)
+      .first<OfferMetricRow>();
+    return base === null ? null : { ...base, redirect_clicks: 0, visitor_clicks: base.clicks, visitor_ctr: base.ctr };
+  }
+}
+
+// §10.7 ratios computed at read, NULLIF-guarded: ctr = clicks /
+// offer_impressions (offer_impression is the deduped §6.4 event), cvr =
+// conversions/clicks, rpc = revenue/clicks, rpm = revenue/offer_impressions
+// × 1000. A zero denominator yields NULL (the UI renders "—", §9.1) — never
+// a fake 0 ratio. F11 adds redirect_clicks, visitor_clicks and visitor_ctr;
+// clicks and ctr keep their meaning (every click).
+export async function offerAnalyticsHandler(c: AdminContext): Promise<Response> {
+  const row = await resolveOfferRow(c.env.DB, c.req.param("id") ?? "");
+  if (row === null) return c.json({ error: "Not Found" }, 404);
+  const range = parseDateRange(c);
+  if ("error" in range) {
+    return c.json({ error: "Validation failed", fields: { range: range.error } }, 400);
+  }
+  const metrics = await readOfferMetrics(c.env.DB, row.public_id, range);
+  const clicks = metrics?.clicks ?? 0;
+  const redirectClicks = metrics?.redirect_clicks ?? 0;
   return c.json({
     analytics: {
       from: range.from,
       to: range.to,
       offer_impressions: metrics?.offer_impressions ?? 0,
-      clicks: metrics?.clicks ?? 0,
+      clicks,
       unique_clicks: metrics?.unique_clicks ?? 0,
       conversions: metrics?.conversions ?? 0,
       revenue: metrics?.revenue ?? 0,
@@ -2569,6 +2597,9 @@ export async function offerAnalyticsHandler(c: AdminContext): Promise<Response> 
       cvr: metrics?.cvr ?? null,
       rpc: metrics?.rpc ?? null,
       rpm: metrics?.rpm ?? null,
+      redirect_clicks: redirectClicks,
+      visitor_clicks: Math.max(0, metrics?.visitor_clicks ?? clicks - redirectClicks),
+      visitor_ctr: metrics?.visitor_ctr ?? null,
     },
   });
 }

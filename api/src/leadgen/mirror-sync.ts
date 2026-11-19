@@ -52,6 +52,16 @@ export interface MirrorSpec {
   // transaction, rolls back the whole ≤80-row chunk (a poison row would block
   // every good sibling row in that batch).
   enumGuards?: Record<string, readonly string[]>;
+  // Columns a later, separately applied ClickHouse change adds to the daily
+  // table (F11: lg_offer_daily.redirect_clicks, from
+  // docs/leadgen/contract/infra/changes/2026-11-f11-redirect-clicks.sql).
+  // The sync reads them with the rest. Until that change is applied,
+  // ClickHouse refuses the read ("unknown column"); mirrorOne then reads again
+  // without them, and an optional column is only ever WRITTEN when the rows
+  // ClickHouse returned carry it — so the D1 copy keeps its own value (the
+  // column default, 0) instead of a made-up one, and every other column of
+  // the row still syncs. The stats copy never fails because of them.
+  optionalColumns?: ColumnMap[];
 }
 
 // The nine mirrors. The `*_id` → `*_public_id` rename (§24) applies wherever the
@@ -79,6 +89,10 @@ export const MIRRORS: MirrorSpec[] = [
       { d1: "conversions", ch: "conversions", kind: "int" },
       { d1: "revenue", ch: "revenue", kind: "real" },
     ],
+    // F11: clicks the results page made itself when an "After the offer is
+    // shown" countdown ended (click_source 'redirect'); they stay inside
+    // `clicks` too (visitor clicks = clicks - redirect_clicks). Migration 0066.
+    optionalColumns: [{ d1: "redirect_clicks", ch: "redirect_clicks", kind: "int" }],
   },
   {
     name: "section",
@@ -324,13 +338,29 @@ export function buildUpsertSql(spec: MirrorSpec): string {
 
 // SELECT the DISTINCT CH source columns FROM the lg_*_daily MV FINAL over a
 // bounded rolling window. FINAL collapses the ReplacingMergeTree to the latest
-// row per grain; toDate() makes the Date comparison explicit.
-export function chSelect(spec: MirrorSpec): string {
-  const chCols = Array.from(new Set(spec.columns.map((c) => c.ch)));
+// row per grain; toDate() makes the Date comparison explicit. The spec's
+// optionalColumns are read too unless `withOptional` is false (the re-read
+// when ClickHouse does not have them yet).
+export function chSelect(spec: MirrorSpec, opts: { withOptional?: boolean } = {}): string {
+  const optional = opts.withOptional === false ? [] : (spec.optionalColumns ?? []);
+  const chCols = Array.from(new Set([...spec.columns, ...optional].map((c) => c.ch)));
   return (
     `SELECT ${chCols.join(", ")} FROM ${spec.chTable} FINAL ` +
     `WHERE dt >= toDate({from}) AND dt <= toDate({to})`
   );
+}
+
+// True when ClickHouse refused the read because one of the spec's optional
+// columns does not exist yet (UNKNOWN_IDENTIFIER, code 47 — "Unknown
+// expression identifier `x`" on current servers, "Missing columns: 'x'" on
+// older ones; NO_SUCH_COLUMN_IN_TABLE, code 16). Any other failure is not
+// this, and is handled as before (the table's own error).
+export function isMissingOptionalColumnError(err: unknown, optional: readonly ColumnMap[]): boolean {
+  if (optional.length === 0) return false;
+  const msg = err instanceof Error ? err.message : String(err);
+  const missingColumn =
+    /UNKNOWN_IDENTIFIER|NO_SUCH_COLUMN_IN_TABLE|\bCode:\s*(?:47|16)\b|Missing columns|Unknown (?:expression )?identifier|no column/i.test(msg);
+  return missingColumn && optional.some((c) => msg.includes(c.ch));
 }
 
 // A row is valid when every declared identity column is present + non-empty AND
@@ -365,18 +395,36 @@ export async function mirrorOne(
   to: string,
 ): Promise<MirrorTableResult> {
   try {
-    const { rows } = await client.query<Record<string, unknown>>(chSelect(spec), { from, to });
+    const optional = spec.optionalColumns ?? [];
+    let rows: Array<Record<string, unknown>>;
+    try {
+      rows = (await client.query<Record<string, unknown>>(chSelect(spec), { from, to })).rows;
+    } catch (e) {
+      // The ClickHouse change that adds an optional column is not applied
+      // yet: read again without the optional columns (written below only
+      // when the rows carry them, so D1 keeps its own value).
+      if (!isMissingOptionalColumnError(e, optional)) throw e;
+      console.warn("[lg-mirror-sync] ClickHouse has no optional column yet; synced without it", {
+        mirror: spec.d1Table,
+        columns: optional.map((c) => c.ch),
+      });
+      rows = (await client.query<Record<string, unknown>>(chSelect(spec, { withOptional: false }), { from, to })).rows;
+    }
+    const present = optional.filter(
+      (c) => rows.length > 0 && rows.every((r) => Object.prototype.hasOwnProperty.call(r, c.ch)),
+    );
+    const writeSpec: MirrorSpec = present.length === 0 ? spec : { ...spec, columns: [...spec.columns, ...present] };
     // Map + coerce + skip garbage rows.
     const mapped: Array<Record<string, string | number>> = [];
     for (const raw of rows) {
       const rec: Record<string, string | number> = {};
-      for (const col of spec.columns) rec[col.d1] = coerce(col.kind, raw[col.ch]);
-      if (rowIsValid(spec, rec)) mapped.push(rec);
+      for (const col of writeSpec.columns) rec[col.d1] = coerce(col.kind, raw[col.ch]);
+      if (rowIsValid(writeSpec, rec)) mapped.push(rec);
     }
     if (mapped.length === 0) return { table: spec.chTable, mirror: spec.d1Table, rows: 0 };
 
-    const sql = buildUpsertSql(spec);
-    const orderedCols = spec.columns.map((c) => c.d1);
+    const sql = buildUpsertSql(writeSpec);
+    const orderedCols = writeSpec.columns.map((c) => c.d1);
     let written = 0;
     for (let i = 0; i < mapped.length; i += D1_BATCH_ROWS) {
       const chunk = mapped.slice(i, i + D1_BATCH_ROWS);

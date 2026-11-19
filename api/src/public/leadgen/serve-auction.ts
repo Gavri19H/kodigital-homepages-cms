@@ -48,6 +48,7 @@ import { validateAddress, GOOGLE_MAPS_SERVER_KEY, type LeadgenLocationFacet } fr
 import type { LeadgenSectionContent } from "./components/content-schema";
 import { offerHasOwnClickUrl } from "../../leadgen/macros";
 import type { LeadgenAuctionRow, LeadgenEnvironment } from "../../admin/leadgen/db-types";
+import { loadRedirectLook, renderRedirectScreen, type RedirectLook } from "./redirect/screen";
 
 type PublicContext = Context<{ Bindings: Env; Variables: PublicSiteVariables }>;
 
@@ -384,6 +385,52 @@ export async function serveLeadgenAuction(c: PublicContext): Promise<Response> {
     return jsonNoStore({ error: "auction binding validation failed", traffic_quality_flag: "tampered" }, 422);
   }
 
+  // F11 — "Redirect to offer" → "After the offer is shown": the engine set
+  // the open instruction (first matching rule, visitor inside its "Redirect %"
+  // draw, its Offer has a card here). The normal cards are wrapped into the
+  // redirect screen (the banner or the animation only, in the look of the
+  // funnel Template's "L · Redirect"); the page shell's small redirect script
+  // runs the countdown and clicks the card's own link. Built BEFORE the writes
+  // and telemetry below so they match what the page really gets. Fail-open
+  // twice: the look read and the render each fall back — a results page never
+  // fails because of a redirect screen. When no screen can be built, the
+  // visitor gets today's page: the instruction is dropped from the reply and
+  // the two redirect events are not sent (nothing opened). The result-log
+  // record keeps "opened" — the visitor was assigned to that half — so the
+  // read-out stays an honest comparison of the two halves as assigned.
+  let bannersHtml = result.banners_html;
+  if (result.redirect_after !== undefined) {
+    let look: RedirectLook | null = null;
+    try {
+      look = await loadRedirectLook(c.env, resolved);
+    } catch (err) {
+      console.warn(
+        JSON.stringify({ event: "leadgen_redirect_look_read_failed", error: err instanceof Error ? err.message : String(err) }),
+      );
+      look = null;
+    }
+    let screen: string | null = null;
+    try {
+      const out = renderRedirectScreen({ banners_html: result.banners_html, instruction: result.redirect_after, look });
+      if (out !== result.banners_html) screen = out;
+    } catch (err) {
+      console.warn(
+        JSON.stringify({ event: "leadgen_redirect_screen_failed", error: err instanceof Error ? err.message : String(err) }),
+      );
+    }
+    if (screen !== null) {
+      bannersHtml = screen;
+    } else {
+      console.warn(
+        JSON.stringify({ event: "leadgen_redirect_screen_not_shown", rule_id: result.redirect_after.rule_public_id }),
+      );
+      delete result.redirect_after;
+      result.events = result.events.filter(
+        (e) => e.event_type !== "redirect_rule_triggered" && e.event_type !== "direct_offer_redirect",
+      );
+    }
+  }
+
   // §28 non-blocking, fail-open writes: result log + redacted provider log + the
   // AES debug_ref blob (RED LINE 1). Registered on ctx.waitUntil; a harness
   // without an ExecutionContext lets the promise settle on its own.
@@ -459,7 +506,7 @@ export async function serveLeadgenAuction(c: PublicContext): Promise<Response> {
       auction_result_id: result.auction_result_id,
       banner_render_id: result.banner_render_ids[0] ?? "",
       banners_css: result.banners_css,
-      banners_html: result.banners_html,
+      banners_html: bannersHtml,
       banners: result.banners.map((b) => ({
         slot: b.slot,
         carrier_key: b.carrier_key,
@@ -473,6 +520,9 @@ export async function serveLeadgenAuction(c: PublicContext): Promise<Response> {
       ...(unfilled ? { unfilled: true as const } : {}),
       ...(result.redirect !== null ? { redirect: result.redirect } : {}),
       ...(go !== null ? { go } : {}),
+      // F11: the open instruction itself (the screen above already carries
+      // what the page needs; this is the record of it).
+      ...(result.redirect_after !== undefined ? { redirect_after: result.redirect_after } : {}),
     },
     200,
   );

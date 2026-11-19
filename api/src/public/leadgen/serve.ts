@@ -57,6 +57,7 @@ import type { Env } from "../../env";
 import { parseNumber } from "../../env";
 import type { PublicSiteVariables } from "../middleware";
 import { escapeHtml } from "../../editor/sanitize";
+import { REDIRECT_PAGE_SCRIPT } from "./redirect/page-script";
 import {
   resolveActivatedFunnel,
   resolveActivatedFunnelByVariant,
@@ -913,7 +914,9 @@ export function resolveFrameComposition(
 // two callers feeding resolveFrameComposition resolve it via resolver.ts
 // resolveSavedFrameTemplateDefaultsFor on the COLD path and pass it through;
 // the theme-KV-only callers (resolveThemeRecordFor) omit it (irrelevant there).
-function frameSourceOf(
+// F11: exported for redirect/screen.ts loadRedirectLook, which resolves the
+// redirect look from the SAME composition this shell renders with.
+export function frameSourceOf(
   resolved: ResolvedActivatedFunnel,
   savedTemplateDefaults?: EffectiveFrameConfig | null,
 ): LeadgenFrameSource {
@@ -935,8 +938,8 @@ function frameSourceOf(
 // in the store (deleted theme) — resolveFrameComposition/resolveTokens then
 // fall back to the legacy default look, the SAME degrade path a NULL theme
 // already takes today. A public funnel is NEVER 500'd by an unknown/deleted
-// theme_id.
-async function resolveThemeRecordFor(env: Env, source: LeadgenFrameSource): Promise<ThemeRecord | null> {
+// theme_id. F11: exported for redirect/screen.ts loadRedirectLook (same reason).
+export async function resolveThemeRecordFor(env: Env, source: LeadgenFrameSource): Promise<ThemeRecord | null> {
   const funnelTheme = parseJsonRecordColumn(source.theme_json ?? null);
   const variantOverrides = parseJsonRecordColumn(source.frame_overrides_json ?? null);
   const id = winningThemeId(funnelTheme, variantOverrides);
@@ -1156,6 +1159,11 @@ function renderFunnelShell(
     // engine initializes.
     ASSIGN_SENTINEL +
     `<script>${LEADGEN_PREHYDRATE_JS}</script>` +
+    // F11: the small redirect script ("After the offer is shown" rules) —
+    // OUTSIDE the visitor bundle and outside #lg-funnel-root, inert on every
+    // results page the auction did not turn into a redirect screen
+    // (redirect/page-script.ts). Static: nothing interpolated.
+    `<script>${REDIRECT_PAGE_SCRIPT}</script>` +
     // (c) the hydration engine — versioned, deferred; the /lg/runtime/:version.js
     // route serves the generated bundle (03 §3.2 runtime-routes row).
     `<script src="/lg/runtime/${LEADGEN_TEMPLATE_VERSION}.js" defer></script>` +

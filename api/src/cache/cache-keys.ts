@@ -226,7 +226,12 @@ export function listicleCandidateKey(
 // only from the payload Output format "Phone with country code". Runtime bytes
 // change, so the immutable /lg/runtime/{v}.js URL must move; runtime "11"
 // tracks it.
-export const LEADGEN_TEMPLATE_VERSION = 11 as const;
+// v12 (2026-11-19, F11 "Redirect to offer" → "After the offer is shown"): the
+// SHELL gains the small inline redirect script (public/leadgen/redirect/
+// page-script.ts) that runs the countdown on the redirect screen — shell markup
+// changes, same 304 reason as v6. The visitor bundle (runtime/**) itself is
+// unchanged by F11.
+export const LEADGEN_TEMPLATE_VERSION = 12 as const;
 
 const NS_LG_SHELL = "lg-shell";
 const NS_LG_CONFIG = "lg-config";

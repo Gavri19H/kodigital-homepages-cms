@@ -182,6 +182,11 @@ export interface AuctionResultLogRowInsert {
   // 0062; null when no waterfall applied (the column is then not written, so a
   // database without the migration keeps working).
   waterfall_json: string | null;
+  // F11 (0066): what an "After the offer is shown" redirect rule did for this
+  // visitor (RedirectLogRecord JSON). Set by the engine only when such a rule
+  // matched first; absent otherwise, and the column is then not written (a
+  // database without 0066 keeps logging every auction).
+  redirect_json?: string;
 }
 
 // Serialize a trace to the EXACT leadgen_auction_result_log DDL columns (only

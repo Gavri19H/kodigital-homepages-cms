@@ -193,6 +193,19 @@ export const FRAME_FOOTER_BLOCK_TYPES = [
 // spacing tokens in styles.ts, so this is never an arbitrary CSS length.
 export const FRAME_FOOTER_BLOCK_GAPS = ["xs", "s", "m", "l", "xl"] as const;
 
+// F11 (Templates element "L · Redirect") — the look of the results-page
+// redirect banner and the animation-only screen (public/leadgen/redirect/).
+// Closed vocabularies only; colours are Theme roles (FunnelTokenRole), fonts
+// always come from the Theme. The five countdown animations are built once in
+// redirect/animations.ts so F10 ("K · Result animation") can reuse them.
+export const FRAME_REDIRECT_ANIMATIONS = ["ring", "bar", "logo_bar", "spinner", "dots"] as const;
+export const FRAME_REDIRECT_CORNERS = ["theme", "square", "rounded"] as const;
+// Operator texts: plain text, at most this many characters, with the two
+// fill-ins {brand} (the chosen card's brand, "your offer" when it has none) and
+// {n} (the seconds left). The countdown line must contain {n}.
+export const FRAME_REDIRECT_TEXT_MAX = 120;
+export const FRAME_REDIRECT_FILL_INS = ["{brand}", "{n}"] as const;
+
 // ---------------------------------------------------------------------------
 // §3.3 group shapes — the COMPLETE (effective) config. The STORED column is
 // the sparse `FrameConfig` below; effectiveFrame always yields this full
@@ -591,6 +604,41 @@ export interface FrameImageItem {
   pages?: FramePageTarget;
 }
 
+// F11 — element "L · Redirect". EVERY field is optional and `null` means "the
+// default" (redirect/look.ts REDIRECT_LOOK_DEFAULTS, which follow the funnel's
+// Theme roles), so a Template with no block — or `redirect: null`, what
+// "Reset to defaults" writes — shows the Theme look. Read only by the redirect
+// screen renderer (redirect/screen.ts); the question pages never paint it.
+export interface FrameRedirectConfig {
+  // Banner
+  badge_on?: boolean | null;
+  badge_text?: string | null;
+  headline?: string | null;
+  message_on?: boolean | null;
+  message?: string | null;
+  countdown_line?: string | null; // must contain {n}
+  stay_label?: string | null;
+  background_role?: FunnelTokenRole | null;
+  border_role?: FunnelTokenRole | null;
+  badge_role?: FunnelTokenRole | null; // the badge's text colour
+  badge_bg_role?: FunnelTokenRole | null; // the badge's pill fill
+  headline_role?: FunnelTokenRole | null;
+  text_role?: FunnelTokenRole | null; // message, countdown line, "Stay here"
+  corners?: (typeof FRAME_REDIRECT_CORNERS)[number] | null;
+  shadow?: boolean | null;
+  headline_size?: (typeof FRAME_SIZES)[number] | null;
+  // Animation (the banner and the animation-only screen)
+  animation?: (typeof FRAME_REDIRECT_ANIMATIONS)[number] | null;
+  animation_role?: FunnelTokenRole | null;
+  track_role?: FunnelTokenRole | null;
+  animation_size?: (typeof FRAME_SIZES)[number] | null;
+  show_seconds?: boolean | null;
+  // Animation only
+  only_headline?: string | null;
+  only_message?: string | null;
+  only_link?: string | null;
+}
+
 // The COMPLETE effective frame configuration (what effectiveFrame returns and
 // what renderQuoteFrame consumes).
 export interface EffectiveFrameConfig {
@@ -616,6 +664,9 @@ export interface EffectiveFrameConfig {
   trust_rows?: FrameTrustRowConfig[];
   // Round-4 P5a follow-on (10G / Image24): first-class placed images.
   images?: FrameImageItem[];
+  // F11 — element "L · Redirect" (results page only). OPTIONAL + absent from
+  // baseFrameDefaults(), so every existing effective frame is byte-identical.
+  redirect?: FrameRedirectConfig | null;
 }
 
 // The STORED shape (`leadgen_funnels.frame_config_json`): every group optional
@@ -1431,10 +1482,27 @@ const FRAME_LOGO_SOURCE_LABELS: Readonly<Record<string, string>> = {
   cms_fallback: "CMS fallback",
 };
 
+// F11 — quotes-tabs/templates.ts "L · Redirect" segmented controls (Animation
+// style / Corners), converged verbatim with the words on those buttons.
+export const FRAME_REDIRECT_ANIMATION_LABELS: Readonly<Record<(typeof FRAME_REDIRECT_ANIMATIONS)[number], string>> = {
+  ring: "Countdown ring",
+  bar: "Progress bar",
+  logo_bar: "Logo on a bar",
+  spinner: "Spinner",
+  dots: "Dots",
+};
+export const FRAME_REDIRECT_CORNER_LABELS: Readonly<Record<(typeof FRAME_REDIRECT_CORNERS)[number], string>> = {
+  theme: "Follow the Theme",
+  square: "Square",
+  rounded: "Rounded",
+};
+
 const FRAME_ENUM_LABELS: ReadonlyMap<readonly string[], Readonly<Record<string, string>>> = new Map<
   readonly string[],
   Readonly<Record<string, string>>
 >([
+  [FRAME_REDIRECT_ANIMATIONS, FRAME_REDIRECT_ANIMATION_LABELS],
+  [FRAME_REDIRECT_CORNERS, FRAME_REDIRECT_CORNER_LABELS],
   [FRAME_PROGRESS_STYLES, FRAME_PROGRESS_STYLE_LABELS],
   [FRAME_PROGRESS_ICONS, FRAME_PROGRESS_ICON_LABELS],
   [FRAME_PROGRESS_POSITIONS, FRAME_PROGRESS_POSITION_LABELS],
@@ -1888,12 +1956,117 @@ function validateImages(value: unknown, push: FramePush): void {
   });
 }
 
+// F11 — element "L · Redirect". `null` (the whole group, what "Reset to
+// defaults" writes) and `null` per field both mean "the default". Closed values
+// only; texts are plain, at most FRAME_REDIRECT_TEXT_MAX characters, with the
+// {brand}/{n} fill-ins only; the countdown line must contain {n}.
+const FRAME_REDIRECT_TEXT_LABELS: Readonly<Record<string, string>> = {
+  badge_text: "badge text",
+  headline: "headline",
+  message: "message",
+  countdown_line: "countdown line",
+  stay_label: "“Stay here” label",
+  only_headline: "animation-only headline",
+  only_message: "animation-only message",
+  only_link: "“Show me all offers” label",
+};
+const FRAME_REDIRECT_BOOL_KEYS: readonly string[] = ["badge_on", "message_on", "shadow", "show_seconds"];
+const FRAME_REDIRECT_ROLE_KEYS: readonly string[] = [
+  "background_role",
+  "border_role",
+  "badge_role",
+  "badge_bg_role",
+  "headline_role",
+  "text_role",
+  "animation_role",
+  "track_role",
+];
+const FRAME_REDIRECT_ENUM_KEYS: Readonly<Record<string, readonly string[]>> = {
+  corners: FRAME_REDIRECT_CORNERS,
+  headline_size: FRAME_SIZES,
+  animation: FRAME_REDIRECT_ANIMATIONS,
+  animation_size: FRAME_SIZES,
+};
+const FRAME_REDIRECT_FILL_IN_RE = /\{[^{}]*\}/g;
+
+function validateRedirectText(key: string, value: string, path: string, push: FramePush): void {
+  const label = FRAME_REDIRECT_TEXT_LABELS[key] ?? humanize(key);
+  if (value.length > FRAME_REDIRECT_TEXT_MAX) {
+    push(
+      "error",
+      path,
+      `The redirect ${label} can be at most ${FRAME_REDIRECT_TEXT_MAX} characters (it has ${value.length}).`,
+    );
+  }
+  // Plain text: no markup tags and no control characters. (Everything is also
+  // escaped at render — this keeps what is stored what the visitor reads.)
+  if (/<\s*[a-zA-Z!\/?]/.test(value) || /[\u0000-\u001f\u007f]/.test(value)) {
+    push("error", path, `The redirect ${label} must be plain text (no HTML tags or line breaks).`);
+  }
+  const fillIns = value.match(FRAME_REDIRECT_FILL_IN_RE) ?? [];
+  const unknown = fillIns.filter((f) => !(FRAME_REDIRECT_FILL_INS as readonly string[]).includes(f));
+  if (unknown.length > 0) {
+    push(
+      "error",
+      path,
+      `The redirect ${label} can only use the fill-ins {brand} and {n} — ${unknown[0]} isn't one of them.`,
+    );
+  }
+  if (key === "countdown_line" && value.trim() !== "" && !value.includes("{n}")) {
+    push("error", path, "The redirect countdown line must include {n} (the seconds left).");
+  }
+}
+
+function validateRedirect(value: unknown, push: FramePush): void {
+  const base = "frame.redirect";
+  if (value === null) return; // "Reset to defaults" — the Theme look
+  if (!isRecord(value)) {
+    push("error", base, "The redirect settings must be a group of settings.");
+    return;
+  }
+  for (const [key, field] of Object.entries(value)) {
+    const path = `${base}.${key}`;
+    if (field === null) continue; // the default for this one setting
+    if (key in FRAME_REDIRECT_TEXT_LABELS) {
+      if (typeof field !== "string") {
+        push("error", path, `The redirect ${FRAME_REDIRECT_TEXT_LABELS[key]} must be plain text, or empty.`);
+        continue;
+      }
+      validateRedirectText(key, field, path, push);
+      continue;
+    }
+    if (FRAME_REDIRECT_BOOL_KEYS.includes(key)) {
+      if (typeof field !== "boolean") push("error", path, `The redirect '${humanize(key)}' setting must be on or off.`);
+      continue;
+    }
+    if (FRAME_REDIRECT_ROLE_KEYS.includes(key)) {
+      if (!isFunnelTokenRole(field)) {
+        push(
+          "error",
+          path,
+          `The redirect '${humanize(key)}' setting must be a theme colour role: ${funnelTokenRoleLabelList()}.`,
+        );
+      }
+      continue;
+    }
+    const vocabulary = FRAME_REDIRECT_ENUM_KEYS[key];
+    if (vocabulary !== undefined) {
+      if (!inEnum(field, vocabulary)) {
+        push("error", path, `The redirect '${humanize(key)}' setting must be one of: ${frameEnumList(vocabulary)}.`);
+      }
+      continue;
+    }
+    push("error", path, `'${key}' isn't a recognised redirect setting.`);
+  }
+}
+
 const FRAME_TOPLEVEL_CUSTOM: Record<string, (value: unknown, push: FramePush) => void> = {
   free_text: validateFreeText,
   brand_logos: validateBrandLogos,
   cta_slots: validateCtaSlots,
   trust_rows: validateTrustRows,
   images: validateImages,
+  redirect: validateRedirect, // F11 — element "L · Redirect"
 };
 
 export function validateFrameConfig(raw: unknown): FrameConfigValidation {
