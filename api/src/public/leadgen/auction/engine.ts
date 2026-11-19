@@ -1041,9 +1041,10 @@ export interface RunAuctionResult {
   // Set when a funnel rule redirects (status "redirect").
   redirect: { target_offer_id: number | null; redirect_url: string | null } | null;
   // F11: set only when the first matching funnel rule is a "Redirect to
-  // offer" rule set to "After the offer is shown", the visitor falls inside
-  // its sticky "Redirect %" draw, and its Offer has a card in these results:
-  // open that Offer's top card after the rule's seconds (serve-auction.ts
+  // offer" rule set to "After the offer is shown": the first matching such
+  // rule whose Offer has a card in these results (X16), when the visitor
+  // falls inside its sticky "Redirect %" draw. It opens that Offer's top
+  // card after the rule's seconds (serve-auction.ts
   // turns it into the redirect screen). Absent on every other result.
   redirect_after?: RedirectAfterInstruction;
   // Convenience aggregate of every reason a carrier was filtered post-parse.
@@ -1484,20 +1485,23 @@ export async function runAuction(
   if (eligibilityRules.length > 0 && !eligibilityRules.some((r) => conditionsMatch(r.conditions, ruleContext, r.match_mode === "any" ? "any" : "all"))) {
     return empty("disqualified", 200, null, "not_eligible", null);
   }
-  // F11 — "Redirect to offer" → "After the offer is shown": the FIRST
-  // matching redirect rule decides, as today. When it is an "After" rule the
-  // auction is NOT stopped: it is remembered here (with whether this visitor
-  // falls inside its sticky "Redirect %" draw), the redirect rules below it no
-  // longer fire for this visitor, and the auction runs exactly as it would
-  // without the rule — the gates below (disqualification, auction entry) still
-  // apply, so the rule never adds a card. What it did is decided once the
-  // cards are built (see "F11 — the open instruction" below).
-  let afterRule: { rule: AuctionFunnelRule; in_draw: boolean } | null = null;
+  // F11 — "Redirect to offer" → "After the offer is shown". Redirect rules are
+  // checked in priority order. When the first matching one is an "After" rule
+  // the auction is NOT stopped: every matching "After" rule (that one and the
+  // ones below it) is remembered here, in priority order, each with whether
+  // this visitor falls inside its own sticky "Redirect %" draw. "Straight
+  // away" rules below the first matching "After" rule no longer fire for this
+  // visitor (they only act before the auction, which must now run). The
+  // auction runs exactly as it would without the rules — the gates below
+  // (disqualification, auction entry) still apply, so a rule never adds a
+  // card. Which rule (if any) acts is decided once the cards are built: the
+  // first one whose Offer has a card (X16 — see "F11 — the open instruction").
+  const afterRules: Array<{ rule: AuctionFunnelRule; in_draw: boolean }> = [];
   for (const fr of funnelRules) {
     if (fr.rule_type === "disqualification" && conditionsMatch(fr.conditions, ruleContext, fr.match_mode === "any" ? "any" : "all")) {
       return empty("disqualified", 200, null, "disqualified", null);
     }
-    if (fr.rule_type === "redirect_direct_offer" && afterRule !== null) continue;
+    if (fr.rule_type === "redirect_direct_offer" && afterRules.length > 0 && typeof fr.redirect_show_seconds !== "number") continue;
     // A present-only attempt is shown that one offer, so a funnel redirect to
     // anything else (another offer, a raw URL) does not apply to it — it would
     // send the partner's QA visitor to a different offer. A redirect to the
@@ -1510,7 +1514,7 @@ export async function runAuction(
     if (fr.rule_type === "redirect_direct_offer" && typeof fr.redirect_show_seconds === "number") {
       if (fr.target_offer_id === null) continue;
       if (conditionsMatch(fr.conditions, ruleContext, fr.match_mode === "any" ? "any" : "all")) {
-        afterRule = { rule: fr, in_draw: shouldRedirectForSession(fr.redirect_pct, fr.public_id, input.session_id ?? "") };
+        afterRules.push({ rule: fr, in_draw: shouldRedirectForSession(fr.redirect_pct, fr.public_id, input.session_id ?? "") });
       }
       continue;
     }
@@ -2436,12 +2440,18 @@ export async function runAuction(
 
   // F11 — the open instruction. Only when the first matching redirect rule
   // was an "After the offer is shown" rule (step 4). The Auction's own
-  // settings already decided every card above; this only reads them:
+  // settings already decided every card above; this only reads them. The
+  // matching "After" rules are tried in priority order (X16):
   //   * the rule's Offer has no card here (the Provider said no, a cap, a
-  //     click earlier, the card limits…) → "no_card": the page is exactly as
-  //     today, and no other rule's Offer is tried (no backup Offer);
-  //   * a card, but the visitor is outside the rule's "Redirect %" draw →
-  //     "held_back": the page is exactly as today;
+  //     click earlier, the card limits…) → the rule is passed over and the
+  //     next one is tried; when no rule's Offer has a card → "no_card" for the
+  //     first rule: the page is exactly as today. Except when the visitor
+  //     already clicked that Offer in this visit: then "no_card" for that
+  //     rule, and no lower rule is tried (at most one automatic redirect);
+  //   * the first rule whose Offer has a card decides, and no lower rule is
+  //     tried. Outside its "Redirect %" draw → "held_back": the page is
+  //     exactly as today (owner, X16 D1: the draw is a test split, so its
+  //     held-back half stays a clean comparison);
   //   * a card and inside the draw → "opened": the instruction for that
   //     Offer's TOP card (the first one on the page), and the redirect events
   //     fire — then, and only then.
@@ -2449,17 +2459,36 @@ export async function runAuction(
   // scope" would hide after a click on that card (the Auction always wins).
   let redirectAfter: RedirectAfterInstruction | undefined;
   let redirectLog: RedirectLogRecord | null = null;
-  if (afterRule !== null) {
-    const fr = afterRule.rule;
+  const passedOver: Array<{ rule_id: string; offer_id: string }> = [];
+  for (const candidate of afterRules) {
+    const fr = candidate.rule;
     const targetBundle = input.bundle.offers.find((b) => b.offer.id === fr.target_offer_id);
     const targetPublicId = targetBundle?.offer.public_id ?? fr.target_offer_public_id ?? String(fr.target_offer_id);
     const top = renderedSlots.find((sl) => sl.offer_public_id === targetPublicId);
+    if (top === undefined) {
+      // Owner (X16, 19 Nov): no card because the visitor ALREADY CLICKED this
+      // Offer in this visit (the Auction removed it) stops the fallback — a
+      // visitor coming back to the results page is never sent on to a second
+      // partner automatically. "no_card" for this rule; lower rules untried.
+      if (input.clicked.some((c) => c.offer_public_id === targetPublicId)) {
+        redirectLog = {
+          rule_id: fr.public_id,
+          offer_id: targetPublicId,
+          outcome: "no_card",
+          ...(passedOver.length > 0 ? { passed_over: passedOver } : {}),
+        };
+        break;
+      }
+      passedOver.push({ rule_id: fr.public_id, offer_id: targetPublicId });
+      continue;
+    }
     redirectLog = {
       rule_id: fr.public_id,
       offer_id: targetPublicId,
-      outcome: top === undefined ? "no_card" : afterRule.in_draw ? "opened" : "held_back",
+      outcome: candidate.in_draw ? "opened" : "held_back",
+      ...(passedOver.length > 0 ? { passed_over: passedOver } : {}),
     };
-    if (top !== undefined && afterRule.in_draw) {
+    if (candidate.in_draw) {
       const card = renderedCardBrandAndLogo(top, bannerConfig.mode);
       const stayHides: RedirectStayHides =
         auction.remove_clicked_offers !== 1
@@ -2493,6 +2522,18 @@ export async function runAuction(
         if (b !== undefined) fillOffer(e, b);
       });
     }
+    break;
+  }
+  // No matching rule's Offer has a card: "no_card" for the first rule, with
+  // the others listed as passed over.
+  if (redirectLog === null && passedOver.length > 0) {
+    const rest = passedOver.slice(1);
+    redirectLog = {
+      rule_id: passedOver[0]!.rule_id,
+      offer_id: passedOver[0]!.offer_id,
+      outcome: "no_card",
+      ...(rest.length > 0 ? { passed_over: rest } : {}),
+    };
   }
 
   // Assemble the S19.2 trace + the persistable result-log row.

@@ -386,8 +386,8 @@ export async function serveLeadgenAuction(c: PublicContext): Promise<Response> {
   }
 
   // F11 — "Redirect to offer" → "After the offer is shown": the engine set
-  // the open instruction (first matching rule, visitor inside its "Redirect %"
-  // draw, its Offer has a card here). The normal cards are wrapped into the
+  // the open instruction (the first matching "After" rule whose Offer has a
+  // card here, visitor inside its "Redirect %" draw). The normal cards are wrapped into the
   // redirect screen (the banner or the animation only, in the look of the
   // funnel Template's "L · Redirect"); the page shell's small redirect script
   // runs the countdown and clicks the card's own link. Built BEFORE the writes
