@@ -15,6 +15,7 @@
 import { describe, it, expect } from "vitest";
 import admin from "../src/admin/router";
 import * as data from "../src/admin/data";
+import { categoriesListPage } from "../src/admin/templates/categories";
 import { buildEnv } from "./helpers/admin-test-kit";
 import {
   loadDatabaseSync,
@@ -78,6 +79,22 @@ function makeDb(): SqliteDb {
 function count(sdb: SqliteDb, sql: string): number {
   return Number((sdb.prepare(sql).get() as { n: number }).n);
 }
+
+describe("X01 Part B: the refused-delete toast names the Article count", () => {
+  it("the Categories screen script adds \"(N Articles)\" from the API's article_count", () => {
+    const html = categoriesListPage([], [{ id: "st_1", name: "Site One" }]);
+    // Pull the countNote expression out of the inline script and run it
+    // with the API body shapes the delete route returns.
+    const m = html.match(/var n = data\.article_count;\s*var countNote = ([^;]+);/);
+    expect(m).not.toBeNull();
+    const countNote = new Function("data", "var n = data.article_count; return " + (m as RegExpMatchArray)[1] + ";") as (d: unknown) => string;
+    expect(countNote({ article_count: 6 })).toBe(" (6 Articles)");
+    expect(countNote({ article_count: 1 })).toBe(" (1 Article)");
+    expect(countNote({ article_count: 0 })).toBe("");
+    expect(countNote({})).toBe("");
+    expect(html).toContain("window.showToast('Error: ' + data.error + countNote, 'error');");
+  });
+});
 
 describe.skipIf(DatabaseSync === null)("X01 Part B: Categories count real Articles", () => {
   it("refuses to delete a Category one Article uses, even though the stored article_count is 0", async () => {
