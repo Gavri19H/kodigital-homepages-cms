@@ -83,3 +83,4 @@ full red-line policy and the canonical list of banned tokens.
 - `docs/storage-cost-model.md` — D1 / R2 / KV sizing
 - `docs/phase-plan.md` — Phase 0 → Phase 7 roadmap
 - `docs/no-touch-red-line.md` — isolation boundary
+- `docs/leadgen/how-to/send-only-offers.md` — Send-only Offers: deliver the lead without a card, and the checklist for adding a Provider

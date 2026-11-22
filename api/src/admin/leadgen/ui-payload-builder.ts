@@ -49,6 +49,7 @@ import { escapeHtml } from "../templates/layout";
 import { CANONICAL_MACROS } from "../../leadgen/macros";
 import { COMPUTED_REGISTRY, LEADGEN_COMPUTED_KEYS } from "../../leadgen/computed";
 import { LEADGEN_PAYLOAD_BLOCKING_ERROR_CODES } from "../../leadgen/payload";
+import { parseSendOnly } from "../../leadgen/send-only";
 import {
   LEADGEN_EXECUTION_MODES,
   LEADGEN_HEADER_VALUE_KINDS,
@@ -1115,11 +1116,77 @@ function renderHeaderRow(header: LeadgenOfferHeaderApi | null): string {
   </div>`;
 }
 
+// 0068 Send-only Offers — the non-blocking "Accepted when" warning: the reply
+// field is not in the Offer's saved sample reply. `{field}` is filled in by
+// the server render and by the editor script (the messages ride the warning
+// element, so both use the same words).
+const SEND_ONLY_WARN_MISSING =
+  "\u201c{field}\u201d is not in this Offer\u2019s saved sample reply. Check the spelling, or run a Test so the sample has it. The Offer still saves.";
+const SEND_ONLY_WARN_NO_SAMPLE =
+  "There is no saved sample reply to check \u201c{field}\u201d against. Run a Test to see the Provider\u2019s reply. The Offer still saves.";
+
+export function sendOnlyFieldWarningText(field: string, samplePaths: ReadonlyArray<string>): string {
+  const f = field.trim();
+  if (f === "" || samplePaths.includes(f)) return "";
+  return (samplePaths.length === 0 ? SEND_ONLY_WARN_NO_SAMPLE : SEND_ONLY_WARN_MISSING).split("{field}").join(f);
+}
+
+// 0068 Send-only Offers (plan "Send-only Offers"): "What the visitor sees" and,
+// only for "Send the lead only, no card", "Accepted when". Shown only in the
+// "Provider request · static bid (CPL)" mode (the editor script follows the
+// mode radio live). Saved together as send_only_json (leadgen/send-only.ts).
+function renderSendOnlyCard(offer: LeadgenOfferApi, samplePaths: ReadonlyArray<string>): string {
+  const modeVisible = offer.calls_provider_api && offer.bid_source === "static";
+  const cfg = parseSendOnly(offer.send_only_json ?? null);
+  const sendOnly = cfg !== null;
+  const fieldRule = cfg !== null && cfg.accept.kind === "field_equals" ? cfg.accept : null;
+  const warning = sendOnly && fieldRule !== null ? sendOnlyFieldWarningText(fieldRule.field, samplePaths) : "";
+  const radio = (name: string, value: string, checked: boolean, id: string, label: string): string =>
+    `<label class="form-label lg-radio" for="${id}"><input id="${id}" type="radio" name="${name}" value="${value}"${checked ? " checked" : ""} /> ${label}</label>`;
+  return `<div class="card lg-send-only" data-lg-send-only data-lg-sample-paths="${escapeHtml(JSON.stringify(samplePaths))}"${modeVisible ? "" : " hidden"}>
+    <div class="card-header"><h3 class="card-title">Lead delivery</h3></div>
+    <fieldset class="form-group">
+      <legend class="form-label">What the visitor sees</legend>
+      ${radio("send_only_display", "card", !sendOnly, "lg-send-only-display-card", "Show a card")}
+      <span class="form-help">Needs a click link from the reply or the Static tab.</span>
+      ${radio("send_only_display", "send_only", sendOnly, "lg-send-only-display-send", "Send the lead only, no card")}
+      <span class="form-help">For Providers that contact the visitor themselves. Type CPL books the fixed bid when the lead is accepted; type CPA waits for the Provider’s report. If no other card shows, the visitor sees this Offer’s banner (logo, headline, subheadline), which can’t be clicked. Needs a logo and a headline.</span>
+      ${fieldError("send_only_display")}
+    </fieldset>
+    <fieldset class="form-group" data-lg-send-only-accept${sendOnly ? "" : " hidden"}>
+      <legend class="form-label">Accepted when</legend>
+      ${radio("send_only_accept_kind", "any_ok", fieldRule === null, "lg-send-only-accept-any", "Any OK reply")}
+      <span class="form-help">For Providers that always answer success, like Zapier hooks.</span>
+      ${radio("send_only_accept_kind", "field_equals", fieldRule !== null, "lg-send-only-accept-field", "A field in the reply equals a value")}
+      <span class="form-help">For Providers that answer OK but say yes or no inside the reply.</span>
+      ${fieldError("send_only_accept_kind")}
+      <div class="lg-send-only-rule" data-lg-send-only-field${fieldRule !== null ? "" : " hidden"}>
+        <div class="form-group">
+          <label for="lg-send-only-field" class="form-label">Reply field</label>
+          <input id="lg-send-only-field" name="send_only_accept_field" type="text" class="form-input" maxlength="200" autocomplete="off" spellcheck="false" placeholder="status" value="${escapeHtml(fieldRule?.field ?? "")}" />
+          <span class="form-help">Use dots for nested fields, for example result.status.</span>
+          ${fieldError("send_only_accept_field")}
+        </div>
+        <div class="form-group">
+          <label for="lg-send-only-value" class="form-label">Value</label>
+          <input id="lg-send-only-value" name="send_only_accept_value" type="text" class="form-input" maxlength="200" autocomplete="off" placeholder="accepted" value="${escapeHtml(fieldRule?.value ?? "")}" />
+          <span class="form-help">Capital letters don’t matter.</span>
+          ${fieldError("send_only_accept_value")}
+        </div>
+        <p class="alert alert-warning" data-lg-send-only-field-warning data-msg-missing="${escapeHtml(SEND_ONLY_WARN_MISSING)}" data-msg-no-sample="${escapeHtml(SEND_ONLY_WARN_NO_SAMPLE)}" role="status"${warning === "" ? " hidden" : ""}>${escapeHtml(warning)}</p>
+      </div>
+    </fieldset>
+  </div>`;
+}
+
 // §11.3–11.4: headers + endpoints + token placement + the §10.3 execution
 // mode picker. All fields feed the editor's PATCH; rows are a replace-set.
+// `samplePaths` (the active schema's saved sample reply fields) feeds the
+// send-only "Accepted when" warning.
 export function renderRequestPanel(
   offer: LeadgenOfferApi,
   headers: ReadonlyArray<LeadgenOfferHeaderApi>,
+  samplePaths: ReadonlyArray<string> = [],
 ): string {
   const existingRows = headers.map((h) => renderHeaderRow(h)).join("");
   const clientWarningHidden = offer.request_execution_mode === "client" ? "" : " hidden";
@@ -1128,6 +1195,7 @@ export function renderRequestPanel(
     return `<label class="form-label lg-radio"><input type="radio" name="request_execution_mode" value="${mode}"${checked} /> ${mode === "server" ? "Server (default) — the Worker calls the provider; secrets resolve server-side" : "Client — the browser calls the provider"}</label>`;
   }).join("");
   return `<section class="lg-editor-panel" data-lg-tab-panel="request" hidden>
+  ${renderSendOnlyCard(offer, samplePaths)}
   <div class="card">
     <div class="card-header"><h3 class="card-title">Endpoints</h3></div>
     <div class="form-group">
@@ -5518,7 +5586,11 @@ export const PAYLOAD_BUILDER_SCRIPT = `
               (resBody.method || '') + ' ' + (resBody.endpoint || '') +
               ' \\u2192 status ' + (resBody.response && resBody.response.status !== null ? resBody.response.status : 'n/a') +
               ' \\u00b7 ' + (resBody.response ? resBody.response.latency_ms : '?') + ' ms' +
-              (resBody.provider_error_reason ? ' \\u00b7 ' + resBody.provider_error_reason : '');
+              (resBody.provider_error_reason ? ' \\u00b7 ' + resBody.provider_error_reason : '') +
+              // 0068: a send-only Offer says whether this reply counts as accepted.
+              (resBody.send_only
+                ? ' \\u00b7 ' + (resBody.send_only.accepted ? 'Accepted' : 'Not accepted: ' + (resBody.send_only.label || resBody.send_only.reason || ''))
+                : '');
           }
           renderNotes('lg-test-notes', resBody.notes || []);
           renderContextUsed(resBody.context_used, resBody.environment || environment);

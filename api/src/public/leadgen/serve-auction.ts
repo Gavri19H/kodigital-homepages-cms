@@ -33,7 +33,9 @@ import {
   runAuction,
   type AntiTamperInput,
 } from "./auction/engine";
-import { emitLeadgenRecords } from "../../analytics/leadgen-events";
+import { emitLeadgenRecords, type LeadgenEvent } from "../../analytics/leadgen-events";
+import { computeTrafficQuality, readCfSignals } from "../../analytics/listicle-quality";
+import { settleSendOnlyLeads } from "./send-only-leads";
 import { resolveLeadgenFunnelNames } from "../../analytics/leadgen-enrich";
 import type { ClickedRef } from "../../leadgen/auction-core";
 // v3.1 §9 (S3-5 + S3-6): the server-side Maps validate leg + auction facet.
@@ -350,6 +352,18 @@ export async function serveLeadgenAuction(c: PublicContext): Promise<Response> {
   const clicked = await loadClickedOffers(c.env.DB, funnelAttemptId);
   const presentOnlyOfferId = await loadPresentOnlyOfferId(c.env.DB, funnelAttemptId);
   const requestContext = buildRequestContext(c);
+  // Send-only Offers (0068, T8 / D2): the visitor's traffic quality, computed
+  // EXACTLY as the click route computes it (runtime-routes.ts /lg/lc): the CF
+  // edge signals, the User-Agent, the cookies (ko_internal=1) and the request
+  // + Referer URLs. Team and preview traffic never posts a send-only Offer;
+  // only clean traffic books or reports one (settleSendOnlyLeads). Every other
+  // Offer is unaffected by it.
+  const trafficQuality = computeTrafficQuality({
+    cf: readCfSignals(c.req.raw),
+    userAgent: c.req.header("User-Agent"),
+    cookieHeader: c.req.header("Cookie"),
+    urls: [c.req.url, c.req.header("Referer") ?? ""],
+  });
 
   // v3.1 §9 (S3-5 + S3-6): run the server-side Maps validate leg (drops invalid
   // ZIPs, gated on the server key) + derive the auction location facet, BEFORE
@@ -376,6 +390,7 @@ export async function serveLeadgenAuction(c: PublicContext): Promise<Response> {
       runtime: { source: c.req.raw, page_view_id: pageViewId },
       clicked,
       present_only_offer_id: presentOnlyOfferId,
+      traffic_quality: trafficQuality,
     },
     { dryRun: false },
   );
@@ -431,6 +446,34 @@ export async function serveLeadgenAuction(c: PublicContext): Promise<Response> {
     }
   }
 
+  // Send-only Offers (0068, D7 + D13): book each accepted CPL lead's fixed
+  // price once per funnel attempt and Offer, and claim the once-only
+  // lead_sent event of every accepted lead — AWAITED before the reply
+  // (GUARDRAILS C-009: the claim is the next retry's dedupe input), never on
+  // waitUntil. settleSendOnlyLeads never throws and logs every failure; the
+  // visitor gets the page either way. The attempt id is the anti-tamper-
+  // verified one (runAuction step 1 passed).
+  let leadSentEvents: LeadgenEvent[] = [];
+  if (result.send_only_accepted !== undefined && result.send_only_accepted.length > 0) {
+    try {
+      const settled = await settleSendOnlyLeads(c.env.DB, result.send_only_accepted, {
+        funnel_attempt_id: funnelAttemptId,
+        traffic_quality: trafficQuality,
+        now: new Date(),
+      });
+      leadSentEvents = settled.events;
+    } catch (err) {
+      console.error(
+        JSON.stringify({
+          event: "leadgen_send_only_settle_failed",
+          funnel_attempt_id: funnelAttemptId,
+          auction_instance_id: result.auction_instance_id,
+          error: err instanceof Error ? err.message : String(err),
+        }),
+      );
+    }
+  }
+
   // §28 non-blocking, fail-open writes: result log + redacted provider log + the
   // AES debug_ref blob (RED LINE 1). Registered on ctx.waitUntil; a harness
   // without an ExecutionContext lets the promise settle on its own.
@@ -456,9 +499,20 @@ export async function serveLeadgenAuction(c: PublicContext): Promise<Response> {
   } catch {
     telemetryCtx = undefined; /* no ExecutionContext (harness) ⇒ no telemetry, as before */
   }
+  if (telemetryCtx === undefined && leadSentEvents.length > 0) {
+    console.error(
+      JSON.stringify({
+        event: "leadgen_send_only_lead_sent_not_emitted",
+        reason: "no_execution_context",
+        funnel_attempt_id: funnelAttemptId,
+        offer_ids: leadSentEvents.map((e) => e.offer_id),
+      }),
+    );
+  }
   if (telemetryCtx !== undefined) {
     const env = c.env;
-    const events = [...result.events];
+    // + the send-only lead_sent events claimed above (same pipeline).
+    const events = [...result.events, ...leadSentEvents];
     const telemetry = (async () => {
       try {
         const names = await resolveLeadgenFunnelNames(env.DB, {
@@ -477,7 +531,26 @@ export async function serveLeadgenAuction(c: PublicContext): Promise<Response> {
       }
       const sends: Promise<unknown>[] = [];
       emitLeadgenRecords(env, { waitUntil: (p) => void sends.push(p) }, events);
-      await Promise.all(sends.map((p) => Promise.resolve(p).catch(() => undefined)));
+      await Promise.all(
+        sends.map((p) =>
+          Promise.resolve(p).catch((err: unknown) => {
+            // Send-only (0068): a lead_sent event is sent ONCE (its booking
+            // claim is already taken), so a lost send must leave a trace the
+            // ledger can be reconciled against. Other events stay fail-open.
+            if (leadSentEvents.length > 0) {
+              console.error(
+                JSON.stringify({
+                  event: "leadgen_send_only_lead_sent_emit_failed",
+                  funnel_attempt_id: funnelAttemptId,
+                  offer_ids: leadSentEvents.map((e) => e.offer_id),
+                  error: err instanceof Error ? err.message : String(err),
+                }),
+              );
+            }
+            return undefined;
+          }),
+        ),
+      );
     })().catch(() => {
       /* fail-open: telemetry never breaks the auction response */
     });
@@ -518,6 +591,9 @@ export async function serveLeadgenAuction(c: PublicContext): Promise<Response> {
       impressions: result.impression_rows,
       unfilled_reason: result.explain.unfilled_reason,
       ...(unfilled ? { unfilled: true as const } : {}),
+      // Send-only (0068): no card, an accepted lead — banners_html is the
+      // Offer's non-clickable banner and the reply is a normal "ok".
+      ...(result.fill_reason !== undefined ? { fill_reason: result.fill_reason } : {}),
       ...(result.redirect !== null ? { redirect: result.redirect } : {}),
       ...(go !== null ? { go } : {}),
       // F11: the open instruction itself (the screen above already carries

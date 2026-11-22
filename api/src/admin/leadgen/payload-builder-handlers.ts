@@ -65,6 +65,7 @@ import {
   redactSecretValues,
 } from "../../leadgen/redact";
 import { parseOfferProviderResponse } from "../../public/leadgen/auction/offer-parse";
+import { evaluateSendOnlyAcceptance, sendOnlyConfigFor, sendOnlyReasonLabel } from "../../leadgen/send-only";
 import { safeErrorCode, safeErrorName } from "../../safety/safe-error";
 import { readAnswerBindings } from "../../leadgen/answer-bindings";
 import type { LeadgenOfferPayloadSchemaRow, LeadgenOfferRow } from "./db-types";
@@ -623,6 +624,7 @@ export async function testOfferHandler(c: AdminContext): Promise<Response> {
   let bodyText: string | null = null;
   let providerErrorReason: string | null = null;
   let errorText: string | null = null;
+  let timedOut = false;
   try {
     const response = await fetch(requestUrl, {
       method,
@@ -636,7 +638,8 @@ export async function testOfferHandler(c: AdminContext): Promise<Response> {
     if (!is2xx(statusCode)) providerErrorReason = `http_${statusCode}`;
   } catch (err) {
     const name = safeErrorName(err);
-    providerErrorReason = name === "AbortError" ? "timeout" : "network_error";
+    timedOut = name === "AbortError";
+    providerErrorReason = timedOut ? "timeout" : "network_error";
     errorText = safeErrorCode("provider_fetch_failed", err);
   } finally {
     clearTimeout(timer);
@@ -772,6 +775,21 @@ export async function testOfferHandler(c: AdminContext): Promise<Response> {
       .run();
   }
 
+  // --- 0068 Send-only Offers: would this reply count as ACCEPTED? -----------
+  // The SAME rule the live auction applies (leadgen/send-only.ts), on the
+  // Offer's SAVED setting. Informational only: the pass/fail verdict above is
+  // unchanged.
+  const sendOnlyConfig = sendOnlyConfigFor(offer);
+  let sendOnlyResult: { accepted: boolean; reason: string; label: string } | null = null;
+  if (sendOnlyConfig !== null) {
+    const outcome = evaluateSendOnlyAcceptance(sendOnlyConfig.accept, {
+      status: statusCode,
+      timed_out: timedOut,
+      parsed: responseIsJson ? responseJson : undefined,
+    });
+    sendOnlyResult = { accepted: outcome.accepted, reason: outcome.reason, label: sendOnlyReasonLabel(outcome.reason) };
+  }
+
   // --- the §11.6 response ----------------------------------------------------
   // "Exact payload sent" with ONE exception (§30.2 wins): secret-derived
   // bytes (token node value, secret headers, query token) are masked — a
@@ -804,6 +822,8 @@ export async function testOfferHandler(c: AdminContext): Promise<Response> {
     // X11: whether this run changed the Offer's saved Test status (a
     // Production run that got an answer). The Payload tab chip moves only then.
     test_status_saved: testStatusSaved,
+    // 0068: present only for a send-only Offer.
+    ...(sendOnlyResult !== null ? { send_only: sendOnlyResult } : {}),
   });
 }
 

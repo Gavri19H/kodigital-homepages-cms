@@ -27,9 +27,10 @@ import {
   type LeadgenStreamRecord,
 } from "../src/analytics/leadgen-events";
 
-// The 31 event types: the §22.3 enumeration in order, PLUS `offer_impression`
+// The 32 event types: the §22.3 enumeration in order, PLUS `offer_impression`
 // (the §6.4 sibling of `carrier_impression`, deduped (auction_instance_id,
-// offer_id) — DEV-23) placed next to its sibling.
+// offer_id) — DEV-23) placed next to its sibling, PLUS `lead_sent` (Send-only
+// Offers, 0068) at the end.
 const EXPECTED_EVENT_TYPES = [
   "quote_view",
   "opening_lander_view",
@@ -62,6 +63,9 @@ const EXPECTED_EVENT_TYPES = [
   "revenue_received",
   "redirect_rule_triggered",
   "direct_offer_redirect",
+  // Send-only Offers (0068, D13): server-only, a send-only Offer's lead was
+  // accepted (booked money; /lg/track refuses it from a browser).
+  "lead_sent",
 ];
 
 describe("LEADGEN_EVENT_TYPES — §22.3 enumerated event types", () => {
@@ -109,7 +113,7 @@ describe("LEADGEN_EVENT_TYPES — §22.3 enumerated event types", () => {
     const set = new Set<string>(LEADGEN_EVENT_TYPES);
     expect(set.has("offer_impression")).toBe(true);
     expect(set.has("carrier_impression")).toBe(true);
-    expect(LEADGEN_EVENT_TYPES.length).toBe(31);
+    expect(LEADGEN_EVENT_TYPES.length).toBe(32); // 31 + lead_sent (Send-only Offers, 0068)
   });
 });
 

@@ -598,5 +598,67 @@ export function renderBanners(
   return { banner_render_id: bannerRenderId, css, html, slots, impressions, dropped };
 }
 
+// ---------------------------------------------------------------------------
+// Send-only Offers (plan "Send-only Offers", migration 0068) — the "lead sent"
+// banner.
+// ---------------------------------------------------------------------------
+//
+// Shown ONLY when an auction rendered no card at all and a send-only Offer's
+// Provider accepted the lead: ONE banner, for the accepted Offer with the
+// highest fixed bid (engine.ts picks it), built from that Offer's authored
+// creative (0060 static_logo_url / static_headline / static_subheadline).
+//
+// It is NOT a card and must never act like one:
+//   * a <div role="note">, never an <a>, and never class `lg-banner` — so the
+//     card hover/cursor rules, the /lg/lc click route and the page's
+//     `a.lg-banner` AddToCart trigger (serve.ts) can never apply to it;
+//   * no CTA, no badge, no href, no data-slot / data-carrier-key (impression
+//     tracking keys on data-slot), no click-event pixel attributes;
+//   * a link authored into the subheadline is unwrapped to its text.
+// The inner regions reuse the card's own classes (`lg-banner-logo`,
+// `lg-banner-content`, `lg-banner-name`, `lg-banner-subheadline`), which the
+// funnel sheet styles on their own, so the logo, fonts and colours match a
+// card; the frame is `.lg-lead-sent` (default-funnel/styles.ts: the card's
+// border, corners, padding and background, a normal cursor, no hover).
+// Every value is escaped exactly as renderCard escapes it.
+export interface LeadSentBannerInput {
+  // The container's data-banner-render-id (the reply's banner_render_id).
+  banner_render_id: string;
+  // Already resolved against the page origin; only an absolute http(s) URL is
+  // emitted (a Media-library path is made absolute by the caller).
+  logo_url: string | null;
+  headline: string | null;
+  subheadline: string | null;
+}
+
+export function renderLeadSentBanner(input: LeadSentBannerInput): string {
+  const parts: string[] = [];
+  const headline = decodeHtmlEntities(asText(input.headline)).trim();
+  const logo = asText(input.logo_url).trim();
+  if (isHttpUrl(logo)) {
+    parts.push(
+      `<img class="lg-banner-logo" src="${esc(logo)}" alt="${esc(stripBoldMarkers(headline))}"` +
+        ` onerror="this.style.display='none'" />`,
+    );
+  }
+  const regions: string[] = [];
+  if (headline !== "") regions.push(`<div class="lg-banner-name">${markedTextHtml(headline, esc)}</div>`);
+  const subRaw = asText(input.subheadline).trim();
+  if (subRaw !== "" && decodeHtmlEntities(subRaw).trim() !== headline) {
+    // The card's rich-subheadline treatment (allowlisted inline markup), with
+    // any link unwrapped: the banner is not clickable, so no part of it may be.
+    const html = markedSanitizedHtml(sanitizeFrameInlineHtml(subRaw)).replace(/<\/?a\b[^>]*>/gi, "");
+    if (html.trim() !== "") {
+      const rich = /<(?:ul|ol)>/.test(html) ? ` data-rich="1"` : "";
+      regions.push(`<div class="lg-banner-subheadline"${rich}>${html}</div>`);
+    }
+  }
+  if (regions.length > 0) parts.push(`<div class="lg-banner-content">${regions.join("")}</div>`);
+  return (
+    `<div class="lg-banners" data-banner-render-id="${esc(input.banner_render_id)}">` +
+    `<div class="lg-lead-sent" role="note">${parts.join("")}</div></div>`
+  );
+}
+
 // Expose the default field map + the default card copy for downstream/tests.
 export { DEFAULT_FIELD_MAP, DEFAULT_CTA_LABEL, DEFAULT_BADGE_LABEL };

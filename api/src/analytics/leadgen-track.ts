@@ -46,6 +46,7 @@ import type { Env } from "../env";
 import type { WaitUntilContext } from "../wait-until-context";
 import {
   LEADGEN_EVENT_TYPES,
+  LEADGEN_SERVER_ONLY_EVENT_TYPES,
   blankLeadgenEvent,
   emitLeadgenRecords,
   leadgenEventFromPayload,
@@ -200,6 +201,12 @@ leadgenTrackRouter.post("/lg/track", async (c) => {
     const eventType = asString(payload["event_type"]);
     if (!ALLOWED_TYPES.has(eventType)) {
       deadLetter(asString(payload["event_id"]), payload, "invalid_event_type");
+      continue;
+    }
+    // Send-only (0068): a server-only type (lead_sent — booked money) is
+    // never taken from a browser.
+    if (LEADGEN_SERVER_ONLY_EVENT_TYPES.has(eventType)) {
+      deadLetter(asString(payload["event_id"]), payload, "server_only_event_type");
       continue;
     }
     let size = 0;

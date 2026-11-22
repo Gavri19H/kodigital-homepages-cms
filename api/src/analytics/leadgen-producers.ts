@@ -1,6 +1,6 @@
 // LeadGen analytics — event PRODUCER coverage map (fix-contract v2.4 · 10 §10.2).
 //
-// The §10.2 acceptance: EVERY member of `LEADGEN_EVENT_TYPES` (the frozen 31-type
+// The §10.2 acceptance: EVERY member of `LEADGEN_EVENT_TYPES` (the 32-type
 // vocabulary, analytics/leadgen-events.ts) has a real producer with a passing
 // emission test — so adding a 32nd type without a producer FAILS CI.
 //
@@ -68,6 +68,7 @@ const RUNTIME_MAPS = "src/public/leadgen/runtime/maps.ts";
 const CLICK = "src/public/leadgen/click.ts";
 const POSTBACK = "src/public/leadgen/postback.ts";
 const LANDER_EDITOR = "src/admin/leadgen/quotes-tabs/funnel.ts";
+const SEND_ONLY_LEADS = "src/public/leadgen/send-only-leads.ts";
 
 // One entry per LeadgenEventType — the `Record<LeadgenEventType, …>` type makes
 // this exhaustive at compile time (a missing key fails `tsc`).
@@ -339,6 +340,20 @@ export const LEADGEN_PRODUCER_MAP: Record<LeadgenEventType, LeadgenProducer> = {
     source_file: ENGINE,
     source_marker: 'pushEvent("direct_offer_redirect"',
     emission_site: `${ENGINE}:1009`,
+    proof_kind: "server_emitted",
+  },
+
+  // --- send-only lead — server (Send-only Offers, 0068, D13) --------------------
+  // The engine builds it with the auction context (buildEvent("lead_sent")
+  // in engine.ts); the live /lg/auction route emits it through its auction
+  // telemetry batch once settleSendOnlyLeads has newly booked / claimed the
+  // (funnel attempt, Offer) — the marker pins that emission site.
+  lead_sent: {
+    surface: "Send-only lead (server, serve-auction.ts settleSendOnlyLeads)",
+    phase: "send-only",
+    source_file: SEND_ONLY_LEADS,
+    source_marker: 'e.event_type = "lead_sent"',
+    emission_site: `${SEND_ONLY_LEADS}:settleSendOnlyLeads`,
     proof_kind: "server_emitted",
   },
 };

@@ -51,6 +51,7 @@ import {
   clickoutMetaEventName,
 } from "../../leadgen/clickout-meta";
 import { STATIC_CREATIVE_FIELDS, validateStaticCreativeField } from "../../leadgen/static-creative";
+import { isSendOnlyOffer, normalizeSendOnlyInput, parseSendOnly } from "../../leadgen/send-only";
 import { validateBannerUrlTemplate, normalizeTemplate, findUnknownMacros } from "../../leadgen/macros";
 import { parseWaterfallTiers } from "../../leadgen/auction-rules";
 import {
@@ -279,12 +280,16 @@ export function offerRowToApi(row: LeadgenOfferRow): LeadgenOfferApi {
     static_headline: row.static_headline ?? null,
     static_subheadline: row.static_subheadline ?? null,
     static_disclaimer: row.static_disclaimer ?? null,
+    send_only_json: row.send_only_json ?? null,
     api_token_present: typeof api_token_cipher === "string" && api_token_cipher.trim() !== ""
       && (api_token_key_id === "lgok1" || api_token_key_id === "lgok2"),
     api_token_updated_at: row.api_token_updated_at ?? null,
     // Can be a redirect target: the click route can send a visitor to this
     // Offer with no provider response behind the click (its own URL).
     has_own_click_url: offerHasOwnClickUrl(row.banner_url_template),
+    // 0068: "Send the lead only, no card" in the static-bid request mode — the
+    // Offer never shows a card, so pickers leave it out of redirect targets.
+    send_only: isSendOnlyOffer(row),
   };
 }
 
@@ -1063,6 +1068,9 @@ const OFFER_PATCH_COLUMNS = [
   "clickout_meta_test_event_code",
   // 0060 static-Offer banner creative (validated by leadgen/static-creative.ts).
   ...STATIC_CREATIVE_FIELDS,
+  // 0068 Send-only Offers: "What the visitor sees" + "Accepted when", one JSON
+  // column (leadgen/send-only.ts owns the format).
+  "send_only_json",
 ] as const;
 
 interface HeaderInput {
@@ -1274,6 +1282,19 @@ function collectScalarUpdates(body: Record<string, unknown>, errors: FieldErrors
     else errors[key] = verdict.error;
   }
 
+  // 0068 Send-only Offers: an object ({display:"card"} / {display:"send_only",
+  // accept:{...}}), its JSON text, or null. Stored canonical, or NULL for "Show
+  // a card". The mode / logo / headline rules run on the merged row.
+  if (body["send_only_json"] !== undefined) {
+    const verdict = normalizeSendOnlyInput(body["send_only_json"]);
+    const keys = Object.keys(verdict.errors);
+    if (keys.length > 0) {
+      for (const k of keys) errors[k] = verdict.errors[k] as string;
+    } else {
+      updates.set("send_only_json", verdict.stored);
+    }
+  }
+
   if (body["cap_timezone"] !== undefined) {
     const v = body["cap_timezone"];
     if (v === null) updates.set("cap_timezone", null);
@@ -1479,6 +1500,35 @@ function mergedField<K extends keyof LeadgenOfferRow>(
   return (updates.has(key) ? updates.get(key) : existing[key]) as LeadgenOfferRow[K];
 }
 
+// 0068: every saved redirect rule that targets an Offer — Funnel eligibility
+// "Redirect to offer" rules (both timings, any status) and Quote routing rules'
+// redirect target. Names in id order (Funnel rules first), at most 3.
+async function redirectRulesTargetingOffer(
+  db: D1Database,
+  offerId: number,
+): Promise<{ names: string[]; total: number }> {
+  const funnel = await db
+    .prepare(
+      "SELECT rule_name FROM leadgen_funnel_rules WHERE rule_type = 'redirect_direct_offer' AND target_offer_id = ? ORDER BY id ASC",
+    )
+    .bind(offerId)
+    .all<{ rule_name: string | null }>();
+  const quote = await db
+    .prepare("SELECT rule_name FROM leadgen_quote_routing_rules WHERE target_offer_id = ? ORDER BY id ASC")
+    .bind(offerId)
+    .all<{ rule_name: string | null }>();
+  const all = [...(funnel.results ?? []), ...(quote.results ?? [])].map((r) =>
+    typeof r.rule_name === "string" && r.rule_name.trim() !== "" ? r.rule_name.trim() : "Unnamed redirect rule",
+  );
+  return { names: all.slice(0, 3), total: all.length };
+}
+
+function describeRedirectRulesBlockSendOnly(blocking: { names: string[]; total: number }): string {
+  const listed = blocking.names.map((n) => `"${n}"`).join(", ");
+  const more = blocking.total > blocking.names.length ? ` and ${blocking.total - blocking.names.length} more` : "";
+  return `Redirect rules still open this Offer: ${listed}${more}. Point them at another offer first, because a send-only Offer never shows a card.`;
+}
+
 // Merge-then-revalidate (listicles pattern): a partial update can never
 // break a merged-state rule — §10.2 flag combo, §10.6 cap coherence, §10.3
 // client-mode secret bans (checked against the EFFECTIVE header set: the
@@ -1602,6 +1652,59 @@ export async function patchOfferHandler(c: AdminContext): Promise<Response> {
   if (mergedCalls === 0 && mergedBidSource === "response" && errors["bid_source"] === undefined) {
     // §10.2: the three legal kinds are (0,static), (1,static), (1,response).
     errors["bid_source"] = "bid_source 'response' requires calls_provider_api";
+  }
+
+  // 0068 Send-only Offers (plan "Send-only Offers"). "Send the lead only, no
+  // card" exists only in the "Provider request · static bid (CPL)" mode, and
+  // the banner a visitor may see instead of "no match" is built from the
+  // Offer's own logo and headline, so both are required.
+  //   * a save that ASKS for send-only on another mode is refused;
+  //   * a save that moves a send-only Offer to another mode clears the setting
+  //     in the same update, so a stale value can never come back later.
+  // A database without 0068 (no send_only_json key on the row) never stores
+  // "Show a card" — there is nothing to clear.
+  if (updates.has("send_only_json") && updates.get("send_only_json") === null && !("send_only_json" in existing)) {
+    updates.delete("send_only_json");
+  }
+  const sendOnlyInputBad =
+    errors["send_only_display"] !== undefined ||
+    errors["send_only_accept_kind"] !== undefined ||
+    errors["send_only_accept_field"] !== undefined ||
+    errors["send_only_accept_value"] !== undefined;
+  if (!sendOnlyInputBad && parseSendOnly(mergedField(existing, updates, "send_only_json") ?? null) !== null) {
+    const staticBidMode = mergedCalls === 1 && mergedBidSource === "static";
+    if (!staticBidMode) {
+      if (updates.has("send_only_json")) {
+        errors["send_only_display"] = 'Send the lead only works with "Provider request · static bid (CPL)".';
+      } else {
+        updates.set("send_only_json", null);
+      }
+    } else {
+      if ((mergedField(existing, updates, "static_logo_url") ?? null) === null && errors["static_logo_url"] === undefined) {
+        errors["static_logo_url"] = "A send-only Offer needs a logo. Add it in the Static tab, under Banner creative.";
+      }
+      if ((mergedField(existing, updates, "static_headline") ?? null) === null && errors["static_headline"] === undefined) {
+        errors["static_headline"] = "A send-only Offer needs a headline. Add it in the Static tab, under Banner creative.";
+      }
+      // A CPL send-only Offer books its fixed bid on every accepted lead, so it
+      // needs one (a CPA books nothing and may leave it empty).
+      const mergedBid = mergedField(existing, updates, "static_bid_value");
+      if (
+        mergedField(existing, updates, "offer_type") === "cpl" &&
+        !(typeof mergedBid === "number" && mergedBid > 0) &&
+        errors["static_bid_value"] === undefined
+      ) {
+        errors["static_bid_value"] = "A send-only CPL Offer needs a fixed bid: it is the price booked for each accepted lead.";
+      }
+      // An Offer becoming send-only must not be a redirect target: a "Straight
+      // away" rule would send the visitor to its own URL before the auction, so
+      // the lead would never be posted. Checked only on the change (an Offer
+      // that is already send-only saving other fields is not re-checked).
+      if (!isSendOnlyOffer(existing) && errors["send_only_display"] === undefined) {
+        const blocking = await redirectRulesTargetingOffer(c.env.DB, existing.id);
+        if (blocking.total > 0) errors["send_only_display"] = describeRedirectRulesBlockSendOnly(blocking);
+      }
+    }
   }
   // 0064 (owner 2026-10-08, R2): the click event is available on EVERY Offer
   // — the 0058 "Static — no provider request only" rule is gone. ON needs
@@ -2024,6 +2127,9 @@ export async function duplicateOfferHandler(c: AdminContext): Promise<Response> 
   // WHERE public_id = ?) subqueries (the active-schema-pointer pattern), so
   // a mid-batch failure rolls the WHOLE clone back: no compensating delete,
   // no crash window leaving an inert parent.
+  // 0068: copied only when the database has the column (the row read with
+  // SELECT * carries the key), so an older database still duplicates.
+  const copySendOnly = "send_only_json" in src;
   const stmts: D1PreparedStatement[] = [
     c.env.DB.prepare(
       `INSERT INTO leadgen_offers
@@ -2036,8 +2142,8 @@ export async function duplicateOfferHandler(c: AdminContext): Promise<Response> 
           cap_enabled, cap_amount, cap_timezone, cap_count_by,
           cap_fallback_offer_id, cap_fallback_url,
           static_brand_name, static_logo_url, static_headline, static_subheadline, static_disclaimer,
-          status)
-       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'paused')`,
+          ${copySendOnly ? "send_only_json, " : ""}status)
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ${copySendOnly ? "?, " : ""}'paused')`,
     ).bind(
       newPublic, name, src.provider, src.activity, src.vertical, src.tag,
       src.conversion_tracking_method, src.offer_type, src.calls_provider_api, src.bid_source,
@@ -2058,6 +2164,8 @@ export async function duplicateOfferHandler(c: AdminContext): Promise<Response> 
       // Offer's parser (its creative) does via the copied schema version.
       src.static_brand_name ?? null, src.static_logo_url ?? null, src.static_headline ?? null,
       src.static_subheadline ?? null, src.static_disclaimer ?? null,
+      // 0068: "What the visitor sees" + "Accepted when" copy with the Offer.
+      ...(copySendOnly ? [src.send_only_json ?? null] : []),
     ),
   ];
 

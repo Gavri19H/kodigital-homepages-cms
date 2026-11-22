@@ -2271,14 +2271,25 @@ const AUCTION_EDITOR_SCRIPT = `
     }
     var elig = offer.eligibility;
     var excluded = !!offer.excluded_reason || (elig && elig.eligible === false);
-    var verdict = makeEl('span', excluded ? 'lg-sim-excluded' : 'lg-sim-eligible');
-    verdict.setAttribute('data-sim-verdict', excluded ? 'excluded' : 'eligible');
-    verdict.appendChild(document.createTextNode(excluded ? 'Excluded' : 'Eligible'));
+    // Send-only Offers (0068): the Offer's own line replaces the plain
+    // Eligible/Excluded verdict — "not sent from the Simulator", "Lead sent
+    // (no card)" or "Not accepted: <reason>" (the server words it).
+    var so = offer.send_only || null;
+    var soText = { not_sent: 'Send-only \\u00b7 not sent', accepted: 'Lead sent', not_accepted: 'Not accepted' };
+    var verdict = makeEl('span', so ? (so.status === 'accepted' ? 'lg-sim-eligible' : 'lg-sim-excluded') : (excluded ? 'lg-sim-excluded' : 'lg-sim-eligible'));
+    verdict.setAttribute('data-sim-verdict', so ? ('send_only_' + so.status) : (excluded ? 'excluded' : 'eligible'));
+    verdict.appendChild(document.createTextNode(so ? (soText[so.status] || 'Send-only') : (excluded ? 'Excluded' : 'Eligible')));
     head.appendChild(verdict);
     card.appendChild(head);
+    if (so && so.label) {
+      var sop = makeEl('p', 'lg-sim-reason');
+      sop.setAttribute('data-sim-send-only', so.status || '');
+      sop.appendChild(document.createTextNode(so.label));
+      card.appendChild(sop);
+    }
 
     var reasons = [];
-    if (offer.excluded_reason) { reasons.push(offer.excluded_reason); }
+    if (offer.excluded_reason && offer.excluded_reason !== 'send_only_not_sent_simulator') { reasons.push(offer.excluded_reason); }
     if (elig && elig.reasons && elig.reasons.length) { reasons = reasons.concat(elig.reasons); }
     if (reasons.length) {
       var rp = makeEl('p', 'lg-sim-reason');
@@ -2321,6 +2332,7 @@ const AUCTION_EDITOR_SCRIPT = `
     var summary = makeEl('p', 'lg-sim-summary');
     summary.appendChild(document.createTextNode('Status: ' + (body.status || '\\u2014') +
       (body.winner && body.winner.offer_id ? ' \\u00b7 winner ' + body.winner.offer_id : '') +
+      (body.fill_reason === 'lead_sent' ? ' \\u00b7 lead sent' + (body.lead_sent && body.lead_sent.offer_id ? ' (' + body.lead_sent.offer_id + ', no card)' : ' (no card)') : '') +
       (body.unfilled_reason ? ' \\u00b7 unfilled: ' + body.unfilled_reason : '')));
     host.appendChild(summary);
     // 0062: which waterfall path ran and what each tier did.

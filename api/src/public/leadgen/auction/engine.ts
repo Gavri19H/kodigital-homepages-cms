@@ -66,7 +66,7 @@ import {
 } from "../../../leadgen/auction-rules";
 import { evaluateRegionRules, type LeadgenRegionRuleInput } from "../../../leadgen/rules";
 import { capExceeded, readCapStatus } from "../../../leadgen/caps";
-import { normalizeCarrierBidsToUsd, type CarrierBidInput } from "../../../leadgen/fx";
+import { normalizeCarrierBidsToUsd, normalizeToUsd, type CarrierBidInput } from "../../../leadgen/fx";
 import {
   applyBackfill,
   applyRemoveClicked,
@@ -92,6 +92,7 @@ import { fetchProvidersParallel, type FetchProviderResult, type ParallelProvider
 import {
   renderBanners,
   renderedCardBrandAndLogo,
+  renderLeadSentBanner,
   type BannerRenderCarrier,
   type CarrierImpression,
   type RenderedBannerSlot,
@@ -104,6 +105,8 @@ import {
   type AuctionResultLogRowInsert,
   type AuctionWaterfallTrace,
   type ExplainDeduplicatedCarrier,
+  type ExplainLeadSent,
+  type ExplainSendOnlyOutcome,
   type ExplainFilteredCarrier,
   type ExplainProviderRequested,
   type ExplainProviderResponded,
@@ -134,7 +137,14 @@ import {
   randomHex,
 } from "../../../admin/leadgen/payload-builder-handlers";
 import { readEnvSecret } from "../../../env";
-import { requestOrigin, staticCreativeDisplay } from "../../../leadgen/static-creative";
+import { requestOrigin, resolveCreativeLogo, staticCreativeDisplay } from "../../../leadgen/static-creative";
+import {
+  evaluateSendOnlyAcceptance,
+  sendOnlyConfigFor,
+  sendOnlyReasonLabel,
+  type SendOnlyOutcome,
+} from "../../../leadgen/send-only";
+import type { TrafficQualityFlags } from "../../../analytics/listicle-quality";
 import type {
   LeadgenAuctionConsideredOffer,
   LeadgenAuctionExcludedOffer,
@@ -937,6 +947,17 @@ export interface RunAuctionInput {
   // differently by two Sections previewed the other Offer's date). Falls back
   // to the shared answerComputed for an Offer not in the map.
   answerComputedByOffer?: ReadonlyMap<number, Readonly<Record<string, string>>>;
+  // Send-only Offers (plan "Send-only Offers", 0068, D2): the visitor's traffic
+  // quality, computed by the live route exactly as the click route computes
+  // it (computeTrafficQuality). Team (ko_internal=1) and preview traffic never
+  // posts a send-only Offer — it is excluded before any request with reason
+  // "team_or_preview_traffic"; every other Offer is unaffected. Absent = clean
+  // (every existing caller and test is unchanged).
+  traffic_quality?: Pick<TrafficQualityFlags, "is_internal" | "is_preview">;
+  // Admin Simulator only: the Simulator makes REAL Provider calls and is team
+  // traffic, so it never posts a send-only Offer either (reason
+  // "send_only_not_sent_simulator"; the Offer's Test button sends a test lead).
+  send_only_simulator?: boolean;
 }
 
 export type RunAuctionStatus = "ok" | "tampered" | "disqualified" | "redirect" | "unfilled" | "no_bid";
@@ -968,6 +989,17 @@ function parseErrorText(errors: readonly LeadgenParseError[]): string | null {
     parts.push(n > 1 ? `${code} x${n}: ${message}` : `${code}: ${message}`);
   }
   return parts.join(" | ").slice(0, 500);
+}
+
+// Send-only (0068): the provider-log reason / text for a 2xx reply the
+// acceptance rule did NOT accept (null for an accepted lead or a non-send-only
+// call; a timeout / error reply keeps the fetch stage's own reason).
+function sendOnlyLogReason(outcome: SendOnlyOutcome | undefined): string | null {
+  return outcome === undefined || outcome.accepted ? null : `send_only_not_accepted:${outcome.reason}`;
+}
+
+function sendOnlyLogText(outcome: SendOnlyOutcome | undefined): string | null {
+  return outcome === undefined || outcome.accepted ? null : `Send-only lead not accepted: ${sendOnlyReasonLabel(outcome.reason)}`;
 }
 
 export interface ProviderLogRowToPersist {
@@ -1049,6 +1081,53 @@ export interface RunAuctionResult {
   redirect_after?: RedirectAfterInstruction;
   // Convenience aggregate of every reason a carrier was filtered post-parse.
   carriers_filtered: ExplainFilteredCarrier[];
+  // Send-only Offers (0068): every send-only Offer whose lead the Provider
+  // ACCEPTED in this auction (one entry per Offer, every tier tried) —
+  // whether or not a card showed. The live route books each one and sends its
+  // lead_sent event (serve-auction.ts settleSendOnlyLeads); a dry run ignores
+  // it. Absent when none was accepted.
+  send_only_accepted?: SendOnlyAcceptedLead[];
+  // "lead_sent": no card rendered and a send-only lead was accepted, so the
+  // result is the accepted Offer's non-clickable banner and the auction
+  // counts as filled (explain.fill_reason / explain.lead_sent say which).
+  fill_reason?: "lead_sent";
+}
+
+// Send-only Offers (0068): one accepted lead, as the live route needs it to
+// book the Offer's fixed price and report the lead.
+export interface SendOnlyAcceptedLead {
+  offer_public_id: string;
+  offer_type: string;
+  // The Offer's fixed bid in its own currency (static_bid_value /
+  // static_bid_currency) and in USD (null when no FX rate is known).
+  bid_value: number | null;
+  bid_currency: string | null;
+  usd_bid: number | null;
+  provider_request_id: string;
+  // The lead_sent event, built with everything an auction event carries
+  // (session, quote/funnel/variant, traffic + sub1..sub5, auction ids, the
+  // Offer). NOT in `events`: the live route fills its money fields and emits
+  // it only when its once-per-attempt claim is new.
+  event: LeadgenEvent;
+}
+
+// Send-only Offers (0068): the accepted Offer whose banner shows — the
+// highest fixed bid (compared in USD when the currencies differ; an unknown
+// rate ranks last), then the auction's Offer order, then the first.
+function pickLeadSentOffer<T extends { b: AuctionBundleOffer; bid_value: number | null; bid_currency: string | null; usd_bid: number | null }>(
+  accepted: readonly T[],
+): T | null {
+  const first = accepted[0];
+  if (first === undefined) return null;
+  const cur = (c: T): string => (c.bid_currency ?? "").trim().toUpperCase() || "USD";
+  const sameCurrency = accepted.every((c) => cur(c) === cur(first));
+  const score = (c: T): number => (sameCurrency ? c.bid_value : c.usd_bid) ?? Number.NEGATIVE_INFINITY;
+  const order = (c: T): number => c.b.static_order ?? c.b.offer.static_order ?? Number.POSITIVE_INFINITY;
+  let best = first;
+  for (const c of accepted.slice(1)) {
+    if (score(c) > score(best) || (score(c) === score(best) && order(c) < order(best))) best = c;
+  }
+  return best;
 }
 
 function auctionSettings(auction: LeadgenAuctionRow): AuctionCoreSettings {
@@ -1334,7 +1413,10 @@ export async function runAuction(
   })();
   const quoteName = typeof input.resolved.quote.quote_name === "string" ? input.resolved.quote.quote_name : "";
   const funnelName = typeof input.resolved.funnel.funnel_name === "string" ? input.resolved.funnel.funnel_name : "";
-  const pushEvent = (
+  // buildEvent: an auction-path event with the full auction context, NOT added
+  // to `events` (the send-only lead_sent event is emitted by the live route
+  // only once its booking claim is new). pushEvent = buildEvent + record.
+  const buildEvent = (
     eventType: string,
     fill?: (e: LeadgenEvent) => void,
   ): LeadgenEvent => {
@@ -1376,6 +1458,13 @@ export async function runAuction(
     e.city = m["city"] ?? "";
     stampAuctionIds(e, baseStamp);
     if (fill !== undefined) fill(e);
+    return e;
+  };
+  const pushEvent = (
+    eventType: string,
+    fill?: (e: LeadgenEvent) => void,
+  ): LeadgenEvent => {
+    const e = buildEvent(eventType, fill);
     events.push(e);
     return e;
   };
@@ -1623,12 +1712,23 @@ export async function runAuction(
   // is recorded in explainability. The provider is NEVER called for it (the
   // former EMPTY_SCHEMA degradation is deleted — an empty payload is never
   // POSTed). Static Offers pass through (the §18.2 static path).
+  // Send-only Offers (0068, D2): team / preview traffic and the admin
+  // Simulator never post a send-only Offer. Decided AFTER the eligibility
+  // gate, so a not-ready Offer still names its real fault.
+  const sendOnlySkipReason: string | null =
+    input.send_only_simulator === true
+      ? "send_only_not_sent_simulator"
+      : input.traffic_quality !== undefined && (input.traffic_quality.is_internal || input.traffic_quality.is_preview)
+        ? "team_or_preview_traffic"
+        : null;
   const candidates: AuctionBundleOffer[] = [];
   for (const b of ruleSurvivors) {
     if (!callsProvider(b.offer)) {
       candidates.push(b);
       continue;
     }
+    // A send-only Offer passes its own row (bid_source + send_only_json): it
+    // never becomes a card, so the gate skips the response-parser checks.
     const verdict = dynamicAuctionEligibility(
       b.offer,
       b.schema_state === "none" ? null : { ok: b.schema_state === "valid", errors: [] },
@@ -1652,6 +1752,10 @@ export async function runAuction(
         fillOffer(e, b);
         e.carrier_filtered_reason = reason;
       });
+      continue;
+    }
+    if (sendOnlySkipReason !== null && sendOnlyConfigFor(b.offer) !== null) {
+      offersExcluded.push({ offer_id: b.offer.public_id, reason: sendOnlySkipReason });
       continue;
     }
     candidates.push(b);
@@ -1681,6 +1785,21 @@ export async function runAuction(
   // waterfall: one slice per tier, in order — a lower tier's provider is called
   // only if the tier above showed nothing — and the first tier that renders is
   // what the visitor sees (owner rulings 2026-10-01).
+  // The origin the page is served from, used to make a static Offer's
+  // Media-library logo absolute: the tenant domain on the live /lg/auction
+  // request; the admin host on the Auction simulator (auctions-handlers passes
+  // its request). With no request at all the logo is simply not emitted.
+  // (Also the send-only "lead sent" banner's logo.)
+  const pageOrigin = (() => {
+    const src = input.runtime?.source;
+    if (src === undefined) return null;
+    try {
+      return requestOrigin(("req" in src ? src.req.raw : src).url);
+    } catch {
+      return null;
+    }
+  })();
+
   const runSlice = async (sliceCandidates: AuctionBundleOffer[], sliceSettings: typeof settings) => {
     // Steps 6-7: build payloads + fire provider requests in parallel (dynamic
     // Offers only; every one is R4-eligible ⇒ payload_schema is non-null).
@@ -1765,6 +1884,11 @@ export async function runAuction(
     // OWNER 2026-10-08 ("recived bids per offer"): each Offer's
     // auction_offer_response event, to stamp its best USD bid + bid count.
     const responseEventsByRow = new Map<string, LeadgenEvent[]>();
+    // Send-only Offers (0068): the Provider's verdict on each lead a
+    // send-only Offer posted (evaluateSendOnlyAcceptance — the one rule the
+    // Test tool and the Simulator share), keyed by provider request.
+    const sendOnlyOutcomes: Array<{ b: AuctionBundleOffer; provider_request_id: string; auction_request_id: string; outcome: SendOnlyOutcome }> = [];
+    const sendOnlyByRequest = new Map<string, SendOnlyOutcome>();
     const bundleByRowKey = new Map<string, AuctionBundleOffer>();
     const bundleByPublicId = new Map<string, AuctionBundleOffer>();
     for (const b of input.bundle.offers) {
@@ -1789,6 +1913,15 @@ export async function runAuction(
       const bundleOffer =
         bundleByRowKey.get(rowKey(result.offer_public_id, result.redacted_log.placement_public_id)) ??
         bundleByPublicId.get(result.offer_public_id);
+      const sendOnlyRule = bundleOffer !== undefined ? sendOnlyConfigFor(bundleOffer.offer) : null;
+      const sendOnlyOutcome =
+        sendOnlyRule === null
+          ? null
+          : evaluateSendOnlyAcceptance(sendOnlyRule.accept, { status: result.status, timed_out: result.timed_out, parsed: result.parsed });
+      if (sendOnlyOutcome !== null && bundleOffer !== undefined) {
+        sendOnlyOutcomes.push({ b: bundleOffer, provider_request_id: result.provider_request_id, auction_request_id: auctionRequestId, outcome: sendOnlyOutcome });
+        sendOnlyByRequest.set(result.provider_request_id, sendOnlyOutcome);
+      }
       const perOffer = (e: LeadgenEvent): void => {
         if (bundleOffer !== undefined) fillOffer(e, bundleOffer);
         stampAuctionIds(e, {
@@ -1809,6 +1942,13 @@ export async function runAuction(
         });
       } else {
         const responseEvent = pushEvent("auction_offer_response", perOffer);
+        // Send-only (0068): a 2xx the acceptance rule did NOT accept (the
+        // reply field missing / another value) says so on its response event.
+        // An accepted lead leaves the field empty; a timeout / error reply has
+        // its own timeout / error event above, exactly as for any Offer.
+        if (sendOnlyOutcome !== null && !sendOnlyOutcome.accepted) {
+          responseEvent.provider_error_reason = `send_only_not_accepted:${sendOnlyOutcome.reason}`;
+        }
         // bid_value / bids_count are filled once the response is parsed + FX-
         // normalized (below); keyed by the bundle ROW this response belongs to.
         if (bundleOffer !== undefined) {
@@ -1821,20 +1961,6 @@ export async function runAuction(
         }
       }
     }
-
-    // The origin the page is served from, used to make a static Offer's
-    // Media-library logo absolute: the tenant domain on the live /lg/auction
-    // request; the admin host on the Auction simulator (auctions-handlers passes
-    // its request). With no request at all the logo is simply not emitted.
-    const pageOrigin = (() => {
-      const src = input.runtime?.source;
-      if (src === undefined) return null;
-      try {
-        return requestOrigin(("req" in src ? src.req.raw : src).url);
-      } catch {
-        return null;
-      }
-    })();
 
     // Step 8: parse each dynamic response -> canonical carriers; FX-normalize bids
     // to USD. Static Offers contribute their synthesized static carrier. Each
@@ -1851,6 +1977,16 @@ export async function runAuction(
     const metaKey = (offerPublicId: string, carrierKey: string): string => `${offerPublicId} ${carrierKey}`;
 
     for (const b of sliceCandidates) {
+      if (callsProvider(b.offer) && sendOnlyConfigFor(b.offer) !== null) {
+        // Send-only (0068): posted like any static-bid Offer, but its answer
+        // is NEVER parsed into a carrier — not on an accepted lead, and not on
+        // a timeout / error, where the CPL parser would otherwise build a card
+        // from the Offer's own Static-tab URL. Its outcome is above.
+        parsedByRow.set(rowKey(b.offer.public_id, b.placement_public_id), []);
+        parsedByOffer.set(b.offer.public_id, []);
+        auctionCarriersByRow.set(rowKey(b.offer.public_id, b.placement_public_id), []);
+        continue;
+      }
       if (callsProvider(b.offer)) {
         const result =
           resultByRow.get(rowKey(b.offer.public_id, b.placement_public_id)) ??
@@ -1944,6 +2080,36 @@ export async function runAuction(
         responseEvent.bids_count = carriers.length;
         responseEvent.bid_value = carriers.length > 0 ? best : null;
         if (carriers.length > 0 && best !== null) responseEvent.bid_currency = "USD";
+      }
+    }
+
+    // Send-only (0068): an ACCEPTED lead is a bid at the Offer's fixed price,
+    // not a "no bid" (ClickHouse lg_auction_daily / lg_provider_diagnostics_daily
+    // count `auction_offer_response AND bid_value=0` as no_bid). Its response
+    // event carries the fixed bid in USD and bids_count 1. A 2xx that was NOT
+    // accepted stays a no-bid (the Provider declined the lead).
+    for (const so of sendOnlyOutcomes) {
+      if (!so.outcome.accepted) continue;
+      const raw = so.b.offer.static_bid_value;
+      if (typeof raw !== "number" || !Number.isFinite(raw) || raw <= 0) continue;
+      let usd: number | null = null;
+      try {
+        usd = (await normalizeToUsd(env.DB, raw, so.b.offer.static_bid_currency)).usd;
+      } catch {
+        usd = null;
+      }
+      const key = rowKey(so.b.offer.public_id, so.b.placement_public_id);
+      for (const responseEvent of responseEventsByRow.get(key) ?? []) {
+        if (responseEvent.provider_request_id !== so.provider_request_id) continue;
+        responseEvent.bids_count = 1;
+        if (usd !== null) {
+          responseEvent.bid_value = usd;
+          responseEvent.bid_currency = "USD";
+        } else {
+          // No FX rate: the fixed bid in its own currency (never fabricated).
+          responseEvent.bid_value = raw;
+          responseEvent.bid_currency = (so.b.offer.static_bid_currency ?? "").trim().toUpperCase() || "USD";
+        }
       }
     }
 
@@ -2157,8 +2323,16 @@ export async function runAuction(
         // read. The fetch stage's own reason always wins (an HTTP/transport
         // failure is the more fundamental fact); parse errors fill the silence
         // that used to follow a successful call with an unusable body.
-        provider_error_reason: result.redacted_log.provider_error_reason ?? parseErrorReason(parseErrors),
-        error_text: result.redacted_log.error_text ?? parseErrorText(parseErrors),
+        // Send-only (0068): a 2xx the acceptance rule did not accept says why,
+        // the same way a parse error fills the silence after a 2xx.
+        provider_error_reason:
+          result.redacted_log.provider_error_reason ??
+          parseErrorReason(parseErrors) ??
+          sendOnlyLogReason(sendOnlyByRequest.get(result.provider_request_id)),
+        error_text:
+          result.redacted_log.error_text ??
+          parseErrorText(parseErrors) ??
+          sendOnlyLogText(sendOnlyByRequest.get(result.provider_request_id)),
         debug_record: result.debug,
       });
     }
@@ -2168,6 +2342,7 @@ export async function runAuction(
       carrierMeta, bundleByPublicId, metaKey, includeSurviving, afterExclude, belowFloorKeys, surfaced,
       winner, toRenderCarrier, bannerCtx, bannerConfig, design, bannerRenderIds, impressions, cssOut,
       htmlOut, renderedSlots, bannerDroppedKeys, carriersFiltered, providerLogRows, carriersDeduplicated,
+      sendOnlyOutcomes,
     };
   };
 
@@ -2271,6 +2446,10 @@ export async function runAuction(
   // X10: only the slice whose page the visitor gets (a waterfall tier that
   // showed nothing is not what they saw).
   const carriersDeduplicated = slice.carriersDeduplicated;
+  // Send-only (0068): every lead really posted (every tier tried). An
+  // accepted lead does not stop a later tier: tiers still run on "nothing
+  // rendered", so a later tier's card still wins over the banner.
+  const sendOnlyOutcomes = slices.flatMap((sl) => sl.sendOnlyOutcomes);
 
   // Step 15: backfill on trigger. The auction-time trigger is
   // on_slot_exhaustion; on_click / on_dismiss are client-fired later (P11).
@@ -2325,10 +2504,66 @@ export async function runAuction(
     if (tierEntry !== undefined) tierEntry.outcome = "shown";
   }
 
+  // Send-only Offers (0068): the accepted leads — one per Offer (the first
+  // call that accepted), with the Offer's fixed bid in USD for the pick below
+  // and for the live route's lead_sent event.
+  const acceptedSendOnly: Array<{
+    b: AuctionBundleOffer;
+    provider_request_id: string;
+    auction_request_id: string;
+    bid_value: number | null;
+    bid_currency: string | null;
+    usd_bid: number | null;
+  }> = [];
+  for (const so of sendOnlyOutcomes) {
+    if (!so.outcome.accepted || acceptedSendOnly.some((a) => a.b.offer.public_id === so.b.offer.public_id)) continue;
+    const raw = so.b.offer.static_bid_value;
+    const bidValue = typeof raw === "number" && Number.isFinite(raw) ? raw : null;
+    let usdBid: number | null = null;
+    if (bidValue !== null) {
+      try {
+        usdBid = (await normalizeToUsd(env.DB, bidValue, so.b.offer.static_bid_currency)).usd;
+      } catch {
+        usdBid = null; // an FX read error leaves the USD bid unknown, never fabricated
+      }
+    }
+    acceptedSendOnly.push({
+      b: so.b,
+      provider_request_id: so.provider_request_id,
+      auction_request_id: so.auction_request_id,
+      bid_value: bidValue,
+      bid_currency: so.b.offer.static_bid_currency ?? null,
+      usd_bid: usdBid,
+    });
+  }
+  // ONLY when no card rendered at all (after every tier and backfill): the
+  // page shows ONE non-clickable banner for the accepted Offer with the
+  // highest fixed bid, and the auction counts as filled ("lead_sent").
+  const leadSentPick = renderedSlots.length === 0 ? pickLeadSentOffer(acceptedSendOnly) : null;
+  const leadSentRenderId = bannerRenderIds[0] ?? "";
+  let leadSent: ExplainLeadSent | null = null;
+  if (leadSentPick !== null) {
+    const o = leadSentPick.b.offer;
+    const text = (v: string | null | undefined): string | null => (typeof v === "string" && v.trim() !== "" ? v.trim() : null);
+    htmlOut = renderLeadSentBanner({
+      banner_render_id: leadSentRenderId,
+      logo_url: resolveCreativeLogo(o.static_logo_url ?? null, pageOrigin),
+      headline: text(o.static_headline) ?? text(o.static_brand_name),
+      subheadline: text(o.static_subheadline),
+    });
+    leadSent = {
+      offer_id: o.public_id,
+      bid_value: leadSentPick.bid_value,
+      bid_currency: (leadSentPick.bid_currency ?? "").trim().toUpperCase() || "USD",
+      usd_bid: leadSentPick.usd_bid,
+    };
+    unfilledReason = null;
+  }
+
   // Unfilled when no slot rendered and the pool was exhausted (S18.6). A pure
   // no_bid (every CPC Offer all-zero + nothing surfaced) is its own status.
   let status: RunAuctionStatus = "ok";
-  if (renderedSlots.length === 0) {
+  if (renderedSlots.length === 0 && leadSentPick === null) {
     // OWNER 2026-08-27 — say WHICH kind of empty this is. The old blanket
     // default claimed every carrier had already been shown, on a fresh session,
     // for an auction whose carriers were dropped at parse: the one line of
@@ -2430,6 +2665,12 @@ export async function runAuction(
             : undefined) ?? bundleByPublicId.get(winner.winner);
         if (winnerOffer !== undefined) fillOffer(e, winnerOffer);
       }
+    });
+  } else if (leadSentPick !== null) {
+    // Send-only (0068): the banner filled the auction — "lead_sent".
+    pushEvent("auction_filled", (e) => {
+      stampAuctionIds(e, { auction_request_id: leadSentPick.auction_request_id, banner_render_id: leadSentRenderId });
+      fillOffer(e, leadSentPick.b);
     });
   } else {
     pushEvent("auction_unfilled", (e) => {
@@ -2551,7 +2792,32 @@ export async function runAuction(
     providers_requested: providersRequested,
     providers_responded: providersResponded,
     waterfall: waterfallTrace,
+    send_only: sendOnlyOutcomes.map(
+      (so): ExplainSendOnlyOutcome => ({
+        offer_id: so.b.offer.public_id,
+        provider_request_id: so.provider_request_id,
+        accepted: so.outcome.accepted,
+        reason: so.outcome.reason,
+      }),
+    ),
+    fill_reason: leadSent !== null ? "lead_sent" : null,
+    lead_sent: leadSent,
   });
+
+  // Send-only (0068): what the live route books and reports, one per
+  // accepted Offer (CPL books its fixed price, every type sends lead_sent).
+  const sendOnlyAccepted: SendOnlyAcceptedLead[] = acceptedSendOnly.map((a) => ({
+    offer_public_id: a.b.offer.public_id,
+    offer_type: a.b.offer.offer_type,
+    bid_value: a.bid_value,
+    bid_currency: a.bid_currency,
+    usd_bid: a.usd_bid,
+    provider_request_id: a.provider_request_id,
+    event: buildEvent("lead_sent", (e) => {
+      fillOffer(e, a.b);
+      stampAuctionIds(e, { auction_request_id: a.auction_request_id, provider_request_id: a.provider_request_id });
+    }),
+  }));
 
 
   return {
@@ -2585,6 +2851,8 @@ export async function runAuction(
     redirect: null,
     ...(redirectAfter !== undefined ? { redirect_after: redirectAfter } : {}),
     carriers_filtered: carriersFiltered,
+    ...(sendOnlyAccepted.length > 0 ? { send_only_accepted: sendOnlyAccepted } : {}),
+    ...(leadSent !== null ? { fill_reason: "lead_sent" as const } : {}),
   };
 }
 

@@ -23,6 +23,9 @@
 //                            banner click books its USD bid into the SAME
 //                            ledger through the SAME in-site booking batch
 //                            (idempotent per click_id), stamped 'click'.
+//   * claimInSiteConversionKey — Send-only Offers (0068): the once-per-
+//                            (attempt, Offer) claim of a lead that books no
+//                            money (CPA), on the same conversion-log UNIQUE.
 //   * claimClickReplaySlot — fix round 1 (review M4): at most
 //                            CLICK_REPLAY_CAP bookings / Meta sends per
 //                            (funnel attempt, offer) per 24 h (KV, lg_s2s:).
@@ -372,6 +375,38 @@ async function bookInSiteRevenue(
       .bind(row.click_id, row.dedupe_key, row.offer_public_id, row.revenue, row.currency),
   ]);
   return ((results[0] as { meta?: { changes?: number } } | undefined)?.meta?.changes ?? 0) === 1;
+}
+
+// ---------------------------------------------------------------------------
+// Send-only Offers (plan "Send-only Offers", migration 0068, D13)
+// ---------------------------------------------------------------------------
+
+// Claim the once-per-(funnel attempt, Offer) slot of an accepted send-only
+// lead that books NO money (a CPA — or any non-CPL — send-only Offer), so a
+// retry of the same attempt never reports the lead twice. It is the SAME
+// leadgen_conversion_log (click_id, dedupe_key) UNIQUE row a CPL booking
+// writes through recordInSitePayout, written WITHOUT a leadgen_revenue_raw
+// row: the log row carries revenue 0 (the column's own default meaning) and
+// source 'in_site'. Nothing sums the log's revenue (the ledger is
+// leadgen_revenue_raw), so a 0 row adds no money anywhere. true ⇒ newly
+// claimed; false ⇒ already claimed (a retry). An empty attempt id or key is
+// refused, as recordInSitePayout refuses it.
+export async function claimInSiteConversionKey(
+  db: D1Database,
+  clickId: string,
+  dedupeKey: string,
+  offerPublicId: string,
+): Promise<boolean> {
+  if (clickId === "" || dedupeKey === "") return false;
+  const res = await db
+    .prepare(
+      `INSERT OR IGNORE INTO leadgen_conversion_log
+         (click_id, dedupe_key, offer_public_id, source, revenue, currency)
+       VALUES (?, ?, ?, 'in_site', 0, 'USD')`,
+    )
+    .bind(clickId, dedupeKey, offerPublicId)
+    .run();
+  return ((res as { meta?: { changes?: number } } | undefined)?.meta?.changes ?? 0) === 1;
 }
 
 // ---------------------------------------------------------------------------

@@ -1,0 +1,15 @@
+-- Send-only Offers: deliver the lead to a Provider without a clickable card.
+--
+-- OWNER 2026-11-05 (plan "Send-only Offers", D8): some Providers only take the
+-- lead (a webhook their team works from) and send nothing back for the visitor
+-- to click. Two settings on a "Provider request · static bid (CPL)" Offer, both
+-- in the Request tab, saved together in this ONE column as a JSON object:
+--
+--   {"display":"send_only",
+--    "accept":{"kind":"any_ok"}}                                  -- any 2xx reply in time
+--   {"display":"send_only",
+--    "accept":{"kind":"field_equals","field":"status","value":"accepted"}}
+--
+-- NULL (every existing Offer) = "Show a card": the Offer behaves exactly as
+-- before. The format is owned by src/leadgen/send-only.ts.
+ALTER TABLE leadgen_offers ADD COLUMN send_only_json TEXT;

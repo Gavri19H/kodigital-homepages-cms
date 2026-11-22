@@ -1045,6 +1045,8 @@ export async function leadgenQuoteEditorPage(c: UiContext): Promise<Response> {
       name: o.offer_name,
       ...(typeof o.status === "string" ? { status: o.status } : {}),
       ...(typeof o.has_own_click_url === "boolean" ? { has_own_click_url: o.has_own_click_url } : {}),
+      // 0068: a send-only Offer is never a Redirect target (offerRowToApi send_only).
+      ...((o as { send_only?: unknown }).send_only === true ? { send_only: true } : {}),
     })),
     feed_values: Array.from(new Set(quoteRoutingRules.map((r) => r.feed_name).filter((v): v is string => typeof v === "string" && v !== ""))).sort(),
   };

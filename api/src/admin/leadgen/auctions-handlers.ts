@@ -36,6 +36,7 @@ import { readAnswerBindings } from "../../leadgen/answer-bindings";
 import { buildLeadgenRuntimeContext } from "../../leadgen/runtime-context";
 import { validateBannerFieldMap } from "../../public/leadgen/designs/banner-default/styles";
 import { loadAuctionBundle, runAuction } from "../../public/leadgen/auction/engine";
+import { isSendOnlyOffer, sendOnlyReasonLabel } from "../../leadgen/send-only";
 import type { FunnelAssignment, ResolvedActivatedFunnel } from "../../public/leadgen/resolver";
 import { buildWhereClause, type FilterCondition } from "../query-filters";
 import {
@@ -2105,9 +2106,30 @@ export async function auctionSimulateHandler(c: AdminContext): Promise<Response>
       clicked: [],
       waterfall_choice: waterfallChoice,
       traffic_visitor_key: `sim_${crypto.randomUUID()}`,
+      // Send-only Offers (plan "Send-only Offers", 0068, D2): the Simulator
+      // makes REAL Provider calls and is team traffic, so it never posts a
+      // send-only Offer's lead (no real lead may reach a Provider from here).
+      // Such an Offer shows "not sent from the Simulator" — the Offer's Test
+      // button is where a test lead is sent.
+      send_only_simulator: true,
     },
     { dryRun: true },
   );
+
+  // Send-only (0068): one line per send-only Offer — not sent from the
+  // Simulator, or (if a run ever carries a Provider verdict) "Lead sent (no
+  // card)" / "Not accepted: <reason>". Absent for every other Offer.
+  const sendOnlyIds = new Set(bundle.offers.filter((b) => isSendOnlyOffer(b.offer)).map((b) => b.offer.public_id));
+  const sendOnlyView = (offerId: string, excludedReason: string | null): { status: string; label: string } | null => {
+    if (!sendOnlyIds.has(offerId)) return null;
+    if (excludedReason === "send_only_not_sent_simulator") {
+      return { status: "not_sent", label: "Send-only: not sent from the Simulator. Use the Offer's Test button." };
+    }
+    const verdicts = (result.explain.send_only ?? []).filter((v) => v.offer_id === offerId);
+    if (verdicts.some((v) => v.accepted)) return { status: "accepted", label: "Lead sent (no card)" };
+    const last = verdicts[verdicts.length - 1];
+    return last === undefined ? null : { status: "not_accepted", label: `Not accepted: ${sendOnlyReasonLabel(last.reason)}` };
+  };
 
   // S1 (07 §7.6): per-considered-offer explainability — the EXACT generated
   // payload (redacted via redactPii), the parser id + version, the expected
@@ -2260,6 +2282,7 @@ export async function auctionSimulateHandler(c: AdminContext): Promise<Response>
           /* leave empty */
         }
       }
+      const sendOnly = sendOnlyView(r.offer_public_id, excludedReasonByOffer.get(r.offer_public_id) ?? null);
       payloadExplain.push({
         offer_id: r.offer_public_id,
         placement_id: placementForOffer,
@@ -2268,6 +2291,7 @@ export async function auctionSimulateHandler(c: AdminContext): Promise<Response>
         expected_response_fields: expectedResponseFields,
         payload_preview: payloadPreview,
         excluded_reason: excludedReasonByOffer.get(r.offer_public_id) ?? null,
+        ...(sendOnly !== null ? { send_only: sendOnly } : {}),
       });
     }
   }
@@ -2283,6 +2307,10 @@ export async function auctionSimulateHandler(c: AdminContext): Promise<Response>
     status: result.status,
     winner: result.explain.winner,
     unfilled_reason: result.explain.unfilled_reason,
+    // Send-only (0068): "lead_sent" when the run would end on the Offer's
+    // non-clickable banner (no card + an accepted lead).
+    ...(result.explain.fill_reason !== undefined ? { fill_reason: result.explain.fill_reason, lead_sent: result.explain.lead_sent ?? null } : {}),
+    ...(result.explain.send_only !== undefined ? { send_only: result.explain.send_only } : {}),
     waterfall: result.explain.waterfall,
     offers_considered: result.explain.offers_considered,
     offers_payload_explain: payloadExplain, // S1 (07 §7.6)

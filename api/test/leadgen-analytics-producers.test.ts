@@ -39,6 +39,8 @@ import { leadgenTrackRouter } from "../src/analytics/leadgen-track";
 import { loadAuctionBundle, runAuction } from "../src/public/leadgen/auction/engine";
 import { resolveLeadgenClick, type LeadgenClickInput } from "../src/public/leadgen/click";
 import { ingestProviderPostback } from "../src/public/leadgen/postback";
+import { settleSendOnlyLeads } from "../src/public/leadgen/send-only-leads";
+import { emitLeadgenRecords } from "../src/analytics/leadgen-events";
 import type { LeadgenParsedCarrier } from "../src/public/leadgen/auction/parse";
 import {
   API_ROOT,
@@ -88,11 +90,12 @@ afterEach(() => {
 // ===========================================================================
 
 describe("§10.2 producer map — lockstep over the frozen LEADGEN_EVENT_TYPES", () => {
-  it("maps EXACTLY the 31 event types (a 32nd type without a producer fails here + at tsc)", () => {
+  it("maps EXACTLY the 32 event types (a 33rd type without a producer fails here + at tsc)", () => {
     const mapKeys = Object.keys(LEADGEN_PRODUCER_MAP).sort();
     const vocab = [...LEADGEN_EVENT_TYPES].sort();
     expect(mapKeys).toEqual(vocab);
-    expect(mapKeys.length).toBe(31);
+    // 31 + lead_sent (Send-only Offers, 0068).
+    expect(mapKeys.length).toBe(32);
   });
 
   it("partitions the vocabulary into the four proof routes with no gap and no overlap", () => {
@@ -105,9 +108,9 @@ describe("§10.2 producer map — lockstep over the frozen LEADGEN_EVENT_TYPES",
     const seen = new Set<string>();
     for (const k of kinds) for (const t of eventsWithProofKind(k)) seen.add(t);
     expect([...seen].sort()).toEqual([...LEADGEN_EVENT_TYPES].sort());
-    // Route sizes (documents the coverage shape): 15 server-emitted, 2 impression
-    // rows, 12 client beacons, 2 DEV-32 deferred.
-    expect(eventsWithProofKind("server_emitted").length).toBe(15);
+    // Route sizes (documents the coverage shape): 16 server-emitted (15 +
+    // lead_sent, 0068), 2 impression rows, 12 client beacons, 2 DEV-32 deferred.
+    expect(eventsWithProofKind("server_emitted").length).toBe(16);
     expect(eventsWithProofKind("server_impression_row").length).toBe(2);
     expect(eventsWithProofKind("client_beacon").length).toBe(12);
     expect(eventsWithProofKind("deferred_no_surface").length).toBe(2);
@@ -533,5 +536,50 @@ describeDb("§10.2 monetization producers — provider postback emits conversion
 
     // Proves EXACTLY the postback server_emitted producers in the map.
     expect(eventsWithSurfacePrefix("Postback").sort()).toEqual(["conversion", "revenue_received"]);
+  });
+});
+
+// ===========================================================================
+// server_emitted — send-only lead (Send-only Offers, 0068, D13): lead_sent
+// ===========================================================================
+
+describeDb("§10.2 send-only producer — an accepted send-only lead emits lead_sent", () => {
+  it("runAuction builds it for the accepted Offer; settleSendOnlyLeads claims it once and it rides the stream as an event", async () => {
+    const stub = stubLeadgenFetch(() => new Response("OK", { status: 200 }));
+    const sdb = createLeadgenDb(DatabaseSync as DatabaseSyncCtor);
+    // the harness predates 0068 — add the send-only column the engine reads
+    (sdb["exec"] as (q: string) => void)(readFileSync(join(API_ROOT, "migrations", "0068_leadgen_offer_send_only.sql"), "utf8"));
+    const { kv } = makeKvStub();
+    const env = buildLeadgenEnv(d1FromSqlite(sdb), kv, { firehose: true });
+    const auction = seedAuction(sdb);
+    const offer = seedAuctionOffer(sdb);
+    sdb
+      .prepare(
+        "UPDATE leadgen_offers SET offer_type = 'cpl', bid_source = 'static', static_bid_value = 25, static_bid_currency = 'USD', send_only_json = ? WHERE id = ?",
+      )
+      .run(JSON.stringify({ display: "send_only", accept: { kind: "any_ok" } }), offer.offer_id);
+    attachOffer(sdb, auction.id, offer, 0);
+    const bundle = await loadAuctionBundle(env.DB, auction, 1);
+    const result = await runAuction(
+      env,
+      { resolved: makeResolved(), bundle, environment: "production", binding: NO_BINDING, session_id: null, raw_answers: {}, clicked: [] },
+      { dryRun: true },
+    );
+    expect(result.events.some((e) => e.event_type === "lead_sent"), "lead_sent is never in the auction's own batch").toBe(false);
+    const settled = await settleSendOnlyLeads(env.DB, result.send_only_accepted ?? [], {
+      funnel_attempt_id: NO_BINDING.funnel_attempt_id,
+      traffic_quality: { traffic_quality_flag: "clean" },
+      now: new Date(),
+    });
+    const cap = ctxCapture();
+    emitLeadgenRecords(env, cap.ctx, settled.events);
+    await settle(cap.promises);
+    const streamed = (stub.firehoseRecords as unknown as Array<Record<string, unknown>>).filter((r) => r.event_type === "lead_sent");
+    expect(streamed).toHaveLength(1);
+    expect(streamed[0]!.record_kind).toBe("event");
+    expect(streamed[0]!.offer_id).toBe(offer.offer_public_id);
+    expect(streamed[0]!.revenue).toBe(25);
+    // Proves EXACTLY the send-only server_emitted producer in the map.
+    expect(eventsWithSurfacePrefix("Send-only lead")).toEqual(["lead_sent"]);
   });
 });

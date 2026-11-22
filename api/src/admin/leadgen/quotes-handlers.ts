@@ -85,6 +85,7 @@ import {
 } from "../../leadgen/rule-checkpoint";
 import { orGroupConditionError } from "../../leadgen/auction-rules";
 import { offerHasOwnClickUrl } from "../../leadgen/macros";
+import { isSendOnlyOffer } from "../../leadgen/send-only";
 import { REDIRECT_SHOW_SECONDS_MAX, REDIRECT_SHOW_SECONDS_MIN } from "../../public/leadgen/redirect/types";
 import {
   rebuildDerivedIndexes,
@@ -753,6 +754,23 @@ function describeNoOwnClickUrl(offerName: string): string {
   return `“${offerName}” has no URL of its own (a provider offer gets one only from its provider's response), so a redirect has nowhere to send the visitor. Give it a URL, or pick an offer that has one.`;
 }
 
+// 0068 Send-only Offers: a send-only Offer posts the lead to its Provider and
+// never shows a card, so no redirect (either timing) can open it.
+function describeSendOnlyRedirectTarget(offerName: string): string {
+  return `“${offerName}” only sends the lead and never shows a card, so a redirect can't open it. Pick another offer.`;
+}
+
+// The Offer columns a redirect-target check reads. SELECT * keeps a database
+// without 0068 working (send_only_json is simply absent ⇒ not send-only).
+interface RedirectTargetOfferRow {
+  id: number;
+  offer_name: string;
+  banner_url_template: string | null;
+  calls_provider_api?: number | null;
+  bid_source?: string | null;
+  send_only_json?: string | null;
+}
+
 // F11 — "Redirect to offer" → "When to redirect" → "After the offer is shown"
 // (plan Section 3 A): the save refuses these, each with a plain message.
 const REDIRECT_SECONDS_RANGE_MESSAGE =
@@ -1002,10 +1020,11 @@ async function buildRoutingRuleFields(
     else if (parsed === null) targetOfferId = null;
     else {
       const ex = await db
-        .prepare("SELECT id, offer_name, banner_url_template FROM leadgen_offers WHERE id = ? LIMIT 1")
+        .prepare("SELECT * FROM leadgen_offers WHERE id = ? LIMIT 1")
         .bind(parsed)
-        .first<{ id: number; offer_name: string; banner_url_template: string | null }>();
+        .first<RedirectTargetOfferRow>();
       if (!ex) errors["target_offer_id"] = describeMissingReference("Offer");
+      else if (isSendOnlyOffer(ex)) errors["target_offer_id"] = describeSendOnlyRedirectTarget(ex.offer_name);
       else if (!offerHasOwnClickUrl(ex.banner_url_template)) errors["target_offer_id"] = describeNoOwnClickUrl(ex.offer_name);
       else targetOfferId = parsed;
     }
@@ -4324,12 +4343,19 @@ export async function putVariantHandler(c: AdminContext): Promise<Response> {
           .filter((r) => r.ruleType === "redirect_direct_offer" && r.redirectShowSeconds === null)
           .map((r) => r.targetOfferId),
       );
+      // 0068: a send-only Offer never shows a card, so neither timing can
+      // redirect to it.
+      const anyRedirectOfferIds = new Set(
+        preparedRules.filter((r) => r.ruleType === "redirect_direct_offer").map((r) => r.targetOfferId),
+      );
       for (const oid of offerIds) {
-        const ex = await c.env.DB.prepare("SELECT id, offer_name, banner_url_template FROM leadgen_offers WHERE id = ? LIMIT 1")
+        const ex = await c.env.DB.prepare("SELECT * FROM leadgen_offers WHERE id = ? LIMIT 1")
           .bind(oid)
-          .first<{ id: number; offer_name: string; banner_url_template: string | null }>();
+          .first<RedirectTargetOfferRow>();
         if (!ex) errors[`rules.target_offer_id.${oid}`] = describeMissingReference("Offer");
-        else if (redirectOfferIds.has(oid) && !offerHasOwnClickUrl(ex.banner_url_template)) {
+        else if (anyRedirectOfferIds.has(oid) && isSendOnlyOffer(ex)) {
+          errors[`rules.target_offer_id.${oid}`] = describeSendOnlyRedirectTarget(ex.offer_name);
+        } else if (redirectOfferIds.has(oid) && !offerHasOwnClickUrl(ex.banner_url_template)) {
           errors[`rules.target_offer_id.${oid}`] = describeNoOwnClickUrl(ex.offer_name);
         }
       }
@@ -4865,10 +4891,16 @@ async function ruleTargetFkErrors(
   const errors: FieldErrors = {};
   if (rule.targetOfferId !== null) {
     const ex = await db
-      .prepare("SELECT id, offer_name, banner_url_template FROM leadgen_offers WHERE id = ? LIMIT 1")
+      .prepare("SELECT * FROM leadgen_offers WHERE id = ? LIMIT 1")
       .bind(rule.targetOfferId)
-      .first<{ id: number; offer_name: string; banner_url_template: string | null }>();
+      .first<RedirectTargetOfferRow>();
     if (!ex) errors["target_offer_id"] = describeMissingReference("Offer");
+    // 0068: a send-only Offer never shows a card — refused for BOTH timings.
+    // Like the own-URL check, a PATCH that does not touch the target (Disable,
+    // a rename) still saves an older rule.
+    else if (opts.checkOwnUrl && rule.ruleType === "redirect_direct_offer" && isSendOnlyOffer(ex)) {
+      errors["target_offer_id"] = describeSendOnlyRedirectTarget(ex.offer_name);
+    }
     // F11: skipped only for "After the offer is shown" (redirect_show_seconds
     // set) — that rule opens the Offer's own card, so any Offer can be shown.
     else if (

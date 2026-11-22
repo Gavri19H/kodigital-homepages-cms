@@ -26,6 +26,7 @@ import type {
 } from "../admin/leadgen/db-types";
 import { validateBannerUrlTemplate } from "./macros";
 import { validatePayloadSchema, type LeadgenPayloadSchemaValidation } from "./payload";
+import { isSendOnlyOffer } from "./send-only";
 
 export type FieldErrors = Record<string, string>;
 
@@ -685,8 +686,16 @@ function headersInvalid(
 // outside this gate (they carry no payload schema; their surfacing is the
 // §18.2 static path). `cap_reached` is deliberately NOT here — caps are a
 // runtime-only exclusion the engine surfaces in explainability (05 §5.1).
+//
+// Send-only Offers (plan "Send-only Offers", migration 0068): a "Provider
+// request · static bid (CPL)" Offer set to "Send the lead only, no card" never
+// becomes a card, so it needs no response parser — the parser checks
+// (carrier_parse_missing / carrier_parse_invalid) are skipped for it. Every
+// other check (schema, Test status, endpoint, headers) still applies. Pass the
+// Offer's bid_source + send_only_json to get this; without them the Offer is
+// judged exactly as before.
 export function dynamicAuctionEligibility(
-  offer: { calls_provider_api: number | boolean },
+  offer: { calls_provider_api: number | boolean; bid_source?: string | null; send_only_json?: string | null },
   schemaValidation: LeadgenPayloadSchemaValidation | null,
   lastTestStatus: LeadgenOfferTestStatus | null,
   extras?: LeadgenDynamicEligibilityExtras,
@@ -715,7 +724,12 @@ export function dynamicAuctionEligibility(
     if (extras.headers !== undefined && headersInvalid(extras.headers)) {
       reasons.push("invalid_headers");
     }
-    if (extras.carrier_parse !== undefined) {
+    const sendOnly = isSendOnlyOffer({
+      calls_provider_api: asToggle(offer.calls_provider_api) === true ? 1 : 0,
+      bid_source: offer.bid_source ?? null,
+      send_only_json: offer.send_only_json ?? null,
+    });
+    if (extras.carrier_parse !== undefined && !sendOnly) {
       if (extras.carrier_parse === null) {
         reasons.push("carrier_parse_missing");
       } else if (
@@ -841,6 +855,26 @@ export async function evaluateDynamicOffersEligibility(
     }
   }
 
+  // Send-only Offers (0068): bid_source + send_only_json, read on their own so
+  // a database without 0068 keeps every Offer judged exactly as before (only
+  // a missing column is tolerated; any other failure surfaces).
+  const sendOnlyById = new Map<number, { bid_source: string | null; send_only_json: string | null }>();
+  for (let i = 0; i < dynamicIds.length; i += 80) {
+    const ids = dynamicIds.slice(i, i + 80);
+    if (ids.length === 0) continue;
+    const marks = ids.map(() => "?").join(",");
+    try {
+      const res = await db
+        .prepare(`SELECT id, bid_source, send_only_json FROM leadgen_offers WHERE id IN (${marks}) AND send_only_json IS NOT NULL`)
+        .bind(...ids)
+        .all<{ id: number; bid_source: string | null; send_only_json: string | null }>();
+      for (const so of res.results ?? []) sendOnlyById.set(so.id, { bid_source: so.bid_source, send_only_json: so.send_only_json });
+    } catch (e) {
+      if (!/no such column/i.test(String((e as { message?: unknown })?.message ?? e))) throw e;
+      break;
+    }
+  }
+
   for (const r of rows) {
     let schemaValidation: LeadgenPayloadSchemaValidation | null = null;
     let carrierParse: unknown = null;
@@ -861,8 +895,9 @@ export async function evaluateDynamicOffersEligibility(
       }
     }
     const endpoint = environment === "staging" ? r.endpoint_staging : r.endpoint_production;
+    const sendOnlyCols = sendOnlyById.get(r.id);
     const verdict = dynamicAuctionEligibility(
-      { calls_provider_api: r.calls_provider_api },
+      { calls_provider_api: r.calls_provider_api, ...(sendOnlyCols !== undefined ? sendOnlyCols : {}) },
       schemaValidation,
       r.last_test_status,
       {

@@ -1154,6 +1154,14 @@ const NO_MATCH_RULES = [
   `\n${DEFAULT_FUNNEL_SCOPE}[data-lg-complete="1"] .lg-back[data-lg-back]{display:none}`,
 ];
 
+// Send-only Offers (plan "Send-only Offers", 0068): the ONE net-new rule the
+// "lead sent" banner (auction/banner.ts renderLeadSentBanner) is framed by.
+// Same safety as the no-match rules: this fixture has no completion region, so
+// a sheet-level delta only; stripped wholesale, in lockstep with styles.ts.
+const SEND_ONLY_BANNER_RULES = [
+  `\n${DEFAULT_FUNNEL_SCOPE} .lg-lead-sent{border:2px solid #D2D9E5;border-radius:20px;padding:1.5rem;background:#FFFFFF;display:flex;flex-direction:column;align-items:center;text-align:center;gap:1rem;box-sizing:border-box;max-width:100%;min-width:0;color:#1A1F36;cursor:default}`,
+];
+
 // Legacy plain body: unbound headline + icon grid + ONE continue — a realistic
 // v2.4 body carrying NONE of the additive params.
 const LEGACY_PLAIN_CONTENT = {
@@ -1400,13 +1408,15 @@ function assertPinnedResponse(actualText: string, fixtureText: string): void {
     cssMinusCardPlaceholder,
   );
   const cssMinusNoMatch = NO_MATCH_RULES.reduce((s, r) => s.split(r).join(""), cssMinusBuffering);
+  // Send-only (0068): strip the ONE net-new lead-sent banner frame rule.
+  const cssMinusSendOnly = SEND_ONLY_BANNER_RULES.reduce((s, r) => s.split(r).join(""), cssMinusNoMatch);
   const cssMinusReducedMotion = BUFFERING_REDUCED_MOTION_RULE.reduce(
     (s, r) => s.split(r).join(""),
-    cssMinusNoMatch,
+    cssMinusSendOnly,
   );
   expect(
     cssMinusReducedMotion,
-    "preview.css modulo the DEV-57 + DEV-68 moved rules + the R5 state-safe-border + R5 D11 typography rule bodies + the P1a layout system + the P3a structured-placement (.lg-el/.lg-el-row) rules + the Round-4 P1b studio/preview affordances (ghost/address-composite/mqg-empty) + the R2 P4 §6.8 slider anatomy rules + the R2 P5 F7 address-field-label/Other-select rules + the R2 P8-6 from_to max-rail hit-area clip rule + the not-picked-yet card-image slot rule + the buffering-screen rules + the no-match rules + the results-page Back rule + the reduced-motion ring query",
+    "preview.css modulo the DEV-57 + DEV-68 moved rules + the R5 state-safe-border + R5 D11 typography rule bodies + the P1a layout system + the P3a structured-placement (.lg-el/.lg-el-row) rules + the Round-4 P1b studio/preview affordances (ghost/address-composite/mqg-empty) + the R2 P4 §6.8 slider anatomy rules + the R2 P5 F7 address-field-label/Other-select rules + the R2 P8-6 from_to max-rail hit-area clip rule + the not-picked-yet card-image slot rule + the buffering-screen rules + the no-match rules + the results-page Back rule + the send-only lead-sent banner frame + the reduced-motion ring query",
   ).toBe(expectedPreview["css"]);
   // and the live producer still owns the string (the sections-api :863 idiom).
   expect(actualPreview["css"]).toBe(funnelChromeCss(getFunnelDesign(null)));

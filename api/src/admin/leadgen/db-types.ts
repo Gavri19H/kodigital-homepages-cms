@@ -250,6 +250,8 @@ export interface LeadgenOfferRow {
   static_headline?: string | null;
   static_subheadline?: string | null;
   static_disclaimer?: string | null;
+  // 0068 Send-only Offers (leadgen/send-only.ts). NULL = "Show a card".
+  send_only_json?: string | null;
   created_by: string | null;
   created_at: number;
   updated_at: number;
@@ -259,6 +261,11 @@ export interface LeadgenOfferApi {
   // Computed (offerRowToApi): the Offer has a URL of its own, so it can be a
   // redirect target (leadgen/macros.ts offerHasOwnClickUrl).
   has_own_click_url: boolean;
+  // Computed (offerRowToApi): "Send the lead only, no card" is on and the Offer
+  // is in the "Provider request · static bid (CPL)" mode (leadgen/send-only.ts
+  // isSendOnlyOffer). Such an Offer never shows a card, so it can't be a
+  // redirect target.
+  send_only: boolean;
   id: number;
   public_id: string;
   offer_name: string;
@@ -311,6 +318,8 @@ export interface LeadgenOfferApi {
   static_headline: string | null;
   static_subheadline: string | null;
   static_disclaimer: string | null;
+  // 0068 Send-only Offers: the stored setting (NULL = "Show a card").
+  send_only_json: string | null;
   created_by: string | null;
   created_at: number;
   updated_at: number;

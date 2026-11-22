@@ -22,6 +22,7 @@ import type {
   LeadgenAuctionShownCarrier,
   LeadgenAuctionWinner,
 } from "../../../admin/leadgen/db-types";
+import type { SendOnlyOutcomeReason } from "../../../leadgen/send-only";
 
 // §19.2 carriers-filtered entry (dedicated reason field, issue 31). Distinct
 // from offers_excluded: a CARRIER (not an Offer) removed post-parse (floor /
@@ -87,6 +88,29 @@ export interface AuctionWaterfallTrace {
   tiers: Array<{ tier: number; offer_ids: string[]; outcome: "shown" | "no_result" | "no_qualifying_offer" | "not_reached" }>;
 }
 
+// Send-only Offers (plan "Send-only Offers", migration 0068): what the
+// Provider's reply decided for each lead a send-only Offer posted — one entry
+// per Provider call (every tier tried). The Simulator reads it; NOT a
+// result-log column.
+export interface ExplainSendOnlyOutcome {
+  offer_id: string;
+  provider_request_id: string;
+  accepted: boolean;
+  reason: SendOnlyOutcomeReason;
+}
+
+// The fill reason of an auction that showed no card but whose send-only
+// Offer(s) had a lead accepted: the visitor sees ONE non-clickable banner,
+// for the accepted Offer with the highest fixed bid (this one).
+export interface ExplainLeadSent {
+  offer_id: string;
+  // The Offer's fixed bid in its own currency (static_bid_value /
+  // static_bid_currency) and in USD (null when no FX rate is known).
+  bid_value: number | null;
+  bid_currency: string;
+  usd_bid: number | null;
+}
+
 // The full §19.2 explainability trace. The result-log columns
 // (auction_instance_id … unfilled_reason) plus the join-surfaced §19.2 extras.
 export interface AuctionExplainTrace {
@@ -112,6 +136,14 @@ export interface AuctionExplainTrace {
   providers_responded: ExplainProviderResponded[];
   // 0062 (result-log column waterfall_json); null when no waterfall applied.
   waterfall: AuctionWaterfallTrace | null;
+  // Send-only Offers (0068). Present ONLY when the auction posted at least
+  // one send-only Offer, so every other trace keeps its exact shape.
+  send_only?: ExplainSendOnlyOutcome[];
+  // Present ONLY when no card showed and a send-only lead was accepted: the
+  // auction counts as FILLED for that reason (status "ok", no
+  // unfilled_reason) and `lead_sent` names the Offer whose banner shows.
+  fill_reason?: "lead_sent";
+  lead_sent?: ExplainLeadSent;
 }
 
 // The identity fields a trace always needs; everything else defaults empty so
@@ -135,6 +167,10 @@ export interface ExplainTraceInput {
   providers_requested?: readonly ExplainProviderRequested[];
   providers_responded?: readonly ExplainProviderResponded[];
   waterfall?: AuctionWaterfallTrace | null;
+  send_only?: readonly ExplainSendOnlyOutcome[];
+  // Both or neither: a lead_sent fill always names its Offer.
+  fill_reason?: "lead_sent" | null;
+  lead_sent?: ExplainLeadSent | null;
 }
 
 // Assemble the §19.2 trace from whatever the pipeline has recorded so far.
@@ -160,6 +196,10 @@ export function buildExplainTrace(input: ExplainTraceInput): AuctionExplainTrace
     providers_requested: [...(input.providers_requested ?? [])],
     providers_responded: [...(input.providers_responded ?? [])],
     waterfall: input.waterfall ?? null,
+    ...(input.send_only !== undefined && input.send_only.length > 0 ? { send_only: [...input.send_only] } : {}),
+    ...(input.fill_reason === "lead_sent" && input.lead_sent !== undefined && input.lead_sent !== null
+      ? { fill_reason: "lead_sent" as const, lead_sent: { ...input.lead_sent } }
+      : {}),
   };
 }
 
@@ -193,6 +233,16 @@ export interface AuctionResultLogRowInsert {
 // those columns — the §19.2 extras are dropped, they are not result-log
 // columns). Arrays serialize to JSON (empty → "[]"); winner → JSON or null;
 // unfilled_reason passes through. Round-trips against LeadgenAuctionResultLogApi.
+//
+// Send-only Offers (0068): the table has no fill-reason column and no
+// migration is added for one. A "lead_sent" fill is written into winner_json —
+// the column that records what filled the auction — as
+//   {...the CPC winner's own fields, when there is one,
+//    "fill_reason":"lead_sent",
+//    "lead_sent":{"offer_id","bid_value","bid_currency","usd_bid"}}
+// Nothing in the Worker reads winner_json back (checked 22 Nov 2026: only
+// db-types declares it), and every other auction writes it exactly as before
+// (the winner, or NULL).
 export function toResultLogRow(trace: AuctionExplainTrace): AuctionResultLogRowInsert {
   return {
     auction_instance_id: trace.auction_instance_id,
@@ -206,7 +256,12 @@ export function toResultLogRow(trace: AuctionExplainTrace): AuctionResultLogRowI
     offers_considered_json: JSON.stringify(trace.offers_considered),
     offers_excluded_json: JSON.stringify(trace.offers_excluded),
     carriers_shown_json: JSON.stringify(trace.carriers_shown),
-    winner_json: trace.winner === null ? null : JSON.stringify(trace.winner),
+    winner_json:
+      trace.fill_reason === "lead_sent"
+        ? JSON.stringify({ ...(trace.winner ?? {}), fill_reason: "lead_sent", lead_sent: trace.lead_sent ?? null })
+        : trace.winner === null
+          ? null
+          : JSON.stringify(trace.winner),
     unfilled_reason: trace.unfilled_reason,
     waterfall_json: trace.waterfall === null ? null : JSON.stringify(trace.waterfall),
   };

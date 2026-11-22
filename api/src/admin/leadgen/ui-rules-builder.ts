@@ -2661,6 +2661,10 @@ export interface QuoteRulesRailOffer {
   // Has a URL of its own ⇒ can be a Redirect target (false ⇒ shown, not
   // selectable, for Redirect only; absent ⇒ treated as selectable).
   has_own_click_url?: boolean;
+  // 0068: "Send the lead only, no card" — never a Redirect target. Left out
+  // of the Redirect list (kept, not selectable, only when a saved rule
+  // already points at it, so the form never silently changes).
+  send_only?: boolean;
 }
 
 export interface QuoteRulesRailAnswerField {
@@ -3044,9 +3048,18 @@ function renderQuoteRuleActions(data: QuoteRulesRailData): string {
   // Redirect → Offer: an offer with no URL of its own (a provider offer gets
   // one only from its provider's response) has nowhere to send the visitor —
   // the save refuses it, so it is listed but not selectable, and says why.
+  // 0068: a send-only Offer never shows a card, so a redirect can't open it —
+  // left out, unless a saved rule already targets it (then kept, disabled,
+  // with the reason, so opening that rule shows what it saved).
+  const savedRedirectTargets = new Set(
+    data.rules.map((r) => r.target_offer_id).filter((v): v is number => typeof v === "number"),
+  );
   const offerOpts = data.offers
+    .filter((o) => o.send_only !== true || savedRedirectTargets.has(o.id))
     .map((o) =>
-      o.has_own_click_url === false
+      o.send_only === true
+        ? `<option value="${o.id}" disabled>${escapeHtml(o.name)} (sends the lead only, no card)</option>`
+        : o.has_own_click_url === false
         ? `<option value="${o.id}" disabled>${escapeHtml(o.name)} (no URL of its own)</option>`
         : `<option value="${o.id}">${escapeHtml(o.name)}</option>`,
     )
@@ -4485,6 +4498,9 @@ export const RELOCATED_RULES_SCRIPT = `(function () {
   }
 
   function isAfterTiming() { return !!(timingAfterEl && timingAfterEl.checked); }
+  // 0068: the Offer the rule being edited already targets (a send-only one
+  // stays listed for that rule only, so the form never silently changes).
+  var savedTargetOfferId = '';
   function populateOfferSelect() {
     if (!offerEl) { return; }
     var keep = offerEl.value;
@@ -4495,13 +4511,18 @@ export const RELOCATED_RULES_SCRIPT = `(function () {
     var after = isAfterTiming();
     var i;
     for (i = 0; i < offers.length; i++) {
+      // 0068: a send-only Offer never shows a card, so no redirect (either
+      // timing) can open it — left out of the list.
+      var sendOnly = offers[i].send_only === true;
+      if (sendOnly && String(offers[i].id) !== savedTargetOfferId) { continue; }
       // A "Straight away" target needs a URL of its own (the save refuses one
       // without): listed, not selectable, with the reason. F11: "After the
       // offer is shown" opens the Offer's own card, so every Offer is
       // selectable then.
       var noUrl = !after && offers[i].has_own_click_url === false;
-      var opt = el('option'); opt.value = String(offers[i].id); txt(opt, (offers[i].offer_name || ('#' + offers[i].id)) + (noUrl ? ' (no URL of its own)' : ''));
-      if (noUrl) { opt.disabled = true; }
+      var suffix = sendOnly ? ' (sends the lead only, no card)' : (noUrl ? ' (no URL of its own)' : '');
+      var opt = el('option'); opt.value = String(offers[i].id); txt(opt, (offers[i].offer_name || ('#' + offers[i].id)) + suffix);
+      if (noUrl || sendOnly) { opt.disabled = true; }
       offerEl.appendChild(opt);
     }
     if (keep) { offerEl.value = keep; }
@@ -4541,6 +4562,7 @@ export const RELOCATED_RULES_SCRIPT = `(function () {
     if (displayBannerEl) { displayBannerEl.checked = !animation; }
     if (displayAnimationEl) { displayAnimationEl.checked = animation; }
     offerEl.value = '';
+    savedTargetOfferId = rule && rule.target_offer_id != null ? String(rule.target_offer_id) : '';
     applyTiming();
     offerEl.value = rule && rule.target_offer_id != null ? String(rule.target_offer_id) : '';
     redirectPctEl.value = rule && rule.redirect_pct != null ? String(rule.redirect_pct) : '';

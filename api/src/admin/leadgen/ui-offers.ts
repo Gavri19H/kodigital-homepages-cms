@@ -2052,11 +2052,14 @@ function renderStaticPanel(o: OfferDetail): string {
 // provider-request Offer's response parser fills (carrier name, logo,
 // headline, subheadline, disclaimer), authored here because a static Offer has
 // no response. Rendered for every Offer so the mode radio can reveal it
-// without a reload; visible ONLY for static_no_request (a request_static_bid
-// Offer shares this tab but its card copy comes from its parser). The preview
+// without a reload; visible for static_no_request (a request_static_bid
+// Offer shares this tab but its card copy comes from its parser) AND for a
+// request_static_bid Offer set to "Send the lead only, no card" (0068): its
+// non-clickable banner is built from these same fields. The preview
 // is the REAL banner renderer + funnel stylesheet (offer-creative-preview.ts).
 function renderStaticCreativeCard(o: OfferDetail): string {
-  const visible = offerMode(o) === "static_no_request";
+  const mode = offerMode(o);
+  const visible = mode === "static_no_request" || (mode === "request_static_bid" && o.send_only === true);
   const val = (v: string | null | undefined): string => escapeHtml(v ?? "");
   const provider = (o.provider ?? "").trim();
   const brandHelp =
@@ -2480,7 +2483,7 @@ const LG_EDITOR_SCRIPT = `
     request_static_bid: { calls_provider_api: true, bid_source: 'static' },
     request_dynamic_bid: { calls_provider_api: true, bid_source: 'response' }
   };
-  var ERROR_ALIASES = { calls_provider_api: 'auction_mode', bid_source: 'auction_mode' };
+  var ERROR_ALIASES = { calls_provider_api: 'auction_mode', bid_source: 'auction_mode', send_only_json: 'send_only_display' };
 
   function setTopError(msg) { if (errEl) { errEl.hidden = !msg; errEl.textContent = msg || ''; } }
   function setStatus(msg) { if (statusEl) { statusEl.textContent = msg || ''; } }
@@ -2586,12 +2589,58 @@ const LG_EDITOR_SCRIPT = `
     if (!clickoutEventPicked) { clickoutEvent.value = def; }
   }
   form.addEventListener('change', function (e) {
-    if (e.target && e.target.name === 'auction_mode') { applyModeVisibility(); }
+    if (e.target && e.target.name === 'auction_mode') { applyModeVisibility(); applySendOnlyVisibility(); }
+    if (e.target && (e.target.name === 'send_only_display' || e.target.name === 'send_only_accept_kind')) { applySendOnlyVisibility(); }
     if (e.target && e.target.name === 'clickout_meta_conversion') { applyClickoutMetaVisibility(); applyClickoutMetaDefaultEvent(); }
     if (e.target && e.target.name === 'offer_type') { applyClickoutMetaDefaultEvent(); }
     if (e.target && e.target.name === 'clickout_meta_event_name') { clickoutEventPicked = true; }
   });
   window.lgEditorTabs = { activate: activateTab };
+  // 0068 Send-only Offers: "What the visitor sees" shows only in the
+  // "Provider request · static bid (CPL)" mode; "Accepted when" only for "Send
+  // the lead only, no card"; the field + value only for "A field in the reply
+  // equals a value". The warning says when that field is not in the saved
+  // sample reply (it never blocks the save).
+  var sendOnlyCard = form.querySelector('[data-lg-send-only]');
+  var sendOnlySamplePaths = [];
+  try { sendOnlySamplePaths = JSON.parse((sendOnlyCard && sendOnlyCard.getAttribute('data-lg-sample-paths')) || '[]') || []; } catch (eSp) { sendOnlySamplePaths = []; }
+  function checkedValue(name, fallback) {
+    var r = form.querySelector('[name="' + name + '"]:checked');
+    return r ? r.value : fallback;
+  }
+  function sendOnlyActive() {
+    return selectedMode() === 'request_static_bid' && checkedValue('send_only_display', 'card') === 'send_only';
+  }
+  function sendOnlyFieldRule() { return sendOnlyActive() && checkedValue('send_only_accept_kind', 'any_ok') === 'field_equals'; }
+  function sendOnlyField() {
+    var f = fieldValue('send_only_accept_field').replace(/^\\s+|\\s+$/g, '');
+    var m = /^\\{response:([^{}]+?)\\??\\}$/.exec(f);
+    return m ? m[1].replace(/^\\s+|\\s+$/g, '') : f;
+  }
+  function sendOnlyWarningText() {
+    var warnEl = form.querySelector('[data-lg-send-only-field-warning]');
+    if (!warnEl || !sendOnlyFieldRule()) { return ''; }
+    var f = sendOnlyField();
+    if (f === '') { return ''; }
+    var i;
+    for (i = 0; i < sendOnlySamplePaths.length; i++) { if (sendOnlySamplePaths[i] === f) { return ''; } }
+    var msg = warnEl.getAttribute(sendOnlySamplePaths.length === 0 ? 'data-msg-no-sample' : 'data-msg-missing') || '';
+    return msg.split('{field}').join(f);
+  }
+  function applySendOnlyVisibility() {
+    if (!sendOnlyCard) { return; }
+    sendOnlyCard.hidden = selectedMode() !== 'request_static_bid';
+    var picked = checkedValue('send_only_display', 'card') === 'send_only';
+    var accept = form.querySelector('[data-lg-send-only-accept]');
+    if (accept) { accept.hidden = !picked; }
+    var rule = form.querySelector('[data-lg-send-only-field]');
+    if (rule) { rule.hidden = !(picked && checkedValue('send_only_accept_kind', 'any_ok') === 'field_equals'); }
+    var warnEl = form.querySelector('[data-lg-send-only-field-warning]');
+    if (warnEl) { var w = sendOnlyWarningText(); warnEl.hidden = w === ''; warnEl.textContent = w; }
+  }
+  form.addEventListener('input', function (e) {
+    if (e.target && e.target.name === 'send_only_accept_field') { applySendOnlyVisibility(); }
+  });
 
   // --- §9.6 unsaved-changes guard -----------------------------------------------
   form.addEventListener('input', function () { dirty = true; });
@@ -2901,6 +2950,18 @@ const LG_EDITOR_SCRIPT = `
     body.static_headline = trimmedOrNull('static_headline');
     body.static_subheadline = trimmedOrNull('static_subheadline');
     body.static_disclaimer = trimmedOrNull('static_disclaimer');
+    // 0068 Send-only Offers: one object. Any mode but "Provider request ·
+    // static bid (CPL)", or "Show a card", saves {display:"card"} (stored
+    // NULL), so a hidden choice is never kept.
+    if (sendOnlyCard) {
+      if (sendOnlyActive()) {
+        body.send_only_json = sendOnlyFieldRule()
+          ? { display: 'send_only', accept: { kind: 'field_equals', field: sendOnlyField(), value: fieldValue('send_only_accept_value').replace(/^\\s+|\\s+$/g, '') } }
+          : { display: 'send_only', accept: { kind: 'any_ok' } };
+      } else {
+        body.send_only_json = { display: 'card' };
+      }
+    }
     if (capEnabled && fallbackIdInput && fallbackIdInput.value) {
       var fb = parseInt(fallbackIdInput.value, 10);
       if (!isNaN(fb) && fb > 0) { body.cap_fallback_offer_id = fb; }
@@ -2919,6 +2980,12 @@ const LG_EDITOR_SCRIPT = `
       if (body.cap_amount === null || body.cap_amount <= 0) { errors.cap_amount = 'Cap amount (a positive integer) is required when the cap is enabled'; }
       if (!body.cap_timezone) { errors.cap_timezone = 'Cap timezone is required when the cap is enabled'; }
       if (!body.cap_count_by) { errors.cap_count_by = 'Count-by is required when the cap is enabled'; }
+    }
+    // 0068: the same words the server uses (leadgen/send-only.ts).
+    var so = body.send_only_json;
+    if (so && so.display === 'send_only' && so.accept && so.accept.kind === 'field_equals') {
+      if (!so.accept.field) { errors.send_only_accept_field = 'Enter the reply field to check, for example status.'; }
+      if (!so.accept.value) { errors.send_only_accept_value = 'Enter the value that means accepted, for example accepted.'; }
     }
     return errors;
   }
@@ -2954,6 +3021,9 @@ const LG_EDITOR_SCRIPT = `
         if (Object.prototype.hasOwnProperty.call(clientErrors, k)) { errors[k] = clientErrors[k]; }
       }
       if (renderErrors(errors)) { return; }
+      // 0068: a field rule whose field is not in the saved sample reply is
+      // worth a second look, but the Offer still saves.
+      var sendOnlyWarning = sendOnlyWarningText();
       saveBtn.disabled = true;
       saveBtn.classList.add('lg-saving');
       setStatus('Saving\\u2026');
@@ -2964,6 +3034,7 @@ const LG_EDITOR_SCRIPT = `
           dirty = false;
           setStatus('Saved');
           window.showToast('Offer saved', 'success');
+          if (sendOnlyWarning) { window.showToast(sendOnlyWarning, 'warning', 6000); }
           // THE PAYLOAD TREE GOES WITH IT. This handler used to PATCH the offer
           // and reload — and the reload discarded every unsaved edit in the
           // Payload builder below (the operator changed a field's Source, hit
@@ -3025,6 +3096,7 @@ const LG_EDITOR_SCRIPT = `
 
   applyCapState();
   applyModeVisibility();
+  applySendOnlyVisibility();
   activateTab('basics');
 }());
 `;
@@ -3085,7 +3157,15 @@ const LG_STATIC_CREATIVE_SCRIPT = `
     var checked = form ? form.querySelector('[name="auction_mode"]:checked') : null;
     return checked ? checked.value : '';
   }
-  function isStatic() { return selectedMode() === 'static_no_request'; }
+  // 0068: a "Provider request · static bid (CPL)" Offer set to "Send the lead
+  // only, no card" uses these same fields for its non-clickable banner.
+  function sendOnlyPicked() {
+    var r = form ? form.querySelector('[name="send_only_display"]:checked') : null;
+    return !!(r && r.value === 'send_only');
+  }
+  function isSendOnly() { return selectedMode() === 'request_static_bid' && sendOnlyPicked(); }
+  function isStatic() { return selectedMode() === 'static_no_request' || isSendOnly(); }
+  var SEND_ONLY_NOTE = 'A send-only Offer\\u2019s banner uses this logo, headline and subheadline, can\\u2019t be clicked, and shows only when no other card does.';
   function logoSrc(v) {
     var s = String(v || '');
     if (s.indexOf('/media/') === 0 || s.indexOf('https://') === 0 || s.indexOf('http://') === 0) { return s; }
@@ -3134,7 +3214,9 @@ const LG_STATIC_CREATIVE_SCRIPT = `
           return;
         }
         frame.setAttribute('srcdoc', res.body.document || '');
-        if (res.body.shown === false) {
+        if (isSendOnly()) {
+          setNote(SEND_ONLY_NOTE + (res.body.shown === false ? ' (The preview draws the card only when the Offer has a click link.)' : ''));
+        } else if (res.body.shown === false) {
           setNote(res.body.dropped_reason === 'missing_click_url'
             ? 'This card would NOT be shown to visitors: add a Banner URL template above so the button has somewhere to go.'
             : 'This card would NOT be shown to visitors (' + String(res.body.dropped_reason || 'unknown reason') + ').');
@@ -3256,7 +3338,7 @@ const LG_STATIC_CREATIVE_SCRIPT = `
       if (n && (n.indexOf('static_') === 0 || n === 'provider' || n === 'offer_name' || n === 'banner_url_template')) { schedule(); }
     });
     form.addEventListener('change', function (e) {
-      if (e.target && e.target.name === 'auction_mode') { applyVisibility(); }
+      if (e.target && (e.target.name === 'auction_mode' || e.target.name === 'send_only_display')) { applyVisibility(); }
     });
   }
   document.addEventListener('click', function (e) {
@@ -3543,7 +3625,7 @@ function offerEditorHtml(data: EditorPageData, brand: LeadgenBranding): string {
   <form id="lg-editor-form" novalidate>
     ${renderBasicsPanel(o, data.clickoutMeta)}
     ${renderStaticPanel(o)}
-    ${renderRequestPanel(o, o.headers)}
+    ${renderRequestPanel(o, o.headers, data.activeSchema?.sample_paths ?? [])}
     ${renderRegionPanel(o)}
     ${renderCapPanel(o, data.cap, data.capError)}
   </form>

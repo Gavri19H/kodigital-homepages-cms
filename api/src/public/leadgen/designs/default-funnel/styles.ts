@@ -2392,6 +2392,29 @@ export function funnelChromeCss(
       outline: `2px solid ${color.primary}`,
       "outline-offset": "2px",
     }),
+    // Send-only Offers (plan "Send-only Offers", 0068): the "lead sent" banner
+    // (auction/banner.ts renderLeadSentBanner) — shown only when no card
+    // rendered and a send-only Offer's lead was accepted. The SAME frame as a
+    // card (border, corners, padding, background, centred column) so it sits
+    // in the results column like one, but it is not a link: a normal cursor,
+    // no hover/focus change, no transition. Its logo/text regions reuse the
+    // card's own `.lg-banner-*` rules (scoped on their own, below).
+    rule(`${scope} .lg-lead-sent`, {
+      border: banner.cardBorder,
+      "border-radius": banner.cardRadius,
+      padding: banner.cardPadding,
+      background: color.card,
+      display: "flex",
+      "flex-direction": "column",
+      "align-items": "center",
+      "text-align": "center",
+      gap: spacing.md,
+      "box-sizing": "border-box",
+      "max-width": "100%",
+      "min-width": "0",
+      color: page.textColor,
+      cursor: "default",
+    }),
     rule(`${scope} .lg-banner[data-recommended="true"]`, {
       border: banner.recommendedBorder,
       background: banner.recommendedBg,

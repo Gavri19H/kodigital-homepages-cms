@@ -30,7 +30,8 @@ import { sendToFirehose } from "./firehose";
 import { readEnvSecret, type Env } from "../env";
 import type { WaitUntilContext } from "../wait-until-context";
 
-// The LeadGen event-type set — 31 types (DEV-23). §22.3 flatly enumerates 30,
+// The LeadGen event-type set — 31 types (DEV-23), + `lead_sent` (Send-only
+// Offers, 0068) = 32. §22.3 flatly enumerates 30,
 // but it DROPPED `offer_impression`, which §6.4 normatively DEFINES (the sibling
 // of `carrier_impression`, deduped by (auction_instance_id, offer_id)), §04§10.7
 // derives offer CTR (clicks/offer_impressions) from, migration 0037 mirrors, and
@@ -73,7 +74,21 @@ export const LEADGEN_EVENT_TYPES = [
   "revenue_received",
   "redirect_rule_triggered",
   "direct_offer_redirect",
+  // Send-only Offers (plan "Send-only Offers", 0068, D13): a send-only Offer's
+  // Provider ACCEPTED the lead (no card). SERVER-ONLY — the /lg/auction route
+  // emits it once per funnel attempt and Offer, on clean traffic, after its
+  // booking claim (public/leadgen/send-only-leads.ts); revenue = the booked
+  // fixed price in USD (0 for CPA), booking_trigger "lead". /lg/track refuses
+  // it from a browser (LEADGEN_SERVER_ONLY_EVENT_TYPES), so a beacon can never
+  // forge one.
+  "lead_sent",
 ] as const;
+
+// Event types only the server may emit: POST /lg/track dead-letters them
+// (reason "server_only_event_type") instead of accepting a browser's copy.
+// Send-only (0068): lead_sent carries booked money, so it must never be
+// client-forgeable.
+export const LEADGEN_SERVER_ONLY_EVENT_TYPES: ReadonlySet<string> = new Set(["lead_sent"]);
 
 export type LeadgenEventType = (typeof LEADGEN_EVENT_TYPES)[number];
 
