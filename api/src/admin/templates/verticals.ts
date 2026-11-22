@@ -85,6 +85,7 @@ function renderModal(): string {
         <input id="new-vertical-slug" name="slug" type="text" class="form-input" autocomplete="off" maxlength="64" required />
         <small class="form-hint">Lowercase letters, numbers and dashes. Must be new.</small>
       </div>
+      <p class="form-hint">A new vertical has no Categories yet. Add Categories for it (Categories → "+ New Category" → pick this vertical) before you use it for a New Site, or that Site gets no Categories.</p>
       <p id="new-vertical-error" class="alert alert-error" hidden role="alert"></p>
       <div class="modal-actions">
         <button type="submit" class="btn btn-primary">Add vertical</button>
