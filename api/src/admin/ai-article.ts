@@ -20,6 +20,10 @@ import { generateStarterArticle } from "../ai/generators/text";
 import { generateFeatureImage } from "../ai/generators/image";
 import type { GeneratedArticle } from "../ai/schemas";
 import { buildArticleContentJson } from "../site-provisioning/steps";
+import {
+  readAiVerticalContext,
+  resolveArticleVerticalSlug,
+} from "./verticals-handlers";
 
 export type ArticleCtx = Context<{ Bindings: Env }>;
 
@@ -282,6 +286,10 @@ interface FullArticleBody {
   audience?: unknown;
   structure?: unknown;
   images?: { hero?: unknown; mid?: unknown } | null;
+  // X01 Part C: the open Article (its saved vertical) and the editor's live
+  // "Vertical" choice (null = "Same as site"). Both optional.
+  article_id?: unknown;
+  vertical_id?: unknown;
 }
 
 export async function generateFullArticle(c: ArticleCtx) {
@@ -311,8 +319,15 @@ export async function generateFullArticle(c: ArticleCtx) {
   if (!site) return c.json({ error: "Unknown site_id" }, 404);
   const brand_name =
     typeof site.name === "string" && site.name.length > 0 ? site.name : site.id;
-  const vertical =
-    typeof site.vertical_slug === "string" ? site.vertical_slug : "";
+  // X01 Part C: {{vertical}} = the Article's own vertical when set, else the
+  // Site's (the editor's unsaved choice counts as the Article's).
+  const verticalCtx = readAiVerticalContext(body);
+  const vertical = await resolveArticleVerticalSlug(c.env.DB, {
+    siteVerticalSlug:
+      typeof site.vertical_slug === "string" ? site.vertical_slug : "",
+    articleId: verticalCtx.articleId,
+    override: verticalCtx.override,
+  });
 
   let authorName = `${brand_name} Editorial Team`;
   try {

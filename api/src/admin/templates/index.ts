@@ -4,6 +4,7 @@ export { domainsPage } from "./domains";
 export { articlesListPage, articleFormPage } from "./articles";
 export { pagesListPage, pageFormPage } from "./pages";
 export { categoriesListPage } from "./categories";
+export { verticalsListPage } from "./verticals";
 export { tagsListPage } from "./tags";
 export { mediaListPage } from "./media";
 export { settingsPage } from "./settings";

@@ -33,6 +33,13 @@ import {
   updateDomainHandler,
 } from "./domains-verticals-handlers";
 import {
+  createVerticalHandler,
+  deleteVerticalHandler,
+  bulkSetArticleVerticalHandler,
+  readArticleVerticalInput,
+  articleVerticalInputError,
+} from "./verticals-handlers";
+import {
   provisionNextHandler,
   provisionResumeHandler,
   provisionStatusHandler,
@@ -119,6 +126,9 @@ interface CreateArticleBody {
   is_featured?: number | boolean;
   is_trending?: number | boolean;
   published_at?: number | null;
+  // X01 Part C: the Article's own vertical (verticals.id); null / "" /
+  // absent = "Same as site".
+  vertical_id?: number | string | null;
 }
 
 const api = new Hono<{ Bindings: Env }>();
@@ -221,6 +231,12 @@ api.post("/api/admin/articles", async (c) => {
     categoryId = parsed;
   }
 
+  // X01 Part C: optional own vertical; must be a real vertical id.
+  const verticalInput = await readArticleVerticalInput(c.env.DB, body.vertical_id);
+  const verticalErr = articleVerticalInputError(verticalInput);
+  if (verticalErr !== null) return c.json(verticalErr, 400);
+  const verticalId = verticalInput.kind === "set" ? verticalInput.id : null;
+
   // T3-AC1: normalize the full author/SEO/placement column set so CREATE
   // persists every field the editor sends (create-then-read round-trips).
   // status is constrained to the schema CHECK set; numeric/flag fields use
@@ -267,28 +283,37 @@ api.post("/api/admin/articles", async (c) => {
     );
   }
 
-  const row = await c.env.DB.prepare(
-    "INSERT INTO articles (site_id, slug, title, content_json, category_id, status, author_name, author_bio, featured_image_id, seo_title, seo_description, subtitle, homepage_rank, is_featured, is_trending, published_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?) RETURNING *",
-  )
-    .bind(
-      siteId,
-      slug,
-      title,
-      contentJson,
-      categoryId,
-      status,
-      authorName,
-      authorBio,
-      featuredImageId,
-      seoTitle,
-      seoDescription,
-      subtitle,
-      homepageRank,
-      isFeatured,
-      isTrending,
-      publishedAt,
-    )
-    .first<ArticleRow>();
+  const insertBinds: unknown[] = [
+    siteId,
+    slug,
+    title,
+    contentJson,
+    categoryId,
+    status,
+    authorName,
+    authorBio,
+    featuredImageId,
+    seoTitle,
+    seoDescription,
+    subtitle,
+    homepageRank,
+    isFeatured,
+    isTrending,
+    publishedAt,
+  ];
+  // X01 Part C: vertical_id is written only when the create sets one; with
+  // none, the column keeps its NULL default ("Same as site").
+  const row = verticalId === null
+    ? await c.env.DB.prepare(
+        "INSERT INTO articles (site_id, slug, title, content_json, category_id, status, author_name, author_bio, featured_image_id, seo_title, seo_description, subtitle, homepage_rank, is_featured, is_trending, published_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?) RETURNING *",
+      )
+        .bind(...insertBinds)
+        .first<ArticleRow>()
+    : await c.env.DB.prepare(
+        "INSERT INTO articles (site_id, slug, title, content_json, category_id, status, author_name, author_bio, featured_image_id, seo_title, seo_description, subtitle, homepage_rank, is_featured, is_trending, published_at, vertical_id) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?) RETURNING *",
+      )
+        .bind(...insertBinds, verticalId)
+        .first<ArticleRow>();
   if (!row) return c.json({ error: "Insert failed" }, 500);
   return c.json({ article: row }, 201);
 });
@@ -889,6 +914,12 @@ adminApi.post("/cache/stats/reset", cacheStatsResetHandler);
 adminApi.get("/verticals", listVerticalsHandler);
 adminApi.get("/domains", listDomainsHandler);
 adminApi.patch("/domains/:id", updateDomainHandler);
+// X01 Part C: add / delete a vertical (Verticals screen) and the Articles
+// list's "Set vertical" action. `.post(` / `.delete(` do not match the T14.AC1
+// grep above (get|patch only), so its exact-3 count is unaffected.
+adminApi.post("/verticals", createVerticalHandler);
+adminApi.delete("/verticals/:id", deleteVerticalHandler);
+adminApi.post("/articles/bulk-vertical", bulkSetArticleVerticalHandler);
 
 // T13: PATCH /api/admin/articles/:id — allow-listed field update with
 // tenant boundary guard, per-site slug uniqueness, and category-belongs-
@@ -936,6 +967,7 @@ api.patch("/articles/:id", async (c) => {
     subtitle?: unknown;
     author_name?: unknown;
     author_bio?: unknown;
+    vertical_id?: unknown;
   }
   let body: PatchArticleBody;
   try {
@@ -1056,12 +1088,19 @@ api.patch("/articles/:id", async (c) => {
     }
   }
 
+  // X01 Part C: the Article's own vertical. A vertical id sets it; null or ""
+  // clears it ("Same as site"); absent leaves it alone.
+  const verticalInput = await readArticleVerticalInput(c.env.DB, body.vertical_id);
+  const verticalErr = articleVerticalInputError(verticalInput);
+  if (verticalErr !== null) return c.json(verticalErr, 400);
+
   // Allow-listed UPDATE — build SET clause from supplied keys only.
   // Field literals appear as single-quoted strings so T13.AC5 can assert
   // each one is present in this file: 'site_id', 'title', 'slug',
   // 'content_json', 'category_id', 'status',
   // 'homepage_rank', 'is_featured', 'is_trending', 'featured_image_id',
-  // 'seo_title', 'seo_description', 'author_name', 'author_bio'.
+  // 'seo_title', 'seo_description', 'author_name', 'author_bio',
+  // 'vertical_id' (X01 Part C).
   // (T3: homepage_section removed from the admin write path.)
   const setClauses: string[] = [];
   const bindings: unknown[] = [];
@@ -1146,6 +1185,13 @@ api.patch("/articles/:id", async (c) => {
   if (typeof body.author_bio === "string" || body.author_bio === null) {
     setClauses.push("author_bio = ?");
     bindings.push(body.author_bio);
+  }
+  if (verticalInput.kind === "set") {
+    setClauses.push("vertical_id = ?");
+    bindings.push(verticalInput.id);
+  } else if (verticalInput.kind === "clear") {
+    setClauses.push("vertical_id = ?");
+    bindings.push(null);
   }
 
   if (setClauses.length === 0) {

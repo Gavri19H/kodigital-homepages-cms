@@ -22,6 +22,7 @@ import {
   pagesListPage,
   pageFormPage,
   categoriesListPage,
+  verticalsListPage,
   tagsListPage,
   mediaListPage,
   settingsPage,
@@ -138,8 +139,10 @@ adminUi.get('/admin/articles', async (c) => {
   // A bare list (or a plain ?site_id= switch) keeps the legacy per-site
   // wrapper path so the existing T2 wiring contract is preserved.
   const explicitSiteId = c.req.query('site_id');
+  // X01 Part C: 'vertical' joins the list — the "All verticals" filter now
+  // narrows the query (Article's own vertical, else its Site's).
   const useFiltered = hasAnyFilter(c, [
-    'search', 'category', 'status', 'featured', 'trending', 'published', 'page', 'per_page',
+    'search', 'vertical', 'category', 'status', 'featured', 'trending', 'published', 'page', 'per_page',
   ]);
   let articles: data.ArticleRowDto[];
   let pageMeta: data.ListPageMeta | undefined;
@@ -148,6 +151,7 @@ adminUi.get('/admin/articles', async (c) => {
     const listed = await data.listAdminArticlesFiltered(c.env, {
       site_id: explicitSiteId ?? null,
       search: c.req.query('search'),
+      vertical: c.req.query('vertical'),
       category: c.req.query('category'),
       status: c.req.query('status'),
       featured: c.req.query('featured'),
@@ -186,7 +190,8 @@ adminUi.get('/admin/articles', async (c) => {
 adminUi.get('/admin/articles/new', async (c) => {
   const sites = await data.listAdminSites(c.env);
   const categories = await data.listAdminCategories(c.env);
-  return c.html(articleFormPage(null, sites, categories, branding(c)));
+  const verticals = await data.listAdminVerticals(c.env);
+  return c.html(articleFormPage(null, sites, categories, branding(c), verticals));
 });
 
 // 5/13 — Article edit form. Both /admin/articles/:id and
@@ -201,7 +206,8 @@ async function renderArticleEdit(c: AdminContext): Promise<Response> {
     : null;
   const sites = await data.listAdminSites(c.env);
   const categories = await data.listAdminCategories(c.env);
-  return c.html(articleFormPage(article, sites, categories, branding(c)));
+  const verticals = await data.listAdminVerticals(c.env);
+  return c.html(articleFormPage(article, sites, categories, branding(c), verticals));
 }
 adminUi.get('/admin/articles/:id', renderArticleEdit);
 adminUi.get('/admin/articles/:id/edit', renderArticleEdit);
@@ -294,6 +300,13 @@ adminUi.get('/admin/categories', async (c) => {
   }
   const categories = await data.listAdminCategories(c.env);
   return c.html(categoriesListPage(categories, sites, branding(c)));
+});
+
+// X01 Part C — Verticals: list with real usage counts, "Add vertical",
+// "Delete" (refused while any Site or Article uses it).
+adminUi.get('/admin/verticals', async (c) => {
+  const verticals = await data.listAdminVerticalsWithUsage(c.env);
+  return c.html(verticalsListPage(verticals, branding(c)));
 });
 
 // 10/13 — Tags list (Site filter, Global indicator).

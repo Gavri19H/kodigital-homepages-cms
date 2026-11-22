@@ -49,6 +49,8 @@ export interface SiteOption {
 }
 
 export interface VerticalOption {
+  // X01 Part C: the id is what the Article editor and "Set vertical" save.
+  id?: number;
   slug: string;
   label?: string;
 }
@@ -96,6 +98,8 @@ export interface ArticleFormValues {
   published_at?: string | null;
   author_name?: string | null;
   author_bio?: string | null;
+  // X01 Part C: the Article's own vertical id; "" / absent = "Same as site".
+  vertical_id?: string;
 }
 
 export interface ArticlesBranding {
@@ -201,6 +205,7 @@ function renderArticleRow(a: ArticleListEntry): string {
   const updated = escapeHtml(a.updated_at ?? "");
   const editHref = id ? `/admin/articles/${id}/edit` : "/admin/articles";
   return `<tr data-article-id="${id}">
+  <td class="article-select-cell"><input type="checkbox" class="article-select" value="${id}" aria-label="Select ${title}" /></td>
   <td>
     <a href="${editHref}" class="article-title-link">${title}</a>
     <br /><small class="article-slug">/${slug}</small>
@@ -218,7 +223,24 @@ function renderArticleRow(a: ArticleListEntry): string {
 </tr>`;
 }
 
-function renderArticlesTable(articles: ReadonlyArray<ArticleListEntry>): string {
+// X01 Part C: Articles → tick rows → "Set vertical" → pick one → apply.
+// Changes only the ticked Articles (POST /api/admin/articles/bulk-vertical).
+function renderBulkVerticalBar(verticals: ReadonlyArray<VerticalOption>): string {
+  const opts = verticals
+    .filter((v) => typeof v.id === "number")
+    .map((v) => `<option value="${escapeHtml(v.id)}">${escapeHtml(v.label ?? v.slug)}</option>`)
+    .join("");
+  return `<div class="bulk-actions" id="articles-bulk-vertical">
+  <span id="articles-selected-count" class="bulk-count" role="status" aria-live="polite">0 selected</span>
+  <label for="bulk-vertical-select" class="bulk-label">Vertical</label>
+  <select id="bulk-vertical-select" class="form-select" aria-label="Vertical to set on the ticked Articles">
+    <option value="">Same as site</option>${opts}
+  </select>
+  <button type="button" id="bulk-set-vertical" class="btn btn-secondary btn-sm" disabled>Set vertical</button>
+</div>`;
+}
+
+function renderArticlesTable(articles: ReadonlyArray<ArticleListEntry>, verticals: ReadonlyArray<VerticalOption> = []): string {
   if (articles.length === 0) {
     return `<div class="card">
   <div class="empty-state">
@@ -233,9 +255,11 @@ function renderArticlesTable(articles: ReadonlyArray<ArticleListEntry>): string 
   }
   const rows = articles.map(renderArticleRow).join("");
   return `<div class="card">
+  ${renderBulkVerticalBar(verticals)}
   <div class="table-wrapper">
     <table class="table articles-list" aria-label="Articles list">
       <thead><tr>
+        <th scope="col" class="article-select-cell"><input type="checkbox" id="articles-select-all" aria-label="Select all Articles on this page" /></th>
         <th scope="col">Title</th>
         <th scope="col">Site</th>
         <th scope="col">Category</th>
@@ -255,6 +279,11 @@ const ARTICLES_LIST_STYLES = `
 .toolbar-search form{display:flex;gap:8px}
 .article-title-link{font-weight:500}
 .article-slug{color:var(--c-muted)}
+.article-select-cell{width:32px}
+.bulk-actions{display:flex;flex-wrap:wrap;align-items:center;gap:8px;padding:0 0 12px}
+.bulk-actions .form-select{width:auto;min-width:160px}
+.bulk-count{color:var(--c-muted);font-size:13px}
+.bulk-label{font-size:13px;font-weight:500}
 `;
 
 // ES5 only (var, .then(), no template literals). Filter selects rewrite
@@ -313,6 +342,64 @@ const ARTICLES_LIST_SCRIPT = `
   for (i = 0; i < deleteButtons.length; i++) {
     deleteButtons[i].addEventListener('click', onDeleteClick);
   }
+
+  // X01 Part C: tick Articles -> "Set vertical" -> applies only to the ticked
+  // rows via POST /api/admin/articles/bulk-vertical.
+  var rowBoxes = document.querySelectorAll('input.article-select');
+  var selectAll = document.getElementById('articles-select-all');
+  var countEl = document.getElementById('articles-selected-count');
+  var bulkSelect = document.getElementById('bulk-vertical-select');
+  var bulkBtn = document.getElementById('bulk-set-vertical');
+  function tickedIds() {
+    var ids = [];
+    var k;
+    for (k = 0; k < rowBoxes.length; k++) {
+      if (rowBoxes[k].checked && rowBoxes[k].value) { ids.push(parseInt(rowBoxes[k].value, 10)); }
+    }
+    return ids;
+  }
+  function refreshBulk() {
+    var n = tickedIds().length;
+    if (countEl) { countEl.textContent = n + ' selected'; }
+    if (bulkBtn) { bulkBtn.disabled = n === 0; }
+    if (selectAll) { selectAll.checked = n > 0 && n === rowBoxes.length; }
+  }
+  for (i = 0; i < rowBoxes.length; i++) {
+    rowBoxes[i].addEventListener('change', refreshBulk);
+  }
+  if (selectAll) {
+    selectAll.addEventListener('change', function () {
+      var k;
+      for (k = 0; k < rowBoxes.length; k++) { rowBoxes[k].checked = selectAll.checked; }
+      refreshBulk();
+    });
+  }
+  if (bulkBtn && bulkSelect) {
+    bulkBtn.addEventListener('click', function () {
+      var ids = tickedIds();
+      if (ids.length === 0) { return; }
+      var v = bulkSelect.value;
+      var label = bulkSelect.options[bulkSelect.selectedIndex] ? bulkSelect.options[bulkSelect.selectedIndex].text : '';
+      bulkBtn.disabled = true;
+      window.api('POST', '/api/admin/articles/bulk-vertical', {
+        article_ids: ids,
+        vertical_id: v ? parseInt(v, 10) : null
+      }).then(function (data) {
+        if (data && data.error) {
+          bulkBtn.disabled = false;
+          window.showToast('Error: ' + data.error, 'error');
+        } else {
+          var n = (data && typeof data.updated === 'number') ? data.updated : ids.length;
+          window.showToast('Vertical "' + label + '" set on ' + n + (n === 1 ? ' Article' : ' Articles'), 'success');
+          setTimeout(function () { window.location.reload(); }, 800);
+        }
+      }).catch(function () {
+        bulkBtn.disabled = false;
+        window.showToast('Error: Failed to set vertical', 'error');
+      });
+    });
+  }
+  refreshBulk();
 }());
 `;
 
@@ -335,7 +422,7 @@ export function articlesListPage(
     trending: filters.trending,
     published: filters.published,
   });
-  const content = `${renderToolbar(sites, verticals, categories, filters)}${renderArticlesTable(articles)}${pager}`;
+  const content = `${renderToolbar(sites, verticals, categories, filters)}${renderArticlesTable(articles, verticals)}${pager}`;
   return adminLayout({
     title: "Articles",
     activePath: "/admin/articles",
@@ -391,7 +478,43 @@ function renderDisplayOptions(a: ArticleFormValues): string {
   </div>`;
 }
 
-function renderArticleForm(article: ArticleFormValues | null, sites: ReadonlyArray<SiteOption>, categories: ReadonlyArray<CategoryOption>, branding: ArticlesBranding = {}): string {
+// X01 Part C: the Article's "Vertical" field, next to "Category". The first
+// option (value "") means "Same as site" and names the Site's vertical; the
+// form script relabels it when the Site changes. Each vertical option carries
+// data-slug so the AI panel can fill {{vertical}} from the live choice.
+function verticalLabelForSlug(verticals: ReadonlyArray<VerticalOption>, slug: string): string {
+  if (slug.length === 0) return "";
+  const match = verticals.find((v) => v.slug === slug);
+  return match ? (match.label ?? match.slug) : slug;
+}
+
+function renderArticleVerticalField(
+  a: ArticleFormValues,
+  sites: ReadonlyArray<SiteOption>,
+  verticals: ReadonlyArray<VerticalOption>,
+): string {
+  const site = sites.find((s) => s.id === (a.site_id ?? ""));
+  const siteVerticalLabel = verticalLabelForSlug(verticals, site?.vertical ?? "");
+  const sameLabel = siteVerticalLabel.length > 0
+    ? `Same as site (${escapeHtml(siteVerticalLabel)})`
+    : "Same as site";
+  const current = a.vertical_id ?? "";
+  const opts = verticals
+    .filter((v) => typeof v.id === "number")
+    .map((v) => {
+      const id = String(v.id);
+      return `<option value="${escapeHtml(id)}" data-slug="${escapeHtml(v.slug)}"${selectedAttr(current, id)}>${escapeHtml(v.label ?? v.slug)}</option>`;
+    })
+    .join("");
+  return `<div class="form-group">
+      <label for="article-vertical" class="form-label">Vertical</label>
+      <select id="article-vertical" name="vertical_id" class="form-select">
+        <option value="" data-same-as-site="1"${selectedAttr(current, "")}>${sameLabel}</option>${opts}
+      </select>
+    </div>`;
+}
+
+function renderArticleForm(article: ArticleFormValues | null, sites: ReadonlyArray<SiteOption>, categories: ReadonlyArray<CategoryOption>, branding: ArticlesBranding = {}, verticals: ReadonlyArray<VerticalOption> = []): string {
   const isEdit = article !== null && typeof article.id === "string" && article.id.length > 0;
   const a: ArticleFormValues = article ?? {};
   const formMode = isEdit ? "edit" : "new";
@@ -427,6 +550,7 @@ function renderArticleForm(article: ArticleFormValues | null, sites: ReadonlyArr
         ${renderCategoryOptions(categories, a.category_id, false)}
       </select>
     </div>
+    ${renderArticleVerticalField(a, sites, verticals)}
     <div class="form-group">
       <label for="article-status" class="form-label">Status</label>
       <select id="article-status" name="status" class="form-select">
@@ -494,8 +618,24 @@ const ARTICLE_FORM_SCRIPT = `
     if (msg) { statusEl.appendChild(document.createTextNode(msg)); }
   }
   function toBool(v) { return v === '1' || v === 'on' || v === true; }
+  // X01 Part C: keep "Same as site (<Site vertical>)" naming the chosen Site's
+  // vertical.
+  var verticalSelect = document.getElementById('article-vertical');
+  function relabelSameAsSite() {
+    if (!verticalSelect || !siteSelect) { return; }
+    var same = verticalSelect.querySelector('option[data-same-as-site]');
+    if (!same) { return; }
+    var sOpt = siteSelect.options[siteSelect.selectedIndex];
+    var slug = sOpt && sOpt.value ? (sOpt.getAttribute('data-vertical') || '') : '';
+    var label = slug;
+    var k;
+    for (k = 0; k < verticalSelect.options.length; k++) {
+      if (verticalSelect.options[k].getAttribute('data-slug') === slug) { label = verticalSelect.options[k].text; }
+    }
+    same.textContent = label ? 'Same as site (' + label + ')' : 'Same as site';
+  }
   if (siteSelect) {
-    siteSelect.addEventListener('change', function () { setStatus(''); });
+    siteSelect.addEventListener('change', function () { setStatus(''); relabelSameAsSite(); });
   }
   form.addEventListener('submit', function (e) {
     e.preventDefault();
@@ -526,7 +666,8 @@ const ARTICLE_FORM_SCRIPT = `
       seo_description: fd.get('seo_description') || '',
       published_at: fd.get('published_at') || null,
       author_name: fd.get('author_name') || '',
-      author_bio: fd.get('author_bio') || ''
+      author_bio: fd.get('author_bio') || '',
+      vertical_id: fd.get('vertical_id') ? Number(fd.get('vertical_id')) : null
     };
     var url = mode === 'edit' ? '/api/admin/articles/' + articleId : '/api/admin/articles';
     var method = mode === 'edit' ? 'PATCH' : 'POST';
@@ -553,10 +694,11 @@ export function articleFormPage(
   sites: ReadonlyArray<SiteOption>,
   categories: ReadonlyArray<CategoryOption>,
   branding: ArticlesBranding = {},
+  verticals: ReadonlyArray<VerticalOption> = [],
 ): string {
   const isEdit = article !== null && typeof article.id === "string" && article.id.length > 0;
   const title = isEdit ? "Edit Article" : "New Article";
-  const content = renderArticleForm(article, sites, categories, branding) + renderAIAssistantPanel();
+  const content = renderArticleForm(article, sites, categories, branding, verticals) + renderAIAssistantPanel();
   return adminLayout({
     title,
     activePath: "/admin/articles",

@@ -6,10 +6,11 @@ import { categoriesListPage } from "../src/admin/templates/categories";
 
 // T22 / [B1] adminLayout shell port acceptance:
 //   T22.AC2 — brand is KoDigital CMS; no TheIWise residue in the shell
-//   T22.AC3 — sidebar nav renders exactly 11 entries in contract order
+//   T22.AC3 — sidebar nav renders exactly 12 entries in contract order
 //             (9 original entries + Listicles right after Pages, per the
 //             Listicles design contract §4 — Phase 3; + LeadGen right after
-//             Listicles, per the LeadGen contract 01 §5.1 — Phase 3)
+//             Listicles, per the LeadGen contract 01 §5.1 — Phase 3;
+//             + Verticals right after Categories, X01 Part C)
 //   T22.AC4 — toast / mobile-menu-btn / badge-draft markers present
 //   T22.AC5 — the layout's inline <script> stays ES5: zero arrow/const/let
 //             (script-extraction assertion, NOT a whole-file grep — the TS
@@ -25,6 +26,8 @@ const NAV_CONTRACT: ReadonlyArray<[string, string]> = [
   ["/admin/leadgen", "LeadGen"],
   ["/admin/media", "Media"],
   ["/admin/categories", "Categories"],
+  // X01 Part C (owner, 22 Nov 2026): Verticals right after Categories.
+  ["/admin/verticals", "Verticals"],
   ["/admin/tags", "Tags"],
   ["/admin/presets", "AI Presets"],
   ["/admin/settings", "Settings"],
@@ -55,9 +58,9 @@ function extractSidebarNav(html: string): string {
 }
 
 describe("admin layout shell port (T22)", () => {
-  // T22.AC3: nav order exact 11 entries (incl. Listicles after Pages, §4,
+  // T22.AC3: nav order exact 12 entries (incl. Listicles after Pages, §4,
   // and LeadGen after Listicles, LeadGen contract 01 §5.1)
-  it("renders exactly 11 sidebar-nav entries in contract order", () => {
+  it("renders exactly 12 sidebar-nav entries in contract order", () => {
     const nav = extractSidebarNav(renderShell("/admin"));
     const labels = Array.from(nav.matchAll(/<span>([^<]+)<\/span>/g)).map(
       (m) => m[1],
