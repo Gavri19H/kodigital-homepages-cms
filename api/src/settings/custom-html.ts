@@ -32,6 +32,9 @@ export const ALLOWED_SETTINGS_KEYS: ReadonlySet<string> = new Set<string>([
   // 12 canonical keys (admin/templates/settings.ts SETTING_KEYS)
   "site_name",
   "logo_media_id",
+  // X14: the site's tab icon (favicon) — a bare media storage key of a square
+  // picture, same format as logo_media_id. Not one of the 12 canonical keys.
+  "favicon_media_id",
   "tagline",
   "site_description",
   "brand_tokens_json",

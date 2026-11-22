@@ -328,6 +328,9 @@ describeDb("site-logo-inheritance — resolveSiteBranding ladder (§10.1/§10.4)
         tagline: null,
         legal_links: [],
         trust_logos: null,
+        // X14 v2: no tab icon, the default brand color.
+        favicon_url: null,
+        brand_color: "#1ba8c8",
       });
       expect(warn).toHaveBeenCalled();
     } finally {
@@ -434,6 +437,8 @@ const EXPECTED_BRANDING = {
     { label: "Terms of use", href: "/terms" },
   ],
   trust_logos: null, // no trust_logo_media_ids seeded — §11.3 optional key
+  favicon_url: null, // X14 v2: no favicon_media_id seeded
+  brand_color: "#1ba8c8", // X14 v2: no brand tokens → the default teal
 };
 
 describeDb("resolver integration — the resolved bundle carries site_branding (§10.2)", () => {

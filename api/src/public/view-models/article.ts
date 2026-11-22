@@ -24,6 +24,7 @@ import {
   buildDateline,
 } from "../templates/format";
 import { mediaUrl } from "./media-url";
+import { siteFaviconUrl } from "../site-brand";
 
 export interface ArticleSiteContext {
   siteId: string;
@@ -37,6 +38,8 @@ export interface ArticleViewModelSite {
   tagline: string;
   description: string;
   logoUrl: string | null;
+  // X14 v2: the site's "Tab icon" (favicon_media_id), null = the badge.
+  faviconUrl?: string | null;
   brandTokens: Readonly<Record<string, string>>;
 }
 
@@ -623,6 +626,7 @@ export async function buildArticleViewModel(
     // T24: logo_media_id holds a bare media.storage_key; mediaUrl() resolves it
     // to the public /media/<key> address the design .brand <img> loads.
     logoUrl: mediaUrl(settings.logo_media_id),
+    faviconUrl: siteFaviconUrl(settings.favicon_media_id),
     brandTokens: parseBrandTokens(settings.brand_tokens_json),
   };
 

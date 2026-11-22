@@ -31,6 +31,7 @@ import {
   resolveBrandGlyphKey,
 } from "./icons";
 import { cfTransform, responsiveImg } from "./responsive-img";
+import { uploadedLogoUrl as sharedUploadedLogoUrl } from "../site-brand";
 import {
   AD_SLOT_DIMENSIONS,
   renderAdUnit,
@@ -318,17 +319,18 @@ function brandLogoHtml(site: SiteRef): string {
 // ai/<site>/logo/ — square, mostly white space) is what PR #37 replaced with
 // the badge, so it keeps the badge. Only same-origin /media/ logos qualify,
 // so the picture can be resized at the edge.
-const AI_SETUP_LOGO_PATH = /^\/media\/ai\/[^/]+\/logo\//;
+// X14 v2 (Q4): the rule itself lives in public/site-brand.ts, shared with
+// listicles and LeadGen so every page family shows the same logo.
 export function uploadedLogoUrl(site: SiteRef): string | null {
-  const url = typeof site.logoUrl === "string" ? site.logoUrl.trim() : "";
-  if (!url.startsWith("/media/") || AI_SETUP_LOGO_PATH.test(url)) return null;
-  return url;
+  return sharedUploadedLogoUrl(site.logoUrl);
 }
 
 // The header logo sits in a fixed 200×36 box (160×30 on a phone, public-css
 // .brand-logo-img) and is fitted inside it, so the header never shifts while
 // it loads — the media records carry no width / height to size it exactly.
 const HEADER_LOGO_WIDTH = 200;
+const FOOTER_LOGO_WIDTH = 160;
+const FOOTER_LOGO_HEIGHT = 32;
 const HEADER_LOGO_HEIGHT = 36;
 function headerBrandHtml(site: SiteRef): string {
   const logo = uploadedLogoUrl(site);
@@ -611,9 +613,22 @@ export function renderFooter(args: FooterArgs): string {
     site.tagline !== undefined && site.tagline.length > 0 ? site.tagline : "";
   const description =
     tagline.length > 0 ? tagline : "Stories, guides, and ideas — published daily.";
-  // Design footer brand mark = the same per-vertical glyph badge as the header
-  // (issue 1; the uploaded logo is never rendered).
-  const logoHtml = brandLogoHtml(site);
+  // X14 v2 (owner Q5, 22 Nov 2026): the footer shows the uploaded logo too, on
+  // a light rounded backing so a dark-lettered logo stays readable on the dark
+  // footer; sites without one keep the badge and name, as before.
+  const footerLogo = uploadedLogoUrl(site);
+  const brandInner =
+    footerLogo === null
+      ? `${brandLogoHtml(site)}<span class="brand-name site-footer__brand">${escText(site.name)}</span>`
+      : `<span class="footer-logo-backing">${responsiveImg({
+          src: footerLogo,
+          alt: site.name,
+          width: FOOTER_LOGO_WIDTH,
+          height: FOOTER_LOGO_HEIGHT,
+          className: "footer-logo-img",
+          loading: "lazy",
+          sizes: `(max-width: 480px) 140px, ${FOOTER_LOGO_WIDTH}px`,
+        })}</span>`;
   // Design footer-top columns: an operator-supplied args.links overrides the
   // first column; the rest keep the real-href Explore/Read/Follow defaults.
   const columns =
@@ -664,7 +679,7 @@ export function renderFooter(args: FooterArgs): string {
   <div class="container">
     <div class="footer-top">
       <div class="footer-brand site-footer__brand-col">
-        <a class="brand" href="/" aria-label="${escAttr(site.name)} home">${logoHtml}<span class="brand-name site-footer__brand">${escText(site.name)}</span></a>
+        <a class="brand" href="/" aria-label="${escAttr(site.name)} home">${brandInner}</a>
         <p class="site-footer__description">${escText(description)}</p>
       </div>
       ${colsHtml}

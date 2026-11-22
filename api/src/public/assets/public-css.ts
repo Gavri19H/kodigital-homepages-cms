@@ -145,6 +145,10 @@ p { margin: 0; }
   object-fit: contain; object-position: left center;
 }
 @media (max-width:480px) { .brand-logo-img { width: 160px; height: 30px; } }
+/* X14 v2: the uploaded logo in the dark footer sits on a light rounded backing. */
+.footer-logo-backing { display: inline-flex; background: rgba(255,255,255,.92); border-radius: 6px; padding: 6px; }
+.footer-logo-img { display: block; width: 160px; height: 32px; object-fit: contain; object-position: left center; }
+@media (max-width:480px) { .footer-logo-img { width: 140px; height: 28px; } }
 .brand-name {
   font-family: var(--tw-font-display);
   font-size: 1.25rem; font-weight: 800;

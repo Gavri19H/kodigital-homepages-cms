@@ -57,6 +57,21 @@
 import { mediaUrl } from "../public/view-models/media-url";
 import { isSafeUrl } from "../editor/sanitize";
 import { LEGAL_PAGE_TYPES } from "../admin/pages-crud-handlers";
+import { withoutAiSetupLogo, siteFaviconUrl, siteBrandColor } from "../public/site-brand";
+
+function parseBrandTokensSafe(raw: string | undefined): Record<string, string> {
+  if (typeof raw !== "string" || raw === "") return {};
+  try {
+    const v: unknown = JSON.parse(raw);
+    if (v === null || typeof v !== "object" || Array.isArray(v)) return {};
+    const out: Record<string, string> = {};
+    for (const [k, x] of Object.entries(v as Record<string, unknown>)) if (typeof x === "string") out[k] = x;
+    return out;
+  } catch {
+    return {};
+  }
+}
+
 
 export interface SiteBrandingLegalLink {
   label: string;
@@ -119,8 +134,14 @@ export interface SiteBranding {
   // provisioning) — the same fallback the listicle applies with its
   // request-time hostname.
   site_name: string;
-  // §10.4 ladder: mediaUrl(logo_media_id) → safe site_logo_url → null.
+  // §10.4 ladder: mediaUrl(logo_media_id) → safe site_logo_url → null, then
+  // the one logo rule (X14 v2 Q4): uploaded /media/ logos only — the AI-made
+  // setup logo counts as none.
   logo_url: string | null;
+  // X14 v2: the site's "Tab icon" (/media/ address) — null/absent = badge.
+  favicon_url?: string | null;
+  // X14 v2: the site's brand color (badge + browser color).
+  brand_color?: string;
   // site_settings.tagline (trimmed, non-empty) ?? null.
   tagline: string | null;
   // privacy/terms/contact derived from site settings when present; a missing
@@ -444,6 +465,9 @@ export const LEADGEN_BRANDING_SETTINGS_KEYS: ReadonlySet<string> = new Set<strin
   "contact_email",
   "privacy_email",
   "trust_logo_media_ids",
+  // X14 v2: the tab icon and the brand color are baked into the funnel shell.
+  "favicon_media_id",
+  "brand_tokens_json",
 ]);
 
 // True when a settings save touches at least one SiteBranding input key.
@@ -543,7 +567,9 @@ export async function resolveSiteBranding(
 
   return {
     site_name: siteName,
-    logo_url: logoUrl,
+    logo_url: withoutAiSetupLogo(logoUrl),
+    favicon_url: siteFaviconUrl(settings.favicon_media_id),
+    brand_color: siteBrandColor(parseBrandTokensSafe(settings.brand_tokens_json)),
     tagline: tagline !== "" ? tagline : null,
     legal_links: legalLinks,
     trust_logos: parseTrustLogos(settings.trust_logo_media_ids),

@@ -117,6 +117,8 @@ adminUi.get('/admin/domains', async (c) => {
     articles: d.articles,
     created: d.created,
     last_provisioned: d.last_provisioned,
+    favicon_media_id: d.favicon_media_id,
+    logo_media_id: d.logo_media_id,
   }));
   return c.html(domainsPage(entries, verticals, branding(c)));
 });

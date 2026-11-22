@@ -703,24 +703,18 @@ describe("public-router GET /favicon.ico (T20 rescue-3)", () => {
     );
 
     // BEHAVIORAL: the favicon request is answered, not dropped into the
-    // /:slug catch-all's 404. The AC permits a served favicon (200) or a
-    // 204 No Content; this build answers 204.
-    expect([200, 204]).toContain(res.status);
-    expect(res.status).not.toBe(404);
-    expect(res.status).toBeLessThan(500);
-
-    // A 204 carries no body and a cacheable Cache-Control so browsers stop
-    // re-requesting the favicon on every navigation.
-    if (res.status === 204) {
-      expect(await res.text()).toBe("");
-      expect(res.headers.get("Cache-Control")).toBe("public, max-age=86400");
-    }
+    // /:slug catch-all's 404. X14 v2 (owner, 22 Nov 2026): a known site's
+    // /favicon.ico now points at its tab icon — here the badge, since the
+    // site has no "Tab icon" — with a short cache, never a 404/500.
+    expect(res.status).toBe(302);
+    expect(res.headers.get("Location")).toBe("/site-icon.svg");
+    expect(res.headers.get("Cache-Control")).toBe("public, max-age=3600");
   });
 
-  it("favicon never collides with the /:slug catch-all — a page named 'favicon.ico' does not shadow the 204 [api/test/public-router.test.ts]", async () => {
+  it("favicon never collides with the /:slug catch-all — a page named 'favicon.ico' does not shadow the icon answer [api/test/public-router.test.ts]", async () => {
     // Even with a planted page row whose slug is "favicon.ico", the
     // dedicated favicon handler (registered before the catch-all) wins, so
-    // the response stays the 204 No Content — the page body never leaks.
+    // the response is the icon redirect — the page body never leaks.
     const trap: PageSeed = {
       slug: "favicon.ico",
       title: "Trap",
@@ -731,8 +725,22 @@ describe("public-router GET /favicon.ico (T20 rescue-3)", () => {
       {},
       makeEnv(makeDb([trap], [])),
     );
-    expect(res.status).toBe(204);
-    expect(await res.text()).toBe("");
+    expect(res.status).toBe(302);
+    expect(res.headers.get("Location")).toBe("/site-icon.svg");
+    expect(await res.text()).not.toContain("favicon-trap-body");
+  });
+});
+
+// X14 v2: a site with no "Tab icon" gets its badge as its tab icon.
+describe("public-router GET /site-icon.svg (X14 v2)", () => {
+  it("answers the site's badge as an SVG picture with a short cache", async () => {
+    const res = await makeApp().request(`https://${TENANT_HOST}/site-icon.svg`, {}, makeEnv(makeDb([], [])));
+    expect(res.status).toBe(200);
+    expect(res.headers.get("Content-Type")).toBe("image/svg+xml; charset=utf-8");
+    expect(res.headers.get("Cache-Control")).toBe("public, max-age=3600");
+    const svg = await res.text();
+    expect(svg.startsWith('<svg xmlns="http://www.w3.org/2000/svg"')).toBe(true);
+    expect(svg).toContain('rx="14" fill="#1ba8c8"');
   });
 });
 
