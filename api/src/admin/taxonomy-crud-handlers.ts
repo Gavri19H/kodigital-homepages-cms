@@ -25,10 +25,12 @@
 //      rebuild (0007 only recreated articles + pages), so the POST slug
 //      probe is GLOBAL — a per-site-only probe would surface a 500 from
 //      the sqlite_autoindex instead of the typed 409.
-//   4. Category delete-guard: the categories row's article_count column
-//      is read first; a category with articles is refused with 400
-//      CATEGORY_HAS_ARTICLES (legacy port: "Move or delete articles
-//      first."). Join rows (category_verticals, site_categories) are
+//   4. Category delete-guard: the real number of Articles that use the
+//      category (COUNT(*) on articles.category_id) is read first; a
+//      category with articles is refused with 400 CATEGORY_HAS_ARTICLES
+//      (legacy port: "Move or delete articles first."). The stored
+//      categories.article_count column is NOT used: no write path ever
+//      updates it, so it is always 0 (X01). Join rows (category_verticals, site_categories) are
 //      removed in the same D1 batch as the categories row.
 //   5. Every D1 statement is `db.prepare(<static SQL>).bind(...)` — no
 //      template-literal SQL (d1-database-safety).
@@ -76,8 +78,10 @@ interface TagCreateBody {
   slug?: unknown;
 }
 
+// article_count is the real number of Articles using the category; the
+// stored categories.article_count column is never updated (X01).
 const CATEGORY_COLUMNS =
-  "id, slug, name, parent_id, featured_image_id, display_order, article_count, description, show_on_homepage";
+  "id, slug, name, parent_id, featured_image_id, display_order, (SELECT COUNT(*) FROM articles WHERE articles.category_id = categories.id) AS article_count, description, show_on_homepage";
 
 // Legacy isValidId port: positive decimal integer route param.
 function parseNumericId(raw: string | undefined): number | null {
@@ -289,7 +293,7 @@ export async function updateCategoryHandler(
   return c.json({ item: updated ?? null });
 }
 
-// DELETE /api/admin/categories/:id — delete-guard on article_count, then
+// DELETE /api/admin/categories/:id — delete-guard on the real Article count, then
 // remove the join rows + the category atomically. 400 invalid id or
 // guard refusal; 403 tenant mismatch (?site_id=); 404 unknown category;
 // 200 { ok, id } on success (NOT the legacy 204 — the admin layout's
@@ -301,10 +305,10 @@ export async function deleteCategoryHandler(
   if (id === null) return c.json({ error: "Invalid category ID" }, 400);
 
   const existing = await c.env.DB.prepare(
-    "SELECT id, article_count FROM categories WHERE id = ? LIMIT 1",
+    "SELECT id FROM categories WHERE id = ? LIMIT 1",
   )
     .bind(id)
-    .first<{ id: number; article_count: number }>();
+    .first<{ id: number }>();
   if (existing === null || existing === undefined) {
     return c.json({ error: "Category not found" }, 404);
   }
@@ -324,16 +328,22 @@ export async function deleteCategoryHandler(
     );
   }
 
-  // Delete-guard: the categories row's own article_count column is the
-  // authority (maintained by the article write paths). Refuse while
-  // articles still reference the category.
-  if ((existing.article_count ?? 0) > 0) {
+  // Delete-guard: count the Articles that really use this category.
+  // categories.article_count is never written by any code path (always 0),
+  // so it cannot be trusted (X01). Refuse while any Article references it.
+  const countRow = await c.env.DB.prepare(
+    "SELECT COUNT(*) AS n FROM articles WHERE category_id = ?",
+  )
+    .bind(id)
+    .first<{ n: number }>();
+  const articleCount = Number(countRow?.n ?? 0);
+  if (articleCount > 0) {
     return c.json(
       {
         error:
           "Cannot delete category with articles. Move or delete articles first.",
         code: "CATEGORY_HAS_ARTICLES",
-        article_count: existing.article_count,
+        article_count: articleCount,
       },
       400,
     );
