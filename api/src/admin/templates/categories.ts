@@ -310,7 +310,9 @@ const CATEGORIES_LIST_SCRIPT = `
     if (siteId) { url += '?site_id=' + encodeURIComponent(siteId); }
     window.api('DELETE', url).then(function (data) {
       if (data && data.error) {
-        window.showToast('Error: ' + data.error, 'error');
+        var n = data.article_count;
+        var countNote = (typeof n === 'number' && n > 0) ? ' (' + n + (n === 1 ? ' Article)' : ' Articles)') : '';
+        window.showToast('Error: ' + data.error + countNote, 'error');
       } else {
         window.location.reload();
       }

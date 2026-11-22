@@ -338,7 +338,7 @@ api.delete("/api/admin/pages/:id", deletePageHandler);
 
 api.get("/api/admin/categories", async (c) => {
   const result = await c.env.DB.prepare(
-    "SELECT id, slug, name, parent_id, featured_image_id, display_order, article_count FROM categories ORDER BY display_order ASC, name ASC LIMIT 500",
+    "SELECT id, slug, name, parent_id, featured_image_id, display_order, (SELECT COUNT(*) FROM articles WHERE articles.category_id = categories.id) AS article_count FROM categories ORDER BY display_order ASC, name ASC LIMIT 500",
   ).all<CategoryRow>();
   return c.json({ categories: result.results ?? [] });
 });

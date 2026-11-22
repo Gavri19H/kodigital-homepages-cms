@@ -445,11 +445,13 @@ describe("POST /api/admin/categories writes category_verticals rows", () => {
 // /api/admin/categories/:id (taxonomy-crud-handlers.ts).
 //
 // T30.AC1: "vitest category-multi-vertical: PUT/DELETE /categories +
-// delete-guard". The delete-guard contract: the handler reads the
-// categories row's article_count column (the existence probe SELECTs it)
-// and refuses with 400 CATEGORY_HAS_ARTICLES while articles still
-// reference the category; at zero the join rows (category_verticals,
-// site_categories) and the categories row are removed in one D1 batch.
+// delete-guard". The delete-guard contract: the handler counts the
+// Articles that really reference the category (COUNT(*) on
+// articles.category_id — X01: the stored categories.article_count column
+// is never updated, so it is no longer read) and refuses with 400
+// CATEGORY_HAS_ARTICLES while any exist; at zero the join rows
+// (category_verticals, site_categories) and the categories row are
+// removed in one D1 batch.
 describe("PUT/DELETE /api/admin/categories/:id (T30.AC1)", () => {
   const EXISTING = {
     id: 7,
@@ -461,12 +463,18 @@ describe("PUT/DELETE /api/admin/categories/:id (T30.AC1)", () => {
     article_count: 0,
   };
 
-  it("category delete guard reads article_count via mock-D1 db.prepare", async () => {
-    // Guard refusal: article_count > 0 → 400, nothing deleted.
+  it("category delete guard counts real articles via mock-D1 db.prepare", async () => {
+    // Guard refusal: 3 Articles reference the category → 400, nothing
+    // deleted. The stored article_count is 0 (as in production) and must
+    // not matter.
     const guarded = makeFakeDb([
       {
         match: "FROM categories WHERE id = ?",
-        row: { id: 7, article_count: 3 },
+        row: { id: 7, article_count: 0 },
+      },
+      {
+        match: "FROM articles WHERE category_id = ?",
+        row: { n: 3 },
       },
     ]);
     const refused = await admin.request(
@@ -483,12 +491,12 @@ describe("PUT/DELETE /api/admin/categories/:id (T30.AC1)", () => {
     expect(refusedBody.code).toBe("CATEGORY_HAS_ARTICLES");
     expect(refusedBody.article_count).toBe(3);
 
-    // The guard's evidence: the existence probe SELECTed article_count
-    // from categories with the id parameterized via .bind().
+    // The guard's evidence: it COUNTed the Articles referencing the
+    // category, with the id parameterized via .bind().
     const probe = guarded.calls.find(
       (c) =>
-        c.sql.indexOf("article_count") >= 0 &&
-        c.sql.indexOf("FROM categories WHERE id = ?") >= 0,
+        c.sql.indexOf("COUNT(*)") >= 0 &&
+        c.sql.indexOf("FROM articles WHERE category_id = ?") >= 0,
     );
     expect(probe).toBeDefined();
     expect(probe?.binds).toEqual([7]);
@@ -496,12 +504,16 @@ describe("PUT/DELETE /api/admin/categories/:id (T30.AC1)", () => {
       guarded.calls.find((c) => c.sql.indexOf("DELETE FROM categories") >= 0),
     ).toBeUndefined();
 
-    // Guard pass: article_count == 0 → join rows + category removed in
-    // one batch, 200 { ok: true }.
+    // Guard pass: no Article references it → join rows + category removed
+    // in one batch, 200 { ok: true }.
     const clear = makeFakeDb([
       {
         match: "FROM categories WHERE id = ?",
         row: { id: 7, article_count: 0 },
+      },
+      {
+        match: "FROM articles WHERE category_id = ?",
+        row: { n: 0 },
       },
     ]);
     const deleted = await admin.request(

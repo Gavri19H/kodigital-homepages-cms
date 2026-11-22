@@ -582,6 +582,12 @@ export async function getAdminPage(
 // (group_concat over the category_verticals → verticals join, ordered by
 // the join's display_order) so the list keeps a single round-trip and no
 // extra .bind() params — sidestepping the 100-binding cap (d1-database-safety).
+// Real number of Articles using each category. The stored
+// categories.article_count column is never updated by any write path
+// (always 0), so the Categories "Articles" column counts rows (X01).
+const CATEGORY_ARTICLE_COUNT_SUBQUERY =
+  "(SELECT COUNT(*) FROM articles WHERE articles.category_id = categories.id) AS article_count";
+
 const CATEGORY_VERTICALS_SUBQUERY =
   "(SELECT group_concat(v.slug, ',') FROM category_verticals cv " +
   "INNER JOIN verticals v ON v.id = cv.vertical_id " +
@@ -596,7 +602,7 @@ export async function listAdminCategories(
   env: Env,
 ): Promise<CategoryRowDto[]> {
   const result = await env.DB.prepare(
-    "SELECT id, name, slug, article_count, display_order, show_on_homepage, " +
+    "SELECT id, name, slug, " + CATEGORY_ARTICLE_COUNT_SUBQUERY + ", display_order, show_on_homepage, " +
       CATEGORY_VERTICALS_SUBQUERY +
       " FROM categories ORDER BY display_order ASC, name ASC LIMIT 500",
   ).all<CategoryRecord>();
@@ -1029,7 +1035,7 @@ export async function listAdminCategoriesFiltered(
   const total = countRow ? Number(countRow.n) : 0;
 
   const result = await env.DB.prepare(
-    "SELECT id, name, slug, article_count, display_order, show_on_homepage, " +
+    "SELECT id, name, slug, " + CATEGORY_ARTICLE_COUNT_SUBQUERY + ", display_order, show_on_homepage, " +
       CATEGORY_VERTICALS_SUBQUERY +
       " FROM categories WHERE " +
       clause +
