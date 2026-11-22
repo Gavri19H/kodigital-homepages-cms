@@ -39,11 +39,11 @@ describe("X14 Domains list — site picture", () => {
     expect(html).toBe('<span class="site-icon site-icon-letter" aria-hidden="true">A</span>');
   });
 
-  it("shows the letter badge when the site has neither, and skips a bare numeric (non-key) logo value", () => {
+  it("shows the letter badge when the site has neither; a number media id is a real picture (served by /media/<id>)", () => {
     expect(siteIconHtml({ ...base, name: "zeta news" })).toBe(
       '<span class="site-icon site-icon-letter" aria-hidden="true">Z</span>',
     );
-    expect(siteIconHtml({ ...base, logo_media_id: "7" })).toContain("site-icon-letter");
+    expect(siteIconHtml({ ...base, logo_media_id: "7" })).toContain('src="/media/7"');
   });
 
   it("escapes the letter and the stored picture value", () => {

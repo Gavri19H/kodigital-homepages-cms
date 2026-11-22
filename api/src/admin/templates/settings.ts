@@ -304,12 +304,11 @@ function renderEntityProfilesCard(values: SettingsValueMap): string {
 }
 
 // X14: a stored media reference is usable as a picture address only when it
-// resolves to a same-origin /media/ path. A bare number is not a storage key
-// (an older AI-logo client wrote the numeric media id here), so it is skipped
-// rather than shown as a broken picture.
+// resolves to a same-origin /media/ path. A number id (an older AI-logo client
+// wrote one) is fine: /media/<id> is served, as on the public site.
 function storedMediaPath(ref: string): string | null {
   const key = ref.trim();
-  if (key.length === 0 || /^[0-9]+$/.test(key)) return null;
+  if (key.length === 0) return null;
   const url = mediaUrl(key);
   return url !== null && url.startsWith("/media/") ? url : null;
 }

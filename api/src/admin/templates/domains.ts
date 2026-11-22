@@ -77,12 +77,13 @@ function actionsCell(): string {
 // icon, else the uploaded logo, else a teal badge with the site's first letter.
 // Only same-origin /media/ pictures qualify; the logo the setup step makes with
 // AI (ai/<site>/logo/) is never used (public rule, see uploadedLogoUrl in
-// public/templates/components.ts), and a bare number is not a storage key.
+// public/templates/components.ts). A number id is fine: /media/<id> is served
+// (media/serve.ts maps it to its file), as on the public site.
 var AI_SETUP_LOGO_PATH = /^\/media\/ai\/[^/]+\/logo\//;
 
 function siteMediaPath(ref: string | undefined): string | null {
   var key = typeof ref === "string" ? ref.trim() : "";
-  if (key.length === 0 || /^[0-9]+$/.test(key)) { return null; }
+  if (key.length === 0) { return null; }
   var url = mediaUrl(key);
   return url !== null && url.indexOf("/media/") === 0 ? url : null;
 }
