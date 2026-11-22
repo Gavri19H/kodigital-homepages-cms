@@ -30,7 +30,9 @@
 // Bumping content_version on a single site only invalidates that site's
 // keys; bumping TEMPLATE_VERSION here invalidates every cached HTML key
 // across every site at once (the suffix changes for every key).
-export const TEMPLATE_VERSION = 1 as const;
+// v2 (2026-11-22, X14 v2): every public page <head> gains the tab icon, phone
+// icon and browser color; the footer shows the uploaded logo.
+export const TEMPLATE_VERSION = 2 as const;
 
 // Namespace prefixes — these are the wire identifiers that appear at the
 // start of every cache key. Keep them in sync with the field_contract.fields
@@ -231,7 +233,10 @@ export function listicleCandidateKey(
 // page-script.ts) that runs the countdown on the redirect screen — shell markup
 // changes, same 304 reason as v6. The visitor bundle (runtime/**) itself is
 // unchanged by F11.
-export const LEADGEN_TEMPLATE_VERSION = 12 as const;
+// v13 (2026-11-22, X14 v2): the SHELL <head> gains the site's tab icon, phone
+// icon, browser color and the logo share picture; the site logo follows the
+// one logo rule. Shell markup changes; the visitor bundle is unchanged.
+export const LEADGEN_TEMPLATE_VERSION = 13 as const;
 
 const NS_LG_SHELL = "lg-shell";
 const NS_LG_CONFIG = "lg-config";

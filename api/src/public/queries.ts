@@ -13,6 +13,7 @@
 import type { ArticleRow } from "../db";
 import type { SitemapPageRow } from "./sitemap";
 import { mediaUrl } from "./view-models/media-url";
+import { siteFaviconUrl } from "./site-brand";
 
 // rescue-4 round-3 (issue 1): category/tag listing rows carry the resolved
 // feature image (storage_key + alt) so their cards render the REAL image like
@@ -225,6 +226,8 @@ export interface PublicLayoutSiteInfo {
   tagline: string;
   description: string;
   logoUrl: string | null;
+  // X14 v2: the site's "Tab icon" (favicon_media_id), null = the badge.
+  faviconUrl?: string | null;
   brandTokens: Readonly<Record<string, string>>;
 }
 
@@ -276,6 +279,7 @@ export async function fetchPublicLayoutSiteInfo(
     // /media/<key> web address so the design .brand <img> actually loads.
     // (Historically the bare key was rendered verbatim into src="" → broken.)
     logoUrl: mediaUrl(settings.logo_media_id),
+    faviconUrl: siteFaviconUrl(settings.favicon_media_id),
     brandTokens: parseBrandTokensJson(settings.brand_tokens_json),
   };
 }

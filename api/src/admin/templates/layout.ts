@@ -64,6 +64,16 @@ const BRAND_TEXT = "KoDigital CMS";
 
 const LOGO_BADGE = `<svg width="32" height="32" viewBox="0 0 32 32" fill="currentColor"><rect x="2" y="2" width="28" height="28" rx="4" fill="#2563eb"/><text x="16" y="22" text-anchor="middle" font-size="12" font-weight="bold" fill="white">KD</text></svg>`;
 
+// X14: the admin's browser-tab icon is the same KD brand mark, inlined as a
+// URL-encoded SVG data address (no extra request, no file to host). A
+// stand-alone SVG needs its xmlns; the font is pinned so the letters render
+// the same outside the page.
+const ADMIN_FAVICON_SVG = LOGO_BADGE
+  .replace("<svg ", '<svg xmlns="http://www.w3.org/2000/svg" ')
+  .replace('font-weight="bold"', 'font-weight="bold" font-family="Arial, Helvetica, sans-serif"');
+export const ADMIN_FAVICON_LINK =
+  `<link rel="icon" type="image/svg+xml" href="data:image/svg+xml,${encodeURIComponent(ADMIN_FAVICON_SVG)}">`;
+
 // Shared HTML-escaper for every admin template. T33 de-dup contract:
 // this export is the ONLY escapeHtml definition under
 // api/src/admin/templates/ — page templates import it from here instead
@@ -362,6 +372,7 @@ export function adminLayout(options: AdminLayoutOptions): string {
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
   <meta name="robots" content="noindex,nofollow">
   <title>${safeTitle} | ${escapeHtml(BRAND_TEXT)}</title>
+  ${ADMIN_FAVICON_LINK}
   <style>${ADMIN_STYLES}${styles}${conversionsUiEnabled ? CONVERSIONS_NAV_STYLES : ""}</style>${stylesheetTags}
 </head>
 <body data-area="admin">
@@ -408,6 +419,7 @@ export function adminStandalonePage(options: AdminStandalonePageOptions): string
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
   <meta name="robots" content="noindex,nofollow">
   <title>${safeTitle} | ${escapeHtml(BRAND_TEXT)}</title>
+  ${ADMIN_FAVICON_LINK}
   <style>${ADMIN_STYLES}${styles}</style>
 </head>
 <body data-area="admin-standalone">

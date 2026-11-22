@@ -98,8 +98,11 @@ describe("Conversions disabled route shell", () => {
     // this test exists to defend (a pre-existing adminLayout call must not leak
     // ANY Conversions markup or a module script into the legacy shell) is
     // unchanged and still asserted below, and both still hold.
-    expect(Buffer.byteLength(html)).toBe(20312);
-    expect(sha256(html)).toBe("b7d6e8dfbed2479f70d06eb78e5e08a387715b2a463c50882ec6e96067c6408b");
+    // Re-pinned again by X14: every admin <head> now carries the KD tab icon
+    // (<link rel="icon"> with the URL-encoded brand-mark SVG), +577 bytes
+    // (was 20312 / b7d6e8df…). The no-Conversions claim below is unchanged.
+    expect(Buffer.byteLength(html)).toBe(20889);
+    expect(sha256(html)).toBe("eb1c17698f6f1a5d546d6253d7178915a90ed2aafe15dd5fdd92b49006b787e5");
     expect(html).not.toContain("Conversions");
     expect(html).not.toContain('type="module"');
   });

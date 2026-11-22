@@ -17,6 +17,7 @@ import { renderSeoHead, buildCanonicalUrl } from "./seo-head";
 import { publicCss } from "../assets/public-css";
 import { publicJs } from "../assets/public-js";
 import { ANALYTICS_TRACKING_SCRIPT } from "../../analytics/tracking-script";
+import { siteIconHeadTags, siteBrandColor, absoluteOnHost, uploadedLogoUrl } from "../site-brand";
 
 // Cache-busting asset versions: a cheap djb2 content-hash over the served CSS
 // and JS, computed once per isolate. The /assets/public.{css,js} links carry
@@ -42,6 +43,8 @@ export interface LayoutSite {
   // Snake_case alias kept so callers may hand us the D1 row shape directly.
   brand_tokens?: Readonly<Record<string, string>>;
   logoUrl?: string | null;
+  // X14 v2: the site's "Tab icon" (/media/ address) — null/absent = the badge.
+  faviconUrl?: string | null;
 }
 
 export interface LayoutMeta {
@@ -206,10 +209,12 @@ export function renderLayout(args: RenderLayoutArgs): string {
         : undefined,
     title: meta.title,
     description: meta.description ?? site.description,
+    // X14 v2 (owner Q6): a page with no picture of its own shares the site's
+    // uploaded logo, as a full web address.
     ogImage:
       meta.ogImage !== undefined && meta.ogImage !== null && meta.ogImage.length > 0
         ? meta.ogImage
-        : undefined,
+        : (absoluteOnHost(site.hostname, uploadedLogoUrl(site.logoUrl ?? null)) ?? undefined),
     siteName: site.name,
     ogType: meta.ogType,
     robots: meta.robots,
@@ -221,6 +226,11 @@ export function renderLayout(args: RenderLayoutArgs): string {
     articleAuthor: meta.articleAuthor,
   });
   const jsonLdBlocks = renderJsonLdBlocks(meta.jsonLd);
+  // X14 v2: tab icon, phone home-screen icon and browser color, on every page.
+  const iconTags = siteIconHeadTags({
+    faviconUrl: site.faviconUrl ?? null,
+    brandColor: siteBrandColor(tokens),
+  });
   const linkTags = renderLinks(meta.links);
   // rescue-6 (agent-readiness M1.1): advertise the RSS + Atom feeds so readers
   // AND agents can discover them from any page's <head> without guessing the
@@ -241,6 +251,7 @@ export function renderLayout(args: RenderLayoutArgs): string {
 <meta name="viewport" content="width=device-width, initial-scale=1">
 ${consentHead}
 ${seoHead}
+${iconTags}
 ${linkTags}
 ${feedLinks}
 <link rel="preconnect" href="https://fonts.googleapis.com">

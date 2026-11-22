@@ -59,6 +59,7 @@ import {
   geoFromCf,
   hourInTimezone,
 } from "../../analytics/listicle-quality";
+import { withoutAiSetupLogo } from "../site-brand";
 
 type PublicContext = Context<{ Bindings: Env; Variables: PublicSiteVariables }>;
 
@@ -217,12 +218,14 @@ function brandFromSettings(
     typeof settings.site_name === "string" && settings.site_name.trim() !== ""
       ? settings.site_name.trim()
       : hostname;
+  // X14 v2 (owner Q4, 22 Nov 2026): the same logo rule as the homepage —
+  // uploaded /media/ logos only; the AI-made setup logo counts as none.
   let logoUrl = mediaUrl(settings.logo_media_id);
   if (logoUrl === null) {
     const direct = (settings.site_logo_url ?? "").trim();
     logoUrl = direct !== "" && isSafeUrl(direct) ? direct : null;
   }
-  return { siteName, logoUrl };
+  return { siteName, logoUrl: withoutAiSetupLogo(logoUrl) };
 }
 
 async function resolveHeroUrl(

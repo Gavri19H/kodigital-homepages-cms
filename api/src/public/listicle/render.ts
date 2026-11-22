@@ -28,6 +28,26 @@ import {
   beaconScriptTag,
   safeInlineJson,
 } from "./runtime";
+import { siteIconHeadTags, siteFaviconUrl, siteBrandColor, absoluteOnHost, uploadedLogoUrl } from "../site-brand";
+
+function parseBrandTokens(raw: string | undefined): Record<string, string> {
+  if (typeof raw !== "string" || raw === "") return {};
+  try {
+    const v: unknown = JSON.parse(raw);
+    if (v === null || typeof v !== "object" || Array.isArray(v)) return {};
+    const out: Record<string, string> = {};
+    for (const [k, x] of Object.entries(v as Record<string, unknown>)) if (typeof x === "string") out[k] = x;
+    return out;
+  } catch {
+    return {};
+  }
+}
+
+function ogLogoTag(hostname: string, logoUrl: string | null): string {
+  const abs = absoluteOnHost(hostname, uploadedLogoUrl(logoUrl));
+  return abs === null ? "" : `<meta property="og:image" content="${escapeAttr(abs)}">`;
+}
+
 
 // ---------------------------------------------------------------------------
 // §22.4 payload-guard constants (config consts, "~40 KB or ~50% whichever
@@ -539,6 +559,13 @@ export function renderListicleDocument(input: ListicleRenderInput): ListicleRend
     `<meta property="og:title" content="${escapeAttr(titleLine)}">`,
     `<meta property="og:type" content="article">`,
     `<meta property="og:url" content="${escapeAttr(canonical)}">`,
+    // X14 v2: tab icon, phone icon and browser color; the uploaded logo as the
+    // share picture (listicles have no share picture of their own today).
+    siteIconHeadTags({
+      faviconUrl: siteFaviconUrl(input.settings.favicon_media_id),
+      brandColor: siteBrandColor(parseBrandTokens(input.settings.brand_tokens_json)),
+    }),
+    ogLogoTag(input.hostname, input.brand.logoUrl),
     `<style>${defaultLayoutCss()}</style>`,
     // No-JS fallback: without the §15.3 selector, the DEFAULT candidates
     // (the only .lst-cand divs in the shell — alternates are inert

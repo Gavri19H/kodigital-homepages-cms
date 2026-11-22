@@ -160,6 +160,10 @@ export interface DomainRowDto {
   articles: number;
   created: string;
   last_provisioned: string;
+  // X14: the site's tab icon and logo settings (bare media storage keys; ""
+  // when unset), so the list can show a small picture before the site name.
+  favicon_media_id?: string;
+  logo_media_id?: string;
 }
 
 export interface VerticalDto {
@@ -406,6 +410,19 @@ export async function listAdminDomains(env: Env): Promise<DomainRowDto[]> {
   for (const c of counts.results ?? []) {
     countBySite.set(c.site_id, c.n);
   }
+  // X14: one read for every listed site's tab icon + logo (not one per row).
+  // The sub-select keeps it to sites that have a domain, without binding a
+  // site id per row (D1 caps bound parameters at 100).
+  const pictures = await env.DB.prepare(
+    "SELECT site_id, key, value FROM site_settings WHERE key IN ('favicon_media_id', 'logo_media_id') AND site_id IN (SELECT DISTINCT site_id FROM domains)",
+  ).all<{ site_id: string; key: string; value: string | null }>();
+  const faviconBySite = new Map<string, string>();
+  const logoBySite = new Map<string, string>();
+  for (const p of pictures.results ?? []) {
+    const value = typeof p.value === "string" ? p.value : "";
+    if (p.key === "favicon_media_id") faviconBySite.set(p.site_id, value);
+    else if (p.key === "logo_media_id") logoBySite.set(p.site_id, value);
+  }
   return (rows.results ?? []).map((r) => ({
     domain: r.hostname,
     site_id: r.site_id,
@@ -416,6 +433,8 @@ export async function listAdminDomains(env: Env): Promise<DomainRowDto[]> {
     articles: countBySite.get(r.site_id) ?? 0,
     created: fmtDate(r.created_at),
     last_provisioned: fmtDate(r.last_provisioned_at),
+    favicon_media_id: faviconBySite.get(r.site_id) ?? "",
+    logo_media_id: logoBySite.get(r.site_id) ?? "",
   }));
 }
 

@@ -47,6 +47,7 @@ import { renderHome } from "./templates/home";
 import { renderArticle } from "./templates/article";
 import { renderLayout } from "./templates/layout";
 import { renderCustomHead, renderCustomFooter, renderConsentHead } from "../settings/custom-html";
+import { absoluteOnHost, uploadedLogoUrl } from "./site-brand";
 
 // T23: load the per-site operator snippets (custom_head_html / analytics_script
 // / ad_header_script / custom_footer_html) and return the SANITIZED <head>/
@@ -171,6 +172,8 @@ export async function renderHomepageHtml(
       url: canonicalUrl,
       name: vm.site.name,
       sameAs: customHtml.orgSameAs,
+      // X14 v2: the uploaded logo (the one logo rule), as a full address.
+      logoUrl: absoluteOnHost(siteContext.hostname, uploadedLogoUrl(vm.site.logoUrl)) ?? undefined,
     }),
   ];
   if (listed.length > 0) {
@@ -209,6 +212,7 @@ export async function renderHomepageHtml(
       description: vm.site.description,
       brandTokens: vm.site.brandTokens,
       logoUrl: vm.site.logoUrl,
+      faviconUrl: vm.site.faviconUrl,
     },
     meta: {
       title: vm.meta.title,
@@ -283,9 +287,12 @@ export async function renderArticleHtml(
         vm.article.updatedAt.length > 0
           ? vm.article.updatedAt
           : vm.article.publishedAt,
-      authorName: vm.article.author?.name ?? siteContext.hostname,
+      authorName: vm.article.author?.name ?? vm.site.name,
       authorType: vm.article.author !== null ? "Person" : "Organization",
-      publisherName: siteContext.hostname,
+      // X14 v2: the publisher is the site (its name and uploaded logo), not
+      // the bare web address.
+      publisherName: vm.site.name,
+      publisherLogo: absoluteOnHost(siteContext.hostname, uploadedLogoUrl(vm.site.logoUrl)) ?? undefined,
     }),
     renderBreadcrumbJsonLd({
       items: vm.breadcrumb.map((b) => ({
@@ -359,6 +366,7 @@ export async function renderArticleHtml(
       description: vm.site.description,
       brandTokens: vm.site.brandTokens,
       logoUrl: vm.site.logoUrl,
+      faviconUrl: vm.site.faviconUrl,
     },
     meta: {
       title: vm.meta.title,
@@ -540,6 +548,7 @@ export async function renderCategoryHtml(
       description: site.description,
       brandTokens: site.brandTokens,
       logoUrl: site.logoUrl,
+      faviconUrl: site.faviconUrl,
     },
     meta: {
       title: cat.name,
@@ -672,6 +681,7 @@ export async function renderTagHtml(
       description: site.description,
       brandTokens: site.brandTokens,
       logoUrl: site.logoUrl,
+      faviconUrl: site.faviconUrl,
     },
     meta: {
       title: tag.name,
@@ -807,6 +817,7 @@ export async function renderPageHtml(
       description: site.description,
       brandTokens: site.brandTokens,
       logoUrl: site.logoUrl,
+      faviconUrl: site.faviconUrl,
     },
     meta: {
       // X15 (D2): the Page form's SEO fields win when filled in.

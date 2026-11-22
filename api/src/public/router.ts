@@ -84,7 +84,7 @@ import {
   renderTagHtml,
   renderPageHtml,
 } from "./render-pages";
-import { renderErrorPage } from "./render-error";
+import { renderErrorPage, type ErrorPageOptions } from "./render-error";
 import {
   tryServePublishedListicle,
   serveListicleCandidate,
@@ -98,6 +98,8 @@ import {
   renderHomeWebsiteJsonLd,
   renderCategoryJsonLd,
 } from "./templates/jsonld-home-category-page";
+import { siteIconHref, siteBadgeIconSvg, siteBrandColor, SITE_ICON_SVG_PATH } from "./site-brand";
+import { resolveSiteContextFromRequest } from "../site/site-context";
 
 function siteInfo(env: Env, siteContext: PublicSiteContext): FeedSiteInfo {
   const tenantBase = `https://${siteContext.hostname}`;
@@ -118,10 +120,10 @@ const router = new Hono<{ Bindings: Env; Variables: PublicSiteVariables }>();
 // from the resolved tenant siteContext (or the request URL as a fallback when
 // the error fired before the site-context middleware ran) — the admin host is
 // never used here.
-function publicErrorResponse(
+async function publicErrorResponse(
   c: Context<{ Bindings: Env; Variables: PublicSiteVariables }>,
   status: 404 | 500,
-): Response {
+): Promise<Response> {
   const siteContext = c.get("siteContext") as PublicSiteContext | undefined;
   let hostname =
     siteContext !== undefined && typeof siteContext.hostname === "string"
@@ -134,8 +136,32 @@ function publicErrorResponse(
       hostname = "";
     }
   }
-  return c.html(renderErrorPage({ hostname, status }), status);
+  // X14 v2: show the site's own name, logo and tab icon when its settings can
+  // be read quickly. Fail-open: any error or a slow read (the 500 may be the
+  // database itself) keeps today's DB-free page.
+  let siteName: string | undefined;
+  let brand: ErrorPageOptions["brand"];
+  if (siteContext !== undefined && typeof siteContext.siteId === "string" && siteContext.siteId.length > 0) {
+    try {
+      const info = await Promise.race([
+        fetchPublicLayoutSiteInfo(c.env.DB, siteContext),
+        new Promise<null>((resolve) => setTimeout(() => resolve(null), ERROR_PAGE_BRAND_TIMEOUT_MS)),
+      ]);
+      if (info !== null) {
+        siteName = info.name;
+        brand = { logoUrl: info.logoUrl, faviconUrl: info.faviconUrl ?? null, tagline: info.tagline, brandTokens: info.brandTokens };
+      }
+    } catch {
+      /* keep the DB-free page */
+    }
+  }
+  return c.html(
+    renderErrorPage({ hostname, status, ...(siteName !== undefined ? { siteName } : {}), ...(brand !== undefined ? { brand } : {}) }),
+    status,
+  );
 }
+
+const ERROR_PAGE_BRAND_TIMEOUT_MS = 1500;
 
 // A thrown error in ANY public-content handler renders the styled 500. A
 // mounted sub-app's onError fires under the parent app (verified against
@@ -151,12 +177,31 @@ router.onError((_err, c) => publicErrorResponse(c, 500));
 // BEFORE publicSiteContextMiddleware so it stays host-independent and
 // needs no tenant DB lookup: a favicon is a generic asset request, not
 // site-scoped content.
-router.get("/favicon.ico", () =>
-  new Response(null, {
+// X14 v2 (owner, 22 Nov 2026): /favicon.ico now points browsers and bookmark
+// tools at the site's tab icon (its "Tab icon" resized to 32 px, else the
+// /site-icon.svg badge). It still runs BEFORE the site middleware and stays
+// fail-open: an unknown host or any read error answers the old 204.
+router.get("/favicon.ico", async (c) => {
+  try {
+    const site = await resolveSiteContextFromRequest(c.req.raw, c.env.DB, c.env);
+    if (site !== null) {
+      const info = await fetchPublicLayoutSiteInfo(c.env.DB, { siteId: site.site_id, hostname: site.hostname });
+      return new Response(null, {
+        status: 302,
+        headers: {
+          Location: siteIconHref(info.faviconUrl ?? null, 32),
+          "Cache-Control": "public, max-age=3600",
+        },
+      });
+    }
+  } catch {
+    /* fail-open: fall through to the "no favicon" answer */
+  }
+  return new Response(null, {
     status: 204,
     headers: { "Cache-Control": "public, max-age=86400" },
-  }),
-);
+  });
+});
 
 // rescue-4 — the public design assets the layout links: /assets/public.css
 // (the theiwise design system — --tw-brand:#1ba8c8, the 13/12 section styling,
@@ -317,6 +362,23 @@ export function acceptPrefersMarkdown(accept: string | null | undefined): boolea
 // rescue-2 served the bare fallback because the route called no db-fed
 // renderer; the served HTML now carries the 13 home sections, the inline
 // brand tokens and the design shell.
+// X14 v2: the site's badge as its tab icon (sites with no "Tab icon"). Drawn
+// from the site's brand color and name; any read error draws the default.
+router.get(SITE_ICON_SVG_PATH, async (c) => {
+  const siteContext = c.get("siteContext");
+  let svg: string;
+  try {
+    const info = await fetchPublicLayoutSiteInfo(c.env.DB, siteContext);
+    svg = siteBadgeIconSvg({ brandColor: siteBrandColor(info.brandTokens), name: info.name, tagline: info.tagline });
+  } catch {
+    svg = siteBadgeIconSvg({ brandColor: siteBrandColor(undefined) });
+  }
+  return new Response(svg, {
+    status: 200,
+    headers: { "Content-Type": "image/svg+xml; charset=utf-8", "Cache-Control": "public, max-age=3600" },
+  });
+});
+
 router.get("/", async (c) => {
   const siteContext = c.get("siteContext");
   const path = "/";

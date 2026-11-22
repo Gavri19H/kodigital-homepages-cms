@@ -57,8 +57,8 @@ const LG_ENGINE_VERSION = /export const LG_ENGINE_VERSION = "([^"]+)"/.exec(ENGI
 // (the hook call added); v8 was 330356c1…; v7: the shell's no-match block; v6:
 // a shell-CSS bump: the engine differs from v5 only by the version it reports;
 // v5 was b216862a…, v4 53dbaf55…).
-const RUNTIME_BUNDLE_SHA256 = "f0e9863b0ba4e78be2fe12e595282c0327248fc8d8e34cf9b87fb33d485a2e5e";
-const RUNTIME_BUNDLE_VERSION = 12;
+const RUNTIME_BUNDLE_SHA256 = "6ef47bd1f7d07d061d465bebd554ddfb395af116dd775d810198b8c1f0314130";
+const RUNTIME_BUNDLE_VERSION = 13;
 
 describe("the runtime bundle is pinned to its immutable URL version", () => {
   it("engine bytes unchanged, or the version moved with them", () => {

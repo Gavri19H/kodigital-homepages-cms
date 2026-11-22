@@ -28,6 +28,8 @@
 // brand strings are emitted from this template.
 
 import { adminLayout, escapeHtml } from "./layout";
+import { mediaUrl } from "../../public/view-models/media-url";
+import { brandGlyphSvg, resolveBrandGlyphKey } from "../../public/templates/icons";
 
 export interface SiteOption {
   id: string;
@@ -60,6 +62,7 @@ export const SETTING_KEYS: ReadonlyArray<string> = [
 // the 12 canonical keys via the same arbitrary-key PATCH route. They are
 // kept OUT of SETTING_KEYS so the canonical-key contract (handler +
 // round-trip tests) is unchanged; the submit script lists them explicitly.
+// X14: favicon_media_id (the Tab icon) follows the same pattern.
 
 const NEWSLETTER_PROVIDERS: ReadonlyArray<[string, string]> = [
   ["", "None"],
@@ -300,11 +303,37 @@ function renderEntityProfilesCard(values: SettingsValueMap): string {
   );
 }
 
+// X14: a stored media reference is usable as a picture address only when it
+// resolves to a same-origin /media/ path. A number id (an older AI-logo client
+// wrote one) is fine: /media/<id> is served, as on the public site.
+function storedMediaPath(ref: string): string | null {
+  const key = ref.trim();
+  if (key.length === 0) return null;
+  const url = mediaUrl(key);
+  return url !== null && url.startsWith("/media/") ? url : null;
+}
+
+// X14: the logo the setup step makes with AI lives under ai/<site>/logo/ and
+// is NOT shown on public pages (owner rule; same pattern as uploadedLogoUrl in
+// public/templates/components.ts).
+const AI_SETUP_LOGO_PATH = /^\/media\/ai\/[^/]+\/logo\//;
+
+// X14: the Logo preview reads logo_media_id first (the key the public site
+// reads, and the only one set by "Generate with AI"), falling back to the old
+// duplicate site_logo_url.
+function logoPreviewUrl(values: SettingsValueMap): string {
+  const fromMediaId = storedMediaPath(settingValue(values, "logo_media_id"));
+  return fromMediaId !== null ? fromMediaId : settingValue(values, "site_logo_url");
+}
+
 function renderSiteLogoCard(values: SettingsValueMap): string {
   const logoUrl = settingValue(values, "site_logo_url");
-  const previewImg = logoUrl
-    ? `<img src="${escapeHtml(logoUrl)}" alt="Current logo" />`
+  const previewUrl = logoPreviewUrl(values);
+  const previewImg = previewUrl
+    ? `<img src="${escapeHtml(previewUrl)}" alt="Current logo" />`
     : "";
+  const isAiLogo = AI_SETUP_LOGO_PATH.test(previewUrl);
+  const aiNote = `<small id="logo-ai-note" class="form-help"${isAiLogo ? "" : " hidden"}>This logo was made by AI at site setup. Public pages show the site's badge until you upload a logo.</small>`;
   // T15: file upload (logoFileInput -> POST /admin/media -> site_logo_url).
   const fileUpload = `<div class="form-group" data-setting-key="site_logo_url">
     <label class="form-label" for="logoFileInput">Upload logo</label>
@@ -312,6 +341,7 @@ function renderSiteLogoCard(values: SettingsValueMap): string {
     <input type="hidden" id="setting-site_logo_url" name="site_logo_url" data-field="setting_value" data-key="site_logo_url" value="${escapeHtml(logoUrl)}" />
     <p id="logo-upload-status" class="form-status" role="status" aria-live="polite"></p>
     <div id="logo-upload-preview" class="site-logo-preview" aria-hidden="false">${previewImg}</div>
+    ${aiNote}
     <small class="form-hint">Upload a logo image; it is stored in the media library and applied to this site.</small>
   </div>`;
   // T24: operator-directed AI logo panel. The operator describes the logo and
@@ -349,6 +379,45 @@ function renderSiteLogoCard(values: SettingsValueMap): string {
       settingValue(values, "logo_media_id"),
       "Media library id of the logo image.",
     ) + fileUpload + aiPanel,
+  );
+}
+
+// X14: "Tab icon" (favicon_media_id) — the small picture in the browser tab
+// and on phone home screens. Uploads through the same POST /admin/media call
+// as the logo; the returned storage_key goes into the hidden input saved with
+// the other settings. With none set the preview shows the site's badge (the
+// same teal badge + glyph the public header uses).
+// Code-owned copy (no operator input), so it is emitted as-is.
+const FAVICON_HELP =
+  "The small picture in the browser tab and on phone home screens. Use a square picture, at least 180 × 180 (512 × 512 is best). With none, the site's badge is used.";
+const FAVICON_SQUARE_NOTE = "Square pictures look best: this one will be fitted inside a square.";
+
+function renderTabIconCard(values: SettingsValueMap): string {
+  const faviconId = settingValue(values, "favicon_media_id");
+  const faviconUrl = storedMediaPath(faviconId);
+  const glyphKey = resolveBrandGlyphKey(
+    `${settingValue(values, "site_name")} ${settingValue(values, "tagline")}`,
+  );
+  const img = faviconUrl !== null
+    ? `<img id="favicon-preview-img" src="${escapeHtml(faviconUrl)}" alt="Current tab icon" />`
+    : `<img id="favicon-preview-img" alt="Current tab icon" hidden />`;
+  const badge = `<span id="favicon-preview-badge" class="favicon-badge" aria-hidden="true"${faviconUrl !== null ? " hidden" : ""}>${brandGlyphSvg(glyphKey, 20)}</span>`;
+  return renderCard(
+    "Tab icon",
+    `<div class="form-group" data-setting-key="favicon_media_id">
+    <label class="form-label" for="faviconFileInput">Tab icon</label>
+    <div class="favicon-field">
+      <div id="favicon-preview" class="favicon-preview">${img}${badge}</div>
+      <div class="favicon-controls">
+        <input id="faviconFileInput" type="file" accept="image/png,image/jpeg,image/webp,image/svg+xml" class="form-input" />
+        <button type="button" id="favicon-remove" class="btn btn-secondary btn-sm"${faviconUrl !== null ? "" : " hidden"}>Remove</button>
+      </div>
+    </div>
+    <input type="hidden" id="setting-favicon_media_id" name="favicon_media_id" data-field="setting_value" data-key="favicon_media_id" value="${escapeHtml(faviconId)}" />
+    <p id="favicon-upload-status" class="form-status" role="status" aria-live="polite"></p>
+    <small id="favicon-square-note" class="form-help" hidden>${FAVICON_SQUARE_NOTE}</small>
+    <small class="form-help">${FAVICON_HELP}</small>
+  </div>`,
   );
 }
 
@@ -864,7 +933,7 @@ function renderTabs(values: SettingsValueMap): string {
     renderTabPanel(
       "logo",
       false,
-      renderSiteLogoCard(values) + renderBrandTokensCard(values),
+      renderSiteLogoCard(values) + renderTabIconCard(values) + renderBrandTokensCard(values),
     ) +
     renderTabPanel("seo", false, renderRobotsTxtCard(values) + renderEntityProfilesCard(values)) +
     renderTabPanel(
@@ -906,6 +975,12 @@ const SETTINGS_STYLES = `
 .ai-logo-preview img { max-height: 60px; max-width: 240px; object-fit: contain; border: 1px solid var(--c-border, #d9dde3); border-radius: 6px; padding: 4px; }
 .site-logo-preview { margin-top: 8px; }
 .site-logo-preview img { max-height: 60px; max-width: 240px; object-fit: contain; border: 1px solid var(--c-border, #d9dde3); border-radius: 6px; padding: 4px; }
+.favicon-field { display: flex; align-items: center; gap: 12px; flex-wrap: wrap; }
+.favicon-preview { width: 48px; height: 48px; flex: 0 0 48px; display: flex; align-items: center; justify-content: center; border: 1px solid var(--c-border, #e5e7eb); border-radius: 8px; background: #fff; overflow: hidden; }
+.favicon-preview img { width: 100%; height: 100%; object-fit: contain; }
+.favicon-badge { width: 32px; height: 32px; display: flex; align-items: center; justify-content: center; border-radius: 6px; background: #1ba8c8; color: #fff; }
+.favicon-controls { display: flex; align-items: center; gap: 8px; flex: 1 1 200px; min-width: 0; }
+.favicon-controls .form-input { min-width: 0; }
 .form-check { display: flex; align-items: center; gap: 8px; font-weight: 500; }
 .form-check input { width: auto; }
 .settings-tablist { display: flex; flex-wrap: wrap; gap: 4px; border-bottom: 1px solid var(--c-border, #e5e7eb); margin-bottom: 24px; }
@@ -1004,7 +1079,7 @@ export const SETTINGS_SCRIPT = `
     // the canonical keys (collected via fd.get). The three T22 ad checkboxes
     // (ads_enabled / ad_lazy_load / ad_disable_logged_in) are handled below so
     // they persist as '1'/'' (the form on the renderer + round-trip expect).
-    var keys = ['site_name','logo_media_id','tagline','site_description','brand_tokens_json','robots_txt_content','ads_txt_content','custom_head_html','custom_footer_html','newsletter_settings_json','contact_email','privacy_email','items_per_page','site_logo_url','social_twitter_url','social_facebook_url','social_instagram_url','social_linkedin_url','social_youtube_url','org_same_as','ad_provider','adsense_publisher_id','ad_unit_leaderboard','ad_unit_in_feed','ad_unit_rect','ad_in_content_position','ad_lazy_load_margin','ad_excluded_pages','gam_network_code','gam_unit_leaderboard','gam_unit_in_feed','gam_unit_rect','gam_unit_in_content','gam_unit_anchor','ad_refresh_seconds','analytics_script','ad_header_script','consent_head_html'];
+    var keys = ['site_name','logo_media_id','tagline','site_description','brand_tokens_json','robots_txt_content','ads_txt_content','custom_head_html','custom_footer_html','newsletter_settings_json','contact_email','privacy_email','items_per_page','site_logo_url','favicon_media_id','social_twitter_url','social_facebook_url','social_instagram_url','social_linkedin_url','social_youtube_url','org_same_as','ad_provider','adsense_publisher_id','ad_unit_leaderboard','ad_unit_in_feed','ad_unit_rect','ad_in_content_position','ad_lazy_load_margin','ad_excluded_pages','gam_network_code','gam_unit_leaderboard','gam_unit_in_feed','gam_unit_rect','gam_unit_in_content','gam_unit_anchor','ad_refresh_seconds','analytics_script','ad_header_script','consent_head_html'];
     for (var i = 0; i < keys.length; i = i + 1) {
       var v = fd.get(keys[i]);
       updates[keys[i]] = v === null ? '' : String(v);
@@ -1140,12 +1215,85 @@ export const SETTINGS_SCRIPT = `
                 logoUploadPreview.appendChild(img);
               }
             }
+            // X14: an uploaded logo replaces the AI setup logo, so its note goes.
+            var logoAiNote = document.getElementById('logo-ai-note');
+            if (logoAiNote) { logoAiNote.hidden = true; }
             setLogoUploadStatus('Logo uploaded');
           } else {
             setLogoUploadStatus((res.body && res.body.error) || ('Upload failed (HTTP ' + res.status + ')'));
           }
         })
         .catch(function () { setLogoUploadStatus('Network error during upload'); });
+    });
+  }
+
+  // ---- X14: Tab icon upload (faviconFileInput -> POST /admin/media) ----
+  var favFile = document.getElementById('faviconFileInput');
+  var favHidden = document.getElementById('setting-favicon_media_id');
+  var favImg = document.getElementById('favicon-preview-img');
+  var favBadge = document.getElementById('favicon-preview-badge');
+  var favRemove = document.getElementById('favicon-remove');
+  var favStatus = document.getElementById('favicon-upload-status');
+  var favNote = document.getElementById('favicon-square-note');
+  var FAV_TYPES = ['image/png', 'image/jpeg', 'image/webp', 'image/svg+xml'];
+  function setFavStatus(msg) {
+    if (!favStatus) { return; }
+    while (favStatus.firstChild) { favStatus.removeChild(favStatus.firstChild); }
+    if (msg) { favStatus.appendChild(document.createTextNode(msg)); }
+  }
+  function showFavIcon(url) {
+    if (favImg) {
+      if (url) { favImg.setAttribute('src', url); } else { favImg.removeAttribute('src'); }
+      favImg.hidden = !url;
+    }
+    if (favBadge) { favBadge.hidden = !!url; }
+    if (favRemove) { favRemove.hidden = !url; }
+  }
+  if (favFile) {
+    favFile.addEventListener('change', function () {
+      var file = favFile.files && favFile.files[0];
+      if (!file) { return; }
+      if (favNote) { favNote.hidden = true; }
+      if (file.type && FAV_TYPES.indexOf(String(file.type)) < 0) {
+        setFavStatus('Please choose a PNG, JPG, WEBP or SVG picture.');
+        return;
+      }
+      setError('');
+      setFavStatus('Uploading\\u2026');
+      var ffd = new FormData();
+      ffd.append('file', file);
+      fetch('/admin/media', { method: 'POST', body: ffd, credentials: 'same-origin' })
+        .then(function (r) {
+          return r.json().then(function (j) { return { ok: r.ok, status: r.status, body: j }; });
+        })
+        .then(function (res) {
+          if (res.ok && res.body && res.body.storage_key) {
+            var key = String(res.body.storage_key);
+            if (favHidden) { favHidden.value = key; }
+            if (favImg) {
+              favImg.onload = function () {
+                var w = favImg.naturalWidth;
+                var h = favImg.naturalHeight;
+                if (favNote) { favNote.hidden = !(w > 0 && h > 0 && w !== h); }
+              };
+            }
+            showFavIcon('/media/' + key);
+            setFavStatus('Tab icon uploaded. Save settings to apply it.');
+          } else {
+            setFavStatus((res.body && res.body.error) || ('Upload failed (HTTP ' + res.status + ')'));
+          }
+        })
+        .catch(function () { setFavStatus('Network error during upload'); });
+    });
+  }
+  if (favRemove) {
+    favRemove.addEventListener('click', function () {
+      if (favHidden) { favHidden.value = ''; }
+      if (favFile) { favFile.value = ''; }
+      if (favImg) { favImg.onload = null; }
+      if (favNote) { favNote.hidden = true; }
+      showFavIcon('');
+      setFavStatus('Tab icon removed. Save settings to apply it.');
     });
   }
 

@@ -147,6 +147,13 @@ import {
   putCachedHtml,
   matchesIfNoneMatch,
 } from "../../cache/edge-cache";
+import { siteIconHeadTags, DEFAULT_BRAND_COLOR, absoluteOnHost } from "../site-brand";
+
+function funnelOgLogoTag(hostname: string | null, logoUrl: string | null): string {
+  if (hostname === null) return "";
+  const abs = absoluteOnHost(hostname, logoUrl);
+  return abs === null ? "" : `<meta property="og:image" content="${escapeHtml(abs)}">`;
+}
 
 type PublicContext = Context<{ Bindings: Env; Variables: PublicSiteVariables }>;
 
@@ -1070,6 +1077,9 @@ function renderFunnelShell(
   // config (pre-resolved by the caller — this function stays synchronous).
   // null ⇒ nothing emitted (the pre-v9 bytes apart from the runtime version).
   metaPixel: LeadgenMetaPixelShell | null = null,
+  // X14 v2: the site's own host, for the share picture's full address (the
+  // shell is cached per site, so it is constant per cache entry).
+  siteHostname: string | null = null,
 ): string {
   const funnelId = toFunnelId(resolved.funnel.public_id);
   const funnelVariantId = toFunnelVariantId(resolved.variant.public_id);
@@ -1143,6 +1153,13 @@ function renderFunnelShell(
     '<meta charset="utf-8">' +
     '<meta name="viewport" content="width=device-width, initial-scale=1">' +
     `<title>${escapeHtml(resolved.funnel.funnel_name)}</title>` +
+    // X14 v2: the site's tab icon, phone icon and browser color, and its
+    // uploaded logo as the share picture (funnels have none of their own).
+    siteIconHeadTags({
+      faviconUrl: resolved.site_branding?.favicon_url ?? null,
+      brandColor: resolved.site_branding?.brand_color ?? DEFAULT_BRAND_COLOR,
+    }) +
+    funnelOgLogoTag(siteHostname, resolved.site_branding?.logo_url ?? null) +
     // §28 GA4: the site's measurement id is baked into this per-site-cached shell
     // (absent id ⇒ nothing). Non-destructive: it never resets an existing dataLayer.
     ga4HeadSnippet(resolved.ga4_measurement_id) +
@@ -1318,7 +1335,7 @@ export async function serveFunnelShell(
       variant_id: resolved.variant.public_id,
     };
     if (metaPixel.funnel_pixel_id !== null || metaPixel.click_events) metaPixel.fields = metaMatchFieldMap(resolved);
-    pristine = renderFunnelShell(resolved, design, answerMapVersions, themeRecord, savedTemplateDefaults, metaPixel);
+    pristine = renderFunnelShell(resolved, design, answerMapVersions, themeRecord, savedTemplateDefaults, metaPixel, siteContext.hostname);
     const ttl = parseNumber(c.env.HTML_CACHE_TTL_SECONDS, DEFAULT_TTL_SECONDS);
     // Write-through stores the PRISTINE shell (visitor-invariant: no Maps key,
     // no per-session assignment dims — only the sentinels).

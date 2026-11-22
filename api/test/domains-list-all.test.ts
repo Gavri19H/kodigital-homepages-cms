@@ -107,6 +107,7 @@ CREATE TABLE domains (
   is_primary INTEGER NOT NULL DEFAULT 0
 );
 CREATE TABLE articles (id INTEGER PRIMARY KEY, site_id TEXT);
+CREATE TABLE site_settings (id INTEGER PRIMARY KEY, site_id TEXT, key TEXT NOT NULL, value TEXT NOT NULL, UNIQUE(site_id, key));
 `;
 
 function seedDomainsDb(sdb: SqliteDb): void {

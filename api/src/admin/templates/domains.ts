@@ -21,6 +21,7 @@
 
 import { adminLayout, escapeHtml } from "./layout";
 import { SITE_STATUS_NEXT } from "../site-status";
+import { mediaUrl } from "../../public/view-models/media-url";
 
 export interface DomainEntry {
   id?: string;
@@ -32,6 +33,9 @@ export interface DomainEntry {
   articles?: number;
   created?: string;
   last_provisioned?: string;
+  // X14: the site's tab icon / logo settings (bare media storage keys).
+  favicon_media_id?: string;
+  logo_media_id?: string;
 }
 
 export interface VerticalEntry {
@@ -69,6 +73,35 @@ function actionsCell(): string {
   return '<td class="actions-cell">' + ACTIONS_MENU_MARKUP + '</td>';
 }
 
+// X14: the small picture before each site's name. Preference order: the tab
+// icon, else the uploaded logo, else a teal badge with the site's first letter.
+// Only same-origin /media/ pictures qualify; the logo the setup step makes with
+// AI (ai/<site>/logo/) is never used (public rule, see uploadedLogoUrl in
+// public/templates/components.ts). A number id is fine: /media/<id> is served
+// (media/serve.ts maps it to its file), as on the public site.
+var AI_SETUP_LOGO_PATH = /^\/media\/ai\/[^/]+\/logo\//;
+
+function siteMediaPath(ref: string | undefined): string | null {
+  var key = typeof ref === "string" ? ref.trim() : "";
+  if (key.length === 0) { return null; }
+  var url = mediaUrl(key);
+  return url !== null && url.indexOf("/media/") === 0 ? url : null;
+}
+
+export function siteIconHtml(d: DomainEntry): string {
+  var favicon = siteMediaPath(d.favicon_media_id);
+  var logo = siteMediaPath(d.logo_media_id);
+  var picture = favicon !== null
+    ? favicon
+    : (logo !== null && !AI_SETUP_LOGO_PATH.test(logo) ? logo : null);
+  if (picture !== null) {
+    return '<img class="site-icon" src="' + escapeHtml(picture) + '" width="24" height="24" alt="" loading="lazy" decoding="async" />';
+  }
+  var label = String(d.name || d.domain || "").trim();
+  var letter = label.length > 0 ? Array.from(label)[0]!.toUpperCase() : "?";
+  return '<span class="site-icon site-icon-letter" aria-hidden="true">' + escapeHtml(letter) + '</span>';
+}
+
 function renderRow(d: DomainEntry): string {
   var domain = escapeHtml(d.domain);
   var siteName = escapeHtml(d.name);
@@ -81,7 +114,7 @@ function renderRow(d: DomainEntry): string {
   var siteId = escapeHtml(d.id);
   return '<tr data-domain="' + domain + '" data-site-id="' + siteId + '" data-site-status="' + status + '">'
     + '<td>' + domain + '</td>'
-    + '<td>' + siteName + '</td>'
+    + '<td><span class="site-name-cell">' + siteIconHtml(d) + '<span class="site-name-text">' + siteName + '</span></span></td>'
     + '<td>' + vertical + '</td>'
     + '<td>' + activity + '</td>'
     + '<td><span class="badge">' + status + '</span></td>'
@@ -248,7 +281,12 @@ var MODAL_STYLES = '.modal{position:fixed;inset:0;top:0;left:0;right:0;bottom:0;
   // X04: the "disabled" warning in the Change status window.
   + '.status-warning{background:#fef2f2;border:1px solid #fecaca;color:#991b1b;border-radius:6px;padding:8px 10px;font-size:13px;margin:0}'
   + '.status-warning[hidden]{display:none}'
-  + '#delete-site-modal .form-help,#site-status-modal .form-help{margin:0 0 12px}';
+  + '#delete-site-modal .form-help,#site-status-modal .form-help{margin:0 0 12px}'
+  // X14: the small site picture before each site name.
+  + '.site-name-cell{display:inline-flex;align-items:center;gap:8px;min-width:0}'
+  + '.site-name-text{min-width:0;overflow-wrap:anywhere}'
+  + '.site-icon{flex:0 0 24px;width:24px;height:24px;border-radius:4px;object-fit:contain}'
+  + '.site-icon-letter{display:inline-flex;align-items:center;justify-content:center;background:#1ba8c8;color:#fff;font-size:12px;font-weight:600;line-height:1}';
 
 var MODAL_SCRIPT = '(function(){'
   + 'var modal=document.getElementById("new-site-modal");'

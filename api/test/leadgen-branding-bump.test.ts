@@ -375,7 +375,10 @@ const NEW_LOGO_URL = `/media/${NEW_LOGO_KEY}`;
 describeDb("10 §10.2 — branding settings save bumps the activation_version cache axis", () => {
   it("registry: the branding key set is exactly the SiteBranding projection inputs; the gate helper honors it", () => {
     expect([...LEADGEN_BRANDING_SETTINGS_KEYS].sort()).toEqual([
+      // X14 v2: the tab icon and the brand color are projection inputs too.
+      "brand_tokens_json",
       "contact_email",
+      "favicon_media_id",
       "logo_media_id",
       "privacy_email",
       "site_logo_url",

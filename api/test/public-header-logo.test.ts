@@ -55,10 +55,19 @@ describe("X14 — the header shows the site's uploaded logo", () => {
     expect(brand).not.toContain("<C>");
   });
 
-  it("the footer keeps the badge and the name even with an uploaded logo (owner Q2)", () => {
+  // X14 v2 (owner Q5, 22 Nov 2026) replaces the 10 Nov Q2 rule: the footer
+  // shows the uploaded logo on a light backing; without one, the badge stays.
+  it("the footer shows an uploaded logo on its light backing; an AI or missing logo keeps the badge (owner Q5)", () => {
     const footer = renderFooter({ site: { name: "insurissimo", logoUrl: UPLOADED } });
-    expect(footer).not.toContain("brand-logo-img");
-    expect(footer).toContain('<span class="brand-logo" aria-hidden="true">');
+    expect(footer).toContain('<span class="footer-logo-backing">');
+    expect(footer).toContain('class="footer-logo-img"');
+    expect(footer).toContain('alt="insurissimo"');
+    expect(footer).not.toContain('<span class="brand-logo" aria-hidden="true">');
+    for (const logoUrl of [AI_SETUP, null]) {
+      const plain = renderFooter({ site: { name: "insurissimo", logoUrl } });
+      expect(plain).not.toContain("footer-logo-img");
+      expect(plain).toContain('<span class="brand-logo" aria-hidden="true">');
+    }
   });
 
   it("uploadedLogoUrl: only same-origin /media/ logos that aren't the AI setup logo", () => {

@@ -30,6 +30,14 @@ export interface ErrorPageOptions {
   heading?: string;
   message?: string;
   siteName?: string;
+  // X14 v2: the site's own brand when it could be read (logo, tab icon,
+  // tagline, brand tokens). Absent = today's page (badge + name/hostname).
+  brand?: {
+    logoUrl?: string | null;
+    faviconUrl?: string | null;
+    tagline?: string;
+    brandTokens?: Readonly<Record<string, string>>;
+  };
 }
 
 function escapeHtml(input: string): string {
@@ -66,7 +74,13 @@ export function renderErrorPage(opts: ErrorPageOptions): string {
       ? opts.siteName
       : opts.hostname;
 
-  const headerSite = { name: siteName, hostname: opts.hostname };
+  const brand = opts.brand ?? {};
+  const headerSite = {
+    name: siteName,
+    hostname: opts.hostname,
+    ...(brand.tagline !== undefined ? { tagline: brand.tagline } : {}),
+    logoUrl: brand.logoUrl ?? null,
+  };
 
   // The error body uses the shared design vocabulary (container/section) so
   // it inherits public.css styling and reads as part of the site, not a bare
@@ -81,7 +95,13 @@ export function renderErrorPage(opts: ErrorPageOptions): string {
     `</div></section>`;
 
   return renderLayout({
-    site: { name: siteName, hostname: opts.hostname },
+    site: {
+      name: siteName,
+      hostname: opts.hostname,
+      logoUrl: brand.logoUrl ?? null,
+      faviconUrl: brand.faviconUrl ?? null,
+      ...(brand.brandTokens !== undefined ? { brandTokens: brand.brandTokens } : {}),
+    },
     meta: {
       title: `${heading} — ${siteName}`,
       description: message,
