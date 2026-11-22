@@ -560,3 +560,14 @@ describe("X01 Part C — inline scripts parse and stay ES5", () => {
     expect(body).toContain("/^\\s+|\\s+$/g");
   });
 });
+
+describe("X01 Part C: a new vertical shows in the Categories filter", () => {
+  it("the Categories toolbar filter lists the verticals it is given, else the built-in list", async () => {
+    const { categoriesListPage } = await import("../src/admin/templates/categories");
+    const withNew = categoriesListPage([], [], {}, {}, undefined, ["home", "insurance"]);
+    expect(withNew).toContain('<option value="insurance">insurance</option>');
+    const fallback = categoriesListPage([], []);
+    expect(fallback).toContain('<option value="jobs">jobs</option>');
+    expect(fallback).not.toContain('<option value="insurance">');
+  });
+});

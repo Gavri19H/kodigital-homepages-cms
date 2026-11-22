@@ -65,8 +65,8 @@ function renderSiteOptions(sites: ReadonlyArray<SiteOption>, selected?: string |
   return blank + opts;
 }
 
-function renderVerticalsToolbarOptions(selected?: string): string {
-  return VERTICAL_SLUGS.map(function (v: string): string {
+function renderVerticalsToolbarOptions(selected?: string, slugs: ReadonlyArray<string> = VERTICAL_SLUGS): string {
+  return slugs.map(function (v: string): string {
     const sel = selected === v ? " selected" : "";
     return `<option value="${escapeHtml(v)}"${sel}>${escapeHtml(v)}</option>`;
   }).join("");
@@ -126,7 +126,7 @@ function renderCategoriesTable(categories: ReadonlyArray<CategoryListEntry>): st
 </div>`;
 }
 
-function renderToolbar(sites: ReadonlyArray<SiteOption>, filters: CategoryListFilters = {}): string {
+function renderToolbar(sites: ReadonlyArray<SiteOption>, filters: CategoryListFilters = {}, verticalSlugs?: ReadonlyArray<string>): string {
   return `<div class="toolbar">
   <div class="toolbar-search"><input type="search" name="search" class="form-input" placeholder="Search categories..." value="${escapeHtml(filters.search ?? "")}" /></div>
   <div class="toolbar-filters">
@@ -134,7 +134,7 @@ function renderToolbar(sites: ReadonlyArray<SiteOption>, filters: CategoryListFi
       ${renderSiteOptions(sites, filters.site ?? "")}
     </select>
     <select id="filter-verticals" name="verticals" class="form-select" multiple data-multi="true" data-field="verticals" size="3" aria-label="Verticals (select multiple)">
-      ${renderVerticalsToolbarOptions(filters.vertical)}
+      ${renderVerticalsToolbarOptions(filters.vertical, verticalSlugs && verticalSlugs.length > 0 ? verticalSlugs : VERTICAL_SLUGS)}
     </select>
   </div>
   <button type="button" id="open-new-category-modal" class="btn btn-primary">+ New Category</button>
@@ -511,13 +511,17 @@ export function categoriesListPage(
   branding: CategoriesBranding = {},
   filters: CategoryListFilters = {},
   pageMeta?: ListPagerMeta,
+  // The verticals table's slugs, so a vertical added on the Verticals
+  // screen shows in this filter too (X01 Part C). Falls back to the
+  // built-in list when not given.
+  verticalSlugs?: ReadonlyArray<string>,
 ): string {
   const pager = renderListPager(pageMeta, {
     site: filters.site,
     search: filters.search,
     verticals: filters.vertical,
   });
-  const content = `${renderToolbar(sites, filters)}${renderCategoriesTable(categories)}${renderModal(sites)}${renderEditModal()}${pager}`;
+  const content = `${renderToolbar(sites, filters, verticalSlugs)}${renderCategoriesTable(categories)}${renderModal(sites)}${renderEditModal()}${pager}`;
   return adminLayout({
     title: "Categories",
     activePath: "/admin/categories",

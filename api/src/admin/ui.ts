@@ -282,6 +282,8 @@ adminUi.get('/admin/categories', async (c) => {
     search: c.req.query('search'),
     vertical: c.req.query('verticals') ?? c.req.query('vertical'),
   };
+  // Real vertical list for the toolbar filter (X01 Part C: added verticals show here).
+  const verticalSlugs = (await data.listAdminVerticals(c.env)).map((v) => v.slug);
   if (useFiltered) {
     const listed = await data.listAdminCategoriesFiltered(c.env, {
       site: filterState.site,
@@ -295,11 +297,11 @@ adminUi.get('/admin/categories', async (c) => {
         page: listed.page,
         per_page: listed.per_page,
         total: listed.total,
-      }),
+      }, verticalSlugs),
     );
   }
   const categories = await data.listAdminCategories(c.env);
-  return c.html(categoriesListPage(categories, sites, branding(c)));
+  return c.html(categoriesListPage(categories, sites, branding(c), {}, undefined, verticalSlugs));
 });
 
 // X01 Part C — Verticals: list with real usage counts, "Add vertical",
