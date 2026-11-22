@@ -107,6 +107,8 @@ function createDb(ctor: DatabaseSyncCtor): SqliteDb {
   runSql(
     sdb,
     "CREATE TABLE sites (id TEXT PRIMARY KEY, name TEXT);" +
+      // X01 Part C: migration 0067 adds articles.vertical_id, so the stub needs an articles table.
+      "CREATE TABLE articles (id INTEGER PRIMARY KEY AUTOINCREMENT, site_id TEXT);" +
       "CREATE TABLE media (id INTEGER PRIMARY KEY AUTOINCREMENT, site_id TEXT);",
   );
   for (const f of leadgenMigrationFiles()) runSql(sdb, readFileSync(join(MIGRATIONS_DIR, f), "utf8"));

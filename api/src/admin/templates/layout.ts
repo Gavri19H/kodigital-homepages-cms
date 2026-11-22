@@ -1,9 +1,9 @@
 // Admin UI shell template — ported from the legacy admin layout
 // (theiwise-legacy-readonly api/src/admin/templates/layout.ts), rebranded.
-// Brand: KoDigital CMS only. 11-entry sidebar nav: Dashboard, Domains, Articles,
+// Brand: KoDigital CMS only. 12-entry sidebar nav: Dashboard, Domains, Articles,
 // Pages, Listicles (design contract §4 — inserted right after Pages), LeadGen
-// (LeadGen contract 01 §5.1 — right after Listicles), Media, Categories, Tags,
-// AI Presets, Settings.
+// (LeadGen contract 01 §5.1 — right after Listicles), Media, Categories,
+// Verticals (X01 Part C — right after Categories), Tags, AI Presets, Settings.
 // The inline <script> payload MUST stay ES5 (no arrow/const/let/async) —
 // asserted by test/admin-layout-shell.test.ts via script extraction.
 
@@ -41,6 +41,8 @@ const ICON_CONVERSIONS = `<svg width="20" height="20" viewBox="0 0 24 24" fill="
 const ICON_REPORTING = `<svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M3 3v18h18"></path><path d="M7 16l4-4 3 3 5-7"></path></svg>`;
 const ICON_MEDIA = `<svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="3" y="3" width="18" height="18" rx="2" ry="2"></rect><circle cx="8.5" cy="8.5" r="1.5"></circle><polyline points="21 15 16 10 5 21"></polyline></svg>`;
 const ICON_CATEGORIES = `<svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M22 19a2 2 0 0 1-2 2H4a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h5l2 3h9a2 2 0 0 1 2 2z"></path></svg>`;
+// X01 Part C: Verticals — stacked-layers glyph, same feather outline style.
+const ICON_VERTICALS = `<svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polygon points="12 2 2 7 12 12 22 7 12 2"></polygon><polyline points="2 17 12 22 22 17"></polyline><polyline points="2 12 12 17 22 12"></polyline></svg>`;
 const ICON_TAGS = `<svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M20.59 13.41l-7.17 7.17a2 2 0 0 1-2.83 0L2 12V2h10l8.59 8.59a2 2 0 0 1 0 2.82z"></path><line x1="7" y1="7" x2="7.01" y2="7"></line></svg>`;
 const ICON_PRESETS = `<svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 2a2 2 0 0 1 2 2c0 .74-.4 1.39-1 1.73V7h1a7 7 0 0 1 7 7h1a1 1 0 0 1 1 1v3a1 1 0 0 1-1 1h-1v1a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-1H2a1 1 0 0 1-1-1v-3a1 1 0 0 1 1-1h1a7 7 0 0 1 7-7h1V5.73c-.6-.34-1-.99-1-1.73a2 2 0 0 1 2-2z"></path><circle cx="8" cy="14" r="1"></circle><circle cx="16" cy="14" r="1"></circle></svg>`;
 const ICON_SETTINGS = `<svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="3"></circle><path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 0 1 0 2.83 2 2 0 0 1-2.83 0l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 0 1-2 2 2 2 0 0 1-2-2v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 0 1-2.83 0 2 2 0 0 1 0-2.83l.06-.06a1.65 1.65 0 0 0 .33-1.82 1.65 1.65 0 0 0-1.51-1H3a2 2 0 0 1-2-2 2 2 0 0 1 2-2h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 0 1 0-2.83 2 2 0 0 1 2.83 0l.06.06a1.65 1.65 0 0 0 1.82.33H9a1.65 1.65 0 0 0 1-1.51V3a2 2 0 0 1 2-2 2 2 0 0 1 2 2v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 0 1 2.83 0 2 2 0 0 1 0 2.83l-.06.06a1.65 1.65 0 0 0-.33 1.82V9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 0 1 2 2 2 2 0 0 1-2 2h-.09a1.65 1.65 0 0 0-1.51 1z"></path></svg>`;
@@ -55,6 +57,7 @@ const NAV_ENTRIES: ReadonlyArray<NavEntry> = [
   { href: "/admin/leadgen", label: "LeadGen", icon: ICON_LEADGEN },
   { href: "/admin/media", label: "Media", icon: ICON_MEDIA },
   { href: "/admin/categories", label: "Categories", icon: ICON_CATEGORIES },
+  { href: "/admin/verticals", label: "Verticals", icon: ICON_VERTICALS },
   { href: "/admin/tags", label: "Tags", icon: ICON_TAGS },
   { href: "/admin/presets", label: "AI Presets", icon: ICON_PRESETS },
   { href: "/admin/settings", label: "Settings", icon: ICON_SETTINGS },

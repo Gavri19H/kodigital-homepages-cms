@@ -112,6 +112,8 @@ function createDb(ctor: DatabaseSyncCtor): SqliteDb {
     sdb,
     "CREATE TABLE sites (id TEXT PRIMARY KEY, name TEXT, domain TEXT, vertical_slug TEXT, status TEXT, content_version INTEGER DEFAULT 1, settings_version INTEGER DEFAULT 1);" +
       "CREATE TABLE domains (id INTEGER PRIMARY KEY AUTOINCREMENT, site_id TEXT, hostname TEXT, status TEXT);" +
+      // X01 Part C: migration 0067 adds articles.vertical_id, so the stub needs an articles table.
+      "CREATE TABLE articles (id INTEGER PRIMARY KEY AUTOINCREMENT, site_id TEXT);" +
       "CREATE TABLE media (id INTEGER PRIMARY KEY AUTOINCREMENT, site_id TEXT);" +
       `INSERT INTO sites (id, name, domain, vertical_slug, status) VALUES ('site-1','Site One','${TENANT_HOST}','insurance','active');` +
       `INSERT INTO domains (site_id, hostname, status) VALUES ('site-1','${TENANT_HOST}','active');`,

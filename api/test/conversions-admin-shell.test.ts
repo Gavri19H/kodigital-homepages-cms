@@ -101,8 +101,11 @@ describe("Conversions disabled route shell", () => {
     // Re-pinned again by X14: every admin <head> now carries the KD tab icon
     // (<link rel="icon"> with the URL-encoded brand-mark SVG), +577 bytes
     // (was 20312 / b7d6e8df…). The no-Conversions claim below is unchanged.
-    expect(Buffer.byteLength(html)).toBe(20889);
-    expect(sha256(html)).toBe("eb1c17698f6f1a5d546d6253d7178915a90ed2aafe15dd5fdd92b49006b787e5");
+    // Re-pinned again by X01 Part C: the side menu gained "Verticals" right
+    // after Categories, +331 bytes (was 20889 / eb1c1769…). The
+    // no-Conversions claim below is unchanged.
+    expect(Buffer.byteLength(html)).toBe(21220);
+    expect(sha256(html)).toBe("b6d3552daf61a093a3656a8ffadd84524e3c56275b6929dbf8bf7b9b00071311");
     expect(html).not.toContain("Conversions");
     expect(html).not.toContain('type="module"');
   });

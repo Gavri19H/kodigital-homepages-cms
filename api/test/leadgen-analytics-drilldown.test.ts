@@ -117,6 +117,8 @@ function createLeadgenDb(DatabaseSync: DatabaseSyncCtor): SqliteDb {
   runSql(
     sdb,
     "CREATE TABLE sites (id TEXT PRIMARY KEY, name TEXT, domain TEXT);" +
+      // X01 Part C: migration 0067 adds articles.vertical_id, so the stub needs an articles table.
+      "CREATE TABLE articles (id INTEGER PRIMARY KEY AUTOINCREMENT, site_id TEXT);" +
       "CREATE TABLE media (id INTEGER PRIMARY KEY AUTOINCREMENT, site_id TEXT);" +
       "INSERT INTO sites (id, name, domain) VALUES ('site-1','Site One','one.example.com');",
   );

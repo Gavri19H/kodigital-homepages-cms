@@ -126,6 +126,21 @@ export const aiAssistantScripts = `
     var el = document.querySelector('select[name="site_id"], input[name="site_id"]');
     return el && el.value ? el.value : null;
   }
+  // X01 Part C: the Article's own vertical wins over its Site's. Reads the
+  // editor's "Vertical" field (value "" = "Same as site"). hasField is false
+  // on forms without the field (then the Site's vertical is used as before).
+  function readArticleVertical() {
+    var sel = document.querySelector('select[name="vertical_id"]');
+    if (!sel) { return { hasField: false, id: null, slug: '' }; }
+    var opt = sel.selectedIndex >= 0 ? sel.options[sel.selectedIndex] : null;
+    if (!opt || !opt.value) { return { hasField: true, id: null, slug: '' }; }
+    return { hasField: true, id: parseInt(opt.value, 10), slug: opt.getAttribute('data-slug') || '' };
+  }
+  function readArticleId() {
+    var f = document.getElementById('article-form');
+    var id = f ? parseInt(f.getAttribute('data-article-id') || '', 10) : NaN;
+    return isNaN(id) ? null : id;
+  }
   function fieldValue(selector) {
     var el = document.querySelector(selector);
     return el && typeof el.value === 'string' ? el.value : '';
@@ -165,6 +180,8 @@ export const aiAssistantScripts = `
       brandName = sOpt && sOpt.value ? sOpt.text : '';
       vertical = sOpt && sOpt.value ? (sOpt.getAttribute('data-vertical') || '') : '';
     }
+    var ownVertical = readArticleVertical();
+    if (ownVertical.slug) { vertical = ownVertical.slug; }
     var selectedText = '';
     try { selectedText = String(window.getSelection() || ''); } catch (e) { selectedText = ''; }
     var title = fieldValue('#article-title');
@@ -943,8 +960,10 @@ export const aiAssistantScripts = `
     setError('');
     setBusy(true);
     setStatus('Building the full article \\u2014 text first, then images. This can take a minute or two\\u2026');
+    var ownVertical = readArticleVertical();
     var payload = {
       site_id: siteId,
+      article_id: readArticleId(),
       title: title,
       brief: promptEl && promptEl.value ? promptEl.value.trim() : '',
       audience: faAudience && faAudience.value ? faAudience.value.trim() : '',
@@ -972,6 +991,10 @@ export const aiAssistantScripts = `
         }
       }
     };
+    // The editor's live "Vertical" choice (null = "Same as site") wins over
+    // what the Article has saved; without the field the server reads the
+    // saved one from article_id.
+    if (ownVertical.hasField) { payload.vertical_id = ownVertical.id; }
     fetch('/api/admin/ai/article', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },

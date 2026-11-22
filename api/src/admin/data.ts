@@ -10,6 +10,7 @@
 
 import type { Env } from "../env";
 import { buildWhereClause } from "./query-filters";
+import { ARTICLES_USING_VERTICAL_SLUG_WHERE } from "./verticals-handlers";
 
 interface SiteRecord {
   id: string;
@@ -24,6 +25,7 @@ interface SiteRecord {
 }
 
 interface VerticalRecord {
+  id: number;
   slug: string;
   name: string;
   display_order: number;
@@ -64,6 +66,7 @@ interface ArticleRecord extends ArticleListRecord {
   seo_description: string | null;
   author_name: string | null;
   author_bio: string | null;
+  vertical_id: number | null;
 }
 
 interface PageListRecord {
@@ -167,8 +170,21 @@ export interface DomainRowDto {
 }
 
 export interface VerticalDto {
+  // X01 Part C: the Article editor and "Set vertical" save the vertical id.
+  id?: number;
   slug: string;
   label: string;
+}
+
+// X01 Part C: one row of the Verticals screen.
+export interface VerticalUsageRowDto {
+  id: number;
+  slug: string;
+  name: string;
+  display_order: number;
+  site_count: number;
+  category_count: number;
+  article_count: number;
 }
 
 export interface ArticleRowDto {
@@ -207,6 +223,8 @@ export interface ArticleFormDto {
   published_at: string | null;
   author_name: string;
   author_bio: string;
+  // X01 Part C: the Article's own vertical id as a string; "" = "Same as site".
+  vertical_id: string;
 }
 
 export interface PageRowDto {
@@ -440,11 +458,38 @@ export async function listAdminDomains(env: Env): Promise<DomainRowDto[]> {
 
 export async function listAdminVerticals(env: Env): Promise<VerticalDto[]> {
   const result = await env.DB.prepare(
-    "SELECT slug, name, display_order FROM verticals ORDER BY display_order ASC, slug ASC LIMIT 50",
+    "SELECT id, slug, name, display_order FROM verticals ORDER BY display_order ASC, slug ASC LIMIT 200",
   ).all<VerticalRecord>();
   return (result.results ?? []).map((r) => ({
+    id: r.id,
     slug: r.slug,
     label: r.name,
+  }));
+}
+
+// X01 Part C: the Verticals screen. Sites = sites whose vertical_slug is the
+// vertical's slug; Categories = its category_verticals links; Articles =
+// Articles whose own vertical is it plus Articles with no own vertical whose
+// Site uses it (the same rule as the delete guard and the AI writer). Real
+// rows are counted every time; nothing reads a stored count.
+export async function listAdminVerticalsWithUsage(
+  env: Env,
+): Promise<VerticalUsageRowDto[]> {
+  const result = await env.DB.prepare(
+    "SELECT v.id, v.slug, v.name, v.display_order, " +
+      "(SELECT COUNT(*) FROM sites s WHERE s.vertical_slug = v.slug) AS site_count, " +
+      "(SELECT COUNT(*) FROM category_verticals cv WHERE cv.vertical_id = v.id) AS category_count, " +
+      "(SELECT COUNT(*) FROM articles a WHERE (a.vertical_id = v.id OR (a.vertical_id IS NULL AND a.site_id IN (SELECT s2.id FROM sites s2 WHERE s2.vertical_slug = v.slug)))) AS article_count " +
+      "FROM verticals v ORDER BY v.display_order ASC, v.slug ASC LIMIT 200",
+  ).all<VerticalUsageRowDto>();
+  return (result.results ?? []).map((r) => ({
+    id: Number(r.id),
+    slug: r.slug,
+    name: r.name,
+    display_order: Number(r.display_order ?? 0),
+    site_count: Number(r.site_count ?? 0),
+    category_count: Number(r.category_count ?? 0),
+    article_count: Number(r.article_count ?? 0),
   }));
 }
 
@@ -477,7 +522,7 @@ export async function getAdminArticle(
   id: number,
 ): Promise<ArticleFormDto | null> {
   const row = await env.DB.prepare(
-    "SELECT a.id, a.title, a.slug, a.site_id, a.category_id, a.status, a.content_json, a.content_html, a.homepage_section, a.homepage_rank, a.is_featured, a.is_trending, a.featured_image_id, m.storage_key AS featured_image_storage_key, a.seo_title, a.seo_description, a.subtitle, a.author_name, a.author_bio, a.published_at, a.updated_at FROM articles a LEFT JOIN media m ON m.id = a.featured_image_id WHERE a.id = ? LIMIT 1",
+    "SELECT a.id, a.title, a.slug, a.site_id, a.category_id, a.status, a.content_json, a.content_html, a.homepage_section, a.homepage_rank, a.is_featured, a.is_trending, a.featured_image_id, m.storage_key AS featured_image_storage_key, a.seo_title, a.seo_description, a.subtitle, a.author_name, a.author_bio, a.vertical_id, a.published_at, a.updated_at FROM articles a LEFT JOIN media m ON m.id = a.featured_image_id WHERE a.id = ? LIMIT 1",
   )
     .bind(id)
     .first<ArticleRecord>();
@@ -504,6 +549,8 @@ export async function getAdminArticle(
     subtitle: (row as { subtitle?: string | null }).subtitle ?? "",
     author_name: row.author_name ?? "",
     author_bio: row.author_bio ?? "",
+    vertical_id:
+      typeof row.vertical_id === "number" ? String(row.vertical_id) : "",
     published_at: row.published_at !== null ? fmtDate(row.published_at) : null,
   };
 }
@@ -841,6 +888,9 @@ function mapArticleRow(r: ArticleJoinedRecord): ArticleRowDto {
 export interface ArticleListQuery {
   site_id?: string | null;
   search?: string | null;
+  // X01 Part C: a vertical slug. Matches Articles whose own vertical is it,
+  // and Articles with no own vertical whose Site uses it.
+  vertical?: string | null;
   category?: string | null;
   status?: string | null;
   featured?: string | null;
@@ -855,6 +905,7 @@ export async function listAdminArticlesFiltered(
   q: ArticleListQuery,
 ): Promise<ListPage<ArticleRowDto>> {
   const search = typeof q.search === "string" ? q.search.trim() : "";
+  const vertical = typeof q.vertical === "string" ? q.vertical.trim() : "";
   const categoryId =
     q.category != null && String(q.category).trim() !== ""
       ? Number(q.category)
@@ -866,6 +917,11 @@ export async function listAdminArticlesFiltered(
       params: [q.site_id as string],
     },
     { when: search.length > 0, clause: "a.title LIKE ?", params: [likeParam(search)] },
+    {
+      when: vertical.length > 0,
+      clause: ARTICLES_USING_VERTICAL_SLUG_WHERE,
+      params: [vertical, vertical],
+    },
     {
       when: categoryId !== null && Number.isFinite(categoryId),
       clause: "a.category_id = ?",
