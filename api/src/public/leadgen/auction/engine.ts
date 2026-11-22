@@ -953,7 +953,9 @@ export interface RunAuctionInput {
   // posts a send-only Offer — it is excluded before any request with reason
   // "team_or_preview_traffic"; every other Offer is unaffected. Absent = clean
   // (every existing caller and test is unchanged).
-  traffic_quality?: Pick<TrafficQualityFlags, "is_internal" | "is_preview">;
+  // Bot traffic is skipped too (owner 2026-11-22, D16): it is never booked,
+  // so a Provider must never receive it either ("bot_traffic").
+  traffic_quality?: Pick<TrafficQualityFlags, "is_internal" | "is_preview"> & { is_bot?: boolean };
   // Admin Simulator only: the Simulator makes REAL Provider calls and is team
   // traffic, so it never posts a send-only Offer either (reason
   // "send_only_not_sent_simulator"; the Offer's Test button sends a test lead).
@@ -1720,7 +1722,9 @@ export async function runAuction(
       ? "send_only_not_sent_simulator"
       : input.traffic_quality !== undefined && (input.traffic_quality.is_internal || input.traffic_quality.is_preview)
         ? "team_or_preview_traffic"
-        : null;
+        : input.traffic_quality !== undefined && input.traffic_quality.is_bot === true
+          ? "bot_traffic"
+          : null;
   const candidates: AuctionBundleOffer[] = [];
   for (const b of ruleSurvivors) {
     if (!callsProvider(b.offer)) {

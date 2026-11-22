@@ -682,6 +682,18 @@ describeDb("Send-only Offers — an accepted lead is a banner, never a card", ()
     expect(called).toEqual(["provider-a"]);
   });
 
+  it("bot traffic (owner 2026-11-22): the send-only Offer is NOT posted (reason bot_traffic); other Offers still are", async () => {
+    const { sdb, env, auction } = harness();
+    const so = providerOffer(sdb, auction.id, { name: "Provider A", host: "provider-a", order: 0, sendOnly: ANY_OK });
+    providerOffer(sdb, auction.id, { name: "Provider B", host: "provider-b", order: 1, parse: CPL_CARD_PARSE });
+    const called = stubProviders({ "provider-a": json({ ok: 1 }), "provider-b": json({ url: "https://lender-a.example/go" }) });
+    const r = await run(env, auction, null, { traffic_quality: { is_internal: false, is_preview: false, is_bot: true } });
+    expect(called).not.toContain("provider-a");
+    expect(called).toContain("provider-b");
+    expect(r.explain.offers_excluded).toContainEqual(expect.objectContaining({ offer_id: so.public_id, reason: "bot_traffic" }));
+    expect(r.send_only_accepted).toBeUndefined();
+  });
+
   it("eligibility: a send-only Offer needs no response parser; a card-showing CPL Offer without one is still excluded", async () => {
     const { sdb, env, auction } = harness();
     const so = providerOffer(sdb, auction.id, { name: "Provider A", host: "provider-a", order: 0, sendOnly: ANY_OK, parse: null });
