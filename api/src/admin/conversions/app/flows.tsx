@@ -412,8 +412,9 @@ function FlowWizard(props: { bootstrapActive: boolean; route: Extract<FlowRoute,
   const [actionSourceNote, setActionSourceNote] = useState(false);
   const canManage = context?.capabilities.includes("flows.manage") === true;
   const canReviewPublish = context?.capabilities.includes("flows.publish") === true;
-  const canCommitPublish = canReviewPublish
-    && context?.capabilities.includes("ownership.manage") === true;
+  // F23: publishing follows "flows.publish" alone, so every administrator can
+  // publish. Ownership operations stay with the accountable owner.
+  const canCommitPublish = canReviewPublish;
   const patchInputs = Array.isArray(draft?.patch_inputs) ? draft.patch_inputs as Item[] : [];
   const patchSamplesReady = patchInputs.every((_, index) => UUID.test(patchSampleReferences[index + 1] ?? ""));
   const invalidateEvidence = () => {
@@ -824,7 +825,6 @@ function FlowWizard(props: { bootstrapActive: boolean; route: Extract<FlowRoute,
         {Array.isArray(review.warnings) && review.warnings.length > 0 && <div class="ko-disabled-reason"><p>Good to know:</p><ul>{review.warnings.map((code) => <li key={String(code)}>{publishReviewSentence(String(code), "warning")}</li>)}</ul></div>}</>}
       <button class="ko-button ko-button--primary" type="button" disabled={publishToken === "" || saving || !canCommitPublish || !draftMutable} onClick={() => void publish()}>Publish exact reviewed draft</button>
       {publishToken === "" && <p class="ko-disabled-reason">A current successful publish review is required.</p>}
-      {canReviewPublish && !canCommitPublish && <p class="ko-disabled-reason">Publishing also requires the ownership.manage capability.</p>}
     </section>;
   }
 
