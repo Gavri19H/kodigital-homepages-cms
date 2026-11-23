@@ -11,6 +11,8 @@
 import type { Env } from "../env";
 import { buildWhereClause } from "./query-filters";
 import { ARTICLES_USING_VERTICAL_SLUG_WHERE } from "./verticals-handlers";
+import { containsPlaceholder, resolveSiteAudience } from "../ai/site-audience";
+import { AUDIENCE_DEFAULT_HINT_KEY } from "./templates/settings";
 
 interface SiteRecord {
   id: string;
@@ -182,6 +184,8 @@ export interface VerticalUsageRowDto {
   slug: string;
   name: string;
   display_order: number;
+  // X06: the Vertical's default audience (NULL = not set).
+  audience: string | null;
   site_count: number;
   category_count: number;
   article_count: number;
@@ -476,7 +480,7 @@ export async function listAdminVerticalsWithUsage(
   env: Env,
 ): Promise<VerticalUsageRowDto[]> {
   const result = await env.DB.prepare(
-    "SELECT v.id, v.slug, v.name, v.display_order, " +
+    "SELECT v.id, v.slug, v.name, v.display_order, v.audience, " +
       "(SELECT COUNT(*) FROM sites s WHERE s.vertical_slug = v.slug) AS site_count, " +
       "(SELECT COUNT(*) FROM category_verticals cv WHERE cv.vertical_id = v.id) AS category_count, " +
       "(SELECT COUNT(*) FROM articles a WHERE (a.vertical_id = v.id OR (a.vertical_id IS NULL AND a.site_id IN (SELECT s2.id FROM sites s2 WHERE s2.vertical_slug = v.slug)))) AS article_count " +
@@ -487,6 +491,7 @@ export async function listAdminVerticalsWithUsage(
     slug: r.slug,
     name: r.name,
     display_order: Number(r.display_order ?? 0),
+    audience: typeof r.audience === "string" ? r.audience : null,
     site_count: Number(r.site_count ?? 0),
     category_count: Number(r.category_count ?? 0),
     article_count: Number(r.article_count ?? 0),
@@ -814,6 +819,14 @@ export async function listAdminSettings(
   const values: SettingsValueMap = {};
   for (const row of result.results ?? []) {
     values[row.key] = row.value;
+  }
+  // X06: a site with no own "audience" yet shows the value AI would use as the
+  // Audience field's placeholder (display only — nothing is saved here).
+  if (siteId !== null && siteId.length > 0) {
+    const own = (values["audience"] ?? "").trim();
+    if (own.length === 0 || containsPlaceholder(own)) {
+      values[AUDIENCE_DEFAULT_HINT_KEY] = await resolveSiteAudience(env.DB, siteId);
+    }
   }
   return values;
 }

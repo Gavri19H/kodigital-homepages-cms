@@ -26,7 +26,9 @@
 //   GET  /api/admin/ai/presets?active_only=true  — populate the preset select
 //   POST /api/admin/ai/chat   {prompt, presetId?, variables?, context?,
 //                              options?, system_prompt?, site_id?}
-//   POST /api/admin/ai/image  {prompt, presetId?, site_id?}
+//   POST /api/admin/ai/image  {prompt, presetId?, site_id?, title?}
+//   POST /api/admin/ai/article {site_id, lookup:"audience"} — X06: the
+//                              site's audience for the "Audience" field
 //
 // Models shown in the panel come ONLY from the SUPPORTED_*_MODELS registry
 // lists (../../ai/models) — never hardcoded model id literals (T28.AC2).
@@ -132,7 +134,7 @@ export function renderAIAssistantPanel(): string {
         </div>
         <div class="form-group">
           <label for="ai-fa-audience" class="form-label">Audience <span class="ai-field-note">(optional)</span></label>
-          <input id="ai-fa-audience" type="text" class="form-input" placeholder="Who is this for?" />
+          <input id="ai-fa-audience" type="text" class="form-input" placeholder="Who is this for? Empty = the site's audience" />
         </div>
         <div class="ai-builder-grid">
           <label class="ai-builder-num">Sections

@@ -13,6 +13,8 @@ import type { ArticleRow, MediaRow, CategoryRow } from "../db";
 // validation that rejects stored-XSS vectors before they are ever persisted.
 import { ALLOWED_SETTINGS_KEYS, validateScriptField } from "../settings/custom-html";
 import { invalidateForSettingsUpdate } from "../cache/invalidate";
+// X06: Settings refuses "{{"/"}}" in the four site-text fields.
+import { containsPlaceholder, PLACEHOLDER_SAVE_ERROR } from "../ai/site-audience";
 // LeadGen v2.5 10 §10.2: a settings save touching branding keys must bump
 // leadgen_site_quotes.updated_at for that site (the activation_version cache
 // axis) so cached funnel shells re-bake the site branding.
@@ -35,6 +37,7 @@ import {
 import {
   createVerticalHandler,
   deleteVerticalHandler,
+  updateVerticalAudienceHandler,
   bulkSetArticleVerticalHandler,
   readArticleVerticalInput,
   articleVerticalInputError,
@@ -649,6 +652,14 @@ api.get("/api/admin/settings", async (c) => {
 //   /api/admin/settings updates 'tagline' for that site_id, THEN
 //   site_settings row (site_id, 'tagline') value is updated AND
 //   sites.settings_version is incremented to 2 in the same transaction.
+// X06: the site-text fields Settings refuses to save with "{{" or "}}".
+const PLACEHOLDER_CHECKED_SETTING_KEYS: ReadonlyArray<string> = [
+  "site_name",
+  "audience",
+  "tagline",
+  "site_description",
+];
+
 api.patch("/api/admin/settings", async (c) => {
   interface PatchSettingsBody {
     site_id?: unknown;
@@ -685,6 +696,14 @@ api.patch("/api/admin/settings", async (c) => {
   for (const key of keys) {
     if (!ALLOWED_SETTINGS_KEYS.has(key)) {
       return c.json({ error: `unknown setting key: '${key}'` }, 400);
+    }
+  }
+
+  // X06: an unfilled "{{…}}" token in a site text would reach Google (the
+  // August Site Descriptions did). Refuse the whole save before any write.
+  for (const key of PLACEHOLDER_CHECKED_SETTING_KEYS) {
+    if (containsPlaceholder(updates[key])) {
+      return c.json({ error: PLACEHOLDER_SAVE_ERROR, key }, 400);
     }
   }
 
@@ -919,6 +938,9 @@ adminApi.patch("/domains/:id", updateDomainHandler);
 // grep above (get|patch only), so its exact-3 count is unaffected.
 adminApi.post("/verticals", createVerticalHandler);
 adminApi.delete("/verticals/:id", deleteVerticalHandler);
+// X06: "Edit audience" on the Verticals screen. Registered with `.on("PATCH")`
+// so the T14.AC1 exact-3 grep above (get|patch only) keeps counting 3.
+adminApi.on("PATCH", "/verticals/:id", updateVerticalAudienceHandler);
 adminApi.post("/articles/bulk-vertical", bulkSetArticleVerticalHandler);
 
 // T13: PATCH /api/admin/articles/:id — allow-listed field update with

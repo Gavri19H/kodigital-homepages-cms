@@ -11,7 +11,8 @@
 // Tenant-boundary + safety contract:
 //   - Read-only `verticals` is a global table seeded in migration 0004; the
 //     handler returns all 8 slugs ordered by display_order so the New Site
-//     modal renders them in the canonical Phase-3 order.
+//     modal renders them in the canonical Phase-3 order. X06: each row also
+//     carries its default `audience` (migration 0070; NULL = not set).
 //   - `domains` is per-site (FK -> sites). The list endpoint is unfiltered
 //     so the admin Domains tab can render an aggregate view across tenants;
 //     PATCH only mutates a small safe subset of columns (status / is_primary
@@ -28,6 +29,7 @@ interface VerticalRow {
   slug: string;
   name: string;
   display_order: number;
+  audience: string | null;
 }
 
 interface DomainRow {
@@ -70,7 +72,7 @@ export async function listVerticalsHandler(
   c: Context<{ Bindings: Env }>,
 ): Promise<Response> {
   const result = await c.env.DB.prepare(
-    "SELECT id, slug, name, display_order FROM verticals ORDER BY display_order ASC, slug ASC LIMIT 200",
+    "SELECT id, slug, name, display_order, audience FROM verticals ORDER BY display_order ASC, slug ASC LIMIT 200",
   ).all<VerticalRow>();
   return c.json({ resource: result.results ?? [] });
 }

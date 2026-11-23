@@ -115,7 +115,7 @@ function makeContentDb(): D1Database {
             if (host !== TENANT_HOST) return null;
             return { ...SITE_CONTEXT_ROW } as unknown as T;
           }
-          if (sql.startsWith("SELECT id, slug, name FROM categories")) {
+          if (sql.startsWith("SELECT id, slug, name, description FROM categories")) {
             const slug = captured[0] as string;
             return (
               slug === CATEGORY_ROW.slug ? { ...CATEGORY_ROW } : null

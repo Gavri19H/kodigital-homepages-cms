@@ -20,6 +20,7 @@ import { generateStarterArticle } from "../ai/generators/text";
 import { generateFeatureImage } from "../ai/generators/image";
 import type { GeneratedArticle } from "../ai/schemas";
 import { buildArticleContentJson } from "../site-provisioning/steps";
+import { resolveSiteAudience } from "../ai/site-audience";
 import {
   readAiVerticalContext,
   resolveArticleVerticalSlug,
@@ -191,9 +192,29 @@ export function verifyStructure(
   return warnings;
 }
 
-// The pipeline's field rounding (steps.ts generateOneTextUnit): seo_title is
-// the title clipped to 70, seo_description prefers a real summary sentence
-// clipped to 155, subtitle clips to the form's 160 maxlength.
+// X06: the one error every failed "Full article" run returns. Nothing in the
+// editor is filled when this comes back.
+export const FULL_ARTICLE_AI_FAILED = "The AI didn't answer. Nothing was changed. Try again.";
+
+// X06: Google descriptions end on a whole word. Up to 160 characters stay as
+// they are; longer text is cut at the last whole word that fits in 157
+// characters and gets "…" (so the result is at most 158 characters).
+export const SEO_DESCRIPTION_MAX = 160;
+export function cutAtWholeWord(text: string, max = SEO_DESCRIPTION_MAX): string {
+  const t = text.replace(/\s+/g, " ").trim();
+  if (t.length <= max) return t;
+  const room = max - 3;
+  // One extra character: if it is a space, the word ending at `room` is whole.
+  const head = t.slice(0, room + 1);
+  const lastSpace = head.lastIndexOf(" ");
+  let cut = lastSpace > 0 ? head.slice(0, lastSpace) : t.slice(0, room);
+  cut = cut.replace(/[\s,;:\-–—]+$/, "");
+  return `${cut}…`;
+}
+
+// The pipeline's field rounding: subtitle clips to the form's 160 maxlength.
+// X06: seo_title is the WHOLE title (Google shortens long titles itself), and
+// seo_description prefers the intro's first paragraph, ending on a whole word.
 export function deriveArticleFields(
   parsed: GeneratedArticle,
   fallbackTitle: string,
@@ -216,11 +237,11 @@ export function deriveArticleFields(
   const introFirst = (typeof parsed.intro === "string" ? parsed.intro : "")
     .split(/\n\n+/)[0]!
     .trim();
-  const seoDescription = (introFirst.length > 0 ? introFirst : title).slice(0, 155);
+  const seoDescription = cutAtWholeWord(introFirst.length > 0 ? introFirst : title);
   return {
     title,
     subtitle,
-    seo_title: title.slice(0, 70),
+    seo_title: title,
     seo_description: seoDescription,
     author_name: authorName,
   };
@@ -290,6 +311,9 @@ interface FullArticleBody {
   // "Vertical" choice (null = "Same as site"). Both optional.
   article_id?: unknown;
   vertical_id?: unknown;
+  // X06: {site_id, lookup:"audience"} only reads the site's audience (no AI
+  // call) so the panel's "Audience" field can start filled with it.
+  lookup?: unknown;
 }
 
 export async function generateFullArticle(c: ArticleCtx) {
@@ -302,11 +326,14 @@ export async function generateFullArticle(c: ArticleCtx) {
   const site_id = typeof body.site_id === "string" ? body.site_id.trim() : "";
   const title = typeof body.title === "string" ? body.title.trim() : "";
   if (!site_id) return c.json({ error: "site_id is required" }, 400);
+  if (body.lookup === "audience") {
+    return c.json({ audience: await resolveSiteAudience(c.env.DB, site_id) });
+  }
   if (!title) return c.json({ error: "title is required" }, 400);
   const brief = typeof body.brief === "string" ? body.brief.trim() : "";
   const tone = typeof body.tone === "string" ? body.tone.trim() : "";
   const length = typeof body.length === "string" ? body.length.trim() : "";
-  const audience = typeof body.audience === "string" ? body.audience.trim() : "";
+  const typedAudience = typeof body.audience === "string" ? body.audience.trim() : "";
   const structure = normalizeStructure(body.structure);
   const heroAsk = normalizeImageAsk(body.images?.hero, true);
   const midAsk = normalizeImageAsk(body.images?.mid, true);
@@ -317,6 +344,9 @@ export async function generateFullArticle(c: ArticleCtx) {
     .bind(site_id)
     .first<{ id: string; name: string | null; vertical_slug: string | null }>();
   if (!site) return c.json({ error: "Unknown site_id" }, 404);
+  // X06: an empty "Audience" field means the site's own audience.
+  const audience =
+    typedAudience.length > 0 ? typedAudience : await resolveSiteAudience(c.env.DB, site_id);
   const brand_name =
     typeof site.name === "string" && site.name.length > 0 ? site.name : site.id;
   // X01 Part C: {{vertical}} = the Article's own vertical when set, else the
@@ -370,14 +400,23 @@ export async function generateFullArticle(c: ArticleCtx) {
       title,
       summary,
       slug,
+      audience,
     });
-  } catch (err) {
-    return c.json(
-      { error: err instanceof Error ? err.message : String(err) },
-      502,
-    );
+  } catch {
+    return c.json({ error: FULL_ARTICLE_AI_FAILED }, 502);
+  }
+  // X06: anything but a real answer (no key, timeout, bad JSON, a refused
+  // answer) is a failure. The generator's fallback body would use the
+  // operator's instructions as the intro, so none of it is returned.
+  if (article.status !== "success") {
+    return c.json({ error: FULL_ARTICLE_AI_FAILED }, 502);
   }
   generation_ids.push(article.ai_generation_id);
+  // X06: a real answer with no intro gets the instructions as its intro from
+  // the generator's filler; drop it rather than publish the instructions.
+  if (typeof article.parsed.intro === "string" && article.parsed.intro.trim() === summary.trim()) {
+    article = { ...article, parsed: { ...article.parsed, intro: "" } };
+  }
 
   // Off-switches are enforced deterministically; count-asks are verified and
   // any drift is surfaced as a plain writer warning.

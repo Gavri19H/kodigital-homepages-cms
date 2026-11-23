@@ -42,6 +42,9 @@ export interface PublicCategoryRow {
   id: number;
   slug: string;
   name: string;
+  // X06 (owner Q5): the category's own "Description" (Categories → Edit);
+  // empty/NULL gets an automatic sentence on the public page.
+  description?: string | null;
 }
 
 export interface PublicTagRow {
@@ -73,7 +76,7 @@ export async function fetchCategory(
   slug: string,
 ): Promise<PublicCategoryRow | null> {
   const row = await db
-    .prepare("SELECT id, slug, name FROM categories WHERE slug = ? LIMIT 1")
+    .prepare("SELECT id, slug, name, description FROM categories WHERE slug = ? LIMIT 1")
     .bind(slug)
     .first<PublicCategoryRow>();
   return row ?? null;
@@ -247,6 +250,28 @@ function parseBrandTokensJson(
     return out;
   } catch {
     return {};
+  }
+}
+
+// X06 (owner Q5): the site's Vertical display name (e.g. "Finance"), for the
+// About page's automatic description. Read only when that page has no SEO
+// description of its own; null when unknown or unreadable (the sentence then
+// leaves the Vertical out).
+export async function fetchSiteVerticalName(
+  db: D1Database,
+  siteId: string,
+): Promise<string | null> {
+  try {
+    const row = await db
+      .prepare(
+        "SELECT v.name AS name FROM sites s INNER JOIN verticals v ON v.slug = s.vertical_slug WHERE s.id = ? LIMIT 1",
+      )
+      .bind(siteId)
+      .first<{ name: string | null }>();
+    const name = typeof row?.name === "string" ? row.name.trim() : "";
+    return name.length > 0 ? name : null;
+  } catch {
+    return null;
   }
 }
 

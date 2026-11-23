@@ -725,6 +725,40 @@ export const aiAssistantScripts = `
     if (activePreset) { setStatus('Preset loaded: ' + (activePreset.name || activePreset.slug)); }
     else { setStatus(''); }
   }
+  // X06: the "Audience" field starts filled with the site's audience (the
+  // site's own setting, else its Vertical's default). Once the operator types
+  // in it, it is never overwritten; empty = the server uses the same default.
+  var faAudienceEdited = false;
+  var faAudienceSite = null;
+  if (faAudience) {
+    faAudience.addEventListener('input', function () { faAudienceEdited = true; });
+  }
+  function prefillAudience() {
+    if (!faAudience || faAudienceEdited) { return; }
+    var siteId = readSiteId();
+    if (!siteId || siteId === faAudienceSite) { return; }
+    faAudienceSite = siteId;
+    fetch('/api/admin/ai/article', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      credentials: 'same-origin',
+      body: JSON.stringify({ site_id: siteId, lookup: 'audience' })
+    }).then(function (res) { return res.ok ? res.json() : null; })
+      .then(function (json) {
+        if (faAudienceEdited || readSiteId() !== siteId) { return; }
+        if (json && typeof json.audience === 'string') { faAudience.value = json.audience; }
+      })
+      .catch(function () { faAudienceSite = null; });
+  }
+  var faSiteSelect = document.querySelector('select[name="site_id"]');
+  if (faSiteSelect) {
+    faSiteSelect.addEventListener('change', function () {
+      if (faAudienceEdited || !faAudience) { return; }
+      faAudience.value = '';
+      faAudienceSite = null;
+      if (fullOptions && !fullOptions.hidden) { prefillAudience(); }
+    });
+  }
   function onQuickClick() {
     var action = this.getAttribute('data-quick-action');
     activeAction = action;
@@ -739,6 +773,7 @@ export const aiAssistantScripts = `
     if (action === 'full_article' && faTopic && !faTopic.value) {
       faTopic.value = fieldValue('#article-title');
     }
+    if (action === 'full_article') { prefillAudience(); }
     if (presetModelEl) { presetModelEl.hidden = true; }
     renderVariableInputs(null);
     renderImagePrompts(null);
@@ -1005,6 +1040,8 @@ export const aiAssistantScripts = `
     }).then(function (res) {
       setBusy(false);
       if (!res.ok) {
+        // X06: a failed run fills nothing; the server's message is shown as is.
+        setStatus('');
         setError((res.body && res.body.error) || ('Full article failed (HTTP ' + res.status + ')'));
         return;
       }
@@ -1052,6 +1089,8 @@ export const aiAssistantScripts = `
       length: lengthEl && lengthEl.value ? lengthEl.value : ''
     };
     payload.context = getContextValues();
+    // X06: the saved image description is the Article's title, never the prompt.
+    if (kind === 'image' && payload.context.title) { payload.title = payload.context.title; }
     if (activePreset) {
       payload.presetId = activePreset.id;
       payload.variables = variableValues();

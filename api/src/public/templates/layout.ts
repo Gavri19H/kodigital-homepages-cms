@@ -211,9 +211,11 @@ export function renderLayout(args: RenderLayoutArgs): string {
     description: meta.description ?? site.description,
     // X14 v2 (owner Q6): a page with no picture of its own shares the site's
     // uploaded logo, as a full web address.
+    // X06 (fix 8): the page's own picture is a full web address too — social
+    // sites can't load a bare "/media/…" path.
     ogImage:
       meta.ogImage !== undefined && meta.ogImage !== null && meta.ogImage.length > 0
-        ? meta.ogImage
+        ? (absoluteOnHost(site.hostname, meta.ogImage) ?? meta.ogImage)
         : (absoluteOnHost(site.hostname, uploadedLogoUrl(site.logoUrl ?? null)) ?? undefined),
     siteName: site.name,
     ogType: meta.ogType,

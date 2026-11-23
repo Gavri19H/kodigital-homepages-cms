@@ -37,6 +37,7 @@ import {
 import { handleAdminAiImage, IMAGE_BODY_LIMIT_BYTES } from "./ai-image";
 import { handleAdminAiLogo } from "./ai-logo";
 import { generateFullArticle } from "./ai-article";
+import { handleSiteTextAi } from "./site-text-ai";
 import {
   getPreset,
   isValidPresetId,
@@ -262,6 +263,10 @@ aiApi.post(
 
 // The writer's one-click full article (pipeline-parity composer, no INSERT).
 aiApi.post("/api/admin/ai/article", generateFullArticle);
+
+// X06: Settings → General "✨ Write with AI" (Tagline / Site Description).
+// Suggests text only; never saves a setting.
+aiApi.post("/api/admin/ai/site-text", handleSiteTextAi);
 
 // T21 [E4]: presets CRUD route patterns (6).
 aiApi.get("/api/admin/ai/presets", listPresets);

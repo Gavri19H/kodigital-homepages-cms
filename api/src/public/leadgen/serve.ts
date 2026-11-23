@@ -158,6 +158,16 @@ function funnelOgLogoTag(hostname: string | null, logoUrl: string | null): strin
   return abs === null ? "" : `<meta property="og:image" content="${escapeHtml(abs)}">`;
 }
 
+// X06 (owner Q4): the funnel's tab title is the site's public name (Settings →
+// "Site Name", else the site's domain — resolveSiteBranding), then the request
+// host; the internal funnel name only when neither is known.
+export function funnelTabTitle(resolved: ResolvedActivatedFunnel, siteHostname: string | null): string {
+  const siteName = resolved.site_branding?.site_name?.trim() ?? "";
+  if (siteName.length > 0) return siteName;
+  const host = siteHostname?.trim() ?? "";
+  return host.length > 0 ? host : resolved.funnel.funnel_name;
+}
+
 type PublicContext = Context<{ Bindings: Env; Variables: PublicSiteVariables }>;
 
 const DEFAULT_TTL_SECONDS = 300;
@@ -1172,7 +1182,10 @@ function renderFunnelShell(
     "<head>" +
     '<meta charset="utf-8">' +
     '<meta name="viewport" content="width=device-width, initial-scale=1">' +
-    `<title>${escapeHtml(resolved.funnel.funnel_name)}</title>` +
+    // X06 (owner Q4): funnels are ad landing pages — kept out of Google, and
+    // the tab shows the site's public name, never the internal funnel name.
+    '<meta name="robots" content="noindex">' +
+    `<title>${escapeHtml(funnelTabTitle(resolved, siteHostname))}</title>` +
     // X14 v2: the site's tab icon, phone icon and browser color, and its
     // uploaded logo as the share picture (funnels have none of their own).
     siteIconHeadTags({

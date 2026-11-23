@@ -94,7 +94,7 @@ function makeDb(article: ArticleSeed, categoryRows: ArticleSeed[]): D1Database {
               : null) as unknown as T | null;
           }
           // fetchCategory (category route).
-          if (sql.startsWith("SELECT id, slug, name FROM categories")) {
+          if (sql.startsWith("SELECT id, slug, name, description FROM categories")) {
             const slug = captured[0] as string;
             return (slug === "news"
               ? { id: 5, slug: "news", name: "News" }

@@ -2,6 +2,7 @@
 //
 //   POST   /api/admin/verticals               "Add vertical"
 //   DELETE /api/admin/verticals/:id           "Delete" (refused while in use)
+//   PATCH  /api/admin/verticals/:id           "Edit audience" (X06)
 //   POST   /api/admin/articles/bulk-vertical  Articles → "Set vertical"
 //
 // plus the one shared rule for "which vertical does this Article use":
@@ -16,6 +17,7 @@
 
 import type { Context } from "hono";
 import type { Env } from "../env";
+import { containsPlaceholder, PLACEHOLDER_SAVE_ERROR } from "../ai/site-audience";
 
 type Ctx = Context<{ Bindings: Env }>;
 
@@ -23,6 +25,8 @@ type Ctx = Context<{ Bindings: Env }>;
 export const VERTICAL_SLUG_PATTERN = /^[a-z0-9]+(-[a-z0-9]+)*$/;
 const MAX_SLUG_LENGTH = 64;
 const MAX_NAME_LENGTH = 80;
+// X06: a Vertical's default audience (one short phrase).
+export const MAX_AUDIENCE_LENGTH = 200;
 
 // The Articles list shows at most 200 rows a page, so one "Set vertical"
 // never needs more. Each UPDATE binds the vertical + up to 80 ids (81 < 100).
@@ -34,6 +38,7 @@ export interface VerticalRow {
   slug: string;
   name: string;
   display_order: number;
+  audience?: string | null;
 }
 
 export interface VerticalUsage {
@@ -183,13 +188,44 @@ export function readAiVerticalContext(body: {
   return { articleId, override };
 }
 
-// POST /api/admin/verticals { name, slug } → 201 { resource }.
-// 400 missing name / bad slug; 409 VERTICAL_SLUG_TAKEN. The new vertical goes
-// to the end of the list (display_order = current max + 1).
+// X06: reads a Vertical "Audience" value from a request body.
+//   undefined          → { kind: "absent" }
+//   null / blank text  → { kind: "set", value: null }  (falls back to
+//                        "readers interested in <name>")
+//   text               → { kind: "set", value: <trimmed text> }
+// Refused: not text, "{{" / "}}" (PLACEHOLDER_SAVE_ERROR), over 200 characters.
+type AudienceInput =
+  | { kind: "absent" }
+  | { kind: "set"; value: string | null }
+  | { kind: "error"; error: string; code: string };
+
+function readAudienceInput(raw: unknown): AudienceInput {
+  if (raw === undefined) return { kind: "absent" };
+  if (raw === null) return { kind: "set", value: null };
+  if (typeof raw !== "string") {
+    return { kind: "error", error: "Audience must be text", code: "INVALID_AUDIENCE" };
+  }
+  const value = raw.trim();
+  if (containsPlaceholder(value)) {
+    return { kind: "error", error: PLACEHOLDER_SAVE_ERROR, code: "PLACEHOLDER_NOT_ALLOWED" };
+  }
+  if (value.length > MAX_AUDIENCE_LENGTH) {
+    return {
+      kind: "error",
+      error: "Audience is too long (max " + String(MAX_AUDIENCE_LENGTH) + " characters)",
+      code: "AUDIENCE_TOO_LONG",
+    };
+  }
+  return { kind: "set", value: value.length > 0 ? value : null };
+}
+
+// POST /api/admin/verticals { name, slug, audience? } → 201 { resource }.
+// 400 missing name / bad slug / bad audience; 409 VERTICAL_SLUG_TAKEN. The new
+// vertical goes to the end of the list (display_order = current max + 1).
 export async function createVerticalHandler(c: Ctx): Promise<Response> {
-  let body: { name?: unknown; slug?: unknown };
+  let body: { name?: unknown; slug?: unknown; audience?: unknown };
   try {
-    body = await c.req.json<{ name?: unknown; slug?: unknown }>();
+    body = await c.req.json<{ name?: unknown; slug?: unknown; audience?: unknown }>();
   } catch {
     return c.json({ error: "Invalid JSON body" }, 400);
   }
@@ -213,6 +249,11 @@ export async function createVerticalHandler(c: Ctx): Promise<Response> {
       400,
     );
   }
+  const audienceInput = readAudienceInput(body.audience);
+  if (audienceInput.kind === "error") {
+    return c.json({ error: audienceInput.error, code: audienceInput.code }, 400);
+  }
+  const audience = audienceInput.kind === "set" ? audienceInput.value : null;
   const taken = await c.env.DB.prepare("SELECT id FROM verticals WHERE slug = ? LIMIT 1")
     .bind(slug)
     .first<{ id: number }>();
@@ -225,9 +266,9 @@ export async function createVerticalHandler(c: Ctx): Promise<Response> {
   let row: VerticalRow | null;
   try {
     row = await c.env.DB.prepare(
-      "INSERT INTO verticals (slug, name, display_order) SELECT ?, ?, COALESCE(MAX(display_order), 0) + 1 FROM verticals RETURNING id, slug, name, display_order",
+      "INSERT INTO verticals (slug, name, display_order, audience) SELECT ?, ?, COALESCE(MAX(display_order), 0) + 1, ? FROM verticals RETURNING id, slug, name, display_order, audience",
     )
-      .bind(slug, name)
+      .bind(slug, name, audience)
       .first<VerticalRow>();
   } catch (err) {
     // Two adds racing for the same slug: the UNIQUE index decides.
@@ -243,6 +284,40 @@ export async function createVerticalHandler(c: Ctx): Promise<Response> {
     return c.json({ error: "Failed to add vertical" }, 500);
   }
   return c.json({ resource: row }, 201);
+}
+
+// PATCH /api/admin/verticals/:id { audience } → 200 { resource } (X06,
+// Verticals screen → "Edit audience"). Empty text or null clears it (NULL).
+// 400 bad id / missing or bad audience; 404 unknown vertical. Changes only
+// this Vertical's default: sites already made keep their own "audience".
+export async function updateVerticalAudienceHandler(c: Ctx): Promise<Response> {
+  const id = parsePositiveInt(c.req.param("id"));
+  if (id === null) return c.json({ error: "Invalid vertical id" }, 400);
+  let body: { audience?: unknown };
+  try {
+    body = await c.req.json<{ audience?: unknown }>();
+  } catch {
+    return c.json({ error: "Invalid JSON body" }, 400);
+  }
+  if (body === null || typeof body !== "object") {
+    return c.json({ error: "Invalid JSON body" }, 400);
+  }
+  const input = readAudienceInput(body.audience);
+  if (input.kind === "absent") {
+    return c.json({ error: "audience is required (empty to clear)", code: "INVALID_AUDIENCE" }, 400);
+  }
+  if (input.kind === "error") {
+    return c.json({ error: input.error, code: input.code }, 400);
+  }
+  const row = await c.env.DB.prepare(
+    "UPDATE verticals SET audience = ? WHERE id = ? RETURNING id, slug, name, display_order, audience",
+  )
+    .bind(input.value, id)
+    .first<VerticalRow>();
+  if (row === null || row === undefined) {
+    return c.json({ error: "Vertical not found" }, 404);
+  }
+  return c.json({ resource: row });
 }
 
 // DELETE /api/admin/verticals/:id → 200 { ok, id, categories_unlinked }.

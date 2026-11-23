@@ -35,6 +35,9 @@ export const ALLOWED_SETTINGS_KEYS: ReadonlySet<string> = new Set<string>([
   // X14: the site's tab icon (favicon) — a bare media storage key of a square
   // picture, same format as logo_media_id. Not one of the 12 canonical keys.
   "favicon_media_id",
+  // X06: who the site writes for (Settings → General → "Audience"). Every AI
+  // text for the site uses it (ai/site-audience.ts resolveSiteAudience).
+  "audience",
   "tagline",
   "site_description",
   "brand_tokens_json",

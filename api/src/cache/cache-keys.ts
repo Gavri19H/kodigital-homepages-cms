@@ -32,7 +32,10 @@
 // across every site at once (the suffix changes for every key).
 // v2 (2026-11-22, X14 v2): every public page <head> gains the tab icon, phone
 // icon and browser color; the footer shows the uploaded logo.
-export const TEMPLATE_VERSION = 2 as const;
+// v3 (23 Nov 2026, X06 SEO fixes): the homepage structured data is wrapped
+// once, share pictures are full web addresses, and Category/About/legal pages
+// carry their own description.
+export const TEMPLATE_VERSION = 3 as const;
 
 // Namespace prefixes — these are the wire identifiers that appear at the
 // start of every cache key. Keep them in sync with the field_contract.fields
@@ -242,7 +245,11 @@ export function listicleCandidateKey(
 // the Searchable dropdown; the shell config gains the live vehicle snapshot.
 // Runtime bytes change, so the immutable /lg/runtime/{v}.js URL must move;
 // runtime "14" tracks it.
-export const LEADGEN_TEMPLATE_VERSION = 14 as const;
+// v15 (23 Nov 2026, X06 SEO fixes, owner Q4): the SHELL <head> gains
+// <meta name="robots" content="noindex"> and the tab title is the site's public
+// name instead of the internal funnel name. Shell markup changes; the visitor
+// bundle differs only by the version it reports (runtime "15" tracks it).
+export const LEADGEN_TEMPLATE_VERSION = 15 as const;
 
 const NS_LG_SHELL = "lg-shell";
 const NS_LG_CONFIG = "lg-config";

@@ -30,6 +30,7 @@
 import { adminLayout, escapeHtml } from "./layout";
 import { mediaUrl } from "../../public/view-models/media-url";
 import { brandGlyphSvg, resolveBrandGlyphKey } from "../../public/templates/icons";
+import { PLACEHOLDER_SAVE_ERROR } from "../../ai/site-audience";
 
 export interface SiteOption {
   id: string;
@@ -57,6 +58,15 @@ export const SETTING_KEYS: ReadonlyArray<string> = [
   "contact_email",
   "privacy_email",
 ];
+
+// X06: the values map key that carries the Audience field's placeholder (the
+// audience AI would use when the site has none of its own — see
+// data.listAdminSettings). Never a site_settings key: the save allow-list
+// refuses it.
+export const AUDIENCE_DEFAULT_HINT_KEY = "audience_default_hint";
+
+// X06: Site Description best length; the counter turns amber past it.
+const SITE_DESCRIPTION_BEST_MAX = 160;
 
 // T15 parity keys (items_per_page, site_logo_url) are persisted alongside
 // the 12 canonical keys via the same arbitrary-key PATCH route. They are
@@ -226,17 +236,79 @@ function renderCard(title: string, body: string): string {
   </div>`;
 }
 
+// X06: the "{{…}}" refusal line under a site-text field (filled by the
+// settings script on save).
+function renderPlaceholderError(key: string): string {
+  const safeKey = escapeHtml(key);
+  return `<p id="setting-error-${safeKey}" class="form-error" data-error-for="${safeKey}" role="alert" hidden></p>`;
+}
+
+function counterText(key: string, length: number): string {
+  return key === "site_description"
+    ? `${length} / ${SITE_DESCRIPTION_BEST_MAX}`
+    : `${length} characters`;
+}
+
+// X06: "Site Name" — the plain text field plus the "{{…}}" refusal line.
+function renderSiteNameField(values: SettingsValueMap): string {
+  const value = settingValue(values, "site_name");
+  return `<div class="form-group" data-setting-key="site_name">
+    <label for="setting-site_name" class="form-label">Site Name</label>
+    <input id="setting-site_name" name="site_name" type="text" class="form-input" data-field="setting_value" data-key="site_name" value="${escapeHtml(value)}" />
+    ${renderPlaceholderError("site_name")}
+  </div>`;
+}
+
+// X06: "Audience" — who the site writes for. Empty shows the audience AI
+// would use as the placeholder; it is not saved until the operator types one.
+function renderAudienceField(values: SettingsValueMap): string {
+  const value = settingValue(values, "audience");
+  const hint = settingValue(values, AUDIENCE_DEFAULT_HINT_KEY);
+  const placeholder = hint.length > 0 ? ` placeholder="${escapeHtml(hint)}"` : "";
+  return `<div class="form-group" data-setting-key="audience">
+    <label for="setting-audience" class="form-label">Audience</label>
+    <input id="setting-audience" name="audience" type="text" class="form-input" data-field="setting_value" data-key="audience" maxlength="200" value="${escapeHtml(value)}"${placeholder} />
+    <small class="form-hint">Who this site writes for. Every AI text for this site uses it.</small>
+    ${renderPlaceholderError("audience")}
+  </div>`;
+}
+
+// X06: Tagline / Site Description — label row with "✨ Write with AI", the
+// field, the "{{…}}" refusal line, help text and the length counter.
+function renderAiTextField(
+  key: "tagline" | "site_description",
+  label: string,
+  value: string,
+  hint?: string,
+): string {
+  const control = key === "site_description"
+    ? `<textarea id="setting-${key}" name="${key}" rows="3" class="form-textarea" data-field="setting_value" data-key="${key}">${escapeHtml(value)}</textarea>`
+    : `<input id="setting-${key}" name="${key}" type="text" class="form-input" data-field="setting_value" data-key="${key}" value="${escapeHtml(value)}" />`;
+  const hintHtml = hint ? `<small class="form-hint">${escapeHtml(hint)}</small>` : "";
+  const over = key === "site_description" && value.length > SITE_DESCRIPTION_BEST_MAX;
+  return `<div class="form-group" data-setting-key="${key}">
+    <div class="form-label-row">
+      <label for="setting-${key}" class="form-label">${escapeHtml(label)}</label>
+      <button type="button" id="ai-write-${key}" class="btn btn-secondary btn-sm ai-write-btn" data-ai-write="${key}">✨ Write with AI</button>
+    </div>
+    ${control}
+    ${renderPlaceholderError(key)}
+    ${hintHtml}
+    <div id="setting-counter-${key}" class="char-counter${over ? " is-over" : ""}" data-counter-for="${key}" aria-live="polite">${counterText(key, value.length)}</div>
+  </div>`;
+}
+
 function renderSiteInformationCard(values: SettingsValueMap): string {
   return renderCard(
     "Site Information",
-    renderTextField("site_name", "Site Name", settingValue(values, "site_name")) +
-      renderTextField("tagline", "Tagline", settingValue(values, "tagline")) +
-      renderTextareaField(
+    renderSiteNameField(values) +
+      renderAudienceField(values) +
+      renderAiTextField("tagline", "Tagline", settingValue(values, "tagline")) +
+      renderAiTextField(
         "site_description",
         "Site Description",
         settingValue(values, "site_description"),
-        3,
-        "Used for SEO and social sharing.",
+        "Used for SEO and social sharing. Best length: 120–160 characters.",
       ) +
       renderTextField(
         "contact_email",
@@ -990,6 +1062,13 @@ const SETTINGS_STYLES = `
 .brand-token-grid { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 16px; }
 .brand-token-field .form-color { width: 56px; height: 36px; padding: 2px; border: 1px solid var(--c-border, #d9dde3); border-radius: 6px; cursor: pointer; background: #fff; }
 @media (max-width: 600px) { .brand-token-grid { grid-template-columns: 1fr; } }
+.form-label-row { display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: 8px; margin-bottom: 6px; }
+.form-label-row .form-label { margin-bottom: 0; min-width: 0; }
+.ai-write-btn[disabled] { opacity: 0.6; cursor: not-allowed; }
+.char-counter { font-size: 12px; color: #6b7280; text-align: right; margin-top: 4px; }
+.char-counter.is-over { color: #b45309; font-weight: 600; }
+.form-input.is-invalid, .form-textarea.is-invalid { border-color: #ef4444; }
+.form-input.ai-filled, .form-textarea.ai-filled { border-color: #2563eb; box-shadow: 0 0 0 3px #dbeafe; }
 `;
 
 // Exported so the inline client behavior (logo upload alignment + the directed
@@ -1050,6 +1129,106 @@ export const SETTINGS_SCRIPT = `
     revealNewsletterProvider();
   }
 
+  // ---- X06: Site Information — counters, "{{" check, "Write with AI" ----
+  var PLACEHOLDER_MSG = ${JSON.stringify(PLACEHOLDER_SAVE_ERROR)};
+  var PLACEHOLDER_KEYS = ['site_name', 'audience', 'tagline', 'site_description'];
+  var DESC_BEST_MAX = 160;
+  function fieldEl(key) { return document.getElementById('setting-' + key); }
+  function toggleClass(el, cls, on) {
+    if (!el) { return; }
+    var parts = String(el.className || '').split(' ');
+    var out = [];
+    for (var ci = 0; ci < parts.length; ci = ci + 1) {
+      if (parts[ci] && parts[ci] !== cls) { out.push(parts[ci]); }
+    }
+    if (on) { out.push(cls); }
+    el.className = out.join(' ');
+  }
+  function updateCounter(key) {
+    var el = fieldEl(key);
+    var counter = document.getElementById('setting-counter-' + key);
+    if (!el || !counter) { return; }
+    var n = String(el.value || '').length;
+    if (key === 'site_description') {
+      counter.textContent = n + ' / ' + DESC_BEST_MAX;
+      toggleClass(counter, 'is-over', n > DESC_BEST_MAX);
+    } else {
+      counter.textContent = n + ' characters';
+    }
+  }
+  function setFieldError(key, msg) {
+    var el = fieldEl(key);
+    var line = document.getElementById('setting-error-' + key);
+    toggleClass(el, 'is-invalid', !!msg);
+    if (line) { line.hidden = !msg; line.textContent = msg || ''; }
+  }
+  function hasPlaceholderErrors() {
+    var first = null;
+    for (var pk = 0; pk < PLACEHOLDER_KEYS.length; pk = pk + 1) {
+      var key = PLACEHOLDER_KEYS[pk];
+      var el = fieldEl(key);
+      var val = el ? String(el.value || '') : '';
+      var bad = val.indexOf('{{') > -1 || val.indexOf('}}') > -1;
+      setFieldError(key, bad ? PLACEHOLDER_MSG : '');
+      if (bad && !first) { first = el; }
+    }
+    if (first && first.focus) { first.focus(); }
+    return first !== null;
+  }
+  function aiFailed() {
+    if (window.showToast) { window.showToast("The AI didn't answer. Nothing was changed.", 'error'); }
+  }
+  function writeWithAi(btn) {
+    var key = btn.getAttribute('data-ai-write');
+    var el = fieldEl(key);
+    var siteIdEl = document.getElementById('settings-site-id');
+    var nameEl = fieldEl('site_name');
+    var audEl = fieldEl('audience');
+    if (!el || !siteIdEl || !siteIdEl.value) { return; }
+    var label = btn.textContent;
+    btn.disabled = true;
+    btn.textContent = 'Writing…';
+    function done() { btn.disabled = false; btn.textContent = label; }
+    fetch('/api/admin/ai/site-text', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        site_id: siteIdEl.value,
+        field: key,
+        site_name: nameEl ? String(nameEl.value || '') : '',
+        audience: audEl ? String(audEl.value || '') : ''
+      }),
+      credentials: 'same-origin'
+    }).then(function (r) {
+      return r.json().then(function (j) { return { ok: r.ok, body: j }; }, function () { return { ok: false, body: null }; });
+    }).then(function (res) {
+      done();
+      var text = res.ok && res.body && typeof res.body.text === 'string' ? res.body.text : '';
+      if (!text) { aiFailed(); return; }
+      el.value = text;
+      setFieldError(key, '');
+      updateCounter(key);
+      toggleClass(el, 'ai-filled', true);
+      setTimeout(function () { toggleClass(el, 'ai-filled', false); }, 2000);
+    }).catch(function () {
+      done();
+      aiFailed();
+    });
+  }
+  var counterKeys = ['tagline', 'site_description'];
+  for (var ck = 0; ck < counterKeys.length; ck = ck + 1) {
+    (function (key) {
+      var el = fieldEl(key);
+      if (el && el.addEventListener) {
+        el.addEventListener('input', function () { updateCounter(key); });
+      }
+    }(counterKeys[ck]));
+  }
+  var aiButtons = document.querySelectorAll('button[data-ai-write]');
+  for (var ab = 0; ab < aiButtons.length; ab = ab + 1) {
+    aiButtons[ab].addEventListener('click', function () { writeWithAi(this); });
+  }
+
   if (!form || !filter || !hidden || !status) { return; }
   function setStatus(msg) {
     while (status.firstChild) { status.removeChild(status.firstChild); }
@@ -1073,13 +1252,18 @@ export const SETTINGS_SCRIPT = `
       filter.focus();
       return;
     }
+    // X06: refuse an unfilled "{{…}}" token before anything is sent.
+    if (hasPlaceholderErrors()) {
+      setError(PLACEHOLDER_MSG);
+      return;
+    }
     var fd = new FormData(form);
     var updates = {};
     // T22 ad-config (select/text) + T23 script keys ride the same value path as
     // the canonical keys (collected via fd.get). The three T22 ad checkboxes
     // (ads_enabled / ad_lazy_load / ad_disable_logged_in) are handled below so
     // they persist as '1'/'' (the form on the renderer + round-trip expect).
-    var keys = ['site_name','logo_media_id','tagline','site_description','brand_tokens_json','robots_txt_content','ads_txt_content','custom_head_html','custom_footer_html','newsletter_settings_json','contact_email','privacy_email','items_per_page','site_logo_url','favicon_media_id','social_twitter_url','social_facebook_url','social_instagram_url','social_linkedin_url','social_youtube_url','org_same_as','ad_provider','adsense_publisher_id','ad_unit_leaderboard','ad_unit_in_feed','ad_unit_rect','ad_in_content_position','ad_lazy_load_margin','ad_excluded_pages','gam_network_code','gam_unit_leaderboard','gam_unit_in_feed','gam_unit_rect','gam_unit_in_content','gam_unit_anchor','ad_refresh_seconds','analytics_script','ad_header_script','consent_head_html'];
+    var keys = ['site_name','audience','logo_media_id','tagline','site_description','brand_tokens_json','robots_txt_content','ads_txt_content','custom_head_html','custom_footer_html','newsletter_settings_json','contact_email','privacy_email','items_per_page','site_logo_url','favicon_media_id','social_twitter_url','social_facebook_url','social_instagram_url','social_linkedin_url','social_youtube_url','org_same_as','ad_provider','adsense_publisher_id','ad_unit_leaderboard','ad_unit_in_feed','ad_unit_rect','ad_in_content_position','ad_lazy_load_margin','ad_excluded_pages','gam_network_code','gam_unit_leaderboard','gam_unit_in_feed','gam_unit_rect','gam_unit_in_content','gam_unit_anchor','ad_refresh_seconds','analytics_script','ad_header_script','consent_head_html'];
     for (var i = 0; i < keys.length; i = i + 1) {
       var v = fd.get(keys[i]);
       updates[keys[i]] = v === null ? '' : String(v);
@@ -1161,6 +1345,8 @@ export const SETTINGS_SCRIPT = `
       }
       if (res.body && res.body.error) {
         setError(res.body.error);
+        // X06: the server's "{{…}}" refusal names the field — mark it too.
+        if (res.body.key && res.body.error === PLACEHOLDER_MSG) { setFieldError(res.body.key, PLACEHOLDER_MSG); }
       } else if (res.type === 'opaqueredirect' || res.redirected || (res.text && res.text.charAt(0) === '<')) {
         setError('Your admin session expired. Reload the page, sign in again, then re-save.');
       } else {

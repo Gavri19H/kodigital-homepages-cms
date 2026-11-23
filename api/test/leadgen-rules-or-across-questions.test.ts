@@ -267,7 +267,9 @@ function createDb(ctor: DatabaseSyncCtor): SqliteDb {
     "CREATE TABLE sites (id TEXT PRIMARY KEY, name TEXT, domain TEXT, vertical_slug TEXT, status TEXT, content_version INTEGER DEFAULT 1, settings_version INTEGER DEFAULT 1);" +
       "CREATE TABLE domains (id INTEGER PRIMARY KEY AUTOINCREMENT, site_id TEXT, hostname TEXT, status TEXT);" +
       // X01 Part C: migration 0067 adds articles.vertical_id, so the stub needs an articles table.
-      "CREATE TABLE articles (id INTEGER PRIMARY KEY AUTOINCREMENT, site_id TEXT);" +
+      "CREATE TABLE articles (id INTEGER PRIMARY KEY AUTOINCREMENT, site_id TEXT, title TEXT, seo_title TEXT);" +
+      // X06: migration 0070 adds verticals.audience and 0071 fixes articles.seo_title, so the stub needs both.
+      "CREATE TABLE verticals (id INTEGER PRIMARY KEY AUTOINCREMENT, slug TEXT, name TEXT);" +
       "CREATE TABLE media (id INTEGER PRIMARY KEY AUTOINCREMENT, site_id TEXT);" +
       "INSERT INTO sites (id, name, domain, vertical_slug, status) VALUES ('site-1','Site One','or.example.com','insurance','active');",
   );

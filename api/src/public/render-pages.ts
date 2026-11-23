@@ -9,7 +9,7 @@
 import type { ArticleRow } from "../db";
 import type { PublicSiteContext } from "./middleware";
 import type { PublicPageRow, PublicCategoryRow, PublicTagRow } from "./queries";
-import { fetchPublicLayoutSiteInfo, PUBLIC_PAGE_SIZE, type ArticleCardRow } from "./queries";
+import { fetchPublicLayoutSiteInfo, fetchSiteVerticalName, PUBLIC_PAGE_SIZE, type ArticleCardRow } from "./queries";
 import { mediaUrl } from "./view-models/media-url";
 import {
   renderHeader,
@@ -219,10 +219,17 @@ export async function renderHomepageHtml(
       description: vm.meta.description,
       canonicalUrl,
       ogImage: vm.hero?.imageUrl ?? null,
-      jsonLd,
     },
     body,
-    extraHead: adHead.length > 0 ? adHead : undefined,
+    // X06 (fix 6): the homepage emitters already return wrapped
+    // <script type="application/ld+json"> tags, so they ride extraHead verbatim
+    // like the Article/Category/Page blocks. meta.jsonLd wraps raw JSON, and
+    // passing these through it nested one <script> inside another, so Google
+    // could read none of the homepage's structured data.
+    extraHead:
+      adHead.length > 0
+        ? `${jsonLd.join("\n")}\n${adHead}`
+        : jsonLd.join("\n"),
     customHead: customHtml.customHead,
     consentHead: customHtml.consentHead,
     customFooter: customHtml.customFooter,
@@ -552,7 +559,9 @@ export async function renderCategoryHtml(
     },
     meta: {
       title: cat.name,
-      description: site.description,
+      // X06 (owner Q5): the category's own description, else its own sentence
+      // — no longer the homepage's description.
+      description: nonBlank(cat.description) ?? categoryFallbackDescription(cat.name, site.name),
       canonicalUrl,
       robots: pageNum > 1 ? "noindex, follow" : undefined,
       links: paginationLinks.length > 0 ? paginationLinks : undefined,
@@ -753,6 +762,40 @@ function nonBlank(v: string | null | undefined): string | undefined {
   return typeof v === "string" && v.trim() !== "" ? v.trim() : undefined;
 }
 
+// X06 (owner Q5): a category with no "Description" of its own gets one
+// sentence instead of repeating the homepage's description.
+export function categoryFallbackDescription(categoryName: string, siteName: string): string {
+  return `${categoryName}: practical guides and tips from ${siteName}.`;
+}
+
+// X06 (owner Q5): the setup Pages (about + the legal templates, by slug — the
+// same slugs LEGAL_TEMPLATE_SLUGS / SETUP_PAGE_SLUGS use) get one sentence for
+// their page type when their "SEO description" is empty. Any other Page keeps
+// today's fallback (undefined here → the site description). vertical is the
+// Vertical's display name; without it the About sentence leaves it out.
+export function pageFallbackDescription(
+  slug: string,
+  siteName: string,
+  vertical: string | null,
+): string | undefined {
+  switch (slug) {
+    case "about":
+      return vertical !== null && vertical.length > 0
+        ? `About ${siteName}: who we are and how we write our guides on ${vertical.toLowerCase()}.`
+        : `About ${siteName}: who we are and how we write our guides.`;
+    case "privacy-policy":
+      return `How ${siteName} collects, uses and protects your personal information.`;
+    case "terms":
+      return `The terms for using ${siteName}.`;
+    case "contact":
+      return `How to reach the ${siteName} team.`;
+    case "do-not-sell":
+      return `How to opt out of the sale or sharing of your personal information on ${siteName}.`;
+    default:
+      return undefined;
+  }
+}
+
 export async function renderPageHtml(
   db: D1Database,
   siteContext: PublicSiteContext,
@@ -798,6 +841,13 @@ export async function renderPageHtml(
   // as the content's own leading <h1>. Suppress the wrapper when the body
   // supplies its own leading <h1>, so each page shows exactly one heading.
   const contentHtml = row.content_html ?? "";
+  const ownDescription =
+    nonBlank(row.seo_description) ??
+    pageFallbackDescription(
+      row.slug,
+      site.name,
+      row.slug === "about" ? await fetchSiteVerticalName(db, siteContext.siteId) : null,
+    );
   const bodyLeadsWithH1 = /^\s*<h1[\s>]/i.test(contentHtml);
   const pageTitleH1 = bodyLeadsWithH1
     ? ""
@@ -822,7 +872,8 @@ export async function renderPageHtml(
     meta: {
       // X15 (D2): the Page form's SEO fields win when filled in.
       title: nonBlank(row.seo_title) ?? row.title,
-      description: nonBlank(row.seo_description) ?? site.description,
+      // X06 (owner Q5): an empty one gets the page type's own sentence.
+      description: ownDescription ?? site.description,
       canonicalUrl,
     },
     body,

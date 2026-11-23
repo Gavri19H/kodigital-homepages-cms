@@ -12,7 +12,9 @@
 //     featured_image_id + the card preview,
 //   - the AI hero-image modal: open/close, preset selector (variables +
 //     live interpolated prompt-preview), Generate -> POST /api/admin/ai/image
-//     {prompt, site_id?, size, style, quality, alt_text, presetId?, variables?}
+//     {prompt, site_id?, size, style, quality, alt_text, title, presetId?, variables?}
+//     (X06: {{title}}/{{brand_name}}/{{vertical}} are filled from the open
+//     Article first; alt_text is the Article title, never the prompt)
 //     (the selected preset is forwarded so the server applies/records it),
 //     a preview of the generated image + an error region, and Apply -> place
 //     the generated image into the article (set featured_image_id + preview,
@@ -67,6 +69,40 @@ export const heroImageScripts = `
   function readSiteId() {
     var el = document.querySelector('select[name="site_id"], input[name="site_id"]');
     return el && el.value ? el.value : null;
+  }
+  // X06: the open Article's values for {{title}}, {{brand_name}} and
+  // {{vertical}} (the Article's own Vertical wins over its Site's).
+  function articleContext() {
+    var titleEl = document.querySelector('#article-title');
+    var title = titleEl && titleEl.value ? String(titleEl.value).replace(/^\\s+|\\s+$/g, '') : '';
+    var brand = '';
+    var vertical = '';
+    var siteSelect = document.querySelector('select[name="site_id"]');
+    if (siteSelect && siteSelect.selectedIndex >= 0) {
+      var sOpt = siteSelect.options[siteSelect.selectedIndex];
+      brand = sOpt && sOpt.value ? (sOpt.text || '') : '';
+      vertical = sOpt && sOpt.value ? (sOpt.getAttribute('data-vertical') || '') : '';
+    }
+    var vSel = document.querySelector('select[name="vertical_id"]');
+    if (vSel && vSel.selectedIndex >= 0) {
+      var vOpt = vSel.options[vSel.selectedIndex];
+      if (vOpt && vOpt.value && vOpt.getAttribute('data-slug')) { vertical = vOpt.getAttribute('data-slug'); }
+    }
+    return { title: title, article_title: title, brand_name: brand, vertical: vertical };
+  }
+  function ctxValue(ctx, name) {
+    return Object.prototype.hasOwnProperty.call(ctx, name) ? ctx[name] : '';
+  }
+  function fillArticleTokens(text) {
+    var ctx = articleContext();
+    return String(text).replace(TOKEN_RE, function (whole, name) {
+      return ctxValue(ctx, name) || whole;
+    });
+  }
+  function leftoverTokens(text) {
+    var names = [];
+    String(text).replace(TOKEN_RE, function (whole) { names.push(whole); return whole; });
+    return names;
   }
   function showHeroImage(mediaId, url) {
     if (hiddenInput) { hiddenInput.value = mediaId == null ? '' : String(mediaId); }
@@ -175,10 +211,14 @@ export const heroImageScripts = `
     var values = {};
     if (!presetVars) { return values; }
     var inputs = presetVars.querySelectorAll('[data-var-name]');
-    var i, el;
+    var ctx = articleContext();
+    var i, el, n;
     for (i = 0; i < inputs.length; i++) {
       el = inputs[i];
-      values[el.getAttribute('data-var-name')] = el.value;
+      n = el.getAttribute('data-var-name');
+      // X06: an empty {{title}} / {{brand_name}} / {{vertical}} box uses the
+      // open Article's value.
+      values[n] = el.value || ctxValue(ctx, n);
     }
     return values;
   }
@@ -239,10 +279,23 @@ export const heroImageScripts = `
         if (promptEl) { promptEl.focus(); }
         return;
       }
+      // X06: fill {{title}}, {{brand_name}} and {{vertical}} from the open
+      // Article; never send a prompt that still holds a placeholder.
+      text = fillArticleTokens(text);
+      var left = leftoverTokens(text);
+      if (left.length > 0) {
+        setError(modalError, 'Fill in ' + left.join(', ') + ' in the prompt before generating.');
+        if (promptEl) { promptEl.focus(); }
+        return;
+      }
       setError(modalError, '');
       setBusy(true);
       if (applyBtn) { applyBtn.hidden = true; }
-      var payload = { prompt: text, alt_text: text };
+      // X06: the image description (alt text) is the Article's title, never
+      // the prompt. No title = the server saves an empty description.
+      var articleTitle = articleContext().title;
+      var payload = { prompt: text };
+      if (articleTitle) { payload.alt_text = articleTitle; payload.title = articleTitle; }
       var siteId = readSiteId();
       if (siteId) { payload.site_id = siteId; }
       if (sizeEl && sizeEl.value) { payload.size = sizeEl.value; }
