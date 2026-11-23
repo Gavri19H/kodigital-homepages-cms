@@ -11648,6 +11648,20 @@ export const SECTION_STUDIO_SCRIPT = `
     });
     tip.hidden = !show;
   }
+  // The canvas's first paint (studioCanvasResting, server-side) has no
+  // vehicle data, so a Vehicle database question shows its typed-answer
+  // fallback there. When the opened Section has one, redraw the canvas once
+  // right away through the preview endpoint (which loads the vehicle list) —
+  // the same scheduler an edit uses, without marking the Section changed or
+  // adding an Undo step.
+  function redrawCanvasForVehicleData() {
+    var found = false;
+    walkTree(state.content.components, 1, function (n) {
+      if (n && n.props && n.props.choice_source === 'vehicle') { found = true; }
+    });
+    if (found) { scheduleCanvasRender(); }
+    return found;
+  }
   // Offers tab: a vehicle Make / Model answer is sent by name by default
   // ("Toyota", "Corolla"); "ID" sends its vehicle database ID instead. The
   // choice is stored on the mapping as send_as: 'id' (absent = name). Year is
@@ -20592,6 +20606,7 @@ export const SECTION_STUDIO_SCRIPT = `
   loadOffers();
   loadUsage();
   renderVehicleHeadlineTip();
+  redrawCanvasForVehicleData();
   loadThemesList();
   // R5 fix-link integration: /admin/leadgen/sections/:id/edit#mapping (the
   // quote activation preflight's "Open Section Mapping" link) opens the

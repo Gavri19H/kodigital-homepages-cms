@@ -1013,3 +1013,61 @@ describe("F18 Studio — {make} / {year} headline tip", () => {
     expect(SECTION_STUDIO_SCRIPT).toContain("  loadUsage();\n  renderVehicleHeadlineTip();\n");
   });
 });
+
+// ---------------------------------------------------------------------------
+// Follow-up 3: the canvas's first paint has no vehicle data — a Section with a
+// Vehicle database question is redrawn once through the preview endpoint on open
+// ---------------------------------------------------------------------------
+
+describe("F18 Studio — redraw the canvas on open when a vehicle question exists", () => {
+  function openWith(components: unknown[]): { scheduled: number; rendered: number; dirty: number; history: number; found: unknown } {
+    const sandbox: Record<string, unknown> = {
+      studioMeta: { types: studioTypeMeta() },
+      state: { content: { components } },
+      canvasModelRev: 0,
+      canvasTimer: null,
+      inlineEditing: false,
+      TIMERS: [] as Array<() => void>,
+      SCHEDULED: 0,
+      RENDERED: 0,
+      DIRTY: 0,
+      HISTORY: 0,
+    };
+    const src = [
+      "function setTimeout(fn) { TIMERS.push(fn); return TIMERS.length; }",
+      "function clearTimeout() {}",
+      "function renderCanvasNow() { RENDERED += 1; }",
+      "function markDirty() { DIRTY += 1; }",
+      "function historyPush() { HISTORY += 1; }",
+      ...["typeMeta", "isContainerType", "walkTree", "scheduleCanvasRender", "redrawCanvasForVehicleData"].map(sliceIslandFunction),
+      // count scheduler calls without replacing the real scheduler
+      "var realSchedule = scheduleCanvasRender; scheduleCanvasRender = function () { SCHEDULED += 1; realSchedule(); };",
+    ].join("\n");
+    runInNewContext(src, sandbox);
+    const found = runInNewContext("redrawCanvasForVehicleData()", sandbox);
+    for (const t of sandbox["TIMERS"] as Array<() => void>) t();
+    return {
+      scheduled: sandbox["SCHEDULED"] as number,
+      rendered: sandbox["RENDERED"] as number,
+      dirty: sandbox["DIRTY"] as number,
+      history: sandbox["HISTORY"] as number,
+      found,
+    };
+  }
+
+  it("a Section with a vehicle question (nested ones too) gets one preview redraw — not dirty, no Undo step; others get none", () => {
+    const withVehicle = openWith([
+      { type: "TextBlock", question_id: "t" },
+      { type: "CardPanel", question_id: "c", children: [{ type: "DropdownQuestion", question_id: "q", props: { choice_source: "vehicle", vehicle_asks: "model" } }] },
+    ]);
+    expect(withVehicle).toEqual({ scheduled: 1, rendered: 1, dirty: 0, history: 0, found: true });
+    const typed = openWith([{ type: "ButtonAnswerGroup", question_id: "q", props: { choice_source: "typed" } }]);
+    expect(typed).toEqual({ scheduled: 0, rendered: 0, dirty: 0, history: 0, found: false });
+  });
+
+  it("runs on open, right after the page's other first loads and before the first preview", () => {
+    const boot = SECTION_STUDIO_SCRIPT.slice(SECTION_STUDIO_SCRIPT.lastIndexOf("  historyReset();"));
+    expect(boot).toContain("  renderVehicleHeadlineTip();\n  redrawCanvasForVehicleData();\n");
+    expect(boot.indexOf("redrawCanvasForVehicleData();")).toBeLessThan(boot.indexOf("runPreview();"));
+  });
+});
