@@ -86,6 +86,7 @@ import {
   sectionUsageHandler,
   validateSectionPayloadHandler,
 } from "./sections-handlers";
+import { sectionVehicleFieldsHandler, vehicleMakeHandler, vehiclesLiveHandler } from "./vehicles-handlers";
 import {
   createThemeHandler,
   deleteThemeHandler,
@@ -254,6 +255,12 @@ routes.get("/sections/:id/usage", sectionUsageHandler);
 routes.get("/sections/:id/offers", sectionOffersHandler);
 routes.get("/sections/:id/analytics", sectionAnalyticsHandler);
 routes.post("/sections/:id/validate-payload", validateSectionPayloadHandler);
+// F18 Vehicle database: the Make / Year questions a Year / Model question can link to.
+routes.get("/sections/:id/vehicle-fields", sectionVehicleFieldsHandler);
+
+// --- F18 Vehicle database (Section Studio "Source": live list + "Look up a make") ---
+routes.get("/vehicles/live", vehiclesLiveHandler);
+routes.get("/vehicles/makes/:make_id", vehicleMakeHandler);
 
 // --- Quotes / Funnels / Variants (03 §8.2 + 06 §15–§17 — Phase-7 Stage B) -----
 // Static + deeper-param paths BEFORE the bare /quotes/:id (03 §8.1
