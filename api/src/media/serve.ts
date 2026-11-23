@@ -44,6 +44,18 @@ const serve = new Hono<{ Bindings: Env }>();
 serve.get("/media/*", async (c) => {
   const key = c.req.path.replace(/^\/media\//, "");
   if (key === "") return c.json({ error: "Missing media key" }, 400);
+  // F18: the vehicle list lives in the same bucket under vehicles/. It is
+  // served only by /api/vehicles/v1/… — never here, where the changing live
+  // pointer (vehicles/live.json) would be cached for a year as immutable.
+  let decodedKey = key;
+  try {
+    decodedKey = decodeURIComponent(key);
+  } catch {
+    // Malformed escapes fall through to the normal lookup (which 404s).
+  }
+  if (/^vehicles(\/|$)/i.test(decodedKey.replace(/^\/+/, ""))) {
+    return c.json({ error: "Not Found" }, 404);
+  }
 
   // RESCUE-4: a media reference may be a NUMERIC media-table id (e.g. a
   // logo_media_id / hero_image_media_id site setting written before the

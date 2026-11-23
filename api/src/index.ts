@@ -51,6 +51,7 @@ import mediaRouter from "./media";
 import previewRouter from "./preview";
 import { analyticsRouter } from "./analytics/router";
 import { leadgenPublicRouter } from "./public/leadgen/runtime-routes";
+import { vehiclesPublicRouter } from "./public/vehicles/routes";
 import { listicleDailyReconciliation } from "./analytics/listicle-reconciliation";
 import { syncListicleAnalytics } from "./listicles/mirror-sync";
 import { runListicleRevenueCron } from "./listicles/revenue-recon";
@@ -185,6 +186,11 @@ app.route("/", analyticsRouter);
 // Mounted next to analyticsRouter — BEFORE the admin-host safety net + the
 // publicRouter /:slug catch-all — so the reserved /lg head never collides.
 app.route("/", leadgenPublicRouter);
+
+// F18: public vehicle lookups (/api/vehicles/v1/…), on every host — the
+// funnel calls them on its own domain and the Studio preview on the admin
+// host. Before the admin-host safety net and the publicRouter catch-all.
+app.route("/", vehiclesPublicRouter);
 
 // ADMIN_HOST safety net (Phase 1.5 T3): on ADMIN_HOST, any unmatched
 // path that reaches this point falls straight through to the

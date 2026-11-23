@@ -109,6 +109,7 @@ import type { LeadgenContinueMode } from "../../../admin/leadgen/db-types";
 // and it returns null for empty/whitespace, which is what lets each site below
 // fall back to its no-image branch instead of emitting a broken src="".
 import { mediaUrl, isPendingMediaRef } from "../../view-models/media-url";
+import type { VehicleRenderData } from "../../../leadgen/vehicles/store";
 
 // ---------------------------------------------------------------------------
 // small helpers
@@ -259,6 +260,13 @@ export interface LeadgenSectionRenderCtx {
   // field, still render byte-identically for every node WITHOUT an authored
   // design_overrides.size (the compat invariant every other ctx field holds).
   theme_controls?: ThemeRecordControls;
+  // F18 (ADDITIVE): the live vehicle list for questions whose "Source" is
+  // "Vehicle database" (props.choice_source = "vehicle"), loaded by the caller
+  // with loadVehicleRenderData (leadgen/vehicles/store.ts). Absent ⇒ no vehicle
+  // question on this page, or the list could not be read (vehicle questions
+  // then render their typed-answer fallback). Every non-vehicle node renders
+  // byte-identically whether or not it is set.
+  vehicle?: VehicleRenderData | null;
 }
 
 // Mutable per-render state threading the §11.5 single-control rule through
