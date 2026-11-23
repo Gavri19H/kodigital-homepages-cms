@@ -142,6 +142,37 @@ export function vehicleQs(root: Element, only?: string): Element[] {
   );
 }
 
+// Headline names (owner, 23 Nov): in a Section's headline / subheadline
+// (presets.ts .lg-headline / .lg-subheadline) {make} shows the make's display
+// name — its card / option label, or the visitor's own text when the make is a
+// text box — and "car" with no make answer; {year} shows the year (or typed
+// year), or nothing, the double space collapsed. Each element's text as served
+// is kept as its template, so a changed answer replaces again. Text only
+// (textContent), never HTML. Elements without a token get no work.
+const tpls = new WeakMap<Element, string>();
+export function vehicleNames(root: Element, ans: Record<string, unknown>): void {
+  let make = "car";
+  let year = "";
+  for (const q of vehicleQs(root)) {
+    const a = ans[q.getAttribute("data-lg-field") || ""];
+    if (a == null || a === "") continue;
+    const s = "" + a;
+    const k = q.getAttribute("data-lg-vehicle");
+    if (k === "year") year = s;
+    else if (k === "make") {
+      const c = /^\d+$/.test(s) && q.querySelector(`[data-lg-choice="${s}"],option[value="${s}"]`);
+      make = c ? (c.textContent || "").trim() : s;
+    }
+  }
+  root.querySelectorAll(".lg-headline,.lg-subheadline").forEach((h) => {
+    let t = tpls.get(h);
+    if (t === undefined) tpls.set(h, (t = h.textContent || ""));
+    if (/\{(make|year)\}/.test(t)) {
+      h.textContent = t.replace(/\{make\}/g, make).replace(/\{year\}/g, year).replace(/\s+/g, " ").trim();
+    }
+  });
+}
+
 // Bring the vehicle questions under `root` in line with the answers: a Make
 // question re-selects its saved make in its <select> (after a reload); a Year
 // / Model question shows its make's choices, or its typed-answer box when the

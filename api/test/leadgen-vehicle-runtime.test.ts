@@ -25,8 +25,9 @@ function matchesSimple(el: FakeElement, raw: string): boolean {
   const sel = raw.trim();
   if (sel.startsWith(".")) return el.classSet.has(sel.slice(1));
   if (/^[a-z]+$/.test(sel)) return el.tag === sel;
-  const m = sel.match(/^\[([^\]=]+)(?:="((?:[^"\\]|\\.)*)")?\]$/);
-  if (m === null) return false;
+  const m = sel.match(/^([a-z]*)\[([^\]=]+)(?:="((?:[^"\\]|\\.)*)")?\]$/);
+  if (m === null || (m[1] !== "" && m[1] !== el.tag)) return false;
+  m.splice(1, 1);
   const name = m[1] ?? "";
   if (m[2] === undefined) return el.attrs.has(name);
   return el.getAttribute(name) === m[2].replace(/\\(.)/g, "$1");
@@ -125,6 +126,8 @@ class FakeOption extends FakeElement {
     this.value = value;
   }
   get text(): string { return this.textContent; }
+  // A real <option>'s value is also its `value` attribute.
+  override getAttribute(name: string): string | null { return name === "value" ? this.value : super.getAttribute(name); }
 }
 
 // A native <select>: `value` = the selected option's value ("" when none);
@@ -264,6 +267,10 @@ interface Funnel {
   make: FakeElement;
   toyota: FakeElement;
   makeOther: FakeSelectElement;
+  makeText: FakeInputElement;
+  plainHeadline: FakeElement;
+  yearHeadline: FakeElement;
+  modelSub: FakeElement;
   year: FakeElement;
   slots: FakeElement[];
   yearTrigger: FakeElement;
@@ -286,11 +293,17 @@ function buildFunnel(opts: { yearAndModelTogether?: boolean } = {}): Funnel {
 
   // Make — logo cards + "Other make".
   const make = s0.appendChild(new FakeElement("div", { class: "lg-card-grid", "data-lg-question": "q_make", "data-lg-field": "vehicle_make", "data-lg-vehicle": "make", "data-lg-vlogos": "" }));
-  const toyota = make.appendChild(new FakeElement("button", { class: "lg-card", "data-value": "448", "data-lg-choice": "448" }));
+  const toyota = make.appendChild(new FakeElement("button", { class: "lg-card", "data-value": "448", "data-lg-choice": "448" }, " Toyota "));
   make.appendChild(new FakeElement("button", { class: "lg-card", "data-value": "499", "data-lg-choice": "499" }));
   make.appendChild(new FakeElement("button", { class: "lg-card lg-other-trigger", "data-lg-other-trigger": "" }));
   const makeOther = make.appendChild(new FakeSelectElement({ class: "lg-input lg-other-select lg-other-panel", "data-lg-input": "", "data-lg-other-panel": "", hidden: "" }));
   makeOther.append(new FakeOption("Choose…", "", { disabled: "" }), new FakeOption("Honda", "474"));
+  // The typed-answer box a Make gets when the page had no readable list.
+  const makeText = make.appendChild(new FakeInputElement({ class: "lg-input lg-vehicle-text", "data-lg-input": "", "data-lg-vtext": "" }));
+  // Section headlines with the {make}/{year} names (and one without).
+  const plainHeadline = s0.appendChild(new FakeElement("h1", { class: "lg-headline" }, "What do you drive?"));
+  const yearHeadline = s1.appendChild(new FakeElement("h1", { class: "lg-headline" }, "What year is your {make}?"));
+  const modelSub = s2.appendChild(new FakeElement("p", { class: "lg-subheadline" }, "Which {year} {make} is it?"));
 
   // Year — 2 card slots + "Older year" + the typed-answer box.
   const year = s1.appendChild(new FakeElement("div", { class: "lg-card-grid", "data-lg-question": "q_year", "data-lg-field": "vehicle_year", "data-lg-vehicle": "year", "data-lg-vmake": "vehicle_make", "data-lg-vcards": "2" }));
@@ -310,7 +323,7 @@ function buildFunnel(opts: { yearAndModelTogether?: boolean } = {}): Funnel {
   const modelSelect = model.appendChild(new FakeSelectElement({ class: "lg-input lg-dropdown", "data-lg-input": "" }));
   modelSelect.append(new FakeOption("Select…", "", { disabled: "" }));
   const modelText = model.appendChild(new FakeInputElement({ class: "lg-input lg-vehicle-text", "data-lg-input": "", "data-lg-vtext": "", hidden: "" }));
-  return { root, make, toyota, makeOther, year, slots, yearTrigger, yearOther, yearText, model, modelSearch, modelSelect, modelText };
+  return { root, make, toyota, makeOther, makeText, plainHeadline, yearHeadline, modelSub, year, slots, yearTrigger, yearOther, yearText, model, modelSearch, modelSelect, modelText };
 }
 
 const vehicleProps = (asks: string, extra: Record<string, unknown> = {}): Record<string, unknown> => ({
@@ -654,5 +667,45 @@ describe("F18 runtime — Make → Year → Model in the engine", () => {
     expect(dom.yearOther.hidden).toBe(true);
     expect(dom.yearText.hidden).toBe(false);
     expect(dom.yearText.value).toBe("2023");
+  });
+});
+
+describe("F18 runtime — {make}/{year} headline names", () => {
+  it("on page entry with no answers: {make} → \"car\", {year} → nothing (no double space); a headline without a token is never rewritten", async () => {
+    stubFetch("ok");
+    const { dom } = await boot();
+    expect(dom.yearHeadline.textContent).toBe("What year is your car?");
+    expect(dom.modelSub.textContent).toBe("Which car is it?");
+    expect(dom.plainHeadline.textContent).toBe("What do you drive?");
+  });
+
+  it("the picked make's display name (card or 'Other make' list) and the year fill in, and change again when the answers change", async () => {
+    stubFetch("ok");
+    const { dom } = await boot();
+    dom.root.dispatch("click", dom.toyota);
+    await flush();
+    expect(dom.yearHeadline.textContent).toBe("What year is your Toyota?");
+    dom.root.dispatch("click", dom.slots[1]!); // 2026
+    await flush();
+    expect(dom.modelSub.textContent).toBe("Which 2026 Toyota is it?");
+    // A different make from the "Other make" list: its name, and the year it cleared is gone.
+    dom.makeOther.value = "474";
+    dom.root.dispatch("change", dom.makeOther);
+    await flush();
+    expect(dom.yearHeadline.textContent).toBe("What year is your Honda?");
+    expect(dom.modelSub.textContent).toBe("Which Honda is it?");
+  });
+
+  it("a typed make (no readable list) shows as the visitor typed it — as text, never HTML — and a typed year too", async () => {
+    stubFetch("ok");
+    const { dom } = await boot({ vehicle: false });
+    dom.makeText.value = "Tesla <b>Roadster</b>";
+    dom.root.dispatch("input", dom.makeText);
+    dom.yearText.value = "2019";
+    dom.root.dispatch("input", dom.yearText);
+    await flush();
+    expect(dom.yearHeadline.textContent).toBe("What year is your Tesla <b>Roadster</b>?");
+    expect(dom.modelSub.textContent).toBe("Which 2019 Tesla <b>Roadster</b> is it?");
+    expect("innerHTML" in dom.yearHeadline).toBe(false);
   });
 });

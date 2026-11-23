@@ -54,7 +54,7 @@ import {
   type LgAuctionRequest,
   type LgAuctionResponse,
 } from "./auction-client";
-import { lgSearch, vehicleQs, vehicleScan } from "./vehicle";
+import { lgSearch, vehicleNames, vehicleQs, vehicleScan } from "./vehicle";
 
 export const LG_ENGINE_VERSION = "14"; // tracks LEADGEN_TEMPLATE_VERSION (cache-keys.ts)
 
@@ -1327,29 +1327,35 @@ export class LgEngine {
   // a number; a Make also saves the snapshot it was picked from (spec L4,
   // `<make field>_snapshot`); a changed Make / Year clears the answers that
   // depend on it, then (once this answer is recorded) refills those questions
-  // — which starts the ONE lookup for the picked make right away. Any other
-  // question returns its value untouched.
+  // — which starts the ONE lookup for the picked make right away — and the
+  // {make}/{year} headline names are replaced again. Any other question
+  // returns its value untouched.
   private vAns(
     q: Element | null,
     field: string,
     value: unknown,
     meta: { question_id: string; section_public_id: string },
   ): unknown {
-    const asks = q !== null ? q.getAttribute("data-lg-vehicle") : null;
-    if (asks === null) return value;
+    const asks = q && q.getAttribute("data-lg-vehicle");
+    if (!asks) return value;
     const store = this.store;
     const v = this.config.vehicle;
+    const prev = store.getAnswer(field);
     if (asks === "year" && /^\d{4}$/.test(value as string)) value = Number(value);
     // Without the live list every vehicle question is a plain text box: no
-    // snapshot, no links between them.
-    if (!v) return value;
-    if (asks === "make") store.recordUserAnswer(field + "_snapshot", v.snapshot, meta);
-    const prev = store.getAnswer(field);
-    if ("" + (prev && prev.value) !== "" + value) {
-      for (const d of vehicleQs(this.root, field)) delete store.state.answers[d.getAttribute("data-lg-field") || ""];
-      void Promise.resolve().then(() => this.vScan(this.root, field));
-    }
+    // snapshot, no links between them (the headline names still apply).
+    const changed = !!v && "" + (prev && prev.value) !== "" + value;
+    if (v && asks === "make") store.recordUserAnswer(field + "_snapshot", v.snapshot, meta);
+    if (changed) for (const d of vehicleQs(this.root, field)) delete store.state.answers[d.getAttribute("data-lg-field") || ""];
+    void Promise.resolve().then(() => {
+      if (changed) this.vScan(this.root, field);
+      this.vNames();
+    });
     return value;
+  }
+
+  private vNames(): void {
+    vehicleNames(this.root, this.store.answerValues());
   }
 
   // vehicle.ts vehicleScan over `root` (a shown section on page entry, or the
@@ -1996,6 +2002,8 @@ export class LgEngine {
       this.store.state.back_stack.length > 0 || this.historyFallbackArmed(),
     );
     if (shownEls[0] !== undefined) render.focusSection(shownEls[0]);
+    // F18: {make}/{year} in the headlines (vehicle.ts vehicleNames).
+    this.vNames();
     this.updateProgressUi();
     if (fireView) {
       for (const i of visibleInPage) this.fireSectionView(this.config.sections[i] || null, nav);

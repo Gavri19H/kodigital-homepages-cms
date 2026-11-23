@@ -286,3 +286,39 @@ describe("F18 public config — a vehicle question carries none of its typed dat
     expect(t.props).toBe(typedNode.props);
   });
 });
+
+describe("F18 render — {make}/{year} headline names", () => {
+  const headlines: LeadgenComponentNode[] = [
+    { type: "QuestionHeadline", question_id: "h1", bind: "section_headline" } as LeadgenComponentNode,
+    { type: "Subheadline", question_id: "h2", bind: "section_subheadline" } as LeadgenComponentNode,
+    { type: "Subheadline", question_id: "h3", props: { text: "Your {make}, {year}" } } as LeadgenComponentNode,
+  ];
+  const sectionCtx = (vehicle: VehicleRenderData | null): LeadgenSectionRenderCtx => ({
+    headline_text: "What year is your {make}?",
+    subheadline_text: "{year} {make} <i>",
+    vehicle,
+  });
+  const texts = (html: string): string[] => [...html.matchAll(/<(?:h1|p) class="lg-(?:sub)?headline"[^>]*>([^<]*)<\/(?:h1|p)>/g)].map((m) => m[1] ?? "");
+
+  it("Studio / previews (a sample make): the tokens show the sample's name and newest year, escaped; public pages keep the tokens for the engine", () => {
+    expect(texts(renderSectionComponents(headlines, DESIGN, sectionCtx(vehicleData({ sample: SAMPLE }))))).toEqual([
+      "What year is your Toyota?",
+      "2027 Toyota &lt;i&gt;",
+      "Your Toyota, 2027",
+    ]);
+    // Public page (the live list, no sample) and a page without the list: untouched.
+    for (const ctx of [sectionCtx(vehicleData()), sectionCtx(null)]) {
+      expect(texts(renderSectionComponents(headlines, DESIGN, ctx))).toEqual([
+        "What year is your {make}?",
+        "{year} {make} &lt;i&gt;",
+        "Your {make}, {year}",
+      ]);
+    }
+  });
+
+  it("a sample make whose name holds HTML characters is escaped (text, never markup)", () => {
+    const html = renderSectionComponents(headlines.slice(0, 1), DESIGN, sectionCtx(vehicleData({ sample: { ...SAMPLE, make_id: 900 } })));
+    expect(texts(html)).toEqual(["What year is your Zed &lt;b&gt;&amp;?"]);
+    expect(html).not.toContain("<b>&");
+  });
+});

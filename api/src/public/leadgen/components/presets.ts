@@ -1082,6 +1082,29 @@ export function renderCategoryLabel(
   );
 }
 
+// F18 headline names (owner, 23 Nov): a Section headline / subheadline may
+// say "What year is your {make}?" — the visitor's engine replaces {make} and
+// {year} with their answers (runtime/vehicle.ts vehicleNames), so a public
+// page keeps the tokens (they sit on Sections hidden until entered: nothing
+// flashes). Only where the Studio canvas / previews pass the sample make
+// (ctx.vehicle.sample, Toyota) are they replaced here — with its name and
+// newest year — so the operator sees "What year is your Toyota?". Plain text
+// in, plain text out: the caller escapes it like any headline. Text without a
+// token (and every page without a sample) comes back unchanged.
+function vehicleHeadlineSample(
+  text: string | null | undefined,
+  ctx: LeadgenSectionRenderCtx | undefined,
+): string | null | undefined {
+  const data = ctx?.vehicle;
+  const sample = data?.sample;
+  if (typeof text !== "string" || !data || !sample || !/\{(make|year)\}/.test(text)) return text;
+  return text
+    .replace(/\{make\}/g, vehicleSampleName(data))
+    .replace(/\{year\}/g, String(sample.years[0]?.year ?? ""))
+    .replace(/\s+/g, " ")
+    .trim();
+}
+
 export function renderQuestionHeadline(
   node: LeadgenComponentNode,
   design: DefaultFunnelDesign,
@@ -1091,7 +1114,8 @@ export function renderQuestionHeadline(
   // escaped exactly like props.text — bound vs unbound differ ONLY in the text
   // source. ctx absent + bound node → empty text (never a throw). An UNBOUND
   // legacy node with props.text renders byte-identically to v2.4.
-  const text = node.bind === "section_headline" ? ctx?.headline_text : propStr(node, "text");
+  // F18: {make}/{year} show the Studio sample make (vehicleHeadlineSample).
+  const text = vehicleHeadlineSample(node.bind === "section_headline" ? ctx?.headline_text : propStr(node, "text"), ctx);
   // v3.1 R3b E2-C1: the Style tab's "Text color role" control (data-style-
   // text-block) has always covered this type — the RENDERER never consumed
   // it. Same §9.4 layer-5 role-or-hex resolution the choice/button families
@@ -1112,7 +1136,11 @@ export function renderSubheadline(
 ): string {
   // 03 §3.4 — same rule as renderQuestionHeadline for the subheadline column
   // (a NULL column renders as empty text, exactly like an absent props.text).
-  const text = node.bind === "section_subheadline" ? ctx?.subheadline_text : propStr(node, "text");
+  // F18: {make}/{year} show the Studio sample make (vehicleHeadlineSample).
+  const text = vehicleHeadlineSample(
+    node.bind === "section_subheadline" ? ctx?.subheadline_text : propStr(node, "text"),
+    ctx,
+  );
   // v3.1 R3b E2-C1: wire the pre-existing Style-tab "Text color role" control.
   const color = ovColor(node, "featureColor", design, ctx) ?? design.subheadline.color;
   return (
@@ -2365,6 +2393,12 @@ function vehicleTextInput(asks: VehicleSourceConfig["asks"], hidden: boolean): s
   );
 }
 
+// The Studio sample make's display name (Toyota), "" without a sample.
+function vehicleSampleName(data: VehicleRenderData): string {
+  const sample = data.sample;
+  return sample === null ? "" : (data.makes.find((m) => m.make_id === sample.make_id)?.name ?? "Toyota");
+}
+
 function vehicleChoice(label: string, value: string): LeadgenChoice {
   return { label, value, analytics_id: "" };
 }
@@ -2495,7 +2529,7 @@ function renderVehicleQuestion(
   // (data.sample, Toyota) so the operator sees real choices, with a note.
   const text = vehicleTextInput(cfg.asks, true);
   const sample = data.sample;
-  const sampleName = sample === null ? "" : (data.makes.find((m) => m.make_id === sample.make_id)?.name ?? "Toyota");
+  const sampleName = vehicleSampleName(data);
   const note =
     sample === null
       ? ""
