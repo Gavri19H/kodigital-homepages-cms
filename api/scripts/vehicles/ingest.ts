@@ -54,6 +54,7 @@ import {
   loadSnapshotRows,
   renderDiffReport,
   servedFiles,
+  type DroppedModel,
   type ReviewFlag,
   type SnapshotRows,
 } from "./checks";
@@ -437,6 +438,8 @@ export interface BuiltSnapshot {
   makesFile: VehicleMakesFile;
   makeFiles: VehicleMakeFile[];
   flags: ReviewFlag[];
+  /** What model_denylist.csv removed (make + model + years), for the diff report. */
+  dropped: DroppedModel[];
 }
 
 export interface BuildInput {
@@ -576,12 +579,12 @@ export function buildSnapshot(input: BuildInput): BuiltSnapshot {
     slugs.set(m.slug, m.make_id);
   }
 
+  const dropped: DroppedModel[] = [];
   for (const [makeId, perMake] of [...denied.entries()].sort((a, b) => a[0] - b[0])) {
-    const name = makeById.get(makeId)!.display_name;
-    const parts = [...perMake.entries()]
-      .sort((a, b) => compareNames(a[0], b[0]))
-      .map(([n, e]) => `"${n}" (${describeYears([...e.years])}; ${e.rule.kind === "term" ? `term "${e.rule.value}"` : "exact pair"})`);
-    flags.push({ kind: "denylist-dropped", make_id: makeId, message: `${name}: ${parts.join(", ")}` });
+    const make = makeById.get(makeId)!.display_name;
+    for (const [model, e] of [...perMake.entries()].sort((a, b) => compareNames(a[0], b[0]))) {
+      dropped.push({ make_id: makeId, make, model, years: [...e.years].sort((a, b) => a - b), kind: e.rule.kind, rule: e.rule.value, reason: e.rule.reason });
+    }
   }
   for (const e of [...keptBracket.values()].sort((a, b) => a.make_id - b.make_id || compareNames(a.name, b.name))) {
     flags.push({
@@ -602,7 +605,7 @@ export function buildSnapshot(input: BuildInput): BuiltSnapshot {
 
   const rows: SnapshotRows = { makes: outMakes, models: outModels, model_years: outYears };
   const { makesFile, makeFiles } = servedFiles(snapshot, rows);
-  return { snapshot, rows, makesFile, makeFiles, flags };
+  return { snapshot, rows, makesFile, makeFiles, flags, dropped };
 }
 
 function describeYears(years: number[]): string {
@@ -931,7 +934,7 @@ export async function runIngest(opts: IngestOptions): Promise<IngestResult> {
     `; ${used.length} answers` +
     (opts.onlyMakes && opts.onlyMakes.length > 0 ? `; PARTIAL build (make ids ${opts.onlyMakes.join(",")}) — do not upload` : "");
   const created = span ? span.last : new Date(0).toISOString();
-  const manifest = writeSnapshotFolder(outDir, built, { created_at: created, source_note: sourceNote }, renderDiffReport(diff, built.flags, { sourceNote, featured: FEATURED_MAKES, nextRows: built.rows }));
+  const manifest = writeSnapshotFolder(outDir, built, { created_at: created, source_note: sourceNote }, renderDiffReport(diff, built.flags, { sourceNote, featured: FEATURED_MAKES, nextRows: built.rows, dropped: built.dropped }));
   log(`Wrote ${outDir}: ${manifest.counts.makes} makes, ${manifest.counts.models} models, ${manifest.counts.model_years} model-year rows`);
   log(`Diff against ${prevId ?? "nothing (first snapshot)"}: ${diff.empty ? "no differences" : `${diff.makesAdded.length} makes added, ${diff.makesRemoved.length} removed, ${diff.modelsAdded.length} models added, ${diff.modelsRemoved.length} removed, ${diff.rowsRemoved} rows removed (${(diff.removedShare * 100).toFixed(2)}%)`}`);
   log(`Requests: ${fetcher.stats.network} from the network, ${fetcher.stats.cached} from the saved answers, ${fetcher.stats.retries} retries`);

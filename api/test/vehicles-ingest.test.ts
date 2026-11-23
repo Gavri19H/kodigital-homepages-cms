@@ -23,6 +23,7 @@ import {
   guardrail,
   loadSnapshot,
   renderDiffReport,
+  runSnapshotChecks,
   snapshotFromRows,
   switchLive,
   type PointerStore,
@@ -74,7 +75,9 @@ function fixtureEpa(): Map<number, string[]> {
 }
 
 const fixtureMakeMap = () => parseMakeMap(readFileSync(path.join(FIX, "make_map.csv"), "utf8"));
-const seedDeny = () => parseDenylist(readFileSync(path.join(FIX, "model_denylist.csv"), "utf8"));
+// The real drop list (spec seed terms + the owner-approved make + model pairs), so tests guard what ships.
+const REAL_DENYLIST = path.join(SCRIPTS, "model_denylist.csv");
+const realDeny = () => parseDenylist(readFileSync(REAL_DENYLIST, "utf8"));
 
 function ingestFixture(out: string, extra: Partial<Parameters<typeof runIngest>[0]> = {}) {
   return runIngest({
@@ -85,7 +88,7 @@ function ingestFixture(out: string, extra: Partial<Parameters<typeof runIngest>[
     compareTo: "none",
     snapshotsDir: path.join(tmpRoot, "no-snapshots"),
     makeMapPath: path.join(FIX, "make_map.csv"),
-    denylistPath: path.join(FIX, "model_denylist.csv"),
+    denylistPath: REAL_DENYLIST,
     onlyMakes: [441, 448, 460],
     minYear: 2022,
     maxYear: 2023,
@@ -181,7 +184,7 @@ describe("N2 model names", () => {
 // --- N3: denylist ----------------------------------------------------------------------------
 
 describe("N3 denylist", () => {
-  const deny = seedDeny();
+  const deny = realDeny();
   const hit = (make: number, raw: string) => deniedBy(make, raw, cleanModelName(raw).name, deny);
 
   it("drops names containing a seed term, ignoring case", () => {
@@ -197,6 +200,28 @@ describe("N3 denylist", () => {
     expect(hit(460, "Cordova Sedan")?.kind).toBe("pair");
     expect(hit(448, "'34")).toBeNull();
     expect(hit(460, "Classic Sedan Deluxe")).toBeNull();
+  });
+
+  it("drop-list pairs remove non-consumer models while similar consumer names survive", () => {
+    // Ford medium / heavy trucks go; the consumer pickups and vans stay.
+    for (const n of ["F-600", "F-650", "F-750", "LT9513", "AT9522", "C8000", "B700", "P600", "Recreational Vehicle"]) expect(hit(460, n)?.kind).toBe("pair");
+    for (const n of ["F-150", "F-250", "F-350", "F-450", "E-350", "Transit", "Transit Connect", "Ranger"]) expect(hit(460, n)).toBeNull();
+    // Volvo truck cabs go; Volvo cars with similar names stay.
+    for (const n of ["VT", "VS", "Cab Over Engine HT", "F12 w/F7 Cab"]) expect(hit(485, n)?.kind).toBe("pair");
+    for (const n of ["V70", "V60CC", "S90", "C30"]) expect(hit(485, n)).toBeNull();
+    // Tesla, Rivian, Chevrolet: fleet, robotaxi, police and export-only models.
+    expect(hit(441, "Semi")?.kind).toBe("pair");
+    expect(hit(441, "Cybercab")?.kind).toBe("pair");
+    expect(hit(441, "Cybertruck")).toBeNull();
+    expect(hit(10887, "EDV")?.kind).toBe("pair");
+    expect(hit(10887, "R1T")).toBeNull();
+    expect(hit(467, "Caprice Police Vehicle")?.kind).toBe("pair");
+    expect(hit(467, "Caprice")).toBeNull();
+    expect(hit(467, "Orlando")?.kind).toBe("pair");
+    // A pair belongs to one make only: Oldsmobile's Alero stays though Chevrolet's (Mexico-only) goes.
+    expect(hit(467, "Alero")?.kind).toBe("pair");
+    expect(hit(4162, "Alero")).toBeNull();
+    expect(hit(448, "Cargo Van")).toBeNull();
   });
 });
 
@@ -309,6 +334,25 @@ describe("ingest on saved real vPIC / EPA answers", () => {
     expect(readFileSync(path.join(out, "diff-report.md"), "utf8")).toContain("first snapshot");
   });
 
+  it("the drop list removes exactly the listed models from the saved answers, and the report lists them", async () => {
+    const out = path.join(tmpRoot, "drop-list");
+    const res = await ingestFixture(out);
+    expect(res.built.dropped.map((d) => `${d.make}|${d.model}|${d.years.join(",")}|${d.kind}`)).toEqual([
+      "Tesla|Semi|2023|pair",
+      "Ford|'34|2022,2023|pair",
+      "Ford|F-600|2022,2023|pair",
+    ]);
+    const s = loadSnapshot(out);
+    const names = (make: number) => s.rows.models.filter((m) => m.make_id === make).map((m) => m.display_name);
+    for (const n of ["F-450", "F-550", "Transit", "Transit Connect", "Maverick"]) expect(names(460)).toContain(n);
+    expect(names(460)).not.toContain("F-600");
+    expect(names(441)).toEqual(["Model 3", "Model S", "Model X", "Model Y"]);
+    const md = readFileSync(path.join(out, "diff-report.md"), "utf8");
+    expect(md).toContain("## Removed by the drop list (3 models)");
+    expect(md).toContain("| Ford | F-600 | 2022–2023 | Ford medium-duty truck (Class 6 and up) |");
+    expect(md).toContain("| Tesla | Semi | 2023 | Tesla Class 8 truck |");
+  });
+
   it("AC5: a rerun on the same source gives byte-identical files, the same model_ids and an empty diff", async () => {
     const a = path.join(tmpRoot, "rerun-a");
     const b = path.join(tmpRoot, "rerun-b");
@@ -406,6 +450,27 @@ describe("2% guardrail and the live pointer", () => {
     const unknown = await switchLive({ store: b.store, next: snapshotFromRows("2026-11-23", live), loadRows: () => null, approveDiff: false, checks: [] });
     expect(unknown.switched).toBe(false);
     expect(b.state.pointer).toBe("2025-10-01");
+  });
+});
+
+// --- AC3 (owner decision 23 Nov 2026) -------------------------------------------------------
+
+describe("AC3 Tesla years", () => {
+  const tesla = (years: number[]): SnapshotRows => ({
+    makes: [{ make_id: 441, display_name: "Tesla", slug: "tesla", min_year: Math.min(...years), max_year: Math.max(...years) }],
+    models: [{ model_id: modelIdFor(441, "Roadster"), make_id: 441, display_name: "Roadster" }],
+    model_years: years.map((y) => ({ make_id: 441, model_year: y, model_id: modelIdFor(441, "Roadster"), vehicle_types: "car" })),
+  });
+  const ac3 = (years: number[]) => runSnapshotChecks(snapshotFromRows(SNAP, tesla(years))).find((c) => c.id === "AC3")!;
+
+  it("accepts 2009 (vPIC lists the Roadster for 2009; the source data wins)", () => {
+    expect(ac3([2008, 2009, 2010, 2011, 2012]).ok).toBe(true);
+  });
+
+  it("still refuses any year before 2008", () => {
+    const r = ac3([2007, 2008, 2009]);
+    expect(r.ok).toBe(false);
+    expect(r.details.join(" ")).toContain("not allowed: 2007");
   });
 });
 

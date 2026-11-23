@@ -50,6 +50,18 @@ export interface ReviewFlag {
   make_id?: number;
 }
 
+/** A model the drop list (model_denylist.csv) removed, for the diff report's "Removed by the drop list". */
+export interface DroppedModel {
+  make_id: number;
+  make: string;
+  model: string;
+  years: number[];
+  /** "term" (name contains a listed word) or "pair" (exact make + model). */
+  kind: "term" | "pair";
+  rule: string;
+  reason: string;
+}
+
 /** The spec's data model (§5), as committed under rows/. */
 export interface SnapshotRows {
   makes: VehicleSnapshotMake[];
@@ -480,14 +492,16 @@ export function runSnapshotChecks(s: LoadedSnapshot): CheckResult[] {
     });
   }
 
-  // AC3 — Tesla: no year before 2008, no 2009.
+  // AC3 — Tesla: no year before 2008.
+  // Owner decision 23 Nov 2026: the spec's "and no 2009" is dropped — today's vPIC lists the Tesla
+  // Roadster for model year 2009, and the source data wins.
   {
     const f = s.makeFiles.get(TESLA);
     const ys = f ? yearsOf(f) : null;
-    const bad = ys ? ys.filter((y) => y < 2008 || y === 2009) : [];
+    const bad = ys ? ys.filter((y) => y < 2008) : [];
     out.push({
       id: "AC3",
-      title: "Tesla has no year before 2008 and no 2009",
+      title: "Tesla has no year before 2008",
       ok: ys !== null && bad.length === 0,
       details: ys === null ? ["Tesla (make_id 441) is not in the snapshot"] : [`Tesla years: ${ys.join(", ")}`, ...(bad.length ? [`not allowed: ${bad.join(", ")}`] : [])],
     });
@@ -717,7 +731,6 @@ const FLAG_TITLES: Array<[string, string]> = [
   ["years-not-on-epa", "Model years vPIC lists but EPA doesn't (could not be confirmed by EPA)"],
   ["bracket-kept", "Brackets kept in model names (not only powertrain words) — check"],
   ["casing-variants", "Models vPIC spells more than one way"],
-  ["denylist-dropped", "Models dropped by model_denylist.csv"],
   ["suffix-removed", "Powertrain brackets removed (rule N2)"],
   ["vpic-count", "vPIC answers whose Count didn't match their rows"],
   ["vpic-foreign-row", "vPIC rows for another make (ignored)"],
@@ -744,7 +757,7 @@ function yearsText(ys: number[]): string {
 export function renderDiffReport(
   diff: SnapshotDiff,
   flags: ReviewFlag[],
-  meta: { sourceNote: string; featured: readonly string[]; nextRows?: SnapshotRows },
+  meta: { sourceNote: string; featured: readonly string[]; nextRows?: SnapshotRows; dropped?: DroppedModel[] },
 ): string {
   const L: string[] = [];
   const first = diff.previous === null;
@@ -784,6 +797,22 @@ export function renderDiffReport(
     const names = new Set(meta.nextRows.makes.map((m) => m.display_name));
     const missing = meta.featured.filter((n) => !names.has(n));
     L.push("## Featured makes", "", missing.length ? `**Missing: ${missing.join(", ")}.** They drop off the Make cards.` : `All ${meta.featured.length} present: ${meta.featured.join(", ")}.`, "");
+  }
+
+  // Everything model_denylist.csv removed from the source, so the owner can scan it before upload.
+  if (meta.dropped) {
+    const list = [...meta.dropped].sort((a, b) => compareNames(a.make, b.make) || compareNames(a.model, b.model));
+    L.push(`## Removed by the drop list (${list.length} models)`, "");
+    if (list.length === 0) L.push("None.");
+    else {
+      L.push("Models in vPIC that model_denylist.csv keeps out of the funnel. Each line is one make + model with the model years it had.", "");
+      L.push("| Make | Model | Years | Why |", "|---|---|---|---|");
+      for (const d of list) {
+        const why = d.kind === "term" ? `name contains "${d.rule}"${d.reason ? ` (${d.reason})` : ""}` : d.reason || "listed pair";
+        L.push(`| ${mdEscape(d.make)} | ${mdEscape(d.model)} | ${yearsText(d.years)} | ${mdEscape(why)} |`);
+      }
+    }
+    L.push("");
   }
 
   const makeName = new Map<number, string>();

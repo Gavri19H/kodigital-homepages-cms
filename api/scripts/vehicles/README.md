@@ -100,7 +100,7 @@ Add `--persist-to <folder>` to use a separate local storage folder.
 - Models are looked up **by make ID only**, one vehicle type at a time (car, mpv, truck), never by make name and never without a type (V1–V4). vPIC and EPA are never called by the funnel or the Worker.
 - Make names come from `make_map.csv`; a make with no row gets the title-case default and a flag (N1).
 - Model names keep vPIC's casing, trimmed, with a powertrain bracket removed: "RAV4 Prime (PHEV)" becomes "RAV4 Prime" (N2). Other brackets are kept and flagged.
-- `model_denylist.csv` terms drop any model containing them; pairs drop one model of one make (N3).
+- `model_denylist.csv` terms drop any model containing them; pairs drop one model of one make (N3). The pairs keep out commercial trucks, bus and van chassis, fleet- or police-only models, robotaxis and models never sold in the US (owner decision, 23 Nov 2026). Every removed make + model, with its years, is listed in the diff report under "Removed by the drop list".
 - `model_id` is `m_` + the first 10 hex characters of sha256 of `<make_id>:<model name in lower case>` (N4). Stored leads keep these ids forever, so **never change this formula**.
 - The same model in the same year under several types is one row with `vehicle_types` like `mpv,truck`; duplicates that differ only in upper/lower case are merged.
 - Nothing is made up: anything the sources don't confirm is a flag in the diff report.
