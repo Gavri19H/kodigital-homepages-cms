@@ -155,6 +155,17 @@ import {
 // the re-chromed shell may use; sourced here so the Gate-1b token audit can
 // verify every computed style traces to this single module (contract §13).
 import { STUDIO_COLOR, STUDIO_GEOMETRY, STUDIO_RADIUS, STUDIO_TYPE } from "./studio-tokens";
+// F18 Vehicle database: which component types may take their choices from the
+// vehicle list (the island gets the same sets as one JSON literal).
+import {
+  VEHICLE_CARD_TYPES,
+  VEHICLE_FEATURED_MAKES_MAX,
+  VEHICLE_LOGO_CARD_TYPES,
+  VEHICLE_OTHER_LABEL_MAX,
+  VEHICLE_SOURCE_TYPES,
+  VEHICLE_YEAR_CARDS_MAX,
+  VEHICLE_YEAR_CARDS_MIN,
+} from "../../leadgen/vehicles/props";
 
 // ---------------------------------------------------------------------------
 // §5 component library (golden 102-258) — 4 intent-first groups of TILES
@@ -1057,6 +1068,9 @@ export function renderStudioSettings(view: StudioSectionView, mapsKeyConfigured:
       <svg width="14" height="14" viewBox="0 0 24 24" fill="none" style="flex:0 0 auto"><path d="M4 7l8 5 8-5" stroke="${STUDIO_COLOR.hintIconStroke}" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"/><path d="M12 12v0" stroke="${STUDIO_COLOR.hintIconStroke}" stroke-width="1.8"/><path d="M4 6v8" stroke="${STUDIO_COLOR.hintIconStroke}" stroke-width="1.8" stroke-linecap="round"/></svg>
       Also shown on the canvas &#8212; edit in either place.
     </div>
+    <!-- F18 headline names: shown by the island (renderVehicleHeadlineTip) only
+         while this Section has a Vehicle database Year or Model question. -->
+    <p class="form-help" data-vehicle-headline-tip hidden style="flex-basis:100%;margin:0;font-size:11.5px;color:${STUDIO_COLOR.mutedLabel}">Tip: write {make} or {year} to show the visitor&#8217;s answer, for example &#8220;What year is your {make}?&#8221;</p>
     <!-- R5 D2 (register S4-A2): the legacy global Maps/validation fieldset is
          REMOVED — safe post-R4b (S3-8: both readers migrated to per-field
          precedence, proven in both the single- and mixed-multi-section
@@ -2652,6 +2666,97 @@ function renderAnswerTextControls(): string {
       </div>`;
 }
 
+// F18 Vehicle database: each component type that may use the vehicle list,
+// with how it shows the choices — "logo" (Icon / Image cards: each featured
+// make carries its logo), "card" (Buttons) or "list" (Dropdown, plain or
+// searchable). Interpolated into the island as one JSON literal, so the island
+// and the server read the same sets (api/src/leadgen/vehicles/props.ts).
+const VEHICLE_SOURCE_KINDS: Record<string, "logo" | "card" | "list"> = Object.fromEntries(
+  [...VEHICLE_SOURCE_TYPES].map((t) => [t, VEHICLE_LOGO_CARD_TYPES.has(t) ? "logo" : VEHICLE_CARD_TYPES.has(t) ? "card" : "list"]),
+);
+const VEHICLE_SOURCE_KINDS_JSON = JSON.stringify(VEHICLE_SOURCE_KINDS);
+
+// F18 Content → "Answer format": the "Source" control (Typed choices /
+// Vehicle database) and, with Vehicle database, what the question asks for,
+// its links to the Make / Year questions, the featured makes, the newest-N
+// years and the "Other" card label. Shown by the island (populateVehicleSource)
+// on the five vehicle-capable types only; it never deletes the typed choices.
+function vehicleSourceControlsHtml(): string {
+  return `<div class="lg-inspector-field" data-vehicle-source-wrap hidden>
+        <label class="form-label">Source</label>
+        <div class="studio-segmented" role="group" aria-label="Choice source" data-vehicle-source-group>
+          <button type="button" data-set-choice-source="typed">Typed choices</button>
+          <button type="button" data-set-choice-source="vehicle">Vehicle database</button>
+        </div>
+        <div data-vehicle-settings hidden>
+          <label class="form-label">This question asks for</label>
+          <div class="studio-segmented" role="group" aria-label="This question asks for" data-vehicle-asks-group>
+            <button type="button" data-set-vehicle-asks="make">Make</button>
+            <button type="button" data-set-vehicle-asks="year">Year</button>
+            <button type="button" data-set-vehicle-asks="model">Model</button>
+          </div>
+          <div class="lg-inspector-field" data-vehicle-link-wrap="make" hidden>
+            <label class="form-label" for="lg-vehicle-make-field">Make answer comes from</label>
+            <select id="lg-vehicle-make-field" class="form-input" data-vehicle-link="make"><option value="">Pick the Make question</option></select>
+            <p class="form-help" data-vehicle-link-empty="make" hidden>No Make question found yet. Add one to this Section, or save this Section and add it to a Quote that has one.</p>
+          </div>
+          <div class="lg-inspector-field" data-vehicle-link-wrap="year" hidden>
+            <label class="form-label" for="lg-vehicle-year-field">Year answer comes from</label>
+            <select id="lg-vehicle-year-field" class="form-input" data-vehicle-link="year"><option value="">Pick the Year question</option></select>
+            <p class="form-help" data-vehicle-link-empty="year" hidden>No Year question found yet. Add one to this Section, or save this Section and add it to a Quote that has one.</p>
+          </div>
+          <div class="lg-inspector-field" data-vehicle-featured-wrap hidden>
+            <label class="form-label" for="lg-vehicle-featured-add">Featured makes (required)</label>
+            <p class="form-help">These makes show as cards, in this order. Every other make goes under the &#8220;Other&#8221; card, A&#8594;Z.</p>
+            <div class="studio-vehicle-featured-list" data-vehicle-featured-list></div>
+            <p class="form-help studio-vehicle-warn" data-vehicle-featured-empty hidden>Add at least one make.</p>
+            <select id="lg-vehicle-featured-add" class="form-input" data-vehicle-featured-add aria-required="true"><option value="">+ Add a make&#8230;</option></select>
+            <p class="form-help" data-vehicle-featured-max hidden>Up to ${VEHICLE_FEATURED_MAKES_MAX} featured makes.</p>
+          </div>
+          <div class="lg-inspector-field" data-vehicle-year-cards-wrap hidden>
+            <label class="form-label" for="lg-vehicle-year-cards">Show the newest N years as cards</label>
+            <input id="lg-vehicle-year-cards" class="form-input studio-vehicle-number" type="number" min="${VEHICLE_YEAR_CARDS_MIN}" max="${VEHICLE_YEAR_CARDS_MAX}" step="1" inputmode="numeric" data-vehicle-year-cards placeholder="6" />
+            <p class="form-help">${VEHICLE_YEAR_CARDS_MIN}&#8211;${VEHICLE_YEAR_CARDS_MAX}. Older years go under the &#8220;Other&#8221; card.</p>
+          </div>
+          <div class="lg-inspector-field" data-vehicle-other-label-wrap hidden>
+            <label class="form-label" for="lg-vehicle-other-label">&#8220;Other&#8221; card label</label>
+            <input id="lg-vehicle-other-label" class="form-input" type="text" maxlength="${VEHICLE_OTHER_LABEL_MAX}" data-inspector-field="vehicle_other_label" placeholder="Other make" />
+          </div>
+        </div>
+      </div>`;
+}
+
+// F18: with Source = Vehicle database the typed choice list is replaced by
+// this read-only notice and the "Vehicle database" details card (live list,
+// "Look up a make"), both filled by the island from the admin vehicle routes.
+function vehicleChoicesNoticeHtml(): string {
+  return `<div data-vehicle-choices-wrap hidden>
+          <p class="alert studio-callout-blue" data-vehicle-notice>Choices come from the vehicle database. Names and years update when the yearly refresh goes live.</p>
+          <div class="studio-vehicle-card" data-vehicle-details>
+            <div class="studio-panel-eyebrow">Vehicle database</div>
+            <p class="studio-vehicle-live" data-vehicle-live-line>Loading the live list&#8230;</p>
+            <label class="form-label" for="lg-vehicle-lookup">Look up a make</label>
+            <select id="lg-vehicle-lookup" class="form-input" data-vehicle-lookup><option value="">Pick a make</option></select>
+            <p class="form-help" data-vehicle-lookup-status hidden></p>
+            <div class="studio-vehicle-result" data-vehicle-lookup-result hidden>
+              <div class="studio-vehicle-make-head">
+                <img class="studio-vehicle-logo" data-vehicle-lookup-logo alt="" width="64" height="32" hidden>
+                <span class="studio-vehicle-nologo" data-vehicle-lookup-nologo hidden>No logo yet</span>
+                <div class="studio-vehicle-make-text">
+                  <div class="studio-vehicle-make-name" data-vehicle-lookup-name></div>
+                  <div class="studio-vehicle-id" data-vehicle-lookup-id></div>
+                </div>
+              </div>
+              <p class="form-help" data-vehicle-lookup-years></p>
+              <label class="form-label" for="lg-vehicle-lookup-year">Year</label>
+              <select id="lg-vehicle-lookup-year" class="form-input" data-vehicle-lookup-year></select>
+              <p class="form-help" data-vehicle-lookup-models-head></p>
+              <div class="studio-vehicle-models" data-vehicle-lookup-models></div>
+            </div>
+          </div>
+        </div>`;
+}
+
 // The full tabbed inspector. Panels are server-rendered ONCE; the island
 // toggles tab/panel visibility per the selected node's type metadata and
 // populates/collects values (data-inspector-field / data-inspector-override /
@@ -2933,6 +3038,7 @@ export function renderStudioInspector(design: FunnelDesign, sectionPublicId: str
 
       <div class="studio-hr"></div>
       <div class="studio-panel-eyebrow">Answer format</div>
+      ${vehicleSourceControlsHtml()}
       <div class="lg-inspector-field" data-accept-wrap hidden>
         <label class="form-label" for="lg-inspector-accept">Accept</label>
         <select id="lg-inspector-accept" class="form-input" data-inspector-accept>${ACCEPT_OPTION_HTML}</select>
@@ -2951,11 +3057,15 @@ export function renderStudioInspector(design: FunnelDesign, sectionPublicId: str
       </div>
       <div class="lg-inspector-field" data-toolbar-card-style-wrap hidden>
         <label class="form-label">Card style</label>
-        <div class="studio-segmented" role="group" aria-label="Card style">
+        <div class="studio-segmented" role="group" aria-label="Card style" data-card-style-group>
           <button type="button" data-card-style="icon">Icon</button>
           <button type="button" data-card-style="image">Image</button>
           <button type="button" data-card-style="plain">Plain</button>
         </div>
+        <div class="studio-segmented" role="group" aria-label="Card style" data-card-style-logo hidden>
+          <button type="button" class="active" disabled aria-disabled="true">Logo</button>
+        </div>
+        <p class="form-help" data-card-style-vehicle-note hidden></p>
       </div>
       ${renderSliderTypePicker()}
       <div class="form-group lg-inspector-field" data-vprop="min" hidden>
@@ -2996,6 +3106,9 @@ export function renderStudioInspector(design: FunnelDesign, sectionPublicId: str
       </div>
 
       <div data-field-choices-block hidden>
+        <!-- F18: the typed choice list and its editors; hidden (never cleared)
+             while Source is "Vehicle database". -->
+        <div data-typed-choices-wrap>
         <!-- v3.1 R3b E1-C5 (catalog hygiene): discoverability hint for the
              3-type card-style family (Icon/Image/Plain share ONE toolbar
              switch, not 3 separate insert paths). -->
@@ -3023,12 +3136,14 @@ export function renderStudioInspector(design: FunnelDesign, sectionPublicId: str
             <p class="form-help">1&#8211;50 values, same fields as the choices above. They join the answer&#8217;s valid values, the field universe, rules pickers and offer mapping exactly like base choices.</p>
           </div>
         </div>
-        <div class="form-group lg-inspector-field">
+        <div class="form-group lg-inspector-field" data-choice-bulk-wrap>
           <label class="form-label" for="lg-choice-bulk">Bulk paste (one per line: label = value)</label>
           <textarea id="lg-choice-bulk" class="form-input" rows="3" data-choice-bulk placeholder="Toyota = toyota&#10;Honda = honda"></textarea>
           <button type="button" class="btn btn-sm btn-secondary" id="lg-choice-bulk-apply">Apply bulk paste</button>
         </div>
         <p class="form-help" data-choices-c1-note>Each choice&#8217;s <strong>Provider values</strong> button sets what every Offer this answer goes to receives &#8212; an empty box sends the saved value.</p>
+        </div>
+        ${vehicleChoicesNoticeHtml()}
       </div>
 
       <!-- §10 removal: the old one-unit grid's "Sub-questions" (rows) editor
@@ -3977,6 +4092,29 @@ export const SECTION_STUDIO_STYLES = `
 .studio-inline-note{background:var(--c-surface-alt,#f6f8fb);border-radius:6px;padding:8px 10px;color:var(--c-muted)}
 .studio-connect-offers-card{background:#edf7f1;border:1px solid #cfe8db;border-radius:8px;padding:10px 12px}
 .studio-connect-offers-card p{color:#1e6b41;font-weight:600;margin:0 0 4px}
+/* F18 Vehicle database: the Source settings, the featured-makes list and the
+   "Vehicle database" details card. Style B tokens only (no new colors); IDs
+   in Roboto Mono. Everything wraps, so the inspector stacks at 375px. */
+.studio-vehicle-featured-list{display:flex;flex-direction:column;gap:4px;margin:6px 0}
+.studio-vehicle-featured-row{display:flex;align-items:center;gap:6px;min-width:0;border:1px solid ${STUDIO_COLOR.lineHairline};border-radius:6px;padding:4px 6px;background:${STUDIO_COLOR.white}}
+.studio-vehicle-featured-row .studio-vehicle-name{flex:1 1 auto;min-width:0;font-size:12.5px;font-weight:600;color:${STUDIO_COLOR.ink};overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.studio-vehicle-featured-row .btn{flex:0 0 auto;padding:2px 7px;line-height:1.2}
+.studio-vehicle-warn{color:${STUDIO_COLOR.navy};font-weight:600}
+.studio-vehicle-number{max-width:96px}
+.studio-vehicle-card{border:1px solid ${STUDIO_COLOR.lineHairline};border-radius:8px;padding:10px 12px;margin-top:10px;background:${STUDIO_COLOR.white};min-width:0}
+.studio-vehicle-card .studio-panel-eyebrow{margin-top:0}
+.studio-vehicle-live{font-size:12.5px;font-weight:600;color:${STUDIO_COLOR.navy};margin:0 0 8px}
+.studio-vehicle-id{font-family:${STUDIO_TYPE.family.robotoMono};font-size:11px;color:${STUDIO_COLOR.mutedLabel};overflow-wrap:anywhere}
+.studio-vehicle-make-head{display:flex;align-items:center;gap:10px;margin:10px 0 4px;min-width:0}
+.studio-vehicle-logo{height:32px;width:auto;max-width:64px;object-fit:contain;flex:0 0 auto}
+.studio-vehicle-nologo{flex:0 0 auto;font-size:11px;color:${STUDIO_COLOR.mutedLabel};border:1px dashed ${STUDIO_COLOR.lineControl};border-radius:6px;padding:6px 8px}
+.studio-vehicle-make-text{min-width:0}
+.studio-vehicle-make-name{font-size:13px;font-weight:700;color:${STUDIO_COLOR.ink}}
+.studio-vehicle-models{display:flex;flex-wrap:wrap;gap:4px;max-height:200px;overflow:auto}
+.studio-vehicle-models span{font-size:11.5px;color:${STUDIO_COLOR.ink};background:${STUDIO_COLOR.navyTint};border-radius:9px;padding:2px 8px;overflow-wrap:anywhere}
+.studio-map-sendas{display:flex;align-items:center;gap:8px;flex-basis:100%;flex-wrap:wrap}
+.studio-map-sendas .studio-segmented{width:auto;margin-bottom:0}
+.studio-map-sendas-label{font-size:11px;font-weight:600;color:${STUDIO_COLOR.mutedLabel}}
 .studio-rules-always-row{display:flex;align-items:center;gap:8px;padding:9px 11px;border:1px solid var(--c-border);border-radius:8px;margin-bottom:10px;background:var(--c-surface-alt,#f7f9fb)}
 .studio-dot-green{width:8px;height:8px;border-radius:50%;background:#0e7c3a;flex:0 0 auto}
 .studio-add-condition-btn{border:1px solid var(--c-primary);color:var(--c-primary);background:none;border-radius:6px;padding:7px 12px;font-size:12.5px;font-weight:700;cursor:pointer}
@@ -4707,6 +4845,7 @@ export const SECTION_STUDIO_SCRIPT = `
     updatePaletteBindItems();
     renderBindBanner();
     updateHistoryButtons();
+    if (typeof renderVehicleHeadlineTip !== 'undefined') { renderVehicleHeadlineTip(); }
     scheduleCanvasRender();
     selectComponent(selectedQuestionId);
     // the mapping came back too: repaint every surface that reads it
@@ -6941,6 +7080,11 @@ export const SECTION_STUDIO_SCRIPT = `
     if (state.content.components.length === 0) {
       issues.push({ qid: null, message: 'Add at least one component' });
     }
+    // F18 Vehicle database: a question on Source "Vehicle database" takes its
+    // choices from the vehicle list, so its (kept, hidden) typed choices,
+    // "Other" values and icons are not checked; its own settings are. Inline
+    // literal: computeIssues is vm-probe-sliced standalone.
+    var vehicleKinds = ${VEHICLE_SOURCE_KINDS_JSON};
     walkTree(state.content.components, 1, function (node, depth) {
       var meta = studioMeta.types[node.type];
       if (!meta) { issues.push({ qid: node.question_id, message: 'Unknown component type ' + node.type }); return; }
@@ -6999,7 +7143,30 @@ export const SECTION_STUDIO_SCRIPT = `
           bindSeen[node.bind] = true;
         }
       }
-      if (req.choices && (!node.choices || node.choices.length === 0)) {
+      var vehicleSource = !!node.props && node.props.choice_source === 'vehicle';
+      var vehicleKind = vehicleKinds[node.type] || null;
+      if (vehicleSource && vehicleKind === null) {
+        issues.push({ qid: node.question_id, message: label + ' can\u2019t use the vehicle database \u2014 only Buttons, Cards and Dropdown can' });
+      }
+      var vehicleOn = vehicleSource && vehicleKind !== null;
+      if (vehicleOn) {
+        var vAsks = node.props.vehicle_asks;
+        if (vAsks !== 'make' && vAsks !== 'year' && vAsks !== 'model') {
+          issues.push({ qid: node.question_id, message: label + ' needs \u201cThis question asks for\u201d: Make, Year or Model' });
+        } else {
+          if ((vAsks === 'year' || vAsks === 'model') && trimStr(node.props.vehicle_make_field) === '') {
+            issues.push({ qid: node.question_id, message: label + ' needs \u201cMake answer comes from\u201d' });
+          }
+          if (vAsks === 'model' && trimStr(node.props.vehicle_year_field) === '') {
+            issues.push({ qid: node.question_id, message: label + ' needs \u201cYear answer comes from\u201d' });
+          }
+          var vFeatured = node.props.vehicle_featured_makes;
+          if (vAsks === 'make' && vehicleKind !== 'list' && !(vFeatured && typeof vFeatured === 'object' && vFeatured.length > 0)) {
+            issues.push({ qid: node.question_id, message: label + ' needs at least one featured make' });
+          }
+        }
+      }
+      if (req.choices && !vehicleOn && (!node.choices || node.choices.length === 0)) {
         issues.push({ qid: node.question_id, message: label + ' needs at least one choice' });
       }
       // invalid_choice basics mirror (label / value / analytics_id — the
@@ -7010,7 +7177,7 @@ export const SECTION_STUDIO_SCRIPT = `
       // an IconCardAnswerGrid/ImageCardAnswerGrid choice missing its
       // icon/image is a VISIBLE studio issue instead of a save-time 400 the
       // "No issues" chip gave no warning about.
-      if (node.choices && node.choices.length > 0) {
+      if (!vehicleOn && node.choices && node.choices.length > 0) {
         var ci, choice, vt, seenChoiceValue = {}, seenChoiceLabel = {}, dupKey;
         for (ci = 0; ci < node.choices.length; ci++) {
           choice = node.choices[ci];
@@ -7039,7 +7206,7 @@ export const SECTION_STUDIO_SCRIPT = `
       // leaves without a label is VISIBLE here pre-save, never only
       // discovered as a bare 400 (or, worse, believed "saved fine" off a
       // chip that never looked at props.other at all).
-      if (node.props && node.props.other && node.props.other.enabled === true) {
+      if (!vehicleOn && node.props && node.props.other && node.props.other.enabled === true) {
         // P5-F11: the schema also requires choices non-empty whenever
         // enabled is true (content-schema.ts validateOtherEditor) --
         // mirrored here exactly like the base-choices "needs at least one
@@ -7341,6 +7508,8 @@ export const SECTION_STUDIO_SCRIPT = `
     // probes that never declare applyContinueModeEligibility (a bare reference
     // would throw ReferenceError there, for a concern outside what they test).
     if (typeof applyContinueModeEligibility !== 'undefined') { applyContinueModeEligibility(); }
+    // F18: the {make} / {year} headline tip follows the Section's questions.
+    if (typeof renderVehicleHeadlineTip !== 'undefined') { renderVehicleHeadlineTip(); }
     scheduleCanvasRender();
   }
 
@@ -7871,6 +8040,9 @@ export const SECTION_STUDIO_SCRIPT = `
       if (!host) { continue; }
       qid = host.getAttribute('data-question-id');
       if (typeMeta(host.getAttribute('data-component-type')).choice !== true) { continue; }
+      // F18: vehicle database choices are read-only on the canvas (no remove
+      // x, no drag). typeof-guard: decorateChoiceCards is probe-sliced.
+      if (typeof isVehicleSourceQid === 'function' && isVehicleSourceQid(qid)) { continue; }
       // R2 P8 M7 (contract §4 R3 corollary: "A control that cannot be honoured
       // must not be offered"). THREE renderers put data-lg-choice on a NATIVE
       // <option>: presets.ts otherSelectMarkup (:467, inside a hidden select),
@@ -7937,7 +8109,8 @@ export const SECTION_STUDIO_SCRIPT = `
       for (nc = 0; nc < nodeChoices.length; nc++) {
         if (String(nodeChoices[nc].tagName || '').toUpperCase() !== 'OPTION') { ghostable = true; }
       }
-      if (typeMeta(type).choice === true && ghostable) {
+      // F18: no "+ Add choice" ghost under a vehicle database question.
+      if (typeMeta(type).choice === true && ghostable && !(typeof isVehicleSourceQid === 'function' && isVehicleSourceQid(qid))) {
         // Rework §6.1 (#1/#3/#9): the "+ Add choice" ghost is a SIBLING row
         // inserted immediately AFTER the component root (never a grid cell,
         // never inside the component's border) — left-aligned under the box,
@@ -9913,6 +10086,11 @@ export const SECTION_STUDIO_SCRIPT = `
     if (cardStyleHint) { cardStyleHint.hidden = cardStyleOf(node) === null; }
     renderChoiceEditor(node);
     populateOtherEditor(node);
+    // F18 Vehicle database "Source" — LAST, so it can hide the typed choice
+    // list, the "Other" editor and the defaults the calls above just showed.
+    // typeof-guard: populateInspector is vm-probe-sliced with a fixed
+    // collaborator list (leadgen-rework-matrix Layer B).
+    if (typeof populateVehicleSource === 'function') { populateVehicleSource(node); }
     var dbg = document.querySelector('[data-studio-debug-id]');
     if (dbg) { dbg.textContent = node ? node.question_id : ''; }
     // §7.3 Advanced: the bind marker (read-only) — ids/raw markers live here
@@ -10943,6 +11121,600 @@ export const SECTION_STUDIO_SCRIPT = `
     props.source = value;
     populateImageBlockControls(node);
     afterModelChange();
+  }
+
+  // --- F18 Vehicle database: the "Source" of a Buttons / Cards / Dropdown question ---
+  // props.choice_source = 'vehicle' takes the choices from the yearly vehicle
+  // list instead of the typed list (the server's vehicles/props.ts owns the
+  // keys). Switching never touches node.choices, props.other or the defaults,
+  // so "Typed choices" shows the operator's own rows exactly as saved. The
+  // vehicle settings themselves are parked per question while the question
+  // is on "Typed choices" (vehicleUi.stash) and come back on the next switch.
+  var VEHICLE_SOURCE_KINDS = ${VEHICLE_SOURCE_KINDS_JSON};
+  var VEHICLE_SETTING_KEYS = ['vehicle_asks', 'vehicle_make_field', 'vehicle_year_field', 'vehicle_featured_makes', 'vehicle_year_cards', 'vehicle_other_label'];
+  var VEHICLE_FEATURED_LIMIT = ${VEHICLE_FEATURED_MAKES_MAX};
+  var VEHICLE_YEAR_CARDS_RANGE = { min: ${VEHICLE_YEAR_CARDS_MIN}, max: ${VEHICLE_YEAR_CARDS_MAX}, fallback: 6 };
+  var vehicleUi = { live: null, liveLoading: false, liveWaiters: [], links: null, linksFor: null, linksLoading: false, lookupMake: '', lookupData: null, lookupYear: '', lookupLoading: false, lookupError: '', stash: {} };
+  function vehicleKindOf(node) {
+    return node && typeof node.type === 'string' && VEHICLE_SOURCE_KINDS[node.type] ? VEHICLE_SOURCE_KINDS[node.type] : null;
+  }
+  function isVehicleSourceNode(node) {
+    return vehicleKindOf(node) !== null && !!node.props && node.props.choice_source === 'vehicle';
+  }
+  function isVehicleSourceQid(qid) {
+    var ref = qid ? findRef(qid) : null;
+    return !!ref && isVehicleSourceNode(ref.node);
+  }
+  function vehicleAsksOf(node) {
+    var a = node && node.props ? node.props.vehicle_asks : null;
+    return (a === 'make' || a === 'year' || a === 'model') ? a : null;
+  }
+  // Buttons / Cards asking for the Make show featured makes as cards (Q8, Q10).
+  function vehicleNeedsFeatured(node) {
+    var kind = vehicleKindOf(node);
+    return (kind === 'card' || kind === 'logo') && vehicleAsksOf(node) === 'make';
+  }
+  function vehicleFeaturedOf(node) {
+    var raw = node && node.props ? node.props.vehicle_featured_makes : null;
+    var out = [], i, n;
+    if (!raw || typeof raw !== 'object' || typeof raw.length !== 'number') { return out; }
+    for (i = 0; i < raw.length; i++) {
+      n = typeof raw[i] === 'number' ? raw[i] : ((typeof raw[i] === 'string' && /^\\d+$/.test(raw[i])) ? Number(raw[i]) : NaN);
+      if (n > 0 && Math.floor(n) === n && out.indexOf(n) === -1) { out.push(n); }
+    }
+    return out;
+  }
+  function writeVehicleFeatured(node, list) {
+    var props = ensureObj(node, 'props');
+    if (!list.length) { delete props.vehicle_featured_makes; } else { props.vehicle_featured_makes = list.slice(0, VEHICLE_FEATURED_LIMIT); }
+  }
+  // Q8: a Buttons / Cards question switched to Make starts with the live
+  // list's pre-filled makes (Toyota, Honda, Ford ...) when it has none yet.
+  function prefillFeaturedMakes(node) {
+    if (!isVehicleSourceNode(node) || !vehicleNeedsFeatured(node) || vehicleFeaturedOf(node).length > 0) { return false; }
+    var live = vehicleUi.live;
+    if (!live || !live.default_featured || !live.default_featured.length) { return false; }
+    writeVehicleFeatured(node, live.default_featured);
+    return true;
+  }
+  // The live list may still be loading at the moment of the switch: fill in
+  // once it lands, if the same question is still selected and still empty.
+  function prefillFeaturedWhenLoaded(node) {
+    loadVehicleLive(function () {
+      if (selectedNode() === node && prefillFeaturedMakes(node)) {
+        afterModelChange();
+        populateInspector();
+      }
+    });
+  }
+  function setChoiceSource(value) {
+    var node = selectedNode();
+    if (vehicleKindOf(node) === null) { return; }
+    var props = ensureObj(node, 'props');
+    var qid = node.question_id || '';
+    var i, k, parked;
+    if (value === 'vehicle') {
+      if (props.choice_source === 'vehicle') { return; }
+      props.choice_source = 'vehicle';
+      parked = vehicleUi.stash[qid];
+      if (parked) {
+        for (k in parked) {
+          if (Object.prototype.hasOwnProperty.call(parked, k) && props[k] === undefined) { props[k] = cloneJson(parked[k]); }
+        }
+        delete vehicleUi.stash[qid];
+      }
+      if (vehicleAsksOf(node) === null) { props.vehicle_asks = 'make'; }
+      prefillFeaturedMakes(node);
+    } else {
+      if (props.choice_source !== 'vehicle') { return; }
+      parked = {};
+      for (i = 0; i < VEHICLE_SETTING_KEYS.length; i++) {
+        k = VEHICLE_SETTING_KEYS[i];
+        if (props[k] !== undefined) { parked[k] = props[k]; delete props[k]; }
+      }
+      vehicleUi.stash[qid] = parked;
+      delete props.choice_source;
+      cleanupEmpty(node, 'props');
+    }
+    afterModelChange();
+    populateInspector();
+    if (value === 'vehicle' && vehicleNeedsFeatured(node) && vehicleFeaturedOf(node).length === 0) { prefillFeaturedWhenLoaded(node); }
+  }
+  // What a question asks for changes what its settings mean, so the settings
+  // of the other two kinds are dropped (the "Other" label default differs too).
+  function setVehicleAsks(value) {
+    var node = selectedNode();
+    if (!isVehicleSourceNode(node) || (value !== 'make' && value !== 'year' && value !== 'model')) { return; }
+    if (vehicleAsksOf(node) === value) { return; }
+    var props = node.props;
+    props.vehicle_asks = value;
+    if (value === 'make') { delete props.vehicle_make_field; }
+    if (value !== 'model') { delete props.vehicle_year_field; }
+    if (value !== 'make') { delete props.vehicle_featured_makes; }
+    if (value !== 'year') { delete props.vehicle_year_cards; }
+    delete props.vehicle_other_label;
+    prefillFeaturedMakes(node);
+    afterModelChange();
+    populateInspector();
+    if (vehicleNeedsFeatured(node) && vehicleFeaturedOf(node).length === 0) { prefillFeaturedWhenLoaded(node); }
+  }
+  function setVehicleLink(kind, value) {
+    var node = selectedNode();
+    if (!isVehicleSourceNode(node)) { return; }
+    setOrDelete(node.props, kind === 'year' ? 'vehicle_year_field' : 'vehicle_make_field', trimStr(value));
+    afterModelChange();
+  }
+  function addFeaturedMake(makeId) {
+    var node = selectedNode();
+    var id = Number(makeId);
+    if (!isVehicleSourceNode(node) || !(id > 0)) { return false; }
+    var list = vehicleFeaturedOf(node);
+    if (list.indexOf(id) !== -1 || list.length >= VEHICLE_FEATURED_LIMIT) { return false; }
+    list.push(id);
+    writeVehicleFeatured(node, list);
+    afterModelChange();
+    populateVehicleSource(node);
+    return true;
+  }
+  function removeFeaturedMake(index) {
+    var node = selectedNode();
+    if (!isVehicleSourceNode(node)) { return false; }
+    var list = vehicleFeaturedOf(node);
+    if (index < 0 || index >= list.length) { return false; }
+    list.splice(index, 1);
+    writeVehicleFeatured(node, list);
+    afterModelChange();
+    populateVehicleSource(node);
+    return true;
+  }
+  function moveFeaturedMake(index, delta) {
+    var node = selectedNode();
+    if (!isVehicleSourceNode(node)) { return false; }
+    var list = vehicleFeaturedOf(node);
+    var to = index + delta;
+    if (index < 0 || index >= list.length || to < 0 || to >= list.length) { return false; }
+    var moved = list.splice(index, 1)[0];
+    list.splice(to, 0, moved);
+    writeVehicleFeatured(node, list);
+    afterModelChange();
+    populateVehicleSource(node);
+    return true;
+  }
+  // "Show the newest N years as cards": a whole number 1-12; empty = the default (6).
+  function setVehicleYearCards(raw) {
+    var node = selectedNode();
+    if (!isVehicleSourceNode(node)) { return; }
+    var text = trimStr(raw);
+    if (text === '') { delete node.props.vehicle_year_cards; }
+    else {
+      var n = Number(text);
+      if (!isFinite(n)) { populateVehicleSource(node); return; }
+      n = Math.round(n);
+      if (n < VEHICLE_YEAR_CARDS_RANGE.min) { n = VEHICLE_YEAR_CARDS_RANGE.min; }
+      if (n > VEHICLE_YEAR_CARDS_RANGE.max) { n = VEHICLE_YEAR_CARDS_RANGE.max; }
+      node.props.vehicle_year_cards = n;
+    }
+    afterModelChange();
+    populateVehicleSource(node);
+  }
+
+  // --- data from the admin vehicle routes (loaded once per page) ---
+  function loadVehicleLive(done) {
+    if (vehicleUi.live !== null) { if (done) { done(); } return; }
+    if (done) { vehicleUi.liveWaiters.push(done); }
+    if (vehicleUi.liveLoading) { return; }
+    vehicleUi.liveLoading = true;
+    fetch('/api/admin/leadgen/vehicles/live', { credentials: 'same-origin', headers: { 'Accept': 'application/json' } })
+      .then(function (r) { return r.json().then(function (j) { return { ok: r.ok, body: j }; }); })
+      .then(function (res) {
+        vehicleUi.live = (res.ok && res.body && res.body.snapshot) ? res.body : { error: (res.body && res.body.error) || 'unavailable' };
+      }, function () { vehicleUi.live = { error: 'unavailable' }; })
+      .then(function () {
+        vehicleUi.liveLoading = false;
+        var waiters = vehicleUi.liveWaiters, wi;
+        vehicleUi.liveWaiters = [];
+        for (wi = 0; wi < waiters.length; wi++) { try { waiters[wi](); } catch (eWait) { /* one waiter never blocks the next */ } }
+      });
+  }
+  // The Make / Year questions of the other Sections in the same funnels. A
+  // new, unsaved Section has none (its own questions are read from the model).
+  function loadVehicleLinkFields(done) {
+    var pid = state.public_id || null;
+    if (!pid) { vehicleUi.links = []; vehicleUi.linksFor = null; if (done) { done(); } return; }
+    if (vehicleUi.links !== null && vehicleUi.linksFor === pid) { if (done) { done(); } return; }
+    if (vehicleUi.linksLoading) { return; }
+    vehicleUi.linksLoading = true;
+    fetch('/api/admin/leadgen/sections/' + encodeURIComponent(pid) + '/vehicle-fields', { credentials: 'same-origin', headers: { 'Accept': 'application/json' } })
+      .then(function (r) { return r.json(); })
+      .then(function (j) { vehicleUi.links = (j && j.fields && j.fields.length) ? j.fields : []; }, function () { vehicleUi.links = []; })
+      .then(function () {
+        vehicleUi.linksFor = pid;
+        vehicleUi.linksLoading = false;
+        if (done) { done(); }
+      });
+  }
+  function lookUpVehicleMake(makeId) {
+    vehicleUi.lookupMake = trimStr(makeId);
+    vehicleUi.lookupData = null;
+    vehicleUi.lookupYear = '';
+    vehicleUi.lookupError = '';
+    if (vehicleUi.lookupMake === '') { renderVehicleLookup(); return; }
+    vehicleUi.lookupLoading = true;
+    renderVehicleLookup();
+    var asked = vehicleUi.lookupMake;
+    fetch('/api/admin/leadgen/vehicles/makes/' + encodeURIComponent(asked), { credentials: 'same-origin', headers: { 'Accept': 'application/json' } })
+      .then(function (r) { return r.json().then(function (j) { return { ok: r.ok, body: j }; }); })
+      .then(function (res) {
+        if (vehicleUi.lookupMake !== asked) { return; }
+        if (res.ok && res.body && res.body.years) {
+          vehicleUi.lookupData = res.body;
+          vehicleUi.lookupYear = res.body.years.length ? String(res.body.years[0].year) : '';
+        } else {
+          vehicleUi.lookupError = (res.body && res.body.message) || 'This make could not be loaded.';
+        }
+      }, function () {
+        if (vehicleUi.lookupMake === asked) { vehicleUi.lookupError = 'This make could not be loaded. Try again.'; }
+      })
+      .then(function () {
+        if (vehicleUi.lookupMake !== asked) { return; }
+        vehicleUi.lookupLoading = false;
+        renderVehicleLookup();
+      });
+  }
+
+  // --- what the inspector shows ---
+  // Make / Year questions this question can link to: this Section's own (read
+  // live from the model, unsaved edits included) and those of the other
+  // Sections in the same funnels (GET /sections/:id/vehicle-fields).
+  function vehicleLinkOptions(node, wantAsks) {
+    var out = [], seen = {};
+    var headline = typeof currentHeadlineText === 'function' ? currentHeadlineText() : '';
+    walkTree(state.content.components, 1, function (n) {
+      if (n === node || !isVehicleSourceNode(n) || vehicleAsksOf(n) !== wantAsks) { return; }
+      var f = trimStr(n.internal_field);
+      if (f === '' || seen[f] === true) { return; }
+      seen[f] = true;
+      out.push({ field: f, label: trimStr(n.props && n.props.label) || headline || f, section: '' });
+    });
+    var rows = vehicleUi.links || [], i, r;
+    for (i = 0; i < rows.length; i++) {
+      r = rows[i];
+      if (!r || r.asks !== wantAsks || typeof r.field !== 'string' || seen[r.field] === true) { continue; }
+      if (state.public_id && r.section_public_id === state.public_id) { continue; }
+      seen[r.field] = true;
+      out.push({ field: r.field, label: trimStr(r.label) || r.field, section: trimStr(r.section_name) });
+    }
+    return out;
+  }
+  function fillVehicleLinkSelect(node, wantAsks, propKey) {
+    var sel = document.querySelector('[data-vehicle-link="' + wantAsks + '"]');
+    var empty = document.querySelector('[data-vehicle-link-empty="' + wantAsks + '"]');
+    if (!sel) { return; }
+    var current = trimStr(node.props ? node.props[propKey] : '');
+    var opts = vehicleLinkOptions(node, wantAsks);
+    var i, o, found = false;
+    clearChildren(sel);
+    o = document.createElement('option');
+    o.value = '';
+    o.textContent = wantAsks === 'year' ? 'Pick the Year question' : 'Pick the Make question';
+    sel.appendChild(o);
+    for (i = 0; i < opts.length; i++) {
+      o = document.createElement('option');
+      o.value = opts[i].field;
+      o.textContent = opts[i].label + ' \\u00b7 ' + opts[i].field + (opts[i].section ? ' (' + opts[i].section + ')' : '');
+      sel.appendChild(o);
+      if (opts[i].field === current) { found = true; }
+    }
+    if (current !== '' && !found) {
+      o = document.createElement('option');
+      o.value = current;
+      o.textContent = current + ' (not found in this funnel)';
+      sel.appendChild(o);
+    }
+    sel.value = current;
+    if (empty) { empty.hidden = opts.length > 0 || vehicleUi.linksLoading; }
+  }
+  function vehicleMakeById(makeId) {
+    var makes = vehicleUi.live && vehicleUi.live.makes ? vehicleUi.live.makes : [], i;
+    for (i = 0; i < makes.length; i++) { if (makes[i] && makes[i].make_id === makeId) { return makes[i]; } }
+    return null;
+  }
+  function renderVehicleFeatured(node) {
+    var listEl = document.querySelector('[data-vehicle-featured-list]');
+    var addSel = document.querySelector('[data-vehicle-featured-add]');
+    var emptyEl = document.querySelector('[data-vehicle-featured-empty]');
+    var maxEl = document.querySelector('[data-vehicle-featured-max]');
+    var list = vehicleFeaturedOf(node);
+    var i, bi, row, name, idEl, btn, mk, o;
+    var buttons = [['up', '\\u2191', 'Move up'], ['down', '\\u2193', 'Move down'], ['remove', '\\u00d7', 'Remove']];
+    if (listEl) {
+      clearChildren(listEl);
+      for (i = 0; i < list.length; i++) {
+        mk = vehicleMakeById(list[i]);
+        row = document.createElement('div');
+        row.className = 'studio-vehicle-featured-row';
+        row.setAttribute('data-vehicle-featured-row', String(i));
+        name = document.createElement('span');
+        name.className = 'studio-vehicle-name';
+        name.appendChild(document.createTextNode(mk ? mk.name : (vehicleUi.live && vehicleUi.live.makes ? 'Not in the live list' : 'Make')));
+        row.appendChild(name);
+        idEl = document.createElement('span');
+        idEl.className = 'studio-vehicle-id';
+        idEl.appendChild(document.createTextNode(String(list[i])));
+        row.appendChild(idEl);
+        for (bi = 0; bi < buttons.length; bi++) {
+          btn = document.createElement('button');
+          btn.type = 'button';
+          btn.className = 'btn btn-sm btn-outline';
+          btn.setAttribute('data-vehicle-featured-action', buttons[bi][0]);
+          btn.setAttribute('data-vehicle-featured-index', String(i));
+          btn.setAttribute('aria-label', buttons[bi][2] + (mk ? ' ' + mk.name : ''));
+          btn.title = buttons[bi][2];
+          if ((buttons[bi][0] === 'up' && i === 0) || (buttons[bi][0] === 'down' && i === list.length - 1)) { btn.disabled = true; }
+          btn.appendChild(document.createTextNode(buttons[bi][1]));
+          row.appendChild(btn);
+        }
+        listEl.appendChild(row);
+      }
+    }
+    if (emptyEl) { emptyEl.hidden = list.length > 0; }
+    if (maxEl) { maxEl.hidden = list.length < VEHICLE_FEATURED_LIMIT; }
+    if (addSel) {
+      clearChildren(addSel);
+      o = document.createElement('option');
+      o.value = '';
+      o.textContent = vehicleUi.live === null ? 'Loading makes\\u2026' : '+ Add a make\\u2026';
+      addSel.appendChild(o);
+      var makes = vehicleUi.live && vehicleUi.live.makes ? vehicleUi.live.makes : [];
+      for (i = 0; i < makes.length; i++) {
+        if (!makes[i] || list.indexOf(makes[i].make_id) !== -1) { continue; }
+        o = document.createElement('option');
+        o.value = String(makes[i].make_id);
+        o.textContent = makes[i].name;
+        addSel.appendChild(o);
+      }
+      addSel.value = '';
+      addSel.disabled = list.length >= VEHICLE_FEATURED_LIMIT || makes.length === 0;
+    }
+  }
+  function renderVehicleLiveLine() {
+    var line = document.querySelector('[data-vehicle-live-line]');
+    var live = vehicleUi.live;
+    var text;
+    if (live === null) { text = 'Loading the live list\\u2026'; }
+    else if (live.error === 'no_live_list') { text = 'No vehicle list is live yet.'; }
+    else if (live.error) { text = 'The vehicle list could not be loaded. Reload the page to try again.'; }
+    else { text = 'Live list: ' + live.snapshot + ' \\u00b7 ' + live.make_count + ' make' + (live.make_count === 1 ? '' : 's'); }
+    if (line) { line.textContent = text; }
+    var sel = document.querySelector('[data-vehicle-lookup]');
+    if (!sel) { return; }
+    var makes = live && live.makes ? live.makes : [];
+    if (sel.getAttribute('data-vehicle-lookup-filled') === String(makes.length)) { return; }
+    clearChildren(sel);
+    var o = document.createElement('option'), i;
+    o.value = '';
+    o.textContent = 'Pick a make';
+    sel.appendChild(o);
+    for (i = 0; i < makes.length; i++) {
+      if (!makes[i]) { continue; }
+      o = document.createElement('option');
+      o.value = String(makes[i].make_id);
+      o.textContent = makes[i].name;
+      sel.appendChild(o);
+    }
+    sel.setAttribute('data-vehicle-lookup-filled', String(makes.length));
+    sel.value = vehicleUi.lookupMake;
+    sel.disabled = makes.length === 0;
+  }
+  function renderVehicleLookup() {
+    var data = vehicleUi.lookupData;
+    var status = document.querySelector('[data-vehicle-lookup-status]');
+    var result = document.querySelector('[data-vehicle-lookup-result]');
+    if (status) {
+      status.textContent = vehicleUi.lookupLoading ? 'Loading\\u2026' : vehicleUi.lookupError;
+      status.hidden = !vehicleUi.lookupLoading && vehicleUi.lookupError === '';
+    }
+    if (result) { result.hidden = !data; }
+    if (!data) { return; }
+    var nameEl = document.querySelector('[data-vehicle-lookup-name]');
+    var idEl = document.querySelector('[data-vehicle-lookup-id]');
+    var logo = document.querySelector('[data-vehicle-lookup-logo]');
+    var noLogo = document.querySelector('[data-vehicle-lookup-nologo]');
+    var yearsEl = document.querySelector('[data-vehicle-lookup-years]');
+    var yearSel = document.querySelector('[data-vehicle-lookup-year]');
+    var headEl = document.querySelector('[data-vehicle-lookup-models-head]');
+    var modelsEl = document.querySelector('[data-vehicle-lookup-models]');
+    var years = data.years || [], i, o, models = [];
+    if (nameEl) { nameEl.textContent = data.name; }
+    if (idEl) { idEl.textContent = 'make_id ' + data.make_id; }
+    if (logo) {
+      logo.hidden = !data.logo_url;
+      if (data.logo_url) { logo.setAttribute('src', data.logo_url); logo.setAttribute('alt', data.name + ' logo'); } else { logo.removeAttribute('src'); }
+    }
+    if (noLogo) { noLogo.hidden = !!data.logo_url; }
+    if (yearsEl) { yearsEl.textContent = years.length ? 'Years: ' + years[0].year + ' \\u2192 ' + years[years.length - 1].year + ' (newest first)' : 'No model years in the live list.'; }
+    if (yearSel) {
+      clearChildren(yearSel);
+      for (i = 0; i < years.length; i++) {
+        o = document.createElement('option');
+        o.value = String(years[i].year);
+        o.textContent = String(years[i].year);
+        yearSel.appendChild(o);
+        if (String(years[i].year) === vehicleUi.lookupYear) { models = years[i].models || []; }
+      }
+      yearSel.value = vehicleUi.lookupYear;
+      yearSel.disabled = years.length === 0;
+    }
+    if (headEl) { headEl.textContent = vehicleUi.lookupYear === '' ? '' : vehicleUi.lookupYear + ' \\u00b7 ' + models.length + ' model' + (models.length === 1 ? '' : 's'); }
+    if (modelsEl) {
+      clearChildren(modelsEl);
+      for (i = 0; i < models.length; i++) {
+        o = document.createElement('span');
+        o.title = models[i].model_id;
+        o.appendChild(document.createTextNode(models[i].name));
+        modelsEl.appendChild(o);
+      }
+    }
+  }
+  function showVehicleLookupYear(year) {
+    vehicleUi.lookupYear = trimStr(year);
+    renderVehicleLookup();
+  }
+  // Runs last in populateInspector: shows the Source control on the five
+  // vehicle-capable types, and with Vehicle database swaps the typed choice
+  // list, its editors and the defaults for the vehicle settings + notice.
+  function populateVehicleSource(node) {
+    var wrap = document.querySelector('[data-vehicle-source-wrap]');
+    var kind = vehicleKindOf(node);
+    var on = isVehicleSourceNode(node);
+    var asks = on ? vehicleAsksOf(node) : null;
+    var i, el;
+    if (wrap) { wrap.hidden = kind === null; }
+    var srcBtns = document.querySelectorAll('[data-set-choice-source]');
+    for (i = 0; i < srcBtns.length; i++) {
+      el = srcBtns[i];
+      el.className = el.getAttribute('data-set-choice-source') === (on ? 'vehicle' : 'typed') ? 'active' : '';
+      el.setAttribute('aria-pressed', el.className === 'active' ? 'true' : 'false');
+    }
+    el = document.querySelector('[data-vehicle-settings]');
+    if (el) { el.hidden = !on; }
+    el = document.querySelector('[data-typed-choices-wrap]');
+    if (el) { el.hidden = on; }
+    el = document.querySelector('[data-vehicle-choices-wrap]');
+    if (el) { el.hidden = !on; }
+    // Card style: Make on Icon / Image cards shows "Logo" (read-only); Year
+    // and Model cards always show as Plain.
+    var logoStyle = on && kind === 'logo' && asks === 'make';
+    el = document.querySelector('[data-card-style-group]');
+    if (el) { el.hidden = logoStyle; }
+    el = document.querySelector('[data-card-style-logo]');
+    if (el) { el.hidden = !logoStyle; }
+    el = document.querySelector('[data-card-style-vehicle-note]');
+    if (el) {
+      var styleNote = '';
+      if (logoStyle) { styleNote = 'Each featured make shows its logo from Media, with its name under it. A make with no logo shows its name only.'; }
+      else if (on && kind === 'logo' && (asks === 'year' || asks === 'model')) { styleNote = 'Year and Model cards always show as Plain.'; }
+      el.textContent = styleNote;
+      el.hidden = styleNote === '';
+    }
+    if (!on) { return; }
+    var defWraps = document.querySelectorAll('[data-default-wrap]');
+    for (i = 0; i < defWraps.length; i++) { defWraps[i].hidden = true; }
+    el = document.querySelector('[data-card-style-hint]');
+    if (el) { el.hidden = true; }
+    var askBtns = document.querySelectorAll('[data-set-vehicle-asks]');
+    for (i = 0; i < askBtns.length; i++) {
+      el = askBtns[i];
+      el.className = el.getAttribute('data-set-vehicle-asks') === asks ? 'active' : '';
+      el.setAttribute('aria-pressed', el.className === 'active' ? 'true' : 'false');
+    }
+    var cards = kind === 'card' || kind === 'logo';
+    el = document.querySelector('[data-vehicle-link-wrap="make"]');
+    if (el) { el.hidden = asks !== 'year' && asks !== 'model'; }
+    el = document.querySelector('[data-vehicle-link-wrap="year"]');
+    if (el) { el.hidden = asks !== 'model'; }
+    if (asks === 'year' || asks === 'model') { fillVehicleLinkSelect(node, 'make', 'vehicle_make_field'); }
+    if (asks === 'model') { fillVehicleLinkSelect(node, 'year', 'vehicle_year_field'); }
+    el = document.querySelector('[data-vehicle-featured-wrap]');
+    if (el) { el.hidden = !(cards && asks === 'make'); }
+    if (cards && asks === 'make') { renderVehicleFeatured(node); }
+    el = document.querySelector('[data-vehicle-year-cards-wrap]');
+    if (el) { el.hidden = !(cards && asks === 'year'); }
+    el = document.querySelector('[data-vehicle-year-cards]');
+    if (el) { el.value = typeof node.props.vehicle_year_cards === 'number' ? String(node.props.vehicle_year_cards) : ''; }
+    el = document.querySelector('[data-vehicle-other-label-wrap]');
+    if (el) { el.hidden = !(cards && (asks === 'make' || asks === 'year')); }
+    el = document.getElementById('lg-vehicle-other-label');
+    if (el) { el.setAttribute('placeholder', asks === 'year' ? 'Older year' : 'Other make'); }
+    renderVehicleLiveLine();
+    renderVehicleLookup();
+    if (vehicleUi.live === null) {
+      loadVehicleLive(function () { var cur = selectedNode(); if (isVehicleSourceNode(cur)) { populateVehicleSource(cur); } });
+    }
+    if ((asks === 'year' || asks === 'model') && (vehicleUi.links === null || vehicleUi.linksFor !== (state.public_id || null))) {
+      loadVehicleLinkFields(function () { var cur = selectedNode(); if (isVehicleSourceNode(cur)) { populateVehicleSource(cur); } });
+    }
+  }
+  // Headline names (owner decision 23 Nov): the funnel replaces {make} and
+  // {year} in the Section headline / subheadline with the visitor's answers,
+  // so the tip under them shows while this Section has a Year or Model question.
+  function renderVehicleHeadlineTip() {
+    var tip = document.querySelector('[data-vehicle-headline-tip]');
+    if (!tip) { return; }
+    var show = false;
+    walkTree(state.content.components, 1, function (n) {
+      var asks = isVehicleSourceNode(n) ? vehicleAsksOf(n) : null;
+      if (asks === 'year' || asks === 'model') { show = true; }
+    });
+    tip.hidden = !show;
+  }
+  // The canvas's first paint (studioCanvasResting, server-side) has no
+  // vehicle data, so a Vehicle database question shows its typed-answer
+  // fallback there. When the opened Section has one, redraw the canvas once
+  // right away through the preview endpoint (which loads the vehicle list) —
+  // the same scheduler an edit uses, without marking the Section changed or
+  // adding an Undo step.
+  function redrawCanvasForVehicleData() {
+    var found = false;
+    walkTree(state.content.components, 1, function (n) {
+      if (n && n.props && n.props.choice_source === 'vehicle') { found = true; }
+    });
+    if (found) { scheduleCanvasRender(); }
+    return found;
+  }
+  // Offers tab: a vehicle Make / Model answer is sent by name by default
+  // ("Toyota", "Corolla"); "ID" sends its vehicle database ID instead. The
+  // choice is stored on the mapping as send_as: 'id' (absent = name). Year is
+  // always the number, so it gets no control (owner decision Q4).
+  function vehicleSendAsApplies(node) {
+    var asks = isVehicleSourceNode(node) ? vehicleAsksOf(node) : null;
+    return asks === 'make' || asks === 'model';
+  }
+  function buildVehicleSendAs(offer, node, edge, key) {
+    var wrap = document.createElement('div');
+    wrap.className = 'studio-map-sendas';
+    wrap.setAttribute('data-quickmap-sendas-wrap', String(offer.id));
+    var label = document.createElement('span');
+    label.className = 'studio-map-sendas-label';
+    label.appendChild(document.createTextNode('Send as'));
+    wrap.appendChild(label);
+    var seg = document.createElement('div');
+    seg.className = 'studio-segmented';
+    seg.setAttribute('role', 'group');
+    seg.setAttribute('aria-label', 'Send as');
+    var current = edge && edge.send_as === 'id' ? 'id' : 'name';
+    var example = vehicleAsksOf(node) === 'model' ? 'Corolla' : 'Toyota';
+    var choices = [['name', 'Name', 'Sends the name, e.g. ' + example], ['id', 'ID', 'Sends the vehicle database ID instead of the name']];
+    var i, b;
+    for (i = 0; i < choices.length; i++) {
+      b = document.createElement('button');
+      b.type = 'button';
+      b.className = choices[i][0] === current ? 'active' : '';
+      b.setAttribute('aria-pressed', choices[i][0] === current ? 'true' : 'false');
+      b.setAttribute('data-quickmap-sendas', choices[i][0]);
+      b.setAttribute('data-quickmap-offer', String(offer.id));
+      b.setAttribute('data-quickmap-path', edge ? edge.offer_payload_field_path : '');
+      b.setAttribute('data-quickmap-key', key);
+      b.title = choices[i][2];
+      b.appendChild(document.createTextNode(choices[i][1]));
+      seg.appendChild(b);
+    }
+    wrap.appendChild(seg);
+    return wrap;
+  }
+  function setEdgeSendAs(offerId, path, key, value) {
+    var idx = findEdgeIndex(offerId, path);
+    var edge = idx === -1 ? null : state.answer_maps[idx];
+    if (!edge || edge.internal_field !== key) { return false; }
+    if (value === 'id') {
+      if (edge.send_as === 'id') { return false; }
+      edge.send_as = 'id';
+    } else {
+      if (edge.send_as === undefined) { return false; }
+      delete edge.send_as;
+    }
+    markDirty();
+    return true;
   }
 
   // --- P3b (register PC-2 / D1 / R-B) Style-tab PLACEMENT controls -------------
@@ -16091,7 +16863,10 @@ export const SECTION_STUDIO_SCRIPT = `
       // §6.2/§6.4: clicking a card/button selects the CHOICE, not just the
       // component (the inspector opens the Choices tab at that row).
       var cardEl = ev.target && ev.target.closest ? ev.target.closest('[data-lg-choice]') : null;
-      if (cardEl && el.contains(cardEl) && typeMeta(el.getAttribute('data-component-type')).choice === true) {
+      // F18: a vehicle database card is not an editable choice — the click
+      // selects the question instead.
+      if (cardEl && el.contains(cardEl) && typeMeta(el.getAttribute('data-component-type')).choice === true &&
+          !(typeof isVehicleSourceQid === 'function' && isVehicleSourceQid(el.getAttribute('data-question-id')))) {
         if (typeof canvasIsCurrent !== 'undefined' && !canvasIsCurrent() && !canvasCardMatchesPaint(el.getAttribute('data-question-id'), choiceKeyOfEl(cardEl))) { canvasBehindRefusal(); return; }
         selectChoice(el.getAttribute('data-question-id'), cardEl.getAttribute('data-lg-choice'), choiceKeyOfEl(cardEl).index, true);
         return;
@@ -16117,6 +16892,8 @@ export const SECTION_STUDIO_SCRIPT = `
       var ref = findRef(qid);
       if (!ref) { return; }
       var cardEl = pressed && pressed.closest ? pressed.closest('[data-lg-choice]') : null;
+      // F18: vehicle database names are not edited on the canvas.
+      if (cardEl && typeof isVehicleSourceNode === 'function' && isVehicleSourceNode(ref.node)) { ev.preventDefault(); return; }
       if (cardEl && typeMeta(ref.node.type).choice === true) {
         ev.preventDefault();
         if (typeof canvasIsCurrent !== 'undefined' && !canvasIsCurrent()) { canvasBehindRefusal(true); return; }
@@ -16902,6 +17679,51 @@ export const SECTION_STUDIO_SCRIPT = `
   }
   var removeRowEl = document.querySelector('[data-placement-remove-row]');
   if (removeRowEl) { removeRowEl.addEventListener('click', removeSelectedFromRow); }
+
+  // F18 Vehicle database: the Source control and its settings.
+  var choiceSourceEls = document.querySelectorAll('[data-set-choice-source]');
+  var csi;
+  for (csi = 0; csi < choiceSourceEls.length; csi++) {
+    choiceSourceEls[csi].addEventListener('click', function () { setChoiceSource(this.getAttribute('data-set-choice-source')); });
+  }
+  var vehicleAsksEls = document.querySelectorAll('[data-set-vehicle-asks]');
+  var vai;
+  for (vai = 0; vai < vehicleAsksEls.length; vai++) {
+    vehicleAsksEls[vai].addEventListener('click', function () { setVehicleAsks(this.getAttribute('data-set-vehicle-asks')); });
+  }
+  var vehicleLinkEls = document.querySelectorAll('[data-vehicle-link]');
+  var vli;
+  for (vli = 0; vli < vehicleLinkEls.length; vli++) {
+    vehicleLinkEls[vli].addEventListener('change', function () { setVehicleLink(this.getAttribute('data-vehicle-link'), this.value); });
+  }
+  var vehicleFeaturedAddEl = document.querySelector('[data-vehicle-featured-add]');
+  if (vehicleFeaturedAddEl) {
+    vehicleFeaturedAddEl.addEventListener('change', function () { if (this.value !== '') { addFeaturedMake(this.value); } });
+  }
+  var vehicleFeaturedListEl = document.querySelector('[data-vehicle-featured-list]');
+  if (vehicleFeaturedListEl) {
+    vehicleFeaturedListEl.addEventListener('click', function (ev) {
+      var b = ev.target && ev.target.closest ? ev.target.closest('[data-vehicle-featured-action]') : null;
+      if (!b || b.disabled) { return; }
+      var at = Number(b.getAttribute('data-vehicle-featured-index'));
+      var act = b.getAttribute('data-vehicle-featured-action');
+      if (act === 'remove') { removeFeaturedMake(at); }
+      else if (act === 'up') { moveFeaturedMake(at, -1); }
+      else if (act === 'down') { moveFeaturedMake(at, 1); }
+    });
+  }
+  var vehicleYearCardsEl = document.querySelector('[data-vehicle-year-cards]');
+  if (vehicleYearCardsEl) {
+    vehicleYearCardsEl.addEventListener('change', function () { setVehicleYearCards(this.value); });
+  }
+  var vehicleLookupEl = document.querySelector('[data-vehicle-lookup]');
+  if (vehicleLookupEl) {
+    vehicleLookupEl.addEventListener('change', function () { lookUpVehicleMake(this.value); });
+  }
+  var vehicleLookupYearEl = document.querySelector('[data-vehicle-lookup-year]');
+  if (vehicleLookupYearEl) {
+    vehicleLookupYearEl.addEventListener('change', function () { showVehicleLookupYear(this.value); });
+  }
 
   // v3.1 R3b deliverable 4: ImageBlock's source toggle + media picker/thumb.
   var imageBlockSourceEls = document.querySelectorAll('[data-set-imageblock-source]');
@@ -17803,6 +18625,13 @@ export const SECTION_STUDIO_SCRIPT = `
   // Mirror of sections.ts closedAnswerValues — a choice-bearing question's
   // authored saved values, or null when the answer is open-ended.
   function closedAnswerValuesOf(node) {
+    // F18: a Vehicle database question's typed choices are kept but ignored
+    // (sections.ts closedAnswerValues) — what it sends is judged per mapping
+    // by vehicleAnswerValuesOf instead.
+    if (node && node.props && node.props.choice_source === 'vehicle' && typeof isVehicleSourceNode === 'function' &&
+        isVehicleSourceNode(node) && vehicleAsksOf(node) !== null) {
+      return null;
+    }
     if (!node || !node.choices || !node.choices.length) { return null; }
     var out = [], i, v;
     for (i = 0; i < node.choices.length; i++) {
@@ -17811,6 +18640,19 @@ export const SECTION_STUDIO_SCRIPT = `
       out.push(v);
     }
     return out;
+  }
+  // F18 mirror of sections.ts vehicleAnswerValues (owner decision Q4): one
+  // value per SHAPE a Vehicle database answer sends on this mapping — the year
+  // is a number; Make / Model send the name (text), and "Send as: ID" sends
+  // the make_id (a whole number) or the model_id (text). null = not a vehicle
+  // question (its typed choices decide, as before).
+  function vehicleAnswerValuesOf(node, sendAs) {
+    if (typeof isVehicleSourceNode !== 'function' || !isVehicleSourceNode(node)) { return null; }
+    var asks = vehicleAsksOf(node);
+    if (asks === 'year') { return ['2023']; }
+    if (asks === 'make') { return sendAs === 'id' ? ['448'] : ['Toyota']; }
+    if (asks === 'model') { return sendAs === 'id' ? ['m_0123456789'] : ['Corolla']; }
+    return null;
   }
   function coercibleTo(answerType, nodeType, answerValues) {
     if (nodeType === 'string' || nodeType === 'enum') { return true; }
@@ -17839,7 +18681,11 @@ export const SECTION_STUDIO_SCRIPT = `
     // but the answer is still a LIST — only a text field (comma-joined) or a
     // list field takes it. Mirror of sections.ts mappingCompleteness.
     if (!hasTransform && answerNodeType(edge.answer_type) === 'array' && field.type !== 'string' && field.type !== 'array') { return 'type_mismatch'; }
-    var values = closedAnswerValuesOf(questionByField(edge.internal_field));
+    // sections.ts edgeAnswerValues: a vehicle question is judged by what THIS
+    // mapping sends ("Send as"), every other question by its typed choices.
+    var mappedNode = questionByField(edge.internal_field);
+    var values = typeof vehicleAnswerValuesOf === 'function' ? vehicleAnswerValuesOf(mappedNode, edge.send_as) : null;
+    if (values === null) { values = closedAnswerValuesOf(mappedNode); }
     if (!hasMap && !hasTransform && !coercibleTo(edge.answer_type, field.type, values)) { return 'type_mismatch'; }
     if (edge.required_for_offer === true && trimStr(edge.internal_field) === '') { return 'missing_required'; }
     return 'complete';
@@ -17902,6 +18748,8 @@ export const SECTION_STUDIO_SCRIPT = `
       default_value: existing ? (existing.default_value || null) : null,
       fallback_value: existing ? (existing.fallback_value || null) : null
     };
+    // F18 "Send as: Name / ID" rides the edge like the other per-Offer formats.
+    if (existing && existing.send_as === 'id') { edge.send_as = 'id'; }
     if (idx === -1) { state.answer_maps.push(edge); } else { state.answer_maps[idx] = edge; }
     if (state.selected_offers.indexOf(offer.id) === -1) { state.selected_offers.push(offer.id); }
     markDirty();
@@ -17993,6 +18841,15 @@ export const SECTION_STUDIO_SCRIPT = `
       // ones that don't fit so the fix is "change this value", not a guess.
       // (Owner 2026-08-23: he had already set the saved values to 1 / 0 and the
       // old line still told him to pick another field.)
+      // F18: a Vehicle database answer has no saved values to change — say
+      // what does fit (a make sent as its ID is a whole number).
+      var vehicleNode = edge ? questionByField(edge.internal_field) : null;
+      if (typeof isVehicleSourceNode === 'function' && isVehicleSourceNode(vehicleNode) && vehicleAsksOf(vehicleNode) !== null) {
+        if (vehicleAsksOf(vehicleNode) === 'make' && wantType === 'number' && edge.send_as !== 'id') {
+          return 'this buyer wants a number \u2014 set \u201cSend as\u201d to ID to send the make\u2019s ID number, or pick another field';
+        }
+        return 'this buyer wants ' + wants + ', which this vehicle answer can\u2019t send \u2014 pick another field';
+      }
       var answerNode = answerNodeType((edge && edge.answer_type) || 'string');
       var listy = answerNode === 'array' || answerNode === 'object';
       var values = listy ? null : closedAnswerValuesOf(questionByField(edge && edge.internal_field));
@@ -18435,7 +19292,11 @@ export const SECTION_STUDIO_SCRIPT = `
     status.setAttribute('data-map-state', edgeState);
     status.appendChild(document.createTextNode(edge ? mapStateNote(edgeState, answerFieldOf(offer, current), offer, edge) : 'not mapped'));
     line.appendChild(status);
-    var notSent = edge && node.choices ? valuesNotSent(edge, node, offer) : 0;
+    // F18: a vehicle database question's typed choices are hidden and never
+    // sent, so they never count as "not sent"; Make / Model get "Send as".
+    var vehicleQuestion = typeof isVehicleSourceNode === 'function' && isVehicleSourceNode(node);
+    if (edge && vehicleQuestion && vehicleSendAsApplies(node)) { line.appendChild(buildVehicleSendAs(offer, node, edge, key)); }
+    var notSent = edge && node.choices && !vehicleQuestion ? valuesNotSent(edge, node, offer) : 0;
     // per-choice values can't fix a field that is gone or a multi-select into a
     // field that can't take a list (review 3: the line still said to use them)
     var valuesCantHelp = edgeState === 'orphaned' || (edgeState === 'type_mismatch' && answerNodeType((edge && edge.answer_type) || 'string') === 'array');
@@ -18809,6 +19670,14 @@ export const SECTION_STUDIO_SCRIPT = `
         renderOffersPanel();
         return;
       }
+      var sendAsBtn = ev.target.closest('[data-quickmap-sendas]');
+      if (sendAsBtn) {
+        if (setEdgeSendAs(Number(sendAsBtn.getAttribute('data-quickmap-offer')), sendAsBtn.getAttribute('data-quickmap-path') || '', sendAsBtn.getAttribute('data-quickmap-key') || '', sendAsBtn.getAttribute('data-quickmap-sendas'))) {
+          historyPushSideEdit();
+          renderOffersPanel();
+        }
+        return;
+      }
       var t = ev.target.closest('[data-inspector-quickmap-add], [data-inspector-quickmap-cancel]');
       if (!t) { return; }
       var key = t.getAttribute('data-quickmap-key') || trimStr(node.internal_field);
@@ -18949,6 +19818,7 @@ export const SECTION_STUDIO_SCRIPT = `
       if (key === 'choice') {
         var node = selectedNode();
         if (!node || typeMeta(node.type).choice !== true) { return; }
+        if (typeof isVehicleSourceNode === 'function' && isVehicleSourceNode(node)) { return; }
         var first = (node.choices && node.choices.length) ? node.choices[0] : null;
         choiceScopeLabel = first && first.label !== undefined ? String(first.label) : '';
         setInspectorTab('content');
@@ -19502,7 +20372,12 @@ export const SECTION_STUDIO_SCRIPT = `
     activity: 'lg-section-activity',
     vertical: 'lg-section-vertical',
     headline_text: 'lg-section-headline',
-    subheadline_text: 'lg-section-subheadline'
+    subheadline_text: 'lg-section-subheadline',
+    // F18 Vehicle database settings (server save rules report them by prop key)
+    vehicle_make_field: 'lg-vehicle-make-field',
+    vehicle_year_field: 'lg-vehicle-year-field',
+    vehicle_featured_makes: 'lg-vehicle-featured-add',
+    vehicle_year_cards: 'lg-vehicle-year-cards'
   };
   function markSaveFieldControl(key) {
     var ctl = SAVE_FIELD_CONTROL_IDS[key] ? document.getElementById(SAVE_FIELD_CONTROL_IDS[key]) : null;
@@ -19730,6 +20605,8 @@ export const SECTION_STUDIO_SCRIPT = `
   historyReset();
   loadOffers();
   loadUsage();
+  renderVehicleHeadlineTip();
+  redrawCanvasForVehicleData();
   loadThemesList();
   // R5 fix-link integration: /admin/leadgen/sections/:id/edit#mapping (the
   // quote activation preflight's "Open Section Mapping" link) opens the

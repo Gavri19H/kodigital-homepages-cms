@@ -1,0 +1,195 @@
+# Models the yearly ingest drops (spec rule N3). Matching ignores upper/lower case.
+#   kind=term : drop every model whose name contains this text (any make). Leave make_id empty.
+#   kind=pair : drop exactly this model of one make (vPIC make_id). The name is compared after clean-up.
+# Review this file like code: every line removes real vPIC rows from the funnel.
+# Pairs below the spec's seed: non-consumer models (commercial trucks, bus / van chassis, fleet- or police-only,
+# robotaxis) and models never sold in the US. Owner decision 23 Nov 2026: exact make + model pairs only.
+kind,make_id,model,reason
+term,,trailer,spec N3 seed term
+term,,chassis,spec N3 seed term
+term,,motorhome,spec N3 seed term
+term,,cutaway,spec N3 seed term
+term,,incomplete,spec N3 seed term
+pair,460,'34,Ford: replica body filed as a car (spec V3)
+pair,460,Classic Sedan,Ford: replica or kit body filed as a car (spec V3)
+pair,460,Cordova Sedan,Ford: replica or kit body filed as a car (spec V3)
+pair,460,A8513,Ford AeroMax heavy truck
+pair,460,A9513,Ford AeroMax heavy truck
+pair,460,A9522,Ford AeroMax heavy truck
+pair,460,AT8513,Ford AeroMax heavy truck
+pair,460,AT9513,Ford AeroMax heavy truck
+pair,460,AT9522,Ford AeroMax heavy truck
+pair,460,L800,Ford Louisville / L-series heavy truck
+pair,460,L8000,Ford Louisville / L-series heavy truck
+pair,460,L8501,Ford Louisville / L-series heavy truck
+pair,460,L8511,Ford Louisville / L-series heavy truck
+pair,460,L8513,Ford Louisville / L-series heavy truck
+pair,460,L9000,Ford Louisville / L-series heavy truck
+pair,460,L9501,Ford Louisville / L-series heavy truck
+pair,460,L9511,Ford Louisville / L-series heavy truck
+pair,460,L9513,Ford Louisville / L-series heavy truck
+pair,460,L9522,Ford Louisville / L-series heavy truck
+pair,460,LA8000,Ford Louisville / L-series heavy truck
+pair,460,LA9000,Ford Louisville / L-series heavy truck
+pair,460,LL9000,Ford Louisville / L-series heavy truck
+pair,460,LLA9000,Ford Louisville / L-series heavy truck
+pair,460,LLS9000,Ford Louisville / L-series heavy truck
+pair,460,LN600,Ford Louisville / L-series heavy truck
+pair,460,LN700,Ford Louisville / L-series heavy truck
+pair,460,LN7000,Ford Louisville / L-series heavy truck
+pair,460,LN800,Ford Louisville / L-series heavy truck
+pair,460,LN8000,Ford Louisville / L-series heavy truck
+pair,460,LN9000,Ford Louisville / L-series heavy truck
+pair,460,LNT800,Ford Louisville / L-series heavy truck
+pair,460,LNT8000,Ford Louisville / L-series heavy truck
+pair,460,LNT9000,Ford Louisville / L-series heavy truck
+pair,460,LS8000,Ford Louisville / L-series heavy truck
+pair,460,LS9000,Ford Louisville / L-series heavy truck
+pair,460,LT800,Ford Louisville / L-series heavy truck
+pair,460,LT8000,Ford Louisville / L-series heavy truck
+pair,460,LT8501,Ford Louisville / L-series heavy truck
+pair,460,LT8511,Ford Louisville / L-series heavy truck
+pair,460,LT8513,Ford Louisville / L-series heavy truck
+pair,460,LT9000,Ford Louisville / L-series heavy truck
+pair,460,LT9501,Ford Louisville / L-series heavy truck
+pair,460,LT9511,Ford Louisville / L-series heavy truck
+pair,460,LT9513,Ford Louisville / L-series heavy truck
+pair,460,LT9522,Ford Louisville / L-series heavy truck
+pair,460,LTA9000,Ford Louisville / L-series heavy truck
+pair,460,LTL9000,Ford Louisville / L-series heavy truck
+pair,460,LTLA9000,Ford Louisville / L-series heavy truck
+pair,460,LTLS9000,Ford Louisville / L-series heavy truck
+pair,460,LTS8000,Ford Louisville / L-series heavy truck
+pair,460,LTS9000,Ford Louisville / L-series heavy truck
+pair,460,C600,Ford C / CF / CL-series cab-over medium or heavy truck
+pair,460,C700,Ford C / CF / CL-series cab-over medium or heavy truck
+pair,460,C7000,Ford C / CF / CL-series cab-over medium or heavy truck
+pair,460,C800,Ford C / CF / CL-series cab-over medium or heavy truck
+pair,460,C8000,Ford C / CF / CL-series cab-over medium or heavy truck
+pair,460,CF6000,Ford C / CF / CL-series cab-over medium or heavy truck
+pair,460,CF7000,Ford C / CF / CL-series cab-over medium or heavy truck
+pair,460,CF8000,Ford C / CF / CL-series cab-over medium or heavy truck
+pair,460,CFT8000,Ford C / CF / CL-series cab-over medium or heavy truck
+pair,460,CL9000,Ford C / CF / CL-series cab-over medium or heavy truck
+pair,460,CLT9000,Ford C / CF / CL-series cab-over medium or heavy truck
+pair,460,CT800,Ford C / CF / CL-series cab-over medium or heavy truck
+pair,460,CT8000,Ford C / CF / CL-series cab-over medium or heavy truck
+pair,460,B-750,Ford B-series school bus chassis
+pair,460,B600,Ford B-series school bus chassis
+pair,460,B6000,Ford B-series school bus chassis
+pair,460,B700,Ford B-series school bus chassis
+pair,460,B7000,Ford B-series school bus chassis
+pair,460,B800,Ford B-series school bus chassis
+pair,460,F-600,Ford medium-duty truck (Class 6 and up)
+pair,460,F-650,Ford medium-duty truck (Class 6 and up)
+pair,460,F-700,Ford medium-duty truck (Class 6 and up)
+pair,460,F-750,Ford medium-duty truck (Class 6 and up)
+pair,460,F-800,Ford medium-duty truck (Class 6 and up)
+pair,460,F6000,Ford medium-duty truck (Class 6 and up)
+pair,460,F7000,Ford medium-duty truck (Class 6 and up)
+pair,460,F8000,Ford medium-duty truck (Class 6 and up)
+pair,460,FT800,Ford medium-duty truck (Class 6 and up)
+pair,460,FT8000,Ford medium-duty truck (Class 6 and up)
+pair,460,FT900,Ford medium-duty truck (Class 6 and up)
+pair,460,P600,Ford P-series step-van chassis
+pair,460,P700,Ford P-series step-van chassis
+pair,460,P800,Ford P-series step-van chassis
+pair,460,Recreational Vehicle,Ford motorhome (RV) chassis
+pair,467,3 ton,Chevrolet medium or heavy truck
+pair,467,Aluminum Tilt,Chevrolet medium or heavy truck
+pair,467,C5,Chevrolet medium or heavy truck
+pair,467,C6,Chevrolet medium or heavy truck
+pair,467,C7,Chevrolet medium or heavy truck
+pair,467,Heavy Conventional,Chevrolet medium or heavy truck
+pair,467,B7,Chevrolet school bus chassis
+pair,467,Forward Control,Chevrolet step-van or box-van chassis
+pair,467,P - Series,Chevrolet step-van or box-van chassis
+pair,467,P6S,Chevrolet step-van or box-van chassis
+pair,467,Hi-Cube,Chevrolet step-van or box-van chassis
+pair,467,BrightDrop,"Chevrolet electric delivery van, sold to fleets only"
+pair,467,Military Truck,Chevrolet military truck (CUCV)
+pair,467,Caprice Police Vehicle,Chevrolet police-only model
+pair,467,Hearse/Limo,Chevrolet coachbuilt hearse or limousine (professional vehicle)
+pair,467,Alero,Chevrolet badge sold in Mexico only (US: Oldsmobile Alero)
+pair,467,Epica,"Chevrolet model sold in Canada / abroad, not in the US"
+pair,467,Optra,"Chevrolet model sold in Canada / abroad, not in the US"
+pair,467,Orlando,"Chevrolet model sold in Canada / abroad, not in the US"
+pair,467,Kalos,"Chevrolet export model, not sold in the US"
+pair,467,Matiz,"Chevrolet export model, not sold in the US"
+pair,467,Onix,"Chevrolet export model, not sold in the US"
+pair,472,Aluminum Tilt,GMC medium or heavy truck (TopKick / C-series)
+pair,472,C5,GMC medium or heavy truck (TopKick / C-series)
+pair,472,C6,GMC medium or heavy truck (TopKick / C-series)
+pair,472,C7,GMC medium or heavy truck (TopKick / C-series)
+pair,472,Heavy Conventional,GMC medium or heavy truck (TopKick / C-series)
+pair,472,Forward Control,GMC step-van or box-van chassis
+pair,472,P Truck Forward,GMC step-van or box-van chassis
+pair,472,Hi-Cube,GMC step-van or box-van chassis
+pair,472,Magna Van,GMC step-van or box-van chassis
+pair,472,Value Van,GMC step-van or box-van chassis
+pair,472,Cruise Origin AV,"GMC / Cruise driverless robotaxi, never sold"
+pair,469,Hearse,Cadillac coachbuilt hearse or limousine (professional vehicle)
+pair,469,Limousine,Cadillac coachbuilt hearse or limousine (professional vehicle)
+pair,468,Coachbuilder,Buick coachbuilder chassis for hearses and limousines
+pair,542,F6,Isuzu medium or heavy commercial truck
+pair,542,F7,Isuzu medium or heavy commercial truck
+pair,542,FRR,Isuzu medium or heavy commercial truck
+pair,542,FSR,Isuzu medium or heavy commercial truck
+pair,542,FTR/FVR,Isuzu medium or heavy commercial truck
+pair,542,FTR/FVR/EVR,Isuzu medium or heavy commercial truck
+pair,542,H-Series,Isuzu medium or heavy commercial truck
+pair,542,NPR,Isuzu medium or heavy commercial truck
+pair,542,NPR/NPR-HD,Isuzu medium or heavy commercial truck
+pair,542,NQR,Isuzu medium or heavy commercial truck
+pair,542,NQR/NRR,Isuzu medium or heavy commercial truck
+pair,542,NRR,Isuzu medium or heavy commercial truck
+pair,542,T6F,Isuzu medium or heavy commercial truck
+pair,542,T7F,Isuzu medium or heavy commercial truck
+pair,542,T8F,Isuzu medium or heavy commercial truck
+pair,449,L1013,Mercedes-Benz medium or heavy truck
+pair,449,L1113,Mercedes-Benz medium or heavy truck
+pair,449,L1116,Mercedes-Benz medium or heavy truck
+pair,449,L1117,Mercedes-Benz medium or heavy truck
+pair,449,L1316,Mercedes-Benz medium or heavy truck
+pair,449,L1317,Mercedes-Benz medium or heavy truck
+pair,449,L1319,Mercedes-Benz medium or heavy truck
+pair,449,L1418,Mercedes-Benz medium or heavy truck
+pair,449,L1419,Mercedes-Benz medium or heavy truck
+pair,449,LP1219,Mercedes-Benz medium or heavy truck
+pair,449,LP1419,Mercedes-Benz medium or heavy truck
+pair,449,LPS1525,Mercedes-Benz medium or heavy truck
+pair,485,Cab Behind Engine,Volvo heavy truck or truck cab
+pair,485,Cab Over Engine HT,Volvo heavy truck or truck cab
+pair,485,Cab Over Engine LT,Volvo heavy truck or truck cab
+pair,485,F12 w/F7 Cab,Volvo heavy truck or truck cab
+pair,485,F6 w/F7 Cab,Volvo heavy truck or truck cab
+pair,485,VS,Volvo heavy truck or truck cab
+pair,485,VT,Volvo heavy truck or truck cab
+pair,441,Semi,Tesla Class 8 truck
+pair,441,Cybercab,Tesla driverless robotaxi
+pair,10887,EDV,"Rivian commercial delivery van, sold to fleets only"
+pair,10887,RCV,"Rivian commercial delivery van, sold to fleets only"
+pair,498,Xcient,Hyundai heavy fuel-cell truck
+pair,498,Pony,Hyundai model sold in Canada only (US got the Excel)
+pair,498,Stellar,Hyundai model sold in Canada only (US got the Excel)
+pair,492,Ducato,Fiat van sold abroad (the US version is the RAM ProMaster)
+pair,492,Freemont,"Fiat export version of the Dodge Journey, not sold in the US"
+pair,1077,G2X,Daewoo export model after Daewoo left the US (2002)
+pair,1077,Laganza V-car,Daewoo export model after Daewoo left the US (2002)
+pair,1077,Leganza V-200 & variants/derivatives,Daewoo export model after Daewoo left the US (2002)
+pair,478,Micra,"Nissan model sold in Canada / abroad, not in the US"
+pair,478,X-Trail,"Nissan model sold in Canada / abroad, not in the US"
+pair,478,Altra,Nissan electric wagon leased to fleets only
+pair,478,Altra-EV,Nissan electric wagon leased to fleets only
+pair,448,FCHV-adv,Toyota fuel-cell test vehicle leased to fleets and government only
+pair,481,RVR,Mitsubishi Canada name for the Outlander Sport
+pair,536,Acadian,Pontiac model sold in Canada only
+pair,536,Firefly,Pontiac model sold in Canada only
+pair,536,Laurentian,Pontiac model sold in Canada only
+pair,536,Sunburst,Pontiac model sold in Canada only
+pair,536,Tempest,Pontiac model sold in Canada only
+pair,536,Wave,Pontiac model sold in Canada only
+pair,536,Matiz,Pontiac model sold in Mexico only
+pair,509,Forsa,Suzuki model sold in Canada only (US: Chevrolet Sprint)
+pair,504,smart,smart cars were not sold in the US before 2008
+pair,483,CJ-6,Jeep CJ-6 was export-only after 1975

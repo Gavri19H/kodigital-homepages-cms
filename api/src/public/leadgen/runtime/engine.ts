@@ -54,8 +54,9 @@ import {
   type LgAuctionRequest,
   type LgAuctionResponse,
 } from "./auction-client";
+import { lgSearch, vehicleNames, vehicleQs, vehicleScan } from "./vehicle";
 
-export const LG_ENGINE_VERSION = "13"; // tracks LEADGEN_TEMPLATE_VERSION (cache-keys.ts)
+export const LG_ENGINE_VERSION = "14"; // tracks LEADGEN_TEMPLATE_VERSION (cache-keys.ts)
 
 const LG_ATTEMPT_URL = "/lg/attempt";
 const SESSION_COOKIE = "ko_sid";
@@ -1124,7 +1125,9 @@ export class LgEngine {
         render.openOtherPanel(other);
         return;
       }
-      const cont = target.closest("[data-lg-continue]");
+      // F18: [data-lg-vgo] = a vehicle typed-answer box's own Continue in a
+      // "Go to next" Section (presets.ts vehicleTextInput) — same path.
+      const cont = target.closest("[data-lg-continue],[data-lg-vgo]");
       if (cont !== null) {
         this.handleContinue();
         return;
@@ -1137,7 +1140,10 @@ export class LgEngine {
 
     const onInput = (raw: Event): void => {
       const target = raw.target;
-      if (!(target instanceof Element) || target.closest("[data-lg-input]") === null) return;
+      if (!(target instanceof Element)) return;
+      // Searchable dropdown: the search box narrows its list (vehicle.ts).
+      if (target.hasAttribute("data-lg-dropdown-search")) return lgSearch(target as HTMLInputElement);
+      if (target.closest("[data-lg-input]") === null) return;
       // FIX-FIRST-2 (N-1): the ONE place the two dispatches differ. `input` =
       // mid-keystroke (syncDualRange must not rewrite the box under the caret);
       // `change` = the commit (blur/Enter) where it must. Cleared straight after
@@ -1318,6 +1324,54 @@ export class LgEngine {
     );
   }
 
+  // F18 Vehicle database (vehicle.ts; markup: presets.ts renderVehicleQuestion).
+  // Runs just before a vehicle question's answer is recorded: a Year saves as
+  // a number; a Make also saves the snapshot it was picked from (spec L4,
+  // `<make field>_snapshot`); a changed Make / Year clears the answers that
+  // depend on it, then (once this answer is recorded) refills those questions
+  // — which starts the ONE lookup for the picked make right away — and the
+  // {make}/{year} headline names are replaced again. Any other question
+  // returns its value untouched.
+  private vAns(
+    q: Element | null,
+    field: string,
+    value: unknown,
+    meta: { question_id: string; section_public_id: string },
+  ): unknown {
+    const asks = q && q.getAttribute("data-lg-vehicle");
+    if (!asks) return value;
+    const store = this.store;
+    const v = this.config.vehicle;
+    const prev = store.getAnswer(field);
+    if (asks === "year" && /^\d{4}$/.test(value as string)) value = Number(value);
+    // Without the live list every vehicle question is a plain text box: no
+    // snapshot, no links between them (the headline names still apply).
+    const changed = !!v && "" + (prev && prev.value) !== "" + value;
+    if (v && asks === "make") store.recordUserAnswer(field + "_snapshot", v.snapshot, meta);
+    if (changed) for (const d of vehicleQs(this.root, field)) delete store.state.answers[d.getAttribute("data-lg-field") || ""];
+    void Promise.resolve().then(() => {
+      if (changed) this.vScan(this.root, field);
+      this.vNames();
+    });
+    return value;
+  }
+
+  private vNames(): void {
+    vehicleNames(this.root, this.store.answerValues());
+  }
+
+  // vehicle.ts vehicleScan over `root` (a shown section on page entry, or the
+  // whole funnel for the questions depending on a just-changed `only` field).
+  private vScan(root: Element, only?: string): void {
+    vehicleScan(
+      root,
+      this.config.vehicle,
+      () => this.store.answerValues(),
+      (id) => this.componentByQuestionId(null, id),
+      only,
+    );
+  }
+
   private handleChoiceActivation(choiceEl: Element): void {
     const questionEl = choiceEl.closest(render.QUESTION_SEL);
     const questionId = questionEl?.getAttribute("data-lg-question") ?? "";
@@ -1377,6 +1431,7 @@ export class LgEngine {
     }
 
     const meta = this.answerMeta(questionId, section);
+    value = this.vAns(questionEl, internalField, value, meta);
     const write = this.store.recordUserAnswer(internalField, value, meta);
     if (questionEl !== null) {
       render.applySelectionClasses(questionEl, value);
@@ -1403,17 +1458,22 @@ export class LgEngine {
       answer_source: write.entry.answer_source,
     });
 
-    // §3.5.4 auto-advance: single-question sections advance on answer_click
-    // after validation; multi-question sections require Continue regardless.
-    // Round-4 P3a: auto-advance is authorable ONLY for single-SECTION pages
-    // (a multi-slot page must always be walked via Continue, even when its
-    // current section itself would otherwise qualify) — pageIndicesFor(...)
-    // .length<=1 is a no-op true when planMeta is null (legacy: every
-    // section IS its own page).
+    if (!multi) this.autoGo(section);
+  }
+
+  // §3.5.4 auto-advance: single-question sections advance on answer_click
+  // after validation; multi-question sections require Continue regardless.
+  // Round-4 P3a: auto-advance is authorable ONLY for single-SECTION pages
+  // (a multi-slot page must always be walked via Continue, even when its
+  // current section itself would otherwise qualify) — pageIndicesFor(...)
+  // .length<=1 is a no-op true when planMeta is null (legacy: every
+  // section IS its own page). F18: also run after a pick from an "Other"
+  // list (handleInputEvent) — a "Go to next" Section has no Continue, so a
+  // visitor who picked from the list was stuck.
+  private autoGo(section: LgSectionConfig | null): void {
     if (
       section !== null &&
       section.continue_mode === "auto_advance" &&
-      !multi &&
       this.pageIndicesFor(section.section_public_id).length <= 1
     ) {
       const deps = this.dependencyState(section);
@@ -1708,6 +1768,7 @@ export class LgEngine {
     }
 
     const meta = this.answerMeta(questionId, section);
+    value = this.vAns(questionEl, internalField, value, meta);
     const write = this.store.recordUserAnswer(internalField, value, meta);
     // S2-3 (register §C): a range slider moves its own visible value text +
     // filled track live as it is dragged (input fires continuously).
@@ -1726,9 +1787,8 @@ export class LgEngine {
     // must DESELECT every base choice. The other value is unique vs the base
     // values (save-gate), so applySelectionClasses(value) clears them all.
     // Scoped to the panel's own question; no-op for any non-Other input.
-    if (questionEl !== null && input.closest("[data-lg-other-panel]") !== null) {
-      render.applySelectionClasses(questionEl, value);
-    }
+    const other = questionEl !== null && input.closest("[data-lg-other-panel]") !== null;
+    if (other) render.applySelectionClasses(questionEl as Element, value);
     // Editing clears the field's stale error immediately — the INPUT's own
     // section (same-screen pages: not necessarily this.si's anchor section).
     const sectionEl = input.closest("[data-lg-section]");
@@ -1751,6 +1811,11 @@ export class LgEngine {
         answer_source: write.entry.answer_source,
       });
     }, ANSWER_CHANGE_DEBOUNCE_MS);
+
+    // F18: a pick from an "Other" list advances a "Go to next" Section exactly
+    // like a card tap — on the select's `change` only (a <select> also fires
+    // `input`; `typing` marks that one), so one pick advances once.
+    if (other && !typing) this.autoGo(section);
   }
 
   // ----- validation + navigation (§3.5.4–5) --------------------------------
@@ -1894,6 +1959,11 @@ export class LgEngine {
       if (section === undefined || sectionEl === undefined) continue;
       render.applyComponentVisibility(sectionEl, this.dependencyState(section).components);
       this.applyContinueVisibility(section, sectionEl, k === visibleInPage.length - 1);
+      // F18: the page's vehicle questions catch up with the answers (a Make
+      // re-selects its saved make after a reload; Year / Model show their
+      // make's choices — one cached lookup — or the typed-answer box when it
+      // is not there within 1 second). No-op without the live list.
+      this.vScan(sectionEl);
       // Restore selection classes for restored/default answers.
       for (const component of section.components) {
         const field = component.internal_field;
@@ -1943,6 +2013,8 @@ export class LgEngine {
       this.store.state.back_stack.length > 0 || this.historyFallbackArmed(),
     );
     if (shownEls[0] !== undefined) render.focusSection(shownEls[0]);
+    // F18: {make}/{year} in the headlines (vehicle.ts vehicleNames).
+    this.vNames();
     this.updateProgressUi();
     if (fireView) {
       for (const i of visibleInPage) this.fireSectionView(this.config.sections[i] || null, nav);

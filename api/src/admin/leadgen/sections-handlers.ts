@@ -103,7 +103,9 @@ import { escapeHtml } from "../templates/layout";
 import { validateZip } from "../../leadgen/maps";
 import {
   closedAnswerValuesByQuestion,
+  edgeAnswerValues,
   mappingCompleteness,
+  vehicleAsksByQuestion,
   rebuildDerivedIndexes,
   sectionValidationStatus,
   validateMappingReferences,
@@ -116,9 +118,14 @@ import {
 import type { FieldErrors } from "../../leadgen/validation";
 import {
   LEADGEN_TRANSFORM_KINDS,
+  readAnswerSendAs,
   type LeadgenPayloadNodeType,
   type LeadgenTransformStep,
 } from "../../leadgen/payload";
+// F18 Vehicle database: the live list for previews / the stored content_html,
+// and the Offer names for the payload preview.
+import { loadVehicleRenderData } from "../../leadgen/vehicles/store";
+import { collectVehicleQuestions, resolveVehicleAnswerValues } from "../../leadgen/vehicle-answers";
 import { buildWhereClause, type FilterCondition } from "../query-filters";
 import {
   buildPaging,
@@ -180,6 +187,11 @@ const PAYLOAD_NODE_TYPES: ReadonlySet<string> = new Set([
 // the builder honors. ONE source of truth, imported (the same idiom
 // LEADGEN_PAYLOAD_NODE_TYPES already carries for node types).
 const TRANSFORM_KINDS: ReadonlySet<string> = new Set(LEADGEN_TRANSFORM_KINDS);
+
+// F18 (0069): a stored answer-map row may carry "Send as" (send_as). Read with
+// `SELECT *`, so the column is absent on a database without 0069 — read as
+// the default (NULL = the name).
+type AnswerMapRowWithSendAs = LeadgenSectionAnswerMapRow & { send_as?: string | null };
 
 // ---------------------------------------------------------------------------
 // Row → API mapping (03 §8.5)
@@ -551,6 +563,14 @@ async function parseAnswerMaps(
       if (warning !== null) warnings.push(warning);
     }
 
+    // F18 (owner decision Q4): "Send as: Name / ID" for a Vehicle database
+    // question. The Studio writes "id" for ID and leaves the key out for Name;
+    // anything other than "id" reads as the default (the name, stored NULL).
+    // Kept as saved on any question (inert unless the question uses the
+    // vehicle database), so a Source switched to Typed choices and back keeps
+    // the operator's pick.
+    const sendAs: "id" | null = item["send_as"] === "id" ? "id" : null;
+
     // Defaults from the content node fill omitted fields.
     const questionKey =
       trimmedString(item["question_key"]) ??
@@ -588,6 +608,7 @@ async function parseAnswerMaps(
       required_for_offer: item["required_for_offer"] === true,
       default_value: typeof item["default_value"] === "string" ? item["default_value"] : null,
       fallback_value: typeof item["fallback_value"] === "string" ? item["fallback_value"] : null,
+      send_as: sendAs,
     });
   });
 
@@ -621,13 +642,17 @@ async function parseAnswerMaps(
 // context in Phase A (content_html is funnel-agnostic; placement is a
 // composition-time concern). Legacy content (no bound nodes, no overrides)
 // renders byte-identically.
-function renderContentHtml(value: LeadgenSectionInput): string {
+// F18: a Vehicle database question renders from the live vehicle list
+// (`vehicle`, loaded by the caller; null when the Section has none or the list
+// can't be read — the question then renders its fallback).
+function renderContentHtml(value: LeadgenSectionInput, vehicle: LeadgenSectionRenderCtx["vehicle"] = null): string {
   const ctx: LeadgenSectionRenderCtx = {
     headline_text: value.headline_text,
     subheadline_text: value.subheadline_text,
     continue_mode: value.continue_mode,
     design_overrides: parseSectionDesignOverrides(value.design_overrides_json),
   };
+  if (vehicle) ctx.vehicle = vehicle;
   return renderSectionComponents(value.content.components, getFunnelDesign(null), ctx);
 }
 
@@ -682,6 +707,24 @@ function answerMapInsert(
     row.mapping_status,
     row.validation_status,
   ];
+  // F18 (0069): "Send as" is written only when it differs from the default
+  // (NULL = the name), so a save that never sets it writes the exact pre-0069
+  // statement.
+  const sendAs = readAnswerSendAs(row.send_as);
+  if (sendAs !== undefined && sendAs !== "name") {
+    if ("id" in ref) {
+      return db
+        .prepare(
+          `INSERT INTO leadgen_section_answer_maps ${cols.slice(0, -1)}, send_as) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+        )
+        .bind(tail[0], ref.id, ...tail.slice(1), sendAs);
+    }
+    return db
+      .prepare(
+        `INSERT INTO leadgen_section_answer_maps ${cols.slice(0, -1)}, send_as) VALUES (?, (SELECT id FROM leadgen_sections WHERE public_id = ?), ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+      )
+      .bind(tail[0], ref.publicId, ...tail.slice(1), sendAs);
+  }
   if ("id" in ref) {
     return db
       .prepare(
@@ -863,7 +906,15 @@ async function prepareSave(c: AdminContext, body: Record<string, unknown>): Prom
   // P2 review-round: the answer-map warnings (formatPhone x phone_format
   // incoherence) ride the SAME problems[] the content-validator warnings
   // already use — one non-blocking-warning surface, never a second key.
-  return { errors: null, rebuild, value, contentHtml: renderContentHtml(value), problems: [...problems, ...parsed.warnings] };
+  // F18: reads nothing unless the Section has a Vehicle database question.
+  const vehicle = await loadVehicleRenderData(c.env, value.content.components);
+  return {
+    errors: null,
+    rebuild,
+    value,
+    contentHtml: renderContentHtml(value, vehicle),
+    problems: [...problems, ...parsed.warnings],
+  };
 }
 
 // ---------------------------------------------------------------------------
@@ -1233,6 +1284,8 @@ async function storedAnswerMapsAsInput(db: D1Database, sectionId: number): Promi
     required_for_offer: row.required_for_offer !== 0,
     default_value: row.default_value,
     fallback_value: row.fallback_value,
+    // F18: keep "Send as" through a scalar-only PATCH.
+    send_as: readAnswerSendAs((row as AnswerMapRowWithSendAs).send_as) ?? null,
   }));
 }
 
@@ -1408,14 +1461,18 @@ export async function duplicateSectionHandler(c: AdminContext): Promise<Response
 
   const answerMapRows = srcAnswerMaps.results ?? [];
   for (const map of answerMapRows) {
+    // F18 (0069): copy "Send as" only when the source row set it — a copy of
+    // a row without it is the exact pre-0069 statement.
+    const sendAs = readAnswerSendAs((map as AnswerMapRowWithSendAs).send_as);
+    const withSendAs = sendAs !== undefined && sendAs !== "name";
     statements.push(
       c.env.DB.prepare(
         `INSERT INTO leadgen_section_answer_maps
            (public_id, section_id, question_id, question_key, internal_field, answer_type, offer_id,
             payload_schema_id, payload_schema_public_id, offer_payload_field_path, provider_expected_type,
             output_value_map_json, transform_json, required_for_offer, default_value, fallback_value,
-            mapping_status, validation_status)
-         VALUES (?, (SELECT id FROM leadgen_sections WHERE public_id = ?), ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+            mapping_status, validation_status${withSendAs ? ", send_as" : ""})
+         VALUES (?, (SELECT id FROM leadgen_sections WHERE public_id = ?), ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?${withSendAs ? ", ?" : ""})`,
       ).bind(
         mintPublicId("answer_field_map"),
         publicId,
@@ -1435,6 +1492,7 @@ export async function duplicateSectionHandler(c: AdminContext): Promise<Response
         map.fallback_value,
         map.mapping_status,
         map.validation_status,
+        ...(withSendAs ? [sendAs] : []),
       ),
     );
   }
@@ -1971,6 +2029,12 @@ export async function previewSectionHandler(c: AdminContext): Promise<Response> 
   // are ACTUALLY hidden in the markup, exactly as the P7 runtime hides them.
   // No basis ⇒ the classic full-render preview (unchanged, byte-compatible).
   const nodes = content.components as LeadgenComponentNode[];
+  // F18: the Studio canvas shows the real vehicle list — every make for a
+  // Make question; for Year / Model a sample make (Toyota). Reads nothing when
+  // the Section has no Vehicle database question; null when the list can't be
+  // read (the question then renders its fallback).
+  const vehicle = await loadVehicleRenderData(c.env, nodes, { sample: true });
+  if (vehicle) sectionCtx.vehicle = vehicle;
   const rawSample = body["sample_answers"] ?? body["answers"];
   const flowAnswers: Record<string, unknown> = {};
   for (const step of sim.flow) flowAnswers[step.internal_field] = step.value;
@@ -2741,8 +2805,16 @@ export async function validateSectionPayloadHandler(c: AdminContext): Promise<Re
   // Same closed-value facts the save-time rebuild judges by, so this tool's
   // verdict can never disagree with the stored one for the same Section.
   const closedValues = closedAnswerValuesByQuestion(content);
+  // F18: a Vehicle database question is judged by what it sends (its name or
+  // id per "Send as"), and previews the names production sends (Q4).
+  const vehicleAsks = vehicleAsksByQuestion(content);
+  const vehicleValues = await resolveVehicleAnswerValues(
+    c.env,
+    collectVehicleQuestions([Array.isArray(content.components) ? content.components : []]),
+    normalized.answers,
+  );
 
-  const storedMaps = await readAnswerMaps(c.env.DB, row.id);
+  const storedMaps = (await readAnswerMaps(c.env.DB, row.id)) as AnswerMapRowWithSendAs[];
   // Optional offer filter (numeric ids or lgo_ public ids).
   const filter = new Set<number>();
   const rawOffers = body["offer_ids"] ?? body["offers"];
@@ -2788,6 +2860,7 @@ export async function validateSectionPayloadHandler(c: AdminContext): Promise<Re
       required_for_offer: e.required_for_offer !== 0,
       default_value: e.default_value ?? undefined,
       fallback_value: e.fallback_value ?? undefined,
+      send_as: readAnswerSendAs(e.send_as) ?? null,
     }));
     // OWNER 2026-09-28: a calculated choice previews its DATE, as production sends it.
     // F09: a mixed choice's date only for the Offers on its list.
@@ -2795,6 +2868,7 @@ export async function validateSectionPayloadHandler(c: AdminContext): Promise<Re
       mappings,
       normalized.answers,
       computedForOffer(normalized.computed, normalized.computed_offers, offerId),
+      vehicleValues,
     );
 
     const requiredTotal = offerSchema?.requiredFieldPaths.length ?? 0;
@@ -2818,7 +2892,11 @@ export async function validateSectionPayloadHandler(c: AdminContext): Promise<Re
           fallback_value: e.fallback_value,
         },
         offerSchema,
-        closedValues.get(e.question_id) ?? null,
+        edgeAnswerValues(
+          { question_id: e.question_id, send_as: readAnswerSendAs(e.send_as) ?? null },
+          closedValues,
+          vehicleAsks,
+        ),
       );
       if (completeness === "complete" && offerSchema?.requiredFieldPaths.includes(e.offer_payload_field_path)) {
         mappedRequired.add(e.offer_payload_field_path);

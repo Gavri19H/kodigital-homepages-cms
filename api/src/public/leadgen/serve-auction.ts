@@ -51,6 +51,7 @@ import type { LeadgenSectionContent } from "./components/content-schema";
 import { offerHasOwnClickUrl } from "../../leadgen/macros";
 import type { LeadgenAuctionRow, LeadgenEnvironment } from "../../admin/leadgen/db-types";
 import { loadRedirectLook, renderRedirectScreen, type RedirectLook } from "./redirect/screen";
+import { checkVehicleRawAnswers, vehicleQuestionsOfSections } from "../../leadgen/vehicle-answers";
 
 type PublicContext = Context<{ Bindings: Env; Variables: PublicSiteVariables }>;
 
@@ -294,6 +295,26 @@ async function applyMapsAuctionLegs(
   };
 }
 
+// F18 Vehicle database — the server-side answer check, the sibling of the Maps
+// validate leg above and run on the money path BEFORE the auction: a Make /
+// Year / Model answer that claims a database id the visitor's snapshot doesn't
+// have for that make (and year) is DROPPED (the same "invalid answer is
+// omitted" discipline — never a new rejection), so a forged id never reaches a
+// Provider. Typed text (the lookup failed and the question became a text box,
+// owner decision Q6) is kept. FAIL-OPEN: a vehicle file that can't be read
+// keeps the answer. Reads nothing when the funnel has no vehicle question.
+// Exported for the tests.
+export async function applyVehicleAnswerCheck(
+  env: Env,
+  resolved: ResolvedActivatedFunnel,
+  rawAnswers: LeadgenRawAnswers,
+): Promise<LeadgenRawAnswers> {
+  const questions = vehicleQuestionsOfSections(resolved.sections.map((rs) => rs.section));
+  if (questions.length === 0) return rawAnswers;
+  const checked = await checkVehicleRawAnswers(env, questions, rawAnswers);
+  return checked.rawAnswers as LeadgenRawAnswers;
+}
+
 // POST /lg/auction — the §19 runtime. no-store (§8.3). Non-blocking writes on
 // ctx.waitUntil (§28). Never throws into the router.
 export async function serveLeadgenAuction(c: PublicContext): Promise<Response> {
@@ -371,6 +392,8 @@ export async function serveLeadgenAuction(c: PublicContext): Promise<Response> {
   // re-normalization/payload build, the facet feeds the middle tier of the eval
   // context (declared answer > facet > CF geo).
   const maps = await applyMapsAuctionLegs(c.env, resolved, rawAnswers);
+  // F18: drop vehicle answers whose id isn't in the visitor's vehicle list.
+  const checkedAnswers = await applyVehicleAnswerCheck(c.env, resolved, maps.rawAnswers);
 
   const result = await runAuction(
     c.env,
@@ -380,7 +403,7 @@ export async function serveLeadgenAuction(c: PublicContext): Promise<Response> {
       environment: RUNTIME_ENVIRONMENT,
       binding,
       session_id: sessionId,
-      raw_answers: maps.rawAnswers,
+      raw_answers: checkedAnswers,
       request_context: requestContext,
       location_facet: maps.locationFacet ?? undefined,
       // 04 §4.7 site 1: the live request feeds the canonical context builder's

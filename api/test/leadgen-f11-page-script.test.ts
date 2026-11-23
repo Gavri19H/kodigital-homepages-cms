@@ -441,8 +441,12 @@ describe("F11 page script — ships in the shell, outside the visitor bundle", (
     expect(bundle).toBeGreaterThan(own);
   });
 
-  it("the visitor bundle is unchanged: same 53,315 bytes, and it knows nothing of the redirect", () => {
-    expect(LEADGEN_RUNTIME_JS.length).toBe(53315);
+  // The page script never rides the visitor bundle: the bundle's exact size is
+  // pinned (53,315 at F11; 57,151 since F18 added the vehicle lookups, the
+  // {make}/{year} headline names and the "Go to next" fixes, 2026-11-23) and it
+  // carries no redirect code.
+  it("the visitor bundle is unchanged by the page script: same 57,151 bytes, and it knows nothing of the redirect", () => {
+    expect(LEADGEN_RUNTIME_JS.length).toBe(57151);
     expect(LEADGEN_RUNTIME_JS).not.toContain("lg_rc");
     expect(LEADGEN_RUNTIME_JS).not.toContain("data-lg-redirect");
   });

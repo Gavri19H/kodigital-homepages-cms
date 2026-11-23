@@ -92,7 +92,7 @@ import {
 // author-opted case ONLY (selectedMarkStyleBlock below). Import direction is
 // presets → designs (the same direction as the tokens/theme imports above);
 // styles.ts imports nothing from this module, so no cycle is introduced.
-import { selectedMarkCardRules, selectedMarkRules } from "../designs/default-funnel/styles";
+import { selectedMarkCardRules, selectedMarkRules, vehicleQuestionCss } from "../designs/default-funnel/styles";
 import type { FunnelTokenRole, ThemeRecordControls } from "../designs/theme";
 import type { LeadgenContinueMode } from "../../../admin/leadgen/db-types";
 // OWNER DEFECT (2026-08-10, "image issue in the cards"): D1 stores the BARE R2
@@ -109,6 +109,16 @@ import type { LeadgenContinueMode } from "../../../admin/leadgen/db-types";
 // and it returns null for empty/whitespace, which is what lets each site below
 // fall back to its no-image branch instead of emitting a broken src="".
 import { mediaUrl, isPendingMediaRef } from "../../view-models/media-url";
+import type { VehicleRenderData } from "../../../leadgen/vehicles/store";
+import {
+  readVehicleSource,
+  VEHICLE_CARD_TYPES,
+  VEHICLE_LOGO_CARD_TYPES,
+  VEHICLE_TYPED_ANSWER_MAX,
+  type VehicleSourceConfig,
+} from "../../../leadgen/vehicles/props";
+import { cfTransform } from "../../templates/responsive-img";
+import { modelsForYear } from "../../../leadgen/vehicles/format";
 
 // ---------------------------------------------------------------------------
 // small helpers
@@ -259,6 +269,18 @@ export interface LeadgenSectionRenderCtx {
   // field, still render byte-identically for every node WITHOUT an authored
   // design_overrides.size (the compat invariant every other ctx field holds).
   theme_controls?: ThemeRecordControls;
+  // F18 (ADDITIVE): the live vehicle list for questions whose "Source" is
+  // "Vehicle database" (props.choice_source = "vehicle"), loaded by the caller
+  // with loadVehicleRenderData (leadgen/vehicles/store.ts). Absent ⇒ no vehicle
+  // question on this page, or the list could not be read (vehicle questions
+  // then render their typed-answer fallback). Every non-vehicle node renders
+  // byte-identically whether or not it is set.
+  vehicle?: VehicleRenderData | null;
+  // F18 (ADDITIVE): true when this Section is the one visible when the page
+  // loads (the funnel's first page) — its Make logos load eagerly; on every
+  // other Section they stay loading="lazy". Read only by the vehicle logo
+  // cards, so every other node renders byte-identically whatever it is.
+  first_page?: boolean;
 }
 
 // Mutable per-render state threading the §11.5 single-control rule through
@@ -1060,6 +1082,29 @@ export function renderCategoryLabel(
   );
 }
 
+// F18 headline names (owner, 23 Nov): a Section headline / subheadline may
+// say "What year is your {make}?" — the visitor's engine replaces {make} and
+// {year} with their answers (runtime/vehicle.ts vehicleNames), so a public
+// page keeps the tokens (they sit on Sections hidden until entered: nothing
+// flashes). Only where the Studio canvas / previews pass the sample make
+// (ctx.vehicle.sample, Toyota) are they replaced here — with its name and
+// newest year — so the operator sees "What year is your Toyota?". Plain text
+// in, plain text out: the caller escapes it like any headline. Text without a
+// token (and every page without a sample) comes back unchanged.
+function vehicleHeadlineSample(
+  text: string | null | undefined,
+  ctx: LeadgenSectionRenderCtx | undefined,
+): string | null | undefined {
+  const data = ctx?.vehicle;
+  const sample = data?.sample;
+  if (typeof text !== "string" || !data || !sample || !/\{(make|year)\}/.test(text)) return text;
+  return text
+    .replace(/\{make\}/g, vehicleSampleName(data))
+    .replace(/\{year\}/g, String(sample.years[0]?.year ?? ""))
+    .replace(/\s+/g, " ")
+    .trim();
+}
+
 export function renderQuestionHeadline(
   node: LeadgenComponentNode,
   design: DefaultFunnelDesign,
@@ -1069,7 +1114,8 @@ export function renderQuestionHeadline(
   // escaped exactly like props.text — bound vs unbound differ ONLY in the text
   // source. ctx absent + bound node → empty text (never a throw). An UNBOUND
   // legacy node with props.text renders byte-identically to v2.4.
-  const text = node.bind === "section_headline" ? ctx?.headline_text : propStr(node, "text");
+  // F18: {make}/{year} show the Studio sample make (vehicleHeadlineSample).
+  const text = vehicleHeadlineSample(node.bind === "section_headline" ? ctx?.headline_text : propStr(node, "text"), ctx);
   // v3.1 R3b E2-C1: the Style tab's "Text color role" control (data-style-
   // text-block) has always covered this type — the RENDERER never consumed
   // it. Same §9.4 layer-5 role-or-hex resolution the choice/button families
@@ -1090,7 +1136,11 @@ export function renderSubheadline(
 ): string {
   // 03 §3.4 — same rule as renderQuestionHeadline for the subheadline column
   // (a NULL column renders as empty text, exactly like an absent props.text).
-  const text = node.bind === "section_subheadline" ? ctx?.subheadline_text : propStr(node, "text");
+  // F18: {make}/{year} show the Studio sample make (vehicleHeadlineSample).
+  const text = vehicleHeadlineSample(
+    node.bind === "section_subheadline" ? ctx?.subheadline_text : propStr(node, "text"),
+    ctx,
+  );
   // v3.1 R3b E2-C1: wire the pre-existing Style-tab "Text color role" control.
   const color = ovColor(node, "featureColor", design, ctx) ?? design.subheadline.color;
   return (
@@ -1595,7 +1645,14 @@ export function renderButtonAnswerGroup(
   design: DefaultFunnelDesign,
   ctx?: LeadgenSectionRenderCtx,
   slot = "",
+  // F18: the vehicle hooks (VehicleRenderHook) — set ONLY by
+  // renderVehicleQuestion; absent ⇒ byte-identical to before F18.
+  vh?: VehicleRenderHook,
 ): string {
+  if (vh === undefined) {
+    const vehicle = renderVehicleQuestion(node, design, ctx, slot);
+    if (vehicle !== null) return vehicle;
+  }
   const autoAdvance = propBool(node, "auto_advance");
   const choices = choiceList(node);
   // §8.4 gap round: the theme's Answer-layout:'card' value (Image23) — see
@@ -1633,7 +1690,15 @@ export function renderButtonAnswerGroup(
       // 03 §3.3: data-lg-choice mirrors the choice's REAL stored value.
       attr("data-lg-choice", c.value) +
       attr("data-analytics-id", c.analytics_id) +
-      `>${buttonInnerContent(isCard, markerResolutions[index]!, c.label, c.title, c.subtitle, choiceTextLabelStyle(tp, textFamily, design))}</button>`
+      (vh?.item === undefined ? "" : vh.item) +
+      // F18: a vehicle Year slot on plain buttons keeps its label in its own
+      // box (.lg-vlabel) so the engine can rewrite it without touching the ✓
+      // marker spans. Every other button: unchanged.
+      `>${
+        vh?.item !== undefined && !isCard
+          ? `${selectedMarkerMarkup(markerResolutions[index]!)}<span class="lg-vlabel">${esc(c.label)}</span>`
+          : buttonInnerContent(isCard, markerResolutions[index]!, c.label, c.title, c.subtitle, choiceTextLabelStyle(tp, textFamily, design))
+      }</button>`
     );
   };
   // Rework §6.5: base choices UNCHANGED + ONE trailing "Other" affordance
@@ -1651,15 +1716,17 @@ export function renderButtonAnswerGroup(
     other === undefined
       ? ""
       : `<button type="button" class="lg-btn lg-btn-answer${isCard ? " lg-tscard" : ""} lg-other-trigger"${style(choiceTextItemEntries(otherText, textFamily, design))} data-lg-other-trigger` +
+        (vh === undefined ? "" : vh.other) +
         ` aria-expanded="false" aria-haspopup="listbox">${isCard ? `<span class="lg-tscard-title"${choiceTextLabelStyle(otherText, textFamily, design)}>${esc(other.label)}</span>` : esc(other.label)}${otherChevronSvg(design)}</button>` +
+        (vh?.pre ?? "") +
         otherSelectMarkup(other);
-  const body = choices.map(btn).join("") + otherHtml;
+  const body = choices.map(btn).join("") + otherHtml + (vh === undefined ? "" : vh.tail);
   return (
     labelLine(node) +
     // Rework §6.6: data-card-select is "mark" whenever ANY button resolves to
     // mark (theme OR a per-choice/per-node override) — mirrors renderCardGrid;
     // buttonStyleAttrs' theme-only `selected` axis stays unused here.
-    `<div class="lg-answer-group" role="radiogroup"${hydration(node)}${choiceHeightsAttr(anyChoiceHasHeight(choices))}${answerGroupRootStyle(node, design, ctx, gridCols)}${buttonStyleAttrs(design, { fill: true, layout: true })}${attr("data-card-select", anyMark ? "mark" : undefined)} data-auto-advance="${autoAdvance ? "true" : "false"}">` +
+    `<div class="lg-answer-group" role="radiogroup"${hydration(node)}${vh === undefined ? "" : vh.root}${choiceHeightsAttr(anyChoiceHasHeight(choices))}${answerGroupRootStyle(node, design, ctx, gridCols)}${buttonStyleAttrs(design, { fill: true, layout: true })}${attr("data-card-select", anyMark ? "mark" : undefined)} data-auto-advance="${autoAdvance ? "true" : "false"}">` +
     body +
     // CONDUCTOR FIX (P4b regression): the auto error slot nests as the LAST
     // CHILD of the group box, never a card-level sibling — "" is a no-op.
@@ -1739,7 +1806,14 @@ function renderCardGrid(
   kind: "icon" | "image",
   ctx?: LeadgenSectionRenderCtx,
   slot = "",
+  // F18: the vehicle hooks — set ONLY by renderVehicleQuestion; absent ⇒
+  // byte-identical to before F18.
+  vh?: VehicleRenderHook,
 ): string {
+  if (vh === undefined) {
+    const vehicle = renderVehicleQuestion(node, design, ctx, slot);
+    if (vehicle !== null) return vehicle;
+  }
   const choices = choiceList(node);
   // §9.5 layer 4: Section columnsDefault/gapDefault fill the slots the node
   // left unset — per-node (design_overrides/props) wins over Section wins
@@ -1841,7 +1915,9 @@ function renderCardGrid(
     const choiceFit = fitRaw === "cover" || fitRaw === "contain" ? fitRaw : undefined;
     const fit = nodeFit ?? choiceFit;
     const media =
-      kind === "image"
+      vh?.media !== undefined
+        ? vh.media(c)
+        : kind === "image"
         ? imagePending
           ? `<span class="lg-card-img-placeholder" aria-hidden="true">Image</span>`
           : !hasImage
@@ -1895,6 +1971,7 @@ function renderCardGrid(
       attr("data-analytics-id", c.analytics_id) +
       // §8.4 aria_label — explicit accessible-name override when authored.
       attr("aria-label", c.aria_label) +
+      (vh?.item === undefined ? "" : vh.item) +
       `>${markCheck}${badge}${media}<span class="lg-card-title"${choiceTextLabelStyle(tp, "card", design)}>${esc(titleText)}</span>${desc}</button>`
     );
   };
@@ -1910,9 +1987,11 @@ function renderCardGrid(
     other === undefined
       ? ""
       : `<button type="button" class="lg-card lg-other-trigger"${style(choiceTextItemEntries(otherText, "card", design))} data-lg-other-trigger` +
+        (vh === undefined ? "" : vh.other) +
         ` aria-expanded="false" aria-haspopup="listbox"><span class="lg-card-title"${choiceTextLabelStyle(otherText, "card", design)}>${esc(other.label)}</span>${otherChevronSvg(design)}</button>` +
+        (vh?.pre ?? "") +
         otherSelectMarkup(other);
-  const cards = choices.map(card).join("") + otherHtml;
+  const cards = choices.map(card).join("") + otherHtml + (vh === undefined ? "" : vh.tail);
   return (
     labelLine(node) +
     // Rework §6.6: data-card-select is now "mark" whenever ANY card resolves to
@@ -1920,7 +1999,7 @@ function renderCardGrid(
     // OPEN for any card that wants to show its badge, not just when the theme
     // itself is "mark" (buttonStyleAttrs' theme-only `selected` axis stays
     // unused here; anyMark supersedes it for this one attribute).
-    `<div class="lg-card-grid" role="radiogroup"${hydration(node)}${choiceHeightsAttr(anyChoiceHasHeight(choices))}${buttonStyleAttrs(design, { fill: true, layout: true })}${attr("data-card-select", anyMark ? "mark" : undefined)}` +
+    `<div class="lg-card-grid" role="radiogroup"${hydration(node)}${vh === undefined ? "" : vh.root}${choiceHeightsAttr(anyChoiceHasHeight(choices))}${buttonStyleAttrs(design, { fill: true, layout: true })}${attr("data-card-select", anyMark ? "mark" : undefined)}` +
     // v3.1 R3 §7: width → the grid container's max-width (per the register's
     // "grid/container max-width for card grids"); "" when unauthored.
     ((): string => {
@@ -2145,6 +2224,9 @@ export function renderDropdownQuestion(
   ctx?: LeadgenSectionRenderCtx,
   slot = "",
 ): string {
+  // F18: a "Vehicle database" dropdown renders its own markup (null ⇒ typed choices, unchanged).
+  const vehicle = renderVehicleQuestion(node, design, ctx, slot);
+  if (vehicle !== null) return vehicle;
   const placeholder = propStr(node, "placeholder") ?? "Select…";
   const def = dropdownDefaultValue(node);
   // 03 §3.3: each <option> is a selectable choice → data-lg-choice. A dropdown
@@ -2202,6 +2284,9 @@ export function renderSearchableDropdownQuestion(
   ctx?: LeadgenSectionRenderCtx,
   slot = "",
 ): string {
+  // F18: a "Vehicle database" dropdown renders its own markup (null ⇒ typed choices, unchanged).
+  const vehicle = renderVehicleQuestion(node, design, ctx, slot);
+  if (vehicle !== null) return vehicle;
   const placeholder = propStr(node, "placeholder") ?? "Select…";
   // §5.5 (FIX 8b): the SAME props.default semantics as DropdownQuestion — the
   // two dropdown shapes may never disagree on what a default means.
@@ -2241,6 +2326,302 @@ export function renderSearchableDropdownQuestion(
     // to match DropdownQuestion exactly ("" when unauthored — byte-additive).
     fieldHelperLine(node)
   );
+}
+
+// ---------------------------------------------------------------------------
+// F18 Vehicle database — "Source: Vehicle database" questions (backlog F18,
+// Section 3 part E, Section 4 "Visitor pages", owner decisions Q5–Q11)
+// ---------------------------------------------------------------------------
+//
+// A Buttons / Cards / Dropdown question whose props say choice_source
+// "vehicle" (leadgen/vehicles/props.ts readVehicleSource) takes its choices
+// from the live vehicle list (ctx.vehicle, loaded by the caller with
+// loadVehicleRenderData) instead of its typed `choices`. The typed choices stay
+// stored on the node (switching back in the Studio restores them) but are never
+// read here. Every other node never reaches this code (renderVehicleQuestion
+// returns null), so it renders byte-identically.
+//
+// MARKUP CONTRACT (read by runtime/vehicle.ts; Studio and answer checks match it):
+//   the question root (the element hydration() stamps with data-lg-question /
+//   data-lg-field) also carries
+//     data-lg-vehicle="make|year|model"
+//     data-lg-vmake="<Make field>"   Year / Model: the Make answer it depends on
+//     data-lg-vyear="<Year field>"   Model: the Year answer it depends on
+//     data-lg-vcards="<N>"           Year on Buttons / Cards: newest N years as cards
+//     data-lg-vlogos                 Make on Icon / Image cards: the logo grid
+//   and holds
+//     [data-lg-vslot]                Year on Buttons / Cards: the N card / button
+//                                    slots, hidden and value-less until the engine
+//                                    fills them from the picked make's file
+//     [data-lg-other-trigger] + select[data-lg-other-panel]
+//                                    the existing "Other" pair — Make: every other
+//                                    make A→Z; Year: the older years, newest first
+//     select[data-lg-input]          Dropdown kinds and every Model: the options
+//     input[data-lg-vtext]           the typed-answer box (owner decision Q6),
+//                                    saving to the same field; hidden while
+//                                    choices show
+//     button[data-lg-vgo]            "Go to next" Sections only: the box's own
+//                                    Continue, shown and hidden with the box
+//     [data-lg-searchable] + input[data-lg-dropdown-search]
+//                                    Make on Buttons / Cards: the root, and the
+//                                    hidden "Search makes…" box shown when
+//                                    "Other make" opens
+// Saved values: Make = the make_id as a string ("448"), Year = the model year
+// (the engine stores a number), Model = the model_id ("m_…").
+// Make choices are in the page HTML (speed rule P2); Year and Model are filled
+// in the browser from ONE lookup per picked make (P3). With no readable list
+// (ctx.vehicle absent / null) every vehicle question renders the typed-answer
+// box only, so the page never breaks (P7).
+
+// The per-renderer hooks renderVehicleQuestion hands renderButtonAnswerGroup /
+// renderCardGrid: extra attributes on the root, on every choice button and on
+// the "Other" trigger, markup just before the "Other" <select> (`pre`, the
+// "Other make" search box), markup appended inside the root, and the card
+// picture.
+interface VehicleRenderHook {
+  root: string;
+  item?: string;
+  other: string;
+  pre?: string;
+  tail: string;
+  media?: (c: LeadgenChoice) => string;
+}
+
+const VEHICLE_TEXT_PLACEHOLDER: Record<VehicleSourceConfig["asks"], string> = {
+  make: "Type your car's make",
+  year: "Type your car's year",
+  model: "Type your car's model",
+};
+
+// The typed-answer box (Q6): a short text box saving to the question's own
+// field (its data-lg-input records through the root's data-lg-field). In a
+// "Go to next" Section (continue_mode auto_advance — no Continue button, and
+// typing never advances) it gets its own Continue: the funnel's primary
+// button (.lg-btn.lg-continue, so it follows the theme), shown and hidden with
+// the box by the engine (runtime/vehicle.ts [data-lg-vgo]); a tap runs the
+// normal Continue (validation, then the next page). Any other Section: the box
+// alone.
+function vehicleTextInput(
+  asks: VehicleSourceConfig["asks"],
+  hidden: boolean,
+  design: DefaultFunnelDesign,
+  ctx: LeadgenSectionRenderCtx | undefined,
+): string {
+  const ph = esc(VEHICLE_TEXT_PLACEHOLDER[asks]);
+  const h = hidden ? " hidden" : "";
+  return (
+    `<input class="lg-input lg-vehicle-text" type="text" data-lg-input data-lg-vtext` +
+    ` maxlength="${VEHICLE_TYPED_ANSWER_MAX}" placeholder="${ph}" aria-label="${ph}" autocomplete="off"${h}>` +
+    (ctx?.continue_mode === "auto_advance"
+      ? `<button type="button" class="lg-btn lg-continue" data-lg-vgo${buttonStyleAttrs(design, { fill: true })}${h}>` +
+        `<span class="lg-btn-label">Continue</span></button>`
+      : "")
+  );
+}
+
+// The Studio sample make's display name (Toyota), "" without a sample.
+function vehicleSampleName(data: VehicleRenderData): string {
+  const sample = data.sample;
+  return sample === null ? "" : (data.makes.find((m) => m.make_id === sample.make_id)?.name ?? "Toyota");
+}
+
+function vehicleChoice(label: string, value: string): LeadgenChoice {
+  return { label, value, analytics_id: "" };
+}
+
+// The node the normal renderers see: the vehicle setting, any typed "Other"
+// list and the typed default are dropped (Q7 hides "Default answer"), and the
+// choices / "Other" list are the vehicle ones.
+function vehicleBaseNode(
+  node: LeadgenComponentNode,
+  choices: LeadgenChoice[],
+  other?: { label: string; choices: LeadgenChoice[] },
+): LeadgenComponentNode {
+  const props: Record<string, unknown> = { ...(node.props ?? {}) };
+  for (const key of ["choice_source", "other", "defaultValue", "default"]) delete props[key];
+  if (other !== undefined) props["other"] = { enabled: true, label: other.label, choices: other.choices };
+  return { ...node, props, choices };
+}
+
+// A make's logo (Q11): small resized pictures through the same /cdn-cgi/image
+// path responsiveImg uses (1× and 2× of a 40px-tall box), with a fixed
+// width/height so the card never jumps while it loads. alt="" — the make's
+// name is printed right under it. Off-site addresses get the bare <img>.
+function vehicleLogoImg(url: string, eager: boolean): string {
+  const sameOrigin = url.startsWith("/") && !url.startsWith("//");
+  const at = (h: number): string => cfTransform(url, `height=${h},fit=scale-down,format=auto`);
+  return (
+    `<img class="lg-card-logo" src="${esc(url)}"` +
+    (sameOrigin ? ` srcset="${esc(`${at(40)} 1x, ${at(80)} 2x`)}"` : "") +
+    ` alt="" width="80" height="40" loading="${eager ? "eager" : "lazy"}" decoding="async">`
+  );
+}
+
+// Dropdown-shaped vehicle questions (Dropdown / Searchable dropdown, and every
+// Model): a wrapper carrying the hydration attributes (so the typed-answer box
+// beside the <select> records to the same field), the optional search box, the
+// <select> and the typed-answer box.
+function renderVehicleDropdown(
+  node: LeadgenComponentNode,
+  design: DefaultFunnelDesign,
+  ctx: LeadgenSectionRenderCtx | undefined,
+  slot: string,
+  root: string,
+  options: readonly LeadgenChoice[],
+  searchable: boolean,
+  text: string,
+  note: string,
+): string {
+  const placeholder = propStr(node, "placeholder") ?? "Select…";
+  return (
+    labelLine(node) +
+    `<div class="${searchable ? "lg-searchable-dropdown" : "lg-vehicle-dropdown"}"${hydration(node)}${root}${searchable ? " data-lg-searchable" : ""}>` +
+    (searchable
+      ? `<input class="lg-input lg-dropdown-search" type="text" data-lg-dropdown-search placeholder="Search…" aria-label="Search options">`
+      : "") +
+    `<select class="lg-input lg-dropdown" data-lg-input${fieldStyleAttr(node, design, ctx)}>` +
+    `<option value="" disabled selected>${esc(placeholder)}</option>` +
+    options.map((c) => `<option value="${esc(c.value)}">${esc(c.label)}</option>`).join("") +
+    `</select>` +
+    text +
+    slot +
+    `</div>` +
+    note +
+    fieldHelperLine(node)
+  );
+}
+
+// The vehicle render of a Buttons / Cards / Dropdown node, or null when the
+// node uses typed choices (the caller then renders exactly as before F18).
+function renderVehicleQuestion(
+  node: LeadgenComponentNode,
+  design: DefaultFunnelDesign,
+  ctx: LeadgenSectionRenderCtx | undefined,
+  slot: string,
+): string | null {
+  const cfg = readVehicleSource(node.type, node.props);
+  if (cfg === null) return null;
+  const data = ctx?.vehicle ?? null;
+  const root =
+    attr("data-lg-vehicle", cfg.asks) + attr("data-lg-vmake", cfg.make_field) + attr("data-lg-vyear", cfg.year_field);
+  // No readable list: the typed-answer box only (P7, Q6).
+  if (data === null) {
+    return (
+      labelLine(node) +
+      `<div class="lg-vehicle"${hydration(node)}${root}>${vehicleTextInput(cfg.asks, false, design, ctx)}${slot}</div>` +
+      fieldHelperLine(node)
+    );
+  }
+  const cards = VEHICLE_CARD_TYPES.has(node.type);
+  const cardKind = node.type === "ImageCardAnswerGrid" ? "image" : "icon";
+
+  if (cfg.asks === "make") {
+    const all = data.makes.map((m) => vehicleChoice(m.name, String(m.make_id)));
+    if (!cards) return renderVehicleDropdown(node, design, ctx, slot, root, all, node.type === "SearchableDropdownQuestion", "", "");
+    // Q8/Q10: the featured makes as cards, in the operator's order (the Q8
+    // default set when none is picked); a featured make missing from this
+    // snapshot is dropped. Every other make sits under "Other", A→Z.
+    const byId = new Map(data.makes.map((m) => [m.make_id, m] as const));
+    const featured = (cfg.featured_makes.length > 0 ? cfg.featured_makes : data.default_featured)
+      .map((id) => byId.get(id))
+      .filter((m): m is NonNullable<typeof m> => m !== undefined);
+    const featuredIds = new Set(featured.map((m) => m.make_id));
+    const base = vehicleBaseNode(
+      node,
+      featured.map((m) => vehicleChoice(m.name, String(m.make_id))),
+      { label: cfg.other_label, choices: data.makes.filter((m) => !featuredIds.has(m.make_id)).map((m) => vehicleChoice(m.name, String(m.make_id))) },
+    );
+    // The "Other make" list opens with a search box above it (the approved
+    // mock-up): the runtime's generic Searchable filter ([data-lg-searchable]
+    // on the root → its one <select>, the "Other make" list) narrows it, and
+    // opening the list shows the box (render.ts openOtherPanel).
+    const makeHook = {
+      root: `${root} data-lg-searchable`,
+      other: "",
+      pre: `<input class="lg-input lg-dropdown-search" type="text" data-lg-dropdown-search placeholder="Search makes…" aria-label="Search makes" hidden>`,
+      tail: "",
+    };
+    if (!VEHICLE_LOGO_CARD_TYPES.has(node.type)) return renderButtonAnswerGroup(base, design, ctx, slot, makeHook);
+    // Logo cards: 4 per row on desktop unless the operator (or the Section)
+    // set the card columns; 2 per row on a phone (vehicleQuestionCss).
+    if ((ovNum(node, "columns") ?? propNum(node, "columns") ?? sectionColumnsDefault(ctx)) === undefined) {
+      (base.props as Record<string, unknown>)["columns"] = 4;
+    }
+    const slugById = new Map(featured.map((m) => [String(m.make_id), m.slug] as const));
+    const eager = ctx?.first_page === true;
+    return renderCardGrid(base, design, cardKind, ctx, slot, {
+      ...makeHook,
+      root: `${makeHook.root} data-lg-vlogos`,
+      media: (c) => {
+        const url = data.logos[slugById.get(String(c.value)) ?? ""];
+        return typeof url === "string" && url !== "" ? vehicleLogoImg(url, eager) : "";
+      },
+    });
+  }
+
+  // Year / Model: no choices in the page — the engine fills them from the
+  // picked make's file. The Studio canvas / preview passes a sample make
+  // (data.sample, Toyota) so the operator sees real choices, with a note.
+  const text = vehicleTextInput(cfg.asks, true, design, ctx);
+  const sample = data.sample;
+  const sampleName = vehicleSampleName(data);
+  const note =
+    sample === null
+      ? ""
+      : `<div class="lg-field-help lg-vehicle-sample" style="font-size:12.5px;color:#96A0AF;margin-top:7px;padding-left:2px">` +
+        `Sample: ${esc(sampleName)}. Visitors see the make they picked.</div>`;
+
+  if (cfg.asks === "model") {
+    // Q10: Model is always one list (a searchable dropdown unless the
+    // component is a plain Dropdown) — A→Z models of the picked year.
+    const newest = sample?.years[0]?.year;
+    const models =
+      sample === null || newest === undefined
+        ? []
+        : modelsForYear(sample, newest).map((m) => vehicleChoice(m.name, m.model_id));
+    return renderVehicleDropdown(node, design, ctx, slot, root, models, node.type !== "DropdownQuestion", text, note);
+  }
+
+  // Year (newest first).
+  const years = sample === null ? null : sample.years.map((y) => String(y.year));
+  if (!cards) {
+    return renderVehicleDropdown(
+      node, design, ctx, slot, root,
+      (years ?? []).map((y) => vehicleChoice(y, y)),
+      node.type === "SearchableDropdownQuestion", text, note,
+    );
+  }
+  // Buttons / Cards: the newest N years as card slots, the rest under "Older
+  // year" (Q10). Without a sample the slots and the "Other" card stay hidden
+  // and value-less until the engine fills them.
+  const n = cfg.year_cards;
+  const older = years === null ? [] : years.slice(n);
+  const base = vehicleBaseNode(
+    node,
+    years === null ? Array.from({ length: n }, () => vehicleChoice("", "")) : years.slice(0, n).map((y) => vehicleChoice(y, y)),
+    { label: cfg.other_label, choices: older.length > 0 ? older.map((y) => vehicleChoice(y, y)) : [vehicleChoice("", "")] },
+  );
+  const vh: VehicleRenderHook = {
+    root: root + attr("data-lg-vcards", n),
+    item: years === null ? " data-lg-vslot hidden" : " data-lg-vslot",
+    other: older.length > 0 ? "" : " hidden",
+    tail: text,
+  };
+  return (
+    (node.type === "ButtonAnswerGroup"
+      ? renderButtonAnswerGroup(base, design, ctx, slot, vh)
+      : renderCardGrid(base, design, cardKind, ctx, slot, { ...vh, media: () => "" })) + note
+  );
+}
+
+// The vehicle rules (styles.ts vehicleQuestionCss), emitted once per Section
+// render ONLY when the Section has a vehicle question — "" otherwise, so every
+// other Section keeps its exact bytes (the selectedMarkStyleBlock pattern).
+function vehicleStyleBlock(nodes: readonly LeadgenComponentNode[], design: DefaultFunnelDesign): string {
+  const any = flattenComponents(nodes).some(
+    (n) => typeof n === "object" && n !== null && readVehicleSource(n.type, n.props) !== null,
+  );
+  return any ? `<style>${vehicleQuestionCss(design)}</style>` : "";
 }
 
 // ---------------------------------------------------------------------------
@@ -5566,7 +5947,7 @@ export function renderSectionComponents(
   }
   // R2 P1 §① (owner A.1 #4 / probe 4a): "" for every section that never opts a
   // question into the ✓ marker — see selectedMarkStyleBlock.
-  return depth === 1 ? selectedMarkStyleBlock(nodes, design) + out : out;
+  return depth === 1 ? selectedMarkStyleBlock(nodes, design) + vehicleStyleBlock(nodes, design) + out : out;
 }
 
 // Dependency-filtered render (the admin preview's §12.3/§14.9 simulator): keep
@@ -5625,7 +6006,7 @@ export function renderSectionComponentsVisible(
   }
   // Same demand-driven ✓ block as renderSectionComponents (§12 parity: the two
   // surfaces must never disagree on the marker's styling).
-  return depth === 1 ? selectedMarkStyleBlock(nodes, design) + out : out;
+  return depth === 1 ? selectedMarkStyleBlock(nodes, design) + vehicleStyleBlock(nodes, design) + out : out;
 }
 
 // The visible-leaf walk renderSectionComponentsVisible drives — extracted so

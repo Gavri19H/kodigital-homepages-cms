@@ -25,8 +25,12 @@
 
 import {
   applyTransformPipeline,
+  attachVehicleAnswers,
   buildPayload,
+  readAnswerSendAs,
   type LeadgenAnswerBinding,
+  type LeadgenAnswerSendAs,
+  type LeadgenVehicleAnswerValue,
   LEADGEN_PAYLOAD_NODE_TYPES,
   type LeadgenPayloadNode,
   type LeadgenPayloadNodeType,
@@ -65,6 +69,8 @@ import {
   mapsJobsFor,
 } from "../public/leadgen/components/presets";
 import { deriveLocationFacet, type LeadgenLocationFacet } from "./maps";
+// F18 Vehicle database "Source" (pure; no I/O).
+import { readVehicleSource, vehicleSnapshotFieldOf } from "./vehicles/props";
 
 // ---------------------------------------------------------------------------
 // small local helpers (the validation.ts private idiom)
@@ -273,6 +279,8 @@ function selectedChoiceCalc(
 ): { date: string; offers: number[] | null } | undefined {
   const choices = (node as { choices?: unknown }).choices;
   if (!Array.isArray(choices)) return undefined;
+  // F18: a Vehicle database question's typed choices are kept but ignored.
+  if (readVehicleSource(node.type, node.props) !== null) return undefined;
   // Compared as strings: a saved value is authored as text ("2") while a
   // number-typed answer normalizes to 2, and the operator means the same choice.
   const key = typeof normalized === "string" ? normalized : String(normalized);
@@ -430,6 +438,27 @@ export function fieldsOf(
       hasDefault: false,
       defaultValue: undefined,
     }));
+  }
+
+  // F18 Vehicle database "Source": the answer is a database id (make_id,
+  // model year, model_id) or, when the year / model lookup failed, the
+  // visitor's typed text (owner decision Q6). There is no default answer
+  // (owner decision Q7: a stored typed-choice default is ignored, never
+  // applied). A Make question also records the snapshot the visitor was shown
+  // (spec L4) under `${internal_field}_snapshot`.
+  const vehicle = readVehicleSource(node.type, node.props);
+  if (vehicle !== null && isNonEmptyString(node.internal_field)) {
+    const own: FieldSpec = { field: node.internal_field, answerType, hasDefault: false, defaultValue: undefined };
+    if (vehicle.asks !== "make") return [own];
+    return [
+      own,
+      {
+        field: vehicleSnapshotFieldOf(node.internal_field),
+        answerType: "string",
+        hasDefault: false,
+        defaultValue: undefined,
+      },
+    ];
   }
 
   if (isNonEmptyString(node.internal_field)) {
@@ -768,6 +797,9 @@ export interface LeadgenAnswerMapping {
   // Enum domain (when the provider field is an enum) — membership is enforced
   // by buildPayload against valid_values.
   valid_values?: unknown[];
+  // F18 (owner decision Q4): "Send as" for a Vehicle database question
+  // ("name" default / "id"); null/absent = the default. Inert elsewhere.
+  send_as?: LeadgenAnswerSendAs | null;
 }
 
 // provider_expected_type → a payload node type. Unknown/absent falls to
@@ -813,6 +845,8 @@ export function answerMappingToBinding(mapping: LeadgenAnswerMapping): LeadgenAn
   }
   if (mapping.default_value !== undefined) binding.default = mapping.default_value;
   if (mapping.fallback_value !== undefined) binding.fallback = mapping.fallback_value;
+  const sendAs = readAnswerSendAs(mapping.send_as);
+  if (sendAs !== undefined) binding.send_as = sendAs;
   return binding;
 }
 
@@ -828,6 +862,10 @@ export function buildOfferPayload(
   // OPTIONAL so every existing caller is unchanged; absent ⇒ literals, exactly
   // as before.
   answerComputed?: Readonly<Record<string, string>>,
+  // F18 — this lead's resolved Vehicle database answers (vehicle-answers.ts
+  // resolveVehicleAnswerValues), keyed by internal_field. OPTIONAL: absent ⇒
+  // the stored answers are sent as they are, exactly as before.
+  vehicleValues?: Readonly<Record<string, LeadgenVehicleAnswerValue>>,
 ): Record<string, unknown> {
   const schema: LeadgenPayloadSchema = {
     version: 1,
@@ -841,7 +879,11 @@ export function buildOfferPayload(
     list.push(answerMappingToBinding(mapping));
     answer_bindings[mapping.offer_payload_field_path] = list;
   }
-  return buildPayload(schema, { answers: normalizedAnswers, answer_bindings, answer_computed: answerComputed });
+  return buildPayload(schema, {
+    answers: normalizedAnswers,
+    answer_bindings: attachVehicleAnswers(answer_bindings, vehicleValues),
+    answer_computed: answerComputed,
+  });
 }
 
 // Convenience end-to-end: raw UI answers + one Offer's maps → that Offer's

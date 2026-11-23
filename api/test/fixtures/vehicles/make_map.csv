@@ -1,0 +1,9 @@
+# Test fixture (not the real list): a few decisions over the saved real vPIC/EPA answers.
+vpic_make_id,display_name,include,epa_names,note
+448,Toyota,yes,SCION,Scion models are filed under Toyota in vPIC
+460,Ford,yes,,
+441,Tesla,yes,,
+452,BMW,yes,,N1 exception
+474,Honda,no,,excluded here only to test include=no
+2236,McLaren,yes,MCLAREN AUTOMOTIVE,EPA spells it differently
+,Ineos Automotive,no,INEOS AUTOMOTIVE,reviewed: test row without a vPIC id

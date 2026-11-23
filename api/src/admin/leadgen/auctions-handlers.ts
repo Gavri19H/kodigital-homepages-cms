@@ -18,7 +18,7 @@
 // carrier_match_json / field_map_json reuse the Stage-A `LeadgenCarrierMatch`
 // (auction-rules.ts) / `LeadgenBannerFieldMap` (banner-default/styles.ts).
 
-import { sampleAnswerComputed, sampleAnswerComputedByOffer } from "../../leadgen/sample-computed";
+import { sampleAnswerComputed, sampleAnswerComputedByOffer, sampleVehicleAnswers } from "../../leadgen/sample-computed";
 import { mintPublicId } from "../../leadgen/ids";
 import { conditionsHash, orGroupConditionError, parseWaterfallTiers } from "../../leadgen/auction-rules";
 import { ruleClockConditionError } from "../../leadgen/computed";
@@ -30,7 +30,7 @@ import {
 } from "../../leadgen/validation";
 import { resolveAllowedOutboundSecretReference } from "../../env";
 import { offerApiTokenSealed } from "../../leadgen/offer-api-token";
-import { buildPayload } from "../../leadgen/payload";
+import { attachVehicleAnswers, buildPayload } from "../../leadgen/payload";
 import { redactPii, REDACTED_VALUE } from "../../leadgen/redact";
 import { readAnswerBindings } from "../../leadgen/answer-bindings";
 import { buildLeadgenRuntimeContext } from "../../leadgen/runtime-context";
@@ -2208,6 +2208,13 @@ export async function auctionSimulateHandler(c: AdminContext): Promise<Response>
       c.env.DB,
       (rows.results ?? []).map((r) => r.offer_row_id),
     );
+    // F18 (owner decision Q4): the Vehicle database names production sends
+    // (the dry-run auction above expands them the same way inside runAuction).
+    const previewVehicle = await sampleVehicleAnswers(
+      c.env,
+      (rows.results ?? []).map((r) => r.offer_row_id),
+      sampleAnswers,
+    );
     for (const r of rows.results ?? []) {
       const placementForOffer = placementByOffer.get(r.offer_public_id) ?? "";
       // PROVIDER-FACING external placement id (04 §4.5) — never the lgpl_ public id.
@@ -2248,7 +2255,7 @@ export async function auctionSimulateHandler(c: AdminContext): Promise<Response>
           payloadPreview = redactPii(
             buildPayload(parsedSchema, {
               answers: sampleAnswers,
-              answer_bindings: previewBindings.get(r.offer_row_id) ?? {},
+              answer_bindings: attachVehicleAnswers(previewBindings.get(r.offer_row_id) ?? {}, previewVehicle),
               answer_computed: sampleComputedByOffer.get(r.offer_row_id) ?? sampleComputed,
               macros: offerCtx.macros,
               computed: offerCtx.computed,

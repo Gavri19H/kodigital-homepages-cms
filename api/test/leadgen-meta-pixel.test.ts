@@ -695,7 +695,7 @@ describe("2. funnel pixel — PageView on load, Lead once after the first answer
     // inside try/catch: no hook (or a non-function value) throws and is
     // swallowed, and the beacon still queues.
     expect(LEADGEN_RUNTIME_JS).toContain("globalThis.__lgOnEvent(");
-    expect(LEADGEN_RUNTIME_JS.length).toBeLessThanOrEqual(53376) // X09: owner raised the cap 53248 -> 53376 (2026-11-08);
+    expect(LEADGEN_RUNTIME_JS.length).toBeLessThanOrEqual(57344); // F18: owner raised the cap 53376 -> 57344 (56 KiB, 2026-11-23); X09 had raised 53248 -> 53376 (2026-11-08)
     // a non-function value is not a hook: the beacon still queues
     const g2 = globalThis as { __lgOnEvent?: unknown };
     try {

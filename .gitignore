@@ -35,3 +35,6 @@ npm-debug.log*
 # Mission scaffold runtime state (kept locally, not tracked)
 .a2z/mission-state/*/worktree/
 .ralph.lock
+
+# F18 vehicle list: raw vPIC / EPA answers saved by the yearly ingest (re-fetchable, large)
+api/scripts/vehicles/.source-cache/

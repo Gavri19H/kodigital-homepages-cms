@@ -25,8 +25,9 @@ export const QUESTION_SEL = "[data-lg-question]";
 
 // The `hidden`-attribute toggle every visibility function below performs —
 // one shared helper, ~6 call sites (byte trim; behavior-identical:
-// removeAttribute("hidden") / setAttribute("hidden","") verbatim).
-function toggleHidden(el: Element, visible: boolean): void {
+// removeAttribute("hidden") / setAttribute("hidden","") verbatim). Exported
+// for the F18 vehicle questions (vehicle.ts) — same helper, no second copy.
+export function toggleHidden(el: Element, visible: boolean): void {
   if (visible) el.removeAttribute("hidden");
   else el.setAttribute("hidden", "");
 }
@@ -302,6 +303,10 @@ export function openOtherPanel(triggerEl: Element): HTMLElement | null {
   const panel = scope.querySelector("[data-lg-other-panel]");
   if (panel === null || !(panel instanceof HTMLElement)) return null;
   toggleHidden(panel, true);
+  // F18: a vehicle Make's "Other make" list opens with its "Search makes…"
+  // box (presets.ts); no other question has a search box beside an "Other".
+  const box = scope.querySelector("[data-lg-dropdown-search]");
+  if (box !== null) toggleHidden(box, true);
   triggerEl.setAttribute("aria-expanded", "true");
   return panel;
 }

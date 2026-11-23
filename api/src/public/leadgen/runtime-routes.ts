@@ -42,6 +42,7 @@ import {
   type ConfigTokenTuple,
 } from "./attempt";
 import { computeSectionOrderHash, parseSectionComponents } from "./config-dto";
+import { readVehicleSource, vehicleSnapshotFieldOf } from "../../leadgen/vehicles/props";
 import {
   resolveActivatedFunnelByVariant,
   parseUtmFromLandingUrl,
@@ -294,12 +295,20 @@ function requestEntryCtx(c: PublicContext, landingUrl: string, now: number): Ent
 // in this known-field set exactly like a top-level field (still no layout-
 // container descent — checkpoint rules stay scoped to real answer fields,
 // same as before this fix).
+// F18: a Vehicle database Make question also records
+// `${internal_field}_snapshot` (spec L4), so that one extra key is known here
+// too. Deliberately ONLY that key: other sub-fields (Address, Name, sliders)
+// keep today's checkpoint behaviour.
 export function checkpointKnownFields(current: ResolvedActivatedFunnel): ReadonlySet<string> {
   const known = new Set<string>();
   for (const s of current.sections) {
     for (const node of parseSectionComponents(s.section.content_json ?? "")) {
       for (const comp of expandWithGridChildren(node)) {
         if (comp.internal_field !== undefined && comp.internal_field !== "") known.add(comp.internal_field);
+        if (comp.internal_field !== undefined && comp.internal_field !== "") {
+          const vehicle = readVehicleSource(String(comp.type), (comp as { props?: unknown }).props);
+          if (vehicle !== null && vehicle.asks === "make") known.add(vehicleSnapshotFieldOf(comp.internal_field));
+        }
       }
     }
   }

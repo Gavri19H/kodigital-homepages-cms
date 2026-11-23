@@ -101,6 +101,9 @@ import {
   type LeadgenSectionRenderCtx,
 } from "./components/presets";
 import type { LeadgenComponentNode } from "./components/content-schema";
+// F18 Vehicle database: the live vehicle list for "Vehicle database" questions
+// (read on the cold path only; nothing is read for a funnel without one).
+import { hasVehicleQuestions, loadVehicleRenderData, type VehicleRenderData } from "../../leadgen/vehicles/store";
 import { CLICKOUT_META_DATASET_RE } from "../../leadgen/clickout-meta";
 import { metaKeyForFieldName } from "../../leadgen/meta-hash";
 // v2.5 redesign §13.3 composition swap: `frame_config_json` NULL → the
@@ -972,11 +975,18 @@ export async function resolveThemeRecordFor(env: Env, source: LeadgenFrameSource
 // DEFAULT_SIZE_THEME_CONTROLS constant — this was the dead-deliverable gap
 // (resolveTokens computed theme_controls but no production caller threaded
 // it into LeadgenSectionRenderCtx).
+// F18 (ADDITIVE 5th param): the live vehicle list (loadVehicleRenderData) for
+// "Vehicle database" questions — threaded into EVERY section's ctx.vehicle.
+// Absent / null ⇒ no vehicle question here or the list is unreadable (vehicle
+// questions then render their typed-answer box); every other node renders
+// byte-identically either way. The first Section (the one visible on load) is
+// marked ctx.first_page so its Make logos load eagerly.
 export function renderVariantSectionsHtml(
   sections: readonly ResolvedFunnelSection[],
   design: FunnelDesign | EffectiveFunnelDesign,
   frame: EffectiveFrameConfig | null,
   themeControls?: ThemeRecordControls,
+  vehicle?: VehicleRenderData | null,
 ): string {
   const presetDesign = design as FunnelDesign;
   return sections
@@ -1016,6 +1026,10 @@ export function renderVariantSectionsHtml(
       }
       if (themeControls !== undefined) {
         ctx.theme_controls = themeControls;
+      }
+      if (vehicle !== undefined && vehicle !== null) {
+        ctx.vehicle = vehicle;
+        if (i === 0) ctx.first_page = true;
       }
       const label = `${String(i + 1).padStart(2, "0")} · ${rs.section.headline_text}`;
       return (
@@ -1080,6 +1094,11 @@ function renderFunnelShell(
   // X14 v2: the site's own host, for the share picture's full address (the
   // shell is cached per site, so it is constant per cache entry).
   siteHostname: string | null = null,
+  // F18: the live vehicle list (pre-resolved by the caller, cold path only —
+  // this function stays synchronous). null ⇒ no vehicle question, or the list
+  // is unreadable: the sections render their typed-answer box and the config
+  // carries no `vehicle` key.
+  vehicle: VehicleRenderData | null = null,
 ): string {
   const funnelId = toFunnelId(resolved.funnel.public_id);
   const funnelVariantId = toFunnelVariantId(resolved.variant.public_id);
@@ -1111,6 +1130,7 @@ function renderFunnelShell(
     effectiveDesign,
     composition === null ? null : composition.frame,
     composition === null ? undefined : composition.effectiveTokens.theme_controls,
+    vehicle,
   );
 
   // (b) the SAME LeadgenPublicConfig JSON /lg/config serves, baked in-request
@@ -1118,7 +1138,7 @@ function renderFunnelShell(
   // renders with, 09 §9.2). `<` → < (the injectAssignment pattern) so an
   // authored value can never forge </script> out of the JSON block.
   const configJson = JSON.stringify(
-    buildPublicConfig(resolved, effectiveDesign, answerMapVersions),
+    buildPublicConfig(resolved, effectiveDesign, answerMapVersions, vehicle === null ? null : vehicle.snapshot),
   ).replace(/</g, "\\u003c");
 
   // The full body inside #lg-funnel-root: legacy = the pinned 1:1 mirror of
@@ -1294,6 +1314,7 @@ export async function serveFunnelShell(
   }
 
   let pristine: string;
+  let vehicleDegraded = false;
   const cached = await getCachedHtml(c.env, key);
   if (cached !== null) {
     pristine = cached.body;
@@ -1335,11 +1356,29 @@ export async function serveFunnelShell(
       variant_id: resolved.variant.public_id,
     };
     if (metaPixel.funnel_pixel_id !== null || metaPixel.click_events) metaPixel.fields = metaMatchFieldMap(resolved);
-    pristine = renderFunnelShell(resolved, design, answerMapVersions, themeRecord, savedTemplateDefaults, metaPixel, siteContext.hostname);
+    // F18 Vehicle database — cold path only, like every read above: the live
+    // vehicle list for this funnel's "Vehicle database" questions. ONE call for
+    // all its Sections; it returns null and reads NOTHING when no Section has a
+    // vehicle question, so every other funnel pays nothing. Fail-open: any read
+    // failure renders the typed-answer box (the page never breaks, P7).
+    // Deliberately NOT part of the shell key / ETag (technical decision, F18):
+    // keying on the snapshot would need an R2 read on every funnel request; the
+    // 5-minute shell TTL picks up a new snapshot, and the old snapshot's files
+    // stay readable for 30+ days, so a cached page never points at a missing
+    // lookup.
+    const pageNodes = resolved.sections.flatMap((rs) =>
+      parseSectionComponents(typeof rs.section.content_json === "string" ? rs.section.content_json : ""),
+    );
+    const vehicle = await loadVehicleRenderData(c.env, pageNodes).catch(() => null);
+    // A funnel WITH vehicle questions rendered WITHOUT the list (a failed or
+    // missing read) is degraded: its Make / Year / Model are text boxes. It is
+    // served, never cached (KV, edge or browser), so the next request retries.
+    vehicleDegraded = vehicle === null && hasVehicleQuestions(pageNodes);
+    pristine = renderFunnelShell(resolved, design, answerMapVersions, themeRecord, savedTemplateDefaults, metaPixel, siteContext.hostname, vehicle);
     const ttl = parseNumber(c.env.HTML_CACHE_TTL_SECONDS, DEFAULT_TTL_SECONDS);
     // Write-through stores the PRISTINE shell (visitor-invariant: no Maps key,
     // no per-session assignment dims — only the sentinels).
-    await putCachedHtml(c.env, key, pristine, { expirationTtl: ttl, etag });
+    if (!vehicleDegraded) await putCachedHtml(c.env, key, pristine, { expirationTtl: ttl, etag });
   }
 
   // Per-request injections on the RESPONSE stream only (never cached): the Maps
@@ -1347,7 +1386,15 @@ export async function serveFunnelShell(
   // deliberately null on this public shell — the client recomputes it, m1).
   let body = injectMapsKey(pristine, resolved, c.env);
   body = injectAssignment(body, resolved.assignment, toFunnelVariantId(resolved.variant.public_id));
-  return new Response(body, { status: 200, headers: withSession(publicHtmlCacheHeaders({ etag })) });
+  const headers = withSession(publicHtmlCacheHeaders({ etag }));
+  if (vehicleDegraded) {
+    // F18: never let a browser or the CDN keep the degraded (text-box) page.
+    const h = new Headers(headers);
+    h.set("Cache-Control", "no-store");
+    h.delete("ETag");
+    return new Response(body, { status: 200, headers: h });
+  }
+  return new Response(body, { status: 200, headers });
 }
 
 // GET /lg/config/:funnel_variant_id — the cacheable public client config

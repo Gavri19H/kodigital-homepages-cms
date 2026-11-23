@@ -236,7 +236,13 @@ export function listicleCandidateKey(
 // v13 (2026-11-22, X14 v2): the SHELL <head> gains the site's tab icon, phone
 // icon, browser color and the logo share picture; the site logo follows the
 // one logo rule. Shell markup changes; the visitor bundle is unchanged.
-export const LEADGEN_TEMPLATE_VERSION = 13 as const;
+// v14 (23 Nov 2026, F18 vehicle database): the visitor bundle gains the
+// Make → Year → Model lookups (one fetch per picked make, the 1-second
+// typed-answer fallback, refill after a reload) and a working search box for
+// the Searchable dropdown; the shell config gains the live vehicle snapshot.
+// Runtime bytes change, so the immutable /lg/runtime/{v}.js URL must move;
+// runtime "14" tracks it.
+export const LEADGEN_TEMPLATE_VERSION = 14 as const;
 
 const NS_LG_SHELL = "lg-shell";
 const NS_LG_CONFIG = "lg-config";
