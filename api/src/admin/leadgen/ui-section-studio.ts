@@ -1068,6 +1068,9 @@ export function renderStudioSettings(view: StudioSectionView, mapsKeyConfigured:
       <svg width="14" height="14" viewBox="0 0 24 24" fill="none" style="flex:0 0 auto"><path d="M4 7l8 5 8-5" stroke="${STUDIO_COLOR.hintIconStroke}" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"/><path d="M12 12v0" stroke="${STUDIO_COLOR.hintIconStroke}" stroke-width="1.8"/><path d="M4 6v8" stroke="${STUDIO_COLOR.hintIconStroke}" stroke-width="1.8" stroke-linecap="round"/></svg>
       Also shown on the canvas &#8212; edit in either place.
     </div>
+    <!-- F18 headline names: shown by the island (renderVehicleHeadlineTip) only
+         while this Section has a Vehicle database Year or Model question. -->
+    <p class="form-help" data-vehicle-headline-tip hidden style="flex-basis:100%;margin:0;font-size:11.5px;color:${STUDIO_COLOR.mutedLabel}">Tip: write {make} or {year} to show the visitor&#8217;s answer, for example &#8220;What year is your {make}?&#8221;</p>
     <!-- R5 D2 (register S4-A2): the legacy global Maps/validation fieldset is
          REMOVED — safe post-R4b (S3-8: both readers migrated to per-field
          precedence, proven in both the single- and mixed-multi-section
@@ -4842,6 +4845,7 @@ export const SECTION_STUDIO_SCRIPT = `
     updatePaletteBindItems();
     renderBindBanner();
     updateHistoryButtons();
+    if (typeof renderVehicleHeadlineTip !== 'undefined') { renderVehicleHeadlineTip(); }
     scheduleCanvasRender();
     selectComponent(selectedQuestionId);
     // the mapping came back too: repaint every surface that reads it
@@ -7504,6 +7508,8 @@ export const SECTION_STUDIO_SCRIPT = `
     // probes that never declare applyContinueModeEligibility (a bare reference
     // would throw ReferenceError there, for a concern outside what they test).
     if (typeof applyContinueModeEligibility !== 'undefined') { applyContinueModeEligibility(); }
+    // F18: the {make} / {year} headline tip follows the Section's questions.
+    if (typeof renderVehicleHeadlineTip !== 'undefined') { renderVehicleHeadlineTip(); }
     scheduleCanvasRender();
   }
 
@@ -11628,6 +11634,19 @@ export const SECTION_STUDIO_SCRIPT = `
     if ((asks === 'year' || asks === 'model') && (vehicleUi.links === null || vehicleUi.linksFor !== (state.public_id || null))) {
       loadVehicleLinkFields(function () { var cur = selectedNode(); if (isVehicleSourceNode(cur)) { populateVehicleSource(cur); } });
     }
+  }
+  // Headline names (owner decision 23 Nov): the funnel replaces {make} and
+  // {year} in the Section headline / subheadline with the visitor's answers,
+  // so the tip under them shows while this Section has a Year or Model question.
+  function renderVehicleHeadlineTip() {
+    var tip = document.querySelector('[data-vehicle-headline-tip]');
+    if (!tip) { return; }
+    var show = false;
+    walkTree(state.content.components, 1, function (n) {
+      var asks = isVehicleSourceNode(n) ? vehicleAsksOf(n) : null;
+      if (asks === 'year' || asks === 'model') { show = true; }
+    });
+    tip.hidden = !show;
   }
   // Offers tab: a vehicle Make / Model answer is sent by name by default
   // ("Toyota", "Corolla"); "ID" sends its vehicle database ID instead. The
@@ -18592,10 +18611,12 @@ export const SECTION_STUDIO_SCRIPT = `
   // Mirror of sections.ts closedAnswerValues — a choice-bearing question's
   // authored saved values, or null when the answer is open-ended.
   function closedAnswerValuesOf(node) {
-    // F18: a vehicle database answer is open-ended text (a make or model
-    // name) except Year, which is always a 4-digit number.
-    if (node && node.props && node.props.choice_source === 'vehicle' && typeof isVehicleSourceNode === 'function' && isVehicleSourceNode(node)) {
-      return node.props.vehicle_asks === 'year' ? ['2024'] : null;
+    // F18: a Vehicle database question's typed choices are kept but ignored
+    // (sections.ts closedAnswerValues) — what it sends is judged per mapping
+    // by vehicleAnswerValuesOf instead.
+    if (node && node.props && node.props.choice_source === 'vehicle' && typeof isVehicleSourceNode === 'function' &&
+        isVehicleSourceNode(node) && vehicleAsksOf(node) !== null) {
+      return null;
     }
     if (!node || !node.choices || !node.choices.length) { return null; }
     var out = [], i, v;
@@ -18605,6 +18626,19 @@ export const SECTION_STUDIO_SCRIPT = `
       out.push(v);
     }
     return out;
+  }
+  // F18 mirror of sections.ts vehicleAnswerValues (owner decision Q4): one
+  // value per SHAPE a Vehicle database answer sends on this mapping — the year
+  // is a number; Make / Model send the name (text), and "Send as: ID" sends
+  // the make_id (a whole number) or the model_id (text). null = not a vehicle
+  // question (its typed choices decide, as before).
+  function vehicleAnswerValuesOf(node, sendAs) {
+    if (typeof isVehicleSourceNode !== 'function' || !isVehicleSourceNode(node)) { return null; }
+    var asks = vehicleAsksOf(node);
+    if (asks === 'year') { return ['2023']; }
+    if (asks === 'make') { return sendAs === 'id' ? ['448'] : ['Toyota']; }
+    if (asks === 'model') { return sendAs === 'id' ? ['m_0123456789'] : ['Corolla']; }
+    return null;
   }
   function coercibleTo(answerType, nodeType, answerValues) {
     if (nodeType === 'string' || nodeType === 'enum') { return true; }
@@ -18633,7 +18667,11 @@ export const SECTION_STUDIO_SCRIPT = `
     // but the answer is still a LIST — only a text field (comma-joined) or a
     // list field takes it. Mirror of sections.ts mappingCompleteness.
     if (!hasTransform && answerNodeType(edge.answer_type) === 'array' && field.type !== 'string' && field.type !== 'array') { return 'type_mismatch'; }
-    var values = closedAnswerValuesOf(questionByField(edge.internal_field));
+    // sections.ts edgeAnswerValues: a vehicle question is judged by what THIS
+    // mapping sends ("Send as"), every other question by its typed choices.
+    var mappedNode = questionByField(edge.internal_field);
+    var values = typeof vehicleAnswerValuesOf === 'function' ? vehicleAnswerValuesOf(mappedNode, edge.send_as) : null;
+    if (values === null) { values = closedAnswerValuesOf(mappedNode); }
     if (!hasMap && !hasTransform && !coercibleTo(edge.answer_type, field.type, values)) { return 'type_mismatch'; }
     if (edge.required_for_offer === true && trimStr(edge.internal_field) === '') { return 'missing_required'; }
     return 'complete';
@@ -18789,6 +18827,15 @@ export const SECTION_STUDIO_SCRIPT = `
       // ones that don't fit so the fix is "change this value", not a guess.
       // (Owner 2026-08-23: he had already set the saved values to 1 / 0 and the
       // old line still told him to pick another field.)
+      // F18: a Vehicle database answer has no saved values to change — say
+      // what does fit (a make sent as its ID is a whole number).
+      var vehicleNode = edge ? questionByField(edge.internal_field) : null;
+      if (typeof isVehicleSourceNode === 'function' && isVehicleSourceNode(vehicleNode) && vehicleAsksOf(vehicleNode) !== null) {
+        if (vehicleAsksOf(vehicleNode) === 'make' && wantType === 'number' && edge.send_as !== 'id') {
+          return 'this buyer wants a number \u2014 set \u201cSend as\u201d to ID to send the make\u2019s ID number, or pick another field';
+        }
+        return 'this buyer wants ' + wants + ', which this vehicle answer can\u2019t send \u2014 pick another field';
+      }
       var answerNode = answerNodeType((edge && edge.answer_type) || 'string');
       var listy = answerNode === 'array' || answerNode === 'object';
       var values = listy ? null : closedAnswerValuesOf(questionByField(edge && edge.internal_field));
@@ -20544,6 +20591,7 @@ export const SECTION_STUDIO_SCRIPT = `
   historyReset();
   loadOffers();
   loadUsage();
+  renderVehicleHeadlineTip();
   loadThemesList();
   // R5 fix-link integration: /admin/leadgen/sections/:id/edit#mapping (the
   // quote activation preflight's "Open Section Mapping" link) opens the

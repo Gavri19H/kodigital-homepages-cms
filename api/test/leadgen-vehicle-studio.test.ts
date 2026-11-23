@@ -18,7 +18,7 @@ import { fileURLToPath } from "node:url";
 import { runInNewContext } from "node:vm";
 import admin from "../src/admin/router";
 import type { Env } from "../src/env";
-import { renderStudioInspector, SECTION_STUDIO_SCRIPT, studioTypeMeta } from "../src/admin/leadgen/ui-section-studio";
+import { renderStudioInspector, renderStudioSettings, SECTION_STUDIO_SCRIPT, studioTypeMeta } from "../src/admin/leadgen/ui-section-studio";
 import { resetVehicleStoreMemo } from "../src/leadgen/vehicles/store";
 import { defaultFunnelDesign } from "../src/public/leadgen/designs/default-funnel/tokens";
 import { miniDocument, MiniNode } from "./helpers/mini-dom";
@@ -892,12 +892,124 @@ describe("F18 island — Offers mapping 'Send as: Name / ID' (Q4)", () => {
     expect(yearLine.querySelector("[data-quickmap-sendas]")).toBeNull();
   });
 
-  it("closedAnswerValuesOf reads a vehicle Year as a number answer and Make / Model as open text, never the hidden typed rows", () => {
+  it("closedAnswerValuesOf ignores a vehicle question's hidden typed rows (sections.ts closedAnswerValues)", () => {
     const p = probe([{ ...MAKE, choices: [{ label: "A", value: "a" }] }]);
     expect(p.run("closedAnswerValuesOf(selectedNode())")).toBeNull();
     p.run("selectedNode().props.vehicle_asks = 'year'");
-    expect(p.run("closedAnswerValuesOf(selectedNode())")).toEqual(["2024"]);
+    expect(p.run("closedAnswerValuesOf(selectedNode())")).toBeNull();
     p.run("delete selectedNode().props.choice_source");
     expect(p.run("closedAnswerValuesOf(selectedNode())")).toEqual(["a"]);
+  });
+});
+
+// ---------------------------------------------------------------------------
+// Follow-up 1: the mapping check matches the server (sections.ts
+// vehicleAnswerValues / edgeAnswerValues / mappingCompleteness)
+// ---------------------------------------------------------------------------
+
+describe("F18 island — a vehicle mapping is judged by what it sends ('Send as')", () => {
+  const OFFER = {
+    id: 7,
+    has_active_schema: true,
+    answer_fields: [
+      { path: "car.make_number", type: "number" },
+      { path: "car.make_text", type: "string" },
+      { path: "car.is_new", type: "boolean" },
+    ],
+  };
+  function stateOf(asks: string, sendAs: string | null, path: string): { st: string; note: string } {
+    const node = { type: "DropdownQuestion", question_id: "q1", internal_field: "vehicle_x", answer_type: "enum", props: { choice_source: "vehicle", vehicle_asks: asks }, choices: [{ label: "One", value: "1" }] };
+    const p = probe([node]);
+    const field = OFFER.answer_fields.find((f) => f.path === path)!;
+    const src = [
+      "function answerFieldOf(o, path) { var i; for (i = 0; i < o.answer_fields.length; i++) { if (o.answer_fields[i].path === path) { return o.answer_fields[i]; } } return null; }",
+      "function plainTypeWords(f) { return f.type === 'number' ? 'number' : (f.type === 'boolean' ? 'yes or no' : 'text'); }",
+      ...["questionByField", "answerNodeType", "choiceValueCoercibleTo", "vehicleAnswerValuesOf", "coercibleTo", "edgeMapState", "mapStateNote"].map(sliceIslandFunction),
+    ].join("\n");
+    runInNewContext(src, p.sandbox);
+    p.sandbox["OFFER"] = OFFER;
+    p.sandbox["EDGE"] = {
+      internal_field: "vehicle_x",
+      answer_type: "enum",
+      offer_payload_field_path: path,
+      provider_expected_type: field.type,
+      ...(sendAs === null ? {} : { send_as: sendAs }),
+    };
+    const st = p.run("edgeMapState(EDGE, OFFER)") as string;
+    const note = p.run("mapStateNote(edgeMapState(EDGE, OFFER), answerFieldOf(OFFER, EDGE.offer_payload_field_path), OFFER, EDGE)") as string;
+    return { st, note };
+  }
+
+  it("Make sent as ID into a number field is complete; Make by name, Model by name or ID into a number field stay a mismatch", () => {
+    expect(stateOf("make", "id", "car.make_number").st).toBe("complete");
+    expect(stateOf("make", null, "car.make_number").st).toBe("type_mismatch");
+    expect(stateOf("model", "id", "car.make_number").st).toBe("type_mismatch");
+    // (the hidden typed row "1" would fit a number field — it is never what is judged)
+    expect(stateOf("model", null, "car.make_number").st).toBe("type_mismatch");
+    // the year is always a number; names fit a text field; nothing vehicle fits yes / no
+    expect(stateOf("year", null, "car.make_number").st).toBe("complete");
+    expect(stateOf("make", null, "car.make_text").st).toBe("complete");
+    expect(stateOf("make", "id", "car.is_new").st).toBe("type_mismatch");
+  });
+
+  it("the mismatch line names the vehicle fix, never the hidden Provider values", () => {
+    const byName = stateOf("make", null, "car.make_number").note;
+    expect(byName).toContain("set \u201cSend as\u201d to ID");
+    expect(byName).not.toContain("Provider values");
+    const model = stateOf("model", "id", "car.make_number").note;
+    expect(model).toBe("this buyer wants number, which this vehicle answer can\u2019t send \u2014 pick another field");
+  });
+});
+
+// ---------------------------------------------------------------------------
+// Follow-up 2: the {make} / {year} headline tip (owner decision, 23 Nov)
+// ---------------------------------------------------------------------------
+
+describe("F18 Studio — {make} / {year} headline tip", () => {
+  const VIEW = {
+    public_id: null,
+    section_name: "Car year",
+    status: "active",
+    activity: "quote_funnel",
+    vertical: "auto",
+    headline_text: "What year is your {make}?",
+    subheadline_text: null,
+    continue_mode: "button",
+    address_validation_enabled: false,
+    content: { components: [] },
+  };
+
+  it("the question strip carries the tip, hidden until the island shows it", () => {
+    const html = renderStudioSettings(VIEW as never, false);
+    expect(html).toMatch(
+      /<p class="form-help" data-vehicle-headline-tip hidden[^>]*>Tip: write \{make\} or \{year\} to show the visitor&#8217;s answer, for example &#8220;What year is your \{make\}\?&#8221;<\/p>/,
+    );
+    // it sits under the headline and subheadline inputs, inside the same form
+    const form = html.slice(html.indexOf('id="lg-section-form"'), html.indexOf("</form>"));
+    expect(form.indexOf("data-vehicle-headline-tip")).toBeGreaterThan(form.indexOf('id="lg-section-subheadline"'));
+  });
+
+  it("shows only while this Section has a Vehicle database Year or Model question, and follows every model change", () => {
+    const tipFor = (components: unknown[]): boolean => {
+      const doc = miniDocument(`<html><body>${renderStudioSettings(VIEW as never, false)}</body></html>`);
+      const sandbox: Record<string, unknown> = { document: doc, studioMeta: { types: studioTypeMeta() }, state: { content: { components } } };
+      const src = [
+        sliceIslandVar("VEHICLE_SOURCE_KINDS"),
+        ...["typeMeta", "isContainerType", "walkTree", "vehicleKindOf", "isVehicleSourceNode", "vehicleAsksOf", "renderVehicleHeadlineTip"].map(sliceIslandFunction),
+      ].join("\n");
+      runInNewContext(src, sandbox);
+      runInNewContext("renderVehicleHeadlineTip()", sandbox);
+      return !doc.querySelector("[data-vehicle-headline-tip]")!.hidden;
+    };
+    const v = (type: string, asks: string): Record<string, unknown> => ({ type, question_id: `q_${asks}`, props: { choice_source: "vehicle", vehicle_asks: asks } });
+    expect(tipFor([v("ButtonAnswerGroup", "year")])).toBe(true);
+    expect(tipFor([v("SearchableDropdownQuestion", "model")])).toBe(true);
+    expect(tipFor([v("IconCardAnswerGrid", "make")])).toBe(false);
+    expect(tipFor([{ type: "ButtonAnswerGroup", question_id: "q", props: { vehicle_asks: "year" } }])).toBe(false); // typed choices
+    expect(tipFor([])).toBe(false);
+    // refreshed on every edit, after Undo / Redo and when the page opens
+    expect(sliceIslandFunction("afterModelChange")).toContain("renderVehicleHeadlineTip();");
+    expect(sliceIslandFunction("refreshAfterHistory")).toContain("renderVehicleHeadlineTip();");
+    expect(SECTION_STUDIO_SCRIPT).toContain("  loadUsage();\n  renderVehicleHeadlineTip();\n");
   });
 });
