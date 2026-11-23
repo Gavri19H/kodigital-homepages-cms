@@ -118,8 +118,9 @@ export async function readLiveSnapshotId(env: VehicleStoreEnv, now: number = Dat
     }
   } catch (err) {
     console.warn("[vehicles] live pointer read failed", err instanceof Error ? err.message : "unknown");
-    // Keep serving the last known pointer through a short R2 hiccup.
-    if (liveMemo) return liveMemo.snapshot;
+    // Keep serving the last known pointer through a short R2 hiccup. A failed
+    // read is never remembered: the next call tries again.
+    return liveMemo ? liveMemo.snapshot : null;
   }
   liveMemo = { snapshot, at: now };
   return snapshot;
@@ -187,16 +188,7 @@ interface MinimalNode {
   props?: unknown;
 }
 
-/**
- * Load what the renderers need for the given components (already flattened or
- * not — containers are walked). Returns null — and reads nothing — when no
- * component uses the vehicle database, or when no snapshot is live / readable.
- */
-export async function loadVehicleRenderData(
-  env: VehicleStoreEnv & VehicleLogoEnv,
-  nodes: readonly unknown[],
-  opts: { sample?: boolean } = {},
-): Promise<VehicleRenderData | null> {
+function findVehicleNodes(nodes: readonly unknown[]): { type: string; asks: string }[] {
   const found: { type: string; asks: string }[] = [];
   const walk = (list: readonly unknown[], depth: number): void => {
     if (depth > 6) return;
@@ -210,6 +202,28 @@ export async function loadVehicleRenderData(
     }
   };
   walk(nodes, 0);
+  return found;
+}
+
+/** Does any of these components (containers walked) take its choices from the vehicle database? Pure. */
+export function hasVehicleQuestions(nodes: readonly unknown[]): boolean {
+  return findVehicleNodes(nodes).length > 0;
+}
+
+/**
+ * Load what the renderers need for the given components (already flattened or
+ * not — containers are walked). Returns null — and reads nothing — when no
+ * component uses the vehicle database, or when no snapshot is live / readable.
+ * A caller that caches what it renders must tell those apart
+ * (hasVehicleQuestions): a page rendered without the list because of a
+ * failed read is degraded and must not be cached.
+ */
+export async function loadVehicleRenderData(
+  env: VehicleStoreEnv & VehicleLogoEnv,
+  nodes: readonly unknown[],
+  opts: { sample?: boolean } = {},
+): Promise<VehicleRenderData | null> {
+  const found = findVehicleNodes(nodes);
   if (found.length === 0) return null;
 
   const snapshot = await readLiveSnapshotId(env);

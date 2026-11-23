@@ -153,6 +153,18 @@ describe("F18 answer keys — the Make question also records its snapshot", () =
     expect(known.has("vehicle_make_snapshot")).toBe(true);
     expect(known.has("vehicle_year")).toBe(true);
   });
+
+  it("/lg/ck learns ONLY the vehicle snapshot sub-field — other sub-fields keep today's behaviour (review fix)", () => {
+    // A two-handle slider records `${field}_min` / `${field}_max` (answers.ts
+    // fieldsOf), which /lg/ck has never known; F18 must not change that.
+    const range = { type: "NumberRangeQuestion", question_id: "q_budget", internal_field: "budget", props: { slider_type: "dual_range" } };
+    const resolved = {
+      sections: [{ position: 0, section: { content_json: JSON.stringify({ components: [MAKE, range] }) } }],
+    } as unknown as ResolvedActivatedFunnel;
+    const known = checkpointKnownFields(resolved);
+    expect(known.has("vehicle_make_snapshot")).toBe(true);
+    expect([...known].sort()).toEqual(["budget", "vehicle_make", "vehicle_make_snapshot"]);
+  });
 });
 
 // --- the server check before an Auction ------------------------------------------

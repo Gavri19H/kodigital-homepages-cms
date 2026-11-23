@@ -42,8 +42,7 @@ import {
   type ConfigTokenTuple,
 } from "./attempt";
 import { computeSectionOrderHash, parseSectionComponents } from "./config-dto";
-import { fieldsOf as answerFieldsOf } from "../../leadgen/answers";
-import type { LeadgenComponentNode } from "./components/content-schema";
+import { readVehicleSource, vehicleSnapshotFieldOf } from "../../leadgen/vehicles/props";
 import {
   resolveActivatedFunnelByVariant,
   parseUtmFromLandingUrl,
@@ -296,16 +295,20 @@ function requestEntryCtx(c: PublicContext, landingUrl: string, now: number): Ent
 // in this known-field set exactly like a top-level field (still no layout-
 // container descent — checkpoint rules stay scoped to real answer fields,
 // same as before this fix).
-// F18: each component's answer keys also come from answers.ts fieldsOf — THE
-// derivation of the keys a visitor records — so a sub-field such as a Vehicle
-// database Make question's `${internal_field}_snapshot` is known here too.
+// F18: a Vehicle database Make question also records
+// `${internal_field}_snapshot` (spec L4), so that one extra key is known here
+// too. Deliberately ONLY that key: other sub-fields (Address, Name, sliders)
+// keep today's checkpoint behaviour.
 export function checkpointKnownFields(current: ResolvedActivatedFunnel): ReadonlySet<string> {
   const known = new Set<string>();
   for (const s of current.sections) {
     for (const node of parseSectionComponents(s.section.content_json ?? "")) {
       for (const comp of expandWithGridChildren(node)) {
         if (comp.internal_field !== undefined && comp.internal_field !== "") known.add(comp.internal_field);
-        for (const spec of answerFieldsOf(comp as unknown as LeadgenComponentNode)) known.add(spec.field);
+        if (comp.internal_field !== undefined && comp.internal_field !== "") {
+          const vehicle = readVehicleSource(String(comp.type), (comp as { props?: unknown }).props);
+          if (vehicle !== null && vehicle.asks === "make") known.add(vehicleSnapshotFieldOf(comp.internal_field));
+        }
       }
     }
   }

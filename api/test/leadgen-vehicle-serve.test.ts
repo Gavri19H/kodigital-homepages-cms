@@ -220,11 +220,14 @@ async function activatedFunnel(env: Env, sdb: SqliteDb, slug: string, components
   expect(act.status, await act.clone().text()).toBe(200);
 }
 
-const shell = async (env: Env, slug: string): Promise<{ status: number; html: string; config: Record<string, unknown> }> => {
+const shell = async (
+  env: Env,
+  slug: string,
+): Promise<{ status: number; html: string; config: Record<string, unknown>; cacheControl: string | null }> => {
   const res = await app.request(`http://one.example.com/lg/${slug}`, {}, env);
   const html = await res.text();
   const json = /<script type="application\/json" id="lg-config">(.*?)<\/script>/s.exec(html)?.[1] ?? "{}";
-  return { status: res.status, html, config: JSON.parse(json) as Record<string, unknown> };
+  return { status: res.status, html, config: JSON.parse(json) as Record<string, unknown>, cacheControl: res.headers.get("Cache-Control") };
 };
 
 const MAKE_CARDS = {
@@ -300,5 +303,34 @@ describeDb("F18 serve.ts — the funnel page with a 'Vehicle database' question"
     expect(page.config["vehicle"]).toBeUndefined();
     expect(page.html).toMatch(/<div class="lg-vehicle"[^>]*data-lg-vehicle="make"><input class="lg-input lg-vehicle-text"[^>]*placeholder="Type your car&#39;s make"/);
     expect(page.html).not.toContain("Typed Make");
+    // Review fix: a degraded page is never cached — not in the page cache,
+    // not by the browser or CDN — so the next request tries the list again.
+    expect(page.cacheControl).toBe("no-store");
+    const keys = await (env.CACHE as KVNamespace).list();
+    expect(keys.keys.filter((k) => k.name.startsWith("lg-shell:"))).toEqual([]);
+  });
+
+  it("a storage failure while reading the list is not remembered: the page is served uncached and the next request reads again", async () => {
+    let fail = true;
+    const reads: string[] = [];
+    const ok = makeMedia(VEHICLE_OBJECTS);
+    const bucket = {
+      async get(key: string) {
+        reads.push(key);
+        if (fail) throw new Error("R2 unavailable");
+        return (ok.bucket as unknown as { get(k: string): Promise<unknown> }).get(key);
+      },
+    } as unknown as R2Bucket;
+    const { env, sdb } = newEnv(bucket);
+    await activatedFunnel(env, sdb, "flaky", [MAKE_CARDS, YEAR_BUTTONS]);
+    const first = await shell(env, "flaky");
+    expect(first.status).toBe(200);
+    expect(first.cacheControl).toBe("no-store");
+    expect(first.config["vehicle"]).toBeUndefined();
+    fail = false;
+    const second = await shell(env, "flaky");
+    expect(reads.filter((k) => k === VEHICLE_LIVE_KEY)).toHaveLength(2);
+    expect(second.config["vehicle"]).toEqual({ snapshot: SNAPSHOT, base: "/api/vehicles/v1" });
+    expect(second.cacheControl).not.toBe("no-store");
   });
 });

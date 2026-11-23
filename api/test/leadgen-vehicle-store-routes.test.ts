@@ -154,6 +154,24 @@ describe("F18 vehicle store", () => {
     expect(e.MEDIA.gets.filter((k) => k === "vehicles/live.json")).toHaveLength(2);
   });
 
+  it("never remembers a failed live-pointer read (review fix)", async () => {
+    let fail = true;
+    const gets: string[] = [];
+    const e = {
+      MEDIA: {
+        async get(key: string) {
+          gets.push(key);
+          if (fail) throw new Error("R2 unavailable");
+          return { httpEtag: '"x"', async text() { return JSON.stringify({ snapshot: SNAP }); } };
+        },
+      },
+    } as unknown as { MEDIA: R2Bucket };
+    expect(await readLiveSnapshotId(e, 1_000)).toBeNull();
+    fail = false;
+    expect(await readLiveSnapshotId(e, 2_000)).toBe(SNAP);
+    expect(gets).toHaveLength(2);
+  });
+
   it("keeps a parsed snapshot file in memory and reads a damaged one as null", async () => {
     const e = env(filesFor({ [`vehicles/${SNAP}/makes/460.json`]: "{not json" }));
     expect((await readMakeFile(e, SNAP, 448))?.make_id).toBe(448);

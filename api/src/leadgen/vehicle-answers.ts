@@ -314,16 +314,21 @@ export async function resolveVehicleAnswerValues(
       const mv = q.asks === "make" ? v : answerValue(answers[makeField]);
       if (!isVehicleIdShaped("make", mv)) continue;
       const makes = await lookup.makesFor(answers, makeField);
-      if (makes === null) continue;
+      if (makes === null) {
+        console.warn("[vehicles] vehicle list unreadable; the stored id is sent", q.field);
+        continue;
+      }
       const makeId = idNumber(mv);
       if (q.asks === "make") {
         const entry = makes.makes.find((m) => m.make_id === makeId);
         if (entry !== undefined) out[q.field] = { name: entry.name, id: v };
+        else console.warn("[vehicles] make name not found; the stored id is sent", q.field);
         continue;
       }
       const file = await lookup.make(makes.snapshot, makeId);
       const model = file?.models.find((m) => m.model_id === v);
       if (model !== undefined) out[q.field] = { name: model.name, id: v };
+      else console.warn("[vehicles] model name not found; the stored id is sent", q.field);
     }
   } catch (err) {
     console.warn("[vehicles] name lookup failed", err instanceof Error ? err.message : "unknown");
