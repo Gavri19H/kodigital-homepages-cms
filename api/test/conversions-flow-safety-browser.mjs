@@ -18,7 +18,8 @@ const context = {
   schema_version: "cms_conversions_ui_context.v2",
   workspace_id: "0198f0aa-0000-7000-8000-000000000084",
   role: "administrator",
-  capabilities: ["conversions.view", "flows.manage", "flows.publish", "ownership.manage"],
+  // F23: a real administrator never holds "ownership.manage" and can still publish.
+  capabilities: ["conversions.view", "flows.manage", "flows.publish"],
   account_scope: [{ account_id: "account_one", currency: "USD" }],
   reporting_currency: "USD",
   time_zone: "UTC",
