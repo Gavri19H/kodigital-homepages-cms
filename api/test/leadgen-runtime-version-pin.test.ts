@@ -47,8 +47,10 @@ const LG_ENGINE_VERSION = /export const LG_ENGINE_VERSION = "([^"]+)"/.exec(ENGI
 
 // sha256 of the committed bundle AT LEADGEN_TEMPLATE_VERSION 14 (v14,
 // 2026-11-23, F18 vehicle database: the engine gains the Make → Year → Model
-// lookups, the Searchable-dropdown filter and the {make}/{year} headline
-// names — re-pinned before v14 shipped; v13 was 6ef47bd1…, 2026-11-22,
+// lookups, the Searchable-dropdown filter, the {make}/{year} headline names
+// and the "Go to next" fixes (an "Other" pick advances; the typed-answer box's
+// own Continue; the "Other make" search box) — re-pinned before v14 shipped;
+// v13 was 6ef47bd1…, 2026-11-22,
 // X14 v2, a shell-only bump). Before that, v12 (
 // 2026-11-19, F11: the shell gains the "After the offer is shown" redirect
 // script; the engine differs from v11 only by the version it reports; v11 was
@@ -61,7 +63,7 @@ const LG_ENGINE_VERSION = /export const LG_ENGINE_VERSION = "([^"]+)"/.exec(ENGI
 // (the hook call added); v8 was 330356c1…; v7: the shell's no-match block; v6:
 // a shell-CSS bump: the engine differs from v5 only by the version it reports;
 // v5 was b216862a…, v4 53dbaf55…).
-const RUNTIME_BUNDLE_SHA256 = "9e05a382f3e349e011e2719c63330d17e487d6b6987bc566ecb8940411c332d3";
+const RUNTIME_BUNDLE_SHA256 = "dd61ee2717e9f6dcb8a6695278534a5dd82e654a02aa637727d66769e3989783";
 const RUNTIME_BUNDLE_VERSION = 14;
 
 describe("the runtime bundle is pinned to its immutable URL version", () => {

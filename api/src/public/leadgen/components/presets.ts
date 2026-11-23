@@ -1718,6 +1718,7 @@ export function renderButtonAnswerGroup(
       : `<button type="button" class="lg-btn lg-btn-answer${isCard ? " lg-tscard" : ""} lg-other-trigger"${style(choiceTextItemEntries(otherText, textFamily, design))} data-lg-other-trigger` +
         (vh === undefined ? "" : vh.other) +
         ` aria-expanded="false" aria-haspopup="listbox">${isCard ? `<span class="lg-tscard-title"${choiceTextLabelStyle(otherText, textFamily, design)}>${esc(other.label)}</span>` : esc(other.label)}${otherChevronSvg(design)}</button>` +
+        (vh?.pre ?? "") +
         otherSelectMarkup(other);
   const body = choices.map(btn).join("") + otherHtml + (vh === undefined ? "" : vh.tail);
   return (
@@ -1988,6 +1989,7 @@ function renderCardGrid(
       : `<button type="button" class="lg-card lg-other-trigger"${style(choiceTextItemEntries(otherText, "card", design))} data-lg-other-trigger` +
         (vh === undefined ? "" : vh.other) +
         ` aria-expanded="false" aria-haspopup="listbox"><span class="lg-card-title"${choiceTextLabelStyle(otherText, "card", design)}>${esc(other.label)}</span>${otherChevronSvg(design)}</button>` +
+        (vh?.pre ?? "") +
         otherSelectMarkup(other);
   const cards = choices.map(card).join("") + otherHtml + (vh === undefined ? "" : vh.tail);
   return (
@@ -2358,6 +2360,12 @@ export function renderSearchableDropdownQuestion(
 //     input[data-lg-vtext]           the typed-answer box (owner decision Q6),
 //                                    saving to the same field; hidden while
 //                                    choices show
+//     button[data-lg-vgo]            "Go to next" Sections only: the box's own
+//                                    Continue, shown and hidden with the box
+//     [data-lg-searchable] + input[data-lg-dropdown-search]
+//                                    Make on Buttons / Cards: the root, and the
+//                                    hidden "Search makes…" box shown when
+//                                    "Other make" opens
 // Saved values: Make = the make_id as a string ("448"), Year = the model year
 // (the engine stores a number), Model = the model_id ("m_…").
 // Make choices are in the page HTML (speed rule P2); Year and Model are filled
@@ -2367,11 +2375,14 @@ export function renderSearchableDropdownQuestion(
 
 // The per-renderer hooks renderVehicleQuestion hands renderButtonAnswerGroup /
 // renderCardGrid: extra attributes on the root, on every choice button and on
-// the "Other" trigger, markup appended inside the root, and the card picture.
+// the "Other" trigger, markup just before the "Other" <select> (`pre`, the
+// "Other make" search box), markup appended inside the root, and the card
+// picture.
 interface VehicleRenderHook {
   root: string;
   item?: string;
   other: string;
+  pre?: string;
   tail: string;
   media?: (c: LeadgenChoice) => string;
 }
@@ -2383,13 +2394,28 @@ const VEHICLE_TEXT_PLACEHOLDER: Record<VehicleSourceConfig["asks"], string> = {
 };
 
 // The typed-answer box (Q6): a short text box saving to the question's own
-// field (its data-lg-input records through the root's data-lg-field).
-function vehicleTextInput(asks: VehicleSourceConfig["asks"], hidden: boolean): string {
+// field (its data-lg-input records through the root's data-lg-field). In a
+// "Go to next" Section (continue_mode auto_advance — no Continue button, and
+// typing never advances) it gets its own Continue: the funnel's primary
+// button (.lg-btn.lg-continue, so it follows the theme), shown and hidden with
+// the box by the engine (runtime/vehicle.ts [data-lg-vgo]); a tap runs the
+// normal Continue (validation, then the next page). Any other Section: the box
+// alone.
+function vehicleTextInput(
+  asks: VehicleSourceConfig["asks"],
+  hidden: boolean,
+  design: DefaultFunnelDesign,
+  ctx: LeadgenSectionRenderCtx | undefined,
+): string {
   const ph = esc(VEHICLE_TEXT_PLACEHOLDER[asks]);
+  const h = hidden ? " hidden" : "";
   return (
     `<input class="lg-input lg-vehicle-text" type="text" data-lg-input data-lg-vtext` +
-    ` maxlength="${VEHICLE_TYPED_ANSWER_MAX}" placeholder="${ph}" aria-label="${ph}" autocomplete="off"` +
-    `${hidden ? " hidden" : ""}>`
+    ` maxlength="${VEHICLE_TYPED_ANSWER_MAX}" placeholder="${ph}" aria-label="${ph}" autocomplete="off"${h}>` +
+    (ctx?.continue_mode === "auto_advance"
+      ? `<button type="button" class="lg-btn lg-continue" data-lg-vgo${buttonStyleAttrs(design, { fill: true })}${h}>` +
+        `<span class="lg-btn-label">Continue</span></button>`
+      : "")
   );
 }
 
@@ -2482,7 +2508,7 @@ function renderVehicleQuestion(
   if (data === null) {
     return (
       labelLine(node) +
-      `<div class="lg-vehicle"${hydration(node)}${root}>${vehicleTextInput(cfg.asks, false)}${slot}</div>` +
+      `<div class="lg-vehicle"${hydration(node)}${root}>${vehicleTextInput(cfg.asks, false, design, ctx)}${slot}</div>` +
       fieldHelperLine(node)
     );
   }
@@ -2505,7 +2531,17 @@ function renderVehicleQuestion(
       featured.map((m) => vehicleChoice(m.name, String(m.make_id))),
       { label: cfg.other_label, choices: data.makes.filter((m) => !featuredIds.has(m.make_id)).map((m) => vehicleChoice(m.name, String(m.make_id))) },
     );
-    if (!VEHICLE_LOGO_CARD_TYPES.has(node.type)) return renderButtonAnswerGroup(base, design, ctx, slot, { root, other: "", tail: "" });
+    // The "Other make" list opens with a search box above it (the approved
+    // mock-up): the runtime's generic Searchable filter ([data-lg-searchable]
+    // on the root → its one <select>, the "Other make" list) narrows it, and
+    // opening the list shows the box (render.ts openOtherPanel).
+    const makeHook = {
+      root: `${root} data-lg-searchable`,
+      other: "",
+      pre: `<input class="lg-input lg-dropdown-search" type="text" data-lg-dropdown-search placeholder="Search makes…" aria-label="Search makes" hidden>`,
+      tail: "",
+    };
+    if (!VEHICLE_LOGO_CARD_TYPES.has(node.type)) return renderButtonAnswerGroup(base, design, ctx, slot, makeHook);
     // Logo cards: 4 per row on desktop unless the operator (or the Section)
     // set the card columns; 2 per row on a phone (vehicleQuestionCss).
     if ((ovNum(node, "columns") ?? propNum(node, "columns") ?? sectionColumnsDefault(ctx)) === undefined) {
@@ -2514,9 +2550,8 @@ function renderVehicleQuestion(
     const slugById = new Map(featured.map((m) => [String(m.make_id), m.slug] as const));
     const eager = ctx?.first_page === true;
     return renderCardGrid(base, design, cardKind, ctx, slot, {
-      root: `${root} data-lg-vlogos`,
-      other: "",
-      tail: "",
+      ...makeHook,
+      root: `${makeHook.root} data-lg-vlogos`,
       media: (c) => {
         const url = data.logos[slugById.get(String(c.value)) ?? ""];
         return typeof url === "string" && url !== "" ? vehicleLogoImg(url, eager) : "";
@@ -2527,7 +2562,7 @@ function renderVehicleQuestion(
   // Year / Model: no choices in the page — the engine fills them from the
   // picked make's file. The Studio canvas / preview passes a sample make
   // (data.sample, Toyota) so the operator sees real choices, with a note.
-  const text = vehicleTextInput(cfg.asks, true);
+  const text = vehicleTextInput(cfg.asks, true, design, ctx);
   const sample = data.sample;
   const sampleName = vehicleSampleName(data);
   const note =

@@ -303,6 +303,10 @@ export function openOtherPanel(triggerEl: Element): HTMLElement | null {
   const panel = scope.querySelector("[data-lg-other-panel]");
   if (panel === null || !(panel instanceof HTMLElement)) return null;
   toggleHidden(panel, true);
+  // F18: a vehicle Make's "Other make" list opens with its "Search makes…"
+  // box (presets.ts); no other question has a search box beside an "Other".
+  const box = scope.querySelector("[data-lg-dropdown-search]");
+  if (box !== null) toggleHidden(box, true);
   triggerEl.setAttribute("aria-expanded", "true");
   return panel;
 }

@@ -1125,7 +1125,9 @@ export class LgEngine {
         render.openOtherPanel(other);
         return;
       }
-      const cont = target.closest("[data-lg-continue]");
+      // F18: [data-lg-vgo] = a vehicle typed-answer box's own Continue in a
+      // "Go to next" Section (presets.ts vehicleTextInput) — same path.
+      const cont = target.closest("[data-lg-continue],[data-lg-vgo]");
       if (cont !== null) {
         this.handleContinue();
         return;
@@ -1456,17 +1458,22 @@ export class LgEngine {
       answer_source: write.entry.answer_source,
     });
 
-    // §3.5.4 auto-advance: single-question sections advance on answer_click
-    // after validation; multi-question sections require Continue regardless.
-    // Round-4 P3a: auto-advance is authorable ONLY for single-SECTION pages
-    // (a multi-slot page must always be walked via Continue, even when its
-    // current section itself would otherwise qualify) — pageIndicesFor(...)
-    // .length<=1 is a no-op true when planMeta is null (legacy: every
-    // section IS its own page).
+    if (!multi) this.autoGo(section);
+  }
+
+  // §3.5.4 auto-advance: single-question sections advance on answer_click
+  // after validation; multi-question sections require Continue regardless.
+  // Round-4 P3a: auto-advance is authorable ONLY for single-SECTION pages
+  // (a multi-slot page must always be walked via Continue, even when its
+  // current section itself would otherwise qualify) — pageIndicesFor(...)
+  // .length<=1 is a no-op true when planMeta is null (legacy: every
+  // section IS its own page). F18: also run after a pick from an "Other"
+  // list (handleInputEvent) — a "Go to next" Section has no Continue, so a
+  // visitor who picked from the list was stuck.
+  private autoGo(section: LgSectionConfig | null): void {
     if (
       section !== null &&
       section.continue_mode === "auto_advance" &&
-      !multi &&
       this.pageIndicesFor(section.section_public_id).length <= 1
     ) {
       const deps = this.dependencyState(section);
@@ -1780,9 +1787,8 @@ export class LgEngine {
     // must DESELECT every base choice. The other value is unique vs the base
     // values (save-gate), so applySelectionClasses(value) clears them all.
     // Scoped to the panel's own question; no-op for any non-Other input.
-    if (questionEl !== null && input.closest("[data-lg-other-panel]") !== null) {
-      render.applySelectionClasses(questionEl, value);
-    }
+    const other = questionEl !== null && input.closest("[data-lg-other-panel]") !== null;
+    if (other) render.applySelectionClasses(questionEl as Element, value);
     // Editing clears the field's stale error immediately — the INPUT's own
     // section (same-screen pages: not necessarily this.si's anchor section).
     const sectionEl = input.closest("[data-lg-section]");
@@ -1805,6 +1811,11 @@ export class LgEngine {
         answer_source: write.entry.answer_source,
       });
     }, ANSWER_CHANGE_DEBOUNCE_MS);
+
+    // F18: a pick from an "Other" list advances a "Go to next" Section exactly
+    // like a card tap — on the select's `change` only (a <select> also fires
+    // `input`; `typing` marks that one), so one pick advances once.
+    if (other && !typing) this.autoGo(section);
   }
 
   // ----- validation + navigation (§3.5.4–5) --------------------------------

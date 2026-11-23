@@ -580,8 +580,8 @@ export function selectedMarkRules(
 // chrome. NOT part of funnelChromeCss: presets.ts emits them demand-driven
 // (vehicleStyleBlock) ONLY in a Section that has a vehicle question, so every
 // other funnel page keeps its exact bytes.
-//   * the typed-answer box (owner decision Q6) spans the whole card / button
-//     grid row;
+//   * the typed-answer box (owner decision Q6), its "Go to next" Continue and
+//     the "Search makes…" box span the whole card / button grid row;
 //   * Make logo cards: a fixed 80×40 logo box (no layout jump while the small
 //     resized picture loads; 64×32 on a phone), the "Other make" card full
 //     width below the logo cards, and 2 cards per row at the phone breakpoint
@@ -593,7 +593,10 @@ export function vehicleQuestionCss(design: DefaultFunnelDesign | EffectiveFunnel
   const g = ".lg-card-grid.lg-card-grid[data-lg-vlogos]";
   const full = { "grid-column": "1 / -1" };
   return (
-    rule(".lg-input[data-lg-vtext][data-lg-input]", full) +
+    rule(
+      ".lg-input[data-lg-vtext][data-lg-input],.lg-input.lg-dropdown-search[data-lg-dropdown-search],.lg-btn.lg-continue[data-lg-vgo]",
+      full,
+    ) +
     rule(`${g} .lg-card-logo`, { display: "block", width: "80px", height: "40px", "object-fit": "contain" }) +
     rule(`${g} > .lg-other-trigger`, { ...full, "flex-direction": "row" }) +
     `@media (max-width: ${design.breakpoints.mobileMax}){` +

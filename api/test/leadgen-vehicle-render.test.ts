@@ -322,3 +322,37 @@ describe("F18 render — {make}/{year} headline names", () => {
     expect(html).not.toContain("<b>&");
   });
 });
+
+describe("F18 render — \"Go to next\" Sections and the 'Other make' search box", () => {
+  const GO = '<button type="button" class="lg-btn lg-continue" data-lg-vgo';
+  it("in a 'Go to next' Section the typed-answer box gets its own theme Continue — hidden with the box, shown when the page has no list; a normal Section gets none", () => {
+    const auto = (vehicle: VehicleRenderData | null) => ctxWith(vehicle, { continue_mode: "auto_advance" });
+    const y = render(year("ButtonAnswerGroup"), auto(vehicleData()));
+    expect(y).toMatch(/data-lg-vtext[^>]*hidden><button type="button" class="lg-btn lg-continue" data-lg-vgo hidden><span class="lg-btn-label">Continue<\/span><\/button>/);
+    expect(y).not.toContain("data-lg-continue");
+    expect(render(model("SearchableDropdownQuestion"), auto(vehicleData()))).toContain(`${GO} hidden>`);
+    // No readable list: the box shows, so does its Continue.
+    expect(render(make("IconCardAnswerGrid"), auto(null))).toContain(`${GO}><span class="lg-btn-label">Continue</span></button>`);
+    // A Make with the list never needs the box (or the button).
+    expect(render(make("IconCardAnswerGrid"), auto(vehicleData()))).not.toContain("data-lg-vgo");
+    // A Section with a normal Continue: nothing extra.
+    for (const ctx of [ctxWith(vehicleData(), { continue_mode: "button" }), ctxWith(null)]) {
+      expect(render(year("ButtonAnswerGroup"), ctx)).not.toContain("data-lg-vgo");
+    }
+  });
+
+  it("Make on Buttons / Cards: a hidden 'Search makes…' box sits right above the 'Other make' list; Year's 'Older year' and typed 'Other' lists get none", () => {
+    for (const type of ["ButtonAnswerGroup", "IconCardAnswerGrid"] as const) {
+      const html = render(make(type), ctxWith(vehicleData()));
+      expect(html).toMatch(/data-lg-vehicle="make" data-lg-searchable/);
+      expect(html).toContain(
+        '<input class="lg-input lg-dropdown-search" type="text" data-lg-dropdown-search placeholder="Search makes…" aria-label="Search makes" hidden>' +
+          '<select class="lg-input lg-other-select lg-other-panel" data-lg-input data-lg-other-panel hidden aria-label="Other make — choose one">',
+      );
+    }
+    expect(render(year("IconCardAnswerGrid"), ctxWith(vehicleData()))).not.toContain("data-lg-dropdown-search");
+    const typed = renderComponent({ type: "ButtonAnswerGroup", question_id: "q_t", internal_field: "t", choices: [{ label: "A", value: "a", analytics_id: "a" }], props: { other: { enabled: true, choices: [{ label: "C", value: "c", analytics_id: "c" }] } } }, DESIGN);
+    expect(typed).not.toContain("data-lg-dropdown-search");
+    expect(typed).not.toContain("data-lg-searchable");
+  });
+});

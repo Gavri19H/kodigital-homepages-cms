@@ -266,8 +266,11 @@ interface Funnel {
   root: FakeElement;
   make: FakeElement;
   toyota: FakeElement;
+  makeTrigger: FakeElement;
+  makeSearch: FakeInputElement;
   makeOther: FakeSelectElement;
   makeText: FakeInputElement;
+  yearGo: FakeElement;
   plainHeadline: FakeElement;
   yearHeadline: FakeElement;
   modelSub: FakeElement;
@@ -295,9 +298,11 @@ function buildFunnel(opts: { yearAndModelTogether?: boolean } = {}): Funnel {
   const make = s0.appendChild(new FakeElement("div", { class: "lg-card-grid", "data-lg-question": "q_make", "data-lg-field": "vehicle_make", "data-lg-vehicle": "make", "data-lg-vlogos": "" }));
   const toyota = make.appendChild(new FakeElement("button", { class: "lg-card", "data-value": "448", "data-lg-choice": "448" }, " Toyota "));
   make.appendChild(new FakeElement("button", { class: "lg-card", "data-value": "499", "data-lg-choice": "499" }));
-  make.appendChild(new FakeElement("button", { class: "lg-card lg-other-trigger", "data-lg-other-trigger": "" }));
+  const makeTrigger = make.appendChild(new FakeElement("button", { class: "lg-card lg-other-trigger", "data-lg-other-trigger": "" }));
+  make.setAttribute("data-lg-searchable", "");
+  const makeSearch = make.appendChild(new FakeInputElement({ class: "lg-input lg-dropdown-search", "data-lg-dropdown-search": "", hidden: "" }));
   const makeOther = make.appendChild(new FakeSelectElement({ class: "lg-input lg-other-select lg-other-panel", "data-lg-input": "", "data-lg-other-panel": "", hidden: "" }));
-  makeOther.append(new FakeOption("Choose…", "", { disabled: "" }), new FakeOption("Honda", "474"));
+  makeOther.append(new FakeOption("Choose…", "", { disabled: "" }), new FakeOption("Honda", "474"), new FakeOption("Hyundai", "486"));
   // The typed-answer box a Make gets when the page had no readable list.
   const makeText = make.appendChild(new FakeInputElement({ class: "lg-input lg-vehicle-text", "data-lg-input": "", "data-lg-vtext": "" }));
   // Section headlines with the {make}/{year} names (and one without).
@@ -316,6 +321,8 @@ function buildFunnel(opts: { yearAndModelTogether?: boolean } = {}): Funnel {
   const yearOther = year.appendChild(new FakeSelectElement({ class: "lg-input lg-other-select lg-other-panel", "data-lg-input": "", "data-lg-other-panel": "", hidden: "" }));
   yearOther.append(new FakeOption("Choose…", "", { disabled: "" }));
   const yearText = year.appendChild(new FakeInputElement({ class: "lg-input lg-vehicle-text", "data-lg-input": "", "data-lg-vtext": "", hidden: "" }));
+  // A "Go to next" Section's own Continue for the typed-answer box.
+  const yearGo = year.appendChild(new FakeElement("button", { class: "lg-btn lg-continue", "data-lg-vgo": "", hidden: "" }));
 
   // Model — a searchable dropdown + the typed-answer box.
   const model = s2.appendChild(new FakeElement("div", { class: "lg-searchable-dropdown", "data-lg-question": "q_model", "data-lg-field": "vehicle_model", "data-lg-vehicle": "model", "data-lg-vmake": "vehicle_make", "data-lg-vyear": "vehicle_year", "data-lg-searchable": "" }));
@@ -323,7 +330,7 @@ function buildFunnel(opts: { yearAndModelTogether?: boolean } = {}): Funnel {
   const modelSelect = model.appendChild(new FakeSelectElement({ class: "lg-input lg-dropdown", "data-lg-input": "" }));
   modelSelect.append(new FakeOption("Select…", "", { disabled: "" }));
   const modelText = model.appendChild(new FakeInputElement({ class: "lg-input lg-vehicle-text", "data-lg-input": "", "data-lg-vtext": "", hidden: "" }));
-  return { root, make, toyota, makeOther, makeText, plainHeadline, yearHeadline, modelSub, year, slots, yearTrigger, yearOther, yearText, model, modelSearch, modelSelect, modelText };
+  return { root, make, toyota, makeTrigger, makeSearch, makeOther, makeText, yearGo, plainHeadline, yearHeadline, modelSub, year, slots, yearTrigger, yearOther, yearText, model, modelSearch, modelSelect, modelText };
 }
 
 const vehicleProps = (asks: string, extra: Record<string, unknown> = {}): Record<string, unknown> => ({
@@ -332,12 +339,12 @@ const vehicleProps = (asks: string, extra: Record<string, unknown> = {}): Record
   ...extra,
 });
 
-function funnelConfig(opts: { yearAndModelTogether?: boolean; vehicle?: boolean } = {}): LgPublicConfig {
+function funnelConfig(opts: { yearAndModelTogether?: boolean; vehicle?: boolean; auto?: boolean } = {}): LgPublicConfig {
   const makeC: LgComponentConfig = { type: "IconCardAnswerGrid", question_id: "q_make", internal_field: "vehicle_make", answer_type: "string", required: true, props: vehicleProps("make") };
   const yearC: LgComponentConfig = { type: "ButtonAnswerGroup", question_id: "q_year", internal_field: "vehicle_year", answer_type: "number", required: true, props: vehicleProps("year", { vehicle_make_field: "vehicle_make", vehicle_year_cards: 2 }) };
   const modelC: LgComponentConfig = { type: "SearchableDropdownQuestion", question_id: "q_model", internal_field: "vehicle_model", answer_type: "string", required: true, props: vehicleProps("model", { vehicle_make_field: "vehicle_make", vehicle_year_field: "vehicle_year" }) };
   const section = (id: string, index: number, components: LgComponentConfig[]) => ({
-    section_public_id: id, section_index: index, headline: "H", continue_mode: "button",
+    section_public_id: id, section_index: index, headline: "H", continue_mode: opts.auto === true ? "auto_advance" : "button",
     address_validation_enabled: false, section_mapping_version: 0, answer_mapping_version: "0", components,
   });
   const sections = opts.yearAndModelTogether === true
@@ -359,18 +366,19 @@ interface Booted {
   config: LgPublicConfig;
   answers: () => Record<string, unknown>;
   comp: (qid: string) => LgComponentConfig;
+  page: () => number;
 }
-async function boot(opts: { yearAndModelTogether?: boolean; vehicle?: boolean; preview?: boolean; storage?: Record<string, string> } = {}): Promise<Booted> {
+async function boot(opts: { yearAndModelTogether?: boolean; vehicle?: boolean; preview?: boolean; storage?: Record<string, string>; auto?: boolean } = {}): Promise<Booted> {
   const win = stubBrowser(opts.storage);
   const dom = buildFunnel(opts);
   const config = funnelConfig(opts);
   const { LgEngine } = await loadEngine();
   await new LgEngine(dom.root, config, opts.preview !== false).init();
   await flush();
-  const api = () => win["__LG_ENGINE__"] as { getAnswers: () => Record<string, unknown> };
+  const api = () => win["__LG_ENGINE__"] as { getAnswers: () => Record<string, unknown>; getState: () => { section_index: number } };
   const comp = (qid: string): LgComponentConfig =>
     config.sections.flatMap((s) => s.components).find((c) => c.question_id === qid) as LgComponentConfig;
-  return { dom, config, answers: () => api().getAnswers(), comp };
+  return { dom, config, answers: () => api().getAnswers(), comp, page: () => api().getState().section_index };
 }
 
 // ---------------------------------------------------------------------------
@@ -707,5 +715,100 @@ describe("F18 runtime — {make}/{year} headline names", () => {
     expect(dom.yearHeadline.textContent).toBe("What year is your Tesla <b>Roadster</b>?");
     expect(dom.modelSub.textContent).toBe("Which 2019 Tesla <b>Roadster</b> is it?");
     expect("innerHTML" in dom.yearHeadline).toBe(false);
+  });
+});
+
+describe("F18 runtime — \"Go to next\" Sections never strand the visitor", () => {
+  it("a pick from the 'Other make' list advances like a card tap — on the pick (change), not on the select's input event", async () => {
+    stubFetch("ok");
+    const { dom, answers, page } = await boot({ auto: true });
+    expect(page()).toBe(0);
+    dom.makeOther.value = "474";
+    dom.root.dispatch("input", dom.makeOther);
+    expect(answers()["vehicle_make"]).toBe("474");
+    expect(page()).toBe(0);
+    dom.root.dispatch("change", dom.makeOther);
+    expect(page()).toBe(1);
+    // With "Continue" (not "Go to next") the same pick stays on the page.
+    const plain = await boot();
+    plain.dom.makeOther.value = "474";
+    plain.dom.root.dispatch("change", plain.dom.makeOther);
+    expect(plain.page()).toBe(0);
+  });
+
+  it("a typed 'Enable Other' list in a 'Go to next' Section advances on a pick too (same validation)", async () => {
+    stubBrowser();
+    stubFetch("ok");
+    const root = new FakeElement("div", { id: "lg-funnel-root" });
+    const s0 = root.appendChild(new FakeElement("section", { "data-lg-section": "", "data-lg-section-id": "lgs_a", "data-lg-index": "0" }));
+    root.appendChild(new FakeElement("section", { "data-lg-section": "", "data-lg-section-id": "lgs_b", "data-lg-index": "1", hidden: "" }));
+    const group = s0.appendChild(new FakeElement("div", { class: "lg-answer-group", "data-lg-question": "q_ins", "data-lg-field": "insurer" }));
+    group.appendChild(new FakeElement("button", { "data-lg-choice": "geico" }, "GEICO"));
+    group.appendChild(new FakeElement("button", { "data-lg-other-trigger": "" }, "Other"));
+    const other = group.appendChild(new FakeSelectElement({ "data-lg-input": "", "data-lg-other-panel": "", hidden: "" }));
+    other.append(new FakeOption("Choose…", "", { disabled: "" }), new FakeOption("Amica", "amica"));
+    const config = funnelConfig({ vehicle: false, auto: true });
+    const ins: LgComponentConfig = { type: "ButtonAnswerGroup", question_id: "q_ins", internal_field: "insurer", required: true, props: {}, choices: [{ label: "GEICO", value: "geico", analytics_id: "g" }], valid_values: ["geico", "amica"] };
+    config.sections = [
+      { ...config.sections[0]!, section_public_id: "lgs_a", section_index: 0, components: [ins] },
+      { ...config.sections[1]!, section_public_id: "lgs_b", section_index: 1, components: [{ type: "FreeTextQuestion", question_id: "q_n", internal_field: "n", props: {} }] },
+    ];
+    const { LgEngine } = await loadEngine();
+    await new LgEngine(root, config, true).init();
+    const api = (globalThis as unknown as Record<string, Record<string, unknown>>)["window"]!["__LG_ENGINE__"] as { getState: () => { section_index: number }; getAnswers: () => Record<string, unknown> };
+    // The opened typed list gets no search box (only the vehicle Make has one).
+    root.dispatch("click", group.querySelector("[data-lg-other-trigger]")!);
+    expect(other.hidden).toBe(false);
+    other.value = "amica";
+    root.dispatch("change", other);
+    expect(api.getAnswers()["insurer"]).toBe("amica");
+    expect(api.getState().section_index).toBe(1);
+  });
+
+  it("the typed-answer box's own Continue shows only with the box, and a tap runs Continue (validation, then the next page)", async () => {
+    stubFetch("fail");
+    const { dom, page } = await boot({ auto: true });
+    dom.root.dispatch("click", dom.toyota); // a card tap advances to the Year page
+    await flush();
+    expect(page()).toBe(1);
+    expect(dom.yearText.hidden).toBe(false);
+    expect(dom.yearGo.hidden).toBe(false);
+    dom.root.dispatch("click", dom.yearGo); // empty: the required check stops it
+    expect(page()).toBe(1);
+    dom.yearText.value = "2019";
+    dom.root.dispatch("input", dom.yearText);
+    expect(page()).toBe(1); // typing never advances
+    dom.root.dispatch("click", dom.yearGo);
+    expect(page()).toBe(2);
+  });
+
+  it("the box's Continue follows the box: hidden when the choices come back, shown again with the box", async () => {
+    stubBrowser();
+    const v = await loadVehicle();
+    const dom = buildFunnel();
+    dom.yearGo.removeAttribute("hidden"); // as left by an earlier failed lookup
+    v.vehicleFill(dom.year, [["2027", "2027"]], undefined);
+    expect(dom.slots[0]!.hidden).toBe(false);
+    expect(dom.yearGo.hidden).toBe(true);
+    v.vehicleFill(dom.year, null, undefined);
+    expect(dom.yearText.hidden).toBe(false);
+    expect(dom.yearGo.hidden).toBe(false);
+  });
+});
+
+describe("F18 runtime — the 'Other make' search box", () => {
+  it("opening 'Other make' shows its search box, and typing narrows the list (the picked make stays)", async () => {
+    stubFetch("ok");
+    const { dom } = await boot();
+    expect(dom.makeSearch.hidden).toBe(true);
+    dom.root.dispatch("click", dom.makeTrigger);
+    expect(dom.makeOther.hidden).toBe(false);
+    expect(dom.makeSearch.hidden).toBe(false);
+    dom.makeSearch.value = "HY";
+    dom.root.dispatch("input", dom.makeSearch);
+    expect(dom.makeOther.labels()).toEqual(["Hyundai"]);
+    dom.makeSearch.value = "h";
+    dom.root.dispatch("input", dom.makeSearch);
+    expect(dom.makeOther.labels()).toEqual(["Honda", "Hyundai"]);
   });
 });

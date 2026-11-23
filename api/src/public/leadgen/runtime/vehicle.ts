@@ -107,11 +107,10 @@ export function vehicleFill(q: Element, opts: LgOpt[] | null, saved: unknown): v
   const box = q.querySelector("[data-lg-dropdown-search]") as HTMLInputElement | null;
   const text = q.querySelector("[data-lg-vtext]") as HTMLInputElement | null;
   const trig = q.querySelector("[data-lg-other-trigger]");
-  if (text) {
-    toggleHidden(text, !opts);
-    // A saved model id is never shown as typed text.
-    if (!opts && !/^m_/.test(s)) text.value = s;
-  }
+  // The box and, in a "Go to next" Section, its own Continue ([data-lg-vgo]).
+  q.querySelectorAll("[data-lg-vtext],[data-lg-vgo]").forEach((e) => toggleHidden(e, !opts));
+  // A saved model id is never shown as typed text.
+  if (text && !opts && !/^m_/.test(s)) text.value = s;
   if (box) toggleHidden(box, !!opts);
   if (trig) toggleHidden(trig, rest.length > 0);
   slots.forEach((b, i) => {
