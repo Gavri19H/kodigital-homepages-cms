@@ -13,7 +13,8 @@
 import type { AdminContext } from "./offers-handlers";
 import { readJsonBody, resolveOfferRow } from "./offers-handlers";
 import { STATIC_CREATIVE_FIELDS, requestOrigin, staticCreativeDisplay, validateStaticCreativeField } from "../../leadgen/static-creative";
-import { renderBanners } from "../../public/leadgen/auction/banner";
+import { renderBanners, renderLeadSentBanner } from "../../public/leadgen/auction/banner";
+import { isSendOnlyOffer } from "../../leadgen/send-only";
 import { getBannerDesign } from "../../public/leadgen/designs/registry";
 import { funnelChromeCss, DEFAULT_FUNNEL_SCOPE } from "../../public/leadgen/designs/default-funnel/styles";
 import { defaultFunnelDesign } from "../../public/leadgen/designs/default-funnel/tokens";
@@ -46,6 +47,22 @@ export async function offerCreativePreviewHandler(c: AdminContext): Promise<Resp
     merged as Parameters<typeof staticCreativeDisplay>[0],
     requestOrigin(c.req.url),
   );
+  // Send-only Offers (0068) never show a card, so the card preview would stay
+  // empty (no click link). They get the SAME "lead sent" banner the live
+  // auction renders (engine.ts: headline falls back to the brand name, the
+  // logo resolved the same way). The form says whether "Send the lead only,
+  // no card" is picked right now (unsaved); without it, the saved setting.
+  const sendOnly = typeof body["send_only"] === "boolean" ? body["send_only"] : isSendOnlyOffer(row);
+  if (sendOnly) {
+    const html = renderLeadSentBanner({
+      banner_render_id: "preview",
+      logo_url: display.carrier_logo,
+      headline: optText(merged["static_headline"]) ?? optText(merged["static_brand_name"]),
+      subheadline: optText(merged["static_subheadline"]),
+    }).split(` onerror="this.style.display='none'"`).join("");
+    return c.json({ document: previewDocument(html, ""), shown: true, dropped_reason: null, send_only: true });
+  }
+
   const fallback = optText(merged["static_fallback_banner_url"]);
   const bid = typeof row.static_bid_value === "number" && Number.isFinite(row.static_bid_value) ? row.static_bid_value : 0;
   const carrier: LeadgenParsedCarrier = {
@@ -82,15 +99,21 @@ export async function offerCreativePreviewHandler(c: AdminContext): Promise<Resp
   // it — and the preview frame runs no scripts at all, so the handler is
   // dropped from the preview copy only.
   const previewHtml = result.html.split(` onerror="this.style.display='none'"`).join("");
-  const css = `${funnelChromeCss(defaultFunnelDesign, DEFAULT_FUNNEL_SCOPE)}\n${result.css}\nhtml,body{margin:0;padding:0;background:#f5f7fb}html{overflow:hidden}body{padding:16px}.lg-banner{pointer-events:none;cursor:default}`;
-  const document =
-    `<!doctype html><html><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">` +
-    `<style>${css.replace(/<\/style/gi, "<\\/style")}</style></head><body>` +
-    `<div data-funnel-design="default-funnel"><div class="lg-banners" data-lg-banners>${previewHtml}</div></div>` +
-    `</body></html>`;
   return c.json({
-    document,
+    document: previewDocument(`<div class="lg-banners" data-lg-banners>${previewHtml}</div>`, result.css),
     shown: result.slots.length === 1,
     dropped_reason: result.dropped[0]?.carrier_filtered_reason ?? null,
   });
+}
+
+// The preview frame: the funnel's own stylesheet and scope around the banner
+// markup, so it looks as it does on a funnel page.
+function previewDocument(innerHtml: string, bannerCss: string): string {
+  const css = `${funnelChromeCss(defaultFunnelDesign, DEFAULT_FUNNEL_SCOPE)}\n${bannerCss}\nhtml,body{margin:0;padding:0;background:#f5f7fb}html{overflow:hidden}body{padding:16px}.lg-banner{pointer-events:none;cursor:default}`;
+  return (
+    `<!doctype html><html><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">` +
+    `<style>${css.replace(/<\/style/gi, "<\\/style")}</style></head><body>` +
+    `<div data-funnel-design="default-funnel">${innerHtml}</div>` +
+    `</body></html>`
+  );
 }

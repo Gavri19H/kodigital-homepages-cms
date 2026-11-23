@@ -3165,7 +3165,7 @@ const LG_STATIC_CREATIVE_SCRIPT = `
   }
   function isSendOnly() { return selectedMode() === 'request_static_bid' && sendOnlyPicked(); }
   function isStatic() { return selectedMode() === 'static_no_request' || isSendOnly(); }
-  var SEND_ONLY_NOTE = 'A send-only Offer\\u2019s banner uses this logo, headline and subheadline, can\\u2019t be clicked, and shows only when no other card does.';
+  var SEND_ONLY_NOTE = 'This is the send-only banner. It shows the logo, headline and subheadline only (Brand name is used when the headline is empty; Disclaimer is not shown), can\\u2019t be clicked, and appears only when no other card does.';
   function logoSrc(v) {
     var s = String(v || '');
     if (s.indexOf('/media/') === 0 || s.indexOf('https://') === 0 || s.indexOf('http://') === 0) { return s; }
@@ -3197,7 +3197,8 @@ const LG_STATIC_CREATIVE_SCRIPT = `
       provider: val('provider'),
       offer_name: val('offer_name'),
       banner_url_template: val('banner_url_template'),
-      static_fallback_banner_url: val('static_fallback_banner_url')
+      static_fallback_banner_url: val('static_fallback_banner_url'),
+      send_only: isSendOnly()
     };
     fetch('/api/admin/leadgen/offers/' + encodeURIComponent(offerId) + '/creative-preview', {
       method: 'POST', credentials: 'same-origin',
@@ -3215,7 +3216,7 @@ const LG_STATIC_CREATIVE_SCRIPT = `
         }
         frame.setAttribute('srcdoc', res.body.document || '');
         if (isSendOnly()) {
-          setNote(SEND_ONLY_NOTE + (res.body.shown === false ? ' (The preview draws the card only when the Offer has a click link.)' : ''));
+          setNote(SEND_ONLY_NOTE);
         } else if (res.body.shown === false) {
           setNote(res.body.dropped_reason === 'missing_click_url'
             ? 'This card would NOT be shown to visitors: add a Banner URL template above so the button has somewhere to go.'

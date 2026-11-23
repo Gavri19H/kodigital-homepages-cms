@@ -57,7 +57,7 @@ const MIGRATIONS = [
   "0048_leadgen_rework_m3_routing.sql", "0049_leadgen_rework_m4_m5_defaults_templates.sql", "0050_leadgen_rework_m6_grid_expansion.sql",
   "0051_leadgen_rework_m7_slider_collapse.sql", "0052_leadgen_rework_m9_address_fields.sql", "0053_leadgen_rework_m12_othergroup_retirement.sql",
   "0056_leadgen_offer_api_token_vault.sql", "0057_leadgen_offer_test_verdict.sql", "0058_leadgen_offer_clickout_meta.sql",
-  "0060_leadgen_offer_static_creative.sql",
+  "0060_leadgen_offer_static_creative.sql", "0068_leadgen_offer_send_only.sql",
 ];
 const DatabaseSync = loadDatabaseSync();
 const describeDb = DatabaseSync === null ? describe.skip : describe;
@@ -285,5 +285,89 @@ describeDb("the Static tab", () => {
     const offer = seedOffer(h.sdb, { static: false });
     const c = card(await editor(h, offer));
     expect(c.slice(0, c.indexOf(">"))).toContain("hidden");
+  });
+});
+
+describeDb("live preview — a send-only Offer shows its lead-sent banner, not an empty card", () => {
+  const SEND_ONLY_JSON = '{"display":"send_only","accept":{"kind":"any_ok"}}';
+  function seedSendOnly(sdb: SqliteDb, saved: boolean): string {
+    // A "Provider request · static bid (CPL)" Offer with no click link at all.
+    const id = seedOffer(sdb, { static: false, template: null });
+    if (saved) sdb.prepare("UPDATE leadgen_offers SET send_only_json = ? WHERE public_id = ?").run(SEND_ONLY_JSON, id);
+    return id;
+  }
+  async function preview(h: { env: Env }, offer: string, body: Record<string, unknown>) {
+    const res = await admin.request(`http://localhost:8787${API}/offers/${offer}/creative-preview`, json("POST", body), h.env);
+    return { status: res.status, body: (await res.json()) as { document?: string; shown?: boolean; dropped_reason?: string | null; send_only?: boolean } };
+  }
+
+  it("the form's unsaved 'Send the lead only' choice draws the banner: logo, headline, subheadline, styled by the funnel sheet", async () => {
+    const h = harness();
+    const offer = seedSendOnly(h.sdb, false);
+    const r = await preview(h, offer, { ...CREATIVE, send_only: true });
+    expect(r.status).toBe(200);
+    expect(r.body.shown).toBe(true);
+    expect(r.body.send_only).toBe(true);
+    const doc = r.body.document!;
+    expect(doc).toContain('<div class="lg-lead-sent" role="note">');
+    expect(doc).toContain('src="http://localhost:8787/media/2026/09/27/fora.png"');
+    expect(doc).toContain('<div class="lg-banner-name">Funding in as little as 24 hours</div>');
+    expect(doc).toContain("Check your options in minutes");
+    expect(doc).toContain('[data-funnel-design="default-funnel"] .lg-lead-sent');
+    expect(doc).toContain('data-funnel-design="default-funnel"');
+  });
+  it("matches the live banner: no link, no button, no brand name or disclaimer, no onerror script", async () => {
+    const h = harness();
+    const offer = seedSendOnly(h.sdb, false);
+    const doc = (await preview(h, offer, { ...CREATIVE, send_only: true })).body.document!;
+    const body = doc.slice(doc.indexOf("<body>"));
+    expect(body).not.toContain("<a ");
+    expect(body).not.toContain("lg-banner-cta");
+    expect(body).not.toContain("Fora Financial");
+    expect(body).not.toContain("Not all applicants qualify.");
+    expect(body).not.toContain("onerror");
+  });
+  it("an empty headline falls back to the Brand name, as on the live page", async () => {
+    const h = harness();
+    const offer = seedSendOnly(h.sdb, false);
+    const r = await preview(h, offer, { ...CREATIVE, static_headline: "", send_only: true });
+    expect(r.body.document).toContain('<div class="lg-banner-name">Fora Financial</div>');
+  });
+  it("without the form flag, the saved setting decides", async () => {
+    const h = harness();
+    const saved = seedSendOnly(h.sdb, true);
+    expect((await preview(h, saved, CREATIVE)).body.document).toContain('class="lg-lead-sent"');
+    const notSaved = seedSendOnly(h.sdb, false);
+    const r = await preview(h, notSaved, CREATIVE);
+    expect(r.body.document).not.toContain('class="lg-lead-sent"');
+    expect(r.body.shown).toBe(false);
+  });
+  it("switching the form back to 'Show a card' previews the card again, even when send-only is saved", async () => {
+    const h = harness();
+    const offer = seedSendOnly(h.sdb, true);
+    const r = await preview(h, offer, { ...CREATIVE, send_only: false });
+    expect(r.body.document).not.toContain('class="lg-lead-sent"');
+    expect(r.body.send_only).toBeUndefined();
+  });
+  it("copy is escaped — markup typed into the headline cannot inject into the banner", async () => {
+    const h = harness();
+    const offer = seedSendOnly(h.sdb, false);
+    const r = await preview(h, offer, { ...CREATIVE, static_headline: '<img src=x onerror="alert(1)">', send_only: true });
+    expect(r.status).toBe(200);
+    expect(r.body.document).not.toContain('<img src=x onerror="alert(1)">');
+    expect(r.body.document).toContain("&lt;img");
+  });
+  it("an invalid field is still reported, not rendered", async () => {
+    const h = harness();
+    const offer = seedSendOnly(h.sdb, false);
+    const r = await preview(h, offer, { static_logo_url: "javascript:alert(1)", send_only: true });
+    expect(r.status).toBe(400);
+  });
+  it("nothing saved: previewing never writes the send-only setting", async () => {
+    const h = harness();
+    const offer = seedSendOnly(h.sdb, false);
+    await preview(h, offer, { ...CREATIVE, send_only: true });
+    const row = h.sdb.prepare("SELECT send_only_json FROM leadgen_offers WHERE public_id = ?").get(offer) as { send_only_json: string | null };
+    expect(row.send_only_json).toBeNull();
   });
 });
