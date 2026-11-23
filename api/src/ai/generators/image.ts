@@ -440,6 +440,10 @@ export interface GenerateFeatureImageInput extends BuildFeatureImagePromptInput 
   // Round 6: a writer-typed image direction (the Article Builder's optional
   // per-image prompt). Absent for every pipeline caller.
   promptOverride?: string;
+  // X06: the saved image description (media.alt_text). Absent → the legacy
+  // "Feature image for <article_title>". Setup's in-article image passes the
+  // plain Article title so its prompt-only instruction is never saved.
+  alt_text?: string;
 }
 
 // A non-empty writer direction wins over the preset prompt and the built
@@ -489,7 +493,10 @@ export async function generateFeatureImage(
     prompt,
     filename: `feature-${input.article_slug}.png`,
     folder: "ai/feature-image",
-    alt_text: `Feature image for ${input.article_title}`,
+    alt_text:
+      typeof input.alt_text === "string" && input.alt_text.trim() !== ""
+        ? input.alt_text.trim()
+        : `Feature image for ${input.article_title}`,
     idempotency_suffix: input.article_slug,
     client: input.client,
   });

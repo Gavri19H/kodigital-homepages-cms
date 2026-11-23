@@ -22,12 +22,16 @@ import {
   SELECT_PRESET_BY_ID,
   type PresetRow,
 } from "./ai-presets";
+import { containsPlaceholder } from "../ai/site-audience";
 
 interface ImageBody {
   prompt?: string;
   site_id?: string | null;
   size?: string;
   alt_text?: string;
+  // X06: the open Article's title. Used as the image description when
+  // alt_text is missing or unusable.
+  title?: string;
   // T10 [BCL-011]: the hero-image card forwards the selected editable SYSTEM
   // preset so generation is preset-governed (no hardcoded image path). The
   // operator-confirmed interpolated prompt arrives in `prompt`; presetId names
@@ -48,6 +52,19 @@ function newRequestId(): string {
     return crypto.randomUUID();
   }
   return `img_${Date.now()}_${Math.random().toString(36).slice(2, 10)}`;
+}
+
+// X06: the saved image description is never the prompt and never holds a
+// "{{…}}" placeholder. A usable alt_text wins; else the Article title; else
+// empty.
+export function pickAltText(body: { alt_text?: unknown; title?: unknown }, prompt: string): string {
+  const usable = (v: unknown): string => {
+    if (typeof v !== "string") return "";
+    const t = v.trim();
+    if (t === "" || t === prompt || containsPlaceholder(t)) return "";
+    return t;
+  };
+  return usable(body.alt_text) || usable(body.title);
 }
 
 export async function handleAdminAiImage(c: Context<{ Bindings: Env }>) {
@@ -132,10 +149,7 @@ export async function handleAdminAiImage(c: Context<{ Bindings: Env }>) {
       httpMetadata: { contentType: result.mime },
     });
 
-    const alt_text =
-      typeof body.alt_text === "string" && body.alt_text.trim() !== ""
-        ? body.alt_text.trim()
-        : prompt.slice(0, 200);
+    const alt_text = pickAltText(body, prompt);
     const mediaRow = await c.env.DB.prepare(
       "INSERT INTO media (filename, storage_key, mime_type, size_bytes, alt_text, folder, site_id, ai_generation_id) " +
         "VALUES (?, ?, ?, ?, ?, ?, ?, ?) RETURNING id",

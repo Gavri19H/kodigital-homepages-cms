@@ -71,7 +71,7 @@ function makeDbMock(pages: PageSeed[]) {
           if (sql.startsWith("SELECT * FROM articles WHERE slug")) {
             return null;
           }
-          if (sql.startsWith("SELECT id, slug, name FROM categories")) {
+          if (sql.startsWith("SELECT id, slug, name, description FROM categories")) {
             return null;
           }
           return null;

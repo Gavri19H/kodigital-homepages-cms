@@ -4,7 +4,8 @@ import {
   getTextModel,
   type SupportedTextModel,
 } from "../models";
-import { resolveCategoryPreset } from "./preset-resolver";
+import { fillPromptTokens, resolveCategoryPreset } from "./preset-resolver";
+import { containsPlaceholder } from "../site-audience";
 import {
   createOpenAIClient,
   type GenerateTextResult,
@@ -185,6 +186,14 @@ interface RunGeneratorArgs<TContext extends FallbackContextBase, TParsed> {
   // logged + dispatched model. When omitted (or not a SUPPORTED_TEXT_MODELS
   // id) the registry default getTextModel(env) is used.
   modelOverride?: string;
+  // X06: values for the prompt's {{tokens}} (the same map the generator gave
+  // the preset resolver). brand_name / vertical / audience come from
+  // `context` automatically; anything still missing is read from the site.
+  tokenValues?: Record<string, string | undefined>;
+  // X06: an extra answer check (e.g. Site Description length). Like the
+  // built-in "{{" check, a failing answer is asked for once more, then the
+  // fallback is used.
+  answerCheck?: (parsed: TParsed) => string | null;
 }
 
 // T13/AC1: the dispatched/logged model is the preset's text_model when it is
@@ -239,6 +248,39 @@ function parsedFromRow<T>(row: AiGenerationRow, fallback: () => T): T {
   }
 }
 
+// X06 (SEO Fixes): the shared answer check. Any string anywhere in a parsed
+// answer that still holds "{{" or "}}" makes the whole answer unusable.
+function findPlaceholderInAnswer(value: unknown, path = "answer"): string | null {
+  if (typeof value === "string") return containsPlaceholder(value) ? path : null;
+  if (Array.isArray(value)) {
+    for (let i = 0; i < value.length; i++) {
+      const hit = findPlaceholderInAnswer(value[i], `${path}[${i}]`);
+      if (hit) return hit;
+    }
+    return null;
+  }
+  if (value && typeof value === "object") {
+    for (const [k, v] of Object.entries(value as Record<string, unknown>)) {
+      const hit = findPlaceholderInAnswer(v, `${path}.${k}`);
+      if (hit) return hit;
+    }
+  }
+  return null;
+}
+
+// Error codes written to ai_generations.error_message by the X06 check.
+export const UNFILLED_PLACEHOLDER = "UNFILLED_PLACEHOLDER";
+export const PLACEHOLDER_IN_ANSWER = "PLACEHOLDER_IN_ANSWER";
+
+function answerProblem<TParsed>(
+  parsed: TParsed,
+  answerCheck?: (parsed: TParsed) => string | null,
+): string | null {
+  const at = findPlaceholderInAnswer(parsed);
+  if (at) return `${PLACEHOLDER_IN_ANSWER} at ${at}`;
+  return answerCheck ? answerCheck(parsed) : null;
+}
+
 async function runTextGenerator<TContext extends FallbackContextBase, TParsed>(
   args: RunGeneratorArgs<TContext, TParsed>,
 ): Promise<GenerationResult<TParsed>> {
@@ -250,12 +292,12 @@ async function runTextGenerator<TContext extends FallbackContextBase, TParsed>(
     target_id,
     context,
     idempotency_suffix,
-    prompt,
     parseModelOutput,
     buildFallback,
     validate,
     timeoutMs,
     modelOverride,
+    answerCheck,
   } = args;
 
   const idempotency_key = computeIdempotencyKey(
@@ -268,6 +310,9 @@ async function runTextGenerator<TContext extends FallbackContextBase, TParsed>(
   // T7 idempotency contract: a second call with the same (site_id, task,
   // prompt_version, target_identifier) MUST return the same row -- no
   // duplicate INSERT. Look up first; only call OpenAI if no row exists.
+  // X06: a saved answer that fails the shared check ("{{" anywhere, or the
+  // generator's own answerCheck, e.g. a too-long Site Description) is never
+  // reused: the AI is asked again on the same row.
   const existing = await getGenerationByIdempotencyKey(env, idempotency_key);
   if (
     existing &&
@@ -277,18 +322,41 @@ async function runTextGenerator<TContext extends FallbackContextBase, TParsed>(
   ) {
     const meta = rowMeta(existing);
     const parsed = parsedFromRow<TParsed>(existing, () => buildFallback(meta));
-    return {
-      ai_generation_id: existing.id,
-      idempotency_key,
-      status: existing.status,
-      parsed,
-    };
+    // X06: a fallback written by the placeholder check is never reused either,
+    // so a resume asks again once the missing value is fixed.
+    const placeholderFallback =
+      existing.status === "fallback" &&
+      typeof existing.error_message === "string" &&
+      (existing.error_message.startsWith(UNFILLED_PLACEHOLDER) ||
+        existing.error_message.startsWith(PLACEHOLDER_IN_ANSWER));
+    if (!placeholderFallback && answerProblem(parsed, answerCheck) === null) {
+      return {
+        ai_generation_id: existing.id,
+        idempotency_key,
+        status: existing.status,
+        parsed,
+      };
+    }
   }
 
   const client = args.client ?? createOpenAIClient(env);
   // T13/AC1: honor the preset-driven model override (falls back to the
   // registry default when absent / unsupported).
   const model = resolveModelForRun(env, modelOverride);
+
+  // X06: fill every {{token}} before the AI is asked — the caller's values
+  // first, then the site's saved ones. Anything still unfilled is reported
+  // below and the prompt is never sent.
+  const known: Record<string, string | undefined> = {
+    brand_name: context.brand_name,
+    vertical: context.vertical,
+    audience: context.audience,
+  };
+  for (const [k, v] of Object.entries(args.tokenValues ?? {})) {
+    if (typeof v === "string" && v.trim().length > 0) known[k] = v;
+  }
+  const filled = await fillPromptTokens(env.DB, args.prompt, known, context.site_id);
+  const prompt = filled.prompt;
 
   const startRow = await startGenerationLog(env, {
     id: existing?.id ?? newId(),
@@ -336,110 +404,119 @@ async function runTextGenerator<TContext extends FallbackContextBase, TParsed>(
     };
   }
 
-  let modelResult: GenerateTextResult;
-  try {
-    // T11/AC1: forward the per-generator timeoutMs (undefined keeps the
-    // client's DEFAULT_TIMEOUT_MS for non-article generators).
-    modelResult = await client.generateText({ prompt, timeoutMs });
-  } catch (err) {
-    const meta = buildFallbackMeta(
-      task,
-      model,
-      prompt_version,
-      ai_generation_id,
-      "failed",
-    );
+  // Shared "give up, use the fallback" ending: one 'fallback' row carrying the
+  // reason (the same failure style every path below already used).
+  const useFallback = async (
+    error_message: string,
+    status: GeneratedMeta["status"],
+    response_json?: unknown,
+  ): Promise<GenerationResult<TParsed>> => {
     await finishGenerationLogFailure(env, {
       idempotency_key,
-      error_message: err instanceof Error ? err.message : String(err),
+      error_message,
+      ...(response_json !== undefined ? { response_json } : {}),
     });
-    const fallback = buildFallback(meta);
-    await finishGenerationLogFallback(env, {
-      idempotency_key,
-      parsed_json: redactSecretsFromPayload(fallback as unknown),
-      target_type,
-      target_id,
-      error_message: err instanceof Error ? err.message : String(err),
-    });
-    return {
-      ai_generation_id,
-      idempotency_key,
-      status: "fallback",
-      parsed: fallback,
-    };
-  }
-
-  if ("skipped_no_api_key" in modelResult && modelResult.skipped_no_api_key) {
-    const meta = buildFallbackMeta(
-      task,
-      model,
-      prompt_version,
-      ai_generation_id,
-      "skipped_no_api_key",
+    const fallback = buildFallback(
+      buildFallbackMeta(task, model, prompt_version, ai_generation_id, status),
     );
-    const fallback = buildFallback(meta);
     await finishGenerationLogFallback(env, {
       idempotency_key,
       parsed_json: redactSecretsFromPayload(fallback as unknown),
       target_type,
       target_id,
-      error_message: null,
+      error_message,
     });
-    return {
-      ai_generation_id,
-      idempotency_key,
-      status: "skipped_no_api_key",
-      parsed: fallback,
-    };
-  }
+    return { ai_generation_id, idempotency_key, status: "fallback", parsed: fallback };
+  };
 
-  let parsed: TParsed;
-  try {
-    parsed = parseModelOutput(modelResult.text ?? "");
-    const validationError = validate ? validate(parsed) : null;
-    if (validationError) throw new Error(validationError);
-  } catch (err) {
-    // T11: tenant-boundary violations are SECURITY signals, not "model
-    // returned bad JSON" — they must propagate out instead of being
-    // silently rewritten into a fallback row.
-    if (err instanceof TenantBoundaryViolation) {
-      await finishGenerationLogFailure(env, {
-        idempotency_key,
-        error_message: err.message,
-      });
-      throw err;
-    }
-    const meta = buildFallbackMeta(
-      task,
-      model,
-      prompt_version,
-      ai_generation_id,
+  // X06: an unfilled {{token}} → the AI is not asked; the AI log names it.
+  if (filled.missing.length > 0) {
+    return useFallback(
+      `${UNFILLED_PLACEHOLDER}: ${filled.missing.map((n) => `{{${n}}}`).join(", ")}`,
       "fallback",
     );
-    await finishGenerationLogFailure(env, {
-      idempotency_key,
-      error_message: err instanceof Error ? err.message : String(err),
-      response_json: { text: modelResult.text ?? "" },
-    });
-    const fallback = buildFallback(meta);
-    await finishGenerationLogFallback(env, {
-      idempotency_key,
-      parsed_json: redactSecretsFromPayload(fallback as unknown),
-      target_type,
-      target_id,
-      error_message: err instanceof Error ? err.message : String(err),
-    });
-    return {
-      ai_generation_id,
-      idempotency_key,
-      status: "fallback",
-      parsed: fallback,
-    };
   }
 
+  // X06: an answer that fails the shared check is asked for once more, fresh;
+  // a second bad answer falls back.
+  let parsed: TParsed | null = null;
+  let modelResult: GenerateTextResult | null = null;
+  for (let attempt = 1; parsed === null; attempt++) {
+    try {
+      // T11/AC1: forward the per-generator timeoutMs (undefined keeps the
+      // client's DEFAULT_TIMEOUT_MS for non-article generators).
+      modelResult = await client.generateText({ prompt, timeoutMs });
+    } catch (err) {
+      return useFallback(err instanceof Error ? err.message : String(err), "failed");
+    }
+
+    if ("skipped_no_api_key" in modelResult && modelResult.skipped_no_api_key) {
+      const meta = buildFallbackMeta(
+        task,
+        model,
+        prompt_version,
+        ai_generation_id,
+        "skipped_no_api_key",
+      );
+      const fallback = buildFallback(meta);
+      await finishGenerationLogFallback(env, {
+        idempotency_key,
+        parsed_json: redactSecretsFromPayload(fallback as unknown),
+        target_type,
+        target_id,
+        error_message: null,
+      });
+      return {
+        ai_generation_id,
+        idempotency_key,
+        status: "skipped_no_api_key",
+        parsed: fallback,
+      };
+    }
+
+    const rawText = "text" in modelResult ? (modelResult.text ?? "") : "";
+    let candidate: TParsed;
+    try {
+      candidate = parseModelOutput(rawText);
+      const validationError = validate ? validate(candidate) : null;
+      if (validationError) throw new Error(validationError);
+    } catch (err) {
+      // T11: tenant-boundary violations are SECURITY signals, not "model
+      // returned bad JSON" — they must propagate out instead of being
+      // silently rewritten into a fallback row.
+      if (err instanceof TenantBoundaryViolation) {
+        await finishGenerationLogFailure(env, {
+          idempotency_key,
+          error_message: err.message,
+        });
+        throw err;
+      }
+      return useFallback(
+        err instanceof Error ? err.message : String(err),
+        "fallback",
+        { text: rawText },
+      );
+    }
+
+    const problem = answerProblem(candidate, answerCheck);
+    if (problem === null) {
+      parsed = candidate;
+    } else if (attempt >= 2) {
+      return useFallback(`${problem} (asked twice)`, "fallback", { text: rawText });
+    } else {
+      // Logged on the row (status 'failed') until the second answer lands.
+      await finishGenerationLogFailure(env, {
+        idempotency_key,
+        error_message: `${problem} (asking once more)`,
+        response_json: { text: rawText },
+      });
+    }
+  }
+
+  const success = modelResult as { text?: string; model?: string };
   await finishGenerationLogSuccess(env, {
     idempotency_key,
-    response_json: { text: modelResult.text, model: modelResult.model },
+    response_json: { text: success.text, model: success.model },
     parsed_json: redactSecretsFromPayload(parsed as unknown),
     target_type,
     target_id,
@@ -458,8 +535,36 @@ async function runTextGenerator<TContext extends FallbackContextBase, TParsed>(
 // runTextGenerator via createOpenAIClient(env), and idempotency_key is
 // computed deterministically per call.
 
+// X06: options shared by the two site-level text generators (Tagline, Site
+// Description) — used by setup and by Settings → General "✨ Write with AI".
+export interface SiteTextExtras {
+  // The site's domain, for a preset's {{domain}}.
+  domain?: string;
+  // Settings "✨ Write with AI": the site's newest Article titles as context.
+  recent_titles?: string[];
+  // Settings "✨ Write with AI": a fresh key per click, so a saved answer is
+  // never reused and each click asks the AI again.
+  idempotency_suffix?: string;
+}
+
+// The Site Description limit Google shows (X06): asked for 120–160
+// characters; a longer answer is refused and asked for once more.
+export const SITE_DESCRIPTION_MAX_CHARS = 160;
+export const SITE_DESCRIPTION_LENGTH_LINE =
+  "Write the description in 120 to 160 characters.";
+export const SITE_DESCRIPTION_TOO_LONG = "SITE_DESCRIPTION_TOO_LONG";
+
+function withRecentTitles(prompt: string, titles: string[] | undefined): string {
+  const clean = (titles ?? [])
+    .map((t) => (typeof t === "string" ? t.trim() : ""))
+    .filter((t) => t.length > 0 && !containsPlaceholder(t));
+  if (clean.length === 0) return prompt;
+  return `${prompt}\nRecent articles on the site: ${clean.map((t) => `"${t}"`).join("; ")}.`;
+}
+
 export interface GenerateSiteTaglineInput
-  extends BuildSiteTaglinePromptInput {
+  extends BuildSiteTaglinePromptInput,
+    SiteTextExtras {
   client?: OpenAIClient;
   // T40 [BCL-077]: the provisioning step passes its task-key category
   // ('tagline') so this generator resolves + applies the editable system
@@ -477,15 +582,19 @@ export async function generateSiteTagline(
   // T40: resolve the 'tagline' preset (editable, is_system seeded by 0020).
   // When a preset exists its interpolated prompt + text_model drive the
   // generation; with no preset we fall back to the deterministic builder.
+  // X06: a site-level text has no Article, so {{title}} is the Site Name.
+  const vars = {
+    vertical: input.vertical,
+    audience: input.audience,
+    brand_name: input.brand_name,
+    site_id: input.site_id,
+    domain: input.domain,
+    title: input.brand_name,
+  };
   const preset = await resolveCategoryPreset(
     env,
     input.presetCategory ?? "tagline",
-    {
-      vertical: input.vertical,
-      audience: input.audience,
-      brand_name: input.brand_name,
-      site_id: input.site_id,
-    },
+    vars,
   );
   return runTextGenerator<GenerateSiteTaglineInput, { tagline: string }>({
     env,
@@ -494,7 +603,12 @@ export async function generateSiteTagline(
     target_type: "site_settings",
     target_id: input.site_id,
     context: input,
-    prompt: preset?.prompt ?? buildSiteTaglinePrompt(input),
+    idempotency_suffix: input.idempotency_suffix,
+    prompt: withRecentTitles(
+      preset?.prompt ?? buildSiteTaglinePrompt(input),
+      input.recent_titles,
+    ),
+    tokenValues: vars,
     modelOverride: preset?.model ?? undefined,
     parseModelOutput: (raw) => ({ tagline: raw.trim().split("\n")[0] ?? "" }),
     buildFallback: () => ({ tagline: fallbackSiteTagline(input) }),
@@ -505,7 +619,8 @@ export async function generateSiteTagline(
 }
 
 export interface GenerateSiteDescriptionInput
-  extends BuildSiteDescriptionPromptInput {
+  extends BuildSiteDescriptionPromptInput,
+    SiteTextExtras {
   client?: OpenAIClient;
   // T40 [BCL-077]: provisioning passes 'site-description' so the editable
   // system preset governs the generated meta description.
@@ -518,16 +633,19 @@ export async function generateSiteDescription(
 ): Promise<GenerationResult<{ description: string }>> {
   // OPENAI_API_KEY-aware; deterministic idempotency_key per site.
   // T40: resolve the 'site-description' preset (is_system seeded by 0020).
+  const vars = {
+    vertical: input.vertical,
+    audience: input.audience,
+    brand_name: input.brand_name,
+    tagline: input.tagline,
+    site_id: input.site_id,
+    domain: input.domain,
+    title: input.brand_name,
+  };
   const preset = await resolveCategoryPreset(
     env,
     input.presetCategory ?? "site-description",
-    {
-      vertical: input.vertical,
-      audience: input.audience,
-      brand_name: input.brand_name,
-      tagline: input.tagline,
-      site_id: input.site_id,
-    },
+    vars,
   );
   return runTextGenerator<
     GenerateSiteDescriptionInput,
@@ -539,18 +657,30 @@ export async function generateSiteDescription(
     target_type: "site_settings",
     target_id: input.site_id,
     context: input,
-    prompt: preset?.prompt ?? buildSiteDescriptionPrompt(input),
+    idempotency_suffix: input.idempotency_suffix,
+    // X06: ask for 120–160 characters on every path (preset or builder).
+    prompt: withRecentTitles(
+      `${preset?.prompt ?? buildSiteDescriptionPrompt(input)}\n${SITE_DESCRIPTION_LENGTH_LINE}`,
+      input.recent_titles,
+    ),
+    tokenValues: vars,
     modelOverride: preset?.model ?? undefined,
     parseModelOutput: (raw) => ({ description: raw.trim() }),
     buildFallback: () => ({ description: fallbackSiteDescription(input) }),
     validate: (p) =>
       p.description && p.description.length > 0 ? null : "DESCRIPTION_EMPTY",
+    answerCheck: (p) =>
+      p.description.length > SITE_DESCRIPTION_MAX_CHARS
+        ? `${SITE_DESCRIPTION_TOO_LONG} (${p.description.length} > ${SITE_DESCRIPTION_MAX_CHARS})`
+        : null,
     client: input.client,
   });
 }
 
 export interface GenerateAboutPageInput extends BuildAboutPagePromptInput {
   client?: OpenAIClient;
+  // X06: for a {{domain}} token.
+  domain?: string;
 }
 
 export async function generateAboutPage(
@@ -566,6 +696,7 @@ export async function generateAboutPage(
     target_id: input.site_id,
     context: input,
     prompt: buildAboutPagePrompt(input),
+    tokenValues: { domain: input.domain, title: input.brand_name },
     parseModelOutput: (raw) => {
       const meta = buildFallbackMeta(
         "about-page",
@@ -603,6 +734,8 @@ export interface GenerateStarterArticlePlanInput
   // the article plan — editing it changes the titles/topics the next setup
   // produces. Direct callers default to the 'outline' use-case preset (T13).
   presetCategory?: string;
+  // X06: for a {{domain}} token.
+  domain?: string;
 }
 
 export async function generateStarterArticlePlan(
@@ -634,12 +767,19 @@ export async function generateStarterArticlePlan(
   // NOTE: the compile-time count knob is STARTER_ARTICLE_TARGET (steps.ts:131);
   // the provisioning materialize step threads it here as `input.count`.
   const count = input.count;
-  const preset = await resolveCategoryPreset(env, input.presetCategory ?? "outline", {
+  const planVars = {
     vertical: input.vertical,
     audience: input.audience,
     brand_name: input.brand_name,
     site_id: input.site_id,
-  });
+    domain: input.domain,
+    title: input.brand_name,
+  };
+  const preset = await resolveCategoryPreset(
+    env,
+    input.presetCategory ?? "outline",
+    planVars,
+  );
   // (a) normalized count constraint, appended to whichever prompt resolves
   // (preset OR builtin) so the model is instructed to return exactly `count`
   // regardless of the preset's wording.
@@ -656,6 +796,7 @@ export async function generateStarterArticlePlan(
     target_id: input.site_id,
     context: input,
     prompt,
+    tokenValues: planVars,
     modelOverride: preset?.model ?? undefined,
     parseModelOutput: (raw) => {
       const meta = buildFallbackMeta(
@@ -746,6 +887,8 @@ function normalizeStarterPlanItems(
 export interface GenerateStarterArticleInput
   extends BuildStarterArticlePromptInput {
   client?: OpenAIClient;
+  // X06: for a {{domain}} token.
+  domain?: string;
 }
 
 export async function generateStarterArticle(
@@ -761,15 +904,19 @@ export async function generateStarterArticle(
   // T13/AC1: the 'content' use-case preset (if an active row exists) drives
   // the prompt + model; with no preset we fall back to the deterministic
   // builder prompt + registry-default model (no crash, no stub).
-  const preset = await resolveCategoryPreset(env, "content", {
+  // X06: an empty summary would leave the preset's {{summary}} unfilled (and
+  // block the request), so it falls back to the title.
+  const articleVars = {
     vertical: input.vertical,
     audience: input.audience,
     brand_name: input.brand_name,
     title: input.title,
-    summary: input.summary,
+    summary: input.summary || input.title,
     slug: input.slug,
     site_id: input.site_id,
-  });
+    domain: input.domain,
+  };
+  const preset = await resolveCategoryPreset(env, "content", articleVars);
   return runTextGenerator<GenerateStarterArticleInput, GeneratedArticle>({
     env,
     task: "starter-article",
@@ -781,6 +928,7 @@ export async function generateStarterArticle(
     // T11/AC1: full articles need more than the 30s DEFAULT_TIMEOUT_MS.
     timeoutMs: STARTER_ARTICLE_TIMEOUT_MS,
     prompt: preset?.prompt ?? buildStarterArticlePrompt(input),
+    tokenValues: articleVars,
     modelOverride: preset?.model ?? undefined,
     parseModelOutput: (raw) => {
       const meta = buildFallbackMeta(

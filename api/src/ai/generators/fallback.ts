@@ -46,13 +46,19 @@ export function fallbackSiteTagline(input: FallbackContextBase): string {
   return `${brand(input)} — clear, helpful guidance on ${vertical(input)}.`;
 }
 
+// X06: Google shows about 160 characters, so the fallback stays under 160 —
+// the second sentence is dropped when a long name would push it over, and a
+// very long name/vertical is cut at a whole word.
+export const FALLBACK_SITE_DESCRIPTION_MAX = 159;
+
 export function fallbackSiteDescription(input: FallbackContextBase): string {
-  return [
-    `${brand(input)} publishes practical guides for ${audience(input)}`,
-    `interested in ${vertical(input)}. Articles are written in plain language,`,
-    `cover step-by-step decisions, and link to authoritative resources where`,
-    `relevant. No marketing fluff.`,
-  ].join(" ");
+  const first = `${brand(input)} publishes clear, practical guides on ${vertical(input)}.`;
+  const full = `${first} Plain language, step-by-step help and no marketing fluff.`;
+  if (full.length <= FALLBACK_SITE_DESCRIPTION_MAX) return full;
+  if (first.length <= FALLBACK_SITE_DESCRIPTION_MAX) return first;
+  const cut = first.slice(0, FALLBACK_SITE_DESCRIPTION_MAX - 1);
+  const atWord = cut.lastIndexOf(" ");
+  return `${(atWord > 0 ? cut.slice(0, atWord) : cut).replace(/[\s,.;:]+$/, "")}.`;
 }
 
 export function fallbackAboutPageBody(

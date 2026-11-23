@@ -20,6 +20,7 @@
 import type { Env } from "../../env";
 import type { SupportedTextModel } from "../models";
 import { applyPreset } from "./preset-engine";
+import { containsPlaceholder, resolveSiteAudience } from "../site-audience";
 
 // T40 [BCL-077]: provisioning generation is preset-governed. Every automatic
 // AI step during site setup resolves + fully applies its system preset by
@@ -88,6 +89,68 @@ export function interpolatePreset(
     const value = vars[key];
     return typeof value === "string" && value.length > 0 ? value : whole;
   });
+}
+
+// X06 (SEO Fixes): the shared "fill or refuse" step every AI text request goes
+// through (runTextGenerator in text.ts) before the AI is asked. The AI Presets
+// preview never calls this, so it keeps showing tokens unchanged.
+//
+// Order: the caller's own values (brand_name, vertical, audience, title, …),
+// then — only when a token is still left — the site's saved values (Site Name,
+// domain, Vertical, audience via resolveSiteAudience). Whatever is still
+// unfilled is returned in `missing`; the caller must not send the prompt.
+//
+// Same token shape as the preset engine's interpolate(): {{name}} with
+// optional spaces. Plain JSON braces in a prompt ({"a":{"b":1}}) are not tokens
+// and never block a request.
+const ANY_TOKEN_RE = /\{\{\s*([\w.\-]+)\s*\}\}/g;
+
+export function listUnfilledTokens(text: string): string[] {
+  const names = new Set<string>();
+  for (const m of text.matchAll(ANY_TOKEN_RE)) if (m[1]) names.add(m[1]);
+  return [...names];
+}
+
+function fillTokens(text: string, values: Record<string, string | undefined>): string {
+  return text.replace(ANY_TOKEN_RE, (whole, key: string) => {
+    const v = values[key];
+    return typeof v === "string" && v.trim().length > 0 && !containsPlaceholder(v) ? v : whole;
+  });
+}
+
+async function loadSiteTokenValues(
+  db: D1Database,
+  siteId: string,
+): Promise<Record<string, string | undefined>> {
+  const out: Record<string, string | undefined> = {};
+  try {
+    const site = await db
+      .prepare("SELECT name, domain, vertical_slug FROM sites WHERE id = ? LIMIT 1")
+      .bind(siteId)
+      .first<{ name: string | null; domain: string | null; vertical_slug: string | null }>();
+    if (site) {
+      out.brand_name = site.name ?? undefined;
+      out.domain = site.domain ?? undefined;
+      out.vertical = site.vertical_slug ?? undefined;
+    }
+  } catch {
+    // no site values — the token stays unfilled and is reported
+  }
+  out.audience = await resolveSiteAudience(db, siteId);
+  return out;
+}
+
+export async function fillPromptTokens(
+  db: D1Database,
+  prompt: string,
+  known: Record<string, string | undefined>,
+  siteId: string | null | undefined,
+): Promise<{ prompt: string; missing: string[] }> {
+  let out = fillTokens(prompt, known);
+  if (listUnfilledTokens(out).length > 0 && typeof siteId === "string" && siteId) {
+    out = fillTokens(out, await loadSiteTokenValues(db, siteId));
+  }
+  return { prompt: out, missing: listUnfilledTokens(out) };
 }
 
 export async function resolveCategoryPreset(

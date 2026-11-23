@@ -982,7 +982,7 @@ function makeCategoryDb(): D1Database {
               settings_version: 1,
             } as unknown as T;
           }
-          if (sql.startsWith("SELECT id, slug, name FROM categories")) {
+          if (sql.startsWith("SELECT id, slug, name, description FROM categories")) {
             const slug = captured[0] as string;
             if (slug !== CATEGORY_ROW.slug) return null;
             return { ...CATEGORY_ROW } as unknown as T;

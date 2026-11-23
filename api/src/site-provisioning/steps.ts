@@ -55,6 +55,8 @@ import {
 // preset by task key (seeded is_system by migration 0020). PROVISIONING_PRESET_CATEGORIES
 // is the single source of truth for those task keys.
 import { PROVISIONING_PRESET_CATEGORIES } from "../ai/generators/preset-resolver";
+// X06: who the site writes for (site setting → Vertical default → fallback).
+import { containsPlaceholder, resolveSiteAudience } from "../ai/site-audience";
 
 export type StepKey =
   | "validate_domain_in_cloudflare"
@@ -539,6 +541,24 @@ async function allocateVerticalCategoriesStep(
 }
 
 
+// X06: setup copies the Vertical's default audience into the site's own
+// "audience" setting (Settings → General) when the site has none yet. Kept out
+// of the create_site_settings seed so its fixed key count is unchanged.
+async function seedSiteAudience(ctx: StepContext): Promise<void> {
+  // Only a real Vertical default is copied: the "readers interested in …"
+  // fallback stays a run-time fallback, so setting the Vertical's audience
+  // later still reaches this site.
+  const row = await ctx.db
+    .prepare(
+      "SELECT v.audience AS audience FROM sites s JOIN verticals v ON v.slug = s.vertical_slug WHERE s.id = ? LIMIT 1",
+    )
+    .bind(ctx.site_id)
+    .first<{ audience: string | null }>();
+  const audience = typeof row?.audience === "string" ? row.audience.trim() : "";
+  if (audience.length === 0 || containsPlaceholder(audience)) return;
+  await upsertSiteSetting(ctx.db, ctx.site_id, "audience", audience);
+}
+
 // T9 — generate_tagline_and_site_description
 // Calls generateSiteTagline + generateSiteDescription. With no
 // OPENAI_API_KEY both return a deterministic fallback and write an
@@ -556,16 +576,22 @@ async function generateTaglineAndSiteDescriptionStep(
       error: `sites row missing for site_id=${ctx.site_id}`,
     };
   }
+  await seedSiteAudience(ctx);
+  const audience = await resolveSiteAudience(ctx.db, ctx.site_id);
   const tagline = await generateSiteTagline(ctx.env, {
     site_id: info.site_id,
     vertical: info.vertical,
     brand_name: info.brand_name,
+    audience,
+    domain: info.domain,
     presetCategory: PROVISIONING_PRESET_CATEGORIES.tagline,
   });
   const description = await generateSiteDescription(ctx.env, {
     site_id: info.site_id,
     vertical: info.vertical,
     brand_name: info.brand_name,
+    audience,
+    domain: info.domain,
     tagline: tagline.parsed.tagline,
     presetCategory: PROVISIONING_PRESET_CATEGORIES.siteDescription,
   });
@@ -575,12 +601,14 @@ async function generateTaglineAndSiteDescriptionStep(
   // Both generators always return a non-empty value (deterministic fallback
   // when OPENAI_API_KEY is absent), but guard on length anyway so an empty
   // model result never wipes the good stub.
+  // X06: nothing holding "{{" is ever saved (the generators already swap such
+  // an answer for the fallback; this is the last guard before the write).
   const taglineValue = (tagline.parsed.tagline ?? "").trim();
-  if (taglineValue.length > 0) {
+  if (taglineValue.length > 0 && !containsPlaceholder(taglineValue)) {
     await upsertSiteSetting(ctx.db, ctx.site_id, "tagline", taglineValue, true);
   }
   const descriptionValue = (description.parsed.description ?? "").trim();
-  if (descriptionValue.length > 0) {
+  if (descriptionValue.length > 0 && !containsPlaceholder(descriptionValue)) {
     await upsertSiteSetting(
       ctx.db,
       ctx.site_id,
@@ -637,6 +665,8 @@ async function generateAboutPageStep(
     site_id: info.site_id,
     vertical: info.vertical,
     brand_name: info.brand_name,
+    audience: await resolveSiteAudience(ctx.db, ctx.site_id),
+    domain: info.domain,
   });
   const title = about.parsed.title || `About ${info.brand_name}`;
   const contentDoc = {
@@ -1260,6 +1290,8 @@ export async function generateOneTextUnit(
       site_id: info.site_id,
       vertical: info.vertical,
       brand_name: info.brand_name,
+      audience: await resolveSiteAudience(ctx.db, ctx.site_id),
+      domain: info.domain,
       slug: unit.slug,
       title: unit.title ?? unit.slug,
       summary: unit.summary ?? "",
@@ -1288,9 +1320,9 @@ export async function generateOneTextUnit(
     categoryIds.length > 0
       ? categoryIds[unit.unit_index % categoryIds.length]!
       : null;
-  const seoTitle = (article.parsed.title || unit.title || unit.slug)
-    .trim()
-    .slice(0, 70);
+  // X06: the full title, never cut mid-word (Google shortens long titles
+  // itself, with "…").
+  const seoTitle = (article.parsed.title || unit.title || unit.slug).trim();
   const seoDescription = (
     unit.summary ||
     article.parsed.intro ||
@@ -1483,6 +1515,9 @@ async function fillMidArticleImage(
     article_slug: `${articleRow.slug}-mid`,
     brand_name: info.brand_name,
     presetCategory: PROVISIONING_PRESET_CATEGORIES.featureImage,
+    // X06: the "different supporting moment" instruction above stays in the
+    // prompt only; the saved image description is the Article's title.
+    alt_text: articleRow.title,
   });
   if (midImage.media_id <= 0 || !midImage.storage_key) return;
 
@@ -1493,7 +1528,7 @@ async function fillMidArticleImage(
     ...blocks[slotIndex],
     type: "image",
     src: `/media/${midImage.storage_key}`,
-    alt: `${articleRow.title} — illustration`,
+    alt: articleRow.title,
     caption:
       typeof blocks[slotIndex]!.caption === "string"
         ? (blocks[slotIndex] as { caption: string }).caption
@@ -1526,6 +1561,8 @@ async function generate15HomepageArticlesStep(
       site_id: info.site_id,
       vertical: info.vertical,
       brand_name: info.brand_name,
+      audience: await resolveSiteAudience(ctx.db, ctx.site_id),
+      domain: info.domain,
       count: STARTER_ARTICLE_TARGET,
       presetCategory: PROVISIONING_PRESET_CATEGORIES.starterArticles,
     });

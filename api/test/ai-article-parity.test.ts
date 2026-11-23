@@ -77,15 +77,17 @@ describe("structure gate: the composer emits article 345's exact shape", () => {
 });
 
 describe("deriveArticleFields mirrors the pipeline's field rounding", () => {
-  it("clips seo_title to 70, seo_description to 155 (from the intro), subtitle to 160", () => {
+  // X06: seo_title is no longer clipped; seo_description is cut at a whole
+  // word (here one 200-char word, so a hard cut at 157 + "…").
+  it("keeps the whole seo_title, cuts seo_description to ≤160 (from the intro), subtitle to 160", () => {
     const parsed = fixtureArticle();
     parsed.title = "T".repeat(90);
     parsed.subtitle = "s".repeat(200);
     parsed.intro = `${"d".repeat(200)}\n\nsecond para`;
     const f = deriveArticleFields(parsed, "fallback", "Author");
     expect(f.title).toBe("T".repeat(90));
-    expect(f.seo_title).toHaveLength(70);
-    expect(f.seo_description).toHaveLength(155);
+    expect(f.seo_title).toHaveLength(90);
+    expect(f.seo_description).toBe(`${"d".repeat(157)}…`);
     expect(f.subtitle).toHaveLength(160);
     expect(f.author_name).toBe("Author");
   });
