@@ -39,7 +39,9 @@ import {
 import type { Problem } from "../public/leadgen/designs/theme";
 import { providerNodeType } from "./answers";
 import type { FieldErrors } from "./validation";
-import type { LeadgenPayloadNodeType, LeadgenTransformStep } from "./payload";
+import type { LeadgenAnswerSendAs, LeadgenPayloadNodeType, LeadgenTransformStep } from "./payload";
+// F18 Vehicle database "Source" (pure).
+import { readVehicleSource, type VehicleAsks } from "./vehicles/props";
 import type {
   LeadgenContinueMode,
   LeadgenMappingState,
@@ -485,6 +487,10 @@ export interface LeadgenAnswerMapEdge {
   required_for_offer: boolean;
   default_value: string | null;
   fallback_value: string | null;
+  // F18 (owner decision Q4): "Send as" for a Vehicle database question
+  // ("name" default / "id"). null/absent = the default. Stored in
+  // leadgen_section_answer_maps.send_as (0069).
+  send_as?: LeadgenAnswerSendAs | null;
 }
 
 // §12.4/§35: mapping into an archived / paused Offer, or an Offer whose
@@ -578,6 +584,9 @@ function choiceValueCoercible(value: string, nodeType: LeadgenPayloadNodeType): 
 // 'error'. The verdict now reads the same values the runtime will send.
 function closedAnswerValues(node: unknown): readonly string[] | null {
   if (!isRecord(node)) return null;
+  // F18: a Vehicle database question's typed choices are kept but ignored —
+  // what it sends is judged by vehicleAnswerValues instead.
+  if (typeof node["type"] === "string" && readVehicleSource(node["type"], node["props"]) !== null) return null;
   const choices = node["choices"];
   if (!Array.isArray(choices) || choices.length === 0) return null;
   const out: string[] = [];
@@ -607,6 +616,50 @@ export function closedAnswerValuesByQuestion(
     if (values !== null) out.set(questionId, values);
   }
   return out;
+}
+
+// F18 — a Vehicle database question has no typed choices, but what it sends
+// has a known SHAPE (owner decision Q4), which is what coercibility is judged
+// by: the year is always a number; a make or model sends its name (text) by
+// default, and "Send as: ID" sends the make_id (a number) or the model_id
+// (text). One representative value per shape — choiceValueCoercible reads
+// these exactly as it reads typed choice values, so a name into a text field
+// is complete and a make name into a number field is a type mismatch, with no
+// per-choice value list demanded.
+export function vehicleAnswerValues(
+  asks: VehicleAsks,
+  sendAs: LeadgenAnswerSendAs | null | undefined,
+): readonly string[] {
+  if (asks === "year") return ["2023"];
+  if (asks === "make") return sendAs === "id" ? ["448"] : ["Toyota"];
+  return sendAs === "id" ? ["m_0123456789"] : ["Corolla"];
+}
+
+// question_id → what its Vehicle database question asks for (absent = an
+// ordinary question), from content_json like closedAnswerValuesByQuestion.
+export function vehicleAsksByQuestion(content: LeadgenSectionContent): Map<string, VehicleAsks> {
+  const out = new Map<string, VehicleAsks>();
+  const components = flattenComponents(Array.isArray(content.components) ? content.components : []);
+  for (const node of components) {
+    if (!isRecord(node)) continue;
+    const questionId = node["question_id"];
+    if (typeof questionId !== "string" || typeof node["type"] !== "string") continue;
+    const cfg = readVehicleSource(node["type"], node["props"]);
+    if (cfg !== null) out.set(questionId, cfg.asks);
+  }
+  return out;
+}
+
+// The value set ONE edge is judged by: a vehicle question's shape for this
+// edge's "Send as", else the question's typed choice values (null = open).
+export function edgeAnswerValues(
+  edge: Pick<LeadgenAnswerMapEdge, "question_id" | "send_as">,
+  closedValues: ReadonlyMap<string, readonly string[]>,
+  vehicleAsks: ReadonlyMap<string, VehicleAsks>,
+): readonly string[] | null {
+  const asks = vehicleAsks.get(edge.question_id);
+  if (asks !== undefined) return vehicleAnswerValues(asks, edge.send_as);
+  return closedValues.get(edge.question_id) ?? null;
 }
 
 // Without a value_map/transform, can the raw normalized answer coerce to the
@@ -702,6 +755,8 @@ export interface RebuiltAnswerMapRow {
   required_for_offer: boolean;
   default_value: string | null;
   fallback_value: string | null;
+  // F18: carried from the edge ("Send as"; null/absent = the default).
+  send_as?: LeadgenAnswerSendAs | null;
   mapping_completeness: LeadgenMappingCompleteness;
   mapping_status: LeadgenMappingStatus;
   validation_status: LeadgenValidationStatus;
@@ -749,6 +804,7 @@ export function rebuildDerivedIndexes(input: RebuildInput): RebuildResult {
       if (values !== null) closedValues.set(node["question_id"], values);
     }
   }
+  const vehicleAsks = vehicleAsksByQuestion(input.content);
 
   const answerMaps: RebuiltAnswerMapRow[] = [];
   for (const edge of input.answerMaps) {
@@ -759,7 +815,7 @@ export function rebuildDerivedIndexes(input: RebuildInput): RebuildResult {
     const completeness = mappingCompleteness(
       edge,
       offerSchema,
-      closedValues.get(edge.question_id) ?? null,
+      edgeAnswerValues(edge, closedValues, vehicleAsks),
     );
     answerMaps.push({
       ...edge,

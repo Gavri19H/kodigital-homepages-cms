@@ -111,7 +111,18 @@ import {
   type ExplainProviderRequested,
   type ExplainProviderResponded,
 } from "./explain";
-import { validatePayloadSchema, type LeadgenPayloadSchema } from "../../../leadgen/payload";
+import {
+  attachVehicleAnswers,
+  validatePayloadSchema,
+  type LeadgenPayloadSchema,
+  type LeadgenVehicleAnswerValue,
+} from "../../../leadgen/payload";
+import {
+  resolveVehicleAnswerValues,
+  vehicleQuestionsOfOffers,
+  vehicleQuestionsOfSections,
+  type VehicleQuestion,
+} from "../../../leadgen/vehicle-answers";
 import {
   buildLeadgenRuntimeContext,
   type LeadGenRuntimeContext,
@@ -1516,6 +1527,27 @@ export async function runAuction(
       }
     }
   }
+  // F18 (owner decision Q4) — what Offers receive for Vehicle database
+  // answers: the display name by default ("Toyota", "Corolla"; the year as a
+  // number), or the stored id per Offer field ("Send as: ID"). The lead keeps
+  // the ids (normalizedAnswers is untouched); the names ride each Offer's
+  // answer bindings (attachVehicleAnswers below), so the live auction, the
+  // dry-run and the Simulator share this one expansion. The Simulator has no
+  // lead Sections, so its vehicle questions come from the Sections that map
+  // its Offers (as its bindings do). Reads nothing when no vehicle question is
+  // in play; never throws (an unreadable list sends the stored answer).
+  let vehicleQuestions: VehicleQuestion[] = [];
+  try {
+    vehicleQuestions =
+      input.answerBindingsFromAllSections === true
+        ? await vehicleQuestionsOfOffers(env.DB, input.bundle.offers.map((b) => b.offer.id))
+        : vehicleQuestionsOfSections(input.resolved.sections.map((rs) => rs.section));
+  } catch (err) {
+    console.warn("[vehicles] vehicle question read failed", err instanceof Error ? err.message : "unknown");
+  }
+  const vehicleValues: Record<string, LeadgenVehicleAnswerValue> =
+    vehicleQuestions.length === 0 ? {} : await resolveVehicleAnswerValues(env, vehicleQuestions, normalizedAnswers);
+
   // OWNER 2026-10-08 — the visitor's contact answers as HASHED Meta user_data
   // (server-normalized answers of the sections they passed through; the
   // ZIP-derived facet fills a missing city/state/zip). Never throws.
@@ -1835,7 +1867,7 @@ export async function runAuction(
           payloadSchema: b.payload_schema,
           ctx: {
             answers: normalizedAnswers,
-            answer_bindings: answerBindings.get(b.offer.id) ?? {},
+            answer_bindings: attachVehicleAnswers(answerBindings.get(b.offer.id) ?? {}, vehicleValues),
             answer_computed:
               input.answerComputedByOffer?.get(b.offer.id) ??
               computedForOffer(answerComputed, answerComputedOffers, b.offer.id),

@@ -94,6 +94,11 @@ import {
   type OfferSchemaInfo,
 } from "../../leadgen/sections";
 import { evaluateDynamicOffersEligibility } from "../../leadgen/validation";
+// F18 Vehicle database: preview data + the "Publish…" link/order checks.
+import { loadVehicleRenderData, type VehicleRenderData } from "../../leadgen/vehicles/store";
+import { readAnswerSendAs } from "../../leadgen/payload";
+import { collectVehicleQuestions, componentsOfContentJson, type VehicleQuestion } from "../../leadgen/vehicle-answers";
+import { vehicleSnapshotFieldOf } from "../../leadgen/vehicles/props";
 import type { LeadgenPayloadNodeType, LeadgenTransformStep } from "../../leadgen/payload";
 import { getFunnelDesign, FUNNEL_DESIGNS } from "../../public/leadgen/designs/registry";
 import type { FunnelDesign } from "../../public/leadgen/designs/registry";
@@ -5157,10 +5162,22 @@ export async function previewVariantHandler(c: AdminContext): Promise<Response> 
   const config: LeadgenPublicConfig = buildPublicConfig(resolved, design);
 
   const maxPosition = auctionEntryPosition(resolved.sections.map((s) => ({ position: s.position })));
+  // F18: Vehicle database questions preview the real list (Year / Model with
+  // the sample make). Reads nothing when no Section has one; a Section without
+  // one keeps the legacy no-ctx render byte for byte.
+  const nodesBySection = resolved.sections.map((rs) => parseSectionNodes(rs.section.content_json));
+  const vehicle = await loadVehicleRenderData(c.env, nodesBySection.flat(), { sample: true });
   const sectionsHtml = resolved.sections
-    .map((rs) => {
-      const nodes = parseSectionNodes(rs.section.content_json);
-      const body = renderSectionComponents(nodes, design);
+    .map((rs, index) => {
+      const nodes = nodesBySection[index] ?? [];
+      const hasVehicle = vehicle !== null && collectVehicleQuestions([nodes]).length > 0;
+      const body = hasVehicle
+        ? renderSectionComponents(nodes, design, {
+            headline_text: rs.section.headline_text,
+            subheadline_text: rs.section.subheadline_text,
+            vehicle,
+          })
+        : renderSectionComponents(nodes, design);
       const auctionMark =
         maxPosition !== null && rs.position === maxPosition
           ? `<div class="lg-auction-entry" data-auction-after-position="${rs.position}">Auction runs after this section (max position)</div>`
@@ -5316,6 +5333,10 @@ export interface ComposedVariantPreviewInput {
   // composedVariantPreviewResponse (its async caller) resolves the id and
   // fetches the record. Absent/null = today's behavior unchanged.
   themeRecord?: ThemeRecord | null;
+  // F18 (ADDITIVE): the vehicle list for "Vehicle database" questions, loaded
+  // by the async caller (loadVehicleRenderData with the Toyota sample), so this
+  // stays synchronous. Absent/null = every Section renders exactly as before.
+  vehicle?: VehicleRenderData | null;
   // Round-4 P5b (10B admin leg, conductor-granted): threads renderQuoteFrame's
   // adminPreview flag (frame.ts renderNoLogoHint — the admin-preview-only
   // no-logo hint, [data-admin-preview-hint="1"]). Defaults to false/absent so
@@ -5572,6 +5593,7 @@ export function renderComposedVariantPreview(
     effectiveDesign,
     composition === null ? null : composition.frame,
     composition === null ? undefined : composition.effectiveTokens.theme_controls,
+    input.vehicle ?? null,
   );
 
   if (input.mode === "all") {
@@ -5886,12 +5908,20 @@ async function composedVariantPreviewResponse(
   const winningId = winningThemeId(effectiveThemeJsonForTheme, effectiveOverridesForTheme);
   const themeRecord: ThemeRecord | null = winningId !== null ? await getThemeRecord(c.env.CACHE, winningId) : null;
 
+  // F18: "Preview in a quote" shows the real vehicle list (Year / Model with
+  // the sample make). Reads nothing when no Section has a vehicle question.
+  const vehicle = await loadVehicleRenderData(
+    c.env,
+    sections.flatMap((s) => componentsOfContentJson(s.content_json)),
+    { sample: true },
+  );
   const preview = renderComposedVariantPreview({
     quote: owner.quote,
     funnel: owner.funnel,
     variant,
     sections,
     siteBranding,
+    vehicle,
     mode,
     visibleIndex,
     draftFrameConfig,
@@ -6506,6 +6536,8 @@ interface SectionAnswerMapRow {
   required_for_offer: number;
   default_value: string | null;
   fallback_value: string | null;
+  // F18 (0069): "Send as" — absent on a database without 0069 (read via `*`).
+  send_as?: string | null;
 }
 
 // Stored answer-map rows for MANY sections, grouped by section. `section_id` is
@@ -6705,6 +6737,7 @@ async function computeVariantPreflightBlocks(
       required_for_offer: r.required_for_offer !== 0,
       default_value: r.default_value,
       fallback_value: r.fallback_value,
+      send_as: readAnswerSendAs(r.send_as) ?? null,
     }));
     const rebuilt = rebuildDerivedIndexes({
       content: { components: (componentsBySection.get(s.section_id) ?? []) as never },
@@ -7406,6 +7439,198 @@ async function computeMapsNoJobProblems(
   return problems;
 }
 
+// F18 Vehicle database — the "Publish…" link and order checks (plan Section 3
+// point 34, Q5). A Year question takes its years from the make the visitor
+// picked in the Make question its "Make answer comes from" names; a Model
+// question takes its models from that make and the year its "Year answer
+// comes from" names. So, in each variant's page order (the Quote's shared
+// first page first), the named Make / Year question must exist, be set to the
+// right kind, and come on the same page or an earlier one. Every broken link
+// is an ERROR row — publishing is blocked with a plain message and a link to
+// the Section. Runs UNCONDITIONALLY (like the Maps escalation): it is a
+// per-question content concern. Reads only Sections that mention the vehicle
+// Source (a cheap LIKE pre-filter; the parse below decides), so a Quote with
+// no vehicle question costs one small query and adds no row.
+interface VehicleLinkRow {
+  fvs_id: number;
+  section_id: number;
+  quote_id: number | null;
+  page_id: number | null;
+  public_id: string;
+  section_name: string;
+  content_json: string;
+}
+
+interface VehicleQuestionPlace extends VehicleQuestion {
+  page: number;
+  question_id: string;
+  section_public_id: string;
+  section_name: string;
+}
+
+const VEHICLE_KIND_LABEL: Record<VehicleQuestion["asks"], string> = { make: "Make", year: "Year", model: "Model" };
+
+export async function computeVehicleLinkProblems(
+  db: D1Database,
+  quoteId: number,
+  variantId: number,
+): Promise<Problem[]> {
+  try {
+    return await vehicleLinkProblems(db, quoteId, variantId);
+  } catch (err) {
+    // A database without the page tables (a pre-0047 harness) has no vehicle
+    // questions to check; never turn a read failure into a blocked publish.
+    console.warn("[vehicles] publish link check skipped", err instanceof Error ? err.message : "unknown");
+    return [];
+  }
+}
+
+async function vehicleLinkProblems(db: D1Database, quoteId: number, variantId: number): Promise<Problem[]> {
+  const result = await db
+    .prepare(
+      `SELECT fvs.id AS fvs_id, fvs.section_id AS section_id, fvs.quote_id AS quote_id, fvs.page_id AS page_id,
+              s.public_id AS public_id, s.section_name AS section_name, s.content_json AS content_json
+         FROM leadgen_funnel_variant_sections fvs
+         JOIN leadgen_sections s ON s.id = fvs.section_id
+         LEFT JOIN leadgen_funnel_pages p ON p.id = fvs.page_id
+        WHERE (fvs.variant_id = ? OR fvs.quote_id = ?)
+          AND s.status = 'active'
+          AND s.content_json LIKE '%choice_source%vehicle%'
+        ORDER BY (fvs.quote_id IS NULL) ASC, COALESCE(p.position, fvs.position) ASC, fvs.position ASC, fvs.id ASC`,
+    )
+    .bind(variantId, quoteId)
+    .all<VehicleLinkRow>();
+  const rows = result.results ?? [];
+  if (rows.length === 0) return [];
+
+  // Page index in the visitor's order: the shared first page is page 0; a
+  // variant row joins its page (several slots on one page share it); a legacy
+  // row with no page is its own page.
+  const pageIndex = new Map<string, number>();
+  const places: VehicleQuestionPlace[] = [];
+  for (const row of rows) {
+    const key = row.quote_id !== null ? "shared" : row.page_id !== null ? `p${row.page_id}` : `r${row.fvs_id}`;
+    if (!pageIndex.has(key)) pageIndex.set(key, pageIndex.size);
+    const page = pageIndex.get(key) ?? 0;
+    const components = componentsOfContentJson(row.content_json);
+    const nodes = (flattenComponents(components as LeadgenComponentNode[]) as unknown[]).filter(isRecord);
+    for (const q of collectVehicleQuestions([components])) {
+      const node = nodes.find((n) => n["internal_field"] === q.field);
+      places.push({
+        ...q,
+        page,
+        question_id: typeof node?.["question_id"] === "string" ? node["question_id"] : "",
+        section_public_id: row.public_id,
+        section_name: row.section_name,
+      });
+    }
+  }
+  if (places.length === 0) return [];
+
+  const problems: Problem[] = [];
+  const push = (q: VehicleQuestionPlace, key: "vehicle_make_field" | "vehicle_year_field" | "internal_field", message: string): void => {
+    problems.push({
+      path: `section.${q.section_public_id}.components[${q.question_id}].${key === "internal_field" ? key : `props.${key}`}`,
+      scope: "component",
+      severity: "error",
+      message: `'${q.section_name}': ${message}`,
+      fix_url: SECTION_EDIT_LINK(q.section_public_id),
+    });
+  };
+  const defsOf = (field: string, asks: VehicleQuestion["asks"]): VehicleQuestionPlace[] =>
+    places.filter((p) => p.field === field && p.asks === asks);
+
+  // One link: "<kind> needs a <wants> question earlier in this funnel."
+  const checkLink = (
+    q: VehicleQuestionPlace,
+    key: "vehicle_make_field" | "vehicle_year_field",
+    field: string | null,
+    wants: "make" | "year",
+  ): VehicleQuestionPlace[] => {
+    const kind = VEHICLE_KIND_LABEL[q.asks];
+    const wantsLabel = VEHICLE_KIND_LABEL[wants];
+    const label = wants === "make" ? "Make answer comes from" : "Year answer comes from";
+    if (field === null) {
+      push(q, key, `${kind} needs a ${wantsLabel} question earlier in this funnel. Set '${label}' on the ${kind} question.`);
+      return [];
+    }
+    const defs = defsOf(field, wants);
+    if (defs.length === 0) {
+      push(
+        q,
+        key,
+        `${kind} needs a ${wantsLabel} question earlier in this funnel. '${label}' names '${field}', but no question in this funnel is set to Vehicle database · ${wantsLabel} with that field.`,
+      );
+      return [];
+    }
+    const inOrder = defs.filter((d) => d.page <= q.page);
+    if (inOrder.length === 0) {
+      push(
+        q,
+        key,
+        `${kind} needs a ${wantsLabel} question earlier in this funnel. The ${wantsLabel} question ('${field}') comes on a later page. Move it to the same page or an earlier one.`,
+      );
+      return [];
+    }
+    return inOrder;
+  };
+
+  for (const q of places) {
+    if (q.asks === "make") continue;
+    checkLink(q, "vehicle_make_field", q.make_field, "make");
+    if (q.asks === "model") {
+      const years = checkLink(q, "vehicle_year_field", q.year_field, "year");
+      if (years.length > 0 && q.make_field !== null && !years.some((y) => y.make_field === q.make_field)) {
+        const yearMake = years[0]?.make_field ?? "";
+        push(
+          q,
+          "vehicle_year_field",
+          `Model and its Year question must use the same Make question. Model uses '${q.make_field}', the Year question uses '${yearMake}'.`,
+        );
+      }
+    }
+  }
+
+  // A Make question also saves the vehicle list version under
+  // `${field}_snapshot`; another question in this funnel must not use that
+  // name (answers from every page land in one set). Read only when needed.
+  const makes = places.filter((p) => p.asks === "make");
+  if (makes.length > 0) {
+    const all = await db
+      .prepare(
+        `SELECT s.id AS section_id, s.content_json AS content_json
+           FROM leadgen_funnel_variant_sections fvs
+           JOIN leadgen_sections s ON s.id = fvs.section_id
+          WHERE (fvs.variant_id = ? OR fvs.quote_id = ?) AND s.status = 'active'`,
+      )
+      .bind(variantId, quoteId)
+      .all<{ section_id: number; content_json: string }>();
+    const fields = new Set<string>();
+    const seenSections = new Set<number>();
+    for (const r of all.results ?? []) {
+      if (seenSections.has(r.section_id)) continue;
+      seenSections.add(r.section_id);
+      const comps = componentsOfContentJson(r.content_json);
+      for (const node of flattenComponents(comps as LeadgenComponentNode[]) as unknown[]) {
+        if (isRecord(node) && typeof node["internal_field"] === "string") fields.add(node["internal_field"]);
+      }
+    }
+    const reported = new Set<string>();
+    for (const m of makes) {
+      const snap = vehicleSnapshotFieldOf(m.field);
+      if (fields.has(snap) && !reported.has(m.field)) {
+        reported.add(m.field);
+        push(
+          m,
+          "internal_field",
+          `this Make question saves the vehicle list version under '${snap}', but another question in this funnel already uses that name. Rename one of them.`,
+        );
+      }
+    }
+  }
+  return problems;
+}
+
 // Variant-level rows: maps_no_job escalation (UNCONDITIONAL, §9.3) · overrides
 // schema (error, per-variant message) · contrast lint (warning) · and — when
 // the funnel HAS a configured frame (§14.4) — the per-section chrome
@@ -7419,7 +7644,13 @@ async function computeVariantV25Problems(
   variant: LeadgenFunnelVariantRow,
 ): Promise<Problem[]> {
   const problems: Problem[] = [];
-  problems.push(...(await computeMapsNoJobProblems(db, variant)));
+  // F18: the Vehicle database link / order checks run beside the Maps
+  // escalation (independent reads, overlapped), rows in a fixed order.
+  const [mapsProblems, vehicleProblems] = await Promise.all([
+    computeMapsNoJobProblems(db, variant),
+    computeVehicleLinkProblems(db, quote.id, variant.id),
+  ]);
+  problems.push(...mapsProblems, ...vehicleProblems);
   // §10/S5.1: the route_funnel_variant save-time conflict-flag row
   // (computeRoutingRuleConflictProblems) was removed — its own rule_type
   // filter always emptied (that rule_type was migrated out of

@@ -190,6 +190,11 @@ export interface LeadgenPayloadNode {
   transform?: LeadgenTransformStep[];
   // source:"answer" — B9 §6.4 Other-group display metadata (see interface).
   choiceDisplay?: LeadgenPayloadChoiceDisplay;
+  // source:"answer" — F18, set ONLY by bindAnswerNode from the Section
+  // binding (never authored on a stored schema node): the binding's "Send as"
+  // and this lead's resolved Vehicle database answer.
+  send_as?: LeadgenAnswerSendAs;
+  vehicle?: LeadgenVehicleAnswerValue;
   // §6.5 free-text optional constraints (B12) — ADDITIVE, valid ONLY on
   // free-text string answer nodes (source:"answer" + type:"string" + no
   // value_map + no valid_values). At runtime the resolved value is
@@ -1249,6 +1254,56 @@ export interface LeadgenAnswerBinding {
   transform?: readonly LeadgenTransformStep[];
   default?: unknown;
   fallback?: unknown;
+  // F18 (owner decision Q4) — "Send as" for a Vehicle database question,
+  // stored per Offer field (leadgen_section_answer_maps.send_as): "name" (the
+  // default — "Toyota", "Corolla") or "id" (the stored make_id / model_id).
+  // Inert on every other question.
+  send_as?: LeadgenAnswerSendAs;
+  // F18 — THIS lead's resolved vehicle answer for internal_field (name + id),
+  // attached per lead by attachVehicleAnswers (never stored). Present ⇒ the
+  // answer is a Vehicle database answer and sends `name` or `id` per send_as.
+  vehicle?: LeadgenVehicleAnswerValue;
+}
+
+// F18 — what a Vehicle database answer sends (owner decision Q4).
+export type LeadgenAnswerSendAs = "name" | "id";
+
+/** A stored / posted "Send as" value, or undefined for anything else (NULL = the default, "name"). */
+export function readAnswerSendAs(value: unknown): LeadgenAnswerSendAs | undefined {
+  return value === "name" || value === "id" ? value : undefined;
+}
+
+// One resolved Vehicle database answer. Make: name "Toyota", id "448". Year:
+// the model year as a NUMBER for both. Model: name "Corolla", id "m_…". A
+// typed answer (the lookup failed and the question became a text box, owner
+// decision Q6) is the visitor's text for both.
+export interface LeadgenVehicleAnswerValue {
+  name: string | number;
+  id: string | number;
+}
+
+/**
+ * F18 — attach this lead's resolved vehicle answers to one Offer's bindings
+ * (keyed by internal_field). Pure; returns the input unchanged when there is
+ * nothing to attach. The binding list rides every build route unchanged
+ * (engine → fetch.ts → buildPayload, the Simulator, the Offer Test tab).
+ */
+export function attachVehicleAnswers(
+  bindings: Readonly<Record<string, readonly LeadgenAnswerBinding[]>>,
+  values: Readonly<Record<string, LeadgenVehicleAnswerValue>> | undefined,
+): Record<string, LeadgenAnswerBinding[]> {
+  const out: Record<string, LeadgenAnswerBinding[]> = {};
+  const has = values !== undefined && Object.keys(values).length > 0;
+  for (const [path, list] of Object.entries(bindings)) {
+    out[path] = list.map((b) => {
+      const v =
+        has && values !== undefined && Object.prototype.hasOwnProperty.call(values, b.internal_field)
+          ? values[b.internal_field]
+          : undefined;
+      return v === undefined ? b : { ...b, vehicle: v };
+    });
+  }
+  return out;
 }
 
 export interface LeadgenPayloadBuildContext {
@@ -1565,6 +1620,10 @@ function resolveNode(node: LeadgenPayloadNode, ctx: LeadgenPayloadBuildContext):
   // value map is keyed by the choices' saved values, so the date itself is
   // never one of its keys — see the value_map leg.
   let calculatedAnswer = false;
+  // True when the answer is a Vehicle database answer (F18): its value map is
+  // PARTIAL — the operator maps only the few makes a Provider spells its own
+  // way ("Chevrolet" → "Chevy"), so a map miss sends the value as it is.
+  let vehicleAnswer = false;
   switch (node.source) {
     case "answer":
       if (node.internal_field === undefined) {
@@ -1575,7 +1634,17 @@ function resolveNode(node: LeadgenPayloadNode, ctx: LeadgenPayloadBuildContext):
         // byte-identical to before.
         const calculated = ctx.answer_computed?.[node.internal_field];
         calculatedAnswer = calculated !== undefined;
-        raw = calculated !== undefined ? calculated : ctx.answers[node.internal_field];
+        if (calculated !== undefined) {
+          raw = calculated;
+        } else if (node.vehicle !== undefined && ctx.answers[node.internal_field] !== undefined) {
+          // F18 (owner decision Q4): Offers get the display name by default
+          // ("Toyota", "Corolla"; the year as a number), or the stored id when
+          // this Offer field says "Send as: ID". The lead itself keeps the ids.
+          vehicleAnswer = true;
+          raw = node.send_as === "id" ? node.vehicle.id : node.vehicle.name;
+        } else {
+          raw = ctx.answers[node.internal_field];
+        }
       }
       break;
     case "static":
@@ -1632,6 +1701,9 @@ function resolveNode(node: LeadgenPayloadNode, ctx: LeadgenPayloadBuildContext):
         // itself was looked up as one key and always missed.
         const mapped = value.filter(own).map((v) => map[String(v)]);
         value = mapped.length > 0 ? mapped : undefined;
+      } else if (vehicleAnswer) {
+        // F18: a partial map — only the listed values change.
+        value = own(value) ? map[String(value)] : value;
       } else {
         value = own(value) ? map[String(value)] : undefined;
       }
@@ -1708,8 +1780,13 @@ function bindAnswerNode(
     bindings.find((b) => ctx.answers[b.internal_field] !== undefined) ?? bindings[0];
   const bound: LeadgenPayloadNode = { ...node };
   delete bound.internal_field;
+  // F18: only a Section binding can make an answer a vehicle answer.
+  delete bound.send_as;
+  delete bound.vehicle;
   if (chosen === undefined) return bound;
   bound.internal_field = chosen.internal_field;
+  if (chosen.send_as !== undefined) bound.send_as = chosen.send_as;
+  if (chosen.vehicle !== undefined) bound.vehicle = chosen.vehicle;
   if (chosen.value_map !== undefined) bound.value_map = chosen.value_map;
   if (chosen.transform !== undefined) bound.transform = [...chosen.transform];
   if (chosen.default !== undefined) bound.default = chosen.default;

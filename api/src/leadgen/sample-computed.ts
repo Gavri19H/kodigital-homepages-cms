@@ -12,6 +12,9 @@
 import type { D1Database } from "@cloudflare/workers-types";
 import { normalizeAnswers, type LeadgenRawAnswers } from "./answers";
 import type { LeadgenSectionContent } from "../public/leadgen/components/content-schema";
+import type { LeadgenVehicleAnswerValue } from "./payload";
+import { resolveVehicleAnswerValues, vehicleQuestionsOfOffers } from "./vehicle-answers";
+import type { VehicleStoreEnv } from "./vehicles/store";
 
 function parseContent(contentJson: string | null): LeadgenSectionContent {
   if (typeof contentJson !== "string" || contentJson === "") return { components: [] } as unknown as LeadgenSectionContent;
@@ -112,4 +115,26 @@ export async function sampleAnswerComputedByOffer(
     perOffer[m.internal_field] = value;
   }
   return out;
+}
+
+// F18 (owner decision Q4) — the admin previews (Offer Test tab, auction
+// Simulator) show what production sends for a Vehicle database answer: the
+// display name by default, the id where the Offer field says "Send as: ID".
+// Like the dates above, it is derived from the Sections that map the given
+// Offers (complete mappings), with the same never-throw, fail-open reads the
+// live auction uses (an unreadable vehicle list previews the stored answer).
+export async function sampleVehicleAnswers(
+  env: VehicleStoreEnv & { DB: D1Database },
+  offerIds: readonly number[],
+  sampleAnswers: Readonly<Record<string, unknown>>,
+): Promise<Record<string, LeadgenVehicleAnswerValue>> {
+  if (Object.keys(sampleAnswers).length === 0) return {};
+  try {
+    const questions = await vehicleQuestionsOfOffers(env.DB, offerIds);
+    if (questions.length === 0) return {};
+    return await resolveVehicleAnswerValues(env, questions, sampleAnswers);
+  } catch (err) {
+    console.warn("[vehicles] sample name lookup failed", err instanceof Error ? err.message : "unknown");
+    return {};
+  }
 }

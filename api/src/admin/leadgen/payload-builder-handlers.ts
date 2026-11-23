@@ -36,7 +36,7 @@
 //     with `expirationTtl: 259200` — the KV TTL enforces the §30.3 72-hour
 //     debug-blob retention mechanically. debug_ref = that opaque key.
 
-import { sampleAnswerComputedByOffer } from "../../leadgen/sample-computed";
+import { sampleAnswerComputedByOffer, sampleVehicleAnswers } from "../../leadgen/sample-computed";
 import {
   readEnvSecret,
   resolveAllowedOutboundSecretReference,
@@ -46,6 +46,7 @@ import { ulid } from "../../leadgen/ids";
 import { offerApiTokenFailureMessage, resolveOfferApiToken } from "../../leadgen/offer-api-token";
 import { resolveHeaderMacros } from "../../leadgen/macros";
 import {
+  attachVehicleAnswers,
   buildPayload,
   inferSchemaFromExample,
   validatePayloadSchema,
@@ -445,9 +446,13 @@ export async function testOfferHandler(c: AdminContext): Promise<Response> {
   // OWNER 2026-09-28: a calculated choice sends its DATE here too, derived from
   // the Sections that map this Offer exactly as the live auction derives it.
   const testComputed = (await sampleAnswerComputedByOffer(c.env.DB, [offer.id], sampleAnswers as Record<string, unknown>)).get(offer.id) ?? {};
+  // F18 (owner decision Q4): a Vehicle database answer sends its NAME (or its
+  // id where the field says "Send as: ID"), derived exactly as the live auction
+  // derives it, from the Sections that map this Offer.
+  const testVehicle = await sampleVehicleAnswers(c.env, [offer.id], sampleAnswers as Record<string, unknown>);
   const payload = buildPayload(schema, {
     answers: sampleAnswers,
-    answer_bindings: testBindings.get(offer.id) ?? {},
+    answer_bindings: attachVehicleAnswers(testBindings.get(offer.id) ?? {}, testVehicle),
     answer_computed: testComputed,
     macros: macroValues,
     // §4.7.2 parity: computed + the offer/placement slice come from the SAME

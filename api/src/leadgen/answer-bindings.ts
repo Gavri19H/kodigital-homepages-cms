@@ -27,7 +27,7 @@
 
 import type { D1Database } from "@cloudflare/workers-types";
 import { answerMappingToBinding, type LeadgenAnswerMapping } from "./answers";
-import type { LeadgenAnswerBinding, LeadgenTransformStep } from "./payload";
+import { readAnswerSendAs, type LeadgenAnswerBinding, type LeadgenTransformStep } from "./payload";
 
 // Bindings for ONE Offer, keyed by the payload field PATH. Several Sections may
 // map one path; the list is in the caller's Section order (payload.ts picks the
@@ -48,6 +48,9 @@ interface AnswerMapRow {
   required_for_offer: number;
   default_value: string | null;
   fallback_value: string | null;
+  // F18 (0069): "Send as" for a Vehicle database question; NULL = the default
+  // (the name). Absent on a database without 0069 — read as the default.
+  send_as?: string | null;
 }
 
 // D1 rule: chunk every IN() list at 80 bindings (100-binding statement limit).
@@ -94,6 +97,7 @@ function rowToMapping(row: AnswerMapRow): LeadgenAnswerMapping {
     required_for_offer: row.required_for_offer === 1,
     default_value: parseSlot(row.default_value),
     fallback_value: parseSlot(row.fallback_value),
+    send_as: readAnswerSendAs(row.send_as) ?? null,
   };
 }
 
@@ -120,9 +124,9 @@ export async function readAnswerBindings(
   const sections = sectionIds === undefined ? undefined : Array.from(new Set(sectionIds));
   if (sections !== undefined && sections.length === 0) return out;
 
-  const columns =
-    "section_id, offer_id, internal_field, offer_payload_field_path, provider_expected_type, " +
-    "output_value_map_json, transform_json, required_for_offer, default_value, fallback_value";
+  // `*`, not a column list: it carries the 0069 send_as column where it exists
+  // and reads cleanly on a database (or test harness) that predates it.
+  const columns = "*";
 
   const rows: AnswerMapRow[] = [];
   // Chunk the OFFER list; when Sections are named they ride the same statement,

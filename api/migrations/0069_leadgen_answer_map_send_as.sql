@@ -1,0 +1,17 @@
+-- F18 Vehicle database: "Send as: Name / ID" per Offer field.
+--
+-- OWNER DECISION Q4 (22 Nov 2026): a Vehicle database answer is stored as an
+-- id (make_id, model year, model_id) plus the snapshot the visitor was shown,
+-- and Offers receive the display name by default ("Toyota", "Corolla"; the
+-- year as a number). Per Offer field, the operator can choose to send the
+-- stored id instead. The choice is per question -> Offer field mapping row, so
+-- it lives on leadgen_section_answer_maps:
+--
+--   NULL  (every existing row) = the default: send the name (and every
+--         non-vehicle answer exactly as before — the setting is inert there)
+--   'name' = the same as NULL
+--   'id'   = send the stored id
+--
+-- Forward-only and additive: one nullable column, no backfill, no index. The
+-- format is owned by src/leadgen/payload.ts (readAnswerSendAs).
+ALTER TABLE leadgen_section_answer_maps ADD COLUMN send_as TEXT CHECK (send_as IS NULL OR send_as IN ('name', 'id'));

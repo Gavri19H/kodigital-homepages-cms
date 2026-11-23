@@ -25,6 +25,18 @@ import { LEADGEN_ICON_NAMES } from "./icons.generated";
 // facing custom-pattern surface exactly like the free-text custom pattern —
 // reuse the SAME ReDoS screen + length cap (one detection engine, never two).
 import { isCatastrophicRegexShape, FREE_TEXT_CUSTOM_PATTERN_MAX_LENGTH } from "../../../leadgen/payload";
+// F18 Vehicle database "Source" — the shared question settings (pure, no I/O).
+import {
+  VEHICLE_CARD_TYPES,
+  VEHICLE_FEATURED_MAKES_MAX,
+  VEHICLE_OTHER_LABEL_MAX,
+  VEHICLE_SOURCE_TYPES,
+  VEHICLE_YEAR_CARDS_MAX,
+  VEHICLE_YEAR_CARDS_MIN,
+  readVehicleSource,
+  vehicleSnapshotFieldOf,
+  type VehicleAsks,
+} from "../../../leadgen/vehicles/props";
 
 // ---------------------------------------------------------------------------
 // Node + content types
@@ -1594,7 +1606,11 @@ export type SectionContentErrorCode =
   // `errors`): continue_mode "button" + a continue_visible_when set — the
   // condition's reachability is not statically provable, so this names the
   // stuck-funnel RISK rather than blocking the save.
-  | "continue_visibility_risk";
+  | "continue_visibility_risk"
+  // F18 BLOCKING code: a question's "Source: Vehicle database" settings
+  // (props.choice_source / vehicle_*) are on the wrong component, incomplete,
+  // or point at the wrong kind of question.
+  | "invalid_vehicle_source";
 
 export interface SectionContentError {
   code: SectionContentErrorCode;
@@ -3553,6 +3569,197 @@ function validateOtherEditor(
 }
 
 // ---------------------------------------------------------------------------
+// F18 Vehicle database "Source" — save rules (plan Section 3 part E, Q7/Q8/Q10)
+// ---------------------------------------------------------------------------
+
+const VEHICLE_ASKS_LABEL: Record<VehicleAsks, string> = { make: "Make", year: "Year", model: "Model" };
+
+// internal_field → what that question asks the vehicle database for, or null
+// for an ordinary question, over the Section's flattened leaves (containers
+// and question groups included). Lets a Year / Model link be checked against
+// the question it names when that question is in the same Section.
+function vehicleFieldKindsIn(components: readonly unknown[]): Map<string, VehicleAsks | null> {
+  const out = new Map<string, VehicleAsks | null>();
+  for (const leaf of flattenComponents(components as readonly LeadgenComponentNode[])) {
+    if (!isRecord(leaf) || typeof leaf["type"] !== "string") continue;
+    const field = leaf["internal_field"];
+    if (!isNonEmptyString(field) || out.has(field)) continue;
+    out.set(field, readVehicleSource(leaf["type"], leaf["props"])?.asks ?? null);
+  }
+  return out;
+}
+
+// A whole number from a number or a string of digits, else null.
+function wholeNumberOf(value: unknown): number | null {
+  if (typeof value === "number") return Number.isInteger(value) ? value : null;
+  if (typeof value === "string" && /^\s*\d+\s*$/.test(value)) return Number(value);
+  return null;
+}
+
+// The save rules for props.choice_source and the vehicle_* settings. Returns
+// true when the question takes its choices from the vehicle database (the
+// caller then skips the typed-choice, default and "Other" rules — those are
+// kept as saved, never deleted).
+function validateVehicleSource(
+  type: ComponentType,
+  internalField: unknown,
+  props: Record<string, unknown>,
+  base: string,
+  sectionFields: ReadonlyMap<string, VehicleAsks | null>,
+  push: (code: SectionContentErrorCode, path: string, message: string) => void,
+): boolean {
+  const source = props["choice_source"];
+  if (source === undefined) return false;
+  const path = (key: string): string => `${base}.props.${key}`;
+  if (!VEHICLE_SOURCE_TYPES.has(type)) {
+    push(
+      "invalid_vehicle_source",
+      path("choice_source"),
+      `'Source' is only available on Buttons, Cards and Dropdown questions. Remove it from the ${leadgenComponentName(type)}.`,
+    );
+    return false;
+  }
+  if (source !== "typed" && source !== "vehicle") {
+    push("invalid_vehicle_source", path("choice_source"), "'Source' must be Typed choices or Vehicle database. Pick one of those.");
+    return false;
+  }
+  if (source === "typed") return false;
+
+  const asksRaw = props["vehicle_asks"];
+  if (asksRaw === undefined || asksRaw === null || asksRaw === "") {
+    push(
+      "invalid_vehicle_source",
+      path("vehicle_asks"),
+      "'This question asks for' is required when the Source is Vehicle database. Pick Make, Year or Model.",
+    );
+    return true;
+  }
+  if (asksRaw !== "make" && asksRaw !== "year" && asksRaw !== "model") {
+    push("invalid_vehicle_source", path("vehicle_asks"), "'This question asks for' must be Make, Year or Model. Pick one of those.");
+    return true;
+  }
+  const asks: VehicleAsks = asksRaw;
+  const own = isNonEmptyString(internalField) ? internalField.trim() : null;
+  const isCards = VEHICLE_CARD_TYPES.has(type);
+
+  // "Make answer comes from" (Year, Model) and "Year answer comes from" (Model).
+  const checkLink = (
+    key: "vehicle_make_field" | "vehicle_year_field",
+    wants: VehicleAsks,
+  ): string | null => {
+    const label = wants === "make" ? "Make answer comes from" : "Year answer comes from";
+    const wantsLabel = VEHICLE_ASKS_LABEL[wants];
+    const raw = props[key];
+    if (!isNonEmptyString(raw)) {
+      push(
+        "invalid_vehicle_source",
+        path(key),
+        `A ${VEHICLE_ASKS_LABEL[asks]} question needs '${label}'. Pick the field of the ${wantsLabel} question.`,
+      );
+      return null;
+    }
+    const field = raw.trim();
+    if (own !== null && field === own) {
+      push(
+        "invalid_vehicle_source",
+        path(key),
+        `'${label}' can't be this question's own field. Pick the field of the ${wantsLabel} question.`,
+      );
+      return null;
+    }
+    // Named question in THIS Section: it must be the right kind. A field that
+    // is not in this Section may be on another page — the Quote's "Publish…"
+    // check (quotes-handlers.ts) follows the link across pages.
+    if (sectionFields.has(field) && sectionFields.get(field) !== wants) {
+      push(
+        "invalid_vehicle_source",
+        path(key),
+        `'${label}' names '${field}', but that question isn't set to Vehicle database · ${wantsLabel}. Pick the field of the ${wantsLabel} question.`,
+      );
+      return null;
+    }
+    return field;
+  };
+
+  if (asks === "year" || asks === "model") {
+    const makeField = checkLink("vehicle_make_field", "make");
+    if (asks === "model") {
+      const yearField = checkLink("vehicle_year_field", "year");
+      if (makeField !== null && yearField !== null && makeField === yearField) {
+        push(
+          "invalid_vehicle_source",
+          path("vehicle_year_field"),
+          "'Year answer comes from' and 'Make answer comes from' must name two different questions. Pick the field of the Year question.",
+        );
+      }
+    }
+  }
+
+  // Owner decision Q8: Buttons / Cards asking for the Make show a short list
+  // of featured makes as cards (every other make goes under "Other").
+  if (asks === "make" && isCards) {
+    const raw = props["vehicle_featured_makes"];
+    const items: unknown[] = Array.isArray(raw)
+      ? raw
+      : typeof raw === "string" && raw.trim() !== ""
+        ? raw.split(",")
+        : [];
+    if (items.length === 0) {
+      push(
+        "invalid_vehicle_source",
+        path("vehicle_featured_makes"),
+        "'Featured makes' is required on Buttons and Cards. Pick at least one make to show as a card.",
+      );
+    } else {
+      const ids: number[] = [];
+      let bad = false;
+      for (const item of items) {
+        const n = wholeNumberOf(item);
+        if (n === null || n <= 0 || !Number.isSafeInteger(n)) bad = true;
+        else ids.push(n);
+      }
+      if (bad) {
+        push(
+          "invalid_vehicle_source",
+          path("vehicle_featured_makes"),
+          "Every featured make must be a make from the vehicle database. Pick the makes again.",
+        );
+      } else if (new Set(ids).size !== ids.length) {
+        push("invalid_vehicle_source", path("vehicle_featured_makes"), "A make is listed twice in 'Featured makes'. Remove the copy.");
+      } else if (ids.length > VEHICLE_FEATURED_MAKES_MAX) {
+        push(
+          "invalid_vehicle_source",
+          path("vehicle_featured_makes"),
+          `'Featured makes' holds at most ${VEHICLE_FEATURED_MAKES_MAX} makes. Remove some.`,
+        );
+      }
+    }
+  }
+
+  // Q10: Buttons / Cards asking for the Year show the newest N years as cards.
+  if (asks === "year" && isCards && props["vehicle_year_cards"] !== undefined) {
+    const n = wholeNumberOf(props["vehicle_year_cards"]);
+    if (n === null || n < VEHICLE_YEAR_CARDS_MIN || n > VEHICLE_YEAR_CARDS_MAX) {
+      push(
+        "invalid_vehicle_source",
+        path("vehicle_year_cards"),
+        `'Newest years shown as cards' must be a whole number from ${VEHICLE_YEAR_CARDS_MIN} to ${VEHICLE_YEAR_CARDS_MAX}. Enter one.`,
+      );
+    }
+  }
+
+  const otherLabel = props["vehicle_other_label"];
+  if (otherLabel !== undefined && (typeof otherLabel !== "string" || otherLabel.length > VEHICLE_OTHER_LABEL_MAX)) {
+    push(
+      "invalid_vehicle_source",
+      path("vehicle_other_label"),
+      `The 'Other' card label must be text of ${VEHICLE_OTHER_LABEL_MAX} characters or fewer. Shorten it.`,
+    );
+  }
+  return true;
+}
+
+// ---------------------------------------------------------------------------
 // v3.1 §5.3 retired-type -> primitive mapping utils (studio save-time, a
 // LATER phase wires the call site — these are pure and unused by this phase's
 // runtime). Cover: CategoryLabel, HelperText, LegalNote, ReassuranceBadge,
@@ -3824,6 +4031,13 @@ export function validateSectionContent(
   // role's rename collision against the SAME section the renderer sees.
   const foreignAnswerKeysFor = collectForeignAnswerKeyLookup(rawComponents);
   const knownFields = knownAnswerFieldsIn(rawComponents, foreignAnswerKeysFor);
+  // F18: the Section's question fields → what each one asks the vehicle
+  // database for (null = an ordinary question), so a Year / Model link can be
+  // checked against a Make / Year question in this same Section.
+  const vehicleFieldKinds = vehicleFieldKindsIn(rawComponents);
+  // F18: every Make question records `${internal_field}_snapshot` too; checked
+  // for a clash with this Section's other answer keys once the walk is done.
+  const vehicleMakeNodes: Array<{ field: string; base: string }> = [];
 
   const seenQuestionIds = new Set<string>();
   const seenQuestionKeys = new Set<string>();
@@ -4234,8 +4448,17 @@ export function validateSectionContent(
       }
     }
 
+    // F18 "Source: Vehicle database". While it is on, the question's typed
+    // choices, its default answer and its "Other" values are IGNORED — kept as
+    // saved, never checked or deleted — so switching the Source back to Typed
+    // choices restores them exactly (owner decision Q7).
+    const vehicleOn = validateVehicleSource(type, raw["internal_field"], props, base, vehicleFieldKinds, push);
+    if (vehicleOn && isNonEmptyString(raw["internal_field"]) && readVehicleSource(type, props)?.asks === "make") {
+      vehicleMakeNodes.push({ field: raw["internal_field"], base });
+    }
+
     // choices (§13.1 per-choice value/analytics_id; §14.4 per-choice icon).
-    if (spec.choices === true) {
+    if (spec.choices === true && !vehicleOn) {
       const choices = raw["choices"];
       if (!Array.isArray(choices) || choices.length === 0) {
         push(
@@ -4372,7 +4595,8 @@ export function validateSectionContent(
     // (MultiChoiceCardGroup) has NO default in v1 — a defaultValue there is a
     // save error. Dropdown/YesNo/Slider keep their EXISTING default handling
     // (untouched here). config-dto projects props.defaultValue → default_answer.
-    if (props["defaultValue"] !== undefined) {
+    // F18: ignored while the Source is Vehicle database (see vehicleOn above).
+    if (props["defaultValue"] !== undefined && !vehicleOn) {
       if (type === "MultiChoiceCardGroup") {
         push(
           "invalid_field_prop",
@@ -4399,7 +4623,9 @@ export function validateSectionContent(
     }
 
     // Rework §6.5 — authored "Other" values (single-select choice groups only).
-    if (props["other"] !== undefined) {
+    // F18: ignored while the Source is Vehicle database (the vehicle "Other"
+    // card is filled from the database, props.vehicle_other_label).
+    if (props["other"] !== undefined && !vehicleOn) {
       validateOtherEditor(cap, props["other"], raw["choices"], `${base}.props.other`, push);
     }
 
@@ -4468,6 +4694,23 @@ export function validateSectionContent(
   }
   // P3a: row-grouping (contiguity + max-3) over the ROOT sibling list.
   validateRowGrouping(rawComponents, (i) => `components[${i}]`, push);
+
+  // F18: a Make question also saves the vehicle list version the visitor was
+  // shown under `${internal_field}_snapshot` (spec L4). That key must not be
+  // one another question in this Section already answers (or is named by).
+  if (vehicleMakeNodes.length > 0) {
+    const otherKeys = knownAnswerFieldsIn(rawComponents, foreignAnswerKeysFor, { vehicleSnapshots: false });
+    for (const make of vehicleMakeNodes) {
+      const snapshotField = vehicleSnapshotFieldOf(make.field);
+      if (otherKeys.has(snapshotField)) {
+        push(
+          "invalid_vehicle_source",
+          `${make.base}.internal_field`,
+          `This Make question also saves the vehicle list version under '${snapshotField}', but another question in this Section already uses that name. Rename one of them.`,
+        );
+      }
+    }
+  }
 
   // P4a (PC-A1): continue_mode="auto_advance" must match a composition the
   // engine can actually auto-advance (see autoAdvanceEligibility). A conflict
@@ -4738,11 +4981,23 @@ export function collectKnownAnswerFields(components: readonly unknown[]): Set<st
 function knownAnswerFieldsIn(
   components: readonly unknown[],
   foreignAnswerKeysFor: LeadgenForeignAnswerKeyLookup,
+  // F18: include each vehicle Make question's `${internal_field}_snapshot`
+  // sub-field (answers.ts fieldsOf records it). Off only for the save gate's
+  // own clash check, which needs every OTHER key.
+  opts: { vehicleSnapshots?: boolean } = {},
 ): Set<string> {
   const knownFields = new Set<string>();
+  const withSnapshots = opts.vehicleSnapshots !== false;
   const walk = (nodes: readonly unknown[], depth: number): void => {
     for (const raw of nodes) {
       if (!isRecord(raw)) continue;
+      // F18 (mirrors answers.ts fieldsOf): a Vehicle database · Make question
+      // also records the snapshot the visitor was shown.
+      if (withSnapshots && typeof raw["type"] === "string" && isNonEmptyString(raw["internal_field"])) {
+        if (readVehicleSource(raw["type"], raw["props"])?.asks === "make") {
+          knownFields.add(vehicleSnapshotFieldOf(raw["internal_field"]));
+        }
+      }
       // Rework §6.8: a dual_range / from_to Slider carries NO single answer
       // field — its answer space is {base}_min / {base}_max (each a number).
       // This MIRRORS answers.ts fieldsOf EXACTLY (the reviewer-flagged parity
