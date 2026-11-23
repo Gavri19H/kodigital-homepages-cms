@@ -56,11 +56,7 @@ import {
 // is the single source of truth for those task keys.
 import { PROVISIONING_PRESET_CATEGORIES } from "../ai/generators/preset-resolver";
 // X06: who the site writes for (site setting → Vertical default → fallback).
-import {
-  containsPlaceholder,
-  resolveSiteAudience,
-  resolveVerticalAudience,
-} from "../ai/site-audience";
+import { containsPlaceholder, resolveSiteAudience } from "../ai/site-audience";
 
 export type StepKey =
   | "validate_domain_in_cloudflare"
@@ -549,11 +545,17 @@ async function allocateVerticalCategoriesStep(
 // "audience" setting (Settings → General) when the site has none yet. Kept out
 // of the create_site_settings seed so its fixed key count is unchanged.
 async function seedSiteAudience(ctx: StepContext): Promise<void> {
-  const site = await ctx.db
-    .prepare("SELECT vertical_slug FROM sites WHERE id = ? LIMIT 1")
+  // Only a real Vertical default is copied: the "readers interested in …"
+  // fallback stays a run-time fallback, so setting the Vertical's audience
+  // later still reaches this site.
+  const row = await ctx.db
+    .prepare(
+      "SELECT v.audience AS audience FROM sites s JOIN verticals v ON v.slug = s.vertical_slug WHERE s.id = ? LIMIT 1",
+    )
     .bind(ctx.site_id)
-    .first<{ vertical_slug: string | null }>();
-  const audience = await resolveVerticalAudience(ctx.db, site?.vertical_slug ?? null);
+    .first<{ audience: string | null }>();
+  const audience = typeof row?.audience === "string" ? row.audience.trim() : "";
+  if (audience.length === 0 || containsPlaceholder(audience)) return;
   await upsertSiteSetting(ctx.db, ctx.site_id, "audience", audience);
 }
 

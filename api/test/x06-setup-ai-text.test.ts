@@ -417,3 +417,49 @@ describeDb("X06 Site Description length", () => {
     }
   });
 });
+
+// X06 code-review fixes (23 Nov 2026).
+describeDb("X06 review fixes: audience seeding and placeholder-fallback reuse", () => {
+  it("a Vertical with no audience: setup saves no site audience, so setting the Vertical's later reaches the site", async () => {
+    const sdb = createDb();
+    sdb.prepare("UPDATE verticals SET audience = NULL WHERE slug = 'travel'").run();
+    addSite(sdb, "site-travel", "Trip Notes", "travel");
+    const env = makeEnv(sdb);
+    fake = installFakeAi((p) => (/120 to 160/.test(p) ? "Plain, practical trip planning guides for people who want simple, reliable travel help without the noise or the hype." : "Plan less, travel more"));
+    expect(await runToCompletion("generate_tagline_and_site_description", env, "site-travel", 5)).toBe("completed");
+    expect(setting(sdb, "site-travel", "audience")).toBeNull();
+    sdb.prepare("UPDATE verticals SET audience = 'weekend travellers' WHERE slug = 'travel'").run();
+    const { resolveSiteAudience } = await import("../src/ai/site-audience");
+    expect(await resolveSiteAudience(env.DB, "site-travel")).toBe("weekend travellers");
+  });
+
+  it("a Vertical with an audience: setup copies it into the site", async () => {
+    const sdb = createDb();
+    addSite(sdb, "site-fin", "Money Lantern", "finance");
+    const env = makeEnv(sdb);
+    fake = installFakeAi((p) => (/120 to 160/.test(p) ? "Clear, practical guides on budgeting, saving, credit and loans for people who want to make smarter everyday money decisions." : "Smarter money, one guide at a time"));
+    await runToCompletion("generate_tagline_and_site_description", env, "site-fin", 5);
+    expect(setting(sdb, "site-fin", "audience")).toBe("people who want to make smarter everyday money decisions");
+  });
+
+  it("a fallback written by the placeholder check is not reused: once the token is fixed, the AI is asked", async () => {
+    const sdb = createDb();
+    addSite(sdb, "site-refix", "Money Lantern", "finance");
+    sdb
+      .prepare("UPDATE prompt_presets SET user_prompt_template = ? WHERE slug = 'system-tagline'")
+      .run("Write a tagline for {{brand_name}} in the voice of {{mascot_name}}.");
+    const env = makeEnv(sdb);
+    fake = installFakeAi(() => "Your money, made clear");
+    const input = { site_id: "site-refix", vertical: "finance", brand_name: "Money Lantern" };
+    const first = await generateSiteTagline(env, input);
+    expect(first.status).toBe("fallback");
+    expect(fake.textPrompts).toHaveLength(0);
+    sdb
+      .prepare("UPDATE prompt_presets SET user_prompt_template = ? WHERE slug = 'system-tagline'")
+      .run("Write a tagline for {{brand_name}}.");
+    const second = await generateSiteTagline(env, input);
+    expect(fake.textPrompts).toHaveLength(1);
+    expect(second.status).toBe("success");
+    expect(second.parsed.tagline).toBe("Your money, made clear");
+  });
+});

@@ -21,6 +21,7 @@ import { generateFeatureImage } from "../ai/generators/image";
 import type { GeneratedArticle } from "../ai/schemas";
 import { buildArticleContentJson } from "../site-provisioning/steps";
 import { resolveSiteAudience } from "../ai/site-audience";
+import { TenantBoundaryViolation } from "../site/tenant-guards";
 import {
   readAiVerticalContext,
   resolveArticleVerticalSlug,
@@ -402,7 +403,11 @@ export async function generateFullArticle(c: ArticleCtx) {
       slug,
       audience,
     });
-  } catch {
+  } catch (err) {
+    // A tenant-boundary refusal is not "the AI didn't answer": retrying can't help.
+    if (err instanceof TenantBoundaryViolation) {
+      return c.json({ error: "This Article can't be written for this site. Nothing was changed." }, 403);
+    }
     return c.json({ error: FULL_ARTICLE_AI_FAILED }, 502);
   }
   // X06: anything but a real answer (no key, timeout, bad JSON, a refused

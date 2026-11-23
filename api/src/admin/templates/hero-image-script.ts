@@ -88,7 +88,9 @@ export const heroImageScripts = `
       var vOpt = vSel.options[vSel.selectedIndex];
       if (vOpt && vOpt.value && vOpt.getAttribute('data-slug')) { vertical = vOpt.getAttribute('data-slug'); }
     }
-    return { title: title, article_title: title, brand_name: brand, vertical: vertical };
+    // art_direction: the feature-image preset's per-image direction; setup
+    // fills it per Article, here a plain default keeps the preset usable.
+    return { title: title, article_title: title, brand_name: brand, vertical: vertical, art_direction: 'a clear, natural editorial photo' };
   }
   function ctxValue(ctx, name) {
     return Object.prototype.hasOwnProperty.call(ctx, name) ? ctx[name] : '';

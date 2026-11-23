@@ -322,7 +322,14 @@ async function runTextGenerator<TContext extends FallbackContextBase, TParsed>(
   ) {
     const meta = rowMeta(existing);
     const parsed = parsedFromRow<TParsed>(existing, () => buildFallback(meta));
-    if (answerProblem(parsed, answerCheck) === null) {
+    // X06: a fallback written by the placeholder check is never reused either,
+    // so a resume asks again once the missing value is fixed.
+    const placeholderFallback =
+      existing.status === "fallback" &&
+      typeof existing.error_message === "string" &&
+      (existing.error_message.startsWith(UNFILLED_PLACEHOLDER) ||
+        existing.error_message.startsWith(PLACEHOLDER_IN_ANSWER));
+    if (!placeholderFallback && answerProblem(parsed, answerCheck) === null) {
       return {
         ai_generation_id: existing.id,
         idempotency_key,
