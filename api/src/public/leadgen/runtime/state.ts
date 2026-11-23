@@ -113,6 +113,9 @@ export interface LgPublicConfig {
   traffic_allocation_bp: number;
   assignment_reason: string;
   sections: LgSectionConfig[];
+  // F18 (config-dto.ts LeadgenPublicConfig.vehicle): the live vehicle
+  // snapshot + lookup base, present only on a page rendered with the list.
+  vehicle?: { snapshot: string; base: string };
 }
 
 // R2 P1 §① — boot-time flatten (owner A.1 #1: "Each one of this questions is

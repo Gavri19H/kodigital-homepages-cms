@@ -575,6 +575,35 @@ export function selectedMarkRules(
   ];
 }
 
+// F18 Vehicle database (backlog F18, Section 4 "Visitor pages"): the few rules
+// a "Vehicle database" question needs on top of the normal card / dropdown
+// chrome. NOT part of funnelChromeCss: presets.ts emits them demand-driven
+// (vehicleStyleBlock) ONLY in a Section that has a vehicle question, so every
+// other funnel page keeps its exact bytes.
+//   * the typed-answer box (owner decision Q6) spans the whole card / button
+//     grid row;
+//   * Make logo cards: a fixed 80×40 logo box (no layout jump while the small
+//     resized picture loads; 64×32 on a phone), the "Other make" card full
+//     width below the logo cards, and 2 cards per row at the phone breakpoint
+//     (other card grids keep today's 1 per row).
+// Every selector is (0,3,0) or more so it beats the base sheet's scoped (0,2,0)
+// phone rules (`.lg-card-grid{grid-template-columns:1fr}` and the
+// `.lg-card-grid > *` column reset) wherever the two sheets sit.
+export function vehicleQuestionCss(design: DefaultFunnelDesign | EffectiveFunnelDesign): string {
+  const g = ".lg-card-grid.lg-card-grid[data-lg-vlogos]";
+  const full = { "grid-column": "1 / -1" };
+  return (
+    rule(".lg-input[data-lg-vtext][data-lg-input]", full) +
+    rule(`${g} .lg-card-logo`, { display: "block", width: "80px", height: "40px", "object-fit": "contain" }) +
+    rule(`${g} > .lg-other-trigger`, { ...full, "flex-direction": "row" }) +
+    `@media (max-width: ${design.breakpoints.mobileMax}){` +
+    rule(g, { "grid-template-columns": "repeat(2, minmax(0, 1fr))" }) +
+    rule(`${g} .lg-card-logo`, { width: "64px", height: "32px" }) +
+    rule(`${g} > .lg-other-trigger`, full) +
+    `}`
+  );
+}
+
 // tokens → the full scoped chrome stylesheet for one funnel design. `scope`
 // defaults to the default-funnel scope; a different design passes its own.
 // Accepts the registry's literal design OR a resolveTokens() EffectiveTokens

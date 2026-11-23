@@ -32,6 +32,8 @@ import type { FunnelDesign } from "./designs/registry";
 import type { EffectiveFunnelDesign } from "./designs/theme";
 import type { LeadgenAssignmentReason } from "./ab-hash";
 import { sha256Hex } from "./auction/parse";
+import { readVehicleSource } from "../../leadgen/vehicles/props";
+import { VEHICLE_API_BASE } from "../../leadgen/vehicles/format";
 import {
   collectAnswerKeyClaims,
   foreignAnswerKeysIn,
@@ -151,6 +153,12 @@ export interface LeadgenPublicConfig {
   traffic_allocation_bp: number;
   assignment_reason: LeadgenAssignmentReason;
   sections: PublicSectionConfig[];
+  // F18 Vehicle database: present ONLY when the page was rendered with the
+  // live vehicle list (a "Vehicle database" question + a readable snapshot).
+  // The engine builds each make's lookup address from it
+  // (`${base}/${snapshot}/makes/${make_id}`) and saves `snapshot` next to the
+  // Make answer (spec L4). Absent ⇒ every existing config is byte-identical.
+  vehicle?: { snapshot: string; base: string };
 }
 
 // A stable hash over the ORDERED section public_ids + their content_versions
@@ -526,6 +534,31 @@ export function toPublicComponent(node: LeadgenComponentNode): PublicSectionComp
   if (isQuestionGridType(node.type) && Array.isArray(node.children)) {
     component.children = node.children.map(toPublicComponent);
   }
+
+  // F18 Vehicle database: a "Vehicle database" question's choices come from
+  // the vehicle list (presets.ts renderVehicleQuestion; Year / Model are filled
+  // in the browser), so the typed data it still stores (kept so switching back
+  // in the Studio restores it) — the typed choices, the typed "Other" list,
+  // the allowed-values list built from them and the typed default (hidden by
+  // owner decision Q7) — is left out of the public config: the browser check
+  // would otherwise refuse every make_id. The runtime sets the allowed list
+  // itself as it fills the choices (runtime/vehicle.ts). Typed-choice nodes
+  // never enter this branch (byte-identical).
+  if (readVehicleSource(node.type, node.props) !== null) {
+    const { other: _other, defaultValue: _dv, default: _d, ...props } = component.props;
+    void _other;
+    void _dv;
+    void _d;
+    component.props = props;
+    delete component.choices;
+    delete component.valid_values;
+    delete component.default_answer;
+    const cv = component.client_validation;
+    if (cv !== undefined) {
+      delete cv["valid_values"];
+      if (Object.keys(cv).length === 0) delete component.client_validation;
+    }
+  }
   return component;
 }
 
@@ -755,6 +788,9 @@ export function buildPublicConfig(
   resolved: ResolvedActivatedFunnel,
   design: FunnelDesign | EffectiveFunnelDesign,
   answerMapVersions?: Readonly<Record<string, string>>,
+  // F18: the live snapshot the page's vehicle questions were rendered with
+  // (VehicleRenderData.snapshot) — null/absent ⇒ no `vehicle` key at all.
+  vehicleSnapshot?: string | null,
 ): LeadgenPublicConfig {
   // G4: brand the two ids through prefix-validating constructors — a variant id
   // can never be placed in the funnel_id slot, and vice versa.
@@ -794,7 +830,7 @@ export function buildPublicConfig(
     return config;
   });
 
-  return {
+  const config: LeadgenPublicConfig = {
     quote_id,
     funnel_id,
     funnel_variant_id,
@@ -814,4 +850,8 @@ export function buildPublicConfig(
     assignment_reason: resolved.assignment.assignment_reason,
     sections,
   };
+  if (typeof vehicleSnapshot === "string" && vehicleSnapshot !== "") {
+    config.vehicle = { snapshot: vehicleSnapshot, base: VEHICLE_API_BASE };
+  }
+  return config;
 }
