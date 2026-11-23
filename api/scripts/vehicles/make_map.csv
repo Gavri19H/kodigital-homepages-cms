@@ -1,0 +1,143 @@
+# Which vPIC makes the vehicle list keeps, and their display names (spec rule N1).
+# vpic_make_id : vPIC MakeId (empty only for an EPA name that has no vPIC make; then include must be no).
+# display_name : the name visitors see. Default when a make has no row here: title case of the vPIC name.
+# include      : yes / no — a person's decision. A vPIC make with no row is kept only if EPA lists its name (and is flagged).
+# epa_names    : EPA make names (|-separated) this row accounts for, so they leave the diff report's review list.
+# note         : why (free text).
+vpic_make_id,display_name,include,epa_names,note
+475,Acura,yes,,
+493,Alfa Romeo,yes,,
+606,AM General,no,MOBILITY VENTURES LLC|VPG,"vPIC has only MV-1 (2013-16), a wheelchair-accessible specialty van; EPA lists AM General 1984-85 only"
+1124,American Motors,yes,AMERICAN MOTORS CORPORATION,"unsure, kept: AMC Concord / Eagle / Spirit (1981-87) were consumer cars"
+440,Aston Martin,yes,,
+582,Audi,yes,,
+5552,Avanti,yes,AVANTI MOTOR CORPORATION,"unsure, kept: Avanti coupe, small numbers"
+1533,Azure Dynamics,no,,"only Transit Connect Electric (2007-12), a commercial fleet conversion"
+583,Bentley,yes,,
+13026,Bertone,yes,,"unsure, kept: X 1/9 (ex-Fiat) sold 1983-92"
+452,BMW,yes,BMW ALPINA,N1 exception; Alpina models are filed under BMW in vPIC
+454,Bugatti,yes,BUGATTI RIMAC,"EPA also lists ""Bugatti Rimac"""
+468,Buick,yes,,
+1991,BYD,no,,"vPIC: trucks, truck chassis and the e6 fleet taxi; no BYD cars sold to US consumers"
+469,Cadillac,yes,,
+467,Chevrolet,yes,,
+477,Chrysler,yes,,
+1777,Coda,no,CODA AUTOMOTIVE,"unsure: one model ""CODA"" (2010-13), about 100 cars sold in California"
+9458,CX Automotive,no,,"gray-market Citroen importer; vPIC model ""CX Automotive"" listed every year 1986-2027 (not believable)"
+1077,Daewoo,yes,,
+847,Daihatsu,yes,,
+476,Dodge,yes,SRT,SRT Viper is filed under Dodge / Chrysler in vPIC
+2408,Eagle,yes,,
+603,Ferrari,yes,,
+492,Fiat,yes,,
+11856,Fisker,yes,,
+460,Ford,yes,,
+5083,Genesis,yes,,
+1146,Geo,yes,,
+472,GMC,yes,,N1 exception
+474,Honda,yes,,
+951,Hummer,yes,,GMC Hummer EV is filed under GMC
+498,Hyundai,yes,,
+12360,INEOS,yes,INEOS AUTOMOTIVE,"brand styling; EPA spells it ""INEOS Automotive"""
+480,Infiniti,yes,,
+542,Isuzu,yes,,
+442,Jaguar,yes,,
+483,Jeep,yes,,
+2018,Kandi,no,,"unsure: vPIC lists all 11 models for every year 2018-2027 (bulk filing, not believable)"
+5122,Karma,yes,,
+499,Kia,yes,,
+1896,Koenigsegg,yes,,hypercar; some vPIC years are bulk filings (see diff report flags)
+502,Lamborghini,yes,,
+444,Land Rover,yes,,
+515,Lexus,yes,,
+464,Lincoln,yes,,
+10768,Lordstown,no,,unsure: Endurance pickup (2021-23) went mostly to fleets; company closed
+466,Lotus,yes,,
+10919,Lucid,yes,,
+2146,Mahindra,no,,vPIC: Mahindra MPV / TR20 / TR40 (off-road and farm vehicles)
+443,Maserati,yes,,
+533,Maybach,yes,,
+473,Mazda,yes,,
+2236,McLaren,yes,MCLAREN AUTOMOTIVE,"N1 exception; EPA spells it ""McLaren Automotive"""
+449,Mercedes-Benz,yes,,N1 exception (title case gives the same)
+465,Mercury,yes,,
+5468,Merkur,yes,,
+456,MINI,yes,,N1 exception
+481,Mitsubishi,yes,,
+539,Morgan,yes,,
+478,Nissan,yes,,
+4162,Oldsmobile,yes,,
+4767,Pagani,yes,,hypercar
+4220,Panoz,no,PANOZ AUTO-DEVELOPMENT,"unsure: only ""Panoz Roadster"" listed 1997-2027 (bulk filing, not believable)"
+5554,Peugeot,yes,,
+5661,Pininfarina,yes,,"unsure, kept: Azzurra (Fiat Spider) sold 1983-85"
+2409,Plymouth,yes,,
+10224,Polestar,yes,,
+536,Pontiac,yes,,
+584,Porsche,yes,,
+496,RAM,yes,,N1 exception
+13647,Renault,yes,,
+10887,Rivian,yes,,
+445,Rolls-Royce,yes,,N1 exception (title case gives the same)
+12550,Ruf,no,RUF AUTOMOBILE|RUF AUTOMOBILE GMBH,unsure: Porsche-based tuner; grouped model names listed every year 2016-2027
+572,Saab,yes,,
+4355,Saleen,no,SALEEN PERFORMANCE,unsure: only S7 listed 2002-2027 (bulk filing); Saleen Mustangs are Ford VINs
+1056,Saturn,yes,,
+11832,Shelby,no,,"unsure: Cobra / GT continuation cars (component or replica builds, like spec V3)"
+504,Smart,yes,,
+3766,Spyker,no,,"unsure: C8 / C12 / D8 listed every year 2002-2026 (bulk filing, not believable)"
+5555,Sterling,yes,STERLING,"unsure, kept: Rover-based 825 / 827 sold by US dealers 1987-91; vPIC name ""Sterling Motor Car"""
+523,Subaru,yes,STI,STI is a Subaru sub-brand
+509,Suzuki,yes,,
+441,Tesla,yes,,
+448,Toyota,yes,SCION,"Scion models are filed under Toyota in vPIC (""Scion tC"" ...)"
+9250,Vector,no,VECTOR,"unsure: one model ""Vector"" listed 1990-2027 (bulk filing, not believable)"
+11366,VinFast,yes,,brand styling
+482,Volkswagen,yes,,
+485,Volvo,yes,,
+5553,Yugo,yes,,
+,Asc Incorporated,no,ASC INCORPORATED,"coachbuilder, converter or small importer; no vPIC make"
+,Aurora Cars Ltd,no,AURORA CARS LTD,"coachbuilder, converter or small importer; no vPIC make"
+,Autokraft Limited,no,AUTOKRAFT LIMITED,"coachbuilder, converter or small importer; no vPIC make"
+,Bill Dovell Motor Car Company,no,BILL DOVELL MOTOR CAR COMPANY,"coachbuilder, converter or small importer; no vPIC make"
+,Bitter Gmbh And Co. Kg,no,BITTER GMBH AND CO. KG,"coachbuilder, converter or small importer; no vPIC make"
+,Ccc Engineering,no,CCC ENGINEERING,"coachbuilder, converter or small importer; no vPIC make"
+,Consulier Industries Inc,no,CONSULIER INDUSTRIES INC,"coachbuilder, converter or small importer; no vPIC make"
+,Dabryan Coach Builders Inc,no,DABRYAN COACH BUILDERS INC,"coachbuilder, converter or small importer; no vPIC make"
+,Dacia,no,DACIA,no vPIC make in the car/mpv/truck lists
+,"E. P. Dutton, Inc.",no,"E. P. DUTTON, INC.","coachbuilder, converter or small importer; no vPIC make"
+,Environmental Rsch And Devp Corp,no,ENVIRONMENTAL RSCH AND DEVP CORP,"coachbuilder, converter or small importer; no vPIC make"
+,Evans Automobiles,no,EVANS AUTOMOBILES,"coachbuilder, converter or small importer; no vPIC make"
+,Excalibur Autos,no,EXCALIBUR AUTOS,"coachbuilder, converter or small importer; no vPIC make"
+,Federal Coach,no,FEDERAL COACH,"coachbuilder, converter or small importer; no vPIC make"
+,General Motors,no,GENERAL MOTORS,no vPIC make in the car/mpv/truck lists
+,Goldacre,no,GOLDACRE,"coachbuilder, converter or small importer; no vPIC make"
+,Grumman Allied Industries,no,GRUMMAN ALLIED INDUSTRIES,"coachbuilder, converter or small importer; no vPIC make"
+,Grumman Olson,no,GRUMMAN OLSON,"coachbuilder, converter or small importer; no vPIC make"
+,Import Foreign Auto Sales Inc,no,IMPORT FOREIGN AUTO SALES INC,"coachbuilder, converter or small importer; no vPIC make"
+,Import Trade Services,no,IMPORT TRADE SERVICES,"coachbuilder, converter or small importer; no vPIC make"
+,Isis Imports Ltd,no,ISIS IMPORTS LTD,"coachbuilder, converter or small importer; no vPIC make"
+,J.K. Motors,no,J.K. MOTORS,"coachbuilder, converter or small importer; no vPIC make"
+,"Jba Motorcars, Inc.",no,"JBA MOTORCARS, INC.","coachbuilder, converter or small importer; no vPIC make"
+,Kenyon Corporation Of America,no,KENYON CORPORATION OF AMERICA,"coachbuilder, converter or small importer; no vPIC make"
+,Laforza Automobile Inc,no,LAFORZA AUTOMOBILE INC,"coachbuilder, converter or small importer; no vPIC make"
+,Lambda Control Systems,no,LAMBDA CONTROL SYSTEMS,"coachbuilder, converter or small importer; no vPIC make"
+,London Coach Co Inc,no,LONDON COACH CO INC,"coachbuilder, converter or small importer; no vPIC make"
+,London Taxi,no,LONDON TAXI,no vPIC make in the car/mpv/truck lists
+,Mcevoy Motors,no,MCEVOY MOTORS,"coachbuilder, converter or small importer; no vPIC make"
+,Panos,no,PANOS,"coachbuilder, converter or small importer; no vPIC make"
+,Panther Car Company Limited,no,PANTHER CAR COMPANY LIMITED,"coachbuilder, converter or small importer; no vPIC make"
+,Pas Inc - Gmc,no,PAS INC - GMC,"coachbuilder, converter or small importer; no vPIC make"
+,"Pas, Inc",no,"PAS, INC","coachbuilder, converter or small importer; no vPIC make"
+,Quantum Technologies,no,QUANTUM TECHNOLOGIES,"coachbuilder, converter or small importer; no vPIC make"
+,Qvale,no,QVALE,no vPIC make in the car/mpv/truck lists
+,Red Shift Ltd.,no,RED SHIFT LTD.,"coachbuilder, converter or small importer; no vPIC make"
+,Roush Performance,no,ROUSH PERFORMANCE,aftermarket upfitter of Ford vehicles (Ford VINs)
+,S And S Coach Company  E.P. Dutton,no,S AND S COACH COMPANY  E.P. DUTTON,"coachbuilder, converter or small importer; no vPIC make"
+,Superior Coaches Div E.P. Dutton,no,SUPERIOR COACHES DIV E.P. DUTTON,"coachbuilder, converter or small importer; no vPIC make"
+,"Tecstar, Lp",no,"TECSTAR, LP","coachbuilder, converter or small importer; no vPIC make"
+,Texas Coach Company,no,TEXAS COACH COMPANY,"coachbuilder, converter or small importer; no vPIC make"
+,Tvr Engineering Ltd,no,TVR ENGINEERING LTD,no vPIC make in the car/mpv/truck lists
+,Vixen Motor Company,no,VIXEN MOTOR COMPANY,"coachbuilder, converter or small importer; no vPIC make"
+,Volga Associated Automobile,no,VOLGA ASSOCIATED AUTOMOBILE,"coachbuilder, converter or small importer; no vPIC make"
+,Wallace Environmental,no,WALLACE ENVIRONMENTAL,"coachbuilder, converter or small importer; no vPIC make"
