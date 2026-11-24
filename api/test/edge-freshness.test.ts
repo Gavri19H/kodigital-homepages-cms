@@ -83,7 +83,7 @@ describe("edge publish freshness", () => {
   it("serves the edited article and a new ETag to a browser holding the pre-PATCH ETag", async () => {
     const before = await visit(articlePath);
     expect(before.status).toBe(200);
-    expect(before.headers.get("Cache-Tag")).toBe("site:site-a,slug:site-a:story");
+    expect(before.headers.get("Cache-Tag")).toBe("site:site-a,slug:site-a:story,listing:site-a");
     expect(await before.text()).toContain(">" + oldTitle + "</h1>");
     const oldEtag = before.headers.get("ETag")!;
     expect(oldEtag).toMatch(/^"[0-9a-f]{16}"$/);

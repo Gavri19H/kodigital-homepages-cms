@@ -27,7 +27,7 @@ const day = "public, max-age=0, s-maxage=86400, stale-while-revalidate=86400";
 const cachePolicy: Record<number, string> = {
   200: day, 301: day, 308: day,
   404: "public, max-age=0, s-maxage=60",
-  302: "private, no-store", // The tenant favicon is a temporary redirect.
+  302: "private, no-store",
 };
 
 function leadgenId(prefix: string, n: number) {
@@ -52,8 +52,10 @@ function seedTenant(db: SqliteDb) {
   }
   db.prepare(`INSERT INTO pages (site_id, slug, title, content_json, status)
     VALUES (?, 'contact', 'Contact the newsroom', '{"blocks":[]}', 'published')`).run(siteId);
-  db.prepare(`INSERT INTO redirects (site_id, source_path, destination_path, status_code)
-    VALUES (?, '/former', '/page/contact', 301)`).run(siteId);
+  const redirect = db.prepare(`INSERT INTO redirects (site_id, source_path, destination_path, status_code)
+    VALUES (?, ?, '/page/contact', ?)`);
+  redirect.run(siteId, "/former", 301);
+  redirect.run(siteId, "/temporary", 302);
 
   const listicle = db.prepare(`INSERT INTO listicle_articles (site_id, public_id, slug, article_name, status)
     VALUES (?, 'art_guide', 'guide', 'Garden guide', 'published')`).run(siteId).lastInsertRowid;
@@ -104,7 +106,7 @@ const examples: PageExample[] = [
   { route: "/ads.txt", contains: "ads.example, sweep, DIRECT" },
   { route: "/llms.txt", contains: "Sweep News" },
   { route: "/site-icon.svg", contains: "<svg" },
-  { route: "/favicon.ico", status: 302, location: "/site-icon.svg" },
+  { route: "/favicon.ico", contains: "<svg" },
   { route: "/article/:slug", path: "/article/story", variants: ["human", "bot", "md"], contains: "Garden story" },
   { route: "/category/:slug", path: "/category/garden", variants: ["human", "bot"], contains: "Garden" },
   { route: "/category/:slug/page/:page", path: "/category/garden/page/2", variants: ["human", "bot"], contains: "Earlier story" },
@@ -116,6 +118,7 @@ const examples: PageExample[] = [
   { route: "/:slug", path: "/contact", contains: "Contact the newsroom" },
   { route: "/:slug", path: "/story", status: 301, location: "/article/story" },
   { route: "/:slug", path: "/former", status: 301, location: "/page/contact" },
+  { route: "/:slug", path: "/temporary", status: 302, location: "/page/contact" },
   { route: "/:slug", path: "/guide", variants: ["lst:ver_guide"], contains: 'data-lander-v="ver_guide"' },
   { route: "/lg", variants: ["lg:" + leadgenId("lgn", 1)], contains: "<!--LG_ASSIGN-->" },
   { route: "/lg/:quote_slug", path: "/lg/renewal", variants: ["lg:" + leadgenId("lgn", 2)], contains: "<!--LG_ASSIGN-->" },

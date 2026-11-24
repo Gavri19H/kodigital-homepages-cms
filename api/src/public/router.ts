@@ -98,7 +98,8 @@ import {
   renderHomeWebsiteJsonLd,
   renderCategoryJsonLd,
 } from "./templates/jsonld-home-category-page";
-import { siteIconHref, siteBadgeIconSvg, siteBrandColor, SITE_ICON_SVG_PATH } from "./site-brand";
+import { siteBadgeIconSvg, siteBrandColor, SITE_ICON_SVG_PATH } from "./site-brand";
+import serveMedia from "../media/serve";
 import { resolveSiteContextFromRequest } from "../site/site-context";
 
 function siteInfo(env: Env, siteContext: PublicSiteContext): FeedSiteInfo {
@@ -168,38 +169,36 @@ const ERROR_PAGE_BRAND_TIMEOUT_MS = 1500;
 // hono 4.x), so this is the live mechanism for the deployed worker too.
 router.onError((_err, c) => publicErrorResponse(c, 500));
 
-// T20 (rescue-3): /favicon.ico is answered explicitly so a browser's
-// automatic favicon request never falls through to the /:slug
-// compatibility catch-all, which would emit an unhandled 404 (the
-// "missing favicon" consistency item in the brief). No per-tenant icon
-// asset is bundled, so the route returns 204 No Content — a valid
-// "no favicon configured" response (never a 404/500). It is registered
-// BEFORE publicSiteContextMiddleware so it stays host-independent and
-// needs no tenant DB lookup: a favicon is a generic asset request, not
-// site-scoped content.
-// X14 v2 (owner, 22 Nov 2026): /favicon.ico now points browsers and bookmark
-// tools at the site's tab icon (its "Tab icon" resized to 32 px, else the
-// /site-icon.svg badge). It still runs BEFORE the site middleware and stays
-// fail-open: an unknown host or any read error answers the old 204.
+// PublicPage caches the selected tab icon under the tenant's site tag.
+// A host that cannot be resolved keeps the original empty favicon response.
 router.get("/favicon.ico", async (c) => {
-  try {
-    const site = await resolveSiteContextFromRequest(c.req.raw, c.env.DB, c.env);
-    if (site !== null) {
-      const info = await fetchPublicLayoutSiteInfo(c.env.DB, { siteId: site.site_id, hostname: site.hostname });
-      return new Response(null, {
-        status: 302,
-        headers: {
-          Location: siteIconHref(info.faviconUrl ?? null, 32),
-          "Cache-Control": "public, max-age=3600",
-        },
-      });
-    }
-  } catch {
-    /* fail-open: fall through to the "no favicon" answer */
+  const site = await resolveSiteContextFromRequest(c.req.raw, c.env.DB, c.env).catch(() => null);
+  if (!site) {
+    return new Response(null, { status: 204, headers: { "Cache-Control": "public, max-age=86400" } });
   }
-  return new Response(null, {
-    status: 204,
-    headers: { "Cache-Control": "public, max-age=86400" },
+  const info = await fetchPublicLayoutSiteInfo(c.env.DB, {
+    siteId: site.site_id, hostname: site.hostname,
+  }).catch(() => null);
+  let cacheControl = info ? "public, max-age=3600" : "no-store";
+  if (info?.faviconUrl) {
+    // Use the local media route so legacy numeric IDs and storage keys resolve
+    // exactly as they do for the tab icon linked in the page head.
+    const icon = await serveMedia.request(info.faviconUrl, undefined, c.env);
+    if (icon.ok && icon.headers.get("Content-Type")?.toLowerCase().startsWith("image/")) {
+      icon.headers.set("Cache-Control", cacheControl);
+      return icon;
+    }
+    if (icon.status >= 500) cacheControl = "no-store";
+  }
+  const badge = siteBadgeIconSvg({
+    brandColor: siteBrandColor(info?.brandTokens), name: info?.name, tagline: info?.tagline,
+  });
+  return new Response(badge, {
+    headers: {
+      "Content-Type": "image/svg+xml; charset=utf-8",
+      "Cache-Control": cacheControl,
+      "X-Content-Type-Options": "nosniff",
+    },
   });
 });
 
@@ -327,7 +326,10 @@ router.get("/", async (c) => {
     const body = await renderHomepageHtml(c.env.DB, siteContext, {
       isBot,
     });
-    return new Response(body, { status: 200, headers: botHtmlHeaders() });
+    return new Response(body, {
+      status: 200,
+      headers: c.req.header("x-cms-variant") === "bot" ? publicHtmlCacheHeaders() : botHtmlHeaders(),
+    });
   }
   return servePublicHtml(c.env, siteContext, {
     key: htmlKey(siteContext.siteId, path, siteContext.content_version),
@@ -387,7 +389,10 @@ router.get("/article/:slug", async (c) => {
     const body = await renderArticleHtml(c.env.DB, siteContext, slug, {
       isBot,
     });
-    return new Response(body, { status: 200, headers: botHtmlHeaders() });
+    return new Response(body, {
+      status: 200,
+      headers: c.req.header("x-cms-variant") === "bot" ? publicHtmlCacheHeaders() : botHtmlHeaders(),
+    });
   }
   return servePublicHtml(c.env, siteContext, {
     key: articleKey(siteContext.siteId, slug, siteContext.content_version),
@@ -473,7 +478,10 @@ async function handleCategory(
       pageSize,
       { isBot },
     );
-    return new Response(body, { status: 200, headers: botHtmlHeaders() });
+    return new Response(body, {
+      status: 200,
+      headers: c.req.header("x-cms-variant") === "bot" ? publicHtmlCacheHeaders() : botHtmlHeaders(),
+    });
   }
   return servePublicHtml(c.env, siteContext, {
     key: categoryKey(

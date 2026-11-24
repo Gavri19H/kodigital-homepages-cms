@@ -171,7 +171,9 @@ export function applyEdgeCacheHeaders(
 ): Response {
   const result = new Response(response.body, response);
   const { headers, status } = result;
-  if (headers.has("Set-Cookie") || ![200, 301, 308, 404].includes(status)) {
+  const noStore = headers.get("Cache-Control")?.split(",")
+    .some(directive => directive.trim().toLowerCase() === "no-store");
+  if (noStore || headers.has("Set-Cookie") || ![200, 301, 308, 404].includes(status)) {
     headers.set("Cache-Control", EDGE_CACHE_CONTROL.private);
     headers.delete("Cache-Tag");
     return result;
@@ -187,8 +189,9 @@ export function applyEdgeCacheHeaders(
   if (LISTING_PATHS.has(tagPath) || tagPath.startsWith("/category/") || tagPath.startsWith("/tag/")) {
     tags.push(listingTag(siteId));
   } else if (!OTHER_FIXED_PATHS.has(tagPath)) {
-    const slug = /^\/(?:(?:article|page)\/)?([^/]+)$/.exec(tagPath)?.[1];
+    const [, section, slug] = /^\/(?:(article|page)\/)?([^/]+)$/.exec(tagPath) ?? [];
     if (slug) tags.push(slugTag(siteId, slug));
+    if (section) tags.push(listingTag(siteId));
   }
   if (status === 404) tags.push(nfTag(siteId));
   headers.set("Cache-Control", status === 404 ? EDGE_CACHE_CONTROL.notFound : EDGE_CACHE_CONTROL.publicPage);

@@ -702,19 +702,18 @@ describe("public-router GET /favicon.ico (T20 rescue-3)", () => {
       makeEnv(makeDb([], [])),
     );
 
-    // BEHAVIORAL: the favicon request is answered, not dropped into the
-    // /:slug catch-all's 404. X14 v2 (owner, 22 Nov 2026): a known site's
-    // /favicon.ico now points at its tab icon — here the badge, since the
-    // site has no "Tab icon" — with a short cache, never a 404/500.
-    expect(res.status).toBe(302);
-    expect(res.headers.get("Location")).toBe("/site-icon.svg");
+    // A known site without an uploaded tab icon serves its badge directly.
+    expect(res.status).toBe(200);
+    expect(res.headers.get("Location")).toBeNull();
+    expect(res.headers.get("Content-Type")).toBe("image/svg+xml; charset=utf-8");
     expect(res.headers.get("Cache-Control")).toBe("public, max-age=3600");
+    expect(await res.text()).toContain('<svg xmlns="http://www.w3.org/2000/svg"');
   });
 
   it("favicon never collides with the /:slug catch-all — a page named 'favicon.ico' does not shadow the icon answer [api/test/public-router.test.ts]", async () => {
     // Even with a planted page row whose slug is "favicon.ico", the
     // dedicated favicon handler (registered before the catch-all) wins, so
-    // the response is the icon redirect — the page body never leaks.
+    // the response is the site's badge.
     const trap: PageSeed = {
       slug: "favicon.ico",
       title: "Trap",
@@ -725,9 +724,12 @@ describe("public-router GET /favicon.ico (T20 rescue-3)", () => {
       {},
       makeEnv(makeDb([trap], [])),
     );
-    expect(res.status).toBe(302);
-    expect(res.headers.get("Location")).toBe("/site-icon.svg");
-    expect(await res.text()).not.toContain("favicon-trap-body");
+    expect(res.status).toBe(200);
+    expect(res.headers.get("Location")).toBeNull();
+    expect(res.headers.get("Content-Type")).toBe("image/svg+xml; charset=utf-8");
+    const body = await res.text();
+    expect(body).toContain('<svg xmlns="http://www.w3.org/2000/svg"');
+    expect(body).not.toContain("favicon-trap-body");
   });
 });
 
