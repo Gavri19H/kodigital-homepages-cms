@@ -245,7 +245,13 @@ it("renders byte-identical shell HTML from an attempt-prepared bundle, including
   clearTrace();
   const warm = await shell(now);
   expect(warm.status).toBe(before.status);
-  expect([...warm.headers]).toEqual([...before.headers]);
+  const coldHeaders = new Headers(before.headers);
+  const warmHeaders = new Headers(warm.headers);
+  expect(coldHeaders.get("Server-Timing")).toContain(" calls=18 ");
+  expect(warmHeaders.get("Server-Timing")).toContain("rounds=1 calls=1 ");
+  coldHeaders.delete("Server-Timing");
+  warmHeaders.delete("Server-Timing");
+  expect([...warmHeaders]).toEqual([...coldHeaders]);
   expect(await warm.text()).toBe(html);
   expectOneKvRead(key);
   expect(statements).toEqual(hostRead);

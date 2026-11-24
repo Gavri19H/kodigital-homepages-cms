@@ -3,6 +3,7 @@ import { readCfSignals } from "../analytics/listicle-quality";
 import { CACHE_CONTROL_VALUES, EDGE_CACHE_CONTROL } from "../cache/cache-control";
 import { recordEdgeCacheStatus } from "../cache/cache-stats";
 import { matchesIfNoneMatch } from "../cache/edge-cache";
+import { elapsedMs, timingNow } from "../db/read-session";
 import type { Env } from "../env";
 import { genSessionId, readCookie } from "../public/listicle/experiment-pick";
 import { isReservedPath } from "../public/reserved";
@@ -104,10 +105,58 @@ function copyVisitorRequest(request: Request): Request {
   return copy;
 }
 
-async function readHostSnapshot(url: URL, pages: PageExports): Promise<SiteSnapshot | null> {
-  const snapshotResponse = await pages.PublicPage({
-    props: { siteKey: `host:${url.hostname}`, variantKey: "snap" },
-  }).fetch(new Request(`https://${url.hostname}/__snap`, { redirect: "manual" }));
+interface GatewayTiming {
+  snap: string;
+  inner: string;
+}
+
+async function fetchPublicPage(
+  pages: PageExports, props: PublicPageProps, request: Request, timing?: GatewayTiming,
+): Promise<Response> {
+  if (!timing) return pages.PublicPage({ props }).fetch(request);
+  const started = timingNow();
+  let response: Response | undefined;
+  try {
+    response = await pages.PublicPage({ props }).fetch(request);
+    return response;
+  } finally {
+    try {
+      const ms = Math.round(elapsedMs(started));
+      const hit = response?.headers.get("cf-cache-status")?.toUpperCase() === "HIT";
+      const build = hit ? null : response?.headers.get("Server-Timing");
+      const fresh = build ? ", " + build : "";
+      if (props.variantKey === "snap") {
+        timing.snap = `gw-snap;dur=${ms};desc="${hit ? "HIT" : "MISS"}"${fresh}`;
+      } else {
+        timing.inner = `gw-inner;dur=${ms}${fresh}`;
+      }
+    } catch {
+      // Diagnostics must preserve the original fetch result or rejection.
+    }
+  }
+}
+
+function withGatewayTiming(response: Response, timing: GatewayTiming, liveFallback = false): Response {
+  try {
+    const value = timing.snap + ", " + timing.inner;
+    if (liveFallback) {
+      // Hono can return an immutable redirect with its own timing entries.
+      const live = new Response(response.body, response);
+      live.headers.append("Server-Timing", value);
+      return live;
+    }
+    // The mutable gateway headers may still contain a cached build's timings.
+    response.headers.delete("Server-Timing");
+    response.headers.set("Server-Timing", value);
+  } catch {
+    // Return the original response if timing headers are unavailable.
+  }
+  return response;
+}
+
+async function readHostSnapshot(url: URL, pages: PageExports, timing?: GatewayTiming): Promise<SiteSnapshot | null> {
+  const snapshotResponse = await fetchPublicPage(pages, { siteKey: `host:${url.hostname}`, variantKey: "snap" },
+    new Request(`https://${url.hostname}/__snap`, { redirect: "manual" }), timing);
   if (!snapshotResponse.ok) return null;
   const snapshot = parseSiteSnapshot(await snapshotResponse.text());
   if (!snapshot || snapshot.status !== "active" || snapshot.hostname.toLowerCase() !== normalizeHostname(url.hostname)) {
@@ -118,6 +167,7 @@ async function readHostSnapshot(url: URL, pages: PageExports): Promise<SiteSnaps
 
 async function serveCachedPage(
   request: Request, url: URL, route: CachedRoute, pages: PageExports, cf: GatewayRequestInput["cf"], snapshot: SiteSnapshot,
+  timing?: GatewayTiming,
 ): Promise<Response | null> {
   const session = readCookie(request.headers.get("Cookie"), "ko_sid");
   const sidWasAbsent = session === "";
@@ -163,9 +213,8 @@ async function serveCachedPage(
   innerHeaders.set("Accept", variantKey === "md" ? "text/markdown" : "text/html");
   // Fetch the original representation and its validator before browser compression.
   if (variantKey === "human" || variantKey === "bot") innerHeaders.set("Accept-Encoding", "identity");
-  const inner = await pages.PublicPage({ props: { siteKey: snapshot.siteId, variantKey } }).fetch(
-    new Request(url.origin + url.pathname, { method: "GET", headers: innerHeaders, redirect: "manual" }),
-  );
+  const inner = await fetchPublicPage(pages, { siteKey: snapshot.siteId, variantKey },
+    new Request(url.origin + url.pathname, { method: "GET", headers: innerHeaders, redirect: "manual" }), timing);
   // A stale assignment can send the renderer down its live, cookie-setting path.
   // Retry with the visitor's actual cookies and query in that case.
   if (inner.status >= 500 || inner.headers.has("Set-Cookie")) return null;
@@ -256,6 +305,7 @@ async function dispatchGatewayRequest(
     request = clean;
   }
   request = perfstageRequest(request, env);
+  let timing: GatewayTiming | undefined;
   try {
     if (path === "/__snap" || path.startsWith("/__snap/")) {
       return new Response(null, { status: 404, headers: { "Cache-Control": EDGE_CACHE_CONTROL.private } });
@@ -267,9 +317,11 @@ async function dispatchGatewayRequest(
       const route = cachedRoute(path);
       const attempt = request.method === "GET" && path === "/lg/attempt";
       if ((route || attempt) && !isAdminHost(url.hostname, env)) {
-        const snapshot = await readHostSnapshot(url, pages);
+        // Entry-rule redirects and failed host lookups can skip the inner fetch.
+        if (route) timing = { snap: 'gw-snap;dur=0;desc="MISS"', inner: "gw-inner;dur=0" };
+        const snapshot = await readHostSnapshot(url, pages, timing);
         if (snapshot && route) {
-          response = await serveCachedPage(request, url, route, pages, readCfSignals(request), snapshot);
+          response = await serveCachedPage(request, url, route, pages, readCfSignals(request), snapshot, timing);
         } else if (snapshot && attempt) {
           const inner = copyVisitorRequest(request);
           inner.headers.set("x-cms-site-id", snapshot.siteId);
@@ -281,10 +333,11 @@ async function dispatchGatewayRequest(
     }
     if (response) {
       recordEdgeCacheStatus(env, response.headers.get("x-edge-cache"), ctx);
-      return response;
+      return timing ? withGatewayTiming(response, timing) : response;
     }
   } catch {
     // Snapshot, binding, and rendering failures all use the original visitor URL and method.
   }
-  return honoFetch(request, env, ctx);
+  const live = honoFetch(request, env, ctx);
+  return timing ? withGatewayTiming(await live, timing, true) : live;
 }

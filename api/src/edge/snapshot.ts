@@ -1,3 +1,4 @@
+import { sessionReadDb, type D1Timing } from "../db/read-session";
 import type { Env } from "../env";
 import { resolveSiteByHostname } from "../site/site-context";
 import { buildLeadgenSnapshot } from "./leadgen-select";
@@ -37,10 +38,6 @@ export function parseSiteSnapshot(text: string): SiteSnapshot | null {
   }
 }
 
-interface SnapshotBinding {
-  withSession?(constraint: "first-primary"): Pick<D1Database, "prepare">;
-}
-
 interface SiteVersions {
   content_version: number;
   settings_version: number;
@@ -63,10 +60,8 @@ async function readBehaviorSettings(db: D1Database, siteId: string) {
   return { timeZone, language };
 }
 
-export async function buildSiteSnapshot(env: Env, hostname: string): Promise<SiteSnapshot | null> {
-  const binding: SnapshotBinding = env.DB;
-  // The shared resolver and builders take D1Database and only use prepare().
-  const db = (binding.withSession?.("first-primary") ?? env.DB) as D1Database;
+export async function buildSiteSnapshot(env: Env, hostname: string, timing?: D1Timing): Promise<SiteSnapshot | null> {
+  const db = sessionReadDb(env.DB, env.DB.withSession?.("first-primary"), timing);
   const site = await resolveSiteByHostname(db, hostname, env);
   // PublicPage caches a host miss for one minute. Read failures must reach its 503 handler.
   if (site === null) return null;

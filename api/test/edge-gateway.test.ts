@@ -85,6 +85,7 @@ afterEach(() => {
 
 it.each([["/article/news", 200], ["/health", 302], ["/__snap", 404]] as const)(
   "reports the answering Worker on override requests to %s", async (path, status) => {
+    vi.spyOn(performance, "now").mockReturnValue(1000);
     const { serve, honoFetch } = harness();
     honoFetch.mockReturnValue(Response.redirect(origin + "/redirected", 302));
     const pinned = await serve(visit(path, {
