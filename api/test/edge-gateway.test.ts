@@ -143,14 +143,16 @@ describe("public page cache keys", () => {
     expect(honoFetch).not.toHaveBeenCalled();
   });
 
-  it.each([["/article/news", "md", "text/markdown"], ["/page/news", "human", "text/html"]])(
-    "normalizes mixed Accept for %s", async (path, variantKey, accept) => {
-      const { serve, calls } = harness();
-      await serve(visit(path, { headers: { Accept: "text/html, text/markdown;q=0.8" } }));
-      expect(calls[1]!.props).toEqual({ siteKey: "site-a", variantKey });
-      expect(calls[1]!.request.headers.get("Accept")).toBe(accept);
-    },
-  );
+  it.each([
+    ["/article/news", "text/html, text/markdown;q=0.8", "human", "text/html"],
+    ["/article/news", "text/html;q=0.5, text/markdown;q=0.8", "md", "text/markdown"],
+    ["/page/news", "text/html;q=0.5, text/markdown;q=0.8", "human", "text/html"],
+  ])("normalizes %s with Accept %s", async (path, requested, variantKey, accept) => {
+    const { serve, calls } = harness();
+    await serve(visit(path, { headers: { Accept: requested } }));
+    expect(calls[1]!.props).toEqual({ siteKey: "site-a", variantKey });
+    expect(calls[1]!.request.headers.get("Accept")).toBe(accept);
+  });
 
   it("strips all client and response x-cms headers and preserves ordinary headers", async () => {
     const { serve, calls } = harness({
@@ -361,9 +363,9 @@ describe("Hono fallbacks and private paths", () => {
     expect(honoFetch.mock.calls[0]![0]).toBe(request);
   });
 
-  it.each(["/guide", "/lg", "/lg/missing"])("falls back when %s has no usable selection", async path => {
+  it.each(["/guide", "/lg", "/lg/life"])("falls back when %s has a malformed selection", async path => {
     const { serve, calls, honoFetch } = harness({
-      snap: () => Response.json({ ...snapshot, listicles: { guide: null }, leadgen: { "/lg": {} } }),
+      snap: () => Response.json({ ...snapshot, listicles: { guide: null }, leadgen: { "/lg": {}, life: null } }),
     });
     const request = visit(path);
     expect(await (await serve(request)).text()).toBe("live Hono");

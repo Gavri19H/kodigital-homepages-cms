@@ -1,8 +1,8 @@
 // Cache hit/miss monitoring for kodigital-homepages-cms (T44 [BCL-020]).
 //
-// Feed and HTML reads sample one in ten outcomes when a request context is
-// available. Each sampled hit or miss adds ten to its KV counter in the
-// background. The admin monitor reports these estimated totals and hit rate.
+// Gateway and live feed/HTML reads sample one in ten outcomes when a request
+// context is available. Each sample adds ten to its KV counter in the background.
+// The admin monitor reports these estimated totals and hit rate.
 //
 // Recording is BEST-EFFORT: a counter read/write failure NEVER breaks a
 // cache read (wrapped in try/catch). The counter keys are read via the raw
@@ -47,8 +47,11 @@ async function bump(env: Env, key: string): Promise<void> {
 }
 
 function scheduleBump(env: Env, key: string, waitUntil?: WaitUntilContext): void {
-  if (waitUntil && Math.random() < 1 / SAMPLE_WEIGHT) {
+  if (typeof waitUntil?.waitUntil !== "function" || Math.random() >= 1 / SAMPLE_WEIGHT) return;
+  try {
     waitUntil.waitUntil(bump(env, key));
+  } catch {
+    // A context that can no longer accept work must still serve the cached response.
   }
 }
 
@@ -58,6 +61,12 @@ export function recordCacheHit(env: Env, waitUntil?: WaitUntilContext): void {
 
 export function recordCacheMiss(env: Env, waitUntil?: WaitUntilContext): void {
   scheduleBump(env, MISSES_KEY, waitUntil);
+}
+
+export function recordEdgeCacheStatus(env: Env, status: string | null, waitUntil?: WaitUntilContext): void {
+  const outcome = status?.toUpperCase();
+  if (outcome === "HIT") recordCacheHit(env, waitUntil);
+  else if (outcome === "MISS") recordCacheMiss(env, waitUntil);
 }
 
 // Derives the hit-rate as hits / (hits + misses), rounded to 4 dp. Returns 0

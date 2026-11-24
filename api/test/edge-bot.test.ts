@@ -111,7 +111,9 @@ describe("bot and human pages on an ad-enabled tenant", () => {
   it.each([
     { path: "/", cf: datacenter, ua: "Mozilla/5.0", accept: "text/html", variantKey: "bot" },
     { path: "/", cf: googlebot, ua: "Googlebot/2.1", accept: "text/html", variantKey: "human" },
-    { path: "/%61rticle/story", cf: datacenter, ua: "Mozilla/5.0", accept: "text/markdown", variantKey: "bot" },
+    { path: "/%61rticle/story", cf: datacenter, ua: "Mozilla/5.0", accept: "text/html, text/markdown;q=0.1", variantKey: "bot" },
+    { path: "/%61rticle/story", cf: datacenter, ua: "curl/8.4.0", accept: "text/markdown", variantKey: "md" },
+    { path: "/article/story", cf: datacenter, ua: "GPTBot", accept: "text/*;q=1, text/markdown;q=0", variantKey: "md" },
   ])("fetches the cacheable $variantKey page for $ua on $path", async ({ path, cf, ua, accept, variantKey }) => {
     const { bind, ctx } = pageBinding(env);
     const headers = { ...clientHeaders(variantKey === "bot" ? "human" : "bot"), "User-Agent": ua, Accept: accept };
@@ -121,7 +123,44 @@ describe("bot and human pages on an ad-enabled tenant", () => {
     ]);
     expect(response.headers.get("Cache-Control")).toBe("public, max-age=0, s-maxage=86400, stale-while-revalidate=86400");
     expect(response.headers.getSetCookie()).toEqual([]);
-    await readPage(response, variantKey === "human");
+    if (variantKey === "md") {
+      const live = await honoFetch(visit(path, cf, { headers: { Accept: accept, "User-Agent": ua } }), env);
+      expect(response.status).toBe(200);
+      expect(response.headers.get("Content-Type")).toBe("text/markdown; charset=utf-8");
+      const body = await response.text();
+      expect(body).toBe(await live.text());
+      expect(body).toContain("# Test article");
+      expect(body).not.toContain(adLoader);
+      expect(body).not.toContain('data-ad-client="' + publisher + '"');
+    } else {
+      await readPage(response, variantKey === "human");
+    }
+  });
+
+  it("revalidates the browser's article and the ad-free article against their own representations", async () => {
+    const { ctx } = pageBinding(env);
+    const path = "/article/story";
+    const headers = new Headers({ Accept: "text/html", "Accept-Encoding": "br, gzip" });
+    const live = await honoFetch(visit(path, residential, { headers }), env);
+    const innerTag = live.headers.get("ETag");
+    expect(innerTag).toMatch(/^"[0-9a-f]{16}"$/);
+    const fetchPage = (cf: EdgeRequestSignals) => worker.fetch(visit(path, cf, { headers }), env, ctx);
+    const human = await fetchPage(residential);
+    const humanTag = human.headers.get("ETag");
+    expect(humanTag).toBe("W/" + innerTag);
+    expect(await readPage(human, true)).toBe(await live.text());
+    headers.set("If-None-Match", humanTag!);
+    expect((await fetchPage(residential)).status).toBe(304);
+    const bot = await fetchPage(datacenter);
+    await readPage(bot, false);
+    const botTag = bot.headers.get("ETag");
+    expect(botTag).toMatch(/^W\/"[^"]+"$/);
+    expect(botTag).not.toBe(humanTag);
+    headers.set("If-None-Match", botTag!);
+    const matched = await fetchPage(datacenter);
+    expect(matched.status).toBe(304);
+    expect(matched.body).toBeNull();
+    expect(matched.headers.get("ETag")).toBe(botTag);
   });
 
   describe.each([
