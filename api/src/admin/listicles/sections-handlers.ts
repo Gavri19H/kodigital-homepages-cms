@@ -12,7 +12,8 @@
 
 import { listicleBlocksToHtml } from "../../editor/listicle-blocks";
 import { mintPublicId } from "../../listicles/ids";
-import { fanOutSectionInvalidate } from "../../listicles/invalidate";
+import { fanOutSectionInvalidate, purgeSectionConsumers } from "../../listicles/invalidate";
+import { cacheExecutionCtx } from "../../public/html-pipeline";
 import {
   applyLinkInstances,
   buildLinkGraphStatements,
@@ -368,15 +369,6 @@ const SECTION_PATCH_FIELDS = [
   "status",
 ] as const;
 
-// Content-bearing fields whose change bumps content_version (feeds the §22
-// cache-identity chain in later phases).
-const CONTENT_FIELDS: ReadonlyArray<keyof SectionRow> = [
-  "headline_text",
-  "headline_offer_id",
-  "image_json",
-  "content_json",
-];
-
 // PATCH /api/admin/listicles/sections/:id — merge-then-revalidate; ALWAYS
 // re-renders content_html and rebuilds the link graph from the merged state
 // (idempotent; the §5.4 derived index can never drift from content).
@@ -441,56 +433,65 @@ export async function patchSectionHandler(c: AdminContext): Promise<Response> {
     existingInstances.results ?? [],
   );
 
-  // §30.5 enrichment (see createSectionHandler). The content-change compare
-  // runs on the ENRICHED json: a round-tripped save (client re-posts the
-  // enriched document it loaded) stays a content_version no-op.
+  // Compare the enriched document inside the write transaction. Validation
+  // and link resolution above can overlap another section save.
   const enriched = enrichContent(value, resolved, refCheck.offerPublicIdById);
-
-  const contentChanged = CONTENT_FIELDS.some((field) => {
-    const before = existing[field] ?? null;
-    const after =
-      field === "content_json"
-        ? enriched.contentJson
-        : ((value as unknown as Record<string, unknown>)[field] ?? null);
-    return before !== after;
-  });
-  const contentVersion = existing.content_version + (contentChanged ? 1 : 0);
-
   const statements: D1PreparedStatement[] = [
     c.env.DB.prepare(
-      `UPDATE listicle_sections
-       SET section_name = ?, headline_text = ?, headline_offer_id = ?, image_json = ?,
-           content_json = ?, content_html = ?, ai_settings_json = ?, status = ?,
-           content_version = ?, updated_at = unixepoch()
-       WHERE id = ?`,
+      `SELECT s.section_name, s.status, s.content_version,
+              (SELECT public_id FROM listicle_section_link_instances
+               WHERE section_id = s.id AND link_role = 'headline' AND block_id = '__headline__'
+               LIMIT 1) AS headline_link_id
+       FROM listicle_sections s WHERE s.id = ?`,
+    ).bind(existing.id),
+    c.env.DB.prepare(
+      `WITH incoming(headline_text, headline_offer_id, image_json, content_json) AS (VALUES (?, ?, ?, ?))
+       UPDATE listicle_sections AS s
+       SET section_name = ?, headline_text = incoming.headline_text, headline_offer_id = incoming.headline_offer_id,
+           image_json = incoming.image_json, content_json = incoming.content_json,
+           content_html = ?, ai_settings_json = ?, status = ?, updated_at = unixepoch(),
+           content_version = s.content_version + (
+             s.headline_text IS NOT incoming.headline_text OR s.headline_offer_id IS NOT incoming.headline_offer_id
+             OR s.image_json IS NOT incoming.image_json OR s.content_json IS NOT incoming.content_json
+           )
+       FROM incoming WHERE s.id = ? RETURNING *`,
     ).bind(
-      value.section_name,
       value.headline_text,
       value.headline_offer_id,
       value.image_json,
       enriched.contentJson,
+      value.section_name,
       enriched.contentHtml,
       value.ai_settings_json,
       value.status,
-      contentVersion,
       existing.id,
     ),
     ...buildLinkGraphStatements(c.env.DB, { id: existing.id }, resolved),
   ];
-  await c.env.DB.batch(statements);
+  type SectionSaveState = Pick<SectionRow, "section_name" | "status" | "content_version"> & {
+    headline_link_id?: string | null;
+  };
+  const [preimage, update] = await c.env.DB.batch<SectionSaveState>(statements);
+  const before = preimage?.results[0];
+  const row = update?.results[0];
+  if (!before || !row) return c.json({ section: null });
 
   // Listicles Phase 6 — §22.2 Section fan-out: a CONTENT change walks
   // candidates → pages → versions → articles, bumps each consuming
   // Version's content_version (new lander_v cache identity) and runs the
   // per-site invalidate + warm. Awaited: the version bump is business
   // logic downstream reads depend on (D1 rule).
-  if (contentChanged) {
-    await fanOutSectionInvalidate(c.env, c.env.DB, existing.id);
+  const ctx = cacheExecutionCtx(c) as ExecutionContext | undefined;
+  // The selector boot data embeds the section name, and a repaired headline
+  // link-instance id is embedded in the public anchor even on a metadata save.
+  const headlineLinkId = resolved.find(link => link.link_role === "headline")?.public_id ?? null;
+  if (before.content_version !== row.content_version || before.section_name !== row.section_name ||
+      before.headline_link_id !== headlineLinkId) {
+    await fanOutSectionInvalidate(c.env, c.env.DB, existing.id, ctx);
+  } else if (before.status !== row.status) {
+    await purgeSectionConsumers(c.env, existing.id, "listicle.section.update", ctx);
   }
 
-  const row = await c.env.DB.prepare("SELECT * FROM listicle_sections WHERE id = ? LIMIT 1")
-    .bind(existing.id)
-    .first<SectionRow>();
   return c.json({ section: row });
 }
 
@@ -547,6 +548,9 @@ export async function deleteSectionHandler(c: AdminContext): Promise<Response> {
   )
     .bind(section.id)
     .run();
+  // The guard normally leaves no consumers. Re-read after the write so a
+  // candidate attached concurrently is included in this tenant-scoped purge.
+  await purgeSectionConsumers(c.env, section.id, "listicle.section.archive", cacheExecutionCtx(c) as ExecutionContext | undefined);
   const row = await c.env.DB.prepare("SELECT * FROM listicle_sections WHERE id = ? LIMIT 1")
     .bind(section.id)
     .first<SectionRow>();

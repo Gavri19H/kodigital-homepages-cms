@@ -47,12 +47,8 @@ import { resolveSiteBranding, type SiteBranding } from "../../leadgen/branding";
 import { resolveEffectiveFrameOnly } from "../../public/leadgen/resolver";
 import { footerLegalPagePicks, parseSavedFrameTemplateDefaults } from "../../public/leadgen/designs/frames";
 import type { EffectiveFrameConfig } from "../../public/leadgen/designs/frames";
-// R6 SEAM 3 (register D3/E5): a Section's content changing must invalidate the
-// SAME §28 shell cache the theme-edit path already does — reuses the EXACT
-// exported helper themes-handlers.ts calls, no new invalidation channel.
-import { invalidateOnVariantPublish } from "../../public/leadgen/invalidate";
-import type { Env } from "../../env";
-import type { WaitUntilContext } from "../../wait-until-context";
+import { evictVariantPublishKv } from "../../public/leadgen/invalidate";
+import { cacheExecutionCtx } from "../../public/html-pipeline";
 // v3.1 §10.6/§12: the preview theme_id override re-uses the SAME PURE
 // resolveTokens the runtime/composed-preview path already calls (theme.ts);
 // getThemeRecord is the KV `lg-funnel-themes` lookup (themes-handlers.ts owns
@@ -129,6 +125,7 @@ import { collectVehicleQuestions, resolveVehicleAnswerValues } from "../../leadg
 import { buildWhereClause, type FilterCondition } from "../query-filters";
 import {
   buildPaging,
+  commitLeadgenContentChange,
   deriveFieldLabel,
   escapeLike,
   idSelector,
@@ -1054,106 +1051,22 @@ export async function getSectionHandler(c: AdminContext): Promise<Response> {
 // PATCH /sections/:id — merge-then-revalidate + derived rebuild (§12.1)
 // ---------------------------------------------------------------------------
 
-// ---------------------------------------------------------------------------
-// R6 SEAM 3 (register D3/E5): section-edit cache invalidation
-// ---------------------------------------------------------------------------
-// MIRRORS themes-handlers.ts's theme-edit invalidation (scheduleThemeInvalidate
-// / invalidateThemeAcrossFunnels) byte-for-byte in shape: a Section's stored
-// content changing makes every ACTIVE funnel that orders it stale, on every
-// site its quote is activated on. Sections previously had NO invalidation path
-// at all (frames/quotes/themes already had one — this was an asymmetry, not a
-// design) — the operator's original "not automatically saving" report. Same
-// exported helper (invalidateOnVariantPublish), same fire-and-forget waitUntil
-// discipline, same fail-open contract. No new invalidation channel.
+// A shared-page section belongs to the quote and appears in every active
+// variant under it. A variant-owned section affects only that placement.
+const SECTION_VARIANTS_SQL = `SELECT v.id FROM leadgen_funnel_variants v
+  JOIN leadgen_funnels f ON f.id = v.funnel_id
+  WHERE v.status = 'active' AND f.status = 'active' AND (
+    v.id IN (SELECT variant_id FROM leadgen_funnel_variant_sections WHERE section_id = ?1)
+    OR f.quote_id IN (SELECT quote_id FROM leadgen_funnel_variant_sections WHERE section_id = ?1)
+  )`;
 
-// Hono's c.executionCtx getter THROWS where no ExecutionContext exists (the
-// node:sqlite unit-test harness passes none) — the SAME safeExecutionCtx idiom
-// themes-handlers.ts / quotes-handlers.ts use, duplicated here per this
-// codebase's small-helper convention.
-function safeExecutionCtx(c: AdminContext): WaitUntilContext {
-  try {
-    return c.executionCtx;
-  } catch {
-    return {
-      waitUntil(): void {
-        /* no-op outside workerd (unit-test harness) */
-      },
-    };
-  }
-}
-
-interface AffectedSectionFunnel {
-  public_id: string;
-  quote_id: number;
-}
-
-// Bounded to ACTIVE funnels that actually ORDER this section (the §7.3 P7 join
-// sectionUsageHandler already uses, filtered to f.status='active'). A section
-// referenced by zero funnels, or only by draft/archived ones, touches NO cache
-// key — a safe, empty invalidation set.
-//
-// Rework M2 (§4.3-1/§4.3-2 "shared first page"): a Section can ALSO be placed
-// directly on its Quote's shared page (leadgen_funnel_variant_sections.
-// quote_id set, variant_id NULL) instead of on any funnel variant's own page
-// order. The shared page serves FIRST for every visitor of EVERY active
-// funnel under that quote, so editing a shared-page Section must invalidate
-// ALL of that quote's active funnels too — the first branch's unqualified
-// `v.id = fvs.variant_id` join would otherwise silently miss quote-owned rows
-// (variant_id IS NULL never matches), leaving those funnels' shells stale
-// (the exact staleness class R6 SEAM 3 / invalidateSectionAcrossFunnels below
-// exists to close). Plain UNION (not ALL): the same (funnel, quote) pair can
-// legitimately surface from BOTH branches when a funnel's own variant ALSO
-// orders this section directly — dedup keeps the per-funnel sweep below from
-// running twice for it.
-async function findActiveFunnelsReferencingSection(
-  db: D1Database,
-  sectionId: number,
-): Promise<AffectedSectionFunnel[]> {
-  const rows = await db
-    .prepare(
-      `SELECT DISTINCT f.public_id AS public_id, f.quote_id AS quote_id
-       FROM leadgen_funnel_variant_sections fvs
-       JOIN leadgen_funnel_variants v ON v.id = fvs.variant_id
-       JOIN leadgen_funnels f ON f.id = v.funnel_id
-       WHERE fvs.section_id = ?1 AND fvs.variant_id IS NOT NULL AND f.status = 'active'
-       UNION
-       SELECT DISTINCT f.public_id AS public_id, f.quote_id AS quote_id
-       FROM leadgen_funnel_variant_sections fvs
-       JOIN leadgen_funnels f ON f.quote_id = fvs.quote_id
-       WHERE fvs.section_id = ?1 AND fvs.quote_id IS NOT NULL AND f.status = 'active'`,
-    )
-    .bind(sectionId)
-    .all<{ public_id: string; quote_id: number }>();
-  return rows.results ?? [];
-}
-
-// For every affected funnel, sweep EVERY site its quote is activated on — the
-// EXACT §28 discipline invalidateThemeAcrossFunnels / scheduleVariantPublish-
-// Invalidate already apply, reusing the SAME exported invalidateOnVariantPublish
-// (no new KV-delete machinery). Per-funnel site lookups run in parallel; a
-// hiccup in one funnel's sweep never blocks another's (invalidateOnVariant-
-// Publish is itself fail-open — see invalidate.ts).
-async function invalidateSectionAcrossFunnels(env: Env, db: D1Database, sectionId: number): Promise<void> {
-  const funnels = await findActiveFunnelsReferencingSection(db, sectionId);
-  await Promise.all(
-    funnels.map(async (funnel) => {
-      const sites = await db
-        .prepare("SELECT site_id FROM leadgen_site_quotes WHERE quote_id = ?")
-        .bind(funnel.quote_id)
-        .all<{ site_id: string }>();
-      await Promise.all(
-        (sites.results ?? []).map((s) => invalidateOnVariantPublish(env, s.site_id, funnel.public_id)),
-      );
-    }),
-  );
-}
-
-// Fire-and-forget entry point (mirrors scheduleThemeInvalidate): rides
-// waitUntil, fail-open, never blocks or breaks the admin PATCH response.
-function scheduleSectionContentInvalidate(c: AdminContext, sectionId: number): void {
-  safeExecutionCtx(c).waitUntil(
-    invalidateSectionAcrossFunnels(c.env, c.env.DB, sectionId).catch(() => {}),
-  );
+async function evictSectionKv(c: AdminContext, sectionId: number): Promise<void> {
+  const rows = await c.env.DB.prepare(`SELECT DISTINCT sq.site_id, f.public_id
+    FROM leadgen_funnel_variants v JOIN leadgen_funnels f ON f.id = v.funnel_id
+    JOIN leadgen_site_quotes sq ON sq.quote_id = f.quote_id
+    WHERE v.id IN (` + SECTION_VARIANTS_SQL + ")")
+    .bind(sectionId).all<{ site_id: string; public_id: string }>();
+  await Promise.all(rows.results.map(row => evictVariantPublishKv(c.env, row.site_id, row.public_id)));
 }
 
 const SECTION_PATCH_FIELDS = [
@@ -1252,16 +1165,31 @@ export async function patchSectionHandler(c: AdminContext): Promise<Response> {
     ),
     ...derivedStatements(c.env.DB, { id: existing.id }, prepared.rebuild, existing.id),
   ];
-  await c.env.DB.batch(statements);
+  // The pristine shell contains the public config, including both the mapping
+  // version and MAX(answer-map id). Rebuilding existing maps moves that MAX
+  // even on a metadata-only PATCH.
+  const hasNewMaps = prepared.rebuild.answerMaps.some(map => map.payload_schema_id !== null && map.payload_schema_public_id !== null);
+  const bump = c.env.DB.prepare(`UPDATE leadgen_funnel_variants SET content_version = content_version + 1
+    WHERE EXISTS (SELECT 1 FROM leadgen_sections WHERE id = ?1 AND (
+      content_version != ?2 OR section_mapping_version != ?3 OR content_json != ?4
+      OR headline_text != ?5 OR subheadline_text IS NOT ?6 OR continue_mode != ?7
+      OR design_overrides_json IS NOT ?8 OR address_validation_enabled != ?9 OR ?10
+      OR EXISTS (SELECT 1 FROM leadgen_section_answer_maps WHERE section_id = ?1)
+    )) AND id IN (` + SECTION_VARIANTS_SQL + ") RETURNING id")
+    .bind(existing.id, contentVersion, mappingVersion, value.content_json, value.headline_text, value.subheadline_text,
+      value.continue_mode, value.design_overrides_json, Number(value.address_validation_enabled), Number(hasNewMaps));
+  const bumped = await commitLeadgenContentChange(c, statements, bump, "leadgen.section.update");
+  if (contentChanged && bumped > 0) {
+    const eviction = evictSectionKv(c, existing.id).catch(err => console.error("leadgen section KV eviction failed", err));
+    const ctx = cacheExecutionCtx(c);
+    if (ctx) ctx.waitUntil(eviction);
+    else await eviction;
+  }
 
   const updated = await c.env.DB.prepare("SELECT * FROM leadgen_sections WHERE id = ? LIMIT 1")
     .bind(existing.id)
     .first<LeadgenSectionRow>();
   if (!updated) return c.json({ error: "Update failed" }, 500);
-  // R6 SEAM 3: only a REAL content change invalidates downstream shell caches —
-  // the SAME byte-diff-gated discipline the theme PATCH applies (a scalar-only
-  // save, e.g. renaming the Section, never bumped content_version either).
-  if (contentChanged) scheduleSectionContentInvalidate(c, existing.id);
   // FIX 5 (03 §3.6): non-blocking validation problems ride the PATCH success
   // response (same shape as the POST leg — the island surfaces them inline).
   return c.json({ ...(await sectionDetailJson(c.env.DB, updated)), problems: prepared.problems });

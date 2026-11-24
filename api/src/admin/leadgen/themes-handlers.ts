@@ -40,23 +40,11 @@ import {
   themeRecordExists,
   writeThemeRecords,
 } from "../../public/leadgen/designs/theme-store";
-// v3.1 §10.4/§12 (fix round 2) — a theme CONTENT edit must invalidate every
-// cached shell/config for every funnel currently resolving to it ("change
-// one here and every question in the funnel reskins"). Reuses the EXISTING
-// §28 per-funnel invalidation helper verbatim (the SAME one a variant SAVE
-// triggers, quotes-handlers.ts scheduleVariantPublishInvalidate) — no new
-// invalidation machinery, just a wider "which funnels reference this
-// theme_id" scan (§10.5 "no back-reference stored").
-import { invalidateOnVariantPublish } from "../../public/leadgen/invalidate";
-// B2 (P8 defect contract R2-2) — a theme CONTENT edit must ALSO bump
-// content_version on every affected funnel's ACTIVE variant(s), exactly like
-// putFunnelThemeHandler's PUT /funnels/:id/theme flow does (frame-
-// handlers.ts:305): the shell/config cache keys carry the content_version
-// axis, so THAT bump — not just the KV/CDN sweep above — is what makes an
-// edit reach visitors. Reused verbatim, no new invalidation machinery.
-import { bumpActiveVariantContentVersions } from "./quotes-handlers";
+import { leadgenPublicChange } from "../../edge/leadgen-change";
+import { cacheExecutionCtx } from "../../public/html-pipeline";
+import { evictVariantPublishKv } from "../../public/leadgen/invalidate";
+import { bumpActiveVariantContentVersionsOnly } from "./quotes-handlers";
 import type { Env } from "../../env";
-import type { WaitUntilContext } from "../../wait-until-context";
 
 export { LEADGEN_THEMES_KV_KEY, getThemeRecord, readThemeRecords, themeRecordExists };
 
@@ -489,176 +477,81 @@ function mintThemeId(name: string, existing: ReadonlySet<string>): string {
 // v3.1 §10.4/§12 (fix round 2): theme-edit cache invalidation
 // ---------------------------------------------------------------------------
 
-// Hono's c.executionCtx getter THROWS where no ExecutionContext exists (the
-// node:sqlite unit-test harness passes none) — the SAME safeExecutionCtx
-// idiom quotes-handlers.ts uses for §28 variant/activation invalidation,
-// duplicated here per this codebase's small-helper convention (isRecord is
-// duplicated the same way in every handler file). Invalidation is ALWAYS
-// non-blocking and can never break the PATCH response.
-function safeExecutionCtx(c: AdminContext): WaitUntilContext {
-  try {
-    return c.executionCtx;
-  } catch {
-    return {
-      waitUntil(): void {
-        /* no-op outside workerd (unit-test harness) */
-      },
-    };
-  }
-}
-
 interface AffectedFunnel {
+  funnel_id: number;
   public_id: string;
   quote_id: number;
-  // P6b (deliverable 1 — the operator's DELETE demand): the in-use guard's
-  // 409 must name the referencing funnels in plain language, not just their
-  // ids. Added alongside public_id/quote_id (both existing consumers —
-  // scheduleThemeInvalidate's sweep — only ever read those two, so this is
-  // strictly additive).
   funnel_name: string;
-  // B2 fix — bumpActiveVariantContentVersions takes the numeric funnel id
-  // (not the public_id); additive column on the same scan, read by
-  // updateThemeHandler's content-version bump only (deleteThemeHandler's
-  // usage payload still reads only public_id/funnel_name, untouched).
-  funnel_id: number;
+  has_public_variant: number;
 }
 
-// A stored theme_json / frame_overrides_json TEXT column references this
-// theme_id? Parsed + checked EXACTLY (never just the SQL LIKE candidate
-// match) so a substring collision (thm_navy vs thm_navy-2) can never
-// produce a false positive.
-function referencesThemeId(raw: string | null, themeId: string): boolean {
-  if (raw === null) return false;
-  try {
-    const parsed = JSON.parse(raw) as unknown;
-    return isRecord(parsed) && parsed["theme_id"] === themeId;
-  } catch {
-    return false;
-  }
-}
-
-// D1's SQLite caps a LIKE/GLOB PATTERN at 50 bytes
-// (SQLITE_LIMIT_LIKE_PATTERN_LENGTH). Measured against this worker's own DB
-// binding via PATCH /themes/:id: a 50-byte pattern → 200, a 51-byte pattern →
-// "D1_ERROR: LIKE or GLOB pattern too complex: SQLITE_ERROR".
-const D1_LIKE_PATTERN_MAX_BYTES = 50;
-const THEME_ID_DISCRIMINATOR = '%"theme_id":"';
-
-function utf8Bytes(value: string): number {
-  return new TextEncoder().encode(value).byteLength;
-}
-
-// The candidate-narrowing LIKE pattern, BOUNDED BY CONSTRUCTION.
-//
-// The old needle was `%"theme_id":"${themeId}"%` — its length scaled with the
-// OPERATOR-CHOSEN theme name (mintThemeId slugifies the name into the id), so
-// every theme whose id reached 36 chars produced a 51-byte pattern and the
-// scan THREW. Pre-P8 that throw was swallowed by scheduleThemeInvalidate's
-// empty fire-and-forget catch (theme invalidation was silently DEAD for
-// long-named themes); P8-1 awaited the same scan for the content_version bump,
-// so it began 500ing the PATCH.
-//
-// Truncating the id side can only WIDEN the candidate set, never narrow it:
-// any row containing `"theme_id":"<id>"` also contains any prefix of it. Every
-// candidate is still decided EXACTLY by referencesThemeId, so two ids sharing
-// a truncated prefix (thm_<36 chars> vs thm_<36 chars>-2) cannot yield a false
-// positive. Theme ids are slugified to [a-z0-9-] (no LIKE wildcards); a stray
-// wildcard could only widen the candidate set, which the exact check absorbs.
-function themeIdCandidatePattern(themeId: string): string {
-  const exact = `${THEME_ID_DISCRIMINATOR}${themeId}"%`;
-  if (utf8Bytes(exact) <= D1_LIKE_PATTERN_MAX_BYTES) return exact;
-  let head = themeId;
-  while (head !== "" && utf8Bytes(`${THEME_ID_DISCRIMINATOR}${head}%`) > D1_LIKE_PATTERN_MAX_BYTES) {
-    head = head.slice(0, -1);
-  }
-  return `${THEME_ID_DISCRIMINATOR}${head}%`;
-}
-
-// §10.5 "Used by is computed by scanning funnels/variants for the theme_id
-// — no back-reference stored": every DISTINCT funnel whose OWN theme_json
-// carries this theme_id, OR that has a variant whose frame_overrides_json
-// does (variant-level A/B override) — either makes that funnel's cached
-// surface stale on a theme content edit. A SQL LIKE narrows to candidates
-// (bound parameter — d1-database-safety, never string-interpolated; and
-// length-bounded per themeIdCandidatePattern, never scaling with the id or
-// the row's JSON); each candidate is then verified exactly via
-// referencesThemeId.
+// The shell reads parsed theme_json and frame_overrides_json. Compare the
+// decoded IDs, including in older formatted JSON. Malformed columns have no
+// reference, just as on the public path. EXISTS returns each funnel only once.
 async function findFunnelsReferencingTheme(db: D1Database, themeId: string): Promise<AffectedFunnel[]> {
-  const needle = themeIdCandidatePattern(themeId);
-  const byFunnel = await db
-    .prepare("SELECT id, public_id, quote_id, funnel_name, theme_json FROM leadgen_funnels WHERE theme_json LIKE ?")
-    .bind(needle)
-    .all<{ id: number; public_id: string; quote_id: number; funnel_name: string; theme_json: string | null }>();
-  const byVariant = await db
-    .prepare(
-      `SELECT f.id AS f_id, f.public_id AS f_public_id, f.quote_id AS f_quote_id, f.funnel_name AS f_funnel_name, v.frame_overrides_json AS frame_overrides_json
-       FROM leadgen_funnel_variants v
-       JOIN leadgen_funnels f ON f.id = v.funnel_id
-       WHERE v.frame_overrides_json LIKE ?`,
-    )
-    .bind(needle)
-    .all<{ f_id: number; f_public_id: string; f_quote_id: number; f_funnel_name: string; frame_overrides_json: string | null }>();
-
-  const affected = new Map<string, AffectedFunnel>();
-  for (const row of byFunnel.results ?? []) {
-    if (referencesThemeId(row.theme_json, themeId)) {
-      affected.set(row.public_id, {
-        public_id: row.public_id,
-        quote_id: row.quote_id,
-        funnel_name: row.funnel_name,
-        funnel_id: row.id,
-      });
-    }
-  }
-  for (const row of byVariant.results ?? []) {
-    if (referencesThemeId(row.frame_overrides_json, themeId)) {
-      affected.set(row.f_public_id, {
-        public_id: row.f_public_id,
-        quote_id: row.f_quote_id,
-        funnel_name: row.f_funnel_name,
-        funnel_id: row.f_id,
-      });
-    }
-  }
-  return [...affected.values()];
+  const rows = await db.prepare(`
+    SELECT f.id AS funnel_id, f.public_id, f.quote_id, f.funnel_name,
+           (f.status = 'active' AND EXISTS (
+             SELECT 1 FROM leadgen_funnel_variants v WHERE v.funnel_id = f.id AND v.status = 'active'
+           )) AS has_public_variant
+      FROM leadgen_funnels f
+     WHERE CASE WHEN json_valid(f.theme_json) THEN json_extract(f.theme_json, '$.theme_id') END = ?
+        OR EXISTS (
+          SELECT 1 FROM leadgen_funnel_variants v
+           WHERE v.funnel_id = f.id AND CASE WHEN json_valid(v.frame_overrides_json)
+             THEN trim(json_extract(v.frame_overrides_json, '$.theme_id')) END = ?
+        )
+     ORDER BY f.id`).bind(themeId, themeId).all<AffectedFunnel>();
+  return rows.results;
 }
 
-// For every affected funnel, sweep EVERY site its quote is activated on —
-// the EXACT §28 discipline scheduleVariantPublishInvalidate already applies
-// per-variant-save, reusing the SAME exported invalidateOnVariantPublish (no
-// new KV-delete machinery). Per-funnel site lookups run in parallel; a
-// hiccup in one funnel's sweep never blocks another's (invalidateOnVariant-
-// Publish is itself fail-open — see invalidate.ts).
-async function invalidateThemeAcrossFunnels(env: Env, db: D1Database, themeId: string): Promise<void> {
-  const funnels = await findFunnelsReferencingTheme(db, themeId);
-  await Promise.all(
-    funnels.map(async (funnel) => {
-      const sites = await db
-        .prepare("SELECT site_id FROM leadgen_site_quotes WHERE quote_id = ?")
-        .bind(funnel.quote_id)
-        .all<{ site_id: string }>();
-      await Promise.all(
-        (sites.results ?? []).map((s) => invalidateOnVariantPublish(env, s.site_id, funnel.public_id)),
-      );
-    }),
-  );
+// Retain the legacy per-funnel KV sweep, including keys left by a disabled
+// activation. Edge tags are merged separately across all affected funnels.
+async function evictThemeKv(env: Env, funnels: AffectedFunnel[]): Promise<void> {
+  const rows = await env.DB.prepare(`
+    SELECT sq.site_id, f.public_id FROM leadgen_funnels f
+      JOIN leadgen_site_quotes sq ON sq.quote_id = f.quote_id
+     WHERE f.id IN (SELECT value FROM json_each(?))`)
+    .bind(JSON.stringify(funnels.map(funnel => funnel.funnel_id))).all<{ site_id: string; public_id: string }>();
+  await Promise.all(rows.results.map(row => evictVariantPublishKv(env, row.site_id, row.public_id)));
 }
 
-// Fire-and-forget entry point (mirrors scheduleVariantPublishInvalidate):
-// rides waitUntil, fail-open, never blocks or breaks the admin PATCH.
-function scheduleThemeInvalidate(c: AdminContext, themeId: string): void {
-  safeExecutionCtx(c).waitUntil(
-    invalidateThemeAcrossFunnels(c.env, c.env.DB, themeId).catch((err: unknown) => {
-      // Contained to the invalidation it belongs to — the PATCH response is
-      // already on the wire, so this can never surface as a 500 — but NEVER
-      // silent: the empty `catch(() => {})` this replaces is exactly what hid
-      // the LIKE-pattern-limit failure above for the whole life of the
-      // feature (long-named themes never invalidated, no trace anywhere).
-      console.error(
-        `leadgen theme invalidate failed theme_id=${themeId}: ${err instanceof Error ? err.message : String(err)}`,
-      );
-    }),
-  );
+async function refreshThemeConsumers(c: AdminContext, themeId: string, reason: string): Promise<string | null> {
+  let affected: AffectedFunnel[] | undefined;
+  let warning: string | null = null;
+  try {
+    affected = await findFunnelsReferencingTheme(c.env.DB, themeId);
+    if (!affected.length) return null;
+    await bumpActiveVariantContentVersionsOnly(c.env.DB, affected.map(funnel => funnel.funnel_id));
+  } catch (err) {
+    const message = err instanceof Error ? err.message : String(err);
+    console.error(`leadgen theme content-version bump failed theme_id=${themeId}: ${message}`);
+    warning = `Theme saved, but refreshing the live funnels that use it did not complete (${message}). They may keep serving the previous values until their next save.`;
+  }
+
+  // The legacy KV sweep made its own reference lookup. Retain that second
+  // chance if the first lookup failed after the KV record was committed.
+  if (!affected) {
+    try {
+      affected = await findFunnelsReferencingTheme(c.env.DB, themeId);
+    } catch (err) {
+      console.error(`leadgen theme invalidate failed theme_id=${themeId}`, err);
+      return warning;
+    }
+  }
+  const ctx = cacheExecutionCtx(c) as ExecutionContext | undefined;
+  const eviction = evictThemeKv(c.env, affected).catch(err => {
+    console.error(`leadgen theme invalidate failed theme_id=${themeId}`, err);
+  });
+  if (ctx && warning === null) ctx.waitUntil(eviction);
+  else await eviction;
+
+  // The version bump changes every active variant's shell in a referencing
+  // funnel. Draft/archived funnels and funnels without active variants cannot
+  // serve one. The helper narrows the resulting quotes to enabled activations.
+  const quoteIds = affected.filter(funnel => funnel.has_public_variant).map(funnel => funnel.quote_id);
+  await leadgenPublicChange(c.env, ctx, { quoteIds, reason });
+  return warning;
 }
 
 // ---------------------------------------------------------------------------
@@ -689,7 +582,9 @@ export async function createThemeHandler(c: AdminContext): Promise<Response> {
   const record: ThemeRecord = { id, ...value };
   const next = { ...existing, [id]: record };
   await writeThemeRecords(c.env.CACHE, next);
-  return c.json({ item: record, items: Object.values(next) }, 201);
+  // A missing KV record may already have references in imported funnels.
+  const warning = await refreshThemeConsumers(c, id, "leadgen.theme.create");
+  return c.json({ item: record, items: Object.values(next), ...(warning && { cache_refresh_warning: warning }) }, 201);
 }
 
 export async function updateThemeHandler(c: AdminContext): Promise<Response> {
@@ -713,35 +608,8 @@ export async function updateThemeHandler(c: AdminContext): Promise<Response> {
   // guards already apply (frame-handlers.ts / quotes-handlers.ts).
   const changed = JSON.stringify(current) !== JSON.stringify(record);
   const next = { ...existing, [id]: record };
-  let warning: string | null = null;
   await writeThemeRecords(c.env.CACHE, next);
-  if (changed) {
-    // B2 fix (P8 defect contract R2-2): a theme-record PATCH never bumped
-    // content_version, so the served shell/config stayed cached at the OLD
-    // value until an unrelated activation PUT happened to bump it —
-    // scheduleThemeInvalidate below only sweeps the KV/CDN shell cache, a
-    // SEPARATE mechanism (out of scope, untouched). Mirrors putFunnelTheme-
-    // Handler's flow (frame-handlers.ts:305) exactly: AWAITED, not
-    // fire-and-forget, because the response's downstream visitor requests
-    // depend on the write having landed first (d1-database-safety: await
-    // business-critical writes a downstream SELECT depends on).
-    //
-    // Contained, not swallowed: the theme record itself is ALREADY persisted
-    // above, so a failure in the downstream propagation must not turn a
-    // successful save into a 500 the operator can only reproduce (that is the
-    // shape this slice fixed). It is surfaced instead — logged AND named in
-    // the 200 body as cache_refresh_warning — so a propagation failure is
-    // visible by design rather than by accident.
-    try {
-      const affected = await findFunnelsReferencingTheme(c.env.DB, id);
-      await Promise.all(affected.map((funnel) => bumpActiveVariantContentVersions(c.env.DB, funnel.funnel_id)));
-    } catch (err: unknown) {
-      const message = err instanceof Error ? err.message : String(err);
-      console.error(`leadgen theme content-version bump failed theme_id=${id}: ${message}`);
-      warning = `Theme saved, but refreshing the live funnels that use it did not complete (${message}). They may keep serving the previous values until their next save.`;
-    }
-    scheduleThemeInvalidate(c, id);
-  }
+  const warning = changed ? await refreshThemeConsumers(c, id, "leadgen.theme.update") : null;
   const payload: Record<string, unknown> = { item: record, items: Object.values(next) };
   if (warning !== null) payload["cache_refresh_warning"] = warning;
   return c.json(payload);
@@ -755,7 +623,7 @@ export async function updateThemeHandler(c: AdminContext): Promise<Response> {
 // instead" 409 + a structured usage payload) rather than the component-
 // presets sibling (deleteComponentPresetHandler has no back-reference to
 // guard at all — themes DO, via the SAME findFunnelsReferencingTheme scan
-// scheduleThemeInvalidate already uses for cache invalidation on edit). A
+// refreshThemeConsumers uses for cache invalidation on edit). A
 // theme referenced by ANY funnel's theme_json OR ANY variant's frame_
 // overrides_json.theme_id (§10.5 "computed by scanning ... no back-reference
 // stored") is refused with a plain-language 409 naming every referencing
@@ -783,5 +651,7 @@ export async function deleteThemeHandler(c: AdminContext): Promise<Response> {
   const next = { ...existing };
   delete next[id];
   await writeThemeRecords(c.env.CACHE, next);
-  return c.json({ ok: true, id, items: Object.values(next) });
+  // A reference can be assigned between the D1 usage check and the KV write.
+  const warning = await refreshThemeConsumers(c, id, "leadgen.theme.delete");
+  return c.json({ ok: true, id, items: Object.values(next), ...(warning && { cache_refresh_warning: warning }) });
 }

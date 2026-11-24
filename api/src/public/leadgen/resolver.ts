@@ -37,6 +37,7 @@ import {
   singleControlAssignment,
   pickVariantByBucket,
   abBucket,
+  type AbVariantLike,
   type LeadgenAssignmentReason,
 } from "./ab-hash";
 import { isFunnelVariantId, shouldRedirectForSession } from "../../leadgen/funnel";
@@ -262,7 +263,7 @@ export interface ResolveFunnelArgs {
 // identity, the variant's own label/allocation, a null bucket. Shared by the
 // resolver's single_control branch and the reverse variant lookup (serve.ts).
 export function singleControlAssignmentDims(
-  variant: LeadgenFunnelVariantRow,
+  variant: AbVariantLike,
 ): FunnelAssignment {
   const picked = singleControlAssignment(variant);
   return {
@@ -280,8 +281,8 @@ export function singleControlAssignmentDims(
 // has no session; the client recomputes the bucket per §16.2 edge/client parity
 // from funnel_ab_test_id + revision + its own ko_sid). assignment_bucket=null.
 export function abHashAssignmentDims(
-  abTest: LeadgenFunnelAbTestRow,
-  variant: LeadgenFunnelVariantRow,
+  abTest: Pick<LeadgenFunnelAbTestRow, "public_id" | "revision">,
+  variant: AbVariantLike,
 ): FunnelAssignment {
   return {
     funnel_ab_test_id: abTest.public_id,
@@ -338,7 +339,7 @@ async function resolveEnabledSiteQuote(
   return row ?? null;
 }
 
-async function getQuoteById(db: D1Database, quoteId: number): Promise<LeadgenQuoteRow | null> {
+export async function getQuoteById(db: D1Database, quoteId: number): Promise<LeadgenQuoteRow | null> {
   // SELECT * (not an explicit list) so the M4 `default_funnel_id` rides the row
   // WHERE it exists and a pre-M4 harness DB simply yields `undefined` (read as
   // "no default funnel" → first active funnel) instead of erroring the resolve —
@@ -363,7 +364,7 @@ async function getQuoteById(db: D1Database, quoteId: number): Promise<LeadgenQuo
 // LeadgenFunnelRow type declares them). SELECT * also keeps pre-0041 harness DBs
 // serveable: an absent column simply yields `undefined` (read as NULL → the
 // legacy path) rather than erroring the whole resolve.
-async function getActiveFunnelsForQuote(db: D1Database, quoteId: number): Promise<LeadgenFunnelRow[]> {
+export async function getActiveFunnelsForQuote(db: D1Database, quoteId: number): Promise<LeadgenFunnelRow[]> {
   const result = await db
     .prepare(`SELECT * FROM leadgen_funnels WHERE quote_id = ? AND status = 'active'`)
     .bind(quoteId)
@@ -1463,6 +1464,23 @@ export function parseQuoteRoutingRule(row: QuoteRuleRow): ParsedQuoteRule {
   };
 }
 
+// A snapshot must distinguish an empty rule set from a failed read. Caching
+// the latter as [] could route visitors past a rule until the next publish.
+export async function readQuoteRoutingRules(db: D1Database, quoteId: number): Promise<ParsedQuoteRule[]> {
+  const res = await db
+    .prepare(
+      `SELECT public_id, conditions_json, conditions_hash, priority, match_mode,
+              target_funnel_id, feed_name, value_multiplier, redirect_pct,
+              target_offer_id, redirect_url, redirect_url_allowlisted, force_offer_id
+       FROM leadgen_quote_routing_rules
+       WHERE quote_id = ? AND status = 'active'
+       ORDER BY priority ASC, id ASC`,
+    )
+    .bind(quoteId)
+    .all<QuoteRuleRow>();
+  return (res.results ?? []).map(parseQuoteRoutingRule);
+}
+
 // A quote's ACTIVE routing rules, priority ASC then id ASC (§4.3-4). Fail-safe
 // (loadRoutingRules discipline): a query failure (a pre-M3 DB with no
 // leadgen_quote_routing_rules table, a transient read hiccup) degrades to "no
@@ -1470,18 +1488,7 @@ export function parseQuoteRoutingRule(row: QuoteRuleRow): ParsedQuoteRule {
 // only ever SUPPRESS a routing effect, never fabricate one.
 export async function loadQuoteRoutingRules(db: D1Database, quoteId: number): Promise<ParsedQuoteRule[]> {
   try {
-    const res = await db
-      .prepare(
-        `SELECT public_id, conditions_json, conditions_hash, priority, match_mode,
-                target_funnel_id, feed_name, value_multiplier, redirect_pct,
-                target_offer_id, redirect_url, redirect_url_allowlisted, force_offer_id
-         FROM leadgen_quote_routing_rules
-         WHERE quote_id = ? AND status = 'active'
-         ORDER BY priority ASC, id ASC`,
-      )
-      .bind(quoteId)
-      .all<QuoteRuleRow>();
-    return (res.results ?? []).map(parseQuoteRoutingRule);
+    return await readQuoteRoutingRules(db, quoteId);
   } catch {
     return [];
   }
@@ -1667,6 +1674,34 @@ export function evaluateQuoteCheckpointRouting(
   return null;
 }
 
+// A number identifies a governed offer whose click route must be resolved.
+// A string is an allowlisted raw location. Null keeps the visitor in the funnel.
+export function selectEntryRedirectTarget(match: QuoteRoutingMatch | null, sessionId: string): number | string | null {
+  if (match === null || match.redirect_pct === null || match.force_offer_id !== null) return null;
+  if (!shouldRedirectForSession(match.redirect_pct, match.public_id, sessionId)) return null;
+  if (match.target_offer_id !== null) return match.target_offer_id;
+  return match.redirect_url_allowlisted ? match.redirect_url : null;
+}
+
+interface RedirectOfferRow {
+  public_id: string;
+  banner_url_template: string | null;
+}
+
+export function offerEntryRedirectLocation(offer: RedirectOfferRow | null): string | null {
+  // Provider offers without their own click URL would return 204 at /lg/lc.
+  if (offer === null || offer.public_id === "" || !offerHasOwnClickUrl(offer.banner_url_template)) return null;
+  return `/lg/lc/${encodeURIComponent(offer.public_id)}`;
+}
+
+export async function loadOfferEntryRedirectLocation(db: D1Database, offerId: number): Promise<string | null> {
+  const offer = await db
+    .prepare("SELECT public_id, banner_url_template FROM leadgen_offers WHERE id = ? LIMIT 1")
+    .bind(offerId)
+    .first<RedirectOfferRow>();
+  return offerEntryRedirectLocation(offer);
+}
+
 // LeadGen Rework §4.3-9 — the live ENTRY-plane REDIRECT leg. Evaluated at the
 // /lg shell serve (serve.ts, the visitor's entry point). The matched entry rule
 // (the SAME first-match-wins rule that pre-selected the funnel) may carry a
@@ -1700,30 +1735,13 @@ export async function resolveEntryRedirect(
     quote_public_id: quote.public_id,
     session_id: sessionId,
   });
-  if (match === null || match.redirect_pct === null) return null;
-  // 0061: a "Present only this offer" rule keeps its visitors in the funnel —
-  // the save refuses it alongside a redirect; this holds even if a row ever
-  // carries both.
-  if (match.force_offer_id !== null) return null;
-  if (!shouldRedirectForSession(match.redirect_pct, match.public_id, sessionId)) return null;
-  if (match.target_offer_id !== null) {
-    try {
-      const offer = await db
-        .prepare("SELECT public_id, banner_url_template FROM leadgen_offers WHERE id = ? LIMIT 1")
-        .bind(match.target_offer_id)
-        .first<{ public_id: string; banner_url_template: string | null }>();
-      if (offer === null || offer.public_id === "") return null;
-      // A provider Offer has no URL until its provider answers — /lg/lc would
-      // 204 and the visitor would go nowhere; keep them in the funnel instead
-      // (the save refuses such a target; this covers an older row).
-      if (!offerHasOwnClickUrl(offer.banner_url_template)) return null;
-      return `/lg/lc/${encodeURIComponent(offer.public_id)}`;
-    } catch {
-      return null; // fail-safe: an unreadable offer row never redirects
-    }
+  const target = selectEntryRedirectTarget(match, sessionId);
+  if (typeof target !== "number") return target;
+  try {
+    return await loadOfferEntryRedirectLocation(db, target);
+  } catch {
+    return null; // fail-safe: an unreadable offer row never redirects
   }
-  if (match.redirect_url !== null && match.redirect_url_allowlisted) return match.redirect_url;
-  return null;
 }
 
 // The DISTINCT checkpoint page indexes (over the RESOLVED plan's combined pages)
@@ -1758,31 +1776,50 @@ export function deriveQuoteCheckpointPages(
 // running test the single active variant serves (single_control — no control
 // concept, getControlVariantForFunnel orders variant_label ASC). Returns null
 // only when the funnel has NO active variant (a mis-activated funnel → 404).
+export interface FunnelEntryVariants<V extends AbVariantLike> {
+  abTest: Pick<LeadgenFunnelAbTestRow, "public_id" | "revision"> | null;
+  variants: V[];
+}
+
+export async function loadFunnelEntryVariants(
+  db: D1Database,
+  funnelId: number,
+  hasSession = true,
+): Promise<FunnelEntryVariants<LeadgenFunnelVariantRow>> {
+  const abTest = hasSession ? await getRunningAbTestForFunnel(db, funnelId) : null;
+  if (abTest !== null) return { abTest, variants: await getActiveVariantsForFunnel(db, funnelId) };
+  const control = await getControlVariantForFunnel(db, funnelId);
+  return { abTest: null, variants: control === null ? [] : [control] };
+}
+
+export function selectFunnelEntryVariant<V extends AbVariantLike>(
+  { abTest, variants }: FunnelEntryVariants<V>,
+  sessionId: string,
+  routedHash: string | null = null,
+): { variant: V; assignment: FunnelAssignment } | null {
+  const first = variants[0]; // loader order is variant_label ASC, id ASC
+  if (first === undefined) return null;
+  let variant = first;
+  let assignment: FunnelAssignment;
+  if (abTest !== null && sessionId !== "") {
+    const picked = assignVariant(abTest.public_id, abTest.revision, sessionId, variants);
+    variant = picked.variant;
+    assignment = { ...abHashAssignmentDims(abTest, variant), assignment_bucket: picked.assignment_bucket };
+  } else {
+    assignment = singleControlAssignmentDims(variant);
+  }
+  if (routedHash !== null) assignment.routing_rule_hash = routedHash;
+  return { variant, assignment };
+}
+
 async function assignVariantForFunnel(
   db: D1Database,
   funnel: LeadgenFunnelRow,
   sessionId: string,
+  routedHash: string | null = null,
 ): Promise<{ variant: LeadgenFunnelVariantRow; assignment: FunnelAssignment } | null> {
-  const abTest = sessionId === "" ? null : await getRunningAbTestForFunnel(db, funnel.id);
-  if (abTest !== null) {
-    const arms = await getActiveVariantsForFunnel(db, funnel.id);
-    if (arms.length === 0) return null;
-    const picked = assignVariant(abTest.public_id, abTest.revision, sessionId, arms);
-    return {
-      variant: picked.variant,
-      assignment: {
-        funnel_ab_test_id: abTest.public_id,
-        funnel_ab_test_revision: abTest.revision,
-        variant_label: picked.variant.variant_label,
-        traffic_allocation_bp: picked.variant.traffic_allocation_bp,
-        assignment_bucket: picked.assignment_bucket, // §16.2 bucket 0..9999
-        assignment_reason: picked.assignment_reason, // "ab_hash"
-      },
-    };
-  }
-  const control = await getControlVariantForFunnel(db, funnel.id);
-  if (control === null) return null;
-  return { variant: control, assignment: singleControlAssignmentDims(control) };
+  const rows = await loadFunnelEntryVariants(db, funnel.id, sessionId !== "");
+  return selectFunnelEntryVariant(rows, sessionId, routedHash);
 }
 
 // LeadGen Rework §4.3-8/§4.3-10: the served variant of a target funnel at
@@ -1868,6 +1905,21 @@ async function composeResolvedBundle(
   };
 }
 
+// Only the winning rule can name the served funnel. A feed-only winner or a
+// target outside this quote's active funnels falls through to its default.
+export function selectQuoteEntryFunnel<F extends { id: number }>(
+  funnels: readonly F[],
+  defaultFunnelId: number | null,
+  match: QuoteRoutingMatch | null,
+): { funnel: F; routedHash: string | null } | null {
+  if (match !== null && match.target_funnel_id !== null) {
+    const target = funnels.find((f) => f.id === match.target_funnel_id);
+    if (target !== undefined) return { funnel: target, routedHash: match.hash };
+  }
+  const funnel = funnels.find((f) => f.id === defaultFunnelId) ?? funnels[0];
+  return funnel === undefined ? null : { funnel, routedHash: null };
+}
+
 // Resolve the activated funnel for a site + optional quote slug (§17.2 / §4.3).
 // Any unresolved hop (no enabled activation, missing quote/funnel/variant) →
 // null, which the caller answers with a 404.
@@ -1903,47 +1955,18 @@ export async function resolveActivatedFunnel(
 
   const sessionId = args.session_id ?? "";
 
-  // (1) Entry-plane funnel selection.
-  let servedFunnel: LeadgenFunnelRow | null = null;
-  let routedHash: string | null = null;
-  if (args.entry_ctx !== undefined) {
-    const entryMatch = evaluateQuoteEntryRouting(await loadQuoteRoutingRules(db, quote.id), args.entry_ctx, {
-      quote_public_id: quote.public_id,
-      session_id: sessionId,
-    });
-    if (entryMatch !== null) {
-      // S6.2 fix round: entryMatch.target_funnel_id may now be null (a valid
-      // redirect-only/feed-only winner, §4.3-9). `funnels.find(f => f.id ===
-      // null)` never matches a real funnel row, so `target` is correctly
-      // `undefined` and falls straight through to the (2) default-funnel
-      // fallback below — the SAME fallthrough an inactive/foreign funnel
-      // target already uses. No lower-priority rule is ever consulted here
-      // (that would violate §4.3-4 first-match-wins): the winner is fixed by
-      // evaluateQuoteEntryRouting; only ITS funnel choice (present or absent)
-      // is applied.
-      const target = funnels.find((f) => f.id === entryMatch.target_funnel_id);
-      // §4.3-15 activation guarantees the target is active; defensively ignore a
-      // rule pointing at an inactive/foreign funnel (fall through to default).
-      if (target !== undefined) {
-        servedFunnel = target;
-        routedHash = entryMatch.hash;
-      }
-    }
-  }
-
-  // (2) Unmatched, OR the winner carried no funnel action → the quote's
-  // default funnel (§4.3-7), else the first active.
-  if (servedFunnel === null) {
-    servedFunnel = funnels.find((f) => f.id === quote.default_funnel_id) ?? funnels[0]!;
-  }
+  const match = args.entry_ctx === undefined ? null : evaluateQuoteEntryRouting(
+    await loadQuoteRoutingRules(db, quote.id),
+    args.entry_ctx,
+    { quote_public_id: quote.public_id, session_id: sessionId },
+  );
+  const served = selectQuoteEntryFunnel(funnels, quote.default_funnel_id, match);
+  if (served === null) return null;
 
   // (3) A/B within the served funnel (§4.3-10).
-  const assigned = await assignVariantForFunnel(db, servedFunnel, sessionId);
+  const assigned = await assignVariantForFunnel(db, served.funnel, sessionId, served.routedHash);
   if (assigned === null) return null;
-  const assignment: FunnelAssignment =
-    routedHash !== null ? { ...assigned.assignment, routing_rule_hash: routedHash } : assigned.assignment;
-
-  return composeResolvedBundle(db, args.site_id, siteQuote, quote, servedFunnel, assigned.variant, assignment);
+  return composeResolvedBundle(db, args.site_id, siteQuote, quote, served.funnel, assigned.variant, assigned.assignment);
 }
 
 // Reverse resolution for /lg/config + /lg/attempt: a specific funnel_variant_id

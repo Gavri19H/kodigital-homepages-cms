@@ -2,6 +2,9 @@ export interface Env {
   DB: D1Database;
   CACHE: KVNamespace;
   MEDIA: R2Bucket;
+  CF_VERSION_METADATA?: { id: string; tag?: string; timestamp?: string };
+  PERFSTAGE?: string;
+  ADMIN_ALLOW_IP?: string;
   // Contracted static-asset binding. Optional in unit environments so a
   // missing binding can fail closed with a typed dependency response.
   ADMIN_ASSETS?: Fetcher;
@@ -15,6 +18,7 @@ export interface Env {
   ADMIN_BASE_URL: string;
   ADMIN_BASE_PATH: string;
   CACHE_API_ENABLED: string;
+  EDGE_INNER?: string;
   HTML_CACHE_TTL_SECONDS: string;
   OPENAI_TEXT_MODEL: string;
   OPENAI_IMAGE_MODEL: string;

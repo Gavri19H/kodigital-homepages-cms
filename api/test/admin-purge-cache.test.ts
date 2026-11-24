@@ -1,5 +1,6 @@
-import { describe, expect, it } from "vitest";
+import { afterEach, describe, expect, it, vi } from "vitest";
 import admin from "../src/admin/router";
+import * as publicChange from "../src/edge/public-change";
 import type { Env } from "../src/env";
 
 // WARN-FIX-2: POST /api/admin/sites/:id/purge-cache.
@@ -88,6 +89,8 @@ function findCall(recorded: RecordedCall[], needle: string): RecordedCall | null
 }
 
 describe("POST /api/admin/sites/:id/purge-cache (WARN-FIX-2)", () => {
+  afterEach(() => { vi.restoreAllMocks(); });
+
   it("dry-run: inserts cache_purge_log row + returns 200 with purge_id and completed_dry_run status", async () => {
     const recorded: RecordedCall[] = [];
     const db = makeFakeDb(
@@ -104,10 +107,15 @@ describe("POST /api/admin/sites/:id/purge-cache (WARN-FIX-2)", () => {
       recorded,
       42,
     );
+    const env = buildEnv(db);
+    const purgeTags = vi.fn(async () => ({ success: true, errors: [] }));
+    const ctx = { props: {}, exports: { PublicPage: { purgeTags } }, waitUntil() {}, passThroughOnException() {} };
+    const change = vi.spyOn(publicChange, "onPublicChange");
     const res = await admin.request(
       "/api/admin/sites/st_one/purge-cache",
       { method: "POST" },
-      buildEnv(db),
+      env,
+      ctx,
     );
     expect(res.status).toBe(200);
     const body = (await res.json()) as {
@@ -125,6 +133,10 @@ describe("POST /api/admin/sites/:id/purge-cache (WARN-FIX-2)", () => {
     expect(insertCall!.binds[2]).toBe("completed_dry_run");
     expect(insertCall!.binds[3]).toBe(1);
     expect(insertCall!.binds[4]).toBe(0);
+    expect(change).toHaveBeenCalledExactlyOnceWith(env, ctx, {
+      siteId: "st_one", tags: ["site:st_one"], reason: "admin_clear_site",
+    });
+    expect(purgeTags).toHaveBeenCalledExactlyOnceWith(["site:st_one", "snap:st_one", "nf:st_one"]);
   });
 
   it("falls back to sites.domain when no primary domain row exists yet", async () => {
@@ -148,11 +160,16 @@ describe("POST /api/admin/sites/:id/purge-cache (WARN-FIX-2)", () => {
     const insertCall = findCall(recorded, "INSERT INTO cache_purge_log");
     expect(insertCall).not.toBeNull();
     expect(insertCall!.binds[1]).toBe("fallback.example");
+    const queued = recorded.find(call => call.binds[1] === "purge_tags");
+    expect(JSON.parse(String(queued?.binds[2]))).toMatchObject({
+      tags: ["site:st_two", "snap:st_two", "nf:st_two"], reason: "admin_clear_site",
+    });
   });
 
   it("returns 404 + {error:string} when site_id does not exist", async () => {
     const recorded: RecordedCall[] = [];
     const db = makeFakeDb([], recorded, null);
+    const change = vi.spyOn(publicChange, "onPublicChange");
     const res = await admin.request(
       "/api/admin/sites/st_missing/purge-cache",
       { method: "POST" },
@@ -164,5 +181,6 @@ describe("POST /api/admin/sites/:id/purge-cache (WARN-FIX-2)", () => {
     expect(body.error.length).toBeGreaterThan(0);
     const insertCall = findCall(recorded, "INSERT INTO cache_purge_log");
     expect(insertCall).toBeNull();
+    expect(change).not.toHaveBeenCalled();
   });
 });

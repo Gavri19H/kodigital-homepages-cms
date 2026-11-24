@@ -40,6 +40,8 @@ import { isSendOnlyOffer, sendOnlyReasonLabel } from "../../leadgen/send-only";
 import type { FunnelAssignment, ResolvedActivatedFunnel } from "../../public/leadgen/resolver";
 import { buildWhereClause, type FilterCondition } from "../query-filters";
 import {
+  auctionClickScriptBump,
+  commitLeadgenContentChange,
   buildPaging,
   escapeLike,
   idSelector,
@@ -1070,7 +1072,20 @@ export async function putAuctionOffersHandler(c: AdminContext): Promise<Response
       ).bind(auction.id, p.offer_placement_id, p.offer_id, p.static_order, p.static_bid_override, p.enabled),
     );
   }
-  await c.env.DB.batch(statements);
+  // Compare membership in the replace transaction. Bids, ordering and
+  // replacing one tracking offer with another leave the cached script intact.
+  const enabledOffers = parsed.filter(p => p.enabled).map(p => p.offer_id);
+  const bump = await auctionClickScriptBump(c.env.DB, `WITH tracking_offers AS (
+      SELECT id FROM leadgen_offers
+      WHERE status = 'active' AND clickout_meta_conversion = 1 AND clickout_meta_dataset_id IS NOT NULL
+    )
+    SELECT ?1 WHERE EXISTS (
+      SELECT 1 FROM leadgen_auction_offers ao JOIN tracking_offers o ON o.id = ao.offer_id
+      WHERE ao.auction_id = ?1 AND ao.enabled = 1
+    ) != EXISTS (SELECT 1 FROM tracking_offers WHERE id IN (SELECT value FROM json_each(?2)))`,
+    auction.id, JSON.stringify(enabledOffers));
+  if (bump) await commitLeadgenContentChange(c, statements, bump, "leadgen.auction.offers");
+  else await c.env.DB.batch(statements);
 
   // 05 §5.1 site 2 (R4): per-offer eligibility WARNINGS on the saved set —
   // the save is ACCEPTED (draft auctions may reference not-yet-ready Offers);

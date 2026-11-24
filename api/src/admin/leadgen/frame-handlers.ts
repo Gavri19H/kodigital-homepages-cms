@@ -36,8 +36,9 @@ import { isThemeIdRef, resolveTokens, validateTheme } from "../../public/leadgen
 import type { Problem, ThemeIdRef, ThemeJson } from "../../public/leadgen/designs/theme";
 import { getFunnelDesign } from "../../public/leadgen/designs/registry";
 import { resolveSiteBranding } from "../../leadgen/branding";
+import { cacheExecutionCtx } from "../../public/html-pipeline";
 import { escapeHtml } from "../templates/layout";
-import { idSelector, parseJsonColumn, readJsonBody, type AdminContext } from "./offers-handlers";
+import { commitLeadgenContentChange, idSelector, parseJsonColumn, readJsonBody, type AdminContext } from "./offers-handlers";
 import { mintPublicId } from "../../leadgen/ids";
 // v3.1 §10.1: a funnel's theme_json may reference a KV `lg-funnel-themes`
 // record ({theme_id}) instead of the legacy inline shape — this module owns
@@ -48,6 +49,7 @@ import { mintPublicId } from "../../leadgen/ids";
 import { getThemeRecord, themeRecordExists } from "./themes-handlers";
 import {
   bumpActiveVariantContentVersions,
+  bumpActiveVariantContentVersionsOnly,
   readFunnelVariants,
   resolveFunnelRow,
 } from "./quotes-handlers";
@@ -77,6 +79,13 @@ function parsedJsonRecord(raw: string | null | undefined): Record<string, unknow
 async function funnelBaseDesignId(db: D1Database, funnel: LeadgenFunnelRow): Promise<string> {
   const variants = await readFunnelVariants(db, funnel.id);
   return variants[0]?.funnel_design_id ?? "default";
+}
+
+function refreshFunnelFrame(c: AdminContext, funnel: LeadgenFunnelRow): Promise<number> {
+  if (funnel.status !== "active") return bumpActiveVariantContentVersionsOnly(c.env.DB, funnel.id);
+  return bumpActiveVariantContentVersions(c.env.DB, funnel.id, {
+    env: c.env, ctx: cacheExecutionCtx(c) as ExecutionContext | undefined,
+  });
 }
 
 // ---------------------------------------------------------------------------
@@ -196,7 +205,7 @@ export async function putFunnelFrameHandler(c: AdminContext): Promise<Response> 
     .bind(serialized, funnel.id)
     .run();
   // 03 §3.1: the bump is what makes a frame edit reach visitors.
-  const bumped = await bumpActiveVariantContentVersions(c.env.DB, funnel.id);
+  const bumped = await refreshFunnelFrame(c, funnel);
 
   const projection = frameProjection(raw, savedDefaults);
   projection["problems"] = [...validation.problems, ...(projection["problems"] as Problem[])];
@@ -303,7 +312,7 @@ export async function putFunnelThemeHandler(c: AdminContext): Promise<Response> 
   )
     .bind(serialized, funnel.id)
     .run();
-  const bumped = await bumpActiveVariantContentVersions(c.env.DB, funnel.id);
+  const bumped = await refreshFunnelFrame(c, funnel);
 
   const projection = await themeProjection(c.env.DB, funnel, raw, c.env.CACHE);
   projection["bumped_variants"] = bumped;
@@ -486,6 +495,25 @@ async function resolveFrameTemplateRow(db: D1Database, idParam: string): Promise
   return (await db.prepare(sql).bind(selector.value).first<LeadgenFrameTemplateRow>()) ?? null;
 }
 
+// Mirror resolveSavedFrameTemplateDefaultsFor. The global is_default flag
+// seeds new funnels. Existing shells inherit only their own quote's default.
+async function frameTemplateVersionBump(db: D1Database, templateId: number, nextFrame: string | null): Promise<D1PreparedStatement> {
+  // The public resolver also supports databases from before per-quote defaults.
+  const hasDefaults = await db.prepare("SELECT 1 FROM sqlite_master WHERE type = 'table' AND name = ?")
+    .bind("leadgen_quote_default_template").first();
+  const fallback = hasDefaults
+    ? "(SELECT frame_template_id FROM leadgen_quote_default_template WHERE quote_public_id = q.public_id)"
+    : "NULL";
+  return db.prepare(`UPDATE leadgen_funnel_variants SET content_version = content_version + 1
+    WHERE EXISTS (SELECT 1 FROM leadgen_frame_templates WHERE id = ?1 AND (?2 IS NULL OR frame_json IS NOT ?2))
+      AND id IN (
+        SELECT v.id FROM leadgen_funnel_variants v
+        JOIN leadgen_funnels f ON f.id = v.funnel_id JOIN leadgen_quotes q ON q.id = f.quote_id
+        WHERE v.status = 'active' AND f.status = 'active'
+          AND COALESCE(v.frame_template_id, f.frame_template_id, ` + fallback + `) = ?1
+      ) RETURNING id`).bind(templateId, nextFrame);
+}
+
 // name (≤60, required, unique) + frame_json (a FrameConfig defaults object that
 // validateFrameConfig accepts with zero error-severity problems). Returns
 // {name, frameJson} or a field error.
@@ -569,11 +597,11 @@ export async function updateFrameTemplateHandler(c: AdminContext): Promise<Respo
   if (body === null) return c.json({ error: "Invalid JSON body" }, 400);
   const { name, frameJson, errors } = await validateTemplateInput(c.env.DB, body, existing);
   if (Object.keys(errors).length > 0) return c.json({ error: "Validation failed", fields: errors }, 400);
-  await c.env.DB.prepare(
+  const update = c.env.DB.prepare(
     "UPDATE leadgen_frame_templates SET name = ?, frame_json = ?, updated_at = unixepoch() WHERE id = ?",
-  )
-    .bind(name, frameJson ?? existing.frame_json, existing.id)
-    .run();
+  ).bind(name, frameJson ?? existing.frame_json, existing.id);
+  const bump = await frameTemplateVersionBump(c.env.DB, existing.id, frameJson ?? existing.frame_json);
+  await commitLeadgenContentChange(c, [update], bump, "leadgen.frame-template.update");
   const row = await c.env.DB.prepare("SELECT * FROM leadgen_frame_templates WHERE id = ? LIMIT 1")
     .bind(existing.id)
     .first<LeadgenFrameTemplateRow>();
@@ -654,7 +682,11 @@ export async function deleteFrameTemplateHandler(c: AdminContext): Promise<Respo
       409,
     );
   }
-  await c.env.DB.prepare("DELETE FROM leadgen_frame_templates WHERE id = ?").bind(row.id).run();
+  // The explicit-reference guard above permits a template used only as a
+  // per-quote fallback. Capture its consumers before a successful delete.
+  const bump = await frameTemplateVersionBump(c.env.DB, row.id, null);
+  const remove = c.env.DB.prepare("DELETE FROM leadgen_frame_templates WHERE id = ?").bind(row.id);
+  await commitLeadgenContentChange(c, [remove], bump, "leadgen.frame-template.delete");
   return c.json({ ok: true, id: row.id, public_id: row.public_id, deleted: true });
 }
 
@@ -747,7 +779,7 @@ export async function applyFrameTemplateToFunnelHandler(c: AdminContext): Promis
       .bind(templateId, funnel.id)
       .run();
   }
-  const bumped = await bumpActiveVariantContentVersions(c.env.DB, funnel.id);
+  const bumped = await refreshFunnelFrame(c, funnel);
   const updated = await resolveFunnelRow(c.env.DB, String(funnel.id));
   return c.json({
     funnel_id: funnel.public_id,

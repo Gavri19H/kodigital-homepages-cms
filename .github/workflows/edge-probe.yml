@@ -1,0 +1,57 @@
+name: Edge speed probe
+
+'on':
+  workflow_dispatch:
+    inputs:
+      urls:
+        description: 'One URL per line. Leave blank to use api/scripts/perf/urls.txt.'
+        required: false
+        type: string
+      runs:
+        description: 'Requests per URL'
+        type: number
+        default: 3
+      override:
+        description: 'Optional Workers version override, e.g. worker="version-id"'
+        required: false
+        type: string
+
+permissions:
+  contents: read
+
+jobs:
+  probe:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+
+      - name: Measure edge responses
+        shell: bash
+        env:
+          PROBE_URLS: ${{ inputs.urls }}
+          PROBE_RUNS: ${{ inputs.runs }}
+          VERSION_OVERRIDE: ${{ inputs.override }}
+        run: |
+          url_file=api/scripts/perf/urls.txt
+          if [[ -n "$PROBE_URLS" ]]; then
+            url_file="$RUNNER_TEMP/edge-probe-urls.txt"
+            printf '%s\n' "$PROBE_URLS" > "$url_file"
+          fi
+          args=("$url_file" "$PROBE_RUNS")
+          if [[ -n "$VERSION_OVERRIDE" ]]; then
+            args+=(--override "$VERSION_OVERRIDE")
+          fi
+          api/scripts/perf/edge-probe.sh "${args[@]}" | tee "$RUNNER_TEMP/edge-probe.tsv"
+
+      - name: Show runner location
+        if: always()
+        run: curl -s https://www.cloudflare.com/cdn-cgi/trace | grep -E 'colo|loc'
+
+      - name: Upload probe measurements
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: edge-probe
+          path: ${{ runner.temp }}/edge-probe.tsv

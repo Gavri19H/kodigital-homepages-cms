@@ -13,7 +13,7 @@
 
 import type { ArticleRow } from "../db";
 import type { Env } from "../env";
-import { snapshotVersion } from "./publish";
+import { purgeArticleChange, snapshotVersion } from "./publish";
 
 export interface ArticleVersionRow {
   id: number;
@@ -66,6 +66,7 @@ export async function restoreVersion(
   articleId: number,
   versionId: number,
   createdBy?: string,
+  ctx?: ExecutionContext,
 ): Promise<RestoreResult> {
   const version = await getVersion(env, articleId, versionId);
   if (!version) {
@@ -86,12 +87,13 @@ export async function restoreVersion(
   });
 
   // (2) Copy the chosen version's content back onto the article row.
-  await env.DB
+  const updated = await env.DB
     .prepare(
-      "UPDATE articles SET content_json = ?, updated_at = ? WHERE id = ?",
+      "UPDATE articles SET content_json = ?, updated_at = ? WHERE id = ? RETURNING slug",
     )
     .bind(version.content_json, Math.floor(Date.now() / 1000), articleId)
-    .run();
+    .first<{ slug: string }>();
+  if (updated) await purgeArticleChange(env, article.site_id, [updated.slug], "article.restore", ctx);
 
   return {
     article_id: articleId,

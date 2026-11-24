@@ -36,9 +36,12 @@
 
 import type { Context } from "hono";
 import type { Env } from "../env";
+import { onPublicChange } from "../edge/public-change";
 import { buildStorageKey } from "../media/upload";
 import { extractImageDimensions } from "../media/dimensions";
 import { sanitizeSvgUpload } from "../lib/svg-sanitizer";
+import { cacheExecutionCtx } from "../public/html-pipeline";
+import { siteTagsForPublicRow } from "./pages";
 
 // Upload acceptance set — mirrors the legacy modal help text
 // ("Supports: JPEG, PNG, GIF, WebP, AVIF, SVG (max 10MB)").
@@ -223,6 +226,12 @@ export async function uploadMediaHandler(
     return c.json({ error: "Failed to record media row" }, 500);
   }
 
+  if (siteId !== null) {
+    // A fresh asset can replace a cached /media/<id> 404. onPublicChange adds the site's nf tag.
+    await onPublicChange(c.env, cacheExecutionCtx(c) as ExecutionContext | undefined, {
+      siteId, tags: [], reason: "media.upload",
+    });
+  }
   return c.json({ item: row, url: "/media/" + storageKey }, 201);
 }
 
@@ -285,6 +294,9 @@ export async function updateMediaHandler(
   const nextCaption =
     body.caption !== undefined ? asFormString(body.caption) : existing.caption;
   const nextFolder = asFormString(body.folder);
+  const tags = nextAltText !== existing.alt_text || nextCaption !== existing.caption
+    ? await siteTagsForPublicRow(c.env.DB, existing.site_id)
+    : null;
 
   try {
     await c.env.DB.prepare(
@@ -297,6 +309,11 @@ export async function updateMediaHandler(
     return c.json({ error: "Failed to update media: " + message }, 500);
   }
 
+  if (tags !== null) {
+    await onPublicChange(c.env, cacheExecutionCtx(c) as ExecutionContext | undefined, {
+      siteId: existing.site_id, tags, reason: "media.update",
+    });
+  }
   const row = await c.env.DB.prepare(
     "SELECT " + MEDIA_COLUMNS + " FROM media WHERE id = ? LIMIT 1",
   )
@@ -328,6 +345,7 @@ export async function deleteMediaHandler(
     return tenantViolation(c);
   }
 
+  const tags = await siteTagsForPublicRow(c.env.DB, existing.site_id);
   try {
     await c.env.MEDIA.delete(existing.storage_key);
   } catch (err) {
@@ -341,5 +359,8 @@ export async function deleteMediaHandler(
     return c.json({ error: "Failed to delete media: " + message }, 500);
   }
 
+  await onPublicChange(c.env, cacheExecutionCtx(c) as ExecutionContext | undefined, {
+    siteId: existing.site_id, tags, reason: "media.delete",
+  });
   return c.json({ deleted: true, id, storage_key: existing.storage_key });
 }

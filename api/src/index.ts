@@ -38,6 +38,9 @@
 // guard hardens against a future re-registration order regression.
 
 import { Hono } from "hono";
+import { gatewayFetch } from "./edge/gateway";
+import { perfstageEnv } from "./edge/perfstage";
+import { runEdgePurgeCron } from "./edge/public-change";
 import { getAdminHost, type Env } from "./env";
 import {
   accessAuth,
@@ -223,8 +226,7 @@ app.onError((err, c) => {
 });
 
 // T42 [BCL-080] — Scheduled cron. wrangler.toml [triggers] crons fires the
-// Workers `scheduled` handler every minute. It does TWO things, each isolated
-// so one cannot break the other:
+// Workers `scheduled` handler every minute. Its first two tasks are:
 //   1. processScheduledArticles — finds every article whose scheduled_at has
 //      arrived and flips it to published via the canonical publish() path.
 //   2. (rescue-4) driveInProgressProvisioning — advances any still-in-progress
@@ -236,19 +238,15 @@ app.onError((err, c) => {
 //      article count all the way to status='active'.
 //
 // Each task runs in its OWN try/catch: a provisioning error must NOT prevent
-// the publish pass (or vice-versa). Both are registered on ctx.waitUntil (so
+// the publish pass (or vice-versa). The work is registered on ctx.waitUntil (so
 // the cron invocation stays alive until they finish) AND awaited (so the
 // runtime — and unit tests — observe a settled promise).
-//
-// We ATTACH `scheduled` onto the Hono app (rather than wrapping it in a new
-// ExportedHandler literal) so the default export keeps `app.fetch` for the
-// runtime AND `app.request` for the Hono test helper that the existing suite
-// relies on — adding the cron entry point next to them, breaking neither.
 const scheduled = async (
   _controller: ScheduledController,
   env: Env,
   ctx: ExecutionContext,
 ): Promise<void> => {
+  env = perfstageEnv(env);
   const work = (async () => {
     try {
       await processScheduledArticles(env);
@@ -256,81 +254,94 @@ const scheduled = async (
       // Publish-pass failure is recorded per-article inside the engine; a
       // top-level throw here would abort the provisioning drive below.
     }
-    try {
-      await driveInProgressProvisioning(env, ctx);
-    } catch {
-      // A provisioning hiccup must never break the publish cron (or surface
-      // as an unhandled rejection that fails the scheduled invocation).
+    if (env.PERFSTAGE !== "true") {
+      try {
+        await driveInProgressProvisioning(env, ctx);
+      } catch {
+        // A provisioning hiccup must never break the publish cron (or surface
+        // as an unhandled rejection that fails the scheduled invocation).
+      }
+      try {
+        // S3 → ClickHouse event loader (LeadGen + Listicles). Fills the raw
+        // tables (lg_events_raw/lg_sessions/lst_events_raw/lst_sessions) the
+        // two mirror syncs below read through their daily views. Runs BEFORE
+        // both syncs so a minute's new files are in CH before they look. Isolated +
+        // fail-open: absent AWS/CH config is a silent no-op; an error is logged
+        // and the file retried next minute.
+        await runEventLoader(env);
+      } catch {
+        // the loader must never break the publish/provisioning cron.
+      }
+      try {
+        // Listicles §18 CH→D1 analytics mirror sync — every minute, bounded
+        // rolling window (today+yesterday UTC). Isolated + fail-open: absent CH
+        // secrets is a logged no-op; a CH/D1 error is contained per table and
+        // NEVER surfaces into the homepage publish/provisioning cron above.
+        await syncListicleAnalytics(env);
+      } catch {
+        // mirror sync must never break the publish/provisioning cron.
+      }
+      try {
+        // Listicles §31.6 daily reconciliation (self-gates to 00:05 UTC;
+        // fail-open by design — see analytics/listicle-reconciliation.ts).
+        await listicleDailyReconciliation(env);
+      } catch {
+        // reconciliation must never break the publish/provisioning cron.
+      }
+      try {
+        // Listicles Phase 9 §19/§31.7 revenue maintenance — every minute ships
+        // NEW listicle_revenue_raw rows to CH + re-matches the unmatched queue;
+        // self-gates the daily tasks (FX refresh + attribution-MV backfill +
+        // provider reconciliation + report ingest) to 00:07 UTC. Isolated +
+        // fail-open: absent CH secrets is a logged no-op; any error is contained
+        // and NEVER surfaces into the homepage publish/provisioning cron.
+        await runListicleRevenueCron(env);
+      } catch {
+        // revenue maintenance must never break the publish/provisioning cron.
+      }
+      try {
+        // LeadGen §30.3 retention prune — bounded DELETEs (provider request
+        // log 7d, session clicked offers 24h; KV debug blobs self-expire via
+        // TTL). Isolated + fail-open like every task above: an error is
+        // contained and NEVER surfaces into the publish/provisioning cron.
+        await pruneLeadgenRetention(env);
+      } catch {
+        // retention prune must never break the publish/provisioning cron.
+      }
+      try {
+        // LeadGen §24 CH→D1 analytics mirror sync — every minute, bounded rolling
+        // window. Isolated + fail-open: absent CH secrets (CH_URL/CH_USER/
+        // CH_PASSWORD) is a structured no-op; a CH/D1 error is contained per
+        // table (and by an overall try/catch) and NEVER surfaces into the
+        // homepage publish/provisioning cron above.
+        await syncLeadgenAnalytics(env);
+      } catch {
+        // mirror sync must never break the publish/provisioning cron.
+      }
+      try {
+        // LeadGen §25/§26/§29 revenue maintenance — every minute ships NEW
+        // leadgen_revenue_raw rows to CH + re-matches the unmatched queue;
+        // self-gates the daily tasks (FX refresh + attribution-MV backfill +
+        // provider reconciliation + report ingest + media-platform seed) to
+        // 00:07 UTC. Isolated + fail-open (mirrors the Listicles revenue cron
+        // block above): absent CH secrets is a structured no-op; any error is
+        // contained and NEVER surfaces into the homepage publish/provisioning cron.
+        // ctx carries the m3 revenue_received Firehose emission (waitUntil).
+        await runLeadgenRevenueCron(env, { ctx });
+      } catch {
+        // revenue maintenance must never break the publish/provisioning cron.
+      }
     }
     try {
-      // S3 → ClickHouse event loader (LeadGen + Listicles). Fills the raw
-      // tables (lg_events_raw/lg_sessions/lst_events_raw/lst_sessions) the
-      // two mirror syncs below read through their daily views. Runs BEFORE
-      // both syncs so a minute's new files are in CH before they look. Isolated +
-      // fail-open: absent AWS/CH config is a silent no-op; an error is logged
-      // and the file retried next minute.
-      await runEventLoader(env);
+      await runEdgePurgeCron(env, ctx);
     } catch {
-      // the loader must never break the publish/provisioning cron.
+      // Pending cache purges can retry on the next tick.
     }
     try {
-      // Listicles §18 CH→D1 analytics mirror sync — every minute, bounded
-      // rolling window (today+yesterday UTC). Isolated + fail-open: absent CH
-      // secrets is a logged no-op; a CH/D1 error is contained per table and
-      // NEVER surfaces into the homepage publish/provisioning cron above.
-      await syncListicleAnalytics(env);
+      const { runFingerprintCron } = await import("./edge/fingerprint-cron");
+      await runFingerprintCron(env, ctx);
     } catch {
-      // mirror sync must never break the publish/provisioning cron.
-    }
-    try {
-      // Listicles §31.6 daily reconciliation (self-gates to 00:05 UTC;
-      // fail-open by design — see analytics/listicle-reconciliation.ts).
-      await listicleDailyReconciliation(env);
-    } catch {
-      // reconciliation must never break the publish/provisioning cron.
-    }
-    try {
-      // Listicles Phase 9 §19/§31.7 revenue maintenance — every minute ships
-      // NEW listicle_revenue_raw rows to CH + re-matches the unmatched queue;
-      // self-gates the daily tasks (FX refresh + attribution-MV backfill +
-      // provider reconciliation + report ingest) to 00:07 UTC. Isolated +
-      // fail-open: absent CH secrets is a logged no-op; any error is contained
-      // and NEVER surfaces into the homepage publish/provisioning cron.
-      await runListicleRevenueCron(env);
-    } catch {
-      // revenue maintenance must never break the publish/provisioning cron.
-    }
-    try {
-      // LeadGen §30.3 retention prune — bounded DELETEs (provider request
-      // log 7d, session clicked offers 24h; KV debug blobs self-expire via
-      // TTL). Isolated + fail-open like every task above: an error is
-      // contained and NEVER surfaces into the publish/provisioning cron.
-      await pruneLeadgenRetention(env);
-    } catch {
-      // retention prune must never break the publish/provisioning cron.
-    }
-    try {
-      // LeadGen §24 CH→D1 analytics mirror sync — every minute, bounded rolling
-      // window. Isolated + fail-open: absent CH secrets (CH_URL/CH_USER/
-      // CH_PASSWORD) is a structured no-op; a CH/D1 error is contained per
-      // table (and by an overall try/catch) and NEVER surfaces into the
-      // homepage publish/provisioning cron above.
-      await syncLeadgenAnalytics(env);
-    } catch {
-      // mirror sync must never break the publish/provisioning cron.
-    }
-    try {
-      // LeadGen §25/§26/§29 revenue maintenance — every minute ships NEW
-      // leadgen_revenue_raw rows to CH + re-matches the unmatched queue;
-      // self-gates the daily tasks (FX refresh + attribution-MV backfill +
-      // provider reconciliation + report ingest + media-platform seed) to
-      // 00:07 UTC. Isolated + fail-open (mirrors the Listicles revenue cron
-      // block above): absent CH secrets is a structured no-op; any error is
-      // contained and NEVER surfaces into the homepage publish/provisioning cron.
-      // ctx carries the m3 revenue_received Firehose emission (waitUntil).
-      await runLeadgenRevenueCron(env, { ctx });
-    } catch {
-      // revenue maintenance must never break the publish/provisioning cron.
+      // The next minute can retry the fingerprint check.
     }
   })();
   ctx.waitUntil(work);
@@ -361,7 +372,14 @@ const queue = async (
   }
 };
 
-const worker = Object.assign(app, { scheduled, queue });
+// PublicPage and gateway fallbacks enter Hono directly. app.request uses the worker fetch.
+export const honoFetch = app.fetch.bind(app);
+const worker = Object.assign(app, {
+  fetch: (req: Request, env: Env, ctx?: ExecutionContext) => gatewayFetch(req, perfstageEnv(env), ctx, honoFetch),
+  scheduled,
+  queue,
+});
 
 export { ProviderConfigurationAuthority } from "./conversions-provider-configuration-worker";
+export { PublicPage } from "./edge/public-page";
 export default worker;

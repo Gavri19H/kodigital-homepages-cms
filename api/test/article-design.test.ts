@@ -171,7 +171,7 @@ describe("article-design (T20)", () => {
     // shell. The design body roots in data-screen-label=article-page inside
     // <main id="main-content"> and the page links the public stylesheet.
     expect(doc).toContain('<main id="main-content"><div data-screen-label=article-page>');
-    expect(doc).toContain('href="/assets/public.css?v=');
+    expect(doc).toMatch(/href="\/assets\/public\.css\?v=[a-z0-9]+"/);
   });
 
   it("T20-AC2 render-output: each §12 body block type (p/h2/ul/pullquote/image/callout/affiliate) adapts + renders, and the stylesheet carries the drop-cap + brand dash bullets [api/test/article-design.test.ts] L2_AUTO_DISAMBIGUATION:T20-AC2:RC-037", () => {

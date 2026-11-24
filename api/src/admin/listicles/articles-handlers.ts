@@ -5,8 +5,11 @@
 // 100%, is_control=1) in the same D1 batch — the two INSERTs commit or roll
 // back together (§5.3 "in a txn").
 
+import { onPublicChange } from "../../edge/public-change";
+import { listicleTag } from "../../edge/tags";
 import { mintPublicId } from "../../listicles/ids";
 import { invalidateAndWarmOnPublish } from "../../listicles/invalidate";
+import { cacheExecutionCtx } from "../../public/html-pipeline";
 import {
   validateArticle,
   validateExperiment,
@@ -92,6 +95,22 @@ export async function resolveArticleRow(
       : "SELECT * FROM listicle_articles WHERE public_id = ? LIMIT 1";
   const row = await db.prepare(sql).bind(selector.value).first<ArticleRowL>();
   return row ?? null;
+}
+
+export async function purgeListicleArticle(
+  c: AdminContext,
+  articleOrId: Pick<ArticleRowL, "site_id" | "public_id"> | number,
+  reason: string,
+): Promise<void> {
+  const article = typeof articleOrId === "number"
+    ? await resolveArticleRow(c.env.DB, String(articleOrId))
+    : articleOrId;
+  if (article === null) return; // A concurrent deletion already purged its former owner.
+  await onPublicChange(c.env, cacheExecutionCtx(c) as ExecutionContext | undefined, {
+    siteId: article.site_id,
+    tags: [listicleTag(article.public_id)],
+    reason,
+  });
 }
 
 // GET /api/admin/listicles/articles?site_id=&search=&page=&page_size= —
@@ -282,12 +301,14 @@ export async function patchArticleHandler(c: AdminContext): Promise<Response> {
       }
     }
   }
+  let articleName: string | undefined;
   if (body.article_name !== undefined) {
     if (typeof body.article_name !== "string" || body.article_name.trim() === "") {
       errors.article_name = "article_name must be a non-empty string";
     } else {
+      articleName = body.article_name.trim();
       setClauses.push("article_name = ?");
-      bindings.push(body.article_name.trim());
+      bindings.push(articleName);
     }
   }
   let targetSlug = existing.slug;
@@ -338,12 +359,32 @@ export async function patchArticleHandler(c: AdminContext): Promise<Response> {
 
   setClauses.push("updated_at = unixepoch()");
   bindings.push(existing.id);
+  let previousSite: string | undefined;
+  let updated: ArticleRowL | null;
   try {
-    await c.env.DB.prepare(
-      `UPDATE listicle_articles SET ${setClauses.join(", ")} WHERE id = ?`,
-    )
-      .bind(...bindings)
-      .run();
+    const update = c.env.DB.prepare(
+      `UPDATE listicle_articles SET ${setClauses.join(", ")} WHERE id = ? RETURNING *`,
+    ).bind(...bindings);
+    const statements: D1PreparedStatement[] = [];
+    if (body.site_id !== undefined) {
+      // A concurrent transfer can change the owner after slug validation.
+      statements.push(c.env.DB.prepare("SELECT site_id FROM listicle_articles WHERE id = ?").bind(existing.id));
+    }
+    if (articleName !== undefined) {
+      // The name is embedded in every version's shell. Compare inside the
+      // transaction so concurrent renames cannot reuse an old KV key or ETag.
+      statements.push(c.env.DB.prepare(`UPDATE listicle_article_versions SET content_version = content_version + 1
+        WHERE status = 'active' AND article_id = (
+          SELECT id FROM listicle_articles WHERE id = ? AND article_name <> ?
+        )`).bind(existing.id, articleName));
+    }
+    if (statements.length === 0) {
+      updated = await update.first<ArticleRowL>();
+    } else {
+      const result = await c.env.DB.batch<ArticleRowL>([...statements, update]);
+      if (body.site_id !== undefined) previousSite = result[0]?.results[0]?.site_id;
+      updated = result.at(-1)?.results[0] ?? null;
+    }
   } catch (err) {
     const message = (err as Error).message ?? "";
     if (/UNIQUE/i.test(message)) {
@@ -357,9 +398,12 @@ export async function patchArticleHandler(c: AdminContext): Promise<Response> {
     }
     return c.json({ error: message || "Update failed" }, 500);
   }
-  const updated = await c.env.DB.prepare("SELECT * FROM listicle_articles WHERE id = ? LIMIT 1")
-    .bind(existing.id)
-    .first<ArticleRowL>();
+  if (updated !== null) {
+    if (previousSite !== undefined && previousSite !== updated.site_id) {
+      await purgeListicleArticle(c, { site_id: previousSite, public_id: updated.public_id }, "listicle.update");
+    }
+    await purgeListicleArticle(c, updated, "listicle.update");
+  }
   return c.json({ article: updated });
 }
 
@@ -546,6 +590,7 @@ export async function createExperimentHandler(c: AdminContext): Promise<Response
     return c.json({ error: `Experiment create failed: ${message}` }, 400);
   }
 
+  await purgeListicleArticle(c, article.id, "listicle.experiment.create");
   const experiment = await c.env.DB.prepare(
     "SELECT * FROM listicle_article_experiments WHERE public_id = ? LIMIT 1",
   )
@@ -735,6 +780,7 @@ export async function startExperimentHandler(c: AdminContext): Promise<Response>
     return c.json({ error: `Experiment start failed: ${message}` }, 500);
   }
 
+  await purgeListicleArticle(c, experiment.article_id, "listicle.experiment.start");
   const updated = await resolveExperimentRow(c.env.DB, String(experiment.id));
   const updatedVersions = await c.env.DB.prepare(
     "SELECT * FROM listicle_article_versions WHERE experiment_id = ? ORDER BY is_control DESC, variant_label ASC",
@@ -777,6 +823,7 @@ export async function stopExperimentHandler(c: AdminContext): Promise<Response> 
       "UPDATE listicle_articles SET active_experiment_id = NULL, updated_at = unixepoch() WHERE id = ? AND active_experiment_id = ?",
     ).bind(experiment.article_id, experiment.id),
   ]);
+  await purgeListicleArticle(c, experiment.article_id, "listicle.experiment.stop");
   const updated = await resolveExperimentRow(c.env.DB, String(experiment.id));
   return c.json({ experiment: updated });
 }
@@ -788,7 +835,10 @@ export async function stopExperimentHandler(c: AdminContext): Promise<Response> 
 export async function deleteArticleHandler(c: AdminContext): Promise<Response> {
   const article = await resolveArticleRow(c.env.DB, c.req.param("id") ?? "");
   if (article === null) return c.json({ error: "Not Found" }, 404);
-  await c.env.DB.prepare("DELETE FROM listicle_articles WHERE id = ?").bind(article.id).run();
+  const deleted = await c.env.DB.prepare("DELETE FROM listicle_articles WHERE id = ? RETURNING site_id, public_id")
+    .bind(article.id)
+    .first<Pick<ArticleRowL, "site_id" | "public_id">>();
+  if (deleted) await purgeListicleArticle(c, deleted, "listicle.delete");
   return c.json({ ok: true, id: article.id, public_id: article.public_id });
 }
 
@@ -1149,22 +1199,17 @@ export async function publishArticleHandler(c: AdminContext): Promise<Response> 
     return c.json({ error: "Article is not publishable", fields: errors }, 400);
   }
 
-  await c.env.DB.prepare(
-    "UPDATE listicle_articles SET status = 'published', published_at = unixepoch(), updated_at = unixepoch() WHERE id = ?",
+  const published = await c.env.DB.prepare(
+    "UPDATE listicle_articles SET status = 'published', published_at = unixepoch(), updated_at = unixepoch() WHERE id = ? RETURNING *",
   )
     .bind(article.id)
-    .run();
+    .first<ArticleRowL>();
+  if (published === null) return c.json({ error: "Not Found" }, 404);
   // Listicles Phase 6 — §7.1 publish → invalidate + warm the per-lander_v
   // shells: stale keys for this article are wiped and every ACTIVE Version's
   // shell is re-rendered in-process into the edge cache (listicles/
   // invalidate.ts), so the very next visitor lands on a cache hit.
-  await invalidateAndWarmOnPublish(c.env, c.env.DB, {
-    id: article.id,
-    public_id: article.public_id,
-    site_id: article.site_id,
-    slug: article.slug,
-    status: "published",
-  });
+  await invalidateAndWarmOnPublish(c.env, c.env.DB, published, cacheExecutionCtx(c) as ExecutionContext | undefined);
 
   const updated = await c.env.DB.prepare("SELECT * FROM listicle_articles WHERE id = ? LIMIT 1")
     .bind(article.id)

@@ -17,9 +17,12 @@
 // uses `db.prepare(<static SQL>).bind(...)` — NO template-literal SQL.
 
 import { invalidateForPageUpdate } from "../cache/invalidate";
+import { onPublicChange } from "../edge/public-change";
+import { siteTag } from "../edge/tags";
+import type { PublicChange } from "../edge/types";
 import type { Env } from "../env";
 
-function requireSiteId(siteId: string): string {
+function requireSiteId(siteId: string | null): string {
   if (siteId === null || siteId === undefined) {
     throw new Error("admin/pages: site_id is required (got null/undefined)");
   }
@@ -30,21 +33,40 @@ function requireSiteId(siteId: string): string {
   return trimmed;
 }
 
-// Bumps sites.content_version for the owning tenant and wipes the per-site
-// page / HTML / homepage cache namespaces. Called from the admin POST /
-// PATCH page handlers after the underlying pages-row write succeeds.
+// Resolve global page/taxonomy scope before committing the write. The purge
+// queue handles the RPC limit, so it needs every site, including inactive ones.
+export async function siteTagsForPublicRow(db: D1Database, siteId: string | null): Promise<string[]> {
+  if (siteId !== null) return [siteTag(siteId)];
+  try {
+    const sites = await db.prepare("SELECT id FROM sites ORDER BY id").bind().all<{ id: string }>();
+    return sites.results.map(site => siteTag(site.id));
+  } catch (error) {
+    // A pre-tenant database has no site cache keys. Other read failures must
+    // abort the write while the caller can still retry it.
+    if (error instanceof Error && /no such table: (?:main\.)?sites\b/i.test(error.message)) return [];
+    throw error;
+  }
+}
+
+// A global template can be adopted by a site. Its new owner gets the legacy
+// version bump, while the edge change also covers sites that lost the page.
 export async function applyPageMutationCacheInvalidation(
   env: Env,
-  siteId: string,
+  siteId: string | null,
+  edge?: { change: PublicChange; ctx?: ExecutionContext },
 ): Promise<void> {
+  if (siteId === null && edge) {
+    await onPublicChange(env, edge.ctx, edge.change);
+    return;
+  }
   const sid = requireSiteId(siteId);
-
-  await env.DB
-    .prepare(
-      "UPDATE sites SET content_version = content_version + 1 WHERE id = ?",
-    )
-    .bind(sid)
-    .run();
-
-  await invalidateForPageUpdate(env, sid);
+  try {
+    await env.DB.prepare("UPDATE sites SET content_version = content_version + 1 WHERE id = ?")
+      .bind(sid).run();
+    await invalidateForPageUpdate(env, sid);
+  } finally {
+    await onPublicChange(env, edge?.ctx, edge?.change ?? {
+      siteId: sid, tags: [siteTag(sid)], reason: "page.update",
+    });
+  }
 }

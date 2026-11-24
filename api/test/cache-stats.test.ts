@@ -85,8 +85,16 @@ async function getStats(env: Env): Promise<StatsBody> {
 
 describe("T44-AC1 cache hit/miss monitoring + /api/admin/cache/stats", () => {
   let fetchSpy: ReturnType<typeof vi.fn>;
+  let pending: Promise<unknown>[];
+  const ctx = {
+    waitUntil(promise: Promise<unknown>) {
+      pending.push(promise);
+    },
+  };
 
   beforeEach(() => {
+    pending = [];
+    vi.spyOn(Math, "random").mockReturnValue(0.099);
     // Fetch-mock harness: any outbound fetch is recorded so the dry-run
     // zero-outbound assertion can inspect the targets. Returns a benign 200.
     fetchSpy = vi.fn(async () => new Response("{}", { status: 200 }));
@@ -94,6 +102,7 @@ describe("T44-AC1 cache hit/miss monitoring + /api/admin/cache/stats", () => {
   });
 
   afterEach(() => {
+    vi.restoreAllMocks();
     vi.unstubAllGlobals();
   });
 
@@ -102,15 +111,18 @@ describe("T44-AC1 cache hit/miss monitoring + /api/admin/cache/stats", () => {
 
     // Generate 2 hits + 1 miss through the shipped feed-cache helper.
     await cacheSet(env, "feed:rss", "<rss/>");
-    expect(await cacheGet(env, "feed:rss")).toBe("<rss/>"); // hit 1
-    expect(await cacheGet(env, "feed:rss")).toBe("<rss/>"); // hit 2
-    expect(await cacheGet(env, "feed:absent")).toBeNull(); // miss 1
+    expect(await cacheGet(env, "feed:rss", ctx)).toBe("<rss/>");
+    await Promise.all(pending);
+    expect(await cacheGet(env, "feed:rss", ctx)).toBe("<rss/>");
+    expect(await cacheGet(env, "feed:absent", ctx)).toBeNull();
+    expect(pending).toHaveLength(3);
+    await Promise.all(pending);
 
-    // Admin stats view reflects the activity: 2/3 == 0.6667.
+    // Each sample represents ten reads. The hit rate is still 2/3.
     const after = await getStats(env);
-    expect(after.resource.hits).toBe(2);
-    expect(after.resource.misses).toBe(1);
-    expect(after.resource.total).toBe(3);
+    expect(after.resource.hits).toBe(20);
+    expect(after.resource.misses).toBe(10);
+    expect(after.resource.total).toBe(30);
     expect(after.resource.hit_rate).toBeCloseTo(0.6667, 4);
 
     // Reset zeroes every counter.
@@ -139,16 +151,17 @@ describe("T44-AC1 cache hit/miss monitoring + /api/admin/cache/stats", () => {
     const key = "html:site-1:/";
 
     // Cold read -> miss.
-    expect(await getCachedHtml(env, key)).toBeNull();
+    expect(await getCachedHtml(env, key, ctx)).toBeNull();
     // Warm the entry, then read -> hit.
     await putCachedHtml(env, key, "<html>v1</html>", { etag: '"abc"' });
-    const warm = await getCachedHtml(env, key);
+    const warm = await getCachedHtml(env, key, ctx);
     expect(warm?.body).toBe("<html>v1</html>");
+    await Promise.all(pending);
 
     const stats = await readCacheStats(env);
-    expect(stats.hits).toBe(1);
-    expect(stats.misses).toBe(1);
-    expect(stats.total).toBe(2);
+    expect(stats.hits).toBe(10);
+    expect(stats.misses).toBe(10);
+    expect(stats.total).toBe(20);
     expect(stats.hit_rate).toBe(0.5);
   });
 
@@ -156,8 +169,9 @@ describe("T44-AC1 cache hit/miss monitoring + /api/admin/cache/stats", () => {
     const env = buildEnv();
 
     await cacheSet(env, "feed:rss", "<rss/>");
-    await cacheGet(env, "feed:rss");
-    await cacheGet(env, "feed:absent");
+    await cacheGet(env, "feed:rss", ctx);
+    await cacheGet(env, "feed:absent", ctx);
+    await Promise.all(pending);
     await getStats(env);
     await admin.request(
       "/api/admin/cache/stats/reset",
@@ -170,5 +184,38 @@ describe("T44-AC1 cache hit/miss monitoring + /api/admin/cache/stats", () => {
       return target.includes("api.cloudflare.com");
     });
     expect(cloudflareCalls.length).toBe(0);
+  });
+
+  it("returns HTML hits and feed misses while sampled counter writes are still pending", async () => {
+    const env = buildEnv();
+    await putCachedHtml(env, "html:site-1:/", "<html/>");
+    const put = vi.spyOn(env.CACHE, "put").mockReturnValue(new Promise<void>(() => {}));
+
+    await expect(getCachedHtml(env, "html:site-1:/", ctx)).resolves.toMatchObject({ body: "<html/>" });
+    await expect(cacheGet(env, "feed:absent", ctx)).resolves.toBeNull();
+
+    expect(pending).toHaveLength(2);
+    await vi.waitFor(() => expect(put.mock.calls).toEqual([
+      ["cachestat:hits", "10"],
+      ["cachestat:misses", "10"],
+    ]));
+  });
+
+  it("skips counter reads and writes for unsampled requests and callers without waitUntil", async () => {
+    const env = buildEnv();
+    const get = vi.spyOn(env.CACHE, "get");
+    const put = vi.spyOn(env.CACHE, "put");
+
+    vi.mocked(Math.random).mockReturnValue(0.1);
+    await getCachedHtml(env, "html:site-1:/", ctx);
+    await cacheGet(env, "feed:rss", ctx);
+
+    vi.mocked(Math.random).mockReturnValue(0);
+    await getCachedHtml(env, "html:site-1:/");
+    await cacheGet(env, "feed:rss");
+
+    expect(pending).toHaveLength(0);
+    expect(get.mock.calls).toEqual([["feed:rss"], ["feed:rss"]]);
+    expect(put).not.toHaveBeenCalled();
   });
 });

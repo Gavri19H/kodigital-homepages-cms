@@ -55,7 +55,9 @@ import {
   loadRealCandidateRowsBatched,
   loadRealSlotRows,
 } from "../../public/leadgen/resolver";
-import type { WaitUntilContext } from "../../wait-until-context";
+import type { Env } from "../../env";
+import { leadgenPublicChange } from "../../edge/leadgen-change";
+import { cacheExecutionCtx } from "../../public/html-pipeline";
 import {
   auctionEntryPosition,
   resolveFunnelIdentity,
@@ -165,7 +167,7 @@ import { getThemeRecord, themeRecordExists } from "../../public/leadgen/designs/
 import { resolveSiteBranding, type SiteBranding } from "../../leadgen/branding";
 import {
   invalidateOnQuoteActivation,
-  invalidateOnVariantPublish,
+  evictVariantPublishKv,
 } from "../../public/leadgen/invalidate";
 import type {
   ResolvedActivatedFunnel,
@@ -414,32 +416,11 @@ function redirectAllowlist(env: AdminContext["env"]): string[] {
 }
 
 // ---------------------------------------------------------------------------
-// §28 funnel-cache invalidation wiring (non-blocking, fail-open)
+// Per-request edge purge context and background §28 KV eviction
 // ---------------------------------------------------------------------------
 
-// Hono's c.executionCtx getter THROWS where no ExecutionContext exists (the
-// node:sqlite unit-test harness passes none); mirror the runtime safeExecutionCtx
-// idiom so §28 invalidation rides waitUntil where a context exists and degrades to
-// a no-op where it doesn't. Invalidation is ALWAYS non-blocking and can NEVER
-// break the admin write (also matches the listicles/leadgen runtime pattern).
-function safeExecutionCtx(c: AdminContext): WaitUntilContext {
-  try {
-    return c.executionCtx;
-  } catch {
-    return {
-      waitUntil(): void {
-        /* no-op outside workerd (unit-test harness) */
-      },
-    };
-  }
-}
-
-// §28 activation-change invalidation (enable / disable / slug / settings_overrides
-// including the baked-in GA4 id) — evict this site's stale funnel shells + configs.
-// Rides waitUntil; the .catch contains even the RED-LINE empty-site_id guard so the
-// admin write is never broken (site_id is already non-empty here — defence in depth).
-function scheduleActivationInvalidate(c: AdminContext, siteId: string): void {
-  safeExecutionCtx(c).waitUntil(invalidateOnQuoteActivation(c.env, siteId).catch(() => {}));
+function executionContext(c: AdminContext): ExecutionContext | undefined {
+  return cacheExecutionCtx(c) as ExecutionContext | undefined;
 }
 
 // §28 variant-publish invalidation — the content_version bump is the correctness
@@ -448,20 +429,17 @@ function scheduleActivationInvalidate(c: AdminContext, siteId: string): void {
 // the funnel + its activated sites in the BACKGROUND (waitUntil) so the admin write
 // returns immediately; fail-open. Used by both the variant SAVE and the fork.
 function scheduleVariantPublishInvalidate(c: AdminContext, variant: LeadgenFunnelVariantRow): void {
-  safeExecutionCtx(c).waitUntil(
-    (async () => {
-      const funnel = await c.env.DB.prepare(
-        "SELECT public_id, quote_id FROM leadgen_funnels WHERE id = ? LIMIT 1",
-      )
-        .bind(variant.funnel_id)
-        .first<{ public_id: string; quote_id: number }>();
-      if (funnel === null) return;
-      const sites = await readSiteQuotesForQuote(c.env.DB, funnel.quote_id);
-      await Promise.all(
-        sites.map((r) => invalidateOnVariantPublish(c.env, r.site_id, funnel.public_id)),
-      );
-    })().catch(() => {}),
-  );
+  const eviction = (async () => {
+    const funnel = await c.env.DB.prepare(
+      "SELECT public_id, quote_id FROM leadgen_funnels WHERE id = ? LIMIT 1",
+    )
+      .bind(variant.funnel_id)
+      .first<{ public_id: string; quote_id: number }>();
+    if (funnel === null) return;
+    const sites = await readSiteQuotesForQuote(c.env.DB, funnel.quote_id);
+    await Promise.all(sites.map((r) => evictVariantPublishKv(c.env, r.site_id, funnel.public_id)));
+  })().catch(() => {});
+  executionContext(c)?.waitUntil(eviction);
 }
 
 // ---------------------------------------------------------------------------
@@ -1193,6 +1171,7 @@ export async function createQuoteRoutingRuleHandler(c: AdminContext): Promise<Re
       value.redirectPct, value.targetOfferId, value.redirectUrl, value.redirectUrlAllowlisted, value.forceOfferId,
     )
     .run();
+  await leadgenPublicChange(c.env, executionContext(c), { quoteIds: [quote.id], reason: "leadgen.routing-rule.create" });
   const row = await c.env.DB.prepare("SELECT * FROM leadgen_quote_routing_rules WHERE public_id = ? LIMIT 1")
     .bind(publicId)
     .first<LeadgenQuoteRoutingRuleRow>();
@@ -1227,6 +1206,7 @@ export async function updateQuoteRoutingRuleHandler(c: AdminContext): Promise<Re
       value.targetOfferId, value.redirectUrl, value.redirectUrlAllowlisted, value.forceOfferId, existing.id,
     )
     .run();
+  await leadgenPublicChange(c.env, executionContext(c), { quoteIds: [quote.id], reason: "leadgen.routing-rule.update" });
   const row = await c.env.DB.prepare("SELECT * FROM leadgen_quote_routing_rules WHERE id = ? LIMIT 1")
     .bind(existing.id)
     .first<LeadgenQuoteRoutingRuleRow>();
@@ -1261,6 +1241,7 @@ export async function duplicateQuoteRoutingRuleHandler(c: AdminContext): Promise
       src.redirect_pct, src.target_offer_id, src.redirect_url, src.redirect_url_allowlisted, src.force_offer_id ?? null,
     )
     .run();
+  await leadgenPublicChange(c.env, executionContext(c), { quoteIds: [src.quote_id], reason: "leadgen.routing-rule.duplicate" });
   const row = await c.env.DB.prepare("SELECT * FROM leadgen_quote_routing_rules WHERE public_id = ? LIMIT 1")
     .bind(publicId)
     .first<LeadgenQuoteRoutingRuleRow>();
@@ -1273,6 +1254,7 @@ export async function deleteQuoteRoutingRuleHandler(c: AdminContext): Promise<Re
   const existing = await resolveQuoteRoutingRuleRow(c.env.DB, c.req.param("rule_id") ?? c.req.param("id") ?? "");
   if (existing === null) return c.json({ error: "Not Found" }, 404);
   await c.env.DB.prepare("DELETE FROM leadgen_quote_routing_rules WHERE id = ?").bind(existing.id).run();
+  await leadgenPublicChange(c.env, executionContext(c), { quoteIds: [existing.quote_id], reason: "leadgen.routing-rule.delete" });
   return c.json({ ok: true, id: existing.id, public_id: existing.public_id });
 }
 
@@ -1747,7 +1729,7 @@ export async function createQuoteHandler(c: AdminContext): Promise<Response> {
   // public_id) → single active variant (linked by the funnel's public_id). This
   // core batch touches ONLY pre-rework columns, so it applies on any leadgen
   // schema (some money-path harnesses still replay only 0036–0044).
-  await c.env.DB.batch([
+  const [insertedQuote] = await c.env.DB.batch([
     c.env.DB.prepare(
       `INSERT INTO leadgen_quotes (public_id, quote_name, activity, verticals_json, status)
        VALUES (?, ?, ?, ?, ?)`,
@@ -1778,6 +1760,7 @@ export async function createQuoteHandler(c: AdminContext): Promise<Response> {
     /* pre-rework schema without the M4 columns — leave them unset */
   }
 
+  await leadgenPublicChange(c.env, executionContext(c), { quoteIds: [insertedQuote!.meta.last_row_id], reason: "leadgen.quote.create" });
   const quote = await c.env.DB.prepare("SELECT * FROM leadgen_quotes WHERE public_id = ? LIMIT 1")
     .bind(quotePublicId)
     .first<LeadgenQuoteRow>();
@@ -1853,25 +1836,24 @@ export async function patchQuoteHandler(c: AdminContext): Promise<Response> {
   if (Object.keys(errors).length > 0) return c.json({ error: "Validation failed", fields: errors }, 400);
   if (!touched) return c.json({ error: "No updatable fields provided" }, 400);
 
+  let templateWrite: D1PreparedStatement | undefined;
   if (defaultTemplateAction.kind === "set") {
-    await c.env.DB.prepare(
+    templateWrite = c.env.DB.prepare(
       `INSERT INTO leadgen_quote_default_template (quote_public_id, frame_template_id) VALUES (?, ?)
        ON CONFLICT(quote_public_id) DO UPDATE SET frame_template_id = excluded.frame_template_id`,
-    )
-      .bind(existing.public_id, defaultTemplateAction.frameTemplateId)
-      .run();
+    ).bind(existing.public_id, defaultTemplateAction.frameTemplateId);
   } else if (defaultTemplateAction.kind === "clear") {
-    await c.env.DB.prepare("DELETE FROM leadgen_quote_default_template WHERE quote_public_id = ?")
-      .bind(existing.public_id)
-      .run();
+    templateWrite = c.env.DB.prepare("DELETE FROM leadgen_quote_default_template WHERE quote_public_id = ?")
+      .bind(existing.public_id);
   }
 
-  await c.env.DB.prepare(
+  const quoteWrite = c.env.DB.prepare(
     `UPDATE leadgen_quotes SET quote_name = ?, activity = ?, verticals_json = ?, status = ?, updated_at = unixepoch()
      WHERE id = ?`,
-  )
-    .bind(quoteName, activity, verticalsJson, status, existing.id)
-    .run();
+  ).bind(quoteName, activity, verticalsJson, status, existing.id);
+  if (templateWrite) await c.env.DB.batch([templateWrite, quoteWrite]);
+  else await quoteWrite.run();
+  await leadgenPublicChange(c.env, executionContext(c), { quoteIds: [existing.id], reason: "leadgen.quote.update" });
   const updated = await c.env.DB.prepare("SELECT * FROM leadgen_quotes WHERE id = ? LIMIT 1")
     .bind(existing.id)
     .first<LeadgenQuoteRow>();
@@ -1923,6 +1905,7 @@ export async function deleteQuoteHandler(c: AdminContext): Promise<Response> {
   await c.env.DB.prepare("UPDATE leadgen_quotes SET status = 'archived', updated_at = unixepoch() WHERE id = ?")
     .bind(row.id)
     .run();
+  await leadgenPublicChange(c.env, executionContext(c), { quoteIds: [row.id], reason: "leadgen.quote.delete" });
   return c.json({ ok: true, id: row.id, public_id: row.public_id, status: "archived" });
 }
 
@@ -2254,8 +2237,8 @@ export async function duplicateQuoteHandler(c: AdminContext): Promise<Response> 
     ).bind(defaultFunnelClonePublicId, newQuotePublicId),
   );
 
-  await c.env.DB.batch(statements);
-
+  const [insertedQuote] = await c.env.DB.batch(statements);
+  await leadgenPublicChange(c.env, executionContext(c), { quoteIds: [insertedQuote!.meta.last_row_id], reason: "leadgen.quote.duplicate" });
   const dup = await c.env.DB.prepare("SELECT * FROM leadgen_quotes WHERE public_id = ? LIMIT 1")
     .bind(newQuotePublicId)
     .first<LeadgenQuoteRow>();
@@ -2316,6 +2299,7 @@ export async function createQuoteFunnelHandler(c: AdminContext): Promise<Respons
        VALUES (?, (SELECT id FROM leadgen_funnels WHERE public_id = ?), 'A', 10000, 'default', 'active')`,
     ).bind(variantPublicId, funnelPublicId),
   ]);
+  await leadgenPublicChange(c.env, executionContext(c), { quoteIds: [quote.id], reason: "leadgen.funnel.create" });
   const funnel = await c.env.DB.prepare("SELECT * FROM leadgen_funnels WHERE public_id = ? LIMIT 1")
     .bind(funnelPublicId)
     .first<LeadgenFunnelRow>();
@@ -2367,19 +2351,20 @@ export async function patchFunnelHandler(c: AdminContext): Promise<Response> {
   if (Object.keys(errors).length > 0) return c.json({ error: "Validation failed", fields: errors }, 400);
   if (!touched) return c.json({ error: "No updatable fields provided" }, 400);
 
-  await c.env.DB.prepare(
+  const funnelWrite = c.env.DB.prepare(
     "UPDATE leadgen_funnels SET funnel_name = ?, status = ?, updated_at = unixepoch() WHERE id = ?",
-  )
-    .bind(funnelName, status, existing.id)
-    .run();
+  ).bind(funnelName, status, existing.id);
   if (metaPixelId !== priorPixel) {
-    await c.env.DB.prepare("UPDATE leadgen_funnels SET meta_pixel_id = ? WHERE id = ?")
-      .bind(metaPixelId, existing.id)
-      .run();
-    // The pixel is baked into the cached funnel shell; the content_version bump
-    // is what makes the edit reach visitors (the frame/theme idiom).
-    await bumpActiveVariantContentVersions(c.env.DB, existing.id);
+    // Publish the shell's pixel and its legacy cache version together.
+    await c.env.DB.batch([
+      funnelWrite,
+      c.env.DB.prepare("UPDATE leadgen_funnels SET meta_pixel_id = ? WHERE id = ?").bind(metaPixelId, existing.id),
+      activeVariantVersionBump(c.env.DB, [existing.id]),
+    ]);
+  } else {
+    await funnelWrite.run();
   }
+  await leadgenPublicChange(c.env, executionContext(c), { quoteIds: [existing.quote_id], reason: "leadgen.funnel.update" });
   const updated = await c.env.DB.prepare("SELECT * FROM leadgen_funnels WHERE id = ? LIMIT 1")
     .bind(existing.id)
     .first<LeadgenFunnelRow>();
@@ -2442,6 +2427,7 @@ export async function deleteFunnelHandler(c: AdminContext): Promise<Response> {
     c.env.DB.prepare("UPDATE leadgen_quote_routing_rules SET target_funnel_id = NULL WHERE target_funnel_id = ?").bind(funnel.id),
     c.env.DB.prepare("DELETE FROM leadgen_funnels WHERE id = ?").bind(funnel.id),
   ]);
+  await leadgenPublicChange(c.env, executionContext(c), { quoteIds: [funnel.quote_id], reason: "leadgen.funnel.delete" });
   return c.json({ ok: true, id: funnel.id, public_id: funnel.public_id, deleted: true });
 }
 
@@ -2512,6 +2498,7 @@ export async function duplicateFunnelHandler(c: AdminContext): Promise<Response>
     }
   }
   await c.env.DB.batch(statements);
+  await leadgenPublicChange(c.env, executionContext(c), { quoteIds: [src.quote_id], reason: "leadgen.funnel.duplicate" });
   const funnel = await c.env.DB.prepare("SELECT * FROM leadgen_funnels WHERE public_id = ? LIMIT 1")
     .bind(newFunnelPublicId)
     .first<LeadgenFunnelRow>();
@@ -2557,6 +2544,7 @@ export async function reorderQuoteFunnelsHandler(c: AdminContext): Promise<Respo
       c.env.DB.prepare("UPDATE leadgen_funnels SET display_order = ?, updated_at = unixepoch() WHERE id = ?").bind(idx + 1, id),
     ),
   );
+  await leadgenPublicChange(c.env, executionContext(c), { quoteIds: [quote.id], reason: "leadgen.funnel.reorder" });
   const reordered = await readQuoteFunnels(c.env.DB, quote.id);
   return c.json({ items: reordered.map(funnelRowToApi) });
 }
@@ -2584,6 +2572,7 @@ export async function setQuoteDefaultFunnelHandler(c: AdminContext): Promise<Res
   await c.env.DB.prepare("UPDATE leadgen_quotes SET default_funnel_id = ?, updated_at = unixepoch() WHERE id = ?")
     .bind(defaultFunnelId, quote.id)
     .run();
+  await leadgenPublicChange(c.env, executionContext(c), { quoteIds: [quote.id], reason: "leadgen.quote.default-funnel" });
   const updated = await c.env.DB.prepare("SELECT * FROM leadgen_quotes WHERE id = ? LIMIT 1")
     .bind(quote.id)
     .first<LeadgenQuoteRow>();
@@ -2905,6 +2894,7 @@ export async function createSharedPageHandler(c: AdminContext): Promise<Response
     );
   }
   await c.env.DB.batch(statements);
+  await leadgenPublicChange(c.env, executionContext(c), { quoteIds: [quote.id], reason: "leadgen.shared-page.create" });
   return c.json({ shared_page: await sharedPageJson(c.env.DB, quote) }, 201);
 }
 
@@ -3023,7 +3013,10 @@ export async function updateSharedPageHandler(c: AdminContext): Promise<Response
       ).bind(quote.id),
     );
   }
-  if (statements.length > 0) await c.env.DB.batch(statements);
+  if (statements.length > 0) {
+    await c.env.DB.batch(statements);
+    await leadgenPublicChange(c.env, executionContext(c), { quoteIds: [quote.id], reason: "leadgen.shared-page.update" });
+  }
   return c.json({ shared_page: await sharedPageJson(c.env.DB, quote) });
 }
 
@@ -3037,6 +3030,7 @@ export async function deleteSharedPageHandler(c: AdminContext): Promise<Response
     c.env.DB.prepare("DELETE FROM leadgen_funnel_variant_sections WHERE quote_id = ?").bind(quote.id),
     c.env.DB.prepare("DELETE FROM leadgen_funnel_pages WHERE quote_id = ?").bind(quote.id),
   ]);
+  await leadgenPublicChange(c.env, executionContext(c), { quoteIds: [quote.id], reason: "leadgen.shared-page.delete" });
   return c.json({ ok: true, quote_id: quote.public_id, deleted: true });
 }
 
@@ -3155,6 +3149,7 @@ async function createVariantUnderFunnel(
   )
     .bind(variantPublicId, funnel.id, label, 10000, designId)
     .run();
+  await leadgenPublicChange(c.env, executionContext(c), { quoteIds: [funnel.quote_id], reason: "leadgen.variant.create" });
   const variant = await c.env.DB.prepare("SELECT * FROM leadgen_funnel_variants WHERE public_id = ? LIMIT 1")
     .bind(variantPublicId)
     .first<LeadgenFunnelVariantRow>();
@@ -4530,6 +4525,7 @@ export async function putVariantHandler(c: AdminContext): Promise<Response> {
     }
   }
   await c.env.DB.batch(statements);
+  await leadgenPublicChange(c.env, executionContext(c), { quoteIds: [owner.quote.id], reason: "leadgen.variant.update" });
 
   const updated = await c.env.DB.prepare("SELECT * FROM leadgen_funnel_variants WHERE id = ? LIMIT 1")
     .bind(variant.id)
@@ -4710,6 +4706,7 @@ export async function forkVariantHandler(c: AdminContext): Promise<Response> {
   // INSERT — the arm-add and the rebalance commit or roll back together.
   statements.push(...rebalanceStatements);
   await c.env.DB.batch(statements);
+  await leadgenPublicChange(c.env, executionContext(c), { funnelIds: [source.funnel_id], reason: "leadgen.variant.fork" });
 
   const forked = await c.env.DB.prepare("SELECT * FROM leadgen_funnel_variants WHERE public_id = ? LIMIT 1")
     .bind(variantPublicId)
@@ -4764,6 +4761,7 @@ export async function deleteVariantHandler(c: AdminContext): Promise<Response> {
     c.env.DB.prepare("UPDATE leadgen_auctions SET funnel_variant_id = NULL WHERE funnel_variant_id = ?").bind(variant.id),
     c.env.DB.prepare("DELETE FROM leadgen_funnel_variants WHERE id = ?").bind(variant.id),
   ]);
+  await leadgenPublicChange(c.env, executionContext(c), { funnelIds: [variant.funnel_id], reason: "leadgen.variant.delete" });
   return c.json({ ok: true, id: variant.id, public_id: variant.public_id, deleted: true });
 }
 
@@ -4968,6 +4966,7 @@ export async function createVariantRuleHandler(c: AdminContext): Promise<Respons
     insertRuleStatement(c.env.DB, "?", variant.id, rule),
     bumpVariantContentVersionStatement(c.env.DB, variant.id),
   ]);
+  await leadgenPublicChange(c.env, executionContext(c), { variantIds: [variant.id], reason: "leadgen.variant-rule.create" });
   const created = await c.env.DB.prepare("SELECT * FROM leadgen_funnel_rules WHERE public_id = ? LIMIT 1")
     .bind(rule.publicId)
     .first<LeadgenFunnelRuleRowV2>();
@@ -5034,6 +5033,7 @@ export async function updateVariantRuleHandler(c: AdminContext): Promise<Respons
     ),
     bumpVariantContentVersionStatement(c.env.DB, variant.id),
   ]);
+  await leadgenPublicChange(c.env, executionContext(c), { variantIds: [variant.id], reason: "leadgen.variant-rule.update" });
   const updated = await c.env.DB.prepare("SELECT * FROM leadgen_funnel_rules WHERE id = ? LIMIT 1")
     .bind(existing.id)
     .first<LeadgenFunnelRuleRowV2>();
@@ -5054,6 +5054,7 @@ export async function deleteVariantRuleHandler(c: AdminContext): Promise<Respons
     c.env.DB.prepare("DELETE FROM leadgen_funnel_rules WHERE id = ?").bind(existing.id),
     bumpVariantContentVersionStatement(c.env.DB, variant.id),
   ]);
+  await leadgenPublicChange(c.env, executionContext(c), { variantIds: [variant.id], reason: "leadgen.variant-rule.delete" });
   return c.json({ ok: true, id: existing.id, public_id: existing.public_id, deleted: true });
 }
 
@@ -5109,6 +5110,7 @@ export async function duplicateRuleHandler(c: AdminContext): Promise<Response> {
     }),
     bumpVariantContentVersionStatement(c.env.DB, variant.id),
   ]);
+  await leadgenPublicChange(c.env, executionContext(c), { variantIds: [variant.id], reason: "leadgen.variant-rule.duplicate" });
 
   const dup = await c.env.DB.prepare("SELECT * FROM leadgen_funnel_rules WHERE public_id = ? LIMIT 1")
     .bind(newPublicId)
@@ -5981,13 +5983,32 @@ async function composedVariantPreviewResponse(
 export async function bumpActiveVariantContentVersions(
   db: D1Database,
   funnelId: number,
+  change?: { env: Env; ctx?: ExecutionContext },
 ): Promise<number> {
-  const result = await db
-    .prepare(
-      "UPDATE leadgen_funnel_variants SET content_version = content_version + 1 WHERE funnel_id = ? AND status = 'active'",
-    )
-    .bind(funnelId)
-    .run();
+  const bumped = await bumpActiveVariantContentVersionsOnly(db, funnelId);
+  if (bumped > 0) {
+    // Older callers supply just D1. Scope resolution and the pending purge log
+    // both use that binding; callers with a request context can purge immediately.
+    await leadgenPublicChange(change?.env ?? { DB: db } as Env, change?.ctx, {
+      funnelIds: [funnelId], reason: "leadgen.variant.content-version",
+    });
+  }
+  return bumped;
+}
+
+function activeVariantVersionBump(db: D1Database, funnelIds: readonly number[]): D1PreparedStatement {
+  return db.prepare(`UPDATE leadgen_funnel_variants SET content_version = content_version + 1
+    WHERE status = 'active' AND funnel_id IN (SELECT value FROM json_each(?))`)
+    .bind(JSON.stringify(funnelIds));
+}
+
+// A theme save bumps all its consumers in one write before merging their tags.
+export async function bumpActiveVariantContentVersionsOnly(
+  db: D1Database,
+  funnelIds: number | readonly number[],
+): Promise<number> {
+  const ids = typeof funnelIds === "number" ? [funnelIds] : funnelIds;
+  const result = await activeVariantVersionBump(db, ids).run();
   return Number(result.meta?.changes ?? 0);
 }
 
@@ -8025,6 +8046,8 @@ export async function putActivationHandler(c: AdminContext): Promise<Response> {
       .run();
   }
 
+  // Invalidate the committed activation even if a later response read fails.
+  await invalidateOnQuoteActivation(c.env, siteId, quote.public_id, executionContext(c));
   const row = await c.env.DB.prepare(
     "SELECT * FROM leadgen_site_quotes WHERE site_id = ? AND quote_id = ? LIMIT 1",
   )
@@ -8035,10 +8058,6 @@ export async function putActivationHandler(c: AdminContext): Promise<Response> {
     .bind(siteId)
     .first<{ domain: string | null }>()
     .catch(() => null);
-  // §28: activation upsert flips which funnel serves / whether it serves AND may
-  // change the baked-in GA4 id (settings_overrides_json) — none bump content_version,
-  // so evict this site's stale funnel shells + configs. Non-blocking; fail-open.
-  scheduleActivationInvalidate(c, siteId);
   // Additive (§5.2 — the Phase-2 preflight panel reads it): the recomputed
   // verdict rides the success response (PASS state = ok:true, blocks:[]).
   return c.json({
@@ -8065,9 +8084,8 @@ export async function deleteActivationHandler(c: AdminContext): Promise<Response
     .bind(existing.id)
     .run();
   // §28: deactivation changes whether the slug serves — the cached shell would
-  // otherwise linger until TTL. Evict this site's funnel shells + configs.
-  // Non-blocking; fail-open.
-  scheduleActivationInvalidate(c, siteId);
+  // otherwise linger until TTL. Purge the previously live quote on this site.
+  await invalidateOnQuoteActivation(c.env, siteId, quote.public_id, executionContext(c));
   return c.json({ ok: true, site_id: siteId, quote_id: quote.public_id, enabled: false });
 }
 
@@ -8104,6 +8122,7 @@ async function createAbTest(c: AdminContext, funnel: LeadgenFunnelRow, body: Rec
   )
     .bind(publicId, funnel.id, name)
     .run();
+  await leadgenPublicChange(c.env, executionContext(c), { quoteIds: [funnel.quote_id], reason: "leadgen.experiment.create" });
   const row = await c.env.DB.prepare("SELECT * FROM leadgen_funnel_ab_tests WHERE public_id = ? LIMIT 1")
     .bind(publicId)
     .first<LeadgenFunnelAbTestRow>();
@@ -8172,6 +8191,7 @@ export async function startExperimentHandler(c: AdminContext): Promise<Response>
   )
     .bind(test.id)
     .run();
+  await leadgenPublicChange(c.env, executionContext(c), { funnelIds: [test.funnel_id], reason: "leadgen.experiment.start" });
   const updated = await c.env.DB.prepare("SELECT * FROM leadgen_funnel_ab_tests WHERE id = ? LIMIT 1")
     .bind(test.id)
     .first<LeadgenFunnelAbTestRow>();
@@ -8186,6 +8206,7 @@ export async function stopExperimentHandler(c: AdminContext): Promise<Response> 
   )
     .bind(test.id)
     .run();
+  await leadgenPublicChange(c.env, executionContext(c), { funnelIds: [test.funnel_id], reason: "leadgen.experiment.stop" });
   const updated = await c.env.DB.prepare("SELECT * FROM leadgen_funnel_ab_tests WHERE id = ? LIMIT 1")
     .bind(test.id)
     .first<LeadgenFunnelAbTestRow>();

@@ -1,11 +1,8 @@
 // Cache hit/miss monitoring for kodigital-homepages-cms (T44 [BCL-020]).
 //
-// The brief requires cache monitoring that was previously absent. Every
-// cache READ path (cacheGet for feeds, edge-cache getCachedHtml for public
-// HTML) records exactly one hit OR one miss into two durable KV counters
-// under the "cachestat:" prefix (env.CACHE). readCacheStats() reports the
-// live totals plus a derived hit_rate; resetCacheStats() zeroes them so an
-// operator can clear the window from the admin stats view.
+// Gateway and live feed/HTML reads sample one in ten outcomes when a request
+// context is available. Each sample adds ten to its KV counter in the background.
+// The admin monitor reports these estimated totals and hit rate.
 //
 // Recording is BEST-EFFORT: a counter read/write failure NEVER breaks a
 // cache read (wrapped in try/catch). The counter keys are read via the raw
@@ -14,11 +11,13 @@
 // (KV) — no outbound HTTP — so the dry-run zero-outbound contract holds.
 
 import type { Env } from "../env";
+import type { WaitUntilContext } from "../wait-until-context";
 
 // Distinct from the "feed:" prefix so invalidateFeeds() never wipes the
 // monitoring counters.
 const HITS_KEY = "cachestat:hits";
 const MISSES_KEY = "cachestat:misses";
+const SAMPLE_WEIGHT = 10;
 
 export interface CacheStats {
   hits: number;
@@ -39,7 +38,7 @@ async function readCounter(env: Env, key: string): Promise<number> {
 
 async function bump(env: Env, key: string): Promise<void> {
   try {
-    const next = (await readCounter(env, key)) + 1;
+    const next = (await readCounter(env, key)) + SAMPLE_WEIGHT;
     await env.CACHE.put(key, String(next));
   } catch {
     // Monitoring is best-effort — a stats write failure must never break the
@@ -47,12 +46,27 @@ async function bump(env: Env, key: string): Promise<void> {
   }
 }
 
-export async function recordCacheHit(env: Env): Promise<void> {
-  await bump(env, HITS_KEY);
+function scheduleBump(env: Env, key: string, waitUntil?: WaitUntilContext): void {
+  if (typeof waitUntil?.waitUntil !== "function" || Math.random() >= 1 / SAMPLE_WEIGHT) return;
+  try {
+    waitUntil.waitUntil(bump(env, key));
+  } catch {
+    // A context that can no longer accept work must still serve the cached response.
+  }
 }
 
-export async function recordCacheMiss(env: Env): Promise<void> {
-  await bump(env, MISSES_KEY);
+export function recordCacheHit(env: Env, waitUntil?: WaitUntilContext): void {
+  scheduleBump(env, HITS_KEY, waitUntil);
+}
+
+export function recordCacheMiss(env: Env, waitUntil?: WaitUntilContext): void {
+  scheduleBump(env, MISSES_KEY, waitUntil);
+}
+
+export function recordEdgeCacheStatus(env: Env, status: string | null, waitUntil?: WaitUntilContext): void {
+  const outcome = status?.toUpperCase();
+  if (outcome === "HIT") recordCacheHit(env, waitUntil);
+  else if (outcome === "MISS") recordCacheMiss(env, waitUntil);
 }
 
 // Derives the hit-rate as hits / (hits + misses), rounded to 4 dp. Returns 0

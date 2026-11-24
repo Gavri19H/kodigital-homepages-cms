@@ -259,7 +259,7 @@ describe("warm_homepage_cache step — in-process render (rescue-3 T5)", () => {
     expect(homePut).toBeDefined();
     // The stored body is a real rendered design document, not a fetched body.
     expect(homePut?.value).toContain("<!DOCTYPE html>");
-    expect(homePut?.value).toContain("/assets/public.css");
+    expect(homePut?.value).toMatch(/href="\/assets\/public\.css\?v=[a-z0-9]+"/);
     expect(homePut?.value).toContain("</html>");
     expect(homePut?.options?.metadata?.etag).toMatch(/^".+"$/);
     expect(homePut?.options?.expirationTtl).toBe(60);

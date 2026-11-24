@@ -74,11 +74,11 @@ function d1FromSqlite(sdb: SqliteDb): D1Database {
       };
       return stmt;
     },
-    async batch(statements: Array<{ run(): Promise<unknown> }>) {
+    async batch(statements: Array<{ all(): Promise<unknown> }>) {
       runSql(sdb, "BEGIN");
       const results: unknown[] = [];
       try {
-        for (const statement of statements) results.push(await statement.run());
+        for (const statement of statements) results.push(await statement.all());
         runSql(sdb, "COMMIT");
       } catch (err) {
         runSql(sdb, "ROLLBACK");
@@ -283,11 +283,11 @@ describeDb("§22.2 Section save fan-out (real sqlite graph)", () => {
     expect(staleKey).not.toBe(warmKey);
   });
 
-  it("a content NO-OP save (name-only PATCH) runs NO fan-out", async () => {
+  it("editing only section AI settings runs no version bump or warm", async () => {
     const g = await seedGraph();
     const res = await admin.request(
       `/api/admin/listicles/sections/${g.sectionId}`,
-      jsonInit("PATCH", { section_name: "Renamed only" }),
+      jsonInit("PATCH", { ai_settings: { tone: "concise" } }),
       g.env,
     );
     expect(res.status).toBe(200);

@@ -37,6 +37,9 @@
 
 import type { Context } from "hono";
 import type { Env } from "../env";
+import { onPublicChange } from "../edge/public-change";
+import { cacheExecutionCtx } from "../public/html-pipeline";
+import { siteTagsForPublicRow } from "./pages";
 
 export interface CategoryCrudRow {
   id: number;
@@ -270,6 +273,8 @@ export async function updateCategoryHandler(
         : 0
       : (existing.show_on_homepage ?? 0);
 
+  // The allocation check authorizes this edit. Public category lookups use the slug alone.
+  const tags = await siteTagsForPublicRow(c.env.DB, null);
   await c.env.DB.prepare(
     "UPDATE categories SET slug = ?, name = ?, parent_id = ?, featured_image_id = ?, display_order = ?, description = ?, show_on_homepage = ? WHERE id = ?",
   )
@@ -285,6 +290,9 @@ export async function updateCategoryHandler(
     )
     .run();
 
+  await onPublicChange(c.env, cacheExecutionCtx(c) as ExecutionContext | undefined, {
+    siteId: null, tags, reason: "category.update",
+  });
   const updated = await c.env.DB.prepare(
     "SELECT " + CATEGORY_COLUMNS + " FROM categories WHERE id = ? LIMIT 1",
   )
@@ -349,6 +357,7 @@ export async function deleteCategoryHandler(
     );
   }
 
+  const tags = await siteTagsForPublicRow(c.env.DB, null);
   await c.env.DB.batch([
     c.env.DB.prepare(
       "DELETE FROM category_verticals WHERE category_id = ?",
@@ -359,6 +368,9 @@ export async function deleteCategoryHandler(
     c.env.DB.prepare("DELETE FROM categories WHERE id = ?").bind(id),
   ]);
 
+  await onPublicChange(c.env, cacheExecutionCtx(c) as ExecutionContext | undefined, {
+    siteId: null, tags, reason: "category.delete",
+  });
   return c.json({ ok: true, id });
 }
 
@@ -410,6 +422,7 @@ export async function createTagHandler(
     return c.json({ error: "A tag with this slug already exists" }, 409);
   }
 
+  const tags = await siteTagsForPublicRow(c.env.DB, siteId);
   const inserted = await c.env.DB.prepare(
     "INSERT INTO tags (slug, name, site_id) VALUES (?, ?, ?) RETURNING id, slug, name, site_id, article_count",
   )
@@ -419,6 +432,9 @@ export async function createTagHandler(
     return c.json({ error: "Insert failed" }, 500);
   }
 
+  await onPublicChange(c.env, cacheExecutionCtx(c) as ExecutionContext | undefined, {
+    siteId, tags, reason: "tag.create",
+  });
   return c.json({ item: inserted }, 201);
 }
 
@@ -457,10 +473,14 @@ export async function deleteTagHandler(
     );
   }
 
+  const tags = await siteTagsForPublicRow(c.env.DB, existing.site_id);
   await c.env.DB.batch([
     c.env.DB.prepare("DELETE FROM article_tags WHERE tag_id = ?").bind(id),
     c.env.DB.prepare("DELETE FROM tags WHERE id = ?").bind(id),
   ]);
 
+  await onPublicChange(c.env, cacheExecutionCtx(c) as ExecutionContext | undefined, {
+    siteId: existing.site_id, tags, reason: "tag.delete",
+  });
   return c.json({ ok: true, id });
 }

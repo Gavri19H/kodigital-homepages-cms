@@ -37,7 +37,7 @@
 import { mintPublicId } from "../../listicles/ids";
 import type { AdminContext } from "./shared";
 import { readJsonBody } from "./shared";
-import type { VersionRowL } from "./articles-handlers";
+import { purgeListicleArticle, type VersionRowL } from "./articles-handlers";
 import { resolveVersionRow } from "./versions-handlers";
 import { loadPagesForVersions } from "./structure";
 
@@ -240,12 +240,34 @@ export async function forkVersionHandler(c: AdminContext): Promise<Response> {
     return c.json({ error: `Fork failed: ${message}` }, 500);
   }
 
-  const forked = await c.env.DB.prepare(
-    "SELECT * FROM listicle_article_versions WHERE public_id = ? LIMIT 1",
+  // Read current ownership and visibility with the committed fork. A draft
+  // experiment may have started since validation. Public candidates are also
+  // addressable when their version is outside the slug's experiment.
+  const result = await c.env.DB.prepare(
+    `SELECT f.*, a.site_id, a.public_id AS article_public_id,
+            CASE WHEN a.status = 'published' AND f.status = 'active' AND (
+              f.experiment_id = e.id
+              OR EXISTS (SELECT 1 FROM listicle_pages p
+                         JOIN listicle_page_section_candidates c ON c.page_id = p.id
+                         WHERE p.article_version_id = f.id)
+              OR (NOT EXISTS (SELECT 1 FROM listicle_article_versions arm
+                              WHERE arm.article_id = a.id AND arm.status = 'active' AND arm.experiment_id = e.id)
+                  AND f.id = (SELECT v.id FROM listicle_article_versions v
+                              WHERE v.article_id = a.id AND v.status = 'active'
+                              ORDER BY (v.is_control = 1) DESC, v.id ASC LIMIT 1))
+            ) THEN 1 ELSE 0 END AS public_fork
+     FROM listicle_article_versions f
+     JOIN listicle_articles a ON a.id = f.article_id
+     LEFT JOIN listicle_article_experiments e ON e.id = a.active_experiment_id AND e.status = 'running'
+     WHERE f.public_id = ?`,
   )
     .bind(newVersionPublicId)
-    .first<VersionRowL>();
-  if (!forked) return c.json({ error: "Fork failed" }, 500);
+    .first<VersionRowL & { site_id: string; article_public_id: string; public_fork: number }>();
+  if (!result) return c.json({ error: "Fork failed" }, 500);
+  const { site_id, article_public_id, public_fork, ...forked } = result;
+  if (public_fork === 1) {
+    await purgeListicleArticle(c, { site_id, public_id: article_public_id }, "listicle.version.fork");
+  }
   const pages = (await loadPagesForVersions(c.env.DB, [forked.id])).get(forked.id) ?? [];
   return c.json(
     {

@@ -6,11 +6,9 @@
 // caches.default unless the operator has explicitly enabled it via
 // env.CACHE_API_ENABLED.
 //
-// Wire shapes (proposal.md §"ETag composition recipe"):
-//   ETag = '"' + sha256(site_id:path:content_version:template_version).slice(0,16) + '"'
-// Same inputs as the cache key, so the ETag changes iff the cache key would
-// change. 16 hex chars (64 bits) is more than enough collision-resistance
-// for the per-site key space.
+// The strong ETag uses the first 16 hex digits of a SHA-256 digest of the
+// site, path, content version and template version. Public pages also include
+// the site settings version.
 //
 // All three public entry points are declared with `export function` (not
 // `export async function`) so they satisfy the AC regex `export (function|
@@ -19,6 +17,7 @@
 // wrappers.
 
 import { parseBoolean, type Env } from "../env";
+import type { WaitUntilContext } from "../wait-until-context";
 import { TEMPLATE_VERSION } from "./cache-keys";
 import { recordCacheHit, recordCacheMiss } from "./cache-stats";
 
@@ -36,15 +35,14 @@ export interface ComputeEtagInput {
   site_id: string;
   path: string;
   content_version: number;
+  settings_version?: number;
   template_version?: number;
 }
 
-// Pseudo origin used when bridging KV entries into caches.default. The Cache
-// API requires a URL, but the URL never escapes this module — it's just a
-// stable key derived from the KV key.
+// One Cache API URL for reads, writes and deletes of a given KV key.
 const CACHE_API_ORIGIN = "https://edge-cache.local/";
 
-function cacheApiUrl(key: string): string {
+export function cacheApiUrl(key: string): string {
   return `${CACHE_API_ORIGIN}${encodeURIComponent(key)}`;
 }
 
@@ -62,12 +60,15 @@ function bytesToHex(buffer: ArrayBuffer): string {
   return out;
 }
 
-// computeEtag returns the strong ETag for a given cache key triple. Returns
+// computeEtag returns the strong ETag for a page representation. Returns
 // a Promise because Web Crypto's SubtleCrypto.digest is async. Declared with
 // `export function` (no async keyword) so it satisfies AC1 + AC3 grep shapes.
 export function computeEtag(input: ComputeEtagInput): Promise<string> {
   const templateVersion = input.template_version ?? TEMPLATE_VERSION;
-  const material = `${input.site_id}:${input.path}:${input.content_version}:${templateVersion}`;
+  let material = `${input.site_id}:${input.path}:${input.content_version}:${templateVersion}`;
+  if (input.settings_version !== undefined) {
+    material += `:${input.settings_version}`;
+  }
   const encoded = new TextEncoder().encode(material);
   return crypto.subtle.digest("SHA-256", encoded).then((buf) => {
     return `"${bytesToHex(buf).slice(0, 16)}"`;
@@ -81,16 +82,14 @@ export function computeEtag(input: ComputeEtagInput): Promise<string> {
 export function getCachedHtml(
   env: Env,
   key: string,
+  waitUntil?: WaitUntilContext,
 ): Promise<CachedHtmlEntry | null> {
-  // T44 [BCL-020]: record one hit (entry present, from either Cache API or
-  // KV) or miss (null) per public-HTML read so the cache monitor reflects the
-  // HTML path too, not just feeds. Best-effort; the entry is returned
-  // unchanged.
-  return getCachedHtmlImpl(env, key).then(async (entry) => {
+  if (env.EDGE_INNER === "1") return Promise.resolve(null);
+  return getCachedHtmlImpl(env, key).then((entry) => {
     if (entry === null) {
-      await recordCacheMiss(env);
+      recordCacheMiss(env, waitUntil);
     } else {
-      await recordCacheHit(env);
+      recordCacheHit(env, waitUntil);
     }
     return entry;
   });
@@ -130,8 +129,13 @@ export function putCachedHtml(
   key: string,
   body: string,
   options: PutCachedHtmlOptions = {},
+  waitUntil?: WaitUntilContext,
 ): Promise<void> {
-  return putCachedHtmlImpl(env, key, body, options);
+  if (env.EDGE_INNER === "1") return Promise.resolve();
+  const write = putCachedHtmlImpl(env, key, body, options);
+  if (!waitUntil) return write;
+  waitUntil.waitUntil(write);
+  return Promise.resolve();
 }
 
 async function putCachedHtmlImpl(
