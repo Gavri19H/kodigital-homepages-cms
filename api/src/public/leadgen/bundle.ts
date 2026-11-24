@@ -79,10 +79,10 @@ export async function loadPreparedFunnelBundle(
   env: Env, headers: Headers, siteId: string, variantId: string,
   ctx?: WaitUntilContext, quoteSlug?: string | null,
 ): Promise<PreparedFunnelBundle | null | undefined> {
-  const builtAt = headers.get("x-cms-snap-built-at");
-  if (!builtAt || !Number.isSafeInteger(Number(builtAt))) return undefined;
+  const snapshotVersion = headers.get("x-cms-snap-version");
+  if (!snapshotVersion || !/^[0-9a-f]{64}$/.test(snapshotVersion)) return undefined;
   if (!isFunnelVariantId(variantId)) return null;
-  const key = leadgenBundleKey(siteId, variantId, Number(builtAt), env.CF_VERSION_METADATA?.id);
+  const key = leadgenBundleKey(siteId, variantId, snapshotVersion, env.CF_VERSION_METADATA?.id);
   try {
     const raw = await env.CACHE.get(key);
     if (raw !== null) {

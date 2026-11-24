@@ -120,7 +120,8 @@ describe("PublicPage reads after a publish", () => {
   });
 
   it("gives /__snap the raw binding and lets the snapshot builder open its own primary session", async () => {
-    const { db, env, ctx, withSession } = laggingReplica();
+    const { db, primary, env, ctx, withSession } = laggingReplica();
+    primary.batch = <T>(statements: D1PreparedStatement[]) => Promise.all(statements.map(stmt => stmt.all<T>()));
     const build = vi.spyOn(snapshots, "buildSiteSnapshot");
     const page = new PublicPage({ ...ctx, props: { siteKey: "host:" + host, variantKey: "snap" } }, env);
     const response = await page.fetch(new Request(`https://${host}/__snap`, {

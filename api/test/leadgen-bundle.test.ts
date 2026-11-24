@@ -1,3 +1,4 @@
+import { createHash } from "node:crypto";
 import { readFileSync } from "node:fs";
 import { afterEach, beforeEach, expect, it, vi } from "vitest";
 import leadgenAdmin from "../src/admin/leadgen/router";
@@ -24,6 +25,7 @@ const now = Date.UTC(2026, 0, 15, 12);
 const origin = "https://one.example.com";
 const siteId = "site-1";
 const bookmark = "bookmark-001";
+const testVersion = "a".repeat(64);
 const landing = origin + "/lg/life?utm_source=paid";
 const publicId = (prefix: string, n: number) => prefix + "_" + String(n).padStart(26, "0");
 const variant = publicId("lgn", 2);
@@ -116,7 +118,11 @@ function tracedDb(connection: string) {
     }
     stmt.first = async <T>(column?: string) => { record(); return column === undefined ? first<T>() : first<T>(column); };
     stmt.all = async <T>() => { record(); return all<T>(); };
-    stmt.run = async <T>() => { record(); return run<T>(); };
+    stmt.run = async <T>() => {
+      record();
+      // The SQLite shim calls run() for each batch member. D1 returns rows for batched reads.
+      return /^\s*(?:SELECT|WITH)\b/i.test(query) ? all<T>() : run<T>();
+    };
     return stmt;
   };
   return db;
@@ -168,21 +174,28 @@ function clearTrace() {
   vi.clearAllMocks();
 }
 
-const bundleKey = (stamp = now) => leadgenBundleKey(siteId, variant, stamp, env.CF_VERSION_METADATA?.id);
+const bundleKey = () => leadgenBundleKey(siteId, variant, testVersion, env.CF_VERSION_METADATA?.id);
 
-function attempt(stamp?: number, supplied = visitor) {
+function expectedVersion(snapshot: SiteSnapshot) {
+  const content: Partial<SiteSnapshot> = { ...snapshot };
+  delete content.builtAt;
+  return createHash("sha256").update(JSON.stringify(content)).digest("hex");
+}
+
+function attempt(version?: string, supplied = visitor) {
   const headers = new Headers(supplied);
-  if (stamp !== undefined) {
+  if (version !== undefined) {
     headers.set("x-cms-site-id", siteId);
     headers.set("x-cms-bookmark", bookmark);
-    headers.set("x-cms-snap-built-at", String(stamp));
+    headers.set("x-cms-snap-version", version);
+    headers.set("x-cms-snap-built-at", String(now));
   }
   return leadgenRouter.fetch(Object.assign(new Request(attemptUrl, { headers }), { cf }), env, capture.ctx);
 }
 
-function shell(stamp?: number, path = "/lg/life") {
+function shell(version?: string, path = "/lg/life") {
   const headers = new Headers({ "x-cms-bookmark": bookmark });
-  if (stamp !== undefined) headers.set("x-cms-snap-built-at", String(stamp));
+  if (version !== undefined) headers.set("x-cms-snap-version", version);
   const page = new PublicPage({ ...capture.ctx, props: { siteKey: siteId, variantKey: "lg:" + variant } }, env);
   return page.fetch(new Request(origin + path, { headers }));
 }
@@ -206,14 +219,14 @@ it("mints byte-identical attempts from a shell-prepared bundle with just the pri
     routed_to_variant: variant, matched_rule_hash: "paid" })]);
   const writes = statements.filter(s => s.query.startsWith("INSERT"));
   expect(writes).toHaveLength(1);
-  expect(statements).toHaveLength(20);
+  expect(statements).toHaveLength(5);
   expect(kv.kv.get).not.toHaveBeenCalled();
   sql.prepare("DELETE FROM leadgen_routing_outcomes").run();
 
-  expect((await shell(now)).status).toBe(200);
+  expect((await shell(testVersion)).status).toBe(200);
   await Promise.all(capture.promises);
   clearTrace();
-  const warm = await attempt(now);
+  const warm = await attempt(testVersion);
   expect(warm.status).toBe(baseline.status);
   expect([...warm.headers]).toEqual([...baseline.headers]);
   expect(await warm.text()).toBe(body);
@@ -230,24 +243,24 @@ it("renders byte-identical shell HTML from an attempt-prepared bundle, including
   expect(before.status).toBe(200);
   for (const value of ["Family Quotes", "Your ZIP", "Arm 2", "Talk to us", "#15375C", '"answer_mapping_version":"47"',
     "https://connect.facebook.net/en_US/fbevents.js", "<!--LG_ASSIGN-->"]) expect(html).toContain(value);
-  expect(statements).toHaveLength(18);
+  expect(statements).toHaveLength(4);
   const hostRead = statements.filter(s => s.query.includes("FROM domains d INNER JOIN sites"));
   expect(hostRead).toHaveLength(1);
   expect(kv.kv.get).toHaveBeenCalledExactlyOnceWith(LEADGEN_THEMES_KV_KEY);
 
   clearTrace();
-  expect((await attempt(now)).status).toBe(200);
+  expect((await attempt(testVersion)).status).toBe(200);
   await Promise.all(capture.promises);
-  const key = "lgbundle:" + siteId + ":" + variant + ":" + now + ":" + LEADGEN_TEMPLATE_VERSION + ":worker-42";
+  const key = "lgbundle:" + siteId + ":" + variant + ":" + testVersion + ":" + LEADGEN_TEMPLATE_VERSION + ":worker-42";
   expect(kv.kv.put).toHaveBeenCalledExactlyOnceWith(key, expect.any(String), { expirationTtl: 604800 });
   expect(sessions).toEqual([bookmark]);
   expect(statements.filter(s => s.connection === "primary").map(s => s.query)).toEqual([expect.stringContaining("INSERT OR REPLACE")]);
   clearTrace();
-  const warm = await shell(now);
+  const warm = await shell(testVersion);
   expect(warm.status).toBe(before.status);
   const coldHeaders = new Headers(before.headers);
   const warmHeaders = new Headers(warm.headers);
-  expect(coldHeaders.get("Server-Timing")).toContain(" calls=18 ");
+  expect(coldHeaders.get("Server-Timing")).toContain(" calls=4 ");
   expect(warmHeaders.get("Server-Timing")).toContain("rounds=1 calls=1 ");
   coldHeaders.delete("Server-Timing");
   warmHeaders.delete("Server-Timing");
@@ -257,7 +270,7 @@ it("renders byte-identical shell HTML from an attempt-prepared bundle, including
   expect(statements).toEqual(hostRead);
 
   // The same variant still requires its enabled activation at the requested slug.
-  expect((await shell(now, "/lg/wrong-slug")).status).toBe(404);
+  expect((await shell(testVersion, "/lg/wrong-slug")).status).toBe(404);
   expect(kv.kv.delete).not.toHaveBeenCalled();
 });
 
@@ -288,11 +301,40 @@ function cachedSnapshotGateway() {
   return { visit, built, purgeTags };
 }
 
-it.each([false, true])("follows a real frame save through snapshot purge and both next requests (omit builtAt = %s)", async omitBuiltAt => {
-  if (omitBuiltAt) {
+it("reuses the first location's bundle for a fresh shell build at a second location", async () => {
+  const first = cachedSnapshotGateway();
+  const before = await first.visit(landing);
+  expect(before.status).toBe(200);
+  const html = await before.text();
+  const arm = /data-funnel-variant-id="([^"]+)"/.exec(html)?.[1];
+  expect(arm).toBeDefined();
+  await Promise.all(capture.promises);
+  const key = leadgenBundleKey(siteId, arm!, expectedVersion(first.built[0]!));
+  expect(kv.store.has(key)).toBe(true);
+
+  vi.setSystemTime(now + 1000);
+  const second = cachedSnapshotGateway();
+  clearTrace();
+  const after = await second.visit(landing);
+  expect(after.status).toBe(200);
+  expect(await after.text()).toBe(html);
+  expect(first.built[0]!.builtAt).toBe(now);
+  expect(second.built).toEqual([{ ...first.built[0], builtAt: now + 1000 }]);
+  expectOneKvRead(key);
+  await Promise.all(capture.promises);
+  expect(kv.kv.put).not.toHaveBeenCalled();
+  expect(sessions).toEqual(["first-primary", bookmark]);
+  // The primary reads built the second snapshot. The shell only resolved its host.
+  expect(statements.filter(s => s.connection !== "first-primary")).toEqual([
+    { connection: bookmark, query: expect.stringContaining("FROM domains d INNER JOIN sites") },
+  ]);
+});
+
+it.each([false, true])("follows a real frame save through snapshot purge and both next requests (omit version = %s)", async omitVersion => {
+  if (omitVersion) {
     // Fail-before control: run the identical writer + readers with only the
-    // builtAt segment removed. The old CTA then survives the successful purge.
-    vi.spyOn(cacheKeys, "leadgenBundleKey").mockImplementation((site, arm, _stamp, version = "dev") =>
+    // snapshot version removed. The old CTA then survives the successful purge.
+    vi.spyOn(cacheKeys, "leadgenBundleKey").mockImplementation((site, arm, _snapshotVersion, version = "dev") =>
       ["lgbundle", site, arm, LEADGEN_TEMPLATE_VERSION, version].join(":"));
   }
   const { visit, built, purgeTags } = cachedSnapshotGateway();
@@ -305,7 +347,7 @@ it.each([false, true])("follows a real frame save through snapshot purge and bot
   const url = new URL(attemptUrl);
   url.searchParams.set("vid", arm!);
   await Promise.all(capture.promises);
-  const oldKey = cacheKeys.leadgenBundleKey(siteId, arm!, now);
+  const oldKey = cacheKeys.leadgenBundleKey(siteId, arm!, expectedVersion(built[0]!));
   expect(kv.store.has(oldKey)).toBe(true);
   expect((await (await visit(url.href)).json() as FunnelAttempt).cc).toEqual(["mobile_line"]);
 
@@ -324,8 +366,8 @@ it.each([false, true])("follows a real frame save through snapshot purge and bot
   expect(built.map(s => s.builtAt)).toEqual([now, now + 2000]);
   expect(built[1]?.writeBookmark).toBe("bookmark-002");
   await Promise.all(capture.promises);
-  const newKey = cacheKeys.leadgenBundleKey(siteId, arm!, built[1]!.builtAt);
-  expect(newKey === oldKey).toBe(omitBuiltAt);
+  const newKey = cacheKeys.leadgenBundleKey(siteId, arm!, expectedVersion(built[1]!));
+  expect(newKey === oldKey).toBe(omitVersion);
   expect(kv.store.has(oldKey)).toBe(true);
   expect(kv.store.has(newKey)).toBe(true);
   clearTrace();
@@ -333,7 +375,7 @@ it.each([false, true])("follows a real frame save through snapshot purge and bot
   expect(afterShell.status).toBe(200);
   const afterHtml = await afterShell.text();
   expectOneKvRead(newKey);
-  if (omitBuiltAt) {
+  if (omitVersion) {
     expect(minted.cc).toEqual(["mobile_line"]);
     expect(afterHtml).toBe(html);
   } else {
@@ -344,7 +386,7 @@ it.each([false, true])("follows a real frame save through snapshot purge and bot
 });
 
 it.each(["malformed", "wrong shape", "altered rule", "other site"])("evicts and repairs corrupt KV data (%s)", async kind => {
-  const baseline = await attempt(now);
+  const baseline = await attempt(testVersion);
   const expected = await baseline.text();
   await Promise.all(capture.promises);
   const key = bundleKey();
@@ -358,15 +400,16 @@ it.each(["malformed", "wrong shape", "altered rule", "other site"])("evicts and 
     sql.prepare("INSERT INTO domains (site_id, hostname, status) VALUES ('neighbor', 'neighbor.example', 'active')").run();
     sql.prepare("INSERT INTO leadgen_site_quotes (site_id, quote_id, enabled, slug) VALUES ('neighbor', 1, 1, 'life')").run();
     const req = new Request("https://neighbor.example/lg/attempt?vid=" + variant, {
-      headers: { ...visitor, "x-cms-site-id": "neighbor", "x-cms-snap-built-at": String(now) },
+      headers: { ...visitor, "x-cms-site-id": "neighbor", "x-cms-snap-version": testVersion,
+        "x-cms-snap-built-at": String(now) },
     });
     expect((await leadgenRouter.fetch(req, env, capture.ctx)).status).toBe(200);
     await Promise.all(capture.promises);
-    bad = kv.store.get(leadgenBundleKey("neighbor", variant, now))!;
+    bad = kv.store.get(leadgenBundleKey("neighbor", variant, testVersion))!;
   }
   kv.store.set(key, bad);
   clearTrace();
-  const rebuilt = await attempt(now);
+  const rebuilt = await attempt(testVersion);
   expect(rebuilt.status).toBe(200);
   expect(await rebuilt.text()).toBe(expected);
   expect(kv.kv.delete).toHaveBeenCalledExactlyOnceWith(key);
@@ -374,34 +417,37 @@ it.each(["malformed", "wrong shape", "altered rule", "other site"])("evicts and 
   await Promise.all(capture.promises);
   expect(kv.store.get(key)).toBe(stored);
   clearTrace();
-  expect(await (await attempt(now)).text()).toBe(expected);
+  expect(await (await attempt(testVersion)).text()).toBe(expected);
   expectOneKvRead(key);
   expect(statements).toEqual([{ connection: "primary", query: expect.stringContaining("INSERT OR REPLACE") }]);
 });
 
-it("uses the live loaders without a snapshot header even when KV is warm", async () => {
-  expect((await attempt(now)).status).toBe(200);
+it("uses the live loaders without a valid snapshot version even when KV is warm", async () => {
+  expect((await attempt(testVersion)).status).toBe(200);
   await Promise.all(capture.promises);
-  clearTrace();
-  expect((await attempt()).status).toBe(200);
-  expect(statements).toHaveLength(20);
-  expect(statements.every(s => s.connection === "primary")).toBe(true);
-  expect(kv.kv.get).not.toHaveBeenCalled();
+  for (const extra of [{}, { "x-cms-snap-built-at": String(now) }, { "x-cms-snap-version": String(now) }]) {
+    clearTrace();
+    expect((await attempt(undefined, { ...visitor, ...extra })).status).toBe(200);
+    expect(statements).toHaveLength(5);
+    expect(statements.every(s => s.connection === "primary")).toBe(true);
+    expect(kv.kv.get).not.toHaveBeenCalled();
+  }
   clearTrace();
   expect((await shell()).status).toBe(200);
-  expect(statements).toHaveLength(18);
+  expect(statements).toHaveLength(4);
   expect(kv.kv.get).toHaveBeenCalledExactlyOnceWith(LEADGEN_THEMES_KV_KEY);
   expect(kv.kv.put).not.toHaveBeenCalled();
 });
 
 it("uses the current visitor's cookie, landing URL and geography on a warm attempt", async () => {
-  const first = await (await attempt(now)).json() as FunnelAttempt;
+  const first = await (await attempt(testVersion)).json() as FunnelAttempt;
   await Promise.all(capture.promises);
   clearTrace();
   vi.setSystemTime(now + 1000);
   const newLanding = origin + "/lg/life?utm_source=organic";
   const request = new Request(origin + "/lg/attempt?funnel_variant_id=" + variant + "&u=" + encodeURIComponent(newLanding), {
-    headers: { "x-cms-snap-built-at": String(now), "x-cms-site-id": siteId, "x-cms-bookmark": bookmark },
+    headers: { "x-cms-site-id": siteId, "x-cms-bookmark": bookmark, "x-cms-snap-version": testVersion,
+      "x-cms-snap-built-at": String(now) },
   });
   const response = await leadgenRouter.fetch(Object.assign(request, { cf: { regionCode: "NY" } }), env, capture.ctx);
   const second = await response.json() as FunnelAttempt & { session_id: string };
@@ -426,7 +472,7 @@ it("hands the bundle put to waitUntil while the outcome has already committed", 
     kv.store.set(key, String(value));
   });
   try {
-    const response = await attempt(now);
+    const response = await attempt(testVersion);
     expect(response.status).toBe(200);
     expect(capture.promises).toHaveLength(1);
     expect(kv.store.has(bundleKey())).toBe(false);
@@ -440,7 +486,7 @@ it("hands the bundle put to waitUntil while the outcome has already committed", 
 
 it("retries a degraded rule read on the next request and mints through KV outages", async () => {
   failRead = "FROM leadgen_quote_routing_rules";
-  const degraded = await attempt(now);
+  const degraded = await attempt(testVersion);
   expect(degraded.status).toBe(200);
   expect((await degraded.json() as FunnelAttempt).cps).toBeUndefined();
   await Promise.all(capture.promises);
@@ -448,7 +494,7 @@ it("retries a degraded rule read on the next request and mints through KV outage
   failRead = undefined;
   vi.mocked(kv.kv.get).mockRejectedValueOnce(new Error("KV read unavailable"));
   vi.mocked(kv.kv.put).mockRejectedValueOnce(new Error("KV put unavailable"));
-  const retry = await attempt(now);
+  const retry = await attempt(testVersion);
   expect(retry.status).toBe(200);
   expect((await retry.json() as FunnelAttempt).cps).toEqual([publicId("lgs", 10)]);
   await Promise.all(capture.promises);
@@ -458,7 +504,7 @@ it("retries a degraded rule read on the next request and mints through KV outage
 it("preserves the visitor's URL, CF metadata and cookies and forwards only snapshot-derived CMS headers", async () => {
   const { built } = cachedSnapshotGateway();
   const headers = { ...visitor, "x-cms-site-id": "neighbor", "x-cms-bookmark": "client", "x-cms-snap-built-at": "17",
-    "x-cms-variant": "lg:client", "x-cms-other": "client" };
+    "x-cms-snap-version": testVersion, "x-cms-variant": "lg:client", "x-cms-other": "client" };
   const request = Object.assign(new Request(attemptUrl, { headers }), { cf });
   const app = vi.fn<Parameters<typeof gatewayFetch>[3]>(() => new Response("attempt", { headers: { "Cache-Control": "no-store" } }));
   const response = await gatewayFetch(request, env, capture.ctx, app);
@@ -471,9 +517,12 @@ it("preserves the visitor's URL, CF metadata and cookies and forwards only snaps
   expect(inner.method).toBe("GET");
   expect(inner.cf).toEqual(cf);
   expect([...inner.headers]).toEqual([...new Headers({ ...visitor, "x-cms-site-id": siteId,
-    "x-cms-bookmark": bookmark, "x-cms-snap-built-at": String(now) })]);
+    "x-cms-bookmark": bookmark, "x-cms-snap-version": expectedVersion(built[0]!), "x-cms-snap-built-at": String(now) })]);
   expect(appEnv).toBe(env);
   expect(appCtx).toBe(capture.ctx);
+  const digest = vi.spyOn(crypto.subtle, "digest");
+  await gatewayFetch(request, env, capture.ctx, app);
+  expect(digest).not.toHaveBeenCalled();
 });
 
 it.each([["HEAD", "/lg/attempt"], ["POST", "/lg/attempt"], ["POST", "/lg/ck"], ["GET", "/lg/lc/offer"]])(
@@ -499,7 +548,7 @@ it.each(["unavailable", "invalid", "wrong host", "inactive", "throw"])("uses the
   });
   Object.assign(capture.ctx, { exports: { PublicPage: () => ({ fetch }) } });
   const request = Object.assign(new Request(attemptUrl, { headers: { ...visitor, "x-cms-site-id": "neighbor",
-    "x-cms-snap-built-at": "17", "x-cms-bookmark": "client" } }), { cf });
+    "x-cms-snap-version": testVersion, "x-cms-snap-built-at": "17", "x-cms-bookmark": "client" } }), { cf });
   const app = vi.fn(leadgenRouter.fetch);
   const response = await gatewayFetch(request, env, capture.ctx, app);
   expect(fetch).toHaveBeenCalledOnce();
@@ -509,6 +558,6 @@ it.each(["unavailable", "invalid", "wrong host", "inactive", "throw"])("uses the
   expect(live.cf).toEqual(cf);
   expect([...live.headers]).toEqual([...new Headers(visitor)]);
   expect(response.status).toBe(200);
-  expect(statements).toHaveLength(20);
+  expect(statements).toHaveLength(5);
   expect(kv.kv.get).not.toHaveBeenCalled();
 });

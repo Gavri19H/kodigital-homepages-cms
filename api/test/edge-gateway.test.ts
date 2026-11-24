@@ -1,3 +1,4 @@
+import { createHash } from "node:crypto";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { gatewayFetch } from "../src/edge/gateway";
 import type { LeadgenSnapshotEntry } from "../src/edge/leadgen-select";
@@ -178,20 +179,22 @@ describe("public page cache keys", () => {
   });
 
   it("strips all client and response x-cms headers and preserves ordinary headers", async () => {
+    const served = { ...snapshot, writeBookmark: null, extra: { builtAt: 321 } };
+    const version = createHash("sha256").update(JSON.stringify({ ...served, builtAt: undefined })).digest("hex");
     const { serve, calls } = harness({
-      snap: () => Response.json({ ...snapshot, writeBookmark: null }),
+      snap: () => Response.json(served),
       render: () => new Response("body", { headers: { "x-cms-debug": "one", "X-CMS-Site": "two", "x-public": "ok" } }),
     });
     const request = visit("/page/news", { headers: {
       "X-CMS-Variant": "md", "x-cms-tags": "site:b", "x-cms-bookmark": "forged", "x-cms-other": "extra",
-      "x-cms-snap-built-at": "forged", Cookie: "ko_sid=visitor", "x-public": "request",
+      "x-cms-snap-built-at": "forged", "x-cms-snap-version": "f".repeat(64), Cookie: "ko_sid=visitor", "x-public": "request",
     } });
     const response = await serve(request);
     expect(await response.text()).toBe("body");
     expect(calls[1]!.props.variantKey).toBe("human");
     for (const { props, request: forwarded } of calls) {
       const internal = [...forwarded.headers].filter(([k]) => k.startsWith("x-cms-") || k === "cookie");
-      expect(internal).toEqual(props.variantKey === "snap" ? [] : [["x-cms-snap-built-at", String(snapshot.builtAt)]]);
+      expect(internal).toEqual(props.variantKey === "snap" ? [] : [["x-cms-snap-version", version]]);
     }
     expect(calls[1]!.request.headers.get("x-public")).toBe("request");
     expect([...response.headers.keys()].filter(k => k.startsWith("x-cms-"))).toEqual([]);

@@ -5,6 +5,7 @@ import { recordEdgeCacheStatus } from "../cache/cache-stats";
 import { matchesIfNoneMatch } from "../cache/edge-cache";
 import { elapsedMs, timingNow } from "../db/read-session";
 import type { Env } from "../env";
+import { sha256Hex } from "../leadgen/meta-hash";
 import { genSessionId, readCookie } from "../public/listicle/experiment-pick";
 import { isReservedPath } from "../public/reserved";
 import { acceptPrefersMarkdown } from "../public/router";
@@ -154,20 +155,37 @@ function withGatewayTiming(response: Response, timing: GatewayTiming, liveFallba
   return response;
 }
 
-async function readHostSnapshot(url: URL, pages: PageExports, timing?: GatewayTiming): Promise<SiteSnapshot | null> {
+interface VersionedSnapshot {
+  snapshot: SiteSnapshot;
+  version: string;
+}
+
+// Each validated text can be up to 1 Mi UTF-16 code units. Bound what one isolate retains.
+const snapshotVersions = new Map<string, string>();
+const maxSnapshotVersions = 8;
+
+async function readHostSnapshot(url: URL, pages: PageExports, timing?: GatewayTiming): Promise<VersionedSnapshot | null> {
   const snapshotResponse = await fetchPublicPage(pages, { siteKey: `host:${url.hostname}`, variantKey: "snap" },
     new Request(`https://${url.hostname}/__snap`, { redirect: "manual" }), timing);
   if (!snapshotResponse.ok) return null;
-  const snapshot = parseSiteSnapshot(await snapshotResponse.text());
+  const text = await snapshotResponse.text();
+  const snapshot = parseSiteSnapshot(text);
   if (!snapshot || snapshot.status !== "active" || snapshot.hostname.toLowerCase() !== normalizeHostname(url.hostname)) {
     return null;
   }
-  return snapshot;
+  let version = snapshotVersions.get(text);
+  if (version === undefined) {
+    const { builtAt: _builtAt, ...content } = snapshot;
+    version = await sha256Hex(JSON.stringify(content));
+    if (snapshotVersions.size >= maxSnapshotVersions) snapshotVersions.delete(snapshotVersions.keys().next().value!);
+    snapshotVersions.set(text, version);
+  }
+  return { snapshot, version };
 }
 
 async function serveCachedPage(
-  request: Request, url: URL, route: CachedRoute, pages: PageExports, cf: GatewayRequestInput["cf"], snapshot: SiteSnapshot,
-  timing?: GatewayTiming,
+  request: Request, url: URL, route: CachedRoute, pages: PageExports, cf: GatewayRequestInput["cf"],
+  { snapshot, version }: VersionedSnapshot, timing?: GatewayTiming,
 ): Promise<Response | null> {
   const session = readCookie(request.headers.get("Cookie"), "ko_sid");
   const sidWasAbsent = session === "";
@@ -180,7 +198,7 @@ async function serveCachedPage(
   // If-None-Match takes precedence over the date. Resolve it on the complete shell.
   if (validator !== null) innerHeaders.delete("If-Modified-Since");
   innerHeaders.set("Host", url.host);
-  innerHeaders.set("x-cms-snap-built-at", String(snapshot.builtAt));
+  innerHeaders.set("x-cms-snap-version", version);
   if (snapshot.writeBookmark) innerHeaders.set("x-cms-bookmark", snapshot.writeBookmark);
 
   let variantKey = "human";
@@ -319,12 +337,15 @@ async function dispatchGatewayRequest(
       if ((route || attempt) && !isAdminHost(url.hostname, env)) {
         // Entry-rule redirects and failed host lookups can skip the inner fetch.
         if (route) timing = { snap: 'gw-snap;dur=0;desc="MISS"', inner: "gw-inner;dur=0" };
-        const snapshot = await readHostSnapshot(url, pages, timing);
-        if (snapshot && route) {
-          response = await serveCachedPage(request, url, route, pages, readCfSignals(request), snapshot, timing);
-        } else if (snapshot && attempt) {
+        const hostSnapshot = await readHostSnapshot(url, pages, timing);
+        if (hostSnapshot && route) {
+          response = await serveCachedPage(request, url, route, pages, readCfSignals(request), hostSnapshot, timing);
+        } else if (hostSnapshot && attempt) {
+          const { snapshot, version } = hostSnapshot;
           const inner = copyVisitorRequest(request);
           inner.headers.set("x-cms-site-id", snapshot.siteId);
+          inner.headers.set("x-cms-snap-version", version);
+          // The attempt router still uses this header to trust the gateway's site ID.
           inner.headers.set("x-cms-snap-built-at", String(snapshot.builtAt));
           inner.headers.set("x-cms-bookmark", snapshot.writeBookmark ?? "");
           request = inner;

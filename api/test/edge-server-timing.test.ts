@@ -29,9 +29,9 @@ const creditSql = "SELECT ? AS credit";
 function countingDb() {
   const { db, calls } = makeFakeDb([
     { match: "FROM domains", row: { site_id: siteId, hostname: host, status: "active" } },
-    { match: "FROM sites WHERE", row: { content_version: 2, settings_version: 1, write_bookmark: "published" } },
     { match: titleSql, row: { title: headline } },
   ], [
+    { match: "FROM sites WHERE", rows: [{ content_version: 2, settings_version: 1, write_bookmark: "published" }] },
     { match: titleSql, rows: [{ title: headline }] },
     { match: creditSql, rows: [{ credit: "Zoë" }] },
   ]);
@@ -113,7 +113,7 @@ function timingEntries(response: Response): string[] | undefined {
 }
 
 const snapMetrics = [
-  "snap-build;dur=0", 'snap-d1;dur=0;desc="rounds=2 calls=5 primary=1 replica=1 region=EEUR"',
+  "snap-build;dur=0", 'snap-d1;dur=0;desc="rounds=2 calls=2 primary=1 replica=2 region=WNAM"',
 ];
 const pageMetrics = [
   "renderer;dur=1", "build;dur=25", 'd1;dur=18;desc="rounds=2 calls=3 primary=2 replica=1 region=EEUR"',
@@ -139,8 +139,8 @@ it("reports each fresh build, overlapping D1 wall time and result locations with
   for (const name of ["Cache-Control", "Cache-Tag", "Content-Type", "ETag"]) {
     expect(miss.headers.get(name)).toBe(plainPage.headers.get(name));
   }
-  expect(calls).toHaveLength(9); // Five snapshot statements and four page statements.
-  expect(batchSizes).toEqual([2]);
+  expect(calls).toHaveLength(12); // Eight snapshot statements and four page statements.
+  expect(batchSizes).toEqual([7, 2]);
   expect(withSession.mock.calls).toEqual([["first-primary"], ["published"]]);
 });
 
@@ -193,7 +193,7 @@ it.each([
   ].sort());
   expect(next.headers.get("x-edge-cache")).toBe(rebuildPage ? "MISS" : "HIT");
   expect(await next.bytes()).toEqual(bytes);
-  expect(calls).toHaveLength((rebuildSnap ? 5 : 0) + (rebuildPage ? 4 : 0));
+  expect(calls).toHaveLength((rebuildSnap ? 8 : 0) + (rebuildPage ? 4 : 0));
 });
 
 it("keeps current gateway timings on bodyless HEAD and 304 hits", async () => {

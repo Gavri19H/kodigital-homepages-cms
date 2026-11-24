@@ -257,10 +257,10 @@ const NS_LG_CONFIG = "lg-config";
 export function leadgenBundleKey(
   siteId: string,
   variantPublicId: string,
-  snapshotBuiltAt: number,
+  snapshotVersion: string,
   workerVersion?: string,
 ): string {
-  return `lgbundle:${requireSiteId(siteId)}:${variantPublicId}:${snapshotBuiltAt}:${LEADGEN_TEMPLATE_VERSION}:${workerVersion || "dev"}`;
+  return `lgbundle:${requireSiteId(siteId)}:${variantPublicId}:${snapshotVersion}:${LEADGEN_TEMPLATE_VERSION}:${workerVersion || "dev"}`;
 }
 
 // lg-shell:{site_id}:{quote_slug}:{funnel_id}:{funnel_variant_id}:{content_version}:{ab_rev}:{template_version}:{activation_version}

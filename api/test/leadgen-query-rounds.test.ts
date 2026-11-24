@@ -94,6 +94,7 @@ function seed(sql: SqliteDb): void {
 function measure(sql: SqliteDb) {
   const db = d1FromSqlite(sql);
   const rounds: string[][] = [];
+  const bundleReads: ({ rules: boolean; template: boolean; directPages: boolean } | null)[] = [];
   let reply: Promise<void> | undefined;
   function send(query: string): Promise<void> {
     if (!reply) {
@@ -114,11 +115,31 @@ function measure(sql: SqliteDb) {
       await send(query);
       return column === undefined ? first<T>() : first<T>(column);
     };
-    stmt.all = async <T>() => { await send(query); return all<T>(); };
+    stmt.all = async <T>() => {
+      await send(query);
+      const result = await all<T>();
+      if (query.includes("AS bundle_row")) {
+        const header = (result.results as { id: number | null; bundle_row: string }[]).find(row => row.id !== null);
+        if (header) {
+          const data = JSON.parse(header.bundle_row) as {
+            rules: unknown[] | null; pages: { id: number; quote_id: number | null }[]; slots: { page_id: number }[];
+          };
+          const slotted = new Set(data.slots.map(slot => slot.page_id));
+          bundleReads.push({
+            rules: query.includes("FROM leadgen_quote_routing_rules") && data.rules !== null,
+            template: query.includes("leadgen_frame_templates"),
+            directPages: query.includes("WHERE fvs.page_id") && data.pages.some(p => p.quote_id !== null && !slotted.has(p.id)),
+          });
+        } else {
+          bundleReads.push(null);
+        }
+      }
+      return result;
+    };
     stmt.run = async <T>() => { await send(query); return run<T>(); };
     return stmt;
   };
-  return { db, rounds };
+  return { db, rounds, bundleReads };
 }
 
 let sql: SqliteDb;
@@ -152,13 +173,19 @@ function request(url: string, edgeVariant?: string) {
 
 function counts() {
   const statements = trace.rounds.flat();
+  // Count one call for the joined statement and the definitions it actually
+  // returned. A rejected activation returns no header. An omitted rule read
+  // returns null and a completed empty rule read returns [].
+  const individual = statements.filter(s => !s.includes("AS bundle_row"));
+  const readsOf = (fragment: string) => individual.filter(s => s.includes(fragment)).length;
+  const served = trace.bundleReads.filter(row => row !== null);
   return {
     statements: statements.length,
     rounds: trace.rounds.length,
-    rules: statements.filter((s) => s.includes("FROM leadgen_quote_routing_rules")).length,
-    templates: statements.filter((s) => s.includes("leadgen_frame_templates")).length,
-    directPages: statements.filter((s) => s.includes("WHERE fvs.page_id")).length,
-    writes: statements.filter((s) => !s.trimStart().startsWith("SELECT")).length,
+    rules: readsOf("FROM leadgen_quote_routing_rules") + served.filter(row => row.rules).length,
+    templates: readsOf("leadgen_frame_templates") + served.filter(row => row.template).length,
+    directPages: readsOf("WHERE fvs.page_id") + served.filter(row => row.directPages).length,
+    writes: individual.filter(s => !s.trimStart().startsWith("SELECT")).length,
   };
 }
 
@@ -173,7 +200,7 @@ const visitorHtmlHash = "164903892baeb6f6baed72f9f78b8a83bae4ebaa2824001f731c1cd
 it.each([
   { path: "visitor", sha256: visitorHtmlHash, statements: 19, rounds: 8, rules: 1 },
   { path: "lg:", sha256: "8e665e73cd2b5f588c227a26b13c2a5a2c5fb869d8b002f6cc07ab6872a030a1",
-    statements: 18, rounds: 9, rules: 0 },
+    statements: 4, rounds: 3, rules: 0 },
 ])("serves the original cold $path shell", async ({ path, sha256, statements, rounds, rules }) => {
   const res = await request(landing, path === "lg:" ? publicId("lgn", 2) : undefined);
   expect(res.status).toBe(200);
@@ -192,9 +219,17 @@ it("loads only the serving quote's rules and template after a stale lg: selectio
     VALUES (2, ?, 'Other template', 2, 'active', 2)`).run(publicId("lgf", 2));
   sql.prepare(`INSERT INTO leadgen_funnel_variants (id, public_id, funnel_id, variant_label, traffic_allocation_bp)
     VALUES (3, ?, 2, 'A', 10000)`).run(publicId("lgn", 3));
+  const templateIds: number[] = [];
+  if (typeof sql.function !== "function") throw new Error("SQLite read observation required");
+  sql.function("observe_frame", (id: number, frame: string) => { templateIds.push(id); return frame; });
+  sql.prepare("ALTER TABLE leadgen_frame_templates RENAME TO stored_templates").run();
+  sql.prepare(`CREATE VIEW leadgen_frame_templates AS
+    SELECT id, observe_frame(id, frame_json) AS frame_json FROM stored_templates`).run();
   const res = await request(landing, publicId("lgn", 3));
   expect(res.status).toBe(200);
   expect(digest(await res.text())).toBe(visitorHtmlHash);
+  expect(trace.bundleReads).toEqual([null]);
+  expect(templateIds).toEqual([1]);
   expect(counts()).toMatchObject({ rules: 1, templates: 1, directPages: 1, writes: 0 });
 });
 
@@ -213,7 +248,7 @@ it("mints the original signed attempt and persists its entry outcome", async () 
     session_id: sid, routed_from_variant: null, routed_to_variant: publicId("lgn", 2), routed_to_funnel: publicId("lgf", 1),
     matched_rule_hash: "paid", value_multiplier: 1.75, feed_name: "paid_life", plane: "entry", created_at: now / 1000, force_offer_id: null,
   }]);
-  expect(counts()).toEqual({ statements: 20, rounds: 10, rules: 1, templates: 1, directPages: 1, writes: 1 });
+  expect(counts()).toEqual({ statements: 5, rounds: 4, rules: 1, templates: 1, directPages: 1, writes: 1 });
 });
 
 it("honors the entry redirect using the same rules as funnel selection", async () => {
@@ -250,5 +285,5 @@ it("reads direct sections in page and position order above D1's 100-binding limi
   expect(page_plan?.map((slot) => slot.page_id)).toEqual([
     30, 30, 10, 20, ...Array.from({ length: 101 }, (_, i) => 100 + i), 42,
   ].map((id) => publicId("lgpg", id)));
-  expect(counts()).toEqual({ statements: 20, rounds: 10, rules: 1, templates: 1, directPages: 1, writes: 1 });
+  expect(counts()).toEqual({ statements: 5, rounds: 4, rules: 1, templates: 1, directPages: 1, writes: 1 });
 });

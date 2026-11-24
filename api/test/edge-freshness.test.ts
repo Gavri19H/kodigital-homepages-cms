@@ -35,6 +35,12 @@ describe("edge publish freshness", () => {
     articleId = Number(sql.prepare(`INSERT INTO articles (site_id, slug, title, content_json, status, published_at)
       VALUES (?, 'story', ?, '{"blocks":[]}', 'published', 100)`).run(siteId, oldTitle).lastInsertRowid);
     env = sqliteEnv(sql);
+    // Return each statement's rows inside the SQLite fixture's batch transaction.
+    const batch = env.DB.batch.bind(env.DB);
+    env.DB.batch = <T>(statements: D1PreparedStatement[]) => {
+      for (const statement of statements) statement.run = statement.all.bind(statement);
+      return batch<T>(statements);
+    };
     env.DB.withSession = () => ({
       prepare: env.DB.prepare.bind(env.DB), batch: env.DB.batch.bind(env.DB), getBookmark: () => "0002",
     });
