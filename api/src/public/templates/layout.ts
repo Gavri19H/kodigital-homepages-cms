@@ -15,9 +15,14 @@
 
 import { renderSeoHead, buildCanonicalUrl } from "./seo-head";
 import { publicCss } from "../assets/public-css";
+import { PUBLIC_FONT_FACE_CSS, PUBLIC_FONT_PRELOAD_PATHS } from "../assets/public-fonts.generated";
 import { publicJs } from "../assets/public-js";
 import { ANALYTICS_TRACKING_SCRIPT } from "../../analytics/tracking-script";
 import { siteIconHeadTags, siteBrandColor, absoluteOnHost, uploadedLogoUrl } from "../site-brand";
+
+const fontPreloads = PUBLIC_FONT_PRELOAD_PATHS.map(
+  (path) => `<link rel="preload" as="font" type="font/woff2" crossorigin href="${path}">`,
+).join("\n");
 
 // Keep the filenames served by both releases and version their URLs by content.
 function assetHash(s: string): string {
@@ -258,9 +263,8 @@ ${seoHead}
 ${iconTags}
 ${linkTags}
 ${feedLinks}
-<link rel="preconnect" href="https://fonts.googleapis.com">
-<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
-<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Nunito:wght@700;800;900&family=Nunito+Sans:wght@400;600;700;800&display=swap">
+${fontPreloads}
+<style>${PUBLIC_FONT_FACE_CSS}</style>
 <link rel="stylesheet" href="${PUBLIC_CSS_PATH}">
 ${styleBlock}
 ${jsonLdBlocks}

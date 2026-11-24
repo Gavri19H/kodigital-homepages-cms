@@ -1,4 +1,5 @@
 import type { Env } from "../env";
+import { PUBLIC_FONT_FILES } from "../public/assets/public-fonts.generated";
 import { currentPublicAssetPath } from "../public/templates/layout";
 import { isAdminHost } from "../site/site-context";
 
@@ -12,7 +13,8 @@ export async function serveStatic(
 
   const url = new URL(request.url);
   const versionedPath = currentPublicAssetPath(url);
-  if (!versionedPath && !url.pathname.startsWith("/media/") && !url.pathname.startsWith("/lg/runtime/") &&
+  if (!versionedPath && !PUBLIC_FONT_FILES.has(url.pathname) &&
+      !url.pathname.startsWith("/media/") && !url.pathname.startsWith("/lg/runtime/") &&
       !/^\/assets\/public\.[a-z0-9]+\.(?:css|js)$/.test(url.pathname)) return null;
   if (isAdminHost(url.hostname, env)) return null;
 

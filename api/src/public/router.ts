@@ -21,10 +21,12 @@
 // SiteContext.hostname — the admin host MUST NEVER appear as a canonical.
 
 import { Hono, type Context } from "hono";
+import { decodeBase64 } from "hono/utils/encode";
 import type { Env } from "../env";
 import { listArticles, getArticleBySlug } from "../db";
 import { isReservedPath } from "./reserved";
 import { publicCss } from "./assets/public-css";
+import { PUBLIC_FONT_FILES } from "./assets/public-fonts.generated";
 import { publicJs } from "./assets/public-js";
 import { currentPublicAssetPath } from "./templates/layout";
 import {
@@ -214,6 +216,17 @@ router.get("/assets/:file{public\\.(?:[a-z0-9]+\\.)?(?:css|js)}", (c) => {
     headers: {
       "Content-Type": css ? "text/css; charset=utf-8" : "text/javascript; charset=utf-8",
       "Cache-Control": immutable ? "public, max-age=31536000, immutable" : "public, max-age=86400",
+    },
+  });
+});
+
+router.get("/assets/fonts/:file", (c) => {
+  const base64 = PUBLIC_FONT_FILES.get(c.req.path);
+  if (base64 === undefined) return c.notFound();
+  return new Response(decodeBase64(base64), {
+    headers: {
+      "Content-Type": "font/woff2",
+      "Cache-Control": "public, max-age=31536000, immutable",
     },
   });
 });
