@@ -37,7 +37,9 @@ const snapshot: SiteSnapshot = {
 };
 
 const readDb = vi.fn((): D1Database => { throw new Error("gateway accessed D1"); });
-const env = { ADMIN_HOST: "cms.example", get DB() { return readDb(); } } as Env;
+const env = {
+  ADMIN_HOST: "cms.example", CF_VERSION_METADATA: { id: "serving-version" }, get DB() { return readDb(); },
+} as Env;
 
 interface PageCall { props: PublicPageProps; request: Request }
 type PageHandler = (call: PageCall) => Response | Promise<Response>;
@@ -80,6 +82,25 @@ afterEach(() => {
   vi.restoreAllMocks();
   expect(readDb).not.toHaveBeenCalled();
 });
+
+it.each([["/article/news", 200], ["/health", 302], ["/__snap", 404]] as const)(
+  "reports the answering Worker on override requests to %s", async (path, status) => {
+    const { serve, honoFetch } = harness();
+    honoFetch.mockReturnValue(Response.redirect(origin + "/redirected", 302));
+    const pinned = await serve(visit(path, {
+      headers: { "Cloudflare-Workers-Version-Overrides": 'worker="requested-version"' },
+    }));
+    const visitor = await serve(visit(path));
+    expect(pinned.status).toBe(status);
+    expect(visitor.status).toBe(status);
+    expect(pinned.headers.get("x-worker-version")).toBe("serving-version");
+    expect(visitor.headers.has("x-worker-version")).toBe(false);
+    const headers = new Headers(pinned.headers);
+    headers.delete("x-worker-version");
+    expect([...headers]).toEqual([...visitor.headers]);
+    expect(await pinned.text()).toBe(await visitor.text());
+  },
+);
 
 describe("public page cache keys", () => {
   it.each([
