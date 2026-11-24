@@ -51,7 +51,7 @@ if [[ -z $version && $url != */__edge/tick ]]; then
   if [[ $url == */sitemap.xml ]]; then echo "<urlset><url><loc>https://$host/</loc></url></urlset>"; fi
   exit 0
 fi
-served=$version status=200 cache=HIT
+served=$version status=200 cache=HIT colo=IAD
 if [[ $url == */__edge/tick ]]; then
   [[ $method == POST && $version != old ]] || exit 1
   deployment=$(tail -n1 "$STATE/deploys")
@@ -87,11 +87,30 @@ else
     if [[ ! -e $pages ]]; then status=503 served= cache=; fi
     echo "$status" >> "$pages"
   fi
+  if [[ $version == new && $SCENARIO == colo-* ]]; then
+    # Each host has one page. Its check tick identifies this minute's samples.
+    pages="$STATE/$host.pages.$(<"$STATE/$host.new@10%.new")"
+    n=0
+    if [[ -f $pages ]]; then read -r n < "$pages"; fi
+    echo "$((++n))" > "$pages"
+    case "$SCENARIO/$host" in
+      colo-retry/a.example)
+        colos=(IAD EWR YYZ DFW DFW)
+        if (( n < 5 )); then cache=MISS; fi ;;
+      colo-retry/b.example|colo-unstable/*) colos=(IAD EWR IAD EWR IAD) ;;
+      colo-miss/*)
+        colos=(IAD IAD)
+        if [[ $host == a.example ]]; then cache=MISS; fi ;;
+    esac
+    colo=${colos[n-1]}
+  fi
   printf '<title>same page</title>'
 fi
 format=${format//'%{http_code}'/$status}
 format=${format//'%header{x-worker-version}'/$served}
-printf '%s' "${format//'%header{x-edge-cache}'/$cache}"
+format=${format//'%header{x-edge-cache}'/$cache}
+printf -v ray '%016x-%s' "$$" "$colo"
+printf '%s' "${format//'%header{cf-ray}'/$ray}"
 SH
 chmod +x "$tmp/bin/"{curl,npx}
 
@@ -102,13 +121,14 @@ run_case() {
 }
 rolled_back() {
   local before_rollback=${1:-new@10%}
-  [[ $(cat "$STATE/deploys") == "$before_rollback"$'\nold@100%' ]] && grep -q '^STAGE rollback ok ' "$STATE/log" || exit 1
+  [[ $(cat "$STATE/deploys") == "$before_rollback"$'\nold@100%' ]] || exit 1
+  grep -q '^STAGE rollback ok ' "$STATE/log" || exit 1
 }
 
-run_case delayed
+run_case delayed || exit 1
 [[ $(cat "$STATE/deploys") == $'new@10%\nnew@100%' ]] || exit 1
-grep -q '^Minute 30: new-version 5xx=0, parity mismatches=0$' "$STATE/log"
-grep -q '^STAGE warm ok ' "$STATE/log"
+grep -q '^Minute 30: new-version 5xx=0, parity mismatches=0$' "$STATE/log" || exit 1
+grep -q '^STAGE warm ok ' "$STATE/log" || exit 1
 for host in a.example b.example; do
   ready=6 checks=34  # Four stale replies to the first check tick recover on the fifth try.
   if [[ $host == b.example ]]; then ready=9 checks=30; fi  # A stale 202 resets the propagation streak.
@@ -118,51 +138,75 @@ for host in a.example b.example; do
 done
 echo 'PASS delayed propagation gated both tenants on pinned split ticks and unpinned promotion ticks and completed 30 checks'
 
-if ROLLOUT_PROPAGATION_TIMEOUT_SECONDS=1 run_case never; then exit 1; fi
-grep -q '^b.example: propagation timed out after 1s ' "$STATE/log"
-grep -Eq '^STAGE propagate fail [012]$' "$STATE/log"
-rolled_back
+! ROLLOUT_PROPAGATION_TIMEOUT_SECONDS=1 run_case never || exit 1
+grep -q '^b.example: propagation timed out after 1s ' "$STATE/log" || exit 1
+grep -Eq '^STAGE propagate fail [012]$' "$STATE/log" || exit 1
+rolled_back || exit 1
 echo 'PASS a tenant serving stale ticks timed out on the 1s budget and rolled back'
 
-if ROLLOUT_PROPAGATION_TIMEOUT_SECONDS=1 run_case never-promoted; then exit 1; fi
-grep -q '^STAGE promote ok ' "$STATE/log"
-grep -q '^b.example: propagation timed out after 1s ' "$STATE/log"
-grep -q '^STAGE propagate fail ' "$STATE/log"
+! ROLLOUT_PROPAGATION_TIMEOUT_SECONDS=1 run_case never-promoted || exit 1
+grep -q '^STAGE promote ok ' "$STATE/log" || exit 1
+grep -q '^b.example: propagation timed out after 1s ' "$STATE/log" || exit 1
+grep -q '^STAGE propagate fail ' "$STATE/log" || exit 1
 [[ $(<"$STATE/b.example.new@100%.unpinned") -ge 3 ]] || exit 1
-rolled_back $'new@10%\nnew@100%'
+rolled_back $'new@10%\nnew@100%' || exit 1
 echo 'PASS a tenant still serving the old version on unpinned ticks after promotion timed out and rolled back'
 
 for pin in new old; do
-  if run_case "wrong-$pin"; then exit 1; fi
+  ! run_case "wrong-$pin" || exit 1
   [[ $(wc -l < "$STATE/wrong") -eq 5 ]] || exit 1
-  grep -q "expected Worker $pin after 5 tries, .* (HTTP 200)" "$STATE/log"
-  grep -q '^STAGE check fail ' "$STATE/log"
-  rolled_back
+  grep -q "expected Worker $pin after 5 tries, .* (HTTP 200)" "$STATE/log" || exit 1
+  grep -q '^STAGE check fail ' "$STATE/log" || exit 1
+  rolled_back || exit 1
   echo "PASS five wrong-version HTTP 200 page samples for the $pin pin triggered rollback"
 done
 
-if run_case broken-tick; then exit 1; fi
-grep -q '^a.example: new-version tick returned 503, expected 202$' "$STATE/log"
+! run_case broken-tick || exit 1
+grep -q '^a.example: new-version tick returned 503, expected 202$' "$STATE/log" || exit 1
 [[ $(<"$STATE/a.example.new@10%.new") == 7 ]] || exit 1
-rolled_back
+rolled_back || exit 1
 echo 'PASS a verified HTTP 503 tick triggered immediate rollback'
 
 for stage in check propagate; do
-  if run_case "headerless-$stage-tick"; then exit 1; fi
+  ! run_case "headerless-$stage-tick" || exit 1
   ticks=7
   if [[ $stage == propagate ]]; then ticks=4; fi
-  grep -q "^STAGE $stage fail " "$STATE/log"
-  grep -q '^a.example: new-version tick returned 503, expected 202$' "$STATE/log"
+  grep -q "^STAGE $stage fail " "$STATE/log" || exit 1
+  grep -q '^a.example: new-version tick returned 503, expected 202$' "$STATE/log" || exit 1
   [[ $(<"$STATE/a.example.new@10%.new") == "$ticks" ]] || exit 1
-  rolled_back
+  rolled_back || exit 1
   echo "PASS a new-pinned $stage tick with HTTP 503 and no version header triggered immediate rollback"
 done
 
-if run_case headerless-page; then exit 1; fi
+! run_case headerless-page || exit 1
 [[ $(cat "$STATE"/pages.*) == $'503\n200\n503\n200' ]] || exit 1
 for minute in 1 2; do
-  grep -qx "Minute $minute: new-version 5xx=1, parity mismatches=1" "$STATE/log"
+  grep -qx "Minute $minute: new-version 5xx=1, parity mismatches=1" "$STATE/log" || exit 1
 done
-grep -qx 'Two consecutive checks with new-version 5xx responses' "$STATE/log"
-rolled_back
+grep -qx 'Two consecutive checks with new-version 5xx responses' "$STATE/log" || exit 1
+rolled_back || exit 1
 echo 'PASS two minutes with a headerless HTTP 503 followed by HTTP 200 counted one new-version 5xx each and rolled back'
+
+run_case colo-retry || exit 1
+[[ $(cat "$STATE/deploys") == $'new@10%\nnew@100%' ]] || exit 1
+grep -Fxq 'Minute 30: new-version 5xx=0, parity mismatches=0' "$STATE/log" || exit 1
+[[ $(sort -u "$STATE"/a.example.pages.*) == 5 ]] || exit 1
+[[ $(grep -Fxc 'b.example https://b.example/: no same-colo pair (colos IAD,EWR,IAD,EWR,IAD)' "$STATE/log") == 30 ]] || exit 1
+! grep -Fq 'second request returned x-edge-cache=' "$STATE/log" || exit 1
+echo 'PASS cross-colo misses followed by a same-colo HIT promoted after 30 checks with one unstable URL'
+
+! run_case colo-miss || exit 1
+[[ $(grep -Fxc "a.example https://a.example/: second request returned x-edge-cache='MISS' (colo IAD→IAD)" "$STATE/log") == 3 ]] || exit 1
+grep -Fxq 'Minute 3: new-version 5xx=0, parity mismatches=0' "$STATE/log" || exit 1
+grep -Fxq 'Three consecutive checks with a second-pass cache miss' "$STATE/log" || exit 1
+rolled_back || exit 1
+echo 'PASS three consecutive same-colo second-request misses rolled back'
+
+! run_case colo-unstable || exit 1
+for host in a.example b.example; do
+  [[ $(grep -Fxc "$host https://$host/: no same-colo pair (colos IAD,EWR,IAD,EWR,IAD)" "$STATE/log") == 3 ]] || exit 1
+done
+grep -Fxq 'Minute 3: new-version 5xx=0, parity mismatches=0' "$STATE/log" || exit 1
+grep -Fxq 'Three consecutive checks with a second-pass cache miss' "$STATE/log" || exit 1
+rolled_back || exit 1
+echo 'PASS three consecutive checks with every URL colo-unstable exhausted five samples per URL and rolled back'
