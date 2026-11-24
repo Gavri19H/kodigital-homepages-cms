@@ -37,6 +37,7 @@ while (( $# )); do
     -H) case "$2" in
           'Cloudflare-Workers-Version-Overrides: kodigital-homepages-cms-worker="new"') version=new ;;
           'Cloudflare-Workers-Version-Overrides: kodigital-homepages-cms-worker="old"') version=old ;;
+          'Cloudflare-Workers-Version-Overrides:'*) exit 2 ;;
         esac; shift ;;
     -X) method=$2; shift ;;
     -w) format=$2; shift ;;
@@ -45,23 +46,34 @@ while (( $# )); do
   shift
 done
 host=${url#https://}; host=${host%%/*}
-if [[ -z $version ]]; then
+if [[ -z $version && $url != */__edge/tick ]]; then
   [[ -z $format ]] || exit 2
   if [[ $url == */sitemap.xml ]]; then echo "<urlset><url><loc>https://$host/</loc></url></urlset>"; fi
   exit 0
 fi
-served=$version status=200
+served=$version status=200 cache=HIT
 if [[ $url == */__edge/tick ]]; then
-  [[ $method == POST && $version == new ]]
-  ticks="$STATE/$host.$(tail -n1 "$STATE/deploys")"
+  [[ $method == POST && $version != old ]]
+  deployment=$(tail -n1 "$STATE/deploys")
+  ticks="$STATE/$host.$deployment.${version:-unpinned}"
   n=0
   if [[ -f $ticks ]]; then read -r n < "$ticks"; fi
   echo "$((++n))" > "$ticks"
-  status=202
-  if (( n <= 3 )); then status=404 served=old
-  elif [[ $host == b.example && ( $SCENARIO == never || $n == 6 ) ]]; then served=old
-  elif [[ $host == a.example && $SCENARIO == delayed && $n -ge 7 && $n -le 10 ]]; then status=404 served=old
-  elif [[ $host == a.example && $SCENARIO == broken-tick && $n == 7 ]]; then status=503
+  status=202 served=new
+  if [[ $deployment == new@10% ]]; then
+    [[ $version == new ]]
+    if (( n <= 3 )); then status=404 served=old
+    elif [[ $host == b.example && ( $SCENARIO == never || $n == 6 ) ]]; then served=old
+    elif [[ $host == a.example ]]; then
+      case "$SCENARIO:$n" in
+        delayed:7|delayed:8|delayed:9|delayed:10) status=404 served=old ;;
+        broken-tick:7) status=503 ;;
+        headerless-check-tick:7|headerless-propagate-tick:4) status=503 served= cache= ;;
+      esac
+    fi
+  elif [[ $deployment == new@100% && -z $version ]]; then
+    # A pin already reaches new on the split. Ordinary traffic can still reach old.
+    if (( n <= 3 )) || [[ $host == b.example && ( $SCENARIO == never-promoted || $n == 6 ) ]]; then served=old; fi
   fi
 else
   if [[ $version == old && $host == a.example ]]; then served=; fi  # Legacy baseline.
@@ -69,11 +81,17 @@ else
     if [[ $version == new ]]; then served=old; else served=new; fi
     echo "$served" >> "$STATE/wrong"
   fi
+  if [[ $host == a.example && $version == new && $SCENARIO == headerless-page ]]; then
+    # Each minute starts with a tick. Only its first new-pinned page request fails.
+    pages="$STATE/pages.$(<"$STATE/$host.new@10%.new")"
+    if [[ ! -e $pages ]]; then status=503 served= cache=; fi
+    echo "$status" >> "$pages"
+  fi
   printf '<title>same page</title>'
 fi
 format=${format//'%{http_code}'/$status}
 format=${format//'%header{x-worker-version}'/$served}
-printf '%s' "${format//'%header{x-edge-cache}'/HIT}"
+printf '%s' "${format//'%header{x-edge-cache}'/$cache}"
 SH
 chmod +x "$tmp/bin/"{curl,npx}
 
@@ -83,7 +101,8 @@ run_case() {
   bash "$perf/rollout.sh" production gradual > "$STATE/log" 2>&1
 }
 rolled_back() {
-  [[ $(cat "$STATE/deploys") == $'new@10%\nold@100%' ]] && grep -q '^STAGE rollback ok ' "$STATE/log"
+  local before_rollback=${1:-new@10%}
+  [[ $(cat "$STATE/deploys") == "$before_rollback"$'\nold@100%' ]] && grep -q '^STAGE rollback ok ' "$STATE/log"
 }
 
 run_case delayed
@@ -94,15 +113,24 @@ for host in a.example b.example; do
   ready=6 checks=34  # Four stale replies to the first check tick recover on the fifth try.
   if [[ $host == b.example ]]; then ready=9 checks=30; fi  # A stale 202 resets the propagation streak.
   [[ $(grep -Ec "^PROPAGATED $host [0-9]+$" "$STATE/log") == 2 ]]
-  [[ $(<"$STATE/$host.new@10%") == $((ready + checks)) && $(<"$STATE/$host.new@100%") == "$ready" ]]
+  [[ $(<"$STATE/$host.new@10%.new") == $((ready + checks)) && $(<"$STATE/$host.new@100%.unpinned") == "$ready" ]]
+  [[ ! -e $STATE/$host.new@100%.new ]]
 done
-echo 'PASS delayed propagation gated both tenants after split and promotion and completed 30 checks'
+echo 'PASS delayed propagation gated both tenants on pinned split ticks and unpinned promotion ticks and completed 30 checks'
 
 if ROLLOUT_PROPAGATION_TIMEOUT_SECONDS=1 run_case never; then exit 1; fi
 grep -q '^b.example: propagation timed out after 1s ' "$STATE/log"
 grep -Eq '^STAGE propagate fail [012]$' "$STATE/log"
 rolled_back
 echo 'PASS a tenant serving stale ticks timed out on the 1s budget and rolled back'
+
+if ROLLOUT_PROPAGATION_TIMEOUT_SECONDS=1 run_case never-promoted; then exit 1; fi
+grep -q '^STAGE promote ok ' "$STATE/log"
+grep -q '^b.example: propagation timed out after 1s ' "$STATE/log"
+grep -q '^STAGE propagate fail ' "$STATE/log"
+[[ $(<"$STATE/b.example.new@100%.unpinned") -ge 3 ]]
+rolled_back $'new@10%\nnew@100%'
+echo 'PASS a tenant still serving the old version on unpinned ticks after promotion timed out and rolled back'
 
 for pin in new old; do
   if run_case "wrong-$pin"; then exit 1; fi
@@ -115,6 +143,26 @@ done
 
 if run_case broken-tick; then exit 1; fi
 grep -q '^a.example: new-version tick returned 503, expected 202$' "$STATE/log"
-[[ $(<"$STATE/a.example.new@10%") == 7 ]]
+[[ $(<"$STATE/a.example.new@10%.new") == 7 ]]
 rolled_back
 echo 'PASS a verified HTTP 503 tick triggered immediate rollback'
+
+for stage in check propagate; do
+  if run_case "headerless-$stage-tick"; then exit 1; fi
+  ticks=7
+  if [[ $stage == propagate ]]; then ticks=4; fi
+  grep -q "^STAGE $stage fail " "$STATE/log"
+  grep -q '^a.example: new-version tick returned 503, expected 202$' "$STATE/log"
+  [[ $(<"$STATE/a.example.new@10%.new") == "$ticks" ]]
+  rolled_back
+  echo "PASS a new-pinned $stage tick with HTTP 503 and no version header triggered immediate rollback"
+done
+
+if run_case headerless-page; then exit 1; fi
+[[ $(cat "$STATE"/pages.*) == $'503\n200\n503\n200' ]]
+for minute in 1 2; do
+  grep -qx "Minute $minute: new-version 5xx=1, parity mismatches=1" "$STATE/log"
+done
+grep -qx 'Two consecutive checks with new-version 5xx responses' "$STATE/log"
+rolled_back
+echo 'PASS two minutes with a headerless HTTP 503 followed by HTTP 200 counted one new-version 5xx each and rolled back'

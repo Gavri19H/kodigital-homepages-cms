@@ -98,14 +98,16 @@ def endpoint(url, tenant):
         raise ValueError(f"Invalid URL for tenant {tenant}: {url!r}")
     return parts._replace(scheme="https", netloc=stage_host).geturl() if stage_host else url
 
-def pinned_headers(tenant, version):
-    headers = ["-H", f'Cloudflare-Workers-Version-Overrides: {worker}="{version}"']
+def request_headers(tenant, pin):
+    headers = []
+    if pin is not None:
+        headers.extend(["-H", f'Cloudflare-Workers-Version-Overrides: {worker}="{pin}"'])
     if stage_host:
         headers.extend(["-H", f"x-perfstage-host: {tenant}"])
     return headers
 
-def pinned_request(tenant, url, version, args, timeout=None):
-    output = subprocess.check_output(["curl", "-qsS", *args, *pinned_headers(tenant, version),
+def worker_request(tenant, url, pin, args, timeout=None):
+    output = subprocess.check_output(["curl", "-qsS", *args, *request_headers(tenant, pin),
                                       "-w", "\n%{http_code}\t%header{x-worker-version}\t%header{x-edge-cache}",
                                       "--", url], timeout=timeout)
     body, fields = output.rsplit(b"\n", 1)
@@ -116,16 +118,17 @@ def pinned_request(tenant, url, version, args, timeout=None):
 
 def checked_request(tenant, url, version, args):
     for attempt in range(1, 6):
-        status, served, cache, body = pinned_request(tenant, url, version, args)
-        # The previous version can predate the response header. Only two versions are deployed.
-        if served == version or (version == previous and not served):
+        status, served, cache, body = worker_request(tenant, url, version, args)
+        # The previous Worker can predate the header. Cloudflare can also return a 5xx
+        # before the new Worker sends headers, so let that status reach the check.
+        if served == version or (not served and (version == previous or status >= 500)):
             return status, cache, body
         if attempt < 5:
             time.sleep(poll_seconds)
     sys.exit(f"{tenant}: {url} expected Worker {version} after 5 tries, "
              f"got x-worker-version={served or '<missing>'} (HTTP {status})")
 
-def propagate(groups):
+def propagate(groups, pin):
     started = time.monotonic()
     deadline = started + propagation_timeout
 
@@ -135,8 +138,10 @@ def propagate(groups):
         last = "no response"
         while (remaining := deadline - time.monotonic()) > 0:
             try:
-                status, served, _, _ = pinned_request(tenant, url, new, tick_args, timeout=remaining)
+                status, served, _, _ = worker_request(tenant, url, pin, tick_args, timeout=remaining)
                 last = f"HTTP {status}, x-worker-version={served or '<missing>'}"
+                if status >= 500 and (served == new or (pin == new and not served)):
+                    sys.exit(f"{tenant}: new-version tick returned {status}, expected 202")
                 streak = streak + 1 if status == 202 and served == new else 0
             except subprocess.CalledProcessError as error:
                 last = f"curl exited {error.returncode}"
@@ -275,7 +280,9 @@ if not groups:
     sys.exit("Empty probe URL list")
 
 if action == "propagate":
-    propagate(groups)
+    propagate(groups, new)
+elif action == "propagate-unpinned":
+    propagate(groups, None)
 elif action == "check":
     check_split(groups)
 elif action == "warm":
@@ -318,7 +325,7 @@ probe_tenants check
 next_stage promote
 deploy_versions "$new@100%"
 next_stage propagate
-probe_tenants propagate
+probe_tenants propagate-unpinned
 next_stage warm
 probe_tenants warm || stage_result=fail
 if [[ $mode == rehearsal ]]; then
