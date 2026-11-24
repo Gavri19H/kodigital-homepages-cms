@@ -28,6 +28,7 @@
 //     generateLogoImage/Prompt, generateFeatureImage/Prompt, generateStarterArticlePlan/Article
 
 import { type Env, parseNumber } from "../env";
+import { siteTagsForPublicRow } from "../admin/pages";
 import { onPublicChange } from "../edge/public-change";
 import { hostTag, siteTag } from "../edge/tags";
 import { renderLegalPagesForSite } from "./legal-renderer";
@@ -465,28 +466,38 @@ async function allocateVerticalCategoriesStep(
   const plan = VERTICAL_CATEGORY_PLAN[slug];
   if (plan && plan.length > 0) {
     const allocatedSlugs: string[] = [];
-    for (let i = 0; i < plan.length; i++) {
-      const cat = plan[i]!;
-      await ctx.db
-        .prepare(
-          "INSERT OR IGNORE INTO categories (slug, name, display_order) " +
-            "VALUES (?, ?, ?)",
-        )
-        .bind(cat.slug, cat.name, i)
-        .run();
-      const row = await ctx.db
-        .prepare("SELECT id AS id FROM categories WHERE slug = ? LIMIT 1")
-        .bind(cat.slug)
-        .first<{ id: number }>();
-      if (!row || typeof row.id !== "number") continue;
-      await ctx.db
-        .prepare(
-          "INSERT OR IGNORE INTO site_categories " +
-            "(site_id, category_id, display_order) VALUES (?, ?, ?)",
-        )
-        .bind(ctx.site_id, row.id, i)
-        .run();
-      allocatedSlugs.push(cat.slug);
+    const tags = await siteTagsForPublicRow(ctx.db, null);
+    let createdCategory = false;
+    try {
+      for (let i = 0; i < plan.length; i++) {
+        const cat = plan[i]!;
+        const insert = await ctx.db
+          .prepare(
+            "INSERT OR IGNORE INTO categories (slug, name, display_order) " +
+              "VALUES (?, ?, ?)",
+          )
+          .bind(cat.slug, cat.name, i)
+          .run();
+        if (insert.meta.changes > 0) createdCategory = true;
+        const row = await ctx.db
+          .prepare("SELECT id AS id FROM categories WHERE slug = ? LIMIT 1")
+          .bind(cat.slug)
+          .first<{ id: number }>();
+        if (!row || typeof row.id !== "number") continue;
+        await ctx.db
+          .prepare(
+            "INSERT OR IGNORE INTO site_categories " +
+              "(site_id, category_id, display_order) VALUES (?, ?, ?)",
+          )
+          .bind(ctx.site_id, row.id, i)
+          .run();
+        allocatedSlugs.push(cat.slug);
+      }
+    } finally {
+      // A later allocation can fail after a new global slug has become visible.
+      if (createdCategory) {
+        await onPublicChange(ctx.env, undefined, { siteId: null, tags, reason: "provision.categories.create" });
+      }
     }
     return {
       status: "completed",

@@ -106,11 +106,17 @@ describe("edge purge after a public site write", () => {
   });
 
   it("does not treat a caller's site_id as the owner of global media", async () => {
-    const { env } = fixture([{ ...mediaRow, row: { ...media, site_id: null } }]);
+    const { env } = fixture(
+      [{ ...mediaRow, row: { ...media, site_id: null } }],
+      [{ match: "SELECT id FROM sites", rows: [{ id: siteId }, { id: "Site-B" }] }],
+    );
     env.MEDIA.delete = vi.fn();
     expect((await request(env, "PUT", "/media/7", { site_id: siteId, alt_text: "Shared" })).status).toBe(200);
     expect((await request(env, "DELETE", "/media/7?site_id=" + siteId)).status).toBe(200);
-    expect(onPublicChange).not.toHaveBeenCalled();
+    const tags = ["site:site-a", "site:site-b"];
+    expect(onPublicChange).toHaveBeenCalledTimes(2);
+    expect(onPublicChange).toHaveBeenNthCalledWith(1, env, ctx, { siteId: null, tags, reason: "media.update" });
+    expect(onPublicChange).toHaveBeenNthCalledWith(2, env, ctx, { siteId: null, tags, reason: "media.delete" });
   });
 
   it("purges the newly registered host when creating a site", async () => {

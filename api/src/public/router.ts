@@ -26,7 +26,6 @@ import { listArticles, getArticleBySlug } from "../db";
 import { isReservedPath } from "./reserved";
 import { publicCss } from "./assets/public-css";
 import { publicJs } from "./assets/public-js";
-import { PUBLIC_CSS_PATH, PUBLIC_JS_PATH } from "./templates/layout";
 import {
   renderRssFeed,
   renderAtomFeed,
@@ -204,16 +203,12 @@ router.get("/favicon.ico", async (c) => {
   });
 });
 
-// Handle current and legacy asset names before tenant lookup. An unknown hash
-// can only be fulfilled by an existing Cache API entry from an earlier release.
+// During a rollout, HTML from a previous release can request its hash on a cold edge.
+// Serve the current bundle for every matching hash before tenant lookup.
 router.get("/assets/:file{public\\.(?:[a-z0-9]+\\.)?(?:css|js)}", (c) => {
   const path = c.req.path;
   const css = path.endsWith(".css");
-  const hashed = path === (css ? PUBLIC_CSS_PATH : PUBLIC_JS_PATH);
-  if (!hashed && path !== (css ? "/assets/public.css" : "/assets/public.js")) {
-    c.header("Cache-Control", "no-store");
-    return c.notFound();
-  }
+  const hashed = path !== (css ? "/assets/public.css" : "/assets/public.js");
   return new Response(css ? publicCss : publicJs, {
     headers: {
       "Content-Type": css ? "text/css; charset=utf-8" : "text/javascript; charset=utf-8",

@@ -183,7 +183,7 @@ describe("public files through the gateway", () => {
     expect(put).toHaveBeenCalledTimes(1);
   });
 
-  it("serves a previous release's bytes only on the host that cached them", async () => {
+  it("serves cached previous-release bytes on a warm host and caches the current bundle on a cold host", async () => {
     const { ctx, put } = installCache();
     const path = "/assets/public.oldhash.js";
     const oldOrigin = vi.fn(() => file("previous release"));
@@ -192,11 +192,17 @@ describe("public files through the gateway", () => {
     const old = await worker.fetch(new Request(origin + path + "?v=previous"), env, ctx);
     expect(old.headers.get("x-edge-cache")).toBe("HIT");
     expect(await old.text()).toBe("previous release");
-    const cold = await worker.fetch(new Request("https://other.example" + path), env, ctx);
-    expect(cold.status).toBe(404);
-    expect(cold.headers.get("Cache-Control")).toBe("no-store");
+    const otherUrl = "https://other.example" + path;
+    const cold = await worker.fetch(new Request(otherUrl), env, ctx);
+    expect(cold.status).toBe(200);
+    expect(cold.headers.get("Cache-Control")).toBe(immutable);
     expect(cold.headers.get("x-edge-cache")).toBe("MISS");
-    expect(put).toHaveBeenCalledTimes(1);
+    expect(await cold.text()).toBe(publicJs);
+    await ctx.waitUntil.mock.calls[1]![0];
+    const warm = await worker.fetch(new Request(otherUrl), env, ctx);
+    expect(warm.headers.get("x-edge-cache")).toBe("HIT");
+    expect(await warm.text()).toBe(publicJs);
+    expect(put).toHaveBeenCalledTimes(2);
   });
 
   it("keeps the versioned quote runtime at the edge after the first origin request", async () => {

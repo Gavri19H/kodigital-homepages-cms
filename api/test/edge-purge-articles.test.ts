@@ -48,8 +48,8 @@ describe.skipIf(!hasSqlite)("article write purges through the admin router", () 
     return Number(row.lastInsertRowid);
   }
 
-  function expectChange(reason: string, tags = articleTags) {
-    expect(onPublicChange).toHaveBeenCalledExactlyOnceWith(env, ctx, { siteId, tags, reason });
+  function expectChange(reason: string, tags = articleTags, owner: string | null = siteId) {
+    expect(onPublicChange).toHaveBeenCalledExactlyOnceWith(env, ctx, { siteId: owner, tags, reason });
   }
 
   it.each([null, 2])("purges after article creation with vertical_id %s", async (verticalId) => {
@@ -105,7 +105,7 @@ describe.skipIf(!hasSqlite)("article write purges through the admin router", () 
     expectChange("article.update", ["slug:site-a:intermediate", "slug:site-a:final", "listing:site-a"]);
   });
 
-  it("purges the category's linked site once after multiple verticals are allocated", async () => {
+  it("purges linked and unlinked sites once after multiple verticals are allocated", async () => {
     vi.mocked(onPublicChange).mockImplementationOnce(async () => {
       expect(sql.prepare("SELECT sc.site_id, cv.vertical_id FROM site_categories sc " +
         "JOIN category_verticals cv ON cv.category_id = sc.category_id JOIN categories c ON c.id = sc.category_id " +
@@ -117,10 +117,10 @@ describe.skipIf(!hasSqlite)("article write purges through the admin router", () 
       site_id: siteId, slug: "edge-category", name: "Edge category", vertical_ids: [1, 2],
     });
     expect(res.status).toBe(201);
-    expectChange("category.create", ["listing:site-a", "site:site-a"]);
+    expectChange("category.create", ["site:site-a", "site:site-b"], null);
   });
 
-  it("purges every site linked to a global category at commit", async () => {
+  it("covers both committed site allocations in a single global category purge", async () => {
     // Install a second allocation between the global category insert and the handler's join batch.
     sql.prepare("CREATE TEMP TRIGGER share_category AFTER INSERT ON categories BEGIN " +
       "INSERT INTO site_categories (site_id, category_id) VALUES ('Site-B', NEW.id); END").run();
@@ -128,13 +128,9 @@ describe.skipIf(!hasSqlite)("article write purges through the admin router", () 
       site_id: siteId, slug: "shared", name: "Shared", vertical_ids: [1, 2],
     });
     expect(res.status).toBe(201);
-    expect(onPublicChange).toHaveBeenCalledTimes(2);
-    expect(onPublicChange).toHaveBeenCalledWith(env, ctx, {
-      siteId, tags: ["listing:site-a", "site:site-a"], reason: "category.create",
-    });
-    expect(onPublicChange).toHaveBeenCalledWith(env, ctx, {
-      siteId: "Site-B", tags: ["listing:site-b", "site:site-b"], reason: "category.create",
-    });
+    expect(sql.prepare("SELECT site_id FROM site_categories JOIN categories ON categories.id = category_id " +
+      "WHERE slug = ? ORDER BY site_id").all("shared")).toEqual([{ site_id: siteId }, { site_id: "Site-B" }]);
+    expectChange("category.create", ["site:site-a", "site:site-b"], null);
   });
 
   it("purges site settings once after a multi-key save and its version bump", async () => {

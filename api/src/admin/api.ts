@@ -10,7 +10,8 @@ import { Hono } from "hono";
 import type { Env } from "../env";
 import type { ArticleRow, MediaRow, CategoryRow } from "../db";
 import { onPublicChange } from "../edge/public-change";
-import { listingTag, siteTag } from "../edge/tags";
+import { siteTag } from "../edge/tags";
+import { siteTagsForPublicRow } from "./pages";
 import { purgeArticleChange } from "../workflow/publish";
 import { adminExecutionCtx } from "./workflow-api";
 // T23: settings PATCH boundary hardening — key allow-list + per-field script
@@ -517,6 +518,8 @@ api.post("/api/admin/categories", async (c) => {
     );
   }
 
+  // A category slug is visible to every tenant as soon as the category row exists.
+  const tags = await siteTagsForPublicRow(c.env.DB, null);
   // INSERT category first (need its generated id for the join rows).
   const inserted = await c.env.DB.prepare(
     "INSERT INTO categories (slug, name, description, display_order, show_on_homepage) VALUES (?, ?, ?, ?, ?) RETURNING id, slug, name, description, display_order, show_on_homepage",
@@ -550,21 +553,13 @@ api.post("/api/admin/categories", async (c) => {
     c.env.DB.prepare(
       "INSERT INTO site_categories (site_id, category_id, display_order) VALUES (?, ?, ?)",
     ).bind(siteId, categoryId, displayOrder),
-    c.env.DB.prepare(
-      "SELECT site_id FROM site_categories WHERE category_id = ? AND site_id <> ?",
-    ).bind(categoryId, siteId),
   );
-  // Read any other allocations in the same transaction as the new site link.
-  // (site_id, category_id) is the primary key, so each linked site occurs once.
-  const results = await c.env.DB.batch<{ site_id: string }>(statements);
-  const otherSites = results.at(-1)?.results ?? [];
-  const linkedSiteIds = [siteId, ...otherSites.map(row => row.site_id)];
-  const ctx = adminExecutionCtx(c);
-  await Promise.all(linkedSiteIds.map(linkedSiteId => onPublicChange(c.env, ctx, {
-    siteId: linkedSiteId,
-    tags: [listingTag(linkedSiteId), siteTag(linkedSiteId)],
-    reason: "category.create",
-  })));
+  try {
+    await c.env.DB.batch(statements);
+  } finally {
+    // The global row has already committed even if the allocation batch fails.
+    await onPublicChange(c.env, adminExecutionCtx(c), { siteId: null, tags, reason: "category.create" });
+  }
 
   return c.json(
     {
