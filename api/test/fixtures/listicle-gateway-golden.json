@@ -1,0 +1,847 @@
+[
+  {
+    "name": "west/guide — first visit",
+    "site": "west",
+    "url": "https://west.example/guide",
+    "headers": {},
+    "cf": {},
+    "setCookies": [
+      "ko_sid=6bcfd486-e75e-46ff-8510-000000000001; Path=/; Max-Age=1800; SameSite=Lax",
+      "ko_ver=ver_Z; Path=/; Max-Age=1800; SameSite=Lax",
+      "ko_ctx=%7B%22lander_v%22%3A%22ver_Z%22%7D; Path=/; Max-Age=2592000; SameSite=Lax"
+    ],
+    "contextScript": "<script data-lst=\"ctx\">window._LST_SID=\"6bcfd486-e75e-46ff-8510-000000000001\";window.__LST_CTX={\"device\":\"desktop\",\"os\":\"other\",\"browser\":\"other\",\"hour\":21};window.__LST_EXP={\"experiment_id\":\"exp_11\",\"variant_id\":\"ver_Z\",\"variant_label\":\"Z\",\"split\":35};</script>"
+  },
+  {
+    "name": "west/guide — mobile ad landing",
+    "site": "west",
+    "url": "https://west.example/guide?utm_source=feed&utm_medium=cpc&utm_content=spring+sale&fbclid=F9&sub1=one&sub2=2&sub3=3&sub4=4&sub5=5&lang=es-MX",
+    "headers": {
+      "User-Agent": "Mozilla/5.0 (iPhone; CPU iPhone OS 17_5 like Mac OS X) Version/17.5 Mobile/15E148 Safari/604.1",
+      "Accept-Language": "it-IT"
+    },
+    "cf": {
+      "country": "US",
+      "region": "California",
+      "regionCode": "CA",
+      "city": "San José",
+      "timezone": "Pacific/Honolulu"
+    },
+    "setCookies": [
+      "ko_sid=6bcfd486-e75e-46ff-8510-000000000001; Path=/; Max-Age=1800; SameSite=Lax",
+      "ko_ver=ver_Z; Path=/; Max-Age=1800; SameSite=Lax",
+      "ko_ctx=%7B%22utm_source%22%3A%22feed%22%2C%22utm_medium%22%3A%22cpc%22%2C%22utm_content%22%3A%22spring%20sale%22%2C%22fbclid%22%3A%22F9%22%2C%22sub1%22%3A%22one%22%2C%22sub2%22%3A%222%22%2C%22sub3%22%3A%223%22%2C%22sub4%22%3A%224%22%2C%22sub5%22%3A%225%22%2C%22traffic_source%22%3A%22feed%22%2C%22fbc%22%3A%22fb.1.1795498662123.F9%22%2C%22language%22%3A%22es-MX%22%2C%22lander_v%22%3A%22ver_Z%22%7D; Path=/; Max-Age=2592000; SameSite=Lax"
+    ],
+    "contextScript": "<script data-lst=\"ctx\">window._LST_SID=\"6bcfd486-e75e-46ff-8510-000000000001\";window.__LST_CTX={\"country\":\"US\",\"state\":\"CA\",\"city\":\"San José\",\"device\":\"mobile\",\"os\":\"ios\",\"browser\":\"safari\",\"traffic_source\":\"feed\",\"utm_source\":\"feed\",\"utm_medium\":\"cpc\",\"utm_content\":\"spring sale\",\"language\":\"es-MX\",\"fbc\":\"fb.1.1795498662123.F9\",\"fbclid\":\"F9\",\"sub1\":\"one\",\"sub2\":\"2\",\"sub3\":\"3\",\"sub4\":\"4\",\"sub5\":\"5\",\"hour\":21};window.__LST_EXP={\"experiment_id\":\"exp_11\",\"variant_id\":\"ver_Z\",\"variant_label\":\"Z\",\"split\":35};</script>"
+  },
+  {
+    "name": "west/guide — returning desktop",
+    "site": "west",
+    "url": "https://west.example/guide",
+    "headers": {
+      "Cookie": "ko_ver=obsolete; ko_sid=desktop-1",
+      "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) Chrome/129.0.0.0 Safari/537.36 Edg/129.0",
+      "Accept-Language": "de-DE,de;q=0.8"
+    },
+    "cf": {
+      "country": "DE",
+      "region": "Bavaria",
+      "city": "München"
+    },
+    "setCookies": [
+      "ko_ver=ver_A; Path=/; Max-Age=1800; SameSite=Lax",
+      "ko_ctx=%7B%22language%22%3A%22de-DE%22%2C%22lander_v%22%3A%22ver_A%22%7D; Path=/; Max-Age=2592000; SameSite=Lax"
+    ],
+    "contextScript": "<script data-lst=\"ctx\">window._LST_SID=\"desktop-1\";window.__LST_CTX={\"country\":\"DE\",\"state\":\"Bavaria\",\"city\":\"München\",\"device\":\"desktop\",\"os\":\"windows\",\"browser\":\"edge\",\"language\":\"de-DE\",\"hour\":21};window.__LST_EXP={\"experiment_id\":\"exp_11\",\"variant_id\":\"ver_A\",\"variant_label\":\"A\",\"split\":65};</script>"
+  },
+  {
+    "name": "west/guide — internal navigation",
+    "site": "west",
+    "url": "https://west.example/guide",
+    "headers": {
+      "Cookie": "ko_sid=return-2; ko_ctx=%7B%22utm_source%22%3A%22old%22%2C%22traffic_source%22%3A%22original%22%2C%22fbc%22%3A%22fb.1.123.old%22%2C%22sub2%22%3A%22kept%22%2C%22language%22%3A%22nl%22%2C%22lander_v%22%3A%22ver_previous%22%7D",
+      "Accept-Language": "sv-SE"
+    },
+    "cf": {},
+    "setCookies": [
+      "ko_ver=ver_A; Path=/; Max-Age=1800; SameSite=Lax",
+      "ko_ctx=%7B%22utm_source%22%3A%22old%22%2C%22traffic_source%22%3A%22original%22%2C%22fbc%22%3A%22fb.1.123.old%22%2C%22sub2%22%3A%22kept%22%2C%22language%22%3A%22nl%22%2C%22lander_v%22%3A%22ver_A%22%7D; Path=/; Max-Age=2592000; SameSite=Lax"
+    ],
+    "contextScript": "<script data-lst=\"ctx\">window._LST_SID=\"return-2\";window.__LST_CTX={\"device\":\"desktop\",\"os\":\"other\",\"browser\":\"other\",\"traffic_source\":\"original\",\"utm_source\":\"old\",\"language\":\"nl\",\"fbc\":\"fb.1.123.old\",\"sub2\":\"kept\",\"hour\":21};window.__LST_EXP={\"experiment_id\":\"exp_11\",\"variant_id\":\"ver_A\",\"variant_label\":\"A\",\"split\":65};</script>"
+  },
+  {
+    "name": "west/guide — new campaign over stored context",
+    "site": "west",
+    "url": "https://west.example/guide?utm_source=new&fbclid=new-click&sub1=fresh&sub2=&lang=fr",
+    "headers": {
+      "Cookie": "ko_ctx=%7B%22utm_source%22%3A%22old%22%2C%22traffic_source%22%3A%22original%22%2C%22fbc%22%3A%22fb.1.123.old%22%2C%22sub2%22%3A%22kept%22%2C%22language%22%3A%22nl%22%2C%22lander_v%22%3A%22ver_previous%22%7D; ko_sid=return-3",
+      "User-Agent": "Mozilla/5.0 (iPhone; CPU iPhone OS 17_5 like Mac OS X) Version/17.5 Mobile/15E148 Safari/604.1"
+    },
+    "cf": {},
+    "setCookies": [
+      "ko_ver=ver_Z; Path=/; Max-Age=1800; SameSite=Lax",
+      "ko_ctx=%7B%22utm_source%22%3A%22new%22%2C%22traffic_source%22%3A%22new%22%2C%22fbc%22%3A%22fb.1.123.old%22%2C%22sub2%22%3A%22kept%22%2C%22language%22%3A%22fr%22%2C%22lander_v%22%3A%22ver_Z%22%2C%22fbclid%22%3A%22new-click%22%2C%22sub1%22%3A%22fresh%22%7D; Path=/; Max-Age=2592000; SameSite=Lax"
+    ],
+    "contextScript": "<script data-lst=\"ctx\">window._LST_SID=\"return-3\";window.__LST_CTX={\"device\":\"mobile\",\"os\":\"ios\",\"browser\":\"safari\",\"traffic_source\":\"new\",\"utm_source\":\"new\",\"language\":\"fr\",\"fbc\":\"fb.1.123.old\",\"fbclid\":\"new-click\",\"sub1\":\"fresh\",\"sub2\":\"kept\",\"hour\":21};window.__LST_EXP={\"experiment_id\":\"exp_11\",\"variant_id\":\"ver_Z\",\"variant_label\":\"Z\",\"split\":35};</script>"
+  },
+  {
+    "name": "west/guide — explicit attribution and language",
+    "site": "west",
+    "url": "https://west.example/guide?traffic_source=paid&utm_source=email&placement=story&cpc=0.45&fbc=fb.1.456.given&fbclid=independent&lang=it&language=he",
+    "headers": {
+      "Cookie": "ko_sid=return-4",
+      "Accept-Language": "tr"
+    },
+    "cf": {
+      "country": "IL",
+      "regionCode": "",
+      "region": "Tel Aviv",
+      "city": "Tel Aviv"
+    },
+    "setCookies": [
+      "ko_ver=ver_Z; Path=/; Max-Age=1800; SameSite=Lax",
+      "ko_ctx=%7B%22utm_source%22%3A%22email%22%2C%22traffic_source%22%3A%22paid%22%2C%22placement%22%3A%22story%22%2C%22cpc%22%3A%220.45%22%2C%22fbclid%22%3A%22independent%22%2C%22fbc%22%3A%22fb.1.456.given%22%2C%22language%22%3A%22he%22%2C%22lander_v%22%3A%22ver_Z%22%7D; Path=/; Max-Age=2592000; SameSite=Lax"
+    ],
+    "contextScript": "<script data-lst=\"ctx\">window._LST_SID=\"return-4\";window.__LST_CTX={\"country\":\"IL\",\"state\":\"Tel Aviv\",\"city\":\"Tel Aviv\",\"device\":\"desktop\",\"os\":\"other\",\"browser\":\"other\",\"traffic_source\":\"paid\",\"placement\":\"story\",\"utm_source\":\"email\",\"language\":\"he\",\"cpc\":\"0.45\",\"fbc\":\"fb.1.456.given\",\"fbclid\":\"independent\",\"hour\":21};window.__LST_EXP={\"experiment_id\":\"exp_11\",\"variant_id\":\"ver_Z\",\"variant_label\":\"Z\",\"split\":35};</script>"
+  },
+  {
+    "name": "west/guide — repeated and encoded parameters",
+    "site": "west",
+    "url": "https://west.example/guide?utm%5Fsource=first&utm_source=second&sub1=a+b%2Bc&sub2=%E4%ZZ&language=&lang=skipped",
+    "headers": {
+      "Cookie": "ko_sid=first-sid; ko_sid=second-sid",
+      "Accept-Language": "pt-BR;q=0.9,en"
+    },
+    "cf": {},
+    "setCookies": [
+      "ko_ver=ver_A; Path=/; Max-Age=1800; SameSite=Lax",
+      "ko_ctx=%7B%22utm_source%22%3A%22first%22%2C%22sub1%22%3A%22a%20b%2Bc%22%2C%22sub2%22%3A%22%25E4%25ZZ%22%2C%22traffic_source%22%3A%22first%22%2C%22language%22%3A%22pt-BR%22%2C%22lander_v%22%3A%22ver_A%22%7D; Path=/; Max-Age=2592000; SameSite=Lax"
+    ],
+    "contextScript": "<script data-lst=\"ctx\">window._LST_SID=\"first-sid\";window.__LST_CTX={\"device\":\"desktop\",\"os\":\"other\",\"browser\":\"other\",\"traffic_source\":\"first\",\"utm_source\":\"first\",\"language\":\"pt-BR\",\"sub1\":\"a b+c\",\"sub2\":\"%E4%ZZ\",\"hour\":21};window.__LST_EXP={\"experiment_id\":\"exp_11\",\"variant_id\":\"ver_A\",\"variant_label\":\"A\",\"split\":65};</script>"
+  },
+  {
+    "name": "west/guide — empty session and corrupt context",
+    "site": "west",
+    "url": "https://west.example/guide?fbclid=click-on-return",
+    "headers": {
+      "Cookie": "ko_sid=; ko_ctx=%E0%A4%A",
+      "Accept-Language": "*;q=0.9"
+    },
+    "cf": {},
+    "setCookies": [
+      "ko_sid=6bcfd486-e75e-46ff-8510-000000000001; Path=/; Max-Age=1800; SameSite=Lax",
+      "ko_ver=ver_Z; Path=/; Max-Age=1800; SameSite=Lax",
+      "ko_ctx=%7B%22fbclid%22%3A%22click-on-return%22%2C%22fbc%22%3A%22fb.1.1795498662123.click-on-return%22%2C%22lander_v%22%3A%22ver_Z%22%7D; Path=/; Max-Age=2592000; SameSite=Lax"
+    ],
+    "contextScript": "<script data-lst=\"ctx\">window._LST_SID=\"6bcfd486-e75e-46ff-8510-000000000001\";window.__LST_CTX={\"device\":\"desktop\",\"os\":\"other\",\"browser\":\"other\",\"fbc\":\"fb.1.1795498662123.click-on-return\",\"fbclid\":\"click-on-return\",\"hour\":21};window.__LST_EXP={\"experiment_id\":\"exp_11\",\"variant_id\":\"ver_Z\",\"variant_label\":\"Z\",\"split\":35};</script>"
+  },
+  {
+    "name": "west/guide — unicode session and inline script escaping",
+    "site": "west",
+    "url": "https://west.example/guide?utm_content=%3C%2Fscript%3E&sub3=%24%26&placement=caf%C3%A9",
+    "headers": {
+      "Cookie": "ko_sid=visit%C3%A9%2F%E6%97%A5",
+      "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) Chrome/129.0.0.0 Safari/537.36 Edg/129.0"
+    },
+    "cf": {
+      "country": "JP",
+      "regionCode": "13",
+      "city": "東京"
+    },
+    "setCookies": [
+      "ko_ver=ver_A; Path=/; Max-Age=1800; SameSite=Lax",
+      "ko_ctx=%7B%22utm_content%22%3A%22%3C%2Fscript%3E%22%2C%22placement%22%3A%22caf%C3%A9%22%2C%22sub3%22%3A%22%24%26%22%2C%22lander_v%22%3A%22ver_A%22%7D; Path=/; Max-Age=2592000; SameSite=Lax"
+    ],
+    "contextScript": "<script data-lst=\"ctx\">window._LST_SID=\"visité/日\";window.__LST_CTX={\"country\":\"JP\",\"state\":\"13\",\"city\":\"東京\",\"device\":\"desktop\",\"os\":\"windows\",\"browser\":\"edge\",\"placement\":\"café\",\"utm_content\":\"\\u003c/script>\",\"sub3\":\"$&\",\"hour\":21};window.__LST_EXP={\"experiment_id\":\"exp_11\",\"variant_id\":\"ver_A\",\"variant_label\":\"A\",\"split\":65};</script>"
+  },
+  {
+    "name": "west/guide — encoded prior context and clamped value",
+    "site": "west",
+    "url": "https://west.example/guide?sub5=xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx",
+    "headers": {
+      "Cookie": "ko_ctx=%7B%22sub4%22%3A%22a%252Bb%22%2C%22language%22%3A%22fr-CA%22%7D; ko_sid=last; ko_ctx=%7B%22utm_source%22%3A%22old%22%2C%22traffic_source%22%3A%22original%22%2C%22fbc%22%3A%22fb.1.123.old%22%2C%22sub2%22%3A%22kept%22%2C%22language%22%3A%22nl%22%2C%22lander_v%22%3A%22ver_previous%22%7D"
+    },
+    "cf": {},
+    "setCookies": [
+      "ko_ver=ver_A; Path=/; Max-Age=1800; SameSite=Lax",
+      "ko_ctx=%7B%22sub4%22%3A%22a%2Bb%22%2C%22language%22%3A%22fr-CA%22%2C%22sub5%22%3A%22xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx%22%2C%22lander_v%22%3A%22ver_A%22%7D; Path=/; Max-Age=2592000; SameSite=Lax"
+    ],
+    "contextScript": "<script data-lst=\"ctx\">window._LST_SID=\"last\";window.__LST_CTX={\"device\":\"desktop\",\"os\":\"other\",\"browser\":\"other\",\"language\":\"fr-CA\",\"sub4\":\"a+b\",\"sub5\":\"xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx\",\"hour\":21};window.__LST_EXP={\"experiment_id\":\"exp_11\",\"variant_id\":\"ver_A\",\"variant_label\":\"A\",\"split\":65};</script>"
+  },
+  {
+    "name": "east/guide — first visit",
+    "site": "east",
+    "url": "https://east.example/guide",
+    "headers": {},
+    "cf": {},
+    "setCookies": [
+      "ko_sid=6bcfd486-e75e-46ff-8510-000000000001; Path=/; Max-Age=1800; SameSite=Lax",
+      "ko_ver=ver_east; Path=/; Max-Age=1800; SameSite=Lax",
+      "ko_ctx=%7B%22language%22%3A%22ja%22%2C%22lander_v%22%3A%22ver_east%22%7D; Path=/; Max-Age=2592000; SameSite=Lax"
+    ],
+    "contextScript": "<script data-lst=\"ctx\">window._LST_SID=\"6bcfd486-e75e-46ff-8510-000000000001\";window.__LST_CTX={\"device\":\"desktop\",\"os\":\"other\",\"browser\":\"other\",\"language\":\"ja\",\"hour\":14};</script>"
+  },
+  {
+    "name": "east/guide — mobile ad landing",
+    "site": "east",
+    "url": "https://east.example/guide?utm_source=feed&utm_medium=cpc&utm_content=spring+sale&fbclid=F9&sub1=one&sub2=2&sub3=3&sub4=4&sub5=5&lang=es-MX",
+    "headers": {
+      "User-Agent": "Mozilla/5.0 (iPhone; CPU iPhone OS 17_5 like Mac OS X) Version/17.5 Mobile/15E148 Safari/604.1",
+      "Accept-Language": "it-IT"
+    },
+    "cf": {
+      "country": "US",
+      "region": "California",
+      "regionCode": "CA",
+      "city": "San José",
+      "timezone": "Pacific/Honolulu"
+    },
+    "setCookies": [
+      "ko_sid=6bcfd486-e75e-46ff-8510-000000000001; Path=/; Max-Age=1800; SameSite=Lax",
+      "ko_ver=ver_east; Path=/; Max-Age=1800; SameSite=Lax",
+      "ko_ctx=%7B%22utm_source%22%3A%22feed%22%2C%22utm_medium%22%3A%22cpc%22%2C%22utm_content%22%3A%22spring%20sale%22%2C%22fbclid%22%3A%22F9%22%2C%22sub1%22%3A%22one%22%2C%22sub2%22%3A%222%22%2C%22sub3%22%3A%223%22%2C%22sub4%22%3A%224%22%2C%22sub5%22%3A%225%22%2C%22traffic_source%22%3A%22feed%22%2C%22fbc%22%3A%22fb.1.1795498662123.F9%22%2C%22language%22%3A%22es-MX%22%2C%22lander_v%22%3A%22ver_east%22%7D; Path=/; Max-Age=2592000; SameSite=Lax"
+    ],
+    "contextScript": "<script data-lst=\"ctx\">window._LST_SID=\"6bcfd486-e75e-46ff-8510-000000000001\";window.__LST_CTX={\"country\":\"US\",\"state\":\"CA\",\"city\":\"San José\",\"device\":\"mobile\",\"os\":\"ios\",\"browser\":\"safari\",\"traffic_source\":\"feed\",\"utm_source\":\"feed\",\"utm_medium\":\"cpc\",\"utm_content\":\"spring sale\",\"language\":\"es-MX\",\"fbc\":\"fb.1.1795498662123.F9\",\"fbclid\":\"F9\",\"sub1\":\"one\",\"sub2\":\"2\",\"sub3\":\"3\",\"sub4\":\"4\",\"sub5\":\"5\",\"hour\":14};</script>"
+  },
+  {
+    "name": "east/guide — returning desktop",
+    "site": "east",
+    "url": "https://east.example/guide",
+    "headers": {
+      "Cookie": "ko_ver=obsolete; ko_sid=desktop-1",
+      "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) Chrome/129.0.0.0 Safari/537.36 Edg/129.0",
+      "Accept-Language": "de-DE,de;q=0.8"
+    },
+    "cf": {
+      "country": "DE",
+      "region": "Bavaria",
+      "city": "München"
+    },
+    "setCookies": [
+      "ko_ver=ver_east; Path=/; Max-Age=1800; SameSite=Lax",
+      "ko_ctx=%7B%22language%22%3A%22ja%22%2C%22lander_v%22%3A%22ver_east%22%7D; Path=/; Max-Age=2592000; SameSite=Lax"
+    ],
+    "contextScript": "<script data-lst=\"ctx\">window._LST_SID=\"desktop-1\";window.__LST_CTX={\"country\":\"DE\",\"state\":\"Bavaria\",\"city\":\"München\",\"device\":\"desktop\",\"os\":\"windows\",\"browser\":\"edge\",\"language\":\"ja\",\"hour\":14};</script>"
+  },
+  {
+    "name": "east/guide — internal navigation",
+    "site": "east",
+    "url": "https://east.example/guide",
+    "headers": {
+      "Cookie": "ko_sid=return-2; ko_ctx=%7B%22utm_source%22%3A%22old%22%2C%22traffic_source%22%3A%22original%22%2C%22fbc%22%3A%22fb.1.123.old%22%2C%22sub2%22%3A%22kept%22%2C%22language%22%3A%22nl%22%2C%22lander_v%22%3A%22ver_previous%22%7D",
+      "Accept-Language": "sv-SE"
+    },
+    "cf": {},
+    "setCookies": [
+      "ko_ver=ver_east; Path=/; Max-Age=1800; SameSite=Lax",
+      "ko_ctx=%7B%22utm_source%22%3A%22old%22%2C%22traffic_source%22%3A%22original%22%2C%22fbc%22%3A%22fb.1.123.old%22%2C%22sub2%22%3A%22kept%22%2C%22language%22%3A%22nl%22%2C%22lander_v%22%3A%22ver_east%22%7D; Path=/; Max-Age=2592000; SameSite=Lax"
+    ],
+    "contextScript": "<script data-lst=\"ctx\">window._LST_SID=\"return-2\";window.__LST_CTX={\"device\":\"desktop\",\"os\":\"other\",\"browser\":\"other\",\"traffic_source\":\"original\",\"utm_source\":\"old\",\"language\":\"nl\",\"fbc\":\"fb.1.123.old\",\"sub2\":\"kept\",\"hour\":14};</script>"
+  },
+  {
+    "name": "east/guide — new campaign over stored context",
+    "site": "east",
+    "url": "https://east.example/guide?utm_source=new&fbclid=new-click&sub1=fresh&sub2=&lang=fr",
+    "headers": {
+      "Cookie": "ko_ctx=%7B%22utm_source%22%3A%22old%22%2C%22traffic_source%22%3A%22original%22%2C%22fbc%22%3A%22fb.1.123.old%22%2C%22sub2%22%3A%22kept%22%2C%22language%22%3A%22nl%22%2C%22lander_v%22%3A%22ver_previous%22%7D; ko_sid=return-3",
+      "User-Agent": "Mozilla/5.0 (iPhone; CPU iPhone OS 17_5 like Mac OS X) Version/17.5 Mobile/15E148 Safari/604.1"
+    },
+    "cf": {},
+    "setCookies": [
+      "ko_ver=ver_east; Path=/; Max-Age=1800; SameSite=Lax",
+      "ko_ctx=%7B%22utm_source%22%3A%22new%22%2C%22traffic_source%22%3A%22new%22%2C%22fbc%22%3A%22fb.1.123.old%22%2C%22sub2%22%3A%22kept%22%2C%22language%22%3A%22fr%22%2C%22lander_v%22%3A%22ver_east%22%2C%22fbclid%22%3A%22new-click%22%2C%22sub1%22%3A%22fresh%22%7D; Path=/; Max-Age=2592000; SameSite=Lax"
+    ],
+    "contextScript": "<script data-lst=\"ctx\">window._LST_SID=\"return-3\";window.__LST_CTX={\"device\":\"mobile\",\"os\":\"ios\",\"browser\":\"safari\",\"traffic_source\":\"new\",\"utm_source\":\"new\",\"language\":\"fr\",\"fbc\":\"fb.1.123.old\",\"fbclid\":\"new-click\",\"sub1\":\"fresh\",\"sub2\":\"kept\",\"hour\":14};</script>"
+  },
+  {
+    "name": "east/guide — explicit attribution and language",
+    "site": "east",
+    "url": "https://east.example/guide?traffic_source=paid&utm_source=email&placement=story&cpc=0.45&fbc=fb.1.456.given&fbclid=independent&lang=it&language=he",
+    "headers": {
+      "Cookie": "ko_sid=return-4",
+      "Accept-Language": "tr"
+    },
+    "cf": {
+      "country": "IL",
+      "regionCode": "",
+      "region": "Tel Aviv",
+      "city": "Tel Aviv"
+    },
+    "setCookies": [
+      "ko_ver=ver_east; Path=/; Max-Age=1800; SameSite=Lax",
+      "ko_ctx=%7B%22utm_source%22%3A%22email%22%2C%22traffic_source%22%3A%22paid%22%2C%22placement%22%3A%22story%22%2C%22cpc%22%3A%220.45%22%2C%22fbclid%22%3A%22independent%22%2C%22fbc%22%3A%22fb.1.456.given%22%2C%22language%22%3A%22he%22%2C%22lander_v%22%3A%22ver_east%22%7D; Path=/; Max-Age=2592000; SameSite=Lax"
+    ],
+    "contextScript": "<script data-lst=\"ctx\">window._LST_SID=\"return-4\";window.__LST_CTX={\"country\":\"IL\",\"state\":\"Tel Aviv\",\"city\":\"Tel Aviv\",\"device\":\"desktop\",\"os\":\"other\",\"browser\":\"other\",\"traffic_source\":\"paid\",\"placement\":\"story\",\"utm_source\":\"email\",\"language\":\"he\",\"cpc\":\"0.45\",\"fbc\":\"fb.1.456.given\",\"fbclid\":\"independent\",\"hour\":14};</script>"
+  },
+  {
+    "name": "east/guide — repeated and encoded parameters",
+    "site": "east",
+    "url": "https://east.example/guide?utm%5Fsource=first&utm_source=second&sub1=a+b%2Bc&sub2=%E4%ZZ&language=&lang=skipped",
+    "headers": {
+      "Cookie": "ko_sid=first-sid; ko_sid=second-sid",
+      "Accept-Language": "pt-BR;q=0.9,en"
+    },
+    "cf": {},
+    "setCookies": [
+      "ko_ver=ver_east; Path=/; Max-Age=1800; SameSite=Lax",
+      "ko_ctx=%7B%22utm_source%22%3A%22first%22%2C%22sub1%22%3A%22a%20b%2Bc%22%2C%22sub2%22%3A%22%25E4%25ZZ%22%2C%22traffic_source%22%3A%22first%22%2C%22language%22%3A%22ja%22%2C%22lander_v%22%3A%22ver_east%22%7D; Path=/; Max-Age=2592000; SameSite=Lax"
+    ],
+    "contextScript": "<script data-lst=\"ctx\">window._LST_SID=\"first-sid\";window.__LST_CTX={\"device\":\"desktop\",\"os\":\"other\",\"browser\":\"other\",\"traffic_source\":\"first\",\"utm_source\":\"first\",\"language\":\"ja\",\"sub1\":\"a b+c\",\"sub2\":\"%E4%ZZ\",\"hour\":14};</script>"
+  },
+  {
+    "name": "east/guide — empty session and corrupt context",
+    "site": "east",
+    "url": "https://east.example/guide?fbclid=click-on-return",
+    "headers": {
+      "Cookie": "ko_sid=; ko_ctx=%E0%A4%A",
+      "Accept-Language": "*;q=0.9"
+    },
+    "cf": {},
+    "setCookies": [
+      "ko_sid=6bcfd486-e75e-46ff-8510-000000000001; Path=/; Max-Age=1800; SameSite=Lax",
+      "ko_ver=ver_east; Path=/; Max-Age=1800; SameSite=Lax",
+      "ko_ctx=%7B%22fbclid%22%3A%22click-on-return%22%2C%22fbc%22%3A%22fb.1.1795498662123.click-on-return%22%2C%22language%22%3A%22ja%22%2C%22lander_v%22%3A%22ver_east%22%7D; Path=/; Max-Age=2592000; SameSite=Lax"
+    ],
+    "contextScript": "<script data-lst=\"ctx\">window._LST_SID=\"6bcfd486-e75e-46ff-8510-000000000001\";window.__LST_CTX={\"device\":\"desktop\",\"os\":\"other\",\"browser\":\"other\",\"language\":\"ja\",\"fbc\":\"fb.1.1795498662123.click-on-return\",\"fbclid\":\"click-on-return\",\"hour\":14};</script>"
+  },
+  {
+    "name": "east/guide — unicode session and inline script escaping",
+    "site": "east",
+    "url": "https://east.example/guide?utm_content=%3C%2Fscript%3E&sub3=%24%26&placement=caf%C3%A9",
+    "headers": {
+      "Cookie": "ko_sid=visit%C3%A9%2F%E6%97%A5",
+      "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) Chrome/129.0.0.0 Safari/537.36 Edg/129.0"
+    },
+    "cf": {
+      "country": "JP",
+      "regionCode": "13",
+      "city": "東京"
+    },
+    "setCookies": [
+      "ko_ver=ver_east; Path=/; Max-Age=1800; SameSite=Lax",
+      "ko_ctx=%7B%22utm_content%22%3A%22%3C%2Fscript%3E%22%2C%22placement%22%3A%22caf%C3%A9%22%2C%22sub3%22%3A%22%24%26%22%2C%22language%22%3A%22ja%22%2C%22lander_v%22%3A%22ver_east%22%7D; Path=/; Max-Age=2592000; SameSite=Lax"
+    ],
+    "contextScript": "<script data-lst=\"ctx\">window._LST_SID=\"visité/日\";window.__LST_CTX={\"country\":\"JP\",\"state\":\"13\",\"city\":\"東京\",\"device\":\"desktop\",\"os\":\"windows\",\"browser\":\"edge\",\"placement\":\"café\",\"utm_content\":\"\\u003c/script>\",\"language\":\"ja\",\"sub3\":\"$&\",\"hour\":14};</script>"
+  },
+  {
+    "name": "east/guide — encoded prior context and clamped value",
+    "site": "east",
+    "url": "https://east.example/guide?sub5=xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx",
+    "headers": {
+      "Cookie": "ko_ctx=%7B%22sub4%22%3A%22a%252Bb%22%2C%22language%22%3A%22fr-CA%22%7D; ko_sid=last; ko_ctx=%7B%22utm_source%22%3A%22old%22%2C%22traffic_source%22%3A%22original%22%2C%22fbc%22%3A%22fb.1.123.old%22%2C%22sub2%22%3A%22kept%22%2C%22language%22%3A%22nl%22%2C%22lander_v%22%3A%22ver_previous%22%7D"
+    },
+    "cf": {},
+    "setCookies": [
+      "ko_ver=ver_east; Path=/; Max-Age=1800; SameSite=Lax",
+      "ko_ctx=%7B%22sub4%22%3A%22a%2Bb%22%2C%22language%22%3A%22fr-CA%22%2C%22sub5%22%3A%22xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx%22%2C%22lander_v%22%3A%22ver_east%22%7D; Path=/; Max-Age=2592000; SameSite=Lax"
+    ],
+    "contextScript": "<script data-lst=\"ctx\">window._LST_SID=\"last\";window.__LST_CTX={\"device\":\"desktop\",\"os\":\"other\",\"browser\":\"other\",\"language\":\"fr-CA\",\"sub4\":\"a+b\",\"sub5\":\"xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx\",\"hour\":14};</script>"
+  },
+  {
+    "name": "west/stopped — first visit",
+    "site": "west",
+    "url": "https://west.example/stopped",
+    "headers": {},
+    "cf": {},
+    "setCookies": [
+      "ko_sid=6bcfd486-e75e-46ff-8510-000000000001; Path=/; Max-Age=1800; SameSite=Lax",
+      "ko_ver=ver_stopped_A; Path=/; Max-Age=1800; SameSite=Lax",
+      "ko_ctx=%7B%22lander_v%22%3A%22ver_stopped_A%22%7D; Path=/; Max-Age=2592000; SameSite=Lax"
+    ],
+    "contextScript": "<script data-lst=\"ctx\">window._LST_SID=\"6bcfd486-e75e-46ff-8510-000000000001\";window.__LST_CTX={\"device\":\"desktop\",\"os\":\"other\",\"browser\":\"other\",\"hour\":21};</script>"
+  },
+  {
+    "name": "west/stopped — mobile ad landing",
+    "site": "west",
+    "url": "https://west.example/stopped?utm_source=feed&utm_medium=cpc&utm_content=spring+sale&fbclid=F9&sub1=one&sub2=2&sub3=3&sub4=4&sub5=5&lang=es-MX",
+    "headers": {
+      "User-Agent": "Mozilla/5.0 (iPhone; CPU iPhone OS 17_5 like Mac OS X) Version/17.5 Mobile/15E148 Safari/604.1",
+      "Accept-Language": "it-IT"
+    },
+    "cf": {
+      "country": "US",
+      "region": "California",
+      "regionCode": "CA",
+      "city": "San José",
+      "timezone": "Pacific/Honolulu"
+    },
+    "setCookies": [
+      "ko_sid=6bcfd486-e75e-46ff-8510-000000000001; Path=/; Max-Age=1800; SameSite=Lax",
+      "ko_ver=ver_stopped_A; Path=/; Max-Age=1800; SameSite=Lax",
+      "ko_ctx=%7B%22utm_source%22%3A%22feed%22%2C%22utm_medium%22%3A%22cpc%22%2C%22utm_content%22%3A%22spring%20sale%22%2C%22fbclid%22%3A%22F9%22%2C%22sub1%22%3A%22one%22%2C%22sub2%22%3A%222%22%2C%22sub3%22%3A%223%22%2C%22sub4%22%3A%224%22%2C%22sub5%22%3A%225%22%2C%22traffic_source%22%3A%22feed%22%2C%22fbc%22%3A%22fb.1.1795498662123.F9%22%2C%22language%22%3A%22es-MX%22%2C%22lander_v%22%3A%22ver_stopped_A%22%7D; Path=/; Max-Age=2592000; SameSite=Lax"
+    ],
+    "contextScript": "<script data-lst=\"ctx\">window._LST_SID=\"6bcfd486-e75e-46ff-8510-000000000001\";window.__LST_CTX={\"country\":\"US\",\"state\":\"CA\",\"city\":\"San José\",\"device\":\"mobile\",\"os\":\"ios\",\"browser\":\"safari\",\"traffic_source\":\"feed\",\"utm_source\":\"feed\",\"utm_medium\":\"cpc\",\"utm_content\":\"spring sale\",\"language\":\"es-MX\",\"fbc\":\"fb.1.1795498662123.F9\",\"fbclid\":\"F9\",\"sub1\":\"one\",\"sub2\":\"2\",\"sub3\":\"3\",\"sub4\":\"4\",\"sub5\":\"5\",\"hour\":21};</script>"
+  },
+  {
+    "name": "west/stopped — returning desktop",
+    "site": "west",
+    "url": "https://west.example/stopped",
+    "headers": {
+      "Cookie": "ko_ver=obsolete; ko_sid=desktop-1",
+      "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) Chrome/129.0.0.0 Safari/537.36 Edg/129.0",
+      "Accept-Language": "de-DE,de;q=0.8"
+    },
+    "cf": {
+      "country": "DE",
+      "region": "Bavaria",
+      "city": "München"
+    },
+    "setCookies": [
+      "ko_ver=ver_stopped_A; Path=/; Max-Age=1800; SameSite=Lax",
+      "ko_ctx=%7B%22language%22%3A%22de-DE%22%2C%22lander_v%22%3A%22ver_stopped_A%22%7D; Path=/; Max-Age=2592000; SameSite=Lax"
+    ],
+    "contextScript": "<script data-lst=\"ctx\">window._LST_SID=\"desktop-1\";window.__LST_CTX={\"country\":\"DE\",\"state\":\"Bavaria\",\"city\":\"München\",\"device\":\"desktop\",\"os\":\"windows\",\"browser\":\"edge\",\"language\":\"de-DE\",\"hour\":21};</script>"
+  },
+  {
+    "name": "west/stopped — internal navigation",
+    "site": "west",
+    "url": "https://west.example/stopped",
+    "headers": {
+      "Cookie": "ko_sid=return-2; ko_ctx=%7B%22utm_source%22%3A%22old%22%2C%22traffic_source%22%3A%22original%22%2C%22fbc%22%3A%22fb.1.123.old%22%2C%22sub2%22%3A%22kept%22%2C%22language%22%3A%22nl%22%2C%22lander_v%22%3A%22ver_previous%22%7D",
+      "Accept-Language": "sv-SE"
+    },
+    "cf": {},
+    "setCookies": [
+      "ko_ver=ver_stopped_A; Path=/; Max-Age=1800; SameSite=Lax",
+      "ko_ctx=%7B%22utm_source%22%3A%22old%22%2C%22traffic_source%22%3A%22original%22%2C%22fbc%22%3A%22fb.1.123.old%22%2C%22sub2%22%3A%22kept%22%2C%22language%22%3A%22nl%22%2C%22lander_v%22%3A%22ver_stopped_A%22%7D; Path=/; Max-Age=2592000; SameSite=Lax"
+    ],
+    "contextScript": "<script data-lst=\"ctx\">window._LST_SID=\"return-2\";window.__LST_CTX={\"device\":\"desktop\",\"os\":\"other\",\"browser\":\"other\",\"traffic_source\":\"original\",\"utm_source\":\"old\",\"language\":\"nl\",\"fbc\":\"fb.1.123.old\",\"sub2\":\"kept\",\"hour\":21};</script>"
+  },
+  {
+    "name": "west/stopped — new campaign over stored context",
+    "site": "west",
+    "url": "https://west.example/stopped?utm_source=new&fbclid=new-click&sub1=fresh&sub2=&lang=fr",
+    "headers": {
+      "Cookie": "ko_ctx=%7B%22utm_source%22%3A%22old%22%2C%22traffic_source%22%3A%22original%22%2C%22fbc%22%3A%22fb.1.123.old%22%2C%22sub2%22%3A%22kept%22%2C%22language%22%3A%22nl%22%2C%22lander_v%22%3A%22ver_previous%22%7D; ko_sid=return-3",
+      "User-Agent": "Mozilla/5.0 (iPhone; CPU iPhone OS 17_5 like Mac OS X) Version/17.5 Mobile/15E148 Safari/604.1"
+    },
+    "cf": {},
+    "setCookies": [
+      "ko_ver=ver_stopped_A; Path=/; Max-Age=1800; SameSite=Lax",
+      "ko_ctx=%7B%22utm_source%22%3A%22new%22%2C%22traffic_source%22%3A%22new%22%2C%22fbc%22%3A%22fb.1.123.old%22%2C%22sub2%22%3A%22kept%22%2C%22language%22%3A%22fr%22%2C%22lander_v%22%3A%22ver_stopped_A%22%2C%22fbclid%22%3A%22new-click%22%2C%22sub1%22%3A%22fresh%22%7D; Path=/; Max-Age=2592000; SameSite=Lax"
+    ],
+    "contextScript": "<script data-lst=\"ctx\">window._LST_SID=\"return-3\";window.__LST_CTX={\"device\":\"mobile\",\"os\":\"ios\",\"browser\":\"safari\",\"traffic_source\":\"new\",\"utm_source\":\"new\",\"language\":\"fr\",\"fbc\":\"fb.1.123.old\",\"fbclid\":\"new-click\",\"sub1\":\"fresh\",\"sub2\":\"kept\",\"hour\":21};</script>"
+  },
+  {
+    "name": "west/stopped — explicit attribution and language",
+    "site": "west",
+    "url": "https://west.example/stopped?traffic_source=paid&utm_source=email&placement=story&cpc=0.45&fbc=fb.1.456.given&fbclid=independent&lang=it&language=he",
+    "headers": {
+      "Cookie": "ko_sid=return-4",
+      "Accept-Language": "tr"
+    },
+    "cf": {
+      "country": "IL",
+      "regionCode": "",
+      "region": "Tel Aviv",
+      "city": "Tel Aviv"
+    },
+    "setCookies": [
+      "ko_ver=ver_stopped_A; Path=/; Max-Age=1800; SameSite=Lax",
+      "ko_ctx=%7B%22utm_source%22%3A%22email%22%2C%22traffic_source%22%3A%22paid%22%2C%22placement%22%3A%22story%22%2C%22cpc%22%3A%220.45%22%2C%22fbclid%22%3A%22independent%22%2C%22fbc%22%3A%22fb.1.456.given%22%2C%22language%22%3A%22he%22%2C%22lander_v%22%3A%22ver_stopped_A%22%7D; Path=/; Max-Age=2592000; SameSite=Lax"
+    ],
+    "contextScript": "<script data-lst=\"ctx\">window._LST_SID=\"return-4\";window.__LST_CTX={\"country\":\"IL\",\"state\":\"Tel Aviv\",\"city\":\"Tel Aviv\",\"device\":\"desktop\",\"os\":\"other\",\"browser\":\"other\",\"traffic_source\":\"paid\",\"placement\":\"story\",\"utm_source\":\"email\",\"language\":\"he\",\"cpc\":\"0.45\",\"fbc\":\"fb.1.456.given\",\"fbclid\":\"independent\",\"hour\":21};</script>"
+  },
+  {
+    "name": "west/stopped — repeated and encoded parameters",
+    "site": "west",
+    "url": "https://west.example/stopped?utm%5Fsource=first&utm_source=second&sub1=a+b%2Bc&sub2=%E4%ZZ&language=&lang=skipped",
+    "headers": {
+      "Cookie": "ko_sid=first-sid; ko_sid=second-sid",
+      "Accept-Language": "pt-BR;q=0.9,en"
+    },
+    "cf": {},
+    "setCookies": [
+      "ko_ver=ver_stopped_A; Path=/; Max-Age=1800; SameSite=Lax",
+      "ko_ctx=%7B%22utm_source%22%3A%22first%22%2C%22sub1%22%3A%22a%20b%2Bc%22%2C%22sub2%22%3A%22%25E4%25ZZ%22%2C%22traffic_source%22%3A%22first%22%2C%22language%22%3A%22pt-BR%22%2C%22lander_v%22%3A%22ver_stopped_A%22%7D; Path=/; Max-Age=2592000; SameSite=Lax"
+    ],
+    "contextScript": "<script data-lst=\"ctx\">window._LST_SID=\"first-sid\";window.__LST_CTX={\"device\":\"desktop\",\"os\":\"other\",\"browser\":\"other\",\"traffic_source\":\"first\",\"utm_source\":\"first\",\"language\":\"pt-BR\",\"sub1\":\"a b+c\",\"sub2\":\"%E4%ZZ\",\"hour\":21};</script>"
+  },
+  {
+    "name": "west/stopped — empty session and corrupt context",
+    "site": "west",
+    "url": "https://west.example/stopped?fbclid=click-on-return",
+    "headers": {
+      "Cookie": "ko_sid=; ko_ctx=%E0%A4%A",
+      "Accept-Language": "*;q=0.9"
+    },
+    "cf": {},
+    "setCookies": [
+      "ko_sid=6bcfd486-e75e-46ff-8510-000000000001; Path=/; Max-Age=1800; SameSite=Lax",
+      "ko_ver=ver_stopped_A; Path=/; Max-Age=1800; SameSite=Lax",
+      "ko_ctx=%7B%22fbclid%22%3A%22click-on-return%22%2C%22fbc%22%3A%22fb.1.1795498662123.click-on-return%22%2C%22lander_v%22%3A%22ver_stopped_A%22%7D; Path=/; Max-Age=2592000; SameSite=Lax"
+    ],
+    "contextScript": "<script data-lst=\"ctx\">window._LST_SID=\"6bcfd486-e75e-46ff-8510-000000000001\";window.__LST_CTX={\"device\":\"desktop\",\"os\":\"other\",\"browser\":\"other\",\"fbc\":\"fb.1.1795498662123.click-on-return\",\"fbclid\":\"click-on-return\",\"hour\":21};</script>"
+  },
+  {
+    "name": "west/stopped — unicode session and inline script escaping",
+    "site": "west",
+    "url": "https://west.example/stopped?utm_content=%3C%2Fscript%3E&sub3=%24%26&placement=caf%C3%A9",
+    "headers": {
+      "Cookie": "ko_sid=visit%C3%A9%2F%E6%97%A5",
+      "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) Chrome/129.0.0.0 Safari/537.36 Edg/129.0"
+    },
+    "cf": {
+      "country": "JP",
+      "regionCode": "13",
+      "city": "東京"
+    },
+    "setCookies": [
+      "ko_ver=ver_stopped_A; Path=/; Max-Age=1800; SameSite=Lax",
+      "ko_ctx=%7B%22utm_content%22%3A%22%3C%2Fscript%3E%22%2C%22placement%22%3A%22caf%C3%A9%22%2C%22sub3%22%3A%22%24%26%22%2C%22lander_v%22%3A%22ver_stopped_A%22%7D; Path=/; Max-Age=2592000; SameSite=Lax"
+    ],
+    "contextScript": "<script data-lst=\"ctx\">window._LST_SID=\"visité/日\";window.__LST_CTX={\"country\":\"JP\",\"state\":\"13\",\"city\":\"東京\",\"device\":\"desktop\",\"os\":\"windows\",\"browser\":\"edge\",\"placement\":\"café\",\"utm_content\":\"\\u003c/script>\",\"sub3\":\"$&\",\"hour\":21};</script>"
+  },
+  {
+    "name": "west/stopped — encoded prior context and clamped value",
+    "site": "west",
+    "url": "https://west.example/stopped?sub5=xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx",
+    "headers": {
+      "Cookie": "ko_ctx=%7B%22sub4%22%3A%22a%252Bb%22%2C%22language%22%3A%22fr-CA%22%7D; ko_sid=last; ko_ctx=%7B%22utm_source%22%3A%22old%22%2C%22traffic_source%22%3A%22original%22%2C%22fbc%22%3A%22fb.1.123.old%22%2C%22sub2%22%3A%22kept%22%2C%22language%22%3A%22nl%22%2C%22lander_v%22%3A%22ver_previous%22%7D"
+    },
+    "cf": {},
+    "setCookies": [
+      "ko_ver=ver_stopped_A; Path=/; Max-Age=1800; SameSite=Lax",
+      "ko_ctx=%7B%22sub4%22%3A%22a%2Bb%22%2C%22language%22%3A%22fr-CA%22%2C%22sub5%22%3A%22xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx%22%2C%22lander_v%22%3A%22ver_stopped_A%22%7D; Path=/; Max-Age=2592000; SameSite=Lax"
+    ],
+    "contextScript": "<script data-lst=\"ctx\">window._LST_SID=\"last\";window.__LST_CTX={\"device\":\"desktop\",\"os\":\"other\",\"browser\":\"other\",\"language\":\"fr-CA\",\"sub4\":\"a+b\",\"sub5\":\"xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx\",\"hour\":21};</script>"
+  },
+  {
+    "name": "east/no-arms — first visit",
+    "site": "east",
+    "url": "https://east.example/no-arms",
+    "headers": {},
+    "cf": {},
+    "setCookies": [
+      "ko_sid=6bcfd486-e75e-46ff-8510-000000000001; Path=/; Max-Age=1800; SameSite=Lax",
+      "ko_ver=ver_fallback; Path=/; Max-Age=1800; SameSite=Lax",
+      "ko_ctx=%7B%22language%22%3A%22ja%22%2C%22lander_v%22%3A%22ver_fallback%22%7D; Path=/; Max-Age=2592000; SameSite=Lax"
+    ],
+    "contextScript": "<script data-lst=\"ctx\">window._LST_SID=\"6bcfd486-e75e-46ff-8510-000000000001\";window.__LST_CTX={\"device\":\"desktop\",\"os\":\"other\",\"browser\":\"other\",\"language\":\"ja\",\"hour\":14};window.__LST_EXP={\"experiment_id\":\"exp_14\",\"variant_id\":\"ver_fallback\",\"variant_label\":\"Fallback\",\"split\":80};</script>"
+  },
+  {
+    "name": "east/no-arms — mobile ad landing",
+    "site": "east",
+    "url": "https://east.example/no-arms?utm_source=feed&utm_medium=cpc&utm_content=spring+sale&fbclid=F9&sub1=one&sub2=2&sub3=3&sub4=4&sub5=5&lang=es-MX",
+    "headers": {
+      "User-Agent": "Mozilla/5.0 (iPhone; CPU iPhone OS 17_5 like Mac OS X) Version/17.5 Mobile/15E148 Safari/604.1",
+      "Accept-Language": "it-IT"
+    },
+    "cf": {
+      "country": "US",
+      "region": "California",
+      "regionCode": "CA",
+      "city": "San José",
+      "timezone": "Pacific/Honolulu"
+    },
+    "setCookies": [
+      "ko_sid=6bcfd486-e75e-46ff-8510-000000000001; Path=/; Max-Age=1800; SameSite=Lax",
+      "ko_ver=ver_fallback; Path=/; Max-Age=1800; SameSite=Lax",
+      "ko_ctx=%7B%22utm_source%22%3A%22feed%22%2C%22utm_medium%22%3A%22cpc%22%2C%22utm_content%22%3A%22spring%20sale%22%2C%22fbclid%22%3A%22F9%22%2C%22sub1%22%3A%22one%22%2C%22sub2%22%3A%222%22%2C%22sub3%22%3A%223%22%2C%22sub4%22%3A%224%22%2C%22sub5%22%3A%225%22%2C%22traffic_source%22%3A%22feed%22%2C%22fbc%22%3A%22fb.1.1795498662123.F9%22%2C%22language%22%3A%22es-MX%22%2C%22lander_v%22%3A%22ver_fallback%22%7D; Path=/; Max-Age=2592000; SameSite=Lax"
+    ],
+    "contextScript": "<script data-lst=\"ctx\">window._LST_SID=\"6bcfd486-e75e-46ff-8510-000000000001\";window.__LST_CTX={\"country\":\"US\",\"state\":\"CA\",\"city\":\"San José\",\"device\":\"mobile\",\"os\":\"ios\",\"browser\":\"safari\",\"traffic_source\":\"feed\",\"utm_source\":\"feed\",\"utm_medium\":\"cpc\",\"utm_content\":\"spring sale\",\"language\":\"es-MX\",\"fbc\":\"fb.1.1795498662123.F9\",\"fbclid\":\"F9\",\"sub1\":\"one\",\"sub2\":\"2\",\"sub3\":\"3\",\"sub4\":\"4\",\"sub5\":\"5\",\"hour\":14};window.__LST_EXP={\"experiment_id\":\"exp_14\",\"variant_id\":\"ver_fallback\",\"variant_label\":\"Fallback\",\"split\":80};</script>"
+  },
+  {
+    "name": "east/no-arms — returning desktop",
+    "site": "east",
+    "url": "https://east.example/no-arms",
+    "headers": {
+      "Cookie": "ko_ver=obsolete; ko_sid=desktop-1",
+      "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) Chrome/129.0.0.0 Safari/537.36 Edg/129.0",
+      "Accept-Language": "de-DE,de;q=0.8"
+    },
+    "cf": {
+      "country": "DE",
+      "region": "Bavaria",
+      "city": "München"
+    },
+    "setCookies": [
+      "ko_ver=ver_fallback; Path=/; Max-Age=1800; SameSite=Lax",
+      "ko_ctx=%7B%22language%22%3A%22ja%22%2C%22lander_v%22%3A%22ver_fallback%22%7D; Path=/; Max-Age=2592000; SameSite=Lax"
+    ],
+    "contextScript": "<script data-lst=\"ctx\">window._LST_SID=\"desktop-1\";window.__LST_CTX={\"country\":\"DE\",\"state\":\"Bavaria\",\"city\":\"München\",\"device\":\"desktop\",\"os\":\"windows\",\"browser\":\"edge\",\"language\":\"ja\",\"hour\":14};window.__LST_EXP={\"experiment_id\":\"exp_14\",\"variant_id\":\"ver_fallback\",\"variant_label\":\"Fallback\",\"split\":80};</script>"
+  },
+  {
+    "name": "east/no-arms — internal navigation",
+    "site": "east",
+    "url": "https://east.example/no-arms",
+    "headers": {
+      "Cookie": "ko_sid=return-2; ko_ctx=%7B%22utm_source%22%3A%22old%22%2C%22traffic_source%22%3A%22original%22%2C%22fbc%22%3A%22fb.1.123.old%22%2C%22sub2%22%3A%22kept%22%2C%22language%22%3A%22nl%22%2C%22lander_v%22%3A%22ver_previous%22%7D",
+      "Accept-Language": "sv-SE"
+    },
+    "cf": {},
+    "setCookies": [
+      "ko_ver=ver_fallback; Path=/; Max-Age=1800; SameSite=Lax",
+      "ko_ctx=%7B%22utm_source%22%3A%22old%22%2C%22traffic_source%22%3A%22original%22%2C%22fbc%22%3A%22fb.1.123.old%22%2C%22sub2%22%3A%22kept%22%2C%22language%22%3A%22nl%22%2C%22lander_v%22%3A%22ver_fallback%22%7D; Path=/; Max-Age=2592000; SameSite=Lax"
+    ],
+    "contextScript": "<script data-lst=\"ctx\">window._LST_SID=\"return-2\";window.__LST_CTX={\"device\":\"desktop\",\"os\":\"other\",\"browser\":\"other\",\"traffic_source\":\"original\",\"utm_source\":\"old\",\"language\":\"nl\",\"fbc\":\"fb.1.123.old\",\"sub2\":\"kept\",\"hour\":14};window.__LST_EXP={\"experiment_id\":\"exp_14\",\"variant_id\":\"ver_fallback\",\"variant_label\":\"Fallback\",\"split\":80};</script>"
+  },
+  {
+    "name": "east/no-arms — new campaign over stored context",
+    "site": "east",
+    "url": "https://east.example/no-arms?utm_source=new&fbclid=new-click&sub1=fresh&sub2=&lang=fr",
+    "headers": {
+      "Cookie": "ko_ctx=%7B%22utm_source%22%3A%22old%22%2C%22traffic_source%22%3A%22original%22%2C%22fbc%22%3A%22fb.1.123.old%22%2C%22sub2%22%3A%22kept%22%2C%22language%22%3A%22nl%22%2C%22lander_v%22%3A%22ver_previous%22%7D; ko_sid=return-3",
+      "User-Agent": "Mozilla/5.0 (iPhone; CPU iPhone OS 17_5 like Mac OS X) Version/17.5 Mobile/15E148 Safari/604.1"
+    },
+    "cf": {},
+    "setCookies": [
+      "ko_ver=ver_fallback; Path=/; Max-Age=1800; SameSite=Lax",
+      "ko_ctx=%7B%22utm_source%22%3A%22new%22%2C%22traffic_source%22%3A%22new%22%2C%22fbc%22%3A%22fb.1.123.old%22%2C%22sub2%22%3A%22kept%22%2C%22language%22%3A%22fr%22%2C%22lander_v%22%3A%22ver_fallback%22%2C%22fbclid%22%3A%22new-click%22%2C%22sub1%22%3A%22fresh%22%7D; Path=/; Max-Age=2592000; SameSite=Lax"
+    ],
+    "contextScript": "<script data-lst=\"ctx\">window._LST_SID=\"return-3\";window.__LST_CTX={\"device\":\"mobile\",\"os\":\"ios\",\"browser\":\"safari\",\"traffic_source\":\"new\",\"utm_source\":\"new\",\"language\":\"fr\",\"fbc\":\"fb.1.123.old\",\"fbclid\":\"new-click\",\"sub1\":\"fresh\",\"sub2\":\"kept\",\"hour\":14};window.__LST_EXP={\"experiment_id\":\"exp_14\",\"variant_id\":\"ver_fallback\",\"variant_label\":\"Fallback\",\"split\":80};</script>"
+  },
+  {
+    "name": "east/no-arms — explicit attribution and language",
+    "site": "east",
+    "url": "https://east.example/no-arms?traffic_source=paid&utm_source=email&placement=story&cpc=0.45&fbc=fb.1.456.given&fbclid=independent&lang=it&language=he",
+    "headers": {
+      "Cookie": "ko_sid=return-4",
+      "Accept-Language": "tr"
+    },
+    "cf": {
+      "country": "IL",
+      "regionCode": "",
+      "region": "Tel Aviv",
+      "city": "Tel Aviv"
+    },
+    "setCookies": [
+      "ko_ver=ver_fallback; Path=/; Max-Age=1800; SameSite=Lax",
+      "ko_ctx=%7B%22utm_source%22%3A%22email%22%2C%22traffic_source%22%3A%22paid%22%2C%22placement%22%3A%22story%22%2C%22cpc%22%3A%220.45%22%2C%22fbclid%22%3A%22independent%22%2C%22fbc%22%3A%22fb.1.456.given%22%2C%22language%22%3A%22he%22%2C%22lander_v%22%3A%22ver_fallback%22%7D; Path=/; Max-Age=2592000; SameSite=Lax"
+    ],
+    "contextScript": "<script data-lst=\"ctx\">window._LST_SID=\"return-4\";window.__LST_CTX={\"country\":\"IL\",\"state\":\"Tel Aviv\",\"city\":\"Tel Aviv\",\"device\":\"desktop\",\"os\":\"other\",\"browser\":\"other\",\"traffic_source\":\"paid\",\"placement\":\"story\",\"utm_source\":\"email\",\"language\":\"he\",\"cpc\":\"0.45\",\"fbc\":\"fb.1.456.given\",\"fbclid\":\"independent\",\"hour\":14};window.__LST_EXP={\"experiment_id\":\"exp_14\",\"variant_id\":\"ver_fallback\",\"variant_label\":\"Fallback\",\"split\":80};</script>"
+  },
+  {
+    "name": "east/no-arms — repeated and encoded parameters",
+    "site": "east",
+    "url": "https://east.example/no-arms?utm%5Fsource=first&utm_source=second&sub1=a+b%2Bc&sub2=%E4%ZZ&language=&lang=skipped",
+    "headers": {
+      "Cookie": "ko_sid=first-sid; ko_sid=second-sid",
+      "Accept-Language": "pt-BR;q=0.9,en"
+    },
+    "cf": {},
+    "setCookies": [
+      "ko_ver=ver_fallback; Path=/; Max-Age=1800; SameSite=Lax",
+      "ko_ctx=%7B%22utm_source%22%3A%22first%22%2C%22sub1%22%3A%22a%20b%2Bc%22%2C%22sub2%22%3A%22%25E4%25ZZ%22%2C%22traffic_source%22%3A%22first%22%2C%22language%22%3A%22ja%22%2C%22lander_v%22%3A%22ver_fallback%22%7D; Path=/; Max-Age=2592000; SameSite=Lax"
+    ],
+    "contextScript": "<script data-lst=\"ctx\">window._LST_SID=\"first-sid\";window.__LST_CTX={\"device\":\"desktop\",\"os\":\"other\",\"browser\":\"other\",\"traffic_source\":\"first\",\"utm_source\":\"first\",\"language\":\"ja\",\"sub1\":\"a b+c\",\"sub2\":\"%E4%ZZ\",\"hour\":14};window.__LST_EXP={\"experiment_id\":\"exp_14\",\"variant_id\":\"ver_fallback\",\"variant_label\":\"Fallback\",\"split\":80};</script>"
+  },
+  {
+    "name": "east/no-arms — empty session and corrupt context",
+    "site": "east",
+    "url": "https://east.example/no-arms?fbclid=click-on-return",
+    "headers": {
+      "Cookie": "ko_sid=; ko_ctx=%E0%A4%A",
+      "Accept-Language": "*;q=0.9"
+    },
+    "cf": {},
+    "setCookies": [
+      "ko_sid=6bcfd486-e75e-46ff-8510-000000000001; Path=/; Max-Age=1800; SameSite=Lax",
+      "ko_ver=ver_fallback; Path=/; Max-Age=1800; SameSite=Lax",
+      "ko_ctx=%7B%22fbclid%22%3A%22click-on-return%22%2C%22fbc%22%3A%22fb.1.1795498662123.click-on-return%22%2C%22language%22%3A%22ja%22%2C%22lander_v%22%3A%22ver_fallback%22%7D; Path=/; Max-Age=2592000; SameSite=Lax"
+    ],
+    "contextScript": "<script data-lst=\"ctx\">window._LST_SID=\"6bcfd486-e75e-46ff-8510-000000000001\";window.__LST_CTX={\"device\":\"desktop\",\"os\":\"other\",\"browser\":\"other\",\"language\":\"ja\",\"fbc\":\"fb.1.1795498662123.click-on-return\",\"fbclid\":\"click-on-return\",\"hour\":14};window.__LST_EXP={\"experiment_id\":\"exp_14\",\"variant_id\":\"ver_fallback\",\"variant_label\":\"Fallback\",\"split\":80};</script>"
+  },
+  {
+    "name": "east/no-arms — unicode session and inline script escaping",
+    "site": "east",
+    "url": "https://east.example/no-arms?utm_content=%3C%2Fscript%3E&sub3=%24%26&placement=caf%C3%A9",
+    "headers": {
+      "Cookie": "ko_sid=visit%C3%A9%2F%E6%97%A5",
+      "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) Chrome/129.0.0.0 Safari/537.36 Edg/129.0"
+    },
+    "cf": {
+      "country": "JP",
+      "regionCode": "13",
+      "city": "東京"
+    },
+    "setCookies": [
+      "ko_ver=ver_fallback; Path=/; Max-Age=1800; SameSite=Lax",
+      "ko_ctx=%7B%22utm_content%22%3A%22%3C%2Fscript%3E%22%2C%22placement%22%3A%22caf%C3%A9%22%2C%22sub3%22%3A%22%24%26%22%2C%22language%22%3A%22ja%22%2C%22lander_v%22%3A%22ver_fallback%22%7D; Path=/; Max-Age=2592000; SameSite=Lax"
+    ],
+    "contextScript": "<script data-lst=\"ctx\">window._LST_SID=\"visité/日\";window.__LST_CTX={\"country\":\"JP\",\"state\":\"13\",\"city\":\"東京\",\"device\":\"desktop\",\"os\":\"windows\",\"browser\":\"edge\",\"placement\":\"café\",\"utm_content\":\"\\u003c/script>\",\"language\":\"ja\",\"sub3\":\"$&\",\"hour\":14};window.__LST_EXP={\"experiment_id\":\"exp_14\",\"variant_id\":\"ver_fallback\",\"variant_label\":\"Fallback\",\"split\":80};</script>"
+  },
+  {
+    "name": "east/no-arms — encoded prior context and clamped value",
+    "site": "east",
+    "url": "https://east.example/no-arms?sub5=xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx",
+    "headers": {
+      "Cookie": "ko_ctx=%7B%22sub4%22%3A%22a%252Bb%22%2C%22language%22%3A%22fr-CA%22%7D; ko_sid=last; ko_ctx=%7B%22utm_source%22%3A%22old%22%2C%22traffic_source%22%3A%22original%22%2C%22fbc%22%3A%22fb.1.123.old%22%2C%22sub2%22%3A%22kept%22%2C%22language%22%3A%22nl%22%2C%22lander_v%22%3A%22ver_previous%22%7D"
+    },
+    "cf": {},
+    "setCookies": [
+      "ko_ver=ver_fallback; Path=/; Max-Age=1800; SameSite=Lax",
+      "ko_ctx=%7B%22sub4%22%3A%22a%2Bb%22%2C%22language%22%3A%22fr-CA%22%2C%22sub5%22%3A%22xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx%22%2C%22lander_v%22%3A%22ver_fallback%22%7D; Path=/; Max-Age=2592000; SameSite=Lax"
+    ],
+    "contextScript": "<script data-lst=\"ctx\">window._LST_SID=\"last\";window.__LST_CTX={\"device\":\"desktop\",\"os\":\"other\",\"browser\":\"other\",\"language\":\"fr-CA\",\"sub4\":\"a+b\",\"sub5\":\"xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx\",\"hour\":14};window.__LST_EXP={\"experiment_id\":\"exp_14\",\"variant_id\":\"ver_fallback\",\"variant_label\":\"Fallback\",\"split\":80};</script>"
+  },
+  {
+    "name": "east/no-control — first visit",
+    "site": "east",
+    "url": "https://east.example/no-control",
+    "headers": {},
+    "cf": {},
+    "setCookies": [
+      "ko_sid=6bcfd486-e75e-46ff-8510-000000000001; Path=/; Max-Age=1800; SameSite=Lax",
+      "ko_ver=ver_first; Path=/; Max-Age=1800; SameSite=Lax",
+      "ko_ctx=%7B%22language%22%3A%22ja%22%2C%22lander_v%22%3A%22ver_first%22%7D; Path=/; Max-Age=2592000; SameSite=Lax"
+    ],
+    "contextScript": "<script data-lst=\"ctx\">window._LST_SID=\"6bcfd486-e75e-46ff-8510-000000000001\";window.__LST_CTX={\"device\":\"desktop\",\"os\":\"other\",\"browser\":\"other\",\"language\":\"ja\",\"hour\":14};</script>"
+  },
+  {
+    "name": "east/no-control — mobile ad landing",
+    "site": "east",
+    "url": "https://east.example/no-control?utm_source=feed&utm_medium=cpc&utm_content=spring+sale&fbclid=F9&sub1=one&sub2=2&sub3=3&sub4=4&sub5=5&lang=es-MX",
+    "headers": {
+      "User-Agent": "Mozilla/5.0 (iPhone; CPU iPhone OS 17_5 like Mac OS X) Version/17.5 Mobile/15E148 Safari/604.1",
+      "Accept-Language": "it-IT"
+    },
+    "cf": {
+      "country": "US",
+      "region": "California",
+      "regionCode": "CA",
+      "city": "San José",
+      "timezone": "Pacific/Honolulu"
+    },
+    "setCookies": [
+      "ko_sid=6bcfd486-e75e-46ff-8510-000000000001; Path=/; Max-Age=1800; SameSite=Lax",
+      "ko_ver=ver_first; Path=/; Max-Age=1800; SameSite=Lax",
+      "ko_ctx=%7B%22utm_source%22%3A%22feed%22%2C%22utm_medium%22%3A%22cpc%22%2C%22utm_content%22%3A%22spring%20sale%22%2C%22fbclid%22%3A%22F9%22%2C%22sub1%22%3A%22one%22%2C%22sub2%22%3A%222%22%2C%22sub3%22%3A%223%22%2C%22sub4%22%3A%224%22%2C%22sub5%22%3A%225%22%2C%22traffic_source%22%3A%22feed%22%2C%22fbc%22%3A%22fb.1.1795498662123.F9%22%2C%22language%22%3A%22es-MX%22%2C%22lander_v%22%3A%22ver_first%22%7D; Path=/; Max-Age=2592000; SameSite=Lax"
+    ],
+    "contextScript": "<script data-lst=\"ctx\">window._LST_SID=\"6bcfd486-e75e-46ff-8510-000000000001\";window.__LST_CTX={\"country\":\"US\",\"state\":\"CA\",\"city\":\"San José\",\"device\":\"mobile\",\"os\":\"ios\",\"browser\":\"safari\",\"traffic_source\":\"feed\",\"utm_source\":\"feed\",\"utm_medium\":\"cpc\",\"utm_content\":\"spring sale\",\"language\":\"es-MX\",\"fbc\":\"fb.1.1795498662123.F9\",\"fbclid\":\"F9\",\"sub1\":\"one\",\"sub2\":\"2\",\"sub3\":\"3\",\"sub4\":\"4\",\"sub5\":\"5\",\"hour\":14};</script>"
+  },
+  {
+    "name": "east/no-control — returning desktop",
+    "site": "east",
+    "url": "https://east.example/no-control",
+    "headers": {
+      "Cookie": "ko_ver=obsolete; ko_sid=desktop-1",
+      "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) Chrome/129.0.0.0 Safari/537.36 Edg/129.0",
+      "Accept-Language": "de-DE,de;q=0.8"
+    },
+    "cf": {
+      "country": "DE",
+      "region": "Bavaria",
+      "city": "München"
+    },
+    "setCookies": [
+      "ko_ver=ver_first; Path=/; Max-Age=1800; SameSite=Lax",
+      "ko_ctx=%7B%22language%22%3A%22ja%22%2C%22lander_v%22%3A%22ver_first%22%7D; Path=/; Max-Age=2592000; SameSite=Lax"
+    ],
+    "contextScript": "<script data-lst=\"ctx\">window._LST_SID=\"desktop-1\";window.__LST_CTX={\"country\":\"DE\",\"state\":\"Bavaria\",\"city\":\"München\",\"device\":\"desktop\",\"os\":\"windows\",\"browser\":\"edge\",\"language\":\"ja\",\"hour\":14};</script>"
+  },
+  {
+    "name": "east/no-control — internal navigation",
+    "site": "east",
+    "url": "https://east.example/no-control",
+    "headers": {
+      "Cookie": "ko_sid=return-2; ko_ctx=%7B%22utm_source%22%3A%22old%22%2C%22traffic_source%22%3A%22original%22%2C%22fbc%22%3A%22fb.1.123.old%22%2C%22sub2%22%3A%22kept%22%2C%22language%22%3A%22nl%22%2C%22lander_v%22%3A%22ver_previous%22%7D",
+      "Accept-Language": "sv-SE"
+    },
+    "cf": {},
+    "setCookies": [
+      "ko_ver=ver_first; Path=/; Max-Age=1800; SameSite=Lax",
+      "ko_ctx=%7B%22utm_source%22%3A%22old%22%2C%22traffic_source%22%3A%22original%22%2C%22fbc%22%3A%22fb.1.123.old%22%2C%22sub2%22%3A%22kept%22%2C%22language%22%3A%22nl%22%2C%22lander_v%22%3A%22ver_first%22%7D; Path=/; Max-Age=2592000; SameSite=Lax"
+    ],
+    "contextScript": "<script data-lst=\"ctx\">window._LST_SID=\"return-2\";window.__LST_CTX={\"device\":\"desktop\",\"os\":\"other\",\"browser\":\"other\",\"traffic_source\":\"original\",\"utm_source\":\"old\",\"language\":\"nl\",\"fbc\":\"fb.1.123.old\",\"sub2\":\"kept\",\"hour\":14};</script>"
+  },
+  {
+    "name": "east/no-control — new campaign over stored context",
+    "site": "east",
+    "url": "https://east.example/no-control?utm_source=new&fbclid=new-click&sub1=fresh&sub2=&lang=fr",
+    "headers": {
+      "Cookie": "ko_ctx=%7B%22utm_source%22%3A%22old%22%2C%22traffic_source%22%3A%22original%22%2C%22fbc%22%3A%22fb.1.123.old%22%2C%22sub2%22%3A%22kept%22%2C%22language%22%3A%22nl%22%2C%22lander_v%22%3A%22ver_previous%22%7D; ko_sid=return-3",
+      "User-Agent": "Mozilla/5.0 (iPhone; CPU iPhone OS 17_5 like Mac OS X) Version/17.5 Mobile/15E148 Safari/604.1"
+    },
+    "cf": {},
+    "setCookies": [
+      "ko_ver=ver_first; Path=/; Max-Age=1800; SameSite=Lax",
+      "ko_ctx=%7B%22utm_source%22%3A%22new%22%2C%22traffic_source%22%3A%22new%22%2C%22fbc%22%3A%22fb.1.123.old%22%2C%22sub2%22%3A%22kept%22%2C%22language%22%3A%22fr%22%2C%22lander_v%22%3A%22ver_first%22%2C%22fbclid%22%3A%22new-click%22%2C%22sub1%22%3A%22fresh%22%7D; Path=/; Max-Age=2592000; SameSite=Lax"
+    ],
+    "contextScript": "<script data-lst=\"ctx\">window._LST_SID=\"return-3\";window.__LST_CTX={\"device\":\"mobile\",\"os\":\"ios\",\"browser\":\"safari\",\"traffic_source\":\"new\",\"utm_source\":\"new\",\"language\":\"fr\",\"fbc\":\"fb.1.123.old\",\"fbclid\":\"new-click\",\"sub1\":\"fresh\",\"sub2\":\"kept\",\"hour\":14};</script>"
+  },
+  {
+    "name": "east/no-control — explicit attribution and language",
+    "site": "east",
+    "url": "https://east.example/no-control?traffic_source=paid&utm_source=email&placement=story&cpc=0.45&fbc=fb.1.456.given&fbclid=independent&lang=it&language=he",
+    "headers": {
+      "Cookie": "ko_sid=return-4",
+      "Accept-Language": "tr"
+    },
+    "cf": {
+      "country": "IL",
+      "regionCode": "",
+      "region": "Tel Aviv",
+      "city": "Tel Aviv"
+    },
+    "setCookies": [
+      "ko_ver=ver_first; Path=/; Max-Age=1800; SameSite=Lax",
+      "ko_ctx=%7B%22utm_source%22%3A%22email%22%2C%22traffic_source%22%3A%22paid%22%2C%22placement%22%3A%22story%22%2C%22cpc%22%3A%220.45%22%2C%22fbclid%22%3A%22independent%22%2C%22fbc%22%3A%22fb.1.456.given%22%2C%22language%22%3A%22he%22%2C%22lander_v%22%3A%22ver_first%22%7D; Path=/; Max-Age=2592000; SameSite=Lax"
+    ],
+    "contextScript": "<script data-lst=\"ctx\">window._LST_SID=\"return-4\";window.__LST_CTX={\"country\":\"IL\",\"state\":\"Tel Aviv\",\"city\":\"Tel Aviv\",\"device\":\"desktop\",\"os\":\"other\",\"browser\":\"other\",\"traffic_source\":\"paid\",\"placement\":\"story\",\"utm_source\":\"email\",\"language\":\"he\",\"cpc\":\"0.45\",\"fbc\":\"fb.1.456.given\",\"fbclid\":\"independent\",\"hour\":14};</script>"
+  },
+  {
+    "name": "east/no-control — repeated and encoded parameters",
+    "site": "east",
+    "url": "https://east.example/no-control?utm%5Fsource=first&utm_source=second&sub1=a+b%2Bc&sub2=%E4%ZZ&language=&lang=skipped",
+    "headers": {
+      "Cookie": "ko_sid=first-sid; ko_sid=second-sid",
+      "Accept-Language": "pt-BR;q=0.9,en"
+    },
+    "cf": {},
+    "setCookies": [
+      "ko_ver=ver_first; Path=/; Max-Age=1800; SameSite=Lax",
+      "ko_ctx=%7B%22utm_source%22%3A%22first%22%2C%22sub1%22%3A%22a%20b%2Bc%22%2C%22sub2%22%3A%22%25E4%25ZZ%22%2C%22traffic_source%22%3A%22first%22%2C%22language%22%3A%22ja%22%2C%22lander_v%22%3A%22ver_first%22%7D; Path=/; Max-Age=2592000; SameSite=Lax"
+    ],
+    "contextScript": "<script data-lst=\"ctx\">window._LST_SID=\"first-sid\";window.__LST_CTX={\"device\":\"desktop\",\"os\":\"other\",\"browser\":\"other\",\"traffic_source\":\"first\",\"utm_source\":\"first\",\"language\":\"ja\",\"sub1\":\"a b+c\",\"sub2\":\"%E4%ZZ\",\"hour\":14};</script>"
+  },
+  {
+    "name": "east/no-control — empty session and corrupt context",
+    "site": "east",
+    "url": "https://east.example/no-control?fbclid=click-on-return",
+    "headers": {
+      "Cookie": "ko_sid=; ko_ctx=%E0%A4%A",
+      "Accept-Language": "*;q=0.9"
+    },
+    "cf": {},
+    "setCookies": [
+      "ko_sid=6bcfd486-e75e-46ff-8510-000000000001; Path=/; Max-Age=1800; SameSite=Lax",
+      "ko_ver=ver_first; Path=/; Max-Age=1800; SameSite=Lax",
+      "ko_ctx=%7B%22fbclid%22%3A%22click-on-return%22%2C%22fbc%22%3A%22fb.1.1795498662123.click-on-return%22%2C%22language%22%3A%22ja%22%2C%22lander_v%22%3A%22ver_first%22%7D; Path=/; Max-Age=2592000; SameSite=Lax"
+    ],
+    "contextScript": "<script data-lst=\"ctx\">window._LST_SID=\"6bcfd486-e75e-46ff-8510-000000000001\";window.__LST_CTX={\"device\":\"desktop\",\"os\":\"other\",\"browser\":\"other\",\"language\":\"ja\",\"fbc\":\"fb.1.1795498662123.click-on-return\",\"fbclid\":\"click-on-return\",\"hour\":14};</script>"
+  },
+  {
+    "name": "east/no-control — unicode session and inline script escaping",
+    "site": "east",
+    "url": "https://east.example/no-control?utm_content=%3C%2Fscript%3E&sub3=%24%26&placement=caf%C3%A9",
+    "headers": {
+      "Cookie": "ko_sid=visit%C3%A9%2F%E6%97%A5",
+      "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) Chrome/129.0.0.0 Safari/537.36 Edg/129.0"
+    },
+    "cf": {
+      "country": "JP",
+      "regionCode": "13",
+      "city": "東京"
+    },
+    "setCookies": [
+      "ko_ver=ver_first; Path=/; Max-Age=1800; SameSite=Lax",
+      "ko_ctx=%7B%22utm_content%22%3A%22%3C%2Fscript%3E%22%2C%22placement%22%3A%22caf%C3%A9%22%2C%22sub3%22%3A%22%24%26%22%2C%22language%22%3A%22ja%22%2C%22lander_v%22%3A%22ver_first%22%7D; Path=/; Max-Age=2592000; SameSite=Lax"
+    ],
+    "contextScript": "<script data-lst=\"ctx\">window._LST_SID=\"visité/日\";window.__LST_CTX={\"country\":\"JP\",\"state\":\"13\",\"city\":\"東京\",\"device\":\"desktop\",\"os\":\"windows\",\"browser\":\"edge\",\"placement\":\"café\",\"utm_content\":\"\\u003c/script>\",\"language\":\"ja\",\"sub3\":\"$&\",\"hour\":14};</script>"
+  },
+  {
+    "name": "east/no-control — encoded prior context and clamped value",
+    "site": "east",
+    "url": "https://east.example/no-control?sub5=xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx",
+    "headers": {
+      "Cookie": "ko_ctx=%7B%22sub4%22%3A%22a%252Bb%22%2C%22language%22%3A%22fr-CA%22%7D; ko_sid=last; ko_ctx=%7B%22utm_source%22%3A%22old%22%2C%22traffic_source%22%3A%22original%22%2C%22fbc%22%3A%22fb.1.123.old%22%2C%22sub2%22%3A%22kept%22%2C%22language%22%3A%22nl%22%2C%22lander_v%22%3A%22ver_previous%22%7D"
+    },
+    "cf": {},
+    "setCookies": [
+      "ko_ver=ver_first; Path=/; Max-Age=1800; SameSite=Lax",
+      "ko_ctx=%7B%22sub4%22%3A%22a%2Bb%22%2C%22language%22%3A%22fr-CA%22%2C%22sub5%22%3A%22xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx%22%2C%22lander_v%22%3A%22ver_first%22%7D; Path=/; Max-Age=2592000; SameSite=Lax"
+    ],
+    "contextScript": "<script data-lst=\"ctx\">window._LST_SID=\"last\";window.__LST_CTX={\"device\":\"desktop\",\"os\":\"other\",\"browser\":\"other\",\"language\":\"fr-CA\",\"sub4\":\"a+b\",\"sub5\":\"xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx\",\"hour\":14};</script>"
+  }
+]
