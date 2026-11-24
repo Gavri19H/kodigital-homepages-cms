@@ -23,7 +23,7 @@ case "$1 $2 $3" in
   "wrangler deployments list") echo '[{"versions":[{"version_id":"old","percentage":100}]}]' ;;
   "wrangler versions upload") echo '{"type":"version-upload","version_id":"new"}' > "$WRANGLER_OUTPUT_FILE_PATH" ;;
   "wrangler versions deploy")
-    [[ $4 != new@10% || $5 == old@90% ]]
+    [[ $4 != new@10% || $5 == old@90% ]] || exit 1
     echo "$4" >> "$STATE/deploys" ;;
   *) exit 2 ;;
 esac
@@ -53,7 +53,7 @@ if [[ -z $version && $url != */__edge/tick ]]; then
 fi
 served=$version status=200 cache=HIT
 if [[ $url == */__edge/tick ]]; then
-  [[ $method == POST && $version != old ]]
+  [[ $method == POST && $version != old ]] || exit 1
   deployment=$(tail -n1 "$STATE/deploys")
   ticks="$STATE/$host.$deployment.${version:-unpinned}"
   n=0
@@ -61,7 +61,7 @@ if [[ $url == */__edge/tick ]]; then
   echo "$((++n))" > "$ticks"
   status=202 served=new
   if [[ $deployment == new@10% ]]; then
-    [[ $version == new ]]
+    [[ $version == new ]] || exit 1
     if (( n <= 3 )); then status=404 served=old
     elif [[ $host == b.example && ( $SCENARIO == never || $n == 6 ) ]]; then served=old
     elif [[ $host == a.example ]]; then
@@ -102,19 +102,19 @@ run_case() {
 }
 rolled_back() {
   local before_rollback=${1:-new@10%}
-  [[ $(cat "$STATE/deploys") == "$before_rollback"$'\nold@100%' ]] && grep -q '^STAGE rollback ok ' "$STATE/log"
+  [[ $(cat "$STATE/deploys") == "$before_rollback"$'\nold@100%' ]] && grep -q '^STAGE rollback ok ' "$STATE/log" || exit 1
 }
 
 run_case delayed
-[[ $(cat "$STATE/deploys") == $'new@10%\nnew@100%' ]]
+[[ $(cat "$STATE/deploys") == $'new@10%\nnew@100%' ]] || exit 1
 grep -q '^Minute 30: new-version 5xx=0, parity mismatches=0$' "$STATE/log"
 grep -q '^STAGE warm ok ' "$STATE/log"
 for host in a.example b.example; do
   ready=6 checks=34  # Four stale replies to the first check tick recover on the fifth try.
   if [[ $host == b.example ]]; then ready=9 checks=30; fi  # A stale 202 resets the propagation streak.
-  [[ $(grep -Ec "^PROPAGATED $host [0-9]+$" "$STATE/log") == 2 ]]
-  [[ $(<"$STATE/$host.new@10%.new") == $((ready + checks)) && $(<"$STATE/$host.new@100%.unpinned") == "$ready" ]]
-  [[ ! -e $STATE/$host.new@100%.new ]]
+  [[ $(grep -Ec "^PROPAGATED $host [0-9]+$" "$STATE/log") == 2 ]] || exit 1
+  [[ $(<"$STATE/$host.new@10%.new") == $((ready + checks)) && $(<"$STATE/$host.new@100%.unpinned") == "$ready" ]] || exit 1
+  [[ ! -e $STATE/$host.new@100%.new ]] || exit 1
 done
 echo 'PASS delayed propagation gated both tenants on pinned split ticks and unpinned promotion ticks and completed 30 checks'
 
@@ -128,13 +128,13 @@ if ROLLOUT_PROPAGATION_TIMEOUT_SECONDS=1 run_case never-promoted; then exit 1; f
 grep -q '^STAGE promote ok ' "$STATE/log"
 grep -q '^b.example: propagation timed out after 1s ' "$STATE/log"
 grep -q '^STAGE propagate fail ' "$STATE/log"
-[[ $(<"$STATE/b.example.new@100%.unpinned") -ge 3 ]]
+[[ $(<"$STATE/b.example.new@100%.unpinned") -ge 3 ]] || exit 1
 rolled_back $'new@10%\nnew@100%'
 echo 'PASS a tenant still serving the old version on unpinned ticks after promotion timed out and rolled back'
 
 for pin in new old; do
   if run_case "wrong-$pin"; then exit 1; fi
-  [[ $(wc -l < "$STATE/wrong") -eq 5 ]]
+  [[ $(wc -l < "$STATE/wrong") -eq 5 ]] || exit 1
   grep -q "expected Worker $pin after 5 tries, .* (HTTP 200)" "$STATE/log"
   grep -q '^STAGE check fail ' "$STATE/log"
   rolled_back
@@ -143,7 +143,7 @@ done
 
 if run_case broken-tick; then exit 1; fi
 grep -q '^a.example: new-version tick returned 503, expected 202$' "$STATE/log"
-[[ $(<"$STATE/a.example.new@10%.new") == 7 ]]
+[[ $(<"$STATE/a.example.new@10%.new") == 7 ]] || exit 1
 rolled_back
 echo 'PASS a verified HTTP 503 tick triggered immediate rollback'
 
@@ -153,13 +153,13 @@ for stage in check propagate; do
   if [[ $stage == propagate ]]; then ticks=4; fi
   grep -q "^STAGE $stage fail " "$STATE/log"
   grep -q '^a.example: new-version tick returned 503, expected 202$' "$STATE/log"
-  [[ $(<"$STATE/a.example.new@10%.new") == "$ticks" ]]
+  [[ $(<"$STATE/a.example.new@10%.new") == "$ticks" ]] || exit 1
   rolled_back
   echo "PASS a new-pinned $stage tick with HTTP 503 and no version header triggered immediate rollback"
 done
 
 if run_case headerless-page; then exit 1; fi
-[[ $(cat "$STATE"/pages.*) == $'503\n200\n503\n200' ]]
+[[ $(cat "$STATE"/pages.*) == $'503\n200\n503\n200' ]] || exit 1
 for minute in 1 2; do
   grep -qx "Minute $minute: new-version 5xx=1, parity mismatches=1" "$STATE/log"
 done
