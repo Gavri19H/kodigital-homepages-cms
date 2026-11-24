@@ -33,7 +33,7 @@ import {
   renderFaqJsonLd,
   renderAffiliateProductsJsonLd,
 } from "./templates/jsonld-article";
-import { buildArticleViewModel } from "./view-models/article";
+import { loadArticleRenderData } from "./view-models/article";
 import {
   renderHomeWebsiteJsonLd,
   renderHomeOrganizationJsonLd,
@@ -42,7 +42,7 @@ import {
   renderWebPageJsonLd,
   parseSameAsList,
 } from "./templates/jsonld-home-category-page";
-import { buildHomeViewModel, type HomeArticleCard } from "./view-models/home";
+import { loadHomeRenderData, type HomeArticleCard } from "./view-models/home";
 import { renderHome } from "./templates/home";
 import { renderArticle } from "./templates/article";
 import { renderLayout } from "./templates/layout";
@@ -56,13 +56,7 @@ import { absoluteOnHost, uploadedLogoUrl } from "./site-brand";
 async function loadCustomLayoutHtml(
   db: D1Database,
   siteId: string,
-): Promise<{
-  customHead?: string;
-  consentHead?: string;
-  customFooter?: string;
-  socialLinks: SocialLink[];
-  orgSameAs: string[];
-}> {
+) {
   const result = await db
     .prepare("SELECT key AS key, value AS value FROM site_settings WHERE site_id = ?")
     .bind(siteId)
@@ -71,6 +65,16 @@ async function loadCustomLayoutHtml(
   for (const row of result.results ?? []) {
     if (typeof row.value === "string") settings[row.key] = row.value;
   }
+  return customLayoutHtml(settings);
+}
+
+function customLayoutHtml(settings: Readonly<Record<string, string>>): {
+  customHead?: string;
+  consentHead?: string;
+  customFooter?: string;
+  socialLinks: SocialLink[];
+  orgSameAs: string[];
+} {
   const customHead = renderCustomHead(settings);
   const consentHead = renderConsentHead(settings);
   const customFooter = renderCustomFooter(settings);
@@ -127,7 +131,7 @@ function adHeadHtml(
 }
 
 // T1 (rescue-3): the LIVE GET / handler composes the design homepage
-// through buildHomeViewModel + renderHome + renderLayout — NOT the bare
+// through loadHomeRenderData + renderHome + renderLayout — NOT the bare
 // article-list fallback. The DB is threaded from c.env.DB (router.ts) so
 // the renderer is wired into the live entry; rescue-2 shipped a route that
 // called no db-fed renderer, so the public homepage rendered the bare
@@ -145,12 +149,9 @@ export async function renderHomepageHtml(
   siteContext: PublicSiteContext,
   opts: { isBot?: boolean } = {},
 ): Promise<string> {
-  const vm = await buildHomeViewModel(db, {
-    siteId: siteContext.siteId,
-    hostname: siteContext.hostname,
-  });
+  const { vm, settings } = await loadHomeRenderData(db, siteContext);
   const canonicalUrl = vm.meta.canonicalUrl;
-  const customHtml = await loadCustomLayoutHtml(db, siteContext.siteId);
+  const customHtml = customLayoutHtml(settings);
 
   // Disjoint buckets (trending removed from the pool, hero = featured[0],
   // featured excludes hero, latest excludes featured) — flatten for the
@@ -191,7 +192,7 @@ export async function renderHomepageHtml(
   // T22: home is one of the ad-bearing surfaces. Load the per-site ad config
   // and gate on shouldShowAds("/") — the §5 leaderboard + §9 in-feed slots
   // carry real <ins> units and the head loads the provider + AdManager JS.
-  const adsConfig = await loadAdsConfig(db, siteContext.siteId);
+  const adsConfig = await loadAdsConfig(db, siteContext.siteId, settings);
   const adsOn = shouldShowAds(adsConfig, {
     path: "/",
     loggedIn: false,
@@ -237,7 +238,7 @@ export async function renderHomepageHtml(
 }
 
 // T2 (rescue-3): the LIVE GET /article/:slug handler composes the design
-// article shell through buildArticleViewModel + renderArticle + renderLayout
+// article shell through loadArticleRenderData + renderArticle + renderLayout
 // — NOT the rescue-2 bare `<div>${content_html}</div>` fallback. The DB is
 // threaded from c.env.DB (router.ts) so the renderer is db-fed and wired into
 // the live entry; rescue-2 served bare HTML (no design shell, no 12 §8
@@ -259,14 +260,8 @@ export async function renderArticleHtml(
   slug: string,
   opts: { isBot?: boolean } = {},
 ): Promise<string> {
-  const vm = await buildArticleViewModel(db, {
-    slug,
-    siteContext: {
-      siteId: siteContext.siteId,
-      hostname: siteContext.hostname,
-    },
-  });
-  if (vm === null) {
+  const data = await loadArticleRenderData(db, { slug, siteContext });
+  if (data === null) {
     // The router's getArticleBySlug gate already proved this slug is a
     // published article before this render thunk runs (cold-cache only), so a
     // null view-model here is an unpublish/delete race between the two
@@ -276,6 +271,7 @@ export async function renderArticleHtml(
     );
   }
 
+  const { vm, settings } = data;
   const canonicalUrl = vm.meta.canonicalUrl;
 
   // GEO checklist (docs/geo-checklist.md §1–§5): one Article block whose
@@ -349,14 +345,14 @@ export async function renderArticleHtml(
   // T22: article is an ad-bearing surface. Gate on shouldShowAds for this
   // article path so the §11 sidebar rectangle carries its real <ins> unit and
   // the head loads the provider + AdManager JS (appended after the JSON-LD).
-  const adsConfig = await loadAdsConfig(db, siteContext.siteId);
+  const adsConfig = await loadAdsConfig(db, siteContext.siteId, settings);
   const adsOn = shouldShowAds(adsConfig, {
     path: `/article/${slug}`,
     loggedIn: false,
     isBot: opts.isBot ?? false,
   });
   const adHead = adHeadHtml(adsConfig, adsOn);
-  const customHtml = await loadCustomLayoutHtml(db, siteContext.siteId);
+  const customHtml = customLayoutHtml(settings);
 
   const body = renderArticle({
     vm,

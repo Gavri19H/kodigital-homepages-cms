@@ -24,7 +24,7 @@ import {
   buildDateline,
 } from "../templates/format";
 import { mediaUrl } from "./media-url";
-import { siteFaviconUrl } from "../site-brand";
+import { loadRenderContext } from "../render-context";
 
 export interface ArticleSiteContext {
   siteId: string;
@@ -178,29 +178,7 @@ interface RelatedRow {
   image_alt: string | null;
 }
 
-interface SettingsRow {
-  key: string;
-  value: string | null;
-}
-
 const RELATED_LIMIT = 4;
-
-function parseBrandTokens(raw: string | null | undefined): Readonly<Record<string, string>> {
-  if (raw === null || raw === undefined || raw.length === 0) return {};
-  try {
-    const parsed: unknown = JSON.parse(raw);
-    if (parsed === null || typeof parsed !== "object" || Array.isArray(parsed)) {
-      return {};
-    }
-    const out: Record<string, string> = {};
-    for (const [k, v] of Object.entries(parsed as Record<string, unknown>)) {
-      if (typeof v === "string") out[k] = v;
-    }
-    return out;
-  } catch {
-    return {};
-  }
-}
 
 function excerptFromText(text: string, limit: number = 200): string {
   const clean = text.replace(/\s+/g, " ").trim();
@@ -544,12 +522,19 @@ export async function buildArticleViewModel(
   db: D1Database,
   args: { slug: string; siteContext: ArticleSiteContext },
 ): Promise<ArticleViewModel | null> {
-  const siteId = args.siteContext.siteId;
-  const slug = args.slug;
+  const data = await loadArticleRenderData(db, args);
+  return data?.vm ?? null;
+}
+
+export async function loadArticleRenderData(
+  db: D1Database,
+  { slug, siteContext }: { slug: string; siteContext: ArticleSiteContext },
+) {
+  const siteId = siteContext.siteId;
 
   // Query 1 — fetch the article row scoped by site_id + slug. The
   // substring `site_id = ?` appears verbatim so T9.AC2's grep counts it.
-  const articleRow = await db
+  const detail = db
     .prepare(
       "SELECT a.id AS id, a.slug AS slug, a.title AS title, " +
         "a.content_json AS content_json, a.content_html AS content_html, " +
@@ -570,65 +555,39 @@ export async function buildArticleViewModel(
     .bind(siteId, slug)
     .first<ArticleDetailRow>();
 
-  if (articleRow === null) return null;
-
-  // Query 2 — related articles in the same category (or recent if none).
-  const relatedSql = articleRow.category_id !== null
-    ? "SELECT a.id AS id, a.slug AS slug, a.title AS title, a.content_html AS content_html, " +
-        "a.category_id AS category_id, a.published_at AS published_at, " +
-        "a.featured_image_id AS featured_image_id, a.is_featured AS is_featured, " +
-        "c.name AS category_name, c.slug AS category_slug, " +
-        "m.storage_key AS image_url, m.alt_text AS image_alt " +
-        "FROM articles a " +
-        "LEFT JOIN categories c ON c.id = a.category_id " +
-        "LEFT JOIN media m ON m.id = a.featured_image_id " +
-        "WHERE a.site_id = ? AND a.category_id = ? AND a.status = 'published' AND a.id != ? " +
-        "ORDER BY a.published_at DESC, a.id DESC LIMIT ?"
-    : "SELECT a.id AS id, a.slug AS slug, a.title AS title, a.content_html AS content_html, " +
-        "a.category_id AS category_id, a.published_at AS published_at, " +
-        "a.featured_image_id AS featured_image_id, a.is_featured AS is_featured, " +
-        "c.name AS category_name, c.slug AS category_slug, " +
-        "m.storage_key AS image_url, m.alt_text AS image_alt " +
-        "FROM articles a " +
-        "LEFT JOIN categories c ON c.id = a.category_id " +
-        "LEFT JOIN media m ON m.id = a.featured_image_id " +
-        "WHERE a.site_id = ? AND a.status = 'published' AND a.id != ? " +
-        "ORDER BY a.published_at DESC, a.id DESC LIMIT ?";
-
-  const relatedBind = articleRow.category_id !== null
-    ? [siteId, articleRow.category_id, articleRow.id, RELATED_LIMIT]
-    : [siteId, articleRow.id, RELATED_LIMIT];
-
-  const relatedResult = await db
-    .prepare(relatedSql)
-    .bind(...relatedBind)
+  // The two disjoint branches keep the category/date and site/date indexes
+  // usable. Only the four selected cards need their body, category and image.
+  const relatedListing = db
+    .prepare(
+      `WITH source AS (
+         SELECT id, site_id, category_id FROM articles
+         WHERE site_id = ? AND slug = ? AND status = 'published'
+       ), related AS (
+         SELECT a.id AS id, a.published_at AS published_at
+         FROM source JOIN articles a ON a.site_id = source.site_id AND a.category_id = source.category_id
+         WHERE a.status = 'published' AND a.id != source.id
+         UNION ALL
+         SELECT a.id AS id, a.published_at AS published_at
+         FROM source JOIN articles a ON a.site_id = source.site_id
+         WHERE source.category_id IS NULL AND a.status = 'published' AND a.id != source.id
+         ORDER BY published_at DESC, id DESC LIMIT ?
+       )
+       SELECT a.id, a.slug, a.title, a.content_html, a.category_id, a.published_at,
+              a.featured_image_id, a.is_featured, c.name AS category_name, c.slug AS category_slug,
+              m.storage_key AS image_url, m.alt_text AS image_alt
+       FROM related JOIN articles a ON a.id = related.id
+       LEFT JOIN categories c ON c.id = a.category_id
+       LEFT JOIN media m ON m.id = a.featured_image_id
+       ORDER BY related.published_at DESC, related.id DESC`,
+    )
+    .bind(siteId, slug, RELATED_LIMIT)
     .all<RelatedRow>();
+
+  const [articleRow, relatedResult, { site, settings }] = await Promise.all([
+    detail, relatedListing, loadRenderContext(db, siteContext),
+  ]);
+  if (articleRow === null) return null;
   const relatedRows = relatedResult.results ?? [];
-
-  // Query 3 — per-site brand + meta settings.
-  const settingsResult = await db
-    .prepare("SELECT key AS key, value AS value FROM site_settings WHERE site_id = ?")
-    .bind(siteId)
-    .all<SettingsRow>();
-  const settingsRows = settingsResult.results ?? [];
-
-  const settings: Record<string, string> = {};
-  for (const row of settingsRows) {
-    if (typeof row.value === "string") settings[row.key] = row.value;
-  }
-
-  const site: ArticleViewModelSite = {
-    site_id: siteId,
-    name: settings.site_name ?? args.siteContext.hostname,
-    hostname: args.siteContext.hostname,
-    tagline: settings.tagline ?? "",
-    description: settings.site_description ?? "",
-    // T24: logo_media_id holds a bare media.storage_key; mediaUrl() resolves it
-    // to the public /media/<key> address the design .brand <img> loads.
-    logoUrl: mediaUrl(settings.logo_media_id),
-    faviconUrl: siteFaviconUrl(settings.favicon_media_id),
-    brandTokens: parseBrandTokens(settings.brand_tokens_json),
-  };
 
   const { blocks, faqs } = adaptBodyBlocks(articleRow.content_json, articleRow.content_html);
   const contentText = blocks.map(blockToPlainText).join(" ").replace(/\s+/g, " ").trim();
@@ -702,5 +661,6 @@ export async function buildArticleViewModel(
     modifiedAt: updatedAtIso.length > 0 ? updatedAtIso : publishedAtIso,
   };
 
-  return { site, article, breadcrumb, faqs, related, meta };
+  const vm: ArticleViewModel = { site, article, breadcrumb, faqs, related, meta };
+  return { vm, settings };
 }
