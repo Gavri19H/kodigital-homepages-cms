@@ -3,7 +3,8 @@ import admin from "../src/admin/router";
 import { onPublicChange } from "../src/edge/public-change";
 import type { Env } from "../src/env";
 import { processScheduledArticles } from "../src/workflow/scheduled";
-import { addSite, createDb, env as sqliteEnv, hasSqlite, type SqliteDb } from "./helpers/x06-a2-sqlite";
+import { miniDocument } from "./helpers/mini-dom";
+import { addSite, createDb, env as sqliteEnv, hasSqlite, page, type SqliteDb } from "./helpers/x06-a2-sqlite";
 
 vi.mock("../src/edge/public-change", () => ({ onPublicChange: vi.fn() }));
 
@@ -90,6 +91,15 @@ describe.skipIf(!hasSqlite)("article write purges through the admin router", () 
     expectChange("article.update", tags);
   });
 
+  it("rejects a cross-site article PATCH before changing the article or purging either site", async () => {
+    const id = seedArticle("published");
+    const res = await write(env, "PATCH", "articles/" + id, { site_id: "Site-B", slug: "Moved" });
+    expect(res.status).toBe(403);
+    expect(await res.json()).toMatchObject({ code: "TENANT_BOUNDARY_VIOLATION" });
+    expect(sql.prepare("SELECT site_id, slug FROM articles WHERE id = ?").get(id)).toEqual({ site_id: siteId, slug });
+    expect(onPublicChange).not.toHaveBeenCalled();
+  });
+
   it("purges the slug actually replaced when another rename commits during validation", async () => {
     const id = seedArticle("published");
     const prepare = env.DB.prepare.bind(env.DB);
@@ -146,6 +156,16 @@ describe.skipIf(!hasSqlite)("article write purges through the admin router", () 
     });
     expect(res.status).toBe(200);
     expectChange("settings.update", ["site:site-a"]);
+  });
+
+  it("renders the clear-site action in a labelled settings form group", async () => {
+    const document = miniDocument(await page(sql, "/admin/settings?site_id=" + siteId));
+    const button = document.querySelector("button#clear-site-cache.btn.btn-secondary");
+    const group = button?.closest("div.form-group[role=group]");
+    const label = group?.querySelector(".form-label");
+    expect(label?.textContent).toBe("Public page cache");
+    expect(group?.getAttribute("aria-labelledby")).toBe(label?.id);
+    expect(group?.querySelector(".form-status[role=status]")?.id).toBe("clear-site-cache-status");
   });
 
   it.each([

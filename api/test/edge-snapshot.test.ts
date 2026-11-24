@@ -4,6 +4,7 @@ import * as listicles from "../src/edge/listicle-select";
 import { buildSiteSnapshot, parseSiteSnapshot } from "../src/edge/snapshot";
 import type { SiteSnapshot } from "../src/edge/types";
 import type { Env } from "../src/env";
+import { makeFakeDb } from "./helpers/admin-test-kit";
 import { addSite, createDb, env as testEnv, type SqliteDb } from "./helpers/x06-a2-sqlite";
 
 describe("buildSiteSnapshot", () => {
@@ -104,14 +105,23 @@ describe("buildSiteSnapshot", () => {
     await expect(buildSiteSnapshot(env, "south.example")).resolves.toBeNull();
   });
 
-  it("returns null if the listicle builder throws", async () => {
-    vi.spyOn(listicles, "buildListicleSnapshot").mockRejectedValueOnce(new Error("listicle read failed"));
-    await expect(buildSiteSnapshot(env, "north.example")).resolves.toBeNull();
+  it("rejects if the site disappears after host resolution", async () => {
+    const { db } = makeFakeDb([{
+      match: "FROM domains",
+      row: { site_id: "site-north", hostname: "north.example", status: "active" },
+    }]);
+    await expect(buildSiteSnapshot({ ...env, DB: db }, "north.example"))
+      .rejects.toThrow("Missing versions for resolved site");
   });
 
-  it("returns null if the leadgen builder throws", async () => {
+  it("propagates a listicle builder failure", async () => {
+    vi.spyOn(listicles, "buildListicleSnapshot").mockRejectedValueOnce(new Error("listicle read failed"));
+    await expect(buildSiteSnapshot(env, "north.example")).rejects.toThrow("listicle read failed");
+  });
+
+  it("propagates a leadgen builder failure", async () => {
     vi.spyOn(leadgen, "buildLeadgenSnapshot").mockRejectedValueOnce(new Error("leadgen read failed"));
-    await expect(buildSiteSnapshot(env, "south.example")).resolves.toBeNull();
+    await expect(buildSiteSnapshot(env, "south.example")).rejects.toThrow("leadgen read failed");
   });
 });
 

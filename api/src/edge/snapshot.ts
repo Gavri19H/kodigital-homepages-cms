@@ -64,38 +64,34 @@ async function readBehaviorSettings(db: D1Database, siteId: string) {
 }
 
 export async function buildSiteSnapshot(env: Env, hostname: string): Promise<SiteSnapshot | null> {
-  try {
-    const binding: SnapshotBinding = env.DB;
-    // The shared resolver and builders take D1Database and only use prepare().
-    const db = (binding.withSession?.("first-primary") ?? env.DB) as D1Database;
-    const site = await resolveSiteByHostname(db, hostname, env);
-    if (site === null) return null;
+  const binding: SnapshotBinding = env.DB;
+  // The shared resolver and builders take D1Database and only use prepare().
+  const db = (binding.withSession?.("first-primary") ?? env.DB) as D1Database;
+  const site = await resolveSiteByHostname(db, hostname, env);
+  // PublicPage caches a host miss for one minute. Read failures must reach its 503 handler.
+  if (site === null) return null;
 
-    const siteId = site.site_id;
-    const [versions, settings, listicles, leadgen] = await Promise.all([
-      db.prepare("SELECT content_version, settings_version, write_bookmark FROM sites WHERE id = ?")
-        .bind(siteId).first<SiteVersions>(),
-      readBehaviorSettings(db, siteId),
-      buildListicleSnapshot(db, siteId),
-      buildLeadgenSnapshot(db, siteId),
-    ]);
-    if (versions === null) return null;
+  const siteId = site.site_id;
+  const [versions, settings, listicles, leadgen] = await Promise.all([
+    db.prepare("SELECT content_version, settings_version, write_bookmark FROM sites WHERE id = ?")
+      .bind(siteId).first<SiteVersions>(),
+    readBehaviorSettings(db, siteId),
+    buildListicleSnapshot(db, siteId),
+    buildLeadgenSnapshot(db, siteId),
+  ]);
+  if (versions === null) throw new Error(`Missing versions for resolved site ${siteId}`);
 
-    return {
-      v: 1,
-      siteId,
-      hostname: site.hostname,
-      status: site.status,
-      contentVersion: versions.content_version,
-      settingsVersion: versions.settings_version,
-      writeBookmark: versions.write_bookmark,
-      ...settings,
-      listicles,
-      leadgen,
-      builtAt: Date.now(),
-    };
-  } catch {
-    // The gateway falls back to the live renderer if any snapshot read fails.
-    return null;
-  }
+  return {
+    v: 1,
+    siteId,
+    hostname: site.hostname,
+    status: site.status,
+    contentVersion: versions.content_version,
+    settingsVersion: versions.settings_version,
+    writeBookmark: versions.write_bookmark,
+    ...settings,
+    listicles,
+    leadgen,
+    builtAt: Date.now(),
+  };
 }

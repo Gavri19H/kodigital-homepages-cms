@@ -198,11 +198,11 @@ function renderSiteSelector(sites: ReadonlyArray<SiteOption>, selectedSiteId?: s
     </select>
     <small id="filter-site-hint" class="form-hint">Settings are scoped to the chosen site.</small>
   </div>
-  <fieldset class="form-group">
-    <legend class="form-label">Public page cache</legend>
+  <div class="form-group" role="group" aria-labelledby="clear-site-cache-label">
+    <span id="clear-site-cache-label" class="form-label">Public page cache</span>
     <button type="button" id="clear-site-cache" class="btn btn-secondary"${selectedSiteId ? "" : " disabled"}>Clear this site now</button>
-    <span id="clear-site-cache-status" class="form-status" role="status"></span>
-  </fieldset>
+    <p id="clear-site-cache-status" class="form-status" role="status"></p>
+  </div>
 </div>`;
 }
 

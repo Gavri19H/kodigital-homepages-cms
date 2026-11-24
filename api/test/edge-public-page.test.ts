@@ -8,13 +8,14 @@ import { buildSiteSnapshot } from "../src/edge/snapshot";
 import type { PublicPageProps, SiteSnapshot } from "../src/edge/types";
 import type { Env } from "../src/env";
 import { honoFetch } from "../src/index";
+import { buildEnv, makeFakeDb } from "./helpers/admin-test-kit";
 
 vi.mock("cloudflare:workers", () => ({
   WorkerEntrypoint: class {
     constructor(readonly ctx: ExecutionContext, readonly env: Env) {}
   },
 }));
-vi.mock("../src/edge/snapshot", () => ({ buildSiteSnapshot: vi.fn() }));
+vi.mock("../src/edge/snapshot", { spy: true });
 vi.mock("../src/index", () => ({ honoFetch: vi.fn() }));
 
 const DAY = "public, max-age=0, s-maxage=86400, stale-while-revalidate=86400";
@@ -34,9 +35,9 @@ describe("applyEdgeCacheHeaders", () => {
     ["/atom.xml", "listing:site-a"],
     ["/sitemap.xml", "listing:site-a"],
     ["/llms.txt", "listing:site-a"],
-    ["/article/My-Story", "slug:site-a:my-story"],
-    ["/art%69cle/best%2Dcars", "slug:site-a:best-cars"],
-    ["/page/about", "slug:site-a:about"],
+    ["/article/My-Story", "slug:site-a:my-story,listing:site-a"],
+    ["/art%69cle/best%2Dcars", "slug:site-a:best-cars,listing:site-a"],
+    ["/page/about", "slug:site-a:about,listing:site-a"],
     ["/best-cars", "slug:site-a:best-cars"],
     ["/lg", "slug:site-a:lg"],
     ["/robots.txt", null],
@@ -47,9 +48,9 @@ describe("applyEdgeCacheHeaders", () => {
     ["/lg/quote", null],
     ["/article/story/extra", null],
     ["/rss-guide", "slug:site-a:rss-guide"],
-  ] as const)("tags %s with the site's purge targets", (path, routeTag) => {
+  ] as const)("tags %s with the site's purge targets", (path, routeTags) => {
     const result = applyEdgeCacheHeaders(new Response(), { siteId: "Site-A", path });
-    expect(result.headers.get("Cache-Tag")).toBe(routeTag ? `site:site-a,${routeTag}` : "site:site-a");
+    expect(result.headers.get("Cache-Tag")).toBe(routeTags ? `site:site-a,${routeTags}` : "site:site-a");
     expect(result.headers.get("Cache-Control")).toBe(DAY);
   });
 
@@ -96,7 +97,7 @@ describe("applyEdgeCacheHeaders", () => {
   });
 });
 
-const env = { CACHE_API_ENABLED: "true" } as Env;
+const env: Env = { ...buildEnv(makeFakeDb().db), CACHE_API_ENABLED: "true" };
 const snapProps = { siteKey: "host:tenant.example", variantKey: "snap" };
 const snapUrl = "https://tenant.example/__snap";
 
@@ -137,7 +138,7 @@ describe("PublicPage.fetch", () => {
     expect(request.headers.get("x-cms-variant")).toBe("human");
     expect(buildSiteSnapshot).not.toHaveBeenCalled();
     expect(response.headers.get("Cache-Control")).toBe(DAY);
-    expect(response.headers.get("Cache-Tag")).toBe("site:site-a,slug:site-a:story,listicle:l1,quote:q1");
+    expect(response.headers.get("Cache-Tag")).toBe("site:site-a,slug:site-a:story,listing:site-a,listicle:l1,quote:q1");
     expect(response.headers.get("ETag")).toBe('"rev-1"');
     expect(response.headers.get("Last-Modified")).toBe(modified);
     expect(response.headers.get("Content-Type")).toBe("text/markdown");
@@ -164,7 +165,6 @@ describe("PublicPage.fetch", () => {
   });
 
   it("caches an unknown snapshot host for one minute under its host tag", async () => {
-    vi.mocked(buildSiteSnapshot).mockResolvedValue(null);
     const { page } = entrypoint(snapProps);
     const response = await page.fetch(new Request(snapUrl));
     expect(response.status).toBe(404);
@@ -173,10 +173,13 @@ describe("PublicPage.fetch", () => {
     expect(honoFetch).not.toHaveBeenCalled();
   });
 
-  it("returns an uncacheable 503 when the snapshot builder throws", async () => {
-    vi.mocked(buildSiteSnapshot).mockRejectedValue(new Error("read failed"));
+  it("returns an uncacheable 503 when the snapshot registry read fails", async () => {
+    const lookup = env.DB.prepare("SELECT 1");
+    const read = vi.spyOn(lookup, "first").mockRejectedValueOnce(new Error("read failed"));
+    vi.spyOn(env.DB, "prepare").mockReturnValueOnce(lookup);
     const { page } = entrypoint(snapProps);
     const response = await page.fetch(new Request(snapUrl));
+    expect(read).toHaveBeenCalledOnce();
     expect(response.status).toBe(503);
     expect(response.headers.get("Cache-Control")).toBe(PRIVATE);
     expect(response.headers.has("Cache-Tag")).toBe(false);
