@@ -177,7 +177,7 @@ describe("v3.1 §5.3 — ImageBlock source=auto_logo matches the existing auto-s
     expect(imageInner).toBe(headerInner);
   });
 
-  it("with a logoUrl set, the <img> fragment is byte-identical to renderHeaderLogo's", () => {
+  it("with a logoUrl set, the section and header image bytes differ only in their loading hint", () => {
     const header: LeadgenComponentNode = {
       type: "HeaderLogo",
       question_id: "q2",
@@ -193,7 +193,8 @@ describe("v3.1 §5.3 — ImageBlock source=auto_logo matches the existing auto-s
     const headerInner = afterMarker(headerHtml, '<div class="lg-header-inner">').replace(/<\/div><\/header>$/, "");
     const imageInner = afterMarker(imageHtml, 'data-source="auto_logo">').replace(/<\/div>$/, "");
     expect(headerInner).toContain('<img class="lg-logo-img"');
-    expect(imageInner).toBe(headerInner);
+    expect(headerInner).toContain('loading="eager"');
+    expect(imageInner).toBe(headerInner.replace('loading="eager"', 'loading="lazy"'));
   });
 
   it("does NOT reproduce the <header> landmark tag (unit-scope primitive, not a frame chrome element)", () => {
@@ -213,7 +214,7 @@ describe("v3.1 §5.3 — ImageBlock source=auto_logo matches the existing auto-s
     };
     const html = renderComponent(node, DESIGN);
     expect(html).toContain('data-source="media"');
-    expect(html).toContain('src="/media/media_123"'); // /media/ prefix: see leadgen-card-image-media-url
+    expect(html).toContain('src="/cdn-cgi/image/width=1280,fit=scale-down,format=auto,quality=75/media/media_123"'); // /media/ prefix: see leadgen-card-image-media-url
     expect(html).toContain('alt="Acme logo"');
   });
 

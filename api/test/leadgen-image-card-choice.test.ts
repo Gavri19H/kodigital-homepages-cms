@@ -55,17 +55,24 @@ const iconGrid = (choices: LeadgenChoice[]): LeadgenComponentNode => ({
 // (label/helper/choice markup) is unchanged since neither fixture authors any
 // new §6.3/§6.5/§6.6 prop.
 
+function expectedImage(key: string, alt: string, fit?: "cover" | "contain"): string {
+  const small = `/cdn-cgi/image/height=32,fit=scale-down,format=auto,quality=75/media/${key}`;
+  const large = `/cdn-cgi/image/height=64,fit=scale-down,format=auto,quality=75/media/${key}`;
+  const style = fit ? ` style="object-fit:${fit}"` : "";
+  return `<img class="lg-card-img" src="${large}" alt="${alt}" srcset="${small} 1x, ${large} 2x" width="32" height="32"${style} loading="lazy">`;
+}
+
 const SNAPSHOT_IMAGE_LEGACY =
   `<div class="lg-card-grid" role="radiogroup" data-component-type="ImageCardAnswerGrid"` +
   ` data-question-id="q_make" data-internal-field="car_make" data-answer-type="enum"` +
   ` data-lg-question="q_make" data-lg-field="car_make" style="--lg-cols:2;gap:0.5rem">` +
   `<button type="button" class="lg-card" role="radio" aria-checked="false" data-value="toyota"` +
   ` data-lg-choice="toyota" data-analytics-id="mk_toyota">` +
-  `<img class="lg-card-img" src="/media/med_toyota" alt="Toyota" loading="lazy">` +
+  expectedImage("med_toyota", "Toyota") +
   `<span class="lg-card-title">Toyota</span></button>` +
   `<button type="button" class="lg-card" role="radio" aria-checked="false" data-value="honda"` +
   ` data-lg-choice="honda" data-analytics-id="mk_honda">` +
-  `<img class="lg-card-img" src="/media/med_honda" alt="Honda" loading="lazy">` +
+  expectedImage("med_honda", "Honda") +
   `<span class="lg-card-title">Honda</span>` +
   `<span class="lg-card-desc">Reliable pick</span></button></div>`;
 
@@ -121,7 +128,7 @@ describe("image-card-choice-data — full-depth choice renders image/alt/title/s
   const html = renderComponent(imageGrid([full]), DESIGN);
 
   it("renders the image with the authored alt (image_alt beats the label fallback)", () => {
-    expect(html).toContain(`<img class="lg-card-img" src="/media/med_toyota" alt="Toyota logo"`);
+    expect(html).toContain(`<img class="lg-card-img" src="/cdn-cgi/image/height=64,fit=scale-down,format=auto,quality=75/media/med_toyota" alt="Toyota logo"`);
     expect(html).not.toContain(`alt="Toyota"`);
   });
 
@@ -229,7 +236,7 @@ describe("image-card-choice-data — emoji renders where the icon would (§8.4)"
       ]),
       DESIGN,
     );
-    expect(html).toContain(`<img class="lg-card-img" src="/media/med_audi"`);
+    expect(html).toContain(`<img class="lg-card-img" src="/cdn-cgi/image/height=64,fit=scale-down,format=auto,quality=75/media/med_audi"`);
     expect(html).not.toContain("🚗");
   });
 });
@@ -251,18 +258,16 @@ describe("image-card-choice-data — image fit cover|contain (§8.4)", () => {
     );
 
   it("image_fit:'cover' rides object-fit on the card image", () => {
-    expect(withFit("cover")).toContain(
-      `alt="Tesla logo" style="object-fit:cover" loading="lazy">`,
-    );
+    expect(withFit("cover")).toContain(expectedImage("med_tesla", "Tesla logo", "cover"));
   });
 
   it("image_fit:'contain' rides object-fit on the card image", () => {
     expect(withFit("contain")).toContain(`style="object-fit:contain"`);
   });
 
-  it("absent/unknown fit → today's attribute-free <img> (byte-safe additive)", () => {
-    expect(withFit(undefined)).toContain(`alt="Tesla logo" loading="lazy">`);
-    expect(withFit("stretch")).toContain(`alt="Tesla logo" loading="lazy">`);
+  it("absent/unknown fit uses the class default on the sized image", () => {
+    expect(withFit(undefined)).toContain(expectedImage("med_tesla", "Tesla logo"));
+    expect(withFit("stretch")).toContain(expectedImage("med_tesla", "Tesla logo"));
     expect(withFit(undefined)).not.toContain("object-fit");
   });
 });

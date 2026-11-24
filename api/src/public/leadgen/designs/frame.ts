@@ -40,7 +40,11 @@ import { escapeHtml } from "../../../editor/sanitize";
 import { sanitizeFrameInlineHtml } from "../../../lib/inline-sanitizer";
 import { leadgenIconSvg } from "../components/icons.generated";
 import { mediaUrl } from "../../view-models/media-url";
+import { srcsetWidths } from "../../templates/responsive-img";
 import {
+  fluidImageAttrs,
+  funnelImageAttrs,
+  funnelImagePixels,
   renderBackButton,
   renderDisclosureLink,
   renderFooterBar,
@@ -408,16 +412,14 @@ function renderHeaderRegion(
 ): string {
   const h = frame.header;
   if (!h.enabled) return "";
-  // Rework §8.8 (#11A): compute the ladder's props ONCE. A resolvable image
-  // (`logoUrl` present) keeps the EXACT existing call — byte-identical for
-  // every site WITH a logo. Only the floor leg (no logoUrl — cms_fallback,
-  // or "site"/manual-degrade with no image) now diverges from
-  // renderHeaderLogo's own bare-site_name-text rendering (presets.ts,
-  // another slice's file) — see renderLogoFallbackChip.
   const logoProps = logoNodeProps(h, branding);
+  const heights = { s: 24, m: funnelImagePixels(design.headerBar.logoMaxHeight, 32), l: 44 };
   const logo =
     logoProps["logoUrl"] !== undefined
-      ? renderHeaderLogo(frameNode("HeaderLogo", "frame_logo", logoProps), design)
+      ? renderHeaderLogo(
+          frameNode("HeaderLogo", "frame_logo", logoProps), design,
+          heights[h.logo_size], heights[frame.mobile.logo_size ?? h.logo_size],
+        )
       : renderLogoFallbackChip(adminPreview, siteSettingsHref);
   const extras: string[] = [];
   if (h.tagline !== null && h.tagline.trim() !== "") {
@@ -668,9 +670,9 @@ function renderBenefitRegion(b: FrameBenefitBarConfig, design: DefaultFunnelDesi
 
 // §10.2 footer logo (footer.show_logo): the site's image mark, else its text
 // mark, else the CMS mark — frame chrome (FooterBar has no logo slot).
-function renderFooterLogo(branding: SiteBranding | null): string {
+function renderFooterLogo(branding: SiteBranding | null, height: number): string {
   if (branding !== null && branding.logo_url !== null && branding.logo_url !== "") {
-    return `<img class="lg-frame-footer-logo" src="${escapeHtml(branding.logo_url)}" alt="${escapeHtml(branding.site_name)}" decoding="async">`;
+    return `<img class="lg-frame-footer-logo" ${funnelImageAttrs(branding.logo_url, branding.site_name, height * 3, height)} loading="lazy" decoding="async">`;
   }
   const mark = branding !== null && branding.site_name.trim() !== "" ? branding.site_name : CMS_FALLBACK_LOGO_TEXT;
   return `<span class="lg-frame-footer-logo-text">${escapeHtml(mark)}</span>`;
@@ -739,7 +741,7 @@ function renderFooterLegacyInner(
   if (links.length > 0) props["links"] = links.map((l) => ({ label: l.label, href: l.href }));
   if (f.description !== null && f.description.trim() !== "") props["legalHtml"] = f.description;
   const bar = renderFooterBar(frameNode("FooterBar", "frame_footer", props), design);
-  const logo = f.show_logo ? renderFooterLogo(branding) : "";
+  const logo = f.show_logo ? renderFooterLogo(branding, funnelImagePixels(design.logoStrip.logoMaxHeight, 32)) : "";
   return logo + bar;
 }
 
@@ -752,7 +754,9 @@ function renderBackgroundRegion(bg: FrameBackgroundConfig): string {
   if (bg.image_media_id !== null) {
     const url = mediaUrl(bg.image_media_id);
     if (url !== null) {
-      img = `<img class="lg-frame-bg-img" src="${escapeHtml(url)}" alt="" decoding="async">`;
+      // The fixed layer covers the viewport. CSS owns both axes as it resizes.
+      img = `<img class="lg-frame-bg-img" ${fluidImageAttrs(url, "", srcsetWidths(960), "100vw")}` +
+        ` width="960" height="540" loading="eager" decoding="async">`;
     }
   }
   return (
@@ -897,7 +901,7 @@ function renderBrandLogos(cfg: FrameBrandLogosConfig, design: DefaultFunnelDesig
     })
     .filter((l): l is { mediaId: string; alt: string; size?: string } => l !== null);
   if (logos.length === 0) return "";
-  const strip = renderLogoStrip(frameNode("LogoStrip", "frame_brand_logos", { logos }), design);
+  const strip = renderLogoStrip(frameNode("LogoStrip", "frame_brand_logos", { logos }), design, true);
   const gating = pageTargetGating(cfg.pages);
   const classes = `lg-frame-brand-logos lg-frame-brand-logos--${cfg.layout}` + alignClass(cfg.align);
   return region("brand_logos", classes, strip, `${gating.attrs}${gating.hidden ? " hidden" : ""}`);
@@ -952,6 +956,7 @@ function renderImageElement(item: FrameImageItem): string {
       : null;
   if (src === null) return "";
   const size = item.size ?? "m";
+  const side = { s: 96, m: 160, l: 240 }[size];
   const hasTip = isNonEmptyStr(item.tooltip);
   const tipId = `lg-img-tip-${item.id}`;
   const wrapAttrs = hasTip
@@ -962,7 +967,7 @@ function renderImageElement(item: FrameImageItem): string {
     : "";
   const inner =
     `<span class="lg-frame-image-wrap"${wrapAttrs}>` +
-    `<img class="lg-frame-image-img" src="${escapeHtml(src)}" alt="${escapeHtml(item.alt)}" loading="lazy">` +
+    `<img class="lg-frame-image-img" ${funnelImageAttrs(src, item.alt, side, side, "width")} loading="lazy">` +
     tipEl +
     `</span>`;
   const gating = pageTargetGating(item.pages);
@@ -1106,7 +1111,7 @@ function footerInlineBody(block: FrameFooterBlock): string {
 // default, the existing renderFooterLogo ladder) or "manual" (a media-
 // library ref or a SAFE_HREF_RE-gated direct URL — R2 minor-6 defense in
 // depth over frames.ts's STORE-time gate on the SAME field).
-function renderFooterBlockLogo(block: FrameFooterBlock, branding: SiteBranding | null): string {
+function renderFooterBlockLogo(block: FrameFooterBlock, branding: SiteBranding | null, height: number): string {
   if (block.logo_source === "manual") {
     // R2 P3 FIX-FIRST (MINOR-10) — close the asymmetry R2 minor-6 forbids:
     // `logo_url` was SAFE_HREF_RE-gated here but its sibling `logo_media_id`
@@ -1121,12 +1126,12 @@ function renderFooterBlockLogo(block: FrameFooterBlock, branding: SiteBranding |
     const src = fromMedia ?? fromUrl;
     if (src !== null) {
       const alt = isNonEmptyStr(block.logo_alt) ? block.logo_alt : branding?.site_name ?? CMS_FALLBACK_LOGO_TEXT;
-      return `<img class="lg-frame-footer2-logo-img" src="${escapeHtml(src)}" alt="${escapeHtml(alt)}" decoding="async">`;
+      return `<img class="lg-frame-footer2-logo-img" ${funnelImageAttrs(src, alt, height * 3, height)} loading="lazy" decoding="async">`;
     }
   }
-  return renderFooterLogo(branding);
+  return renderFooterLogo(branding, height);
 }
-function renderFooterBlock(block: FrameFooterBlock, branding: SiteBranding | null, footer: FrameFooterConfig): string {
+function renderFooterBlock(block: FrameFooterBlock, branding: SiteBranding | null, footer: FrameFooterConfig, design: DefaultFunnelDesign): string {
   const alignA = alignAttr(block.align);
   switch (block.type) {
     case "about_paragraph":
@@ -1160,7 +1165,7 @@ function renderFooterBlock(block: FrameFooterBlock, branding: SiteBranding | nul
         ? `<address class="lg-frame-footer2-address"${alignA}>${escapeHtml(String(block.text))}</address>`
         : "";
     case "logo":
-      return `<div class="lg-frame-footer2-logo"${alignA}>${renderFooterBlockLogo(block, branding)}</div>`;
+      return `<div class="lg-frame-footer2-logo"${alignA}>${renderFooterBlockLogo(block, branding, funnelImagePixels(design.logoStrip.logoMaxHeight, 32))}</div>`;
     // OWNER 2026-08-23 — a divider between blocks. An <hr> is the element that
     // MEANS this, so a screen reader announces the separation the sighted
     // operator drew. No fields, no align (a rule spans the band either way):
@@ -1245,7 +1250,7 @@ function renderFooterV2(
   // content. Blocks authored ⇒ byte-identical to pre-fix.
   const inner =
     blocks.length > 0
-      ? blocks.map((b) => renderFooterBlock(b, branding, f)).join("")
+      ? blocks.map((b) => renderFooterBlock(b, branding, f, design)).join("")
       : renderFooterLegacyInner(f, design, branding);
   const hideMobile = f.hide_on_mobile || frame.mobile.hide_footer === true;
   // OWNER 2026-08-23 — the one-gap stack applies to the BLOCK model only. A
