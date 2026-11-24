@@ -607,7 +607,7 @@ export function vehicleQuestionCss(design: DefaultFunnelDesign | EffectiveFunnel
       "max-width": "100%",
       "object-fit": "contain",
     }) +
-    rule(`${g} > .lg-card`, {
+    rule(`${g} > .lg-card:not(.lg-other-trigger)`, {
       "min-width": "0",
       "padding-left": "6px",
       "padding-right": "6px",

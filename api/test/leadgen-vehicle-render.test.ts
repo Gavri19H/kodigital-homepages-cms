@@ -277,7 +277,7 @@ describe("F18 render — no readable list, and everything else unchanged", () =>
       ".lg-card-grid.lg-card-grid[data-lg-vlogos] .lg-card-logo{display:block;width:80px;height:40px;max-width:100%;object-fit:contain}",
     );
     expect(css).toContain(
-      ".lg-card-grid.lg-card-grid[data-lg-vlogos] > .lg-card{min-width:0;padding-left:6px;padding-right:6px;overflow-wrap:anywhere}",
+      ".lg-card-grid.lg-card-grid[data-lg-vlogos] > .lg-card:not(.lg-other-trigger){min-width:0;padding-left:6px;padding-right:6px;overflow-wrap:anywhere}",
     );
   });
 });
