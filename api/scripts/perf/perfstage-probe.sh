@@ -91,10 +91,51 @@ header() {
     }
   }' "$tmp/$1.headers"
 }
-require_hit() {
-  local cache
-  cache=$(header "$1" x-edge-cache)
-  [[ $cache == HIT ]] || fail "$1 x-edge-cache=${cache:-missing}, expected HIT"
+response_colo() {
+  local ray
+  ray=$(header "$1" cf-ray)
+  if [[ $ray =~ -([A-Z]{3})[[:blank:]]*$ ]]; then
+    printf '%s\n' "${BASH_REMATCH[1]}"
+  else
+    printf 'n/a\n'
+  fi
+}
+require_repeat_hit() {
+  local warm=$1 name=$2 host=$3 path=$4
+  shift 4
+  local first colo cache hit_on=n/a extra=0 seen_colos=' '
+  local cross_colo_first=n/a saw_new_colo=0
+  first=$(response_colo "$warm")
+  if [[ -f $tmp/$warm.colos ]]; then
+    seen_colos=$(<"$tmp/$warm.colos")
+  elif [[ $first != n/a ]]; then
+    seen_colos=" $first "
+  fi
+
+  while :; do
+    public_get "$name" "$host" "$path" "$@"
+    status_is "$name" 200
+    colo=$(response_colo "$name")
+    cache=$(header "$name" x-edge-cache)
+    if [[ $colo != n/a ]]; then
+      if [[ $seen_colos == *" $colo "* ]]; then
+        if [[ $cache == HIT ]]; then hit_on=$colo; fi
+        break
+      fi
+      if [[ $seen_colos != ' ' && $saw_new_colo == 0 ]]; then
+        case "$cache" in HIT|MISS) cross_colo_first=$cache ;; esac
+        saw_new_colo=1
+      fi
+      seen_colos+="$colo "
+    fi
+    if (( extra == 5 )); then break; fi
+    extra=$((extra + 1))
+  done
+
+  printf 'COLO %s first=%s hit_on=%s extra_requests=%d cross_colo_first=%s\n' \
+    "$check" "$first" "$hit_on" "$extra" "$cross_colo_first"
+  [[ $hit_on != n/a ]] || fail "$host$path x-edge-cache=${cache:-missing} in $colo, expected a same-colo HIT"
+  printf '%s\n' "$seen_colos" > "$tmp/$name.colos"
 }
 admin_get() {
   http "$1" "$admin/api/admin/$2"
@@ -242,12 +283,10 @@ check_page() {
   check="hit-$name"
   public_get "$name-first" "$host" "$path" --cookie-jar "$tmp/$name.jar"
   status_is "$name-first" 200
-  # Replay ko_sid so a running A/B test selects the same cached shell on the second GET.
-  public_get "$name" "$host" "$path" --cookie "$tmp/$name.jar"
-  status_is "$name" 200
-  require_hit "$name"
+  # Replay ko_sid so a running A/B test selects the same cached shell on repeat GETs.
+  require_repeat_hit "$name-first" "$name" "$host" "$path" --cookie "$tmp/$name.jar"
   [[ -s "$tmp/$name.body" ]] || fail "$path returned an empty page"
-  pass "$host$path second GET HIT"
+  pass "$host$path repeat GET HIT"
   check="cookies-$name"
   case "$name" in
     listicle|quote)
@@ -275,7 +314,7 @@ check_page() {
       for response in "$name-first" "$name"; do
         [[ -z $(header "$response" set-cookie) ]] || fail "$response set a cookie"
       done
-      pass "zero Set-Cookie headers on both GETs"
+      pass "zero Set-Cookie headers on warming and HIT GETs"
       ;;
   esac
 }
@@ -287,16 +326,12 @@ check_page quote "$tenant" "$quote"
 check_page other-home "$other" /
 
 check=tenant-isolation
-public_get revisit "$tenant" /
-status_is revisit 200
-require_hit revisit
+require_repeat_hit home revisit "$tenant" /
 cmp -s "$tmp/home.body" "$tmp/revisit.body" || fail "first tenant changed after visiting the second tenant"
 if cmp -s "$tmp/home.body" "$tmp/other-home.body"; then fail "both tenants returned the same homepage"; fi
 pass "$tenant and $other served different homepage bodies from HITs"
 check=query-cache
-public_get tracking "$tenant" "$article?utm_source=a&fbclid=b"
-status_is tracking 200
-require_hit tracking
+require_repeat_hit article tracking "$tenant" "$article?utm_source=a&fbclid=b"
 cmp -s "$tmp/article.body" "$tmp/tracking.body" || fail "$article body changed with tracking parameters"
 pass "$article HIT with byte-identical body"
 
@@ -339,9 +374,7 @@ routing_path="$quote?utm_source=perfstage-probe"
 public_get before-rule "$tenant" "$routing_path" --cookie "$tmp/quote.jar"
 status_is before-rule 200
 # Article invalidation can have evicted the snapshot. Establish a HIT immediately before the edit.
-public_get warm-rule "$tenant" "$routing_path" --cookie "$tmp/quote.jar"
-status_is warm-rule 200
-require_hit warm-rule
+require_repeat_hit before-rule warm-rule "$tenant" "$routing_path" --cookie "$tmp/quote.jar"
 ln "$tmp/rule-original.json" "$tmp/undo/rule.json"
 printf '%s\n' '{"status":"active"}' > "$tmp/enable.json"
 patch_row enable "$rule_route" "$tmp/enable.json" || fail "PATCH rule $rule_id failed"
@@ -355,13 +388,9 @@ pass "next GET returned 302 to $actual, rule $rule_id restored"
 check=burst-warm
 for i in "${!ids[@]}"; do
   id=${ids[$i]}
-  public_get warm "${hosts[$i]}" "${paths[$i]}"
-  status_is warm 200
-  if [[ $(header warm x-edge-cache) != HIT ]]; then
-    public_get warm "${hosts[$i]}" "${paths[$i]}"
-    status_is warm 200
-  fi
-  require_hit warm
+  public_get warm-first "${hosts[$i]}" "${paths[$i]}"
+  status_is warm-first 200
+  require_repeat_hit warm-first warm "${hosts[$i]}" "${paths[$i]}"
   title_payload "$id" "Perfstage burst $run_id article $id" "$tmp/burst-$id.json"
 done
 pass "30/30 article pages warmed to HIT"
