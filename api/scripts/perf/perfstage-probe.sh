@@ -10,6 +10,8 @@
 # The first 30 published articles for this tenant in GET /articles (including the named article)
 # are used for the burst. If that 200-row catalog is insufficient, supply "article_ids" with
 # 30 distinct published IDs including the named article. All original titles are read by ID.
+# To spread the burst across tenants, supply "burst" with 30 distinct {"host":"example","id":123}
+# entries. If it omits the named article, that article is looked up separately in GET /articles.
 set -euo pipefail
 set -E
 
@@ -30,13 +32,22 @@ origin='^https://[a-zA-Z0-9.-]+(:[0-9]+)?$'
 command -v curl >/dev/null && command -v jq >/dev/null || fail "curl and jq are required"
 jq -e '
   def id: type == "number" and . > 0 and . == floor;
+  def normalized_host: ascii_downcase | sub("\\.$"; "");
+  def valid_host: type == "string" and (normalized_host | length <= 253 and
+    (split(".") | length > 0 and
+      all(.[]; test("\\A[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?\\z"))));
   (.second_tenant_host | test("^[a-zA-Z0-9.-]+$")) and
   (.article | test("^/article/[^/?#[:space:]]+$")) and
   (.category | test("^/category/[^/?#[:space:]]+$")) and
   (.listicle | test("^/[^/?#[:space:]]+$")) and
   (.quote | test("^/lg(/[^/?#[:space:]]+)?$")) and
   (.quote_id | (id or (type == "string" and test("^lgq_[a-zA-Z0-9]+$")))) and
-  (.rule_id | id) and (.redirect_location | type == "string" and length > 0)
+  (.rule_id | id) and (.redirect_location | type == "string" and length > 0) and
+  (if has("burst") then
+    .burst | type == "array" and length == 30 and
+    all(.[]; type == "object" and (.host | valid_host) and (.id | id)) and
+    (unique_by([(.host | normalized_host), .id]) | length == 30)
+  else true end)
 ' "$fixture" >/dev/null || fail "invalid fixture in $fixture"
 other=$(jq -r .second_tenant_host "$fixture")
 article=$(jq -r .article "$fixture")
@@ -165,32 +176,61 @@ site_for_host() {
 site=$(site_for_host "$tenant") || fail "no active domain for $tenant"
 second_site=$(site_for_host "$other") || fail "no active domain for $other"
 [[ $site != "$second_site" ]] || fail "both hostnames resolve to site $site"
-if jq -e 'has("article_ids")' "$fixture" >/dev/null; then
-  jq '.article_ids' "$fixture" > "$tmp/ids.json"
-else
-  admin_get catalog articles
-  jq --arg site "$site" --arg path "$article" '
-    [.articles[] | select(.site_id == $site and .status == "published")]
-    | sort_by(("/article/" + (.slug | @uri)) != $path) | .[:30] | map(.id)
-  ' "$tmp/catalog.body" > "$tmp/ids.json"
-fi
-jq -e 'type == "array" and length == 30 and (unique | length == 30) and
-  all(.[]; type == "number" and . > 0 and . == floor)' "$tmp/ids.json" >/dev/null ||
-  fail "supply 30 distinct published article_ids from $tenant in $fixture"
-jq -r '.[]' "$tmp/ids.json" > "$tmp/ids"
-ids=() paths=() primary=
-while IFS= read -r id; do
+load_article() {
+  local id=$1 article_site=$2
   admin_get row "articles/$id"
-  jq -e --argjson id "$id" --arg site "$site" '
+  jq -e --argjson id "$id" --arg site "$article_site" '
     .article | select(.id == $id and .site_id == $site and .status == "published" and
       (.slug | type == "string" and length > 0) and (.title | type == "string")) | {site_id,title}
-  ' "$tmp/row.body" > "$tmp/original-$id.json" || fail "article $id is not a published article of $site"
+  ' "$tmp/row.body" > "$tmp/original-$id.json" || fail "article $id is not a published article of $article_site"
+  row_path=$(jq -r '"/article/" + (.article.slug | @uri)' "$tmp/row.body")
+}
+explicit_burst=0
+if jq -e 'has("burst")' "$fixture" >/dev/null; then
+  explicit_burst=1
+  jq -r '.burst[] | [.host, (.id | floor)] | @tsv' "$fixture" > "$tmp/burst-entries"
+else
+  if jq -e 'has("article_ids")' "$fixture" >/dev/null; then
+    jq '.article_ids' "$fixture" > "$tmp/ids.json"
+  else
+    admin_get catalog articles
+    jq --arg site "$site" --arg path "$article" '
+      [.articles[] | select(.site_id == $site and .status == "published")]
+      | sort_by(("/article/" + (.slug | @uri)) != $path) | .[:30] | map(.id)
+    ' "$tmp/catalog.body" > "$tmp/ids.json"
+  fi
+  jq -e 'type == "array" and length == 30 and (unique | length == 30) and
+    all(.[]; type == "number" and . > 0 and . == floor)' "$tmp/ids.json" >/dev/null ||
+    fail "supply 30 distinct published article_ids from $tenant in $fixture"
+  jq -r --arg host "$tenant" '.[] | [$host, .] | @tsv' "$tmp/ids.json" > "$tmp/burst-entries"
+fi
+ids=() hosts=() paths=() primary=
+while IFS=$'\t' read -r host id; do
+  article_site=$site
+  if (( explicit_burst )); then
+    article_site=$(site_for_host "${host%.}") || fail "no active domain for $host"
+  fi
+  load_article "$id" "$article_site"
   ids+=("$id")
-  paths[$id]=$(jq -r '"/article/" + (.article.slug | @uri)' "$tmp/row.body")
-  if [[ ${paths[$id]} == "$article" ]]; then primary=$id; fi
-done < "$tmp/ids"
-[[ -n $primary ]] || fail "the selected articles must include $article"
-pass "30 distinct published articles on $tenant"
+  hosts+=("$host")
+  paths+=("$row_path")
+  if [[ $article_site == "$site" && $row_path == "$article" ]]; then primary=$id; fi
+done < "$tmp/burst-entries"
+if (( explicit_burst )); then
+  if [[ -z $primary ]]; then
+    admin_get catalog articles
+    primary=$(jq -er --arg site "$site" --arg path "$article" '
+      .articles[] | select(.site_id == $site and .status == "published" and
+        ("/article/" + (.slug | @uri)) == $path) | .id
+    ' "$tmp/catalog.body") || fail "could not find published $tenant$article in the article catalog"
+    load_article "$primary" "$site"
+    [[ $row_path == "$article" ]] || fail "article $primary no longer matches $article"
+  fi
+  pass "30 distinct host and published article pairs"
+else
+  [[ -n $primary ]] || fail "the selected articles must include $article"
+  pass "30 distinct published articles on $tenant"
+fi
 
 check=external-snapshot
 public_get snapshot "$tenant" /__snap
@@ -313,11 +353,12 @@ restore_rule || fail "could not restore rule $rule_id"
 pass "next GET returned 302 to $actual, rule $rule_id restored"
 
 check=burst-warm
-for id in "${ids[@]}"; do
-  public_get warm "$tenant" "${paths[$id]}"
+for i in "${!ids[@]}"; do
+  id=${ids[$i]}
+  public_get warm "${hosts[$i]}" "${paths[$i]}"
   status_is warm 200
   if [[ $(header warm x-edge-cache) != HIT ]]; then
-    public_get warm "$tenant" "${paths[$id]}"
+    public_get warm "${hosts[$i]}" "${paths[$i]}"
     status_is warm 200
   fi
   require_hit warm
@@ -327,10 +368,12 @@ pass "30/30 article pages warmed to HIT"
 
 check=burst-writes
 pids=()
-started=$(now_ms)
-for id in "${ids[@]}"; do
+for i in "${!ids[@]}"; do
+  id=${ids[$i]}
+  # Host aliases can share one admin row and one original title.
   if [[ ! -f $tmp/undo/$id.json ]]; then ln "$tmp/original-$id.json" "$tmp/undo/$id.json"; fi
-  (trap - EXIT ERR; patch_row "write-$id" "articles/$id" "$tmp/burst-$id.json") &
+  if (( i == 0 )); then started=$(now_ms); fi
+  (trap - EXIT ERR; patch_row "write-$i" "articles/$id" "$tmp/burst-$id.json") &
   pids+=("$!")
 done
 for i in "${!pids[@]}"; do
@@ -343,14 +386,15 @@ pass "30/30 PATCHes acknowledged in $(seconds "$elapsed") s"
 check=burst-visible
 seen=0
 while (( seen < 30 )); do
-  for id in "${ids[@]}"; do
-    [[ -f $tmp/seen-$id ]] && continue
-    public_get burst-read "$tenant" "${paths[$id]}"
+  for i in "${!ids[@]}"; do
+    [[ -f $tmp/seen-$i ]] && continue
+    id=${ids[$i]}
+    public_get burst-read "${hosts[$i]}" "${paths[$i]}"
     status_is burst-read 200
     elapsed=$(( $(now_ms) - started ))
     (( elapsed <= 120000 )) || fail "$seen/30 visible within 120 s of the first PATCH"
     if visible_title burst-read "Perfstage burst $run_id article $id"; then
-      touch "$tmp/seen-$id"
+      touch "$tmp/seen-$i"
       seen=$((seen + 1))
     fi
   done
