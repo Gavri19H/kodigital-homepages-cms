@@ -287,12 +287,26 @@ describe("Hono fallbacks and private paths", () => {
     "/lg/runtime/v1.js", "/lg/config/one", "/lg/pb/provider", "/lg/lc/offer", "/lg/px/token",
     "/article/news/", "/page/about/extra", "/tag/local/page/two", "/category/news/page/2/extra", "/other/path",
     "/%68ealth", "/lg/%61ttempt",
-  ])("hands %s to Hono with the original request", async path => {
+  ])("hands %s to Hono with its original URL, method and ordinary headers", async path => {
     const { serve, calls, honoFetch, ctx } = harness();
-    const request = visit(path + "?keep=1", { headers: { Cookie: "visitor=1", "x-cms-other": "untouched" } });
+    const request = visit(path + "?keep=1", { headers: { Cookie: "visitor=1", "x-public": "untouched" } });
     expect(await (await serve(request)).text()).toBe("live Hono");
     expect(honoFetch).toHaveBeenCalledExactlyOnceWith(request, env, ctx);
     expect(honoFetch.mock.calls[0]![0]).toBe(request);
+
+    const marked = request.clone();
+    marked.headers.set("X-CMS-Variant", "bot");
+    marked.headers.set("X-CMS-Bookmark", "client");
+    marked.headers.set("X-CMS-Tags", "client");
+    marked.headers.set("X-CMS-Other", "private");
+    expect(await (await serve(marked)).text()).toBe("live Hono");
+    expect(honoFetch).toHaveBeenCalledTimes(2);
+    const [live, liveEnv, liveCtx] = honoFetch.mock.calls[1]!;
+    expect(liveEnv).toBe(env);
+    expect(liveCtx).toBe(ctx);
+    expect(live.url).toBe(request.url);
+    expect(live.method).toBe(request.method);
+    expect([...live.headers]).toEqual([...request.headers]);
     expect(calls).toHaveLength(0);
   });
 
@@ -305,7 +319,21 @@ describe("Hono fallbacks and private paths", () => {
     expect(await (await serve(request)).text()).toBe("live Hono");
     expect(calls).toHaveLength(0);
     expect(honoFetch.mock.calls[0]![0]).toBe(request);
-    if (request.body) expect(await request.text()).toBe("original body");
+
+    const marked = request.clone();
+    marked.headers.set("X-CMS-Variant", "human");
+    marked.headers.set("X-CMS-Bookmark", "client");
+    marked.headers.set("X-CMS-Tags", "client");
+    expect(await (await serve(marked)).text()).toBe("live Hono");
+    expect(calls).toHaveLength(0);
+    const [live] = honoFetch.mock.calls[1]!;
+    expect(live.url).toBe(request.url);
+    expect(live.method).toBe(request.method);
+    expect([...live.headers]).toEqual([...request.headers]);
+    if (request.body) {
+      expect(await request.text()).toBe("original body");
+      expect(await live.text()).toBe("original body");
+    }
   });
 
   it.each(["/__snap", "/__snap/", "/__snap/child", "/%5F_snap/child"])("keeps external %s private", async path => {

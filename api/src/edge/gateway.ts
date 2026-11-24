@@ -6,6 +6,7 @@ import { genSessionId, readCookie } from "../public/listicle/experiment-pick";
 import { isReservedPath } from "../public/reserved";
 import { normalizeHostname } from "../safety/protected-domains";
 import { isAdminHost } from "../site/site-context";
+import { edgeBotVariant } from "./bot";
 import { injectLeadgenAssignment, leadgenGatewayCookies } from "./leadgen-gateway";
 import { selectLeadgenEntry, type LeadgenSelection } from "./leadgen-select";
 import { buildListicleGatewayOutput, injectListicleGateway } from "./listicle-gateway";
@@ -72,7 +73,7 @@ async function serveCachedPage(
   let variantKey = "human";
   let listicle: ListiclePick | null = null;
   let leadgen: Extract<LeadgenSelection, { kind: "render" }> | undefined;
-  const botVariant = false; // P1-T8 wires edge/bot.ts
+  const botVariant = edgeBotVariant(request, getPath(request));
   if (botVariant) {
     variantKey = "bot";
   } else if (route.kind === "article" && request.headers.get("Accept")?.toLowerCase().includes("text/markdown")) {
@@ -138,7 +139,14 @@ async function serveCachedPage(
 export async function gatewayFetch(
   request: Request, env: Env, ctx: ExecutionContext | undefined, honoFetch: HonoFetch,
 ): Promise<Response> {
-  let visitorRequest = request;
+  const names = cmsHeaderNames(request.headers);
+  if (names.length) {
+    const clean = new Request(request);
+    for (const name of names) clean.headers.delete(name);
+    // Standard Fetch runtimes can omit the Workers metadata when copying a request.
+    if (clean.cf === undefined && request.cf !== undefined) clean.cf = request.cf;
+    request = clean;
+  }
   try {
     // Use Hono's route decoding so an escaped reserved head has the same boundary.
     const path = getPath(request);
@@ -150,17 +158,12 @@ export async function gatewayFetch(
       const url = new URL(request.url);
       const route = cachedRoute(path);
       if (route && !isAdminHost(url.hostname, env)) {
-        const names = cmsHeaderNames(request.headers);
-        if (names.length) {
-          visitorRequest = new Request(request);
-          for (const name of names) visitorRequest.headers.delete(name);
-        }
-        const response = await serveCachedPage(visitorRequest, url, route, pages, readCfSignals(request));
+        const response = await serveCachedPage(request, url, route, pages, readCfSignals(request));
         if (response) return response;
       }
     }
   } catch {
     // Snapshot, binding, and rendering failures all use the original visitor URL and method.
   }
-  return honoFetch(visitorRequest, env, ctx);
+  return honoFetch(request, env, ctx);
 }

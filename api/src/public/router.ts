@@ -34,7 +34,7 @@ import {
 import { renderSitemap, buildRobotsTxt, buildLlmsTxt } from "./sitemap";
 import { buildArticleViewModel } from "./view-models/article";
 import { renderArticleMarkdown } from "./article-markdown";
-import { isDatacenterAsn, isDeclaredBotUA } from "../safety/ivt";
+import { requestIsBot } from "../edge/bot";
 import { resolveAdsTxt } from "./ads";
 import {
   publicSiteContextMiddleware,
@@ -256,66 +256,17 @@ router.route("/", listiclePostbackRouter);
 // proceed with c.get("siteContext") populated for downstream handlers (T27).
 router.use("*", publicSiteContextMiddleware);
 
-// rescue-6 (agent-readiness M3 / ad IVT defense): decide whether THIS request is
-// automated, from Cloudflare's edge bot signals (request.cf). Ad-bearing pages
-// (home / article / category) suppress ad tags for bots so non-human traffic
-// never triggers ad impressions — invalid traffic is an AdSense / Ad Manager
-// policy + revenue-clawback risk. VERIFIED SEARCH engines (Googlebot etc.) are
-// deliberately NOT treated as bots: they get the SAME cached page as humans (ad
-// networks filter crawler traffic on their side, and serving a search engine a
-// different page than users risks cloaking). We suppress only AI crawlers
-// (verifiedBotCategory) and unverified low-score automation (paid Bot Mgmt).
-export function botFromCfSignals(
-  cf:
-    | {
-        verifiedBot?: boolean;
-        verifiedBotCategory?: string;
-        botManagement?: { score?: number };
-        asn?: number;
-      }
-    | undefined,
-  userAgent?: string | null,
-): boolean {
-  if (cf === undefined) return false;
-  if (cf.verifiedBot === true) {
-    const cat = cf.verifiedBotCategory;
-    // Among Cloudflare's verified-bot categories only the AI-crawler class is
-    // suppressed; "Search Engine Crawler" and the rest get the human page.
-    // (A verified good bot is NEVER subjected to the IVT signals below — e.g. a
-    // verified Googlebot legitimately living in a datacenter ASN must not be
-    // treated as invalid traffic.)
-    return typeof cat === "string" && cat.toLowerCase().includes("ai");
-  }
-  // NOT a verified good bot -> apply the free open-source IVT signals (Layer 1).
-  const score = cf.botManagement?.score;
-  // Cloudflare bot score is 1 (definitely bot) .. 99 (human); < 30 = likely
-  // automation. Only present with the paid Bot Management add-on (else 0/undef).
-  if (typeof score === "number" && score > 0 && score < 30) return true;
-  // Datacenter / hosting ASN (cf.asn is free on every plan): ads to cloud/colo
-  // IPs are classic GIVT.
-  if (isDatacenterAsn(cf.asn)) return true;
-  // Self-declaring bot / non-browser HTTP client by user-agent.
-  if (isDeclaredBotUA(userAgent)) return true;
-  return false;
-}
+export { botFromCfSignals } from "../edge/bot";
 
 function isBotRequest(
   c: Context<{ Bindings: Env; Variables: PublicSiteVariables }>,
 ): boolean {
-  const cf = (c.req.raw as unknown as {
-    cf?: {
-      verifiedBot?: boolean;
-      verifiedBotCategory?: string;
-      botManagement?: { score?: number };
-      asn?: number;
-    };
-  }).cf;
-  return botFromCfSignals(cf, c.req.header("user-agent"));
+  const variant = c.req.header("x-cms-variant");
+  return variant === undefined ? requestIsBot(c.req.raw) : variant === "bot";
 }
 
-// No-store HTML headers for the ad-free bot variant: a CDN/proxy must NEVER
-// cache it and later serve it to a human (that would silently drop ads). No
-// X-Robots-Tag — crawlers should still index the content; only the ads differ.
+// Live bot renders stay private. PublicPage applies its cache policy to the
+// ad-free copy under the gateway's bot variant key.
 function botHtmlHeaders(): Headers {
   const h = new Headers();
   h.set("Content-Type", "text/html; charset=utf-8");
@@ -326,8 +277,7 @@ function botHtmlHeaders(): Headers {
 
 // rescue-7: US-privacy opt-out (CCPA/GPP) is now owned by the CMP — its GPP/USP
 // signal is read by GPT and the whole bidstream — so the server no longer reads a
-// custom opt-out cookie or emits Restrict-Data-Processing. Only the bot variant
-// below still renders fresh + no-store (ad-free for invalid traffic).
+// custom opt-out cookie or emits Restrict-Data-Processing.
 // rescue-6 (agent-readiness M2/M5): does THIS client prefer markdown? True only
 // when the Accept header explicitly lists text/markdown AND ranks it >= text/html
 // (so a normal browser, which never sends text/markdown, always gets HTML). The
