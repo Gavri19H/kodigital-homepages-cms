@@ -26,6 +26,7 @@ import { listArticles, getArticleBySlug } from "../db";
 import { isReservedPath } from "./reserved";
 import { publicCss } from "./assets/public-css";
 import { publicJs } from "./assets/public-js";
+import { currentPublicAssetPath } from "./templates/layout";
 import {
   renderRssFeed,
   renderAtomFeed,
@@ -202,16 +203,17 @@ router.get("/favicon.ico", async (c) => {
   });
 });
 
-// During a rollout, HTML from a previous release can request its hash on a cold edge.
-// Serve the current bundle for every matching hash before tenant lookup.
+// A cold edge can receive either URL form during a rollout. For stable filenames,
+// only the version that identifies this bundle gets the one-year lifetime.
 router.get("/assets/:file{public\\.(?:[a-z0-9]+\\.)?(?:css|js)}", (c) => {
   const path = c.req.path;
   const css = path.endsWith(".css");
   const hashed = path !== (css ? "/assets/public.css" : "/assets/public.js");
+  const immutable = hashed || currentPublicAssetPath(new URL(c.req.url)) !== null;
   return new Response(css ? publicCss : publicJs, {
     headers: {
       "Content-Type": css ? "text/css; charset=utf-8" : "text/javascript; charset=utf-8",
-      "Cache-Control": hashed ? "public, max-age=31536000, immutable" : "public, max-age=86400",
+      "Cache-Control": immutable ? "public, max-age=31536000, immutable" : "public, max-age=86400",
     },
   });
 });

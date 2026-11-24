@@ -19,14 +19,22 @@ import { publicJs } from "../assets/public-js";
 import { ANALYTICS_TRACKING_SCRIPT } from "../../analytics/tracking-script";
 import { siteIconHeadTags, siteBrandColor, absoluteOnHost, uploadedLogoUrl } from "../site-brand";
 
-// Compute the content-addressed filenames once per isolate for the layout and asset routes.
+// Keep the filenames served by both releases and version their URLs by content.
 function assetHash(s: string): string {
   let h = 5381;
   for (let i = 0; i < s.length; i += 1) h = ((h << 5) + h + s.charCodeAt(i)) | 0;
   return (h >>> 0).toString(36);
 }
-export const PUBLIC_CSS_PATH = `/assets/public.${assetHash(publicCss)}.css`;
-export const PUBLIC_JS_PATH = `/assets/public.${assetHash(publicJs)}.js`;
+const cssHash = assetHash(publicCss);
+const jsHash = assetHash(publicJs);
+export const PUBLIC_CSS_PATH = `/assets/public.css?v=${cssHash}`;
+export const PUBLIC_JS_PATH = `/assets/public.js?v=${jsHash}`;
+
+export function currentPublicAssetPath(url: URL): string | null {
+  if (url.pathname === "/assets/public.css" && url.searchParams.get("v") === cssHash) return PUBLIC_CSS_PATH;
+  if (url.pathname === "/assets/public.js" && url.searchParams.get("v") === jsHash) return PUBLIC_JS_PATH;
+  return null;
+}
 
 export interface LayoutSite {
   name: string;

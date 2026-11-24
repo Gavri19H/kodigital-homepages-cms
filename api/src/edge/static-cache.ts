@@ -1,4 +1,5 @@
 import type { Env } from "../env";
+import { currentPublicAssetPath } from "../public/templates/layout";
 import { isAdminHost } from "../site/site-context";
 
 type HonoFetch = (request: Request, env: Env, ctx?: ExecutionContext) => Response | Promise<Response>;
@@ -10,12 +11,13 @@ export async function serveStatic(
   if ((!head && request.method !== "GET") || typeof caches === "undefined") return null;
 
   const url = new URL(request.url);
-  if (!url.pathname.startsWith("/media/") && !url.pathname.startsWith("/lg/runtime/") &&
+  const versionedPath = currentPublicAssetPath(url);
+  if (!versionedPath && !url.pathname.startsWith("/media/") && !url.pathname.startsWith("/lg/runtime/") &&
       !/^\/assets\/public\.[a-z0-9]+\.(?:css|js)$/.test(url.pathname)) return null;
   if (isAdminHost(url.hostname, env)) return null;
 
   const cache = caches.default;
-  const key = url.origin + url.pathname;
+  const key = url.origin + (versionedPath ?? url.pathname);
   // Cache API matches GET keys and uses the visitor's validators and Range on reads.
   const hit = await cache.match(new Request(key, { headers: request.headers }));
   let response = hit;

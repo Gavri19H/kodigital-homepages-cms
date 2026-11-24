@@ -126,7 +126,7 @@ describe("version-independent static cache", () => {
     expect(ctx.waitUntil).not.toHaveBeenCalled();
   });
 
-  it("ignores legacy URLs, non-static paths, writes and the admin host", async () => {
+  it("bypasses missing or stale bundle versions, non-static paths, writes and the admin host", async () => {
     const { ctx, match } = installCache();
     const honoFetch = vi.fn();
     for (const request of [
@@ -157,35 +157,41 @@ describe("version-independent static cache", () => {
 
 describe("public files through the gateway", () => {
   it.each([
-    ["css", /href="(\/assets\/public\.[a-z0-9]+\.css)"/, "text/css", publicCss],
-    ["js", /src="(\/assets\/public\.[a-z0-9]+\.js)" defer/, "text/javascript", publicJs],
-  ] as const)("serves the layout's hashed %s and its legacy URL with their respective lifetimes", async (ext, pattern, type, body) => {
-    const { ctx, put } = installCache();
+    ["css", /href="(\/assets\/public\.css\?v=[a-z0-9]+)"/, "text/css", publicCss],
+    ["js", /src="(\/assets\/public\.js\?v=[a-z0-9]+)" defer/, "text/javascript", publicJs],
+  ] as const)("caches the layout's %s by version and serves missing or stale versions for one day", async (ext, pattern, type, body) => {
+    const { ctx, match, put } = installCache();
     const html = renderLayout({ site: { name: "Test", hostname: "tenant.example" }, meta: { title: "Test" }, body: "" });
     const path = html.match(pattern)?.[1];
     expect(path).toBeDefined();
     const request = (suffix: string) => worker.fetch(new Request(origin + suffix), env, ctx);
-    const fresh = await request(path!);
+    const fresh = await request(path + "&utm_source=first");
     expect(fresh.status).toBe(200);
     expect(fresh.headers.get("x-edge-cache")).toBe("MISS");
     expect(fresh.headers.get("Cache-Control")).toBe(immutable);
     expect(fresh.headers.get("Content-Type")).toBe(type + "; charset=utf-8");
     expect(await fresh.text()).toBe(body);
     await ctx.waitUntil.mock.calls[0]![0];
-    const warm = await request(path + "?another-visit");
+    expect(new Request(match.mock.calls[0]![0]).url).toBe(origin + path);
+    expect(new Request(put.mock.calls[0]![0]).url).toBe(origin + path);
+    const warm = await request(path + "&another-visit");
     expect(warm.headers.get("x-edge-cache")).toBe("HIT");
     expect(await warm.text()).toBe(body);
-    const legacy = await request("/assets/public." + ext + "?v=old");
-    expect(legacy.status).toBe(200);
-    expect(legacy.headers.get("Cache-Control")).toBe("public, max-age=86400");
-    expect(legacy.headers.get("Content-Type")).toBe(type + "; charset=utf-8");
-    expect(await legacy.text()).toBe(body);
+    for (const query of ["", "?v=old"]) {
+      const legacy = await request("/assets/public." + ext + query);
+      expect(legacy.status).toBe(200);
+      expect(legacy.headers.get("Cache-Control")).toBe("public, max-age=86400");
+      expect(legacy.headers.get("Content-Type")).toBe(type + "; charset=utf-8");
+      expect(await legacy.text()).toBe(body);
+    }
     expect(put).toHaveBeenCalledTimes(1);
   });
 
-  it("serves cached previous-release bytes on a warm host and caches the current bundle on a cold host", async () => {
+  it.each([
+    ["css", publicCss], ["js", publicJs],
+  ])("serves a previous release's hashed .%s filename on warm and cold hosts", async (ext, body) => {
     const { ctx, put } = installCache();
-    const path = "/assets/public.oldhash.js";
+    const path = "/assets/public.oldhash." + ext;
     const oldOrigin = vi.fn(() => file("previous release"));
     await gatewayFetch(new Request(origin + path), env, ctx, oldOrigin);
     await ctx.waitUntil.mock.calls[0]![0];
@@ -197,11 +203,11 @@ describe("public files through the gateway", () => {
     expect(cold.status).toBe(200);
     expect(cold.headers.get("Cache-Control")).toBe(immutable);
     expect(cold.headers.get("x-edge-cache")).toBe("MISS");
-    expect(await cold.text()).toBe(publicJs);
+    expect(await cold.text()).toBe(body);
     await ctx.waitUntil.mock.calls[1]![0];
     const warm = await worker.fetch(new Request(otherUrl), env, ctx);
     expect(warm.headers.get("x-edge-cache")).toBe("HIT");
-    expect(await warm.text()).toBe(publicJs);
+    expect(await warm.text()).toBe(body);
     expect(put).toHaveBeenCalledTimes(2);
   });
 
@@ -211,12 +217,12 @@ describe("public files through the gateway", () => {
       site_id: "site-a", hostname: "tenant.example", status: "active",
     } }]);
     const url = origin + "/lg/runtime/" + LEADGEN_TEMPLATE_VERSION + ".js";
-    const fresh = await worker.fetch(new Request(url), buildEnv(db), ctx);
+    const fresh = await worker.fetch(new Request(url + "?v=first"), buildEnv(db), ctx);
     expect(fresh.status).toBe(200);
     expect(fresh.headers.get("x-edge-cache")).toBe("MISS");
     expect(fresh.headers.get("Cache-Control")).toBe(immutable);
     await ctx.waitUntil.mock.calls[0]![0];
-    const hit = await worker.fetch(new Request(url), env, ctx);
+    const hit = await worker.fetch(new Request(url + "?v=second"), env, ctx);
     expect(hit.headers.get("x-edge-cache")).toBe("HIT");
     expect(await hit.text()).toBe(await fresh.text());
   });
