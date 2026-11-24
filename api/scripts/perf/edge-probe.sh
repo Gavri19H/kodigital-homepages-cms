@@ -45,7 +45,12 @@ while (( $# )); do
   esac
 done
 if [[ -n ${EDGE_PROBE_EXTRA_HEADER:-} ]]; then
-  curl_args+=(-H "$EDGE_PROBE_EXTRA_HEADER")
+  extra_headers=$EDGE_PROBE_EXTRA_HEADER
+  while [[ $extra_headers == *' || '* ]]; do
+    curl_args+=(-H "${extra_headers%%' || '*}")
+    extra_headers=${extra_headers#*' || '}
+  done
+  curl_args+=(-H "$extra_headers")
 fi
 if ! exec 3< "$url_file"; then
   if (( warm )); then exit 0; fi
