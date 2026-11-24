@@ -172,16 +172,8 @@ function makeDb(opts: FixtureOptions = {}): { db: D1Database; log: string[] } {
               settings_version: 1,
             } as unknown as T;
           }
-          if (sql.includes("FROM listicle_articles WHERE site_id = ? AND slug = ?")) {
-            const slug = captured[1] as string;
-            return (slug === article.slug ? article : null) as unknown as T | null;
-          }
-          if (sql.includes("FROM listicle_article_experiments")) {
-            const id = captured[0] as number;
-            if (id === 21 && experimentRunning) {
-              return { id: 21, public_id: "exp_L6", status: "running" } as unknown as T;
-            }
-            return null;
+          if (sql.includes("FROM listicle_sections s WHERE s.id = ?")) {
+            return (captured[0] === section.id ? section : null) as T | null;
           }
           if (sql.includes("FROM pages ")) {
             const slug = captured[0] as string;
@@ -215,37 +207,35 @@ function makeDb(opts: FixtureOptions = {}): { db: D1Database; log: string[] } {
         },
         async all<T = unknown>() {
           log.push(sql);
-          if (sql.includes("FROM listicle_article_versions")) {
-            return { results: versions as unknown as T[], success: true, meta: {} };
+          if (sql.includes("FROM listicle_articles a")) {
+            const matches = captured[0] === article.site_id && captured[1] === article.slug && article.status === "published";
+            const rows = matches ? versions.map(version => ({
+              ...version, article_public_id: article.public_id, article_name: "",
+              active_experiment_id: article.active_experiment_id, running_experiment: experimentRunning ? "exp_L6" : null,
+              site_language: null, site_timezone: null,
+            })) : [];
+            return { results: rows as T[], success: true, meta: {} };
           }
-          if (sql.includes("FROM listicle_pages WHERE article_version_id IN")) {
-            const wanted = captured as number[];
+          if (sql.includes("FROM listicle_pages WHERE article_version_id = ? ORDER BY page_index")) {
             return {
-              results: pages.filter((p) => wanted.includes(p.article_version_id)) as unknown as T[],
+              results: pages.filter((p) => p.article_version_id === captured[0]) as T[],
               success: true,
               meta: {},
             };
           }
           if (sql.includes("FROM listicle_page_section_candidates c")) {
-            const wanted = captured as number[];
+            const versionPages = pages.filter((p) => p.article_version_id === captured[0]);
             return {
-              results: candidates.filter((c) => wanted.includes(c.page_id)) as unknown as T[],
+              results: candidates.filter((c) => versionPages.some((p) => p.id === c.page_id)) as T[],
               success: true,
               meta: {},
             };
           }
-          if (sql.includes("FROM listicle_page_rules WHERE page_id IN")) {
-            return { results: [] as T[], success: true, meta: {} };
-          }
-          if (sql.includes("FROM listicle_sections WHERE id IN")) {
+          if (sql.includes("AS headline_link_instance_id")) {
             return { results: [section] as unknown as T[], success: true, meta: {} };
           }
           if (sql.includes("FROM listicle_offers WHERE public_id IN")) {
-            return {
-              results: [{ public_id: "off_1" }] as unknown as T[],
-              success: true,
-              meta: {},
-            };
+            return { results: [{ ref: "off_1", public_id: "off_1" }] as T[], success: true, meta: {} };
           }
           if (sql.includes("FROM site_settings")) {
             return {
@@ -263,6 +253,7 @@ function makeDb(opts: FixtureOptions = {}): { db: D1Database; log: string[] } {
       };
       return stmt as unknown as D1PreparedStatement;
     },
+    batch: <T>(statements: D1PreparedStatement[]) => Promise.all(statements.map(s => s.all<T>())),
   } as unknown as D1Database;
   return { db, log };
 }
@@ -403,11 +394,11 @@ describe("§7.2 published listicle render at /:slug", () => {
   it("edge-cache HIT: the second request serves from KV without re-rendering", async () => {
     const sid = { Cookie: "ko_sid=hit-probe" };
     await app().request(get("/lst-fixture", sid), undefined, env);
-    const rendersAfterFirst = log.filter((s) => s.includes("FROM listicle_sections WHERE id IN")).length;
+    const rendersAfterFirst = log.filter((s) => s.includes("AS headline_link_instance_id")).length;
     expect(rendersAfterFirst).toBe(1);
     const second = await app().request(get("/lst-fixture", sid), undefined, env);
     expect(second.status).toBe(200);
-    const rendersAfterSecond = log.filter((s) => s.includes("FROM listicle_sections WHERE id IN")).length;
+    const rendersAfterSecond = log.filter((s) => s.includes("AS headline_link_instance_id")).length;
     expect(rendersAfterSecond).toBe(1); // no second render — KV hit
   });
 
@@ -481,9 +472,10 @@ describe("§22.4 GET /lst-cand/:candidate_public_id", () => {
 
   it("second request is a KV hit (no re-render)", async () => {
     await app().request(get("/lst-cand/cand_A1"), undefined, env);
-    const after1 = log.filter((s) => s.includes("FROM listicle_sections WHERE id IN")).length;
+    const after1 = log.filter((s) => s.includes("AS headline_link_instance_id")).length;
+    expect(after1).toBe(1);
     await app().request(get("/lst-cand/cand_A1"), undefined, env);
-    const after2 = log.filter((s) => s.includes("FROM listicle_sections WHERE id IN")).length;
+    const after2 = log.filter((s) => s.includes("AS headline_link_instance_id")).length;
     expect(after2).toBe(after1);
   });
 

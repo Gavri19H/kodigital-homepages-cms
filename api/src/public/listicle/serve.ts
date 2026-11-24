@@ -26,8 +26,6 @@ import {
   putCachedHtml,
   matchesIfNoneMatch,
 } from "../../cache/edge-cache";
-import { loadPagesForVersions } from "../../admin/listicles/structure";
-import { chunk, placeholders } from "../../admin/listicles/shared";
 import { mediaUrl } from "../view-models/media-url";
 import { listicleBlocksToHtml, offerRefString } from "../../editor/listicle-blocks";
 import { isSafeUrl } from "../../editor/sanitize";
@@ -43,6 +41,7 @@ import {
   renderSectionCandidateHtml,
   collectOfferRefs,
   type ListicleRenderInput,
+  type RenderCandidate,
   type RenderPage,
   type RenderSectionRow,
 } from "./render";
@@ -70,16 +69,6 @@ const DEFAULT_HTML_CACHE_TTL_SECONDS = 300;
 // Row shapes
 // ---------------------------------------------------------------------------
 
-export interface ListicleArticleRow {
-  id: number;
-  public_id: string;
-  site_id: string;
-  slug: string;
-  article_name: string;
-  status: string;
-  active_experiment_id: number | null;
-}
-
 export interface ListicleVersionRow {
   id: number;
   public_id: string;
@@ -98,30 +87,18 @@ export interface ListicleVersionRow {
   status: string;
 }
 
-interface ExperimentRow {
-  id: number;
-  public_id: string;
-  status: string;
+interface PublishedVersionRow extends ListicleVersionRow {
+  article_public_id: string;
+  article_name: string;
+  active_experiment_id: number | null;
+  running_experiment: string | null;
+  site_language: string | null;
+  site_timezone: string | null;
 }
 
 // ---------------------------------------------------------------------------
 // Loaders
 // ---------------------------------------------------------------------------
-
-export async function loadPublishedListicle(
-  db: D1Database,
-  siteId: string,
-  slug: string,
-): Promise<ListicleArticleRow | null> {
-  const row = await db
-    .prepare(
-      `SELECT id, public_id, site_id, slug, article_name, status, active_experiment_id
-       FROM listicle_articles WHERE site_id = ? AND slug = ? LIMIT 1`,
-    )
-    .bind(siteId, slug)
-    .first<ListicleArticleRow>();
-  return row ?? null;
-}
 
 export async function loadActiveVersions(
   db: D1Database,
@@ -140,73 +117,36 @@ export async function loadActiveVersions(
   return rows.results ?? [];
 }
 
-async function loadRunningExperiment(
-  db: D1Database,
-  article: ListicleArticleRow,
-): Promise<ExperimentRow | null> {
-  if (article.active_experiment_id === null) return null;
-  const row = await db
-    .prepare(
-      `SELECT id, public_id, status FROM listicle_article_experiments
-       WHERE id = ? AND status = 'running' LIMIT 1`,
-    )
-    .bind(article.active_experiment_id)
-    .first<ExperimentRow>();
-  return row ?? null;
-}
-
-async function loadSectionRows(
-  db: D1Database,
-  sectionIds: readonly number[],
-): Promise<Map<number, RenderSectionRow>> {
-  const map = new Map<number, RenderSectionRow>();
-  const unique = [...new Set(sectionIds)];
-  for (const ids of chunk(unique)) {
-    if (ids.length === 0) continue;
-    const rows = await db
-      .prepare(
-        `SELECT id, public_id, section_name, headline_text, headline_offer_id, image_json, content_json
-         FROM listicle_sections WHERE id IN (${placeholders(ids.length)})`,
-      )
-      .bind(...ids)
-      .all<RenderSectionRow>();
-    for (const row of rows.results ?? []) map.set(row.id, row);
-  }
-  // §30.7: attach each section's __headline__ link-instance id (the ledger
-  // row the Section save mints for a clickable headline) so the governed
-  // headline anchor carries its lnk_… identity.
-  for (const ids of chunk(unique)) {
-    if (ids.length === 0) continue;
-    const rows = await db
-      .prepare(
-        `SELECT section_id, public_id FROM listicle_section_link_instances
-         WHERE link_role = 'headline' AND block_id = '__headline__'
-           AND section_id IN (${placeholders(ids.length)})`,
-      )
-      .bind(...ids)
-      .all<{ section_id: number; public_id: string }>();
-    for (const row of rows.results ?? []) {
-      const section = map.get(row.section_id);
-      if (section !== undefined) section.headline_link_instance_id = row.public_id;
-    }
-  }
-  return map;
-}
-
-async function loadSiteSettings(
+async function loadPublishedVersions(
   db: D1Database,
   siteId: string,
-): Promise<Record<string, string>> {
-  const result = await db
-    .prepare("SELECT key AS key, value AS value FROM site_settings WHERE site_id = ?")
-    .bind(siteId)
-    .all<{ key: string; value: string | null }>();
-  const settings: Record<string, string> = {};
-  for (const row of result.results ?? []) {
-    if (typeof row.value === "string") settings[row.key] = row.value;
-  }
-  return settings;
+  slug: string,
+): Promise<PublishedVersionRow[]> {
+  const rows = await db.prepare(
+    `SELECT a.public_id AS article_public_id, a.article_name, a.active_experiment_id,
+            e.public_id AS running_experiment, lang.value AS site_language, tz.value AS site_timezone,
+            v.id, v.public_id, v.article_id, v.experiment_id, v.variant_label, v.is_control,
+            v.traffic_allocation, v.headline, v.intro_paragraph, v.hero_media_id, v.hero_media_url,
+            v.layout_style_id, v.byline_json, v.content_version, v.status
+     FROM listicle_articles a
+     JOIN listicle_article_versions v ON v.article_id = a.id AND v.status = 'active'
+     LEFT JOIN listicle_article_experiments e ON e.id = a.active_experiment_id AND e.status = 'running'
+     LEFT JOIN site_settings lang ON lang.site_id = a.site_id AND lang.key = 'site_language'
+     LEFT JOIN site_settings tz ON tz.site_id = a.site_id AND tz.key = 'site_timezone'
+     WHERE a.site_id = ? AND a.slug = ? AND a.status = 'published'
+     ORDER BY v.id ASC`,
+  ).bind(siteId, slug).all<PublishedVersionRow>();
+  return rows.results;
 }
+
+// Both the shell and its lazy fragments use the same headline link identity.
+// In old ledgers with duplicates the last headline row supplied the identity.
+const RENDER_SECTIONS = `SELECT s.id, s.public_id, s.section_name, s.headline_text,
+       s.headline_offer_id, s.image_json, s.content_json,
+       (SELECT l.public_id FROM listicle_section_link_instances l
+        WHERE l.section_id = s.id AND l.link_role = 'headline' AND l.block_id = '__headline__'
+        ORDER BY l.id DESC LIMIT 1) AS headline_link_instance_id
+     FROM listicle_sections s`;
 
 // HostLogo — the ONLY per-host brand swap (§30.3): logo_media_id (a media
 // storage key, same source the homepage layout uses) with site_logo_url as
@@ -229,86 +169,51 @@ function brandFromSettings(
   return { siteName, logoUrl: withoutAiSetupLogo(logoUrl) };
 }
 
-async function resolveHeroUrl(
-  db: D1Database,
-  version: ListicleVersionRow,
-): Promise<string | null> {
-  if (version.hero_media_url !== null && version.hero_media_url !== "") {
-    return version.hero_media_url;
-  }
-  if (version.hero_media_id === null) return null;
-  const row = await db
-    .prepare("SELECT storage_key FROM media WHERE id = ? LIMIT 1")
-    .bind(version.hero_media_id)
-    .first<{ storage_key: string }>();
-  return row?.storage_key ? `/media/${row.storage_key}` : null;
+interface OfferRow {
+  id: number;
+  public_id: string;
 }
 
 // Resolve every data-offer reference (off_… public ids pass through when
 // they exist; legacy numeric ids map via listicle_offers.id) → off_… id.
 async function resolveOfferRefs(
   db: D1Database,
-  refs: readonly string[],
+  refs: Iterable<string>,
+  indexed: readonly OfferRow[] = [],
 ): Promise<Map<string, string>> {
   const map = new Map<string, string>();
+  for (const row of indexed) {
+    if (row.id >= 0) map.set(String(row.id), row.public_id);
+    if (!/^\d+$/.test(row.public_id)) map.set(row.public_id, row.public_id);
+  }
+
+  // Older content can contain a governed anchor with no ledger row. Only the
+  // block renderer can supply its exact ref (including HTML entity decoding).
   const numeric: number[] = [];
   const publicIds: string[] = [];
   for (const ref of refs) {
+    if (map.has(ref)) continue;
     if (/^\d+$/.test(ref)) numeric.push(parseInt(ref, 10));
     else publicIds.push(ref);
   }
-  for (const ids of chunk(numeric)) {
-    if (ids.length === 0) continue;
-    const rows = await db
-      .prepare(
-        `SELECT id, public_id FROM listicle_offers WHERE id IN (${placeholders(ids.length)})`,
-      )
-      .bind(...ids)
-      .all<{ id: number; public_id: string }>();
-    for (const row of rows.results ?? []) map.set(String(row.id), row.public_id);
-  }
-  for (const ids of chunk(publicIds)) {
-    if (ids.length === 0) continue;
-    const rows = await db
-      .prepare(
-        `SELECT public_id FROM listicle_offers WHERE public_id IN (${placeholders(ids.length)})`,
-      )
-      .bind(...ids)
-      .all<{ public_id: string }>();
-    for (const row of rows.results ?? []) map.set(row.public_id, row.public_id);
-  }
+  if (numeric.length === 0 && publicIds.length === 0) return map;
+  const rows = await db.prepare(
+    `SELECT CAST(id AS TEXT) AS ref, public_id FROM listicle_offers WHERE id IN (SELECT value FROM json_each(?))
+     UNION ALL
+     SELECT public_id AS ref, public_id FROM listicle_offers WHERE public_id IN (SELECT value FROM json_each(?))`,
+  ).bind(JSON.stringify(numeric), JSON.stringify(publicIds)).all<{ ref: string; public_id: string }>();
+  for (const row of rows.results) map.set(row.ref, row.public_id);
   return map;
 }
 
-// Structure pages → renderer pages (rule public ids ride along for the
-// governed URL `r` param; allocations + parsed rule conditions ride along
-// for the §15.3 selector boot payload, Phase 7).
-async function loadRenderPages(
-  db: D1Database,
-  versionId: number,
-): Promise<RenderPage[]> {
-  const byVersion = await loadPagesForVersions(db, [versionId]);
-  const pages = byVersion.get(versionId) ?? [];
-  return pages.map((page) => ({
-    public_id: page.public_id,
-    page_index: page.page_index,
-    selection_mode: page.selection_mode,
-    ab_test_id: page.ab_test_id,
-    rule_set_id: page.rule_set_id,
-    candidates: page.candidates.map((cand) => ({
-      public_id: cand.public_id,
-      section_id: cand.section_id,
-      is_fallback: cand.is_fallback,
-      rule_public_id: cand.rule?.public_id ?? null,
-      section_public_id: cand.section_public_id,
-      section_name: cand.section_name,
-      traffic_allocation: cand.traffic_allocation,
-      rule_priority: cand.rule?.priority ?? null,
-      rule_conditions_json: cand.rule?.conditions_json ?? null,
-      rule_conditions_hash: cand.rule?.conditions_hash ?? null,
-    })),
-  }));
-}
+type ShellPageRow = Omit<RenderPage, "candidates"> & { id: number };
+type ShellCandidateRow = RenderCandidate & { page_id: number };
+
+const VERSION_SECTIONS = `WITH version_sections AS (
+  SELECT c.section_id FROM listicle_pages p
+  JOIN listicle_page_section_candidates c ON c.page_id = p.id
+  WHERE p.article_version_id = ?
+)`;
 
 // ---------------------------------------------------------------------------
 // Shell render (shared by the live route AND the §22.2 warm pass)
@@ -320,9 +225,47 @@ export async function renderListicleShellForVersion(
   article: { public_id: string; slug: string; article_name?: string },
   version: ListicleVersionRow,
 ): Promise<{ html: string; lazyCandidateIds: string[] }> {
-  const pages = await loadRenderPages(db, version.id);
-  const sectionIds = pages.flatMap((page) => page.candidates.map((cand) => cand.section_id));
-  const sections = await loadSectionRows(db, sectionIds);
+  // Read section bodies once even when several pages reuse the same section.
+  const statements = [
+    db.prepare(`SELECT id, public_id, page_index, selection_mode, ab_test_id, rule_set_id
+      FROM listicle_pages WHERE article_version_id = ? ORDER BY page_index`).bind(version.id),
+    db.prepare(`WITH version_pages AS (SELECT id FROM listicle_pages WHERE article_version_id = ?)
+      SELECT c.page_id, c.public_id, c.section_id, c.is_fallback, c.traffic_allocation,
+             s.public_id AS section_public_id, s.section_name,
+             r.public_id AS rule_public_id, r.priority AS rule_priority,
+             r.conditions_json AS rule_conditions_json, r.conditions_hash AS rule_conditions_hash
+      FROM listicle_page_section_candidates c
+      JOIN listicle_sections s ON s.id = c.section_id
+      LEFT JOIN listicle_page_rules r ON r.candidate_id = c.id AND r.page_id IN (SELECT id FROM version_pages)
+      WHERE c.page_id IN (SELECT id FROM version_pages) ORDER BY c.id`).bind(version.id),
+    db.prepare(VERSION_SECTIONS + "\n" + RENDER_SECTIONS +
+      " WHERE s.id IN (SELECT section_id FROM version_sections)").bind(version.id),
+    db.prepare(VERSION_SECTIONS + `
+      SELECT id, public_id FROM listicle_offers WHERE id IN (
+        SELECT offer_id FROM listicle_section_link_instances WHERE section_id IN (SELECT section_id FROM version_sections)
+        UNION ALL
+        SELECT offer_id FROM listicle_section_offers WHERE section_id IN (SELECT section_id FROM version_sections)
+        UNION ALL
+        SELECT headline_offer_id FROM listicle_sections WHERE id IN (SELECT section_id FROM version_sections)
+      )`).bind(version.id),
+    db.prepare("SELECT key, value FROM site_settings WHERE site_id = ?").bind(site.siteId),
+  ];
+  if (!version.hero_media_url && version.hero_media_id !== null) {
+    statements.push(db.prepare("SELECT storage_key FROM media WHERE id = ?").bind(version.hero_media_id));
+  }
+  const [pageRows, candidateRows, sectionRows, offerRows, settingRows, mediaRows] =
+    await db.batch(statements) as [
+      D1Result<ShellPageRow>,
+      D1Result<ShellCandidateRow>,
+      D1Result<RenderSectionRow>,
+      D1Result<OfferRow>,
+      D1Result<{ key: string; value: string | null }>,
+      D1Result<{ storage_key: string }>?,
+    ];
+  const pages = new Map<number, RenderPage>();
+  for (const { id, ...page } of pageRows.results) pages.set(id, { ...page, candidates: [] });
+  for (const { page_id, ...candidate } of candidateRows.results) pages.get(page_id)!.candidates.push(candidate);
+  const sections = new Map(sectionRows.results.map((section) => [section.id, section]));
 
   // Offer refs: block content + linked headlines.
   const refs = new Set<string>();
@@ -333,10 +276,13 @@ export async function renderListicleShellForVersion(
     const headlineRef = offerRefString(section.headline_offer_id);
     if (headlineRef !== "") refs.add(headlineRef);
   }
-  const offerPublicIdByRef = await resolveOfferRefs(db, [...refs]);
-
-  const settings = await loadSiteSettings(db, site.siteId);
-  const heroUrl = await resolveHeroUrl(db, version);
+  const offerPublicIdByRef = await resolveOfferRefs(db, refs, offerRows.results);
+  const settings: Record<string, string> = {};
+  for (const { key, value } of settingRows.results) {
+    if (typeof value === "string") settings[key] = value;
+  }
+  const storageKey = mediaRows?.results[0]?.storage_key;
+  const heroUrl = version.hero_media_url || (storageKey ? `/media/${storageKey}` : null);
 
   const input: ListicleRenderInput = {
     hostname: site.hostname,
@@ -357,7 +303,7 @@ export async function renderListicleShellForVersion(
       layout_style_id: version.layout_style_id,
       content_version: version.content_version,
     },
-    pages,
+    pages: [...pages.values()],
     sections,
     offerPublicIdByRef,
   };
@@ -384,7 +330,7 @@ function listicleEtag(
 
 async function serveListicleShell(
   c: PublicContext,
-  article: ListicleArticleRow,
+  article: ListicleRenderInput["article"],
   version: ListicleVersionRow,
   etag: string,
 ): Promise<Response> {
@@ -412,11 +358,10 @@ export async function tryServePublishedListicle(c: PublicContext): Promise<Respo
   const slug = c.req.param("slug") ?? "";
   if (slug === "") return null;
   const siteContext = c.get("siteContext");
-  const article = await loadPublishedListicle(c.env.DB, siteContext.siteId, slug);
-  if (article === null || article.status !== "published") return null;
-
-  const versions = await loadActiveVersions(c.env.DB, article.id);
-  if (versions.length === 0) return null; // unservable → normal fallthrough
+  const versions = await loadPublishedVersions(c.env.DB, siteContext.siteId, slug);
+  const first = versions[0];
+  if (first === undefined) return null; // No published article with an active version.
+  const article = { public_id: first.article_public_id, slug, article_name: first.article_name };
 
   // The gateway handles visitor cookies, context injection and conditional requests
   // for versions that still belong to this published listicle.
@@ -436,11 +381,11 @@ export async function tryServePublishedListicle(c: PublicContext): Promise<Respo
   const sidWasAbsent = sid === "";
   if (sidWasAbsent) sid = genSessionId();
 
-  const experiment = await loadRunningExperiment(c.env.DB, article);
+  const experiment = first.running_experiment;
   let version: ListicleVersionRow | null;
   if (experiment !== null) {
-    const arms = versions.filter((v) => v.experiment_id === experiment.id);
-    version = arms.length > 0 ? stickyPick(sid, experiment.public_id, arms) : controlVersion(versions);
+    const arms = versions.filter((v) => v.experiment_id === first.active_experiment_id);
+    version = arms.length > 0 ? stickyPick(sid, experiment, arms) : controlVersion(versions);
   } else {
     version = controlVersion(versions);
   }
@@ -452,12 +397,11 @@ export async function tryServePublishedListicle(c: PublicContext): Promise<Respo
   // ko_ctx acquisition cookie (§9.4/§16): merge landing params over the
   // previously captured context; refreshed on every listicle render.
   const query = c.req.query();
-  const siteBehavior = await loadSiteBehaviorSettings(c.env.DB, siteContext.siteId);
   const koCtx = buildKoCtx({
     existing: parseKoCtx(readCookie(cookieHeader, KO_CTX_COOKIE)),
     query,
     landerV: version.public_id,
-    siteLanguage: siteBehavior.language,
+    siteLanguage: typeof first.site_language === "string" ? first.site_language.trim() : "",
     acceptLanguage: c.req.header("Accept-Language") ?? null,
     nowMs: Date.now(),
   });
@@ -486,7 +430,7 @@ export async function tryServePublishedListicle(c: PublicContext): Promise<Respo
   const exp: InjectedExperimentDims | null =
     experiment !== null
       ? {
-          experiment_id: experiment.public_id,
+          experiment_id: experiment,
           variant_id: version.public_id,
           variant_label: version.variant_label,
           split: version.traffic_allocation,
@@ -499,34 +443,11 @@ export async function tryServePublishedListicle(c: PublicContext): Promise<Respo
     ctx: buildRuleContext({
       geo: geoFromCf(cf),
       ua: { device: uaDetails.device, os: uaDetails.os, browser: uaDetails.browser },
-      hourSiteTz: hourInTimezone(siteBehavior.timezone, new Date()),
+      hourSiteTz: hourInTimezone(typeof first.site_timezone === "string" ? first.site_timezone.trim() : "", new Date()),
       koCtx,
     }),
     exp,
   });
-}
-
-// site_settings behavior keys the Phase-7 context needs per request:
-// `site_timezone` (register Q13 — the rules hour/daypart basis; "" → UTC)
-// and `site_language` (register Q8 — the {language} fallback). One indexed
-// point query; both default "" when unset.
-async function loadSiteBehaviorSettings(
-  db: D1Database,
-  siteId: string,
-): Promise<{ timezone: string; language: string }> {
-  const result = await db
-    .prepare(
-      "SELECT key AS key, value AS value FROM site_settings WHERE site_id = ? AND key IN ('site_timezone', 'site_language')",
-    )
-    .bind(siteId)
-    .all<{ key: string; value: string | null }>();
-  let timezone = "";
-  let language = "";
-  for (const row of result.results ?? []) {
-    if (row.key === "site_timezone" && typeof row.value === "string") timezone = row.value.trim();
-    if (row.key === "site_language" && typeof row.value === "string") language = row.value.trim();
-  }
-  return { timezone, language };
 }
 
 // ---------------------------------------------------------------------------
@@ -603,9 +524,9 @@ export async function serveListicleCandidate(c: PublicContext): Promise<Response
     });
   }
 
-  const sections = await loadSectionRows(c.env.DB, [row.section_id]);
-  const section = sections.get(row.section_id);
-  if (section === undefined) return c.json({ error: "Not Found" }, 404);
+  const section = await c.env.DB.prepare(RENDER_SECTIONS + " WHERE s.id = ?")
+    .bind(row.section_id).first<RenderSectionRow>();
+  if (section === null) return c.json({ error: "Not Found" }, 404);
 
   const rule = await c.env.DB.prepare(
     "SELECT public_id FROM listicle_page_rules WHERE candidate_id = ? LIMIT 1",
