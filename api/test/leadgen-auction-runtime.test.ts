@@ -306,6 +306,7 @@ function seedOffer(sdb: SqliteDb, opts: SeedOfferOpts = {}): SeededOffer {
 }
 
 interface SeedAuctionOpts {
+  public_id?: string;
   floor_type?: string;
   floor_value?: number;
   multi_offer?: string;
@@ -322,7 +323,7 @@ interface SeedAuctionOpts {
 }
 
 function seedAuction(sdb: SqliteDb, opts: SeedAuctionOpts = {}): LeadgenAuctionRow {
-  const publicId = mintPublicId("auction");
+  const publicId = opts.public_id ?? mintPublicId("auction");
   sdb
     .prepare(
       `INSERT INTO leadgen_auctions
@@ -2260,7 +2261,8 @@ describeDb("0062 offer waterfall — tiers through the REAL engine (mocked provi
 
   it("the share is real and sticky: a 50% waterfall gets about half of 300 visitors; the rest get the normal auction", async () => {
     const { sdb, env } = harness();
-    const auction = seedAuction(sdb, { multi_offer: "enabled" });
+    // The auction public ID salts the waterfall buckets for these fixed visitors.
+    const auction = seedAuction(sdb, { multi_offer: "enabled", public_id: "lga_01ARZ3NDEKTSV4RRFFQ69G5FAV" });
     const fundera = providerOffer(sdb, "fundera");
     const amone = providerOffer(sdb, "amone");
     for (const o of [fundera, amone]) attachOffer(sdb, auction.id, o);
@@ -2276,7 +2278,9 @@ describeDb("0062 offer waterfall — tiers through the REAL engine (mocked provi
       expect(calls.map((c) => hostOf(c.url)).sort()).toEqual(waterfallPath ? ["fundera"] : ["amone", "fundera"]);
       inWaterfall.set(`visitor-${i}`, waterfallPath);
     }
-    const share = [...inWaterfall.values()].filter(Boolean).length / 300;
+    const waterfallVisitors = [...inWaterfall.values()].filter(Boolean).length;
+    const share = waterfallVisitors / 300;
+    console.info(`Waterfall share: ${waterfallVisitors}/300 (${share})`);
     expect(share).toBeGreaterThan(0.4);
     expect(share).toBeLessThan(0.6);
     // sticky: the same visitor gets the same path again
@@ -2292,11 +2296,12 @@ describeDb("0062 offer waterfall — tiers through the REAL engine (mocked provi
     const fundera = providerOffer(sdb, "fundera");
     const amone = providerOffer(sdb, "amone");
     for (const o of [fundera, amone]) attachOffer(sdb, auction.id, o);
+    // The rule public ID salts the exclusion buckets for these fixed visitors.
     sdb
       .prepare(
         "INSERT INTO leadgen_auction_rules (public_id, auction_id, rule_level, target_offer_id, action, conditions_json, conditions_hash, priority, enabled, traffic_share_pct) VALUES (?, ?, 'offer', ?, 'exclude', '{\"groups\":[]}', 'h', 100, 1, 30)",
       )
-      .run(mintPublicId("auction_rule"), auction.id, fundera.offer_id);
+      .run("lgar_01ARZ3NDEKTSV4RRFFQ69G5FAW", auction.id, fundera.offer_id);
     const calls = stubFetch((url) => yes(hostOf(url)));
     const bundle = await loadAuctionBundle(env.DB, auction, 1);
     let excluded = 0;
@@ -2305,6 +2310,7 @@ describeDb("0062 offer waterfall — tiers through the REAL engine (mocked provi
       await runAuction(env, { resolved: makeResolved(), bundle, environment: "production", binding: NO_BINDING, session_id: `v-${i}`, raw_answers: {}, clicked: [] }, { dryRun: true });
       if (!calls.some((c) => hostOf(c.url) === "fundera")) excluded += 1;
     }
+    console.info(`Exclude rule share: ${excluded}/300 (${excluded / 300})`);
     expect(excluded / 300).toBeGreaterThan(0.22);
     expect(excluded / 300).toBeLessThan(0.38);
   });
@@ -2331,7 +2337,7 @@ describeDb("0062 offer waterfall — tiers through the REAL engine (mocked provi
 
   it("review fix: a waterfall whose offers all left the auction gives its visitors the NORMAL auction, and nobody else moves", async () => {
     const { sdb, env } = harness();
-    const auction = seedAuction(sdb, { multi_offer: "enabled" });
+    const auction = seedAuction(sdb, { multi_offer: "enabled", public_id: "lga_01ARZ3NDEKTSV4RRFFQ69G5FAX" });
     const fundera = providerOffer(sdb, "fundera");
     const amone = providerOffer(sdb, "amone");
     for (const o of [fundera, amone]) attachOffer(sdb, auction.id, o);
@@ -2357,7 +2363,11 @@ describeDb("0062 offer waterfall — tiers through the REAL engine (mocked provi
         expect(r.explain.waterfall?.served_tier).toBe(1);
       }
     }
-    expect([...before.values()].filter((v) => v === first).length).toBeGreaterThan(0);
+    const paths = [...before.values()];
+    const firstVisitors = paths.filter((v) => v === first).length;
+    const secondVisitors = paths.filter((v) => v === second).length;
+    console.info(`Waterfall split: ${firstVisitors}/${paths.length} first, ${secondVisitors}/${paths.length} second`);
+    expect(firstVisitors).toBeGreaterThan(0);
   });
 
   it("review fix: when the last tier's main render is empty but backfill fills it, the trace says that tier was shown", async () => {
