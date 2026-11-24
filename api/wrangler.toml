@@ -3,6 +3,17 @@ main = "src/index.ts"
 compatibility_date = "2026-05-06"
 account_id = "a05d7505b71c6cd931e436defe670509"
 
+[cache]
+enabled = true
+
+[exports.default]
+type = "worker"
+cache = { enabled = false }
+
+[exports.PublicPage]
+type = "worker"
+cache = { enabled = true }
+
 # Section 6.2 admin bundles live in ./public. The Worker remains first for all
 # routes; only the two manifest-pinned /assets/admin/{conversions,reporting}/*
 # paths are explicitly forwarded to this binding by the authenticated router.
@@ -141,6 +152,17 @@ name = "kodigital-homepages-cms-worker-staging"
 services = []
 queues = { producers = [], consumers = [] }
 
+[env.staging.cache]
+enabled = true
+
+[env.staging.exports.default]
+type = "worker"
+cache = { enabled = false }
+
+[env.staging.exports.PublicPage]
+type = "worker"
+cache = { enabled = true }
+
 [env.staging.vars]
 APP_ENV = "staging"
 AWS_REGION = "us-east-1"
@@ -193,6 +215,17 @@ bucket_name = "kodigital-homepages-cms-media"
 
 [env.production]
 name = "kodigital-homepages-cms-worker"
+
+[env.production.cache]
+enabled = true
+
+[env.production.exports.default]
+type = "worker"
+cache = { enabled = false }
+
+[env.production.exports.PublicPage]
+type = "worker"
+cache = { enabled = true }
 
 [env.production.vars]
 APP_ENV = "production"

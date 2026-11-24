@@ -21,6 +21,8 @@
 //   `^export function (publicHtmlCacheHeaders|adminCacheHeaders|...)`
 // matches all five names.
 
+import { listingTag, mergeTags, nfTag, siteTag, slugTag } from "../edge/tags";
+
 // Wire literals. Kept as module-local constants so the AC grep
 // `public, max-age=300, stale-while-revalidate=86400` (AC1) and
 // `private, no-store` (AC2) and `X-Content-Type-Options` (AC3) all match
@@ -153,3 +155,43 @@ export const CACHE_CONTROL_VALUES = {
   notFound: NOT_FOUND_CACHE_CONTROL,
   offAdmin: OFF_ADMIN_CACHE_CONTROL,
 } as const;
+
+export const EDGE_CACHE_CONTROL = {
+  publicPage: "public, max-age=0, s-maxage=86400, stale-while-revalidate=86400",
+  notFound: "public, max-age=0, s-maxage=60",
+  private: ADMIN_CACHE_CONTROL,
+} as const;
+
+const LISTING_PATHS = new Set(["/", "/feed.xml", "/rss", "/atom.xml", "/sitemap.xml", "/llms.txt"]);
+const OTHER_FIXED_PATHS = new Set(["/robots.txt", "/ads.txt", "/favicon.ico", "/site-icon.svg"]);
+
+export function applyEdgeCacheHeaders(
+  response: Response,
+  { siteId, path, extraTags = [] }: { siteId: string; path: string; extraTags?: string[] },
+): Response {
+  const result = new Response(response.body, response);
+  const { headers, status } = result;
+  if (headers.has("Set-Cookie") || ![200, 301, 308, 404].includes(status)) {
+    headers.set("Cache-Control", EDGE_CACHE_CONTROL.private);
+    headers.delete("Cache-Tag");
+    return result;
+  }
+
+  // Hono resolves encoded unreserved characters to the same route and stored slug.
+  // Keep encoded delimiters intact when building the comma-separated tag header.
+  const tagPath = path.replace(/%[0-9a-f]{2}/gi, escape => {
+    const char = String.fromCharCode(Number.parseInt(escape.slice(1), 16));
+    return /^[A-Za-z0-9._~-]$/.test(char) ? char : escape;
+  });
+  const tags = [siteTag(siteId)];
+  if (LISTING_PATHS.has(tagPath) || tagPath.startsWith("/category/") || tagPath.startsWith("/tag/")) {
+    tags.push(listingTag(siteId));
+  } else if (!OTHER_FIXED_PATHS.has(tagPath)) {
+    const slug = /^\/(?:(?:article|page)\/)?([^/]+)$/.exec(tagPath)?.[1];
+    if (slug) tags.push(slugTag(siteId, slug));
+  }
+  if (status === 404) tags.push(nfTag(siteId));
+  headers.set("Cache-Control", status === 404 ? EDGE_CACHE_CONTROL.notFound : EDGE_CACHE_CONTROL.publicPage);
+  headers.set("Cache-Tag", mergeTags(tags, extraTags.map(tag => tag.trim())).join(","));
+  return result;
+}

@@ -15,6 +15,17 @@ main = "src/index.ts"
 compatibility_date = "2026-05-06"
 account_id = "abc123"
 
+[cache]
+enabled = true
+
+[exports.default]
+type = "worker"
+cache = { enabled = false }
+
+[exports.PublicPage]
+type = "worker"
+cache = { enabled = true }
+
 [vars]
 APP_ENV = "development"
 
@@ -33,8 +44,30 @@ bucket_name = "kodigital-homepages-cms-media"
 [env.staging]
 name = "kodigital-homepages-cms-worker-staging"
 
+[env.staging.cache]
+enabled = true
+
+[env.staging.exports.default]
+type = "worker"
+cache = { enabled = false }
+
+[env.staging.exports.PublicPage]
+type = "worker"
+cache = { enabled = true }
+
 [env.production]
 name = "kodigital-homepages-cms-worker"
+
+[env.production.cache]
+enabled = true
+
+[env.production.exports.default]
+type = "worker"
+cache = { enabled = false }
+
+[env.production.exports.PublicPage]
+type = "worker"
+cache = { enabled = true }
 `;
 
 let tempDirs: string[] = [];
@@ -71,6 +104,13 @@ describe("verify:infra script (T11)", () => {
     const res = runInTemp(GOOD_TOML);
     expect(res.status).toBe(0);
     expect(res.stdout).toMatch(/verify:infra OK/);
+  });
+
+  it("rejects a missing production cache block", () => {
+    const broken = GOOD_TOML.replace("[env.production.cache]\nenabled = true", "");
+    const res = runInTemp(broken);
+    expect(res.status).not.toBe(0);
+    expect(res.stderr).toContain("[env.production.cache]");
   });
 
   it("exits non-zero when D1 database_name is wrong", () => {

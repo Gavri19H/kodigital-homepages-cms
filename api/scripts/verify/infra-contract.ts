@@ -29,8 +29,8 @@
  */
 import { readFileSync } from "node:fs";
 import { resolve } from "node:path";
-
-const WRANGLER_PATH = resolve(process.cwd(), "wrangler.toml");
+import { fileURLToPath } from "node:url";
+import { EDGE_CACHE_CHECKS } from "./worker-config";
 
 interface Check {
   name: string;
@@ -80,30 +80,27 @@ const CHECKS: readonly Check[] = [
       "CLOUDFLARE_API_TOKEN MUST NOT appear in wrangler.toml — runtime tokens are CLOUDFLARE_PROVISIONING_API_TOKEN + CLOUDFLARE_CACHE_API_TOKEN; CLOUDFLARE_API_TOKEN is a GitHub-Actions-only secret",
     test: (t) => !/CLOUDFLARE_API_TOKEN/.test(t),
   },
+  ...EDGE_CACHE_CHECKS,
 ];
 
-let wrangler: string;
-try {
-  wrangler = readFileSync(WRANGLER_PATH, "utf8");
-} catch (err) {
-  console.error(`verify:infra FAILED — cannot read ${WRANGLER_PATH}: ${(err as Error).message}`);
-  process.exit(1);
+export function checkInfraContract(wrangler: string): Check[] {
+  return CHECKS.filter(check => !check.test(wrangler));
 }
 
-const failures: Check[] = [];
-for (const check of CHECKS) {
-  if (!check.test(wrangler)) failures.push(check);
-}
-
-if (failures.length > 0) {
-  console.error("verify:infra FAILED — wrangler.toml does not match the Phase 1.5 infra contract:");
-  for (const f of failures) {
-    console.error(`  [${f.name}] ${f.description}`);
+if (fileURLToPath(import.meta.url) === resolve(process.argv[1] ?? "")) {
+  const path = resolve(process.cwd(), "wrangler.toml");
+  let wrangler: string;
+  try {
+    wrangler = readFileSync(path, "utf8");
+  } catch (err) {
+    console.error(`verify:infra FAILED — cannot read ${path}: ${(err as Error).message}`);
+    process.exit(1);
   }
-  process.exit(1);
+  const failures = checkInfraContract(wrangler);
+  if (failures.length > 0) {
+    console.error("verify:infra FAILED — wrangler.toml does not match the infra and cache contract:");
+    for (const f of failures) console.error(`  [${f.name}] ${f.description}`);
+    process.exit(1);
+  }
+  console.log(`verify:infra OK -- wrangler.toml matches the infra and cache contract (${CHECKS.length} checks passed).`);
 }
-
-console.log(
-  `verify:infra OK -- wrangler.toml matches the Phase 1.5 infra contract (${CHECKS.length} checks passed).`,
-);
-process.exit(0);

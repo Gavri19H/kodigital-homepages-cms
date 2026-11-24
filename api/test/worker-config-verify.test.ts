@@ -12,6 +12,17 @@ const TSX_BIN = resolve(API_DIR, "node_modules/.bin/tsx");
 
 const GOOD_TOML = `name = "kodigital-homepages-cms-worker"
 
+[cache]
+enabled = true
+
+[exports.default]
+type = "worker"
+cache = { enabled = false }
+
+[exports.PublicPage]
+type = "worker"
+cache = { enabled = true }
+
 [vars]
 APP_ENV = "development"
 ADMIN_HOST = "localhost"
@@ -24,6 +35,17 @@ OPENAI_IMAGE_MODEL = "gpt-image-2"
 SITE_PROVISIONING_DRY_RUN = "true"
 SITE_PROVISIONING_ALLOW_ROUTE_MUTATION = "false"
 
+[env.staging.cache]
+enabled = true
+
+[env.staging.exports.default]
+type = "worker"
+cache = { enabled = false }
+
+[env.staging.exports.PublicPage]
+type = "worker"
+cache = { enabled = true }
+
 [env.staging.vars]
 APP_ENV = "staging"
 ADMIN_HOST = "staging-cms.kodigital.app"
@@ -32,6 +54,17 @@ ADMIN_BASE_PATH = "/admin"
 SITE_PROVISIONING_DRY_RUN = "true"
 SITE_PROVISIONING_ALLOW_ROUTE_MUTATION = "false"
 HTML_CACHE_TTL_SECONDS = "60"
+
+[env.production.cache]
+enabled = true
+
+[env.production.exports.default]
+type = "worker"
+cache = { enabled = false }
+
+[env.production.exports.PublicPage]
+type = "worker"
+cache = { enabled = true }
 
 [env.production.vars]
 APP_ENV = "production"
@@ -77,6 +110,13 @@ describe("verify:worker-config script (T11)", () => {
     const res = runInTemp(GOOD_TOML);
     expect(res.status).toBe(0);
     expect(res.stdout).toMatch(/verify:worker-config OK/);
+  });
+
+  it("rejects a missing staging PublicPage export", () => {
+    const broken = GOOD_TOML.replace('[env.staging.exports.PublicPage]\ntype = "worker"\ncache = { enabled = true }', "");
+    const res = runInTemp(broken);
+    expect(res.status).not.toBe(0);
+    expect(res.stderr).toContain("[env.staging.exports.PublicPage]");
   });
 
   it("exits non-zero when production ADMIN_HOST is not cms.kodigital.app", () => {

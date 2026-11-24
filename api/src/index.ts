@@ -364,4 +364,5 @@ const queue = async (
 const worker = Object.assign(app, { scheduled, queue });
 
 export { ProviderConfigurationAuthority } from "./conversions-provider-configuration-worker";
+export { PublicPage } from "./edge/public-page";
 export default worker;

@@ -31,8 +31,7 @@
  */
 import { readFileSync } from "node:fs";
 import { resolve } from "node:path";
-
-const WRANGLER_PATH = resolve(process.cwd(), "wrangler.toml");
+import { fileURLToPath } from "node:url";
 
 interface VarsBlock {
   name: string;
@@ -79,14 +78,6 @@ const BLOCKS: readonly VarsBlock[] = [
   { name: "[env.production.vars]", startMarker: /^\[env\.production\.vars\]\s*$/m, required: PRODUCTION_VARS_REQUIRED },
 ];
 
-let wrangler: string;
-try {
-  wrangler = readFileSync(WRANGLER_PATH, "utf8");
-} catch (err) {
-  console.error(`verify:worker-config FAILED — cannot read ${WRANGLER_PATH}: ${(err as Error).message}`);
-  process.exit(1);
-}
-
 function sliceBlock(toml: string, startMarker: RegExp): string | null {
   const lines = toml.split("\n");
   let startIdx = -1;
@@ -108,46 +99,81 @@ function sliceBlock(toml: string, startMarker: RegExp): string | null {
   return lines.slice(startIdx, endIdx).join("\n");
 }
 
+function cacheBlock(name: string, description: string, ...settings: RegExp[]) {
+  const marker = new RegExp(`^\\s*\\[${name.replaceAll(".", "\\.")}\\]\\s*(?:#.*)?$`);
+  return {
+    name,
+    description,
+    test(toml: string): boolean {
+      const body = sliceBlock(toml, marker);
+      return body !== null && settings.every(setting => setting.test(body));
+    },
+  };
+}
+
+const workerType = /^\s*type\s*=\s*(?:"worker"|'worker')\s*(?:#.*)?$/m;
+export const EDGE_CACHE_CHECKS = ["", "env.staging.", "env.production."].flatMap(prefix => [
+  cacheBlock(`${prefix}cache`, "must declare enabled = true", /^\s*enabled\s*=\s*true\s*(?:#.*)?$/m),
+  cacheBlock(
+    `${prefix}exports.default`, 'must declare type = "worker" and cache = { enabled = false }',
+    workerType, /^\s*cache\s*=\s*\{\s*enabled\s*=\s*false\s*\}\s*(?:#.*)?$/m,
+  ),
+  cacheBlock(
+    `${prefix}exports.PublicPage`, 'must declare type = "worker" and cache = { enabled = true }',
+    workerType, /^\s*cache\s*=\s*\{\s*enabled\s*=\s*true\s*\}\s*(?:#.*)?$/m,
+  ),
+]);
+
 interface Failure {
   block: string;
   key: string;
   reason: string;
 }
 
-const failures: Failure[] = [];
-
-for (const block of BLOCKS) {
-  const body = sliceBlock(wrangler, block.startMarker);
-  if (body === null) {
-    failures.push({ block: block.name, key: "*", reason: `block not found in wrangler.toml` });
-    continue;
-  }
-  for (const r of block.required) {
-    const keyLine = new RegExp(`^${r.key}\\s*=\\s*"([^"]*)"\\s*$`, "m");
-    const m = keyLine.exec(body);
-    if (!m) {
-      failures.push({ block: block.name, key: r.key, reason: "key not declared" });
+export function checkWorkerConfig(wrangler: string): Failure[] {
+  const failures: Failure[] = [];
+  for (const block of BLOCKS) {
+    const body = sliceBlock(wrangler, block.startMarker);
+    if (body === null) {
+      failures.push({ block: block.name, key: "*", reason: "block not found in wrangler.toml" });
       continue;
     }
-    if (r.expected !== undefined && m[1] !== r.expected) {
-      failures.push({
-        block: block.name,
-        key: r.key,
-        reason: `expected "${r.expected}", got "${m[1] ?? ""}"`,
-      });
+    for (const r of block.required) {
+      const keyLine = new RegExp(`^${r.key}\\s*=\\s*"([^"]*)"\\s*$`, "m");
+      const m = keyLine.exec(body);
+      if (!m) {
+        failures.push({ block: block.name, key: r.key, reason: "key not declared" });
+        continue;
+      }
+      if (r.expected !== undefined && m[1] !== r.expected) {
+        failures.push({
+          block: block.name,
+          key: r.key,
+          reason: `expected "${r.expected}", got "${m[1] ?? ""}"`,
+        });
+      }
     }
   }
-}
-
-if (failures.length > 0) {
-  console.error("verify:worker-config FAILED — wrangler.toml [vars] blocks do not match the Phase 1.5 routing contract:");
-  for (const f of failures) {
-    console.error(`  ${f.block} :: ${f.key} -- ${f.reason}`);
+  for (const check of EDGE_CACHE_CHECKS) {
+    if (!check.test(wrangler)) failures.push({ block: `[${check.name}]`, key: "*", reason: check.description });
   }
-  process.exit(1);
+  return failures;
 }
 
-console.log(
-  `verify:worker-config OK -- wrangler.toml [vars] blocks match the Phase 1.5 routing contract (${BLOCKS.length} blocks checked).`,
-);
-process.exit(0);
+if (fileURLToPath(import.meta.url) === resolve(process.argv[1] ?? "")) {
+  const path = resolve(process.cwd(), "wrangler.toml");
+  let wrangler: string;
+  try {
+    wrangler = readFileSync(path, "utf8");
+  } catch (err) {
+    console.error(`verify:worker-config FAILED — cannot read ${path}: ${(err as Error).message}`);
+    process.exit(1);
+  }
+  const failures = checkWorkerConfig(wrangler);
+  if (failures.length > 0) {
+    console.error("verify:worker-config FAILED — wrangler.toml does not match the routing and cache contract:");
+    for (const f of failures) console.error(`  ${f.block} :: ${f.key} -- ${f.reason}`);
+    process.exit(1);
+  }
+  console.log(`verify:worker-config OK -- ${BLOCKS.length} vars blocks and ${EDGE_CACHE_CHECKS.length} cache and export blocks checked.`);
+}
