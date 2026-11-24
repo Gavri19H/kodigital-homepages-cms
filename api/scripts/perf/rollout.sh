@@ -108,21 +108,22 @@ def request_headers(tenant, pin):
 
 def worker_request(tenant, url, pin, args, timeout=None):
     output = subprocess.check_output(["curl", "-qsS", *args, *request_headers(tenant, pin),
-                                      "-w", "\n%{http_code}\t%header{x-worker-version}\t%header{x-edge-cache}",
+                                      "-w", "\n%{http_code}\t%header{x-worker-version}\t%header{x-edge-cache}\t%header{cf-ray}",
                                       "--", url], timeout=timeout)
     body, fields = output.rsplit(b"\n", 1)
-    status, served, cache = fields.decode("ascii").split("\t")
+    status, served, cache, ray = fields.decode("ascii").split("\t")
     if not re.fullmatch("[1-5][0-9]{2}", status):
         raise ValueError(f"{tenant}: {url} returned invalid status {status!r}")
-    return int(status), served.strip(), cache.strip().upper(), body
+    colo = ray.strip().rsplit("-", 1)[-1] if "-" in ray else ""
+    return int(status), served.strip(), cache.strip().upper(), colo, body
 
 def checked_request(tenant, url, version, args):
     for attempt in range(1, 6):
-        status, served, cache, body = worker_request(tenant, url, version, args)
+        status, served, cache, colo, body = worker_request(tenant, url, version, args)
         # The previous Worker can predate the header. Cloudflare can also return a 5xx
         # before the new Worker sends headers, so let that status reach the check.
         if served == version or (not served and (version == previous or status >= 500)):
-            return status, cache, body
+            return status, cache, colo, body
         if attempt < 5:
             time.sleep(poll_seconds)
     sys.exit(f"{tenant}: {url} expected Worker {version} after 5 tries, "
@@ -138,7 +139,7 @@ def propagate(groups, pin):
         last = "no response"
         while (remaining := deadline - time.monotonic()) > 0:
             try:
-                status, served, _, _ = worker_request(tenant, url, pin, tick_args, timeout=remaining)
+                status, served, *_ = worker_request(tenant, url, pin, tick_args, timeout=remaining)
                 last = f"HTTP {status}, x-worker-version={served or '<missing>'}"
                 if status >= 500 and (served == new or (pin == new and not served)):
                     sys.exit(f"{tenant}: new-version tick returned {status}, expected 202")
@@ -165,7 +166,7 @@ def propagate(groups, pin):
 def tick_hosts(groups):
     for tenant in groups:
         tick_url = endpoint(f"https://{tenant}/__edge/tick", tenant)
-        status, _, _ = checked_request(tenant, tick_url, new, tick_args)
+        status, *_ = checked_request(tenant, tick_url, new, tick_args)
         if status != 202:
             sys.exit(f"{tenant}: new-version tick returned {status}, expected 202")
 
@@ -189,24 +190,37 @@ class PageTitle(HTMLParser):
             self.in_title = False
 
 def sample(tenant, url, version, sid):
-    status, cache, body = checked_request(tenant, url, version, [
+    status, cache, colo, body = checked_request(tenant, url, version, [
         "--compressed", "--max-time", "30", "--globoff", "-A", browser, "-b", f"ko_sid={sid}",
     ])
     parser = PageTitle()
     parser.feed(body.decode("utf-8", errors="replace"))
     parser.close()
-    return (status, parser.title), cache
+    return (status, parser.title), cache, colo
 
 def check_url(tenant, url, sid):
-    old, _ = sample(tenant, url, previous, sid)
-    first, _ = sample(tenant, url, new, sid)
-    second, cache = sample(tenant, url, new, sid)
-    matches = old == first == second
-    if not matches:
-        print(f"{tenant} {url}: status/title mismatch: old={old!r}, new={first!r}, repeat={second!r}", file=sys.stderr)
-    if cache != "HIT":
-        print(f"{tenant} {url}: second request returned x-edge-cache={cache!r}", file=sys.stderr)
-    return (first[0] >= 500) + (second[0] >= 500), matches, cache == "HIT"
+    old, _, _ = sample(tenant, url, previous, sid)
+    first, _, first_colo = sample(tenant, url, new, sid)
+    colos = [first_colo]
+    errors = int(first[0] >= 500)
+    matches = True
+    # Check the second request, then allow three more if the location keeps changing.
+    for _ in range(4):
+        repeat, cache, colo = sample(tenant, url, new, sid)
+        errors += repeat[0] >= 500
+        if matches and (old != first or old != repeat):
+            matches = False
+            print(f"{tenant} {url}: status/title mismatch: old={old!r}, new={first!r}, repeat={repeat!r}", file=sys.stderr)
+        if colo and colo == colos[-1]:
+            hit = cache == "HIT"
+            if not hit:
+                print(f"{tenant} {url}: second request returned x-edge-cache={cache!r} "
+                      f"(colo {colos[-1]}→{colo})", file=sys.stderr)
+            return errors, matches, hit
+        colos.append(colo)
+    observed = ",".join(colo or "<missing>" for colo in colos)
+    print(f"{tenant} {url}: no same-colo pair (colos {observed})", file=sys.stderr)
+    return errors, matches, None
 
 def check_split(groups):
     # Share one visitor identity across both versions for sticky experiments.
@@ -226,15 +240,16 @@ def check_split(groups):
                     tick_hosts(groups)
                     next_tick += 60
             errors = 0
-            all_hit = True
+            same_colo_hits = []
             for key, check in checks.items():
                 server_errors, matches, hit = check.result()
                 errors += server_errors
-                all_hit &= hit
+                if hit is not None:
+                    same_colo_hits.append(hit)
                 mismatches[key] = 0 if matches else mismatches[key] + 1
             print(f"Minute {minute}: new-version 5xx={errors}, parity mismatches={sum(n > 0 for n in mismatches.values())}", flush=True)
             error_minutes = error_minutes + 1 if errors else 0
-            miss_minutes = 0 if all_hit else miss_minutes + 1
+            miss_minutes = 0 if same_colo_hits and all(same_colo_hits) else miss_minutes + 1
             if error_minutes >= 2:
                 sys.exit("Two consecutive checks with new-version 5xx responses")
             for (tenant, url), streak in mismatches.items():
