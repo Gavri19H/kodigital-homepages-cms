@@ -6,6 +6,7 @@ import {
   mergeTags,
   nfTag,
   quoteTag,
+  siteQuoteTag,
   siteTag,
   slugTag,
   snapTag,
@@ -38,6 +39,11 @@ describe("edge tag helpers", () => {
 
   it("builds a lowercase quote tag", () => {
     expect(quoteTag("Quote-A")).toBe("quote:quote-a");
+  });
+
+  it("qualifies public and numeric quote IDs with the lowercase tenant ID", () => {
+    expect(siteQuoteTag("Site-A", "lgq_ABC")).toBe("quote:site-a:lgq_abc");
+    expect(siteQuoteTag("Site-B", 42)).toBe("quote:site-b:42");
   });
 
   it("builds a lowercase host tag", () => {

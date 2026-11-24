@@ -26,6 +26,10 @@ export function quoteTag(id: string): string {
   return `quote:${id}`.toLowerCase();
 }
 
+export function siteQuoteTag(siteId: string, quoteId: string | number): string {
+  return `quote:${siteId}:${quoteId}`.toLowerCase();
+}
+
 export function hostTag(hostname: string): string {
   return `host:${hostname}`.toLowerCase();
 }
