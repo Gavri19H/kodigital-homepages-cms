@@ -22,6 +22,8 @@
 import { invalidateFeeds } from "../cache";
 import type { ArticleRow } from "../db";
 import { contentJsonToHtml } from "../editor";
+import { onPublicChange } from "../edge/public-change";
+import { listingTag, mergeTags, slugTag } from "../edge/tags";
 import type { Env } from "../env";
 
 export type ArticleStatus = "draft" | "published" | "scheduled" | "archived";
@@ -57,6 +59,7 @@ export async function publish(
   env: Env,
   articleId: number,
   options: PublishOptions = {},
+  ctx?: ExecutionContext,
 ): Promise<ArticleRow> {
   const article = await env.DB
     .prepare("SELECT * FROM articles WHERE id = ? LIMIT 1")
@@ -79,7 +82,7 @@ export async function publish(
 
   // (c) Flip article row to published with fresh published_at.
   const now = nowSeconds();
-  await env.DB
+  const write = await env.DB
     .prepare(
       "UPDATE articles SET status = 'published', content_html = ?, published_at = ?, scheduled_at = NULL, updated_at = ? WHERE id = ?",
     )
@@ -94,18 +97,24 @@ export async function publish(
   //     turn into a cross-tenant bump.
   const siteId = article.site_id ?? null;
   if (siteId) {
-    await env.DB
-      .prepare(
-        "UPDATE sites SET content_version = content_version + 1 WHERE id = ?",
-      )
-      .bind(siteId)
-      .run();
-
-    // T14.AC2: wipe the per-site public-content cache surface in the same
-    // pass (explicit deletes are a courtesy — the version suffix already
-    // orphans the entries — but the explicit pass keeps KV list-output
-    // tight for operators and removes the stale entries from the LRU).
-    await invalidatePublishCaches(env, siteId);
+    try {
+      await env.DB
+        .prepare(
+          "UPDATE sites SET content_version = content_version + 1 WHERE id = ?",
+        )
+        .bind(siteId)
+        .run();
+    } finally {
+      // Keep the edge purge independent of a failed legacy bump. A rename can
+      // also commit between the pre-publish snapshot and the status write.
+      let change: PublishCacheChange | undefined;
+      if (write.meta.changes !== 0) {
+        const current = await env.DB.prepare("SELECT slug FROM articles WHERE id = ? AND site_id = ?")
+          .bind(articleId, siteId).first<{ slug: string }>().catch(() => null);
+        change = { slug: current?.slug ?? article.slug, reason: "article.publish", ctx };
+      }
+      await invalidatePublishCaches(env, siteId, change);
+    }
   } else {
     // (e) Legacy compatibility: pre-multi-tenant article rows have no
     //     site_id. Preserve the original Phase-1 feed-wipe (broad
@@ -142,10 +151,33 @@ const PUBLISH_CACHE_PREFIXES = [
   "feed:atom:",
 ] as const;
 
+export async function purgeArticleChange(
+  env: Env,
+  siteId: string | null | undefined,
+  slugs: string[],
+  reason: string,
+  ctx?: ExecutionContext,
+): Promise<void> {
+  // Legacy articles without an owner have no tenant edge entries.
+  if (!siteId) return;
+  const tags = mergeTags(slugs.map(slug => slugTag(siteId, slug)), [listingTag(siteId)]);
+  await onPublicChange(env, ctx, { siteId, tags, reason });
+}
+
+export interface PublishCacheChange {
+  slug: string;
+  reason: string;
+  ctx?: ExecutionContext;
+}
+
 export async function invalidatePublishCaches(
   env: Env,
   siteId: string,
+  change?: PublishCacheChange,
 ): Promise<void> {
+  if (change) {
+    await purgeArticleChange(env, siteId, [change.slug], change.reason, change.ctx);
+  }
   for (const ns of PUBLISH_CACHE_PREFIXES) {
     const prefix = `${ns}${siteId}:`;
     let cursor: string | undefined;

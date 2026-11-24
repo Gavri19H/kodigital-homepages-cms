@@ -9,6 +9,10 @@
 import { Hono } from "hono";
 import type { Env } from "../env";
 import type { ArticleRow, MediaRow, CategoryRow } from "../db";
+import { onPublicChange } from "../edge/public-change";
+import { listingTag, siteTag } from "../edge/tags";
+import { purgeArticleChange } from "../workflow/publish";
+import { adminExecutionCtx } from "./workflow-api";
 // T23: settings PATCH boundary hardening — key allow-list + per-field script
 // validation that rejects stored-XSS vectors before they are ever persisted.
 import { ALLOWED_SETTINGS_KEYS, validateScriptField } from "../settings/custom-html";
@@ -318,6 +322,7 @@ api.post("/api/admin/articles", async (c) => {
         .bind(...insertBinds, verticalId)
         .first<ArticleRow>();
   if (!row) return c.json({ error: "Insert failed" }, 500);
+  await purgeArticleChange(c.env, siteId, [slug], "article.create", adminExecutionCtx(c));
   return c.json({ article: row }, 201);
 });
 
@@ -338,12 +343,16 @@ api.delete("/api/admin/articles/:id", async (c) => {
   if (existing === null || existing === undefined) {
     return c.json({ error: "Not Found" }, 404);
   }
+  let deleted: Pick<ArticleRow, "site_id" | "slug"> | null;
   try {
-    await c.env.DB.prepare("DELETE FROM articles WHERE id = ?")
+    deleted = await c.env.DB.prepare("DELETE FROM articles WHERE id = ? RETURNING site_id, slug")
       .bind(id)
-      .run();
+      .first<Pick<ArticleRow, "site_id" | "slug">>();
   } catch (err) {
     return c.json({ error: (err as Error).message || "Delete failed" }, 500);
+  }
+  if (deleted) {
+    await purgeArticleChange(c.env, deleted.site_id, [deleted.slug], "article.delete", adminExecutionCtx(c));
   }
   return c.json({ ok: true, id });
 });
@@ -541,8 +550,21 @@ api.post("/api/admin/categories", async (c) => {
     c.env.DB.prepare(
       "INSERT INTO site_categories (site_id, category_id, display_order) VALUES (?, ?, ?)",
     ).bind(siteId, categoryId, displayOrder),
+    c.env.DB.prepare(
+      "SELECT site_id FROM site_categories WHERE category_id = ? AND site_id <> ?",
+    ).bind(categoryId, siteId),
   );
-  await c.env.DB.batch(statements);
+  // Read any other allocations in the same transaction as the new site link.
+  // (site_id, category_id) is the primary key, so each linked site occurs once.
+  const results = await c.env.DB.batch<{ site_id: string }>(statements);
+  const otherSites = results.at(-1)?.results ?? [];
+  const linkedSiteIds = [siteId, ...otherSites.map(row => row.site_id)];
+  const ctx = adminExecutionCtx(c);
+  await Promise.all(linkedSiteIds.map(linkedSiteId => onPublicChange(c.env, ctx, {
+    siteId: linkedSiteId,
+    tags: [listingTag(linkedSiteId), siteTag(linkedSiteId)],
+    reason: "category.create",
+  })));
 
   return c.json(
     {
@@ -778,6 +800,11 @@ api.patch("/api/admin/settings", async (c) => {
   } catch (err) {
     console.error("settings cache invalidation failed (non-fatal):", err);
   }
+  await onPublicChange(c.env, adminExecutionCtx(c), {
+    siteId,
+    tags: [siteTag(siteId)],
+    reason: "settings.update",
+  });
 
   return c.json({
     site_id: siteId,
@@ -1051,12 +1078,9 @@ api.patch("/articles/:id", async (c) => {
       ? body.site_id
       : existingSiteId;
 
+  const requestedSlug = typeof body.slug === "string" && body.slug.length > 0 ? body.slug : null;
   // Per-site slug uniqueness — only when slug is changing.
-  if (
-    typeof body.slug === "string" &&
-    body.slug.length > 0 &&
-    body.slug !== existing.slug
-  ) {
+  if (requestedSlug !== null && requestedSlug !== existing.slug) {
     if (guardSiteId === null) {
       return c.json(
         { error: "Cannot change slug without site_id" },
@@ -1067,7 +1091,7 @@ api.patch("/articles/:id", async (c) => {
       await assertSlugUniquePerSite(
         c.env.DB,
         "articles",
-        body.slug,
+        requestedSlug,
         guardSiteId,
         id,
       );
@@ -1135,9 +1159,9 @@ api.patch("/articles/:id", async (c) => {
     setClauses.push("title = ?");
     bindings.push(body.title);
   }
-  if (typeof body.slug === "string" && body.slug.length > 0) {
+  if (requestedSlug !== null) {
     setClauses.push("slug = ?");
-    bindings.push(body.slug);
+    bindings.push(requestedSlug);
   }
   if (typeof body.content_json === "string") {
     setClauses.push("content_json = ?");
@@ -1222,13 +1246,25 @@ api.patch("/articles/:id", async (c) => {
 
   setClauses.push("updated_at = unixepoch()");
   const sql =
-    "UPDATE articles SET " + setClauses.join(", ") + " WHERE id = ?";
+    "UPDATE articles SET " + setClauses.join(", ") + " WHERE id = ? RETURNING *";
   bindings.push(id);
 
+  let updated: ArticleRow | null;
+  let previousSlug: string | undefined;
   try {
-    await c.env.DB.prepare(sql)
-      .bind(...bindings)
-      .run();
+    const update = c.env.DB.prepare(sql).bind(...bindings);
+    if (requestedSlug === null) {
+      updated = await update.first<ArticleRow>();
+    } else {
+      // Another edit can rename the article after the validation read. Capture the
+      // slug this write actually replaces in the same transaction as the update.
+      const [before, after] = await c.env.DB.batch<ArticleRow>([
+        c.env.DB.prepare("SELECT slug FROM articles WHERE id = ?").bind(id),
+        update,
+      ]);
+      previousSlug = before?.results[0]?.slug;
+      updated = after?.results[0] ?? null;
+    }
   } catch (err) {
     const msg = (err as Error).message || "";
     if (/UNIQUE/i.test(msg) && /slug/i.test(msg)) {
@@ -1243,11 +1279,10 @@ api.patch("/articles/:id", async (c) => {
     return c.json({ error: msg || "Update failed" }, 500);
   }
 
-  const updated = await c.env.DB.prepare(
-    "SELECT * FROM articles WHERE id = ? LIMIT 1",
-  )
-    .bind(id)
-    .first<ArticleRow>();
+  if (updated) {
+    const slugs = previousSlug === undefined ? [updated.slug] : [previousSlug, updated.slug];
+    await purgeArticleChange(c.env, updated.site_id, slugs, "article.update", adminExecutionCtx(c));
+  }
   return c.json({ article: updated });
 });
 })(adminApi);

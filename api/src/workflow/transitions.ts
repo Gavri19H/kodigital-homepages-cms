@@ -19,7 +19,9 @@ import type { Env } from "../env";
 import {
   invalidatePublishCaches,
   isValidTransition,
+  purgeArticleChange,
   type ArticleStatus,
+  type PublishCacheChange,
 } from "./publish";
 
 async function loadArticle(env: Env, articleId: number): Promise<ArticleRow> {
@@ -50,15 +52,19 @@ function assertTransition(
 async function invalidatePublicSurface(
   env: Env,
   siteId: string | null,
+  change?: PublishCacheChange,
 ): Promise<void> {
   if (siteId) {
-    await env.DB
-      .prepare(
-        "UPDATE sites SET content_version = content_version + 1 WHERE id = ?",
-      )
-      .bind(siteId)
-      .run();
-    await invalidatePublishCaches(env, siteId);
+    try {
+      await env.DB
+        .prepare(
+          "UPDATE sites SET content_version = content_version + 1 WHERE id = ?",
+        )
+        .bind(siteId)
+        .run();
+    } finally {
+      await invalidatePublishCaches(env, siteId, change);
+    }
   } else {
     await invalidateFeeds(env);
   }
@@ -67,34 +73,38 @@ async function invalidatePublicSurface(
 export async function unpublish(
   env: Env,
   articleId: number,
+  ctx?: ExecutionContext,
 ): Promise<ArticleRow> {
   const article = await loadArticle(env, articleId);
   assertTransition(articleId, article.status as ArticleStatus, "draft");
   const now = nowSeconds();
-  await env.DB
+  const updated = await env.DB
     .prepare(
-      "UPDATE articles SET status = 'draft', published_at = NULL, updated_at = ? WHERE id = ?",
+      "UPDATE articles SET status = 'draft', published_at = NULL, updated_at = ? WHERE id = ? RETURNING slug",
     )
     .bind(now, articleId)
-    .run();
-  await invalidatePublicSurface(env, article.site_id ?? null);
+    .first<{ slug: string }>();
+  const change = updated ? { slug: updated.slug, reason: "article.unpublish", ctx } : undefined;
+  await invalidatePublicSurface(env, article.site_id ?? null, change);
   return { ...article, status: "draft", published_at: null, updated_at: now };
 }
 
 export async function archive(
   env: Env,
   articleId: number,
+  ctx?: ExecutionContext,
 ): Promise<ArticleRow> {
   const article = await loadArticle(env, articleId);
   assertTransition(articleId, article.status as ArticleStatus, "archived");
   const now = nowSeconds();
-  await env.DB
+  const updated = await env.DB
     .prepare(
-      "UPDATE articles SET status = 'archived', updated_at = ? WHERE id = ?",
+      "UPDATE articles SET status = 'archived', updated_at = ? WHERE id = ? RETURNING slug",
     )
     .bind(now, articleId)
-    .run();
-  await invalidatePublicSurface(env, article.site_id ?? null);
+    .first<{ slug: string }>();
+  const change = updated ? { slug: updated.slug, reason: "article.archive", ctx } : undefined;
+  await invalidatePublicSurface(env, article.site_id ?? null, change);
   return { ...article, status: "archived", updated_at: now };
 }
 
@@ -102,6 +112,7 @@ export async function schedule(
   env: Env,
   articleId: number,
   scheduledAt: number,
+  ctx?: ExecutionContext,
 ): Promise<ArticleRow> {
   if (!Number.isFinite(scheduledAt) || scheduledAt <= 0) {
     throw new Error(`Invalid scheduled_at for article ${articleId}`);
@@ -109,12 +120,13 @@ export async function schedule(
   const article = await loadArticle(env, articleId);
   assertTransition(articleId, article.status as ArticleStatus, "scheduled");
   const now = nowSeconds();
-  await env.DB
+  const updated = await env.DB
     .prepare(
-      "UPDATE articles SET status = 'scheduled', scheduled_at = ?, updated_at = ? WHERE id = ?",
+      "UPDATE articles SET status = 'scheduled', scheduled_at = ?, updated_at = ? WHERE id = ? RETURNING slug",
     )
     .bind(scheduledAt, now, articleId)
-    .run();
+    .first<{ slug: string }>();
+  if (updated) await purgeArticleChange(env, article.site_id, [updated.slug], "article.schedule", ctx);
   return {
     ...article,
     status: "scheduled",
@@ -126,6 +138,7 @@ export async function schedule(
 export async function cancelSchedule(
   env: Env,
   articleId: number,
+  ctx?: ExecutionContext,
 ): Promise<ArticleRow> {
   const article = await loadArticle(env, articleId);
   assertTransition(articleId, article.status as ArticleStatus, "draft");
@@ -135,12 +148,13 @@ export async function cancelSchedule(
     );
   }
   const now = nowSeconds();
-  await env.DB
+  const updated = await env.DB
     .prepare(
-      "UPDATE articles SET status = 'draft', scheduled_at = NULL, updated_at = ? WHERE id = ?",
+      "UPDATE articles SET status = 'draft', scheduled_at = NULL, updated_at = ? WHERE id = ? RETURNING slug",
     )
     .bind(now, articleId)
-    .run();
+    .first<{ slug: string }>();
+  if (updated) await purgeArticleChange(env, article.site_id, [updated.slug], "article.cancel-schedule", ctx);
   return { ...article, status: "draft", scheduled_at: null, updated_at: now };
 }
 
