@@ -2,7 +2,7 @@
 // deliverables at the PURE module level (resolveTokens → funnelChromeCss /
 // presets, the real producer → consumer path):
 //   1. self-hosted fonts   — widened THEME_FONT_IDS + @font-face emitted for a
-//      referenced self-hosted family, same-origin data: src, ZERO external URL;
+//      referenced self-hosted family, content-hashed same-origin src, ZERO external URL;
 //   2. size ramp           — a display-only ramp (typography.display_size) with
 //      a display-XXL tier (~72px) that never enlarges body copy;
 //   3. button styles       — the fill/list/mark vocabulary (Images 38-40) as
@@ -92,11 +92,12 @@ describe("P6a deliverable 1 — self-hosted font set", () => {
     expect(css(base as AnyDesign)).not.toContain("@font-face");
   });
 
-  it("a theme picking a self-hosted family emits its @font-face with a same-origin data: src and NO external URL", () => {
+  it("a theme picking a self-hosted family emits its @font-face with a hashed same-origin src and NO external URL", () => {
     const sheet = css(effDesign({ typography: { display: "poppins" } }));
     expect(sheet).toContain("@font-face");
     expect(sheet).toContain("font-family:'Poppins'");
-    expect(sheet).toContain("src:url(\"data:font/woff2;base64,");
+    expect(sheet).toMatch(/src:url\("\/lg\/fonts\/poppins-400\.[a-f0-9]{16}\.woff2"\) format\("woff2"\)/);
+    expect(sheet).not.toContain("data:font");
     // hard security gate — zero external font requests
     expect(sheet).not.toContain("fonts.googleapis.com");
     expect(sheet).not.toContain("fonts.gstatic.com");

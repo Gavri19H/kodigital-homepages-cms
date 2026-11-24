@@ -85,7 +85,7 @@ import { flattenComponents } from "./components/content-schema";
 // warning (frame_scope_component) already reads.
 import { COMPONENT_CATALOG } from "./components/registry";
 import { getFunnelDesign, type FunnelDesign } from "./designs/registry";
-import { funnelChromeCss, FUNNEL_DESIGN_SCOPE_ATTR } from "./designs/default-funnel/styles";
+import { displayFontPreloadPath, funnelChromeCss, FUNNEL_DESIGN_SCOPE_ATTR } from "./designs/default-funnel/styles";
 // 03 §3.2a / 09 §9.1: the ONE shared renderer — the same presets that power
 // admin preview, quote preview, and persisted content_html render the live
 // shell sections. Pure over (nodes, design) with a pinned en-US locale, so the
@@ -1122,6 +1122,7 @@ function renderFunnelShell(
   const composition = resolveFrameComposition(frameSourceOf(resolved, savedTemplateDefaults), design, themeRecord);
   const effectiveDesign: FunnelDesign | EffectiveFunnelDesign =
     composition === null ? design : composition.effectiveTokens.design;
+  const displayFont = displayFontPreloadPath(effectiveDesign);
   const chromeCss =
     composition === null
       ? funnelChromeCss(design, scope)
@@ -1178,6 +1179,7 @@ function renderFunnelShell(
     "<head>" +
     '<meta charset="utf-8">' +
     '<meta name="viewport" content="width=device-width, initial-scale=1">' +
+    (displayFont ? `<link rel="preload" as="font" type="font/woff2" crossorigin href="${displayFont}">` : "") +
     // X06 (owner Q4): funnels are ad landing pages — kept out of Google, and
     // the tab shows the site's public name, never the internal funnel name.
     '<meta name="robots" content="noindex">' +

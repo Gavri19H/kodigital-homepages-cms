@@ -4,7 +4,7 @@
 // collides with the public content router — exactly how analyticsRouter mounts
 // ahead of publicRouter.
 //
-// Served on TENANT hosts only: publicSiteContextMiddleware resolves host→site
+// Site-specific handlers serve TENANT hosts only: publicSiteContextMiddleware resolves host→site
 // and 404s the ADMIN_HOST (its resolveSiteContextFromRequest short-circuits the
 // admin host to null), so mounting ahead of the admin-host net is safe — an
 // admin-host /lg request gets the middleware's safe 404, never a shell.
@@ -23,12 +23,14 @@
 
 import { Hono } from "hono";
 import type { Context, ExecutionContext as HonoExecutionContext } from "hono";
+import { decodeBase64 } from "hono/utils/encode";
 import type { Env } from "../../env";
 import { isAdminHost } from "../../site/site-context";
 import type { WaitUntilContext } from "../../wait-until-context";
 import { cacheExecutionCtx } from "../html-pipeline";
 import { publicSiteContextMiddleware, type PublicSiteVariables } from "../middleware";
 import { loadPreparedFunnelBundle } from "./bundle";
+import { LEADGEN_FONT_FILES } from "./designs/fonts.generated";
 import { serveFunnelShell, serveLeadgenConfig, leadgenNoStoreHeaders } from "./serve";
 import { serveLeadgenAuction } from "./serve-auction";
 import { runtimeRequestGuard, type GuardOutcome } from "./runtime-guard";
@@ -81,6 +83,20 @@ import type { LeadgenEvent } from "../../analytics/leadgen-events";
 type PublicContext = Context<{ Bindings: Env; Variables: PublicSiteVariables }>;
 
 const leadgenPublicRouter = new Hono<{ Bindings: Env; Variables: PublicSiteVariables }>();
+
+// Live funnels and Studio previews use the same font files on their own host.
+// Their contents are build artifacts, so a cold font request needs no site lookup.
+leadgenPublicRouter.get("/lg/fonts/:file", (c) => {
+  const base64 = LEADGEN_FONT_FILES.get(c.req.path);
+  if (base64 === undefined) return c.notFound();
+  const headers = new Headers({
+    "Content-Type": "font/woff2",
+    "Cache-Control": "public, max-age=31536000, immutable",
+  });
+  // Studio also renders into sandboxed srcdoc frames with an opaque origin.
+  if (isAdminHost(new URL(c.req.url).hostname, c.env)) headers.set("Access-Control-Allow-Origin", "*");
+  return new Response(decodeBase64(base64), { headers });
+});
 
 // Only the gateway can supply these headers, after validating the active host
 // snapshot. Otherwise resolve the tenant exactly as for every other /lg route.

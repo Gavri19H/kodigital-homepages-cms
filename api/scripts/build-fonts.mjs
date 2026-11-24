@@ -1,56 +1,10 @@
 #!/usr/bin/env node
-// build-fonts — Round-4 P6 THEME v2 (D-7) self-hosted font pipeline.
-//
-// WHY: the LeadGen theme font ids (theme.ts THEME_FONT_STACKS) name font
-// families by CSS name only — pre-P6 NOTHING loaded a real webfont, so a
-// funnel picking 'Literata'/'Sora' silently fell back to Georgia/system-ui.
-// P6 adds a CURATED SELF-HOSTED family set so a theme's display/body choice
-// renders as the intended typeface, with a hard security/perf requirement:
-// ZERO external font requests on the live funnel (no fonts.googleapis.com / no
-// fonts.gstatic.com / no runtime CDN). Decision (contract-approved, mirrors
-// the P1 Tabler icon pipeline scripts/build-icons.mjs): vendor WOFF2 Latin
-// subsets at BUILD TIME into a committed generated module, base64-inlined and
-// served same-origin as `data:` URLs in the @font-face `src` — no npm runtime
-// dependency, no runtime fetch; this script runs ONCE, by hand, and its OUTPUT
-// (src/public/leadgen/designs/fonts.generated.ts) is committed.
-//
-// WHAT THIS SCRIPT DOES: for each curated family/weight it fetches the
-// PRE-BUILT Latin-subset WOFF2 from a PINNED @fontsource package on jsDelivr
-// (Fontsource repackages the upstream OFL/Apache Google Fonts; the Latin
-// subset is already built — no local fonttools/woff2 tooling needed), base64-
-// encodes it, and writes:
-//   export const LEADGEN_SELF_HOSTED_FONT_FAMILIES: readonly string[]  (CSS family names)
-//   export const LEADGEN_FONT_FACE_CSS: Record<string,string>          (family -> @font-face blocks)
-//   export function selfHostedFontFaceCss(families): string            (dedup, deterministic emit)
-// LEADGEN-REWORK-03 P5 (S5.2 durability fix): this generator PREVIOUSLY also
-// emitted `export interface LeadgenFontFamilyMeta` + `export const
-// LEADGEN_FONT_FAMILIES` (a metadata table — family/category/weights/
-// license/pkg) — confirmed dead (zero references anywhere outside this
-// generator and fonts.generated.ts itself, per the leadgen-orphan-scan gate)
-// and removed from the committed fonts.generated.ts. Removed HERE too, so a
-// future `npm run build:fonts` re-run does not resurrect them — the
-// per-family license provenance this metadata used to carry still lives in
-// the generated file's own header COMMENT (licenseNotes, below), which never
-// needed the exported const to exist.
-//
-// SAME-ORIGIN GUARANTEE: every @font-face `src` is a `data:font/woff2;base64,…`
-// URL — same-origin by construction. styles.ts scans the RESOLVED design's
-// font slots and emits ONLY the referenced families' @font-face at the top of
-// the funnel chrome <style> block, so a live page issues ZERO font network
-// requests. A CI/test gate asserts no external font URL appears in served CSS.
-//
-// BYTE-COMPAT: the base design's own families ('Sora'/'Literata'/'Newsreader')
-// and the back-compat theme ids (literata/sora/system) are DELIBERATELY NOT in
-// this self-hosted set — so a legacy/v1 funnel never matches a self-hosted
-// family, emits no @font-face, and renders byte-identically to pre-P6.
-//
-// USAGE: node scripts/build-fonts.mjs   (run from api/, or anywhere — paths
-// are resolved from this file's own location). Requires network access to
-// cdn.jsdelivr.net + data.jsdelivr.com. Re-run after bumping FONTSOURCE_VERSION
-// (or editing CURATED); the diff of the committed fonts.generated.ts IS the
-// review artifact for that refresh.
+// Build the same-origin /lg/fonts/ files and @font-face rules for quote funnels.
+//   node scripts/build-fonts.mjs --offline   reuse the committed bytes and license notices
+//   node scripts/build-fonts.mjs             refresh from pinned Fontsource packages
 
-import { writeFileSync } from "node:fs";
+import { createHash } from "node:crypto";
+import { readFileSync, writeFileSync } from "node:fs";
 import { dirname, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 
@@ -102,17 +56,29 @@ async function fetchTextOptional(url) {
   }
 }
 
-// One @font-face block per weight, base64 data: src (same-origin). font-display
-// swap so text paints immediately in the fallback then upgrades. Deterministic
-// string (fixed property order) so a re-run diffs cleanly.
-function fontFaceBlock(family, weight, base64) {
+// The committed module is the offline source, including before the switch
+// from embedded CSS data URLs to the path-keyed file map.
+function readGeneratedFonts(source) {
+  const files = new Map();
+  const fileEntry = /^  \["\/lg\/fonts\/([a-z0-9-]+)\.[a-f0-9]{16}\.woff2", "([A-Za-z0-9+/=]+)"\],$/gm;
+  for (const [, name, base64] of source.matchAll(fileEntry)) {
+    files.set(name, Buffer.from(base64, "base64"));
+  }
+  const embeddedFace = /font-family:'([^']+)';font-style:normal;font-weight:(\d+);font-display:swap;src:url\(\\"data:font\/woff2;base64,([A-Za-z0-9+/=]+)\\"\)/g;
+  for (const [, family, weight, base64] of source.matchAll(embeddedFace)) {
+    files.set(`${family.toLowerCase().replaceAll(" ", "-")}-${weight}`, Buffer.from(base64, "base64"));
+  }
+  return { files, licenses: source.match(/^\/\/   .+$/gm) ?? [] };
+}
+
+function fontFaceBlock(family, weight, path) {
   return (
     `@font-face{` +
     `font-family:'${family}';` +
     `font-style:normal;` +
     `font-weight:${weight};` +
     `font-display:swap;` +
-    `src:url("data:font/woff2;base64,${base64}") format("woff2")` +
+    `src:url("${path}") format("woff2")` +
     `}`
   );
 }
@@ -122,30 +88,38 @@ function tsStringLiteral(s) {
 }
 
 async function main() {
+  const args = process.argv.slice(2);
+  if (args.length > 1 || (args.length === 1 && args[0] !== "--offline")) {
+    throw new Error("Usage: node scripts/build-fonts.mjs [--offline]");
+  }
+  const saved = args.length ? readGeneratedFonts(readFileSync(OUT_PATH, "utf8")) : null;
   const families = CURATED.map((f) => f.family);
   if (new Set(families).size !== families.length) {
     throw new Error("CURATED contains duplicate family names — fix the list before fetching");
   }
 
-  console.log(
-    `build-fonts: fetching ${CURATED.reduce((n, f) => n + f.weights.length, 0)} WOFF2 subsets ` +
-      `for ${CURATED.length} families from @fontsource@${FONTSOURCE_VERSION} ...`,
-  );
-
   const faceCssByFamily = {};
+  const fileEntries = [];
+  const displayEntries = [];
   const licenseNotes = [];
   let totalRaw = 0;
-  let totalB64 = 0;
 
   for (const font of CURATED) {
     const blocks = [];
+    // The funnel headline has weight 600. CSS uses the next heavier face
+    // when a family has no 600, then the heaviest lighter face.
+    const displayWeight = font.weights.find(weight => weight >= 600) ?? font.weights.at(-1);
     for (const weight of font.weights) {
+      const name = `${font.pkg}-${weight}`;
       const url = `${CDN}/${font.pkg}@${FONTSOURCE_VERSION}/files/${font.pkg}-latin-${weight}-normal.woff2`;
-      const buf = await fetchBuffer(url);
-      const b64 = buf.toString("base64");
+      const buf = saved ? saved.files.get(name) : await fetchBuffer(url);
+      if (buf?.toString("ascii", 0, 4) !== "wOF2") throw new Error(`Missing or invalid WOFF2 for ${name}`);
+      const hash = createHash("sha256").update(buf).digest("hex").slice(0, 16);
+      const path = `/lg/fonts/${name}.${hash}.woff2`;
       totalRaw += buf.length;
-      totalB64 += b64.length;
-      blocks.push(fontFaceBlock(font.family, weight, b64));
+      blocks.push(fontFaceBlock(font.family, weight, path));
+      fileEntries.push(`  ["${path}", "${buf.toString("base64")}"],`);
+      if (weight === displayWeight) displayEntries.push(`  ["${font.family}", "${path}"],`);
     }
     faceCssByFamily[font.family] = blocks.join("");
 
@@ -153,15 +127,20 @@ async function main() {
     // travel with the font). We record the SPDX id + the upstream LICENSE URL;
     // the copyright/reserved-font-name line is pulled from the package LICENSE
     // when reachable, else the SPDX id + source stand as the provenance.
+    const prefix = `//   ${font.family} (${font.category}, weights ${font.weights.join("/")}) — ` +
+      `${font.license}; @fontsource/${font.pkg}@${FONTSOURCE_VERSION}; `;
+    if (saved) {
+      const note = saved.licenses.find(line => line.startsWith(prefix));
+      if (!note) throw new Error(`Missing license notice for ${font.family} at ${FONTSOURCE_VERSION}`);
+      licenseNotes.push(note);
+      continue;
+    }
     const licenseUrl = `${CDN}/${font.pkg}@${FONTSOURCE_VERSION}/LICENSE`;
     const licenseText = await fetchTextOptional(licenseUrl);
     const firstLines = licenseText
       ? licenseText.split("\n").slice(0, 3).map((l) => l.trim()).filter(Boolean).join(" | ")
       : "(LICENSE file not fetched — see source)";
-    licenseNotes.push(
-      `//   ${font.family} (${font.category}, weights ${font.weights.join("/")}) — ` +
-        `${font.license}; @fontsource/${font.pkg}@${FONTSOURCE_VERSION}; ${firstLines}`,
-    );
+    licenseNotes.push(prefix + firstLines);
   }
 
   const familyNamesTs = families.map((f) => `  ${tsStringLiteral(f)},`).join("\n");
@@ -171,17 +150,9 @@ async function main() {
   ).join("\n");
 
   const header = `// AUTO-GENERATED by \`node scripts/build-fonts.mjs\` — DO NOT EDIT BY HAND.
-// Re-run the script (after deliberately bumping FONTSOURCE_VERSION or editing
-// CURATED there) to refresh this file; the output is committed (build-time
-// vendoring — ZERO runtime or npm dependency). Round-4 P6 THEME v2 (D-7)
-// self-hosted font pipeline.
-//
-// Each family below is a WOFF2 Latin subset from the pinned @fontsource
-// package (Fontsource repackages the upstream OFL/Apache Google Fonts), base64-
-// inlined and served same-origin as a \`data:font/woff2\` URL in the @font-face
-// \`src\` — so a live funnel issues ZERO external font requests. styles.ts scans
-// the resolved design's font slots and emits ONLY the referenced families'
-// @font-face (selfHostedFontFaceCss) at the top of the funnel chrome <style>.
+// Rebuild from this module with \`node scripts/build-fonts.mjs --offline\`.
+// The /lg/fonts/ handler serves the Latin WOFF2 bytes. The CSS references
+// same-origin paths containing the first 16 hex digits of each file's SHA-256.
 //
 // -----------------------------------------------------------------------
 // Font licenses (SIL Open Font License 1.1 unless noted). The full OFL text
@@ -203,10 +174,18 @@ ${familyNamesTs}
 ];
 
 // family (CSS name) -> its concatenated @font-face blocks (one per weight),
-// each with a same-origin data:font/woff2 src.
+// each with a same-origin WOFF2 src.
 export const LEADGEN_FONT_FACE_CSS: Record<string, string> = {
 ${faceEntriesTs}
 };
+
+export const LEADGEN_DISPLAY_FONT_PATHS: ReadonlyMap<string, string> = new Map([
+${displayEntries.join("\n")}
+]);
+
+export const LEADGEN_FONT_FILES: ReadonlyMap<string, string> = new Map([
+${fileEntries.join("\n")}
+]);
 
 // Emit the @font-face CSS for the given CSS family names, DEDUPLICATED and in a
 // DETERMINISTIC order (LEADGEN_SELF_HOSTED_FONT_FAMILIES order — never the
@@ -228,8 +207,7 @@ export function selfHostedFontFaceCss(families: Iterable<string>): string {
   console.log(`build-fonts: wrote ${OUT_PATH}`);
   console.log(`  version: @fontsource@${FONTSOURCE_VERSION}`);
   console.log(`  families: ${CURATED.length} (${families.join(", ")})`);
-  console.log(`  weights fetched: ${CURATED.reduce((n, f) => n + f.weights.length, 0)}`);
-  console.log(`  woff2 raw: ${(totalRaw / 1024).toFixed(0)} KB; base64 inlined: ${(totalB64 / 1024).toFixed(0)} KB`);
+  console.log(`  WOFF2 files: ${fileEntries.length} (${totalRaw} bytes)`);
   console.log(`  bytes written: ${Buffer.byteLength(header + body, "utf8")}`);
 }
 

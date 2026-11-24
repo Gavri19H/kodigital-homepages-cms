@@ -31,10 +31,7 @@ import type { DefaultFunnelDesign } from "./tokens";
 // casing does not ride the button-style triple.
 import { FUNNEL_TOKEN_ROLES, baseTokenForRole, readButtonCasing, readButtonStyle, readCardMarginY, readComponentPx } from "../theme";
 import type { EffectiveButtonStyle, EffectiveFunnelDesign } from "../theme";
-// P6 self-hosted fonts (build-time-vendored WOFF2 Latin subsets, base64 data:
-// URLs — ZERO external font requests). selfHostedFontFaceCss emits the
-// @font-face blocks for a given set of CSS family names.
-import { LEADGEN_SELF_HOSTED_FONT_FAMILIES, selfHostedFontFaceCss } from "../fonts.generated";
+import { LEADGEN_DISPLAY_FONT_PATHS, LEADGEN_SELF_HOSTED_FONT_FAMILIES, selfHostedFontFaceCss } from "../fonts.generated";
 
 // The scope every rule is nested under. Stage B sets this attribute on the
 // funnel shell root; the same attribute value is the design id.
@@ -121,6 +118,14 @@ const FONT_SLOT_PATHS: ReadonlyArray<readonly [group: string, key: string]> = [
   ["successState", "headingFontFamily"],
   ["primaryButton", "fontFamily"],
 ];
+
+// Resolved theme stacks start with the selected family. A system display
+// stack needs no preload, even when the body uses a vendored family.
+export function displayFontPreloadPath(design: DefaultFunnelDesign | EffectiveFunnelDesign): string | undefined {
+  for (const [family, path] of LEADGEN_DISPLAY_FONT_PATHS) {
+    if (design.page.fontDisplay.startsWith(`'${family}'`)) return path;
+  }
+}
 
 // Scan the resolved design's font slots and return the @font-face CSS for
 // every self-hosted family actually referenced (quoted family name, as
@@ -4347,7 +4352,7 @@ export function funnelChromeCss(
 
   // ---- assemble: [self-hosted @font-face] + base rules + one mobile query --
   // P6 (deliverable 1): the referenced self-hosted families' @font-face lead
-  // the sheet (same-origin data: URLs — ZERO external font requests). "" for a
+  // the sheet with same-origin, content-hashed WOFF2 URLs. "" for a
   // legacy design (no self-hosted family referenced), and the prepend is
   // SKIPPED entirely when empty so the leading bytes stay byte-identical to
   // pre-P6 (never a stray leading newline).
