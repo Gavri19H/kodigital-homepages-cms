@@ -418,7 +418,7 @@ describe("POST /api/admin/ai/logo (T20)", () => {
     };
     expect(body.ok).toBe(true);
     expect(body.media_id).toBe(7);
-    expect(body.storage_key).toBe("ai/site-a/logo/site-a.png");
+    expect(body.storage_key).toMatch(/^ai\/site-a\/logo\/site-a\/[\da-f-]{36}\.png$/);
     expect(body.image_url).toBe(`/media/${body.storage_key}`);
     expect(body.setting_key).toBe("logo_media_id");
     expect(body.ai_generation_id).toBeTruthy();
@@ -431,7 +431,7 @@ describe("POST /api/admin/ai/logo (T20)", () => {
       "gpt-image-2",
     );
 
-    // R2 put under the deterministic per-site logo key.
+    // The uploaded version is the one returned to the editor.
     expect(puts).toHaveLength(1);
     expect(puts[0]?.key).toBe(body.storage_key);
     expect(puts[0]?.options?.httpMetadata?.contentType).toBe("image/png");
@@ -442,6 +442,7 @@ describe("POST /api/admin/ai/logo (T20)", () => {
     );
     expect(mediaInsert).toBeDefined();
     expect(mediaInsert!.binds[0]).toBe("logo.png");
+    expect(mediaInsert!.binds[1]).toBe(body.storage_key);
     expect(mediaInsert!.binds[5]).toBe("ai/logo");
     expect(mediaInsert!.binds[6]).toBe("site-a");
     expect(mediaInsert!.binds[7]).toBe(body.ai_generation_id);
@@ -452,7 +453,7 @@ describe("POST /api/admin/ai/logo (T20)", () => {
       c.sql.startsWith("INSERT INTO site_settings"),
     );
     expect(settingWrites).toHaveLength(1);
-    expect(settingWrites[0]?.binds).toEqual(["site-a", "logo_media_id", "ai/site-a/logo/site-a.png"]);
+    expect(settingWrites[0]?.binds).toEqual(["site-a", "logo_media_id", body.storage_key]);
 
     // Tenant guard: NO call of any kind carries the other tenant's id.
     for (const c of calls) {

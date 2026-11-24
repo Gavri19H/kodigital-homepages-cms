@@ -7,7 +7,7 @@ import { buildEnv, makeFakeDb } from "./helpers/admin-test-kit";
 
 const host = "kodigital-homepages-cms-worker-perfstage.haikov1989.workers.dev";
 const statusUrl = `https://${host}/api/admin/auth/status`;
-const conductorIp = "46.117.76.207";
+const conductorIp = "192.0.2.207";
 const perfstage: Env = {
   ...buildEnv(makeFakeDb().db),
   APP_ENV: "perfstage",
@@ -38,9 +38,10 @@ describe("perfstage admin bypass", () => {
 
   it.each([
     ["another IP", "192.0.2.10", {}],
-    ["a partial IP", "46.117.76.20", {}],
+    ["a partial IP", "192.0.2.20", {}],
     ["a missing connecting IP", undefined, {}],
     ["an empty IP and empty allowlist entries", "", { ADMIN_ALLOW_IP: ", " }],
+    ["an empty allowlist", conductorIp, { ADMIN_ALLOW_IP: "" }],
     ["a missing allowlist", conductorIp, { ADMIN_ALLOW_IP: undefined }],
     ["a missing PERFSTAGE flag", conductorIp, { PERFSTAGE: undefined }],
     ["a nonliteral PERFSTAGE flag", conductorIp, { PERFSTAGE: "TRUE" }],

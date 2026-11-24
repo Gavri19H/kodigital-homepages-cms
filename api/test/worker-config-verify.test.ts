@@ -87,7 +87,7 @@ cache = { enabled = true }
 APP_ENV = "perfstage"
 PERFSTAGE = "true"
 DEV_BYPASS_AUTH = "true"
-ADMIN_ALLOW_IP = "46.117.76.207"
+ADMIN_ALLOW_IP = ""
 ADMIN_HOST = "kodigital-homepages-cms-worker-perfstage.haikov1989.workers.dev"
 ADMIN_BASE_URL = "https://kodigital-homepages-cms-worker-perfstage.haikov1989.workers.dev"
 ADMIN_BASE_PATH = "/admin"

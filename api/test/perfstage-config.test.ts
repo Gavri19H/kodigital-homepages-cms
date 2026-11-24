@@ -23,6 +23,7 @@ describe("perfstage deployment contract", () => {
   });
 
   it.each([
+    ["ADMIN_ALLOW_IP", "", "192.0.2.207"],
     ["SITE_PROVISIONING_DRY_RUN", "true", "false"],
     ["SITE_PROVISIONING_ALLOW_ROUTE_MUTATION", "false", "true"],
   ])("rejects an unsafe perfstage value for %s", (key, safe, unsafe) => {

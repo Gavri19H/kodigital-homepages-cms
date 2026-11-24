@@ -84,7 +84,7 @@ const BLOCKS: readonly VarsBlock[] = [
       { key: "ADMIN_BASE_URL", expected: `https://${PERFSTAGE_HOST}` },
       { key: "ADMIN_BASE_PATH", expected: "/admin" },
       { key: "DEV_BYPASS_AUTH", expected: "true" },
-      { key: "ADMIN_ALLOW_IP", expected: "46.117.76.207" },
+      { key: "ADMIN_ALLOW_IP", expected: "" },
       { key: "SITE_PROVISIONING_DRY_RUN", expected: "true" },
       { key: "SITE_PROVISIONING_ALLOW_ROUTE_MUTATION", expected: "false" },
     ],

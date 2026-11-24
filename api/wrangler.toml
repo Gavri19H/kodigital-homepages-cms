@@ -366,7 +366,7 @@ cache = { enabled = true }
 APP_ENV = "perfstage"
 PERFSTAGE = "true"
 DEV_BYPASS_AUTH = "true"
-ADMIN_ALLOW_IP = "46.117.76.207"
+ADMIN_ALLOW_IP = ""
 AWS_REGION = ""
 EVENTS_FIREHOSE_STREAM = ""
 LISTICLE_EVENTS_FIREHOSE_STREAM = ""
