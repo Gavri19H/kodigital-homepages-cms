@@ -14,6 +14,7 @@ const lifeVariant = "lgn_00000000000000000000000002";
 const quoteId = "lgq_00000000000000000000000001";
 const sessionAttrs = "; Path=/; Max-Age=1800; SameSite=Lax";
 const privateControl = "private, no-store";
+const visitorHtmlControl = "public, max-age=300, stale-while-revalidate=86400";
 const shell = '<html><head><script data-lst="selector"></script></head><body><!--LG_ASSIGN--></body></html>';
 
 function quote(public_id: string): LeadgenSnapshotEntry {
@@ -197,7 +198,7 @@ describe("visitor-specific responses", () => {
     expect(JSON.parse(readCookie(cookies[2], "ko_ctx"))).toEqual({
       sub1: "prior", utm_source: "search", traffic_source: "search", language: "en", lander_v: "ver_Z",
     });
-    expect(first.headers.get("Cache-Control")).toBe(privateControl);
+    expect(first.headers.get("Cache-Control")).toBe(visitorHtmlControl);
     expect(first.headers.has("Content-Length")).toBe(false);
     const html = await first.text();
     expect(html).toContain('window._LST_SID="' + mintedSid + '"');
@@ -218,7 +219,7 @@ describe("visitor-specific responses", () => {
     expect(html).toContain("window.__LG_ASSIGNMENT__=");
     expect(html).toContain('"funnel_variant_id":"' + lifeVariant + '"');
     expect(html).not.toContain("<!--LG_ASSIGN-->");
-    expect(res.headers.get("Cache-Control")).toBe(privateControl);
+    expect(res.headers.get("Cache-Control")).toBe(visitorHtmlControl);
     expect(res.headers.get("Content-Length")).toBe(String(new TextEncoder().encode(html).length));
   });
 
@@ -255,6 +256,7 @@ describe("visitor-specific responses", () => {
     for (const res of [head, match]) {
       expect(res.body).toBeNull();
       expect(res.headers.getSetCookie()).toEqual(get.headers.getSetCookie());
+      expect(res.headers.get("Cache-Control")).toBe(visitorHtmlControl);
       expect(res.headers.get("ETag")).toBe('"v9"');
       expect(res.headers.get("x-edge-cache")).toBe("HIT");
     }

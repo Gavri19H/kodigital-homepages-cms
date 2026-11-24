@@ -1,11 +1,12 @@
-import { afterEach, describe, expect, it, vi } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { readCacheStats } from "../src/cache/cache-stats";
 import { gatewayFetch } from "../src/edge/gateway";
 import { PublicPage } from "../src/edge/public-page";
 import type { PublicPageProps, SiteSnapshot } from "../src/edge/types";
 import type { Env } from "../src/env";
+import worker, { honoFetch } from "../src/index";
 import { ctxCapture, makeKvStub } from "./helpers/leadgen-analytics-harness";
-import { addSite, createDb, env as sqliteEnv } from "./helpers/x06-a2-sqlite";
+import { addSite, createDb, env as sqliteEnv, type SqliteDb } from "./helpers/x06-a2-sqlite";
 
 vi.mock("cloudflare:workers", () => ({
   WorkerEntrypoint: class {
@@ -171,6 +172,79 @@ describe("gateway cache monitor", () => {
     expect(response.headers.get("x-edge-cache")).toBe("HIT");
     expect(await response.text()).toBe("news");
     expect(fallback).not.toHaveBeenCalled();
+  });
+});
+
+describe("listicle and quote browser cache headers", () => {
+  let db: SqliteDb;
+  let env: Env;
+  let ctx: ExecutionContext;
+
+  beforeEach(() => {
+    db = createDb();
+    addSite(db, "news", "News", "health");
+    db.prepare("INSERT INTO domains (site_id, hostname, status) VALUES (?, ?, 'active')").run("news", "news.example");
+    db.prepare(`INSERT INTO listicle_articles (id, site_id, public_id, slug, article_name, status)
+      VALUES (1, 'news', 'art_guide', 'guide', 'Guide', 'published')`).run();
+    db.prepare(`INSERT INTO listicle_article_versions (article_id, public_id, headline, intro_paragraph)
+      VALUES (1, 'ver_guide', 'Guide', 'Intro')`).run();
+    db.prepare(`INSERT INTO leadgen_quotes (id, public_id, quote_name, activity, verticals_json, status)
+      VALUES (1, ?, 'Car quote', 'quote_funnel', '["auto"]', 'active')`).run("lgq_00000000000000000000000001");
+    db.prepare("INSERT INTO leadgen_site_quotes (site_id, quote_id, enabled) VALUES ('news', 1, 1)").run();
+    db.prepare(`INSERT INTO leadgen_funnels (id, public_id, quote_id, funnel_name, status)
+      VALUES (1, ?, 1, 'Car quote', 'active')`).run("lgf_00000000000000000000000001");
+    db.prepare("INSERT INTO leadgen_funnel_variants (id, public_id, funnel_id) VALUES (1, ?, 1)")
+      .run("lgn_00000000000000000000000001");
+
+    env = sqliteEnv(db);
+    Object.assign(env.CACHE, { async getWithMetadata() { return { value: null, metadata: null }; } });
+    ctx = ctxCapture().ctx;
+    Object.assign(ctx, { exports: {
+      PublicPage: ({ props }: { props: PublicPageProps }) => new PublicPage({ ...ctx, props }, env),
+    } });
+    vi.spyOn(crypto, "randomUUID").mockReturnValue("6bcfd486-e75e-46ff-8510-000000000001");
+  });
+  afterEach(() => db.close());
+
+  async function compareWithHono(request: Request, status: number, cacheControl: string) {
+    const live = await honoFetch(request.clone(), env);
+    const edge = await worker.fetch(request, env, ctx);
+    expect(live.status).toBe(status);
+    expect(edge.status).toBe(status);
+    expect(edge.headers.get("x-edge-cache")).toBe("none");
+    expect(live.headers.get("Cache-Control")).toBe(cacheControl);
+    expect(edge.headers.get("Cache-Control")).toBe(live.headers.get("Cache-Control"));
+    expect(edge.headers.get("ETag")).toBe(live.headers.get("ETag"));
+    expect(edge.headers.getSetCookie()).toEqual(live.headers.getSetCookie());
+    return edge;
+  }
+
+  it.each([
+    ["/guide", ""], ["/guide", "ko_sid=returning"], ["/lg", ""], ["/lg", "ko_sid=returning"],
+  ])("matches Hono on GET and revalidation for %s with Cookie %j", async (path, cookie) => {
+    const request = new Request(origin + path + "?utm_source=search");
+    if (cookie) request.headers.set("Cookie", cookie);
+    const cacheControl = "public, max-age=300, stale-while-revalidate=86400";
+    const first = await compareWithHono(request, 200, cacheControl);
+    const etag = first.headers.get("ETag");
+    expect(etag).toBeTruthy();
+    request.headers.set("If-None-Match", etag!);
+    const conditional = await compareWithHono(request, 304, cacheControl);
+    expect(conditional.headers.get("ETag")).toBe(etag);
+    expect(conditional.body).toBeNull();
+  });
+
+  it("preserves the renderer's no-store for a quote with unavailable vehicle data", async () => {
+    db.prepare(`INSERT INTO leadgen_sections (id, public_id, section_name, activity, vertical, headline_text, content_json)
+      VALUES (1, ?, 'Car make', 'quote_funnel', 'auto', 'Select a make', ?)`).run("lgs_00000000000000000000000001",
+      JSON.stringify({ components: [{
+        type: "IconCardAnswerGrid", question_id: "q_make", question_key: "car_make", internal_field: "vehicle_make",
+        props: { choice_source: "vehicle", vehicle_asks: "make" },
+      }] }));
+    db.prepare("INSERT INTO leadgen_funnel_variant_sections (variant_id, section_id, position) VALUES (1, 1, 0)").run();
+    Object.assign(env.MEDIA, { async get() { return null; } });
+    const response = await compareWithHono(new Request(origin + "/lg"), 200, "no-store");
+    expect(response.headers.has("ETag")).toBe(false);
   });
 });
 

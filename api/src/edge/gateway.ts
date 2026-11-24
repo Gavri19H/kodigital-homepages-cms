@@ -1,6 +1,6 @@
 import { getPath } from "hono/utils/url";
 import { readCfSignals } from "../analytics/listicle-quality";
-import { EDGE_CACHE_CONTROL } from "../cache/cache-control";
+import { CACHE_CONTROL_VALUES, EDGE_CACHE_CONTROL } from "../cache/cache-control";
 import { recordEdgeCacheStatus } from "../cache/cache-stats";
 import { matchesIfNoneMatch } from "../cache/edge-cache";
 import type { Env } from "../env";
@@ -193,7 +193,9 @@ async function serveCachedPage(
   headers.set("x-edge-cache", inner.headers.get("cf-cache-status") ?? "none");
   for (const cookie of cookies) headers.append("Set-Cookie", cookie);
   if (inner.status === 200 && (listicle || leadgen)) {
-    headers.set("Cache-Control", EDGE_CACHE_CONTROL.private);
+    // PublicPage maps the degraded quote renderer's no-store to the private edge policy.
+    const shellIsPrivate = inner.headers.get("Cache-Control") === EDGE_CACHE_CONTROL.private;
+    headers.set("Cache-Control", shellIsPrivate ? "no-store" : CACHE_CONTROL_VALUES.publicHtml);
     // The listicle transform streams a longer body. HEAD also skips the transform.
     if (listicle || !sendBody) headers.delete("Content-Length");
   }
