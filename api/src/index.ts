@@ -333,6 +333,12 @@ const scheduled = async (
     } catch {
       // Pending cache purges can retry on the next tick.
     }
+    try {
+      const { runFingerprintCron } = await import("./edge/fingerprint-cron");
+      await runFingerprintCron(env, ctx);
+    } catch {
+      // The next minute can retry the fingerprint check.
+    }
   })();
   ctx.waitUntil(work);
   await work;
