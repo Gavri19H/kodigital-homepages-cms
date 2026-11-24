@@ -36,9 +36,12 @@
 
 import type { Context } from "hono";
 import type { Env } from "../env";
+import { onPublicChange } from "../edge/public-change";
+import { siteTag } from "../edge/tags";
 import { buildStorageKey } from "../media/upload";
 import { extractImageDimensions } from "../media/dimensions";
 import { sanitizeSvgUpload } from "../lib/svg-sanitizer";
+import { cacheExecutionCtx } from "../public/html-pipeline";
 
 // Upload acceptance set — mirrors the legacy modal help text
 // ("Supports: JPEG, PNG, GIF, WebP, AVIF, SVG (max 10MB)").
@@ -223,6 +226,12 @@ export async function uploadMediaHandler(
     return c.json({ error: "Failed to record media row" }, 500);
   }
 
+  if (siteId !== null) {
+    // A fresh asset can replace a cached /media/<id> 404. onPublicChange adds the site's nf tag.
+    await onPublicChange(c.env, cacheExecutionCtx(c) as ExecutionContext | undefined, {
+      siteId, tags: [], reason: "media.upload",
+    });
+  }
   return c.json({ item: row, url: "/media/" + storageKey }, 201);
 }
 
@@ -297,6 +306,11 @@ export async function updateMediaHandler(
     return c.json({ error: "Failed to update media: " + message }, 500);
   }
 
+  if (existing.site_id !== null && (nextAltText !== existing.alt_text || nextCaption !== existing.caption)) {
+    await onPublicChange(c.env, cacheExecutionCtx(c) as ExecutionContext | undefined, {
+      siteId: existing.site_id, tags: [siteTag(existing.site_id)], reason: "media.update",
+    });
+  }
   const row = await c.env.DB.prepare(
     "SELECT " + MEDIA_COLUMNS + " FROM media WHERE id = ? LIMIT 1",
   )
@@ -341,5 +355,10 @@ export async function deleteMediaHandler(
     return c.json({ error: "Failed to delete media: " + message }, 500);
   }
 
+  if (existing.site_id !== null) {
+    await onPublicChange(c.env, cacheExecutionCtx(c) as ExecutionContext | undefined, {
+      siteId: existing.site_id, tags: [siteTag(existing.site_id)], reason: "media.delete",
+    });
+  }
   return c.json({ deleted: true, id, storage_key: existing.storage_key });
 }

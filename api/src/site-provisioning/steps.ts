@@ -28,6 +28,8 @@
 //     generateLogoImage/Prompt, generateFeatureImage/Prompt, generateStarterArticlePlan/Article
 
 import { type Env, parseNumber } from "../env";
+import { onPublicChange } from "../edge/public-change";
+import { hostTag, siteTag } from "../edge/tags";
 import { renderLegalPagesForSite } from "./legal-renderer";
 import { warmHomepageInProcess } from "../cache/warm";
 import { DEFAULT_ROBOTS_TXT } from "../public/sitemap";
@@ -2088,12 +2090,20 @@ async function updateLaunchReadinessStep(
   // would be rejected. Pure D1 write — runs in dry-run too, because the dry-
   // run gate only suppresses outbound Cloudflare/KV mutation, not the local
   // domain writes every other provisioning step also performs in dry-run.
+  const domains = await ctx.db.prepare(
+    "SELECT hostname FROM domains WHERE site_id = ? ORDER BY is_primary DESC, id ASC",
+  ).bind(ctx.site_id).all<{ hostname: string }>();
   await ctx.db
     .prepare(
       "UPDATE sites SET status = 'active', updated_at = unixepoch() WHERE id = ?",
     )
     .bind(ctx.site_id)
     .run();
+  await onPublicChange(ctx.env, undefined, {
+    siteId: ctx.site_id,
+    tags: [siteTag(ctx.site_id), ...domains.results.map(({ hostname }) => hostTag(hostname))],
+    reason: "site.provision",
+  });
   const output = JSON.stringify({
     step: "update_launch_readiness",
     kind: "launch_readiness_rollup",

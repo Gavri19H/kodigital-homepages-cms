@@ -14,6 +14,9 @@
 
 import type { Context } from "hono";
 import type { Env } from "../env";
+import { onPublicChange } from "../edge/public-change";
+import { siteTag } from "../edge/tags";
+import { cacheExecutionCtx } from "../public/html-pipeline";
 import { getImageModel } from "../ai/models";
 import { generateLogoImage } from "../ai/generators/image";
 // LeadGen v2.5 10 §10.2: logo_media_id is a BRANDING key — this write path
@@ -129,6 +132,9 @@ export async function handleAdminAiLogo(c: Context<{ Bindings: Env }>) {
     } catch (err) {
       console.error("leadgen branding activation bump failed (non-fatal):", err);
     }
+    await onPublicChange(c.env, cacheExecutionCtx(c) as ExecutionContext | undefined, {
+      siteId: site_id, tags: [siteTag(site_id)], reason: "ai.logo",
+    });
 
     return c.json({
       ok: true,
