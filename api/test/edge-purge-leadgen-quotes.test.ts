@@ -351,14 +351,27 @@ describe("site activations", () => {
     expectPurges({ [siteA]: [quote.publicId] });
   });
 
-  it("a section save using variant-publish invalidation purges its quote on enabled sites", async () => {
+  it("a section save without a request context purges its quote on enabled sites", async () => {
+    // The shared batch shim calls run(), which drops RETURNING rows in
+    // node:sqlite. D1 returns the IDs actually bumped in this transaction.
+    const prepare = env.DB.prepare.bind(env.DB);
+    vi.spyOn(env.DB, "prepare").mockImplementation(sql => {
+      const stmt = prepare(sql);
+      if (sql.includes("RETURNING id")) {
+        stmt.run = async <T>() => {
+          const result = await stmt.all<T>();
+          return { ...result, meta: { ...result.meta, changes: result.results.length } };
+        };
+      }
+      return stmt;
+    });
     const sectionId = seedSection("Insurance");
     db.prepare("INSERT INTO leadgen_funnel_variant_sections (variant_id, section_id, position) VALUES (?, ?, 0)")
       .run(quote.variantId, sectionId);
     const content = { components: [{ type: "TwoButtonYesNo", question_id: "q1",
       question_key: "insured_q", internal_field: "currently_insured", answer_type: "boolean" }] };
     await expectStatus(await write("PATCH", "sections/" + sectionId, { content_json: content }, null), 200);
-    await vi.waitFor(() => expectSharedQuote(null));
+    expectSharedQuote(null);
   });
 
   it("a frame-template apply through the legacy version-bump caller queues only sites serving the quote", async () => {
