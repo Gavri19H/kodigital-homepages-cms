@@ -17,6 +17,7 @@ import { selectLeadgenEntry, type LeadgenSelection } from "./leadgen-select";
 import { buildListicleGatewayOutput, injectListicleGateway } from "./listicle-gateway";
 import { pickListicle, type ListiclePick } from "./listicle-select";
 import { perfstageRequest } from "./perfstage";
+import { PublicPage } from "./public-page";
 import { parseSiteSnapshot } from "./snapshot";
 import { serveStatic } from "./static-cache";
 import { listicleTag, siteQuoteTag } from "./tags";
@@ -79,6 +80,7 @@ const innerHeaderExclusions = [
   "Cookie", "If-None-Match", "Forwarded", "X-Forwarded-Host", "X-Forwarded-Proto", "X-Forwarded-For",
   "X-Forwarded-Port", "X-Forwarded-Scheme", "X-Host", "X-Original-Host", "X-Original-URL", "X-Rewrite-URL",
   "X-HTTP-Method", "X-HTTP-Method-Override", "X-Method-Override", "Cloudflare-Workers-Version-Key",
+  "X-Perfstage-Direct",
 ];
 
 function cachedRoute(path: string): CachedRoute | null {
@@ -111,25 +113,45 @@ interface GatewayTiming {
   inner: string;
 }
 
+interface DirectPageContext {
+  env: Env;
+  ctx: ExecutionContext;
+}
+
+function fetchDirectPage({ env, ctx }: DirectPageContext, props: PublicPageProps, request: Request): Promise<Response> {
+  // Supply the same entrypoint props locally. Native context methods and getters need their original receiver.
+  const pageCtx: ExecutionContext<PublicPageProps> = {
+    props,
+    waitUntil: promise => ctx.waitUntil(promise),
+    passThroughOnException: () => ctx.passThroughOnException(),
+    get exports() { return ctx.exports; },
+    get tracing() { return ctx.tracing; },
+    get access() { return ctx.access; },
+    get cache() { return ctx.cache; },
+  };
+  return PublicPage.prototype.fetch.call({ env, ctx: pageCtx }, request);
+}
+
 async function fetchPublicPage(
-  pages: PageExports, props: PublicPageProps, request: Request, timing?: GatewayTiming,
+  pages: PageExports, props: PublicPageProps, request: Request, timing?: GatewayTiming, direct?: DirectPageContext,
 ): Promise<Response> {
-  if (!timing) return pages.PublicPage({ props }).fetch(request);
+  const fetchPage = () => direct ? fetchDirectPage(direct, props, request) : pages.PublicPage({ props }).fetch(request);
+  if (!timing) return fetchPage();
   const started = timingNow();
   let response: Response | undefined;
   try {
-    response = await pages.PublicPage({ props }).fetch(request);
+    response = await fetchPage();
     return response;
   } finally {
     try {
       const ms = Math.round(elapsedMs(started));
-      const hit = response?.headers.get("cf-cache-status")?.toUpperCase() === "HIT";
+      const hit = !direct && response?.headers.get("cf-cache-status")?.toUpperCase() === "HIT";
       const build = hit ? null : response?.headers.get("Server-Timing");
       const fresh = build ? ", " + build : "";
       if (props.variantKey === "snap") {
         timing.snap = `gw-snap;dur=${ms};desc="${hit ? "HIT" : "MISS"}"${fresh}`;
       } else {
-        timing.inner = `gw-inner;dur=${ms}${fresh}`;
+        timing.inner = `${direct ? "gw-direct" : "gw-inner"};dur=${ms}${fresh}`;
       }
     } catch {
       // Diagnostics must preserve the original fetch result or rejection.
@@ -185,7 +207,7 @@ async function readHostSnapshot(url: URL, pages: PageExports, timing?: GatewayTi
 
 async function serveCachedPage(
   request: Request, url: URL, route: CachedRoute, pages: PageExports, cf: GatewayRequestInput["cf"],
-  { snapshot, version }: VersionedSnapshot, timing?: GatewayTiming,
+  { snapshot, version }: VersionedSnapshot, timing?: GatewayTiming, direct?: DirectPageContext,
 ): Promise<Response | null> {
   const session = readCookie(request.headers.get("Cookie"), "ko_sid");
   const sidWasAbsent = session === "";
@@ -232,7 +254,7 @@ async function serveCachedPage(
   // Fetch the original representation and its validator before browser compression.
   if (variantKey === "human" || variantKey === "bot") innerHeaders.set("Accept-Encoding", "identity");
   const inner = await fetchPublicPage(pages, { siteKey: snapshot.siteId, variantKey },
-    new Request(url.origin + url.pathname, { method: "GET", headers: innerHeaders, redirect: "manual" }), timing);
+    new Request(url.origin + url.pathname, { method: "GET", headers: innerHeaders, redirect: "manual" }), timing, direct);
   // A stale assignment can send the renderer down its live, cookie-setting path.
   // Retry with the visitor's actual cookies and query in that case.
   if (inner.status >= 500 || inner.headers.has("Set-Cookie")) return null;
@@ -273,7 +295,7 @@ async function serveCachedPage(
   const headers = new Headers(response.headers);
   for (const name of cmsHeaderNames(headers)) headers.delete(name);
   if (publicHtml && etag !== null) headers.set("ETag", etag);
-  headers.set("x-edge-cache", inner.headers.get("cf-cache-status") ?? "none");
+  headers.set("x-edge-cache", direct ? "DIRECT" : inner.headers.get("cf-cache-status") ?? "none");
   for (const cookie of cookies) headers.append("Set-Cookie", cookie);
   if (inner.status === 200 && (listicle || leadgen)) {
     // PublicPage maps the degraded quote renderer's no-store to the private edge policy.
@@ -282,6 +304,7 @@ async function serveCachedPage(
     // The listicle transform streams a longer body. HEAD also skips the transform.
     if (listicle || !sendBody) headers.delete("Content-Length");
   }
+  if (direct) headers.set("Cache-Control", EDGE_CACHE_CONTROL.private);
   if (!sendBody) void response.body?.cancel().catch(() => {});
   return new Response(sendBody ? response.body : null, {
     headers, status: notModified ? 304 : inner.status, statusText: notModified ? "Not Modified" : inner.statusText,
@@ -339,7 +362,9 @@ async function dispatchGatewayRequest(
         if (route) timing = { snap: 'gw-snap;dur=0;desc="MISS"', inner: "gw-inner;dur=0" };
         const hostSnapshot = await readHostSnapshot(url, pages, timing);
         if (hostSnapshot && route) {
-          response = await serveCachedPage(request, url, route, pages, readCfSignals(request), hostSnapshot, timing);
+          const direct = ctx && env.PERFSTAGE === "true" && request.headers.get("x-perfstage-direct") === "1"
+            ? { env, ctx } : undefined;
+          response = await serveCachedPage(request, url, route, pages, readCfSignals(request), hostSnapshot, timing, direct);
         } else if (hostSnapshot && attempt) {
           const { snapshot, version } = hostSnapshot;
           const inner = copyVisitorRequest(request);
