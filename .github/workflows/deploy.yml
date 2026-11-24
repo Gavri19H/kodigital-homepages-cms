@@ -206,9 +206,13 @@ jobs:
       #   - 0039_leadgen_conversion_dedupe.sql
       #   - 0040_leadgen_runtime_context.sql
       #   - 0041_leadgen_frame_theme.sql
+      #   - 0042_conversions_authority.sql
       #   - 0042_leadgen_pages.sql
+      #   - 0043_conversion_provider_connections.sql
       #   - 0043_leadgen_routing_rules.sql
+      #   - 0044_conversion_provider_execution_releases.sql
       #   - 0044_leadgen_redirect_pct.sql
+      #   - 0045_conversion_authority_subject_binding.sql
       #   - 0045_leadgen_persona_quota.sql
       #   - 0046_leadgen_rework_m1_variants.sql
       #   - 0047_leadgen_rework_m2_shared_pages.sql
@@ -229,10 +233,14 @@ jobs:
       #   - 0062_leadgen_auction_waterfalls.sql
       #   - 0063_leadgen_auction_tier_rules.sql
       #   - 0064_leadgen_meta_pixel.sql
+      #   - 0065_conversion_provider_live.sql
+      #   - 0066_leadgen_redirect_after_shown.sql
       #   - 0067_articles_vertical.sql
+      #   - 0068_leadgen_offer_send_only.sql
       #   - 0069_leadgen_answer_map_send_as.sql
       #   - 0070_verticals_audience.sql
       #   - 0071_articles_seo_title_uncut.sql
+      #   - 0072_sites_write_bookmark.sql
       - name: Apply D1 migrations to production (kodigital-homepages-cms-db)
         run: npx wrangler d1 migrations apply kodigital-homepages-cms-db --env production --remote
 
