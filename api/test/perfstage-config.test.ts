@@ -1,7 +1,7 @@
 import { readFileSync } from "node:fs";
 import { describe, expect, it } from "vitest";
 import { checkInfraContract } from "../scripts/verify/infra-contract";
-import { checkWorkerConfig } from "../scripts/verify/worker-config";
+import { checkWorkerConfig, tableBodies } from "../scripts/verify/worker-config";
 
 const toml = readFileSync(new URL("../wrangler.toml", import.meta.url), "utf8");
 const perfstageD1 = "a3fe7c6b-1bff-4b07-8a7c-a783401ab4ce";
@@ -20,6 +20,21 @@ describe("perfstage deployment contract", () => {
   it("passes both verifiers for the real Worker configuration", () => {
     expect(checkWorkerConfig(toml)).toEqual([]);
     expect(checkInfraContract(toml)).toEqual([]);
+  });
+
+  it.each([
+    ["SITE_PROVISIONING_DRY_RUN", "true", "false"],
+    ["SITE_PROVISIONING_ALLOW_ROUTE_MUTATION", "false", "true"],
+  ])("rejects an unsafe perfstage value for %s", (key, safe, unsafe) => {
+    const block = "[env.perfstage.vars]";
+    const [vars = ""] = tableBodies(toml, block);
+    const changed = toml.replace(vars, vars.replace(`${key} = "${safe}"`, `${key} = "${unsafe}"`));
+    expect(changed).not.toBe(toml);
+    expect(checkWorkerConfig(changed)).toContainEqual({
+      block,
+      key,
+      reason: `expected "${safe}", got "${unsafe}"`,
+    });
   });
 
   it("rejects the production D1 ID in the perfstage DB binding", () => {

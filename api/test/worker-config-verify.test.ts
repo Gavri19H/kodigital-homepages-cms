@@ -91,6 +91,8 @@ ADMIN_ALLOW_IP = "46.117.76.207"
 ADMIN_HOST = "kodigital-homepages-cms-worker-perfstage.haikov1989.workers.dev"
 ADMIN_BASE_URL = "https://kodigital-homepages-cms-worker-perfstage.haikov1989.workers.dev"
 ADMIN_BASE_PATH = "/admin"
+SITE_PROVISIONING_DRY_RUN = "true"
+SITE_PROVISIONING_ALLOW_ROUTE_MUTATION = "false"
 
 [[env.perfstage.d1_databases]]
 binding = "DB"

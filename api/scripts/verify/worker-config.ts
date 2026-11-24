@@ -14,8 +14,8 @@
  *
  * Plus the safety flags that gate site provisioning:
  *
- *   SITE_PROVISIONING_DRY_RUN              present (every env)
- *   SITE_PROVISIONING_ALLOW_ROUTE_MUTATION present (every env)
+ *   SITE_PROVISIONING_DRY_RUN              present (every env), "true" in perfstage
+ *   SITE_PROVISIONING_ALLOW_ROUTE_MUTATION present (every env), "false" in perfstage
  *
  * And cache + model knobs the Worker depends on:
  *
@@ -85,6 +85,8 @@ const BLOCKS: readonly VarsBlock[] = [
       { key: "ADMIN_BASE_PATH", expected: "/admin" },
       { key: "DEV_BYPASS_AUTH", expected: "true" },
       { key: "ADMIN_ALLOW_IP", expected: "46.117.76.207" },
+      { key: "SITE_PROVISIONING_DRY_RUN", expected: "true" },
+      { key: "SITE_PROVISIONING_ALLOW_ROUTE_MUTATION", expected: "false" },
     ],
   },
 ];
