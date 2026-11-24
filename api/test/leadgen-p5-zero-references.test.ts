@@ -163,7 +163,8 @@ describe("LeadGen §10 zero-reference gate — removed catalog types/mechanisms 
     const spec: SymbolSpec = {
       name: "is_control",
       pattern: /\bis_control\b/,
-      excludePaths: [REPORT_TOOL, "listicles/", "listicle/"],
+      // The listicle edge selector reads the listicle version's is_control column.
+      excludePaths: [REPORT_TOOL, "listicles/", "listicle/", "edge/listicle-"],
     };
     const hits = liveReferences(spec);
     expect(hits, `LIVE leadgen references to the M1-dropped 'is_control':\n${hits.join("\n")}`).toEqual([]);

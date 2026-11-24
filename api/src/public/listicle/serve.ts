@@ -17,6 +17,7 @@ import type { Context } from "hono";
 import type { Env } from "../../env";
 import { parseNumber } from "../../env";
 import type { PublicSiteVariables } from "../middleware";
+import { cacheExecutionCtx } from "../html-pipeline";
 import { listicleKey, listicleCandidateKey } from "../../cache/cache-keys";
 import { publicHtmlCacheHeaders } from "../../cache/cache-control";
 import {
@@ -372,14 +373,36 @@ export async function renderListicleShellForVersion(
 function listicleEtag(
   siteId: string,
   slug: string,
-  landerV: string,
-  contentVersion: number,
+  version: ListicleVersionRow,
 ): Promise<string> {
   return computeEtag({
     site_id: siteId,
-    path: `/${slug}:${landerV}`,
-    content_version: contentVersion,
+    path: `/${slug}:${version.public_id}`,
+    content_version: version.content_version,
   });
+}
+
+async function serveListicleShell(
+  c: PublicContext,
+  article: ListicleArticleRow,
+  version: ListicleVersionRow,
+  etag: string,
+): Promise<Response> {
+  const site = c.get("siteContext");
+  const key = listicleKey(site.siteId, article.slug, version.public_id, version.content_version);
+  const waitUntil = cacheExecutionCtx(c);
+  const cached = await getCachedHtml(c.env, key, waitUntil);
+  if (cached !== null) {
+    return new Response(cached.body, {
+      status: 200,
+      headers: publicHtmlCacheHeaders({ etag: cached.etag || etag }),
+    });
+  }
+
+  const { html } = await renderListicleShellForVersion(c.env.DB, site, article, version);
+  const ttl = parseNumber(c.env.HTML_CACHE_TTL_SECONDS, DEFAULT_HTML_CACHE_TTL_SECONDS);
+  await putCachedHtml(c.env, key, html, { expirationTtl: ttl, etag }, waitUntil);
+  return new Response(html, { status: 200, headers: publicHtmlCacheHeaders({ etag }) });
 }
 
 // Returns null when this slug is NOT a published listicle → the router's
@@ -394,6 +417,18 @@ export async function tryServePublishedListicle(c: PublicContext): Promise<Respo
 
   const versions = await loadActiveVersions(c.env.DB, article.id);
   if (versions.length === 0) return null; // unservable → normal fallthrough
+
+  // The gateway handles visitor cookies, context injection and conditional requests
+  // for versions that still belong to this published listicle.
+  const variant = c.req.header("x-cms-variant");
+  if (variant?.startsWith("lst:")) {
+    const versionPublicId = variant.slice(4);
+    const selected = versions.find((version) => version.public_id === versionPublicId);
+    if (selected !== undefined) {
+      const etag = await listicleEtag(siteContext.siteId, article.slug, selected);
+      return serveListicleShell(c, article, selected, etag);
+    }
+  }
 
   // §15.2: sid → sticky pick over the running experiment's allocations.
   const cookieHeader = c.req.header("Cookie") ?? null;
@@ -411,13 +446,7 @@ export async function tryServePublishedListicle(c: PublicContext): Promise<Respo
   }
   if (version === null) return null;
 
-  const key = listicleKey(siteContext.siteId, article.slug, version.public_id, version.content_version);
-  const etag = await listicleEtag(
-    siteContext.siteId,
-    article.slug,
-    version.public_id,
-    version.content_version,
-  );
+  const etag = await listicleEtag(siteContext.siteId, article.slug, version);
 
   // ---- Phase 7: per-request context (never part of the cache key) --------
   // ko_ctx acquisition cookie (§9.4/§16): merge landing params over the
@@ -463,46 +492,18 @@ export async function tryServePublishedListicle(c: PublicContext): Promise<Respo
           split: version.traffic_allocation,
         }
       : null;
-  const inject = (response: Response): Response =>
-    injectListicleContext(response, {
-      sid,
-      ctx: buildRuleContext({
-        geo: geoFromCf(cf),
-        ua: { device: uaDetails.device, os: uaDetails.os, browser: uaDetails.browser },
-        hourSiteTz: hourInTimezone(siteBehavior.timezone, new Date()),
-        koCtx,
-      }),
-      exp,
-    });
-
-  const cached = await getCachedHtml(c.env, key);
-  if (cached !== null) {
-    // The KV entry stays byte-identical; the context script is injected on
-    // the RESPONSE stream only (§15.4 post-cache HTMLRewriter).
-    return inject(
-      new Response(cached.body, {
-        status: 200,
-        headers: withCookies(publicHtmlCacheHeaders({ etag: cached.etag || etag })),
-      }),
-    );
-  }
-
-  const { html } = await renderListicleShellForVersion(
-    c.env.DB,
-    { siteId: siteContext.siteId, hostname: siteContext.hostname },
-    article,
-    version,
-  );
-  const ttl = parseNumber(c.env.HTML_CACHE_TTL_SECONDS, DEFAULT_HTML_CACHE_TTL_SECONDS);
-  // Write-through stores the PRISTINE shell (visitor-invariant); the live
-  // response below is the injected variant of the same bytes.
-  await putCachedHtml(c.env, key, html, { expirationTtl: ttl, etag });
-  return inject(
-    new Response(html, {
-      status: 200,
-      headers: withCookies(publicHtmlCacheHeaders({ etag })),
+  const shell = await serveListicleShell(c, article, version, etag);
+  withCookies(shell.headers);
+  return injectListicleContext(shell, {
+    sid,
+    ctx: buildRuleContext({
+      geo: geoFromCf(cf),
+      ua: { device: uaDetails.device, os: uaDetails.os, browser: uaDetails.browser },
+      hourSiteTz: hourInTimezone(siteBehavior.timezone, new Date()),
+      koCtx,
     }),
-  );
+    exp,
+  });
 }
 
 // site_settings behavior keys the Phase-7 context needs per request:
@@ -593,7 +594,8 @@ export async function serveListicleCandidate(c: PublicContext): Promise<Response
   if (matchesIfNoneMatch(ifNoneMatch, etag)) {
     return new Response(null, { status: 304, headers: publicHtmlCacheHeaders({ etag }) });
   }
-  const cached = await getCachedHtml(c.env, key);
+  const waitUntil = cacheExecutionCtx(c);
+  const cached = await getCachedHtml(c.env, key, waitUntil);
   if (cached !== null) {
     return new Response(cached.body, {
       status: 200,
@@ -633,6 +635,6 @@ export async function serveListicleCandidate(c: PublicContext): Promise<Response
   );
 
   const ttl = parseNumber(c.env.HTML_CACHE_TTL_SECONDS, DEFAULT_HTML_CACHE_TTL_SECONDS);
-  await putCachedHtml(c.env, key, fragment, { expirationTtl: ttl, etag });
+  await putCachedHtml(c.env, key, fragment, { expirationTtl: ttl, etag }, waitUntil);
   return new Response(fragment, { status: 200, headers: publicHtmlCacheHeaders({ etag }) });
 }
