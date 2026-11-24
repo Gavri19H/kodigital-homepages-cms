@@ -88,6 +88,9 @@ action, stage_host, worker, tmp, previous, new, minutes = sys.argv[1:]
 batch = Path(tmp, "urls")
 probe = ["bash", "scripts/perf/edge-probe.sh", str(batch), "1"]
 browser = "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/126.0.0.0 Safari/537.36"
+poll_seconds = float(os.environ.get("ROLLOUT_POLL_SECONDS", 2))
+propagation_timeout = float(os.environ.get("ROLLOUT_PROPAGATION_TIMEOUT_SECONDS", 120))
+tick_args = ["--max-time", "10", "-X", "POST", "-o", os.devnull]
 
 def endpoint(url, tenant):
     parts = urlsplit(url)
@@ -95,19 +98,76 @@ def endpoint(url, tenant):
         raise ValueError(f"Invalid URL for tenant {tenant}: {url!r}")
     return parts._replace(scheme="https", netloc=stage_host).geturl() if stage_host else url
 
-def pinned_headers(tenant, version):
-    headers = ["-H", f'Cloudflare-Workers-Version-Overrides: {worker}="{version}"']
+def request_headers(tenant, pin):
+    headers = []
+    if pin is not None:
+        headers.extend(["-H", f'Cloudflare-Workers-Version-Overrides: {worker}="{pin}"'])
     if stage_host:
         headers.extend(["-H", f"x-perfstage-host: {tenant}"])
     return headers
 
+def worker_request(tenant, url, pin, args, timeout=None):
+    output = subprocess.check_output(["curl", "-qsS", *args, *request_headers(tenant, pin),
+                                      "-w", "\n%{http_code}\t%header{x-worker-version}\t%header{x-edge-cache}\t%header{cf-ray}",
+                                      "--", url], timeout=timeout)
+    body, fields = output.rsplit(b"\n", 1)
+    status, served, cache, ray = fields.decode("ascii").split("\t")
+    if not re.fullmatch("[1-5][0-9]{2}", status):
+        raise ValueError(f"{tenant}: {url} returned invalid status {status!r}")
+    colo = ray.strip().rsplit("-", 1)[-1] if "-" in ray else ""
+    return int(status), served.strip(), cache.strip().upper(), colo, body
+
+def checked_request(tenant, url, version, args):
+    for attempt in range(1, 6):
+        status, served, cache, colo, body = worker_request(tenant, url, version, args)
+        # The previous Worker can predate the header. Cloudflare can also return a 5xx
+        # before the new Worker sends headers, so let that status reach the check.
+        if served == version or (not served and (version == previous or status >= 500)):
+            return status, cache, colo, body
+        if attempt < 5:
+            time.sleep(poll_seconds)
+    sys.exit(f"{tenant}: {url} expected Worker {version} after 5 tries, "
+             f"got x-worker-version={served or '<missing>'} (HTTP {status})")
+
+def propagate(groups, pin):
+    started = time.monotonic()
+    deadline = started + propagation_timeout
+
+    def poll(tenant):
+        url = endpoint(f"https://{tenant}/__edge/tick", tenant)
+        streak = 0
+        last = "no response"
+        while (remaining := deadline - time.monotonic()) > 0:
+            try:
+                status, served, *_ = worker_request(tenant, url, pin, tick_args, timeout=remaining)
+                last = f"HTTP {status}, x-worker-version={served or '<missing>'}"
+                if status >= 500 and (served == new or (pin == new and not served)):
+                    sys.exit(f"{tenant}: new-version tick returned {status}, expected 202")
+                streak = streak + 1 if status == 202 and served == new else 0
+            except subprocess.CalledProcessError as error:
+                last = f"curl exited {error.returncode}"
+                streak = 0
+            except subprocess.TimeoutExpired:
+                last = "tick timed out"
+                break
+            now = time.monotonic()
+            if now > deadline:
+                break
+            if streak == 3:
+                print(f"PROPAGATED {tenant} {int(now - started)}", flush=True)
+                return
+            time.sleep(min(poll_seconds, deadline - now))
+        sys.exit(f"{tenant}: propagation timed out after {propagation_timeout:g}s waiting for "
+                 f"3 consecutive 202 responses from {new} (last: {last})")
+
+    with ThreadPoolExecutor(max_workers=len(groups)) as pool:
+        list(pool.map(poll, groups))
+
 def tick_hosts(groups):
     for tenant in groups:
         tick_url = endpoint(f"https://{tenant}/__edge/tick", tenant)
-        status = subprocess.check_output(["curl", "-qsS", "--max-time", "10", "-X", "POST",
-                                          *pinned_headers(tenant, new), "-o", os.devnull,
-                                          "-w", "%{http_code}", "--", tick_url], text=True)
-        if status != "202":
+        status, *_ = checked_request(tenant, tick_url, new, tick_args)
+        if status != 202:
             sys.exit(f"{tenant}: new-version tick returned {status}, expected 202")
 
 class PageTitle(HTMLParser):
@@ -130,28 +190,37 @@ class PageTitle(HTMLParser):
             self.in_title = False
 
 def sample(tenant, url, version, sid):
-    output = subprocess.check_output(["curl", "-qsS", "--compressed", "--max-time", "30", "--globoff",
-                                      "-A", browser, "-b", f"ko_sid={sid}", *pinned_headers(tenant, version),
-                                      "-w", "\n%{http_code}\t%header{x-edge-cache}", "--", url])
-    body, fields = output.rsplit(b"\n", 1)
-    status, cache = fields.decode("ascii").split("\t", 1)
-    if not re.fullmatch("[1-5][0-9]{2}", status):
-        raise ValueError(f"{tenant}: {url} returned invalid status {status!r}")
+    status, cache, colo, body = checked_request(tenant, url, version, [
+        "--compressed", "--max-time", "30", "--globoff", "-A", browser, "-b", f"ko_sid={sid}",
+    ])
     parser = PageTitle()
     parser.feed(body.decode("utf-8", errors="replace"))
     parser.close()
-    return (int(status), parser.title), cache.strip().upper()
+    return (status, parser.title), cache, colo
 
 def check_url(tenant, url, sid):
-    old, _ = sample(tenant, url, previous, sid)
-    first, _ = sample(tenant, url, new, sid)
-    second, cache = sample(tenant, url, new, sid)
-    matches = old == first == second
-    if not matches:
-        print(f"{tenant} {url}: status/title mismatch: old={old!r}, new={first!r}, repeat={second!r}", file=sys.stderr)
-    if cache != "HIT":
-        print(f"{tenant} {url}: second request returned x-edge-cache={cache!r}", file=sys.stderr)
-    return (first[0] >= 500) + (second[0] >= 500), matches, cache == "HIT"
+    old, _, _ = sample(tenant, url, previous, sid)
+    first, _, first_colo = sample(tenant, url, new, sid)
+    colos = [first_colo]
+    errors = int(first[0] >= 500)
+    matches = True
+    # Check the second request, then allow three more if the location keeps changing.
+    for _ in range(4):
+        repeat, cache, colo = sample(tenant, url, new, sid)
+        errors += repeat[0] >= 500
+        if matches and (old != first or old != repeat):
+            matches = False
+            print(f"{tenant} {url}: status/title mismatch: old={old!r}, new={first!r}, repeat={repeat!r}", file=sys.stderr)
+        if colo and colo == colos[-1]:
+            hit = cache == "HIT"
+            if not hit:
+                print(f"{tenant} {url}: second request returned x-edge-cache={cache!r} "
+                      f"(colo {colos[-1]}→{colo})", file=sys.stderr)
+            return errors, matches, hit
+        colos.append(colo)
+    observed = ",".join(colo or "<missing>" for colo in colos)
+    print(f"{tenant} {url}: no same-colo pair (colos {observed})", file=sys.stderr)
+    return errors, matches, None
 
 def check_split(groups):
     # Share one visitor identity across both versions for sticky experiments.
@@ -171,15 +240,16 @@ def check_split(groups):
                     tick_hosts(groups)
                     next_tick += 60
             errors = 0
-            all_hit = True
+            same_colo_hits = []
             for key, check in checks.items():
                 server_errors, matches, hit = check.result()
                 errors += server_errors
-                all_hit &= hit
+                if hit is not None:
+                    same_colo_hits.append(hit)
                 mismatches[key] = 0 if matches else mismatches[key] + 1
             print(f"Minute {minute}: new-version 5xx={errors}, parity mismatches={sum(n > 0 for n in mismatches.values())}", flush=True)
             error_minutes = error_minutes + 1 if errors else 0
-            miss_minutes = 0 if all_hit else miss_minutes + 1
+            miss_minutes = 0 if same_colo_hits and all(same_colo_hits) else miss_minutes + 1
             if error_minutes >= 2:
                 sys.exit("Two consecutive checks with new-version 5xx responses")
             for (tenant, url), streak in mismatches.items():
@@ -224,10 +294,12 @@ for line in Path("scripts/perf/urls.txt").read_text().splitlines():
 if not groups:
     sys.exit("Empty probe URL list")
 
-if action == "check":
+if action == "propagate":
+    propagate(groups, new)
+elif action == "propagate-unpinned":
+    propagate(groups, None)
+elif action == "check":
     check_split(groups)
-elif action == "tick":
-    tick_hosts(groups)
 elif action == "warm":
     warm_ok = True
     for tenant, urls in groups.items():
@@ -260,12 +332,15 @@ printf 'NEW_VERSION=%s\n' "$new"
 
 next_stage split
 deploy_versions "$new@10%" "$previous@90%"
+next_stage propagate
+probe_tenants propagate
 next_stage check
 probe_tenants check
 
 next_stage promote
 deploy_versions "$new@100%"
-probe_tenants tick
+next_stage propagate
+probe_tenants propagate-unpinned
 next_stage warm
 probe_tenants warm || stage_result=fail
 if [[ $mode == rehearsal ]]; then

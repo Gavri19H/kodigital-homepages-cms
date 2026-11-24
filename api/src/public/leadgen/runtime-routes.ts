@@ -24,8 +24,11 @@
 import { Hono } from "hono";
 import type { Context, ExecutionContext as HonoExecutionContext } from "hono";
 import type { Env } from "../../env";
+import { isAdminHost } from "../../site/site-context";
 import type { WaitUntilContext } from "../../wait-until-context";
+import { cacheExecutionCtx } from "../html-pipeline";
 import { publicSiteContextMiddleware, type PublicSiteVariables } from "../middleware";
+import { loadPreparedFunnelBundle } from "./bundle";
 import { serveFunnelShell, serveLeadgenConfig, leadgenNoStoreHeaders } from "./serve";
 import { serveLeadgenAuction } from "./serve-auction";
 import { runtimeRequestGuard, type GuardOutcome } from "./runtime-guard";
@@ -79,7 +82,16 @@ type PublicContext = Context<{ Bindings: Env; Variables: PublicSiteVariables }>;
 
 const leadgenPublicRouter = new Hono<{ Bindings: Env; Variables: PublicSiteVariables }>();
 
-// host→site for every /lg* route (admin host → safe 404 upstream).
+// Only the gateway can supply these headers, after validating the active host
+// snapshot. Otherwise resolve the tenant exactly as for every other /lg route.
+leadgenPublicRouter.get("/lg/attempt", (c, next) => {
+  const siteId = c.req.header("x-cms-site-id");
+  if (siteId && c.req.header("x-cms-snap-built-at") && !isAdminHost(new URL(c.req.url).hostname, c.env)) {
+    return serveLeadgenAttemptV2(c, siteId);
+  }
+  return publicSiteContextMiddleware(c, next);
+}, c => serveLeadgenAttemptV2(c, c.get("siteContext").siteId));
+
 leadgenPublicRouter.use("/lg", publicSiteContextMiddleware);
 leadgenPublicRouter.use("/lg/*", publicSiteContextMiddleware);
 
@@ -143,10 +155,12 @@ function resolveAttemptLandingUrl(c: PublicContext): string {
 // — the engine then posts exactly the bound value to /lg/auction, so the v2
 // session binding verifies (200) instead of rejecting a client-minted id the
 // server never bound (422).
-async function serveLeadgenAttemptV2(c: PublicContext): Promise<Response> {
-  const siteContext = c.get("siteContext");
+async function serveLeadgenAttemptV2(c: PublicContext, siteId: string): Promise<Response> {
   const variantId = c.req.query("funnel_variant_id") ?? c.req.query("vid") ?? "";
-  const resolved = await resolveActivatedFunnelByVariant(c.env, siteContext.siteId, variantId, { includeRoutingRules: true });
+  const prepared = await loadPreparedFunnelBundle(c.env, c.req.raw.headers, siteId, variantId, cacheExecutionCtx(c));
+  const resolved = prepared === undefined
+    ? await resolveActivatedFunnelByVariant(c.env, siteId, variantId, { includeRoutingRules: true })
+    : prepared?.resolved ?? null;
   if (resolved === null) {
     return new Response(JSON.stringify({ error: "Not Found" }), {
       status: 404,
@@ -168,7 +182,7 @@ async function serveLeadgenAttemptV2(c: PublicContext): Promise<Response> {
     session_id: sessionId,
     landing_url: landingUrl,
     entry_ctx: entryCtx,
-  });
+  }, prepared?.bindings);
 
   // LeadGen Rework §4.3-4/§4.3-9/§4.3-10: if THIS served variant's FUNNEL was
   // pre-selected by an ENTRY-plane quote rule, record the server-authoritative
@@ -1089,7 +1103,6 @@ async function serveLeadgenPixel(c: PublicContext): Promise<Response> {
 // `lc/:offer_id` + `pb/:provider` + `px/:token` are never swallowed by the slug
 // catch. /lg/auction (P10 §19) + /lg/track (P11 §22) + /lg/pb (P13 §25) are POST
 // + no-store; /lg/lc (P11 §19.16) + /lg/px (P13 §27) are GET.
-leadgenPublicRouter.get("/lg/attempt", (c) => serveLeadgenAttemptV2(c));
 // GET /lg/runtime/:version.js — the committed hydration bundle (03 §3.2).
 // Immutable-cacheable ONLY at the CURRENT template version (the shell embeds
 // /lg/runtime/{LEADGEN_TEMPLATE_VERSION}.js, so a version bump changes the URL
@@ -1130,8 +1143,17 @@ leadgenPublicRouter.get("/lg/lc/:offer_id", (c) => serveLeadgenClick(c));
 leadgenPublicRouter.post("/lg/pb/:provider", (c) => serveLeadgenPostback(c));
 leadgenPublicRouter.get("/lg/pb/:provider", (c) => serveLeadgenPostback(c));
 leadgenPublicRouter.get("/lg/px/:token", (c) => serveLeadgenPixel(c));
-leadgenPublicRouter.get("/lg", (c) => serveFunnelShell(c, null));
-leadgenPublicRouter.get("/lg/:quote_slug", (c) => serveFunnelShell(c, c.req.param("quote_slug")));
+async function serveQuoteShell(c: PublicContext, quoteSlug: string | null): Promise<Response> {
+  const variant = c.req.header("x-cms-variant");
+  const prepared = variant?.startsWith("lg:")
+    ? await loadPreparedFunnelBundle(c.env, c.req.raw.headers, c.get("siteContext").siteId, variant.slice(3),
+      cacheExecutionCtx(c), quoteSlug)
+    : undefined;
+  return serveFunnelShell(c, quoteSlug, prepared);
+}
+
+leadgenPublicRouter.get("/lg", (c) => serveQuoteShell(c, null));
+leadgenPublicRouter.get("/lg/:quote_slug", (c) => serveQuoteShell(c, c.req.param("quote_slug")));
 
 export { leadgenPublicRouter };
 export default leadgenPublicRouter;

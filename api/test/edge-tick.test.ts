@@ -45,11 +45,13 @@ describe.skipIf(!hasSqlite)("gateway fingerprint tick", () => {
   }
 
   it("returns only 202 ok, runs in waitUntil, and skips repeat POSTs until 50 seconds", async () => {
+    env.CF_VERSION_METADATA = { id: "tick-worker-version" };
     const first = call("POST", env.ADMIN_HOST);
     const response = await first.response;
     expect(response.status).toBe(202);
     expect(await response.text()).toBe("ok");
     expect(response.headers.get("Cache-Control")).toBe("private, no-store");
+    expect(response.headers.get("x-worker-version")).toBe("tick-worker-version");
     expect(first.work).toHaveLength(1);
     await Promise.all(first.work);
     expect(cache.store.get(key)).toBe(String(now));
@@ -138,6 +140,7 @@ describe.skipIf(!hasSqlite)("gateway fingerprint tick", () => {
     expect(response.status).toBe(405);
     expect(response.headers.get("Allow")).toBe("POST");
     expect(response.headers.get("Cache-Control")).toBe("private, no-store");
+    expect(response.headers.get("x-worker-version")).toBe("unknown");
     expect(result.work).toHaveLength(0);
     expect(cache.kv.get).not.toHaveBeenCalled();
     expect(runFingerprintCron).not.toHaveBeenCalled();

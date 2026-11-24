@@ -661,27 +661,27 @@
   },
   "ALL /lg": {
     "effect": "none",
-    "reason": "Resolves the tenant for the quote entry route (src/public/leadgen/runtime-routes.ts:83)."
+    "reason": "Resolves the tenant for the quote entry route (src/public/leadgen/runtime-routes.ts:95)."
   },
   "ALL /lg/*": {
     "effect": "none",
-    "reason": "Resolves the tenant for the quote runtime (src/public/leadgen/runtime-routes.ts:84)."
+    "reason": "Resolves the tenant for the quote runtime (src/public/leadgen/runtime-routes.ts:96)."
   },
   "POST /lg/auction": {
     "effect": "none",
-    "reason": "visitor write, uncached route (src/public/leadgen/runtime-routes.ts:1126)."
+    "reason": "visitor write, uncached route (src/public/leadgen/runtime-routes.ts:1139)."
   },
   "POST /lg/ck": {
     "effect": "none",
-    "reason": "visitor write, uncached route (src/public/leadgen/runtime-routes.ts:1125)."
+    "reason": "visitor write, uncached route (src/public/leadgen/runtime-routes.ts:1138)."
   },
   "POST /lg/pb/:provider": {
     "effect": "none",
-    "reason": "visitor write, uncached route (src/public/leadgen/runtime-routes.ts:1130)."
+    "reason": "visitor write, uncached route (src/public/leadgen/runtime-routes.ts:1143)."
   },
   "POST /lg/track": {
     "effect": "none",
-    "reason": "visitor write, uncached route (src/public/leadgen/runtime-routes.ts:1127)."
+    "reason": "visitor write, uncached route (src/public/leadgen/runtime-routes.ts:1140)."
   },
   "QUEUE worker.queue": {
     "effect": "none",

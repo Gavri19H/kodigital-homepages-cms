@@ -53,7 +53,7 @@ if ! exec 3< "$url_file"; then
 fi
 if (( ! warm )); then
   [[ $runs =~ ^[1-9][0-9]*$ ]] || usage
-  printf 'url\trun\tstatus\tttfb_s\tx-edge-cache\tcf-cache-status\tage\tcolo\tbytes\n'
+  printf 'url\trun\tstatus\tttfb_s\tx-edge-cache\tcf-cache-status\tage\tcolo\tbytes\tserver_timing\n'
 fi
 
 shopt -s nocasematch
@@ -79,8 +79,19 @@ while read -r -u 3 url || [[ -n $url ]]; do
     headers=${response%$'\n'*}
     # A proxy CONNECT or interim 103 can precede the measured response.
     headers=${headers##*$'\nHTTP/'}
-    edge_cache='' cf_cache='' age='' colo=''
+    edge_cache='' cf_cache='' age='' colo='' server_timing=''
+    in_server_timing=0
     while IFS= read -r line; do
+      if [[ $line =~ ^Server-Timing:[[:blank:]]*(.*)$ ]]; then
+        server_timing+="${server_timing:+, }${BASH_REMATCH[1]%$'\r'}"
+        in_server_timing=1
+        continue
+      fi
+      if (( in_server_timing )) && [[ $line == [[:blank:]]* ]]; then
+        server_timing+=" ${line%$'\r'}"
+        continue
+      fi
+      in_server_timing=0
       [[ $line =~ ^([^:]+):[[:blank:]]*([^[:space:]]+) ]] || continue
       value=${BASH_REMATCH[2]}
       case "${BASH_REMATCH[1]}" in
@@ -90,8 +101,9 @@ while read -r -u 3 url || [[ -n $url ]]; do
         cf-ray) if [[ $value == *-* ]]; then colo=${value##*-}; fi ;;
       esac
     done <<< "$headers"
-    printf '%s\t%d\t%s\t%s\t%s\t%s\t%s\t%s\t%s\n' \
-      "$url" "$run" "$status" "${ttfb:-0.000000}" "$edge_cache" "$cf_cache" "$age" "$colo" "${bytes:-0}"
+    printf '%s\t%d\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\n' \
+      "$url" "$run" "$status" "${ttfb:-0.000000}" "$edge_cache" "$cf_cache" "$age" "$colo" "${bytes:-0}" \
+      "${server_timing//$'\t'/ }"
     if (( 10#$status >= 500 )); then failed=1; fi
     if [[ ${edge_cache:-$cf_cache} == HIT ]]; then hits=$((hits + 1)); fi
     if (( run >= 2 )) && [[ $status != 000 ]]; then samples+=("$ttfb"); fi

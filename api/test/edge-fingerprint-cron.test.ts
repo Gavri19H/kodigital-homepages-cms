@@ -3,13 +3,19 @@ import { applyEdgeCacheHeaders } from "../src/cache/cache-control";
 import { runFingerprintCron } from "../src/edge/fingerprint-cron";
 import { onPublicChange, runEdgePurgeCron } from "../src/edge/public-change";
 import { siteQuoteTag } from "../src/edge/tags";
+import type { PublicPageProps } from "../src/edge/types";
 import type { Env } from "../src/env";
-import worker from "../src/index";
+import worker, { PublicPage } from "../src/index";
 import { purgeArticleChange } from "../src/workflow/publish";
-import { makeKvStub } from "./helpers/leadgen-analytics-harness";
+import { ctxCapture, makeKvStub } from "./helpers/leadgen-analytics-harness";
 import { addSite, createDb, env as sqliteEnv, hasSqlite, type SqliteDb } from "./helpers/x06-a2-sqlite";
 
 vi.mock("../src/edge/public-change", { spy: true });
+vi.mock("cloudflare:workers", () => ({
+  WorkerEntrypoint: class {
+    constructor(readonly ctx: ExecutionContext, readonly env: Env) {}
+  },
+}));
 
 const fingerprintKey = "edge:fp:v1";
 const versionKey = "edge:ver:v1";
@@ -165,6 +171,66 @@ describe.skipIf(!hasSqlite)("public fingerprint minute job", () => {
     editArticle();
     await tick(60);
     expectSweep(["site:site-a"], ["Site-A"]);
+  });
+
+  it("records the primary bookmark before a missed-write purge and serves the edited quote from a new bundle", async () => {
+    const site = "Site-A";
+    const hostname = "site-a.example";
+    const suffix = "0".repeat(25) + "1";
+    const variant = "lgn_" + suffix;
+    db.prepare("INSERT INTO domains (site_id, hostname, status) VALUES (?, ?, 'active')").run(site, hostname);
+    db.prepare("INSERT INTO site_settings (site_id, key, value) VALUES (?, 'site_name', ?)").run(site, "Old quote title");
+    db.prepare("UPDATE sites SET write_bookmark = ? WHERE id = ?").run("0001", site);
+    const quote = db.prepare(`INSERT INTO leadgen_quotes (public_id, quote_name, activity, verticals_json, status)
+      VALUES (?, 'Home', 'quote_funnel', '[]', 'active')`).run("lgq_" + suffix).lastInsertRowid;
+    activate(site, Number(quote));
+    const funnel = db.prepare(`INSERT INTO leadgen_funnels (public_id, quote_id, funnel_name, status)
+      VALUES (?, ?, 'Home', 'active')`).run("lgf_" + suffix, quote).lastInsertRowid;
+    db.prepare("INSERT INTO leadgen_funnel_variants (public_id, funnel_id) VALUES (?, ?)").run(variant, funnel);
+    env.DB.withSession = vi.fn(() => ({
+      prepare: env.DB.prepare.bind(env.DB), batch: env.DB.batch.bind(env.DB), getBookmark: () => "0002",
+    }));
+    const page = ctxCapture();
+    Object.assign(page.ctx, { exports: { PublicPage: ({ props }: { props: PublicPageProps }) =>
+      new PublicPage({ ...page.ctx, props }, env) } });
+    const bundleKeys = () => [...store.keys()].filter(key => key.startsWith(`lgbundle:${site}:${variant}:`));
+    async function render() {
+      // Every visit builds a fresh snapshot and shell through the real entrypoint.
+      const request = new Request(`https://${hostname}/lg/home-insurance`, { headers: { Cookie: "ko_sid=returning" } });
+      const response = await worker.fetch(request, env, page.ctx);
+      expect(response.status).toBe(200);
+      const html = await response.text();
+      await Promise.all(page.promises);
+      return html;
+    }
+
+    await tick(0);
+    expect(await render()).toContain("<title>Old quote title</title>");
+    const originalKeys = bundleKeys();
+    expect(originalKeys).toHaveLength(1);
+
+    seconds += 60;
+    db.prepare("UPDATE site_settings SET value = ? WHERE site_id = ? AND key = 'site_name'").run("Edited quote title", site);
+    vi.mocked(env.CACHE.get).mockClear();
+    expect(await render()).toContain("<title>Old quote title</title>");
+    expect(env.CACHE.get).toHaveBeenCalledWith(originalKeys[0]);
+    expect(bundleKeys()).toEqual(originalKeys);
+
+    let atPurge: unknown;
+    purge.mockImplementationOnce(async () => {
+      atPurge = db.prepare("SELECT id, content_version, write_bookmark FROM sites WHERE write_bookmark IS NOT NULL").all();
+      return { success: true, errors: [] };
+    });
+    vi.mocked(env.DB.withSession).mockClear();
+    // The rebuilt snapshot has the same builtAt as the stale one immediately above.
+    await tick(0);
+    expectSweep(["site:site-a"], [site]);
+    expect(env.DB.withSession).toHaveBeenCalledExactlyOnceWith("first-primary");
+    expect(atPurge).toEqual([{ id: site, content_version: 2, write_bookmark: "0002" }]);
+    expect(await render()).toContain("<title>Edited quote title</title>");
+    expect(bundleKeys()).toHaveLength(2);
+    expect(bundleKeys()).toContain(originalKeys[0]);
+    expect(env.DB.withSession).toHaveBeenCalledWith("0002");
   });
 
   it("detects an unrecorded settings change in the same minute as a recorded article edit on that site", async () => {

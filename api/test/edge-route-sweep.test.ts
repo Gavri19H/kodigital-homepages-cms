@@ -206,7 +206,11 @@ describe("tenant routes forwarded to PublicPage", () => {
       snapshot.mockClear();
       const path = pattern.replace(/:[^/]+/g, "2"); // Valid as a slug, quote name or page number.
       await gatewayFetch(new Request(origin + path), bindings, ctx, () => new Response(null));
-      if (snapshot.mock.calls.length) admitted.add(pattern);
+      if (pattern === "/lg/attempt") {
+        expect(snapshot).toHaveBeenCalledExactlyOnceWith({ props: { siteKey: "host:" + host, variantKey: "snap" } });
+      } else if (snapshot.mock.calls.length) {
+        admitted.add(pattern);
+      }
     }
     expect([...admitted].sort()).toEqual([...new Set(examples.map(example => example.route))].sort());
   });

@@ -3,7 +3,7 @@ import { beforeEach, describe, expect, it, vi } from "vitest";
 import { checkInfraContract } from "../scripts/verify/infra-contract";
 import { checkWorkerConfig } from "../scripts/verify/worker-config";
 import { applyEdgeCacheHeaders } from "../src/cache/cache-control";
-import { renderReadDb } from "../src/db/read-session";
+import { D1Timing, renderReadDb } from "../src/db/read-session";
 import { PublicPage } from "../src/edge/public-page";
 import { buildSiteSnapshot } from "../src/edge/snapshot";
 import type { PublicPageProps, SiteSnapshot } from "../src/edge/types";
@@ -132,7 +132,7 @@ describe("PublicPage.fetch", () => {
 
     expect(honoFetch).toHaveBeenCalledTimes(1);
     const [forwarded, bindings, context] = vi.mocked(honoFetch).mock.calls[0]!;
-    expect(renderReadDb).toHaveBeenCalledExactlyOnceWith(env.DB, "bookmark-123");
+    expect(renderReadDb).toHaveBeenCalledExactlyOnceWith(env.DB, "bookmark-123", expect.any(D1Timing));
     expect(bindings).toEqual({ ...env, DB: renderDb, EDGE_INNER: "1" });
     expect(env.EDGE_INNER).toBeUndefined();
     expect(context).toBe(ctx);
@@ -160,7 +160,7 @@ describe("PublicPage.fetch", () => {
     const { page } = entrypoint(snapProps);
     const response = await page.fetch(new Request(snapUrl));
     expect(renderReadDb).not.toHaveBeenCalled();
-    expect(buildSiteSnapshot).toHaveBeenCalledWith({ ...env, EDGE_INNER: "1" }, "tenant.example");
+    expect(buildSiteSnapshot).toHaveBeenCalledWith({ ...env, EDGE_INNER: "1" }, "tenant.example", expect.any(D1Timing));
     expect(env.EDGE_INNER).toBeUndefined();
     expect(honoFetch).not.toHaveBeenCalled();
     expect(response.status).toBe(200);

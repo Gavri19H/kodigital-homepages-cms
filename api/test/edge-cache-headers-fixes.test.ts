@@ -86,6 +86,12 @@ describe("tenant page rendering", () => {
     article.run(siteId, category, "story", "Main story");
     relatedId = article.run(siteId, category, "neighbor", "Original related headline").lastInsertRowid!;
     env = sqliteEnv(db);
+    // Return each statement's rows inside the SQLite fixture's batch transaction.
+    const batch = env.DB.batch.bind(env.DB);
+    env.DB.batch = <T>(statements: D1PreparedStatement[]) => {
+      for (const statement of statements) statement.run = statement.all.bind(statement);
+      return batch<T>(statements);
+    };
     cache = cacheContext(env);
   });
   afterEach(async () => {

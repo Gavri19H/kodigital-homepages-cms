@@ -90,6 +90,12 @@ describe("bot and human pages on an ad-enabled tenant", () => {
     setting.run(siteId, "ad_provider", "adsense");
     setting.run(siteId, "adsense_publisher_id", publisher);
     env = sqliteEnv(db);
+    // Return each statement's rows inside the SQLite fixture's batch transaction.
+    const batch = env.DB.batch.bind(env.DB);
+    env.DB.batch = <T>(statements: D1PreparedStatement[]) => {
+      for (const statement of statements) statement.run = statement.all.bind(statement);
+      return batch<T>(statements);
+    };
     Object.assign(env.CACHE, { async getWithMetadata() { return { value: null, metadata: null }; } });
   });
   afterAll(() => db.close());

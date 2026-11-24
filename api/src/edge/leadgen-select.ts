@@ -5,12 +5,9 @@ import { isEntryPlane } from "../leadgen/rule-checkpoint";
 import {
   deriveOs,
   evaluateQuoteEntryRouting,
-  getActiveFunnelsForQuote,
-  getQuoteById,
-  loadFunnelEntryVariants,
-  loadOfferEntryRedirectLocation,
+  offerEntryRedirectLocation,
+  parseQuoteRoutingRule,
   parseUtmFromLandingUrl,
-  readQuoteRoutingRules,
   selectEntryRedirectTarget,
   selectFunnelEntryVariant,
   selectQuoteEntryFunnel,
@@ -45,45 +42,111 @@ export type LeadgenSelection =
   | { kind: "redirect"; location: string; status: 302 }
   | { kind: "fallback" };
 
-async function loadEntryFunnel(db: D1Database, id: number): Promise<EntryFunnel> {
-  const { abTest, variants } = await loadFunnelEntryVariants(db, id);
-  return {
-    id,
-    abTest: abTest === null ? null : { public_id: abTest.public_id, revision: abTest.revision },
-    variants: variants.map(({ public_id, variant_label, traffic_allocation_bp }) => ({
-      public_id, variant_label, traffic_allocation_bp,
-    })),
-  };
+type Activation = Pick<LeadgenSiteQuoteRow, "slug" | "quote_id">;
+type QuoteFunnelRow = {
+  quote_id: number;
+  public_id: string;
+  default_funnel_id: number | null;
+  funnel_id: number | null;
+} & ({ test_public_id: string; revision: number } | { test_public_id: null; revision: null });
+type RuleOfferRow = Parameters<typeof parseQuoteRoutingRule>[0] & {
+  quote_id: number;
+  offer_public_id: string | null;
+  banner_url_template: string | null;
+};
+export type LeadgenSnapshotResults = [
+  activations: D1Result<Activation>,
+  quoteFunnels: D1Result<QuoteFunnelRow>,
+  variants: D1Result<EntryVariant & { funnel_id: number }>,
+  ruleOffers: D1Result<RuleOfferRow>,
+];
+
+// Keep the original activation scan for the order of serialized slug keys.
+const ACTIVATIONS = "SELECT slug, quote_id FROM leadgen_site_quotes WHERE site_id = ? AND enabled = 1";
+const SITE_QUOTES = "WITH site_quotes AS (" + ACTIVATIONS + `
+  AND (slug IS NULL OR (slug <> '' AND instr(slug, '/') = 0))
+)`;
+
+export function leadgenSnapshotStatements(db: D1Database, siteId: string): D1PreparedStatement[] {
+  return [
+    db.prepare(ACTIVATIONS).bind(siteId),
+    db.prepare(SITE_QUOTES + `
+      SELECT q.id AS quote_id, q.public_id, q.default_funnel_id, f.id AS funnel_id,
+             t.public_id AS test_public_id, t.revision
+      FROM site_quotes s JOIN leadgen_quotes q ON q.id = s.quote_id
+      LEFT JOIN leadgen_funnels f ON f.quote_id = q.id AND f.status = 'active'
+      LEFT JOIN leadgen_funnel_ab_tests t ON t.funnel_id = f.id AND t.status = 'running'
+      ORDER BY q.id, COALESCE(f.display_order, f.id), f.id`).bind(siteId),
+    db.prepare(SITE_QUOTES + `
+      SELECT v.funnel_id, v.public_id, v.variant_label, v.traffic_allocation_bp
+      FROM site_quotes s JOIN leadgen_funnels f ON f.quote_id = s.quote_id AND f.status = 'active'
+      JOIN leadgen_funnel_variants v ON v.funnel_id = f.id AND v.status = 'active'
+      ORDER BY v.funnel_id, v.variant_label, v.id`).bind(siteId),
+    db.prepare(SITE_QUOTES + `
+      SELECT r.quote_id, r.public_id, r.conditions_json, r.conditions_hash, r.priority, r.match_mode,
+             r.target_funnel_id, r.feed_name, r.value_multiplier, r.redirect_pct, r.target_offer_id,
+             r.redirect_url, r.redirect_url_allowlisted, r.force_offer_id,
+             o.public_id AS offer_public_id, o.banner_url_template
+      FROM site_quotes s JOIN leadgen_quote_routing_rules r ON r.quote_id = s.quote_id AND r.status = 'active'
+      LEFT JOIN leadgen_offers o ON o.id = r.target_offer_id
+      ORDER BY r.quote_id, r.priority, r.id`).bind(siteId),
+  ];
 }
 
-// Keys are activated slugs. The enabled NULL-slug row uses the literal "/lg".
-export async function buildLeadgenSnapshot(db: D1Database, siteId: string): Promise<Record<string, LeadgenSnapshotEntry>> {
-  const activations = await db
-    .prepare("SELECT slug, quote_id FROM leadgen_site_quotes WHERE site_id = ? AND enabled = 1")
-    .bind(siteId)
-    .all<Pick<LeadgenSiteQuoteRow, "slug" | "quote_id">>();
+export function assembleLeadgenSnapshot(
+  [activations, quoteFunnels, variants, ruleOffers]: LeadgenSnapshotResults,
+): Record<string, LeadgenSnapshotEntry> {
+  const quotes = new Map<number, LeadgenSnapshotEntry>();
+  const funnels = new Map<number, EntryFunnel>();
+  for (const row of quoteFunnels.results) {
+    let quote = quotes.get(row.quote_id);
+    if (!quote) {
+      quote = {
+        quoteId: row.public_id, defaultFunnelId: row.default_funnel_id ?? null,
+        funnels: [], rules: [], offerLocations: {},
+      };
+      quotes.set(row.quote_id, quote);
+    }
+    if (row.funnel_id === null) continue;
+    const funnel: EntryFunnel = {
+      id: row.funnel_id,
+      abTest: row.test_public_id === null ? null : { public_id: row.test_public_id, revision: row.revision },
+      variants: [],
+    };
+    quote.funnels.push(funnel);
+    funnels.set(funnel.id, funnel);
+  }
+  for (const { funnel_id, public_id, variant_label, traffic_allocation_bp } of variants.results) {
+    const funnel = funnels.get(funnel_id);
+    // Without a running test the resolver serves only the first active variant in label/id order.
+    if (funnel && (funnel.abTest !== null || funnel.variants.length === 0)) {
+      funnel.variants.push({ public_id, variant_label, traffic_allocation_bp });
+    }
+  }
+  for (const row of ruleOffers.results) {
+    const quote = quotes.get(row.quote_id);
+    if (!quote) continue;
+    const rule = parseQuoteRoutingRule(row);
+    quote.rules.push(rule);
+    const offerId = rule.target_offer_id;
+    if (rule.entry_only && offerId !== null && !Object.hasOwn(quote.offerLocations, offerId)) {
+      quote.offerLocations[offerId] = offerEntryRedirectLocation(row.offer_public_id === null ? null : {
+        public_id: row.offer_public_id, banner_url_template: row.banner_url_template,
+      });
+    }
+  }
   const entries: Record<string, LeadgenSnapshotEntry> = Object.create(null);
   for (const { slug, quote_id } of activations.results) {
-    if (slug === "" || slug?.includes("/")) continue;
-    const quote = await getQuoteById(db, quote_id);
-    if (quote === null) continue;
-    const [activeFunnels, rules] = await Promise.all([
-      getActiveFunnelsForQuote(db, quote.id),
-      readQuoteRoutingRules(db, quote.id),
-    ]);
-    const funnels = await Promise.all(activeFunnels.map((f) => loadEntryFunnel(db, f.id)));
-    const offerLocations: Record<number, string | null> = {};
-    for (const rule of rules) {
-      const id = rule.target_offer_id;
-      if (rule.entry_only && id !== null && !Object.hasOwn(offerLocations, id)) {
-        offerLocations[id] = await loadOfferEntryRedirectLocation(db, id);
-      }
-    }
-    entries[slug ?? "/lg"] = {
-      quoteId: quote.public_id, defaultFunnelId: quote.default_funnel_id ?? null, funnels, rules, offerLocations,
-    };
+    const quote = quotes.get(quote_id);
+    if (quote) entries[slug ?? "/lg"] = quote;
   }
   return entries;
+}
+
+export async function buildLeadgenSnapshot(db: D1Database, siteId: string): Promise<Record<string, LeadgenSnapshotEntry>> {
+  const statements = leadgenSnapshotStatements(db, siteId);
+  const results = await Promise.all(statements.map(stmt => stmt.all<unknown>())) as LeadgenSnapshotResults;
+  return assembleLeadgenSnapshot(results);
 }
 
 function isRecord(value: unknown): value is Record<string, unknown> {

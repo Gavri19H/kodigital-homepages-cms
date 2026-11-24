@@ -254,6 +254,15 @@ export const LEADGEN_TEMPLATE_VERSION = 15 as const;
 const NS_LG_SHELL = "lg-shell";
 const NS_LG_CONFIG = "lg-config";
 
+export function leadgenBundleKey(
+  siteId: string,
+  variantPublicId: string,
+  snapshotVersion: string,
+  workerVersion?: string,
+): string {
+  return `lgbundle:${requireSiteId(siteId)}:${variantPublicId}:${snapshotVersion}:${LEADGEN_TEMPLATE_VERSION}:${workerVersion || "dev"}`;
+}
+
 // lg-shell:{site_id}:{quote_slug}:{funnel_id}:{funnel_variant_id}:{content_version}:{ab_rev}:{template_version}:{activation_version}
 // (§28). The §16.2 A/B assignment is a cheap deterministic edge hash that picks
 // WHICH variant to serve, and "the shell is cached per variant" (§28) — so
