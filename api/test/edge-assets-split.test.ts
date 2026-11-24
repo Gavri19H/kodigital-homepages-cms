@@ -1,5 +1,6 @@
 import { Hono } from "hono";
 import { describe, expect, it } from "vitest";
+import { minifiedPublicCss, minifiedPublicJs } from "../src/public/assets/public-assets.generated";
 import { publicCss } from "../src/public/assets/public-css";
 import { publicJs } from "../src/public/assets/public-js";
 import publicRouter from "../src/public/router";
@@ -25,9 +26,9 @@ function contentVersion(body: string): string {
 
 describe("public assets during a gradual release", () => {
   it.each([
-    ["css", /<link rel="stylesheet" href="(\/assets\/[^"]+)">/, publicCss, "text/css"],
-    ["js", /<script src="(\/assets\/[^"]+)" defer><\/script>/, publicJs, "text/javascript"],
-  ] as const)("loads the new homepage's %s from the previous worker", async (ext, link, body, type) => {
+    ["css", /<link rel="stylesheet" href="(\/assets\/[^"]+)">/, minifiedPublicCss, publicCss, "text/css"],
+    ["js", /<script src="(\/assets\/[^"]+)" defer><\/script>/, minifiedPublicJs, publicJs, "text/javascript"],
+  ] as const)("loads the new homepage's %s from the previous worker", async (ext, link, currentBody, previousBody, type) => {
     const hostname = "tenant.example";
     const { db } = makeFakeDb([{ match: "FROM domains d INNER JOIN sites", row: {
       site_id: "site-a", hostname, status: "active",
@@ -38,14 +39,14 @@ describe("public assets during a gradual release", () => {
     const page = await publicRouter.request(homepageUrl, {}, env);
     expect(page.status).toBe(200);
     const path = (await page.text()).match(link)?.[1];
-    const version = contentVersion(body);
+    const version = contentVersion(currentBody);
     expect(path).toBe(`/assets/public.${ext}?v=${version}`);
 
     const asset = await previousRelease.request(new URL(path!, homepageUrl).href);
     expect(asset.status).toBe(200);
     expect(asset.headers.get("Content-Type")).toBe(type + "; charset=utf-8");
     expect(asset.headers.get("Cache-Control")).toBe("public, max-age=86400");
-    expect(await asset.text()).toBe(body);
+    expect(await asset.text()).toBe(previousBody);
     expect((await previousRelease.request(`/assets/public.${version}.${ext}`)).status).toBe(404);
   });
 });

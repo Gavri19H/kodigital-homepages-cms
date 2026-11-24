@@ -14,9 +14,8 @@
 // article:* all flow through the LIVE route — the helper is no longer dead.
 
 import { renderSeoHead, buildCanonicalUrl } from "./seo-head";
-import { publicCss } from "../assets/public-css";
+import { cssHash, jsHash } from "../assets/public-assets.generated";
 import { PUBLIC_FONT_FACE_CSS, PUBLIC_FONT_PRELOAD_PATHS } from "../assets/public-fonts.generated";
-import { publicJs } from "../assets/public-js";
 import { ANALYTICS_TRACKING_SCRIPT } from "../../analytics/tracking-script";
 import { siteIconHeadTags, siteBrandColor, absoluteOnHost, uploadedLogoUrl } from "../site-brand";
 
@@ -25,13 +24,6 @@ const fontPreloads = PUBLIC_FONT_PRELOAD_PATHS.map(
 ).join("\n");
 
 // Keep the filenames served by both releases and version their URLs by content.
-function assetHash(s: string): string {
-  let h = 5381;
-  for (let i = 0; i < s.length; i += 1) h = ((h << 5) + h + s.charCodeAt(i)) | 0;
-  return (h >>> 0).toString(36);
-}
-const cssHash = assetHash(publicCss);
-const jsHash = assetHash(publicJs);
 export const PUBLIC_CSS_PATH = `/assets/public.css?v=${cssHash}`;
 export const PUBLIC_JS_PATH = `/assets/public.js?v=${jsHash}`;
 

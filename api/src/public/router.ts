@@ -25,9 +25,8 @@ import { decodeBase64 } from "hono/utils/encode";
 import type { Env } from "../env";
 import { listArticles, getArticleBySlug } from "../db";
 import { isReservedPath } from "./reserved";
-import { publicCss } from "./assets/public-css";
+import { minifiedPublicCss, minifiedPublicJs } from "./assets/public-assets.generated";
 import { PUBLIC_FONT_FILES } from "./assets/public-fonts.generated";
-import { publicJs } from "./assets/public-js";
 import { currentPublicAssetPath } from "./templates/layout";
 import {
   renderRssFeed,
@@ -212,7 +211,7 @@ router.get("/assets/:file{public\\.(?:[a-z0-9]+\\.)?(?:css|js)}", (c) => {
   const css = path.endsWith(".css");
   const hashed = path !== (css ? "/assets/public.css" : "/assets/public.js");
   const immutable = hashed || currentPublicAssetPath(new URL(c.req.url)) !== null;
-  return new Response(css ? publicCss : publicJs, {
+  return new Response(css ? minifiedPublicCss : minifiedPublicJs, {
     headers: {
       "Content-Type": css ? "text/css; charset=utf-8" : "text/javascript; charset=utf-8",
       "Cache-Control": immutable ? "public, max-age=31536000, immutable" : "public, max-age=86400",

@@ -4,8 +4,7 @@ import { gatewayFetch } from "../src/edge/gateway";
 import { serveStatic } from "../src/edge/static-cache";
 import type { Env } from "../src/env";
 import worker from "../src/index";
-import { publicCss } from "../src/public/assets/public-css";
-import { publicJs } from "../src/public/assets/public-js";
+import { minifiedPublicCss, minifiedPublicJs } from "../src/public/assets/public-assets.generated";
 import { renderLayout } from "../src/public/templates/layout";
 import { buildEnv, makeFakeDb } from "./helpers/admin-test-kit";
 
@@ -157,8 +156,8 @@ describe("version-independent static cache", () => {
 
 describe("public files through the gateway", () => {
   it.each([
-    ["css", /href="(\/assets\/public\.css\?v=[a-z0-9]+)"/, "text/css", publicCss],
-    ["js", /src="(\/assets\/public\.js\?v=[a-z0-9]+)" defer/, "text/javascript", publicJs],
+    ["css", /href="(\/assets\/public\.css\?v=[a-z0-9]+)"/, "text/css", minifiedPublicCss],
+    ["js", /src="(\/assets\/public\.js\?v=[a-z0-9]+)" defer/, "text/javascript", minifiedPublicJs],
   ] as const)("caches the layout's %s by version and serves missing or stale versions for one day", async (ext, pattern, type, body) => {
     const { ctx, match, put } = installCache();
     const html = renderLayout({ site: { name: "Test", hostname: "tenant.example" }, meta: { title: "Test" }, body: "" });
@@ -188,7 +187,7 @@ describe("public files through the gateway", () => {
   });
 
   it.each([
-    ["css", publicCss], ["js", publicJs],
+    ["css", minifiedPublicCss], ["js", minifiedPublicJs],
   ])("serves a previous release's hashed .%s filename on warm and cold hosts", async (ext, body) => {
     const { ctx, put } = installCache();
     const path = "/assets/public.oldhash." + ext;
