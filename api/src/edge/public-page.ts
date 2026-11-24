@@ -1,6 +1,7 @@
 import { WorkerEntrypoint } from "cloudflare:workers";
 import { applyEdgeCacheHeaders, EDGE_CACHE_CONTROL } from "../cache/cache-control";
 import type { Env } from "../env";
+import { perfstageEnv } from "./perfstage";
 import { buildSiteSnapshot } from "./snapshot";
 import { hostTag, mergeTags, siteTag, snapTag } from "./tags";
 import type { PublicPageProps } from "./types";
@@ -14,7 +15,7 @@ export class PublicPage extends WorkerEntrypoint<Env, PublicPageProps> {
         return new Response(null, { status: 400, headers: { "Cache-Control": EDGE_CACHE_CONTROL.private } });
       }
       try {
-        const snapshot = await buildSiteSnapshot(this.env, hostname);
+        const snapshot = await buildSiteSnapshot(perfstageEnv(this.env), hostname);
         if (snapshot === null) {
           return new Response(null, {
             status: 404,
@@ -35,7 +36,7 @@ export class PublicPage extends WorkerEntrypoint<Env, PublicPageProps> {
     const inner = new Request(request);
     inner.headers.set("x-cms-variant", variantKey);
     const { honoFetch } = await import("../index");
-    const response = await honoFetch(inner, this.env, this.ctx);
+    const response = await honoFetch(inner, perfstageEnv(this.env), this.ctx);
     return applyEdgeCacheHeaders(response, {
       siteId: siteKey,
       path: pathname,

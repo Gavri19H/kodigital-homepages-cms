@@ -11,6 +11,7 @@ import { injectLeadgenAssignment, leadgenGatewayCookies } from "./leadgen-gatewa
 import { selectLeadgenEntry, type LeadgenSelection } from "./leadgen-select";
 import { buildListicleGatewayOutput, injectListicleGateway } from "./listicle-gateway";
 import { pickListicle, type ListiclePick } from "./listicle-select";
+import { perfstageRequest } from "./perfstage";
 import { parseSiteSnapshot } from "./snapshot";
 import { serveStatic } from "./static-cache";
 import { listicleTag, siteQuoteTag } from "./tags";
@@ -148,6 +149,7 @@ export async function gatewayFetch(
     if (clean.cf === undefined && request.cf !== undefined) clean.cf = request.cf;
     request = clean;
   }
+  request = perfstageRequest(request, env);
   try {
     // Use Hono's route decoding so an escaped reserved head has the same boundary.
     const path = getPath(request);
