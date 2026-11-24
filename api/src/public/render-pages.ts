@@ -12,6 +12,7 @@ import { fetchSiteVerticalName, PUBLIC_PAGE_SIZE, type ListingCard } from "./que
 import { loadRenderContext, type RenderContext } from "./render-context";
 import { mediaUrl } from "./view-models/media-url";
 import {
+  heroBackgroundUrl,
   renderHeader,
   renderFooter,
   renderCard,
@@ -133,6 +134,10 @@ export async function renderHomepageHtml(
   const { vm, settings } = await loadHomeRenderData(db, siteContext);
   const canonicalUrl = vm.meta.canonicalUrl;
   const customHtml = customLayoutHtml(settings);
+  const heroUrl = heroBackgroundUrl(vm.hero?.imageUrl);
+  const heroPreload = heroUrl
+    ? `<link rel="preload" as="image" fetchpriority="high" href="${escapeHtml(heroUrl)}">`
+    : "";
 
   // Disjoint buckets (trending removed from the pool, hero = featured[0],
   // featured excludes hero, latest excludes featured) — flatten for the
@@ -208,10 +213,7 @@ export async function renderHomepageHtml(
     // like the Article/Category/Page blocks. meta.jsonLd wraps raw JSON, and
     // passing these through it nested one <script> inside another, so Google
     // could read none of the homepage's structured data.
-    extraHead:
-      adHead.length > 0
-        ? `${jsonLd.join("\n")}\n${adHead}`
-        : jsonLd.join("\n"),
+    extraHead: [heroPreload, ...jsonLd, adHead].filter(Boolean).join("\n"),
     customHead: customHtml.customHead,
     consentHead: customHtml.consentHead,
     customFooter: customHtml.customFooter,
@@ -450,13 +452,14 @@ export async function renderCategoryHtml(
   // which would be a duplicate-content signal against the page-1 canonical.
   const cards = articles
     .map(
-      (a) =>
+      (a, index) =>
         `<li class="home-grid__item">${renderCard({
           href: `/article/${a.slug}`,
           title: a.title,
           categoryName: cat.name,
           imageUrl: mediaUrl(a.image_url),
           imageAlt: a.image_alt ?? null,
+          priority: index === 0,
           publishedAt: formatCardDate(a.published_at) || undefined,
         })}</li>`,
     )
@@ -607,12 +610,13 @@ export async function renderTagHtml(
 
   const cards = articles
     .map(
-      (a) =>
+      (a, index) =>
         `<li class="home-grid__item">${renderCard({
           href: `/article/${a.slug}`,
           title: a.title,
           imageUrl: mediaUrl(a.image_url),
           imageAlt: a.image_alt ?? null,
+          priority: index === 0,
           publishedAt: formatCardDate(a.published_at) || undefined,
         })}</li>`,
     )

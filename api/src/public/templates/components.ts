@@ -93,6 +93,7 @@ export interface CardArgs {
   excerpt?: string;
   imageUrl?: string | null;
   imageAlt?: string | null;
+  priority?: boolean;
   publishedAt?: string;
   categoryName?: string;
   readMinutes?: number | null;
@@ -374,6 +375,14 @@ export function renderHeader(args: HeaderArgs): string {
 </header>`;
 }
 
+// The CSS background and its head preload must request the same resource.
+export function heroBackgroundUrl(imageUrl: HeroArgs["imageUrl"]): string {
+  if (!imageUrl) return "";
+  return imageUrl.startsWith("/") && !imageUrl.startsWith("//")
+    ? cfTransform(imageUrl, "width=1600,quality=78,format=auto")
+    : imageUrl;
+}
+
 export function renderHero(args: HeroArgs): string {
   const placeholder = searchPlaceholderOf(args.searchPlaceholder);
   // Design hero DOM: .hero > .hero-bg + .hero-content > h1.hero-title
@@ -394,12 +403,7 @@ export function renderHero(args: HeroArgs): string {
   // WebP/AVIF, ~70KB vs the ~2MB source PNG); an off-origin URL is used as-is.
   // A CSS background can't carry an <img srcset>, so a single hero-width
   // transform is the lever here.
-  const heroBgUrl =
-    args.imageUrl !== undefined && args.imageUrl !== null && args.imageUrl.length > 0
-      ? args.imageUrl.startsWith("/") && !args.imageUrl.startsWith("//")
-        ? cfTransform(args.imageUrl, "width=1600,quality=78,format=auto")
-        : args.imageUrl
-      : "";
+  const heroBgUrl = heroBackgroundUrl(args.imageUrl);
   const bgStyle =
     heroBgUrl.length > 0
       ? ` style="background-image:linear-gradient(135deg, rgba(0,0,0,0.5), rgba(0,0,0,0.25) 45%, rgba(0,0,0,0.6)), url(${escAttr(heroBgUrl)});background-size:cover;background-position:center"`
@@ -454,15 +458,14 @@ export function renderCard(args: CardArgs): string {
   const href = args.href.length > 0 ? args.href : "";
   // Design Card DOM: a.card > .card-img (img|.ph + .card-pin) + .card-body
   // (h3.card-title + .card-foot > span.card-byline). The whole card IS the
-  // anchor. card-img is the 16/11 treatment; the image is a bare /media/ <img>
-  // (T21 — Cloudflare Image Resizing is OFF, so NO /cdn-cgi srcset), or the
-  // design `.ph` gradient placeholder when no image is set. Below-fold → lazy.
+  // anchor. card-img has a 16/11 image or the design `.ph` gradient placeholder.
   const realImg = responsiveImg({
     src: args.imageUrl,
     alt: args.imageAlt,
     width: 640,
     height: 440,
-    loading: "lazy",
+    loading: args.priority ? "eager" : "lazy",
+    fetchpriority: args.priority ? "high" : undefined,
     sizes: "(max-width: 560px) 100vw, (max-width: 1080px) 50vw, 25vw",
   });
   const imgInner =

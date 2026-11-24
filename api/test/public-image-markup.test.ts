@@ -126,8 +126,8 @@ const pages = [
   { name: "home without CSS hero", html: () => homepage(false), count: 9, main: ".picks-hero img" },
   { name: "home with an imageless first Pick", html: () => homepage(false, true), count: 8, main: ".story-row img" },
   { name: "article", html: article, count: 8, main: ".article-hero-img img" },
-  { name: "category", html: () => listing("category"), count: 4, main: null },
-  { name: "tag", html: () => listing("tag"), count: 4, main: null },
+  { name: "category", html: () => listing("category"), count: 4, main: ".card-img img" },
+  { name: "tag", html: () => listing("tag"), count: 4, main: ".card-img img" },
   { name: "listicle", html: listicle, count: 9, main: ".lst-hero img" },
 ];
 

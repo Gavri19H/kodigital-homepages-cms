@@ -104,21 +104,21 @@ interface RouteCase {
 }
 
 // The before counts were recorded with this seed and clock against the router at 3e19664b.
-// Response bodies were rendered at the Stage 4 merge (markup includes Stage 4 changes);
+// Response body digests include the P4-A2 image markup, re-pinned under TZ=UTC;
 // the Stage 2 byte-identity proof against 7dfb84fc is on branch perf/p2-fast-builds at efc4d5a5.
 // SHA-256 covers the entire HTTP response body, including formatting and UTF-8.
 const emptyBody = "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855";
-const aboutBody = "b3062f0377e074ca3432ea5851da014e7f767375d396ded0a61ed9d734a884ab";
-const notesBody = "c10b05ed2f303f684858e4e697eed7c9f9ba37751bebf4879cfccefe2d37cbbc";
+const aboutBody = "662f0dd349e9be41fe10d9639649d4713076cdf5d35b1a80c8d46ee9e100ba6b";
+const notesBody = "e926ee5c4c5d2d9a849526a1938b4d4e2af8d5a04a5a03322491d85721e521fa";
 const rssBody = "29e98df61029319406ee011660d3ebd1d47324d46b27a6e8dc6c1a1e8d2db1bb";
-const notFoundBody = "48d720c7dcb804e318f94f9442d6121f8af384ac4bfe75cb552c58e4e86a5e53";
+const notFoundBody = "f4ff92522f07393ae10cc3e5ed58be12d5090f9c38380cbfceb7e2a5078a9df8";
 const cases: RouteCase[] = [
-  { path: "/category/guides", before: 6, after: 1, digest: "e800c02926e5d8c63ea60ce18b798d352a0ed78b9e2fa8b2e365801dd462b310" },
-  { path: "/category/guides", variant: "bot", before: 6, after: 1, digest: "f1f17897a651798a6593727dac78afe058feee757e126b288d5bffcb1614c978" },
-  { path: "/category/guides/page/2", before: 6, after: 1, digest: "a93aa6ab5f51dfbfd103f95d351c6a74eec57b804f81a053910a1e955120c83f" },
-  { path: "/category/guides/page/3", before: 6, after: 1, digest: "a736130bd6620c7957768cda81c77a77e7277d02afb23645c5a841d5b1093bba" },
-  { path: "/tag/hiking", before: 5, after: 1, digest: "cb7200bfca553eec2da19c3174ee545b880ba995c34ab1abc9f13b0af8a44999" },
-  { path: "/tag/hiking/page/2", before: 5, after: 1, digest: "7af244c00cbf0e5db50e098548fecd7ea6c95fc68c24db2f1c0461b98e1ce8de" },
+  { path: "/category/guides", before: 6, after: 1, digest: "bf1d3af896d5a86fcdd5583e23f4fed01b03f77be1cc2b0c0d4de2b44df2d78e" },
+  { path: "/category/guides", variant: "bot", before: 6, after: 1, digest: "e2a4299265451677e147867100106e0b5393d38afc0cbf92fec2e01bcff8f714" },
+  { path: "/category/guides/page/2", before: 6, after: 1, digest: "ed1adaf3270682b8e175681a7856a39c6f5e01de545cf2e2063633ff3fcd8bb7" },
+  { path: "/category/guides/page/3", before: 6, after: 1, digest: "d9b49b8c1e60e71df1fbc6c5904db5106bb68723392c8a9ab4b7dfc549c3e78a" },
+  { path: "/tag/hiking", before: 5, after: 1, digest: "8334941e9e5763a6899008f5930f696490a3c7a397a5a241e90f6646b3856764" },
+  { path: "/tag/hiking/page/2", before: 5, after: 1, digest: "41c7fb37650dd76ea7489e0a14f29d1b4675763db0fdbf743517eba27fcbf6e9" },
   { path: "/page/about", before: 4, after: 1, digest: aboutBody },
   { path: "/page/notes", before: 3, after: 1, digest: notesBody },
   { path: "/about", before: 6, after: 2, digest: aboutBody },
@@ -135,8 +135,8 @@ const cases: RouteCase[] = [
   { path: "/robots.txt", robots: "", before: 1, after: 1, digest: emptyBody },
   { path: "/ads.txt", before: 1, after: 1, digest: "ae085b1af3dceb78af0582dc83cf073198589f1c34b7fa1215cd569101d012b1" },
   { path: "/llms.txt", before: 1, after: 1, digest: "593721a648a6c9b11c41f4a60df691754bea3e34cb6c6c6af99719c85453e25b" },
-  { path: "/category/guides/page/2", pageSize: "\u00a0+1story", before: 6, after: 1, digest: "0b322a1e78a4207d2ba375f88ad968a9c0fb1565caf9afe74c1c5f06440a5762" },
-  { path: "/tag/hiking", pageSize: "9".repeat(310), before: 5, after: 1, digest: "0844ce14843bc4f169a96bc30dad1b1b5a65a5d24913fb35250202b25faf28fd" },
+  { path: "/category/guides/page/2", pageSize: "\u00a0+1story", before: 6, after: 1, digest: "54e46e8e49f607fda3e23e58e8853e622eef3bb80f2f80ba9fec2c476c648161" },
+  { path: "/tag/hiking", pageSize: "9".repeat(310), before: 5, after: 1, digest: "1102ee907a662d005b94f05888fd9c2c22cd6a919aa1762e330c0f39d6c2ce1a" },
   { path: "/tag/foreign", status: 404, before: 2, after: 1, digest: notFoundBody },
   { path: "/page/draft", status: 404, before: 2, after: 1, digest: notFoundBody },
   { path: "/draft", status: 404, before: 5, after: 2, digest: notFoundBody },

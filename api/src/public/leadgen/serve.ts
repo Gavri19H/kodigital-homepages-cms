@@ -149,10 +149,21 @@ import {
   matchesIfNoneMatch,
 } from "../../cache/edge-cache";
 import { siteIconHeadTags, DEFAULT_BRAND_COLOR, absoluteOnHost } from "../site-brand";
+import { cfTransform } from "../templates/responsive-img";
 
 function funnelOgLogoTag(hostname: string | null, logoUrl: string | null): string {
-  if (hostname === null) return "";
-  const abs = absoluteOnHost(hostname, logoUrl);
+  if (hostname === null || logoUrl === null) return "";
+  let path = logoUrl;
+  try {
+    const site = new URL(`https://${hostname}`);
+    const logo = new URL(logoUrl, logoUrl.startsWith("/") ? site : undefined);
+    if (logo.origin === site.origin && logo.pathname.startsWith("/media/")) {
+      path = cfTransform(logo.pathname, "width=1200,fit=scale-down") + logo.search + logo.hash;
+    }
+  } catch {
+    // Keep the existing root-relative fallback for unparseable URLs.
+  }
+  const abs = absoluteOnHost(hostname, path);
   return abs === null ? "" : `<meta property="og:image" content="${escapeHtml(abs)}">`;
 }
 
@@ -356,22 +367,26 @@ function jsStringLiteral(value: string): string {
 //   (c) absent id ⇒ emit NOTHING;
 //   (d) /lg/track is a header-only no-store beacon — it never touches
 //       window.dataLayer (proven in leadgen-ga4.spec.ts).
-// The measurement id is operator-authored, so it is escaped for BOTH the JS-string
-// context (jsStringLiteral) and the URL/attribute context (encodeURIComponent +
-// escapeHtml) — no `</script>` / markup can be forged. The shell sets no CSP, so
+// The measurement id is a URL component in the loader and a raw id in config.
+// Both values become JS string literals in the inline script. The shell sets no CSP, so
 // no host allowlist is required; if one is ever added it MUST allow
 // www.googletagmanager.com.
 function ga4HeadSnippet(measurementId: string | null): string {
   if (measurementId === null) return "";
   const id = measurementId.trim();
   if (id === "") return "";
-  const srcId = encodeURIComponent(id);
+  const src = "https://www.googletagmanager.com/gtag/js?id=" + encodeURIComponent(id);
   return (
-    `<script async src="https://www.googletagmanager.com/gtag/js?id=${escapeHtml(srcId)}"></script>` +
     "<script>window.dataLayer=window.dataLayer||[];" +
     "function gtag(){dataLayer.push(arguments);}" +
     "gtag('js',new Date());" +
-    `gtag('config',${jsStringLiteral(id)});</script>`
+    `gtag('config',${jsStringLiteral(id)});` +
+    "(function(w,d){var script;function insert(){if(script)return;" +
+    "script=d.createElement('script');script.async=true;" +
+    `script.src=${jsStringLiteral(src)};d.head.appendChild(script);}` +
+    "if(w.requestAnimationFrame)d.addEventListener('DOMContentLoaded',function(){" +
+    "w.requestAnimationFrame(function(){w.setTimeout(insert,0);});},{once:true});" +
+    "w.addEventListener('load',insert,{once:true});})(window,document);</script>"
   );
 }
 
@@ -544,8 +559,12 @@ export function metaPixelShellScript(cfg: LeadgenMetaPixelShell): string {
     "<script>(function(w,d){var C=" + json + ";" +
     "if(w.__lgPx){return;}w.__lgPx=1;" +
     "!function(f,b,e,v,n,t,s){if(f.fbq)return;n=f.fbq=function(){n.callMethod?n.callMethod.apply(n,arguments):n.queue.push(arguments)};" +
-    "if(!f._fbq)f._fbq=n;n.push=n;n.loaded=!0;n.version='2.0';n.queue=[];t=b.createElement(e);t.async=!0;t.src=v;" +
-    "s=b.getElementsByTagName(e)[0];s.parentNode.insertBefore(t,s)}(w,d,'script','https://connect.facebook.net/en_US/fbevents.js');" +
+    "if(!f._fbq)f._fbq=n;n.push=n;n.loaded=!0;n.version='2.0';n.queue=[];" +
+    "function insert(){if(t)return;t=b.createElement(e);t.async=!0;t.src=v;" +
+    "s=b.getElementsByTagName(e)[0];s.parentNode.insertBefore(t,s);}" +
+    "if(f.requestAnimationFrame)b.addEventListener('DOMContentLoaded',function(){" +
+    "f.requestAnimationFrame(function(){f.setTimeout(insert,0);});},{once:true});" +
+    "f.addEventListener('load',insert,{once:true});}(w,d,'script','https://connect.facebook.net/en_US/fbevents.js');" +
     "var I={},A={},M={},H=Object.prototype.hasOwnProperty;" +
     "function rid(){var a='ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789',s='',i,r=null;" +
     "try{r=w.crypto.getRandomValues(new Uint8Array(20));}catch(x){}" +
