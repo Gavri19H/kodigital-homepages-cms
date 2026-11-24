@@ -238,6 +238,10 @@ export interface ResolvedActivatedFunnel {
   // admin/leadgen/auctions-handlers.ts + test fixtures) stay valid; BOTH
   // resolver functions below always populate it.
   site_branding?: SiteBranding;
+  // Request-local inputs shared by entry selection, rendering and attempt minting.
+  // An empty rule set or null defaults are completed reads. Fixtures may omit them.
+  routing_rules?: readonly ParsedQuoteRule[];
+  saved_template_defaults?: EffectiveFrameConfig | null;
 }
 
 export interface ResolveFunnelArgs {
@@ -549,29 +553,18 @@ export async function loadRealSlotRows(
 ): Promise<Map<number, VariantPageSlotRow[]>> {
   const byPage = new Map<number, VariantPageSlotRow[]>();
   if (pageIds.length === 0) return byPage;
-  // Chunked IN(?) <= 80 (D1 100-binding rule).
-  for (let i = 0; i < pageIds.length; i += 80) {
-    const chunk = pageIds.slice(i, i + 80);
-    const marks = chunk.map(() => "?").join(",");
-    const result = await db
-      .prepare(
-        `SELECT id, page_id, position, slot_revision, rules_json, ab_allocations_json
-         FROM leadgen_funnel_page_slots WHERE page_id IN (${marks}) ORDER BY position ASC`,
-      )
-      .bind(...chunk)
-      .all<{
-        id: number;
-        page_id: number;
-        position: number;
-        slot_revision: number;
-        rules_json: string | null;
-        ab_allocations_json: string | null;
-      }>();
-    for (const row of result.results ?? []) {
-      const list = byPage.get(row.page_id) ?? [];
-      list.push(row);
-      byPage.set(row.page_id, list);
-    }
+  const result = await db
+    .prepare(
+      `SELECT id, page_id, position, slot_revision, rules_json, ab_allocations_json
+       FROM leadgen_funnel_page_slots WHERE page_id IN (SELECT value FROM json_each(?))
+       ORDER BY position ASC`,
+    )
+    .bind(JSON.stringify(pageIds))
+    .all<VariantPageSlotRow & { page_id: number }>();
+  for (const row of result.results ?? []) {
+    const list = byPage.get(row.page_id) ?? [];
+    list.push(row);
+    byPage.set(row.page_id, list);
   }
   return byPage;
 }
@@ -645,11 +638,10 @@ export async function loadVariantPages(
     }));
   }
 
-  const slotsByPage = await loadRealSlotRows(
-    db,
-    realPages.map((p) => p.id),
-  );
-  const candidatesBySlot = await loadRealCandidateRows(db, variantId);
+  const [slotsByPage, candidatesBySlot] = await Promise.all([
+    loadRealSlotRows(db, realPages.map((p) => p.id)),
+    loadRealCandidateRows(db, variantId),
+  ]);
 
   return composeVariantPages(realPages, slotsByPage, candidatesBySlot);
 }
@@ -657,8 +649,7 @@ export async function loadVariantPages(
 // ---------------------------------------------------------------------------
 // BATCHED page loading — the admin builder's read path
 //
-// loadVariantPages above resolves ONE variant in three SEQUENTIAL round trips
-// (pages -> slots -> candidates). The quote editor's structure endpoint needs
+// loadVariantPages above resolves ONE variant. The quote editor's structure endpoint needs
 // the pages of every funnel's active variant, so per-variant loading made the
 // page pay that chain once per funnel, stacked on top of the quote/funnel/
 // variant chain before it.
@@ -870,11 +861,13 @@ async function loadRealQuoteCandidateRows(
 // independent of slot_id.
 async function loadDirectPageSections(
   db: D1Database,
-  pageId: number,
-): Promise<(ResolvedFunnelSection & { variant_section_id: number })[]> {
+  pageIds: number[],
+): Promise<Map<number, (ResolvedFunnelSection & { variant_section_id: number })[]>> {
+  const byPage = new Map<number, (ResolvedFunnelSection & { variant_section_id: number })[]>();
+  if (pageIds.length === 0) return byPage;
   const result = await db
     .prepare(
-      `SELECT fvs.id AS variant_section_id, fvs.position AS position,
+      `SELECT fvs.page_id, fvs.id AS variant_section_id, fvs.position AS position,
               s.id AS id, s.public_id AS public_id, s.section_name AS section_name,
               s.activity AS activity, s.vertical AS vertical, s.headline_text AS headline_text,
               s.subheadline_text AS subheadline_text, s.image_json AS image_json,
@@ -886,15 +879,17 @@ async function loadDirectPageSections(
               s.updated_at AS updated_at
        FROM leadgen_funnel_variant_sections fvs
        JOIN leadgen_sections s ON s.id = fvs.section_id
-       WHERE fvs.page_id = ? ORDER BY fvs.position ASC`,
+       WHERE fvs.page_id IN (SELECT value FROM json_each(?))
+       ORDER BY fvs.page_id ASC, fvs.position ASC`,
     )
-    .bind(pageId)
-    .all<LeadgenSectionRow & { position: number; variant_section_id: number }>();
-  const rows = result.results ?? [];
-  return rows.map((r) => {
-    const { position, variant_section_id, ...section } = r;
-    return { position, variant_section_id, section: section as LeadgenSectionRow };
-  });
+    .bind(JSON.stringify(pageIds))
+    .all<LeadgenSectionRow & { page_id: number; position: number; variant_section_id: number }>();
+  for (const { page_id, position, variant_section_id, ...section } of result.results ?? []) {
+    const list = byPage.get(page_id) ?? [];
+    list.push({ position, variant_section_id, section });
+    byPage.set(page_id, list);
+  }
+  return byPage;
 }
 
 // Quote-owned sections ordered by position (the synthetic-fallback source when
@@ -934,24 +929,13 @@ async function getOrderedQuoteSections(
 export async function loadSharedPages(db: D1Database, quoteId: number): Promise<ResolvedFunnelPage[]> {
   const realPages = await loadRealQuotePageRows(db, quoteId);
   if (realPages.length > 0) {
-    const slotsByPage = await loadRealSlotRows(
-      db,
-      realPages.map((p) => p.id),
-    );
-    const candidatesBySlot = await loadRealQuoteCandidateRows(db, quoteId);
-    // §4.3-11 fix: a real page with NO real slot rows yet (loadDirectPageSections'
-    // header note — the current shared-page authoring shape, page_id set / no
-    // leadgen_funnel_page_slots row) falls back to its OWN sections read
-    // directly by page_id, one synthetic fixed slot per section — so its
-    // progress-bar contribution (and its rendered content) is never silently
-    // dropped to zero. At most one shared page exists in practice (§4.3-1), so
-    // this sequential per-page await is negligible.
-    const directByPage = new Map<number, (ResolvedFunnelSection & { variant_section_id: number })[]>();
-    for (const p of realPages) {
-      if ((slotsByPage.get(p.id) ?? []).length === 0) {
-        directByPage.set(p.id, await loadDirectPageSections(db, p.id));
-      }
-    }
+    const pageIds = realPages.map((p) => p.id);
+    const [slotsByPage, candidatesBySlot] = await Promise.all([
+      loadRealSlotRows(db, pageIds),
+      loadRealQuoteCandidateRows(db, quoteId),
+    ]);
+    // A slotless page uses its own page-linked sections, one fixed slot per row.
+    const directByPage = await loadDirectPageSections(db, pageIds.filter((id) => !slotsByPage.has(id)));
     return realPages.map((p) => {
       const realSlots = slotsByPage.get(p.id) ?? [];
       if (realSlots.length > 0) {
@@ -1730,8 +1714,9 @@ export async function resolveEntryRedirect(
   quote: { id: number; public_id: string },
   ctx: EntryKnownContext,
   sessionId: string,
+  rules?: readonly ParsedQuoteRule[],
 ): Promise<string | null> {
-  const match = evaluateQuoteEntryRouting(await loadQuoteRoutingRules(db, quote.id), ctx, {
+  const match = evaluateQuoteEntryRouting(rules ?? await loadQuoteRoutingRules(db, quote.id), ctx, {
     quote_public_id: quote.public_id,
     session_id: sessionId,
   });
@@ -1786,10 +1771,17 @@ export async function loadFunnelEntryVariants(
   funnelId: number,
   hasSession = true,
 ): Promise<FunnelEntryVariants<LeadgenFunnelVariantRow>> {
-  const abTest = hasSession ? await getRunningAbTestForFunnel(db, funnelId) : null;
-  if (abTest !== null) return { abTest, variants: await getActiveVariantsForFunnel(db, funnelId) };
-  const control = await getControlVariantForFunnel(db, funnelId);
-  return { abTest: null, variants: control === null ? [] : [control] };
+  if (!hasSession) {
+    const control = await getControlVariantForFunnel(db, funnelId);
+    return { abTest: null, variants: control === null ? [] : [control] };
+  }
+  const [abTest, variants] = await Promise.all([
+    getRunningAbTestForFunnel(db, funnelId),
+    getActiveVariantsForFunnel(db, funnelId),
+  ]);
+  // Both variant queries order by label, then id. Without a running test only
+  // the first active variant is served, including in the gateway snapshot.
+  return { abTest, variants: abTest === null ? variants.slice(0, 1) : variants };
 }
 
 export function selectFunnelEntryVariant<V extends AbVariantLike>(
@@ -1852,56 +1844,38 @@ async function composeResolvedBundle(
   funnel: LeadgenFunnelRow,
   variant: LeadgenFunnelVariantRow,
   assignment: FunnelAssignment,
+  routingRules?: readonly ParsedQuoteRule[],
 ): Promise<ResolvedActivatedFunnel> {
-  let sharedPages: ResolvedFunnelPage[] = [];
-  try {
-    sharedPages = await loadSharedPages(db, quote.id);
-  } catch {
-    sharedPages = [];
-  }
-  const variantPages = await loadVariantPages(db, variant.id);
+  // The serving site's footer links depend on the effective template. Both
+  // page trees can load while we resolve that template and its branding.
+  const defaults = resolveSavedFrameTemplateDefaultsFor(db, { funnel, variant, quote }).catch(() => null);
+  const [sharedPages, variantPages, savedTemplateDefaults, siteBranding] = await Promise.all([
+    loadSharedPages(db, quote.id).catch(() => []),
+    loadVariantPages(db, variant.id),
+    defaults,
+    defaults.then((saved) => {
+      const frame = resolveEffectiveFrameOnly({
+        frame_config_json: funnel.frame_config_json,
+        theme_json: funnel.theme_json,
+        frame_overrides_json: variant.frame_overrides_json,
+        saved_template_defaults: saved,
+      });
+      return resolveSiteBranding(db, siteId, footerLegalPagePicks(frame));
+    }),
+  ]);
   const pages = [...sharedPages, ...variantPages];
-  const sections = sectionsFromPages(pages);
-  // R2 P3 (element J) D2 — a live serve's own funnel/variant IS the footer's
-  // owner, so its picked-legal-links leg (link_row, links_source:"picked")
-  // must resolve for THIS serving site_id. resolveEffectiveFrameOnly is the
-  // SAME pure, synchronous frame-merge this file already exports (no new
-  // computation invented) — footerLegalPagePicks just reads footer.blocks
-  // off its result.
-  //
-  // R2 P3 BLOCKER FIX: this call omitted saved_template_defaults, so a funnel
-  // whose footer comes from an APPLIED SAVED TEMPLATE resolved previewFrame =
-  // null (or a frame missing the template's blocks) and footerLegalPagePicks
-  // found NOTHING — proven in the drive: one J template with picks
-  // {privacy-policy, terms} served the IDENTICAL site_settings-derived link
-  // list on all three fixture sites instead of each site's own pages. The
-  // picks live in the SAVED TEMPLATE, so the picks lookup must read the same
-  // composition the render does. Same helper, same precedence
-  // (variant.ftid ?? funnel.ftid ?? per-quote default), same null-degrade as
-  // serve.ts's own call — one indexed lookup, and it never throws.
-  let savedTemplateDefaults: EffectiveFrameConfig | null = null;
-  try {
-    savedTemplateDefaults = await resolveSavedFrameTemplateDefaultsFor(db, { funnel, variant, quote });
-  } catch {
-    savedTemplateDefaults = null; // a template read must never 500 a revenue page
-  }
-  const previewFrame = resolveEffectiveFrameOnly({
-    frame_config_json: funnel.frame_config_json,
-    theme_json: funnel.theme_json,
-    frame_overrides_json: variant.frame_overrides_json,
-    saved_template_defaults: savedTemplateDefaults,
-  });
-  const siteBranding = await resolveSiteBranding(db, siteId, footerLegalPagePicks(previewFrame));
   return {
     site_quote: siteQuote,
     quote,
     funnel,
     variant,
-    sections,
+    sections: sectionsFromPages(pages),
     pages,
     ga4_measurement_id: readGa4MeasurementId(siteQuote.settings_overrides_json),
     assignment,
     site_branding: siteBranding,
+    saved_template_defaults: savedTemplateDefaults,
+    routing_rules: routingRules,
   };
 }
 
@@ -1947,16 +1921,17 @@ export async function resolveActivatedFunnel(
   const siteQuote = await resolveEnabledSiteQuote(db, args.site_id, args.quote_slug);
   if (siteQuote === null) return null;
 
-  const quote = await getQuoteById(db, siteQuote.quote_id);
-  if (quote === null) return null;
-
-  const funnels = await getActiveFunnelsForQuote(db, quote.id);
-  if (funnels.length === 0) return null;
+  const [quote, funnels, rules] = await Promise.all([
+    getQuoteById(db, siteQuote.quote_id),
+    getActiveFunnelsForQuote(db, siteQuote.quote_id),
+    args.entry_ctx === undefined ? undefined : loadQuoteRoutingRules(db, siteQuote.quote_id),
+  ]);
+  if (quote === null || funnels.length === 0) return null;
 
   const sessionId = args.session_id ?? "";
 
   const match = args.entry_ctx === undefined ? null : evaluateQuoteEntryRouting(
-    await loadQuoteRoutingRules(db, quote.id),
+    rules ?? [],
     args.entry_ctx,
     { quote_public_id: quote.public_id, session_id: sessionId },
   );
@@ -1966,7 +1941,7 @@ export async function resolveActivatedFunnel(
   // (3) A/B within the served funnel (§4.3-10).
   const assigned = await assignVariantForFunnel(db, served.funnel, sessionId, served.routedHash);
   if (assigned === null) return null;
-  return composeResolvedBundle(db, args.site_id, siteQuote, quote, served.funnel, assigned.variant, assigned.assignment);
+  return composeResolvedBundle(db, args.site_id, siteQuote, quote, served.funnel, assigned.variant, assigned.assignment, rules);
 }
 
 // Reverse resolution for /lg/config + /lg/attempt: a specific funnel_variant_id
@@ -1983,6 +1958,7 @@ export async function resolveActivatedFunnelByVariant(
   env: Env,
   siteId: string,
   variantPublicId: string,
+  options: { quoteSlug?: string | null; includeRoutingRules?: boolean } = {},
 ): Promise<ResolvedActivatedFunnel | null> {
   // Shape guard: a param that is not a well-formed lgn_ id can never be a real
   // variant — refuse before touching the DB (no cross-tenant existence oracle).
@@ -2010,9 +1986,13 @@ export async function resolveActivatedFunnelByVariant(
     )
     .bind(siteId, funnel.quote_id)
     .first<LeadgenSiteQuoteRow>();
-  if (siteQuote === null) return null;
+  if (siteQuote === null || (options.quoteSlug !== undefined && siteQuote.slug !== options.quoteSlug)) return null;
 
-  const quote = await getQuoteById(db, funnel.quote_id);
+  const [quote, abTest, rules] = await Promise.all([
+    getQuoteById(db, funnel.quote_id),
+    getRunningAbTestForFunnel(db, funnel.id),
+    options.includeRoutingRules ? loadQuoteRoutingRules(db, funnel.quote_id) : undefined,
+  ]);
   if (quote === null) return null;
 
   // Servability + §16.3 dims. A running test makes every active variant a served
@@ -2024,7 +2004,6 @@ export async function resolveActivatedFunnelByVariant(
   // match a row again; it was a permanently-unreachable branch, proven by the
   // schema, not merely unobserved. A non-control variant now always falls
   // through to `return null` exactly as it did before this widening existed.
-  const abTest = await getRunningAbTestForFunnel(db, funnel.id);
   let assignment: FunnelAssignment;
   if (abTest !== null) {
     assignment = abHashAssignmentDims(abTest, variant);
@@ -2042,7 +2021,7 @@ export async function resolveActivatedFunnelByVariant(
   // produces, so section_order_hash / page_plan / signed bindings match the
   // shell byte-for-byte across the /lg (shell) and /lg/config·/lg/attempt·
   // /lg/auction (reverse-lookup) paths. §10.2 branding rides the bundle.
-  return composeResolvedBundle(db, siteId, siteQuote, quote, funnel, variant, assignment);
+  return composeResolvedBundle(db, siteId, siteQuote, quote, funnel, variant, assignment, rules);
 }
 
 // ---------------------------------------------------------------------------

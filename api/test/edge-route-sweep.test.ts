@@ -134,6 +134,7 @@ const cases = examples.flatMap(({ route, path = route, variants = ["human"], sta
 
 function renderEnv(db: SqliteDb): Env {
   const bindings = sqliteEnv(db);
+  bindings.DB.batch = <T>(statements: D1PreparedStatement[]) => Promise.all(statements.map(s => s.all<T>()));
   const entries = new Map<string, { value: string; metadata: unknown }>();
   Object.assign(bindings.CACHE, {
     async get(key: string) { return entries.get(key)?.value ?? null; },

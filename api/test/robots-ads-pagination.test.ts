@@ -4,10 +4,11 @@ import publicRouter from "../src/public/router";
 import type { PublicSiteVariables } from "../src/public/middleware";
 import type { Env } from "../src/env";
 import {
-  resolvePageSize,
-  fetchCategoryArticles,
+  fetchListing,
   PUBLIC_PAGE_SIZE,
 } from "../src/public/queries";
+import { d1FromSqlite } from "./helpers/leadgen-analytics-harness";
+import { addSite, createDb } from "./helpers/x06-a2-sqlite";
 
 // T27 (BCL-049) regression coverage.
 //
@@ -67,6 +68,11 @@ function makeRouterDb(settings: SettingSeed[]): D1Database {
           return null;
         },
         async all<T = unknown>() {
+          if (sql.startsWith("SELECT key, value FROM site_settings")) {
+            const rows = settings.filter((row) => row.site_id === captured[0] &&
+              (row.key === "robots_txt_content" || row.key === "ai_block_training"));
+            return { results: rows as T[], success: true, meta: {} };
+          }
           return { results: [] as T[], success: true, meta: {} };
         },
         async run() {
@@ -123,63 +129,6 @@ function makeApp() {
   return app;
 }
 
-// Category-articles fake DB for AC2: returns the `items_per_page` setting and
-// yields exactly `LIMIT` article rows (capped at a 50-row pool) so the list
-// length is governed solely by the resolved page size that drives the LIMIT
-// bind — proving the setting controls list length, not the hardcoded 20.
-const ARTICLE_POOL = 50;
-
-function makeListDb(itemsPerPage: string | null): D1Database {
-  return {
-    prepare(sql: string) {
-      let captured: unknown[] = [];
-      const stmt = {
-        bind(...args: unknown[]) {
-          captured = args;
-          return stmt;
-        },
-        async first<T = unknown>(): Promise<T | null> {
-          if (sql.startsWith("SELECT value FROM site_settings")) {
-            const key = String(captured[1] ?? "");
-            if (key === "items_per_page" && itemsPerPage !== null) {
-              return { value: itemsPerPage } as unknown as T;
-            }
-            return null;
-          }
-          return null;
-        },
-        async all<T = unknown>() {
-          // rescue-4 round-3 (issue 1): fetchCategoryArticles now LEFT JOINs
-          // media for the card image, so the SQL is
-          // `SELECT a.*, m.storage_key ... FROM articles a ... WHERE a.category_id = ?`.
-          // Match the new shape (the bind order is unchanged:
-          // captured[2]=limit, captured[3]=offset still hold).
-          if (sql.includes("FROM articles") && sql.includes("category_id")) {
-            const limit = Number(captured[2] ?? 0);
-            const offset = Number(captured[3] ?? 0);
-            const available = Math.max(0, ARTICLE_POOL - offset);
-            const count = Math.max(0, Math.min(limit, available));
-            const rows = Array.from({ length: count }, (_unused, i) => ({
-              id: offset + i + 1,
-              slug: `a-${offset + i + 1}`,
-              title: `Article ${offset + i + 1}`,
-              status: "published",
-              image_url: null,
-              image_alt: null,
-            }));
-            return { results: rows as T[], success: true, meta: {} };
-          }
-          return { results: [] as T[], success: true, meta: {} };
-        },
-        async run() {
-          return { success: true, meta: {} };
-        },
-      };
-      return stmt as unknown as D1PreparedStatement;
-    },
-  } as unknown as D1Database;
-}
-
 describe("T27 robots.txt / ads.txt key-mismatch fix (RC-048)", () => {
   it("L2_AUTO_DISAMBIGUATION:T27-AC1:RC-048 — editing robots.txt in admin reaches live /robots.txt (robots_txt_content key aligned), {{DOMAIN}} is substituted, and the default body carries Allow:/ + Disallow:/api [api/test/robots-ads-pagination.test.ts]", async () => {
     // Operator edit applies + {{DOMAIN}} substituted with the live hostname.
@@ -220,32 +169,39 @@ describe("T27 robots.txt / ads.txt key-mismatch fix (RC-048)", () => {
 
 describe("T27 items_per_page governs listing length (RC-049)", () => {
   it("L2_AUTO_DISAMBIGUATION:T27-AC2:RC-049 — items_per_page=12 makes a category list return 12 (not the hardcoded 20), and an unset setting falls back to the 20 default [api/test/robots-ads-pagination.test.ts]", async () => {
-    // items_per_page=12 → resolved page size 12 → exactly 12 rows.
-    const dbTwelve = makeListDb("12");
-    const size12 = await resolvePageSize(dbTwelve, SITE_ID);
-    expect(size12).toBe(12);
-    const list12 = await fetchCategoryArticles(dbTwelve, 5, SITE_ID, 1, size12);
-    expect(list12.length).toBe(12);
-    expect(list12.length).not.toBe(PUBLIC_PAGE_SIZE);
+    const sqlite = createDb();
+    try {
+      addSite(sqlite, SITE_ID, "Journal", "travel");
+      sqlite.prepare("INSERT INTO categories (id, slug, name) VALUES (501, 'notes', 'Notes')").run();
+      const article = sqlite.prepare(
+        "INSERT INTO articles (site_id, category_id, slug, title, content_json, status) VALUES (?, 501, ?, 'Story', '{}', 'published')",
+      );
+      for (let i = 0; i < 50; i++) article.run(SITE_ID, "story-" + i);
+      const db = d1FromSqlite(sqlite);
+      const listing = () => fetchListing(db, "category", SITE_ID, "notes", 1);
+      const setSize = sqlite.prepare("INSERT OR REPLACE INTO site_settings (site_id, key, value) VALUES (?, 'items_per_page', ?)");
 
-    // Unset → fall back to PUBLIC_PAGE_SIZE (20).
-    const dbDefault = makeListDb(null);
-    const sizeDefault = await resolvePageSize(dbDefault, SITE_ID);
-    expect(sizeDefault).toBe(PUBLIC_PAGE_SIZE);
-    expect(sizeDefault).toBe(20);
-    const listDefault = await fetchCategoryArticles(
-      dbDefault,
-      5,
-      SITE_ID,
-      1,
-      sizeDefault,
-    );
-    expect(listDefault.length).toBe(20);
+      const defaultPage = await listing();
+      expect(defaultPage?.pageSize).toBe(PUBLIC_PAGE_SIZE);
+      expect(defaultPage?.pageSize).toBe(20);
+      expect(defaultPage?.articles).toHaveLength(20);
 
-    // Out-of-range values clamp to the admin 1..100 control bounds.
-    expect(await resolvePageSize(makeListDb("0"), SITE_ID)).toBe(PUBLIC_PAGE_SIZE);
-    expect(await resolvePageSize(makeListDb("999"), SITE_ID)).toBe(100);
-    expect(await resolvePageSize(makeListDb("abc"), SITE_ID)).toBe(PUBLIC_PAGE_SIZE);
+      setSize.run(SITE_ID, "12");
+      const twelve = await listing();
+      expect(twelve?.pageSize).toBe(12);
+      expect(twelve?.articles).toHaveLength(12);
+      expect(twelve?.articles.length).not.toBe(PUBLIC_PAGE_SIZE);
+
+      for (const [raw, expected] of [
+        ["0", PUBLIC_PAGE_SIZE], ["999", 100], ["abc", PUBLIC_PAGE_SIZE],
+        ["9".repeat(310), PUBLIC_PAGE_SIZE], ["\u00a0+4e300", 4],
+      ] as const) {
+        setSize.run(SITE_ID, raw);
+        expect((await listing())?.pageSize).toBe(expected);
+      }
+    } finally {
+      sqlite.close();
+    }
   });
 });
 

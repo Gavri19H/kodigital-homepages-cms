@@ -985,24 +985,17 @@ function makeCategoryDb(): D1Database {
               settings_version: 1,
             } as unknown as T;
           }
-          if (sql.startsWith("SELECT id, slug, name, description FROM categories")) {
-            const slug = captured[0] as string;
-            if (slug !== CATEGORY_ROW.slug) return null;
-            return { ...CATEGORY_ROW } as unknown as T;
-          }
           return null;
         },
         async all<T = unknown>() {
-          // rescue-4 round-3 (issue 1): fetchCategoryArticles now LEFT JOINs
-          // media (`SELECT a.*, m.storage_key ... FROM articles a ... WHERE
-          // a.category_id = ?`), so match the new shape, not the old
-          // `SELECT * FROM articles WHERE category_id` literal.
-          if (sql.includes("FROM articles") && sql.includes("category_id")) {
-            return {
-              results: CATEGORY_ARTICLES as unknown as T[],
-              success: true,
-              meta: {},
-            };
+          if (sql.startsWith("WITH taxonomy AS")) {
+            const rows = captured[0] === CATEGORY_SITE_ID && captured[1] === CATEGORY_ROW.slug
+              ? CATEGORY_ARTICLES.map((a) => ({
+                ...CATEGORY_ROW, page_size: 20, article_slug: a.slug, article_title: a.title,
+                published_at: a.published_at, image_url: null, image_alt: null,
+              }))
+              : [];
+            return { results: rows as T[], success: true, meta: {} };
           }
           if (sql.includes("FROM site_settings")) {
             return {

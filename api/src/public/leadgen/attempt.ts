@@ -259,6 +259,19 @@ export interface AttemptBindingExtras {
   auction_config_version: string;
 }
 
+async function loadAuctionConfigVersion(db: D1Database | undefined, auctionId: number | null): Promise<string> {
+  if (db === undefined || auctionId === null) return "";
+  try {
+    const row = await db
+      .prepare("SELECT carrier_normalization_version FROM leadgen_auctions WHERE id = ? LIMIT 1")
+      .bind(auctionId)
+      .first<{ carrier_normalization_version: number }>();
+    return row === null ? "" : String(row.carrier_normalization_version);
+  } catch {
+    return "";
+  }
+}
+
 // Compute the v2 tuple extras from typed state. DB-optional + fail-open BY
 // SYMMETRY: mint and verify both call THIS function on the same env, so a
 // degraded read (no DB in a unit harness) binds the same value it later
@@ -268,24 +281,21 @@ export async function computeAttemptBindingExtras(
   resolved: ResolvedActivatedFunnel,
 ): Promise<AttemptBindingExtras> {
   const db = (env as { DB?: D1Database }).DB;
+  const auctionVersion = loadAuctionConfigVersion(db, resolved.variant.auction_id);
 
   // Ordered per-section answer-mapping versions (0 when unmapped/unreadable).
   const versionBySection = new Map<number, number>();
   const sectionIds = resolved.sections.map((s) => s.section.id);
   if (db !== undefined && sectionIds.length > 0) {
     try {
-      // Chunked IN(?) ≤80 (D1 100-binding rule).
-      for (let i = 0; i < sectionIds.length; i += 80) {
-        const ids = sectionIds.slice(i, i + 80);
-        const marks = ids.map(() => "?").join(",");
-        const rows = await db
-          .prepare(
-            `SELECT section_id, COALESCE(MAX(id), 0) AS v FROM leadgen_section_answer_maps WHERE section_id IN (${marks}) GROUP BY section_id`,
-          )
-          .bind(...ids)
-          .all<{ section_id: number; v: number }>();
-        for (const r of rows.results ?? []) versionBySection.set(r.section_id, r.v);
-      }
+      const rows = await db
+        .prepare(
+          `SELECT section_id, COALESCE(MAX(id), 0) AS v FROM leadgen_section_answer_maps
+           WHERE section_id IN (SELECT value FROM json_each(?)) GROUP BY section_id`,
+        )
+        .bind(JSON.stringify(sectionIds))
+        .all<{ section_id: number; v: number }>();
+      for (const r of rows.results ?? []) versionBySection.set(r.section_id, r.v);
     } catch {
       versionBySection.clear(); // degrade to all-0 (mint/verify symmetric)
     }
@@ -293,19 +303,7 @@ export async function computeAttemptBindingExtras(
   const orderedVersions = resolved.sections.map((s) => String(versionBySection.get(s.section.id) ?? 0));
   const answer_mapping_hash = sha256Hex(JSON.stringify(orderedVersions));
 
-  let auction_config_version = "";
-  if (db !== undefined && resolved.variant.auction_id !== null) {
-    try {
-      const row = await db
-        .prepare("SELECT carrier_normalization_version FROM leadgen_auctions WHERE id = ? LIMIT 1")
-        .bind(resolved.variant.auction_id)
-        .first<{ carrier_normalization_version: number }>();
-      if (row !== null) auction_config_version = String(row.carrier_normalization_version);
-    } catch {
-      auction_config_version = "";
-    }
-  }
-  return { answer_mapping_hash, auction_config_version };
+  return { answer_mapping_hash, auction_config_version: await auctionVersion };
 }
 
 // ---------------------------------------------------------------------------
@@ -382,15 +380,12 @@ export async function mintFunnelAttempt(
     // routing rules over the RESOLVED (shared + variant) plan. A degraded read
     // (no DB in a unit harness) yields none → no /lg/ck calls (fail-safe; the
     // server still re-derives authoritatively at /lg/ck).
-    const db = (env as { DB?: D1Database }).DB;
-    if (db !== undefined) {
-      try {
-        const rules = await loadQuoteRoutingRules(db, resolved.quote.id);
-        const pageNumbers = deriveQuoteCheckpointPages(resolved.pages, rules);
-        checkpointPages = checkpointPageAnchors(pageNumbers, resolved_plan.pages);
-      } catch {
-        checkpointPages = [];
-      }
+    try {
+      const rules = resolved.routing_rules ?? (env.DB === undefined ? [] : await loadQuoteRoutingRules(env.DB, resolved.quote.id));
+      const pageNumbers = deriveQuoteCheckpointPages(resolved.pages, rules);
+      checkpointPages = checkpointPageAnchors(pageNumbers, resolved_plan.pages);
+    } catch {
+      checkpointPages = [];
     }
   }
 
@@ -419,15 +414,12 @@ export async function mintFunnelAttempt(
   // page transitions only, the SAME granularity P4a routing already re-
   // evaluates at, not on every page). resolveEffectiveFrameOnly degrades to
   // null on a legacy/invalid/absent frame (no cta_slots to evaluate).
-  // Rework M5 (mini-round): precedence variant.frame_template_id ?? funnel.
-  // frame_template_id, via the shared resolver.ts helper (both this file and
-  // serve.ts/runtime-routes.ts share it — same table, same parser). A caller
-  // without env.DB (unit harnesses) degrades to null (no saved template
-  // defaults) — the SAME graceful degrade computeAttemptBindingExtras already
-  // applies a few lines up in this same function.
-  const dbForFrame = (env as { DB?: D1Database }).DB;
-  const savedTemplateDefaults =
-    dbForFrame !== undefined ? await resolveSavedFrameTemplateDefaultsFor(dbForFrame, resolved) : null;
+  // A hand-built bundle can omit the defaults. A resolved null already
+  // includes the per-quote fallback and must not trigger another lookup.
+  let savedTemplateDefaults = resolved.saved_template_defaults;
+  if (savedTemplateDefaults === undefined && env.DB !== undefined) {
+    savedTemplateDefaults = await resolveSavedFrameTemplateDefaultsFor(env.DB, resolved);
+  }
   const frame = resolveEffectiveFrameOnly({
     frame_config_json: resolved.funnel.frame_config_json,
     theme_json: resolved.funnel.theme_json,

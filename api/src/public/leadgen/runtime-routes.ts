@@ -146,7 +146,7 @@ function resolveAttemptLandingUrl(c: PublicContext): string {
 async function serveLeadgenAttemptV2(c: PublicContext): Promise<Response> {
   const siteContext = c.get("siteContext");
   const variantId = c.req.query("funnel_variant_id") ?? c.req.query("vid") ?? "";
-  const resolved = await resolveActivatedFunnelByVariant(c.env, siteContext.siteId, variantId);
+  const resolved = await resolveActivatedFunnelByVariant(c.env, siteContext.siteId, variantId, { includeRoutingRules: true });
   if (resolved === null) {
     return new Response(JSON.stringify({ error: "Not Found" }), {
       status: 404,
@@ -198,7 +198,7 @@ async function serveLeadgenAttemptV2(c: PublicContext): Promise<Response> {
   // target_funnel_id === resolved.funnel.id` would always be false for a null
   // target_funnel_id and silently drop this winner's feed_name/multiplier).
   try {
-    const match = evaluateQuoteEntryRouting(await loadQuoteRoutingRules(c.env.DB, resolved.quote.id), entryCtx, {
+    const match = evaluateQuoteEntryRouting(resolved.routing_rules ?? [], entryCtx, {
       quote_public_id: resolved.quote.public_id,
       session_id: sessionId,
     });

@@ -258,7 +258,9 @@ export function parseAdsConfig(
 export async function loadAdsConfig(
   db: D1Database,
   siteId: string,
+  preloadedSettings?: Readonly<Record<string, string>>,
 ): Promise<AdsConfig> {
+  if (preloadedSettings !== undefined) return parseAdsConfig(preloadedSettings);
   const result = await db
     .prepare("SELECT key AS key, value AS value FROM site_settings WHERE site_id = ?")
     .bind(siteId)

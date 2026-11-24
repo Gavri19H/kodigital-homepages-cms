@@ -105,37 +105,27 @@ function makeDb(): { db: D1Database } {
               settings_version: 1,
             } as unknown as T;
           }
-          if (sql.includes("FROM listicle_articles WHERE site_id = ? AND slug = ?")) {
-            return (captured[1] === article.slug ? article : null) as unknown as T | null;
-          }
-          if (sql.includes("FROM listicle_article_experiments")) {
-            return { id: 21, public_id: "exp_P7", status: "running" } as unknown as T;
-          }
           if (sql.includes("FROM redirects")) return null;
           return null;
         },
         async all<T = unknown>() {
-          if (sql.includes("FROM listicle_article_versions")) {
-            return { results: versions as unknown as T[], success: true, meta: {} };
+          if (sql.includes("FROM listicle_articles a")) {
+            const matches = captured[0] === article.site_id && captured[1] === article.slug;
+            const rows = matches ? versions.map(version => ({
+              ...version, article_public_id: article.public_id, article_name: article.article_name,
+              active_experiment_id: article.active_experiment_id, running_experiment: "exp_P7",
+              site_timezone: "UTC", site_language: null,
+            })) : [];
+            return { results: rows as T[], success: true, meta: {} };
           }
-          if (sql.includes("FROM listicle_pages WHERE article_version_id IN")) {
+          if (sql.includes("FROM listicle_pages WHERE article_version_id = ? ORDER BY page_index")) {
             return { results: pages as unknown as T[], success: true, meta: {} };
           }
           if (sql.includes("FROM listicle_page_section_candidates c")) {
             return { results: candidates as unknown as T[], success: true, meta: {} };
           }
-          if (sql.includes("FROM listicle_page_rules WHERE page_id IN")) {
-            return { results: [] as T[], success: true, meta: {} };
-          }
-          if (sql.includes("FROM listicle_sections WHERE id IN")) {
+          if (sql.includes("AS headline_link_instance_id")) {
             return { results: [section] as unknown as T[], success: true, meta: {} };
-          }
-          if (sql.includes("key IN ('site_timezone', 'site_language')")) {
-            return {
-              results: [{ key: "site_timezone", value: "UTC" }] as unknown as T[],
-              success: true,
-              meta: {},
-            };
           }
           if (sql.includes("FROM site_settings")) {
             return {
@@ -152,6 +142,7 @@ function makeDb(): { db: D1Database } {
       };
       return stmt as unknown as D1PreparedStatement;
     },
+    batch: <T>(statements: D1PreparedStatement[]) => Promise.all(statements.map(s => s.all<T>())),
   } as unknown as D1Database;
   return { db };
 }
