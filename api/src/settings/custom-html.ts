@@ -73,6 +73,7 @@ export const ALLOWED_SETTINGS_KEYS: ReadonlySet<string> = new Set<string>([
   // 'ads_enabled'") -> the user-facing "Network error".
   "ads_enabled",
   "ad_provider",
+  "ads_load_timing",
   "adsense_publisher_id",
   "ad_unit_leaderboard",
   "ad_unit_in_feed",

@@ -241,7 +241,7 @@ function makeApp() {
 
 describe("ads-subsystem (T22)", () => {
   it("T22-AC1: AdSense enabled + publisher → head loads the provider script and renderAdSlot emits real containers at the design dims with data-ad-slot/data-ad-type (and nothing when unconfigured) [api/test/ads-subsystem.test.ts] L2_AUTO_DISAMBIGUATION:T22-AC1:RC-039", () => {
-    const config = liveConfig();
+    const config = liveConfig({ ads_load_timing: "legacy" });
 
     // (a) The provider <head> script: AdSense library, async + crossorigin,
     // keyed to the publisher client id — and it composes into the real <head>.

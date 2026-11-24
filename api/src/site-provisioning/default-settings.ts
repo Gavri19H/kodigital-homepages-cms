@@ -344,6 +344,7 @@ var uspInterval = setInterval(checkIfUspIsReady, 6000);
 export const MAIN_ADS_DEFAULTS: ReadonlyArray<readonly [string, string]> = [
   ["ads_enabled", "1"],
   ["ad_provider", "gam"],
+  ["ads_load_timing", "after_content"],
   ["gam_network_code", "22649417900"],
   ["gam_unit_leaderboard", "/22649417900/Home_Leaderboard"],
   ["gam_unit_in_feed", "/22649417900/Home_In-Feed"],

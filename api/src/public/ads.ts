@@ -10,6 +10,7 @@
 // Ad config keys on site_settings (per-site, site_id-scoped):
 //   ads_enabled            "1"/"true"            master on/off
 //   ad_provider            "adsense" | "none"    network
+//   ads_load_timing        after_content | legacy   provider start time
 //   adsense_publisher_id   "ca-pub-XXXXXXXX"     AdSense client id
 //   ad_unit_leaderboard    unit id               970×90 slot
 //   ad_unit_in_feed        unit id               728×90 slot
@@ -88,6 +89,7 @@ export const AD_REFRESH_MAX_PER_SLOT = 10;
 export interface AdsConfig {
   enabled: boolean;
   provider: AdProvider;
+  loadTiming: "after_content" | "legacy";
   adsensePublisherId: string | null;
   slotUnitIds: Readonly<Record<AdSlotType, string | null>>;
   inContentPosition: number;
@@ -213,6 +215,7 @@ export function parseAdsConfig(
   return {
     enabled: parseBool(settings.ads_enabled, false),
     provider,
+    loadTiming: settings.ads_load_timing === "legacy" ? "legacy" : "after_content",
     adsensePublisherId: sanitiseAdId(settings.adsense_publisher_id),
     slotUnitIds: {
       leaderboard: sanitiseAdId(settings.ad_unit_leaderboard),
@@ -319,24 +322,40 @@ export function shouldShowAds(config: AdsConfig, ctx: AdsPageContext = {}): bool
   return true;
 }
 
-// The provider <head> script. AdSense loads its library async + crossorigin,
-// keyed to the publisher client id. Empty string when AdSense is not live.
+// Start the provider request at window load. The ad manager can queue slot
+// commands as soon as the DOM is ready, just as it can for a slow provider.
+function renderAdProviderScript(src: string, timing: AdsConfig["loadTiming"]): string {
+  if (timing === "legacy") {
+    return `<script async src="${escAttr(src)}" crossorigin="anonymous"></script>`;
+  }
+  const scriptUrl = JSON.stringify(src).replace(/</g, "\\u003c");
+  return (
+    "<script>(function(){" +
+    "function load(){" +
+    "var script=document.createElement('script');" +
+    "script.async=true;script.crossOrigin='anonymous';" +
+    `script.src=${scriptUrl};` +
+    "document.head.appendChild(script);}" +
+    "if(document.readyState==='complete'){load();}" +
+    "else{window.addEventListener('load',load,{once:true});}" +
+    "})();</script>"
+  );
+}
+
 export function renderAdProviderHead(config: AdsConfig): string {
   if (hasGam(config)) {
-    // Google Publisher Tag (GPT) loader for a direct GAM / Ad Exchange account.
     return (
-      `<script async ` +
-      `src="https://securepubads.g.doubleclick.net/tag/js/gpt.js" ` +
-      `crossorigin="anonymous"></script>` +
+      renderAdProviderScript(
+        "https://securepubads.g.doubleclick.net/tag/js/gpt.js",
+        config.loadTiming,
+      ) +
       `<script>window.googletag=window.googletag||{cmd:[]};</script>`
     );
   }
   if (!hasAdsense(config)) return "";
-  const client = escAttr(config.adsensePublisherId as string);
-  return (
-    `<script async ` +
-    `src="https://pagead2.googlesyndication.com/pagead/js/adsbygoogle.js?client=${client}" ` +
-    `crossorigin="anonymous"></script>`
+  return renderAdProviderScript(
+    `https://pagead2.googlesyndication.com/pagead/js/adsbygoogle.js?client=${config.adsensePublisherId}`,
+    config.loadTiming,
   );
 }
 
