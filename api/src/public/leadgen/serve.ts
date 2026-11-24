@@ -1262,11 +1262,11 @@ export async function serveFunnelShell(
 ): Promise<Response> {
   const siteContext = c.get("siteContext");
   const variantKey = c.req.header("x-cms-variant");
+  // Check the requested slug before loading the bundle from a stale snapshot.
   const edgeFunnel = variantKey?.startsWith("lg:")
-    ? await resolveActivatedFunnelByVariant(c.env, siteContext.siteId, variantKey.slice(3)).catch(() => null)
+    ? await resolveActivatedFunnelByVariant(c.env, siteContext.siteId, variantKey.slice(3), { quoteSlug }).catch(() => null)
     : null;
-  // A stale snapshot may name a variant whose activation moved to another slug.
-  const visitor = edgeFunnel !== null && edgeFunnel.site_quote.slug === quoteSlug ? null : readFunnelVisitor(c);
+  const visitor = edgeFunnel === null ? readFunnelVisitor(c) : null;
   const resolved = visitor === null ? edgeFunnel : await resolveActivatedFunnel(c.env, {
     site_id: siteContext.siteId,
     quote_slug: quoteSlug,
@@ -1309,7 +1309,7 @@ export async function serveFunnelShell(
   if (visitor !== null) {
     // The gateway handles both redirects and conditional requests for an edge-selected shell.
     // On a direct visit the sticky redirect takes precedence over If-None-Match (§4.3-9).
-    const redirectTo = await resolveEntryRedirect(c.env.DB, resolved.quote, visitor.entryCtx, visitor.sid);
+    const redirectTo = await resolveEntryRedirect(c.env.DB, resolved.quote, visitor.entryCtx, visitor.sid, resolved.routing_rules);
     if (redirectTo !== null) {
       const rh = new Headers();
       rh.set("Location", redirectTo);
@@ -1331,39 +1331,21 @@ export async function serveFunnelShell(
   if (cached !== null) {
     pristine = cached.body;
   } else {
-    // R6 (v2.4 03 §3.8): the per-section answer-map version markers, read at
-    // resolve time on the COLD path only (a cache hit already carries them
-    // baked into #lg-config).
-    const answerMapVersions = await loadAnswerMapVersions(c.env.DB, resolved.sections);
-    // v3.1 §10.1/§12: the SAME cold-path-only discipline for the theme_id KV
-    // read — a cache hit already carries whatever theme was baked in at write
-    // time. A theme_json/frame_overrides_json EDIT bumps content_version (§3.1),
-    // which busts this cache key; and a THEME RECORD content edit
-    // (updateThemeHandler) now fans out through P6b's scheduleThemeInvalidate —
-    // it sweeps every funnel referencing that theme_id and invalidates each
-    // activated site's shell cache (themes-handlers.ts invalidateThemeAcross-
-    // Funnels → invalidateOnVariantPublish), so an edited preset re-renders on
-    // the next request (the earlier "open concern" is closed). A funnel whose
-    // frame_config_json is NULL but whose theme_json carries an EXPLICIT
-    // theme_id also now composes on the frame path (resolveFrameComposition's
-    // narrow default, register R4 item 10I) instead of being dropped by the
-    // legacy frameless fork below.
-    const themeRecord = await resolveThemeRecordFor(c.env, frameSourceOf(resolved));
-    // Rework M5 (§5, mini-round): the SAME cold-path-only discipline — a
-    // cache hit already carries whatever saved template defaults were baked
-    // in at write time. S1.4 bumps content_version at both re-point
-    // endpoints (quotes-handlers.ts PUT /variants/:id frame_template_id, and
-    // apply-to-funnel via bumpActiveVariantContentVersions), busting this
-    // shell's cache key — permanent coverage in leadgen-rework-handlers.
-    // test.ts's "cache coherence" tests.
-    const savedTemplateDefaults = await resolveSavedFrameTemplateDefaultsFor(c.env.DB, resolved);
-    // 2026-10-08 Facebook events — cold path only, like every other read here:
-    // the funnel's own pixel (a pixel edit bumps content_version → new key) and
-    // whether an Offer of THIS funnel's auction has its click event on (one
-    // LIMIT 1 read — fix round 1, review m3).
+    const savedTemplateDefaults = resolved.saved_template_defaults ?? null;
+    const pageNodes = resolved.sections.flatMap((rs) =>
+      parseSectionComponents(typeof rs.section.content_json === "string" ? rs.section.content_json : ""),
+    );
+    // A cold shell needs all four inputs. The theme, auction and vehicle
+    // loaders skip their lookups when the resolved variant doesn't use them.
+    const [answerMapVersions, themeRecord, clickEvents, vehicle] = await Promise.all([
+      loadAnswerMapVersions(c.env.DB, resolved.sections),
+      resolveThemeRecordFor(c.env, frameSourceOf(resolved)),
+      funnelOfferClickEventOn(c.env.DB, resolved.variant.auction_id),
+      loadVehicleRenderData(c.env, pageNodes).catch(() => null),
+    ]);
     const metaPixel: LeadgenMetaPixelShell = {
       funnel_pixel_id: funnelMetaPixelId(resolved),
-      click_events: await funnelOfferClickEventOn(c.env.DB, resolved.variant.auction_id),
+      click_events: clickEvents,
       fields: {},
       variant_id: resolved.variant.public_id,
     };
@@ -1378,10 +1360,6 @@ export async function serveFunnelShell(
     // 5-minute shell TTL picks up a new snapshot, and the old snapshot's files
     // stay readable for 30+ days, so a cached page never points at a missing
     // lookup.
-    const pageNodes = resolved.sections.flatMap((rs) =>
-      parseSectionComponents(typeof rs.section.content_json === "string" ? rs.section.content_json : ""),
-    );
-    const vehicle = await loadVehicleRenderData(c.env, pageNodes).catch(() => null);
     // A funnel WITH vehicle questions rendered WITHOUT the list (a failed or
     // missing read) is degraded: its Make / Year / Model are text boxes. It is
     // served, never cached (KV, edge or browser), so the next request retries.
