@@ -38,6 +38,8 @@
 // guard hardens against a future re-registration order regression.
 
 import { Hono } from "hono";
+import { gatewayFetch } from "./edge/gateway";
+import { runEdgePurgeCron } from "./edge/public-change";
 import { getAdminHost, type Env } from "./env";
 import {
   accessAuth,
@@ -223,8 +225,7 @@ app.onError((err, c) => {
 });
 
 // T42 [BCL-080] — Scheduled cron. wrangler.toml [triggers] crons fires the
-// Workers `scheduled` handler every minute. It does TWO things, each isolated
-// so one cannot break the other:
+// Workers `scheduled` handler every minute. Its first two tasks are:
 //   1. processScheduledArticles — finds every article whose scheduled_at has
 //      arrived and flips it to published via the canonical publish() path.
 //   2. (rescue-4) driveInProgressProvisioning — advances any still-in-progress
@@ -236,14 +237,9 @@ app.onError((err, c) => {
 //      article count all the way to status='active'.
 //
 // Each task runs in its OWN try/catch: a provisioning error must NOT prevent
-// the publish pass (or vice-versa). Both are registered on ctx.waitUntil (so
+// the publish pass (or vice-versa). The work is registered on ctx.waitUntil (so
 // the cron invocation stays alive until they finish) AND awaited (so the
 // runtime — and unit tests — observe a settled promise).
-//
-// We ATTACH `scheduled` onto the Hono app (rather than wrapping it in a new
-// ExportedHandler literal) so the default export keeps `app.fetch` for the
-// runtime AND `app.request` for the Hono test helper that the existing suite
-// relies on — adding the cron entry point next to them, breaking neither.
 const scheduled = async (
   _controller: ScheduledController,
   env: Env,
@@ -332,6 +328,11 @@ const scheduled = async (
     } catch {
       // revenue maintenance must never break the publish/provisioning cron.
     }
+    try {
+      await runEdgePurgeCron(env, ctx);
+    } catch {
+      // Pending cache purges can retry on the next tick.
+    }
   })();
   ctx.waitUntil(work);
   await work;
@@ -361,7 +362,13 @@ const queue = async (
   }
 };
 
-const worker = Object.assign(app, { scheduled, queue });
+// PublicPage and gateway fallbacks enter Hono directly. app.request uses the worker fetch.
+export const honoFetch = app.fetch.bind(app);
+const worker = Object.assign(app, {
+  fetch: (req: Request, env: Env, ctx?: ExecutionContext) => gatewayFetch(req, env, ctx, honoFetch),
+  scheduled,
+  queue,
+});
 
 export { ProviderConfigurationAuthority } from "./conversions-provider-configuration-worker";
 export { PublicPage } from "./edge/public-page";

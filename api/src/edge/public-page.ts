@@ -34,8 +34,8 @@ export class PublicPage extends WorkerEntrypoint<Env, PublicPageProps> {
 
     const inner = new Request(request);
     inner.headers.set("x-cms-variant", variantKey);
-    const { default: app } = await import("../index");
-    const response = await app.fetch(inner, this.env, this.ctx);
+    const { honoFetch } = await import("../index");
+    const response = await honoFetch(inner, this.env, this.ctx);
     return applyEdgeCacheHeaders(response, {
       siteId: siteKey,
       path: pathname,

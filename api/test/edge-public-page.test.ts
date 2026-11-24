@@ -7,7 +7,7 @@ import { PublicPage } from "../src/edge/public-page";
 import { buildSiteSnapshot } from "../src/edge/snapshot";
 import type { PublicPageProps, SiteSnapshot } from "../src/edge/types";
 import type { Env } from "../src/env";
-import app from "../src/index";
+import { honoFetch } from "../src/index";
 
 vi.mock("cloudflare:workers", () => ({
   WorkerEntrypoint: class {
@@ -15,7 +15,7 @@ vi.mock("cloudflare:workers", () => ({
   },
 }));
 vi.mock("../src/edge/snapshot", () => ({ buildSiteSnapshot: vi.fn() }));
-vi.mock("../src/index", () => ({ default: { fetch: vi.fn() } }));
+vi.mock("../src/index", () => ({ honoFetch: vi.fn() }));
 
 const DAY = "public, max-age=0, s-maxage=86400, stale-while-revalidate=86400";
 const MINUTE = "public, max-age=0, s-maxage=60";
@@ -119,14 +119,14 @@ describe("PublicPage.fetch", () => {
       },
     });
     const modified = "Mon, 23 Nov 2026 12:00:00 GMT";
-    vi.mocked(app.fetch).mockResolvedValue(new Response("# Story", {
+    vi.mocked(honoFetch).mockResolvedValue(new Response("# Story", {
       headers: { "Content-Type": "text/markdown", ETag: '"rev-1"', "Last-Modified": modified },
     }));
 
     const response = await page.fetch(request);
 
-    expect(app.fetch).toHaveBeenCalledTimes(1);
-    const [forwarded, bindings, context] = vi.mocked(app.fetch).mock.calls[0]!;
+    expect(honoFetch).toHaveBeenCalledTimes(1);
+    const [forwarded, bindings, context] = vi.mocked(honoFetch).mock.calls[0]!;
     expect(bindings).toBe(env);
     expect(context).toBe(ctx);
     expect(forwarded.url).toBe(request.url);
@@ -153,7 +153,7 @@ describe("PublicPage.fetch", () => {
     const { page } = entrypoint(snapProps);
     const response = await page.fetch(new Request(snapUrl));
     expect(buildSiteSnapshot).toHaveBeenCalledWith(env, "tenant.example");
-    expect(app.fetch).not.toHaveBeenCalled();
+    expect(honoFetch).not.toHaveBeenCalled();
     expect(response.status).toBe(200);
     expect(response.headers.get("Content-Type")).toContain("application/json");
     expect(response.headers.get("Cache-Control")).toBe(DAY);
@@ -168,7 +168,7 @@ describe("PublicPage.fetch", () => {
     expect(response.status).toBe(404);
     expect(response.headers.get("Cache-Control")).toBe(MINUTE);
     expect(response.headers.get("Cache-Tag")).toBe("host:tenant.example");
-    expect(app.fetch).not.toHaveBeenCalled();
+    expect(honoFetch).not.toHaveBeenCalled();
   });
 
   it("returns an uncacheable 503 when the snapshot builder throws", async () => {
@@ -178,7 +178,7 @@ describe("PublicPage.fetch", () => {
     expect(response.status).toBe(503);
     expect(response.headers.get("Cache-Control")).toBe(PRIVATE);
     expect(response.headers.has("Cache-Tag")).toBe(false);
-    expect(app.fetch).not.toHaveBeenCalled();
+    expect(honoFetch).not.toHaveBeenCalled();
   });
 
   it.each(["host:other.example", "tenant.example"])("rejects mismatched snapshot key %s before lookup", async siteKey => {
@@ -188,7 +188,7 @@ describe("PublicPage.fetch", () => {
     expect(response.headers.get("Cache-Control")).toBe(PRIVATE);
     expect(response.headers.has("Cache-Tag")).toBe(false);
     expect(buildSiteSnapshot).not.toHaveBeenCalled();
-    expect(app.fetch).not.toHaveBeenCalled();
+    expect(honoFetch).not.toHaveBeenCalled();
   });
 });
 
