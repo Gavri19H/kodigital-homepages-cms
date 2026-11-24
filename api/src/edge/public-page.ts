@@ -10,12 +10,13 @@ export class PublicPage extends WorkerEntrypoint<Env, PublicPageProps> {
   override async fetch(request: Request): Promise<Response> {
     const { siteKey, variantKey } = this.ctx.props;
     const { hostname, pathname } = new URL(request.url);
+    const innerEnv = { ...perfstageEnv(this.env), EDGE_INNER: "1" };
     if (pathname === "/__snap") {
       if (siteKey !== `host:${hostname}`) {
         return new Response(null, { status: 400, headers: { "Cache-Control": EDGE_CACHE_CONTROL.private } });
       }
       try {
-        const snapshot = await buildSiteSnapshot(perfstageEnv(this.env), hostname);
+        const snapshot = await buildSiteSnapshot(innerEnv, hostname);
         if (snapshot === null) {
           return new Response(null, {
             status: 404,
@@ -36,7 +37,7 @@ export class PublicPage extends WorkerEntrypoint<Env, PublicPageProps> {
     const inner = new Request(request);
     inner.headers.set("x-cms-variant", variantKey);
     const { honoFetch } = await import("../index");
-    const response = await honoFetch(inner, perfstageEnv(this.env), this.ctx);
+    const response = await honoFetch(inner, innerEnv, this.ctx);
     return applyEdgeCacheHeaders(response, {
       siteId: siteKey,
       path: pathname,

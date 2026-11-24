@@ -84,6 +84,7 @@ export function getCachedHtml(
   key: string,
   waitUntil?: WaitUntilContext,
 ): Promise<CachedHtmlEntry | null> {
+  if (env.EDGE_INNER === "1") return Promise.resolve(null);
   return getCachedHtmlImpl(env, key).then((entry) => {
     if (entry === null) {
       recordCacheMiss(env, waitUntil);
@@ -130,6 +131,7 @@ export function putCachedHtml(
   options: PutCachedHtmlOptions = {},
   waitUntil?: WaitUntilContext,
 ): Promise<void> {
+  if (env.EDGE_INNER === "1") return Promise.resolve();
   const write = putCachedHtmlImpl(env, key, body, options);
   if (!waitUntil) return write;
   waitUntil.waitUntil(write);

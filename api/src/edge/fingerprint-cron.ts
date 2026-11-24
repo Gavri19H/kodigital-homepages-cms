@@ -11,7 +11,7 @@ const VERSION_KEY = "edge:ver:v1";
 // For small mutable tables without an update clock, include the ordered public fields or revision.
 const FINGERPRINTS = [
   // Tenant content
-  `SELECT s.id AS site_id, 'site' AS source, json_array(s.content_version, s.settings_version, s.name, s.domain, s.status, s.vertical_slug, v.name) AS value
+  `SELECT s.id AS site_id, 'site' AS source, json_array(s.name, s.domain, s.status, s.vertical_slug, v.name) AS value
       FROM sites s LEFT JOIN verticals v ON v.slug = s.vertical_slug
     UNION ALL
     SELECT site_id, 'articles', json_array(MAX(updated_at), COUNT(*), SUM(updated_at))

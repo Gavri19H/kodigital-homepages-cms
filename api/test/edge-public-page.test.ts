@@ -96,7 +96,7 @@ describe("applyEdgeCacheHeaders", () => {
   });
 });
 
-const env = {} as Env;
+const env = { CACHE_API_ENABLED: "true" } as Env;
 const snapProps = { siteKey: "host:tenant.example", variantKey: "snap" };
 const snapUrl = "https://tenant.example/__snap";
 
@@ -127,7 +127,8 @@ describe("PublicPage.fetch", () => {
 
     expect(honoFetch).toHaveBeenCalledTimes(1);
     const [forwarded, bindings, context] = vi.mocked(honoFetch).mock.calls[0]!;
-    expect(bindings).toBe(env);
+    expect(bindings).toEqual({ ...env, EDGE_INNER: "1" });
+    expect(env.EDGE_INNER).toBeUndefined();
     expect(context).toBe(ctx);
     expect(forwarded.url).toBe(request.url);
     expect(forwarded.headers.get("Accept")).toBe("text/markdown");
@@ -152,7 +153,8 @@ describe("PublicPage.fetch", () => {
     vi.mocked(buildSiteSnapshot).mockResolvedValue(snapshot);
     const { page } = entrypoint(snapProps);
     const response = await page.fetch(new Request(snapUrl));
-    expect(buildSiteSnapshot).toHaveBeenCalledWith(env, "tenant.example");
+    expect(buildSiteSnapshot).toHaveBeenCalledWith({ ...env, EDGE_INNER: "1" }, "tenant.example");
+    expect(env.EDGE_INNER).toBeUndefined();
     expect(honoFetch).not.toHaveBeenCalled();
     expect(response.status).toBe(200);
     expect(response.headers.get("Content-Type")).toContain("application/json");

@@ -20,7 +20,7 @@ describe.skipIf(!hasSqlite)("public change invalidation", () => {
   let env: Env;
 
   beforeEach(() => {
-    sql = createDb("0004");
+    sql = createDb("0009");
     addSite(sql, "Site-A", "A", "finance");
     addSite(sql, "Site-B", "B", "finance");
     sql.prepare(migration).run();
@@ -46,29 +46,36 @@ describe.skipIf(!hasSqlite)("public change invalidation", () => {
       .run(action, status, JSON.stringify(payload), createdAt);
   }
 
-  function bookmarks() {
-    return sql.prepare("SELECT id, write_bookmark FROM sites WHERE id IN (?, ?) ORDER BY id").all("Site-A", "Site-B");
+  function siteVersions() {
+    return sql.prepare("SELECT id, content_version, write_bookmark FROM sites WHERE id IN (?, ?) ORDER BY id")
+      .all("Site-A", "Site-B");
   }
 
-  it("reads once on the primary and records the site bookmark before the one merged RPC", async () => {
+  it("bumps the site on the primary and records the resulting bookmark before the one merged RPC", async () => {
+    let atBookmark: unknown;
     const session = {
       prepare: vi.fn(env.DB.prepare.bind(env.DB)),
       batch: env.DB.batch.bind(env.DB),
-      getBookmark: vi.fn(() => "0002"),
+      getBookmark: vi.fn(() => {
+        atBookmark = siteVersions();
+        return "0002";
+      }),
     };
     env.DB.withSession = vi.fn(() => session);
     let atPurge: unknown;
     purge.mockImplementationOnce(async () => {
-      atPurge = bookmarks();
+      atPurge = siteVersions();
       return success;
     });
 
     await onPublicChange(env, ctx, change);
 
     expect(env.DB.withSession).toHaveBeenCalledExactlyOnceWith("first-primary");
-    expect(session.prepare.mock.calls.filter(([query]) => /^\s*select\b/i.test(query))).toHaveLength(1);
+    expect(session.prepare).toHaveBeenCalledTimes(2);
     expect(session.getBookmark).toHaveBeenCalledTimes(1);
-    expect(atPurge).toEqual([{ id: "Site-A", write_bookmark: "0002" }, { id: "Site-B", write_bookmark: null }]);
+    const otherSite = { id: "Site-B", content_version: 1, write_bookmark: null };
+    expect(atBookmark).toEqual([{ id: "Site-A", content_version: 2, write_bookmark: null }, otherSite]);
+    expect(atPurge).toEqual([{ id: "Site-A", content_version: 2, write_bookmark: "0002" }, otherSite]);
     expect(purge).toHaveBeenCalledExactlyOnceWith(siteTags);
     expect(logRows()).toEqual([{
       site_id: "Site-A", action: "purge_tags_second", status: "pending", dry_run: 0,
@@ -84,7 +91,7 @@ describe.skipIf(!hasSqlite)("public change invalidation", () => {
       getBookmark: () => "0002",
     });
     await onPublicChange(env, ctx, change);
-    expect(bookmarks()[0]).toEqual({ id: "Site-A", write_bookmark: "0003" });
+    expect(siteVersions()[0]).toEqual({ id: "Site-A", content_version: 2, write_bookmark: "0003" });
     expect(purge).toHaveBeenCalledExactlyOnceWith(siteTags);
   });
 

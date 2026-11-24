@@ -79,7 +79,8 @@ describe.skipIf(!hasSqlite)("public fingerprint minute job", () => {
     expect(Object.keys(JSON.parse(store.get(fingerprintKey)!).sites)).toEqual(siteIds);
     expect(store.get(fingerprintKey)).not.toContain("Title");
     vi.mocked(env.CACHE.put).mockClear();
-    db.prepare("UPDATE sites SET write_bookmark = ? WHERE id = ?").run("0002", "Site-A");
+    db.prepare("UPDATE sites SET write_bookmark = ?, settings_version = settings_version + 1 WHERE id = ?")
+      .run("0002", "Site-A");
     db.prepare("INSERT INTO leadgen_persona_quota (site_id, period_ym, used) VALUES (?, ?, ?)").run("Site-B", "2026-11", 1);
     await tick();
     await tick();
@@ -93,7 +94,7 @@ describe.skipIf(!hasSqlite)("public fingerprint minute job", () => {
   it("honors both pending and completed change records, including records in the baseline's last second", async () => {
     await tick(0);
     addArticle("Site-A");
-    db.prepare("UPDATE sites SET settings_version = settings_version + 1 WHERE id = ?").run("Site-B");
+    db.prepare("INSERT INTO site_settings (site_id, key, value) VALUES (?, ?, ?)").run("Site-B", "site_title", "News");
     record("Site-A", "purge_tags_second", ["slug:site-a:news"], seconds, "completed");
     record("Site-B", "purge_tags", ["site:site-b"]);
     await tick();
@@ -188,6 +189,20 @@ describe.skipIf(!hasSqlite)("public fingerprint minute job", () => {
     expect(env.CACHE.put).toHaveBeenCalledTimes(2);
   });
 
+  it("keeps the site fingerprint stable on the tick after onPublicChange bumps its content version", async () => {
+    await tick(0);
+    const baseline = JSON.parse(store.get(fingerprintKey)!).sites;
+    await onPublicChange(env, ctx, { siteId: "Site-A", tags: ["slug:site-a:news"], reason: "article.update" });
+    expect(db.prepare("SELECT content_version FROM sites WHERE id = ?").get("Site-A")).toEqual({ content_version: 2 });
+    expect(purge).toHaveBeenCalledExactlyOnceWith(["slug:site-a:news", "snap:site-a", "nf:site-a"]);
+    vi.clearAllMocks();
+    await tick();
+    expect(JSON.parse(store.get(fingerprintKey)!).sites).toEqual(baseline);
+    expect(onPublicChange).not.toHaveBeenCalled();
+    expect(purge).not.toHaveBeenCalled();
+    expect(console.error).not.toHaveBeenCalled();
+  });
+
   it("purges a new Worker version on its first tick and only once per version id", async () => {
     env.CF_VERSION_METADATA = { id: "v1" };
     purge.mockImplementationOnce(async () => {
@@ -198,9 +213,12 @@ describe.skipIf(!hasSqlite)("public fingerprint minute job", () => {
     expect(onPublicChange).toHaveBeenCalledExactlyOnceWith(env, ctx, { siteId: null, tags: allTags, reason: "version" });
     expect(purge).toHaveBeenCalledExactlyOnceWith(allTags);
     expect(store.get(versionKey)).toBe("v1");
+    expect(db.prepare("SELECT id FROM sites WHERE content_version = 2 ORDER BY id").all())
+      .toEqual(siteIds.map(id => ({ id })));
     vi.clearAllMocks();
     env.CF_VERSION_METADATA = { id: "v1", tag: "latest" };
     await tick();
+    expect(purge).not.toHaveBeenCalled();
     expect(env.CACHE.put).not.toHaveBeenCalled();
     expect(onPublicChange).not.toHaveBeenCalled();
     env.CF_VERSION_METADATA = { id: "v2" };
@@ -215,7 +233,7 @@ describe.skipIf(!hasSqlite)("public fingerprint minute job", () => {
   it("coalesces a deployment and a missed site write into one purge and reports only the missed site", async () => {
     await tick(0);
     env.CF_VERSION_METADATA = { id: "release" };
-    db.prepare("UPDATE sites SET content_version = content_version + 1 WHERE id = ?").run("Site-C");
+    addArticle("Site-C");
     await tick();
     expectSweep(allTags, ["Site-C"]);
     expect(store.get(versionKey)).toBe("release");

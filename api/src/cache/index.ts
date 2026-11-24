@@ -23,6 +23,7 @@ export async function cacheGet(
   key: string,
   waitUntil?: WaitUntilContext,
 ): Promise<string | null> {
+  if (env.EDGE_INNER === "1") return null;
   const value = await env.CACHE.get(key);
   if (value === null) {
     recordCacheMiss(env, waitUntil);
@@ -39,6 +40,7 @@ export async function cacheSet(
   options: CacheSetOptions = {},
   waitUntil?: WaitUntilContext,
 ): Promise<void> {
+  if (env.EDGE_INNER === "1") return;
   const write = options.expirationTtl === undefined
     ? env.CACHE.put(key, body)
     : env.CACHE.put(key, body, { expirationTtl: options.expirationTtl });

@@ -18,6 +18,7 @@ export interface Env {
   ADMIN_BASE_URL: string;
   ADMIN_BASE_PATH: string;
   CACHE_API_ENABLED: string;
+  EDGE_INNER?: string;
   HTML_CACHE_TTL_SECONDS: string;
   OPENAI_TEXT_MODEL: string;
   OPENAI_IMAGE_MODEL: string;

@@ -86,7 +86,7 @@ function makeFakeDb(
   articles: ArticleRow[];
   settings: Array<{ site_id: string; key: string }>;
   pages: Array<{ site_id: string; slug: string }>;
-  site: { content_version: number; status: string };
+  site: { content_version: number; status: string; versionAtActivation: number | null };
   siteCategories: Array<{
     site_id: string;
     category_id: number;
@@ -106,12 +106,11 @@ function makeFakeDb(
   // Track inserts/updates here so the 15-step run can clear AI steps T9-T11.
   const aiGenerations = new Map<string, Record<string, unknown>>();
   // T36: starter articles inserted by generate_15_homepage_articles and
-  // finalized by publish_starter_articles; content_version starts at 0
-  // (migration 0009 DEFAULT) so the publish bump is observable as 0 -> 1.
+  // finalized by publish_starter_articles. The fixture starts at version 0.
   const articles: ArticleRow[] = [];
   // rescue-3 T5: sites.status starts 'draft' (migration 0002 DEFAULT) so the
   // update_launch_readiness go-live flip is observable as 'draft' -> 'active'.
-  const site = { content_version: 0, status: "draft" };
+  const site = { content_version: 0, status: "draft", versionAtActivation: null as number | null };
   // T38: site_settings + pages writes tracked (deduped on the same
   // UNIQUE keys the real schema declares) so the smoke step's COUNT
   // reads observe what earlier steps actually inserted.
@@ -432,6 +431,7 @@ function makeFakeDb(
             site.content_version += 1;
           } else if (sql.indexOf("UPDATE sites SET status = 'active'") >= 0) {
             // rescue-3 T5: update_launch_readiness go-live write.
+            site.versionAtActivation = site.content_version;
             site.status = "active";
           } else if (sql.indexOf("INSERT OR IGNORE INTO site_categories") >= 0) {
             // rescue-3 T6: allocate_vertical_categories writes the site's
@@ -543,8 +543,7 @@ describe("runProvisioningToCompletion (MQAFIX-1 / RX1.AC1 + AC4)", () => {
 
   // rescue-2 T36.AC2: after the full provisioning walk, every starter
   // article row is status='published' WITH published_at populated, and
-  // the owning site's content_version was bumped (publish_starter_articles
-  // is the only provisioning step that touches sites.content_version).
+  // the owning site's content_version was bumped before activation.
   it("publish_starter_articles finalizes starter rows: status='published' + published_at set + sites.content_version bumped", async () => {
     const { db, articles, site } = makeFakeDb({
       id: "job_publish",
@@ -566,9 +565,9 @@ describe("runProvisioningToCompletion (MQAFIX-1 / RX1.AC1 + AC4)", () => {
       expect(typeof a.published_at).toBe("number");
     }
 
-    // Exactly one monotonic content_version bump (0 -> 1) so public
-    // cache keys — which suffix content_version — roll over.
-    expect(site.content_version).toBe(1);
+    // Publishing the starter articles bumps once. Announcing the active site bumps once more.
+    expect(site.versionAtActivation).toBe(1);
+    expect(site.content_version).toBe(2);
   });
 
   // rescue-3 T6-AC1 / RC-019: after the full provisioning walk, every one of

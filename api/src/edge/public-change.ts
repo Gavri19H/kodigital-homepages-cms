@@ -4,6 +4,7 @@ import type { PublicChange } from "./types";
 
 const TAGS_PER_CALL = 100;
 const CRON_CALLS = 2;
+const SITES_PER_STATEMENT = 80;
 
 interface PublicPagePurger {
   purgeTags(tags: string[]): Promise<{ success: boolean; errors: unknown[] }>;
@@ -42,17 +43,35 @@ async function purgeTags(ctx: ExecutionContext | undefined, tags: string[]): Pro
   return false;
 }
 
-async function recordBookmark(db: D1Database, siteId: string | null): Promise<void> {
+async function advanceContentVersion(db: D1Database, siteId: string | null, tags: string[]): Promise<void> {
   try {
-    if (siteId === null || typeof db.withSession !== "function") return;
-    const session = db.withSession("first-primary");
-    await session.prepare("SELECT id FROM sites WHERE id = ?").bind(siteId).first();
-    const bookmark = session.getBookmark();
-    if (bookmark === null) return;
-    // D1 bookmarks sort in commit order. Concurrent publishers can finish out of order.
-    await session.prepare(`UPDATE sites SET write_bookmark = ? WHERE id = ?
-                           AND (write_bookmark IS NULL OR write_bookmark < ?)`)
-      .bind(bookmark, siteId, bookmark).run();
+    const ids = siteId === null
+      ? tags.filter(tag => tag.startsWith("site:") && tag.length > 5).map(tag => tag.slice(5))
+      : [siteId];
+    if (!ids.length) return;
+
+    const session = db.withSession?.("first-primary");
+    const primary = session ?? db;
+    // Site tags are normalized to lowercase. An explicit site id is an exact database key.
+    const target = siteId === null ? "id COLLATE NOCASE IN (SELECT value FROM json_each(?))" : "id = ?";
+    async function updateSites(sql: string, ...values: string[]): Promise<void> {
+      const updates: D1PreparedStatement[] = [];
+      for (let i = 0; i < ids.length; i += SITES_PER_STATEMENT) {
+        const binding = siteId ?? JSON.stringify(ids.slice(i, i + SITES_PER_STATEMENT));
+        updates.push(primary.prepare(sql + target).bind(...values, binding));
+      }
+      if (updates.length === 1) await updates[0]!.run();
+      else await primary.batch(updates);
+    }
+
+    await updateSites("UPDATE sites SET content_version = content_version + 1 WHERE ");
+    // Capture the committed bump so a read at this bookmark sees the new ETag.
+    const bookmark = session?.getBookmark();
+    if (bookmark != null) {
+      // Concurrent publishers can finish out of order. Keep the later bookmark.
+      await updateSites("UPDATE sites SET write_bookmark = ? WHERE (write_bookmark IS NULL OR write_bookmark < ?) AND ",
+        bookmark, bookmark);
+    }
   } catch (error) {
     logError("purge_bookmark_error", error, { siteId });
   }
@@ -79,9 +98,9 @@ export async function onPublicChange(
 ): Promise<void> {
   try {
     const { siteId, reason } = change;
-    await recordBookmark(env.DB, siteId);
     const required = siteId === null ? [] : [snapTag(siteId), nfTag(siteId)];
     const tags = allTags([...change.tags, ...required]);
+    await advanceContentVersion(env.DB, siteId, tags);
     const immediate = tags.length > TAGS_PER_CALL ? mergeTags(required, tags) : tags;
     const ok = await purgeTags(ctx, immediate);
     const purged = new Set(ok ? immediate : []);
