@@ -149,19 +149,26 @@ interface Fingerprints {
   global: string;
 }
 
+interface Checkpoint extends Fingerprints {
+  receiptCursor?: number;
+  sweepReceipt?: number;
+  cursor?: number;
+  sampledAt?: number;
+}
+
 interface Part { site_id: string | null; source: string; value: string }
 
 function isDigest(value: unknown): boolean {
   return typeof value === "string" && /^[a-f0-9]{64}$/.test(value);
 }
 
-function readCheckpoint(raw: string | null): Fingerprints | null {
+function readCheckpoint(raw: string | null): Checkpoint | null {
   if (raw === null) return null;
   try {
     const saved = JSON.parse(raw) as Partial<Fingerprints> | null;
     if (!saved || !isDigest(saved.global) || !saved.sites || typeof saved.sites !== "object" ||
         Array.isArray(saved.sites) || !Object.values(saved.sites).every(isDigest)) return null;
-    return saved as Fingerprints;
+    return saved as Checkpoint;
   } catch {
     // An unreadable baseline is rebuilt from this minute's complete D1 snapshot.
     return null;
@@ -187,6 +194,53 @@ async function fingerprints(parts: Part[]): Promise<Fingerprints> {
   return { sites: Object.fromEntries(sites), global: await sha256Hex(JSON.stringify(global)) };
 }
 
+function logReceiptError(error: unknown): void {
+  console.error(JSON.stringify({ t: "fingerprint_receipt_error", error: String(error) }));
+}
+
+async function logMissedWrites(
+  db: D1Database, previous: Checkpoint, receiptCursor: number, changed: Set<string>, globalChanged: boolean, owners: string[],
+): Promise<void> {
+  // Older checkpoints either carry a real row ID or the FX4a sentinel. In
+  // the latter case use the recorded sample time, including its boundary second.
+  const savedCursor = previous.receiptCursor ?? previous.cursor;
+  const byId = Number.isSafeInteger(savedCursor) && savedCursor !== Number.MAX_SAFE_INTEGER;
+  const lower = byId ? savedCursor! : 0;
+  const covered = new Set<string>();
+  let hasReceipt = false;
+  if (receiptCursor > lower) {
+    const receipts = await db.prepare(`SELECT site_id, payload FROM cache_purge_log
+      WHERE id > ? AND id <= ? AND id != ? AND created_at >= ? AND dry_run = 0
+        AND action IN ('purge_tags', 'purge_tags_second') AND status IN ('pending', 'completed', 'failed')`)
+      .bind(lower, receiptCursor, previous.sweepReceipt ?? 0, byId ? 0 : previous.sampledAt ?? 0)
+      .all<{ site_id: string | null; payload: string | null }>();
+    for (const row of receipts.results) {
+      if (row.site_id !== null) {
+        covered.add(siteTag(row.site_id));
+        hasReceipt = true;
+        continue;
+      }
+      // Fan-out and deleted-site receipts identify their owners by tag.
+      try {
+        const data = JSON.parse(row.payload ?? "null");
+        if (data?.reason === "fingerprint" || data?.reason === "version" || !Array.isArray(data?.tags)) continue;
+        for (const tag of data.tags) {
+          if (typeof tag !== "string" || !tag) continue;
+          hasReceipt = true;
+          const site = /^(?:site|snap|nf|listing):(.+)$/i.exec(tag);
+          if (site) covered.add(siteTag(site[1]!));
+        }
+      } catch {
+        // A malformed fan-out payload supplies no evidence of a writer.
+      }
+    }
+  }
+  // Shared configuration writers can record one receipt per activated tenant.
+  const missed = new Set([...changed].filter(id => !covered.has(siteTag(id))));
+  if (globalChanged && !hasReceipt) for (const id of owners) missed.add(id);
+  if (missed.size) console.error(JSON.stringify({ t: "missed_write_path", sites: [...missed].sort() }));
+}
+
 export async function runFingerprintCron(env: Env, ctx: ExecutionContext | undefined): Promise<void> {
   try {
     const version = env.CF_VERSION_METADATA?.id;
@@ -194,8 +248,15 @@ export async function runFingerprintCron(env: Env, ctx: ExecutionContext | undef
       env.CACHE.get(FINGERPRINT_KEY), version ? env.CACHE.get(VERSION_KEY) : null,
     ]);
     const previous = readCheckpoint(raw);
-    const groups = await env.DB.batch<Part>(FINGERPRINTS.map(query => env.DB.prepare(query)));
-    if (groups.length !== FINGERPRINTS.length || groups.some(group => !group.success)) {
+    // Sample the AUTOINCREMENT high-water mark in the same transaction as the
+    // digests. Quiet minutes need neither purge-log rows nor a wall-clock guess.
+    const [sequence, ...groups] = await env.DB.batch([
+      env.DB.prepare("SELECT COALESCE((SELECT seq FROM sqlite_sequence WHERE name = ?), 0) AS id").bind("cache_purge_log"),
+      ...FINGERPRINTS.map(query => env.DB.prepare(query)),
+    ]) as [D1Result<{ id: number }>, ...D1Result<Part>[]];
+    const receiptCursor = sequence?.results?.[0]?.id;
+    if (receiptCursor === undefined || !sequence.success || groups.length !== FINGERPRINTS.length ||
+        groups.some(group => !group.success || !Array.isArray(group.results))) {
       throw new Error("Incomplete fingerprint batch");
     }
     const current = await fingerprints(groups.flatMap(group => group.results));
@@ -204,22 +265,42 @@ export async function runFingerprintCron(env: Env, ctx: ExecutionContext | undef
     const changed = new Set(previous ? [...allIds].filter(id => current.sites[id] !== previous.sites[id]) : []);
     const globalChanged = previous !== null && current.global !== previous.global;
     const versionChanged = Boolean(version && version !== oldVersion);
-    if (previous && !changed.size && !globalChanged && !versionChanged) return;
-    // A receipt for one edit cannot account for another edit in the same interval.
+    if (previous && !changed.size && !globalChanged && !versionChanged && previous.receiptCursor === receiptCursor) return;
+    if (previous && (changed.size || globalChanged)) {
+      try {
+        await logMissedWrites(env.DB, previous, receiptCursor, changed, globalChanged, owners);
+      } catch (error) {
+        logReceiptError(error);
+      }
+    }
+    // Receipt coverage controls the alarm only. Every changed site is purged.
     if (globalChanged) for (const id of owners) changed.add(id);
-    if (changed.size) console.error(JSON.stringify({ t: "missed_write_path", sites: [...changed].sort() }));
     const targets = new Set(changed);
     if (versionChanged) for (const id of owners) targets.add(id);
+    let consumed = receiptCursor;
+    let sweepReceipt: number | undefined;
     if (targets.size) {
       const tags = [...new Set([...targets].sort().map(siteTag))];
       await onPublicChange(env, ctx, {
         siteId: null, tags, reason: changed.size ? "fingerprint" : "version",
       });
+      // The second pass has no reason field. Exclude our own receipt on the
+      // next run, without advancing past a concurrent publisher's receipt.
+      try {
+        const own = await env.DB.prepare(`SELECT id FROM cache_purge_log WHERE id > ? AND site_id IS NULL
+          AND action = 'purge_tags_second' AND CASE WHEN json_valid(payload) THEN json_extract(payload, '$.tags') END = ?
+          ORDER BY id DESC LIMIT 1`).bind(receiptCursor, JSON.stringify(tags)).first<{ id: number }>();
+        if (own?.id === receiptCursor + 1) consumed = own.id;
+        else sweepReceipt = own?.id;
+      } catch (error) {
+        logReceiptError(error);
+      }
     }
     // Older Workers sharing the v1 key require these fields. A cursor beyond all
     // D1 receipt IDs also makes them compare these digests without suppressing a purge.
     await env.CACHE.put(FINGERPRINT_KEY, JSON.stringify({
-      ...current, cursor: Number.MAX_SAFE_INTEGER, sampledAt: Math.floor(Date.now() / 1000), sweep: null,
+      ...current, receiptCursor: consumed, sweepReceipt, cursor: Number.MAX_SAFE_INTEGER,
+      sampledAt: Math.floor(Date.now() / 1000), sweep: null,
     }));
     if (versionChanged && version) await env.CACHE.put(VERSION_KEY, version);
   } catch (error) {

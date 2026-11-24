@@ -27,6 +27,39 @@ interface PageExports {
 type HonoFetch = (request: Request, env: Env, ctx?: ExecutionContext) => Response | Promise<Response>;
 type CachedRoute = { kind: "page" | "article" } | { kind: "slug" | "leadgen"; key: string };
 
+const tickKey = "edge:tick:v1";
+const tickIntervalMs = 50_000;
+const tickAfter = new WeakMap<KVNamespace, number>();
+
+async function runEdgeTick(env: Env, ctx: ExecutionContext): Promise<void> {
+  // KV has no atomic compare-and-set. Reuse one indexed log row to arbitrate cold
+  // isolates on the D1 primary. Only its winner needs to access the shared KV epoch.
+  const claim = await env.DB.prepare(`INSERT INTO cache_purge_log (id, action, status, dry_run, created_at)
+    VALUES ((SELECT id FROM cache_purge_log WHERE status = 'completed' AND action = ? LIMIT 1),
+            ?, 'completed', 0, unixepoch('subsec'))
+    ON CONFLICT(id) DO UPDATE SET created_at = excluded.created_at
+      WHERE created_at <= excluded.created_at - ? RETURNING created_at`)
+    .bind(tickKey, tickKey, tickIntervalMs / 1000).first<{ created_at: number }>();
+  if (!claim) {
+    const last = await env.DB.prepare(
+      "SELECT created_at FROM cache_purge_log WHERE status = 'completed' AND action = ? LIMIT 1",
+    ).bind(tickKey).first<{ created_at: number }>();
+    if (last) tickAfter.set(env.CACHE, Math.round(last.created_at * 1000) + tickIntervalMs);
+    return;
+  }
+  const now = Math.round(claim.created_at * 1000);
+  const stored = await env.CACHE.get(tickKey);
+  const lastRun = stored === null ? NaN : Number(stored);
+  if (Number.isSafeInteger(lastRun) && lastRun <= now && lastRun > now - tickIntervalMs) {
+    tickAfter.set(env.CACHE, lastRun + tickIntervalMs);
+    return;
+  }
+  tickAfter.set(env.CACHE, now + tickIntervalMs);
+  await env.CACHE.put(tickKey, String(now));
+  const { runFingerprintCron } = await import("./fingerprint-cron");
+  await runFingerprintCron(env, ctx);
+}
+
 const fixedPages = new Set([
   "/", "/feed.xml", "/rss", "/atom.xml", "/sitemap.xml", "/robots.txt", "/ads.txt",
   "/llms.txt", "/favicon.ico", "/site-icon.svg",
@@ -173,6 +206,18 @@ async function serveCachedPage(
 export async function gatewayFetch(
   request: Request, env: Env, ctx: ExecutionContext | undefined, honoFetch: HonoFetch,
 ): Promise<Response> {
+  // Use Hono's route decoding so an escaped reserved head has the same boundary.
+  const path = getPath(request);
+  if (path === "/__edge/tick") {
+    const headers = { "Cache-Control": EDGE_CACHE_CONTROL.private };
+    if (request.method !== "POST") return new Response(null, { status: 405, headers: { ...headers, Allow: "POST" } });
+    const now = Date.now();
+    if (ctx && now >= (tickAfter.get(env.CACHE) ?? 0)) {
+      tickAfter.set(env.CACHE, now + tickIntervalMs);
+      ctx.waitUntil(runEdgeTick(env, ctx).catch(error => console.error("edge tick failed", error)));
+    }
+    return new Response("ok", { status: 202, headers });
+  }
   const names = cmsHeaderNames(request.headers);
   if (names.length) {
     const clean = new Request(request);
@@ -183,8 +228,6 @@ export async function gatewayFetch(
   }
   request = perfstageRequest(request, env);
   try {
-    // Use Hono's route decoding so an escaped reserved head has the same boundary.
-    const path = getPath(request);
     if (path === "/__snap" || path.startsWith("/__snap/")) {
       return new Response(null, { status: 404, headers: { "Cache-Control": EDGE_CACHE_CONTROL.private } });
     }

@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
-target=${1:-} mode=${2:-} previous= tmp=
+target=${1:-} mode=${2:-} previous= tmp= probe_pid=
 stage=prepare started=$SECONDS stage_result=ok
 fail() { echo "$*" >&2; exit 1; }
 report() { printf 'STAGE %s %s %d\n' "$stage" "$1" "$((SECONDS - started))"; }
@@ -9,8 +9,13 @@ next_stage() { report "$stage_result"; stage=$1; started=$SECONDS; stage_result=
 deploy_versions() { npx wrangler versions deploy "$@" -y --env "$target"; }
 
 rollback() {
-  local rc=0 elapsed
-  deploy_versions "$previous@100%" || rc=1
+  trap '' HUP INT TERM
+  local rc=1 elapsed attempt
+  for attempt in 1 2 3; do
+    if deploy_versions "$previous@100%"; then rc=0; break; fi
+    echo "Rollback attempt $attempt of 3 failed" >&2
+  done
+  if (( rc )); then echo "ROLLBACK_FAILED: could not restore $previous at 100% in $target" >&2; fi
   elapsed=$((SECONDS - started))
   printf 'ROLLBACK_SECONDS=%d\n' "$elapsed"
   if (( elapsed >= 60 )); then
@@ -22,7 +27,9 @@ rollback() {
 
 finish() {
   local rc=$?
+  trap '' HUP INT TERM
   trap - EXIT
+  if [[ -n $probe_pid ]]; then kill -TERM "$probe_pid" 2>/dev/null || true; fi
   if (( rc )); then
     report fail
     echo "Release failed during $stage (exit $rc)" >&2
@@ -61,19 +68,26 @@ fi
 
 # Keep tenant identity when several public URLs map to the same workers.dev path.
 probe_tenants() {
-  python3 - "$1" "$stage_host" "$worker" "$tmp" "$previous" "$new" <<'PY'
-import csv
+  # A signal interrupts Bash's wait builtin immediately, including while the
+  # monitor is sleeping between checks. The EXIT trap can then start rollback.
+  local rc=0
+  python3 - "$1" "$stage_host" "$worker" "$tmp" "$previous" "$new" "$minutes" <<'PY' &
 import os
 import re
 import subprocess
 import sys
+import time
+import uuid
 import xml.etree.ElementTree as ET
+from concurrent.futures import ThreadPoolExecutor, wait
+from html.parser import HTMLParser
 from pathlib import Path
 from urllib.parse import urlsplit
 
-action, stage_host, worker, tmp, previous, new = sys.argv[1:]
+action, stage_host, worker, tmp, previous, new, minutes = sys.argv[1:]
 batch = Path(tmp, "urls")
 probe = ["bash", "scripts/perf/edge-probe.sh", str(batch), "1"]
+browser = "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/126.0.0.0 Safari/537.36"
 
 def endpoint(url, tenant):
     parts = urlsplit(url)
@@ -81,25 +95,101 @@ def endpoint(url, tenant):
         raise ValueError(f"Invalid URL for tenant {tenant}: {url!r}")
     return parts._replace(scheme="https", netloc=stage_host).geturl() if stage_host else url
 
-def samples(tenant, urls, env, version):
-    result = subprocess.run([*probe, "--override", f'{worker}="{version}"'],
-                            env=env, stdout=subprocess.PIPE, text=True)
-    if result.returncode:
-        print(result.stdout, file=sys.stderr)
-        sys.exit(f"{tenant}: probe of {version} exited {result.returncode}")
-    rows = {}
-    for row in csv.reader(result.stdout.splitlines(), delimiter="\t"):
-        if not row or row[:3] == ["url", "run", "status"]:
-            continue
-        if len(row) != 9 or row[1] != "1" or row[0] not in urls or row[0] in rows:
-            sys.exit(f"{tenant}: unexpected probe row {row!r}")
-        url, _, status, _, cache = row[:5]
-        if not re.fullmatch("[1-4][0-9]{2}", status):
-            sys.exit(f"{tenant}: {url} returned status {status}")
-        rows[url] = (status, cache.upper())
-    if rows.keys() != urls.keys():
-        sys.exit(f"{tenant}: missing probe results for {sorted(urls.keys() - rows.keys())}")
-    return rows
+def pinned_headers(tenant, version):
+    headers = ["-H", f'Cloudflare-Workers-Version-Overrides: {worker}="{version}"']
+    if stage_host:
+        headers.extend(["-H", f"x-perfstage-host: {tenant}"])
+    return headers
+
+def tick_hosts(groups):
+    for tenant in groups:
+        tick_url = endpoint(f"https://{tenant}/__edge/tick", tenant)
+        status = subprocess.check_output(["curl", "-qsS", "--max-time", "10", "-X", "POST",
+                                          *pinned_headers(tenant, new), "-o", os.devnull,
+                                          "-w", "%{http_code}", "--", tick_url], text=True)
+        if status != "202":
+            sys.exit(f"{tenant}: new-version tick returned {status}, expected 202")
+
+class PageTitle(HTMLParser):
+    def __init__(self):
+        super().__init__()
+        self.title = None
+        self.in_title = False
+
+    def handle_starttag(self, tag, attrs):
+        if tag == "title" and self.title is None:
+            self.title = ""
+            self.in_title = True
+
+    def handle_data(self, data):
+        if self.in_title:
+            self.title += data
+
+    def handle_endtag(self, tag):
+        if tag == "title":
+            self.in_title = False
+
+def sample(tenant, url, version, sid):
+    output = subprocess.check_output(["curl", "-qsS", "--compressed", "--max-time", "30", "--globoff",
+                                      "-A", browser, "-b", f"ko_sid={sid}", *pinned_headers(tenant, version),
+                                      "-w", "\n%{http_code}\t%header{x-edge-cache}", "--", url])
+    body, fields = output.rsplit(b"\n", 1)
+    status, cache = fields.decode("ascii").split("\t", 1)
+    if not re.fullmatch("[1-5][0-9]{2}", status):
+        raise ValueError(f"{tenant}: {url} returned invalid status {status!r}")
+    parser = PageTitle()
+    parser.feed(body.decode("utf-8", errors="replace"))
+    parser.close()
+    return (int(status), parser.title), cache.strip().upper()
+
+def check_url(tenant, url, sid):
+    old, _ = sample(tenant, url, previous, sid)
+    first, _ = sample(tenant, url, new, sid)
+    second, cache = sample(tenant, url, new, sid)
+    matches = old == first == second
+    if not matches:
+        print(f"{tenant} {url}: status/title mismatch: old={old!r}, new={first!r}, repeat={second!r}", file=sys.stderr)
+    if cache != "HIT":
+        print(f"{tenant} {url}: second request returned x-edge-cache={cache!r}", file=sys.stderr)
+    return (first[0] >= 500) + (second[0] >= 500), matches, cache == "HIT"
+
+def check_split(groups):
+    # Share one visitor identity across both versions for sticky experiments.
+    sid = str(uuid.uuid4())
+    mismatches = {(tenant, url): 0 for tenant, urls in groups.items() for url in urls}
+    error_minutes = miss_minutes = 0
+    next_tick = time.monotonic()
+    with ThreadPoolExecutor(max_workers=8) as pool:
+        for minute in range(1, int(minutes) + 1):
+            tick_hosts(groups)
+            next_tick += 60
+            checks = {key: pool.submit(check_url, *key, sid) for key in mismatches}
+            pending = checks.values()
+            while pending:
+                _, pending = wait(pending, timeout=max(0, next_tick - time.monotonic()))
+                if pending:
+                    tick_hosts(groups)
+                    next_tick += 60
+            errors = 0
+            all_hit = True
+            for key, check in checks.items():
+                server_errors, matches, hit = check.result()
+                errors += server_errors
+                all_hit &= hit
+                mismatches[key] = 0 if matches else mismatches[key] + 1
+            print(f"Minute {minute}: new-version 5xx={errors}, parity mismatches={sum(n > 0 for n in mismatches.values())}", flush=True)
+            error_minutes = error_minutes + 1 if errors else 0
+            miss_minutes = 0 if all_hit else miss_minutes + 1
+            if error_minutes >= 2:
+                sys.exit("Two consecutive checks with new-version 5xx responses")
+            for (tenant, url), streak in mismatches.items():
+                if streak >= 3:
+                    sys.exit(f"{tenant} {url}: three consecutive status/title mismatches")
+            if miss_minutes >= 3:
+                sys.exit("Three consecutive checks with a second-pass cache miss")
+            # Keep the split for the whole last minute. The promotion tick is
+            # then eligible even if the final probes all returned immediately.
+            time.sleep(max(0, next_tick - time.monotonic()))
 
 def warm(tenant, urls, header, env):
     sitemap = endpoint(f"https://{tenant}/sitemap.xml", tenant)
@@ -130,34 +220,28 @@ for line in Path("scripts/perf/urls.txt").read_text().splitlines():
     url = line.strip()
     if url and not url.startswith("#"):
         tenant = urlsplit(url).hostname
-        group = tenant if stage_host or action == "warm" else "production"
-        groups.setdefault(group, {})[endpoint(url, tenant)] = None
+        groups.setdefault(tenant, {})[endpoint(url, tenant)] = None
 if not groups:
     sys.exit("Empty probe URL list")
 
-all_hit = warm_ok = True
-for tenant, urls in groups.items():
-    header = f"x-perfstage-host: {tenant}" if stage_host else ""
-    env = {**os.environ, "EDGE_PROBE_EXTRA_HEADER": header}
-    if action == "warm":
+if action == "check":
+    check_split(groups)
+elif action == "tick":
+    tick_hosts(groups)
+elif action == "warm":
+    warm_ok = True
+    for tenant, urls in groups.items():
+        header = f"x-perfstage-host: {tenant}" if stage_host else ""
+        env = {**os.environ, "EDGE_PROBE_EXTRA_HEADER": header}
         if not warm(tenant, urls, header, env):
             warm_ok = False
-        continue
-    batch.write_text("\n".join(urls) + "\n")
-    old = samples(tenant, urls, env, previous)
-    for attempt in (1, 2):
-        candidate = samples(tenant, urls, env, new)
-        for url, (status, cache) in candidate.items():
-            if status != old[url][0]:
-                sys.exit(f"{tenant}: status mismatch for {url}, previous={old[url][0]} new={status}")
-            if attempt == 2 and cache != "HIT":
-                print(f"{tenant}: second request for {url} returned x-edge-cache={cache!r}", file=sys.stderr)
-                all_hit = False
-if action == "check":
-    print("HIT" if all_hit else "MISS")
-elif not warm_ok:
-    sys.exit(1)
+    if not warm_ok:
+        sys.exit(1)
 PY
+  probe_pid=$!
+  wait "$probe_pid" || rc=$?
+  probe_pid=
+  return "$rc"
 }
 
 tmp=$(mktemp -d)
@@ -177,24 +261,18 @@ printf 'NEW_VERSION=%s\n' "$new"
 next_stage split
 deploy_versions "$new@10%" "$previous@90%"
 next_stage check
-misses=0
-# Anchor each check to the split so probe time does not accumulate between checks.
-for (( minute=1; minute<=minutes; minute++ )); do
-  delay=$((started + minute * 60 - SECONDS))
-  if (( delay > 0 )); then sleep "$delay"; fi
-  outcome=$(probe_tenants check)
-  if [[ $outcome == HIT ]]; then misses=0; else misses=$((misses + 1)); fi
-  (( misses < 3 )) || fail "Three consecutive checks with a second-pass cache miss"
-done
+probe_tenants check
 
 next_stage promote
 deploy_versions "$new@100%"
+probe_tenants tick
 next_stage warm
 probe_tenants warm || stage_result=fail
 if [[ $mode == rehearsal ]]; then
   next_stage rollback
   echo "Forcing rehearsal rollback to $previous"
   rollback
+  trap 'fail "Release interrupted"' HUP INT TERM
   next_stage redeploy
   deploy_versions "$new@100%"
 fi

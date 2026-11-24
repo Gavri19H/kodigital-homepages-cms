@@ -66,10 +66,14 @@ describe.skipIf(!hasSqlite)("public fingerprint minute job", () => {
                 VALUES (?, ?, 'News', '{}', 'published', ?)`).run(site, slug, updated);
   }
 
-  function expectSweep(tags: string[], sites: string[]) {
+  function expectSweep(tags: string[], missedSites: string[]) {
     expect(onPublicChange).toHaveBeenCalledExactlyOnceWith(env, ctx, { siteId: null, tags, reason: "fingerprint" });
     expect(purge).toHaveBeenCalledExactlyOnceWith(tags);
-    expect(console.error).toHaveBeenCalledExactlyOnceWith(JSON.stringify({ t: "missed_write_path", sites }));
+    if (missedSites.length) {
+      expect(console.error).toHaveBeenCalledExactlyOnceWith(JSON.stringify({ t: "missed_write_path", sites: missedSites }));
+    } else {
+      expect(console.error).not.toHaveBeenCalled();
+    }
   }
 
   it("baselines without a purge, then spends one D1 batch and zero KV writes per quiet minute", async () => {
@@ -101,7 +105,7 @@ describe.skipIf(!hasSqlite)("public fingerprint minute job", () => {
     record("Site-A", "purge_tags_second", ["slug:site-a:news"], seconds, "completed");
     record("Site-B", "purge_tags", ["site:site-b"]);
     await tick();
-    expectSweep(allTags.slice(0, 2), siteIds.slice(0, 2));
+    expectSweep(allTags.slice(0, 2), []);
     expect(env.CACHE.put).toHaveBeenCalledTimes(2);
     await tick();
     expect(env.CACHE.put).toHaveBeenCalledTimes(2);
@@ -115,7 +119,7 @@ describe.skipIf(!hasSqlite)("public fingerprint minute job", () => {
     record(null, "purge_tags_second", ["site:site-c"]);
     record("Site-B", "warm_homepage", ["site:site-b"]);
     await tick();
-    expectSweep(allTags, siteIds);
+    expectSweep(allTags, ["Site-A", "Site-B"]);
   });
 
   it("a change record observed on one tick cannot cover a later missed write, even if the next tick runs early", async () => {
@@ -133,7 +137,7 @@ describe.skipIf(!hasSqlite)("public fingerprint minute job", () => {
     addArticle("Site-A");
     record("Site-A", "purge_tags_second", ["slug:site-a:news"], seconds + 5);
     await tick(125);
-    expectSweep(["site:site-a"], ["Site-A"]);
+    expectSweep(["site:site-a"], []);
     expect(env.CACHE.put).toHaveBeenCalledTimes(2);
   });
 
@@ -181,17 +185,17 @@ describe.skipIf(!hasSqlite)("public fingerprint minute job", () => {
     expectSweep(allTags, siteIds);
   });
 
-  it.each([false, true])("purges every site once when a global change has an unrelated receipt (site digest also changed: %s)", async siteChanged => {
+  it.each([false, true])("purges every site without alarming on a recorded shared change (site digest also changed: %s)", async siteChanged => {
     await tick(0);
     db.prepare("UPDATE leadgen_frame_templates SET updated_at = updated_at + 1").run();
     if (siteChanged) addArticle("Site-A");
     record("Site-A", "purge_tags_second", ["quote:one"]);
     await tick();
-    expectSweep(allTags, siteIds);
+    expectSweep(allTags, []);
     expect(env.CACHE.put).toHaveBeenCalledTimes(2);
   });
 
-  it("detects a missed write across an existing checkpoint and a failed purge with a second-pass receipt", async () => {
+  it("purges across an existing checkpoint and distinguishes a recorded failed purge from a missing write path", async () => {
     await tick(0);
     const { sites, global } = JSON.parse(store.get(fingerprintKey)!);
     store.set(fingerprintKey, JSON.stringify({ sites, global, cursor: 0, sampledAt: seconds, sweep: null }));
@@ -199,7 +203,32 @@ describe.skipIf(!hasSqlite)("public fingerprint minute job", () => {
     record("Site-B", "purge_tags", ["slug:site-b:other"], seconds, "failed");
     record("Site-B", "purge_tags_second", ["slug:site-b:other"]);
     await tick();
-    expectSweep(["site:site-b"], ["Site-B"]);
+    expectSweep(["site:site-b"], []);
+  });
+
+  it("purges a global change and alarms for the concurrent site edit that has no receipt", async () => {
+    await tick(0);
+    db.prepare("UPDATE leadgen_frame_templates SET updated_at = updated_at + 1").run();
+    addArticle("Site-B");
+    record("Site-A", "purge_tags_second", ["quote:site-a:one"]);
+    await tick();
+    expectSweep(allTags, ["Site-B"]);
+  });
+
+  it("keeps a writer receipt that arrives while the preceding fingerprint purge is in flight", async () => {
+    await tick(0);
+    addArticle("Site-A");
+    purge.mockImplementationOnce(async () => {
+      addArticle("Site-B");
+      record("Site-B", "purge_tags_second", ["slug:site-b:news"]);
+      return { success: true, errors: [] };
+    });
+    await tick();
+    expectSweep(["site:site-a"], ["Site-A"]);
+    vi.clearAllMocks();
+    addArticle("Site-A", "later");
+    await tick();
+    expectSweep(allTags.slice(0, 2), ["Site-A"]);
   });
 
   it("keeps the site fingerprint stable on the tick after onPublicChange bumps its content version", async () => {

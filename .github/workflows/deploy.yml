@@ -32,20 +32,20 @@ on:
       target_env:
         description: 'Deploy target environment'
         required: true
-        default: 'production'
+        default: 'perfstage'
         type: choice
         options:
-          - production
           - perfstage
+          - production
       rollout:
         description: 'Gradual checks 10% for 30 minutes. Rehearsal checks for 3 minutes and exercises rollback on perfstage.'
         required: true
-        default: gradual
+        default: rehearsal
         type: choice
         options:
-          - direct
-          - gradual
           - rehearsal
+          - gradual
+          - direct
 
 jobs:
   ci:
@@ -261,6 +261,7 @@ jobs:
       #   - 0070_verticals_audience.sql
       #   - 0071_articles_seo_title_uncut.sql
       #   - 0072_sites_write_bookmark.sql
+      #   - 0073_cache_purge_log_index.sql
       - name: Apply D1 migrations to production (kodigital-homepages-cms-db)
         if: inputs.target_env == 'production'
         run: npx wrangler d1 migrations apply kodigital-homepages-cms-db --env production --remote
