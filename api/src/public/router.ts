@@ -76,7 +76,7 @@ import {
 } from "../cache/edge-cache";
 import { cacheGet, cacheSet } from "../cache";
 import { parseNumber } from "../env";
-import { servePublicHtml } from "./html-pipeline";
+import { cacheExecutionCtx, servePublicHtml } from "./html-pipeline";
 import {
   renderHomepageHtml,
   renderArticleHtml,
@@ -395,7 +395,7 @@ router.get("/", async (c) => {
     ifNoneMatch: c.req.header("If-None-Match"),
     headersFactory: (etag) => publicHtmlCacheHeaders({ etag }),
     render: () => renderHomepageHtml(c.env.DB, siteContext),
-  });
+  }, cacheExecutionCtx(c));
 });
 
 // T2 (rescue-3): the GET /article/:slug handler passes c.env.DB into
@@ -455,7 +455,7 @@ router.get("/article/:slug", async (c) => {
     ifNoneMatch: c.req.header("If-None-Match"),
     headersFactory: (etag) => publicHtmlCacheHeaders({ etag }),
     render: () => renderArticleHtml(c.env.DB, siteContext, slug),
-  });
+  }, cacheExecutionCtx(c));
 });
 
 router.get("/category/:slug", (c) => handleCategory(c, 1));
@@ -555,7 +555,7 @@ async function handleCategory(
         slug,
         pageSize,
       ),
-  });
+  }, cacheExecutionCtx(c));
 }
 
 // T14: tag listing handler. Tenant-scoped (fetchTag + fetchTagArticles both
@@ -592,7 +592,7 @@ async function handleTag(c: CategoryCtx, pageNum: number): Promise<Response> {
         slug,
         pageSize,
       ),
-  });
+  }, cacheExecutionCtx(c));
 }
 
 // Shared by /page/:slug and the /:slug catch-all (T40 [F1]) so both
@@ -620,7 +620,7 @@ async function servePage(
     ifNoneMatch: c.req.header("If-None-Match"),
     headersFactory: (etag) => publicHtmlCacheHeaders({ etag }),
     render: () => renderPageHtml(c.env.DB, siteContext, row, path),
-  });
+  }, cacheExecutionCtx(c));
 }
 
 router.get("/page/:slug", async (c) => {
@@ -647,7 +647,8 @@ async function serveRssFeed(c: CategoryCtx): Promise<Response> {
   const env = c.env;
   const siteContext = c.get("siteContext");
   const key = feedRssKey(siteContext.siteId, siteContext.content_version);
-  const cached = await cacheGet(env, key);
+  const waitUntil = cacheExecutionCtx(c);
+  const cached = await cacheGet(env, key, waitUntil);
   if (cached !== null) {
     return new Response(cached, {
       status: 200,
@@ -663,7 +664,7 @@ async function serveRssFeed(c: CategoryCtx): Promise<Response> {
   const xml = renderRssFeed(articles, siteInfo(env, siteContext));
   await cacheSet(env, key, xml, {
     expirationTtl: parseNumber(env.HTML_CACHE_TTL_SECONDS, FEED_CACHE_TTL_SECONDS),
-  });
+  }, waitUntil);
   return new Response(xml, {
     status: 200,
     headers: feedCacheHeaders({
@@ -681,7 +682,8 @@ router.get("/atom.xml", async (c) => {
   const env = c.env;
   const siteContext = c.get("siteContext");
   const key = feedAtomKey(siteContext.siteId, siteContext.content_version);
-  const cached = await cacheGet(env, key);
+  const waitUntil = cacheExecutionCtx(c);
+  const cached = await cacheGet(env, key, waitUntil);
   if (cached !== null) {
     return new Response(cached, {
       status: 200,
@@ -697,7 +699,7 @@ router.get("/atom.xml", async (c) => {
   const xml = renderAtomFeed(articles, siteInfo(env, siteContext));
   await cacheSet(env, key, xml, {
     expirationTtl: parseNumber(env.HTML_CACHE_TTL_SECONDS, FEED_CACHE_TTL_SECONDS),
-  });
+  }, waitUntil);
   return new Response(xml, {
     status: 200,
     headers: feedCacheHeaders({
@@ -710,7 +712,8 @@ router.get("/sitemap.xml", async (c) => {
   const env = c.env;
   const siteContext = c.get("siteContext");
   const key = sitemapKey(siteContext.siteId, siteContext.content_version);
-  const cached = await cacheGet(env, key);
+  const waitUntil = cacheExecutionCtx(c);
+  const cached = await cacheGet(env, key, waitUntil);
   if (cached !== null) {
     return new Response(cached, {
       status: 200,
@@ -732,7 +735,7 @@ router.get("/sitemap.xml", async (c) => {
   });
   await cacheSet(env, key, xml, {
     expirationTtl: parseNumber(env.HTML_CACHE_TTL_SECONDS, FEED_CACHE_TTL_SECONDS),
-  });
+  }, waitUntil);
   return new Response(xml, {
     status: 200,
     headers: feedCacheHeaders({
@@ -756,7 +759,8 @@ router.get("/robots.txt", async (c) => {
   const env = c.env;
   const siteContext = c.get("siteContext");
   const key = robotsKey(siteContext.siteId, siteContext.settings_version);
-  const cached = await cacheGet(env, key);
+  const waitUntil = cacheExecutionCtx(c);
+  const cached = await cacheGet(env, key, waitUntil);
   if (cached !== null) {
     return new Response(cached, {
       status: 200,
@@ -798,7 +802,7 @@ router.get("/robots.txt", async (c) => {
       env.HTML_CACHE_TTL_SECONDS,
       SETTINGS_CACHE_TTL_SECONDS,
     ),
-  });
+  }, waitUntil);
   return new Response(body, {
     status: 200,
     headers: robotsAdsCacheHeaders(),
@@ -809,7 +813,8 @@ router.get("/ads.txt", async (c) => {
   const env = c.env;
   const siteContext = c.get("siteContext");
   const key = adsKey(siteContext.siteId, siteContext.settings_version);
-  const cached = await cacheGet(env, key);
+  const waitUntil = cacheExecutionCtx(c);
+  const cached = await cacheGet(env, key, waitUntil);
   if (cached !== null) {
     return new Response(cached, {
       status: 200,
@@ -831,7 +836,7 @@ router.get("/ads.txt", async (c) => {
       env.HTML_CACHE_TTL_SECONDS,
       SETTINGS_CACHE_TTL_SECONDS,
     ),
-  });
+  }, waitUntil);
   return new Response(body, {
     status: 200,
     headers: robotsAdsCacheHeaders(),

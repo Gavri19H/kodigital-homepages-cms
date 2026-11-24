@@ -8,7 +8,9 @@
 // every feed entry in one pass after a publish/unpublish event.
 
 import { parseBoolean, type Env } from "../env";
+import type { WaitUntilContext } from "../wait-until-context";
 import { recordCacheHit, recordCacheMiss } from "./cache-stats";
+import { cacheApiUrl } from "./edge-cache";
 
 const FEED_PREFIX = "feed:";
 
@@ -16,17 +18,16 @@ export interface CacheSetOptions {
   expirationTtl?: number;
 }
 
-// cacheGet is the KV read chokepoint for feed/page bodies. T44 [BCL-020]:
-// every read records exactly one hit (value present) or miss (null) into the
-// monitoring counters so /api/admin/cache/stats reflects real cache activity.
-// Recording is best-effort and reads its own counter keys via the raw KV
-// binding, so it never recurses through cacheGet or counts itself.
-export async function cacheGet(env: Env, key: string): Promise<string | null> {
+export async function cacheGet(
+  env: Env,
+  key: string,
+  waitUntil?: WaitUntilContext,
+): Promise<string | null> {
   const value = await env.CACHE.get(key);
   if (value === null) {
-    await recordCacheMiss(env);
+    recordCacheMiss(env, waitUntil);
   } else {
-    await recordCacheHit(env);
+    recordCacheHit(env, waitUntil);
   }
   return value;
 }
@@ -36,12 +37,13 @@ export async function cacheSet(
   key: string,
   body: string,
   options: CacheSetOptions = {},
+  waitUntil?: WaitUntilContext,
 ): Promise<void> {
-  if (options.expirationTtl !== undefined) {
-    await env.CACHE.put(key, body, { expirationTtl: options.expirationTtl });
-    return;
-  }
-  await env.CACHE.put(key, body);
+  const write = options.expirationTtl === undefined
+    ? env.CACHE.put(key, body)
+    : env.CACHE.put(key, body, { expirationTtl: options.expirationTtl });
+  if (!waitUntil) return write;
+  waitUntil.waitUntil(write);
 }
 
 export async function cacheDel(env: Env, key: string): Promise<void> {
@@ -51,7 +53,7 @@ export async function cacheDel(env: Env, key: string): Promise<void> {
   if (parseBoolean(env.CACHE_API_ENABLED)) {
     try {
       const cache = caches.default;
-      await cache.delete(`https://cache.local/${encodeURIComponent(key)}`);
+      await cache.delete(cacheApiUrl(key));
     } catch {
       // Cache API not available in this runtime — fail silently.
     }
