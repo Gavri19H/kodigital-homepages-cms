@@ -66,6 +66,15 @@ describe("perfstageRequest", () => {
     expect(request.headers.get("x-perfstage-host")).toBe("News.EXAMPLE.");
   });
 
+  it("rewrites both the URL host and the incoming workers.dev Host header to the tenant", () => {
+    const request = new Request(`https://${workerHost}/`, {
+      headers: { Host: workerHost, "x-perfstage-host": tenantHost },
+    });
+    const rewritten = perfstageRequest(request, env);
+    expect(new URL(rewritten.url).host).toBe(tenantHost);
+    expect(rewritten.headers.get("Host")).toBe(tenantHost);
+  });
+
   it.each([
     undefined, "", "https://news.example", "news.example:443", "a@news.example", "news.example/path",
     "news.example?x", "news.example#x", "a.example, b.example", "a..example", "-a.example",
@@ -83,8 +92,11 @@ it.each([
   ["production", undefined], ["staging", "false"], ["perfstage", undefined], ["perfstage", "TRUE"],
 ] as const)("keeps both identities for APP_ENV=%s and PERFSTAGE=%s", (APP_ENV, PERFSTAGE) => {
   const bindings = { ...env, APP_ENV, PERFSTAGE };
-  const request = new Request("https://original.example/", { headers: { "x-perfstage-host": tenantHost } });
+  const request = new Request(`https://${workerHost}/`, {
+    headers: { Host: workerHost, "x-perfstage-host": tenantHost },
+  });
   expect(perfstageRequest(request, bindings)).toBe(request);
+  expect(request.headers.get("Host")).toBe(workerHost);
   expect(request.headers.get("x-perfstage-host")).toBe(tenantHost);
   expect(perfstageEnv(bindings)).toBe(bindings);
 });
@@ -133,7 +145,7 @@ it("resolves the tenant snapshot and shell from the workers.dev fetch entrypoint
   });
   const dispatch = vi.spyOn(gateway, "gatewayFetch");
   const response = await worker.fetch(new Request(`https://${workerHost}/?utm_source=probe`, {
-    headers: { "x-perfstage-host": tenantHost, "x-cms-variant": "forged" },
+    headers: { Host: workerHost, "x-perfstage-host": tenantHost, "x-cms-variant": "forged" },
   }), env, ctx);
   expect(response.status).toBe(200);
   expect(response.headers.get("x-edge-cache")).toBe("HIT");
@@ -142,6 +154,7 @@ it("resolves the tenant snapshot and shell from the workers.dev fetch entrypoint
     [{ siteKey: "host:news.example", variantKey: "snap" }, "https://news.example/__snap"],
     [{ siteKey: "news", variantKey: "human" }, "https://news.example/"],
   ]);
+  expect(fetchPage.mock.calls[1]![1].headers.get("Host")).toBe(tenantHost);
   await expect(dispatch.mock.calls[0]![1].MEDIA.put("photo", null)).rejects.toThrow(errorMessage);
 });
 

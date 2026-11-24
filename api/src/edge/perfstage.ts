@@ -13,6 +13,8 @@ export function perfstageRequest(request: Request, env: Env): Request {
   if (url.hostname !== host) return request;
   url.port = "";
   const tenant = new Request(url, request);
+  // The PublicPage loopback routes by the copied Host header.
+  tenant.headers.set("Host", url.host);
   tenant.headers.delete("x-perfstage-host");
   if (tenant.cf === undefined && request.cf !== undefined) tenant.cf = request.cf;
   return tenant;
