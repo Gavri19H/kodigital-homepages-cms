@@ -1718,8 +1718,8 @@ export function renderButtonAnswerGroup(
       : `<button type="button" class="lg-btn lg-btn-answer${isCard ? " lg-tscard" : ""} lg-other-trigger"${style(choiceTextItemEntries(otherText, textFamily, design))} data-lg-other-trigger` +
         (vh === undefined ? "" : vh.other) +
         ` aria-expanded="false" aria-haspopup="listbox">${isCard ? `<span class="lg-tscard-title"${choiceTextLabelStyle(otherText, textFamily, design)}>${esc(other.label)}</span>` : esc(other.label)}${otherChevronSvg(design)}</button>` +
-        (vh?.pre ?? "") +
-        otherSelectMarkup(other);
+        otherSelectMarkup(other) +
+        (vh?.search ?? "");
   const body = choices.map(btn).join("") + otherHtml + (vh === undefined ? "" : vh.tail);
   return (
     labelLine(node) +
@@ -1989,8 +1989,8 @@ function renderCardGrid(
       : `<button type="button" class="lg-card lg-other-trigger"${style(choiceTextItemEntries(otherText, "card", design))} data-lg-other-trigger` +
         (vh === undefined ? "" : vh.other) +
         ` aria-expanded="false" aria-haspopup="listbox"><span class="lg-card-title"${choiceTextLabelStyle(otherText, "card", design)}>${esc(other.label)}</span>${otherChevronSvg(design)}</button>` +
-        (vh?.pre ?? "") +
-        otherSelectMarkup(other);
+        otherSelectMarkup(other) +
+        (vh?.search ?? "");
   const cards = choices.map(card).join("") + otherHtml + (vh === undefined ? "" : vh.tail);
   return (
     labelLine(node) +
@@ -2375,14 +2375,14 @@ export function renderSearchableDropdownQuestion(
 
 // The per-renderer hooks renderVehicleQuestion hands renderButtonAnswerGroup /
 // renderCardGrid: extra attributes on the root, on every choice button and on
-// the "Other" trigger, markup just before the "Other" <select> (`pre`, the
+// the "Other" trigger, markup just after the "Other" <select> (`search`, the
 // "Other make" search box), markup appended inside the root, and the card
 // picture.
 interface VehicleRenderHook {
   root: string;
   item?: string;
   other: string;
-  pre?: string;
+  search?: string;
   tail: string;
   media?: (c: LeadgenChoice) => string;
 }
@@ -2531,14 +2531,15 @@ function renderVehicleQuestion(
       featured.map((m) => vehicleChoice(m.name, String(m.make_id))),
       { label: cfg.other_label, choices: data.makes.filter((m) => !featuredIds.has(m.make_id)).map((m) => vehicleChoice(m.name, String(m.make_id))) },
     );
-    // The "Other make" list opens with a search box above it (the approved
-    // mock-up): the runtime's generic Searchable filter ([data-lg-searchable]
+    // The "Other make" list opens with a search box right below it (F24
+    // Round 3, owner 24 Nov 2026; F18 had it above): the runtime's generic
+    // Searchable filter ([data-lg-searchable]
     // on the root → its one <select>, the "Other make" list) narrows it, and
     // opening the list shows the box (render.ts openOtherPanel).
     const makeHook = {
       root: `${root} data-lg-searchable`,
       other: "",
-      pre: `<input class="lg-input lg-dropdown-search" type="text" data-lg-dropdown-search placeholder="Search makes…" aria-label="Search makes" hidden>`,
+      search: `<input class="lg-input lg-dropdown-search" type="text" data-lg-dropdown-search placeholder="Search makes…" aria-label="Search makes" hidden>`,
       tail: "",
     };
     if (!VEHICLE_LOGO_CARD_TYPES.has(node.type)) return renderButtonAnswerGroup(base, design, ctx, slot, makeHook);

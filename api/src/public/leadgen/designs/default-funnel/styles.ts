@@ -613,7 +613,10 @@ export function vehicleQuestionCss(design: DefaultFunnelDesign | EffectiveFunnel
       "padding-right": "6px",
       "overflow-wrap": "anywhere",
     }) +
-    rule(`${g} > .lg-other-trigger`, { ...full, "flex-direction": "row" }) +
+    // F24 Round 3: the "Other make" card is a one-line row, as tall as a
+    // button (it used to keep the theme's 140px card minimum while the logo
+    // cards above it are "small").
+    rule(`${g} > .lg-other-trigger`, { ...full, "flex-direction": "row", "min-height": design.primaryButton.minHeight }) +
     `@media (max-width: ${design.breakpoints.mobileMax}){` +
     rule(g, { "grid-template-columns": "repeat(2, minmax(0, 1fr))" }) +
     rule(`${g} .lg-card-logo`, { width: "64px", height: "32px" }) +
