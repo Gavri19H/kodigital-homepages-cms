@@ -69,6 +69,11 @@ function makeDb(domains: DomainSeed[], settings: SettingSeed[]): D1Database {
           return null;
         },
         async all<T = unknown>() {
+          if (sql.startsWith("SELECT key, value FROM site_settings")) {
+            const rows = settings.filter((row) => row.site_id === captured[0] &&
+              (row.key === "robots_txt_content" || row.key === "ai_block_training"));
+            return { results: rows as T[], success: true, meta: {} };
+          }
           return { results: [] as T[], success: true, meta: {} };
         },
         async run() {

@@ -115,33 +115,20 @@ function makeContentDb(): D1Database {
             if (host !== TENANT_HOST) return null;
             return { ...SITE_CONTEXT_ROW } as unknown as T;
           }
-          if (sql.startsWith("SELECT id, slug, name, description FROM categories")) {
-            const slug = captured[0] as string;
-            return (
-              slug === CATEGORY_ROW.slug ? { ...CATEGORY_ROW } : null
-            ) as unknown as T | null;
-          }
-          if (sql.startsWith("SELECT id, slug, name FROM tags")) {
-            const slug = captured[0] as string;
-            return (
-              slug === TAG_ROW.slug ? { ...TAG_ROW } : null
-            ) as unknown as T | null;
-          }
           return null;
         },
         async all<T = unknown>() {
-          // rescue-4 round-3 (issue 1): both the tag and category listing
-          // queries now LEFT JOIN media for the card image, so each is
-          // `SELECT a.*, m.storage_key ... FROM articles a ...`. Disambiguate
-          // on the distinctive clause: the tag listing JOINs `article_tags`,
-          // the category listing filters on `category_id`. (Tag is checked
-          // first so its more-specific JOIN wins.)
-          if (sql.includes("article_tags")) {
-            // /tag listing (JOIN article_tags).
-            return { results: TAG_ARTICLES as unknown as T[], success: true, meta: {} };
-          }
-          if (sql.includes("FROM articles") && sql.includes("category_id")) {
-            return { results: CATEGORY_ARTICLES as unknown as T[], success: true, meta: {} };
+          if (sql.startsWith("WITH taxonomy AS")) {
+            const isTag = sql.includes("FROM tags");
+            const taxonomy = isTag ? TAG_ROW : CATEGORY_ROW;
+            const articles = isTag ? TAG_ARTICLES : CATEGORY_ARTICLES;
+            const rows = captured[0] === SITE_ID && captured[1] === taxonomy.slug
+              ? articles.map((a) => ({
+                ...taxonomy, page_size: 20, article_slug: a.slug, article_title: a.title,
+                published_at: a.published_at, image_url: null, image_alt: null,
+              }))
+              : [];
+            return { results: rows as T[], success: true, meta: {} };
           }
           if (sql.startsWith("SELECT * FROM articles WHERE status")) {
             // listArticles (feed body).

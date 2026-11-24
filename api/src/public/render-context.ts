@@ -44,3 +44,5 @@ export async function loadRenderContext(
   };
   return { site, settings };
 }
+
+export type RenderContext = Awaited<ReturnType<typeof loadRenderContext>>;

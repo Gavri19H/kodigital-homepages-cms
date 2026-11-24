@@ -6,10 +6,10 @@
 // resolved SiteContext.hostname. The admin host MUST NEVER appear as a
 // canonical href / og:url on a content page (mission RED LINE).
 
-import type { ArticleRow } from "../db";
 import type { PublicSiteContext } from "./middleware";
 import type { PublicPageRow, PublicCategoryRow, PublicTagRow } from "./queries";
-import { fetchPublicLayoutSiteInfo, fetchSiteVerticalName, PUBLIC_PAGE_SIZE, type ArticleCardRow } from "./queries";
+import { fetchSiteVerticalName, PUBLIC_PAGE_SIZE, type ListingCard } from "./queries";
+import { loadRenderContext, type RenderContext } from "./render-context";
 import { mediaUrl } from "./view-models/media-url";
 import {
   renderHeader,
@@ -48,25 +48,6 @@ import { renderArticle } from "./templates/article";
 import { renderLayout } from "./templates/layout";
 import { renderCustomHead, renderCustomFooter, renderConsentHead } from "../settings/custom-html";
 import { absoluteOnHost, uploadedLogoUrl } from "./site-brand";
-
-// T23: load the per-site operator snippets (custom_head_html / analytics_script
-// / ad_header_script / custom_footer_html) and return the SANITIZED <head>/
-// footer fragments renderLayout injects into the LIVE page. Every public
-// surface calls this so the stored snippets finally render (BCL-045) — safely.
-async function loadCustomLayoutHtml(
-  db: D1Database,
-  siteId: string,
-) {
-  const result = await db
-    .prepare("SELECT key AS key, value AS value FROM site_settings WHERE site_id = ?")
-    .bind(siteId)
-    .all<{ key: string; value: string | null }>();
-  const settings: Record<string, string> = {};
-  for (const row of result.results ?? []) {
-    if (typeof row.value === "string") settings[row.key] = row.value;
-  }
-  return customLayoutHtml(settings);
-}
 
 function customLayoutHtml(settings: Readonly<Record<string, string>>): {
   customHead?: string;
@@ -400,7 +381,7 @@ export async function renderArticleHtml(
 }
 
 // T4 (rescue-3): the LIVE GET /category/:slug handler composes the category
-// listing through fetchPublicLayoutSiteInfo + renderCard + renderLayout — NOT
+// listing through loadRenderContext + renderCard + renderLayout — NOT
 // the rescue-2 bare zero-style `<h1>` + flat `<a>` list. BCL-019 (W1-EXTENDED)
 // found the live /category/<slug> rendering BARE (1,279 bytes, 0 <style>); the
 // orphaned-render defect covered home + article + page + CATEGORY, and this is
@@ -424,17 +405,14 @@ export async function renderCategoryHtml(
   db: D1Database,
   siteContext: PublicSiteContext,
   cat: PublicCategoryRow,
-  articles: ArticleCardRow[],
+  articles: ListingCard[],
   pageNum: number,
   slug: string,
   pageSize: number = PUBLIC_PAGE_SIZE,
-  opts: { isBot?: boolean } = {},
+  opts: { isBot?: boolean; context?: RenderContext } = {},
 ): Promise<string> {
-  const site = await fetchPublicLayoutSiteInfo(db, {
-    siteId: siteContext.siteId,
-    hostname: siteContext.hostname,
-  });
-  const customHtml = await loadCustomLayoutHtml(db, siteContext.siteId);
+  const { site, settings } = opts.context ?? await loadRenderContext(db, siteContext);
+  const customHtml = customLayoutHtml(settings);
 
   // Paginated category pages canonical to page 1 (no duplicate-content signal).
   const canonicalPath = `/category/${slug}`;
@@ -490,7 +468,7 @@ export async function renderCategoryHtml(
   // T22: category is an ad-bearing surface. Gate on shouldShowAds for this
   // category path; when live, a leaderboard slot rides above the listing and
   // the head loads the provider + AdManager JS.
-  const adsConfig = await loadAdsConfig(db, siteContext.siteId);
+  const adsConfig = await loadAdsConfig(db, siteContext.siteId, settings);
   const adsOn = shouldShowAds(adsConfig, {
     path: `/category/${slug}`,
     loggedIn: false,
@@ -576,7 +554,7 @@ export async function renderCategoryHtml(
 }
 
 // T14: the LIVE GET /tag/:slug handler composes the tag listing through the
-// same design layout the category listing uses (fetchPublicLayoutSiteInfo +
+// same design layout the category listing uses (loadRenderContext +
 // renderCard + renderLayout) — a topic page is a styled collection of the
 // published articles carrying that tag, not a bare list. Mirrors
 // renderCategoryHtml: the canonical href is always /tag/<slug> (page 1), the
@@ -589,16 +567,14 @@ export async function renderTagHtml(
   db: D1Database,
   siteContext: PublicSiteContext,
   tag: PublicTagRow,
-  articles: ArticleCardRow[],
+  articles: ListingCard[],
   pageNum: number,
   slug: string,
   pageSize: number = PUBLIC_PAGE_SIZE,
+  context?: RenderContext,
 ): Promise<string> {
-  const site = await fetchPublicLayoutSiteInfo(db, {
-    siteId: siteContext.siteId,
-    hostname: siteContext.hostname,
-  });
-  const customHtml = await loadCustomLayoutHtml(db, siteContext.siteId);
+  const { site, settings } = context ?? await loadRenderContext(db, siteContext);
+  const customHtml = customLayoutHtml(settings);
 
   // Paginated tag pages canonical to page 1 (no duplicate-content signal).
   const canonicalPath = `/tag/${slug}`;
@@ -706,7 +682,7 @@ export async function renderTagHtml(
 }
 
 // T3 (rescue-3): the LIVE GET /page/:slug handler composes the static page
-// through fetchPublicLayoutSiteInfo + renderHeader/renderFooter + renderLayout
+// through loadRenderContext + renderHeader/renderFooter + renderLayout
 // — NOT the rescue-2 bare `wrapHtmlDocument(head, content_html)` fallback. The
 // DB is threaded from c.env.DB (router.ts) so the renderer is db-fed and wired
 // into the live entry; rescue-2 served a bare document (no design shell, no
@@ -797,12 +773,16 @@ export async function renderPageHtml(
   siteContext: PublicSiteContext,
   row: PublicPageRow,
   path: string,
+  context?: RenderContext,
 ): Promise<string> {
-  const site = await fetchPublicLayoutSiteInfo(db, {
-    siteId: siteContext.siteId,
-    hostname: siteContext.hostname,
-  });
-  const customHtml = await loadCustomLayoutHtml(db, siteContext.siteId);
+  // Direct renderer callers can supply a page row without the About subquery.
+  const [{ site, settings }, verticalName] = await Promise.all([
+    context ?? loadRenderContext(db, siteContext),
+    row.slug === "about" && !nonBlank(row.seo_description) && row.vertical_name === undefined
+      ? fetchSiteVerticalName(db, siteContext.siteId)
+      : nonBlank(row.vertical_name) ?? null,
+  ]);
+  const customHtml = customLayoutHtml(settings);
   const canonicalUrl = buildCanonicalUrl(siteContext.hostname, path);
 
   const headerSite = {
@@ -842,7 +822,7 @@ export async function renderPageHtml(
     pageFallbackDescription(
       row.slug,
       site.name,
-      row.slug === "about" ? await fetchSiteVerticalName(db, siteContext.siteId) : null,
+      verticalName,
     );
   const bodyLeadsWithH1 = /^\s*<h1[\s>]/i.test(contentHtml);
   const pageTitleH1 = bodyLeadsWithH1
