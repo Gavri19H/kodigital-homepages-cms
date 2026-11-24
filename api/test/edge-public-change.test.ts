@@ -9,7 +9,6 @@ const success = { success: true, errors: [] };
 const limited = { success: false, errors: [{ code: 429 }] };
 const change = { siteId: "Site-A", tags: ["SLUG:Site-A:one", "slug:site-a:one"], reason: "publish" };
 const siteTags = ["slug:site-a:one", "snap:site-a", "nf:site-a"];
-const migration = readFileSync(new URL("../migrations/0072_sites_write_bookmark.sql", import.meta.url), "utf8");
 
 type PurgeRpc = (tags: string[]) => Promise<{ success: boolean; errors: unknown[] }>;
 const purge = vi.fn<PurgeRpc>();
@@ -20,12 +19,12 @@ describe.skipIf(!hasSqlite)("public change invalidation", () => {
   let env: Env;
 
   beforeEach(() => {
-    sql = createDb("0009");
+    sql = createDb("0073");
     addSite(sql, "Site-A", "A", "finance");
     addSite(sql, "Site-B", "B", "finance");
-    sql.prepare(migration).run();
     env = testEnv(sql);
     vi.spyOn(Date, "now").mockReturnValue(now * 1000);
+    if (typeof sql.function === "function") sql.function("unixepoch", () => Math.floor(Date.now() / 1000));
     vi.spyOn(console, "error").mockImplementation(() => {});
     purge.mockReset().mockResolvedValue(success);
   });
@@ -196,11 +195,53 @@ describe.skipIf(!hasSqlite)("public change invalidation", () => {
 
   it("applies the 500-row cap after excluding future rows and deduplicates across due rows", async () => {
     for (let i = 0; i < 500; i++) seed("purge_tags_second", { tags: ["future"], due_after: now + 30 }, now - 60);
+    for (let i = 0; i < 500; i++) seed("purge_tags", { tags: ["later"], tries: 3, next_try_at: now + 3600 }, now - 60, "failed");
     for (let i = 0; i < 501; i++) seed("purge_tags", { tags: ["due"] });
     await runEdgePurgeCron(env, ctx);
     expect(purge).toHaveBeenCalledExactlyOnceWith(["due"]);
     expect(logRows().filter(r => r.status === "completed")).toHaveLength(500);
     expect(logRows().filter(r => r.status === "pending")).toHaveLength(501);
+    expect(logRows().filter(r => r.status === "failed")).toHaveLength(500);
+  });
+
+  it("uses the migration 0073 index for the cron's pending lookup and retention cutoff", async () => {
+    const prepare = vi.spyOn(env.DB, "prepare");
+    await runEdgePurgeCron(env, ctx);
+    const queries = prepare.mock.calls.map(([query]) => query);
+    function explain(query: string | undefined) {
+      expect(query).toBeDefined();
+      const plan = sql.prepare("EXPLAIN QUERY PLAN " + query).all() as { detail: string }[];
+      return plan.map(row => row.detail).join("\n");
+    }
+    const lookup = explain(queries.find(query => query.includes("FROM cache_purge_log") && !query.includes("DELETE")));
+    expect(lookup).not.toMatch(/SCAN cache_purge_log|USE TEMP B-TREE/);
+    expect(lookup).toMatch(/SEARCH cache_purge_log USING INDEX idx_cache_purge_log_status_action_created_at \(status=\? AND action=\?\)/);
+    const prune = explain(queries.find(query => query.includes("DELETE FROM cache_purge_log")));
+    expect(prune).toContain("idx_cache_purge_log_status_action_created_at (status=? AND action=? AND created_at<?)");
+    const migration = readFileSync(new URL("../migrations/0073_cache_purge_log_index.sql", import.meta.url), "utf8");
+    expect(() => sql.prepare(migration).run()).not.toThrow();
+    expect(sql.prepare("SELECT name FROM pragma_index_info(?) ORDER BY seqno").all("idx_cache_purge_log_status_action_created_at"))
+      .toEqual([{ name: "status" }, { name: "action" }, { name: "created_at" }]);
+  });
+
+  it("prunes at most 500 completed rows strictly older than seven days per tick", async () => {
+    const cutoff = now - 7 * 24 * 60 * 60;
+    for (let i = 0; i < 502; i++) {
+      seed(i % 2 ? "purge_tags" : "purge_tags_second", { tags: ["old"] }, cutoff - 1, "completed");
+    }
+    seed("purge_cache", { tags: ["old"] }, cutoff - 1, "completed");
+    seed("purge_tags_second", { tags: ["boundary"] }, cutoff, "completed");
+    seed("purge_tags", { tags: ["newer"] }, cutoff + 1, "completed");
+    seed("purge_tags", { tags: ["queued"], due_after: now + 1 }, cutoff - 1);
+    seed("purge_tags", { tags: ["retry"], tries: 3, next_try_at: now + 1 }, cutoff - 1, "failed");
+    seed("purge_cache", { tags: ["audit"] }, cutoff - 1, "completed_dry_run");
+    await runEdgePurgeCron(env, ctx);
+    expect(logRows().filter(row => row.payload.tags[0] === "old")).toHaveLength(3);
+    await runEdgePurgeCron(env, ctx);
+    expect(logRows().map(row => [row.status, row.payload.tags[0]])).toEqual([
+      ["completed", "boundary"], ["completed", "newer"], ["pending", "queued"], ["failed", "retry"], ["completed_dry_run", "audit"],
+    ]);
+    expect(purge).not.toHaveBeenCalled();
   });
 
   it("keeps only unpurged tags when one chunk of a row succeeds and the other fails", async () => {
@@ -218,19 +259,69 @@ describe.skipIf(!hasSqlite)("public change invalidation", () => {
     expect(logRows().map(r => r.status)).toEqual(["completed", "completed"]);
   });
 
-  it("increments tries and emits the alarm only on the third unsuccessful cron attempt", async () => {
+  it("alarms on the third failure and each hourly failure until the purge succeeds", async () => {
     seed("purge_tags", { tags: ["slug:a:one"], tries: 0, reason: "publish" });
     purge.mockResolvedValue(limited);
+    const alarms = () => vi.mocked(console.error).mock.calls.map(([line]) => JSON.parse(line)).filter(event => event.t === "purge_failed");
     for (const tries of [1, 2, 3]) {
       await runEdgePurgeCron(env, ctx);
       expect(logRows()[0]).toMatchObject({
         status: tries === 3 ? "failed" : "pending", payload: { tries, tags: ["slug:a:one"], reason: "publish" },
       });
-      const alarms = vi.mocked(console.error).mock.calls.map(([line]) => JSON.parse(line)).filter(event => event.t === "purge_failed");
-      expect(alarms).toEqual(tries === 3 ? [{ t: "purge_failed", tags: ["slug:a:one"], tries: 3 }] : []);
+      expect(alarms()).toEqual(tries === 3 ? [{ t: "purge_failed", tags: ["slug:a:one"], tries: 3 }] : []);
     }
+    expect(logRows()[0]?.payload.next_try_at).toBe(now + 3600);
+    vi.mocked(Date.now).mockReturnValue((now + 3600) * 1000 - 1);
     await runEdgePurgeCron(env, ctx);
     expect(purge).toHaveBeenCalledTimes(3);
+    vi.mocked(Date.now).mockReturnValue((now + 3600) * 1000);
+    await runEdgePurgeCron(env, ctx);
+    expect(purge).toHaveBeenCalledTimes(4);
+    expect(logRows()[0]).toMatchObject({ status: "failed", payload: { tries: 4, next_try_at: now + 7200 } });
+    expect(alarms()).toEqual([3, 4].map(tries => ({ t: "purge_failed", tags: ["slug:a:one"], tries })));
+    vi.mocked(Date.now).mockReturnValue((now + 7200) * 1000 - 1);
+    await runEdgePurgeCron(env, ctx);
+    expect(purge).toHaveBeenCalledTimes(4);
+    vi.mocked(Date.now).mockReturnValue((now + 7200) * 1000);
+    purge.mockResolvedValue(success);
+    await runEdgePurgeCron(env, ctx);
+    await runEdgePurgeCron(env, ctx);
+    expect(purge).toHaveBeenCalledTimes(5);
+    expect(purge).toHaveBeenLastCalledWith(["slug:a:one"]);
+    expect(logRows()[0]?.status).toBe("completed");
+    expect(alarms()).toHaveLength(2);
+  });
+
+  it("recovers legacy failed rows once across overlapping hourly retries", async () => {
+    seed("purge_tags_second", { tags: ["snap:a"], tries: 3, due_after: now - 30 }, now - 60, "failed");
+    purge.mockImplementationOnce(async () => {
+      await runEdgePurgeCron(env, ctx);
+      return limited;
+    });
+    await runEdgePurgeCron(env, ctx);
+    expect(purge).toHaveBeenCalledExactlyOnceWith(["snap:a"]);
+    expect(logRows()[0]).toMatchObject({ status: "failed", payload: { tries: 4, next_try_at: now + 3600 } });
+    expect(console.error).toHaveBeenCalledWith(JSON.stringify({ t: "purge_failed", tags: ["snap:a"], tries: 4 }));
+    seed("purge_tags", { tags: ["fresh"] });
+    await runEdgePurgeCron(env, ctx);
+    expect(purge.mock.calls).toEqual([[["snap:a"]], [["fresh"]]]);
+    expect(logRows().map(row => row.status)).toEqual(["failed", "completed"]);
+  });
+
+  it("retains the hourly deadline if D1 cannot settle a successful retry", async () => {
+    seed("purge_tags", { tags: ["site:a"], tries: 3, next_try_at: now }, now - 3600, "failed");
+    purge.mockImplementationOnce(async () => {
+      vi.spyOn(env.DB, "batch").mockRejectedValueOnce(new Error("D1 write unavailable"));
+      return success;
+    });
+    await runEdgePurgeCron(env, ctx);
+    expect(logRows()[0]).toMatchObject({ status: "failed", payload: { next_try_at: now + 3600 } });
+    await runEdgePurgeCron(env, ctx);
+    expect(purge).toHaveBeenCalledExactlyOnceWith(["site:a"]);
+    vi.mocked(Date.now).mockReturnValue((now + 3600) * 1000);
+    await runEdgePurgeCron(env, ctx);
+    expect(purge.mock.calls).toEqual([[["site:a"]], [["site:a"]]]);
+    expect(logRows()[0]?.status).toBe("completed");
   });
 
   it("keeps tags outside the call budget pending when attempted tags reach their third failure", async () => {
@@ -239,6 +330,7 @@ describe.skipIf(!hasSqlite)("public change invalidation", () => {
     purge.mockResolvedValueOnce(limited).mockResolvedValueOnce(success);
     await runEdgePurgeCron(env, ctx);
     expect(logRows().find(r => r.status === "failed")?.payload.tags).toEqual(tags.slice(0, 100));
+    expect(logRows().find(r => r.status === "failed")?.payload.next_try_at).toBe(now + 3600);
     expect(logRows().find(r => r.status === "pending")?.payload.tags).toEqual(tags.slice(200));
     purge.mockClear();
     await runEdgePurgeCron(env, ctx);

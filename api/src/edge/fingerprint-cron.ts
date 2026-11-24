@@ -144,54 +144,24 @@ const FINGERPRINTS = [
     ORDER BY site_id, source`,
 ];
 
-// The id boundary and the aggregates come from the same D1 batch. It distinguishes
-// records created in the same unixepoch() second on either side of a checkpoint.
-const PURGE_RECORDS = `
-  WITH boundary AS (SELECT COALESCE(MAX(id), 0) AS cursor, unixepoch() AS sampled_at FROM cache_purge_log)
-  SELECT b.cursor, b.sampled_at, p.site_id, p.action, p.created_at, CASE WHEN p.site_id IS NULL THEN p.payload END AS payload
-    FROM boundary b LEFT JOIN cache_purge_log p
-      ON p.id > COALESCE(?, b.cursor) AND p.created_at >= ?
-     AND p.action IN ('purge_tags', 'purge_tags_second') AND p.dry_run = 0 AND p.status IN ('pending', 'completed')`;
-
 interface Fingerprints {
   sites: Record<string, string>;
   global: string;
 }
 
-interface Checkpoint extends Fingerprints {
-  cursor: number;
-  sampledAt: number;
-  sweep: { tags: string[]; finishedAt: number } | null;
-}
-
 interface Part { site_id: string | null; source: string; value: string }
-interface PurgeRecord {
-  cursor: number;
-  sampled_at: number;
-  site_id: string | null;
-  action: string | null;
-  created_at: number | null;
-  payload: string | null;
-}
 
 function isDigest(value: unknown): boolean {
   return typeof value === "string" && /^[a-f0-9]{64}$/.test(value);
 }
 
-function isStringArray(value: unknown): value is string[] {
-  return Array.isArray(value) && value.every(tag => typeof tag === "string");
-}
-
-function readCheckpoint(raw: string | null): Checkpoint | null {
+function readCheckpoint(raw: string | null): Fingerprints | null {
   if (raw === null) return null;
   try {
-    const saved = JSON.parse(raw) as Partial<Checkpoint> | null;
+    const saved = JSON.parse(raw) as Partial<Fingerprints> | null;
     if (!saved || !isDigest(saved.global) || !saved.sites || typeof saved.sites !== "object" ||
         Array.isArray(saved.sites) || !Object.values(saved.sites).every(isDigest)) return null;
-    if (!Number.isSafeInteger(saved.cursor) || !Number.isSafeInteger(saved.sampledAt)) return null;
-    const sweep = saved.sweep;
-    if (sweep !== null && (!sweep || !Number.isSafeInteger(sweep.finishedAt) || !isStringArray(sweep.tags))) return null;
-    return saved as Checkpoint;
+    return saved as Fingerprints;
   } catch {
     // An unreadable baseline is rebuilt from this minute's complete D1 snapshot.
     return null;
@@ -217,33 +187,6 @@ async function fingerprints(parts: Part[]): Promise<Fingerprints> {
   return { sites: Object.fromEntries(sites), global: await sha256Hex(JSON.stringify(global)) };
 }
 
-function coveredSiteTags(records: PurgeRecord[], sweep: Checkpoint["sweep"]): Set<string> {
-  const tags = new Set<string>();
-  for (const row of records) {
-    if (row.site_id !== null) {
-      tags.add(siteTag(row.site_id));
-    } else if (row.payload) {
-      // Fan-out writes and deleted sites can only identify their owners by tag.
-      try {
-        const payload = JSON.parse(row.payload);
-        const rowTags: unknown = payload?.tags;
-        if (!isStringArray(rowTags)) continue;
-        // The primary retry carries our reason. The second receipt carries the
-        // full ordered tag list. Neither is evidence for the next content edit.
-        if (payload.reason === "fingerprint" || payload.reason === "version") continue;
-        if (row.action === "purge_tags_second" && sweep && row.created_at !== null && row.created_at <= sweep.finishedAt &&
-            rowTags.length === sweep.tags.length && rowTags.every((tag, i) => tag === sweep.tags[i])) continue;
-        for (const tag of rowTags) {
-          if (tag) tags.add(tag.toLowerCase());
-        }
-      } catch {
-        // A malformed merged record cannot establish site coverage.
-      }
-    }
-  }
-  return tags;
-}
-
 export async function runFingerprintCron(env: Env, ctx: ExecutionContext | undefined): Promise<void> {
   try {
     const version = env.CF_VERSION_METADATA?.id;
@@ -251,42 +194,33 @@ export async function runFingerprintCron(env: Env, ctx: ExecutionContext | undef
       env.CACHE.get(FINGERPRINT_KEY), version ? env.CACHE.get(VERSION_KEY) : null,
     ]);
     const previous = readCheckpoint(raw);
-    const [coverage, ...groups] = await env.DB.batch([
-      env.DB.prepare(PURGE_RECORDS).bind(previous?.cursor ?? null, previous?.sampledAt ?? 0),
-      ...FINGERPRINTS.map(query => env.DB.prepare(query)),
-    ]) as [D1Result<PurgeRecord>, ...D1Result<Part>[]];
-    const boundary = coverage?.results[0];
-    if (!boundary || !coverage.success || groups.length !== FINGERPRINTS.length || groups.some(group => !group.success)) {
+    const groups = await env.DB.batch<Part>(FINGERPRINTS.map(query => env.DB.prepare(query)));
+    if (groups.length !== FINGERPRINTS.length || groups.some(group => !group.success)) {
       throw new Error("Incomplete fingerprint batch");
     }
     const current = await fingerprints(groups.flatMap(group => group.results));
     const owners = Object.keys(current.sites);
     const allIds = new Set([...owners, ...Object.keys(previous?.sites ?? {})]);
-    const changed = previous ? [...allIds].filter(id => current.sites[id] !== previous.sites[id]) : [];
+    const changed = new Set(previous ? [...allIds].filter(id => current.sites[id] !== previous.sites[id]) : []);
     const globalChanged = previous !== null && current.global !== previous.global;
     const versionChanged = Boolean(version && version !== oldVersion);
-    const covered = coveredSiteTags(coverage.results, previous?.sweep ?? null);
-    // A writer's receipt is a change record even when its aggregate did not move.
-    // Consume it once so it cannot mask a future missed edit after any number of quiet or delayed ticks.
-    if (previous && !changed.length && !globalChanged && !versionChanged && !covered.size) return;
-    const missed = new Set(changed.filter(id => !covered.has(siteTag(id))));
-    if (globalChanged && !covered.size) {
-      for (const id of owners) missed.add(id);
-    }
-    if (missed.size) console.error(JSON.stringify({ t: "missed_write_path", sites: [...missed].sort() }));
-    const targets = new Set(missed);
+    if (previous && !changed.size && !globalChanged && !versionChanged) return;
+    // A receipt for one edit cannot account for another edit in the same interval.
+    if (globalChanged) for (const id of owners) changed.add(id);
+    if (changed.size) console.error(JSON.stringify({ t: "missed_write_path", sites: [...changed].sort() }));
+    const targets = new Set(changed);
     if (versionChanged) for (const id of owners) targets.add(id);
-    let sweep: Checkpoint["sweep"] = null;
     if (targets.size) {
       const tags = [...new Set([...targets].sort().map(siteTag))];
       await onPublicChange(env, ctx, {
-        siteId: null, tags, reason: missed.size ? "fingerprint" : "version",
+        siteId: null, tags, reason: changed.size ? "fingerprint" : "version",
       });
-      sweep = { tags, finishedAt: Math.floor(Date.now() / 1000) };
     }
+    // Older Workers sharing the v1 key require these fields. A cursor beyond all
+    // D1 receipt IDs also makes them compare these digests without suppressing a purge.
     await env.CACHE.put(FINGERPRINT_KEY, JSON.stringify({
-      ...current, cursor: boundary.cursor, sampledAt: boundary.sampled_at, sweep,
-    } satisfies Checkpoint));
+      ...current, cursor: Number.MAX_SAFE_INTEGER, sampledAt: Math.floor(Date.now() / 1000), sweep: null,
+    }));
     if (versionChanged && version) await env.CACHE.put(VERSION_KEY, version);
   } catch (error) {
     const message = error instanceof Error ? error.message : typeof error === "string" ? error : "Unknown error";

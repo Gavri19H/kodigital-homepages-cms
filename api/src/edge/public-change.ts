@@ -5,6 +5,8 @@ import type { PublicChange } from "./types";
 const TAGS_PER_CALL = 100;
 const CRON_CALLS = 2;
 const SITES_PER_STATEMENT = 80;
+const HOURLY_RETRY_SECONDS = 60 * 60;
+const COMPLETED_RETENTION_SECONDS = 7 * 24 * 60 * 60;
 
 interface PublicPagePurger {
   purgeTags(tags: string[]): Promise<{ success: boolean; errors: unknown[] }>;
@@ -116,6 +118,7 @@ export async function onPublicChange(
 
 interface LogRow {
   id: number;
+  status: "pending" | "failed";
   payload: string | null;
 }
 
@@ -134,6 +137,36 @@ function readRow(row: LogRow) {
     logError("purge_payload_error", error, { id: row.id });
   }
   return { ...row, data, tags };
+}
+
+function cronTags(rows: ReturnType<typeof readRow>[]): string[] {
+  return [...new Set(rows.flatMap(row => row.tags ?? []))].slice(0, CRON_CALLS * TAGS_PER_CALL);
+}
+
+async function claimHourlyRetries(db: D1Database, rows: ReturnType<typeof readRow>[], now: number) {
+  const failed = rows.filter(row => row.status === "failed");
+  if (!failed.length) return rows;
+  const budget = new Set(cronTags(rows));
+  const due = failed.filter(row => !row.tags?.length || row.tags.some(tag => budget.has(tag)));
+  const claimed = new Set<number>();
+  // Reserve the hour before the RPC, including for legacy failures without a deadline.
+  // If two ticks read the same payload, only the one that moves its deadline retries it.
+  for (let i = 0; i < due.length; i += 80) {
+    const batch = due.slice(i, i + 80);
+    const writes = batch.map(row => {
+      const payload = JSON.stringify({ ...row.data, next_try_at: now + HOURLY_RETRY_SECONDS });
+      const claim = db.prepare(`UPDATE cache_purge_log SET payload = ?
+                                WHERE id = ? AND status = 'failed' AND payload IS ?`).bind(payload, row.id, row.payload);
+      // Settlement matches the reservation. The original data still describes any deferred tags.
+      row.payload = payload;
+      return claim;
+    });
+    const results = await db.batch(writes);
+    batch.forEach((row, index) => {
+      if (results[index]?.meta.changes) claimed.add(row.id);
+    });
+  }
+  return rows.filter(row => row.status === "pending" || claimed.has(row.id));
 }
 
 async function settleRows(
@@ -162,36 +195,38 @@ async function settleRows(
     }
     if (row.tags !== null && deferred.length === row.tags.length) continue;
 
-    let status = "pending";
+    let status = row.status;
     const next = { ...row.data };
     if (failures.length || row.tags === null) {
       if (deferred.length) {
-        // Keep unattempted tags at their original retry count, even if this is the last retry.
+        // Unattempted tags keep their original retry count and eligibility time.
         // The copy and update share a transaction and the same observed-payload guard.
         writes.push(db.prepare(`INSERT INTO cache_purge_log (site_id, action, status, dry_run, payload, created_at)
-                                SELECT site_id, action, 'pending', 0, ?, created_at FROM cache_purge_log
-                                WHERE id = ? AND status = 'pending' AND payload IS ?`)
-          .bind(JSON.stringify({ ...row.data, tags: deferred }), row.id, row.payload));
+                                SELECT site_id, action, status, 0, ?, created_at FROM cache_purge_log
+                                WHERE id = ? AND status = ? AND payload IS ?`)
+          .bind(JSON.stringify({ ...row.data, tags: deferred }), row.id, row.status, row.payload));
       }
       const previous = row.data.tries;
-      const tries = (typeof previous === "number" && Number.isSafeInteger(previous) && previous > 0 ? previous : 0) + 1;
+      const minimum = row.status === "failed" ? 3 : 0;
+      const tries = (typeof previous === "number" && Number.isSafeInteger(previous) && previous >= minimum ? previous : minimum) + 1;
       next.tries = tries;
       if (row.tags !== null) next.tags = failures;
       if (tries >= 3) {
         status = "failed";
+        next.next_try_at = Date.now() / 1000 + HOURLY_RETRY_SECONDS;
         alarms.set(writes.length, { t: "purge_failed", tags: failures, tries });
       }
     } else {
       next.tags = deferred;
     }
     writes.push(db.prepare(`UPDATE cache_purge_log SET status = ?, payload = ?
-                            WHERE id = ? AND status = 'pending' AND payload IS ?`)
-      .bind(status, JSON.stringify(next), row.id, row.payload));
+                            WHERE id = ? AND status = ? AND payload IS ?`)
+      .bind(status, JSON.stringify(next), row.id, row.status, row.payload));
     if (writes.length >= 80) await flush();
   }
 
   if (completed.length) {
-    // An overlapping attempt can narrow a row or exhaust its retries. Success covers either outcome.
+    // A confirmed purge covers the row even if an overlapping attempt just recorded a failure.
     writes.push(db.prepare(`UPDATE cache_purge_log SET status = 'completed'
                             WHERE status IN ('pending', 'failed') AND id IN (SELECT value FROM json_each(?))`)
       .bind(JSON.stringify(completed)));
@@ -201,12 +236,23 @@ async function settleRows(
 
 export async function runEdgePurgeCron(env: Env, ctx: ExecutionContext | undefined): Promise<void> {
   try {
-    const pending = await env.DB.prepare(`SELECT id, payload FROM cache_purge_log
-      WHERE status = 'pending' AND action IN ('purge_tags', 'purge_tags_second')
-        AND COALESCE(CASE WHEN json_valid(payload) THEN CAST(json_extract(payload, '$.due_after') AS REAL) END, 0) <= ?
-      ORDER BY created_at, id LIMIT 500`).bind(Date.now() / 1000).all<LogRow>();
-    const rows = pending.results.map(readRow);
-    const tags = [...new Set(rows.flatMap(row => row.tags ?? []))].slice(0, CRON_CALLS * TAGS_PER_CALL);
+    const now = Date.now() / 1000;
+    // Each status/action pair is already in age order in the index. SQLite can
+    // merge these streams up to the limit without sorting the entire backlog.
+    const pending = await env.DB.prepare(`WITH due AS NOT MATERIALIZED (
+        SELECT id, payload, status, action, created_at FROM cache_purge_log
+        WHERE CASE WHEN json_valid(payload) THEN MAX(
+          COALESCE(CAST(json_extract(payload, '$.due_after') AS REAL), 0),
+          COALESCE(CAST(json_extract(payload, '$.next_try_at') AS REAL), 0)
+        ) ELSE 0 END <= ?
+      )
+      SELECT * FROM due WHERE status = 'pending' AND action = 'purge_tags'
+      UNION ALL SELECT * FROM due WHERE status = 'pending' AND action = 'purge_tags_second'
+      UNION ALL SELECT * FROM due WHERE status = 'failed' AND action = 'purge_tags'
+      UNION ALL SELECT * FROM due WHERE status = 'failed' AND action = 'purge_tags_second'
+      ORDER BY created_at, id LIMIT 500`).bind(now).all<LogRow>();
+    const rows = await claimHourlyRetries(env.DB, pending.results.map(readRow), now);
+    const tags = cronTags(rows);
     const failed = new Set<string>();
     for (let i = 0; i < tags.length; i += TAGS_PER_CALL) {
       const chunk = tags.slice(i, i + TAGS_PER_CALL);
@@ -215,6 +261,18 @@ export async function runEdgePurgeCron(env: Env, ctx: ExecutionContext | undefin
       }
     }
     await settleRows(env.DB, rows, new Set(tags), failed);
+    // Seek to each completed action in the index, then only read its expired
+    // range. A quiet tick need not walk seven days of recent completions.
+    await env.DB.prepare(`WITH RECURSIVE actions(action) AS (
+        SELECT MIN(action) FROM cache_purge_log WHERE status = 'completed'
+        UNION ALL
+        SELECT (SELECT MIN(action) FROM cache_purge_log WHERE status = 'completed' AND action > actions.action)
+        FROM actions WHERE action IS NOT NULL
+      )
+      DELETE FROM cache_purge_log WHERE id IN (
+        SELECT id FROM cache_purge_log WHERE status = 'completed'
+          AND action IN (SELECT action FROM actions) AND created_at < ? LIMIT 500
+      )`).bind(now - COMPLETED_RETENTION_SECONDS).run();
   } catch (error) {
     logError("purge_cron_error", error);
   }

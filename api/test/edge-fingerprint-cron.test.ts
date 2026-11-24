@@ -79,40 +79,43 @@ describe.skipIf(!hasSqlite)("public fingerprint minute job", () => {
     expect(Object.keys(JSON.parse(store.get(fingerprintKey)!).sites)).toEqual(siteIds);
     expect(store.get(fingerprintKey)).not.toContain("Title");
     vi.mocked(env.CACHE.put).mockClear();
+    const prepare = vi.spyOn(env.DB, "prepare");
     db.prepare("UPDATE sites SET write_bookmark = ?, settings_version = settings_version + 1 WHERE id = ?")
       .run("0002", "Site-A");
     db.prepare("INSERT INTO leadgen_persona_quota (site_id, period_ym, used) VALUES (?, ?, ?)").run("Site-B", "2026-11", 1);
     await tick();
     await tick();
     expect(env.DB.batch).toHaveBeenCalledTimes(3);
+    expect(prepare.mock.calls.filter(([query]) => query.includes("cache_purge_log"))).toEqual([]);
     expect(env.CACHE.get).not.toHaveBeenCalledWith(versionKey);
     expect(env.CACHE.put).not.toHaveBeenCalled();
     expect(onPublicChange).not.toHaveBeenCalled();
     expect(console.error).not.toHaveBeenCalled();
   });
 
-  it("honors both pending and completed change records, including records in the baseline's last second", async () => {
+  it("purges changed sites together despite pending and completed receipts in the baseline's last second", async () => {
     await tick(0);
     addArticle("Site-A");
+    addArticle("Site-A", "missed");
     db.prepare("INSERT INTO site_settings (site_id, key, value) VALUES (?, ?, ?)").run("Site-B", "site_title", "News");
     record("Site-A", "purge_tags_second", ["slug:site-a:news"], seconds, "completed");
     record("Site-B", "purge_tags", ["site:site-b"]);
     await tick();
-    expect(onPublicChange).not.toHaveBeenCalled();
-    expect(console.error).not.toHaveBeenCalled();
+    expectSweep(allTags.slice(0, 2), siteIds.slice(0, 2));
     expect(env.CACHE.put).toHaveBeenCalledTimes(2);
     await tick();
     expect(env.CACHE.put).toHaveBeenCalledTimes(2);
+    expect(purge).toHaveBeenCalledTimes(1);
   });
 
-  it("merges only uncovered sites, including when a NULL-site writer records a tagged fan-out", async () => {
+  it("merges all changed sites when a NULL-site writer records a tagged fan-out", async () => {
     record("Site-A", "purge_tags_second", ["site:site-a"]);
     await tick(0);
     for (const id of siteIds) addArticle(id);
     record(null, "purge_tags_second", ["site:site-c"]);
     record("Site-B", "warm_homepage", ["site:site-b"]);
     await tick();
-    expectSweep(allTags.slice(0, 2), siteIds.slice(0, 2));
+    expectSweep(allTags, siteIds);
   });
 
   it("a change record observed on one tick cannot cover a later missed write, even if the next tick runs early", async () => {
@@ -125,13 +128,12 @@ describe.skipIf(!hasSqlite)("public fingerprint minute job", () => {
     expectSweep(["site:site-a"], ["Site-A"]);
   });
 
-  it("honors a writer's change record after a delayed tick", async () => {
+  it("purges a changed site after a delayed tick even when its writer left a receipt", async () => {
     await tick(0);
     addArticle("Site-A");
     record("Site-A", "purge_tags_second", ["slug:site-a:news"], seconds + 5);
     await tick(125);
-    expect(onPublicChange).not.toHaveBeenCalled();
-    expect(console.error).not.toHaveBeenCalled();
+    expectSweep(["site:site-a"], ["Site-A"]);
     expect(env.CACHE.put).toHaveBeenCalledTimes(2);
   });
 
@@ -179,14 +181,25 @@ describe.skipIf(!hasSqlite)("public fingerprint minute job", () => {
     expectSweep(allTags, siteIds);
   });
 
-  it("keeps the writer's narrower purge when a global configuration change has a change record", async () => {
+  it.each([false, true])("purges every site once when a global change has an unrelated receipt (site digest also changed: %s)", async siteChanged => {
     await tick(0);
     db.prepare("UPDATE leadgen_frame_templates SET updated_at = updated_at + 1").run();
+    if (siteChanged) addArticle("Site-A");
     record("Site-A", "purge_tags_second", ["quote:one"]);
     await tick();
-    expect(onPublicChange).not.toHaveBeenCalled();
-    expect(console.error).not.toHaveBeenCalled();
+    expectSweep(allTags, siteIds);
     expect(env.CACHE.put).toHaveBeenCalledTimes(2);
+  });
+
+  it("detects a missed write across an existing checkpoint and a failed purge with a second-pass receipt", async () => {
+    await tick(0);
+    const { sites, global } = JSON.parse(store.get(fingerprintKey)!);
+    store.set(fingerprintKey, JSON.stringify({ sites, global, cursor: 0, sampledAt: seconds, sweep: null }));
+    addArticle("Site-B", "missed");
+    record("Site-B", "purge_tags", ["slug:site-b:other"], seconds, "failed");
+    record("Site-B", "purge_tags_second", ["slug:site-b:other"]);
+    await tick();
+    expectSweep(["site:site-b"], ["Site-B"]);
   });
 
   it("keeps the site fingerprint stable on the tick after onPublicChange bumps its content version", async () => {
