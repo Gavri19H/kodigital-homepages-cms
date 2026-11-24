@@ -1,5 +1,6 @@
 import { WorkerEntrypoint } from "cloudflare:workers";
 import { applyEdgeCacheHeaders, EDGE_CACHE_CONTROL } from "../cache/cache-control";
+import { renderReadDb } from "../db/read-session";
 import type { Env } from "../env";
 import { perfstageEnv } from "./perfstage";
 import { buildSiteSnapshot } from "./snapshot";
@@ -34,6 +35,7 @@ export class PublicPage extends WorkerEntrypoint<Env, PublicPageProps> {
       }
     }
 
+    innerEnv.DB = renderReadDb(this.env.DB, request.headers.get("x-cms-bookmark"));
     const inner = new Request(request);
     inner.headers.set("x-cms-variant", variantKey);
     const { honoFetch } = await import("../index");

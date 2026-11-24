@@ -3,6 +3,7 @@ import { beforeEach, describe, expect, it, vi } from "vitest";
 import { checkInfraContract } from "../scripts/verify/infra-contract";
 import { checkWorkerConfig } from "../scripts/verify/worker-config";
 import { applyEdgeCacheHeaders } from "../src/cache/cache-control";
+import { renderReadDb } from "../src/db/read-session";
 import { PublicPage } from "../src/edge/public-page";
 import { buildSiteSnapshot } from "../src/edge/snapshot";
 import type { PublicPageProps, SiteSnapshot } from "../src/edge/types";
@@ -15,6 +16,7 @@ vi.mock("cloudflare:workers", () => ({
     constructor(readonly ctx: ExecutionContext, readonly env: Env) {}
   },
 }));
+vi.mock("../src/db/read-session", { spy: true });
 vi.mock("../src/edge/snapshot", { spy: true });
 vi.mock("../src/index", () => ({ honoFetch: vi.fn() }));
 
@@ -111,6 +113,8 @@ describe("PublicPage.fetch", () => {
 
   it("forwards the assigned variant and returns the renderer body, validators and merged purge tags", async () => {
     const { page, ctx } = entrypoint({ siteKey: "Site-A", variantKey: "md" });
+    const renderDb = makeFakeDb().db;
+    vi.mocked(renderReadDb).mockReturnValueOnce(renderDb);
     const request = new Request("https://tenant.example/article/story", {
       headers: {
         Accept: "text/markdown",
@@ -128,7 +132,8 @@ describe("PublicPage.fetch", () => {
 
     expect(honoFetch).toHaveBeenCalledTimes(1);
     const [forwarded, bindings, context] = vi.mocked(honoFetch).mock.calls[0]!;
-    expect(bindings).toEqual({ ...env, EDGE_INNER: "1" });
+    expect(renderReadDb).toHaveBeenCalledExactlyOnceWith(env.DB, "bookmark-123");
+    expect(bindings).toEqual({ ...env, DB: renderDb, EDGE_INNER: "1" });
     expect(env.EDGE_INNER).toBeUndefined();
     expect(context).toBe(ctx);
     expect(forwarded.url).toBe(request.url);
@@ -154,6 +159,7 @@ describe("PublicPage.fetch", () => {
     vi.mocked(buildSiteSnapshot).mockResolvedValue(snapshot);
     const { page } = entrypoint(snapProps);
     const response = await page.fetch(new Request(snapUrl));
+    expect(renderReadDb).not.toHaveBeenCalled();
     expect(buildSiteSnapshot).toHaveBeenCalledWith({ ...env, EDGE_INNER: "1" }, "tenant.example");
     expect(env.EDGE_INNER).toBeUndefined();
     expect(honoFetch).not.toHaveBeenCalled();
