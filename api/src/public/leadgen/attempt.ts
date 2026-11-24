@@ -259,7 +259,7 @@ export interface AttemptBindingExtras {
   auction_config_version: string;
 }
 
-async function loadAuctionConfigVersion(db: D1Database | undefined, auctionId: number | null): Promise<string> {
+export async function loadAuctionConfigVersion(db: D1Database | undefined, auctionId: number | null): Promise<string> {
   if (db === undefined || auctionId === null) return "";
   try {
     const row = await db
@@ -270,6 +270,10 @@ async function loadAuctionConfigVersion(db: D1Database | undefined, auctionId: n
   } catch {
     return "";
   }
+}
+
+export function attemptBindingExtras(orderedVersions: string[], auctionVersion: string): AttemptBindingExtras {
+  return { answer_mapping_hash: sha256Hex(JSON.stringify(orderedVersions)), auction_config_version: auctionVersion };
 }
 
 // Compute the v2 tuple extras from typed state. DB-optional + fail-open BY
@@ -301,9 +305,7 @@ export async function computeAttemptBindingExtras(
     }
   }
   const orderedVersions = resolved.sections.map((s) => String(versionBySection.get(s.section.id) ?? 0));
-  const answer_mapping_hash = sha256Hex(JSON.stringify(orderedVersions));
-
-  return { answer_mapping_hash, auction_config_version: await auctionVersion };
+  return attemptBindingExtras(orderedVersions, await auctionVersion);
 }
 
 // ---------------------------------------------------------------------------
@@ -344,12 +346,13 @@ export async function mintFunnelAttempt(
   resolved: ResolvedActivatedFunnel,
   now: number = Date.now(),
   ctx?: MintAttemptContext,
+  preparedBindings?: AttemptBindingExtras,
 ): Promise<FunnelAttempt> {
   const secret = readEnvSecret(env, LEADGEN_CONFIG_SIGNING_KEY_NAME);
   // P4a: a checkpoint switch reuses the attempt id (same attempt, new binding);
   // the normal mint path passes none → a fresh id.
   const funnel_attempt_id = ctx?.funnel_attempt_id ?? mintFunnelAttemptId(now);
-  const extras = await computeAttemptBindingExtras(env, resolved);
+  const extras = preparedBindings ?? await computeAttemptBindingExtras(env, resolved);
   const sessionId = ctx?.session_id ?? "";
 
   // Round-4 P3a: resolve the per-attempt page plan ONCE, server-side (rules

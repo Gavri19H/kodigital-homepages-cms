@@ -18,7 +18,7 @@ import { perfstageRequest } from "./perfstage";
 import { parseSiteSnapshot } from "./snapshot";
 import { serveStatic } from "./static-cache";
 import { listicleTag, siteQuoteTag } from "./tags";
-import type { GatewayRequestInput, PublicPageProps } from "./types";
+import type { GatewayRequestInput, PublicPageProps, SiteSnapshot } from "./types";
 
 interface PageExports {
   PublicPage(options: { props: PublicPageProps }): { fetch(request: Request): Promise<Response> };
@@ -97,9 +97,14 @@ function cmsHeaderNames(headers: Headers): string[] {
   return Array.from(headers.keys()).filter(name => name.toLowerCase().startsWith("x-cms-"));
 }
 
-async function serveCachedPage(
-  request: Request, url: URL, route: CachedRoute, pages: PageExports, cf: GatewayRequestInput["cf"],
-): Promise<Response | null> {
+function copyVisitorRequest(request: Request): Request {
+  const copy = new Request(request);
+  // Standard Fetch runtimes can omit the Workers metadata when copying a request.
+  if (copy.cf === undefined && request.cf !== undefined) copy.cf = request.cf;
+  return copy;
+}
+
+async function readHostSnapshot(url: URL, pages: PageExports): Promise<SiteSnapshot | null> {
   const snapshotResponse = await pages.PublicPage({
     props: { siteKey: `host:${url.hostname}`, variantKey: "snap" },
   }).fetch(new Request(`https://${url.hostname}/__snap`, { redirect: "manual" }));
@@ -108,7 +113,12 @@ async function serveCachedPage(
   if (!snapshot || snapshot.status !== "active" || snapshot.hostname.toLowerCase() !== normalizeHostname(url.hostname)) {
     return null;
   }
+  return snapshot;
+}
 
+async function serveCachedPage(
+  request: Request, url: URL, route: CachedRoute, pages: PageExports, cf: GatewayRequestInput["cf"], snapshot: SiteSnapshot,
+): Promise<Response | null> {
   const session = readCookie(request.headers.get("Cookie"), "ko_sid");
   const sidWasAbsent = session === "";
   const input: GatewayRequestInput = {
@@ -120,6 +130,7 @@ async function serveCachedPage(
   // If-None-Match takes precedence over the date. Resolve it on the complete shell.
   if (validator !== null) innerHeaders.delete("If-Modified-Since");
   innerHeaders.set("Host", url.host);
+  innerHeaders.set("x-cms-snap-built-at", String(snapshot.builtAt));
   if (snapshot.writeBookmark) innerHeaders.set("x-cms-bookmark", snapshot.writeBookmark);
 
   let variantKey = "human";
@@ -227,10 +238,8 @@ export async function gatewayFetch(
   }
   const names = cmsHeaderNames(request.headers);
   if (names.length) {
-    const clean = new Request(request);
+    const clean = copyVisitorRequest(request);
     for (const name of names) clean.headers.delete(name);
-    // Standard Fetch runtimes can omit the Workers metadata when copying a request.
-    if (clean.cf === undefined && request.cf !== undefined) clean.cf = request.cf;
     request = clean;
   }
   request = perfstageRequest(request, env);
@@ -243,8 +252,18 @@ export async function gatewayFetch(
     if (!response && typeof pages?.PublicPage === "function" && (request.method === "GET" || request.method === "HEAD")) {
       const url = new URL(request.url);
       const route = cachedRoute(path);
-      if (route && !isAdminHost(url.hostname, env)) {
-        response = await serveCachedPage(request, url, route, pages, readCfSignals(request));
+      const attempt = request.method === "GET" && path === "/lg/attempt";
+      if ((route || attempt) && !isAdminHost(url.hostname, env)) {
+        const snapshot = await readHostSnapshot(url, pages);
+        if (snapshot && route) {
+          response = await serveCachedPage(request, url, route, pages, readCfSignals(request), snapshot);
+        } else if (snapshot && attempt) {
+          const inner = copyVisitorRequest(request);
+          inner.headers.set("x-cms-site-id", snapshot.siteId);
+          inner.headers.set("x-cms-snap-built-at", String(snapshot.builtAt));
+          inner.headers.set("x-cms-bookmark", snapshot.writeBookmark ?? "");
+          request = inner;
+        }
       }
     }
     if (response) {

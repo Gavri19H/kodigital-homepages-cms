@@ -162,13 +162,14 @@ describe("public page cache keys", () => {
     });
     const request = visit("/page/news", { headers: {
       "X-CMS-Variant": "md", "x-cms-tags": "site:b", "x-cms-bookmark": "forged", "x-cms-other": "extra",
-      Cookie: "ko_sid=visitor", "x-public": "request",
+      "x-cms-snap-built-at": "forged", Cookie: "ko_sid=visitor", "x-public": "request",
     } });
     const response = await serve(request);
     expect(await response.text()).toBe("body");
     expect(calls[1]!.props.variantKey).toBe("human");
-    for (const { request: forwarded } of calls) {
-      expect([...forwarded.headers.keys()].filter(k => k.startsWith("x-cms-") || k === "cookie")).toEqual([]);
+    for (const { props, request: forwarded } of calls) {
+      const internal = [...forwarded.headers].filter(([k]) => k.startsWith("x-cms-") || k === "cookie");
+      expect(internal).toEqual(props.variantKey === "snap" ? [] : [["x-cms-snap-built-at", String(snapshot.builtAt)]]);
     }
     expect(calls[1]!.request.headers.get("x-public")).toBe("request");
     expect([...response.headers.keys()].filter(k => k.startsWith("x-cms-"))).toEqual([]);
@@ -292,7 +293,7 @@ describe("Hono fallbacks and private paths", () => {
     "/article/news/", "/page/about/extra", "/tag/local/page/two", "/category/news/page/2/extra", "/other/path",
     "/%68ealth", "/lg/%61ttempt",
   ])("hands %s to Hono with its original URL, method and ordinary headers", async path => {
-    const { serve, calls, honoFetch, ctx } = harness();
+    const { serve, calls, honoFetch, ctx } = harness({ snap: () => new Response(null, { status: 404 }) });
     const request = visit(path + "?keep=1", { headers: { Cookie: "visitor=1", "x-public": "untouched" } });
     expect(await (await serve(request)).text()).toBe("live Hono");
     expect(honoFetch).toHaveBeenCalledExactlyOnceWith(request, env, ctx);
@@ -311,7 +312,8 @@ describe("Hono fallbacks and private paths", () => {
     expect(live.url).toBe(request.url);
     expect(live.method).toBe(request.method);
     expect([...live.headers]).toEqual([...request.headers]);
-    expect(calls).toHaveLength(0);
+    const attempt = decodeURI(path) === "/lg/attempt";
+    expect(calls.map(call => call.props.variantKey)).toEqual(attempt ? ["snap", "snap"] : []);
   });
 
   it.each([

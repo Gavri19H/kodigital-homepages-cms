@@ -52,6 +52,7 @@ import type { Context } from "hono";
 import type { Env } from "../../env";
 import { parseNumber } from "../../env";
 import type { PublicSiteVariables } from "../middleware";
+import type { PreparedFunnelBundle } from "./bundle";
 import { cacheExecutionCtx } from "../html-pipeline";
 import { escapeHtml } from "../../editor/sanitize";
 import { REDIRECT_PAGE_SCRIPT } from "./redirect/page-script";
@@ -1255,17 +1256,27 @@ function readFunnelVisitor(c: PublicContext) {
   return { sid, sidWasAbsent, entryCtx };
 }
 
+export async function loadFunnelShellInputs(env: Env, resolved: ResolvedActivatedFunnel) {
+  const [answerMapVersions, themeRecord, clickEvents] = await Promise.all([
+    loadAnswerMapVersions(env.DB, resolved.sections),
+    resolveThemeRecordFor(env, frameSourceOf(resolved)),
+    funnelOfferClickEventOn(env.DB, resolved.variant.auction_id),
+  ]);
+  return { answerMapVersions, themeRecord, clickEvents };
+}
+
 // GET /lg (root activation) + GET /lg/:quote_slug — the cacheable funnel shell.
 export async function serveFunnelShell(
   c: PublicContext,
   quoteSlug: string | null,
+  prepared?: PreparedFunnelBundle | null,
 ): Promise<Response> {
   const siteContext = c.get("siteContext");
   const variantKey = c.req.header("x-cms-variant");
-  // Check the requested slug before loading the bundle from a stale snapshot.
-  const edgeFunnel = variantKey?.startsWith("lg:")
+  // A null bundle means the selected variant is no longer served at this slug.
+  const edgeFunnel = prepared === undefined && variantKey?.startsWith("lg:")
     ? await resolveActivatedFunnelByVariant(c.env, siteContext.siteId, variantKey.slice(3), { quoteSlug }).catch(() => null)
-    : null;
+    : prepared?.resolved ?? null;
   const visitor = edgeFunnel === null ? readFunnelVisitor(c) : null;
   const resolved = visitor === null ? edgeFunnel : await resolveActivatedFunnel(c.env, {
     site_id: siteContext.siteId,
@@ -1327,7 +1338,7 @@ export async function serveFunnelShell(
   let pristine: string;
   let vehicleDegraded = false;
   const waitUntil = cacheExecutionCtx(c);
-  const cached = await getCachedHtml(c.env, key, waitUntil);
+  const cached = prepared ? null : await getCachedHtml(c.env, key, waitUntil);
   if (cached !== null) {
     pristine = cached.body;
   } else {
@@ -1335,12 +1346,10 @@ export async function serveFunnelShell(
     const pageNodes = resolved.sections.flatMap((rs) =>
       parseSectionComponents(typeof rs.section.content_json === "string" ? rs.section.content_json : ""),
     );
-    // A cold shell needs all four inputs. The theme, auction and vehicle
-    // loaders skip their lookups when the resolved variant doesn't use them.
-    const [answerMapVersions, themeRecord, clickEvents, vehicle] = await Promise.all([
-      loadAnswerMapVersions(c.env.DB, resolved.sections),
-      resolveThemeRecordFor(c.env, frameSourceOf(resolved)),
-      funnelOfferClickEventOn(c.env.DB, resolved.variant.auction_id),
+    // The global vehicle catalogue and its media can publish independently of
+    // this site's snapshot. Resolve them at render time as before.
+    const [{ answerMapVersions, themeRecord, clickEvents }, vehicle] = await Promise.all([
+      prepared?.shell ?? loadFunnelShellInputs(c.env, resolved),
       loadVehicleRenderData(c.env, pageNodes).catch(() => null),
     ]);
     const metaPixel: LeadgenMetaPixelShell = {
@@ -1368,7 +1377,7 @@ export async function serveFunnelShell(
     const ttl = parseNumber(c.env.HTML_CACHE_TTL_SECONDS, DEFAULT_TTL_SECONDS);
     // Write-through stores the PRISTINE shell (visitor-invariant: no Maps key,
     // no per-session assignment dims — only the sentinels).
-    if (!vehicleDegraded) await putCachedHtml(c.env, key, pristine, { expirationTtl: ttl, etag }, waitUntil);
+    if (!prepared && !vehicleDegraded) await putCachedHtml(c.env, key, pristine, { expirationTtl: ttl, etag }, waitUntil);
   }
 
   // Both paths splice the site's Maps key after the KV read. An edge-selected
