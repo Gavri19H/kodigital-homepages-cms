@@ -206,7 +206,7 @@ function measuredEnv(sql: SqliteDb) {
 it.each([
   { fixture: "one quote", slugs: ["life"], rounds: 7, calls: 14 },
   { fixture: "two quotes", slugs: ["/lg", "life"], rounds: 11, calls: 22 },
-])("preserves snapshot bytes for $fixture in two rounds (previously $rounds rounds and $calls calls)", async ({ slugs, rounds, calls }) => {
+])("preserves existing snapshot fields byte for byte for $fixture in two rounds (previously $rounds rounds and $calls calls)", async ({ slugs, rounds, calls }) => {
   const sql = createDb();
   onTestFinished(() => sql.close());
   seed(sql);
@@ -224,8 +224,10 @@ it.each([
     leadgen: { life: { offerLocations: { 1: "/lg/lc/" + publicId("lgo", 1), 2: null } } },
   });
   expect(Object.keys(actual!.leadgen).sort()).toEqual(slugs);
-  expect(actual).toStrictEqual(expected);
-  expect(JSON.stringify(actual)).toBe(JSON.stringify(expected));
+  const { verticalSlug, ...existingFields } = actual!;
+  expect(verticalSlug).toBe("home");
+  expect(existingFields).toStrictEqual(expected);
+  expect(JSON.stringify(existingFields)).toBe(JSON.stringify(expected));
   expect(after.withSession).toHaveBeenCalledExactlyOnceWith("first-primary");
   expect(before.timing).toMatchObject({ rounds, calls });
   expect(after.timing).toMatchObject({ rounds: 2, calls: 2 });

@@ -18,7 +18,7 @@ describe("buildSiteSnapshot", () => {
     env = testEnv(sql);
     env.DB.batch = readBatch;
     addSite(sql, "site-north", "North", "home");
-    addSite(sql, "site-south", "South", "home");
+    addSite(sql, "site-south", "South", "travel");
     const domain = sql.prepare("INSERT INTO domains (site_id, hostname, status) VALUES (?, ?, 'active')");
     domain.run("site-north", "north.example");
     domain.run("site-south", "south.example");
@@ -45,10 +45,10 @@ describe("buildSiteSnapshot", () => {
       buildSiteSnapshot(env, "NORTH.Example.:443"),
       buildSiteSnapshot(env, "south.example"),
     ]);
-    expect(north).toMatchObject({ siteId: "site-north", hostname: "north.example", status: "active",
+    expect(north).toMatchObject({ siteId: "site-north", hostname: "north.example", verticalSlug: "home", status: "active",
       listicles: { guide: { listicleId: "art_guide", publishedVersion: { public_id: "ver_guide" } } } });
     expect(north?.leadgen).toEqual({});
-    expect(south).toMatchObject({ siteId: "site-south", hostname: "south.example", status: "active",
+    expect(south).toMatchObject({ siteId: "site-south", hostname: "south.example", verticalSlug: "travel", status: "active",
       leadgen: { "/lg": { quoteId } } });
     expect(south?.listicles).toEqual({});
     for (const snapshot of [north, south]) {
@@ -133,7 +133,7 @@ describe("buildSiteSnapshot", () => {
 
 describe("parseSiteSnapshot", () => {
   const snapshot: SiteSnapshot = {
-    v: 1, siteId: "site-north", hostname: "north.example", status: "active",
+    v: 1, siteId: "site-north", hostname: "north.example", verticalSlug: "home", status: "active",
     contentVersion: 4, settingsVersion: 2, writeBookmark: null, builtAt: 1000,
     timeZone: null, language: null, listicles: {}, leadgen: {},
   };
@@ -147,6 +147,8 @@ describe("parseSiteSnapshot", () => {
   it.each([
     ["unsupported snapshot version", { v: 2 }],
     ["blank site ID", { siteId: " " }],
+    ["blank vertical slug", { verticalSlug: " " }],
+    ["non-string vertical slug", { verticalSlug: 3 }],
     ["empty hostname", { hostname: "" }],
     ["string content version", { contentVersion: "4" }],
     ["missing settings version", { settingsVersion: undefined }],

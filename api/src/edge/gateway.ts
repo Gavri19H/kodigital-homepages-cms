@@ -10,7 +10,7 @@ import { genSessionId, readCookie } from "../public/listicle/experiment-pick";
 import { isReservedPath } from "../public/reserved";
 import { acceptPrefersMarkdown } from "../public/router";
 import { normalizeHostname } from "../safety/protected-domains";
-import { isAdminHost } from "../site/site-context";
+import { isAdminHost, type SiteContext } from "../site/site-context";
 import { edgeBotVariant } from "./bot";
 import { injectLeadgenAssignment, leadgenGatewayCookies } from "./leadgen-gateway";
 import { selectLeadgenEntry, type LeadgenSelection } from "./leadgen-select";
@@ -253,6 +253,16 @@ async function serveCachedPage(
   innerHeaders.set("Accept", variantKey === "md" ? "text/markdown" : "text/html");
   // Fetch the original representation and its validator before browser compression.
   if (variantKey === "human" || variantKey === "bot") innerHeaders.set("Accept-Encoding", "identity");
+  if (snapshot.verticalSlug !== undefined) {
+    innerHeaders.set("x-cms-site-context", JSON.stringify({
+      site_id: snapshot.siteId,
+      hostname: snapshot.hostname,
+      vertical_slug: snapshot.verticalSlug,
+      status: snapshot.status,
+      content_version: snapshot.contentVersion,
+      settings_version: snapshot.settingsVersion,
+    } satisfies SiteContext));
+  }
   const inner = await fetchPublicPage(pages, { siteKey: snapshot.siteId, variantKey },
     new Request(url.origin + url.pathname, { method: "GET", headers: innerHeaders, redirect: "manual" }), timing, direct);
   // A stale assignment can send the renderer down its live, cookie-setting path.
