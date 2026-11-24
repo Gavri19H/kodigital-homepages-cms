@@ -110,7 +110,7 @@ export async function onPublicChange(
       await enqueue(env.DB, siteId, "purge_tags", { tags: tags.filter(tag => !purged.has(tag)), reason, tries: 0 });
     }
     // Keep millisecond precision in the Unix timestamp for the 30-second boundary.
-    await enqueue(env.DB, siteId, "purge_tags_second", { tags, due_after: (Date.now() + 30_000) / 1000 });
+    await enqueue(env.DB, siteId, "purge_tags_second", { tags, reason, due_after: (Date.now() + 30_000) / 1000 });
   } catch (error) {
     logError("public_change_error", error);
   }
@@ -204,7 +204,7 @@ async function settleRows(
         writes.push(db.prepare(`INSERT INTO cache_purge_log (site_id, action, status, dry_run, payload, created_at)
                                 SELECT site_id, action, status, 0, ?, created_at FROM cache_purge_log
                                 WHERE id = ? AND status = ? AND payload IS ?`)
-          .bind(JSON.stringify({ ...row.data, tags: deferred }), row.id, row.status, row.payload));
+          .bind(JSON.stringify({ ...row.data, tags: deferred, retry_of: row.data.retry_of ?? row.id }), row.id, row.status, row.payload));
       }
       const previous = row.data.tries;
       const minimum = row.status === "failed" ? 3 : 0;
@@ -218,6 +218,11 @@ async function settleRows(
       }
     } else {
       next.tags = deferred;
+    }
+    // The fingerprint reads the writer's original scope even after a partial drain.
+    // A split-off retry belongs to that receipt's window, not the minute it was copied.
+    if (row.tags && !row.data.retry_of && Array.isArray(next.tags) && next.tags.length < row.tags.length) {
+      next.receipt_tags ??= row.tags;
     }
     writes.push(db.prepare(`UPDATE cache_purge_log SET status = ?, payload = ?
                             WHERE id = ? AND status = ? AND payload IS ?`)
@@ -261,17 +266,9 @@ export async function runEdgePurgeCron(env: Env, ctx: ExecutionContext | undefin
       }
     }
     await settleRows(env.DB, rows, new Set(tags), failed);
-    // Seek to each completed action in the index, then only read its expired
-    // range. A quiet tick need not walk seven days of recent completions.
-    await env.DB.prepare(`WITH RECURSIVE actions(action) AS (
-        SELECT MIN(action) FROM cache_purge_log WHERE status = 'completed'
-        UNION ALL
-        SELECT (SELECT MIN(action) FROM cache_purge_log WHERE status = 'completed' AND action > actions.action)
-        FROM actions WHERE action IS NOT NULL
-      )
-      DELETE FROM cache_purge_log WHERE id IN (
+    await env.DB.prepare(`DELETE FROM cache_purge_log WHERE id IN (
         SELECT id FROM cache_purge_log WHERE status = 'completed'
-          AND action IN (SELECT action FROM actions) AND created_at < ? LIMIT 500
+          AND action IN ('purge_tags', 'purge_tags_second', 'edge:tick:v1') AND created_at < ? LIMIT 500
       )`).bind(now - COMPLETED_RETENTION_SECONDS).run();
   } catch (error) {
     logError("purge_cron_error", error);

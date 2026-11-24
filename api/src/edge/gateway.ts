@@ -56,8 +56,13 @@ async function runEdgeTick(env: Env, ctx: ExecutionContext): Promise<void> {
   }
   tickAfter.set(env.CACHE, now + tickIntervalMs);
   await env.CACHE.put(tickKey, String(now));
-  const { runFingerprintCron } = await import("./fingerprint-cron");
-  await runFingerprintCron(env, ctx);
+  try {
+    const { runEdgePurgeCron } = await import("./public-change");
+    await runEdgePurgeCron(env, ctx);
+  } finally {
+    const { runFingerprintCron } = await import("./fingerprint-cron");
+    await runFingerprintCron(env, ctx);
+  }
 }
 
 const fixedPages = new Set([

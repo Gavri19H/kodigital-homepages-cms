@@ -78,7 +78,7 @@ describe.skipIf(!hasSqlite)("public change invalidation", () => {
     expect(purge).toHaveBeenCalledExactlyOnceWith(siteTags);
     expect(logRows()).toEqual([{
       site_id: "Site-A", action: "purge_tags_second", status: "pending", dry_run: 0,
-      payload: { tags: siteTags, due_after: now + 30 },
+      payload: { tags: siteTags, reason: "publish", due_after: now + 30 },
     }]);
   });
 
@@ -102,7 +102,7 @@ describe.skipIf(!hasSqlite)("public change invalidation", () => {
       { site_id: "Site-A", action: "purge_tags", status: "pending", dry_run: 0,
         payload: { tags: siteTags, reason: "publish", tries: 0 } },
       { site_id: "Site-A", action: "purge_tags_second", status: "pending", dry_run: 0,
-        payload: { tags: siteTags, due_after: now + 30 } },
+        payload: { tags: siteTags, reason: "publish", due_after: now + 30 } },
     ]);
     expect(console.error).toHaveBeenCalledTimes(1);
     expect(JSON.parse(vi.mocked(console.error).mock.calls[0]![0])).toBeTypeOf("object");
@@ -229,7 +229,8 @@ describe.skipIf(!hasSqlite)("public change invalidation", () => {
     for (let i = 0; i < 502; i++) {
       seed(i % 2 ? "purge_tags" : "purge_tags_second", { tags: ["old"] }, cutoff - 1, "completed");
     }
-    seed("purge_cache", { tags: ["old"] }, cutoff - 1, "completed");
+    seed("edge:tick:v1", { tags: ["old"] }, cutoff - 1, "completed");
+    seed("purge_cache", { tags: ["admin"] }, cutoff - 1, "completed");
     seed("purge_tags_second", { tags: ["boundary"] }, cutoff, "completed");
     seed("purge_tags", { tags: ["newer"] }, cutoff + 1, "completed");
     seed("purge_tags", { tags: ["queued"], due_after: now + 1 }, cutoff - 1);
@@ -239,9 +240,20 @@ describe.skipIf(!hasSqlite)("public change invalidation", () => {
     expect(logRows().filter(row => row.payload.tags[0] === "old")).toHaveLength(3);
     await runEdgePurgeCron(env, ctx);
     expect(logRows().map(row => [row.status, row.payload.tags[0]])).toEqual([
-      ["completed", "boundary"], ["completed", "newer"], ["pending", "queued"], ["failed", "retry"], ["completed_dry_run", "audit"],
+      ["completed", "admin"], ["completed", "boundary"], ["completed", "newer"], ["pending", "queued"], ["failed", "retry"], ["completed_dry_run", "audit"],
     ]);
     expect(purge).not.toHaveBeenCalled();
+  });
+
+  it("retains the completed provisioning audit receipt after seven days", async () => {
+    const expired = now - 7 * 24 * 60 * 60 - 1;
+    const action = "attach_domain_to_new_worker_or_mark_pending";
+    const payload = { hostname: "site-a.example", attached: true };
+    seed(action, payload, expired, "completed");
+    seed("purge_tags", { tags: ["site:site-a"] }, expired, "completed");
+    await runEdgePurgeCron(env, ctx);
+    expect(sql.prepare("SELECT action, status, payload, created_at FROM cache_purge_log").all())
+      .toEqual([{ action, status: "completed", payload: JSON.stringify(payload), created_at: expired }]);
   });
 
   it("keeps only unpurged tags when one chunk of a row succeeds and the other fails", async () => {

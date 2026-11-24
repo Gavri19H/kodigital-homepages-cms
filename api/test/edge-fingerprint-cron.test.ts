@@ -1,8 +1,11 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+import { applyEdgeCacheHeaders } from "../src/cache/cache-control";
 import { runFingerprintCron } from "../src/edge/fingerprint-cron";
 import { onPublicChange, runEdgePurgeCron } from "../src/edge/public-change";
+import { siteQuoteTag } from "../src/edge/tags";
 import type { Env } from "../src/env";
 import worker from "../src/index";
+import { purgeArticleChange } from "../src/workflow/publish";
 import { makeKvStub } from "./helpers/leadgen-analytics-harness";
 import { addSite, createDb, env as sqliteEnv, hasSqlite, type SqliteDb } from "./helpers/x06-a2-sqlite";
 
@@ -66,6 +69,42 @@ describe.skipIf(!hasSqlite)("public fingerprint minute job", () => {
                 VALUES (?, ?, 'News', '{}', 'published', ?)`).run(site, slug, updated);
   }
 
+  function editArticle() {
+    expect(db.prepare("UPDATE articles SET title = ?, updated_at = updated_at + 1 WHERE site_id = ? AND slug = ?")
+      .run("Edited title", "Site-A", "news").changes).toBe(1);
+  }
+
+  function addQuote() {
+    return Number(db.prepare("INSERT INTO leadgen_quotes (public_id, quote_name, activity, verticals_json) VALUES (?, ?, ?, ?)")
+      .run("quote", "Quote", "main", "[]").lastInsertRowid);
+  }
+
+  function activate(site: string, quote: number, enabled = 1) {
+    db.prepare("INSERT INTO leadgen_site_quotes (site_id, quote_id, slug, enabled) VALUES (?, ?, ?, ?)")
+      .run(site, quote, "home-insurance", enabled);
+  }
+
+  function publishListicle(site: string, offer: string) {
+    const article = db.prepare(`INSERT INTO listicle_articles (site_id, public_id, slug, article_name, status)
+      VALUES (?, ?, 'guide', 'Guide', 'published')`).run(site, "lst-" + site).lastInsertRowid;
+    const version = db.prepare(`INSERT INTO listicle_article_versions (article_id, public_id, headline, intro_paragraph)
+      VALUES (?, ?, 'Guide', 'Intro')`).run(article, "ver-" + site).lastInsertRowid;
+    const page = db.prepare("INSERT INTO listicle_pages (article_version_id, public_id, page_index) VALUES (?, ?, 0)")
+      .run(version, "page-" + site).lastInsertRowid;
+    const blocks = JSON.stringify({ blocks: [{ type: "button", id: "go", data: { text: "Go", offer_id: offer } }] });
+    const section = db.prepare(`INSERT INTO listicle_sections (public_id, section_name, headline_text, content_json)
+      VALUES (?, 'Offers', 'Offer', ?)`).run("section-" + site, blocks).lastInsertRowid;
+    db.prepare(`INSERT INTO listicle_page_section_candidates (public_id, page_id, section_id)
+      VALUES (?, ?, ?)`).run("cand-" + site, page, section);
+    return section;
+  }
+
+  function expectNoSweep() {
+    expect(onPublicChange).not.toHaveBeenCalled();
+    expect(purge).not.toHaveBeenCalled();
+    expect(console.error).not.toHaveBeenCalled();
+  }
+
   function expectSweep(tags: string[], missedSites: string[]) {
     expect(onPublicChange).toHaveBeenCalledExactlyOnceWith(env, ctx, { siteId: null, tags, reason: "fingerprint" });
     expect(purge).toHaveBeenCalledExactlyOnceWith(tags);
@@ -97,7 +136,51 @@ describe.skipIf(!hasSqlite)("public fingerprint minute job", () => {
     expect(console.error).not.toHaveBeenCalled();
   });
 
-  it("purges changed sites together despite pending and completed receipts in the baseline's last second", async () => {
+  it("keeps an unrelated cached quote after a recorded article edit and both targeted purge passes", async () => {
+    addArticle("Site-A");
+    activate("Site-A", addQuote());
+    const quote = applyEdgeCacheHeaders(new Response("cached quote"), {
+      siteId: "Site-A", path: "/lg/home-insurance", extraTags: [siteQuoteTag("Site-A", "quote")],
+    });
+    const quoteTags = quote.headers.get("Cache-Tag")!.split(",");
+    expect(quoteTags).toEqual(["site:site-a", "quote:site-a:quote"]);
+    await tick(0);
+    editArticle();
+    await purgeArticleChange(env, "Site-A", ["news"], "article.update", ctx);
+    const targeted = ["slug:site-a:news", "listing:site-a", "snap:site-a", "nf:site-a"];
+    expect(purge).toHaveBeenCalledExactlyOnceWith(targeted);
+    await tick();
+    expect(purge).toHaveBeenCalledExactlyOnceWith(targeted);
+    expect(onPublicChange).toHaveBeenCalledTimes(1);
+    await runEdgePurgeCron(env, ctx);
+    expect(purge.mock.calls).toEqual([[targeted], [targeted]]);
+    const purgedTags = new Set(purge.mock.calls.flatMap(([tags]) => tags));
+    expect(quoteTags.filter(tag => purgedTags.has(tag))).toEqual([]);
+    expect(console.error).not.toHaveBeenCalled();
+  });
+
+  it("purges the edited site and logs the missed article write on the next minute when D1 has no receipt", async () => {
+    addArticle("Site-A");
+    await tick(0);
+    editArticle();
+    await tick(60);
+    expectSweep(["site:site-a"], ["Site-A"]);
+  });
+
+  it("detects an unrecorded settings change in the same minute as a recorded article edit on that site", async () => {
+    addArticle("Site-A");
+    db.prepare("INSERT INTO site_settings (site_id, key, value) VALUES (?, ?, ?)").run("Site-A", "site_title", "One");
+    await tick(0);
+    editArticle();
+    await purgeArticleChange(env, "Site-A", ["news"], "article.update", ctx);
+    expect(purge).toHaveBeenCalledExactlyOnceWith(["slug:site-a:news", "listing:site-a", "snap:site-a", "nf:site-a"]);
+    vi.clearAllMocks();
+    db.prepare("UPDATE site_settings SET value = ? WHERE site_id = ? AND key = ?").run("Two", "Site-A", "site_title");
+    await tick(60);
+    expectSweep(["site:site-a"], ["Site-A"]);
+  });
+
+  it("recognizes pending and completed source receipts in the baseline's last second", async () => {
     await tick(0);
     addArticle("Site-A");
     addArticle("Site-A", "missed");
@@ -105,21 +188,21 @@ describe.skipIf(!hasSqlite)("public fingerprint minute job", () => {
     record("Site-A", "purge_tags_second", ["slug:site-a:news"], seconds, "completed");
     record("Site-B", "purge_tags", ["site:site-b"]);
     await tick();
-    expectSweep(allTags.slice(0, 2), []);
+    expectNoSweep();
     expect(env.CACHE.put).toHaveBeenCalledTimes(2);
     await tick();
     expect(env.CACHE.put).toHaveBeenCalledTimes(2);
-    expect(purge).toHaveBeenCalledTimes(1);
+    expect(purge).not.toHaveBeenCalled();
   });
 
-  it("merges all changed sites when a NULL-site writer records a tagged fan-out", async () => {
+  it("merges only uncovered sites when a NULL-site writer records a tagged fan-out", async () => {
     record("Site-A", "purge_tags_second", ["site:site-a"]);
     await tick(0);
     for (const id of siteIds) addArticle(id);
     record(null, "purge_tags_second", ["site:site-c"]);
     record("Site-B", "warm_homepage", ["site:site-b"]);
     await tick();
-    expectSweep(allTags, ["Site-A", "Site-B"]);
+    expectSweep(allTags.slice(0, 2), ["Site-A", "Site-B"]);
   });
 
   it("a change record observed on one tick cannot cover a later missed write, even if the next tick runs early", async () => {
@@ -132,13 +215,34 @@ describe.skipIf(!hasSqlite)("public fingerprint minute job", () => {
     expectSweep(["site:site-a"], ["Site-A"]);
   });
 
-  it("purges a changed site after a delayed tick even when its writer left a receipt", async () => {
+  it("honors an article writer's receipt even after a delayed tick", async () => {
     await tick(0);
     addArticle("Site-A");
     record("Site-A", "purge_tags_second", ["slug:site-a:news"], seconds + 5);
     await tick(125);
-    expectSweep(["site:site-a"], []);
+    expectNoSweep();
     expect(env.CACHE.put).toHaveBeenCalledTimes(2);
+  });
+
+  it("excludes a legacy retry copy created from an earlier interval", async () => {
+    addArticle("Site-A");
+    await tick(0);
+    editArticle();
+    record("Site-A", "purge_tags", ["slug:site-a:news"], seconds - 60);
+    await tick();
+    expectSweep(["site:site-a"], ["Site-A"]);
+  });
+
+  it("honors the host-only site creation and negative-cache media upload receipts for their own sources", async () => {
+    await tick(0);
+    addSite(db, "New", "New site", "home");
+    await onPublicChange(env, ctx, { siteId: "New", tags: ["host:new.example"], reason: "site.create" });
+    db.prepare("INSERT INTO media (site_id, filename, storage_key, mime_type) VALUES (?, ?, ?, ?)")
+      .run("Site-A", "a.png", "unique/a.png", "image/png");
+    await onPublicChange(env, ctx, { siteId: "Site-A", tags: [], reason: "media.upload" });
+    vi.clearAllMocks();
+    await tick();
+    expectNoSweep();
   });
 
   it("detects deletions independently of the latest timestamp", async () => {
@@ -170,11 +274,13 @@ describe.skipIf(!hasSqlite)("public fingerprint minute job", () => {
     expectSweep(allTags, siteIds);
   });
 
-  it("purges all sites for an in-place global rule edit, even in the minute following another safety-net purge", async () => {
-    const quote = db.prepare(`INSERT INTO leadgen_quotes (public_id, quote_name, activity, verticals_json)
-                              VALUES (?, ?, ?, ?)`).run("quote", "Quote", "main", "[]");
+  it("purges only sites with enabled quote activations for an unrecorded global rule edit after a safety-net purge", async () => {
+    const quote = addQuote();
+    activate("Site-A", quote);
+    activate("Site-B", quote, 0);
+    activate("Site-C", quote);
     db.prepare(`INSERT INTO leadgen_quote_routing_rules (public_id, quote_id, rule_name, conditions_json, conditions_hash, redirect_url)
-                VALUES (?, ?, ?, ?, ?, ?)`).run("rule", quote.lastInsertRowid, "redirect", "{}", "hash", "/one");
+                VALUES (?, ?, ?, ?, ?, ?)`).run("rule", quote, "redirect", "{}", "hash", "/one");
     await tick(0);
     addArticle("Site-B");
     await tick();
@@ -182,37 +288,120 @@ describe.skipIf(!hasSqlite)("public fingerprint minute job", () => {
     vi.clearAllMocks();
     db.prepare("UPDATE leadgen_quote_routing_rules SET redirect_url = ? WHERE public_id = ?").run("/two", "rule");
     await tick();
-    expectSweep(allTags, siteIds);
+    expectSweep(["site:site-a", "site:site-c"], ["Site-A", "Site-C"]);
   });
 
-  it.each([false, true])("purges every site without alarming on a recorded shared change (site digest also changed: %s)", async siteChanged => {
+  it.each([false, true])("a recorded shared quote change covers only its family (same-site article also changed: %s)", async siteChanged => {
+    activate("Site-A", addQuote());
     await tick(0);
     db.prepare("UPDATE leadgen_frame_templates SET updated_at = updated_at + 1").run();
     if (siteChanged) addArticle("Site-A");
     record("Site-A", "purge_tags_second", ["quote:one"]);
     await tick();
-    expectSweep(allTags, []);
+    if (siteChanged) expectSweep(["site:site-a"], ["Site-A"]);
+    else expectNoSweep();
     expect(env.CACHE.put).toHaveBeenCalledTimes(2);
   });
 
-  it("purges across an existing checkpoint and distinguishes a recorded failed purge from a missing write path", async () => {
+  it("checks activation receipts on each tenant, including the site that just disabled its last quote", async () => {
+    const quote = addQuote();
+    activate("Site-A", quote);
+    activate("Site-B", quote);
+    await tick(0);
+    db.prepare("UPDATE leadgen_site_quotes SET enabled = 0 WHERE quote_id = ?").run(quote);
+    record(null, "purge_tags_second", ["quote:site-a:quote"]);
+    record("Site-B", "purge_tags", ["snap:site-b", "nf:site-b"]);
+    await tick();
+    expectSweep(["site:site-b"], ["Site-B"]);
+  });
+
+  it("checks global categories against their all-sites purge", async () => {
+    await tick(0);
+    db.prepare("INSERT INTO categories (slug, name) VALUES (?, ?)").run("housing", "Housing");
+    record("Site-A", "purge_tags_second", ["slug:site-a:news"]);
+    await tick();
+    expectSweep(allTags, siteIds);
+    db.prepare("UPDATE categories SET name = ? WHERE slug = ?").run("Homes", "housing");
+    await onPublicChange(env, ctx, { siteId: null, tags: allTags, reason: "category.update" });
+    vi.clearAllMocks();
+    await tick();
+    expectNoSweep();
+  });
+
+  it.each(["section", "link", "offer"] as const)("checks a shared listicle %s against the receipts of its live consumers", async source => {
+    const offer = db.prepare(`INSERT INTO listicle_offers (public_id, offer_name, provider, activity, vertical,
+      conversion_tracking_method, offer_url_template, payout_method)
+      VALUES ('off-b', 'Offer', 'Provider', 'main', 'home', 'script', 'https://b.example', 'offsite')`).run().lastInsertRowid;
+    publishListicle("Site-A", "unrelated");
+    const section = publishListicle("Site-B", "off-b");
+    db.prepare(`INSERT INTO listicle_section_link_instances (public_id, section_id, offer_id, block_id, link_role)
+      VALUES ('link-b', ?, ?, 'go', 'button')`).run(section, offer);
+    await tick(0);
+    function editSharedResource() {
+      if (source === "section") db.prepare("UPDATE listicle_sections SET content_version = content_version + 1 WHERE id = ?").run(section);
+      if (source === "link") db.prepare("UPDATE listicle_section_link_instances SET updated_at = updated_at + 1 WHERE public_id = ?").run("link-b");
+      if (source === "offer") db.prepare("UPDATE listicle_offers SET updated_at = updated_at + 1 WHERE id = ?").run(offer);
+    }
+    editSharedResource();
+    record("Site-A", "purge_tags_second", ["listicle:lst-site-a"]);
+    await tick();
+    expectSweep(["site:site-b"], ["Site-B"]);
+    vi.clearAllMocks();
+    editSharedResource();
+    record(null, "purge_tags_second", ["listicle:lst-site-b"]);
+    await tick();
+    expectNoSweep();
+  });
+
+  it("keeps the full writer receipt after a partial drain and ignores its later retry copies", async () => {
+    await tick(0);
+    addArticle("Site-A");
+    // A large publisher row spans two RPCs and the next minute's budget.
+    const tags = [
+      "slug:site-a:news",
+      ...Array.from({ length: 200 }, (_, i) => "slug:site-b:" + i),
+    ];
+    record(null, "purge_tags_second", tags);
+    purge.mockResolvedValueOnce({ success: true, errors: [] }).mockResolvedValueOnce({ success: false, errors: [] });
+    await runEdgePurgeCron(env, ctx);
+    vi.clearAllMocks();
+    await tick();
+    expectNoSweep();
+    await runEdgePurgeCron(env, ctx);
+    // Splitting a previously observed row creates a new log ID while preserving its writer's window.
+    const moreTags = Array.from({ length: 201 }, (_, i) => "slug:site-a:overflow-" + i);
+    record("Site-A", "purge_tags_second", moreTags);
+    await tick();
+    editArticle();
+    purge.mockResolvedValueOnce({ success: false, errors: [] });
+    await runEdgePurgeCron(env, ctx);
+    expect(db.prepare(`SELECT COUNT(*) AS n FROM cache_purge_log WHERE site_id = ?
+      AND json_extract(payload, '$.retry_of') IS NOT NULL`).get("Site-A")).toEqual({ n: 1 });
+    vi.clearAllMocks();
+    await tick();
+    expectSweep(["site:site-a"], ["Site-A"]);
+  });
+
+  it("recognizes a failed whole-site receipt across a legacy checkpoint and still purges an unrecorded site", async () => {
     await tick(0);
     const { sites, global } = JSON.parse(store.get(fingerprintKey)!);
     store.set(fingerprintKey, JSON.stringify({ sites, global, cursor: 0, sampledAt: seconds, sweep: null }));
-    addArticle("Site-B", "missed");
-    record("Site-B", "purge_tags", ["slug:site-b:other"], seconds, "failed");
+    addArticle("Site-A", "missed");
+    addArticle("Site-B", "covered");
+    record("Site-B", "purge_tags", ["site:site-b"], seconds, "failed");
     record("Site-B", "purge_tags_second", ["slug:site-b:other"]);
     await tick();
-    expectSweep(["site:site-b"], []);
+    expectSweep(["site:site-a"], ["Site-A"]);
   });
 
-  it("purges a global change and alarms for the concurrent site edit that has no receipt", async () => {
+  it("honors a shared writer's quote receipt and alarms for a concurrent site edit without a receipt", async () => {
+    activate("Site-A", addQuote());
     await tick(0);
     db.prepare("UPDATE leadgen_frame_templates SET updated_at = updated_at + 1").run();
     addArticle("Site-B");
     record("Site-A", "purge_tags_second", ["quote:site-a:one"]);
     await tick();
-    expectSweep(allTags, ["Site-B"]);
+    expectSweep(["site:site-b"], ["Site-B"]);
   });
 
   it("keeps a writer receipt that arrives while the preceding fingerprint purge is in flight", async () => {
@@ -228,7 +417,7 @@ describe.skipIf(!hasSqlite)("public fingerprint minute job", () => {
     vi.clearAllMocks();
     addArticle("Site-A", "later");
     await tick();
-    expectSweep(allTags.slice(0, 2), ["Site-A"]);
+    expectSweep(["site:site-a"], ["Site-A"]);
   });
 
   it("keeps the site fingerprint stable on the tick after onPublicChange bumps its content version", async () => {
@@ -328,5 +517,29 @@ describe.skipIf(!hasSqlite)("public fingerprint minute job", () => {
     await tick();
     expectSweep(allTags, ["Site-A"]);
     expect(store.get(versionKey)).toBe("next");
+  });
+
+  it("retries the same interval after a receipt read failure and preserves the writer's narrow purge", async () => {
+    addArticle("Site-A");
+    await tick(0);
+    editArticle();
+    await purgeArticleChange(env, "Site-A", ["news"], "article.update", ctx);
+    vi.clearAllMocks();
+    const prepare = env.DB.prepare.bind(env.DB);
+    vi.spyOn(env.DB, "prepare").mockImplementation(query => {
+      if (query.includes("SELECT site_id, payload FROM cache_purge_log")) throw new Error("Receipts unavailable");
+      return prepare(query);
+    });
+    await tick();
+    expect(purge).not.toHaveBeenCalled();
+    expect(env.CACHE.put).not.toHaveBeenCalled();
+    expect(console.error).toHaveBeenCalledExactlyOnceWith(JSON.stringify({
+      t: "fingerprint_receipt_error", error: "Error: Receipts unavailable",
+    }));
+    vi.mocked(env.DB.prepare).mockRestore();
+    vi.clearAllMocks();
+    await tick();
+    expectNoSweep();
+    expect(env.CACHE.put).toHaveBeenCalledExactlyOnceWith(fingerprintKey, expect.any(String));
   });
 });

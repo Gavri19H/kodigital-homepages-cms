@@ -100,6 +100,38 @@ describe.skipIf(!hasSqlite)("gateway fingerprint tick", () => {
     expect(fallback).not.toHaveBeenCalled();
   });
 
+  it("drains due retry and second-pass rows before fingerprinting under the shared 50-second guard", async () => {
+    const seed = (action: string, tag: string, due: number) => db.prepare(
+      "INSERT INTO cache_purge_log (action, status, dry_run, payload) VALUES (?, 'pending', 0, ?)",
+    ).run(action, JSON.stringify({ tags: [tag], due_after: due }));
+    const statuses = () => db.prepare("SELECT status FROM cache_purge_log WHERE action IN (?, ?) ORDER BY id")
+      .all("purge_tags", "purge_tags_second").map(row => (row as { status: string }).status);
+    seed("purge_tags", "slug:a:news", now / 1000);
+    seed("purge_tags_second", "listing:a", now / 1000);
+    seed("purge_tags_second", "quote:b:life", now / 1000 + 30);
+    let atFingerprint: string[] = [];
+    vi.mocked(runFingerprintCron).mockImplementationOnce(async () => { atFingerprint = statuses(); });
+    const first = call("POST", "a.example");
+    expect((await first.response).status).toBe(202);
+    await Promise.all(first.work);
+    expect(atFingerprint).toEqual(["completed", "completed", "pending"]);
+    expect(purgeTags).toHaveBeenCalledExactlyOnceWith(["slug:a:news", "listing:a"]);
+
+    now += 49_999;
+    const guarded = call("POST", "b.example", { ...env, CACHE: { ...cache.kv } });
+    await guarded.response;
+    await Promise.all(guarded.work);
+    expect(statuses()).toEqual(atFingerprint);
+    expect(purgeTags).toHaveBeenCalledTimes(1);
+    now++;
+    const next = call("POST", "a.example");
+    await next.response;
+    await Promise.all(next.work);
+    expect(statuses()).toEqual(["completed", "completed", "completed"]);
+    expect(purgeTags.mock.calls).toEqual([[["slug:a:news", "listing:a"]], [["quote:b:life"]]]);
+    expect(runFingerprintCron).toHaveBeenCalledTimes(2);
+  });
+
   it("rejects GET with a private 405 and schedules no work", async () => {
     const result = call("GET", "unknown.example");
     const response = await result.response;
