@@ -27,17 +27,19 @@
 //      template-literal SQL (d1-database-safety).
 //   6. After a successful write touching a site-owned page, the handler
 //      calls applyPageMutationCacheInvalidation (content_version bump +
-//      per-site cache wipe — see ./pages.ts). Global templates have no
-//      owning site, so there is no per-site namespace to invalidate.
+//      per-site cache wipe — see ./pages.ts). The edge purge also covers
+//      global templates, which are visible to every tenant.
 
 import type { Context } from "hono";
 import type { Env } from "../env";
+import { listingTag, mergeTags, siteTag, slugTag } from "../edge/tags";
+import { cacheExecutionCtx } from "../public/html-pipeline";
 import {
   TenantBoundaryViolation,
   assertSlugUniquePerSite,
   assertTenantBoundary,
 } from "../site/tenant-guards";
-import { applyPageMutationCacheInvalidation } from "./pages";
+import { applyPageMutationCacheInvalidation, siteTagsForPublicRow } from "./pages";
 import { blocksToHtml } from "../editor/blocks-to-html";
 import { hasEditorBlocks } from "../editor/html-to-blocks";
 
@@ -85,9 +87,7 @@ const PAGE_STATUS_VALUES: ReadonlySet<string> = new Set([
   "archived",
 ]);
 
-// Static column list shared by INSERT...RETURNING and the PATCH re-read.
-// Starts "id, site_id, slug, title" so it is distinguishable from the
-// PATCH existence probe ("SELECT id, site_id, slug, page_type ...").
+// Static column list shared by page detail reads and INSERT...RETURNING.
 const PAGE_COLUMNS =
   "id, site_id, slug, title, content_json, content_html, status, template, show_in_footer, display_order, page_type, seo_title, seo_description, created_at, updated_at";
 
@@ -108,6 +108,10 @@ export interface PageCrudRow {
   created_at: number;
   updated_at: number;
 }
+
+type PageLinkFields = Pick<PageCrudRow,
+  "site_id" | "slug" | "title" | "status" | "show_in_footer" | "display_order" | "page_type"
+>;
 
 interface PageWriteBody {
   site_id?: unknown;
@@ -299,6 +303,8 @@ export async function createPageHandler(
       ? body.seo_description
       : null;
 
+  const tags = await siteTagsForPublicRow(c.env.DB, siteId);
+  if (siteId !== null) tags.unshift(slugTag(siteId, slug));
   const row = await c.env.DB.prepare(
     "INSERT INTO pages (site_id, slug, title, content_json, content_html, status, template, show_in_footer, display_order, page_type, seo_title, seo_description) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?) RETURNING " +
       PAGE_COLUMNS,
@@ -320,9 +326,10 @@ export async function createPageHandler(
     .first<PageCrudRow>();
   if (!row) return c.json({ error: "Insert failed" }, 500);
 
-  if (siteId !== null) {
-    await applyPageMutationCacheInvalidation(c.env, siteId);
-  }
+  await applyPageMutationCacheInvalidation(c.env, siteId, {
+    ctx: cacheExecutionCtx(c) as ExecutionContext | undefined,
+    change: { siteId, tags, reason: "page.create" },
+  });
   return c.json({ page: row }, 201);
 }
 
@@ -339,10 +346,10 @@ export async function updatePageHandler(
   }
 
   const existing = await c.env.DB.prepare(
-    "SELECT id, site_id, slug, page_type FROM pages WHERE id = ? LIMIT 1",
+    "SELECT id, site_id, slug, status, title, show_in_footer, display_order, page_type FROM pages WHERE id = ? LIMIT 1",
   )
     .bind(id)
-    .first<{ id: number; site_id: string | null; slug: string; page_type: string }>();
+    .first<PageLinkFields>();
   if (existing === null || existing === undefined) {
     return c.json({ error: "Not Found" }, 404);
   }
@@ -406,7 +413,8 @@ export async function updatePageHandler(
     typeof body.slug === "string" && body.slug.trim().length > 0
       ? body.slug.trim()
       : null;
-  if (newSlug !== null && newSlug !== existing.slug) {
+  const renamed = newSlug !== null && newSlug !== existing.slug;
+  if (renamed) {
     if (guardSiteId !== null) {
       try {
         await assertSlugUniquePerSite(c.env.DB, "pages", newSlug, guardSiteId, id);
@@ -436,9 +444,10 @@ export async function updatePageHandler(
     setClauses.push("site_id = ?");
     bindings.push(bodySiteId);
   }
-  if (typeof body.title === "string" && body.title.trim().length > 0) {
+  const title = typeof body.title === "string" ? body.title.trim() : "";
+  if (title) {
     setClauses.push("title = ?");
-    bindings.push(body.title.trim());
+    bindings.push(title);
   }
   if (newSlug !== null) {
     setClauses.push("slug = ?");
@@ -460,23 +469,24 @@ export async function updatePageHandler(
       bindings.push(rebuilt);
     }
   }
-  if (typeof body.status === "string" && body.status.length > 0) {
-    if (!PAGE_STATUS_VALUES.has(body.status)) {
+  const status = typeof body.status === "string" ? body.status : "";
+  if (status) {
+    if (!PAGE_STATUS_VALUES.has(status)) {
       return c.json(
         { error: "status must be one of draft|published|archived" },
         400,
       );
     }
     setClauses.push("status = ?");
-    bindings.push(body.status);
+    bindings.push(status);
   }
-  if (typeof body.page_type === "string" && body.page_type.trim().length > 0) {
-    const pt = body.page_type.trim();
-    if (!PAGE_TYPE_VALUES.has(pt)) {
-      return c.json({ error: `Unknown page_type: ${pt}` }, 400);
+  const pageType = typeof body.page_type === "string" ? body.page_type.trim() : "";
+  if (pageType) {
+    if (!PAGE_TYPE_VALUES.has(pageType)) {
+      return c.json({ error: `Unknown page_type: ${pageType}` }, 400);
     }
     setClauses.push("page_type = ?");
-    bindings.push(pt);
+    bindings.push(pageType);
   }
   if (typeof body.template === "string" && body.template.trim().length > 0) {
     setClauses.push("template = ?");
@@ -511,6 +521,30 @@ export async function updatePageHandler(
   const sql = "UPDATE pages SET " + setClauses.join(", ") + " WHERE id = ?";
   bindings.push(id);
 
+  let tags: string[];
+  if (existingSiteId === null) {
+    // Even when adopted, the former global URL and sitemap entry can be cached everywhere.
+    tags = await siteTagsForPublicRow(c.env.DB, null);
+  } else {
+    tags = mergeTags([
+      slugTag(existingSiteId, existing.slug),
+      slugTag(existingSiteId, newSlug ?? existing.slug),
+    ]);
+    // The editor posts the full form. Only changed link fields can affect another page's footer.
+    const linksChanged = renamed ||
+      (title !== "" && title !== existing.title) ||
+      (status !== "" && status !== existing.status) ||
+      (pageType !== "" && pageType !== existing.page_type) ||
+      (footer !== null && footer !== existing.show_in_footer) ||
+      (order !== null && order !== existing.display_order);
+    if (linksChanged) {
+      tags.push(siteTag(existingSiteId));
+    } else if (existing.status === "published") {
+      // PATCH writes updated_at, the sitemap entry's lastmod.
+      tags.push(listingTag(existingSiteId));
+    }
+  }
+
   try {
     await c.env.DB.prepare(sql)
       .bind(...bindings)
@@ -523,9 +557,10 @@ export async function updatePageHandler(
     return c.json({ error: msg || "Update failed" }, 500);
   }
 
-  if (guardSiteId !== null) {
-    await applyPageMutationCacheInvalidation(c.env, guardSiteId);
-  }
+  await applyPageMutationCacheInvalidation(c.env, guardSiteId, {
+    ctx: cacheExecutionCtx(c) as ExecutionContext | undefined,
+    change: { siteId: existingSiteId, tags, reason: "page.update" },
+  });
 
   const updated = await c.env.DB.prepare(
     "SELECT " + PAGE_COLUMNS + " FROM pages WHERE id = ? LIMIT 1",
@@ -552,19 +587,21 @@ export async function deletePageHandler(
   if (existing === null || existing === undefined) {
     return c.json({ error: "Not Found" }, 404);
   }
+  const globalTags = existing.site_id === null ? await siteTagsForPublicRow(c.env.DB, null) : [];
+  let deleted: Pick<PageCrudRow, "site_id" | "slug"> | null;
   try {
-    await c.env.DB.prepare("DELETE FROM pages WHERE id = ?").bind(id).run();
+    deleted = await c.env.DB.prepare("DELETE FROM pages WHERE id = ? RETURNING site_id, slug")
+      .bind(id).first<Pick<PageCrudRow, "site_id" | "slug">>();
   } catch (err) {
     return c.json({ error: (err as Error).message || "Delete failed" }, 500);
   }
-  const siteId =
-    typeof existing.site_id === "string" && existing.site_id.length > 0
-      ? existing.site_id
-      : null;
-  if (siteId !== null) {
-    // A deleted page changes footer/listing surfaces — same per-site
-    // invalidation as create/update.
-    await applyPageMutationCacheInvalidation(c.env, siteId);
+  if (deleted) {
+    const siteId = deleted.site_id;
+    const tags = siteId === null ? globalTags : [slugTag(siteId, deleted.slug), siteTag(siteId)];
+    await applyPageMutationCacheInvalidation(c.env, siteId, {
+      ctx: cacheExecutionCtx(c) as ExecutionContext | undefined,
+      change: { siteId, tags, reason: "page.delete" },
+    });
   }
   return c.json({ ok: true, id });
 }
