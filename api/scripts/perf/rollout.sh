@@ -88,6 +88,9 @@ action, stage_host, worker, tmp, previous, new, minutes = sys.argv[1:]
 batch = Path(tmp, "urls")
 probe = ["bash", "scripts/perf/edge-probe.sh", str(batch), "1"]
 browser = "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/126.0.0.0 Safari/537.36"
+poll_seconds = float(os.environ.get("ROLLOUT_POLL_SECONDS", 2))
+propagation_timeout = float(os.environ.get("ROLLOUT_PROPAGATION_TIMEOUT_SECONDS", 120))
+tick_args = ["--max-time", "10", "-X", "POST", "-o", os.devnull]
 
 def endpoint(url, tenant):
     parts = urlsplit(url)
@@ -101,13 +104,64 @@ def pinned_headers(tenant, version):
         headers.extend(["-H", f"x-perfstage-host: {tenant}"])
     return headers
 
+def pinned_request(tenant, url, version, args, timeout=None):
+    output = subprocess.check_output(["curl", "-qsS", *args, *pinned_headers(tenant, version),
+                                      "-w", "\n%{http_code}\t%header{x-worker-version}\t%header{x-edge-cache}",
+                                      "--", url], timeout=timeout)
+    body, fields = output.rsplit(b"\n", 1)
+    status, served, cache = fields.decode("ascii").split("\t")
+    if not re.fullmatch("[1-5][0-9]{2}", status):
+        raise ValueError(f"{tenant}: {url} returned invalid status {status!r}")
+    return int(status), served.strip(), cache.strip().upper(), body
+
+def checked_request(tenant, url, version, args):
+    for attempt in range(1, 6):
+        status, served, cache, body = pinned_request(tenant, url, version, args)
+        # The previous version can predate the response header. Only two versions are deployed.
+        if served == version or (version == previous and not served):
+            return status, cache, body
+        if attempt < 5:
+            time.sleep(poll_seconds)
+    sys.exit(f"{tenant}: {url} expected Worker {version} after 5 tries, "
+             f"got x-worker-version={served or '<missing>'} (HTTP {status})")
+
+def propagate(groups):
+    started = time.monotonic()
+    deadline = started + propagation_timeout
+
+    def poll(tenant):
+        url = endpoint(f"https://{tenant}/__edge/tick", tenant)
+        streak = 0
+        last = "no response"
+        while (remaining := deadline - time.monotonic()) > 0:
+            try:
+                status, served, _, _ = pinned_request(tenant, url, new, tick_args, timeout=remaining)
+                last = f"HTTP {status}, x-worker-version={served or '<missing>'}"
+                streak = streak + 1 if status == 202 and served == new else 0
+            except subprocess.CalledProcessError as error:
+                last = f"curl exited {error.returncode}"
+                streak = 0
+            except subprocess.TimeoutExpired:
+                last = "tick timed out"
+                break
+            now = time.monotonic()
+            if now > deadline:
+                break
+            if streak == 3:
+                print(f"PROPAGATED {tenant} {int(now - started)}", flush=True)
+                return
+            time.sleep(min(poll_seconds, deadline - now))
+        sys.exit(f"{tenant}: propagation timed out after {propagation_timeout:g}s waiting for "
+                 f"3 consecutive 202 responses from {new} (last: {last})")
+
+    with ThreadPoolExecutor(max_workers=len(groups)) as pool:
+        list(pool.map(poll, groups))
+
 def tick_hosts(groups):
     for tenant in groups:
         tick_url = endpoint(f"https://{tenant}/__edge/tick", tenant)
-        status = subprocess.check_output(["curl", "-qsS", "--max-time", "10", "-X", "POST",
-                                          *pinned_headers(tenant, new), "-o", os.devnull,
-                                          "-w", "%{http_code}", "--", tick_url], text=True)
-        if status != "202":
+        status, _, _ = checked_request(tenant, tick_url, new, tick_args)
+        if status != 202:
             sys.exit(f"{tenant}: new-version tick returned {status}, expected 202")
 
 class PageTitle(HTMLParser):
@@ -130,17 +184,13 @@ class PageTitle(HTMLParser):
             self.in_title = False
 
 def sample(tenant, url, version, sid):
-    output = subprocess.check_output(["curl", "-qsS", "--compressed", "--max-time", "30", "--globoff",
-                                      "-A", browser, "-b", f"ko_sid={sid}", *pinned_headers(tenant, version),
-                                      "-w", "\n%{http_code}\t%header{x-edge-cache}", "--", url])
-    body, fields = output.rsplit(b"\n", 1)
-    status, cache = fields.decode("ascii").split("\t", 1)
-    if not re.fullmatch("[1-5][0-9]{2}", status):
-        raise ValueError(f"{tenant}: {url} returned invalid status {status!r}")
+    status, cache, body = checked_request(tenant, url, version, [
+        "--compressed", "--max-time", "30", "--globoff", "-A", browser, "-b", f"ko_sid={sid}",
+    ])
     parser = PageTitle()
     parser.feed(body.decode("utf-8", errors="replace"))
     parser.close()
-    return (int(status), parser.title), cache.strip().upper()
+    return (status, parser.title), cache
 
 def check_url(tenant, url, sid):
     old, _ = sample(tenant, url, previous, sid)
@@ -224,10 +274,10 @@ for line in Path("scripts/perf/urls.txt").read_text().splitlines():
 if not groups:
     sys.exit("Empty probe URL list")
 
-if action == "check":
+if action == "propagate":
+    propagate(groups)
+elif action == "check":
     check_split(groups)
-elif action == "tick":
-    tick_hosts(groups)
 elif action == "warm":
     warm_ok = True
     for tenant, urls in groups.items():
@@ -260,12 +310,15 @@ printf 'NEW_VERSION=%s\n' "$new"
 
 next_stage split
 deploy_versions "$new@10%" "$previous@90%"
+next_stage propagate
+probe_tenants propagate
 next_stage check
 probe_tenants check
 
 next_stage promote
 deploy_versions "$new@100%"
-probe_tenants tick
+next_stage propagate
+probe_tenants propagate
 next_stage warm
 probe_tenants warm || stage_result=fail
 if [[ $mode == rehearsal ]]; then

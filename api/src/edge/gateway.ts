@@ -215,6 +215,19 @@ export async function gatewayFetch(
 ): Promise<Response> {
   // Use Hono's route decoding so an escaped reserved head has the same boundary.
   const path = getPath(request);
+  const pending = dispatchGatewayRequest(request, env, ctx, honoFetch, path);
+  if (path !== "/__edge/tick" && !request.headers.has("Cloudflare-Workers-Version-Overrides")) return pending;
+
+  const response = await pending;
+  // A cached response or a redirect can have immutable headers.
+  const versioned = new Response(response.body, response);
+  versioned.headers.set("x-worker-version", env.CF_VERSION_METADATA?.id ?? "unknown");
+  return versioned;
+}
+
+async function dispatchGatewayRequest(
+  request: Request, env: Env, ctx: ExecutionContext | undefined, honoFetch: HonoFetch, path: string,
+): Promise<Response> {
   if (path === "/__edge/tick") {
     const headers = { "Cache-Control": EDGE_CACHE_CONTROL.private };
     if (request.method !== "POST") return new Response(null, { status: 405, headers: { ...headers, Allow: "POST" } });
