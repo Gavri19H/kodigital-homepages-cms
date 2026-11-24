@@ -75,12 +75,12 @@ function d1FromSqlite(sdb: SqliteDb): D1Database {
       };
       return stmt;
     },
-    async batch(statements: Array<{ run(): Promise<unknown> }>) {
+    async batch(statements: Array<{ all(): Promise<unknown> }>) {
       runSql(sdb, "BEGIN");
       const results: unknown[] = [];
       try {
         for (const statement of statements) {
-          results.push(await statement.run());
+          results.push(await statement.all());
         }
         runSql(sdb, "COMMIT");
       } catch (err) {
