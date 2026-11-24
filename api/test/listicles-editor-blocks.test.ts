@@ -125,7 +125,7 @@ describe("listicle block renderers — governed anchors (§12/§30.7)", () => {
       },
     });
     expectGoverned(html, "linked_image");
-    expect(html).toContain('src="/media/uploads/pic.jpg"');
+    expect(html).toContain('src="/cdn-cgi/image/width=1936,fit=scale-down,quality=75,format=auto/media/uploads/pic.jpg"');
     expect(html).toContain('alt="A cozy home"');
     expect(html).toContain('loading="lazy"');
   });

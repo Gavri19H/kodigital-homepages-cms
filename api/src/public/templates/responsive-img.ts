@@ -1,33 +1,5 @@
-// T21: responsive-image primitive for the public Home + Article surfaces.
-// Emits a /media/-prefixed src (the always-served public route — see
-// view-models/media-url.ts + media/serve.ts) PLUS a srcset of Cloudflare
-// image-transformation candidates and a blur-up (LQIP) placeholder. This is
-// the "port the responsive image system (srcset + blur-up)" brief (BCL-020).
-//
-// Mechanism:
-//   - src    : /media/<key> — the bare public route. Always resolves through
-//              the Worker (media/serve.ts), so it is the safe fallback even on
-//              a zone without image transformations enabled.
-//   - srcset : /cdn-cgi/image/width=<W>,quality=<Q>,format=auto/media/<key>
-//              candidates, each with a `<W>w` descriptor. This is Cloudflare's
-//              documented URL-format transform
-//              (developers.cloudflare.com/images/optimization/features —
-//              default breakpoints 320;768;960;1200). On a zone WITHOUT
-//              transformations enabled CF serves the ORIGINAL image, so the
-//              markup degrades gracefully and never renders broken. Each
-//              candidate URL is a single non-whitespace run followed by a `w`
-//              descriptor, so the comma-separated transform options are
-//              unambiguous to the HTML srcset parser.
-//   - LQIP   : a width=32,blur=40 transform set as the element's own
-//              background-image (background-size:cover). While the full bitmap
-//              streams in, the tiny blurred preview paints behind it; once the
-//              image decodes its content covers the placeholder. Pure CSS — no
-//              client JS required. Also surfaced as data-lqip for
-//              progressive-enhancement / testability.
-//
-// Every <img> carries explicit width+height (anti-CLS, T20 contract) and an
-// explicit loading hint (eager for the LCP hero, lazy below the fold;
-// fetchpriority is reserved for the eager hero — never on a lazy image).
+// Public image slots use Cloudflare width candidates up to 2× display size.
+// The largest candidate also serves browsers that use the src fallback.
 
 import { escAttr } from "./esc";
 import { mediaUrl } from "../view-models/media-url";
@@ -88,13 +60,37 @@ export function lqipUrl(sourcePath: string): string {
   );
 }
 
-function isSameOriginPath(url: string): boolean {
-  return url.startsWith("/") && !url.startsWith("//");
+// Editor blocks can have a known display width even when their intrinsic
+// dimensions were never saved. They share the same sources as fixed slots.
+export function responsiveSrcAttrs(
+  src: string | null | undefined,
+  displayWidth: number,
+  { sizes, quality = DEFAULT_QUALITY, fit }: {
+    sizes?: string;
+    quality?: number;
+    fit?: "scale-down";
+  } = {},
+): string {
+  const ref = src?.trim();
+  if (!ref) return "";
+  if (/^(?:[a-z][a-z\d+.-]*:\/\/|\/\/|data:|blob:)/i.test(ref)) {
+    return `src="${escAttr(ref)}"`;
+  }
+  const path = mediaUrl(ref)!.replace(/\s/g, encodeURIComponent);
+  const fitOption = fit ? `,fit=${fit}` : "";
+  const candidates = srcsetWidths(displayWidth).map((width) => ({
+    width,
+    url: cfTransform(path, `width=${width}${fitOption},quality=${quality},format=auto`),
+  }));
+  const fallback = candidates[candidates.length - 1]!.url;
+  const srcset = candidates.map(({ url, width }) => `${url} ${width}w`).join(", ");
+  const sizesAttr = sizes ? ` sizes="${escAttr(sizes)}"` : "";
+  return `src="${escAttr(fallback)}" srcset="${escAttr(srcset)}"${sizesAttr}`;
 }
 
 export function responsiveImg(opts: ResponsiveImgOptions): string {
-  const resolved = mediaUrl(opts.src);
-  if (resolved === null) return "";
+  const sources = responsiveSrcAttrs(opts.src, opts.width, opts);
+  if (!sources) return "";
   assertPositiveInt(opts.width, "width");
   assertPositiveInt(opts.height, "height");
 
@@ -111,29 +107,5 @@ export function responsiveImg(opts: ResponsiveImgOptions): string {
   const dimAttr = ` width="${opts.width}" height="${opts.height}"`;
   const tail = `${altAttr}${dimAttr} loading="${loading}"${fpAttr} decoding="async"`;
 
-  // RESCUE-4 round-5 (issue 5, live-verified 2026-06-24): Cloudflare Image
-  // Resizing IS now enabled on the tenant zones. A same-origin /media/ source
-  // gets a srcset of /cdn-cgi/image/<opts>/media/<key> candidates that resize +
-  // auto-format (WebP/AVIF) the image -> a 1536x1024 ~2MB PNG is served as a
-  // ~640px ~25KB WebP, with the bare /media/ src kept as the universal
-  // fallback. (The earlier build emitted ONLY the bare src because the zone had
-  // Resizing OFF, so every /cdn-cgi candidate 404'd and a srcset of 404s
-  // renders BROKEN. Re-verified 2026-06-24: every candidate now returns 200.)
-  // An off-origin source (a full https:// URL / data: URI) can't use the
-  // same-origin transform route, so it degrades to the bare <img>.
-  if (!isSameOriginPath(resolved)) {
-    return `<img${classAttr} src="${escAttr(resolved)}"${tail}>`;
-  }
-  const quality = opts.quality ?? DEFAULT_QUALITY;
-  const srcset = srcsetWidths(opts.width)
-    .map(
-      (w) =>
-        `${cfTransform(resolved, `width=${w},quality=${quality},format=auto`)} ${w}w`,
-    )
-    .join(", ");
-  const sizesAttr =
-    opts.sizes !== undefined && opts.sizes.length > 0
-      ? ` sizes="${escAttr(opts.sizes)}"`
-      : "";
-  return `<img${classAttr} src="${escAttr(resolved)}" srcset="${escAttr(srcset)}"${sizesAttr}${tail}>`;
+  return `<img${classAttr} ${sources}${tail}>`;
 }

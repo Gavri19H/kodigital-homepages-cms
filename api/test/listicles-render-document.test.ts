@@ -104,7 +104,7 @@ describe("document assembly (§30.2 order + head composition)", () => {
   });
 
   it("the HostLogo is the site-settings logo (the ONLY per-host brand swap)", () => {
-    expect(html).toContain('src="/media/logo.png"');
+    expect(html).toContain('src="/cdn-cgi/image/width=466,fit=scale-down,quality=75,format=auto/media/logo.png"');
   });
 
   it("governed anchors carry minted /lc hrefs with full context", () => {

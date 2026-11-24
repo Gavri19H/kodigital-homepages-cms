@@ -223,7 +223,7 @@ describe("article-design (T20)", () => {
     expect(body).toContain('<blockquote class="pullquote"><span class="pq-mark" aria-hidden="true">"</span>A standout quote.');
     // image -> <figure class="article-figure"> through the /media route.
     expect(body).toContain('<figure class="article-figure">');
-    expect(body).toContain('src="/media/inline.jpg"');
+    expect(body).toContain('src="/cdn-cgi/image/width=2400,quality=75,format=auto/media/inline.jpg"');
     // callout -> design `.callout-box` is a <div> with an <h4> title + a <p>
     // body (the worker callout VM carries a single free-text body, so the
     // design's <ul><li> checklist form is not emitted — see article.ts).
@@ -241,7 +241,7 @@ describe("article-design (T20)", () => {
     expect(body).toContain("<h4>Best Widget</h4>");
     expect(body).toContain('<span class="affiliate-cta">Buy now →</span>');
     // POSITIVE: the thumb is present and is the article feature image (issue 4c).
-    expect(body).toContain('<div class="affiliate-img"><img src="/media/feature.jpg"');
+    expect(body).toContain('<div class="affiliate-img"><img src="/cdn-cgi/image/width=240,quality=75,format=auto/media/feature.jpg"');
 
     // drop-cap present in the served stylesheet (contract §11: 4.2em brand).
     expect(publicCss).toContain("p:first-of-type::first-letter");

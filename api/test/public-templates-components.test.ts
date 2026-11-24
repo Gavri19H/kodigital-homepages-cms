@@ -157,7 +157,7 @@ describe("public-templates-components", () => {
       categoryName: "World",
     });
     expect(html).toContain('<a class="card" href="/article/example"');
-    expect(html).toContain('src="/media/example.jpg"');
+    expect(html).toContain('src="/cdn-cgi/image/width=1280,quality=75,format=auto/media/example.jpg"');
     expect(html).toContain('loading="lazy"');
     expect(html).toContain("Example image");
     // RESCUE-4 design card-foot byline = "{categoryName} · {publishedAt}"

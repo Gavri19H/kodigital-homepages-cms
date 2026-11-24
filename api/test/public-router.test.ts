@@ -487,7 +487,8 @@ describe("public-router GET / homepage design system (T1 rescue-3)", () => {
 
     // Hero bg image: the .hero-bg surface carries the lead story's image.
     expect(body).toContain('class="hero-bg"');
-    expect(body).toContain('src="/media/hero.jpg"');
+    expect(body).toContain('url(/cdn-cgi/image/width=1600,quality=78,format=auto/media/hero.jpg)');
+    expect(body).toContain('src="/cdn-cgi/image/width=1280,quality=75,format=auto/media/hero.jpg"');
 
     // NOT the rescue-2 bare fallback: the design header is present, and the
     // root wrapper opens the <main> content region (not a bare <body><div>).

@@ -103,7 +103,7 @@ describe("round-3 (a): renderCategoryHtml renders the joined media image + a cle
 
     // The card renders a REAL image through the /media/ route (not the bare
     // teal-gradient .ph placeholder) — the storage_key is /media/-prefixed.
-    expect(html).toContain('src="/media/img/first-card.jpg"');
+    expect(html).toContain('src="/cdn-cgi/image/width=1280,quality=75,format=auto/media/img/first-card.jpg"');
     expect(html).toContain('alt="First card hero"');
 
     // The byline date is the clean human form (formatCardDate: UTC month table).
@@ -194,7 +194,7 @@ describe("round-4 (issue 4c): editor's-pick affiliate block reuses the article f
 
     // POSITIVE: the thumb is the article's OWN feature image (makeArticleVm
     // imageUrl=/media/the-pick.jpg), inside an `.affiliate-img` column.
-    expect(html).toContain('<div class="affiliate-img"><img src="/media/the-pick.jpg"');
+    expect(html).toContain('<div class="affiliate-img"><img src="/cdn-cgi/image/width=240,quality=75,format=auto/media/the-pick.jpg"');
   });
 
   it("with a safe url, the whole card is the sponsored/nofollow <a> and carries the feature-image thumb", () => {
@@ -211,7 +211,7 @@ describe("round-4 (issue 4c): editor's-pick affiliate block reuses the article f
     expect(html).toContain(
       '<a class="affiliate-card" href="https://shop.example/widget" target="_blank" rel="sponsored nofollow noopener">',
     );
-    expect(html).toContain('<div class="affiliate-img"><img src="/media/the-pick.jpg"');
+    expect(html).toContain('<div class="affiliate-img"><img src="/cdn-cgi/image/width=240,quality=75,format=auto/media/the-pick.jpg"');
   });
 });
 

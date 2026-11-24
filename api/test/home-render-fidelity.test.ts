@@ -8,8 +8,7 @@
 //              the lead article (which wrongly filled the hero on the live site).
 //   D2 chips — when no category is flagged show_on_homepage, the §3 cat-rail is
 //              derived from the published-article taxonomy (was empty live).
-//   D3 imgs  — no /cdn-cgi/image transform is emitted (every one 404s on the
-//              zone → broken images live); the bare /media/ src is used.
+//   D3 imgs  — the fallback and the responsive candidates use image transforms.
 //   D4 footer— the §12 footer carries a description + populated link columns
 //              (was just the brand name + copyright live).
 //   D5 ads   — ad slots never force a fixed pixel width (970px overflowed 375px).
@@ -89,16 +88,12 @@ describe("rescue-4 home render fidelity", () => {
     expect(section(html, 4)).toContain("Top Story Headline");
   });
 
-  it("D3: content images emit a /cdn-cgi/image srcset (resize+WebP) plus the bare /media/ src fallback", () => {
+  it("D3: content images use resized sources for srcset and the src fallback", () => {
     const html = renderHome({ vm: makeVm() });
-    // RESCUE-4 round-5 (issue 5, live-verified 2026-06-24): Image Resizing is
-    // enabled on the zone, so the responsive primitive emits a
-    // /cdn-cgi/image/...,format=auto srcset (the ~2MB PNGs served as resized
-    // WebP/AVIF) while keeping the bare /media/ src as the universal fallback.
     expect(html, "content images must emit a /cdn-cgi/image srcset").toContain("/cdn-cgi/image/");
     expect(html).toContain("format=auto");
     expect(html).toContain("srcset=");
-    expect(html).toContain('src="/media/ai/site/');
+    expect(html).toContain('src="/cdn-cgi/image/width=1280,quality=75,format=auto/media/ai/site/top-story.png"');
   });
 
   it("D4: the section-12 footer carries a description + populated Explore/Read/Company columns", () => {

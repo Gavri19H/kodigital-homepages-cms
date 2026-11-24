@@ -172,7 +172,7 @@ describe("T6-AC2: toolbar conversion, formatting, sync, migration, render", () =
     expect(html).toContain("<h2>Section</h2>");
     expect(html).toContain("<ul><li>a</li><li>b</li></ul>");
     expect(html).toContain("<blockquote><p>Quoted</p></blockquote>");
-    expect(html).toContain('src="/media/x.png"');
+    expect(html).toContain('src="/cdn-cgi/image/width=1936,fit=scale-down,quality=75,format=auto/media/x.png"');
     expect(html).toContain("<hr />");
     // Inline-formatted paragraphs (bold/link the toolbar produced) round-trip
     // through the sanitizer instead of being escaped away.

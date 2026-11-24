@@ -160,10 +160,15 @@ function renderFeaturedSection(cards: ReadonlyArray<HomeArticleCard>): string {
 // picks-excerpt + card-foot) + `.picks-stack` of 3 `.story-row` items
 // (children: .img, .body > h4 + span.meta). design §12 editorsPicks{ hero,
 // thumbs[3] } = 4 cards.
-function renderStoryRow(c: HomeArticleCard): string {
+const PICKS_LCP_HINTS = { loading: "eager", fetchpriority: "high" } as const;
+
+function renderStoryRow(c: HomeArticleCard, isLcp: boolean): string {
   const realImg =
     c.imageUrl !== null && c.imageUrl.length > 0
-      ? responsiveImg({ src: c.imageUrl, alt: c.imageAlt, width: 110, height: 80, loading: "lazy", sizes: "110px" })
+      ? responsiveImg({
+          src: c.imageUrl, alt: c.imageAlt, width: 110, height: 80, sizes: "110px",
+          ...(isLcp ? PICKS_LCP_HINTS : {}),
+        })
       : `<div class="ph" data-label="${escAttr(c.categoryName.length > 0 ? c.categoryName : c.title)}" style="--ph-a:#c8d8e8;--ph-b:#1ba8c8"></div>`;
   const metaParts: string[] = [];
   if (c.categoryName.length > 0) metaParts.push(escText(c.categoryName));
@@ -172,7 +177,7 @@ function renderStoryRow(c: HomeArticleCard): string {
   return `<a class="story-row" href="${escAttr(c.href)}"><div class="img">${realImg}</div><div class="body"><h4>${escText(c.title)}</h4>${meta}</div></a>`;
 }
 
-function renderPicksSection(cards: ReadonlyArray<HomeArticleCard>): string {
+function renderPicksSection(cards: ReadonlyArray<HomeArticleCard>, hasCssHero: boolean): string {
   const head = sectionHead({
     title: "Editor's Picks",
     eyebrow: "Hand-selected by our editors this week",
@@ -183,12 +188,13 @@ function renderPicksSection(cards: ReadonlyArray<HomeArticleCard>): string {
   if (lead === undefined) {
     return `<section class="container section">${head}<p class="section-empty">Editor's picks coming soon.</p></section>`;
   }
+  const lcpIndex = hasCssHero ? -1 : cards.findIndex((card) => Boolean(card.imageUrl?.trim()));
   const heroImg = responsiveImg({
     src: lead.imageUrl,
     alt: lead.imageAlt,
     width: 720,
     height: 450,
-    loading: "lazy",
+    ...(lcpIndex === 0 ? PICKS_LCP_HINTS : {}),
     sizes: "(max-width: 880px) 100vw, 56vw",
   });
   const heroImgInner =
@@ -205,7 +211,7 @@ function renderPicksSection(cards: ReadonlyArray<HomeArticleCard>): string {
       ? `<div class="card-foot"><span class="card-byline">${bylineParts.join(" · ")}</span></div>`
       : "";
   const picksHero = `<a class="card picks-hero" href="${escAttr(lead.href)}"><div class="card-img">${heroImgInner}<span class="card-pin" aria-hidden="true">${iconPin({ size: 14 })}</span></div><div class="card-body"><h3 class="card-title">${escText(lead.title)}</h3>${heroExcerpt}${heroFoot}</div></a>`;
-  const rows = cards.slice(1, 4).map(renderStoryRow).join("");
+  const rows = cards.slice(1, 4).map((card, i) => renderStoryRow(card, i + 1 === lcpIndex)).join("");
   return `<section class="container section">${head}<div class="picks-grid">${picksHero}<div class="picks-stack">${rows}</div></div></section>`;
 }
 
@@ -295,10 +301,11 @@ export function renderHome(args: RenderHomeArgs): string {
   // real-photo magazine hero. The operator hero_image_media_id is intentionally
   // NOT used (provisioning's AI generated a text-laden mockup there); the lead
   // article photo is reliably clean. No articles → bare gradient.
+  const heroImageUrl = vm.hero?.imageUrl;
   const s2 = renderHero({
     title: site.name,
     excerpt: site.tagline.length > 0 ? site.tagline : undefined,
-    imageUrl: vm.hero !== null ? vm.hero.imageUrl : null,
+    imageUrl: heroImageUrl,
     imageAlt: "",
   });
 
@@ -333,7 +340,7 @@ export function renderHome(args: RenderHomeArgs): string {
         ? [vm.hero, ...vm.featured]
         : [...vm.featured]
   ).slice(0, 4);
-  const s6 = renderPicksSection(picksCards);
+  const s6 = renderPicksSection(picksCards, Boolean(heroImageUrl));
 
   // §7 — trending (vm.trending bucket = is_trending rows, contract: 5 items;
   // dark full-bleed strip, .trending-section root, ranked 01..05 numerals)

@@ -247,7 +247,7 @@ describe("T24-AC1 logo render fix (RC-043)", () => {
         hostname: site.hostname,
       },
     });
-    expect(header).toContain('<a class="brand" href="/" aria-label="Acme News home"><img class="brand-logo-img" src="/media/uploads/brand-logo.png"');
+    expect(header).toContain('<a class="brand" href="/" aria-label="Acme News home"><img class="brand-logo-img" src="/cdn-cgi/image/width=400,quality=75,format=auto/media/uploads/brand-logo.png"');
     expect(header).toContain('alt="Acme News"');
     expect(header).not.toContain('<span class="brand-logo"');
     expect(header).not.toContain('<span class="brand-name">');
