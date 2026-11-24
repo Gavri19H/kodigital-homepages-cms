@@ -210,7 +210,7 @@ describe("visitor-specific responses", () => {
     vi.spyOn(crypto, "randomUUID").mockReturnValue(mintedSid);
     const { serve, calls } = harness();
     const res = await serve(visit("/lg/life", { headers: returning ? { Cookie: "ko_sid=returning" } : {} }));
-    expect(calls[1]!.request.headers.get("x-cms-tags")).toBe("quote:" + quoteId);
+    expect(calls[1]!.request.headers.get("x-cms-tags")).toBe("quote:site-a:" + quoteId);
     expect(res.headers.getSetCookie()).toEqual(returning ? [] : ["ko_sid=" + mintedSid + sessionAttrs]);
     const html = await res.text();
     expect(html).toContain("window.__LG_ASSIGNMENT__=");

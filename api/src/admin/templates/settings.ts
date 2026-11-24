@@ -198,6 +198,11 @@ function renderSiteSelector(sites: ReadonlyArray<SiteOption>, selectedSiteId?: s
     </select>
     <small id="filter-site-hint" class="form-hint">Settings are scoped to the chosen site.</small>
   </div>
+  <fieldset class="form-group">
+    <legend class="form-label">Public page cache</legend>
+    <button type="button" id="clear-site-cache" class="btn btn-secondary"${selectedSiteId ? "" : " disabled"}>Clear this site now</button>
+    <span id="clear-site-cache-status" class="form-status" role="status"></span>
+  </fieldset>
 </div>`;
 }
 
@@ -1235,8 +1240,39 @@ export const SETTINGS_SCRIPT = `
     if (msg) { status.appendChild(document.createTextNode(msg)); }
   }
   function setError(msg) { if (errEl) { errEl.hidden = !msg; errEl.textContent = msg || ''; } }
+  var clearButton = document.getElementById('clear-site-cache');
+  var clearStatus = document.getElementById('clear-site-cache-status');
+  if (clearButton && clearStatus) {
+    clearButton.addEventListener('click', function () {
+      var siteId = hidden.value;
+      if (!siteId || clearButton.disabled) { return; }
+      clearButton.disabled = true;
+      clearStatus.textContent = 'Requesting a cache clear…';
+      function finish(message) {
+        if (hidden.value === siteId) {
+          clearStatus.textContent = message;
+          clearButton.disabled = false;
+        }
+      }
+      fetch('/api/admin/sites/' + encodeURIComponent(siteId) + '/purge-cache', {
+        method: 'POST', credentials: 'same-origin', redirect: 'error'
+      }).then(function (r) {
+        if (!r.ok) { throw new Error(); }
+        return r.json();
+      }).then(function (data) {
+        if (!data || !data.resource || !data.resource.purge_id) { throw new Error(); }
+        finish('Cache clear requested for this site.');
+      }).catch(function () {
+        finish('Could not request a cache clear. Please try again.');
+      });
+    });
+  }
   filter.addEventListener('change', function () {
     hidden.value = filter.value;
+    if (clearButton && clearStatus) {
+      clearButton.disabled = !filter.value;
+      clearStatus.textContent = '';
+    }
     setStatus('');
     setError('');
     if (filter.value) {

@@ -268,7 +268,7 @@ describe("public-router /:slug canonicalization (T40 [F1])", () => {
     expect(body.trim().toLowerCase().startsWith("<!doctype html>")).toBe(true);
     expect(body).not.toBe(RAW_PAGE_HTML);
     // renderLayout links the public stylesheet (the shell, not the fallback).
-    expect(body).toContain('href="/assets/public.css?v=');
+    expect(body).toMatch(/href="\/assets\/public\.[a-z0-9]+\.css"/);
     // Header + footer regions are served (banner + contentinfo).
     expect(body).toContain('class="site-header"');
     expect(body).toContain('role="banner"');
@@ -479,7 +479,7 @@ describe("public-router GET / homepage design system (T1 rescue-3)", () => {
 
     // Design-system shell (renderLayout): Nunito font + public stylesheet.
     expect(body).toContain("Nunito");
-    expect(body).toContain('href="/assets/public.css?v=');
+    expect(body).toMatch(/href="\/assets\/public\.[a-z0-9]+\.css"/);
 
     // Inline brand-token override sourced from site_settings.brand_tokens_json.
     expect(body).toContain('<style data-source="brand_tokens">');
@@ -650,7 +650,7 @@ describe("public-router GET / site-status gating (T19 rescue-3)", () => {
     // The 404 is the safe Not-Found payload, NOT a rendered homepage: none of
     // the design-shell / home-section markers leak for a draft site.
     expect(draftBody).not.toContain("home-section:");
-    expect(draftBody).not.toContain('href="/assets/public.css?v=');
+    expect(draftBody).not.toMatch(/href="\/assets\/public\.(?:[a-z0-9]+\.)?css\b/);
 
     // Active site: same fixture, status='active' → resolves → homepage served.
     const activeRes = await makeApp().request(
@@ -661,7 +661,7 @@ describe("public-router GET / site-status gating (T19 rescue-3)", () => {
     expect(activeRes.status).toBe(200);
     const activeBody = await activeRes.text();
     expect(activeBody.trim().toLowerCase().startsWith("<!doctype html>")).toBe(true);
-    expect(activeBody).toContain('href="/assets/public.css?v=');
+    expect(activeBody).toMatch(/href="\/assets\/public\.[a-z0-9]+\.css"/);
   });
 
   it("draft site 404s the indexing surfaces too — /sitemap.xml and /robots.txt [api/test/public-router.test.ts]", async () => {
@@ -875,7 +875,7 @@ describe("public-router GET /article/:slug design system (T2 rescue-3)", () => {
 
     // AC2: the brand CSS is linked + the per-article SEO title/description are
     // inline in the <head> (renderLayout owns the head).
-    expect(body).toContain('href="/assets/public.css?v=');
+    expect(body).toMatch(/href="\/assets\/public\.[a-z0-9]+\.css"/);
     expect(body).toContain(
       "<title>The Feature That Mattered — Acme Daily</title>",
     );
@@ -1034,7 +1034,7 @@ describe("public-router GET /category/:slug design system (T4 rescue-3)", () => 
     // Full design document, not the rescue-2 bare zero-style fragment.
     expect(body.trim().toLowerCase().startsWith("<!doctype html>")).toBe(true);
     // renderLayout links the public stylesheet + the brand-token override.
-    expect(body).toContain('href="/assets/public.css?v=');
+    expect(body).toMatch(/href="\/assets\/public\.[a-z0-9]+\.css"/);
     expect(body).toContain('<style data-source="brand_tokens">');
     expect(body).toContain("--tw-brand: #1ba8c8");
     // Header + footer regions are served (banner + contentinfo).

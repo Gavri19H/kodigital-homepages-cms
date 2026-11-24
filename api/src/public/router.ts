@@ -26,6 +26,7 @@ import { listArticles, getArticleBySlug } from "../db";
 import { isReservedPath } from "./reserved";
 import { publicCss } from "./assets/public-css";
 import { publicJs } from "./assets/public-js";
+import { PUBLIC_CSS_PATH, PUBLIC_JS_PATH } from "./templates/layout";
 import {
   renderRssFeed,
   renderAtomFeed,
@@ -203,29 +204,23 @@ router.get("/favicon.ico", async (c) => {
   });
 });
 
-// rescue-4 — the public design assets the layout links: /assets/public.css
-// (the theiwise design system — --tw-brand:#1ba8c8, the 13/12 section styling,
-// Nunito, the 8 responsive breakpoints) and /assets/public.js. WITHOUT these
-// routes the layout's <link rel="stylesheet" href="/assets/public.css"> 404s
-// and EVERY public page renders completely UNSTYLED (raw HTML). Registered
-// BEFORE publicSiteContextMiddleware so they are host-independent generic
-// assets (no tenant DB lookup), exactly like /favicon.ico above.
-router.get("/assets/public.css", () =>
-  new Response(publicCss, {
+// Handle current and legacy asset names before tenant lookup. An unknown hash
+// can only be fulfilled by an existing Cache API entry from an earlier release.
+router.get("/assets/:file{public\\.(?:[a-z0-9]+\\.)?(?:css|js)}", (c) => {
+  const path = c.req.path;
+  const css = path.endsWith(".css");
+  const hashed = path === (css ? PUBLIC_CSS_PATH : PUBLIC_JS_PATH);
+  if (!hashed && path !== (css ? "/assets/public.css" : "/assets/public.js")) {
+    c.header("Cache-Control", "no-store");
+    return c.notFound();
+  }
+  return new Response(css ? publicCss : publicJs, {
     headers: {
-      "Content-Type": "text/css; charset=utf-8",
-      "Cache-Control": "public, max-age=86400",
+      "Content-Type": css ? "text/css; charset=utf-8" : "text/javascript; charset=utf-8",
+      "Cache-Control": hashed ? "public, max-age=31536000, immutable" : "public, max-age=86400",
     },
-  }),
-);
-router.get("/assets/public.js", () =>
-  new Response(publicJs, {
-    headers: {
-      "Content-Type": "text/javascript; charset=utf-8",
-      "Cache-Control": "public, max-age=86400",
-    },
-  }),
-);
+  });
+});
 
 // Listicles Phase 7 (§7.2/§7.3): GET /lc/:oid — the first-party click
 // resolver. Registered BEFORE publicSiteContextMiddleware (host-independent,

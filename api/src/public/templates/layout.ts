@@ -19,20 +19,14 @@ import { publicJs } from "../assets/public-js";
 import { ANALYTICS_TRACKING_SCRIPT } from "../../analytics/tracking-script";
 import { siteIconHeadTags, siteBrandColor, absoluteOnHost, uploadedLogoUrl } from "../site-brand";
 
-// Cache-busting asset versions: a cheap djb2 content-hash over the served CSS
-// and JS, computed once per isolate. The /assets/public.{css,js} links carry
-// ?v=<hash> so a stylesheet/script change invalidates the browser + edge cache
-// on the NEXT deploy (the asset routes ignore the query string). Without this
-// the assets are served max-age=86400 at a fixed URL, so returning visitors kept
-// the STALE stylesheet for up to a day after a deploy — the post-deploy "it
-// still looks old" symptom. The hash changes only when the asset content does.
+// Compute the content-addressed filenames once per isolate for the layout and asset routes.
 function assetHash(s: string): string {
   let h = 5381;
   for (let i = 0; i < s.length; i += 1) h = ((h << 5) + h + s.charCodeAt(i)) | 0;
   return (h >>> 0).toString(36);
 }
-const PUBLIC_CSS_V = assetHash(publicCss);
-const PUBLIC_JS_V = assetHash(publicJs);
+export const PUBLIC_CSS_PATH = `/assets/public.${assetHash(publicCss)}.css`;
+export const PUBLIC_JS_PATH = `/assets/public.${assetHash(publicJs)}.js`;
 
 export interface LayoutSite {
   name: string;
@@ -259,7 +253,7 @@ ${feedLinks}
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
 <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Nunito:wght@700;800;900&family=Nunito+Sans:wght@400;600;700;800&display=swap">
-<link rel="stylesheet" href="/assets/public.css?v=${PUBLIC_CSS_V}">
+<link rel="stylesheet" href="${PUBLIC_CSS_PATH}">
 ${styleBlock}
 ${jsonLdBlocks}
 ${extraHead}
@@ -270,7 +264,7 @@ ${customHead}
 ${header}
 <main id="main-content">${body}</main>
 ${footer}
-<script src="/assets/public.js?v=${PUBLIC_JS_V}" defer></script>
+<script src="${PUBLIC_JS_PATH}" defer></script>
 ${customFooter}
 ${ANALYTICS_TRACKING_SCRIPT}
 </body>

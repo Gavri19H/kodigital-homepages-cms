@@ -12,7 +12,8 @@ import { selectLeadgenEntry, type LeadgenSelection } from "./leadgen-select";
 import { buildListicleGatewayOutput, injectListicleGateway } from "./listicle-gateway";
 import { pickListicle, type ListiclePick } from "./listicle-select";
 import { parseSiteSnapshot } from "./snapshot";
-import { listicleTag, quoteTag } from "./tags";
+import { serveStatic } from "./static-cache";
+import { listicleTag, siteQuoteTag } from "./tags";
 import type { GatewayRequestInput, PublicPageProps } from "./types";
 
 interface PageExports {
@@ -95,7 +96,7 @@ async function serveCachedPage(
     }
     leadgen = selection;
     variantKey = "lg:" + leadgen.funnelVariantId;
-    innerHeaders.set("x-cms-tags", quoteTag(leadgen.quoteId));
+    innerHeaders.set("x-cms-tags", siteQuoteTag(snapshot.siteId, leadgen.quoteId));
   }
 
   innerHeaders.set("Accept", variantKey === "md" ? "text/markdown" : "text/html");
@@ -153,6 +154,8 @@ export async function gatewayFetch(
     if (path === "/__snap" || path.startsWith("/__snap/")) {
       return new Response(null, { status: 404, headers: { "Cache-Control": EDGE_CACHE_CONTROL.private } });
     }
+    const staticResponse = await serveStatic(request, env, ctx, honoFetch);
+    if (staticResponse) return staticResponse;
     const pages = ctx?.exports as PageExports | undefined;
     if (typeof pages?.PublicPage === "function" && (request.method === "GET" || request.method === "HEAD")) {
       const url = new URL(request.url);
