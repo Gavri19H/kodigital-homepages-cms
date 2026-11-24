@@ -1,19 +1,24 @@
 import { describe, it, expect, afterEach } from "vitest";
 import { spawnSync } from "node:child_process";
+import { createRequire } from "node:module";
 import { writeFileSync, mkdtempSync, rmSync } from "node:fs";
 import { dirname, resolve, join } from "node:path";
 import { tmpdir } from "node:os";
 import { fileURLToPath } from "node:url";
+import manifest from "../package.json";
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
 const API_DIR = resolve(__dirname, "..");
-const SCRIPT_PATH = resolve(API_DIR, "scripts/verify/infra-contract.ts");
-const TSX_BIN = resolve(API_DIR, "node_modules/.bin/tsx");
+const SCRIPT = "scripts/verify/infra-contract.ts";
+const TSX_LOADER = createRequire(import.meta.url).resolve("tsx");
 
 const GOOD_TOML = `name = "kodigital-homepages-cms-worker"
 main = "src/index.ts"
 compatibility_date = "2026-05-06"
 account_id = "abc123"
+
+[version_metadata]
+binding = "CF_VERSION_METADATA"
 
 [cache]
 enabled = true
@@ -44,6 +49,9 @@ bucket_name = "kodigital-homepages-cms-media"
 [env.staging]
 name = "kodigital-homepages-cms-worker-staging"
 
+[env.staging.version_metadata]
+binding = "CF_VERSION_METADATA"
+
 [env.staging.cache]
 enabled = true
 
@@ -55,8 +63,54 @@ cache = { enabled = false }
 type = "worker"
 cache = { enabled = true }
 
+[env.perfstage]
+name = "kodigital-homepages-cms-worker-perfstage"
+workers_dev = true
+services = []
+queues = { producers = [], consumers = [] }
+
+[env.perfstage.version_metadata]
+binding = "CF_VERSION_METADATA"
+
+[env.perfstage.cache]
+enabled = true
+
+[env.perfstage.exports.default]
+type = "worker"
+cache = { enabled = false }
+
+[env.perfstage.exports.PublicPage]
+type = "worker"
+cache = { enabled = true }
+
+[env.perfstage.vars]
+APP_ENV = "perfstage"
+PERFSTAGE = "true"
+DEV_BYPASS_AUTH = "true"
+ADMIN_ALLOW_IP = "46.117.76.207"
+ADMIN_HOST = "kodigital-homepages-cms-worker-perfstage.haikov1989.workers.dev"
+ADMIN_BASE_URL = "https://kodigital-homepages-cms-worker-perfstage.haikov1989.workers.dev"
+ADMIN_BASE_PATH = "/admin"
+
+[[env.perfstage.d1_databases]]
+binding = "DB"
+database_name = "kodigital-homepages-cms-perfstage"
+database_id = "a3fe7c6b-1bff-4b07-8a7c-a783401ab4ce"
+migrations_dir = "migrations"
+
+[[env.perfstage.kv_namespaces]]
+binding = "CACHE"
+id = "356e20e0b4f14177a0e814ebe87e04ee"
+
+[[env.perfstage.r2_buckets]]
+binding = "MEDIA"
+bucket_name = "kodigital-homepages-cms-media"
+
 [env.production]
 name = "kodigital-homepages-cms-worker"
+
+[env.production.version_metadata]
+binding = "CF_VERSION_METADATA"
 
 [env.production.cache]
 enabled = true
@@ -72,11 +126,16 @@ cache = { enabled = true }
 
 let tempDirs: string[] = [];
 
+// Run the CLI entrypoint without the tsx CLI's listening socket.
+function runVerifier(cwd: string): ReturnType<typeof spawnSync> {
+  return spawnSync(process.execPath, ["--import", TSX_LOADER, resolve(API_DIR, SCRIPT)], { cwd, encoding: "utf8" });
+}
+
 function runInTemp(toml: string): ReturnType<typeof spawnSync> {
   const dir = mkdtempSync(join(tmpdir(), "verify-infra-"));
   tempDirs.push(dir);
   writeFileSync(join(dir, "wrangler.toml"), toml, "utf8");
-  return spawnSync(TSX_BIN, [SCRIPT_PATH], { cwd: dir, encoding: "utf8" });
+  return runVerifier(dir);
 }
 
 describe("verify:infra script (T11)", () => {
@@ -92,11 +151,8 @@ describe("verify:infra script (T11)", () => {
   });
 
   it("exits 0 against the real api/wrangler.toml", () => {
-    const res = spawnSync(
-      "npm",
-      ["run", "--silent", "verify:infra"],
-      { cwd: API_DIR, encoding: "utf8" },
-    );
+    expect(manifest.scripts["verify:infra"].split(/\s+/)).toEqual(["tsx", SCRIPT]);
+    const res = runVerifier(API_DIR);
     expect(res.status).toBe(0);
   });
 

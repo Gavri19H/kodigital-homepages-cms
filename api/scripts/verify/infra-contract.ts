@@ -9,13 +9,13 @@
  *
  * Exits 0 when every required identifier appears, non-zero with a list
  * of missing identifiers on stderr otherwise. The verifier reads
- * wrangler.toml as raw text (no TOML parser) to keep scope minimal and
- * because every check is a literal-substring presence check.
+ * wrangler.toml as text, scoping resource checks to their binding tables.
  *
  * Contract names asserted:
  *   - Worker scripts:  kodigital-homepages-cms-worker (prod + dev placeholder)
  *                      kodigital-homepages-cms-worker-staging
- *   - D1 database:     kodigital-homepages-cms-db
+ *                      kodigital-homepages-cms-worker-perfstage
+ *   - D1 databases:    kodigital-homepages-cms-db and the isolated perfstage DB
  *   - R2 bucket:       kodigital-homepages-cms-media
  *   - KV binding:      CACHE
  *   - account_id present + compatibility_date present
@@ -30,7 +30,7 @@
 import { readFileSync } from "node:fs";
 import { resolve } from "node:path";
 import { fileURLToPath } from "node:url";
-import { EDGE_CACHE_CHECKS } from "./worker-config";
+import { deploymentChecks, tableBodies } from "./worker-config";
 
 interface Check {
   name: string;
@@ -52,17 +52,17 @@ const CHECKS: readonly Check[] = [
   {
     name: "d1-database-name",
     description: '[[d1_databases]] declares database_name = "kodigital-homepages-cms-db"',
-    test: (t) => /database_name\s*=\s*"kodigital-homepages-cms-db"/.test(t),
+    test: (t) => tableBodies(t, "[[d1_databases]]").some(body => /^\s*database_name\s*=\s*"kodigital-homepages-cms-db"/m.test(body)),
   },
   {
     name: "r2-bucket-name",
     description: '[[r2_buckets]] declares bucket_name = "kodigital-homepages-cms-media"',
-    test: (t) => /bucket_name\s*=\s*"kodigital-homepages-cms-media"/.test(t),
+    test: (t) => tableBodies(t, "[[r2_buckets]]").some(body => /^\s*bucket_name\s*=\s*"kodigital-homepages-cms-media"/m.test(body)),
   },
   {
     name: "kv-binding-cache",
     description: '[[kv_namespaces]] declares binding = "CACHE"',
-    test: (t) => /binding\s*=\s*"CACHE"/.test(t),
+    test: (t) => tableBodies(t, "[[kv_namespaces]]").some(body => /^\s*binding\s*=\s*"CACHE"/m.test(body)),
   },
   {
     name: "account-id-present",
@@ -80,11 +80,10 @@ const CHECKS: readonly Check[] = [
       "CLOUDFLARE_API_TOKEN MUST NOT appear in wrangler.toml — runtime tokens are CLOUDFLARE_PROVISIONING_API_TOKEN + CLOUDFLARE_CACHE_API_TOKEN; CLOUDFLARE_API_TOKEN is a GitHub-Actions-only secret",
     test: (t) => !/CLOUDFLARE_API_TOKEN/.test(t),
   },
-  ...EDGE_CACHE_CHECKS,
 ];
 
 export function checkInfraContract(wrangler: string): Check[] {
-  return CHECKS.filter(check => !check.test(wrangler));
+  return [...CHECKS, ...deploymentChecks(wrangler)].filter(check => !check.test(wrangler));
 }
 
 if (fileURLToPath(import.meta.url) === resolve(process.argv[1] ?? "")) {
@@ -102,5 +101,6 @@ if (fileURLToPath(import.meta.url) === resolve(process.argv[1] ?? "")) {
     for (const f of failures) console.error(`  [${f.name}] ${f.description}`);
     process.exit(1);
   }
-  console.log(`verify:infra OK -- wrangler.toml matches the infra and cache contract (${CHECKS.length} checks passed).`);
+  const count = CHECKS.length + deploymentChecks(wrangler).length;
+  console.log(`verify:infra OK -- wrangler.toml matches the infra and cache contract (${count} checks passed).`);
 }
