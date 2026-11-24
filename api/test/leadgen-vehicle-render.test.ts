@@ -264,6 +264,22 @@ describe("F18 render — no readable list, and everything else unchanged", () =>
       "@media (max-width: 480px){.lg-card-grid.lg-card-grid[data-lg-vlogos]{grid-template-columns:repeat(2, minmax(0, 1fr))}",
     );
   });
+
+  // F24 Round 3 (owner 24 Nov 2026, "logos are escaping the square"): with 4
+  // make cards per row in a ~320px question card, a card is ~75px wide, but
+  // the logo box was a fixed 80×40 — wide logos (Tesla, Subaru, GMC…) spilled
+  // out. The logo box now never grows past its card (object-fit keeps the
+  // logo's shape), logo cards use slim side padding, and a long make name
+  // wraps inside its card instead of running out of it.
+  it("keeps every make logo and name inside its card", () => {
+    const css = vehicleQuestionCss(DESIGN);
+    expect(css).toContain(
+      ".lg-card-grid.lg-card-grid[data-lg-vlogos] .lg-card-logo{display:block;width:80px;height:40px;max-width:100%;object-fit:contain}",
+    );
+    expect(css).toContain(
+      ".lg-card-grid.lg-card-grid[data-lg-vlogos] > .lg-card{min-width:0;padding-left:6px;padding-right:6px;overflow-wrap:anywhere}",
+    );
+  });
 });
 
 describe("F18 public config — a vehicle question carries none of its typed data", () => {
