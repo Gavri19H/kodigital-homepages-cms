@@ -1,5 +1,5 @@
 import { createHash } from "node:crypto";
-import { afterEach, describe, expect, it, vi } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { gatewayFetch } from "../src/edge/gateway";
 import type { LeadgenSnapshotEntry } from "../src/edge/leadgen-select";
 import type { PublicPageProps, SiteSnapshot } from "../src/edge/types";
@@ -78,6 +78,10 @@ function harness({
 function visit(path: string, init?: RequestInit): Request {
   return new Request(origin + path, init);
 }
+
+beforeEach(() => {
+  vi.spyOn(Math, "random").mockReturnValue(0.1); // Keep the zero-D1 routing check outside the counter sample.
+});
 
 afterEach(() => {
   vi.restoreAllMocks();

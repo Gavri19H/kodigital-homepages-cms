@@ -135,7 +135,7 @@ jobs:
         run: npx wrangler d1 migrations apply kodigital-homepages-cms-db --env staging --remote
 
       - name: Deploy to staging
-        run: npm run deploy:staging
+        run: npm run deploy:staging -- --tag "${GITHUB_SHA::12}"
 
   deploy-production:
     name: Deploy to ${{ inputs.target_env }} (${{ inputs.rollout }})
@@ -267,6 +267,7 @@ jobs:
       #   - 0072_sites_write_bookmark.sql
       #   - 0073_cache_purge_log_index.sql
       #   - 0074_vitals_samples.sql
+      #   - 0075_speed_meter_hardening.sql
       - name: Apply D1 migrations to production (kodigital-homepages-cms-db)
         if: inputs.target_env == 'production'
         run: npx wrangler d1 migrations apply kodigital-homepages-cms-db --env production --remote
@@ -277,11 +278,11 @@ jobs:
 
       - name: Deploy to production
         if: inputs.target_env == 'production' && inputs.rollout == 'direct'
-        run: npm run deploy:production
+        run: npm run deploy:production -- --tag "${GITHUB_SHA::12}"
 
       - name: Deploy to perfstage
         if: inputs.target_env == 'perfstage' && inputs.rollout == 'direct'
-        run: npx wrangler deploy --env perfstage
+        run: npx wrangler deploy --env perfstage --tag "${GITHUB_SHA::12}"
 
       - name: Run versioned release
         if: inputs.rollout == 'gradual' || inputs.rollout == 'rehearsal'

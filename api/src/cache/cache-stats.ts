@@ -1,15 +1,14 @@
 // Cache hit/miss monitoring for kodigital-homepages-cms (T44 [BCL-020]).
 //
 // Gateway and live feed/HTML reads sample one in ten outcomes when a request
-// context is available. Each sample adds ten to its KV counter in the background.
-// The admin monitor reports these estimated totals and hit rate. A gateway
-// sample also feeds the site's hourly HIT or MISS counter for speed reports.
+// context is available. Each sample adds ten to its global KV counter in the
+// background. A gateway sample also increments the site's hourly D1 counter
+// atomically for speed reports.
 //
 // Recording is BEST-EFFORT: a counter read/write failure NEVER breaks a
 // cache read (wrapped in try/catch). The counter keys are read via the raw
 // env.CACHE.get (NOT cacheGet) so reading/updating stats can never recurse
-// into the recorder or count itself. Everything here touches ONLY env.CACHE
-// (KV) — no outbound HTTP — so the dry-run zero-outbound contract holds.
+// into the recorder or count itself. Both counters use Worker bindings.
 
 import type { Env } from "../env";
 import type { WaitUntilContext } from "../wait-until-context";
@@ -19,13 +18,7 @@ import type { WaitUntilContext } from "../wait-until-context";
 const HITS_KEY = "cachestat:hits";
 const MISSES_KEY = "cachestat:misses";
 export const EDGE_SAMPLE_WEIGHT = 10;
-const EDGE_COUNTER_TTL_SECONDS = 8 * 24 * 60 * 60;
 type EdgeCacheOutcome = "HIT" | "MISS";
-
-export function edgeHitCounterKey(siteId: string, hourMs: number, status: EdgeCacheOutcome): string {
-  const utcHour = new Date(hourMs).toISOString().slice(0, 13).replace(/[-T]/g, "");
-  return `edgehit:v1:${siteId}:${utcHour}:${status}`;
-}
 
 export interface CacheStats {
   hits: number;
@@ -44,17 +37,24 @@ async function readCounter(env: Env, key: string): Promise<number> {
   return Number.isFinite(n) && n >= 0 ? n : 0;
 }
 
-async function bump(env: Env, key: string, options?: KVNamespacePutOptions): Promise<void> {
+async function bump(env: Env, key: string): Promise<void> {
   try {
     const value = String((await readCounter(env, key)) + EDGE_SAMPLE_WEIGHT);
-    if (options === undefined) {
-      await env.CACHE.put(key, value);
-    } else {
-      await env.CACHE.put(key, value, options);
-    }
+    await env.CACHE.put(key, value);
   } catch {
     // Monitoring is best-effort — a stats write failure must never break the
     // cache read that triggered it.
+  }
+}
+
+async function bumpSite(env: Env, siteId: string, outcome: EdgeCacheOutcome): Promise<void> {
+  try {
+    const hour = Math.floor(Date.now() / 3_600_000) * 3600;
+    await env.DB.prepare(`INSERT INTO edge_hit_counts (site_id, hour, outcome, n) VALUES (?, ?, ?, ?)
+      ON CONFLICT (site_id, hour, outcome) DO UPDATE SET n = n + excluded.n`)
+      .bind(siteId, hour, outcome, EDGE_SAMPLE_WEIGHT).run();
+  } catch {
+    console.error("[cache-stats] Site edge count write failed", siteId, outcome);
   }
 }
 
@@ -62,10 +62,7 @@ function scheduleBump(env: Env, outcome: EdgeCacheOutcome, waitUntil?: WaitUntil
   if (typeof waitUntil?.waitUntil !== "function" || Math.random() >= 1 / EDGE_SAMPLE_WEIGHT) return;
   try {
     const writes = [bump(env, outcome === "HIT" ? HITS_KEY : MISSES_KEY)];
-    if (siteId) {
-      const key = edgeHitCounterKey(siteId, Date.now(), outcome);
-      writes.push(bump(env, key, { expirationTtl: EDGE_COUNTER_TTL_SECONDS }));
-    }
+    if (siteId) writes.push(bumpSite(env, siteId, outcome));
     waitUntil.waitUntil(Promise.all(writes));
   } catch {
     // A context that can no longer accept work must still serve the cached response.

@@ -2,6 +2,7 @@ export interface Env {
   DB: D1Database;
   CACHE: KVNamespace;
   MEDIA: R2Bucket;
+  VITALS_RATE_LIMITER?: { limit(options: { key: string }): Promise<{ success: boolean }> };
   CF_VERSION_METADATA?: { id: string; tag?: string; timestamp?: string };
   PERFSTAGE?: string;
   ADMIN_ALLOW_IP?: string;

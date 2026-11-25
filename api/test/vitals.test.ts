@@ -1,3 +1,4 @@
+import { createHash } from "node:crypto";
 import { runInNewContext } from "node:vm";
 import { afterAll, beforeAll, beforeEach, describe, expect, it, vi } from "vitest";
 import { SEED_EPOCH, SEED_HOSTNAME, SEED_SITE_ID } from "../scripts/seed/seed-fixture";
@@ -24,7 +25,7 @@ let sqlite: SqliteDb;
 let env: Env;
 
 beforeAll(() => {
-  sqlite = createDb(); // Applies the actual migrations, including 0074.
+  sqlite = createDb(); // Applies the actual migrations.
   const db = d1FromSqlite(sqlite);
   db.batch = <T>(statements: D1PreparedStatement[]) => Promise.all(statements.map(stmt => stmt.all<T>()));
   env = buildLeadgenEnv(db, makeKvStub().kv, {
@@ -59,6 +60,9 @@ function post(body: string, headers?: HeadersInit): Request {
 const rows = () => sqlite.prepare("SELECT * FROM vitals_samples ORDER BY id").all();
 
 describe("uncached vitals ingestion", () => {
+  const sampleBody = '{"page_type":"home","cls":0}';
+  const clientIp = "203.0.113.7";
+
   beforeEach(() => {
     sqlite.prepare("DELETE FROM vitals_samples").run();
     vi.clearAllMocks();
@@ -75,7 +79,7 @@ describe("uncached vitals ingestion", () => {
     const { serve, calls, work, fallback } = gateway();
     const metrics = { ttfb_ms: 0, fcp_ms: 124.5, lcp_ms: 60_000, inp_ms: 16, cls: 5 };
     const request = post(JSON.stringify({ page_type: "quote", ...metrics,
-      site_id: "different-site", country: "AU", worker_version: "other", created_at: 1,
+      site_id: "different-site", country: "AU", worker_version: "other", created_at: 1, device: "tablet", client_key: "forged",
     }), { "x-cms-site-id": "header-site", "CF-IPCountry": "CA", "X-Forwarded-Host": "other.example" });
     const before = Math.floor(Date.now() / 1000);
     const prepare = vi.spyOn(env.DB, "prepare");
@@ -93,12 +97,117 @@ describe("uncached vitals ingestion", () => {
       await Promise.all(work);
       expect(prepare).toHaveBeenCalledTimes(1);
       expect(rows()).toEqual([{ id: expect.any(Number), created_at: expect.any(Number), site_id: SEED_SITE_ID,
-        page_type: "quote", country: "GB", ...metrics, worker_version: "test-worker" }]);
+        page_type: "quote", country: "GB", ...metrics, worker_version: "test-worker",
+        device: "desktop", client_key: expect.stringMatching(/^[0-9a-f]{16}$/) }]);
       const { created_at } = rows()[0] as { created_at: number };
       expect(created_at).toBeGreaterThanOrEqual(before);
       expect(created_at).toBeLessThanOrEqual(Math.floor(Date.now() / 1000));
     } finally {
       prepare.mockRestore();
+    }
+  });
+
+  it("returns an uncached 429 and schedules no insert when the limiter denies the client IP", async () => {
+    const limit = vi.fn().mockResolvedValue({ success: false });
+    const { serve, work } = gateway(undefined, { ...env, VITALS_RATE_LIMITER: { limit } });
+    const response = await serve(post(sampleBody, { "CF-Connecting-IP": clientIp }));
+    expect(limit.mock.calls).toEqual([[{ key: clientIp }]]);
+    expect(response.status).toBe(429);
+    expect(response.headers.get("Cache-Control")).toBe("no-store");
+    expect([work, rows()]).toEqual([[], []]);
+  });
+
+  it("checks the limiter only after validating the sample and resolving the site", async () => {
+    const limit = vi.fn().mockResolvedValue({ success: false });
+    const { serve } = gateway(() => new Response(null, { status: 404 }), { ...env, VITALS_RATE_LIMITER: { limit } });
+    expect((await serve(post("{}"))).status).toBe(400);
+    expect((await serve(post(sampleBody))).status).toBe(404);
+    expect(limit).not.toHaveBeenCalled();
+  });
+
+  it("uses the unknown limiter key when CF-Connecting-IP is absent", async () => {
+    const limit = vi.fn().mockResolvedValue({ success: true });
+    const { serve, work } = gateway(undefined, { ...env, VITALS_RATE_LIMITER: { limit } });
+    const response = await serve(post(sampleBody, { "X-Forwarded-For": clientIp }));
+    expect(limit.mock.calls).toEqual([[{ key: "unknown" }]]);
+    expect(response.status).toBe(204);
+    await Promise.all(work);
+    expect(rows()).toHaveLength(1);
+  });
+
+  it("accepts the sample and logs once without the IP when the limiter throws", async () => {
+    const limit = vi.fn().mockRejectedValue(new Error(`limiter unavailable for ${clientIp}`));
+    const { serve, work } = gateway(undefined, { ...env, VITALS_RATE_LIMITER: { limit } });
+    const log = vi.spyOn(console, "error").mockImplementation(() => {});
+    try {
+      const response = await serve(post(sampleBody, { "CF-Connecting-IP": clientIp }));
+      expect(response.status).toBe(204);
+      await Promise.all(work);
+      expect(rows()).toMatchObject([{ site_id: SEED_SITE_ID, cls: 0 }]);
+      expect(log.mock.calls).toEqual([["[vitals] rate limiter failed"]]);
+    } finally {
+      log.mockRestore();
+    }
+  });
+
+  it.each([
+    ["iPad Mobile", undefined, "tablet"], ["Android Tablet", "?0", "tablet"],
+    ["Mobi", undefined, "mobile"], ["Android", "?0", "mobile"],
+    ["iPhone", undefined, "mobile"], ["iPod", undefined, "mobile"],
+    ["Mozilla/5.0 (X11; Linux x86_64)", undefined, "desktop"], ["iPad", "?1", "mobile"],
+  ] as const)("classifies UA %s with mobile hint %s as %s", async (ua, hint, device) => {
+    const { serve, work } = gateway();
+    const headers = new Headers({ "User-Agent": ua });
+    if (hint) headers.set("Sec-CH-UA-Mobile", hint);
+    expect((await serve(post(sampleBody, headers))).status).toBe(204);
+    await Promise.all(work);
+    expect(rows()).toMatchObject([{ device }]);
+  });
+
+  it("stores only the SHA-256 prefix for the client IP, UTC date and resolved site", async () => {
+    const otherSite = "second-site";
+    const send = async (siteId: string) => {
+      const { serve, work } = gateway(() => Response.json({ ...snapshot, siteId }));
+      expect((await serve(post(sampleBody, { "CF-Connecting-IP": clientIp }))).status).toBe(204);
+      await Promise.all(work);
+    };
+    const expectedKey = (day: string, siteId: string) =>
+      createHash("sha256").update(`${clientIp}|${day}|${siteId}`).digest("hex").slice(0, 16);
+
+    vi.useFakeTimers({ toFake: ["Date"], now: new Date("2026-11-24T23:59:59Z") });
+    try {
+      await send(SEED_SITE_ID);
+      await send(SEED_SITE_ID);
+      await send(otherSite);
+      vi.setSystemTime(new Date("2026-11-25T00:00:00Z"));
+      await send(SEED_SITE_ID);
+      const stored = rows();
+      const firstKey = expectedKey("2026-11-24", SEED_SITE_ID);
+      expect(stored).toMatchObject([
+        { site_id: SEED_SITE_ID, client_key: firstKey },
+        { site_id: SEED_SITE_ID, client_key: firstKey },
+        { site_id: otherSite, client_key: expectedKey("2026-11-24", otherSite) },
+        { site_id: SEED_SITE_ID, client_key: expectedKey("2026-11-25", SEED_SITE_ID) },
+      ]);
+      expect(JSON.stringify(stored)).not.toContain(clientIp);
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it("logs the resolved site when D1 rejects the background insert", async () => {
+    const { serve, work } = gateway();
+    const log = vi.spyOn(console, "error").mockImplementation(() => {});
+    try {
+      sqlite.prepare("PRAGMA query_only = ON").run();
+      expect((await serve(post(sampleBody, { "CF-Connecting-IP": clientIp }))).status).toBe(204);
+      expect(work).toHaveLength(1);
+      await Promise.all(work);
+      expect(rows()).toEqual([]);
+      expect(log.mock.calls).toEqual([["[vitals] insert failed", SEED_SITE_ID]]);
+    } finally {
+      sqlite.prepare("PRAGMA query_only = OFF").run();
+      log.mockRestore();
     }
   });
 

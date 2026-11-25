@@ -5,6 +5,7 @@ import { PublicPage } from "../src/edge/public-page";
 import type { PublicPageProps, SiteSnapshot } from "../src/edge/types";
 import type { Env } from "../src/env";
 import worker, { honoFetch } from "../src/index";
+import { makeFakeDb } from "./helpers/admin-test-kit";
 import { ctxCapture, makeKvStub } from "./helpers/leadgen-analytics-harness";
 import { addSite, createDb, env as sqliteEnv, type SqliteDb } from "./helpers/x06-a2-sqlite";
 
@@ -28,7 +29,7 @@ function html(body: string, headers: Record<string, string> = {}) {
 
 type PageFetch = (request: Request, props: PublicPageProps) => Response | Promise<Response>;
 
-function gateway(render: PageFetch, env = { CACHE: makeKvStub().kv, ADMIN_HOST: "cms.example" } as Env) {
+function gateway(render: PageFetch, env = { DB: makeFakeDb().db, CACHE: makeKvStub().kv, ADMIN_HOST: "cms.example" } as Env) {
   const { ctx, promises } = ctxCapture();
   const page = vi.fn(render);
   const fallback = vi.fn(() => new Response("live Hono"));
@@ -71,6 +72,7 @@ it("derives the inner Host from the tenant URL and removes forwarding and cache-
 });
 
 it.each(["/lg", "/lg/missing", "/lg/constructor"])("serves a cached tenant 404 for %s", async path => {
+  vi.spyOn(Math, "random").mockReturnValue(0.1); // Measure the serving path without a background counter sample.
   const db = createDb();
   try {
     addSite(db, "news", "News", "health");
@@ -113,6 +115,7 @@ describe("gateway cache monitor", () => {
     vi.spyOn(Math, "random").mockReturnValue(0.099);
     let outcome = "HIT";
     const { visit, env, promises } = gateway(() => html("news", { "cf-cache-status": outcome }));
+    const prepare = vi.spyOn(env.DB, "prepare");
     let release!: () => void;
     const gate = new Promise<void>(resolve => { release = resolve; });
     const put = env.CACHE.put.bind(env.CACHE);
@@ -127,6 +130,10 @@ describe("gateway cache monitor", () => {
         expect(await response.text()).toBe("news");
       }
       expect(promises).toHaveLength(2);
+      expect(prepare.mock.calls).toEqual([
+        [expect.stringContaining("INSERT INTO edge_hit_counts")],
+        [expect.stringContaining("INSERT INTO edge_hit_counts")],
+      ]);
       expect((await readCacheStats(env)).total).toBe(0);
     } finally {
       release();

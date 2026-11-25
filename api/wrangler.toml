@@ -109,6 +109,11 @@ database_name = "kodigital-homepages-cms-db"
 database_id = "caa649b9-128e-4912-97c8-3e3d4a394800"
 migrations_dir = "migrations"
 
+[[ratelimits]]
+name = "VITALS_RATE_LIMITER"
+namespace_id = "4201"
+simple = { limit = 6, period = 60 }
+
 [[kv_namespaces]]
 binding = "CACHE"
 id = "77bb281de4fb4008a06b0993eb8b1774"
@@ -210,6 +215,11 @@ database_name = "kodigital-homepages-cms-db"
 database_id = "caa649b9-128e-4912-97c8-3e3d4a394800"
 migrations_dir = "migrations"
 
+[[env.staging.ratelimits]]
+name = "VITALS_RATE_LIMITER"
+namespace_id = "4201"
+simple = { limit = 6, period = 60 }
+
 [[env.staging.kv_namespaces]]
 binding = "CACHE"
 id = "77bb281de4fb4008a06b0993eb8b1774"
@@ -304,6 +314,11 @@ binding = "DB"
 database_name = "kodigital-homepages-cms-db"
 database_id = "caa649b9-128e-4912-97c8-3e3d4a394800"
 migrations_dir = "migrations"
+
+[[env.production.ratelimits]]
+name = "VITALS_RATE_LIMITER"
+namespace_id = "4201"
+simple = { limit = 6, period = 60 }
 
 [[env.production.kv_namespaces]]
 binding = "CACHE"
@@ -411,6 +426,11 @@ binding = "DB"
 database_name = "kodigital-homepages-cms-perfstage"
 database_id = "a3fe7c6b-1bff-4b07-8a7c-a783401ab4ce"
 migrations_dir = "migrations"
+
+[[env.perfstage.ratelimits]]
+name = "VITALS_RATE_LIMITER"
+namespace_id = "4201"
+simple = { limit = 6, period = 60 }
 
 [[env.perfstage.kv_namespaces]]
 binding = "CACHE"

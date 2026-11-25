@@ -1,4 +1,4 @@
-import { EDGE_SAMPLE_WEIGHT, edgeHitCounterKey } from "../cache/cache-stats";
+import { EDGE_SAMPLE_WEIGHT } from "../cache/cache-stats";
 import type { Env } from "../env";
 
 const HOUR_MS = 3_600_000;
@@ -6,27 +6,26 @@ const WEEK_HOURS = 7 * 24;
 const SITES_PER_BATCH = 50;
 const MIN_EDGE_SAMPLES = 50;
 const MIN_VITAL_SAMPLES = 20;
+const MIN_VITAL_CLIENTS = 5;
+const MAX_SAMPLES_PER_CLIENT = 3;
 const PRUNED_HOUR_KEY = "speed:v1:last-pruned-hour";
 const WEEKLY_REPORT_KEY = "speed:v1:last-weekly-report";
+const WEEKLY_ATTEMPT_KEY = "speed:v1:last-weekly-attempt";
 const vitals = ["LCP", "FCP", "INP", "CLS", "TTFB"] as const;
-const lcpPages = new Set(["home", "article", "listicle", "quote"]);
-const targets = { HIT: 90, LCP: 2500, INP: 200, CLS: 0.02, TTFB: 800 } as const;
+const pageTypes = ["home", "article", "category", "tag", "page", "listicle", "quote", "other"] as const;
+const US_PHONES = "US phones";
+const targets = { HIT: 90, LCP: 1500, FCP: undefined, INP: 100, CLS: 0.02, TTFB: 800 } as const;
 
 interface Site { id: string; domain: string }
 interface Reading {
   page_type: string;
   metric: (typeof vitals)[number] | "HIT";
-  value: number;
+  value: number | null; // Null when the window lacks enough eligible samples or clients.
   samples: number;
 }
 
-function targetFor({ metric, page_type }: Reading): number | undefined {
-  if (metric === "FCP" || (metric === "LCP" && !lcpPages.has(page_type))) return undefined;
-  return targets[metric];
-}
-
-function offTarget(reading: Reading, target: number): boolean {
-  return reading.metric === "HIT" ? reading.value < target : reading.value > target;
+function offTarget(metric: Reading["metric"], value: number, target: number): boolean {
+  return metric === "HIT" ? value < target : value > target;
 }
 
 function displayNumber(value: number, target?: number): string {
@@ -35,27 +34,37 @@ function displayNumber(value: number, target?: number): string {
   return String(rounded === target ? value : rounded);
 }
 
-async function readVitals(env: Env, sites: Site[], start: number, end: number): Promise<Map<string, Reading[]>> {
-  // One indexed time range per site. Rank each metric independently since
-  // visitors can supply LCP without INP, and return only reportable p75s.
-  const rows = await env.DB.prepare(`WITH metrics(metric) AS (
+async function readVitals(env: Env, sites: Site[], start: number, end: number, weekly: boolean): Promise<Map<string, Reading[]>> {
+  // Cap visits before expanding their individual metrics. A client may report
+  // an LCP but no INP. The weekly phone cohort pools the same capped visits.
+  const rows = await env.DB.prepare(`WITH visits AS (
+    SELECT site_id, page_type, client_key, country, device, lcp_ms, fcp_ms, inp_ms, cls, ttfb_ms,
+      ROW_NUMBER() OVER (PARTITION BY site_id, page_type, client_key ORDER BY created_at, id) AS client_visit
+    FROM vitals_samples
+    WHERE site_id IN (SELECT value FROM json_each(?)) AND created_at >= ? AND created_at < ? AND client_key IS NOT NULL
+  ), cohorts(phones) AS (
+    VALUES (0) UNION ALL SELECT 1 WHERE ?
+  ), metrics(metric) AS (
     VALUES ('LCP'), ('FCP'), ('INP'), ('CLS'), ('TTFB')
   ), observations AS (
-    SELECT site_id, page_type, metric, CASE metric
+    SELECT site_id, CASE WHEN phones THEN ? ELSE page_type END AS page_type, client_key, metric, CASE metric
       WHEN 'LCP' THEN lcp_ms WHEN 'FCP' THEN fcp_ms WHEN 'INP' THEN inp_ms
       WHEN 'CLS' THEN cls WHEN 'TTFB' THEN ttfb_ms END AS value
-    FROM vitals_samples CROSS JOIN metrics
-    WHERE site_id IN (SELECT value FROM json_each(?)) AND created_at >= ? AND created_at < ?
+    FROM visits CROSS JOIN cohorts CROSS JOIN metrics
+    WHERE client_visit <= ? AND (phones = 0 OR (country = 'US' AND device = 'mobile'))
   ), ranked AS (
-    SELECT site_id, page_type, metric, value, ROW_NUMBER() OVER ordered AS position,
-      COUNT(*) OVER (ordered ROWS BETWEEN UNBOUNDED PRECEDING AND UNBOUNDED FOLLOWING) AS samples
+    SELECT site_id, page_type, client_key, metric, value, ROW_NUMBER() OVER ordered AS position,
+      COUNT(*) OVER (ordered ROWS BETWEEN UNBOUNDED PRECEDING AND UNBOUNDED FOLLOWING) AS total
     FROM observations WHERE value IS NOT NULL
     WINDOW ordered AS (PARTITION BY site_id, page_type, metric ORDER BY value)
   )
-  SELECT site_id, page_type, metric, value, samples FROM ranked
-  WHERE position = (3 * samples + 3) / 4 AND samples >= ?
+  SELECT site_id, page_type, metric, COUNT(*) AS samples,
+    CASE WHEN COUNT(*) >= ? AND COUNT(DISTINCT client_key) >= ?
+      THEN MAX(value) FILTER (WHERE position = (3 * total + 3) / 4) END AS value
+  FROM ranked GROUP BY site_id, page_type, metric
   ORDER BY site_id, page_type, metric`)
-    .bind(JSON.stringify(sites.map(site => site.id)), start / 1000, end / 1000, MIN_VITAL_SAMPLES)
+    .bind(JSON.stringify(sites.map(site => site.id)), start / 1000, end / 1000,
+      Number(weekly), US_PHONES, MAX_SAMPLES_PER_CLIENT, MIN_VITAL_SAMPLES, MIN_VITAL_CLIENTS)
     .all<Reading & { site_id: string }>();
   const bySite = new Map<string, Reading[]>();
   for (const row of rows.results) {
@@ -66,52 +75,27 @@ async function readVitals(env: Env, sites: Site[], start: number, end: number): 
   return bySite;
 }
 
-async function weeklyCounterKeys(env: Env): Promise<Set<string>> {
-  const keys = new Set<string>();
-  let cursor: string | undefined;
-  do {
-    const page: KVNamespaceListResult<unknown> = await env.CACHE.list({ prefix: "edgehit:v1:", cursor });
-    for (const key of page.keys) keys.add(key.name);
-    cursor = page.list_complete ? undefined : page.cursor;
-  } while (cursor);
-  return keys;
-}
-
-async function readHitShares(
-  env: Env, sites: Site[], start: number, end: number, existingKeys?: Set<string>,
-): Promise<Map<string, Reading>> {
+async function readHitShares(env: Env, sites: Site[], start: number, end: number): Promise<Map<string, Reading>> {
+  const rows = await env.DB.prepare(`SELECT site_id, outcome, SUM(n) AS n FROM edge_hit_counts
+    WHERE site_id IN (SELECT value FROM json_each(?)) AND hour >= ? AND hour < ?
+    GROUP BY site_id, outcome`)
+    .bind(JSON.stringify(sites.map(site => site.id)), start / 1000, end / 1000)
+    .all<{ site_id: string; outcome: "HIT" | "MISS"; n: number }>();
   const totals = new Map(sites.map(site => [site.id, { hits: 0, samples: 0 }]));
-  const requests: { key: string; siteId: string; hit: boolean }[] = [];
-  for (const { id } of sites) {
-    for (let hour = start; hour < end; hour += HOUR_MS) {
-      for (const outcome of ["HIT", "MISS"] as const) {
-        const key = edgeHitCounterKey(id, hour, outcome);
-        if (!existingKeys || existingKeys.has(key)) requests.push({ key, siteId: id, hit: outcome === "HIT" });
-      }
+  for (const { site_id, outcome, n } of rows.results) {
+    const total = totals.get(site_id);
+    if (!total) continue;
+    const observed = n / EDGE_SAMPLE_WEIGHT;
+    if (!Number.isSafeInteger(observed) || observed < 0) {
+      totals.delete(site_id);
+      console.error("[speed-alarms] Edge counts unavailable", site_id);
+      continue;
     }
-  }
-  // Pack multiple sites into each KV bulk read (up to 100 keys). A missing
-  // counter is zero. An unreadable counter invalidates only its site's share.
-  for (let i = 0; i < requests.length; i += 100) {
-    const batch = requests.slice(i, i + 100);
-    const counters = await env.CACHE.get(batch.map(request => request.key), "text").catch(() => null);
-    for (const { key, siteId, hit } of batch) {
-      const total = totals.get(siteId);
-      if (!total) continue;
-      const raw = counters?.get(key);
-      if (counters && raw == null) continue;
-      const observed = Number(raw) / EDGE_SAMPLE_WEIGHT;
-      if (!raw || !/^\d+$/.test(raw) || !Number.isSafeInteger(observed)) {
-        totals.delete(siteId);
-        console.error("[speed-alarms] Edge counts unavailable", siteId);
-        continue;
-      }
-      total.samples += observed;
-      if (hit) total.hits += observed;
-    }
+    total.samples += observed;
+    if (outcome === "HIT") total.hits += observed;
   }
   return new Map<string, Reading>([...totals].map(([siteId, { hits, samples }]) => [
-    siteId, { page_type: "all pages", metric: "HIT", samples, value: samples ? 100 * hits / samples : 0 },
+    siteId, { page_type: "all pages", metric: "HIT", samples, value: samples >= MIN_EDGE_SAMPLES ? 100 * hits / samples : null },
   ]));
 }
 
@@ -182,37 +166,57 @@ function workerLabel(env: Env): string {
 
 function hitSummary(hit: Reading | null): string {
   if (!hit) return "edge HIT share unavailable";
-  const value = hit.samples < MIN_EDGE_SAMPLES
+  const value = hit.value === null
     ? "insufficient traffic"
-    : `${displayNumber(hit.value, targets.HIT)}%${offTarget(hit, targets.HIT) ? "!" : ""}`;
+    : `${displayNumber(hit.value, targets.HIT)}%${offTarget("HIT", hit.value, targets.HIT) ? "!" : ""}`;
   return `edge HIT share ${value} (${hit.samples} samples)`;
 }
 
-async function notifyChanges(env: Env, site: Site, readings: Reading[], end: number): Promise<void> {
+async function notifyChanges(env: Env, site: Site, hit: Reading | null, rows: Reading[] | null, end: number): Promise<void> {
+  const readings = hit ? [hit] : [];
+  // A successful query can return zero rows for a previously alarming page.
+  // Check its existing state even then. A failed query leaves that state alone.
+  if (rows) {
+    const byMetric = new Map(rows.map(row => [`${row.page_type}:${row.metric}`, row]));
+    for (const page_type of pageTypes) {
+      for (const metric of vitals) {
+        readings.push(byMetric.get(`${page_type}:${metric}`) ?? { page_type, metric, value: null, samples: 0 });
+      }
+    }
+  }
   const checks = readings.flatMap(reading => {
-    const target = targetFor(reading);
-    if (target === undefined || reading.samples < (reading.metric === "HIT" ? MIN_EDGE_SAMPLES : MIN_VITAL_SAMPLES)) return [];
+    const target = targets[reading.metric];
+    if (target === undefined) return [];
     return [{ reading, target, key: `speed:v1:state:${site.id}:${reading.page_type}:${reading.metric}` }];
   });
   if (!checks.length) return;
   const states = await env.CACHE.get(checks.map(check => check.key), "text");
   for (const { reading, target, key } of checks) {
     const [previous, previousHour] = (states.get(key) ?? "").split(" ");
-    const alarm = offTarget(reading, target);
-    if ((previous === "alarm") === alarm || Number(previousHour) >= end) continue;
-
+    if (Number(previousHour) >= end) continue;
     const edge = reading.metric === "HIT";
-    const unit = edge ? "%" : reading.metric === "CLS" ? "" : " ms";
-    const metric = edge ? "edge HIT share" : `p75 ${reading.metric}`;
-    const text = [
-      alarm ? "Speed ALARM" : "Speed RECOVERY", siteLabel(site), reading.page_type,
-      `${metric} ${displayNumber(reading.value, target)}${unit}`, `target ${edge ? "≥" : "≤"} ${target}${unit}`,
-      `${reading.samples} samples`, workerLabel(env),
-    ].join(" · ");
+    let state: "alarm" | "healthy" | "nodata";
+    let headline: string;
+    let detail: string;
+    if (reading.value === null) {
+      if (previous !== "alarm") continue;
+      state = "nodata";
+      headline = "Speed DATA GAP";
+      detail = `${reading.metric} · ${reading.samples} samples (minimum ${edge ? MIN_EDGE_SAMPLES : MIN_VITAL_SAMPLES})`;
+    } else {
+      const alarm = offTarget(reading.metric, reading.value, target);
+      state = alarm ? "alarm" : "healthy";
+      if (previous === state || (!alarm && previous !== "alarm" && previous !== "nodata")) continue;
+      headline = alarm ? "Speed ALARM" : "Speed RECOVERY";
+      const unit = edge ? "%" : reading.metric === "CLS" ? "" : " ms";
+      const metric = edge ? "edge HIT share" : `p75 ${reading.metric}`;
+      detail = `${metric} ${displayNumber(reading.value, target)}${unit} · target ${edge ? "≥" : "≤"} ${target}${unit} · ${reading.samples} samples`;
+    }
+    const text = [headline, siteLabel(site), reading.page_type, detail, workerLabel(env)].join(" · ");
     // A rejected POST leaves the last delivered state intact for the next check.
     if (await deliver(env, text)) {
       try {
-        await env.CACHE.put(key, `${alarm ? "alarm" : "healthy"} ${end}`);
+        await env.CACHE.put(key, `${state} ${end}`);
       } catch {
         console.error("[speed-alarms] Alarm state write failed", site.id, reading.page_type, reading.metric);
       }
@@ -225,12 +229,14 @@ function siteTable(site: Site, hit: Reading | null, rows: Reading[] | null): str
   if (!rows) return `${heading}\nVitals unavailable.`;
   const byMetric = new Map(rows.map(row => [`${row.page_type}:${row.metric}`, row]));
   const lines = [heading];
-  for (const page of new Set(rows.map(row => row.page_type))) {
+  const pages = new Set(rows.filter(row => row.value !== null && row.page_type !== US_PHONES).map(row => row.page_type));
+  pages.add(US_PHONES);
+  for (const page of pages) {
     const cells = vitals.map(metric => {
       const row = byMetric.get(`${page}:${metric}`);
-      if (!row) return "—";
-      const target = targetFor(row);
-      return displayNumber(row.value, target) + (target !== undefined && offTarget(row, target) ? "!" : "");
+      if (!row || row.value === null) return "—";
+      const target = targets[metric];
+      return displayNumber(row.value, target) + (target !== undefined && offTarget(metric, row.value, target) ? "!" : "");
     });
     lines.push([page, ...cells].join("|"));
   }
@@ -240,10 +246,10 @@ function siteTable(site: Site, hit: Reading | null, rows: Reading[] | null): str
 function weeklyReport(env: Env, start: number, end: number, sections: string[]): string {
   const header = [
     `Weekly speed report · ${new Date(start).toISOString()} to ${new Date(end).toISOString()} · ${workerLabel(env)}`,
-    `Targets · Site-wide HIT ≥ ${targets.HIT}% · p75 LCP ≤ ${targets.LCP} ms (home, article, listicle, quote), INP ≤ ${targets.INP} ms, CLS ≤ ${targets.CLS}, TTFB ≤ ${targets.TTFB} ms`,
-    `! marks a missed target. — means fewer than ${MIN_VITAL_SAMPLES} samples. HIT share requires ${MIN_EDGE_SAMPLES} samples.`,
+    `Targets · Site-wide HIT ≥ ${targets.HIT}% · p75 LCP ≤ ${targets.LCP} ms (all page types), INP ≤ ${targets.INP} ms, CLS ≤ ${targets.CLS}, TTFB ≤ ${targets.TTFB} ms`,
+    `! marks a missed target. — means fewer than ${MIN_VITAL_SAMPLES} samples or fewer than ${MIN_VITAL_CLIENTS} distinct clients. HIT share requires ${MIN_EDGE_SAMPLES} samples.`,
   ].join("\n");
-  const completeLegend = `Omitted page types have fewer than ${MIN_VITAL_SAMPLES} samples for every vital.`;
+  const completeLegend = `Omitted page types have fewer than ${MIN_VITAL_SAMPLES} samples or fewer than ${MIN_VITAL_CLIENTS} distinct clients for every vital.`;
   const columns = "```\nPage|LCP ms|FCP ms|INP ms|CLS|TTFB ms";
   const completeOpening = [header, completeLegend, columns].join("\n");
   const text = [completeOpening, ...sections, "```"].join("\n");
@@ -256,8 +262,8 @@ function weeklyReport(env: Env, start: number, end: number, sections: string[]):
   const shorter = [completeOpening, ...shortSections, "```"].join("\n");
   if (shorter.length <= limit) return shorter;
 
-  // Keep site headings first in the size budget. Publish full tables in the
-  // same invocation's logs when Slack cannot carry every row in one message.
+  // Reserve space for all site headings, then their phone rows, before adding
+  // page details. The same invocation logs each complete table.
   const notice = `This report exceeds Slack’s ${limit.toLocaleString("en-US")}-character limit. Workers Logs contain the complete tables for all ${sections.length} sites, including qualifying page rows omitted here.`;
   console.warn("[speed-alarms]", notice, header);
   for (const section of sections) console.log(section);
@@ -265,6 +271,13 @@ function weeklyReport(env: Env, start: number, end: number, sections: string[]):
   const opening = [header, notice, columns].join("\n");
   const closing = "\n```";
   let spare = limit - opening.length - closing.length - compact.reduce((size, line) => size + 1 + line.length, 0);
+  for (const [i, section] of shortSections.entries()) {
+    const phones = section.split("\n").find(line => line.startsWith(`${US_PHONES}|`));
+    if (phones && phones.length + 1 <= spare) {
+      compact[i] += "\n" + phones;
+      spare -= phones.length + 1;
+    }
+  }
   for (const [i, section] of shortSections.entries()) {
     const detailSize = section.length - compact[i]!.length;
     if (detailSize <= spare) {
@@ -288,20 +301,33 @@ async function startHourlyCheck(env: Env, scheduledTime: number, end: number): P
   // Reserve this hour before starting the DELETE. Failed prunes can wait for the next hour.
   await env.CACHE.put(PRUNED_HOUR_KEY, String(end));
   const cutoff = Math.floor(scheduledTime / 1000) - 14 * 24 * 3600;
-  await env.DB.prepare("DELETE FROM vitals_samples WHERE created_at < ?").bind(cutoff).run();
+  await env.DB.batch([
+    env.DB.prepare("DELETE FROM vitals_samples WHERE created_at < ?").bind(cutoff),
+    env.DB.prepare("DELETE FROM edge_hit_counts WHERE hour < ?").bind(cutoff),
+  ]);
   return true;
+}
+
+function weeklyWindowEnd(tick: Date): number {
+  const daysSinceMonday = (tick.getUTCDay() + 6) % 7;
+  const monday = Date.UTC(tick.getUTCFullYear(), tick.getUTCMonth(), tick.getUTCDate() - daysSinceMonday, 6);
+  return monday <= tick.getTime() ? monday : monday - WEEK_HOURS * HOUR_MS;
 }
 
 export async function runSpeedAlarms(env: Env, scheduledTime: number): Promise<void> {
   const tick = new Date(scheduledTime);
-  const weekly = tick.getUTCDay() === 1 && tick.getUTCHours() === 6 && tick.getUTCMinutes() === 0;
+  const weekly = tick.getUTCMinutes() % 15 === 0;
   if (!weekly && tick.getUTCMinutes() !== 5) return;
-  const end = Math.floor(scheduledTime / HOUR_MS) * HOUR_MS;
+  const end = weekly ? weeklyWindowEnd(tick) : Math.floor(scheduledTime / HOUR_MS) * HOUR_MS;
   const start = end - HOUR_MS * (weekly ? WEEK_HOURS : 1);
 
   try {
-    if (weekly && await lastWindow(env, WEEKLY_REPORT_KEY) >= end) return;
-    if (!weekly) {
+    if (weekly) {
+      if (await lastWindow(env, WEEKLY_REPORT_KEY) >= end) return;
+      const slot = Math.floor(scheduledTime / 60_000) * 60_000;
+      if (await lastWindow(env, WEEKLY_ATTEMPT_KEY) >= slot) return;
+      await env.CACHE.put(WEEKLY_ATTEMPT_KEY, String(slot));
+    } else {
       const current = await startHourlyCheck(env, scheduledTime, end).catch(() => {
         console.error("[speed-alarms] Retention prune failed");
         return true;
@@ -310,28 +336,26 @@ export async function runSpeedAlarms(env: Env, scheduledTime: number): Promise<v
     }
     const { results: sites } = await env.DB.prepare("SELECT id, domain FROM sites ORDER BY id").bind().all<Site>();
     const sections: string[] = [];
-    // The weekly range is typically sparse. List the retained keys once, with
-    // direct reads as the fallback when a KV listing is unavailable.
-    const existingKeys = weekly ? await weeklyCounterKeys(env).catch(() => undefined) : undefined;
     for (let i = 0; i < sites.length; i += SITES_PER_BATCH) {
       const batch = sites.slice(i, i + SITES_PER_BATCH);
       const [hits, vitalsBySite] = await Promise.all([
-        readHitShares(env, batch, start, end, existingKeys),
-        readVitals(env, batch, start, end).catch(() => {
+        readHitShares(env, batch, start, end).catch(() => {
+          console.error("[speed-alarms] Edge counts unavailable", batch.map(site => site.id));
+          return null;
+        }),
+        readVitals(env, batch, start, end, weekly).catch(() => {
           console.error("[speed-alarms] Vitals unavailable", batch.map(site => site.id));
           return null;
         }),
       ]);
       for (const site of batch) {
-        const hit = hits.get(site.id) ?? null;
+        const hit = hits?.get(site.id) ?? null;
         const rows = vitalsBySite ? vitalsBySite.get(site.id) ?? [] : null;
         if (weekly) {
           sections.push(siteTable(site, hit, rows));
         } else {
           if (hit && hit.samples < MIN_EDGE_SAMPLES) console.info(`[speed-alarms] ${siteLabel(site)} · ${hitSummary(hit)}`);
-          const readings = rows ?? [];
-          if (hit) readings.push(hit);
-          await notifyChanges(env, site, readings, end).catch(() => console.error("[speed-alarms] Alarm state unavailable", site.id));
+          await notifyChanges(env, site, hit, rows, end).catch(() => console.error("[speed-alarms] Alarm state unavailable", site.id));
         }
       }
     }

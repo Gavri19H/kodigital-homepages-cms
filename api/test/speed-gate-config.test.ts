@@ -1,9 +1,10 @@
+import { EventEmitter } from "node:events";
 import { readFileSync } from "node:fs";
 import { brotliCompressSync } from "node:zlib";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
 import config from "../scripts/perf/speed-gate.config.json";
 // @ts-expect-error The standalone Node ESM CLI has no TypeScript declaration file.
-import { containsEmbeddedFont, evaluateBudgets, fixtureHtml, medianScore, validateConfig } from "../scripts/perf/speed-gate.mjs";
+import { containsEmbeddedFont, evaluateBudgets, fixtureHtml, medianScore, trackTransferBytes, validateConfig } from "../scripts/perf/speed-gate.mjs";
 import { buildSeedSql } from "../scripts/seed/seed-sql";
 import type { Env } from "../src/env";
 import { honoFetch } from "../src/index";
@@ -15,18 +16,20 @@ const quote = { ...config.pages.find(p => p.type === "quote")!, lighthouse: conf
 const image = { url: "/media/hero.webp", width: "768", height: "512", broken: false };
 const navigation = {
   url: "http://localhost:8787/lg/home", score: 100, htmlBytes: quote.htmlBytes, brotliBytes: quote.brotliBytes,
-  quoteRuntimeBytes: 57_344, images: [image], embeddedFonts: [],
+  quoteRuntimeBytes: 57_344, totalBytes: 307_200, images: [image], embeddedFonts: [],
   lcp: { tag: "IMG", url: image.url, loading: "eager", fetchPriority: "high" },
   stylesheets: [{ url: "/site.css", blocking: true }, { url: "https://other.test/print.css", blocking: false }],
 };
 
 describe("speed gate configuration", () => {
-  it("covers all seven page types with the contract scores and the quote runtime ceiling", () => {
+  it("covers all seven page types with the contract scores and the quote runtime and transfer ceilings", () => {
     const pages = validateConfig(config);
     expect(pages.map((p: { type: string }) => p.type).sort())
       .toEqual(["article", "category", "home", "listicle", "page", "quote", "tag"]);
     for (const page of pages) expect(page.lighthouse).toEqual({ mobile: 95, desktop: 100 });
     expect(quote.quoteRuntimeBytes).toBe(57_344);
+    expect(config.pages.filter(p => p.totalBytes !== undefined).map(p => p.type)).toEqual(["quote"]);
+    expect(quote.totalBytes).toBe(307_200);
   });
 
   it("defaults to 95/100 and applies site-wide and per-page score thresholds", () => {
@@ -51,10 +54,33 @@ describe("speed gate configuration", () => {
 
   it.each([
     { htmlBytes: 0 }, { brotliBytes: -1 }, { quoteRuntimeBytes: undefined }, { selector: "" },
+    { totalBytes: undefined }, { totalBytes: 0 },
     { lighthouse: { mobile: "95" } }, { lighthouse: { desktop: 101 } }, { lighthouse: { moblie: 95 } },
   ])("rejects an unusable page budget %j", patch => {
     const pages = config.pages.map(page => page.type === "quote" ? { ...page, ...patch } : page);
     expect(() => validateConfig({ pages })).toThrow(/quote/);
+  });
+});
+
+describe("first-visit transfer measurement", () => {
+  it("counts encoded bytes for the document, redirects, and repeated third-party requests", () => {
+    const cdp = new EventEmitter();
+    const totalBytes = trackTransferBytes(cdp);
+    const asset = { url: "https://cdn.example.test/hero" };
+    cdp.emit("Network.requestWillBeSent", { requestId: "doc", request: { url: navigation.url } });
+    cdp.emit("Network.loadingFinished", { requestId: "doc", encodedDataLength: 1_200 });
+    cdp.emit("Network.requestWillBeSent", { requestId: "image", request: { url: navigation.url + "/hero" } });
+    cdp.emit("Network.requestWillBeSent", { requestId: "image", request: asset, redirectResponse: { encodedDataLength: 180 } });
+    cdp.emit("Network.responseReceived", { requestId: "image", response: { encodedDataLength: 100 } });
+    cdp.emit("Network.dataReceived", { requestId: "image", dataLength: 8_000, encodedDataLength: 900 });
+    cdp.emit("Network.loadingFinished", { requestId: "image", encodedDataLength: 1_000 });
+    cdp.emit("Network.requestWillBeSent", { requestId: "retry", request: asset });
+    cdp.emit("Network.responseReceived", { requestId: "retry", response: { encodedDataLength: 90 } });
+    cdp.emit("Network.dataReceived", { requestId: "retry", dataLength: 200, encodedDataLength: 32 });
+    cdp.emit("Network.loadingFailed", { requestId: "retry", canceled: true });
+    cdp.emit("Network.requestWillBeSent", { requestId: "inline", request: { url: "data:image/png;base64,AAAA" } });
+    cdp.emit("Network.loadingFinished", { requestId: "inline", encodedDataLength: 3 });
+    expect(totalBytes()).toBe(1_200 + 180 + 1_000 + 90 + 32);
   });
 });
 
@@ -68,8 +94,18 @@ describe("speed gate verdict", () => {
     ["mobile", "score", null, "mobile"], ["mobile", "htmlBytes", quote.htmlBytes + 1, "htmlBytes"],
     ["mobile", "brotliBytes", quote.brotliBytes + 1, "brotliBytes"], ["mobile", "quoteRuntimeBytes", 57_345, "quoteRuntimeBytes"],
     ["mobile", "quoteRuntimeBytes", 0, "quoteRuntimeBytes"], ["mobile", "quoteRuntimeBytes", undefined, "quoteRuntimeBytes"],
+    ["desktop", "totalBytes", 307_201, "totalBytes"], ["mobile", "totalBytes", 0, "totalBytes"],
+    ["mobile", "totalBytes", undefined, "totalBytes"],
   ] as const)("fails %s %s=%s with its metric", (profile, key, value, metric) => {
     expect(evaluateBudgets(quote, profile, { ...navigation, [key]: value })).toMatchObject([{ metric }]);
+  });
+
+  it("accepts an above-quote transfer on page types without a totalBytes budget", () => {
+    for (const page of config.pages.filter(p => p.type !== "quote")) {
+      const budget = { ...page, lighthouse: config.lighthouse };
+      const metrics = { ...navigation, htmlBytes: page.htmlBytes, brotliBytes: page.brotliBytes, totalBytes: 307_201 };
+      expect(evaluateBudgets(budget, "mobile", metrics)).toEqual([]);
+    }
   });
 
   it("uses the numeric median of the measured Lighthouse runs and rejects incomplete scores", () => {
@@ -125,14 +161,15 @@ describe("speed gate verdict", () => {
   });
 
   it("fails the self-test's real heavy HTML and passes the same document with the blocking script removed", () => {
-    const page = { ...config.pages.find(p => p.type === "page")!, lighthouse: config.lighthouse };
+    const page = { ...config.pages.find(p => p.type === "page")!, lighthouse: config.lighthouse, totalBytes: quote.totalBytes };
+    const headerBytes = Buffer.byteLength("HTTP/1.1 200 OK\r\nContent-Type: text/html\r\n\r\n");
     function check(heavy: boolean) {
       const bytes = Buffer.from(fixtureHtml(heavy));
       return evaluateBudgets(page, "mobile", {
-        ...navigation, htmlBytes: bytes.length, brotliBytes: brotliCompressSync(bytes).length,
+        ...navigation, htmlBytes: bytes.length, brotliBytes: brotliCompressSync(bytes).length, totalBytes: headerBytes + bytes.length,
       });
     }
-    expect(check(true)).toMatchObject([{ metric: "htmlBytes" }]);
+    expect(check(true)).toMatchObject([{ metric: "htmlBytes" }, { metric: "totalBytes" }]);
     expect(check(false)).toEqual([]);
   });
 });

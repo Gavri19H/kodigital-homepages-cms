@@ -1,4 +1,5 @@
 import type { Env } from "../env";
+import { sha256Hex } from "../leadgen/meta-hash";
 import { isAdminHost } from "../site/site-context";
 import type { WaitUntilContext } from "../wait-until-context";
 
@@ -96,6 +97,13 @@ async function readSample(request: Request): Promise<Sample | 400 | 413> {
   }
 }
 
+function deviceFromHeaders(headers: Headers): "mobile" | "tablet" | "desktop" {
+  if (headers.get("Sec-CH-UA-Mobile") === "?1") return "mobile";
+  const ua = headers.get("User-Agent") ?? "";
+  if (/iPad|Tablet/i.test(ua)) return "tablet";
+  return /Mobi|Android|iPhone|iPod/i.test(ua) ? "mobile" : "desktop";
+}
+
 export async function handleVitals(
   request: Request, env: Env, ctx: WaitUntilContext | undefined, resolveSiteId: (url: URL) => Promise<string | null>,
 ): Promise<Response> {
@@ -113,12 +121,28 @@ export async function handleVitals(
     return new Response(null, { status: 503, headers });
   }
   if (!siteId) return new Response(null, { status: 404, headers });
+
+  const ip = request.headers.get("CF-Connecting-IP") || "unknown";
+  if (env.VITALS_RATE_LIMITER) {
+    try {
+      const { success } = await env.VITALS_RATE_LIMITER.limit({ key: ip });
+      if (!success) return new Response(null, { status: 429, headers });
+    } catch {
+      console.error("[vitals] rate limiter failed");
+    }
+  }
+
   const country = request.cf?.country;
-  const insert = env.DB.prepare(`INSERT INTO vitals_samples
-    (created_at, site_id, page_type, country, ttfb_ms, fcp_ms, lcp_ms, inp_ms, cls, worker_version)
-    VALUES (unixepoch(), ?, ?, ?, ?, ?, ?, ?, ?, ?)`)
-    .bind(siteId, sample.page_type, typeof country === "string" ? country : null,
-      ...metrics.map(key => sample[key] ?? null), env.CF_VERSION_METADATA?.id ?? null).run();
+  const device = deviceFromHeaders(request.headers);
+  const utcDate = new Date().toISOString().slice(0, 10);
+  const insert = sha256Hex(`${ip}|${utcDate}|${siteId}`).then(hash => {
+    const clientKey = hash.slice(0, 16);
+    return env.DB.prepare(`INSERT INTO vitals_samples
+      (created_at, site_id, page_type, country, ttfb_ms, fcp_ms, lcp_ms, inp_ms, cls, worker_version, device, client_key)
+      VALUES (unixepoch(), ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`)
+      .bind(siteId, sample.page_type, typeof country === "string" ? country : null,
+        ...metrics.map(key => sample[key] ?? null), env.CF_VERSION_METADATA?.id ?? null, device, clientKey).run();
+  }).catch(() => console.error("[vitals] insert failed", siteId));
   if (ctx) ctx.waitUntil(insert);
   else await insert;
   return new Response(null, { status: 204, headers });

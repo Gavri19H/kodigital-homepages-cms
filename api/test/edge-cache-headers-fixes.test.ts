@@ -139,6 +139,7 @@ describe("tenant page rendering", () => {
   );
 
   it.each(["storage key", "numeric media ID"])("serves the uploaded favicon by %s with zero D1 or R2 reads on a HIT", async reference => {
+    vi.spyOn(Math, "random").mockReturnValue(0.1); // Exclude the sampled counter write from the serving-path assertion.
     const key = "2026/11/24/icon.png";
     const id = db.prepare("INSERT INTO media (site_id, filename, storage_key, mime_type) VALUES (?, 'icon.png', ?, 'image/png')")
       .run(siteId, key).lastInsertRowid;

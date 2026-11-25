@@ -41,6 +41,7 @@ export function validateConfig(config) {
     const lighthouse = { ...defaults, ...thresholds(type, page.lighthouse) };
     const caps = ["htmlBytes", "brotliBytes"];
     if (type === "quote") caps.push("quoteRuntimeBytes");
+    if (type === "quote" || page.totalBytes !== undefined) caps.push("totalBytes");
     for (const cap of caps) {
       if (!positiveInteger(page[cap])) throw new Error(type + " needs a positive " + cap + " limit");
     }
@@ -75,6 +76,7 @@ export function evaluateBudgets(budget, profile, metrics) {
   }
   const caps = ["htmlBytes", "brotliBytes"];
   if (budget.quoteRuntimeBytes !== undefined) caps.push("quoteRuntimeBytes");
+  if (budget.totalBytes !== undefined) caps.push("totalBytes");
   for (const cap of caps) {
     if (!positiveInteger(metrics[cap]) || metrics[cap] > budget[cap]) {
       fail(cap, metrics[cap] ?? null, "1 to " + budget[cap] + " bytes");
@@ -157,7 +159,30 @@ function inspectDom({ selector, stylesheetUrls }) {
   };
 }
 
+export function trackTransferBytes(cdp) {
+  const bytesByRequest = new Map();
+  let redirectBytes = 0;
+  cdp.on("Network.requestWillBeSent", ({ requestId, request, redirectResponse }) => {
+    // Redirect hops reuse the request ID and have no loadingFinished event.
+    if (redirectResponse && bytesByRequest.has(requestId)) redirectBytes += redirectResponse.encodedDataLength;
+    if (/^https?:/.test(request.url)) bytesByRequest.set(requestId, 0);
+    else bytesByRequest.delete(requestId);
+  });
+  // Preserve received headers and encoded chunks even if a download is cancelled.
+  cdp.on("Network.responseReceived", ({ requestId, response }) => {
+    if (bytesByRequest.has(requestId)) bytesByRequest.set(requestId, response.encodedDataLength);
+  });
+  cdp.on("Network.dataReceived", ({ requestId, encodedDataLength }) => {
+    if (bytesByRequest.has(requestId)) bytesByRequest.set(requestId, bytesByRequest.get(requestId) + encodedDataLength);
+  });
+  cdp.on("Network.loadingFinished", ({ requestId, encodedDataLength }) => {
+    if (bytesByRequest.has(requestId)) bytesByRequest.set(requestId, encodedDataLength);
+  });
+  return () => [...bytesByRequest.values()].reduce((sum, bytes) => sum + bytes, redirectBytes);
+}
+
 async function inspectPage(browser, device, budget, profile, url) {
+  // Each page and profile starts with an empty browser cache.
   const context = await browser.newContext(device);
   try {
     const page = await context.newPage();
@@ -171,9 +196,10 @@ async function inspectPage(browser, device, budget, profile, url) {
       if (/^text\/css\b/i.test(res.headers()["content-type"])) stylesheetUrls.add(res.url());
     });
     await page.addInitScript(observeLcp);
+    const cdp = await context.newCDPSession(page);
+    const totalTransferBytes = trackTransferBytes(cdp);
+    await cdp.send("Network.enable");
     if (profile === "mobile") {
-      const cdp = await context.newCDPSession(page);
-      await cdp.send("Network.enable");
       // Applied 4G and 4x CPU slowdown for the Playwright phone visit.
       await cdp.send("Network.emulateNetworkConditions", {
         offline: false, latency: 150, downloadThroughput: 1_600_000 / 8, uploadThroughput: 750_000 / 8,
@@ -221,7 +247,7 @@ async function inspectPage(browser, device, budget, profile, url) {
     }
     return {
       url, htmlBytes: html.length, brotliBytes: brotliCompressSync(html).length, quoteRuntimeBytes,
-      images, lcp, stylesheets, embeddedFonts,
+      totalBytes: totalTransferBytes(), images, lcp, stylesheets, embeddedFonts,
     };
   } finally {
     await context.close();
@@ -279,7 +305,8 @@ async function audit(report, selfTest) {
       server = await startFixture();
       origin = "http://127.0.0.1:" + server.address().port;
       const page = pages.find(p => p.type === "page");
-      pages = ["heavy", "light"].map(type => ({ ...page, type, path: "/" + type, selector: ".page-content p" }));
+      const { totalBytes } = pages.find(p => p.type === "quote");
+      pages = ["heavy", "light"].map(type => ({ ...page, type, path: "/" + type, selector: ".page-content p", totalBytes }));
     }
     browser = await chromium.launch();
     for (const budget of pages) {
@@ -336,6 +363,7 @@ async function main() {
   console.table(report.results.map(({ type, profile, samples, metrics, failures, error }) => ({
     page: type, profile, samples: samples.join(", "), score: metrics?.score,
     htmlBytes: metrics?.htmlBytes, brotliBytes: metrics?.brotliBytes, quoteRuntimeBytes: metrics?.quoteRuntimeBytes,
+    totalBytes: metrics?.totalBytes,
     result: error || failures.map(f => f.metric).join(", ") || "PASS",
   })));
   console.log("JSON report:", path);

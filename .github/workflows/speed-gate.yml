@@ -55,6 +55,9 @@ jobs:
             assert.ok(heavyPhone.failures.some(f => f.metric === metric), 'Expected a miss for ' + metric);
           }
           for (const profile of ['mobile', 'desktop']) {
+            const heavy = report.results.find(row => row.type === 'heavy' && row.profile === profile);
+            assert.ok(heavy.failures.some(f => f.metric === 'totalBytes' && f.actual > heavy.budget.totalBytes),
+              'Heavy transfer must exceed its budget on ' + profile);
             const control = report.results.find(row => row.type === 'light' && row.profile === profile);
             assert.deepEqual(control.failures, [], 'Light control must pass on ' + profile);
           }
