@@ -18,11 +18,23 @@ vi.mock("cloudflare:workers", () => ({
 }));
 
 const fingerprintKey = "edge:fp:v1";
-const versionKey = "edge:ver:v1";
+const legacyVersionKey = "edge:ver:v1";
+const seenVersionsKey = "edge:ver-seen:v2";
 const siteIds = ["Site-A", "Site-B", "Site-C"];
 const allTags = ["site:site-a", "site:site-b", "site:site-c"];
 const purge = vi.fn(async (_tags: string[]) => ({ success: true, errors: [] }));
 const ctx = { exports: { PublicPage: { purgeTags: purge } }, waitUntil: vi.fn() } as unknown as ExecutionContext;
+
+// Version branch from c38f5840's runFingerprintCron, for this fixture's unchanged sites.
+async function legacyVersionTick(env: Env, ctx: ExecutionContext | undefined) {
+  const version = env.CF_VERSION_METADATA?.id;
+  const [, oldVersion] = await Promise.all([
+    env.CACHE.get(fingerprintKey), version ? env.CACHE.get(legacyVersionKey) : null,
+  ]);
+  const versionChanged = Boolean(version && version !== oldVersion);
+  if (versionChanged) await onPublicChange(env, ctx, { siteId: null, tags: allTags, reason: "version" });
+  if (versionChanged && version) await env.CACHE.put(legacyVersionKey, version);
+}
 
 describe.skipIf(!hasSqlite)("public fingerprint minute job", () => {
   let db: SqliteDb;
@@ -136,7 +148,8 @@ describe.skipIf(!hasSqlite)("public fingerprint minute job", () => {
     await tick();
     expect(env.DB.batch).toHaveBeenCalledTimes(3);
     expect(prepare.mock.calls.filter(([query]) => query.includes("cache_purge_log"))).toEqual([]);
-    expect(env.CACHE.get).not.toHaveBeenCalledWith(versionKey);
+    expect(env.CACHE.get).not.toHaveBeenCalledWith(legacyVersionKey);
+    expect(env.CACHE.get).not.toHaveBeenCalledWith(seenVersionsKey);
     expect(env.CACHE.put).not.toHaveBeenCalled();
     expect(onPublicChange).not.toHaveBeenCalled();
     expect(console.error).not.toHaveBeenCalled();
@@ -500,31 +513,103 @@ describe.skipIf(!hasSqlite)("public fingerprint minute job", () => {
     expect(console.error).not.toHaveBeenCalled();
   });
 
+  async function runSplit(runB: typeof runFingerprintCron) {
+    const a = { ...env, CF_VERSION_METADATA: { id: "A" } };
+    const b = { ...env, CF_VERSION_METADATA: { id: "B" } };
+    store.set(legacyVersionKey, "A");
+    await tick(0);
+    for (let round = 0; round < 10; round++) {
+      seconds += 60;
+      await legacyVersionTick(a, ctx);
+      seconds += 60;
+      await runB(b, ctx);
+      if (round === 0) {
+        expect(onPublicChange).toHaveBeenCalledExactlyOnceWith(b, ctx, { siteId: null, tags: allTags, reason: "version" });
+      }
+    }
+    return { a, b };
+  }
+
+  it("reproduces 19 version purges in 20 alternating ticks with c38f5840 on both sides of the split", async () => {
+    const { a, b } = await runSplit(legacyVersionTick);
+    const sweeps = vi.mocked(onPublicChange).mock.calls;
+    expect(sweeps.filter(([worker]) => worker === a)).toHaveLength(9);
+    expect(sweeps.filter(([worker]) => worker === b)).toHaveLength(10);
+    expect(purge).toHaveBeenCalledTimes(19);
+  });
+
+  it("purges only on B's first tick in ten split rounds with legacy A", async () => {
+    const { b } = await runSplit(runFingerprintCron);
+    expect(onPublicChange).toHaveBeenCalledExactlyOnceWith(b, ctx, { siteId: null, tags: allTags, reason: "version" });
+    expect(purge).toHaveBeenCalledExactlyOnceWith(allTags);
+    const secondPasses = await env.DB.prepare("SELECT payload FROM cache_purge_log WHERE action = ?")
+      .bind("purge_tags_second").all<{ payload: string }>();
+    expect(secondPasses.results).toHaveLength(1);
+    expect(JSON.parse(secondPasses.results[0]!.payload)).toMatchObject({ tags: allTags, reason: "version" });
+    expect(env.CACHE.put).not.toHaveBeenCalledWith(legacyVersionKey, expect.anything());
+    expect(store.get(legacyVersionKey)).toBe("A");
+    expect(JSON.parse(store.get(seenVersionsKey)!)).toEqual(["B"]);
+    expect(console.error).not.toHaveBeenCalled();
+  });
+
   it("purges a new Worker version on its first tick and only once per version id", async () => {
-    env.CF_VERSION_METADATA = { id: "v1" };
+    env.CF_VERSION_METADATA = { id: "B" };
     purge.mockImplementationOnce(async () => {
-      expect(store.has(versionKey)).toBe(false);
+      expect(store.has(seenVersionsKey)).toBe(false);
       return { success: true, errors: [] };
     });
     await tick(0);
     expect(onPublicChange).toHaveBeenCalledExactlyOnceWith(env, ctx, { siteId: null, tags: allTags, reason: "version" });
     expect(purge).toHaveBeenCalledExactlyOnceWith(allTags);
-    expect(store.get(versionKey)).toBe("v1");
+    expect(JSON.parse(store.get(seenVersionsKey)!)).toEqual(["B"]);
+    expect(env.CACHE.get).not.toHaveBeenCalledWith(legacyVersionKey);
+    expect(console.error).not.toHaveBeenCalled();
     expect(db.prepare("SELECT id FROM sites WHERE content_version = 2 ORDER BY id").all())
       .toEqual(siteIds.map(id => ({ id })));
     vi.clearAllMocks();
-    env.CF_VERSION_METADATA = { id: "v1", tag: "latest" };
+    env.CF_VERSION_METADATA = { id: "B", tag: "latest" };
     await tick();
     expect(purge).not.toHaveBeenCalled();
     expect(env.CACHE.put).not.toHaveBeenCalled();
     expect(onPublicChange).not.toHaveBeenCalled();
-    env.CF_VERSION_METADATA = { id: "v2" };
-    await tick();
+    env.CF_VERSION_METADATA = { id: "C" };
     await tick();
     expect(onPublicChange).toHaveBeenCalledExactlyOnceWith(env, ctx, { siteId: null, tags: allTags, reason: "version" });
     expect(purge).toHaveBeenCalledExactlyOnceWith(allTags);
-    expect(store.get(versionKey)).toBe("v2");
+    expect(JSON.parse(store.get(seenVersionsKey)!)).toEqual(["C", "B"]);
     expect(console.error).not.toHaveBeenCalled();
+    vi.clearAllMocks();
+    await tick();
+    env.CF_VERSION_METADATA = { id: "B" };
+    await tick();
+    expectNoSweep();
+    expect(env.CACHE.put).not.toHaveBeenCalled();
+  });
+
+  it.each([
+    ["invalid JSON", "["],
+    ["a non-array value", '"B"'],
+    ["a non-string ID", '["B",7]'],
+    ["an empty ID", '["B",""]'],
+    ["an oversized list", JSON.stringify(Array(21).fill("B"))],
+  ])("purges once and rebuilds the seen-versions list for %s", async (_, raw) => {
+    env.CF_VERSION_METADATA = { id: "B" };
+    store.set(seenVersionsKey, raw);
+    await tick(0);
+    await tick();
+    expect(onPublicChange).toHaveBeenCalledExactlyOnceWith(env, ctx, { siteId: null, tags: allTags, reason: "version" });
+    expect(purge).toHaveBeenCalledExactlyOnceWith(allTags);
+    expect(JSON.parse(store.get(seenVersionsKey)!)).toEqual(["B"]);
+    expect(console.error).not.toHaveBeenCalled();
+  });
+
+  it("evicts the oldest version when a 21st version purges", async () => {
+    const versions = Array.from({ length: 20 }, (_, i) => "v" + (20 - i));
+    store.set(seenVersionsKey, JSON.stringify(versions));
+    env.CF_VERSION_METADATA = { id: "v21" };
+    await tick(0);
+    expect(purge).toHaveBeenCalledExactlyOnceWith(allTags);
+    expect(JSON.parse(store.get(seenVersionsKey)!)).toEqual(["v21", ...versions.slice(0, 19)]);
   });
 
   it("coalesces a deployment and a missed site write into one purge and reports only the missed site", async () => {
@@ -533,7 +618,7 @@ describe.skipIf(!hasSqlite)("public fingerprint minute job", () => {
     addArticle("Site-C");
     await tick();
     expectSweep(allTags, ["Site-C"]);
-    expect(store.get(versionKey)).toBe("release");
+    expect(JSON.parse(store.get(seenVersionsKey)!)).toEqual(["release"]);
   });
 
   it("hands every site to the durable purge queue when a version has over 100 sites and no execution context", async () => {
@@ -545,7 +630,7 @@ describe.skipIf(!hasSqlite)("public fingerprint minute job", () => {
     expect(onPublicChange).toHaveBeenCalledExactlyOnceWith(env, undefined, { siteId: null, tags, reason: "version" });
     const queued = db.prepare("SELECT payload FROM cache_purge_log WHERE action = 'purge_tags' AND status = 'pending'").get() as { payload: string };
     expect(JSON.parse(queued.payload).tags).toEqual(tags);
-    expect(store.get(versionKey)).toBe("release");
+    expect(JSON.parse(store.get(seenVersionsKey)!)).toEqual(["release"]);
   });
 
   it("the scheduled handler still checks fingerprints after its pending-purge job throws", async () => {
@@ -582,7 +667,7 @@ describe.skipIf(!hasSqlite)("public fingerprint minute job", () => {
     vi.clearAllMocks();
     await tick();
     expectSweep(allTags, ["Site-A"]);
-    expect(store.get(versionKey)).toBe("next");
+    expect(JSON.parse(store.get(seenVersionsKey)!)).toEqual(["next"]);
   });
 
   it("retries the same interval after a receipt read failure and preserves the writer's narrow purge", async () => {
