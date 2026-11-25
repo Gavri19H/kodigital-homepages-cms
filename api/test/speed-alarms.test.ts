@@ -1,3 +1,4 @@
+import { inspect } from "node:util";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { readCacheStats, recordEdgeCacheStatus } from "../src/cache/cache-stats";
 import { runSpeedAlarms } from "../src/edge/speed-alarms";
@@ -13,6 +14,7 @@ const noon = Date.UTC(2026, 11, 1, 12);
 const firstTick = noon + hour + 5 * minute;
 const monday = Date.UTC(2026, 10, 30, 6);
 const webhook = "https://hooks.slack.test/services/test-speed";
+const botSecrets = { SLACK_BOT_TOKEN: "test-only-speed-bot-token", SLACK_ALERT_CHANNEL: "C123TEST" };
 const release = "current-worker-ab14";
 
 interface Sample {
@@ -83,13 +85,21 @@ describe.skipIf(!hasSqlite)("scheduled site speed monitoring", () => {
     await Promise.all(promises);
   }
 
-  function messages(): string[] {
+  function messages(transport: "webhook" | "bot" = "webhook"): string[] {
     return send.mock.calls.map(([url, init]) => {
-      expect(String(url)).toBe(webhook);
       expect(init?.method).toBe("POST");
-      expect(new Headers(init?.headers).get("content-type")).toMatch(/application\/json/i);
+      const headers = new Headers(init?.headers);
+      expect(headers.get("content-type")).toMatch(/application\/json/i);
       const body = JSON.parse(String(init?.body)) as { text: string };
-      expect(body).toEqual({ text: expect.any(String) });
+      if (transport === "bot") {
+        expect(String(url)).toBe("https://slack.com/api/chat.postMessage");
+        expect(headers.get("authorization")).toBe(`Bearer ${botSecrets.SLACK_BOT_TOKEN}`);
+        expect(body).toEqual({ channel: botSecrets.SLACK_ALERT_CHANNEL, text: expect.any(String) });
+      } else {
+        expect(String(url)).toBe(webhook);
+        expect(headers.get("authorization")).toBeNull();
+        expect(body).toEqual({ text: expect.any(String) });
+      }
       return body.text;
     });
   }
@@ -202,7 +212,7 @@ describe.skipIf(!hasSqlite)("scheduled site speed monitoring", () => {
     expect(messages()[1]).toMatch(/recover.*HIT.*90%/is);
   });
 
-  it("logs the alarm once when the webhook secret is absent", async () => {
+  it("logs the alarm once when Slack delivery is unconfigured", async () => {
     delete env.SLACK_WEBHOOK_URL;
     const log = vi.spyOn(console, "log").mockImplementation(() => {});
     seed(20, noon, { ttfb: 950 });
@@ -214,6 +224,47 @@ describe.skipIf(!hasSqlite)("scheduled site speed monitoring", () => {
     for (const field of ["site-1", "article", "950", "800", "20 samples", release]) {
       expect(alarms[0]).toContain(field);
     }
+  });
+
+  it.each(["SLACK_BOT_TOKEN", "SLACK_ALERT_CHANNEL"] as const)(
+    "uses the webhook when only %s is set for the bot", async key => {
+      env[key] = botSecrets[key];
+      seed(20, noon, { inp: 333 });
+      await checkHour();
+      expect(messages()).toEqual([expect.stringContaining("p75 INP 333 ms")]);
+    },
+  );
+
+  it("prefers the bot and retries an ok:false alarm the next hour", async () => {
+    Object.assign(env, botSecrets);
+    seed(20, noon, { inp: 333 });
+    seed(20, noon + hour, { inp: 350 });
+    send.mockResolvedValueOnce(Response.json({ ok: false, error: "not_in_channel" }))
+      .mockResolvedValueOnce(Response.json({ ok: true }));
+
+    await checkHour();
+    const firstAlarm = expect.stringMatching(/Speed ALARM.*p75 INP 333 ms/);
+    expect(messages("bot")).toEqual([firstAlarm]);
+    const state = "speed:v1:state:site-1:article:INP";
+    expect(store.has(state)).toBe(false);
+
+    await checkHour(1);
+    await checkHour(1);
+    expect(messages("bot")).toEqual([firstAlarm, expect.stringMatching(/Speed ALARM.*p75 INP 350 ms/)]);
+    expect(store.get(state)).toBe(`alarm ${noon + 2 * hour}`);
+  });
+
+  it("keeps the bot token out of logs even if Slack or fetch echoes it", async () => {
+    Object.assign(env, botSecrets);
+    const logs = (["log", "info", "warn", "error", "debug"] as const)
+      .map(level => vi.spyOn(console, level).mockImplementation(() => {}));
+    send.mockResolvedValueOnce(Response.json({ ok: false, error: botSecrets.SLACK_BOT_TOKEN }))
+      .mockRejectedValue(new Error(botSecrets.SLACK_BOT_TOKEN));
+    seed(20, noon, { inp: 333 });
+    await checkHour();
+    await checkHour();
+    expect(messages("bot")).toHaveLength(3);
+    expect(inspect(logs.flatMap(log => log.mock.calls), { depth: null })).not.toContain(botSecrets.SLACK_BOT_TOKEN);
   });
 
   it("leaves an unsuccessful Slack delivery eligible to retry and settles the scheduled invocation", async () => {
@@ -373,7 +424,12 @@ describe.skipIf(!hasSqlite)("scheduled site speed monitoring", () => {
     }
   });
 
-  it("sends one bounded Slack report and logs every qualifying row when full tables exceed 40,000 characters", async () => {
+  it.each(["webhook", "bot"] as const)("sends one bounded Slack report and logs every qualifying row when full tables exceed 40,000 characters (%s)", async transport => {
+    if (transport === "bot") {
+      delete env.SLACK_WEBHOOK_URL;
+      Object.assign(env, botSecrets);
+      send.mockImplementation(async () => Response.json({ ok: true }));
+    }
     const pages = ["home", "article", "category", "tag", "page", "listicle", "quote", "other"];
     const sites = ["site-1"];
     for (let n = 1; n < 200; n++) {
@@ -394,7 +450,7 @@ describe.skipIf(!hasSqlite)("scheduled site speed monitoring", () => {
     vi.spyOn(console, "warn").mockImplementation(() => {});
 
     await runSpeedAlarms(env, monday);
-    const posts = messages();
+    const posts = messages(transport);
     expect(posts).toHaveLength(1);
     const report = posts[0]!;
     expect(report.length).toBeLessThanOrEqual(40_000);

@@ -115,23 +115,37 @@ async function readHitShares(
   ]));
 }
 
+function slackBotChannel(env: Env): string | undefined {
+  return env.SLACK_BOT_TOKEN ? env.SLACK_ALERT_CHANNEL : undefined;
+}
+
 async function deliver(env: Env, text: string): Promise<boolean> {
-  if (!env.SLACK_WEBHOOK_URL) {
+  const channel = slackBotChannel(env);
+  const url = channel ? "https://slack.com/api/chat.postMessage" : env.SLACK_WEBHOOK_URL;
+  if (!url) {
     console.log(text);
     return true;
   }
+  const headers: Record<string, string> = { "Content-Type": "application/json" };
+  if (channel) headers.Authorization = `Bearer ${env.SLACK_BOT_TOKEN}`;
   const request = {
     method: "POST",
-    headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({ text }),
+    headers,
+    body: JSON.stringify(channel ? { channel, text } : { text }),
   };
   for (let attempt = 1; attempt <= 2; attempt++) {
     let delayMs = 500;
     try {
-      const response = await fetch(env.SLACK_WEBHOOK_URL, request);
-      // Release this connection before waiting or sending another transition.
-      await response.body?.cancel().catch(() => {});
-      if (response.ok) return true;
+      const response = await fetch(url, request);
+      if (channel && response.ok) {
+        // chat.postMessage can reject a notification in an HTTP 200 response.
+        const reply = await response.json<{ ok?: boolean }>().catch(() => null);
+        if (reply?.ok === true) return true;
+      } else {
+        // Release the unread body before waiting or sending another transition.
+        await response.body?.cancel().catch(() => {});
+        if (response.ok) return true;
+      }
       if (attempt === 2 || (response.status !== 429 && response.status < 500)) {
         console.error("[speed-alarms] Slack rejected the notification", response.status);
         break;
@@ -146,7 +160,7 @@ async function deliver(env: Env, text: string): Promise<boolean> {
       }
     } catch {
       if (attempt === 2) {
-        // Fetch errors can contain the secret webhook URL.
+        // Fetch errors can contain credentials.
         console.error("[speed-alarms] Slack delivery failed");
         break;
       }
@@ -228,7 +242,7 @@ function weeklyReport(env: Env, start: number, end: number, sections: string[]):
   const completeOpening = [header, completeLegend, columns].join("\n");
   const text = [completeOpening, ...sections, "```"].join("\n");
   const limit = 40_000;
-  if (!env.SLACK_WEBHOOK_URL || text.length <= limit) return text;
+  if (text.length <= limit || (!env.SLACK_WEBHOOK_URL && !slackBotChannel(env))) return text;
 
   const shortSections = sections.map(section => section
     .replace(" · edge HIT share ", " · HIT ")
