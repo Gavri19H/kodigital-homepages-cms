@@ -63,7 +63,34 @@ it("starts the attempt immediately after charset and preloads the exact deferred
   expect(Buffer.byteLength(script)).toBeLessThanOrEqual(400);
   expect(kickoff).toContain("window.__LG_ATTEMPT_P__");
   expect(html).toContain(`<head><meta charset="utf-8">${script}<link rel="preload" as="script" href="${src}">`);
-  expect(html.indexOf(`<script src="${src}"`)).toBeGreaterThan(html.indexOf("</head>"));
+  expect(doc.querySelector("head script[src][defer]")).toBe(runtime);
+  expect(html.indexOf(`<script src="${src}"`)).toBeGreaterThan(html.indexOf(`href="${src}"`));
+});
+
+it("retries a failed head runtime once at the same URL after 400 ms", () => {
+  const doc = parseHtml(html);
+  const path = `/lg/runtime/${LEADGEN_TEMPLATE_VERSION}.js`;
+  const runtimes = doc.querySelectorAll(`script[src="${path}"]`);
+  expect(runtimes).toHaveLength(1);
+  expect(doc.querySelectorAll("head script[onerror]")).toEqual(runtimes);
+  const onerror = runtimes[0]!.getAttribute("onerror");
+  assert.isString(onerror);
+
+  const retry = { src: "", onerror: null };
+  const document = { createElement: vi.fn(() => retry), head: { appendChild: vi.fn() } };
+  const setTimeout = vi.fn<(callback: () => void, delay: number) => void>();
+  const original: { src: string; onerror: (() => void) | null } = {
+    src: origin + path, onerror: runInNewContext(`(function(){${onerror}})`, { setTimeout, document }),
+  };
+  original.onerror?.();
+  expect(original.onerror).toBeNull();
+  original.onerror?.();
+  expect(setTimeout).toHaveBeenCalledExactlyOnceWith(expect.any(Function), 400);
+  expect(document.head.appendChild).not.toHaveBeenCalled();
+  setTimeout.mock.calls[0]![0]();
+  expect(document.createElement).toHaveBeenCalledExactlyOnceWith("script");
+  expect(document.head.appendChild).toHaveBeenCalledExactlyOnceWith(retry);
+  expect(retry).toEqual({ src: origin + path, onerror: null });
 });
 
 it("serves identical shell bytes for visitors with different landing URLs and cookies", async () => {

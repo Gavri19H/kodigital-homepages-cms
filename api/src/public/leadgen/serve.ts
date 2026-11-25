@@ -1205,6 +1205,9 @@ function renderFunnelShell(
     '{method:"GET",headers:{accept:"application/json"},credentials:"same-origin",cache:"no-store"});' +
     'return res.ok?await res.json():null}catch{return null}})()}}</script>' +
     `<link rel="preload" as="script" href="/lg/runtime/${LEADGEN_TEMPLATE_VERSION}.js">` +
+    // A request routed to the older Worker can race the gateway's runtime cache fill.
+    `<script src="/lg/runtime/${LEADGEN_TEMPLATE_VERSION}.js" defer onerror="this.onerror=null;` +
+    `setTimeout(()=>{const retry=document.createElement('script');retry.src=this.src;document.head.appendChild(retry)},400)"></script>` +
     '<meta name="viewport" content="width=device-width, initial-scale=1">' +
     (displayFont ? `<link rel="preload" as="font" type="font/woff2" crossorigin href="${displayFont}">` : "") +
     // X06 (owner Q4): funnels are ad landing pages — kept out of Google, and
@@ -1239,9 +1242,6 @@ function renderFunnelShell(
     // results page the auction did not turn into a redirect screen
     // (redirect/page-script.ts). Static: nothing interpolated.
     `<script>${REDIRECT_PAGE_SCRIPT}</script>` +
-    // (c) the hydration engine — versioned, deferred; the /lg/runtime/:version.js
-    // route serves the generated bundle (03 §3.2 runtime-routes row).
-    `<script src="/lg/runtime/${LEADGEN_TEMPLATE_VERSION}.js" defer></script>` +
     "</body></html>"
   );
 }

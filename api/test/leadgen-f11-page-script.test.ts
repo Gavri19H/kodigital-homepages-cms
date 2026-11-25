@@ -431,14 +431,16 @@ describe("F11 page script — ships in the shell, outside the visitor bundle", (
     expect(() => new Function(REDIRECT_PAGE_SCRIPT)).not.toThrow();
   });
 
-  it("the funnel shell embeds it as its own inline script, after the pre-hydration stub and before the bundle", () => {
+  it("the inline redirect runs after the pre-hydration stub and before the deferred head bundle executes", () => {
     const serve = readFileSync(join(HERE, "../src/public/leadgen/serve.ts"), "utf8");
     const pre = serve.indexOf("`<script>${LEADGEN_PREHYDRATE_JS}</script>` +");
     const own = serve.indexOf("`<script>${REDIRECT_PAGE_SCRIPT}</script>` +");
-    const bundle = serve.indexOf("`<script src=\"/lg/runtime/${LEADGEN_TEMPLATE_VERSION}.js\" defer></script>` +");
-    expect(pre).toBeGreaterThan(-1);
+    const bundle = serve.indexOf('`<script src="/lg/runtime/${LEADGEN_TEMPLATE_VERSION}.js" defer onerror="');
+    const headEnd = serve.indexOf('"</head>" +');
+    expect(bundle).toBeGreaterThan(-1);
+    expect(headEnd).toBeGreaterThan(bundle);
+    expect(pre).toBeGreaterThan(headEnd);
     expect(own).toBeGreaterThan(pre);
-    expect(bundle).toBeGreaterThan(own);
   });
 
   // The page script never rides the visitor bundle: the bundle's exact size is

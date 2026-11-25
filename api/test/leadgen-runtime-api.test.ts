@@ -32,6 +32,7 @@ import { mintPublicId, isPublicId } from "../src/leadgen/ids";
 import { verifyConfigToken, type ConfigTokenTuple } from "../src/public/leadgen/attempt";
 import { assignVariant } from "../src/public/leadgen/ab-hash";
 import { sha256Hex } from "../src/public/leadgen/auction/parse";
+import { parseHtml } from "./helpers/mini-dom";
 
 // The v2 (R9, 05 §5.3) token tuple for a funnel with NO answer maps and NO
 // auction: session_id "" by default — the /lg/attempt route now MINTS + binds
@@ -1299,7 +1300,8 @@ describeDb("v2.4 03 §3.2/§3.11 — server-rendered sections + #lg-config + run
     expect(inline).toEqual(overHttp);
 
     // §3.2c: the versioned hydration-engine tag (route lands in its own slice).
-    expect(html).toContain(`<script src="/lg/runtime/${LEADGEN_TEMPLATE_VERSION}.js" defer></script>`);
+    const runtime = parseHtml(html).querySelector(`head script[src="/lg/runtime/${LEADGEN_TEMPLATE_VERSION}.js"][defer][onerror]`);
+    expect(runtime?.textContent).toBe("");
     // the shell must NOT pre-set readiness — the ENGINE sets data-lg-ready="1".
     expect(html).not.toContain('data-lg-ready="1"');
     // the pre-hydration stub only QUEUES clicks (no fetch, no bootstrap).

@@ -1,10 +1,39 @@
+import { LEADGEN_TEMPLATE_VERSION } from "../cache/cache-keys";
 import type { Env } from "../env";
 import { PUBLIC_FONT_FILES } from "../public/assets/public-fonts.generated";
 import { LEADGEN_FONT_FILES } from "../public/leadgen/designs/fonts.generated";
+import { LEADGEN_RUNTIME_JS } from "../public/leadgen/runtime/engine-bundle.generated";
 import { currentPublicAssetPath } from "../public/templates/layout";
 import { isAdminHost } from "../site/site-context";
 
 type HonoFetch = (request: Request, env: Env, ctx?: ExecutionContext) => Response | Promise<Response>;
+
+const seededRuntimes = new Set<string>();
+
+export function seedLeadgenRuntime(origin: string, ctx: ExecutionContext): void {
+  if (typeof caches === "undefined") return;
+  const key = `${origin}/lg/runtime/${LEADGEN_TEMPLATE_VERSION}.js`;
+  if (seededRuntimes.has(key)) return;
+  // Claim the key before the lookup so overlapping shells schedule only one fill.
+  seededRuntimes.add(key);
+  ctx.waitUntil((async () => {
+    try {
+      const cache = caches.default;
+      if (await cache.match(key)) return;
+      // Older Workers can read this entry even when their runtime route returns 404.
+      await cache.put(key, new Response(LEADGEN_RUNTIME_JS, {
+        headers: {
+          "Content-Type": "text/javascript; charset=utf-8",
+          "Cache-Control": "public, max-age=31536000, immutable",
+          "X-Content-Type-Options": "nosniff",
+        },
+      }));
+    } catch {
+      // A failed cache operation leaves the next shell free to try again.
+      seededRuntimes.delete(key);
+    }
+  })());
+}
 
 export async function serveStatic(
   request: Request, env: Env, ctx: ExecutionContext | undefined, honoFetch: HonoFetch,

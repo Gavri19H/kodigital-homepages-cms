@@ -19,7 +19,7 @@ import { pickListicle, type ListiclePick } from "./listicle-select";
 import { perfstageRequest } from "./perfstage";
 import { PublicPage } from "./public-page";
 import { parseSiteSnapshot } from "./snapshot";
-import { serveStatic } from "./static-cache";
+import { seedLeadgenRuntime, serveStatic } from "./static-cache";
 import { listicleTag, siteQuoteTag } from "./tags";
 import type { GatewayRequestInput, PublicPageProps, SiteSnapshot } from "./types";
 
@@ -443,6 +443,10 @@ async function dispatchGatewayRequest(
         if (hostSnapshot && route) {
           const direct = env.PERFSTAGE === "true" && request.headers.get("x-perfstage-direct") === "1";
           response = await serveCachedPage(request, url, route, context, readCfSignals(request), hostSnapshot, timing, direct);
+          if (route.kind === "leadgen" && request.method === "GET" && response?.status === 200 &&
+              /^text\/html(?:\s*;|$)/i.test(response.headers.get("Content-Type") ?? "")) {
+            seedLeadgenRuntime(url.origin, ctx);
+          }
         } else if (hostSnapshot && attempt) {
           const { snapshot, version } = hostSnapshot;
           const inner = copyVisitorRequest(request);

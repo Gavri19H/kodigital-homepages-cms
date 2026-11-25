@@ -465,9 +465,9 @@ describeDb("A-exit: a frame-configured funnel serves a COMPOSED /lg page (13 §1
     const tokens = config["design_tokens"] as { color: { primary: string } };
     expect(tokens.color.primary).toBe("#123456");
 
-    // Engine chrome unchanged: prehydrate stub + versioned engine script.
+    // The composed shell carries the prehydrate stub and deferred versioned runtime.
     expect(html).toContain("__LG_PREHYDRATE_QUEUE__");
-    expect(html).toMatch(/<script src="\/lg\/runtime\/\d+\.js" defer><\/script>/);
+    expect(html).toMatch(/<script src="\/lg\/runtime\/\d+\.js" defer onerror="[^"]+"><\/script>/);
   });
 
   it("GET /lg/config carries the SAME effective design tokens as the shell blob", async () => {
