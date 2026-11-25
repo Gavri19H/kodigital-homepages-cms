@@ -56,7 +56,7 @@ case "$target/$mode" in
   perfstage/gradual|perfstage/rehearsal) worker+=-perfstage ;;
   *) fail "Invalid release $target/$mode (rehearsal requires perfstage)" ;;
 esac
-if [[ $mode == rehearsal ]]; then minutes=3; fi
+if [[ $mode == rehearsal ]]; then minutes=12; fi
 [[ -r scripts/perf/edge-probe.sh && -s scripts/perf/urls.txt ]] || fail "Missing probe or URL list"
 stage_host=
 if [[ $target == perfstage ]]; then

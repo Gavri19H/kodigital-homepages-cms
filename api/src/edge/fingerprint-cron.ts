@@ -6,7 +6,9 @@ import { onPublicChange } from "./public-change";
 import { siteTag } from "./tags";
 
 const FINGERPRINT_KEY = "edge:fp:v1";
-const VERSION_KEY = "edge:ver:v1";
+// A legacy Worker in the split still owns its single-version marker.
+const SEEN_VERSIONS_KEY = "edge:ver-seen:v2";
+const MAX_SEEN_VERSIONS = 20;
 
 // A NULL owner contributes to the shared fingerprint (including legacy global pages and redirects).
 // Keep the aggregates separate by table. A busy table's timestamp must not hide another table's edit.
@@ -178,6 +180,17 @@ function isRecord(value: unknown): value is Record<string, unknown> {
 
 function isDigestMap(value: unknown): boolean {
   return isRecord(value) && Object.values(value).every(isDigest);
+}
+
+function readSeenVersions(raw: string | null): string[] {
+  if (raw === null) return [];
+  try {
+    const ids: unknown = JSON.parse(raw);
+    if (!Array.isArray(ids) || ids.length > MAX_SEEN_VERSIONS) return [];
+    return ids.every(id => typeof id === "string" && id.length > 0) ? ids : [];
+  } catch {
+    return [];
+  }
 }
 
 function readCheckpoint(raw: string | null): Checkpoint | null {
@@ -416,10 +429,11 @@ function missedSites(
 export async function runFingerprintCron(env: Env, ctx: ExecutionContext | undefined): Promise<void> {
   try {
     const version = env.CF_VERSION_METADATA?.id;
-    const [raw, oldVersion] = await Promise.all([
-      env.CACHE.get(FINGERPRINT_KEY), version ? env.CACHE.get(VERSION_KEY) : null,
+    const [raw, rawSeenVersions] = await Promise.all([
+      env.CACHE.get(FINGERPRINT_KEY), version ? env.CACHE.get(SEEN_VERSIONS_KEY) : null,
     ]);
     const previous = readCheckpoint(raw);
+    const seenVersions = readSeenVersions(rawSeenVersions);
     // Sample the AUTOINCREMENT high-water mark in the same transaction as the
     // digests. Quiet minutes need neither purge-log rows nor a wall-clock guess.
     const [sequence, ...groups] = await env.DB.batch([
@@ -440,7 +454,7 @@ export async function runFingerprintCron(env: Env, ctx: ExecutionContext | undef
     const globalChanged = previous !== null && current.global !== previous.global;
     const { sections, offers } = changedListicleResources(previous?.listicleMembers, current.listicleMembers);
     const resourcesChanged = sections.size > 0 || offers.size > 0;
-    const versionChanged = Boolean(version && version !== oldVersion);
+    const versionChanged = Boolean(version && !seenVersions.includes(version));
     if (previous?.sources && previous.listicleMembers && !changed.length && !globalChanged && !resourcesChanged &&
         !versionChanged && previous.receiptCursor === receiptCursor) return;
     let missed = new Set<string>();
@@ -486,7 +500,9 @@ export async function runFingerprintCron(env: Env, ctx: ExecutionContext | undef
       ...current, receiptCursor: consumed, sweepReceipt, cursor: Number.MAX_SAFE_INTEGER,
       sampledAt: boundary.sampled_at, sweep: null,
     }));
-    if (versionChanged && version) await env.CACHE.put(VERSION_KEY, version);
+    if (versionChanged && version) {
+      await env.CACHE.put(SEEN_VERSIONS_KEY, JSON.stringify([version, ...seenVersions].slice(0, MAX_SEEN_VERSIONS)));
+    }
   } catch (error) {
     const message = error instanceof Error ? error.message : typeof error === "string" ? error : "Unknown error";
     console.error(JSON.stringify({ t: "fingerprint_cron_error", error: message }));
