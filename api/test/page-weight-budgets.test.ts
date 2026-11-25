@@ -174,6 +174,20 @@ describe("public page weight budgets", () => {
     const html = bytes.toString("utf8");
     const doc = parseHtml(html);
     expect(doc.querySelector(budget.content), `populated ${budget.path}`).not.toBeNull();
+    if (budget.page === "home") {
+      // A preload has no element width. Compare the actual transform with
+      // its width descriptor, then bound the candidate used on a 375px phone.
+      const widths = doc.querySelectorAll('head link[rel="preload"][as="image"]').map(link => {
+        expect(link.getAttribute("imagesizes")).toBe("100vw");
+        const candidate = link.getAttribute("imagesrcset") ?? "";
+        const match = /^\/cdn-cgi\/image\/width=(\d+),quality=78,format=auto\/\S+ (\d+)w$/.exec(candidate);
+        expect(match, `hero preload candidate: ${candidate}`).not.toBeNull();
+        expect(match![1]).toBe(match![2]);
+        return Number(match![1]);
+      });
+      expect(widths).toEqual([640, 1280, 1600]);
+      expect(Math.min(...widths), "375px phone hero").toBeLessThanOrEqual(2 * 375);
+    }
     if (budget.page === "quote") {
       expect(doc.querySelector('[data-frame-region="header"] img')).not.toBeNull();
       expect(doc.querySelectorAll('[data-frame-region="brand_logos"] img').map(img => img.getAttribute("alt")))

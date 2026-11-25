@@ -8,11 +8,11 @@ const hostname = "journal.example";
 const origin = `https://${hostname}`;
 const outside = "https://photos.example/media/lead.jpg?edition=1&view=wide";
 const local = "/media/lead.jpg?edition=1&view=wide";
+const trailingComma = "/media/lead.jpg?palette=gold,";
+const highPriorityImages = 'img[fetchpriority="high"], link[rel="preload"][as="image"][fetchpriority="high"]';
 
 function onlyHighPriorityImage(doc: MiniNode): MiniNode {
-  const hints = doc.querySelectorAll(
-    'img[fetchpriority="high"], link[rel="preload"][as="image"][fetchpriority="high"]',
-  );
+  const hints = doc.querySelectorAll(highPriorityImages);
   expect(hints).toHaveLength(1);
   return hints[0]!;
 }
@@ -49,21 +49,56 @@ describe("image priority on the public routes", () => {
   }
 
   it.each([
-    [local, `/cdn-cgi/image/width=1600,quality=78,format=auto${local}`],
-    [outside, outside],
-  ])("preloads the exact CSS hero URL for %s", async (source, expected) => {
+    [local, local, local],
+    [trailingComma, trailingComma, trailingComma],
+    ["/media/field notes (1).jpg", "/media/field%20notes%20(1).jpg",
+      "/media/field%20notes%20\\28 1\\29 .jpg"],
+  ])("preloads exactly the CSS hero for each viewport when the source is %s", async (source, path, cssPath) => {
     sqlite.prepare("UPDATE media SET storage_key = ? WHERE id = 3").run(source);
+    const doc = await visit("/");
+    const preloads = doc.querySelectorAll('head link[rel="preload"][as="image"]');
+    expect(doc.querySelectorAll(highPriorityImages)).toEqual(preloads);
+    expect(preloads.map(link => link.getAttribute("media"))).toEqual([
+      "(max-width:480px)", "(480px < width <= 1024px)", "(width > 1024px)",
+    ]);
+    const rules = doc.querySelector(".hero style")!.textContent;
+    const background = doc.querySelector(".hero-bg")!.getAttribute("style");
+    for (const [index, width] of [640, 1280, 1600].entries()) {
+      const prefix = `/cdn-cgi/image/width=${width},quality=78,format=auto`;
+      const link = preloads[index]!;
+      if (source === trailingComma) {
+        expect(link.getAttribute("href")).toBe(prefix + path);
+        expect(link.hasAttribute("imagesrcset")).toBe(false);
+      } else {
+        expect(link.getAttribute("imagesrcset")).toBe(`${prefix}${path} ${width}w`);
+        expect(link.getAttribute("imagesizes")).toBe("100vw");
+        expect(link.hasAttribute("href")).toBe(false);
+      }
+      const url = `url(${prefix}${cssPath})`;
+      if (width === 1600) {
+        expect(background).toContain(`var(--hero-photo,${url})`);
+      } else {
+        expect(rules).toContain(`@media ${link.getAttribute("media")}{.hero-bg{--hero-photo:${url}}}`);
+      }
+    }
+  });
+
+  it("preloads the original URL of an external CSS hero", async () => {
+    sqlite.prepare("UPDATE media SET storage_key = ? WHERE id = 3").run(outside);
     const doc = await visit("/");
     const preload = onlyHighPriorityImage(doc);
     expect(preload).toBe(doc.querySelector('head link[rel="preload"][as="image"]'));
-    expect(preload.getAttribute("href")).toBe(expected);
-    expect(doc.querySelector(".hero-bg")?.getAttribute("style")).toContain(`url(${expected})`);
+    expect(preload.getAttribute("href")).toBe(outside);
+    expect(preload.hasAttribute("imagesrcset")).toBe(false);
+    expect(doc.querySelector(".hero style")).toBeNull();
+    expect(doc.querySelector(".hero-bg")?.getAttribute("style")).toContain(`url(${outside})`);
   });
 
   it("gives the first pictured Editor's Pick priority on a gradient-only home", async () => {
     sqlite.prepare("UPDATE articles SET featured_image_id = NULL WHERE slug = 'lead'").run();
     const doc = await visit("/");
     expect(doc.querySelector(".hero-bg")?.hasAttribute("style")).toBe(false);
+    expect(doc.querySelector(".hero style")).toBeNull();
     expect(doc.querySelector('link[rel="preload"][as="image"]')).toBeNull();
     const pick = onlyHighPriorityImage(doc);
     expect(pick).toBe(doc.querySelector(".picks-grid img"));

@@ -12,7 +12,7 @@ import { fetchSiteVerticalName, PUBLIC_PAGE_SIZE, type ListingCard } from "./que
 import { loadRenderContext, type RenderContext } from "./render-context";
 import { mediaUrl } from "./view-models/media-url";
 import {
-  heroBackgroundUrl,
+  heroBackgroundSources,
   renderHeader,
   renderFooter,
   renderCard,
@@ -134,10 +134,16 @@ export async function renderHomepageHtml(
   const { vm, settings } = await loadHomeRenderData(db, siteContext);
   const canonicalUrl = vm.meta.canonicalUrl;
   const customHtml = customLayoutHtml(settings);
-  const heroUrl = heroBackgroundUrl(vm.hero?.imageUrl);
-  const heroPreload = heroUrl
-    ? `<link rel="preload" as="image" fetchpriority="high" href="${escapeHtml(heroUrl)}">`
-    : "";
+  // A single 100vw srcset can pick a larger file at high DPR than the CSS
+  // background. Exactly one of these viewport-qualified preloads applies.
+  const heroPreload = heroBackgroundSources(vm.hero?.imageUrl).map(({ url, width, media }) => {
+    const condition = media ? ` media="${escapeHtml(media)}"` : "";
+    // A trailing comma is a srcset separator, but is literal in href.
+    const source = width && !url.endsWith(",")
+      ? `imagesrcset="${escapeHtml(url)} ${width}w" imagesizes="100vw"`
+      : `href="${escapeHtml(url)}"`;
+    return `<link rel="preload" as="image" fetchpriority="high"${condition} ${source}>`;
+  }).join("\n");
 
   // Disjoint buckets (trending removed from the pool, hero = featured[0],
   // featured excludes hero, latest excludes featured) — flatten for the

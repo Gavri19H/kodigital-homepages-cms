@@ -375,44 +375,46 @@ export function renderHeader(args: HeaderArgs): string {
 </header>`;
 }
 
-// The CSS background and its head preload must request the same resource.
-export function heroBackgroundUrl(imageUrl: HeroArgs["imageUrl"]): string {
-  if (!imageUrl) return "";
-  return imageUrl.startsWith("/") && !imageUrl.startsWith("//")
-    ? cfTransform(imageUrl, "width=1600,quality=78,format=auto")
-    : imageUrl;
+const HERO_IMAGE_VARIANTS = [
+  { width: 640, media: "(max-width:480px)" },
+  { width: 1280, media: "(480px < width <= 1024px)" },
+  { width: 1600, media: "(width > 1024px)" },
+] as const;
+
+// The preload and the CSS background use the same viewport conditions and URLs.
+export function heroBackgroundSources(imageUrl: HeroArgs["imageUrl"]) {
+  if (!imageUrl) return [];
+  if (!imageUrl.startsWith("/") || imageUrl.startsWith("//")) {
+    return [{ url: imageUrl, width: null, media: null }];
+  }
+  const path = imageUrl.replace(/\s/g, encodeURIComponent);
+  return HERO_IMAGE_VARIANTS.map(({ width, media }) => ({
+    width, media, url: cfTransform(path, `width=${width},quality=78,format=auto`),
+  }));
+}
+
+function heroCssUrl(url: string): string {
+  // Escape CSS url() delimiters and the HTML raw-text end-tag opener.
+  const escaped = url.replace(/[\x00-\x20\x7f"'()\\<]/g, ch => `\\${ch.charCodeAt(0).toString(16)} `);
+  return `url(${escaped})`;
 }
 
 export function renderHero(args: HeroArgs): string {
   const placeholder = searchPlaceholderOf(args.searchPlaceholder);
-  // Design hero DOM: .hero > .hero-bg + .hero-content > h1.hero-title
-  // (title + literal period) > span.tagline, then form.hero-search.
-  //
-  // RESCUE-4 RED LINE: .hero-bg is a PURE CSS gradient (no <img>, design has no
-  // hero photo). When the operator set a real site hero image (args.imageUrl, a
-  // /media/<key>) it overrides the gradient via an inline background-image —
-  // still NO <img>. The lead-article image is NEVER used as the hero bg (the
-  // design does not), so a bare gradient hero is correct when no site hero is
-  // set. The tagline rides INSIDE the h1; there is no kicker and the title is
-  // not a link (the hero is the site identity, not a story).
-  // RESCUE-4: a hero photo is layered UNDER a dark gradient (for white-title
-  // legibility) in one inline background; no photo → empty style so the .hero-bg
-  // CSS gradient paints (the design's empty-state hero).
-  // RESCUE-4 round-5 (issue 5): the hero is the full-bleed LCP. Route a
-  // same-origin /media/ photo through Cloudflare Image Resizing (one ~1600px
-  // WebP/AVIF, ~70KB vs the ~2MB source PNG); an off-origin URL is used as-is.
-  // A CSS background can't carry an <img srcset>, so a single hero-width
-  // transform is the lever here.
-  const heroBgUrl = heroBackgroundUrl(args.imageUrl);
-  const bgStyle =
-    heroBgUrl.length > 0
-      ? ` style="background-image:linear-gradient(135deg, rgba(0,0,0,0.5), rgba(0,0,0,0.25) 45%, rgba(0,0,0,0.6)), url(${escAttr(heroBgUrl)});background-size:cover;background-position:center"`
-      : "";
+  const sources = heroBackgroundSources(args.imageUrl);
+  const fallback = sources.at(-1);
+  const rules = sources.slice(0, -1).map(({ media, url }) =>
+    `@media ${media}{.hero-bg{--hero-photo:${heroCssUrl(url)}}}`
+  ).join("");
+  const photo = fallback ? heroCssUrl(fallback.url) : "";
+  const bgStyle = photo
+    ? ` style="background-image:linear-gradient(135deg, rgba(0,0,0,0.5), rgba(0,0,0,0.25) 45%, rgba(0,0,0,0.6)), ${escAttr(rules ? `var(--hero-photo,${photo})` : photo)};background-size:cover;background-position:center"`
+    : "";
   const taglineHtml =
     args.excerpt !== undefined && args.excerpt.length > 0
       ? `<span class="tagline">${escText(args.excerpt)}</span>`
       : "";
-  return `<section class="hero" aria-label="Featured story">
+  return `<section class="hero" aria-label="Featured story">${rules ? `<style>${rules}</style>` : ""}
   <div class="hero-bg" aria-hidden="true"${bgStyle}></div>
   <div class="hero-content">
     <h1 class="hero-title">${escText(args.title)}.${taglineHtml}</h1>
