@@ -151,6 +151,12 @@ function isProtectedZoneHostname(hostname: string): boolean {
   return isProtectedDomain(hostname) || isProtectedDomain(zoneNameForHostname(hostname));
 }
 
+function isDedicatedZone(hostname: string, zoneName: string): boolean {
+  const host = hostname.toLowerCase().replace(/\.$/, "");
+  const zone = zoneName.toLowerCase();
+  return host === zone || host === `www.${zone}`;
+}
+
 function liveZoneMutationEnabled(env: Env): boolean {
   // An absent or mistyped dry-run binding must never authorize a zone write.
   return env.SITE_PROVISIONING_DRY_RUN === "false" && env.SITE_PROVISIONING_ALLOW_ROUTE_MUTATION === "true";
@@ -268,12 +274,51 @@ interface ZoneSpeedSite {
   hostname: string;
 }
 
+export function postZoneSpeedNotice(env: Env, message: string): Promise<boolean> {
+  const token = getProvisioningToken(env);
+  const text = token ? message.replaceAll(token, "[redacted]") : message;
+  return postSpeedNotice(env, text.replaceAll("&", "&amp;").replaceAll("<", "&lt;").replaceAll(">", "&gt;"));
+}
+
+export async function claimDailyZoneSpeedSweep(env: Env, tick: Date) {
+  if (env.PERFSTAGE === "true" || !liveZoneMutationEnabled(env)) return null;
+  const key = "zone-speed:v1:last-sweep-date";
+  const day = tick.toISOString().slice(0, 10);
+  const last = await env.CACHE.get(key);
+  if (last !== null && last >= day) return null;
+
+  // As in runEdgeTick, D1 arbitrates isolates that read the same KV value.
+  // A missing-token notice has its own receipt so restored credentials can
+  // still run today's sweep. Each action reuses its row on later UTC dates.
+  const hasToken = getProvisioningToken(env) !== null;
+  const action = hasToken ? "zone-speed:v1:sweep-claim" : "zone-speed:v1:missing-token-notice";
+  const claim = await env.DB.prepare(`INSERT INTO cache_purge_log (id, action, status, dry_run, allow_route_mutation, created_at)
+    VALUES ((SELECT id FROM cache_purge_log WHERE status = 'completed' AND action = ? LIMIT 1),
+            ?, 'completed', 0, 1, ?)
+    ON CONFLICT(id) DO UPDATE SET created_at = excluded.created_at
+      WHERE date(created_at, 'unixepoch') < date(excluded.created_at, 'unixepoch')
+    RETURNING id, created_at`).bind(action, action, tick.getTime() / 1000).first<{ id: number; created_at: number }>();
+  if (!claim) return null;
+  return {
+    markComplete: async () => {
+      if (hasToken) await env.CACHE.put(key, day);
+    },
+    release: () => env.DB.prepare("DELETE FROM cache_purge_log WHERE id = ? AND created_at = ?")
+      .bind(claim.id, claim.created_at).run(),
+  };
+}
+
 export async function runZoneSpeedSettingsSweep(env: Env, db: D1Database) {
   const failures: Array<ZoneSpeedSite & { setting: ZoneSpeedSetting; error: string }> = [];
   const summary = { sites_checked: 0, zones_checked: 0, settings_updated: 0, failures };
   if (env.PERFSTAGE === "true" || !liveZoneMutationEnabled(env)) return summary;
   const token = getProvisioningToken(env);
-  if (token === null) return summary;
+  if (token === null) {
+    const message = "Daily zone speed sweep could not run because the Cloudflare provisioning token is missing";
+    console.error("[zone-speed-settings]", message);
+    await postZoneSpeedNotice(env, message);
+    return summary;
+  }
 
   // Match resolveSiteHostname's primary-first preference, restricted to
   // active canonical rows. sites.domain alone does not prove attachment.
@@ -286,10 +331,15 @@ export async function runZoneSpeedSettingsSweep(env: Env, db: D1Database) {
     ) WHERE preference = 1 ORDER BY site_id
   `).bind("canonical", "active", "active").all<ZoneSpeedSite>();
   const byZone = new Map<string, ZoneSpeedResult[]>();
+  const skipped: Array<ZoneSpeedSite & { zone_name: string; reason: "shared_zone" }> = [];
   for (const site of sites) {
     if (isProtectedZoneHostname(site.hostname)) continue;
     summary.sites_checked++;
     const zoneName = zoneNameForHostname(site.hostname).toLowerCase();
+    if (!isDedicatedZone(site.hostname, zoneName)) {
+      skipped.push({ ...site, zone_name: zoneName, reason: "shared_zone" });
+      continue;
+    }
     let results = byZone.get(zoneName);
     if (!results) {
       const zone = await lookupZoneId(token, zoneName, AbortSignal.timeout(ZONE_SPEED_TIMEOUT_MS))
@@ -309,9 +359,29 @@ export async function runZoneSpeedSettingsSweep(env: Env, db: D1Database) {
   }
   if (failures.length) {
     const lines = failures.map(f => `${f.site_name} (${f.site_id}) · ${f.hostname} · ${f.setting} · ${f.error}`);
-    await postSpeedNotice(env, ["Daily zone speed sweep could not confirm these settings", ...lines].join("\n"));
+    await postZoneSpeedNotice(env, ["Daily zone speed sweep could not confirm these settings", ...lines].join("\n"));
   }
-  return summary;
+  return skipped.length ? { ...summary, skipped } : summary;
+}
+
+async function applyBuildZoneSpeedSettings(
+  ctx: CloudflareCallContext, input: CloudflareRouteMutationInput, token: string, zoneId: string,
+) {
+  if (!isDedicatedZone(input.hostname, zoneNameForHostname(input.hostname))) {
+    return { skipped: true, reason: "shared_zone" } as const;
+  }
+  const results = await applyZoneSpeedSettings(token, zoneId);
+  const failures = results.filter(r => !r.ok);
+  if (failures.length) {
+    const site = await ctx.db.prepare("SELECT name FROM sites WHERE id = ?")
+      .bind(input.site_id).first<{ name: string }>().catch(() => null);
+    const label = site?.name ? `${site.name} (${input.site_id})` : input.site_id;
+    await postZoneSpeedNotice(ctx.env, [
+      `Site build could not confirm zone speed settings for ${label} · ${input.hostname}`,
+      ...failures.map(f => `${f.setting} · ${f.error}`),
+    ].join("\n"));
+  }
+  return results;
 }
 
 // T35 — read-only boundary behind validate_domain_in_cloudflare. Never
@@ -385,6 +455,18 @@ async function markDomainAttached(
     )
     .bind(cf_route_id, site_id, hostname)
     .run();
+}
+
+async function findAttachedWorkerRoute(
+  routesUrl: string, headers: Record<string, string>, pattern: string,
+): Promise<string | null> {
+  const response = await fetch(routesUrl, { method: "GET", headers }).catch(() => null);
+  if (!response?.ok) return null;
+  const body = await response.json<CloudflareReply<Array<{ id?: string; pattern?: string; script?: string }>>>()
+    .catch(() => null);
+  if (body?.success !== true || !Array.isArray(body.result)) return null;
+  const route = body.result.find(r => r?.pattern === pattern);
+  return route?.script === PROVISIONING_WORKER_SCRIPT_NAME && typeof route.id === "string" ? route.id : null;
 }
 
 // The single Cloudflare-mutation boundary used by the runner. Real route
@@ -469,45 +551,31 @@ export async function runCloudflareRouteMutation(
       }),
     };
   }
-  const routeRes = await fetch(
-    `${CLOUDFLARE_API_BASE}/zones/${zone.zone_id}/workers/routes`,
-    {
-      method: "POST",
-      headers: {
-        authorization: `Bearer ${token}`,
-        "content-type": "application/json",
-      },
-      body: JSON.stringify({
-        pattern: `${input.hostname}/*`,
-        script: PROVISIONING_WORKER_SCRIPT_NAME,
-      }),
-    },
-  );
-  const routeBody = (await routeRes.json()) as {
-    success?: boolean;
-    result?: { id?: string };
-  };
-  if (!routeRes.ok || routeBody.success !== true) {
-    await recordCachePurgeLog(ctx, input, {
-      status: "failed",
-      response: JSON.stringify({ error: `route attach HTTP ${routeRes.status}` }),
-    });
-    return {
-      status: "failed",
-      output: "",
-      error: `route attach HTTP ${routeRes.status}`,
-    };
+  const routesUrl = `${CLOUDFLARE_API_BASE}/zones/${zone.zone_id}/workers/routes`;
+  const pattern = `${input.hostname}/*`;
+  const headers = { authorization: `Bearer ${token}`, "content-type": "application/json" };
+  const routeRes = await fetch(routesUrl, {
+    method: "POST", headers, body: JSON.stringify({ pattern, script: PROVISIONING_WORKER_SCRIPT_NAME }),
+  });
+  const routeBody = await routeRes.json<CloudflareReply<{ id?: string }>>().catch(() => null);
+  let routeId = typeof routeBody?.result?.id === "string" ? routeBody.result.id : "";
+  if (!routeRes.ok || routeBody?.success !== true) {
+    const duplicate = routeRes.status === 409 ||
+      (Array.isArray(routeBody?.errors) && routeBody.errors.some(e => e?.code === 10020));
+    const existingId = duplicate ? await findAttachedWorkerRoute(routesUrl, headers, pattern) : null;
+    if (!existingId) {
+      const error = `route attach HTTP ${routeRes.status}`;
+      await recordCachePurgeLog(ctx, input, { status: "failed", response: JSON.stringify({ error }) });
+      return { status: "failed", output: "", error };
+    }
+    routeId = existingId;
   }
-  const routeId =
-    routeBody.result && typeof routeBody.result.id === "string"
-      ? routeBody.result.id
-      : "";
   await markDomainAttached(ctx.db, input.site_id, input.hostname, routeId);
   await recordCachePurgeLog(ctx, input, {
     status: "completed",
     response: JSON.stringify({ attached: true, cf_route_id: routeId }),
   });
-  const speedSettings = await applyZoneSpeedSettings(token, zone.zone_id);
+  const speedSettings = await applyBuildZoneSpeedSettings(ctx, input, token, zone.zone_id);
   return {
     status: "completed",
     output: JSON.stringify({

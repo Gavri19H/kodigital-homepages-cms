@@ -335,12 +335,23 @@ const scheduled = async (
       }
       try {
         const tick = new Date(controller.scheduledTime);
-        if (tick.getUTCHours() === 3 && tick.getUTCMinutes() === 10) {
-          const { runZoneSpeedSettingsSweep } = await import("./site-provisioning/cloudflare-interfaces");
-          await runZoneSpeedSettingsSweep(env, env.DB);
+        if (tick.getUTCHours() === 3 && tick.getUTCMinutes() >= 10) {
+          const { claimDailyZoneSpeedSweep, runZoneSpeedSettingsSweep } = await import("./site-provisioning/cloudflare-interfaces");
+          const claim = await claimDailyZoneSpeedSweep(env, tick);
+          if (claim) {
+            try {
+              await runZoneSpeedSettingsSweep(env, env.DB);
+            } catch (err) {
+              await claim.release().catch(() => console.error("[zone-speed-settings] Daily sweep claim release failed"));
+              throw err;
+            }
+            await claim.markComplete();
+          }
         }
-      } catch {
+      } catch (err) {
         console.error("[zone-speed-settings] Daily sweep failed");
+        const { postZoneSpeedNotice } = await import("./site-provisioning/cloudflare-interfaces");
+        await postZoneSpeedNotice(env, `Daily zone speed sweep failed · ${err instanceof Error ? err.message : String(err)}`);
       }
     }
     try {
