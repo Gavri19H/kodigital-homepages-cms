@@ -1,14 +1,14 @@
 // Cache hit/miss monitoring for kodigital-homepages-cms (T44 [BCL-020]).
 //
 // Gateway and live feed/HTML reads sample one in ten outcomes when a request
-// context is available. Each sample adds ten to its global KV counter in the
-// background. A gateway sample also increments the site's hourly D1 counter
-// atomically for speed reports.
+// context is available. Each sample adds ten to its KV counter in the background.
+// The admin monitor reports these estimated totals and hit rate.
 //
 // Recording is BEST-EFFORT: a counter read/write failure NEVER breaks a
 // cache read (wrapped in try/catch). The counter keys are read via the raw
 // env.CACHE.get (NOT cacheGet) so reading/updating stats can never recurse
-// into the recorder or count itself. Both counters use Worker bindings.
+// into the recorder or count itself. Everything here touches ONLY env.CACHE
+// (KV) — no outbound HTTP — so the dry-run zero-outbound contract holds.
 
 import type { Env } from "../env";
 import type { WaitUntilContext } from "../wait-until-context";
@@ -17,8 +17,7 @@ import type { WaitUntilContext } from "../wait-until-context";
 // monitoring counters.
 const HITS_KEY = "cachestat:hits";
 const MISSES_KEY = "cachestat:misses";
-export const EDGE_SAMPLE_WEIGHT = 10;
-type EdgeCacheOutcome = "HIT" | "MISS";
+const SAMPLE_WEIGHT = 10;
 
 export interface CacheStats {
   hits: number;
@@ -39,47 +38,35 @@ async function readCounter(env: Env, key: string): Promise<number> {
 
 async function bump(env: Env, key: string): Promise<void> {
   try {
-    const value = String((await readCounter(env, key)) + EDGE_SAMPLE_WEIGHT);
-    await env.CACHE.put(key, value);
+    const next = (await readCounter(env, key)) + SAMPLE_WEIGHT;
+    await env.CACHE.put(key, String(next));
   } catch {
     // Monitoring is best-effort — a stats write failure must never break the
     // cache read that triggered it.
   }
 }
 
-async function bumpSite(env: Env, siteId: string, outcome: EdgeCacheOutcome): Promise<void> {
+function scheduleBump(env: Env, key: string, waitUntil?: WaitUntilContext): void {
+  if (typeof waitUntil?.waitUntil !== "function" || Math.random() >= 1 / SAMPLE_WEIGHT) return;
   try {
-    const hour = Math.floor(Date.now() / 3_600_000) * 3600;
-    await env.DB.prepare(`INSERT INTO edge_hit_counts (site_id, hour, outcome, n) VALUES (?, ?, ?, ?)
-      ON CONFLICT (site_id, hour, outcome) DO UPDATE SET n = n + excluded.n`)
-      .bind(siteId, hour, outcome, EDGE_SAMPLE_WEIGHT).run();
-  } catch {
-    console.error("[cache-stats] Site edge count write failed", siteId, outcome);
-  }
-}
-
-function scheduleBump(env: Env, outcome: EdgeCacheOutcome, waitUntil?: WaitUntilContext, siteId?: string): void {
-  if (typeof waitUntil?.waitUntil !== "function" || Math.random() >= 1 / EDGE_SAMPLE_WEIGHT) return;
-  try {
-    const writes = [bump(env, outcome === "HIT" ? HITS_KEY : MISSES_KEY)];
-    if (siteId) writes.push(bumpSite(env, siteId, outcome));
-    waitUntil.waitUntil(Promise.all(writes));
+    waitUntil.waitUntil(bump(env, key));
   } catch {
     // A context that can no longer accept work must still serve the cached response.
   }
 }
 
 export function recordCacheHit(env: Env, waitUntil?: WaitUntilContext): void {
-  scheduleBump(env, "HIT", waitUntil);
+  scheduleBump(env, HITS_KEY, waitUntil);
 }
 
 export function recordCacheMiss(env: Env, waitUntil?: WaitUntilContext): void {
-  scheduleBump(env, "MISS", waitUntil);
+  scheduleBump(env, MISSES_KEY, waitUntil);
 }
 
-export function recordEdgeCacheStatus(env: Env, status: string | null, waitUntil?: WaitUntilContext, siteId?: string): void {
+export function recordEdgeCacheStatus(env: Env, status: string | null, waitUntil?: WaitUntilContext): void {
   const outcome = status?.toUpperCase();
-  if (outcome === "HIT" || outcome === "MISS") scheduleBump(env, outcome, waitUntil, siteId);
+  if (outcome === "HIT") recordCacheHit(env, waitUntil);
+  else if (outcome === "MISS") recordCacheMiss(env, waitUntil);
 }
 
 // Derives the hit-rate as hits / (hits + misses), rounded to 4 dp. Returns 0

@@ -1,6 +1,6 @@
 import { inspect } from "node:util";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-import { EDGE_SAMPLE_WEIGHT, readCacheStats, recordEdgeCacheStatus } from "../src/cache/cache-stats";
+import { readCacheStats, recordEdgeCacheStatus } from "../src/cache/cache-stats";
 import { runSpeedAlarms } from "../src/edge/speed-alarms";
 import type { Env } from "../src/env";
 import worker from "../src/index";
@@ -21,6 +21,7 @@ interface Sample {
   site?: string;
   page?: string;
   client?: string | null;
+  edge?: "HIT" | "MISS" | null;
   country?: string;
   device?: "mobile" | "tablet" | "desktop";
   lcp?: number;
@@ -39,6 +40,9 @@ describe.skipIf(!hasSqlite)("scheduled site speed monitoring", () => {
 
   beforeEach(() => {
     db = createDb();
+    if (!db.prepare("SELECT 1 FROM pragma_table_info('vitals_samples') WHERE name = 'edge'").get()) {
+      db.prepare("ALTER TABLE vitals_samples ADD COLUMN edge TEXT CHECK (edge IN ('HIT','MISS'))").run();
+    }
     addSite(db, "site-1", "First site", "home");
     nextClient = 0;
     const cache = makeKvStub();
@@ -67,20 +71,19 @@ describe.skipIf(!hasSqlite)("scheduled site speed monitoring", () => {
 
   function seed(count: number, at: number, sample: Sample) {
     const insert = db.prepare(`INSERT INTO vitals_samples
-      (created_at, site_id, page_type, ttfb_ms, fcp_ms, lcp_ms, inp_ms, cls, worker_version, client_key, country, device)
-      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`);
+      (created_at, site_id, page_type, ttfb_ms, fcp_ms, lcp_ms, inp_ms, cls, worker_version, client_key, country, device, edge)
+      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`);
     for (let i = 0; i < count; i++) {
       const client = sample.client === undefined ? (++nextClient).toString(16).padStart(16, "0") : sample.client;
       insert.run(Math.floor(at / 1000), sample.site ?? "site-1", sample.page ?? "article",
         sample.ttfb ?? null, sample.fcp ?? null, sample.lcp ?? null, sample.inp ?? null,
-        sample.cls ?? null, "sample-worker-old", client, sample.country ?? null, sample.device ?? null);
+        sample.cls ?? null, "sample-worker-old", client, sample.country ?? null, sample.device ?? null, sample.edge ?? null);
     }
   }
 
-  function counters(site: string, utcHour: number, hitSamples: number, missSamples: number) {
-    const insert = db.prepare("INSERT INTO edge_hit_counts (site_id, hour, outcome, n) VALUES (?, ?, ?, ?)");
-    insert.run(site, utcHour / 1000, "HIT", hitSamples * EDGE_SAMPLE_WEIGHT);
-    insert.run(site, utcHour / 1000, "MISS", missSamples * EDGE_SAMPLE_WEIGHT);
+  function seedEdge(site: string, at: number, hits: number, misses: number) {
+    seed(hits, at, { site, edge: "HIT" });
+    seed(misses, at, { site, edge: "MISS" });
   }
 
   const checkHour = (offset = 0) => runSpeedAlarms(env, firstTick + offset * hour);
@@ -148,30 +151,38 @@ describe.skipIf(!hasSqlite)("scheduled site speed monitoring", () => {
     );
   });
 
-  it("announces a breach, a recovery and a new breach once each across repeated or sparse hours", async () => {
+  it("posts one DATA GAP per alarm episode and silently restores the alarm during later off-target hours", async () => {
     for (const [offset, count, lcp] of [
       [0, 20, 2800], [1, 20, 2900], [2, 19, 1400], [3, 20, 2700],
-      [4, 20, 1500], [5, 20, 1400], [6, 20, 2600],
+      [4, 19, 1400], [5, 20, 1500], [6, 20, 1400], [7, 20, 2600],
     ] as const) {
       seed(count, noon + offset * hour, { page: "quote", lcp });
     }
 
     for (const offset of [0, 0, 1, 2, 2, 3]) await checkHour(offset);
-    expect(messages()).toEqual([
+    const key = "speed:v1:state:site-1:quote:LCP";
+    const firstPosts = [
       expect.stringMatching(/alarm.*quote.*2800/is),
       expect.stringContaining("Speed DATA GAP · site-1.example (site-1) · quote · LCP · 19 samples (minimum 20)"),
-      expect.stringMatching(/alarm.*quote.*2700/is),
-    ]);
+    ];
+    expect(messages()).toEqual(firstPosts);
+    expect(store.get(key)).toBe(`alarm ${noon + 4 * hour} gap`);
     // A late observation makes hour 2 healthy. Its delayed replay must not
     // announce recovery after hour 3 already observed the sustained alarm.
     seed(1, noon + 2 * hour, { page: "quote", lcp: 1400 });
     await checkHour(2);
-    expect(messages()).toHaveLength(3);
-    for (const offset of [4, 4, 5]) await checkHour(offset);
-    expect(messages()[3]).toMatch(/recover.*quote.*1500/is);
-    await checkHour(6);
-    expect(messages()).toHaveLength(5);
-    expect(messages()[4]).toMatch(/alarm.*quote.*2600/is);
+    expect(messages()).toEqual(firstPosts);
+    await checkHour(4);
+    expect(messages()).toEqual(firstPosts);
+    expect(store.get(key)).toBe(`nodata ${noon + 5 * hour}`);
+    for (const offset of [4, 5, 5, 6]) await checkHour(offset);
+    expect(messages()).toEqual([...firstPosts, expect.stringMatching(/recover.*quote.*1500/is)]);
+    expect(store.get(key)).toBe(`healthy ${noon + 6 * hour}`);
+    for (const offset of [7, 8, 8]) await checkHour(offset);
+    expect(messages().slice(3)).toEqual([
+      expect.stringMatching(/alarm.*quote.*2600/is),
+      expect.stringMatching(/Speed DATA GAP.*quote.*0 samples/),
+    ]);
   });
 
   it("keeps sites, page types and metrics independent and applies LCP targets to every page type", async () => {
@@ -262,30 +273,24 @@ describe.skipIf(!hasSqlite)("scheduled site speed monitoring", () => {
 
   it("uses 50 actual edge samples per site and recovers at exactly 90% HIT share", async () => {
     addSite(db, "site-2", "Second site", "home");
-    counters("site-1", noon, 44, 5);
-    counters("site-2", noon, 0, 1);
+    seedEdge("site-1", noon, 44, 5);
+    seedEdge("site-2", noon, 0, 1);
     await checkHour();
     expect(send).not.toHaveBeenCalled();
 
-    // Schedule overlapping visits to the same two rows, then read the hour through cron.
-    vi.spyOn(Date, "now").mockReturnValue(noon + hour);
-    vi.spyOn(Math, "random").mockReturnValue(0);
-    const { ctx, promises } = ctxCapture();
-    for (let i = 0; i < 50; i++) {
-      recordEdgeCacheStatus(env, i < 44 ? "HIT" : "MISS", ctx, "site-1");
-    }
-    expect(promises).toHaveLength(50);
-    await Promise.all(promises);
-    expect(db.prepare("SELECT outcome, n FROM edge_hit_counts WHERE site_id = ? AND hour = ? ORDER BY outcome")
-      .all("site-1", (noon + hour) / 1000)).toEqual([{ outcome: "HIT", n: 440 }, { outcome: "MISS", n: 60 }]);
+    seedEdge("site-1", noon + hour, 44, 6);
+    expect(db.prepare(`SELECT edge, COUNT(*) AS n FROM vitals_samples WHERE site_id = ? AND created_at = ?
+      GROUP BY edge ORDER BY edge`).all("site-1", (noon + hour) / 1000)).toEqual([
+      { edge: "HIT", n: 44 }, { edge: "MISS", n: 6 },
+    ]);
     await checkHour(1);
     expect(messages()).toHaveLength(1);
     const alarm = messages()[0]!;
     for (const field of ["site-1", "HIT", "88%", "90%", "50 samples", release]) expect(alarm).toContain(field);
     expect(alarm).toMatch(/all pages/i);
 
-    counters("site-1", noon + 2 * hour, 0, 50);
-    counters("site-1", noon + 4 * hour, 45, 5);
+    seedEdge("site-1", noon + 2 * hour, 0, 50);
+    seedEdge("site-1", noon + 4 * hour, 45, 5);
     for (const offset of [1, 2, 3]) await checkHour(offset);
     expect(messages()).toHaveLength(2);
     expect(messages()[1]).toContain("all pages · HIT · 0 samples (minimum 50)");
@@ -293,6 +298,43 @@ describe.skipIf(!hasSqlite)("scheduled site speed monitoring", () => {
     await checkHour(4);
     expect(messages()).toHaveLength(3);
     expect(messages()[2]).toMatch(/recover.*HIT.*90%/is);
+  });
+
+  it("reads each client's earliest three known outcomes across page types and starts a new window at UTC midnight", async () => {
+    const midnight = Date.UTC(2026, 11, 2);
+    for (let i = 0; i < 20; i++) {
+      const client = i.toString(16).padStart(16, "0");
+      seed(3, midnight - hour, { client, edge: null });
+      seed(2, midnight - 1000, { client, edge: "HIT" });
+      seed(1, midnight - 1000, { client, page: "home", edge: "MISS" });
+      seed(3, midnight - 1000, { client, page: "tag", edge: "MISS" });
+      seed(3, midnight, { client, edge: "HIT" });
+    }
+    await runSpeedAlarms(env, midnight + 5 * minute);
+    expect(messages()).toEqual([
+      `Speed ALARM · site-1.example (site-1) · all pages · edge HIT share 66.667% · target ≥ 90% · 60 samples · worker ${release}`,
+    ]);
+    await runSpeedAlarms(env, midnight + hour + 5 * minute);
+    expect(messages()).toHaveLength(2);
+    expect(messages()[1]).toMatch(/Speed RECOVERY.*edge HIT share 100%.*60 samples/);
+  });
+
+  it("counts only capped, identified HIT and MISS rows toward the 50-sample minimum", async () => {
+    const info = vi.spyOn(console, "info");
+    seed(100, noon, { client: "0000000000000001", edge: "MISS" });
+    seed(100, noon, { client: null, edge: "MISS" });
+    seed(100, noon, { edge: null });
+    await checkHour();
+    expect(info).toHaveBeenCalledWith(expect.stringContaining("insufficient traffic from sampled real visitors (3 samples)"));
+    expect(send).not.toHaveBeenCalled();
+
+    for (let i = 0; i < 60; i++) {
+      const client = (i % 12).toString(16).padStart(16, "0");
+      seed(1, noon + hour, { client, edge: i < 40 ? "HIT" : "MISS" });
+    }
+    await checkHour(1);
+    expect(info).toHaveBeenCalledWith(expect.stringContaining("insufficient traffic from sampled real visitors (36 samples)"));
+    expect(send).not.toHaveBeenCalled();
   });
 
   it("logs the alarm once when Slack delivery is unconfigured", async () => {
@@ -387,7 +429,8 @@ describe.skipIf(!hasSqlite)("scheduled site speed monitoring", () => {
   it("does no monitoring I/O outside hourly checks and weekly retry slots", async () => {
     const sql = vi.spyOn(env.DB, "prepare");
     const read = vi.spyOn(env.CACHE, "get");
-    for (const time of [monday - day + minute, monday - hour + minute, monday - minute, monday + minute, monday + day + minute]) {
+    for (const time of [monday - day + minute, monday - hour + minute, monday - 15 * minute, monday - minute,
+      monday + minute, monday + 6 * hour, monday + day + minute, monday + 2 * day + 15 * minute]) {
       await runSpeedAlarms(env, time);
     }
     expect(sql).not.toHaveBeenCalled();
@@ -417,8 +460,10 @@ describe.skipIf(!hasSqlite)("scheduled site speed monitoring", () => {
     expect(messages()).toEqual(attempts);
   });
 
-  it("retries a rejected weekly report on the next quarter hour with the same window and sends it once", async () => {
+  it("skips Wednesday, retries Monday's rejected 06:00 report at 06:15 UTC and delivers that window once", async () => {
     send.mockResolvedValueOnce(new Response("forbidden", { status: 403 }));
+    await runSpeedAlarms(env, monday - 5 * day + 15 * minute);
+    expect(send).not.toHaveBeenCalled();
     for (const offset of [0, 0, 1, 14]) await runSpeedAlarms(env, monday + offset * minute);
     expect(messages()).toHaveLength(1);
     expect(store.has("speed:v1:last-weekly-report")).toBe(false);
@@ -432,16 +477,35 @@ describe.skipIf(!hasSqlite)("scheduled site speed monitoring", () => {
     expect(store.get("speed:v1:last-weekly-report")).toBe(String(monday));
   });
 
-  it("catches up a missed Monday tick and keeps the week boundary across a month change", async () => {
+  it("can deliver at the last Monday retry slot and keeps the week boundary across a month change", async () => {
     store.set("speed:v1:last-weekly-report", String(monday - 7 * day));
     await runSpeedAlarms(env, monday - 15 * minute);
     expect(send).not.toHaveBeenCalled();
+    await runSpeedAlarms(env, monday + 5 * hour + 45 * minute);
     await runSpeedAlarms(env, monday + day + 30 * minute);
     await runSpeedAlarms(env, monday + 7 * day - 15 * minute);
     expect(messages()).toEqual([expect.stringContaining(`${new Date(monday - 7 * day).toISOString()} to ${new Date(monday).toISOString()}`)]);
     await runSpeedAlarms(env, monday + 7 * day);
     expect(messages()).toHaveLength(2);
     expect(messages()[1]).toContain(`${new Date(monday).toISOString()} to ${new Date(monday + 7 * day).toISOString()}`);
+  });
+
+  it("bounds an undelivered weekly report to 24 Monday slots with two Slack attempts per slot", async () => {
+    send.mockImplementation(async () => new Response("rate limited", { status: 429, headers: { "Retry-After": "0" } }));
+    vi.spyOn(console, "error").mockImplementation(() => {});
+    for (let slot = 0; slot < 24; slot++) {
+      const time = monday + slot * 15 * minute;
+      await runSpeedAlarms(env, time);
+      await runSpeedAlarms(env, time);
+      expect(send).toHaveBeenCalledTimes((slot + 1) * 2);
+    }
+    await runSpeedAlarms(env, monday + 6 * hour);
+    await runSpeedAlarms(env, monday + 2 * day);
+    const attempts = messages();
+    expect(attempts).toHaveLength(48);
+    expect(new Set(attempts).size).toBe(1);
+    expect(store.has("speed:v1:last-weekly-report")).toBe(false);
+    expect(store.get("speed:v1:last-weekly-attempt")).toBe(String(monday + 5 * hour + 45 * minute));
   });
 
   it("posts one Monday 06:00 UTC report for the previous seven days, including sites with only cache traffic", async () => {
@@ -456,21 +520,24 @@ describe.skipIf(!hasSqlite)("scheduled site speed monitoring", () => {
     seed(20, start + day, { site: "site-4", page: "home", lcp: 1500, inp: 100, cls: 0.02, ttfb: 800 });
     seed(40, start - 1000, { lcp: 9777 });
     seed(40, monday, { lcp: 9888 });
-    counters("site-1", start - hour, 0, 100);
-    counters("site-1", start, 40, 0);
-    counters("site-1", monday - hour, 6, 4);
-    counters("site-1", monday, 100, 0);
-    counters("site-2", monday - hour, 0, 49);
-    counters("site-3", monday - hour, 40, 10);
-    counters("site-4", monday - hour, 45, 5);
+    seedEdge("site-1", start - hour, 0, 100);
+    seedEdge("site-1", start, 37, 0);
+    const returningClient = "ffffffffffffffff";
+    seed(3, start, { client: returningClient, edge: "HIT" });
+    seed(20, monday - hour, { client: returningClient, page: "home", edge: "MISS" });
+    seedEdge("site-1", monday - hour, 6, 4);
+    seedEdge("site-1", monday, 100, 0);
+    seedEdge("site-2", monday - hour, 0, 49);
+    seedEdge("site-3", monday - hour, 40, 10);
+    seedEdge("site-4", monday - hour, 45, 5);
     const sql = vi.spyOn(env.DB, "prepare");
     const list = vi.spyOn(env.CACHE, "list");
 
     await runSpeedAlarms(env, monday);
     await runSpeedAlarms(env, monday);
-    const hitQueries = sql.mock.calls.filter(([query]) => query.includes("FROM edge_hit_counts"));
+    const hitQueries = sql.mock.calls.filter(([query]) => query.includes("edge IS NOT NULL"));
     expect(hitQueries).toHaveLength(1);
-    expect(hitQueries[0]![0]).toMatch(/SUM\(n\).*hour >= \? AND hour < \?.*GROUP BY site_id, outcome/s);
+    expect(hitQueries[0]![0]).toMatch(/FROM vitals_samples.*created_at >= \? AND created_at < \?.*GROUP BY site_id/s);
     expect(list).not.toHaveBeenCalled();
     const posts = messages();
     expect(posts).toHaveLength(1);
@@ -483,7 +550,7 @@ describe.skipIf(!hasSqlite)("scheduled site speed monitoring", () => {
     for (const metric of ["LCP", "FCP", "INP", "CLS", "TTFB", "HIT"]) expect(report).toContain(metric);
     const lines = report.split("\n");
     expect(lines.find(line => line.includes("site-1"))).toMatch(/92%/);
-    expect(lines.find(line => line.includes("site-2"))).toMatch(/insufficient traffic.*49/i);
+    expect(lines.find(line => line.includes("site-2"))).toContain("insufficient traffic from sampled real visitors (49 samples)");
     const missedHit = lines.find(line => line.includes("site-3"));
     expect(missedHit).toContain("80%");
     expect(missedHit).toContain("!");
@@ -542,8 +609,8 @@ describe.skipIf(!hasSqlite)("scheduled site speed monitoring", () => {
     // These sites straddle the first 50-site batch in the sorted fleet.
     seed(20, monday - hour, { site: "fleet-050", lcp: 3004 });
     seed(20, monday - hour, { site: "fleet-051", lcp: 1783 });
-    counters("fleet-050", monday - hour, 44, 6);
-    counters("fleet-051", monday - hour, 49, 1);
+    seedEdge("fleet-050", monday - hour, 44, 6);
+    seedEdge("fleet-051", monday - hour, 49, 1);
     const sql = vi.spyOn(env.DB, "prepare");
     const kvRead = vi.spyOn(env.CACHE, "get");
     const kvList = vi.spyOn(env.CACHE, "list");
@@ -556,7 +623,7 @@ describe.skipIf(!hasSqlite)("scheduled site speed monitoring", () => {
     expect(sites.filter(id => !report.includes(id))).toEqual([]);
     expect(report).toMatch(/omitted page types[^\n]*fewer than 20 samples/i);
     expect(sql.mock.calls.length + kvRead.mock.calls.length + kvList.mock.calls.length).toBeLessThan(1000);
-    expect(sql.mock.calls.filter(([query]) => query.includes("FROM edge_hit_counts"))).toHaveLength(4);
+    expect(sql.mock.calls.filter(([query]) => query.includes("edge IS NOT NULL"))).toHaveLength(4);
 
     const lines = report.split("\n");
     for (const [site, lcp, hits] of [["fleet-050", "3004!", "88%!"], ["fleet-051", "1783!", "98%"]] as const) {
@@ -581,7 +648,7 @@ describe.skipIf(!hasSqlite)("scheduled site speed monitoring", () => {
       addSite(db, id, id, "home");
       sites.push(id);
     }
-    for (const site of sites) counters(site, monday - hour, 46, 4);
+    for (const site of sites) seedEdge(site, monday - hour, 46, 4);
     // One statement seeds 20 visits per site/page. Distinct site and page values
     // let us verify every percentile cell in the full report.
     db.prepare(`WITH RECURSIVE visits(n) AS (
@@ -617,37 +684,38 @@ describe.skipIf(!hasSqlite)("scheduled site speed monitoring", () => {
     }
   });
 
-  it("prunes both meters strictly older than fourteen days once per hourly run", async () => {
+  it("prunes vitals and edge observations strictly older than fourteen days with one hourly DELETE", async () => {
     const cutoff = firstTick - 14 * day;
     seed(1, cutoff - 1000, {});
     seed(1, cutoff, {});
     seed(1, firstTick, {});
     const oldestHour = Math.floor(cutoff / hour) * hour;
-    counters("site-1", oldestHour, 5, 3);
-    counters("site-1", oldestHour + hour, 4, 2);
+    seedEdge("site-1", oldestHour, 5, 3);
+    seedEdge("site-1", oldestHour + hour, 4, 2);
     const sql = vi.spyOn(env.DB, "prepare");
-    const deletes = () => sql.mock.calls.map(([query]) => query).filter(query => /DELETE\s+FROM\s+vitals_samples/i.test(query));
-    const edgeDeletes = () => sql.mock.calls.map(([query]) => query).filter(query => /DELETE\s+FROM\s+edge_hit_counts/i.test(query));
-    const times = () => db.prepare("SELECT created_at FROM vitals_samples ORDER BY created_at").all();
-    const edgeHours = () => db.prepare("SELECT DISTINCT hour FROM edge_hit_counts ORDER BY hour").all();
+    const deletes = () => sql.mock.calls.map(([query]) => query).filter(query => /^DELETE\b/i.test(query));
+    const times = () => db.prepare("SELECT created_at FROM vitals_samples WHERE edge IS NULL ORDER BY created_at").all();
+    const edgeRows = () => db.prepare(`SELECT created_at, edge, COUNT(*) AS n FROM vitals_samples
+      WHERE edge IS NOT NULL GROUP BY created_at, edge ORDER BY created_at, edge`).all();
     await checkHour();
     expect(deletes()).toHaveLength(1);
-    expect(deletes()[0]).toMatch(/created_at\s*<\s*\?/i);
+    expect(deletes()[0]).toMatch(/DELETE FROM vitals_samples WHERE created_at\s*<\s*\?/i);
     expect(times()).toEqual([{ created_at: cutoff / 1000 }, { created_at: firstTick / 1000 }]);
-    expect(edgeDeletes()).toHaveLength(1);
-    expect(edgeDeletes()[0]).toMatch(/hour\s*<\s*\?/i);
-    expect(edgeHours()).toEqual([{ hour: (oldestHour + hour) / 1000 }]);
+    const retainedEdgeRows = [
+      { created_at: (oldestHour + hour) / 1000, edge: "HIT", n: 4 },
+      { created_at: (oldestHour + hour) / 1000, edge: "MISS", n: 2 },
+    ];
+    expect(edgeRows()).toEqual(retainedEdgeRows);
 
     seed(1, cutoff - 2000, {});
     await checkHour();
     expect(deletes()).toHaveLength(1);
-    expect(edgeDeletes()).toHaveLength(1);
     expect(times()).toHaveLength(3);
+    expect(edgeRows()).toEqual(retainedEdgeRows);
     await checkHour(1);
     expect(deletes()).toHaveLength(2);
     expect(times()).toEqual([{ created_at: firstTick / 1000 }]);
-    expect(edgeDeletes()).toHaveLength(2);
-    expect(edgeHours()).toEqual([]);
+    expect(edgeRows()).toEqual([]);
   });
 
   it("executes at most one retention DELETE when the first hourly marker write fails", async () => {
@@ -662,31 +730,29 @@ describe.skipIf(!hasSqlite)("scheduled site speed monitoring", () => {
     expect(db.prepare("SELECT COUNT(*) AS n FROM vitals_samples").get()).toEqual({ n: 0 });
   });
 
-  it("samples global and site counters together and rolls D1 hour buckets over at UTC midnight", async () => {
+  it("records sampled cache outcomes across UTC midnight in the global KV counters with zero D1 calls", async () => {
+    const database = env.DB;
+    const getDatabase = vi.fn(() => database);
+    Object.defineProperty(env, "DB", { get: getDatabase });
     const midnight = Date.UTC(2026, 11, 1);
     const clock = vi.spyOn(Date, "now").mockReturnValue(midnight - 1);
     const draw = vi.spyOn(Math, "random").mockReturnValue(0.099);
     const { ctx, promises } = ctxCapture();
-    async function record(status: string, site?: string) {
-      recordEdgeCacheStatus(env, status, ctx, site);
+    async function record(status: string) {
+      recordEdgeCacheStatus(env, status, ctx);
       await Promise.all(promises.splice(0));
     }
-    await record("hit", "site-1");
-    await record("HIT", "site-1");
-    await record("MISS", "site-2");
+    await record("hit");
+    await record("HIT");
+    await record("MISS");
     await record("MISS");
     clock.mockReturnValue(midnight);
-    await record("MISS", "site-1");
-    await record("BYPASS", "site-2");
+    await record("MISS");
+    await record("BYPASS");
     draw.mockReturnValue(0.1);
-    await record("HIT", "site-1");
-
-    expect(db.prepare("SELECT site_id, hour, outcome, n FROM edge_hit_counts ORDER BY hour, site_id").all()).toEqual([
-      { site_id: "site-1", hour: (midnight - hour) / 1000, outcome: "HIT", n: 20 },
-      { site_id: "site-2", hour: (midnight - hour) / 1000, outcome: "MISS", n: 10 },
-      { site_id: "site-1", hour: midnight / 1000, outcome: "MISS", n: 10 },
-    ]);
+    await record("HIT");
     expect([...store.keys()].sort()).toEqual(["cachestat:hits", "cachestat:misses"]);
     expect(await readCacheStats(env)).toEqual({ hits: 20, misses: 30, total: 50, hit_rate: 0.4 });
+    expect(getDatabase).not.toHaveBeenCalled();
   });
 });

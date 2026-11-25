@@ -68,17 +68,19 @@ describe("uncached vitals ingestion", () => {
     vi.clearAllMocks();
   });
 
-  it("indexes the alarm reader's site and time range and constrains the stored page types", () => {
+  it("indexes the alarm reader's site and time range and constrains page types and edge outcomes", () => {
     expect(sqlite.prepare("PRAGMA index_info('idx_vitals_samples_site_created')").all())
       .toMatchObject([{ name: "site_id" }, { name: "created_at" }]);
     expect(() => sqlite.prepare("INSERT INTO vitals_samples (created_at, site_id, page_type) VALUES (?, ?, ?)")
       .run(1, SEED_SITE_ID, "unknown-type")).toThrow(/CHECK constraint/);
+    expect(() => sqlite.prepare("INSERT INTO vitals_samples (created_at, site_id, page_type, edge) VALUES (?, ?, ?, ?)")
+      .run(1, SEED_SITE_ID, "home", "EXPIRED")).toThrow(/CHECK constraint/);
   });
 
-  it("reads only the host snapshot and schedules one parameterized insert with edge-owned dimensions", async () => {
+  it.each(["HIT", "MISS"])("reads only the host snapshot and inserts the reported %s with edge-owned dimensions", async edge => {
     const { serve, calls, work, fallback } = gateway();
     const metrics = { ttfb_ms: 0, fcp_ms: 124.5, lcp_ms: 60_000, inp_ms: 16, cls: 5 };
-    const request = post(JSON.stringify({ page_type: "quote", ...metrics,
+    const request = post(JSON.stringify({ page_type: "quote", edge, ...metrics,
       site_id: "different-site", country: "AU", worker_version: "other", created_at: 1, device: "tablet", client_key: "forged",
     }), { "x-cms-site-id": "header-site", "CF-IPCountry": "CA", "X-Forwarded-Host": "other.example" });
     const before = Math.floor(Date.now() / 1000);
@@ -97,7 +99,7 @@ describe("uncached vitals ingestion", () => {
       await Promise.all(work);
       expect(prepare).toHaveBeenCalledTimes(1);
       expect(rows()).toEqual([{ id: expect.any(Number), created_at: expect.any(Number), site_id: SEED_SITE_ID,
-        page_type: "quote", country: "GB", ...metrics, worker_version: "test-worker",
+        page_type: "quote", edge, country: "GB", ...metrics, worker_version: "test-worker",
         device: "desktop", client_key: expect.stringMatching(/^[0-9a-f]{16}$/) }]);
       const { created_at } = rows()[0] as { created_at: number };
       expect(created_at).toBeGreaterThanOrEqual(before);
@@ -125,10 +127,12 @@ describe("uncached vitals ingestion", () => {
     expect(limit).not.toHaveBeenCalled();
   });
 
-  it("uses the unknown limiter key when CF-Connecting-IP is absent", async () => {
+  it.each([null, "2001:db8:::1", "invalid-ip"])("uses the unknown limiter key for CF-Connecting-IP %j", async ip => {
     const limit = vi.fn().mockResolvedValue({ success: true });
     const { serve, work } = gateway(undefined, { ...env, VITALS_RATE_LIMITER: { limit } });
-    const response = await serve(post(sampleBody, { "X-Forwarded-For": clientIp }));
+    const headers = new Headers({ "X-Forwarded-For": clientIp });
+    if (ip) headers.set("CF-Connecting-IP", ip);
+    const response = await serve(post(sampleBody, headers));
     expect(limit.mock.calls).toEqual([[{ key: "unknown" }]]);
     expect(response.status).toBe(204);
     await Promise.all(work);
@@ -195,6 +199,34 @@ describe("uncached vitals ingestion", () => {
     }
   });
 
+  it("groups IPv6 addresses by the same expanded /64 for the limiter and the daily client key", async () => {
+    const prefix = "2001:0db8:0000:00ab";
+    const cases = [
+      ["2001:db8::AB:1:2:3:4", prefix],
+      ["2001:0DB8:0000:00AB:fedc:ba98:7654:3210", prefix],
+      ["2001:db8:0:ab::", prefix],
+      ["2001:db8:0:ac::1", "2001:0db8:0000:00ac"],
+      ["::ffff:192.0.2.1", "0000:0000:0000:0000"],
+      ["::1", "0000:0000:0000:0000"],
+    ] as const;
+    const day = "2026-11-24";
+    const limit = vi.fn().mockResolvedValue({ success: true });
+    const { serve, work } = gateway(undefined, { ...env, VITALS_RATE_LIMITER: { limit } });
+    vi.useFakeTimers({ toFake: ["Date"], now: new Date(day + "T12:00:00Z") });
+    try {
+      for (const [ip] of cases) {
+        expect((await serve(post(sampleBody, { "CF-Connecting-IP": ip }))).status).toBe(204);
+        await Promise.all(work);
+      }
+      expect(limit.mock.calls).toEqual(cases.map(([, source]) => [{ key: source }]));
+      expect(rows()).toMatchObject(cases.map(([, source]) => ({
+        client_key: createHash("sha256").update(`${source}|${day}|${SEED_SITE_ID}`).digest("hex").slice(0, 16),
+      })));
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
   it("logs the resolved site when D1 rejects the background insert", async () => {
     const { serve, work } = gateway();
     const log = vi.spyOn(console, "error").mockImplementation(() => {});
@@ -218,7 +250,7 @@ describe("uncached vitals ingestion", () => {
       expect(response.status).toBe(204);
       await Promise.all(work);
       expect(rows()).toMatchObject([{ page_type, cls: 0, ttfb_ms: null, fcp_ms: null, lcp_ms: null,
-        inp_ms: null, country: null, worker_version: null }]);
+        inp_ms: null, country: null, worker_version: null, edge: null }]);
     },
   );
 
@@ -236,6 +268,8 @@ describe("uncached vitals ingestion", () => {
     "", "{", "null", "[]", "42", "{}", '{"page_type":"news","cls":0}', '{"cls":0}', '{"page_type":"home"}',
     '{"page_type":"article","ttfb_ms":-1}', '{"page_type":"category","fcp_ms":60001}', '{"page_type":"page","lcp_ms":1e500}',
     '{"page_type":"quote","inp_ms":"8","cls":0}', '{"page_type":"tag","cls":5.01}', '{"page_type":"other","cls":-0.1}',
+    '{"page_type":"home","cls":0,"edge":"EXPIRED"}', '{"page_type":"home","cls":0,"edge":"hit"}',
+    '{"page_type":"home","cls":0,"edge":null}', '{"page_type":"home","cls":0,"edge":1}', '{"page_type":"home","edge":"HIT"}',
   ])("rejects malformed or unmeasurable payload %j before doing any I/O", async body => {
     const { serve, calls, work } = gateway();
     const response = await serve(post(body));
@@ -289,16 +323,17 @@ describe("uncached vitals ingestion", () => {
     expect(fallback).not.toHaveBeenCalled();
   });
 
-  it("passes the resolved site to the cache counter for a cached page", async () => {
+  it("records a cached page outcome with just the bindings, status and request context", async () => {
     const { serve, ctx } = gateway();
     const res = await serve(new Request(origin, { method: "HEAD", headers: { "x-cms-site-id": "wrong-site" } }));
     expect(res.headers.get("x-edge-cache")).toBe("HIT");
     expect(recordEdgeCacheStatus).toHaveBeenCalledTimes(1);
-    const [bindings, status, requestContext, siteId] = vi.mocked(recordEdgeCacheStatus).mock.calls[0]!;
+    const args = vi.mocked(recordEdgeCacheStatus).mock.calls[0]!;
+    expect(args).toHaveLength(3);
+    const [bindings, status, requestContext] = args;
     expect(bindings).toBe(env);
     expect(status).toBe("HIT");
     expect(requestContext).toBe(ctx);
-    expect(siteId).toBe(SEED_SITE_ID);
   });
 });
 
@@ -389,15 +424,20 @@ function browser(random: number, types = ["event", "first-input", "largest-conte
   const events = new EventTarget();
   const document = Object.assign(new EventTarget(), { visibilityState, documentElement: { dataset: { pt: "quote" } } });
   const sendBeacon = vi.fn((_url: string, _body: Blob) => true);
+  const navigation: {
+    responseStart?: number;
+    activationStart: number;
+    serverTiming?: { name: string; description: string }[];
+  } = { responseStart: 125, activationStart: 5 };
   const performance = {
     interactionCount: 50,
-    getEntriesByType: (name: string) => name === "navigation" ? [{ responseStart: 125, activationStart: 5 }] : [],
+    getEntriesByType: (name: string) => name === "navigation" ? [navigation] : [],
     getEntriesByName: (name: string, type: string) => name === "first-contentful-paint" && type === "paint" ? [{ startTime: 205 }] : [],
   };
   const script = VITALS_BEACON.slice(VITALS_BEACON.indexOf(">") + 1, -"</script>".length);
   runInNewContext(script, { document, performance, PerformanceObserver: Observer, navigator: { sendBeacon }, Blob, location: { origin },
     addEventListener: events.addEventListener.bind(events), Math: Object.assign(Object.create(Math), { random: () => random }) });
-  return { observers, document, events, sendBeacon };
+  return { observers, document, events, sendBeacon, navigation };
 }
 
 it("samples below 20%, flushes pending entries, and reports the five metrics once on the first hide", async () => {
@@ -440,4 +480,23 @@ it("excludes background-tab paint delays from the real-visitor timings", async (
   hidden.document.visibilityState = "visible";
   hidden.events.dispatchEvent(new Event("pagehide"));
   expect(JSON.parse(await hidden.sendBeacon.mock.calls[0]![1].text())).toEqual({ page_type: "quote", ttfb_ms: 120 });
+});
+
+it.each(["HIT", "MISS", "BYPASS"])("reads the navigation edge description %s into the sampled beacon", async description => {
+  const { navigation, events, sendBeacon } = browser(0, []);
+  navigation.serverTiming = [{ name: "gw-snap", description: "HIT" }, { name: "edge", description }];
+  events.dispatchEvent(new Event("pagehide"));
+  expect(sendBeacon).toHaveBeenCalledTimes(1);
+  const [url, body] = sendBeacon.mock.calls[0]!;
+  expect(url).toBe(endpoint);
+  expect(JSON.parse(await body.text())).toEqual({ page_type: "quote", ttfb_ms: 120, fcp_ms: 200,
+    ...(description === "BYPASS" ? {} : { edge: description }) });
+});
+
+it("skips the beacon when only the edge outcome is available", () => {
+  const { navigation, events, sendBeacon } = browser(0, [], "hidden");
+  delete navigation.responseStart;
+  navigation.serverTiming = [{ name: "edge", description: "HIT" }];
+  events.dispatchEvent(new Event("pagehide"));
+  expect(sendBeacon).not.toHaveBeenCalled();
 });

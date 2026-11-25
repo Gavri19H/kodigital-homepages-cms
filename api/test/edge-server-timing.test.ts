@@ -68,7 +68,7 @@ function countingDb() {
 }
 
 // Model the Workers Cache boundary. A HIT replays the header stored on the MISS.
-function cachedGateway() {
+function cachedGateway(missStatus: string | null = "MISS") {
   const fixture = countingDb();
   const env = buildEnv(fixture.db);
   env.PERFSTAGE = "true";
@@ -85,8 +85,9 @@ function cachedGateway() {
     const batch = db.batch([title(), db.prepare(creditSql).bind("Zoë")]);
     clock += 5;
     const [titles, credits] = await batch;
-    return new Response(JSON.stringify([row, list.results, titles!.results, credits!.results]), {
-      headers: { "Content-Type": "application/json", ETag: '"v2"', "Server-Timing": "renderer;dur=1" },
+    const body = `<pre>${JSON.stringify([row, list.results, titles!.results, credits!.results])}</pre>`;
+    return new Response(body, {
+      headers: { "Content-Type": "text/html; charset=utf-8", ETag: '"v2"', "Server-Timing": "renderer;dur=1" },
     });
   }
   vi.spyOn(app, "honoFetch").mockImplementation((_request, bindings) => {
@@ -100,7 +101,8 @@ function cachedGateway() {
         const stored = cache.get(props.variantKey);
         const response = stored?.clone() ?? await new PublicPage({ ...ctx, props }, env).fetch(request);
         if (!stored) cache.set(props.variantKey, response.clone());
-        response.headers.set("cf-cache-status", stored ? "HIT" : "MISS");
+        const status = stored ? "HIT" : missStatus;
+        if (status !== null) response.headers.set("cf-cache-status", status);
         clock += props.variantKey === "snap" ? 3 : 2;
         return response;
       },
@@ -134,8 +136,9 @@ it("reports each fresh build, overlapping D1 wall time and result locations with
   expect(miss.status).toBe(200);
   expect(miss.headers.get("x-edge-cache")).toBe("MISS");
   expect(timingEntries(miss)).toEqual([
-    'gw-snap;dur=3;desc="MISS"', ...snapMetrics, "gw-inner;dur=27", ...pageMetrics,
+    'gw-snap;dur=3;desc="MISS"', ...snapMetrics, "gw-inner;dur=27", ...pageMetrics, 'edge;desc="MISS"',
   ].sort());
+  expect(miss.headers.get("Server-Timing")).toMatch(/, edge;desc="MISS"$/);
   expect(timingEntries(cache.get("snap")!)).toEqual([...snapMetrics].sort());
   expect(timingEntries(cache.get("human")!)).toEqual([...pageMetrics].sort());
   expect(await miss.bytes()).toEqual(await plainPage.bytes());
@@ -148,7 +151,7 @@ it("reports each fresh build, overlapping D1 wall time and result locations with
   expect(withSession.mock.calls).toEqual([["first-primary"], ["published"]]);
 });
 
-it.each([undefined, "false", "TRUE"])("omits timings from production misses, stored snapshots and hits with PERFSTAGE=%s", async flag => {
+it.each([undefined, "false", "TRUE"])("exposes only the current edge outcome in production with PERFSTAGE=%s", async flag => {
   const { env, visit, cache, calls } = cachedGateway();
   env.APP_ENV = "production";
   env.PERFSTAGE = flag;
@@ -156,7 +159,7 @@ it.each([undefined, "false", "TRUE"])("omits timings from production misses, sto
   const miss = await visit({ headers: { "x-perfstage-direct": "1" } });
   expect(miss.status).toBe(200);
   expect(miss.headers.get("x-edge-cache")).toBe("MISS");
-  expect(miss.headers.get("Server-Timing")).toBeNull();
+  expect(miss.headers.get("Server-Timing")).toBe('edge;desc="MISS"');
   const bytes = await miss.bytes();
   for (const key of ["snap", "human"]) {
     const stored = cache.get(key)!;
@@ -167,10 +170,26 @@ it.each([undefined, "false", "TRUE"])("omits timings from production misses, sto
   calls.length = 0;
   const hit = await visit();
   expect(hit.headers.get("x-edge-cache")).toBe("HIT");
-  expect(hit.headers.get("Server-Timing")).toBeNull();
+  expect(hit.headers.get("Server-Timing")).toBe('edge;desc="HIT"');
   expect(await hit.bytes()).toEqual(bytes);
   expect(measure).not.toHaveBeenCalled();
   expect(calls).toHaveLength(0);
+});
+
+it.each([
+  ["EXPIRED", 'edge;desc="MISS"'], ["DYNAMIC", 'edge;desc="MISS"'], ["BYPASS", 'edge;desc="MISS"'],
+  [null, null], ["REVALIDATED", null],
+] as const)("reports the page outcome for cf-cache-status %s", async (status, entry) => {
+  const { env, visit, cache } = cachedGateway(status);
+  delete env.PERFSTAGE;
+  const page = await visit();
+  expect(page.headers.get("x-edge-cache")).toBe(status ?? "none");
+  expect(page.headers.get("Server-Timing")).toBe(entry);
+
+  env.PERFSTAGE = "true";
+  cache.delete("human");
+  const staged = await visit();
+  expect(timingEntries(staged)?.filter(metric => metric.startsWith("edge;"))).toEqual(entry ? [entry] : []);
 });
 
 it("evicts snapshot versions after eight builds and reuses each retained content hash", async () => {
@@ -259,6 +278,7 @@ it.each([
     ...(rebuildSnap ? snapMetrics : []),
     rebuildPage ? "gw-inner;dur=27" : "gw-inner;dur=2",
     ...(rebuildPage ? pageMetrics : []),
+    rebuildPage ? 'edge;desc="MISS"' : 'edge;desc="HIT"',
   ].sort());
   expect(next.headers.get("x-edge-cache")).toBe(rebuildPage ? "MISS" : "HIT");
   expect(await next.bytes()).toEqual(bytes);
@@ -274,7 +294,7 @@ it("keeps current gateway timings on bodyless HEAD and 304 hits", async () => {
   for (const response of [head, validated]) {
     expect(response.body).toBeNull();
     expect(response.headers.get("ETag")).toBe('"v2"');
-    expect(timingEntries(response)).toEqual(["gw-inner;dur=2", 'gw-snap;dur=3;desc="HIT"']);
+    expect(timingEntries(response)).toEqual(['edge;desc="HIT"', "gw-inner;dur=2", 'gw-snap;dur=3;desc="HIT"']);
   }
 });
 

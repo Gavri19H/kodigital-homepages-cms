@@ -291,7 +291,7 @@ it("keeps both hedges disabled at zero despite client headers and query paramete
   await vi.advanceTimersByTimeAsync(300);
   const response = await pending;
   expect(response.headers.get("x-edge-cache")).toBe("HIT");
-  expect(response.headers.get("Server-Timing")).toBeNull();
+  expect(response.headers.get("Server-Timing")).toBe('edge;desc="HIT"');
   expect(withSession).not.toHaveBeenCalled();
   expect(render).not.toHaveBeenCalled();
 });

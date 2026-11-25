@@ -1,10 +1,9 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { cacheGet, cacheSet } from "../src/cache";
 import { getCachedHtml, putCachedHtml } from "../src/cache/edge-cache";
-import { readCacheStats, recordEdgeCacheStatus } from "../src/cache/cache-stats";
+import { readCacheStats } from "../src/cache/cache-stats";
 import admin from "../src/admin/router";
 import type { Env } from "../src/env";
-import { makeFakeDb } from "./helpers/admin-test-kit";
 
 // T44 [BCL-020] — Cache hit/miss monitoring + /api/admin/cache/stats.
 //
@@ -200,31 +199,6 @@ describe("T44-AC1 cache hit/miss monitoring + /api/admin/cache/stats", () => {
       ["cachestat:hits", "10"],
       ["cachestat:misses", "10"],
     ]));
-  });
-
-  it("holds waitUntil for the site upsert and keeps the global sample when D1 fails", async () => {
-    const { db } = makeFakeDb();
-    const env = buildEnv({ DB: db });
-    const statement = db.prepare("");
-    vi.spyOn(db, "prepare").mockReturnValue(statement);
-    let rejectWrite!: (reason: Error) => void;
-    vi.spyOn(statement, "run").mockReturnValue(new Promise<never>((_, reject) => { rejectWrite = reject; }));
-    const error = vi.spyOn(console, "error").mockImplementation(() => {});
-
-    recordEdgeCacheStatus(env, "HIT", ctx, "site-1");
-    expect(pending).toHaveLength(1);
-    const finished = vi.fn();
-    const work = Promise.all(pending).then(finished);
-    try {
-      await vi.waitFor(async () => expect((await readCacheStats(env)).hits).toBe(10));
-      expect(finished).not.toHaveBeenCalled();
-    } finally {
-      rejectWrite(new Error("D1 unavailable"));
-      await work;
-    }
-    expect(finished).toHaveBeenCalledOnce();
-    expect(error).toHaveBeenCalledExactlyOnceWith("[cache-stats] Site edge count write failed", "site-1", "HIT");
-    expect(await readCacheStats(env)).toEqual({ hits: 10, misses: 0, total: 10, hit_rate: 1 });
   });
 
   it("skips counter reads and writes for unsampled requests and callers without waitUntil", async () => {

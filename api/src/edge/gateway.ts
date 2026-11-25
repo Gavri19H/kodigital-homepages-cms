@@ -75,6 +75,7 @@ const fixedPages = new Set([
 ]);
 const otherAppHeads = new Set(["newsletter", "lc", "lst-cand", "v"]);
 const leadgenRuntimeHeads = new Set(["attempt", "ck", "auction", "track", "lc", "pb", "runtime", "config", "px"]);
+const edgeMissStatuses = new Set(["MISS", "EXPIRED", "DYNAMIC", "BYPASS", "DIRECT"]);
 // The loopback routes by Host. Forwarding, method and version overrides can also
 // partition Workers Cache entries for an otherwise identical GET.
 const innerHeaderExclusions = [
@@ -333,8 +334,8 @@ async function serveCachedPage(
   if (needsLiveFallback(inner)) return null;
 
   let response = inner;
-  const publicHtml = inner.status === 200 && !listicle && !leadgen &&
-    /^text\/html(?:\s*;|$)/i.test(inner.headers.get("Content-Type") ?? "") &&
+  const isHtml = /^text\/html(?:\s*;|$)/i.test(inner.headers.get("Content-Type") ?? "");
+  const publicHtml = inner.status === 200 && !listicle && !leadgen && isHtml &&
     inner.headers.get("Cache-Control")?.startsWith("public,");
   let etag = inner.headers.get("ETag");
   if (publicHtml) {
@@ -370,7 +371,6 @@ async function serveCachedPage(
   if (!timing) headers.delete("Server-Timing");
   for (const name of cmsHeaderNames(headers)) headers.delete(name);
   if (publicHtml && etag !== null) headers.set("ETag", etag);
-  headers.set("x-edge-cache", direct ? "DIRECT" : inner.headers.get("cf-cache-status") ?? "none");
   for (const cookie of cookies) headers.append("Set-Cookie", cookie);
   if (inner.status === 200 && (listicle || leadgen)) {
     // PublicPage maps the degraded quote renderer's no-store to the private edge policy.
@@ -381,9 +381,17 @@ async function serveCachedPage(
   }
   if (direct) headers.set("Cache-Control", EDGE_CACHE_CONTROL.private);
   if (!sendBody) void response.body?.cancel().catch(() => {});
-  return new Response(sendBody ? response.body : null, {
+  const page = new Response(sendBody ? response.body : null, {
     headers, status: notModified ? 304 : inner.status, statusText: notModified ? "Not Modified" : inner.statusText,
   });
+  const edgeStatus = direct ? "DIRECT" : inner.headers.get("cf-cache-status") ?? "none";
+  page.headers.set("x-edge-cache", edgeStatus);
+  if (isHtml && (edgeStatus === "HIT" || edgeMissStatuses.has(edgeStatus))) {
+    const entry = edgeStatus === "HIT" ? 'edge;desc="HIT"' : 'edge;desc="MISS"';
+    if (timing) timing.inner += ", " + entry;
+    else page.headers.set("Server-Timing", entry);
+  }
+  return page;
 }
 
 export async function gatewayFetch(
@@ -444,7 +452,6 @@ async function dispatchGatewayRequest(
       return new Response(null, { status: 404, headers: { "Cache-Control": EDGE_CACHE_CONTROL.private } });
     }
     let response = await serveStatic(request, env, ctx, honoFetch);
-    let siteId: string | undefined;
     const pages = ctx?.exports as PageExports | undefined;
     if (!response && ctx && typeof pages?.PublicPage === "function" && (request.method === "GET" || request.method === "HEAD")) {
       const url = new URL(request.url);
@@ -460,7 +467,6 @@ async function dispatchGatewayRequest(
         }
         const hostSnapshot = await readHostSnapshot(url, context, timing);
         if (hostSnapshot && route) {
-          siteId = hostSnapshot.snapshot.siteId;
           const direct = env.PERFSTAGE === "true" && request.headers.get("x-perfstage-direct") === "1";
           response = await serveCachedPage(request, url, route, context, readCfSignals(request), hostSnapshot, timing, direct);
         } else if (hostSnapshot && attempt) {
@@ -476,7 +482,7 @@ async function dispatchGatewayRequest(
       }
     }
     if (response) {
-      recordEdgeCacheStatus(env, response.headers.get("x-edge-cache"), ctx, siteId);
+      recordEdgeCacheStatus(env, response.headers.get("x-edge-cache"), ctx);
       return timing ? withGatewayTiming(response, timing) : response;
     }
   } catch {

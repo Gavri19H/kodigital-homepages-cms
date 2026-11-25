@@ -1,4 +1,3 @@
-import { EDGE_SAMPLE_WEIGHT } from "../cache/cache-stats";
 import type { Env } from "../env";
 
 const HOUR_MS = 3_600_000;
@@ -76,27 +75,25 @@ async function readVitals(env: Env, sites: Site[], start: number, end: number, w
 }
 
 async function readHitShares(env: Env, sites: Site[], start: number, end: number): Promise<Map<string, Reading>> {
-  const rows = await env.DB.prepare(`SELECT site_id, outcome, SUM(n) AS n FROM edge_hit_counts
-    WHERE site_id IN (SELECT value FROM json_each(?)) AND hour >= ? AND hour < ?
-    GROUP BY site_id, outcome`)
-    .bind(JSON.stringify(sites.map(site => site.id)), start / 1000, end / 1000)
-    .all<{ site_id: string; outcome: "HIT" | "MISS"; n: number }>();
-  const totals = new Map(sites.map(site => [site.id, { hits: 0, samples: 0 }]));
-  for (const { site_id, outcome, n } of rows.results) {
-    const total = totals.get(site_id);
-    if (!total) continue;
-    const observed = n / EDGE_SAMPLE_WEIGHT;
-    if (!Number.isSafeInteger(observed) || observed < 0) {
-      totals.delete(site_id);
-      console.error("[speed-alarms] Edge counts unavailable", site_id);
-      continue;
-    }
-    total.samples += observed;
-    if (outcome === "HIT") total.hits += observed;
-  }
-  return new Map<string, Reading>([...totals].map(([siteId, { hits, samples }]) => [
-    siteId, { page_type: "all pages", metric: "HIT", samples, value: samples >= MIN_EDGE_SAMPLES ? 100 * hits / samples : null },
-  ]));
+  const rows = await env.DB.prepare(`WITH visits AS (
+    SELECT site_id, client_key, edge,
+      ROW_NUMBER() OVER (PARTITION BY site_id, client_key ORDER BY created_at, id) AS client_visit
+    FROM vitals_samples
+    WHERE site_id IN (SELECT value FROM json_each(?)) AND created_at >= ? AND created_at < ?
+      AND client_key IS NOT NULL AND edge IS NOT NULL
+  )
+  SELECT site_id, COUNT(*) AS samples,
+    CASE WHEN COUNT(*) >= ? AND COUNT(DISTINCT client_key) >= ?
+      THEN 100.0 * COUNT(*) FILTER (WHERE edge = 'HIT') / COUNT(*) END AS value
+  FROM visits WHERE client_visit <= ? GROUP BY site_id`)
+    .bind(JSON.stringify(sites.map(site => site.id)), start / 1000, end / 1000,
+      MIN_EDGE_SAMPLES, MIN_VITAL_CLIENTS, MAX_SAMPLES_PER_CLIENT)
+    .all<{ site_id: string; samples: number; value: number | null }>();
+  const totals = new Map(rows.results.map(row => [row.site_id, row]));
+  return new Map<string, Reading>(sites.map(({ id }) => {
+    const row = totals.get(id);
+    return [id, { page_type: "all pages", metric: "HIT", samples: row?.samples ?? 0, value: row?.value ?? null }];
+  }));
 }
 
 function slackBotChannel(env: Env): string | undefined {
@@ -167,7 +164,7 @@ function workerLabel(env: Env): string {
 function hitSummary(hit: Reading | null): string {
   if (!hit) return "edge HIT share unavailable";
   const value = hit.value === null
-    ? "insufficient traffic"
+    ? "insufficient traffic from sampled real visitors"
     : `${displayNumber(hit.value, targets.HIT)}%${offTarget("HIT", hit.value, targets.HIT) ? "!" : ""}`;
   return `edge HIT share ${value} (${hit.samples} samples)`;
 }
@@ -192,7 +189,7 @@ async function notifyChanges(env: Env, site: Site, hit: Reading | null, rows: Re
   if (!checks.length) return;
   const states = await env.CACHE.get(checks.map(check => check.key), "text");
   for (const { reading, target, key } of checks) {
-    const [previous, previousHour] = (states.get(key) ?? "").split(" ");
+    const [previous, previousHour, gap] = (states.get(key) ?? "").split(" ");
     if (Number(previousHour) >= end) continue;
     const edge = reading.metric === "HIT";
     let state: "alarm" | "healthy" | "nodata";
@@ -213,10 +210,14 @@ async function notifyChanges(env: Env, site: Site, hit: Reading | null, rows: Re
       detail = `${metric} ${displayNumber(reading.value, target)}${unit} · target ${edge ? "≥" : "≤"} ${target}${unit} · ${reading.samples} samples`;
     }
     const text = [headline, siteLabel(site), reading.page_type, detail, workerLabel(env)].join(" · ");
-    // A rejected POST leaves the last delivered state intact for the next check.
-    if (await deliver(env, text)) {
+    // A stored nodata state means the gap was delivered. Carry that fact through
+    // later alarms in this episode until a recovery is delivered.
+    const gapReported = previous === "nodata" || gap === "gap";
+    const silent = gapReported && state !== "healthy";
+    if (silent || await deliver(env, text)) {
       try {
-        await env.CACHE.put(key, `${state} ${end}`);
+        const marker = state === "alarm" && gapReported ? " gap" : "";
+        await env.CACHE.put(key, `${state} ${end}${marker}`);
       } catch {
         console.error("[speed-alarms] Alarm state write failed", site.id, reading.page_type, reading.metric);
       }
@@ -247,7 +248,7 @@ function weeklyReport(env: Env, start: number, end: number, sections: string[]):
   const header = [
     `Weekly speed report · ${new Date(start).toISOString()} to ${new Date(end).toISOString()} · ${workerLabel(env)}`,
     `Targets · Site-wide HIT ≥ ${targets.HIT}% · p75 LCP ≤ ${targets.LCP} ms (all page types), INP ≤ ${targets.INP} ms, CLS ≤ ${targets.CLS}, TTFB ≤ ${targets.TTFB} ms`,
-    `! marks a missed target. — means fewer than ${MIN_VITAL_SAMPLES} samples or fewer than ${MIN_VITAL_CLIENTS} distinct clients. HIT share requires ${MIN_EDGE_SAMPLES} samples.`,
+    `! marks a missed target. — means fewer than ${MIN_VITAL_SAMPLES} samples or fewer than ${MIN_VITAL_CLIENTS} distinct clients. HIT share requires ${MIN_EDGE_SAMPLES} known cache outcomes from at least ${MIN_VITAL_CLIENTS} distinct clients.`,
   ].join("\n");
   const completeLegend = `Omitted page types have fewer than ${MIN_VITAL_SAMPLES} samples or fewer than ${MIN_VITAL_CLIENTS} distinct clients for every vital.`;
   const columns = "```\nPage|LCP ms|FCP ms|INP ms|CLS|TTFB ms";
@@ -301,24 +302,17 @@ async function startHourlyCheck(env: Env, scheduledTime: number, end: number): P
   // Reserve this hour before starting the DELETE. Failed prunes can wait for the next hour.
   await env.CACHE.put(PRUNED_HOUR_KEY, String(end));
   const cutoff = Math.floor(scheduledTime / 1000) - 14 * 24 * 3600;
-  await env.DB.batch([
-    env.DB.prepare("DELETE FROM vitals_samples WHERE created_at < ?").bind(cutoff),
-    env.DB.prepare("DELETE FROM edge_hit_counts WHERE hour < ?").bind(cutoff),
-  ]);
+  await env.DB.prepare("DELETE FROM vitals_samples WHERE created_at < ?").bind(cutoff).run();
   return true;
-}
-
-function weeklyWindowEnd(tick: Date): number {
-  const daysSinceMonday = (tick.getUTCDay() + 6) % 7;
-  const monday = Date.UTC(tick.getUTCFullYear(), tick.getUTCMonth(), tick.getUTCDate() - daysSinceMonday, 6);
-  return monday <= tick.getTime() ? monday : monday - WEEK_HOURS * HOUR_MS;
 }
 
 export async function runSpeedAlarms(env: Env, scheduledTime: number): Promise<void> {
   const tick = new Date(scheduledTime);
-  const weekly = tick.getUTCMinutes() % 15 === 0;
-  if (!weekly && tick.getUTCMinutes() !== 5) return;
-  const end = weekly ? weeklyWindowEnd(tick) : Math.floor(scheduledTime / HOUR_MS) * HOUR_MS;
+  const minute = tick.getUTCMinutes();
+  const hour = tick.getUTCHours();
+  const weekly = tick.getUTCDay() === 1 && hour >= 6 && hour < 12 && minute % 15 === 0;
+  if (!weekly && minute !== 5) return;
+  const end = weekly ? tick.setUTCHours(6, 0, 0, 0) : Math.floor(scheduledTime / HOUR_MS) * HOUR_MS;
   const start = end - HOUR_MS * (weekly ? WEEK_HOURS : 1);
 
   try {
@@ -340,7 +334,7 @@ export async function runSpeedAlarms(env: Env, scheduledTime: number): Promise<v
       const batch = sites.slice(i, i + SITES_PER_BATCH);
       const [hits, vitalsBySite] = await Promise.all([
         readHitShares(env, batch, start, end).catch(() => {
-          console.error("[speed-alarms] Edge counts unavailable", batch.map(site => site.id));
+          console.error("[speed-alarms] Edge HIT share unavailable", batch.map(site => site.id));
           return null;
         }),
         readVitals(env, batch, start, end, weekly).catch(() => {
@@ -354,7 +348,7 @@ export async function runSpeedAlarms(env: Env, scheduledTime: number): Promise<v
         if (weekly) {
           sections.push(siteTable(site, hit, rows));
         } else {
-          if (hit && hit.samples < MIN_EDGE_SAMPLES) console.info(`[speed-alarms] ${siteLabel(site)} · ${hitSummary(hit)}`);
+          if (hit && hit.value === null) console.info(`[speed-alarms] ${siteLabel(site)} · ${hitSummary(hit)}`);
           await notifyChanges(env, site, hit, rows, end).catch(() => console.error("[speed-alarms] Alarm state unavailable", site.id));
         }
       }
