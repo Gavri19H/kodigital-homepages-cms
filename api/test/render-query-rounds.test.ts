@@ -186,7 +186,7 @@ describe("public router cache-MISS reads", () => {
   });
 });
 
-// Re-pinned for P4-A2 under TZ=UTC; the Stage 2 byte-identity proof against 7dfb84fc is on perf/p2-fast-builds at ea001908
+// rendered at the Stage 4 merge 66416747 under TZ=UTC; the Stage 2 byte-identity proof is on perf/p2-fast-builds
 // The three documents share their layout and ad script, so compress them
 // together to keep the inline fixture small. Comparison uses the complete text.
 const preChangeHtml: Record<string, string> = JSON.parse(
