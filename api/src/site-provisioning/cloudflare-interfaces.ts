@@ -38,7 +38,7 @@
 import { isDryRunProvisioning, isRouteMutationAllowed } from "../env";
 import type { Env } from "../env";
 import { postSpeedNotice } from "../edge/speed-alarms";
-import { isProtectedDomain } from "../safety/protected-domains";
+import { isProtectedDomain, normalizeHostname } from "../safety/protected-domains";
 
 export { isDryRunProvisioning, isRouteMutationAllowed };
 
@@ -151,10 +151,11 @@ function isProtectedZoneHostname(hostname: string): boolean {
   return isProtectedDomain(hostname) || isProtectedDomain(zoneNameForHostname(hostname));
 }
 
-function isDedicatedZone(hostname: string, zoneName: string): boolean {
-  const host = hostname.toLowerCase().replace(/\.$/, "");
-  const zone = zoneName.toLowerCase();
-  return host === zone || host === `www.${zone}`;
+function cmsZoneNames(env: Env): Set<string> {
+  const postback = URL.parse(env.CONVERSIONS_POSTBACK_ORIGIN ?? "");
+  const hosts = [env.ADMIN_HOST, postback?.hostname];
+  const zones = hosts.map(host => zoneNameForHostname(normalizeHostname(host)));
+  return new Set(zones.filter(zone => zone.includes(".")));
 }
 
 function liveZoneMutationEnabled(env: Env): boolean {
@@ -280,6 +281,21 @@ export function postZoneSpeedNotice(env: Env, message: string): Promise<boolean>
   return postSpeedNotice(env, text.replaceAll("&", "&amp;").replaceAll("<", "&lt;").replaceAll(">", "&gt;"));
 }
 
+// D1 arbitrates overlapping ticks. Each action reuses one row across UTC dates.
+function claimDailyZoneSpeedAction(db: D1Database, tick: Date, action: string) {
+  return db.prepare(`INSERT INTO cache_purge_log (id, action, status, dry_run, allow_route_mutation, created_at)
+    VALUES ((SELECT id FROM cache_purge_log WHERE status = 'completed' AND action = ? LIMIT 1),
+            ?, 'completed', 0, 1, ?)
+    ON CONFLICT(id) DO UPDATE SET created_at = excluded.created_at
+      WHERE date(created_at, 'unixepoch') < date(excluded.created_at, 'unixepoch')
+    RETURNING id, created_at`).bind(action, action, tick.getTime() / 1000).first<{ id: number; created_at: number }>();
+}
+
+export async function claimDailyZoneSpeedCrashNotice(env: Env, tick: Date): Promise<boolean> {
+  if (env.PERFSTAGE === "true" || !liveZoneMutationEnabled(env)) return false;
+  return (await claimDailyZoneSpeedAction(env.DB, tick, "zone-speed:v1:crash-notice")) !== null;
+}
+
 export async function claimDailyZoneSpeedSweep(env: Env, tick: Date) {
   if (env.PERFSTAGE === "true" || !liveZoneMutationEnabled(env)) return null;
   const key = "zone-speed:v1:last-sweep-date";
@@ -287,17 +303,10 @@ export async function claimDailyZoneSpeedSweep(env: Env, tick: Date) {
   const last = await env.CACHE.get(key);
   if (last !== null && last >= day) return null;
 
-  // As in runEdgeTick, D1 arbitrates isolates that read the same KV value.
-  // A missing-token notice has its own receipt so restored credentials can
-  // still run today's sweep. Each action reuses its row on later UTC dates.
+  // Notice receipts are independent so today's sweep can still retry.
   const hasToken = getProvisioningToken(env) !== null;
   const action = hasToken ? "zone-speed:v1:sweep-claim" : "zone-speed:v1:missing-token-notice";
-  const claim = await env.DB.prepare(`INSERT INTO cache_purge_log (id, action, status, dry_run, allow_route_mutation, created_at)
-    VALUES ((SELECT id FROM cache_purge_log WHERE status = 'completed' AND action = ? LIMIT 1),
-            ?, 'completed', 0, 1, ?)
-    ON CONFLICT(id) DO UPDATE SET created_at = excluded.created_at
-      WHERE date(created_at, 'unixepoch') < date(excluded.created_at, 'unixepoch')
-    RETURNING id, created_at`).bind(action, action, tick.getTime() / 1000).first<{ id: number; created_at: number }>();
+  const claim = await claimDailyZoneSpeedAction(env.DB, tick, action);
   if (!claim) return null;
   return {
     markComplete: async () => {
@@ -330,30 +339,32 @@ export async function runZoneSpeedSettingsSweep(env: Env, db: D1Database) {
       WHERE d.kind = ? AND d.status = ? AND s.status = ?
     ) WHERE preference = 1 ORDER BY site_id
   `).bind("canonical", "active", "active").all<ZoneSpeedSite>();
-  const byZone = new Map<string, ZoneSpeedResult[]>();
-  const skipped: Array<ZoneSpeedSite & { zone_name: string; reason: "shared_zone" }> = [];
+  const cmsZones = cmsZoneNames(env);
+  const byZone = new Map<string, { results: ZoneSpeedResult[]; settingsChecked: boolean }>();
+  const skipped: Array<ZoneSpeedSite & { zone_name: string; reason: "cms_zone" }> = [];
   for (const site of sites) {
     if (isProtectedZoneHostname(site.hostname)) continue;
-    summary.sites_checked++;
     const zoneName = zoneNameForHostname(site.hostname).toLowerCase();
-    if (!isDedicatedZone(site.hostname, zoneName)) {
-      skipped.push({ ...site, zone_name: zoneName, reason: "shared_zone" });
+    if (cmsZones.has(zoneName)) {
+      skipped.push({ ...site, zone_name: zoneName, reason: "cms_zone" });
       continue;
     }
-    let results = byZone.get(zoneName);
-    if (!results) {
+    let check = byZone.get(zoneName);
+    if (!check) {
       const zone = await lookupZoneId(token, zoneName, AbortSignal.timeout(ZONE_SPEED_TIMEOUT_MS))
         .catch((err: unknown) => ({ zone_id: null, error: err instanceof Error ? err.message : String(err) }));
-      results = zone.zone_id
+      const results = zone.zone_id
         ? await applyZoneSpeedSettings(token, zone.zone_id)
-        : ZONE_SPEED_SETTINGS.map(({ setting }) => ({
+        : ZONE_SPEED_SETTINGS.map(({ setting }): ZoneSpeedResult => ({
           setting, before: null, after: null, ok: false, error: zone.error ?? "No active Cloudflare zone found",
         }));
-      byZone.set(zoneName, results);
+      check = { results, settingsChecked: Boolean(zone.zone_id) };
+      byZone.set(zoneName, check);
       summary.zones_checked++;
       summary.settings_updated += results.filter(r => r.ok && r.before !== r.after).length;
     }
-    for (const result of results) {
+    if (check.settingsChecked) summary.sites_checked++;
+    for (const result of check.results) {
       if (!result.ok) failures.push({ ...site, setting: result.setting, error: result.error });
     }
   }
@@ -364,18 +375,24 @@ export async function runZoneSpeedSettingsSweep(env: Env, db: D1Database) {
   return skipped.length ? { ...summary, skipped } : summary;
 }
 
+async function buildSiteLabel(db: D1Database, siteId: string): Promise<string> {
+  const site = await db.prepare("SELECT name FROM sites WHERE id = ?")
+    .bind(siteId).first<{ name: string }>().catch(() => null);
+  return site?.name ? `${site.name} (${siteId})` : siteId;
+}
+
 async function applyBuildZoneSpeedSettings(
   ctx: CloudflareCallContext, input: CloudflareRouteMutationInput, token: string, zoneId: string,
 ) {
-  if (!isDedicatedZone(input.hostname, zoneNameForHostname(input.hostname))) {
-    return { skipped: true, reason: "shared_zone" } as const;
+  if (cmsZoneNames(ctx.env).has(zoneNameForHostname(input.hostname).toLowerCase())) {
+    const label = await buildSiteLabel(ctx.db, input.site_id);
+    await postZoneSpeedNotice(ctx.env, `Site build skipped zone speed settings for ${label} · ${input.hostname} · cms_zone`);
+    return { skipped: true, reason: "cms_zone" } as const;
   }
   const results = await applyZoneSpeedSettings(token, zoneId);
   const failures = results.filter(r => !r.ok);
   if (failures.length) {
-    const site = await ctx.db.prepare("SELECT name FROM sites WHERE id = ?")
-      .bind(input.site_id).first<{ name: string }>().catch(() => null);
-    const label = site?.name ? `${site.name} (${input.site_id})` : input.site_id;
+    const label = await buildSiteLabel(ctx.db, input.site_id);
     await postZoneSpeedNotice(ctx.env, [
       `Site build could not confirm zone speed settings for ${label} · ${input.hostname}`,
       ...failures.map(f => `${f.setting} · ${f.error}`),

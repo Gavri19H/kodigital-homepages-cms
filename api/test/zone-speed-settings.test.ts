@@ -191,22 +191,55 @@ describe.skipIf(!hasSqlite)("CMS zone speed settings", () => {
     expect(requests()).toEqual([`GET ${lookup("build.test")}`, `POST ${routes}`]);
   });
 
-  it("attaches a shared-zone subdomain and reports the skip in both the build and the sweep", async () => {
+  it("applies the parent zone's settings for a subdomain at build time and during the sweep", async () => {
     const hostname = "blog.example.com";
     addSite(db, "build", "Blog", "home");
     domain("build", hostname, "pending");
     zone("example.com", "z1", { "settings/early_hints": "off" });
+    const reads = Object.keys(targets).map(path => `GET ${zones}/z1/${path}`);
     const step = await attach(hostname);
     expect(step.status).toBe("completed");
     expect(JSON.parse(step.output)).toMatchObject({
-      attached: true, cf_route_id: "route-1", zone_speed_settings: { skipped: true, reason: "shared_zone" },
+      attached: true, cf_route_id: "route-1",
+      zone_speed_settings: Object.entries(targets).map(([path, target]) => ({
+        setting: path.split("/")[1], before: path === "settings/early_hints" ? "off" : target, after: target, ok: true,
+      })),
     });
-    expect(requests()).toEqual([`GET ${lookup("example.com")}`, `POST ${zones}/z1/workers/routes`]);
+    expect(requests()).toEqual([
+      `GET ${lookup("example.com")}`, `POST ${zones}/z1/workers/routes`, ...reads, `PATCH ${zones}/z1/settings/early_hints`,
+    ]);
+
+    send.mockClear();
+    values.set(`${zones}/z1/argo/tiered_caching`, "off");
+    expect(await provisioning.runZoneSpeedSettingsSweep(env, env.DB)).toEqual({
+      sites_checked: 1, zones_checked: 1, settings_updated: 1, failures: [],
+    });
+    expect(requests()).toEqual([`GET ${lookup("example.com")}`, ...reads, `PATCH ${zones}/z1/argo/tiered_caching`]);
+    expect(values.get(`${zones}/z1/argo/tiered_caching`)).toBe("on");
+  });
+
+  it.each([
+    ["shop.kodigital.app", "kodigital.app"],
+    ["conversions.test", "conversions.test"],
+  ])("attaches %s in a CMS zone, alerts once at build time and skips it silently in the sweep", async (hostname, zoneName) => {
+    env.ADMIN_HOST = "cms.kodigital.app";
+    env.CONVERSIONS_POSTBACK_ORIGIN = "https://post.conversions.test";
+    addSite(db, "build", "Shop & Co", "home");
+    domain("build", hostname, "pending");
+    zone(zoneName, "cms", { "settings/early_hints": "off" });
+
+    const step = await attach(hostname);
+    expect(step.status).toBe("completed");
+    expect(JSON.parse(step.output)).toMatchObject({
+      attached: true, cf_route_id: "route-1", zone_speed_settings: { skipped: true, reason: "cms_zone" },
+    });
+    expect(requests()).toEqual([`GET ${lookup(zoneName)}`, `POST ${zones}/cms/workers/routes`, `POST ${webhook}`]);
+    expect(slackMessages()).toEqual([`Site build skipped zone speed settings for Shop &amp; Co (build) · ${hostname} · cms_zone`]);
 
     send.mockClear();
     expect(await provisioning.runZoneSpeedSettingsSweep(env, env.DB)).toEqual({
-      sites_checked: 1, zones_checked: 0, settings_updated: 0, failures: [],
-      skipped: [{ site_id: "build", site_name: "Blog", hostname, zone_name: "example.com", reason: "shared_zone" }],
+      sites_checked: 0, zones_checked: 0, settings_updated: 0, failures: [],
+      skipped: [{ site_id: "build", site_name: "Shop & Co", hostname, zone_name: zoneName, reason: "cms_zone" }],
     });
     expect(send).toHaveBeenCalledTimes(0);
   });
@@ -400,21 +433,48 @@ describe.skipIf(!hasSqlite)("CMS zone speed settings", () => {
     ]);
   });
 
-  it("alerts once when the sweep throws, continues later cron tasks and retries the unfinished date", async () => {
+  it("alerts once per UTC date when the sweep keeps throwing and retries the unfinished sweep", async () => {
+    const error = new Error(`D1 unavailable <&> ${token}`);
+    const message = "Daily zone speed sweep failed · D1 unavailable &lt;&amp;&gt; [redacted]";
     const sweep = vi.spyOn(provisioning, "runZoneSpeedSettingsSweep")
-      .mockRejectedValueOnce(new Error(`D1 unavailable <&> ${token}`));
+      .mockRejectedValueOnce(error).mockRejectedValueOnce(error);
     const log = vi.spyOn(console, "error").mockImplementation(() => {});
     vi.mocked(runFingerprintCron).mockClear();
     await expect(scheduled(due)).resolves.toBeUndefined();
     expect(sweep).toHaveBeenCalledOnce();
     expect(log).toHaveBeenCalledWith("[zone-speed-settings] Daily sweep failed");
     expect(runFingerprintCron).toHaveBeenCalledOnce();
-    expect(slackMessages()).toEqual(["Daily zone speed sweep failed · D1 unavailable &lt;&amp;&gt; [redacted]"]);
+    expect(slackMessages()).toEqual([message]);
     expect(await env.CACHE.get(lastSweep)).toBeNull();
-    await scheduled(due + 60_000);
+
+    await scheduled(due + 60_000, { ...env, CACHE: makeKvStub().kv });
     expect(sweep).toHaveBeenCalledTimes(2);
+    expect(slackMessages()).toEqual([message]);
+    expect(await env.CACHE.get(lastSweep)).toBeNull();
+    await scheduled(due + 2 * 60_000);
+    expect(sweep).toHaveBeenCalledTimes(3);
     expect(await env.CACHE.get(lastSweep)).toBe("2026-11-25");
     expect(requests()).toEqual([`POST ${webhook}`]);
+
+    sweep.mockRejectedValueOnce(error);
+    await scheduled(due + 24 * 60 * 60_000);
+    expect(sweep).toHaveBeenCalledTimes(4);
+    expect(runFingerprintCron).toHaveBeenCalledTimes(4);
+    expect(slackMessages()).toEqual([message, message]);
+  });
+
+  it("continues later cron tasks even when the crash notice itself throws", async () => {
+    vi.spyOn(provisioning, "runZoneSpeedSettingsSweep").mockRejectedValue(new Error("sweep failed"));
+    const notice = vi.spyOn(provisioning, "postZoneSpeedNotice").mockRejectedValue(new Error("notice failed"));
+    const log = vi.spyOn(console, "error").mockImplementation(() => {});
+    vi.mocked(runFingerprintCron).mockClear();
+
+    await expect(scheduled(due)).resolves.toBeUndefined();
+    await expect(scheduled(due + 60_000)).resolves.toBeUndefined();
+    expect(notice).toHaveBeenCalledOnce();
+    expect(log).toHaveBeenCalledWith("[zone-speed-settings] Daily sweep crash notice failed");
+    expect(runFingerprintCron).toHaveBeenCalledTimes(2);
+    expect(await env.CACHE.get(lastSweep)).toBeNull();
   });
 
   it("posts one Slack notice with every affected site, domain, setting and Cloudflare error", async () => {
@@ -424,17 +484,24 @@ describe.skipIf(!hasSqlite)("CMS zone speed settings", () => {
     domain("c", "bravo<&>.test");
     site("d", "healthy.test");
     site("e", "blog.alpha.test");
+    env.ADMIN_HOST = "cms.kodigital.app";
+    site("f", "shop.kodigital.app");
     zone("alpha.test", "za", { "argo/tiered_caching": "off" });
     zone("healthy.test", "zh");
     replies.set(`GET ${zones}/za/settings/min_tls_version`, () => denied("TLS read denied"));
     replies.set(`PATCH ${zones}/za/argo/tiered_caching`, () => denied("Tiered Cache write denied"));
     replies.set(`GET ${lookup(encodeURIComponent("bravo<&>.test"))}`, () => denied("Zone access denied <!channel> & more"));
+    const sweep = vi.spyOn(provisioning, "runZoneSpeedSettingsSweep");
     await scheduled(due);
 
+    expect(await sweep.mock.results[0]?.value).toMatchObject({
+      sites_checked: 4, zones_checked: 3,
+      skipped: [{ site_id: "f", site_name: "Site f", hostname: "shop.kodigital.app", zone_name: "kodigital.app", reason: "cms_zone" }],
+    });
     const messages = slackMessages();
     expect(messages).toHaveLength(1);
     const lines = messages[0]!.split("\n").slice(1);
-    for (const [id, hostname] of [["a", "alpha.test"], ["b", "www.alpha.test"]]) {
+    for (const [id, hostname] of [["a", "alpha.test"], ["b", "www.alpha.test"], ["e", "blog.alpha.test"]]) {
       const prefix = `Site ${id} (${id}) · ${hostname} · `;
       expect(lines).toContain(prefix + "min_tls_version · GET HTTP 403 · 10000 TLS read denied");
       expect(lines).toContain(prefix + "tiered_caching · PATCH HTTP 403 · 10000 Tiered Cache write denied");
@@ -442,7 +509,7 @@ describe.skipIf(!hasSqlite)("CMS zone speed settings", () => {
     for (const path of Object.keys(targets)) {
       expect(lines).toContain(`Site C &amp; &lt;team&gt; (c) · bravo&lt;&amp;&gt;.test · ${path.split("/")[1]} · zone lookup HTTP 403 · 10000 Zone access denied &lt;!channel&gt; &amp; more`);
     }
-    expect(lines).toHaveLength(8);
+    expect(lines).toHaveLength(10);
     expect(requests()).toContain(`GET ${zones}/zh/argo/tiered_caching`);
     expect(requests().at(-1)).toBe(`POST ${webhook}`);
   });
