@@ -45,8 +45,10 @@ const ENGINE_SRC = readFileSync(
 );
 const LG_ENGINE_VERSION = /export const LG_ENGINE_VERSION = "([^"]+)"/.exec(ENGINE_SRC)?.[1];
 
-// sha256 of the committed bundle AT LEADGEN_TEMPLATE_VERSION 15 (v15,
-// 2026-11-23, X06 SEO fixes: a shell-only bump — the funnel <head> gains
+// v16 (2026-11-25): The quote form accepts input before /lg/attempt resolves, and the shell starts the attempt early. Previous pin: 9be4cecf…
+// SHA-256 of the served JavaScript at template v16. The engine consumes
+// the shell's early /lg/attempt request. The v15 digest was 94a1b5cd…
+// (2026-11-23, X06 SEO fixes: a shell-only bump — the funnel <head> gains
 // noindex and the site's public name as its title; the engine differs from v14
 // only by the version it reports; v14 was dd61ee27…). Before that, v14 (v14,
 // 2026-11-23, F18 vehicle database: the engine gains the Make → Year → Model
@@ -66,8 +68,8 @@ const LG_ENGINE_VERSION = /export const LG_ENGINE_VERSION = "([^"]+)"/.exec(ENGI
 // (the hook call added); v8 was 330356c1…; v7: the shell's no-match block; v6:
 // a shell-CSS bump: the engine differs from v5 only by the version it reports;
 // v5 was b216862a…, v4 53dbaf55…).
-const RUNTIME_BUNDLE_SHA256 = "94a1b5cd8e67f5f479feb802885851bce70c75a46b103ed0edd9ef4f2bef8f6a";
-const RUNTIME_BUNDLE_VERSION = 15;
+const RUNTIME_BUNDLE_SHA256 = "ad342193fb8fc8acbbedd4d917f61ff760fc474a8b1d8351996d0980030ac7fe";
+const RUNTIME_BUNDLE_VERSION = 16;
 
 describe("the runtime bundle is pinned to its immutable URL version", () => {
   it("engine bytes unchanged, or the version moved with them", () => {

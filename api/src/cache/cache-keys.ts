@@ -249,7 +249,10 @@ export function listicleCandidateKey(
 // <meta name="robots" content="noindex"> and the tab title is the site's public
 // name instead of the internal funnel name. Shell markup changes; the visitor
 // bundle differs only by the version it reports (runtime "15" tracks it).
-export const LEADGEN_TEMPLATE_VERSION = 15 as const;
+// v16: the shell preloads the runtime and starts /lg/attempt. The engine
+// reuses that request. Rotate both the immutable URL and the shell ETag so
+// returning visitors receive the new markup and its matching engine.
+export const LEADGEN_TEMPLATE_VERSION = 16 as const;
 
 const NS_LG_SHELL = "lg-shell";
 const NS_LG_CONFIG = "lg-config";

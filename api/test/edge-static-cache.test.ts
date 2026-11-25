@@ -225,4 +225,24 @@ describe("public files through the gateway", () => {
     expect(hit.headers.get("x-edge-cache")).toBe("HIT");
     expect(await hit.text()).toBe(await fresh.text());
   });
+
+  it("serves v15 only when the old immutable runtime is already cached", async () => {
+    const { ctx, put } = installCache();
+    const { db } = makeFakeDb([{ match: "FROM domains d INNER JOIN sites", row: {
+      site_id: "site-a", hostname: "tenant.example", status: "active",
+    } }]);
+    const request = new Request(origin + "/lg/runtime/15.js");
+    const cold = await worker.fetch(request, buildEnv(db), ctx);
+    expect(cold.status).toBe(404);
+    expect(cold.headers.get("Cache-Control")).toBe("no-store");
+    expect(cold.headers.get("x-edge-cache")).toBe("MISS");
+    expect(await cold.json()).toEqual({ error: "Not Found" });
+    expect(put).not.toHaveBeenCalled();
+
+    await put(request, file("v15 runtime"));
+    const warm = await worker.fetch(request, env, ctx);
+    expect(warm.status).toBe(200);
+    expect(warm.headers.get("x-edge-cache")).toBe("HIT");
+    expect(await warm.text()).toBe("v15 runtime");
+  });
 });

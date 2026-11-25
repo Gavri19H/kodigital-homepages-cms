@@ -25,6 +25,7 @@ import app from "../src/index";
 // The versioned engine URL is derived, never re-typed: a LEADGEN_TEMPLATE_VERSION
 // bump (required whenever the engine bytes change) must not need a test edit.
 import { LEADGEN_TEMPLATE_VERSION } from "../src/cache/cache-keys";
+import { computeEtag } from "../src/cache/edge-cache";
 import admin from "../src/admin/router";
 import type { Env } from "../src/env";
 import { mintPublicId, isPublicId } from "../src/leadgen/ids";
@@ -509,8 +510,8 @@ describeDb("GET /lg/:quote_slug — funnel shell (§17.2 / §28)", () => {
     expect(html).not.toContain('data-lg-ready="1"');
   });
 
-  it("304 on a matching If-None-Match (no body)", async () => {
-    const { sdb, env } = newHarness();
+  it("returns 304 for the current shell ETag and fresh markup for the previous template's ETag", async () => {
+    const { sdb, env, store } = newHarness();
     await seedActivatedFunnel(env, sdb, { quoteName: "Life Quote", slug: "life" });
     const first = await get(env, "/lg/life");
     const etag = first.headers.get("ETag") ?? "";
@@ -518,6 +519,22 @@ describeDb("GET /lg/:quote_slug — funnel shell (§17.2 / §28)", () => {
     const conditional = await get(env, "/lg/life", { "If-None-Match": etag });
     expect(conditional.status).toBe(304);
     expect(await conditional.text()).toBe("");
+
+    const shellKey = [...store.keys()].find(key => key.startsWith("lg-shell:"));
+    expect(shellKey).toBeDefined();
+    const [, site, slug, funnel, variant, content, revision, template, activation] = shellKey!.split(":");
+    expect(template).toBe(String(LEADGEN_TEMPLATE_VERSION));
+    const material = {
+      site_id: site!,
+      path: `/lg/${slug}:${funnel}:${variant}:${revision}:${activation}`,
+      content_version: Number(content),
+    };
+    expect(etag).toBe(await computeEtag({ ...material, template_version: LEADGEN_TEMPLATE_VERSION }));
+    const previous = await computeEtag({ ...material, template_version: LEADGEN_TEMPLATE_VERSION - 1 });
+    const refreshed = await get(env, "/lg/life", { "If-None-Match": previous });
+    expect(refreshed.status).toBe(200);
+    expect(refreshed.headers.get("ETag")).toBe(etag);
+    expect(await refreshed.text()).toContain(`src="/lg/runtime/${LEADGEN_TEMPLATE_VERSION}.js" defer`);
   });
 
   it("GET /lg serves the NULL-slug root activation", async () => {
