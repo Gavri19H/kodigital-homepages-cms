@@ -252,7 +252,9 @@ export function listicleCandidateKey(
 // v16: the shell preloads the runtime and starts /lg/attempt. The engine
 // reuses that request. Rotate both the immutable URL and the shell ETag so
 // returning visitors receive the new markup and its matching engine.
-export const LEADGEN_TEMPLATE_VERSION = 16 as const;
+// v17: roll the immutable URL for the engine update that restores returning
+// visitors before first paint. Staging already cached the original v16 bytes.
+export const LEADGEN_TEMPLATE_VERSION = 17 as const;
 
 const NS_LG_SHELL = "lg-shell";
 const NS_LG_CONFIG = "lg-config";

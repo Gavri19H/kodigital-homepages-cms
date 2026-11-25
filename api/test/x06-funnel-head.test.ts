@@ -156,7 +156,7 @@ describeDb("funnel page head (owner Q4)", () => {
     expect(head).toContain(`<title>${HOST}</title>`);
   });
 
-  it("the body carries the funnel's own identity and the head loads the deferred v16 runtime", async () => {
+  it("the body carries the funnel's own identity and the head loads the deferred v17 runtime", async () => {
     const { env, sdb } = await harness("Money Lantern");
     const { head, body } = await shell(env);
     const config = /<script type="application\/json" id="lg-config">([\s\S]*?)<\/script>/.exec(body);
@@ -164,9 +164,9 @@ describeDb("funnel page head (owner Q4)", () => {
     const parsed = JSON.parse(config![1]!) as { funnel_name?: string };
     // the config the engine reads (and analytics carries) keeps the internal name
     expect(JSON.stringify(parsed)).toContain(JSON.stringify(funnelNameOf(sdb)).slice(1, -1));
-    expect(head.match(/<script src="\/lg\/runtime\/16\.js" defer onerror="[^"]+"><\/script>/g)).toHaveLength(1);
-    expect(body).not.toContain('src="/lg/runtime/16.js"');
-    expect(LEADGEN_TEMPLATE_VERSION).toBe(16);
+    expect(head.match(/<script src="\/lg\/runtime\/17\.js" defer onerror="[^"]+"><\/script>/g)).toHaveLength(1);
+    expect(body).not.toContain('src="/lg/runtime/17.js"');
+    expect(LEADGEN_TEMPLATE_VERSION).toBe(17);
   });
 
   it("the second request is served from the cache with the same head", async () => {
