@@ -347,7 +347,7 @@ function movedLeaves(before: EffectiveFrameConfig, after: EffectiveFrameConfig):
 // The operator's own picked background image, and the public URL
 // media-url.ts mediaUrl() turns that bare storage key into.
 const OPERATOR_BG_MEDIA_ID = "lg/roastc-operator-bg.png";
-const OPERATOR_BG_SRC = `src="/media/${OPERATOR_BG_MEDIA_ID}"`;
+const OPERATOR_BG_SRC = `src="/cdn-cgi/image/width=1920,fit=scale-down,format=auto,quality=75/media/${OPERATOR_BG_MEDIA_ID}"`;
 
 // The product's own `writeConfigValue` (quotes-tabs/funnel.ts:1921-1933,
 // read-only here), mirrored statement for statement: `setPath` the ONE dotted

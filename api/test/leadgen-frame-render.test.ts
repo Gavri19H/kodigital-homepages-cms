@@ -303,9 +303,9 @@ describe("frame-plus-unit-composition — renderLegacyShell reproduces the pinne
     // §4.3-11: the pin now composes the quote's shared-page section too (4 sections, not 3).
     expect(pinnedBody.split("<section data-lg-section").length - 1).toBe(4);
     expect(pinnedBody).toContain(LG_BANNERS_MOUNT_HTML);
-    // the pin's documented ULID placeholders (L is outside the Crockford set)
-    expect(pinAttr("data-funnel-id")).toBe(`lgf_${"L".repeat(24)}01`);
-    expect(pinAttr("data-funnel-variant-id")).toBe(`lgn_${"L".repeat(24)}02`);
+    // The head kickoff makes the variant the first normalized ID in the pin.
+    expect(pinAttr("data-funnel-id")).toBe(`lgf_${"L".repeat(24)}02`);
+    expect(pinAttr("data-funnel-variant-id")).toBe(`lgn_${"L".repeat(24)}01`);
     expect(pinAttr("data-quote-id")).toBe(`lgq_${"L".repeat(24)}03`);
   });
 
@@ -391,7 +391,7 @@ describe("frame-plus-unit-composition — disabled groups render nothing", () =>
       },
     });
     // trust strip: LogoStrip preset over mediaUrl()-resolved refs, REQUIRED alt
-    expect(html).toContain('<img class="lg-logo-strip-img" src="/media/trust/one.png" alt="TrustCo"');
+    expect(html).toContain('<img class="lg-logo-strip-img" src="/cdn-cgi/image/height=64,fit=scale-down,format=auto,quality=75/media/trust/one.png" alt="TrustCo"');
     const trust = regionIdx(html, "trust_strip");
     const progress = regionIdx(html, "progress");
     const slot = regionIdx(html, "section_slot");
@@ -464,7 +464,7 @@ describe("frame-plus-unit-composition — disabled groups render nothing", () =>
 describe("frame-plus-unit-composition — §10.2 header-logo ladder + site footer links", () => {
   it('"site" with a site logo → the image mark with the site name as alt', () => {
     const html = composed("centered");
-    expect(html).toContain('<img class="lg-logo-img" src="/media/site-logo.png" alt="Acme Insure"');
+    expect(html).toContain('<img class="lg-logo-img" src="/cdn-cgi/image/height=64,fit=scale-down,format=auto,quality=75/media/site-logo.png" alt="Acme Insure"');
   });
 
   // Rework §8.8 (#11A), Appendix A-8: REPAIRED (P4 S4.2) — the site_name/CMS
@@ -504,13 +504,13 @@ describe("frame-plus-unit-composition — §10.2 header-logo ladder + site foote
     const html = composed("centered", {
       header: { logo_source: "manual", logo_media_id: "logos/custom.png" },
     });
-    expect(html).toContain('<img class="lg-logo-img" src="/media/logos/custom.png" alt="Acme Insure"');
+    expect(html).toContain('<img class="lg-logo-img" src="/cdn-cgi/image/height=64,fit=scale-down,format=auto,quality=75/media/logos/custom.png" alt="Acme Insure"');
     expect(html).toContain('data-logo-media-id="logos/custom.png"');
   });
 
   it('"manual" without a media id degrades down the site ladder (render-defensive)', () => {
     const html = composed("centered", { header: { logo_source: "manual" } });
-    expect(html).toContain('<img class="lg-logo-img" src="/media/site-logo.png" alt="Acme Insure"');
+    expect(html).toContain('<img class="lg-logo-img" src="/cdn-cgi/image/height=64,fit=scale-down,format=auto,quality=75/media/site-logo.png" alt="Acme Insure"');
   });
 
   it('footer links_source:"site" renders siteBranding.legal_links', () => {
@@ -541,7 +541,7 @@ describe("frame-plus-unit-composition — §10.2 header-logo ladder + site foote
 
   it("footer show_logo renders the site mark; absent branding falls to the CMS mark", () => {
     const withLogo = composed("centered", { footer: { show_logo: true } });
-    expect(withLogo).toContain('<img class="lg-frame-footer-logo" src="/media/site-logo.png" alt="Acme Insure"');
+    expect(withLogo).toContain('<img class="lg-frame-footer-logo" src="/cdn-cgi/image/height=64,fit=scale-down,format=auto,quality=75/media/site-logo.png" alt="Acme Insure"');
     const noBranding = composed("centered", { footer: { show_logo: true } }, { siteBranding: undefined });
     expect(noBranding).toContain(`<span class="lg-frame-footer-logo-text">${CMS_FALLBACK_LOGO_TEXT}</span>`);
   });

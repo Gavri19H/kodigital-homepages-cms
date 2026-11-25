@@ -269,7 +269,7 @@ describe("public-templates-home", () => {
     expect(doc).toContain("--tw-brand: #1ba8c8;");
     // Design-system scaffold: Nunito font + the public stylesheet.
     expect(doc).toContain("Nunito");
-    expect(doc).toMatch(/href="\/assets\/public\.css\?v=[a-z0-9]+"/);
+    expect(doc).toMatch(/href="\/lg\/runtime\/assets\/public\.[a-z0-9]+\.css"/);
   });
 
   // T13-AC4 / RC-037 — render-output: renderHome via renderLayout emits the
@@ -338,7 +338,7 @@ describe("public-templates-home", () => {
     expect(doc).toContain('href="/article/preset-l6"');
 
     // Still inside the design shell (Nunito + public stylesheet), no dead links.
-    expect(doc).toMatch(/href="\/assets\/public\.css\?v=[a-z0-9]+"/);
+    expect(doc).toMatch(/href="\/lg\/runtime\/assets\/public\.[a-z0-9]+\.css"/);
     expect(doc).not.toContain('href="#"');
   });
 

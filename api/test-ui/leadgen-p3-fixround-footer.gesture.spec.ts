@@ -374,7 +374,6 @@ interface FooterProbe {
   blockAligns: Array<{ cls: string; align: string | null; textAlign: string; justify: string }>;
   listPaddingLeft: string;
   listStylePosition: string;
-  logoBox: { w: number; h: number; natural: number } | null;
   headingTags: string[];
   overflow: boolean;
 }
@@ -385,13 +384,12 @@ async function probeFooter(page: Page): Promise<FooterProbe> {
     if (f === null) {
       return {
         present: false, height: 0, childCount: 0, linkHrefs: [], linkLabels: [], linkDecorations: [], separators: [],
-        blockAligns: [], listPaddingLeft: "", listStylePosition: "", logoBox: null, headingTags: [],
+        blockAligns: [], listPaddingLeft: "", listStylePosition: "", headingTags: [],
         overflow: document.documentElement.scrollWidth > window.innerWidth,
       };
     }
     const links = Array.from(f.querySelectorAll("a.lg-frame-footer2-link")) as HTMLAnchorElement[];
     const list = f.querySelector(".lg-frame-footer2-list") as HTMLElement | null;
-    const logo = f.querySelector(".lg-frame-footer2-logo-img") as HTMLImageElement | null;
     return {
       present: true,
       height: Math.round(f.getBoundingClientRect().height),
@@ -411,7 +409,6 @@ async function probeFooter(page: Page): Promise<FooterProbe> {
       }),
       listPaddingLeft: list === null ? "" : getComputedStyle(list).paddingLeft,
       listStylePosition: list === null ? "" : getComputedStyle(list).listStylePosition,
-      logoBox: logo === null ? null : { w: Math.round(logo.getBoundingClientRect().width), h: Math.round(logo.getBoundingClientRect().height), natural: logo.naturalWidth },
       headingTags: Array.from(f.querySelectorAll(".lg-frame-footer2-heading")).map((h) => h.tagName.toLowerCase()),
       overflow: document.documentElement.scrollWidth > window.innerWidth,
     };
@@ -701,10 +698,30 @@ test.describe("R2 P3 FIX-FIRST C — Image45 rebuilt through the real editor", (
       // …and the heading level the operator chose actually rendered.
       expect(probe.headingTags, `heading levels at ${width}`).toEqual(["h4", "h4"]);
       // MINOR-7 — the logo is constrained inside the band.
-      expect(probe.logoBox, `logo present at ${width}`).not.toBeNull();
-      expect(probe.logoBox!.natural, `the 2000px asset actually LOADED at ${width}`).toBe(2000);
-      expect(probe.logoBox!.h, `FAIL-BEFORE: 400px tall, unconstrained (${width})`).toBeLessThanOrEqual(80);
-      expect(probe.logoBox!.w, `FAIL-BEFORE: 2000px wide blew the band out (${width})`).toBeLessThanOrEqual(width);
+      const logo = page.locator(".lg-frame-footer2 .lg-frame-footer2-logo-img");
+      await expect(logo, `logo present at ${width}`).toHaveCount(1);
+      await logo.scrollIntoViewIfNeeded();
+      const logoBox = await logo.evaluate(async (el) => {
+        const image = el as HTMLImageElement;
+        await image.decode();
+        const rect = image.getBoundingClientRect();
+        const candidates = image.srcset.split(/\s+[\d.]+[wx]\s*(?:,\s*|$)/).filter(Boolean);
+        return {
+          w: rect.width,
+          h: rect.height,
+          loaded: image.complete && image.naturalWidth > 0,
+          sources: [image.src, image.currentSrc, ...candidates],
+        };
+      });
+      expect(logoBox.loaded, `uploaded footer logo loaded at ${width}`).toBe(true);
+      for (const src of logoBox.sources) {
+        const path = new URL(src, page.url()).pathname;
+        expect(path.endsWith(`/media/${logoKey}`), `footer logo source ${path} at ${width}`).toBe(true);
+      }
+      expect(logoBox.h).toBeGreaterThan(0);
+      expect(logoBox.w).toBeGreaterThan(0);
+      expect(logoBox.h, `FAIL-BEFORE: 400px tall, unconstrained (${width})`).toBeLessThanOrEqual(80);
+      expect(logoBox.w, `FAIL-BEFORE: 2000px wide blew the band out (${width})`).toBeLessThanOrEqual(width);
 
       // MAJOR-5 — the underline axis is live on the real anchors.
       expect(probe.linkDecorations.length, `links at ${width}`).toBe(2);

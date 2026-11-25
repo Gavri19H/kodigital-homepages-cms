@@ -11,7 +11,7 @@
 //   • control — the SAME frame/section with NO theme (the pre-P6 look).
 //
 // Asserts: the headline computes to ~72px in the display font; the served CSS
-// carries the Poppins @font-face as a same-origin data: URL and the page makes
+// carries the Poppins @font-face as a hashed same-origin URL and the page makes
 // ZERO external font requests; and each button style is visually DISTINCT from
 // the control (computed-style signatures).
 //
@@ -182,12 +182,13 @@ test.describe("P6a THEME v2 — live funnel", () => {
     expect(await computed(page, ".lg-headline", "font-family")).not.toContain("Poppins");
   });
 
-  test("the Poppins @font-face is same-origin (data:) and the page makes ZERO external font requests", async ({ page }) => {
+  test("the Poppins @font-face loads from the site's own domain and the page makes ZERO external font requests", async ({ page }) => {
+    const origin = new URL(shellUrl(themed)).origin;
     const external: string[] = [];
     page.on("request", (r) => {
       const u = r.url();
       if (/fonts\.googleapis\.com|fonts\.gstatic\.com/i.test(u)) external.push(u);
-      if (/\.woff2?(\?|$)/i.test(u) && !u.startsWith("data:")) external.push(u);
+      if ((r.resourceType() === "font" || /\.woff2?(\?|$)/i.test(u)) && new URL(u).origin !== origin) external.push(u);
     });
     await page.goto(shellUrl(themed), { waitUntil: "load" });
     await page.locator(".lg-headline").first().waitFor();
@@ -195,7 +196,10 @@ test.describe("P6a THEME v2 — live funnel", () => {
     const html = await page.content();
     expect(html).toContain("@font-face");
     expect(html).toContain("font-family:'Poppins'");
-    expect(html).toContain("data:font/woff2;base64,");
+    expect(html).toMatch(/src:url\("\/lg\/runtime\/lgfonts\/poppins-600\.[a-f0-9]{16}\.woff2"\)/);
+    expect(html).not.toContain("data:font");
+    const loaded = await page.evaluate(async () => (await document.fonts.load("600 16px Poppins")).length);
+    expect(loaded).toBe(1);
     expect(html).not.toContain("fonts.googleapis.com");
     expect(html).not.toContain("fonts.gstatic.com");
     expect(external, `no external font requests, saw: ${external.join(", ")}`).toHaveLength(0);

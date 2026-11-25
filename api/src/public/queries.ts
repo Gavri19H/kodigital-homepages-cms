@@ -36,6 +36,8 @@ export interface PublicPageRow {
   // title and the site description.
   seo_title?: string | null;
   seo_description?: string | null;
+  // Included in the inner About lookup. NULL when unused or unavailable.
+  vertical_name?: string | null;
 }
 
 export interface PublicCategoryRow {
@@ -55,20 +57,40 @@ export interface PublicTagRow {
 
 export const PUBLIC_PAGE_SIZE = 20;
 
+// ECMAScript WhiteSpace and LineTerminator characters accepted by trim().
+const JS_TRIM_WHITESPACE = "\t\n\v\f\r \u00a0\u1680\u2000\u2001\u2002\u2003\u2004\u2005\u2006\u2007\u2008\u2009\u200a\u2028\u2029\u202f\u205f\u3000\ufeff";
+
+const SITE_VERTICAL_NAME_SQL =
+  "SELECT v.name AS name FROM sites s INNER JOIN verticals v ON v.slug = s.vertical_slug WHERE s.id = ? LIMIT 1";
+
+function publishedPageStatement(db: D1Database, slug: string, siteId: string, withVertical = false) {
+  const page = "SELECT id, slug, title, content_html, status, updated_at, site_id, seo_title, seo_description FROM pages " +
+    "WHERE slug = ? AND status = 'published' AND (site_id = ? OR site_id IS NULL) LIMIT 1";
+  if (withVertical && slug === "about") {
+    // Global pages use the requesting site's vertical too. An operator's SEO
+    // description short-circuits the scalar subquery.
+    return db.prepare(
+      "WITH page AS (" + page + ") SELECT page.*, " +
+      "CASE WHEN trim(coalesce(seo_description, ''), ?) = '' THEN (" + SITE_VERTICAL_NAME_SQL + ") END AS vertical_name FROM page",
+    ).bind(slug, siteId, JS_TRIM_WHITESPACE, siteId);
+  }
+  return db.prepare(page).bind(slug, siteId);
+}
+
 export async function fetchPublishedPage(
   db: D1Database,
   slug: string,
   siteId: string,
+  withVertical = false,
 ): Promise<PublicPageRow | null> {
-  const row = await db
-    .prepare(
-      "SELECT id, slug, title, content_html, status, updated_at, site_id, seo_title, seo_description FROM pages " +
-        "WHERE slug = ? AND status = 'published' " +
-        "AND (site_id = ? OR site_id IS NULL) LIMIT 1",
-    )
-    .bind(slug, siteId)
-    .first<PublicPageRow>();
-  return row ?? null;
+  if (withVertical && slug === "about") {
+    try {
+      return await publishedPageStatement(db, slug, siteId, true).first<PublicPageRow>() ?? null;
+    } catch {
+      // Keep the page available if its optional vertical cannot be read.
+    }
+  }
+  return await publishedPageStatement(db, slug, siteId).first<PublicPageRow>() ?? null;
 }
 
 export async function fetchCategory(
@@ -161,6 +183,89 @@ export async function fetchTagArticles(
   return result.results ?? [];
 }
 
+// LIMIT and OFFSET depend on the tenant setting. Parse its leading decimal
+// digits just as resolvePageSize does (parseInt accepts whitespace, a plus
+// sign and trailing text). Non-finite and non-positive values use the default.
+const PAGE_SIZE_CTE = `
+  raw_setting(raw) AS (
+    SELECT ltrim(value, ?4) FROM site_settings WHERE site_id = ?1 AND key = 'items_per_page'
+  ),
+  unsigned(raw) AS (
+    SELECT CASE substr(raw, 1, 1) WHEN '+' THEN substr(raw, 2) ELSE raw END FROM raw_setting
+  ),
+  parsed(n) AS (
+    SELECT CAST(substr(raw, 1, length(raw) - length(ltrim(raw, '0123456789'))) AS REAL) FROM unsigned
+  ),
+  page_size(n) AS (
+    SELECT coalesce((SELECT CAST(min(n, 100) AS INTEGER) FROM parsed WHERE n BETWEEN 1 AND ?5), ?6)
+  )`;
+
+export type ListingCard = Pick<ArticleCardRow, "slug" | "title" | "published_at" | "image_url" | "image_alt">;
+
+interface ListingRow extends PublicCategoryRow {
+  page_size: number;
+  article_slug: string | null;
+  article_title: string | null;
+  published_at: number | null;
+  image_url: string | null;
+  image_alt: string | null;
+}
+
+export async function fetchListing(
+  db: D1Database, kind: "category" | "tag", siteId: string, slug: string, page: number,
+) {
+  const category = kind === "category";
+  const taxonomySql = category
+    ? "SELECT id, slug, name, description FROM categories WHERE slug = ?2 LIMIT 1"
+    : "SELECT id, slug, name, NULL AS description FROM tags WHERE slug = ?2 AND (site_id = ?1 OR site_id IS NULL) LIMIT 1";
+  const membershipSql = category
+    ? "WHERE a.category_id = (SELECT id FROM taxonomy) "
+    : "JOIN article_tags atg ON atg.article_id = a.id WHERE atg.tag_id = (SELECT id FROM taxonomy) ";
+
+  // Limiting articles before the LEFT JOIN retains the heading on empty and
+  // out-of-range pages. A missing category or tag produces no row.
+  let result: D1Result<ListingRow>;
+  try {
+    result = await db.prepare(
+      "WITH taxonomy AS (" + taxonomySql + "), " + PAGE_SIZE_CTE + `,
+      cards AS (
+        SELECT a.id, a.slug, a.title, a.published_at, m.storage_key AS image_url, m.alt_text AS image_alt
+        FROM articles a LEFT JOIN media m ON m.id = a.featured_image_id ` +
+        membershipSql + `AND a.site_id = ?1 AND a.status = 'published'
+        ORDER BY a.published_at DESC, a.id DESC
+        LIMIT (SELECT n FROM page_size) OFFSET ?3 * (SELECT n FROM page_size)
+      )
+      SELECT t.*, (SELECT n FROM page_size) AS page_size, c.slug AS article_slug, c.title AS article_title,
+             c.published_at, c.image_url, c.image_alt
+      FROM taxonomy t LEFT JOIN cards c ON true ORDER BY c.published_at DESC, c.id DESC`,
+    ).bind(siteId, slug, page - 1, JS_TRIM_WHITESPACE, Number.MAX_VALUE, PUBLIC_PAGE_SIZE).all<ListingRow>();
+  } catch {
+    // A failed combined read must still go through the original visibility
+    // gate (including the global category and shared-tag rules).
+    const taxonomy = category ? await fetchCategory(db, slug) : await fetchTag(db, slug, siteId);
+    if (!taxonomy) return null;
+    const pageSize = await resolvePageSize(db, siteId);
+    const articles = category
+      ? await fetchCategoryArticles(db, taxonomy.id, siteId, page, pageSize)
+      : await fetchTagArticles(db, taxonomy.id, siteId, page, pageSize);
+    return { taxonomy, articles, pageSize };
+  }
+
+  const first = result.results[0];
+  if (!first) return null;
+  const { id, name, description } = first;
+  const articles: ListingCard[] = [];
+  for (const row of result.results) {
+    if (row.article_slug !== null && row.article_title !== null) {
+      articles.push({
+        slug: row.article_slug, title: row.article_title, published_at: row.published_at,
+        image_url: row.image_url, image_alt: row.image_alt,
+      });
+    }
+  }
+  return { taxonomy: { id, slug: first.slug, name, description }, articles, pageSize: first.page_size };
+}
+
 export async function fetchSitemapPages(
   db: D1Database,
   siteId: string,
@@ -193,6 +298,16 @@ export async function fetchSiteSetting(
   return row?.value ?? null;
 }
 
+export async function fetchRobotsSettings(db: D1Database, siteId: string) {
+  const rows = await db.prepare(
+    "SELECT key, value FROM site_settings WHERE site_id = ? AND key IN ('robots_txt_content', 'ai_block_training')",
+  ).bind(siteId).all<{ key: string; value: string | null }>();
+  return {
+    override: rows.results.find((row) => row.key === "robots_txt_content")?.value ?? null,
+    blockTraining: rows.results.find((row) => row.key === "ai_block_training")?.value ?? null,
+  };
+}
+
 export interface RedirectRow {
   destination_path: string;
   status_code: number;
@@ -200,27 +315,45 @@ export interface RedirectRow {
 
 // T15: the operator-managed `redirects` table, finally wired into the public
 // router. A matching, ACTIVE row on the request path resolves to an HTTP
-// 301/302 to its destination — issued by /:slug BEFORE any page/article lookup
+// 301/302 to its destination — issued by /:slug before serving other candidates
 // so a stored legacy redirect is honored even when a slug now occupies the
 // same path. Scoped by site_id (with a global `site_id IS NULL` fallback so a
 // cross-site legacy rewrite still applies); the site-specific row wins over a
 // global one via `ORDER BY site_id IS NULL`. `source_path` is UNIQUE so this
 // stays a single-row lookup.
-export async function checkRedirect(
-  db: D1Database,
-  sourcePath: string,
-  siteId: string,
-): Promise<RedirectRow | null> {
-  const row = await db
+function redirectStatement(db: D1Database, sourcePath: string, siteId: string) {
+  return db
     .prepare(
       "SELECT destination_path, status_code FROM redirects " +
         "WHERE source_path = ? AND is_active = 1 " +
         "AND (site_id = ? OR site_id IS NULL) " +
         "ORDER BY site_id IS NULL LIMIT 1",
     )
-    .bind(sourcePath, siteId)
-    .first<RedirectRow>();
-  return row ?? null;
+    .bind(sourcePath, siteId);
+}
+
+export async function checkRedirect(
+  db: D1Database,
+  sourcePath: string,
+  siteId: string,
+): Promise<RedirectRow | null> {
+  return await redirectStatement(db, sourcePath, siteId).first<RedirectRow>() ?? null;
+}
+
+// Only the status is needed for the canonical article redirect. Keep large
+// article bodies out of speculative reads. Each statement has the same tenant
+// and publication rules as the corresponding sequential gate.
+export async function fetchBareSlugCandidates(db: D1Database, slug: string, siteId: string) {
+  const [redirect, page, article] = await db.batch([
+    redirectStatement(db, "/" + slug, siteId),
+    publishedPageStatement(db, slug, siteId, true),
+    db.prepare("SELECT status FROM articles WHERE slug = ? AND site_id = ? LIMIT 1").bind(slug, siteId),
+  ]) as [D1Result<RedirectRow>, D1Result<PublicPageRow>, D1Result<{ status: string }>];
+  return {
+    redirect: redirect.results[0] ?? null,
+    page: page.results[0] ?? null,
+    article: article.results[0] ?? null,
+  };
 }
 
 export interface PublicLayoutSiteInfo {
@@ -263,9 +396,7 @@ export async function fetchSiteVerticalName(
 ): Promise<string | null> {
   try {
     const row = await db
-      .prepare(
-        "SELECT v.name AS name FROM sites s INNER JOIN verticals v ON v.slug = s.vertical_slug WHERE s.id = ? LIMIT 1",
-      )
+      .prepare(SITE_VERTICAL_NAME_SQL)
       .bind(siteId)
       .first<{ name: string | null }>();
     const name = typeof row?.name === "string" ? row.name.trim() : "";

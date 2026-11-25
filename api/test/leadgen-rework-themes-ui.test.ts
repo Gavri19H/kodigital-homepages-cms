@@ -744,7 +744,7 @@ describe("Rework P4 S4.2 — §8.8 logo placeholder chip (frame.ts)", () => {
   it("a real logo still renders the image — byte-identical to calling renderHeaderLogo's own image branch directly", () => {
     const branding: SiteBranding = { site_name: "Acme", logo_url: "/media/logo.png", tagline: null, legal_links: [], trust_logos: null };
     const withChipCode = renderHeader({ siteBranding: branding });
-    expect(withChipCode).toContain('<img class="lg-logo-img" src="/media/logo.png" alt="Acme"');
+    expect(withChipCode).toContain('<img class="lg-logo-img" src="/cdn-cgi/image/height=64,fit=scale-down,format=auto,quality=75/media/logo.png" alt="Acme"');
     expect(withChipCode).not.toContain("lg-frame-logo-fallback");
     expect(withChipCode).not.toContain(LOGO_FALLBACK_CHIP_TEXT);
     // Additive-only claim, proven by re-render: identical input twice (the

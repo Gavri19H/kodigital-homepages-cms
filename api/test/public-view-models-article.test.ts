@@ -94,17 +94,18 @@ function makeDb(
               .map((s) => ({ key: s.key, value: s.value }));
             return { results: rows as unknown as T[], success: true, meta: {} };
           }
-          // Related articles (with or without category clause).
-          if (sql.startsWith("SELECT a.id AS id, a.slug AS slug, a.title AS title, a.content_html")) {
+          // The related query joins its source by tenant and slug.
+          if (sql.startsWith("WITH source AS (")) {
             const siteId = String(captured[0] ?? "");
-            const hasCategory = sql.includes("a.category_id = ?");
-            const categoryId = hasCategory ? Number(captured[1]) : null;
-            const excludeId = hasCategory ? Number(captured[2]) : Number(captured[1]);
-            const limit = hasCategory ? Number(captured[3]) : Number(captured[2]);
+            const source = articles.find(
+              (a) => a.site_id === siteId && a.slug === captured[1] && a.status === "published",
+            );
+            if (!source) return { results: [] as T[], success: true, meta: {} };
+            const limit = Number(captured[2]);
             const rows = articles
-              .filter((a) => a.site_id === siteId && a.status === "published" && a.id !== excludeId)
-              .filter((a) => (hasCategory ? a.category_id === categoryId : true))
-              .sort((x, y) => (y.published_at ?? 0) - (x.published_at ?? 0))
+              .filter((a) => a.site_id === siteId && a.status === "published" && a.id !== source.id)
+              .filter((a) => source.category_id === null || a.category_id === source.category_id)
+              .sort((x, y) => (y.published_at ?? 0) - (x.published_at ?? 0) || y.id - x.id)
               .slice(0, limit)
               .map((a) => ({
                 id: a.id,

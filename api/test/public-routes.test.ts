@@ -115,33 +115,20 @@ function makeContentDb(): D1Database {
             if (host !== TENANT_HOST) return null;
             return { ...SITE_CONTEXT_ROW } as unknown as T;
           }
-          if (sql.startsWith("SELECT id, slug, name, description FROM categories")) {
-            const slug = captured[0] as string;
-            return (
-              slug === CATEGORY_ROW.slug ? { ...CATEGORY_ROW } : null
-            ) as unknown as T | null;
-          }
-          if (sql.startsWith("SELECT id, slug, name FROM tags")) {
-            const slug = captured[0] as string;
-            return (
-              slug === TAG_ROW.slug ? { ...TAG_ROW } : null
-            ) as unknown as T | null;
-          }
           return null;
         },
         async all<T = unknown>() {
-          // rescue-4 round-3 (issue 1): both the tag and category listing
-          // queries now LEFT JOIN media for the card image, so each is
-          // `SELECT a.*, m.storage_key ... FROM articles a ...`. Disambiguate
-          // on the distinctive clause: the tag listing JOINs `article_tags`,
-          // the category listing filters on `category_id`. (Tag is checked
-          // first so its more-specific JOIN wins.)
-          if (sql.includes("article_tags")) {
-            // /tag listing (JOIN article_tags).
-            return { results: TAG_ARTICLES as unknown as T[], success: true, meta: {} };
-          }
-          if (sql.includes("FROM articles") && sql.includes("category_id")) {
-            return { results: CATEGORY_ARTICLES as unknown as T[], success: true, meta: {} };
+          if (sql.startsWith("WITH taxonomy AS")) {
+            const isTag = sql.includes("FROM tags");
+            const taxonomy = isTag ? TAG_ROW : CATEGORY_ROW;
+            const articles = isTag ? TAG_ARTICLES : CATEGORY_ARTICLES;
+            const rows = captured[0] === SITE_ID && captured[1] === taxonomy.slug
+              ? articles.map((a) => ({
+                ...taxonomy, page_size: 20, article_slug: a.slug, article_title: a.title,
+                published_at: a.published_at, image_url: null, image_alt: null,
+              }))
+              : [];
+            return { results: rows as T[], success: true, meta: {} };
           }
           if (sql.startsWith("SELECT * FROM articles WHERE status")) {
             // listArticles (feed body).
@@ -233,7 +220,7 @@ describe("T14-AC1 tag page / pagination 301 / page>=2 noindex / rss alias", () =
 
     // Full design document, not a bare fragment / JSON 404.
     expect(body.trim().toLowerCase().startsWith("<!doctype html>")).toBe(true);
-    expect(body).toMatch(/href="\/assets\/public\.css\?v=[a-z0-9]+"/);
+    expect(body).toMatch(/href="\/lg\/runtime\/assets\/public\.[a-z0-9]+\.css"/);
     expect(body).toContain('<style data-source="brand_tokens">');
     expect(body).toContain("--tw-brand: #1ba8c8");
     // Header + footer regions (banner + contentinfo).
@@ -350,7 +337,7 @@ describe("T14-AC2 styled HTML 404 + styled HTML 500", () => {
     // Rendered through the design shell (full document + public.css), not the
     // rescue-era bare `{"error":"Not Found"}` JSON body.
     expect(body.trim().toLowerCase().startsWith("<!doctype html>")).toBe(true);
-    expect(body).toMatch(/href="\/assets\/public\.css\?v=[a-z0-9]+"/);
+    expect(body).toMatch(/href="\/lg\/runtime\/assets\/public\.[a-z0-9]+\.css"/);
     expect(body).toContain('class="site-header"');
     expect(body).toContain('class="site-footer"');
     expect(body).toContain('data-error-status="404"');
@@ -379,7 +366,7 @@ describe("T14-AC2 styled HTML 404 + styled HTML 500", () => {
     const body = await res.text();
 
     expect(body.trim().toLowerCase().startsWith("<!doctype html>")).toBe(true);
-    expect(body).toMatch(/href="\/assets\/public\.css\?v=[a-z0-9]+"/);
+    expect(body).toMatch(/href="\/lg\/runtime\/assets\/public\.[a-z0-9]+\.css"/);
     expect(body).toContain('class="site-header"');
     expect(body).toContain('data-error-status="500"');
     expect(body).toContain("Something went wrong");

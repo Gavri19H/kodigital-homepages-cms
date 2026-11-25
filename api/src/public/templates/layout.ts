@@ -14,25 +14,26 @@
 // article:* all flow through the LIVE route — the helper is no longer dead.
 
 import { renderSeoHead, buildCanonicalUrl } from "./seo-head";
-import { publicCss } from "../assets/public-css";
-import { publicJs } from "../assets/public-js";
+import { cfTransform } from "./responsive-img";
+import { cssHash, jsHash } from "../assets/public-assets.generated";
+import { PUBLIC_FONT_FACE_CSS, PUBLIC_FONT_FILES, PUBLIC_FONT_PRELOAD_PATHS } from "../assets/public-fonts.generated";
 import { ANALYTICS_TRACKING_SCRIPT } from "../../analytics/tracking-script";
 import { siteIconHeadTags, siteBrandColor, absoluteOnHost, uploadedLogoUrl } from "../site-brand";
 
-// Keep the filenames served by both releases and version their URLs by content.
-function assetHash(s: string): string {
-  let h = 5381;
-  for (let i = 0; i < s.length; i += 1) h = ((h << 5) + h + s.charCodeAt(i)) | 0;
-  return (h >>> 0).toString(36);
-}
-const cssHash = assetHash(publicCss);
-const jsHash = assetHash(publicJs);
-export const PUBLIC_CSS_PATH = `/assets/public.css?v=${cssHash}`;
-export const PUBLIC_JS_PATH = `/assets/public.js?v=${jsHash}`;
+const fontPreload = (path: string) => `<link rel="preload" as="font" type="font/woff2" crossorigin href="${path}">`;
+const fontPreloads = PUBLIC_FONT_PRELOAD_PATHS.map(fontPreload).join("\n");
+const articleH1Font = [...PUBLIC_FONT_FILES.keys()].find(path => path.startsWith("/lg/runtime/fonts/nunito-900."));
+const articleH1Preload = articleH1Font ? "\n" + fontPreload(articleH1Font) : "";
+
+// Stage 1 also looks up this namespace in the version-independent Cache API.
+export const PUBLIC_CSS_PATH = `/lg/runtime/assets/public.${cssHash}.css`;
+export const PUBLIC_JS_PATH = `/lg/runtime/assets/public.${jsHash}.js`;
 
 export function currentPublicAssetPath(url: URL): string | null {
-  if (url.pathname === "/assets/public.css" && url.searchParams.get("v") === cssHash) return PUBLIC_CSS_PATH;
-  if (url.pathname === "/assets/public.js" && url.searchParams.get("v") === jsHash) return PUBLIC_JS_PATH;
+  if (url.pathname === PUBLIC_CSS_PATH || url.pathname === PUBLIC_JS_PATH) return url.pathname;
+  // Cached HTML can still use the query-versioned URL and its original cache key.
+  if (url.pathname === "/assets/public.css" && url.searchParams.get("v") === cssHash) return `/assets/public.css?v=${cssHash}`;
+  if (url.pathname === "/assets/public.js" && url.searchParams.get("v") === jsHash) return `/assets/public.js?v=${jsHash}`;
   return null;
 }
 
@@ -179,6 +180,23 @@ function renderLinks(
     .join("\n");
 }
 
+function resizeOpenGraphImage(head: string, hostname: string, image: string | undefined): string {
+  if (!image) return head;
+  const base = absoluteOnHost(hostname, "/");
+  if (!base) return head;
+  try {
+    const src = new URL(image.startsWith("//") ? `https:${image}` : image);
+    if (src.origin !== new URL(base).origin || !src.pathname.startsWith("/media/")) return head;
+    src.pathname = cfTransform(src.pathname, "width=1200,fit=scale-down,format=auto");
+    // renderSeoHead also uses its image input for twitter:image. Only the
+    // Open Graph tag gets the resized URL.
+    return head.replace(/<meta property="og:image" content="[^"]*">/, () =>
+      `<meta property="og:image" content="${escapeHtmlAttr(src.href)}">`);
+  } catch {
+    return head;
+  }
+}
+
 export function renderLayout(args: RenderLayoutArgs): string {
   const { site, meta, body } = args;
   const header = args.header ?? "";
@@ -202,6 +220,10 @@ export function renderLayout(args: RenderLayoutArgs): string {
   // title/description/og:site_name subset (BCL-055). canonicalUrl, when the
   // caller supplies it, overrides the host+path derivation; site.hostname is
   // the tenant host (the admin host MUST NEVER appear — mission RED LINE).
+  // Use the page's own picture or the site's uploaded logo as its share image.
+  const shareImage = meta.ogImage
+    ? absoluteOnHost(site.hostname, meta.ogImage) ?? meta.ogImage
+    : absoluteOnHost(site.hostname, uploadedLogoUrl(site.logoUrl)) ?? undefined;
   const seoHead = renderSeoHead({
     canonicalHost: site.hostname,
     path: "/",
@@ -211,14 +233,7 @@ export function renderLayout(args: RenderLayoutArgs): string {
         : undefined,
     title: meta.title,
     description: meta.description ?? site.description,
-    // X14 v2 (owner Q6): a page with no picture of its own shares the site's
-    // uploaded logo, as a full web address.
-    // X06 (fix 8): the page's own picture is a full web address too — social
-    // sites can't load a bare "/media/…" path.
-    ogImage:
-      meta.ogImage !== undefined && meta.ogImage !== null && meta.ogImage.length > 0
-        ? (absoluteOnHost(site.hostname, meta.ogImage) ?? meta.ogImage)
-        : (absoluteOnHost(site.hostname, uploadedLogoUrl(site.logoUrl ?? null)) ?? undefined),
+    ogImage: shareImage,
     siteName: site.name,
     ogType: meta.ogType,
     robots: meta.robots,
@@ -254,13 +269,12 @@ export function renderLayout(args: RenderLayoutArgs): string {
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
 ${consentHead}
-${seoHead}
+${resizeOpenGraphImage(seoHead, site.hostname, shareImage)}
 ${iconTags}
 ${linkTags}
 ${feedLinks}
-<link rel="preconnect" href="https://fonts.googleapis.com">
-<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
-<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Nunito:wght@700;800;900&family=Nunito+Sans:wght@400;600;700;800&display=swap">
+${fontPreloads}${meta.ogType === "article" ? articleH1Preload : ""}
+<style>${PUBLIC_FONT_FACE_CSS}</style>
 <link rel="stylesheet" href="${PUBLIC_CSS_PATH}">
 ${styleBlock}
 ${jsonLdBlocks}

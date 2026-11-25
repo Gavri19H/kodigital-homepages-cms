@@ -54,6 +54,7 @@ const HERE = dirname(fileURLToPath(import.meta.url));
 /** A real R2 storage key shape — what the picker actually writes. */
 const KEY = "2026/08/10/6487645f-f96d-418c-bbb8-e636ab769c09.png";
 const SERVED = `/media/${KEY}`;
+const CARD_TRANSFORM = "/cdn-cgi/image/height=64,fit=scale-down,format=auto,quality=75";
 
 function render(node: Record<string, unknown>): string {
   return renderComponent(node as never, DESIGN);
@@ -82,7 +83,7 @@ describe("answer-card images resolve to their /media/ address (owner defect 2026
     const tags = imgs(html);
     expect(tags.length, html.slice(0, 300)).toBe(1);
     // Before the fix this was the bare key and the browser 404'd it.
-    expect(srcOf(tags[0] as string)).toBe(SERVED);
+    expect(srcOf(tags[0] as string)).toBe(CARD_TRANSFORM + SERVED);
     expect(html).not.toContain(`src="${KEY}"`);
   });
 
@@ -103,35 +104,33 @@ describe("answer-card images resolve to their /media/ address (owner defect 2026
     expect(iconOnly).toContain("lg-card-icon");
   });
 
-  it("IDEMPOTENT — an already-usable address is passed through untouched", () => {
-    // Absolute and rooted values must NOT be rewritten into a broken /media/ path
-    // (external CDN images, and anything already stored as "/media/…").
+  it("IDEMPOTENT — an already-rooted media path gets one transform and off-site URLs pass through", () => {
     for (const already of ["https://cdn.example.com/mark.png", "/media/legacy/key.png", "data:image/png;base64,iVBOR"]) {
       const html = render(cardNode([{ label: "X", value: "x", analytics_id: "x", imageMediaId: already, image_alt: "X" }]));
-      expect(srcOf(imgs(html)[0] as string), already).toBe(already);
+      expect(srcOf(imgs(html)[0] as string), already).toBe(already.startsWith("/media/") ? CARD_TRANSFORM + already : already);
     }
   });
 
   it("EVERY media renderer in the file goes through the one prefixer, not just the card", () => {
     // The card was the reported one; these four were the identical bug waiting to
     // be reported next. Each is the node shape its preset actually reads.
-    const cases: Array<[string, Record<string, unknown>]> = [
-      ["lg-headerbar-logo", { type: "HeaderBar", question_id: "q_hb", props: { logoMediaId: KEY, logoAlt: "Acme" } }],
-      ["lg-logo-strip-img", { type: "LogoStrip", question_id: "q_ls", props: { logos: [{ mediaId: KEY, alt: "Logo" }] } }],
+    const cases: Array<[string, string, Record<string, unknown>]> = [
+      ["lg-headerbar-logo", "height=64", { type: "HeaderBar", question_id: "q_hb", props: { logoMediaId: KEY, logoAlt: "Acme" } }],
+      ["lg-logo-strip-img", "height=64", { type: "LogoStrip", question_id: "q_ls", props: { logos: [{ mediaId: KEY, alt: "Logo" }] } }],
       // ImageBlock source="media" reads logoMediaId (it reuses the
       // HeaderLogo/HeaderBar convention — see renderImageBlockMedia), NOT mediaId.
-      ["lg-image-block-img", { type: "ImageBlock", question_id: "q_ib", props: { source: "media", logoMediaId: KEY, alt: "Block" } }],
-      ["lg-bg-panel-img", { type: "BackgroundPanel", question_id: "q_bp", props: { imageMediaId: KEY } }],
+      ["lg-image-block-img", "width=1280", { type: "ImageBlock", question_id: "q_ib", props: { source: "media", logoMediaId: KEY, alt: "Block" } }],
+      ["lg-bg-panel-img", "width=1200", { type: "BackgroundPanel", question_id: "q_bp", props: { imageMediaId: KEY } }],
     ];
     const missing: string[] = [];
-    for (const [cls, node] of cases) {
+    for (const [cls, option, node] of cases) {
       const html = render(node);
       if (!html.includes(cls)) {
         missing.push(cls); // the preset did not paint an image for this shape
         continue;
       }
       const tag = imgs(html).find((t) => t.includes(cls));
-      expect(srcOf(tag as string), `${cls} src`).toBe(SERVED);
+      expect(srcOf(tag as string), `${cls} src`).toBe(`/cdn-cgi/image/${option},fit=scale-down,format=auto,quality=75${SERVED}`);
     }
     // Every case must actually exercise its renderer — a shape that silently
     // paints nothing would make this test a no-op, which is how the card bug

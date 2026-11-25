@@ -444,9 +444,11 @@ function runShellScript(
 ) {
   const fbq: FbqCall[] = [];
   const listeners: Record<string, Array<(e: unknown) => void>> = {};
+  const windowEvents = new EventTarget();
   const injected: Array<{ src?: string; async?: boolean }> = [];
   const storage = new Map<string, string>(Object.entries(opts.storage ?? {}));
   const w: Record<string, unknown> = {
+    addEventListener: windowEvents.addEventListener.bind(windowEvents),
     crypto: (globalThis as unknown as { crypto: unknown }).crypto,
     sessionStorage: {
       getItem: (k: string) => (storage.has(k) ? storage.get(k)! : null),
@@ -479,7 +481,7 @@ function runShellScript(
   const click = (a: StubAnchor, type: "click" | "auxclick" = "click", button = 0): void => {
     for (const fn of listeners[type] ?? []) fn({ type, button, target: { closest: (sel: string) => (sel === "a[data-lg-px]" ? a : null) } });
   };
-  return { fbq, hook, click, storage, injected, w };
+  return { fbq, hook, click, storage, injected, w, load: () => windowEvents.dispatchEvent(new Event("load")) };
 }
 
 const tracked = (fbq: FbqCall[]) => fbq.filter((c) => c.args[0] === "trackSingle").map((c) => ({ pixel: c.args[1], event: c.args[2], data: c.args[3], id: (c.args[4] as { eventID: string }).eventID }));
@@ -636,12 +638,14 @@ describe("2. funnel pixel — PageView on load, Lead once after the first answer
     expect(t[0]!.id).toMatch(/^lgp_[A-Za-z0-9]{20}$/);
   });
 
-  it("the standard loader injects fbevents.js when fbq is not on the page yet", () => {
+  it("installs the fbq stub immediately and injects fbevents.js on load when animation frames are unavailable", () => {
     const run = runShellScript(cfg, { withFbq: false });
+    expect(typeof run.w["fbq"]).toBe("function");
+    expect(run.injected).toHaveLength(0);
+    run.load();
     expect(run.injected).toHaveLength(1);
     expect(run.injected[0]!.src).toBe("https://connect.facebook.net/en_US/fbevents.js");
     expect(run.injected[0]!.async).toBe(true);
-    expect(typeof run.w["fbq"]).toBe("function");
   });
 
   it("Lead fires once on the first answer (click or typed), never again; AddToCart once when the cards are on screen", () => {

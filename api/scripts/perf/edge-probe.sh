@@ -45,7 +45,12 @@ while (( $# )); do
   esac
 done
 if [[ -n ${EDGE_PROBE_EXTRA_HEADER:-} ]]; then
-  curl_args+=(-H "$EDGE_PROBE_EXTRA_HEADER")
+  extra_headers=$EDGE_PROBE_EXTRA_HEADER
+  while [[ $extra_headers == *' || '* ]]; do
+    curl_args+=(-H "${extra_headers%%' || '*}")
+    extra_headers=${extra_headers#*' || '}
+  done
+  curl_args+=(-H "$extra_headers")
 fi
 if ! exec 3< "$url_file"; then
   if (( warm )); then exit 0; fi
@@ -53,7 +58,7 @@ if ! exec 3< "$url_file"; then
 fi
 if (( ! warm )); then
   [[ $runs =~ ^[1-9][0-9]*$ ]] || usage
-  printf 'url\trun\tstatus\tttfb_s\tx-edge-cache\tcf-cache-status\tage\tcolo\tbytes\n'
+  printf 'url\trun\tstatus\tttfb_s\tx-edge-cache\tcf-cache-status\tage\tcolo\tbytes\tserver_timing\tconnect_s\ttls_s\n'
 fi
 
 shopt -s nocasematch
@@ -70,17 +75,28 @@ while read -r -u 3 url || [[ -n $url ]]; do
   samples=()
   hits=0
   for ((run = 1; run <= runs; run++)); do
-    # Dump headers to stdout with the three write-out fields on the last line.
-    if ! response=$(curl "${curl_args[@]}" -D - -w $'\n%{time_starttransfer}\t%{http_code}\t%{size_download}' -- "$url"); then
+    # Dump headers to stdout with the write-out fields on the last line.
+    if ! response=$(curl "${curl_args[@]}" -D - -w $'\n%{time_starttransfer}\t%{http_code}\t%{size_download}\t%{time_connect}\t%{time_appconnect}' -- "$url"); then
       failed=1
     fi
-    IFS=$'\t' read -r ttfb status bytes <<< "${response##*$'\n'}"
+    IFS=$'\t' read -r ttfb status bytes connect tls <<< "${response##*$'\n'}"
     status=${status:-000}
     headers=${response%$'\n'*}
     # A proxy CONNECT or interim 103 can precede the measured response.
     headers=${headers##*$'\nHTTP/'}
-    edge_cache='' cf_cache='' age='' colo=''
+    edge_cache='' cf_cache='' age='' colo='' server_timing=''
+    in_server_timing=0
     while IFS= read -r line; do
+      if [[ $line =~ ^Server-Timing:[[:blank:]]*(.*)$ ]]; then
+        server_timing+="${server_timing:+, }${BASH_REMATCH[1]%$'\r'}"
+        in_server_timing=1
+        continue
+      fi
+      if (( in_server_timing )) && [[ $line == [[:blank:]]* ]]; then
+        server_timing+=" ${line%$'\r'}"
+        continue
+      fi
+      in_server_timing=0
       [[ $line =~ ^([^:]+):[[:blank:]]*([^[:space:]]+) ]] || continue
       value=${BASH_REMATCH[2]}
       case "${BASH_REMATCH[1]}" in
@@ -90,8 +106,9 @@ while read -r -u 3 url || [[ -n $url ]]; do
         cf-ray) if [[ $value == *-* ]]; then colo=${value##*-}; fi ;;
       esac
     done <<< "$headers"
-    printf '%s\t%d\t%s\t%s\t%s\t%s\t%s\t%s\t%s\n' \
-      "$url" "$run" "$status" "${ttfb:-0.000000}" "$edge_cache" "$cf_cache" "$age" "$colo" "${bytes:-0}"
+    printf '%s\t%d\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\n' \
+      "$url" "$run" "$status" "${ttfb:-0.000000}" "$edge_cache" "$cf_cache" "$age" "$colo" "${bytes:-0}" \
+      "${server_timing//$'\t'/ }" "${connect:-0.000000}" "${tls:-0.000000}"
     if (( 10#$status >= 500 )); then failed=1; fi
     if [[ ${edge_cache:-$cf_cache} == HIT ]]; then hits=$((hits + 1)); fi
     if (( run >= 2 )) && [[ $status != 000 ]]; then samples+=("$ttfb"); fi

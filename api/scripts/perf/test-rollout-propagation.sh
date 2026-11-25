@@ -9,12 +9,15 @@ cp "$src/rollout.sh" "$src/edge-probe.sh" "$perf/"
 printf '%s\n' https://a.example/ https://b.example/ > "$perf/urls.txt"
 export PATH="$tmp/bin:$PATH" PYTHONPATH="$tmp" ROLLOUT_POLL_SECONDS=.02 ROLLOUT_PROPAGATION_TIMEOUT_SECONDS=5
 
-# Skip the minute waits only in the test's check process. All 30 rounds still run.
+# Keep real time while the first slow fill is pending. Skip long waits in the other checks.
 cat > "$tmp/sitecustomize.py" <<'PY'
-import sys, time
+import os, sys, time
 if sys.argv[1:2] == ["check"]:
     sleep = time.sleep
-    time.sleep = lambda seconds: sleep(seconds) if seconds < 1 else None
+    def check_sleep(seconds):
+        if seconds < 1 or os.path.exists(os.path.join(os.environ["STATE"], "filling")):
+            sleep(seconds)
+    time.sleep = check_sleep
 PY
 cat > "$tmp/bin/npx" <<'SH'
 #!/usr/bin/env bash
@@ -77,6 +80,18 @@ if [[ $url == */__edge/tick ]]; then
   fi
 else
   if [[ $version == old && $host == a.example ]]; then served=; fi  # Legacy baseline.
+  if [[ $SCENARIO == delayed && $host == a.example && $version == new && ! -e $STATE/fill-sampled ]]; then
+    if [[ -e $STATE/filling ]]; then
+      cache=$(python3 -c 'import sys, time
+with open(sys.argv[1]) as started:
+    print("HIT" if time.time_ns() - int(started.read()) >= 1_500_000_000 else "MISS")' "$STATE/filling")
+      mv "$STATE/filling" "$STATE/fill-sampled"
+    else
+      python3 -c 'import time; print(time.time_ns())' > "$STATE/filling"
+      cache=MISS
+    fi
+    echo "$cache" >> "$STATE/slow-fill-pair"
+  fi
   if [[ $host == a.example && $SCENARIO == "wrong-$version" ]]; then
     if [[ $version == new ]]; then served=old; else served=new; fi
     echo "$served" >> "$STATE/wrong"
@@ -137,6 +152,8 @@ for host in a.example b.example; do
   [[ ! -e $STATE/$host.new@100%.new ]] || exit 1
 done
 echo 'PASS delayed propagation gated both tenants on pinned split ticks and unpinned promotion ticks and completed 30 checks'
+[[ $(<"$STATE/slow-fill-pair") == $'MISS\nHIT' ]] || exit 1
+echo 'PASS a slow-filling same-colo MISS was followed by a HIT at least 1.5s later'
 
 ! ROLLOUT_PROPAGATION_TIMEOUT_SECONDS=1 run_case never || exit 1
 grep -q '^b.example: propagation timed out after 1s ' "$STATE/log" || exit 1

@@ -65,6 +65,7 @@ describe("edge-selected listicle versions", () => {
     vi.useFakeTimers({ toFake: ["Date"] });
     vi.setSystemTime(nowMs);
     bindings = env(db);
+    bindings.DB.batch = <T>(statements: D1PreparedStatement[]) => Promise.all(statements.map(s => s.all<T>()));
     const cache = new Map<string, { value: string; metadata: unknown }>();
     Object.assign(bindings.CACHE, {
       async getWithMetadata(key: string) { return cache.get(key) ?? { value: null, metadata: null }; },

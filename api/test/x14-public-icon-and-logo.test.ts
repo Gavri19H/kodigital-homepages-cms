@@ -82,7 +82,7 @@ describe("tab icon tags (Part A)", () => {
 describe("the logo as the fallback share picture (owner Q6)", () => {
   it("a page with no picture of its own shares the uploaded logo as a full address; its own picture wins; AI logos never", () => {
     const fallback = renderLayout({ site: { name: "m", hostname: "moneylantern.com", logoUrl: UPLOADED }, meta: { title: "t" }, body: "" });
-    expect(fallback).toContain(`content="https://moneylantern.com${UPLOADED}"`);
+    expect(fallback).toContain(`<meta property="og:image" content="https://moneylantern.com/cdn-cgi/image/width=1200,fit=scale-down,format=auto${UPLOADED}">`);
     const own = renderLayout({
       site: { name: "m", hostname: "moneylantern.com", logoUrl: UPLOADED },
       meta: { title: "t", ogImage: "https://moneylantern.com/media/hero.png" },

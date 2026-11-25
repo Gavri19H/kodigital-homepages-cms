@@ -197,6 +197,7 @@ describe("listicle and quote browser cache headers", () => {
       .run("lgn_00000000000000000000000001");
 
     env = sqliteEnv(db);
+    env.DB.batch = <T>(statements: D1PreparedStatement[]) => Promise.all(statements.map(s => s.all<T>()));
     Object.assign(env.CACHE, { async getWithMetadata() { return { value: null, metadata: null }; } });
     ctx = ctxCapture().ctx;
     Object.assign(ctx, { exports: {

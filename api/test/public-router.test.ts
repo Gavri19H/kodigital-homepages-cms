@@ -268,7 +268,7 @@ describe("public-router /:slug canonicalization (T40 [F1])", () => {
     expect(body.trim().toLowerCase().startsWith("<!doctype html>")).toBe(true);
     expect(body).not.toBe(RAW_PAGE_HTML);
     // renderLayout links the public stylesheet (the shell, not the fallback).
-    expect(body).toMatch(/href="\/assets\/public\.css\?v=[a-z0-9]+"/);
+    expect(body).toMatch(/href="\/lg\/runtime\/assets\/public\.[a-z0-9]+\.css"/);
     // Header + footer regions are served (banner + contentinfo).
     expect(body).toContain('class="site-header"');
     expect(body).toContain('role="banner"');
@@ -479,7 +479,7 @@ describe("public-router GET / homepage design system (T1 rescue-3)", () => {
 
     // Design-system shell (renderLayout): Nunito font + public stylesheet.
     expect(body).toContain("Nunito");
-    expect(body).toMatch(/href="\/assets\/public\.css\?v=[a-z0-9]+"/);
+    expect(body).toMatch(/href="\/lg\/runtime\/assets\/public\.[a-z0-9]+\.css"/);
 
     // Inline brand-token override sourced from site_settings.brand_tokens_json.
     expect(body).toContain('<style data-source="brand_tokens">');
@@ -487,7 +487,8 @@ describe("public-router GET / homepage design system (T1 rescue-3)", () => {
 
     // Hero bg image: the .hero-bg surface carries the lead story's image.
     expect(body).toContain('class="hero-bg"');
-    expect(body).toContain('src="/media/hero.jpg"');
+    expect(body).toContain('url(/cdn-cgi/image/width=1600,quality=78,format=auto/media/hero.jpg)');
+    expect(body).toContain('src="/cdn-cgi/image/width=1280,quality=75,format=auto/media/hero.jpg"');
 
     // NOT the rescue-2 bare fallback: the design header is present, and the
     // root wrapper opens the <main> content region (not a bare <body><div>).
@@ -650,7 +651,7 @@ describe("public-router GET / site-status gating (T19 rescue-3)", () => {
     // The 404 is the safe Not-Found payload, NOT a rendered homepage: none of
     // the design-shell / home-section markers leak for a draft site.
     expect(draftBody).not.toContain("home-section:");
-    expect(draftBody).not.toMatch(/href="\/assets\/public\.(?:[a-z0-9]+\.)?css\b/);
+    expect(draftBody).not.toMatch(/href="(?:\/lg\/runtime)?\/assets\/public\.(?:[a-z0-9]+\.)?css\b/);
 
     // Active site: same fixture, status='active' → resolves → homepage served.
     const activeRes = await makeApp().request(
@@ -661,7 +662,7 @@ describe("public-router GET / site-status gating (T19 rescue-3)", () => {
     expect(activeRes.status).toBe(200);
     const activeBody = await activeRes.text();
     expect(activeBody.trim().toLowerCase().startsWith("<!doctype html>")).toBe(true);
-    expect(activeBody).toMatch(/href="\/assets\/public\.css\?v=[a-z0-9]+"/);
+    expect(activeBody).toMatch(/href="\/lg\/runtime\/assets\/public\.[a-z0-9]+\.css"/);
   });
 
   it("draft site 404s the indexing surfaces too — /sitemap.xml and /robots.txt [api/test/public-router.test.ts]", async () => {
@@ -877,7 +878,7 @@ describe("public-router GET /article/:slug design system (T2 rescue-3)", () => {
 
     // AC2: the brand CSS is linked + the per-article SEO title/description are
     // inline in the <head> (renderLayout owns the head).
-    expect(body).toMatch(/href="\/assets\/public\.css\?v=[a-z0-9]+"/);
+    expect(body).toMatch(/href="\/lg\/runtime\/assets\/public\.[a-z0-9]+\.css"/);
     expect(body).toContain(
       "<title>The Feature That Mattered — Acme Daily</title>",
     );
@@ -984,24 +985,17 @@ function makeCategoryDb(): D1Database {
               settings_version: 1,
             } as unknown as T;
           }
-          if (sql.startsWith("SELECT id, slug, name, description FROM categories")) {
-            const slug = captured[0] as string;
-            if (slug !== CATEGORY_ROW.slug) return null;
-            return { ...CATEGORY_ROW } as unknown as T;
-          }
           return null;
         },
         async all<T = unknown>() {
-          // rescue-4 round-3 (issue 1): fetchCategoryArticles now LEFT JOINs
-          // media (`SELECT a.*, m.storage_key ... FROM articles a ... WHERE
-          // a.category_id = ?`), so match the new shape, not the old
-          // `SELECT * FROM articles WHERE category_id` literal.
-          if (sql.includes("FROM articles") && sql.includes("category_id")) {
-            return {
-              results: CATEGORY_ARTICLES as unknown as T[],
-              success: true,
-              meta: {},
-            };
+          if (sql.startsWith("WITH taxonomy AS")) {
+            const rows = captured[0] === CATEGORY_SITE_ID && captured[1] === CATEGORY_ROW.slug
+              ? CATEGORY_ARTICLES.map((a) => ({
+                ...CATEGORY_ROW, page_size: 20, article_slug: a.slug, article_title: a.title,
+                published_at: a.published_at, image_url: null, image_alt: null,
+              }))
+              : [];
+            return { results: rows as T[], success: true, meta: {} };
           }
           if (sql.includes("FROM site_settings")) {
             return {
@@ -1036,7 +1030,7 @@ describe("public-router GET /category/:slug design system (T4 rescue-3)", () => 
     // Full design document, not the rescue-2 bare zero-style fragment.
     expect(body.trim().toLowerCase().startsWith("<!doctype html>")).toBe(true);
     // renderLayout links the public stylesheet + the brand-token override.
-    expect(body).toMatch(/href="\/assets\/public\.css\?v=[a-z0-9]+"/);
+    expect(body).toMatch(/href="\/lg\/runtime\/assets\/public\.[a-z0-9]+\.css"/);
     expect(body).toContain('<style data-source="brand_tokens">');
     expect(body).toContain("--tw-brand: #1ba8c8");
     // Header + footer regions are served (banner + contentinfo).

@@ -466,6 +466,7 @@ export async function runFingerprintCron(env: Env, ctx: ExecutionContext | undef
     if (targets.size) {
       const tags = [...new Set([...targets].sort().map(siteTag))];
       const reason = missed.size ? "fingerprint" : "version";
+      // onPublicChange advances the primary bookmark for every site tag before purging its snapshot.
       await onPublicChange(env, ctx, { siteId: null, tags, reason });
       // Consume our own receipt without advancing past a concurrent publisher's.
       try {

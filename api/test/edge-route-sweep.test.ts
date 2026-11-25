@@ -134,6 +134,7 @@ const cases = examples.flatMap(({ route, path = route, variants = ["human"], sta
 
 function renderEnv(db: SqliteDb): Env {
   const bindings = sqliteEnv(db);
+  bindings.DB.batch = <T>(statements: D1PreparedStatement[]) => Promise.all(statements.map(s => s.all<T>()));
   const entries = new Map<string, { value: string; metadata: unknown }>();
   Object.assign(bindings.CACHE, {
     async get(key: string) { return entries.get(key)?.value ?? null; },
@@ -205,7 +206,11 @@ describe("tenant routes forwarded to PublicPage", () => {
       snapshot.mockClear();
       const path = pattern.replace(/:[^/]+/g, "2"); // Valid as a slug, quote name or page number.
       await gatewayFetch(new Request(origin + path), bindings, ctx, () => new Response(null));
-      if (snapshot.mock.calls.length) admitted.add(pattern);
+      if (pattern === "/lg/attempt") {
+        expect(snapshot).toHaveBeenCalledExactlyOnceWith({ props: { siteKey: "host:" + host, variantKey: "snap" } });
+      } else if (snapshot.mock.calls.length) {
+        admitted.add(pattern);
+      }
     }
     expect([...admitted].sort()).toEqual([...new Set(examples.map(example => example.route))].sort());
   });
@@ -262,12 +267,17 @@ describe("public change manifest", () => {
   it("requires a purge proof file or a source-backed reason for each entry", () => {
     const files = new Set(readdirSync(new URL(".", import.meta.url), { withFileTypes: true })
       .filter(file => file.isFile() && file.name.endsWith(".test.ts")).map(file => file.name));
+    const reason = expect.stringMatching(/^[^\r\n]+$/);
     for (const [route, entry] of Object.entries(manifest)) {
       if ("proof" in entry) {
-        expect(entry, route).toEqual({ effect: "purges", proof: expect.any(String) });
+        expect(entry, route).toEqual({
+          effect: "purges", proof: expect.any(String), ...("reason" in entry ? { reason } : {}),
+        });
         expect(files.has(entry.proof), route + " cites missing proof " + entry.proof).toBe(true);
       } else {
-        expect(entry, route).toEqual({ effect: "none", reason: expect.stringMatching(/^[^\r\n]+$/) });
+        expect(entry, route).toEqual({ effect: "none", reason });
+      }
+      if ("reason" in entry) {
         const citations = [...entry.reason.matchAll(/\b((?:src|test)\/[\w./-]+):([1-9]\d*)/g)];
         expect(citations.length, route + " requires file:line evidence").toBeGreaterThan(0);
         for (const [, file, line] of citations) {
@@ -275,6 +285,20 @@ describe("public change manifest", () => {
           expect(source[Number(line) - 1]?.trim(), route + " cites " + file + ":" + line).toBeTruthy();
         }
       }
+    }
+  });
+
+  it("requires a purge proof for writes to prepared auction, section and tracking inputs", () => {
+    for (const route of [
+      "PATCH /api/admin/leadgen/auctions/:id",
+      "PATCH /api/admin/leadgen/sections/:id",
+      "PUT /api/admin/leadgen/auctions/:id/offers",
+      "PATCH /api/admin/leadgen/offers/:id",
+      "DELETE /api/admin/leadgen/offers/:id",
+    ] as const) {
+      expect(manifest[route], route).toEqual({
+        effect: "purges", proof: "edge-purge-leadgen-bundle-inputs.test.ts", reason: expect.any(String),
+      });
     }
   });
 

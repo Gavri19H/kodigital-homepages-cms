@@ -151,6 +151,7 @@ function requestShapes(): RequestShape[] {
 
 // GOLDEN_WRITE=1 runs the existing renderer. Only its response supplies the expected bytes.
 async function recordGoldens(bindings: Env): Promise<GoldenRecord[]> {
+  bindings.DB.batch = <T>(statements: D1PreparedStatement[]) => Promise.all(statements.map(s => s.all<T>()));
   const cache = new Map<string, string>();
   Object.assign(bindings.CACHE, {
     async getWithMetadata(key: string) { return { value: cache.get(key) ?? null, metadata: null }; },

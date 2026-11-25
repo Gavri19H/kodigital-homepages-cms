@@ -93,13 +93,6 @@ function makeDb(article: ArticleSeed, categoryRows: ArticleSeed[]): D1Database {
               ? article
               : null) as unknown as T | null;
           }
-          // fetchCategory (category route).
-          if (sql.startsWith("SELECT id, slug, name, description FROM categories")) {
-            const slug = captured[0] as string;
-            return (slug === "news"
-              ? { id: 5, slug: "news", name: "News" }
-              : null) as unknown as T | null;
-          }
           // buildArticleViewModel article-detail row (joins categories + media).
           if (sql.startsWith("SELECT a.id AS id")) {
             const siteId = captured[0] as string;
@@ -130,21 +123,15 @@ function makeDb(article: ArticleSeed, categoryRows: ArticleSeed[]): D1Database {
           return null;
         },
         async all<T = unknown>() {
-          // fetchCategoryArticles: a full page so the next-link is emitted.
-          // rescue-4 round-3 (issue 1): the query now LEFT JOINs media
-          // (`SELECT a.*, m.storage_key ... FROM articles a ... WHERE a.category_id = ?
-          //  ... ORDER BY a.published_at DESC`), so match the new shape.
-          if (
-            sql.includes("FROM articles") &&
-            sql.includes("category_id") &&
-            sql.includes("ORDER BY") &&
-            sql.includes("published_at")
-          ) {
-            return {
-              results: categoryRows as unknown as T[],
-              success: true,
-              meta: {},
-            };
+          if (sql.startsWith("WITH taxonomy AS")) {
+            const rows = captured[0] === SITE_ID && captured[1] === "news"
+              ? categoryRows.map((a) => ({
+                id: 5, slug: "news", name: "News", page_size: PUBLIC_PAGE_SIZE,
+                article_slug: a.slug, article_title: a.title, published_at: a.published_at,
+                image_url: null, image_alt: null,
+              }))
+              : [];
+            return { results: rows as T[], success: true, meta: {} };
           }
           return { results: [] as T[], success: true, meta: {} };
         },

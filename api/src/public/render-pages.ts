@@ -6,12 +6,13 @@
 // resolved SiteContext.hostname. The admin host MUST NEVER appear as a
 // canonical href / og:url on a content page (mission RED LINE).
 
-import type { ArticleRow } from "../db";
 import type { PublicSiteContext } from "./middleware";
 import type { PublicPageRow, PublicCategoryRow, PublicTagRow } from "./queries";
-import { fetchPublicLayoutSiteInfo, fetchSiteVerticalName, PUBLIC_PAGE_SIZE, type ArticleCardRow } from "./queries";
+import { fetchSiteVerticalName, PUBLIC_PAGE_SIZE, type ListingCard } from "./queries";
+import { loadRenderContext, type RenderContext } from "./render-context";
 import { mediaUrl } from "./view-models/media-url";
 import {
+  heroBackgroundSources,
   renderHeader,
   renderFooter,
   renderCard,
@@ -33,7 +34,7 @@ import {
   renderFaqJsonLd,
   renderAffiliateProductsJsonLd,
 } from "./templates/jsonld-article";
-import { buildArticleViewModel } from "./view-models/article";
+import { loadArticleRenderData, type ArticleRenderData } from "./view-models/article";
 import {
   renderHomeWebsiteJsonLd,
   renderHomeOrganizationJsonLd,
@@ -42,35 +43,20 @@ import {
   renderWebPageJsonLd,
   parseSameAsList,
 } from "./templates/jsonld-home-category-page";
-import { buildHomeViewModel, type HomeArticleCard } from "./view-models/home";
+import { loadHomeRenderData, type HomeArticleCard } from "./view-models/home";
 import { renderHome } from "./templates/home";
 import { renderArticle } from "./templates/article";
 import { renderLayout } from "./templates/layout";
 import { renderCustomHead, renderCustomFooter, renderConsentHead } from "../settings/custom-html";
 import { absoluteOnHost, uploadedLogoUrl } from "./site-brand";
 
-// T23: load the per-site operator snippets (custom_head_html / analytics_script
-// / ad_header_script / custom_footer_html) and return the SANITIZED <head>/
-// footer fragments renderLayout injects into the LIVE page. Every public
-// surface calls this so the stored snippets finally render (BCL-045) — safely.
-async function loadCustomLayoutHtml(
-  db: D1Database,
-  siteId: string,
-): Promise<{
+function customLayoutHtml(settings: Readonly<Record<string, string>>): {
   customHead?: string;
   consentHead?: string;
   customFooter?: string;
   socialLinks: SocialLink[];
   orgSameAs: string[];
-}> {
-  const result = await db
-    .prepare("SELECT key AS key, value AS value FROM site_settings WHERE site_id = ?")
-    .bind(siteId)
-    .all<{ key: string; value: string | null }>();
-  const settings: Record<string, string> = {};
-  for (const row of result.results ?? []) {
-    if (typeof row.value === "string") settings[row.key] = row.value;
-  }
+} {
   const customHead = renderCustomHead(settings);
   const consentHead = renderConsentHead(settings);
   const customFooter = renderCustomFooter(settings);
@@ -127,7 +113,7 @@ function adHeadHtml(
 }
 
 // T1 (rescue-3): the LIVE GET / handler composes the design homepage
-// through buildHomeViewModel + renderHome + renderLayout — NOT the bare
+// through loadHomeRenderData + renderHome + renderLayout — NOT the bare
 // article-list fallback. The DB is threaded from c.env.DB (router.ts) so
 // the renderer is wired into the live entry; rescue-2 shipped a route that
 // called no db-fed renderer, so the public homepage rendered the bare
@@ -145,12 +131,19 @@ export async function renderHomepageHtml(
   siteContext: PublicSiteContext,
   opts: { isBot?: boolean } = {},
 ): Promise<string> {
-  const vm = await buildHomeViewModel(db, {
-    siteId: siteContext.siteId,
-    hostname: siteContext.hostname,
-  });
+  const { vm, settings } = await loadHomeRenderData(db, siteContext);
   const canonicalUrl = vm.meta.canonicalUrl;
-  const customHtml = await loadCustomLayoutHtml(db, siteContext.siteId);
+  const customHtml = customLayoutHtml(settings);
+  // A single 100vw srcset can pick a larger file at high DPR than the CSS
+  // background. Exactly one of these viewport-qualified preloads applies.
+  const heroPreload = heroBackgroundSources(vm.hero?.imageUrl).map(({ url, width, media }) => {
+    const condition = media ? ` media="${escapeHtml(media)}"` : "";
+    // A trailing comma is a srcset separator, but is literal in href.
+    const source = width && !url.endsWith(",")
+      ? `imagesrcset="${escapeHtml(url)} ${width}w" imagesizes="100vw"`
+      : `href="${escapeHtml(url)}"`;
+    return `<link rel="preload" as="image" fetchpriority="high"${condition} ${source}>`;
+  }).join("\n");
 
   // Disjoint buckets (trending removed from the pool, hero = featured[0],
   // featured excludes hero, latest excludes featured) — flatten for the
@@ -191,7 +184,7 @@ export async function renderHomepageHtml(
   // T22: home is one of the ad-bearing surfaces. Load the per-site ad config
   // and gate on shouldShowAds("/") — the §5 leaderboard + §9 in-feed slots
   // carry real <ins> units and the head loads the provider + AdManager JS.
-  const adsConfig = await loadAdsConfig(db, siteContext.siteId);
+  const adsConfig = await loadAdsConfig(db, siteContext.siteId, settings);
   const adsOn = shouldShowAds(adsConfig, {
     path: "/",
     loggedIn: false,
@@ -226,10 +219,7 @@ export async function renderHomepageHtml(
     // like the Article/Category/Page blocks. meta.jsonLd wraps raw JSON, and
     // passing these through it nested one <script> inside another, so Google
     // could read none of the homepage's structured data.
-    extraHead:
-      adHead.length > 0
-        ? `${jsonLd.join("\n")}\n${adHead}`
-        : jsonLd.join("\n"),
+    extraHead: [heroPreload, ...jsonLd, adHead].filter(Boolean).join("\n"),
     customHead: customHtml.customHead,
     consentHead: customHtml.consentHead,
     customFooter: customHtml.customFooter,
@@ -237,7 +227,7 @@ export async function renderHomepageHtml(
 }
 
 // T2 (rescue-3): the LIVE GET /article/:slug handler composes the design
-// article shell through buildArticleViewModel + renderArticle + renderLayout
+// article shell through loadArticleRenderData + renderArticle + renderLayout
 // — NOT the rescue-2 bare `<div>${content_html}</div>` fallback. The DB is
 // threaded from c.env.DB (router.ts) so the renderer is db-fed and wired into
 // the live entry; rescue-2 served bare HTML (no design shell, no 12 §8
@@ -257,25 +247,17 @@ export async function renderArticleHtml(
   db: D1Database,
   siteContext: PublicSiteContext,
   slug: string,
-  opts: { isBot?: boolean } = {},
+  opts: { isBot?: boolean; data?: ArticleRenderData } = {},
 ): Promise<string> {
-  const vm = await buildArticleViewModel(db, {
-    slug,
-    siteContext: {
-      siteId: siteContext.siteId,
-      hostname: siteContext.hostname,
-    },
-  });
-  if (vm === null) {
-    // The router's getArticleBySlug gate already proved this slug is a
-    // published article before this render thunk runs (cold-cache only), so a
-    // null view-model here is an unpublish/delete race between the two
-    // cold-cache queries. Surface it rather than caching an empty shell.
+  const data = opts.data ?? await loadArticleRenderData(db, { slug, siteContext });
+  if (data.vm === null) {
+    // A legacy cache miss can race an unpublish after its publication check.
     throw new Error(
       `renderArticleHtml: article '${slug}' not found for site ${siteContext.siteId}`,
     );
   }
 
+  const { vm, settings } = data;
   const canonicalUrl = vm.meta.canonicalUrl;
 
   // GEO checklist (docs/geo-checklist.md §1–§5): one Article block whose
@@ -349,14 +331,14 @@ export async function renderArticleHtml(
   // T22: article is an ad-bearing surface. Gate on shouldShowAds for this
   // article path so the §11 sidebar rectangle carries its real <ins> unit and
   // the head loads the provider + AdManager JS (appended after the JSON-LD).
-  const adsConfig = await loadAdsConfig(db, siteContext.siteId);
+  const adsConfig = await loadAdsConfig(db, siteContext.siteId, settings);
   const adsOn = shouldShowAds(adsConfig, {
     path: `/article/${slug}`,
     loggedIn: false,
     isBot: opts.isBot ?? false,
   });
   const adHead = adHeadHtml(adsConfig, adsOn);
-  const customHtml = await loadCustomLayoutHtml(db, siteContext.siteId);
+  const customHtml = customLayoutHtml(settings);
 
   const body = renderArticle({
     vm,
@@ -404,7 +386,7 @@ export async function renderArticleHtml(
 }
 
 // T4 (rescue-3): the LIVE GET /category/:slug handler composes the category
-// listing through fetchPublicLayoutSiteInfo + renderCard + renderLayout — NOT
+// listing through loadRenderContext + renderCard + renderLayout — NOT
 // the rescue-2 bare zero-style `<h1>` + flat `<a>` list. BCL-019 (W1-EXTENDED)
 // found the live /category/<slug> rendering BARE (1,279 bytes, 0 <style>); the
 // orphaned-render defect covered home + article + page + CATEGORY, and this is
@@ -428,17 +410,14 @@ export async function renderCategoryHtml(
   db: D1Database,
   siteContext: PublicSiteContext,
   cat: PublicCategoryRow,
-  articles: ArticleCardRow[],
+  articles: ListingCard[],
   pageNum: number,
   slug: string,
   pageSize: number = PUBLIC_PAGE_SIZE,
-  opts: { isBot?: boolean } = {},
+  opts: { isBot?: boolean; context?: RenderContext } = {},
 ): Promise<string> {
-  const site = await fetchPublicLayoutSiteInfo(db, {
-    siteId: siteContext.siteId,
-    hostname: siteContext.hostname,
-  });
-  const customHtml = await loadCustomLayoutHtml(db, siteContext.siteId);
+  const { site, settings } = opts.context ?? await loadRenderContext(db, siteContext);
+  const customHtml = customLayoutHtml(settings);
 
   // Paginated category pages canonical to page 1 (no duplicate-content signal).
   const canonicalPath = `/category/${slug}`;
@@ -476,13 +455,14 @@ export async function renderCategoryHtml(
   // which would be a duplicate-content signal against the page-1 canonical.
   const cards = articles
     .map(
-      (a) =>
+      (a, index) =>
         `<li class="home-grid__item">${renderCard({
           href: `/article/${a.slug}`,
           title: a.title,
           categoryName: cat.name,
           imageUrl: mediaUrl(a.image_url),
           imageAlt: a.image_alt ?? null,
+          priority: index === 0,
           publishedAt: formatCardDate(a.published_at) || undefined,
         })}</li>`,
     )
@@ -494,7 +474,7 @@ export async function renderCategoryHtml(
   // T22: category is an ad-bearing surface. Gate on shouldShowAds for this
   // category path; when live, a leaderboard slot rides above the listing and
   // the head loads the provider + AdManager JS.
-  const adsConfig = await loadAdsConfig(db, siteContext.siteId);
+  const adsConfig = await loadAdsConfig(db, siteContext.siteId, settings);
   const adsOn = shouldShowAds(adsConfig, {
     path: `/category/${slug}`,
     loggedIn: false,
@@ -580,7 +560,7 @@ export async function renderCategoryHtml(
 }
 
 // T14: the LIVE GET /tag/:slug handler composes the tag listing through the
-// same design layout the category listing uses (fetchPublicLayoutSiteInfo +
+// same design layout the category listing uses (loadRenderContext +
 // renderCard + renderLayout) — a topic page is a styled collection of the
 // published articles carrying that tag, not a bare list. Mirrors
 // renderCategoryHtml: the canonical href is always /tag/<slug> (page 1), the
@@ -593,16 +573,14 @@ export async function renderTagHtml(
   db: D1Database,
   siteContext: PublicSiteContext,
   tag: PublicTagRow,
-  articles: ArticleCardRow[],
+  articles: ListingCard[],
   pageNum: number,
   slug: string,
   pageSize: number = PUBLIC_PAGE_SIZE,
+  context?: RenderContext,
 ): Promise<string> {
-  const site = await fetchPublicLayoutSiteInfo(db, {
-    siteId: siteContext.siteId,
-    hostname: siteContext.hostname,
-  });
-  const customHtml = await loadCustomLayoutHtml(db, siteContext.siteId);
+  const { site, settings } = context ?? await loadRenderContext(db, siteContext);
+  const customHtml = customLayoutHtml(settings);
 
   // Paginated tag pages canonical to page 1 (no duplicate-content signal).
   const canonicalPath = `/tag/${slug}`;
@@ -635,12 +613,13 @@ export async function renderTagHtml(
 
   const cards = articles
     .map(
-      (a) =>
+      (a, index) =>
         `<li class="home-grid__item">${renderCard({
           href: `/article/${a.slug}`,
           title: a.title,
           imageUrl: mediaUrl(a.image_url),
           imageAlt: a.image_alt ?? null,
+          priority: index === 0,
           publishedAt: formatCardDate(a.published_at) || undefined,
         })}</li>`,
     )
@@ -710,7 +689,7 @@ export async function renderTagHtml(
 }
 
 // T3 (rescue-3): the LIVE GET /page/:slug handler composes the static page
-// through fetchPublicLayoutSiteInfo + renderHeader/renderFooter + renderLayout
+// through loadRenderContext + renderHeader/renderFooter + renderLayout
 // — NOT the rescue-2 bare `wrapHtmlDocument(head, content_html)` fallback. The
 // DB is threaded from c.env.DB (router.ts) so the renderer is db-fed and wired
 // into the live entry; rescue-2 served a bare document (no design shell, no
@@ -801,12 +780,16 @@ export async function renderPageHtml(
   siteContext: PublicSiteContext,
   row: PublicPageRow,
   path: string,
+  context?: RenderContext,
 ): Promise<string> {
-  const site = await fetchPublicLayoutSiteInfo(db, {
-    siteId: siteContext.siteId,
-    hostname: siteContext.hostname,
-  });
-  const customHtml = await loadCustomLayoutHtml(db, siteContext.siteId);
+  // Direct renderer callers can supply a page row without the About subquery.
+  const [{ site, settings }, verticalName] = await Promise.all([
+    context ?? loadRenderContext(db, siteContext),
+    row.slug === "about" && !nonBlank(row.seo_description) && row.vertical_name === undefined
+      ? fetchSiteVerticalName(db, siteContext.siteId)
+      : nonBlank(row.vertical_name) ?? null,
+  ]);
+  const customHtml = customLayoutHtml(settings);
   const canonicalUrl = buildCanonicalUrl(siteContext.hostname, path);
 
   const headerSite = {
@@ -846,7 +829,7 @@ export async function renderPageHtml(
     pageFallbackDescription(
       row.slug,
       site.name,
-      row.slug === "about" ? await fetchSiteVerticalName(db, siteContext.siteId) : null,
+      verticalName,
     );
   const bodyLeadsWithH1 = /^\s*<h1[\s>]/i.test(contentHtml);
   const pageTitleH1 = bodyLeadsWithH1

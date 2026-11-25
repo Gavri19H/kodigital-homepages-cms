@@ -1,11 +1,13 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-import * as leadgen from "../src/edge/leadgen-select";
-import * as listicles from "../src/edge/listicle-select";
 import { buildSiteSnapshot, parseSiteSnapshot } from "../src/edge/snapshot";
 import type { SiteSnapshot } from "../src/edge/types";
 import type { Env } from "../src/env";
 import { makeFakeDb } from "./helpers/admin-test-kit";
 import { addSite, createDb, env as testEnv, type SqliteDb } from "./helpers/x06-a2-sqlite";
+
+function readBatch<T>(statements: D1PreparedStatement[]): Promise<D1Result<T>[]> {
+  return Promise.all(statements.map(statement => statement.all<T>()));
+}
 
 describe("buildSiteSnapshot", () => {
   let sql: SqliteDb;
@@ -14,8 +16,9 @@ describe("buildSiteSnapshot", () => {
   beforeEach(() => {
     sql = createDb();
     env = testEnv(sql);
+    env.DB.batch = readBatch;
     addSite(sql, "site-north", "North", "home");
-    addSite(sql, "site-south", "South", "home");
+    addSite(sql, "site-south", "South", "travel");
     const domain = sql.prepare("INSERT INTO domains (site_id, hostname, status) VALUES (?, ?, 'active')");
     domain.run("site-north", "north.example");
     domain.run("site-south", "south.example");
@@ -42,10 +45,10 @@ describe("buildSiteSnapshot", () => {
       buildSiteSnapshot(env, "NORTH.Example.:443"),
       buildSiteSnapshot(env, "south.example"),
     ]);
-    expect(north).toMatchObject({ siteId: "site-north", hostname: "north.example", status: "active",
+    expect(north).toMatchObject({ siteId: "site-north", hostname: "north.example", verticalSlug: "home", status: "active",
       listicles: { guide: { listicleId: "art_guide", publishedVersion: { public_id: "ver_guide" } } } });
     expect(north?.leadgen).toEqual({});
-    expect(south).toMatchObject({ siteId: "site-south", hostname: "south.example", status: "active",
+    expect(south).toMatchObject({ siteId: "site-south", hostname: "south.example", verticalSlug: "travel", status: "active",
       leadgen: { "/lg": { quoteId } } });
     expect(south?.listicles).toEqual({});
     for (const snapshot of [north, south]) {
@@ -80,10 +83,12 @@ describe("buildSiteSnapshot", () => {
     };
     env.DB.withSession = vi.fn(() => session);
     const directRead = vi.spyOn(env.DB, "prepare");
+    const directBatch = vi.spyOn(env.DB, "batch");
 
     await expect(buildSiteSnapshot(env, "north.example")).resolves.toMatchObject({ siteId: "site-north", writeBookmark: null });
     expect(env.DB.withSession).toHaveBeenCalledExactlyOnceWith("first-primary");
     expect(directRead).not.toHaveBeenCalled();
+    expect(directBatch).not.toHaveBeenCalled();
     const queries = session.prepare.mock.calls.map(([query]) => query);
     expect(queries.filter(query => /\bFROM sites\b/i.test(query))).toHaveLength(1);
     expect(queries.filter(query => /\bFROM site_settings\b/i.test(query))).toHaveLength(1);
@@ -110,24 +115,25 @@ describe("buildSiteSnapshot", () => {
       match: "FROM domains",
       row: { site_id: "site-north", hostname: "north.example", status: "active" },
     }]);
+    db.batch = readBatch;
     await expect(buildSiteSnapshot({ ...env, DB: db }, "north.example"))
       .rejects.toThrow("Missing versions for resolved site");
   });
 
-  it("propagates a listicle builder failure", async () => {
-    vi.spyOn(listicles, "buildListicleSnapshot").mockRejectedValueOnce(new Error("listicle read failed"));
-    await expect(buildSiteSnapshot(env, "north.example")).rejects.toThrow("listicle read failed");
+  it("propagates a listicle read failure", async () => {
+    sql.prepare("ALTER TABLE listicle_article_versions RENAME TO unavailable_versions").run();
+    await expect(buildSiteSnapshot(env, "north.example")).rejects.toThrow("no such table: listicle_article_versions");
   });
 
-  it("propagates a leadgen builder failure", async () => {
-    vi.spyOn(leadgen, "buildLeadgenSnapshot").mockRejectedValueOnce(new Error("leadgen read failed"));
-    await expect(buildSiteSnapshot(env, "south.example")).rejects.toThrow("leadgen read failed");
+  it("propagates a leadgen read failure", async () => {
+    sql.prepare("ALTER TABLE leadgen_quote_routing_rules RENAME TO unavailable_rules").run();
+    await expect(buildSiteSnapshot(env, "south.example")).rejects.toThrow("no such table: leadgen_quote_routing_rules");
   });
 });
 
 describe("parseSiteSnapshot", () => {
   const snapshot: SiteSnapshot = {
-    v: 1, siteId: "site-north", hostname: "north.example", status: "active",
+    v: 1, siteId: "site-north", hostname: "north.example", verticalSlug: "home", status: "active",
     contentVersion: 4, settingsVersion: 2, writeBookmark: null, builtAt: 1000,
     timeZone: null, language: null, listicles: {}, leadgen: {},
   };
@@ -141,6 +147,8 @@ describe("parseSiteSnapshot", () => {
   it.each([
     ["unsupported snapshot version", { v: 2 }],
     ["blank site ID", { siteId: " " }],
+    ["blank vertical slug", { verticalSlug: " " }],
+    ["non-string vertical slug", { verticalSlug: 3 }],
     ["empty hostname", { hostname: "" }],
     ["string content version", { contentVersion: "4" }],
     ["missing settings version", { settingsVersion: undefined }],

@@ -273,18 +273,27 @@ export function renderByline(bylineJson: string | null): string {
   } catch {
     return "";
   }
-  if (byline.enabled !== true) return "";
-  const avatarUrl = typeof byline.author_avatar_url === "string" ? byline.author_avatar_url : "";
+  if (byline?.enabled !== true) return "";
+  const text = (value: unknown) => typeof value === "string" ? value.trim() : "";
+  const avatarUrl = text(byline.author_avatar_url);
+  const author = text(byline.author_name);
   const avatar =
     avatarUrl !== "" && isSafeUrl(avatarUrl)
-      ? `<img class="lst-byline-avatar" src="${escapeHtml(avatarUrl)}" alt="${escapeHtml(byline.author_name ?? "")}" loading="lazy" decoding="async">`
+      ? responsiveImg({
+          src: avatarUrl,
+          alt: author,
+          className: "lst-byline-avatar",
+          width: 30,
+          height: 30,
+          sizes: "30px",
+          loading: "lazy",
+        })
       : "";
   const parts: string[] = [];
-  const label = (byline.label ?? "").trim();
+  const label = text(byline.label);
   if (label !== "") parts.push(escapeHtml(label));
-  const author = (byline.author_name ?? "").trim();
   if (author !== "") parts.push(`By ${escapeHtml(author)}`);
-  const updated = `${(byline.updated_label ?? "").trim()} ${(byline.updated_date ?? "").trim()}`.trim();
+  const updated = `${text(byline.updated_label)} ${text(byline.updated_date)}`.trim();
   if (updated !== "") parts.push(escapeHtml(updated));
   if (avatar === "" && parts.length === 0) return "";
   return `<div class="lst-byline">${avatar}<h5 class="lst-byline-text">${parts.join(" · ")}</h5></div>`;

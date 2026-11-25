@@ -129,9 +129,9 @@ describe("F18 render — Make", () => {
     expect(html).toContain("--lg-cols:3"); // 3 featured makes: min(4, 3)
     const toyota = /<button[^>]*data-lg-choice="448"[^>]*>([\s\S]*?)<\/button>/.exec(html)?.[1] ?? "";
     expect(toyota).toContain(
-      '<img class="lg-card-logo" src="/media/2026/11/logo-toyota.png"' +
-        ' srcset="/cdn-cgi/image/height=40,fit=scale-down,format=auto/media/2026/11/logo-toyota.png 1x, /cdn-cgi/image/height=80,fit=scale-down,format=auto/media/2026/11/logo-toyota.png 2x"' +
-        ' alt="" width="80" height="40" loading="lazy" decoding="async">',
+      '<img class="lg-card-logo" src="/cdn-cgi/image/height=80,fit=scale-down,format=auto,quality=75/media/2026/11/logo-toyota.png" alt=""' +
+        ' srcset="/cdn-cgi/image/height=40,fit=scale-down,format=auto,quality=75/media/2026/11/logo-toyota.png 1x, /cdn-cgi/image/height=80,fit=scale-down,format=auto,quality=75/media/2026/11/logo-toyota.png 2x"' +
+        ' width="80" height="40" loading="lazy" decoding="async">',
     );
     expect(toyota.indexOf("lg-card-logo")).toBeLessThan(toyota.indexOf(">Toyota<"));
     expect(toyota).not.toContain("lg-card-icon");

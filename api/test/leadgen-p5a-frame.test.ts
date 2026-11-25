@@ -838,7 +838,7 @@ describe("P5a progress v2 — distinct styles (markup + chrome CSS)", () => {
 describe("P5a 10B site-logo preview hint", () => {
   it("adminPreview + a site WITH a logo → real logo, no hint", () => {
     const html = composed({}, 2, { adminPreview: true, branding: BRANDING });
-    expect(html).toContain('src="/media/site-logo.png"'); // the REAL resolved logo
+    expect(html).toContain('src="/cdn-cgi/image/height=64,fit=scale-down,format=auto,quality=75/media/site-logo.png"'); // the REAL resolved logo
     expect(html).not.toContain("lg-frame-logo-hint");
   });
 
@@ -890,7 +890,7 @@ describe("P5a follow-on 10G images (persona / placed image)", () => {
     const html = composed(cfg as FrameConfig);
     expect(html).toContain('data-frame-region="image"');
     expect(html).toContain('data-image-id="img1"');
-    expect(html).toContain('src="/media/ai/site1/persona/warm-elder.png"');
+    expect(html).toContain('src="/cdn-cgi/image/width=320,fit=scale-down,format=auto,quality=75/media/ai/site1/persona/warm-elder.png"');
     expect(html).toContain('alt="A warm, trustworthy senior"');
     expect(html).toContain("lg-frame-image--m"); // default size
   });
@@ -899,7 +899,7 @@ describe("P5a follow-on 10G images (persona / placed image)", () => {
     const html = composed({
       images: [{ id: "img2", media_id: "ai/site1/persona/young-salesman.png", alt: "A young salesman", slot: "below_section" }],
     } as FrameConfig);
-    expect(html).toContain('src="/media/ai/site1/persona/young-salesman.png"');
+    expect(html).toContain('src="/cdn-cgi/image/width=320,fit=scale-down,format=auto,quality=75/media/ai/site1/persona/young-salesman.png"');
   });
 
   it("a hover tooltip renders the SAME CSS-only pattern as trust rows (title + focusable + role=tooltip)", () => {

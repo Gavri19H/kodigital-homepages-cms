@@ -3,22 +3,25 @@ import { readCfSignals } from "../analytics/listicle-quality";
 import { CACHE_CONTROL_VALUES, EDGE_CACHE_CONTROL } from "../cache/cache-control";
 import { recordEdgeCacheStatus } from "../cache/cache-stats";
 import { matchesIfNoneMatch } from "../cache/edge-cache";
+import { elapsedMs, timingNow } from "../db/read-session";
 import type { Env } from "../env";
+import { sha256Hex } from "../leadgen/meta-hash";
 import { genSessionId, readCookie } from "../public/listicle/experiment-pick";
 import { isReservedPath } from "../public/reserved";
-import { acceptPrefersMarkdown } from "../public/router";
+import publicRouter, { acceptPrefersMarkdown } from "../public/router";
 import { normalizeHostname } from "../safety/protected-domains";
-import { isAdminHost } from "../site/site-context";
+import { isAdminHost, type SiteContext } from "../site/site-context";
 import { edgeBotVariant } from "./bot";
 import { injectLeadgenAssignment, leadgenGatewayCookies } from "./leadgen-gateway";
 import { selectLeadgenEntry, type LeadgenSelection } from "./leadgen-select";
 import { buildListicleGatewayOutput, injectListicleGateway } from "./listicle-gateway";
 import { pickListicle, type ListiclePick } from "./listicle-select";
 import { perfstageRequest } from "./perfstage";
+import { PublicPage } from "./public-page";
 import { parseSiteSnapshot } from "./snapshot";
-import { serveStatic } from "./static-cache";
+import { seedStaticAssets, serveStatic } from "./static-cache";
 import { listicleTag, siteQuoteTag } from "./tags";
-import type { GatewayRequestInput, PublicPageProps } from "./types";
+import type { GatewayRequestInput, PublicPageProps, SiteSnapshot } from "./types";
 
 interface PageExports {
   PublicPage(options: { props: PublicPageProps }): { fetch(request: Request): Promise<Response> };
@@ -77,6 +80,7 @@ const innerHeaderExclusions = [
   "Cookie", "If-None-Match", "Forwarded", "X-Forwarded-Host", "X-Forwarded-Proto", "X-Forwarded-For",
   "X-Forwarded-Port", "X-Forwarded-Scheme", "X-Host", "X-Original-Host", "X-Original-URL", "X-Rewrite-URL",
   "X-HTTP-Method", "X-HTTP-Method-Override", "X-Method-Override", "Cloudflare-Workers-Version-Key",
+  "X-Perfstage-Direct",
 ];
 
 function cachedRoute(path: string): CachedRoute | null {
@@ -97,18 +101,176 @@ function cmsHeaderNames(headers: Headers): string[] {
   return Array.from(headers.keys()).filter(name => name.toLowerCase().startsWith("x-cms-"));
 }
 
-async function serveCachedPage(
-  request: Request, url: URL, route: CachedRoute, pages: PageExports, cf: GatewayRequestInput["cf"],
-): Promise<Response | null> {
-  const snapshotResponse = await pages.PublicPage({
-    props: { siteKey: `host:${url.hostname}`, variantKey: "snap" },
-  }).fetch(new Request(`https://${url.hostname}/__snap`, { redirect: "manual" }));
+function copyVisitorRequest(request: Request): Request {
+  const copy = new Request(request);
+  // Standard Fetch runtimes can omit the Workers metadata when copying a request.
+  if (copy.cf === undefined && request.cf !== undefined) copy.cf = request.cf;
+  return copy;
+}
+
+interface GatewayTiming {
+  snap: string;
+  inner: string;
+}
+
+interface PageFetchContext {
+  pages: PageExports;
+  env: Env;
+  ctx: ExecutionContext;
+  hedgeMs: number;
+}
+
+async function fetchDirectPage({ env, ctx }: PageFetchContext, props: PublicPageProps, request: Request): Promise<Response> {
+  // Supply the same entrypoint props locally. Native context methods and getters need their original receiver.
+  const pageCtx: ExecutionContext<PublicPageProps> = {
+    props,
+    waitUntil: promise => ctx.waitUntil(promise),
+    passThroughOnException: () => ctx.passThroughOnException(),
+    get exports() { return ctx.exports; },
+    get tracing() { return ctx.tracing; },
+    get access() { return ctx.access; },
+    get cache() { return ctx.cache; },
+  };
+  return PublicPage.prototype.fetch.call({ env, ctx: pageCtx }, request);
+}
+
+function hedgeDelayMs(value = "50"): number {
+  const ms = Number(value);
+  return /^\d+$/.test(value) && ms <= 2_147_483_647 ? ms : 50;
+}
+
+function needsLiveFallback(response: Response): boolean {
+  return response.status >= 500 || response.headers.has("Set-Cookie");
+}
+
+type HedgeWinner = "cache" | "direct";
+
+async function fetchWithHedge(
+  cached: Promise<Response>, context: PageFetchContext, props: PublicPageProps, request: Request,
+): Promise<{ response: Response; hedge?: HedgeWinner }> {
+  let timer: ReturnType<typeof setTimeout> | undefined;
+  try {
+    const early = await Promise.race([cached, new Promise<void>(resolve => {
+      timer = setTimeout(resolve, context.hedgeMs);
+    })]);
+    if (early) return { response: early };
+  } finally {
+    if (timer !== undefined) clearTimeout(timer);
+  }
+
+  async function candidate(pending: Promise<Response>, hedge: HedgeWinner) {
+    const response = await pending;
+    // Snapshot read failures become a 503. A stale variant can produce a live cookie-setting shell.
+    if (needsLiveFallback(response)) {
+      void response.body?.cancel().catch(() => {});
+      throw new Error("PublicPage requires live fallback");
+    }
+    return { response, hedge };
+  }
+
+  const direct = fetchDirectPage(context, props, request);
+  const winner = await Promise.any([candidate(cached, "cache"), candidate(direct, "direct")]);
+  if (winner.hedge === "direct") {
+    // Drain to EOF under waitUntil so both cache tiers can finish filling without buffering the page here.
+    context.ctx.waitUntil(cached.then(response => response.body?.pipeTo(new WritableStream())).catch(() => {}));
+    winner.response.headers.set("cf-cache-status", "MISS");
+  } else {
+    context.ctx.waitUntil(direct.then(response => response.body?.cancel()).catch(() => {}));
+  }
+  return winner;
+}
+
+async function fetchPublicPage(
+  context: PageFetchContext, props: PublicPageProps, request: Request, timing?: GatewayTiming, direct = false,
+): Promise<Response> {
+  let hedge: HedgeWinner | undefined;
+  const fetchPage = async () => {
+    if (direct) return fetchDirectPage(context, props, request);
+    const cached = context.pages.PublicPage({ props }).fetch(request);
+    if (context.hedgeMs === 0) return cached;
+    const result = await fetchWithHedge(cached, context, props, request);
+    hedge = result.hedge;
+    return result.response;
+  };
+  if (!timing) return fetchPage();
+  const started = timingNow();
+  let response: Response | undefined;
+  try {
+    response = await fetchPage();
+    return response;
+  } finally {
+    try {
+      const ms = Math.round(elapsedMs(started));
+      const hit = !direct && response?.headers.get("cf-cache-status")?.toUpperCase() === "HIT";
+      const build = hit ? null : response?.headers.get("Server-Timing");
+      const fresh = build ? ", " + build : "";
+      const outcome = hedge ? `, gw-hedge;desc="${hedge}"` : "";
+      if (props.variantKey === "snap") {
+        timing.snap = `gw-snap;dur=${ms};desc="${hit ? "HIT" : "MISS"}"${outcome}${fresh}`;
+      } else {
+        timing.inner = `${direct ? "gw-direct" : "gw-inner"};dur=${ms}${outcome}${fresh}`;
+      }
+    } catch {
+      // Diagnostics must preserve the original fetch result or rejection.
+    }
+  }
+}
+
+function withGatewayTiming(response: Response, timing: GatewayTiming, liveFallback = false): Response {
+  try {
+    const value = timing.snap + ", " + timing.inner;
+    if (liveFallback) {
+      // Hono can return an immutable redirect with its own timing entries.
+      const live = new Response(response.body, response);
+      live.headers.append("Server-Timing", value);
+      return live;
+    }
+    // The mutable gateway headers may still contain a cached build's timings.
+    response.headers.delete("Server-Timing");
+    response.headers.set("Server-Timing", value);
+  } catch {
+    // Return the original response if timing headers are unavailable.
+  }
+  return response;
+}
+
+interface VersionedSnapshot {
+  snapshot: SiteSnapshot;
+  version: string;
+}
+
+// The snapshot entrypoint hashes its exact bytes once per build. Cache only that ETag and the content version.
+const snapshotVersions = new Map<string, string>();
+const maxSnapshotVersions = 8;
+
+async function readHostSnapshot(url: URL, context: PageFetchContext, timing?: GatewayTiming): Promise<VersionedSnapshot | null> {
+  const snapshotResponse = await fetchPublicPage(context, { siteKey: `host:${url.hostname}`, variantKey: "snap" },
+    new Request(`https://${url.hostname}/__snap`, { redirect: "manual" }), timing);
   if (!snapshotResponse.ok) return null;
-  const snapshot = parseSiteSnapshot(await snapshotResponse.text());
+  const text = await snapshotResponse.text();
+  const snapshot = parseSiteSnapshot(text);
   if (!snapshot || snapshot.status !== "active" || snapshot.hostname.toLowerCase() !== normalizeHostname(url.hostname)) {
     return null;
   }
+  const etag = snapshotResponse.headers.get("ETag") ?? "";
+  const memoKey = /^(?:W\/)?"([0-9a-f]{64})"$/.exec(etag)?.[1];
+  let version = memoKey ? snapshotVersions.get(memoKey) : undefined;
+  if (version === undefined) {
+    const { builtAt: _builtAt, ...content } = snapshot;
+    version = await sha256Hex(JSON.stringify(content));
+    // Older snapshots have no build ETag. Their content still determines the forwarded version.
+    if (memoKey && !snapshotVersions.has(memoKey)) {
+      if (snapshotVersions.size >= maxSnapshotVersions) snapshotVersions.delete(snapshotVersions.keys().next().value!);
+      snapshotVersions.set(memoKey, version);
+    }
+  }
+  return { snapshot, version };
+}
 
+async function serveCachedPage(
+  request: Request, url: URL, route: CachedRoute, context: PageFetchContext, cf: GatewayRequestInput["cf"],
+  { snapshot, version }: VersionedSnapshot, timing?: GatewayTiming, direct = false,
+): Promise<Response | null> {
   const session = readCookie(request.headers.get("Cookie"), "ko_sid");
   const sidWasAbsent = session === "";
   const input: GatewayRequestInput = {
@@ -120,6 +282,7 @@ async function serveCachedPage(
   // If-None-Match takes precedence over the date. Resolve it on the complete shell.
   if (validator !== null) innerHeaders.delete("If-Modified-Since");
   innerHeaders.set("Host", url.host);
+  innerHeaders.set("x-cms-snap-version", version);
   if (snapshot.writeBookmark) innerHeaders.set("x-cms-bookmark", snapshot.writeBookmark);
 
   let variantKey = "human";
@@ -152,12 +315,21 @@ async function serveCachedPage(
   innerHeaders.set("Accept", variantKey === "md" ? "text/markdown" : "text/html");
   // Fetch the original representation and its validator before browser compression.
   if (variantKey === "human" || variantKey === "bot") innerHeaders.set("Accept-Encoding", "identity");
-  const inner = await pages.PublicPage({ props: { siteKey: snapshot.siteId, variantKey } }).fetch(
-    new Request(url.origin + url.pathname, { method: "GET", headers: innerHeaders, redirect: "manual" }),
-  );
+  if (snapshot.verticalSlug !== undefined) {
+    innerHeaders.set("x-cms-site-context", JSON.stringify({
+      site_id: snapshot.siteId,
+      hostname: snapshot.hostname,
+      vertical_slug: snapshot.verticalSlug,
+      status: snapshot.status,
+      content_version: snapshot.contentVersion,
+      settings_version: snapshot.settingsVersion,
+    } satisfies SiteContext));
+  }
+  const inner = await fetchPublicPage(context, { siteKey: snapshot.siteId, variantKey },
+    new Request(url.origin + url.pathname, { method: "GET", headers: innerHeaders, redirect: "manual" }), timing, direct);
   // A stale assignment can send the renderer down its live, cookie-setting path.
   // Retry with the visitor's actual cookies and query in that case.
-  if (inner.status >= 500 || inner.headers.has("Set-Cookie")) return null;
+  if (needsLiveFallback(inner)) return null;
 
   let response = inner;
   const publicHtml = inner.status === 200 && !listicle && !leadgen &&
@@ -193,9 +365,11 @@ async function serveCachedPage(
   }
 
   const headers = new Headers(response.headers);
+  // A cached shell can still carry timings from the build that filled it.
+  if (!timing) headers.delete("Server-Timing");
   for (const name of cmsHeaderNames(headers)) headers.delete(name);
   if (publicHtml && etag !== null) headers.set("ETag", etag);
-  headers.set("x-edge-cache", inner.headers.get("cf-cache-status") ?? "none");
+  headers.set("x-edge-cache", direct ? "DIRECT" : inner.headers.get("cf-cache-status") ?? "none");
   for (const cookie of cookies) headers.append("Set-Cookie", cookie);
   if (inner.status === 200 && (listicle || leadgen)) {
     // PublicPage maps the degraded quote renderer's no-store to the private edge policy.
@@ -204,6 +378,7 @@ async function serveCachedPage(
     // The listicle transform streams a longer body. HEAD also skips the transform.
     if (listicle || !sendBody) headers.delete("Content-Length");
   }
+  if (direct) headers.set("Cache-Control", EDGE_CACHE_CONTROL.private);
   if (!sendBody) void response.body?.cancel().catch(() => {});
   return new Response(sendBody ? response.body : null, {
     headers, status: notModified ? 304 : inner.status, statusText: notModified ? "Not Modified" : inner.statusText,
@@ -215,10 +390,14 @@ export async function gatewayFetch(
 ): Promise<Response> {
   // Use Hono's route decoding so an escaped reserved head has the same boundary.
   const path = getPath(request);
-  const pending = dispatchGatewayRequest(request, env, ctx, honoFetch, path);
-  if (path !== "/__edge/tick" && !request.headers.has("Cloudflare-Workers-Version-Overrides")) return pending;
+  if (path !== "/__edge/tick") request = perfstageRequest(request, env);
+  const response = await dispatchGatewayRequest(request, env, ctx, honoFetch, path);
+  if (request.method === "GET" && response.status === 200 &&
+      /^text\/html(?:\s*;|$)/i.test(response.headers.get("Content-Type") ?? "")) {
+    await seedStaticAssets(new URL(request.url).origin, env);
+  }
+  if (path !== "/__edge/tick" && !request.headers.has("Cloudflare-Workers-Version-Overrides")) return response;
 
-  const response = await pending;
   // A cached response or a redirect can have immutable headers.
   const versioned = new Response(response.body, response);
   versioned.headers.set("x-worker-version", env.CF_VERSION_METADATA?.id ?? "unknown");
@@ -240,32 +419,58 @@ async function dispatchGatewayRequest(
   }
   const names = cmsHeaderNames(request.headers);
   if (names.length) {
-    const clean = new Request(request);
+    const clean = copyVisitorRequest(request);
     for (const name of names) clean.headers.delete(name);
-    // Standard Fetch runtimes can omit the Workers metadata when copying a request.
-    if (clean.cf === undefined && request.cf !== undefined) clean.cf = request.cf;
     request = clean;
   }
-  request = perfstageRequest(request, env);
+  // These public file routes share the old Worker's cache namespace. Dispatch
+  // cold reads straight to their handlers, ahead of the /lg/* tenant lookup.
+  if ((request.method === "GET" || request.method === "HEAD") &&
+      /^\/lg\/runtime\/(?:assets|fonts)\/[^/]+$/.test(path) && !isAdminHost(new URL(request.url).hostname, env)) {
+    honoFetch = publicRouter.fetch;
+  }
+  let timing: GatewayTiming | undefined;
   try {
     if (path === "/__snap" || path.startsWith("/__snap/")) {
       return new Response(null, { status: 404, headers: { "Cache-Control": EDGE_CACHE_CONTROL.private } });
     }
     let response = await serveStatic(request, env, ctx, honoFetch);
     const pages = ctx?.exports as PageExports | undefined;
-    if (!response && typeof pages?.PublicPage === "function" && (request.method === "GET" || request.method === "HEAD")) {
+    if (!response && ctx && typeof pages?.PublicPage === "function" && (request.method === "GET" || request.method === "HEAD")) {
       const url = new URL(request.url);
       const route = cachedRoute(path);
-      if (route && !isAdminHost(url.hostname, env)) {
-        response = await serveCachedPage(request, url, route, pages, readCfSignals(request));
+      const attempt = request.method === "GET" && path === "/lg/attempt";
+      if ((route || attempt) && !isAdminHost(url.hostname, env)) {
+        // HEAD needs only metadata. Runtime endpoints can consult the snapshot but never hedge.
+        const hedgeMs = route && request.method === "GET" ? hedgeDelayMs(env.EDGE_HEDGE_MS) : 0;
+        const context = { env, ctx, pages, hedgeMs };
+        // Entry-rule redirects and failed host lookups can skip the inner fetch.
+        if (route && env.PERFSTAGE === "true") {
+          timing = { snap: 'gw-snap;dur=0;desc="MISS"', inner: "gw-inner;dur=0" };
+        }
+        const hostSnapshot = await readHostSnapshot(url, context, timing);
+        if (hostSnapshot && route) {
+          const direct = env.PERFSTAGE === "true" && request.headers.get("x-perfstage-direct") === "1";
+          response = await serveCachedPage(request, url, route, context, readCfSignals(request), hostSnapshot, timing, direct);
+        } else if (hostSnapshot && attempt) {
+          const { snapshot, version } = hostSnapshot;
+          const inner = copyVisitorRequest(request);
+          inner.headers.set("x-cms-site-id", snapshot.siteId);
+          inner.headers.set("x-cms-snap-version", version);
+          // The attempt router still uses this header to trust the gateway's site ID.
+          inner.headers.set("x-cms-snap-built-at", String(snapshot.builtAt));
+          inner.headers.set("x-cms-bookmark", snapshot.writeBookmark ?? "");
+          request = inner;
+        }
       }
     }
     if (response) {
       recordEdgeCacheStatus(env, response.headers.get("x-edge-cache"), ctx);
-      return response;
+      return timing ? withGatewayTiming(response, timing) : response;
     }
   } catch {
     // Snapshot, binding, and rendering failures all use the original visitor URL and method.
   }
-  return honoFetch(request, env, ctx);
+  const live = honoFetch(request, env, ctx);
+  return timing ? withGatewayTiming(await live, timing, true) : live;
 }

@@ -89,15 +89,21 @@ export function renderCountdownAnimation(input: CountdownAnimationInput): string
         (input.show_seconds ? secondsSpan("lg-ra-n lg-ra-n--side", input.seconds) : "") +
         `</div>`
       );
-    case "logo_bar":
+    case "logo_bar": {
+      const px = COUNTDOWN_ANIMATION_SIZE_PX[size];
+      // The logo fills the lane minus its rider's vertical padding and border.
+      const width = Math.round(px * 1.9);
+      const height = Math.round(px * 0.62 - 8);
       return (
         `<div class="${cls}" aria-hidden="true">` +
         `<span class="lg-ra-lane"><span class="lg-ra-logo">` +
-        `<img src="${esc((input.logo_url as string).trim())}" alt="${esc(input.logo_alt ?? "")}" />` +
+        `<img src="${esc((input.logo_url as string).trim())}" alt="${esc(input.logo_alt ?? "")}"` +
+        ` width="${width}" height="${height}" loading="eager" />` +
         `</span></span>` +
         `<span class="lg-ra-bar"><span class="lg-ra-fill"></span></span>` +
         `</div>`
       );
+    }
     case "spinner":
       return `<div class="${cls}" aria-hidden="true"><span class="lg-ra-spin"></span></div>`;
     case "dots":

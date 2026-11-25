@@ -398,7 +398,7 @@ describe("R2 P3 element J — RENDER (designs/frame.ts, real renderQuoteFrame): 
       footer: { blocks: [{ type: "logo", logo_source: "manual", logo_url: "javascript:alert(1)" }] },
     } as FrameConfig);
     expect(unsafe).not.toContain("javascript:");
-    expect(unsafe).toContain('src="/media/site-logo.png"'); // renderFooterLogo fallback (site branding)
+    expect(unsafe).toContain('src="/cdn-cgi/image/height=64,fit=scale-down,format=auto,quality=75/media/site-logo.png"'); // renderFooterLogo fallback (site branding)
   });
 
   it("link_row links_source:\"picked\" reads branding.legal_links exactly like \"site\" (S3b's D2 resolution already happened by render time)", () => {

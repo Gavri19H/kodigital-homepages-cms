@@ -52,6 +52,7 @@ import type { Context } from "hono";
 import type { Env } from "../../env";
 import { parseNumber } from "../../env";
 import type { PublicSiteVariables } from "../middleware";
+import type { PreparedFunnelBundle } from "./bundle";
 import { cacheExecutionCtx } from "../html-pipeline";
 import { escapeHtml } from "../../editor/sanitize";
 import { REDIRECT_PAGE_SCRIPT } from "./redirect/page-script";
@@ -85,6 +86,7 @@ import { flattenComponents } from "./components/content-schema";
 import { COMPONENT_CATALOG } from "./components/registry";
 import { getFunnelDesign, type FunnelDesign } from "./designs/registry";
 import { funnelChromeCss, FUNNEL_DESIGN_SCOPE_ATTR } from "./designs/default-funnel/styles";
+import { LEADGEN_FONT_FACE_CSS } from "./designs/fonts.generated";
 // 03 §3.2a / 09 §9.1: the ONE shared renderer — the same presets that power
 // admin preview, quote preview, and persisted content_html render the live
 // shell sections. Pure over (nodes, design) with a pinned en-US locale, so the
@@ -148,10 +150,21 @@ import {
   matchesIfNoneMatch,
 } from "../../cache/edge-cache";
 import { siteIconHeadTags, DEFAULT_BRAND_COLOR, absoluteOnHost } from "../site-brand";
+import { cfTransform } from "../templates/responsive-img";
 
 function funnelOgLogoTag(hostname: string | null, logoUrl: string | null): string {
-  if (hostname === null) return "";
-  const abs = absoluteOnHost(hostname, logoUrl);
+  if (hostname === null || logoUrl === null) return "";
+  let path = logoUrl;
+  try {
+    const site = new URL(`https://${hostname}`);
+    const logo = new URL(logoUrl, logoUrl.startsWith("/") ? site : undefined);
+    if (logo.origin === site.origin && logo.pathname.startsWith("/media/")) {
+      path = cfTransform(logo.pathname, "width=1200,fit=scale-down") + logo.search + logo.hash;
+    }
+  } catch {
+    // Keep the existing root-relative fallback for unparseable URLs.
+  }
+  const abs = absoluteOnHost(hostname, path);
   return abs === null ? "" : `<meta property="og:image" content="${escapeHtml(abs)}">`;
 }
 
@@ -355,22 +368,26 @@ function jsStringLiteral(value: string): string {
 //   (c) absent id ⇒ emit NOTHING;
 //   (d) /lg/track is a header-only no-store beacon — it never touches
 //       window.dataLayer (proven in leadgen-ga4.spec.ts).
-// The measurement id is operator-authored, so it is escaped for BOTH the JS-string
-// context (jsStringLiteral) and the URL/attribute context (encodeURIComponent +
-// escapeHtml) — no `</script>` / markup can be forged. The shell sets no CSP, so
+// The measurement id is a URL component in the loader and a raw id in config.
+// Both values become JS string literals in the inline script. The shell sets no CSP, so
 // no host allowlist is required; if one is ever added it MUST allow
 // www.googletagmanager.com.
 function ga4HeadSnippet(measurementId: string | null): string {
   if (measurementId === null) return "";
   const id = measurementId.trim();
   if (id === "") return "";
-  const srcId = encodeURIComponent(id);
+  const src = "https://www.googletagmanager.com/gtag/js?id=" + encodeURIComponent(id);
   return (
-    `<script async src="https://www.googletagmanager.com/gtag/js?id=${escapeHtml(srcId)}"></script>` +
     "<script>window.dataLayer=window.dataLayer||[];" +
     "function gtag(){dataLayer.push(arguments);}" +
     "gtag('js',new Date());" +
-    `gtag('config',${jsStringLiteral(id)});</script>`
+    `gtag('config',${jsStringLiteral(id)});` +
+    "(function(w,d){var script;function insert(){if(script)return;" +
+    "script=d.createElement('script');script.async=true;" +
+    `script.src=${jsStringLiteral(src)};d.head.appendChild(script);}` +
+    "if(w.requestAnimationFrame)d.addEventListener('DOMContentLoaded',function(){" +
+    "w.requestAnimationFrame(function(){w.setTimeout(insert,0);});},{once:true});" +
+    "w.addEventListener('load',insert,{once:true});})(window,document);</script>"
   );
 }
 
@@ -543,8 +560,12 @@ export function metaPixelShellScript(cfg: LeadgenMetaPixelShell): string {
     "<script>(function(w,d){var C=" + json + ";" +
     "if(w.__lgPx){return;}w.__lgPx=1;" +
     "!function(f,b,e,v,n,t,s){if(f.fbq)return;n=f.fbq=function(){n.callMethod?n.callMethod.apply(n,arguments):n.queue.push(arguments)};" +
-    "if(!f._fbq)f._fbq=n;n.push=n;n.loaded=!0;n.version='2.0';n.queue=[];t=b.createElement(e);t.async=!0;t.src=v;" +
-    "s=b.getElementsByTagName(e)[0];s.parentNode.insertBefore(t,s)}(w,d,'script','https://connect.facebook.net/en_US/fbevents.js');" +
+    "if(!f._fbq)f._fbq=n;n.push=n;n.loaded=!0;n.version='2.0';n.queue=[];" +
+    "function insert(){if(t)return;t=b.createElement(e);t.async=!0;t.src=v;" +
+    "s=b.getElementsByTagName(e)[0];s.parentNode.insertBefore(t,s);}" +
+    "if(f.requestAnimationFrame)b.addEventListener('DOMContentLoaded',function(){" +
+    "f.requestAnimationFrame(function(){f.setTimeout(insert,0);});},{once:true});" +
+    "f.addEventListener('load',insert,{once:true});}(w,d,'script','https://connect.facebook.net/en_US/fbevents.js');" +
     "var I={},A={},M={},H=Object.prototype.hasOwnProperty;" +
     "function rid(){var a='ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789',s='',i,r=null;" +
     "try{r=w.crypto.getRandomValues(new Uint8Array(20));}catch(x){}" +
@@ -1069,6 +1090,14 @@ const LEADGEN_PREHYDRATE_JS =
   "q.push({el:el,t:Date.now()});" +
   "},true);})();";
 
+// Build links from the generated face rules so a changed font hash also
+// changes its preload. Theme stacks start with the selected, quoted family.
+const fontPreloadsByFamily = new Map(Object.entries(LEADGEN_FONT_FACE_CSS).map(([family, faces]) => [
+  `'${family}'`,
+  Array.from(faces.matchAll(/src:url\("([^"]+)"\)/g),
+    ([, path]) => `<link rel="preload" as="font" type="font/woff2" crossorigin href="${path}">`).join(""),
+]));
+
 // Render the pristine funnel shell (v2.4 03 §3.2): scoped chrome CSS from the
 // resolved design + EVERY Section of the resolved variant server-rendered in
 // order inside the data-lg-mount (first section visible — the first question
@@ -1121,6 +1150,8 @@ function renderFunnelShell(
   const composition = resolveFrameComposition(frameSourceOf(resolved, savedTemplateDefaults), design, themeRecord);
   const effectiveDesign: FunnelDesign | EffectiveFunnelDesign =
     composition === null ? design : composition.effectiveTokens.design;
+  const firstScreenFamilies = new Set([effectiveDesign.page.fontFamily, effectiveDesign.page.fontDisplay]
+    .map(stack => stack.split(",", 1)[0]!.trim()));
   const chromeCss =
     composition === null
       ? funnelChromeCss(design, scope)
@@ -1176,7 +1207,19 @@ function renderFunnelShell(
     '<html lang="en">' +
     "<head>" +
     '<meta charset="utf-8">' +
+    // Shared by the variant's visitors. The browser supplies its own landing
+    // URL and the runtime validates the parsed attempt when it hydrates.
+    `<script>{const vid=${jsStringLiteral(funnelVariantId)};` +
+    'window.__LG_ATTEMPT_P__={vid,p:(async()=>{try{' +
+    'const res=await fetch("/lg/attempt?vid="+encodeURIComponent(vid)+"&u="+encodeURIComponent(location.href),' +
+    '{method:"GET",headers:{accept:"application/json"},credentials:"same-origin",cache:"no-store"});' +
+    'return res.ok?await res.json():null}catch{return null}})()}}</script>' +
+    `<link rel="preload" as="script" href="/lg/runtime/${LEADGEN_TEMPLATE_VERSION}.js">` +
+    // A request routed to the older Worker can race the gateway's runtime cache fill.
+    `<script src="/lg/runtime/${LEADGEN_TEMPLATE_VERSION}.js" defer onerror="this.onerror=null;` +
+    `setTimeout(()=>{const retry=document.createElement('script');retry.src=this.src;document.head.appendChild(retry)},400)"></script>` +
     '<meta name="viewport" content="width=device-width, initial-scale=1">' +
+    Array.from(firstScreenFamilies, family => fontPreloadsByFamily.get(family) ?? "").join("") +
     // X06 (owner Q4): funnels are ad landing pages — kept out of Google, and
     // the tab shows the site's public name, never the internal funnel name.
     '<meta name="robots" content="noindex">' +
@@ -1209,9 +1252,6 @@ function renderFunnelShell(
     // results page the auction did not turn into a redirect screen
     // (redirect/page-script.ts). Static: nothing interpolated.
     `<script>${REDIRECT_PAGE_SCRIPT}</script>` +
-    // (c) the hydration engine — versioned, deferred; the /lg/runtime/:version.js
-    // route serves the generated bundle (03 §3.2 runtime-routes row).
-    `<script src="/lg/runtime/${LEADGEN_TEMPLATE_VERSION}.js" defer></script>` +
     "</body></html>"
   );
 }
@@ -1255,18 +1295,28 @@ function readFunnelVisitor(c: PublicContext) {
   return { sid, sidWasAbsent, entryCtx };
 }
 
+export async function loadFunnelShellInputs(env: Env, resolved: ResolvedActivatedFunnel) {
+  const [answerMapVersions, themeRecord, clickEvents] = await Promise.all([
+    loadAnswerMapVersions(env.DB, resolved.sections),
+    resolveThemeRecordFor(env, frameSourceOf(resolved)),
+    funnelOfferClickEventOn(env.DB, resolved.variant.auction_id),
+  ]);
+  return { answerMapVersions, themeRecord, clickEvents };
+}
+
 // GET /lg (root activation) + GET /lg/:quote_slug — the cacheable funnel shell.
 export async function serveFunnelShell(
   c: PublicContext,
   quoteSlug: string | null,
+  prepared?: PreparedFunnelBundle | null,
 ): Promise<Response> {
   const siteContext = c.get("siteContext");
   const variantKey = c.req.header("x-cms-variant");
-  const edgeFunnel = variantKey?.startsWith("lg:")
-    ? await resolveActivatedFunnelByVariant(c.env, siteContext.siteId, variantKey.slice(3)).catch(() => null)
-    : null;
-  // A stale snapshot may name a variant whose activation moved to another slug.
-  const visitor = edgeFunnel !== null && edgeFunnel.site_quote.slug === quoteSlug ? null : readFunnelVisitor(c);
+  // A null bundle means the selected variant is no longer served at this slug.
+  const edgeFunnel = prepared === undefined && variantKey?.startsWith("lg:")
+    ? await resolveActivatedFunnelByVariant(c.env, siteContext.siteId, variantKey.slice(3), { quoteSlug }).catch(() => null)
+    : prepared?.resolved ?? null;
+  const visitor = edgeFunnel === null ? readFunnelVisitor(c) : null;
   const resolved = visitor === null ? edgeFunnel : await resolveActivatedFunnel(c.env, {
     site_id: siteContext.siteId,
     quote_slug: quoteSlug,
@@ -1309,7 +1359,7 @@ export async function serveFunnelShell(
   if (visitor !== null) {
     // The gateway handles both redirects and conditional requests for an edge-selected shell.
     // On a direct visit the sticky redirect takes precedence over If-None-Match (§4.3-9).
-    const redirectTo = await resolveEntryRedirect(c.env.DB, resolved.quote, visitor.entryCtx, visitor.sid);
+    const redirectTo = await resolveEntryRedirect(c.env.DB, resolved.quote, visitor.entryCtx, visitor.sid, resolved.routing_rules);
     if (redirectTo !== null) {
       const rh = new Headers();
       rh.set("Location", redirectTo);
@@ -1327,43 +1377,23 @@ export async function serveFunnelShell(
   let pristine: string;
   let vehicleDegraded = false;
   const waitUntil = cacheExecutionCtx(c);
-  const cached = await getCachedHtml(c.env, key, waitUntil);
+  const cached = prepared ? null : await getCachedHtml(c.env, key, waitUntil);
   if (cached !== null) {
     pristine = cached.body;
   } else {
-    // R6 (v2.4 03 §3.8): the per-section answer-map version markers, read at
-    // resolve time on the COLD path only (a cache hit already carries them
-    // baked into #lg-config).
-    const answerMapVersions = await loadAnswerMapVersions(c.env.DB, resolved.sections);
-    // v3.1 §10.1/§12: the SAME cold-path-only discipline for the theme_id KV
-    // read — a cache hit already carries whatever theme was baked in at write
-    // time. A theme_json/frame_overrides_json EDIT bumps content_version (§3.1),
-    // which busts this cache key; and a THEME RECORD content edit
-    // (updateThemeHandler) now fans out through P6b's scheduleThemeInvalidate —
-    // it sweeps every funnel referencing that theme_id and invalidates each
-    // activated site's shell cache (themes-handlers.ts invalidateThemeAcross-
-    // Funnels → invalidateOnVariantPublish), so an edited preset re-renders on
-    // the next request (the earlier "open concern" is closed). A funnel whose
-    // frame_config_json is NULL but whose theme_json carries an EXPLICIT
-    // theme_id also now composes on the frame path (resolveFrameComposition's
-    // narrow default, register R4 item 10I) instead of being dropped by the
-    // legacy frameless fork below.
-    const themeRecord = await resolveThemeRecordFor(c.env, frameSourceOf(resolved));
-    // Rework M5 (§5, mini-round): the SAME cold-path-only discipline — a
-    // cache hit already carries whatever saved template defaults were baked
-    // in at write time. S1.4 bumps content_version at both re-point
-    // endpoints (quotes-handlers.ts PUT /variants/:id frame_template_id, and
-    // apply-to-funnel via bumpActiveVariantContentVersions), busting this
-    // shell's cache key — permanent coverage in leadgen-rework-handlers.
-    // test.ts's "cache coherence" tests.
-    const savedTemplateDefaults = await resolveSavedFrameTemplateDefaultsFor(c.env.DB, resolved);
-    // 2026-10-08 Facebook events — cold path only, like every other read here:
-    // the funnel's own pixel (a pixel edit bumps content_version → new key) and
-    // whether an Offer of THIS funnel's auction has its click event on (one
-    // LIMIT 1 read — fix round 1, review m3).
+    const savedTemplateDefaults = resolved.saved_template_defaults ?? null;
+    const pageNodes = resolved.sections.flatMap((rs) =>
+      parseSectionComponents(typeof rs.section.content_json === "string" ? rs.section.content_json : ""),
+    );
+    // The global vehicle catalogue and its media can publish independently of
+    // this site's snapshot. Resolve them at render time as before.
+    const [{ answerMapVersions, themeRecord, clickEvents }, vehicle] = await Promise.all([
+      prepared?.shell ?? loadFunnelShellInputs(c.env, resolved),
+      loadVehicleRenderData(c.env, pageNodes).catch(() => null),
+    ]);
     const metaPixel: LeadgenMetaPixelShell = {
       funnel_pixel_id: funnelMetaPixelId(resolved),
-      click_events: await funnelOfferClickEventOn(c.env.DB, resolved.variant.auction_id),
+      click_events: clickEvents,
       fields: {},
       variant_id: resolved.variant.public_id,
     };
@@ -1378,10 +1408,6 @@ export async function serveFunnelShell(
     // 5-minute shell TTL picks up a new snapshot, and the old snapshot's files
     // stay readable for 30+ days, so a cached page never points at a missing
     // lookup.
-    const pageNodes = resolved.sections.flatMap((rs) =>
-      parseSectionComponents(typeof rs.section.content_json === "string" ? rs.section.content_json : ""),
-    );
-    const vehicle = await loadVehicleRenderData(c.env, pageNodes).catch(() => null);
     // A funnel WITH vehicle questions rendered WITHOUT the list (a failed or
     // missing read) is degraded: its Make / Year / Model are text boxes. It is
     // served, never cached (KV, edge or browser), so the next request retries.
@@ -1390,7 +1416,7 @@ export async function serveFunnelShell(
     const ttl = parseNumber(c.env.HTML_CACHE_TTL_SECONDS, DEFAULT_TTL_SECONDS);
     // Write-through stores the PRISTINE shell (visitor-invariant: no Maps key,
     // no per-session assignment dims — only the sentinels).
-    if (!vehicleDegraded) await putCachedHtml(c.env, key, pristine, { expirationTtl: ttl, etag }, waitUntil);
+    if (!prepared && !vehicleDegraded) await putCachedHtml(c.env, key, pristine, { expirationTtl: ttl, etag }, waitUntil);
   }
 
   // Both paths splice the site's Maps key after the KV read. An edge-selected

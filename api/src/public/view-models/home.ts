@@ -8,11 +8,8 @@
 // sibling tenant.
 //
 // All queries follow the project SQL contract: `db.prepare(<static SQL>)`
-// with positional `?` placeholders and `.bind(...)` for values. The
-// substring `WHERE site_id = ?` appears verbatim in at least one prepared
-// statement so the T8 acceptance grep can verify tenant scoping. The
-// helper makes >=3 `.bind()` calls (articles + categories + settings)
-// per the T8 contract.
+// with positional `?` placeholders and `.bind(...)` for values. The article,
+// category and shared site-settings reads are independently tenant-scoped.
 //
 // The shape returned here is consumed by `templates/home.ts` (T10) and
 // `templates/layout.ts` (T3); the field names match those templates'
@@ -24,7 +21,7 @@
 // implementation digest.
 
 import { mediaUrl } from "./media-url";
-import { siteFaviconUrl } from "../site-brand";
+import { loadRenderContext } from "../render-context";
 
 export interface HomeSiteContext {
   siteId: string;
@@ -140,11 +137,6 @@ interface CategoryListingRow {
   name: string;
 }
 
-interface SettingsRow {
-  key: string;
-  value: string | null;
-}
-
 const FEATURED_LIMIT = 8;
 // Design §12 featured[3,first=hero] + editorsPicks{hero,thumbs[3]} (=4): when NO
 // article is is_featured, the fallback fills the featured strip with the lead +
@@ -156,23 +148,6 @@ const TRENDING_LIMIT = 5;
 const PICKS_LIMIT = 4;
 const SPOTLIGHT_LIMIT = 4;
 const CATEGORY_LIMIT = 12;
-
-function parseBrandTokens(raw: string | null | undefined): Readonly<Record<string, string>> {
-  if (raw === null || raw === undefined || raw.length === 0) return {};
-  try {
-    const parsed: unknown = JSON.parse(raw);
-    if (parsed === null || typeof parsed !== "object" || Array.isArray(parsed)) {
-      return {};
-    }
-    const out: Record<string, string> = {};
-    for (const [k, v] of Object.entries(parsed as Record<string, unknown>)) {
-      if (typeof v === "string") out[k] = v;
-    }
-    return out;
-  } catch {
-    return {};
-  }
-}
 
 function parseNewsletter(raw: string | null | undefined): HomeNewsletter {
   const fallback: HomeNewsletter = {
@@ -264,12 +239,14 @@ export async function buildHomeViewModel(
   db: D1Database,
   siteContext: HomeSiteContext,
 ): Promise<HomeViewModel> {
+  return (await loadHomeRenderData(db, siteContext)).vm;
+}
+
+export async function loadHomeRenderData(db: D1Database, siteContext: HomeSiteContext) {
   const siteId = siteContext.siteId;
 
-  // Query 1 — featured + latest article listings (one statement so we
-  // hit the DB once for both buckets). The substring `WHERE site_id = ?`
-  // appears verbatim so the T8.AC2 grep counts it.
-  const articlesResult = await db
+  // One listing supplies all of the article buckets.
+  const articles = db
     .prepare(
       "SELECT a.id AS id, a.slug AS slug, a.title AS title, a.subtitle AS subtitle, a.content_html AS content_html, " +
         "a.category_id AS category_id, a.status AS status, a.published_at AS published_at, " +
@@ -288,7 +265,6 @@ export async function buildHomeViewModel(
     )
     .bind(siteId, FEATURED_LIMIT + LATEST_LIMIT + TRENDING_LIMIT)
     .all<ArticleListingRow>();
-  const articleRows = articlesResult.results ?? [];
 
   // Query 2 — categories assigned to this site (via the vertical join).
   // T30.AC2: the per-category Show-on-homepage toggle (categories
@@ -297,7 +273,7 @@ export async function buildHomeViewModel(
   // editor reflected publicly. The column defaults to 0, so a category is
   // opt-in to the homepage; the SELECT prefix is unchanged so the existing
   // view-model fakes still match.
-  const categoriesResult = await db
+  const categoryListing = db
     .prepare(
       "SELECT c.id AS id, c.slug AS slug, c.name AS name " +
         "FROM categories c " +
@@ -308,35 +284,11 @@ export async function buildHomeViewModel(
     )
     .bind(siteId, CATEGORY_LIMIT)
     .all<CategoryListingRow>();
+  const [articlesResult, categoriesResult, { site, settings }] = await Promise.all([
+    articles, categoryListing, loadRenderContext(db, siteContext),
+  ]);
+  const articleRows = articlesResult.results ?? [];
   const categoryRows = categoriesResult.results ?? [];
-
-  // Query 3 — per-site brand + newsletter settings. The substring
-  // `WHERE site_id = ?` appears verbatim again (T8.AC2 only requires
-  // >=1 occurrence, but two scoped reads make the AC robust to schema
-  // re-ordering).
-  const settingsResult = await db
-    .prepare("SELECT key AS key, value AS value FROM site_settings WHERE site_id = ?")
-    .bind(siteId)
-    .all<SettingsRow>();
-  const settingsRows = settingsResult.results ?? [];
-
-  const settings: Record<string, string> = {};
-  for (const row of settingsRows) {
-    if (typeof row.value === "string") settings[row.key] = row.value;
-  }
-
-  const site: HomeViewModelSite = {
-    site_id: siteId,
-    name: settings.site_name ?? siteContext.hostname,
-    hostname: siteContext.hostname,
-    tagline: settings.tagline ?? "",
-    description: settings.site_description ?? "",
-    // T24: logo_media_id holds a bare media.storage_key; mediaUrl() resolves it
-    // to the public /media/<key> address the design .brand <img> loads.
-    logoUrl: mediaUrl(settings.logo_media_id),
-    faviconUrl: siteFaviconUrl(settings.favicon_media_id),
-    brandTokens: parseBrandTokens(settings.brand_tokens_json),
-  };
 
   // T18 (BCL-056): resolve the site-level hero image from the same settings
   // read (no 4th D1 statement — T12.AC3 caps the build at 3 prepared
@@ -439,5 +391,6 @@ export async function buildHomeViewModel(
     canonicalUrl: `https://${site.hostname}/`,
   };
 
-  return { site, hero, heroImageUrl, featured, picks, trending, spotlight, latest, categories: chipCategories, newsletter, meta };
+  const vm: HomeViewModel = { site, hero, heroImageUrl, featured, picks, trending, spotlight, latest, categories: chipCategories, newsletter, meta };
+  return { vm, settings };
 }

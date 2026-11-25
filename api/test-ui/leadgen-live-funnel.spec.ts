@@ -848,25 +848,18 @@ test.describe("Group 1 — mid-funnel reload restore (11 §11.2 / 10 §10.4)", (
     });
 
     // Section pointer + answers restored (§3.5.1 restore-by-binding-tuple).
-    await expect(sectionAt(page, 2)).toBeVisible();
-    await expect(sectionAt(page, 1)).toBeHidden();
+    expect(await sectionAt(page, 2).isVisible()).toBe(true);
+    expect(await sectionAt(page, 1).isHidden()).toBe(true);
     const restored = await page.evaluate(() => {
       const eng = (window as unknown as {
         __LG_ENGINE__?: {
-          getState: () => { funnel_attempt_id: string; section_index: number };
+          getState: () => { section_index: number };
           getAnswers: () => Record<string, unknown>;
         };
       }).__LG_ENGINE__;
-      const keys: string[] = [];
-      for (let i = 0; i < sessionStorage.length; i++) {
-        const k = sessionStorage.key(i);
-        if (k !== null && k.startsWith("lg:")) keys.push(k);
-      }
       return {
-        attempt: eng?.getState().funnel_attempt_id ?? "",
         sectionIndex: eng?.getState().section_index ?? -1,
         answers: eng?.getAnswers() ?? {},
-        lgKeys: keys,
       };
     });
     // LeadGen Rework §4.3-1 (own-hand-verified): section_index is absolute
@@ -876,13 +869,7 @@ test.describe("Group 1 — mid-funnel reload restore (11 §11.2 / 10 §10.4)", (
     expect(restored.answers[seeded.fields.homeowner]).toBe("true");
     expect(restored.answers[seeded.fields.zip]).toBe("90210");
     // The dependent (driven by the RESTORED cross-section answer) is visible.
-    await expect(page.locator('[data-lg-question="q_prior"]')).toBeVisible();
-
-    // /lg/attempt is no-store: the reload minted a FRESH attempt id and the
-    // persisted snapshot was RE-KEYED under it (exactly one lg:* entry).
-    expect(restored.attempt).toMatch(/^att_/);
-    expect(restored.attempt).not.toBe(before.attempt);
-    expect(restored.lgKeys).toEqual([`lg:${restored.attempt}`]);
+    expect(await page.locator('[data-lg-question="q_prior"]').isVisible()).toBe(true);
 
     // 10 §10.4 A/B identity survives the reload: same session cookie → same
     // assigned variant (identity dims stable across the restore).
@@ -890,6 +877,26 @@ test.describe("Group 1 — mid-funnel reload restore (11 §11.2 / 10 §10.4)", (
       variantBefore,
     );
     expect(await readKoSid(page)).toBe(sidBefore);
+
+    // The form is ready before /lg/attempt resolves. Once the fresh attempt
+    // binds, the snapshot must be re-keyed under it (exactly one lg:* entry).
+    let rekeyed: { attempt: string; lgKeys: string[] } = { attempt: "", lgKeys: [] };
+    await expect.poll(async () => {
+      rekeyed = await page.evaluate(() => {
+        const eng = (window as unknown as {
+          __LG_ENGINE__?: { getState: () => { funnel_attempt_id: string } };
+        }).__LG_ENGINE__;
+        const keys: string[] = [];
+        for (let i = 0; i < sessionStorage.length; i++) {
+          const k = sessionStorage.key(i);
+          if (k !== null && k.startsWith("lg:")) keys.push(k);
+        }
+        return { attempt: eng?.getState().funnel_attempt_id ?? "", lgKeys: keys };
+      });
+      return rekeyed.attempt;
+    }, { timeout: 10_000 }).toMatch(/^att_/);
+    expect(rekeyed.attempt).not.toBe(before.attempt);
+    expect(rekeyed.lgKeys).toEqual([`lg:${rekeyed.attempt}`]);
   });
 });
 

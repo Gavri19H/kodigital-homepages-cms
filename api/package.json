@@ -16,6 +16,7 @@
     "build:leadgen-runtime": "tsx scripts/build-leadgen-runtime.ts",
     "build:icons": "node scripts/build-icons.mjs",
     "build:fonts": "node scripts/build-fonts.mjs",
+    "build:public-assets": "node scripts/build-public-assets.mjs",
     "verify:no-legacy-prod-refs": "tsx scripts/verify/assert-no-legacy-prod-refs.ts",
     "verify:infra": "tsx scripts/verify/infra-contract.ts",
     "verify:required-secrets": "tsx scripts/verify/required-secrets.ts",

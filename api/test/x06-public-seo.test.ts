@@ -34,6 +34,7 @@ const HOST = "moneylantern.com";
 const SITE_ID = "st_x06";
 const HERO_KEY = "ai/st_x06/feature_image/hero.png";
 const LOGO = "/media/2026/08/18/logo.png";
+const OG_IMAGE_BASE = `https://${HOST}/cdn-cgi/image/width=1200,fit=scale-down,format=auto`;
 
 const DatabaseSync = loadDatabaseSync();
 const describeDb = DatabaseSync === null ? describe.skip : describe;
@@ -144,21 +145,21 @@ describeDb("fix 6: every structured data block parses, none is wrapped twice", (
 });
 
 describeDb("fix 8: share pictures are full web addresses", () => {
-  it("homepage: og:image and twitter:image are https://{host}/media/… of the hero picture", async () => {
+  it("the homepage uses absolute share URLs for the hero picture", async () => {
     const db = d1FromSqlite(newDb());
     const html = await renderHomepageHtml(db, CTX);
-    expect(metaContent(html, "property", "og:image")).toBe(`https://${HOST}/media/${HERO_KEY}`);
+    expect(metaContent(html, "property", "og:image")).toBe(`${OG_IMAGE_BASE}/media/${HERO_KEY}`);
     expect(metaContent(html, "name", "twitter:image")).toBe(`https://${HOST}/media/${HERO_KEY}`);
   });
 
-  it("Article: og:image and twitter:image are https://{host}/media/… of its own picture", async () => {
+  it("the article uses absolute share URLs for its own picture", async () => {
     const db = d1FromSqlite(newDb());
     const html = await renderArticleHtml(db, CTX, "how-to-budget");
-    expect(metaContent(html, "property", "og:image")).toBe(`https://${HOST}/media/${HERO_KEY}`);
+    expect(metaContent(html, "property", "og:image")).toBe(`${OG_IMAGE_BASE}/media/${HERO_KEY}`);
     expect(metaContent(html, "name", "twitter:image")).toBe(`https://${HOST}/media/${HERO_KEY}`);
   });
 
-  it("an already full address is kept as it is; X14's logo fallback is unchanged", () => {
+  it("keeps the off-site picture and uses the uploaded logo when a page has no picture", () => {
     const own = renderLayout({
       site: { name: "m", hostname: HOST, logoUrl: LOGO },
       meta: { title: "t", ogImage: "https://cdn.example.org/pic.png" },
@@ -166,7 +167,7 @@ describeDb("fix 8: share pictures are full web addresses", () => {
     });
     expect(metaContent(own, "property", "og:image")).toBe("https://cdn.example.org/pic.png");
     const none = renderLayout({ site: { name: "m", hostname: HOST, logoUrl: LOGO }, meta: { title: "t" }, body: "" });
-    expect(metaContent(none, "property", "og:image")).toBe(`https://${HOST}${LOGO}`);
+    expect(metaContent(none, "property", "og:image")).toBe(`${OG_IMAGE_BASE}${LOGO}`);
     expect(metaContent(none, "name", "twitter:image")).toBe(`https://${HOST}${LOGO}`);
   });
 });

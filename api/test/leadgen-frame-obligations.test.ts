@@ -234,16 +234,17 @@ describeDb("DEV-57 §11.3 — trust_logo_media_ids plumb (SiteBranding.trust_log
 
 describe("DEV-57 §11.3 — trust_strip source:'site_logo_set' renders from siteBranding.trust_logos", () => {
   const SITE_SET: FrameConfig = { trust_strip: { enabled: true, source: "site_logo_set" } };
+  function expectedLogo(path: string, alt: string): string {
+    const small = `/cdn-cgi/image/height=32,fit=scale-down,format=auto,quality=75${path}`;
+    const large = `/cdn-cgi/image/height=64,fit=scale-down,format=auto,quality=75${path}`;
+    return `<img class="lg-logo-strip-img" src="${large}" alt="${alt}" srcset="${small} 1x, ${large} 2x" width="96" height="32" loading="lazy">`;
+  }
 
   it("renders the strip from the projection with the site-name+index alt fallback (list carries no alts)", () => {
     const html = composed("centered", SITE_SET);
     expect(html).toContain('data-frame-region="trust_strip"');
-    expect(html).toContain(
-      '<img class="lg-logo-strip-img" src="/media/trust/a.png" alt="Acme Insure logo 1" loading="lazy">',
-    );
-    expect(html).toContain(
-      '<img class="lg-logo-strip-img" src="/media/trust/b.png" alt="Acme Insure logo 2" loading="lazy">',
-    );
+    expect(html).toContain(expectedLogo("/media/trust/a.png", "Acme Insure logo 1"));
+    expect(html).toContain(expectedLogo("/media/trust/b.png", "Acme Insure logo 2"));
   });
 
   it("null trust_logos → the region renders nothing (as today)", () => {
@@ -267,9 +268,7 @@ describe("DEV-57 §11.3 — trust_strip source:'site_logo_set' renders from site
         logos: [{ media_id: "m/logo.png", alt: "Manual alt" }],
       },
     });
-    expect(html).toContain(
-      '<img class="lg-logo-strip-img" src="/media/m/logo.png" alt="Manual alt" loading="lazy">',
-    );
+    expect(html).toContain(expectedLogo("/media/m/logo.png", "Manual alt"));
     expect(html).not.toContain("/media/trust/a.png");
   });
 
@@ -280,9 +279,7 @@ describe("DEV-57 §11.3 — trust_strip source:'site_logo_set' renders from site
     setSetting(sdb, "site-1", "trust_logo_media_ids", '["trust/real.png"]');
     const branding = await resolveSiteBranding(d1FromSqlite(sdb), "site-1");
     const html = composed("centered", SITE_SET, { siteBranding: branding });
-    expect(html).toContain(
-      '<img class="lg-logo-strip-img" src="/media/trust/real.png" alt="Site One Brand logo 1" loading="lazy">',
-    );
+    expect(html).toContain(expectedLogo("/media/trust/real.png", "Site One Brand logo 1"));
   });
 });
 

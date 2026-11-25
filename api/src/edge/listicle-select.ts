@@ -18,19 +18,19 @@ interface ListicleEntry {
   experiment: { publicId: string; versions: SnapshotVersion[] } | null;
 }
 
-interface VersionRow extends SnapshotVersion {
+export interface ListicleSnapshotRow extends SnapshotVersion {
   slug: string;
   listicle_id: string;
   experiment_id: string | null;
   is_arm: number;
 }
 
-function snapshotVersion({ public_id, variant_label, is_control, traffic_allocation }: VersionRow): SnapshotVersion {
+function snapshotVersion({ public_id, variant_label, is_control, traffic_allocation }: ListicleSnapshotRow): SnapshotVersion {
   return { public_id, variant_label, is_control, traffic_allocation };
 }
 
-export async function buildListicleSnapshot(db: D1Database, siteId: string): Promise<Record<string, ListicleEntry>> {
-  const { results } = await db.prepare(
+export function listicleSnapshotStatement(db: D1Database, siteId: string): D1PreparedStatement {
+  return db.prepare(
     `SELECT a.slug, a.public_id AS listicle_id, e.public_id AS experiment_id,
             CASE WHEN v.experiment_id = e.id THEN 1 ELSE 0 END AS is_arm,
             v.public_id, v.variant_label, v.is_control, v.traffic_allocation
@@ -39,9 +39,11 @@ export async function buildListicleSnapshot(db: D1Database, siteId: string): Pro
      LEFT JOIN listicle_article_experiments e ON e.id = a.active_experiment_id AND e.status = 'running'
      WHERE a.site_id = ? AND a.status = 'published'
      ORDER BY a.id, v.id`,
-  ).bind(siteId).all<VersionRow>();
+  ).bind(siteId);
+}
 
-  const bySlug = new Map<string, VersionRow[]>();
+export function assembleListicleSnapshot(results: ListicleSnapshotRow[]): Record<string, ListicleEntry> {
+  const bySlug = new Map<string, ListicleSnapshotRow[]>();
   for (const row of results) {
     const versions = bySlug.get(row.slug);
     if (versions) versions.push(row);
@@ -62,6 +64,11 @@ export async function buildListicleSnapshot(db: D1Database, siteId: string): Pro
     };
   }
   return snapshot;
+}
+
+export async function buildListicleSnapshot(db: D1Database, siteId: string): Promise<Record<string, ListicleEntry>> {
+  const { results } = await listicleSnapshotStatement(db, siteId).all<ListicleSnapshotRow>();
+  return assembleListicleSnapshot(results);
 }
 
 function isRecord(value: unknown): value is Record<string, unknown> {

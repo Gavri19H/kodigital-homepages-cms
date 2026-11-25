@@ -13,6 +13,7 @@
 // sanitizer's URL-protocol allowlist (`isSafeUrl` — see ./sanitize.ts).
 
 import { escapeHtml, isSafeUrl, sanitizeHtml } from "./sanitize";
+import { responsiveSrcAttrs } from "../public/templates/responsive-img";
 
 export type BlockType =
   | "paragraph"
@@ -112,21 +113,32 @@ function renderQuote(data: Record<string, unknown>): string {
   return `<blockquote><p>${inner}</p><cite>${escapeHtml(cite)}</cite></blockquote>`;
 }
 
-function renderImage(data: Record<string, unknown>): string {
+function imageDimension(value: unknown): number | undefined {
+  const n = typeof value === "string" && /^\d+$/.test(value.trim()) ? Number(value) : value;
+  return typeof n === "number" && Number.isSafeInteger(n) && n > 0 ? n : undefined;
+}
+
+export function renderImage(
+  data: Record<string, unknown>,
+  loading: "eager" | "lazy" = asBoolean(data.aboveTheFold) ? "eager" : "lazy",
+): string {
   // The editor stores the location as `url`; the pipeline as `src`.
   const src = asString(data.src).trim() || asString(data.url).trim();
-  if (src === "") return "";
+  if (!isSafeUrl(src)) return "";
   const alt = escapeHtml(asString(data.alt));
-  // loading defaults to "lazy" UNLESS the author flagged the image as
-  // above-the-fold (e.g. hero image) — that's the contractual default
-  // from the AC ("loading=\"lazy\" unless data.aboveTheFold is true").
-  const aboveTheFold = asBoolean(data.aboveTheFold);
-  const loading = aboveTheFold ? "eager" : "lazy";
-  // src may itself be untrusted user input; run it through sanitizeHtml
-  // as an attribute fragment to drop javascript: / data: schemes via
-  // the URL allowlist. We attach it as an attribute and then sanitize.
-  const wrapper = `<img src="${escapeAttribute(src)}" alt="${alt}" loading="${loading}" />`;
-  return sanitizeHtml(wrapper);
+  const width = imageDimension(data.width);
+  const height = imageDimension(data.height);
+  // 968px is the listicle content column. Older blocks often lack media
+  // dimensions, so use the column to select sources without inventing a ratio.
+  const columnWidth = 968;
+  const displayWidth = Math.min(width ?? columnWidth, columnWidth);
+  const sources = responsiveSrcAttrs(src, displayWidth, {
+    fit: "scale-down",
+    sizes: `(max-width: ${displayWidth}px) 100vw, ${displayWidth}px`,
+  });
+  const widthAttr = width === undefined ? "" : ` width="${width}"`;
+  const heightAttr = height === undefined ? "" : ` height="${height}"`;
+  return `<img ${sources} alt="${alt}"${widthAttr}${heightAttr} style="max-width:100%;height:auto" loading="${loading}" decoding="async" />`;
 }
 
 function renderDivider(): string {

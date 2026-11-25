@@ -238,9 +238,11 @@ export const REDIRECT_PREVIEW_ISLAND_JS = String.raw`
         (showSeconds ? '<span class="lg-ra-n lg-ra-n--side" data-lg-rd-n>' + n + '</span>' : '') + RD_DIV_C;
     }
     if (style === 'logo_bar') {
+      var px = { s: 48, m: 64, l: 96 }[size];
       return RD_DIV_O + ' class="' + cls + '" aria-hidden="true">' +
         '<span class="lg-ra-lane"><span class="lg-ra-logo">' +
-        '<img src="' + rdEsc(logoUrl.trim()) + '" alt="' + rdEsc(logoAlt === null || logoAlt === undefined ? '' : logoAlt) + '" />' +
+        '<img src="' + rdEsc(logoUrl.trim()) + '" alt="' + rdEsc(logoAlt === null || logoAlt === undefined ? '' : logoAlt) + '"' +
+        ' width="' + Math.round(px * 1.9) + '" height="' + Math.round(px * 0.62 - 8) + '" loading="eager" />' +
         '</span></span>' +
         '<span class="lg-ra-bar"><span class="lg-ra-fill"></span></span>' + RD_DIV_C;
     }

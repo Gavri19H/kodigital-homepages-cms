@@ -1,9 +1,12 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-import { articleKey, feedRssKey } from "../src/cache/cache-keys";
+import { articleKey, feedRssKey, LEADGEN_TEMPLATE_VERSION } from "../src/cache/cache-keys";
 import { onPublicChange } from "../src/edge/public-change";
 import type { PublicPageProps } from "../src/edge/types";
 import type { Env } from "../src/env";
 import worker, { PublicPage } from "../src/index";
+import { PUBLIC_FONT_FILES } from "../src/public/assets/public-fonts.generated";
+import { LEADGEN_FONT_FILES } from "../src/public/leadgen/designs/fonts.generated";
+import { PUBLIC_CSS_PATH, PUBLIC_JS_PATH } from "../src/public/templates/layout";
 import { ctxCapture, makeKvStub } from "./helpers/leadgen-analytics-harness";
 import { addSite, createDb, env as sqliteEnv, type SqliteDb } from "./helpers/x06-a2-sqlite";
 
@@ -19,7 +22,7 @@ const articlePath = "/article/story";
 const oldTitle = "Original headline";
 const newTitle = "Updated headline";
 const purgeTags = vi.fn(async (_tags: string[]) => ({ success: true, errors: [] }));
-const cacheApi = { match: vi.fn(async () => undefined), put: vi.fn(async () => {}) };
+const cacheApi = { match: vi.fn<Cache["match"]>(async () => undefined), put: vi.fn<Cache["put"]>(async () => {}) };
 
 describe("edge publish freshness", () => {
   let sql: SqliteDb;
@@ -35,6 +38,12 @@ describe("edge publish freshness", () => {
     articleId = Number(sql.prepare(`INSERT INTO articles (site_id, slug, title, content_json, status, published_at)
       VALUES (?, 'story', ?, '{"blocks":[]}', 'published', 100)`).run(siteId, oldTitle).lastInsertRowid);
     env = sqliteEnv(sql);
+    // Return each statement's rows inside the SQLite fixture's batch transaction.
+    const batch = env.DB.batch.bind(env.DB);
+    env.DB.batch = <T>(statements: D1PreparedStatement[]) => {
+      for (const statement of statements) statement.run = statement.all.bind(statement);
+      return batch<T>(statements);
+    };
     env.DB.withSession = () => ({
       prepare: env.DB.prepare.bind(env.DB), batch: env.DB.batch.bind(env.DB), getBookmark: () => "0002",
     });
@@ -71,13 +80,17 @@ describe("edge publish freshness", () => {
     return worker.fetch(request, env, context.ctx);
   }
 
-  async function expectLegacyCacheUntouched() {
+  async function expectLegacyCacheUntouched(allowFirstAssetFill = false) {
     await Promise.all(context.promises);
     expect(env.CACHE.getWithMetadata).not.toHaveBeenCalled();
     expect(env.CACHE.get).not.toHaveBeenCalled();
     expect(env.CACHE.put).not.toHaveBeenCalled();
-    expect(cacheApi.match).not.toHaveBeenCalled();
-    expect(cacheApi.put).not.toHaveBeenCalled();
+    const expected = allowFirstAssetFill && cacheApi.match.mock.calls.length ? [
+      PUBLIC_CSS_PATH, PUBLIC_JS_PATH, ...PUBLIC_FONT_FILES.keys(), ...LEADGEN_FONT_FILES.keys(),
+      `/lg/runtime/${LEADGEN_TEMPLATE_VERSION}.js`,
+    ].map(path => origin + path).sort() : [];
+    expect(cacheApi.match.mock.calls.map(([key]) => new Request(key).url).sort()).toEqual(expected);
+    expect(cacheApi.put.mock.calls.map(([key]) => new Request(key).url).sort()).toEqual(expected);
   }
 
   it("serves the edited article and a new ETag to a browser holding the pre-PATCH ETag", async () => {
@@ -105,7 +118,7 @@ describe("edge publish freshness", () => {
     expect(newEtag).toMatch(/^"[0-9a-f]{16}"$/);
     expect(newEtag).not.toBe(oldEtag);
     expect((await visit(articlePath, newEtag)).status).toBe(304);
-    await expectLegacyCacheUntouched();
+    await expectLegacyCacheUntouched(true);
   });
 
   it.each([

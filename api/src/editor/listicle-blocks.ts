@@ -20,8 +20,8 @@
 // pipeline, and ./blocks.ts / ./sanitize.ts are untouched, so the existing
 // `affiliate`/homepage editor behavior stays byte-identical (pillar 1).
 
-import { escapeHtml, isSafeUrl, sanitizeHtml } from "./sanitize";
-import { renderBlock, type BaseBlock } from "./blocks";
+import { escapeHtml, sanitizeHtml } from "./sanitize";
+import { renderBlock, renderImage, type BaseBlock } from "./blocks";
 import { defaultListicleLayoutTokens } from "../public/listicle/layouts/default/tokens";
 
 export const GOVERNED_LINK_REL = "sponsored nofollow noopener";
@@ -548,9 +548,9 @@ function renderFinalTextCta(data: Record<string, unknown>, blockId: string): str
 function renderLinkedImage(data: Record<string, unknown>, blockId: string): string {
   const src = asString(data.image_url).trim() || asString(data.url).trim();
   const offer = offerRefString(data.offer_id);
-  if (src === "" || offer === "" || !isSafeUrl(src)) return "";
-  const alt = escapeHtml(asString(data.alt));
-  const img = `<img src="${escapeAttribute(src)}" alt="${alt}" loading="lazy" />`;
+  if (offer === "") return "";
+  const img = renderImage({ ...data, src }, "lazy");
+  if (!img) return "";
   return `<a class="lst-linked-img"${governedAttrs({
     offer,
     linkInstance: asString(data.link_instance_id),
@@ -582,6 +582,9 @@ export function renderListicleBlock(block: ListicleBlock, index = 0): string {
       return renderFinalTextCta(data, blockId);
     case "linked_image":
       return renderLinkedImage(data, blockId);
+    case "image":
+      // Section media follows the version's eager hero.
+      return renderImage(data, "lazy");
     case "spacer":
       return renderSpacer(data, blockId);
     case "list": {

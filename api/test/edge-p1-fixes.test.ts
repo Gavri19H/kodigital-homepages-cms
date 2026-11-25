@@ -2,8 +2,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import admin from "../src/admin/router";
 import { onPublicChange } from "../src/edge/public-change";
 import type { Env } from "../src/env";
-import { publicCss } from "../src/public/assets/public-css";
-import { publicJs } from "../src/public/assets/public-js";
+import { minifiedPublicCss, minifiedPublicJs } from "../src/public/assets/public-assets.generated";
 import publicRouter from "../src/public/router";
 import { STEPS } from "../src/site-provisioning/steps";
 import { buildEnv, makeFakeDb } from "./helpers/admin-test-kit";
@@ -139,8 +138,8 @@ describe("public assets requested by HTML from earlier releases", () => {
   const base = "https://tenant.example/assets/";
 
   it.each([
-    ["public.0.css", "text/css", publicCss],
-    ["public.7old9.js", "text/javascript", publicJs],
+    ["public.0.css", "text/css", minifiedPublicCss],
+    ["public.7old9.js", "text/javascript", minifiedPublicJs],
   ])("serves the current bundle and immutable headers for %s", async (filename, mime, body) => {
     const response = await publicRouter.request(base + filename, {}, env);
     expect(response.status).toBe(200);

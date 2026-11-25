@@ -41,7 +41,7 @@ import { Hono } from "hono";
 import { gatewayFetch } from "./edge/gateway";
 import { perfstageEnv } from "./edge/perfstage";
 import { runEdgePurgeCron } from "./edge/public-change";
-import { getAdminHost, type Env } from "./env";
+import { configureImageTransforms, getAdminHost, type Env } from "./env";
 import {
   accessAuth,
   authStatusHandler,
@@ -80,6 +80,7 @@ const app = new Hono<{ Bindings: Env; Variables: AccessAuthVariables }>();
 // unit tests (app.request, no cf) stay silent and unchanged. It only OBSERVES
 // (runs after next()); a logging error can never break the response.
 app.use("*", async (c, next) => {
+  configureImageTransforms(c.env.IMAGE_TRANSFORMS);
   await next();
   const cf = (c.req.raw as unknown as {
     cf?: {

@@ -274,7 +274,7 @@ describeDb("F18 serve.ts — the funnel page with a 'Vehicle database' question"
     // …with the "Search makes…" box over the "Other make" list.
     expect(first.html).toMatch(/data-lg-vehicle="make" data-lg-searchable data-lg-vlogos/);
     expect(first.html).toContain('placeholder="Search makes…"');
-    expect(first.html).toContain(`data-lg-choice="448"><img class="lg-card-logo" src="/media/${LOGO_KEY}"`);
+    expect(first.html).toContain(`data-lg-choice="448"><img class="lg-card-logo" src="/cdn-cgi/image/height=80,fit=scale-down,format=auto,quality=75/media/${LOGO_KEY}"`);
     expect(first.html).toContain('data-lg-choice="474"><span class="lg-card-title">Honda</span>');
     expect(first.html).toMatch(/<option value="440" data-lg-choice="440">Acura<\/option><option value="499" data-lg-choice="499">Kia<\/option>/);
     expect(first.html).not.toContain("Typed Make");

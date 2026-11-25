@@ -1052,12 +1052,18 @@ export async function getSectionHandler(c: AdminContext): Promise<Response> {
 // ---------------------------------------------------------------------------
 
 // A shared-page section belongs to the quote and appears in every active
-// variant under it. A variant-owned section affects only that placement.
+// variant under it. The resolver also reads placements by page_id for older
+// shared pages without slots.
 const SECTION_VARIANTS_SQL = `SELECT v.id FROM leadgen_funnel_variants v
   JOIN leadgen_funnels f ON f.id = v.funnel_id
   WHERE v.status = 'active' AND f.status = 'active' AND (
     v.id IN (SELECT variant_id FROM leadgen_funnel_variant_sections WHERE section_id = ?1)
-    OR f.quote_id IN (SELECT quote_id FROM leadgen_funnel_variant_sections WHERE section_id = ?1)
+    OR f.quote_id IN (
+      SELECT quote_id FROM leadgen_funnel_variant_sections WHERE section_id = ?1
+      UNION SELECT p.quote_id FROM leadgen_funnel_variant_sections s JOIN leadgen_funnel_pages p ON p.id = s.page_id
+        WHERE s.section_id = ?1 AND p.quote_id IS NOT NULL
+          AND NOT EXISTS (SELECT 1 FROM leadgen_funnel_page_slots slot WHERE slot.page_id = p.id)
+    )
   )`;
 
 async function evictSectionKv(c: AdminContext, sectionId: number): Promise<void> {
@@ -1165,21 +1171,21 @@ export async function patchSectionHandler(c: AdminContext): Promise<Response> {
     ),
     ...derivedStatements(c.env.DB, { id: existing.id }, prepared.rebuild, existing.id),
   ];
-  // The pristine shell contains the public config, including both the mapping
-  // version and MAX(answer-map id). Rebuilding existing maps moves that MAX
-  // even on a metadata-only PATCH.
+  // The bundle stores the full placed section, including metadata and the save
+  // timestamp. Return all its consumers. Advance the shell version only for a
+  // shell/config change, including a replace-set that moves MAX(answer-map id).
   const hasNewMaps = prepared.rebuild.answerMaps.some(map => map.payload_schema_id !== null && map.payload_schema_public_id !== null);
-  const bump = c.env.DB.prepare(`UPDATE leadgen_funnel_variants SET content_version = content_version + 1
-    WHERE EXISTS (SELECT 1 FROM leadgen_sections WHERE id = ?1 AND (
+  const affected = c.env.DB.prepare(`UPDATE leadgen_funnel_variants SET content_version = content_version +
+    EXISTS (SELECT 1 FROM leadgen_sections WHERE id = ?1 AND (
       content_version != ?2 OR section_mapping_version != ?3 OR content_json != ?4
       OR headline_text != ?5 OR subheadline_text IS NOT ?6 OR continue_mode != ?7
       OR design_overrides_json IS NOT ?8 OR address_validation_enabled != ?9 OR ?10
       OR EXISTS (SELECT 1 FROM leadgen_section_answer_maps WHERE section_id = ?1)
-    )) AND id IN (` + SECTION_VARIANTS_SQL + ") RETURNING id")
+    )) WHERE id IN (` + SECTION_VARIANTS_SQL + ") RETURNING id")
     .bind(existing.id, contentVersion, mappingVersion, value.content_json, value.headline_text, value.subheadline_text,
       value.continue_mode, value.design_overrides_json, Number(value.address_validation_enabled), Number(hasNewMaps));
-  const bumped = await commitLeadgenContentChange(c, statements, bump, "leadgen.section.update");
-  if (contentChanged && bumped > 0) {
+  const consumers = await commitLeadgenContentChange(c, statements, affected, "leadgen.section.update");
+  if (contentChanged && consumers > 0) {
     const eviction = evictSectionKv(c, existing.id).catch(err => console.error("leadgen section KV eviction failed", err));
     const ctx = cacheExecutionCtx(c);
     if (ctx) ctx.waitUntil(eviction);
