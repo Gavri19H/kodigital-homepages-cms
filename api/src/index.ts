@@ -41,6 +41,7 @@ import { Hono } from "hono";
 import { gatewayFetch } from "./edge/gateway";
 import { perfstageEnv } from "./edge/perfstage";
 import { runEdgePurgeCron } from "./edge/public-change";
+import { runSpeedAlarms } from "./edge/speed-alarms";
 import { configureImageTransforms, getAdminHost, type Env } from "./env";
 import {
   accessAuth,
@@ -243,7 +244,7 @@ app.onError((err, c) => {
 // the cron invocation stays alive until they finish) AND awaited (so the
 // runtime — and unit tests — observe a settled promise).
 const scheduled = async (
-  _controller: ScheduledController,
+  controller: ScheduledController,
   env: Env,
   ctx: ExecutionContext,
 ): Promise<void> => {
@@ -343,6 +344,11 @@ const scheduled = async (
       await runFingerprintCron(env, ctx);
     } catch {
       // The next minute can retry the fingerprint check.
+    }
+    try {
+      if (env.PERFSTAGE !== "true") await runSpeedAlarms(env, controller.scheduledTime);
+    } catch {
+      console.error("[speed-alarms] Scheduled speed check failed");
     }
   })();
   ctx.waitUntil(work);

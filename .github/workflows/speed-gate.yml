@@ -1,0 +1,128 @@
+name: Speed gate
+
+on:
+  pull_request:
+    branches: [main, reconcile/conversions-x-leadgen-r2]
+  workflow_call:
+
+permissions:
+  contents: read
+
+jobs:
+  measure:
+    name: Public page speed budgets
+    runs-on: ubuntu-latest
+    timeout-minutes: 60
+    defaults:
+      run:
+        working-directory: api
+    env:
+      TZ: UTC
+      WRANGLER_SEND_METRICS: 'false'
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22.23.4'
+          cache: npm
+          cache-dependency-path: api/package-lock.json
+
+      - name: Install the browser and pinned Lighthouse
+        run: |
+          npm ci
+          npx playwright install --with-deps chromium
+          npm install -g lighthouse@12.6.1 --before="$(date -u -d '7 days ago' +%Y-%m-%d)"
+
+      - name: Build and check the public assets used by the Worker
+        run: |
+          npm run build:public-assets -- --check
+          npm run verify:leadgen-runtime
+
+      - name: Prove the heavy fixture misses the byte and mobile budgets
+        run: |
+          status=0
+          npm run perf:speed-gate -- --self-test || status=$?
+          test "$status" -eq 1
+          node --input-type=module <<'JS'
+          import assert from 'node:assert/strict';
+          import { readFileSync } from 'node:fs';
+          const report = JSON.parse(readFileSync('test-artifacts/speed-gate/self-test.json', 'utf8'));
+          assert.ok(!report.error);
+          assert.equal(report.results.length, 4);
+          assert.ok(report.results.every(row => !row.error && row.samples.length === 1));
+          const heavyPhone = report.results.find(row => row.type === 'heavy' && row.profile === 'mobile');
+          for (const metric of ['htmlBytes', 'mobile']) {
+            assert.ok(heavyPhone.failures.some(f => f.metric === metric), 'Expected a miss for ' + metric);
+          }
+          for (const profile of ['mobile', 'desktop']) {
+            const control = report.results.find(row => row.type === 'light' && row.profile === profile);
+            assert.deepEqual(control.failures, [], 'Light control must pass on ' + profile);
+          }
+          JS
+
+      - name: Seed the seven public page types in local D1
+        run: |
+          npm run db:reset:local
+          # The shared localhost seed supplies the home, article and category.
+          cat > "$RUNNER_TEMP/speed-gate.sql" <<'SQL'
+          INSERT INTO tags (id, site_id, slug, name)
+            VALUES (9010, 'st_seedlocal01', 'editors-picks', 'Editors’ picks');
+          INSERT INTO article_tags (article_id, tag_id)
+            SELECT id, 9010 FROM articles WHERE site_id = 'st_seedlocal01' AND is_featured = 1;
+          INSERT INTO pages (site_id, slug, title, content_json, content_html, status)
+            VALUES ('st_seedlocal01', 'our-desk', 'Our desk', '{}', '<p>Meet the café desk.</p>', 'published');
+          INSERT INTO listicle_articles (id, public_id, site_id, slug, article_name, status)
+            VALUES (9010, 'art_guide', 'st_seedlocal01', 'morning-guide', 'Morning guide', 'published');
+          INSERT INTO listicle_article_versions (id, public_id, article_id, headline, intro_paragraph, hero_media_url)
+            VALUES (9010, 'ver_guide', 9010, 'A guide to mornings', 'Start the day outside.', '/media/seed/local/card-a.webp');
+          INSERT INTO listicle_sections (id, public_id, section_name, headline_text, image_json, content_json)
+            VALUES (9010, 'sec_walk', 'Walking', 'Take a walk', '{"url":"/media/seed/local/card-b.webp"}',
+                    '{"blocks":[{"type":"paragraph","data":{"html":"Look for a quiet trail."}}]}');
+          INSERT INTO listicle_pages (id, public_id, article_version_id, page_index) VALUES (9010, 'pg_walk', 9010, 0);
+          INSERT INTO listicle_page_section_candidates (public_id, page_id, section_id) VALUES ('cand_walk', 9010, 9010);
+          INSERT INTO leadgen_quotes (id, public_id, quote_name, activity, verticals_json, status)
+            VALUES (9010, 'lgq_00000000000000000000000001', 'Home insurance', 'quote_funnel', '[]', 'active');
+          INSERT INTO leadgen_site_quotes (site_id, quote_id, enabled, slug) VALUES ('st_seedlocal01', 9010, 1, 'home');
+          INSERT INTO leadgen_funnels (id, public_id, quote_id, funnel_name, status, frame_config_json, theme_json)
+            VALUES (9010, 'lgf_00000000000000000000000001', 9010, 'Home', 'active',
+                    '{"version":1,"template":"header-footer","brand_logos":{"enabled":true,"layout":"row","items":[{"media_id":"seed/local/card-c.webp","alt":"Partner","size":"s"}]}}',
+                    '{"typography":{"display":"poppins","body":"manrope"}}');
+          INSERT INTO leadgen_funnel_variants (id, public_id, funnel_id) VALUES (9010, 'lgn_00000000000000000000000001', 9010);
+          INSERT INTO leadgen_sections (id, public_id, section_name, activity, vertical, headline_text, content_json)
+            VALUES (9010, 'lgs_00000000000000000000000001', 'Home', 'quote_funnel', 'home', 'Do you own your home?',
+                    '{"components":[{"type":"QuestionHeadline","question_id":"q_home","bind":"section_headline"},{"type":"TwoButtonYesNo","question_id":"q_own","question_key":"owner","internal_field":"owner","answer_type":"boolean"}]}');
+          INSERT INTO leadgen_funnel_variant_sections (variant_id, section_id, position) VALUES (9010, 9010, 0);
+          SQL
+          npx wrangler d1 execute kodigital-homepages-cms-db --local --file="$RUNNER_TEMP/speed-gate.sql"
+
+      - name: Fill the local R2 objects referenced by the seed
+        run: |
+          # The shared seed creates media metadata. Use Miniflare's locked WebP encoder
+          # and a committed fixture so Chromium can paint those images with transforms off.
+          node --input-type=module -e '
+            import sharp from "sharp";
+            await sharp("test-ui/__screenshots__/listicle-fixture-desktop.png")
+              .resize(768, 512).webp().toFile(process.argv[1]);' "$RUNNER_TEMP/card.webp"
+          for card in a b c; do
+            npx wrangler r2 object put "kodigital-homepages-cms-media/seed/local/card-$card.webp" \
+              --local --file="$RUNNER_TEMP/card.webp" --content-type=image/webp
+          done
+
+      - name: Audit the local Worker
+        run: |
+          node_modules/.bin/wrangler dev --local --ip 127.0.0.1 --port 8787 --var ADMIN_HOST:127.0.0.1 &
+          worker_pid=$!
+          node_modules/.bin/tsx scripts/leadgen-mock-provider.ts &
+          provider_pid=$!
+          trap 'kill "$worker_pid" "$provider_pid" 2>/dev/null || true' EXIT
+          for port in 8787 8788; do
+            curl -fsS --retry 60 --retry-connrefused --retry-delay 1 "http://127.0.0.1:$port/health"
+          done
+          npm run perf:speed-gate
+
+      - name: Upload the measurements
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: speed-gate-reports
+          path: api/test-artifacts/speed-gate/*.json

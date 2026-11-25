@@ -7,6 +7,7 @@ import { perfstageEnv, perfstageRequest } from "../src/edge/perfstage";
 import * as purge from "../src/edge/public-change";
 import { PublicPage } from "../src/edge/public-page";
 import * as snapshots from "../src/edge/snapshot";
+import * as speed from "../src/edge/speed-alarms";
 import type { PublicPageProps, SiteSnapshot } from "../src/edge/types";
 import type { Env } from "../src/env";
 import worker, * as entry from "../src/index";
@@ -183,10 +184,11 @@ it.each(["resolve", "reject"])("runs only the three perfstage cron jobs through 
     vi.spyOn(listicleAnalytics, "syncListicleAnalytics"), vi.spyOn(reconciliation, "listicleDailyReconciliation"),
     vi.spyOn(listicleRevenue, "runListicleRevenueCron"), vi.spyOn(retention, "pruneLeadgenRetention"),
     vi.spyOn(leadgenAnalytics, "syncLeadgenAnalytics"), vi.spyOn(leadgenRevenue, "runLeadgenRevenueCron"),
+    vi.spyOn(speed, "runSpeedAlarms"),
   ];
   for (const job of excluded) job.mockRejectedValue(new Error("unexpected job"));
   const ctx = context({});
-  await worker.scheduled({ cron: "* * * * *", scheduledTime: 0, noRetry() {} }, env, ctx);
+  await worker.scheduled({ cron: "* * * * *", scheduledTime: Date.UTC(2026, 10, 23, 6), noRetry() {} }, env, ctx);
   const bindings = publish.mock.calls[0]![0];
   expect(publish).toHaveBeenCalledTimes(1);
   for (const job of [edge, fingerprints]) {

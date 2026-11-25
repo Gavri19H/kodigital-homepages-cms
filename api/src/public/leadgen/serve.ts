@@ -51,6 +51,7 @@
 import type { Context } from "hono";
 import type { Env } from "../../env";
 import { parseNumber } from "../../env";
+import { VITALS_BEACON } from "../../edge/vitals";
 import type { PublicSiteVariables } from "../middleware";
 import type { PreparedFunnelBundle } from "./bundle";
 import { cacheExecutionCtx } from "../html-pipeline";
@@ -1204,7 +1205,7 @@ function renderFunnelShell(
 
   return (
     "<!doctype html>" +
-    '<html lang="en">' +
+    '<html lang="en" data-pt="quote">' +
     "<head>" +
     '<meta charset="utf-8">' +
     // Shared by the variant's visitors. The browser supplies its own landing
@@ -1252,6 +1253,7 @@ function renderFunnelShell(
     // results page the auction did not turn into a redirect screen
     // (redirect/page-script.ts). Static: nothing interpolated.
     `<script>${REDIRECT_PAGE_SCRIPT}</script>` +
+    VITALS_BEACON +
     "</body></html>"
   );
 }

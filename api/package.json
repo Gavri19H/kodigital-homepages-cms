@@ -12,6 +12,7 @@
     "test:ui": "playwright test",
     "test:ui:headed": "playwright test --headed",
     "test:ui:report": "playwright show-report",
+    "perf:speed-gate": "node scripts/perf/speed-gate.mjs",
     "build:conversions-admin": "tsx scripts/build-conversions-admin.ts",
     "build:leadgen-runtime": "tsx scripts/build-leadgen-runtime.ts",
     "build:icons": "node scripts/build-icons.mjs",

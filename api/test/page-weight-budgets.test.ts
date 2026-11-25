@@ -3,6 +3,7 @@ import { afterAll, beforeAll, describe, expect, it, vi } from "vitest";
 import { SEED_EPOCH, SEED_HOSTNAME, SEED_SITE_ID } from "../scripts/seed/seed-fixture";
 import { buildSeedSql } from "../scripts/seed/seed-sql";
 import type { Env } from "../src/env";
+import { VITALS_BEACON } from "../src/edge/vitals";
 import { honoFetch } from "../src/index";
 import { buildLeadgenEnv, d1FromSqlite, makeKvStub } from "./helpers/leadgen-analytics-harness";
 import { parseHtml, type MiniNode } from "./helpers/mini-dom";
@@ -14,14 +15,15 @@ const quoteId = (prefix: string) => prefix + "_" + "1".padStart(26, "0");
 // Measured 2026-11-25 on c0254cfa568e under TZ=UTC. Each fixed limit is
 // ceil(measured HTML bytes / 2048) * 2048, independently for raw and Brotli.
 // P4-FX6 re-pinned home at 49,640 raw bytes under TZ=UTC.
+// P5-A adds the inline vitals script. Only crossed 2 KiB buckets moved.
 const budgets = [
-  { page: "home",     raw: 51_200,  brotli: 6_144,  path: "/",                              content: ".picks-grid img" },
-  { page: "article",  raw: 24_576,  brotli: 6_144,  path: "/article/morning-light-rituals", content: ".article-hero-img img" },
-  { page: "category", raw: 18_432,  brotli: 4_096,  path: "/category/wellness",             content: ".home-grid--category .card" },
-  { page: "tag",      raw: 16_384,  brotli: 4_096,  path: "/tag/editors-picks",             content: ".home-grid--tag .card" },
-  { page: "page",     raw: 10_240,  brotli: 4_096,  path: "/page/our-desk",                 content: ".page-content p" },
+  { page: "home",     raw: 53_248,  brotli: 8_192,  path: "/",                              content: ".picks-grid img" },
+  { page: "article",  raw: 26_624,  brotli: 6_144,  path: "/article/morning-light-rituals", content: ".article-hero-img img" },
+  { page: "category", raw: 20_480,  brotli: 6_144,  path: "/category/wellness",             content: ".home-grid--category .card" },
+  { page: "tag",      raw: 18_432,  brotli: 4_096,  path: "/tag/editors-picks",             content: ".home-grid--tag .card" },
+  { page: "page",     raw: 12_288,  brotli: 4_096,  path: "/page/our-desk",                 content: ".page-content p" },
   { page: "listicle", raw: 34_816,  brotli: 8_192,  path: "/morning-guide",                 content: ".lst-section h3", variant: "lst:ver_guide" },
-  { page: "quote",    raw: 108_544, brotli: 18_432, path: "/lg/home",                       content: "[data-lg-section] .lg-headline", variant: "lg:" + quoteId("lgn") },
+  { page: "quote",    raw: 110_592, brotli: 18_432, path: "/lg/home",                       content: "[data-lg-section] .lg-headline", variant: "lg:" + quoteId("lgn") },
 ];
 
 function seedEditorial(db: SqliteDb): void {
@@ -176,9 +178,13 @@ describe("public page weight budgets", () => {
     const doc = parseHtml(html);
     expect(doc.querySelector(budget.content), `populated ${budget.path}`).not.toBeNull();
     if (budget.page === "home") {
-      // Keep the previous raw budget for everything except the new image hints.
+      // Preserve the original homepage budget after accounting for the two
+      // measured additions: image priority hints and the inline speed meter.
       const priorityBytes = doc.querySelectorAll('img[fetchpriority="low"]').length * Buffer.byteLength(' fetchpriority="low"');
-      expect.soft(raw - priorityBytes, "raw HTML excluding low image priority").toBeLessThanOrEqual(49_152);
+      expect(html).toContain(' data-pt="home"');
+      expect(html.split(VITALS_BEACON)).toHaveLength(2);
+      const meterBytes = Buffer.byteLength(VITALS_BEACON + '\n data-pt="home"');
+      expect.soft(raw - priorityBytes - meterBytes, "raw HTML excluding low image priority and vitals").toBeLessThanOrEqual(49_152);
 
       // A preload has no element width. Compare the actual transform with
       // its width descriptor, then bound the candidate used on a 375px phone.

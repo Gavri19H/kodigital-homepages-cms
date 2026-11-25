@@ -18,6 +18,7 @@ import { cfTransform } from "./responsive-img";
 import { cssHash, jsHash } from "../assets/public-assets.generated";
 import { PUBLIC_FONT_FACE_CSS, PUBLIC_FONT_FILES, PUBLIC_FONT_PRELOAD_PATHS } from "../assets/public-fonts.generated";
 import { ANALYTICS_TRACKING_SCRIPT } from "../../analytics/tracking-script";
+import { VITALS_BEACON } from "../../edge/vitals";
 import { siteIconHeadTags, siteBrandColor, absoluteOnHost, uploadedLogoUrl } from "../site-brand";
 
 const fontPreload = (path: string) => `<link rel="preload" as="font" type="font/woff2" crossorigin href="${path}">`;
@@ -197,6 +198,17 @@ function resizeOpenGraphImage(head: string, hostname: string, image: string | un
   }
 }
 
+function layoutPageType(canonicalUrl: string | undefined): string {
+  if (canonicalUrl) {
+    try {
+      const path = new URL(canonicalUrl).pathname;
+      if (path === "/") return "home";
+      return /^\/(article|category|tag|page)\//.exec(path)?.[1] ?? "other";
+    } catch { /* Layouts without a usable canonical still report as other. */ }
+  }
+  return "other";
+}
+
 export function renderLayout(args: RenderLayoutArgs): string {
   const { site, meta, body } = args;
   const header = args.header ?? "";
@@ -264,7 +276,7 @@ export function renderLayout(args: RenderLayoutArgs): string {
       : "";
 
   return `<!DOCTYPE html>
-<html lang="en">
+<html lang="en" data-pt="${layoutPageType(meta.canonicalUrl)}">
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
@@ -289,6 +301,7 @@ ${footer}
 <script src="${PUBLIC_JS_PATH}" defer></script>
 ${customFooter}
 ${ANALYTICS_TRACKING_SCRIPT}
+${VITALS_BEACON}
 </body>
 </html>`;
 }

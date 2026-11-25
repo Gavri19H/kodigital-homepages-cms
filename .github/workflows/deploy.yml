@@ -1,8 +1,7 @@
 name: CI / Deploy
 
-# CI runs on every pull_request targeting main and on every push to main.
-# Staging deploy: optional, runs on push to main when the repo variable
-# ENABLE_STAGING_DEPLOY is the literal string 'true'.
+# CI and the speed gate run on PRs and pushes to main and the production branch.
+# Staging requires a manual dispatch on main with ENABLE_STAGING_DEPLOY='true'.
 # Production deploy: workflow_dispatch ONLY — the operator must trigger
 # the workflow manually from the Actions tab (or `gh workflow run`) after
 # staging smoke passes. Auto-production-deploy is intentionally absent;
@@ -24,9 +23,9 @@ name: CI / Deploy
 
 on:
   pull_request:
-    branches: [main]
+    branches: [main, reconcile/conversions-x-leadgen-r2]
   push:
-    branches: [main]
+    branches: [main, reconcile/conversions-x-leadgen-r2]
   workflow_dispatch:
     inputs:
       target_env:
@@ -37,8 +36,9 @@ on:
         options:
           - perfstage
           - production
+          - staging
       rollout:
-        description: 'Gradual checks 10% for 30 minutes. Rehearsal checks for 3 minutes and exercises rollback on perfstage.'
+        description: 'Gradual checks 10% for 30 minutes. Rehearsal checks for 3 minutes and exercises rollback on perfstage. Staging always deploys directly.'
         required: true
         default: rehearsal
         type: choice
@@ -89,16 +89,17 @@ jobs:
       - name: Verify worker config ([vars] routing contract per env)
         run: npm run verify:worker-config
 
+  speed-gate:
+    # PRs run the same workflow directly through its pull_request trigger.
+    if: github.event_name != 'pull_request'
+    uses: ./.github/workflows/speed-gate.yml
+
   deploy-staging:
     name: Deploy to staging
-    needs: ci
-    # Deployment is OFF by default. To enable, set the repo variable
-    # ENABLE_STAGING_DEPLOY to the literal string 'true'
-    # (Settings -> Secrets and variables -> Actions -> Variables).
-    # Until that flag is flipped, this job is skipped on every push to
-    # main, so a merge to main cannot accidentally deploy.
+    needs: [ci, speed-gate]
     if: >-
-      github.event_name == 'push'
+      github.event_name == 'workflow_dispatch'
+      && inputs.target_env == 'staging'
       && github.ref == 'refs/heads/main'
       && vars.ENABLE_STAGING_DEPLOY == 'true'
     runs-on: ubuntu-latest
@@ -138,12 +139,12 @@ jobs:
 
   deploy-production:
     name: Deploy to ${{ inputs.target_env }} (${{ inputs.rollout }})
-    needs: ci
+    needs: [ci, speed-gate]
     # Production deploy NEVER runs on push or pull_request. It requires
     # an explicit workflow_dispatch trigger from the Actions UI (or
     # `gh workflow run`) AFTER staging smoke has passed. See
     # docs/deployment-runbook.md "Flight — Production".
-    if: github.event_name == 'workflow_dispatch'
+    if: github.event_name == 'workflow_dispatch' && inputs.target_env != 'staging'
     concurrency:
       group: cms-release-${{ inputs.target_env }}
       cancel-in-progress: false
@@ -265,6 +266,7 @@ jobs:
       #   - 0071_articles_seo_title_uncut.sql
       #   - 0072_sites_write_bookmark.sql
       #   - 0073_cache_purge_log_index.sql
+      #   - 0074_vitals_samples.sql
       - name: Apply D1 migrations to production (kodigital-homepages-cms-db)
         if: inputs.target_env == 'production'
         run: npx wrangler d1 migrations apply kodigital-homepages-cms-db --env production --remote

@@ -22,6 +22,7 @@ import { parseSiteSnapshot } from "./snapshot";
 import { seedStaticAssets, serveStatic } from "./static-cache";
 import { listicleTag, siteQuoteTag } from "./tags";
 import type { GatewayRequestInput, PublicPageProps, SiteSnapshot } from "./types";
+import { handleVitals } from "./vitals";
 
 interface PageExports {
   PublicPage(options: { props: PublicPageProps }): { fetch(request: Request): Promise<Response> };
@@ -390,7 +391,7 @@ export async function gatewayFetch(
 ): Promise<Response> {
   // Use Hono's route decoding so an escaped reserved head has the same boundary.
   const path = getPath(request);
-  if (path !== "/__edge/tick") request = perfstageRequest(request, env);
+  if (path !== "/__edge/tick" && path !== "/v/vitals") request = perfstageRequest(request, env);
   const response = await dispatchGatewayRequest(request, env, ctx, honoFetch, path);
   if (request.method === "GET" && response.status === 200 &&
       /^text\/html(?:\s*;|$)/i.test(response.headers.get("Content-Type") ?? "")) {
@@ -407,6 +408,14 @@ export async function gatewayFetch(
 async function dispatchGatewayRequest(
   request: Request, env: Env, ctx: ExecutionContext | undefined, honoFetch: HonoFetch, path: string,
 ): Promise<Response> {
+  if (path === "/v/vitals") {
+    return handleVitals(request, env, ctx, async url => {
+      const pages = ctx?.exports as PageExports | undefined;
+      if (!ctx || typeof pages?.PublicPage !== "function") return null;
+      const host = await readHostSnapshot(url, { env, ctx, pages, hedgeMs: 0 });
+      return host?.snapshot.siteId ?? null;
+    });
+  }
   if (path === "/__edge/tick") {
     const headers = { "Cache-Control": EDGE_CACHE_CONTROL.private };
     if (request.method !== "POST") return new Response(null, { status: 405, headers: { ...headers, Allow: "POST" } });
@@ -435,6 +444,7 @@ async function dispatchGatewayRequest(
       return new Response(null, { status: 404, headers: { "Cache-Control": EDGE_CACHE_CONTROL.private } });
     }
     let response = await serveStatic(request, env, ctx, honoFetch);
+    let siteId: string | undefined;
     const pages = ctx?.exports as PageExports | undefined;
     if (!response && ctx && typeof pages?.PublicPage === "function" && (request.method === "GET" || request.method === "HEAD")) {
       const url = new URL(request.url);
@@ -450,6 +460,7 @@ async function dispatchGatewayRequest(
         }
         const hostSnapshot = await readHostSnapshot(url, context, timing);
         if (hostSnapshot && route) {
+          siteId = hostSnapshot.snapshot.siteId;
           const direct = env.PERFSTAGE === "true" && request.headers.get("x-perfstage-direct") === "1";
           response = await serveCachedPage(request, url, route, context, readCfSignals(request), hostSnapshot, timing, direct);
         } else if (hostSnapshot && attempt) {
@@ -465,7 +476,7 @@ async function dispatchGatewayRequest(
       }
     }
     if (response) {
-      recordEdgeCacheStatus(env, response.headers.get("x-edge-cache"), ctx);
+      recordEdgeCacheStatus(env, response.headers.get("x-edge-cache"), ctx, siteId);
       return timing ? withGatewayTiming(response, timing) : response;
     }
   } catch {

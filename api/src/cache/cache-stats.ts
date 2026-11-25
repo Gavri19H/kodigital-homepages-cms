@@ -2,7 +2,8 @@
 //
 // Gateway and live feed/HTML reads sample one in ten outcomes when a request
 // context is available. Each sample adds ten to its KV counter in the background.
-// The admin monitor reports these estimated totals and hit rate.
+// The admin monitor reports these estimated totals and hit rate. A gateway
+// sample also feeds the site's hourly HIT or MISS counter for speed reports.
 //
 // Recording is BEST-EFFORT: a counter read/write failure NEVER breaks a
 // cache read (wrapped in try/catch). The counter keys are read via the raw
@@ -17,7 +18,14 @@ import type { WaitUntilContext } from "../wait-until-context";
 // monitoring counters.
 const HITS_KEY = "cachestat:hits";
 const MISSES_KEY = "cachestat:misses";
-const SAMPLE_WEIGHT = 10;
+export const EDGE_SAMPLE_WEIGHT = 10;
+const EDGE_COUNTER_TTL_SECONDS = 8 * 24 * 60 * 60;
+type EdgeCacheOutcome = "HIT" | "MISS";
+
+export function edgeHitCounterKey(siteId: string, hourMs: number, status: EdgeCacheOutcome): string {
+  const utcHour = new Date(hourMs).toISOString().slice(0, 13).replace(/[-T]/g, "");
+  return `edgehit:v1:${siteId}:${utcHour}:${status}`;
+}
 
 export interface CacheStats {
   hits: number;
@@ -36,37 +44,45 @@ async function readCounter(env: Env, key: string): Promise<number> {
   return Number.isFinite(n) && n >= 0 ? n : 0;
 }
 
-async function bump(env: Env, key: string): Promise<void> {
+async function bump(env: Env, key: string, options?: KVNamespacePutOptions): Promise<void> {
   try {
-    const next = (await readCounter(env, key)) + SAMPLE_WEIGHT;
-    await env.CACHE.put(key, String(next));
+    const value = String((await readCounter(env, key)) + EDGE_SAMPLE_WEIGHT);
+    if (options === undefined) {
+      await env.CACHE.put(key, value);
+    } else {
+      await env.CACHE.put(key, value, options);
+    }
   } catch {
     // Monitoring is best-effort — a stats write failure must never break the
     // cache read that triggered it.
   }
 }
 
-function scheduleBump(env: Env, key: string, waitUntil?: WaitUntilContext): void {
-  if (typeof waitUntil?.waitUntil !== "function" || Math.random() >= 1 / SAMPLE_WEIGHT) return;
+function scheduleBump(env: Env, outcome: EdgeCacheOutcome, waitUntil?: WaitUntilContext, siteId?: string): void {
+  if (typeof waitUntil?.waitUntil !== "function" || Math.random() >= 1 / EDGE_SAMPLE_WEIGHT) return;
   try {
-    waitUntil.waitUntil(bump(env, key));
+    const writes = [bump(env, outcome === "HIT" ? HITS_KEY : MISSES_KEY)];
+    if (siteId) {
+      const key = edgeHitCounterKey(siteId, Date.now(), outcome);
+      writes.push(bump(env, key, { expirationTtl: EDGE_COUNTER_TTL_SECONDS }));
+    }
+    waitUntil.waitUntil(Promise.all(writes));
   } catch {
     // A context that can no longer accept work must still serve the cached response.
   }
 }
 
 export function recordCacheHit(env: Env, waitUntil?: WaitUntilContext): void {
-  scheduleBump(env, HITS_KEY, waitUntil);
+  scheduleBump(env, "HIT", waitUntil);
 }
 
 export function recordCacheMiss(env: Env, waitUntil?: WaitUntilContext): void {
-  scheduleBump(env, MISSES_KEY, waitUntil);
+  scheduleBump(env, "MISS", waitUntil);
 }
 
-export function recordEdgeCacheStatus(env: Env, status: string | null, waitUntil?: WaitUntilContext): void {
+export function recordEdgeCacheStatus(env: Env, status: string | null, waitUntil?: WaitUntilContext, siteId?: string): void {
   const outcome = status?.toUpperCase();
-  if (outcome === "HIT") recordCacheHit(env, waitUntil);
-  else if (outcome === "MISS") recordCacheMiss(env, waitUntil);
+  if (outcome === "HIT" || outcome === "MISS") scheduleBump(env, outcome, waitUntil, siteId);
 }
 
 // Derives the hit-rate as hits / (hits + misses), rounded to 4 dp. Returns 0

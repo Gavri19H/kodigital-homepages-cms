@@ -65,6 +65,7 @@ export interface Env {
   CF_ACCESS_AUD?: string;
   DEV_BYPASS_AUTH?: string;
   PREVIEW_SECRET?: string;
+  SLACK_WEBHOOK_URL?: string;
   CLOUDFLARE_PROVISIONING_API_TOKEN?: string;
   CLOUDFLARE_CACHE_API_TOKEN?: string;
   ALLOWED_CF_SERVICE_TOKEN_IDS?: string;
