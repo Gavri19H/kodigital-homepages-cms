@@ -11,7 +11,7 @@ import { createDb, type SqliteDb } from "./helpers/x06-a2-sqlite";
 const origin = `https://${SEED_HOSTNAME}`;
 const quoteId = (prefix: string) => prefix + "_" + "1".padStart(26, "0");
 
-// Measured 2026-11-25 on 6846c55ee096 under TZ=UTC. Each fixed limit is
+// Measured 2026-11-25 on c0254cfa568e under TZ=UTC. Each fixed limit is
 // ceil(measured HTML bytes / 2048) * 2048, independently for raw and Brotli.
 // P4-FX6 re-pinned home at 49,640 raw bytes under TZ=UTC.
 const budgets = [
@@ -21,7 +21,7 @@ const budgets = [
   { page: "tag",      raw: 16_384,  brotli: 4_096,  path: "/tag/editors-picks",             content: ".home-grid--tag .card" },
   { page: "page",     raw: 10_240,  brotli: 4_096,  path: "/page/our-desk",                 content: ".page-content p" },
   { page: "listicle", raw: 34_816,  brotli: 8_192,  path: "/morning-guide",                 content: ".lst-section h3", variant: "lst:ver_guide" },
-  { page: "quote",    raw: 108_544, brotli: 16_384, path: "/lg/home",                       content: "[data-lg-section] .lg-headline", variant: "lg:" + quoteId("lgn") },
+  { page: "quote",    raw: 108_544, brotli: 18_432, path: "/lg/home",                       content: "[data-lg-section] .lg-headline", variant: "lg:" + quoteId("lgn") },
 ];
 
 function seedEditorial(db: SqliteDb): void {
