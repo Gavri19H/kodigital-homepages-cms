@@ -22,12 +22,9 @@
 // plan's digest (resolver.ts resolvePagePlan -- rules-first over ENTRY-KNOWN
 // attributes, else session-sticky slot A/B). It rides the SAME HMAC as the
 // rest of the payload (integrity-proven, never separately signed) and is
-// decoded/compared at /lg/auction (auction/engine.ts validateAntiTamper)
-// against a FRESH server recomputation -- the SAME "recompute server-side,
-// compare" discipline every other v2 field already uses. DUAL-ACCEPT is
-// automatic: an in-flight token minted before this deploy carries no
-// `page_plan_hash` key, decodes to "" (the landing_url absent-pattern), and
-// the auction-side check SKIPS entirely on an empty decoded hash.
+// verified with the payload at /lg/auction. The plan is fixed at mint time.
+// An in-flight token minted before the page-plan field was added decodes
+// its absent hash to "" and follows the same signature check.
 // `landing_url` is the 04 §4.2 ATTEMPT-CONTEXT carrier: the funnel page's
 // ORIGINAL URL (from /lg/attempt's `u` query param, same-origin Referer
 // fallback). The token IS the attempt-context store — no new tables. The
@@ -55,6 +52,7 @@
 // dev token whose tuple matches is accepted, and a signed token is rejected
 // (nothing to verify against). Production (secret present) is always signed.
 
+import { renderReadDb } from "../../db/read-session";
 import type { Env } from "../../env";
 import { readEnvSecret } from "../../env";
 import { ulid } from "../../leadgen/ids";
@@ -64,6 +62,7 @@ import { computeSectionOrderHash } from "./config-dto";
 import {
   resolvePagePlan,
   loadQuoteRoutingRules,
+  parseQuoteRoutingRule,
   deriveQuoteCheckpointPages,
   checkpointPageAnchors,
   resolveEffectiveFrameOnly,
@@ -308,6 +307,99 @@ export async function computeAttemptBindingExtras(
   return attemptBindingExtras(orderedVersions, await auctionVersion);
 }
 
+type AttemptConfigBinding = Omit<ConfigTokenTuple, "funnel_attempt_id" | "session_id">;
+
+// Same reverse lookup as /lg/ck and /lg/auction. A stale snapshot can name
+// an arm that has since stopped being served on this site.
+const SERVED_ATTEMPT_VARIANT = `WITH served AS (
+  SELECT v.id AS variant_id, v.public_id AS funnel_variant_id, v.content_version, v.auction_id,
+         f.id AS funnel_id, f.public_id AS funnel_public_id,
+         q.id AS quote_id, q.public_id AS quote_public_id, q.default_funnel_id
+  FROM leadgen_funnel_variants v
+  JOIN leadgen_funnels f ON f.id = v.funnel_id AND f.status = 'active'
+  JOIN leadgen_quotes q ON q.id = f.quote_id
+  JOIN leadgen_site_quotes sq ON sq.quote_id = q.id AND sq.enabled = 1
+  WHERE sq.site_id = ? AND v.public_id = ? AND v.status = 'active' AND (
+    EXISTS (SELECT 1 FROM leadgen_funnel_ab_tests WHERE funnel_id = f.id AND status = 'running')
+    OR v.id = (SELECT id FROM leadgen_funnel_variants WHERE funnel_id = f.id AND status = 'active'
+               ORDER BY variant_label, id LIMIT 1)
+  )
+)`;
+
+// Flatten the same placements as sectionsFromPages. Shared pages come first.
+// Slotted candidates follow insertion order, direct shared sections follow
+// position, and an owner without page records uses its legacy placement order.
+const ATTEMPT_SECTIONS = SERVED_ATTEMPT_VARIANT + `, pages AS (
+  SELECT p.id, p.position, p.quote_id, p.variant_id FROM leadgen_funnel_pages p
+  WHERE p.quote_id = (SELECT quote_id FROM served) OR p.variant_id = (SELECT variant_id FROM served)
+), owned AS (
+  SELECT id, section_id, slot_id, position, quote_id, variant_id FROM leadgen_funnel_variant_sections
+  WHERE quote_id = (SELECT quote_id FROM served) OR variant_id = (SELECT variant_id FROM served)
+), direct_pages AS (
+  SELECT p.id, p.position FROM pages p WHERE p.quote_id IS NOT NULL
+    AND NOT EXISTS (SELECT 1 FROM leadgen_funnel_page_slots WHERE page_id = p.id)
+), placements(id, section_id, variant_page, page_pos, slot_pos) AS (
+  SELECT o.id, o.section_id, p.quote_id IS NULL, p.position, slot.position
+  FROM owned o JOIN leadgen_funnel_page_slots slot ON slot.id = o.slot_id
+  JOIN pages p ON p.id = slot.page_id AND (p.quote_id = o.quote_id OR p.variant_id = o.variant_id)
+  UNION ALL
+  SELECT vs.id, vs.section_id, 0, p.position, vs.position
+  FROM (SELECT 1 FROM direct_pages LIMIT 1) AS has_direct_page
+  CROSS JOIN leadgen_funnel_variant_sections vs JOIN direct_pages p ON p.id = vs.page_id
+  UNION ALL
+  SELECT o.id, o.section_id, o.quote_id IS NULL, 0, o.position FROM owned o
+  WHERE (o.quote_id IS NOT NULL AND NOT EXISTS (SELECT 1 FROM pages WHERE quote_id IS NOT NULL))
+     OR (o.variant_id IS NOT NULL AND NOT EXISTS (SELECT 1 FROM pages WHERE variant_id IS NOT NULL))
+)
+SELECT s.public_id, s.content_version,
+       COALESCE((SELECT MAX(id) FROM leadgen_section_answer_maps WHERE section_id = s.id), 0) AS mapping_version
+FROM placements p JOIN leadgen_sections s ON s.id = p.section_id
+ORDER BY p.variant_page, p.page_pos, p.slot_pos, p.id`;
+
+interface AttemptVariantRow {
+  variant_id: number;
+  funnel_variant_id: string;
+  content_version: number;
+  auction_version: number | null;
+  funnel_id: number;
+  funnel_public_id: string;
+  quote_id: number;
+  quote_public_id: string;
+  default_funnel_id: number | null;
+}
+
+// All three SELECTs share a transaction. The site's write bookmark allows
+// a replica containing the published change to serve the whole binding.
+export async function readLiveAttemptConfig(
+  primary: D1Database, siteId: string, variantId: string, bookmark?: string | null,
+) {
+  const db = bookmark ? renderReadDb(primary, bookmark) : primary;
+  const [variants, sections, rules] = await db.batch([
+    db.prepare(SERVED_ATTEMPT_VARIANT + `
+      SELECT served.*, a.carrier_normalization_version AS auction_version
+      FROM served LEFT JOIN leadgen_auctions a ON a.id = served.auction_id`).bind(siteId, variantId),
+    db.prepare(ATTEMPT_SECTIONS).bind(siteId, variantId),
+    db.prepare(SERVED_ATTEMPT_VARIANT + `
+      SELECT public_id, conditions_json, conditions_hash, priority, match_mode, target_funnel_id,
+             feed_name, value_multiplier, redirect_pct, target_offer_id, redirect_url,
+             redirect_url_allowlisted, force_offer_id
+      FROM leadgen_quote_routing_rules WHERE quote_id = (SELECT quote_id FROM served) AND status = 'active'
+      ORDER BY priority, id`).bind(siteId, variantId),
+  ]) as [D1Result<AttemptVariantRow>, D1Result<{ public_id: string; content_version: number; mapping_version: number }>,
+    D1Result<Parameters<typeof parseQuoteRoutingRule>[0]>];
+  if (!variants.success || !sections.success || !rules.success) throw new Error("Incomplete attempt binding batch");
+  const variant = variants.results[0];
+  if (!variant) return null;
+  const binding: AttemptConfigBinding = {
+    funnel_variant_id: variant.funnel_variant_id,
+    content_version: variant.content_version,
+    // computeSectionOrderHash's wire material, projected without section bodies.
+    section_order_hash: sha256Hex(sections.results.map(s => `${s.public_id}:${s.content_version}`).join("|")),
+    ...attemptBindingExtras(sections.results.map(s => String(s.mapping_version)), String(variant.auction_version ?? "")),
+  };
+  return { variant, binding, rules: rules.results.map(parseQuoteRoutingRule) };
+}
+
 // ---------------------------------------------------------------------------
 // mint + verify
 // ---------------------------------------------------------------------------
@@ -336,23 +428,25 @@ export function isSignedToken(token: string): boolean {
 }
 
 // §8.3/§24c: mint `{ funnel_attempt_id, signed_config_token }` for a resolved
-// funnel. The token binds the v2 tuple `/lg/auction` re-validates; the
-// section_order_hash is computed by the SAME builder the config DTO uses
-// (config-dto.computeSectionOrderHash) and the mapping/auction versions by the
-// SAME computeAttemptBindingExtras the verifier uses, so the token can never
-// bind a value the server-side recomputation doesn't reproduce.
+// funnel. A start supplies the live batch's binding. Checkpoint reissues
+// and the fallback start resolve the funnel and its binding extras live.
 export async function mintFunnelAttempt(
   env: Env,
   resolved: ResolvedActivatedFunnel,
   now: number = Date.now(),
   ctx?: MintAttemptContext,
-  preparedBindings?: AttemptBindingExtras,
+  liveBinding?: AttemptConfigBinding,
 ): Promise<FunnelAttempt> {
   const secret = readEnvSecret(env, LEADGEN_CONFIG_SIGNING_KEY_NAME);
   // P4a: a checkpoint switch reuses the attempt id (same attempt, new binding);
   // the normal mint path passes none → a fresh id.
   const funnel_attempt_id = ctx?.funnel_attempt_id ?? mintFunnelAttemptId(now);
-  const extras = preparedBindings ?? await computeAttemptBindingExtras(env, resolved);
+  const binding = liveBinding ?? {
+    funnel_variant_id: resolved.variant.public_id,
+    section_order_hash: computeSectionOrderHash(resolved),
+    content_version: resolved.variant.content_version,
+    ...await computeAttemptBindingExtras(env, resolved),
+  };
   const sessionId = ctx?.session_id ?? "";
 
   // Round-4 P3a: resolve the per-attempt page plan ONCE, server-side (rules
@@ -393,13 +487,9 @@ export async function mintFunnelAttempt(
   }
 
   const tuple: ConfigTokenTuple = {
-    funnel_variant_id: resolved.variant.public_id,
-    section_order_hash: computeSectionOrderHash(resolved),
-    content_version: resolved.variant.content_version,
+    ...binding,
     funnel_attempt_id,
     session_id: sessionId,
-    answer_mapping_hash: extras.answer_mapping_hash,
-    auction_config_version: extras.auction_config_version,
   };
   const signed_config_token = await buildToken(secret, tuple, ctx?.landing_url ?? "", pagePlanHash);
   const result: FunnelAttempt = { funnel_attempt_id, signed_config_token };

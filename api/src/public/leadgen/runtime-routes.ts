@@ -29,7 +29,7 @@ import { isAdminHost } from "../../site/site-context";
 import type { WaitUntilContext } from "../../wait-until-context";
 import { cacheExecutionCtx } from "../html-pipeline";
 import { publicSiteContextMiddleware, type PublicSiteVariables } from "../middleware";
-import { loadPreparedFunnelBundle } from "./bundle";
+import { loadFunnelAttemptInputs, loadPreparedFunnelBundle } from "./bundle";
 import { LEADGEN_FONT_FILES } from "./designs/fonts.generated";
 import { serveFunnelShell, serveLeadgenConfig, leadgenNoStoreHeaders } from "./serve";
 import { serveLeadgenAuction } from "./serve-auction";
@@ -173,16 +173,14 @@ function resolveAttemptLandingUrl(c: PublicContext): string {
 // server never bound (422).
 async function serveLeadgenAttemptV2(c: PublicContext, siteId: string): Promise<Response> {
   const variantId = c.req.query("funnel_variant_id") ?? c.req.query("vid") ?? "";
-  const prepared = await loadPreparedFunnelBundle(c.env, c.req.raw.headers, siteId, variantId, cacheExecutionCtx(c));
-  const resolved = prepared === undefined
-    ? await resolveActivatedFunnelByVariant(c.env, siteId, variantId, { includeRoutingRules: true })
-    : prepared?.resolved ?? null;
-  if (resolved === null) {
+  const inputs = await loadFunnelAttemptInputs(c.env, c.req.raw.headers, siteId, variantId, cacheExecutionCtx(c));
+  if (inputs === null) {
     return new Response(JSON.stringify({ error: "Not Found" }), {
       status: 404,
       headers: leadgenNoStoreHeaders(),
     });
   }
+  const { resolved, binding } = inputs;
   let sessionId = readCookie(c.req.header("Cookie") ?? null, "ko_sid");
   const sessionWasAbsent = sessionId === "";
   if (sessionWasAbsent) sessionId = genSessionId();
@@ -198,7 +196,7 @@ async function serveLeadgenAttemptV2(c: PublicContext, siteId: string): Promise<
     session_id: sessionId,
     landing_url: landingUrl,
     entry_ctx: entryCtx,
-  }, prepared?.bindings);
+  }, binding);
 
   // LeadGen Rework §4.3-4/§4.3-9/§4.3-10: if THIS served variant's FUNNEL was
   // pre-selected by an ENTRY-plane quote rule, record the server-authoritative

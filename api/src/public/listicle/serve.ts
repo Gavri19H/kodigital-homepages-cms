@@ -17,6 +17,7 @@ import type { Context } from "hono";
 import type { Env } from "../../env";
 import { parseNumber } from "../../env";
 import type { PublicSiteVariables } from "../middleware";
+import type { RedirectRow } from "../queries";
 import { cacheExecutionCtx } from "../html-pipeline";
 import { listicleKey, listicleCandidateKey } from "../../cache/cache-keys";
 import { publicHtmlCacheHeaders } from "../../cache/cache-control";
@@ -117,12 +118,12 @@ export async function loadActiveVersions(
   return rows.results ?? [];
 }
 
-async function loadPublishedVersions(
+function publishedVersionsStatement(
   db: D1Database,
   siteId: string,
   slug: string,
-): Promise<PublishedVersionRow[]> {
-  const rows = await db.prepare(
+): D1PreparedStatement {
+  return db.prepare(
     `SELECT a.public_id AS article_public_id, a.article_name, a.active_experiment_id,
             e.public_id AS running_experiment, lang.value AS site_language, tz.value AS site_timezone,
             v.id, v.public_id, v.article_id, v.experiment_id, v.variant_label, v.is_control,
@@ -135,8 +136,7 @@ async function loadPublishedVersions(
      LEFT JOIN site_settings tz ON tz.site_id = a.site_id AND tz.key = 'site_timezone'
      WHERE a.site_id = ? AND a.slug = ? AND a.status = 'published'
      ORDER BY v.id ASC`,
-  ).bind(siteId, slug).all<PublishedVersionRow>();
-  return rows.results;
+  ).bind(siteId, slug);
 }
 
 // Both the shell and its lazy fragments use the same headline link identity.
@@ -186,7 +186,6 @@ async function resolveOfferRefs(
     if (row.id >= 0) map.set(String(row.id), row.public_id);
     if (!/^\d+$/.test(row.public_id)) map.set(row.public_id, row.public_id);
   }
-
   // Older content can contain a governed anchor with no ledger row. Only the
   // block renderer can supply its exact ref (including HTML entity decoding).
   const numeric: number[] = [];
@@ -209,11 +208,92 @@ async function resolveOfferRefs(
 type ShellPageRow = Omit<RenderPage, "candidates"> & { id: number };
 type ShellCandidateRow = RenderCandidate & { page_id: number };
 
-const VERSION_SECTIONS = `WITH version_sections AS (
-  SELECT c.section_id FROM listicle_pages p
-  JOIN listicle_page_section_candidates c ON c.page_id = p.id
-  WHERE p.article_version_id = ?
-)`;
+type ShellRows = [
+  D1Result<ShellPageRow>,
+  D1Result<ShellCandidateRow>,
+  D1Result<RenderSectionRow>,
+  D1Result<OfferRow>,
+  D1Result<{ key: string; value: string | null }>,
+  D1Result<{ storage_key: string }>?,
+];
+
+// The gateway already picked a public version ID. Each shell read can resolve
+// it by index, with the same tenant, slug and lifecycle checks as the version row.
+const SELECTED_VERSION_ID = `(SELECT v.id FROM listicle_article_versions v
+  JOIN listicle_articles a ON a.id = v.article_id
+  WHERE a.site_id = ? AND a.slug = ? AND v.public_id = ?
+    AND a.status = 'published' AND v.status = 'active')`;
+
+function shellStatements(
+  db: D1Database, siteId: string,
+  version: ListicleVersionRow | { slug: string; publicId: string },
+) {
+  const byId = "id" in version;
+  const versionId = byId ? "?" : SELECTED_VERSION_ID;
+  const binds = byId ? [version.id] : [siteId, version.slug, version.publicId];
+  const versionSections = `WITH version_sections AS (
+    SELECT c.section_id FROM listicle_pages p
+    JOIN listicle_page_section_candidates c ON c.page_id = p.id
+    WHERE p.article_version_id = ` + versionId + ")";
+  const indexedOffers = `SELECT id, public_id FROM listicle_offers WHERE id IN (
+    SELECT offer_id FROM listicle_section_link_instances WHERE section_id IN (SELECT section_id FROM version_sections)
+    UNION ALL
+    SELECT offer_id FROM listicle_section_offers WHERE section_id IN (SELECT section_id FROM version_sections)
+    UNION ALL
+    SELECT headline_offer_id FROM listicle_sections WHERE id IN (SELECT section_id FROM version_sections)
+  )`;
+  // Structured block refs can be looked up by either index, including refs
+  // in older documents without link instances. Raw inline HTML can encode a
+  // different ref after sanitization. In that case include the global offer
+  // ID aliases so the block renderer can perform the exact lookup locally.
+  const selectedOffers = `, documents AS (
+    SELECT content_json FROM listicle_sections WHERE id IN (SELECT section_id FROM version_sections)
+  ), fields AS (
+    SELECT field.key, field.atom FROM documents,
+      json_tree(CASE WHEN json_valid(content_json) THEN content_json END) field
+    WHERE field.atom IS NOT NULL
+  ), refs AS (SELECT trim(atom) AS ref FROM fields WHERE key = 'offer_id'),
+  needs_aliases AS (
+    SELECT 1 FROM documents WHERE NOT json_valid(content_json)
+    UNION ALL
+    SELECT 1 FROM fields WHERE
+      (instr(atom, '<') AND instr(atom, '-')) OR (instr(atom, '&') AND instr(atom, ';'))
+      OR instr(atom, char(0))
+      OR (key = 'offer_id' AND trim(atom) GLOB '*[^a-zA-Z0-9_-]*')
+    LIMIT 1
+  )
+  SELECT id, public_id FROM (` + indexedOffers + `
+    UNION
+    SELECT id, public_id FROM listicle_offers WHERE id IN (SELECT ref FROM refs) OR public_id IN (SELECT ref FROM refs)
+  ) WHERE NOT EXISTS (SELECT 1 FROM needs_aliases)
+  UNION ALL
+  SELECT o.id, o.public_id FROM needs_aliases CROSS JOIN listicle_offers o`;
+  const statements = [
+    db.prepare(`SELECT id, public_id, page_index, selection_mode, ab_test_id, rule_set_id
+      FROM listicle_pages WHERE article_version_id = ` + versionId + " ORDER BY page_index").bind(...binds),
+    db.prepare("WITH version_pages AS (SELECT id FROM listicle_pages WHERE article_version_id = " + versionId + `)
+      SELECT c.page_id, c.public_id, c.section_id, c.is_fallback, c.traffic_allocation,
+             s.public_id AS section_public_id, s.section_name,
+             r.public_id AS rule_public_id, r.priority AS rule_priority,
+             r.conditions_json AS rule_conditions_json, r.conditions_hash AS rule_conditions_hash
+      FROM listicle_page_section_candidates c
+      JOIN listicle_sections s ON s.id = c.section_id
+      LEFT JOIN listicle_page_rules r ON r.candidate_id = c.id AND r.page_id IN (SELECT id FROM version_pages)
+      WHERE c.page_id IN (SELECT id FROM version_pages) ORDER BY c.id`).bind(...binds),
+    db.prepare(versionSections + "\n" + RENDER_SECTIONS +
+      " WHERE s.id IN (SELECT section_id FROM version_sections)").bind(...binds),
+    db.prepare(versionSections + (byId ? "\n" + indexedOffers : selectedOffers)).bind(...binds),
+    db.prepare("SELECT key, value FROM site_settings WHERE site_id = ?").bind(siteId),
+  ];
+  if (!byId) {
+    statements.push(db.prepare(`SELECT m.storage_key FROM listicle_article_versions v
+      JOIN media m ON m.id = v.hero_media_id WHERE v.id = ` + versionId +
+      " AND COALESCE(v.hero_media_url, '') = ''").bind(...binds));
+  } else if (!version.hero_media_url && version.hero_media_id !== null) {
+    statements.push(db.prepare("SELECT storage_key FROM media WHERE id = ?").bind(version.hero_media_id));
+  }
+  return statements;
+}
 
 // ---------------------------------------------------------------------------
 // Shell render (shared by the live route AND the §22.2 warm pass)
@@ -224,57 +304,26 @@ export async function renderListicleShellForVersion(
   site: { siteId: string; hostname: string },
   article: { public_id: string; slug: string; article_name?: string },
   version: ListicleVersionRow,
+  preload?: ShellRows,
 ): Promise<{ html: string; lazyCandidateIds: string[] }> {
-  // Read section bodies once even when several pages reuse the same section.
-  const statements = [
-    db.prepare(`SELECT id, public_id, page_index, selection_mode, ab_test_id, rule_set_id
-      FROM listicle_pages WHERE article_version_id = ? ORDER BY page_index`).bind(version.id),
-    db.prepare(`WITH version_pages AS (SELECT id FROM listicle_pages WHERE article_version_id = ?)
-      SELECT c.page_id, c.public_id, c.section_id, c.is_fallback, c.traffic_allocation,
-             s.public_id AS section_public_id, s.section_name,
-             r.public_id AS rule_public_id, r.priority AS rule_priority,
-             r.conditions_json AS rule_conditions_json, r.conditions_hash AS rule_conditions_hash
-      FROM listicle_page_section_candidates c
-      JOIN listicle_sections s ON s.id = c.section_id
-      LEFT JOIN listicle_page_rules r ON r.candidate_id = c.id AND r.page_id IN (SELECT id FROM version_pages)
-      WHERE c.page_id IN (SELECT id FROM version_pages) ORDER BY c.id`).bind(version.id),
-    db.prepare(VERSION_SECTIONS + "\n" + RENDER_SECTIONS +
-      " WHERE s.id IN (SELECT section_id FROM version_sections)").bind(version.id),
-    db.prepare(VERSION_SECTIONS + `
-      SELECT id, public_id FROM listicle_offers WHERE id IN (
-        SELECT offer_id FROM listicle_section_link_instances WHERE section_id IN (SELECT section_id FROM version_sections)
-        UNION ALL
-        SELECT offer_id FROM listicle_section_offers WHERE section_id IN (SELECT section_id FROM version_sections)
-        UNION ALL
-        SELECT headline_offer_id FROM listicle_sections WHERE id IN (SELECT section_id FROM version_sections)
-      )`).bind(version.id),
-    db.prepare("SELECT key, value FROM site_settings WHERE site_id = ?").bind(site.siteId),
-  ];
-  if (!version.hero_media_url && version.hero_media_id !== null) {
-    statements.push(db.prepare("SELECT storage_key FROM media WHERE id = ?").bind(version.hero_media_id));
-  }
   const [pageRows, candidateRows, sectionRows, offerRows, settingRows, mediaRows] =
-    await db.batch(statements) as [
-      D1Result<ShellPageRow>,
-      D1Result<ShellCandidateRow>,
-      D1Result<RenderSectionRow>,
-      D1Result<OfferRow>,
-      D1Result<{ key: string; value: string | null }>,
-      D1Result<{ storage_key: string }>?,
-    ];
+    preload ?? await db.batch(shellStatements(db, site.siteId, version)) as ShellRows;
   const pages = new Map<number, RenderPage>();
   for (const { id, ...page } of pageRows.results) pages.set(id, { ...page, candidates: [] });
   for (const { page_id, ...candidate } of candidateRows.results) pages.get(page_id)!.candidates.push(candidate);
   const sections = new Map(sectionRows.results.map((section) => [section.id, section]));
 
-  // Offer refs: block content + linked headlines.
+  // Selected shells already have the aliases needed by the block renderer.
+  // For a warm pass or a direct request, resolve any refs absent from the ledger.
   const refs = new Set<string>();
-  for (const section of sections.values()) {
-    for (const ref of collectOfferRefs(listicleBlocksToHtml(section.content_json))) {
-      refs.add(ref);
+  if (preload === undefined) {
+    for (const section of sections.values()) {
+      for (const ref of collectOfferRefs(listicleBlocksToHtml(section.content_json))) {
+        refs.add(ref);
+      }
+      const headlineRef = offerRefString(section.headline_offer_id);
+      if (headlineRef !== "") refs.add(headlineRef);
     }
-    const headlineRef = offerRefString(section.headline_offer_id);
-    if (headlineRef !== "") refs.add(headlineRef);
   }
   const offerPublicIdByRef = await resolveOfferRefs(db, refs, offerRows.results);
   const settings: Record<string, string> = {};
@@ -333,6 +382,7 @@ async function serveListicleShell(
   article: ListicleRenderInput["article"],
   version: ListicleVersionRow,
   etag: string,
+  preload?: ShellRows,
 ): Promise<Response> {
   const site = c.get("siteContext");
   const key = listicleKey(site.siteId, article.slug, version.public_id, version.content_version);
@@ -345,33 +395,52 @@ async function serveListicleShell(
     });
   }
 
-  const { html } = await renderListicleShellForVersion(c.env.DB, site, article, version);
+  const { html } = await renderListicleShellForVersion(c.env.DB, site, article, version, preload);
   const ttl = parseNumber(c.env.HTML_CACHE_TTL_SECONDS, DEFAULT_HTML_CACHE_TTL_SECONDS);
   await putCachedHtml(c.env, key, html, { expirationTtl: ttl, etag }, waitUntil);
   return new Response(html, { status: 200, headers: publicHtmlCacheHeaders({ etag }) });
 }
 
+export async function loadSelectedListicle(
+  db: D1Database, siteId: string, slug: string, publicId: string,
+) {
+  const [redirect, published, ...shell] = await db.batch([
+    // Same tenant-first, active redirect as checkRedirect in ../queries.
+    db.prepare(`SELECT destination_path, status_code FROM redirects
+      WHERE source_path = ? AND is_active = 1 AND (site_id = ? OR site_id IS NULL)
+      ORDER BY site_id IS NULL LIMIT 1`).bind("/" + slug, siteId),
+    publishedVersionsStatement(db, siteId, slug),
+    ...shellStatements(db, siteId, { slug, publicId }),
+  ]) as [D1Result<RedirectRow>, D1Result<PublishedVersionRow>, ...ShellRows];
+  return { redirect: redirect.results[0] ?? null, versions: published.results, shell };
+}
+
 // Returns null when this slug is NOT a published listicle → the router's
 // /:slug catch-all continues with its normal page/article/404 behavior
 // (draft/scheduled/archived listicles fall through too — §7.2).
-export async function tryServePublishedListicle(c: PublicContext): Promise<Response | null> {
+export async function tryServePublishedListicle(
+  c: PublicContext,
+  preload?: { versions: PublishedVersionRow[]; shell: ShellRows },
+): Promise<Response | null> {
   const slug = c.req.param("slug") ?? "";
   if (slug === "") return null;
   const siteContext = c.get("siteContext");
-  const versions = await loadPublishedVersions(c.env.DB, siteContext.siteId, slug);
+  const db = c.env.DB;
+  const variant = c.req.header("x-cms-variant");
+  const versions = preload?.versions ??
+    (await publishedVersionsStatement(db, siteContext.siteId, slug).all<PublishedVersionRow>()).results;
   const first = versions[0];
   if (first === undefined) return null; // No published article with an active version.
   const article = { public_id: first.article_public_id, slug, article_name: first.article_name };
 
   // The gateway handles visitor cookies, context injection and conditional requests
   // for versions that still belong to this published listicle.
-  const variant = c.req.header("x-cms-variant");
   if (variant?.startsWith("lst:")) {
     const versionPublicId = variant.slice(4);
     const selected = versions.find((version) => version.public_id === versionPublicId);
     if (selected !== undefined) {
       const etag = await listicleEtag(siteContext.siteId, article.slug, selected);
-      return serveListicleShell(c, article, selected, etag);
+      return serveListicleShell(c, article, selected, etag, preload?.shell);
     }
   }
 

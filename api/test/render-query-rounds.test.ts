@@ -5,8 +5,8 @@ import { join } from "node:path";
 import { brotliDecompressSync } from "node:zlib";
 import { afterAll, beforeAll, describe, expect, it, vi } from "vitest";
 import type { PublicSiteContext } from "../src/public/middleware";
-import { renderArticleHtml, renderHomepageHtml } from "../src/public/render-pages";
-import { API_ROOT, d1FromSqlite, loadDatabaseSync, type SqliteDb } from "./helpers/leadgen-analytics-harness";
+import publicRouter from "../src/public/router";
+import { API_ROOT, buildLeadgenEnv, d1FromSqlite, loadDatabaseSync, makeKvStub, type SqliteDb } from "./helpers/leadgen-analytics-harness";
 
 const site: PublicSiteContext = {
   siteId: "journal",
@@ -31,6 +31,7 @@ function seedPages(): SqliteDb {
   );
   insertSite.run(site.siteId, "Journal", site.hostname);
   insertSite.run("neighbour", "Neighbour", "neighbour.example");
+  sqlite.prepare("INSERT INTO domains (site_id, hostname, status) VALUES (?, ?, 'active')").run(site.siteId, site.hostname);
 
   const settings = {
     site_name: "Field & Stream Journal",
@@ -121,7 +122,7 @@ function countReads(sqlite: SqliteDb) {
   return { db, reads };
 }
 
-describe("public HTML cache-MISS builders", () => {
+describe("public router cache-MISS reads", () => {
   let sqlite: SqliteDb;
   beforeAll(() => {
     vi.useFakeTimers({ toFake: ["Date"] });
@@ -142,22 +143,50 @@ describe("public HTML cache-MISS builders", () => {
   });
 
   it.each(["/", "ridge-walk", "open-road"])(
-    "%s builds in one D1 round and matches the pre-change HTML byte for byte",
+    "%s serves the pre-change HTML byte for byte in one whole-route D1 round",
     async (slug) => {
       const { db, reads } = countReads(sqlite);
-      // These are the router's render thunks, after host resolution and the
-      // article's pre-cache publication check.
-      const html = slug === "/"
-        ? await renderHomepageHtml(db, site)
-        : await renderArticleHtml(db, site, slug);
+      const env = buildLeadgenEnv(db, makeKvStub().kv, { extra: { EDGE_INNER: "1" } });
+      const path = slug === "/" ? "/" : "/article/" + slug;
+      const response = await publicRouter.request("https://" + site.hostname + path, {
+        headers: { "x-cms-site-context": JSON.stringify(site), "x-cms-variant": "human" },
+      }, env);
+      expect(response.status).toBe(200);
+      const html = await response.text();
       expect(reads).toHaveLength(1);
       expect(reads.flat().filter((sql) => sql.includes("FROM site_settings"))).toHaveLength(1);
       expect(html).toBe(preChangeHtml[slug]);
     },
   );
+
+  it.each([
+    { slug: "ridge-walk", variant: "bot", accept: "text/html", status: 200 },
+    { slug: "ridge-walk", variant: "md", accept: "text/markdown", status: 200 },
+    { slug: "draft", variant: "human", accept: "text/html", status: 404 },
+    { slug: "unknown", variant: "md", accept: "text/markdown", status: 404 },
+  ])("$variant /article/$slug matches the direct response in one round", async ({ slug, variant, accept, status }) => {
+    async function visit(inner: boolean) {
+      const { db, reads } = countReads(sqlite);
+      const env = buildLeadgenEnv(db, makeKvStub().kv);
+      const headers = new Headers({ accept, "x-cms-variant": variant });
+      if (inner) {
+        env.EDGE_INNER = "1";
+        headers.set("x-cms-site-context", JSON.stringify(site));
+      }
+      const response = await publicRouter.request("https://" + site.hostname + "/article/" + slug, { headers }, env);
+      return { response, body: await response.text(), reads };
+    }
+    const direct = await visit(false);
+    const inner = await visit(true);
+    expect(direct.response.status).toBe(status);
+    expect(inner.response.status).toBe(status);
+    expect(inner.response.headers.get("Content-Type")).toBe(direct.response.headers.get("Content-Type"));
+    expect(inner.body).toBe(direct.body);
+    expect(inner.reads).toHaveLength(1);
+  });
 });
 
-// Re-pinned for P4-A2 under TZ=UTC; the Stage 2 byte-identity proof against 7dfb84fc is on perf/p2-fast-builds at ea001908
+// rendered at the Stage 4 merge 66416747 under TZ=UTC; the Stage 2 byte-identity proof is on perf/p2-fast-builds
 // The three documents share their layout and ad script, so compress them
 // together to keep the inline fixture small. Comparison uses the complete text.
 const preChangeHtml: Record<string, string> = JSON.parse(

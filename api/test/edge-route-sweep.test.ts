@@ -267,12 +267,17 @@ describe("public change manifest", () => {
   it("requires a purge proof file or a source-backed reason for each entry", () => {
     const files = new Set(readdirSync(new URL(".", import.meta.url), { withFileTypes: true })
       .filter(file => file.isFile() && file.name.endsWith(".test.ts")).map(file => file.name));
+    const reason = expect.stringMatching(/^[^\r\n]+$/);
     for (const [route, entry] of Object.entries(manifest)) {
       if ("proof" in entry) {
-        expect(entry, route).toEqual({ effect: "purges", proof: expect.any(String) });
+        expect(entry, route).toEqual({
+          effect: "purges", proof: expect.any(String), ...("reason" in entry ? { reason } : {}),
+        });
         expect(files.has(entry.proof), route + " cites missing proof " + entry.proof).toBe(true);
       } else {
-        expect(entry, route).toEqual({ effect: "none", reason: expect.stringMatching(/^[^\r\n]+$/) });
+        expect(entry, route).toEqual({ effect: "none", reason });
+      }
+      if ("reason" in entry) {
         const citations = [...entry.reason.matchAll(/\b((?:src|test)\/[\w./-]+):([1-9]\d*)/g)];
         expect(citations.length, route + " requires file:line evidence").toBeGreaterThan(0);
         for (const [, file, line] of citations) {
@@ -280,6 +285,20 @@ describe("public change manifest", () => {
           expect(source[Number(line) - 1]?.trim(), route + " cites " + file + ":" + line).toBeTruthy();
         }
       }
+    }
+  });
+
+  it("requires a purge proof for writes to prepared auction, section and tracking inputs", () => {
+    for (const route of [
+      "PATCH /api/admin/leadgen/auctions/:id",
+      "PATCH /api/admin/leadgen/sections/:id",
+      "PUT /api/admin/leadgen/auctions/:id/offers",
+      "PATCH /api/admin/leadgen/offers/:id",
+      "DELETE /api/admin/leadgen/offers/:id",
+    ] as const) {
+      expect(manifest[route], route).toEqual({
+        effect: "purges", proof: "edge-purge-leadgen-bundle-inputs.test.ts", reason: expect.any(String),
+      });
     }
   });
 

@@ -206,6 +206,8 @@ def check_url(tenant, url, sid):
     matches = True
     # Check the second request, then allow three more if the location keeps changing.
     for _ in range(4):
+        # A hedged MISS can reach the visitor while the cache tiers are still filling.
+        time.sleep(1.5)
         repeat, cache, colo = sample(tenant, url, new, sid)
         errors += repeat[0] >= 500
         if matches and (old != first or old != repeat):

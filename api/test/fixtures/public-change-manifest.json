@@ -173,43 +173,45 @@
   },
   "DELETE /api/admin/leadgen/auctions/:id": {
     "effect": "none",
-    "reason": "Archive and hard delete both check for referencing funnel variants (src/admin/leadgen/auctions-handlers.ts:726, src/admin/leadgen/auctions-handlers.ts:787)."
+    "reason": "Archive and hard delete both check for referencing funnel variants (src/admin/leadgen/auctions-handlers.ts:737, src/admin/leadgen/auctions-handlers.ts:797)."
   },
   "PATCH /api/admin/leadgen/auctions/:id": {
-    "effect": "none",
-    "reason": "Changes settings consumed when a visitor runs an auction (src/admin/leadgen/auctions-handlers.ts:636)."
+    "effect": "purges",
+    "proof": "edge-purge-leadgen-bundle-inputs.test.ts",
+    "reason": "Changing the referenced auction’s carrier normalization version changes the attempt binding for every variant using it (src/public/leadgen/attempt.ts:266)."
   },
   "PUT /api/admin/leadgen/auctions/:id/banner": {
     "effect": "none",
-    "reason": "Sets banner configuration used when auction results render (src/admin/leadgen/auctions-handlers.ts:1800)."
+    "reason": "Sets banner configuration used when auction results render (src/admin/leadgen/auctions-handlers.ts:1811)."
   },
   "PUT /api/admin/leadgen/auctions/:id/offers": {
     "effect": "purges",
-    "proof": "edge-purge-leadgen-content.test.ts"
+    "proof": "edge-purge-leadgen-bundle-inputs.test.ts",
+    "reason": "The bundle stores whether any enabled auction participant supplies click tracking (src/public/leadgen/serve.ts:429)."
   },
   "POST /api/admin/leadgen/auctions/:id/rules": {
     "effect": "none",
-    "reason": "Adds a rule evaluated during a visitor auction (src/admin/leadgen/auctions-handlers.ts:1633)."
+    "reason": "Adds a rule evaluated during a visitor auction (src/admin/leadgen/auctions-handlers.ts:1644)."
   },
   "DELETE /api/admin/leadgen/auctions/:id/rules/:rule_id": {
     "effect": "none",
-    "reason": "Removes a rule from live auction evaluation (src/admin/leadgen/auctions-handlers.ts:1720)."
+    "reason": "Removes a rule from live auction evaluation (src/admin/leadgen/auctions-handlers.ts:1731)."
   },
   "PATCH /api/admin/leadgen/auctions/:id/rules/:rule_id": {
     "effect": "none",
-    "reason": "Edits a rule evaluated during a visitor auction (src/admin/leadgen/auctions-handlers.ts:1697)."
+    "reason": "Edits a rule evaluated during a visitor auction (src/admin/leadgen/auctions-handlers.ts:1708)."
   },
   "POST /api/admin/leadgen/auctions/:id/simulate": {
     "effect": "none",
-    "reason": "Runs an admin simulation using sample answers and context (src/admin/leadgen/auctions-handlers.ts:2178)."
+    "reason": "Runs an admin simulation using sample answers and context (src/admin/leadgen/auctions-handlers.ts:2142)."
   },
   "POST /api/admin/leadgen/component-presets": {
     "effect": "none",
-    "reason": "Saves a reusable component in the Studio preset library (src/admin/leadgen/sections-handlers.ts:3150)."
+    "reason": "Saves a reusable component in the Studio preset library (src/admin/leadgen/sections-handlers.ts:3156)."
   },
   "DELETE /api/admin/leadgen/component-presets/:name": {
     "effect": "none",
-    "reason": "Removes the named preset from the Studio library (src/admin/leadgen/sections-handlers.ts:3160)."
+    "reason": "Removes the named preset from the Studio library (src/admin/leadgen/sections-handlers.ts:3166)."
   },
   "POST /api/admin/leadgen/experiments/:id/start": {
     "effect": "purges",
@@ -289,11 +291,13 @@
   },
   "DELETE /api/admin/leadgen/offers/:id": {
     "effect": "purges",
-    "proof": "edge-purge-leadgen-content.test.ts"
+    "proof": "edge-purge-leadgen-bundle-inputs.test.ts",
+    "reason": "Archiving the last active tracking offer clears the auction’s click tracking flag in the bundle (src/public/leadgen/serve.ts:429)."
   },
   "PATCH /api/admin/leadgen/offers/:id": {
     "effect": "purges",
-    "proof": "edge-purge-leadgen-content.test.ts"
+    "proof": "edge-purge-leadgen-bundle-inputs.test.ts",
+    "reason": "Editing an offer can change the tracking flag stored for its auctions or the redirect target in a quote’s snapshot (src/admin/leadgen/offers-handlers.ts:1554, src/admin/leadgen/offers-handlers.ts:1584)."
   },
   "POST /api/admin/leadgen/offers/:id/creative-preview": {
     "effect": "none",
@@ -401,23 +405,24 @@
   },
   "DELETE /api/admin/leadgen/sections/:id": {
     "effect": "none",
-    "reason": "Deletes a library section only when placements and rules do not reference it (src/admin/leadgen/sections-handlers.ts:1274)."
+    "reason": "Deletes a library section only when placements and rules do not reference it (src/admin/leadgen/sections-handlers.ts:1280)."
   },
   "PATCH /api/admin/leadgen/sections/:id": {
     "effect": "purges",
-    "proof": "edge-purge-leadgen-content.test.ts"
+    "proof": "edge-purge-leadgen-bundle-inputs.test.ts",
+    "reason": "Each placed section’s full row and its answer-map version feed the prepared funnel (src/public/leadgen/resolver.ts:2050, src/public/leadgen/config-dto.ts:760)."
   },
   "POST /api/admin/leadgen/sections/:id/duplicate": {
     "effect": "none",
-    "reason": "Copies a library section and its mappings under a new ID (src/admin/leadgen/sections-handlers.ts:1350)."
+    "reason": "Copies a library section and its mappings under a new ID (src/admin/leadgen/sections-handlers.ts:1356)."
   },
   "POST /api/admin/leadgen/sections/:id/validate-payload": {
     "effect": "none",
-    "reason": "Returns validation results for a sample section payload (src/admin/leadgen/sections-handlers.ts:2876)."
+    "reason": "Returns validation results for a sample section payload (src/admin/leadgen/sections-handlers.ts:2882)."
   },
   "POST /api/admin/leadgen/sections/preview": {
     "effect": "none",
-    "reason": "Renders draft components with preview settings for the Studio (src/admin/leadgen/sections-handlers.ts:2154)."
+    "reason": "Renders draft components with preview settings for the Studio (src/admin/leadgen/sections-handlers.ts:2140)."
   },
   "POST /api/admin/leadgen/themes": {
     "effect": "purges",

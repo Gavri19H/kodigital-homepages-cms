@@ -28,6 +28,8 @@ export interface SiteSnapshot {
   v: 1;
   siteId: string;
   hostname: string;
+  // Older cached v1 snapshots omit the vertical and still use the page's tenant lookup.
+  verticalSlug?: string;
   status: string;
   contentVersion: number;
   settingsVersion: number;

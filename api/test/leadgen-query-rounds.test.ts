@@ -108,9 +108,20 @@ function measure(sql: SqliteDb) {
     return reply;
   }
   const prepare = db.prepare.bind(db);
+  const batch = db.batch.bind(db);
+  const members = new WeakMap<D1PreparedStatement, { query: string; stmt: D1PreparedStatement }>();
+  db.batch = async <T>(statements: D1PreparedStatement[]) => {
+    const entries = statements.map(stmt => members.get(stmt)!);
+    await Promise.all(entries.map(entry => send(entry.query)));
+    return batch<T>(entries.map(entry => entry.stmt));
+  };
   db.prepare = (query) => {
     const stmt = prepare(query);
     const { first, all, run } = stmt; // harness bind() returns this same statement
+    // Native D1 returns each SELECT's rows in the single batch reply.
+    members.set(stmt, { query, stmt: {
+      bind: stmt.bind, raw: stmt.raw, first, all, run: /^\s*(?:WITH|SELECT)\b/i.test(query) ? all : run,
+    } });
     stmt.first = async <T>(column?: string) => {
       await send(query);
       return column === undefined ? first<T>() : first<T>(column);
@@ -185,7 +196,7 @@ function counts() {
     rules: readsOf("FROM leadgen_quote_routing_rules") + served.filter(row => row.rules).length,
     templates: readsOf("leadgen_frame_templates") + served.filter(row => row.template).length,
     directPages: readsOf("WHERE fvs.page_id") + served.filter(row => row.directPages).length,
-    writes: individual.filter(s => !s.trimStart().startsWith("SELECT")).length,
+    writes: individual.filter(s => /\b(?:INSERT|UPDATE|DELETE|REPLACE)\b/i.test(s)).length,
   };
 }
 
@@ -248,7 +259,8 @@ it("mints the original signed attempt and persists its entry outcome", async () 
     session_id: sid, routed_from_variant: null, routed_to_variant: publicId("lgn", 2), routed_to_funnel: publicId("lgf", 1),
     matched_rule_hash: "paid", value_multiplier: 1.75, feed_name: "paid_life", plane: "entry", created_at: now / 1000, force_offer_id: null,
   }]);
-  expect(counts()).toEqual({ statements: 5, rounds: 4, rules: 1, templates: 1, directPages: 1, writes: 1 });
+  expect(counts()).toEqual({ statements: 6, rounds: 3, rules: 1, templates: 1, directPages: 1, writes: 1 });
+  expect(trace.rounds.map(round => round.length)).toEqual([1, 4, 1]);
 });
 
 it("honors the entry redirect using the same rules as funnel selection", async () => {
@@ -285,5 +297,5 @@ it("reads direct sections in page and position order above D1's 100-binding limi
   expect(page_plan?.map((slot) => slot.page_id)).toEqual([
     30, 30, 10, 20, ...Array.from({ length: 101 }, (_, i) => 100 + i), 42,
   ].map((id) => publicId("lgpg", id)));
-  expect(counts()).toEqual({ statements: 5, rounds: 4, rules: 1, templates: 1, directPages: 1, writes: 1 });
+  expect(counts()).toEqual({ statements: 6, rounds: 3, rules: 1, templates: 1, directPages: 1, writes: 1 });
 });

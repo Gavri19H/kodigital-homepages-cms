@@ -103,9 +103,8 @@ interface RouteCase {
   location?: string;
 }
 
-// The before counts were recorded with this seed and clock against the router at 3e19664b.
-// Response body digests include the P4-A2 image markup, re-pinned under TZ=UTC;
-// the Stage 2 byte-identity proof against 7dfb84fc is on branch perf/p2-fast-builds at efc4d5a5.
+// The "before" round counts were recorded with this seed and clock at 3e19664b.
+// rendered at the Stage 4 merge 66416747 under TZ=UTC; the Stage 2 byte-identity proof is on perf/p2-fast-builds
 // SHA-256 covers the entire HTTP response body, including formatting and UTF-8.
 const emptyBody = "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855";
 const aboutBody = "662f0dd349e9be41fe10d9639649d4713076cdf5d35b1a80c8d46ee9e100ba6b";
@@ -124,7 +123,7 @@ const cases: RouteCase[] = [
   { path: "/about", before: 6, after: 2, digest: aboutBody },
   { path: "/notes", before: 5, after: 2, digest: notesBody },
   { path: "/legacy", status: 302, location: "/new-home", before: 1, after: 1, digest: emptyBody },
-  { path: "/legacy", variant: "lst:ver_legacy", withoutRedirect: true, before: 3, after: 3, digest: "bd2eda074e140b48d12e4bb239e3a0c59c332eb2a2b6fed99970808733a639a0" },
+  { path: "/legacy", variant: "lst:ver_legacy", withoutRedirect: true, before: 3, after: 1, digest: "bd2eda074e140b48d12e4bb239e3a0c59c332eb2a2b6fed99970808733a639a0" },
   { path: "/ridge", status: 301, location: "/article/ridge", before: 4, after: 2, digest: emptyBody },
   { path: "/feed.xml", before: 1, after: 1, digest: rssBody },
   { path: "/rss", before: 1, after: 1, digest: rssBody },
