@@ -523,7 +523,7 @@ export async function buildArticleViewModel(
   args: { slug: string; siteContext: ArticleSiteContext },
 ): Promise<ArticleViewModel | null> {
   const data = await loadArticleRenderData(db, args);
-  return data?.vm ?? null;
+  return data.vm;
 }
 
 export async function loadArticleRenderData(
@@ -583,10 +583,14 @@ export async function loadArticleRenderData(
     .bind(siteId, slug, RELATED_LIMIT)
     .all<RelatedRow>();
 
-  const [articleRow, relatedResult, { site, settings }] = await Promise.all([
-    detail, relatedListing, loadRenderContext(db, siteContext),
-  ]);
-  if (articleRow === null) return null;
+  const context = loadRenderContext(db, siteContext);
+  const renderReads = Promise.all([relatedListing, context]);
+  // A missing slug only waits for branding up to the router's error-page
+  // timeout. Observe the speculative reads even when that route returns early.
+  void renderReads.catch(() => {});
+  const articleRow = await detail;
+  if (articleRow === null) return { vm: null, context };
+  const [relatedResult, { site, settings }] = await renderReads;
   const relatedRows = relatedResult.results ?? [];
 
   const { blocks, faqs } = adaptBodyBlocks(articleRow.content_json, articleRow.content_html);
@@ -664,3 +668,5 @@ export async function loadArticleRenderData(
   const vm: ArticleViewModel = { site, article, breadcrumb, faqs, related, meta };
   return { vm, settings };
 }
+
+export type ArticleRenderData = Awaited<ReturnType<typeof loadArticleRenderData>>;

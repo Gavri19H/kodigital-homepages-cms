@@ -119,21 +119,21 @@ import { offerHasOwnClickUrl } from "../../leadgen/macros";
 
 export type AdminContext = Context<{ Bindings: Env }>;
 
-// The shell's KV key and ETag both contain the variant content_version. Move
-// those keys in the content write's transaction before purging the edge.
+// Capture affected variant IDs in the content transaction. Shell writers also
+// bump their KV key and ETag here, using UPDATE ... RETURNING id for the scope.
 export async function commitLeadgenContentChange(
-  c: AdminContext, writes: D1PreparedStatement[], bump: D1PreparedStatement, reason: string,
+  c: AdminContext, writes: D1PreparedStatement[], variantScope: D1PreparedStatement, reason: string,
 ): Promise<number> {
-  const [bumped] = await c.env.DB.batch<{ id: number }>([bump, ...writes]);
-  const variantIds = (bumped?.results ?? []).map(row => row.id);
+  const [affected] = await c.env.DB.batch<{ id: number }>([variantScope, ...writes]);
+  const variantIds = (affected?.results ?? []).map(row => row.id);
   if (variantIds.length) {
     await leadgenPublicChange(c.env, cacheExecutionCtx(c) as ExecutionContext | undefined, { variantIds, reason });
   }
-  return Number(bumped?.meta.changes ?? 0);
+  return Number(affected?.meta.changes ?? 0);
 }
 
-// A valid funnel pixel already installs the listener. Resolve both the live
-// consumers and the changed auctions in the same transaction as the write.
+// Every bundle stores clickEvents. A valid funnel pixel already installs the
+// listener, so those consumers need the purge alone.
 export async function auctionClickScriptBump(
   db: D1Database, changedAuctionsSql: string, ...bindings: unknown[]
 ): Promise<D1PreparedStatement | null> {
@@ -145,13 +145,13 @@ export async function auctionClickScriptBump(
   if (!schema?.offers) return null;
   // The admin stores a trimmed ID. Match funnelMetaPixelId's 5–20 digits,
   // including its trim of older stored values.
-  const funnels = schema.funnels
-    ? `SELECT id FROM (SELECT id, trim(meta_pixel_id, ?) AS pixel FROM leadgen_funnels WHERE status = 'active')
-       WHERE pixel IS NULL OR length(pixel) NOT BETWEEN 5 AND 20 OR pixel GLOB '*[^0-9]*'`
-    : "SELECT id FROM leadgen_funnels WHERE status = 'active'";
-  const bump = db.prepare(`UPDATE leadgen_funnel_variants SET content_version = content_version + 1
-    WHERE status = 'active' AND auction_id IN (` + changedAuctionsSql + `)
-      AND funnel_id IN (` + funnels + ") RETURNING id");
+  const pixel = schema.funnels ? "trim(meta_pixel_id, ?)" : "NULL";
+  const bump = db.prepare(`WITH changed_auctions(id) AS (` + changedAuctionsSql + `),
+    active_funnels AS (SELECT id AS active_id, ` + pixel + ` AS pixel FROM leadgen_funnels WHERE status = 'active')
+    UPDATE leadgen_funnel_variants SET content_version = content_version + CASE
+      WHEN length(pixel) BETWEEN 5 AND 20 AND pixel NOT GLOB '*[^0-9]*' THEN 0 ELSE 1 END
+    FROM active_funnels WHERE funnel_id = active_id AND status = 'active'
+      AND auction_id IN (SELECT id FROM changed_auctions) RETURNING id`);
   // SQLite trim defaults to one ASCII space. JS String.trim() also accepts
   // these whitespace and line terminator characters on the serving path.
   const whitespace = "\t\n\v\f\r \u00a0\u1680\u2000\u2001\u2002\u2003\u2004\u2005\u2006\u2007\u2008\u2009\u200a\u2028\u2029\u202f\u205f\u3000\ufeff";

@@ -189,6 +189,8 @@ describe("section shells", () => {
     const id = await addSection();
     attachSection(id, variant);
     await write("PATCH", "sections/" + id, { section_name: "Library name" });
+    expectChange({ variantIds: [variant] });
+    change.mockClear();
     await write("DELETE", "sections/" + id, undefined, 409);
     const copy = await write("POST", `sections/${id}/duplicate`, {}, 201);
     await write("PATCH", "sections/" + copy.id, { headline_text: "Unused headline" });
@@ -287,12 +289,12 @@ describe("auction participants and offers", () => {
     const second = addOffer(true);
     const path = `auctions/${auction}/offers`;
     await write("PUT", path, { offers: [{ offer_placement_id: first.placement }] });
-    expectChange({ variantIds: [live.variant] });
+    expectChange({ variantIds: [live.variant, pixel.variant] });
     change.mockClear();
     await write("PUT", path, { offers: [{ offer_placement_id: second.placement, static_order: 2 }] });
     expect(change).not.toHaveBeenCalled();
     await write("PUT", path, { offers: [{ offer_placement_id: second.placement, enabled: false }] });
-    expectChange({ variantIds: [live.variant] });
+    expectChange({ variantIds: [live.variant, pixel.variant] });
     expect([live.variant, pixel.variant].map(version)).toEqual([3, 1]);
   });
 

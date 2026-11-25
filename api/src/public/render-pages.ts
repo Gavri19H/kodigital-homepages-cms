@@ -33,7 +33,7 @@ import {
   renderFaqJsonLd,
   renderAffiliateProductsJsonLd,
 } from "./templates/jsonld-article";
-import { loadArticleRenderData } from "./view-models/article";
+import { loadArticleRenderData, type ArticleRenderData } from "./view-models/article";
 import {
   renderHomeWebsiteJsonLd,
   renderHomeOrganizationJsonLd,
@@ -239,14 +239,11 @@ export async function renderArticleHtml(
   db: D1Database,
   siteContext: PublicSiteContext,
   slug: string,
-  opts: { isBot?: boolean } = {},
+  opts: { isBot?: boolean; data?: ArticleRenderData } = {},
 ): Promise<string> {
-  const data = await loadArticleRenderData(db, { slug, siteContext });
-  if (data === null) {
-    // The router's getArticleBySlug gate already proved this slug is a
-    // published article before this render thunk runs (cold-cache only), so a
-    // null view-model here is an unpublish/delete race between the two
-    // cold-cache queries. Surface it rather than caching an empty shell.
+  const data = opts.data ?? await loadArticleRenderData(db, { slug, siteContext });
+  if (data.vm === null) {
+    // A legacy cache miss can race an unpublish after its publication check.
     throw new Error(
       `renderArticleHtml: article '${slug}' not found for site ${siteContext.siteId}`,
     );

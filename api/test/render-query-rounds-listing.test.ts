@@ -122,7 +122,7 @@ const cases: RouteCase[] = [
   { path: "/about", before: 6, after: 2, digest: aboutBody },
   { path: "/notes", before: 5, after: 2, digest: notesBody },
   { path: "/legacy", status: 302, location: "/new-home", before: 1, after: 1, digest: emptyBody },
-  { path: "/legacy", variant: "lst:ver_legacy", withoutRedirect: true, before: 3, after: 3, digest: "002194669c9ebf0ab4bca2e43739889727c4b7cf4e33cc6b517f28562ca4ce6f" },
+  { path: "/legacy", variant: "lst:ver_legacy", withoutRedirect: true, before: 3, after: 2, digest: "002194669c9ebf0ab4bca2e43739889727c4b7cf4e33cc6b517f28562ca4ce6f" },
   { path: "/ridge", status: 301, location: "/article/ridge", before: 4, after: 2, digest: emptyBody },
   { path: "/feed.xml", before: 1, after: 1, digest: rssBody },
   { path: "/rss", before: 1, after: 1, digest: rssBody },

@@ -118,8 +118,13 @@ it.each([
     expect(response.status).toBe(200);
     expect(response.headers.get("x-edge-cache")).toBe(status);
     expect(response.headers.get("Cache-Control")).toMatch(/^public,/);
-    expect(response.headers.get("Server-Timing")).toMatch(/gw-inner;dur=\d+/);
-    expect(response.headers.get("Server-Timing")).not.toContain("gw-direct");
+    const timing = response.headers.get("Server-Timing");
+    if (perfstage === "true") {
+      expect(timing).toMatch(/gw-inner;dur=\d+/);
+      expect(timing).not.toContain("gw-direct");
+    } else {
+      expect(timing).toBeNull();
+    }
     expect(await response.text()).toContain(headline);
   }
   expect(render).toHaveBeenCalledOnce();

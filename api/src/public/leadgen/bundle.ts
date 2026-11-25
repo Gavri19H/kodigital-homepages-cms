@@ -3,13 +3,12 @@ import { renderReadDb } from "../../db/read-session";
 import type { Env } from "../../env";
 import { isFunnelVariantId } from "../../leadgen/funnel";
 import type { WaitUntilContext } from "../../wait-until-context";
-import { attemptBindingExtras, loadAuctionConfigVersion, type AttemptBindingExtras } from "./attempt";
-import { resolveActivatedFunnelByVariant, sectionsFromPages, type ResolvedActivatedFunnel } from "./resolver";
+import { readLiveAttemptConfig } from "./attempt";
+import { loadQuoteRoutingRules, resolveActivatedFunnelByVariant, sectionsFromPages, type ResolvedActivatedFunnel } from "./resolver";
 import { loadFunnelShellInputs } from "./serve";
 
 export interface PreparedFunnelBundle {
   resolved: ResolvedActivatedFunnel;
-  bindings: AttemptBindingExtras;
   shell: Awaited<ReturnType<typeof loadFunnelShellInputs>>;
 }
 
@@ -57,10 +56,10 @@ async function decodeBundle(key: string, raw: string, siteId: string, variantId:
   try {
     const { body, digest }: { body?: unknown; digest?: unknown } = JSON.parse(raw);
     if (typeof body !== "string" || typeof digest !== "string" || await bundleDigest(key, body) !== digest) return null;
-    const { resolved, bindings, shell }: StoredBundle = JSON.parse(body);
+    const { resolved, shell }: StoredBundle = JSON.parse(body);
     if (resolved.site_quote.site_id !== siteId || resolved.variant.public_id !== variantId ||
         !Array.isArray(resolved.pages) || !Array.isArray(resolved.routing_rules)) return null;
-    return { resolved: { ...resolved, sections: sectionsFromPages(resolved.pages) }, bindings, shell };
+    return { resolved: { ...resolved, sections: sectionsFromPages(resolved.pages) }, shell };
   } catch {
     return null;
   }
@@ -73,14 +72,19 @@ async function storeBundle(kv: KVNamespace, key: string, bundle: PreparedFunnelB
   await kv.put(key, JSON.stringify({ body, digest }), { expirationTtl: bundleTtl });
 }
 
+function bundleSnapshotVersion(headers: Headers): string | null {
+  const version = headers.get("x-cms-snap-version");
+  return version && /^[0-9a-f]{64}$/.test(version) ? version : null;
+}
+
 // undefined delegates to the live route. null is an authoritative unserved
 // variant/slug. Only a complete, session-independent definition goes into KV.
 export async function loadPreparedFunnelBundle(
   env: Env, headers: Headers, siteId: string, variantId: string,
   ctx?: WaitUntilContext, quoteSlug?: string | null,
 ): Promise<PreparedFunnelBundle | null | undefined> {
-  const snapshotVersion = headers.get("x-cms-snap-version");
-  if (!snapshotVersion || !/^[0-9a-f]{64}$/.test(snapshotVersion)) return undefined;
+  const snapshotVersion = bundleSnapshotVersion(headers);
+  if (snapshotVersion === null) return undefined;
   if (!isFunnelVariantId(variantId)) return null;
   const key = leadgenBundleKey(siteId, variantId, snapshotVersion, env.CF_VERSION_METADATA?.id);
   try {
@@ -102,12 +106,7 @@ export async function loadPreparedFunnelBundle(
   try {
     const resolved = await resolveActivatedFunnelByVariant(readEnv, siteId, variantId, { quoteSlug, includeRoutingRules: true });
     if (resolved === null) return null;
-    const [shell, auctionVersion] = await Promise.all([
-      loadFunnelShellInputs(readEnv, resolved),
-      loadAuctionConfigVersion(readEnv.DB, resolved.variant.auction_id),
-    ]);
-    const versions = resolved.sections.map(({ section }) => shell.answerMapVersions[section.public_id] ?? "0");
-    const bundle = { resolved, shell, bindings: attemptBindingExtras(versions, auctionVersion) };
+    const bundle = { resolved, shell: await loadFunnelShellInputs(readEnv, resolved) };
     if (complete) {
       const write = storeBundle(env.CACHE, key, bundle).catch(() => {});
       if (ctx) ctx.waitUntil(write);
@@ -118,4 +117,36 @@ export async function loadPreparedFunnelBundle(
     // An input needed only by the other consumer must not break this request.
     return undefined;
   }
+}
+
+export async function loadFunnelAttemptInputs(
+  env: Env, headers: Headers, siteId: string, variantId: string, ctx?: WaitUntilContext,
+) {
+  if (!isFunnelVariantId(variantId)) return null;
+  const useBundle = bundleSnapshotVersion(headers) !== null;
+  const [definition, live] = await Promise.all([
+    useBundle
+      ? loadPreparedFunnelBundle(env, headers, siteId, variantId, ctx).then(bundle => bundle?.resolved)
+      : resolveActivatedFunnelByVariant(env, siteId, variantId),
+    readLiveAttemptConfig(env.DB, siteId, variantId).catch(() => undefined),
+  ]);
+  if (live === null) return null;
+  if (definition && live && definition.variant.id === live.variant.variant_id &&
+      definition.funnel.id === live.variant.funnel_id && definition.funnel.public_id === live.variant.funnel_public_id &&
+      definition.quote.id === live.variant.quote_id && definition.quote.public_id === live.variant.quote_public_id) {
+    return {
+      resolved: {
+        ...definition,
+        quote: { ...definition.quote, default_funnel_id: live.variant.default_funnel_id },
+        routing_rules: live.rules,
+      },
+      binding: live.binding,
+    };
+  }
+  // An unavailable batch, an old schema or a reassigned variant takes the
+  // original primary path. Only a definition read on the primary is reusable.
+  const resolved = useBundle
+    ? await resolveActivatedFunnelByVariant(env, siteId, variantId, { includeRoutingRules: true })
+    : definition && { ...definition, routing_rules: await loadQuoteRoutingRules(env.DB, definition.quote.id) };
+  return resolved ? { resolved, binding: undefined } : null;
 }

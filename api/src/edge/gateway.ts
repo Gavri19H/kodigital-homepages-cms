@@ -239,7 +239,7 @@ interface VersionedSnapshot {
   version: string;
 }
 
-// Each validated text can be up to 1 Mi UTF-16 code units. Bound what one isolate retains.
+// The snapshot entrypoint hashes its exact bytes once per build. Cache only that ETag and the content version.
 const snapshotVersions = new Map<string, string>();
 const maxSnapshotVersions = 8;
 
@@ -252,12 +252,17 @@ async function readHostSnapshot(url: URL, context: PageFetchContext, timing?: Ga
   if (!snapshot || snapshot.status !== "active" || snapshot.hostname.toLowerCase() !== normalizeHostname(url.hostname)) {
     return null;
   }
-  let version = snapshotVersions.get(text);
+  const etag = snapshotResponse.headers.get("ETag") ?? "";
+  const memoKey = /^(?:W\/)?"([0-9a-f]{64})"$/.exec(etag)?.[1];
+  let version = memoKey ? snapshotVersions.get(memoKey) : undefined;
   if (version === undefined) {
     const { builtAt: _builtAt, ...content } = snapshot;
     version = await sha256Hex(JSON.stringify(content));
-    if (snapshotVersions.size >= maxSnapshotVersions) snapshotVersions.delete(snapshotVersions.keys().next().value!);
-    snapshotVersions.set(text, version);
+    // Older snapshots have no build ETag. Their content still determines the forwarded version.
+    if (memoKey && !snapshotVersions.has(memoKey)) {
+      if (snapshotVersions.size >= maxSnapshotVersions) snapshotVersions.delete(snapshotVersions.keys().next().value!);
+      snapshotVersions.set(memoKey, version);
+    }
   }
   return { snapshot, version };
 }
@@ -360,6 +365,8 @@ async function serveCachedPage(
   }
 
   const headers = new Headers(response.headers);
+  // A cached shell can still carry timings from the build that filled it.
+  if (!timing) headers.delete("Server-Timing");
   for (const name of cmsHeaderNames(headers)) headers.delete(name);
   if (publicHtml && etag !== null) headers.set("ETag", etag);
   headers.set("x-edge-cache", direct ? "DIRECT" : inner.headers.get("cf-cache-status") ?? "none");
@@ -429,7 +436,9 @@ async function dispatchGatewayRequest(
         const hedgeMs = route && request.method === "GET" ? hedgeDelayMs(env.EDGE_HEDGE_MS) : 0;
         const context = { env, ctx, pages, hedgeMs };
         // Entry-rule redirects and failed host lookups can skip the inner fetch.
-        if (route) timing = { snap: 'gw-snap;dur=0;desc="MISS"', inner: "gw-inner;dur=0" };
+        if (route && env.PERFSTAGE === "true") {
+          timing = { snap: 'gw-snap;dur=0;desc="MISS"', inner: "gw-inner;dur=0" };
+        }
         const hostSnapshot = await readHostSnapshot(url, context, timing);
         if (hostSnapshot && route) {
           const direct = env.PERFSTAGE === "true" && request.headers.get("x-perfstage-direct") === "1";

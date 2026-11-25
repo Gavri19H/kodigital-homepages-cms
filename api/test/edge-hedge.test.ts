@@ -41,6 +41,7 @@ type CacheFetch = (request: Request, props: PublicPageProps) => Response | Promi
 
 function fixture(hedgeMs?: string) {
   const { db } = makeFakeDb([{ match: "FROM domains", row: site }], [
+    { match: "FROM domains", rows: [site] },
     { match: "FROM sites WHERE", rows: [versions] },
     { match: "FROM listicle_articles", rows: [{ ...version, slug: "guide", listicle_id: "list-7", experiment_id: null }] },
   ]);
@@ -50,7 +51,7 @@ function fixture(hedgeMs?: string) {
     getBookmark: () => versions.write_bookmark,
   }));
   db.withSession = withSession;
-  const env: Env = { ...buildEnv(db), EDGE_HEDGE_MS: hedgeMs };
+  const env: Env = { ...buildEnv(db), EDGE_HEDGE_MS: hedgeMs, PERFSTAGE: "true" };
   const { ctx, promises } = ctxCapture();
   const snap = vi.fn<CacheFetch>(snapHit);
   const page = vi.fn<CacheFetch>(pageHit);
@@ -277,7 +278,8 @@ it("uses the cached snapshot when the direct primary read fails", async () => {
 });
 
 it("keeps both hedges disabled at zero despite client headers and query parameters", async () => {
-  const { visit, snap, snapStarted, page, pageStarted, withSession, render } = fixture("0");
+  const { visit, env, snap, snapStarted, page, pageStarted, withSession, render } = fixture("0");
+  delete env.PERFSTAGE;
   snap.mockImplementation(async () => { await delay(300); return snapHit(); });
   page.mockImplementation(async () => { await delay(300); return pageHit(); });
   const pending = visit("/article/story?EDGE_HEDGE_MS=1", { headers: {
@@ -289,7 +291,7 @@ it("keeps both hedges disabled at zero despite client headers and query paramete
   await vi.advanceTimersByTimeAsync(300);
   const response = await pending;
   expect(response.headers.get("x-edge-cache")).toBe("HIT");
-  expect(response.headers.get("Server-Timing")).not.toContain("gw-hedge");
+  expect(response.headers.get("Server-Timing")).toBeNull();
   expect(withSession).not.toHaveBeenCalled();
   expect(render).not.toHaveBeenCalled();
 });

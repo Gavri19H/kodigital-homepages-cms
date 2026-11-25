@@ -10,6 +10,12 @@ const url = "https://guides.example/guide?utm_source=paper";
 // The listicle reads alone took 11 rounds for the inner shell and 13 for the visitor.
 const innerDigest = "6b7ff86c1b2121309727a35b49e46a2ae902611d8df8a2dc680956915c699c53";
 const visitorDigest = "466b66c752117d89f79d0d44d08b8d16989260278919abc462634158495bb927";
+const hostRead = expect.stringContaining("FROM domains");
+const redirectRead = expect.stringContaining("FROM redirects");
+const versionRead = expect.stringContaining("FROM listicle_articles a");
+const shellReads = ["FROM listicle_pages", "FROM listicle_sections", "FROM listicle_offers", "FROM site_settings"]
+  .map((table) => expect.stringContaining(table));
+const innerRounds = [redirectRead, expect.arrayContaining([versionRead, ...shellReads])];
 
 function seed(db: SqliteDb): void {
   addSite(db, site, "Guides", "home");
@@ -74,12 +80,14 @@ function countedDb(sqlite: SqliteDb) {
   const prepare = db.prepare.bind(db);
   const batch = db.batch.bind(db);
   const batchRead = new WeakMap<D1PreparedStatement, D1PreparedStatement["all"]>();
-  const rounds: string[] = [];
+  const sqlByStatement = new WeakMap<D1PreparedStatement, string>();
+  const rounds: Array<string | string[]> = [];
   db.prepare = (sql) => {
     const statement = prepare(sql);
     const first = statement.first.bind(statement);
     const all = statement.all.bind(statement);
     batchRead.set(statement, all);
+    sqlByStatement.set(statement, sql);
     statement.first = <T>(column?: string) => {
       rounds.push(sql);
       return column === undefined ? first<T>() : first<T>(column);
@@ -92,7 +100,7 @@ function countedDb(sqlite: SqliteDb) {
     return statement;
   };
   db.batch = <T>(statements: D1PreparedStatement[]) => {
-    rounds.push("batch");
+    rounds.push(statements.map(statement => sqlByStatement.get(statement)!));
     for (const statement of statements) statement.run = batchRead.get(statement)!;
     return batch<T>(statements);
   };
@@ -112,7 +120,7 @@ describe("cold listicle query rounds and response bytes", () => {
     vi.useRealTimers();
   });
 
-  async function visit(inner: boolean) {
+  async function visit(inner: boolean, versionId = "ver_A") {
     const { db, rounds } = countedDb(sqlite);
     const { kv } = makeKvStub();
     Object.assign(kv, { async getWithMetadata() { return { value: null, metadata: null }; } });
@@ -120,22 +128,23 @@ describe("cold listicle query rounds and response bytes", () => {
     const headers = new Headers({ Cookie: "ko_sid=returning" });
     if (inner) {
       env.EDGE_INNER = "1";
-      headers.set("x-cms-variant", "lst:ver_A");
+      headers.set("x-cms-variant", "lst:" + versionId);
+      headers.set("x-cms-site-context", JSON.stringify({
+        site_id: site, hostname: "guides.example", vertical_slug: "home", status: "active",
+        content_version: 1, settings_version: 1,
+      }));
     }
     const response = await publicRouter.request(url, { headers }, env);
     expect(response.status).toBe(200);
     const bytes = Buffer.from(await response.arrayBuffer());
-    const [hostLookup, redirectLookup, ...listicleRounds] = rounds;
-    expect(hostLookup).toContain("FROM domains");
-    expect(redirectLookup).toContain("FROM redirects");
-    return { response, html: bytes.toString("utf8"), digest: createHash("sha256").update(bytes).digest("hex"), listicleRounds };
+    return { response, html: bytes.toString("utf8"), digest: createHash("sha256").update(bytes).digest("hex"), rounds };
   }
 
   it.each([
     { path: "lst:ver_A inner", inner: true, version: "ver_A", expectedDigest: innerDigest },
     { path: "no variant", inner: false, version: "ver_B", expectedDigest: visitorDigest },
-  ])("$path builds the selected version in two rounds", async ({ inner, version, expectedDigest }) => {
-    const { response, html, digest, listicleRounds } = await visit(inner);
+  ])("$path serves the selected version with identical bytes", async ({ inner, version, expectedDigest }) => {
+    const { response, html, digest, rounds } = await visit(inner);
     expect(html).toContain('data-lander-v="' + version + '"');
     expect(html).toContain("/media/guides/hero.jpg");
     for (const name of ["head", "button", "inline"]) {
@@ -144,7 +153,7 @@ describe("cold listicle query rounds and response bytes", () => {
     }
     expect(response.headers.getSetCookie().length).toBe(inner ? 0 : 2);
     expect(digest).toBe(expectedDigest);
-    expect(listicleRounds).toEqual([expect.stringContaining("FROM listicle_articles"), "batch"]);
+    expect(rounds).toEqual(inner ? innerRounds : [hostRead, redirectRead, versionRead, expect.arrayContaining(shellReads)]);
   });
 
   it.each([
@@ -154,7 +163,20 @@ describe("cold listicle query rounds and response bytes", () => {
     sqlite.prepare(removeOtherIndex).run();
     const result = await visit(true);
     expect(result.digest).toBe(innerDigest);
-    expect(result.listicleRounds).toEqual([expect.stringContaining("FROM listicle_articles"), "batch"]);
+    expect(result.rounds).toEqual(innerRounds);
+  });
+
+  it("discards a different tenant's selected version and serves this visitor's version and cookies", async () => {
+    addSite(sqlite, "other", "Other", "home");
+    sqlite.prepare(`INSERT INTO listicle_articles (id, public_id, site_id, slug, article_name, status)
+      VALUES (3, 'art_other', 'other', 'guide', 'Other guide', 'published')`).run();
+    sqlite.prepare(`INSERT INTO listicle_article_versions (public_id, article_id, headline, intro_paragraph)
+      VALUES ('ver_other', 3, 'Other headline', '')`).run();
+    const direct = await visit(false);
+    const stale = await visit(true, "ver_other");
+    expect(stale.digest).toBe(visitorDigest);
+    expect(stale.response.headers.get("ETag")).toBe(direct.response.headers.get("ETag"));
+    expect(stale.response.headers.getSetCookie()).toEqual(direct.response.headers.getSetCookie());
   });
 
   it("resolves unindexed numeric and encoded inline refs together and keeps missing offers inert", async () => {
@@ -162,16 +184,25 @@ describe("cold listicle query rounds and response bytes", () => {
     sqlite.prepare("DELETE FROM listicle_section_link_instances WHERE offer_id IN (42, 43)").run();
     const legacy = await visit(true);
     expect(legacy.digest).toBe(innerDigest);
-    expect(legacy.listicleRounds).toEqual([
-      expect.stringContaining("FROM listicle_articles"), "batch", expect.stringContaining("FROM listicle_offers"),
-    ]);
+    expect(legacy.rounds).toEqual(innerRounds);
 
     sqlite.prepare("DELETE FROM listicle_offers WHERE id IN (42, 43)").run();
     const missing = await visit(true);
     expect(missing.html).toContain('href="/lc/off_head?');
     expect(missing.html).not.toContain('href="/lc/off_button?');
     expect(missing.html).not.toContain('href="/lc/off_inline?');
-    expect(missing.listicleRounds).toEqual(legacy.listicleRounds);
+    expect(missing.rounds).toEqual(legacy.rounds);
+  });
+
+  it("resolves numeric and public IDs from structured blocks without either offer ledger", async () => {
+    sqlite.prepare("DELETE FROM listicle_section_offers").run();
+    sqlite.prepare("DELETE FROM listicle_section_link_instances").run();
+    sqlite.prepare("UPDATE listicle_sections SET content_json = ? WHERE id = 2").run(JSON.stringify({ blocks: [
+      { id: "note", type: "button", data: { text: "Read more", offer_id: "off_inline" } },
+    ] }));
+    const { html, rounds } = await visit(true);
+    for (const offer of ["off_head", "off_button", "off_inline"]) expect(html).toContain('href="/lc/' + offer + '?');
+    expect(rounds).toEqual(innerRounds);
   });
 
   it("keeps one shell batch beyond the D1 bind limit", async () => {
@@ -186,6 +217,6 @@ describe("cold listicle query rounds and response bytes", () => {
     expect(result.html).toContain("cand_124");
     expect(result.html).toContain("/media/direct.jpg");
     expect(result.html).not.toContain("/media/guides/hero.jpg");
-    expect(result.listicleRounds).toEqual([expect.stringContaining("FROM listicle_articles"), "batch"]);
+    expect(result.rounds).toEqual(innerRounds);
   });
 });

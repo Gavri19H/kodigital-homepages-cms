@@ -78,6 +78,7 @@ it("returns 410 when the fallback lookup finds a disabled site", async () => {
 it("strips client context and builds byte-identical home HTML in one D1 round instead of two", async () => {
   const sql = createDb();
   const env = sqliteEnv(sql);
+  env.PERFSTAGE = "true";
   const { ctx, promises } = ctxCapture();
   vi.useFakeTimers({ toFake: ["Date"] });
   vi.setSystemTime(Date.UTC(2026, 10, 24));
