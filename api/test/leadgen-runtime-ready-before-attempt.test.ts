@@ -43,6 +43,7 @@ function deferred<T>() {
 type EventRow = Record<string, unknown>;
 interface EngineWindow {
   __LG_ATTEMPT_P__?: { vid: string; p: Promise<unknown> };
+  __LG_PREHYDRATE_QUEUE__?: { el: MiniNode }[];
   __LG_ENGINE__?: {
     getState(): { section_index: number; back_stack: number[]; funnel_attempt_id: string };
     getAnswers(): Record<string, unknown>;
@@ -113,11 +114,30 @@ function setup(sections = [section(0, [zip]), section(1)], vehicle?: LgPublicCon
   };
 }
 
+function returningVisit(savedQuestion = zip) {
+  const other = { ...zip, type: "FreeTextQuestion", question_id: "other", internal_field: "other" };
+  const h = setup([section(0, [other]), section(1, [savedQuestion])]);
+  const saved = { answer_source: "user_selected", answered_at: 1 };
+  const snapshot = {
+    v: 1, tuple, section_index: 1, back_stack: [0], saved_at: 1,
+    answers: {
+      zip: { ...saved, question_id: "zip", section_public_id: "sec1", value: "10001" },
+      other: { ...saved, question_id: "other", section_public_id: "sec0", value: "keep" },
+    },
+  };
+  h.storage.set("lg:old", JSON.stringify(snapshot));
+  h.storage.set("lg:stale", JSON.stringify({ ...snapshot, tuple: { ...tuple, content_version: 2 } }));
+  return h;
+}
+
 describe("quote input while /lg/attempt is in flight", () => {
   it("accepts typing and validates immediately, then honors a valid first Continue exactly once", async () => {
     const h = setup();
     const bound = boot();
     expect(h.root.getAttribute("data-lg-ready")).toBe("1");
+    expect(h.api().getState().section_index).toBe(0);
+    expect(h.root.querySelector('[data-lg-index="0"]')!.hidden).toBe(false);
+    expect(h.root.querySelector('[data-lg-index="1"]')!.hidden).toBe(true);
     expect(h.gets()).toEqual([[requestUrl, getOptions]]);
     h.next();
     expect(h.root.querySelector("[data-lg-input]")?.getAttribute("aria-invalid")).toBe("true");
@@ -261,24 +281,76 @@ describe("quote input while /lg/attempt is in flight", () => {
     expect(h.auctions).toEqual([]);
   });
 
-  it("restores the same tuple and back stack while the visitor's edited field wins", async () => {
-    const h = setup();
-    const saved = { answer_source: "user_selected", question_id: "zip", section_public_id: "sec0", answered_at: 1 };
-    const snapshot = { v: 1, tuple, section_index: 1, back_stack: [0], saved_at: 1,
-      answers: { zip: { ...saved, value: "10001" }, other: { ...saved, question_id: "other", value: "keep" } } };
-    h.storage.set("lg:old", JSON.stringify(snapshot));
-    h.storage.set("lg:stale", JSON.stringify({ ...snapshot, tuple: { ...tuple, content_version: 2 } }));
+  it("paints the saved step at readiness and re-keys its edited answers without switching sections", async () => {
+    const h = returningVisit();
+    const first = h.root.querySelector('[data-lg-index="0"]')!;
+    const second = h.root.querySelector('[data-lg-index="1"]')!;
+    h.win.__LG_PREHYDRATE_QUEUE__ = [{ el: first.querySelector("[data-lg-continue]")! }];
+    const visibleAtReady: string[][] = [];
+    vi.spyOn(h.root, "setAttribute").mockImplementation((name, value) => {
+      MiniNode.prototype.setAttribute.call(h.root, name, value);
+      if (name === "data-lg-ready" && value === "1") {
+        visibleAtReady.push(h.root.querySelectorAll("[data-lg-section]")
+          .filter((el) => !el.hidden).map((el) => el.getAttribute("data-lg-section-id")!));
+      }
+    });
+    const showFirst = vi.spyOn(first, "removeAttribute");
+    const hideSecond = vi.spyOn(second, "setAttribute");
+    const old = h.storage.get("lg:old");
     const bound = boot();
+    expect(visibleAtReady).toEqual([["sec1"]]);
+    expect(h.api().getState()).toMatchObject({ section_index: 1, back_stack: [0], funnel_attempt_id: "" });
+    expect(h.api().getAnswers()).toEqual({ zip: "10001", other: "keep" });
     const input = h.type("90210");
-    h.next();
+    expect(h.api().getAnswers()).toEqual({ zip: "90210", other: "keep" });
+    expect(h.storage.get("lg:old")).toBe(old);
+    expect(h.storage.has("lg:" + identity.funnel_attempt_id)).toBe(false);
     h.attempt.resolve(Response.json(identity));
     await bound;
-    expect(h.api().getState()).toMatchObject({ section_index: 1, back_stack: [0] });
+    expect(h.api().getState()).toMatchObject({ section_index: 1, back_stack: [0], funnel_attempt_id: identity.funnel_attempt_id });
+    expect(showFirst).not.toHaveBeenCalledWith("hidden");
+    expect(hideSecond).not.toHaveBeenCalledWith("hidden", "");
     expect(h.api().getAnswers()).toEqual({ zip: "90210", other: "keep" });
     expect(input.value).toBe("90210");
     expect([...h.storage.keys()]).toEqual(["lg:" + identity.funnel_attempt_id]);
-    expect(JSON.parse([...h.storage.values()][0]!)).toMatchObject({ answers: { zip: { value: "90210" }, other: { value: "keep" } } });
+    expect(JSON.parse([...h.storage.values()][0]!)).toMatchObject({
+      tuple, section_index: 1, back_stack: [0], answers: { zip: { value: "90210" }, other: { value: "keep" } },
+    });
     expect(h.auctions).toEqual([]); // the first page's queued click cannot submit the restored second page
+  });
+
+  it("honors Continue on the restored step once its attempt is bound", async () => {
+    const h = returningVisit();
+    const bound = boot();
+    h.type("90210");
+    h.next(1);
+    expect(h.auctions).toEqual([]);
+    h.attempt.resolve(Response.json({ ...identity, page_plan: [winner(0), winner(1)] }));
+    await bound;
+    expect(h.auctions).toHaveLength(1);
+    expect(h.auctions[0]).toMatchObject({
+      ...identity,
+      answers: {
+        zip: { value: "90210", answer_source: "user_selected" },
+        other: { value: "keep", answer_source: "user_selected" },
+      },
+    });
+  });
+
+  it("keeps the saved section in place while its field waits for visitor context", async () => {
+    const h = returningVisit({ ...zip, conditional: { when: "__device", op: "eq", value: "phone" } });
+    const bound = boot();
+    const first = h.root.querySelector('[data-lg-index="0"]')!;
+    const second = h.root.querySelector('[data-lg-index="1"]')!;
+    const field = second.querySelector('[data-lg-question="zip"]')!;
+    expect(first.hidden).toBe(true);
+    expect(second.hidden).toBe(false);
+    expect(field.hidden).toBe(true);
+    h.attempt.resolve(Response.json({ ...identity, ctx: { device: "phone" } }));
+    await bound;
+    expect(first.hidden).toBe(true);
+    expect(second.hidden).toBe(false);
+    expect(field.hidden).toBe(false);
   });
 
   it("revalidates against the winning page, its required sibling and late visitor context", async () => {
@@ -341,7 +413,7 @@ describe("quote input while /lg/attempt is in flight", () => {
     });
   });
 
-  it("a make typed before restore invalidates the old make's saved model", async () => {
+  it("editing the restored make before the attempt binds invalidates its saved model", async () => {
     const field = (name: string) => ({
       question_id: name, type: "FreeTextQuestion", internal_field: name, required: true, props: {},
     });
@@ -358,7 +430,9 @@ describe("quote input while /lg/attempt is in flight", () => {
       },
     }));
     const bound = boot();
+    expect(h.api().getAnswers()).toEqual({ make: "Toyota", model: "Camry" });
     h.type("Honda", "make");
+    expect(h.api().getAnswers()).toEqual({ make: "Honda", make_snapshot: "v1" });
     h.attempt.resolve(Response.json(identity));
     await bound;
     expect(h.api().getAnswers()).toEqual({ make: "Honda", make_snapshot: "v1" });
@@ -410,5 +484,43 @@ describe("quote input while /lg/attempt is in flight", () => {
     expect(h.root.getAttribute("data-lg-ready")).toBe("1");
     expect(h.api().getAnswers()).toEqual({ zip: "90210" });
     expect(h.fetchMock.mock.calls.some(([url]) => url === "/lg/ck" || url === "/lg/auction")).toBe(false);
+  });
+
+  it("keeps stored progress intact and retains this visit's edits on the failed-attempt fallback", async () => {
+    const h = returningVisit();
+    const original = new Map(h.storage);
+    h.fetchMock.mockResolvedValue(new Response(null, { status: 503 }));
+    const bound = boot();
+    expect(h.api().getState().section_index).toBe(1);
+    const input = h.type("90210");
+    h.next(1);
+    await vi.advanceTimersByTimeAsync(3200);
+    await bound;
+    expect(h.gets()).toHaveLength(3);
+    expect(h.root.querySelector('[data-lg-index="0"] [role="alert"]')?.textContent).toBe(notice);
+    expect(h.api().getState()).toMatchObject({ section_index: 0, back_stack: [], funnel_attempt_id: "" });
+    expect(h.api().getAnswers()).toEqual({ zip: "90210" });
+    expect(input.value).toBe("90210");
+    expect(h.storage).toEqual(original);
+    expect(h.fetchMock.mock.calls.some(([url]) => url === "/lg/ck" || url === "/lg/auction")).toBe(false);
+  });
+
+  it("clears the visible selection when a failed attempt discards a restored answer", async () => {
+    const h = setup([section(0, [{ type: "TwoButtonYesNo", question_id: "insured", internal_field: "insured", props: {} }])]);
+    h.storage.set("lg:old", JSON.stringify({
+      v: 1, tuple, section_index: 0, back_stack: [], saved_at: 1,
+      answers: {
+        insured: { value: "yes", answer_source: "user_selected", question_id: "insured", section_public_id: "sec0", answered_at: 1 },
+      },
+    }));
+    h.fetchMock.mockResolvedValue(new Response(null, { status: 503 }));
+    const bound = boot();
+    const choice = h.root.querySelector("[data-lg-choice]")!;
+    expect(choice.getAttribute("aria-checked")).toBe("true");
+    await vi.advanceTimersByTimeAsync(3200);
+    await bound;
+    expect(h.api().getAnswers()).toEqual({});
+    expect(choice.getAttribute("aria-checked")).toBe("false");
+    expect(choice.classList.contains("lg-selected")).toBe(false);
   });
 });

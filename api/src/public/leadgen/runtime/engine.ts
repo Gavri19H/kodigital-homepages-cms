@@ -818,21 +818,36 @@ export class LgEngine {
     const bucket = abTestId ? computeAssignmentBucket(abTestId, abRevision, sessionId) : null;
     const { store, root, beacons } = this;
     const { state } = store;
-    const start = this.normalizeSectionIndex(this.si);
-    store.setSectionIndex(start);
+    const storage = sessionStorageAdapter();
+    // Scan now, but delay storage cleanup until the new attempt succeeds.
+    const staleKeys: string[] = [];
+    const hit = !this.preview && scanForRestorableSnapshot({
+      ...storage, remove: (key) => staleKeys.push(key),
+    }, tuple);
+    if (hit) store.adoptSnapshot(hit.snapshot);
+    const normalizeSection = () => {
+      const visible = this.visibleIndexes();
+      const next = visible.find((i) => i >= this.si);
+      store.setSectionIndex(next === undefined ? visible[visible.length - 1] || 0 : next);
+    };
+    // A saved section may depend on context still in flight. Keep its place
+    // for the first paint, with its component visibility evaluated as usual.
+    const savedPage = hit && this.currentSection() ? [this.si] : undefined;
+    if (!savedPage) normalizeSection();
+    const start = this.si;
 
     this.bindListeners();
     wireMapsFields(root, { emit: (type, fields) => this.enqueue(type, this.currentSection(), fields) });
-    this.enterPage(null, false);
+    this.enterPage(null, false, true, savedPage);
     root.setAttribute("data-lg-ready", "1");
     this.exposeEngine();
     this.replayPrehydrateQueue();
 
     // Final flush on page exit (sendBeacon path).
     try {
-      addEventListener("pagehide", () => this.beacons.flush());
+      addEventListener("pagehide", () => beacons.flush());
       addEventListener("visibilitychange", () => {
-        if (document.visibilityState === "hidden") this.beacons.flush();
+        if (document.visibilityState === "hidden") beacons.flush();
       });
     } catch {
       /* listeners best-effort */
@@ -865,36 +880,48 @@ export class LgEngine {
       ...acquisitionParams(search),
       assignment_bucket: assignmentBucket === null ? "" : String(assignmentBucket),
     });
+    const restored = attempt && hit;
     if (attempt) {
       this.ctx = attempt.ctx;
       if (attempt.page_plan) this.applyPlan(attempt.page_plan);
-      if (attempt.cps) this.ckpts = attempt.cps;
+      this.ckpts = attempt.cps || [];
       if (attempt.cc) this.applyCtaVerdict(attempt.cc);
+      if (hit && hit.key !== storageKeyForAttempt(attemptId)) staleKeys.push(hit.key);
+      for (const key of staleKeys) storage.remove(key);
+    } else {
+      state.back_stack = [];
+      // Drop the saved choices painted before the failure. enterPage below
+      // repaints the fallback page with this visit's edits and defaults.
+      if (hit) render.applySelectionClasses(root, []);
     }
 
-    const edits = Object.entries(state.answers).filter(([, entry]) => entry.answer_source !== "default_applied");
-    state.answers = {};
-    const storage = sessionStorageAdapter();
-    const hit = attempt && !this.preview && scanForRestorableSnapshot(storage, tuple);
-    if (hit) {
-      store.adoptSnapshot(hit.snapshot);
-      if (hit.key !== storageKeyForAttempt(attemptId)) storage.remove(hit.key);
-    } else store.setSectionIndex(0);
+    // adoptSnapshot shares the saved entries. A user write replaces its
+    // entry, so only edits from this visit need the resolved slot check.
+    const { answers } = state;
+    const edits = this.drafts;
+    for (const pair of Object.entries(answers)) {
+      const [field, entry] = pair;
+      const saved = hit && hit.snapshot.answers[field];
+      if (attempt && entry === saved) continue;
+      if (entry !== saved && entry.answer_source !== "default_applied") edits.push(pair);
+      if (attempt && saved) answers[field] = saved;
+      else delete answers[field];
+    }
+    store.setSectionIndex(restored ? restored.snapshot.section_index : 0);
 
-    // Reapply first-page defaults against the restored state. A provisional
+    // Reapply the initial page's defaults against the bound state. A provisional
     // default on a losing slot never enters the binding or its analytics.
-    const first = config.sections[start];
-    if (edits.length && first && this.si === start && this.visibleIndexes().includes(start)) {
-      this.applySectionDefaults(first);
+    if (edits.length && this.si === start && this.visibleIndexes().includes(start)) {
+      this.applySectionDefaults(config.sections[start]!);
     }
-    this.drafts = edits;
     this.applyDrafts(true);
 
-    store.setSectionIndex(this.normalizeSectionIndex(this.si));
+    normalizeSection();
     this.enterPage(null, false, this.si !== start);
-    if (hit || edits.length) this.persist();
-    beacons.enqueue("quote_view", this.sectionDims(this.currentSection()));
-    this.fireSectionView(this.currentSection(), null);
+    if (restored || edits.length) this.persist();
+    const section = this.currentSection();
+    this.enqueue("quote_view", section);
+    this.enqueue("section_view", section);
     // The views precede early input events, which in turn precede navigation.
     if (events) for (const emit of events) emit();
     const go = this.resume;
@@ -1086,12 +1113,6 @@ export class LgEngine {
     const meta = this.planMeta;
     // visibleSectionIndexes returns only indexes of existing sections.
     return meta ? all.filter((i) => meta.has(sections[i]!.section_public_id)) : all;
-  }
-
-  private normalizeSectionIndex(wanted: number): number {
-    const visible = this.visibleIndexes();
-    for (const index of visible) if (index >= wanted) return index;
-    return visible[visible.length - 1] || 0;
   }
 
   private persist(): void {
@@ -1930,9 +1951,12 @@ export class LgEngine {
   // behavior. Applies defaults, shows the sections, progress/back/focus
   // (focus the FIRST shown section), section_view per shown section
   // (nav="back" on back-nav).
-  private enterPage(nav: "back" | null, fireView = true, focus = true): void {
-    const visibleInPage = this.visiblePageIndices();
-
+  private enterPage(
+    nav: "back" | null,
+    fireView = true,
+    focus = true,
+    visibleInPage = this.visiblePageIndices(),
+  ): void {
     for (const i of visibleInPage) {
       const section = this.config.sections[i];
       if (section !== undefined) this.applySectionDefaults(section);
@@ -2005,12 +2029,10 @@ export class LgEngine {
     this.vNames();
     this.updateProgressUi();
     if (fireView) {
-      for (const i of visibleInPage) this.fireSectionView(this.config.sections[i] || null, nav);
+      for (const i of visibleInPage) {
+        this.enqueue("section_view", this.config.sections[i] || null, nav ? { nav } : undefined);
+      }
     }
-  }
-
-  private fireSectionView(section: LgSectionConfig | null, nav: "back" | null): void {
-    this.enqueue("section_view", section, nav ? { nav } : undefined);
   }
 
   // §3.4: on section entry any default_answer is applied ONCE as

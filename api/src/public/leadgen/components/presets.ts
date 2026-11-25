@@ -149,7 +149,9 @@ function imageCandidate(url: string, axis: "height" | "width", pixels: number): 
 }
 
 function densitySrcset(url: string, axis: "height" | "width", pixels: number): string {
-  return `${imageCandidate(url, axis, pixels)} 1x, ${imageCandidate(url, axis, pixels * 2)} 2x`;
+  const single = imageCandidate(url, axis, pixels);
+  const double = imageCandidate(url, axis, pixels * 2);
+  return single === double ? "" : `${single} 1x, ${double} 2x`;
 }
 
 // Only /media/ is owned by this Worker. Keep external and other rooted URLs
@@ -182,9 +184,12 @@ export type ShellLogoNode = LeadgenComponentNode & { logoDimensions?: LogoDimens
 // viewport. The caller owns the CSS box (or, for authored media, its absence).
 export function fluidImageAttrs(url: string, alt: string, widths: readonly number[], sizes: string): string {
   if (!url.startsWith("/media/")) return `src="${esc(url)}" alt="${esc(alt)}"`;
-  const src = imageCandidate(url, "width", widths[widths.length - 1]!);
-  const srcset = widths.map((w) => `${imageCandidate(url, "width", w)} ${w}w`).join(", ");
-  return `src="${esc(src)}" alt="${esc(alt)}"` + attr("srcset", srcset) + attr("sizes", sizes);
+  const candidates = widths.map(width => ({ width, url: imageCandidate(url, "width", width) }));
+  const src = candidates.at(-1)?.url ?? url;
+  const attrs = `src="${esc(src)}" alt="${esc(alt)}"`;
+  if (candidates.every(candidate => candidate.url === src)) return attrs;
+  const srcset = candidates.map(candidate => `${candidate.url} ${candidate.width}w`).join(", ");
+  return attrs + attr("srcset", srcset) + attr("sizes", sizes);
 }
 
 // A `style="…"` string built from token values only (no author content).
@@ -1040,18 +1045,18 @@ function siteLogoImage(
   url: string, alt: string, design: DefaultFunnelDesign, loading: "eager" | "lazy",
   height = funnelImagePixels(design.header.logoFontSize, 18), mobileHeight = height, dimensions?: LogoDimensions,
 ): string {
-  const mobileSource = mobileHeight !== height && url.startsWith("/media/");
+  const mobileSrcset = mobileHeight !== height && url.startsWith("/media/")
+    ? densitySrcset(url, "height", mobileHeight) : "";
   const img = `<img class="lg-logo-img" ${funnelImageAttrs(url, alt, logoWidth(url, height, dimensions), height)}` +
     ` loading="${loading}" decoding="async"` + style({
       "max-height": design.header.logoFontSize, width: "auto", "object-fit": "contain",
-      // For an external URL both breakpoints use the same file. The frame's
-      // max-height at each breakpoint caps this common intrinsic height.
-      height: !mobileSource && mobileHeight > height ? `${mobileHeight}px` : undefined,
-      display: mobileSource ? "block" : undefined,
+      // When both breakpoints use one file, the frame caps its height at each breakpoint.
+      height: !mobileSrcset && mobileHeight > height ? `${mobileHeight}px` : undefined,
+      display: mobileSrcset ? "block" : undefined,
     }) + ">";
-  if (!mobileSource) return img;
+  if (!mobileSrcset) return img;
   return `<picture><source media="(max-width: ${esc(design.breakpoints.mobileMax)})"` +
-    attr("srcset", densitySrcset(url, "height", mobileHeight)) +
+    attr("srcset", mobileSrcset) +
     ` width="${logoWidth(url, mobileHeight, dimensions)}" height="${Math.round(mobileHeight)}">${img}</picture>`;
 }
 

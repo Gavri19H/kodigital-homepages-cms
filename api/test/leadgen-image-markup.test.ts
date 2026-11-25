@@ -1,4 +1,5 @@
 import { describe, expect, it } from "vitest";
+import { configureImageTransforms } from "../src/env";
 import { resolveSiteBranding, type SiteBranding } from "../src/leadgen/branding";
 import type { LeadgenComponentNode } from "../src/public/leadgen/components/content-schema";
 import { renderComponent, renderSectionComponents } from "../src/public/leadgen/components/presets";
@@ -144,6 +145,27 @@ it("selects the configured mobile header height at the frame breakpoint", () => 
   expect(source?.getAttribute("width")).toBe("132");
   expect(source?.getAttribute("height")).toBe("44");
   expect(onlyImage(html).getAttribute("src")).toBe(candidate("height", 48));
+});
+
+it("uses one original source for density and width candidates when image transforms are off", () => {
+  configureImageTransforms("off");
+  try {
+    const doc = parseHtml(frame({
+      header: { enabled: true, logo_size: "s" }, mobile: { logo_size: "l" },
+      background: { image_media_id: key },
+      footer: { enabled: true, blocks: [{ type: "logo", logo_source: "manual", logo_media_id: key, logo_alt: alt }] },
+    }, siteLogo(key)));
+    for (const selector of [".lg-logo-img", ".lg-frame-bg-img", ".lg-frame-footer2-logo-img"]) {
+      const img = doc.querySelector(selector)!;
+      expect(img.getAttribute("src"), selector).toBe(media);
+      expect(img.hasAttribute("srcset"), selector).toBe(false);
+      expect(img.hasAttribute("sizes"), selector).toBe(false);
+    }
+    expect(doc.querySelector("picture source")).toBeNull();
+    expect(doc.querySelector(".lg-logo-img")!.getAttribute("style")).toContain(";height:44px");
+  } finally {
+    configureImageTransforms(undefined);
+  }
 });
 
 it("turns stored site and trust-logo keys into sized shell images with one shared header/footer rendition", async () => {

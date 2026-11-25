@@ -147,7 +147,7 @@ test("D1 · the canvas logo: activation is not the discriminator, and an unreach
   const key = await uploadLogo(request);
 
   // (a) BOTH states carry the SAME logo → measure the painted box in each.
-  const boxes: Record<string, { w: number; h: number; natural: string }> = {};
+  const boxes: Record<string, { w: number; h: number }> = {};
   for (const [label, siteId] of [
     ["activated", id.activeSite],
     ["not-activated", id.unactivatedSite],
@@ -156,15 +156,30 @@ test("D1 · the canvas logo: activation is not the discriminator, and an unreach
     await openCanvasForSite(page, id.quote, siteId);
     const img = page.frameLocator("#lg-tpl-canvas-iframe").locator("img.lg-logo-img");
     await expect(img, `${label}: the chosen site's logo renders`).toHaveCount(1);
-    const m = await img.first().evaluate((el) => {
-      const i = el as HTMLImageElement;
-      const r = i.getBoundingClientRect();
-      return { w: Math.round(r.width), h: Math.round(r.height), natural: `${i.naturalWidth}x${i.naturalHeight}` };
+    const m = await img.evaluate(async (el) => {
+      const image = el as HTMLImageElement;
+      await image.decode();
+      const rect = image.getBoundingClientRect();
+      const candidates = image.srcset.split(/\s+[\d.]+[wx]\s*(?:,\s*|$)/).filter(Boolean);
+      return {
+        w: Math.round(rect.width),
+        h: Math.round(rect.height),
+        loaded: image.complete && image.naturalWidth > 0,
+        sources: [image.src, image.currentSrc, ...candidates],
+        maxHeight: Math.ceil(parseFloat(getComputedStyle(image).maxHeight)),
+        viewportWidth: document.documentElement.clientWidth,
+      };
     });
-    boxes[label] = m;
-    expect(m.natural, `${label}: the logo bitmap actually decoded`).toBe("120x40");
+    boxes[label] = { w: m.w, h: m.h };
+    expect(m.loaded, `the uploaded logo decoded for ${label}`).toBe(true);
+    for (const src of m.sources) {
+      const path = new URL(src, page.url()).pathname;
+      expect(path.endsWith(`/media/${key}`), `logo source ${path} for ${label}`).toBe(true);
+    }
     expect(m.w, `${label}: the logo is painted, not a sliver`).toBeGreaterThan(60);
     expect(m.h, `${label}: the logo is painted, not a sliver`).toBeGreaterThan(24);
+    expect(m.w).toBeLessThanOrEqual(m.viewportWidth);
+    expect(m.h).toBeLessThanOrEqual(m.maxHeight);
   }
   // The owner's hypothesis, measured: the two states are the SAME box.
   expect(boxes["not-activated"], "an unactivated site's logo renders exactly like an activated one").toEqual(
