@@ -333,6 +333,32 @@ const scheduled = async (
       } catch {
         // revenue maintenance must never break the publish/provisioning cron.
       }
+      const tick = new Date(controller.scheduledTime);
+      try {
+        if (tick.getUTCHours() === 3 && tick.getUTCMinutes() >= 10) {
+          const { claimDailyZoneSpeedSweep, runZoneSpeedSettingsSweep } = await import("./site-provisioning/cloudflare-interfaces");
+          const claim = await claimDailyZoneSpeedSweep(env, tick);
+          if (claim) {
+            try {
+              await runZoneSpeedSettingsSweep(env, env.DB);
+            } catch (err) {
+              await claim.release().catch(() => console.error("[zone-speed-settings] Daily sweep claim release failed"));
+              throw err;
+            }
+            await claim.markComplete();
+          }
+        }
+      } catch (err) {
+        console.error("[zone-speed-settings] Daily sweep failed");
+        try {
+          const { claimDailyZoneSpeedCrashNotice, postZoneSpeedNotice } = await import("./site-provisioning/cloudflare-interfaces");
+          if (await claimDailyZoneSpeedCrashNotice(env, tick)) {
+            await postZoneSpeedNotice(env, `Daily zone speed sweep failed · ${err instanceof Error ? err.message : String(err)}`);
+          }
+        } catch {
+          console.error("[zone-speed-settings] Daily sweep crash notice failed");
+        }
+      }
     }
     try {
       await runEdgePurgeCron(env, ctx);
